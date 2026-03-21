@@ -165,4 +165,41 @@ mod tests {
         let model = make_unit_cube();
         assert!(validate_model(&model, 1e-6).is_ok());
     }
+
+    #[test]
+    fn check_euler_fails_for_wrong_genus() {
+        let model = make_unit_cube();
+        // Cube is genus 0 (Euler = 2), asking for genus 1 (Euler = 0) should fail
+        let err = check_euler(&model, 1).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Euler characteristic"));
+        assert!(msg.contains("expected 0"));
+        assert!(msg.contains("got 2"));
+    }
+
+    #[test]
+    fn check_manifold_edges_fails_for_non_manifold() {
+        let mut model = make_unit_cube();
+        // Add a third face referencing edge 0, making it non-manifold (3 faces share edge 0)
+        model.faces.push(Face::new(6, vec![0]));
+        let err = check_manifold_edges(&model).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Non-manifold edge"));
+    }
+
+    #[test]
+    fn check_vertex_valence_fails_for_dangling_vertex() {
+        let mut model = make_unit_cube();
+        // Add two new vertices with only one edge between them (valence 1 each)
+        model
+            .vertices
+            .push(Vertex::new(98, Point3::new(5.0, 5.0, 5.0)));
+        model
+            .vertices
+            .push(Vertex::new(99, Point3::new(6.0, 6.0, 6.0)));
+        model.edges.push(Edge::new(12, 98, 99));
+        let err = check_vertex_valence(&model).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("valence"));
+    }
 }
