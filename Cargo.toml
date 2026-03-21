@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["crates/popkern-core", "tools/lints"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
