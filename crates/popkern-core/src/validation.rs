@@ -23,8 +23,12 @@ pub fn check_euler(model: &BRepModel, genus: u32) -> Result<(), CoreError> {
         return Err(CoreError::ValidationError(format!(
             "Euler characteristic: expected {} (genus {}), got {}. \
              Check V={}, E={}, F={}. Ensure no duplicate or missing entities.",
-            expected, genus, actual,
-            model.vertices.len(), model.edges.len(), model.faces.len()
+            expected,
+            genus,
+            actual,
+            model.vertices.len(),
+            model.edges.len(),
+            model.faces.len()
         )));
     }
     Ok(())
@@ -100,12 +104,18 @@ mod tests {
             Vertex::new(7, Point3::new(0.0, 1.0, 1.0)),
         ];
         let edges = vec![
-            Edge::new(0, 0, 1), Edge::new(1, 1, 2),
-            Edge::new(2, 2, 3), Edge::new(3, 3, 0),
-            Edge::new(4, 4, 5), Edge::new(5, 5, 6),
-            Edge::new(6, 6, 7), Edge::new(7, 7, 4),
-            Edge::new(8, 0, 4), Edge::new(9, 1, 5),
-            Edge::new(10, 2, 6), Edge::new(11, 3, 7),
+            Edge::new(0, 0, 1),
+            Edge::new(1, 1, 2),
+            Edge::new(2, 2, 3),
+            Edge::new(3, 3, 0),
+            Edge::new(4, 4, 5),
+            Edge::new(5, 5, 6),
+            Edge::new(6, 6, 7),
+            Edge::new(7, 7, 4),
+            Edge::new(8, 0, 4),
+            Edge::new(9, 1, 5),
+            Edge::new(10, 2, 6),
+            Edge::new(11, 3, 7),
         ];
         let faces = vec![
             Face::new(0, vec![0, 1, 2, 3]),
@@ -118,8 +128,11 @@ mod tests {
         let shell = Shell::new(0, vec![0, 1, 2, 3, 4, 5]);
         let solid = Solid::new(0, 0);
         BRepModel {
-            vertices, edges, faces,
-            shells: vec![shell], solids: vec![solid],
+            vertices,
+            edges,
+            faces,
+            shells: vec![shell],
+            solids: vec![solid],
         }
     }
 

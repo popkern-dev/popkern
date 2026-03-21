@@ -53,6 +53,5 @@ fn unit_cube_euler_characteristic() {
 #[test]
 fn unit_cube_passes_full_validation() {
     let fixture = load_fixture("unit_cube");
-    validate_model(&fixture.model, 1e-6)
-        .expect("Unit cube should pass all validation checks");
+    validate_model(&fixture.model, 1e-6).expect("Unit cube should pass all validation checks");
 }

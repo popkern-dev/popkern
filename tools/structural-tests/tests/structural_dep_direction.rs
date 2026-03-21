@@ -19,8 +19,8 @@ fn workspace_root() -> std::path::PathBuf {
 #[test]
 fn core_has_no_internal_crate_dependencies() {
     let cargo_toml_path = workspace_root().join("crates/popkern-core/Cargo.toml");
-    let cargo_toml = fs::read_to_string(&cargo_toml_path)
-        .expect("Could not read popkern-core/Cargo.toml");
+    let cargo_toml =
+        fs::read_to_string(&cargo_toml_path).expect("Could not read popkern-core/Cargo.toml");
 
     let forbidden = [
         "popkern-bool",

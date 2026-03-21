@@ -25,9 +25,7 @@ fn no_unwrap_or_expect_in_library_code() {
 
     for file in &files {
         // Skip files inside a `tests/` directory — those are integration tests, not library code.
-        let is_test_file = file
-            .components()
-            .any(|c| c.as_os_str() == "tests");
+        let is_test_file = file.components().any(|c| c.as_os_str() == "tests");
         if is_test_file {
             continue;
         }
