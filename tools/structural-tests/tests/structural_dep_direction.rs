@@ -1,0 +1,41 @@
+//! Structural test: dependency direction enforcement.
+//!
+//! Ensures no crate imports from a higher layer.
+//! Layer order: core (leaf) → bool → io → mesh → ffi → viz
+//!
+//! REMEDIATION: Move shared types to popkern-core or restructure the dependency.
+
+use std::fs;
+use std::path::Path;
+
+/// Workspace root relative to this crate's manifest directory.
+fn workspace_root() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("Could not resolve workspace root")
+}
+
+#[test]
+fn core_has_no_internal_crate_dependencies() {
+    let cargo_toml_path = workspace_root().join("crates/popkern-core/Cargo.toml");
+    let cargo_toml = fs::read_to_string(&cargo_toml_path)
+        .expect("Could not read popkern-core/Cargo.toml");
+
+    let forbidden = [
+        "popkern-bool",
+        "popkern-io",
+        "popkern-mesh",
+        "popkern-ffi",
+        "popkern-viz",
+    ];
+
+    for dep in &forbidden {
+        assert!(
+            !cargo_toml.contains(dep),
+            "popkern-core must not depend on {}. \
+             Move shared types to popkern-core or restructure the dependency.",
+            dep
+        );
+    }
+}

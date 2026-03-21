@@ -28,6 +28,13 @@ name = "popkern-lints"
 version = "0.1.0"
 
 [[package]]
+name = "popkern-structural-tests"
+version = "0.1.0"
+dependencies = [
+ "popkern-lints",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
