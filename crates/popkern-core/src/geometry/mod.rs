@@ -10,6 +10,7 @@ pub mod nurbs_curve;
 pub mod nurbs_ops;
 pub mod nurbs_surface;
 pub mod point;
+pub mod revolution;
 pub mod surface;
 pub mod vector;
 
