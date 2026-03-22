@@ -1,5 +1,6 @@
 //! Geometric and topological validation for BRep models.
 
+pub mod bvh;
 mod closure;
 mod curve_surface;
 mod euler_poincare;
