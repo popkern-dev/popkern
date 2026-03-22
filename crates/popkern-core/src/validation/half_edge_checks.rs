@@ -154,4 +154,17 @@ mod tests {
         brep.vertices[mvfs.vertex].outgoing = mev.half_edge_twin;
         assert!(brep.validate_vertex_consistency().is_err());
     }
+
+    #[test]
+    fn broken_cycle_next_points_to_invalid() {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        // Make next point to a non-existent handle
+        brep.half_edges[mev.half_edge].next = Default::default();
+        let result = brep.validate_half_edge_cycles();
+        assert!(result.is_err());
+    }
 }

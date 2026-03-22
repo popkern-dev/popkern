@@ -380,4 +380,68 @@ mod tests {
         assert_eq!(brep.edges.len(), 1);
         assert_eq!(brep.half_edges.len(), 2);
     }
+
+    #[test]
+    fn mev_at_vertex_invalid_vertex() {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs_r = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let result =
+            brep.mev_at_vertex(Default::default(), mvfs_r.loop_, Point3::new(1.0, 0.0, 0.0));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn mev_at_vertex_invalid_loop() {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs_r = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let result = brep.mev_at_vertex(
+            mvfs_r.vertex,
+            Default::default(),
+            Point3::new(1.0, 0.0, 0.0),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn mev_at_vertex_loop_already_has_half_edges() {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs_r = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let _mev = brep
+            .mev_at_vertex(mvfs_r.vertex, mvfs_r.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        // Try again — loop already has half-edges
+        let result = brep.mev_at_vertex(mvfs_r.vertex, mvfs_r.loop_, Point3::new(2.0, 0.0, 0.0));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn mev_invalid_half_edge() {
+        let mut brep = BRep::new(Tolerance::default());
+        let _mvfs_r = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let result = brep.mev(Default::default(), Point3::new(1.0, 0.0, 0.0));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn kev_invalid_half_edge() {
+        let mut brep = BRep::new(Tolerance::default());
+        let _mvfs_r = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let result = brep.kev(Default::default());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn kev_non_valence_1_vertex() {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs_r = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev1 = brep
+            .mev_at_vertex(mvfs_r.vertex, mvfs_r.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let _mev2 = brep
+            .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
+            .unwrap();
+        // v1 has valence 2 now (connected to v0 and v2). kev should fail.
+        let result = brep.kev(mev1.half_edge);
+        assert!(result.is_err());
+    }
 }

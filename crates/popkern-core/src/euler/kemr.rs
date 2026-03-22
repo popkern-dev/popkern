@@ -372,6 +372,57 @@ mod tests {
     }
 
     #[test]
+    fn kemr_invalid_handle_fails() {
+        let mut brep = BRep::new(Tolerance::default());
+        let _mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let result = brep.kemr(Default::default());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn mekr_invalid_handle_fails() {
+        let mut brep = BRep::new(Tolerance::default());
+        let _mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let result = brep.mekr(Default::default(), Default::default());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn mekr_same_loop_fails() {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev1 = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        // Both half-edges are in the same loop
+        let result = brep.mekr(mev1.half_edge, mev1.half_edge_twin);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn mekr_different_face_fails() {
+        let mut brep = BRep::new(Tolerance::default());
+        // Build two separate solids — half-edges in loops on different faces
+        let mvfs1 = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev1 = brep
+            .mev_at_vertex(mvfs1.vertex, mvfs1.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let mev2 = brep
+            .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
+            .unwrap();
+        let mev3 = brep
+            .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
+            .unwrap();
+        let mef = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
+        // mef created two loops on different faces
+        // mekr between these two loops should fail (different faces)
+        let he_new = mef.half_edge;
+        let he_twin = mef.half_edge_twin;
+        let result = brep.mekr(he_new, he_twin);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn kemr_mekr_roundtrip() {
         let mut brep = BRep::new(Tolerance::default());
 

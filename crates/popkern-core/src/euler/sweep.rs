@@ -203,6 +203,23 @@ mod tests {
     }
 
     #[test]
+    fn extrude_invalid_face_fails() {
+        let mut brep = BRep::new(Tolerance::default());
+        let _mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let result = brep.extrude(Default::default(), Vec3::new(0.0, 0.0, 1.0), 1.0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn extrude_face_without_edges_fails() {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        // mvfs face has no edges
+        let result = brep.extrude(mvfs.face, Vec3::new(0.0, 0.0, 1.0), 1.0);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn extruded_vertices_have_correct_positions() {
         let mut brep = BRep::new(Tolerance::default());
         let face = build_square_face(&mut brep);

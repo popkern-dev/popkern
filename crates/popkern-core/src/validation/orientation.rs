@@ -59,4 +59,30 @@ mod tests {
         let brep = make_cube();
         assert!(brep.validate_face_orientation().is_ok());
     }
+
+    #[test]
+    fn cube_with_surface_geometry_passes_orientation() {
+        let cube =
+            crate::topology::BRep::unit_cube(crate::tolerance::Tolerance::default()).unwrap();
+        assert!(cube.validate_face_orientation().is_ok());
+    }
+
+    #[test]
+    fn degenerate_surface_normal_fails_orientation() {
+        use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+
+        let mut brep = make_cube();
+        // Attach a degenerate sphere surface (radius 0) to a face.
+        // Normal at (0,0) will be zero for a zero-radius sphere.
+        let face_handle = brep.faces.keys().next().unwrap();
+        brep.faces[face_handle].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Sphere {
+                center: Point3::new(0.0, 0.0, 0.0),
+                radius: 0.0,
+            },
+            orientation: true,
+        });
+        let result = brep.validate_face_orientation();
+        assert!(result.is_err());
+    }
 }

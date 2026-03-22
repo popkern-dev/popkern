@@ -400,4 +400,91 @@ mod tests {
         let t = line.tangent_at(0.0);
         assert!((t.length() - 1.0).abs() < 1e-10);
     }
+
+    #[test]
+    fn line_parameter_range() {
+        let line = CurveGeometry::Line {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            direction: Vec3::new(1.0, 0.0, 0.0),
+        };
+        let (t0, t1) = line.parameter_range();
+        assert!(t0.is_infinite() && t0 < 0.0);
+        assert!(t1.is_infinite() && t1 > 0.0);
+    }
+
+    #[test]
+    fn circle_all_curve_eval_methods() {
+        let c = CurveGeometry::Circle {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            radius: 2.0,
+        };
+        // derivative_at all 4 branches (order % 4)
+        assert!((c.derivative_at(0.0, 0).length() - 2.0).abs() < 1e-10); // order 0
+        assert!((c.derivative_at(0.0, 1).length() - 2.0).abs() < 1e-10); // order 1
+        assert!((c.derivative_at(0.0, 2).length() - 2.0).abs() < 1e-10); // order 2
+        assert!((c.derivative_at(FRAC_PI_2, 3).length() - 2.0).abs() < 1e-10); // order 3
+        // tangent_at
+        assert!((c.tangent_at(0.0).length() - 1.0).abs() < 1e-10);
+        // parameter_range
+        let (t0, t1) = c.parameter_range();
+        assert!((t0).abs() < 1e-10);
+        assert!((t1 - std::f64::consts::TAU).abs() < 1e-10);
+        // length_between
+        assert!((c.length_between(0.0, FRAC_PI_2) - FRAC_PI_2 * 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn arc_all_curve_eval_methods() {
+        let a = CurveGeometry::Arc {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+            start_angle: 0.5,
+            end_angle: 2.0,
+        };
+        // point_at
+        let p = a.point_at(0.0);
+        assert!(((p.x).powi(2) + (p.y).powi(2)).sqrt() - 1.0 < 1e-10);
+        // derivative_at all 4 branches
+        assert!((a.derivative_at(0.0, 0).length() - 1.0).abs() < 1e-10);
+        assert!((a.derivative_at(0.0, 1).length() - 1.0).abs() < 1e-10);
+        assert!((a.derivative_at(0.0, 2).length() - 1.0).abs() < 1e-10);
+        assert!((a.derivative_at(FRAC_PI_2, 3).length() - 1.0).abs() < 1e-10);
+        // tangent_at
+        assert!((a.tangent_at(FRAC_PI_2).length() - 1.0).abs() < 1e-10);
+        // parameter_range
+        let (t0, t1) = a.parameter_range();
+        assert!((t0 - 0.5).abs() < 1e-10);
+        assert!((t1 - 2.0).abs() < 1e-10);
+        // length_between
+        assert!((a.length_between(0.0, PI) - PI).abs() < 1e-10);
+    }
+
+    #[test]
+    fn nurbs_dispatch_all_methods() {
+        use crate::geometry::nurbs_curve::NurbsCurve;
+        let nurbs = CurveGeometry::Nurbs(NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        });
+        assert!((nurbs.point_at(0.5).x - 0.5).abs() < 1e-6);
+        assert!(nurbs.derivative_at(0.5, 1).length() > 0.5);
+        assert!((nurbs.tangent_at(0.5).length() - 1.0).abs() < 1e-6);
+        let (t0, t1) = nurbs.parameter_range();
+        assert!((t0).abs() < 1e-10 && (t1 - 1.0).abs() < 1e-10);
+        assert!(nurbs.length_between(0.0, 1.0) > 0.9);
+    }
+
+    #[test]
+    fn arbitrary_perpendicular_both_branches() {
+        // x < 0.9 => picks X axis
+        let perp1 = arbitrary_perpendicular(Vec3::new(0.0, 0.0, 1.0));
+        assert!(perp1.dot(&Vec3::new(0.0, 0.0, 1.0)).abs() < 1e-10);
+        // x >= 0.9 => picks Y axis
+        let perp2 = arbitrary_perpendicular(Vec3::new(1.0, 0.0, 0.0));
+        assert!(perp2.dot(&Vec3::new(1.0, 0.0, 0.0)).abs() < 1e-10);
+    }
 }

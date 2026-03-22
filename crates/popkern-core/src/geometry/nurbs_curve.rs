@@ -311,4 +311,96 @@ mod tests {
         assert_eq!(t0, 0.0);
         assert_eq!(t1, 1.0);
     }
+
+    #[test]
+    fn tangent_at_degree_1() {
+        let curve = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(3.0, 4.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        let t = curve.tangent_at(0.5);
+        assert!((t.length() - 1.0).abs() < 1e-6, "Tangent should be unit");
+    }
+
+    #[test]
+    fn derivative_order_0() {
+        let curve = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        let d0 = curve.derivative_at(0.5, 0);
+        // order 0 returns position as vec
+        assert!((d0.x - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn derivative_order_2() {
+        let curve = NurbsCurve {
+            degree: 2,
+            knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.5, 1.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+            ],
+            weights: vec![1.0, 1.0, 1.0],
+        };
+        // Second derivative should be non-zero for a quadratic
+        let d2 = curve.derivative_at(0.5, 2);
+        assert!(d2.length() > 1e-3);
+    }
+
+    #[test]
+    fn find_span_clamped_at_end() {
+        let curve = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        // Evaluate at exactly 1.0 (clamped)
+        let p = curve.point_at(1.0);
+        assert!((p.x - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn find_span_clamped_before_start() {
+        let curve = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        // Evaluate before start — clamped to span p, so result is at t=0 origin
+        let p = curve.point_at(-0.5);
+        // The find_span clamps to p=1, so de Boor uses span 1 with t=-0.5
+        // which extrapolates. Just check it doesn't panic.
+        assert!(p.x.is_finite());
+    }
+
+    #[test]
+    fn multi_span_nurbs_curve() {
+        // Degree 2 with 4 control points = 2 spans
+        let curve = NurbsCurve {
+            degree: 2,
+            knots: vec![0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.25, 1.0, 0.0),
+                Point3::new(0.75, 1.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+            ],
+            weights: vec![1.0, 1.0, 1.0, 1.0],
+        };
+        let p = curve.point_at(0.5);
+        // Should be roughly at (0.5, something, 0)
+        assert!((p.x - 0.5).abs() < 0.1);
+        // Length should be computable
+        let len = curve.length_between(0.0, 1.0);
+        assert!(len > 1.0);
+    }
 }

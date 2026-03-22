@@ -260,4 +260,41 @@ mod tests {
         assert_eq!(v0, 0.0);
         assert_eq!(v1, 1.0);
     }
+
+    #[test]
+    fn bilinear_patch_partial_u() {
+        let surface = bilinear_patch();
+        let du = surface.partial_u(0.5, 0.5);
+        // For a bilinear patch, d/du should be (1, 0, 0)
+        assert!((du.x - 1.0).abs() < 1e-4);
+        assert!((du.y).abs() < 1e-4);
+    }
+
+    #[test]
+    fn bilinear_patch_partial_v() {
+        let surface = bilinear_patch();
+        let dv = surface.partial_v(0.5, 0.5);
+        // For a bilinear patch, d/dv should be (0, 1, 0)
+        assert!((dv.x).abs() < 1e-4);
+        assert!((dv.y - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn bilinear_patch_at_end() {
+        let surface = bilinear_patch();
+        // Evaluate at exactly t=1.0 (clamped end)
+        let p = surface.point_at(1.0, 1.0);
+        assert!((p.x - 1.0).abs() < 1e-6);
+        assert!((p.y - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn bilinear_patch_at_before_start() {
+        let surface = bilinear_patch();
+        // Evaluate before start — clamped to degree span, extrapolates
+        // Just verify it doesn't panic and returns finite values
+        let p = surface.point_at(-0.1, -0.1);
+        assert!(p.x.is_finite());
+        assert!(p.y.is_finite());
+    }
 }

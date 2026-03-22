@@ -311,4 +311,49 @@ mod tests {
         let result = brep.mef(mev1.half_edge, mev2.half_edge);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn mef_same_half_edge_fails() {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        // he1 == he2 should fail
+        let result = brep.mef(mev.half_edge, mev.half_edge);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn mef_invalid_handle_fails() {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let result = brep.mef(Default::default(), mev.half_edge);
+        assert!(result.is_err());
+        let result = brep.mef(mev.half_edge, Default::default());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn kef_same_loop_fails() {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        // This edge has both half-edges in the same loop, so kef should fail
+        let result = brep.kef(mev.half_edge);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn kef_invalid_handle_fails() {
+        let mut brep = BRep::new(Tolerance::default());
+        let _mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let result = brep.kef(Default::default());
+        assert!(result.is_err());
+    }
 }

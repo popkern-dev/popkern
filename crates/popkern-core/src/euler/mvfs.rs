@@ -292,4 +292,74 @@ mod tests {
         assert_eq!(brep.solids.len(), 2);
         assert_ne!(r1.solid, r2.solid);
     }
+
+    #[test]
+    fn kvfs_fails_with_outgoing_edges() {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let _mev = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        // vertex now has outgoing edges, kvfs should fail
+        let result = brep.kvfs(mvfs.vertex);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn kvfs_two_solids_removes_one() {
+        let mut brep = BRep::new(Tolerance::default());
+        let r1 = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let _r2 = brep.mvfs(Point3::new(1.0, 0.0, 0.0)).unwrap();
+        assert_eq!(brep.solids.len(), 2);
+
+        brep.kvfs(r1.vertex).unwrap();
+        assert_eq!(brep.solids.len(), 1);
+        assert_eq!(brep.vertices.len(), 1);
+    }
+
+    #[test]
+    fn kvfs_roundtrip() {
+        let mut brep = BRep::new(Tolerance::default());
+        let r = brep.mvfs(Point3::new(5.0, 5.0, 5.0)).unwrap();
+        assert_eq!(brep.vertices.len(), 1);
+        brep.kvfs(r.vertex).unwrap();
+        assert_eq!(brep.vertices.len(), 0);
+        assert_eq!(brep.faces.len(), 0);
+        assert_eq!(brep.loops.len(), 0);
+        assert_eq!(brep.shells.len(), 0);
+        assert_eq!(brep.solids.len(), 0);
+    }
+
+    #[test]
+    fn kvfs_no_valid_solid_found() {
+        // Create a BRep with edges (not a pure mvfs solid), then
+        // try kvfs on a vertex — should fail because no mvfs-seeded solid
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        // kev to remove the edge, leaving mvfs.vertex with no edges
+        brep.kev(mev.half_edge).unwrap();
+        // Now mvfs.vertex has no edges, kvfs should succeed
+        brep.kvfs(mvfs.vertex).unwrap();
+        assert_eq!(brep.vertices.len(), 0);
+    }
+
+    #[test]
+    fn kvfs_with_face_with_inner_loops_skips() {
+        // Create two mvfs solids, corrupt one to have inner loops
+        // kvfs should skip that one and find the other
+        let mut brep = BRep::new(Tolerance::default());
+        let r1 = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let r2 = brep.mvfs(Point3::new(1.0, 0.0, 0.0)).unwrap();
+
+        // Add a fake inner loop handle to r1's face to trigger the
+        // `inner_loops.is_empty()` continue branch
+        brep.faces[r1.face].inner_loops.push(Default::default());
+
+        // kvfs on r2 should still work (skips r1 due to inner loops)
+        brep.kvfs(r2.vertex).unwrap();
+        assert_eq!(brep.solids.len(), 1);
+    }
 }

@@ -126,4 +126,32 @@ mod tests {
         let tol = Tolerance::default();
         assert!(tol.distances_equal(5.0, 5.0 + 1e-7));
     }
+
+    #[test]
+    fn with_parametric_builder() {
+        let tol = Tolerance::default().with_parametric(1e-3);
+        assert_eq!(tol.parametric, 1e-3);
+        // linear and angular should be unchanged
+        assert_eq!(tol.linear, 1e-6);
+        assert_eq!(tol.angular, 1e-4);
+    }
+
+    #[test]
+    fn with_angular_builder() {
+        let tol = Tolerance::default().with_angular(1e-1);
+        assert_eq!(tol.angular, 1e-1);
+        assert_eq!(tol.linear, 1e-6);
+        assert_eq!(tol.parametric, 1e-8);
+    }
+
+    #[test]
+    fn chained_builders() {
+        let tol = Tolerance::default()
+            .with_linear(1e-3)
+            .with_angular(1e-2)
+            .with_parametric(1e-1);
+        assert_eq!(tol.linear, 1e-3);
+        assert_eq!(tol.angular, 1e-2);
+        assert_eq!(tol.parametric, 1e-1);
+    }
 }

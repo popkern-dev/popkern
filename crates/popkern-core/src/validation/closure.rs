@@ -207,4 +207,42 @@ mod tests {
         let _mef = brep.mef(mev2.half_edge_twin, mev1.half_edge).unwrap();
         assert!(brep.validate_loop_closure().is_ok());
     }
+
+    #[test]
+    fn loop_closure_with_curve_geometry() {
+        // Use a cube with geometry to test the curve evaluation path
+        let cube =
+            crate::topology::BRep::unit_cube(crate::tolerance::Tolerance::default()).unwrap();
+        assert!(cube.validate_loop_closure().is_ok());
+    }
+
+    #[test]
+    fn watertight_with_curve_geometry() {
+        let cube =
+            crate::topology::BRep::unit_cube(crate::tolerance::Tolerance::default()).unwrap();
+        assert!(cube.validate_watertight().is_ok());
+    }
+
+    #[test]
+    fn loop_closure_on_corrupted_brep_breaks_gracefully() {
+        // Remove a half-edge to trigger the `None` break paths in validate_loop_closure
+        let mut brep = make_cube();
+        let he_handle = brep.half_edges.keys().next().unwrap();
+        // Corrupt next pointer to a non-existent handle
+        brep.half_edges[he_handle].next = Default::default();
+        // Should not panic — just break out of walk
+        let _ = brep.validate_loop_closure();
+    }
+
+    #[test]
+    fn loop_closure_twin_path_with_curve() {
+        use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
+
+        // Build a cube with geometry, then verify closure works through twin-side curve eval
+        let brep =
+            crate::topology::BRep::unit_cube(crate::tolerance::Tolerance::default()).unwrap();
+        // The cube has curves on all edges. Loop closure walks all loops and
+        // evaluates curves via is_canonical check. Just ensure it passes.
+        assert!(brep.validate_loop_closure().is_ok());
+    }
 }

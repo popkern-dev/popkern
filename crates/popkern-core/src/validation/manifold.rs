@@ -142,4 +142,16 @@ mod tests {
         brep.edges[mev.edge].half_edge = Default::default();
         assert!(brep.validate_manifold_edges().is_err());
     }
+
+    #[test]
+    fn corrupted_twin_edge_fails_manifold() {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        // Corrupt the twin's edge pointer to not match.
+        brep.half_edges[mev.half_edge_twin].edge = Default::default();
+        assert!(brep.validate_manifold_edges().is_err());
+    }
 }
