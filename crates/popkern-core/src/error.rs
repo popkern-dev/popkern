@@ -93,6 +93,15 @@ pub enum ValidationError {
         /// The gap distance.
         gap: f64,
     },
+
+    /// Two non-adjacent faces intersect each other.
+    #[error("Self-intersection between face {face_a:?} and face {face_b:?}")]
+    SelfIntersection {
+        /// First face involved in intersection.
+        face_a: FaceHandle,
+        /// Second face involved in intersection.
+        face_b: FaceHandle,
+    },
 }
 
 /// Top-level error type for popkern-core operations.
@@ -184,5 +193,14 @@ mod tests {
         };
         assert!(err.to_string().contains("expected 0"));
         assert!(err.to_string().contains("got 2"));
+    }
+
+    #[test]
+    fn self_intersection_error_display() {
+        let err = ValidationError::SelfIntersection {
+            face_a: Default::default(),
+            face_b: Default::default(),
+        };
+        assert!(err.to_string().contains("Self-intersection"));
     }
 }
