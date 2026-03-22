@@ -8,5 +8,7 @@
 
 pub mod error;
 pub mod geometry;
+pub mod tolerance;
 pub mod topology;
+pub mod topology_v0;
 pub mod validation;
