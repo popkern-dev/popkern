@@ -1,0 +1,1 @@
+//! Line-cylinder intersection algorithm.

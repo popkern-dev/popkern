@@ -1,0 +1,1 @@
+//! Line-cone intersection algorithm.

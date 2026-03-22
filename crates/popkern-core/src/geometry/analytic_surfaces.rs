@@ -10,7 +10,7 @@ use crate::geometry::{Point3, Vec3};
 ///
 /// `perp1` is the Gram–Schmidt projection of a reference cardinal direction onto the
 /// plane perpendicular to `axis`, so the frame is stable and deterministic.
-fn orthonormal_basis(axis: Vec3) -> (Vec3, Vec3) {
+pub(crate) fn orthonormal_basis(axis: Vec3) -> (Vec3, Vec3) {
     // Choose a reference cardinal that is least parallel to axis.
     let reference = if axis.x.abs() <= axis.y.abs() && axis.x.abs() <= axis.z.abs() {
         Vec3::new(1.0, 0.0, 0.0)
