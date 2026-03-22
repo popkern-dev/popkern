@@ -1,0 +1,1 @@
+//! Line-circle intersection algorithm.

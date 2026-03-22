@@ -1,0 +1,1 @@
+//! Line-line intersection algorithm.

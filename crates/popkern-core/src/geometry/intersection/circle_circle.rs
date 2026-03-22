@@ -1,0 +1,1 @@
+//! Circle-circle intersection algorithm.
