@@ -48,6 +48,7 @@ fn angular_steps(angle: f64) -> usize {
 /// `cap_face` is the face remaining after the last mef (the "end" face for this ring).
 /// `next_current_he` contains the half-edges in the cap face's loop, originating
 /// at the newly created vertices (for use by the next ring).
+#[allow(clippy::type_complexity)]
 fn extrude_ring(
     brep: &mut BRep,
     current_he: &[HalfEdgeHandle],
