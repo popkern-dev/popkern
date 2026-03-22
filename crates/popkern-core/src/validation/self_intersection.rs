@@ -57,11 +57,10 @@ impl BRep {
                         let twin_face = twin_loop.face;
                         if let Some(j) =
                             face_keys.iter().position(|&k| k == twin_face)
+                            && i != j
                         {
-                            if i != j {
-                                let pair = if i < j { (i, j) } else { (j, i) };
-                                adjacent.insert(pair);
-                            }
+                            let pair = if i < j { (i, j) } else { (j, i) };
+                            adjacent.insert(pair);
                         }
                     }
                 }

@@ -70,10 +70,10 @@ impl BRep {
         // Geometric check 11: self-intersection (most expensive — run last,
         // and only when there are no structural errors to avoid false reports
         // from broken topology).
-        if errors.is_empty() {
-            if let Err(e) = self.validate_self_intersection() {
-                errors.push(e);
-            }
+        if errors.is_empty()
+            && let Err(e) = self.validate_self_intersection()
+        {
+            errors.push(e);
         }
 
         errors
