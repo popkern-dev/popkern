@@ -6,6 +6,7 @@ mod euler_poincare;
 mod half_edge_checks;
 mod manifold;
 mod orientation;
+mod self_intersection;
 
 use crate::error::ValidationError;
 use crate::topology::BRep;
@@ -25,6 +26,8 @@ impl BRep {
         self.validate_loop_closure()?;
         self.validate_curve_surface()?;
         self.validate_watertight()?;
+        // Geometric check 11: self-intersection (most expensive — run last)
+        self.validate_self_intersection()?;
         Ok(())
     }
 
@@ -63,6 +66,14 @@ impl BRep {
         }
         if let Err(e) = self.validate_watertight() {
             errors.push(e);
+        }
+        // Geometric check 11: self-intersection (most expensive — run last,
+        // and only when there are no structural errors to avoid false reports
+        // from broken topology).
+        if errors.is_empty() {
+            if let Err(e) = self.validate_self_intersection() {
+                errors.push(e);
+            }
         }
 
         errors
