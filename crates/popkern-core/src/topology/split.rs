@@ -1,9 +1,22 @@
 //! Face and edge splitting operations for surface trimming.
 
 use crate::error::CoreError;
-use crate::geometry::curve::CurveEval;
+use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
+use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::Point3;
+use crate::tolerance::Tolerance;
 use crate::topology::*;
+
+/// Result of splitting a face along a trim curve.
+#[derive(Debug, Clone)]
+pub struct SplitFaceResult {
+    /// One side of the split (the original face).
+    pub face_a: FaceHandle,
+    /// The other side of the split (the new face from mef).
+    pub face_b: FaceHandle,
+    /// The newly created edges along the trim curve.
+    pub new_edges: Vec<EdgeHandle>,
+}
 
 /// Result of splitting an edge at a parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -180,89 +193,167 @@ impl BRep {
             edge_b,
         })
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use crate::geometry::Point3;
-    use crate::tolerance::Tolerance;
-    use crate::topology::BRep;
+    /// Split a face along a trim curve.
+    ///
+    /// The trim curve endpoints must lie at existing vertices on the face's
+    /// boundary (created by prior `split_edge` calls if needed). This method
+    /// finds the entry and exit vertices, calls `mef` to split the topology,
+    /// then attaches the trim curve geometry to the new edge.
+    ///
+    /// Both resulting faces retain the original face's surface geometry.
+    ///
+    /// # Errors
+    ///
+    /// - [`CoreError::InvalidHandle`] if the face handle is invalid.
+    /// - [`CoreError::PreconditionFailed`] if the trim curve endpoints cannot
+    ///   be matched to vertices on the face's outer loop within tolerance.
+    pub fn split_face(
+        &mut self,
+        face: FaceHandle,
+        _trim_curve_uv: &NurbsCurve,
+        trim_curve_3d: &NurbsCurve,
+        tolerance: &Tolerance,
+    ) -> Result<SplitFaceResult, CoreError> {
+        // Validate face handle.
+        let face_data = self
+            .faces
+            .get(face)
+            .ok_or_else(|| CoreError::InvalidHandle("face handle is invalid".into()))?;
 
-    #[test]
-    fn split_edge_simple() {
-        let mut brep = BRep::new(Tolerance::default());
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev1 = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
+        let outer_loop = face_data.outer_loop;
 
-        let result = brep.split_edge(mev1.edge, 0.5).unwrap();
+        // Get the trim curve start and end points in 3D.
+        let (t_start, t_end) = trim_curve_3d.parameter_range();
+        let curve_start = trim_curve_3d.point_at(t_start);
+        let curve_end = trim_curve_3d.point_at(t_end);
 
-        assert_eq!(brep.vertices.len(), 3);
-        assert_eq!(brep.edges.len(), 2);
-        assert_eq!(brep.half_edges.len(), 4);
-        let v = &brep.vertices[result.vertex];
-        assert!((v.position.x - 0.5).abs() < 1e-10);
-    }
+        // Walk the outer loop to find half-edges whose origin vertices
+        // match the curve start and end points.
+        let loop_start_he = self
+            .loops
+            .get(outer_loop)
+            .ok_or_else(|| CoreError::InvalidHandle("outer loop handle is invalid".into()))?
+            .half_edge;
 
-    #[test]
-    fn split_edge_on_cube() {
-        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let v_before = brep.vertices.len();
-        let e_before = brep.edges.len();
-        let edge = brep.edges.keys().next().unwrap();
+        let mut he_entry: Option<HalfEdgeHandle> = None;
+        let mut he_exit: Option<HalfEdgeHandle> = None;
 
-        brep.split_edge(edge, 0.5).unwrap();
-
-        assert_eq!(brep.vertices.len(), v_before + 1);
-        assert_eq!(brep.edges.len(), e_before + 1);
-    }
-
-    #[test]
-    fn split_edge_invalid_handle() {
-        let mut brep = BRep::new(Tolerance::default());
-        assert!(brep.split_edge(Default::default(), 0.5).is_err());
-    }
-
-    #[test]
-    fn split_edge_half_edge_chain_valid() {
-        // After split, walking the loop should still form a cycle
-        let mut brep = BRep::new(Tolerance::default());
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev1 = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        let _mev2 = brep
-            .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
-            .unwrap();
-
-        brep.split_edge(mev1.edge, 0.5).unwrap();
-
-        // Walk the loop -- should return to start
-        let start = brep.loops[mvfs.loop_].half_edge;
-        let mut he = start;
-        let mut count = 0;
+        let mut cursor = loop_start_he;
+        let max_iters = self.half_edges.len() + 1;
+        let mut iters = 0;
         loop {
-            he = brep.half_edges[he].next;
-            count += 1;
-            if he == start || count > 100 {
+            let he_data = self
+                .half_edges
+                .get(cursor)
+                .ok_or_else(|| {
+                    CoreError::InvalidHandle("half_edge in loop walk is invalid".into())
+                })?;
+            let vertex_pos = self.vertices[he_data.origin].position;
+
+            if he_entry.is_none()
+                && tolerance.points_coincident(&vertex_pos, &curve_start)
+            {
+                he_entry = Some(cursor);
+            } else if he_exit.is_none()
+                && tolerance.points_coincident(&vertex_pos, &curve_end)
+            {
+                he_exit = Some(cursor);
+            }
+
+            cursor = he_data.next;
+            iters += 1;
+            if cursor == loop_start_he || iters >= max_iters {
                 break;
             }
         }
-        assert_eq!(he, start, "Loop should be closed after split_edge");
-    }
 
-    #[test]
-    fn split_edge_t_out_of_range() {
-        let mut brep = BRep::new(Tolerance::default());
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev1 = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
+        // If we found exit but not entry on first pass, or entry but not exit,
+        // do a second pass checking the other direction assignment. The curve
+        // endpoints may appear in either order around the loop.
+        if he_entry.is_some() && he_exit.is_none() {
+            // Try matching curve_end to remaining vertices
+            let mut cursor2 = loop_start_he;
+            let mut iters2 = 0;
+            loop {
+                let he_data = &self.half_edges[cursor2];
+                let vertex_pos = self.vertices[he_data.origin].position;
+                if cursor2 != he_entry.unwrap_or_default()
+                    && tolerance.points_coincident(&vertex_pos, &curve_end)
+                {
+                    he_exit = Some(cursor2);
+                    break;
+                }
+                cursor2 = he_data.next;
+                iters2 += 1;
+                if cursor2 == loop_start_he || iters2 >= max_iters {
+                    break;
+                }
+            }
+        } else if he_exit.is_some() && he_entry.is_none() {
+            // Try matching curve_start to remaining vertices
+            let mut cursor2 = loop_start_he;
+            let mut iters2 = 0;
+            loop {
+                let he_data = &self.half_edges[cursor2];
+                let vertex_pos = self.vertices[he_data.origin].position;
+                if cursor2 != he_exit.unwrap_or_default()
+                    && tolerance.points_coincident(&vertex_pos, &curve_start)
+                {
+                    he_entry = Some(cursor2);
+                    break;
+                }
+                cursor2 = he_data.next;
+                iters2 += 1;
+                if cursor2 == loop_start_he || iters2 >= max_iters {
+                    break;
+                }
+            }
+        }
 
-        assert!(brep.split_edge(mev1.edge, 0.0).is_err());
-        assert!(brep.split_edge(mev1.edge, 1.0).is_err());
-        assert!(brep.split_edge(mev1.edge, -0.1).is_err());
-        assert!(brep.split_edge(mev1.edge, 1.1).is_err());
+        let he_entry = he_entry.ok_or_else(|| {
+            CoreError::PreconditionFailed(
+                "trim curve start point does not match any vertex on the face boundary".into(),
+            )
+        })?;
+        let he_exit = he_exit.ok_or_else(|| {
+            CoreError::PreconditionFailed(
+                "trim curve end point does not match any vertex on the face boundary".into(),
+            )
+        })?;
+
+        // Capture the original surface before mef (which doesn't copy it).
+        let original_surface = self.faces[face].surface.clone();
+
+        // Call mef to split the face topology.
+        let mef_result = self.mef(he_entry, he_exit)?;
+
+        // Attach the trim curve geometry to the new edge.
+        self.edges[mef_result.edge].curve = Some(CurveOnEdge {
+            geometry: CurveGeometry::Nurbs(trim_curve_3d.clone()),
+            t_start: 0.0,
+            t_end: 1.0,
+        });
+
+        // Both faces should keep the original surface geometry.
+        // The original face (containing he_entry's side) already has it.
+        // The new face needs a copy.
+        if let Some(ref surface) = original_surface {
+            self.faces[face].surface = Some(surface.clone());
+            self.faces[mef_result.face].surface = Some(surface.clone());
+        }
+
+        // Determine which face is face_a (original) and face_b (new).
+        // After mef, the old loop stays on the old face, and the new loop
+        // is on the new face. The original face handle is still `face`.
+        Ok(SplitFaceResult {
+            face_a: face,
+            face_b: mef_result.face,
+            new_edges: vec![mef_result.edge],
+        })
     }
 }
+
+#[cfg(test)]
+#[path = "split_tests.rs"]
+mod tests;

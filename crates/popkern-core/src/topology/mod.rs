@@ -30,4 +30,4 @@ pub use brep::BRep;
 
 /// Edge and face splitting operations.
 pub mod split;
-pub use split::SplitEdgeResult;
+pub use split::{SplitEdgeResult, SplitFaceResult};
