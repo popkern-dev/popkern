@@ -1,5 +1,6 @@
 //! NURBS surface evaluation via tensor-product de Boor algorithm.
 
+use crate::geometry::nurbs_ops::{Homogeneous, de_boor_1d};
 use crate::geometry::surface::SurfaceEval;
 use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
@@ -24,99 +25,6 @@ pub struct NurbsSurface {
     pub num_v: usize,
     /// Weights, one per control point.
     pub weights: Vec<f64>,
-}
-
-/// A point in 4D homogeneous coordinates (wx, wy, wz, w).
-#[derive(Debug, Clone, Copy)]
-struct Homogeneous {
-    wx: f64,
-    wy: f64,
-    wz: f64,
-    w: f64,
-}
-
-impl Homogeneous {
-    fn from_point_weight(p: &Point3, w: f64) -> Self {
-        Self {
-            wx: w * p.x,
-            wy: w * p.y,
-            wz: w * p.z,
-            w,
-        }
-    }
-
-    fn lerp(a: &Self, b: &Self, alpha: f64) -> Self {
-        let one_minus = 1.0 - alpha;
-        Self {
-            wx: one_minus * a.wx + alpha * b.wx,
-            wy: one_minus * a.wy + alpha * b.wy,
-            wz: one_minus * a.wz + alpha * b.wz,
-            w: one_minus * a.w + alpha * b.w,
-        }
-    }
-
-    fn to_point3(self) -> Point3 {
-        if self.w.abs() < 1e-30 {
-            Point3::new(0.0, 0.0, 0.0)
-        } else {
-            Point3::new(self.wx / self.w, self.wy / self.w, self.wz / self.w)
-        }
-    }
-}
-
-/// Find the knot span index k such that knots[k] <= t < knots[k+1].
-/// `n` is the number of control points. Valid spans are [degree, n-1].
-fn find_span(degree: usize, knots: &[f64], n: usize, t: f64) -> usize {
-    // Clamp to valid range
-    if t >= knots[n] {
-        return n - 1;
-    }
-    if t <= knots[degree] {
-        return degree;
-    }
-
-    // Binary search
-    let mut low = degree;
-    let mut high = n;
-    let mut mid = (low + high) / 2;
-    while t < knots[mid] || t >= knots[mid + 1] {
-        if t < knots[mid] {
-            high = mid;
-        } else {
-            low = mid;
-        }
-        mid = (low + high) / 2;
-    }
-    mid
-}
-
-/// 1D de Boor evaluation in homogeneous coordinates.
-/// `degree`: spline degree
-/// `knots`: knot vector
-/// `points`: homogeneous control points (length = n)
-/// `t`: parameter value
-fn de_boor_1d(degree: usize, knots: &[f64], points: &[Homogeneous], t: f64) -> Homogeneous {
-    let n = points.len();
-    let k = find_span(degree, knots, n, t);
-
-    // Initialize with the degree+1 relevant control points
-    let mut d: Vec<Homogeneous> = (0..=degree).map(|j| points[k - degree + j]).collect();
-
-    // De Boor recursion
-    for r in 1..=degree {
-        for j in (r..=degree).rev() {
-            let idx = k - degree + j;
-            let denom = knots[idx + degree - r + 1] - knots[idx];
-            let alpha = if denom.abs() < 1e-30 {
-                0.0
-            } else {
-                (t - knots[idx]) / denom
-            };
-            d[j] = Homogeneous::lerp(&d[j - 1], &d[j], alpha);
-        }
-    }
-
-    d[degree]
 }
 
 impl NurbsSurface {

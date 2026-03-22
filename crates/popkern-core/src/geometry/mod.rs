@@ -4,6 +4,7 @@ pub mod analytic_curves;
 pub mod analytic_surfaces;
 pub mod curve;
 pub mod nurbs_curve;
+pub mod nurbs_ops;
 pub mod nurbs_surface;
 pub mod point;
 pub mod surface;

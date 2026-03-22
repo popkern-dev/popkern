@@ -1,6 +1,7 @@
 //! NURBS (Non-Uniform Rational B-Spline) curve evaluation via de Boor's algorithm.
 
 use crate::geometry::curve::CurveEval;
+use crate::geometry::nurbs_ops::{Homogeneous, de_boor_1d};
 use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
 
@@ -17,102 +18,16 @@ pub struct NurbsCurve {
     pub weights: Vec<f64>,
 }
 
-/// A point in 4D homogeneous coordinates (wx, wy, wz, w).
-#[derive(Debug, Clone, Copy)]
-struct Homogeneous {
-    wx: f64,
-    wy: f64,
-    wz: f64,
-    w: f64,
-}
-
-impl Homogeneous {
-    fn from_point_weight(p: &Point3, w: f64) -> Self {
-        Self {
-            wx: w * p.x,
-            wy: w * p.y,
-            wz: w * p.z,
-            w,
-        }
-    }
-
-    fn lerp(a: &Self, b: &Self, alpha: f64) -> Self {
-        let one_minus = 1.0 - alpha;
-        Self {
-            wx: one_minus * a.wx + alpha * b.wx,
-            wy: one_minus * a.wy + alpha * b.wy,
-            wz: one_minus * a.wz + alpha * b.wz,
-            w: one_minus * a.w + alpha * b.w,
-        }
-    }
-
-    fn to_point3(self) -> Point3 {
-        if self.w.abs() < 1e-30 {
-            Point3::new(0.0, 0.0, 0.0)
-        } else {
-            Point3::new(self.wx / self.w, self.wy / self.w, self.wz / self.w)
-        }
-    }
-}
-
 impl NurbsCurve {
-    /// Find the knot span index k such that knots[k] <= t < knots[k+1].
-    /// For a clamped knot vector, valid spans are [degree, n] where n = control_points.len() - 1.
-    fn find_span(&self, t: f64) -> usize {
-        let n = self.control_points.len() - 1;
-        let p = self.degree;
-
-        // Clamp to valid range
-        if t >= self.knots[n + 1] {
-            return n;
-        }
-        if t <= self.knots[p] {
-            return p;
-        }
-
-        // Binary search
-        let mut low = p;
-        let mut high = n + 1;
-        let mut mid = (low + high) / 2;
-        while t < self.knots[mid] || t >= self.knots[mid + 1] {
-            if t < self.knots[mid] {
-                high = mid;
-            } else {
-                low = mid;
-            }
-            mid = (low + high) / 2;
-        }
-        mid
-    }
-
     /// Evaluate the curve at parameter t using de Boor's algorithm in homogeneous coordinates.
     fn de_boor(&self, t: f64) -> Homogeneous {
-        let k = self.find_span(t);
-        let p = self.degree;
-
-        // Initialize with the p+1 relevant control points in homogeneous form
-        let mut d: Vec<Homogeneous> = (0..=p)
-            .map(|j| {
-                let idx = k - p + j;
-                Homogeneous::from_point_weight(&self.control_points[idx], self.weights[idx])
-            })
+        let homogeneous_points: Vec<Homogeneous> = self
+            .control_points
+            .iter()
+            .zip(self.weights.iter())
+            .map(|(p, &w)| Homogeneous::from_point_weight(p, w))
             .collect();
-
-        // De Boor recursion
-        for r in 1..=p {
-            for j in (r..=p).rev() {
-                let idx = k - p + j;
-                let denom = self.knots[idx + p - r + 1] - self.knots[idx];
-                let alpha = if denom.abs() < 1e-30 {
-                    0.0
-                } else {
-                    (t - self.knots[idx]) / denom
-                };
-                d[j] = Homogeneous::lerp(&d[j - 1], &d[j], alpha);
-            }
-        }
-
-        d[p]
+        de_boor_1d(self.degree, &self.knots, &homogeneous_points, t)
     }
 }
 
