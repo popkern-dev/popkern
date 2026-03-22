@@ -27,3 +27,7 @@ pub use vertex::Vertex;
 
 pub mod brep;
 pub use brep::BRep;
+
+/// Edge and face splitting operations.
+pub mod split;
+pub use split::SplitEdgeResult;
