@@ -49,6 +49,7 @@ fn basis_function(i: usize, degree: usize, t: f64, knots: &[f64]) -> f64 {
 /// Solve A*x = b for a symmetric positive-definite matrix A using Gaussian
 /// elimination with partial pivoting. A is n x n, b is n x 1.
 /// Returns the solution vector x, or an error if the system is singular.
+#[allow(clippy::needless_range_loop)]
 fn solve_linear_system(a: &[Vec<f64>], b: &[f64]) -> Result<Vec<f64>, CoreError> {
     let n = a.len();
     if n == 0 {
@@ -179,10 +180,7 @@ pub fn fit_curve(
     if n > degree + 1 {
         let num_interior = n - degree - 1;
         for j in 1..=num_interior {
-            let mut sum = 0.0;
-            for i in j..(j + degree) {
-                sum += params[i];
-            }
+            let sum: f64 = params[j..(j + degree)].iter().sum();
             knots[j + degree] = sum / degree as f64;
         }
     }
@@ -244,6 +242,7 @@ pub fn fit_curve(
     let mut ntr_y = vec![0.0; cols];
     let mut ntr_z = vec![0.0; cols];
 
+    #[allow(clippy::needless_range_loop)]
     for i in 0..cols {
         for j in 0..cols {
             let mut sum = 0.0;

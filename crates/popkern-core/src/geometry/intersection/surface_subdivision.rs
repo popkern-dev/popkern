@@ -60,6 +60,7 @@ pub struct SurfacePatch {
 /// Compute AABB from all control points of a NurbsSurface.
 ///
 /// Returns a degenerate unit box at the origin if the surface has no control points.
+#[allow(dead_code)]
 fn aabb_from_surface(surface: &NurbsSurface) -> Aabb {
     Aabb::from_points(&surface.control_points).unwrap_or(Aabb {
         min: Point3::new(0.0, 0.0, 0.0),
@@ -71,6 +72,7 @@ fn aabb_from_surface(surface: &NurbsSurface) -> Aabb {
 ///
 /// Interior knots within `u_range` and `v_range` define the split locations.
 /// Each resulting patch has its own AABB computed from its control points.
+#[allow(dead_code)]
 pub(crate) fn decompose_to_patches(
     surface: &NurbsSurface,
     u_range: (f64, f64),
@@ -153,6 +155,7 @@ pub(crate) fn decompose_to_patches(
 }
 
 /// Split a patch at the midpoint of both u and v, returning 4 sub-patches.
+#[allow(dead_code)]
 pub(crate) fn refine_patch(patch: &SurfacePatch) -> Vec<SurfacePatch> {
     let u_mid = (patch.u_range.0 + patch.u_range.1) / 2.0;
     let v_mid = (patch.v_range.0 + patch.v_range.1) / 2.0;

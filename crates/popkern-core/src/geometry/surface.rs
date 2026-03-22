@@ -132,12 +132,10 @@ fn sample_to_nurbs(
         .collect();
 
     // Evaluate grid: control_points[i_u * n_v + i_v]
-    let mut control_points = Vec::with_capacity(n_u * n_v);
-    for i_u in 0..n_u {
-        for i_v in 0..n_v {
-            control_points.push(surface.point_at(u_params[i_u], v_params[i_v]));
-        }
-    }
+    let control_points: Vec<Point3> = u_params
+        .iter()
+        .flat_map(|&u| v_params.iter().map(move |&v| surface.point_at(u, v)))
+        .collect();
 
     let weights = vec![1.0_f64; n_u * n_v];
 

@@ -26,6 +26,7 @@ pub struct MarchSample {
 /// - `(S1(u1,v1) - target) · march_dir = 0`  (advancing front constraint)
 ///
 /// Returns `None` if the solver fails to converge or the Jacobian is singular.
+#[allow(dead_code, clippy::too_many_arguments)]
 pub(crate) fn march_project(
     surface1: &SurfaceGeometry,
     u1: f64,
@@ -99,6 +100,7 @@ pub(crate) fn march_project(
 /// Solve a 4×4 linear system `A * x = b` via Gaussian elimination with partial pivoting.
 ///
 /// Returns `None` if the matrix is singular (pivot smaller than `1e-30`).
+#[allow(dead_code, clippy::needless_range_loop)]
 fn solve_4x4(mut a: [[f64; 4]; 4], mut b: [f64; 4]) -> Option<[f64; 4]> {
     // Forward elimination with partial pivoting.
     for col in 0..4 {
