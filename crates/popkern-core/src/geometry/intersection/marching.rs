@@ -409,3 +409,7 @@ fn march_one_direction(
 #[cfg(test)]
 #[path = "marching_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "marching_tests_coverage.rs"]
+mod coverage_tests;
