@@ -125,10 +125,6 @@ pub enum CoreError {
     /// Invalid NURBS data (bad knot vector, wrong control point count, etc).
     #[error("invalid NURBS: {0}")]
     InvalidNurbs(String),
-
-    /// Legacy validation error (v0 compatibility, will be removed in Task 23).
-    #[error("validation failed: {0}")]
-    LegacyValidation(String),
 }
 
 #[cfg(test)]

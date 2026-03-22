@@ -12,6 +12,4 @@ pub mod euler;
 pub mod geometry;
 pub mod tolerance;
 pub mod topology;
-pub mod topology_v0;
 pub mod validation;
-pub mod validation_v0;
