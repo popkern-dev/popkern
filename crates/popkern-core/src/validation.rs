@@ -1,7 +1,7 @@
 //! Geometric and topological validation utilities.
 
 use crate::error::CoreError;
-use crate::topology::BRepModel;
+use crate::topology_v0::BRepModel;
 use std::collections::HashMap;
 
 /// Compute the Euler characteristic: V - E + F.
@@ -90,7 +90,7 @@ pub fn validate_model(model: &BRepModel, _tolerance: f64) -> Result<(), CoreErro
 mod tests {
     use super::*;
     use crate::geometry::Point3;
-    use crate::topology::*;
+    use crate::topology_v0::*;
 
     fn make_unit_cube() -> BRepModel {
         let vertices = vec![
