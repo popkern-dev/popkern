@@ -22,7 +22,7 @@ impl BRep {
     ///    BVH from those AABBs for efficient spatial queries.
     /// 3. For each non-adjacent pair whose AABBs overlap (from BVH query), call
     ///    `intersect_surfaces_with_handler` with `DefaultDegeneracyHandler` and
-    ///    a coarse tolerance (10× linear) to test for actual surface intersection.
+    ///    a coarse tolerance (2× linear) to test for actual surface intersection.
     ///    Any intersections found are reported as a `SelfIntersection` error.
     pub fn validate_self_intersection(&self) -> Result<(), ValidationError> {
         let face_keys: Vec<_> = self.faces.keys().collect();
@@ -108,10 +108,13 @@ impl BRep {
 
         let bvh = Bvh::build(&bvh_items);
 
-        // Use coarse tolerance for the BVH query padding.
+        // Use 2× linear tolerance for intersection detection: tight enough to catch
+        // genuine self-intersections, loose enough for fast intersection testing.
+        // This is conservative: may report near-misses as intersections (false positives)
+        // but won't miss actual intersections within tolerance (no false negatives).
         let linear_tol = self.tolerance.linear;
         let coarse_tol = Tolerance::default()
-            .with_linear(linear_tol * 10.0)
+            .with_linear(linear_tol * 2.0)
             .with_angular(self.tolerance.angular)
             .with_parametric(self.tolerance.parametric);
 
@@ -173,241 +176,5 @@ impl BRep {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::error::ValidationError;
-    use crate::geometry::nurbs_surface::NurbsSurface;
-    use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
-    use crate::geometry::{Point3, Vec3};
-    use crate::tolerance::Tolerance;
-    use crate::topology::BRep;
-
-    /// Build a degree-1 bilinear NURBS patch (a flat quad) spanning a finite
-    /// parameter region.  The four corner control points are given in the order
-    /// `(u0,v0), (u0,v1), (u1,v0), (u1,v1)` (row-major, u varies in each row).
-    fn bilinear_patch(p00: Point3, p01: Point3, p10: Point3, p11: Point3) -> SurfaceGeometry {
-        SurfaceGeometry::Nurbs(NurbsSurface {
-            degree_u: 1,
-            degree_v: 1,
-            knots_u: vec![0.0, 0.0, 1.0, 1.0],
-            knots_v: vec![0.0, 0.0, 1.0, 1.0],
-            control_points: vec![p00, p01, p10, p11],
-            num_u: 2,
-            num_v: 2,
-            weights: vec![1.0, 1.0, 1.0, 1.0],
-        })
-    }
-
-    #[test]
-    fn cube_passes_full_self_intersection() {
-        let cube = BRep::unit_cube(Tolerance::default()).unwrap();
-        assert!(cube.validate_self_intersection().is_ok());
-    }
-
-    #[test]
-    fn prism_passes_full_self_intersection() {
-        let profile = vec![
-            Point3::new(0.0, 0.0, 0.0),
-            Point3::new(1.0, 0.0, 0.0),
-            Point3::new(0.5, 1.0, 0.0),
-        ];
-        let prism = BRep::prism(
-            &profile,
-            Vec3::new(0.0, 0.0, 1.0),
-            1.0,
-            Tolerance::default(),
-        )
-        .unwrap();
-        assert!(prism.validate_self_intersection().is_ok());
-    }
-
-    #[test]
-    fn empty_brep_passes() {
-        let brep = BRep::new(Tolerance::default());
-        assert!(brep.validate_self_intersection().is_ok());
-    }
-
-    #[test]
-    fn single_face_brep_passes() {
-        // A brep with only one face cannot self-intersect.
-        let mut brep = BRep::new(Tolerance::default());
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev1 = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        let mev2 = brep
-            .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
-            .unwrap();
-        let mev3 = brep
-            .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
-            .unwrap();
-        let _mef = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
-        assert!(brep.validate_self_intersection().is_ok());
-    }
-
-    /// Faces without surface geometry are skipped gracefully.
-    #[test]
-    fn face_without_surface_skips_gracefully() {
-        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let face_keys: Vec<_> = brep.faces.keys().collect();
-
-        // Remove surface from one face.
-        brep.faces[face_keys[0]].surface = None;
-
-        // Should still pass — faces without geometry are skipped.
-        assert!(brep.validate_self_intersection().is_ok());
-    }
-
-    /// Test that adjacent faces in a cube are not reported as self-intersecting.
-    #[test]
-    fn adjacent_faces_not_reported() {
-        // The cube has geometry on all faces; no non-adjacent faces share a plane.
-        let cube = BRep::unit_cube(Tolerance::default()).unwrap();
-        assert!(cube.validate_self_intersection().is_ok());
-    }
-
-    /// Test the adjacency walking with a valid cube.
-    #[test]
-    fn unit_cube_with_geometry_no_self_intersection() {
-        let cube = BRep::unit_cube(Tolerance::default()).unwrap();
-        assert!(cube.validate_self_intersection().is_ok());
-    }
-
-    /// Faces whose surfaces have no geometry (all None) cannot yield any BVH pairs.
-    #[test]
-    fn all_faces_without_surfaces_pass() {
-        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        // Remove all surface geometry.
-        for fk in brep.faces.keys().collect::<Vec<_>>() {
-            brep.faces[fk].surface = None;
-        }
-        assert!(brep.validate_self_intersection().is_ok());
-    }
-
-    /// Build a minimal two-face BRep (no shared edges) and attach crossing NURBS
-    /// bilinear patches so the self-intersection check fires the error path.
-    ///
-    /// Topology: two completely disconnected faces created via mvfs twice —
-    /// they share no edges, so the adjacency set is empty.  `SurfaceGeometry::Nurbs`
-    /// is used because it has finite parameter ranges (from the knot vectors),
-    /// which means the AABB sampling in `validate_self_intersection` produces real
-    /// numbers, enabling the BVH to pair the two faces.
-    ///
-    /// Patch A: flat quad in the XY plane (z=0), u∈[0,1], v∈[0,1].
-    ///   corners: (0,0,0), (0,1,0), (1,0,0), (1,1,0).
-    /// Patch B: flat quad in the XZ plane (y=0), u∈[0,1], v∈[0,1].
-    ///   corners: (0,0,0), (0,0,1), (1,0,0), (1,0,1).
-    ///
-    /// Both patches share the segment x∈[0,1], y=0, z=0, so their AABBs overlap
-    /// and `intersect_surfaces_with_handler` finds an intersection line.
-    #[test]
-    fn self_intersecting_faces_detected() {
-        let mut brep = BRep::new(Tolerance::default());
-
-        // Face A — isolated topology node; carries patch A geometry.
-        let mvfs_a = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev_a1 = brep
-            .mev_at_vertex(mvfs_a.vertex, mvfs_a.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        let mev_a2 = brep
-            .mev(mev_a1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
-            .unwrap();
-        let mev_a3 = brep
-            .mev(mev_a2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
-            .unwrap();
-        let mef_a = brep.mef(mev_a3.half_edge_twin, mev_a1.half_edge).unwrap();
-
-        // Face B — isolated topology node; carries patch B geometry.
-        let mvfs_b = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev_b1 = brep
-            .mev_at_vertex(mvfs_b.vertex, mvfs_b.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        let mev_b2 = brep
-            .mev(mev_b1.half_edge_twin, Point3::new(1.0, 0.0, 1.0))
-            .unwrap();
-        let mev_b3 = brep
-            .mev(mev_b2.half_edge_twin, Point3::new(0.0, 0.0, 1.0))
-            .unwrap();
-        let mef_b = brep.mef(mev_b3.half_edge_twin, mev_b1.half_edge).unwrap();
-
-        // Patch A: flat quad in the XY plane (z = 0).
-        //   row-major order: (u0,v0), (u0,v1), (u1,v0), (u1,v1)
-        brep.faces[mef_a.face].surface = Some(SurfaceOnFace {
-            geometry: bilinear_patch(
-                Point3::new(0.0, 0.0, 0.0), // u=0, v=0
-                Point3::new(0.0, 1.0, 0.0), // u=0, v=1
-                Point3::new(1.0, 0.0, 0.0), // u=1, v=0
-                Point3::new(1.0, 1.0, 0.0), // u=1, v=1
-            ),
-            orientation: true,
-        });
-        // Patch B: flat quad in the XZ plane (y = 0).
-        //   intersects patch A along x∈[0,1], y=0, z=0.
-        brep.faces[mef_b.face].surface = Some(SurfaceOnFace {
-            geometry: bilinear_patch(
-                Point3::new(0.0, 0.0, 0.0), // u=0, v=0
-                Point3::new(0.0, 0.0, 1.0), // u=0, v=1
-                Point3::new(1.0, 0.0, 0.0), // u=1, v=0
-                Point3::new(1.0, 0.0, 1.0), // u=1, v=1
-            ),
-            orientation: true,
-        });
-
-        let result = brep.validate_self_intersection();
-        assert!(
-            matches!(result, Err(ValidationError::SelfIntersection { .. })),
-            "expected SelfIntersection error, got: {result:?}"
-        );
-    }
-
-    /// When one face in a non-adjacent pair has `surface = None` the pair is
-    /// silently skipped (the `None => continue` branch in the intersection loop).
-    /// Build the same two-disconnected-face topology but leave face B's surface
-    /// as None — the check must pass.
-    #[test]
-    fn non_adjacent_pair_with_one_missing_surface_passes() {
-        let mut brep = BRep::new(Tolerance::default());
-
-        // Face A — bilinear NURBS patch in XY plane.
-        let mvfs_a = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev_a1 = brep
-            .mev_at_vertex(mvfs_a.vertex, mvfs_a.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        let mev_a2 = brep
-            .mev(mev_a1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
-            .unwrap();
-        let mev_a3 = brep
-            .mev(mev_a2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
-            .unwrap();
-        let mef_a = brep.mef(mev_a3.half_edge_twin, mev_a1.half_edge).unwrap();
-
-        // Face B — disconnected, surface stays None.
-        let mvfs_b = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev_b1 = brep
-            .mev_at_vertex(mvfs_b.vertex, mvfs_b.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        let mev_b2 = brep
-            .mev(mev_b1.half_edge_twin, Point3::new(1.0, 0.0, 1.0))
-            .unwrap();
-        let mev_b3 = brep
-            .mev(mev_b2.half_edge_twin, Point3::new(0.0, 0.0, 1.0))
-            .unwrap();
-        let mef_b = brep.mef(mev_b3.half_edge_twin, mev_b1.half_edge).unwrap();
-
-        // Only face A gets a surface; face B stays None.
-        brep.faces[mef_a.face].surface = Some(SurfaceOnFace {
-            geometry: bilinear_patch(
-                Point3::new(0.0, 0.0, 0.0),
-                Point3::new(0.0, 1.0, 0.0),
-                Point3::new(1.0, 0.0, 0.0),
-                Point3::new(1.0, 1.0, 0.0),
-            ),
-            orientation: true,
-        });
-        let _ = mef_b; // face B surface stays None
-
-        assert!(
-            brep.validate_self_intersection().is_ok(),
-            "pair with one missing surface should not be reported as self-intersecting"
-        );
-    }
-}
+#[path = "self_intersection_tests.rs"]
+mod tests;
