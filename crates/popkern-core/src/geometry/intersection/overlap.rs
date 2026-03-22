@@ -133,3 +133,69 @@ fn build_overlap(run: &[Sample]) -> CurveIntersection {
         t2_range: (t2_start, t2_end),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::geometry::Point3;
+    use crate::tolerance::Tolerance;
+
+    #[test]
+    fn detect_full_overlap() {
+        let c1 = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        let c2 = c1.clone();
+        let overlaps = detect_overlaps(&c1, (0.0, 1.0), &c2, (0.0, 1.0), &Tolerance::default());
+        assert_eq!(overlaps.len(), 1);
+        if let CurveIntersection::Overlap {
+            t1_range,
+            t2_range: _,
+        } = &overlaps[0]
+        {
+            assert!((t1_range.0 - 0.0).abs() < 0.1);
+            assert!((t1_range.1 - 1.0).abs() < 0.1);
+        } else {
+            panic!("Expected Overlap");
+        }
+    }
+
+    #[test]
+    fn detect_partial_overlap() {
+        let c1 = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(2.0, 0.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        let c2 = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(1.0, 0.0, 0.0), Point3::new(3.0, 0.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        let overlaps = detect_overlaps(&c1, (0.0, 1.0), &c2, (0.0, 1.0), &Tolerance::default());
+        assert_eq!(overlaps.len(), 1);
+    }
+
+    #[test]
+    fn no_overlap_different_curves() {
+        let c1 = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        let c2 = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 5.0, 0.0), Point3::new(1.0, 5.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        let overlaps = detect_overlaps(&c1, (0.0, 1.0), &c2, (0.0, 1.0), &Tolerance::default());
+        assert!(overlaps.is_empty());
+    }
+}
