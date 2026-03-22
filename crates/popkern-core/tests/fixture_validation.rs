@@ -1,5 +1,5 @@
 use popkern_core::topology_v0::BRepModel;
-use popkern_core::validation::{euler_characteristic, validate_model};
+use popkern_core::validation_v0::{euler_characteristic, validate_model};
 use serde::Deserialize;
 use std::fs;
 
