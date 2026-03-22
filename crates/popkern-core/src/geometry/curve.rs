@@ -1,5 +1,6 @@
 //! Curve geometry types, evaluation trait, and topology binding.
 
+use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
 
@@ -49,6 +50,8 @@ pub enum CurveGeometry {
         /// End angle in radians.
         end_angle: f64,
     },
+    /// A NURBS (Non-Uniform Rational B-Spline) curve.
+    Nurbs(NurbsCurve),
 }
 
 /// Binding between an edge and its geometric curve.

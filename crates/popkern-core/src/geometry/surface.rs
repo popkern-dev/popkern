@@ -1,5 +1,6 @@
 //! Surface geometry types, evaluation trait, and topology binding.
 
+use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
 
@@ -67,6 +68,8 @@ pub enum SurfaceGeometry {
         /// Radius of the tube.
         minor_radius: f64,
     },
+    /// A NURBS surface.
+    Nurbs(NurbsSurface),
 }
 
 /// Binding between a face and its geometric surface.

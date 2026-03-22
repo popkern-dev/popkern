@@ -204,6 +204,7 @@ impl CurveEval for CurveGeometry {
                 start_angle,
                 end_angle,
             } => Arc::new(*center, *normal, *radius, *start_angle, *end_angle).point_at(t),
+            CurveGeometry::Nurbs(nurbs) => nurbs.point_at(t),
         }
     }
 
@@ -227,6 +228,7 @@ impl CurveEval for CurveGeometry {
                 end_angle,
             } => Arc::new(*center, *normal, *radius, *start_angle, *end_angle)
                 .derivative_at(t, order),
+            CurveGeometry::Nurbs(nurbs) => nurbs.derivative_at(t, order),
         }
     }
 
@@ -249,6 +251,7 @@ impl CurveEval for CurveGeometry {
                 start_angle,
                 end_angle,
             } => Arc::new(*center, *normal, *radius, *start_angle, *end_angle).tangent_at(t),
+            CurveGeometry::Nurbs(nurbs) => nurbs.tangent_at(t),
         }
     }
 
@@ -271,6 +274,7 @@ impl CurveEval for CurveGeometry {
                 start_angle,
                 end_angle,
             } => Arc::new(*center, *normal, *radius, *start_angle, *end_angle).parameter_range(),
+            CurveGeometry::Nurbs(nurbs) => nurbs.parameter_range(),
         }
     }
 
@@ -295,6 +299,7 @@ impl CurveEval for CurveGeometry {
             } => {
                 Arc::new(*center, *normal, *radius, *start_angle, *end_angle).length_between(t0, t1)
             }
+            CurveGeometry::Nurbs(nurbs) => nurbs.length_between(t0, t1),
         }
     }
 }

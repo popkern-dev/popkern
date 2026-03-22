@@ -84,6 +84,7 @@ impl SurfaceEval for SurfaceGeometry {
                 let tube_axial = *axis * (minor_radius * v.sin());
                 *center + tube_center_offset + tube_radial + tube_axial
             }
+            SurfaceGeometry::Nurbs(nurbs) => nurbs.point_at(u, v),
         }
     }
 
@@ -117,6 +118,7 @@ impl SurfaceEval for SurfaceGeometry {
                 let d_radial = (perp1 * (-u.sin()) + perp2 * u.cos()) * (minor_radius * v.cos());
                 d_center + d_radial
             }
+            SurfaceGeometry::Nurbs(nurbs) => nurbs.partial_u(u, v),
         }
     }
 
@@ -148,6 +150,7 @@ impl SurfaceEval for SurfaceGeometry {
                 let d_axial = *axis * (minor_radius * v.cos());
                 d_radial + d_axial
             }
+            SurfaceGeometry::Nurbs(nurbs) => nurbs.partial_v(u, v),
         }
     }
 
@@ -172,6 +175,7 @@ impl SurfaceEval for SurfaceGeometry {
             SurfaceGeometry::Cone { .. } => ((0.0, TAU), (0.0, f64::INFINITY)),
             SurfaceGeometry::Sphere { .. } => ((0.0, TAU), (0.0, std::f64::consts::PI)),
             SurfaceGeometry::Torus { .. } => ((0.0, TAU), (0.0, TAU)),
+            SurfaceGeometry::Nurbs(nurbs) => nurbs.parameter_range(),
         }
     }
 }
