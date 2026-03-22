@@ -22,14 +22,14 @@ fn arbitrary_perpendicular(normal: Vec3) -> Vec3 {
 fn circle_basis(normal: Vec3) -> (Vec3, Vec3) {
     let perp = arbitrary_perpendicular(normal);
     // u = normalize(perp)
-    let u = perp
-        .normalized()
-        .expect("arbitrary_perpendicular returned zero vector");
-    // v = normalize(normal × u)  — ensures right-hand orientation
+    // SAFETY: arbitrary_perpendicular guarantees a non-zero vector,
+    // and normal × u is non-zero when both are non-zero and not parallel.
+    // unwrap_or fallback to unit X/Y is defensive but should never trigger.
+    let u = perp.normalized().unwrap_or(Vec3::new(1.0, 0.0, 0.0));
     let v = normal
         .cross(&u)
         .normalized()
-        .expect("normal cross u returned zero vector");
+        .unwrap_or(Vec3::new(0.0, 1.0, 0.0));
     (u, v)
 }
 

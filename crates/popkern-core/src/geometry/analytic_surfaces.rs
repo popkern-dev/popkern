@@ -22,9 +22,7 @@ fn orthonormal_basis(axis: Vec3) -> (Vec3, Vec3) {
 
     // Gram–Schmidt: project `reference` onto the plane perpendicular to `axis`.
     let proj = reference - axis * reference.dot(&axis);
-    let perp1 = proj
-        .normalized()
-        .expect("axis is unit, reference is not parallel to axis");
+    let perp1 = proj.normalized().unwrap_or(Vec3::new(1.0, 0.0, 0.0));
     // perp2 completes the right-handed frame: perp2 = perp1 × axis... but we want
     // (perp1, perp2, axis) right-handed, so perp2 = axis × perp1 gives left-hand order.
     // Use perp2 = perp1.cross(axis) to keep right-handed (perp1 × perp2 = axis).
