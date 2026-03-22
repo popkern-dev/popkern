@@ -1,7 +1,8 @@
 //! NURBS (Non-Uniform Rational B-Spline) curve evaluation via de Boor's algorithm.
 
+use crate::error::CoreError;
 use crate::geometry::curve::CurveEval;
-use crate::geometry::nurbs_ops::{Homogeneous, de_boor_1d};
+use crate::geometry::nurbs_ops::{self, Homogeneous, de_boor_1d};
 use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +20,109 @@ pub struct NurbsCurve {
 }
 
 impl NurbsCurve {
+    /// Insert a single knot at parameter `t`. The curve shape is mathematically unchanged.
+    pub fn insert_knot(&self, t: f64) -> Result<NurbsCurve, CoreError> {
+        let (t_min, t_max) = self.parameter_range();
+        if t < t_min || t > t_max {
+            return Err(CoreError::PreconditionFailed(format!(
+                "knot {} outside parameter range [{}, {}]",
+                t, t_min, t_max
+            )));
+        }
+        let (knots, pts, wts) = nurbs_ops::knot_insertion::insert_knot_1d(
+            self.degree,
+            &self.knots,
+            &self.control_points,
+            &self.weights,
+            t,
+        );
+        Ok(NurbsCurve {
+            degree: self.degree,
+            knots,
+            control_points: pts,
+            weights: wts,
+        })
+    }
+
+    /// Attempt to remove the knot at `knot_index` from the knot vector.
+    ///
+    /// Returns `Some(new_curve)` if removal is within `tolerance`, or `None` if
+    /// the knot cannot be removed within the given tolerance.  Use `tolerance = 0.0`
+    /// for exact removal only (e.g. when reversing a prior insertion).
+    pub fn remove_knot(&self, knot_index: usize, tolerance: f64) -> Option<NurbsCurve> {
+        let (k, p, w) = nurbs_ops::knot_removal::remove_knot_1d(
+            self.degree,
+            &self.knots,
+            &self.control_points,
+            &self.weights,
+            knot_index,
+            tolerance,
+        )?;
+        Some(NurbsCurve {
+            degree: self.degree,
+            knots: k,
+            control_points: p,
+            weights: w,
+        })
+    }
+
+    /// Remove the knot at `knot_index` up to `times` times.
+    ///
+    /// Returns `(new_curve, actual_count)` where `actual_count` is the number of
+    /// times removal succeeded (may be less than `times` if tolerance is exceeded
+    /// or the knot multiplicity is lower than requested).
+    pub fn remove_knot_times(
+        &self,
+        knot_index: usize,
+        times: usize,
+        tolerance: f64,
+    ) -> (NurbsCurve, usize) {
+        let (k, p, w, count) = nurbs_ops::knot_removal::remove_knot_times_1d(
+            self.degree,
+            &self.knots,
+            &self.control_points,
+            &self.weights,
+            knot_index,
+            times,
+            tolerance,
+        );
+        (
+            NurbsCurve {
+                degree: self.degree,
+                knots: k,
+                control_points: p,
+                weights: w,
+            },
+            count,
+        )
+    }
+
+    /// Insert multiple sorted knots. The curve shape is mathematically unchanged.
+    pub fn insert_knots(&self, knots_to_insert: &[f64]) -> Result<NurbsCurve, CoreError> {
+        let (t_min, t_max) = self.parameter_range();
+        for &t in knots_to_insert {
+            if t < t_min || t > t_max {
+                return Err(CoreError::PreconditionFailed(format!(
+                    "knot {} outside parameter range [{}, {}]",
+                    t, t_min, t_max
+                )));
+            }
+        }
+        let (knots, pts, wts) = nurbs_ops::knot_insertion::insert_knots_1d(
+            self.degree,
+            &self.knots,
+            &self.control_points,
+            &self.weights,
+            knots_to_insert,
+        );
+        Ok(NurbsCurve {
+            degree: self.degree,
+            knots,
+            control_points: pts,
+            weights: wts,
+        })
+    }
+
     /// Evaluate the curve at parameter t using de Boor's algorithm in homogeneous coordinates.
     fn de_boor(&self, t: f64) -> Homogeneous {
         let homogeneous_points: Vec<Homogeneous> = self
@@ -116,7 +220,7 @@ impl CurveEval for NurbsCurve {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geometry::Point3;
+    use crate::geometry::{CurveEval, Point3};
 
     #[test]
     fn degree_1_nurbs_is_polyline() {
@@ -317,5 +421,151 @@ mod tests {
         // Length should be computable
         let len = curve.length_between(0.0, 1.0);
         assert!(len > 1.0);
+    }
+
+    #[test]
+    fn curve_insert_knot_preserves_shape() {
+        let curve = NurbsCurve {
+            degree: 2,
+            knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.5, 1.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+            ],
+            weights: vec![1.0, 1.0, 1.0],
+        };
+        let new_curve = curve.insert_knot(0.5).unwrap();
+        for &t in &[0.0, 0.25, 0.5, 0.75, 0.99] {
+            let p1 = curve.point_at(t);
+            let p2 = new_curve.point_at(t);
+            assert!(
+                (p1.x - p2.x).abs() < 1e-10,
+                "x mismatch at t={t}: {p1:?} vs {p2:?}"
+            );
+            assert!(
+                (p1.y - p2.y).abs() < 1e-10,
+                "y mismatch at t={t}: {p1:?} vs {p2:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn curve_insert_knot_increases_counts() {
+        let curve = NurbsCurve {
+            degree: 2,
+            knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.5, 1.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+            ],
+            weights: vec![1.0, 1.0, 1.0],
+        };
+        let new_curve = curve.insert_knot(0.3).unwrap();
+        assert_eq!(new_curve.knots.len(), curve.knots.len() + 1);
+        assert_eq!(
+            new_curve.control_points.len(),
+            curve.control_points.len() + 1
+        );
+        assert_eq!(new_curve.weights.len(), curve.weights.len() + 1);
+    }
+
+    #[test]
+    fn curve_insert_knot_out_of_range() {
+        let curve = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        assert!(curve.insert_knot(2.0).is_err());
+        assert!(curve.insert_knot(-0.5).is_err());
+    }
+
+    #[test]
+    fn curve_insert_knots_preserves_shape() {
+        let curve = NurbsCurve {
+            degree: 2,
+            knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.5, 1.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+            ],
+            weights: vec![1.0, 1.0, 1.0],
+        };
+        let new_curve = curve.insert_knots(&[0.25, 0.5, 0.75]).unwrap();
+        for &t in &[0.0, 0.25, 0.5, 0.75, 0.99] {
+            let p1 = curve.point_at(t);
+            let p2 = new_curve.point_at(t);
+            assert!(
+                (p1.x - p2.x).abs() < 1e-10,
+                "x mismatch at t={t}: {p1:?} vs {p2:?}"
+            );
+            assert!(
+                (p1.y - p2.y).abs() < 1e-10,
+                "y mismatch at t={t}: {p1:?} vs {p2:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn curve_insert_knots_out_of_range() {
+        let curve = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        assert!(curve.insert_knots(&[0.5, 2.0]).is_err());
+    }
+
+    #[test]
+    fn curve_remove_knot_roundtrip() {
+        let curve = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        let inserted = curve.insert_knot(0.5).unwrap();
+        assert_eq!(inserted.knots.len(), 5);
+        let removed = inserted.remove_knot(2, 0.0);
+        assert!(removed.is_some());
+        assert_eq!(removed.unwrap().knots.len(), 4);
+    }
+
+    #[test]
+    fn curve_remove_knot_times() {
+        let curve = NurbsCurve {
+            degree: 2,
+            knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.5, 1.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+            ],
+            weights: vec![1.0, 1.0, 1.0],
+        };
+        let inserted = curve.insert_knots(&[0.5, 0.5]).unwrap();
+        // After inserting 0.5 twice: knots = [0,0,0, 0.5,0.5, 1,1,1], index 3 holds first 0.5
+        let (result, count) = inserted.remove_knot_times(3, 3, 0.0);
+        assert_eq!(count, 2);
+        // Two knots removed from the inserted curve
+        assert_eq!(result.knots.len(), inserted.knots.len() - 2);
+    }
+
+    #[test]
+    fn curve_remove_knot_none_on_boundary() {
+        let curve = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        // Boundary knots cannot be removed
+        assert!(curve.remove_knot(0, 0.0).is_none());
+        assert!(curve.remove_knot(3, 0.0).is_none());
     }
 }
