@@ -261,6 +261,21 @@ fn to_cartesian(points: &[Point3], weights: &[f64]) -> Vec<Point3> {
 /// Maximum number of intersection candidates to prevent runaway recursion.
 const MAX_CANDIDATES: usize = 100;
 
+/// Evaluate the midpoint of a Bezier curve using De Casteljau.
+fn evaluate_bezier_midpoint(points: &[Point3]) -> Point3 {
+    if points.is_empty() {
+        return Point3::new(0.0, 0.0, 0.0);
+    }
+    let mut work = points.to_vec();
+    let n = work.len();
+    for level in 1..n {
+        for i in 0..n - level {
+            work[i] = lerp_point(work[i], work[i + 1], 0.5);
+        }
+    }
+    work[0]
+}
+
 #[allow(clippy::too_many_arguments)]
 fn bezier_intersect_inner(
     a_points: &[Point3],
@@ -270,6 +285,22 @@ fn bezier_intersect_inner(
     tolerance: &Tolerance,
     max_depth: usize,
     results: &mut Vec<(f64, f64)>,
+) {
+    bezier_intersect_inner_with_stalls(
+        a_points, a_range, b_points, b_range, tolerance, max_depth, results, 0,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn bezier_intersect_inner_with_stalls(
+    a_points: &[Point3],
+    a_range: (f64, f64),
+    b_points: &[Point3],
+    b_range: (f64, f64),
+    tolerance: &Tolerance,
+    max_depth: usize,
+    results: &mut Vec<(f64, f64)>,
+    consecutive_stalls: usize,
 ) {
     // Safety: cap results to prevent runaway recursion
     if results.len() >= MAX_CANDIDATES {
@@ -287,12 +318,45 @@ fn bezier_intersect_inner(
         return;
     }
 
+    // Asymmetric convergence: one parameter has converged but the other has not.
+    // This happens in near-tangent cases where the clipping isolates A but B remains
+    // wide. Report the intersection at the A midpoint; Newton polishing downstream
+    // will refine the B parameter.
+    if a_span < tolerance.parametric {
+        let t1 = (a_range.0 + a_range.1) * 0.5;
+        let t2 = (b_range.0 + b_range.1) * 0.5;
+        results.push((t1, t2));
+        return;
+    }
+    if b_span < tolerance.parametric {
+        let t1 = (a_range.0 + a_range.1) * 0.5;
+        let t2 = (b_range.0 + b_range.1) * 0.5;
+        results.push((t1, t2));
+        return;
+    }
+
     // Max depth fail-safe
     if max_depth == 0 {
         let t1 = (a_range.0 + a_range.1) * 0.5;
         let t2 = (b_range.0 + b_range.1) * 0.5;
         results.push((t1, t2));
         return;
+    }
+
+    // Tangent-specific termination: when intervals are small but not yet
+    // at parametric tolerance, check for closest approach and report if
+    // the curves are within linear tolerance (handles near-tangent cases).
+    if a_span < tolerance.parametric * 10.0 && b_span < tolerance.parametric * 10.0 {
+        let a_sub_mid = subdivide_bezier(a_points, a_range.0, a_range.1);
+        let b_sub_mid = subdivide_bezier(b_points, b_range.0, b_range.1);
+        let pa = evaluate_bezier_midpoint(&a_sub_mid);
+        let pb = evaluate_bezier_midpoint(&b_sub_mid);
+        if pa.distance_to(&pb) < tolerance.linear {
+            let t1 = (a_range.0 + a_range.1) * 0.5;
+            let t2 = (b_range.0 + b_range.1) * 0.5;
+            results.push((t1, t2));
+            return;
+        }
     }
 
     // Subdivide both curves to get tight control polygons for current ranges.
@@ -307,22 +371,66 @@ fn bezier_intersect_inner(
     };
 
     let clipped_b_span = clipped_b_range.1 - clipped_b_range.0;
-    let reduction = if b_span > 1e-30 {
+    let b_reduction = if b_span > 1e-30 {
         clipped_b_span / b_span
     } else {
         1.0
     };
 
-    if reduction < 0.8 {
-        // Good convergence: swap roles and clip A against B
-        let b_sub2 = subdivide_bezier(b_points, clipped_b_range.0, clipped_b_range.1);
-        let clipped_a = clip_against_fat_line(&b_sub2, &a_sub, a_range);
-        let clipped_a_range = match clipped_a {
-            None => return,
-            Some(r) => r,
-        };
+    // Also clip A against B's fat line to get the best reduction from either direction.
+    // This is critical for near-tangent cases where one direction gives poor reduction
+    // but the other direction (e.g., clipping a wide curve against a narrow line) gives
+    // excellent reduction.
+    let b_sub2 = subdivide_bezier(b_points, clipped_b_range.0, clipped_b_range.1);
+    let clipped_a = clip_against_fat_line(&b_sub2, &a_sub, a_range);
+    let clipped_a_range = match clipped_a {
+        None => return,
+        Some(r) => r,
+    };
 
-        bezier_intersect_inner(
+    let clipped_a_span = clipped_a_range.1 - clipped_a_range.0;
+    let a_reduction = if a_span > 1e-30 {
+        clipped_a_span / a_span
+    } else {
+        1.0
+    };
+
+    // Use the best reduction from either clipping direction.
+    let best_reduction = b_reduction.min(a_reduction);
+
+    // Track consecutive stalls at this recursion level.
+    let new_stalls = if best_reduction > 0.8 {
+        consecutive_stalls + 1
+    } else {
+        0
+    };
+
+    // After 3 consecutive stalls (near-tangent convergence failure), bisect
+    // BOTH curves and recurse on all 4 sub-pairs for aggressive resolution.
+    if new_stalls >= 3 {
+        let a_mid = (clipped_a_range.0 + clipped_a_range.1) * 0.5;
+        let b_mid = (clipped_b_range.0 + clipped_b_range.1) * 0.5;
+        // All 4 sub-pairs
+        for &a_sub_range in &[(clipped_a_range.0, a_mid), (a_mid, clipped_a_range.1)] {
+            for &b_sub_range in &[(clipped_b_range.0, b_mid), (b_mid, clipped_b_range.1)] {
+                bezier_intersect_inner_with_stalls(
+                    a_points,
+                    a_sub_range,
+                    b_points,
+                    b_sub_range,
+                    tolerance,
+                    max_depth - 1,
+                    results,
+                    0, // reset stall counter after bisection
+                );
+            }
+        }
+        return;
+    }
+
+    if best_reduction < 0.8 {
+        // Good convergence from at least one direction: recurse with both clipped ranges.
+        bezier_intersect_inner_with_stalls(
             a_points,
             clipped_a_range,
             b_points,
@@ -330,164 +438,58 @@ fn bezier_intersect_inner(
             tolerance,
             max_depth - 1,
             results,
+            0, // good convergence resets stall counter
         );
     } else {
         // Slow convergence (near-tangent case): bisect the curve with the longer range
-        if a_span >= b_span {
-            let a_mid = (a_range.0 + a_range.1) * 0.5;
-            bezier_intersect_inner(
+        if clipped_a_span >= clipped_b_span {
+            let a_mid = (clipped_a_range.0 + clipped_a_range.1) * 0.5;
+            bezier_intersect_inner_with_stalls(
                 a_points,
-                (a_range.0, a_mid),
+                (clipped_a_range.0, a_mid),
                 b_points,
                 clipped_b_range,
                 tolerance,
                 max_depth - 1,
                 results,
+                new_stalls,
             );
-            bezier_intersect_inner(
+            bezier_intersect_inner_with_stalls(
                 a_points,
-                (a_mid, a_range.1),
+                (a_mid, clipped_a_range.1),
                 b_points,
                 clipped_b_range,
                 tolerance,
                 max_depth - 1,
                 results,
+                new_stalls,
             );
         } else {
             let b_mid = (clipped_b_range.0 + clipped_b_range.1) * 0.5;
-            bezier_intersect_inner(
+            bezier_intersect_inner_with_stalls(
                 a_points,
-                a_range,
+                clipped_a_range,
                 b_points,
                 (clipped_b_range.0, b_mid),
                 tolerance,
                 max_depth - 1,
                 results,
+                new_stalls,
             );
-            bezier_intersect_inner(
+            bezier_intersect_inner_with_stalls(
                 a_points,
-                a_range,
+                clipped_a_range,
                 b_points,
                 (b_mid, clipped_b_range.1),
                 tolerance,
                 max_depth - 1,
                 results,
+                new_stalls,
             );
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::geometry::Point3;
-    use crate::tolerance::Tolerance;
-
-    fn p(x: f64, y: f64) -> Point3 {
-        Point3::new(x, y, 0.0)
-    }
-
-    #[test]
-    fn clip_edge_cases() {
-        let h = vec![p(0.0, 0.0), p(1.0, 0.0)];
-        // Non-overlapping
-        assert!(clip_against_fat_line(&h, &[p(0.0, 2.0), p(1.0, 2.0)], (0.0, 1.0)).is_none());
-        // Empty/short inputs
-        assert!(clip_against_fat_line(&[p(0.0, 0.0)], &h, (0.0, 1.0)).is_none());
-        assert!(clip_against_fat_line(&h, &vec![], (0.0, 1.0)).is_none());
-        // Degenerate A (coincident)
-        assert!(clip_against_fat_line(&[p(0.5, 0.5), p(0.5, 0.5)], &h, (0.0, 1.0)).is_none());
-    }
-
-    #[test]
-    fn clip_crossing_lines() {
-        let a = vec![p(0.0, 0.0), p(1.0, 0.0)];
-        let b = vec![p(0.0, -1.0), p(1.0, 1.0)];
-        let (t_min, t_max) = clip_against_fat_line(&a, &b, (0.0, 1.0)).unwrap();
-        assert!(t_min <= 0.5 && t_max >= 0.5);
-    }
-
-    #[test]
-    fn subdivide_cases() {
-        // Single point
-        assert_eq!(subdivide_bezier(&[p(1.0, 2.0)], 0.0, 1.0).len(), 1);
-        // Full range returns original
-        let pts = vec![p(0.0, 0.0), p(0.5, 1.0), p(1.0, 0.0)];
-        assert_eq!(subdivide_bezier(&pts, 0.0, 1.0).len(), 3);
-        // t_hi = 0 degenerate
-        assert_eq!(
-            subdivide_bezier(&[p(0.0, 0.0), p(1.0, 0.0)], 0.0, 0.0).len(),
-            2
-        );
-        // Quadratic left half
-        let left = subdivide_bezier(&pts, 0.0, 0.5);
-        assert_eq!(left.len(), 3);
-        assert!((left[1].x - 0.25).abs() < 1e-10 && (left[1].y - 0.5).abs() < 1e-10);
-    }
-
-    fn run_intersect(
-        a: &[Point3],
-        aw: &[f64],
-        b: &[Point3],
-        bw: &[f64],
-        depth: usize,
-    ) -> Vec<(f64, f64)> {
-        let mut r = Vec::new();
-        bezier_intersect(
-            a,
-            aw,
-            (0.0, 1.0),
-            b,
-            bw,
-            (0.0, 1.0),
-            &Tolerance::default(),
-            depth,
-            &mut r,
-        );
-        r
-    }
-
-    #[test]
-    fn bezier_intersect_cases() {
-        let arc = vec![p(0.0, 0.0), p(0.5, 1.0), p(1.0, 0.0)];
-        let line = vec![p(0.0, 0.5), p(1.0, 0.5)];
-        assert!(!run_intersect(&arc, &[1.0; 3], &line, &[1.0; 2], 50).is_empty());
-        // Non-intersecting
-        assert!(
-            run_intersect(
-                &[p(0.0, 0.0), p(1.0, 0.0)],
-                &[1.0; 2],
-                &[p(0.0, 5.0), p(1.0, 5.0)],
-                &[1.0; 2],
-                50
-            )
-            .is_empty()
-        );
-        // Rational weights
-        assert!(
-            !run_intersect(
-                &arc,
-                &[1.0, 2.0, 1.0],
-                &[p(0.0, 0.25), p(1.0, 0.25)],
-                &[1.0; 2],
-                50
-            )
-            .is_empty()
-        );
-        // max_depth = 0 fallback
-        assert!(!run_intersect(&arc, &[1.0; 3], &line, &[1.0; 2], 0).is_empty());
-    }
-
-    #[test]
-    fn compute_fat_line_normal_collinear_fallback() {
-        let dir = crate::geometry::Vec3::new(1.0, 0.0, 0.0);
-        assert!(
-            compute_fat_line_normal(
-                &dir,
-                &[p(0.0, 0.0), p(1.0, 0.0)],
-                &[p(0.0, 0.0), p(2.0, 0.0)]
-            )
-            .is_some()
-        );
-    }
-}
+#[path = "bezier_clipping_tests.rs"]
+mod tests;
