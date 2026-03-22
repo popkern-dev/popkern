@@ -424,8 +424,8 @@ mod tests {
     // --- Torus tests ---
 
     #[test]
-    fn torus_deferred() {
+    fn torus_basic_succeeds() {
         let result = BRep::torus(2.0, 0.5, Tolerance::default());
-        assert!(result.is_err(), "Torus should be deferred to v1b");
+        assert!(result.is_ok(), "Torus constructor should succeed");
     }
 }
