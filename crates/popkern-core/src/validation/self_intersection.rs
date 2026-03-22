@@ -174,6 +174,8 @@ impl BRep {
 
 #[cfg(test)]
 mod tests {
+    use crate::error::ValidationError;
+    use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
     use crate::geometry::{Point3, Vec3};
     use crate::tolerance::Tolerance;
     use crate::topology::BRep;
@@ -262,5 +264,129 @@ mod tests {
             brep.faces[fk].surface = None;
         }
         assert!(brep.validate_self_intersection().is_ok());
+    }
+
+    /// Build a minimal two-face BRep (no shared edges) and attach crossing plane
+    /// geometries so that the self-intersection check fires the error path.
+    ///
+    /// Topology: two completely disconnected faces created via mvfs twice —
+    /// they share no edges, so the adjacency set is empty.  We then give each
+    /// face a plane whose finite parameter range overlaps with the other in 3D.
+    ///
+    /// Face A: the XY-plane (z=0), u along X, v along Y, range [0,2]×[0,2].
+    /// Face B: the XZ-plane (y=0), u along X, v along Z, range [0,2]×[0,2].
+    /// These two planes intersect along the X-axis, which lies inside both
+    /// parameter ranges, so `intersect_surfaces_with_handler` will return a
+    /// non-empty intersection curve.
+    #[test]
+    fn self_intersecting_faces_detected() {
+        let mut brep = BRep::new(Tolerance::default());
+
+        // Face A — isolated quad in the XY plane (z = 0).
+        let mvfs_a = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev_a1 = brep
+            .mev_at_vertex(mvfs_a.vertex, mvfs_a.loop_, Point3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        let mev_a2 = brep
+            .mev(mev_a1.half_edge_twin, Point3::new(2.0, 2.0, 0.0))
+            .unwrap();
+        let mev_a3 = brep
+            .mev(mev_a2.half_edge_twin, Point3::new(0.0, 2.0, 0.0))
+            .unwrap();
+        let mef_a = brep.mef(mev_a3.half_edge_twin, mev_a1.half_edge).unwrap();
+
+        // Face B — isolated quad in the XZ plane (y = 0).
+        let mvfs_b = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev_b1 = brep
+            .mev_at_vertex(mvfs_b.vertex, mvfs_b.loop_, Point3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        let mev_b2 = brep
+            .mev(mev_b1.half_edge_twin, Point3::new(2.0, 0.0, 2.0))
+            .unwrap();
+        let mev_b3 = brep
+            .mev(mev_b2.half_edge_twin, Point3::new(0.0, 0.0, 2.0))
+            .unwrap();
+        let mef_b = brep.mef(mev_b3.half_edge_twin, mev_b1.half_edge).unwrap();
+
+        // Assign plane geometry to both faces.
+        // Face A: XY-plane, normal = +Z, u=X, v=Y, range [0,2]×[0,2].
+        brep.faces[mef_a.face].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Plane {
+                origin: Point3::new(0.0, 0.0, 0.0),
+                normal: Vec3::new(0.0, 0.0, 1.0),
+                u_axis: Vec3::new(1.0, 0.0, 0.0),
+                v_axis: Vec3::new(0.0, 1.0, 0.0),
+            },
+            orientation: true,
+        });
+        // Face B: XZ-plane, normal = +Y, u=X, v=Z, range [0,2]×[0,2].
+        brep.faces[mef_b.face].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Plane {
+                origin: Point3::new(0.0, 0.0, 0.0),
+                normal: Vec3::new(0.0, 1.0, 0.0),
+                u_axis: Vec3::new(1.0, 0.0, 0.0),
+                v_axis: Vec3::new(0.0, 0.0, 1.0),
+            },
+            orientation: true,
+        });
+
+        let result = brep.validate_self_intersection();
+        assert!(
+            matches!(result, Err(ValidationError::SelfIntersection { .. })),
+            "expected SelfIntersection error, got: {result:?}"
+        );
+    }
+
+    /// When one face in a non-adjacent pair has `surface = None` the pair is
+    /// silently skipped (the `None => continue` branch in the intersection loop).
+    /// Build the same two-disconnected-face topology but leave face B's surface
+    /// as None — the check must pass.
+    #[test]
+    fn non_adjacent_pair_with_one_missing_surface_passes() {
+        let mut brep = BRep::new(Tolerance::default());
+
+        // Face A — XY plane.
+        let mvfs_a = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev_a1 = brep
+            .mev_at_vertex(mvfs_a.vertex, mvfs_a.loop_, Point3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        let mev_a2 = brep
+            .mev(mev_a1.half_edge_twin, Point3::new(2.0, 2.0, 0.0))
+            .unwrap();
+        let mev_a3 = brep
+            .mev(mev_a2.half_edge_twin, Point3::new(0.0, 2.0, 0.0))
+            .unwrap();
+        let mef_a = brep.mef(mev_a3.half_edge_twin, mev_a1.half_edge).unwrap();
+
+        // Face B — disconnected, no geometry.
+        let mvfs_b = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev_b1 = brep
+            .mev_at_vertex(mvfs_b.vertex, mvfs_b.loop_, Point3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        let mev_b2 = brep
+            .mev(mev_b1.half_edge_twin, Point3::new(2.0, 0.0, 2.0))
+            .unwrap();
+        let mev_b3 = brep
+            .mev(mev_b2.half_edge_twin, Point3::new(0.0, 0.0, 2.0))
+            .unwrap();
+        let mef_b = brep.mef(mev_b3.half_edge_twin, mev_b1.half_edge).unwrap();
+
+        // Only face A gets a surface; face B is left as None.
+        brep.faces[mef_a.face].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Plane {
+                origin: Point3::new(0.0, 0.0, 0.0),
+                normal: Vec3::new(0.0, 0.0, 1.0),
+                u_axis: Vec3::new(1.0, 0.0, 0.0),
+                v_axis: Vec3::new(0.0, 1.0, 0.0),
+            },
+            orientation: true,
+        });
+        // Explicitly leave face B with no surface (it defaults to None from mvfs).
+        let _ = mef_b; // face B surface stays None
+
+        assert!(
+            brep.validate_self_intersection().is_ok(),
+            "pair with one missing surface should not be reported as self-intersecting"
+        );
     }
 }
