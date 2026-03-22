@@ -278,4 +278,24 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn elevate_multi_span_rational() {
+        // Multi-span rational curve with interior knot of multiplicity 2
+        // (already at full Bezier decomposition)
+        let w = 1.0_f64 / 2.0_f64.sqrt();
+        let pts = vec![
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+            Point3::new(-1.0, 1.0, 0.0),
+            Point3::new(-1.0, 0.0, 0.0),
+        ];
+        let wts = vec![1.0, w, 1.0, w, 1.0];
+        let knots = vec![0.0, 0.0, 0.0, 0.5, 0.5, 1.0, 1.0, 1.0];
+
+        let (new_deg, new_knots, new_pts, new_wts) = elevate_degree_1d(2, &knots, &pts, &wts);
+        assert_eq!(new_deg, 3);
+        assert_eq!(new_knots.len(), new_pts.len() + new_deg + 1);
+    }
 }

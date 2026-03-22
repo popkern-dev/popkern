@@ -422,3 +422,34 @@ fn surface_split_at_v_endpoint_fails() {
     assert!(surface.split_at_v(0.0).is_err());
     assert!(surface.split_at_v(1.0).is_err());
 }
+
+#[test]
+fn surface_insert_knots_u_out_of_range() {
+    let surface = bilinear_patch();
+    assert!(surface.insert_knots_u(&[0.5, 2.0]).is_err());
+    assert!(surface.insert_knots_u(&[-0.5, 0.5]).is_err());
+}
+
+#[test]
+fn surface_insert_knots_v_out_of_range() {
+    let surface = bilinear_patch();
+    assert!(surface.insert_knots_v(&[0.5, 2.0]).is_err());
+    assert!(surface.insert_knots_v(&[-0.5, 0.5]).is_err());
+}
+
+#[test]
+fn surface_remove_knot_u_times_zero_removals() {
+    let surface = bilinear_patch();
+    // No interior knots to remove -> 0 removals
+    let (result, count) = surface.remove_knot_u_times(0, 1, 0.0);
+    assert_eq!(count, 0);
+    assert_eq!(result.num_u, surface.num_u);
+}
+
+#[test]
+fn surface_remove_knot_v_times_zero_removals() {
+    let surface = bilinear_patch();
+    let (result, count) = surface.remove_knot_v_times(0, 1, 0.0);
+    assert_eq!(count, 0);
+    assert_eq!(result.num_v, surface.num_v);
+}

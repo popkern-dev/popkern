@@ -261,4 +261,94 @@ mod tests {
         assert_eq!(promoted.degree, 2);
         assert_eq!(promoted.control_points.len(), 3);
     }
+
+    #[test]
+    fn arc_to_nurbs_quarter_circle() {
+        use std::f64::consts::FRAC_PI_2;
+        let arc = CurveGeometry::Arc {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+            start_angle: 0.0,
+            end_angle: FRAC_PI_2,
+        };
+        let nurbs = arc.to_nurbs();
+        // The NURBS should represent a quarter circle; sampled points should be on unit circle
+        let p = nurbs.point_at(nurbs.parameter_range().0);
+        let r = (p.x * p.x + p.y * p.y).sqrt();
+        assert!(
+            (r - 1.0).abs() < 1e-6,
+            "Start point not on unit circle: r={}",
+            r
+        );
+    }
+
+    #[test]
+    fn arc_to_nurbs_half_circle() {
+        use std::f64::consts::PI;
+        let arc = CurveGeometry::Arc {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+            start_angle: 0.0,
+            end_angle: PI,
+        };
+        let nurbs = arc.to_nurbs();
+        // Just verify it's a valid NURBS
+        assert!(nurbs.degree >= 2);
+        assert!(!nurbs.control_points.is_empty());
+    }
+
+    #[test]
+    fn arc_to_nurbs_from_nonzero_start() {
+        use std::f64::consts::{FRAC_PI_2, PI};
+        let arc = CurveGeometry::Arc {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+            start_angle: FRAC_PI_2,
+            end_angle: PI,
+        };
+        let nurbs = arc.to_nurbs();
+        assert!(nurbs.degree >= 2);
+    }
+
+    #[test]
+    fn arc_to_nurbs_full_circle_range() {
+        // Arc with end_angle = TAU (full circle)
+        use std::f64::consts::TAU;
+        let arc = CurveGeometry::Arc {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+            start_angle: 0.0,
+            end_angle: TAU,
+        };
+        let nurbs = arc.to_nurbs();
+        assert!(nurbs.degree >= 2);
+    }
+
+    #[test]
+    fn to_nurbs_default_range() {
+        let line = CurveGeometry::Line {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            direction: Vec3::new(1.0, 0.0, 0.0),
+        };
+        let nurbs = line.to_nurbs();
+        assert_eq!(nurbs.degree, 1);
+    }
+
+    #[test]
+    fn arc_to_nurbs_in_range() {
+        use std::f64::consts::FRAC_PI_2;
+        let arc = CurveGeometry::Arc {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            radius: 2.0,
+            start_angle: 0.0,
+            end_angle: FRAC_PI_2,
+        };
+        let nurbs = arc.to_nurbs_in_range((0.0, FRAC_PI_2));
+        assert!(nurbs.degree >= 2);
+    }
 }

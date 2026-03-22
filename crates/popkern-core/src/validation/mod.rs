@@ -250,4 +250,44 @@ mod tests {
 
         assert!(brep.validate_loop_closure().is_ok());
     }
+
+    #[test]
+    fn validate_all_hits_vertex_consistency_error() {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        // Corrupt vertex outgoing to trigger vertex consistency error
+        brep.vertices[mvfs.vertex].outgoing = mev.half_edge_twin;
+        let errors = brep.validate_all();
+        assert!(!errors.is_empty());
+    }
+
+    #[test]
+    fn validate_all_hits_vertex_valence_error() {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let _mev = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        // Single edge has valence 1 => fails valence check
+        let errors = brep.validate_all();
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, crate::error::ValidationError::LowValence { .. }))
+        );
+    }
+
+    #[test]
+    fn validate_all_collects_loop_closure_error() {
+        use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
+        // Build a cube with geometry, then corrupt a vertex to cause loop closure failure
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let v_handle = brep.vertices.keys().next().unwrap();
+        brep.vertices[v_handle].position = Point3::new(100.0, 100.0, 100.0);
+        let errors = brep.validate_all();
+        assert!(!errors.is_empty());
+    }
 }

@@ -298,4 +298,77 @@ mod tests {
         );
         assert_eq!(r.len(), 1);
     }
+
+    #[test]
+    fn line_parallel_not_in_plane() {
+        // Line parallel to circle plane but not in it
+        let r = intersect_line_circle(
+            &Point3::new(0.0, 0.0, 5.0), // 5 above plane
+            &Vec3::new(1.0, 0.0, 0.0),   // horizontal
+            (0.0, 2.0),
+            &Point3::new(0.0, 0.0, 0.0),
+            &Vec3::new(0.0, 0.0, 1.0),
+            1.0,
+            (0.0, std::f64::consts::TAU),
+            &Tolerance::default(),
+        );
+        assert!(r.is_empty());
+    }
+
+    #[test]
+    fn line_pierces_outside_t_range() {
+        // Line pierces the plane at t_pierce = 1.0, but t range is (0, 0.5)
+        let r = intersect_line_circle(
+            &Point3::new(1.0, 0.0, -1.0),
+            &Vec3::new(0.0, 0.0, 1.0),
+            (0.0, 0.5), // pierce at t=1 is outside this range
+            &Point3::new(0.0, 0.0, 0.0),
+            &Vec3::new(0.0, 0.0, 1.0),
+            1.0,
+            (0.0, std::f64::consts::TAU),
+            &Tolerance::default(),
+        );
+        assert!(r.is_empty());
+    }
+
+    #[test]
+    fn line_pierces_but_angle_outside_range() {
+        // Line pierces at (0,1,0) which is angle=PI/2, but arc is [PI, TAU]
+        let r = intersect_line_circle(
+            &Point3::new(0.0, 1.0, -1.0),
+            &Vec3::new(0.0, 0.0, 1.0),
+            (0.0, 2.0),
+            &Point3::new(0.0, 0.0, 0.0),
+            &Vec3::new(0.0, 0.0, 1.0),
+            1.0,
+            (std::f64::consts::PI, std::f64::consts::TAU - 0.01), // angle PI/2 is outside
+            &Tolerance::default(),
+        );
+        assert!(r.is_empty());
+    }
+
+    #[test]
+    fn normalise_angle_wraps() {
+        // Test that normalise_angle wraps correctly
+        let tau = std::f64::consts::TAU;
+        let a = normalise_angle(-0.5, (0.0, tau));
+        assert!(a >= 0.0 - f64::EPSILON);
+        assert!(a < tau + f64::EPSILON);
+    }
+
+    #[test]
+    fn in_plane_tangent_outside_t_range() {
+        // Line tangent to circle but t parameter is outside the line range
+        let r = intersect_line_circle(
+            &Point3::new(-1.0, 1.0, 0.0),
+            &Vec3::new(1.0, 0.0, 0.0),
+            (5.0, 10.0), // very restricted range far from intersection
+            &Point3::new(0.0, 0.0, 0.0),
+            &Vec3::new(0.0, 0.0, 1.0),
+            1.0,
+            (0.0, std::f64::consts::TAU),
+            &Tolerance::default(),
+        );
+        assert!(r.is_empty());
+    }
 }

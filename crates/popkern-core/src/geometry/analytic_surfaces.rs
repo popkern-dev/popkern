@@ -406,4 +406,16 @@ mod tests {
             assert!((p2.dot(&axis)).abs() < 1e-10, "{desc}: p2 not perp");
         }
     }
+
+    #[test]
+    fn orthonormal_basis_z_reference_branch() {
+        // axis=(1,1,0): x.abs()=1 not <= z.abs()=0 => first if fails
+        //              y.abs()=1 not <= z.abs()=0 => second if fails
+        //              => falls through to else (z reference = (0,0,1))
+        let axis = Vec3::new(1.0, 1.0, 0.0).normalized().unwrap();
+        let (p1, p2) = orthonormal_basis(axis);
+        assert!((p1.dot(&axis)).abs() < 1e-10, "p1 not perpendicular");
+        assert!((p2.dot(&axis)).abs() < 1e-10, "p2 not perpendicular");
+        assert!((p1.dot(&p2)).abs() < 1e-10, "p1 and p2 not perpendicular");
+    }
 }

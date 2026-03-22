@@ -457,3 +457,36 @@ fn curve_split_at_endpoint_fails() {
     assert!(curve.split_at(0.0).is_err());
     assert!(curve.split_at(1.0).is_err());
 }
+
+#[test]
+fn derivative_at_boundary_zero_dt_guard() {
+    // Very short parameter range so that t+h = t-h after clamping => dt ≈ 0
+    // This shouldn't happen with normal curves, but the guard exists
+    // We can trigger it indirectly with order 2 at the boundary
+    let curve = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1e-40, 1e-40], // extremely tiny range
+        control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+        weights: vec![1.0, 1.0],
+    };
+    // derivative_at with order 2 at t=0 should hit the dt guard for order 2
+    let d = curve.derivative_at(0.0, 2);
+    assert!(d.x.is_finite());
+}
+
+#[test]
+fn derivative_order_1_at_start_boundary() {
+    let curve = NurbsCurve {
+        degree: 2,
+        knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.5, 1.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+        ],
+        weights: vec![1.0, 1.0, 1.0],
+    };
+    // At t=0, t_bwd is clamped to t_min=0, so forward difference only
+    let d = curve.derivative_at(0.0, 1);
+    assert!(d.length() > 0.1); // should be a valid non-zero tangent
+}

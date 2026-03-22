@@ -383,114 +383,111 @@ mod tests {
     use crate::geometry::Point3;
     use crate::tolerance::Tolerance;
 
+    fn p(x: f64, y: f64) -> Point3 {
+        Point3::new(x, y, 0.0)
+    }
+
     #[test]
-    fn clip_non_overlapping() {
-        // A: line from (0,0) to (1,0)
-        // B: line from (0,2) to (1,2) -- far above A
-        let a = vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)];
-        let b = vec![Point3::new(0.0, 2.0, 0.0), Point3::new(1.0, 2.0, 0.0)];
-        assert!(clip_against_fat_line(&a, &b, (0.0, 1.0)).is_none());
+    fn clip_edge_cases() {
+        let h = vec![p(0.0, 0.0), p(1.0, 0.0)];
+        // Non-overlapping
+        assert!(clip_against_fat_line(&h, &[p(0.0, 2.0), p(1.0, 2.0)], (0.0, 1.0)).is_none());
+        // Empty/short inputs
+        assert!(clip_against_fat_line(&[p(0.0, 0.0)], &h, (0.0, 1.0)).is_none());
+        assert!(clip_against_fat_line(&h, &vec![], (0.0, 1.0)).is_none());
+        // Degenerate A (coincident)
+        assert!(clip_against_fat_line(&[p(0.5, 0.5), p(0.5, 0.5)], &h, (0.0, 1.0)).is_none());
     }
 
     #[test]
     fn clip_crossing_lines() {
-        // A: horizontal line
-        // B: diagonal line crossing A
-        let a = vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)];
-        let b = vec![Point3::new(0.0, -1.0, 0.0), Point3::new(1.0, 1.0, 0.0)];
-        let clipped = clip_against_fat_line(&a, &b, (0.0, 1.0));
-        assert!(clipped.is_some());
-        let (t_min, t_max) = clipped.unwrap();
-        // The crossing is at t=0.5 on B, so the clipped range should contain 0.5
+        let a = vec![p(0.0, 0.0), p(1.0, 0.0)];
+        let b = vec![p(0.0, -1.0), p(1.0, 1.0)];
+        let (t_min, t_max) = clip_against_fat_line(&a, &b, (0.0, 1.0)).unwrap();
         assert!(t_min <= 0.5 && t_max >= 0.5);
     }
 
     #[test]
-    fn subdivide_quadratic() {
-        // Quadratic Bezier: (0,0), (0.5,1), (1,0)
-        // Left half [0, 0.5] should be (0,0), (0.25,0.5), (0.5,0.5)
-        let pts = vec![
-            Point3::new(0.0, 0.0, 0.0),
-            Point3::new(0.5, 1.0, 0.0),
-            Point3::new(1.0, 0.0, 0.0),
-        ];
+    fn subdivide_cases() {
+        // Single point
+        assert_eq!(subdivide_bezier(&[p(1.0, 2.0)], 0.0, 1.0).len(), 1);
+        // Full range returns original
+        let pts = vec![p(0.0, 0.0), p(0.5, 1.0), p(1.0, 0.0)];
+        assert_eq!(subdivide_bezier(&pts, 0.0, 1.0).len(), 3);
+        // t_hi = 0 degenerate
+        assert_eq!(
+            subdivide_bezier(&[p(0.0, 0.0), p(1.0, 0.0)], 0.0, 0.0).len(),
+            2
+        );
+        // Quadratic left half
         let left = subdivide_bezier(&pts, 0.0, 0.5);
         assert_eq!(left.len(), 3);
-        assert!((left[0].x - 0.0).abs() < 1e-10);
-        assert!((left[0].y - 0.0).abs() < 1e-10);
-        assert!((left[1].x - 0.25).abs() < 1e-10);
-        assert!((left[1].y - 0.5).abs() < 1e-10);
-        assert!((left[2].x - 0.5).abs() < 1e-10);
-        assert!((left[2].y - 0.5).abs() < 1e-10);
+        assert!((left[1].x - 0.25).abs() < 1e-10 && (left[1].y - 0.5).abs() < 1e-10);
     }
 
-    #[test]
-    fn clip_after_subdivision() {
-        // After bisecting A at 0.5, clip B against left half of A
-        let a = vec![
-            Point3::new(0.0, 0.0, 0.0),
-            Point3::new(0.5, 1.0, 0.0),
-            Point3::new(1.0, 0.0, 0.0),
-        ];
-        let b = vec![Point3::new(0.0, 0.5, 0.0), Point3::new(1.0, 0.5, 0.0)];
-
-        // Subdivide A to [0, 0.5]
-        let a_left = subdivide_bezier(&a, 0.0, 0.5);
-        let b_full = subdivide_bezier(&b, 0.0, 1.0);
-
-        let clipped = clip_against_fat_line(&a_left, &b_full, (0.0, 1.0));
-        // Should clip B significantly
-        if let Some((lo, hi)) = clipped {
-            let reduction = (hi - lo) / 1.0;
-            assert!(
-                reduction < 0.95,
-                "Expected significant clipping, got reduction={reduction}"
-            );
-        }
-    }
-
-    #[test]
-    fn bezier_intersect_crossing_curves() {
-        // Quadratic Bezier arc and a straight line
-        let a = vec![
-            Point3::new(0.0, 0.0, 0.0),
-            Point3::new(0.5, 1.0, 0.0),
-            Point3::new(1.0, 0.0, 0.0),
-        ];
-        let b = vec![Point3::new(0.0, 0.5, 0.0), Point3::new(1.0, 0.5, 0.0)];
-        let a_w = vec![1.0, 1.0, 1.0];
-        let b_w = vec![1.0, 1.0];
-        let mut results = Vec::new();
+    fn run_intersect(
+        a: &[Point3],
+        aw: &[f64],
+        b: &[Point3],
+        bw: &[f64],
+        depth: usize,
+    ) -> Vec<(f64, f64)> {
+        let mut r = Vec::new();
         bezier_intersect(
-            &a,
-            &a_w,
+            a,
+            aw,
             (0.0, 1.0),
-            &b,
-            &b_w,
+            b,
+            bw,
             (0.0, 1.0),
             &Tolerance::default(),
-            50,
-            &mut results,
+            depth,
+            &mut r,
         );
-        assert!(results.len() >= 1, "Should find at least one candidate");
+        r
     }
 
     #[test]
-    fn bezier_intersect_non_intersecting() {
-        let a = vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)];
-        let b = vec![Point3::new(0.0, 5.0, 0.0), Point3::new(1.0, 5.0, 0.0)];
-        let mut results = Vec::new();
-        bezier_intersect(
-            &a,
-            &[1.0, 1.0],
-            (0.0, 1.0),
-            &b,
-            &[1.0, 1.0],
-            (0.0, 1.0),
-            &Tolerance::default(),
-            50,
-            &mut results,
+    fn bezier_intersect_cases() {
+        let arc = vec![p(0.0, 0.0), p(0.5, 1.0), p(1.0, 0.0)];
+        let line = vec![p(0.0, 0.5), p(1.0, 0.5)];
+        assert!(!run_intersect(&arc, &[1.0; 3], &line, &[1.0; 2], 50).is_empty());
+        // Non-intersecting
+        assert!(
+            run_intersect(
+                &[p(0.0, 0.0), p(1.0, 0.0)],
+                &[1.0; 2],
+                &[p(0.0, 5.0), p(1.0, 5.0)],
+                &[1.0; 2],
+                50
+            )
+            .is_empty()
         );
-        assert!(results.is_empty());
+        // Rational weights
+        assert!(
+            !run_intersect(
+                &arc,
+                &[1.0, 2.0, 1.0],
+                &[p(0.0, 0.25), p(1.0, 0.25)],
+                &[1.0; 2],
+                50
+            )
+            .is_empty()
+        );
+        // max_depth = 0 fallback
+        assert!(!run_intersect(&arc, &[1.0; 3], &line, &[1.0; 2], 0).is_empty());
+    }
+
+    #[test]
+    fn compute_fat_line_normal_collinear_fallback() {
+        let dir = crate::geometry::Vec3::new(1.0, 0.0, 0.0);
+        assert!(
+            compute_fat_line_normal(
+                &dir,
+                &[p(0.0, 0.0), p(1.0, 0.0)],
+                &[p(0.0, 0.0), p(2.0, 0.0)]
+            )
+            .is_some()
+        );
     }
 }

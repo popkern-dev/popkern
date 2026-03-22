@@ -1,10 +1,10 @@
 //! Knot insertion and removal methods for NurbsSurface.
 
+use super::NurbsSurface;
 use crate::error::CoreError;
+use crate::geometry::Point3;
 use crate::geometry::nurbs_ops;
 use crate::geometry::surface::SurfaceEval;
-use crate::geometry::Point3;
-use super::NurbsSurface;
 
 impl NurbsSurface {
     /// Insert a single knot in the u direction. Surface shape is mathematically unchanged.

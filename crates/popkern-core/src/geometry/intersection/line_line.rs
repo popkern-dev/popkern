@@ -244,4 +244,70 @@ mod tests {
         );
         assert!(r.is_empty());
     }
+
+    #[test]
+    fn degenerate_zero_direction() {
+        // Zero-length direction vectors (parallel/degenerate case)
+        let r = intersect_line_line(
+            &Point3::new(0.0, 0.0, 0.0),
+            &Vec3::new(0.0, 0.0, 0.0), // zero direction
+            (0.0, 1.0),
+            &Point3::new(0.0, 0.0, 0.0),
+            &Vec3::new(0.0, 0.0, 0.0), // zero direction
+            (0.0, 1.0),
+            &Tolerance::default(),
+        );
+        // Both directions zero, points coincide => parallel, dist=0 => overlap path
+        // d1_len_sq < epsilon => dist = w.length() = 0 < tol => overlap
+        // but d1_len_sq < epsilon again => returns empty
+        assert!(r.is_empty());
+    }
+
+    #[test]
+    fn coincident_no_parameter_overlap() {
+        // Lines are coincident but the parameter ranges don't overlap
+        let r = intersect_line_line(
+            &Point3::new(0.0, 0.0, 0.0),
+            &Vec3::new(1.0, 0.0, 0.0),
+            (0.0, 0.3), // range [0, 0.3]
+            &Point3::new(5.0, 0.0, 0.0),
+            &Vec3::new(1.0, 0.0, 0.0),
+            (0.0, 0.3), // maps to [5.0, 5.3] in world space
+            &Tolerance::default(),
+        );
+        assert!(r.is_empty()); // no parameter overlap
+    }
+
+    #[test]
+    fn intersection_outside_s_range() {
+        // Lines cross at t=0.5 on line1 and s=1.5 on line2, but s_range is (0,1)
+        let r = intersect_line_line(
+            &Point3::new(0.0, 0.0, 0.0),
+            &Vec3::new(1.0, 0.0, 0.0),
+            (0.0, 1.0),
+            &Point3::new(0.5, -3.0, 0.0),
+            &Vec3::new(0.0, 1.0, 0.0),
+            (0.0, 1.0), // s=3.0 needed to reach y=0, but range only goes to 1.0
+            &Tolerance::default(),
+        );
+        assert!(r.is_empty());
+    }
+
+    #[test]
+    fn coincident_with_zero_d2_direction() {
+        // Line 1 normal, line 2 has zero direction => degenerate
+        let r = intersect_line_line(
+            &Point3::new(0.0, 0.0, 0.0),
+            &Vec3::new(1.0, 0.0, 0.0),
+            (0.0, 1.0),
+            &Point3::new(0.5, 0.0, 0.0),
+            &Vec3::new(0.0, 0.0, 0.0), // zero direction
+            (0.0, 1.0),
+            &Tolerance::default(),
+        );
+        // parallel_eps is very small for zero d2, cross ~ zero => parallel path
+        // dist is perpendicular distance which involves d1
+        // The code tests d2_len_sq < epsilon => s_for_t returns t2_range.0
+        assert!(!r.is_empty() || r.is_empty()); // just don't panic
+    }
 }

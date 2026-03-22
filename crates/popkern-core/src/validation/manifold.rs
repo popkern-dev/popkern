@@ -154,4 +154,17 @@ mod tests {
         brep.half_edges[mev.half_edge_twin].edge = Default::default();
         assert!(brep.validate_manifold_edges().is_err());
     }
+
+    #[test]
+    fn vertex_valence_with_corrupted_twin() {
+        // Create a cube then corrupt a twin to trigger the safety break in validate_vertex_valence
+        let mut brep = make_cube();
+        // Find a vertex and corrupt its fan by removing a twin
+        let he_handle = brep.half_edges.keys().next().unwrap();
+        let twin = brep.half_edges[he_handle].twin;
+        // Make twin point to invalid handle so the fan walk breaks early
+        brep.half_edges[he_handle].twin = Default::default();
+        // Should not panic; may return Ok or Err depending on resulting valence
+        let _ = brep.validate_vertex_valence();
+    }
 }

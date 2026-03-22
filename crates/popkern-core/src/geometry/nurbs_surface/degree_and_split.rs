@@ -1,9 +1,9 @@
 //! Degree elevation and splitting methods for NurbsSurface.
 
-use crate::error::CoreError;
-use crate::geometry::nurbs_ops;
-use crate::geometry::Point3;
 use super::NurbsSurface;
+use crate::error::CoreError;
+use crate::geometry::Point3;
+use crate::geometry::nurbs_ops;
 
 /// A split segment: (left_pts, left_wts, right_pts, right_wts).
 type SplitSegment = (Vec<Point3>, Vec<f64>, Vec<Point3>, Vec<f64>);

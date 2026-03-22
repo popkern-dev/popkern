@@ -121,3 +121,38 @@ pub(crate) fn de_boor_1d(
 
     d[degree]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::geometry::Point3;
+
+    #[test]
+    fn homogeneous_zero_weight_returns_origin() {
+        let h = Homogeneous {
+            wx: 1.0,
+            wy: 2.0,
+            wz: 3.0,
+            w: 0.0, // zero weight
+        };
+        let p = h.to_point3();
+        assert_eq!(p.x, 0.0);
+        assert_eq!(p.y, 0.0);
+        assert_eq!(p.z, 0.0);
+    }
+
+    #[test]
+    fn de_boor_with_repeated_knots() {
+        // Degree 2, knots = [0,0,0,0,0,0] (all same) => denom = 0 => alpha = 0
+        // This is degenerate but shouldn't panic
+        let pts = vec![
+            Homogeneous::from_point_weight(&Point3::new(0.0, 0.0, 0.0), 1.0),
+            Homogeneous::from_point_weight(&Point3::new(1.0, 0.0, 0.0), 1.0),
+            Homogeneous::from_point_weight(&Point3::new(2.0, 0.0, 0.0), 1.0),
+        ];
+        let knots = vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let result = de_boor_1d(2, &knots, &pts, 0.0);
+        // Should not panic; result is some point
+        assert!(result.w.is_finite());
+    }
+}

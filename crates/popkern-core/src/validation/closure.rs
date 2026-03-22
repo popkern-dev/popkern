@@ -245,4 +245,51 @@ mod tests {
         // evaluates curves via is_canonical check. Just ensure it passes.
         assert!(brep.validate_loop_closure().is_ok());
     }
+
+    #[test]
+    fn corrupted_edge_handle_breaks_gracefully() {
+        // Remove an edge to trigger the edge.curve None path
+        let mut brep = make_cube();
+        let edge_handle = brep.edges.keys().next().unwrap();
+        brep.edges.remove(edge_handle);
+        // Should not panic
+        let _ = brep.validate_loop_closure();
+    }
+
+    #[test]
+    fn corrupted_vertex_handle_breaks_gracefully() {
+        // Remove a vertex to trigger the vertices.get None path
+        let mut brep = make_cube();
+        let v_handle = brep.vertices.keys().next().unwrap();
+        brep.vertices.remove(v_handle);
+        // Should not panic
+        let _ = brep.validate_loop_closure();
+    }
+
+    #[test]
+    fn watertight_with_corrupted_he_skips() {
+        // Corrupt an edge's half_edge to point to nonexistent handle
+        let mut brep =
+            crate::topology::BRep::unit_cube(crate::tolerance::Tolerance::default()).unwrap();
+        let edge_handle = brep.edges.keys().next().unwrap();
+        brep.edges[edge_handle].half_edge = Default::default();
+        // Should not panic; just skip the corrupted edge
+        let _ = brep.validate_watertight();
+    }
+
+    #[test]
+    fn watertight_with_bad_gap() {
+        use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
+
+        // Create a cube with geometry, then corrupt a vertex position to create a gap
+        let mut brep =
+            crate::topology::BRep::unit_cube(crate::tolerance::Tolerance::default()).unwrap();
+
+        // Move a vertex far away to create a gap
+        let v_handle = brep.vertices.keys().next().unwrap();
+        brep.vertices[v_handle].position = Point3::new(100.0, 100.0, 100.0);
+
+        let result = brep.validate_watertight();
+        assert!(result.is_err());
+    }
 }

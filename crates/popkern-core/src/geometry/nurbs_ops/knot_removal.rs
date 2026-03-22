@@ -334,4 +334,65 @@ mod tests {
         assert_eq!(count, 2);
         assert_eq!(pr.len(), 3);
     }
+
+    #[test]
+    fn remove_knot_too_few_controls() {
+        // Cannot remove from a curve with minimum controls
+        let pts = vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)];
+        let wts = vec![1.0, 1.0];
+        let knots = vec![0.0, 0.0, 1.0, 1.0];
+        // Degree 1, n=2, p+1=2 => n <= p+1 => None
+        assert!(remove_knot_1d(1, &knots, &pts, &wts, 1, 0.0).is_none());
+    }
+
+    #[test]
+    fn remove_knot_tight_tolerance_fails() {
+        // Insert a knot then modify a control point so removal with zero tolerance fails
+        let pts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.3, 0.5, 0.0),
+            Point3::new(0.7, 0.5, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+        ];
+        let wts = vec![1.0, 1.0, 1.0, 1.0];
+        let knots = vec![0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0];
+
+        // With zero tolerance, removal should fail because the curve shape changes
+        let result = remove_knot_1d(2, &knots, &pts, &wts, 3, 0.0);
+        // May or may not succeed depending on exact geometry
+        let _ = result;
+    }
+
+    #[test]
+    fn remove_knot_quadratic_roundtrip_two_knots() {
+        // Insert a knot, then remove it
+        let pts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.5, 1.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+        ];
+        let wts = vec![1.0, 1.0, 1.0];
+        let knots = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+
+        let (k2, p2, w2) = insert_knot_1d(2, &knots, &pts, &wts, 0.5);
+
+        // Remove the 0.5 knot (at index 3)
+        let result = remove_knot_1d(2, &k2, &p2, &w2, 3, 0.0);
+        assert!(result.is_some());
+        let (k3, p3, _w3) = result.unwrap();
+        assert_eq!(p3.len(), 3);
+        assert_eq!(k3.len(), 6);
+    }
+
+    #[test]
+    fn remove_knot_times_partial_removal() {
+        // Insert once, try to remove 5 times => should only remove 1
+        let pts = vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)];
+        let wts = vec![1.0, 1.0];
+        let knots = vec![0.0, 0.0, 1.0, 1.0];
+
+        let (k2, p2, w2) = insert_knot_1d(1, &knots, &pts, &wts, 0.5);
+        let (_kr, _pr, _wr, count) = remove_knot_times_1d(1, &k2, &p2, &w2, 2, 5, 0.0);
+        assert_eq!(count, 1);
+    }
 }

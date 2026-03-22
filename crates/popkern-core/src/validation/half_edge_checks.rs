@@ -167,4 +167,21 @@ mod tests {
         let result = brep.validate_half_edge_cycles();
         assert!(result.is_err());
     }
+
+    #[test]
+    fn twin_twin_mismatch_fails_pairing() {
+        // Create a valid structure, then corrupt twin's twin to NOT point back
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev1 = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let mev2 = brep
+            .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
+            .unwrap();
+        // Make mev1's twin's twin point to something else (mev2's half_edge)
+        brep.half_edges[mev1.half_edge_twin].twin = mev2.half_edge;
+        let result = brep.validate_half_edge_pairing();
+        assert!(result.is_err());
+    }
 }
