@@ -1,3 +1,5 @@
+#[cfg(test)]
+#[allow(unused_imports)]
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
