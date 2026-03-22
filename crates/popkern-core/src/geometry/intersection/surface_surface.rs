@@ -7,6 +7,7 @@ use crate::geometry::fitting::fit_curve;
 use crate::geometry::intersection::coincident::detect_coincident_regions;
 use crate::geometry::intersection::degeneracy::{DegeneracyHandler, RobustDegeneracyHandler};
 use crate::geometry::intersection::marching::{MarchSample, march};
+use crate::geometry::intersection::plane_plane::try_plane_plane;
 use crate::geometry::intersection::starting_points::{find_branch_points, find_starting_points};
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
@@ -71,6 +72,29 @@ pub fn intersect_surfaces_with_handler(
     tolerance: &Tolerance,
     handler: &dyn DegeneracyHandler,
 ) -> Result<SurfaceSurfaceIntersectionResult, CoreError> {
+    // Fast path: both surfaces are planes → analytic solver.
+    if let (
+        SurfaceGeometry::Plane {
+            origin: o1,
+            normal: n1,
+            u_axis: ua1,
+            v_axis: va1,
+        },
+        SurfaceGeometry::Plane {
+            origin: o2,
+            normal: n2,
+            u_axis: ua2,
+            v_axis: va2,
+        },
+    ) = (surface1, surface2)
+    {
+        let intersections = try_plane_plane(
+            *o1, *n1, *ua1, *va1, u1_range, v1_range, *o2, *n2, *ua2, *va2, u2_range, v2_range,
+            tolerance,
+        )?;
+        return Ok(SurfaceSurfaceIntersectionResult { intersections });
+    }
+
     let mut results = Vec::new();
 
     // 1. Find starting points

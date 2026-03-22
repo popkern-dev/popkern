@@ -15,6 +15,7 @@ pub mod marching;
 mod newton;
 mod nurbs_nurbs;
 mod overlap;
+pub(crate) mod plane_plane;
 pub mod starting_points;
 pub mod surface_curve;
 mod surface_curve_general;
