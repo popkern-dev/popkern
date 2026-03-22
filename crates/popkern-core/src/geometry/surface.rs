@@ -89,7 +89,12 @@ pub struct SurfaceOnFace {
 ///
 /// The knot vector has `degree` repeated knots at each end and uniform interior
 /// knots spanning `[range_start, range_end]`.
-fn uniform_clamped_knots(n_pts: usize, degree: usize, range_start: f64, range_end: f64) -> Vec<f64> {
+fn uniform_clamped_knots(
+    n_pts: usize,
+    degree: usize,
+    range_start: f64,
+    range_end: f64,
+) -> Vec<f64> {
     // n_pts control points, degree `degree` => n_pts + degree + 1 knots
     // interior spans: n_pts - degree
     let n_interior = n_pts - degree; // number of distinct interior spans (>= 1)
@@ -264,5 +269,33 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn sphere_to_nurbs_default_range() {
+        // Tests the to_nurbs() method (lines 195-198) which uses parameter_range()
+        let sphere = SurfaceGeometry::Sphere {
+            center: Point3::new(0.0, 0.0, 0.0),
+            radius: 1.0,
+        };
+        let nurbs = sphere.to_nurbs();
+        // Sphere parameter range is [0, TAU] x [0, PI]
+        let p = nurbs.point_at(std::f64::consts::FRAC_PI_2, std::f64::consts::FRAC_PI_2);
+        let r = (p.x * p.x + p.y * p.y + p.z * p.z).sqrt();
+        assert!((r - 1.0).abs() < 0.15, "Point not on unit sphere: r={r}");
+    }
+
+    #[test]
+    fn cylinder_to_nurbs_in_range() {
+        // Cylinder's default range may be infinite, so use explicit range
+        let cyl = SurfaceGeometry::Cylinder {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        };
+        let nurbs = cyl.to_nurbs_in_range((0.0, std::f64::consts::TAU), (-1.0, 1.0));
+        let p = nurbs.point_at(std::f64::consts::FRAC_PI_2, 0.0);
+        let r = (p.x * p.x + p.y * p.y).sqrt();
+        assert!((r - 1.0).abs() < 0.15, "Point not on cylinder: r={r}");
     }
 }

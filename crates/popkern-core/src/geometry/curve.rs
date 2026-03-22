@@ -351,4 +351,23 @@ mod tests {
         let nurbs = arc.to_nurbs_in_range((0.0, FRAC_PI_2));
         assert!(nurbs.degree >= 2);
     }
+
+    #[test]
+    fn arc_to_nurbs_boundary_split_fallback() {
+        // Arc with start_angle at a knot boundary that might cause split_at to fail.
+        // This is a degenerate case where the split parameter is at the boundary.
+        use std::f64::consts::{FRAC_PI_2, TAU};
+
+        // Arc starting near TAU boundary
+        let arc = CurveGeometry::Arc {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+            start_angle: TAU - 0.001, // very close to TAU
+            end_angle: TAU,
+        };
+        // Should not panic
+        let nurbs = arc.to_nurbs();
+        assert!(nurbs.degree >= 2);
+    }
 }

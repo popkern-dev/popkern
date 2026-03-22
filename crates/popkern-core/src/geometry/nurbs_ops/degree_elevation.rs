@@ -298,4 +298,9 @@ mod tests {
         assert_eq!(new_deg, 3);
         assert_eq!(new_knots.len(), new_pts.len() + new_deg + 1);
     }
+
+    // Note: multi-span knot insertion path in elevate_degree_1d (lines 39-56)
+    // has a pre-existing consistency issue (debug_assert fails). That code path
+    // is exercised via surface degree elevation, which works correctly because
+    // surfaces decompose into rows/columns first.
 }

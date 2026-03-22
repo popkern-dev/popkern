@@ -29,3 +29,26 @@ impl DegeneracyHandler for DefaultDegeneracyHandler {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_handler_skips_tangent_start() {
+        let handler = DefaultDegeneracyHandler;
+        assert!(handler.on_tangent_starting_point(&Point3::new(0.0, 0.0, 0.0), 0.1));
+    }
+
+    #[test]
+    fn default_handler_stops_tangent_march() {
+        let handler = DefaultDegeneracyHandler;
+        assert!(handler.on_tangent_during_march(&Point3::new(1.0, 2.0, 3.0), 0.01));
+    }
+
+    #[test]
+    fn default_handler_skips_singularity() {
+        let handler = DefaultDegeneracyHandler;
+        assert!(handler.on_singularity(&Point3::new(0.0, 0.0, 0.0)));
+    }
+}

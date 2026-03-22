@@ -151,11 +151,7 @@ mod tests {
 
     /// Cylinder centred at origin, axis along Z, radius 1, unbounded in v.
     fn unit_cylinder() -> (Point3, Vec3, f64) {
-        (
-            Point3::new(0.0, 0.0, 0.0),
-            Vec3::new(0.0, 0.0, 1.0),
-            1.0,
-        )
+        (Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 1.0), 1.0)
     }
 
     // -----------------------------------------------------------------------
@@ -381,10 +377,7 @@ mod tests {
         for hit in &hits {
             if let SurfaceCurveIntersection::Point { point, u, v, .. } = hit {
                 // Reconstruct from (u, v) using the cylinder parameterisation.
-                let reconstructed = o
-                    + perp1 * (r * u.cos())
-                    + perp2 * (r * u.sin())
-                    + ax * *v;
+                let reconstructed = o + perp1 * (r * u.cos()) + perp2 * (r * u.sin()) + ax * *v;
                 assert!(
                     point.distance_to(&reconstructed) < 1e-9,
                     "parameter reconstruction mismatch: {point:?} vs {reconstructed:?}"
@@ -411,5 +404,41 @@ mod tests {
             &default_tol(),
         );
         assert_eq!(hits.len(), 2);
+    }
+
+    #[test]
+    fn zero_axis_returns_empty() {
+        // Zero-length axis should return empty (line 39)
+        let hits = intersect_line_cylinder(
+            &Point3::new(-2.0, 0.0, 0.0),
+            &Vec3::new(1.0, 0.0, 0.0),
+            (-10.0, 10.0),
+            &Point3::new(0.0, 0.0, 0.0),
+            &Vec3::new(0.0, 0.0, 0.0),
+            1.0,
+            (0.0, TAU),
+            (-10.0, 10.0),
+            &default_tol(),
+        );
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn u_range_filters_cylinder() {
+        // Restrict u_range to exclude some azimuthal angles (line 110)
+        let (o, ax, r) = unit_cylinder();
+        // Line at y=0: hits at x=-1 (u=PI) and x=1 (u=0)
+        let hits = intersect_line_cylinder(
+            &Point3::new(-2.0, 0.0, 0.0),
+            &Vec3::new(1.0, 0.0, 0.0),
+            (-10.0, 10.0),
+            &o,
+            &ax,
+            r,
+            (0.5, 2.5), // excludes u=0 and u=PI
+            (-10.0, 10.0),
+            &default_tol(),
+        );
+        assert!(hits.is_empty());
     }
 }

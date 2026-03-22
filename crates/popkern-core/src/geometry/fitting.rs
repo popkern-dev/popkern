@@ -1,8 +1,8 @@
 //! Least-squares B-spline curve fitting.
 
 use crate::error::CoreError;
-use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::Point3;
+use crate::geometry::nurbs_curve::NurbsCurve;
 
 /// Compute the i-th B-spline basis function of given degree at parameter t.
 ///
@@ -40,7 +40,8 @@ fn basis_function(i: usize, degree: usize, t: f64, knots: &[f64]) -> f64 {
 
     let denom2 = knots[i + degree + 1] - knots[i + 1];
     if denom2.abs() > 1e-14 {
-        result += ((knots[i + degree + 1] - t) / denom2) * basis_function(i + 1, degree - 1, t, knots);
+        result +=
+            ((knots[i + degree + 1] - t) / denom2) * basis_function(i + 1, degree - 1, t, knots);
     }
 
     result
@@ -230,9 +231,12 @@ pub fn fit_curve(
     let mut rhs_z = vec![0.0; rows];
 
     for i in 0..rows {
-        rhs_x[i] = points[i + 1].x - n0_vec[i] * control_points[0].x - nn_vec[i] * control_points[n - 1].x;
-        rhs_y[i] = points[i + 1].y - n0_vec[i] * control_points[0].y - nn_vec[i] * control_points[n - 1].y;
-        rhs_z[i] = points[i + 1].z - n0_vec[i] * control_points[0].z - nn_vec[i] * control_points[n - 1].z;
+        rhs_x[i] =
+            points[i + 1].x - n0_vec[i] * control_points[0].x - nn_vec[i] * control_points[n - 1].x;
+        rhs_y[i] =
+            points[i + 1].y - n0_vec[i] * control_points[0].y - nn_vec[i] * control_points[n - 1].y;
+        rhs_z[i] =
+            points[i + 1].z - n0_vec[i] * control_points[0].z - nn_vec[i] * control_points[n - 1].z;
     }
 
     // Step 5: Form normal equations N^T * N and N^T * R
@@ -345,5 +349,64 @@ mod tests {
             let fitted = curve.point_at(t);
             assert!(p.distance_to(&fitted) < 0.05, "Large deviation at t={t}");
         }
+    }
+
+    #[test]
+    fn fit_mismatched_params_length_fails() {
+        let points = vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)];
+        let params = vec![0.0]; // wrong length
+        assert!(fit_curve(&points, &params, 1, 2).is_err());
+    }
+
+    #[test]
+    fn fit_too_few_control_points_fails() {
+        let points = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.5, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+        ];
+        let params = vec![0.0, 0.5, 1.0];
+        // degree 3 needs at least 4 control points
+        assert!(fit_curve(&points, &params, 3, 3).is_err());
+    }
+
+    #[test]
+    fn fit_more_control_points_than_data_fails() {
+        let points = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.5, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+        ];
+        let params = vec![0.0, 0.5, 1.0];
+        // 5 control points but only 3 data points
+        assert!(fit_curve(&points, &params, 1, 5).is_err());
+    }
+
+    #[test]
+    fn fit_empty_system_solve() {
+        // Test solve_linear_system with empty input
+        let result = solve_linear_system(&[], &[]);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn fit_basis_function_last_span() {
+        // Test the special case where t == knots[i+1] at the last span
+        let knots = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+        // At t=1.0, last span, degree 0
+        let val = basis_function(2, 0, 1.0, &knots);
+        assert!(
+            (val - 1.0).abs() < 1e-10,
+            "basis at last knot should be 1.0"
+        );
+    }
+
+    #[test]
+    fn fit_basis_function_middle_span() {
+        // Test that t in a middle span returns non-zero
+        let knots = vec![0.0, 0.0, 0.5, 1.0, 1.0];
+        let val = basis_function(0, 1, 0.25, &knots);
+        assert!(val > 0.0);
     }
 }

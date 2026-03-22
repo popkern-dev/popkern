@@ -301,4 +301,93 @@ mod tests {
         let errors = brep.validate_all();
         assert!(!errors.is_empty());
     }
+
+    #[test]
+    fn validate_early_return_on_first_error() {
+        // validate() should return on the first failure (Euler-Poincare)
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        // Corrupt twin to break pairing => validate fails on check 2
+        brep.half_edges[mev.half_edge].twin = Default::default();
+        let result = brep.validate();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_all_skips_self_intersection_when_structural_errors() {
+        // validate_all should skip self-intersection check (line 73-76)
+        // when there are structural errors
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+
+        // Remove a face to break Euler formula — structural error
+        let face_h = brep.faces.keys().next().unwrap();
+        brep.faces.remove(face_h);
+
+        let errors = brep.validate_all();
+        // Should have structural errors, but NOT a self-intersection error
+        assert!(!errors.is_empty());
+        assert!(
+            !errors
+                .iter()
+                .any(|e| matches!(e, crate::error::ValidationError::SelfIntersection { .. })),
+            "Self-intersection check should be skipped when structural errors exist"
+        );
+    }
+
+    #[test]
+    fn validate_all_runs_self_intersection_when_no_structural_errors() {
+        // A valid cube should have no self-intersection
+        // This test verifies the self_intersection branch of validate_all is reached.
+        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let errors = brep.validate_all();
+        // Valid cube: no errors (including self-intersection check ran successfully)
+        assert!(
+            errors.is_empty(),
+            "Valid cube should pass all checks including self-intersection: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn validate_all_collects_curve_surface_error() {
+        use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+
+        // Build a cube with geometry, then set a face's surface to something incompatible
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let face_h = brep.faces.keys().next().unwrap();
+
+        // Set the surface to a sphere centered far away — curve endpoints won't match
+        brep.faces[face_h].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Sphere {
+                center: Point3::new(1000.0, 1000.0, 1000.0),
+                radius: 1.0,
+            },
+            orientation: true,
+        });
+
+        let errors = brep.validate_all();
+        assert!(!errors.is_empty());
+    }
+
+    #[test]
+    fn validate_all_collects_watertight_error() {
+        // Build a cube with geometry, then corrupt an edge's vertex to trigger watertight failure
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        // Find an edge with curve geometry
+        let edge_h = brep
+            .edges
+            .keys()
+            .find(|&eh| brep.edges[eh].curve.is_some())
+            .unwrap();
+        let he_h = brep.edges[edge_h].half_edge;
+        let origin = brep.half_edges[he_h].origin;
+        // Move the vertex far away
+        brep.vertices[origin].position = Point3::new(999.0, 999.0, 999.0);
+
+        let errors = brep.validate_all();
+        assert!(!errors.is_empty());
+    }
 }

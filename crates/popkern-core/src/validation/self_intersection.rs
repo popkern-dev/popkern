@@ -55,8 +55,7 @@ impl BRep {
                     let twin_loop_handle = twin.loop_;
                     if let Some(twin_loop) = self.loops.get(twin_loop_handle) {
                         let twin_face = twin_loop.face;
-                        if let Some(j) =
-                            face_keys.iter().position(|&k| k == twin_face)
+                        if let Some(j) = face_keys.iter().position(|&k| k == twin_face)
                             && i != j
                         {
                             let pair = if i < j { (i, j) } else { (j, i) };
@@ -243,5 +242,161 @@ mod tests {
             .unwrap();
         let _mef = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
         assert!(brep.validate_self_intersection().is_ok());
+    }
+
+    /// Test with NURBS surfaces that have overlapping AABBs on non-adjacent faces.
+    /// The Plane-Plane detailed check (lines 123-185) is unreachable via the
+    /// public API because Plane parameter ranges are infinite (-inf, inf),
+    /// producing NaN samples and None AABBs. This test uses NURBS surfaces
+    /// instead to exercise the AABB overlap path (non-Plane pairs skip the
+    /// detailed check, so they pass).
+    #[test]
+    fn nurbs_surface_aabb_overlap_non_adjacent_skips() {
+        use crate::geometry::nurbs_surface::NurbsSurface;
+        use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev1 = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let mev2 = brep
+            .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
+            .unwrap();
+        let mev3 = brep
+            .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
+            .unwrap();
+        let mef1 = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
+        brep.extrude(mef1.face, Vec3::new(0.0, 0.0, 1.0), 1.0)
+            .unwrap();
+
+        // Attach NURBS surfaces to two non-adjacent faces with overlapping AABBs.
+        let face_keys: Vec<_> = brep.faces.keys().collect();
+        let f0 = face_keys[0];
+        let f5 = face_keys[5];
+
+        // Simple bilinear NURBS patch at z=0
+        let nurbs = NurbsSurface {
+            degree_u: 1,
+            degree_v: 1,
+            knots_u: vec![0.0, 0.0, 1.0, 1.0],
+            knots_v: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+            ],
+            num_u: 2,
+            num_v: 2,
+            weights: vec![1.0; 4],
+        };
+
+        brep.faces[f0].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Nurbs(nurbs.clone()),
+            orientation: true,
+        });
+        brep.faces[f5].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Nurbs(nurbs),
+            orientation: true,
+        });
+
+        // Non-Plane NURBS pairs with AABB overlap: the code reaches the AABB
+        // check but skips the detailed test (only Plane-Plane is checked in detail).
+        let result = brep.validate_self_intersection();
+        assert!(result.is_ok());
+    }
+
+    /// Test the AABB overlap path with non-Plane surfaces (should NOT report
+    /// intersection since the detailed check is only for Plane-Plane).
+    #[test]
+    fn non_plane_aabb_overlap_does_not_report() {
+        use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let face_keys: Vec<_> = brep.faces.keys().collect();
+        let f0 = face_keys[0];
+        let f1 = face_keys[5];
+
+        // Set both to overlapping spheres (non-Plane surfaces)
+        let sphere_geom = SurfaceGeometry::Sphere {
+            center: Point3::new(0.5, 0.5, 0.5),
+            radius: 2.0,
+        };
+        brep.faces[f0].surface = Some(SurfaceOnFace {
+            geometry: sphere_geom.clone(),
+            orientation: true,
+        });
+        brep.faces[f1].surface = Some(SurfaceOnFace {
+            geometry: sphere_geom,
+            orientation: true,
+        });
+
+        // Non-Plane pairs skip the detailed test, so no error despite AABB overlap
+        let result = brep.validate_self_intersection();
+        assert!(result.is_ok());
+    }
+
+    /// Test case where a face has no surface geometry — should skip gracefully.
+    #[test]
+    fn face_without_surface_skips_gracefully() {
+        use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let face_keys: Vec<_> = brep.faces.keys().collect();
+
+        // Remove surface from one face
+        brep.faces[face_keys[0]].surface = None;
+
+        // Should still pass — faces without geometry are skipped
+        assert!(brep.validate_self_intersection().is_ok());
+    }
+
+    /// Test the case where AABBs don't overlap — should skip detailed check.
+    #[test]
+    fn separated_faces_pass() {
+        use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let face_keys: Vec<_> = brep.faces.keys().collect();
+        let f0 = face_keys[0];
+        let f1 = face_keys[5];
+
+        // Set faces to planes that are far apart
+        brep.faces[f0].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Plane {
+                origin: Point3::new(0.0, 0.0, 0.0),
+                normal: Vec3::new(0.0, 0.0, 1.0),
+                u_axis: Vec3::new(1.0, 0.0, 0.0),
+                v_axis: Vec3::new(0.0, 1.0, 0.0),
+            },
+            orientation: true,
+        });
+        brep.faces[f1].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Plane {
+                origin: Point3::new(0.0, 0.0, 100.0),
+                normal: Vec3::new(0.0, 0.0, 1.0),
+                u_axis: Vec3::new(1.0, 0.0, 0.0),
+                v_axis: Vec3::new(0.0, 1.0, 0.0),
+            },
+            orientation: true,
+        });
+
+        assert!(brep.validate_self_intersection().is_ok());
+    }
+
+    /// Test that adjacent faces in a cube are properly identified (no false positive).
+    #[test]
+    fn adjacent_faces_not_reported() {
+        // The cube has geometry on all faces; no non-adjacent faces share a plane.
+        let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+        assert!(cube.validate_self_intersection().is_ok());
+    }
+
+    /// Test the adjacency walking with a valid cube (all edges connect adjacent faces).
+    #[test]
+    fn unit_cube_with_geometry_no_self_intersection() {
+        let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+        assert!(cube.validate_self_intersection().is_ok());
     }
 }

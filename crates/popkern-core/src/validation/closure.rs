@@ -292,4 +292,69 @@ mod tests {
         let result = brep.validate_watertight();
         assert!(result.is_err());
     }
+
+    #[test]
+    fn watertight_twin_vertex_missing_skips() {
+        // Remove the twin's origin vertex to trigger the vertices.get(twin.origin) None path
+        let mut brep =
+            crate::topology::BRep::unit_cube(crate::tolerance::Tolerance::default()).unwrap();
+
+        // Find an edge with a curve
+        let edge_h = brep
+            .edges
+            .keys()
+            .find(|&eh| brep.edges[eh].curve.is_some())
+            .unwrap();
+        let he_h = brep.edges[edge_h].half_edge;
+        let twin_h = brep.half_edges[he_h].twin;
+        let twin_origin = brep.half_edges[twin_h].origin;
+
+        // Remove the twin's origin vertex
+        brep.vertices.remove(twin_origin);
+
+        // Should not panic — just skip
+        let _ = brep.validate_watertight();
+    }
+
+    #[test]
+    fn watertight_twin_missing_skips() {
+        // Corrupt twin pointer to trigger he.twin None path
+        let mut brep =
+            crate::topology::BRep::unit_cube(crate::tolerance::Tolerance::default()).unwrap();
+
+        let edge_h = brep
+            .edges
+            .keys()
+            .find(|&eh| brep.edges[eh].curve.is_some())
+            .unwrap();
+        let he_h = brep.edges[edge_h].half_edge;
+        // Make twin point to nonexistent handle
+        brep.half_edges[he_h].twin = Default::default();
+
+        // Should not panic — just skip
+        let _ = brep.validate_watertight();
+    }
+
+    #[test]
+    fn watertight_gap_end_detected() {
+        // Create a gap at the twin (end) vertex, not the start vertex.
+        // This tests the gap_end > tolerance path (line 151-153).
+        let mut brep =
+            crate::topology::BRep::unit_cube(crate::tolerance::Tolerance::default()).unwrap();
+
+        // Find an edge with a curve, then move the twin's origin far away
+        // while keeping the canonical half-edge's origin in place.
+        for edge_h in brep.edges.keys().collect::<Vec<_>>() {
+            if brep.edges[edge_h].curve.is_some() {
+                let he_h = brep.edges[edge_h].half_edge;
+                let twin_h = brep.half_edges[he_h].twin;
+                let twin_origin = brep.half_edges[twin_h].origin;
+                brep.vertices[twin_origin].position = Point3::new(999.0, 999.0, 999.0);
+                break;
+            }
+        }
+
+        let result = brep.validate_watertight();
+        assert!(result.is_err());
+    }
 }

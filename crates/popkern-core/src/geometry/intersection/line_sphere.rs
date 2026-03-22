@@ -48,10 +48,7 @@ pub(crate) fn intersect_line_sphere(
         vec![-b / (2.0 * a)]
     } else {
         let sqrt_disc = disc.sqrt();
-        vec![
-            (-b - sqrt_disc) / (2.0 * a),
-            (-b + sqrt_disc) / (2.0 * a),
-        ]
+        vec![(-b - sqrt_disc) / (2.0 * a), (-b + sqrt_disc) / (2.0 * a)]
     };
 
     let tau = std::f64::consts::TAU;
@@ -88,7 +85,11 @@ pub(crate) fn intersect_line_sphere(
     }
 
     // Sort by t parameter
-    results.sort_by(|a, b| a.t_val().partial_cmp(&b.t_val()).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        a.t_val()
+            .partial_cmp(&b.t_val())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results
 }
 
@@ -146,7 +147,12 @@ mod tests {
             (0.0, PI),
             &default_tol(),
         );
-        assert_eq!(results.len(), 2, "expected 2 intersections, got {:?}", results);
+        assert_eq!(
+            results.len(),
+            2,
+            "expected 2 intersections, got {:?}",
+            results
+        );
         // t values should be 2 and 4 (origin at x=−3, hits x=−1 at t=2, x=+1 at t=4)
         let ts: Vec<f64> = results
             .iter()
@@ -175,7 +181,12 @@ mod tests {
             (0.0, PI),
             &default_tol(),
         );
-        assert_eq!(results.len(), 1, "expected 1 tangent intersection, got {:?}", results);
+        assert_eq!(
+            results.len(),
+            1,
+            "expected 1 tangent intersection, got {:?}",
+            results
+        );
         if let SurfaceCurveIntersection::Point { point, .. } = &results[0] {
             assert!(
                 (point.distance_to(&Point3::new(0.0, 1.0, 0.0))) < 1e-5,
@@ -201,7 +212,11 @@ mod tests {
             (0.0, PI),
             &default_tol(),
         );
-        assert!(results.is_empty(), "expected no intersection, got {:?}", results);
+        assert!(
+            results.is_empty(),
+            "expected no intersection, got {:?}",
+            results
+        );
     }
 
     #[test]
@@ -254,7 +269,12 @@ mod tests {
             (0.0, PI),
             &default_tol(),
         );
-        assert_eq!(results.len(), 2, "expected 2 intersections, got {:?}", results);
+        assert_eq!(
+            results.len(),
+            2,
+            "expected 2 intersections, got {:?}",
+            results
+        );
         let vs: Vec<f64> = results
             .iter()
             .map(|r| match r {
@@ -263,7 +283,11 @@ mod tests {
             })
             .collect();
         // First hit: south pole v=π, second hit: north pole v=0
-        assert!(vs[0] > PI - 0.01, "first hit should be south pole, v={}", vs[0]);
+        assert!(
+            vs[0] > PI - 0.01,
+            "first hit should be south pole, v={}",
+            vs[0]
+        );
         assert!(vs[1] < 0.01, "second hit should be north pole, v={}", vs[1]);
     }
 
@@ -284,7 +308,12 @@ mod tests {
             (0.0, PI),
             &default_tol(),
         );
-        assert_eq!(results.len(), 2, "expected 2 intersections, got {:?}", results);
+        assert_eq!(
+            results.len(),
+            2,
+            "expected 2 intersections, got {:?}",
+            results
+        );
         let ts: Vec<f64> = results
             .iter()
             .map(|r| match r {
@@ -294,5 +323,76 @@ mod tests {
             .collect();
         assert!((ts[0] - 3.0).abs() < 1e-6, "t0 expected 3.0, got {}", ts[0]);
         assert!((ts[1] - 7.0).abs() < 1e-6, "t1 expected 7.0, got {}", ts[1]);
+    }
+
+    #[test]
+    fn zero_direction_returns_empty() {
+        // Zero-length direction vector should return no intersections (line 43)
+        let (center, radius) = unit_sphere();
+        let results = intersect_line_sphere(
+            &Point3::new(1.0, 0.0, 0.0),
+            &Vec3::new(0.0, 0.0, 0.0),
+            (-10.0, 10.0),
+            &center,
+            radius,
+            (0.0, TAU),
+            (0.0, PI),
+            &default_tol(),
+        );
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn t_range_filters_out() {
+        // Line through sphere but t_range excludes the intersections (line 63)
+        let (center, radius) = unit_sphere();
+        let results = intersect_line_sphere(
+            &Point3::new(-3.0, 0.0, 0.0),
+            &Vec3::new(1.0, 0.0, 0.0),
+            (5.0, 10.0), // intersections at t=2 and t=4, but range starts at 5
+            &center,
+            radius,
+            (0.0, TAU),
+            (0.0, PI),
+            &default_tol(),
+        );
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn v_range_filters_out() {
+        // Restrict v_range to exclude south pole (line 79)
+        let (center, radius) = unit_sphere();
+        // Line along Z axis hits north pole (v=0) and south pole (v=PI)
+        let results = intersect_line_sphere(
+            &Point3::new(0.0, 0.0, -3.0),
+            &Vec3::new(0.0, 0.0, 1.0),
+            (-10.0, 10.0),
+            &center,
+            radius,
+            (0.0, TAU),
+            (0.0, 0.1), // v_range excludes most of sphere
+            &default_tol(),
+        );
+        // Only the north pole (v=0) should pass the v_range filter
+        assert!(results.len() <= 1);
+    }
+
+    #[test]
+    fn u_range_filters_out() {
+        // Line through sphere with restricted u_range (line 84/102)
+        let (center, radius) = unit_sphere();
+        // Line along X from -3 through sphere. Hits at (-1,0,0) u=PI and (1,0,0) u=0
+        let results = intersect_line_sphere(
+            &Point3::new(-3.0, 0.0, 0.0),
+            &Vec3::new(1.0, 0.0, 0.0),
+            (-10.0, 10.0),
+            &center,
+            radius,
+            (0.5, 2.5), // restricted u_range, excludes u=0 and u=PI
+            (0.0, PI),
+            &default_tol(),
+        );
+        assert!(results.is_empty());
     }
 }

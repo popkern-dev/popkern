@@ -167,4 +167,27 @@ mod tests {
         // Should not panic; may return Ok or Err depending on resulting valence
         let _ = brep.validate_vertex_valence();
     }
+
+    #[test]
+    fn vertex_valence_safety_break_on_cycle() {
+        // Corrupt a vertex fan to form a cycle that never returns to start,
+        // triggering the steps > bound safety break (line 53).
+        let mut brep = make_cube();
+
+        // Find a vertex with edges
+        let v_handle = brep
+            .vertices
+            .keys()
+            .find(|&vh| brep.half_edges.contains_key(brep.vertices[vh].outgoing))
+            .unwrap();
+        let outgoing = brep.vertices[v_handle].outgoing;
+
+        // Make the twin's next point to a different half-edge that doesn't cycle back,
+        // creating an unbounded walk. We'll make twin.next -> outgoing (self-loop in fan).
+        let twin = brep.half_edges[outgoing].twin;
+        brep.half_edges[twin].next = outgoing;
+
+        // Should not hang — safety break after `bound` steps
+        let _ = brep.validate_vertex_valence();
+    }
 }

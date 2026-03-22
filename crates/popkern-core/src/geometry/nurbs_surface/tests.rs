@@ -453,3 +453,28 @@ fn surface_remove_knot_v_times_zero_removals() {
     assert_eq!(count, 0);
     assert_eq!(result.num_v, surface.num_v);
 }
+
+/// Test that remove_knot_u_times stops when knot_index >= knots_u.len() (line 271).
+/// We insert a knot at a high index and try to remove it multiple times.
+#[test]
+fn surface_remove_knot_u_times_index_out_of_range_break() {
+    let surface = bilinear_patch();
+    // Insert a single knot at 0.5
+    let inserted = surface.insert_knot_u(0.5).unwrap();
+    // knots_u = [0, 0, 0.5, 1, 1]. Index 2 is the inserted knot.
+    // Try to remove at index 2 ten times — after the first removal the
+    // index will be past the end, triggering the break.
+    let (result, count) = inserted.remove_knot_u_times(2, 10, 0.0);
+    assert_eq!(count, 1);
+    assert_eq!(result.num_u, surface.num_u);
+}
+
+/// Same test for v direction (line 297).
+#[test]
+fn surface_remove_knot_v_times_index_out_of_range_break() {
+    let surface = bilinear_patch();
+    let inserted = surface.insert_knot_v(0.5).unwrap();
+    let (result, count) = inserted.remove_knot_v_times(2, 10, 0.0);
+    assert_eq!(count, 1);
+    assert_eq!(result.num_v, surface.num_v);
+}
