@@ -5,7 +5,7 @@ use crate::geometry::Point3;
 use crate::geometry::curve_on_surface::CurveOnSurface;
 use crate::geometry::fitting::fit_curve;
 use crate::geometry::intersection::coincident::detect_coincident_regions;
-use crate::geometry::intersection::degeneracy::{DefaultDegeneracyHandler, DegeneracyHandler};
+use crate::geometry::intersection::degeneracy::{DegeneracyHandler, RobustDegeneracyHandler};
 use crate::geometry::intersection::marching::{MarchSample, march};
 use crate::geometry::intersection::starting_points::{find_branch_points, find_starting_points};
 use crate::geometry::surface::SurfaceGeometry;
@@ -55,7 +55,7 @@ pub fn intersect_surfaces(
         u2_range,
         v2_range,
         tolerance,
-        &DefaultDegeneracyHandler,
+        &RobustDegeneracyHandler,
     )
 }
 
