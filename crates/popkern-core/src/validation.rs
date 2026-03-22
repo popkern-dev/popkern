@@ -20,7 +20,7 @@ pub fn check_euler(model: &BRepModel, genus: u32) -> Result<(), CoreError> {
     let expected = 2 - 2 * genus as i64;
     let actual = euler_characteristic(model);
     if actual != expected {
-        return Err(CoreError::ValidationError(format!(
+        return Err(CoreError::LegacyValidation(format!(
             "Euler characteristic: expected {} (genus {}), got {}. \
              Check V={}, E={}, F={}. Ensure no duplicate or missing entities.",
             expected,
@@ -44,7 +44,7 @@ pub fn check_manifold_edges(model: &BRepModel) -> Result<(), CoreError> {
     }
     for (edge_id, count) in &edge_face_count {
         if *count != 2 {
-            return Err(CoreError::ValidationError(format!(
+            return Err(CoreError::LegacyValidation(format!(
                 "Edge {} is shared by {} faces (expected exactly 2). \
                  Non-manifold edge. Check face definitions for missing or duplicate edge references.",
                 edge_id, count
@@ -63,7 +63,7 @@ pub fn check_vertex_valence(model: &BRepModel) -> Result<(), CoreError> {
     }
     for (vertex_id, count) in &vertex_edge_count {
         if *count < 2 {
-            return Err(CoreError::ValidationError(format!(
+            return Err(CoreError::LegacyValidation(format!(
                 "Vertex {} has valence {} (expected >= 2). \
                  Isolated or dangling vertex. Remove it or connect it to at least 2 edges.",
                 vertex_id, count
