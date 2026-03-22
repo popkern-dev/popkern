@@ -14,3 +14,4 @@ pub use mef::MefResult;
 pub use mev::MevResult;
 pub use mvfs::MvfsResult;
 pub use sweep::ExtrudeResult;
+pub use sweep::RevolveResult;
