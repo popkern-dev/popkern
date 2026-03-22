@@ -123,6 +123,37 @@ impl NurbsCurve {
         })
     }
 
+    /// Elevate degree by 1. Shape unchanged.
+    pub fn elevate_degree(&self) -> NurbsCurve {
+        let (deg, knots, pts, wts) = nurbs_ops::degree_elevation::elevate_degree_1d(
+            self.degree,
+            &self.knots,
+            &self.control_points,
+            &self.weights,
+        );
+        NurbsCurve {
+            degree: deg,
+            knots,
+            control_points: pts,
+            weights: wts,
+        }
+    }
+
+    /// Elevate degree to `target`. Returns `Err` if `target <= current degree`.
+    pub fn elevate_degree_to(&self, target: usize) -> Result<NurbsCurve, CoreError> {
+        if target <= self.degree {
+            return Err(CoreError::PreconditionFailed(format!(
+                "target degree {} must be > current degree {}",
+                target, self.degree
+            )));
+        }
+        let mut curve = self.clone();
+        for _ in 0..(target - self.degree) {
+            curve = curve.elevate_degree();
+        }
+        Ok(curve)
+    }
+
     /// Evaluate the curve at parameter t using de Boor's algorithm in homogeneous coordinates.
     fn de_boor(&self, t: f64) -> Homogeneous {
         let homogeneous_points: Vec<Homogeneous> = self
@@ -567,5 +598,61 @@ mod tests {
         // Boundary knots cannot be removed
         assert!(curve.remove_knot(0, 0.0).is_none());
         assert!(curve.remove_knot(3, 0.0).is_none());
+    }
+
+    #[test]
+    fn curve_elevate_preserves_shape() {
+        let curve = NurbsCurve {
+            degree: 2,
+            knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.5, 1.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+            ],
+            weights: vec![1.0, 1.0, 1.0],
+        };
+        let elevated = curve.elevate_degree();
+        assert_eq!(elevated.degree, 3);
+        for t in [0.0, 0.25, 0.5, 0.75, 0.99] {
+            let p1 = curve.point_at(t);
+            let p2 = elevated.point_at(t);
+            assert!(
+                (p1.x - p2.x).abs() < 1e-10,
+                "x mismatch at t={t}: {p1:?} vs {p2:?}"
+            );
+            assert!(
+                (p1.y - p2.y).abs() < 1e-10,
+                "y mismatch at t={t}: {p1:?} vs {p2:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn curve_elevate_to_target() {
+        let curve = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        let elevated = curve.elevate_degree_to(4).unwrap();
+        assert_eq!(elevated.degree, 4);
+    }
+
+    #[test]
+    fn curve_elevate_to_same_fails() {
+        let curve = NurbsCurve {
+            degree: 2,
+            knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.5, 1.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+            ],
+            weights: vec![1.0, 1.0, 1.0],
+        };
+        assert!(curve.elevate_degree_to(2).is_err());
+        assert!(curve.elevate_degree_to(1).is_err());
     }
 }
