@@ -24,6 +24,7 @@ mod surface_curve_newton;
 mod surface_curve_overlap;
 
 pub use surface_curve::{intersect_surface_curve, SurfaceCurveIntersection, SurfaceCurveIntersectionResult};
+pub use surface_surface::{intersect_surfaces, intersect_surfaces_with_handler, SurfaceSurfaceIntersection, SurfaceSurfaceIntersectionResult};
 
 use crate::error::CoreError;
 use crate::geometry::Point3;
