@@ -1,3 +1,4 @@
+use crate::geometry::SurfaceOnFace;
 use crate::topology::{LoopHandle, ShellHandle};
 use serde::{Deserialize, Serialize};
 
@@ -10,6 +11,6 @@ pub struct Face {
     pub inner_loops: Vec<LoopHandle>,
     /// Parent shell.
     pub shell: ShellHandle,
-    /// Geometric surface. Placeholder until geometry is wired in (Task 18).
-    pub surface: Option<()>, // TODO: Replace with Option<SurfaceOnFace>
+    /// Geometric surface.
+    pub surface: Option<SurfaceOnFace>,
 }
