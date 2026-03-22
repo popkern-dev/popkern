@@ -4,7 +4,7 @@ use crate::geometry::curve::{CurveEval, CurveGeometry};
 use crate::geometry::{Point3, Vec3};
 
 /// Returns an arbitrary vector perpendicular to `normal` (assumed non-zero).
-fn arbitrary_perpendicular(normal: Vec3) -> Vec3 {
+pub(crate) fn arbitrary_perpendicular(normal: Vec3) -> Vec3 {
     // Pick an axis not parallel to normal, then cross to get a perpendicular.
     let axis = if normal.x.abs() < 0.9 {
         Vec3::new(1.0, 0.0, 0.0)
@@ -19,7 +19,7 @@ fn arbitrary_perpendicular(normal: Vec3) -> Vec3 {
 ///   - u and v are unit vectors
 ///   - u, v are perpendicular to each other and to normal
 ///   - normal ≈ u × v (right-hand rule)
-fn circle_basis(normal: Vec3) -> (Vec3, Vec3) {
+pub(crate) fn circle_basis(normal: Vec3) -> (Vec3, Vec3) {
     let perp = arbitrary_perpendicular(normal);
     // u = normalize(perp)
     // SAFETY: arbitrary_perpendicular guarantees a non-zero vector,
