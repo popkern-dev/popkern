@@ -282,3 +282,124 @@ fn sphere_plane_through_pole() {
         "should find intersection near pole"
     );
 }
+
+/// Two unit spheres that are externally tangent — touching at exactly one point
+/// `(1, 0, 0)`.  The contact point has perfectly parallel (anti-parallel) normals,
+/// so `N1 × N2 = 0`.
+///
+/// The `DefaultDegeneracyHandler` stops at the tangent starting point and routes
+/// through coincident-region detection, which finds no coincident region and
+/// returns an empty result.  The important property is that the call returns
+/// `Ok` without panicking.
+///
+/// With `RobustDegeneracyHandler` the tangent starting point is not skipped;
+/// the perturbation-based direction finder is invoked.  Again the call must
+/// return `Ok` — whether or not a curve is found depends on the geometry, but
+/// we must not crash.
+#[test]
+fn tangent_spheres_detected() {
+    use crate::geometry::intersection::surface_surface::intersect_surfaces;
+    let s1 = SurfaceGeometry::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    let s2 = SurfaceGeometry::Sphere {
+        center: Point3::new(2.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    let tol = Tolerance::default().with_linear(1e-3);
+
+    // Default handler: should not panic and should return Ok.
+    let result_default =
+        intersect_surfaces(&s1, (0.0, TAU), (0.0, PI), &s2, (0.0, TAU), (0.0, PI), &tol);
+    assert!(
+        result_default.is_ok(),
+        "tangent spheres (default handler) should return Ok, got {:?}",
+        result_default.err()
+    );
+
+    // Robust handler: must also return Ok without panicking.
+    let result_robust = intersect_surfaces_with_handler(
+        &s1,
+        (0.0, TAU),
+        (0.0, PI),
+        &s2,
+        (0.0, TAU),
+        (0.0, PI),
+        &tol,
+        &RobustDegeneracyHandler,
+    );
+    assert!(
+        result_robust.is_ok(),
+        "tangent spheres (robust handler) should return Ok, got {:?}",
+        result_robust.err()
+    );
+}
+
+/// Test the `tangent_basis` helper: the two returned vectors should be
+/// perpendicular to the normal and to each other.
+#[test]
+fn tangent_basis_orthogonality() {
+    let normals = [
+        Vec3::new(0.0, 0.0, 1.0),
+        Vec3::new(1.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(1.0, 1.0, 1.0),
+    ];
+    for normal in &normals {
+        let (tu, tv) = super::tangent_basis(normal);
+        let n = normal.normalized().unwrap();
+        assert!(
+            n.dot(&tu).abs() < 1e-10,
+            "tu should be perpendicular to normal, dot={} for normal={:?}",
+            n.dot(&tu),
+            normal
+        );
+        assert!(
+            n.dot(&tv).abs() < 1e-10,
+            "tv should be perpendicular to normal, dot={} for normal={:?}",
+            n.dot(&tv),
+            normal
+        );
+        assert!(
+            tu.dot(&tv).abs() < 1e-10,
+            "tu and tv should be perpendicular to each other, dot={} for normal={:?}",
+            tu.dot(&tv),
+            normal
+        );
+    }
+}
+
+/// Test `find_tangent_march_direction`: on a unit sphere at the equator and a
+/// parallel plane, the perturbation direction should be non-zero and normalised.
+#[test]
+fn find_tangent_march_direction_returns_unit_vec() {
+    // Sphere at origin, radius 1.  At (u=0, v=PI/2) the point is (1, 0, 0).
+    let sphere = SurfaceGeometry::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    // Plane with normal (1, 0, 0) — tangent to the sphere at (1, 0, 0).
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(1.0, 0.0, 0.0),
+        normal: Vec3::new(1.0, 0.0, 0.0),
+        u_axis: Vec3::new(0.0, 1.0, 0.0),
+        v_axis: Vec3::new(0.0, 0.0, 1.0),
+    };
+    let point = Point3::new(1.0, 0.0, 0.0);
+    let tol = Tolerance::default().with_linear(1e-3);
+
+    let dir =
+        super::find_tangent_march_direction(&sphere, 0.0, PI / 2.0, &plane, 0.0, 0.0, &point, &tol);
+    assert!(
+        dir.is_some(),
+        "should find a tangent march direction for sphere-plane tangency"
+    );
+    let d = dir.unwrap();
+    let len = d.length();
+    assert!(
+        (len - 1.0).abs() < 1e-10,
+        "direction should be a unit vector, got length {}",
+        len
+    );
+}

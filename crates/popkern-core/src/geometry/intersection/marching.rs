@@ -2,12 +2,18 @@
 
 #[path = "marching_linalg.rs"]
 mod marching_linalg;
-use marching_linalg::solve_4x4;
+
+#[path = "marching_newton.rs"]
+mod marching_newton;
+
+pub(crate) use marching_newton::march_project;
+use marching_newton::march_project_with_iters;
 
 use crate::geometry::intersection::degeneracy::DegeneracyHandler;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use std::f64::consts::TAU;
 
 /// A sample point on a surface-surface intersection curve.
 #[derive(Debug, Clone)]
@@ -22,149 +28,6 @@ pub struct MarchSample {
     pub v2: f64,
     /// The 3D point (equal to surface1.point_at(u1, v1) at convergence).
     pub point: Point3,
-}
-
-/// Project onto both surfaces using Newton 4×4.
-///
-/// Solves the system:
-/// - `S1(u1,v1) - S2(u2,v2) = 0`  (3 scalar equations)
-/// - `(S1(u1,v1) - target) · march_dir = 0`  (advancing front constraint)
-///
-/// Returns `None` if the solver fails to converge or the Jacobian is singular.
-#[allow(dead_code, clippy::too_many_arguments)]
-pub(crate) fn march_project(
-    surface1: &SurfaceGeometry,
-    u1: f64,
-    v1: f64,
-    surface2: &SurfaceGeometry,
-    u2: f64,
-    v2: f64,
-    target: &Point3,
-    march_dir: &Vec3,
-    tolerance: &Tolerance,
-) -> Option<MarchSample> {
-    let max_iter = 20;
-    let mut u1 = u1;
-    let mut v1 = v1;
-    let mut u2 = u2;
-    let mut v2 = v2;
-
-    for _ in 0..max_iter {
-        let p1 = surface1.point_at(u1, v1);
-        let p2 = surface2.point_at(u2, v2);
-
-        // Rows 0-2 residual: S1 - S2
-        let f = p1 - p2;
-        // Row 3 residual: (S1 - target) · march_dir
-        let f4 = (p1 - *target).dot(march_dir);
-
-        if f.length() < tolerance.linear && f4.abs() < tolerance.linear {
-            return Some(MarchSample {
-                u1,
-                v1,
-                u2,
-                v2,
-                point: p1,
-            });
-        }
-
-        let s1u = surface1.partial_u(u1, v1);
-        let s1v = surface1.partial_v(u1, v1);
-        let s2u = surface2.partial_u(u2, v2);
-        let s2v = surface2.partial_v(u2, v2);
-
-        // Build 4×4 Jacobian J such that J * [du1, dv1, du2, dv2]^T = [f.x, f.y, f.z, f4]:
-        //
-        // Row 0: [S1_u.x,         S1_v.x,         -S2_u.x,  -S2_v.x ]
-        // Row 1: [S1_u.y,         S1_v.y,         -S2_u.y,  -S2_v.y ]
-        // Row 2: [S1_u.z,         S1_v.z,         -S2_u.z,  -S2_v.z ]
-        // Row 3: [T·S1_u,         T·S1_v,          0,        0       ]
-        //
-        // Derivation of row 3:
-        //   F4 = (S1(u1,v1) - target) · T
-        //   ∂F4/∂u1 = S1_u · T,  ∂F4/∂v1 = S1_v · T,  ∂F4/∂u2 = 0,  ∂F4/∂v2 = 0
-        let j = [
-            [s1u.x, s1v.x, -s2u.x, -s2v.x],
-            [s1u.y, s1v.y, -s2u.y, -s2v.y],
-            [s1u.z, s1v.z, -s2u.z, -s2v.z],
-            [march_dir.dot(&s1u), march_dir.dot(&s1v), 0.0, 0.0],
-        ];
-        let rhs = [f.x, f.y, f.z, f4];
-
-        let delta = solve_4x4(j, rhs)?;
-
-        u1 -= delta[0];
-        v1 -= delta[1];
-        u2 -= delta[2];
-        v2 -= delta[3];
-    }
-
-    None
-}
-
-/// Like `march_project`, but also returns the number of Newton iterations used.
-///
-/// Returns `None` if the solver fails to converge.
-#[allow(clippy::too_many_arguments)]
-fn march_project_with_iters(
-    surface1: &SurfaceGeometry,
-    u1: f64,
-    v1: f64,
-    surface2: &SurfaceGeometry,
-    u2: f64,
-    v2: f64,
-    target: &Point3,
-    march_dir: &Vec3,
-    tolerance: &Tolerance,
-) -> Option<(MarchSample, usize)> {
-    let max_iter = 20;
-    let mut u1 = u1;
-    let mut v1 = v1;
-    let mut u2 = u2;
-    let mut v2 = v2;
-
-    for iter in 0..max_iter {
-        let p1 = surface1.point_at(u1, v1);
-        let p2 = surface2.point_at(u2, v2);
-
-        let f = p1 - p2;
-        let f4 = (p1 - *target).dot(march_dir);
-
-        if f.length() < tolerance.linear && f4.abs() < tolerance.linear {
-            return Some((
-                MarchSample {
-                    u1,
-                    v1,
-                    u2,
-                    v2,
-                    point: p1,
-                },
-                iter + 1,
-            ));
-        }
-
-        let s1u = surface1.partial_u(u1, v1);
-        let s1v = surface1.partial_v(u1, v1);
-        let s2u = surface2.partial_u(u2, v2);
-        let s2v = surface2.partial_v(u2, v2);
-
-        let j = [
-            [s1u.x, s1v.x, -s2u.x, -s2v.x],
-            [s1u.y, s1v.y, -s2u.y, -s2v.y],
-            [s1u.z, s1v.z, -s2u.z, -s2v.z],
-            [march_dir.dot(&s1u), march_dir.dot(&s1v), 0.0, 0.0],
-        ];
-        let rhs = [f.x, f.y, f.z, f4];
-
-        let delta = solve_4x4(j, rhs)?;
-
-        u1 -= delta[0];
-        v1 -= delta[1];
-        u2 -= delta[2];
-        v2 -= delta[3];
-    }
-
-    None
 }
 
 /// March along a surface-surface intersection curve from a starting point.
@@ -264,6 +127,70 @@ fn estimate_normal_near_singularity(
     } else {
         None
     }
+}
+
+/// Build an orthonormal tangent basis in the plane perpendicular to `normal`.
+///
+/// Returns `(tu, tv)` where `tu` and `tv` are unit vectors perpendicular to
+/// `normal` and to each other.
+fn tangent_basis(normal: &Vec3) -> (Vec3, Vec3) {
+    let n = normal.normalized().unwrap_or(Vec3::new(0.0, 0.0, 1.0));
+    let axis = if n.x.abs() < 0.9 {
+        Vec3::new(1.0, 0.0, 0.0)
+    } else {
+        Vec3::new(0.0, 1.0, 0.0)
+    };
+    let tu = n
+        .cross(&axis)
+        .normalized()
+        .unwrap_or(Vec3::new(1.0, 0.0, 0.0));
+    let tv = n.cross(&tu);
+    (tu, tv)
+}
+
+/// Find a march direction at a tangent point using perturbation sampling.
+///
+/// When `N1 × N2` is near-zero (surfaces are locally tangent), the standard
+/// marching direction is undefined.  This function samples 8 directions in the
+/// tangent plane of surface 1's normal and picks the one that minimises the
+/// distance to `surface2.point_at(u2, v2)` — i.e., the direction that stays
+/// closest to the second surface.
+///
+/// Returns `None` if the normal at `(u1, v1)` is degenerate or all sampled
+/// directions are equidistant.
+#[allow(clippy::too_many_arguments)]
+fn find_tangent_march_direction(
+    surface1: &SurfaceGeometry,
+    u1: f64,
+    v1: f64,
+    surface2: &SurfaceGeometry,
+    u2: f64,
+    v2: f64,
+    point: &Point3,
+    tolerance: &Tolerance,
+) -> Option<Vec3> {
+    let n1 = surface1.normal_at(u1, v1);
+    if n1.length() < 1e-12 {
+        return None;
+    }
+    let delta = tolerance.linear * 10.0;
+    let (tu, tv) = tangent_basis(&n1);
+
+    let mut best_dir = Vec3::zero();
+    let mut min_dist = f64::MAX;
+
+    for i in 0..8usize {
+        let angle = TAU * i as f64 / 8.0;
+        let dir = tu * angle.cos() + tv * angle.sin();
+        let test_point = *point + dir * delta;
+        let dist = (test_point - surface2.point_at(u2, v2)).length();
+        if dist < min_dist {
+            min_dist = dist;
+            best_dir = dir;
+        }
+    }
+
+    best_dir.normalized()
 }
 
 /// March in one direction along the intersection curve.
@@ -370,17 +297,33 @@ fn march_one_direction(
         let t_len = t_raw.length();
 
         // Check tangency: surfaces are tangent when cross product is near zero.
-        if t_len < epsilon {
+        let t_normalized = if t_len < epsilon {
             let angle = n1.angle_to(&n2);
             if handler.on_tangent_during_march(&current.point, angle) {
                 break;
             }
-        }
-
-        // Normalize tangent direction and apply direction sign.
-        let t_normalized = match t_raw.normalized() {
-            Some(t) => t * direction_sign,
-            None => break, // cannot normalize zero vector
+            // Handler returned false (robust): use perturbation-based direction.
+            // Reduce step size to tolerance.linear for finer tracing.
+            step_size = tolerance.linear;
+            match find_tangent_march_direction(
+                surface1,
+                current.u1,
+                current.v1,
+                surface2,
+                current.u2,
+                current.v2,
+                &current.point,
+                tolerance,
+            ) {
+                Some(dir) => dir * direction_sign,
+                None => break,
+            }
+        } else {
+            // Normalize tangent direction and apply direction sign.
+            match t_raw.normalized() {
+                Some(t) => t * direction_sign,
+                None => break, // cannot normalize zero vector
+            }
         };
 
         // Try Newton projection, with retry on failure.
