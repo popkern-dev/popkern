@@ -24,3 +24,6 @@ pub use loop_::Loop;
 pub use shell::Shell;
 pub use solid::Solid;
 pub use vertex::Vertex;
+
+pub mod brep;
+pub use brep::BRep;
