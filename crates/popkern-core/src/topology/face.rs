@@ -1,0 +1,15 @@
+use crate::topology::{LoopHandle, ShellHandle};
+use serde::{Deserialize, Serialize};
+
+/// A topological face — bounded by loops.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Face {
+    /// Outer boundary loop.
+    pub outer_loop: LoopHandle,
+    /// Inner loops (holes).
+    pub inner_loops: Vec<LoopHandle>,
+    /// Parent shell.
+    pub shell: ShellHandle,
+    /// Geometric surface. Placeholder until geometry is wired in (Task 18).
+    pub surface: Option<()>, // TODO: Replace with Option<SurfaceOnFace>
+}
