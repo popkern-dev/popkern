@@ -1,14 +1,14 @@
 //! Surface-surface intersection types and API.
 
 use crate::error::CoreError;
+use crate::geometry::Point3;
 use crate::geometry::curve_on_surface::CurveOnSurface;
 use crate::geometry::fitting::fit_curve;
 use crate::geometry::intersection::coincident::detect_coincident_regions;
 use crate::geometry::intersection::degeneracy::{DefaultDegeneracyHandler, DegeneracyHandler};
-use crate::geometry::intersection::marching::{march, MarchSample};
+use crate::geometry::intersection::marching::{MarchSample, march};
 use crate::geometry::intersection::starting_points::find_starting_points;
 use crate::geometry::surface::SurfaceGeometry;
-use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 use serde::{Deserialize, Serialize};
 
@@ -48,7 +48,13 @@ pub fn intersect_surfaces(
     tolerance: &Tolerance,
 ) -> Result<SurfaceSurfaceIntersectionResult, CoreError> {
     intersect_surfaces_with_handler(
-        surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
+        surface1,
+        u1_range,
+        v1_range,
+        surface2,
+        u2_range,
+        v2_range,
+        tolerance,
         &DefaultDegeneracyHandler,
     )
 }
@@ -96,8 +102,8 @@ pub fn intersect_surfaces_with_handler(
         }
 
         let (samples, is_closed) = march(
-            surface1, u1_range, v1_range, surface2, u2_range, v2_range, &sp.sample,
-            tolerance, handler,
+            surface1, u1_range, v1_range, surface2, u2_range, v2_range, &sp.sample, tolerance,
+            handler,
         );
 
         if samples.len() < 2 {
@@ -221,10 +227,7 @@ mod tests {
             &test_tolerance(),
         )
         .unwrap();
-        assert!(
-            !result.intersections.is_empty(),
-            "Should find intersection"
-        );
+        assert!(!result.intersections.is_empty(), "Should find intersection");
         assert!(matches!(
             &result.intersections[0],
             SurfaceSurfaceIntersection::Curve(_)
@@ -249,10 +252,12 @@ mod tests {
             &test_tolerance(),
         )
         .unwrap();
-        assert!(result
-            .intersections
-            .iter()
-            .any(|i| matches!(i, SurfaceSurfaceIntersection::CoincidentRegion { .. })));
+        assert!(
+            result
+                .intersections
+                .iter()
+                .any(|i| matches!(i, SurfaceSurfaceIntersection::CoincidentRegion { .. }))
+        );
     }
 
     #[test]

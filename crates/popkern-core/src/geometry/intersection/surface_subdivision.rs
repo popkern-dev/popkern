@@ -1,7 +1,7 @@
 //! Surface subdivision infrastructure.
 
-use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::Point3;
+use crate::geometry::nurbs_surface::NurbsSurface;
 use serde::{Deserialize, Serialize};
 
 /// Axis-aligned bounding box.

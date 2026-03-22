@@ -185,14 +185,12 @@ pub(crate) fn march(
 ) -> (Vec<MarchSample>, bool) {
     // March in +T direction.
     let forward = march_one_direction(
-        surface1, u1_range, v1_range, surface2, u2_range, v2_range, start, 1.0, tolerance,
-        handler,
+        surface1, u1_range, v1_range, surface2, u2_range, v2_range, start, 1.0, tolerance, handler,
     );
 
     // March in -T direction.
     let mut backward = march_one_direction(
-        surface1, u1_range, v1_range, surface2, u2_range, v2_range, start, -1.0, tolerance,
-        handler,
+        surface1, u1_range, v1_range, surface2, u2_range, v2_range, start, -1.0, tolerance, handler,
     );
 
     // Reverse backward so it goes from far-negative to start.
@@ -334,7 +332,6 @@ fn march_one_direction(
 
     samples
 }
-
 
 #[cfg(test)]
 mod tests {

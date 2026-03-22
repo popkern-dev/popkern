@@ -64,10 +64,10 @@ impl BRep {
         // The revolve will create new_vertices[12..16] as the 360° copies of
         // [v0, v3, v2, v1] respectively.
         let orig_in_loop_order = [
-            mvfs.vertex,  // v0 — loop position 0
-            mev3.vertex,  // v3 — loop position 1
-            mev2.vertex,  // v2 — loop position 2
-            mev1.vertex,  // v1 — loop position 3
+            mvfs.vertex, // v0 — loop position 0
+            mev3.vertex, // v3 — loop position 1
+            mev2.vertex, // v2 — loop position 2
+            mev1.vertex, // v1 — loop position 3
         ];
 
         // Revolve the profile face 360° around the Z axis.
@@ -156,9 +156,8 @@ fn close_torus_seam(
     // -----------------------------------------------------------------------
     let orig_set: std::collections::HashSet<VertexHandle> = orig_verts.iter().copied().collect();
 
-    let cap_face = find_cap_face(brep, mvfs_face, &orig_set).ok_or_else(|| {
-        CoreError::PreconditionFailed("could not locate 360° cap face".into())
-    })?;
+    let cap_face = find_cap_face(brep, mvfs_face, &orig_set)
+        .ok_or_else(|| CoreError::PreconditionFailed("could not locate 360° cap face".into()))?;
 
     // -----------------------------------------------------------------------
     // Step 3: collect the boundary half-edges from both faces.
@@ -195,8 +194,12 @@ fn close_torus_seam(
     //
     // We collect (ring1_he, ring4_he, mvfs_he, cap_he, edge_to_remove) tuples
     // so that we can perform the stitching after building the full mapping.
-    let mut stitches: Vec<(HalfEdgeHandle, HalfEdgeHandle, HalfEdgeHandle, HalfEdgeHandle)> =
-        Vec::with_capacity(4);
+    let mut stitches: Vec<(
+        HalfEdgeHandle,
+        HalfEdgeHandle,
+        HalfEdgeHandle,
+        HalfEdgeHandle,
+    )> = Vec::with_capacity(4);
 
     for &he_m in &mvfs_boundary {
         let he_m_data = brep
@@ -272,7 +275,9 @@ fn collect_loop_half_edges(
 
     let start = loop_data.half_edge;
     if !brep.half_edges.contains_key(start) {
-        return Err(CoreError::PreconditionFailed("loop has no half-edges".into()));
+        return Err(CoreError::PreconditionFailed(
+            "loop has no half-edges".into(),
+        ));
     }
 
     let mut result = Vec::new();
@@ -338,10 +343,9 @@ fn find_cap_face(
 
 /// Return the outer loop handle of the given face (helper for removal).
 fn walk_and_return_loop(brep: &BRep, face: FaceHandle) -> Result<LoopHandle, CoreError> {
-    brep.faces
-        .get(face)
-        .map(|f| f.outer_loop)
-        .ok_or_else(|| CoreError::InvalidHandle("face handle invalid in walk_and_return_loop".into()))
+    brep.faces.get(face).map(|f| f.outer_loop).ok_or_else(|| {
+        CoreError::InvalidHandle("face handle invalid in walk_and_return_loop".into())
+    })
 }
 
 #[cfg(test)]

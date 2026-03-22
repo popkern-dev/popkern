@@ -6,9 +6,9 @@
 //!   - ∂F/∂u = -surface_u(u,v)
 //!   - ∂F/∂v = -surface_v(u,v)
 
+use crate::geometry::Point3;
 use crate::geometry::curve::{CurveEval, CurveGeometry};
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 
 /// Refine an approximate surface-curve intersection using Newton-Raphson.
@@ -76,8 +76,8 @@ pub(crate) fn newton_surface_curve(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geometry::surface::SurfaceGeometry;
     use crate::geometry::curve::CurveGeometry;
+    use crate::geometry::surface::SurfaceGeometry;
     use crate::geometry::{Point3, Vec3};
     use crate::tolerance::Tolerance;
 
@@ -108,7 +108,11 @@ mod tests {
         assert!((t - 1.0).abs() < 1e-10, "t should be 1.0, got {t}");
         assert!(u.abs() < 1e-10, "u should be 0.0, got {u}");
         assert!(v.abs() < 1e-10, "v should be 0.0, got {v}");
-        assert!((point.z - 1.0).abs() < 1e-10, "z should be 1.0, got {}", point.z);
+        assert!(
+            (point.z - 1.0).abs() < 1e-10,
+            "z should be 1.0, got {}",
+            point.z
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -134,7 +138,10 @@ mod tests {
         let tol = Tolerance::default();
 
         let result = newton_surface_curve(&line, 0.0, &plane, 0.0, 0.0, &tol);
-        assert!(result.is_none(), "Expected None for parallel line and plane");
+        assert!(
+            result.is_none(),
+            "Expected None for parallel line and plane"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -166,8 +173,7 @@ mod tests {
         let (t, _u, _v, point) = result.unwrap();
 
         // The intersection point should lie on the sphere surface.
-        let dist_from_origin =
-            (point.x * point.x + point.y * point.y + point.z * point.z).sqrt();
+        let dist_from_origin = (point.x * point.x + point.y * point.y + point.z * point.z).sqrt();
         // Convergence is within the default linear tolerance (1e-6); the actual
         // residual is well below that, so a check at 1e-5 is a safe bound.
         assert!(

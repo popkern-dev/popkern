@@ -1,9 +1,9 @@
 //! Face and edge splitting operations for surface trimming.
 
 use crate::error::CoreError;
+use crate::geometry::Point3;
 use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use crate::geometry::nurbs_curve::NurbsCurve;
-use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 use crate::topology::*;
 
@@ -40,11 +40,7 @@ impl BRep {
     ///
     /// - [`CoreError::InvalidHandle`] if the edge handle is invalid.
     /// - [`CoreError::PreconditionFailed`] if `t` is not in (0, 1).
-    pub fn split_edge(
-        &mut self,
-        edge: EdgeHandle,
-        t: f64,
-    ) -> Result<SplitEdgeResult, CoreError> {
+    pub fn split_edge(&mut self, edge: EdgeHandle, t: f64) -> Result<SplitEdgeResult, CoreError> {
         // Validate parameter range.
         if t <= 0.0 || t >= 1.0 {
             return Err(CoreError::PreconditionFailed(format!(
@@ -161,7 +157,9 @@ impl BRep {
             let t_param = curve.t_start + t * (curve.t_end - curve.t_start);
 
             // Try to split NURBS; if the curve is analytic, convert to NURBS first.
-            let nurbs = curve.geometry.to_nurbs_in_range((curve.t_start, curve.t_end));
+            let nurbs = curve
+                .geometry
+                .to_nurbs_in_range((curve.t_start, curve.t_end));
             match nurbs.split_at(t_param) {
                 Ok((left, right)) => {
                     use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
@@ -243,21 +241,14 @@ impl BRep {
         let max_iters = self.half_edges.len() + 1;
         let mut iters = 0;
         loop {
-            let he_data = self
-                .half_edges
-                .get(cursor)
-                .ok_or_else(|| {
-                    CoreError::InvalidHandle("half_edge in loop walk is invalid".into())
-                })?;
+            let he_data = self.half_edges.get(cursor).ok_or_else(|| {
+                CoreError::InvalidHandle("half_edge in loop walk is invalid".into())
+            })?;
             let vertex_pos = self.vertices[he_data.origin].position;
 
-            if he_entry.is_none()
-                && tolerance.points_coincident(&vertex_pos, &curve_start)
-            {
+            if he_entry.is_none() && tolerance.points_coincident(&vertex_pos, &curve_start) {
                 he_entry = Some(cursor);
-            } else if he_exit.is_none()
-                && tolerance.points_coincident(&vertex_pos, &curve_end)
-            {
+            } else if he_exit.is_none() && tolerance.points_coincident(&vertex_pos, &curve_end) {
                 he_exit = Some(cursor);
             }
 

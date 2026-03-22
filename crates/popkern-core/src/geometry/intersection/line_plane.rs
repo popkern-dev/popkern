@@ -89,16 +89,18 @@ mod tests {
     }
 
     // Helper: intersect a line with the XY plane patch [(-5,5), (-5,5)].
-    fn intersect_xy(
-        lo: Point3,
-        ld: Vec3,
-        t_range: (f64, f64),
-    ) -> Vec<SurfaceCurveIntersection> {
+    fn intersect_xy(lo: Point3, ld: Vec3, t_range: (f64, f64)) -> Vec<SurfaceCurveIntersection> {
         let (po, pn, pu, pv) = xy_plane();
         intersect_line_plane(
-            &lo, &ld, t_range,
-            &po, &pn, &pu, &pv,
-            (-5.0, 5.0), (-5.0, 5.0),
+            &lo,
+            &ld,
+            t_range,
+            &po,
+            &pn,
+            &pu,
+            &pv,
+            (-5.0, 5.0),
+            (-5.0, 5.0),
             &Tolerance::default(),
         )
     }
@@ -139,7 +141,10 @@ mod tests {
             Vec3::new(1.0, 0.0, 0.0),
             (0.0, 10.0),
         );
-        assert!(results.is_empty(), "parallel miss should yield no intersections");
+        assert!(
+            results.is_empty(),
+            "parallel miss should yield no intersections"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -153,7 +158,11 @@ mod tests {
             Vec3::new(1.0, 0.0, 0.0),
             (0.0, 5.0),
         );
-        assert_eq!(results.len(), 1, "line in plane should give one overlap result");
+        assert_eq!(
+            results.len(),
+            1,
+            "line in plane should give one overlap result"
+        );
         if let SurfaceCurveIntersection::Overlap { t_range } = &results[0] {
             assert!((t_range.0 - 0.0).abs() < 1e-10);
             assert!((t_range.1 - 5.0).abs() < 1e-10);
@@ -198,12 +207,18 @@ mod tests {
             &Point3::new(10.0, 0.0, -1.0),
             &Vec3::new(0.0, 0.0, 1.0),
             (0.0, 10.0),
-            &po, &pn, &pu, &pv,
+            &po,
+            &pn,
+            &pu,
+            &pv,
             (-5.0, 5.0),
             (-5.0, 5.0),
             &Tolerance::default(),
         );
-        assert!(results.is_empty(), "intersection outside uv range should be filtered");
+        assert!(
+            results.is_empty(),
+            "intersection outside uv range should be filtered"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -217,6 +232,9 @@ mod tests {
             Vec3::new(0.0, 0.0, 1.0),
             (2.0, 10.0),
         );
-        assert!(results.is_empty(), "intersection outside t_range should be filtered");
+        assert!(
+            results.is_empty(),
+            "intersection outside t_range should be filtered"
+        );
     }
 }

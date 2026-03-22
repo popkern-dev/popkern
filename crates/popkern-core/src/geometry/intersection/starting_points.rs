@@ -1,9 +1,11 @@
 //! Starting point detection for surface-surface intersection.
 
-use crate::geometry::intersection::marching::{march_project, MarchSample};
-use crate::geometry::intersection::surface_subdivision::{decompose_to_patches, refine_patch, SurfacePatch};
-use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::Vec3;
+use crate::geometry::intersection::marching::{MarchSample, march_project};
+use crate::geometry::intersection::surface_subdivision::{
+    SurfacePatch, decompose_to_patches, refine_patch,
+};
+use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
 
 /// A classified starting point for surface-surface intersection marching.
@@ -93,10 +95,7 @@ pub(crate) fn find_starting_points(
         let march_dir = pick_march_dir(n1, n2, surface1, u1_mid, v1_mid);
 
         if let Some(sample) = march_project(
-            surface1, u1_mid, v1_mid,
-            surface2, u2_mid, v2_mid,
-            &target, &march_dir,
-            tolerance,
+            surface1, u1_mid, v1_mid, surface2, u2_mid, v2_mid, &target, &march_dir, tolerance,
         ) {
             raw_samples.push(sample);
         }
@@ -121,13 +120,7 @@ pub(crate) fn find_starting_points(
 /// If the normals are nearly parallel (tangent intersection or coincident surfaces),
 /// fall back to the first non-degenerate partial derivative of surface 1.
 #[allow(dead_code)]
-fn pick_march_dir(
-    n1: Vec3,
-    n2: Vec3,
-    surface1: &SurfaceGeometry,
-    u1: f64,
-    v1: f64,
-) -> Vec3 {
+fn pick_march_dir(n1: Vec3, n2: Vec3, surface1: &SurfaceGeometry, u1: f64, v1: f64) -> Vec3 {
     let cross = n1.cross(&n2);
     if cross.length() > 1e-8 {
         return cross;
@@ -214,12 +207,19 @@ mod tests {
         let s1 = xy_plane();
         let s2 = xz_plane();
         let points = find_starting_points(
-            &s1, (-1.0, 1.0), (-1.0, 1.0),
-            &s2, (-1.0, 1.0), (-1.0, 1.0),
+            &s1,
+            (-1.0, 1.0),
+            (-1.0, 1.0),
+            &s2,
+            (-1.0, 1.0),
+            (-1.0, 1.0),
             &Tolerance::default(),
         );
         assert!(!points.is_empty(), "Should find starting points");
-        assert!(!points[0].is_tangent, "XY/XZ intersection should be transversal");
+        assert!(
+            !points[0].is_tangent,
+            "XY/XZ intersection should be transversal"
+        );
     }
 
     #[test]
@@ -237,11 +237,18 @@ mod tests {
             v_axis: Vec3::new(0.0, 1.0, 0.0),
         };
         let points = find_starting_points(
-            &s1, (0.0, 1.0), (0.0, 1.0),
-            &s2, (0.0, 1.0), (0.0, 1.0),
+            &s1,
+            (0.0, 1.0),
+            (0.0, 1.0),
+            &s2,
+            (0.0, 1.0),
+            (0.0, 1.0),
             &Tolerance::default(),
         );
-        assert!(points.is_empty(), "Disjoint parallel planes should yield no starting points");
+        assert!(
+            points.is_empty(),
+            "Disjoint parallel planes should yield no starting points"
+        );
     }
 
     #[test]
@@ -256,8 +263,12 @@ mod tests {
         // For identical surfaces Newton may not converge (over-determined / under-constrained).
         // The key requirement is that this does not panic.
         let _ = find_starting_points(
-            &s, (0.0, 1.0), (0.0, 1.0),
-            &s, (0.0, 1.0), (0.0, 1.0),
+            &s,
+            (0.0, 1.0),
+            (0.0, 1.0),
+            &s,
+            (0.0, 1.0),
+            (0.0, 1.0),
             &Tolerance::default(),
         );
     }

@@ -155,9 +155,9 @@ impl BRep {
             )));
         }
 
-        let axis_unit = axis_dir.normalized().ok_or_else(|| {
-            CoreError::PreconditionFailed("axis direction is zero-length".into())
-        })?;
+        let axis_unit = axis_dir
+            .normalized()
+            .ok_or_else(|| CoreError::PreconditionFailed("axis direction is zero-length".into()))?;
 
         let is_full = (angle - TAU).abs() < 1e-10;
         let angle = angle.min(TAU);
@@ -331,10 +331,7 @@ mod tests {
             )
             .unwrap();
 
-        assert!(
-            result.cap_faces.is_empty(),
-            "Full 360 should have no caps"
-        );
+        assert!(result.cap_faces.is_empty(), "Full 360 should have no caps");
         assert!(
             brep.vertices.len() > 4,
             "Should have created intermediate vertices"
@@ -349,28 +346,30 @@ mod tests {
     fn revolve_invalid_angle_zero() {
         let mut brep = BRep::new(Tolerance::default());
         let mvfs = brep.mvfs(Point3::new(1.0, 0.0, 0.0)).unwrap();
-        assert!(brep
-            .revolve(
+        assert!(
+            brep.revolve(
                 mvfs.face,
                 Point3::new(0.0, 0.0, 0.0),
                 Vec3::new(0.0, 0.0, 1.0),
                 0.0,
             )
-            .is_err());
+            .is_err()
+        );
     }
 
     #[test]
     fn revolve_invalid_angle_too_large() {
         let mut brep = BRep::new(Tolerance::default());
         let mvfs = brep.mvfs(Point3::new(1.0, 0.0, 0.0)).unwrap();
-        assert!(brep
-            .revolve(
+        assert!(
+            brep.revolve(
                 mvfs.face,
                 Point3::new(0.0, 0.0, 0.0),
                 Vec3::new(0.0, 0.0, 1.0),
                 7.0,
             )
-            .is_err());
+            .is_err()
+        );
     }
 
     #[test]
@@ -423,7 +422,11 @@ mod tests {
         // 180° = 2 steps, 4 profile vertices => 8 side faces, 8 new vertices
         assert_eq!(result.revolution_faces.len(), 8);
         assert_eq!(result.new_vertices.len(), 8);
-        assert_eq!(result.cap_faces.len(), 1, "Partial revolve should have 1 cap");
+        assert_eq!(
+            result.cap_faces.len(),
+            1,
+            "Partial revolve should have 1 cap"
+        );
     }
 
     #[test]

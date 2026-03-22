@@ -23,10 +23,7 @@ fn nurbs_line_piercing_plane() {
     let nurbs_line = CurveGeometry::Nurbs(NurbsCurve {
         degree: 1,
         knots: vec![0.0, 0.0, 1.0, 1.0],
-        control_points: vec![
-            Point3::new(0.0, 0.0, -1.0),
-            Point3::new(0.0, 0.0, 1.0),
-        ],
+        control_points: vec![Point3::new(0.0, 0.0, -1.0), Point3::new(0.0, 0.0, 1.0)],
         weights: vec![1.0, 1.0],
     });
 
@@ -45,18 +42,19 @@ fn nurbs_line_piercing_plane() {
         .filter(|r| matches!(r, SurfaceCurveIntersection::Point { .. }))
         .collect();
 
-    assert_eq!(points.len(), 1, "Expected exactly 1 point intersection, got {}", points.len());
+    assert_eq!(
+        points.len(),
+        1,
+        "Expected exactly 1 point intersection, got {}",
+        points.len()
+    );
     if let SurfaceCurveIntersection::Point { point, t, .. } = &points[0] {
         assert!(
             (point.z).abs() < 1e-5,
             "Point should be on z=0 plane, got z={}",
             point.z
         );
-        assert!(
-            (*t - 0.5).abs() < 1e-5,
-            "t should be ~0.5, got {}",
-            t
-        );
+        assert!((*t - 0.5).abs() < 1e-5, "t should be ~0.5, got {}", t);
     }
 }
 
@@ -132,10 +130,7 @@ fn non_intersecting_empty() {
     let nurbs_line = CurveGeometry::Nurbs(NurbsCurve {
         degree: 1,
         knots: vec![0.0, 0.0, 1.0, 1.0],
-        control_points: vec![
-            Point3::new(0.0, 0.0, 1.0),
-            Point3::new(0.0, 0.0, 2.0),
-        ],
+        control_points: vec![Point3::new(0.0, 0.0, 1.0), Point3::new(0.0, 0.0, 2.0)],
         weights: vec![1.0, 1.0],
     });
 
@@ -178,10 +173,7 @@ fn invariant_curve_surface_match() {
     let nurbs_line = CurveGeometry::Nurbs(NurbsCurve {
         degree: 1,
         knots: vec![0.0, 0.0, 1.0, 1.0],
-        control_points: vec![
-            Point3::new(0.0, 0.0, -1.0),
-            Point3::new(0.0, 0.0, 1.0),
-        ],
+        control_points: vec![Point3::new(0.0, 0.0, -1.0), Point3::new(0.0, 0.0, 1.0)],
         weights: vec![1.0, 1.0],
     });
 

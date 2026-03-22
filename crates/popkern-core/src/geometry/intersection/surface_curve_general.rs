@@ -3,13 +3,13 @@
 //! Orchestrates: overlap detection -> curve Bezier decomposition -> surface
 //! bounding-box grid (8x8) -> AABB culling -> Newton 3x3 polish -> dedup -> sort.
 
+use crate::geometry::Point3;
 use crate::geometry::curve::{CurveEval, CurveGeometry};
+use crate::geometry::intersection::SurfaceCurveIntersection;
 use crate::geometry::intersection::surface_curve_newton::newton_surface_curve;
 use crate::geometry::intersection::surface_curve_overlap::detect_surface_curve_overlaps;
-use crate::geometry::intersection::SurfaceCurveIntersection;
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 
 /// Number of cells per axis in the surface bounding-box grid.
@@ -61,12 +61,24 @@ fn build_surface_grid(
             let mut bmin = corners[0];
             let mut bmax = corners[0];
             for c in &corners[1..] {
-                if c.x < bmin.x { bmin.x = c.x; }
-                if c.y < bmin.y { bmin.y = c.y; }
-                if c.z < bmin.z { bmin.z = c.z; }
-                if c.x > bmax.x { bmax.x = c.x; }
-                if c.y > bmax.y { bmax.y = c.y; }
-                if c.z > bmax.z { bmax.z = c.z; }
+                if c.x < bmin.x {
+                    bmin.x = c.x;
+                }
+                if c.y < bmin.y {
+                    bmin.y = c.y;
+                }
+                if c.z < bmin.z {
+                    bmin.z = c.z;
+                }
+                if c.x > bmax.x {
+                    bmax.x = c.x;
+                }
+                if c.y > bmax.y {
+                    bmax.y = c.y;
+                }
+                if c.z > bmax.z {
+                    bmax.z = c.z;
+                }
             }
             cells.push(SurfaceCell {
                 u_range: (u0 + iu as f64 * du, u0 + (iu + 1) as f64 * du),
@@ -99,25 +111,42 @@ fn curve_aabb(nurbs: &NurbsCurve, t_range: (f64, f64)) -> (Point3, Point3) {
     for i in 1..=n_samples {
         let frac = i as f64 / n_samples as f64;
         p = nurbs.point_at(t0 + frac * (t1 - t0));
-        if p.x < bmin.x { bmin.x = p.x; }
-        if p.y < bmin.y { bmin.y = p.y; }
-        if p.z < bmin.z { bmin.z = p.z; }
-        if p.x > bmax.x { bmax.x = p.x; }
-        if p.y > bmax.y { bmax.y = p.y; }
-        if p.z > bmax.z { bmax.z = p.z; }
+        if p.x < bmin.x {
+            bmin.x = p.x;
+        }
+        if p.y < bmin.y {
+            bmin.y = p.y;
+        }
+        if p.z < bmin.z {
+            bmin.z = p.z;
+        }
+        if p.x > bmax.x {
+            bmax.x = p.x;
+        }
+        if p.y > bmax.y {
+            bmax.y = p.y;
+        }
+        if p.z > bmax.z {
+            bmax.z = p.z;
+        }
     }
     (bmin, bmax)
 }
 
 /// Check AABB overlap with a tolerance margin.
 fn aabb_overlap(
-    a_min: &Point3, a_max: &Point3,
-    b_min: &Point3, b_max: &Point3,
+    a_min: &Point3,
+    a_max: &Point3,
+    b_min: &Point3,
+    b_max: &Point3,
     margin: f64,
 ) -> bool {
-    a_min.x - margin <= b_max.x && a_max.x + margin >= b_min.x
-        && a_min.y - margin <= b_max.y && a_max.y + margin >= b_min.y
-        && a_min.z - margin <= b_max.z && a_max.z + margin >= b_min.z
+    a_min.x - margin <= b_max.x
+        && a_max.x + margin >= b_min.x
+        && a_min.y - margin <= b_max.y
+        && a_max.y + margin >= b_min.y
+        && a_min.z - margin <= b_max.z
+        && a_max.z + margin >= b_min.z
 }
 
 // ---------------------------------------------------------------------------
@@ -134,8 +163,12 @@ fn decompose_to_bezier_segments(nurbs: &NurbsCurve) -> Vec<(NurbsCurve, (f64, f6
     // Collect unique interior knot values.
     let mut interior_knots: Vec<f64> = Vec::new();
     for &k in &nurbs.knots {
-        if k > t_min && k < t_max
-            && interior_knots.last().is_none_or(|&last| (k - last).abs() > 1e-14) {
+        if k > t_min
+            && k < t_max
+            && interior_knots
+                .last()
+                .is_none_or(|&last| (k - last).abs() > 1e-14)
+        {
             interior_knots.push(k);
         }
     }
@@ -149,7 +182,11 @@ fn decompose_to_bezier_segments(nurbs: &NurbsCurve) -> Vec<(NurbsCurve, (f64, f6
     // times to raise it to `degree`.  We collect all insertions.
     let mut knots_to_insert: Vec<f64> = Vec::new();
     for &k in &interior_knots {
-        let mult = nurbs.knots.iter().filter(|&&v| (v - k).abs() < 1e-14).count();
+        let mult = nurbs
+            .knots
+            .iter()
+            .filter(|&&v| (v - k).abs() < 1e-14)
+            .count();
         let needed = degree.saturating_sub(mult);
         for _ in 0..needed {
             knots_to_insert.push(k);
@@ -207,9 +244,8 @@ pub(crate) fn intersect_surface_curve_general(
     tolerance: &Tolerance,
 ) -> Vec<SurfaceCurveIntersection> {
     // --- Step 1: overlap detection ---
-    let mut results = detect_surface_curve_overlaps(
-        surface, u_range, v_range, curve, t_range, tolerance,
-    );
+    let mut results =
+        detect_surface_curve_overlaps(surface, u_range, v_range, curve, t_range, tolerance);
 
     // --- Step 2: promote curve to NURBS and decompose into Bezier segments ---
     let nurbs = curve.to_nurbs_in_range(t_range);
@@ -220,7 +256,11 @@ pub(crate) fn intersect_surface_curve_general(
         .into_iter()
         .map(|(seg, tr)| {
             let (bmin, bmax) = curve_aabb(&seg, tr);
-            CurveSegment { t_range: tr, min: bmin, max: bmax }
+            CurveSegment {
+                t_range: tr,
+                min: bmin,
+                max: bmax,
+            }
         })
         .collect();
 

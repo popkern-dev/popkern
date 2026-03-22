@@ -87,8 +87,7 @@ fn dispatch_nurbs_fallback() {
 fn invariant_points_on_both_curves() {
     let c1 = make_circle(0.0, 0.0);
     let c2 = make_circle(1.0, 0.0);
-    let result =
-        intersect_curves(&c1, (0.0, TAU), &c2, (0.0, TAU), &Tolerance::default()).unwrap();
+    let result = intersect_curves(&c1, (0.0, TAU), &c2, (0.0, TAU), &Tolerance::default()).unwrap();
     for ix in &result.intersections {
         if let CurveIntersection::Point { t1, t2, .. } = ix {
             let p1 = c1.point_at(*t1);

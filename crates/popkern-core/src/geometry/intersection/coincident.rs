@@ -1,8 +1,8 @@
 //! Coincident region detection for surface-surface intersection.
 
+use crate::geometry::Point3;
 use crate::geometry::intersection::surface_surface::SurfaceSurfaceIntersection;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 
 /// Detect coincident regions where two surfaces overlap.
@@ -29,15 +29,12 @@ pub(crate) fn detect_coincident_regions(
 
     for i in 0..GRID {
         for j in 0..GRID {
-            let u1 = u1_range.0
-                + (u1_range.1 - u1_range.0) * (i as f64 + 0.5) / (GRID as f64);
-            let v1 = v1_range.0
-                + (v1_range.1 - v1_range.0) * (j as f64 + 0.5) / (GRID as f64);
+            let u1 = u1_range.0 + (u1_range.1 - u1_range.0) * (i as f64 + 0.5) / (GRID as f64);
+            let v1 = v1_range.0 + (v1_range.1 - v1_range.0) * (j as f64 + 0.5) / (GRID as f64);
 
             let p1 = surface1.point_at(u1, v1);
 
-            let dist =
-                closest_point_distance(p1, surface2, u2_range, v2_range);
+            let dist = closest_point_distance(p1, surface2, u2_range, v2_range);
 
             if dist < tolerance.linear {
                 within_count += 1;
@@ -83,8 +80,7 @@ fn closest_point_distance(
     let mut best = f64::INFINITY;
 
     for (u0, v0) in starts {
-        let dist =
-            gauss_newton_closest_point(p1, surface2, u0, v0, u2_range, v2_range);
+        let dist = gauss_newton_closest_point(p1, surface2, u0, v0, u2_range, v2_range);
         if dist < best {
             best = dist;
         }

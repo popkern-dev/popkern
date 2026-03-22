@@ -1,14 +1,9 @@
 //! Curve-curve intersection algorithms.
 
-pub mod degeneracy;
-pub mod surface_curve;
-pub mod surface_subdivision;
-pub mod surface_surface;
-pub mod starting_points;
-pub mod marching;
-pub mod coincident;
 mod bezier_clipping;
 mod circle_circle;
+pub mod coincident;
+pub mod degeneracy;
 mod line_circle;
 mod line_cone;
 mod line_cylinder;
@@ -16,15 +11,25 @@ mod line_line;
 mod line_plane;
 mod line_sphere;
 mod line_torus;
+pub mod marching;
 mod newton;
 mod nurbs_nurbs;
 mod overlap;
+pub mod starting_points;
+pub mod surface_curve;
 mod surface_curve_general;
 mod surface_curve_newton;
 mod surface_curve_overlap;
+pub mod surface_subdivision;
+pub mod surface_surface;
 
-pub use surface_curve::{intersect_surface_curve, SurfaceCurveIntersection, SurfaceCurveIntersectionResult};
-pub use surface_surface::{intersect_surfaces, intersect_surfaces_with_handler, SurfaceSurfaceIntersection, SurfaceSurfaceIntersectionResult};
+pub use surface_curve::{
+    SurfaceCurveIntersection, SurfaceCurveIntersectionResult, intersect_surface_curve,
+};
+pub use surface_surface::{
+    SurfaceSurfaceIntersection, SurfaceSurfaceIntersectionResult, intersect_surfaces,
+    intersect_surfaces_with_handler,
+};
 
 use crate::error::CoreError;
 use crate::geometry::Point3;

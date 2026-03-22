@@ -32,7 +32,14 @@ const MIN_RUN: usize = 3;
 ///
 /// Uses the Gauss-Newton approximation (second-order terms of S dropped).
 /// Returns the squared distance at the converged (or final) iterate.
-fn project_from(surface: &SurfaceGeometry, p_x: f64, p_y: f64, p_z: f64, u_init: f64, v_init: f64) -> f64 {
+fn project_from(
+    surface: &SurfaceGeometry,
+    p_x: f64,
+    p_y: f64,
+    p_z: f64,
+    u_init: f64,
+    v_init: f64,
+) -> f64 {
     use crate::geometry::Vec3;
 
     let mut u = u_init;
@@ -98,8 +105,16 @@ fn closest_point_sq_dist(
 
     for iu in 0..GRID {
         for iv in 0..GRID {
-            let fu = if GRID > 1 { iu as f64 / (GRID - 1) as f64 } else { 0.5 };
-            let fv = if GRID > 1 { iv as f64 / (GRID - 1) as f64 } else { 0.5 };
+            let fu = if GRID > 1 {
+                iu as f64 / (GRID - 1) as f64
+            } else {
+                0.5
+            };
+            let fv = if GRID > 1 {
+                iv as f64 / (GRID - 1) as f64
+            } else {
+                0.5
+            };
             let u_start = u0 + fu * (u1 - u0);
             let v_start = v0 + fv * (v1 - v0);
             let sq = project_from(surface, p_x, p_y, p_z, u_start, v_start);
@@ -169,10 +184,8 @@ pub(crate) fn detect_surface_curve_overlaps(
             let run_len = run_end - run_start + 1;
             if run_len >= MIN_RUN {
                 // Map back to curve parameter values.
-                let t_first = t0
-                    + (run_start as f64 / (NUM_SAMPLES - 1) as f64) * (t1 - t0);
-                let t_last = t0
-                    + (run_end as f64 / (NUM_SAMPLES - 1) as f64) * (t1 - t0);
+                let t_first = t0 + (run_start as f64 / (NUM_SAMPLES - 1) as f64) * (t1 - t0);
+                let t_last = t0 + (run_end as f64 / (NUM_SAMPLES - 1) as f64) * (t1 - t0);
 
                 results.push(SurfaceCurveIntersection::Overlap {
                     t_range: (t_first, t_last),
@@ -246,7 +259,10 @@ mod tests {
         );
 
         let ranges = overlap_ranges(&results);
-        assert!(!ranges.is_empty(), "Expected at least one overlap; got none");
+        assert!(
+            !ranges.is_empty(),
+            "Expected at least one overlap; got none"
+        );
 
         // The returned range should span nearly the full [0,1] interval.
         let (t_first, t_last) = ranges[0];
@@ -374,7 +390,10 @@ mod tests {
             "Expected overlap for line on cylinder; got none"
         );
         let (t_first, t_last) = ranges[0];
-        assert!(t_first <= 0.5, "Overlap should start near t=0, got {t_first}");
+        assert!(
+            t_first <= 0.5,
+            "Overlap should start near t=0, got {t_first}"
+        );
         assert!(t_last >= 4.5, "Overlap should end near t=5, got {t_last}");
     }
 
