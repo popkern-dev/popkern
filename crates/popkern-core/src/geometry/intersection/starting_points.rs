@@ -155,6 +155,62 @@ fn deduplicate(samples: Vec<MarchSample>, tolerance: &Tolerance) -> Vec<MarchSam
     unique
 }
 
+/// Check for additional intersection branches near a starting point.
+///
+/// Perturbs the starting point in four cardinal directions in surface 1's parameter space
+/// and applies Newton projection to discover intersection points that lie on branches
+/// separate from the already-traced curve. Returns candidates not already covered by
+/// `traced_samples`.
+#[allow(dead_code, clippy::too_many_arguments)]
+pub(crate) fn find_branch_points(
+    surface1: &SurfaceGeometry,
+    _u1_range: (f64, f64),
+    _v1_range: (f64, f64),
+    surface2: &SurfaceGeometry,
+    _u2_range: (f64, f64),
+    _v2_range: (f64, f64),
+    traced_samples: &[MarchSample],
+    start: &MarchSample,
+    tolerance: &Tolerance,
+) -> Vec<MarchSample> {
+    let delta = tolerance.linear * 50.0;
+    let mut branches = Vec::new();
+
+    // Perturb in 4 directions in surface 1's parameter space.
+    let perturbations = [(delta, 0.0), (-delta, 0.0), (0.0, delta), (0.0, -delta)];
+    for (du, dv) in &perturbations {
+        let u1 = start.u1 + du;
+        let v1 = start.v1 + dv;
+
+        // Use a march direction derived from the surface normals at this perturbed point.
+        let n1 = surface1.normal_at(u1, v1);
+        let n2 = surface2.normal_at(start.u2, start.v2);
+        let march_dir = pick_march_dir(n1, n2, surface1, u1, v1);
+
+        // Newton project to find a nearby intersection.
+        if let Some(candidate) = march_project(
+            surface1,
+            u1,
+            v1,
+            surface2,
+            start.u2,
+            start.v2,
+            &start.point,
+            &march_dir,
+            tolerance,
+        ) {
+            // Only keep it if it is not already on the existing traced curve.
+            let on_existing = traced_samples
+                .iter()
+                .any(|s| s.point.distance_to(&candidate.point) < tolerance.linear * 10.0);
+            if !on_existing {
+                branches.push(candidate);
+            }
+        }
+    }
+    branches
+}
+
 /// Returns true if the two surface normals at the sample point are nearly parallel,
 /// indicating a tangent intersection.
 #[allow(dead_code)]
@@ -306,6 +362,114 @@ mod tests {
         assert!(
             !classify_tangent(&s1, &s2, &sample, &tol),
             "Perpendicular planes should be classified transversal"
+        );
+    }
+
+    #[test]
+    fn find_branch_points_does_not_panic() {
+        // Basic smoke test: the function must return without panicking regardless of whether
+        // any branches are found.
+        let s1 = xy_plane();
+        let s2 = xz_plane();
+        let start = MarchSample {
+            u1: 0.0,
+            v1: 0.0,
+            u2: 0.0,
+            v2: 0.0,
+            point: Point3::new(0.0, 0.0, 0.0),
+        };
+        let tol = Tolerance::default();
+        let _ = find_branch_points(
+            &s1,
+            (-1.0, 1.0),
+            (-1.0, 1.0),
+            &s2,
+            (-1.0, 1.0),
+            (-1.0, 1.0),
+            &[],
+            &start,
+            &tol,
+        );
+    }
+
+    #[test]
+    fn find_branch_points_excludes_existing_curve() {
+        // Candidates that are on the existing traced curve must be filtered out.
+        let s1 = xy_plane();
+        let s2 = xz_plane();
+        let start = MarchSample {
+            u1: 0.0,
+            v1: 0.0,
+            u2: 0.0,
+            v2: 0.0,
+            point: Point3::new(0.0, 0.0, 0.0),
+        };
+        let tol = Tolerance::default();
+
+        // Run once with no traced samples to collect candidates.
+        let raw_branches = find_branch_points(
+            &s1,
+            (-1.0, 1.0),
+            (-1.0, 1.0),
+            &s2,
+            (-1.0, 1.0),
+            (-1.0, 1.0),
+            &[],
+            &start,
+            &tol,
+        );
+
+        // Now supply those same candidates as already-traced; result must be empty.
+        let filtered = find_branch_points(
+            &s1,
+            (-1.0, 1.0),
+            (-1.0, 1.0),
+            &s2,
+            (-1.0, 1.0),
+            (-1.0, 1.0),
+            &raw_branches,
+            &start,
+            &tol,
+        );
+        assert!(
+            filtered.is_empty(),
+            "All previously-found branches should be suppressed when supplied as traced_samples"
+        );
+    }
+
+    #[test]
+    fn find_branch_points_no_branches_for_disjoint_surfaces() {
+        // Disjoint parallel planes should produce no branch candidates.
+        let s1 = xy_plane();
+        let s2 = SurfaceGeometry::Plane {
+            origin: Point3::new(0.0, 0.0, 10.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            u_axis: Vec3::new(1.0, 0.0, 0.0),
+            v_axis: Vec3::new(0.0, 1.0, 0.0),
+        };
+        let start = MarchSample {
+            u1: 0.5,
+            v1: 0.5,
+            u2: 0.5,
+            v2: 0.5,
+            point: Point3::new(0.5, 0.5, 0.0),
+        };
+        let tol = Tolerance::default();
+        let branches = find_branch_points(
+            &s1,
+            (0.0, 1.0),
+            (0.0, 1.0),
+            &s2,
+            (0.0, 1.0),
+            (0.0, 1.0),
+            &[],
+            &start,
+            &tol,
+        );
+        // Newton projection should fail for disjoint surfaces, yielding no branches.
+        assert!(
+            branches.is_empty(),
+            "Disjoint surfaces should yield no branch candidates"
         );
     }
 }

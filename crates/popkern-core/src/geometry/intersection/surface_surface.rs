@@ -7,7 +7,7 @@ use crate::geometry::fitting::fit_curve;
 use crate::geometry::intersection::coincident::detect_coincident_regions;
 use crate::geometry::intersection::degeneracy::{DefaultDegeneracyHandler, DegeneracyHandler};
 use crate::geometry::intersection::marching::{MarchSample, march};
-use crate::geometry::intersection::starting_points::find_starting_points;
+use crate::geometry::intersection::starting_points::{find_branch_points, find_starting_points};
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
 use serde::{Deserialize, Serialize};
@@ -87,41 +87,69 @@ pub fn intersect_surfaces_with_handler(
         results.extend(coincident);
     }
 
-    // 3. March from non-tangent, unconsumed starting points
+    // 3. March from non-tangent, unconsumed starting points.
+    //    Branch detection may add extra seeds; we process them all via a queue.
+    const MAX_CURVES: usize = 20;
+
     let mut consumed: Vec<Point3> = Vec::new();
-    for sp in &starting_points {
-        if sp.is_tangent {
-            continue;
+
+    // Seed the queue with non-tangent starting points.
+    let mut branch_queue: Vec<MarchSample> = starting_points
+        .iter()
+        .filter(|sp| !sp.is_tangent)
+        .map(|sp| sp.sample.clone())
+        .collect();
+
+    while let Some(seed) = branch_queue.pop() {
+        // Cap total curves to avoid runaway branching.
+        if results.len() >= MAX_CURVES {
+            break;
         }
-        // Skip if this starting point is already consumed by a previous march
+
+        // Skip if already traced through this region.
         if consumed
             .iter()
-            .any(|c| c.distance_to(&sp.sample.point) < tolerance.linear * 10.0)
+            .any(|c| c.distance_to(&seed.point) < tolerance.linear * 10.0)
         {
             continue;
         }
 
         let (samples, is_closed) = march(
-            surface1, u1_range, v1_range, surface2, u2_range, v2_range, &sp.sample, tolerance,
-            handler,
+            surface1, u1_range, v1_range, surface2, u2_range, v2_range, &seed, tolerance, handler,
         );
 
         if samples.len() < 2 {
             continue; // too few samples to fit
         }
 
-        // Mark all starting points near this curve as consumed
+        // Mark all points on this curve as consumed.
         for s in &samples {
             consumed.push(s.point);
         }
 
-        // 4. Fit NURBS curves
+        // 4. Fit NURBS curves.
         match fit_march_samples(&samples, is_closed) {
             Ok(curve_on_surface) => {
                 results.push(SurfaceSurfaceIntersection::Curve(curve_on_surface));
             }
             Err(_) => {
                 // Fitting failed -- skip this curve (don't crash)
+            }
+        }
+
+        // 5. Branch detection: look for additional intersection branches near this seed.
+        if results.len() < MAX_CURVES {
+            let new_branches = find_branch_points(
+                surface1, u1_range, v1_range, surface2, u2_range, v2_range, &samples, &seed,
+                tolerance,
+            );
+            for branch in new_branches {
+                let already_consumed = consumed
+                    .iter()
+                    .any(|c| c.distance_to(&branch.point) < tolerance.linear * 10.0);
+                if !already_consumed {
+                    branch_queue.push(branch);
+                }
             }
         }
     }
