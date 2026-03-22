@@ -1,6 +1,12 @@
 //! Curve-curve intersection algorithms.
 
+pub mod degeneracy;
 pub mod surface_curve;
+pub mod surface_subdivision;
+pub mod surface_surface;
+pub mod starting_points;
+pub mod marching;
+pub mod coincident;
 mod bezier_clipping;
 mod circle_circle;
 mod line_circle;

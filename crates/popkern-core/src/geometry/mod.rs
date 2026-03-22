@@ -3,6 +3,7 @@
 pub mod analytic_curves;
 pub mod analytic_surfaces;
 pub mod curve;
+pub mod curve_on_surface;
 pub mod intersection;
 pub mod nurbs_curve;
 pub mod nurbs_ops;
