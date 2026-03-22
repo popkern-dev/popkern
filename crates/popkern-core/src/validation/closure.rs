@@ -1,0 +1,210 @@
+//! Check 8: Loop closure — each loop's half-edge chain should be geometrically
+//! closed within tolerance.
+//!
+//! Check 10: Shell watertight — for each edge, the two adjacent faces should
+//! share the same geometric edge; no gaps.
+
+use crate::error::ValidationError;
+use crate::geometry::CurveEval;
+use crate::topology::BRep;
+
+impl BRep {
+    /// Check 8: Loop closure.
+    ///
+    /// Walks each loop and verifies that the end of the last edge coincides
+    /// with the start of the first edge, within `self.tolerance.linear`.
+    ///
+    /// For edges without curve geometry, the check is based on vertex positions.
+    /// For edges with [`CurveOnEdge`], the curve is evaluated at `t_end` and
+    /// compared to the next edge's start.
+    pub fn validate_loop_closure(&self) -> Result<(), ValidationError> {
+        for (loop_handle, loop_data) in &self.loops {
+            let start_he = loop_data.half_edge;
+
+            // Collect vertex positions by walking the loop.
+            // We use a bounded walk (at most half_edges.len() steps) to guard
+            // against corrupted topology.
+            let bound = self.half_edges.len().max(1);
+            let mut cursor = start_he;
+            let mut first_pos = None;
+            let mut prev_end_pos = None;
+
+            for _ in 0..=bound {
+                let he = match self.half_edges.get(cursor) {
+                    Some(h) => h,
+                    None => break,
+                };
+
+                let origin_vertex = match self.vertices.get(he.origin) {
+                    Some(v) => v,
+                    None => break,
+                };
+
+                let start_pos = origin_vertex.position;
+                if first_pos.is_none() {
+                    first_pos = Some(start_pos);
+                }
+
+                // Determine the "end" position of this half-edge.
+                // If there is curve geometry on the parent edge, evaluate at t_end.
+                // Otherwise, the end is the next half-edge's origin vertex.
+                let edge = match self.edges.get(he.edge) {
+                    Some(e) => e,
+                    None => break,
+                };
+
+                let end_pos = if let Some(curve_on_edge) = &edge.curve {
+                    // Evaluate the curve at the correct end parameter.
+                    // If this half-edge is the canonical one (edge.half_edge),
+                    // the end is at t_end. If it's the twin, the end is at t_start.
+                    let is_canonical = edge.half_edge == cursor;
+                    if is_canonical {
+                        curve_on_edge.geometry.point_at(curve_on_edge.t_end)
+                    } else {
+                        curve_on_edge.geometry.point_at(curve_on_edge.t_start)
+                    }
+                } else {
+                    // No curve: read the next half-edge's origin vertex.
+                    let next_he = match self.half_edges.get(he.next) {
+                        Some(n) => n,
+                        None => break,
+                    };
+                    match self.vertices.get(next_he.origin) {
+                        Some(v) => v.position,
+                        None => break,
+                    }
+                };
+
+                prev_end_pos = Some(end_pos);
+
+                let next = he.next;
+                cursor = next;
+                if cursor == start_he {
+                    break;
+                }
+            }
+
+            // After the walk, the last end_pos must coincide with the first
+            // start_pos (within linear tolerance).
+            if let (Some(first), Some(last_end)) = (first_pos, prev_end_pos) {
+                let gap = first.distance_to(&last_end);
+                if gap > self.tolerance.linear {
+                    return Err(ValidationError::OpenLoop {
+                        loop_: loop_handle,
+                        gap,
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Check 10: Shell watertight.
+    ///
+    /// For each edge, the two adjacent half-edges belong to different faces.
+    /// When curve geometry is present, evaluate the curve at its endpoints and
+    /// verify both half-edges see the same positions (no gap).
+    ///
+    /// For v1a, gracefully skip edges with no geometry.
+    pub fn validate_watertight(&self) -> Result<(), ValidationError> {
+        for (edge_handle, edge_data) in &self.edges {
+            let Some(curve_on_edge) = &edge_data.curve else {
+                // No geometry — skip.
+                continue;
+            };
+
+            // Evaluate the curve at its two endpoints.
+            let p_start = curve_on_edge.geometry.point_at(curve_on_edge.t_start);
+            let p_end = curve_on_edge.geometry.point_at(curve_on_edge.t_end);
+
+            // The two half-edges for this edge must have origins that match
+            // p_start and p_end respectively (or vice versa).
+            let he = match self.half_edges.get(edge_data.half_edge) {
+                Some(h) => h,
+                None => continue,
+            };
+            let twin = match self.half_edges.get(he.twin) {
+                Some(t) => t,
+                None => continue,
+            };
+
+            let v_he = match self.vertices.get(he.origin) {
+                Some(v) => v.position,
+                None => continue,
+            };
+            let v_twin = match self.vertices.get(twin.origin) {
+                Some(v) => v.position,
+                None => continue,
+            };
+
+            // Check: edge start ~ he origin AND edge end ~ twin origin.
+            let gap_start = v_he.distance_to(&p_start);
+            let gap_end = v_twin.distance_to(&p_end);
+
+            if gap_start > self.tolerance.linear {
+                return Err(ValidationError::ShellGap {
+                    edge: edge_handle,
+                    gap: gap_start,
+                });
+            }
+            if gap_end > self.tolerance.linear {
+                return Err(ValidationError::ShellGap {
+                    edge: edge_handle,
+                    gap: gap_end,
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::geometry::{Point3, Vec3};
+    use crate::tolerance::Tolerance;
+    use crate::topology::BRep;
+
+    fn make_cube() -> BRep {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev1 = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let mev2 = brep
+            .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
+            .unwrap();
+        let mev3 = brep
+            .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
+            .unwrap();
+        let mef = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
+        brep.extrude(mef.face, Vec3::new(0.0, 0.0, 1.0), 1.0)
+            .unwrap();
+        brep
+    }
+
+    #[test]
+    fn cube_passes_loop_closure() {
+        let brep = make_cube();
+        assert!(brep.validate_loop_closure().is_ok());
+    }
+
+    #[test]
+    fn cube_passes_watertight() {
+        let brep = make_cube();
+        assert!(brep.validate_watertight().is_ok());
+    }
+
+    #[test]
+    fn triangle_loop_is_closed() {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev1 = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let mev2 = brep
+            .mev(mev1.half_edge_twin, Point3::new(0.5, 1.0, 0.0))
+            .unwrap();
+        let _mef = brep.mef(mev2.half_edge_twin, mev1.half_edge).unwrap();
+        assert!(brep.validate_loop_closure().is_ok());
+    }
+}

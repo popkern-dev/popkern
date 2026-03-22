@@ -1,0 +1,62 @@
+//! Check 7: Face orientation — surface normals should not be degenerate.
+
+use crate::error::ValidationError;
+use crate::geometry::SurfaceEval;
+use crate::topology::BRep;
+
+impl BRep {
+    /// Check 7: Face orientation.
+    ///
+    /// For faces with no surface geometry, this check is skipped (returns Ok).
+    /// When a surface IS present, verify that the surface normal at the
+    /// parameter-space origin is non-zero (degenerate normal = bad geometry).
+    ///
+    /// Full consistency checking between adjacent faces is deferred to a future
+    /// version; the stub here returns Ok after the per-face check.
+    pub fn validate_face_orientation(&self) -> Result<(), ValidationError> {
+        for (face_handle, face_data) in &self.faces {
+            let Some(surface_on_face) = &face_data.surface else {
+                // No geometry attached — skip gracefully.
+                continue;
+            };
+
+            // Sample the normal at (0, 0) as a quick sanity check.
+            let normal = surface_on_face.geometry.normal_at(0.0, 0.0);
+            if normal.length_squared() < f64::EPSILON {
+                return Err(ValidationError::InconsistentOrientation { face: face_handle });
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::geometry::{Point3, Vec3};
+    use crate::tolerance::Tolerance;
+    use crate::topology::BRep;
+
+    fn make_cube() -> BRep {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev1 = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let mev2 = brep
+            .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
+            .unwrap();
+        let mev3 = brep
+            .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
+            .unwrap();
+        let mef = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
+        brep.extrude(mef.face, Vec3::new(0.0, 0.0, 1.0), 1.0)
+            .unwrap();
+        brep
+    }
+
+    #[test]
+    fn topology_only_cube_passes_orientation() {
+        let brep = make_cube();
+        assert!(brep.validate_face_orientation().is_ok());
+    }
+}
