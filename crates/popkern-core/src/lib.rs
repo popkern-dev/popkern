@@ -7,6 +7,7 @@
 //! geometric entities (Point, Curve, Surface), and validation utilities.
 
 pub mod error;
+pub mod euler;
 pub mod geometry;
 pub mod tolerance;
 pub mod topology;
