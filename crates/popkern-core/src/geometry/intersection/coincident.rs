@@ -12,6 +12,7 @@ use crate::tolerance::Tolerance;
 /// iteration and records the minimum distance. If more than 80% of samples
 /// are within linear tolerance the full parameter ranges are reported as a
 /// `CoincidentRegion`.
+#[allow(dead_code)]
 pub(crate) fn detect_coincident_regions(
     surface1: &SurfaceGeometry,
     u1_range: (f64, f64),
@@ -60,6 +61,7 @@ pub(crate) fn detect_coincident_regions(
 /// Find the minimum distance from `p1` to `surface2` by projecting `p1` onto
 /// `surface2` via Gauss-Newton iteration, starting from the centre of the
 /// parameter domain. Returns the distance at the best found projection.
+#[allow(dead_code)]
 fn closest_point_distance(
     p1: Point3,
     surface2: &SurfaceGeometry,
@@ -96,6 +98,7 @@ fn closest_point_distance(
 /// Minimises `f(u2,v2) = |P1 - S2(u2,v2)|²` using at most 10 iterations.
 /// Parameters are clamped to `[u2_range, v2_range]` at each step.
 /// Returns the Euclidean distance at the converged (or best) solution.
+#[allow(dead_code)]
 fn gauss_newton_closest_point(
     p1: Point3,
     surface2: &SurfaceGeometry,

@@ -7,6 +7,7 @@ use crate::geometry::Vec3;
 use crate::tolerance::Tolerance;
 
 /// A classified starting point for surface-surface intersection marching.
+#[allow(dead_code)]
 pub(crate) struct StartingPoint {
     pub sample: MarchSample,
     pub is_tangent: bool,
@@ -17,6 +18,7 @@ pub(crate) struct StartingPoint {
 /// Uses AABB-based subdivision to narrow down candidate region pairs, then applies
 /// Newton 4×4 iteration (via `march_project`) to refine intersection points.
 /// Results are deduplicated and classified as transversal or tangent.
+#[allow(dead_code)]
 pub(crate) fn find_starting_points(
     surface1: &SurfaceGeometry,
     u1_range: (f64, f64),
@@ -118,6 +120,7 @@ pub(crate) fn find_starting_points(
 /// The natural march direction is N1 × N2 (intersection curve tangent).
 /// If the normals are nearly parallel (tangent intersection or coincident surfaces),
 /// fall back to the first non-degenerate partial derivative of surface 1.
+#[allow(dead_code)]
 fn pick_march_dir(
     n1: Vec3,
     n2: Vec3,
@@ -145,6 +148,7 @@ fn pick_march_dir(
 }
 
 /// Remove duplicate samples: keep first occurrence, skip any within `tolerance.linear`.
+#[allow(dead_code)]
 fn deduplicate(samples: Vec<MarchSample>, tolerance: &Tolerance) -> Vec<MarchSample> {
     let mut unique: Vec<MarchSample> = Vec::new();
     'outer: for s in samples {
@@ -160,6 +164,7 @@ fn deduplicate(samples: Vec<MarchSample>, tolerance: &Tolerance) -> Vec<MarchSam
 
 /// Returns true if the two surface normals at the sample point are nearly parallel,
 /// indicating a tangent intersection.
+#[allow(dead_code)]
 fn classify_tangent(
     surface1: &SurfaceGeometry,
     surface2: &SurfaceGeometry,
