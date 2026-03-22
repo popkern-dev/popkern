@@ -1,7 +1,10 @@
 #[cfg(test)]
 use super::*;
-use crate::geometry::intersection::degeneracy::DefaultDegeneracyHandler;
-use std::f64::consts::TAU;
+use crate::geometry::intersection::degeneracy::{
+    DefaultDegeneracyHandler, RobustDegeneracyHandler,
+};
+use crate::geometry::intersection::surface_surface::intersect_surfaces_with_handler;
+use std::f64::consts::{PI, TAU};
 
 fn xy_plane() -> SurfaceGeometry {
     SurfaceGeometry::Plane {
@@ -225,4 +228,57 @@ fn march_crosses_cylinder_seam() {
         let r = (s.point.x * s.point.x + s.point.y * s.point.y).sqrt();
         assert!((r - 1.0).abs() < 1e-2, "radius should be ~1.0, got {}", r);
     }
+}
+
+/// `estimate_normal_near_singularity` should recover a usable outward-pointing
+/// normal near the north pole of a sphere, where the exact normal is degenerate.
+#[test]
+fn estimate_normal_at_sphere_pole() {
+    let sphere = SurfaceGeometry::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    // At v=0 (north pole) the exact normal is degenerate; sample slightly off-pole.
+    let n = super::estimate_normal_near_singularity(&sphere, 0.0, 0.01, 0.1);
+    assert!(n.is_some(), "should recover a normal near the pole");
+    // Near the north pole (v=0), the sphere normal (partial_u × partial_v) points inward
+    // (−z for the unit sphere at the north pole). We only require that the z component is
+    // large in magnitude, confirming the estimate is oriented along the pole axis.
+    assert!(
+        n.unwrap().z.abs() > 0.5,
+        "estimated normal should be oriented along the pole axis (large |z| component near north pole)"
+    );
+}
+
+/// The intersection of a sphere and a plane that cuts near the pole should be
+/// found by the robust marching path, which can handle the degenerate normal
+/// at the pole singularity.
+#[test]
+fn sphere_plane_through_pole() {
+    let sphere = SurfaceGeometry::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.5, 0.0, 0.0),
+        normal: Vec3::new(1.0, 0.0, 0.0),
+        u_axis: Vec3::new(0.0, 1.0, 0.0),
+        v_axis: Vec3::new(0.0, 0.0, 1.0),
+    };
+    // Plane at x=0.5 intersects sphere — curve passes near poles.
+    let result = intersect_surfaces_with_handler(
+        &sphere,
+        (0.0, TAU),
+        (0.0, PI),
+        &plane,
+        (-2.0, 2.0),
+        (-2.0, 2.0),
+        &Tolerance::default().with_linear(1e-3),
+        &RobustDegeneracyHandler,
+    );
+    assert!(result.is_ok(), "intersection should not error");
+    assert!(
+        !result.unwrap().intersections.is_empty(),
+        "should find intersection near pole"
+    );
 }

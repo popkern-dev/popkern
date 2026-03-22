@@ -238,6 +238,34 @@ fn wrap_parameter(u: f64, u_range: (f64, f64), is_periodic: bool) -> f64 {
     wrapped
 }
 
+/// Estimate a surface normal near a singularity by averaging normals at offset points.
+///
+/// Samples normals at four offset positions (`±delta` in each parameter direction).
+/// Returns the normalised average if at least one offset yields a non-degenerate
+/// normal, otherwise returns `None`.
+fn estimate_normal_near_singularity(
+    surface: &SurfaceGeometry,
+    u: f64,
+    v: f64,
+    delta: f64,
+) -> Option<Vec3> {
+    let offsets = [(delta, 0.0), (-delta, 0.0), (0.0, delta), (0.0, -delta)];
+    let mut sum = Vec3::zero();
+    let mut count = 0usize;
+    for (du, dv) in &offsets {
+        let n = surface.normal_at(u + du, v + dv);
+        if n.length() > 1e-10 {
+            sum = sum + n;
+            count += 1;
+        }
+    }
+    if count > 0 {
+        (sum * (1.0 / count as f64)).normalized()
+    } else {
+        None
+    }
+}
+
 /// March in one direction along the intersection curve.
 #[allow(clippy::too_many_arguments)]
 fn march_one_direction(
@@ -264,15 +292,77 @@ fn march_one_direction(
         let current = &samples[samples.len() - 1];
 
         // Compute surface normals at current parameters.
-        let n1 = surface1.normal_at(current.u1, current.v1);
-        let n2 = surface2.normal_at(current.u2, current.v2);
+        let mut n1 = surface1.normal_at(current.u1, current.v1);
+        let mut n2 = surface2.normal_at(current.u2, current.v2);
 
-        // Check singularity: degenerate normal.
-        if n1.length() < epsilon && handler.on_singularity(&current.point) {
-            break;
+        // Check singularity: degenerate normal on surface 1.
+        if n1.length() < epsilon {
+            if handler.on_singularity(&current.point) {
+                break;
+            }
+            // Handler returned false (robust): attempt normal estimation near singularity.
+            let delta = tolerance.linear * 10.0;
+            match estimate_normal_near_singularity(surface1, current.u1, current.v1, delta) {
+                Some(estimated) => n1 = estimated,
+                None => {
+                    // Estimation failed: reduce step size and retry up to 3 times.
+                    let mut recovered = false;
+                    let mut reduced_step = step_size * 0.5;
+                    for _attempt in 0..3 {
+                        let test_n = estimate_normal_near_singularity(
+                            surface1,
+                            current.u1 + reduced_step,
+                            current.v1,
+                            delta,
+                        );
+                        if let Some(en) = test_n {
+                            n1 = en;
+                            step_size = reduced_step;
+                            recovered = true;
+                            break;
+                        }
+                        reduced_step *= 0.5;
+                    }
+                    if !recovered {
+                        break;
+                    }
+                }
+            }
         }
-        if n2.length() < epsilon && handler.on_singularity(&current.point) {
-            break;
+
+        // Check singularity: degenerate normal on surface 2.
+        if n2.length() < epsilon {
+            if handler.on_singularity(&current.point) {
+                break;
+            }
+            // Handler returned false (robust): attempt normal estimation near singularity.
+            let delta = tolerance.linear * 10.0;
+            match estimate_normal_near_singularity(surface2, current.u2, current.v2, delta) {
+                Some(estimated) => n2 = estimated,
+                None => {
+                    // Estimation failed: reduce step size and retry up to 3 times.
+                    let mut recovered = false;
+                    let mut reduced_step = step_size * 0.5;
+                    for _attempt in 0..3 {
+                        let test_n = estimate_normal_near_singularity(
+                            surface2,
+                            current.u2 + reduced_step,
+                            current.v2,
+                            delta,
+                        );
+                        if let Some(en) = test_n {
+                            n2 = en;
+                            step_size = reduced_step;
+                            recovered = true;
+                            break;
+                        }
+                        reduced_step *= 0.5;
+                    }
+                    if !recovered {
+                        break;
+                    }
+                }
+            }
         }
 
         // Tangent direction = N1 x N2.
