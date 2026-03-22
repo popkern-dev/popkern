@@ -1,3 +1,4 @@
+#[cfg(test)]
 use crate::error::ValidationError;
 use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
