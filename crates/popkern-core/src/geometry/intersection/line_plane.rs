@@ -16,7 +16,7 @@ use crate::tolerance::Tolerance;
 /// - A single `Overlap` result when the line lies inside the plane (within
 ///   `tolerance.linear`) — the full `t_range` is returned because the line is
 ///   coincident with the surface everywhere along its parameter domain.
-#[allow(dead_code)]
+#[allow(dead_code, clippy::too_many_arguments)]
 pub(crate) fn intersect_line_plane(
     line_origin: &Point3,
     line_dir: &Vec3,

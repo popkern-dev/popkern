@@ -41,17 +41,16 @@ fn find_quartic_roots(coeffs: &[f64; 5], lo: f64, hi: f64) -> Vec<f64> {
             // Sign change — bracket contains a root. Refine with Newton-bisection.
             if let Some(root) = refine_root(coeffs, prev_t, t) {
                 // Avoid duplicate roots (e.g., a double root straddling two brackets)
-                if roots.last().map_or(true, |&last: &f64| (last - root).abs() > 1e-10) {
+                if roots.last().is_none_or(|&last: &f64| (last - root).abs() > 1e-10) {
                     roots.push(root);
                 }
             }
         }
 
         // Check for exact zero at sample point
-        if val.abs() < 1e-15 {
-            if roots.last().map_or(true, |&last: &f64| (last - t).abs() > 1e-10) {
-                roots.push(t);
-            }
+        if val.abs() < 1e-15
+            && roots.last().is_none_or(|&last: &f64| (last - t).abs() > 1e-10) {
+            roots.push(t);
         }
 
         prev_t = t;
@@ -146,7 +145,7 @@ fn angle_in_range(angle: f64, start: f64, end: f64) -> bool {
 ///   `u` = angle around major circle (longitude), `v` = angle around tube (latitude).
 ///
 /// Returns intersection points filtered to the given parameter ranges.
-#[allow(dead_code)]
+#[allow(dead_code, clippy::too_many_arguments)]
 pub(crate) fn intersect_line_torus(
     line_origin: &Point3,
     line_dir: &Vec3,

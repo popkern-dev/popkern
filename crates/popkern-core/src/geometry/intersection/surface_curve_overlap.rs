@@ -139,7 +139,7 @@ pub(crate) fn detect_surface_curve_overlaps(
 
     let mut on_surface = [false; NUM_SAMPLES];
 
-    for i in 0..NUM_SAMPLES {
+    for (i, slot) in on_surface.iter_mut().enumerate() {
         let frac = if NUM_SAMPLES > 1 {
             i as f64 / (NUM_SAMPLES - 1) as f64
         } else {
@@ -149,7 +149,7 @@ pub(crate) fn detect_surface_curve_overlaps(
         let p = curve.point_at(t);
 
         let sq = closest_point_sq_dist(surface, p.x, p.y, p.z, u_range, v_range);
-        on_surface[i] = sq < lin_sq;
+        *slot = sq < lin_sq;
     }
 
     // --- Step 2: find contiguous runs of MIN_RUN+ on-surface samples ---------

@@ -134,10 +134,9 @@ fn decompose_to_bezier_segments(nurbs: &NurbsCurve) -> Vec<(NurbsCurve, (f64, f6
     // Collect unique interior knot values.
     let mut interior_knots: Vec<f64> = Vec::new();
     for &k in &nurbs.knots {
-        if k > t_min && k < t_max {
-            if interior_knots.last().map_or(true, |&last| (k - last).abs() > 1e-14) {
-                interior_knots.push(k);
-            }
+        if k > t_min && k < t_max
+            && interior_knots.last().is_none_or(|&last| (k - last).abs() > 1e-14) {
+            interior_knots.push(k);
         }
     }
 
@@ -151,7 +150,7 @@ fn decompose_to_bezier_segments(nurbs: &NurbsCurve) -> Vec<(NurbsCurve, (f64, f6
     let mut knots_to_insert: Vec<f64> = Vec::new();
     for &k in &interior_knots {
         let mult = nurbs.knots.iter().filter(|&&v| (v - k).abs() < 1e-14).count();
-        let needed = if degree > mult { degree - mult } else { 0 };
+        let needed = degree.saturating_sub(mult);
         for _ in 0..needed {
             knots_to_insert.push(k);
         }
