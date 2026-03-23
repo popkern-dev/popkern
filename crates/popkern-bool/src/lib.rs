@@ -24,9 +24,12 @@
 //! let result = boolean(BoolOperation::Union, solid_a, solid_b, Tolerance::default())?;
 //! ```
 
+pub(crate) mod classify;
 pub mod error;
 pub(crate) mod intersect;
 pub(crate) mod select;
+
+pub use classify::point_in_solid;
 
 pub use error::{
     BoolDiagnostics, BoolError, BoolOperation, Classification, PointClassification, Stage,
