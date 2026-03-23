@@ -263,6 +263,105 @@ fn sphere_with_custom_radius_has_correct_surface() {
     }
 }
 
+// --- Pcurve tests ---
+
+#[test]
+fn sphere_all_half_edges_have_pcurves() {
+    let sph = BRep::sphere(1.0, Tolerance::default()).unwrap();
+    for (_, he) in &sph.half_edges {
+        assert!(
+            he.pcurve.is_some(),
+            "Every sphere half-edge should have a pcurve"
+        );
+    }
+}
+
+#[test]
+fn sphere_pcurves_are_degree_1() {
+    let sph = BRep::sphere(1.0, Tolerance::default()).unwrap();
+    for (_, he) in &sph.half_edges {
+        let pcurve = he.pcurve.as_ref().unwrap();
+        assert_eq!(pcurve.degree, 1, "Sphere pcurves should be degree 1");
+        assert_eq!(pcurve.control_points.len(), 2);
+        assert_eq!(pcurve.weights.len(), 2);
+    }
+}
+
+#[test]
+fn sphere_pcurves_have_valid_v_range() {
+    // Sphere v ranges from 0 (north) to PI (south).
+    let sph = BRep::sphere(1.0, Tolerance::default()).unwrap();
+    for (_, he) in &sph.half_edges {
+        let pcurve = he.pcurve.as_ref().unwrap();
+        for cp in &pcurve.control_points {
+            assert!(
+                cp.y >= -1e-10 && cp.y <= std::f64::consts::PI + 1e-10,
+                "Sphere pcurve v should be in [0, PI], got {}",
+                cp.y
+            );
+        }
+    }
+}
+
+#[test]
+fn cylinder_all_half_edges_have_pcurves() {
+    let cyl = BRep::cylinder(1.0, 2.0, Tolerance::default()).unwrap();
+    for (_, he) in &cyl.half_edges {
+        assert!(
+            he.pcurve.is_some(),
+            "Every cylinder half-edge should have a pcurve"
+        );
+    }
+}
+
+#[test]
+fn cylinder_pcurves_are_degree_1() {
+    let cyl = BRep::cylinder(1.0, 2.0, Tolerance::default()).unwrap();
+    for (_, he) in &cyl.half_edges {
+        let pcurve = he.pcurve.as_ref().unwrap();
+        assert_eq!(pcurve.degree, 1, "Cylinder pcurves should be degree 1");
+        assert_eq!(pcurve.control_points.len(), 2);
+    }
+}
+
+#[test]
+fn cone_all_half_edges_have_pcurves() {
+    let cone = BRep::cone(1.0, 2.0, Tolerance::default()).unwrap();
+    for (_, he) in &cone.half_edges {
+        assert!(
+            he.pcurve.is_some(),
+            "Every cone half-edge should have a pcurve"
+        );
+    }
+}
+
+#[test]
+fn cone_pcurves_are_degree_1() {
+    let cone = BRep::cone(1.0, 2.0, Tolerance::default()).unwrap();
+    for (_, he) in &cone.half_edges {
+        let pcurve = he.pcurve.as_ref().unwrap();
+        assert_eq!(pcurve.degree, 1, "Cone pcurves should be degree 1");
+        assert_eq!(pcurve.control_points.len(), 2);
+    }
+}
+
+#[test]
+fn cone_pcurves_have_valid_v_range() {
+    // Cone v ranges from 0 (apex) to height (base).
+    let height = 2.0;
+    let cone = BRep::cone(1.0, height, Tolerance::default()).unwrap();
+    for (_, he) in &cone.half_edges {
+        let pcurve = he.pcurve.as_ref().unwrap();
+        for cp in &pcurve.control_points {
+            assert!(
+                cp.y >= -1e-10 && cp.y <= height + 1e-10,
+                "Cone pcurve v should be in [0, height], got {}",
+                cp.y
+            );
+        }
+    }
+}
+
 // --- Torus tests ---
 
 #[test]

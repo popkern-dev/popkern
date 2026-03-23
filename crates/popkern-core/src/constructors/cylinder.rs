@@ -1,12 +1,25 @@
 //! Cylinder constructor.
 
 use crate::error::CoreError;
+use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 use crate::topology::BRep;
 
 use super::plane_from_points;
+
+/// Map a 3D point on a Z-axis cylinder to UV parameters.
+///
+/// For a cylinder with `origin=(0,0,0)`, `axis=(0,0,1)`, `radius=r`:
+/// `u = atan2(y, x)` shifted to `[0, 2PI)`, `v = z`.
+fn cylinder_uv(pos: Point3) -> (f64, f64) {
+    let mut u = pos.y.atan2(pos.x);
+    if u < -1e-14 {
+        u += std::f64::consts::TAU;
+    }
+    (u, pos.z)
+}
 
 impl BRep {
     /// Build a cylinder as a hexagonal prism with cylindrical surface geometry
@@ -19,6 +32,12 @@ impl BRep {
     /// # Topology
     ///
     /// V=12, E=18, F=8 (6 side quads + 2 hexagonal caps).
+    ///
+    /// # Geometry
+    ///
+    /// Side faces carry `SurfaceGeometry::Cylinder`; cap faces carry
+    /// `SurfaceGeometry::Plane`. Every half-edge has a pcurve in the
+    /// parent face's UV space.
     ///
     /// # Errors
     ///
@@ -57,8 +76,8 @@ impl BRep {
         // coordinate. If so, it's a cap face (planar). Otherwise it's a side
         // face (cylindrical).
         let face_handles: Vec<_> = brep.faces.keys().collect();
-        for fh in face_handles {
-            let outer_loop = brep.faces[fh].outer_loop;
+        for fh in &face_handles {
+            let outer_loop = brep.faces[*fh].outer_loop;
             let loop_data = match brep.loops.get(outer_loop) {
                 Some(l) => l,
                 None => continue,
@@ -99,14 +118,101 @@ impl BRep {
                 }
             };
 
-            brep.faces[fh].surface = Some(SurfaceOnFace {
+            brep.faces[*fh].surface = Some(SurfaceOnFace {
                 geometry: surface,
                 orientation: true,
             });
         }
 
+        // Attach pcurves: planar caps via the shared helper, cylindrical sides manually.
+        brep.attach_planar_pcurves()?;
+        brep.attach_cylinder_side_pcurves()?;
+
         brep.validate().map_err(CoreError::Validation)?;
 
         Ok(brep)
+    }
+
+    /// Attach pcurves to half-edges on faces with cylindrical surface geometry.
+    ///
+    /// For each cylindrical side face, projects vertex positions to the
+    /// cylinder's UV space using `u = atan2(y, x)` and `v = z`.
+    fn attach_cylinder_side_pcurves(&mut self) -> Result<(), CoreError> {
+        let face_handles: Vec<_> = self.faces.keys().collect();
+        for fh in face_handles {
+            let is_cylinder = matches!(
+                self.faces[fh].surface,
+                Some(SurfaceOnFace {
+                    geometry: SurfaceGeometry::Cylinder { .. },
+                    ..
+                })
+            );
+            if !is_cylinder {
+                continue;
+            }
+
+            let outer_loop = self.faces[fh].outer_loop;
+            let loop_data = self
+                .loops
+                .get(outer_loop)
+                .ok_or_else(|| CoreError::InvalidHandle("face outer loop invalid".into()))?;
+            let start_he = loop_data.half_edge;
+
+            if !self.half_edges.contains_key(start_he) {
+                continue;
+            }
+
+            // Collect half-edge handles for this loop.
+            let mut he_handles = vec![start_he];
+            let mut current = self.half_edges[start_he].next;
+            while current != start_he {
+                he_handles.push(current);
+                current = self.half_edges[current].next;
+            }
+
+            // First pass: compute all UV coordinates for consistency.
+            // We need to ensure u values are consistent within a face
+            // (no jumps across the 0/2PI seam).
+            let mut uvs: Vec<(f64, f64)> = Vec::new();
+            for &heh in &he_handles {
+                let pos = self.vertices[self.half_edges[heh].origin].position;
+                uvs.push(cylinder_uv(pos));
+            }
+
+            // Ensure u values don't jump across seam within a single face.
+            // All u values should be close to each other. If any pair differs
+            // by more than PI, adjust by adding/subtracting TAU.
+            if !uvs.is_empty() {
+                let u_ref = uvs[0].0;
+                for uv in &mut uvs[1..] {
+                    while uv.0 - u_ref > std::f64::consts::PI {
+                        uv.0 -= std::f64::consts::TAU;
+                    }
+                    while u_ref - uv.0 > std::f64::consts::PI {
+                        uv.0 += std::f64::consts::TAU;
+                    }
+                }
+            }
+
+            // Assign pcurves as degree-1 NURBS lines in UV space.
+            let n_he = he_handles.len();
+            for (i, &heh) in he_handles.iter().enumerate() {
+                let (u_start, v_start) = uvs[i];
+                let (u_end, v_end) = uvs[(i + 1) % n_he];
+
+                let pcurve = NurbsCurve {
+                    degree: 1,
+                    knots: vec![0.0, 0.0, 1.0, 1.0],
+                    control_points: vec![
+                        Point3::new(u_start, v_start, 0.0),
+                        Point3::new(u_end, v_end, 0.0),
+                    ],
+                    weights: vec![1.0, 1.0],
+                };
+
+                self.half_edges[heh].pcurve = Some(pcurve);
+            }
+        }
+        Ok(())
     }
 }

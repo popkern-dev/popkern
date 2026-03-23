@@ -1,6 +1,9 @@
 //! Cone constructor.
 
+use std::f64::consts::TAU;
+
 use crate::error::CoreError;
+use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
@@ -22,6 +25,9 @@ impl BRep {
     /// All three faces are assigned `SurfaceGeometry::Cone` with the apex,
     /// downward axis, and half-angle derived from `radius` and `height`.
     /// Edges have line curves (seam lines from base center to apex).
+    /// Each half-edge carries a pcurve (degree-1 NURBS line in UV space)
+    /// representing a generator line at constant u, running from v=0 (apex)
+    /// to v=height (base) or vice versa.
     ///
     /// # Errors
     ///
@@ -64,11 +70,74 @@ impl BRep {
             half_angle,
         };
         let face_handles: Vec<_> = brep.faces.keys().collect();
-        for fh in face_handles {
-            brep.faces[fh].surface = Some(SurfaceOnFace {
+        for fh in &face_handles {
+            brep.faces[*fh].surface = Some(SurfaceOnFace {
                 geometry: cone_geom.clone(),
                 orientation: true,
             });
+        }
+
+        // Attach pcurves to all half-edges.
+        // Cone parameterization with axis=(0,0,-1), apex=(0,0,h):
+        //   point = apex + axis*v + perp1*(v*tan(ha)*cos(u)) + perp2*(v*tan(ha)*sin(u))
+        //   => z = h - v, so v = h - z.  At apex (z=h): v=0. At base (z=0): v=h.
+        // Each lune face has 2 half-edges. For face i:
+        //   base->apex half-edge: u=u_left, from (u_left, h) to (u_left, 0)
+        //   apex->base half-edge: u=u_right, from (u_right, 0) to (u_right, h)
+        let base_vertex = mvfs.vertex;
+        for (face_idx, &fh) in face_handles.iter().enumerate() {
+            let u_left = face_idx as f64 * TAU / 3.0;
+            let u_right = (face_idx as f64 + 1.0) * TAU / 3.0;
+
+            let outer_loop = brep.faces[fh].outer_loop;
+            let loop_data = brep
+                .loops
+                .get(outer_loop)
+                .ok_or_else(|| CoreError::InvalidHandle("face outer loop invalid".into()))?;
+            let start_he = loop_data.half_edge;
+
+            if !brep.half_edges.contains_key(start_he) {
+                continue;
+            }
+
+            // Walk the loop (exactly 2 half-edges per lune face).
+            let mut he_handles = vec![start_he];
+            let mut current = brep.half_edges[start_he].next;
+            while current != start_he {
+                he_handles.push(current);
+                current = brep.half_edges[current].next;
+            }
+
+            for &heh in &he_handles {
+                let origin = brep.half_edges[heh].origin;
+                let is_from_base = origin == base_vertex;
+
+                let pcurve = if is_from_base {
+                    // Base->Apex: (u_left, h) -> (u_left, 0)
+                    NurbsCurve {
+                        degree: 1,
+                        knots: vec![0.0, 0.0, 1.0, 1.0],
+                        control_points: vec![
+                            Point3::new(u_left, height, 0.0),
+                            Point3::new(u_left, 0.0, 0.0),
+                        ],
+                        weights: vec![1.0, 1.0],
+                    }
+                } else {
+                    // Apex->Base: (u_right, 0) -> (u_right, h)
+                    NurbsCurve {
+                        degree: 1,
+                        knots: vec![0.0, 0.0, 1.0, 1.0],
+                        control_points: vec![
+                            Point3::new(u_right, 0.0, 0.0),
+                            Point3::new(u_right, height, 0.0),
+                        ],
+                        weights: vec![1.0, 1.0],
+                    }
+                };
+
+                brep.half_edges[heh].pcurve = Some(pcurve);
+            }
         }
 
         // Validate the result.

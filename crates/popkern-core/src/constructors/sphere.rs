@@ -1,7 +1,10 @@
 //! Sphere constructor.
 
+use std::f64::consts::{PI, TAU};
+
 use crate::error::CoreError;
 use crate::geometry::Point3;
+use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::tolerance::Tolerance;
 use crate::topology::BRep;
@@ -20,8 +23,10 @@ impl BRep {
     /// # Geometry
     ///
     /// All three faces are assigned `SurfaceGeometry::Sphere` with the same
-    /// center and radius. Edges have line curves (seam lines from pole to pole);
-    /// proper meridian arc curves are deferred to a future version.
+    /// center and radius. Edges have line curves (seam lines from pole to pole).
+    /// Each half-edge carries a pcurve (degree-1 NURBS line in UV space) representing
+    /// a meridian at constant u, running from v=PI (south pole) to v=0 (north pole)
+    /// or vice versa.
     ///
     /// # Errors
     ///
@@ -45,15 +50,9 @@ impl BRep {
         let mev1 = brep.mev_at_vertex(mvfs.vertex, mvfs.loop_, north)?;
 
         // 3. mef to create edge 2 and face 2
-        // Loop has: he1 (south->north), he1_twin (north->south)
-        // mef(he1, he1_twin) connects origin(he1)=south to origin(he1_twin)=north
         let mef1 = brep.mef(mev1.half_edge, mev1.half_edge_twin)?;
 
         // 4. mef to create edge 3 and face 3
-        // One of the loops now has 2 half-edges. We need to find two half-edges
-        // in the same loop that originate at different vertices.
-        // mef1.half_edge_twin is in the new loop and originates at north.
-        // Following next from mef1.half_edge_twin should give us a he originating at south.
         let he_in_new_loop = mef1.half_edge_twin;
         let next_he = brep.half_edges[he_in_new_loop].next;
         let _mef2 = brep.mef(he_in_new_loop, next_he)?;
@@ -67,11 +66,71 @@ impl BRep {
             radius,
         };
         let face_handles: Vec<_> = brep.faces.keys().collect();
-        for fh in face_handles {
-            brep.faces[fh].surface = Some(SurfaceOnFace {
+        for fh in &face_handles {
+            brep.faces[*fh].surface = Some(SurfaceOnFace {
                 geometry: sphere_geom.clone(),
                 orientation: true,
             });
+        }
+
+        // Attach pcurves to all half-edges.
+        // Each face is a lune bounded by two meridians. For face index i,
+        // the left meridian is at u = i * TAU/3, the right at u = (i+1) * TAU/3.
+        // In UV space: south pole = (u, PI), north pole = (u, 0).
+        let south_vertex = mvfs.vertex;
+        for (face_idx, &fh) in face_handles.iter().enumerate() {
+            let u_left = face_idx as f64 * TAU / 3.0;
+            let u_right = (face_idx as f64 + 1.0) * TAU / 3.0;
+
+            let outer_loop = brep.faces[fh].outer_loop;
+            let loop_data = brep
+                .loops
+                .get(outer_loop)
+                .ok_or_else(|| CoreError::InvalidHandle("face outer loop invalid".into()))?;
+            let start_he = loop_data.half_edge;
+
+            if !brep.half_edges.contains_key(start_he) {
+                continue;
+            }
+
+            // Walk the loop (exactly 2 half-edges per lune face).
+            let mut he_handles = vec![start_he];
+            let mut current = brep.half_edges[start_he].next;
+            while current != start_he {
+                he_handles.push(current);
+                current = brep.half_edges[current].next;
+            }
+
+            for &heh in &he_handles {
+                let origin = brep.half_edges[heh].origin;
+                let is_from_south = origin == south_vertex;
+
+                let pcurve = if is_from_south {
+                    // South->North: (u_left, PI) -> (u_left, 0)
+                    NurbsCurve {
+                        degree: 1,
+                        knots: vec![0.0, 0.0, 1.0, 1.0],
+                        control_points: vec![
+                            Point3::new(u_left, PI, 0.0),
+                            Point3::new(u_left, 0.0, 0.0),
+                        ],
+                        weights: vec![1.0, 1.0],
+                    }
+                } else {
+                    // North->South: (u_right, 0) -> (u_right, PI)
+                    NurbsCurve {
+                        degree: 1,
+                        knots: vec![0.0, 0.0, 1.0, 1.0],
+                        control_points: vec![
+                            Point3::new(u_right, 0.0, 0.0),
+                            Point3::new(u_right, PI, 0.0),
+                        ],
+                        weights: vec![1.0, 1.0],
+                    }
+                };
+
+                brep.half_edges[heh].pcurve = Some(pcurve);
+            }
         }
 
         // Validate the result.
