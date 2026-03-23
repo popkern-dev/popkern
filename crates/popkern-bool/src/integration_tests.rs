@@ -53,6 +53,17 @@ fn overlapping_cubes_union_succeeds() {
     let result = crate::union(a, b, tol());
     assert!(result.is_ok(), "Union should succeed: {:?}", result.err());
     let brep = result.unwrap();
+    eprintln!(
+        "UNION: {} faces, {} edges, {} verts, {} half_edges",
+        brep.faces.len(),
+        brep.edges.len(),
+        brep.vertices.len(),
+        brep.half_edges.len()
+    );
+    let errs = brep.validate_all();
+    for e in &errs {
+        eprintln!("  VALIDATION: {e}");
+    }
     assert!(
         brep.faces.len() > 6,
         "Union of overlapping cubes should have more than 6 faces, got {}",
@@ -71,11 +82,18 @@ fn overlapping_cubes_intersection_succeeds() {
         result.err()
     );
     let brep = result.unwrap();
-    assert!(
-        !brep.faces.is_empty() && brep.faces.len() < 12,
-        "Intersection should have between 1 and 11 faces, got {}",
-        brep.faces.len()
+    eprintln!(
+        "INTERSECTION: {} faces, {} edges, {} verts, {} half_edges",
+        brep.faces.len(),
+        brep.edges.len(),
+        brep.vertices.len(),
+        brep.half_edges.len()
     );
+    let errs = brep.validate_all();
+    for e in &errs {
+        eprintln!("  VALIDATION: {e}");
+    }
+    assert!(!brep.faces.is_empty() && brep.faces.len() < 12);
 }
 
 #[test]
