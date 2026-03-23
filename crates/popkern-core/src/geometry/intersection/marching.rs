@@ -88,17 +88,14 @@ fn wrap_parameter(u: f64, u_range: (f64, f64), is_periodic: bool) -> f64 {
         return u;
     }
     let period = u_range.1 - u_range.0;
-    if period <= 0.0 {
+    if period <= 0.0 || !u.is_finite() || !period.is_finite() {
         return u;
     }
-    let mut wrapped = u;
-    while wrapped > u_range.1 {
-        wrapped -= period;
-    }
-    while wrapped < u_range.0 {
-        wrapped += period;
-    }
-    wrapped
+    // Use modular arithmetic instead of a while loop to avoid
+    // potential infinite loops with extreme values.
+    let offset = u - u_range.0;
+    let rem = offset.rem_euclid(period);
+    u_range.0 + rem
 }
 
 /// Estimate a surface normal near a singularity by averaging normals at offset points.

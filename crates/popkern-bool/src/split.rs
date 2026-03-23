@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use popkern_core::{
     geometry::curve::CurveEval,
+    geometry::surface::SurfaceGeometry,
     geometry::{Point3, Vec3},
     tolerance::Tolerance,
     topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle},
@@ -158,6 +159,21 @@ fn ensure_endpoint_vertices(
     Ok(true)
 }
 
+/// Returns `true` if the face has planar surface geometry (or no geometry at all).
+///
+/// Non-planar faces (sphere, cylinder, etc.) are not supported by the
+/// Cyrus-Beck polygon clipping used during splitting, so they must be
+/// skipped and classified as whole faces instead.
+fn is_planar_face(brep: &BRep, face: FaceHandle) -> bool {
+    match brep.faces.get(face) {
+        Some(f) => match &f.surface {
+            Some(sof) => matches!(sof.geometry, SurfaceGeometry::Plane { .. }),
+            None => true, // No geometry attached — treat as planar (legacy)
+        },
+        None => true, // Face doesn't exist — caller will skip anyway
+    }
+}
+
 /// Split the faces of two BRep solids along intersection curves.
 ///
 /// For each intersection record, splits the corresponding face of A using
@@ -200,6 +216,14 @@ pub(crate) fn split_along_curves(
         if !a.faces.contains_key(face_handle) {
             continue;
         }
+
+        // Skip splitting for non-planar faces — curved faces (sphere, cylinder,
+        // etc.) don't support Cyrus-Beck polygon clipping. The face will be
+        // classified as a whole unit instead.
+        if !is_planar_face(&a, face_handle) {
+            continue;
+        }
+
         let record = &records[record_idx];
 
         // Re-clip the curve to face A's boundary so endpoints land precisely
@@ -264,6 +288,14 @@ pub(crate) fn split_along_curves(
         if !b.faces.contains_key(face_handle) {
             continue;
         }
+
+        // Skip splitting for non-planar faces — curved faces (sphere, cylinder,
+        // etc.) don't support Cyrus-Beck polygon clipping. The face will be
+        // classified as a whole unit instead.
+        if !is_planar_face(&b, face_handle) {
+            continue;
+        }
+
         let record = &records[record_idx];
 
         // Re-clip the curve to face B's boundary so endpoints land precisely

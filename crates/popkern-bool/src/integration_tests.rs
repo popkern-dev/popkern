@@ -317,21 +317,64 @@ fn cube_minus_contained_sphere_returns_cube() {
     // Sphere fully inside cube — containment shortcut returns cube unchanged
     let t = Tolerance::default().with_linear(1e-3);
     let cube = BRep::unit_cube(t.clone()).unwrap();
-    let mut sphere = BRep::sphere(0.3, t.clone()).unwrap();
-    for (_, v) in &mut sphere.vertices {
-        v.position = v.position + Vec3::new(0.5, 0.5, 0.5);
-    }
-    for (_, face) in &mut sphere.faces {
-        if let Some(ref mut surf) = face.surface {
-            if let popkern_core::geometry::surface::SurfaceGeometry::Sphere {
-                ref mut center, ..
-            } = surf.geometry
-            {
-                *center = *center + Vec3::new(0.5, 0.5, 0.5);
-            }
-        }
-    }
+    let sphere = translate(
+        BRep::sphere(0.3, t.clone()).unwrap(),
+        Vec3::new(0.5, 0.5, 0.5),
+    );
     let result = crate::subtraction(cube, sphere, t);
     // Containment subtraction is a TODO — returns cube unchanged or errors
     assert!(result.is_ok() || result.is_err());
+}
+
+#[test]
+fn cube_minus_overlapping_sphere_succeeds() {
+    // Sphere overlaps cube — curved face splitting is skipped, but the
+    // pipeline should complete without hanging or panicking.
+    // Use coarse tolerance (1e-2) so marching on curved surfaces is fast.
+    let t = Tolerance::default().with_linear(1e-2);
+    let cube = BRep::unit_cube(t.clone()).unwrap();
+    let sphere = translate(
+        BRep::sphere(0.8, t.clone()).unwrap(),
+        Vec3::new(0.5, 0.5, 0.5),
+    );
+    let result = crate::subtraction(cube, sphere, t);
+    assert!(
+        result.is_ok(),
+        "Cube-sphere subtraction should succeed: {:?}",
+        result.err()
+    );
+}
+
+#[test]
+fn sphere_minus_overlapping_cube_does_not_hang() {
+    // Reverse: sphere as operand A, cube as operand B.
+    // Use coarse tolerance (1e-2) so marching on curved surfaces is fast.
+    // The pipeline may return an error (trim curve endpoint mismatch) because
+    // curved intersection curves don't align with planar face boundaries, but
+    // it must not hang or panic.
+    let t = Tolerance::default().with_linear(1e-2);
+    let sphere = translate(
+        BRep::sphere(0.8, t.clone()).unwrap(),
+        Vec3::new(0.5, 0.5, 0.5),
+    );
+    let cube = BRep::unit_cube(t.clone()).unwrap();
+    let _result = crate::subtraction(sphere, cube, t);
+    // Result may be Ok or Err — both are acceptable at this stage.
+}
+
+#[test]
+fn cube_union_overlapping_sphere_succeeds() {
+    // Use coarse tolerance (1e-2) so marching on curved surfaces is fast.
+    let t = Tolerance::default().with_linear(1e-2);
+    let cube = BRep::unit_cube(t.clone()).unwrap();
+    let sphere = translate(
+        BRep::sphere(0.8, t.clone()).unwrap(),
+        Vec3::new(0.5, 0.5, 0.5),
+    );
+    let result = crate::union(cube, sphere, t);
+    assert!(
+        result.is_ok(),
+        "Cube-sphere union should succeed: {:?}",
+        result.err()
+    );
 }
