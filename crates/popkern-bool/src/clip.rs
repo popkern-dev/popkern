@@ -6,10 +6,13 @@
 //! plane parameterizations.
 
 use popkern_core::geometry::curve::CurveEval;
+use popkern_core::geometry::curve::CurveGeometry;
 use popkern_core::geometry::curve_on_surface::CurveOnSurface;
+use popkern_core::geometry::intersection::intersect_curves;
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::geometry::{Point3, Vec3};
-use popkern_core::topology::{BRep, FaceHandle};
+use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 /// Collect vertex positions from the outer loop of a face by walking half-edges.
 ///
@@ -274,6 +277,134 @@ pub(crate) fn clip_curve_to_single_face(
         curve_uv2: clipped_uv2,
         is_closed: false,
     })
+}
+
+/// Extract the UV boundary of a face from its half-edge pcurves.
+///
+/// Returns a list of `(half_edge_handle, pcurve)` forming the outer loop
+/// boundary in UV space. Returns `None` if any half-edge lacks a pcurve.
+pub(crate) fn face_uv_boundary(
+    brep: &BRep,
+    face: FaceHandle,
+) -> Option<Vec<(HalfEdgeHandle, NurbsCurve)>> {
+    let face_data = brep.faces.get(face)?;
+    let loop_data = brep.loops.get(face_data.outer_loop)?;
+    let start = loop_data.half_edge;
+    if !brep.half_edges.contains_key(start) {
+        return None;
+    }
+    let mut boundary = Vec::new();
+    let mut cursor = start;
+    let limit = brep.half_edges.len() + 1;
+    for _ in 0..limit {
+        let he = brep.half_edges.get(cursor)?;
+        let pcurve = he.pcurve.as_ref()?.clone();
+        boundary.push((cursor, pcurve));
+        cursor = he.next;
+        if cursor == start {
+            break;
+        }
+    }
+    Some(boundary)
+}
+
+/// A crossing between a UV intersection curve and a face's UV boundary.
+pub(crate) struct UvCrossing {
+    /// Parameter on the intersection curve at the crossing.
+    pub t_curve: f64,
+}
+
+/// Find where a UV intersection curve crosses the face's UV boundary.
+///
+/// Returns crossings sorted by `t_curve`. Returns `None` if the face has
+/// no UV boundary (missing pcurves).
+pub(crate) fn find_uv_crossings(
+    brep: &BRep,
+    face: FaceHandle,
+    curve_uv: &NurbsCurve,
+    tolerance: &Tolerance,
+) -> Option<Vec<UvCrossing>> {
+    let boundary = face_uv_boundary(brep, face)?;
+    let mut crossings = Vec::new();
+
+    let curve_range = curve_uv.parameter_range();
+    // Skip if curve has zero-length parameter range.
+    if (curve_range.1 - curve_range.0).abs() < 1e-15 {
+        return Some(crossings);
+    }
+
+    for (_he_handle, boundary_pcurve) in &boundary {
+        let boundary_range = boundary_pcurve.parameter_range();
+        if (boundary_range.1 - boundary_range.0).abs() < 1e-15 {
+            continue;
+        }
+
+        let result = intersect_curves(
+            &CurveGeometry::Nurbs(boundary_pcurve.clone()),
+            boundary_range,
+            &CurveGeometry::Nurbs(curve_uv.clone()),
+            curve_range,
+            tolerance,
+        );
+
+        if let Ok(result) = result {
+            use popkern_core::geometry::intersection::CurveIntersection;
+            for hit in &result.intersections {
+                if let CurveIntersection::Point { t2, .. } = hit {
+                    crossings.push(UvCrossing { t_curve: *t2 });
+                }
+            }
+        }
+    }
+
+    // Sort by t_curve.
+    crossings.sort_by(|a, b| {
+        a.t_curve
+            .partial_cmp(&b.t_curve)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    Some(crossings)
+}
+
+/// Clip a NURBS curve to the interior segment between two parameter values.
+///
+/// For degree-1 curves, evaluates endpoints and builds a new line segment.
+/// For higher-degree curves, uses `NurbsCurve::split_at` to extract the
+/// sub-curve between `t_enter` and `t_exit`.
+pub(crate) fn clip_curve_to_crossings(
+    curve: &NurbsCurve,
+    t_enter: f64,
+    t_exit: f64,
+) -> Option<NurbsCurve> {
+    let (t_min, t_max) = curve.parameter_range();
+    let t0 = t_enter.max(t_min);
+    let t1 = t_exit.min(t_max);
+    if t1 - t0 < 1e-15 {
+        return None;
+    }
+    if curve.degree == 1 {
+        let p0 = curve.point_at(t0);
+        let p1 = curve.point_at(t1);
+        return Some(NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![p0, p1],
+            weights: vec![1.0, 1.0],
+        });
+    }
+    let eps = (t_max - t_min) * 1e-10;
+    let right = if t0 - t_min > eps {
+        curve.split_at(t0).ok()?.1
+    } else {
+        curve.clone()
+    };
+    let (_, r_max) = right.parameter_range();
+    if t1 < r_max - eps {
+        right.split_at(t1).ok().map(|(left, _)| left)
+    } else {
+        Some(right)
+    }
 }
 
 /// Clip an intersection curve to both face boundaries and produce a trimmed

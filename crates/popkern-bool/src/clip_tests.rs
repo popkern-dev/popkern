@@ -285,3 +285,124 @@ fn clip_curve_to_faces_disjoint_ranges_returns_none() {
         "disjoint clipped ranges should return None at line 301"
     );
 }
+
+// ── face_uv_boundary tests ──────────────────────────────────────────────────
+
+#[test]
+fn face_uv_boundary_returns_pcurves_for_cube() {
+    let cube = BRep::unit_cube(tol()).expect("cube");
+    let face = cube.faces.keys().next().expect("has faces");
+    let boundary = super::face_uv_boundary(&cube, face);
+    assert!(
+        boundary.is_some(),
+        "cube faces should have pcurves on all half-edges"
+    );
+    let edges = boundary.expect("verified");
+    assert_eq!(edges.len(), 4, "cube face has 4 boundary edges");
+}
+
+#[test]
+fn face_uv_boundary_returns_none_without_pcurves() {
+    // Build a face with no pcurves (manual Euler ops, no surface geometry).
+    let mut brep = BRep::new(tol());
+    let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).expect("mvfs");
+    let mev1 = brep
+        .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+        .expect("mev1");
+    let mev2 = brep
+        .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
+        .expect("mev2");
+    let mev3 = brep
+        .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
+        .expect("mev3");
+    let mef_r = brep.mef(mev3.half_edge_twin, mev1.half_edge).expect("mef");
+    let boundary = super::face_uv_boundary(&brep, mef_r.face);
+    assert!(
+        boundary.is_none(),
+        "faces without pcurves should return None"
+    );
+}
+
+// ── find_uv_crossings tests ────────────────────────────────────────────────
+
+#[test]
+fn find_uv_crossings_detects_diagonal_through_cube_face() {
+    let cube = BRep::unit_cube(tol()).expect("cube");
+    let face = cube.faces.keys().next().expect("has faces");
+
+    // Get the face's UV boundary to understand the UV domain.
+    let boundary = super::face_uv_boundary(&cube, face).expect("has pcurves");
+    assert!(!boundary.is_empty());
+
+    // Build a diagonal UV curve that should cross two boundary edges.
+    // Cube faces have pcurves in the [0,1] UV domain typically.
+    let diag_uv = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![Point3::new(-0.5, 0.5, 0.0), Point3::new(1.5, 0.5, 0.0)],
+        weights: vec![1.0, 1.0],
+    };
+
+    let crossings = super::find_uv_crossings(&cube, face, &diag_uv, &tol());
+    assert!(crossings.is_some(), "should find crossings");
+    let crossings = crossings.expect("verified");
+    assert!(
+        crossings.len() >= 2,
+        "diagonal through face should have >= 2 crossings, got {}",
+        crossings.len()
+    );
+    // Crossings should be sorted by t_curve.
+    for w in crossings.windows(2) {
+        assert!(
+            w[0].t_curve <= w[1].t_curve,
+            "crossings should be sorted by t_curve"
+        );
+    }
+}
+
+#[test]
+fn find_uv_crossings_outside_face_returns_empty() {
+    let cube = BRep::unit_cube(tol()).expect("cube");
+    let face = cube.faces.keys().next().expect("has faces");
+
+    // UV curve far outside the face's UV domain.
+    let far = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![Point3::new(10.0, 10.0, 0.0), Point3::new(11.0, 11.0, 0.0)],
+        weights: vec![1.0, 1.0],
+    };
+
+    let crossings = super::find_uv_crossings(&cube, face, &far, &tol());
+    assert!(crossings.is_some());
+    let crossings = crossings.expect("verified");
+    assert_eq!(
+        crossings.len(),
+        0,
+        "curve outside face should have 0 crossings"
+    );
+}
+
+// ── clip_curve_to_crossings tests ───────────────────────────────────────────
+
+#[test]
+fn clip_curve_to_crossings_degree1_clips_correctly() {
+    let curve = nurbs_line(Point3::new(0.0, 0.0, 0.0), Point3::new(10.0, 0.0, 0.0));
+    // Clip to [0.2, 0.8] in parameter space (original range [0, 1]).
+    let clipped = super::clip_curve_to_crossings(&curve, 0.2, 0.8);
+    assert!(clipped.is_some());
+    let c = clipped.expect("verified");
+    use popkern_core::geometry::curve::CurveEval;
+    let (t0, t1) = c.parameter_range();
+    let p0 = c.point_at(t0);
+    let p1 = c.point_at(t1);
+    assert!((p0.x - 2.0).abs() < 1e-6, "start should be at x=2");
+    assert!((p1.x - 8.0).abs() < 1e-6, "end should be at x=8");
+}
+
+#[test]
+fn clip_curve_to_crossings_zero_length_returns_none() {
+    let curve = nurbs_line(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0));
+    let result = super::clip_curve_to_crossings(&curve, 0.5, 0.5);
+    assert!(result.is_none(), "zero-length clip should return None");
+}

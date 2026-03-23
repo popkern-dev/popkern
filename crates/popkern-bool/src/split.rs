@@ -8,13 +8,17 @@ use std::collections::{HashMap, HashSet};
 
 use popkern_core::{
     geometry::curve::CurveEval,
+    geometry::curve_on_surface::CurveOnSurface,
+    geometry::nurbs_curve::NurbsCurve,
     geometry::surface::SurfaceGeometry,
     geometry::{Point3, Vec3},
     tolerance::Tolerance,
     topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle},
 };
 
-use crate::clip::clip_curve_to_single_face;
+use crate::clip::{
+    clip_curve_to_crossings, clip_curve_to_single_face, face_uv_boundary, find_uv_crossings,
+};
 use crate::error::{BoolDiagnostics, BoolError, Stage};
 use crate::intersect::IntersectionRecord;
 
@@ -174,6 +178,211 @@ fn is_planar_face(brep: &BRep, face: FaceHandle) -> bool {
     }
 }
 
+/// Returns `true` if the face's outer loop half-edges all have pcurves.
+fn face_has_pcurves(brep: &BRep, face: FaceHandle) -> bool {
+    face_uv_boundary(brep, face).is_some()
+}
+
+/// Try UV-space splitting for a curved face: find where the intersection
+/// curve crosses the face boundary in UV space, clip to interior, and split.
+///
+/// Returns `true` if the face was split, `false` if it should be skipped.
+fn try_uv_split(
+    brep: &mut BRep,
+    face_handle: FaceHandle,
+    curve_3d: &NurbsCurve,
+    curve_uv: &NurbsCurve,
+    tolerance: &Tolerance,
+    fragments: &mut FragmentMap,
+    records: &[IntersectionRecord],
+) -> Result<bool, BoolDiagnostics> {
+    let crossings = match find_uv_crossings(brep, face_handle, curve_uv, tolerance) {
+        Some(c) => c,
+        None => return Ok(false), // no pcurves after all
+    };
+
+    if crossings.len() >= 2 {
+        // Take the first entry/exit pair.
+        let t_enter = crossings[0].t_curve;
+        let t_exit = crossings[crossings.len() - 1].t_curve;
+
+        // Clip both curves to the interior segment.
+        let clipped_3d = match clip_curve_to_crossings(curve_3d, t_enter, t_exit) {
+            Some(c) => c,
+            None => return Ok(false),
+        };
+        let clipped_uv = match clip_curve_to_crossings(curve_uv, t_enter, t_exit) {
+            Some(c) => c,
+            None => return Ok(false),
+        };
+
+        // Ensure boundary vertices exist at the 3D endpoints.
+        let (ts, te) = clipped_3d.parameter_range();
+        let start_pt = clipped_3d.point_at(ts);
+        let end_pt = clipped_3d.point_at(te);
+        match ensure_endpoint_vertices(brep, face_handle, &[start_pt, end_pt], tolerance) {
+            Ok(true) => { /* endpoints placed */ }
+            Ok(false) => return Ok(false),
+            Err(core_err) => {
+                return Err(BoolDiagnostics {
+                    error: Some(BoolError::SplitFailed {
+                        face: face_handle,
+                        reason: format!("pre-split edge failed: {core_err}"),
+                    }),
+                    intersection_curves: records.iter().map(|r| r.curve.clone()).collect(),
+                    face_classifications: Vec::new(),
+                    failed_stage: Some(Stage::Split),
+                });
+            }
+        }
+
+        match brep.split_face(face_handle, &clipped_uv, &clipped_3d, tolerance) {
+            Ok(result) => {
+                fragments.origin.insert(result.face_a, face_handle);
+                fragments.origin.insert(result.face_b, face_handle);
+                for &edge in &result.new_edges {
+                    fragments.intersection_edges.insert(edge);
+                }
+                return Ok(true);
+            }
+            Err(core_err) => {
+                return Err(BoolDiagnostics {
+                    error: Some(BoolError::SplitFailed {
+                        face: face_handle,
+                        reason: core_err.to_string(),
+                    }),
+                    intersection_curves: records.iter().map(|r| r.curve.clone()).collect(),
+                    face_classifications: Vec::new(),
+                    failed_stage: Some(Stage::Split),
+                });
+            }
+        }
+    }
+
+    // 0 or 1 crossings — curve doesn't cross boundary usefully; skip.
+    Ok(false)
+}
+
+/// Try the planar Cyrus-Beck clipping path for a face.
+///
+/// Returns `true` if the face was split, `false` if it should be skipped.
+fn try_planar_split(
+    brep: &mut BRep,
+    face_handle: FaceHandle,
+    curve_uv: &NurbsCurve,
+    full_curve: &CurveOnSurface,
+    tolerance: &Tolerance,
+    fragments: &mut FragmentMap,
+    records: &[IntersectionRecord],
+) -> Result<bool, BoolDiagnostics> {
+    let clipped = match clip_curve_to_single_face(brep, face_handle, full_curve) {
+        Some(c) => c,
+        None => return Ok(false),
+    };
+
+    let (t_start, t_end) = clipped.curve_3d.parameter_range();
+    let start_pt = clipped.curve_3d.point_at(t_start);
+    let end_pt = clipped.curve_3d.point_at(t_end);
+    match ensure_endpoint_vertices(brep, face_handle, &[start_pt, end_pt], tolerance) {
+        Ok(true) => { /* endpoints placed */ }
+        Ok(false) => return Ok(false),
+        Err(core_err) => {
+            return Err(BoolDiagnostics {
+                error: Some(BoolError::SplitFailed {
+                    face: face_handle,
+                    reason: format!("pre-split edge failed: {core_err}"),
+                }),
+                intersection_curves: records.iter().map(|r| r.curve.clone()).collect(),
+                face_classifications: Vec::new(),
+                failed_stage: Some(Stage::Split),
+            });
+        }
+    }
+
+    // Determine which UV curve to use: for face A it's curve_uv1, for face B
+    // it's curve_uv2. The caller passes the correct one as `curve_uv`, but
+    // clip_curve_to_single_face returns a full CurveOnSurface. We detect which
+    // side by comparing the input curve_uv with the record's uv1 vs uv2.
+    // However, the clipped curve already has both: use uv1 if it matches the
+    // caller's curve_uv (face A side), uv2 if not (face B side).
+    let use_uv1 = curve_uv.control_points.first().map(|p| p.x)
+        == full_curve.curve_uv1.control_points.first().map(|p| p.x);
+    let trim_uv = if use_uv1 {
+        &clipped.curve_uv1
+    } else {
+        &clipped.curve_uv2
+    };
+
+    match brep.split_face(face_handle, trim_uv, &clipped.curve_3d, tolerance) {
+        Ok(result) => {
+            fragments.origin.insert(result.face_a, face_handle);
+            fragments.origin.insert(result.face_b, face_handle);
+            for &edge in &result.new_edges {
+                fragments.intersection_edges.insert(edge);
+            }
+            Ok(true)
+        }
+        Err(core_err) => Err(BoolDiagnostics {
+            error: Some(BoolError::SplitFailed {
+                face: face_handle,
+                reason: core_err.to_string(),
+            }),
+            intersection_curves: records.iter().map(|r| r.curve.clone()).collect(),
+            face_classifications: Vec::new(),
+            failed_stage: Some(Stage::Split),
+        }),
+    }
+}
+
+/// Split a single face along an intersection curve using UV-space or planar
+/// clipping depending on the face's geometry.
+///
+/// Tries UV-space splitting first (for faces with pcurves), then falls back
+/// to Cyrus-Beck planar clipping for planar faces without pcurves.
+#[allow(clippy::too_many_arguments)]
+fn split_one_face(
+    brep: &mut BRep,
+    face_handle: FaceHandle,
+    curve_3d: &NurbsCurve,
+    curve_uv: &NurbsCurve,
+    full_curve: &CurveOnSurface,
+    tolerance: &Tolerance,
+    records: &[IntersectionRecord],
+    fragments: &mut FragmentMap,
+) -> Result<(), BoolDiagnostics> {
+    if face_has_pcurves(brep, face_handle) {
+        // UV-space splitting for faces with pcurves (curved or planar).
+        if try_uv_split(
+            brep,
+            face_handle,
+            curve_3d,
+            curve_uv,
+            tolerance,
+            fragments,
+            records,
+        )? {
+            return Ok(());
+        }
+        // UV split didn't produce crossings — try planar fallback if applicable.
+    }
+
+    if is_planar_face(brep, face_handle) {
+        // Planar Cyrus-Beck clipping path (fallback).
+        try_planar_split(
+            brep,
+            face_handle,
+            curve_uv,
+            full_curve,
+            tolerance,
+            fragments,
+            records,
+        )?;
+    }
+    // Non-planar face without pcurves: skip (classified as whole face).
+
+    Ok(())
+}
+
 /// Split the faces of two BRep solids along intersection curves.
 ///
 /// For each intersection record, splits the corresponding face of A using
@@ -212,149 +421,38 @@ pub(crate) fn split_along_curves(
 
     // Split faces in solid A.
     for (&face_handle, &record_idx) in &first_curve_a {
-        // Skip faces that no longer exist (e.g. stale handles).
         if !a.faces.contains_key(face_handle) {
             continue;
         }
-
-        // Skip splitting for non-planar faces — curved faces (sphere, cylinder,
-        // etc.) don't support Cyrus-Beck polygon clipping. The face will be
-        // classified as a whole unit instead.
-        if !is_planar_face(&a, face_handle) {
-            continue;
-        }
-
         let record = &records[record_idx];
-
-        // Re-clip the curve to face A's boundary so endpoints land precisely
-        // on A's edges (the shared curve may have endpoints on B's boundary).
-        let clipped = match clip_curve_to_single_face(&a, face_handle, &record.curve) {
-            Some(c) => c,
-            None => continue, // curve doesn't intersect this face
-        };
-
-        // Ensure boundary vertices exist at the curve 3D endpoints before splitting.
-        let (t_start, t_end) = clipped.curve_3d.parameter_range();
-        let start_pt = clipped.curve_3d.point_at(t_start);
-        let end_pt = clipped.curve_3d.point_at(t_end);
-        match ensure_endpoint_vertices(&mut a, face_handle, &[start_pt, end_pt], tolerance) {
-            Ok(true) => { /* all endpoints placed */ }
-            Ok(false) => continue, // endpoints outside face boundary — skip
-            Err(core_err) => {
-                return Err(BoolDiagnostics {
-                    error: Some(BoolError::SplitFailed {
-                        face: face_handle,
-                        reason: format!("pre-split edge failed: {core_err}"),
-                    }),
-                    intersection_curves: records.iter().map(|r| r.curve.clone()).collect(),
-                    face_classifications: Vec::new(),
-                    failed_stage: Some(Stage::Split),
-                });
-            }
-        }
-
-        // For face A: curve_uv1 is the UV parameterization on surface A.
-        // split_face expects (face, trim_curve_uv, trim_curve_3d, tolerance).
-        match a.split_face(
+        split_one_face(
+            &mut a,
             face_handle,
-            &clipped.curve_uv1,
-            &clipped.curve_3d,
+            &record.curve.curve_3d,
+            &record.curve.curve_uv1,
+            &record.curve,
             tolerance,
-        ) {
-            Ok(result) => {
-                fragments_a.origin.insert(result.face_a, face_handle);
-                fragments_a.origin.insert(result.face_b, face_handle);
-                for &edge in &result.new_edges {
-                    fragments_a.intersection_edges.insert(edge);
-                }
-            }
-            Err(core_err) => {
-                return Err(BoolDiagnostics {
-                    error: Some(BoolError::SplitFailed {
-                        face: face_handle,
-                        reason: core_err.to_string(),
-                    }),
-                    intersection_curves: records.iter().map(|r| r.curve.clone()).collect(),
-                    face_classifications: Vec::new(),
-                    failed_stage: Some(Stage::Split),
-                });
-            }
-        }
+            records,
+            &mut fragments_a,
+        )?;
     }
 
     // Split faces in solid B.
     for (&face_handle, &record_idx) in &first_curve_b {
-        // Skip faces that no longer exist (e.g. stale handles).
         if !b.faces.contains_key(face_handle) {
             continue;
         }
-
-        // Skip splitting for non-planar faces — curved faces (sphere, cylinder,
-        // etc.) don't support Cyrus-Beck polygon clipping. The face will be
-        // classified as a whole unit instead.
-        if !is_planar_face(&b, face_handle) {
-            continue;
-        }
-
         let record = &records[record_idx];
-
-        // Re-clip the curve to face B's boundary so endpoints land precisely
-        // on B's edges (the shared curve may have endpoints on A's boundary).
-        let clipped = match clip_curve_to_single_face(&b, face_handle, &record.curve) {
-            Some(c) => c,
-            None => {
-                eprintln!("  B split: clip returned None");
-                continue;
-            }
-        };
-
-        // Ensure boundary vertices exist at the curve 3D endpoints before splitting.
-        let (t_start, t_end) = clipped.curve_3d.parameter_range();
-        let start_pt = clipped.curve_3d.point_at(t_start);
-        let end_pt = clipped.curve_3d.point_at(t_end);
-        match ensure_endpoint_vertices(&mut b, face_handle, &[start_pt, end_pt], tolerance) {
-            Ok(true) => { /* all endpoints placed */ }
-            Ok(false) => continue, // endpoints outside face boundary — skip
-            Err(core_err) => {
-                return Err(BoolDiagnostics {
-                    error: Some(BoolError::SplitFailed {
-                        face: face_handle,
-                        reason: format!("pre-split edge failed: {core_err}"),
-                    }),
-                    intersection_curves: records.iter().map(|r| r.curve.clone()).collect(),
-                    face_classifications: Vec::new(),
-                    failed_stage: Some(Stage::Split),
-                });
-            }
-        }
-
-        // For face B: curve_uv2 is the UV parameterization on surface B.
-        // It becomes "uv1" relative to face B's surface in the split_face call.
-        match b.split_face(
+        split_one_face(
+            &mut b,
             face_handle,
-            &clipped.curve_uv2,
-            &clipped.curve_3d,
+            &record.curve.curve_3d,
+            &record.curve.curve_uv2,
+            &record.curve,
             tolerance,
-        ) {
-            Ok(result) => {
-                fragments_b.origin.insert(result.face_a, face_handle);
-                fragments_b.origin.insert(result.face_b, face_handle);
-                for &edge in &result.new_edges {
-                    fragments_b.intersection_edges.insert(edge);
-                }
-            }
-            Err(core_err) => {
-                return Err(BoolDiagnostics {
-                    error: Some(BoolError::SplitFailed {
-                        face: face_handle,
-                        reason: core_err.to_string(),
-                    }),
-                    intersection_curves: records.iter().map(|r| r.curve.clone()).collect(),
-                    face_classifications: Vec::new(),
-                    failed_stage: Some(Stage::Split),
-                });
-            }
-        }
+            records,
+            &mut fragments_b,
+        )?;
     }
 
     // All unsplit faces in A map to themselves.
