@@ -45,6 +45,8 @@ pub use error::{
 mod integration_tests;
 #[cfg(test)]
 mod integration_tests_curved;
+#[cfg(test)]
+mod translate_helper_tests;
 
 use popkern_core::{tolerance::Tolerance, topology::BRep};
 
