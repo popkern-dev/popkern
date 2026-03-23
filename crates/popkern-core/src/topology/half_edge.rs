@@ -27,10 +27,13 @@ mod tests {
     use crate::topology::BRep;
 
     #[test]
-    fn half_edge_pcurve_is_none_by_default() {
+    fn half_edge_pcurve_is_populated_for_cube() {
         let brep = BRep::unit_cube(Tolerance::default()).unwrap();
         for (_, he) in &brep.half_edges {
-            assert!(he.pcurve.is_none());
+            assert!(
+                he.pcurve.is_some(),
+                "Every cube half-edge should have a pcurve"
+            );
         }
     }
 }
