@@ -4,6 +4,8 @@
 //! into one valid closed BRep by copying topology, merging coincident vertices,
 //! and stitching boundary edges.
 
+mod stitch;
+
 use std::collections::HashMap;
 
 use popkern_core::{
@@ -79,7 +81,6 @@ pub(crate) fn merge_faces(
             if first_face.is_none() {
                 first_face = Some(new_fh);
             }
-            // Flip surface if selection says to.
             if selection.flip_a.contains(&face_h) {
                 flip_surface(&mut result, new_fh);
             }
@@ -113,7 +114,7 @@ pub(crate) fn merge_faces(
 
     // Stitch boundary edges: pair up unpaired half-edges sharing the same
     // two vertices in opposite order, and merge their Edge entities.
-    stitch_boundary_edges(&mut result);
+    stitch::stitch_boundary_edges(&mut result, tolerance);
 
     // Remove orphaned edges (edges whose half-edge no longer exists or
     // whose half-edge points to a different edge).
@@ -136,7 +137,6 @@ fn copy_face(
 ) -> Result<FaceHandle, BoolDiagnostics> {
     let face = &source.faces[face_h];
 
-    // Create the face and outer loop in the result (with placeholder handles).
     let new_loop_h = result.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: FaceHandle::default(),
@@ -173,7 +173,7 @@ fn copy_face(
 ///
 /// Walks around the loop following `next` pointers. Vertices are deduplicated
 /// by position. Edges and half-edges are created fresh; twin pointers are set
-/// to self (unpaired) and fixed up later by `stitch_boundary_edges`.
+/// to self (unpaired) and fixed up later by stitching.
 fn copy_loop_half_edges(
     source: &BRep,
     loop_h: LoopHandle,
@@ -201,11 +201,9 @@ fn copy_loop_half_edges(
     for &he_h in &he_handles {
         let he = &source.half_edges[he_h];
 
-        // Map or create the origin vertex.
         let new_origin = map_or_create_vertex(source, he.origin, result, map, tolerance);
 
-        // Reuse existing edge if already mapped (intra-operand twin sharing),
-        // otherwise create a new edge.
+        // Reuse existing edge if already mapped (intra-operand twin sharing).
         let new_edge_h = if let Some(&existing) = map.edges.get(&he.edge) {
             existing
         } else {
@@ -218,12 +216,11 @@ fn copy_loop_half_edges(
             new_eh
         };
 
-        // Create the half-edge with self-twin (unpaired for now).
         let new_he_h = result.half_edges.insert(HalfEdge {
             origin: new_origin,
-            twin: HalfEdgeHandle::default(), // placeholder
-            next: HalfEdgeHandle::default(), // placeholder
-            prev: HalfEdgeHandle::default(), // placeholder
+            twin: HalfEdgeHandle::default(),
+            next: HalfEdgeHandle::default(),
+            prev: HalfEdgeHandle::default(),
             edge: new_edge_h,
             loop_: new_loop_h,
         });
@@ -231,7 +228,6 @@ fn copy_loop_half_edges(
         result.half_edges[new_he_h].twin = new_he_h;
         map.half_edges.insert(he_h, new_he_h);
 
-        // Point the edge at this half-edge if not yet set.
         if result.edges[new_edge_h].half_edge == HalfEdgeHandle::default() {
             result.edges[new_edge_h].half_edge = new_he_h;
         }
@@ -248,12 +244,10 @@ fn copy_loop_half_edges(
         result.half_edges[new_he_handles[i]].prev = new_he_handles[prev_i];
     }
 
-    // Point the loop at its first half-edge.
     if let Some(&first) = new_he_handles.first() {
         result.loops[new_loop_h].half_edge = first;
     }
 
-    // Set vertex outgoing pointers.
     for &new_he_h in &new_he_handles {
         let origin = result.half_edges[new_he_h].origin;
         result.vertices[origin].outgoing = new_he_h;
@@ -271,7 +265,6 @@ fn map_or_create_vertex(
     map: &mut HandleMap,
     tolerance: &Tolerance,
 ) -> VertexHandle {
-    // Already mapped?
     if let Some(&existing) = map.vertices.get(&old_v) {
         return existing;
     }
@@ -286,84 +279,12 @@ fn map_or_create_vertex(
         }
     }
 
-    // Create a new vertex.
     let new_vh = result.vertices.insert(Vertex {
         position,
         outgoing: HalfEdgeHandle::default(),
     });
     map.vertices.insert(old_v, new_vh);
     new_vh
-}
-
-/// Pair up unpaired half-edges that share the same two vertices in opposite
-/// order. After this pass, manifold edges will have proper twin linkage and
-/// shared Edge entities.
-fn stitch_boundary_edges(result: &mut BRep) {
-    // Collect all unpaired half-edges (those whose twin points at themselves).
-    let unpaired: Vec<HalfEdgeHandle> = result
-        .half_edges
-        .keys()
-        .filter(|&heh| result.half_edges[heh].twin == heh)
-        .collect();
-
-    // Build a map from (origin, dest) -> half-edge handle for fast lookup.
-    // Destination is the origin of the next half-edge.
-    let mut edge_map: HashMap<(VertexHandle, VertexHandle), HalfEdgeHandle> =
-        HashMap::with_capacity(unpaired.len());
-
-    for &heh in &unpaired {
-        let origin = result.half_edges[heh].origin;
-        let next = result.half_edges[heh].next;
-        let dest = result.half_edges[next].origin;
-        edge_map.insert((origin, dest), heh);
-    }
-
-    // For each unpaired half-edge (A->B), look for one going (B->A).
-    for &heh in &unpaired {
-        // Skip if already stitched in this pass.
-        if result.half_edges[heh].twin != heh {
-            continue;
-        }
-
-        let origin = result.half_edges[heh].origin;
-        let next = result.half_edges[heh].next;
-        let dest = result.half_edges[next].origin;
-
-        if let Some(&twin_heh) = edge_map.get(&(dest, origin))
-            && twin_heh != heh
-            && result.half_edges[twin_heh].twin == twin_heh
-        {
-            // Pair as twins.
-            result.half_edges[heh].twin = twin_heh;
-            result.half_edges[twin_heh].twin = heh;
-
-            // Merge edge handles: both half-edges must share the same Edge.
-            // Keep the edge from `heh`, discard the one from `twin_heh`.
-            let keep_edge = result.half_edges[heh].edge;
-            let discard_edge = result.half_edges[twin_heh].edge;
-
-            if keep_edge != discard_edge {
-                // Point the twin's half-edge at the kept edge.
-                result.half_edges[twin_heh].edge = keep_edge;
-
-                // Update the kept edge to point at `heh` as canonical.
-                result.edges[keep_edge].half_edge = heh;
-
-                // If the kept edge has no curve but the discarded one does,
-                // take the discarded edge's curve.
-                if result.edges[keep_edge].curve.is_none() {
-                    let curve = result.edges[discard_edge].curve.clone();
-                    result.edges[keep_edge].curve = curve;
-                }
-
-                // Mark the discarded edge for removal (we do it in a
-                // cleanup pass to avoid invalidating iterators).
-                // For now, set its half_edge to default so it's detected
-                // as orphaned.
-                result.edges[discard_edge].half_edge = HalfEdgeHandle::default();
-            }
-        }
-    }
 }
 
 /// Remove edges that are orphaned (their half_edge is default or points to a
@@ -375,11 +296,9 @@ fn remove_orphan_edges(result: &mut BRep) {
         .filter(|&eh| {
             let edge = &result.edges[eh];
             let heh = edge.half_edge;
-            // Orphan if half_edge is default.
             if heh == HalfEdgeHandle::default() {
                 return true;
             }
-            // Orphan if the half-edge it points to references a different edge.
             if let Some(he) = result.half_edges.get(heh) {
                 he.edge != eh
             } else {
@@ -401,5 +320,5 @@ fn flip_surface(result: &mut BRep, face_h: FaceHandle) {
 }
 
 #[cfg(test)]
-#[path = "merge_tests.rs"]
+#[path = "../merge_tests.rs"]
 mod merge_tests;
