@@ -27,6 +27,7 @@
 pub(crate) mod classify;
 pub mod error;
 pub(crate) mod intersect;
+pub(crate) mod merge;
 pub(crate) mod select;
 pub(crate) mod split;
 
