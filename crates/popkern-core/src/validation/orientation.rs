@@ -20,8 +20,21 @@ impl BRep {
                 continue;
             };
 
-            // Sample the normal at (0, 0) as a quick sanity check.
-            let normal = surface_on_face.geometry.normal_at(0.0, 0.0);
+            // Sample the normal at the midpoint of the parameter range.
+            // We avoid (0, 0) because some surfaces (e.g. spheres) have
+            // degenerate normals at parameter-space corners (poles).
+            let ((u0, u1), (v0, v1)) = surface_on_face.geometry.parameter_range();
+            let u_mid = if u0.is_finite() && u1.is_finite() {
+                0.5 * (u0 + u1)
+            } else {
+                0.0
+            };
+            let v_mid = if v0.is_finite() && v1.is_finite() {
+                0.5 * (v0 + v1)
+            } else {
+                0.0
+            };
+            let normal = surface_on_face.geometry.normal_at(u_mid, v_mid);
             if normal.length_squared() < f64::EPSILON {
                 return Err(ValidationError::InconsistentOrientation { face: face_handle });
             }

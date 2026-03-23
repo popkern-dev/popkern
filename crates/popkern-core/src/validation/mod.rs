@@ -353,18 +353,18 @@ mod tests {
     }
 
     #[test]
-    fn validate_all_collects_curve_surface_error() {
+    fn validate_all_collects_degenerate_surface_error() {
         use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 
-        // Build a cube with geometry, then set a face's surface to something incompatible
+        // Build a cube with geometry, then set a face's surface to a degenerate
+        // zero-radius sphere -- normal is zero everywhere, failing orientation.
         let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
         let face_h = brep.faces.keys().next().unwrap();
 
-        // Set the surface to a sphere centered far away — curve endpoints won't match
         brep.faces[face_h].surface = Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Sphere {
-                center: Point3::new(1000.0, 1000.0, 1000.0),
-                radius: 1.0,
+                center: Point3::new(0.0, 0.0, 0.0),
+                radius: 0.0,
             },
             orientation: true,
         });

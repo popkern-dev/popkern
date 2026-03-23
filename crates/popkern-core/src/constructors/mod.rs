@@ -372,6 +372,49 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
+    fn sphere_faces_have_surface_geometry() {
+        use crate::geometry::surface::SurfaceGeometry;
+        let sph = BRep::sphere(1.0, Tolerance::default()).unwrap();
+        for (_, face) in &sph.faces {
+            let surface = face
+                .surface
+                .as_ref()
+                .expect("every sphere face should have surface geometry");
+            match &surface.geometry {
+                SurfaceGeometry::Sphere { center, radius } => {
+                    assert!(
+                        center.x.abs() < 1e-10 && center.y.abs() < 1e-10 && center.z.abs() < 1e-10,
+                        "sphere center should be at origin"
+                    );
+                    assert!(
+                        (*radius - 1.0).abs() < 1e-10,
+                        "sphere radius should match constructor arg"
+                    );
+                }
+                other => panic!(
+                    "expected SurfaceGeometry::Sphere, got {:?}",
+                    std::mem::discriminant(other)
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn sphere_with_custom_radius_has_correct_surface() {
+        use crate::geometry::surface::SurfaceGeometry;
+        let sph = BRep::sphere(3.7, Tolerance::default()).unwrap();
+        for (_, face) in &sph.faces {
+            let surface = face.surface.as_ref().unwrap();
+            match &surface.geometry {
+                SurfaceGeometry::Sphere { radius, .. } => {
+                    assert!((*radius - 3.7).abs() < 1e-10);
+                }
+                _ => panic!("expected SurfaceGeometry::Sphere"),
+            }
+        }
+    }
+
     // --- Cone tests ---
 
     #[test]

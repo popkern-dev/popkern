@@ -448,4 +448,36 @@ mod tests {
             "coincident cubes should produce a CoincidentFaces error"
         );
     }
+
+    #[test]
+    fn compute_face_aabbs_sphere_returns_three_faces() {
+        let sphere = BRep::sphere(1.0, tol()).expect("sphere");
+        let aabbs = compute_face_aabbs(&sphere);
+        assert_eq!(
+            aabbs.len(),
+            3,
+            "sphere should have 3 faces with AABBs, got {}",
+            aabbs.len()
+        );
+        for (_, aabb) in &aabbs {
+            assert!(
+                aabb.min.x >= -1.1 && aabb.max.x <= 1.1,
+                "x out of range: [{}, {}]",
+                aabb.min.x,
+                aabb.max.x,
+            );
+            assert!(
+                aabb.min.y >= -1.1 && aabb.max.y <= 1.1,
+                "y out of range: [{}, {}]",
+                aabb.min.y,
+                aabb.max.y,
+            );
+            assert!(
+                aabb.min.z >= -1.1 && aabb.max.z <= 1.1,
+                "z out of range: [{}, {}]",
+                aabb.min.z,
+                aabb.max.z,
+            );
+        }
+    }
 }

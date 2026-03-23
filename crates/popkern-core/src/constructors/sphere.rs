@@ -2,6 +2,7 @@
 
 use crate::error::CoreError;
 use crate::geometry::Point3;
+use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::tolerance::Tolerance;
 use crate::topology::BRep;
 
@@ -18,9 +19,9 @@ impl BRep {
     ///
     /// # Geometry
     ///
-    /// Edges have line curves (seam lines from pole to pole). Surface geometry
-    /// is not attached because the spherical parameterization is degenerate at
-    /// the poles, which would fail the orientation validation check.
+    /// All three faces are assigned `SurfaceGeometry::Sphere` with the same
+    /// center and radius. Edges have line curves (seam lines from pole to pole);
+    /// proper meridian arc curves are deferred to a future version.
     ///
     /// # Errors
     ///
@@ -59,6 +60,19 @@ impl BRep {
 
         // Attach line curves to all edges.
         brep.attach_line_curves();
+
+        // Attach sphere surface geometry to every face.
+        let sphere_geom = SurfaceGeometry::Sphere {
+            center: Point3::new(0.0, 0.0, 0.0),
+            radius,
+        };
+        let face_handles: Vec<_> = brep.faces.keys().collect();
+        for fh in face_handles {
+            brep.faces[fh].surface = Some(SurfaceOnFace {
+                geometry: sphere_geom.clone(),
+                orientation: true,
+            });
+        }
 
         // Validate the result.
         brep.validate().map_err(CoreError::Validation)?;
