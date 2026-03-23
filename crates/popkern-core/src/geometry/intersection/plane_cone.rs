@@ -400,9 +400,24 @@ fn plane_uv_conic(
 }
 
 /// Project a 3D point to plane UV, returned as `Point3(u, v, 0)`.
+///
+/// Uses the correct inverse parameterization:
+/// `u = (p-origin)·u_axis / |u_axis|²`, `v = (p-origin)·v_axis / |v_axis|²`.
 fn plane_uv_pt(pt: Point3, o: Point3, pu: Vec3, pv: Vec3) -> Point3 {
     let d = pt - o;
-    Point3::new(d.dot(&pu), d.dot(&pv), 0.0)
+    let u_len_sq = pu.dot(&pu);
+    let v_len_sq = pv.dot(&pv);
+    let u = if u_len_sq > 1e-30 {
+        d.dot(&pu) / u_len_sq
+    } else {
+        d.dot(&pu)
+    };
+    let v = if v_len_sq > 1e-30 {
+        d.dot(&pv) / v_len_sq
+    } else {
+        d.dot(&pv)
+    };
+    Point3::new(u, v, 0.0)
 }
 
 /// Project a 3D curve's control points to cone UV, unwrapping u.

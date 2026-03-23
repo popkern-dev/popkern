@@ -414,7 +414,19 @@ fn nurbs_line(p0: Point3, p1: Point3) -> NurbsCurve {
 /// Project a 3D point to plane UV, returned as `Point3(u, v, 0)`.
 fn plane_uv_pt(pt: Point3, o: Point3, pu: Vec3, pv: Vec3) -> Point3 {
     let d = pt - o;
-    Point3::new(d.dot(&pu), d.dot(&pv), 0.0)
+    let u_len_sq = pu.dot(&pu);
+    let v_len_sq = pv.dot(&pv);
+    let u = if u_len_sq > 1e-30 {
+        d.dot(&pu) / u_len_sq
+    } else {
+        d.dot(&pu)
+    };
+    let v = if v_len_sq > 1e-30 {
+        d.dot(&pv) / v_len_sq
+    } else {
+        d.dot(&pv)
+    };
+    Point3::new(u, v, 0.0)
 }
 
 /// Normalize angle to [0, TAU).

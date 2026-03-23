@@ -106,16 +106,36 @@ fn intersect_plane_sphere(
     // 3D NURBS circle.
     let curve_3d = nurbs_circle_3d(center_proj, axis1, axis2, r_circle);
 
-    // UV on plane: project circle centre into plane UV, then build circle in UV.
+    // UV on plane: project circle centre into plane UV, then build ellipse in UV.
+    // Plane parameterization: point_at(u,v) = origin + u_axis*u + v_axis*v
+    // Inversion: u = (p-origin)·u_axis / |u_axis|², v = (p-origin)·v_axis / |v_axis|²
     let offset = center_proj - plane_origin;
-    let u_center = offset.dot(&plane_u);
-    let v_center = offset.dot(&plane_v);
-    // In UV space the axes are just (1,0) and (0,1) since plane_u and plane_v
-    // are unit vectors forming the parameterization.
-    let uv_axis1 = Vec3::new(1.0, 0.0, 0.0);
-    let uv_axis2 = Vec3::new(0.0, 1.0, 0.0);
+    let pu_len_sq = plane_u.dot(&plane_u);
+    let pv_len_sq = plane_v.dot(&plane_v);
+    let u_center = if pu_len_sq > 1e-30 {
+        offset.dot(&plane_u) / pu_len_sq
+    } else {
+        offset.dot(&plane_u)
+    };
+    let v_center = if pv_len_sq > 1e-30 {
+        offset.dot(&plane_v) / pv_len_sq
+    } else {
+        offset.dot(&plane_v)
+    };
+    // In UV space, a 3D circle of radius r_circle maps to an ellipse
+    // with semi-axes r_circle/|u_axis| and r_circle/|v_axis|.
+    let uv_r_u = if pu_len_sq > 1e-30 {
+        r_circle / pu_len_sq.sqrt()
+    } else {
+        r_circle
+    };
+    let uv_r_v = if pv_len_sq > 1e-30 {
+        r_circle / pv_len_sq.sqrt()
+    } else {
+        r_circle
+    };
     let uv_plane_center = Point3::new(u_center, v_center, 0.0);
-    let curve_uv_plane = nurbs_circle_3d(uv_plane_center, uv_axis1, uv_axis2, r_circle);
+    let curve_uv_plane = nurbs_ellipse_2d(uv_plane_center, uv_r_u, uv_r_v);
 
     // UV on sphere:
     // The sphere parameterization is u = longitude, v = colatitude.
@@ -150,26 +170,41 @@ fn intersect_plane_sphere(
 /// The circle lies in the plane spanned by `axis1` and `axis2`, centred at
 /// `center`, with the given `radius`.
 fn nurbs_circle_3d(center: Point3, axis1: Vec3, axis2: Vec3, radius: f64) -> NurbsCurve {
+    nurbs_ellipse_3d(center, axis1, axis2, radius, radius)
+}
+
+/// Build a degree-2 rational NURBS ellipse in 3D.
+fn nurbs_ellipse_3d(center: Point3, axis1: Vec3, axis2: Vec3, ra: f64, rb: f64) -> NurbsCurve {
     let w = FRAC_1_SQRT_2;
-    let r = radius;
     NurbsCurve {
         degree: 2,
         knots: vec![
             0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0,
         ],
         control_points: vec![
-            center + axis1 * r,
-            center + axis1 * r + axis2 * r,
-            center + axis2 * r,
-            center - axis1 * r + axis2 * r,
-            center - axis1 * r,
-            center - axis1 * r - axis2 * r,
-            center - axis2 * r,
-            center + axis1 * r - axis2 * r,
-            center + axis1 * r,
+            center + axis1 * ra,
+            center + axis1 * ra + axis2 * rb,
+            center + axis2 * rb,
+            center - axis1 * ra + axis2 * rb,
+            center - axis1 * ra,
+            center - axis1 * ra - axis2 * rb,
+            center - axis2 * rb,
+            center + axis1 * ra - axis2 * rb,
+            center + axis1 * ra,
         ],
         weights: vec![1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0],
     }
+}
+
+/// Build a degree-2 rational NURBS ellipse in 2D UV space.
+fn nurbs_ellipse_2d(center: Point3, ru: f64, rv: f64) -> NurbsCurve {
+    nurbs_ellipse_3d(
+        center,
+        Vec3::new(1.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+        ru,
+        rv,
+    )
 }
 
 /// Build a NURBS circle in the sphere's UV parameter space.

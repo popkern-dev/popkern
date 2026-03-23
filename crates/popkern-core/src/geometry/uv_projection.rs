@@ -23,7 +23,19 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
             ..
         } => {
             let d = *point - *origin;
-            Some((d.dot(u_axis), d.dot(v_axis)))
+            let u_len_sq = u_axis.dot(u_axis);
+            let v_len_sq = v_axis.dot(v_axis);
+            let u = if u_len_sq > 1e-30 {
+                d.dot(u_axis) / u_len_sq
+            } else {
+                d.dot(u_axis)
+            };
+            let v = if v_len_sq > 1e-30 {
+                d.dot(v_axis) / v_len_sq
+            } else {
+                d.dot(v_axis)
+            };
+            Some((u, v))
         }
         SurfaceGeometry::Cylinder {
             origin,
