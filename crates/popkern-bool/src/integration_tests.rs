@@ -76,12 +76,6 @@ fn scale_to_enclosing(mut brep: BRep) -> BRep {
 }
 
 // ── Overlapping cubes ──────────────────────────────────────────────────
-//
-// The full pipeline (intersect → split → classify → select → merge) does
-// not yet handle all overlapping-face cases. These tests verify the
-// pipeline does not panic and returns a well-typed result. When the split
-// stage is hardened, these should be tightened to assert `is_ok()` and
-// check face counts.
 
 #[test]
 fn overlapping_cubes_union_succeeds() {
@@ -90,22 +84,9 @@ fn overlapping_cubes_union_succeeds() {
     let result = crate::union(a, b, tol());
     assert!(result.is_ok(), "Union should succeed: {:?}", result.err());
     let brep = result.unwrap();
-    eprintln!(
-        "UNION: {} faces, {} edges, {} verts, {} half_edges",
-        brep.faces.len(),
-        brep.edges.len(),
-        brep.vertices.len(),
-        brep.half_edges.len()
-    );
     let errs = brep.validate_all();
-    for e in &errs {
-        eprintln!("  VALIDATION: {e}");
-    }
-    assert!(
-        brep.faces.len() > 6,
-        "Union of overlapping cubes should have more than 6 faces, got {}",
-        brep.faces.len()
-    );
+    assert!(errs.is_empty(), "Union result should be valid: {:?}", errs);
+    assert!(brep.faces.len() > 6);
 }
 
 #[test]
@@ -119,17 +100,12 @@ fn overlapping_cubes_intersection_succeeds() {
         result.err()
     );
     let brep = result.unwrap();
-    eprintln!(
-        "INTERSECTION: {} faces, {} edges, {} verts, {} half_edges",
-        brep.faces.len(),
-        brep.edges.len(),
-        brep.vertices.len(),
-        brep.half_edges.len()
-    );
     let errs = brep.validate_all();
-    for e in &errs {
-        eprintln!("  VALIDATION: {e}");
-    }
+    assert!(
+        errs.is_empty(),
+        "Intersection result should be valid: {:?}",
+        errs
+    );
     assert!(!brep.faces.is_empty() && brep.faces.len() < 12);
 }
 
@@ -144,10 +120,13 @@ fn overlapping_cubes_subtraction_succeeds() {
         result.err()
     );
     let brep = result.unwrap();
+    let errs = brep.validate_all();
     assert!(
-        !brep.faces.is_empty(),
-        "Subtraction should produce at least 1 face"
+        errs.is_empty(),
+        "Subtraction result should be valid: {:?}",
+        errs
     );
+    assert!(!brep.faces.is_empty());
 }
 
 // ── Disjoint cubes ─────────────────────────────────────────────────────
@@ -329,97 +308,4 @@ fn boolean_ref_generic_intersection() {
     assert_eq!(result.faces.len(), 0);
     // Inputs still usable.
     assert_eq!(a.faces.len(), 6);
-}
-
-#[test]
-fn diagnose_union_pipeline() {
-    use crate::classify::classify_fragments;
-    use crate::error::BoolOperation;
-    use crate::intersect::find_intersections;
-    use crate::select::{Operand, select_faces};
-    use crate::split::split_along_curves;
-
-    let a = BRep::unit_cube(tol()).unwrap();
-    let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(0.5, 0.3, 0.2));
-
-    // Stage 1
-    let isect = find_intersections(&a, &b, &tol()).unwrap();
-    eprintln!("STAGE1: {} intersection records", isect.records.len());
-    for (i, r) in isect.records.iter().enumerate() {
-        eprintln!(
-            "  record {i}: face_a={:?}, face_b={:?}, closed={}",
-            r.face_a, r.face_b, r.curve.is_closed
-        );
-    }
-
-    // Stage 2
-    let split = split_along_curves(a, b, &isect.records, &tol()).unwrap();
-    eprintln!(
-        "STAGE2: A has {} faces, B has {} faces",
-        split.a.faces.len(),
-        split.b.faces.len()
-    );
-    eprintln!(
-        "  A intersection_edges: {}",
-        split.fragments_a.intersection_edges.len()
-    );
-    eprintln!(
-        "  B intersection_edges: {}",
-        split.fragments_b.intersection_edges.len()
-    );
-
-    // Stage 3
-    let class_a = classify_fragments(
-        &split.a,
-        &split.b,
-        &isect.aabbs_b,
-        &split.fragments_a.intersection_edges,
-        &tol(),
-    )
-    .unwrap();
-    let class_b = classify_fragments(
-        &split.b,
-        &split.a,
-        &isect.aabbs_a,
-        &split.fragments_b.intersection_edges,
-        &tol(),
-    )
-    .unwrap();
-    eprintln!("STAGE3: A classifications:");
-    for (f, c) in &class_a {
-        eprintln!("  {:?} => {:?}", f, c);
-    }
-    eprintln!("STAGE3: B classifications:");
-    for (f, c) in &class_b {
-        eprintln!("  {:?} => {:?}", f, c);
-    }
-
-    // Stage 4
-    let mut classifications = Vec::new();
-    for (f, c) in &class_a {
-        classifications.push((*f, Operand::A, *c));
-    }
-    for (f, c) in &class_b {
-        classifications.push((*f, Operand::B, *c));
-    }
-    let selection = select_faces(BoolOperation::Union, &classifications);
-    eprintln!(
-        "STAGE4: keep_a={}, keep_b={}, flip_a={}, flip_b={}",
-        selection.keep_a.len(),
-        selection.keep_b.len(),
-        selection.flip_a.len(),
-        selection.flip_b.len()
-    );
-    eprintln!("  A total={}, A kept:", split.a.faces.len());
-    for f in split.a.faces.keys() {
-        let kept = selection.keep_a.contains(&f);
-        let class = class_a.get(&f);
-        eprintln!("    {:?} class={:?} kept={}", f, class, kept);
-    }
-    eprintln!("  B total={}, B kept:", split.b.faces.len());
-    for f in split.b.faces.keys() {
-        let kept = selection.keep_b.contains(&f);
-        let class = class_b.get(&f);
-        eprintln!("    {:?} class={:?} kept={}", f, class, kept);
-    }
 }
