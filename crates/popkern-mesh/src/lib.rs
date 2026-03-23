@@ -6,6 +6,7 @@
 //! and export to common mesh formats (STL, OBJ, glTF).
 
 mod adaptive;
+mod export;
 mod mesh;
 mod tessellate;
 
@@ -13,6 +14,7 @@ pub use mesh::{FaceMesh, MeshVertex, TriMesh};
 
 use popkern_core::topology::BRep;
 use std::io::Write;
+use std::path::Path;
 use thiserror::Error;
 
 /// Options controlling the quality of adaptive tessellation.
@@ -66,14 +68,44 @@ pub fn tessellate(brep: &BRep, options: &TessellationOptions) -> Result<TriMesh,
     tessellate::tessellate_brep(brep, options)
 }
 
-/// Export a [`TriMesh`] to the STL binary format, writing to `writer`.
-pub fn export_stl<W: Write>(_mesh: &TriMesh, _writer: &mut W) -> Result<(), MeshError> {
-    todo!()
+/// Export a [`TriMesh`] to an STL file at `path`.
+///
+/// When `binary` is `true` the file is written in STL binary format (80-byte
+/// header + per-triangle 50-byte records).  When `false` the file is written
+/// in human-readable STL ASCII format.
+pub fn export_stl(mesh: &TriMesh, path: &Path, binary: bool) -> Result<(), MeshError> {
+    let file = std::fs::File::create(path)?;
+    let mut writer = std::io::BufWriter::new(file);
+    if binary {
+        export::stl::write_stl_binary(mesh, &mut writer)
+    } else {
+        export::stl::write_stl_ascii(mesh, &mut writer)
+    }
+}
+
+/// Export a [`TriMesh`] to the STL format, writing to `writer`.
+///
+/// When `binary` is `true` writes STL binary; otherwise writes STL ASCII.
+pub fn export_stl_writer<W: Write>(
+    mesh: &TriMesh,
+    writer: &mut W,
+    binary: bool,
+) -> Result<(), MeshError> {
+    if binary {
+        export::stl::write_stl_binary(mesh, writer)
+    } else {
+        export::stl::write_stl_ascii(mesh, writer)
+    }
 }
 
 /// Export a [`TriMesh`] to the Wavefront OBJ format, writing to `writer`.
-pub fn export_obj<W: Write>(_mesh: &TriMesh, _writer: &mut W) -> Result<(), MeshError> {
-    todo!()
+///
+/// Writes a Wavefront OBJ text stream containing all vertices, normals, UV
+/// coordinates, and per-face triangle groups.  Face groups are named `face_0`,
+/// `face_1`, etc., matching the order of [`TriMesh::face_meshes`].  All indices
+/// in the output are 1-based as required by the OBJ specification.
+pub fn export_obj<W: Write>(mesh: &TriMesh, writer: &mut W) -> Result<(), MeshError> {
+    export::obj::write_obj(mesh, writer)
 }
 
 /// Export a [`TriMesh`] to the glTF 2.0 format, writing to `writer`.

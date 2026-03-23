@@ -11,3 +11,4 @@ thiserror = "2"
 
 [dev-dependencies]
 popkern-bool = { path = "../popkern-bool" }
+tempfile = "3"
