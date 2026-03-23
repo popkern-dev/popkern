@@ -8,3 +8,6 @@ description = "Boolean operations (union, intersection, subtraction) on BRep sol
 [dependencies]
 popkern-core = { path = "../popkern-core" }
 thiserror = "2"
+
+[dev-dependencies]
+slotmap = "1"

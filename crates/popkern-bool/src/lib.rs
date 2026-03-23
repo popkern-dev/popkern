@@ -25,6 +25,7 @@
 //! ```
 
 pub mod error;
+pub(crate) mod select;
 
 pub use error::{
     BoolDiagnostics, BoolError, BoolOperation, Classification, PointClassification, Stage,
