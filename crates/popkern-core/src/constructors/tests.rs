@@ -409,13 +409,22 @@ fn cone_all_half_edges_have_pcurves() {
 }
 
 #[test]
-fn cone_pcurves_are_degree_1() {
+fn cone_lateral_pcurves_are_degree_1() {
     let cone = BRep::cone(1.0, 2.0, Tolerance::default()).unwrap();
+    // The lateral face has 3 half-edges with degree-1 pcurves.
+    // The cap face has 1 half-edge with degree-2 pcurve.
+    let mut deg1_count = 0;
+    let mut deg2_count = 0;
     for (_, he) in &cone.half_edges {
         let pcurve = he.pcurve.as_ref().unwrap();
-        assert_eq!(pcurve.degree, 1, "Cone pcurves should be degree 1");
-        assert_eq!(pcurve.control_points.len(), 2);
+        if pcurve.degree == 1 {
+            deg1_count += 1;
+        } else if pcurve.degree == 2 {
+            deg2_count += 1;
+        }
     }
+    assert_eq!(deg1_count, 3, "Lateral face should have 3 degree-1 pcurves");
+    assert_eq!(deg2_count, 1, "Cap face should have 1 degree-2 pcurve");
 }
 
 #[test]
@@ -423,16 +432,37 @@ fn cone_pcurves_have_valid_v_range() {
     // Cone v ranges from 0 (apex) to height (base).
     let height = 2.0;
     let cone = BRep::cone(1.0, height, Tolerance::default()).unwrap();
+    // Check only the degree-1 (lateral) pcurves for v-range.
     for (_, he) in &cone.half_edges {
         let pcurve = he.pcurve.as_ref().unwrap();
-        for cp in &pcurve.control_points {
-            assert!(
-                cp.y >= -1e-10 && cp.y <= height + 1e-10,
-                "Cone pcurve v should be in [0, height], got {}",
-                cp.y
-            );
+        if pcurve.degree == 1 {
+            for cp in &pcurve.control_points {
+                assert!(
+                    cp.y >= -1e-10 && cp.y <= height + 1e-10,
+                    "Cone pcurve v should be in [0, height], got {}",
+                    cp.y
+                );
+            }
         }
     }
+}
+
+#[test]
+fn cone_has_surface_types() {
+    let cone = BRep::cone(1.0, 2.0, Tolerance::default()).unwrap();
+    let mut cone_faces = 0;
+    let mut plane_faces = 0;
+    for face in cone.faces.values() {
+        if let Some(ref sof) = face.surface {
+            match sof.geometry {
+                SurfaceGeometry::Cone { .. } => cone_faces += 1,
+                SurfaceGeometry::Plane { .. } => plane_faces += 1,
+                _ => {}
+            }
+        }
+    }
+    assert_eq!(cone_faces, 1, "Should have 1 conical face");
+    assert_eq!(plane_faces, 1, "Should have 1 planar cap face");
 }
 
 // --- Torus tests ---

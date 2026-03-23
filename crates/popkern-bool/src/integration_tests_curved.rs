@@ -247,8 +247,8 @@ fn cone_through_cube_subtraction_produces_result() {
 #[test]
 fn disjoint_cone_and_cube_union_succeeds() {
     // Cone at x=5 (well away from unit cube).
-    // A cone built with BRep::cone has 3 faces.
-    // Expected union face count: 6 (cube) + 3 (cone) = 9.
+    // A cone built with BRep::cone has 2 faces.
+    // Expected union face count: 6 (cube) + 2 (cone) = 8.
     let t = coarse_tol();
     let cube = BRep::unit_cube(t.clone()).unwrap();
     let cone = translate(
@@ -258,8 +258,8 @@ fn disjoint_cone_and_cube_union_succeeds() {
     let result = crate::union(cube, cone, t).unwrap();
     assert_eq!(
         result.faces.len(),
-        9,
-        "disjoint union should have 6 + 3 = 9 faces, got {}",
+        8,
+        "disjoint union should have 6 + 2 = 8 faces, got {}",
         result.faces.len()
     );
 }

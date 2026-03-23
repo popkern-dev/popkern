@@ -29,6 +29,10 @@ impl BRep {
     ///
     /// Vertices that were just created by `mvfs` and don't have edges yet
     /// (their outgoing handle is the default/null handle) are skipped.
+    ///
+    /// **Degenerate vertices** (e.g. cone apex, sphere poles) are allowed to
+    /// have valence 1 when the single incident edge is a *seam edge* — i.e.
+    /// both of its half-edges belong to the same face.
     pub fn validate_vertex_valence(&self) -> Result<(), ValidationError> {
         for (v_handle, v_data) in &self.vertices {
             // Skip vertices without any outgoing half-edge (mvfs-only vertices).
@@ -66,6 +70,30 @@ impl BRep {
             }
 
             if count < 2 {
+                // Allow valence-1 degenerate vertices (e.g. cone apex) where
+                // the single edge is a seam: both half-edges on the same face,
+                // and the containing loop has at least 3 half-edges (ruling out
+                // trivial wire-only topologies).
+                if count == 1 {
+                    let he = &self.half_edges[start];
+                    if let Some(twin_data) = self.half_edges.get(he.twin) {
+                        let face_he = self.loops[he.loop_].face;
+                        let face_twin = self.loops[twin_data.loop_].face;
+                        if face_he == face_twin {
+                            // Count half-edges in the loop to ensure it's a real face.
+                            let loop_start = self.loops[he.loop_].half_edge;
+                            let mut loop_len = 1usize;
+                            let mut lc = self.half_edges[loop_start].next;
+                            while lc != loop_start && loop_len <= self.half_edges.len() {
+                                loop_len += 1;
+                                lc = self.half_edges[lc].next;
+                            }
+                            if loop_len >= 3 {
+                                continue;
+                            }
+                        }
+                    }
+                }
                 return Err(ValidationError::LowValence {
                     vertex: v_handle,
                     valence: count,
