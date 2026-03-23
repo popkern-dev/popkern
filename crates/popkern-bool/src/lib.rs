@@ -28,6 +28,7 @@ pub(crate) mod classify;
 pub mod error;
 pub(crate) mod intersect;
 pub(crate) mod select;
+pub(crate) mod split;
 
 pub use classify::point_in_solid;
 
