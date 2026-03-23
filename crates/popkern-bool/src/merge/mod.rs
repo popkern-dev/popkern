@@ -223,6 +223,7 @@ fn copy_loop_half_edges(
             prev: HalfEdgeHandle::default(),
             edge: new_edge_h,
             loop_: new_loop_h,
+            pcurve: None,
         });
         // Point twin at self until stitching.
         result.half_edges[new_he_h].twin = new_he_h;

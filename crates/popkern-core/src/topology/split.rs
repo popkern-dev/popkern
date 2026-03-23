@@ -113,6 +113,7 @@ impl BRep {
             prev: he_ab,
             edge: edge_b,
             loop_: he_ab_loop,
+            pcurve: None,
         });
 
         let he_bv = self.half_edges.insert(HalfEdge {
@@ -122,6 +123,7 @@ impl BRep {
             prev: he_ba_prev,
             edge: edge_b,
             loop_: he_ba_loop,
+            pcurve: None,
         });
 
         // Patch twin of he_vb.

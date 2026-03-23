@@ -100,6 +100,7 @@ impl BRep {
             prev: he1_prev,
             edge,
             loop_: old_loop,
+            pcurve: None,
         });
 
         // Create new_he_twin: v2 -> v1 (goes to new loop)
@@ -110,6 +111,7 @@ impl BRep {
             prev: he2_prev,
             edge,
             loop_: new_loop,
+            pcurve: None,
         });
 
         // Patch new_he's twin.

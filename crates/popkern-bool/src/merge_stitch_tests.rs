@@ -130,6 +130,7 @@ fn stitch_boundary_edges_merges_coincident_vertices() {
         prev: Default::default(),
         edge: e01,
         loop_: loop1,
+        pcurve: None,
     });
     let he1 = brep.half_edges.insert(HalfEdge {
         origin: v1,
@@ -138,6 +139,7 @@ fn stitch_boundary_edges_merges_coincident_vertices() {
         prev: Default::default(),
         edge: e12,
         loop_: loop1,
+        pcurve: None,
     });
     let he2 = brep.half_edges.insert(HalfEdge {
         origin: v2,
@@ -146,6 +148,7 @@ fn stitch_boundary_edges_merges_coincident_vertices() {
         prev: Default::default(),
         edge: e20,
         loop_: loop1,
+        pcurve: None,
     });
     brep.half_edges[he0].twin = he0;
     brep.half_edges[he1].twin = he1;
@@ -185,6 +188,7 @@ fn stitch_boundary_edges_merges_coincident_vertices() {
         prev: Default::default(),
         edge: e34,
         loop_: loop2,
+        pcurve: None,
     });
     let he4 = brep.half_edges.insert(HalfEdge {
         origin: v5,
@@ -193,6 +197,7 @@ fn stitch_boundary_edges_merges_coincident_vertices() {
         prev: Default::default(),
         edge: e45,
         loop_: loop2,
+        pcurve: None,
     });
     let he5 = brep.half_edges.insert(HalfEdge {
         origin: v3,
@@ -201,6 +206,7 @@ fn stitch_boundary_edges_merges_coincident_vertices() {
         prev: Default::default(),
         edge: e53,
         loop_: loop2,
+        pcurve: None,
     });
     brep.half_edges[he3].twin = he3;
     brep.half_edges[he4].twin = he4;
@@ -322,6 +328,7 @@ fn stitch_twin_pair_copies_curve_from_discard_edge() {
         prev: Default::default(),
         edge: e01,
         loop_: loop1,
+        pcurve: None,
     });
     let he_12 = brep.half_edges.insert(HalfEdge {
         origin: v1,
@@ -330,6 +337,7 @@ fn stitch_twin_pair_copies_curve_from_discard_edge() {
         prev: Default::default(),
         edge: e12,
         loop_: loop1,
+        pcurve: None,
     });
     let he_20 = brep.half_edges.insert(HalfEdge {
         origin: v2,
@@ -338,6 +346,7 @@ fn stitch_twin_pair_copies_curve_from_discard_edge() {
         prev: Default::default(),
         edge: e20,
         loop_: loop1,
+        pcurve: None,
     });
     brep.half_edges[he_01].twin = he_01;
     brep.half_edges[he_12].twin = he_12;
@@ -377,6 +386,7 @@ fn stitch_twin_pair_copies_curve_from_discard_edge() {
         prev: Default::default(),
         edge: e10,
         loop_: loop2,
+        pcurve: None,
     });
     let he_02 = brep.half_edges.insert(HalfEdge {
         origin: v0,
@@ -385,6 +395,7 @@ fn stitch_twin_pair_copies_curve_from_discard_edge() {
         prev: Default::default(),
         edge: e02,
         loop_: loop2,
+        pcurve: None,
     });
     let he_21 = brep.half_edges.insert(HalfEdge {
         origin: v2,
@@ -393,6 +404,7 @@ fn stitch_twin_pair_copies_curve_from_discard_edge() {
         prev: Default::default(),
         edge: e21,
         loop_: loop2,
+        pcurve: None,
     });
     brep.half_edges[he_10].twin = he_10;
     brep.half_edges[he_02].twin = he_02;

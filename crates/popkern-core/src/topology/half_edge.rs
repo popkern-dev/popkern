@@ -16,4 +16,21 @@ pub struct HalfEdge {
     pub edge: EdgeHandle,
     /// Parent loop.
     pub loop_: LoopHandle,
+    /// UV parameter curve on the parent face's surface.
+    /// Uses Point3(u, v, 0) convention. `None` for edges without surface geometry.
+    pub pcurve: Option<crate::geometry::nurbs_curve::NurbsCurve>,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tolerance::Tolerance;
+    use crate::topology::BRep;
+
+    #[test]
+    fn half_edge_pcurve_is_none_by_default() {
+        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        for (_, he) in &brep.half_edges {
+            assert!(he.pcurve.is_none());
+        }
+    }
 }

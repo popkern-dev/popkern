@@ -71,6 +71,7 @@ impl BRep {
             prev: Default::default(),
             edge,
             loop_,
+            pcurve: None,
         });
 
         let he_twin = self.half_edges.insert(HalfEdge {
@@ -80,6 +81,7 @@ impl BRep {
             prev: he,
             edge,
             loop_,
+            pcurve: None,
         });
 
         // Patch he to point to its twin.
@@ -148,6 +150,7 @@ impl BRep {
             prev: old_prev,
             edge,
             loop_: the_loop,
+            pcurve: None,
         });
 
         // Create he_in: new_vertex -> existing_vertex
@@ -158,6 +161,7 @@ impl BRep {
             prev: he_out,
             edge,
             loop_: the_loop,
+            pcurve: None,
         });
 
         // Patch he_out.

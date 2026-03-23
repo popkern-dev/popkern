@@ -175,6 +175,7 @@ impl BRep {
             prev: he_outer_prev,
             edge,
             loop_: outer_loop,
+            pcurve: None,
         });
 
         // Create new_he_twin: v_inner -> v_outer
@@ -185,6 +186,7 @@ impl BRep {
             prev: he_inner_prev,
             edge,
             loop_: outer_loop,
+            pcurve: None,
         });
 
         // Patch twin pointer.

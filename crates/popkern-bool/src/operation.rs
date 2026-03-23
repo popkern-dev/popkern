@@ -299,6 +299,7 @@ fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, Bo
             prev: popkern_core::topology::HalfEdgeHandle::default(),
             edge: popkern_core::topology::EdgeHandle::default(),
             loop_: popkern_core::topology::LoopHandle::default(),
+            pcurve: None,
         });
         he_map.insert(old_h, new_h);
     }
@@ -361,6 +362,7 @@ fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, Bo
         a.half_edges[new_h].prev = he_map[&he.prev];
         a.half_edges[new_h].edge = e_map[&he.edge];
         a.half_edges[new_h].loop_ = l_map[&he.loop_];
+        a.half_edges[new_h].pcurve = he.pcurve.clone();
     }
 
     // Fix vertices (outgoing).
