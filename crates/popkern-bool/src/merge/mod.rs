@@ -322,3 +322,11 @@ fn flip_surface(result: &mut BRep, face_h: FaceHandle) {
 #[cfg(test)]
 #[path = "../merge_tests.rs"]
 mod merge_tests;
+
+#[cfg(test)]
+#[path = "../merge_stitch_tests.rs"]
+mod merge_stitch_tests;
+
+#[cfg(test)]
+#[path = "../merge_stitch_tests_extra.rs"]
+mod merge_stitch_tests_extra;

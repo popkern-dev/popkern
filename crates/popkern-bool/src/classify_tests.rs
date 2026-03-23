@@ -361,10 +361,7 @@ fn face_vertex_positions_missing_loop_returns_empty() {
 
 #[test]
 fn face_parameter_range_with_cylinder_surface_returns_large_default() {
-    use popkern_core::{
-        geometry::surface::{SurfaceGeometry, SurfaceOnFace},
-        topology::{Face, Loop, ShellHandle},
-    };
+    use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
     // Build a face with a Cylinder surface (infinite v-range) and some vertices.
     // face_vertex_positions will find the vertices, so positions is non-empty.
     // Then the non-Plane branch at line 109 triggers.

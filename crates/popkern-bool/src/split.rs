@@ -378,3 +378,7 @@ pub(crate) fn split_along_curves(
 #[cfg(test)]
 #[path = "split_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "split_extra_tests.rs"]
+mod extra_tests;

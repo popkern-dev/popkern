@@ -338,3 +338,7 @@ pub(crate) fn clip_curve_to_faces(
         is_closed: false,
     })
 }
+
+#[cfg(test)]
+#[path = "clip_tests.rs"]
+mod tests;
