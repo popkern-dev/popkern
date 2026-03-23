@@ -25,6 +25,7 @@
 //! ```
 
 pub(crate) mod classify;
+pub mod csg;
 pub mod error;
 pub(crate) mod intersect;
 pub(crate) mod merge;
@@ -33,6 +34,7 @@ pub(crate) mod select;
 pub(crate) mod split;
 
 pub use classify::point_in_solid;
+pub use csg::{CsgNode, csg_eval};
 
 pub use error::{
     BoolDiagnostics, BoolError, BoolOperation, Classification, PointClassification, Stage,
