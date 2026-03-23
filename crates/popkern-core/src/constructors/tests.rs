@@ -109,10 +109,10 @@ fn prism_pentagon_topology() {
 #[test]
 fn cylinder_topology() {
     let cyl = BRep::cylinder(1.0, 2.0, Tolerance::default()).unwrap();
-    // Hexagonal prism: V=12, E=18, F=8
-    assert_eq!(cyl.vertices.len(), 12);
-    assert_eq!(cyl.edges.len(), 18);
-    assert_eq!(cyl.faces.len(), 8);
+    // Proper 3-face cylinder: V=2, E=3, F=3
+    assert_eq!(cyl.vertices.len(), 2);
+    assert_eq!(cyl.edges.len(), 3);
+    assert_eq!(cyl.faces.len(), 3);
 }
 
 #[test]
@@ -139,7 +139,7 @@ fn cylinder_has_geometry() {
 }
 
 #[test]
-fn cylinder_has_cylindrical_side_faces() {
+fn cylinder_has_surface_types() {
     let cyl = BRep::cylinder(1.0, 2.0, Tolerance::default()).unwrap();
     let mut cylinder_faces = 0;
     let mut plane_faces = 0;
@@ -152,7 +152,7 @@ fn cylinder_has_cylindrical_side_faces() {
             }
         }
     }
-    assert_eq!(cylinder_faces, 6, "Should have 6 cylindrical side faces");
+    assert_eq!(cylinder_faces, 1, "Should have 1 cylindrical face");
     assert_eq!(plane_faces, 2, "Should have 2 planar cap faces");
 }
 
@@ -170,6 +170,71 @@ fn cylinder_invalid_height() {
     assert!(result.is_err());
     let result = BRep::cylinder(1.0, -1.0, Tolerance::default());
     assert!(result.is_err());
+}
+
+#[test]
+fn cylinder_seam_edge_both_half_edges_on_lateral_face() {
+    let cyl = BRep::cylinder(1.0, 2.0, Tolerance::default()).unwrap();
+    // The seam edge has both half-edges on the same (lateral) face.
+    // Find it: the edge whose two half-edges share the same face.
+    let mut found_seam = false;
+    for edge in cyl.edges.values() {
+        let he = &cyl.half_edges[edge.half_edge];
+        let twin = &cyl.half_edges[he.twin];
+        let face_he = cyl.loops[he.loop_].face;
+        let face_twin = cyl.loops[twin.loop_].face;
+        if face_he == face_twin {
+            found_seam = true;
+        }
+    }
+    assert!(
+        found_seam,
+        "Should have a seam edge with both halves on the lateral face"
+    );
+}
+
+#[test]
+fn cylinder_cap_loops_are_self_loops() {
+    let cyl = BRep::cylinder(1.0, 2.0, Tolerance::default()).unwrap();
+    // Each cap face's loop has a single half-edge whose next=prev=self.
+    let mut self_loop_count = 0;
+    for he in cyl.half_edges.values() {
+        if he.next
+            == cyl
+                .half_edges
+                .keys()
+                .find(|&k| std::ptr::eq(&cyl.half_edges[k], he))
+                .unwrap_or_default()
+        {
+            self_loop_count += 1;
+        }
+    }
+    // Alternative: check via loops
+    let mut single_he_loops = 0;
+    for loop_ in cyl.loops.values() {
+        let he = &cyl.half_edges[loop_.half_edge];
+        if he.next == loop_.half_edge {
+            single_he_loops += 1;
+        }
+    }
+    assert_eq!(
+        single_he_loops, 2,
+        "Should have 2 single-half-edge cap loops"
+    );
+}
+
+#[test]
+fn cylinder_vertex_positions() {
+    let cyl = BRep::cylinder(2.5, 3.0, Tolerance::default()).unwrap();
+    let positions: Vec<_> = cyl.vertices.values().map(|v| v.position).collect();
+    let has_bot = positions
+        .iter()
+        .any(|p| (p.x - 2.5).abs() < 1e-10 && p.y.abs() < 1e-10 && p.z.abs() < 1e-10);
+    let has_top = positions
+        .iter()
+        .any(|p| (p.x - 2.5).abs() < 1e-10 && p.y.abs() < 1e-10 && (p.z - 3.0).abs() < 1e-10);
+    assert!(has_bot, "Should have bottom vertex at (radius, 0, 0)");
+    assert!(has_top, "Should have top vertex at (radius, 0, height)");
 }
 
 // --- Sphere tests ---
@@ -315,13 +380,21 @@ fn cylinder_all_half_edges_have_pcurves() {
 }
 
 #[test]
-fn cylinder_pcurves_are_degree_1() {
+fn cylinder_lateral_pcurves_are_degree_1() {
     let cyl = BRep::cylinder(1.0, 2.0, Tolerance::default()).unwrap();
+    // The lateral face has 4 half-edges with degree-1 pcurves.
+    let mut deg1_count = 0;
+    let mut deg2_count = 0;
     for (_, he) in &cyl.half_edges {
         let pcurve = he.pcurve.as_ref().unwrap();
-        assert_eq!(pcurve.degree, 1, "Cylinder pcurves should be degree 1");
-        assert_eq!(pcurve.control_points.len(), 2);
+        if pcurve.degree == 1 {
+            deg1_count += 1;
+        } else if pcurve.degree == 2 {
+            deg2_count += 1;
+        }
     }
+    assert_eq!(deg1_count, 4, "Lateral face should have 4 degree-1 pcurves");
+    assert_eq!(deg2_count, 2, "Cap faces should have 2 degree-2 pcurves");
 }
 
 #[test]

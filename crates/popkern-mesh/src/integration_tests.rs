@@ -189,8 +189,8 @@ fn cylinder_planar_cap_faces_have_valid_triangles() {
         !mesh.triangles.is_empty(),
         "cylinder must produce at least some triangles"
     );
-    // The mesh should have triangles for all 8 faces.
-    assert_eq!(mesh.face_meshes.len(), 8);
+    // The mesh should have triangles for all 3 faces.
+    assert_eq!(mesh.face_meshes.len(), 3);
 }
 
 #[test]

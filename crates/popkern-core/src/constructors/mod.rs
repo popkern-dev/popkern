@@ -11,10 +11,10 @@ mod sphere;
 mod torus;
 
 use crate::error::CoreError;
+use crate::geometry::Point3;
 use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
-use crate::geometry::{Point3, Vec3};
 use crate::topology::BRep;
 
 /// Compute a plane surface from 3 non-collinear points.
@@ -203,36 +203,6 @@ impl BRep {
             }
         }
         Ok(())
-    }
-
-    /// Build a prism without attaching geometry (internal helper for cylinder).
-    pub(super) fn prism_without_geometry(
-        profile: &[Point3],
-        direction: Vec3,
-        distance: f64,
-        tolerance: crate::tolerance::Tolerance,
-    ) -> Result<Self, CoreError> {
-        if profile.len() < 3 {
-            return Err(CoreError::PreconditionFailed(
-                "prism profile must have at least 3 vertices".into(),
-            ));
-        }
-
-        let mut brep = BRep::new(tolerance);
-
-        let mvfs = brep.mvfs(profile[0])?;
-        let mev1 = brep.mev_at_vertex(mvfs.vertex, mvfs.loop_, profile[1])?;
-
-        let mut last_twin = mev1.half_edge_twin;
-        for &point in &profile[2..] {
-            let mev = brep.mev(last_twin, point)?;
-            last_twin = mev.half_edge_twin;
-        }
-
-        let mef = brep.mef(last_twin, mev1.half_edge)?;
-        brep.extrude(mef.face, direction, distance)?;
-
-        Ok(brep)
     }
 }
 

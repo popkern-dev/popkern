@@ -1,48 +1,109 @@
-//! Cylinder constructor.
+//! Cylinder constructor — proper 3-face BRep.
+
+use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI, TAU};
 
 use crate::error::CoreError;
+use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
-use crate::topology::BRep;
+use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
 
-use super::plane_from_points;
-
-/// Map a 3D point on a Z-axis cylinder to UV parameters.
+/// Build a NURBS full-circle in the XY plane at height `z`, centered at the
+/// origin, starting at `(radius, 0, z)`.
 ///
-/// For a cylinder with `origin=(0,0,0)`, `axis=(0,0,1)`, `radius=r`:
-/// `u = atan2(y, x)` shifted to `[0, 2PI)`, `v = z`.
-fn cylinder_uv(pos: Point3) -> (f64, f64) {
-    let mut u = pos.y.atan2(pos.x);
-    if u < -1e-14 {
-        u += std::f64::consts::TAU;
+/// Degree 2, 9 control points (standard 4-arc representation).
+/// Knot domain: `[0, TAU]`.
+fn xy_circle_nurbs(radius: f64, z: f64) -> NurbsCurve {
+    let r = radius;
+    let w = FRAC_1_SQRT_2;
+    NurbsCurve {
+        degree: 2,
+        knots: vec![
+            0.0,
+            0.0,
+            0.0,
+            FRAC_PI_2,
+            FRAC_PI_2,
+            PI,
+            PI,
+            PI + FRAC_PI_2,
+            PI + FRAC_PI_2,
+            TAU,
+            TAU,
+            TAU,
+        ],
+        control_points: vec![
+            Point3::new(r, 0.0, z),
+            Point3::new(r, r, z),
+            Point3::new(0.0, r, z),
+            Point3::new(-r, r, z),
+            Point3::new(-r, 0.0, z),
+            Point3::new(-r, -r, z),
+            Point3::new(0.0, -r, z),
+            Point3::new(r, -r, z),
+            Point3::new(r, 0.0, z),
+        ],
+        weights: vec![1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0],
     }
-    (u, pos.z)
+}
+
+/// Build a degree-2 rational NURBS circle pcurve in the cap's UV plane.
+///
+/// The cap face's plane has `u_axis=(1,0,0), v_axis=(0,1,0)`, so UV maps
+/// directly to XY. The pcurve is a circle of `radius` at the UV origin.
+fn cap_circle_pcurve(radius: f64) -> NurbsCurve {
+    let r = radius;
+    let w = FRAC_1_SQRT_2;
+    NurbsCurve {
+        degree: 2,
+        knots: vec![
+            0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0,
+        ],
+        control_points: vec![
+            Point3::new(r, 0.0, 0.0),
+            Point3::new(r, r, 0.0),
+            Point3::new(0.0, r, 0.0),
+            Point3::new(-r, r, 0.0),
+            Point3::new(-r, 0.0, 0.0),
+            Point3::new(-r, -r, 0.0),
+            Point3::new(0.0, -r, 0.0),
+            Point3::new(r, -r, 0.0),
+            Point3::new(r, 0.0, 0.0),
+        ],
+        weights: vec![1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0],
+    }
 }
 
 impl BRep {
-    /// Build a cylinder as a hexagonal prism with cylindrical surface geometry
-    /// on the side faces and planar surfaces on the caps.
+    /// Build a cylinder as a proper 3-face BRep.
     ///
     /// The cylinder has its base centered at the origin in the XY plane and
-    /// extends along the +Z axis by `height`. The hexagonal cross-section
-    /// approximates a circle of the given `radius`.
+    /// extends along the +Z axis by `height`. The radius is exact (not a
+    /// polygonal approximation).
     ///
     /// # Topology
     ///
-    /// V=12, E=18, F=8 (6 side quads + 2 hexagonal caps).
+    /// V=2, E=3, F=3, L=3, S=1.
+    /// Euler check: V - E + F = 2 - 3 + 3 = 2.
+    ///
+    /// Three faces: one lateral cylindrical face and two planar cap faces.
+    /// The lateral face has a 4-half-edge loop (two arcs + two seam edges).
+    /// Each cap face has a single-half-edge loop (one full circle).
     ///
     /// # Geometry
     ///
-    /// Side faces carry `SurfaceGeometry::Cylinder`; cap faces carry
-    /// `SurfaceGeometry::Plane`. Every half-edge has a pcurve in the
-    /// parent face's UV space.
+    /// - Lateral face: `SurfaceGeometry::Cylinder`
+    /// - Cap faces: `SurfaceGeometry::Plane`
+    /// - Circle edges: degree-2 NURBS full circles
+    /// - Seam edge: `CurveGeometry::Line`
+    /// - All half-edges carry pcurves
     ///
     /// # Errors
     ///
     /// Returns [`CoreError`] if `radius` or `height` is not positive,
-    /// or if any Euler operation or validation fails.
+    /// or if validation fails.
     pub fn cylinder(radius: f64, height: f64, tolerance: Tolerance) -> Result<Self, CoreError> {
         if radius <= 0.0 {
             return Err(CoreError::PreconditionFailed(
@@ -55,164 +116,262 @@ impl BRep {
             ));
         }
 
-        let n = 6;
-        let profile: Vec<Point3> = (0..n)
-            .map(|i| {
-                let angle = 2.0 * std::f64::consts::PI * i as f64 / n as f64;
-                Point3::new(radius * angle.cos(), radius * angle.sin(), 0.0)
-            })
-            .collect();
+        let mut brep = BRep::new(tolerance);
+        let h = height;
 
-        let mut brep =
-            Self::prism_without_geometry(&profile, Vec3::new(0.0, 0.0, 1.0), height, tolerance)?;
+        // -- Vertices --
+        let v_bot = brep.vertices.insert(Vertex {
+            position: Point3::new(radius, 0.0, 0.0),
+            outgoing: Default::default(),
+        });
+        let v_top = brep.vertices.insert(Vertex {
+            position: Point3::new(radius, 0.0, h),
+            outgoing: Default::default(),
+        });
 
-        // Attach line curves to all edges.
-        brep.attach_line_curves();
+        // -- Solid / Shell (placeholders, wired below) --
+        let solid_h = brep.solids.insert(Solid {
+            shell: Default::default(),
+        });
+        let shell_h = brep.shells.insert(Shell {
+            face: Default::default(),
+            solid: solid_h,
+        });
+        brep.solids[solid_h].shell = shell_h;
 
-        // Attach planar surfaces to top and bottom cap faces, and cylindrical
-        // surfaces to the 6 side faces.
-        //
-        // Strategy: for each face, check if all vertices share the same z
-        // coordinate. If so, it's a cap face (planar). Otherwise it's a side
-        // face (cylindrical).
-        let face_handles: Vec<_> = brep.faces.keys().collect();
-        for fh in &face_handles {
-            let outer_loop = brep.faces[*fh].outer_loop;
-            let loop_data = match brep.loops.get(outer_loop) {
-                Some(l) => l,
-                None => continue,
-            };
-            let start_he = loop_data.half_edge;
-            if !brep.half_edges.contains_key(start_he) {
-                continue;
+        // -- Faces & loops (placeholders) --
+        let loop_lateral = brep.loops.insert(Loop {
+            half_edge: Default::default(),
+            face: Default::default(),
+        });
+        let loop_bot = brep.loops.insert(Loop {
+            half_edge: Default::default(),
+            face: Default::default(),
+        });
+        let loop_top = brep.loops.insert(Loop {
+            half_edge: Default::default(),
+            face: Default::default(),
+        });
+
+        let f_lateral = brep.faces.insert(Face {
+            outer_loop: loop_lateral,
+            inner_loops: Vec::new(),
+            shell: shell_h,
+            surface: None,
+        });
+        let f_bot = brep.faces.insert(Face {
+            outer_loop: loop_bot,
+            inner_loops: Vec::new(),
+            shell: shell_h,
+            surface: None,
+        });
+        let f_top = brep.faces.insert(Face {
+            outer_loop: loop_top,
+            inner_loops: Vec::new(),
+            shell: shell_h,
+            surface: None,
+        });
+
+        brep.loops[loop_lateral].face = f_lateral;
+        brep.loops[loop_bot].face = f_bot;
+        brep.loops[loop_top].face = f_top;
+        brep.shells[shell_h].face = f_lateral;
+
+        // -- Edges --
+        let e_bot_circle = brep.edges.insert(Edge {
+            half_edge: Default::default(),
+            curve: None,
+        });
+        let e_top_circle = brep.edges.insert(Edge {
+            half_edge: Default::default(),
+            curve: None,
+        });
+        let e_seam = brep.edges.insert(Edge {
+            half_edge: Default::default(),
+            curve: None,
+        });
+
+        // -- Half-edges --
+        // Lateral face loop (4 half-edges):
+        //   he_bot_arc -> he_seam_up -> he_top_arc -> he_seam_down -> he_bot_arc
+        let he_bot_arc = brep.half_edges.insert(HalfEdge {
+            origin: v_bot,
+            twin: Default::default(),
+            next: Default::default(),
+            prev: Default::default(),
+            edge: e_bot_circle,
+            loop_: loop_lateral,
+            pcurve: None,
+        });
+        let he_seam_up = brep.half_edges.insert(HalfEdge {
+            origin: v_bot,
+            twin: Default::default(),
+            next: Default::default(),
+            prev: Default::default(),
+            edge: e_seam,
+            loop_: loop_lateral,
+            pcurve: None,
+        });
+        let he_top_arc = brep.half_edges.insert(HalfEdge {
+            origin: v_top,
+            twin: Default::default(),
+            next: Default::default(),
+            prev: Default::default(),
+            edge: e_top_circle,
+            loop_: loop_lateral,
+            pcurve: None,
+        });
+        let he_seam_down = brep.half_edges.insert(HalfEdge {
+            origin: v_top,
+            twin: Default::default(),
+            next: Default::default(),
+            prev: Default::default(),
+            edge: e_seam,
+            loop_: loop_lateral,
+            pcurve: None,
+        });
+
+        // Cap face loops (1 half-edge each, self-loop):
+        let he_bot_cap = brep.half_edges.insert(HalfEdge {
+            origin: v_bot,
+            twin: Default::default(),
+            next: Default::default(),
+            prev: Default::default(),
+            edge: e_bot_circle,
+            loop_: loop_bot,
+            pcurve: None,
+        });
+        let he_top_cap = brep.half_edges.insert(HalfEdge {
+            origin: v_top,
+            twin: Default::default(),
+            next: Default::default(),
+            prev: Default::default(),
+            edge: e_top_circle,
+            loop_: loop_top,
+            pcurve: None,
+        });
+
+        // -- Wire twins --
+        brep.half_edges[he_bot_arc].twin = he_bot_cap;
+        brep.half_edges[he_bot_cap].twin = he_bot_arc;
+        brep.half_edges[he_top_arc].twin = he_top_cap;
+        brep.half_edges[he_top_cap].twin = he_top_arc;
+        brep.half_edges[he_seam_up].twin = he_seam_down;
+        brep.half_edges[he_seam_down].twin = he_seam_up;
+
+        // -- Wire lateral loop: next/prev --
+        brep.half_edges[he_bot_arc].next = he_seam_up;
+        brep.half_edges[he_bot_arc].prev = he_seam_down;
+        brep.half_edges[he_seam_up].next = he_top_arc;
+        brep.half_edges[he_seam_up].prev = he_bot_arc;
+        brep.half_edges[he_top_arc].next = he_seam_down;
+        brep.half_edges[he_top_arc].prev = he_seam_up;
+        brep.half_edges[he_seam_down].next = he_bot_arc;
+        brep.half_edges[he_seam_down].prev = he_top_arc;
+
+        // -- Wire cap self-loops --
+        brep.half_edges[he_bot_cap].next = he_bot_cap;
+        brep.half_edges[he_bot_cap].prev = he_bot_cap;
+        brep.half_edges[he_top_cap].next = he_top_cap;
+        brep.half_edges[he_top_cap].prev = he_top_cap;
+
+        // -- Wire loop -> half_edge --
+        brep.loops[loop_lateral].half_edge = he_bot_arc;
+        brep.loops[loop_bot].half_edge = he_bot_cap;
+        brep.loops[loop_top].half_edge = he_top_cap;
+
+        // -- Wire edge -> half_edge --
+        brep.edges[e_bot_circle].half_edge = he_bot_arc;
+        brep.edges[e_top_circle].half_edge = he_top_arc;
+        brep.edges[e_seam].half_edge = he_seam_up;
+
+        // -- Wire vertex -> outgoing --
+        brep.vertices[v_bot].outgoing = he_bot_arc;
+        brep.vertices[v_top].outgoing = he_top_arc;
+
+        // =====================================================================
+        // Geometry
+        // =====================================================================
+
+        // -- Surface geometry --
+        brep.faces[f_lateral].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Cylinder {
+                origin: Point3::new(0.0, 0.0, 0.0),
+                axis: Vec3::new(0.0, 0.0, 1.0),
+                radius,
+            },
+            orientation: true,
+        });
+        brep.faces[f_bot].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Plane {
+                origin: Point3::new(0.0, 0.0, 0.0),
+                normal: Vec3::new(0.0, 0.0, -1.0),
+                u_axis: Vec3::new(1.0, 0.0, 0.0),
+                v_axis: Vec3::new(0.0, 1.0, 0.0),
+            },
+            orientation: true,
+        });
+        brep.faces[f_top].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Plane {
+                origin: Point3::new(0.0, 0.0, h),
+                normal: Vec3::new(0.0, 0.0, 1.0),
+                u_axis: Vec3::new(1.0, 0.0, 0.0),
+                v_axis: Vec3::new(0.0, 1.0, 0.0),
+            },
+            orientation: true,
+        });
+
+        // -- Edge curves --
+        // Circle edges: NURBS full circles starting at (radius, 0, z).
+        brep.edges[e_bot_circle].curve = Some(CurveOnEdge {
+            geometry: CurveGeometry::Nurbs(xy_circle_nurbs(radius, 0.0)),
+            t_start: 0.0,
+            t_end: TAU,
+        });
+        brep.edges[e_top_circle].curve = Some(CurveOnEdge {
+            geometry: CurveGeometry::Nurbs(xy_circle_nurbs(radius, h)),
+            t_start: 0.0,
+            t_end: TAU,
+        });
+        // Seam edge: line from V_bot to V_top.
+        brep.edges[e_seam].curve = Some(CurveOnEdge {
+            geometry: CurveGeometry::Line {
+                origin: Point3::new(radius, 0.0, 0.0),
+                direction: Vec3::new(0.0, 0.0, h),
+            },
+            t_start: 0.0,
+            t_end: 1.0,
+        });
+
+        // -- Pcurves --
+        // Lateral face pcurves (UV domain [0,TAU] x [0,h]):
+        //   he_bot_arc:    (0, 0) -> (TAU, 0)
+        //   he_seam_up:    (TAU, 0) -> (TAU, h)
+        //   he_top_arc:    (TAU, h) -> (0, h)
+        //   he_seam_down:  (0, h) -> (0, 0)
+        let line_pcurve = |u0: f64, v0: f64, u1: f64, v1: f64| -> NurbsCurve {
+            NurbsCurve {
+                degree: 1,
+                knots: vec![0.0, 0.0, 1.0, 1.0],
+                control_points: vec![Point3::new(u0, v0, 0.0), Point3::new(u1, v1, 0.0)],
+                weights: vec![1.0, 1.0],
             }
+        };
 
-            // Collect vertex positions in this face's loop.
-            let mut positions = Vec::new();
-            let mut cursor = start_he;
-            let bound = brep.half_edges.len();
-            for _ in 0..=bound {
-                let he = &brep.half_edges[cursor];
-                positions.push(brep.vertices[he.origin].position);
-                cursor = he.next;
-                if cursor == start_he {
-                    break;
-                }
-            }
+        brep.half_edges[he_bot_arc].pcurve = Some(line_pcurve(0.0, 0.0, TAU, 0.0));
+        brep.half_edges[he_seam_up].pcurve = Some(line_pcurve(TAU, 0.0, TAU, h));
+        brep.half_edges[he_top_arc].pcurve = Some(line_pcurve(TAU, h, 0.0, h));
+        brep.half_edges[he_seam_down].pcurve = Some(line_pcurve(0.0, h, 0.0, 0.0));
 
-            if positions.len() < 3 {
-                continue;
-            }
+        // Cap face pcurves: degree-2 rational NURBS circles.
+        brep.half_edges[he_bot_cap].pcurve = Some(cap_circle_pcurve(radius));
+        brep.half_edges[he_top_cap].pcurve = Some(cap_circle_pcurve(radius));
 
-            // Check if all z-coordinates are the same (cap face).
-            let z0 = positions[0].z;
-            let is_cap = positions.iter().all(|p| (p.z - z0).abs() < 1e-10);
-
-            let surface = if is_cap {
-                plane_from_points(positions[0], positions[1], positions[2])?
-            } else {
-                SurfaceGeometry::Cylinder {
-                    origin: Point3::new(0.0, 0.0, 0.0),
-                    axis: Vec3::new(0.0, 0.0, 1.0),
-                    radius,
-                }
-            };
-
-            brep.faces[*fh].surface = Some(SurfaceOnFace {
-                geometry: surface,
-                orientation: true,
-            });
-        }
-
-        // Attach pcurves: planar caps via the shared helper, cylindrical sides manually.
-        brep.attach_planar_pcurves()?;
-        brep.attach_cylinder_side_pcurves()?;
-
+        // =====================================================================
+        // Validate
+        // =====================================================================
         brep.validate().map_err(CoreError::Validation)?;
 
         Ok(brep)
-    }
-
-    /// Attach pcurves to half-edges on faces with cylindrical surface geometry.
-    ///
-    /// For each cylindrical side face, projects vertex positions to the
-    /// cylinder's UV space using `u = atan2(y, x)` and `v = z`.
-    fn attach_cylinder_side_pcurves(&mut self) -> Result<(), CoreError> {
-        let face_handles: Vec<_> = self.faces.keys().collect();
-        for fh in face_handles {
-            let is_cylinder = matches!(
-                self.faces[fh].surface,
-                Some(SurfaceOnFace {
-                    geometry: SurfaceGeometry::Cylinder { .. },
-                    ..
-                })
-            );
-            if !is_cylinder {
-                continue;
-            }
-
-            let outer_loop = self.faces[fh].outer_loop;
-            let loop_data = self
-                .loops
-                .get(outer_loop)
-                .ok_or_else(|| CoreError::InvalidHandle("face outer loop invalid".into()))?;
-            let start_he = loop_data.half_edge;
-
-            if !self.half_edges.contains_key(start_he) {
-                continue;
-            }
-
-            // Collect half-edge handles for this loop.
-            let mut he_handles = vec![start_he];
-            let mut current = self.half_edges[start_he].next;
-            while current != start_he {
-                he_handles.push(current);
-                current = self.half_edges[current].next;
-            }
-
-            // First pass: compute all UV coordinates for consistency.
-            // We need to ensure u values are consistent within a face
-            // (no jumps across the 0/2PI seam).
-            let mut uvs: Vec<(f64, f64)> = Vec::new();
-            for &heh in &he_handles {
-                let pos = self.vertices[self.half_edges[heh].origin].position;
-                uvs.push(cylinder_uv(pos));
-            }
-
-            // Ensure u values don't jump across seam within a single face.
-            // All u values should be close to each other. If any pair differs
-            // by more than PI, adjust by adding/subtracting TAU.
-            if !uvs.is_empty() {
-                let u_ref = uvs[0].0;
-                for uv in &mut uvs[1..] {
-                    while uv.0 - u_ref > std::f64::consts::PI {
-                        uv.0 -= std::f64::consts::TAU;
-                    }
-                    while u_ref - uv.0 > std::f64::consts::PI {
-                        uv.0 += std::f64::consts::TAU;
-                    }
-                }
-            }
-
-            // Assign pcurves as degree-1 NURBS lines in UV space.
-            let n_he = he_handles.len();
-            for (i, &heh) in he_handles.iter().enumerate() {
-                let (u_start, v_start) = uvs[i];
-                let (u_end, v_end) = uvs[(i + 1) % n_he];
-
-                let pcurve = NurbsCurve {
-                    degree: 1,
-                    knots: vec![0.0, 0.0, 1.0, 1.0],
-                    control_points: vec![
-                        Point3::new(u_start, v_start, 0.0),
-                        Point3::new(u_end, v_end, 0.0),
-                    ],
-                    weights: vec![1.0, 1.0],
-                };
-
-                self.half_edges[heh].pcurve = Some(pcurve);
-            }
-        }
-        Ok(())
     }
 }

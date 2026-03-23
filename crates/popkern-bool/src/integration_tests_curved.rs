@@ -119,10 +119,10 @@ fn cylinder_through_cube_subtraction_produces_result() {
 // ── Cylinder × cube: disjoint ────────────────────────────────────────────────
 
 #[test]
-fn disjoint_cylinder_and_cube_union_has_14_faces() {
+fn disjoint_cylinder_and_cube_union_has_9_faces() {
     // Cylinder at x=5 (well away from unit cube at origin).
-    // A cylinder built with BRep::cylinder has 8 faces (6 side + 2 caps).
-    // Expected union face count: 6 (cube) + 8 (cylinder) = 14.
+    // A cylinder built with BRep::cylinder has 3 faces (1 lateral + 2 caps).
+    // Expected union face count: 6 (cube) + 3 (cylinder) = 9.
     let t = coarse_tol();
     let cube = BRep::unit_cube(t.clone()).unwrap();
     let cyl = translate(
@@ -132,8 +132,8 @@ fn disjoint_cylinder_and_cube_union_has_14_faces() {
     let result = crate::union(cube, cyl, t).unwrap();
     assert_eq!(
         result.faces.len(),
-        14,
-        "disjoint union should have 6 + 8 = 14 faces, got {}",
+        9,
+        "disjoint union should have 6 + 3 = 9 faces, got {}",
         result.faces.len()
     );
 }
