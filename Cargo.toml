@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/popkern-core", "crates/popkern-bool", "tools/lints", "tools/structural-tests"]
+members = ["crates/popkern-core", "crates/popkern-bool", "crates/popkern-mesh", "tools/lints", "tools/structural-tests"]
 
 [workspace.package]
 edition = "2024"

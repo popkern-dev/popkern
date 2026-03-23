@@ -58,3 +58,29 @@ fn bool_depends_only_on_core() {
         );
     }
 }
+
+#[test]
+fn mesh_depends_only_on_core() {
+    let cargo_toml_path = workspace_root().join("crates/popkern-mesh/Cargo.toml");
+    let cargo_toml =
+        fs::read_to_string(&cargo_toml_path).expect("Could not read popkern-mesh/Cargo.toml");
+
+    // popkern-mesh must not depend on higher-layer crates in [dependencies]
+    // (popkern-bool is allowed only in [dev-dependencies])
+    let forbidden = ["popkern-io", "popkern-ffi", "popkern-viz"];
+
+    for dep in &forbidden {
+        assert!(
+            !cargo_toml.contains(dep),
+            "popkern-mesh must not depend on {}. \
+             Move shared types to popkern-core or restructure the dependency.",
+            dep
+        );
+    }
+
+    // Verify popkern-core is a dependency
+    assert!(
+        cargo_toml.contains("popkern-core"),
+        "popkern-mesh must depend on popkern-core"
+    );
+}
