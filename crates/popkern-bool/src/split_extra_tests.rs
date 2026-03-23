@@ -1,6 +1,7 @@
 // Structural lint marker: this file is test code, included via #[path] under #[cfg(test)].
 #[cfg(test)]
 use super::*;
+use crate::error::BoolError;
 use popkern_core::{
     geometry::{Point3, Vec3, nurbs_curve::NurbsCurve},
     tolerance::Tolerance,
