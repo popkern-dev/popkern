@@ -67,7 +67,7 @@ pub(crate) fn merge_faces(
     // Copy selected faces from operand A.
     let mut first_face = None;
     for face_h in split.a.faces.keys() {
-        if selection.keep.contains(&face_h) {
+        if selection.keep_a.contains(&face_h) {
             let new_fh = copy_face(
                 &split.a,
                 face_h,
@@ -80,7 +80,7 @@ pub(crate) fn merge_faces(
                 first_face = Some(new_fh);
             }
             // Flip surface if selection says to.
-            if selection.flip.contains(&face_h) {
+            if selection.flip_a.contains(&face_h) {
                 flip_surface(&mut result, new_fh);
             }
         }
@@ -88,7 +88,7 @@ pub(crate) fn merge_faces(
 
     // Copy selected faces from operand B.
     for face_h in split.b.faces.keys() {
-        if selection.keep.contains(&face_h) {
+        if selection.keep_b.contains(&face_h) {
             let new_fh = copy_face(
                 &split.b,
                 face_h,
@@ -100,7 +100,7 @@ pub(crate) fn merge_faces(
             if first_face.is_none() {
                 first_face = Some(new_fh);
             }
-            if selection.flip.contains(&face_h) {
+            if selection.flip_b.contains(&face_h) {
                 flip_surface(&mut result, new_fh);
             }
         }

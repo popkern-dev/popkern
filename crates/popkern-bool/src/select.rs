@@ -20,12 +20,40 @@ pub(crate) enum Operand {
 }
 
 /// Result of fragment selection.
+///
+/// Uses separate sets for each operand to avoid FaceHandle collisions
+/// between different BReps (where handles from A and B may share the
+/// same internal value).
 #[derive(Debug)]
 pub(crate) struct SelectionResult {
-    /// Face handles to keep in the result.
-    pub keep: HashSet<FaceHandle>,
-    /// Face handles that need their normals flipped.
-    pub flip: HashSet<FaceHandle>,
+    /// Face handles from operand A to keep in the result.
+    pub keep_a: HashSet<FaceHandle>,
+    /// Face handles from operand B to keep in the result.
+    pub keep_b: HashSet<FaceHandle>,
+    /// Face handles from operand A that need their normals flipped.
+    pub flip_a: HashSet<FaceHandle>,
+    /// Face handles from operand B that need their normals flipped.
+    pub flip_b: HashSet<FaceHandle>,
+}
+
+impl SelectionResult {
+    /// Check if a face from operand A or B is kept, based on the operand.
+    #[cfg(test)]
+    pub(crate) fn is_kept(&self, face: FaceHandle, operand: Operand) -> bool {
+        match operand {
+            Operand::A => self.keep_a.contains(&face),
+            Operand::B => self.keep_b.contains(&face),
+        }
+    }
+
+    /// Check if a face from operand A or B should be flipped, based on the operand.
+    #[cfg(test)]
+    pub(crate) fn is_flipped(&self, face: FaceHandle, operand: Operand) -> bool {
+        match operand {
+            Operand::A => self.flip_a.contains(&face),
+            Operand::B => self.flip_b.contains(&face),
+        }
+    }
 }
 
 /// Determine which face fragments to keep based on the operation type.
@@ -40,20 +68,37 @@ pub(crate) fn select_faces(
     op: BoolOperation,
     classifications: &[(FaceHandle, Operand, Classification)],
 ) -> SelectionResult {
-    let mut keep = HashSet::new();
-    let mut flip = HashSet::new();
+    let mut keep_a = HashSet::new();
+    let mut keep_b = HashSet::new();
+    let mut flip_a = HashSet::new();
+    let mut flip_b = HashSet::new();
 
     for &(face, operand, class) in classifications {
         let (do_keep, do_flip) = should_keep(op, operand, class);
         if do_keep {
-            keep.insert(face);
-            if do_flip {
-                flip.insert(face);
+            match operand {
+                Operand::A => {
+                    keep_a.insert(face);
+                    if do_flip {
+                        flip_a.insert(face);
+                    }
+                }
+                Operand::B => {
+                    keep_b.insert(face);
+                    if do_flip {
+                        flip_b.insert(face);
+                    }
+                }
             }
         }
     }
 
-    SelectionResult { keep, flip }
+    SelectionResult {
+        keep_a,
+        keep_b,
+        flip_a,
+        flip_b,
+    }
 }
 
 /// Consult the selection table from the design spec.
@@ -127,352 +172,5 @@ fn should_keep(op: BoolOperation, operand: Operand, class: Classification) -> (b
 }
 
 #[cfg(test)]
-mod tests {
-    use slotmap::SlotMap;
-
-    use super::*;
-    use crate::error::{BoolOperation, Classification};
-
-    /// Helper: allocate a fresh FaceHandle backed by a throw-away SlotMap.
-    fn make_face() -> (SlotMap<FaceHandle, ()>, FaceHandle) {
-        let mut sm: SlotMap<FaceHandle, ()> = SlotMap::with_key();
-        let h = sm.insert(());
-        (sm, h)
-    }
-
-    // ------------------------------------------------------------------
-    // Union — 8 rows
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn union_a_outside_keep_no_flip() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Union,
-            &[(face, Operand::A, Classification::Outside)],
-        );
-        assert!(result.keep.contains(&face));
-        assert!(!result.flip.contains(&face));
-    }
-
-    #[test]
-    fn union_a_inside_discard() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Union,
-            &[(face, Operand::A, Classification::Inside)],
-        );
-        assert!(!result.keep.contains(&face));
-    }
-
-    #[test]
-    fn union_a_cooriented_keep_no_flip() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Union,
-            &[(face, Operand::A, Classification::OnBoundaryCooriented)],
-        );
-        assert!(result.keep.contains(&face));
-        assert!(!result.flip.contains(&face));
-    }
-
-    #[test]
-    fn union_a_crossing_discard() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Union,
-            &[(face, Operand::A, Classification::OnBoundaryCrossing)],
-        );
-        assert!(!result.keep.contains(&face));
-    }
-
-    #[test]
-    fn union_b_outside_keep_no_flip() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Union,
-            &[(face, Operand::B, Classification::Outside)],
-        );
-        assert!(result.keep.contains(&face));
-        assert!(!result.flip.contains(&face));
-    }
-
-    #[test]
-    fn union_b_inside_discard() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Union,
-            &[(face, Operand::B, Classification::Inside)],
-        );
-        assert!(!result.keep.contains(&face));
-    }
-
-    #[test]
-    fn union_b_cooriented_discard() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Union,
-            &[(face, Operand::B, Classification::OnBoundaryCooriented)],
-        );
-        assert!(!result.keep.contains(&face));
-    }
-
-    #[test]
-    fn union_b_crossing_discard() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Union,
-            &[(face, Operand::B, Classification::OnBoundaryCrossing)],
-        );
-        assert!(!result.keep.contains(&face));
-    }
-
-    // ------------------------------------------------------------------
-    // Intersection — 8 rows
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn intersection_a_outside_discard() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Intersection,
-            &[(face, Operand::A, Classification::Outside)],
-        );
-        assert!(!result.keep.contains(&face));
-    }
-
-    #[test]
-    fn intersection_a_inside_keep_no_flip() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Intersection,
-            &[(face, Operand::A, Classification::Inside)],
-        );
-        assert!(result.keep.contains(&face));
-        assert!(!result.flip.contains(&face));
-    }
-
-    #[test]
-    fn intersection_a_cooriented_keep_no_flip() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Intersection,
-            &[(face, Operand::A, Classification::OnBoundaryCooriented)],
-        );
-        assert!(result.keep.contains(&face));
-        assert!(!result.flip.contains(&face));
-    }
-
-    #[test]
-    fn intersection_a_crossing_discard() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Intersection,
-            &[(face, Operand::A, Classification::OnBoundaryCrossing)],
-        );
-        assert!(!result.keep.contains(&face));
-    }
-
-    #[test]
-    fn intersection_b_outside_discard() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Intersection,
-            &[(face, Operand::B, Classification::Outside)],
-        );
-        assert!(!result.keep.contains(&face));
-    }
-
-    #[test]
-    fn intersection_b_inside_keep_no_flip() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Intersection,
-            &[(face, Operand::B, Classification::Inside)],
-        );
-        assert!(result.keep.contains(&face));
-        assert!(!result.flip.contains(&face));
-    }
-
-    #[test]
-    fn intersection_b_cooriented_keep_no_flip() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Intersection,
-            &[(face, Operand::B, Classification::OnBoundaryCooriented)],
-        );
-        assert!(result.keep.contains(&face));
-        assert!(!result.flip.contains(&face));
-    }
-
-    #[test]
-    fn intersection_b_crossing_discard() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Intersection,
-            &[(face, Operand::B, Classification::OnBoundaryCrossing)],
-        );
-        assert!(!result.keep.contains(&face));
-    }
-
-    // ------------------------------------------------------------------
-    // Subtraction — 8 rows
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn subtraction_a_outside_keep_no_flip() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Subtraction,
-            &[(face, Operand::A, Classification::Outside)],
-        );
-        assert!(result.keep.contains(&face));
-        assert!(!result.flip.contains(&face));
-    }
-
-    #[test]
-    fn subtraction_a_inside_discard() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Subtraction,
-            &[(face, Operand::A, Classification::Inside)],
-        );
-        assert!(!result.keep.contains(&face));
-    }
-
-    #[test]
-    fn subtraction_a_cooriented_discard() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Subtraction,
-            &[(face, Operand::A, Classification::OnBoundaryCooriented)],
-        );
-        assert!(!result.keep.contains(&face));
-    }
-
-    #[test]
-    fn subtraction_a_crossing_discard() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Subtraction,
-            &[(face, Operand::A, Classification::OnBoundaryCrossing)],
-        );
-        assert!(!result.keep.contains(&face));
-    }
-
-    #[test]
-    fn subtraction_b_outside_discard() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Subtraction,
-            &[(face, Operand::B, Classification::Outside)],
-        );
-        assert!(!result.keep.contains(&face));
-    }
-
-    #[test]
-    fn subtraction_b_inside_keep_and_flip() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Subtraction,
-            &[(face, Operand::B, Classification::Inside)],
-        );
-        assert!(result.keep.contains(&face));
-        assert!(result.flip.contains(&face));
-    }
-
-    #[test]
-    fn subtraction_b_cooriented_discard() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Subtraction,
-            &[(face, Operand::B, Classification::OnBoundaryCooriented)],
-        );
-        assert!(!result.keep.contains(&face));
-    }
-
-    #[test]
-    fn subtraction_b_crossing_keep_and_flip() {
-        let (_, face) = make_face();
-        let result = select_faces(
-            BoolOperation::Subtraction,
-            &[(face, Operand::B, Classification::OnBoundaryCrossing)],
-        );
-        assert!(result.keep.contains(&face));
-        assert!(result.flip.contains(&face));
-    }
-
-    // ------------------------------------------------------------------
-    // Edge cases
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn empty_input_gives_empty_output() {
-        let result = select_faces(BoolOperation::Union, &[]);
-        assert!(result.keep.is_empty());
-        assert!(result.flip.is_empty());
-    }
-
-    #[test]
-    fn mixed_fragments_keep_discard_flip() {
-        let mut sm: SlotMap<FaceHandle, ()> = SlotMap::with_key();
-        let f_keep = sm.insert(());
-        let f_discard = sm.insert(());
-        let f_flip = sm.insert(());
-
-        let classifications = [
-            // kept, no flip
-            (f_keep, Operand::A, Classification::Outside),
-            // discarded
-            (f_discard, Operand::A, Classification::Inside),
-            // kept + flipped
-            (f_flip, Operand::B, Classification::Inside),
-        ];
-
-        let result = select_faces(BoolOperation::Subtraction, &classifications);
-
-        assert!(result.keep.contains(&f_keep));
-        assert!(!result.flip.contains(&f_keep));
-
-        assert!(!result.keep.contains(&f_discard));
-        assert!(!result.flip.contains(&f_discard));
-
-        assert!(result.keep.contains(&f_flip));
-        assert!(result.flip.contains(&f_flip));
-    }
-
-    #[test]
-    fn flip_is_subset_of_keep() {
-        // Generate all 24 combinations across all three operations and verify
-        // that no face appears in flip without also appearing in keep.
-        let ops = [
-            BoolOperation::Union,
-            BoolOperation::Intersection,
-            BoolOperation::Subtraction,
-        ];
-        let operands = [Operand::A, Operand::B];
-        let classes = [
-            Classification::Outside,
-            Classification::Inside,
-            Classification::OnBoundaryCooriented,
-            Classification::OnBoundaryCrossing,
-        ];
-
-        let mut sm: SlotMap<FaceHandle, ()> = SlotMap::with_key();
-
-        for op in ops {
-            for operand in operands {
-                for class in classes {
-                    let face = sm.insert(());
-                    let result = select_faces(op, &[(face, operand, class)]);
-                    if result.flip.contains(&face) {
-                        assert!(
-                            result.keep.contains(&face),
-                            "face in flip but not keep for {op:?} {operand:?} {class:?}"
-                        );
-                    }
-                }
-            }
-        }
-    }
-}
+#[path = "select_tests.rs"]
+mod tests;

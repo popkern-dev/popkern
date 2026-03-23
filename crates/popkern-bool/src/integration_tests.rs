@@ -18,10 +18,47 @@ fn tol() -> Tolerance {
     Tolerance::default()
 }
 
-/// Translate all vertices of a BRep by a vector offset.
+/// Translate all vertices and geometry of a BRep by a vector offset.
 fn translate(mut brep: BRep, offset: Vec3) -> BRep {
+    use popkern_core::geometry::{curve::CurveGeometry, surface::SurfaceGeometry};
     for (_, vertex) in &mut brep.vertices {
         vertex.position = vertex.position + offset;
+    }
+    for (_, face) in &mut brep.faces {
+        if let Some(ref mut sof) = face.surface {
+            match sof.geometry {
+                SurfaceGeometry::Plane { ref mut origin, .. } => {
+                    *origin = *origin + offset;
+                }
+                SurfaceGeometry::Cylinder { ref mut origin, .. } => {
+                    *origin = *origin + offset;
+                }
+                SurfaceGeometry::Cone { ref mut apex, .. } => {
+                    *apex = *apex + offset;
+                }
+                SurfaceGeometry::Sphere { ref mut center, .. } => {
+                    *center = *center + offset;
+                }
+                SurfaceGeometry::Torus { ref mut center, .. } => {
+                    *center = *center + offset;
+                }
+                _ => {} // NURBS and other variants: no origin to translate
+            }
+        }
+    }
+    for (_, edge) in &mut brep.edges {
+        if let Some(ref mut coe) = edge.curve {
+            match coe.geometry {
+                CurveGeometry::Line { ref mut origin, .. } => {
+                    *origin = *origin + offset;
+                }
+                CurveGeometry::Circle { ref mut center, .. }
+                | CurveGeometry::Arc { ref mut center, .. } => {
+                    *center = *center + offset;
+                }
+                _ => {} // NURBS and other variants: no origin to translate
+            }
+        }
     }
     brep
 }
@@ -292,4 +329,97 @@ fn boolean_ref_generic_intersection() {
     assert_eq!(result.faces.len(), 0);
     // Inputs still usable.
     assert_eq!(a.faces.len(), 6);
+}
+
+#[test]
+fn diagnose_union_pipeline() {
+    use crate::classify::classify_fragments;
+    use crate::error::BoolOperation;
+    use crate::intersect::find_intersections;
+    use crate::select::{Operand, select_faces};
+    use crate::split::split_along_curves;
+
+    let a = BRep::unit_cube(tol()).unwrap();
+    let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(0.5, 0.3, 0.2));
+
+    // Stage 1
+    let isect = find_intersections(&a, &b, &tol()).unwrap();
+    eprintln!("STAGE1: {} intersection records", isect.records.len());
+    for (i, r) in isect.records.iter().enumerate() {
+        eprintln!(
+            "  record {i}: face_a={:?}, face_b={:?}, closed={}",
+            r.face_a, r.face_b, r.curve.is_closed
+        );
+    }
+
+    // Stage 2
+    let split = split_along_curves(a, b, &isect.records, &tol()).unwrap();
+    eprintln!(
+        "STAGE2: A has {} faces, B has {} faces",
+        split.a.faces.len(),
+        split.b.faces.len()
+    );
+    eprintln!(
+        "  A intersection_edges: {}",
+        split.fragments_a.intersection_edges.len()
+    );
+    eprintln!(
+        "  B intersection_edges: {}",
+        split.fragments_b.intersection_edges.len()
+    );
+
+    // Stage 3
+    let class_a = classify_fragments(
+        &split.a,
+        &split.b,
+        &isect.aabbs_b,
+        &split.fragments_a.intersection_edges,
+        &tol(),
+    )
+    .unwrap();
+    let class_b = classify_fragments(
+        &split.b,
+        &split.a,
+        &isect.aabbs_a,
+        &split.fragments_b.intersection_edges,
+        &tol(),
+    )
+    .unwrap();
+    eprintln!("STAGE3: A classifications:");
+    for (f, c) in &class_a {
+        eprintln!("  {:?} => {:?}", f, c);
+    }
+    eprintln!("STAGE3: B classifications:");
+    for (f, c) in &class_b {
+        eprintln!("  {:?} => {:?}", f, c);
+    }
+
+    // Stage 4
+    let mut classifications = Vec::new();
+    for (f, c) in &class_a {
+        classifications.push((*f, Operand::A, *c));
+    }
+    for (f, c) in &class_b {
+        classifications.push((*f, Operand::B, *c));
+    }
+    let selection = select_faces(BoolOperation::Union, &classifications);
+    eprintln!(
+        "STAGE4: keep_a={}, keep_b={}, flip_a={}, flip_b={}",
+        selection.keep_a.len(),
+        selection.keep_b.len(),
+        selection.flip_a.len(),
+        selection.flip_b.len()
+    );
+    eprintln!("  A total={}, A kept:", split.a.faces.len());
+    for f in split.a.faces.keys() {
+        let kept = selection.keep_a.contains(&f);
+        let class = class_a.get(&f);
+        eprintln!("    {:?} class={:?} kept={}", f, class, kept);
+    }
+    eprintln!("  B total={}, B kept:", split.b.faces.len());
+    for f in split.b.faces.keys() {
+        let kept = selection.keep_b.contains(&f);
+        let class = class_b.get(&f);
+        eprintln!("    {:?} class={:?} kept={}", f, class, kept);
+    }
 }

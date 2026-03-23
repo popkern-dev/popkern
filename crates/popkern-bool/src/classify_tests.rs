@@ -7,17 +7,30 @@ fn tol() -> Tolerance {
     Tolerance::default()
 }
 
-/// Translate all vertices of a BRep by a vector offset.
+/// Translate all vertices and geometry of a BRep by a vector offset.
 fn translate(mut brep: BRep, offset: Vec3) -> BRep {
+    use popkern_core::geometry::{curve::CurveGeometry, surface::SurfaceGeometry};
     for (_, vertex) in &mut brep.vertices {
         vertex.position = vertex.position + offset;
+    }
+    for (_, face) in &mut brep.faces {
+        if let Some(ref mut sof) = face.surface {
+            if let SurfaceGeometry::Plane { ref mut origin, .. } = sof.geometry {
+                *origin = *origin + offset;
+            }
+        }
+    }
+    for (_, edge) in &mut brep.edges {
+        if let Some(ref mut coe) = edge.curve {
+            if let CurveGeometry::Line { ref mut origin, .. } = coe.geometry {
+                *origin = *origin + offset;
+            }
+        }
     }
     brep
 }
 
-// ---------------------------------------------------------------
-// ray_intersects_aabb
-// ---------------------------------------------------------------
+// -- ray_intersects_aabb
 
 #[test]
 fn ray_through_aabb_center_hits() {
@@ -66,9 +79,7 @@ fn ray_parallel_to_slab_outside_misses() {
     assert!(!ray_intersects_aabb(&origin, &dir, &aabb));
 }
 
-// ---------------------------------------------------------------
-// point_in_solid
-// ---------------------------------------------------------------
+// -- point_in_solid
 
 fn unit_cube_with_aabbs() -> (BRep, Vec<(FaceHandle, Aabb)>) {
     let cube = BRep::unit_cube(tol()).expect("unit cube");
@@ -108,9 +119,7 @@ fn point_negative_outside_unit_cube() {
     assert_eq!(result, PointClassification::Outside);
 }
 
-// ---------------------------------------------------------------
-// classify_fragments
-// ---------------------------------------------------------------
+// -- classify_fragments
 
 #[test]
 fn classify_cube_faces_against_disjoint_cube() {
@@ -179,9 +188,7 @@ fn classify_fragments_empty_brep() {
     assert!(result.is_empty());
 }
 
-// ---------------------------------------------------------------
-// pick_sample_point
-// ---------------------------------------------------------------
+// -- pick_sample_point
 
 #[test]
 fn pick_sample_point_on_cube_face_is_inside_bbox() {
@@ -194,9 +201,7 @@ fn pick_sample_point_on_cube_face_is_inside_bbox() {
     }
 }
 
-// ---------------------------------------------------------------
-// face_parameter_range
-// ---------------------------------------------------------------
+// -- face_parameter_range
 
 #[test]
 fn face_parameter_range_is_finite_for_cube() {
@@ -236,9 +241,7 @@ fn face_parameter_range_face_with_no_surface_returns_default() {
     assert_eq!(v_max, 10.0);
 }
 
-// ---------------------------------------------------------------
-// ray_intersects_aabb — negative direction (triggers t1/t2 swap)
-// ---------------------------------------------------------------
+// -- ray_intersects_aabb — negative direction (triggers t1/t2 swap)
 
 #[test]
 fn ray_negative_direction_through_aabb_hits() {
@@ -260,9 +263,7 @@ fn ray_negative_direction_missing_aabb() {
     assert!(!ray_intersects_aabb(&origin, &dir, &aabb));
 }
 
-// ---------------------------------------------------------------
-// pick_sample_point — fallback paths (no vertices or no surface)
-// ---------------------------------------------------------------
+// -- pick_sample_point — fallback paths (no vertices or no surface)
 
 #[test]
 fn pick_sample_point_face_with_plane_surface_uses_fallback() {
@@ -462,9 +463,7 @@ fn pick_sample_point_face_with_no_surface_returns_origin() {
     assert_eq!(pt.z, 0.0);
 }
 
-// ---------------------------------------------------------------
-// classify_fragments — OnBoundary case
-// ---------------------------------------------------------------
+// -- classify_fragments — OnBoundary case
 
 #[test]
 fn classify_fragments_on_boundary_maps_to_cooriented() {

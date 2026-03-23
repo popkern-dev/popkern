@@ -13,6 +13,7 @@ use popkern_core::{
     topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle},
 };
 
+use crate::clip::clip_curve_to_single_face;
 use crate::error::{BoolDiagnostics, BoolError, Stage};
 use crate::intersect::IntersectionRecord;
 
@@ -200,12 +201,18 @@ pub(crate) fn split_along_curves(
             continue;
         }
         let record = &records[record_idx];
-        let curve = &record.curve;
+
+        // Re-clip the curve to face A's boundary so endpoints land precisely
+        // on A's edges (the shared curve may have endpoints on B's boundary).
+        let clipped = match clip_curve_to_single_face(&a, face_handle, &record.curve) {
+            Some(c) => c,
+            None => continue, // curve doesn't intersect this face
+        };
 
         // Ensure boundary vertices exist at the curve 3D endpoints before splitting.
-        let (t_start, t_end) = curve.curve_3d.parameter_range();
-        let start_pt = curve.curve_3d.point_at(t_start);
-        let end_pt = curve.curve_3d.point_at(t_end);
+        let (t_start, t_end) = clipped.curve_3d.parameter_range();
+        let start_pt = clipped.curve_3d.point_at(t_start);
+        let end_pt = clipped.curve_3d.point_at(t_end);
         match ensure_endpoint_vertices(&mut a, face_handle, &[start_pt, end_pt], tolerance) {
             Ok(true) => { /* all endpoints placed */ }
             Ok(false) => continue, // endpoints outside face boundary — skip
@@ -224,7 +231,12 @@ pub(crate) fn split_along_curves(
 
         // For face A: curve_uv1 is the UV parameterization on surface A.
         // split_face expects (face, trim_curve_uv, trim_curve_3d, tolerance).
-        match a.split_face(face_handle, &curve.curve_uv1, &curve.curve_3d, tolerance) {
+        match a.split_face(
+            face_handle,
+            &clipped.curve_uv1,
+            &clipped.curve_3d,
+            tolerance,
+        ) {
             Ok(result) => {
                 fragments_a.origin.insert(result.face_a, face_handle);
                 fragments_a.origin.insert(result.face_b, face_handle);
@@ -253,12 +265,21 @@ pub(crate) fn split_along_curves(
             continue;
         }
         let record = &records[record_idx];
-        let curve = &record.curve;
+
+        // Re-clip the curve to face B's boundary so endpoints land precisely
+        // on B's edges (the shared curve may have endpoints on A's boundary).
+        let clipped = match clip_curve_to_single_face(&b, face_handle, &record.curve) {
+            Some(c) => c,
+            None => {
+                eprintln!("  B split: clip returned None");
+                continue;
+            }
+        };
 
         // Ensure boundary vertices exist at the curve 3D endpoints before splitting.
-        let (t_start, t_end) = curve.curve_3d.parameter_range();
-        let start_pt = curve.curve_3d.point_at(t_start);
-        let end_pt = curve.curve_3d.point_at(t_end);
+        let (t_start, t_end) = clipped.curve_3d.parameter_range();
+        let start_pt = clipped.curve_3d.point_at(t_start);
+        let end_pt = clipped.curve_3d.point_at(t_end);
         match ensure_endpoint_vertices(&mut b, face_handle, &[start_pt, end_pt], tolerance) {
             Ok(true) => { /* all endpoints placed */ }
             Ok(false) => continue, // endpoints outside face boundary — skip
@@ -277,7 +298,12 @@ pub(crate) fn split_along_curves(
 
         // For face B: curve_uv2 is the UV parameterization on surface B.
         // It becomes "uv1" relative to face B's surface in the split_face call.
-        match b.split_face(face_handle, &curve.curve_uv2, &curve.curve_3d, tolerance) {
+        match b.split_face(
+            face_handle,
+            &clipped.curve_uv2,
+            &clipped.curve_3d,
+            tolerance,
+        ) {
             Ok(result) => {
                 fragments_b.origin.insert(result.face_a, face_handle);
                 fragments_b.origin.insert(result.face_b, face_handle);

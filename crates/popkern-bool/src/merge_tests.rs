@@ -33,25 +33,24 @@ fn identity_split(a: BRep, b: BRep) -> SplitResult {
 
 /// Build a SelectionResult that keeps all faces from both operands.
 fn select_all(split: &SplitResult) -> SelectionResult {
-    let mut keep = HashSet::new();
-    for fh in split.a.faces.keys() {
-        keep.insert(fh);
-    }
-    for fh in split.b.faces.keys() {
-        keep.insert(fh);
-    }
+    let keep_a: HashSet<_> = split.a.faces.keys().collect();
+    let keep_b: HashSet<_> = split.b.faces.keys().collect();
     SelectionResult {
-        keep,
-        flip: HashSet::new(),
+        keep_a,
+        keep_b,
+        flip_a: HashSet::new(),
+        flip_b: HashSet::new(),
     }
 }
 
 /// Build a SelectionResult that keeps only faces from operand A.
 fn select_a_only(split: &SplitResult) -> SelectionResult {
-    let keep: HashSet<_> = split.a.faces.keys().collect();
+    let keep_a: HashSet<_> = split.a.faces.keys().collect();
     SelectionResult {
-        keep,
-        flip: HashSet::new(),
+        keep_a,
+        keep_b: HashSet::new(),
+        flip_a: HashSet::new(),
+        flip_b: HashSet::new(),
     }
 }
 
@@ -120,8 +119,10 @@ fn merge_empty_selection() {
 
     let split = identity_split(cube, empty);
     let selection = SelectionResult {
-        keep: HashSet::new(),
-        flip: HashSet::new(),
+        keep_a: HashSet::new(),
+        keep_b: HashSet::new(),
+        flip_a: HashSet::new(),
+        flip_b: HashSet::new(),
     };
     let result = merge_faces(&split, &selection, &tol()).expect("merge");
 
@@ -137,9 +138,14 @@ fn merge_with_flip_reverses_surface_orientation() {
     let split = identity_split(cube, empty);
 
     // Select all faces from A and flip them all.
-    let keep: HashSet<_> = split.a.faces.keys().collect();
-    let flip = keep.clone();
-    let selection = SelectionResult { keep, flip };
+    let keep_a: HashSet<_> = split.a.faces.keys().collect();
+    let flip_a = keep_a.clone();
+    let selection = SelectionResult {
+        keep_a,
+        keep_b: HashSet::new(),
+        flip_a,
+        flip_b: HashSet::new(),
+    };
 
     let result = merge_faces(&split, &selection, &tol()).expect("merge");
 
@@ -193,10 +199,12 @@ fn merge_result_has_solid_and_shell() {
 
 /// Build a SelectionResult that keeps only faces from operand B.
 fn select_b_only(split: &SplitResult) -> SelectionResult {
-    let keep: HashSet<_> = split.b.faces.keys().collect();
+    let keep_b: HashSet<_> = split.b.faces.keys().collect();
     SelectionResult {
-        keep,
-        flip: HashSet::new(),
+        keep_a: HashSet::new(),
+        keep_b,
+        flip_a: HashSet::new(),
+        flip_b: HashSet::new(),
     }
 }
 

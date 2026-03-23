@@ -11,10 +11,25 @@ fn tol() -> Tolerance {
     Tolerance::default()
 }
 
-/// Translate all vertices of a BRep by a vector offset.
+/// Translate all vertices and geometry of a BRep by a vector offset.
 fn translate(mut brep: BRep, offset: Vec3) -> BRep {
+    use popkern_core::geometry::{curve::CurveGeometry, surface::SurfaceGeometry};
     for (_, vertex) in &mut brep.vertices {
         vertex.position = vertex.position + offset;
+    }
+    for (_, face) in &mut brep.faces {
+        if let Some(ref mut sof) = face.surface {
+            if let SurfaceGeometry::Plane { ref mut origin, .. } = sof.geometry {
+                *origin = *origin + offset;
+            }
+        }
+    }
+    for (_, edge) in &mut brep.edges {
+        if let Some(ref mut coe) = edge.curve {
+            if let CurveGeometry::Line { ref mut origin, .. } = coe.geometry {
+                *origin = *origin + offset;
+            }
+        }
     }
     brep
 }
