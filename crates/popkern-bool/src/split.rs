@@ -21,6 +21,7 @@ use crate::clip::{
 };
 use crate::error::{BoolDiagnostics, BoolError, Stage};
 use crate::intersect::IntersectionRecord;
+use crate::split_inner_loop::point_inside_face_uv;
 
 /// Provenance map tracking which original face each fragment came from,
 /// plus which edges were created by the splitting process.
@@ -183,6 +184,16 @@ fn face_has_pcurves(brep: &BRep, face: FaceHandle) -> bool {
     face_uv_boundary(brep, face).is_some()
 }
 
+/// Build a [`BoolDiagnostics`] for a split-stage failure.
+fn split_err(face: FaceHandle, reason: String, records: &[IntersectionRecord]) -> BoolDiagnostics {
+    BoolDiagnostics {
+        error: Some(BoolError::SplitFailed { face, reason }),
+        intersection_curves: records.iter().map(|r| r.curve.clone()).collect(),
+        face_classifications: Vec::new(),
+        failed_stage: Some(Stage::Split),
+    }
+}
+
 /// Try UV-space splitting for a curved face: find where the intersection
 /// curve crosses the face boundary in UV space, clip to interior, and split.
 ///
@@ -198,15 +209,12 @@ fn try_uv_split(
 ) -> Result<bool, BoolDiagnostics> {
     let crossings = match find_uv_crossings(brep, face_handle, curve_uv, tolerance) {
         Some(c) => c,
-        None => return Ok(false), // no pcurves after all
+        None => return Ok(false),
     };
 
     if crossings.len() >= 2 {
-        // Take the first entry/exit pair.
         let t_enter = crossings[0].t_curve;
         let t_exit = crossings[crossings.len() - 1].t_curve;
-
-        // Clip both curves to the interior segment.
         let clipped_3d = match clip_curve_to_crossings(curve_3d, t_enter, t_exit) {
             Some(c) => c,
             None => return Ok(false),
@@ -215,27 +223,20 @@ fn try_uv_split(
             Some(c) => c,
             None => return Ok(false),
         };
-
-        // Ensure boundary vertices exist at the 3D endpoints.
         let (ts, te) = clipped_3d.parameter_range();
         let start_pt = clipped_3d.point_at(ts);
         let end_pt = clipped_3d.point_at(te);
         match ensure_endpoint_vertices(brep, face_handle, &[start_pt, end_pt], tolerance) {
-            Ok(true) => { /* endpoints placed */ }
+            Ok(true) => {}
             Ok(false) => return Ok(false),
-            Err(core_err) => {
-                return Err(BoolDiagnostics {
-                    error: Some(BoolError::SplitFailed {
-                        face: face_handle,
-                        reason: format!("pre-split edge failed: {core_err}"),
-                    }),
-                    intersection_curves: records.iter().map(|r| r.curve.clone()).collect(),
-                    face_classifications: Vec::new(),
-                    failed_stage: Some(Stage::Split),
-                });
+            Err(e) => {
+                return Err(split_err(
+                    face_handle,
+                    format!("pre-split edge failed: {e}"),
+                    records,
+                ));
             }
         }
-
         match brep.split_face(face_handle, &clipped_uv, &clipped_3d, tolerance) {
             Ok(result) => {
                 fragments.origin.insert(result.face_a, face_handle);
@@ -245,21 +246,35 @@ fn try_uv_split(
                 }
                 return Ok(true);
             }
-            Err(core_err) => {
-                return Err(BoolDiagnostics {
-                    error: Some(BoolError::SplitFailed {
-                        face: face_handle,
-                        reason: core_err.to_string(),
-                    }),
-                    intersection_curves: records.iter().map(|r| r.curve.clone()).collect(),
-                    face_classifications: Vec::new(),
-                    failed_stage: Some(Stage::Split),
-                });
+            Err(e) => return Err(split_err(face_handle, e.to_string(), records)),
+        }
+    }
+
+    // 0 crossings — check for closed inner-loop case.
+    if crossings.is_empty() {
+        let (t_start, t_end) = curve_3d.parameter_range();
+        let start_pt = curve_3d.point_at(t_start);
+        let end_pt = curve_3d.point_at(t_end);
+        if tolerance.points_coincident(&start_pt, &end_pt) {
+            let mid_uv = curve_uv.point_at((t_start + t_end) / 2.0);
+            if point_inside_face_uv(brep, face_handle, mid_uv, tolerance) {
+                let n = (curve_3d.control_points.len() * 2).max(12);
+                match brep.add_inner_loop(face_handle, curve_3d, curve_uv, n, tolerance) {
+                    Ok(result) => {
+                        for &edge in &result.edges {
+                            fragments.intersection_edges.insert(edge);
+                        }
+                        return Ok(true);
+                    }
+                    Err(e) => {
+                        let msg = format!("add_inner_loop failed: {e}");
+                        return Err(split_err(face_handle, msg, records));
+                    }
+                }
             }
         }
     }
 
-    // 0 or 1 crossings — curve doesn't cross boundary usefully; skip.
     Ok(false)
 }
 
@@ -284,27 +299,19 @@ fn try_planar_split(
     let start_pt = clipped.curve_3d.point_at(t_start);
     let end_pt = clipped.curve_3d.point_at(t_end);
     match ensure_endpoint_vertices(brep, face_handle, &[start_pt, end_pt], tolerance) {
-        Ok(true) => { /* endpoints placed */ }
+        Ok(true) => {}
         Ok(false) => return Ok(false),
-        Err(core_err) => {
-            return Err(BoolDiagnostics {
-                error: Some(BoolError::SplitFailed {
-                    face: face_handle,
-                    reason: format!("pre-split edge failed: {core_err}"),
-                }),
-                intersection_curves: records.iter().map(|r| r.curve.clone()).collect(),
-                face_classifications: Vec::new(),
-                failed_stage: Some(Stage::Split),
-            });
+        Err(e) => {
+            return Err(split_err(
+                face_handle,
+                format!("pre-split edge failed: {e}"),
+                records,
+            ));
         }
     }
 
     // Determine which UV curve to use: for face A it's curve_uv1, for face B
-    // it's curve_uv2. The caller passes the correct one as `curve_uv`, but
-    // clip_curve_to_single_face returns a full CurveOnSurface. We detect which
-    // side by comparing the input curve_uv with the record's uv1 vs uv2.
-    // However, the clipped curve already has both: use uv1 if it matches the
-    // caller's curve_uv (face A side), uv2 if not (face B side).
+    // it's curve_uv2. Compare the input curve_uv with the record's uv1 vs uv2.
     let use_uv1 = curve_uv.control_points.first().map(|p| p.x)
         == full_curve.curve_uv1.control_points.first().map(|p| p.x);
     let trim_uv = if use_uv1 {
@@ -322,15 +329,7 @@ fn try_planar_split(
             }
             Ok(true)
         }
-        Err(core_err) => Err(BoolDiagnostics {
-            error: Some(BoolError::SplitFailed {
-                face: face_handle,
-                reason: core_err.to_string(),
-            }),
-            intersection_curves: records.iter().map(|r| r.curve.clone()).collect(),
-            face_classifications: Vec::new(),
-            failed_stage: Some(Stage::Split),
-        }),
+        Err(e) => Err(split_err(face_handle, e.to_string(), records)),
     }
 }
 

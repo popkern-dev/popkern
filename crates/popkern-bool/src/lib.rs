@@ -33,6 +33,7 @@ pub(crate) mod merge;
 pub(crate) mod operation;
 pub(crate) mod select;
 pub(crate) mod split;
+pub(crate) mod split_inner_loop;
 
 pub use classify::point_in_solid;
 pub use csg::{CsgNode, csg_eval};
