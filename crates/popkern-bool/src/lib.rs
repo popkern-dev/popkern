@@ -40,6 +40,9 @@ pub use error::{
     BoolDiagnostics, BoolError, BoolOperation, Classification, PointClassification, Stage,
 };
 
+#[cfg(test)]
+mod integration_tests;
+
 use popkern_core::{tolerance::Tolerance, topology::BRep};
 
 /// Perform a boolean operation on two solids, consuming both inputs.
