@@ -61,31 +61,38 @@ fn overlapping_cubes_union_succeeds() {
 }
 
 #[test]
-fn overlapping_cubes_intersection_does_not_panic() {
+fn overlapping_cubes_intersection_succeeds() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(0.5, 0.3, 0.2));
     let result = crate::intersection(a, b, tol());
-    if let Ok(brep) = &result {
-        assert!(
-            !brep.faces.is_empty() && brep.faces.len() < 12,
-            "Intersection should have between 1 and 11 faces, got {}",
-            brep.faces.len()
-        );
-    }
+    assert!(
+        result.is_ok(),
+        "Intersection should succeed: {:?}",
+        result.err()
+    );
+    let brep = result.unwrap();
+    assert!(
+        !brep.faces.is_empty() && brep.faces.len() < 12,
+        "Intersection should have between 1 and 11 faces, got {}",
+        brep.faces.len()
+    );
 }
 
 #[test]
-fn overlapping_cubes_subtraction_does_not_panic() {
+fn overlapping_cubes_subtraction_succeeds() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(0.5, 0.3, 0.2));
     let result = crate::subtraction(a, b, tol());
-    if let Ok(brep) = &result {
-        assert!(
-            !brep.faces.is_empty(),
-            "Subtraction should produce at least 1 face, got {}",
-            brep.faces.len()
-        );
-    }
+    assert!(
+        result.is_ok(),
+        "Subtraction should succeed: {:?}",
+        result.err()
+    );
+    let brep = result.unwrap();
+    assert!(
+        !brep.faces.is_empty(),
+        "Subtraction should produce at least 1 face"
+    );
 }
 
 // ── Disjoint cubes ─────────────────────────────────────────────────────
