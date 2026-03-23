@@ -439,6 +439,37 @@ mod tests {
     }
 
     #[test]
+    fn empty_a_returns_degenerate_input_error() {
+        // When A has no vertices and there are no intersections (disjoint / empty),
+        // handle_no_intersection returns DegenerateInput.
+        let a = BRep::new(tol()); // empty — no vertices
+        let b = BRep::unit_cube(tol()).expect("unit cube b");
+        let result = execute_boolean(BoolOperation::Union, a, b, &tol());
+        assert!(result.is_err(), "empty A should produce an error");
+        assert!(
+            matches!(result.unwrap_err(), BoolError::DegenerateInput(_)),
+            "expected DegenerateInput"
+        );
+    }
+
+    #[test]
+    fn into_error_fallback_when_no_error_set() {
+        // BoolDiagnostics with no error — into_error should produce a generic
+        // MergeFailed error rather than panicking.
+        let diag = BoolDiagnostics {
+            error: None,
+            intersection_curves: Vec::new(),
+            face_classifications: Vec::new(),
+            failed_stage: None,
+        };
+        let err = diag.into_error();
+        assert!(
+            matches!(err, BoolError::MergeFailed { .. }),
+            "expected MergeFailed fallback"
+        );
+    }
+
+    #[test]
     fn contained_cube_subtraction_returns_error() {
         let a = BRep::unit_cube(tol()).expect("unit cube a");
         let mut b = BRep::unit_cube(tol()).expect("unit cube b");

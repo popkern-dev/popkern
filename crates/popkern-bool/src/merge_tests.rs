@@ -191,6 +191,83 @@ fn merge_result_has_solid_and_shell() {
     assert_eq!(result.shells[shell_h].solid, solid_h);
 }
 
+/// Build a SelectionResult that keeps only faces from operand B.
+fn select_b_only(split: &SplitResult) -> SelectionResult {
+    let keep: HashSet<_> = split.b.faces.keys().collect();
+    SelectionResult {
+        keep,
+        flip: HashSet::new(),
+    }
+}
+
+#[test]
+fn merge_b_faces_sets_first_face_from_b() {
+    // Keep only B's faces — this exercises the first_face from B branch
+    // in merge_faces (lines that set first_face when it was None after
+    // processing A's empty selection).
+    let empty = BRep::new(tol());
+    let cube = BRep::unit_cube(tol()).expect("cube");
+
+    let split = identity_split(empty, cube);
+    let selection = select_b_only(&split);
+    let result = merge_faces(&split, &selection, &tol()).expect("merge");
+
+    // B is the unit cube — 6 faces.
+    assert_eq!(result.faces.len(), 6);
+    // Shell should point at a real face.
+    let shell_h = result.shells.keys().next().expect("shell");
+    let face_h = result.shells[shell_h].face;
+    assert!(
+        result.faces.contains_key(face_h),
+        "shell face should be valid"
+    );
+}
+
+/// Build a BRep with one face that has an inner loop, using kemr.
+///
+/// Topology (spur tree): v0 -bridge- v1 -spur- v2; v0 -spur- v3
+/// After kemr on the bridge edge, the face has outer loop [v0->v3->v0]
+/// and inner loop [v1->v2->v1].
+fn brep_with_inner_loop() -> BRep {
+    use popkern_core::geometry::Point3;
+    let mut brep = BRep::new(tol());
+    let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).expect("mvfs");
+    let mev1 = brep
+        .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+        .expect("mev1");
+    let _mev2 = brep
+        .mev(mev1.half_edge_twin, Point3::new(2.0, 0.0, 0.0))
+        .expect("mev2");
+    let _mev3 = brep
+        .mev(mev1.half_edge, Point3::new(0.0, 1.0, 0.0))
+        .expect("mev3");
+    // Split into outer loop + inner loop.
+    brep.kemr(mev1.half_edge).expect("kemr");
+    brep
+}
+
+#[test]
+fn merge_face_with_inner_loop_copies_inner_loops() {
+    // A face with an inner loop should have its inner loop copied into the result.
+    let brep_a = brep_with_inner_loop();
+    let brep_b = BRep::new(tol());
+
+    assert_eq!(brep_a.loops.len(), 2, "should have outer + inner loop");
+    // Find the face that has an inner loop.
+    let has_inner = brep_a.faces.values().any(|f| !f.inner_loops.is_empty());
+    assert!(has_inner, "brep should have a face with an inner loop");
+
+    let split = identity_split(brep_a, brep_b);
+    let selection = select_a_only(&split);
+    let result = merge_faces(&split, &selection, &tol()).expect("merge");
+
+    // The result should also have a face with an inner loop.
+    let has_inner_in_result = result.faces.values().any(|f| !f.inner_loops.is_empty());
+    assert!(has_inner_in_result, "result should preserve the inner loop");
+    // Should have 2 loops: outer + inner.
+    assert_eq!(result.loops.len(), 2, "outer + inner loop should be copied");
+}
+
 #[test]
 fn merge_loop_half_edges_form_cycle() {
     let cube = BRep::unit_cube(tol()).expect("cube");

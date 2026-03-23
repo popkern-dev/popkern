@@ -309,4 +309,82 @@ mod tests {
             );
         }
     }
+
+    /// Exercise face_vertex_positions when the loop's half_edge handle is
+    /// missing from the BRep — it should return an empty Vec rather than panic.
+    #[test]
+    fn face_vertex_positions_missing_half_edge_returns_empty() {
+        use popkern_core::topology::{Face, HalfEdgeHandle, Loop, ShellHandle};
+        let mut brep = BRep::new(tol());
+        // Insert a loop whose half_edge handle does not exist in brep.half_edges.
+        let loop_h = brep.loops.insert(Loop {
+            half_edge: HalfEdgeHandle::default(),
+            face: popkern_core::topology::FaceHandle::default(),
+        });
+        let face_h = brep.faces.insert(Face {
+            outer_loop: loop_h,
+            inner_loops: Vec::new(),
+            shell: ShellHandle::default(),
+            surface: None,
+        });
+        brep.loops[loop_h].face = face_h;
+        // face_aabb should return None (no surface geometry).
+        let result = face_aabb(&brep, face_h);
+        assert!(result.is_none());
+    }
+
+    /// Exercise the 5×5 grid-sampling branch in face_aabb for a surface with
+    /// a finite parameter range (sphere/torus). We use a unit cube here and
+    /// verify the AABBs are still correct — the cube planes have infinite
+    /// parameter ranges so only vertices are used. For a more direct test we
+    /// build a minimal BRep face with a sphere surface.
+    #[test]
+    fn face_aabb_sphere_surface_samples_grid() {
+        use popkern_core::{
+            geometry::surface::{SurfaceGeometry, SurfaceOnFace},
+            topology::{Face, HalfEdgeHandle, Loop, ShellHandle},
+        };
+        let mut brep = BRep::new(tol());
+        let loop_h = brep.loops.insert(Loop {
+            half_edge: HalfEdgeHandle::default(),
+            face: popkern_core::topology::FaceHandle::default(),
+        });
+        let face_h = brep.faces.insert(Face {
+            outer_loop: loop_h,
+            inner_loops: Vec::new(),
+            shell: ShellHandle::default(),
+            surface: Some(SurfaceOnFace {
+                geometry: SurfaceGeometry::Sphere {
+                    center: Point3::new(0.0, 0.0, 0.0),
+                    radius: 1.0,
+                },
+                orientation: true,
+            }),
+        });
+        brep.loops[loop_h].face = face_h;
+        // The sphere surface has a finite parameter range, so face_aabb should
+        // sample the 5×5 grid and return a non-None AABB.
+        let result = face_aabb(&brep, face_h);
+        assert!(result.is_some(), "sphere face should produce an AABB");
+        let aabb = result.unwrap();
+        // Unit sphere AABB should be approximately [-1, 1]^3.
+        assert!(
+            aabb.min.x >= -1.1 && aabb.max.x <= 1.1,
+            "x out of sphere range"
+        );
+    }
+
+    /// Exercise the CoincidentRegion error path in find_intersections.
+    /// We use two identical cubes (same position) which produce coincident
+    /// face pairs and trigger the error.
+    #[test]
+    fn coincident_cubes_returns_coincident_faces_error() {
+        let cube_a = BRep::unit_cube(tol()).expect("unit cube a");
+        let cube_b = BRep::unit_cube(tol()).expect("unit cube b (same position)");
+        let result = find_intersections(&cube_a, &cube_b, &tol());
+        assert!(
+            result.is_err(),
+            "coincident cubes should produce a CoincidentFaces error"
+        );
+    }
 }

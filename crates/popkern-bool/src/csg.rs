@@ -101,6 +101,29 @@ mod tests {
     }
 
     #[test]
+    fn intersection_of_contained_cubes() {
+        // A is a unit cube, B is a large cube containing A.
+        // Intersection = A (6 faces).
+        let tol = Tolerance::default();
+        let a = BRep::unit_cube(tol.clone()).unwrap();
+        let mut b = BRep::unit_cube(tol.clone()).unwrap();
+        for (_, v) in &mut b.vertices {
+            v.position = popkern_core::geometry::Point3::new(
+                v.position.x * 3.0 - 1.0,
+                v.position.y * 3.0 - 1.0,
+                v.position.z * 3.0 - 1.0,
+            );
+        }
+        let tree = CsgNode::Intersection(
+            Box::new(CsgNode::Leaf(Box::new(a))),
+            Box::new(CsgNode::Leaf(Box::new(b))),
+        );
+        let result = csg_eval(tree, &tol).unwrap();
+        // A is inside B so intersection = A = 6 faces.
+        assert_eq!(result.faces.len(), 6);
+    }
+
+    #[test]
     fn nested_tree_union_then_subtract() {
         // (A ∪ B) - C where all are disjoint
         let tol = Tolerance::default();
