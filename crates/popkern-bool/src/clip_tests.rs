@@ -406,3 +406,5 @@ fn clip_curve_to_crossings_zero_length_returns_none() {
     let result = super::clip_curve_to_crossings(&curve, 0.5, 0.5);
     assert!(result.is_none(), "zero-length clip should return None");
 }
+
+// UV-space clipping tests are in clip_uv_tests.rs (included from clip.rs)
