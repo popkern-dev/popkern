@@ -126,6 +126,9 @@ pub fn export_gltf(mesh: &TriMesh, path: &Path) -> Result<(), MeshError> {
 }
 
 #[cfg(test)]
+mod integration_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
