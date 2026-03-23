@@ -31,3 +31,7 @@ pub use brep::BRep;
 /// Edge and face splitting operations.
 pub mod split;
 pub use split::{SplitEdgeResult, SplitFaceResult};
+
+/// Inner loop (hole) creation for face trimming.
+pub mod trim;
+pub use trim::AddInnerLoopResult;
