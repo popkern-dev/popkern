@@ -25,6 +25,7 @@
 //! ```
 
 pub mod error;
+pub(crate) mod intersect;
 pub(crate) mod select;
 
 pub use error::{
