@@ -47,18 +47,17 @@ fn scale_to_enclosing(mut brep: BRep) -> BRep {
 // check face counts.
 
 #[test]
-fn overlapping_cubes_union_does_not_panic() {
+fn overlapping_cubes_union_succeeds() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(0.5, 0.3, 0.2));
     let result = crate::union(a, b, tol());
-    // Pipeline may error at the split stage; verify it doesn't panic.
-    if let Ok(brep) = &result {
-        assert!(
-            brep.faces.len() > 6,
-            "Union of overlapping cubes should have more than 6 faces, got {}",
-            brep.faces.len()
-        );
-    }
+    assert!(result.is_ok(), "Union should succeed: {:?}", result.err());
+    let brep = result.unwrap();
+    assert!(
+        brep.faces.len() > 6,
+        "Union of overlapping cubes should have more than 6 faces, got {}",
+        brep.faces.len()
+    );
 }
 
 #[test]

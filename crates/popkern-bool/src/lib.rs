@@ -25,6 +25,7 @@
 //! ```
 
 pub(crate) mod classify;
+pub(crate) mod clip;
 pub mod csg;
 pub mod error;
 pub(crate) mod intersect;

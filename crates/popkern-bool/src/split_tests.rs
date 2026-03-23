@@ -358,25 +358,19 @@ fn split_with_overlapping_cubes_intersection() {
 
             let split_result = split_along_curves(cube_a, cube_b, &int_res.records, &tol());
 
-            match split_result {
-                Ok(result) => {
-                    // Fragment maps should cover all faces.
-                    assert!(result.fragments_a.origin.len() >= a_faces_before);
-                    assert!(result.fragments_b.origin.len() >= b_faces_before);
+            let result = split_result.expect("split should succeed with pre-split edges");
 
-                    // At least some intersection edges should exist.
-                    let total_int_edges = result.fragments_a.intersection_edges.len()
-                        + result.fragments_b.intersection_edges.len();
-                    assert!(
-                        total_int_edges > 0,
-                        "expected intersection edges after splitting overlapping cubes"
-                    );
-                }
-                Err(_diag) => {
-                    // Split may fail if intersection curve endpoints don't
-                    // land on face boundary vertices — acceptable for now.
-                }
-            }
+            // Fragment maps should cover all faces.
+            assert!(result.fragments_a.origin.len() >= a_faces_before);
+            assert!(result.fragments_b.origin.len() >= b_faces_before);
+
+            // At least some intersection edges should exist.
+            let total_int_edges = result.fragments_a.intersection_edges.len()
+                + result.fragments_b.intersection_edges.len();
+            assert!(
+                total_int_edges > 0,
+                "expected intersection edges after splitting overlapping cubes"
+            );
         }
         _ => {
             // No intersection curves found or intersection failed — skip.

@@ -6,7 +6,6 @@
 use popkern_core::geometry::curve_on_surface::CurveOnSurface;
 use popkern_core::{
     geometry::{
-        Point3,
         intersection::{SurfaceSurfaceIntersection, intersect_surfaces, surface_subdivision::Aabb},
         surface::SurfaceEval,
     },
@@ -14,7 +13,69 @@ use popkern_core::{
     topology::{BRep, FaceHandle},
 };
 
+use crate::clip::{clip_curve_to_faces, face_vertex_positions};
 use crate::error::{BoolDiagnostics, BoolError, Stage};
+
+/// Compute bounded parameter ranges for a face's surface.
+///
+/// For surfaces with infinite parameter ranges (e.g. planes), projects the face's
+/// boundary vertices into UV space and returns a padded bounding range. For surfaces
+/// with finite ranges, returns the surface's own parameter range unchanged.
+fn bounded_parameter_range(
+    brep: &BRep,
+    face_handle: FaceHandle,
+    surface: &popkern_core::geometry::surface::SurfaceGeometry,
+) -> ((f64, f64), (f64, f64)) {
+    let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
+
+    // Only override for infinite ranges.
+    if u_min.is_finite() && u_max.is_finite() && v_min.is_finite() && v_max.is_finite() {
+        return ((u_min, u_max), (v_min, v_max));
+    }
+
+    // Project face boundary vertices into UV space.
+    let positions = face_vertex_positions(brep, face_handle);
+    if positions.is_empty() {
+        return ((u_min, u_max), (v_min, v_max));
+    }
+
+    match surface {
+        popkern_core::geometry::surface::SurfaceGeometry::Plane {
+            origin,
+            u_axis,
+            v_axis,
+            ..
+        } => {
+            // Use the same dot-product projection that clip_line_to_uv_boxes uses
+            // in try_plane_plane, so ranges are consistent with the clipping.
+            let mut uv_min = (f64::INFINITY, f64::INFINITY);
+            let mut uv_max = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+            for pos in &positions {
+                let d = *pos - *origin;
+                let u = d.dot(u_axis);
+                let v = d.dot(v_axis);
+                uv_min.0 = uv_min.0.min(u);
+                uv_min.1 = uv_min.1.min(v);
+                uv_max.0 = uv_max.0.max(u);
+                uv_max.1 = uv_max.1.max(v);
+            }
+            // Add generous padding so that try_plane_plane's UV clipping doesn't
+            // exclude the true intersection. The face-polygon clipping in
+            // clip_curve_to_faces will do the precise 3D trimming afterwards.
+            let u_pad = ((uv_max.0 - uv_min.0) * 0.5).max(1.0);
+            let v_pad = ((uv_max.1 - uv_min.1) * 0.5).max(1.0);
+            (
+                (uv_min.0 - u_pad, uv_max.0 + u_pad),
+                (uv_min.1 - v_pad, uv_max.1 + v_pad),
+            )
+        }
+        _ => {
+            // For non-plane infinite surfaces (cylinder axis, cone, etc.),
+            // fall back to the surface's own range.
+            ((u_min, u_max), (v_min, v_max))
+        }
+    }
+}
 
 /// A single face-face intersection record.
 #[derive(Debug, Clone)]
@@ -36,34 +97,6 @@ pub(crate) struct IntersectionResult {
     pub aabbs_a: Vec<(FaceHandle, Aabb)>,
     /// AABBs computed for each face of solid B.
     pub aabbs_b: Vec<(FaceHandle, Aabb)>,
-}
-
-/// Collect vertex positions from the outer loop of a face by walking half-edges.
-///
-/// Returns an empty `Vec` if the face's loop has no valid half-edges.
-fn face_vertex_positions(brep: &BRep, face_handle: FaceHandle) -> Vec<Point3> {
-    let face = &brep.faces[face_handle];
-    let loop_handle = face.outer_loop;
-    let loop_data = match brep.loops.get(loop_handle) {
-        Some(l) => l,
-        None => return Vec::new(),
-    };
-    let start_he = loop_data.half_edge;
-    if !brep.half_edges.contains_key(start_he) {
-        return Vec::new();
-    }
-
-    let mut positions = Vec::new();
-    let mut current = start_he;
-    loop {
-        let he = &brep.half_edges[current];
-        positions.push(brep.vertices[he.origin].position);
-        current = he.next;
-        if current == start_he {
-            break;
-        }
-    }
-    positions
 }
 
 /// Sample a face to compute its AABB.
@@ -147,8 +180,8 @@ pub(crate) fn find_intersections(
                 None => continue,
             };
 
-            let ((u1_min, u1_max), (v1_min, v1_max)) = surf_a.parameter_range();
-            let ((u2_min, u2_max), (v2_min, v2_max)) = surf_b.parameter_range();
+            let ((u1_min, u1_max), (v1_min, v1_max)) = bounded_parameter_range(a, *face_a, surf_a);
+            let ((u2_min, u2_max), (v2_min, v2_max)) = bounded_parameter_range(b, *face_b, surf_b);
 
             match intersect_surfaces(
                 surf_a,
@@ -163,11 +196,20 @@ pub(crate) fn find_intersections(
                     for isect in result.intersections {
                         match isect {
                             SurfaceSurfaceIntersection::Curve(curve) => {
-                                records.push(IntersectionRecord {
-                                    face_a: *face_a,
-                                    face_b: *face_b,
-                                    curve,
-                                });
+                                // Clip the curve to both face boundaries.
+                                match clip_curve_to_faces(a, *face_a, b, *face_b, &curve) {
+                                    Some(clipped) => {
+                                        records.push(IntersectionRecord {
+                                            face_a: *face_a,
+                                            face_b: *face_b,
+                                            curve: clipped,
+                                        });
+                                    }
+                                    None => {
+                                        // Curve doesn't intersect both face
+                                        // polygons — skip it.
+                                    }
+                                }
                             }
                             SurfaceSurfaceIntersection::CoincidentRegion { .. } => {
                                 return Err(BoolDiagnostics {
@@ -210,7 +252,11 @@ pub(crate) fn find_intersections(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use popkern_core::{geometry::Vec3, tolerance::Tolerance, topology::BRep};
+    use popkern_core::{
+        geometry::{Point3, Vec3},
+        tolerance::Tolerance,
+        topology::BRep,
+    };
 
     fn tol() -> Tolerance {
         Tolerance::default()
