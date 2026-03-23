@@ -77,6 +77,10 @@ impl BRep {
         let he_ba_prev = he_ba_data.prev;
         let he_ba_loop = he_ba_data.loop_;
 
+        // Capture pcurves before mutation so we can split them.
+        let pcurve_ab = he_ab_data.pcurve.clone();
+        let pcurve_ba = he_ba_data.pcurve.clone();
+
         // Compute the position of the new vertex.
         let pos_a = self.vertices[vertex_a].position;
         let pos_b = self.vertices[vertex_b].position;
@@ -99,6 +103,12 @@ impl BRep {
             outgoing: Default::default(),
         });
 
+        // Split pcurves for he_ab (A->B direction) and he_ba (B->A direction).
+        // For he_ab: split at parameter t → left goes to he_ab [A->V], right to he_vb [V->B].
+        // For he_ba: split at (1-t) → left goes to he_bv [B->V], right to he_ba [V->A].
+        let (pcurve_ab_left, pcurve_ab_right) = split_pcurve_at(&pcurve_ab, t);
+        let (pcurve_ba_left, pcurve_ba_right) = split_pcurve_at(&pcurve_ba, 1.0 - t);
+
         // Create the new edge (edge_b).
         let edge_b = self.edges.insert(Edge {
             half_edge: Default::default(),
@@ -113,7 +123,7 @@ impl BRep {
             prev: he_ab,
             edge: edge_b,
             loop_: he_ab_loop,
-            pcurve: None,
+            pcurve: pcurve_ab_right,
         });
 
         let he_bv = self.half_edges.insert(HalfEdge {
@@ -123,7 +133,7 @@ impl BRep {
             prev: he_ba_prev,
             edge: edge_b,
             loop_: he_ba_loop,
-            pcurve: None,
+            pcurve: pcurve_ba_left,
         });
 
         // Patch twin of he_vb.
@@ -142,6 +152,10 @@ impl BRep {
         // Update he_ba origin: was B, now V (since the original edge A->B
         // becomes A->V, its twin goes V->A).
         self.half_edges[he_ba].origin = vertex_v;
+
+        // Assign split pcurves to the original half-edges.
+        self.half_edges[he_ab].pcurve = pcurve_ab_left;
+        self.half_edges[he_ba].pcurve = pcurve_ba_right;
 
         // Update edge_b to point to he_vb.
         self.edges[edge_b].half_edge = he_vb;
@@ -211,7 +225,7 @@ impl BRep {
     pub fn split_face(
         &mut self,
         face: FaceHandle,
-        _trim_curve_uv: &NurbsCurve,
+        trim_curve_uv: &NurbsCurve,
         trim_curve_3d: &NurbsCurve,
         tolerance: &Tolerance,
     ) -> Result<SplitFaceResult, CoreError> {
@@ -328,6 +342,15 @@ impl BRep {
             t_end: 1.0,
         });
 
+        // Assign pcurves to the new half-edges.
+        // mef_result.half_edge: entry->exit (on the original face side) gets the
+        // forward UV trim curve.
+        // mef_result.half_edge_twin: exit->entry (on the new face side) gets the
+        // reversed UV trim curve.
+        self.half_edges[mef_result.half_edge].pcurve = Some(trim_curve_uv.clone());
+        self.half_edges[mef_result.half_edge_twin].pcurve =
+            Some(reverse_nurbs_curve(trim_curve_uv));
+
         // Both faces should keep the original surface geometry.
         // The original face (containing he_entry's side) already has it.
         // The new face needs a copy.
@@ -344,6 +367,55 @@ impl BRep {
             face_b: mef_result.face,
             new_edges: vec![mef_result.edge],
         })
+    }
+}
+
+/// Split a pcurve at parameter `t` (in [0,1] of the edge).
+///
+/// Returns `(left, right)` where `left` covers the first portion and `right`
+/// covers the second. If the pcurve is `None` or splitting fails, returns
+/// `(None, None)`.
+fn split_pcurve_at(
+    pcurve: &Option<NurbsCurve>,
+    t: f64,
+) -> (Option<NurbsCurve>, Option<NurbsCurve>) {
+    let Some(curve) = pcurve else {
+        return (None, None);
+    };
+    let (p_start, p_end) = curve.parameter_range();
+    let split_param = p_start + t * (p_end - p_start);
+    match curve.split_at(split_param) {
+        Ok((left, right)) => (Some(left), Some(right)),
+        Err(_) => (None, None),
+    }
+}
+
+/// Reverse a NURBS curve (swap direction of traversal).
+///
+/// The reversed curve evaluates the same geometry but in the opposite
+/// direction: `reversed.point_at(t_start)` equals `original.point_at(t_end)`.
+fn reverse_nurbs_curve(curve: &NurbsCurve) -> NurbsCurve {
+    let (t_start, t_end) = curve.parameter_range();
+    let mut reversed_knots: Vec<f64> = curve
+        .knots
+        .iter()
+        .rev()
+        .map(|&k| t_start + t_end - k)
+        .collect();
+    // Knots must be non-decreasing after reversal.
+    reversed_knots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut reversed_cp = curve.control_points.clone();
+    reversed_cp.reverse();
+
+    let mut reversed_weights = curve.weights.clone();
+    reversed_weights.reverse();
+
+    NurbsCurve {
+        degree: curve.degree,
+        knots: reversed_knots,
+        control_points: reversed_cp,
+        weights: reversed_weights,
     }
 }
 

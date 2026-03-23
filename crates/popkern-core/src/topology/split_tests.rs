@@ -348,3 +348,148 @@ fn split_edge_with_curve_geometry() {
     assert!(brep.edges[result.edge_a].curve.is_some());
     assert!(brep.edges[result.edge_b].curve.is_some());
 }
+
+/// Test that split_edge preserves pcurves on all half-edges.
+#[test]
+fn split_edge_preserves_pcurves() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).unwrap();
+    let edge = cube.edges.keys().next().unwrap();
+    let he = cube.edges[edge].half_edge;
+    assert!(
+        cube.half_edges[he].pcurve.is_some(),
+        "cube half-edge should have pcurve"
+    );
+
+    let result = cube.split_edge(edge, 0.5).unwrap();
+
+    // Both resulting edges' primary half-edges should have pcurves.
+    let he_a = cube.edges[result.edge_a].half_edge;
+    let he_b = cube.edges[result.edge_b].half_edge;
+    assert!(
+        cube.half_edges[he_a].pcurve.is_some(),
+        "edge_a half-edge missing pcurve"
+    );
+    assert!(
+        cube.half_edges[he_b].pcurve.is_some(),
+        "edge_b half-edge missing pcurve"
+    );
+
+    // Twins should also have pcurves.
+    let twin_a = cube.half_edges[he_a].twin;
+    let twin_b = cube.half_edges[he_b].twin;
+    assert!(
+        cube.half_edges[twin_a].pcurve.is_some(),
+        "edge_a twin missing pcurve"
+    );
+    assert!(
+        cube.half_edges[twin_b].pcurve.is_some(),
+        "edge_b twin missing pcurve"
+    );
+}
+
+/// Test that split_edge pcurve endpoints are geometrically consistent.
+#[test]
+fn split_edge_pcurve_endpoints_consistent() {
+    use crate::geometry::curve::CurveEval;
+
+    let mut cube = BRep::unit_cube(Tolerance::default()).unwrap();
+    let edge = cube.edges.keys().next().unwrap();
+    let he = cube.edges[edge].half_edge;
+    let original_pcurve = cube.half_edges[he].pcurve.clone().unwrap();
+    let orig_range = original_pcurve.parameter_range();
+    let orig_start = original_pcurve.point_at(orig_range.0);
+    let orig_end = original_pcurve.point_at(orig_range.1);
+
+    let result = cube.split_edge(edge, 0.5).unwrap();
+
+    // he_a pcurve should start at original start
+    let he_a = cube.edges[result.edge_a].half_edge;
+    let pcurve_a = cube.half_edges[he_a].pcurve.as_ref().unwrap();
+    let range_a = pcurve_a.parameter_range();
+    let start_a = pcurve_a.point_at(range_a.0);
+    assert!(
+        (start_a.x - orig_start.x).abs() < 1e-10 && (start_a.y - orig_start.y).abs() < 1e-10,
+        "pcurve_a start should match original start"
+    );
+
+    // he_b pcurve should end at original end
+    let he_b = cube.edges[result.edge_b].half_edge;
+    let pcurve_b = cube.half_edges[he_b].pcurve.as_ref().unwrap();
+    let range_b = pcurve_b.parameter_range();
+    let end_b = pcurve_b.point_at(range_b.1);
+    assert!(
+        (end_b.x - orig_end.x).abs() < 1e-10 && (end_b.y - orig_end.y).abs() < 1e-10,
+        "pcurve_b end should match original end"
+    );
+
+    // The endpoint of pcurve_a should match the start of pcurve_b (continuity at split)
+    let end_a = pcurve_a.point_at(range_a.1);
+    let start_b = pcurve_b.point_at(range_b.0);
+    assert!(
+        (end_a.x - start_b.x).abs() < 1e-10 && (end_a.y - start_b.y).abs() < 1e-10,
+        "pcurve_a end should match pcurve_b start at split point"
+    );
+}
+
+/// Test that split_face assigns pcurves to the new splitting edge.
+#[test]
+fn split_face_assigns_pcurves_to_new_edge() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let face = brep.faces.keys().next().unwrap();
+
+    let loop_handle = brep.faces[face].outer_loop;
+    let he1 = brep.loops[loop_handle].half_edge;
+    let he2 = brep.half_edges[he1].next;
+    let edge1 = brep.half_edges[he1].edge;
+    let edge2 = brep.half_edges[he2].edge;
+
+    let s1 = brep.split_edge(edge1, 0.5).unwrap();
+    let s2 = brep.split_edge(edge2, 0.5).unwrap();
+
+    let p1 = brep.vertices[s1.vertex].position;
+    let p2 = brep.vertices[s2.vertex].position;
+    let trim = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![p1, p2],
+        weights: vec![1.0, 1.0],
+    };
+
+    let result = brep
+        .split_face(face, &trim, &trim, &Tolerance::default())
+        .unwrap();
+
+    // The new edge's half-edges should both have pcurves.
+    let new_edge = result.new_edges[0];
+    let he_new = brep.edges[new_edge].half_edge;
+    let he_twin = brep.half_edges[he_new].twin;
+    assert!(
+        brep.half_edges[he_new].pcurve.is_some(),
+        "new edge half-edge should have pcurve"
+    );
+    assert!(
+        brep.half_edges[he_twin].pcurve.is_some(),
+        "new edge twin should have pcurve"
+    );
+}
+
+/// Test that split_edge without pcurves leaves None (no crash).
+#[test]
+fn split_edge_no_pcurve_stays_none() {
+    let mut brep = BRep::new(Tolerance::default());
+    let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+    let mev1 = brep
+        .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+        .unwrap();
+
+    // These half-edges have no pcurves
+    let he = brep.edges[mev1.edge].half_edge;
+    assert!(brep.half_edges[he].pcurve.is_none());
+
+    let result = brep.split_edge(mev1.edge, 0.5).unwrap();
+
+    let he_a = brep.edges[result.edge_a].half_edge;
+    let he_b = brep.edges[result.edge_b].half_edge;
+    assert!(brep.half_edges[he_a].pcurve.is_none());
+    assert!(brep.half_edges[he_b].pcurve.is_none());
+}
