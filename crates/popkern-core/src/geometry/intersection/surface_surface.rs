@@ -7,6 +7,7 @@ use crate::geometry::fitting::fit_curve;
 use crate::geometry::intersection::coincident::detect_coincident_regions;
 use crate::geometry::intersection::degeneracy::{DegeneracyHandler, RobustDegeneracyHandler};
 use crate::geometry::intersection::marching::{MarchSample, march};
+use crate::geometry::intersection::plane_cylinder;
 use crate::geometry::intersection::plane_plane::try_plane_plane;
 use crate::geometry::intersection::plane_sphere;
 use crate::geometry::intersection::starting_points::{find_branch_points, find_starting_points};
@@ -98,6 +99,13 @@ pub fn intersect_surfaces_with_handler(
 
     // Fast path: plane-sphere pair → analytic solver.
     if let Some(intersections) = plane_sphere::try_plane_sphere(
+        surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
+    ) {
+        return Ok(SurfaceSurfaceIntersectionResult { intersections });
+    }
+
+    // Fast path: plane-cylinder pair → analytic solver.
+    if let Some(intersections) = plane_cylinder::try_plane_cylinder(
         surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
     ) {
         return Ok(SurfaceSurfaceIntersectionResult { intersections });
