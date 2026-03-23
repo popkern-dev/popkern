@@ -199,13 +199,13 @@ fn coincident_cubes_returns_coincident_faces_error() {
 }
 
 #[test]
-fn compute_face_aabbs_sphere_returns_three_faces() {
+fn compute_face_aabbs_sphere_returns_one_face() {
     let sphere = BRep::sphere(1.0, tol()).expect("sphere");
     let aabbs = compute_face_aabbs(&sphere);
     assert_eq!(
         aabbs.len(),
-        3,
-        "sphere should have 3 faces with AABBs, got {}",
+        1,
+        "sphere should have 1 face with AABBs, got {}",
         aabbs.len()
     );
     for (_, aabb) in &aabbs {

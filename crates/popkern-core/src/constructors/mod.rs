@@ -51,22 +51,6 @@ pub(super) fn line_between(start: Point3, end: Point3) -> CurveOnEdge {
 }
 
 impl BRep {
-    /// Attach line curves to all edges that lack geometry.
-    pub(super) fn attach_line_curves(&mut self) {
-        let edge_handles: Vec<_> = self.edges.keys().collect();
-        for eh in edge_handles {
-            if self.edges[eh].curve.is_some() {
-                continue;
-            }
-            let he_handle = self.edges[eh].half_edge;
-            let he = &self.half_edges[he_handle];
-            let start_pos = self.vertices[he.origin].position;
-            let twin = &self.half_edges[he.twin];
-            let end_pos = self.vertices[twin.origin].position;
-            self.edges[eh].curve = Some(line_between(start_pos, end_pos));
-        }
-    }
-
     /// Attach line curves to all edges and planar surfaces to all faces.
     ///
     /// For each edge, computes the line from the origin of one half-edge

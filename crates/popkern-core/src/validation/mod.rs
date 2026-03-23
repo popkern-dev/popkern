@@ -278,12 +278,29 @@ mod tests {
 
     #[test]
     fn validate_all_hits_vertex_valence_error() {
+        // Build a single-edge topology then corrupt one half-edge's loop
+        // so the twins are on *different* faces, making the seam exemption
+        // inapplicable and triggering LowValence.
         let mut brep = BRep::new(Tolerance::default());
         let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let _mev = brep
+        let mev = brep
             .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
             .unwrap();
-        // Single edge has valence 1 => fails valence check
+        // Create a second loop/face and move one half-edge into it so
+        // the seam check (same-face) fails.
+        let new_loop = brep.loops.insert(crate::topology::Loop {
+            half_edge: mev.half_edge_twin,
+            face: Default::default(),
+        });
+        let new_face = brep.faces.insert(crate::topology::Face {
+            outer_loop: new_loop,
+            inner_loops: Vec::new(),
+            shell: brep.faces[mvfs.face].shell,
+            surface: None,
+        });
+        brep.loops[new_loop].face = new_face;
+        brep.half_edges[mev.half_edge_twin].loop_ = new_loop;
+        // Now the edge's two half-edges are on different faces => valence 1, no seam exemption
         let errors = brep.validate_all();
         assert!(
             errors

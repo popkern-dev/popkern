@@ -196,20 +196,6 @@ fn cylinder_seam_edge_both_half_edges_on_lateral_face() {
 #[test]
 fn cylinder_cap_loops_are_self_loops() {
     let cyl = BRep::cylinder(1.0, 2.0, Tolerance::default()).unwrap();
-    // Each cap face's loop has a single half-edge whose next=prev=self.
-    let mut self_loop_count = 0;
-    for he in cyl.half_edges.values() {
-        if he.next
-            == cyl
-                .half_edges
-                .keys()
-                .find(|&k| std::ptr::eq(&cyl.half_edges[k], he))
-                .unwrap_or_default()
-        {
-            self_loop_count += 1;
-        }
-    }
-    // Alternative: check via loops
     let mut single_he_loops = 0;
     for loop_ in cyl.loops.values() {
         let he = &cyl.half_edges[loop_.half_edge];
@@ -242,9 +228,10 @@ fn cylinder_vertex_positions() {
 #[test]
 fn sphere_topology() {
     let sph = BRep::sphere(1.0, Tolerance::default()).unwrap();
+    // Proper 1-face sphere: V=2, E=1, F=1
     assert_eq!(sph.vertices.len(), 2);
-    assert_eq!(sph.edges.len(), 3);
-    assert_eq!(sph.faces.len(), 3);
+    assert_eq!(sph.edges.len(), 1);
+    assert_eq!(sph.faces.len(), 1);
 }
 
 #[test]
@@ -290,11 +277,12 @@ fn sphere_invalid_radius() {
 #[test]
 fn sphere_faces_have_surface_geometry() {
     let sph = BRep::sphere(1.0, Tolerance::default()).unwrap();
+    assert_eq!(sph.faces.len(), 1, "Should have exactly 1 face");
     for (_, face) in &sph.faces {
         let surface = face
             .surface
             .as_ref()
-            .expect("every sphere face should have surface geometry");
+            .expect("sphere face should have surface geometry");
         match &surface.geometry {
             SurfaceGeometry::Sphere { center, radius } => {
                 assert!(
@@ -311,6 +299,33 @@ fn sphere_faces_have_surface_geometry() {
                 std::mem::discriminant(other)
             ),
         }
+    }
+}
+
+#[test]
+fn sphere_seam_edge_both_half_edges_on_same_face() {
+    let sph = BRep::sphere(1.0, Tolerance::default()).unwrap();
+    for edge in sph.edges.values() {
+        let he = &sph.half_edges[edge.half_edge];
+        let twin = &sph.half_edges[he.twin];
+        let face_he = sph.loops[he.loop_].face;
+        let face_twin = sph.loops[twin.loop_].face;
+        assert_eq!(
+            face_he, face_twin,
+            "Seam edge should have both halves on the same face"
+        );
+    }
+}
+
+#[test]
+fn sphere_loop_has_two_half_edges() {
+    let sph = BRep::sphere(1.0, Tolerance::default()).unwrap();
+    for loop_ in sph.loops.values() {
+        let start = loop_.half_edge;
+        let next = sph.half_edges[start].next;
+        let after_next = sph.half_edges[next].next;
+        assert_ne!(start, next, "Loop should have more than 1 half-edge");
+        assert_eq!(after_next, start, "Loop should have exactly 2 half-edges");
     }
 }
 

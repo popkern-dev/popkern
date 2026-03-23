@@ -70,10 +70,10 @@ impl BRep {
             }
 
             if count < 2 {
-                // Allow valence-1 degenerate vertices (e.g. cone apex) where
-                // the single edge is a seam: both half-edges on the same face,
-                // and the containing loop has at least 3 half-edges (ruling out
-                // trivial wire-only topologies).
+                // Allow valence-1 degenerate vertices (e.g. cone apex, sphere
+                // poles) where the single edge is a seam: both half-edges on
+                // the same face, and the containing loop has at least 2
+                // half-edges (ruling out trivial wire-only topologies).
                 if count == 1 {
                     let he = &self.half_edges[start];
                     if let Some(twin_data) = self.half_edges.get(he.twin) {
@@ -88,7 +88,7 @@ impl BRep {
                                 loop_len += 1;
                                 lc = self.half_edges[lc].next;
                             }
-                            if loop_len >= 3 {
+                            if loop_len >= 2 {
                                 continue;
                             }
                         }
@@ -149,14 +149,15 @@ mod tests {
     }
 
     #[test]
-    fn single_edge_fails_vertex_valence() {
+    fn single_seam_edge_passes_vertex_valence() {
         let mut brep = BRep::new(Tolerance::default());
         let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
         let _mev = brep
             .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
             .unwrap();
-        // Each vertex has valence 1 — should fail.
-        assert!(brep.validate_vertex_valence().is_err());
+        // Each vertex has valence 1, but both half-edges share the same
+        // face (seam topology, like a sphere). This is allowed.
+        assert!(brep.validate_vertex_valence().is_ok());
     }
 
     #[test]
