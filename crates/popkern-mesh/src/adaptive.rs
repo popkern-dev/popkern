@@ -1,9 +1,5 @@
 //! Chord-height adaptive UV-grid subdivision for parametric surfaces.
 
-// These items are pub(crate) and consumed by the tessellation module (Task 3).
-// Suppress dead-code lints until the callsite is added.
-#![allow(dead_code)]
-
 use popkern_core::geometry::{Point3, SurfaceEval, SurfaceGeometry};
 
 /// A rectangular cell in UV parameter space.

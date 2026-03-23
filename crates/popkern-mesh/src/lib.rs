@@ -7,6 +7,7 @@
 
 mod adaptive;
 mod mesh;
+mod tessellate;
 
 pub use mesh::{FaceMesh, MeshVertex, TriMesh};
 
@@ -61,8 +62,8 @@ pub enum MeshError {
 /// Tessellate every face of `brep` into a combined [`TriMesh`].
 ///
 /// The `options` parameter controls chord-height tolerance and subdivision limits.
-pub fn tessellate(_brep: &BRep, _options: &TessellationOptions) -> Result<TriMesh, MeshError> {
-    todo!()
+pub fn tessellate(brep: &BRep, options: &TessellationOptions) -> Result<TriMesh, MeshError> {
+    tessellate::tessellate_brep(brep, options)
 }
 
 /// Export a [`TriMesh`] to the STL binary format, writing to `writer`.
