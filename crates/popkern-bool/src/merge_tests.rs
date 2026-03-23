@@ -308,3 +308,29 @@ fn merge_loop_half_edges_form_cycle() {
         assert!(count >= 3, "loop should have at least 3 half-edges");
     }
 }
+
+#[test]
+fn merge_preserves_pcurves() {
+    let cube = BRep::unit_cube(tol()).expect("cube");
+    // Verify source has pcurves.
+    assert!(
+        cube.half_edges.values().all(|he| he.pcurve.is_some()),
+        "source cube should have pcurves"
+    );
+
+    let empty = BRep::new(tol());
+    let split = identity_split(cube, empty);
+    let selection = select_a_only(&split);
+    let result = merge_faces(&split, &selection, &tol()).expect("merge");
+
+    let with_pcurves = result
+        .half_edges
+        .values()
+        .filter(|he| he.pcurve.is_some())
+        .count();
+    assert_eq!(
+        with_pcurves,
+        result.half_edges.len(),
+        "all merged half-edges should preserve pcurves"
+    );
+}
