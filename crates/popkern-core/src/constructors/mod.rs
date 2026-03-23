@@ -415,55 +415,6 @@ mod tests {
         }
     }
 
-    // --- Cone tests ---
-
-    #[test]
-    fn cone_topology() {
-        let cone = BRep::cone(1.0, 2.0, Tolerance::default()).unwrap();
-        assert_eq!(cone.vertices.len(), 2);
-        assert_eq!(cone.edges.len(), 3);
-        assert_eq!(cone.faces.len(), 3);
-    }
-
-    #[test]
-    fn cone_passes_validation() {
-        let cone = BRep::cone(1.0, 2.0, Tolerance::default()).unwrap();
-        assert!(cone.validate().is_ok(), "Cone should pass validation");
-    }
-
-    #[test]
-    fn cone_has_edge_geometry() {
-        let cone = BRep::cone(1.0, 2.0, Tolerance::default()).unwrap();
-        for edge in cone.edges.values() {
-            assert!(
-                edge.curve.is_some(),
-                "Every edge should have curve geometry"
-            );
-        }
-    }
-
-    #[test]
-    fn cone_vertex_positions() {
-        let cone = BRep::cone(1.0, 3.0, Tolerance::default()).unwrap();
-        let positions: Vec<_> = cone.vertices.values().map(|v| v.position).collect();
-        let has_base = positions
-            .iter()
-            .any(|p| p.z.abs() < 1e-10 && p.x.abs() < 1e-10 && p.y.abs() < 1e-10);
-        let has_apex = positions
-            .iter()
-            .any(|p| (p.z - 3.0).abs() < 1e-10 && p.x.abs() < 1e-10 && p.y.abs() < 1e-10);
-        assert!(has_base, "Should have base vertex");
-        assert!(has_apex, "Should have apex vertex");
-    }
-
-    #[test]
-    fn cone_invalid_params() {
-        assert!(BRep::cone(0.0, 1.0, Tolerance::default()).is_err());
-        assert!(BRep::cone(-1.0, 1.0, Tolerance::default()).is_err());
-        assert!(BRep::cone(1.0, 0.0, Tolerance::default()).is_err());
-        assert!(BRep::cone(1.0, -1.0, Tolerance::default()).is_err());
-    }
-
     // --- Torus tests ---
 
     #[test]

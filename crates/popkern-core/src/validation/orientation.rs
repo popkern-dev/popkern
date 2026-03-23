@@ -20,9 +20,11 @@ impl BRep {
                 continue;
             };
 
-            // Sample the normal at the midpoint of the parameter range.
+            // Sample the normal at a representative interior parameter point.
             // We avoid (0, 0) because some surfaces (e.g. spheres) have
             // degenerate normals at parameter-space corners (poles).
+            // For semi-infinite ranges (e.g. a cone's v in [0, ∞)), using
+            // v=0 hits the apex (degenerate), so we fall back to v=1.0.
             let ((u0, u1), (v0, v1)) = surface_on_face.geometry.parameter_range();
             let u_mid = if u0.is_finite() && u1.is_finite() {
                 0.5 * (u0 + u1)
@@ -31,6 +33,10 @@ impl BRep {
             };
             let v_mid = if v0.is_finite() && v1.is_finite() {
                 0.5 * (v0 + v1)
+            } else if v0.is_finite() {
+                // Semi-infinite upward (e.g. [0, ∞)): use v0 + 1.0 to stay off
+                // any degenerate apex at v0.
+                v0 + 1.0
             } else {
                 0.0
             };
