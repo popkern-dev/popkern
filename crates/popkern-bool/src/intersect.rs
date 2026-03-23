@@ -18,63 +18,16 @@ use crate::error::{BoolDiagnostics, BoolError, Stage};
 
 /// Compute bounded parameter ranges for a face's surface.
 ///
-/// For surfaces with infinite parameter ranges (e.g. planes), projects the face's
-/// boundary vertices into UV space and returns a padded bounding range. For surfaces
-/// with finite ranges, returns the surface's own parameter range unchanged.
+/// Delegates to the shared `popkern_core::geometry::uv_projection` helper,
+/// which handles analytic UV projection for planes, cylinders, cones, and
+/// spheres.
 fn bounded_parameter_range(
     brep: &BRep,
     face_handle: FaceHandle,
     surface: &popkern_core::geometry::surface::SurfaceGeometry,
 ) -> ((f64, f64), (f64, f64)) {
-    let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
-
-    // Only override for infinite ranges.
-    if u_min.is_finite() && u_max.is_finite() && v_min.is_finite() && v_max.is_finite() {
-        return ((u_min, u_max), (v_min, v_max));
-    }
-
-    // Project face boundary vertices into UV space.
     let positions = face_vertex_positions(brep, face_handle);
-    if positions.is_empty() {
-        return ((u_min, u_max), (v_min, v_max));
-    }
-
-    match surface {
-        popkern_core::geometry::surface::SurfaceGeometry::Plane {
-            origin,
-            u_axis,
-            v_axis,
-            ..
-        } => {
-            // Use the same dot-product projection that clip_line_to_uv_boxes uses
-            // in try_plane_plane, so ranges are consistent with the clipping.
-            let mut uv_min = (f64::INFINITY, f64::INFINITY);
-            let mut uv_max = (f64::NEG_INFINITY, f64::NEG_INFINITY);
-            for pos in &positions {
-                let d = *pos - *origin;
-                let u = d.dot(u_axis);
-                let v = d.dot(v_axis);
-                uv_min.0 = uv_min.0.min(u);
-                uv_min.1 = uv_min.1.min(v);
-                uv_max.0 = uv_max.0.max(u);
-                uv_max.1 = uv_max.1.max(v);
-            }
-            // Add generous padding so that try_plane_plane's UV clipping doesn't
-            // exclude the true intersection. The face-polygon clipping in
-            // clip_curve_to_faces will do the precise 3D trimming afterwards.
-            let u_pad = ((uv_max.0 - uv_min.0) * 0.5).max(1.0);
-            let v_pad = ((uv_max.1 - uv_min.1) * 0.5).max(1.0);
-            (
-                (uv_min.0 - u_pad, uv_max.0 + u_pad),
-                (uv_min.1 - v_pad, uv_max.1 + v_pad),
-            )
-        }
-        _ => {
-            // For non-plane infinite surfaces (cylinder axis, cone, etc.),
-            // fall back to the surface's own range.
-            ((u_min, u_max), (v_min, v_max))
-        }
-    }
+    popkern_core::geometry::uv_projection::bounded_parameter_range(&positions, surface)
 }
 
 /// A single face-face intersection record.

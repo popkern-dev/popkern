@@ -106,69 +106,41 @@ pub(crate) fn tessellate_face(
 
 /// Compute a bounded parameter range for a face's surface.
 ///
-/// For planar surfaces (which have infinite parameter ranges), projects
-/// the face's boundary vertices onto the plane's parametric axes to
-/// determine a finite UV extent. For all other surface types, uses
-/// [`SurfaceEval::parameter_range`] directly.
+/// Delegates to the shared `popkern_core::geometry::uv_projection` helper,
+/// which handles analytic UV projection for planes, cylinders, cones, and
+/// spheres.
 fn bounded_parameter_range(
     brep: &BRep,
     face_handle: FaceHandle,
     surface: &SurfaceGeometry,
 ) -> ((f64, f64), (f64, f64)) {
-    match surface {
-        SurfaceGeometry::Plane {
-            origin,
-            u_axis,
-            v_axis,
-            ..
-        } => {
-            // Walk the face's outer loop to collect vertex positions.
-            let face = &brep.faces[face_handle];
-            let loop_ = &brep.loops[face.outer_loop];
-            let start_he = loop_.half_edge;
+    let positions = face_vertex_positions(brep, face_handle);
+    popkern_core::geometry::uv_projection::bounded_parameter_range(&positions, surface)
+}
 
-            let mut u_min = f64::INFINITY;
-            let mut u_max = f64::NEG_INFINITY;
-            let mut v_min = f64::INFINITY;
-            let mut v_max = f64::NEG_INFINITY;
-
-            let mut current = start_he;
-            loop {
-                let he = &brep.half_edges[current];
-                let vertex = &brep.vertices[he.origin];
-                let delta = vertex.position - *origin;
-                let u = delta.dot(u_axis);
-                let v = delta.dot(v_axis);
-
-                if u < u_min {
-                    u_min = u;
-                }
-                if u > u_max {
-                    u_max = u;
-                }
-                if v < v_min {
-                    v_min = v;
-                }
-                if v > v_max {
-                    v_max = v;
-                }
-
-                current = he.next;
-                if current == start_he {
-                    break;
-                }
-            }
-
-            // Add small padding (1% of range or epsilon).
-            let u_pad = (u_max - u_min).abs() * 0.01 + 1e-10;
-            let v_pad = (v_max - v_min).abs() * 0.01 + 1e-10;
-            (
-                (u_min - u_pad, u_max + u_pad),
-                (v_min - v_pad, v_max + v_pad),
-            )
-        }
-        _ => surface.parameter_range(),
+/// Collect vertex positions from the outer loop of a face by walking half-edges.
+fn face_vertex_positions(
+    brep: &BRep,
+    face_handle: FaceHandle,
+) -> Vec<popkern_core::geometry::Point3> {
+    let face = &brep.faces[face_handle];
+    let loop_ = &brep.loops[face.outer_loop];
+    let start_he = loop_.half_edge;
+    if !brep.half_edges.contains_key(start_he) {
+        return Vec::new();
     }
+    let mut positions = Vec::new();
+    let mut current = start_he;
+    loop {
+        let he = &brep.half_edges[current];
+        let vertex = &brep.vertices[he.origin];
+        positions.push(vertex.position);
+        current = he.next;
+        if current == start_he {
+            break;
+        }
+    }
+    positions
 }
 
 /// Tessellate all faces of a BRep into a combined [`TriMesh`].

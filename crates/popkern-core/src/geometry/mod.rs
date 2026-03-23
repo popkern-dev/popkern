@@ -12,6 +12,7 @@ pub mod nurbs_surface;
 pub mod point;
 pub mod revolution;
 pub mod surface;
+pub mod uv_projection;
 pub mod vector;
 
 pub use curve::{CurveEval, CurveGeometry, CurveOnEdge};
