@@ -248,6 +248,11 @@ pub(crate) fn uv_range_from_crossings(
             let t_enter = crossings[0].t_curve;
             let t_exit = crossings[crossings.len() - 1].t_curve;
             if t_exit - t_enter < 1e-15 {
+                // Near-zero range — crossings are at the same point.
+                // For closed curves this means tangent touch (still inside).
+                if is_closed {
+                    return Some((t_min, t_max));
+                }
                 return None;
             }
             Some((t_enter, t_exit))
