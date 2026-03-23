@@ -43,6 +43,8 @@ pub use error::{
 
 #[cfg(test)]
 mod integration_tests;
+#[cfg(test)]
+mod integration_tests_curved;
 
 use popkern_core::{tolerance::Tolerance, topology::BRep};
 
