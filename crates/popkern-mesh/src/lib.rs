@@ -5,6 +5,7 @@
 //! This crate provides adaptive tessellation of BRep solids into triangle meshes,
 //! and export to common mesh formats (STL, OBJ, glTF).
 
+mod adaptive;
 mod mesh;
 
 pub use mesh::{FaceMesh, MeshVertex, TriMesh};
