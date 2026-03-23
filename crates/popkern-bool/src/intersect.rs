@@ -3,9 +3,6 @@
 //! Given two BRep solids, finds all intersection curves between their faces
 //! using AABB filtering followed by surface-surface intersection.
 
-// Items in this module are consumed by the pipeline orchestrator (not yet written).
-#![allow(dead_code)]
-
 use popkern_core::geometry::curve_on_surface::CurveOnSurface;
 use popkern_core::{
     geometry::{

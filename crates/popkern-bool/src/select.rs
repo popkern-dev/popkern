@@ -4,9 +4,6 @@
 //! decides which fragments to keep in the result solid and which need their normals flipped.
 //! This stage is pure table-driven logic — no geometry, no external dependencies beyond types.
 
-// Items in this module are consumed by the pipeline orchestrator (not yet written).
-#![allow(dead_code)]
-
 use std::collections::HashSet;
 
 use popkern_core::topology::FaceHandle;

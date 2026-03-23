@@ -28,6 +28,7 @@ pub(crate) mod classify;
 pub mod error;
 pub(crate) mod intersect;
 pub(crate) mod merge;
+pub(crate) mod operation;
 pub(crate) mod select;
 pub(crate) mod split;
 
@@ -50,7 +51,7 @@ use popkern_core::{tolerance::Tolerance, topology::BRep};
 /// * `b` — the second (right-hand) operand solid.
 /// * `tol` — geometric tolerance for all distance and coincidence tests.
 pub fn boolean(op: BoolOperation, a: BRep, b: BRep, tol: Tolerance) -> Result<BRep, BoolError> {
-    boolean_ref(op, &a, &b, tol)
+    operation::execute_boolean(op, a, b, &tol)
 }
 
 /// Perform a boolean operation on two solids, borrowing both inputs.
@@ -70,8 +71,7 @@ pub fn boolean_ref(
     b: &BRep,
     tol: Tolerance,
 ) -> Result<BRep, BoolError> {
-    let _ = (op, a, b, tol);
-    todo!("boolean pipeline not yet implemented")
+    operation::execute_boolean(op, a.clone(), b.clone(), &tol)
 }
 
 /// Compute the union of two solids (A ∪ B), consuming both inputs.

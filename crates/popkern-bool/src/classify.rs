@@ -5,9 +5,6 @@
 //! point on the fragment, and transversal crossings with the solid's faces are
 //! counted. Odd crossings indicate inside, even indicate outside.
 
-// Items in this module are consumed by the pipeline orchestrator (not yet written).
-#![allow(dead_code)]
-
 use std::collections::{HashMap, HashSet};
 
 use popkern_core::{

@@ -4,8 +4,6 @@
 //! affected face to produce face fragments. Tracks provenance (which original
 //! face each fragment came from) and which edges were created by splitting.
 
-#![allow(dead_code)]
-
 use std::collections::{HashMap, HashSet};
 
 use popkern_core::{
