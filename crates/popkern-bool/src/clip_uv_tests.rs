@@ -4,7 +4,7 @@ use popkern_core::{
     tolerance::Tolerance,
     topology::BRep,
 };
-use std::f64::consts::FRAC_1_SQRT_2;
+use std::f64::consts::{FRAC_1_SQRT_2, PI, TAU};
 
 fn tol() -> Tolerance {
     Tolerance::default()
@@ -216,5 +216,179 @@ fn uv_range_from_crossings_open_no_crossings_returns_none() {
     assert!(
         result.is_none(),
         "open curve with 0 crossings should return None"
+    );
+}
+
+// ── is_near_seam tests ──────────────────────────────────────────────────
+
+#[test]
+fn is_near_seam_returns_true_for_small_u() {
+    let curve = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![Point3::new(0.1, 0.5, 0.0), Point3::new(0.5, 0.5, 0.0)],
+        weights: vec![1.0, 1.0],
+    };
+    assert!(super::is_near_seam(&curve), "u=0.1 is below pi/4");
+}
+
+#[test]
+fn is_near_seam_returns_true_for_large_u() {
+    let curve = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![Point3::new(6.0, 0.5, 0.0), Point3::new(PI, 0.5, 0.0)],
+        weights: vec![1.0, 1.0],
+    };
+    assert!(super::is_near_seam(&curve), "u=6.0 is above 7*pi/4");
+}
+
+#[test]
+fn is_near_seam_returns_false_for_mid_range() {
+    let curve = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![Point3::new(PI, 0.5, 0.0), Point3::new(PI + 0.5, 0.5, 0.0)],
+        weights: vec![1.0, 1.0],
+    };
+    assert!(!super::is_near_seam(&curve), "u around pi is far from seam");
+}
+
+// ── shift_curve_u tests ─────────────────────────────────────────────────
+
+#[test]
+fn shift_curve_u_wraps_to_period() {
+    let curve = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![Point3::new(0.1, 0.5, 0.0), Point3::new(6.0, 0.5, 0.0)],
+        weights: vec![1.0, 1.0],
+    };
+    let shifted = super::shift_curve_u(&curve, PI);
+    // 0.1 + pi should stay as-is (< 2pi).
+    assert!(
+        (shifted.control_points[0].x - (0.1 + PI)).abs() < 1e-12,
+        "0.1 + pi should not wrap"
+    );
+    // 6.0 + pi wraps: (6.0 + pi) mod 2pi
+    let expected = (6.0 + PI).rem_euclid(TAU);
+    assert!(
+        (shifted.control_points[1].x - expected).abs() < 1e-12,
+        "6.0 + pi should wrap"
+    );
+    // Y coordinates unchanged.
+    assert!((shifted.control_points[0].y - 0.5).abs() < 1e-12);
+}
+
+#[test]
+fn shift_curve_u_preserves_degree_and_knots() {
+    let curve = NurbsCurve {
+        degree: 2,
+        knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(2.0, 1.0, 0.0),
+            Point3::new(3.0, 0.0, 0.0),
+        ],
+        weights: vec![1.0, 1.0, 1.0],
+    };
+    let shifted = super::shift_curve_u(&curve, 0.5);
+    assert_eq!(shifted.degree, 2);
+    assert_eq!(shifted.knots, curve.knots);
+    assert_eq!(shifted.weights, curve.weights);
+}
+
+// ── find_uv_crossings with seam-crossing boundary ───────────────────────
+
+/// Helper: build a quad face and assign pcurves to its half-edges.
+fn build_face_with_pcurves(
+    uv_corners: [(Point3, Point3); 4],
+) -> (BRep, popkern_core::topology::FaceHandle) {
+    let tol = Tolerance::default();
+    let mut brep = BRep::new(tol);
+    let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).expect("mvfs");
+    let mev1 = brep
+        .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+        .expect("mev1");
+    let mev2 = brep
+        .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
+        .expect("mev2");
+    let mev3 = brep
+        .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
+        .expect("mev3");
+    let mef = brep.mef(mev3.half_edge_twin, mev1.half_edge).expect("mef");
+
+    let face_data = &brep.faces[mef.face];
+    let loop_data = brep.loops.get(face_data.outer_loop).expect("loop");
+    let start = loop_data.half_edge;
+    let mut cursor = start;
+    for (i, (p0, p1)) in uv_corners.iter().enumerate() {
+        let pcurve = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![*p0, *p1],
+            weights: vec![1.0, 1.0],
+        };
+        brep.half_edges[cursor].pcurve = Some(pcurve);
+        cursor = brep.half_edges[cursor].next;
+        if cursor == start && i < 3 {
+            break;
+        }
+    }
+    (brep, mef.face)
+}
+
+#[test]
+fn find_uv_crossings_near_seam_finds_crossings() {
+    // Boundary spans the seam: u=[5.5, 0.8].
+    let (brep, face) = build_face_with_pcurves([
+        (Point3::new(5.5, 0.0, 0.0), Point3::new(0.8, 0.0, 0.0)),
+        (Point3::new(0.8, 0.0, 0.0), Point3::new(0.8, 1.0, 0.0)),
+        (Point3::new(0.8, 1.0, 0.0), Point3::new(5.5, 1.0, 0.0)),
+        (Point3::new(5.5, 1.0, 0.0), Point3::new(5.5, 0.0, 0.0)),
+    ]);
+
+    // Curve near u=0.1 crossing the face in v direction.
+    let curve_uv = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![Point3::new(0.1, -0.5, 0.0), Point3::new(0.1, 1.5, 0.0)],
+        weights: vec![1.0, 1.0],
+    };
+
+    let crossings = super::find_uv_crossings(&brep, face, &curve_uv, &tol());
+    assert!(crossings.is_some(), "should produce crossings");
+    let crossings = crossings.expect("verified");
+    assert!(
+        crossings.len() >= 2,
+        "curve crossing seam-spanning face should have >= 2 crossings, got {}",
+        crossings.len()
+    );
+}
+
+#[test]
+fn find_uv_crossings_far_from_seam_unaffected() {
+    // Boundary in [1,2]x[0,1] — no seam.
+    let (brep, face) = build_face_with_pcurves([
+        (Point3::new(1.0, 0.0, 0.0), Point3::new(2.0, 0.0, 0.0)),
+        (Point3::new(2.0, 0.0, 0.0), Point3::new(2.0, 1.0, 0.0)),
+        (Point3::new(2.0, 1.0, 0.0), Point3::new(1.0, 1.0, 0.0)),
+        (Point3::new(1.0, 1.0, 0.0), Point3::new(1.0, 0.0, 0.0)),
+    ]);
+
+    let curve_uv = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![Point3::new(1.5, -0.5, 0.0), Point3::new(1.5, 1.5, 0.0)],
+        weights: vec![1.0, 1.0],
+    };
+
+    let crossings = super::find_uv_crossings(&brep, face, &curve_uv, &tol());
+    assert!(crossings.is_some());
+    let crossings = crossings.expect("verified");
+    assert!(
+        crossings.len() >= 2,
+        "curve through mid-range face should have >= 2 crossings, got {}",
+        crossings.len()
     );
 }

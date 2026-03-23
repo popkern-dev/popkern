@@ -20,6 +20,40 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 pub(crate) use clip_line::{clip_curve_to_single_face, clip_line_to_face};
 
+/// Two-pi constant for periodic seam handling.
+const TWO_PI: f64 = std::f64::consts::TAU;
+
+/// Returns true if any control point of a UV curve has a u-coordinate
+/// near the periodic seam (u < pi/4 or u > 7*pi/4).
+pub(crate) fn is_near_seam(curve: &NurbsCurve) -> bool {
+    let quarter = std::f64::consts::FRAC_PI_4;
+    let seven_quarter = 7.0 * quarter;
+    curve
+        .control_points
+        .iter()
+        .any(|p| p.x < quarter || p.x > seven_quarter)
+}
+
+/// Shift all control point x-coordinates by `shift`, wrapping to [0, 2*pi].
+pub(crate) fn shift_curve_u(curve: &NurbsCurve, shift: f64) -> NurbsCurve {
+    let shifted_points = curve
+        .control_points
+        .iter()
+        .map(|p| {
+            let mut u = p.x + shift;
+            // Wrap to [0, 2*pi).
+            u = u.rem_euclid(TWO_PI);
+            Point3::new(u, p.y, p.z)
+        })
+        .collect();
+    NurbsCurve {
+        degree: curve.degree,
+        knots: curve.knots.clone(),
+        control_points: shifted_points,
+        weights: curve.weights.clone(),
+    }
+}
+
 /// Collect vertex positions from the outer loop of a face by walking half-edges.
 ///
 /// Returns an empty `Vec` if the face's loop has no valid half-edges.
@@ -102,16 +136,33 @@ pub(crate) fn find_uv_crossings(
         return Some(crossings);
     }
 
+    // Detect if any curves are near the periodic seam and shift by +pi
+    // to move the working region away from the u=0/2pi discontinuity.
+    let needs_shift = is_near_seam(curve_uv) || boundary.iter().any(|(_, pc)| is_near_seam(pc));
+    let shift = std::f64::consts::PI;
+
+    let working_curve = if needs_shift {
+        shift_curve_u(curve_uv, shift)
+    } else {
+        curve_uv.clone()
+    };
+
     for (_he_handle, boundary_pcurve) in &boundary {
         let boundary_range = boundary_pcurve.parameter_range();
         if (boundary_range.1 - boundary_range.0).abs() < 1e-15 {
             continue;
         }
 
+        let working_boundary = if needs_shift {
+            shift_curve_u(boundary_pcurve, shift)
+        } else {
+            boundary_pcurve.clone()
+        };
+
         let result = intersect_curves(
-            &CurveGeometry::Nurbs(boundary_pcurve.clone()),
+            &CurveGeometry::Nurbs(working_boundary),
             boundary_range,
-            &CurveGeometry::Nurbs(curve_uv.clone()),
+            &CurveGeometry::Nurbs(working_curve.clone()),
             curve_range,
             tolerance,
         );
