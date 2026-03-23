@@ -90,11 +90,19 @@ fn cylinder_through_cube_subtraction_produces_result() {
     );
     let result =
         crate::subtraction(cube, cyl, t).expect("cylinder-cube subtraction should succeed");
-    // Subtraction includes the cube faces + cylinder lateral face (classified inside).
+    // Subtraction: 6 cube faces (top/bottom have inner loops for cylinder holes)
+    // + 1 cylinder lateral face (classified inside the cube, flipped).
     assert!(
         result.faces.len() > 6,
         "Subtraction should have more faces than cube alone, got {}",
         result.faces.len()
+    );
+    // The top and bottom cube faces should have inner loops (holes).
+    let inner_loop_count: usize = result.faces.values().map(|f| f.inner_loops.len()).sum();
+    assert!(
+        inner_loop_count >= 2,
+        "Should have at least 2 inner loops (cylinder holes), got {}",
+        inner_loop_count
     );
 }
 
