@@ -178,14 +178,28 @@ fn containment_intersection_returns_inner() {
 }
 
 #[test]
-fn containment_subtraction_returns_error() {
+fn containment_subtraction_a_inside_b_is_empty() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = scale_to_enclosing(BRep::unit_cube(tol()).unwrap());
-    let result = crate::subtraction(a, b, tol());
-    assert!(
-        result.is_err(),
-        "Subtraction with A inside B should fail (requires KFMRH)"
-    );
+    let result = crate::subtraction(a, b, tol()).expect("A inside B subtraction should succeed");
+    assert_eq!(result.faces.len(), 0, "A inside B: A − B should be empty");
+}
+
+#[test]
+fn containment_subtraction_hollow_solid() {
+    // outer − inner = hollow solid with 12 faces.
+    let outer = BRep::unit_cube(tol()).unwrap();
+    let mut inner = BRep::unit_cube(tol()).unwrap();
+    for (_, v) in &mut inner.vertices {
+        v.position = Point3::new(
+            v.position.x * 0.6 + 0.2,
+            v.position.y * 0.6 + 0.2,
+            v.position.z * 0.6 + 0.2,
+        );
+    }
+    let result =
+        crate::subtraction(outer, inner, tol()).expect("hollow subtraction should succeed");
+    assert_eq!(result.faces.len(), 12, "hollow solid should have 12 faces");
 }
 
 // ── _ref variants ──────────────────────────────────────────────────────

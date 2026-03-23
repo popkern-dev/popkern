@@ -42,7 +42,14 @@ pub(crate) fn execute_boolean(
 
     // No-intersection shortcut.
     if intersection_result.records.is_empty() {
-        return handle_no_intersection(op, a, b, &intersection_result.aabbs_b, tolerance);
+        return handle_no_intersection(
+            op,
+            a,
+            b,
+            &intersection_result.aabbs_a,
+            &intersection_result.aabbs_b,
+            tolerance,
+        );
     }
 
     // Stage 2: Split — trim faces along intersection curves.
@@ -94,6 +101,10 @@ fn handle_no_intersection(
     op: BoolOperation,
     a: BRep,
     b: BRep,
+    aabbs_a: &[(
+        popkern_core::topology::FaceHandle,
+        popkern_core::geometry::intersection::surface_subdivision::Aabb,
+    )],
     aabbs_b: &[(
         popkern_core::topology::FaceHandle,
         popkern_core::geometry::intersection::surface_subdivision::Aabb,
@@ -101,19 +112,35 @@ fn handle_no_intersection(
     tolerance: &Tolerance,
 ) -> Result<BRep, BoolError> {
     // Pick a vertex from A to classify against B.
-    let sample_point = a
+    let sample_point_a = a
         .vertices
         .values()
         .next()
         .map(|v| v.position)
         .ok_or_else(|| BoolError::DegenerateInput("solid A has no vertices".to_string()))?;
 
-    let classification = point_in_solid(&sample_point, &b, aabbs_b, tolerance)?;
+    let classification = point_in_solid(&sample_point_a, &b, aabbs_b, tolerance)?;
 
     match classification {
         PointClassification::Outside => {
-            // Disjoint: A is entirely outside B.
-            handle_disjoint(op, a, b, tolerance)
+            // A's sample point is outside B. Check reverse: is B inside A?
+            let sample_point_b = b
+                .vertices
+                .values()
+                .next()
+                .map(|v| v.position)
+                .ok_or_else(|| BoolError::DegenerateInput("solid B has no vertices".to_string()))?;
+            let reverse = point_in_solid(&sample_point_b, &a, aabbs_a, tolerance)?;
+            match reverse {
+                PointClassification::Inside => {
+                    // B is inside A — reverse containment.
+                    handle_reverse_containment(op, a, b, tolerance)
+                }
+                _ => {
+                    // Truly disjoint.
+                    handle_disjoint(op, a, b, tolerance)
+                }
+            }
         }
         PointClassification::Inside => {
             // Containment: A is entirely inside B.
@@ -157,7 +184,7 @@ fn handle_containment(
     op: BoolOperation,
     a: BRep,
     b: BRep,
-    _tolerance: &Tolerance,
+    tolerance: &Tolerance,
 ) -> Result<BRep, BoolError> {
     match op {
         BoolOperation::Union => {
@@ -169,20 +196,55 @@ fn handle_containment(
             Ok(a)
         }
         BoolOperation::Subtraction => {
-            // A − B when A is inside B would produce a hollow solid.
-            // This requires KFMRH which is not yet implemented.
-            Err(BoolError::MergeFailed {
-                stage: "no_intersection".to_string(),
-                reason: "subtraction with contained solid requires KFMRH (not yet implemented)"
-                    .to_string(),
-            })
+            // A − B when A is inside B: A is entirely consumed by B, result is empty.
+            Ok(BRep::new(*tolerance))
         }
     }
 }
 
+/// Handle reverse containment (B is entirely inside A) with no intersections.
+fn handle_reverse_containment(
+    op: BoolOperation,
+    a: BRep,
+    b: BRep,
+    tolerance: &Tolerance,
+) -> Result<BRep, BoolError> {
+    match op {
+        BoolOperation::Union => {
+            // A fully contains B, so union is just A.
+            Ok(a)
+        }
+        BoolOperation::Intersection => {
+            // B is inside A, so intersection is B.
+            Ok(b)
+        }
+        BoolOperation::Subtraction => {
+            // A − B when B is inside A: hollow solid (A with B-shaped void).
+            build_hollow_solid(a, b, tolerance)
+        }
+    }
+}
+
+/// Build a hollow solid: A with a B-shaped void inside.
+///
+/// Copies all of B's topology into A with flipped surface normals, creating
+/// an inner void. The result has A's original outer faces plus B's faces
+/// with inverted orientation.
+fn build_hollow_solid(a: BRep, b: BRep, _tolerance: &Tolerance) -> Result<BRep, BoolError> {
+    copy_brep_into(a, b, true)
+}
+
 /// Combine two disjoint BReps into a single BRep by copying all topology
 /// from `b` into `a`.
-fn combine_breps(mut a: BRep, b: BRep) -> Result<BRep, BoolError> {
+fn combine_breps(a: BRep, b: BRep) -> Result<BRep, BoolError> {
+    copy_brep_into(a, b, false)
+}
+
+/// Copy all topology from `b` into `a`, optionally flipping B's face normals.
+///
+/// When `flip_b_normals` is true, the surface orientation on every copied face
+/// is inverted, producing an inner void shell for hollow-solid subtraction.
+fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, BoolError> {
     use popkern_core::topology::{Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
     use std::collections::HashMap;
 
@@ -267,13 +329,23 @@ fn combine_breps(mut a: BRep, b: BRep) -> Result<BRep, BoolError> {
         sh_map.insert(old_h, new_h);
     }
 
-    // Copy faces (with placeholders).
+    // Copy faces, optionally flipping surface orientation.
     for (old_h, f) in &b.faces {
+        let surface = if flip_b_normals {
+            f.surface
+                .as_ref()
+                .map(|s| popkern_core::geometry::SurfaceOnFace {
+                    geometry: s.geometry.clone(),
+                    orientation: !s.orientation,
+                })
+        } else {
+            f.surface.clone()
+        };
         let new_h = a.faces.insert(Face {
             outer_loop: popkern_core::topology::LoopHandle::default(),
             inner_loops: Vec::new(),
             shell: popkern_core::topology::ShellHandle::default(),
-            surface: f.surface.clone(),
+            surface,
         });
         f_map.insert(old_h, new_h);
     }

@@ -129,7 +129,8 @@ fn into_error_fallback_when_no_error_set() {
 }
 
 #[test]
-fn contained_cube_subtraction_returns_error() {
+fn contained_cube_subtraction_a_inside_b_is_empty() {
+    // A is inside B → A − B = empty (A is entirely consumed).
     let a = BRep::unit_cube(tol()).expect("unit cube a");
     let mut b = BRep::unit_cube(tol()).expect("unit cube b");
     for (_, v) in &mut b.vertices {
@@ -139,6 +140,59 @@ fn contained_cube_subtraction_returns_error() {
             v.position.z * 3.0 - 1.0,
         );
     }
-    let result = execute_boolean(BoolOperation::Subtraction, a, b, &tol());
-    assert!(result.is_err());
+    let result = execute_boolean(BoolOperation::Subtraction, a, b, &tol())
+        .expect("containment subtraction should succeed");
+    assert_eq!(result.faces.len(), 0, "A inside B: A − B should be empty");
+}
+
+#[test]
+fn containment_subtraction_creates_hollow() {
+    // outer − inner when inner is inside outer = hollow solid.
+    let outer = BRep::unit_cube(tol()).expect("outer cube");
+    let mut inner = BRep::unit_cube(tol()).expect("inner cube");
+    for (_, v) in &mut inner.vertices {
+        v.position = popkern_core::geometry::Point3::new(
+            v.position.x * 0.6 + 0.2,
+            v.position.y * 0.6 + 0.2,
+            v.position.z * 0.6 + 0.2,
+        );
+    }
+    let result = execute_boolean(BoolOperation::Subtraction, outer, inner, &tol())
+        .expect("hollow subtraction should succeed");
+    // Should have 12 faces (6 outer + 6 inner flipped).
+    assert_eq!(result.faces.len(), 12);
+}
+
+#[test]
+fn reverse_containment_union_returns_outer() {
+    // B is inside A → union is just A.
+    let mut a = BRep::unit_cube(tol()).expect("unit cube a");
+    for (_, v) in &mut a.vertices {
+        v.position = popkern_core::geometry::Point3::new(
+            v.position.x * 3.0 - 1.0,
+            v.position.y * 3.0 - 1.0,
+            v.position.z * 3.0 - 1.0,
+        );
+    }
+    let b = BRep::unit_cube(tol()).expect("unit cube b");
+    let result = execute_boolean(BoolOperation::Union, a, b, &tol())
+        .expect("reverse containment union should succeed");
+    assert_eq!(result.faces.len(), 6);
+}
+
+#[test]
+fn reverse_containment_intersection_returns_inner() {
+    // B is inside A → intersection is B.
+    let mut a = BRep::unit_cube(tol()).expect("unit cube a");
+    for (_, v) in &mut a.vertices {
+        v.position = popkern_core::geometry::Point3::new(
+            v.position.x * 3.0 - 1.0,
+            v.position.y * 3.0 - 1.0,
+            v.position.z * 3.0 - 1.0,
+        );
+    }
+    let b = BRep::unit_cube(tol()).expect("unit cube b");
+    let result = execute_boolean(BoolOperation::Intersection, a, b, &tol())
+        .expect("reverse containment intersection should succeed");
+    assert_eq!(result.faces.len(), 6);
 }
