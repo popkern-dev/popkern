@@ -1,5 +1,5 @@
 //! Integration tests for boolean operations involving curved surfaces
-//! (cylinder, cone) combined with cubes.
+//! (cylinder, cone, sphere) combined with cubes.
 //!
 //! Uses coarse tolerance (1e-2) throughout to keep marching on curved
 //! surfaces fast.
@@ -71,49 +71,32 @@ fn cylinder_through_cube_union_produces_result() {
         BRep::cylinder(0.3, 2.0, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, -0.5),
     );
-    match crate::union(cube, cyl, t) {
-        Ok(result) => {
-            assert!(
-                result.faces.len() > 6,
-                "Union should have more faces than cube alone, got {}",
-                result.faces.len()
-            );
-        }
-        Err(e) => {
-            // Curved boolean may still fail for complex cases — acceptable
-            eprintln!("cylinder-cube union not yet supported: {e:?}");
-        }
-    }
+    let result = crate::union(cube, cyl, t).expect("cylinder-cube union should succeed");
+    assert!(
+        result.faces.len() > 6,
+        "Union should have more faces than cube alone, got {}",
+        result.faces.len()
+    );
 }
 
 #[test]
 fn cylinder_through_cube_subtraction_produces_result() {
-    // cube − cylinder: the cylinder punches through the unit cube.
+    // cube - cylinder: the cylinder punches through the unit cube.
     let t = coarse_tol();
     let cube = BRep::unit_cube(t.clone()).unwrap();
     let cyl = translate(
         BRep::cylinder(0.3, 2.0, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, -0.5),
     );
-    match crate::subtraction(cube, cyl, t) {
-        Ok(result) => {
-            // Subtraction succeeds — face count should be at least 6 (the cube faces).
-            // Once curved splitting fully lands, expect > 6.
-            assert!(
-                result.faces.len() >= 6,
-                "Subtraction should have at least as many faces as cube, got {}",
-                result.faces.len()
-            );
-            if result.faces.len() == 6 {
-                eprintln!(
-                    "cylinder-cube subtraction returned cube-only faces (curved split pending)"
-                );
-            }
-        }
-        Err(e) => {
-            eprintln!("cylinder-cube subtraction not yet supported: {e:?}");
-        }
-    }
+    let result =
+        crate::subtraction(cube, cyl, t).expect("cylinder-cube subtraction should succeed");
+    // Subtraction succeeds with at least the original cube faces.
+    // Curved face splitting is not yet fully effective, so we accept >= 6.
+    assert!(
+        result.faces.len() >= 6,
+        "Subtraction should have at least as many faces as cube, got {}",
+        result.faces.len()
+    );
 }
 
 // ── Cylinder × cube: disjoint ────────────────────────────────────────────────
@@ -168,15 +151,20 @@ fn disjoint_cylinder_and_cube_subtraction_has_6_faces() {
         6,
         "cube minus disjoint cylinder should still have 6 faces"
     );
+    let errs = result.validate_all();
+    assert!(
+        errs.is_empty(),
+        "disjoint cylinder-cube subtraction should validate: {:?}",
+        errs
+    );
 }
 
 // ── Cylinder × cube: containment (small cylinder inside cube) ────────────────
 
 #[test]
 fn cube_minus_contained_cylinder_returns_ok() {
-    // A small cylinder fully inside the unit cube.  The containment shortcut
-    // should return a hollow result (or the original cube — both are acceptable
-    // at this stage).  It must not panic.
+    // A small cylinder fully inside the unit cube. The containment shortcut
+    // returns the original cube (hollow subtraction not yet implemented).
     let t = coarse_tol();
     let cube = BRep::unit_cube(t.clone()).unwrap();
     // radius 0.1, height 0.3, base at (0.45, 0.45, 0.35) — well inside [0,1]^3
@@ -184,9 +172,13 @@ fn cube_minus_contained_cylinder_returns_ok() {
         BRep::cylinder(0.1, 0.3, t.clone()).unwrap(),
         Vec3::new(0.45, 0.45, 0.35),
     );
-    let result = crate::subtraction(cube, cyl, t);
-    // Containment subtraction may return Ok or Err — both are acceptable.
-    assert!(result.is_ok() || result.is_err());
+    let result =
+        crate::subtraction(cube, cyl, t).expect("contained cylinder subtraction should succeed");
+    assert!(
+        result.faces.len() >= 6,
+        "result should have at least cube faces, got {}",
+        result.faces.len()
+    );
 }
 
 // ── Cone × cube: overlapping ─────────────────────────────────────────────────
@@ -201,22 +193,12 @@ fn cone_through_cube_union_produces_result() {
         BRep::cone(0.4, 2.0, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, -0.5),
     );
-    match crate::union(cube, cone, t) {
-        Ok(result) => {
-            // With correct bounded parameter ranges the marching solver now
-            // attempts cone-plane intersections; until the analytic solver
-            // (Task 7) lands the result may have fewer faces than expected.
-            if result.faces.len() <= 6 {
-                eprintln!(
-                    "cone-cube union produced {} faces (analytic cone solver pending)",
-                    result.faces.len()
-                );
-            }
-        }
-        Err(e) => {
-            eprintln!("cone-cube union not yet supported: {e:?}");
-        }
-    }
+    let result = crate::union(cube, cone, t).expect("cone-cube union should succeed");
+    assert!(
+        result.faces.len() >= 6,
+        "Union should have at least cube faces, got {}",
+        result.faces.len()
+    );
 }
 
 #[test]
@@ -227,25 +209,13 @@ fn cone_through_cube_subtraction_produces_result() {
         BRep::cone(0.4, 2.0, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, -0.5),
     );
-    match crate::subtraction(cube, cone, t) {
-        Ok(result) => {
-            // With correct bounded parameter ranges the marching solver now
-            // attempts cone-plane intersections; until the analytic solver
-            // (Task 7) lands the result may have fewer faces than expected.
-            if result.faces.len() < 6 {
-                eprintln!(
-                    "cone-cube subtraction produced {} faces (analytic cone solver pending)",
-                    result.faces.len()
-                );
-            }
-            if result.faces.len() == 6 {
-                eprintln!("cone-cube subtraction returned cube-only faces (curved split pending)");
-            }
-        }
-        Err(e) => {
-            eprintln!("cone-cube subtraction not yet supported: {e:?}");
-        }
-    }
+    let result = crate::subtraction(cube, cone, t).expect("cone-cube subtraction should succeed");
+    // Subtraction succeeds with at least the original cube faces.
+    assert!(
+        result.faces.len() >= 6,
+        "Subtraction should have at least cube faces, got {}",
+        result.faces.len()
+    );
 }
 
 // ── Cone × cube: disjoint ────────────────────────────────────────────────────
@@ -300,6 +270,12 @@ fn disjoint_cone_and_cube_subtraction_has_6_faces() {
         6,
         "cube minus disjoint cone should still have 6 faces"
     );
+    let errs = result.validate_all();
+    assert!(
+        errs.is_empty(),
+        "disjoint cone-cube subtraction should validate: {:?}",
+        errs
+    );
 }
 
 // ── Cone × cube: containment ────────────────────────────────────────────────
@@ -314,8 +290,151 @@ fn cube_minus_contained_cone_returns_ok() {
         BRep::cone(0.1, 0.2, t.clone()).unwrap(),
         Vec3::new(0.45, 0.45, 0.4),
     );
-    let result = crate::subtraction(cube, cone, t);
-    assert!(result.is_ok() || result.is_err());
+    let result =
+        crate::subtraction(cube, cone, t).expect("contained cone subtraction should succeed");
+    assert!(
+        result.faces.len() >= 6,
+        "result should have at least cube faces, got {}",
+        result.faces.len()
+    );
+}
+
+// ── Sphere × cube: disjoint ─────────────────────────────────────────────────
+
+#[test]
+fn disjoint_sphere_and_cube_union_has_7_faces() {
+    // Sphere at x=5 (well away from unit cube at origin).
+    // A sphere built with BRep::sphere has 1 face.
+    // Expected union face count: 6 (cube) + 1 (sphere) = 7.
+    let t = coarse_tol();
+    let cube = BRep::unit_cube(t.clone()).unwrap();
+    let sphere = translate(
+        BRep::sphere(0.4, t.clone()).unwrap(),
+        Vec3::new(5.0, 0.0, 0.0),
+    );
+    let result = crate::union(cube, sphere, t).unwrap();
+    assert_eq!(
+        result.faces.len(),
+        7,
+        "disjoint union should have 6 + 1 = 7 faces, got {}",
+        result.faces.len()
+    );
+    let errs = result.validate_all();
+    assert!(
+        errs.is_empty(),
+        "disjoint sphere-cube union should validate: {:?}",
+        errs
+    );
+}
+
+#[test]
+fn disjoint_sphere_and_cube_intersection_is_empty() {
+    let t = coarse_tol();
+    let cube = BRep::unit_cube(t.clone()).unwrap();
+    let sphere = translate(
+        BRep::sphere(0.4, t.clone()).unwrap(),
+        Vec3::new(5.0, 0.0, 0.0),
+    );
+    let result = crate::intersection(cube, sphere, t).unwrap();
+    assert_eq!(
+        result.faces.len(),
+        0,
+        "disjoint intersection should be empty"
+    );
+}
+
+#[test]
+fn disjoint_sphere_and_cube_subtraction_has_6_faces() {
+    let t = coarse_tol();
+    let cube = BRep::unit_cube(t.clone()).unwrap();
+    let sphere = translate(
+        BRep::sphere(0.4, t.clone()).unwrap(),
+        Vec3::new(5.0, 0.0, 0.0),
+    );
+    let result = crate::subtraction(cube, sphere, t).unwrap();
+    assert_eq!(
+        result.faces.len(),
+        6,
+        "cube minus disjoint sphere should still have 6 faces"
+    );
+    let errs = result.validate_all();
+    assert!(
+        errs.is_empty(),
+        "disjoint sphere-cube subtraction should validate: {:?}",
+        errs
+    );
+}
+
+// ── Sphere × cube: overlapping ──────────────────────────────────────────────
+
+#[test]
+fn sphere_through_cube_union_produces_result() {
+    // Sphere centered at (0.5, 0.5, 0.5) with radius 0.8 — protrudes from
+    // all faces of the unit cube.
+    let t = coarse_tol();
+    let cube = BRep::unit_cube(t.clone()).unwrap();
+    let sphere = translate(
+        BRep::sphere(0.8, t.clone()).unwrap(),
+        Vec3::new(0.5, 0.5, 0.5),
+    );
+    let result = crate::union(cube, sphere, t).expect("sphere-cube union should succeed");
+    assert!(
+        result.faces.len() >= 1,
+        "Union should produce faces, got {}",
+        result.faces.len()
+    );
+}
+
+#[test]
+fn sphere_through_cube_subtraction_produces_result() {
+    let t = coarse_tol();
+    let cube = BRep::unit_cube(t.clone()).unwrap();
+    let sphere = translate(
+        BRep::sphere(0.8, t.clone()).unwrap(),
+        Vec3::new(0.5, 0.5, 0.5),
+    );
+    let result =
+        crate::subtraction(cube, sphere, t).expect("sphere-cube subtraction should succeed");
+    assert!(
+        result.faces.len() >= 1,
+        "Subtraction should produce faces, got {}",
+        result.faces.len()
+    );
+}
+
+#[test]
+fn sphere_through_cube_intersection_produces_result() {
+    // Sphere-cube intersection succeeds but curved face splitting does not yet
+    // produce interior fragments for this geometry, so the result may be empty.
+    let t = coarse_tol();
+    let cube = BRep::unit_cube(t.clone()).unwrap();
+    let sphere = translate(
+        BRep::sphere(0.8, t.clone()).unwrap(),
+        Vec3::new(0.5, 0.5, 0.5),
+    );
+    let _result =
+        crate::intersection(cube, sphere, t).expect("sphere-cube intersection should succeed");
+    // Once curved splitting fully lands, expect non-empty faces in _result.
+}
+
+// ── Sphere × cube: containment ──────────────────────────────────────────────
+
+#[test]
+fn cube_minus_contained_sphere_returns_ok() {
+    // Small sphere fully inside the unit cube.
+    let t = coarse_tol();
+    let cube = BRep::unit_cube(t.clone()).unwrap();
+    let sphere = translate(
+        BRep::sphere(0.2, t.clone()).unwrap(),
+        Vec3::new(0.5, 0.5, 0.5),
+    );
+    let result =
+        crate::subtraction(cube, sphere, t).expect("contained sphere subtraction should succeed");
+    assert!(
+        result.faces.len() >= 6,
+        "result should have at least cube faces, got {}",
+        result.faces.len()
+    );
 }
 
 // ── Planar regression: cube-cube booleans still validate after curved changes ─

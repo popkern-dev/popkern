@@ -376,3 +376,43 @@ fn tessellate_options_clone_and_debug() {
     let s = format!("{:?}", opts2);
     assert!(s.contains("chord_height"));
 }
+
+// ── Curved boolean tessellation ──────────────────────────────────────
+
+#[test]
+fn tessellate_disjoint_cylinder_cube_union() {
+    let tol = Tolerance::default().with_linear(1e-2);
+    let cube = BRep::unit_cube(tol).unwrap();
+    let cyl = translate(
+        BRep::cylinder(0.3, 1.0, tol).unwrap(),
+        Vec3::new(5.0, 0.0, 0.0),
+    );
+    let result = popkern_bool::union(cube, cyl, tol).unwrap();
+    let mesh = tessellate(&result, &TessellationOptions::default()).unwrap();
+    assert!(
+        !mesh.triangles.is_empty(),
+        "curved boolean tessellation should produce triangles"
+    );
+    // 9 faces: 6 cube + 3 cylinder
+    assert!(
+        mesh.face_meshes.len() >= 9,
+        "expected at least 9 face meshes, got {}",
+        mesh.face_meshes.len()
+    );
+}
+
+#[test]
+fn tessellate_cylinder_through_cube_union() {
+    let tol = Tolerance::default().with_linear(1e-2);
+    let cube = BRep::unit_cube(tol).unwrap();
+    let cyl = translate(
+        BRep::cylinder(0.3, 2.0, tol).unwrap(),
+        Vec3::new(0.5, 0.5, -0.5),
+    );
+    let result = popkern_bool::union(cube, cyl, tol).unwrap();
+    let mesh = tessellate(&result, &TessellationOptions::default()).unwrap();
+    assert!(
+        !mesh.triangles.is_empty(),
+        "overlapping curved boolean tessellation should produce triangles"
+    );
+}
