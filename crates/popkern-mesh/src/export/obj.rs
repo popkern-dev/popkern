@@ -63,7 +63,6 @@ mod tests {
     use crate::{TessellationOptions, tessellate};
     use popkern_core::tolerance::Tolerance;
     use popkern_core::topology::BRep;
-    use std::io::Write;
 
     fn make_cube_mesh() -> TriMesh {
         let cube = BRep::unit_cube(Tolerance::default()).unwrap();

@@ -108,9 +108,21 @@ pub fn export_obj<W: Write>(mesh: &TriMesh, writer: &mut W) -> Result<(), MeshEr
     export::obj::write_obj(mesh, writer)
 }
 
-/// Export a [`TriMesh`] to the glTF 2.0 format, writing to `writer`.
-pub fn export_gltf<W: Write>(_mesh: &TriMesh, _writer: &mut W) -> Result<(), MeshError> {
-    todo!()
+/// Export a [`TriMesh`] to glTF 2.0 format (JSON manifest + binary buffer).
+///
+/// `path` is the stem — `.gltf` and `.bin` extensions are appended automatically.
+/// For example, passing `"model"` produces `model.gltf` and `model.bin`.
+pub fn export_gltf(mesh: &TriMesh, path: &Path) -> Result<(), MeshError> {
+    let stem = path.to_string_lossy();
+    let gltf_path_str = format!("{stem}.gltf");
+    let bin_path_str = format!("{stem}.bin");
+    let bin_filename = std::path::Path::new(&bin_path_str)
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let mut gltf_file = std::fs::File::create(&gltf_path_str)?;
+    let mut bin_file = std::fs::File::create(&bin_path_str)?;
+    export::gltf::write_gltf(mesh, &mut gltf_file, &mut bin_file, &bin_filename)
 }
 
 #[cfg(test)]
