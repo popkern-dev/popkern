@@ -187,3 +187,103 @@ impl PlaneAngleMeasureWithUnit {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::step::parser::types::Parameter;
+
+    fn p_str(s: &str) -> Parameter {
+        Parameter::String(s.into())
+    }
+    fn p_real(v: f64) -> Parameter {
+        Parameter::Real(v)
+    }
+    fn p_ref(id: u64) -> Parameter {
+        Parameter::EntityRef(id)
+    }
+    fn p_int(v: i64) -> Parameter {
+        Parameter::Int(v)
+    }
+    fn p_enum(s: &str) -> Parameter {
+        Parameter::Enum(s.into())
+    }
+
+    #[test]
+    fn geometric_representation_context_parse() {
+        let params = vec![p_str("3d_context"), p_int(3)];
+        let grc = GeometricRepresentationContext::from_params(&params).unwrap();
+        assert_eq!(grc.id, "3d_context");
+        assert_eq!(grc.dimension, 3);
+    }
+
+    #[test]
+    fn global_uncertainty_assigned_context_parse() {
+        let params = vec![p_str("ctx"), p_int(3), Parameter::List(vec![p_ref(99)])];
+        let guac = GlobalUncertaintyAssignedContext::from_params(&params).unwrap();
+        assert_eq!(guac.id, "ctx");
+        assert_eq!(guac.dimension, 3);
+        assert_eq!(guac.uncertainty, vec![99]);
+    }
+
+    #[test]
+    fn uncertainty_measure_with_unit_parse() {
+        let params = vec![p_real(0.001), p_ref(50), p_str("tolerance")];
+        let um = UncertaintyMeasureWithUnit::from_params(&params).unwrap();
+        assert!((um.value - 0.001).abs() < 1e-12);
+        assert_eq!(um.unit, 50);
+        assert_eq!(um.name, "tolerance");
+    }
+
+    #[test]
+    fn si_unit_with_prefix() {
+        let params = vec![Parameter::Derived, p_enum("MILLI"), p_enum("METRE")];
+        let su = SiUnit::from_params(&params).unwrap();
+        assert!(su.dimensions.is_none());
+        assert_eq!(su.prefix, Some("MILLI".to_string()));
+        assert_eq!(su.name, "METRE");
+    }
+
+    #[test]
+    fn si_unit_with_dimension_ref() {
+        let params = vec![p_ref(5), Parameter::Omitted, p_enum("RADIAN")];
+        let su = SiUnit::from_params(&params).unwrap();
+        assert_eq!(su.dimensions, Some(5));
+        assert!(su.prefix.is_none());
+        assert_eq!(su.name, "RADIAN");
+    }
+
+    #[test]
+    fn conversion_based_unit_parse() {
+        let params = vec![p_ref(10), p_str("INCH"), p_ref(20)];
+        let cbu = ConversionBasedUnit::from_params(&params).unwrap();
+        assert_eq!(cbu.dimensions, Some(10));
+        assert_eq!(cbu.name, "INCH");
+        assert_eq!(cbu.conversion_factor, 20);
+    }
+
+    #[test]
+    fn conversion_based_unit_no_dimensions() {
+        let params = vec![Parameter::Omitted, p_str("DEGREE"), p_ref(30)];
+        let cbu = ConversionBasedUnit::from_params(&params).unwrap();
+        assert!(cbu.dimensions.is_none());
+        assert_eq!(cbu.name, "DEGREE");
+        assert_eq!(cbu.conversion_factor, 30);
+    }
+
+    #[test]
+    fn length_measure_with_unit_parse() {
+        let params = vec![p_real(25.4), p_ref(7)];
+        let lm = LengthMeasureWithUnit::from_params(&params).unwrap();
+        assert!((lm.value - 25.4).abs() < 1e-12);
+        assert_eq!(lm.unit, 7);
+    }
+
+    #[test]
+    fn plane_angle_measure_with_unit_parse() {
+        let params = vec![p_real(0.01745), p_ref(8)];
+        let pa = PlaneAngleMeasureWithUnit::from_params(&params).unwrap();
+        assert!((pa.value - 0.01745).abs() < 1e-12);
+        assert_eq!(pa.unit, 8);
+    }
+}

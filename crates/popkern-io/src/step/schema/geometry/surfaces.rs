@@ -190,3 +190,110 @@ impl BSplineSurfaceWithKnots {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::step::parser::types::Parameter;
+
+    fn p_str(s: &str) -> Parameter {
+        Parameter::String(s.into())
+    }
+    fn p_real(v: f64) -> Parameter {
+        Parameter::Real(v)
+    }
+    fn p_ref(id: u64) -> Parameter {
+        Parameter::EntityRef(id)
+    }
+    fn p_int(v: i64) -> Parameter {
+        Parameter::Int(v)
+    }
+    fn p_enum(s: &str) -> Parameter {
+        Parameter::Enum(s.into())
+    }
+
+    #[test]
+    fn parse_plane() {
+        let params = vec![p_str("base"), p_ref(10)];
+        let p = StepPlane::from_params(&params).unwrap();
+        assert_eq!(p.name, "base");
+        assert_eq!(p.position, 10);
+    }
+
+    #[test]
+    fn parse_cylindrical_surface() {
+        let params = vec![p_str(""), p_ref(42), p_real(5.0)];
+        let cs = CylindricalSurface::from_params(&params).unwrap();
+        assert_eq!(cs.name, "");
+        assert_eq!(cs.position, 42);
+        assert!((cs.radius - 5.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn parse_conical_surface() {
+        let params = vec![p_str("cone"), p_ref(7), p_real(3.0), p_real(0.5)];
+        let cs = ConicalSurface::from_params(&params).unwrap();
+        assert_eq!(cs.name, "cone");
+        assert_eq!(cs.position, 7);
+        assert!((cs.radius - 3.0).abs() < 1e-12);
+        assert!((cs.semi_angle - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn parse_spherical_surface() {
+        let params = vec![p_str("ball"), p_ref(20), p_real(12.5)];
+        let ss = SphericalSurface::from_params(&params).unwrap();
+        assert_eq!(ss.name, "ball");
+        assert_eq!(ss.position, 20);
+        assert!((ss.radius - 12.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn parse_toroidal_surface() {
+        let params = vec![p_str("torus"), p_ref(30), p_real(10.0), p_real(2.0)];
+        let ts = ToroidalSurface::from_params(&params).unwrap();
+        assert_eq!(ts.name, "torus");
+        assert_eq!(ts.position, 30);
+        assert!((ts.major_radius - 10.0).abs() < 1e-12);
+        assert!((ts.minor_radius - 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn parse_bspline_surface_with_knots() {
+        let params = vec![
+            p_str("surf"),
+            p_int(2),
+            p_int(3),
+            Parameter::List(vec![
+                Parameter::List(vec![p_ref(1), p_ref(2)]),
+                Parameter::List(vec![p_ref(3), p_ref(4)]),
+            ]),
+            p_enum("UNSPECIFIED"),
+            p_enum("F"),
+            p_enum("F"),
+            p_enum("F"),
+            Parameter::List(vec![p_int(3), p_int(3)]),
+            Parameter::List(vec![p_int(4), p_int(4)]),
+            Parameter::List(vec![p_real(0.0), p_real(1.0)]),
+            Parameter::List(vec![p_real(0.0), p_real(1.0)]),
+            p_enum("UNSPECIFIED"),
+        ];
+        let bs = BSplineSurfaceWithKnots::from_params(&params).unwrap();
+        assert_eq!(bs.name, "surf");
+        assert_eq!(bs.u_degree, 2);
+        assert_eq!(bs.v_degree, 3);
+        assert_eq!(bs.control_points.len(), 2);
+        assert_eq!(bs.control_points[0], vec![1, 2]);
+        assert_eq!(bs.control_points[1], vec![3, 4]);
+        assert_eq!(bs.surface_form, "UNSPECIFIED");
+        assert!(!bs.u_closed);
+        assert!(!bs.v_closed);
+        assert!(!bs.self_intersect);
+        assert_eq!(bs.u_multiplicities, vec![3, 3]);
+        assert_eq!(bs.v_multiplicities, vec![4, 4]);
+        assert_eq!(bs.u_knots, vec![0.0, 1.0]);
+        assert_eq!(bs.v_knots, vec![0.0, 1.0]);
+        assert_eq!(bs.knot_spec, "UNSPECIFIED");
+        assert!(bs.weights.is_none());
+    }
+}
