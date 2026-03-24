@@ -173,14 +173,15 @@ pub fn tokenize(input: &[u8]) -> Result<Vec<Token>, String> {
             continue;
         }
 
-        // Keyword: [A-Z][A-Z0-9_]*
+        // Keyword: [A-Z][A-Z0-9_-]* (hyphens allowed for ISO-10303-21 sentinels)
         if input[pos].is_ascii_uppercase() {
             let start = pos;
             pos += 1;
             while pos < input.len()
                 && (input[pos].is_ascii_uppercase()
                     || input[pos].is_ascii_digit()
-                    || input[pos] == b'_')
+                    || input[pos] == b'_'
+                    || input[pos] == b'-')
             {
                 pos += 1;
             }
