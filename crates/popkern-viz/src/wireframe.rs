@@ -211,11 +211,11 @@ pub fn create_line_pipeline(
 /// The caller must have already begun a render pass with appropriate
 /// color and depth attachments and must provide the line pipeline,
 /// uniform bind group, and the [`GpuWireframe`] data.
-pub fn render_wireframe<'a>(
-    render_pass: &mut wgpu::RenderPass<'a>,
-    line_pipeline: &'a wgpu::RenderPipeline,
-    uniform_bind_group: &'a wgpu::BindGroup,
-    wireframe: &'a GpuWireframe,
+pub fn render_wireframe(
+    render_pass: &mut wgpu::RenderPass<'_>,
+    line_pipeline: &wgpu::RenderPipeline,
+    uniform_bind_group: &wgpu::BindGroup,
+    wireframe: &GpuWireframe,
 ) {
     render_pass.set_pipeline(line_pipeline);
     render_pass.set_bind_group(0, uniform_bind_group, &[]);

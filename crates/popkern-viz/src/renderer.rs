@@ -308,10 +308,10 @@ impl Renderer {
     /// color and depth attachments. `vertex_buffer` should contain
     /// [`MeshVertex`] data and `vertex_count` is the number of vertices to
     /// draw.
-    pub fn render_mesh<'a>(
-        &'a self,
-        render_pass: &mut wgpu::RenderPass<'a>,
-        vertex_buffer: &'a wgpu::Buffer,
+    pub fn render_mesh(
+        &self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        vertex_buffer: &wgpu::Buffer,
         vertex_count: u32,
     ) {
         render_pass.set_pipeline(&self.mesh_pipeline);
