@@ -4,6 +4,7 @@
 //! into one valid closed BRep by copying topology, merging coincident vertices,
 //! and stitching boundary edges.
 
+pub(crate) mod graph;
 mod stitch;
 
 use std::collections::HashMap;
