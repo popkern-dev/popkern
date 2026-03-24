@@ -8,6 +8,7 @@
 pub mod analysis;
 pub mod blend;
 pub mod center_curve;
+pub mod center_curve_helpers;
 pub mod chamfer_curve;
 pub mod construct;
 pub mod error;
@@ -75,18 +76,18 @@ pub fn fillet_edges(
     }
 
     // 3. Apply topology.
-    let result_brep = construct::apply_blend_geometry(brep, &edge_geometries, &tolerance).map_err(
-        |edge_failures| BlendError::PartialFailure {
+    let apply_result =
+        construct::apply_blend_geometry(brep, &edge_geometries, &tolerance, &options.vertex_mode)
+            .map_err(|edge_failures| BlendError::PartialFailure {
             failed: edge_failures.len(),
             total: specs.len(),
             partial_result: Box::new(brep.clone()),
             failures: edge_failures,
-        },
-    )?;
+        })?;
 
     Ok(BlendResult {
-        brep: result_brep,
-        edge_warnings: vec![],
+        brep: apply_result.brep,
+        edge_warnings: apply_result.warnings,
     })
 }
 
@@ -137,19 +138,19 @@ pub fn chamfer_edges(
         });
     }
 
-    // 3. Apply topology.
-    let result_brep = construct::apply_blend_geometry(brep, &edge_geometries, &tolerance).map_err(
-        |edge_failures| BlendError::PartialFailure {
-            failed: edge_failures.len(),
-            total: specs.len(),
-            partial_result: Box::new(brep.clone()),
-            failures: edge_failures,
-        },
-    )?;
+    // 3. Apply topology. Chamfers always use mitred vertex mode.
+    let apply_result =
+        construct::apply_blend_geometry(brep, &edge_geometries, &tolerance, &VertexMode::Mitred)
+            .map_err(|edge_failures| BlendError::PartialFailure {
+                failed: edge_failures.len(),
+                total: specs.len(),
+                partial_result: Box::new(brep.clone()),
+                failures: edge_failures,
+            })?;
 
     Ok(BlendResult {
-        brep: result_brep,
-        edge_warnings: vec![],
+        brep: apply_result.brep,
+        edge_warnings: apply_result.warnings,
     })
 }
 

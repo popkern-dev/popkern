@@ -4,10 +4,12 @@
 //! and fillet-face merging used by the main `apply_blend_geometry` orchestrator.
 
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
+
+pub use super::merge::{identify_consumed_face, merge_consumed_faces};
 
 /// Split perpendicular edges at the fillet offset distance.
 ///
@@ -45,16 +47,20 @@ pub fn split_perpendicular_edges_by_radius(
         .origin;
 
     // Split perpendicular edges on face_1.
-    let (v1_a, v1_b) = split_face_perp_edges(brep, face_1, fillet_edge, v_start, v_end, radius)?;
+    let result_1 = split_face_perp_edges(brep, face_1, fillet_edge, v_start, v_end, radius)?;
 
     // Split perpendicular edges on face_2.
-    let (v2_a, v2_b) = split_face_perp_edges(brep, face_2, fillet_edge, v_start, v_end, radius)?;
+    let result_2 = split_face_perp_edges(brep, face_2, fillet_edge, v_start, v_end, radius)?;
+
+    // Collect all edge splits for handle remapping.
+    let mut edge_splits = result_1.edge_splits;
+    edge_splits.extend(result_2.edge_splits);
 
     // Build trim 3D curves from the new vertex positions (straight lines for now).
-    let p1_a = brep.vertices[v1_a].position;
-    let p1_b = brep.vertices[v1_b].position;
-    let p2_a = brep.vertices[v2_a].position;
-    let p2_b = brep.vertices[v2_b].position;
+    let p1_a = brep.vertices[result_1.anchor_start].position;
+    let p1_b = brep.vertices[result_1.anchor_end].position;
+    let p2_a = brep.vertices[result_2.anchor_start].position;
+    let p2_b = brep.vertices[result_2.anchor_end].position;
 
     let trim_3d_1 = line_nurbs(&p1_a, &p1_b);
     let trim_3d_2 = line_nurbs(&p2_a, &p2_b);
@@ -62,8 +68,9 @@ pub fn split_perpendicular_edges_by_radius(
     Ok(SplitInfo {
         trim_3d_1,
         trim_3d_2,
-        face_1_anchors: (v1_a, v1_b),
-        face_2_anchors: (v2_a, v2_b),
+        face_1_anchors: (result_1.anchor_start, result_1.anchor_end),
+        face_2_anchors: (result_2.anchor_start, result_2.anchor_end),
+        edge_splits,
     })
 }
 
@@ -78,6 +85,8 @@ pub struct SplitInfo {
     pub face_1_anchors: (VertexHandle, VertexHandle),
     /// Anchor vertices on face 2 (start, end matching fillet edge direction).
     pub face_2_anchors: (VertexHandle, VertexHandle),
+    /// Edge splits performed: `(old_edge, edge_a, edge_b)`.
+    pub edge_splits: Vec<(EdgeHandle, EdgeHandle, EdgeHandle)>,
 }
 
 /// Build a simple linear NURBS curve between two points.
@@ -156,9 +165,20 @@ pub fn pcurve_for_face(
     ))
 }
 
+/// Result of splitting perpendicular edges on a single face.
+struct FacePerpSplitResult {
+    /// Anchor vertex near the fillet edge start vertex.
+    anchor_start: VertexHandle,
+    /// Anchor vertex near the fillet edge end vertex.
+    anchor_end: VertexHandle,
+    /// Edge splits: `(old_edge, edge_a, edge_b)`.
+    edge_splits: Vec<(EdgeHandle, EdgeHandle, EdgeHandle)>,
+}
+
 /// For a given face, find the two perpendicular boundary edges that share
 /// vertices with the fillet edge, and split them at `radius` distance from
-/// the shared vertex. Returns the two new anchor vertices.
+/// the shared vertex. Returns the two new anchor vertices and the list of
+/// edge splits performed as `(old_edge, edge_a, edge_b)`.
 fn split_face_perp_edges(
     brep: &mut BRep,
     face: FaceHandle,
@@ -166,7 +186,7 @@ fn split_face_perp_edges(
     v_start: VertexHandle,
     v_end: VertexHandle,
     radius: f64,
-) -> Result<(VertexHandle, VertexHandle), String> {
+) -> Result<FacePerpSplitResult, String> {
     // Walk the face loop to find edges incident to v_start and v_end
     // that are NOT the fillet edge.
     let face_data = brep
@@ -250,141 +270,16 @@ fn split_face_perp_edges(
         .split_edge(edge_b, t_b)
         .map_err(|e| format!("split_edge at v_end perp failed: {e}"))?;
 
-    Ok((split_a.vertex, split_b.vertex))
-}
+    let edge_splits = vec![
+        (edge_a, split_a.edge_a, split_a.edge_b),
+        (edge_b, split_b.edge_a, split_b.edge_b),
+    ];
 
-/// Determine which of the two split faces is the "consumed" face.
-///
-/// The consumed face is the one whose outer loop contains the original
-/// fillet edge. Returns `(kept_face, consumed_face)`.
-pub fn identify_consumed_face(
-    brep: &BRep,
-    face_a: FaceHandle,
-    face_b: FaceHandle,
-    fillet_edge: EdgeHandle,
-) -> Result<(FaceHandle, FaceHandle), String> {
-    if face_loop_contains_edge(brep, face_b, fillet_edge)? {
-        Ok((face_a, face_b))
-    } else if face_loop_contains_edge(brep, face_a, fillet_edge)? {
-        Ok((face_b, face_a))
-    } else {
-        Err(format!(
-            "neither split face contains fillet edge {fillet_edge:?}"
-        ))
-    }
-}
-
-/// Check if a face's outer loop contains a half-edge belonging to the given edge.
-fn face_loop_contains_edge(
-    brep: &BRep,
-    face: FaceHandle,
-    edge: EdgeHandle,
-) -> Result<bool, String> {
-    let face_data = brep
-        .faces
-        .get(face)
-        .ok_or_else(|| format!("face {face:?} not found"))?;
-    let outer_loop = face_data.outer_loop;
-    let start_he = brep
-        .loops
-        .get(outer_loop)
-        .ok_or_else(|| format!("loop {outer_loop:?} not found"))?
-        .half_edge;
-
-    let mut cursor = start_he;
-    let max_iters = brep.half_edges.len() + 1;
-    let mut iters = 0;
-    loop {
-        let he = brep
-            .half_edges
-            .get(cursor)
-            .ok_or_else(|| format!("half-edge {cursor:?} not found"))?;
-        if he.edge == edge {
-            return Ok(true);
-        }
-        cursor = he.next;
-        iters += 1;
-        if cursor == start_he || iters >= max_iters {
-            break;
-        }
-    }
-    Ok(false)
-}
-
-/// Find the half-edge of the given edge that lies in the given face's loop.
-pub fn find_edge_halfedge_on_face(
-    brep: &BRep,
-    edge: EdgeHandle,
-    face: FaceHandle,
-) -> Result<HalfEdgeHandle, String> {
-    let face_data = brep
-        .faces
-        .get(face)
-        .ok_or_else(|| format!("face {face:?} not found"))?;
-    let outer_loop = face_data.outer_loop;
-    let start_he = brep
-        .loops
-        .get(outer_loop)
-        .ok_or_else(|| format!("loop {outer_loop:?} not found"))?
-        .half_edge;
-
-    let mut cursor = start_he;
-    let max_iters = brep.half_edges.len() + 1;
-    let mut iters = 0;
-    loop {
-        let he = brep
-            .half_edges
-            .get(cursor)
-            .ok_or_else(|| format!("half-edge {cursor:?} not found"))?;
-        if he.edge == edge {
-            return Ok(cursor);
-        }
-        cursor = he.next;
-        iters += 1;
-        if cursor == start_he || iters >= max_iters {
-            break;
-        }
-    }
-    Err(format!(
-        "edge {edge:?} not found in face {face:?}'s outer loop"
-    ))
-}
-
-/// Merge two consumed faces by removing the original fillet edge via `kef`.
-///
-/// After merging, the surviving face is assigned the fillet surface geometry.
-/// Returns the handle of the merged (fillet) face.
-pub fn merge_consumed_faces(
-    brep: &mut BRep,
-    consumed_1: FaceHandle,
-    consumed_2: FaceHandle,
-    fillet_edge: EdgeHandle,
-    surface: &SurfaceGeometry,
-) -> Result<FaceHandle, String> {
-    // Find the half-edge of the fillet edge that lies on consumed_1's loop.
-    let he_on_consumed_1 = find_edge_halfedge_on_face(brep, fillet_edge, consumed_1)?;
-
-    // Verify the twin is on consumed_2 (sanity check before kef).
-    let twin_handle = brep.half_edges[he_on_consumed_1].twin;
-    let twin_face = brep.loops[brep.half_edges[twin_handle].loop_].face;
-    if twin_face != consumed_2 {
-        return Err(format!(
-            "fillet edge twin is on face {twin_face:?}, expected {consumed_2:?}"
-        ));
-    }
-
-    // kef removes the edge and merges the two faces.
-    // It kills the twin's loop/face (consumed_2) and keeps consumed_1.
-    brep.kef(he_on_consumed_1)
-        .map_err(|e| format!("kef failed: {e}"))?;
-
-    // After kef, consumed_2 is removed and consumed_1 survives with the merged loop.
-    brep.faces[consumed_1].surface = Some(SurfaceOnFace {
-        geometry: surface.clone(),
-        orientation: true,
-    });
-
-    Ok(consumed_1)
+    Ok(FacePerpSplitResult {
+        anchor_start: split_a.vertex,
+        anchor_end: split_b.vertex,
+        edge_splits,
+    })
 }
 
 /// Extract the fillet radius from the edge geometry analysis.
@@ -417,31 +312,6 @@ mod tests {
     use super::*;
     use popkern_core::tolerance::Tolerance;
     use popkern_core::topology::BRep;
-
-    #[test]
-    fn identify_consumed_face_finds_correct_side() {
-        let cube = BRep::unit_cube(Tolerance::default()).unwrap();
-        let edge = cube.edges.keys().next().unwrap();
-
-        let edge_data = &cube.edges[edge];
-        let he = &cube.half_edges[edge_data.half_edge];
-        let face_of_he = cube.loops[he.loop_].face;
-
-        assert!(face_loop_contains_edge(&cube, face_of_he, edge).unwrap());
-    }
-
-    #[test]
-    fn find_edge_halfedge_on_face_works() {
-        let cube = BRep::unit_cube(Tolerance::default()).unwrap();
-        let edge = cube.edges.keys().next().unwrap();
-
-        let edge_data = &cube.edges[edge];
-        let he = &cube.half_edges[edge_data.half_edge];
-        let face_of_he = cube.loops[he.loop_].face;
-
-        let found = find_edge_halfedge_on_face(&cube, edge, face_of_he).unwrap();
-        assert_eq!(cube.half_edges[found].edge, edge);
-    }
 
     #[test]
     fn split_perp_edges_on_cube() {

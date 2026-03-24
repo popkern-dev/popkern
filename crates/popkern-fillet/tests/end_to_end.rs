@@ -10,9 +10,22 @@ fn default_tol() -> Tolerance {
     Tolerance::default()
 }
 
+/// Assert the Euler-Poincare invariant V - E + F == 2 for a closed solid.
+fn assert_euler_poincare(brep: &BRep, label: &str) {
+    let v = brep.vertices.len() as i64;
+    let e = brep.edges.len() as i64;
+    let f = brep.faces.len() as i64;
+    let chi = v - e + f;
+    assert!(
+        chi == 2,
+        "{label}: Euler-Poincare V - E + F = {v} - {e} + {f} = {chi}, expected 2"
+    );
+}
+
 #[test]
 fn fillet_single_cube_edge() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
+    assert_euler_poincare(&brep, "input cube");
     let edge = brep.edges.keys().next().unwrap();
     let result = popkern_fillet::fillet_edge(&brep, edge, 0.1, default_tol());
     assert!(
@@ -26,6 +39,7 @@ fn fillet_single_cube_edge() {
         blend.brep.faces.len() >= brep.faces.len(),
         "result should have >= original face count"
     );
+    assert_euler_poincare(&blend.brep, "fillet single edge");
 }
 
 #[test]
@@ -40,6 +54,9 @@ fn fillet_single_cube_edge_produces_valid_brep() {
         7,
         "should have 7 faces after filleting one edge"
     );
+
+    // Euler-Poincare invariant.
+    assert_euler_poincare(&result.brep, "fillet valid brep");
 
     // Must pass structural validation.
     let errors = result.brep.validate_all();
@@ -73,6 +90,7 @@ fn chamfer_single_cube_edge() {
         blend.brep.faces.len() >= brep.faces.len(),
         "result should have >= original face count"
     );
+    assert_euler_poincare(&blend.brep, "chamfer single edge");
 }
 
 #[test]
@@ -86,6 +104,8 @@ fn chamfer_single_cube_edge_produces_valid_brep() {
         7,
         "should have 7 faces after chamfering one edge"
     );
+
+    assert_euler_poincare(&result.brep, "chamfer valid brep");
 
     let errors = result.brep.validate_all();
     let structural: Vec<_> = errors
@@ -124,6 +144,7 @@ fn fillet_all_cube_edges() {
                 blend.brep.faces.len() >= brep.faces.len(),
                 "result should have >= original face count"
             );
+            assert_euler_poincare(&blend.brep, "fillet all cube edges");
         }
         Err(popkern_fillet::BlendError::PartialFailure { .. }) => {
             // Acceptable — some edges may fail for geometric reasons.
@@ -151,6 +172,7 @@ fn chamfer_all_cube_edges() {
                 blend.brep.faces.len() >= brep.faces.len(),
                 "result should have >= original face count"
             );
+            assert_euler_poincare(&blend.brep, "chamfer all cube edges");
         }
         Err(popkern_fillet::BlendError::PartialFailure { .. }) => {}
         Err(e) => panic!("unexpected error: {e:?}"),

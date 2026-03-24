@@ -72,4 +72,12 @@ pub enum BlendWarning {
         /// Actual radius used after clamping.
         actual: f64,
     },
+    /// Vertex mode was downgraded because the requested mode is not yet
+    /// supported for this configuration.
+    VertexModeFallback {
+        /// The mode that was requested.
+        requested: crate::types::VertexMode,
+        /// The mode that was actually used.
+        actual: crate::types::VertexMode,
+    },
 }
