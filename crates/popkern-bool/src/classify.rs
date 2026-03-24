@@ -403,12 +403,17 @@ pub(crate) fn classify_fragments(
 
 /// Pick a representative sample point on a face for classification.
 ///
-/// For faces with inner loops (holes), uses the midpoint of the first
-/// outer-loop edge to avoid sampling inside a hole. For simple faces,
-/// uses the vertex centroid. Falls back to the surface parameter midpoint
-/// for faces without vertices.
+/// Tries UV-centroid sampling first (using pcurves to find a point guaranteed
+/// inside the face boundary), then falls back to edge midpoint (for faces with
+/// inner loops) or vertex centroid (for simple faces). Falls back to the surface
+/// parameter midpoint for faces without vertices.
 fn pick_sample_point(brep: &BRep, face_handle: FaceHandle) -> Point3 {
     let face = &brep.faces[face_handle];
+
+    // Try UV-centroid sampling for faces with surface geometry and pcurves.
+    if let Some(pt) = uv_centroid_sample(brep, face_handle) {
+        return pt;
+    }
 
     // For faces with inner loops, use the midpoint of an outer-loop edge.
     // The centroid can fall inside a hole, giving wrong classification.
@@ -453,6 +458,10 @@ fn pick_sample_point(brep: &BRep, face_handle: FaceHandle) -> Point3 {
     // Last resort — origin.
     Point3::new(0.0, 0.0, 0.0)
 }
+
+#[path = "classify_uv_sample.rs"]
+mod uv_sample;
+use uv_sample::uv_centroid_sample;
 
 #[cfg(test)]
 #[path = "classify_tests.rs"]
