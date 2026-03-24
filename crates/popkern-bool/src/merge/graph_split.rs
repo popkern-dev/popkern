@@ -4,12 +4,16 @@
 //! existing graph topology (on a vertex, on an edge, or in a face
 //! interior), and to split a graph half-edge pair at a given point.
 
+// Used by later pipeline stages; not yet called from the main merge path.
+#![allow(dead_code)]
+
 use popkern_core::geometry::Point3;
 
 use super::graph::{EdgeSource, GraphHalfEdge, IntersectionGraph, NodeSource};
 
 /// Classification of an intersection curve endpoint relative to the graph.
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 pub(crate) enum EndpointClass {
     /// The point coincides with an existing graph node.
     OnVertex(usize),

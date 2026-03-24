@@ -3,6 +3,9 @@
 //! Copies vertices, edges, and face-loop structure from one operand's BRep
 //! into the shared [`IntersectionGraph`], deduplicating vertices by position.
 
+// Used by later pipeline stages; not yet called from the main merge path.
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 
 use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};

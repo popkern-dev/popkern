@@ -4,6 +4,9 @@
 //! subdivided. This module provides [`split_curve`] to divide a
 //! [`CurveOnEdge`] into two sub-curves at a given parameter.
 
+// Used by later pipeline stages; not yet called from the main merge path.
+#![allow(dead_code)]
+
 use popkern_core::geometry::{
     Point3, Vec3,
     curve::{CurveGeometry, CurveOnEdge},
@@ -159,6 +162,7 @@ fn split_circle(
 }
 
 /// Split an arc at a point, producing two smaller arcs.
+#[allow(clippy::too_many_arguments)]
 fn split_arc(
     center: Point3,
     normal: Vec3,

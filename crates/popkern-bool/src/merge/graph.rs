@@ -3,6 +3,10 @@
 //! The intersection graph represents the combined topology of two BRep operands
 //! plus their intersection curves, using indexed arrays of nodes and half-edges.
 
+// These types are used only by sibling modules and tests for now;
+// they will be consumed by later pipeline stages.
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 
 use popkern_core::{
