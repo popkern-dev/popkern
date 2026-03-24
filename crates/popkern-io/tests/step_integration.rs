@@ -185,16 +185,20 @@ fn export_programmatic_cube() {
     assert!(text.contains("PRODUCT("));
     assert!(text.contains("END-ISO-10303-21;"));
 
-    // Should be re-importable (the import itself must not fail)
+    // Should be re-importable with product structure intact
     let import_opts = StepImportOptions {
         healing: popkern_io::step::healing::HealingLevel::None,
         ..Default::default()
     };
-    let result = import_step(&exported, &import_opts);
+    let result =
+        import_step(&exported, &import_opts).expect("re-import of exported STEP must not fail");
     assert!(
-        result.is_ok(),
-        "re-import of exported STEP must not fail: {:?}",
-        result.err()
+        !result.document.products.is_empty(),
+        "re-imported document should have products"
+    );
+    assert!(
+        !result.document.products[0].shapes.is_empty(),
+        "re-imported product should have shapes"
     );
 }
 

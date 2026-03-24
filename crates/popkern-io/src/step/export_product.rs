@@ -27,6 +27,18 @@ impl ExportContext {
         // Emit shared context entities
         let ctx_id = self.export_representation_context(&doc.units.context);
 
+        // PRODUCT_DEFINITION_CONTEXT (shared by all product definitions)
+        let pdc_id = self.emit(
+            "PRODUCT_DEFINITION_CONTEXT",
+            vec![str_param("detailed design"), str_param("")],
+        );
+
+        // PRODUCT_CONTEXT for PRODUCT.frame_of_reference
+        let pc_id = self.emit(
+            "PRODUCT_CONTEXT",
+            vec![str_param(""), str_param(""), str_param("mechanical")],
+        );
+
         // Emit each product
         let mut product_def_ids: Vec<EntityId> = Vec::new();
         for (i, product) in doc.products.iter().enumerate() {
@@ -39,7 +51,7 @@ impl ExportContext {
                     str_param(&product.id),
                     str_param(&product.name),
                     str_param(""),
-                    list(vec![]),
+                    list(vec![ref_(pc_id)]),
                 ],
             );
 
@@ -52,12 +64,7 @@ impl ExportContext {
             // PRODUCT_DEFINITION
             let pd_id = self.emit(
                 "PRODUCT_DEFINITION",
-                vec![
-                    str_param(""),
-                    str_param(""),
-                    ref_(pdf_id),
-                    // product_definition_context omitted for simplicity
-                ],
+                vec![str_param(""), str_param(""), ref_(pdf_id), ref_(pdc_id)],
             );
             product_def_ids.push(pd_id);
 
