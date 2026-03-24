@@ -7,11 +7,13 @@
 // Used by later pipeline stages; not yet called from the main merge path.
 #![allow(dead_code)]
 
-use popkern_core::{geometry::Point3, topology::BRep};
+use popkern_core::{geometry::Point3, tolerance::Tolerance, topology::BRep};
 
 use super::graph::{IntersectionGraph, Operand};
 use super::walk::Fragment;
+use crate::classify::point_in_solid;
 use crate::error::{BoolError, BoolOperation, PointClassification};
+use crate::intersect::compute_face_aabbs;
 
 /// Selection decision for a fragment.
 #[derive(Debug)]
@@ -38,8 +40,12 @@ pub(crate) fn classify_and_select_fragments(
     brep_a: &BRep,
     brep_b: &BRep,
     op: BoolOperation,
-    tolerance: f64,
+    tolerance: &Tolerance,
 ) -> Result<Vec<FragmentSelection>, BoolError> {
+    // Precompute face AABBs for both operands (needed by point_in_solid).
+    let aabbs_a = compute_face_aabbs(brep_a);
+    let aabbs_b = compute_face_aabbs(brep_b);
+
     let mut selections = Vec::with_capacity(fragments.len());
 
     for fragment in fragments {
@@ -47,13 +53,21 @@ pub(crate) fn classify_and_select_fragments(
         let sample = compute_centroid(graph, &fragment.outer_loop);
 
         // Determine which operand this fragment belongs to.
-        let (own_operand, other_brep) = match fragment.face.operand {
-            Operand::A => (Operand::A, brep_b),
-            Operand::B => (Operand::B, brep_a),
+        let (own_operand, other_brep, other_aabbs) = match fragment.face.operand {
+            Operand::A => (Operand::A, brep_b, &aabbs_b),
+            Operand::B => (Operand::B, brep_a, &aabbs_a),
         };
 
         // Classify the sample point against the other operand.
-        let classification = simple_classify(&sample, other_brep, tolerance);
+        let classification = match point_in_solid(&sample, other_brep, other_aabbs, tolerance) {
+            Ok(c) => c,
+            Err(_) => {
+                // Fall back to Outside if classification fails (e.g. no
+                // conclusive ray). This is conservative — fragments default
+                // to being kept for union, discarded for intersection.
+                PointClassification::Outside
+            }
+        };
 
         // Apply selection table.
         let selection = apply_selection_table(op, own_operand, classification);
@@ -83,19 +97,6 @@ fn compute_centroid(graph: &IntersectionGraph, loop_hes: &[usize]) -> Point3 {
 
     let n = loop_hes.len() as f64;
     Point3::new(sum_x / n, sum_y / n, sum_z / n)
-}
-
-/// Simplified point-in-solid test using the BRep's AABB.
-///
-/// This is a placeholder that delegates to the full `point_in_solid`
-/// classifier when AABBs are available. For now, returns `Outside` as a
-/// conservative default, which will be replaced by the full pipeline
-/// integration.
-fn simple_classify(_point: &Point3, _brep: &BRep, _tolerance: f64) -> PointClassification {
-    // Full point_in_solid requires precomputed face AABBs. During
-    // pipeline integration (Task 11) this will be wired up properly.
-    // For now, return Outside as a safe default for testing.
-    PointClassification::Outside
 }
 
 /// Apply the boolean selection table.
