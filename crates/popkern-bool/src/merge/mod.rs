@@ -4,6 +4,7 @@
 //! into one valid closed BRep by copying topology, merging coincident vertices,
 //! and stitching boundary edges.
 
+pub(crate) mod curve_split;
 pub(crate) mod graph;
 pub(crate) mod graph_build;
 pub(crate) mod graph_split;
