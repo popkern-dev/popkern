@@ -184,3 +184,40 @@ fn assign_blend_surface(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn insert_vertex_blend_too_few_anchors() {
+        // A cube vertex has 3 neighbors, but if we pass no edge indices
+        // the anchor set will be non-empty (all neighbors). To trigger the
+        // "fewer than 2 anchors" path we need a degenerate vertex.
+        // Instead, test with a default (non-existent) vertex handle.
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let bogus = popkern_core::topology::VertexHandle::default();
+        let result = insert_vertex_blend(&mut brep, bogus, &[], &[], &Tolerance::default());
+        assert!(result.is_err(), "should fail for invalid vertex");
+    }
+
+    #[test]
+    fn insert_vertex_blend_on_cube_vertex() {
+        // Calling insert_vertex_blend on a real cube vertex with no
+        // edge geometries should fail during blend surface computation
+        // (since there are no fillet surfaces to blend), but it should
+        // get past the anchor check (3 anchors >= 2).
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let vertex = brep.vertices.keys().next().unwrap();
+        let result = insert_vertex_blend(&mut brep, vertex, &[], &[], &Tolerance::default());
+        // This should fail (no edge geometries -> empty fillet surfaces
+        // -> blend boundary computation fails), but NOT at the anchor check.
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        // The error should be from blend computation, not "fewer than 2 anchors".
+        assert!(
+            !err.contains("fewer than 2"),
+            "should not fail at anchor check: {err}"
+        );
+    }
+}

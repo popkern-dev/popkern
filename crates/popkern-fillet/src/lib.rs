@@ -388,3 +388,102 @@ fn rebuild_analysis(
         vertex_end: src.vertex_end,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::BRep;
+
+    fn tol() -> Tolerance {
+        Tolerance::default()
+    }
+    fn fopts() -> FilletOptions {
+        FilletOptions::default()
+    }
+    fn copts() -> ChamferOptions {
+        ChamferOptions::default()
+    }
+    fn cube_and_edge() -> (BRep, popkern_core::topology::EdgeHandle) {
+        let brep = BRep::unit_cube(tol()).unwrap();
+        let edge = brep.edges.keys().next().unwrap();
+        (brep, edge)
+    }
+
+    #[test]
+    fn variable_radius_fillet_computes_geometry() {
+        let (brep, edge) = cube_and_edge();
+        let specs = vec![FilletSpec {
+            edge,
+            radius: FilletRadius::Variable {
+                start: 0.08,
+                end: 0.12,
+            },
+        }];
+        let result = fillet_edges(&brep, &specs, &fopts(), tol());
+        assert!(result.is_ok(), "variable fillet failed: {:?}", result.err());
+        assert!(result.unwrap().brep.faces.len() > brep.faces.len());
+    }
+
+    #[test]
+    fn by_points_fillet_exercises_code_paths() {
+        let (brep, edge) = cube_and_edge();
+        // Two-point ByPoints — exercises variable_radius path. Should not panic.
+        let s1 = vec![FilletSpec {
+            edge,
+            radius: FilletRadius::ByPoints(vec![(0.0, 0.1), (1.0, 0.1)]),
+        }];
+        let _ = fillet_edges(&brep, &s1, &fopts(), tol());
+        // Single-point ByPoints.
+        let s2 = vec![FilletSpec {
+            edge,
+            radius: FilletRadius::ByPoints(vec![(0.5, 0.1)]),
+        }];
+        let _ = fillet_edges(&brep, &s2, &fopts(), tol());
+        // Empty ByPoints should fail.
+        let s3 = vec![FilletSpec {
+            edge,
+            radius: FilletRadius::ByPoints(vec![]),
+        }];
+        assert!(fillet_edges(&brep, &s3, &fopts(), tol()).is_err());
+    }
+
+    #[test]
+    fn chamfer_two_distance_via_api() {
+        let (brep, edge) = cube_and_edge();
+        let face_1 = analysis::analyze_edges(&brep, &[edge], false).unwrap()[0].face_1;
+        let specs = vec![ChamferSpec {
+            edge,
+            kind: ChamferKind::TwoDistance {
+                face_1,
+                dist_1: 0.1,
+                dist_2: 0.2,
+            },
+        }];
+        let r = chamfer_edges(&brep, &specs, &copts(), tol());
+        assert!(r.is_ok(), "two-distance chamfer failed: {:?}", r.err());
+    }
+
+    #[test]
+    fn chamfer_distance_angle_via_api() {
+        let (brep, edge) = cube_and_edge();
+        let face = analysis::analyze_edges(&brep, &[edge], false).unwrap()[0].face_1;
+        let specs = vec![ChamferSpec {
+            edge,
+            kind: ChamferKind::DistanceAngle {
+                face,
+                distance: 0.1,
+                angle: std::f64::consts::FRAC_PI_4,
+            },
+        }];
+        let r = chamfer_edges(&brep, &specs, &copts(), tol());
+        assert!(r.is_ok(), "dist-angle chamfer failed: {:?}", r.err());
+    }
+
+    #[test]
+    fn empty_specs_returns_error() {
+        let brep = BRep::unit_cube(tol()).unwrap();
+        assert!(fillet_edges(&brep, &[], &fopts(), tol()).is_err());
+        assert!(chamfer_edges(&brep, &[], &copts(), tol()).is_err());
+    }
+}

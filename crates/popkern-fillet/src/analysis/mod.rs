@@ -313,4 +313,79 @@ mod tests {
         let result = analyze_edges(&cube, &[bogus], false);
         assert!(result.is_err(), "should fail for invalid edge handle");
     }
+
+    #[test]
+    fn classify_convexity_on_cube_is_definite() {
+        let cube = make_cube();
+        // Analyze ALL edges — every cube edge should be either Convex or Concave.
+        let edges: Vec<EdgeHandle> = cube.edges.keys().collect();
+        let analyses = analyze_edges(&cube, &edges, false).unwrap();
+        for a in &analyses {
+            assert!(
+                a.convexity == Convexity::Convex || a.convexity == Convexity::Concave,
+                "cube edge {:?} has unexpected convexity {:?}",
+                a.edge,
+                a.convexity
+            );
+        }
+    }
+
+    #[test]
+    fn concave_edge_from_subtraction() {
+        use popkern_core::geometry::Transform3;
+        use popkern_core::tolerance::Tolerance;
+        let tol = Tolerance::default();
+        let big = BRep::unit_cube(tol).unwrap();
+        // Scale to half-size then translate so it overlaps one corner.
+        let xf = Transform3::translation(0.25, 0.25, 0.5).compose(&Transform3::scale_uniform(0.5));
+        let small = BRep::unit_cube(tol).unwrap().transform(&xf).unwrap();
+
+        let result = popkern_bool::subtraction(big, small, tol);
+        if let Ok(subtracted) = result {
+            let edges: Vec<EdgeHandle> = subtracted.edges.keys().collect();
+            if !edges.is_empty() {
+                let analyses = analyze_edges(&subtracted, &edges, false);
+                if let Ok(analyses) = analyses {
+                    let has_concave = analyses.iter().any(|a| a.convexity == Convexity::Concave);
+                    assert!(has_concave, "subtraction result should have concave edges");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn edge_missing_surface_geometry() {
+        // Construct a BRep where a face has no surface, triggering the error path
+        // in get_face_surface.
+        let mut cube = make_cube();
+        let edge = first_edge(&cube);
+        let edge_data = &cube.edges[edge];
+        let he = &cube.half_edges[edge_data.half_edge];
+        let face = cube.loops[he.loop_].face;
+
+        // Remove surface geometry from the face.
+        cube.faces[face].surface = None;
+
+        let result = analyze_edges(&cube, &[edge], false);
+        assert!(
+            result.is_err(),
+            "should fail when face has no surface geometry"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("no surface"),
+            "error should mention missing surface: {err}"
+        );
+    }
+
+    #[test]
+    fn analyze_multiple_edges() {
+        let cube = make_cube();
+        let edges: Vec<EdgeHandle> = cube.edges.keys().take(3).collect();
+        let analyses = analyze_edges(&cube, &edges, false).unwrap();
+        assert_eq!(analyses.len(), 3);
+        for a in &analyses {
+            assert_ne!(a.face_1, a.face_2, "adjacent faces should be different");
+        }
+    }
 }

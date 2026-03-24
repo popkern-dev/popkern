@@ -189,4 +189,181 @@ mod tests {
         let result = check_offset_self_intersection(&plane, 1000.0, true, (-1.0, 1.0), (-1.0, 1.0));
         assert!(result.is_none());
     }
+
+    /// Cone falls through to the sampling path. A narrow cone (small half-angle)
+    /// has high curvature near the apex — a large inward offset should detect.
+    #[test]
+    fn cone_inward_offset_detects_self_intersection() {
+        let cone = SurfaceGeometry::Cone {
+            apex: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            half_angle: std::f64::consts::FRAC_PI_6, // 30 degrees
+        };
+        // Sample away from the apex where curvature is finite but non-trivial.
+        let result = check_offset_self_intersection(
+            &cone,
+            50.0,
+            true,
+            (0.0, std::f64::consts::TAU),
+            (0.5, 2.0),
+        );
+        // A very large offset on a cone should self-intersect.
+        assert!(
+            result.is_some(),
+            "large inward offset on cone should detect self-intersection"
+        );
+        let max_safe = result.unwrap();
+        assert!(max_safe > 0.0, "max safe radius should be positive");
+    }
+
+    /// Cone with a safe (small) inward offset should report None.
+    #[test]
+    fn cone_safe_offset() {
+        let cone = SurfaceGeometry::Cone {
+            apex: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            half_angle: std::f64::consts::FRAC_PI_6,
+        };
+        // Far from the apex (v in [5, 10]) the curvature radius is large.
+        let result = check_offset_self_intersection(
+            &cone,
+            0.001,
+            true,
+            (0.0, std::f64::consts::TAU),
+            (5.0, 10.0),
+        );
+        assert!(
+            result.is_none(),
+            "tiny offset on cone far from apex should be safe"
+        );
+    }
+
+    /// NURBS surface (bilinear flat patch) should behave like a plane —
+    /// infinite curvature radius, always safe for inward offset.
+    #[test]
+    fn nurbs_flat_patch_safe() {
+        use popkern_core::geometry::NurbsSurface;
+        let nurbs = NurbsSurface {
+            degree_u: 1,
+            degree_v: 1,
+            knots_u: vec![0.0, 0.0, 1.0, 1.0],
+            knots_v: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+            ],
+            num_u: 2,
+            num_v: 2,
+            weights: vec![1.0; 4],
+        };
+        let surface = SurfaceGeometry::Nurbs(nurbs);
+        let result = check_offset_self_intersection(&surface, 100.0, true, (0.0, 1.0), (0.0, 1.0));
+        assert!(
+            result.is_none(),
+            "flat NURBS patch should be safe for any offset"
+        );
+    }
+
+    /// NURBS surface with high curvature (curved inward) should detect
+    /// self-intersection for a large offset.
+    #[test]
+    fn nurbs_curved_detects_self_intersection() {
+        use popkern_core::geometry::NurbsSurface;
+        // Create a patch that bulges upward, giving it noticeable curvature.
+        let nurbs = NurbsSurface {
+            degree_u: 2,
+            degree_v: 2,
+            knots_u: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            knots_v: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control_points: vec![
+                // Row 0
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.5, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                // Row 1 — bulges upward
+                Point3::new(0.0, 0.5, 1.0),
+                Point3::new(0.5, 0.5, 1.0),
+                Point3::new(1.0, 0.5, 1.0),
+                // Row 2
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(0.5, 1.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+            ],
+            num_u: 3,
+            num_v: 3,
+            weights: vec![1.0; 9],
+        };
+        let surface = SurfaceGeometry::Nurbs(nurbs);
+        // Large inward offset on a surface with curvature ~1 should detect.
+        let result = check_offset_self_intersection(&surface, 100.0, true, (0.0, 1.0), (0.0, 1.0));
+        assert!(
+            result.is_some(),
+            "curved NURBS with large offset should detect self-intersection"
+        );
+    }
+
+    /// Outward offset on analytic surfaces always returns None.
+    #[test]
+    fn outward_offset_analytic_always_safe() {
+        let sphere = SurfaceGeometry::Sphere {
+            center: Point3::new(0.0, 0.0, 0.0),
+            radius: 1.0,
+        };
+        let result = check_offset_self_intersection(
+            &sphere,
+            1000.0,
+            false,
+            (0.0, std::f64::consts::TAU),
+            (0.0, std::f64::consts::PI),
+        );
+        assert!(
+            result.is_none(),
+            "outward offset on sphere should always be safe"
+        );
+    }
+
+    /// Outward offset on a cone still goes through sampling (non-analytic path).
+    #[test]
+    fn outward_offset_cone_sampling_path() {
+        let cone = SurfaceGeometry::Cone {
+            apex: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            half_angle: std::f64::consts::FRAC_PI_6,
+        };
+        // Outward offset on a cone — should go through sampling path but still be safe
+        // for a small offset far from apex.
+        let result = check_offset_self_intersection(
+            &cone,
+            0.001,
+            false,
+            (0.0, std::f64::consts::TAU),
+            (5.0, 10.0),
+        );
+        assert!(
+            result.is_none(),
+            "small outward offset on cone should be safe"
+        );
+    }
+
+    /// The safe radius returned should be slightly below the curvature radius.
+    #[test]
+    fn safe_radius_is_below_curvature_radius() {
+        let sphere = SurfaceGeometry::Sphere {
+            center: Point3::new(0.0, 0.0, 0.0),
+            radius: 5.0,
+        };
+        let result = check_offset_self_intersection(
+            &sphere,
+            10.0,
+            true,
+            (0.0, std::f64::consts::TAU),
+            (0.0, std::f64::consts::PI),
+        );
+        assert!(result.is_some());
+        let max_safe = result.unwrap();
+        // Should be 5.0 * 0.99 = 4.95
+        assert!((max_safe - 4.95).abs() < 0.01, "max_safe={max_safe}");
+    }
 }

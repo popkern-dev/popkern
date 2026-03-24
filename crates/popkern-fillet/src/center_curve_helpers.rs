@@ -358,4 +358,121 @@ mod tests {
             r
         );
     }
+
+    #[test]
+    fn project_onto_cylinder() {
+        let cyl = SurfaceGeometry::Cylinder {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            radius: 2.0,
+        };
+        let pt = Point3::new(5.0, 0.0, 1.0);
+        let proj =
+            project_onto_surface(&cyl, (0.0, std::f64::consts::TAU), (-5.0, 5.0), &pt).unwrap();
+        // Should be on the cylinder surface (r=2 from z-axis).
+        let r = (proj.x * proj.x + proj.y * proj.y).sqrt();
+        assert!(
+            (r - 2.0).abs() < 0.5,
+            "projected point should be near cylinder, r={}",
+            r
+        );
+    }
+
+    #[test]
+    fn clip_footprint_all_inside() {
+        let plane = xy_plane();
+        let footprint = vec![
+            Point3::new(0.2, 0.3, 0.0),
+            Point3::new(0.5, 0.5, 0.0),
+            Point3::new(0.8, 0.7, 0.0),
+        ];
+        let clipped = clip_footprint_to_bounds(&plane, (0.0, 1.0), (0.0, 1.0), &footprint);
+        assert_eq!(clipped.len(), 3, "all points inside, should keep all");
+    }
+
+    #[test]
+    fn clip_footprint_straddle_boundary() {
+        let plane = xy_plane();
+        // Points go from inside to outside the u=1.0 boundary.
+        let footprint = vec![
+            Point3::new(0.5, 0.5, 0.0),
+            Point3::new(0.9, 0.5, 0.0),
+            Point3::new(1.5, 0.5, 0.0), // outside
+            Point3::new(2.0, 0.5, 0.0), // outside
+        ];
+        let clipped = clip_footprint_to_bounds(&plane, (0.0, 1.0), (0.0, 1.0), &footprint);
+        // Should retain interior points + interpolated boundary point.
+        assert!(
+            clipped.len() >= 2,
+            "should have at least 2 points after clipping, got {}",
+            clipped.len()
+        );
+        // The last retained point should be near x=1.0.
+        let last = clipped.last().unwrap();
+        assert!(
+            last.x <= 1.01,
+            "last point should be at or near boundary, x={}",
+            last.x
+        );
+    }
+
+    #[test]
+    fn clip_footprint_single_point_unchanged() {
+        let plane = xy_plane();
+        let clipped = clip_footprint_to_bounds(
+            &plane,
+            (0.0, 1.0),
+            (0.0, 1.0),
+            &[Point3::new(0.5, 0.5, 0.0)],
+        );
+        assert_eq!(clipped.len(), 1);
+    }
+
+    #[test]
+    fn snap_endpoint_near_and_far_from_boundary() {
+        let plane = xy_plane();
+        let mut near = Point3::new(0.0005, 0.5, 0.0);
+        snap_endpoint_to_boundary(&mut near, &plane, (0.0, 1.0), (0.0, 1.0));
+        assert!(near.x.abs() < 1e-10, "should snap to u=0, got x={}", near.x);
+
+        let mut far = Point3::new(0.5, 0.5, 0.0);
+        let orig = far;
+        snap_endpoint_to_boundary(&mut far, &plane, (0.0, 1.0), (0.0, 1.0));
+        assert!(
+            far.distance_to(&orig) < 1e-10,
+            "interior point should not snap"
+        );
+    }
+
+    #[test]
+    fn fit_nurbs_various_point_counts() {
+        // Two points
+        let pts2 = vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 1.0, 1.0)];
+        let c2 = fit_nurbs_through_points(&pts2).unwrap();
+        assert_eq!(c2.degree, 1);
+        assert_eq!(c2.control_points.len(), 2);
+
+        // Five points
+        let pts5: Vec<Point3> = (0..5)
+            .map(|i| Point3::new(i as f64, (i as f64).sin(), 0.0))
+            .collect();
+        let c5 = fit_nurbs_through_points(&pts5).unwrap();
+        assert_eq!(c5.control_points.len(), 5);
+        let (t0, t1) = c5.parameter_range();
+        assert!(c5.point_at(t0).distance_to(&pts5[0]) < 1e-10);
+        assert!(c5.point_at(t1).distance_to(&pts5[4]) < 1e-10);
+
+        // Degenerate (coincident)
+        let degen = vec![Point3::new(1.0, 2.0, 3.0), Point3::new(1.0, 2.0, 3.0)];
+        assert!(fit_nurbs_through_points(&degen).is_err());
+    }
+
+    #[test]
+    fn clamp_finite_range_cases() {
+        assert_eq!(clamp_finite_range((1.0, 5.0), (-10.0, 10.0)), (1.0, 5.0));
+        assert_eq!(
+            clamp_finite_range((f64::NEG_INFINITY, f64::INFINITY), (-10.0, 10.0)),
+            (-10.0, 10.0)
+        );
+    }
 }
