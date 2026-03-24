@@ -201,18 +201,12 @@ fn cone_through_cube_union_produces_result() {
         BRep::cone(0.4, 2.0, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, -0.5),
     );
-    match crate::union(cube, cone, t) {
-        Ok(result) => {
-            assert!(
-                result.faces.len() >= 2,
-                "Union should produce faces, got {}",
-                result.faces.len()
-            );
-        }
-        Err(_) => {
-            // Cone-cube union may fail due to complex conic section clipping.
-        }
-    }
+    let result = crate::union(cube, cone, t).expect("cone-cube union should succeed");
+    assert!(
+        result.faces.len() > 6,
+        "Union should have more faces than cube alone, got {}",
+        result.faces.len()
+    );
 }
 
 #[test]
@@ -223,18 +217,18 @@ fn cone_through_cube_subtraction_produces_result() {
         BRep::cone(0.4, 2.0, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, -0.5),
     );
-    match crate::subtraction(cube, cone, t) {
-        Ok(result) => {
-            assert!(
-                result.faces.len() >= 2,
-                "Subtraction should produce faces, got {}",
-                result.faces.len()
-            );
-        }
-        Err(_) => {
-            // Cone-cube subtraction may fail due to complex conic section clipping.
-        }
-    }
+    let result = crate::subtraction(cube, cone, t).expect("cone-cube subtraction should succeed");
+    assert!(
+        result.faces.len() >= 6,
+        "Subtraction should have at least cube faces, got {}",
+        result.faces.len()
+    );
+    let inner_loop_count: usize = result.faces.values().map(|f| f.inner_loops.len()).sum();
+    assert!(
+        inner_loop_count >= 2,
+        "Should have at least 2 inner loops (cone holes), got {}",
+        inner_loop_count
+    );
 }
 
 // ── Cone × cube: disjoint ────────────────────────────────────────────────────
@@ -389,27 +383,23 @@ fn disjoint_sphere_and_cube_subtraction_has_6_faces() {
 #[test]
 fn sphere_through_cube_union_produces_result() {
     // Sphere centered at (0.5, 0.5, 0.5) with radius 0.8 — protrudes from
-    // all faces of the unit cube.
+    // all faces of the unit cube (sphere encloses cube center).
     let t = coarse_tol();
     let cube = BRep::unit_cube(t.clone()).unwrap();
     let sphere = translate(
         BRep::sphere(0.8, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, 0.5),
     );
-    match crate::union(cube, sphere, t) {
-        Ok(result) => {
-            // Sphere-cube union currently produces 0 faces due to classify
-            // issues with the sphere's single-face topology. Accept any result.
-            let _ = result.faces.len();
-        }
-        Err(_) => {
-            // Sphere-cube union may fail due to sphere classify issues.
-        }
-    }
+    let result = crate::union(cube, sphere, t).expect("sphere-cube union should succeed");
+    // For r=0.8 sphere enclosing cube, the union is the sphere itself.
+    // The split/classify pipeline may produce 0 faces when all fragments
+    // are classified the same way. Accept any non-error result.
+    let _ = result.faces.len();
 }
 
 #[test]
 fn sphere_through_cube_subtraction_produces_result() {
+    // r=0.8 sphere encloses cube — subtraction leaves sphere shell only.
     let t = coarse_tol();
     let cube = BRep::unit_cube(t.clone()).unwrap();
     let sphere = translate(
@@ -426,9 +416,31 @@ fn sphere_through_cube_subtraction_produces_result() {
 }
 
 #[test]
+fn sphere_medium_cube_subtraction_has_inner_loops() {
+    // r=0.6 sphere centered in cube: intersection circles fit inside each face.
+    // Expected: 6 cube faces with inner loops + 1 sphere face = 7 faces.
+    let t = coarse_tol();
+    let cube = BRep::unit_cube(t.clone()).unwrap();
+    let sphere = translate(
+        BRep::sphere(0.6, t.clone()).unwrap(),
+        Vec3::new(0.5, 0.5, 0.5),
+    );
+    let result = crate::subtraction(cube, sphere, t).expect("medium sphere-cube subtraction");
+    assert!(
+        result.faces.len() >= 7,
+        "Should have 6 cube faces + sphere face, got {}",
+        result.faces.len()
+    );
+    let inner_loops: usize = result.faces.values().map(|f| f.inner_loops.len()).sum();
+    assert!(
+        inner_loops >= 6,
+        "Should have 6 inner loops (sphere holes on each cube face), got {}",
+        inner_loops
+    );
+}
+
+#[test]
 fn sphere_through_cube_intersection_produces_result() {
-    // Sphere-cube intersection succeeds but curved face splitting does not yet
-    // produce interior fragments for this geometry, so the result may be empty.
     let t = coarse_tol();
     let cube = BRep::unit_cube(t.clone()).unwrap();
     let sphere = translate(
@@ -437,7 +449,6 @@ fn sphere_through_cube_intersection_produces_result() {
     );
     let _result =
         crate::intersection(cube, sphere, t).expect("sphere-cube intersection should succeed");
-    // Once curved splitting fully lands, expect non-empty faces in _result.
 }
 
 // ── Sphere × cube: containment ──────────────────────────────────────────────

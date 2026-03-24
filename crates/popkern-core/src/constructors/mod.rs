@@ -18,15 +18,27 @@ use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::topology::BRep;
 
 /// Compute a plane surface from 3 non-collinear points.
+///
+/// Produces orthonormal `u_axis` and `v_axis` via Gram-Schmidt
+/// orthogonalization. The u-axis is aligned with `p1 - p0` (normalized),
+/// and the v-axis is the component of `p2 - p0` perpendicular to u-axis.
 pub(super) fn plane_from_points(
     p0: Point3,
     p1: Point3,
     p2: Point3,
 ) -> Result<SurfaceGeometry, CoreError> {
-    let u_axis = p1 - p0;
-    let v_axis = p2 - p0;
-    let normal = u_axis.cross(&v_axis);
+    let raw_u = p1 - p0;
+    let raw_v = p2 - p0;
+    let normal = raw_u.cross(&raw_v);
     let normal = normal
+        .normalized()
+        .ok_or_else(|| CoreError::DegenerateSurface("collinear points for plane".into()))?;
+    let u_axis = raw_u
+        .normalized()
+        .ok_or_else(|| CoreError::DegenerateSurface("zero-length u_axis".into()))?;
+    // Gram-Schmidt: v = raw_v - (raw_v·u)*u, then normalize.
+    let v_proj = raw_v - u_axis * raw_v.dot(&u_axis);
+    let v_axis = v_proj
         .normalized()
         .ok_or_else(|| CoreError::DegenerateSurface("collinear points for plane".into()))?;
     Ok(SurfaceGeometry::Plane {
