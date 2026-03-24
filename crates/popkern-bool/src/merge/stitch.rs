@@ -22,14 +22,34 @@ pub(super) fn stitch_boundary_edges(result: &mut BRep, tolerance: &Tolerance) {
     // First, merge coincident vertices that weren't caught during copy.
     merge_coincident_vertices(result, tolerance);
 
-    // Collect all unpaired half-edges (those whose twin points at themselves).
+    // Pass 1: vertex-handle matching (fast path).
+    stitch_by_vertex_handles(result);
+
+    // Pass 2: position-based fallback for remaining unpaired half-edges.
+    stitch_by_position(result, tolerance);
+
+    // Pass 3: edge-curve geometry matching for any remaining unpaired edges.
+    stitch_by_curve_geometry(result, tolerance);
+
+    // Verify twin pairing consistency and log diagnostics.
+    verify_stitching(result);
+
+    // Fix edge curve geometry to match vertex positions.
+    reconcile_edge_curves(result, tolerance);
+}
+
+/// Stitch unpaired half-edges by vertex-handle matching.
+///
+/// For each unpaired half-edge (A->B), looks for another unpaired half-edge
+/// going (B->A) using vertex handles as keys. This is the fastest stitching
+/// pass since it avoids position comparisons.
+fn stitch_by_vertex_handles(result: &mut BRep) {
     let unpaired: Vec<HalfEdgeHandle> = result
         .half_edges
         .keys()
         .filter(|&heh| result.half_edges[heh].twin == heh)
         .collect();
 
-    // Build a map from (origin, dest) -> half-edge handle for fast lookup.
     let mut edge_map: HashMap<(VertexHandle, VertexHandle), HalfEdgeHandle> =
         HashMap::with_capacity(unpaired.len());
 
@@ -40,7 +60,6 @@ pub(super) fn stitch_boundary_edges(result: &mut BRep, tolerance: &Tolerance) {
         edge_map.insert((origin, dest), heh);
     }
 
-    // For each unpaired half-edge (A->B), look for one going (B->A).
     for &heh in &unpaired {
         if result.half_edges[heh].twin != heh {
             continue;
@@ -57,12 +76,6 @@ pub(super) fn stitch_boundary_edges(result: &mut BRep, tolerance: &Tolerance) {
             stitch_twin_pair(result, heh, twin_heh);
         }
     }
-
-    // Position-based fallback for remaining unpaired half-edges.
-    stitch_by_position(result, tolerance);
-
-    // Fix edge curve geometry to match vertex positions.
-    reconcile_edge_curves(result, tolerance);
 }
 
 /// Merge coincident vertices in the result BRep.
@@ -312,6 +325,116 @@ fn reconcile_edge_curves(result: &mut BRep, tolerance: &Tolerance) {
                 }
             }
         }
+    }
+}
+
+/// Stitch unpaired half-edges by comparing edge curve geometry.
+///
+/// For each pair of unpaired half-edges, checks whether their edge curves
+/// share the same geometry (same control points within tolerance). This
+/// catches cases where vertex positions diverged slightly but the underlying
+/// curves are identical.
+fn stitch_by_curve_geometry(result: &mut BRep, tolerance: &Tolerance) {
+    use popkern_core::geometry::CurveEval;
+
+    let unpaired: Vec<HalfEdgeHandle> = result
+        .half_edges
+        .keys()
+        .filter(|&heh| result.half_edges[heh].twin == heh)
+        .collect();
+
+    if unpaired.len() < 2 {
+        return;
+    }
+
+    // For each unpaired half-edge, sample its edge curve at a few points.
+    let samples: Vec<(HalfEdgeHandle, Vec<popkern_core::geometry::Point3>)> = unpaired
+        .iter()
+        .filter_map(|&heh| {
+            let edge_h = result.half_edges[heh].edge;
+            let curve = result.edges[edge_h].curve.as_ref()?;
+            let n = 3;
+            let pts: Vec<_> = (0..=n)
+                .map(|i| {
+                    let t = curve.t_start + (curve.t_end - curve.t_start) * i as f64 / n as f64;
+                    curve.geometry.point_at(t)
+                })
+                .collect();
+            Some((heh, pts))
+        })
+        .collect();
+
+    let mut already_stitched = std::collections::HashSet::new();
+    for (i, (he_a, pts_a)) in samples.iter().enumerate() {
+        let he_a = *he_a;
+        if already_stitched.contains(&he_a) || result.half_edges[he_a].twin != he_a {
+            continue;
+        }
+        for (he_b, pts_b) in samples.iter().skip(i + 1) {
+            let he_b = *he_b;
+            if already_stitched.contains(&he_b) || result.half_edges[he_b].twin != he_b {
+                continue;
+            }
+            // Check if curves match in reverse direction (as twins should).
+            if pts_a.len() == pts_b.len()
+                && pts_a
+                    .iter()
+                    .zip(pts_b.iter().rev())
+                    .all(|(a, b)| tolerance.points_coincident(a, b))
+            {
+                // Unify vertices before stitching.
+                let origin_a = result.half_edges[he_a].origin;
+                let next_a = result.half_edges[he_a].next;
+                let dest_a = result.half_edges[next_a].origin;
+                let origin_b = result.half_edges[he_b].origin;
+                let next_b = result.half_edges[he_b].next;
+                let dest_b = result.half_edges[next_b].origin;
+
+                if origin_b != dest_a {
+                    remap_vertex(result, origin_b, dest_a);
+                }
+                if dest_b != origin_a {
+                    remap_vertex(result, dest_b, origin_a);
+                }
+
+                stitch_twin_pair(result, he_a, he_b);
+                already_stitched.insert(he_a);
+                already_stitched.insert(he_b);
+                break;
+            }
+        }
+    }
+}
+
+/// Verify twin pairing consistency and log diagnostics.
+///
+/// Checks that each stitched pair of half-edges actually forms a valid
+/// manifold edge (twins reference each other). Logs the count of any
+/// remaining unpaired boundary half-edges.
+fn verify_stitching(result: &BRep) {
+    let mut unstitched_count = 0usize;
+    let mut bad_twins = 0usize;
+
+    for heh in result.half_edges.keys() {
+        let he = &result.half_edges[heh];
+        if he.twin == heh {
+            unstitched_count += 1;
+        } else if let Some(twin) = result.half_edges.get(he.twin) {
+            if twin.twin != heh {
+                bad_twins += 1;
+            }
+        } else {
+            bad_twins += 1;
+        }
+    }
+
+    if unstitched_count > 0 {
+        #[cfg(debug_assertions)]
+        eprintln!("[stitch] {unstitched_count} boundary half-edges remain unstitched");
+    }
+    if bad_twins > 0 {
+        #[cfg(debug_assertions)]
+        eprintln!("[stitch] {bad_twins} half-edges have inconsistent twin pairing");
     }
 }
 
