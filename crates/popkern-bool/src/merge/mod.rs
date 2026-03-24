@@ -6,6 +6,7 @@
 
 pub(crate) mod graph;
 pub(crate) mod graph_build;
+pub(crate) mod graph_split;
 mod stitch;
 
 use std::collections::HashMap;
