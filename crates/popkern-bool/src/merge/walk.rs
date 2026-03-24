@@ -126,11 +126,23 @@ pub(crate) fn walk_all_fragments(
         let mut inner_loops_out = Vec::new();
         let mut separate_outers = Vec::new();
 
+        // Collect the half-edge indices in the outer loop for
+        // twin-overlap detection.
+        let outer_he_set: HashSet<usize> = outer_loop.iter().copied().collect();
+
         for (i, lp) in loops.into_iter().enumerate() {
-            if remaining_areas[i].abs() < threshold {
-                inner_loops_out.push(lp);
-            } else {
+            // A loop whose half-edges share an underlying graph edge
+            // with the outer loop is a face-split boundary, not a hole.
+            // Detect this by checking if any half-edge in the loop has
+            // its twin in the outer loop.
+            let shares_edge_with_outer = lp.iter().any(|&he_idx| {
+                let twin = graph.half_edges[he_idx].twin;
+                outer_he_set.contains(&twin)
+            });
+            if shares_edge_with_outer || remaining_areas[i].abs() >= threshold {
                 separate_outers.push(lp);
+            } else {
+                inner_loops_out.push(lp);
             }
         }
 

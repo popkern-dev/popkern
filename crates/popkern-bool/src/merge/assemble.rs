@@ -146,40 +146,59 @@ pub(crate) fn assemble_result(
 
         // Create face.
         let face_h = builder.add_face(shell);
-
-        // Resolve a raw graph half-edge to a BRep half-edge, applying
-        // flip when needed.  If the resolved BRep half-edge is already
-        // wired into a loop, try the graph twin's mapping.  If both
-        // are wired, create a fresh edge pair (duplicate) to keep the
-        // loop geometrically correct.
         let default_loop = popkern_core::topology::LoopHandle::default();
-        let resolve_for_loop = |raw_ghe: usize, bld: &mut BRepBuilder| -> Option<HalfEdgeHandle> {
-            let ghe = if selection.flip {
-                graph.half_edges[raw_ghe].twin
-            } else {
-                raw_ghe
-            };
-            // Try primary mapping.
-            if let Some(&brep_he) = he_map.get(&ghe)
-                && bld.brep().half_edges[brep_he].loop_ == default_loop
-            {
-                return Some(brep_he);
+
+        // Resolve graph half-edges to BRep half-edges for a loop.
+        // When both directions of an edge are already wired, creates a
+        // new BRep edge pair and updates he_map so that later fragments
+        // can find the duplicate's twin — preventing dangling half-edges.
+        let resolve_loop_hes = |raw_hes: &[usize],
+                                flip: bool,
+                                hmap: &mut HashMap<usize, HalfEdgeHandle>,
+                                nmap: &HashMap<usize, VertexHandle>,
+                                bld: &mut BRepBuilder|
+         -> Vec<HalfEdgeHandle> {
+            let mut handles = Vec::new();
+            for &raw_ghe in raw_hes {
+                let ghe = if flip {
+                    graph.half_edges[raw_ghe].twin
+                } else {
+                    raw_ghe
+                };
+                let graph_twin = graph.half_edges[ghe].twin;
+
+                // Try primary mapping.
+                if let Some(&brep_he) = hmap.get(&ghe)
+                    && bld.brep().half_edges[brep_he].loop_ == default_loop
+                {
+                    handles.push(brep_he);
+                    continue;
+                }
+                // Try graph twin's mapping.
+                if let Some(&alt) = hmap.get(&graph_twin)
+                    && bld.brep().half_edges[alt].loop_ == default_loop
+                {
+                    handles.push(alt);
+                    continue;
+                }
+                // Both wired — create a new edge pair and update the map
+                // so subsequent fragments can use the twin.
+                let origin_node = graph.half_edges[ghe].origin;
+                let end_node = graph.half_edges[graph_twin].origin;
+                let Some(&vh_start) = nmap.get(&origin_node) else {
+                    continue;
+                };
+                let Some(&vh_end) = nmap.get(&end_node) else {
+                    continue;
+                };
+                let (_edge_h, he_fwd, he_twin) = bld.add_edge(vh_start, vh_end);
+                // Overwrite mappings so later fragments pick up the new
+                // twin instead of the already-wired originals.
+                hmap.insert(ghe, he_fwd);
+                hmap.insert(graph_twin, he_twin);
+                handles.push(he_fwd);
             }
-            // Primary wired. Try graph twin's mapping.
-            let graph_twin = graph.half_edges[ghe].twin;
-            if let Some(&alt) = he_map.get(&graph_twin)
-                && bld.brep().half_edges[alt].loop_ == default_loop
-            {
-                return Some(alt);
-            }
-            // Both wired. Create a duplicate edge to preserve correct
-            // geometry at the cost of an Euler violation.
-            let origin_node = graph.half_edges[ghe].origin;
-            let end_node = graph.half_edges[graph_twin].origin;
-            let vh_start = *node_to_vertex.get(&origin_node)?;
-            let vh_end = *node_to_vertex.get(&end_node)?;
-            let (_edge_h, he_fwd, _he_twin) = bld.add_edge(vh_start, vh_end);
-            Some(he_fwd)
+            handles
         };
 
         // Build outer loop.  For flipped fragments, reverse the iteration
@@ -189,12 +208,13 @@ pub(crate) fn assemble_result(
         } else {
             fragment.outer_loop.clone()
         };
-        let mut outer_he_handles: Vec<HalfEdgeHandle> = Vec::new();
-        for &he_idx in &raw_outer {
-            if let Some(heh) = resolve_for_loop(he_idx, &mut builder) {
-                outer_he_handles.push(heh);
-            }
-        }
+        let outer_he_handles = resolve_loop_hes(
+            &raw_outer,
+            selection.flip,
+            &mut he_map,
+            &node_to_vertex,
+            &mut builder,
+        );
 
         if !outer_he_handles.is_empty() {
             builder
@@ -216,12 +236,13 @@ pub(crate) fn assemble_result(
             } else {
                 inner_loop.clone()
             };
-            let mut inner_he_handles: Vec<HalfEdgeHandle> = Vec::new();
-            for &he_idx in &raw_inner {
-                if let Some(heh) = resolve_for_loop(he_idx, &mut builder) {
-                    inner_he_handles.push(heh);
-                }
-            }
+            let inner_he_handles = resolve_loop_hes(
+                &raw_inner,
+                selection.flip,
+                &mut he_map,
+                &node_to_vertex,
+                &mut builder,
+            );
 
             if !inner_he_handles.is_empty() {
                 builder
