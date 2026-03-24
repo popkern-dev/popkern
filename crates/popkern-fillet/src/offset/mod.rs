@@ -2,6 +2,7 @@
 
 pub mod analytic;
 pub mod nurbs;
+pub mod self_intersect;
 
 pub use analytic::offset_analytic;
 pub use nurbs::offset_nurbs;
