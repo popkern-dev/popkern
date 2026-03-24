@@ -29,6 +29,36 @@ fn fillet_single_cube_edge() {
 }
 
 #[test]
+fn fillet_single_cube_edge_produces_valid_brep() {
+    let brep = BRep::unit_cube(default_tol()).unwrap();
+    let edge = brep.edges.keys().next().unwrap();
+    let result = popkern_fillet::fillet_edge(&brep, edge, 0.1, default_tol()).unwrap();
+
+    // Must have MORE faces than original (6 original - 2 consumed + 2 kept + 1 fillet = 7).
+    assert_eq!(
+        result.brep.faces.len(),
+        7,
+        "should have 7 faces after filleting one edge"
+    );
+
+    // Must pass structural validation.
+    let errors = result.brep.validate_all();
+    let structural: Vec<_> = errors
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                popkern_core::error::ValidationError::BrokenCycle { .. }
+                    | popkern_core::error::ValidationError::BrokenTwin { .. }
+                    | popkern_core::error::ValidationError::InconsistentVertex { .. }
+                    | popkern_core::error::ValidationError::NonManifoldEdge { .. }
+            )
+        })
+        .collect();
+    assert!(structural.is_empty(), "structural errors: {:?}", structural);
+}
+
+#[test]
 fn chamfer_single_cube_edge() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     let edge = brep.edges.keys().next().unwrap();
@@ -43,6 +73,34 @@ fn chamfer_single_cube_edge() {
         blend.brep.faces.len() >= brep.faces.len(),
         "result should have >= original face count"
     );
+}
+
+#[test]
+fn chamfer_single_cube_edge_produces_valid_brep() {
+    let brep = BRep::unit_cube(default_tol()).unwrap();
+    let edge = brep.edges.keys().next().unwrap();
+    let result = popkern_fillet::chamfer_edge(&brep, edge, 0.2, default_tol()).unwrap();
+
+    assert_eq!(
+        result.brep.faces.len(),
+        7,
+        "should have 7 faces after chamfering one edge"
+    );
+
+    let errors = result.brep.validate_all();
+    let structural: Vec<_> = errors
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                popkern_core::error::ValidationError::BrokenCycle { .. }
+                    | popkern_core::error::ValidationError::BrokenTwin { .. }
+                    | popkern_core::error::ValidationError::InconsistentVertex { .. }
+                    | popkern_core::error::ValidationError::NonManifoldEdge { .. }
+            )
+        })
+        .collect();
+    assert!(structural.is_empty(), "structural errors: {:?}", structural);
 }
 
 #[test]

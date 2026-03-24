@@ -1,8 +1,9 @@
-//! Topology construction — apply fillet/chamfer geometry to the BRep.
+//! Topology construction -- apply fillet/chamfer geometry to the BRep.
 //!
-//! Clones the input BRep, splits edges at trim-curve endpoints, splits faces
-//! along trim curves, inserts new fillet/chamfer faces with the computed surface
-//! geometry, and validates the result.
+//! Clones the input BRep, splits perpendicular edges at the fillet offset
+//! distance, splits faces along trim curves, merges consumed face regions
+//! by removing the original fillet edge, and assigns the fillet/chamfer
+//! surface geometry to the resulting face.
 
 pub(crate) mod helpers;
 
@@ -34,11 +35,11 @@ pub struct EdgeGeometry {
 /// Apply computed fillet/chamfer geometry to a BRep.
 ///
 /// Clones the BRep, then for each edge geometry:
-/// 1. Splits the fillet edge at the trim-curve endpoints to create anchor
-///    vertices.
-/// 2. Splits each adjacent face along its trim curve.
-/// 3. Inserts a new face between the two trim curves carrying the fillet
-///    surface.
+/// 1. Splits perpendicular edges at the fillet radius offset.
+/// 2. Splits each adjacent face along corrected trim curves.
+/// 3. Identifies consumed faces (portions eaten by the fillet).
+/// 4. Merges consumed faces by removing the original fillet edge (`kef`).
+/// 5. Assigns the fillet/chamfer surface to the merged face.
 ///
 /// Returns the modified BRep or a list of per-edge failures.
 pub fn apply_blend_geometry(
@@ -64,55 +65,83 @@ pub fn apply_blend_geometry(
 
 /// Apply a single fillet/chamfer blend to the BRep.
 ///
-/// Performs the three-phase topology modification for one edge:
-/// split edges, split faces, insert the fillet face.
+/// Performs the four-phase topology modification for one edge:
+/// 1. Split perpendicular edges at the offset distance (creates anchor vertices).
+/// 2. Split faces along trim curves connecting the anchor vertices.
+/// 3. Identify consumed faces (the portions that contain the fillet edge).
+/// 4. Merge consumed faces via `kef` and assign fillet surface.
 fn apply_single_blend(
     brep: &mut BRep,
     eg: &EdgeGeometry,
     tolerance: &Tolerance,
 ) -> Result<(), BlendFailure> {
-    // Phase A: split fillet edge at trim-curve endpoints to create anchor vertices.
-    let anchors = helpers::split_edge_at_trim_endpoints(
+    let fillet_edge = eg.analysis.edge;
+
+    // Estimate the fillet radius from the trim curve geometry.
+    let radius = helpers::estimate_radius_from_geometry(brep, fillet_edge, &eg.trim_3d_1);
+    if radius < tolerance.linear {
+        return Err(BlendFailure::InvalidTopology {
+            reason: "estimated fillet radius is too small".into(),
+        });
+    }
+
+    // Phase 0: Split perpendicular edges at the fillet offset distance.
+    let split_info = helpers::split_perpendicular_edges_by_radius(
         brep,
-        eg.analysis.edge,
-        &eg.trim_3d_1,
-        &eg.trim_3d_2,
+        eg.analysis.face_1,
+        eg.analysis.face_2,
+        fillet_edge,
+        radius,
         tolerance,
     )
     .map_err(|e| BlendFailure::InvalidTopology { reason: e })?;
 
-    // Phase B: split each adjacent face along its trim curve.
+    // Compute pcurves for the corrected trim curves on each face.
+    let pcurve_1 = helpers::pcurve_for_face(
+        brep,
+        eg.analysis.face_1,
+        &brep.vertices[split_info.face_1_anchors.0].position,
+        &brep.vertices[split_info.face_1_anchors.1].position,
+    )
+    .map_err(|e| BlendFailure::InvalidTopology { reason: e })?;
+
+    let pcurve_2 = helpers::pcurve_for_face(
+        brep,
+        eg.analysis.face_2,
+        &brep.vertices[split_info.face_2_anchors.0].position,
+        &brep.vertices[split_info.face_2_anchors.1].position,
+    )
+    .map_err(|e| BlendFailure::InvalidTopology { reason: e })?;
+
+    // Phase 1: Split each adjacent face along the corrected trim curves.
     let split_1 = split_face_with_trim(
         brep,
         eg.analysis.face_1,
-        &eg.pcurve_1,
-        &eg.trim_3d_1,
+        &pcurve_1,
+        &split_info.trim_3d_1,
         tolerance,
-    );
+    )?;
+
     let split_2 = split_face_with_trim(
         brep,
         eg.analysis.face_2,
-        &eg.pcurve_2,
-        &eg.trim_3d_2,
+        &pcurve_2,
+        &split_info.trim_3d_2,
         tolerance,
-    );
+    )?;
 
-    // Phase C: insert the fillet face between the two trim curves.
-    if let (Ok(s1), Ok(s2)) = (&split_1, &split_2) {
-        helpers::insert_fillet_face(
-            brep,
-            &eg.surface,
-            &anchors,
-            &eg.trim_3d_1,
-            &eg.trim_3d_2,
-            &eg.pcurve_1,
-            &eg.pcurve_2,
-            s1,
-            s2,
-            tolerance,
-        )
+    // Phase 2: Identify which split face is consumed (contains the fillet edge).
+    let (_kept_1, consumed_1) =
+        helpers::identify_consumed_face(brep, split_1.face_a, split_1.face_b, fillet_edge)
+            .map_err(|e| BlendFailure::InvalidTopology { reason: e })?;
+
+    let (_kept_2, consumed_2) =
+        helpers::identify_consumed_face(brep, split_2.face_a, split_2.face_b, fillet_edge)
+            .map_err(|e| BlendFailure::InvalidTopology { reason: e })?;
+
+    // Phase 3: Merge consumed faces by removing the original fillet edge.
+    helpers::merge_consumed_faces(brep, consumed_1, consumed_2, fillet_edge, &eg.surface)
         .map_err(|e| BlendFailure::InvalidTopology { reason: e })?;
-    }
 
     Ok(())
 }
