@@ -2571,6 +2571,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "popkern-sweep"
+version = "0.1.0"
+dependencies = [
+ "popkern-bool",
+ "popkern-core",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "popkern-viz"
 version = "0.1.0"
 dependencies = [
