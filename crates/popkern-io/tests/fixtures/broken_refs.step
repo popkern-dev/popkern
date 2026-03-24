@@ -1,0 +1,12 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('Broken refs test'), '2;1');
+FILE_NAME('broken.step', '2026-03-24', (''), (''), '', '', '');
+FILE_SCHEMA(('AUTOMOTIVE_DESIGN'));
+ENDSEC;
+DATA;
+#1 = CARTESIAN_POINT('', (0.0, 0.0, 0.0));
+#2 = DIRECTION('', (0.0, 0.0, 1.0));
+#3 = AXIS2_PLACEMENT_3D('', #1, #2, #999);
+ENDSEC;
+END-ISO-10303-21;
