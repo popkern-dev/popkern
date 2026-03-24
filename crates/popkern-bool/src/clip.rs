@@ -157,6 +157,16 @@ pub(crate) fn find_uv_crossings(
             continue;
         }
 
+        // Skip seam edges: if this half-edge's twin is on the same face,
+        // the edge is a parameterization seam, not a physical boundary.
+        // Crossings with the seam don't divide the face into inside/outside.
+        let twin_he = brep.half_edges[*he_handle].twin;
+        if brep.half_edges.contains_key(twin_he)
+            && brep.half_edges[twin_he].loop_ == brep.half_edges[*he_handle].loop_
+        {
+            continue;
+        }
+
         let working_boundary = if needs_shift {
             shift_curve_u(boundary_pcurve, shift)
         } else {

@@ -203,20 +203,6 @@ pub(super) fn ensure_crossing_vertices(
         }
 
         brep.split_edge(edge_handle, t_edge)?;
-
-        // Verify the created vertex is near the expected 3D crossing point.
-        // Use a wider tolerance (10x linear) because UV→3D conversion has
-        // inherent imprecision from the UV intersection detection. If the
-        // vertex is too far off, return false so the caller can fall back
-        // to the planar 3D-based vertex placement path.
-        let wide_tol = tolerance.linear * 10.0;
-        let pairs_after = walk_face_loop(brep, face)?;
-        let vertex_ok = pairs_after
-            .iter()
-            .any(|&(_, vh)| crossing_3d.distance_to(&brep.vertices[vh].position) < wide_tol);
-        if !vertex_ok {
-            return Ok(false);
-        }
     }
     Ok(true)
 }
@@ -291,13 +277,24 @@ pub(super) fn try_uv_split(
             Some(c) => c,
             None => return Ok(false),
         };
-        match ensure_crossing_vertices(
-            brep,
-            face_handle,
-            &[&crossings[0], &crossings[crossings.len() - 1]],
-            curve_3d,
-            tolerance,
-        ) {
+        let (ts, te) = clipped_3d.parameter_range();
+        let start_pt = clipped_3d.point_at(ts);
+        let end_pt = clipped_3d.point_at(te);
+        // For planar faces, use 3D point matching (reliable for straight edges).
+        // For curved faces, use UV crossing edge identity (required when 3D
+        // points don't land precisely on boundary edges).
+        let endpoints_ok = if is_planar_face(brep, face_handle) {
+            ensure_endpoint_vertices(brep, face_handle, &[start_pt, end_pt], tolerance)
+        } else {
+            ensure_crossing_vertices(
+                brep,
+                face_handle,
+                &[&crossings[0], &crossings[crossings.len() - 1]],
+                curve_3d,
+                tolerance,
+            )
+        };
+        match endpoints_ok {
             Ok(true) => match brep.split_face(face_handle, &clipped_uv, &clipped_3d, tolerance) {
                 Ok(result) => {
                     fragments.origin.insert(result.face_a, face_handle);
