@@ -9,8 +9,9 @@ use eframe::egui_wgpu::CallbackResources;
 
 use crate::camera::ViewPreset;
 use crate::gpu_mesh::GpuMesh;
+use crate::picking;
 use crate::renderer::Renderer;
-use crate::scene::VizServer;
+use crate::scene::{Selection, VizServer};
 use crate::wireframe::{self, GpuWireframe};
 
 // ---------------------------------------------------------------------------
@@ -133,8 +134,8 @@ impl VizApp {
             .and_then(|brep| GpuWireframe::from_brep(&rs.device, brep));
     }
 
-    /// Handle mouse and keyboard input for camera controls.
-    fn handle_input(&mut self, response: &egui::Response, ui: &egui::Ui) {
+    /// Handle mouse and keyboard input for camera controls and picking.
+    fn handle_input(&mut self, response: &egui::Response, ui: &egui::Ui, rect: egui::Rect) {
         // Orbit: left-drag
         if response.dragged_by(egui::PointerButton::Primary) && !ui.input(|i| i.modifiers.shift) {
             let delta = response.drag_delta();
@@ -180,6 +181,30 @@ impl VizApp {
                 self.scene.camera.set_view_preset(ViewPreset::Iso);
             }
         });
+
+        // Face picking: click without drag to select a face.
+        if response.clicked()
+            && let Some(pos) = response.interact_pointer_pos()
+        {
+            self.handle_click(pos, rect);
+        }
+    }
+
+    /// Perform face picking at the given screen position within the viewport rect.
+    fn handle_click(&mut self, screen_pos: egui::Pos2, viewport_rect: egui::Rect) {
+        let Some(mesh) = &self.scene.mesh else {
+            self.scene.select(Selection::None);
+            return;
+        };
+
+        // Convert screen position to normalized [0,1] coordinates within the viewport.
+        let ndc_x = (screen_pos.x - viewport_rect.min.x) / viewport_rect.width();
+        let ndc_y = (screen_pos.y - viewport_rect.min.y) / viewport_rect.height();
+
+        match picking::pick_face(&self.scene.camera, (ndc_x, ndc_y), mesh) {
+            Some(hit) => self.scene.select(Selection::Face(hit.face)),
+            None => self.scene.select(Selection::None),
+        }
     }
 }
 
@@ -248,7 +273,7 @@ impl eframe::App for VizApp {
                     self.scene.camera.aspect = rect.width() / rect.height();
                 }
 
-                self.handle_input(&response, ui);
+                self.handle_input(&response, ui, rect);
 
                 // Update uniforms and issue paint callback.
                 if let Some(rs) = &self.render_state {
