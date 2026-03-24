@@ -14,6 +14,12 @@ use popkern_core::geometry::{NurbsCurve, Point3};
 /// beyond face boundaries, which would cause `split_face` to receive
 /// mismatched anchor vertices.
 ///
+/// When a consecutive pair of points straddles the boundary (one inside,
+/// one outside), a boundary intersection point is inserted so that the
+/// trimmed footprint ends precisely at the face edge. After clipping,
+/// endpoints are snapped to the nearest face boundary if they lie within
+/// a small tolerance.
+///
 /// If clipping would remove all points, the original footprint is returned
 /// unchanged to avoid degenerate results.
 pub fn clip_footprint_to_bounds(
@@ -24,29 +30,144 @@ pub fn clip_footprint_to_bounds(
 ) -> Vec<Point3> {
     use popkern_core::geometry::uv_projection::project_point_to_uv;
 
-    // Small tolerance for boundary inclusion.
-    let eps = 1e-6;
+    if footprint.len() < 2 {
+        return footprint.to_vec();
+    }
 
-    let clipped: Vec<Point3> = footprint
+    // Tolerance for boundary inclusion (generous enough for offset-surface
+    // numerical noise).
+    let eps = 1e-4;
+
+    let in_bounds = |u: f64, v: f64| -> bool {
+        u >= u_range.0 - eps && u <= u_range.1 + eps && v >= v_range.0 - eps && v <= v_range.1 + eps
+    };
+
+    // Project all points to UV.
+    let uvs: Vec<Option<(f64, f64)>> = footprint
         .iter()
-        .filter(|pt| {
-            let (u, v) = match project_point_to_uv(surface, pt) {
-                Some(uv) => uv,
-                None => return true, // Keep points we can't project (conservative).
-            };
-            u >= u_range.0 - eps
-                && u <= u_range.1 + eps
-                && v >= v_range.0 - eps
-                && v <= v_range.1 + eps
-        })
-        .copied()
+        .map(|pt| project_point_to_uv(surface, pt))
         .collect();
+
+    let mut clipped: Vec<Point3> = Vec::with_capacity(footprint.len());
+
+    for i in 0..footprint.len() {
+        let cur_in = uvs[i].is_none_or(|(u, v)| in_bounds(u, v));
+
+        // When transitioning from outside to inside, insert a boundary
+        // interpolation point.
+        if i > 0 {
+            let prev_in = uvs[i - 1].is_none_or(|(u, v)| in_bounds(u, v));
+            if cur_in != prev_in
+                && let Some(boundary_pt) = interpolate_boundary_point(
+                    &footprint[i - 1],
+                    &footprint[i],
+                    surface,
+                    u_range,
+                    v_range,
+                )
+            {
+                clipped.push(boundary_pt);
+            }
+        }
+
+        if cur_in {
+            clipped.push(footprint[i]);
+        }
+    }
 
     // Never return an empty footprint — fall back to unclipped.
     if clipped.len() < 2 {
-        footprint.to_vec()
+        return footprint.to_vec();
+    }
+
+    // Snap endpoints to face boundary edges if they are close.
+    snap_endpoint_to_boundary(clipped.first_mut().unwrap(), surface, u_range, v_range);
+    snap_endpoint_to_boundary(clipped.last_mut().unwrap(), surface, u_range, v_range);
+
+    clipped
+}
+
+/// Interpolate a point on the face boundary between an inside and outside
+/// footprint point using binary search in 3D.
+fn interpolate_boundary_point(
+    pt_a: &Point3,
+    pt_b: &Point3,
+    surface: &SurfaceGeometry,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+) -> Option<Point3> {
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
+
+    let eps = 1e-4;
+    let in_bounds = |u: f64, v: f64| -> bool {
+        u >= u_range.0 - eps && u <= u_range.1 + eps && v >= v_range.0 - eps && v <= v_range.1 + eps
+    };
+
+    // Binary search for the boundary crossing.
+    let mut lo = 0.0_f64;
+    let mut hi = 1.0_f64;
+    let a_in = project_point_to_uv(surface, pt_a).is_none_or(|(u, v)| in_bounds(u, v));
+
+    for _ in 0..20 {
+        let mid = (lo + hi) * 0.5;
+        let pt = Point3::new(
+            pt_a.x + (pt_b.x - pt_a.x) * mid,
+            pt_a.y + (pt_b.y - pt_a.y) * mid,
+            pt_a.z + (pt_b.z - pt_a.z) * mid,
+        );
+        let mid_in = project_point_to_uv(surface, &pt).is_none_or(|(u, v)| in_bounds(u, v));
+        if mid_in == a_in {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+
+    let t = (lo + hi) * 0.5;
+    Some(Point3::new(
+        pt_a.x + (pt_b.x - pt_a.x) * t,
+        pt_a.y + (pt_b.y - pt_a.y) * t,
+        pt_a.z + (pt_b.z - pt_a.z) * t,
+    ))
+}
+
+/// Snap a footprint endpoint to the nearest face boundary if its UV
+/// projection is within `snap_tol` of a boundary edge.
+fn snap_endpoint_to_boundary(
+    pt: &mut Point3,
+    surface: &SurfaceGeometry,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+) {
+    use popkern_core::geometry::surface::SurfaceEval;
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
+
+    let snap_tol = 1e-3;
+    let (u, v) = match project_point_to_uv(surface, pt) {
+        Some(uv) => uv,
+        None => return,
+    };
+
+    // Snap u to boundary if close.
+    let u_snapped = if (u - u_range.0).abs() < snap_tol {
+        u_range.0
+    } else if (u - u_range.1).abs() < snap_tol {
+        u_range.1
     } else {
-        clipped
+        u
+    };
+
+    // Snap v to boundary if close.
+    let v_snapped = if (v - v_range.0).abs() < snap_tol {
+        v_range.0
+    } else if (v - v_range.1).abs() < snap_tol {
+        v_range.1
+    } else {
+        v
+    };
+
+    if (u_snapped - u).abs() > 1e-15 || (v_snapped - v).abs() > 1e-15 {
+        *pt = surface.point_at(u_snapped, v_snapped);
     }
 }
 
