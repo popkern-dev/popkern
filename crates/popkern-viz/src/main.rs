@@ -2,16 +2,39 @@
 
 use popkern_viz::app::VizApp;
 
+/// Print comprehensive CLI help text.
+fn print_help() {
+    eprintln!("popkern-viz — BRep debug viewer");
+    eprintln!();
+    eprintln!("USAGE:");
+    eprintln!("    popkern-viz view <file>              Open interactive viewer");
+    eprintln!("    popkern-viz screenshot <file>        Render to PNG (headless)");
+    eprintln!("        --output <path>                  Output PNG path (default: output.png)");
+    eprintln!("        --camera <preset|x,y,z>          Camera position (default: iso)");
+    eprintln!("        --width <N>                      Image width (default: 1280)");
+    eprintln!("        --height <N>                     Image height (default: 720)");
+    eprintln!("        --no-wireframe                   Disable wireframe overlay");
+    eprintln!();
+    eprintln!("SUPPORTED FORMATS:");
+    eprintln!("    .json       BRep JSON (full topology)");
+    eprintln!("    .obj        Mesh only (no topology inspection)");
+    eprintln!("    .stl        Mesh only (no topology inspection)");
+    eprintln!("    .step/.stp  STEP (requires popkern-io, coming soon)");
+    eprintln!();
+    eprintln!("AGENT PROTOCOL:");
+    eprintln!("    In interactive mode, send commands on stdin for programmatic control.");
+    eprintln!("    Commands: select, camera, screenshot, inspect, highlight, validate,");
+    eprintln!("             fit, wireframe, colors, quit");
+    eprintln!("    Responses: one JSON object per line on stdout.");
+}
+
 fn main() {
     env_logger::init();
 
     let args: Vec<String> = std::env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: popkern-viz <command> [options]");
-        eprintln!("Commands:");
-        eprintln!("  view [file]        Open interactive viewer");
-        eprintln!("  screenshot <file>  Render to PNG (headless)");
-        std::process::exit(1);
+    if args.len() < 2 || args[1] == "--help" || args[1] == "-h" {
+        print_help();
+        std::process::exit(if args.len() < 2 { 1 } else { 0 });
     }
 
     match args[1].as_str() {

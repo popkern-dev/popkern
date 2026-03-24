@@ -86,7 +86,7 @@ pub enum Command {
     Quit,
 }
 
-/// Read commands from a [`BufRead`] source and execute them against the scene.
+/// Read commands from a [`std::io::BufRead`] source and execute them against the scene.
 ///
 /// Writes JSON responses to the given writer, one per line.
 /// Returns when a `quit` command is received or the input ends.

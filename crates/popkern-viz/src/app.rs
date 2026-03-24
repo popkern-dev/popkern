@@ -22,7 +22,7 @@ use crate::wireframe::{self, GpuWireframe};
 /// GPU resources shared between the eframe app and the paint callback.
 ///
 /// Stored in [`egui_wgpu::CallbackResources`] so that the
-/// [`SceneRenderCallback`] can access them during the paint phase.
+/// the scene render callback can access them during the paint phase.
 pub struct GpuResources {
     /// Our custom mesh renderer (owns pipeline, uniform buffer, etc.).
     pub renderer: Renderer,

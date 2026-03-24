@@ -143,7 +143,7 @@ impl Camera {
     /// Zoom by moving the eye toward or away from the target.
     ///
     /// Positive `delta` moves closer; negative moves farther.
-    /// The eye-to-target distance is clamped to [`MIN_DISTANCE`].
+    /// The eye-to-target distance is clamped to a minimum of 0.01.
     pub fn zoom(&mut self, delta: f32) {
         let offset = self.eye - self.target;
         let distance = offset.length();
