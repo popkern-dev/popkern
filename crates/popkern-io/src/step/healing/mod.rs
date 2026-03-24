@@ -3,13 +3,13 @@
 //! After import, models may have small gaps, overlapping edges, or other
 //! defects. The healing pipeline runs a configurable set of repair passes
 //! to improve model quality.
-//!
-//! Currently a no-op stub — passes will be added incrementally.
+
+pub mod sew_gaps;
 
 use popkern_core::topology::BRep;
 
 use crate::error::IoError;
-use crate::step::diagnostics::{DiagnosticEntry, DiagnosticLog, Phase};
+use crate::step::diagnostics::{DiagnosticEntry, DiagnosticLog};
 
 /// A single healing pass that can inspect and repair BRep defects.
 pub trait HealingPass: Send + Sync {
@@ -43,24 +43,31 @@ pub enum HealingLevel {
 
 /// Run healing passes on a set of imported solids.
 ///
-/// Currently a no-op — logs a message and returns immediately.
+/// Applies registered healing passes to each solid. At `Basic` level, only
+/// the sew-gaps pass (vertex merging + edge curve reconciliation) runs.
+/// At `Aggressive` level, the same passes run (more may be added later).
 pub fn run_healing(
-    _solids: &mut [BRep],
-    _diagnostics: &DiagnosticLog,
+    solids: &mut [BRep],
+    diagnostics: &DiagnosticLog,
     level: HealingLevel,
     log: &mut DiagnosticLog,
 ) -> Result<(), IoError> {
     if matches!(level, HealingLevel::None) {
         return Ok(());
     }
-    log.warn(
-        Phase::Heal,
-        None,
-        format!(
-            "healing requested (level={:?}) but no passes are implemented yet",
-            level
-        ),
-    );
+
+    let passes: Vec<Box<dyn HealingPass>> = vec![Box::new(sew_gaps::SewGapsPass)];
+
+    for solid in solids.iter_mut() {
+        for entry in diagnostics.entries() {
+            for pass in &passes {
+                if pass.applies_to(entry) {
+                    pass.attempt_repair(solid, entry, log)?;
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -77,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn healing_basic_logs_warning() {
+    fn healing_basic_on_empty_is_noop() {
         let mut log = DiagnosticLog::new();
         let result = run_healing(
             &mut [],
@@ -86,6 +93,7 @@ mod tests {
             &mut log,
         );
         assert!(result.is_ok());
-        assert_eq!(log.warnings().count(), 1);
+        // No solids and no diagnostics means no passes fire.
+        assert!(log.is_empty());
     }
 }
