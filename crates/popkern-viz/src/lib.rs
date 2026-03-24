@@ -10,6 +10,7 @@ pub mod commands;
 pub mod error;
 pub mod gpu_mesh;
 pub mod headless;
+pub mod loader;
 pub mod picking;
 pub mod renderer;
 pub mod scene;

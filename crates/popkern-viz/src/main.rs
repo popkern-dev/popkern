@@ -18,27 +18,29 @@ fn main() {
         "view" => {
             let mut app = VizApp::new();
 
-            // If a path is given, load a model; otherwise show a unit cube.
-            if args.get(2).is_some() {
-                // File loading will be implemented in Task 12.
-                // For now, always load a unit cube as demo geometry.
-                let brep = popkern_core::topology::BRep::unit_cube(
-                    popkern_core::tolerance::Tolerance::default(),
-                )
-                .expect("unit cube should build");
-                app.scene
-                    .load_brep(brep)
-                    .expect("tessellation should succeed");
+            // If a path is given, try to load it; otherwise show a unit cube.
+            let brep = if let Some(file_arg) = args.get(2) {
+                let path = std::path::Path::new(file_arg);
+                match popkern_viz::loader::load_model(path) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        eprintln!("Failed to load {file_arg}: {e}");
+                        eprintln!("Falling back to unit cube.");
+                        popkern_core::topology::BRep::unit_cube(
+                            popkern_core::tolerance::Tolerance::default(),
+                        )
+                        .expect("unit cube should build")
+                    }
+                }
             } else {
-                // No file — show a unit cube by default.
-                let brep = popkern_core::topology::BRep::unit_cube(
+                popkern_core::topology::BRep::unit_cube(
                     popkern_core::tolerance::Tolerance::default(),
                 )
-                .expect("unit cube should build");
-                app.scene
-                    .load_brep(brep)
-                    .expect("tessellation should succeed");
-            }
+                .expect("unit cube should build")
+            };
+            app.scene
+                .load_brep(brep)
+                .expect("tessellation should succeed");
 
             let native_options = eframe::NativeOptions {
                 viewport: egui::ViewportBuilder::default()
