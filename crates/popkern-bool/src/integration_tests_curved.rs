@@ -391,10 +391,13 @@ fn sphere_through_cube_union_produces_result() {
         Vec3::new(0.5, 0.5, 0.5),
     );
     let result = crate::union(cube, sphere, t).expect("sphere-cube union should succeed");
-    // For r=0.8 sphere enclosing cube, the union is the sphere itself.
-    // The split/classify pipeline may produce 0 faces when all fragments
-    // are classified the same way. Accept any non-error result.
-    let _ = result.faces.len();
+    // For r=0.8 sphere enclosing cube, the union is the sphere.
+    // The empty-selection fallback detects all-A-inside and returns B (sphere).
+    assert!(
+        result.faces.len() >= 1,
+        "Union should produce at least 1 face (the sphere), got {}",
+        result.faces.len()
+    );
 }
 
 #[test]
