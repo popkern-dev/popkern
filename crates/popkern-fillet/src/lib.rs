@@ -2,11 +2,13 @@
 //! popkern-fillet: Fillets and chamfers for the popkern BRep kernel.
 
 pub mod analysis;
+pub mod blend;
 pub mod center_curve;
 pub mod chamfer_curve;
 pub mod error;
 pub mod fillet_surface;
 pub mod offset;
+pub mod overlap;
 pub mod trim;
 pub mod types;
 
