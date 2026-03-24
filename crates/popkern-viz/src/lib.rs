@@ -6,5 +6,6 @@
 pub mod camera;
 pub mod colors;
 pub mod error;
+pub mod gpu_mesh;
 pub mod renderer;
 pub mod scene;
