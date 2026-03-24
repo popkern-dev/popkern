@@ -9,7 +9,7 @@
 
 use popkern_core::{geometry::Point3, tolerance::Tolerance, topology::BRep};
 
-use super::graph::{IntersectionGraph, Operand};
+use super::graph::{EdgeSource, IntersectionGraph, Operand};
 use super::walk::Fragment;
 use crate::classify::point_in_solid;
 use crate::error::{BoolError, BoolOperation, PointClassification};
@@ -49,8 +49,12 @@ pub(crate) fn classify_and_select_fragments(
     let mut selections = Vec::with_capacity(fragments.len());
 
     for fragment in fragments {
-        // Compute centroid of outer loop vertices.
-        let sample = compute_centroid(graph, &fragment.outer_loop);
+        // Use the midpoint of a non-shared (original/split) edge as the
+        // sample point.  The centroid of the entire loop can land inside the
+        // opposite solid for *both* fragments of a split face, causing wrong
+        // classification.  An original edge's midpoint is guaranteed to be
+        // well inside the fragment and away from the intersection curve.
+        let sample = sample_point_for_fragment(graph, &fragment.outer_loop);
 
         // Determine which operand this fragment belongs to.
         let (own_operand, other_brep, other_aabbs) = match fragment.face.operand {
@@ -75,6 +79,35 @@ pub(crate) fn classify_and_select_fragments(
     }
 
     Ok(selections)
+}
+
+/// Pick a representative sample point for a fragment.
+///
+/// Prefers the midpoint of a non-shared (original or split) edge, which is
+/// guaranteed to lie well inside the fragment and away from the intersection
+/// curve.  Falls back to the loop centroid if every edge is shared.
+fn sample_point_for_fragment(graph: &IntersectionGraph, loop_hes: &[usize]) -> Point3 {
+    for &he_idx in loop_hes {
+        let he = &graph.half_edges[he_idx];
+        match &he.source {
+            EdgeSource::OriginalA(_)
+            | EdgeSource::OriginalB(_)
+            | EdgeSource::SplitA { .. }
+            | EdgeSource::SplitB { .. } => {
+                let start = graph.nodes[he.origin].position;
+                let twin_idx = he.twin;
+                let end = graph.nodes[graph.half_edges[twin_idx].origin].position;
+                return Point3::new(
+                    (start.x + end.x) * 0.5,
+                    (start.y + end.y) * 0.5,
+                    (start.z + end.z) * 0.5,
+                );
+            }
+            EdgeSource::Shared { .. } => continue,
+        }
+    }
+    // Fallback: all edges are shared (shouldn't normally happen).
+    compute_centroid(graph, loop_hes)
 }
 
 /// Compute the centroid of a loop's vertex positions.

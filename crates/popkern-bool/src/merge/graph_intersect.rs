@@ -58,7 +58,6 @@ pub(crate) fn insert_intersection_curves(
         let (fwd, twin) =
             graph.add_half_edge_pair(start_node, end_node, source, Some(curve_on_edge));
 
-        // Forward half-edge borders face A, twin borders face B.
         let face_a_ref = FaceRef {
             operand: Operand::A,
             face: record.face_a,
@@ -68,8 +67,15 @@ pub(crate) fn insert_intersection_curves(
             face: record.face_b,
         };
 
+        // Assign primary face ownership for each half-edge.
         graph.set_half_edge_face(fwd, face_a_ref);
         graph.set_half_edge_face(twin, face_b_ref);
+
+        // Each face needs the intersection curve in BOTH directions so the
+        // loop walker can split the face into two fragments.  Register the
+        // twin with face A and the fwd with face B as well.
+        graph.face_edges.entry(face_a_ref).or_default().push(twin);
+        graph.face_edges.entry(face_b_ref).or_default().push(fwd);
     }
 }
 

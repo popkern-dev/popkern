@@ -87,10 +87,9 @@ pub(crate) fn sort_all_radial(graph: &mut IntersectionGraph) {
 
 /// Find a surface normal for a node by looking at its outgoing edges' faces.
 ///
-/// Falls back to +Z if no face or surface is available.
+/// Tries all pairs of outgoing tangent vectors until a non-degenerate cross
+/// product is found. Falls back to +Z if no pair yields a valid normal.
 fn find_node_normal(graph: &IntersectionGraph, node_idx: usize) -> Vec3 {
-    // We don't have direct access to BRep surfaces from the graph,
-    // so use a geometric approach: compute a normal from the tangent vectors.
     let outgoing = &graph.nodes[node_idx].outgoing;
     if outgoing.len() < 2 {
         return Vec3::new(0.0, 0.0, 1.0);
@@ -98,21 +97,28 @@ fn find_node_normal(graph: &IntersectionGraph, node_idx: usize) -> Vec3 {
 
     let node_pos = graph.nodes[node_idx].position;
 
-    // Take the first two outgoing tangents and compute their cross product.
-    let he0 = outgoing[0];
-    let he1 = outgoing[1];
+    // Compute all tangent vectors.
+    let tangents: Vec<Vec3> = outgoing
+        .iter()
+        .map(|&he_idx| {
+            let twin_idx = graph.half_edges[he_idx].twin;
+            let end_pos = graph.nodes[graph.half_edges[twin_idx].origin].position;
+            end_pos - node_pos
+        })
+        .collect();
 
-    let twin0 = graph.half_edges[he0].twin;
-    let twin1 = graph.half_edges[he1].twin;
+    // Try all pairs until we find a non-degenerate cross product.
+    let n = tangents.len();
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let cross = tangents[i].cross(&tangents[j]);
+            if let Some(normal) = cross.normalized() {
+                return normal;
+            }
+        }
+    }
 
-    let end0 = graph.nodes[graph.half_edges[twin0].origin].position;
-    let end1 = graph.nodes[graph.half_edges[twin1].origin].position;
-
-    let t0 = end0 - node_pos;
-    let t1 = end1 - node_pos;
-
-    let cross = t0.cross(&t1);
-    cross.normalized().unwrap_or(Vec3::new(0.0, 0.0, 1.0))
+    Vec3::new(0.0, 0.0, 1.0)
 }
 
 #[cfg(test)]

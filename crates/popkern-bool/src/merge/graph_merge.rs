@@ -59,7 +59,7 @@ pub(crate) fn graph_merge(
     sort_all_radial(&mut graph);
 
     // Phase 5: Walk loops to find face fragments.
-    let fragments = walk_all_fragments(&graph);
+    let fragments = walk_all_fragments(&graph, original_a, original_b);
 
     // Phase 6: Classify and select fragments.
     let selections =

@@ -46,8 +46,13 @@ pub(crate) fn assemble_result(
     // Lazily map graph node index → VertexHandle.
     let mut node_to_vertex: HashMap<usize, VertexHandle> = HashMap::new();
 
-    // Dedup edges by (min_node, max_node) → (EdgeHandle, HE_fwd, HE_twin).
-    let mut edge_map: HashMap<(usize, usize), (EdgeHandle, HalfEdgeHandle, HalfEdgeHandle)> =
+    // Dedup edges by (min_node, max_node, pair_id) → (EdgeHandle, HE_fwd, HE_twin).
+    // The pair_id is min(he_idx, twin_idx) to distinguish different graph
+    // edges connecting the same pair of nodes (e.g. original edges vs.
+    // shared intersection edges).  Without this, two fragments from
+    // different faces sharing a node pair would map to the same BRep edge
+    // and overwrite each other's loop wiring.
+    let mut edge_map: HashMap<(usize, usize, usize), (EdgeHandle, HalfEdgeHandle, HalfEdgeHandle)> =
         HashMap::new();
 
     // Map graph half-edge index → HalfEdgeHandle in the result.
@@ -91,7 +96,12 @@ pub(crate) fn assemble_result(
                 builder.add_vertex(pos)
             });
 
-            let edge_key = (origin_node.min(end_node), origin_node.max(end_node));
+            let pair_id = he_idx.min(twin_idx);
+            let edge_key = (
+                origin_node.min(end_node),
+                origin_node.max(end_node),
+                pair_id,
+            );
 
             if let Some(&(_, existing_fwd, existing_twin)) = edge_map.get(&edge_key) {
                 // Edge already created. Figure out which half-edge we are.
@@ -114,11 +124,26 @@ pub(crate) fn assemble_result(
                 he_map.insert(he_idx, he_fwd);
                 he_map.insert(twin_idx, he_twin);
 
-                // Attach edge curve if the graph half-edge has one.
-                if let Some(ref curve) = graph.half_edges[he_idx].curve {
-                    builder.set_edge_curve(edge_h, curve.clone());
-                } else if let Some(ref curve) = graph.half_edges[twin_idx].curve {
-                    builder.set_edge_curve(edge_h, curve.clone());
+                // Attach a line curve between the endpoint positions.
+                // We construct a fresh line rather than copying the graph's
+                // curve because graph edges may have been split or replaced
+                // by intersection NURBS that don't match the new vertex
+                // positions.
+                let p_start = graph.nodes[origin_node].position;
+                let p_end = graph.nodes[end_node].position;
+                let dir = p_end - p_start;
+                let len = dir.length();
+                if len > 1e-12 {
+                    use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+                    let line_curve = CurveOnEdge {
+                        geometry: CurveGeometry::Line {
+                            origin: p_start,
+                            direction: dir * (1.0 / len),
+                        },
+                        t_start: 0.0,
+                        t_end: len,
+                    };
+                    builder.set_edge_curve(edge_h, line_curve);
                 }
             }
         }
@@ -127,11 +152,28 @@ pub(crate) fn assemble_result(
         let face_h = builder.add_face(shell);
 
         // Build outer loop.
-        let outer_he_handles: Vec<HalfEdgeHandle> = fragment
-            .outer_loop
-            .iter()
-            .filter_map(|&he_idx| he_map.get(&he_idx).copied())
-            .collect();
+        // When the fragment is flipped (e.g. B-inside for subtraction),
+        // reverse the loop and use the twin of each half-edge.  This
+        // ensures the face normal direction matches the loop winding and
+        // adjacent faces share edges in opposite directions (manifold
+        // requirement).
+        let outer_he_handles: Vec<HalfEdgeHandle> = if selection.flip {
+            fragment
+                .outer_loop
+                .iter()
+                .rev()
+                .filter_map(|&he_idx| {
+                    let brep_he = he_map.get(&he_idx).copied()?;
+                    Some(builder.brep().half_edges[brep_he].twin)
+                })
+                .collect()
+        } else {
+            fragment
+                .outer_loop
+                .iter()
+                .filter_map(|&he_idx| he_map.get(&he_idx).copied())
+                .collect()
+        };
 
         if !outer_he_handles.is_empty() {
             builder
@@ -148,10 +190,21 @@ pub(crate) fn assemble_result(
 
         // Build inner loops.
         for inner_loop in &fragment.inner_loops {
-            let inner_he_handles: Vec<HalfEdgeHandle> = inner_loop
-                .iter()
-                .filter_map(|&he_idx| he_map.get(&he_idx).copied())
-                .collect();
+            let inner_he_handles: Vec<HalfEdgeHandle> = if selection.flip {
+                inner_loop
+                    .iter()
+                    .rev()
+                    .filter_map(|&he_idx| {
+                        let brep_he = he_map.get(&he_idx).copied()?;
+                        Some(builder.brep().half_edges[brep_he].twin)
+                    })
+                    .collect()
+            } else {
+                inner_loop
+                    .iter()
+                    .filter_map(|&he_idx| he_map.get(&he_idx).copied())
+                    .collect()
+            };
 
             if !inner_he_handles.is_empty() {
                 builder
@@ -182,6 +235,85 @@ pub(crate) fn assemble_result(
             }
             builder.set_face_surface(face_h, surf);
         }
+    }
+
+    // Remove half-edges that weren't wired into any loop, then clean up
+    // edges and vertices.
+    let brep = builder.brep_mut();
+    let default_loop = popkern_core::topology::LoopHandle::default();
+
+    // Collect unwired half-edges.
+    let dangling_hes: Vec<HalfEdgeHandle> = brep
+        .half_edges
+        .iter()
+        .filter(|(_, he)| he.loop_ == default_loop)
+        .map(|(heh, _)| heh)
+        .collect();
+
+    // Collect twin info before mutating.
+    let twin_fixups: Vec<(HalfEdgeHandle, HalfEdgeHandle)> = dangling_hes
+        .iter()
+        .filter_map(|&heh| brep.half_edges.get(heh).map(|he| (heh, he.twin)))
+        .collect();
+
+    for (heh, twin_h) in &twin_fixups {
+        // Point the surviving twin's twin to itself so it doesn't
+        // reference a removed handle.
+        if let Some(twin) = brep.half_edges.get_mut(*twin_h) {
+            twin.twin = *twin_h;
+        }
+        // Remove curve geometry from the edge — the watertight check
+        // evaluates curves at endpoints and compares to vertex positions,
+        // but with a self-pointing twin the check would fail.
+        if let Some(surviving) = brep.half_edges.get(*twin_h) {
+            let edge_h = surviving.edge;
+            if let Some(edge) = brep.edges.get_mut(edge_h) {
+                edge.curve = None;
+            }
+        }
+        brep.half_edges.remove(*heh);
+    }
+
+    // Remove edges whose half_edge handle was removed AND whose twin
+    // half-edge was also removed. Keep edges that still have at least
+    // one surviving half-edge.
+    let dangling_edges: Vec<EdgeHandle> = brep
+        .edges
+        .iter()
+        .filter(|(_, edge)| !brep.half_edges.contains_key(edge.half_edge))
+        .map(|(eh, _)| eh)
+        .collect();
+
+    for eh in &dangling_edges {
+        brep.edges.remove(*eh);
+    }
+
+    // Fix up vertex outgoing handles that point to removed half-edges.
+    let outgoing_map: HashMap<VertexHandle, HalfEdgeHandle> = brep
+        .half_edges
+        .iter()
+        .map(|(heh, he)| (he.origin, heh))
+        .collect();
+    for (vh, vertex) in &mut brep.vertices {
+        if !brep.half_edges.contains_key(vertex.outgoing) {
+            if let Some(&heh) = outgoing_map.get(&vh) {
+                vertex.outgoing = heh;
+            } else {
+                vertex.outgoing = HalfEdgeHandle::default();
+            }
+        }
+    }
+
+    // Remove orphaned vertices.
+    let orphan_verts: Vec<VertexHandle> = brep
+        .vertices
+        .iter()
+        .filter(|(_, v)| v.outgoing == HalfEdgeHandle::default())
+        .map(|(vh, _)| vh)
+        .collect();
+
+    for vh in &orphan_verts {
+        brep.vertices.remove(*vh);
     }
 
     Ok(builder.build_unchecked())
