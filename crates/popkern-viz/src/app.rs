@@ -12,6 +12,7 @@ use crate::gpu_mesh::GpuMesh;
 use crate::picking;
 use crate::renderer::Renderer;
 use crate::scene::{Selection, VizServer};
+use crate::ui;
 use crate::wireframe::{self, GpuWireframe};
 
 // ---------------------------------------------------------------------------
@@ -224,44 +225,15 @@ impl eframe::App for VizApp {
         }
 
         // 1. Top toolbar
-        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("popkern-viz");
-                ui.separator();
-                if ui.button("Front").clicked() {
-                    self.scene.camera.set_view_preset(ViewPreset::Front);
-                }
-                if ui.button("Top").clicked() {
-                    self.scene.camera.set_view_preset(ViewPreset::Top);
-                }
-                if ui.button("Iso").clicked() {
-                    self.scene.camera.set_view_preset(ViewPreset::Iso);
-                }
-                ui.separator();
-                ui.checkbox(&mut self.scene.display.show_wireframe, "Wireframe");
-            });
-        });
+        ui::toolbar(ctx, &mut self.scene);
 
-        // 2. Right inspector panel
-        egui::SidePanel::right("inspector")
-            .default_width(200.0)
-            .show(ctx, |ui| {
-                ui.heading("Model Info");
-                ui.separator();
-                if let Some(brep) = &self.scene.brep {
-                    ui.label(format!("Faces: {}", brep.faces.len()));
-                    ui.label(format!("Edges: {}", brep.edges.len()));
-                    ui.label(format!("Vertices: {}", brep.vertices.len()));
-                } else {
-                    ui.label("No model loaded");
-                }
-                ui.separator();
-                ui.heading("Display");
-                ui.checkbox(&mut self.scene.display.show_wireframe, "Wireframe");
-                ui.checkbox(&mut self.scene.display.show_normals, "Normals");
-            });
+        // 2. Bottom status bar
+        ui::status_bar(ctx, &self.scene);
 
-        // 3. Central panel = 3D viewport
+        // 3. Right inspector panel
+        ui::side_panel(ctx, &self.scene);
+
+        // 4. Central panel = 3D viewport
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(egui::Color32::from_rgb(30, 30, 30)))
             .show(ctx, |ui| {
