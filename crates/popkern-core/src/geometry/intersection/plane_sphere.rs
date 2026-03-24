@@ -106,36 +106,10 @@ fn intersect_plane_sphere(
     // 3D NURBS circle.
     let curve_3d = nurbs_circle_3d(center_proj, axis1, axis2, r_circle);
 
-    // UV on plane: project circle centre into plane UV, then build ellipse in UV.
-    // Plane parameterization: point_at(u,v) = origin + u_axis*u + v_axis*v
-    // Inversion: u = (p-origin)·u_axis / |u_axis|², v = (p-origin)·v_axis / |v_axis|²
-    let offset = center_proj - plane_origin;
-    let pu_len_sq = plane_u.dot(&plane_u);
-    let pv_len_sq = plane_v.dot(&plane_v);
-    let u_center = if pu_len_sq > 1e-30 {
-        offset.dot(&plane_u) / pu_len_sq
-    } else {
-        offset.dot(&plane_u)
-    };
-    let v_center = if pv_len_sq > 1e-30 {
-        offset.dot(&plane_v) / pv_len_sq
-    } else {
-        offset.dot(&plane_v)
-    };
-    // In UV space, a 3D circle of radius r_circle maps to an ellipse
-    // with semi-axes r_circle/|u_axis| and r_circle/|v_axis|.
-    let uv_r_u = if pu_len_sq > 1e-30 {
-        r_circle / pu_len_sq.sqrt()
-    } else {
-        r_circle
-    };
-    let uv_r_v = if pv_len_sq > 1e-30 {
-        r_circle / pv_len_sq.sqrt()
-    } else {
-        r_circle
-    };
-    let uv_plane_center = Point3::new(u_center, v_center, 0.0);
-    let curve_uv_plane = nurbs_ellipse_2d(uv_plane_center, uv_r_u, uv_r_v);
+    // UV on plane: project each 3D control point of the circle into the
+    // plane's UV space. This correctly handles non-orthogonal u_axis/v_axis
+    // (which produce skewed UV projections, not axis-aligned ellipses).
+    let curve_uv_plane = project_curve_to_plane_uv(&curve_3d, plane_origin, plane_u, plane_v);
 
     // UV on sphere:
     // The sphere parameterization is u = longitude, v = colatitude.
@@ -227,6 +201,45 @@ fn nurbs_sphere_uv_circle(u_range: (f64, f64), v_const: f64) -> NurbsCurve {
             Point3::new(u_end, v_const, 0.0),
         ],
         weights: vec![1.0, 1.0],
+    }
+}
+
+/// Project a 3D NURBS curve onto a plane's UV space by transforming each
+/// control point. Preserves degree, knots, and weights.
+///
+/// Uses the correct inverse parameterization:
+/// `u = (p-origin)·u_axis / |u_axis|²`, `v = (p-origin)·v_axis / |v_axis|²`.
+fn project_curve_to_plane_uv(
+    curve: &NurbsCurve,
+    origin: Point3,
+    u_axis: Vec3,
+    v_axis: Vec3,
+) -> NurbsCurve {
+    let u_len_sq = u_axis.dot(&u_axis);
+    let v_len_sq = v_axis.dot(&v_axis);
+    let cps = curve
+        .control_points
+        .iter()
+        .map(|p| {
+            let d = *p - origin;
+            let u = if u_len_sq > 1e-30 {
+                d.dot(&u_axis) / u_len_sq
+            } else {
+                d.dot(&u_axis)
+            };
+            let v = if v_len_sq > 1e-30 {
+                d.dot(&v_axis) / v_len_sq
+            } else {
+                d.dot(&v_axis)
+            };
+            Point3::new(u, v, 0.0)
+        })
+        .collect();
+    NurbsCurve {
+        degree: curve.degree,
+        knots: curve.knots.clone(),
+        control_points: cps,
+        weights: curve.weights.clone(),
     }
 }
 

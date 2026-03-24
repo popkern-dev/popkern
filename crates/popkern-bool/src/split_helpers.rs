@@ -328,7 +328,18 @@ pub(super) fn try_uv_split(
     // Sub-problem B: closed curve entirely inside face (0 real crossings).
     // Also reached when crossings were spurious (closed curve that fell through above).
     if is_closed {
-        let mid_uv = curve_uv.point_at((t0_orig + t1_orig) / 2.0);
+        // Use the 3D midpoint projected to the face's UV space, rather than
+        // evaluating the UV curve directly. For non-orthogonal UV axes, the
+        // UV curve's midpoint may fall outside the face's UV polygon even when
+        // the 3D point is inside the face.
+        let mid_3d = curve_3d.point_at((t0_orig + t1_orig) / 2.0);
+        let mid_uv = if let Some(sof) = brep.faces[face_handle].surface.as_ref() {
+            popkern_core::geometry::uv_projection::project_point_to_uv(&sof.geometry, &mid_3d)
+                .map(|(u, v)| Point3::new(u, v, 0.0))
+                .unwrap_or_else(|| curve_uv.point_at((t0_orig + t1_orig) / 2.0))
+        } else {
+            curve_uv.point_at((t0_orig + t1_orig) / 2.0)
+        };
         if point_inside_face_uv(brep, face_handle, mid_uv, tolerance) {
             let n = (curve_3d.control_points.len() * 2).max(12);
             match brep.add_inner_loop(face_handle, curve_3d, curve_uv, n, tolerance) {
