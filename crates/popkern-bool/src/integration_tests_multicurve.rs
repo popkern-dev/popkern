@@ -61,7 +61,6 @@ fn translate(mut brep: BRep, offset: Vec3) -> BRep {
 /// generating multiple intersection curves on the same face. With the
 /// split gate removed, the second curve should now be processed.
 #[test]
-#[ignore] // Sequential subtraction hangs during intersection of intermediate result
 fn two_cubes_subtracted_from_center_cube() {
     let t = coarse_tol();
     let center = BRep::unit_cube(t.clone()).expect("center cube");
@@ -112,7 +111,6 @@ fn two_cubes_subtracted_from_center_cube() {
 /// curve, forming inner loops (holes). This is a classic multi-curve
 /// scenario where the same solid has multiple faces being split.
 #[test]
-#[ignore] // Cylinder-plate requires closed-curve inner loop on both faces
 fn cylinder_through_plate_creates_hole() {
     let t = coarse_tol();
 

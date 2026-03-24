@@ -93,7 +93,8 @@ fn walk_loop_and_assign(
 ) {
     let start_he = brep.loops[loop_h].half_edge;
     let mut current = start_he;
-    loop {
+    let limit = brep.half_edges.len() + 1;
+    for _ in 0..limit {
         if let Some(&graph_he_idx) = he_map.get(&current) {
             graph.set_half_edge_face(graph_he_idx, face_ref);
         }

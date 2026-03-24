@@ -148,6 +148,8 @@ fn face_parameter_range(brep: &BRep, face_handle: FaceHandle) -> ((f64, f64), (f
 }
 
 /// Collect vertex positions from the outer loop of a face by walking half-edges.
+///
+/// Uses a bounded iteration limit to prevent infinite loops on broken topology.
 fn face_vertex_positions(brep: &BRep, face_handle: FaceHandle) -> Vec<Point3> {
     let face = &brep.faces[face_handle];
     let loop_handle = face.outer_loop;
@@ -162,7 +164,8 @@ fn face_vertex_positions(brep: &BRep, face_handle: FaceHandle) -> Vec<Point3> {
 
     let mut positions = Vec::new();
     let mut current = start_he;
-    loop {
+    let limit = brep.half_edges.len() + 1;
+    for _ in 0..limit {
         let he = &brep.half_edges[current];
         positions.push(brep.vertices[he.origin].position);
         current = he.next;
