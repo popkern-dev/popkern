@@ -115,6 +115,10 @@ pub(crate) fn face_uv_boundary(
 pub(crate) struct UvCrossing {
     /// Parameter on the intersection curve at the crossing.
     pub t_curve: f64,
+    /// The boundary half-edge that was crossed.
+    pub boundary_he: popkern_core::topology::HalfEdgeHandle,
+    /// Parameter on the boundary half-edge's pcurve at the crossing.
+    pub t_boundary: f64,
 }
 
 /// Find where a UV intersection curve crosses the face's UV boundary.
@@ -147,7 +151,7 @@ pub(crate) fn find_uv_crossings(
         curve_uv.clone()
     };
 
-    for (_he_handle, boundary_pcurve) in &boundary {
+    for (he_handle, boundary_pcurve) in &boundary {
         let boundary_range = boundary_pcurve.parameter_range();
         if (boundary_range.1 - boundary_range.0).abs() < 1e-15 {
             continue;
@@ -170,8 +174,12 @@ pub(crate) fn find_uv_crossings(
         if let Ok(result) = result {
             use popkern_core::geometry::intersection::CurveIntersection;
             for hit in &result.intersections {
-                if let CurveIntersection::Point { t2, .. } = hit {
-                    crossings.push(UvCrossing { t_curve: *t2 });
+                if let CurveIntersection::Point { t1, t2, .. } = hit {
+                    crossings.push(UvCrossing {
+                        t_curve: *t2,
+                        boundary_he: *he_handle,
+                        t_boundary: *t1,
+                    });
                 }
             }
         }

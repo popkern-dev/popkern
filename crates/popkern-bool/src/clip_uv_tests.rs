@@ -172,7 +172,12 @@ fn clip_uv_space_no_pcurves_falls_back_to_unclipped() {
 
 #[test]
 fn uv_range_from_crossings_single_crossing_returns_none() {
-    let crossings = vec![super::UvCrossing { t_curve: 0.5 }];
+    let dummy_he = popkern_core::topology::HalfEdgeHandle::default();
+    let crossings = vec![super::UvCrossing {
+        t_curve: 0.5,
+        boundary_he: dummy_he,
+        t_boundary: 0.0,
+    }];
     let curve = nurbs_line(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0));
     let result = super::uv_range_from_crossings(&crossings, &curve, false);
     assert!(result.is_none(), "single crossing should return None");
@@ -196,9 +201,18 @@ fn uv_range_from_crossings_closed_no_crossings_returns_full() {
 
 #[test]
 fn uv_range_from_crossings_two_crossings_returns_range() {
+    let dummy_he = popkern_core::topology::HalfEdgeHandle::default();
     let crossings = vec![
-        super::UvCrossing { t_curve: 0.2 },
-        super::UvCrossing { t_curve: 0.7 },
+        super::UvCrossing {
+            t_curve: 0.2,
+            boundary_he: dummy_he,
+            t_boundary: 0.0,
+        },
+        super::UvCrossing {
+            t_curve: 0.7,
+            boundary_he: dummy_he,
+            t_boundary: 0.0,
+        },
     ];
     let curve = nurbs_line(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0));
     let result = super::uv_range_from_crossings(&crossings, &curve, false);

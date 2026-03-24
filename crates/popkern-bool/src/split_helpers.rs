@@ -13,7 +13,8 @@ use popkern_core::{
 };
 
 use crate::clip::{
-    clip_curve_to_crossings, clip_curve_to_single_face, face_uv_boundary, find_uv_crossings,
+    UvCrossing, clip_curve_to_crossings, clip_curve_to_single_face, face_uv_boundary,
+    find_uv_crossings,
 };
 use crate::error::{BoolDiagnostics, BoolError, Stage};
 use crate::intersect::IntersectionRecord;
@@ -139,6 +140,87 @@ pub(super) fn ensure_endpoint_vertices(
     Ok(true)
 }
 
+/// Place vertices on the face boundary at UV crossing locations.
+///
+/// Uses the crossing's `boundary_he` and `t_boundary` to directly identify
+/// which edge to split and at what parameter. More robust than
+/// `ensure_endpoint_vertices` for curved intersection curves.
+pub(super) fn ensure_crossing_vertices(
+    brep: &mut BRep,
+    face: FaceHandle,
+    crossings: &[&UvCrossing],
+    curve_3d: &NurbsCurve,
+    tolerance: &Tolerance,
+) -> Result<bool, popkern_core::error::CoreError> {
+    for crossing in crossings {
+        let he_handle = crossing.boundary_he;
+        let t_pcurve = crossing.t_boundary;
+
+        // Get 3D position at crossing.
+        let crossing_3d = curve_3d.point_at(crossing.t_curve);
+
+        // Check if vertex already exists.
+        let pairs = walk_face_loop(brep, face)?;
+        let already_exists = pairs
+            .iter()
+            .any(|&(_, vh)| tolerance.points_coincident(&brep.vertices[vh].position, &crossing_3d));
+        if already_exists {
+            continue;
+        }
+
+        // Check half-edge still exists (previous split may have changed topology).
+        if !brep.half_edges.contains_key(he_handle) {
+            // The edge was already split — the vertex should exist now.
+            // Re-check by walking the loop.
+            let pairs2 = walk_face_loop(brep, face)?;
+            let found = pairs2.iter().any(|&(_, vh)| {
+                tolerance.points_coincident(&brep.vertices[vh].position, &crossing_3d)
+            });
+            if found {
+                continue;
+            }
+            return Ok(false);
+        }
+
+        let edge_handle = brep.half_edges[he_handle].edge;
+        if !brep.edges.contains_key(edge_handle) {
+            return Ok(false);
+        }
+        let canonical_he = brep.edges[edge_handle].half_edge;
+
+        // Map pcurve parameter to edge parameter.
+        // For the canonical half-edge, t_edge = t_pcurve.
+        // For the twin, t_edge = 1 - t_pcurve.
+        let t_edge = if canonical_he == he_handle {
+            t_pcurve
+        } else {
+            1.0 - t_pcurve
+        };
+
+        let eps = 1e-8;
+        if t_edge <= eps || t_edge >= 1.0 - eps {
+            continue; // At vertex — should already exist.
+        }
+
+        brep.split_edge(edge_handle, t_edge)?;
+
+        // Verify the created vertex is near the expected 3D crossing point.
+        // Use a wider tolerance (10x linear) because UV→3D conversion has
+        // inherent imprecision from the UV intersection detection. If the
+        // vertex is too far off, return false so the caller can fall back
+        // to the planar 3D-based vertex placement path.
+        let wide_tol = tolerance.linear * 10.0;
+        let pairs_after = walk_face_loop(brep, face)?;
+        let vertex_ok = pairs_after
+            .iter()
+            .any(|&(_, vh)| crossing_3d.distance_to(&brep.vertices[vh].position) < wide_tol);
+        if !vertex_ok {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 /// Returns `true` if the face has planar surface geometry (or no geometry at all).
 ///
 /// Non-planar faces (sphere, cylinder, etc.) are not supported by the
@@ -209,10 +291,13 @@ pub(super) fn try_uv_split(
             Some(c) => c,
             None => return Ok(false),
         };
-        let (ts, te) = clipped_3d.parameter_range();
-        let start_pt = clipped_3d.point_at(ts);
-        let end_pt = clipped_3d.point_at(te);
-        match ensure_endpoint_vertices(brep, face_handle, &[start_pt, end_pt], tolerance) {
+        match ensure_crossing_vertices(
+            brep,
+            face_handle,
+            &[&crossings[0], &crossings[crossings.len() - 1]],
+            curve_3d,
+            tolerance,
+        ) {
             Ok(true) => match brep.split_face(face_handle, &clipped_uv, &clipped_3d, tolerance) {
                 Ok(result) => {
                     fragments.origin.insert(result.face_a, face_handle);
