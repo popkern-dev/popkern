@@ -8,3 +8,6 @@ description = "Fillets and chamfers for the popkern BRep kernel"
 [dependencies]
 popkern-core = { path = "../popkern-core" }
 thiserror = "2"
+
+[dev-dependencies]
+popkern-bool = { path = "../popkern-bool" }
