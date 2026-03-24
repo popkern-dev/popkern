@@ -10,6 +10,12 @@ mod prism;
 mod sphere;
 mod torus;
 
+/// Direct BRep construction for importers.
+pub mod builder;
+pub use builder::BRepBuilder;
+
+mod builder_geometry;
+
 use crate::error::CoreError;
 use crate::geometry::Point3;
 use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
