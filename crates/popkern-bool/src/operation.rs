@@ -101,13 +101,101 @@ pub(crate) fn execute_boolean(
     }
 
     // Stage 5: Merge — stitch selected fragments into a valid BRep.
-    let result =
+    let mut result =
         merge_faces(&split_result, &selection, tolerance).map_err(|diag| diag.into_error())?;
+
+    // For union: strip inner loops from result faces. Inner loops were created
+    // by the split stage to represent intersection regions, but in a union those
+    // regions are covered by the other operand's faces.
+    if op == BoolOperation::Union {
+        strip_inner_loops(&mut result);
+    }
 
     // Log validation issues (don't fail — diagnostic only for now).
     log_validation_issues(&result, op);
 
     Ok(result)
+}
+
+/// Strip all inner loops from faces in a BRep, removing the associated
+/// topology (loops, half-edges, edges, vertices) that become orphaned.
+///
+/// Used for union results where inner loops represent intersection regions
+/// that are already covered by the other operand's faces.
+fn strip_inner_loops(brep: &mut BRep) {
+    use std::collections::HashSet;
+
+    // Collect all inner loop handles and clear them from faces.
+    let mut inner_loops_to_remove: Vec<popkern_core::topology::LoopHandle> = Vec::new();
+    for (_fh, face) in &mut brep.faces {
+        inner_loops_to_remove.append(&mut face.inner_loops);
+    }
+
+    if inner_loops_to_remove.is_empty() {
+        return;
+    }
+
+    // Collect half-edges belonging to inner loops.
+    let mut he_to_remove = HashSet::new();
+    for &lh in &inner_loops_to_remove {
+        if let Some(loop_) = brep.loops.get(lh) {
+            let start = loop_.half_edge;
+            if start != popkern_core::topology::HalfEdgeHandle::default() {
+                let mut current = start;
+                loop {
+                    he_to_remove.insert(current);
+                    current = brep.half_edges[current].next;
+                    if current == start {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Remove inner loops.
+    for lh in &inner_loops_to_remove {
+        brep.loops.remove(*lh);
+    }
+
+    // Collect edges referenced only by removed half-edges.
+    let mut edges_to_remove = HashSet::new();
+    for &heh in &he_to_remove {
+        if let Some(he) = brep.half_edges.get(heh) {
+            edges_to_remove.insert(he.edge);
+        }
+    }
+    // Keep edges that are still referenced by surviving half-edges.
+    for (heh, he) in &brep.half_edges {
+        if !he_to_remove.contains(&heh) {
+            edges_to_remove.remove(&he.edge);
+        }
+    }
+
+    // Collect vertices referenced only by removed half-edges.
+    let mut vertices_to_remove = HashSet::new();
+    for &heh in &he_to_remove {
+        if let Some(he) = brep.half_edges.get(heh) {
+            vertices_to_remove.insert(he.origin);
+        }
+    }
+    // Keep vertices that are still referenced by surviving half-edges.
+    for (heh, he) in &brep.half_edges {
+        if !he_to_remove.contains(&heh) {
+            vertices_to_remove.remove(&he.origin);
+        }
+    }
+
+    // Remove the topology entities.
+    for heh in &he_to_remove {
+        brep.half_edges.remove(*heh);
+    }
+    for eh in &edges_to_remove {
+        brep.edges.remove(*eh);
+    }
+    for vh in &vertices_to_remove {
+        brep.vertices.remove(*vh);
+    }
 }
 
 /// Log any validation issues on a boolean result BRep.
