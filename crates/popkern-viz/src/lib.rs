@@ -9,3 +9,4 @@ pub mod error;
 pub mod gpu_mesh;
 pub mod renderer;
 pub mod scene;
+pub mod wireframe;
