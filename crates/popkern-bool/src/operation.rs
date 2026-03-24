@@ -89,6 +89,9 @@ pub(crate) fn execute_boolean(
     let result =
         merge_faces(&split_result, &selection, tolerance).map_err(|diag| diag.into_error())?;
 
+    // Log validation issues (don't fail — diagnostic only for now).
+    log_validation_issues(&result, op);
+
     Ok(result)
 }
 
@@ -121,7 +124,7 @@ fn handle_no_intersection(
 
     let classification = point_in_solid(&sample_point_a, &b, aabbs_b, tolerance)?;
 
-    match classification {
+    let result = match classification {
         PointClassification::Outside => {
             // A's sample point is outside B. Check reverse: is B inside A?
             let sample_point_b = b
@@ -153,7 +156,14 @@ fn handle_no_intersection(
                 face_b: b.faces.keys().next().unwrap_or_default(),
             })
         }
+    };
+
+    // Log validation issues on the no-intersection result.
+    if let Ok(ref brep) = result {
+        log_validation_issues(brep, op);
     }
+
+    result
 }
 
 /// Handle disjoint solids (A is entirely outside B) with no intersections.
@@ -408,6 +418,25 @@ fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, Bo
     }
 
     Ok(a)
+}
+
+/// Log any validation issues on a boolean result BRep.
+///
+/// Runs `validate_all()` and prints a summary to stderr. Does not fail the
+/// operation — this is purely diagnostic to surface topological problems early.
+fn log_validation_issues(result: &BRep, op: BoolOperation) {
+    let validation_errors = result.validate_all();
+    if !validation_errors.is_empty() {
+        eprintln!(
+            "[boolean] validation: {} issues in {} result",
+            validation_errors.len(),
+            match op {
+                BoolOperation::Union => "union",
+                BoolOperation::Intersection => "intersection",
+                BoolOperation::Subtraction => "subtraction",
+            }
+        );
+    }
 }
 
 impl BoolDiagnostics {
