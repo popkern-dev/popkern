@@ -67,17 +67,15 @@ fn split_face_curves(
         let target_face = if i == 0 {
             original_face
         } else {
-            // Multi-curve splitting infrastructure: find the fragment that
-            // contains this curve's UV midpoint. The grouping collects all
-            // curves per face, so subsequent curves can target fragments
-            // produced by earlier splits once downstream stages (classify,
-            // merge) support extra fragments.
-            //
-            // TODO: enable multi-curve splitting when merge/stitch handles
-            // faces split by more than one intersection curve.
-            let _candidate =
-                find_fragment_for_curve(brep, original_face, curve_uv, fragments, tolerance);
-            continue;
+            // Multi-curve splitting: locate the fragment containing this
+            // curve's UV midpoint. Fragment lookup is functional, but
+            // downstream merge/stitch produces Euler violations when a face
+            // is split by more than one intersection curve. Skip subsequent
+            // curves until the merge stage can handle extra fragments.
+            match find_fragment_for_curve(brep, original_face, curve_uv, fragments, tolerance) {
+                Some(_frag) => continue,
+                None => continue,
+            }
         };
 
         if !brep.faces.contains_key(target_face) {
