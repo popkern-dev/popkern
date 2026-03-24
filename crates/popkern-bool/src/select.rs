@@ -31,8 +31,12 @@ pub(crate) struct SelectionResult {
     /// Face handles from operand B to keep in the result.
     pub keep_b: HashSet<FaceHandle>,
     /// Face handles from operand A that need their normals flipped.
+    /// Currently unused by graph merge but retained for future use.
+    #[allow(dead_code)]
     pub flip_a: HashSet<FaceHandle>,
     /// Face handles from operand B that need their normals flipped.
+    /// Currently unused by graph merge but retained for future use.
+    #[allow(dead_code)]
     pub flip_b: HashSet<FaceHandle>,
 }
 
