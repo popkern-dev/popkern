@@ -140,9 +140,18 @@ pub(crate) fn find_uv_crossings(
         return Some(crossings);
     }
 
-    // Detect if any curves are near the periodic seam and shift by +pi
-    // to move the working region away from the u=0/2pi discontinuity.
-    let needs_shift = is_near_seam(curve_uv) || boundary.iter().any(|(_, pc)| is_near_seam(pc));
+    // Detect if curves are near the periodic seam (u ≈ 0 or u ≈ 2π) and
+    // need a u-shift to avoid the discontinuity. Only shift when curves are
+    // in the periodic UV range [0, 2π] — NOT for small UV values from
+    // non-periodic faces (e.g., plane faces with UV range [0, 1]).
+    let in_periodic_range = |curve: &NurbsCurve| -> bool {
+        curve
+            .control_points
+            .iter()
+            .any(|p| p.x > std::f64::consts::PI)
+    };
+    let needs_shift = (is_near_seam(curve_uv) || boundary.iter().any(|(_, pc)| is_near_seam(pc)))
+        && (in_periodic_range(curve_uv) || boundary.iter().any(|(_, pc)| in_periodic_range(pc)));
     let shift = std::f64::consts::PI;
 
     let working_curve = if needs_shift {
@@ -184,12 +193,25 @@ pub(crate) fn find_uv_crossings(
         if let Ok(result) = result {
             use popkern_core::geometry::intersection::CurveIntersection;
             for hit in &result.intersections {
-                if let CurveIntersection::Point { t1, t2, .. } = hit {
-                    crossings.push(UvCrossing {
-                        t_curve: *t2,
-                        boundary_he: *he_handle,
-                        t_boundary: *t1,
-                    });
+                match hit {
+                    CurveIntersection::Point { t1, t2, .. } => {
+                        crossings.push(UvCrossing {
+                            t_curve: *t2,
+                            boundary_he: *he_handle,
+                            t_boundary: *t1,
+                        });
+                    }
+                    CurveIntersection::Overlap { t1_range, t2_range } => {
+                        // For near-tangent overlaps, use the midpoint of the
+                        // overlap range as a crossing point.
+                        let t1_mid = (t1_range.0 + t1_range.1) * 0.5;
+                        let t2_mid = (t2_range.0 + t2_range.1) * 0.5;
+                        crossings.push(UvCrossing {
+                            t_curve: t2_mid,
+                            boundary_he: *he_handle,
+                            t_boundary: t1_mid,
+                        });
+                    }
                 }
             }
         }
