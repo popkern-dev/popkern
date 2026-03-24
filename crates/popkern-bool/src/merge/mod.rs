@@ -4,6 +4,10 @@
 //! into one valid closed BRep by copying topology, merging coincident vertices,
 //! and stitching boundary edges.
 
+// Old merge_faces and helpers are kept alongside the new graph merge until the
+// new path passes all tests. They will be removed in a later cleanup task.
+#![allow(dead_code)]
+
 pub(crate) mod assemble;
 pub(crate) mod curve_split;
 pub(crate) mod fragment_classify;

@@ -12,7 +12,7 @@ use popkern_core::{tolerance::Tolerance, topology::BRep};
 use crate::classify::classify_fragments;
 use crate::error::{BoolDiagnostics, BoolError, BoolOperation};
 use crate::intersect::find_intersections;
-use crate::merge::merge_faces;
+use crate::merge::graph_merge::graph_merge;
 use crate::select::{Operand, select_faces};
 use crate::split::split_along_curves;
 
@@ -57,6 +57,10 @@ pub(crate) fn execute_boolean(
         );
     }
 
+    // Clone originals for graph merge (graph merge reads originals, not split).
+    let original_a = a.clone();
+    let original_b = b.clone();
+
     // Stage 2: Split — trim faces along intersection curves.
     let split_result = split_along_curves(a, b, &intersection_result.records, tolerance)
         .map_err(|diag| diag.into_error())?;
@@ -100,16 +104,15 @@ pub(crate) fn execute_boolean(
         return Ok(result);
     }
 
-    // Stage 5: Merge — stitch selected fragments into a valid BRep.
-    let mut result =
-        merge_faces(&split_result, &selection, tolerance).map_err(|diag| diag.into_error())?;
-
-    // For union: strip inner loops from result faces. Inner loops were created
-    // by the split stage to represent intersection regions, but in a union those
-    // regions are covered by the other operand's faces.
-    if op == BoolOperation::Union {
-        strip_inner_loops(&mut result);
-    }
+    // Stage 5: Graph Merge — build intersection graph and assemble result.
+    let result = graph_merge(
+        &original_a,
+        &original_b,
+        &intersection_result,
+        op,
+        tolerance,
+    )
+    .map_err(|diag| diag.into_error())?;
 
     // Log validation issues (don't fail — diagnostic only for now).
     log_validation_issues(&result, op);
@@ -117,103 +120,38 @@ pub(crate) fn execute_boolean(
     Ok(result)
 }
 
-/// Strip all inner loops from faces in a BRep, removing the associated
-/// topology (loops, half-edges, edges, vertices) that become orphaned.
-///
-/// Used for union results where inner loops represent intersection regions
-/// that are already covered by the other operand's faces.
-fn strip_inner_loops(brep: &mut BRep) {
-    use std::collections::HashSet;
-
-    // Collect all inner loop handles and clear them from faces.
-    let mut inner_loops_to_remove: Vec<popkern_core::topology::LoopHandle> = Vec::new();
-    for (_fh, face) in &mut brep.faces {
-        inner_loops_to_remove.append(&mut face.inner_loops);
-    }
-
-    if inner_loops_to_remove.is_empty() {
-        return;
-    }
-
-    // Collect half-edges belonging to inner loops.
-    let mut he_to_remove = HashSet::new();
-    for &lh in &inner_loops_to_remove {
-        if let Some(loop_) = brep.loops.get(lh) {
-            let start = loop_.half_edge;
-            if start != popkern_core::topology::HalfEdgeHandle::default() {
-                let mut current = start;
-                loop {
-                    he_to_remove.insert(current);
-                    current = brep.half_edges[current].next;
-                    if current == start {
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    // Remove inner loops.
-    for lh in &inner_loops_to_remove {
-        brep.loops.remove(*lh);
-    }
-
-    // Collect edges referenced only by removed half-edges.
-    let mut edges_to_remove = HashSet::new();
-    for &heh in &he_to_remove {
-        if let Some(he) = brep.half_edges.get(heh) {
-            edges_to_remove.insert(he.edge);
-        }
-    }
-    // Keep edges that are still referenced by surviving half-edges.
-    for (heh, he) in &brep.half_edges {
-        if !he_to_remove.contains(&heh) {
-            edges_to_remove.remove(&he.edge);
-        }
-    }
-
-    // Collect vertices referenced only by removed half-edges.
-    let mut vertices_to_remove = HashSet::new();
-    for &heh in &he_to_remove {
-        if let Some(he) = brep.half_edges.get(heh) {
-            vertices_to_remove.insert(he.origin);
-        }
-    }
-    // Keep vertices that are still referenced by surviving half-edges.
-    for (heh, he) in &brep.half_edges {
-        if !he_to_remove.contains(&heh) {
-            vertices_to_remove.remove(&he.origin);
-        }
-    }
-
-    // Remove the topology entities.
-    for heh in &he_to_remove {
-        brep.half_edges.remove(*heh);
-    }
-    for eh in &edges_to_remove {
-        brep.edges.remove(*eh);
-    }
-    for vh in &vertices_to_remove {
-        brep.vertices.remove(*vh);
-    }
-}
-
 /// Log any validation issues on a boolean result BRep.
 ///
 /// Runs `validate_all()` and prints a summary to stderr. Does not fail the
 /// operation — this is purely diagnostic to surface topological problems early.
+/// Catches panics from validation on corrupted topology.
 fn log_validation_issues(result: &BRep, op: BoolOperation) {
-    let validation_errors = result.validate_all();
-    if !validation_errors.is_empty() {
-        eprintln!(
-            "[boolean] validation: {} issues in {} result",
-            validation_errors.len(),
-            match op {
-                BoolOperation::Union => "union",
-                BoolOperation::Intersection => "intersection",
-                BoolOperation::Subtraction => "subtraction",
-            }
-        );
+    let op_name = match op {
+        BoolOperation::Union => "union",
+        BoolOperation::Intersection => "intersection",
+        BoolOperation::Subtraction => "subtraction",
+    };
+
+    // Validation may panic on corrupted topology (invalid SlotMap keys).
+    // Catch panics so diagnostics don't crash the pipeline.
+    let validation_result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| result.validate_all()));
+
+    match validation_result {
+        Ok(errors) if !errors.is_empty() => {
+            eprintln!(
+                "[boolean] validation: {} issues in {} result",
+                errors.len(),
+                op_name,
+            );
+        }
+        Err(_) => {
+            eprintln!(
+                "[boolean] validation: panicked on {} result (corrupted topology)",
+                op_name,
+            );
+        }
+        _ => {}
     }
 }
 

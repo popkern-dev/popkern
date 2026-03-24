@@ -4,9 +4,6 @@
 //! intersection curve insertion, radial sorting, loop walking, fragment
 //! classification, and final BRep assembly.
 
-// Will be called from the pipeline in the next integration step.
-#![allow(dead_code)]
-
 use popkern_core::{tolerance::Tolerance, topology::BRep};
 
 use super::assemble::assemble_result;
