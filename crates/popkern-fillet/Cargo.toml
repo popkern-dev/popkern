@@ -1,0 +1,10 @@
+[package]
+name = "popkern-fillet"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Fillets and chamfers for the popkern BRep kernel"
+
+[dependencies]
+popkern-core = { path = "../popkern-core" }
+thiserror = "2"
