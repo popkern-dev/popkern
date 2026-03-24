@@ -7,6 +7,7 @@
 pub mod geometry;
 pub mod presentation;
 pub mod product;
+pub mod registry;
 pub mod topology;
 
 use std::fmt;
