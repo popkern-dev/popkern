@@ -5,6 +5,7 @@
 //! and stitching boundary edges.
 
 pub(crate) mod graph;
+pub(crate) mod graph_build;
 mod stitch;
 
 use std::collections::HashMap;
