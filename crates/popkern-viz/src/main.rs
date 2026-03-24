@@ -37,6 +37,14 @@ fn main() {
         std::process::exit(if args.len() < 2 { 1 } else { 0 });
     }
 
+    if let Err(e) = run(&args) {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    }
+}
+
+/// Runs the CLI, returning an error string on failure.
+fn run(args: &[String]) -> Result<(), String> {
     match args[1].as_str() {
         "view" => {
             let mut app = VizApp::new();
@@ -52,18 +60,18 @@ fn main() {
                         popkern_core::topology::BRep::unit_cube(
                             popkern_core::tolerance::Tolerance::default(),
                         )
-                        .expect("unit cube should build")
+                        .map_err(|e| format!("unit cube build failed: {e}"))?
                     }
                 }
             } else {
                 popkern_core::topology::BRep::unit_cube(
                     popkern_core::tolerance::Tolerance::default(),
                 )
-                .expect("unit cube should build")
+                .map_err(|e| format!("unit cube build failed: {e}"))?
             };
             app.scene
                 .load_brep(brep)
-                .expect("tessellation should succeed");
+                .map_err(|e| format!("tessellation failed: {e}"))?;
 
             let native_options = eframe::NativeOptions {
                 viewport: egui::ViewportBuilder::default()
@@ -78,7 +86,9 @@ fn main() {
                 native_options,
                 Box::new(|_cc| Ok(Box::new(app))),
             )
-            .unwrap();
+            .map_err(|e| format!("eframe failed: {e}"))?;
+
+            Ok(())
         }
         "screenshot" => {
             let mut output_path = "output.png".to_string();
@@ -100,13 +110,15 @@ fn main() {
                     "--width" => {
                         i += 1;
                         if let Some(val) = args.get(i) {
-                            width = val.parse().expect("--width must be a number");
+                            width = val.parse::<u32>().map_err(|_| "--width must be a number")?;
                         }
                     }
                     "--height" => {
                         i += 1;
                         if let Some(val) = args.get(i) {
-                            height = val.parse().expect("--height must be a number");
+                            height = val
+                                .parse::<u32>()
+                                .map_err(|_| "--height must be a number")?;
                         }
                     }
                     "--camera" => {
@@ -129,7 +141,7 @@ fn main() {
             let brep = popkern_core::topology::BRep::unit_cube(
                 popkern_core::tolerance::Tolerance::default(),
             )
-            .expect("unit cube should build");
+            .map_err(|e| format!("unit cube build failed: {e}"))?;
 
             let mut camera = popkern_viz::camera::Camera::default_iso();
             // Apply camera preset
@@ -150,24 +162,19 @@ fn main() {
                 camera.set_view_preset(p);
             }
 
-            match popkern_viz::headless::render_to_png(
+            popkern_viz::headless::render_to_png(
                 &brep,
                 &camera,
                 width,
                 height,
                 std::path::Path::new(&output_path),
                 show_wireframe,
-            ) {
-                Ok(()) => eprintln!("Screenshot saved to {output_path}"),
-                Err(e) => {
-                    eprintln!("Headless render failed: {e}");
-                    std::process::exit(1);
-                }
-            }
+            )
+            .map_err(|e| format!("Headless render failed: {e}"))?;
+
+            eprintln!("Screenshot saved to {output_path}");
+            Ok(())
         }
-        _ => {
-            eprintln!("Unknown command: {}", args[1]);
-            std::process::exit(1);
-        }
+        other => Err(format!("Unknown command: {other}")),
     }
 }
