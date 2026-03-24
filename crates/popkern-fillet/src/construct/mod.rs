@@ -130,21 +130,47 @@ pub fn apply_blend_geometry(
         return Err(failures);
     }
 
-    // Vertex blend handling: when Smooth mode is requested but not yet
-    // implemented, fall back to Mitred (sharp corners) with a warning.
+    // Vertex blend handling.
+    //
     // Mitred mode requires no extra topology — fillet faces already
     // terminate at the original vertex as sharp corners.
+    //
+    // Smooth mode would insert an additional G1-continuous face at each
+    // vertex where 2+ fillets meet. The blend boundary computation and
+    // surface fitting exist (see `blend::boundary` and `blend::surface`)
+    // but topology insertion (carving a new face from the surrounding
+    // faces via Euler operators) is not yet implemented. Until then,
+    // Smooth degrades to Mitred with a per-vertex warning.
     if *vertex_mode == VertexMode::Smooth && edge_geometries.len() > 1 {
-        // Smooth vertex blending not yet implemented; degrade to mitred.
-        // Record a warning on the first edge so callers know.
-        if let Some(eg) = edge_geometries.first() {
-            warnings.push((
-                eg.analysis.edge,
-                BlendWarning::VertexModeFallback {
-                    requested: VertexMode::Smooth,
-                    actual: VertexMode::Mitred,
-                },
-            ));
+        // Build vertex -> edge-index map to find multi-fillet vertices.
+        let mut vertex_edges: HashMap<popkern_core::topology::VertexHandle, Vec<usize>> =
+            HashMap::new();
+        for (idx, eg) in edge_geometries.iter().enumerate() {
+            vertex_edges
+                .entry(eg.analysis.vertex_start)
+                .or_default()
+                .push(idx);
+            vertex_edges
+                .entry(eg.analysis.vertex_end)
+                .or_default()
+                .push(idx);
+        }
+
+        for (vertex, edge_indices) in &vertex_edges {
+            if edge_indices.len() >= 2 {
+                // Record a warning on the first edge at this vertex.
+                let edge_idx = edge_indices[0];
+                if edge_idx < edge_geometries.len() {
+                    warnings.push((
+                        edge_geometries[edge_idx].analysis.edge,
+                        BlendWarning::VertexModeFallback {
+                            requested: VertexMode::Smooth,
+                            actual: VertexMode::Mitred,
+                            vertex: Some(*vertex),
+                        },
+                    ));
+                }
+            }
         }
     }
 

@@ -79,5 +79,7 @@ pub enum BlendWarning {
         requested: crate::types::VertexMode,
         /// The mode that was actually used.
         actual: crate::types::VertexMode,
+        /// The vertex where the fallback occurred, if identified.
+        vertex: Option<VertexHandle>,
     },
 }
