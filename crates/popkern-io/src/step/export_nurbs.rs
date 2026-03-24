@@ -268,4 +268,77 @@ mod tests {
         assert!((p.length() - 1.0).abs() < 1e-10);
         assert!(n.dot(&p).abs() < 1e-10);
     }
+
+    #[test]
+    fn compute_perpendicular_y_axis() {
+        let n = Vec3::new(0.0, 1.0, 0.0);
+        let p = compute_perpendicular(&n);
+        assert!((p.length() - 1.0).abs() < 1e-10);
+        assert!(n.dot(&p).abs() < 1e-10);
+    }
+
+    #[test]
+    fn compress_knots_single_value() {
+        let knots = vec![0.5];
+        let (vals, mults) = compress_knots(&knots);
+        assert_eq!(vals, vec![0.5]);
+        assert_eq!(mults, vec![1]);
+    }
+
+    #[test]
+    fn compress_knots_empty() {
+        let knots: Vec<f64> = vec![];
+        let (vals, mults) = compress_knots(&knots);
+        assert!(vals.is_empty());
+        assert!(mults.is_empty());
+    }
+
+    #[test]
+    fn export_nurbs_surface_non_rational() {
+        let mut ctx = ExportContext::new();
+        let nurbs = NurbsSurface {
+            degree_u: 1,
+            degree_v: 1,
+            knots_u: vec![0.0, 0.0, 1.0, 1.0],
+            knots_v: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+            ],
+            num_u: 2,
+            num_v: 2,
+            weights: vec![1.0, 1.0, 1.0, 1.0],
+        };
+        let id = ctx.export_nurbs_surface(&nurbs);
+        let entity = ctx.entities.iter().find(|e| e.id == id).unwrap();
+        assert_eq!(entity.type_name, "B_SPLINE_SURFACE_WITH_KNOTS");
+        assert!(entity.complex_parts.is_empty());
+    }
+
+    #[test]
+    fn export_nurbs_surface_rational() {
+        let mut ctx = ExportContext::new();
+        let nurbs = NurbsSurface {
+            degree_u: 1,
+            degree_v: 1,
+            knots_u: vec![0.0, 0.0, 1.0, 1.0],
+            knots_v: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+            ],
+            num_u: 2,
+            num_v: 2,
+            weights: vec![1.0, 0.5, 1.0, 0.5],
+        };
+        let id = ctx.export_nurbs_surface(&nurbs);
+        let entity = ctx.entities.iter().find(|e| e.id == id).unwrap();
+        assert_eq!(entity.type_name, "B_SPLINE_SURFACE_WITH_KNOTS");
+        assert_eq!(entity.complex_parts.len(), 1);
+        assert_eq!(entity.complex_parts[0].0, "RATIONAL_B_SPLINE_SURFACE");
+    }
 }

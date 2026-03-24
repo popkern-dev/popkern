@@ -7,6 +7,8 @@
 //! Surface resolution is in the [`surfaces`] submodule.
 
 mod surfaces;
+#[cfg(test)]
+mod tests_resolve;
 
 use std::collections::HashMap;
 
