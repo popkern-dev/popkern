@@ -5,6 +5,8 @@
 //! by removing the original fillet edge, and assigns the fillet/chamfer
 //! surface geometry to the resulting face.
 
+pub(crate) mod blend_insert;
+pub(crate) mod blend_topo;
 pub(crate) mod helpers;
 pub(crate) mod merge;
 
@@ -101,9 +103,9 @@ pub struct ApplyBlendResult {
 ///
 /// After all edges are processed, handles vertex blends according to
 /// `vertex_mode`. For [`VertexMode::Mitred`], fillet faces terminate at
-/// sharp corners (no extra face needed). For [`VertexMode::Smooth`], falls
-/// back to mitred with a warning (smooth blending is planned for a future
-/// release).
+/// sharp corners (no extra face needed). For [`VertexMode::Smooth`],
+/// inserts a G1-continuous blend face at each vertex where 2+ fillets
+/// meet, falling back to mitred with a warning if insertion fails.
 ///
 /// Tracks handle remapping across edges so that multi-edge fillets
 /// correctly resolve handles invalidated by previous operations.
@@ -135,12 +137,9 @@ pub fn apply_blend_geometry(
     // Mitred mode requires no extra topology — fillet faces already
     // terminate at the original vertex as sharp corners.
     //
-    // Smooth mode would insert an additional G1-continuous face at each
-    // vertex where 2+ fillets meet. The blend boundary computation and
-    // surface fitting exist (see `blend::boundary` and `blend::surface`)
-    // but topology insertion (carving a new face from the surrounding
-    // faces via Euler operators) is not yet implemented. Until then,
-    // Smooth degrades to Mitred with a per-vertex warning.
+    // Smooth mode inserts a G1-continuous blend face at each vertex
+    // where 2+ fillets meet, by carving corner triangles from surrounding
+    // faces and merging them into one blend face.
     if *vertex_mode == VertexMode::Smooth && edge_geometries.len() > 1 {
         // Build vertex -> edge-index map to find multi-fillet vertices.
         let mut vertex_edges: HashMap<popkern_core::topology::VertexHandle, Vec<usize>> =
@@ -158,17 +157,28 @@ pub fn apply_blend_geometry(
 
         for (vertex, edge_indices) in &vertex_edges {
             if edge_indices.len() >= 2 {
-                // Record a warning on the first edge at this vertex.
-                let edge_idx = edge_indices[0];
-                if edge_idx < edge_geometries.len() {
-                    warnings.push((
-                        edge_geometries[edge_idx].analysis.edge,
-                        BlendWarning::VertexModeFallback {
-                            requested: VertexMode::Smooth,
-                            actual: VertexMode::Mitred,
-                            vertex: Some(*vertex),
-                        },
-                    ));
+                match blend_insert::insert_vertex_blend(
+                    &mut result,
+                    *vertex,
+                    edge_indices,
+                    edge_geometries,
+                    tolerance,
+                ) {
+                    Ok(()) => { /* smooth blend inserted successfully */ }
+                    Err(_reason) => {
+                        // Fall back to mitred with a warning.
+                        let edge_idx = edge_indices[0];
+                        if edge_idx < edge_geometries.len() {
+                            warnings.push((
+                                edge_geometries[edge_idx].analysis.edge,
+                                BlendWarning::VertexModeFallback {
+                                    requested: VertexMode::Smooth,
+                                    actual: VertexMode::Mitred,
+                                    vertex: Some(*vertex),
+                                },
+                            ));
+                        }
+                    }
                 }
             }
         }

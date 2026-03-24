@@ -331,14 +331,15 @@ fn fillet_three_edges_at_cube_corner() {
     assert_euler_poincare(&blend.brep, "3-edge fillet");
     assert_structurally_valid(&blend.brep, "3-edge fillet");
 
-    // Smooth mode currently falls back to Mitred — verify a warning is emitted.
-    let has_fallback = blend
+    // Smooth mode should insert actual blend faces — no fallback warnings.
+    let fallback_count = blend
         .edge_warnings
         .iter()
-        .any(|(_, w)| matches!(w, popkern_fillet::BlendWarning::VertexModeFallback { .. }));
-    assert!(
-        has_fallback,
-        "expected VertexModeFallback warning for Smooth mode"
+        .filter(|(_, w)| matches!(w, popkern_fillet::BlendWarning::VertexModeFallback { .. }))
+        .count();
+    assert_eq!(
+        fallback_count, 0,
+        "smooth blend should not fall back to mitred"
     );
 }
 
