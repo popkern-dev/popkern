@@ -401,7 +401,7 @@ mod tests {
     #[test]
     fn mitred_blend_two_fillets() {
         let tol = test_tolerance();
-        let brep = BRep::unit_cube(tol.clone()).expect("cube should build");
+        let brep = BRep::unit_cube(tol).expect("cube should build");
         let vertex = brep.vertices.keys().next().expect("cube has vertices");
 
         let boundary = make_blend_boundary(vertex);
@@ -425,7 +425,7 @@ mod tests {
     #[test]
     fn smooth_blend_two_fillets() {
         let tol = test_tolerance();
-        let brep = BRep::unit_cube(tol.clone()).expect("cube should build");
+        let brep = BRep::unit_cube(tol).expect("cube should build");
         let vertex = brep.vertices.keys().next().expect("cube has vertices");
 
         // Build boundary with points on a sphere of radius 0.1.
@@ -461,7 +461,7 @@ mod tests {
     #[test]
     fn blend_surface_empty_boundary() {
         let tol = test_tolerance();
-        let brep = BRep::unit_cube(tol.clone()).expect("cube should build");
+        let brep = BRep::unit_cube(tol).expect("cube should build");
         let vertex = brep.vertices.keys().next().expect("cube has vertices");
 
         let boundary = BlendBoundary {

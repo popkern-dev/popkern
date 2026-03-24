@@ -174,7 +174,7 @@ mod tests {
     #[test]
     fn blend_boundary_two_fillets() {
         let tol = test_tolerance();
-        let brep = BRep::unit_cube(tol.clone()).expect("cube should build");
+        let brep = BRep::unit_cube(tol).expect("cube should build");
 
         // Pick the first vertex.
         let vertex = brep.vertices.keys().next().expect("cube has vertices");
@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn blend_boundary_empty_fillets() {
         let tol = test_tolerance();
-        let brep = BRep::unit_cube(tol.clone()).expect("cube should build");
+        let brep = BRep::unit_cube(tol).expect("cube should build");
         let vertex = brep.vertices.keys().next().expect("cube has vertices");
 
         let result = compute_blend_boundary(vertex, &[], &[], &brep, &tol);
@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn blend_boundary_invalid_fillet_index() {
         let tol = test_tolerance();
-        let brep = BRep::unit_cube(tol.clone()).expect("cube should build");
+        let brep = BRep::unit_cube(tol).expect("cube should build");
         let vertex = brep.vertices.keys().next().expect("cube has vertices");
 
         let result = compute_blend_boundary(vertex, &[99], &[], &brep, &tol);
