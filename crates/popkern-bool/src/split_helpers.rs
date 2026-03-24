@@ -140,11 +140,7 @@ pub(super) fn ensure_endpoint_vertices(
     Ok(true)
 }
 
-/// Place vertices on the face boundary at UV crossing locations.
-///
-/// Uses the crossing's `boundary_he` and `t_boundary` to directly identify
-/// which edge to split and at what parameter. More robust than
-/// `ensure_endpoint_vertices` for curved intersection curves.
+/// Place vertices on the face boundary using UV crossing edge identity.
 pub(super) fn ensure_crossing_vertices(
     brep: &mut BRep,
     face: FaceHandle,

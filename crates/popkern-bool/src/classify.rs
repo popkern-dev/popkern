@@ -403,12 +403,35 @@ pub(crate) fn classify_fragments(
 
 /// Pick a representative sample point on a face for classification.
 ///
-/// Uses the centroid (average) of the face's outer-loop vertex positions.
-/// This is more reliable than the surface parameter midpoint because the
-/// parameter range may include large padding that maps outside the face.
-/// Falls back to the surface parameter midpoint for faces without vertices.
+/// For faces with inner loops (holes), uses the midpoint of the first
+/// outer-loop edge to avoid sampling inside a hole. For simple faces,
+/// uses the vertex centroid. Falls back to the surface parameter midpoint
+/// for faces without vertices.
 fn pick_sample_point(brep: &BRep, face_handle: FaceHandle) -> Point3 {
-    // Use vertex centroid — reliable for convex polygonal faces.
+    let face = &brep.faces[face_handle];
+
+    // For faces with inner loops, use the midpoint of an outer-loop edge.
+    // The centroid can fall inside a hole, giving wrong classification.
+    if !face.inner_loops.is_empty() {
+        let loop_data = match brep.loops.get(face.outer_loop) {
+            Some(l) => l,
+            None => return Point3::new(0.0, 0.0, 0.0),
+        };
+        let start_he = loop_data.half_edge;
+        if let Some(he) = brep.half_edges.get(start_he) {
+            let origin = brep.vertices[he.origin].position;
+            if let Some(next_he) = brep.half_edges.get(he.next) {
+                let dest = brep.vertices[next_he.origin].position;
+                return Point3::new(
+                    (origin.x + dest.x) * 0.5,
+                    (origin.y + dest.y) * 0.5,
+                    (origin.z + dest.z) * 0.5,
+                );
+            }
+        }
+    }
+
+    // Use vertex centroid — reliable for convex polygonal faces without holes.
     let positions = face_vertex_positions(brep, face_handle);
     if !positions.is_empty() {
         let n = positions.len() as f64;

@@ -170,17 +170,6 @@ fn nurbs_ellipse_3d(center: Point3, axis1: Vec3, axis2: Vec3, ra: f64, rb: f64) 
     }
 }
 
-/// Build a degree-2 rational NURBS ellipse in 2D UV space.
-fn nurbs_ellipse_2d(center: Point3, ru: f64, rv: f64) -> NurbsCurve {
-    nurbs_ellipse_3d(
-        center,
-        Vec3::new(1.0, 0.0, 0.0),
-        Vec3::new(0.0, 1.0, 0.0),
-        ru,
-        rv,
-    )
-}
-
 /// Build a NURBS circle in the sphere's UV parameter space.
 ///
 /// The intersection circle at constant colatitude `v_const` is a horizontal
