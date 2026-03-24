@@ -2532,6 +2532,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "popkern-fillet"
+version = "0.1.0"
+dependencies = [
+ "popkern-core",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "popkern-io"
 version = "0.1.0"
 dependencies = [
