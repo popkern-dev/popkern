@@ -2563,6 +2563,7 @@ dependencies = [
  "glam",
  "image",
  "log",
+ "pollster",
  "popkern-core",
  "popkern-mesh",
  "serde",
