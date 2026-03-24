@@ -46,16 +46,12 @@ pub(crate) fn assemble_result(
     // Lazily map graph node index → VertexHandle.
     let mut node_to_vertex: HashMap<usize, VertexHandle> = HashMap::new();
 
-    // Dedup edges by (min_node, max_node, pair_id) → (EdgeHandle, HE_fwd, HE_twin).
-    // The pair_id is min(he_idx, twin_idx) to distinguish different graph
-    // edges connecting the same pair of nodes (e.g. original edges vs.
-    // shared intersection edges).  Without this, two fragments from
-    // different faces sharing a node pair would map to the same BRep edge
-    // and overwrite each other's loop wiring.
-    let mut edge_map: HashMap<(usize, usize, usize), (EdgeHandle, HalfEdgeHandle, HalfEdgeHandle)> =
-        HashMap::new();
-
-    // Map graph half-edge index → HalfEdgeHandle in the result.
+    // Map graph half-edge index → BRep HalfEdgeHandle (global across
+    // fragments).  When a fragment needs a graph half-edge that is
+    // already mapped AND already wired into a loop, we create a fresh
+    // BRep edge pair instead of reusing the existing one.  This prevents
+    // the shared-edge aliasing bug while still allowing adjacent faces
+    // from the same operand to share BRep edges normally.
     let mut he_map: HashMap<usize, HalfEdgeHandle> = HashMap::new();
 
     for (frag_idx, fragment) in fragments.iter().enumerate() {
@@ -64,31 +60,51 @@ pub(crate) fn assemble_result(
             continue;
         }
 
-        // Ensure all nodes used by this fragment have vertices.
-        let all_hes: Vec<usize> = fragment
+        // Collect all graph half-edge indices this fragment needs,
+        // resolving flips (graph twin) where necessary.
+        let resolve_he = |he_idx: usize| -> usize {
+            if selection.flip {
+                graph.half_edges[he_idx].twin
+            } else {
+                he_idx
+            }
+        };
+
+        let all_raw_hes: Vec<usize> = fragment
             .outer_loop
             .iter()
             .chain(fragment.inner_loops.iter().flat_map(|l| l.iter()))
             .copied()
             .collect();
 
-        for &he_idx in &all_hes {
-            let origin_node = graph.half_edges[he_idx].origin;
+        let all_needed: Vec<usize> = all_raw_hes.iter().map(|&he| resolve_he(he)).collect();
+
+        // Ensure all nodes used by this fragment have vertices.
+        for &ghe_idx in &all_needed {
+            let origin_node = graph.half_edges[ghe_idx].origin;
             node_to_vertex.entry(origin_node).or_insert_with(|| {
                 let pos = graph.nodes[origin_node].position;
                 builder.add_vertex(pos)
             });
         }
 
-        // Create edges for each half-edge in the fragment.
-        for &he_idx in &all_hes {
-            if he_map.contains_key(&he_idx) {
+        // Create BRep edges for each graph half-edge this fragment needs.
+        // If the half-edge is already mapped but already wired into a
+        // loop, create a fresh pair to avoid aliasing.
+        let default_loop = popkern_core::topology::LoopHandle::default();
+        for &ghe_idx in &all_needed {
+            let already_wired = he_map
+                .get(&ghe_idx)
+                .map(|&heh| builder.brep().half_edges[heh].loop_ != default_loop)
+                .unwrap_or(false);
+
+            if he_map.contains_key(&ghe_idx) && !already_wired {
                 continue;
             }
 
-            let origin_node = graph.half_edges[he_idx].origin;
-            let twin_idx = graph.half_edges[he_idx].twin;
-            let end_node = graph.half_edges[twin_idx].origin;
+            let origin_node = graph.half_edges[ghe_idx].origin;
+            let twin_ghe = graph.half_edges[ghe_idx].twin;
+            let end_node = graph.half_edges[twin_ghe].origin;
 
             // Ensure end node has a vertex too.
             node_to_vertex.entry(end_node).or_insert_with(|| {
@@ -96,55 +112,37 @@ pub(crate) fn assemble_result(
                 builder.add_vertex(pos)
             });
 
-            let pair_id = he_idx.min(twin_idx);
-            let edge_key = (
-                origin_node.min(end_node),
-                origin_node.max(end_node),
-                pair_id,
-            );
+            let vh_start = node_to_vertex[&origin_node];
+            let vh_end = node_to_vertex[&end_node];
+            let (edge_h, he_fwd, he_twin) = builder.add_edge(vh_start, vh_end);
 
-            if let Some(&(_, existing_fwd, existing_twin)) = edge_map.get(&edge_key) {
-                // Edge already created. Figure out which half-edge we are.
-                let vh_origin = node_to_vertex[&origin_node];
-                let fwd_origin = builder.brep().half_edges[existing_fwd].origin;
+            he_map.insert(ghe_idx, he_fwd);
+            // Only map the twin if it isn't already mapped, or if its
+            // existing mapping is already wired into a loop.
+            let twin_wired = he_map
+                .get(&twin_ghe)
+                .map(|&heh| builder.brep().half_edges[heh].loop_ != default_loop)
+                .unwrap_or(false);
+            if !he_map.contains_key(&twin_ghe) || twin_wired {
+                he_map.insert(twin_ghe, he_twin);
+            }
 
-                if vh_origin == fwd_origin {
-                    he_map.insert(he_idx, existing_fwd);
-                    he_map.insert(twin_idx, existing_twin);
-                } else {
-                    he_map.insert(he_idx, existing_twin);
-                    he_map.insert(twin_idx, existing_fwd);
-                }
-            } else {
-                let vh_start = node_to_vertex[&origin_node];
-                let vh_end = node_to_vertex[&end_node];
-                let (edge_h, he_fwd, he_twin) = builder.add_edge(vh_start, vh_end);
-
-                edge_map.insert(edge_key, (edge_h, he_fwd, he_twin));
-                he_map.insert(he_idx, he_fwd);
-                he_map.insert(twin_idx, he_twin);
-
-                // Attach a line curve between the endpoint positions.
-                // We construct a fresh line rather than copying the graph's
-                // curve because graph edges may have been split or replaced
-                // by intersection NURBS that don't match the new vertex
-                // positions.
-                let p_start = graph.nodes[origin_node].position;
-                let p_end = graph.nodes[end_node].position;
-                let dir = p_end - p_start;
-                let len = dir.length();
-                if len > 1e-12 {
-                    use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
-                    let line_curve = CurveOnEdge {
-                        geometry: CurveGeometry::Line {
-                            origin: p_start,
-                            direction: dir * (1.0 / len),
-                        },
-                        t_start: 0.0,
-                        t_end: len,
-                    };
-                    builder.set_edge_curve(edge_h, line_curve);
-                }
+            // Attach a line curve between the endpoint positions.
+            let p_start = graph.nodes[origin_node].position;
+            let p_end = graph.nodes[end_node].position;
+            let dir = p_end - p_start;
+            let len = dir.length();
+            if len > 1e-12 {
+                use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+                let line_curve = CurveOnEdge {
+                    geometry: CurveGeometry::Line {
+                        origin: p_start,
+                        direction: dir * (1.0 / len),
+                    },
+                    t_start: 0.0,
+                    t_end: len,
+                };
+                builder.set_edge_curve(edge_h, line_curve);
             }
         }
 
@@ -152,19 +150,14 @@ pub(crate) fn assemble_result(
         let face_h = builder.add_face(shell);
 
         // Build outer loop.
-        // When the fragment is flipped (e.g. B-inside for subtraction),
-        // reverse the loop and use the twin of each half-edge.  This
-        // ensures the face normal direction matches the loop winding and
-        // adjacent faces share edges in opposite directions (manifold
-        // requirement).
         let outer_he_handles: Vec<HalfEdgeHandle> = if selection.flip {
             fragment
                 .outer_loop
                 .iter()
                 .rev()
                 .filter_map(|&he_idx| {
-                    let brep_he = he_map.get(&he_idx).copied()?;
-                    Some(builder.brep().half_edges[brep_he].twin)
+                    let ghe = graph.half_edges[he_idx].twin;
+                    he_map.get(&ghe).copied()
                 })
                 .collect()
         } else {
@@ -195,8 +188,8 @@ pub(crate) fn assemble_result(
                     .iter()
                     .rev()
                     .filter_map(|&he_idx| {
-                        let brep_he = he_map.get(&he_idx).copied()?;
-                        Some(builder.brep().half_edges[brep_he].twin)
+                        let ghe = graph.half_edges[he_idx].twin;
+                        he_map.get(&ghe).copied()
                     })
                     .collect()
             } else {
