@@ -47,21 +47,31 @@ pub(crate) fn assemble_result(
     let mut node_to_vertex: HashMap<usize, VertexHandle> = HashMap::new();
 
     // Map graph half-edge index → BRep HalfEdgeHandle (global across
-    // fragments).  When a fragment needs a graph half-edge that is
-    // already mapped AND already wired into a loop, we create a fresh
-    // BRep edge pair instead of reusing the existing one.  This prevents
-    // the shared-edge aliasing bug while still allowing adjacent faces
-    // from the same operand to share BRep edges normally.
+    // fragments).  When an edge is created for graph half-edge `ghe`,
+    // we map BOTH `ghe → he_fwd` and `twin(ghe) → he_rev`.  When a
+    // second fragment needs the twin direction, it finds the mapping
+    // already present and reuses the opposite BRep half-edge — one BRep
+    // edge per shared intersection edge.
     let mut he_map: HashMap<usize, HalfEdgeHandle> = HashMap::new();
 
-    for (frag_idx, fragment) in fragments.iter().enumerate() {
+    // Process non-flipped fragments first so their half-edge mappings
+    // are established before flipped fragments resolve to twins.  This
+    // ensures shared intersection edges are used by A-fragments first,
+    // with B-fragments getting the twin direction via flip.
+    let mut ordered_indices: Vec<usize> = (0..fragments.len())
+        .filter(|&i| selections[i].keep)
+        .collect();
+    ordered_indices.sort_by_key(|&i| (!selections[i].flip) as u8);
+
+    for &frag_idx in &ordered_indices {
+        let fragment = &fragments[frag_idx];
         let selection = &selections[frag_idx];
-        if !selection.keep {
-            continue;
-        }
 
         // Collect all graph half-edge indices this fragment needs,
-        // resolving flips (graph twin) where necessary.
+        // resolving flips (graph twin) where necessary.  For shared
+        // intersection edges, the flip ensures that operand A's
+        // fragment uses one direction and operand B's fragment uses
+        // the opposite direction — no aliasing.
         let resolve_he = |he_idx: usize| -> usize {
             if selection.flip {
                 graph.half_edges[he_idx].twin
@@ -70,14 +80,12 @@ pub(crate) fn assemble_result(
             }
         };
 
-        let all_raw_hes: Vec<usize> = fragment
+        let all_needed: Vec<usize> = fragment
             .outer_loop
             .iter()
             .chain(fragment.inner_loops.iter().flat_map(|l| l.iter()))
-            .copied()
+            .map(|&he| resolve_he(he))
             .collect();
-
-        let all_needed: Vec<usize> = all_raw_hes.iter().map(|&he| resolve_he(he)).collect();
 
         // Ensure all nodes used by this fragment have vertices.
         for &ghe_idx in &all_needed {
@@ -89,16 +97,11 @@ pub(crate) fn assemble_result(
         }
 
         // Create BRep edges for each graph half-edge this fragment needs.
-        // If the half-edge is already mapped but already wired into a
-        // loop, create a fresh pair to avoid aliasing.
-        let default_loop = popkern_core::topology::LoopHandle::default();
+        // If the graph half-edge (or its twin) is already mapped, reuse
+        // the existing BRep edge — no duplicates.
         for &ghe_idx in &all_needed {
-            let already_wired = he_map
-                .get(&ghe_idx)
-                .map(|&heh| builder.brep().half_edges[heh].loop_ != default_loop)
-                .unwrap_or(false);
-
-            if he_map.contains_key(&ghe_idx) && !already_wired {
+            if he_map.contains_key(&ghe_idx) {
+                // Already mapped (either directly or via twin). Skip.
                 continue;
             }
 
@@ -116,16 +119,11 @@ pub(crate) fn assemble_result(
             let vh_end = node_to_vertex[&end_node];
             let (edge_h, he_fwd, he_twin) = builder.add_edge(vh_start, vh_end);
 
+            // Map BOTH directions so that whichever graph half-edge a
+            // later fragment needs, it finds the correct BRep half-edge
+            // without creating a duplicate edge.
             he_map.insert(ghe_idx, he_fwd);
-            // Only map the twin if it isn't already mapped, or if its
-            // existing mapping is already wired into a loop.
-            let twin_wired = he_map
-                .get(&twin_ghe)
-                .map(|&heh| builder.brep().half_edges[heh].loop_ != default_loop)
-                .unwrap_or(false);
-            if !he_map.contains_key(&twin_ghe) || twin_wired {
-                he_map.insert(twin_ghe, he_twin);
-            }
+            he_map.insert(twin_ghe, he_twin);
 
             // Attach a line curve between the endpoint positions.
             let p_start = graph.nodes[origin_node].position;
@@ -149,24 +147,54 @@ pub(crate) fn assemble_result(
         // Create face.
         let face_h = builder.add_face(shell);
 
-        // Build outer loop.
-        let outer_he_handles: Vec<HalfEdgeHandle> = if selection.flip {
-            fragment
-                .outer_loop
-                .iter()
-                .rev()
-                .filter_map(|&he_idx| {
-                    let ghe = graph.half_edges[he_idx].twin;
-                    he_map.get(&ghe).copied()
-                })
-                .collect()
-        } else {
-            fragment
-                .outer_loop
-                .iter()
-                .filter_map(|&he_idx| he_map.get(&he_idx).copied())
-                .collect()
+        // Resolve a raw graph half-edge to a BRep half-edge, applying
+        // flip when needed.  If the resolved BRep half-edge is already
+        // wired into a loop, try the graph twin's mapping.  If both
+        // are wired, create a fresh edge pair (duplicate) to keep the
+        // loop geometrically correct.
+        let default_loop = popkern_core::topology::LoopHandle::default();
+        let resolve_for_loop = |raw_ghe: usize, bld: &mut BRepBuilder| -> Option<HalfEdgeHandle> {
+            let ghe = if selection.flip {
+                graph.half_edges[raw_ghe].twin
+            } else {
+                raw_ghe
+            };
+            // Try primary mapping.
+            if let Some(&brep_he) = he_map.get(&ghe)
+                && bld.brep().half_edges[brep_he].loop_ == default_loop
+            {
+                return Some(brep_he);
+            }
+            // Primary wired. Try graph twin's mapping.
+            let graph_twin = graph.half_edges[ghe].twin;
+            if let Some(&alt) = he_map.get(&graph_twin)
+                && bld.brep().half_edges[alt].loop_ == default_loop
+            {
+                return Some(alt);
+            }
+            // Both wired. Create a duplicate edge to preserve correct
+            // geometry at the cost of an Euler violation.
+            let origin_node = graph.half_edges[ghe].origin;
+            let end_node = graph.half_edges[graph_twin].origin;
+            let vh_start = *node_to_vertex.get(&origin_node)?;
+            let vh_end = *node_to_vertex.get(&end_node)?;
+            let (_edge_h, he_fwd, _he_twin) = bld.add_edge(vh_start, vh_end);
+            Some(he_fwd)
         };
+
+        // Build outer loop.  For flipped fragments, reverse the iteration
+        // order to flip winding.
+        let raw_outer: Vec<usize> = if selection.flip {
+            fragment.outer_loop.iter().rev().copied().collect()
+        } else {
+            fragment.outer_loop.clone()
+        };
+        let mut outer_he_handles: Vec<HalfEdgeHandle> = Vec::new();
+        for &he_idx in &raw_outer {
+            if let Some(heh) = resolve_for_loop(he_idx, &mut builder) {
+                outer_he_handles.push(heh);
+            }
+        }
 
         if !outer_he_handles.is_empty() {
             builder
@@ -183,21 +211,17 @@ pub(crate) fn assemble_result(
 
         // Build inner loops.
         for inner_loop in &fragment.inner_loops {
-            let inner_he_handles: Vec<HalfEdgeHandle> = if selection.flip {
-                inner_loop
-                    .iter()
-                    .rev()
-                    .filter_map(|&he_idx| {
-                        let ghe = graph.half_edges[he_idx].twin;
-                        he_map.get(&ghe).copied()
-                    })
-                    .collect()
+            let raw_inner: Vec<usize> = if selection.flip {
+                inner_loop.iter().rev().copied().collect()
             } else {
-                inner_loop
-                    .iter()
-                    .filter_map(|&he_idx| he_map.get(&he_idx).copied())
-                    .collect()
+                inner_loop.clone()
             };
+            let mut inner_he_handles: Vec<HalfEdgeHandle> = Vec::new();
+            for &he_idx in &raw_inner {
+                if let Some(heh) = resolve_for_loop(he_idx, &mut builder) {
+                    inner_he_handles.push(heh);
+                }
+            }
 
             if !inner_he_handles.is_empty() {
                 builder
@@ -267,17 +291,37 @@ pub(crate) fn assemble_result(
         brep.half_edges.remove(*heh);
     }
 
-    // Remove edges whose half_edge handle was removed AND whose twin
-    // half-edge was also removed. Keep edges that still have at least
-    // one surviving half-edge.
-    let dangling_edges: Vec<EdgeHandle> = brep
-        .edges
-        .iter()
-        .filter(|(_, edge)| !brep.half_edges.contains_key(edge.half_edge))
-        .map(|(eh, _)| eh)
-        .collect();
+    // Remove edges where BOTH half-edges were removed.  If either
+    // half-edge survives, update `edge.half_edge` to point to the
+    // surviving one so validation finds a valid handle.
+    let mut edges_to_remove: Vec<EdgeHandle> = Vec::new();
+    let mut edges_to_fixup: Vec<(EdgeHandle, HalfEdgeHandle)> = Vec::new();
 
-    for eh in &dangling_edges {
+    for (eh, edge) in brep.edges.iter() {
+        let canonical_alive = brep.half_edges.contains_key(edge.half_edge);
+        if canonical_alive {
+            continue; // Edge is fine.
+        }
+        // Canonical was removed — check if any other half-edge references
+        // this edge.
+        let survivor = brep
+            .half_edges
+            .iter()
+            .find(|(_, he)| he.edge == eh)
+            .map(|(heh, _)| heh);
+        match survivor {
+            Some(surviving_he) => edges_to_fixup.push((eh, surviving_he)),
+            None => edges_to_remove.push(eh),
+        }
+    }
+
+    for (eh, surviving_he) in &edges_to_fixup {
+        if let Some(edge) = brep.edges.get_mut(*eh) {
+            edge.half_edge = *surviving_he;
+        }
+    }
+
+    for eh in &edges_to_remove {
         brep.edges.remove(*eh);
     }
 
