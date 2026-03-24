@@ -6,6 +6,7 @@
 pub mod app;
 pub mod camera;
 pub mod colors;
+pub mod commands;
 pub mod error;
 pub mod gpu_mesh;
 pub mod picking;
