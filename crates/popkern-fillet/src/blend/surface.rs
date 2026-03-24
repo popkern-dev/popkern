@@ -1,8 +1,4 @@
-//! Vertex blend surface construction.
-//!
-//! Builds the surface that fills the gap at a vertex where multiple fillets
-//! meet. Supports mitred (planar) blends and smooth (spherical or NURBS)
-//! blends depending on the [`VertexMode`].
+//! Vertex blend surface construction (mitred and smooth modes).
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceGeometry;
