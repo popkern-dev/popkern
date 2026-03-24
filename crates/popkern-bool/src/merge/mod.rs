@@ -4,11 +4,16 @@
 //! into one valid closed BRep by copying topology, merging coincident vertices,
 //! and stitching boundary edges.
 
+pub(crate) mod assemble;
 pub(crate) mod curve_split;
+pub(crate) mod fragment_classify;
 pub(crate) mod graph;
 pub(crate) mod graph_build;
+pub(crate) mod graph_intersect;
 pub(crate) mod graph_split;
+pub(crate) mod radial;
 mod stitch;
+pub(crate) mod walk;
 
 use std::collections::HashMap;
 
