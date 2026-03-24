@@ -45,6 +45,25 @@ impl BRep {
     }
 }
 
+use crate::geometry::transform::Transform3;
+
+impl BRep {
+    /// Apply a transformation to all vertex positions, returning a new BRep.
+    ///
+    /// **Important:** Only vertex positions are transformed. Curve and surface
+    /// geometry is left unchanged. For planar/line geometry, call
+    /// `attach_geometry()` after. For NURBS/analytic surfaces, a full geometry
+    /// transform will be needed (future work — required before STEP assembly
+    /// transforms can work on curved shapes).
+    pub fn transform(&self, t: &Transform3) -> Result<BRep, crate::error::CoreError> {
+        let mut result = self.clone();
+        for (_, vertex) in &mut result.vertices {
+            vertex.position = t.apply_point(&vertex.position);
+        }
+        Ok(result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,5 +93,16 @@ mod tests {
         let json = serde_json::to_string(&brep).unwrap();
         let brep2: BRep = serde_json::from_str(&json).unwrap();
         assert_eq!(brep2.vertices.len(), 0);
+    }
+
+    #[test]
+    fn brep_transform_translates_vertices() {
+        use crate::geometry::transform::Transform3;
+        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let t = Transform3::translation(10.0, 0.0, 0.0);
+        let transformed = brep.transform(&t).unwrap();
+        for (_, v) in &transformed.vertices {
+            assert!(v.position.x >= 10.0 - 1e-10);
+        }
     }
 }
