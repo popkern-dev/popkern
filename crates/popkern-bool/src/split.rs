@@ -68,12 +68,9 @@ fn split_face_curves(
             original_face
         } else {
             // Multi-curve splitting: locate the fragment containing this
-            // curve's UV midpoint. Fragment lookup is functional, but
-            // downstream merge/stitch produces Euler violations when a face
-            // is split by more than one intersection curve. Skip subsequent
-            // curves until the merge stage can handle extra fragments.
+            // curve's UV midpoint and split that fragment.
             match find_fragment_for_curve(brep, original_face, curve_uv, fragments, tolerance) {
-                Some(_frag) => continue,
+                Some(frag) => frag,
                 None => continue,
             }
         };
