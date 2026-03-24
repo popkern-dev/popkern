@@ -1,6 +1,8 @@
 //! Geometric primitives: points, vectors, curves, and surfaces.
 
 pub mod analytic_curves;
+pub mod transform;
+pub use transform::Transform3;
 pub mod analytic_surfaces;
 pub mod curve;
 pub mod curve_on_surface;
