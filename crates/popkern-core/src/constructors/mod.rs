@@ -129,7 +129,11 @@ impl BRep {
     /// which for orthogonal axes is:
     /// `u = (p - origin) . u_axis / |u_axis|^2`
     /// `v = (p - origin) . v_axis / |v_axis|^2`
-    pub(super) fn attach_planar_pcurves(&mut self) -> Result<(), CoreError> {
+    /// Attach or regenerate pcurves for all half-edges on planar faces.
+    ///
+    /// Used after transforming the BRep to update UV-space pcurves that
+    /// depend on the plane's origin and axis vectors.
+    pub fn attach_planar_pcurves(&mut self) -> Result<(), CoreError> {
         let face_handles: Vec<_> = self.faces.keys().collect();
         for fh in face_handles {
             let surface_data = match &self.faces[fh].surface {

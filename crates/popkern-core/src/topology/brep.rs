@@ -48,19 +48,162 @@ impl BRep {
 use crate::geometry::transform::Transform3;
 
 impl BRep {
-    /// Apply a transformation to all vertex positions, returning a new BRep.
+    /// Apply a rigid transformation to the entire BRep, returning a new copy.
     ///
-    /// **Important:** Only vertex positions are transformed. Curve and surface
-    /// geometry is left unchanged. For planar/line geometry, call
-    /// `attach_geometry()` after. For NURBS/analytic surfaces, a full geometry
-    /// transform will be needed (future work — required before STEP assembly
-    /// transforms can work on curved shapes).
+    /// Transforms vertex positions, surface geometry on every face, edge
+    /// curve geometry, and NURBS control points on pcurves (for non-planar
+    /// faces; pcurves on planar faces live in UV space and are
+    /// parameterization-invariant for rigid transforms that keep the plane
+    /// canonical form, so they are regenerated via `attach_planar_pcurves`).
     pub fn transform(&self, t: &Transform3) -> Result<BRep, crate::error::CoreError> {
         let mut result = self.clone();
+
+        // 1. Transform vertex positions.
         for (_, vertex) in &mut result.vertices {
             vertex.position = t.apply_point(&vertex.position);
         }
+
+        // 2. Transform face surface geometry.
+        for (_, face) in &mut result.faces {
+            if let Some(ref mut sof) = face.surface {
+                sof.geometry = transform_surface(&sof.geometry, t);
+            }
+        }
+
+        // 3. Transform edge curve geometry.
+        for (_, edge) in &mut result.edges {
+            if let Some(ref mut curve_on_edge) = edge.curve {
+                curve_on_edge.geometry = transform_curve(&curve_on_edge.geometry, t);
+            }
+        }
+
+        // 4. Regenerate pcurves for planar faces (UV coordinates change
+        //    when the plane origin/axes change).
+        result.attach_planar_pcurves()?;
+
         Ok(result)
+    }
+}
+
+/// Transform a `SurfaceGeometry` by a rigid transform.
+fn transform_surface(
+    surface: &crate::geometry::surface::SurfaceGeometry,
+    t: &Transform3,
+) -> crate::geometry::surface::SurfaceGeometry {
+    use crate::geometry::surface::SurfaceGeometry;
+
+    match surface {
+        SurfaceGeometry::Plane {
+            origin,
+            normal,
+            u_axis,
+            v_axis,
+        } => SurfaceGeometry::Plane {
+            origin: t.apply_point(origin),
+            normal: t.apply_direction(normal),
+            u_axis: t.apply_direction(u_axis),
+            v_axis: t.apply_direction(v_axis),
+        },
+        SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius,
+        } => SurfaceGeometry::Cylinder {
+            origin: t.apply_point(origin),
+            axis: t.apply_direction(axis),
+            radius: *radius,
+        },
+        SurfaceGeometry::Cone {
+            apex,
+            axis,
+            half_angle,
+        } => SurfaceGeometry::Cone {
+            apex: t.apply_point(apex),
+            axis: t.apply_direction(axis),
+            half_angle: *half_angle,
+        },
+        SurfaceGeometry::Sphere { center, radius } => SurfaceGeometry::Sphere {
+            center: t.apply_point(center),
+            radius: *radius,
+        },
+        SurfaceGeometry::Torus {
+            center,
+            axis,
+            major_radius,
+            minor_radius,
+        } => SurfaceGeometry::Torus {
+            center: t.apply_point(center),
+            axis: t.apply_direction(axis),
+            major_radius: *major_radius,
+            minor_radius: *minor_radius,
+        },
+        SurfaceGeometry::Nurbs(nurbs) => {
+            let control_points = nurbs
+                .control_points
+                .iter()
+                .map(|p| t.apply_point(p))
+                .collect();
+            SurfaceGeometry::Nurbs(crate::geometry::NurbsSurface {
+                degree_u: nurbs.degree_u,
+                degree_v: nurbs.degree_v,
+                knots_u: nurbs.knots_u.clone(),
+                knots_v: nurbs.knots_v.clone(),
+                control_points,
+                num_u: nurbs.num_u,
+                num_v: nurbs.num_v,
+                weights: nurbs.weights.clone(),
+            })
+        }
+    }
+}
+
+/// Transform a `CurveGeometry` by a rigid transform.
+fn transform_curve(
+    curve: &crate::geometry::curve::CurveGeometry,
+    t: &Transform3,
+) -> crate::geometry::curve::CurveGeometry {
+    use crate::geometry::curve::CurveGeometry;
+
+    match curve {
+        CurveGeometry::Line { origin, direction } => CurveGeometry::Line {
+            origin: t.apply_point(origin),
+            direction: t.apply_direction(direction),
+        },
+        CurveGeometry::Circle {
+            center,
+            normal,
+            radius,
+        } => CurveGeometry::Circle {
+            center: t.apply_point(center),
+            normal: t.apply_direction(normal),
+            radius: *radius,
+        },
+        CurveGeometry::Arc {
+            center,
+            normal,
+            radius,
+            start_angle,
+            end_angle,
+        } => CurveGeometry::Arc {
+            center: t.apply_point(center),
+            normal: t.apply_direction(normal),
+            radius: *radius,
+            start_angle: *start_angle,
+            end_angle: *end_angle,
+        },
+        CurveGeometry::Nurbs(nurbs) => {
+            let control_points = nurbs
+                .control_points
+                .iter()
+                .map(|p| t.apply_point(p))
+                .collect();
+            CurveGeometry::Nurbs(crate::geometry::NurbsCurve {
+                degree: nurbs.degree,
+                knots: nurbs.knots.clone(),
+                control_points,
+                weights: nurbs.weights.clone(),
+            })
+        }
     }
 }
 

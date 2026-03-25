@@ -184,10 +184,122 @@ pub fn apply_blend_geometry(
         }
     }
 
+    // Safety net: propagate surface geometry to any face that lost it
+    // during topology modifications. A face that shares edges with a
+    // face that has a surface should inherit that surface (unless it's a
+    // fillet surface — in which case it was already assigned).
+    propagate_missing_surfaces(&mut result);
+
     Ok(ApplyBlendResult {
         brep: result,
         warnings,
     })
+}
+
+/// Propagate surface geometry to faces that lost it during topology
+/// modifications.
+///
+/// For each face without a surface, finds a neighboring face (sharing an
+/// edge via half-edge twin) that has a surface with the same type as the
+/// original (planar, cylindrical, etc.) and copies it. This handles cases
+/// where face splits or `kef` operations leave a face without geometry.
+fn propagate_missing_surfaces(brep: &mut BRep) {
+    // Iterate until no more surfaces can be propagated (handles chains
+    // of surfaceless faces that are only reachable transitively).
+    let max_rounds = brep.faces.len();
+    for _ in 0..max_rounds {
+        let faces_without_surface: Vec<FaceHandle> = brep
+            .faces
+            .iter()
+            .filter(|(_, f)| f.surface.is_none())
+            .map(|(fh, _)| fh)
+            .collect();
+
+        if faces_without_surface.is_empty() {
+            break;
+        }
+
+        let mut any_fixed = false;
+
+        for fh in faces_without_surface {
+            let outer_loop = brep.faces[fh].outer_loop;
+            let start_he = match brep.loops.get(outer_loop) {
+                Some(l) => l.half_edge,
+                None => continue,
+            };
+            if !brep.half_edges.contains_key(start_he) {
+                continue;
+            }
+
+            let mut cursor = start_he;
+            let limit = brep.half_edges.len() + 1;
+            let mut found_surface = None;
+
+            for _ in 0..limit {
+                let he = &brep.half_edges[cursor];
+                let twin = he.twin;
+                if brep.half_edges.contains_key(twin) {
+                    let twin_loop = brep.half_edges[twin].loop_;
+                    if brep.loops.contains_key(twin_loop) {
+                        let neighbor_face = brep.loops[twin_loop].face;
+                        if let Some(ref sof) = brep.faces[neighbor_face].surface {
+                            found_surface = Some(sof.clone());
+                            break;
+                        }
+                    }
+                }
+                cursor = he.next;
+                if cursor == start_he {
+                    break;
+                }
+            }
+
+            // Also check inner loops for neighbor surfaces.
+            if found_surface.is_none() {
+                let inner_loops = brep.faces[fh].inner_loops.clone();
+                for inner_lh in &inner_loops {
+                    let il_start = match brep.loops.get(*inner_lh) {
+                        Some(l) => l.half_edge,
+                        None => continue,
+                    };
+                    if !brep.half_edges.contains_key(il_start) {
+                        continue;
+                    }
+                    let mut ic = il_start;
+                    for _ in 0..limit {
+                        let he = &brep.half_edges[ic];
+                        let twin = he.twin;
+                        if brep.half_edges.contains_key(twin) {
+                            let tl = brep.half_edges[twin].loop_;
+                            if brep.loops.contains_key(tl) {
+                                let nf = brep.loops[tl].face;
+                                if let Some(ref sof) = brep.faces[nf].surface {
+                                    found_surface = Some(sof.clone());
+                                    break;
+                                }
+                            }
+                        }
+                        ic = he.next;
+                        if ic == il_start {
+                            break;
+                        }
+                    }
+                    if found_surface.is_some() {
+                        break;
+                    }
+                }
+            }
+
+            if let Some(surface) = found_surface {
+                brep.faces[fh].surface = Some(surface);
+                any_fixed = true;
+            }
+        }
+
+        if !any_fixed {
+            break;
+        }
+    }
 }
 
 /// Apply a single fillet/chamfer blend to the BRep.
