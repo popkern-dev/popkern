@@ -162,7 +162,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 camera.set_view_preset(p);
             }
 
-            popkern_viz::headless::render_to_png(
+            popkern_viz::headless::render_to_png_gpu(
                 &brep,
                 &camera,
                 width,

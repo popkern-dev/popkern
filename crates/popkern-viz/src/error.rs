@@ -17,4 +17,7 @@ pub enum VizError {
     /// JSON serialization/deserialization error.
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    /// Software renderer error.
+    #[error("software render error: {0}")]
+    SoftwareRender(String),
 }

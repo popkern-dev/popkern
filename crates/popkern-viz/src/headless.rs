@@ -1,24 +1,32 @@
 //! Headless (offscreen) rendering: render a BRep model to a PNG file
 //! without opening a window.
 //!
-//! Uses wgpu with no surface (headless adapter), renders to an offscreen
-//! texture, reads back the pixels, and encodes them as a PNG via the
-//! `image` crate.
+//! When the `gpu` feature is enabled, uses wgpu with no surface (headless
+//! adapter), renders to an offscreen texture, reads back the pixels, and
+//! encodes them as a PNG via the `image` crate.
 
 use std::path::Path;
 
-use popkern_core::topology::BRep;
-
-use crate::camera::Camera;
 use crate::error::VizError;
+
+#[cfg(feature = "gpu")]
+use crate::camera::Camera;
+#[cfg(feature = "gpu")]
 use crate::mesh_data::build_mesh_vertices;
+#[cfg(feature = "gpu")]
 use crate::renderer::Renderer;
+#[cfg(feature = "gpu")]
 use crate::wireframe;
+#[cfg(feature = "gpu")]
+use popkern_core::topology::BRep;
+#[cfg(feature = "gpu")]
+use wgpu::util::DeviceExt;
 
 /// The texture format used for headless rendering.
+#[cfg(feature = "gpu")]
 const HEADLESS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
-/// Render a BRep model to a PNG file without opening a window.
+/// Render a BRep model to a PNG file using the GPU without opening a window.
 ///
 /// Creates a headless wgpu device, tessellates the model, renders it
 /// with the given camera parameters, and writes the result as a PNG.
@@ -31,7 +39,8 @@ const HEADLESS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb
 /// * `height` - Output image height in pixels.
 /// * `output_path` - Where to write the PNG file.
 /// * `show_wireframe` - Whether to overlay wireframe edges.
-pub fn render_to_png(
+#[cfg(feature = "gpu")]
+pub fn render_to_png_gpu(
     brep: &BRep,
     camera: &Camera,
     width: u32,
@@ -224,6 +233,7 @@ pub fn render_to_png(
 }
 
 /// Create a headless wgpu device and queue (no window surface).
+#[cfg(feature = "gpu")]
 fn create_headless_device() -> Result<(wgpu::Device, wgpu::Queue), VizError> {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -246,7 +256,13 @@ fn create_headless_device() -> Result<(wgpu::Device, wgpu::Queue), VizError> {
 }
 
 /// Encode RGBA pixels as a PNG and write to disk.
-fn write_png(path: &Path, width: u32, height: u32, pixels: &[u8]) -> Result<(), VizError> {
+#[allow(dead_code)] // used by software renderer (added in a later task)
+pub(crate) fn write_png(
+    path: &Path,
+    width: u32,
+    height: u32,
+    pixels: &[u8],
+) -> Result<(), VizError> {
     let img = image::RgbaImage::from_raw(width, height, pixels.to_vec())
         .ok_or_else(|| VizError::Render("pixel buffer size mismatch".into()))?;
     img.save(path)
@@ -254,17 +270,15 @@ fn write_png(path: &Path, width: u32, height: u32, pixels: &[u8]) -> Result<(), 
     Ok(())
 }
 
-// Need the DeviceExt trait for create_buffer_init
-use wgpu::util::DeviceExt;
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mesh_data::build_mesh_vertices;
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::BRep;
 
     #[test]
     fn build_mesh_vertices_from_unit_cube() {
-        use popkern_core::tolerance::Tolerance;
-
         let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
         let options = popkern_mesh::TessellationOptions::default();
         let mesh = popkern_mesh::tessellate(&brep, &options).expect("tessellate succeeds");
@@ -279,8 +293,6 @@ mod tests {
 
     #[test]
     fn build_mesh_vertices_empty_mesh() {
-        use popkern_core::tolerance::Tolerance;
-
         let brep = BRep::new(Tolerance::default());
         let mesh = popkern_mesh::TriMesh::default();
 
@@ -316,11 +328,13 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[cfg(feature = "gpu")]
     #[test]
     fn headless_format_is_rgba8() {
         assert_eq!(HEADLESS_FORMAT, wgpu::TextureFormat::Rgba8UnormSrgb);
     }
 
+    #[cfg(feature = "gpu")]
     #[test]
     fn uniforms_size_check() {
         // Verify we can still construct uniforms for headless
@@ -328,6 +342,7 @@ mod tests {
         assert_eq!(std::mem::size_of_val(&u), 80);
     }
 
+    #[cfg(feature = "gpu")]
     #[test]
     fn depth_format_is_depth32float() {
         assert_eq!(

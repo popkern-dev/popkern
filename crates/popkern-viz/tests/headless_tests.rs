@@ -272,6 +272,7 @@ fn full_agent_session() {
 /// Render a unit cube to PNG headlessly.
 ///
 /// Requires a wgpu-compatible GPU adapter. Will fail in CI without a GPU.
+#[cfg(feature = "gpu")]
 #[test]
 #[ignore = "requires GPU adapter for wgpu headless rendering"]
 fn headless_render_unit_cube_to_png() {
@@ -280,7 +281,7 @@ fn headless_render_unit_cube_to_png() {
     let dir = std::env::temp_dir();
     let path = dir.join("popkern_headless_test.png");
 
-    let result = popkern_viz::headless::render_to_png(&brep, &camera, 320, 240, &path, true);
+    let result = popkern_viz::headless::render_to_png_gpu(&brep, &camera, 320, 240, &path, true);
 
     assert!(result.is_ok(), "headless render should succeed: {result:?}");
     assert!(path.exists(), "PNG file should be created");
