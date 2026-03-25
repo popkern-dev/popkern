@@ -190,4 +190,94 @@ mod tests {
             assert!(!sof.orientation, "orientation should be flipped");
         }
     }
+
+    #[test]
+    fn apply_offset_geometry_uses_offset_surface() {
+        use popkern_core::geometry::{Point3, Vec3};
+        let outer = BRep::unit_cube(tol()).unwrap();
+        let (mut inner, skin_map) = build_inner_skin(&outer, &[]).unwrap();
+
+        // Create offset surfaces that are distinct from the originals
+        // (shifted planes).
+        let mut offset_surfaces = HashMap::new();
+        for (&outer_fh, _) in &skin_map.faces {
+            let shifted = SurfaceGeometry::Plane {
+                origin: Point3::new(99.0, 99.0, 99.0),
+                normal: Vec3::new(0.0, 0.0, 1.0),
+                u_axis: Vec3::new(1.0, 0.0, 0.0),
+                v_axis: Vec3::new(0.0, 1.0, 0.0),
+            };
+            offset_surfaces.insert(outer_fh, shifted);
+        }
+
+        apply_offset_geometry(&mut inner, &offset_surfaces, &skin_map).unwrap();
+
+        // After applying, inner faces should have the offset geometry.
+        for (_, face) in &inner.faces {
+            let sof = face.surface.as_ref().unwrap();
+            match &sof.geometry {
+                SurfaceGeometry::Plane { origin, .. } => {
+                    assert!(
+                        (origin.x - 99.0).abs() < 1e-12,
+                        "inner face should use offset surface"
+                    );
+                }
+                _ => panic!("expected Plane"),
+            }
+        }
+    }
+
+    #[test]
+    fn apply_with_removed_faces_skips_missing() {
+        let outer = BRep::unit_cube(tol()).unwrap();
+        let first_face = outer.faces.keys().next().unwrap();
+        let (mut inner, skin_map) = build_inner_skin(&outer, &[first_face]).unwrap();
+
+        // Only provide offset surfaces for faces that weren't removed.
+        let mut offset_surfaces = HashMap::new();
+        for (&outer_fh, _) in &skin_map.faces {
+            if let Some(sof) = &outer.faces[outer_fh].surface {
+                offset_surfaces.insert(outer_fh, sof.geometry.clone());
+            }
+        }
+
+        // Should not error even though one face was removed.
+        apply_offset_geometry(&mut inner, &offset_surfaces, &skin_map).unwrap();
+        assert_eq!(inner.faces.len(), 5);
+    }
+
+    #[test]
+    fn full_pipeline_geometry_replacement() {
+        use crate::classify::classify_faces;
+        use crate::surface_offset::compute_offset_surfaces;
+        use crate::types::ShellDirection;
+        use crate::vertex_recompute::recompute_vertices;
+
+        let brep = BRep::unit_cube(tol()).unwrap();
+        let classification = classify_faces(&brep, 0.1, &[], ShellDirection::Inward, &[]).unwrap();
+        let offset_result = compute_offset_surfaces(&brep, &classification, true, &tol()).unwrap();
+        let (mut inner, skin_map) = build_inner_skin(&brep, &[]).unwrap();
+
+        recompute_vertices(
+            &mut inner,
+            &offset_result.surfaces,
+            &skin_map,
+            &brep,
+            &tol(),
+        )
+        .unwrap();
+
+        apply_offset_geometry(&mut inner, &offset_result.surfaces, &skin_map).unwrap();
+
+        // All inner faces should have offset geometry with flipped orientation.
+        for (_, face) in &inner.faces {
+            let sof = face.surface.as_ref().unwrap();
+            assert!(!sof.orientation, "orientation should be flipped");
+            // Geometry should be a plane (offset cube faces are still planes).
+            assert!(
+                matches!(sof.geometry, SurfaceGeometry::Plane { .. }),
+                "offset cube face should still be a plane"
+            );
+        }
+    }
 }
