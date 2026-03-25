@@ -84,9 +84,8 @@ pub fn fillet_edges(
         });
     }
 
-    let face_trims_vec: Vec<(usize, Vec<popkern_core::geometry::NurbsCurve>)> = face_trim_map
-        .into_iter()
-        .collect();
+    let face_trims_vec: Vec<(usize, Vec<popkern_core::geometry::NurbsCurve>)> =
+        face_trim_map.into_iter().collect();
     let consumed_faces = overlap::detect_face_disappearance(&face_trims_vec, &tolerance);
 
     // If a face would disappear, report RadiusTooLarge for the responsible edges.
@@ -96,9 +95,7 @@ pub fn fillet_edges(
         for (i, eg) in edge_geometries.iter().enumerate() {
             let f1_idx = face_handle_to_index(brep, eg.analysis.face_1);
             let f2_idx = face_handle_to_index(brep, eg.analysis.face_2);
-            if consumed_face_indices.contains(&f1_idx)
-                || consumed_face_indices.contains(&f2_idx)
-            {
+            if consumed_face_indices.contains(&f1_idx) || consumed_face_indices.contains(&f2_idx) {
                 failures.push((
                     specs.get(i).map(|s| s.edge).unwrap_or(eg.analysis.edge),
                     BlendFailure::RadiusTooLarge { max_radius: 0.0 },
@@ -108,9 +105,7 @@ pub fn fillet_edges(
     }
 
     // If all edges now fail (original failures + face-disappearance), bail.
-    if edge_geometries.is_empty()
-        || (!failures.is_empty() && failures.len() >= specs.len())
-    {
+    if edge_geometries.is_empty() || (!failures.is_empty() && failures.len() >= specs.len()) {
         return Err(BlendError::PartialFailure {
             failed: failures.len(),
             total: specs.len(),
@@ -133,7 +128,10 @@ pub fn fillet_edges(
     let mut all_warnings = apply_result.warnings;
     for warn in overlap_warnings {
         // Attach overlap warnings to the first edge in the specs list.
-        let edge_h = specs.first().map(|s| s.edge).unwrap_or(edge_geometries[0].analysis.edge);
+        let edge_h = specs
+            .first()
+            .map(|s| s.edge)
+            .unwrap_or(edge_geometries[0].analysis.edge);
         all_warnings.push((edge_h, warn));
     }
 
@@ -258,8 +256,7 @@ pub fn chamfer_edge(
 
 // Internal geometry computation is in `geometry_compute` module.
 use geometry_compute::{
-    build_overlap_inputs, compute_chamfer_geometry, compute_fillet_geometry,
-    face_handle_to_index,
+    build_overlap_inputs, compute_chamfer_geometry, compute_fillet_geometry, face_handle_to_index,
 };
 
 #[cfg(test)]

@@ -444,9 +444,10 @@ fn large_radius_detects_overlap_or_fails() {
     match result {
         Ok(blend) => {
             // If it succeeded, it should carry overlap warnings.
-            let has_overlap = blend.edge_warnings.iter().any(|(_, w)| {
-                matches!(w, popkern_fillet::BlendWarning::FilletOverlap { .. })
-            });
+            let has_overlap = blend
+                .edge_warnings
+                .iter()
+                .any(|(_, w)| matches!(w, popkern_fillet::BlendWarning::FilletOverlap { .. }));
             // Overlap detection is best-effort; the large radius may also just
             // succeed without triggering the heuristic. Either way, no panic.
             let _ = has_overlap;

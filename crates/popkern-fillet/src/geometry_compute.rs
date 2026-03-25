@@ -17,8 +17,11 @@ use crate::trim;
 use crate::types::{ChamferKind, FilletRadius};
 
 /// Trim curve triplet used by the overlap detector: (face_index, trim_on_face, other_trim).
-pub(crate) type OverlapTrimEntry =
-    (usize, popkern_core::geometry::NurbsCurve, popkern_core::geometry::NurbsCurve);
+pub(crate) type OverlapTrimEntry = (
+    usize,
+    popkern_core::geometry::NurbsCurve,
+    popkern_core::geometry::NurbsCurve,
+);
 
 /// Per-face collection of trim curves for face-disappearance detection.
 pub(crate) type FaceTrimMap =
@@ -234,10 +237,7 @@ pub(crate) fn build_overlap_inputs(
 }
 
 /// Map a [`popkern_core::topology::FaceHandle`] to a numeric index for the overlap API.
-pub(crate) fn face_handle_to_index(
-    brep: &BRep,
-    face: popkern_core::topology::FaceHandle,
-) -> usize {
+pub(crate) fn face_handle_to_index(brep: &BRep, face: popkern_core::topology::FaceHandle) -> usize {
     brep.faces
         .keys()
         .enumerate()

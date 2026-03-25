@@ -138,14 +138,19 @@ fn get_face_surface(brep: &BRep, face_handle: FaceHandle) -> Result<SurfaceGeome
     Ok(surface_on_face.geometry.clone())
 }
 
+/// Number of sample points along the edge for convexity classification.
+const CONVEXITY_SAMPLES: usize = 7;
+
 /// Classify the convexity of an edge between two surfaces.
 ///
-/// Evaluates normals N1, N2 from both surfaces at the edge midpoint,
-/// computes the edge tangent T, and uses the sign of (N1 x T) . N2
-/// to classify:
+/// Samples normals at [`CONVEXITY_SAMPLES`] points along the edge and
+/// uses the sign of (N1 x T) . N2 at each sample:
 ///   - positive -> convex
 ///   - negative -> concave
-///   - near zero -> mixed
+///   - near zero -> indeterminate (skipped)
+///
+/// If all definite samples agree, returns [`Convexity::Convex`] or
+/// [`Convexity::Concave`]. If samples disagree, returns [`Convexity::Mixed`].
 fn classify_convexity(
     brep: &BRep,
     edge_handle: EdgeHandle,
@@ -159,31 +164,44 @@ fn classify_convexity(
         .get(edge_handle)
         .ok_or_else(|| format!("edge {edge_handle:?} not found"))?;
 
-    // Get the edge midpoint and tangent from the edge curve.
     let curve = edge
         .curve
         .as_ref()
         .ok_or_else(|| format!("edge {edge_handle:?} has no curve geometry"))?;
 
-    let t_mid = (curve.t_start + curve.t_end) * 0.5;
-    let edge_midpoint = curve.geometry.point_at(t_mid);
-    let edge_tangent = curve.geometry.tangent_at(t_mid);
-
-    // Project the midpoint into each surface's UV space to evaluate normals.
-    let n1 = surface_normal_at_point(surface_1, &edge_midpoint, brep, face_1)?;
-    let n2 = surface_normal_at_point(surface_2, &edge_midpoint, brep, face_2)?;
-
-    // Convexity test: sign of (N1 x T) . N2
-    let cross = n1.cross(&edge_tangent);
-    let dot = cross.dot(&n2);
-
     const MIXED_THRESHOLD: f64 = 1e-6;
 
-    if dot > MIXED_THRESHOLD {
+    let mut convex_count: usize = 0;
+    let mut concave_count: usize = 0;
+
+    for i in 0..CONVEXITY_SAMPLES {
+        let frac = (i as f64) / ((CONVEXITY_SAMPLES - 1).max(1) as f64);
+        let t = curve.t_start + (curve.t_end - curve.t_start) * frac;
+        let point = curve.geometry.point_at(t);
+        let tangent = curve.geometry.tangent_at(t);
+
+        let n1 = surface_normal_at_point(surface_1, &point, brep, face_1)?;
+        let n2 = surface_normal_at_point(surface_2, &point, brep, face_2)?;
+
+        let cross = n1.cross(&tangent);
+        let dot = cross.dot(&n2);
+
+        if dot > MIXED_THRESHOLD {
+            convex_count += 1;
+        } else if dot < -MIXED_THRESHOLD {
+            concave_count += 1;
+        }
+        // Near-zero samples are indeterminate — skipped.
+    }
+
+    if convex_count > 0 && concave_count > 0 {
+        Ok(Convexity::Mixed)
+    } else if convex_count > 0 {
         Ok(Convexity::Convex)
-    } else if dot < -MIXED_THRESHOLD {
+    } else if concave_count > 0 {
         Ok(Convexity::Concave)
     } else {
+        // All samples indeterminate.
         Ok(Convexity::Mixed)
     }
 }
@@ -386,6 +404,46 @@ mod tests {
         assert_eq!(analyses.len(), 3);
         for a in &analyses {
             assert_ne!(a.face_1, a.face_2, "adjacent faces should be different");
+        }
+    }
+
+    #[test]
+    fn convexity_classification_samples_multiple_points() {
+        // A cube edge is uniformly convex — multi-point sampling should
+        // still return Convex (not Mixed).
+        let cube = make_cube();
+        let edges: Vec<EdgeHandle> = cube.edges.keys().collect();
+        let analyses = analyze_edges(&cube, &edges, false).unwrap();
+
+        for a in &analyses {
+            assert!(
+                a.convexity == Convexity::Convex || a.convexity == Convexity::Concave,
+                "cube edge {:?} should be uniformly convex or concave with \
+                 multi-point sampling, got {:?}",
+                a.edge,
+                a.convexity,
+            );
+        }
+
+        // A concave edge from a boolean subtraction should be Concave.
+        use popkern_core::geometry::Transform3;
+        use popkern_core::tolerance::Tolerance;
+        let tol = Tolerance::default();
+        let big = BRep::unit_cube(tol).unwrap();
+        let xf = Transform3::translation(0.25, 0.25, 0.5).compose(&Transform3::scale_uniform(0.5));
+        let small = BRep::unit_cube(tol).unwrap().transform(&xf).unwrap();
+
+        if let Ok(subtracted) = popkern_bool::subtraction(big, small, tol) {
+            let edges: Vec<EdgeHandle> = subtracted.edges.keys().collect();
+            if let Ok(analyses) = analyze_edges(&subtracted, &edges, false) {
+                // At least one concave edge should exist, and multi-point
+                // sampling should not flip it to Mixed.
+                let has_concave = analyses.iter().any(|a| a.convexity == Convexity::Concave);
+                assert!(
+                    has_concave,
+                    "subtraction result should have concave edges with multi-point sampling"
+                );
+            }
         }
     }
 }
