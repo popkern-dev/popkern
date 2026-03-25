@@ -1,0 +1,151 @@
+//! Topology modification orchestrator for draft operations.
+//!
+//! Coordinates the sequence of operations needed to apply draft changes
+//! to a BRep: surface replacement, orientation fixup, edge/vertex
+//! recomputation, and adjacent face handling.
+
+use std::collections::HashMap;
+
+use crate::adjacent;
+use crate::error::{DraftError, DraftWarning};
+use crate::recompute;
+use crate::types::DraftOptions;
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::{BRep, FaceHandle};
+
+/// Apply draft modifications to a BRep clone.
+///
+/// Clones the input BRep, replaces each drafted face's surface geometry,
+/// fixes orientation if the normal flipped, recomputes edges and vertices,
+/// and handles adjacent faces.
+///
+/// # Errors
+///
+/// Returns [`DraftError`] if topology modification fails (e.g., degenerate
+/// geometry or inconsistent adjacency).
+pub fn apply_draft_topology(
+    brep: &BRep,
+    drafted_surfaces: &HashMap<FaceHandle, SurfaceGeometry>,
+    options: &DraftOptions,
+    tolerance: &Tolerance,
+) -> Result<(BRep, Vec<DraftWarning>), DraftError> {
+    let mut result = brep.clone();
+    let mut warnings = Vec::new();
+
+    // Step 1: Replace surface geometry on drafted faces and fix orientation.
+    for (face_h, new_surf) in drafted_surfaces {
+        if let Some(face) = result.faces.get_mut(*face_h)
+            && let Some(ref mut sof) = face.surface
+        {
+            // Check if the draft reverses the normal direction.
+            let old_normal = sof.geometry.normal_at(0.0, 0.0);
+            let new_normal = new_surf.normal_at(0.0, 0.0);
+            let dot = old_normal.dot(&new_normal);
+            if dot < 0.0 {
+                sof.orientation = !sof.orientation;
+            }
+            sof.geometry = new_surf.clone();
+        }
+    }
+
+    // Step 2: Recompute vertex positions.
+    recompute::recompute_draft_vertices(&mut result, drafted_surfaces, tolerance)?;
+
+    // Step 3: Recompute edge curves.
+    recompute::recompute_draft_edges(&mut result, drafted_surfaces, tolerance)?;
+
+    // Step 4: Handle adjacent faces.
+    let adj_warnings = adjacent::handle_adjacent_faces(
+        &mut result,
+        drafted_surfaces,
+        options.adjacent_mode,
+        tolerance,
+    )?;
+    warnings.extend(adj_warnings);
+
+    Ok((result, warnings))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use popkern_core::geometry::{Point3, Vec3};
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::BRep;
+
+    fn tol() -> Tolerance {
+        Tolerance::default()
+    }
+
+    #[test]
+    fn draft_one_cube_face_valid_brep() {
+        let brep = BRep::unit_cube(tol()).unwrap();
+        let face = brep.faces.keys().next().unwrap();
+
+        let tilted = SurfaceGeometry::Plane {
+            origin: Point3::new(0.5, 0.5, 0.0),
+            normal: Vec3::new(0.0, 0.087, 0.996),
+            u_axis: Vec3::new(1.0, 0.0, 0.0),
+            v_axis: Vec3::new(0.0, 0.996, -0.087),
+        };
+
+        let mut drafted = HashMap::new();
+        drafted.insert(face, tilted);
+
+        let (result, warnings) =
+            apply_draft_topology(&brep, &drafted, &DraftOptions::default(), &tol()).unwrap();
+
+        // Euler: V - E + F = 2 for a closed solid.
+        let v = result.vertices.len() as i64;
+        let e = result.edges.len() as i64;
+        let f = result.faces.len() as i64;
+        assert_eq!(v - e + f, 2, "Euler: V={v} E={e} F={f}");
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn drafted_face_has_new_surface() {
+        let brep = BRep::unit_cube(tol()).unwrap();
+        let face = brep.faces.keys().next().unwrap();
+
+        let new_normal = Vec3::new(0.0, 0.087, 0.996);
+        let tilted = SurfaceGeometry::Plane {
+            origin: Point3::new(0.5, 0.5, 0.0),
+            normal: new_normal,
+            u_axis: Vec3::new(1.0, 0.0, 0.0),
+            v_axis: Vec3::new(0.0, 0.996, -0.087),
+        };
+
+        let mut drafted = HashMap::new();
+        drafted.insert(face, tilted);
+
+        let (result, _) =
+            apply_draft_topology(&brep, &drafted, &DraftOptions::default(), &tol()).unwrap();
+
+        // Verify the face now has the drafted surface.
+        let result_face = &result.faces[face];
+        if let Some(ref sof) = result_face.surface {
+            if let SurfaceGeometry::Plane { normal, .. } = &sof.geometry {
+                let dot = normal.dot(&new_normal);
+                assert!(dot > 0.99, "Drafted face should have new normal");
+            } else {
+                panic!("Expected plane surface after draft");
+            }
+        }
+    }
+
+    #[test]
+    fn empty_drafted_is_clone() {
+        let brep = BRep::unit_cube(tol()).unwrap();
+        let drafted = HashMap::new();
+
+        let (result, warnings) =
+            apply_draft_topology(&brep, &drafted, &DraftOptions::default(), &tol()).unwrap();
+
+        assert_eq!(result.vertices.len(), brep.vertices.len());
+        assert_eq!(result.edges.len(), brep.edges.len());
+        assert_eq!(result.faces.len(), brep.faces.len());
+        assert!(warnings.is_empty());
+    }
+}
