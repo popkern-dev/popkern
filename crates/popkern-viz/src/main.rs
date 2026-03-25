@@ -1,5 +1,6 @@
 //! CLI entry point for popkern-viz.
 
+#[cfg(feature = "gpu")]
 use popkern_viz::app::VizApp;
 
 /// Print comprehensive CLI help text.
@@ -8,12 +9,14 @@ fn print_help() {
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("    popkern-viz view <file>              Open interactive viewer");
+    eprintln!("        --software / --cpu               Force CPU software renderer");
     eprintln!("    popkern-viz screenshot <file>        Render to PNG (headless)");
     eprintln!("        --output <path>                  Output PNG path (default: output.png)");
     eprintln!("        --camera <preset|x,y,z>          Camera position (default: iso)");
     eprintln!("        --width <N>                      Image width (default: 1280)");
     eprintln!("        --height <N>                     Image height (default: 720)");
     eprintln!("        --no-wireframe                   Disable wireframe overlay");
+    eprintln!("        --software / --cpu               Force CPU software renderer");
     eprintln!();
     eprintln!("SUPPORTED FORMATS:");
     eprintln!("    .json       BRep JSON (full topology)");
@@ -45,12 +48,12 @@ fn main() {
 
 /// Runs the CLI, returning an error string on failure.
 fn run(args: &[String]) -> Result<(), String> {
+    let force_software = args.iter().any(|a| a == "--software" || a == "--cpu");
+
     match args[1].as_str() {
         "view" => {
-            let mut app = VizApp::new();
-
             // If a path is given, try to load it; otherwise show a unit cube.
-            let brep = if let Some(file_arg) = args.get(2) {
+            let brep = if let Some(file_arg) = args.get(2).filter(|a| !a.starts_with("--")) {
                 let path = std::path::Path::new(file_arg);
                 match popkern_viz::loader::load_model(path) {
                     Ok(b) => b,
@@ -69,24 +72,41 @@ fn run(args: &[String]) -> Result<(), String> {
                 )
                 .map_err(|e| format!("unit cube build failed: {e}"))?
             };
-            app.scene
-                .load_brep(brep)
-                .map_err(|e| format!("tessellation failed: {e}"))?;
 
-            let native_options = eframe::NativeOptions {
-                viewport: egui::ViewportBuilder::default()
-                    .with_inner_size([1280.0, 720.0])
-                    .with_title("popkern-viz"),
-                depth_buffer: 32,
-                ..Default::default()
-            };
+            let backend = popkern_viz::backend::resolve_backend(force_software);
 
-            eframe::run_native(
-                "popkern-viz",
-                native_options,
-                Box::new(|_cc| Ok(Box::new(app))),
-            )
-            .map_err(|e| format!("eframe failed: {e}"))?;
+            match backend {
+                #[cfg(feature = "gpu")]
+                popkern_viz::backend::RenderBackend::Gpu => {
+                    let mut app = VizApp::new();
+                    app.scene
+                        .load_brep(brep)
+                        .map_err(|e| format!("tessellation failed: {e}"))?;
+
+                    let native_options = eframe::NativeOptions {
+                        viewport: egui::ViewportBuilder::default()
+                            .with_inner_size([1280.0, 720.0])
+                            .with_title("popkern-viz"),
+                        depth_buffer: 32,
+                        ..Default::default()
+                    };
+
+                    eframe::run_native(
+                        "popkern-viz",
+                        native_options,
+                        Box::new(|_cc| Ok(Box::new(app))),
+                    )
+                    .map_err(|e| format!("eframe failed: {e}"))?;
+                }
+                popkern_viz::backend::RenderBackend::Software => {
+                    let mut scene = popkern_viz::scene::VizServer::new();
+                    scene
+                        .load_brep(brep)
+                        .map_err(|e| format!("tessellation failed: {e}"))?;
+                    popkern_viz::software_viewer::event_loop::run(scene)
+                        .map_err(|e| format!("software viewer failed: {e}"))?;
+                }
+            }
 
             Ok(())
         }
@@ -130,6 +150,9 @@ fn run(args: &[String]) -> Result<(), String> {
                     "--no-wireframe" => {
                         show_wireframe = false;
                     }
+                    "--software" | "--cpu" => {
+                        // handled above via force_software
+                    }
                     other => {
                         // Treat bare argument as output path
                         output_path = other.to_string();
@@ -162,7 +185,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 camera.set_view_preset(p);
             }
 
-            popkern_viz::headless::render_to_png_gpu(
+            popkern_viz::headless::render_to_png(
                 &brep,
                 &camera,
                 width,
