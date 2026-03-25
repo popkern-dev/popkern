@@ -1,24 +1,30 @@
 //! Headless (offscreen) rendering: render a BRep model to a PNG file
 //! without opening a window.
 //!
-//! Uses wgpu with no surface (headless adapter), renders to an offscreen
-//! texture, reads back the pixels, and encodes them as a PNG via the
-//! `image` crate.
+//! When the `gpu` feature is enabled, uses wgpu with no surface (headless
+//! adapter), renders to an offscreen texture, reads back the pixels, and
+//! encodes them as a PNG via the `image` crate.
 
 use std::path::Path;
 
+use crate::camera::Camera;
+use crate::error::VizError;
 use popkern_core::topology::BRep;
 
-use crate::camera::Camera;
-use crate::colors::surface_color;
-use crate::error::VizError;
-use crate::renderer::{MeshVertex, Renderer};
+#[cfg(feature = "gpu")]
+use crate::mesh_data::build_mesh_vertices;
+#[cfg(feature = "gpu")]
+use crate::renderer::Renderer;
+#[cfg(feature = "gpu")]
 use crate::wireframe;
+#[cfg(feature = "gpu")]
+use wgpu::util::DeviceExt;
 
 /// The texture format used for headless rendering.
+#[cfg(feature = "gpu")]
 const HEADLESS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
-/// Render a BRep model to a PNG file without opening a window.
+/// Render a BRep model to a PNG file using the GPU without opening a window.
 ///
 /// Creates a headless wgpu device, tessellates the model, renders it
 /// with the given camera parameters, and writes the result as a PNG.
@@ -31,7 +37,8 @@ const HEADLESS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb
 /// * `height` - Output image height in pixels.
 /// * `output_path` - Where to write the PNG file.
 /// * `show_wireframe` - Whether to overlay wireframe edges.
-pub fn render_to_png(
+#[cfg(feature = "gpu")]
+pub fn render_to_png_gpu(
     brep: &BRep,
     camera: &Camera,
     width: u32,
@@ -223,7 +230,46 @@ pub fn render_to_png(
     Ok(())
 }
 
+/// Render a BRep to PNG using the CPU software rasterizer.
+///
+/// Works on any machine — no GPU required.
+pub fn render_to_png_software(
+    brep: &BRep,
+    camera: &Camera,
+    width: u32,
+    height: u32,
+    output_path: &Path,
+    show_wireframe: bool,
+) -> Result<(), VizError> {
+    let mesh = popkern_mesh::tessellate(brep, &popkern_mesh::TessellationOptions::default())
+        .map_err(|e| VizError::SoftwareRender(format!("tessellation failed: {e}")))?;
+    let pixels = crate::cpu_render::render(brep, &mesh, camera, width, height, show_wireframe);
+    write_png(output_path, width, height, &pixels)
+}
+
+/// Render a BRep to PNG, using GPU if available, software otherwise.
+pub fn render_to_png(
+    brep: &BRep,
+    camera: &Camera,
+    width: u32,
+    height: u32,
+    output_path: &Path,
+    show_wireframe: bool,
+) -> Result<(), VizError> {
+    #[cfg(feature = "gpu")]
+    {
+        match render_to_png_gpu(brep, camera, width, height, output_path, show_wireframe) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                log::warn!("GPU render failed ({e}), falling back to software renderer");
+            }
+        }
+    }
+    render_to_png_software(brep, camera, width, height, output_path, show_wireframe)
+}
+
 /// Create a headless wgpu device and queue (no window surface).
+#[cfg(feature = "gpu")]
 fn create_headless_device() -> Result<(wgpu::Device, wgpu::Queue), VizError> {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -245,47 +291,14 @@ fn create_headless_device() -> Result<(wgpu::Device, wgpu::Queue), VizError> {
     Ok((device, queue))
 }
 
-/// Default face color used when a face has no surface geometry.
-const DEFAULT_COLOR: [f32; 4] = [0.6, 0.6, 0.6, 1.0];
-
-/// Build GPU vertex and index data from a BRep and its tessellation.
-fn build_mesh_vertices(brep: &BRep, mesh: &popkern_mesh::TriMesh) -> (Vec<MeshVertex>, Vec<u32>) {
-    let face_color = |face_idx: usize| -> [f32; 4] {
-        let face_handle = mesh.face_map.get(face_idx).copied();
-        let color = face_handle.and_then(|fh| {
-            let face = brep.faces.get(fh)?;
-            let surf = face.surface.as_ref()?;
-            Some(surface_color(&surf.geometry))
-        });
-        color.unwrap_or(DEFAULT_COLOR)
-    };
-
-    let mut vertices: Vec<MeshVertex> = Vec::with_capacity(mesh.triangles.len() * 3);
-    let mut indices: Vec<u32> = Vec::with_capacity(mesh.triangles.len() * 3);
-
-    for (tri_idx, tri) in mesh.triangles.iter().enumerate() {
-        let color = face_color(tri_idx);
-        for &vi in tri {
-            let mv = &mesh.vertices[vi];
-            let idx = vertices.len() as u32;
-            vertices.push(MeshVertex {
-                position: [
-                    mv.position.x as f32,
-                    mv.position.y as f32,
-                    mv.position.z as f32,
-                ],
-                normal: [mv.normal.x as f32, mv.normal.y as f32, mv.normal.z as f32],
-                color,
-            });
-            indices.push(idx);
-        }
-    }
-
-    (vertices, indices)
-}
-
 /// Encode RGBA pixels as a PNG and write to disk.
-fn write_png(path: &Path, width: u32, height: u32, pixels: &[u8]) -> Result<(), VizError> {
+#[allow(dead_code)] // used by software renderer (added in a later task)
+pub(crate) fn write_png(
+    path: &Path,
+    width: u32,
+    height: u32,
+    pixels: &[u8],
+) -> Result<(), VizError> {
     let img = image::RgbaImage::from_raw(width, height, pixels.to_vec())
         .ok_or_else(|| VizError::Render("pixel buffer size mismatch".into()))?;
     img.save(path)
@@ -293,17 +306,15 @@ fn write_png(path: &Path, width: u32, height: u32, pixels: &[u8]) -> Result<(), 
     Ok(())
 }
 
-// Need the DeviceExt trait for create_buffer_init
-use wgpu::util::DeviceExt;
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mesh_data::build_mesh_vertices;
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::BRep;
 
     #[test]
     fn build_mesh_vertices_from_unit_cube() {
-        use popkern_core::tolerance::Tolerance;
-
         let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
         let options = popkern_mesh::TessellationOptions::default();
         let mesh = popkern_mesh::tessellate(&brep, &options).expect("tessellate succeeds");
@@ -318,8 +329,6 @@ mod tests {
 
     #[test]
     fn build_mesh_vertices_empty_mesh() {
-        use popkern_core::tolerance::Tolerance;
-
         let brep = BRep::new(Tolerance::default());
         let mesh = popkern_mesh::TriMesh::default();
 
@@ -355,17 +364,13 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn default_color_is_opaque_gray() {
-        assert!((DEFAULT_COLOR[0] - 0.6).abs() < f32::EPSILON);
-        assert!((DEFAULT_COLOR[3] - 1.0).abs() < f32::EPSILON);
-    }
-
+    #[cfg(feature = "gpu")]
     #[test]
     fn headless_format_is_rgba8() {
         assert_eq!(HEADLESS_FORMAT, wgpu::TextureFormat::Rgba8UnormSrgb);
     }
 
+    #[cfg(feature = "gpu")]
     #[test]
     fn uniforms_size_check() {
         // Verify we can still construct uniforms for headless
@@ -373,6 +378,7 @@ mod tests {
         assert_eq!(std::mem::size_of_val(&u), 80);
     }
 
+    #[cfg(feature = "gpu")]
     #[test]
     fn depth_format_is_depth32float() {
         assert_eq!(

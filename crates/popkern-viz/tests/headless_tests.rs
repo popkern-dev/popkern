@@ -12,6 +12,10 @@ use popkern_viz::loader::{load_model, save_brep_json};
 use popkern_viz::scene::VizServer;
 use slotmap::Key;
 
+// `image` is a regular dependency of popkern-viz (not just dev-dep), so it is
+// available in integration tests without any extra Cargo.toml entry.
+use image;
+
 // ---------------------------------------------------------------------------
 // 1. BRep JSON round-trip through viz
 // ---------------------------------------------------------------------------
@@ -266,12 +270,68 @@ fn full_agent_session() {
 }
 
 // ---------------------------------------------------------------------------
+// Software rendering integration tests (no GPU required)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn software_render_cube_to_png() {
+    let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
+    let mut camera = popkern_viz::camera::Camera::default_iso();
+    camera.aspect = 1.0;
+    let tmp = std::env::temp_dir().join("test_sw_cube_integ.png");
+    popkern_viz::headless::render_to_png_software(&brep, &camera, 256, 256, &tmp, true).unwrap();
+    let img = image::open(&tmp).unwrap();
+    assert_eq!(img.width(), 256);
+    assert_eq!(img.height(), 256);
+    let rgba = img.to_rgba8();
+    let non_bg = rgba
+        .pixels()
+        .filter(|p| p.0[0] != 38 || p.0[1] != 38 || p.0[2] != 38)
+        .count();
+    assert!(
+        non_bg > 100,
+        "image should contain geometry, got {non_bg} non-bg pixels"
+    );
+    std::fs::remove_file(&tmp).ok();
+}
+
+#[test]
+fn software_render_no_wireframe() {
+    let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
+    let camera = popkern_viz::camera::Camera::default_iso();
+    let tmp = std::env::temp_dir().join("test_sw_no_wire.png");
+    popkern_viz::headless::render_to_png_software(&brep, &camera, 128, 128, &tmp, false).unwrap();
+    assert!(tmp.exists());
+    std::fs::remove_file(&tmp).ok();
+}
+
+#[test]
+fn backend_software_flag_forces_software() {
+    let backend = popkern_viz::backend::resolve_backend(true);
+    assert!(matches!(
+        backend,
+        popkern_viz::backend::RenderBackend::Software
+    ));
+}
+
+#[test]
+fn render_to_png_auto_fallback_works() {
+    let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
+    let camera = popkern_viz::camera::Camera::default_iso();
+    let tmp = std::env::temp_dir().join("test_auto_fallback.png");
+    popkern_viz::headless::render_to_png(&brep, &camera, 64, 64, &tmp, false).unwrap();
+    assert!(tmp.exists());
+    std::fs::remove_file(&tmp).ok();
+}
+
+// ---------------------------------------------------------------------------
 // Headless render tests (require GPU, marked #[ignore])
 // ---------------------------------------------------------------------------
 
 /// Render a unit cube to PNG headlessly.
 ///
 /// Requires a wgpu-compatible GPU adapter. Will fail in CI without a GPU.
+#[cfg(feature = "gpu")]
 #[test]
 #[ignore = "requires GPU adapter for wgpu headless rendering"]
 fn headless_render_unit_cube_to_png() {
@@ -280,7 +340,7 @@ fn headless_render_unit_cube_to_png() {
     let dir = std::env::temp_dir();
     let path = dir.join("popkern_headless_test.png");
 
-    let result = popkern_viz::headless::render_to_png(&brep, &camera, 320, 240, &path, true);
+    let result = popkern_viz::headless::render_to_png_gpu(&brep, &camera, 320, 240, &path, true);
 
     assert!(result.is_ok(), "headless render should succeed: {result:?}");
     assert!(path.exists(), "PNG file should be created");

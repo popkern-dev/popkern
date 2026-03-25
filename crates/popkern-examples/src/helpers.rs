@@ -85,7 +85,7 @@ pub fn try_render(brep: &BRep, filename: &str) {
     let path = output_dir.join(filename);
 
     let camera = popkern_viz::camera::Camera::default_iso();
-    match popkern_viz::headless::render_to_png(brep, &camera, 800, 600, &path, true) {
+    match popkern_viz::headless::render_to_png_gpu(brep, &camera, 800, 600, &path, true) {
         Ok(()) => println!("  Rendered: {}", path.display()),
         Err(e) => eprintln!("  PNG render skipped (no GPU?): {e}"),
     }
