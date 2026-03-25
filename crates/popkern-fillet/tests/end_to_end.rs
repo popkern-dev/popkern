@@ -277,24 +277,27 @@ fn edges_incident_to_vertex(
 }
 
 /// Assert that the BRep has no structural validation errors.
+///
+/// Runs only the fast structural checks (half-edge pairing, cycle
+/// integrity, vertex consistency, manifold edges). Intentionally skips
+/// `validate_all()` which includes the expensive self-intersection
+/// check — that check is O(n²) in face count and too slow for complex
+/// fillet results with many NURBS surfaces.
 fn assert_structurally_valid(brep: &BRep, label: &str) {
-    let errors = brep.validate_all();
-    let structural: Vec<_> = errors
-        .iter()
-        .filter(|e| {
-            matches!(
-                e,
-                popkern_core::error::ValidationError::BrokenCycle { .. }
-                    | popkern_core::error::ValidationError::BrokenTwin { .. }
-                    | popkern_core::error::ValidationError::InconsistentVertex { .. }
-                    | popkern_core::error::ValidationError::NonManifoldEdge { .. }
-            )
-        })
-        .collect();
-    assert!(
-        structural.is_empty(),
-        "{label}: structural errors: {structural:?}"
-    );
+    let mut errors = Vec::new();
+    if let Err(e) = brep.validate_half_edge_pairing() {
+        errors.push(e);
+    }
+    if let Err(e) = brep.validate_half_edge_cycles() {
+        errors.push(e);
+    }
+    if let Err(e) = brep.validate_vertex_consistency() {
+        errors.push(e);
+    }
+    if let Err(e) = brep.validate_manifold_edges() {
+        errors.push(e);
+    }
+    assert!(errors.is_empty(), "{label}: structural errors: {errors:?}");
 }
 
 #[test]

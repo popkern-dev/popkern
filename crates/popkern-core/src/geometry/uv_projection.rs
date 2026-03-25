@@ -90,8 +90,8 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
 ///
 /// If the surface's native parameter range is already finite in both u and v,
 /// returns it unchanged. Otherwise, projects the given vertex positions into UV
-/// space, computes the axis-aligned bounding box, and adds 10 % padding
-/// (minimum 0.1 in each direction).
+/// space, computes the axis-aligned bounding box, and adds 50 % padding
+/// (minimum 1.0 in each direction) for intersection-solver headroom.
 pub fn bounded_parameter_range(
     vertices: &[Point3],
     surface: &SurfaceGeometry,
@@ -132,6 +132,83 @@ pub fn bounded_parameter_range(
     let v_pad = ((uv_hi.1 - uv_lo.1) * 0.5).max(1.0);
 
     // Only override dimensions that were infinite.
+    let u_range = if u_min.is_finite() && u_max.is_finite() {
+        (u_min, u_max)
+    } else {
+        (uv_lo.0 - u_pad, uv_hi.0 + u_pad)
+    };
+    let v_range = if v_min.is_finite() && v_max.is_finite() {
+        (v_min, v_max)
+    } else {
+        (uv_lo.1 - v_pad, uv_hi.1 + v_pad)
+    };
+
+    (u_range, v_range)
+}
+
+/// Compute tight bounded parameter ranges for a face's surface.
+///
+/// Same projection algorithm as [`bounded_parameter_range`] but with
+/// 5 % padding (minimum 0.05) instead of 50 %. Suitable for
+/// tessellation and AABB sampling where a small margin is needed.
+pub fn tight_bounded_parameter_range(
+    vertices: &[Point3],
+    surface: &SurfaceGeometry,
+) -> ((f64, f64), (f64, f64)) {
+    vertex_bounded_parameter_range(vertices, surface, 0.05, 0.05)
+}
+
+/// Compute exact bounded parameter ranges from face vertices with no
+/// padding.
+///
+/// Returns the exact UV bounding box of the given vertex projections.
+/// Suitable for self-intersection validation where any padding would
+/// cause false positives at shared edges.
+pub fn exact_bounded_parameter_range(
+    vertices: &[Point3],
+    surface: &SurfaceGeometry,
+) -> ((f64, f64), (f64, f64)) {
+    vertex_bounded_parameter_range(vertices, surface, 0.0, 0.0)
+}
+
+/// Internal: compute bounded parameter ranges with configurable padding.
+fn vertex_bounded_parameter_range(
+    vertices: &[Point3],
+    surface: &SurfaceGeometry,
+    padding_fraction: f64,
+    padding_minimum: f64,
+) -> ((f64, f64), (f64, f64)) {
+    let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
+
+    if u_min.is_finite() && u_max.is_finite() && v_min.is_finite() && v_max.is_finite() {
+        return ((u_min, u_max), (v_min, v_max));
+    }
+
+    if vertices.is_empty() {
+        return ((u_min, u_max), (v_min, v_max));
+    }
+
+    let mut uv_lo = (f64::INFINITY, f64::INFINITY);
+    let mut uv_hi = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    let mut any_projected = false;
+
+    for pos in vertices {
+        if let Some((u, v)) = project_point_to_uv(surface, pos) {
+            uv_lo.0 = uv_lo.0.min(u);
+            uv_lo.1 = uv_lo.1.min(v);
+            uv_hi.0 = uv_hi.0.max(u);
+            uv_hi.1 = uv_hi.1.max(v);
+            any_projected = true;
+        }
+    }
+
+    if !any_projected {
+        return ((u_min, u_max), (v_min, v_max));
+    }
+
+    let u_pad = ((uv_hi.0 - uv_lo.0) * padding_fraction).max(padding_minimum);
+    let v_pad = ((uv_hi.1 - uv_lo.1) * padding_fraction).max(padding_minimum);
+
     let u_range = if u_min.is_finite() && u_max.is_finite() {
         (u_min, u_max)
     } else {

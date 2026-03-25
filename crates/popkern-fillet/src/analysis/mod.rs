@@ -89,6 +89,13 @@ fn analyze_single_edge(brep: &BRep, edge_handle: EdgeHandle) -> Result<EdgeAnaly
     let face_1 = loop_to_face(brep, he1.loop_)?;
     let face_2 = loop_to_face(brep, he2.loop_)?;
 
+    // Seam edges have the same face on both sides — cannot be filleted.
+    if face_1 == face_2 {
+        return Err(format!(
+            "edge {edge_handle:?} is a seam edge (same face on both sides) and cannot be filleted"
+        ));
+    }
+
     let surface_1 = get_face_surface(brep, face_1)?;
     let surface_2 = get_face_surface(brep, face_2)?;
 

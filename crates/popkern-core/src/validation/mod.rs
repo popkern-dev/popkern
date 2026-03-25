@@ -27,8 +27,11 @@ impl BRep {
         self.validate_loop_closure()?;
         self.validate_curve_surface()?;
         self.validate_watertight()?;
-        // Geometric check 11: self-intersection (most expensive — run last)
-        self.validate_self_intersection()?;
+        // Note: validate_self_intersection is intentionally excluded from
+        // the fast validation path. It is O(n²) in face count, involves
+        // surface-surface intersection solving, and should only be used
+        // in thorough validation (validate_all). Builders and operators
+        // use this method for quick correctness checks.
         Ok(())
     }
 

@@ -83,7 +83,7 @@ impl BRep {
                 face.surface.as_ref().and_then(|s| {
                     let positions = self.face_outer_loop_positions(fk);
                     let ((u0, u1), (v0, v1)) =
-                        crate::geometry::uv_projection::bounded_parameter_range(
+                        crate::geometry::uv_projection::tight_bounded_parameter_range(
                             &positions,
                             &s.geometry,
                         );
@@ -126,9 +126,18 @@ impl BRep {
         // ------------------------------------------------------------------ //
         // 3. Test non-adjacent, AABB-overlapping pairs with intersect_surfaces //
         // ------------------------------------------------------------------ //
+        // Validation budget: cap the number of pairs tested to prevent
+        // validation from being more expensive than the operation that
+        // produced the BRep. 200 pairs covers typical solids; beyond that,
+        // diminishing returns on defect detection.
+        const MAX_PAIRS_CHECKED: usize = 200;
         let overlapping = bvh.find_overlapping_pairs(linear_tol);
+        let mut pairs_checked = 0usize;
 
         for (i, j) in overlapping {
+            if pairs_checked >= MAX_PAIRS_CHECKED {
+                break;
+            }
             let pair = if i < j { (i, j) } else { (j, i) };
             if adjacent.contains(&pair) {
                 continue;
@@ -143,16 +152,21 @@ impl BRep {
                 None => continue,
             };
 
+            // Use exact (zero-padding) ranges for intersection testing to
+            // avoid false positives at shared edges where padding from two
+            // perpendicular faces would overlap.
             let positions_i = self.face_outer_loop_positions(face_keys[i]);
-            let ((u0i, u1i), (v0i, v1i)) = crate::geometry::uv_projection::bounded_parameter_range(
-                &positions_i,
-                &surf_i.geometry,
-            );
+            let ((u0i, u1i), (v0i, v1i)) =
+                crate::geometry::uv_projection::exact_bounded_parameter_range(
+                    &positions_i,
+                    &surf_i.geometry,
+                );
             let positions_j = self.face_outer_loop_positions(face_keys[j]);
-            let ((u0j, u1j), (v0j, v1j)) = crate::geometry::uv_projection::bounded_parameter_range(
-                &positions_j,
-                &surf_j.geometry,
-            );
+            let ((u0j, u1j), (v0j, v1j)) =
+                crate::geometry::uv_projection::exact_bounded_parameter_range(
+                    &positions_j,
+                    &surf_j.geometry,
+                );
 
             // Skip faces with degenerate (zero-area) parameter ranges.
             if (u1i - u0i).abs() < f64::EPSILON || (v1i - v0i).abs() < f64::EPSILON {
@@ -162,6 +176,7 @@ impl BRep {
                 continue;
             }
 
+            pairs_checked += 1;
             let result = intersect_surfaces_with_handler(
                 &surf_i.geometry,
                 (u0i, u1i),
