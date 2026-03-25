@@ -6,6 +6,7 @@
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::{BRep, FaceHandle, LoopHandle};
 
 use crate::error::SweepError;
 use crate::types::SweepProfile;
@@ -36,10 +37,87 @@ pub fn analyze_profile(
     match profile {
         SweepProfile::Wire(curve) => analyze_wire(curve, tolerance),
         SweepProfile::MultiWire(curves) => analyze_multi_wire(curves, tolerance),
-        SweepProfile::Face { .. } => Err(SweepError::InvalidProfile(
-            "face profiles are not yet supported".into(),
-        )),
+        SweepProfile::Face { brep, face } => analyze_face(brep, *face, tolerance),
     }
+}
+
+/// Analyze a face profile by extracting its boundary loops as polyline wires.
+fn analyze_face(
+    brep: &BRep,
+    face: FaceHandle,
+    tolerance: &Tolerance,
+) -> Result<AnalyzedProfile, SweepError> {
+    let face_data = brep
+        .faces
+        .get(face)
+        .ok_or_else(|| SweepError::InvalidProfile("face handle not found in BRep".into()))?;
+
+    let outer_curve = loop_to_polyline(brep, face_data.outer_loop)?;
+
+    if face_data.inner_loops.is_empty() {
+        analyze_wire(&outer_curve, tolerance)
+    } else {
+        let mut curves = vec![outer_curve];
+        for &inner_loop in &face_data.inner_loops {
+            curves.push(loop_to_polyline(brep, inner_loop)?);
+        }
+        analyze_multi_wire(&curves, tolerance)
+    }
+}
+
+/// Walk a loop's half-edges and build a degree-1 polyline NurbsCurve through the vertex positions.
+///
+/// The curve is closed: the last vertex duplicates the first.
+fn loop_to_polyline(brep: &BRep, loop_handle: LoopHandle) -> Result<NurbsCurve, SweepError> {
+    let loop_data = brep
+        .loops
+        .get(loop_handle)
+        .ok_or_else(|| SweepError::InvalidProfile("loop handle not found in BRep".into()))?;
+
+    let start_he = loop_data.half_edge;
+    let mut positions: Vec<Point3> = Vec::new();
+    let mut current_he = start_he;
+
+    loop {
+        let he = brep.half_edges.get(current_he).ok_or_else(|| {
+            SweepError::InvalidProfile("half-edge handle not found in BRep".into())
+        })?;
+        let vertex = brep
+            .vertices
+            .get(he.origin)
+            .ok_or_else(|| SweepError::InvalidProfile("vertex handle not found in BRep".into()))?;
+        positions.push(vertex.position);
+        current_he = he.next;
+        if current_he == start_he {
+            break;
+        }
+    }
+
+    if positions.is_empty() {
+        return Err(SweepError::InvalidProfile("loop has no half-edges".into()));
+    }
+
+    // Close the polyline by repeating the first vertex.
+    positions.push(positions[0]);
+
+    let n = positions.len(); // number of control points
+    // Degree-1 polyline knots: clamped, uniform interior knots.
+    // knot count = n + degree + 1 = n + 2
+    let mut knots = Vec::with_capacity(n + 2);
+    knots.push(0.0);
+    for i in 0..n {
+        knots.push(i as f64 / (n - 1) as f64);
+    }
+    knots.push(1.0);
+
+    let weights = vec![1.0; n];
+
+    Ok(NurbsCurve {
+        degree: 1,
+        knots,
+        control_points: positions,
+        weights,
+    })
 }
 
 /// Analyze a single wire profile.
@@ -373,5 +451,25 @@ mod tests {
             "area should be ~π, got {}",
             area.abs()
         );
+    }
+
+    #[test]
+    fn face_profile_from_cube() {
+        use popkern_core::topology::BRep;
+        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let face = brep.faces.keys().next().unwrap();
+        let profile = SweepProfile::Face {
+            brep: brep.clone(),
+            face,
+        };
+        let result = analyze_profile(&profile, &Tolerance::default());
+        assert!(
+            result.is_ok(),
+            "face profile should analyze: {:?}",
+            result.err()
+        );
+        let analyzed = result.unwrap();
+        assert!(analyzed.is_closed);
+        assert!(!analyzed.spans.is_empty());
     }
 }
