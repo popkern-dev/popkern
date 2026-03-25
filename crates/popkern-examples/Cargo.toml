@@ -1,0 +1,36 @@
+[package]
+name = "popkern-examples"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+popkern-core = { path = "../popkern-core" }
+popkern-bool = { path = "../popkern-bool" }
+popkern-fillet = { path = "../popkern-fillet" }
+popkern-sweep = { path = "../popkern-sweep" }
+popkern-shell = { path = "../popkern-shell" }
+popkern-draft = { path = "../popkern-draft" }
+popkern-io = { path = "../popkern-io" }
+popkern-viz = { path = "../popkern-viz" }
+
+[[bin]]
+name = "boolean_showcase"
+path = "src/boolean_showcase.rs"
+
+[[bin]]
+name = "pipe_fitting"
+path = "src/pipe_fitting.rs"
+
+[[bin]]
+name = "fillet_showcase"
+path = "src/fillet_showcase.rs"
+
+[[bin]]
+name = "shelled_box"
+path = "src/shelled_box.rs"
+
+[[bin]]
+name = "drafted_mold"
+path = "src/drafted_mold.rs"

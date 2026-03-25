@@ -2540,6 +2540,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "popkern-examples"
+version = "0.1.0"
+dependencies = [
+ "popkern-bool",
+ "popkern-core",
+ "popkern-draft",
+ "popkern-fillet",
+ "popkern-io",
+ "popkern-shell",
+ "popkern-sweep",
+ "popkern-viz",
+]
+
+[[package]]
 name = "popkern-fillet"
 version = "0.1.0"
 dependencies = [

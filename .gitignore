@@ -22,3 +22,6 @@ target
 
 # Git worktrees
 .worktrees/
+
+# Generated example output (STEP files, PNG renders)
+examples/output/
