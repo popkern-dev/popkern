@@ -4,6 +4,7 @@
 //! inspecting BRep topology, geometry, and boolean operation results.
 
 // Always available
+pub mod backend;
 pub mod camera;
 pub mod colors;
 pub mod commands;
