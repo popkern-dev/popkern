@@ -4,7 +4,10 @@ use crate::error::CoreError;
 use crate::geometry::Point3;
 use crate::geometry::curve_on_surface::CurveOnSurface;
 use crate::geometry::fitting::fit_curve;
-use crate::geometry::intersection::coincident::detect_coincident_regions;
+use crate::geometry::intersection::coincident::{
+    closest_point_distance_pub, detect_coincident_regions,
+};
+use crate::geometry::intersection::coincident_analytic::are_surfaces_coincident_analytic;
 use crate::geometry::intersection::degeneracy::{DegeneracyHandler, RobustDegeneracyHandler};
 use crate::geometry::intersection::marching::{MarchSample, march};
 use crate::geometry::intersection::plane_cone;
@@ -12,7 +15,7 @@ use crate::geometry::intersection::plane_cylinder;
 use crate::geometry::intersection::plane_plane::try_plane_plane;
 use crate::geometry::intersection::plane_sphere;
 use crate::geometry::intersection::starting_points::{find_branch_points, find_starting_points};
-use crate::geometry::surface::SurfaceGeometry;
+use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
 use serde::{Deserialize, Serialize};
 
@@ -119,6 +122,13 @@ pub fn intersect_surfaces_with_handler(
         return Ok(SurfaceSurfaceIntersectionResult { intersections });
     }
 
+    // Fast path: coincident surfaces → return CoincidentRegion immediately.
+    if let Some(result) = try_coincident_fast(
+        surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
+    ) {
+        return Ok(result);
+    }
+
     let mut results = Vec::new();
 
     // 1. Find starting points
@@ -207,6 +217,64 @@ pub fn intersect_surfaces_with_handler(
     })
 }
 
+/// Attempt to detect coincident surfaces before the expensive marching solver.
+///
+/// **Tier A** — analytic O(1) comparison for same-type analytic pairs.
+/// **Tier B** — sample-based: 4-corner quick rejection followed by the
+/// existing 8×8 grid check for NURBS / mixed-type pairs.
+#[allow(clippy::too_many_arguments)]
+fn try_coincident_fast(
+    surface1: &SurfaceGeometry,
+    u1_range: (f64, f64),
+    v1_range: (f64, f64),
+    surface2: &SurfaceGeometry,
+    u2_range: (f64, f64),
+    v2_range: (f64, f64),
+    tolerance: &Tolerance,
+) -> Option<SurfaceSurfaceIntersectionResult> {
+    // Tier A: analytic comparison for same-type analytic surfaces.
+    if are_surfaces_coincident_analytic(surface1, surface2, tolerance) {
+        return Some(SurfaceSurfaceIntersectionResult {
+            intersections: vec![SurfaceSurfaceIntersection::CoincidentRegion {
+                u1_range,
+                v1_range,
+                u2_range,
+                v2_range,
+            }],
+        });
+    }
+
+    // Tier B: sample-based detection for NURBS / mixed types.
+    // Quick rejection: sample the 4 corners of surface1's parameter domain and
+    // project each onto surface2. If any corner is far away, bail out early.
+    let corners = [
+        (u1_range.0, v1_range.0),
+        (u1_range.0, v1_range.1),
+        (u1_range.1, v1_range.0),
+        (u1_range.1, v1_range.1),
+    ];
+    let rejection_threshold = tolerance.linear * 10.0;
+    for (u, v) in &corners {
+        let p = surface1.point_at(*u, *v);
+        let dist = closest_point_distance_pub(p, surface2, u2_range, v2_range);
+        if dist > rejection_threshold {
+            return None;
+        }
+    }
+
+    // All corners are close — run the full 8×8 grid check.
+    let regions = detect_coincident_regions(
+        surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
+    );
+    if regions.is_empty() {
+        None
+    } else {
+        Some(SurfaceSurfaceIntersectionResult {
+            intersections: regions,
+        })
+    }
+}
+
 /// Fit NURBS curves (3D + UV1 + UV2) to a sequence of march samples.
 fn fit_march_samples(
     samples: &[MarchSample],
@@ -265,130 +333,5 @@ fn fit_march_samples(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::geometry::{Point3, Vec3};
-    use std::f64::consts::{PI, TAU};
-
-    /// A coarser tolerance so marching takes fewer, larger steps in tests.
-    fn test_tolerance() -> Tolerance {
-        Tolerance {
-            linear: 1e-3,
-            angular: 1e-3,
-            parametric: 1e-6,
-        }
-    }
-
-    #[test]
-    fn two_perpendicular_planes_one_curve() {
-        let s1 = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        let s2 = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(1.0, 0.0, 0.0),
-            u_axis: Vec3::new(0.0, 1.0, 0.0),
-            v_axis: Vec3::new(0.0, 0.0, 1.0),
-        };
-        let result = intersect_surfaces(
-            &s1,
-            (-1.0, 1.0),
-            (-1.0, 1.0),
-            &s2,
-            (-1.0, 1.0),
-            (-1.0, 1.0),
-            &test_tolerance(),
-        )
-        .unwrap();
-        assert!(!result.intersections.is_empty(), "Should find intersection");
-        assert!(matches!(
-            &result.intersections[0],
-            SurfaceSurfaceIntersection::Curve(_)
-        ));
-    }
-
-    #[test]
-    fn coincident_planes_region() {
-        let s = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        let result = intersect_surfaces(
-            &s,
-            (0.0, 1.0),
-            (0.0, 1.0),
-            &s,
-            (0.0, 1.0),
-            (0.0, 1.0),
-            &test_tolerance(),
-        )
-        .unwrap();
-        assert!(
-            result
-                .intersections
-                .iter()
-                .any(|i| matches!(i, SurfaceSurfaceIntersection::CoincidentRegion { .. }))
-        );
-    }
-
-    #[test]
-    fn non_intersecting_empty() {
-        let s1 = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        let s2 = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 10.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        let result = intersect_surfaces(
-            &s1,
-            (0.0, 1.0),
-            (0.0, 1.0),
-            &s2,
-            (0.0, 1.0),
-            (0.0, 1.0),
-            &test_tolerance(),
-        )
-        .unwrap();
-        assert!(result.intersections.is_empty());
-    }
-
-    #[test]
-    fn plane_and_sphere() {
-        let plane = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        let sphere = SurfaceGeometry::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 1.0,
-        };
-        let result = intersect_surfaces(
-            &plane,
-            (-2.0, 2.0),
-            (-2.0, 2.0),
-            &sphere,
-            (0.0, TAU),
-            (0.0, PI),
-            &test_tolerance(),
-        )
-        .unwrap();
-        // Should find an intersection curve (circle of radius 1 in XY plane)
-        assert!(
-            !result.intersections.is_empty(),
-            "Should find plane-sphere intersection"
-        );
-    }
-}
+#[path = "surface_surface_tests.rs"]
+mod tests;

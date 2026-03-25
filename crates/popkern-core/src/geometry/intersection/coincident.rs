@@ -55,6 +55,17 @@ pub(crate) fn detect_coincident_regions(
     }
 }
 
+/// Closest-point distance from a point to a surface, used by the
+/// coincident fast-path for quick rejection sampling.
+pub(crate) fn closest_point_distance_pub(
+    p1: Point3,
+    surface2: &SurfaceGeometry,
+    u2_range: (f64, f64),
+    v2_range: (f64, f64),
+) -> f64 {
+    closest_point_distance(p1, surface2, u2_range, v2_range)
+}
+
 /// Find the minimum distance from `p1` to `surface2` by projecting `p1` onto
 /// `surface2` via Gauss-Newton iteration, starting from the centre of the
 /// parameter domain. Returns the distance at the best found projection.
