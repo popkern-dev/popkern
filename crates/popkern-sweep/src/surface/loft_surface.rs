@@ -9,7 +9,8 @@ use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3};
 use popkern_core::tolerance::Tolerance;
 
 use crate::error::SweepError;
-use crate::types::{Continuity, LoftOptions, LoftSection};
+use crate::surface::loft_continuity::{ContinuityEnd, apply_continuity};
+use crate::types::{LoftOptions, LoftSection};
 
 /// Number of uniform samples for resampling incompatible sections.
 const RESAMPLE_COUNT: usize = 32;
@@ -56,11 +57,15 @@ pub fn generate_loft_surface(
     let v_params = compute_v_params(&compatible, options);
 
     // Step 3: Column interpolation to build the surface.
-    let surface = interpolate_columns(&compatible, &v_params)?;
+    let mut surface = interpolate_columns(&compatible, &v_params)?;
 
-    // Warn about unsupported continuity (G1/G2 deferred).
-    warn_continuity(&options.start_continuity, "start");
-    warn_continuity(&options.end_continuity, "end");
+    // Step 4: Apply G1/G2 continuity constraints.
+    apply_continuity(
+        &mut surface,
+        &options.start_continuity,
+        ContinuityEnd::Start,
+    )?;
+    apply_continuity(&mut surface, &options.end_continuity, ContinuityEnd::End)?;
 
     let start_cap = compatible[0].clone();
     let end_cap = compatible[compatible.len() - 1].clone();
@@ -70,17 +75,6 @@ pub fn generate_loft_surface(
         start_cap,
         end_cap,
     })
-}
-
-/// Log a warning for non-free continuity constraints (deferred feature).
-fn warn_continuity(continuity: &Continuity, _end_name: &str) {
-    match continuity {
-        Continuity::Free => {}
-        Continuity::G1 { .. } | Continuity::G2 { .. } => {
-            // G1/G2 continuity constraints are not yet implemented.
-            // The surface is generated with free (natural) ends.
-        }
-    }
 }
 
 /// Make all sections compatible by ensuring they have the same number of

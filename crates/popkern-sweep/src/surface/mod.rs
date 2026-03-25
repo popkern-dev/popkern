@@ -3,6 +3,7 @@
 //! Transforms a profile along a frame sequence to build skinned NURBS surfaces.
 
 pub mod guided;
+pub mod loft_continuity;
 pub mod loft_surface;
 pub mod sweep_surface;
 pub mod swept_blend;
