@@ -7,18 +7,16 @@
 
 use std::path::Path;
 
-use crate::error::VizError;
-
-#[cfg(feature = "gpu")]
 use crate::camera::Camera;
+use crate::error::VizError;
+use popkern_core::topology::BRep;
+
 #[cfg(feature = "gpu")]
 use crate::mesh_data::build_mesh_vertices;
 #[cfg(feature = "gpu")]
 use crate::renderer::Renderer;
 #[cfg(feature = "gpu")]
 use crate::wireframe;
-#[cfg(feature = "gpu")]
-use popkern_core::topology::BRep;
 #[cfg(feature = "gpu")]
 use wgpu::util::DeviceExt;
 
@@ -230,6 +228,44 @@ pub fn render_to_png_gpu(
     write_png(output_path, width, height, &pixels)?;
 
     Ok(())
+}
+
+/// Render a BRep to PNG using the CPU software rasterizer.
+///
+/// Works on any machine — no GPU required.
+pub fn render_to_png_software(
+    brep: &BRep,
+    camera: &Camera,
+    width: u32,
+    height: u32,
+    output_path: &Path,
+    show_wireframe: bool,
+) -> Result<(), VizError> {
+    let mesh = popkern_mesh::tessellate(brep, &popkern_mesh::TessellationOptions::default())
+        .map_err(|e| VizError::SoftwareRender(format!("tessellation failed: {e}")))?;
+    let pixels = crate::cpu_render::render(brep, &mesh, camera, width, height, show_wireframe);
+    write_png(output_path, width, height, &pixels)
+}
+
+/// Render a BRep to PNG, using GPU if available, software otherwise.
+pub fn render_to_png(
+    brep: &BRep,
+    camera: &Camera,
+    width: u32,
+    height: u32,
+    output_path: &Path,
+    show_wireframe: bool,
+) -> Result<(), VizError> {
+    #[cfg(feature = "gpu")]
+    {
+        match render_to_png_gpu(brep, camera, width, height, output_path, show_wireframe) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                log::warn!("GPU render failed ({e}), falling back to software renderer");
+            }
+        }
+    }
+    render_to_png_software(brep, camera, width, height, output_path, show_wireframe)
 }
 
 /// Create a headless wgpu device and queue (no window surface).
