@@ -324,12 +324,14 @@ fn draft_angle_matches_request() {
 
         if let (Some(on), Some(dn)) = (orig_normal.normalized(), draft_normal.normalized()) {
             let actual_angle = on.angle_to(&dn);
-            // Allow generous tolerance since Auto neutral placement varies.
+            // Tight tolerance: Rodrigues rotation on planar faces should
+            // reproduce the requested angle within ~0.01 rad (~0.57°).
             assert!(
-                (actual_angle - requested_angle).abs() < 0.1,
-                "Expected angle ~{:.4} rad, got {:.4} rad",
+                (actual_angle - requested_angle).abs() < 0.01,
+                "Expected angle ~{:.4} rad, got {:.4} rad (delta {:.6})",
                 requested_angle,
-                actual_angle
+                actual_angle,
+                (actual_angle - requested_angle).abs()
             );
         }
     }
