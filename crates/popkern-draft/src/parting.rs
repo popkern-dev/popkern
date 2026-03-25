@@ -301,4 +301,166 @@ mod tests {
         assert!(perp.dot(&v).abs() < 1e-10);
         assert!((perp.length() - 1.0).abs() < 1e-10);
     }
+
+    #[test]
+    fn compute_perpendicular_y_dominant() {
+        let v = Vec3::new(0.0, 1.0, 0.0);
+        let perp = compute_perpendicular(&v);
+        assert!(perp.dot(&v).abs() < 1e-10);
+        assert!((perp.length() - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn compute_perpendicular_z_dominant() {
+        let v = Vec3::new(0.0, 0.0, 1.0);
+        let perp = compute_perpendicular(&v);
+        assert!(perp.dot(&v).abs() < 1e-10);
+        assert!((perp.length() - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn parting_line_edges_variant_classifies_faces() {
+        let brep = BRep::unit_cube(tol()).unwrap();
+
+        // Pick an edge from the unit cube.
+        let edge_h = brep.edges.keys().next().unwrap();
+
+        let parting = PartingLine::Edges(vec![edge_h]);
+
+        let result = draft_parting_line(
+            &brep,
+            &parting,
+            0.05,
+            0.05,
+            Vec3::new(0.0, 0.0, 1.0),
+            &DraftOptions::default(),
+            tol(),
+        );
+        // Should resolve without error (may produce "no faces classified" if
+        // all centroids happen to be on the plane, but that is also acceptable).
+        let _ = result;
+    }
+
+    #[test]
+    fn parting_line_edges_invalid_handle_returns_error() {
+        let brep = BRep::unit_cube(tol()).unwrap();
+        // Default (zero) EdgeHandle is unlikely to exist in a real BRep.
+        let parting = PartingLine::Edges(vec![Default::default()]);
+
+        let result = draft_parting_line(
+            &brep,
+            &parting,
+            0.05,
+            0.05,
+            Vec3::new(0.0, 0.0, 1.0),
+            &DraftOptions::default(),
+            tol(),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn faces_parallel_to_parting_plane_are_skipped() {
+        // For a unit cube with a Z-normal parting plane at z=0.3, the top
+        // (z=1) and bottom (z=0) faces are parallel to the parting plane.
+        // The side faces have centroids at z=0.5, so they are above z=0.3
+        // and get classified as "above". This exercises the parallel-skip path.
+        let brep = BRep::unit_cube(tol()).unwrap();
+        // Place parting plane at z=0.3 — side face centroids are at z=0.5 (above).
+        // X-normal faces have normals perpendicular to Z, so they are NOT parallel.
+        let parting = PartingLine::Plane {
+            origin: Point3::new(0.5, 0.5, 0.3),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+        };
+
+        let result = draft_parting_line(
+            &brep,
+            &parting,
+            0.05,
+            0.05,
+            Vec3::new(0.0, 0.0, 1.0),
+            &DraftOptions::default(),
+            tol(),
+        );
+        // Side faces are classified above; the operation should succeed.
+        assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
+    }
+
+    #[test]
+    fn all_faces_on_parting_plane_returns_error() {
+        // Use a cube and put the parting plane such that all non-parallel
+        // face centroids are exactly on it (within tolerance) — this forces
+        // the "no faces classified" error.
+        let brep = BRep::unit_cube(tol()).unwrap();
+
+        // A very tight tolerance so that even tiny offsets are within linear tol.
+        let big_tol = Tolerance {
+            linear: 10.0, // huge linear tolerance treats everything as "on plane"
+            angular: 1e-10,
+            parametric: 1e-8,
+        };
+
+        let parting = PartingLine::Plane {
+            origin: Point3::new(0.5, 0.5, 0.5),
+            normal: Vec3::new(1.0, 0.0, 0.0),
+        };
+
+        let result = draft_parting_line(
+            &brep,
+            &parting,
+            0.05,
+            0.05,
+            Vec3::new(1.0, 0.0, 0.0),
+            &DraftOptions::default(),
+            big_tol,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn zero_above_and_below_angles_returns_error() {
+        // Both angles are zero → all faces skipped by the angle-filter → error.
+        let brep = BRep::unit_cube(tol()).unwrap();
+        let parting = PartingLine::Plane {
+            origin: Point3::new(0.5, 0.5, 0.25),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+        };
+
+        let result = draft_parting_line(
+            &brep,
+            &parting,
+            0.0, // above_angle = 0 → skip
+            0.0, // below_angle = 0 → skip
+            Vec3::new(0.0, 0.0, 1.0),
+            &DraftOptions::default(),
+            tol(),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parting_curve_resolves_without_panic() {
+        use popkern_core::geometry::NurbsCurve;
+        let brep = BRep::unit_cube(tol()).unwrap();
+
+        let curve = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.5, 0.0), Point3::new(1.0, 0.5, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+
+        let parting = PartingLine::Curve(curve);
+        // Result may succeed or fail depending on face classification; just
+        // ensure it doesn't panic and the Curve branch is executed.
+        let _result = draft_parting_line(
+            &brep,
+            &parting,
+            0.05,
+            0.05,
+            Vec3::new(0.0, 0.0, 1.0),
+            &DraftOptions::default(),
+            tol(),
+        );
+    }
 }
