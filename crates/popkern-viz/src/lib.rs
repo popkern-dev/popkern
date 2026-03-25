@@ -8,6 +8,7 @@ pub mod backend;
 pub mod camera;
 pub mod colors;
 pub mod commands;
+pub mod cpu_render;
 pub mod error;
 pub mod headless;
 pub mod loader;
