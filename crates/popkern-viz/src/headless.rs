@@ -10,9 +10,9 @@ use std::path::Path;
 use popkern_core::topology::BRep;
 
 use crate::camera::Camera;
-use crate::colors::surface_color;
 use crate::error::VizError;
-use crate::renderer::{MeshVertex, Renderer};
+use crate::mesh_data::build_mesh_vertices;
+use crate::renderer::Renderer;
 use crate::wireframe;
 
 /// The texture format used for headless rendering.
@@ -245,45 +245,6 @@ fn create_headless_device() -> Result<(wgpu::Device, wgpu::Queue), VizError> {
     Ok((device, queue))
 }
 
-/// Default face color used when a face has no surface geometry.
-const DEFAULT_COLOR: [f32; 4] = [0.6, 0.6, 0.6, 1.0];
-
-/// Build GPU vertex and index data from a BRep and its tessellation.
-fn build_mesh_vertices(brep: &BRep, mesh: &popkern_mesh::TriMesh) -> (Vec<MeshVertex>, Vec<u32>) {
-    let face_color = |face_idx: usize| -> [f32; 4] {
-        let face_handle = mesh.face_map.get(face_idx).copied();
-        let color = face_handle.and_then(|fh| {
-            let face = brep.faces.get(fh)?;
-            let surf = face.surface.as_ref()?;
-            Some(surface_color(&surf.geometry))
-        });
-        color.unwrap_or(DEFAULT_COLOR)
-    };
-
-    let mut vertices: Vec<MeshVertex> = Vec::with_capacity(mesh.triangles.len() * 3);
-    let mut indices: Vec<u32> = Vec::with_capacity(mesh.triangles.len() * 3);
-
-    for (tri_idx, tri) in mesh.triangles.iter().enumerate() {
-        let color = face_color(tri_idx);
-        for &vi in tri {
-            let mv = &mesh.vertices[vi];
-            let idx = vertices.len() as u32;
-            vertices.push(MeshVertex {
-                position: [
-                    mv.position.x as f32,
-                    mv.position.y as f32,
-                    mv.position.z as f32,
-                ],
-                normal: [mv.normal.x as f32, mv.normal.y as f32, mv.normal.z as f32],
-                color,
-            });
-            indices.push(idx);
-        }
-    }
-
-    (vertices, indices)
-}
-
 /// Encode RGBA pixels as a PNG and write to disk.
 fn write_png(path: &Path, width: u32, height: u32, pixels: &[u8]) -> Result<(), VizError> {
     let img = image::RgbaImage::from_raw(width, height, pixels.to_vec())
@@ -353,12 +314,6 @@ mod tests {
         let pixels: Vec<u8> = vec![255, 0, 0, 255];
         let result = write_png(&path, 10, 10, &pixels);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn default_color_is_opaque_gray() {
-        assert!((DEFAULT_COLOR[0] - 0.6).abs() < f32::EPSILON);
-        assert!((DEFAULT_COLOR[3] - 1.0).abs() < f32::EPSILON);
     }
 
     #[test]

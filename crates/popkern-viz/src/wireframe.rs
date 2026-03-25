@@ -7,6 +7,7 @@
 use popkern_core::topology::BRep;
 use wgpu::util::DeviceExt;
 
+use crate::mesh_data::extract_edge_pairs;
 use crate::renderer::DEPTH_FORMAT;
 
 // ---------------------------------------------------------------------------
@@ -64,52 +65,21 @@ impl GpuWireframe {
     ///
     /// Returns `None` if the BRep has no edges.
     pub fn from_brep(device: &wgpu::Device, brep: &BRep) -> Option<Self> {
-        if brep.edges.is_empty() {
+        let pairs = extract_edge_pairs(brep);
+        if pairs.is_empty() {
             return None;
         }
 
-        let mut vertices: Vec<LineVertex> = Vec::with_capacity(brep.edges.len() * 2);
-
-        for (_edge_handle, edge) in &brep.edges {
-            let he_a_handle = edge.half_edge;
-            let Some(he_a) = brep.half_edges.get(he_a_handle) else {
-                continue;
-            };
-            let he_b_handle = he_a.twin;
-            let Some(he_b) = brep.half_edges.get(he_b_handle) else {
-                continue;
-            };
-
-            let Some(va) = brep.vertices.get(he_a.origin) else {
-                continue;
-            };
-            let Some(vb) = brep.vertices.get(he_b.origin) else {
-                continue;
-            };
-
-            let pa = [
-                va.position.x as f32,
-                va.position.y as f32,
-                va.position.z as f32,
-            ];
-            let pb = [
-                vb.position.x as f32,
-                vb.position.y as f32,
-                vb.position.z as f32,
-            ];
-
+        let mut vertices: Vec<LineVertex> = Vec::with_capacity(pairs.len() * 2);
+        for (pa, pb) in &pairs {
             vertices.push(LineVertex {
-                position: pa,
+                position: *pa,
                 color: EDGE_COLOR,
             });
             vertices.push(LineVertex {
-                position: pb,
+                position: *pb,
                 color: EDGE_COLOR,
             });
-        }
-
-        if vertices.is_empty() {
-            return None;
         }
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

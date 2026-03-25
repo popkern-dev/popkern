@@ -8,37 +8,24 @@ use wgpu::util::DeviceExt;
 
 use crate::camera::Camera;
 
-// ---------------------------------------------------------------------------
-// Vertex format
-// ---------------------------------------------------------------------------
+// Re-export MeshVertex from the shared mesh_data module so that existing
+// `crate::renderer::MeshVertex` paths continue to work.
+pub use crate::mesh_data::MeshVertex;
 
-/// Per-vertex data sent to the mesh shader.
+/// Vertex buffer layout descriptor for [`MeshVertex`] in the mesh pipeline.
 ///
-/// Layout: position (vec3), normal (vec3), color (vec4) = 40 bytes.
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct MeshVertex {
-    /// World-space position.
-    pub position: [f32; 3],
-    /// World-space normal (should be unit-length).
-    pub normal: [f32; 3],
-    /// RGBA color.
-    pub color: [f32; 4],
-}
-
-impl MeshVertex {
-    /// Vertex buffer layout descriptor for the mesh pipeline.
-    pub fn buffer_layout() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRS: &[wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
-            0 => Float32x3, // position
-            1 => Float32x3, // normal
-            2 => Float32x4, // color
-        ];
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<MeshVertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: ATTRS,
-        }
+/// This is a standalone function (rather than an inherent method) because
+/// it depends on wgpu types while [`MeshVertex`] itself is wgpu-free.
+pub fn mesh_vertex_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
+    const ATTRS: &[wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
+        0 => Float32x3, // position
+        1 => Float32x3, // normal
+        2 => Float32x4, // color
+    ];
+    wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<MeshVertex>() as wgpu::BufferAddress,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: ATTRS,
     }
 }
 
@@ -204,7 +191,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[MeshVertex::buffer_layout()],
+                buffers: &[mesh_vertex_buffer_layout()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -358,7 +345,7 @@ mod tests {
 
     #[test]
     fn vertex_buffer_layout_has_three_attributes() {
-        let layout = MeshVertex::buffer_layout();
+        let layout = mesh_vertex_buffer_layout();
         assert_eq!(layout.attributes.len(), 3);
         assert_eq!(layout.array_stride, 40);
     }
