@@ -8,6 +8,10 @@ use crate::geometry::intersection::surface_subdivision::{
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
 
+/// Maximum candidate patch pairs during AABB subdivision. Prevents
+/// memory explosion for coincident or near-coincident surfaces.
+const MAX_CANDIDATE_PAIRS: usize = 50_000;
+
 /// A classified starting point for surface-surface intersection marching.
 #[allow(dead_code)]
 pub(crate) struct StartingPoint {
@@ -58,6 +62,10 @@ pub(crate) fn find_starting_points(
     let mut queue = initial_pairs;
 
     while let Some((patch1, patch2, depth)) = queue.pop() {
+        // Defense-in-depth: cap total candidates to prevent OOM.
+        if candidate_pairs.len() >= MAX_CANDIDATE_PAIRS {
+            break;
+        }
         let diag = patch1.bbox.diagonal().max(patch2.bbox.diagonal());
         if depth < 6 && diag > 100.0 * tolerance.linear {
             // Refine both patches and re-cull sub-pairs.
@@ -470,6 +478,44 @@ mod tests {
         assert!(
             branches.is_empty(),
             "Disjoint surfaces should yield no branch candidates"
+        );
+    }
+
+    #[test]
+    fn queue_cap_prevents_oom_on_large_overlapping_surfaces() {
+        use crate::geometry::nurbs_surface::NurbsSurface;
+        // Two identical NURBS surfaces. Without the coincident fast path
+        // (which only fires for analytic types), subdivision would explode.
+        // The cap ensures termination.
+        let nurbs = SurfaceGeometry::Nurbs(NurbsSurface {
+            degree_u: 1,
+            degree_v: 1,
+            knots_u: vec![0.0, 0.0, 1.0, 1.0],
+            knots_v: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+            ],
+            num_u: 2,
+            num_v: 2,
+            weights: vec![1.0; 4],
+        });
+        let tol = Tolerance::default();
+        let result = find_starting_points(
+            &nurbs,
+            (0.0, 1.0),
+            (0.0, 1.0),
+            &nurbs,
+            (0.0, 1.0),
+            (0.0, 1.0),
+            &tol,
+        );
+        // Key assertion: it terminates and doesn't produce more than the cap.
+        assert!(
+            result.len() <= 50_000,
+            "starting points should be bounded by queue cap"
         );
     }
 }
