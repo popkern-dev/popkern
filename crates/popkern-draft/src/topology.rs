@@ -10,9 +10,10 @@ use crate::adjacent;
 use crate::error::{DraftError, DraftWarning};
 use crate::recompute;
 use crate::types::DraftOptions;
+use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, FaceHandle};
+use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 /// Apply draft modifications to a BRep clone.
 ///
@@ -49,22 +50,142 @@ pub fn apply_draft_topology(
         }
     }
 
+    // Capture original vertex positions before recomputation so that
+    // transition face insertion can compare old vs new positions.
+    let original_positions: HashMap<VertexHandle, Point3> = result
+        .vertices
+        .iter()
+        .map(|(vh, v)| (vh, v.position))
+        .collect();
+
     // Step 2: Recompute vertex positions.
     recompute::recompute_draft_vertices(&mut result, drafted_surfaces, tolerance)?;
 
     // Step 3: Recompute edge curves.
     recompute::recompute_draft_edges(&mut result, drafted_surfaces, tolerance)?;
 
-    // Step 4: Handle adjacent faces.
+    // Step 4: Vertex consistency — when a vertex is shared by multiple
+    // drafted faces, each face may produce a slightly different position.
+    // Snap vertices that are very close to each other to reduce geometric gaps.
+    snap_shared_vertices(&mut result, drafted_surfaces, tolerance);
+
+    // Step 5: Handle adjacent faces (transition face insertion if needed).
     let adj_warnings = adjacent::handle_adjacent_faces(
         &mut result,
         drafted_surfaces,
+        &original_positions,
         options.adjacent_mode,
         tolerance,
     )?;
     warnings.extend(adj_warnings);
 
     Ok((result, warnings))
+}
+
+/// Snap vertices shared by multiple drafted faces to reduce geometric gaps.
+///
+/// After vertex recomputation, vertices adjacent to 2+ drafted faces may
+/// have been solved independently and ended up at slightly different
+/// positions depending on which 3-plane combination was used. This function
+/// re-solves each such vertex as the average of projections onto all
+/// adjacent surfaces, ensuring consistency.
+fn snap_shared_vertices(
+    brep: &mut BRep,
+    drafted: &HashMap<FaceHandle, SurfaceGeometry>,
+    tolerance: &Tolerance,
+) {
+    use popkern_core::geometry::Vec3;
+
+    let vertex_handles: Vec<VertexHandle> = brep.vertices.keys().collect();
+
+    for vh in vertex_handles {
+        // Find how many drafted faces touch this vertex.
+        let adjacent_faces = collect_vertex_faces(brep, vh);
+        let drafted_count = adjacent_faces
+            .iter()
+            .filter(|fh| drafted.contains_key(fh))
+            .count();
+
+        if drafted_count < 2 {
+            continue;
+        }
+
+        // Re-project: average the nearest-surface projections.
+        let pos = brep.vertices[vh].position;
+        let mut projected_sum = Vec3::zero();
+        let mut count = 0;
+
+        for fh in &adjacent_faces {
+            let surf = if let Some(s) = drafted.get(fh) {
+                s.clone()
+            } else if let Some(face) = brep.faces.get(*fh) {
+                if let Some(ref sof) = face.surface {
+                    sof.geometry.clone()
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            };
+
+            if let SurfaceGeometry::Plane { origin, normal, .. } = &surf {
+                let d = (pos - *origin).dot(normal);
+                let projected = pos - *normal * d;
+                projected_sum = projected_sum + (projected - Point3::new(0.0, 0.0, 0.0));
+                count += 1;
+            }
+        }
+
+        if count >= 2 {
+            let avg = Point3::new(
+                projected_sum.x / count as f64,
+                projected_sum.y / count as f64,
+                projected_sum.z / count as f64,
+            );
+            let delta = pos.distance_to(&avg);
+            if delta < tolerance.linear * 100.0 && delta > tolerance.linear * 0.01 {
+                brep.vertices[vh].position = avg;
+            }
+        }
+    }
+}
+
+/// Collect all faces adjacent to a vertex by walking the half-edge fan.
+fn collect_vertex_faces(brep: &BRep, vertex: VertexHandle) -> Vec<FaceHandle> {
+    let mut faces = Vec::new();
+    let start_he = brep.vertices[vertex].outgoing;
+
+    if !brep.half_edges.contains_key(start_he) {
+        return faces;
+    }
+
+    let mut current = start_he;
+    let mut visited = std::collections::HashSet::new();
+    loop {
+        if !visited.insert(current) {
+            break;
+        }
+        let he = &brep.half_edges[current];
+        let loop_h = he.loop_;
+        if brep.loops.contains_key(loop_h) {
+            let face_h = brep.loops[loop_h].face;
+            if !faces.contains(&face_h) {
+                faces.push(face_h);
+            }
+        }
+
+        let twin = he.twin;
+        if !brep.half_edges.contains_key(twin) {
+            break;
+        }
+        let next_outgoing = brep.half_edges[twin].next;
+        if next_outgoing == start_he || !brep.half_edges.contains_key(next_outgoing) {
+            break;
+        }
+        current = next_outgoing;
+    }
+
+    faces
 }
 
 #[cfg(test)]

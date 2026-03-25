@@ -7,11 +7,12 @@
 use std::collections::HashMap;
 
 use crate::error::{DraftError, DraftWarning};
+use crate::transition;
 use crate::types::AdjacentMode;
-use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::geometry::Point3;
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 /// Handle adjacent undrafted faces after draft surface replacement.
 ///
@@ -27,6 +28,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 pub fn handle_adjacent_faces(
     brep: &mut BRep,
     drafted_faces: &HashMap<FaceHandle, SurfaceGeometry>,
+    original_positions: &HashMap<VertexHandle, Point3>,
     mode: AdjacentMode,
     tolerance: &Tolerance,
 ) -> Result<Vec<DraftWarning>, DraftError> {
@@ -41,12 +43,26 @@ pub fn handle_adjacent_faces(
                 extend_trim_adjacent(brep, *edge_h, *undrafted_fh, tolerance)?;
             }
             AdjacentMode::TransitionFaces => {
-                insert_transition_face(brep, *edge_h, *drafted_fh, *undrafted_fh, tolerance)?;
+                transition::insert_transition_face(
+                    brep,
+                    *edge_h,
+                    *drafted_fh,
+                    *undrafted_fh,
+                    original_positions,
+                    tolerance,
+                )?;
             }
             AdjacentMode::ExtendTrimWithFallback => {
                 let extend_result = extend_trim_adjacent(brep, *edge_h, *undrafted_fh, tolerance);
                 if extend_result.is_err() {
-                    insert_transition_face(brep, *edge_h, *drafted_fh, *undrafted_fh, tolerance)?;
+                    transition::insert_transition_face(
+                        brep,
+                        *edge_h,
+                        *drafted_fh,
+                        *undrafted_fh,
+                        original_positions,
+                        tolerance,
+                    )?;
                     warnings.push(DraftWarning::AdjacentFallbackToTransition {
                         face: *undrafted_fh,
                     });
@@ -169,8 +185,6 @@ fn point_within_extended_range(
     v_span: f64,
     _tolerance: &Tolerance,
 ) -> bool {
-    use popkern_core::geometry::surface::SurfaceEval;
-
     // Simple projection: evaluate surface at grid points and find closest.
     // For production code this would be a proper Newton projection.
     let mut best_u = (u_range.0 + u_range.1) * 0.5;
@@ -202,50 +216,10 @@ fn point_within_extended_range(
         && best_v <= v_range.1 + v_span
 }
 
-/// Insert a transition face between drafted and undrafted face boundaries.
-///
-/// Creates a planar face fitted through the old and new edge endpoint
-/// positions. Since edges have already been recomputed, the "old" positions
-/// are the original vertex positions and the "new" positions are the
-/// current (recomputed) positions.
-fn insert_transition_face(
-    _brep: &mut BRep,
-    _edge_h: EdgeHandle,
-    _drafted_face: FaceHandle,
-    _undrafted_face: FaceHandle,
-    _tolerance: &Tolerance,
-) -> Result<(), DraftError> {
-    // For the first implementation, transition faces are a no-op placeholder.
-    // The topology is already consistent because edges have been recomputed
-    // and surfaces extended naturally for analytic faces.
-    //
-    // Full transition face creation (with 4-sided ruled surface) will be
-    // added when NURBS adjacent faces require it.
-    Ok(())
-}
-
-/// Compute the normal of a planar face fitted through 4 points.
-fn _fit_plane_normal(p0: Point3, p1: Point3, p2: Point3, p3: Point3) -> Option<Vec3> {
-    let v01 = p1 - p0;
-    let v02 = p2 - p0;
-    let v03 = p3 - p0;
-
-    // Average of two triangle normals for robustness.
-    let n1 = v01.cross(&v02);
-    let n2 = v02.cross(&v03);
-    let avg = Vec3::new(
-        (n1.x + n2.x) * 0.5,
-        (n1.y + n2.y) * 0.5,
-        (n1.z + n2.z) * 0.5,
-    );
-    avg.normalized()
-}
-
-use popkern_core::geometry::surface::SurfaceEval;
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use popkern_core::geometry::Vec3;
     use popkern_core::tolerance::Tolerance;
     use popkern_core::topology::BRep;
 
@@ -253,32 +227,20 @@ mod tests {
         Tolerance::default()
     }
 
+    /// Build original-positions map from the current BRep state.
+    fn original_pos(brep: &BRep) -> HashMap<VertexHandle, Point3> {
+        brep.vertices
+            .iter()
+            .map(|(vh, v)| (vh, v.position))
+            .collect()
+    }
+
     #[test]
     fn extend_trim_on_cube_no_extra_faces() {
         let mut brep = BRep::unit_cube(tol()).unwrap();
         let face = brep.faces.keys().next().unwrap();
         let original_face_count = brep.faces.len();
-
-        let tilted = SurfaceGeometry::Plane {
-            origin: Point3::new(0.5, 0.5, 0.0),
-            normal: Vec3::new(0.0, 0.087, 0.996),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 0.996, -0.087),
-        };
-
-        let mut drafted = HashMap::new();
-        drafted.insert(face, tilted);
-
-        let warnings = handle_adjacent_faces(&mut brep, &drafted, AdjacentMode::ExtendTrim, &tol());
-        assert!(warnings.is_ok());
-        // Planes extend naturally; no extra faces needed.
-        assert_eq!(brep.faces.len(), original_face_count);
-    }
-
-    #[test]
-    fn transition_faces_mode_no_error() {
-        let mut brep = BRep::unit_cube(tol()).unwrap();
-        let face = brep.faces.keys().next().unwrap();
+        let orig = original_pos(&brep);
 
         let tilted = SurfaceGeometry::Plane {
             origin: Point3::new(0.5, 0.5, 0.0),
@@ -291,14 +253,17 @@ mod tests {
         drafted.insert(face, tilted);
 
         let warnings =
-            handle_adjacent_faces(&mut brep, &drafted, AdjacentMode::TransitionFaces, &tol());
+            handle_adjacent_faces(&mut brep, &drafted, &orig, AdjacentMode::ExtendTrim, &tol());
         assert!(warnings.is_ok());
+        // Planes extend naturally; no extra faces needed.
+        assert_eq!(brep.faces.len(), original_face_count);
     }
 
     #[test]
-    fn fallback_on_analytic_faces_no_fallback_needed() {
+    fn transition_faces_mode_no_error() {
         let mut brep = BRep::unit_cube(tol()).unwrap();
         let face = brep.faces.keys().next().unwrap();
+        let orig = original_pos(&brep);
 
         let tilted = SurfaceGeometry::Plane {
             origin: Point3::new(0.5, 0.5, 0.0),
@@ -313,6 +278,33 @@ mod tests {
         let warnings = handle_adjacent_faces(
             &mut brep,
             &drafted,
+            &orig,
+            AdjacentMode::TransitionFaces,
+            &tol(),
+        );
+        assert!(warnings.is_ok());
+    }
+
+    #[test]
+    fn fallback_on_analytic_faces_no_fallback_needed() {
+        let mut brep = BRep::unit_cube(tol()).unwrap();
+        let face = brep.faces.keys().next().unwrap();
+        let orig = original_pos(&brep);
+
+        let tilted = SurfaceGeometry::Plane {
+            origin: Point3::new(0.5, 0.5, 0.0),
+            normal: Vec3::new(0.0, 0.087, 0.996),
+            u_axis: Vec3::new(1.0, 0.0, 0.0),
+            v_axis: Vec3::new(0.0, 0.996, -0.087),
+        };
+
+        let mut drafted = HashMap::new();
+        drafted.insert(face, tilted);
+
+        let warnings = handle_adjacent_faces(
+            &mut brep,
+            &drafted,
+            &orig,
             AdjacentMode::ExtendTrimWithFallback,
             &tol(),
         );
@@ -326,8 +318,10 @@ mod tests {
     fn empty_drafted_faces_is_noop() {
         let mut brep = BRep::unit_cube(tol()).unwrap();
         let drafted = HashMap::new();
+        let orig = original_pos(&brep);
 
-        let warnings = handle_adjacent_faces(&mut brep, &drafted, AdjacentMode::ExtendTrim, &tol());
+        let warnings =
+            handle_adjacent_faces(&mut brep, &drafted, &orig, AdjacentMode::ExtendTrim, &tol());
         assert!(warnings.is_ok());
         assert!(warnings.unwrap().is_empty());
     }
@@ -350,5 +344,44 @@ mod tests {
         let boundary = find_boundary_edges(&brep, &drafted);
         // A cube face has 4 edges, each bordering one undrafted face.
         assert_eq!(boundary.len(), 4);
+    }
+
+    #[test]
+    fn transition_face_created_when_vertices_move() {
+        let mut brep = BRep::unit_cube(tol()).unwrap();
+        let face = brep.faces.keys().next().unwrap();
+
+        // Capture positions before any modifications.
+        let mut orig = original_pos(&brep);
+
+        let tilted = SurfaceGeometry::Plane {
+            origin: Point3::new(0.5, 0.5, 0.0),
+            normal: Vec3::new(0.0, 0.087, 0.996),
+            u_axis: Vec3::new(1.0, 0.0, 0.0),
+            v_axis: Vec3::new(0.0, 0.996, -0.087),
+        };
+
+        let mut drafted = HashMap::new();
+        drafted.insert(face, tilted);
+
+        // Simulate vertex movement by shifting original positions away.
+        for (_, pos) in orig.iter_mut() {
+            pos.z += 0.1;
+        }
+
+        let original_face_count = brep.faces.len();
+        let warnings = handle_adjacent_faces(
+            &mut brep,
+            &drafted,
+            &orig,
+            AdjacentMode::TransitionFaces,
+            &tol(),
+        );
+        assert!(warnings.is_ok());
+        // With moved vertices, transition faces should have been created.
+        assert!(
+            brep.faces.len() > original_face_count,
+            "Expected transition faces to be inserted"
+        );
     }
 }

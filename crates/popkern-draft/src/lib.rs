@@ -13,6 +13,7 @@ pub mod parting;
 pub mod recompute;
 pub mod surface;
 pub mod topology;
+pub mod transition;
 pub mod types;
 
 pub use error::{DraftError, DraftWarning};
