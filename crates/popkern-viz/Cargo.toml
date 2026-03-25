@@ -8,6 +8,10 @@ license.workspace = true
 name = "popkern-viz"
 path = "src/main.rs"
 
+[features]
+default = ["gpu"]
+gpu = ["dep:wgpu", "dep:eframe", "dep:egui"]
+
 [dependencies]
 popkern-core = { path = "../popkern-core" }
 popkern-mesh = { path = "../popkern-mesh" }
@@ -18,9 +22,11 @@ slotmap = "1"
 glam = "0.29"
 bytemuck = { version = "1", features = ["derive"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
-wgpu = "24"
-egui = "0.31"
-eframe = { version = "0.31", features = ["wgpu"] }
+wgpu = { version = "24", optional = true }
+egui = { version = "0.31", optional = true }
+eframe = { version = "0.31", features = ["wgpu"], optional = true }
 pollster = "0.4"
 env_logger = "0.11"
 log = "0.4"
+softbuffer = "0.4"
+winit = "0.30"
