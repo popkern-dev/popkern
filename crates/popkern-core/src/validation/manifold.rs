@@ -56,7 +56,10 @@ impl BRep {
                     // Safety: avoid infinite loop on corrupted data.
                     break;
                 }
-                let he = &self.half_edges[cursor];
+                let he = match self.half_edges.get(cursor) {
+                    Some(h) => h,
+                    None => break, // Stale handle — stop walking.
+                };
                 let twin = he.twin;
                 match self.half_edges.get(twin) {
                     Some(twin_data) => {
@@ -74,23 +77,59 @@ impl BRep {
                 // poles) where the single edge is a seam: both half-edges on
                 // the same face, and the containing loop has at least 2
                 // half-edges (ruling out trivial wire-only topologies).
-                if count == 1 {
-                    let he = &self.half_edges[start];
-                    if let Some(twin_data) = self.half_edges.get(he.twin) {
-                        let face_he = self.loops[he.loop_].face;
-                        let face_twin = self.loops[twin_data.loop_].face;
-                        if face_he == face_twin {
-                            // Count half-edges in the loop to ensure it's a real face.
-                            let loop_start = self.loops[he.loop_].half_edge;
-                            let mut loop_len = 1usize;
-                            let mut lc = self.half_edges[loop_start].next;
-                            while lc != loop_start && loop_len <= self.half_edges.len() {
-                                loop_len += 1;
-                                lc = self.half_edges[lc].next;
+                if count == 1
+                    && let Some(he) = self.half_edges.get(start)
+                    && let Some(twin_data) = self.half_edges.get(he.twin)
+                {
+                    let face_he = match self.loops.get(he.loop_) {
+                        Some(l) => l.face,
+                        None => {
+                            // Stale loop handle — can't check seam.
+                            return Err(ValidationError::LowValence {
+                                vertex: v_handle,
+                                valence: count,
+                            });
+                        }
+                    };
+                    let face_twin = match self.loops.get(twin_data.loop_) {
+                        Some(l) => l.face,
+                        None => {
+                            return Err(ValidationError::LowValence {
+                                vertex: v_handle,
+                                valence: count,
+                            });
+                        }
+                    };
+                    if face_he == face_twin {
+                        // Count half-edges in the loop to ensure it's a real face.
+                        let loop_start = match self.loops.get(he.loop_) {
+                            Some(l) => l.half_edge,
+                            None => {
+                                return Err(ValidationError::LowValence {
+                                    vertex: v_handle,
+                                    valence: count,
+                                });
                             }
-                            if loop_len >= 2 {
-                                continue;
+                        };
+                        let mut loop_len = 1usize;
+                        let mut lc = match self.half_edges.get(loop_start) {
+                            Some(h) => h.next,
+                            None => {
+                                return Err(ValidationError::LowValence {
+                                    vertex: v_handle,
+                                    valence: count,
+                                });
                             }
+                        };
+                        while lc != loop_start && loop_len <= self.half_edges.len() {
+                            loop_len += 1;
+                            lc = match self.half_edges.get(lc) {
+                                Some(h) => h.next,
+                                None => break,
+                            };
+                        }
+                        if loop_len >= 2 {
+                            continue;
                         }
                     }
                 }

@@ -1,6 +1,7 @@
 //! Torus constructor — revolve-based with seam-closing post-process.
 
 use crate::error::CoreError;
+use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
@@ -94,6 +95,21 @@ impl BRep {
 
         // Close the 0°/360° seam to turn the open cylinder into a torus.
         close_torus_seam(&mut brep, mvfs.face, &orig_in_loop_order, &vd)?;
+
+        // Assign torus surface geometry to every remaining face.
+        let torus_surface = SurfaceGeometry::Torus {
+            center: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            major_radius,
+            minor_radius,
+        };
+        let face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
+        for fh in face_handles {
+            brep.faces[fh].surface = Some(SurfaceOnFace {
+                geometry: torus_surface.clone(),
+                orientation: true,
+            });
+        }
 
         Ok(brep)
     }

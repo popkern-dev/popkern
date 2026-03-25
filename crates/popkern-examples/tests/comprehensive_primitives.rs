@@ -121,20 +121,18 @@ fn t04_cone_is_valid() {
 }
 
 #[test]
-#[ignore = "BRep::torus() does not yet attach surface geometry to faces"]
 fn t05_torus_is_valid() {
-    // BRep::torus() creates topology (faces, edges, vertices) but does not
-    // attach surface geometry to faces yet. Once the torus constructor adds
-    // surface geometry, remove the #[ignore] and re-enable full checks.
     let torus = BRep::torus(1.0, 0.3, tol()).unwrap();
     assert!(!torus.faces.is_empty(), "torus has faces");
     assert_no_structural_errors(&torus);
     assert_finite_vertices(&torus);
-    let faces_with_surface = torus.faces.values().filter(|f| f.surface.is_some()).count();
-    assert!(
-        faces_with_surface > 0,
-        "torus faces have no surface geometry — torus constructor needs surface assignment"
-    );
+    assert_all_faces_have_surfaces(&torus);
+    let has_torus = torus.faces.values().any(|f| {
+        f.surface
+            .as_ref()
+            .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Torus { .. }))
+    });
+    assert!(has_torus, "torus should have toroidal surface");
 }
 
 // ── Category 2: Transforms ────────────────────────────────────────

@@ -29,15 +29,16 @@ pub fn offset_solid(
     options: &ShellOptions,
     tolerance: Tolerance,
 ) -> Result<ShellResult, ShellError> {
-    // ShellDirection controls offset relative to the face normal. For a
-    // positive distance we want to expand (push faces away from the
-    // solid center), and for negative we want to shrink.  The convention
-    // in classify_faces matches the shell semantics: Outward pushes along
-    // the normal, Inward pushes against it.
+    // ShellDirection controls offset relative to the face normal.
+    // build_inner_skin() clones the BRep with flipped normals, so after
+    // that flip: Inward (push against the *original* normal) actually
+    // moves faces outward in world space, and Outward does the reverse.
+    // Therefore positive distance (grow outward) maps to Inward, and
+    // negative distance (shrink inward) maps to Outward.
     let direction = if distance >= 0.0 {
-        ShellDirection::Outward
-    } else {
         ShellDirection::Inward
+    } else {
+        ShellDirection::Outward
     };
     let abs_dist = distance.abs();
 
@@ -100,9 +101,9 @@ pub fn offset_solid_variable(
     tolerance: Tolerance,
 ) -> Result<ShellResult, ShellError> {
     let direction = if default_distance >= 0.0 {
-        ShellDirection::Outward
-    } else {
         ShellDirection::Inward
+    } else {
+        ShellDirection::Outward
     };
     let abs_default = default_distance.abs();
     let abs_faces: Vec<(FaceHandle, f64)> = face_distances
@@ -168,14 +169,13 @@ mod tests {
         let brep = BRep::unit_cube(tol()).unwrap();
         let result = offset_solid(&brep, 0.1, &ShellOptions::default(), tol()).unwrap();
         assert_eq!(result.brep.faces.len(), 6);
-        // Positive distance with Outward direction offsets faces along their
-        // normals. For the unit cube the face normals point inward, so the
-        // solid shrinks: corners move from {0,1} to {0.1, 0.9}.
+        // Positive distance grows the solid outward: corners move from
+        // {0,1} to {-0.1, 1.1}.
         for (_, v) in &result.brep.vertices {
             let coords = [v.position.x, v.position.y, v.position.z];
             for &c in &coords {
                 assert!(
-                    (c - 0.1).abs() < 0.05 || (c - 0.9).abs() < 0.05,
+                    (c - (-0.1)).abs() < 0.05 || (c - 1.1).abs() < 0.05,
                     "vertex coord {c} unexpected after outward offset"
                 );
             }
@@ -187,14 +187,13 @@ mod tests {
         let brep = BRep::unit_cube(tol()).unwrap();
         let result = offset_solid(&brep, -0.1, &ShellOptions::default(), tol()).unwrap();
         assert_eq!(result.brep.faces.len(), 6);
-        // Negative distance with Inward direction offsets faces against their
-        // normals. For the unit cube the face normals point inward, so the
-        // solid grows: corners move from {0,1} to {-0.1, 1.1}.
+        // Negative distance shrinks the solid inward: corners move from
+        // {0,1} to {0.1, 0.9}.
         for (_, v) in &result.brep.vertices {
             let coords = [v.position.x, v.position.y, v.position.z];
             for &c in &coords {
                 assert!(
-                    (c - (-0.1)).abs() < 0.05 || (c - 1.1).abs() < 0.05,
+                    (c - 0.1).abs() < 0.05 || (c - 0.9).abs() < 0.05,
                     "vertex coord {c} unexpected after inward offset"
                 );
             }
