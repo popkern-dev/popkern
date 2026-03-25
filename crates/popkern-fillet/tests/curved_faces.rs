@@ -11,6 +11,29 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle};
 
+/// Assert that a BRep has no structural validation errors (BrokenCycle,
+/// BrokenTwin, InconsistentVertex, NonManifoldEdge, OpenLoop).
+fn assert_no_structural_errors(brep: &BRep, label: &str) {
+    let errors = brep.validate_all();
+    let structural: Vec<_> = errors
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                popkern_core::error::ValidationError::BrokenCycle { .. }
+                    | popkern_core::error::ValidationError::BrokenTwin { .. }
+                    | popkern_core::error::ValidationError::InconsistentVertex { .. }
+                    | popkern_core::error::ValidationError::NonManifoldEdge { .. }
+                    | popkern_core::error::ValidationError::OpenLoop { .. }
+            )
+        })
+        .collect();
+    assert!(
+        structural.is_empty(),
+        "{label}: structural errors: {structural:?}"
+    );
+}
+
 fn default_tol() -> Tolerance {
     Tolerance::default()
 }
@@ -98,13 +121,17 @@ fn fillet_edge_between_plane_and_cylinder() {
 
     match result {
         Ok(blend) => {
-            // If successful, Euler-Poincare must hold.
-            assert_euler_poincare(&blend.brep, "fillet plane-cylinder edge");
-            // Result must have at least as many faces as input.
+            // Fillet must add at least one face (the fillet face itself).
             assert!(
-                blend.brep.faces.len() >= subtracted.faces.len(),
-                "fillet result should have >= original face count"
+                blend.brep.faces.len() > subtracted.faces.len(),
+                "fillet result should have more faces than input ({} vs {})",
+                blend.brep.faces.len(),
+                subtracted.faces.len(),
             );
+            // Euler-Poincare must hold.
+            assert_euler_poincare(&blend.brep, "fillet plane-cylinder edge");
+            // No structural errors.
+            assert_no_structural_errors(&blend.brep, "fillet plane-cylinder edge");
         }
         Err(_) => {
             // Geometric failure is acceptable — no panic is the invariant.
@@ -141,16 +168,83 @@ fn fillet_edge_on_boolean_cube_result() {
 
     match result {
         Ok(blend) => {
-            assert_euler_poincare(&blend.brep, "fillet boolean cube result");
+            // Fillet must add at least one face.
             assert!(
-                blend.brep.faces.len() >= subtracted.faces.len(),
-                "fillet result should have >= original face count"
+                blend.brep.faces.len() > subtracted.faces.len(),
+                "fillet result should have more faces than input ({} vs {})",
+                blend.brep.faces.len(),
+                subtracted.faces.len(),
             );
+            assert_euler_poincare(&blend.brep, "fillet boolean cube result");
+            assert_no_structural_errors(&blend.brep, "fillet boolean cube result");
         }
         Err(_) => {
             // Geometric failure is acceptable — no panic is the invariant.
         }
     }
+}
+
+#[test]
+fn fillet_cube_edge_has_torus_or_nurbs_surface() {
+    let tol = default_tol();
+    let cube = BRep::unit_cube(tol).unwrap();
+    let original_face_count = cube.faces.len();
+    let edge = cube.edges.keys().next().unwrap();
+
+    let result = popkern_fillet::fillet_edge(&cube, edge, 0.1, tol);
+    let blend = result.unwrap();
+
+    // Fillet must add at least one face.
+    assert!(
+        blend.brep.faces.len() > original_face_count,
+        "should have more faces after fillet"
+    );
+
+    // Find the new face(s) — faces whose surface geometry is NOT a Plane.
+    // The fillet face should have either Torus or Nurbs surface geometry.
+    let fillet_faces: Vec<_> = blend
+        .brep
+        .faces
+        .iter()
+        .filter(|(_, f)| {
+            f.surface
+                .as_ref()
+                .map(|s| {
+                    matches!(
+                        s.geometry,
+                        SurfaceGeometry::Torus { .. } | SurfaceGeometry::Nurbs(_)
+                    )
+                })
+                .unwrap_or(false)
+        })
+        .collect();
+
+    assert!(
+        !fillet_faces.is_empty(),
+        "fillet result should have at least one face with Torus or Nurbs surface, \
+         found only: {:?}",
+        blend
+            .brep
+            .faces
+            .iter()
+            .map(|(_, f)| f
+                .surface
+                .as_ref()
+                .map(|s| format!("{:?}", std::mem::discriminant(&s.geometry)))
+                .unwrap_or_else(|| "None".into()))
+            .collect::<Vec<_>>()
+    );
+
+    // Verify the fillet face has non-None surface geometry.
+    for (_, face) in &fillet_faces {
+        assert!(
+            face.surface.is_some(),
+            "fillet face surface geometry must not be None"
+        );
+    }
+
+    assert_euler_poincare(&blend.brep, "fillet cube edge surface type");
+    assert_no_structural_errors(&blend.brep, "fillet cube edge surface type");
 }
 
 #[test]
