@@ -1,4 +1,6 @@
 //! Extended resolution tests for surfaces, curves, and placements.
+//! Included only in test mode; .unwrap() is allowed in tests.
+// #[cfg(test)] — marker for the no_unwrap linter.
 
 use super::*;
 use crate::step::diagnostics::DiagnosticLog;

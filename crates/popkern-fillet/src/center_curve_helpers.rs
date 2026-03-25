@@ -81,8 +81,10 @@ pub fn clip_footprint_to_bounds(
     }
 
     // Snap endpoints to face boundary edges if they are close.
-    snap_endpoint_to_boundary(clipped.first_mut().unwrap(), surface, u_range, v_range);
-    snap_endpoint_to_boundary(clipped.last_mut().unwrap(), surface, u_range, v_range);
+    // SAFETY: clipped.len() >= 2 guaranteed by the check above.
+    let n = clipped.len();
+    snap_endpoint_to_boundary(&mut clipped[0], surface, u_range, v_range);
+    snap_endpoint_to_boundary(&mut clipped[n - 1], surface, u_range, v_range);
 
     clipped
 }

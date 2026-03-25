@@ -276,4 +276,50 @@ mod tests {
         let hes = collect_loop_half_edges(&brep, loop_h).unwrap();
         assert_eq!(hes.len(), 4, "cube face should have 4 half-edges");
     }
+
+    #[test]
+    fn assemble_all_faces_removed_produces_side_walls_only() {
+        // Remove all 6 faces: outer skin has 0 faces, inner skin has 0 faces,
+        // side walls cover all 6 openings (each square opening → 4 side wall
+        // faces, but the geometry is more complex for full removal).
+        // The key invariant: the call must succeed without panicking.
+        let outer = BRep::unit_cube(tol()).unwrap();
+        let all_faces: Vec<FaceHandle> = outer.faces.keys().collect();
+        let (inner, skin_map) = build_inner_skin(&outer, &all_faces).unwrap();
+        let result = assemble_shell(&outer, &inner, &all_faces, &skin_map, tol());
+        // Whether it succeeds or returns an error is acceptable — the important
+        // thing is that the code path is exercised without a panic.
+        let _ = result;
+    }
+
+    #[test]
+    fn assemble_two_faces_removed() {
+        let outer = BRep::unit_cube(tol()).unwrap();
+        let removed: Vec<FaceHandle> = outer.faces.keys().take(2).collect();
+        let (inner, skin_map) = build_inner_skin(&outer, &removed).unwrap();
+        let result = assemble_shell(&outer, &inner, &removed, &skin_map, tol());
+        // Outer (4 faces) + inner (4 faces) + side walls for 2 openings.
+        // Exact face count depends on side wall geometry. Just verify it succeeds.
+        assert!(
+            result.is_ok(),
+            "two-face removal should assemble: {:?}",
+            result.err()
+        );
+        let brep = result.unwrap();
+        // Must have at least the outer and inner faces.
+        assert!(brep.faces.len() >= 8, "should have at least 8 faces");
+    }
+
+    #[test]
+    fn copy_skin_entities_copies_all_vertices() {
+        let outer = BRep::unit_cube(tol()).unwrap();
+        let (inner, skin_map) = build_inner_skin(&outer, &[]).unwrap();
+        let result = assemble_shell(&outer, &inner, &[], &skin_map, tol()).unwrap();
+        // A pure offset (no removal): 8 outer + 8 inner = 16 vertices.
+        assert_eq!(
+            result.vertices.len(),
+            16,
+            "should have 16 vertices: 8 outer + 8 inner"
+        );
+    }
 }

@@ -171,4 +171,83 @@ mod tests {
         let found = find_edge_halfedge_on_face(&cube, edge, face_of_he).unwrap();
         assert_eq!(cube.half_edges[found].edge, edge);
     }
+
+    #[test]
+    fn identify_consumed_face_error_when_neither_contains_edge() {
+        let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+        // Collect two faces and an edge that belongs to neither.
+        let mut faces_iter = cube.faces.keys();
+        let face_a = faces_iter.next().unwrap();
+        let face_b = faces_iter.next().unwrap();
+
+        // Find an edge that is NOT on face_a or face_b.
+        let edge_not_on_either = cube.edges.keys().find(|&e| {
+            let he_handle = cube.edges[e].half_edge;
+            let face_1 = cube.loops[cube.half_edges[he_handle].loop_].face;
+            let twin_handle = cube.half_edges[he_handle].twin;
+            let face_2 = cube.loops[cube.half_edges[twin_handle].loop_].face;
+            face_1 != face_a && face_1 != face_b && face_2 != face_a && face_2 != face_b
+        });
+
+        if let Some(unrelated_edge) = edge_not_on_either {
+            let result = identify_consumed_face(&cube, face_a, face_b, unrelated_edge);
+            assert!(
+                result.is_err(),
+                "should fail when neither face contains the fillet edge"
+            );
+            let err = result.unwrap_err();
+            assert!(
+                err.contains("neither split face"),
+                "error should mention 'neither split face': {err}"
+            );
+        }
+        // If all edges touch one of the two faces (unlikely for a cube), skip.
+    }
+
+    #[test]
+    fn find_edge_halfedge_on_face_error_when_edge_not_on_face() {
+        let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+
+        // Pick an edge and a face that does NOT contain it.
+        let edge = cube.edges.keys().next().unwrap();
+        let edge_he = cube.edges[edge].half_edge;
+        let face_of_edge = cube.loops[cube.half_edges[edge_he].loop_].face;
+
+        // Find a face that is NOT face_of_edge.
+        let other_face = cube.faces.keys().find(|&f| f != face_of_edge).unwrap();
+
+        // Also verify the twin face is not the other_face.
+        let twin_handle = cube.half_edges[edge_he].twin;
+        let twin_face = cube.loops[cube.half_edges[twin_handle].loop_].face;
+        if twin_face != other_face {
+            let result = find_edge_halfedge_on_face(&cube, edge, other_face);
+            assert!(
+                result.is_err(),
+                "should fail when edge is not on the face's outer loop"
+            );
+            let err = result.unwrap_err();
+            assert!(
+                err.contains("not found in face"),
+                "error should mention 'not found in face': {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn face_loop_contains_edge_returns_false_for_unrelated_edge() {
+        let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+        let edge = cube.edges.keys().next().unwrap();
+        let edge_he = cube.edges[edge].half_edge;
+        let face_of_edge = cube.loops[cube.half_edges[edge_he].loop_].face;
+
+        // Check a face that does NOT contain this edge.
+        if let Some(other_face) = cube.faces.keys().find(|&f| f != face_of_edge) {
+            let twin_he = cube.half_edges[edge_he].twin;
+            let twin_face = cube.loops[cube.half_edges[twin_he].loop_].face;
+            if twin_face != other_face {
+                let contains = face_loop_contains_edge(&cube, other_face, edge).unwrap();
+                assert!(!contains, "unrelated face should not contain the edge");
+            }
+        }
+    }
 }

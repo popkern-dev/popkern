@@ -96,4 +96,75 @@ mod tests {
         // No solids and no diagnostics means no passes fire.
         assert!(log.is_empty());
     }
+
+    #[test]
+    fn healing_aggressive_on_empty_is_noop() {
+        let mut log = DiagnosticLog::new();
+        let result = run_healing(
+            &mut [],
+            &DiagnosticLog::new(),
+            HealingLevel::Aggressive,
+            &mut log,
+        );
+        assert!(result.is_ok());
+        assert!(log.is_empty());
+    }
+
+    #[test]
+    fn healing_basic_on_valid_brep_makes_no_changes() {
+        use popkern_core::tolerance::Tolerance;
+        use popkern_core::topology::BRep;
+
+        let mut solids = vec![BRep::unit_cube(Tolerance::default()).unwrap()];
+        let face_count_before = solids[0].faces.len();
+
+        // A warning-level diagnostic with Validate phase triggers SewGapsPass.
+        let mut diagnostics = DiagnosticLog::new();
+        diagnostics.warn(crate::step::diagnostics::Phase::Validate, None, "test gap");
+
+        let mut log = DiagnosticLog::new();
+        let result = run_healing(&mut solids, &diagnostics, HealingLevel::Basic, &mut log);
+        assert!(result.is_ok());
+        // The cube is already valid — no structural changes expected.
+        assert_eq!(solids[0].faces.len(), face_count_before);
+    }
+
+    #[test]
+    fn healing_aggressive_on_valid_brep_same_as_basic() {
+        use popkern_core::tolerance::Tolerance;
+        use popkern_core::topology::BRep;
+
+        let mut solids = vec![BRep::unit_cube(Tolerance::default()).unwrap()];
+        let face_count_before = solids[0].faces.len();
+
+        let mut diagnostics = DiagnosticLog::new();
+        diagnostics.warn(crate::step::diagnostics::Phase::Validate, None, "test gap");
+
+        let mut log = DiagnosticLog::new();
+        let result = run_healing(
+            &mut solids,
+            &diagnostics,
+            HealingLevel::Aggressive,
+            &mut log,
+        );
+        assert!(result.is_ok());
+        assert_eq!(solids[0].faces.len(), face_count_before);
+    }
+
+    #[test]
+    fn healing_none_skips_all_levels() {
+        use popkern_core::tolerance::Tolerance;
+        use popkern_core::topology::BRep;
+
+        let mut solids = vec![BRep::unit_cube(Tolerance::default()).unwrap()];
+        let mut diagnostics = DiagnosticLog::new();
+        diagnostics.warn(crate::step::diagnostics::Phase::Validate, None, "gap");
+
+        let mut log = DiagnosticLog::new();
+        // None level must return immediately without touching solids.
+        let result = run_healing(&mut solids, &diagnostics, HealingLevel::None, &mut log);
+        assert!(result.is_ok());
+        // Log must remain empty — no passes ran.
+        assert!(log.is_empty());
+    }
 }

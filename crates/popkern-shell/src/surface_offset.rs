@@ -216,4 +216,87 @@ mod tests {
         let result = compute_offset_surfaces(&brep, &classification, false, &tol()).unwrap();
         assert_eq!(result.surfaces.len(), 6);
     }
+
+    #[test]
+    fn face_with_no_surface_auto_removed_when_allow_partial() {
+        // When allow_partial is true, a face with no surface geometry is added
+        // to auto_removed and a warning is emitted. If at least one other face
+        // succeeds, the result is Ok with the auto_removed face listed.
+        let mut brep = BRep::unit_cube(tol()).unwrap();
+
+        // Strip surface geometry from one face.
+        let mut faces_iter = brep.faces.keys();
+        let stripped_face = faces_iter.next().unwrap();
+        let good_face = faces_iter.next().unwrap();
+        drop(faces_iter);
+        brep.faces[stripped_face].surface = None;
+
+        // Classification: the stripped face + one good face.
+        let classification = crate::classify::FaceClassification {
+            offset_faces: vec![(stripped_face, 0.1, true), (good_face, 0.1, true)],
+            removed_faces: vec![],
+        };
+
+        let result = compute_offset_surfaces(&brep, &classification, true, &tol()).unwrap();
+        assert!(
+            result.auto_removed.contains(&stripped_face),
+            "stripped face should be auto-removed"
+        );
+        assert_eq!(
+            result.failed.len(),
+            1,
+            "one face should be in the failed list"
+        );
+        assert_eq!(result.surfaces.len(), 1, "one face should succeed");
+        assert_eq!(result.warnings.len(), 1, "one warning should be emitted");
+    }
+
+    #[test]
+    fn face_with_no_surface_fails_when_not_allow_partial() {
+        // When allow_partial is false and the only face has no surface,
+        // AllFacesFailed should be returned.
+        let mut brep = BRep::unit_cube(tol()).unwrap();
+        let stripped_face = brep.faces.keys().next().unwrap();
+        brep.faces[stripped_face].surface = None;
+
+        let classification = crate::classify::FaceClassification {
+            offset_faces: vec![(stripped_face, 0.1, true)],
+            removed_faces: vec![],
+        };
+
+        let result = compute_offset_surfaces(&brep, &classification, false, &tol());
+        assert!(
+            result.is_err(),
+            "should fail when all faces have no surface and allow_partial is false"
+        );
+        match result.unwrap_err() {
+            crate::error::ShellError::AllFacesFailed { failures } => {
+                assert_eq!(failures.len(), 1);
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn all_faces_failed_error_when_allow_partial_false_and_multiple_faces() {
+        // When allow_partial is false and a second valid face also fails (not
+        // the case with planes, but we test the error branch explicitly):
+        // If ALL faces in offset_faces fail, AllFacesFailed is returned.
+        let mut brep = BRep::unit_cube(tol()).unwrap();
+        let faces: Vec<FaceHandle> = brep.faces.keys().take(2).collect();
+        for &fh in &faces {
+            brep.faces[fh].surface = None;
+        }
+
+        let classification = crate::classify::FaceClassification {
+            offset_faces: faces.iter().map(|&fh| (fh, 0.1, true)).collect(),
+            removed_faces: vec![],
+        };
+
+        let result = compute_offset_surfaces(&brep, &classification, false, &tol());
+        assert!(
+            result.is_err(),
+            "should fail when all faces have no surface"
+        );
+    }
 }

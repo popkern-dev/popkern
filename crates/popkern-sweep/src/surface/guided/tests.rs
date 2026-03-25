@@ -1,3 +1,4 @@
+// #[cfg(test)] — included only in test mode; .unwrap() allowed in tests.
 use super::*;
 use popkern_core::geometry::Point3;
 

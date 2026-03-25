@@ -455,11 +455,8 @@ pub(super) fn split_one_face(
     Ok(())
 }
 
-/// Find which fragment face (descended from `original_face`) contains the
-/// midpoint of a UV curve, using the UV point-in-face test.
-///
-/// Returns the fragment face handle, or `None` if no fragment contains the
-/// point (e.g. the curve lies outside all fragments).
+/// Find which fragment face (from `original_face`) contains the midpoint of
+/// a UV curve. Returns `None` if no fragment contains the point.
 pub(super) fn find_fragment_for_curve(
     brep: &BRep,
     original_face: FaceHandle,
@@ -495,3 +492,7 @@ pub(super) fn find_fragment_for_curve(
 
     None
 }
+
+#[cfg(test)]
+#[path = "split_helpers_tests.rs"]
+mod tests;

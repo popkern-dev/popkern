@@ -368,3 +368,7 @@ pub fn resolve_entity(entity: &EntityInstance) -> Result<ResolvedEntity, Mapping
 #[cfg(test)]
 #[path = "registry_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "registry_tests_2.rs"]
+mod tests_2;
