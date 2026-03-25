@@ -3,6 +3,7 @@
 mod bezier_clipping;
 mod circle_circle;
 pub mod coincident;
+pub(crate) mod coincident_analytic;
 pub mod degeneracy;
 mod line_circle;
 mod line_cone;
