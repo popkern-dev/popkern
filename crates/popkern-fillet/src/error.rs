@@ -82,4 +82,11 @@ pub enum BlendWarning {
         /// The vertex where the fallback occurred, if identified.
         vertex: Option<VertexHandle>,
     },
+    /// Two fillet trim curves overlap on a shared face.
+    FilletOverlap {
+        /// Index of the first fillet edge in the specs list.
+        fillet_a: usize,
+        /// Index of the second fillet edge in the specs list.
+        fillet_b: usize,
+    },
 }
