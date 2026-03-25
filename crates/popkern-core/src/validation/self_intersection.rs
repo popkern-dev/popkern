@@ -81,7 +81,12 @@ impl BRep {
             .map(|&fk| {
                 let face = &self.faces[fk];
                 face.surface.as_ref().and_then(|s| {
-                    let ((u0, u1), (v0, v1)) = s.geometry.parameter_range();
+                    let positions = self.face_outer_loop_positions(fk);
+                    let ((u0, u1), (v0, v1)) =
+                        crate::geometry::uv_projection::bounded_parameter_range(
+                            &positions,
+                            &s.geometry,
+                        );
                     let mut pts = Vec::with_capacity(25);
                     for &tp in &sample_params {
                         let u = u0 + tp * (u1 - u0);
@@ -138,8 +143,16 @@ impl BRep {
                 None => continue,
             };
 
-            let ((u0i, u1i), (v0i, v1i)) = surf_i.geometry.parameter_range();
-            let ((u0j, u1j), (v0j, v1j)) = surf_j.geometry.parameter_range();
+            let positions_i = self.face_outer_loop_positions(face_keys[i]);
+            let ((u0i, u1i), (v0i, v1i)) = crate::geometry::uv_projection::bounded_parameter_range(
+                &positions_i,
+                &surf_i.geometry,
+            );
+            let positions_j = self.face_outer_loop_positions(face_keys[j]);
+            let ((u0j, u1j), (v0j, v1j)) = crate::geometry::uv_projection::bounded_parameter_range(
+                &positions_j,
+                &surf_j.geometry,
+            );
 
             // Skip faces with degenerate (zero-area) parameter ranges.
             if (u1i - u0i).abs() < f64::EPSILON || (v1i - v0i).abs() < f64::EPSILON {
