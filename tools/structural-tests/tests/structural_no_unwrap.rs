@@ -40,7 +40,9 @@ fn no_unwrap_or_expect_in_library_code() {
         }
 
         // Skip example binaries — they have main() and .expect() is appropriate there.
-        let is_example = file.components().any(|c| c.as_os_str() == "popkern-examples");
+        let is_example = file
+            .components()
+            .any(|c| c.as_os_str() == "popkern-examples");
         if is_example {
             continue;
         }

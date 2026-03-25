@@ -122,6 +122,20 @@ fn boolean_cube_with_hole_topology() {
          The cylinder subtraction is not modifying the cube.",
         brep.faces.len()
     );
+
+    // Verify the expected topology: 7 faces (6 cube + 1 cylinder wall),
+    // with exactly 2 faces having inner loops (the circular holes).
+    let faces_with_holes: Vec<_> = brep
+        .faces
+        .values()
+        .filter(|f| !f.inner_loops.is_empty())
+        .collect();
+    assert_eq!(
+        faces_with_holes.len(),
+        2,
+        "expected 2 faces with inner loops (top and bottom holes), got {}",
+        faces_with_holes.len()
+    );
 }
 
 // ── Pipe Fitting ────────────────────────────────────────────────────

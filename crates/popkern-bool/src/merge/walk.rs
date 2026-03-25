@@ -9,8 +9,8 @@
 
 use std::collections::HashSet;
 
-use popkern_core::geometry::Vec3;
 use popkern_core::geometry::surface::SurfaceEval;
+use popkern_core::geometry::{CurveEval, Vec3};
 use popkern_core::topology::BRep;
 
 use super::graph::{FaceRef, IntersectionGraph, Operand};
@@ -123,7 +123,7 @@ pub(crate) fn walk_all_fragments(
         let mut remaining_areas = areas;
         remaining_areas.swap_remove(outer_idx);
 
-        let mut inner_loops_out = Vec::new();
+        let mut inner_loops_out: Vec<Vec<usize>> = Vec::new();
         let mut separate_outers = Vec::new();
 
         // Collect the half-edge indices in the outer loop for
@@ -142,7 +142,19 @@ pub(crate) fn walk_all_fragments(
             if shares_edge_with_outer || remaining_areas[i].abs() >= threshold {
                 separate_outers.push(lp);
             } else {
-                inner_loops_out.push(lp);
+                // Skip duplicate inner loops: if this loop's edges are all
+                // twins of an already-collected inner loop, it's a duplicate
+                // (both directions of the same hole boundary were walked).
+                let is_twin_duplicate = inner_loops_out.iter().any(|existing| {
+                    existing.len() == lp.len()
+                        && lp.iter().all(|&he_idx| {
+                            let twin = graph.half_edges[he_idx].twin;
+                            existing.contains(&twin)
+                        })
+                });
+                if !is_twin_duplicate {
+                    inner_loops_out.push(lp);
+                }
             }
         }
 
@@ -183,12 +195,17 @@ fn next_around_face(
     let end_node = graph.half_edges[twin_idx].origin;
     let outgoing = &graph.nodes[end_node].outgoing;
 
-    // Collect candidate outgoing edges that belong to this face (exclude
-    // the twin of the current edge to prevent U-turns).
+    // For self-loop edges (origin == twin.origin), exclude both the current
+    // edge AND its twin to avoid re-traversing the same self-loop or U-turning.
+    // For normal edges, only exclude the twin (standard U-turn prevention).
+    let is_self_loop = graph.half_edges[he_idx].origin == end_node;
+
     let candidates: Vec<usize> = outgoing
         .iter()
         .copied()
-        .filter(|idx| face_hes.contains(idx) && *idx != twin_idx)
+        .filter(|idx| {
+            face_hes.contains(idx) && *idx != twin_idx && (!is_self_loop || *idx != he_idx)
+        })
         .collect();
 
     if candidates.is_empty() {
@@ -222,17 +239,29 @@ fn pick_by_angle(
     let node_pos = graph.nodes[end_node].position;
 
     let origin_node = graph.half_edges[he_idx].origin;
-    let incoming_dir = graph.nodes[origin_node].position - node_pos;
+    // For self-loop edges (origin == end), use the curve tangent at the end
+    // instead of the zero-length position difference.
+    let incoming_dir = if origin_node == end_node {
+        incoming_tangent_for_self_loop(graph, he_idx)
+    } else {
+        graph.nodes[origin_node].position - node_pos
+    };
 
     // Try to get the surface normal from the face's geometry.
     // For curved surfaces this is critical for correct angle computation.
     let normal =
         surface_normal_at_node(graph, end_node, face, brep_a, brep_b).unwrap_or_else(|| {
-            // Fallback: compute from incoming direction and candidates (planar case).
+            // Fallback: compute from incoming direction and candidates.
+            // For self-loop candidates, use curve tangent instead of position.
             let mut n = Vec3::new(0.0, 0.0, 1.0);
             for &c in candidates {
-                let t = graph.half_edges[c].twin;
-                let out = graph.nodes[graph.half_edges[t].origin].position - node_pos;
+                let twin_c = graph.half_edges[c].twin;
+                let is_self_loop_c = graph.half_edges[c].origin == graph.half_edges[twin_c].origin;
+                let out = if is_self_loop_c {
+                    outgoing_tangent_for_self_loop(graph, c)
+                } else {
+                    graph.nodes[graph.half_edges[twin_c].origin].position - node_pos
+                };
                 if let Some(computed) = incoming_dir.cross(&out).normalized() {
                     n = computed;
                     break;
@@ -253,7 +282,13 @@ fn pick_by_angle(
     for &c in candidates {
         let twin_c = graph.half_edges[c].twin;
         let end_pos = graph.nodes[graph.half_edges[twin_c].origin].position;
-        let out_dir = end_pos - node_pos;
+        // For self-loop candidates (origin == end), use the curve tangent
+        // at the start parameter as the outgoing direction.
+        let out_dir = if graph.half_edges[c].origin == graph.half_edges[twin_c].origin {
+            outgoing_tangent_for_self_loop(graph, c)
+        } else {
+            end_pos - node_pos
+        };
         let out_proj = out_dir - normal * out_dir.dot(&normal);
 
         let cos_val = out_proj.dot(&ref_dir);
@@ -273,6 +308,45 @@ fn pick_by_angle(
     best
 }
 
+/// Compute the incoming tangent direction for a self-loop edge.
+///
+/// For a self-loop (origin == end node), the position-based direction is zero.
+/// Instead, evaluate the curve geometry at its end parameter to get the tangent.
+/// The incoming direction is negated (pointing back towards where we came from).
+fn incoming_tangent_for_self_loop(graph: &IntersectionGraph, he_idx: usize) -> Vec3 {
+    // Try the forward half-edge's curve first, then the twin's.
+    if let Some(ref curve) = graph.half_edges[he_idx].curve {
+        let tangent = curve.geometry.tangent_at(curve.t_end);
+        // Negate: "incoming" direction at the end node points backwards.
+        return tangent * -1.0;
+    }
+    let twin_idx = graph.half_edges[he_idx].twin;
+    if let Some(ref curve) = graph.half_edges[twin_idx].curve {
+        // Twin runs in the opposite direction; its tangent at t_start
+        // corresponds to the same endpoint. Negate for incoming.
+        let tangent = curve.geometry.tangent_at(curve.t_start);
+        return tangent;
+    }
+    // No curve geometry — fall back to zero (pick_by_angle will use candidates[0]).
+    Vec3::new(0.0, 0.0, 0.0)
+}
+
+/// Compute the outgoing tangent direction for a self-loop candidate edge.
+///
+/// Similar to [`incoming_tangent_for_self_loop`] but returns the tangent at
+/// the start of the curve (the direction the edge departs from the node).
+fn outgoing_tangent_for_self_loop(graph: &IntersectionGraph, he_idx: usize) -> Vec3 {
+    if let Some(ref curve) = graph.half_edges[he_idx].curve {
+        return curve.geometry.tangent_at(curve.t_start);
+    }
+    let twin_idx = graph.half_edges[he_idx].twin;
+    if let Some(ref curve) = graph.half_edges[twin_idx].curve {
+        // Twin's end tangent (negated) gives the forward direction.
+        return curve.geometry.tangent_at(curve.t_end) * -1.0;
+    }
+    Vec3::new(0.0, 0.0, 0.0)
+}
+
 /// Look up the surface normal at a graph node's position on the given face.
 ///
 /// Uses the node's stored UV coordinates (if available) to evaluate the
@@ -285,6 +359,8 @@ fn surface_normal_at_node(
     brep_a: &BRep,
     brep_b: &BRep,
 ) -> Option<Vec3> {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
     let brep = match face.operand {
         Operand::A => brep_a,
         Operand::B => brep_b,
@@ -299,10 +375,26 @@ fn surface_normal_at_node(
         return n.normalized();
     }
 
-    // Fallback: compute approximate UV by projecting onto the surface.
-    // For analytic surfaces, we can use the node position directly.
-    // This is a simplified approach that works well for common cases.
-    None
+    // Fallback: compute surface normal directly from the 3D position for
+    // curved analytic surfaces where the cross-product fallback may fail
+    // (e.g. self-loop edges produce zero incoming direction).
+    // Planes are excluded: the cross-product fallback works reliably for
+    // planar faces and changing the normal source could alter edge selection.
+    let pos = graph.nodes[node_idx].position;
+    match geom {
+        SurfaceGeometry::Plane { .. } => None,
+        SurfaceGeometry::Cylinder { origin, axis, .. } => {
+            let to_pt = pos - *origin;
+            let along_axis = *axis * to_pt.dot(axis);
+            let radial = to_pt - along_axis;
+            radial.normalized()
+        }
+        SurfaceGeometry::Sphere { center, .. } => {
+            let radial = pos - *center;
+            radial.normalized()
+        }
+        _ => None,
+    }
 }
 
 /// Compute a signed area proxy for a loop using Newell's method.

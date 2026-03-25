@@ -125,22 +125,34 @@ pub(crate) fn assemble_result(
             he_map.insert(ghe_idx, he_fwd);
             he_map.insert(twin_ghe, he_twin);
 
-            // Attach a line curve between the endpoint positions.
-            let p_start = graph.nodes[origin_node].position;
-            let p_end = graph.nodes[end_node].position;
-            let dir = p_end - p_start;
-            let len = dir.length();
-            if len > 1e-12 {
-                use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
-                let line_curve = CurveOnEdge {
-                    geometry: CurveGeometry::Line {
-                        origin: p_start,
-                        direction: dir * (1.0 / len),
-                    },
-                    t_start: 0.0,
-                    t_end: len,
-                };
-                builder.set_edge_curve(edge_h, line_curve);
+            // Attach curve geometry. For self-loop edges (same start/end
+            // vertex, e.g. closed circles), use the graph's curve geometry
+            // since a line would be degenerate. For other edges, synthesize
+            // a line from the endpoint positions.
+            if origin_node == end_node {
+                // Self-loop: use the intersection curve (e.g. a closed NURBS circle).
+                if let Some(ref curve) = graph.half_edges[ghe_idx].curve {
+                    builder.set_edge_curve(edge_h, curve.clone());
+                } else if let Some(ref curve) = graph.half_edges[twin_ghe].curve {
+                    builder.set_edge_curve(edge_h, curve.clone());
+                }
+            } else {
+                let p_start = graph.nodes[origin_node].position;
+                let p_end = graph.nodes[end_node].position;
+                let dir = p_end - p_start;
+                let len = dir.length();
+                if len > 1e-12 {
+                    use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+                    let line_curve = CurveOnEdge {
+                        geometry: CurveGeometry::Line {
+                            origin: p_start,
+                            direction: dir * (1.0 / len),
+                        },
+                        t_start: 0.0,
+                        t_end: len,
+                    };
+                    builder.set_edge_curve(edge_h, line_curve);
+                }
             }
         }
 
