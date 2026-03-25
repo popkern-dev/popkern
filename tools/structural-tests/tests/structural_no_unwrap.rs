@@ -30,6 +30,21 @@ fn no_unwrap_or_expect_in_library_code() {
             continue;
         }
 
+        // Skip test files included via #[path = "tests.rs"] — they contain test code, not library code.
+        let file_name = file.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let is_test_module = file_name == "tests.rs"
+            || file_name.ends_with("_tests.rs")
+            || file_name.starts_with("test_");
+        if is_test_module {
+            continue;
+        }
+
+        // Skip example binaries — they have main() and .expect() is appropriate there.
+        let is_example = file.components().any(|c| c.as_os_str() == "popkern-examples");
+        if is_example {
+            continue;
+        }
+
         let content = popkern_lints::read_file(file);
         let mut in_test_module = false;
 
