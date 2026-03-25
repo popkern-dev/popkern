@@ -1,0 +1,11 @@
+[package]
+name = "popkern-shell"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Shell and offset solid operations for the popkern BRep kernel"
+
+[dependencies]
+popkern-core = { path = "../popkern-core" }
+popkern-fillet = { path = "../popkern-fillet" }
+thiserror = "2"
