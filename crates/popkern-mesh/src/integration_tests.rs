@@ -30,15 +30,10 @@ fn tessellate_cone() {
 
 #[test]
 fn tessellate_torus() {
-    // The torus constructor builds topology only (no surface geometry assigned
-    // to the faces), so all faces are skipped and the result is an empty mesh.
-    // This test documents that tessellation succeeds gracefully and produces
-    // zero face meshes.
     let torus = BRep::torus(1.0, 0.3, Tolerance::default()).unwrap();
     let mesh = tessellate(&torus, &TessellationOptions::default()).unwrap();
-    // Torus faces have no surface geometry: tessellation skips them.
-    assert_eq!(mesh.face_meshes.len(), 0);
-    assert_eq!(mesh.triangles.len(), 0);
+    assert!(!mesh.triangles.is_empty(), "torus should produce triangles");
+    assert_eq!(mesh.face_meshes.len(), torus.faces.len());
 }
 
 #[test]
