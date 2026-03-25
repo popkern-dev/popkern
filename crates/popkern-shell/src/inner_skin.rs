@@ -175,7 +175,7 @@ mod tests {
 
         // Create fake offset surfaces (same as original for test).
         let mut offset_surfaces = HashMap::new();
-        for (&outer_fh, _) in &skin_map.faces {
+        for &outer_fh in skin_map.faces.keys() {
             if let Some(sof) = &outer.faces[outer_fh].surface {
                 offset_surfaces.insert(outer_fh, sof.geometry.clone());
             }
@@ -200,7 +200,7 @@ mod tests {
         // Create offset surfaces that are distinct from the originals
         // (shifted planes).
         let mut offset_surfaces = HashMap::new();
-        for (&outer_fh, _) in &skin_map.faces {
+        for &outer_fh in skin_map.faces.keys() {
             let shifted = SurfaceGeometry::Plane {
                 origin: Point3::new(99.0, 99.0, 99.0),
                 normal: Vec3::new(0.0, 0.0, 1.0),
@@ -235,7 +235,7 @@ mod tests {
 
         // Only provide offset surfaces for faces that weren't removed.
         let mut offset_surfaces = HashMap::new();
-        for (&outer_fh, _) in &skin_map.faces {
+        for &outer_fh in skin_map.faces.keys() {
             if let Some(sof) = &outer.faces[outer_fh].surface {
                 offset_surfaces.insert(outer_fh, sof.geometry.clone());
             }

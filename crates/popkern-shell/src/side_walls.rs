@@ -271,7 +271,7 @@ mod tests {
         // are not boundary edges. Depending on adjacency, we expect < 4 for at
         // least one of them (if adjacent) or 4 each (if non-adjacent).
         let total = edges_f0.len() + edges_f1.len();
-        assert!(total >= 6 && total <= 8, "total boundary edges: {total}");
+        assert!((6..=8).contains(&total), "total boundary edges: {total}");
     }
 
     #[test]
