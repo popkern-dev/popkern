@@ -2564,6 +2564,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "popkern-shell"
+version = "0.1.0"
+dependencies = [
+ "popkern-core",
+ "popkern-fillet",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "popkern-structural-tests"
 version = "0.1.0"
 dependencies = [
