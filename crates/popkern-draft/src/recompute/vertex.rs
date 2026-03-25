@@ -79,7 +79,12 @@ pub fn recompute_draft_vertices(
         };
 
         if let Some(pos) = new_pos {
-            brep.vertices[vh].position = pos;
+            // Guard against NaN / infinity from degenerate 3-plane intersections
+            // or Newton convergence failures. Keep the original position if the
+            // computed point is non-finite.
+            if pos.x.is_finite() && pos.y.is_finite() && pos.z.is_finite() {
+                brep.vertices[vh].position = pos;
+            }
         }
     }
 
@@ -148,6 +153,11 @@ fn solve_3_planes(
     let x = (*d0 * cross12.x + *d1 * cross20.x + *d2 * cross01.x) * inv_det;
     let y = (*d0 * cross12.y + *d1 * cross20.y + *d2 * cross01.y) * inv_det;
     let z = (*d0 * cross12.z + *d1 * cross20.z + *d2 * cross01.z) * inv_det;
+
+    // Guard against NaN / infinity from near-singular systems.
+    if !x.is_finite() || !y.is_finite() || !z.is_finite() {
+        return None;
+    }
 
     Some(Point3::new(x, y, z))
 }

@@ -1,10 +1,10 @@
-//! Boolean showcase: cube with cylindrical holes and sphere cutout.
+//! Boolean showcase: cube with a cylindrical hole.
 //!
-//! Demonstrates union, subtraction, and intersection of primitive solids.
+//! Demonstrates subtraction of a cylinder from a cube primitive.
 
 mod helpers;
 
-use popkern_bool::{BoolOperation, boolean, boolean_ref};
+use popkern_bool::{BoolOperation, boolean};
 use popkern_core::geometry::Transform3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -47,29 +47,11 @@ fn main() {
         }
     };
 
-    // 4. Create a sphere cutout -- centered at corner (1, 1, 1), radius 0.4.
-    let sphere = BRep::sphere(0.4, tol).expect("sphere");
-    let sphere = sphere
-        .transform(&Transform3::translation(1.0, 1.0, 1.0))
-        .expect("translate sphere");
-    println!("  Sphere: {} faces", sphere.faces.len());
-
-    // 5. Subtract the sphere (use boolean_ref to keep with_hole for fallback).
-    let final_model = match boolean_ref(BoolOperation::Subtraction, &with_hole, &sphere, tol) {
-        Ok(brep) => {
-            println!(
-                "  After sphere cutout: {} faces, {} edges",
-                brep.faces.len(),
-                brep.edges.len()
-            );
-            brep
-        }
-        Err(e) => {
-            eprintln!("  Sphere subtraction failed: {e}");
-            eprintln!("  Using cube-with-hole result instead.");
-            with_hole
-        }
-    };
+    // NOTE: Additional boolean operations (second cylinder, sphere subtraction,
+    // cube-cube subtraction) are not yet stable due to trim-curve/face-boundary
+    // matching limitations in the boolean pipeline. The single cylinder-hole
+    // subtraction above demonstrates the current capability.
+    let final_model = with_hole;
 
     // Export STEP and render PNG.
     helpers::export(&final_model, "Boolean Showcase", "boolean_showcase.step");

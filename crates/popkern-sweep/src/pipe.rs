@@ -14,7 +14,11 @@ use crate::surface::sweep_surface::{SweepSurfaceResult, generate_sweep_surface};
 use crate::types::{PipeRadius, ScaleMethod, SweepOptions, SweepProfile};
 
 /// Number of frames to sample along the path for pipe generation.
-const PIPE_FRAME_COUNT: usize = 50;
+///
+/// A moderate count balances surface fidelity against file size.
+/// Too many frames produce oversized NURBS surfaces that some CAD
+/// viewers struggle with; too few lose path curvature detail.
+const PIPE_FRAME_COUNT: usize = 17;
 
 /// Generate a pipe surface by sweeping a circle along a path.
 ///

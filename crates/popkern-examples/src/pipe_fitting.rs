@@ -31,7 +31,7 @@ fn main() {
         weights: vec![1.0, w, 1.0],
     };
 
-    let radius = &PipeRadius::Constant(0.15);
+    let radius = &PipeRadius::Constant(0.3);
     let options = SweepOptions::default();
 
     match pipe(&path, radius, &options, tol) {

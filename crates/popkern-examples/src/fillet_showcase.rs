@@ -45,6 +45,9 @@ fn main() {
             );
             if !result.edge_warnings.is_empty() {
                 println!("  Warnings: {}", result.edge_warnings.len());
+                for (edge, warning) in &result.edge_warnings {
+                    println!("    edge {:?}: {:?}", edge, warning);
+                }
             }
             helpers::export(brep, "Fillet Showcase", "fillet_showcase.step");
             helpers::try_render(brep, "fillet_showcase.png");

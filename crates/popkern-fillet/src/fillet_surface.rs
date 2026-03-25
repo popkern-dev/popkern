@@ -69,14 +69,14 @@ fn try_plane_plane_torus(
     let axis = n1.cross(n2);
     let axis = axis.normalized()?;
 
-    // Center of the torus: the fillet center curve midpoint.
-    let fp1 = center_result.footprint_1.first()?;
-    let fp2 = center_result.footprint_2.first()?;
-    let center = Point3::new(
-        (fp1.x + fp2.x) * 0.5,
-        (fp1.y + fp2.y) * 0.5,
-        (fp1.z + fp2.z) * 0.5,
-    );
+    // Center of the torus: evaluate the center curve at its midpoint.
+    // The center curve is the locus of the rolling-ball center, so its
+    // midpoint lies on the torus axis at the correct offset from the edge.
+    // Using footprint points instead would inherit projection errors from
+    // the offset-surface intersection step.
+    use popkern_core::geometry::curve::CurveEval;
+    let (t0, t1) = center_result.center_curve.parameter_range();
+    let center = center_result.center_curve.point_at((t0 + t1) * 0.5);
 
     // For a fillet between two planes at angle `angle`:
     // Major radius = r / sin(half_angle) for a general dihedral.

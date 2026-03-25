@@ -40,8 +40,34 @@ pub fn export(brep: &BRep, name: &str, filename: &str) {
     };
 
     match export_step_file(&doc, &path, &StepExportOptions::default()) {
-        Ok(()) => println!("  Exported: {}", path.display()),
+        Ok(()) => {
+            println!("  Exported: {}", path.display());
+            // Validate by re-importing the STEP file.
+            validate_step_file(&path);
+        }
         Err(e) => eprintln!("  STEP export failed: {e}"),
+    }
+}
+
+/// Validate a STEP file by re-importing it and checking for errors.
+fn validate_step_file(path: &Path) {
+    use popkern_io::{StepImportOptions, import_step};
+
+    match std::fs::read(path) {
+        Ok(data) => match import_step(&data, &StepImportOptions::default()) {
+            Ok(result) => {
+                let total_solids: usize = result
+                    .document
+                    .products
+                    .iter()
+                    .flat_map(|p| &p.shapes)
+                    .map(|s| s.solids.len())
+                    .sum();
+                println!("  STEP re-import OK: {total_solids} solid(s)");
+            }
+            Err(e) => eprintln!("  STEP re-import FAILED: {e}"),
+        },
+        Err(e) => eprintln!("  Could not read STEP file for validation: {e}"),
     }
 }
 
