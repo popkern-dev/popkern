@@ -4,6 +4,8 @@
 pub mod arc_length;
 pub mod error;
 pub mod frame;
+pub mod helix;
+pub mod pipe;
 pub mod profile;
 pub mod surface;
 pub mod types;
