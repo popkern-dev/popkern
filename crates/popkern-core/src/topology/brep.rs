@@ -48,6 +48,39 @@ impl BRep {
 use crate::geometry::transform::Transform3;
 
 impl BRep {
+    /// Collect vertex positions from the outer loop of a face by walking half-edges.
+    ///
+    /// Returns an empty `Vec` if the face handle is invalid, the loop is missing,
+    /// or the loop has no half-edges.  This is the canonical implementation —
+    /// downstream crates should call this instead of re-implementing the walk.
+    pub fn face_outer_loop_positions(
+        &self,
+        face_handle: FaceHandle,
+    ) -> Vec<crate::geometry::Point3> {
+        let Some(face) = self.faces.get(face_handle) else {
+            return Vec::new();
+        };
+        let Some(loop_) = self.loops.get(face.outer_loop) else {
+            return Vec::new();
+        };
+        let start_he = loop_.half_edge;
+        if !self.half_edges.contains_key(start_he) {
+            return Vec::new();
+        }
+        let mut positions = Vec::new();
+        let mut current = start_he;
+        loop {
+            let he = &self.half_edges[current];
+            let vertex = &self.vertices[he.origin];
+            positions.push(vertex.position);
+            current = he.next;
+            if current == start_he {
+                break;
+            }
+        }
+        positions
+    }
+
     /// Apply a rigid transformation to the entire BRep, returning a new copy.
     ///
     /// Transforms vertex positions, surface geometry on every face, edge
@@ -247,5 +280,47 @@ mod tests {
         for (_, v) in &transformed.vertices {
             assert!(v.position.x >= 10.0 - 1e-10);
         }
+    }
+}
+
+#[cfg(test)]
+mod face_loop_tests {
+    use super::*;
+    use crate::tolerance::Tolerance;
+
+    #[test]
+    fn face_outer_loop_positions_unit_cube() {
+        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let face_handle = brep.faces.keys().next().unwrap();
+        let positions = brep.face_outer_loop_positions(face_handle);
+        assert_eq!(positions.len(), 4, "each cube face should have 4 vertices");
+        for pos in &positions {
+            assert!(
+                pos.x >= -1e-10 && pos.x <= 1.0 + 1e-10,
+                "x={} out of [0,1]",
+                pos.x
+            );
+            assert!(
+                pos.y >= -1e-10 && pos.y <= 1.0 + 1e-10,
+                "y={} out of [0,1]",
+                pos.y
+            );
+            assert!(
+                pos.z >= -1e-10 && pos.z <= 1.0 + 1e-10,
+                "z={} out of [0,1]",
+                pos.z
+            );
+        }
+    }
+
+    #[test]
+    fn face_outer_loop_positions_invalid_face_returns_empty() {
+        let brep = BRep::new(Tolerance::default());
+        let bogus = FaceHandle::default();
+        let positions = brep.face_outer_loop_positions(bogus);
+        assert!(
+            positions.is_empty(),
+            "invalid handle should yield empty vec"
+        );
     }
 }

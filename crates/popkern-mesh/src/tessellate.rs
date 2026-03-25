@@ -104,43 +104,70 @@ pub(crate) fn tessellate_face(
     })
 }
 
-/// Compute a bounded parameter range for a face's surface.
+/// Compute a bounded parameter range for a face's surface, tight enough for
+/// tessellation.
 ///
-/// Delegates to the shared `popkern_core::geometry::uv_projection` helper,
-/// which handles analytic UV projection for planes, cylinders, cones, and
-/// spheres.
+/// The shared `popkern_core::geometry::uv_projection::bounded_parameter_range`
+/// uses generous padding (50%, min 1.0) for boolean intersection solvers. For
+/// tessellation we need tight bounds — vertices are placed directly on the UV
+/// grid, so excess padding produces mesh geometry outside the face boundary.
+///
+/// Uses 5 % padding (minimum 0.05) on projected vertex extents.
 fn bounded_parameter_range(
     brep: &BRep,
     face_handle: FaceHandle,
     surface: &SurfaceGeometry,
 ) -> ((f64, f64), (f64, f64)) {
-    let positions = face_vertex_positions(brep, face_handle);
-    popkern_core::geometry::uv_projection::bounded_parameter_range(&positions, surface)
-}
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
 
-/// Collect vertex positions from the outer loop of a face by walking half-edges.
-fn face_vertex_positions(
-    brep: &BRep,
-    face_handle: FaceHandle,
-) -> Vec<popkern_core::geometry::Point3> {
-    let face = &brep.faces[face_handle];
-    let loop_ = &brep.loops[face.outer_loop];
-    let start_he = loop_.half_edge;
-    if !brep.half_edges.contains_key(start_he) {
-        return Vec::new();
+    let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
+
+    // If both ranges are already finite, return them as-is.
+    if u_min.is_finite() && u_max.is_finite() && v_min.is_finite() && v_max.is_finite() {
+        return ((u_min, u_max), (v_min, v_max));
     }
-    let mut positions = Vec::new();
-    let mut current = start_he;
-    loop {
-        let he = &brep.half_edges[current];
-        let vertex = &brep.vertices[he.origin];
-        positions.push(vertex.position);
-        current = he.next;
-        if current == start_he {
-            break;
+
+    let positions = brep.face_outer_loop_positions(face_handle);
+    if positions.is_empty() {
+        return ((u_min, u_max), (v_min, v_max));
+    }
+
+    // Project each vertex to UV and accumulate the bounding box.
+    let mut uv_lo = (f64::INFINITY, f64::INFINITY);
+    let mut uv_hi = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    let mut any_projected = false;
+
+    for pos in &positions {
+        if let Some((u, v)) = project_point_to_uv(surface, pos) {
+            uv_lo.0 = uv_lo.0.min(u);
+            uv_lo.1 = uv_lo.1.min(v);
+            uv_hi.0 = uv_hi.0.max(u);
+            uv_hi.1 = uv_hi.1.max(v);
+            any_projected = true;
         }
     }
-    positions
+
+    if !any_projected {
+        return ((u_min, u_max), (v_min, v_max));
+    }
+
+    // Tight padding for tessellation: 5 % of the span, minimum 0.05.
+    let u_pad = ((uv_hi.0 - uv_lo.0) * 0.05).max(0.05);
+    let v_pad = ((uv_hi.1 - uv_lo.1) * 0.05).max(0.05);
+
+    // Only override dimensions that were infinite.
+    let u_range = if u_min.is_finite() && u_max.is_finite() {
+        (u_min, u_max)
+    } else {
+        (uv_lo.0 - u_pad, uv_hi.0 + u_pad)
+    };
+    let v_range = if v_min.is_finite() && v_max.is_finite() {
+        (v_min, v_max)
+    } else {
+        (uv_lo.1 - v_pad, uv_hi.1 + v_pad)
+    };
+
+    (u_range, v_range)
 }
 
 /// Tessellate all faces of a BRep into a combined [`TriMesh`].

@@ -3,7 +3,6 @@
 //! Extracted from `lib.rs` to keep source files within the 500-line limit.
 
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
@@ -36,8 +35,8 @@ pub(crate) fn compute_fillet_geometry(
 ) -> Result<EdgeGeometry, BlendFailure> {
     let edge_midpoint = get_edge_midpoint(brep, analysis)?;
 
-    let (u1_range, v1_range) = surface_param_range(&analysis.surface_1);
-    let (u2_range, v2_range) = surface_param_range(&analysis.surface_2);
+    let (u1_range, v1_range) = face_param_range(brep, analysis.face_1, &analysis.surface_1);
+    let (u2_range, v2_range) = face_param_range(brep, analysis.face_2, &analysis.surface_2);
 
     let center_result = match radius {
         FilletRadius::Constant(r) => center_curve::constant_radius_center_curve(
@@ -173,10 +172,30 @@ pub(crate) fn get_edge_midpoint(
     }
 }
 
-/// Get finite parameter ranges for a surface.
+/// Get finite parameter ranges for a surface, bounded by face vertex extents.
+///
+/// Uses the face's outer-loop vertices projected into UV space (via the core
+/// `bounded_parameter_range` helper) instead of the old ±10 fallback.  The core
+/// function applies 50 % padding (min 1.0) which gives intersection solvers
+/// enough headroom while keeping the domain proportional to the actual face.
+pub(crate) fn face_param_range(
+    brep: &BRep,
+    face_handle: popkern_core::topology::FaceHandle,
+    surface: &popkern_core::geometry::surface::SurfaceGeometry,
+) -> ((f64, f64), (f64, f64)) {
+    let positions = brep.face_outer_loop_positions(face_handle);
+    popkern_core::geometry::uv_projection::bounded_parameter_range(&positions, surface)
+}
+
+/// Get finite parameter ranges for a surface (standalone, without face context).
+///
+/// Falls back to ±10 for infinite dimensions. Prefer [`face_param_range`] when
+/// a face handle is available.
+#[cfg(test)]
 pub(crate) fn surface_param_range(
     surface: &popkern_core::geometry::surface::SurfaceGeometry,
 ) -> ((f64, f64), (f64, f64)) {
+    use popkern_core::geometry::surface::SurfaceEval;
     let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
     let u_lo = if u_min.is_finite() { u_min } else { -10.0 };
     let u_hi = if u_max.is_finite() { u_max } else { 10.0 };
