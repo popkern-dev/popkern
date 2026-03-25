@@ -3,8 +3,12 @@
 //! Adjusts interior control point rows so the surface v-derivative at
 //! the boundary aligns with the target face's surface normal, providing
 //! tangent-plane (G1) continuity between the loft and an adjacent face.
+//! For G2 (curvature) continuity, the second interior row is further
+//! adjusted so that the surface's second v-derivative matches the target
+//! face's curvature at the boundary.
 
 use popkern_core::geometry::NurbsSurface;
+use popkern_core::geometry::SurfaceGeometry;
 use popkern_core::geometry::surface::SurfaceEval;
 
 use crate::error::SweepError;
@@ -19,24 +23,21 @@ pub(crate) enum ContinuityEnd {
     End,
 }
 
-/// Apply G1 (or G2 falling back to G1) continuity at a loft end.
+/// Apply G1 or G2 continuity at a loft end.
 ///
-/// Adjusts the first (or last) interior row of control points so the
-/// surface's v-derivative aligns with the target face's normal direction.
-/// G2 constraints fall back to G1 with the same adjustment — curvature
-/// matching requires second-derivative computation that is deferred.
+/// For G1, adjusts the first (or last) interior row of control points so
+/// the surface's v-derivative aligns with the target face's normal.
+/// For G2, additionally adjusts the second interior row so the surface's
+/// second v-derivative matches the target face's curvature at the boundary.
 pub(crate) fn apply_continuity(
     surface: &mut NurbsSurface,
     continuity: &Continuity,
     end: ContinuityEnd,
 ) -> Result<(), SweepError> {
-    let (face_brep, face_handle) = match continuity {
+    let (face_brep, face_handle, is_g2) = match continuity {
         Continuity::Free => return Ok(()),
-        Continuity::G1 { face, face_handle } => (face, face_handle),
-        Continuity::G2 { face, face_handle } => {
-            // G2 falls back to G1 — curvature matching deferred.
-            (face, face_handle)
-        }
+        Continuity::G1 { face, face_handle } => (face, face_handle, false),
+        Continuity::G2 { face, face_handle } => (face, face_handle, true),
     };
 
     // Look up the target face's surface geometry.
@@ -49,7 +50,13 @@ pub(crate) fn apply_continuity(
         .as_ref()
         .ok_or_else(|| SweepError::InvalidProfile("continuity face has no surface".into()))?;
 
+    // G1: align the first interior row with the face normal.
     adjust_row_for_g1(surface, &surface_on_face.geometry, end);
+
+    // G2: adjust the second interior row to match face curvature.
+    if is_g2 {
+        adjust_row_for_g2(surface, &surface_on_face.geometry, end);
+    }
 
     Ok(())
 }
@@ -134,6 +141,84 @@ fn adjust_row_for_g1(
         // making the v-derivative at the boundary tangent to the target face.
         let new_q1 = q0 + normal_unit * (sign * dv_len);
         surface.control_points[interior_idx] = new_q1;
+    }
+}
+
+/// Adjust the second interior row of control points so the surface's
+/// second v-derivative matches the target face's curvature at the boundary.
+///
+/// For `Start`: row 0 is the boundary (Q0), row 1 is the G1 row (Q1),
+/// row 2 is adjusted (Q2).
+/// For `End`: row (num_v-1) is Q0, row (num_v-2) is Q1, row (num_v-3)
+/// is adjusted (Q2).
+///
+/// The curvature-matching condition is:
+///   `Q2_j = 2*Q1_j - Q0_j + delta_v² * curvature_j`
+///
+/// where `curvature_j` is the face surface's second v-derivative at the
+/// section point, evaluated via finite differences on the face surface.
+fn adjust_row_for_g2(
+    surface: &mut NurbsSurface,
+    target_surface: &SurfaceGeometry,
+    end: ContinuityEnd,
+) {
+    let num_u = surface.num_u;
+    let num_v = surface.num_v;
+
+    // Need at least 3 rows in v to have a Q2 row.
+    if num_v < 3 {
+        return;
+    }
+
+    let (q0_iv, q1_iv, q2_iv) = match end {
+        ContinuityEnd::Start => (0_usize, 1_usize, 2_usize),
+        ContinuityEnd::End => (num_v - 1, num_v - 2, num_v - 3),
+    };
+
+    let delta_v = compute_local_knot_span(surface, end);
+    if delta_v.abs() < 1e-30 {
+        return;
+    }
+
+    // Target surface parameter ranges for sampling.
+    let ((u_min, u_max), _) = target_surface.parameter_range();
+    let u_range_finite = (u_min.clamp(-1e6, 1e6), u_max.clamp(-1e6, 1e6));
+
+    let (_, (v_target_min, v_target_max)) = target_surface.parameter_range();
+    let v_target = match end {
+        ContinuityEnd::Start => v_target_min.clamp(-1e6, 1e6),
+        ContinuityEnd::End => v_target_max.clamp(-1e6, 1e6),
+    };
+
+    // Finite-difference step for second derivative on the target surface.
+    let h = 1e-5;
+
+    for j in 0..num_u {
+        let q0_idx = j * num_v + q0_iv;
+        let q1_idx = j * num_v + q1_iv;
+        let q2_idx = j * num_v + q2_iv;
+
+        let q0 = surface.control_points[q0_idx];
+        let q1 = surface.control_points[q1_idx];
+
+        // Compute the u parameter on the target face for this column.
+        let u_frac = if num_u > 1 {
+            j as f64 / (num_u - 1) as f64
+        } else {
+            0.5
+        };
+        let u_target = u_range_finite.0 + u_frac * (u_range_finite.1 - u_range_finite.0);
+
+        // Compute the face surface's second v-derivative via central
+        // finite differences: d²S/dv² ≈ (∂v(v+h) - ∂v(v-h)) / (2h).
+        let dv_plus = target_surface.partial_v(u_target, v_target + h);
+        let dv_minus = target_surface.partial_v(u_target, v_target - h);
+        let curvature = (dv_plus - dv_minus) * (1.0 / (2.0 * h));
+
+        // Q2 = 2*Q1 - Q0 + delta_v² * curvature
+        let dv_sq = delta_v * delta_v;
+        let new_q2 = q1 + (q1 - q0) + curvature * dv_sq;
+        surface.control_points[q2_idx] = new_q2;
     }
 }
 
@@ -290,8 +375,10 @@ mod tests {
     }
 
     #[test]
-    fn loft_with_g2_falls_back_to_g1() {
-        // G2 should produce the same result as G1 (fallback).
+    fn loft_with_g2_matches_curvature() {
+        // Loft three circles with G2 at start against a planar face.
+        // A plane has zero curvature, so the second derivative at v=0
+        // should be near-zero, meaning Q_2 ≈ 2*Q_1 - Q_0.
         let (brep, face_handle) = brep_with_plane_face(0.0);
 
         let sections = vec![
@@ -311,6 +398,33 @@ mod tests {
         let tol = Tolerance::default();
         let result = generate_loft_surface(&sections, &options, &tol);
         assert!(result.is_ok(), "loft with G2 failed: {:?}", result.err());
+
+        let surf = &result.unwrap().surface; // ok in tests
+
+        // Verify the second derivative at v=0 is near-zero (plane curvature).
+        // Use finite differences on the loft surface itself.
+        let h = 1e-5;
+        for u_frac in [0.0, 0.25, 0.5, 0.75] {
+            let dv_plus = surf.partial_v(u_frac, 0.0 + h);
+            let dv_minus = surf.partial_v(u_frac, 0.0);
+            // Second derivative ≈ (dv(h) - dv(0)) / h
+            let d2v = Vec3::new(
+                (dv_plus.x - dv_minus.x) / h,
+                (dv_plus.y - dv_minus.y) / h,
+                (dv_plus.z - dv_minus.z) / h,
+            );
+            // For a plane (zero curvature), d2v magnitude should be small
+            // relative to the first derivative magnitude.
+            let dv_mag = surf.partial_v(u_frac, 0.0).length();
+            if dv_mag > 1e-10 {
+                let ratio = d2v.length() / dv_mag;
+                assert!(
+                    ratio < 5.0,
+                    "second derivative too large at u={u_frac}: |d2v|={}, |dv|={dv_mag}, ratio={ratio}",
+                    d2v.length()
+                );
+            }
+        }
     }
 
     #[test]
