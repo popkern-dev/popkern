@@ -105,15 +105,43 @@ pub(crate) fn tessellate_face(
         let uv_area = (u_range.1 - u_range.0) * (v_range.1 - v_range.0);
         // Skip trimming for degenerate boundaries (sphere seams, etc.)
         if poly_area > uv_area * 0.01 {
-            let (trimmed_verts, trimmed_tris) = crate::trim_clip::apply_trim(
-                &vertices,
-                &triangles,
-                &trim_loops,
-                surface,
-                orientation,
-            );
-            vertices = trimmed_verts;
-            triangles = trimmed_tris;
+            // Only use the full clipping pipeline when ALL loops were built
+            // from pcurves (reliable UV coordinates).  For loops built via
+            // 3D→UV projection (unreliable for non-planar surfaces), fall
+            // back to centroid-based discard to avoid generating bad geometry.
+            let all_from_pcurves = trim_loops.iter().all(|l| l.from_pcurves);
+            if all_from_pcurves {
+                let (trimmed_verts, trimmed_tris) = crate::trim_clip::apply_trim(
+                    &vertices,
+                    &triangles,
+                    &trim_loops,
+                    surface,
+                    orientation,
+                );
+                vertices = trimmed_verts;
+                triangles = trimmed_tris;
+            } else {
+                // Centroid-based discard fallback for projection-based loops.
+                // Only apply if the trim polygon area is reasonable (within
+                // 2× the UV grid area). Larger areas indicate unreliable
+                // UV projections that would create bad geometry.
+                if poly_area < uv_area * 2.0 {
+                    let outer = trim_loops.iter().find(|l| l.is_outer);
+                    if let Some(outer_loop) = outer {
+                        triangles.retain(|tri| {
+                            let cu = (vertices[tri[0]].uv.0
+                                + vertices[tri[1]].uv.0
+                                + vertices[tri[2]].uv.0)
+                                / 3.0;
+                            let cv = (vertices[tri[0]].uv.1
+                                + vertices[tri[1]].uv.1
+                                + vertices[tri[2]].uv.1)
+                                / 3.0;
+                            crate::trim::winding_number(cu, cv, &outer_loop.points) != 0
+                        });
+                    }
+                }
+            }
         }
     }
 
@@ -136,14 +164,30 @@ fn bounded_parameter_range(
     face_handle: FaceHandle,
     surface: &SurfaceGeometry,
 ) -> ((f64, f64), (f64, f64)) {
-    // Try pcurve-based bounds first: walk the outer loop and compute
-    // the UV bounding box directly from pcurve evaluation.
-    if let Some(range) = pcurve_parameter_range(brep, face_handle) {
-        return range;
-    }
-    // Fallback: sample 3D curve points and project to UV with padding.
+    // Compute UV range from 3D boundary sampling (always reliable).
     let positions = brep.face_boundary_sample_points(face_handle, 16);
-    popkern_core::geometry::uv_projection::tight_bounded_parameter_range(&positions, surface)
+    let fallback =
+        popkern_core::geometry::uv_projection::tight_bounded_parameter_range(&positions, surface);
+
+    // If pcurve-based bounds are available, intersect with the fallback
+    // to prevent pcurve UV overflow (e.g., fillet trim curves that extend
+    // beyond the face in UV space).
+    if let Some(pc_range) = pcurve_parameter_range(brep, face_handle) {
+        let u = (
+            pc_range.0.0.max(fallback.0.0),
+            pc_range.0.1.min(fallback.0.1),
+        );
+        let v = (
+            pc_range.1.0.max(fallback.1.0),
+            pc_range.1.1.min(fallback.1.1),
+        );
+        // Only use the intersection if it's non-degenerate.
+        if u.0 < u.1 && v.0 < v.1 {
+            return (u, v);
+        }
+    }
+
+    fallback
 }
 
 /// Compute UV parameter range from the outer loop's pcurves.

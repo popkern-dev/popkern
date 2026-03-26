@@ -380,6 +380,7 @@ mod tests {
         TrimLoop {
             points: vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
             is_outer: true,
+            from_pcurves: true,
         }
     }
 

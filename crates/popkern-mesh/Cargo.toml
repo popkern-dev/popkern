@@ -11,5 +11,7 @@ thiserror = "2"
 
 [dev-dependencies]
 popkern-bool = { path = "../popkern-bool" }
+popkern-fillet = { path = "../popkern-fillet" }
+popkern-shell = { path = "../popkern-shell" }
 popkern-sweep = { path = "../popkern-sweep" }
 tempfile = "3"

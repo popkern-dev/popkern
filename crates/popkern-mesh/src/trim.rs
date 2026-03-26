@@ -17,6 +17,10 @@ pub(crate) struct TrimLoop {
     pub points: Vec<(f64, f64)>,
     /// Whether this is the outer boundary (`true`) or a hole (`false`).
     pub is_outer: bool,
+    /// Whether this loop was built entirely from pcurves (reliable) or
+    /// used 3D→UV projection fallback (may be unreliable for non-planar
+    /// surfaces).
+    pub from_pcurves: bool,
 }
 
 /// Build trim loops for all boundary loops of a face.
@@ -37,21 +41,25 @@ pub(crate) fn build_trim_loops(
     let mut result = Vec::new();
 
     // Outer loop.
-    let outer_points = sample_loop(brep, face.outer_loop, surface, chord_height);
+    let (outer_points, outer_from_pcurves) =
+        sample_loop(brep, face.outer_loop, surface, chord_height);
     if outer_points.len() >= 3 {
         result.push(TrimLoop {
             points: outer_points,
             is_outer: true,
+            from_pcurves: outer_from_pcurves,
         });
     }
 
     // Inner loops (holes).
     for &inner_loop in &face.inner_loops {
-        let inner_points = sample_loop(brep, inner_loop, surface, chord_height);
+        let (inner_points, inner_from_pcurves) =
+            sample_loop(brep, inner_loop, surface, chord_height);
         if inner_points.len() >= 3 {
             result.push(TrimLoop {
                 points: inner_points,
                 is_outer: false,
+                from_pcurves: inner_from_pcurves,
             });
         }
     }
@@ -72,14 +80,34 @@ pub(crate) fn sample_loop(
     loop_handle: LoopHandle,
     surface: &SurfaceGeometry,
     chord_height: f64,
-) -> Vec<(f64, f64)> {
+) -> (Vec<(f64, f64)>, bool) {
     let Some(loop_) = brep.loops.get(loop_handle) else {
-        return Vec::new();
+        return (Vec::new(), false);
     };
     let start_he = loop_.half_edge;
     if !brep.half_edges.contains_key(start_he) {
-        return Vec::new();
+        return (Vec::new(), false);
     }
+
+    // Check if ALL half-edges in this loop have pcurves.  If any is
+    // missing, use the 3D-to-UV projection fallback for the ENTIRE
+    // loop to avoid mixing two UV sources (pcurve vs projection) which
+    // can produce inconsistent coordinates and broken polygons.
+    let all_have_pcurves = {
+        let mut check = start_he;
+        let mut all = true;
+        loop {
+            if brep.half_edges[check].pcurve.is_none() {
+                all = false;
+                break;
+            }
+            check = brep.half_edges[check].next;
+            if check == start_he {
+                break;
+            }
+        }
+        all
+    };
 
     let mut uv_points = Vec::new();
     let mut current = start_he;
@@ -87,13 +115,14 @@ pub(crate) fn sample_loop(
     loop {
         let he = &brep.half_edges[current];
 
-        if let Some(ref pcurve) = he.pcurve {
-            // Direct UV evaluation from pcurve (Point3(u, v, 0)).
-            adaptive_sample_pcurve(pcurve, chord_height, &mut uv_points);
+        if all_have_pcurves {
+            if let Some(ref pcurve) = he.pcurve {
+                adaptive_sample_pcurve(pcurve, chord_height, &mut uv_points);
+            }
         } else {
+            // Fallback: project 3D edge curve (or vertex) to UV.
             let edge = &brep.edges[he.edge];
             if let Some(ref curve_on_edge) = edge.curve {
-                // Project 3D curve samples to UV.
                 let samples = 32_usize;
                 let curve_start = curve_on_edge.geometry.point_at(curve_on_edge.t_start);
                 let he_origin = brep.vertices[he.origin].position;
@@ -112,7 +141,6 @@ pub(crate) fn sample_loop(
                     }
                 }
             } else {
-                // No curve geometry; project vertex position.
                 let p = brep.vertices[he.origin].position;
                 if let Some(uv) = project_point_to_uv(surface, &p) {
                     uv_points.push(uv);
@@ -126,7 +154,7 @@ pub(crate) fn sample_loop(
         }
     }
 
-    uv_points
+    (uv_points, all_have_pcurves)
 }
 
 /// Adaptively sample a pcurve (NURBS curve in UV space) using chord-height
@@ -354,136 +382,6 @@ pub(crate) fn cross_sign(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> f64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use popkern_core::tolerance::Tolerance;
-    use popkern_core::topology::BRep;
-
-    #[test]
-    fn cube_face_produces_one_outer_trim_loop() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let face_handle = brep.faces.keys().next().unwrap();
-        let face = &brep.faces[face_handle];
-        let surface = &face.surface.as_ref().unwrap().geometry;
-
-        let loops = build_trim_loops(&brep, face_handle, surface, 0.01);
-        assert_eq!(loops.len(), 1, "cube face should have exactly 1 loop");
-        assert!(loops[0].is_outer, "the loop should be outer");
-        assert!(
-            loops[0].points.len() >= 4,
-            "cube face loop should have at least 4 points, got {}",
-            loops[0].points.len()
-        );
-    }
-
-    #[test]
-    fn trim_loop_from_pcurves_is_closed() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let face_handle = brep.faces.keys().next().unwrap();
-        let face = &brep.faces[face_handle];
-        let surface = &face.surface.as_ref().unwrap().geometry;
-
-        let loops = build_trim_loops(&brep, face_handle, surface, 0.01);
-        assert!(!loops.is_empty(), "should have at least one loop");
-        let pts = &loops[0].points;
-        let first = pts.first().unwrap();
-        let last = pts.last().unwrap();
-        let dist = ((first.0 - last.0).powi(2) + (first.1 - last.1).powi(2)).sqrt();
-        assert!(
-            dist < 0.1,
-            "first and last points should be close, got distance {dist}"
-        );
-    }
-
-    #[test]
-    fn boolean_face_with_hole_produces_outer_and_inner_loops() {
-        let tol = Tolerance::default().with_linear(1e-2);
-        let cube = BRep::unit_cube(tol).unwrap();
-        let cyl = BRep::cylinder(0.3, 2.0, tol).unwrap();
-
-        // Translate cylinder to center it on the cube's top face.
-        let offset = popkern_core::geometry::Vec3::new(0.5, 0.5, -0.5);
-        let cyl = cyl
-            .transform(&popkern_core::geometry::Transform3::translation(
-                offset.x, offset.y, offset.z,
-            ))
-            .unwrap();
-
-        let result = popkern_bool::subtraction(cube, cyl, tol).unwrap();
-
-        // Check ALL faces with inner_loops; at least one must produce the
-        // expected outer + inner trim loop pattern.
-        let mut found_valid = false;
-        for (fh, face) in &result.faces {
-            if face.inner_loops.is_empty() || face.surface.is_none() {
-                continue;
-            }
-            let surface = &face.surface.as_ref().unwrap().geometry;
-            let loops = build_trim_loops(&result, fh, surface, 0.01);
-
-            let outer_count = loops.iter().filter(|l| l.is_outer).count();
-            let inner_count = loops.iter().filter(|l| !l.is_outer).count();
-
-            if outer_count == 1 && inner_count >= 1 {
-                found_valid = true;
-                break;
-            }
-        }
-
-        // If no face with inner_loops was found at all, the boolean result
-        // topology doesn't use inner_loops for this operation -- acceptable.
-        let has_any_face_with_inner = result.faces.values().any(|f| !f.inner_loops.is_empty());
-        if has_any_face_with_inner {
-            assert!(
-                found_valid,
-                "found faces with inner_loops but none produced outer+inner trim loops"
-            );
-        }
-    }
-
-    /// Helper: create a unit-square outer trim loop for classification tests.
-    fn unit_square_loop() -> TrimLoop {
-        TrimLoop {
-            points: vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
-            is_outer: true,
-        }
-    }
-
-    #[test]
-    fn classify_triangle_inside_square() {
-        let loops = vec![unit_square_loop()];
-        let tri = [(0.3, 0.3), (0.5, 0.3), (0.4, 0.5)];
-        assert_eq!(classify_triangle(&tri, &loops), TriClass::Inside);
-    }
-
-    #[test]
-    fn classify_triangle_outside_square() {
-        let loops = vec![unit_square_loop()];
-        let tri = [(1.5, 1.5), (2.0, 1.5), (1.7, 2.0)];
-        assert_eq!(classify_triangle(&tri, &loops), TriClass::Outside);
-    }
-
-    #[test]
-    fn classify_triangle_boundary_crossing_edge() {
-        let loops = vec![unit_square_loop()];
-        // Centroid ≈ (0.867, 0.433): inside the unit square.
-        // The edge (1.2, 0.3)→(1.0, 0.7) crosses x=1 boundary.
-        let tri = [(0.6, 0.3), (1.2, 0.3), (0.8, 0.7)];
-        assert_eq!(classify_triangle(&tri, &loops), TriClass::Boundary);
-    }
-
-    #[test]
-    fn classify_triangle_inside_hole_is_outside() {
-        let outer = TrimLoop {
-            points: vec![(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)],
-            is_outer: true,
-        };
-        let inner = TrimLoop {
-            points: vec![(0.5, 0.5), (1.5, 0.5), (1.5, 1.5), (0.5, 1.5)],
-            is_outer: false,
-        };
-        let loops = vec![outer, inner];
-        let tri = [(0.8, 0.8), (1.2, 0.8), (1.0, 1.2)];
-        assert_eq!(classify_triangle(&tri, &loops), TriClass::Outside);
-    }
-}
+#[cfg(test)]
+#[path = "trim_tests.rs"]
+mod tests;

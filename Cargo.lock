@@ -2646,6 +2646,8 @@ version = "0.1.0"
 dependencies = [
  "popkern-bool",
  "popkern-core",
+ "popkern-fillet",
+ "popkern-shell",
  "popkern-sweep",
  "tempfile",
  "thiserror 2.0.18",

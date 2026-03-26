@@ -411,3 +411,7 @@ fn tessellate_cylinder_through_cube_union() {
         "overlapping curved boolean tessellation should produce triangles"
     );
 }
+
+// ── Trim regression diagnostics ──────────────────────────────────────
+
+mod diagnostic_trim;
