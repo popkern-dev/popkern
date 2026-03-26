@@ -88,16 +88,6 @@ impl BRep {
                 (he_origin_pos, he_dest_pos)
             };
 
-            // Project 3D start/end to UV.
-            let (u_start, v_start) = match project_point_to_uv(&surface, &start_3d) {
-                Some(uv) => uv,
-                None => continue,
-            };
-            let (u_end, v_end) = match project_point_to_uv(&surface, &end_3d) {
-                Some(uv) => uv,
-                None => continue,
-            };
-
             // Clamp UV to surface parameter range (if finite).
             let clamp_if_finite = |val: f64, lo: f64, hi: f64| -> f64 {
                 if lo.is_finite() && hi.is_finite() {
@@ -106,17 +96,95 @@ impl BRep {
                     val
                 }
             };
-            let u_s = clamp_if_finite(u_start, u_min, u_max);
-            let v_s = clamp_if_finite(v_start, v_min, v_max);
-            let u_e = clamp_if_finite(u_end, u_min, u_max);
-            let v_e = clamp_if_finite(v_end, v_min, v_max);
 
-            // Create degree-1 NURBS line pcurve.
-            let pcurve = NurbsCurve {
-                degree: 1,
-                knots: vec![0.0, 0.0, 1.0, 1.0],
-                control_points: vec![Point3::new(u_s, v_s, 0.0), Point3::new(u_e, v_e, 0.0)],
-                weights: vec![1.0, 1.0],
+            // For planar surfaces, degree-1 (endpoint-to-endpoint) is exact.
+            // For curved surfaces, sample the edge curve at intermediate
+            // points and fit a higher-degree pcurve to capture the UV-space
+            // curvature.
+            let is_planar = matches!(
+                surface,
+                crate::geometry::surface::SurfaceGeometry::Plane { .. }
+            );
+            let edge_curve = &self.edges[edge_handle].curve;
+
+            let pcurve = if is_planar || edge_curve.is_none() {
+                // Degree-1: straight line in UV.
+                let (u_s, v_s) = match project_point_to_uv(&surface, &start_3d) {
+                    Some(uv) => uv,
+                    None => continue,
+                };
+                let (u_e, v_e) = match project_point_to_uv(&surface, &end_3d) {
+                    Some(uv) => uv,
+                    None => continue,
+                };
+                NurbsCurve {
+                    degree: 1,
+                    knots: vec![0.0, 0.0, 1.0, 1.0],
+                    control_points: vec![
+                        Point3::new(
+                            clamp_if_finite(u_s, u_min, u_max),
+                            clamp_if_finite(v_s, v_min, v_max),
+                            0.0,
+                        ),
+                        Point3::new(
+                            clamp_if_finite(u_e, u_min, u_max),
+                            clamp_if_finite(v_e, v_min, v_max),
+                            0.0,
+                        ),
+                    ],
+                    weights: vec![1.0, 1.0],
+                }
+            } else {
+                // Multi-point sampling for curved surfaces.
+                let Some(curve_on_edge) = edge_curve.as_ref() else {
+                    continue;
+                };
+                let forward = he_origin_pos
+                    .distance_to(&curve_on_edge.geometry.point_at(curve_on_edge.t_start))
+                    <= he_origin_pos
+                        .distance_to(&curve_on_edge.geometry.point_at(curve_on_edge.t_end));
+                let (t_lo, t_hi) = if forward {
+                    (curve_on_edge.t_start, curve_on_edge.t_end)
+                } else {
+                    (curve_on_edge.t_end, curve_on_edge.t_start)
+                };
+
+                let n_samples = 16usize;
+                let mut uv_points = Vec::with_capacity(n_samples);
+                let mut params = Vec::with_capacity(n_samples);
+                for i in 0..n_samples {
+                    let t = t_lo + (t_hi - t_lo) * (i as f64 / (n_samples - 1).max(1) as f64);
+                    let p = curve_on_edge.geometry.point_at(t);
+                    if let Some((u, v)) = project_point_to_uv(&surface, &p) {
+                        uv_points.push(Point3::new(
+                            clamp_if_finite(u, u_min, u_max),
+                            clamp_if_finite(v, v_min, v_max),
+                            0.0,
+                        ));
+                        params.push(i as f64 / (n_samples - 1).max(1) as f64);
+                    }
+                }
+
+                if uv_points.len() >= 2 {
+                    // Try fitting a degree-3 NURBS; fall back to degree-1 if
+                    // fitting fails or too few points.
+                    let degree = 3.min(uv_points.len() - 1);
+                    let n_cp = (uv_points.len() / 2).clamp(degree + 1, 20);
+                    match crate::geometry::fitting::fit_curve(&uv_points, &params, degree, n_cp) {
+                        Ok(fitted) => fitted,
+                        Err(_) => {
+                            // Fallback: degree-1 from first to last point.
+                            NurbsCurve {
+                                degree: 1,
+                                knots: vec![0.0, 0.0, 1.0, 1.0],
+                                control_points: vec![uv_points[0], uv_points[uv_points.len() - 1]],
+                                weights: vec![1.0, 1.0],
+                            }
+                        }
+                    }
+                } else {
+                    continue;
+                }
             };
 
             self.half_edges[heh].pcurve = Some(pcurve);
