@@ -132,3 +132,40 @@ fn classify_triangle_inside_hole_is_outside() {
     let tri = [(0.8, 0.8), (1.2, 0.8), (1.0, 1.2)];
     assert_eq!(classify_triangle(&tri, &loops), TriClass::Outside);
 }
+
+#[test]
+fn boolean_hole_face_inner_trim_loop_has_points() {
+    let tol = Tolerance::default();
+    let cube = BRep::unit_cube(tol).unwrap();
+    let cyl = BRep::cylinder(0.2, 2.0, tol)
+        .unwrap()
+        .transform(&popkern_core::geometry::Transform3::translation(
+            0.5, 0.5, -0.5,
+        ))
+        .unwrap();
+    let result = popkern_bool::subtraction(cube, cyl, tol).unwrap();
+
+    // Find faces with inner loops.
+    for fh in result.faces.keys() {
+        let face = &result.faces[fh];
+        if !face.inner_loops.is_empty() {
+            let surface = &face.surface.as_ref().unwrap().geometry;
+            let loops = build_trim_loops(&result, fh, surface, 0.01);
+            let inner_count = loops.iter().filter(|l| !l.is_outer).count();
+            assert!(
+                inner_count >= 1,
+                "face with {} inner loops should produce >= 1 inner trim loop, got {inner_count}",
+                face.inner_loops.len()
+            );
+            for l in &loops {
+                if !l.is_outer {
+                    assert!(
+                        l.points.len() >= 8,
+                        "inner trim loop should have >= 8 points for a circle, got {}",
+                        l.points.len()
+                    );
+                }
+            }
+        }
+    }
+}

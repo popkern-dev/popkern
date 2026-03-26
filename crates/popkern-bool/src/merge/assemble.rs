@@ -168,6 +168,37 @@ pub(crate) fn assemble_result(
         let face_h = builder.add_face(shell);
         let default_loop = popkern_core::topology::LoopHandle::default();
 
+        // For shared intersection edges, the pcurve on each graph
+        // half-edge corresponds to a specific face's UV space (forward →
+        // face A, twin → face B).  When a fragment uses the "wrong"
+        // direction (e.g. face A's inner loop walks the twin direction),
+        // the BRep half-edge would get face B's pcurve, which is in the
+        // wrong UV space.  This helper returns the correct pcurve for
+        // `ghe` given the fragment's `face_ref`: if the graph half-edge's
+        // face matches, use its pcurve; otherwise use the twin's pcurve
+        // (which belongs to the other face and hence the correct UV space).
+        let correct_pcurve_for_face =
+            |ghe: usize,
+             face_ref: &super::graph::FaceRef|
+             -> Option<popkern_core::geometry::nurbs_curve::NurbsCurve> {
+                let ghe_face = &graph.half_edges[ghe].face;
+                let twin = graph.half_edges[ghe].twin;
+                let twin_face = &graph.half_edges[twin].face;
+
+                // If this graph half-edge's face matches the fragment's
+                // face, its pcurve is in the correct UV space.
+                if ghe_face.as_ref() == Some(face_ref) {
+                    return graph.half_edges[ghe].pcurve.clone();
+                }
+                // If the twin's face matches, the twin's pcurve is correct.
+                if twin_face.as_ref() == Some(face_ref) {
+                    return graph.half_edges[twin].pcurve.clone();
+                }
+                // Neither matches (original edges, not shared) — use the
+                // graph half-edge's own pcurve as-is.
+                graph.half_edges[ghe].pcurve.clone()
+            };
+
         // Resolve graph half-edges to BRep half-edges for a loop.
         // When both directions of an edge are already wired, creates a
         // new BRep edge pair and updates he_map so that later fragments
@@ -191,6 +222,10 @@ pub(crate) fn assemble_result(
                 if let Some(&brep_he) = hmap.get(&ghe)
                     && bld.brep().half_edges[brep_he].loop_ == default_loop
                 {
+                    // Fix pcurve: ensure it matches this fragment's face.
+                    if let Some(pc) = correct_pcurve_for_face(ghe, &fragment.face) {
+                        bld.set_half_edge_pcurve(brep_he, pc);
+                    }
                     handles.push(brep_he);
                     continue;
                 }
@@ -198,6 +233,11 @@ pub(crate) fn assemble_result(
                 if let Some(&alt) = hmap.get(&graph_twin)
                     && bld.brep().half_edges[alt].loop_ == default_loop
                 {
+                    // Fix pcurve: the alt half-edge may have the twin's
+                    // pcurve which belongs to a different face's UV space.
+                    if let Some(pc) = correct_pcurve_for_face(ghe, &fragment.face) {
+                        bld.set_half_edge_pcurve(alt, pc);
+                    }
                     handles.push(alt);
                     continue;
                 }
@@ -212,9 +252,10 @@ pub(crate) fn assemble_result(
                     continue;
                 };
                 let (_edge_h, he_fwd, he_twin) = bld.add_edge(vh_start, vh_end);
-                // Wire pcurves onto the duplicate edge pair.
-                if let Some(ref pcurve) = graph.half_edges[ghe].pcurve {
-                    bld.set_half_edge_pcurve(he_fwd, pcurve.clone());
+                // Wire correct pcurves: forward gets this fragment's face
+                // pcurve, twin gets the other face's pcurve.
+                if let Some(pc) = correct_pcurve_for_face(ghe, &fragment.face) {
+                    bld.set_half_edge_pcurve(he_fwd, pc);
                 }
                 if let Some(ref pcurve) = graph.half_edges[graph_twin].pcurve {
                     bld.set_half_edge_pcurve(he_twin, pcurve.clone());
