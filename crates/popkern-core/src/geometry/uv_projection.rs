@@ -82,7 +82,32 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
             let _ = radius; // used only for the forward map
             Some((u, v))
         }
-        SurfaceGeometry::Torus { .. } | SurfaceGeometry::Nurbs(_) => None,
+        SurfaceGeometry::Torus {
+            center,
+            axis,
+            major_radius,
+            minor_radius: _,
+        } => {
+            let (perp1, perp2) = orthonormal_basis(*axis);
+            let d = *point - *center;
+            // Project onto the equatorial plane to find the major angle u.
+            let radial_1 = d.dot(&perp1);
+            let radial_2 = d.dot(&perp2);
+            let mut u = f64::atan2(radial_2, radial_1);
+            if u < 0.0 {
+                u += TAU;
+            }
+            // Find the minor angle v: direction from the major-circle point
+            // to the actual point, decomposed into (radial, axial).
+            let h = d.dot(axis);
+            let radial_dist = (radial_1 * radial_1 + radial_2 * radial_2).sqrt();
+            let mut v = f64::atan2(h, radial_dist - major_radius);
+            if v < 0.0 {
+                v += TAU;
+            }
+            Some((u, v))
+        }
+        SurfaceGeometry::Nurbs(_) => None,
     }
 }
 
@@ -172,6 +197,12 @@ pub fn exact_bounded_parameter_range(
 }
 
 /// Internal: compute bounded parameter ranges with configurable padding.
+///
+/// Always projects face vertices into UV space when possible. For
+/// dimensions where projection succeeds, uses the tighter of the
+/// vertex-projected range (with padding) and the native surface range.
+/// This ensures that faces using a subset of a torus or sphere are
+/// tessellated only over the portion they occupy.
 fn vertex_bounded_parameter_range(
     vertices: &[Point3],
     surface: &SurfaceGeometry,
@@ -180,14 +211,11 @@ fn vertex_bounded_parameter_range(
 ) -> ((f64, f64), (f64, f64)) {
     let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
 
-    if u_min.is_finite() && u_max.is_finite() && v_min.is_finite() && v_max.is_finite() {
-        return ((u_min, u_max), (v_min, v_max));
-    }
-
     if vertices.is_empty() {
         return ((u_min, u_max), (v_min, v_max));
     }
 
+    // Project each vertex to UV and accumulate the bounding box.
     let mut uv_lo = (f64::INFINITY, f64::INFINITY);
     let mut uv_hi = (f64::NEG_INFINITY, f64::NEG_INFINITY);
     let mut any_projected = false;
@@ -203,21 +231,29 @@ fn vertex_bounded_parameter_range(
     }
 
     if !any_projected {
+        // No vertices could be projected (e.g., NURBS surface).
+        // Fall back to the native range.
         return ((u_min, u_max), (v_min, v_max));
     }
 
     let u_pad = ((uv_hi.0 - uv_lo.0) * padding_fraction).max(padding_minimum);
     let v_pad = ((uv_hi.1 - uv_lo.1) * padding_fraction).max(padding_minimum);
 
+    let projected_u = (uv_lo.0 - u_pad, uv_hi.0 + u_pad);
+    let projected_v = (uv_lo.1 - v_pad, uv_hi.1 + v_pad);
+
+    // For each dimension: use the tighter of (native range, projected range).
+    // If native range is infinite, use projected. If native is finite but
+    // wider than projected, use projected (clamped to native bounds).
     let u_range = if u_min.is_finite() && u_max.is_finite() {
-        (u_min, u_max)
+        (projected_u.0.max(u_min), projected_u.1.min(u_max))
     } else {
-        (uv_lo.0 - u_pad, uv_hi.0 + u_pad)
+        projected_u
     };
     let v_range = if v_min.is_finite() && v_max.is_finite() {
-        (v_min, v_max)
+        (projected_v.0.max(v_min), projected_v.1.min(v_max))
     } else {
-        (uv_lo.1 - v_pad, uv_hi.1 + v_pad)
+        projected_v
     };
 
     (u_range, v_range)
@@ -306,14 +342,33 @@ mod tests {
     }
 
     #[test]
-    fn torus_returns_none() {
+    fn torus_projection_outer_equator() {
         let surface = SurfaceGeometry::Torus {
             center: Point3::new(0.0, 0.0, 0.0),
             axis: Vec3::new(0.0, 0.0, 1.0),
             major_radius: 3.0,
             minor_radius: 1.0,
         };
-        assert!(project_point_to_uv(&surface, &Point3::new(4.0, 0.0, 0.0)).is_none());
+        // Point on the outer equator at angle u=0, v=0: (R+r, 0, 0) = (4, 0, 0)
+        let (u, v) = project_point_to_uv(&surface, &Point3::new(4.0, 0.0, 0.0))
+            .expect("torus should project");
+        assert!(u.abs() < 1e-10, "u={u}");
+        assert!(v.abs() < 1e-10, "v={v}");
+    }
+
+    #[test]
+    fn torus_projection_top() {
+        let surface = SurfaceGeometry::Torus {
+            center: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            major_radius: 3.0,
+            minor_radius: 1.0,
+        };
+        // Point on top of the torus at angle u=0, v=π/2: (3, 0, 1)
+        let (u, v) = project_point_to_uv(&surface, &Point3::new(3.0, 0.0, 1.0))
+            .expect("torus should project");
+        assert!(u.abs() < 1e-10, "u={u}");
+        assert!((v - FRAC_PI_2).abs() < 1e-10, "v={v}");
     }
 
     #[test]

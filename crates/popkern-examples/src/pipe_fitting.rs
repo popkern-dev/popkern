@@ -48,6 +48,7 @@ fn main() {
             }
             helpers::export(brep, "Pipe Fitting", "pipe_fitting.step");
             helpers::try_render(brep, "pipe_fitting.png");
+            helpers::render_multi_angle(brep, "pipe_fitting");
         }
         Err(e) => {
             eprintln!("  Pipe operation failed: {e}");

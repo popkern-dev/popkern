@@ -46,12 +46,14 @@ fn main() {
             }
             helpers::export(brep, "Shelled Box", "shelled_box.step");
             helpers::try_render(brep, "shelled_box.png");
+            helpers::render_multi_angle(brep, "shelled_box");
         }
         Err(e) => {
             eprintln!("  Shell operation failed: {e}");
             eprintln!("  Exporting plain cube instead.");
             helpers::export(&cube, "Shelled Box", "shelled_box.step");
             helpers::try_render(&cube, "shelled_box.png");
+            helpers::render_multi_angle(&cube, "shelled_box");
         }
     }
 

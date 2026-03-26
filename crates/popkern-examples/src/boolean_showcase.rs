@@ -56,6 +56,7 @@ fn main() {
     // Export STEP and render PNG.
     helpers::export(&final_model, "Boolean Showcase", "boolean_showcase.step");
     helpers::try_render(&final_model, "boolean_showcase.png");
+    helpers::render_multi_angle(&final_model, "boolean_showcase");
 
     println!("=== Done ===");
 }

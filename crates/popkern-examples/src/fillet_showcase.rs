@@ -51,6 +51,7 @@ fn main() {
             }
             helpers::export(brep, "Fillet Showcase", "fillet_showcase.step");
             helpers::try_render(brep, "fillet_showcase.png");
+            helpers::render_multi_angle(brep, "fillet_showcase");
         }
         Err(e) => {
             eprintln!("  Full fillet failed: {e}");
@@ -71,12 +72,14 @@ fn main() {
                     );
                     helpers::export(brep, "Fillet Showcase", "fillet_showcase.step");
                     helpers::try_render(brep, "fillet_showcase.png");
+                    helpers::render_multi_angle(brep, "fillet_showcase");
                 }
                 Err(e2) => {
                     eprintln!("  Single fillet also failed: {e2}");
                     eprintln!("  Exporting plain cube instead.");
                     helpers::export(&cube, "Fillet Showcase", "fillet_showcase.step");
                     helpers::try_render(&cube, "fillet_showcase.png");
+                    helpers::render_multi_angle(&cube, "fillet_showcase");
                 }
             }
         }

@@ -71,6 +71,77 @@ fn validate_step_file(path: &Path) {
     }
 }
 
+/// Render a BRep from four camera angles, saving PNGs to `examples/output/`.
+///
+/// Produces `<base>_top.png`, `<base>_front.png`, `<base>_low.png`,
+/// and `<base>_inside.png`.
+pub fn render_multi_angle(brep: &BRep, base: &str) {
+    use glam::Vec3;
+    use popkern_viz::camera::Camera;
+
+    let output_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("examples")
+        .join("output");
+    std::fs::create_dir_all(&output_dir).expect("create output dir");
+
+    let base_camera = Camera {
+        fov_y: std::f32::consts::FRAC_PI_4,
+        aspect: 4.0 / 3.0,
+        near: 0.01,
+        far: 100.0,
+        // eye/target/up are overwritten per-angle below
+        eye: Vec3::ZERO,
+        target: Vec3::ZERO,
+        up: Vec3::Y,
+    };
+
+    let angles: &[(&str, Vec3, Vec3, Vec3)] = &[
+        (
+            "top",
+            Vec3::new(0.5, 0.5, 4.0),
+            Vec3::new(0.5, 0.5, 0.5),
+            Vec3::new(0.0, 1.0, 0.0),
+        ),
+        (
+            "front",
+            Vec3::new(0.5, -3.0, 0.5),
+            Vec3::new(0.5, 0.5, 0.5),
+            Vec3::new(0.0, 0.0, 1.0),
+        ),
+        (
+            "low",
+            Vec3::new(2.0, -1.0, -0.5),
+            Vec3::new(0.5, 0.5, 0.5),
+            Vec3::new(0.0, 0.0, 1.0),
+        ),
+        (
+            "inside",
+            Vec3::new(1.5, 1.5, 2.0),
+            Vec3::new(0.5, 0.5, 0.5),
+            Vec3::new(0.0, 0.0, 1.0),
+        ),
+    ];
+
+    for &(label, eye, target, up) in angles {
+        let camera = Camera {
+            eye,
+            target,
+            up,
+            ..base_camera.clone()
+        };
+        let filename = format!("{base}_{label}.png");
+        let path = output_dir.join(&filename);
+        match popkern_viz::headless::render_to_png(brep, &camera, 800, 600, &path, true) {
+            Ok(()) => println!("  Rendered: {}", path.display()),
+            Err(e) => eprintln!("  Render {filename} failed: {e}"),
+        }
+    }
+}
+
 /// Try to render a BRep to PNG via the headless renderer.
 /// Returns Ok if successful, or prints a warning and returns Err if GPU is unavailable.
 pub fn try_render(brep: &BRep, filename: &str) {

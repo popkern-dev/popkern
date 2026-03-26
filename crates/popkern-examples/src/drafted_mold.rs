@@ -68,12 +68,14 @@ fn main() {
             }
             helpers::export(brep, "Drafted Mold", "drafted_mold.step");
             helpers::try_render(brep, "drafted_mold.png");
+            helpers::render_multi_angle(brep, "drafted_mold");
         }
         Err(e) => {
             eprintln!("  Draft operation failed: {e}");
             eprintln!("  Exporting plain cube instead.");
             helpers::export(&cube, "Drafted Mold", "drafted_mold.step");
             helpers::try_render(&cube, "drafted_mold.png");
+            helpers::render_multi_angle(&cube, "drafted_mold");
         }
     }
 

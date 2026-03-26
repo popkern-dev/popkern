@@ -2607,6 +2607,7 @@ dependencies = [
 name = "popkern-examples"
 version = "0.1.0"
 dependencies = [
+ "glam",
  "popkern-bool",
  "popkern-core",
  "popkern-draft",
@@ -2645,6 +2646,7 @@ version = "0.1.0"
 dependencies = [
  "popkern-bool",
  "popkern-core",
+ "popkern-sweep",
  "tempfile",
  "thiserror 2.0.18",
 ]
