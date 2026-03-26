@@ -3,8 +3,6 @@
 //! Clips BOUNDARY triangles against trim polyline segments with vertex snapping.
 //! Propagates split vertices into neighboring INSIDE triangles to prevent T-junctions.
 
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};

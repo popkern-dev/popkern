@@ -4,8 +4,7 @@
 //! with 3D-to-UV projection fallback. These polylines are used by later tasks
 //! for triangle classification and clipping.
 
-// Items are pub(crate) for use by upcoming trim pipeline modules.
-#![allow(dead_code)]
+// Items are pub(crate) for use by the trim pipeline modules.
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceGeometry;

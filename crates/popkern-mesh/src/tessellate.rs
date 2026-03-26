@@ -97,21 +97,24 @@ pub(crate) fn tessellate_face(
         }
     }
 
-    // Trim: discard tessellation triangles whose UV centroids fall outside
-    // the face boundary. This handles self-loop caps (circular trim on
-    // plane), NURBS body surfaces (trim at sweep endpoints), and any face
-    // whose UV parameter range is larger than its actual boundary.
-    // Skip trimming for degenerate boundaries (collinear seam edges on
-    // spheres, single-point loops) where the polygon has negligible area.
-    let boundary_polygon = face_boundary_uv_polygon(brep, face_handle, surface);
-    let poly_area = polygon_area(&boundary_polygon);
-    let uv_area = (u_range.1 - u_range.0) * (v_range.1 - v_range.0);
-    if boundary_polygon.len() >= 3 && poly_area > uv_area * 0.01 {
-        triangles.retain(|tri| {
-            let c_u = (vertices[tri[0]].uv.0 + vertices[tri[1]].uv.0 + vertices[tri[2]].uv.0) / 3.0;
-            let c_v = (vertices[tri[0]].uv.1 + vertices[tri[1]].uv.1 + vertices[tri[2]].uv.1) / 3.0;
-            point_in_polygon(c_u, c_v, &boundary_polygon)
-        });
+    // Trim: use pcurve-based adaptive polylines for precise boundary clipping.
+    let trim_loops =
+        crate::trim::build_trim_loops(brep, face_handle, surface, options.chord_height);
+    if !trim_loops.is_empty() {
+        let poly_area = crate::trim::trim_loop_area(&trim_loops);
+        let uv_area = (u_range.1 - u_range.0) * (v_range.1 - v_range.0);
+        // Skip trimming for degenerate boundaries (sphere seams, etc.)
+        if poly_area > uv_area * 0.01 {
+            let (trimmed_verts, trimmed_tris) = crate::trim_clip::apply_trim(
+                &vertices,
+                &triangles,
+                &trim_loops,
+                surface,
+                orientation,
+            );
+            vertices = trimmed_verts;
+            triangles = trimmed_tris;
+        }
     }
 
     Ok(FaceMesh {
@@ -121,64 +124,65 @@ pub(crate) fn tessellate_face(
     })
 }
 
-/// Sample the face's outer loop boundary as a UV polygon.
+/// Compute a bounded parameter range for a face's surface for tessellation.
 ///
-/// Walks the outer loop's edges, projects curve sample points into UV
-/// space, and returns the polygon vertices. Used for trimming
-/// tessellation triangles that fall outside the face boundary.
-fn face_boundary_uv_polygon(
+/// Uses the pcurve-based trim loop bounding box when pcurves are available,
+/// giving exact UV bounds that match the trim boundary. Falls back to
+/// sample-and-project with 5% padding for faces without pcurves, where
+/// the padding ensures coverage for degenerate topologies (e.g., sphere
+/// seam edges where all vertices project to u=0).
+fn bounded_parameter_range(
     brep: &BRep,
     face_handle: FaceHandle,
     surface: &SurfaceGeometry,
-) -> Vec<(f64, f64)> {
-    use popkern_core::geometry::curve::CurveEval;
-    use popkern_core::geometry::uv_projection::project_point_to_uv;
+) -> ((f64, f64), (f64, f64)) {
+    // Try pcurve-based bounds first: walk the outer loop and compute
+    // the UV bounding box directly from pcurve evaluation.
+    if let Some(range) = pcurve_parameter_range(brep, face_handle) {
+        return range;
+    }
+    // Fallback: sample 3D curve points and project to UV with padding.
+    let positions = brep.face_boundary_sample_points(face_handle, 16);
+    popkern_core::geometry::uv_projection::tight_bounded_parameter_range(&positions, surface)
+}
 
-    let Some(face) = brep.faces.get(face_handle) else {
-        return Vec::new();
-    };
-    let Some(loop_) = brep.loops.get(face.outer_loop) else {
-        return Vec::new();
-    };
+/// Compute UV parameter range from the outer loop's pcurves.
+///
+/// Returns `Some((u_range, v_range))` if every half-edge in the outer loop
+/// has a pcurve; `None` otherwise, signaling the caller to fall back to
+/// 3D projection.
+fn pcurve_parameter_range(
+    brep: &BRep,
+    face_handle: FaceHandle,
+) -> Option<((f64, f64), (f64, f64))> {
+    use popkern_core::geometry::curve::CurveEval;
+
+    let face = brep.faces.get(face_handle)?;
+    let loop_ = brep.loops.get(face.outer_loop)?;
     let start_he = loop_.half_edge;
     if !brep.half_edges.contains_key(start_he) {
-        return Vec::new();
+        return None;
     }
 
-    let mut uv_points = Vec::new();
-    let mut current = start_he;
-    let samples_per_edge = 32;
+    let mut u_min = f64::INFINITY;
+    let mut u_max = f64::NEG_INFINITY;
+    let mut v_min = f64::INFINITY;
+    let mut v_max = f64::NEG_INFINITY;
+    let samples = 16_usize;
 
+    let mut current = start_he;
     loop {
         let he = &brep.half_edges[current];
-        let edge = &brep.edges[he.edge];
+        let pcurve = he.pcurve.as_ref()?; // Return None if any half-edge lacks a pcurve.
 
-        if let Some(ref curve) = edge.curve {
-            // Determine traversal direction: compare this half-edge's origin
-            // vertex with the curve's start point.  If they match, sample
-            // forward (t_start → t_end); otherwise backward.
-            let curve_start = curve.geometry.point_at(curve.t_start);
-            let he_origin = brep.vertices[he.origin].position;
-            let forward = curve_start.distance_to(&he_origin) < 1e-6;
-            let (t_lo, t_hi) = if forward {
-                (curve.t_start, curve.t_end)
-            } else {
-                (curve.t_end, curve.t_start)
-            };
-
-            for i in 0..samples_per_edge {
-                let t = t_lo + (t_hi - t_lo) * (i as f64 / samples_per_edge as f64);
-                let p = curve.geometry.point_at(t);
-                if let Some(uv) = project_point_to_uv(surface, &p) {
-                    uv_points.push(uv);
-                }
-            }
-        } else {
-            // No curve — just use the vertex position.
-            let p = brep.vertices[he.origin].position;
-            if let Some(uv) = project_point_to_uv(surface, &p) {
-                uv_points.push(uv);
-            }
+        let (t0, t1) = pcurve.parameter_range();
+        for i in 0..=samples {
+            let t = t0 + (t1 - t0) * (i as f64 / samples as f64);
+            let pt = pcurve.point_at(t);
+            u_min = u_min.min(pt.x);
+            u_max = u_max.max(pt.x);
+            v_min = v_min.min(pt.y);
+            v_max = v_max.max(pt.y);
         }
 
         current = he.next;
@@ -187,68 +191,11 @@ fn face_boundary_uv_polygon(
         }
     }
 
-    uv_points
-}
-
-/// Winding-number point-in-polygon test in 2D.
-///
-/// Returns true if the point `(px, py)` is inside the polygon defined
-/// by `polygon` (a closed sequence of (x, y) vertices).
-fn point_in_polygon(px: f64, py: f64, polygon: &[(f64, f64)]) -> bool {
-    if polygon.len() < 3 {
-        return true; // Degenerate polygon — don't trim.
+    if u_min.is_finite() && u_max.is_finite() && v_min.is_finite() && v_max.is_finite() {
+        Some(((u_min, u_max), (v_min, v_max)))
+    } else {
+        None
     }
-    let mut winding = 0i32;
-    let n = polygon.len();
-    for i in 0..n {
-        let (x1, y1) = polygon[i];
-        let (x2, y2) = polygon[(i + 1) % n];
-        if y1 <= py {
-            if y2 > py && cross_2d(x2 - x1, y2 - y1, px - x1, py - y1) > 0.0 {
-                winding += 1;
-            }
-        } else if y2 <= py && cross_2d(x2 - x1, y2 - y1, px - x1, py - y1) < 0.0 {
-            winding -= 1;
-        }
-    }
-    winding != 0
-}
-
-/// Signed area of a 2D polygon via the shoelace formula.
-fn polygon_area(polygon: &[(f64, f64)]) -> f64 {
-    if polygon.len() < 3 {
-        return 0.0;
-    }
-    let mut area = 0.0;
-    let n = polygon.len();
-    for i in 0..n {
-        let (x1, y1) = polygon[i];
-        let (x2, y2) = polygon[(i + 1) % n];
-        area += x1 * y2 - x2 * y1;
-    }
-    (area / 2.0).abs()
-}
-
-/// 2D cross product of vectors (ax, ay) and (bx, by).
-fn cross_2d(ax: f64, ay: f64, bx: f64, by: f64) -> f64 {
-    ax * by - ay * bx
-}
-
-/// Compute a bounded parameter range for a face's surface, tight enough for
-/// tessellation.
-///
-/// Uses edge curve sample points (not just vertex positions) to determine
-/// the face's UV extent. This handles self-loop edges (e.g., circular caps)
-/// where the vertex count is 1 but the curve covers a full circle.
-/// Uses 5% padding to ensure the UV grid covers the face plus a small
-/// margin. The trimming step then clips triangles outside the boundary.
-fn bounded_parameter_range(
-    brep: &BRep,
-    face_handle: FaceHandle,
-    surface: &SurfaceGeometry,
-) -> ((f64, f64), (f64, f64)) {
-    let positions = brep.face_boundary_sample_points(face_handle, 16);
-    popkern_core::geometry::uv_projection::tight_bounded_parameter_range(&positions, surface)
 }
 
 /// Tessellate all faces of a BRep into a combined [`TriMesh`].
