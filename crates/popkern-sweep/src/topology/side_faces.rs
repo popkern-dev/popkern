@@ -6,7 +6,7 @@
 use popkern_core::constructors::builder::BRepBuilder;
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
-use popkern_core::geometry::{NurbsCurve, NurbsSurface};
+use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, HalfEdgeHandle};
 
@@ -158,6 +158,22 @@ fn build_closed_profile_topology(
             .add_loop(&loop_hes, face)
             .map_err(|e| SweepError::Topology(format!("side face loop: {e}")))?;
 
+        // Attach pcurves to body face half-edges.
+        // Surface parametrization: u ∈ [0,1] = profile, v ∈ [0,1] = path.
+        // bottom (u varies, v=0), seam-up (u=0, v varies),
+        // top reversed (u varies [1→0], v=1), seam-down (u=0, v varies [1→0]).
+        builder.set_half_edge_pcurve(he_bottom_fwd, uv_line(0.0, 0.0, 1.0, 0.0));
+        builder.set_half_edge_pcurve(he_top_rev, uv_line(1.0, 1.0, 0.0, 1.0));
+        builder.set_half_edge_pcurve(he_left_down, uv_line(0.0, 1.0, 0.0, 0.0));
+        if n_spans == 1 {
+            // Single span: left_up is the seam at u=0.
+            builder.set_half_edge_pcurve(he_left_up, uv_line(0.0, 0.0, 0.0, 1.0));
+        } else {
+            // Multi-span: left_up at u=0, right_up at u=1.
+            builder.set_half_edge_pcurve(he_left_up, uv_line(0.0, 0.0, 0.0, 1.0));
+            builder.set_half_edge_pcurve(he_right_up, uv_line(1.0, 0.0, 1.0, 1.0));
+        }
+
         // Collect twin half-edges for cap loops.
         start_cap_hes.push(he_bottom_rev);
         end_cap_hes.push(he_top_fwd);
@@ -206,9 +222,27 @@ fn build_open_profile_topology(
         builder
             .add_loop(&[he_bottom, he_right, he_top_rev, he_left_rev], face)
             .map_err(|e| SweepError::Topology(format!("open face loop: {e}")))?;
+
+        // Attach pcurves (u = profile [0,1], v = path [0,1]).
+        builder.set_half_edge_pcurve(he_bottom, uv_line(0.0, 0.0, 1.0, 0.0));
+        builder.set_half_edge_pcurve(he_right, uv_line(1.0, 0.0, 1.0, 1.0));
+        builder.set_half_edge_pcurve(he_top_rev, uv_line(1.0, 1.0, 0.0, 1.0));
+        builder.set_half_edge_pcurve(he_left_rev, uv_line(0.0, 1.0, 0.0, 0.0));
     }
 
     Ok(builder.build_unchecked())
+}
+
+/// Build a degree-1 NURBS line in UV parameter space.
+///
+/// The pcurve is stored as a `NurbsCurve` with `Point3(u, v, 0.0)`.
+fn uv_line(u0: f64, v0: f64, u1: f64, v1: f64) -> NurbsCurve {
+    NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![Point3::new(u0, v0, 0.0), Point3::new(u1, v1, 0.0)],
+        weights: vec![1.0, 1.0],
+    }
 }
 
 /// Evaluate a surface corner point.

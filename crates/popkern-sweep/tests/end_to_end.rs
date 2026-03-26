@@ -313,6 +313,45 @@ fn invalid_profile_returns_error() {
 }
 
 #[test]
+fn pipe_has_pcurves_on_all_half_edges() {
+    let path = z_path(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 5.0));
+    let result = popkern_sweep::pipe(
+        &path,
+        &PipeRadius::Constant(1.0),
+        &SweepOptions::default(),
+        default_tol(),
+    );
+    assert!(result.is_ok(), "pipe failed: {:?}", result.err());
+    let brep = &result.unwrap().brep;
+
+    // Every half-edge in the pipe BRep should have a pcurve.
+    for (he_handle, he) in &brep.half_edges {
+        assert!(
+            he.pcurve.is_some(),
+            "half-edge {:?} is missing a pcurve",
+            he_handle
+        );
+    }
+}
+
+#[test]
+fn sweep_circle_has_pcurves_on_all_half_edges() {
+    let profile = circle_profile(1.0);
+    let path = z_path(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 5.0));
+    let result = popkern_sweep::sweep(&profile, &path, &SweepOptions::default(), default_tol());
+    assert!(result.is_ok(), "sweep failed: {:?}", result.err());
+    let brep = &result.unwrap().brep;
+
+    for (he_handle, he) in &brep.half_edges {
+        assert!(
+            he.pcurve.is_some(),
+            "half-edge {:?} is missing a pcurve",
+            he_handle
+        );
+    }
+}
+
+#[test]
 fn self_intersection_allowed_produces_warning() {
     // A tight curve that may cause self-intersection.
     let profile = circle_profile(5.0); // large profile
