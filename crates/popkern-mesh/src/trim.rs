@@ -226,6 +226,134 @@ pub(crate) fn shoelace_area(polygon: &[(f64, f64)]) -> f64 {
     (area / 2.0).abs()
 }
 
+/// Classification of a triangle relative to trim loops.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TriClass {
+    /// Triangle lies entirely inside the trim region.
+    Inside,
+    /// Triangle lies entirely outside the trim region.
+    Outside,
+    /// Triangle straddles a trim boundary.
+    Boundary,
+}
+
+/// Classify a triangle against a set of trim loops.
+///
+/// Computes the centroid of the triangle. If the centroid is not inside
+/// the trim region, returns [`TriClass::Outside`]. If it is inside, checks
+/// whether any triangle edge intersects any trim loop segment; if so,
+/// returns [`TriClass::Boundary`]. Otherwise returns [`TriClass::Inside`].
+pub(crate) fn classify_triangle(tri_uv: &[(f64, f64); 3], trim_loops: &[TrimLoop]) -> TriClass {
+    let cx = (tri_uv[0].0 + tri_uv[1].0 + tri_uv[2].0) / 3.0;
+    let cy = (tri_uv[0].1 + tri_uv[1].1 + tri_uv[2].1) / 3.0;
+
+    if !point_inside_trim_loops(cx, cy, trim_loops) {
+        return TriClass::Outside;
+    }
+
+    // Check if any triangle edge crosses any trim segment.
+    let tri_edges = [(0, 1), (1, 2), (2, 0)];
+    for loop_ in trim_loops {
+        let n = loop_.points.len();
+        if n < 2 {
+            continue;
+        }
+        for i in 0..n {
+            let j = (i + 1) % n;
+            let seg_a = loop_.points[i];
+            let seg_b = loop_.points[j];
+            for &(ei, ej) in &tri_edges {
+                if segments_intersect(tri_uv[ei], tri_uv[ej], seg_a, seg_b) {
+                    return TriClass::Boundary;
+                }
+            }
+        }
+    }
+
+    TriClass::Inside
+}
+
+/// Test whether a point lies inside the trim region defined by trim loops.
+///
+/// For outer loops a nonzero winding number means the point is inside.
+/// For inner loops (holes) a nonzero winding number means the point is
+/// inside the hole, so it is outside the trim region. Outer loops are
+/// processed first.
+pub(crate) fn point_inside_trim_loops(px: f64, py: f64, loops: &[TrimLoop]) -> bool {
+    let mut inside = false;
+
+    // Process outer loops first, then inner loops.
+    for tl in loops.iter().filter(|l| l.is_outer) {
+        if winding_number(px, py, &tl.points) != 0 {
+            inside = true;
+        }
+    }
+
+    if !inside {
+        return false;
+    }
+
+    for tl in loops.iter().filter(|l| !l.is_outer) {
+        if winding_number(px, py, &tl.points) != 0 {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Compute the winding number of a point relative to a closed polygon.
+///
+/// Uses the standard crossing-number algorithm: for each edge of the
+/// polygon, determines whether the horizontal ray from `(px, py)` to
+/// `+inf` crosses that edge, and accumulates +1 or -1 depending on the
+/// crossing direction.
+pub(crate) fn winding_number(px: f64, py: f64, polygon: &[(f64, f64)]) -> i32 {
+    let n = polygon.len();
+    if n < 2 {
+        return 0;
+    }
+    let mut wn: i32 = 0;
+    for i in 0..n {
+        let (x0, y0) = polygon[i];
+        let (x1, y1) = polygon[(i + 1) % n];
+        if y0 <= py {
+            if y1 > py && cross_sign((x0, y0), (x1, y1), (px, py)) > 0.0 {
+                wn += 1;
+            }
+        } else if y1 <= py && cross_sign((x0, y0), (x1, y1), (px, py)) < 0.0 {
+            wn -= 1;
+        }
+    }
+    wn
+}
+
+/// Test whether two line segments properly intersect.
+///
+/// Uses the cross-product orientation test: segments (a1,a2) and (b1,b2)
+/// intersect if and only if the endpoints of each segment lie on opposite
+/// sides of the line containing the other segment.
+pub(crate) fn segments_intersect(
+    a1: (f64, f64),
+    a2: (f64, f64),
+    b1: (f64, f64),
+    b2: (f64, f64),
+) -> bool {
+    let d1 = cross_sign(b1, b2, a1);
+    let d2 = cross_sign(b1, b2, a2);
+    let d3 = cross_sign(a1, a2, b1);
+    let d4 = cross_sign(a1, a2, b2);
+    d1 * d2 < 0.0 && d3 * d4 < 0.0
+}
+
+/// Compute the 2D cross product sign value `(b - a) × (c - a)`.
+///
+/// Returns a positive value if `a → b → c` is counterclockwise, negative
+/// if clockwise, and zero if the points are collinear.
+pub(crate) fn cross_sign(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> f64 {
+    (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,5 +440,51 @@ mod tests {
                 "found faces with inner_loops but none produced outer+inner trim loops"
             );
         }
+    }
+
+    /// Helper: create a unit-square outer trim loop for classification tests.
+    fn unit_square_loop() -> TrimLoop {
+        TrimLoop {
+            points: vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
+            is_outer: true,
+        }
+    }
+
+    #[test]
+    fn classify_triangle_inside_square() {
+        let loops = vec![unit_square_loop()];
+        let tri = [(0.3, 0.3), (0.5, 0.3), (0.4, 0.5)];
+        assert_eq!(classify_triangle(&tri, &loops), TriClass::Inside);
+    }
+
+    #[test]
+    fn classify_triangle_outside_square() {
+        let loops = vec![unit_square_loop()];
+        let tri = [(1.5, 1.5), (2.0, 1.5), (1.7, 2.0)];
+        assert_eq!(classify_triangle(&tri, &loops), TriClass::Outside);
+    }
+
+    #[test]
+    fn classify_triangle_boundary_crossing_edge() {
+        let loops = vec![unit_square_loop()];
+        // Centroid ≈ (0.867, 0.433): inside the unit square.
+        // The edge (1.2, 0.3)→(1.0, 0.7) crosses x=1 boundary.
+        let tri = [(0.6, 0.3), (1.2, 0.3), (0.8, 0.7)];
+        assert_eq!(classify_triangle(&tri, &loops), TriClass::Boundary);
+    }
+
+    #[test]
+    fn classify_triangle_inside_hole_is_outside() {
+        let outer = TrimLoop {
+            points: vec![(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)],
+            is_outer: true,
+        };
+        let inner = TrimLoop {
+            points: vec![(0.5, 0.5), (1.5, 0.5), (1.5, 1.5), (0.5, 1.5)],
+            is_outer: false,
+        };
+        let loops = vec![outer, inner];
+        let tri = [(0.8, 0.8), (1.2, 0.8), (1.0, 1.2)];
+        assert_eq!(classify_triangle(&tri, &loops), TriClass::Outside);
     }
 }
