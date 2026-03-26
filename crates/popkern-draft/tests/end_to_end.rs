@@ -336,3 +336,41 @@ fn draft_angle_matches_request() {
         }
     }
 }
+
+#[test]
+fn drafted_mold_has_pcurves_on_all_half_edges() {
+    let brep = BRep::unit_cube(tol()).unwrap();
+    let face = brep.faces.keys().next().unwrap();
+    let result = draft_face(
+        &brep,
+        face,
+        5.0_f64.to_radians(),
+        Vec3::new(0.0, 0.0, 1.0),
+        NeutralReference::Auto,
+        tol(),
+    )
+    .unwrap();
+    // Check half-edges reachable from face loops.
+    for (_fh, face) in result.brep.faces.iter() {
+        let mut loops_to_check = vec![face.outer_loop];
+        loops_to_check.extend_from_slice(&face.inner_loops);
+        for lh in loops_to_check {
+            if let Some(loop_) = result.brep.loops.get(lh) {
+                let start = loop_.half_edge;
+                let mut cur = start;
+                loop {
+                    let he = &result.brep.half_edges[cur];
+                    assert!(
+                        he.pcurve.is_some(),
+                        "draft half-edge {:?} missing pcurve",
+                        cur
+                    );
+                    cur = he.next;
+                    if cur == start {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}

@@ -132,7 +132,12 @@ fn shell_impl(
     inner_skin::apply_offset_geometry(&mut inner, &offset_result.surfaces, &skin_map)?;
 
     // Stage 5: assemble outer + inner + side walls.
-    let result = assemble::assemble_shell(brep, &inner, &all_removed, &skin_map, tolerance)?;
+    let mut result = assemble::assemble_shell(brep, &inner, &all_removed, &skin_map, tolerance)?;
+
+    // Stage 6: recompute pcurves for all faces.
+    result
+        .recompute_all_pcurves()
+        .map_err(|e| ShellError::Topology(e.to_string()))?;
 
     // Collect warnings.
     let mut warnings = offset_result.warnings;

@@ -28,6 +28,9 @@ pub use vertex::Vertex;
 pub mod brep;
 pub use brep::BRep;
 
+/// Pcurve recomputation for BRep faces.
+mod pcurve_recompute;
+
 /// Edge and face splitting operations.
 pub mod split;
 pub use split::{SplitEdgeResult, SplitFaceResult};

@@ -79,6 +79,11 @@ pub fn apply_draft_topology(
     )?;
     warnings.extend(adj_warnings);
 
+    // Step 6: Recompute pcurves for all faces.
+    result
+        .recompute_all_pcurves()
+        .map_err(|e| DraftError::Topology(e.to_string()))?;
+
     Ok((result, warnings))
 }
 
