@@ -6,8 +6,9 @@
 
 // Items are pub(crate) for use by the trim pipeline modules.
 
+use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::topology::{BRep, FaceHandle, LoopHandle};
 
@@ -15,11 +16,15 @@ use popkern_core::topology::{BRep, FaceHandle, LoopHandle};
 pub(crate) struct TrimLoop {
     /// UV points along the boundary.
     pub points: Vec<(f64, f64)>,
+    /// 3D positions corresponding to each UV point, used for validating
+    /// clipping vertex positions when UV projection is imprecise.
+    pub points_3d: Vec<Point3>,
     /// Whether this is the outer boundary (`true`) or a hole (`false`).
     pub is_outer: bool,
     /// Whether this loop was built entirely from pcurves (reliable) or
     /// used 3D→UV projection fallback (may be unreliable for non-planar
     /// surfaces).
+    #[allow(dead_code)]
     pub from_pcurves: bool,
 }
 
@@ -38,14 +43,20 @@ pub(crate) fn build_trim_loops(
         return Vec::new();
     };
 
+    let (period_u, period_v) = surface.periodicity();
     let mut result = Vec::new();
 
     // Outer loop.
-    let (outer_points, outer_from_pcurves) =
+    let (mut outer_points, outer_points_3d, outer_from_pcurves) =
         sample_loop(brep, face.outer_loop, surface, chord_height);
     if outer_points.len() >= 3 {
+        // Unwrap seam-crossing polygons on periodic surfaces.
+        if crosses_seam(&outer_points, period_u, period_v) {
+            unwrap_periodic(&mut outer_points, period_u, period_v);
+        }
         result.push(TrimLoop {
             points: outer_points,
+            points_3d: outer_points_3d,
             is_outer: true,
             from_pcurves: outer_from_pcurves,
         });
@@ -53,11 +64,15 @@ pub(crate) fn build_trim_loops(
 
     // Inner loops (holes).
     for &inner_loop in &face.inner_loops {
-        let (inner_points, inner_from_pcurves) =
+        let (mut inner_points, inner_points_3d, inner_from_pcurves) =
             sample_loop(brep, inner_loop, surface, chord_height);
         if inner_points.len() >= 3 {
+            if crosses_seam(&inner_points, period_u, period_v) {
+                unwrap_periodic(&mut inner_points, period_u, period_v);
+            }
             result.push(TrimLoop {
                 points: inner_points,
+                points_3d: inner_points_3d,
                 is_outer: false,
                 from_pcurves: inner_from_pcurves,
             });
@@ -67,26 +82,29 @@ pub(crate) fn build_trim_loops(
     result
 }
 
-/// Sample a single loop into UV-space points.
+/// Sample a single loop into UV-space points with corresponding 3D positions.
 ///
 /// For each half-edge in the loop:
 /// - If the half-edge has a pcurve, samples it directly in UV space via
-///   [`adaptive_sample_pcurve`].
+///   [`adaptive_sample_pcurve`], then evaluates the surface to get 3D positions.
 /// - If no pcurve but the edge has a 3D curve, projects 32 uniform curve
-///   samples to UV via [`project_point_to_uv`], respecting half-edge direction.
+///   samples to UV via [`project_point_to_uv`], respecting half-edge direction,
+///   and stores the original 3D curve points.
 /// - If neither, projects the origin vertex position to UV.
+///
+/// Returns `(uv_points, points_3d, all_from_pcurves)`.
 pub(crate) fn sample_loop(
     brep: &BRep,
     loop_handle: LoopHandle,
     surface: &SurfaceGeometry,
     chord_height: f64,
-) -> (Vec<(f64, f64)>, bool) {
+) -> (Vec<(f64, f64)>, Vec<Point3>, bool) {
     let Some(loop_) = brep.loops.get(loop_handle) else {
-        return (Vec::new(), false);
+        return (Vec::new(), Vec::new(), false);
     };
     let start_he = loop_.half_edge;
     if !brep.half_edges.contains_key(start_he) {
-        return (Vec::new(), false);
+        return (Vec::new(), Vec::new(), false);
     }
 
     // Check if ALL half-edges in this loop have pcurves.  If any is
@@ -110,6 +128,7 @@ pub(crate) fn sample_loop(
     };
 
     let mut uv_points = Vec::new();
+    let mut points_3d = Vec::new();
     let mut current = start_he;
 
     loop {
@@ -117,7 +136,12 @@ pub(crate) fn sample_loop(
 
         if all_have_pcurves {
             if let Some(ref pcurve) = he.pcurve {
+                let prev_len = uv_points.len();
                 adaptive_sample_pcurve(pcurve, chord_height, &mut uv_points);
+                // Evaluate surface at each new UV point to get 3D positions.
+                for uv in &uv_points[prev_len..] {
+                    points_3d.push(surface.point_at(uv.0, uv.1));
+                }
             }
         } else {
             // Fallback: project 3D edge curve (or vertex) to UV.
@@ -138,12 +162,14 @@ pub(crate) fn sample_loop(
                     let p = curve_on_edge.geometry.point_at(t);
                     if let Some(uv) = project_point_to_uv(surface, &p) {
                         uv_points.push(uv);
+                        points_3d.push(p);
                     }
                 }
             } else {
                 let p = brep.vertices[he.origin].position;
                 if let Some(uv) = project_point_to_uv(surface, &p) {
                     uv_points.push(uv);
+                    points_3d.push(p);
                 }
             }
         }
@@ -154,7 +180,7 @@ pub(crate) fn sample_loop(
         }
     }
 
-    (uv_points, all_have_pcurves)
+    (uv_points, points_3d, all_have_pcurves)
 }
 
 /// Adaptively sample a pcurve (NURBS curve in UV space) using chord-height
@@ -222,6 +248,85 @@ fn subdivide_pcurve(
         output.push((p_mid.x, p_mid.y));
         subdivide_pcurve(pcurve, t_mid, t1, chord_height, depth + 1, output);
     }
+}
+
+/// Detect if a UV polyline crosses a periodic seam.
+///
+/// A seam crossing is detected when consecutive points in the polyline have a
+/// gap larger than 40% of the period in either periodic direction. This
+/// threshold reliably catches genuine wraps while ignoring small numerical
+/// jitter.
+pub(crate) fn crosses_seam(
+    points: &[(f64, f64)],
+    period_u: Option<f64>,
+    period_v: Option<f64>,
+) -> bool {
+    for i in 0..points.len() {
+        let j = (i + 1) % points.len();
+        if let Some(pu) = period_u
+            && (points[j].0 - points[i].0).abs() > pu * 0.4
+        {
+            return true;
+        }
+        if let Some(pv) = period_v
+            && (points[j].1 - points[i].1).abs() > pv * 0.4
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Unwrap a UV polyline so it doesn't cross a periodic seam.
+///
+/// Shifts points so the polygon is contiguous in parameter space. For each
+/// periodic dimension, computes the circular mean of all point coordinates,
+/// then shifts each point by integer multiples of the period so it falls
+/// within `period/2` of the mean.
+pub(crate) fn unwrap_periodic(
+    points: &mut [(f64, f64)],
+    period_u: Option<f64>,
+    period_v: Option<f64>,
+) {
+    if let Some(pu) = period_u {
+        let center_u = circular_mean(points.iter().map(|p| p.0), pu);
+        for p in points.iter_mut() {
+            while p.0 - center_u > pu / 2.0 {
+                p.0 -= pu;
+            }
+            while p.0 - center_u < -pu / 2.0 {
+                p.0 += pu;
+            }
+        }
+    }
+    if let Some(pv) = period_v {
+        let center_v = circular_mean(points.iter().map(|p| p.1), pv);
+        for p in points.iter_mut() {
+            while p.1 - center_v > pv / 2.0 {
+                p.1 -= pv;
+            }
+            while p.1 - center_v < -pv / 2.0 {
+                p.1 += pv;
+            }
+        }
+    }
+}
+
+/// Circular mean of angles with a given period.
+///
+/// Computes the mean direction by converting each value to a unit vector on
+/// the circle (with the given period mapped to 2pi), averaging the sine and
+/// cosine components, and converting back.
+fn circular_mean(angles: impl Iterator<Item = f64>, period: f64) -> f64 {
+    let (sin_sum, cos_sum, count) = angles.fold((0.0, 0.0, 0usize), |(s, c, n), a| {
+        let theta = a * std::f64::consts::TAU / period;
+        (s + theta.sin(), c + theta.cos(), n + 1)
+    });
+    if count == 0 {
+        return 0.0;
+    }
+    let mean_theta = (sin_sum / count as f64).atan2(cos_sum / count as f64);
+    mean_theta * period / std::f64::consts::TAU
 }
 
 /// Returns the shoelace area of the outer loop for degenerate-boundary detection.

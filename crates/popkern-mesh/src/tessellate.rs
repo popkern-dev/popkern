@@ -105,43 +105,31 @@ pub(crate) fn tessellate_face(
         let uv_area = (u_range.1 - u_range.0) * (v_range.1 - v_range.0);
         // Skip trimming for degenerate boundaries (sphere seams, etc.)
         if poly_area > uv_area * 0.01 {
-            // Only use the full clipping pipeline when ALL loops were built
-            // from pcurves (reliable UV coordinates).  For loops built via
-            // 3D→UV projection (unreliable for non-planar surfaces), fall
-            // back to centroid-based discard to avoid generating bad geometry.
-            let all_from_pcurves = trim_loops.iter().all(|l| l.from_pcurves);
-            if all_from_pcurves {
-                let (trimmed_verts, trimmed_tris) = crate::trim_clip::apply_trim(
-                    &vertices,
-                    &triangles,
-                    &trim_loops,
-                    surface,
-                    orientation,
-                );
-                vertices = trimmed_verts;
-                triangles = trimmed_tris;
-            } else {
-                // Centroid-based discard fallback for projection-based loops.
-                // Only apply if the trim polygon area is reasonable (within
-                // 2× the UV grid area). Larger areas indicate unreliable
-                // UV projections that would create bad geometry.
-                if poly_area < uv_area * 2.0 {
-                    let outer = trim_loops.iter().find(|l| l.is_outer);
-                    if let Some(outer_loop) = outer {
-                        triangles.retain(|tri| {
-                            let cu = (vertices[tri[0]].uv.0
-                                + vertices[tri[1]].uv.0
-                                + vertices[tri[2]].uv.0)
-                                / 3.0;
-                            let cv = (vertices[tri[0]].uv.1
-                                + vertices[tri[1]].uv.1
-                                + vertices[tri[2]].uv.1)
-                                / 3.0;
-                            crate::trim::winding_number(cu, cv, &outer_loop.points) != 0
-                        });
-                    }
-                }
-            }
+            // Always use the full clipping pipeline. The 3D validation in
+            // apply_trim ensures correct vertex positions even for loops
+            // built via 3D→UV projection (non-pcurve paths).
+            let (trimmed_verts, trimmed_tris) = crate::trim_clip::apply_trim(
+                &vertices,
+                &triangles,
+                &trim_loops,
+                surface,
+                orientation,
+            );
+            vertices = trimmed_verts;
+            // Remove degenerate triangles (near-zero 3D area) that can
+            // appear from imprecise clipping at trim boundaries.
+            triangles = trimmed_tris
+                .into_iter()
+                .filter(|tri| {
+                    let p0 = vertices[tri[0]].position;
+                    let p1 = vertices[tri[1]].position;
+                    let p2 = vertices[tri[2]].position;
+                    let e1 = p1 - p0;
+                    let e2 = p2 - p0;
+                    let cross = e1.cross(&e2);
+                    cross.length() > 1e-10
+                })
+                .collect();
         }
     }
 

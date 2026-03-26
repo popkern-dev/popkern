@@ -177,6 +177,24 @@ impl SurfaceGeometry {
         }
     }
 
+    /// Returns the periodicity of each parameter direction.
+    ///
+    /// `Some(period)` if the surface wraps with that period, `None` if not
+    /// periodic. For example, a cylinder has `(Some(TAU), None)` because u
+    /// is the angular direction with period 2pi while v is the axial
+    /// direction with no periodicity.
+    pub fn periodicity(&self) -> (Option<f64>, Option<f64>) {
+        use std::f64::consts::TAU;
+        match self {
+            SurfaceGeometry::Plane { .. } => (None, None),
+            SurfaceGeometry::Cylinder { .. } => (Some(TAU), None),
+            SurfaceGeometry::Cone { .. } => (Some(TAU), None),
+            SurfaceGeometry::Sphere { .. } => (Some(TAU), None),
+            SurfaceGeometry::Torus { .. } => (Some(TAU), Some(TAU)),
+            SurfaceGeometry::Nurbs(_) => (None, None),
+        }
+    }
+
     /// Convert to a [`NurbsSurface`] covering the given parameter range.
     pub fn to_nurbs_in_range(&self, u_range: (f64, f64), v_range: (f64, f64)) -> NurbsSurface {
         match self {
@@ -275,6 +293,33 @@ mod tests {
             minor_radius: 0.5,
         };
         assert_eq!(torus.is_periodic(), (true, true));
+    }
+
+    #[test]
+    fn periodicity_returns_correct_periods() {
+        use std::f64::consts::TAU;
+        let plane = SurfaceGeometry::Plane {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            u_axis: Vec3::new(1.0, 0.0, 0.0),
+            v_axis: Vec3::new(0.0, 1.0, 0.0),
+        };
+        assert_eq!(plane.periodicity(), (None, None));
+
+        let cyl = SurfaceGeometry::Cylinder {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        };
+        assert_eq!(cyl.periodicity(), (Some(TAU), None));
+
+        let torus = SurfaceGeometry::Torus {
+            center: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            major_radius: 2.0,
+            minor_radius: 0.5,
+        };
+        assert_eq!(torus.periodicity(), (Some(TAU), Some(TAU)));
     }
 
     #[test]

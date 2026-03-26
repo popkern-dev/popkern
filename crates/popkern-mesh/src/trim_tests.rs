@@ -1,6 +1,7 @@
 use super::*;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
+use std::f64::consts::TAU;
 
 #[test]
 fn cube_face_produces_one_outer_trim_loop() {
@@ -88,6 +89,7 @@ fn boolean_face_with_hole_produces_outer_and_inner_loops() {
 fn unit_square_loop() -> TrimLoop {
     TrimLoop {
         points: vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
+        points_3d: Vec::new(),
         is_outer: true,
         from_pcurves: true,
     }
@@ -120,11 +122,13 @@ fn classify_triangle_boundary_crossing_edge() {
 fn classify_triangle_inside_hole_is_outside() {
     let outer = TrimLoop {
         points: vec![(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)],
+        points_3d: Vec::new(),
         is_outer: true,
         from_pcurves: true,
     };
     let inner = TrimLoop {
         points: vec![(0.5, 0.5), (1.5, 0.5), (1.5, 1.5), (0.5, 1.5)],
+        points_3d: Vec::new(),
         is_outer: false,
         from_pcurves: true,
     };
@@ -167,5 +171,68 @@ fn boolean_hole_face_inner_trim_loop_has_points() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn seam_crossing_polygon_is_unwrapped() {
+    let mut points = vec![(5.5, 0.5), (6.0, 0.5), (0.3, 0.5), (0.0, 0.5)];
+    // This polygon crosses the u=0/2pi seam on a cylinder.
+    assert!(crosses_seam(&points, Some(TAU), None));
+    unwrap_periodic(&mut points, Some(TAU), None);
+    // After unwrapping, all points should be contiguous.
+    for i in 0..points.len() - 1 {
+        let du = (points[i + 1].0 - points[i].0).abs();
+        assert!(
+            du < std::f64::consts::PI,
+            "points should be contiguous after unwrap, gap={du}"
+        );
+    }
+}
+
+#[test]
+fn non_seam_polygon_unchanged() {
+    let mut points = vec![(1.0, 0.5), (2.0, 0.5), (2.0, 1.5), (1.0, 1.5)];
+    let original = points.clone();
+    unwrap_periodic(&mut points, Some(TAU), None);
+    // No seam crossing -- points should be unchanged (within small
+    // tolerance from circular mean shift).
+    for (p, o) in points.iter().zip(original.iter()) {
+        assert!(
+            (p.0 - o.0).abs() < 0.01 && (p.1 - o.1).abs() < 0.01,
+            "point changed unexpectedly: ({}, {}) -> ({}, {})",
+            o.0,
+            o.1,
+            p.0,
+            p.1
+        );
+    }
+}
+
+#[test]
+fn crosses_seam_false_for_non_periodic() {
+    let points = vec![(5.5, 0.5), (6.0, 0.5), (0.3, 0.5)];
+    // No periodicity: should not detect seam crossing.
+    assert!(!crosses_seam(&points, None, None));
+}
+
+#[test]
+fn circular_mean_empty_returns_zero() {
+    let result = circular_mean(std::iter::empty(), TAU);
+    assert!((result).abs() < 1e-10);
+}
+
+#[test]
+fn torus_v_seam_crossing_unwrapped() {
+    // Polygon crosses the v=0/2pi seam on a torus.
+    let mut points = vec![(1.0, 5.8), (1.0, 6.1), (1.0, 0.2), (1.0, 0.0)];
+    assert!(crosses_seam(&points, Some(TAU), Some(TAU)));
+    unwrap_periodic(&mut points, Some(TAU), Some(TAU));
+    for i in 0..points.len() - 1 {
+        let dv = (points[i + 1].1 - points[i].1).abs();
+        assert!(
+            dv < std::f64::consts::PI,
+            "v-direction should be contiguous after unwrap, gap={dv}"
+        );
     }
 }
