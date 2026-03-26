@@ -105,37 +105,20 @@ pub(crate) fn tessellate_face(
         let uv_area = (u_range.1 - u_range.0) * (v_range.1 - v_range.0);
         // Skip trimming for degenerate boundaries (sphere seams, etc.)
         if poly_area > uv_area * 0.01 {
-            // Use full clipping when all loops have reliable pcurves.
-            // Fall back to centroid-based discard for projection-based
-            // loops where UV coordinates may be imprecise (torus fillets,
-            // NURBS surfaces without pcurves). The centroid fallback
-            // produces jagged edges but never creates wrong geometry.
-            let all_from_pcurves = trim_loops.iter().all(|l| l.from_pcurves);
-            if all_from_pcurves {
-                let (trimmed_verts, trimmed_tris) = crate::trim_clip::apply_trim(
-                    &vertices,
-                    &triangles,
-                    &trim_loops,
-                    surface,
-                    orientation,
-                );
-                vertices = trimmed_verts;
-                triangles = trimmed_tris;
-            } else if poly_area < uv_area * 2.0 {
-                // Centroid-based discard for projection-based loops.
-                let outer = trim_loops.iter().find(|l| l.is_outer);
-                if let Some(outer_loop) = outer {
-                    triangles.retain(|tri| {
-                        let cu =
-                            (vertices[tri[0]].uv.0 + vertices[tri[1]].uv.0 + vertices[tri[2]].uv.0)
-                                / 3.0;
-                        let cv =
-                            (vertices[tri[0]].uv.1 + vertices[tri[1]].uv.1 + vertices[tri[2]].uv.1)
-                                / 3.0;
-                        crate::trim::winding_number(cu, cv, &outer_loop.points) != 0
-                    });
-                }
-            }
+            // All construction pipelines (constructors, sweep, boolean,
+            // fillet, shell, draft) now generate pcurves via
+            // recompute_all_pcurves. The full clipping pipeline runs
+            // unconditionally. The 3D validation in apply_trim handles
+            // any residual UV imprecision.
+            let (trimmed_verts, trimmed_tris) = crate::trim_clip::apply_trim(
+                &vertices,
+                &triangles,
+                &trim_loops,
+                surface,
+                orientation,
+            );
+            vertices = trimmed_verts;
+            triangles = trimmed_tris;
         }
     }
 

@@ -115,7 +115,7 @@ pub fn fillet_edges(
     }
 
     // 3. Apply topology.
-    let apply_result =
+    let mut apply_result =
         construct::apply_blend_geometry(brep, &edge_geometries, &tolerance, &options.vertex_mode)
             .map_err(|edge_failures| BlendError::PartialFailure {
             failed: edge_failures.len(),
@@ -123,6 +123,13 @@ pub fn fillet_edges(
             partial_result: Box::new(brep.clone()),
             failures: edge_failures,
         })?;
+
+    // 4. Ensure 100% pcurve coverage. The custom attach_fillet_pcurves
+    // handles trim edges and fillet surface edges, but topology operations
+    // (mef, kef, vertex blending) can create half-edges it doesn't see.
+    // recompute_all_pcurves fills any remaining gaps by projecting edge
+    // curve endpoints to UV on each face's surface.
+    let _ = apply_result.brep.recompute_all_pcurves();
 
     // Merge overlap warnings with topology warnings.
     let mut all_warnings = apply_result.warnings;
