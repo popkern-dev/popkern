@@ -272,11 +272,15 @@ pub fn exact_bounded_parameter_range(
 
 /// Internal: compute bounded parameter ranges with configurable padding.
 ///
-/// Always projects face vertices into UV space when possible. For
-/// dimensions where projection succeeds, uses the tighter of the
-/// vertex-projected range (with padding) and the native surface range.
-/// This ensures that faces using a subset of a torus or sphere are
-/// tessellated only over the portion they occupy.
+/// For analytic surfaces (Plane, Cylinder, Cone, Sphere, Torus), projects
+/// face vertices into UV space and uses the tighter of (native range,
+/// projected range + padding). This ensures faces using a subset of a
+/// torus or sphere are tessellated only over the portion they occupy.
+///
+/// For NURBS surfaces, returns the native knot-vector range as-is. NURBS
+/// surfaces from sweep/fillet pipelines have knot ranges that already
+/// match the face extent, and vertex projection on NURBS with degenerate
+/// topology (seam vertices) gives misleading UV ranges.
 fn vertex_bounded_parameter_range(
     vertices: &[Point3],
     surface: &SurfaceGeometry,
@@ -284,6 +288,14 @@ fn vertex_bounded_parameter_range(
     padding_minimum: f64,
 ) -> ((f64, f64), (f64, f64)) {
     let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
+
+    // NURBS: trust the knot-vector range. The construction pipeline
+    // (sweep, fillet, boolean) builds NURBS surfaces whose knot ranges
+    // match the face extent. Vertex projection on NURBS with degenerate
+    // seam topology produces misleadingly tight ranges.
+    if matches!(surface, SurfaceGeometry::Nurbs(_)) {
+        return ((u_min, u_max), (v_min, v_max));
+    }
 
     if vertices.is_empty() {
         return ((u_min, u_max), (v_min, v_max));
@@ -305,8 +317,6 @@ fn vertex_bounded_parameter_range(
     }
 
     if !any_projected {
-        // No vertices could be projected (e.g., NURBS surface).
-        // Fall back to the native range.
         return ((u_min, u_max), (v_min, v_max));
     }
 
