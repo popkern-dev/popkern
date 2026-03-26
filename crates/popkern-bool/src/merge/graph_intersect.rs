@@ -55,8 +55,19 @@ pub(crate) fn insert_intersection_curves(
             face_b: record.face_b,
         };
 
-        let (fwd, twin) =
-            graph.add_half_edge_pair(start_node, end_node, source, Some(curve_on_edge));
+        // Attach UV curves as pcurves: curve_uv1 belongs to face A (fwd),
+        // curve_uv2 belongs to face B (twin).
+        let pcurve_a = Some(record.curve.curve_uv1.clone());
+        let pcurve_b = Some(record.curve.curve_uv2.clone());
+
+        let (fwd, twin) = graph.add_half_edge_pair_with_pcurves(
+            start_node,
+            end_node,
+            source,
+            Some(curve_on_edge),
+            pcurve_a,
+            pcurve_b,
+        );
 
         let face_a_ref = FaceRef {
             operand: Operand::A,

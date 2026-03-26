@@ -129,7 +129,8 @@ pub(crate) fn split_graph_edge(
         origin: new_node,
         twin: new_twin_idx,
         face: fwd_face,
-        curve: None, // Curve splitting handled separately.
+        curve: None,  // Curve splitting handled separately.
+        pcurve: None, // Pcurve splitting handled separately.
         source: split_source.clone(),
     });
     graph.half_edges.push(GraphHalfEdge {
@@ -137,6 +138,7 @@ pub(crate) fn split_graph_edge(
         twin: new_fwd_idx,
         face: twin_face,
         curve: None,
+        pcurve: None,
         source: split_source,
     });
 

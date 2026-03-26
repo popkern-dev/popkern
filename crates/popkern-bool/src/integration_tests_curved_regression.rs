@@ -5,7 +5,11 @@
 
 // Structural lint marker: this file is test code, included via #[cfg(test)] in lib.rs.
 #[cfg(test)]
-use popkern_core::{geometry::Vec3, tolerance::Tolerance, topology::BRep};
+use popkern_core::{
+    geometry::{Transform3, Vec3},
+    tolerance::Tolerance,
+    topology::BRep,
+};
 
 /// Translate all vertices and surface/curve geometry of a BRep by `offset`.
 fn translate(mut brep: BRep, offset: Vec3) -> BRep {
@@ -92,5 +96,29 @@ fn disjoint_cube_union_preserves_pcurves() {
     assert!(
         with_pcurves > 0,
         "Result should have pcurves from cube constructors"
+    );
+}
+
+#[test]
+fn boolean_subtraction_preserves_and_creates_pcurves() {
+    let tol = Tolerance::default();
+    let cube = BRep::unit_cube(tol).unwrap();
+    let cyl = BRep::cylinder(0.2, 2.0, tol)
+        .unwrap()
+        .transform(&Transform3::translation(0.5, 0.5, -0.5))
+        .unwrap();
+    let result = crate::subtraction(cube, cyl, tol).unwrap();
+
+    let total = result.half_edges.len();
+    let with_pcurves = result
+        .half_edges
+        .values()
+        .filter(|he| he.pcurve.is_some())
+        .count();
+
+    // Most half-edges should have pcurves (cube edges from operand + intersection edges).
+    assert!(
+        with_pcurves > total / 2,
+        "expected most half-edges to have pcurves, got {with_pcurves}/{total}"
     );
 }

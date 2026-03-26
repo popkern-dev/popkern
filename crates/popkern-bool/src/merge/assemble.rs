@@ -154,6 +154,14 @@ pub(crate) fn assemble_result(
                     builder.set_edge_curve(edge_h, line_curve);
                 }
             }
+
+            // Wire pcurves from graph half-edges onto result half-edges.
+            if let Some(ref pcurve) = graph.half_edges[ghe_idx].pcurve {
+                builder.set_half_edge_pcurve(he_fwd, pcurve.clone());
+            }
+            if let Some(ref pcurve) = graph.half_edges[twin_ghe].pcurve {
+                builder.set_half_edge_pcurve(he_twin, pcurve.clone());
+            }
         }
 
         // Create face.
@@ -204,6 +212,13 @@ pub(crate) fn assemble_result(
                     continue;
                 };
                 let (_edge_h, he_fwd, he_twin) = bld.add_edge(vh_start, vh_end);
+                // Wire pcurves onto the duplicate edge pair.
+                if let Some(ref pcurve) = graph.half_edges[ghe].pcurve {
+                    bld.set_half_edge_pcurve(he_fwd, pcurve.clone());
+                }
+                if let Some(ref pcurve) = graph.half_edges[graph_twin].pcurve {
+                    bld.set_half_edge_pcurve(he_twin, pcurve.clone());
+                }
                 // Overwrite mappings so later fragments pick up the new
                 // twin instead of the already-wired originals.
                 hmap.insert(ghe, he_fwd);

@@ -60,8 +60,17 @@ pub(crate) fn insert_operand_topology(
             Operand::B => EdgeSource::OriginalB(eh),
         };
 
-        let (fwd_idx, twin_idx) =
-            graph.add_half_edge_pair(start_node, end_node, source, edge.curve.clone());
+        let pcurve_fwd = he.pcurve.clone();
+        let pcurve_twin = twin_he.pcurve.clone();
+
+        let (fwd_idx, twin_idx) = graph.add_half_edge_pair_with_pcurves(
+            start_node,
+            end_node,
+            source,
+            edge.curve.clone(),
+            pcurve_fwd,
+            pcurve_twin,
+        );
 
         he_map.insert(he_h, fwd_idx);
         he_map.insert(twin_h, twin_idx);

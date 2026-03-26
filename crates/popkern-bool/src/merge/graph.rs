@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 
 use popkern_core::{
-    geometry::{CurveOnEdge, Point3},
+    geometry::{CurveOnEdge, Point3, nurbs_curve::NurbsCurve},
     topology::{EdgeHandle, FaceHandle, VertexHandle},
 };
 
@@ -93,6 +93,8 @@ pub(crate) struct GraphHalfEdge {
     pub face: Option<FaceRef>,
     /// Geometric curve along this half-edge, if any.
     pub curve: Option<CurveOnEdge>,
+    /// UV parameter-space curve (pcurve) for the face this half-edge borders.
+    pub pcurve: Option<NurbsCurve>,
     /// Where this edge came from.
     pub source: EdgeSource,
 }
@@ -145,6 +147,23 @@ impl IntersectionGraph {
         source: EdgeSource,
         curve: Option<CurveOnEdge>,
     ) -> (usize, usize) {
+        self.add_half_edge_pair_with_pcurves(start, end, source, curve, None, None)
+    }
+
+    /// Add a half-edge pair with explicit pcurves for each direction.
+    ///
+    /// Like [`add_half_edge_pair`](Self::add_half_edge_pair), but also
+    /// attaches UV parameter-space curves to the forward and twin
+    /// half-edges respectively.
+    pub fn add_half_edge_pair_with_pcurves(
+        &mut self,
+        start: usize,
+        end: usize,
+        source: EdgeSource,
+        curve: Option<CurveOnEdge>,
+        pcurve_fwd: Option<NurbsCurve>,
+        pcurve_twin: Option<NurbsCurve>,
+    ) -> (usize, usize) {
         let fwd_idx = self.half_edges.len();
         let twin_idx = fwd_idx + 1;
 
@@ -153,6 +172,7 @@ impl IntersectionGraph {
             twin: twin_idx,
             face: None,
             curve,
+            pcurve: pcurve_fwd,
             source: source.clone(),
         });
         self.half_edges.push(GraphHalfEdge {
@@ -160,6 +180,7 @@ impl IntersectionGraph {
             twin: fwd_idx,
             face: None,
             curve: None,
+            pcurve: pcurve_twin,
             source,
         });
 
