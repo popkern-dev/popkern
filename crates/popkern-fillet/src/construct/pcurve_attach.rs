@@ -6,11 +6,30 @@
 //! computes and wires the correct pcurves for both sides.
 
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 use super::helpers::project_to_uv;
+
+/// Project a 3D point to UV and clamp to the surface's valid parameter range.
+///
+/// Infinite parameter bounds (e.g. planes) are left unclamped.
+fn project_to_uv_clamped(surface: &SurfaceGeometry, pt: &Point3) -> (f64, f64) {
+    let (u, v) = project_to_uv(surface, pt);
+    let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
+    let u = if u_min.is_finite() && u_max.is_finite() {
+        u.clamp(u_min, u_max)
+    } else {
+        u
+    };
+    let v = if v_min.is_finite() && v_max.is_finite() {
+        v.clamp(v_min, v_max)
+    } else {
+        v
+    };
+    (u, v)
+}
 
 /// Number of sample points for projecting a 3D curve onto a surface UV space.
 const PCURVE_SAMPLE_COUNT: usize = 20;
@@ -176,9 +195,9 @@ fn orient_pcurve_to_halfedge(
 
 /// Compute pcurves for half-edges on the fillet face that do not yet have one.
 ///
-/// Walks the fillet face's outer loop. For each half-edge without a pcurve,
-/// samples the 3D edge curve, projects onto the fillet surface, and fits a
-/// NURBS pcurve.
+/// Walks all loops on the fillet face (outer loop and inner loops). For each
+/// half-edge without a pcurve, samples the 3D edge curve, projects onto the
+/// fillet surface, and fits a NURBS pcurve.
 fn attach_remaining_fillet_pcurves(
     brep: &mut BRep,
     fillet_face: FaceHandle,
@@ -188,26 +207,39 @@ fn attach_remaining_fillet_pcurves(
         return;
     };
     let outer_loop = face_data.outer_loop;
-    let Some(loop_data) = brep.loops.get(outer_loop) else {
-        return;
-    };
-    let start_he = loop_data.half_edge;
-    if !brep.half_edges.contains_key(start_he) {
-        return;
-    }
+    let inner_loops = face_data.inner_loops.clone();
 
-    // Collect half-edge handles that need pcurves.
-    let mut he_handles = Vec::new();
-    let mut cursor = start_he;
-    let limit = brep.half_edges.len() + 1;
-    for _ in 0..limit {
-        if brep.half_edges[cursor].pcurve.is_none() {
-            he_handles.push(cursor);
-        }
-        cursor = brep.half_edges[cursor].next;
-        if cursor == start_he {
-            break;
-        }
+    // Collect half-edge handles that need pcurves from a single loop.
+    let collect_from_loop =
+        |brep: &BRep, loop_handle: popkern_core::topology::LoopHandle| -> Vec<HalfEdgeHandle> {
+            let Some(loop_data) = brep.loops.get(loop_handle) else {
+                return Vec::new();
+            };
+            let start_he = loop_data.half_edge;
+            if !brep.half_edges.contains_key(start_he) {
+                return Vec::new();
+            }
+            let mut handles = Vec::new();
+            let mut cursor = start_he;
+            let limit = brep.half_edges.len() + 1;
+            for _ in 0..limit {
+                if brep.half_edges[cursor].pcurve.is_none() {
+                    handles.push(cursor);
+                }
+                cursor = brep.half_edges[cursor].next;
+                if cursor == start_he {
+                    break;
+                }
+            }
+            handles
+        };
+
+    // Collect from the outer loop.
+    let mut he_handles = collect_from_loop(brep, outer_loop);
+
+    // Also process inner loops.
+    for &inner_loop_handle in &inner_loops {
+        he_handles.extend(collect_from_loop(brep, inner_loop_handle));
     }
 
     // Compute pcurves for the collected half-edges.
@@ -254,7 +286,7 @@ fn compute_halfedge_pcurve(
                         curve.t_end - t_frac * (curve.t_end - curve.t_start)
                     };
                     let pt = curve.geometry.point_at(t);
-                    let (u, v) = project_to_uv(surface, &pt);
+                    let (u, v) = project_to_uv_clamped(surface, &pt);
                     Point3::new(u, v, 0.0)
                 })
                 .collect()
@@ -270,7 +302,7 @@ fn compute_halfedge_pcurve(
                         origin.y + t * (dest.y - origin.y),
                         origin.z + t * (dest.z - origin.z),
                     );
-                    let (u, v) = project_to_uv(surface, &pt);
+                    let (u, v) = project_to_uv_clamped(surface, &pt);
                     Point3::new(u, v, 0.0)
                 })
                 .collect()
@@ -299,7 +331,7 @@ fn compute_pcurve_on_surface(
         .map(|i| {
             let t = t_start + (t_end - t_start) * (i as f64 / (n - 1) as f64);
             let pt = curve_3d.point_at(t);
-            let (u, v) = project_to_uv(surface, &pt);
+            let (u, v) = project_to_uv_clamped(surface, &pt);
             Point3::new(u, v, 0.0)
         })
         .collect();

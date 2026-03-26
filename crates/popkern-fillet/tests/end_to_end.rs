@@ -467,3 +467,17 @@ fn large_radius_detects_overlap_or_fails() {
         }
     }
 }
+
+#[test]
+fn fillet_result_100_percent_pcurve_coverage() {
+    let brep = BRep::unit_cube(default_tol()).unwrap();
+    let edge = brep.edges.keys().next().unwrap();
+    let result = popkern_fillet::fillet_edge(&brep, edge, 0.1, default_tol()).unwrap();
+    for (he_handle, he) in result.brep.half_edges.iter() {
+        assert!(
+            he.pcurve.is_some(),
+            "half-edge {:?} missing pcurve",
+            he_handle
+        );
+    }
+}
