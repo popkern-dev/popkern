@@ -1,7 +1,10 @@
 //! Torus constructor — revolve-based with seam-closing post-process.
 
 use crate::error::CoreError;
+use crate::geometry::curve::CurveEval;
+use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+use crate::geometry::uv_projection::project_point_to_uv;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
@@ -111,8 +114,78 @@ impl BRep {
             });
         }
 
+        // Attach pcurves to all half-edges.
+        attach_torus_pcurves(&mut brep)?;
+
         Ok(brep)
     }
+}
+
+/// Attach pcurves to all half-edges on the torus.
+///
+/// For each half-edge, determines the face it belongs to, retrieves the
+/// torus surface geometry, and projects the 3D start/end positions to UV
+/// via [`project_point_to_uv`]. Builds a degree-1 NURBS line pcurve in
+/// `Point3(u, v, 0)` convention.
+fn attach_torus_pcurves(brep: &mut BRep) -> Result<(), CoreError> {
+    let he_handles: Vec<HalfEdgeHandle> = brep.half_edges.keys().collect();
+    for heh in he_handles {
+        let he = &brep.half_edges[heh];
+        let loop_handle = he.loop_;
+        let face_handle = brep.loops[loop_handle].face;
+
+        let surface = match &brep.faces[face_handle].surface {
+            Some(sof) => sof.geometry.clone(),
+            None => continue,
+        };
+
+        // Get the 3D start position (half-edge origin vertex).
+        let start_pos = brep.vertices[brep.half_edges[heh].origin].position;
+        // Get the 3D end position (next half-edge's origin vertex).
+        let next_heh = brep.half_edges[heh].next;
+        let end_pos = brep.vertices[brep.half_edges[next_heh].origin].position;
+
+        // Determine half-edge direction relative to the edge curve.
+        // If the edge has curve geometry, check whether the half-edge
+        // runs forward or backward along it, and use the curve's
+        // start/end points for accurate UV projection at seams.
+        let (p_start, p_end) = if let Some(ref curve) = brep.edges[brep.half_edges[heh].edge].curve
+        {
+            let curve_start = curve.geometry.point_at(curve.t_start);
+            let forward = start_pos.distance_to(&curve_start) < start_pos.distance_to(&end_pos)
+                || start_pos.distance_to(&curve_start) < 1e-6;
+            if forward {
+                (
+                    curve.geometry.point_at(curve.t_start),
+                    curve.geometry.point_at(curve.t_end),
+                )
+            } else {
+                (
+                    curve.geometry.point_at(curve.t_end),
+                    curve.geometry.point_at(curve.t_start),
+                )
+            }
+        } else {
+            (start_pos, end_pos)
+        };
+
+        let (u0, v0) = project_point_to_uv(&surface, &p_start).ok_or_else(|| {
+            CoreError::PreconditionFailed("UV projection failed for pcurve start".into())
+        })?;
+        let (u1, v1) = project_point_to_uv(&surface, &p_end).ok_or_else(|| {
+            CoreError::PreconditionFailed("UV projection failed for pcurve end".into())
+        })?;
+
+        let pcurve = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(u0, v0, 0.0), Point3::new(u1, v1, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+
+        brep.half_edges[heh].pcurve = Some(pcurve);
+    }
+    Ok(())
 }
 
 /// Close the seam of a 360° revolve to produce a genus-1 (torus) topology.
@@ -396,6 +469,18 @@ mod tests {
             assert!(
                 (dist_from_major - 1.0).abs() < 0.1,
                 "Vertex not on torus: dist={dist_from_major}"
+            );
+        }
+    }
+
+    #[test]
+    fn torus_half_edges_have_pcurves() {
+        let torus = BRep::torus(3.0, 1.0, Tolerance::default()).unwrap();
+        for he_handle in torus.half_edges.keys() {
+            assert!(
+                torus.half_edges[he_handle].pcurve.is_some(),
+                "torus half-edge {:?} missing pcurve",
+                he_handle
             );
         }
     }
