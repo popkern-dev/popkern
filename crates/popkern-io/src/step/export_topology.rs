@@ -31,7 +31,10 @@ impl ExportContext {
             vertex_map.insert(vh, vp_id);
         }
 
-        // 2. Export all edges → EDGE_CURVE
+        // 1b. Pre-export face surfaces so we have surface IDs for pcurves
+        let surface_map = self.pre_export_surfaces(brep)?;
+
+        // 2. Export all edges → EDGE_CURVE (with SURFACE_CURVE wrappers)
         for (eh, edge) in &brep.edges {
             let he = brep
                 .half_edges
@@ -49,11 +52,10 @@ impl ExportContext {
                 IoError::Export("Twin half-edge references unmapped vertex".into())
             })?;
 
-            // Export the curve geometry, or create a default line if absent
-            let curve_id = if let Some(curve) = &edge.curve {
+            // Export the 3-D curve geometry, or synthesize a line if absent
+            let curve_3d_id = if let Some(curve) = &edge.curve {
                 self.export_curve(curve)
             } else {
-                // Synthesize a line from start to end vertex
                 let start_v = brep
                     .vertices
                     .get(he.origin)
@@ -74,6 +76,15 @@ impl ExportContext {
                 self.export_curve(&fallback)
             };
 
+            // Build pcurve list from both half-edges
+            let curve_id = self.maybe_wrap_surface_curve(
+                brep,
+                curve_3d_id,
+                edge.half_edge,
+                he.twin,
+                &surface_map,
+            );
+
             let ec_id = self.emit(
                 "EDGE_CURVE",
                 vec![
@@ -87,10 +98,11 @@ impl ExportContext {
             edge_map.insert(eh, ec_id);
         }
 
-        // 3. Export faces
+        // 3. Export faces (surfaces already exported; reuses cached IDs)
         let mut face_ids: Vec<EntityId> = Vec::new();
         for (fh, face) in &brep.faces {
-            let face_id = self.export_face(brep, fh, face, &vertex_map, &edge_map)?;
+            let surface_id = surface_map.get(&fh).copied();
+            let face_id = self.export_face(brep, fh, face, &vertex_map, &edge_map, surface_id)?;
             face_ids.push(face_id);
         }
 
@@ -105,6 +117,9 @@ impl ExportContext {
     }
 
     /// Export a single face with its loops.
+    ///
+    /// If `pre_surface_id` is `Some`, the surface was already exported during
+    /// the pcurve pre-pass and we reuse that entity ID.
     fn export_face(
         &mut self,
         brep: &BRep,
@@ -112,6 +127,7 @@ impl ExportContext {
         face: &popkern_core::topology::Face,
         vertex_map: &HashMap<VertexHandle, EntityId>,
         edge_map: &HashMap<EdgeHandle, EntityId>,
+        pre_surface_id: Option<EntityId>,
     ) -> Result<EntityId, IoError> {
         // Export outer loop
         let outer_bound_id = self.export_loop_as_bound(
@@ -131,11 +147,12 @@ impl ExportContext {
             bounds.push(ref_(inner_bound_id));
         }
 
-        // Export surface geometry
-        let surface_id = if let Some(surface) = &face.surface {
+        // Use the pre-exported surface, or export now if none was cached
+        let surface_id = if let Some(id) = pre_surface_id {
+            id
+        } else if let Some(surface) = &face.surface {
             self.export_surface(surface)
         } else {
-            // Synthesize a default plane from face vertices
             let default_surface = synthesize_plane(brep, face.outer_loop)?;
             self.export_surface(&default_surface)
         };
@@ -224,6 +241,69 @@ impl ExportContext {
 
         Ok(bound_id)
     }
+
+    /// Pre-export face surfaces so their entity IDs are available for pcurves.
+    fn pre_export_surfaces(
+        &mut self,
+        brep: &BRep,
+    ) -> Result<HashMap<FaceHandle, EntityId>, IoError> {
+        let mut surface_map: HashMap<FaceHandle, EntityId> = HashMap::new();
+        for (fh, face) in &brep.faces {
+            if let Some(surface) = &face.surface {
+                let sid = self.export_surface(surface);
+                surface_map.insert(fh, sid);
+            }
+        }
+        Ok(surface_map)
+    }
+
+    /// If both half-edges have pcurves, wrap the 3-D curve in a SURFACE_CURVE.
+    ///
+    /// Returns either the original `curve_3d_id` (no pcurves) or a new
+    /// SURFACE_CURVE entity ID.
+    fn maybe_wrap_surface_curve(
+        &mut self,
+        brep: &BRep,
+        curve_3d_id: EntityId,
+        he_handle: popkern_core::topology::HalfEdgeHandle,
+        twin_handle: popkern_core::topology::HalfEdgeHandle,
+        surface_map: &HashMap<FaceHandle, EntityId>,
+    ) -> EntityId {
+        let mut pcurve_ids: Vec<EntityId> = Vec::new();
+
+        // Try to export pcurve for the forward half-edge
+        if let Some(pcurve_id) = self.try_export_he_pcurve(brep, he_handle, surface_map) {
+            pcurve_ids.push(pcurve_id);
+        }
+
+        // Try to export pcurve for the twin half-edge
+        if let Some(pcurve_id) = self.try_export_he_pcurve(brep, twin_handle, surface_map) {
+            pcurve_ids.push(pcurve_id);
+        }
+
+        if pcurve_ids.is_empty() {
+            curve_3d_id
+        } else {
+            self.export_surface_curve(curve_3d_id, &pcurve_ids)
+        }
+    }
+
+    /// Try to export the pcurve for a single half-edge.
+    ///
+    /// Returns `None` if the half-edge has no pcurve or its face surface was
+    /// not pre-exported.
+    fn try_export_he_pcurve(
+        &mut self,
+        brep: &BRep,
+        he_handle: popkern_core::topology::HalfEdgeHandle,
+        surface_map: &HashMap<FaceHandle, EntityId>,
+    ) -> Option<EntityId> {
+        let he = brep.half_edges.get(he_handle)?;
+        let pcurve = he.pcurve.as_ref()?;
+        let loop_ = brep.loops.get(he.loop_)?;
+        let surface_id = surface_map.get(&loop_.face)?;
+        Some(self.export_pcurve(pcurve, *surface_id))
+    }
 }
 
 use crate::step::parser::types::Parameter;
@@ -282,171 +362,5 @@ fn synthesize_plane(brep: &BRep, lh: LoopHandle) -> Result<SurfaceOnFace, IoErro
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use popkern_core::tolerance::Tolerance;
-
-    #[test]
-    fn export_unit_cube_entity_counts() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let mut ctx = ExportContext::new();
-        let solid_id = ctx.export_brep(&brep).unwrap();
-
-        // Count entity types
-        let count =
-            |name: &str| -> usize { ctx.entities.iter().filter(|e| e.type_name == name).count() };
-
-        // A cube has 8 vertices, 12 edges, 6 faces
-        assert_eq!(count("VERTEX_POINT"), 8, "Expected 8 VERTEX_POINTs");
-        assert_eq!(count("EDGE_CURVE"), 12, "Expected 12 EDGE_CURVEs");
-        assert_eq!(count("ADVANCED_FACE"), 6, "Expected 6 ADVANCED_FACEs");
-        assert_eq!(count("CLOSED_SHELL"), 1, "Expected 1 CLOSED_SHELL");
-        assert_eq!(
-            count("MANIFOLD_SOLID_BREP"),
-            1,
-            "Expected 1 MANIFOLD_SOLID_BREP"
-        );
-
-        // Each face has one outer loop
-        assert_eq!(count("FACE_OUTER_BOUND"), 6, "Expected 6 FACE_OUTER_BOUNDs");
-        assert_eq!(count("EDGE_LOOP"), 6, "Expected 6 EDGE_LOOPs");
-
-        // Each edge appears in two faces → 24 oriented edges
-        assert_eq!(count("ORIENTED_EDGE"), 24, "Expected 24 ORIENTED_EDGEs");
-
-        // The solid ID should refer to a real entity
-        let solid = ctx.entities.iter().find(|e| e.id == solid_id);
-        assert!(solid.is_some());
-        assert_eq!(solid.unwrap().type_name, "MANIFOLD_SOLID_BREP");
-    }
-
-    #[test]
-    fn export_cube_surfaces_are_planes() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let mut ctx = ExportContext::new();
-        ctx.export_brep(&brep).unwrap();
-
-        let plane_count = ctx
-            .entities
-            .iter()
-            .filter(|e| e.type_name == "PLANE")
-            .count();
-        // A cube has 6 planar faces; some planes may be shared if
-        // the deduplication catches them, but typically 6 distinct planes
-        assert!(
-            plane_count >= 3 && plane_count <= 6,
-            "Expected 3-6 PLANEs for a cube, got {plane_count}"
-        );
-    }
-
-    #[test]
-    fn export_brep_vertex_points_reference_cartesian_points() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let mut ctx = ExportContext::new();
-        ctx.export_brep(&brep).unwrap();
-
-        for entity in &ctx.entities {
-            if entity.type_name == "VERTEX_POINT" {
-                // VERTEX_POINT('', #ref_to_cartesian_point)
-                assert_eq!(entity.params.len(), 2);
-                assert!(matches!(entity.params[1], Parameter::EntityRef(_)));
-            }
-        }
-    }
-
-    #[test]
-    fn export_brep_with_inner_loop() {
-        use popkern_core::constructors::builder::BRepBuilder;
-        use popkern_core::geometry::Point3;
-
-        let mut b = BRepBuilder::new(Tolerance::default());
-
-        // Outer quad: v0-v1-v2-v3
-        let v0 = b.add_vertex(Point3::new(0.0, 0.0, 0.0));
-        let v1 = b.add_vertex(Point3::new(4.0, 0.0, 0.0));
-        let v2 = b.add_vertex(Point3::new(4.0, 4.0, 0.0));
-        let v3 = b.add_vertex(Point3::new(0.0, 4.0, 0.0));
-
-        // Inner quad (hole): v4-v5-v6-v7
-        let v4 = b.add_vertex(Point3::new(1.0, 1.0, 0.0));
-        let v5 = b.add_vertex(Point3::new(3.0, 1.0, 0.0));
-        let v6 = b.add_vertex(Point3::new(3.0, 3.0, 0.0));
-        let v7 = b.add_vertex(Point3::new(1.0, 3.0, 0.0));
-
-        // Outer loop edges
-        let (_, he01, _) = b.add_edge(v0, v1);
-        let (_, he12, _) = b.add_edge(v1, v2);
-        let (_, he23, _) = b.add_edge(v2, v3);
-        let (_, he30, _) = b.add_edge(v3, v0);
-
-        // Inner loop edges (CW from outside = hole)
-        let (_, he47, _) = b.add_edge(v4, v7);
-        let (_, he76, _) = b.add_edge(v7, v6);
-        let (_, he65, _) = b.add_edge(v6, v5);
-        let (_, he54, _) = b.add_edge(v5, v4);
-
-        let solid = b.add_solid();
-        let shell = b.add_shell(solid);
-        let face = b.add_face(shell);
-        b.add_loop(&[he01, he12, he23, he30], face).unwrap();
-        b.add_inner_loop(&[he47, he76, he65, he54], face).unwrap();
-
-        let brep = b.build_unchecked();
-        let mut ctx = ExportContext::new();
-        let solid_id = ctx.export_brep(&brep).unwrap();
-
-        let count =
-            |name: &str| -> usize { ctx.entities.iter().filter(|e| e.type_name == name).count() };
-
-        // Should have 1 FACE_OUTER_BOUND and 1 FACE_BOUND
-        assert_eq!(count("FACE_OUTER_BOUND"), 1);
-        assert_eq!(count("FACE_BOUND"), 1);
-        // 2 edge loops (outer + inner)
-        assert_eq!(count("EDGE_LOOP"), 2);
-        assert_eq!(count("ADVANCED_FACE"), 1);
-
-        let solid = ctx.entities.iter().find(|e| e.id == solid_id);
-        assert!(solid.is_some());
-    }
-
-    #[test]
-    fn export_brep_edges_without_curves_synthesize_lines() {
-        // unit_cube doesn't set curves, so the exporter should synthesize them
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let mut ctx = ExportContext::new();
-        ctx.export_brep(&brep).unwrap();
-
-        let line_count = ctx
-            .entities
-            .iter()
-            .filter(|e| e.type_name == "LINE")
-            .count();
-        // All 12 edges should have synthesized LINE curves
-        assert!(
-            line_count >= 12,
-            "Expected at least 12 LINEs, got {line_count}"
-        );
-    }
-
-    #[test]
-    fn export_oriented_edge_has_correct_structure() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let mut ctx = ExportContext::new();
-        ctx.export_brep(&brep).unwrap();
-
-        for entity in &ctx.entities {
-            if entity.type_name == "ORIENTED_EDGE" {
-                // ORIENTED_EDGE('', *, *, #edge_curve, .T./.F.)
-                assert_eq!(entity.params.len(), 5);
-                assert_eq!(entity.params[0], Parameter::String("".into()));
-                assert_eq!(entity.params[1], Parameter::Derived);
-                assert_eq!(entity.params[2], Parameter::Derived);
-                assert!(matches!(entity.params[3], Parameter::EntityRef(_)));
-                assert!(
-                    entity.params[4] == Parameter::Enum("T".into())
-                        || entity.params[4] == Parameter::Enum("F".into())
-                );
-            }
-        }
-    }
-}
+#[path = "export_topology_tests.rs"]
+mod tests;

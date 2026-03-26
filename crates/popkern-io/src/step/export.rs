@@ -111,6 +111,8 @@ pub(crate) struct ExportContext {
     pub(crate) point_cache: HashMap<PointKey, EntityId>,
     /// Cache of already-exported directions, keyed by exact float bits.
     pub(crate) direction_cache: HashMap<PointKey, EntityId>,
+    /// Cached ID of the shared 2-D parametric representation context.
+    pub(crate) param_repr_context_id: Option<EntityId>,
 }
 
 /// Key for deduplicating points/directions by exact float bits.
@@ -149,6 +151,7 @@ impl ExportContext {
             next_id: 1,
             point_cache: HashMap::new(),
             direction_cache: HashMap::new(),
+            param_repr_context_id: None,
         }
     }
 
