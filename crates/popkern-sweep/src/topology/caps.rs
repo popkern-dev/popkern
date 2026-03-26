@@ -4,6 +4,7 @@
 //! by wiring boundary half-edges into a loop.
 
 use popkern_core::constructors::builder::BRepBuilder;
+use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::topology::{FaceHandle, HalfEdgeHandle, ShellHandle};
@@ -22,7 +23,7 @@ pub fn create_cap_face(
     builder: &mut BRepBuilder,
     shell: ShellHandle,
     half_edges: &[HalfEdgeHandle],
-    _cap_curves: &[NurbsCurve],
+    cap_curves: &[NurbsCurve],
     is_start_cap: bool,
 ) -> Result<FaceHandle, SweepError> {
     if half_edges.is_empty() {
@@ -38,6 +39,20 @@ pub fn create_cap_face(
     builder
         .add_loop(half_edges, face)
         .map_err(|e| SweepError::Topology(format!("cap loop: {e}")))?;
+
+    // Attach cap curve geometry to each boundary edge.
+    for (he_handle, curve) in half_edges.iter().zip(cap_curves.iter()) {
+        let edge_handle = builder.brep().half_edges[*he_handle].edge;
+        let (t_start, t_end) = curve.parameter_range();
+        builder.set_edge_curve(
+            edge_handle,
+            CurveOnEdge {
+                geometry: CurveGeometry::Nurbs(curve.clone()),
+                t_start,
+                t_end,
+            },
+        );
+    }
 
     Ok(face)
 }
