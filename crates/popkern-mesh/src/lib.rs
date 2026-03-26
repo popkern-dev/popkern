@@ -9,6 +9,7 @@ mod adaptive;
 mod export;
 mod mesh;
 mod tessellate;
+mod trim;
 
 pub use mesh::{FaceMesh, MeshVertex, TriMesh};
 
