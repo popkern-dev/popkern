@@ -10,6 +10,7 @@ mod export;
 mod mesh;
 mod tessellate;
 mod trim;
+mod trim_clip;
 
 pub use mesh::{FaceMesh, MeshVertex, TriMesh};
 
