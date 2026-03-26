@@ -81,6 +81,58 @@ impl BRep {
         positions
     }
 
+    /// Collect sample points along the outer loop's edge curves.
+    ///
+    /// Walks the outer loop's half-edges. For each edge that has curve
+    /// geometry, samples the curve at `n` equally-spaced parameter values
+    /// and collects the 3D points. Includes vertex positions as well.
+    ///
+    /// This is more representative than [`face_outer_loop_positions`] for
+    /// faces with self-loop edges (e.g., circular caps) where the vertex
+    /// count is 1 but the curve traverses a full circle.
+    pub fn face_boundary_sample_points(
+        &self,
+        face_handle: FaceHandle,
+        samples_per_edge: usize,
+    ) -> Vec<crate::geometry::Point3> {
+        use crate::geometry::curve::CurveEval;
+
+        let Some(face) = self.faces.get(face_handle) else {
+            return Vec::new();
+        };
+        let Some(loop_) = self.loops.get(face.outer_loop) else {
+            return Vec::new();
+        };
+        let start_he = loop_.half_edge;
+        if !self.half_edges.contains_key(start_he) {
+            return Vec::new();
+        }
+
+        let mut points = Vec::new();
+        let mut current = start_he;
+        loop {
+            let he = &self.half_edges[current];
+            // Always include the vertex position.
+            points.push(self.vertices[he.origin].position);
+
+            // If the edge has curve geometry, sample along it.
+            let edge = &self.edges[he.edge];
+            if let Some(ref curve) = edge.curve {
+                let n = samples_per_edge.max(2);
+                for i in 1..n {
+                    let t = curve.t_start + (curve.t_end - curve.t_start) * (i as f64 / n as f64);
+                    points.push(curve.geometry.point_at(t));
+                }
+            }
+
+            current = he.next;
+            if current == start_he {
+                break;
+            }
+        }
+        points
+    }
+
     /// Apply a rigid transformation to the entire BRep, returning a new copy.
     ///
     /// Transforms vertex positions, surface geometry on every face, edge
