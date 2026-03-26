@@ -9,6 +9,7 @@ pub(crate) mod blend_insert;
 pub(crate) mod blend_topo;
 pub(crate) mod helpers;
 pub(crate) mod merge;
+pub(crate) mod pcurve_attach;
 
 use std::collections::HashMap;
 
@@ -389,8 +390,22 @@ fn apply_single_blend(
     }
 
     // Phase 3: Merge consumed faces by removing the original fillet edge.
-    helpers::merge_consumed_faces(brep, consumed_1, consumed_2, fillet_edge, &eg.surface)
-        .map_err(|e| BlendFailure::InvalidTopology { reason: e })?;
+    let fillet_face =
+        helpers::merge_consumed_faces(brep, consumed_1, consumed_2, fillet_edge, &eg.surface)
+            .map_err(|e| BlendFailure::InvalidTopology { reason: e })?;
+
+    // Phase 4: Attach pcurves to the fillet face and kept-face trim edges.
+    let pcurve_params = pcurve_attach::FilletPcurveParams {
+        fillet_face,
+        fillet_surface: &eg.surface,
+        trim_edges_1: &split_1.new_edges,
+        trim_edges_2: &split_2.new_edges,
+        eg_pcurve_1: &eg.pcurve_1,
+        eg_pcurve_2: &eg.pcurve_2,
+        trim_3d_1: &eg.trim_3d_1,
+        trim_3d_2: &eg.trim_3d_2,
+    };
+    pcurve_attach::attach_fillet_pcurves(brep, &pcurve_params);
 
     Ok(())
 }

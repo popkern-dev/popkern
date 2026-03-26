@@ -356,4 +356,24 @@ mod tests {
         assert!(fillet_edges(&brep, &[], &fopts(), tol()).is_err());
         assert!(chamfer_edges(&brep, &[], &copts(), tol()).is_err());
     }
+
+    #[test]
+    fn fillet_result_has_pcurves() {
+        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let edge = brep.edges.keys().next().unwrap();
+        let result = fillet_edge(&brep, edge, 0.1, Tolerance::default()).unwrap();
+
+        let total = result.brep.half_edges.len();
+        let with_pcurves = result
+            .brep
+            .half_edges
+            .values()
+            .filter(|he| he.pcurve.is_some())
+            .count();
+
+        assert!(
+            with_pcurves > total / 2,
+            "expected most half-edges to have pcurves, got {with_pcurves}/{total}"
+        );
+    }
 }

@@ -112,7 +112,7 @@ fn compute_pcurve_for_trim(surface: &SurfaceGeometry, pt_a: &Point3, pt_b: &Poin
 }
 
 /// Project a 3D point onto a surface's UV parameter space.
-fn project_to_uv(surface: &SurfaceGeometry, point: &Point3) -> (f64, f64) {
+pub(crate) fn project_to_uv(surface: &SurfaceGeometry, point: &Point3) -> (f64, f64) {
     use popkern_core::geometry::uv_projection::project_point_to_uv;
     match project_point_to_uv(surface, point) {
         Some(uv) => uv,
