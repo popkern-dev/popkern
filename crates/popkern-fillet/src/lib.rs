@@ -124,12 +124,12 @@ pub fn fillet_edges(
             failures: edge_failures,
         })?;
 
-    // 4. Ensure 100% pcurve coverage. The custom attach_fillet_pcurves
-    // handles trim edges and fillet surface edges, but topology operations
-    // (mef, kef, vertex blending) can create half-edges it doesn't see.
-    // recompute_all_pcurves fills any remaining gaps by projecting edge
-    // curve endpoints to UV on each face's surface.
+    // 4. Ensure pcurve coverage. The custom attach_fillet_pcurves handles
+    // fillet-specific edges. recompute_all_pcurves fills gaps (half-edges
+    // without pcurves). Then replace any stale pcurves whose endpoints
+    // no longer match the actual edge curve positions.
     let _ = apply_result.brep.recompute_all_pcurves();
+    apply_result.brep.fix_stale_pcurves();
 
     // Merge overlap warnings with topology warnings.
     let mut all_warnings = apply_result.warnings;

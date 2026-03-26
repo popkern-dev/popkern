@@ -171,7 +171,16 @@ impl BRep {
                     let degree = 3.min(uv_points.len() - 1);
                     let n_cp = (uv_points.len() / 2).clamp(degree + 1, 20);
                     match crate::geometry::fitting::fit_curve(&uv_points, &params, degree, n_cp) {
-                        Ok(fitted) => fitted,
+                        Ok(mut fitted) => {
+                            // Clamp fitted control points to the surface's
+                            // parameter range. NURBS fitting can overshoot
+                            // beyond the sampled range.
+                            for cp in &mut fitted.control_points {
+                                cp.x = clamp_if_finite(cp.x, u_min, u_max);
+                                cp.y = clamp_if_finite(cp.y, v_min, v_max);
+                            }
+                            fitted
+                        }
                         Err(_) => {
                             // Fallback: degree-1 from first to last point.
                             NurbsCurve {
@@ -200,6 +209,55 @@ impl BRep {
             self.recompute_face_pcurves(fh)?;
         }
         Ok(())
+    }
+
+    /// Detect and replace stale pcurves whose endpoints no longer match
+    /// the actual edge curve positions.
+    ///
+    /// A pcurve is stale when the 3D position at pcurve(t=0) projected
+    /// to the face surface doesn't match the half-edge origin vertex
+    /// position within tolerance.  This happens when the fillet or other
+    /// operations move edge positions without updating existing pcurves.
+    pub fn fix_stale_pcurves(&mut self) {
+        use crate::geometry::curve::CurveEval;
+        use crate::geometry::surface::SurfaceEval;
+        use crate::geometry::uv_projection::project_point_to_uv;
+
+        let he_keys: Vec<_> = self.half_edges.keys().collect();
+        for heh in he_keys {
+            let pcurve = match self.half_edges[heh].pcurve.as_ref() {
+                Some(pc) => pc.clone(),
+                None => continue,
+            };
+
+            // Get the face surface for this half-edge.
+            let loop_handle = self.half_edges[heh].loop_;
+            let face_handle = match self.loops.get(loop_handle) {
+                Some(l) => l.face,
+                None => continue,
+            };
+            let surface = match self.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
+                Some(s) => s.geometry.clone(),
+                None => continue,
+            };
+
+            // Check: evaluate pcurve at start → project that UV to 3D →
+            // compare with the actual half-edge origin vertex position.
+            let (t0, _t1) = pcurve.parameter_range();
+            let uv_start = pcurve.point_at(t0);
+            let pos_from_pcurve = surface.point_at(uv_start.x, uv_start.y);
+            let actual_pos = self.vertices[self.half_edges[heh].origin].position;
+
+            let error = pos_from_pcurve.distance_to(&actual_pos);
+            if error > 0.05 {
+                // Pcurve is stale. Clear it so recompute_face_pcurves
+                // will regenerate it on the next pass.
+                self.half_edges[heh].pcurve = None;
+            }
+        }
+
+        // Recompute cleared pcurves.
+        let _ = self.recompute_all_pcurves();
     }
 }
 
