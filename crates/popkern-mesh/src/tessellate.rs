@@ -97,35 +97,21 @@ pub(crate) fn tessellate_face(
         }
     }
 
-    // Trim: for faces with degenerate vertex loops (self-loop caps, seam
-    // edges with < 3 unique vertices), discard tessellation triangles whose
-    // UV centroids fall outside the face boundary polygon.  Regular faces
-    // with 3+ vertices already have correct UV bounds from vertex projection
-    // and don't need trimming.
-    let vertex_positions = brep.face_outer_loop_positions(face_handle);
-    let unique_count = {
-        let mut unique = Vec::new();
-        for p in &vertex_positions {
-            if !unique
-                .iter()
-                .any(|q: &popkern_core::geometry::Point3| p.distance_to(q) < 1e-10)
-            {
-                unique.push(*p);
-            }
-        }
-        unique.len()
-    };
-    if unique_count < 3 && matches!(surface, SurfaceGeometry::Plane { .. }) {
-        let boundary_polygon = face_boundary_uv_polygon(brep, face_handle, surface);
-        if boundary_polygon.len() >= 3 {
-            triangles.retain(|tri| {
-                let c_u =
-                    (vertices[tri[0]].uv.0 + vertices[tri[1]].uv.0 + vertices[tri[2]].uv.0) / 3.0;
-                let c_v =
-                    (vertices[tri[0]].uv.1 + vertices[tri[1]].uv.1 + vertices[tri[2]].uv.1) / 3.0;
-                point_in_polygon(c_u, c_v, &boundary_polygon)
-            });
-        }
+    // Trim: discard tessellation triangles whose UV centroids fall outside
+    // the face boundary. This handles self-loop caps (circular trim on
+    // plane), NURBS body surfaces (trim at sweep endpoints), and any face
+    // whose UV parameter range is larger than its actual boundary.
+    // Skip trimming for degenerate boundaries (collinear seam edges on
+    // spheres, single-point loops) where the polygon has negligible area.
+    let boundary_polygon = face_boundary_uv_polygon(brep, face_handle, surface);
+    let poly_area = polygon_area(&boundary_polygon);
+    let uv_area = (u_range.1 - u_range.0) * (v_range.1 - v_range.0);
+    if boundary_polygon.len() >= 3 && poly_area > uv_area * 0.01 {
+        triangles.retain(|tri| {
+            let c_u = (vertices[tri[0]].uv.0 + vertices[tri[1]].uv.0 + vertices[tri[2]].uv.0) / 3.0;
+            let c_v = (vertices[tri[0]].uv.1 + vertices[tri[1]].uv.1 + vertices[tri[2]].uv.1) / 3.0;
+            point_in_polygon(c_u, c_v, &boundary_polygon)
+        });
     }
 
     Ok(FaceMesh {
@@ -168,10 +154,20 @@ fn face_boundary_uv_polygon(
         let edge = &brep.edges[he.edge];
 
         if let Some(ref curve) = edge.curve {
-            // Sample the edge curve and project each point to UV.
+            // Determine traversal direction: compare this half-edge's origin
+            // vertex with the curve's start point.  If they match, sample
+            // forward (t_start → t_end); otherwise backward.
+            let curve_start = curve.geometry.point_at(curve.t_start);
+            let he_origin = brep.vertices[he.origin].position;
+            let forward = curve_start.distance_to(&he_origin) < 1e-6;
+            let (t_lo, t_hi) = if forward {
+                (curve.t_start, curve.t_end)
+            } else {
+                (curve.t_end, curve.t_start)
+            };
+
             for i in 0..samples_per_edge {
-                let t = curve.t_start
-                    + (curve.t_end - curve.t_start) * (i as f64 / samples_per_edge as f64);
+                let t = t_lo + (t_hi - t_lo) * (i as f64 / samples_per_edge as f64);
                 let p = curve.geometry.point_at(t);
                 if let Some(uv) = project_point_to_uv(surface, &p) {
                     uv_points.push(uv);
@@ -218,6 +214,21 @@ fn point_in_polygon(px: f64, py: f64, polygon: &[(f64, f64)]) -> bool {
     winding != 0
 }
 
+/// Signed area of a 2D polygon via the shoelace formula.
+fn polygon_area(polygon: &[(f64, f64)]) -> f64 {
+    if polygon.len() < 3 {
+        return 0.0;
+    }
+    let mut area = 0.0;
+    let n = polygon.len();
+    for i in 0..n {
+        let (x1, y1) = polygon[i];
+        let (x2, y2) = polygon[(i + 1) % n];
+        area += x1 * y2 - x2 * y1;
+    }
+    (area / 2.0).abs()
+}
+
 /// 2D cross product of vectors (ax, ay) and (bx, by).
 fn cross_2d(ax: f64, ay: f64, bx: f64, by: f64) -> f64 {
     ax * by - ay * bx
@@ -229,6 +240,8 @@ fn cross_2d(ax: f64, ay: f64, bx: f64, by: f64) -> f64 {
 /// Uses edge curve sample points (not just vertex positions) to determine
 /// the face's UV extent. This handles self-loop edges (e.g., circular caps)
 /// where the vertex count is 1 but the curve covers a full circle.
+/// Uses 5% padding to ensure the UV grid covers the face plus a small
+/// margin. The trimming step then clips triangles outside the boundary.
 fn bounded_parameter_range(
     brep: &BRep,
     face_handle: FaceHandle,
