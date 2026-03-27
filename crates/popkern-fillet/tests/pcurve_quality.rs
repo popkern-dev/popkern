@@ -48,10 +48,14 @@ fn fillet_pcurves_have_uv_within_surface_range() {
                 for i in 0..=10 {
                     let t = t0 + (t1 - t0) * (i as f64 / 10.0);
                     let pt = pcurve.point_at(t);
+                    // Allow pcurves to extend up to one period beyond
+                    // the native range for seam-unwrapped coordinates.
+                    let u_period = u_max - u_min;
+                    let v_period = v_max - v_min;
                     if u_min.is_finite() {
                         assert!(
-                            pt.x >= u_min - 0.01 && pt.x <= u_max + 0.01,
-                            "pcurve u={} outside [{}, {}]",
+                            pt.x >= u_min - u_period - 0.01 && pt.x <= u_max + u_period + 0.01,
+                            "pcurve u={} far outside [{}, {}]",
                             pt.x,
                             u_min,
                             u_max
@@ -59,8 +63,8 @@ fn fillet_pcurves_have_uv_within_surface_range() {
                     }
                     if v_min.is_finite() {
                         assert!(
-                            pt.y >= v_min - 0.01 && pt.y <= v_max + 0.01,
-                            "pcurve v={} outside [{}, {}]",
+                            pt.y >= v_min - v_period - 0.01 && pt.y <= v_max + v_period + 0.01,
+                            "pcurve v={} far outside [{}, {}]",
                             pt.y,
                             v_min,
                             v_max

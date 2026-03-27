@@ -33,14 +33,12 @@ impl BRep {
 
         let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
 
-        // Collect all loop handles for this face.
         let outer_loop = face.outer_loop;
         let inner_loops = face.inner_loops.clone();
 
         let mut all_loop_handles = vec![outer_loop];
         all_loop_handles.extend(inner_loops);
 
-        // Collect half-edge handles from all loops before mutating.
         let mut he_handles = Vec::new();
         for lh in &all_loop_handles {
             let loop_data = match self.loops.get(*lh) {
@@ -194,10 +192,17 @@ impl BRep {
                         weights: vec![1.0, 1.0],
                     }
                 } else {
-                    // UV path is curved -- dense sampling + fitting.
+                    // UV path is curved — dense sampling.
+                    // For analytic surfaces (Plane, Cylinder, Cone,
+                    // Sphere, Torus), project_point_to_uv is exact.
+                    // Use the projected points directly as a degree-1
+                    // polyline — no fitting error, no overshoot.
+                    // For NURBS surfaces (where projection is approximate),
+                    // use degree-3 fitting for smoothness.
+                    let is_analytic =
+                        !matches!(surface, crate::geometry::surface::SurfaceGeometry::Nurbs(_));
                     let n_samples = 64usize;
                     let mut uv_points = Vec::with_capacity(n_samples);
-                    let mut params = Vec::with_capacity(n_samples);
                     for i in 0..n_samples {
                         let frac = i as f64 / (n_samples - 1).max(1) as f64;
                         let t = t_lo + (t_hi - t_lo) * frac;
@@ -208,11 +213,14 @@ impl BRep {
                                 clamp_if_finite(v, v_min, v_max),
                                 0.0,
                             ));
-                            params.push(frac);
                         }
                     }
 
                     if uv_points.len() >= 4 {
+                        // NURBS surface: degree-3 fit (projection is
+                        let params: Vec<f64> = (0..uv_points.len())
+                            .map(|i| i as f64 / (uv_points.len() - 1).max(1) as f64)
+                            .collect();
                         let degree = 3.min(uv_points.len() - 1);
                         let n_cp = uv_points.len().min(50);
                         match crate::geometry::fitting::fit_curve(&uv_points, &params, degree, n_cp)
@@ -267,7 +275,6 @@ impl BRep {
             None => return,
         };
 
-        // Collect all loop handles for this face.
         let face = match self.faces.get(face_handle) {
             Some(f) => f,
             None => return,
@@ -277,7 +284,6 @@ impl BRep {
         let mut all_loop_handles = vec![outer_loop];
         all_loop_handles.extend(inner_loops);
 
-        // Collect half-edge handles from all loops.
         let mut he_handles = Vec::new();
         for lh in &all_loop_handles {
             let loop_data = match self.loops.get(*lh) {
@@ -373,53 +379,6 @@ impl BRep {
     }
 
     /// Like [`fix_stale_pcurves`] but only processes half-edges on
-    /// **planar** faces, where recomputed pcurves are exact. Preserves
-    /// custom pcurves on curved surfaces (torus, NURBS) that may be
-    /// more accurate than projection-based recomputation.
-    pub fn fix_stale_plane_pcurves(&mut self) {
-        use crate::geometry::curve::CurveEval;
-        use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
-
-        let he_keys: Vec<_> = self.half_edges.keys().collect();
-        for heh in he_keys {
-            let pcurve = match self.half_edges[heh].pcurve.as_ref() {
-                Some(pc) => pc.clone(),
-                None => continue,
-            };
-
-            let loop_handle = self.half_edges[heh].loop_;
-            let face_handle = match self.loops.get(loop_handle) {
-                Some(l) => l.face,
-                None => continue,
-            };
-            let surface = match self.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
-                Some(s) => &s.geometry,
-                None => continue,
-            };
-
-            // Only process planar faces.
-            if !matches!(surface, SurfaceGeometry::Plane { .. }) {
-                continue;
-            }
-
-            let (t0, _t1) = pcurve.parameter_range();
-            let uv_start = pcurve.point_at(t0);
-            let pos_from_pcurve = surface.point_at(uv_start.x, uv_start.y);
-            let actual_pos = self.vertices[self.half_edges[heh].origin].position;
-
-            if pos_from_pcurve.distance_to(&actual_pos) > 0.05 {
-                self.half_edges[heh].pcurve = None;
-            }
-        }
-
-        let _ = self.recompute_all_pcurves();
-
-        let face_keys: Vec<_> = self.faces.keys().collect();
-        for fh in face_keys {
-            self.fix_pcurve_endpoints(fh);
-        }
-    }
-
     /// Detect and replace stale pcurves whose endpoints no longer match
     /// the actual edge curve positions.
     ///
@@ -438,7 +397,6 @@ impl BRep {
                 None => continue,
             };
 
-            // Get the face surface for this half-edge.
             let loop_handle = self.half_edges[heh].loop_;
             let face_handle = match self.loops.get(loop_handle) {
                 Some(l) => l.face,
@@ -449,8 +407,6 @@ impl BRep {
                 None => continue,
             };
 
-            // Check: evaluate pcurve at start → project that UV to 3D →
-            // compare with the actual half-edge origin vertex position.
             let (t0, _t1) = pcurve.parameter_range();
             let uv_start = pcurve.point_at(t0);
             let pos_from_pcurve = surface.point_at(uv_start.x, uv_start.y);
@@ -458,16 +414,12 @@ impl BRep {
 
             let error = pos_from_pcurve.distance_to(&actual_pos);
             if error > 0.05 {
-                // Pcurve is stale. Clear it so recompute_face_pcurves
-                // will regenerate it on the next pass.
                 self.half_edges[heh].pcurve = None;
             }
         }
 
-        // Recompute cleared pcurves.
         let _ = self.recompute_all_pcurves();
 
-        // Ensure pcurve endpoints match vertex UV projections.
         let face_keys: Vec<_> = self.faces.keys().collect();
         for fh in face_keys {
             self.fix_pcurve_endpoints(fh);
