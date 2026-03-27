@@ -347,3 +347,49 @@ fn diagnostic_trim_regression() {
 
     println!("\n========== END DIAGNOSTICS ==========\n");
 }
+
+#[test]
+fn print_single_fillet_vertices() {
+    use popkern_core::geometry::Transform3;
+    let tol = popkern_core::tolerance::Tolerance::default();
+    let cube = popkern_core::topology::BRep::unit_cube(tol).unwrap();
+    let edge = cube.edges.keys().next().unwrap();
+    let result = popkern_fillet::fillet_edge(&cube, edge, 0.1, tol).unwrap();
+    eprintln!("Single-edge fillet: {} vertices", result.brep.vertices.len());
+    for (vh, v) in result.brep.vertices.iter() {
+        let p = v.position;
+        // Only print non-cube-corner vertices
+        let is_corner = [0.0, 1.0].contains(&p.x) && [0.0, 1.0].contains(&p.y) && [0.0, 1.0].contains(&p.z);
+        if !is_corner {
+            eprintln!("  NEW {:?}: ({:.6}, {:.6}, {:.6})", vh, p.x, p.y, p.z);
+        }
+    }
+}
+
+#[test]
+fn print_fillet_footprint_positions() {
+    use popkern_core::geometry::surface::SurfaceEval;
+    let tol = popkern_core::tolerance::Tolerance::default();
+    let cube = popkern_core::topology::BRep::unit_cube(tol).unwrap();
+    let edge = cube.edges.keys().next().unwrap();
+
+    // Print the edge being filleted
+    let he = cube.edges[edge].half_edge;
+    let v_start = cube.vertices[cube.half_edges[he].origin].position;
+    let twin = cube.half_edges[he].twin;
+    let v_end = cube.vertices[cube.half_edges[twin].origin].position;
+    eprintln!("Filleting edge from ({:.3},{:.3},{:.3}) to ({:.3},{:.3},{:.3})",
+        v_start.x, v_start.y, v_start.z, v_end.x, v_end.y, v_end.z);
+
+    let result = popkern_fillet::fillet_edge(&cube, edge, 0.1, tol).unwrap();
+    // Print all non-corner vertices
+    for (_, v) in result.brep.vertices.iter() {
+        let p = v.position;
+        let is_corner = [0.0_f64, 1.0].iter().any(|&c| (p.x - c).abs() < 1e-6)
+            && [0.0_f64, 1.0].iter().any(|&c| (p.y - c).abs() < 1e-6)
+            && [0.0_f64, 1.0].iter().any(|&c| (p.z - c).abs() < 1e-6);
+        if !is_corner {
+            eprintln!("  fillet vtx: ({:.6},{:.6},{:.6})", p.x, p.y, p.z);
+        }
+    }
+}
