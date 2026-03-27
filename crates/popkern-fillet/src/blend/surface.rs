@@ -123,10 +123,11 @@ fn build_smooth_blend(
             return Ok(result);
         }
 
-        // Try NURBS patch as second attempt.
-        if let Some(result) = try_nurbs_blend(points, &boundary_curves) {
-            return Ok(result);
-        }
+        // Skip NURBS bilinear patch — a 2×2 control-point grid is too
+        // simple for multi-fillet vertex corners. The resulting surface
+        // has a poorly conditioned parametrization that causes UV
+        // projection failures and STEP export overflows. Planar (mitred)
+        // blends have exact UV projection and perfect STEP export.
     }
 
     // Fallback for 3+ fillets or if smooth construction fails: use mitred.
