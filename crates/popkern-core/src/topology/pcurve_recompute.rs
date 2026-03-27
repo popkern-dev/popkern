@@ -149,7 +149,10 @@ impl BRep {
                     (curve_on_edge.t_end, curve_on_edge.t_start)
                 };
 
-                let n_samples = 16usize;
+                // Dense sampling + interpolation for accurate torus/cylinder
+                // pcurves. Use enough samples for the curve to be
+                // indistinguishable from exact at STEP export tolerance.
+                let n_samples = 64usize;
                 let mut uv_points = Vec::with_capacity(n_samples);
                 let mut params = Vec::with_capacity(n_samples);
                 for i in 0..n_samples {
@@ -165,31 +168,33 @@ impl BRep {
                     }
                 }
 
-                if uv_points.len() >= 2 {
-                    // Try fitting a degree-3 NURBS; fall back to degree-1 if
-                    // fitting fails or too few points.
+                if uv_points.len() >= 4 {
+                    // Dense sampling + interpolating fit for accurate
+                    // torus/cylinder pcurves. Use n_cp close to n_samples
+                    // so the curve passes near all sample points.
                     let degree = 3.min(uv_points.len() - 1);
-                    let n_cp = (uv_points.len() / 2).clamp(degree + 1, 20);
+                    let n_cp = uv_points.len().min(50);
                     match crate::geometry::fitting::fit_curve(&uv_points, &params, degree, n_cp) {
                         Ok(mut fitted) => {
-                            // Clamp fitted control points to the surface's
-                            // parameter range. NURBS fitting can overshoot
-                            // beyond the sampled range.
                             for cp in &mut fitted.control_points {
                                 cp.x = clamp_if_finite(cp.x, u_min, u_max);
                                 cp.y = clamp_if_finite(cp.y, v_min, v_max);
                             }
                             fitted
                         }
-                        Err(_) => {
-                            // Fallback: degree-1 from first to last point.
-                            NurbsCurve {
-                                degree: 1,
-                                knots: vec![0.0, 0.0, 1.0, 1.0],
-                                control_points: vec![uv_points[0], uv_points[uv_points.len() - 1]],
-                                weights: vec![1.0, 1.0],
-                            }
-                        }
+                        Err(_) => NurbsCurve {
+                            degree: 1,
+                            knots: vec![0.0, 0.0, 1.0, 1.0],
+                            control_points: vec![uv_points[0], uv_points[uv_points.len() - 1]],
+                            weights: vec![1.0, 1.0],
+                        },
+                    }
+                } else if uv_points.len() >= 2 {
+                    NurbsCurve {
+                        degree: 1,
+                        knots: vec![0.0, 0.0, 1.0, 1.0],
+                        control_points: vec![uv_points[0], uv_points[uv_points.len() - 1]],
+                        weights: vec![1.0, 1.0],
                     }
                 } else {
                     continue;
