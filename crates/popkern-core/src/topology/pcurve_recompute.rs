@@ -149,62 +149,218 @@ impl BRep {
                     (curve_on_edge.t_end, curve_on_edge.t_start)
                 };
 
-                // Dense sampling + interpolation for accurate torus/cylinder
-                // pcurves. Use enough samples for the curve to be
-                // indistinguishable from exact at STEP export tolerance.
-                let n_samples = 64usize;
-                let mut uv_points = Vec::with_capacity(n_samples);
-                let mut params = Vec::with_capacity(n_samples);
-                for i in 0..n_samples {
-                    let t = t_lo + (t_hi - t_lo) * (i as f64 / (n_samples - 1).max(1) as f64);
-                    let p = curve_on_edge.geometry.point_at(t);
-                    if let Some((u, v)) = project_point_to_uv(&surface, &p) {
-                        uv_points.push(Point3::new(
-                            clamp_if_finite(u, u_min, u_max),
-                            clamp_if_finite(v, v_min, v_max),
-                            0.0,
-                        ));
-                        params.push(i as f64 / (n_samples - 1).max(1) as f64);
-                    }
-                }
+                // Quick linearity check: if the UV midpoint lies on the
+                // line between start/end UV, the pcurve is a straight
+                // line in UV space.  Use degree-1 (exact) instead of the
+                // 64-point degree-3 fit, avoiding control-point overshoot.
+                let (u_s, v_s) = match project_point_to_uv(&surface, &start_3d) {
+                    Some(uv) => uv,
+                    None => continue,
+                };
+                let (u_e, v_e) = match project_point_to_uv(&surface, &end_3d) {
+                    Some(uv) => uv,
+                    None => continue,
+                };
+                let t_mid = (t_lo + t_hi) * 0.5;
+                let p_mid = curve_on_edge.geometry.point_at(t_mid);
+                let uv_linear = if let Some((u_mid, v_mid)) = project_point_to_uv(&surface, &p_mid)
+                {
+                    let expected_u = (u_s + u_e) * 0.5;
+                    let expected_v = (v_s + v_e) * 0.5;
+                    let deviation =
+                        ((u_mid - expected_u).powi(2) + (v_mid - expected_v).powi(2)).sqrt();
+                    deviation < 1e-4
+                } else {
+                    false
+                };
 
-                if uv_points.len() >= 4 {
-                    // Dense sampling + interpolating fit for accurate
-                    // torus/cylinder pcurves. Use n_cp close to n_samples
-                    // so the curve passes near all sample points.
-                    let degree = 3.min(uv_points.len() - 1);
-                    let n_cp = uv_points.len().min(50);
-                    match crate::geometry::fitting::fit_curve(&uv_points, &params, degree, n_cp) {
-                        Ok(mut fitted) => {
-                            for cp in &mut fitted.control_points {
-                                cp.x = clamp_if_finite(cp.x, u_min, u_max);
-                                cp.y = clamp_if_finite(cp.y, v_min, v_max);
-                            }
-                            fitted
+                if uv_linear {
+                    // UV path is linear -- exact degree-1 pcurve.
+                    NurbsCurve {
+                        degree: 1,
+                        knots: vec![0.0, 0.0, 1.0, 1.0],
+                        control_points: vec![
+                            Point3::new(
+                                clamp_if_finite(u_s, u_min, u_max),
+                                clamp_if_finite(v_s, v_min, v_max),
+                                0.0,
+                            ),
+                            Point3::new(
+                                clamp_if_finite(u_e, u_min, u_max),
+                                clamp_if_finite(v_e, v_min, v_max),
+                                0.0,
+                            ),
+                        ],
+                        weights: vec![1.0, 1.0],
+                    }
+                } else {
+                    // UV path is curved -- dense sampling + fitting.
+                    let n_samples = 64usize;
+                    let mut uv_points = Vec::with_capacity(n_samples);
+                    let mut params = Vec::with_capacity(n_samples);
+                    for i in 0..n_samples {
+                        let frac = i as f64 / (n_samples - 1).max(1) as f64;
+                        let t = t_lo + (t_hi - t_lo) * frac;
+                        let p = curve_on_edge.geometry.point_at(t);
+                        if let Some((u, v)) = project_point_to_uv(&surface, &p) {
+                            uv_points.push(Point3::new(
+                                clamp_if_finite(u, u_min, u_max),
+                                clamp_if_finite(v, v_min, v_max),
+                                0.0,
+                            ));
+                            params.push(frac);
                         }
-                        Err(_) => NurbsCurve {
+                    }
+
+                    if uv_points.len() >= 4 {
+                        let degree = 3.min(uv_points.len() - 1);
+                        let n_cp = uv_points.len().min(50);
+                        match crate::geometry::fitting::fit_curve(&uv_points, &params, degree, n_cp)
+                        {
+                            Ok(mut fitted) => {
+                                for cp in &mut fitted.control_points {
+                                    cp.x = clamp_if_finite(cp.x, u_min, u_max);
+                                    cp.y = clamp_if_finite(cp.y, v_min, v_max);
+                                }
+                                fitted
+                            }
+                            Err(_) => NurbsCurve {
+                                degree: 1,
+                                knots: vec![0.0, 0.0, 1.0, 1.0],
+                                control_points: vec![uv_points[0], uv_points[uv_points.len() - 1]],
+                                weights: vec![1.0, 1.0],
+                            },
+                        }
+                    } else if uv_points.len() >= 2 {
+                        NurbsCurve {
                             degree: 1,
                             knots: vec![0.0, 0.0, 1.0, 1.0],
                             control_points: vec![uv_points[0], uv_points[uv_points.len() - 1]],
                             weights: vec![1.0, 1.0],
-                        },
+                        }
+                    } else {
+                        continue;
                     }
-                } else if uv_points.len() >= 2 {
-                    NurbsCurve {
-                        degree: 1,
-                        knots: vec![0.0, 0.0, 1.0, 1.0],
-                        control_points: vec![uv_points[0], uv_points[uv_points.len() - 1]],
-                        weights: vec![1.0, 1.0],
-                    }
-                } else {
-                    continue;
                 }
             };
 
             self.half_edges[heh].pcurve = Some(pcurve);
         }
 
+        self.fix_pcurve_endpoints(face_handle);
+
         Ok(())
+    }
+
+    /// Force pcurve endpoints to match vertex UV projections exactly.
+    ///
+    /// For each half-edge with a pcurve, verify that the pcurve evaluated
+    /// at t=0 produces the correct UV for he.origin, and the pcurve at t=1
+    /// produces the correct UV for the next half-edge's origin. Adjust
+    /// the first/last control points if needed.
+    fn fix_pcurve_endpoints(&mut self, face_handle: FaceHandle) {
+        use crate::geometry::curve::CurveEval;
+        use crate::geometry::uv_projection::project_point_to_uv;
+
+        let surface = match self.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
+            Some(s) => s.geometry.clone(),
+            None => return,
+        };
+
+        // Collect all loop handles for this face.
+        let face = match self.faces.get(face_handle) {
+            Some(f) => f,
+            None => return,
+        };
+        let outer_loop = face.outer_loop;
+        let inner_loops = face.inner_loops.clone();
+        let mut all_loop_handles = vec![outer_loop];
+        all_loop_handles.extend(inner_loops);
+
+        // Collect half-edge handles from all loops.
+        let mut he_handles = Vec::new();
+        for lh in &all_loop_handles {
+            let loop_data = match self.loops.get(*lh) {
+                Some(l) => l,
+                None => continue,
+            };
+            let start_he = loop_data.half_edge;
+            if !self.half_edges.contains_key(start_he) {
+                continue;
+            }
+            he_handles.push(start_he);
+            let mut current = self.half_edges[start_he].next;
+            while current != start_he {
+                he_handles.push(current);
+                current = self.half_edges[current].next;
+            }
+        }
+
+        let tol = 1e-10;
+
+        for heh in he_handles {
+            let pcurve = match self.half_edges[heh].pcurve.as_ref() {
+                Some(pc) => pc.clone(),
+                None => continue,
+            };
+
+            let origin_pos = self.vertices[self.half_edges[heh].origin].position;
+            let next_heh = self.half_edges[heh].next;
+            let dest_pos = self.vertices[self.half_edges[next_heh].origin].position;
+
+            let exact_uv_start = match project_point_to_uv(&surface, &origin_pos) {
+                Some((u, v)) => crate::geometry::Point3::new(u, v, 0.0),
+                None => continue,
+            };
+            let exact_uv_end = match project_point_to_uv(&surface, &dest_pos) {
+                Some((u, v)) => crate::geometry::Point3::new(u, v, 0.0),
+                None => continue,
+            };
+
+            let (t0, t1) = pcurve.parameter_range();
+            let eval_start = pcurve.point_at(t0);
+            let eval_end = pcurve.point_at(t1);
+
+            let start_err = ((exact_uv_start.x - eval_start.x).powi(2)
+                + (exact_uv_start.y - eval_start.y).powi(2))
+            .sqrt();
+            let end_err = ((exact_uv_end.x - eval_end.x).powi(2)
+                + (exact_uv_end.y - eval_end.y).powi(2))
+            .sqrt();
+
+            if start_err < tol && end_err < tol {
+                continue;
+            }
+
+            let mut fixed = pcurve;
+            let n_cp = fixed.control_points.len();
+
+            if fixed.degree == 1 && n_cp == 2 {
+                // Degree-1: control points ARE the evaluated endpoints.
+                if start_err >= tol {
+                    fixed.control_points[0] = exact_uv_start;
+                }
+                if end_err >= tol {
+                    fixed.control_points[n_cp - 1] = exact_uv_end;
+                }
+            } else {
+                // Higher degree: shift first/last control points by the delta.
+                if start_err >= tol {
+                    let dx = exact_uv_start.x - eval_start.x;
+                    let dy = exact_uv_start.y - eval_start.y;
+                    fixed.control_points[0].x += dx;
+                    fixed.control_points[0].y += dy;
+                }
+                if end_err >= tol {
+                    let dx = exact_uv_end.x - eval_end.x;
+                    let dy = exact_uv_end.y - eval_end.y;
+                    fixed.control_points[n_cp - 1].x += dx;
+                    fixed.control_points[n_cp - 1].y += dy;
+                }
+            }
+
+            self.half_edges[heh].pcurve = Some(fixed);
+        }
     }
 
     /// Recompute pcurves for ALL faces in the BRep.
@@ -226,7 +382,6 @@ impl BRep {
     pub fn fix_stale_pcurves(&mut self) {
         use crate::geometry::curve::CurveEval;
         use crate::geometry::surface::SurfaceEval;
-        use crate::geometry::uv_projection::project_point_to_uv;
 
         let he_keys: Vec<_> = self.half_edges.keys().collect();
         for heh in he_keys {
@@ -263,36 +418,15 @@ impl BRep {
 
         // Recompute cleared pcurves.
         let _ = self.recompute_all_pcurves();
+
+        // Ensure pcurve endpoints match vertex UV projections.
+        let face_keys: Vec<_> = self.faces.keys().collect();
+        for fh in face_keys {
+            self.fix_pcurve_endpoints(fh);
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::tolerance::Tolerance;
-    use crate::topology::BRep;
-
-    #[test]
-    fn recompute_pcurves_on_cube_is_idempotent() {
-        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        // All half-edges already have pcurves from unit_cube.
-        brep.recompute_all_pcurves().unwrap();
-        for (_, he) in &brep.half_edges {
-            assert!(he.pcurve.is_some(), "pcurve should still be present");
-        }
-    }
-
-    #[test]
-    fn recompute_fills_missing_pcurves() {
-        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        // Strip all pcurves.
-        let he_keys: Vec<_> = brep.half_edges.keys().collect();
-        for heh in &he_keys {
-            brep.half_edges[*heh].pcurve = None;
-        }
-        // Recompute should fill them back.
-        brep.recompute_all_pcurves().unwrap();
-        for (_, he) in &brep.half_edges {
-            assert!(he.pcurve.is_some(), "pcurve should be recomputed");
-        }
-    }
-}
+#[path = "pcurve_recompute_tests.rs"]
+mod tests;
