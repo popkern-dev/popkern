@@ -57,10 +57,35 @@ impl BRep {
             }
         }
 
-        // For each half-edge without a pcurve, compute one.
+        // For each half-edge without a pcurve (or with a degenerate one
+        // on a periodic surface), compute a fresh pcurve.
+        let is_periodic = {
+            let (pu, pv) = surface.periodicity();
+            pu.is_some() || pv.is_some()
+        };
+
         for heh in he_handles {
-            if self.half_edges[heh].pcurve.is_some() {
-                continue;
+            if let Some(ref existing) = self.half_edges[heh].pcurve {
+                // On periodic surfaces, clear degenerate pcurves (UV span ~0
+                // but edge has a real curve) — e.g. self-loop circles on
+                // a cylinder. Non-periodic self-loops use 3D trim fallback.
+                if !is_periodic {
+                    continue;
+                }
+                use crate::geometry::curve::CurveEval;
+                let (t0, t1) = existing.parameter_range();
+                let s = existing.point_at(t0);
+                let e = existing.point_at(t1);
+                let uv_span = ((e.x - s.x).powi(2) + (e.y - s.y).powi(2)).sqrt();
+                let edge_h = self.half_edges[heh].edge;
+                let long_curve = self.edges[edge_h]
+                    .curve
+                    .as_ref()
+                    .is_some_and(|c| (c.t_end - c.t_start).abs() > 1e-6);
+                if uv_span > 1e-6 || !long_curve {
+                    continue;
+                }
+                self.half_edges[heh].pcurve = None;
             }
 
             let he_origin_pos = self.vertices[self.half_edges[heh].origin].position;
@@ -290,6 +315,11 @@ impl BRep {
     /// at t=0 produces the correct UV for he.origin, and the pcurve at t=1
     /// produces the correct UV for the next half-edge's origin. Adjust
     /// the first/last control points if needed.
+    ///
+    /// On periodic surfaces (cylinder u, torus u/v), the projected UV may
+    /// differ from the pcurve endpoint by a full period. This is correct
+    /// for edges that span the seam (e.g., self-loop circles), so the fix
+    /// is skipped when the error is close to a multiple of the period.
     fn fix_pcurve_endpoints(&mut self, face_handle: FaceHandle) {
         use crate::geometry::curve::CurveEval;
         use crate::geometry::uv_projection::project_point_to_uv;
@@ -298,6 +328,7 @@ impl BRep {
             Some(s) => s.geometry.clone(),
             None => return,
         };
+        let (period_u, period_v) = surface.periodicity();
 
         let face = match self.faces.get(face_handle) {
             Some(f) => f,
@@ -351,12 +382,25 @@ impl BRep {
             let eval_start = pcurve.point_at(t0);
             let eval_end = pcurve.point_at(t1);
 
-            let start_err = ((exact_uv_start.x - eval_start.x).powi(2)
-                + (exact_uv_start.y - eval_start.y).powi(2))
-            .sqrt();
-            let end_err = ((exact_uv_end.x - eval_end.x).powi(2)
-                + (exact_uv_end.y - eval_end.y).powi(2))
-            .sqrt();
+            // Compute UV error modulo periodicity: if the difference is
+            // close to a multiple of the period, the pcurve is correct
+            // (it wraps around the seam) and should not be "fixed".
+            let periodic_err = |exact: f64, eval: f64, period: Option<f64>| -> f64 {
+                let diff = (exact - eval).abs();
+                if let Some(p) = period.filter(|&p| p > 0.0) {
+                    let remainder = diff % p;
+                    return remainder.min(p - remainder);
+                }
+                diff
+            };
+
+            let start_err_u = periodic_err(exact_uv_start.x, eval_start.x, period_u);
+            let start_err_v = periodic_err(exact_uv_start.y, eval_start.y, period_v);
+            let start_err = (start_err_u.powi(2) + start_err_v.powi(2)).sqrt();
+
+            let end_err_u = periodic_err(exact_uv_end.x, eval_end.x, period_u);
+            let end_err_v = periodic_err(exact_uv_end.y, eval_end.y, period_v);
+            let end_err = (end_err_u.powi(2) + end_err_v.powi(2)).sqrt();
 
             if start_err < tol && end_err < tol {
                 continue;
