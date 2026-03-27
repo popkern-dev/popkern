@@ -129,6 +129,7 @@ pub(crate) fn compute_fillet_geometry(
         trim_3d_2: trim_curves.curve_3d_2,
         pcurve_1: trim_curves.pcurve_1,
         pcurve_2: trim_curves.pcurve_2,
+        effective_radius,
     })
 }
 
@@ -142,6 +143,12 @@ pub(crate) fn compute_chamfer_geometry(
     let chamfer_result = chamfer_curve::compute_chamfer(analysis, brep, kind, tolerance)
         .map_err(|e| BlendFailure::IntersectionFailed { reason: e })?;
 
+    let effective_radius = match kind {
+        ChamferKind::Equal(d) => *d,
+        ChamferKind::TwoDistance { dist_1, dist_2, .. } => (*dist_1).max(*dist_2),
+        ChamferKind::DistanceAngle { distance, .. } => *distance,
+    };
+
     Ok(EdgeGeometry {
         analysis: rebuild_analysis(analysis, brep)?,
         surface: chamfer_result.surface,
@@ -149,6 +156,7 @@ pub(crate) fn compute_chamfer_geometry(
         trim_3d_2: chamfer_result.trim_curve_2,
         pcurve_1: chamfer_result.pcurve_1,
         pcurve_2: chamfer_result.pcurve_2,
+        effective_radius,
     })
 }
 

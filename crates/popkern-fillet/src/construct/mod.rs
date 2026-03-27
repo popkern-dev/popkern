@@ -37,6 +37,8 @@ pub struct EdgeGeometry {
     pub pcurve_1: NurbsCurve,
     /// Pcurve on face 2.
     pub pcurve_2: NurbsCurve,
+    /// Effective fillet/chamfer radius for perpendicular edge splitting.
+    pub effective_radius: f64,
 }
 
 /// Tracks handle remapping after topology modifications.
@@ -325,11 +327,11 @@ fn apply_single_blend(
     let face_1 = remap.resolve_face(eg.analysis.face_1);
     let face_2 = remap.resolve_face(eg.analysis.face_2);
 
-    // Estimate the fillet radius from the trim curve geometry.
-    let radius = helpers::estimate_radius_from_geometry(brep, fillet_edge, &eg.trim_3d_1);
+    // Use the actual fillet radius stored in the edge geometry.
+    let radius = eg.effective_radius;
     if radius < tolerance.linear {
         return Err(BlendFailure::InvalidTopology {
-            reason: "estimated fillet radius is too small".into(),
+            reason: "fillet radius is too small".into(),
         });
     }
 

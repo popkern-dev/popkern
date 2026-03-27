@@ -414,4 +414,5 @@ fn tessellate_cylinder_through_cube_union() {
 
 // ── Trim regression diagnostics ──────────────────────────────────────
 
+#[path = "diagnostic_trim_tests.rs"]
 mod diagnostic_trim;

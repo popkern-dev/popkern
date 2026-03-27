@@ -286,6 +286,7 @@ fn split_face_perp_edges(
 ///
 /// Uses the distance between a trim curve endpoint and the nearest fillet
 /// edge vertex as a fallback radius estimate.
+#[allow(dead_code)]
 pub fn estimate_radius_from_geometry(
     brep: &BRep,
     fillet_edge: EdgeHandle,

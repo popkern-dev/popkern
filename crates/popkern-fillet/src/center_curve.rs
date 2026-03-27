@@ -51,11 +51,13 @@ pub fn constant_radius_center_curve(
     orientation_2: bool,
 ) -> Result<CenterCurveResult, String> {
     // 1. Offset both surfaces inward by the fillet radius.
-    // "Inward" means toward the solid interior. When the face orientation
-    // is false (face normal is opposite to surface geometry normal),
-    // the offset direction must be flipped: surface-outward = face-inward.
-    let inward_1 = orientation_1; // true = surface normal is face normal = offset against it
-    let inward_2 = orientation_2;
+    // "Inward" means toward the solid interior.
+    // In popkern, face normals point INTO the solid. When orientation=true,
+    // surface normal = face normal (inward). offset_surface's inward flag
+    // moves AGAINST the normal (sign=-1), so we need inward=false to move
+    // WITH the inward-pointing normal (toward the interior).
+    let inward_1 = !orientation_1;
+    let inward_2 = !orientation_2;
     let offset1 = offset_surface(surface1, radius, inward_1, u1_range, v1_range, tolerance)?;
     let offset2 = offset_surface(surface2, radius, inward_2, u2_range, v2_range, tolerance)?;
 
@@ -224,7 +226,7 @@ fn find_center_point_at_radius(
     let offset1 = offset_surface(
         surface1,
         radius,
-        orientation_1,
+        !orientation_1,
         u1_range,
         v1_range,
         tolerance,
@@ -232,7 +234,7 @@ fn find_center_point_at_radius(
     let offset2 = offset_surface(
         surface2,
         radius,
-        orientation_2,
+        !orientation_2,
         u2_range,
         v2_range,
         tolerance,
