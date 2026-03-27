@@ -19,7 +19,7 @@ impl BRep {
     ) -> Result<(), crate::error::CoreError> {
         use crate::geometry::curve::CurveEval;
         use crate::geometry::surface::SurfaceEval;
-        use crate::geometry::uv_projection::project_point_to_uv;
+        use crate::geometry::uv_projection::{project_point_to_uv, project_point_to_uv_near};
         use crate::geometry::{NurbsCurve, Point3};
 
         let face = self
@@ -193,58 +193,66 @@ impl BRep {
                     }
                 } else {
                     // UV path is curved — dense sampling.
-                    // For analytic surfaces (Plane, Cylinder, Cone,
-                    // Sphere, Torus), project_point_to_uv is exact.
-                    // Use the projected points directly as a degree-1
-                    // polyline — no fitting error, no overshoot.
-                    // For NURBS surfaces (where projection is approximate),
-                    // use degree-3 fitting for smoothness.
-                    let is_analytic =
-                        !matches!(surface, crate::geometry::surface::SurfaceGeometry::Nurbs(_));
-                    let n_samples = 64usize;
+                    // OCCT-style pcurve computation (per ShapeConstruct_
+                    // ProjectCurveOnSurface): sample 3D curve, project
+                    // each point to UV using CONTINUATION from the
+                    // previous UV (not independent projection), unwrap
+                    // seam crossings, then INTERPOLATE (not fit).
+                    let n_samples = 23usize; // OCCT default
                     let mut uv_points: Vec<Point3> = Vec::with_capacity(n_samples);
                     let (period_u, period_v) = surface.periodicity();
+                    let mut prev_uv: Option<(f64, f64)> = None;
+
                     for i in 0..n_samples {
                         let frac = i as f64 / (n_samples - 1).max(1) as f64;
                         let t = t_lo + (t_hi - t_lo) * frac;
                         let p = curve_on_edge.geometry.point_at(t);
-                        if let Some((mut u, mut v)) = project_point_to_uv(&surface, &p) {
-                            // For periodic surfaces, unwrap relative to
-                            // the FIRST point to keep the polyline
-                            // contiguous across seam crossings.
-                            if let (Some(pu), Some(first)) = (period_u, uv_points.first()) {
-                                while u - first.x > pu * 0.5 {
+
+                        // Continuation: use previous UV as starting
+                        // guess for Gauss-Newton. This prevents branch
+                        // jumping on multi-valued inverse maps.
+                        let uv = if let Some((pu, pv)) = prev_uv {
+                            project_point_to_uv_near(&surface, &p, pu, pv)
+                        } else {
+                            project_point_to_uv(&surface, &p)
+                        };
+
+                        if let Some((mut u, mut v)) = uv {
+                            // Seam unwrap relative to PREVIOUS point
+                            // (OCCT style: half-period threshold).
+                            if let (Some(pu), Some((prev_u, _))) = (period_u, prev_uv) {
+                                while u - prev_u > pu * 0.5 {
                                     u -= pu;
                                 }
-                                while u - first.x < -pu * 0.5 {
+                                while u - prev_u < -pu * 0.5 {
                                     u += pu;
                                 }
                             }
-                            if let (Some(pv), Some(first)) = (period_v, uv_points.first()) {
-                                while v - first.y > pv * 0.5 {
+                            if let (Some(pv), Some((_, prev_v))) = (period_v, prev_uv) {
+                                while v - prev_v > pv * 0.5 {
                                     v -= pv;
                                 }
-                                while v - first.y < -pv * 0.5 {
+                                while v - prev_v < -pv * 0.5 {
                                     v += pv;
                                 }
                             }
-                            // Do NOT clamp — extended UV is valid for
-                            // periodic surfaces and needed for seam-
-                            // crossing pcurves.
+                            prev_uv = Some((u, v));
                             uv_points.push(Point3::new(u, v, 0.0));
                         }
                     }
 
                     if uv_points.len() >= 4 {
-                        // Dense sampling + degree-3 least-squares fit.
-                        // The fit smooths over small UV projection noise
-                        // and seam-crossing transitions better than an
-                        // exact polyline, which amplifies every deviation.
+                        // Interpolation (not approximation): curve
+                        // passes through every sample point exactly.
+                        // Use degree 3 with n_cp = n_samples. With
+                        // continuation-based projection (no branch
+                        // jumping), the points are smooth enough that
+                        // interpolation doesn't oscillate.
                         let params: Vec<f64> = (0..uv_points.len())
                             .map(|i| i as f64 / (uv_points.len() - 1).max(1) as f64)
                             .collect();
                         let degree = 3.min(uv_points.len() - 1);
-                        let n_cp = uv_points.len().min(50);
+                        let n_cp = uv_points.len(); // interpolation
                         match crate::geometry::fitting::fit_curve(&uv_points, &params, degree, n_cp)
                         {
                             Ok(fitted) => fitted,
@@ -284,7 +292,7 @@ impl BRep {
     /// the first/last control points if needed.
     fn fix_pcurve_endpoints(&mut self, face_handle: FaceHandle) {
         use crate::geometry::curve::CurveEval;
-        use crate::geometry::uv_projection::project_point_to_uv;
+        use crate::geometry::uv_projection::{project_point_to_uv, project_point_to_uv_near};
 
         let surface = match self.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
             Some(s) => s.geometry.clone(),

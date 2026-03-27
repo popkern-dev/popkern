@@ -112,6 +112,70 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
     }
 }
 
+/// Project a 3D point to UV using the previous UV as starting guess.
+///
+/// For analytic surfaces, delegates to [`project_point_to_uv`] (exact,
+/// no iteration needed). For NURBS, uses single-start Gauss-Newton from
+/// `(u_hint, v_hint)` instead of the multi-start search. This prevents
+/// branch jumping when projecting consecutive points along a curve.
+pub fn project_point_to_uv_near(
+    surface: &SurfaceGeometry,
+    point: &Point3,
+    u_hint: f64,
+    v_hint: f64,
+) -> Option<(f64, f64)> {
+    match surface {
+        // Analytic surfaces have unique inverse — hint is irrelevant.
+        SurfaceGeometry::Nurbs(nurbs) => {
+            nurbs_gauss_newton_single(surface, nurbs, point, u_hint, v_hint)
+        }
+        _ => project_point_to_uv(surface, point),
+    }
+}
+
+/// Single-start Gauss-Newton from a specific (u, v) hint.
+fn nurbs_gauss_newton_single(
+    surface: &SurfaceGeometry,
+    nurbs: &NurbsSurface,
+    point: &Point3,
+    u0: f64,
+    v0: f64,
+) -> Option<(f64, f64)> {
+    const MAX_ITER: usize = 20;
+    const STEP_TOL: f64 = 1e-12;
+    const MAX_DIST: f64 = 1.0;
+
+    let ((u_lo, u_hi), (v_lo, v_hi)) = nurbs.parameter_range();
+    let mut u = u0.clamp(u_lo, u_hi);
+    let mut v = v0.clamp(v_lo, v_hi);
+
+    for _ in 0..MAX_ITER {
+        let s = surface.point_at(u, v);
+        let diff = *point - s;
+        let su = surface.partial_u(u, v);
+        let sv = surface.partial_v(u, v);
+        let rhs_u = diff.dot(&su);
+        let rhs_v = diff.dot(&sv);
+        let a00 = su.dot(&su);
+        let a01 = su.dot(&sv);
+        let a11 = sv.dot(&sv);
+        let det = a00 * a11 - a01 * a01;
+        if det.abs() < f64::EPSILON {
+            break;
+        }
+        let du = (a11 * rhs_u - a01 * rhs_v) / det;
+        let dv = (a00 * rhs_v - a01 * rhs_u) / det;
+        u = (u + du).clamp(u_lo, u_hi);
+        v = (v + dv).clamp(v_lo, v_hi);
+        if du * du + dv * dv < STEP_TOL {
+            break;
+        }
+    }
+
+    let dist = point.distance_to(&surface.point_at(u, v));
+    if dist <= MAX_DIST { Some((u, v)) } else { None }
+}
+
 /// Multi-start Gauss-Newton projection of a 3D point onto a NURBS surface.
 ///
 /// Tries five starting points (parameter domain centre plus four corners) and
