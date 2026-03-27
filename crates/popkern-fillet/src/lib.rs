@@ -124,10 +124,9 @@ pub fn fillet_edges(
             failures: edge_failures,
         })?;
 
-    // 4. Ensure pcurve coverage. The custom attach_fillet_pcurves handles
-    // fillet-specific edges. recompute_all_pcurves fills gaps (half-edges
-    // without pcurves). Then replace any stale pcurves whose endpoints
-    // no longer match the actual edge curve positions.
+    // 4. Ensure pcurve coverage and correctness.
+    // recompute_all_pcurves fills gaps, fix_stale_pcurves replaces
+    // any pcurves whose endpoints don't match vertex positions.
     let _ = apply_result.brep.recompute_all_pcurves();
     apply_result.brep.fix_stale_pcurves();
 

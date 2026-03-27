@@ -372,6 +372,54 @@ impl BRep {
         Ok(())
     }
 
+    /// Like [`fix_stale_pcurves`] but only processes half-edges on
+    /// **planar** faces, where recomputed pcurves are exact. Preserves
+    /// custom pcurves on curved surfaces (torus, NURBS) that may be
+    /// more accurate than projection-based recomputation.
+    pub fn fix_stale_plane_pcurves(&mut self) {
+        use crate::geometry::curve::CurveEval;
+        use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
+
+        let he_keys: Vec<_> = self.half_edges.keys().collect();
+        for heh in he_keys {
+            let pcurve = match self.half_edges[heh].pcurve.as_ref() {
+                Some(pc) => pc.clone(),
+                None => continue,
+            };
+
+            let loop_handle = self.half_edges[heh].loop_;
+            let face_handle = match self.loops.get(loop_handle) {
+                Some(l) => l.face,
+                None => continue,
+            };
+            let surface = match self.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
+                Some(s) => &s.geometry,
+                None => continue,
+            };
+
+            // Only process planar faces.
+            if !matches!(surface, SurfaceGeometry::Plane { .. }) {
+                continue;
+            }
+
+            let (t0, _t1) = pcurve.parameter_range();
+            let uv_start = pcurve.point_at(t0);
+            let pos_from_pcurve = surface.point_at(uv_start.x, uv_start.y);
+            let actual_pos = self.vertices[self.half_edges[heh].origin].position;
+
+            if pos_from_pcurve.distance_to(&actual_pos) > 0.05 {
+                self.half_edges[heh].pcurve = None;
+            }
+        }
+
+        let _ = self.recompute_all_pcurves();
+
+        let face_keys: Vec<_> = self.faces.keys().collect();
+        for fh in face_keys {
+            self.fix_pcurve_endpoints(fh);
+        }
+    }
+
     /// Detect and replace stale pcurves whose endpoints no longer match
     /// the actual edge curve positions.
     ///
