@@ -202,17 +202,36 @@ impl BRep {
                     let is_analytic =
                         !matches!(surface, crate::geometry::surface::SurfaceGeometry::Nurbs(_));
                     let n_samples = 64usize;
-                    let mut uv_points = Vec::with_capacity(n_samples);
+                    let mut uv_points: Vec<Point3> = Vec::with_capacity(n_samples);
+                    let (period_u, period_v) = surface.periodicity();
                     for i in 0..n_samples {
                         let frac = i as f64 / (n_samples - 1).max(1) as f64;
                         let t = t_lo + (t_hi - t_lo) * frac;
                         let p = curve_on_edge.geometry.point_at(t);
-                        if let Some((u, v)) = project_point_to_uv(&surface, &p) {
-                            uv_points.push(Point3::new(
-                                clamp_if_finite(u, u_min, u_max),
-                                clamp_if_finite(v, v_min, v_max),
-                                0.0,
-                            ));
+                        if let Some((mut u, mut v)) = project_point_to_uv(&surface, &p) {
+                            // For periodic surfaces, unwrap relative to
+                            // the FIRST point to keep the polyline
+                            // contiguous across seam crossings.
+                            if let (Some(pu), Some(first)) = (period_u, uv_points.first()) {
+                                while u - first.x > pu * 0.5 {
+                                    u -= pu;
+                                }
+                                while u - first.x < -pu * 0.5 {
+                                    u += pu;
+                                }
+                            }
+                            if let (Some(pv), Some(first)) = (period_v, uv_points.first()) {
+                                while v - first.y > pv * 0.5 {
+                                    v -= pv;
+                                }
+                                while v - first.y < -pv * 0.5 {
+                                    v += pv;
+                                }
+                            }
+                            // Do NOT clamp — extended UV is valid for
+                            // periodic surfaces and needed for seam-
+                            // crossing pcurves.
+                            uv_points.push(Point3::new(u, v, 0.0));
                         }
                     }
 
@@ -225,13 +244,7 @@ impl BRep {
                         let n_cp = uv_points.len().min(50);
                         match crate::geometry::fitting::fit_curve(&uv_points, &params, degree, n_cp)
                         {
-                            Ok(mut fitted) => {
-                                for cp in &mut fitted.control_points {
-                                    cp.x = clamp_if_finite(cp.x, u_min, u_max);
-                                    cp.y = clamp_if_finite(cp.y, v_min, v_max);
-                                }
-                                fitted
-                            }
+                            Ok(fitted) => fitted,
                             Err(_) => NurbsCurve {
                                 degree: 1,
                                 knots: vec![0.0, 0.0, 1.0, 1.0],
