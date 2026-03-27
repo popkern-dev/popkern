@@ -236,7 +236,10 @@ impl BRep {
                     }
 
                     if uv_points.len() >= 4 {
-                        // NURBS surface: degree-3 fit (projection is
+                        // Dense sampling + degree-3 least-squares fit.
+                        // The fit smooths over small UV projection noise
+                        // and seam-crossing transitions better than an
+                        // exact polyline, which amplifies every deviation.
                         let params: Vec<f64> = (0..uv_points.len())
                             .map(|i| i as f64 / (uv_points.len() - 1).max(1) as f64)
                             .collect();
