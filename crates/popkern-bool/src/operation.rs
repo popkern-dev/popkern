@@ -114,6 +114,12 @@ pub(crate) fn execute_boolean(
     )
     .map_err(|diag| diag.into_error())?;
 
+    // Recompute pcurves on all faces so that the tessellation pipeline
+    // can build accurate trim loops. Boolean merge may leave seam edges
+    // and original-operand edges without pcurves.
+    let mut result = result;
+    let _ = result.recompute_all_pcurves();
+
     // Log validation issues (don't fail — diagnostic only for now).
     log_validation_issues(&result, op);
 

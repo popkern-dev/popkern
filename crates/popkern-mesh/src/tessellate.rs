@@ -122,6 +122,17 @@ pub(crate) fn tessellate_face(
         }
     }
 
+    // When face orientation is reversed, flip triangle winding to match.
+    // The adaptive subdivision always produces CCW winding from the surface
+    // geometry's normal direction. If orientation=false, the effective face
+    // normal is flipped, so triangles must be rewound to remain front-facing
+    // under CCW back-face culling.
+    if !orientation {
+        for tri in &mut triangles {
+            tri.swap(1, 2);
+        }
+    }
+
     Ok(FaceMesh {
         face: face_handle,
         vertices,
