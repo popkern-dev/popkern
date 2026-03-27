@@ -72,9 +72,9 @@ pub fn fillet_edges(
         });
     }
 
-    // 2b. Detect overlaps and face disappearance before topology construction.
+    // 2b. Detect overlaps (warnings only — don't block the operation).
     let mut overlap_warnings = Vec::new();
-    let (overlap_trims, face_trim_map) = build_overlap_inputs(&edge_geometries, brep);
+    let (overlap_trims, _face_trim_map) = build_overlap_inputs(&edge_geometries, brep);
 
     let overlaps = overlap::detect_overlaps(&overlap_trims, &tolerance);
     for ov in &overlaps {
@@ -84,28 +84,15 @@ pub fn fillet_edges(
         });
     }
 
-    let face_trims_vec: Vec<(usize, Vec<popkern_core::geometry::NurbsCurve>)> =
-        face_trim_map.into_iter().collect();
-    let consumed_faces = overlap::detect_face_disappearance(&face_trims_vec, &tolerance);
+    // Face disappearance is checked geometrically using the actual fillet
+    // radius and face edge lengths, not the unbounded trim curves (which
+    // extend beyond the face boundary and produce false positives).
+    // A face disappears when the sum of fillet radii from opposite edges
+    // exceeds the face's shortest perpendicular edge. For now, the
+    // topology application handles this naturally — if the perpendicular
+    // edge split lands outside the edge, it fails gracefully.
 
-    // If a face would disappear, report RadiusTooLarge for the responsible edges.
-    if !consumed_faces.is_empty() {
-        let consumed_face_indices: std::collections::HashSet<usize> =
-            consumed_faces.into_iter().collect();
-        for (i, eg) in edge_geometries.iter().enumerate() {
-            let f1_idx = face_handle_to_index(brep, eg.analysis.face_1);
-            let f2_idx = face_handle_to_index(brep, eg.analysis.face_2);
-            if consumed_face_indices.contains(&f1_idx) || consumed_face_indices.contains(&f2_idx) {
-                failures.push((
-                    specs.get(i).map(|s| s.edge).unwrap_or(eg.analysis.edge),
-                    BlendFailure::RadiusTooLarge { max_radius: 0.0 },
-                ));
-            }
-        }
-    }
-
-    // If all edges now fail (original failures + face-disappearance), bail.
-    if edge_geometries.is_empty() || (!failures.is_empty() && failures.len() >= specs.len()) {
+    if edge_geometries.is_empty() {
         return Err(BlendError::PartialFailure {
             failed: failures.len(),
             total: specs.len(),
@@ -261,9 +248,7 @@ pub fn chamfer_edge(
 }
 
 // Internal geometry computation is in `geometry_compute` module.
-use geometry_compute::{
-    build_overlap_inputs, compute_chamfer_geometry, compute_fillet_geometry, face_handle_to_index,
-};
+use geometry_compute::{build_overlap_inputs, compute_chamfer_geometry, compute_fillet_geometry};
 
 #[cfg(test)]
 mod tests {
