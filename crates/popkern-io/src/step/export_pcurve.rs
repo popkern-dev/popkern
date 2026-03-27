@@ -82,6 +82,28 @@ impl ExportContext {
             ],
         )
     }
+
+    /// Create a SEAM_CURVE wrapping a 3-D curve with associated pcurves.
+    ///
+    /// SEAM_CURVE has the same structure as SURFACE_CURVE but indicates that
+    /// both half-edges belong to the same face (e.g., a cylinder or torus seam).
+    /// OpenCASCADE handles seam topology correctly with this entity type.
+    pub(crate) fn export_seam_curve(
+        &mut self,
+        curve_3d_id: EntityId,
+        pcurve_ids: &[EntityId],
+    ) -> EntityId {
+        let pcurve_refs: Vec<Parameter> = pcurve_ids.iter().map(|&id| ref_(id)).collect();
+        self.emit(
+            "SEAM_CURVE",
+            vec![
+                str_param(""),
+                ref_(curve_3d_id),
+                list(pcurve_refs),
+                enum_("PCURVE_S1"),
+            ],
+        )
+    }
 }
 
 #[cfg(test)]
@@ -154,6 +176,29 @@ mod tests {
         );
 
         // Verify it references the 3D curve and pcurves
+        let params = &entity.as_ref().map(|e| &e.params);
+        assert!(params.is_some());
+        let params = params.as_ref().map(|p| p.len());
+        assert_eq!(params, Some(4));
+    }
+
+    #[test]
+    fn export_seam_curve_wraps_pcurves() {
+        let mut ctx = ExportContext::new();
+        let curve_3d = ctx.emit("LINE", vec![str_param("")]);
+        let pcurve1 = ctx.emit("PCURVE", vec![str_param("")]);
+        let pcurve2 = ctx.emit("PCURVE", vec![str_param("")]);
+
+        let sc_id = ctx.export_seam_curve(curve_3d, &[pcurve1, pcurve2]);
+
+        let entity = ctx.entities.iter().find(|e| e.id == sc_id);
+        assert!(entity.is_some());
+        assert_eq!(
+            entity.as_ref().map(|e| e.type_name.as_str()),
+            Some("SEAM_CURVE")
+        );
+
+        // Verify same 4-parameter structure as SURFACE_CURVE
         let params = &entity.as_ref().map(|e| &e.params);
         assert!(params.is_some());
         let params = params.as_ref().map(|p| p.len());

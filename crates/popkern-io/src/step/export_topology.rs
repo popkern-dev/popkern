@@ -257,10 +257,11 @@ impl ExportContext {
         Ok(surface_map)
     }
 
-    /// If both half-edges have pcurves, wrap the 3-D curve in a SURFACE_CURVE.
+    /// If both half-edges have pcurves, wrap the 3-D curve in a SURFACE_CURVE
+    /// (or SEAM_CURVE if both half-edges belong to the same face).
     ///
     /// Returns either the original `curve_3d_id` (no pcurves) or a new
-    /// SURFACE_CURVE entity ID.
+    /// SURFACE_CURVE / SEAM_CURVE entity ID.
     fn maybe_wrap_surface_curve(
         &mut self,
         brep: &BRep,
@@ -284,7 +285,24 @@ impl ExportContext {
         if pcurve_ids.is_empty() {
             curve_3d_id
         } else {
-            self.export_surface_curve(curve_3d_id, &pcurve_ids)
+            // Detect seam edges: both half-edges belong to the same face
+            let he_face = brep
+                .half_edges
+                .get(he_handle)
+                .and_then(|he| brep.loops.get(he.loop_))
+                .map(|l| l.face);
+            let twin_face = brep
+                .half_edges
+                .get(twin_handle)
+                .and_then(|he| brep.loops.get(he.loop_))
+                .map(|l| l.face);
+            let is_seam = he_face == twin_face && he_face.is_some();
+
+            if is_seam {
+                self.export_seam_curve(curve_3d_id, &pcurve_ids)
+            } else {
+                self.export_surface_curve(curve_3d_id, &pcurve_ids)
+            }
         }
     }
 

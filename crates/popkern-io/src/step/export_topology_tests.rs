@@ -1,5 +1,11 @@
 use super::*;
 use popkern_core::tolerance::Tolerance;
+use std::sync::Arc;
+
+use crate::step::document::{
+    OpaqueBag, RepresentationContext, ShapeRep, ShapeRepKind, StepProductNode, UnitContext,
+};
+use crate::step::export::{StepExportOptions, export_step};
 
 #[test]
 fn export_unit_cube_entity_counts() {
@@ -197,5 +203,73 @@ fn export_cube_has_surface_curves_and_pcurves() {
         count("PARAMETRIC_REPRESENTATION_CONTEXT"),
         1,
         "Expected 1 shared PARAMETRIC_REPRESENTATION_CONTEXT"
+    );
+}
+
+#[test]
+fn cylinder_export_has_seam_curve() {
+    let tol = Tolerance::default();
+    let cyl = BRep::cylinder(1.0, 2.0, tol).unwrap();
+    let mut ctx = ExportContext::new();
+    ctx.export_brep(&cyl).unwrap();
+
+    let count =
+        |name: &str| -> usize { ctx.entities.iter().filter(|e| e.type_name == name).count() };
+
+    // A cylinder has a seam edge where both half-edges belong to the same
+    // lateral face. That edge should use SEAM_CURVE, not SURFACE_CURVE.
+    assert!(
+        count("SEAM_CURVE") >= 1,
+        "Expected at least 1 SEAM_CURVE for cylinder seam edge, got {}",
+        count("SEAM_CURVE"),
+    );
+}
+
+#[test]
+fn cylinder_step_text_contains_seam_curve() {
+    let tol = Tolerance::default();
+    let cyl = BRep::cylinder(1.0, 2.0, tol).unwrap();
+    let doc = crate::step::document::StepDocument {
+        products: vec![StepProductNode {
+            name: "Cyl".into(),
+            id: "CYL001".into(),
+            children: vec![],
+            shapes: vec![Arc::new(ShapeRep {
+                kind: ShapeRepKind::AdvancedBrep,
+                solids: vec![cyl],
+                context: RepresentationContext::default(),
+                non_brep_items: vec![],
+            })],
+            metadata: Default::default(),
+        }],
+        roots: vec![0],
+        units: UnitContext::default(),
+        opaque_bag: OpaqueBag::default(),
+    };
+
+    let opts = StepExportOptions::default();
+    let result = export_step(&doc, &opts).unwrap();
+    let step_str = String::from_utf8(result).unwrap();
+    assert!(
+        step_str.contains("SEAM_CURVE"),
+        "Cylinder STEP export should contain SEAM_CURVE for seam edge"
+    );
+}
+
+#[test]
+fn cube_has_no_seam_curves() {
+    // A cube has no seam edges — all edges are shared between distinct faces.
+    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let mut ctx = ExportContext::new();
+    ctx.export_brep(&brep).unwrap();
+
+    let seam_count = ctx
+        .entities
+        .iter()
+        .filter(|e| e.type_name == "SEAM_CURVE")
+        .count();
+    assert_eq!(
+        seam_count, 0,
+        "Cube should have 0 SEAM_CURVEs, got {seam_count}"
     );
 }
