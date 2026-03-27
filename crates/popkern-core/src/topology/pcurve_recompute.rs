@@ -292,7 +292,7 @@ impl BRep {
     /// the first/last control points if needed.
     fn fix_pcurve_endpoints(&mut self, face_handle: FaceHandle) {
         use crate::geometry::curve::CurveEval;
-        use crate::geometry::uv_projection::{project_point_to_uv, project_point_to_uv_near};
+        use crate::geometry::uv_projection::project_point_to_uv;
 
         let surface = match self.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
             Some(s) => s.geometry.clone(),

@@ -49,6 +49,8 @@ pub(crate) fn compute_fillet_geometry(
             *r,
             &edge_midpoint,
             tolerance,
+            analysis.orientation_1,
+            analysis.orientation_2,
         )
         .map_err(|e| BlendFailure::IntersectionFailed { reason: e })?,
         FilletRadius::Variable { start, end } => center_curve::variable_radius_center_curve(
@@ -62,6 +64,8 @@ pub(crate) fn compute_fillet_geometry(
             *end,
             &edge_midpoint,
             tolerance,
+            analysis.orientation_1,
+            analysis.orientation_2,
         )
         .map_err(|e| BlendFailure::IntersectionFailed { reason: e })?,
         FilletRadius::ByPoints(pts) => {
@@ -83,6 +87,8 @@ pub(crate) fn compute_fillet_geometry(
                 r_end,
                 &edge_midpoint,
                 tolerance,
+                analysis.orientation_1,
+                analysis.orientation_2,
             )
             .map_err(|e| BlendFailure::IntersectionFailed { reason: e })?
         }
@@ -215,6 +221,8 @@ pub(crate) fn rebuild_analysis(
         face_2: src.face_2,
         surface_1: src.surface_1.clone(),
         surface_2: src.surface_2.clone(),
+        orientation_1: src.orientation_1,
+        orientation_2: src.orientation_2,
         convexity: src.convexity,
         vertex_start: src.vertex_start,
         vertex_end: src.vertex_end,

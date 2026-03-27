@@ -355,11 +355,15 @@ fn print_single_fillet_vertices() {
     let cube = popkern_core::topology::BRep::unit_cube(tol).unwrap();
     let edge = cube.edges.keys().next().unwrap();
     let result = popkern_fillet::fillet_edge(&cube, edge, 0.1, tol).unwrap();
-    eprintln!("Single-edge fillet: {} vertices", result.brep.vertices.len());
+    eprintln!(
+        "Single-edge fillet: {} vertices",
+        result.brep.vertices.len()
+    );
     for (vh, v) in result.brep.vertices.iter() {
         let p = v.position;
         // Only print non-cube-corner vertices
-        let is_corner = [0.0, 1.0].contains(&p.x) && [0.0, 1.0].contains(&p.y) && [0.0, 1.0].contains(&p.z);
+        let is_corner =
+            [0.0, 1.0].contains(&p.x) && [0.0, 1.0].contains(&p.y) && [0.0, 1.0].contains(&p.z);
         if !is_corner {
             eprintln!("  NEW {:?}: ({:.6}, {:.6}, {:.6})", vh, p.x, p.y, p.z);
         }
@@ -378,8 +382,10 @@ fn print_fillet_footprint_positions() {
     let v_start = cube.vertices[cube.half_edges[he].origin].position;
     let twin = cube.half_edges[he].twin;
     let v_end = cube.vertices[cube.half_edges[twin].origin].position;
-    eprintln!("Filleting edge from ({:.3},{:.3},{:.3}) to ({:.3},{:.3},{:.3})",
-        v_start.x, v_start.y, v_start.z, v_end.x, v_end.y, v_end.z);
+    eprintln!(
+        "Filleting edge from ({:.3},{:.3},{:.3}) to ({:.3},{:.3},{:.3})",
+        v_start.x, v_start.y, v_start.z, v_end.x, v_end.y, v_end.z
+    );
 
     let result = popkern_fillet::fillet_edge(&cube, edge, 0.1, tol).unwrap();
     // Print all non-corner vertices
@@ -391,5 +397,97 @@ fn print_fillet_footprint_positions() {
         if !is_corner {
             eprintln!("  fillet vtx: ({:.6},{:.6},{:.6})", p.x, p.y, p.z);
         }
+    }
+}
+
+#[test]
+fn trace_fillet_center_curve() {
+    use popkern_core::geometry::curve::CurveEval;
+    let tol = popkern_core::tolerance::Tolerance::default();
+    let cube = popkern_core::topology::BRep::unit_cube(tol).unwrap();
+    let edge = cube.edges.keys().next().unwrap();
+
+    // Get the analysis for this edge
+    let analyses = popkern_fillet::analysis::analyze_edges(&cube, &[edge], false).unwrap();
+    let analysis = &analyses[0];
+
+    eprintln!(
+        "Surface 1: {:?}",
+        std::mem::discriminant(&analysis.surface_1)
+    );
+    eprintln!(
+        "Surface 2: {:?}",
+        std::mem::discriminant(&analysis.surface_2)
+    );
+
+    // Compute the center curve
+    let ((u1_lo, u1_hi), (v1_lo, v1_hi)) =
+        popkern_core::geometry::uv_projection::bounded_parameter_range(
+            &cube.face_outer_loop_positions(analysis.face_1),
+            &analysis.surface_1,
+        );
+    let ((u2_lo, u2_hi), (v2_lo, v2_hi)) =
+        popkern_core::geometry::uv_projection::bounded_parameter_range(
+            &cube.face_outer_loop_positions(analysis.face_2),
+            &analysis.surface_2,
+        );
+
+    eprintln!(
+        "Face 1 UV range: u=[{:.3},{:.3}], v=[{:.3},{:.3}]",
+        u1_lo, u1_hi, v1_lo, v1_hi
+    );
+    eprintln!(
+        "Face 2 UV range: u=[{:.3},{:.3}], v=[{:.3},{:.3}]",
+        u2_lo, u2_hi, v2_lo, v2_hi
+    );
+
+    let edge_mid = {
+        let he = &cube.half_edges[cube.edges[edge].half_edge];
+        let p1 = cube.vertices[he.origin].position;
+        let twin = &cube.half_edges[he.twin];
+        let p2 = cube.vertices[twin.origin].position;
+        popkern_core::geometry::Point3::new(
+            (p1.x + p2.x) * 0.5,
+            (p1.y + p2.y) * 0.5,
+            (p1.z + p2.z) * 0.5,
+        )
+    };
+    eprintln!(
+        "Edge midpoint: ({:.3},{:.3},{:.3})",
+        edge_mid.x, edge_mid.y, edge_mid.z
+    );
+
+    let cc = popkern_fillet::center_curve::constant_radius_center_curve(
+        &analysis.surface_1,
+        (u1_lo, u1_hi),
+        (v1_lo, v1_hi),
+        &analysis.surface_2,
+        (u2_lo, u2_hi),
+        (v2_lo, v2_hi),
+        0.1,
+        &edge_mid,
+        &tol,
+        analysis.orientation_1,
+        analysis.orientation_2,
+    );
+
+    match cc {
+        Ok(result) => {
+            let (t0, t1) = result.center_curve.parameter_range();
+            for i in 0..5 {
+                let t = t0 + (t1 - t0) * (i as f64 / 4.0);
+                let p = result.center_curve.point_at(t);
+                eprintln!("  center[{i}]: ({:.6},{:.6},{:.6})", p.x, p.y, p.z);
+            }
+            eprintln!("  footprint_1: {} points", result.footprint_1.len());
+            for (i, fp) in result.footprint_1.iter().enumerate().take(5) {
+                eprintln!("    fp1[{i}]: ({:.6},{:.6},{:.6})", fp.x, fp.y, fp.z);
+            }
+            eprintln!("  footprint_2: {} points", result.footprint_2.len());
+            for (i, fp) in result.footprint_2.iter().enumerate().take(5) {
+                eprintln!("    fp2[{i}]: ({:.6},{:.6},{:.6})", fp.x, fp.y, fp.z);
+            }
+        }
+        Err(e) => eprintln!("  center curve failed: {e}"),
     }
 }

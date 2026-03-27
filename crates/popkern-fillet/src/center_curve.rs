@@ -47,10 +47,17 @@ pub fn constant_radius_center_curve(
     radius: f64,
     edge_midpoint: &Point3,
     tolerance: &Tolerance,
+    orientation_1: bool,
+    orientation_2: bool,
 ) -> Result<CenterCurveResult, String> {
     // 1. Offset both surfaces inward by the fillet radius.
-    let offset1 = offset_surface(surface1, radius, true, u1_range, v1_range, tolerance)?;
-    let offset2 = offset_surface(surface2, radius, true, u2_range, v2_range, tolerance)?;
+    // "Inward" means toward the solid interior. When the face orientation
+    // is false (face normal is opposite to surface geometry normal),
+    // the offset direction must be flipped: surface-outward = face-inward.
+    let inward_1 = orientation_1; // true = surface normal is face normal = offset against it
+    let inward_2 = orientation_2;
+    let offset1 = offset_surface(surface1, radius, inward_1, u1_range, v1_range, tolerance)?;
+    let offset2 = offset_surface(surface2, radius, inward_2, u2_range, v2_range, tolerance)?;
 
     // 2. Compute parameter ranges for offset surfaces.
     let ((ou1_min, ou1_max), (ov1_min, ov1_max)) = offset1.parameter_range();
@@ -118,6 +125,8 @@ pub fn variable_radius_center_curve(
     radius_end: f64,
     edge_midpoint: &Point3,
     tolerance: &Tolerance,
+    orientation_1: bool,
+    orientation_2: bool,
 ) -> Result<CenterCurveResult, String> {
     let n_samples = 20usize;
     let mut center_points = Vec::with_capacity(n_samples);
@@ -141,6 +150,8 @@ pub fn variable_radius_center_curve(
             local_radius,
             edge_midpoint,
             tolerance,
+            orientation_1,
+            orientation_2,
         )?;
 
         let fp1 = project_onto_surface(surface1, u1_range, v1_range, &center_pt)?;
@@ -207,9 +218,25 @@ fn find_center_point_at_radius(
     radius: f64,
     target: &Point3,
     tolerance: &Tolerance,
+    orientation_1: bool,
+    orientation_2: bool,
 ) -> Result<Point3, String> {
-    let offset1 = offset_surface(surface1, radius, true, u1_range, v1_range, tolerance)?;
-    let offset2 = offset_surface(surface2, radius, true, u2_range, v2_range, tolerance)?;
+    let offset1 = offset_surface(
+        surface1,
+        radius,
+        orientation_1,
+        u1_range,
+        v1_range,
+        tolerance,
+    )?;
+    let offset2 = offset_surface(
+        surface2,
+        radius,
+        orientation_2,
+        u2_range,
+        v2_range,
+        tolerance,
+    )?;
 
     let ((ou1_min, ou1_max), (ov1_min, ov1_max)) = offset1.parameter_range();
     let off1_u = clamp_finite_range((ou1_min, ou1_max), u1_range);
@@ -280,6 +307,8 @@ mod tests {
             1.0,
             &midpoint,
             &test_tolerance(),
+            true,
+            true,
         );
 
         assert!(result.is_ok(), "center curve failed: {:?}", result.err());
@@ -321,6 +350,8 @@ mod tests {
             1.5,
             &midpoint,
             &test_tolerance(),
+            true,
+            true,
         );
 
         assert!(

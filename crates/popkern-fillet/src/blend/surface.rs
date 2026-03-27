@@ -182,6 +182,7 @@ fn try_spherical_blend(
 ///
 /// Creates a simple bilinear or Coons-style patch through the boundary
 /// points. Returns `None` if the construction fails.
+#[allow(dead_code)]
 fn try_nurbs_blend(
     points: &[Point3],
     boundary_curves: &[NurbsCurve],

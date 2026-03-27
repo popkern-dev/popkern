@@ -26,6 +26,11 @@ pub struct EdgeAnalysis {
     pub surface_1: SurfaceGeometry,
     /// Surface geometry of the second face.
     pub surface_2: SurfaceGeometry,
+    /// Face orientation for surface 1. When `false`, the effective face
+    /// normal is opposite to the surface geometry's normal.
+    pub orientation_1: bool,
+    /// Face orientation for surface 2.
+    pub orientation_2: bool,
     /// Convexity classification at the edge.
     pub convexity: Convexity,
     /// Vertex at the start of the edge.
@@ -96,8 +101,8 @@ fn analyze_single_edge(brep: &BRep, edge_handle: EdgeHandle) -> Result<EdgeAnaly
         ));
     }
 
-    let surface_1 = get_face_surface(brep, face_1)?;
-    let surface_2 = get_face_surface(brep, face_2)?;
+    let (surface_1, orientation_1) = get_face_surface_with_orientation(brep, face_1)?;
+    let (surface_2, orientation_2) = get_face_surface_with_orientation(brep, face_2)?;
 
     // Get the two vertices at edge endpoints.
     let vertex_start = he1.origin;
@@ -112,6 +117,8 @@ fn analyze_single_edge(brep: &BRep, edge_handle: EdgeHandle) -> Result<EdgeAnaly
         face_2,
         surface_1,
         surface_2,
+        orientation_1,
+        orientation_2,
         convexity,
         vertex_start,
         vertex_end,
@@ -131,6 +138,7 @@ fn loop_to_face(
 }
 
 /// Get surface geometry for a face.
+#[allow(dead_code)]
 fn get_face_surface(brep: &BRep, face_handle: FaceHandle) -> Result<SurfaceGeometry, String> {
     let face = brep
         .faces
@@ -143,6 +151,25 @@ fn get_face_surface(brep: &BRep, face_handle: FaceHandle) -> Result<SurfaceGeome
         .ok_or_else(|| format!("face {face_handle:?} has no surface geometry"))?;
 
     Ok(surface_on_face.geometry.clone())
+}
+
+/// Get the surface geometry AND orientation flag from a face.
+fn get_face_surface_with_orientation(
+    brep: &BRep,
+    face_handle: FaceHandle,
+) -> Result<(SurfaceGeometry, bool), String> {
+    let face = brep
+        .faces
+        .get(face_handle)
+        .ok_or_else(|| format!("face {face_handle:?} not found"))?;
+    let surface_on_face = face
+        .surface
+        .as_ref()
+        .ok_or_else(|| format!("face {face_handle:?} has no surface geometry"))?;
+    Ok((
+        surface_on_face.geometry.clone(),
+        surface_on_face.orientation,
+    ))
 }
 
 /// Number of sample points along the edge for convexity classification.
