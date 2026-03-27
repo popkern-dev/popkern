@@ -10,7 +10,12 @@ use crate::geometry::{Point3, Vec3};
 ///
 /// `perp1` is the Gram–Schmidt projection of a reference cardinal direction onto the
 /// plane perpendicular to `axis`, so the frame is stable and deterministic.
-pub(crate) fn orthonormal_basis(axis: Vec3) -> (Vec3, Vec3) {
+/// Build an orthonormal basis perpendicular to `axis`.
+///
+/// Returns `(perp1, perp2)` where both are unit vectors perpendicular
+/// to `axis` and to each other. The STEP exporter uses `perp1` as the
+/// `ref_direction` for `AXIS2_PLACEMENT_3D` to ensure UV frame alignment.
+pub fn orthonormal_basis(axis: Vec3) -> (Vec3, Vec3) {
     // Choose a reference cardinal that is least parallel to axis.
     let reference = if axis.x.abs() <= axis.y.abs() && axis.x.abs() <= axis.z.abs() {
         Vec3::new(1.0, 0.0, 0.0)

@@ -150,18 +150,11 @@ impl ExportContext {
 /// requires an explicit reference direction that the popkern model does not
 /// store (e.g., the X-axis for a cylinder placement).
 pub(crate) fn compute_perpendicular(n: &Vec3) -> Vec3 {
-    let abs_x = n.x.abs();
-    let abs_y = n.y.abs();
-    let abs_z = n.z.abs();
-    let seed = if abs_x <= abs_y && abs_x <= abs_z {
-        Vec3::new(1.0, 0.0, 0.0)
-    } else if abs_y <= abs_z {
-        Vec3::new(0.0, 1.0, 0.0)
-    } else {
-        Vec3::new(0.0, 0.0, 1.0)
-    };
-    let perp = n.cross(&seed);
-    perp.normalized().unwrap_or(Vec3::new(1.0, 0.0, 0.0))
+    // Delegate to popkern_core's orthonormal_basis to guarantee the STEP
+    // ref_direction exactly matches the UV frame used for pcurves.
+    let nn = n.normalized().unwrap_or(Vec3::new(0.0, 0.0, 1.0));
+    let (perp1, _perp2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(nn);
+    perp1
 }
 
 /// Compress a knot vector into unique values and their multiplicities.
