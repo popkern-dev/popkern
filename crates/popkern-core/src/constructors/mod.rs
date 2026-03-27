@@ -42,9 +42,12 @@ pub(super) fn plane_from_points(
     let u_axis = raw_u
         .normalized()
         .ok_or_else(|| CoreError::DegenerateSurface("zero-length u_axis".into()))?;
-    // Gram-Schmidt: v = raw_v - (raw_v·u)*u, then normalize.
-    let v_proj = raw_v - u_axis * raw_v.dot(&u_axis);
-    let v_axis = v_proj
+    // Use cross product (not Gram-Schmidt) for v_axis to match the STEP
+    // convention: v = cross(normal, u_axis). OpenCASCADE derives v_axis
+    // this way from AXIS2_PLACEMENT_3D, so our pcurve UV coordinates
+    // must use the same frame.
+    let v_axis = normal
+        .cross(&u_axis)
         .normalized()
         .ok_or_else(|| CoreError::DegenerateSurface("collinear points for plane".into()))?;
     Ok(SurfaceGeometry::Plane {
