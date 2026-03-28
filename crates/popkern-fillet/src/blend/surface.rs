@@ -157,27 +157,24 @@ fn try_spherical_blend(
     let mut count = 0usize;
 
     for seg in &boundary.segments {
-        if let BoundarySegment::FilletEnd { fillet_index, .. } = seg {
-            if let Some(fillet) = fillet_surfaces.get(*fillet_index) {
-                if let SurfaceGeometry::Torus {
-                    center,
-                    minor_radius,
-                    ..
-                } = &fillet.surface
-                {
-                    let dir = Vec3::new(
-                        center.x - boundary.vertex_position.x,
-                        center.y - boundary.vertex_position.y,
-                        center.z - boundary.vertex_position.z,
-                    );
-                    if let Some(n) = dir.normalized() {
-                        inward_sum =
-                            Vec3::new(inward_sum.x + n.x, inward_sum.y + n.y, inward_sum.z + n.z);
-                    }
-                    radius_sum += minor_radius;
-                    count += 1;
-                }
+        if let BoundarySegment::FilletEnd { fillet_index, .. } = seg
+            && let Some(fillet) = fillet_surfaces.get(*fillet_index)
+            && let SurfaceGeometry::Torus {
+                center,
+                minor_radius,
+                ..
+            } = &fillet.surface
+        {
+            let dir = Vec3::new(
+                center.x - boundary.vertex_position.x,
+                center.y - boundary.vertex_position.y,
+                center.z - boundary.vertex_position.z,
+            );
+            if let Some(n) = dir.normalized() {
+                inward_sum = Vec3::new(inward_sum.x + n.x, inward_sum.y + n.y, inward_sum.z + n.z);
             }
+            radius_sum += minor_radius;
+            count += 1;
         }
     }
 
