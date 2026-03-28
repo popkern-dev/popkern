@@ -3,6 +3,8 @@ pub mod elements;
 #[allow(dead_code)] // Used by the solver (Task 6); no callers yet.
 pub(crate) mod equations;
 pub mod error;
+#[allow(dead_code)] // Used by the solver (Task 6); no callers yet.
+pub(crate) mod jacobian;
 
 pub use constraint::{
     Constraint, ConstraintEntry, ConstraintHandle, ConstraintKind, ConstraintStatus,
