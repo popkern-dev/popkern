@@ -25,7 +25,8 @@ impl BRep {
     /// Make Edge, Face — splits a face by connecting two vertices in the same loop.
     ///
     /// Creates a new edge connecting `origin(he1)` to `origin(he2)`, splitting
-    /// the face into two. The old face keeps the half-edges from `new_he` onward
+    /// the face into two. The new face inherits the parent face's surface
+    /// geometry. The old face keeps the half-edges from `new_he` onward
     /// (through `he2`), and the new face gets the half-edges from `new_he_twin`
     /// onward (through `he1`).
     ///
@@ -78,12 +79,12 @@ impl BRep {
             curve: None,
         });
 
-        // Create new face.
+        // Create new face (inherits parent surface).
         let new_face = self.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: vec![],
             shell,
-            surface: None,
+            surface: self.faces[old_face].surface.clone(),
         });
 
         // Create new loop for the new face.

@@ -28,6 +28,14 @@ pub fn identify_consumed_face(
     }
 }
 
+/// Check if a face contains the given edge in its outer loop.
+///
+/// Used to re-identify consumed faces after Phase B splits may have
+/// fragmented them.
+pub fn identify_consumed_face_contains(brep: &BRep, face: FaceHandle, edge: EdgeHandle) -> bool {
+    face_loop_contains_edge(brep, face, edge).unwrap_or(false)
+}
+
 /// Check if a face's outer loop contains a half-edge belonging to the given edge.
 fn face_loop_contains_edge(
     brep: &BRep,

@@ -9,7 +9,9 @@ use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
-pub use super::merge::{identify_consumed_face, merge_consumed_faces};
+pub use super::merge::{
+    identify_consumed_face, identify_consumed_face_contains, merge_consumed_faces,
+};
 
 /// Split perpendicular edges at the fillet offset distance.
 ///
