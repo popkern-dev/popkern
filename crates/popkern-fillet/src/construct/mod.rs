@@ -329,29 +329,6 @@ pub fn apply_blend_geometry(
         return Err(failures);
     }
 
-    // Save non-planar surfaces keyed by face centroid position so we can
-    // restore them after vertex blend (which destroys face handles via kef).
-    use popkern_core::geometry::surface::SurfaceOnFace;
-    let saved_fillet_surfaces: Vec<(popkern_core::geometry::Point3, SurfaceOnFace)> = result
-        .faces
-        .iter()
-        .filter_map(|(fh, f)| {
-            let sof = f.surface.as_ref()?;
-            if matches!(sof.geometry, SurfaceGeometry::Plane { .. }) {
-                return None;
-            }
-            let positions = result.face_outer_loop_positions(fh);
-            if positions.is_empty() {
-                return None;
-            }
-            let n = positions.len() as f64;
-            let cx = positions.iter().map(|p| p.x).sum::<f64>() / n;
-            let cy = positions.iter().map(|p| p.y).sum::<f64>() / n;
-            let cz = positions.iter().map(|p| p.z).sum::<f64>() / n;
-            Some((popkern_core::geometry::Point3::new(cx, cy, cz), sof.clone()))
-        })
-        .collect();
-
     // Vertex blend handling.
     if *vertex_mode == VertexMode::Smooth && edge_geometries.len() > 1 {
         let mut vertex_edges: HashMap<VertexHandle, Vec<usize>> = HashMap::new();
@@ -389,46 +366,6 @@ pub fn apply_blend_geometry(
                         }
                     }
                 }
-            }
-        }
-    }
-
-    // Restore fillet surfaces destroyed by vertex blend's kef operations.
-    // Only restore if the saved surface geometrically fits the face's vertices
-    // (all vertices within 0.05 of the surface). This avoids the cross-matching
-    // bug where centroid proximity caused wrong torus surfaces to be assigned
-    // to planar faces.
-    for (_saved_centroid, saved_sof) in &saved_fillet_surfaces {
-        for fh in result.faces.keys().collect::<Vec<_>>() {
-            // Only restore to faces without a non-planar surface.
-            if result.faces[fh]
-                .surface
-                .as_ref()
-                .is_some_and(|s| !matches!(s.geometry, SurfaceGeometry::Plane { .. }))
-            {
-                continue;
-            }
-            let positions = result.face_outer_loop_positions(fh);
-            if positions.is_empty() {
-                continue;
-            }
-            // Verify the saved surface actually fits this face's geometry.
-            let max_dist: f64 = positions
-                .iter()
-                .filter_map(|p| {
-                    popkern_core::geometry::uv_projection::project_point_to_uv(
-                        &saved_sof.geometry,
-                        p,
-                    )
-                    .map(|(u, v)| {
-                        use popkern_core::geometry::surface::SurfaceEval;
-                        p.distance_to(&saved_sof.geometry.point_at(u, v))
-                    })
-                })
-                .fold(0.0_f64, f64::max);
-            if max_dist < 0.05 {
-                result.faces[fh].surface = Some(saved_sof.clone());
-                break;
             }
         }
     }
