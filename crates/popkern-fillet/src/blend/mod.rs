@@ -8,6 +8,7 @@
 pub mod boundary;
 pub mod runout;
 pub mod surface;
+mod surface_math;
 
 pub use boundary::{BlendBoundary, BoundarySegment, compute_blend_boundary};
 pub use runout::{RunoutEnd, runout_radius_fn};
