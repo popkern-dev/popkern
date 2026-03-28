@@ -164,8 +164,10 @@ fn assign_blend_surface(
     tolerance: &Tolerance,
 ) -> Result<(), String> {
     let fillet_surfaces = build_fillet_surface_list(edge_indices, edge_geometries);
+    // Use local indices (0..N) for fillet_surfaces, not the original edge indices.
+    let local_indices: Vec<usize> = (0..fillet_surfaces.len()).collect();
     let blend_boundary =
-        blend::compute_blend_boundary(vertex, edge_indices, &fillet_surfaces, brep, tolerance)
+        blend::compute_blend_boundary(vertex, &local_indices, &fillet_surfaces, brep, tolerance)
             .map_err(|e| format!("blend boundary computation failed: {e}"))?;
 
     let blend_result = blend::build_blend_surface(
