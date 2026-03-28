@@ -232,6 +232,29 @@ pub fn apply_blend_geometry(
         return Err(failures);
     }
 
+    // Save non-planar surfaces keyed by face centroid position so we can
+    // restore them after vertex blend (which destroys face handles via kef).
+    use popkern_core::geometry::surface::SurfaceOnFace;
+    let saved_fillet_surfaces: Vec<(popkern_core::geometry::Point3, SurfaceOnFace)> = result
+        .faces
+        .iter()
+        .filter_map(|(fh, f)| {
+            let sof = f.surface.as_ref()?;
+            if matches!(sof.geometry, SurfaceGeometry::Plane { .. }) {
+                return None;
+            }
+            let positions = result.face_outer_loop_positions(fh);
+            if positions.is_empty() {
+                return None;
+            }
+            let n = positions.len() as f64;
+            let cx = positions.iter().map(|p| p.x).sum::<f64>() / n;
+            let cy = positions.iter().map(|p| p.y).sum::<f64>() / n;
+            let cz = positions.iter().map(|p| p.z).sum::<f64>() / n;
+            Some((popkern_core::geometry::Point3::new(cx, cy, cz), sof.clone()))
+        })
+        .collect();
+
     // Vertex blend handling.
     if *vertex_mode == VertexMode::Smooth && edge_geometries.len() > 1 {
         let mut vertex_edges: HashMap<VertexHandle, Vec<usize>> = HashMap::new();
@@ -269,6 +292,37 @@ pub fn apply_blend_geometry(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // Restore fillet surfaces destroyed by vertex blend's kef operations.
+    // Match by face centroid proximity since handles change during kef.
+    for (saved_centroid, saved_sof) in &saved_fillet_surfaces {
+        for fh in result.faces.keys().collect::<Vec<_>>() {
+            // Only restore to faces without a non-planar surface.
+            if result.faces[fh]
+                .surface
+                .as_ref()
+                .is_some_and(|s| !matches!(s.geometry, SurfaceGeometry::Plane { .. }))
+            {
+                continue;
+            }
+            let positions = result.face_outer_loop_positions(fh);
+            if positions.is_empty() {
+                continue;
+            }
+            let n = positions.len() as f64;
+            let cx = positions.iter().map(|p| p.x).sum::<f64>() / n;
+            let cy = positions.iter().map(|p| p.y).sum::<f64>() / n;
+            let cz = positions.iter().map(|p| p.z).sum::<f64>() / n;
+            let dist = ((cx - saved_centroid.x).powi(2)
+                + (cy - saved_centroid.y).powi(2)
+                + (cz - saved_centroid.z).powi(2))
+            .sqrt();
+            if dist < 0.2 {
+                result.faces[fh].surface = Some(saved_sof.clone());
+                break;
             }
         }
     }
