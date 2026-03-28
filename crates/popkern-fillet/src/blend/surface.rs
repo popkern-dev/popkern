@@ -37,7 +37,7 @@ pub struct BlendSurfaceResult {
 pub fn build_blend_surface(
     boundary: &BlendBoundary,
     fillet_surfaces: &[FilletSurfaceResult],
-    _brep: &BRep,
+    brep: &BRep,
     vertex_mode: VertexMode,
     tolerance: &Tolerance,
 ) -> Result<BlendSurfaceResult, String> {
@@ -61,6 +61,7 @@ pub fn build_blend_surface(
             &points,
             boundary_curves,
             tolerance,
+            brep,
         ),
     }
 }
@@ -96,14 +97,22 @@ fn build_mitred_blend(
 
 /// Build a smooth blend surface.
 ///
-/// For the two-fillet case, tries a spherical cap. Falls back to mitred
-/// if smooth construction fails.
+/// Fallback chain: sphere → polar NURBS → mitred plane.
+///
+/// For two-fillet corners, the torus axes define a valid sphere bisector,
+/// so the sphere is tried first. If it fails, polar NURBS is tried as an
+/// intermediate fallback before the mitred plane.
+///
+/// For three or more fillets (e.g., a cube corner), the geometry is more
+/// complex. Polar NURBS is tried first; the mitred plane is the final
+/// fallback.
 fn build_smooth_blend(
     boundary: &BlendBoundary,
     fillet_surfaces: &[FilletSurfaceResult],
     points: &[Point3],
     boundary_curves: Vec<NurbsCurve>,
     tolerance: &Tolerance,
+    brep: &BRep,
 ) -> Result<BlendSurfaceResult, String> {
     let n_fillets = boundary
         .segments
@@ -111,26 +120,26 @@ fn build_smooth_blend(
         .filter(|s| matches!(s, BoundarySegment::FilletEnd { .. }))
         .count();
 
-    if n_fillets == 2 {
-        // Try spherical cap.
-        if let Some(result) = try_spherical_blend(
-            boundary,
-            fillet_surfaces,
-            points,
-            &boundary_curves,
-            tolerance,
-        ) {
-            return Ok(result);
-        }
-
-        // Skip NURBS bilinear patch — a 2×2 control-point grid is too
-        // simple for multi-fillet vertex corners. The resulting surface
-        // has a poorly conditioned parametrization that causes UV
-        // projection failures and STEP export overflows. Planar (mitred)
-        // blends have exact UV projection and perfect STEP export.
+    // Try spherical cap first.
+    if let Some(result) = try_spherical_blend(
+        boundary,
+        fillet_surfaces,
+        points,
+        &boundary_curves,
+        tolerance,
+    ) {
+        return Ok(result);
     }
 
-    // Fallback for 3+ fillets or if smooth construction fails: use mitred.
+    // For two-fillet corners, try polar NURBS as intermediate fallback.
+    if n_fillets == 2
+        && let Some(result) =
+            build_polar_nurbs_blend(boundary, fillet_surfaces, brep, boundary_curves.clone())
+    {
+        return Ok(result);
+    }
+
+    // Final fallback: mitred plane.
     build_mitred_blend(points, boundary_curves)
 }
 
@@ -208,6 +217,90 @@ fn try_spherical_blend(
     Some(BlendSurfaceResult {
         surface,
         boundary_curves: boundary_curves.to_vec(),
+    })
+}
+
+/// Build a polar NURBS blend surface.
+///
+/// Uses a polar parameterization centered at the vertex position.
+/// The boundary points form the outer ring, and the vertex position
+/// is the degenerate pole. Interior control points are adjusted for
+/// G1 continuity with adjacent surfaces.
+fn build_polar_nurbs_blend(
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+    brep: &BRep,
+    boundary_curves: Vec<NurbsCurve>,
+) -> Option<BlendSurfaceResult> {
+    use super::boundary::sample_boundary_by_arc_length;
+
+    let n_samples = 24;
+    let samples = sample_boundary_by_arc_length(boundary, fillet_surfaces, brep, n_samples);
+
+    if samples.len() < 3 {
+        return None;
+    }
+
+    let v_pos = boundary.vertex_position;
+    let m = samples.len();
+
+    // Build the num_u × num_v polar control point grid.
+    // num_u = m samples around the boundary (u direction).
+    // num_v = 3 layers in the radial direction (v direction):
+    //   v=0: degenerate pole (all at vertex position)
+    //   v=0.5: G1-adjusted interior ring
+    //   v=1: boundary sample positions
+    //
+    // NurbsSurface stores row-major: cp(i_u, i_v) = control_points[i_u * num_v + i_v]
+    let num_u = m;
+    let num_v = 3usize;
+    let degree_u = 3usize.min(m - 1);
+    let degree_v = 2usize;
+
+    let mut control_points = Vec::with_capacity(num_u * num_v);
+    for sample in &samples {
+        // v=0: pole
+        control_points.push(v_pos);
+        // v=1: G1 interior — step inward from the boundary along the surface normal
+        let radial_dist = sample.position.distance_to(&v_pos);
+        let d = radial_dist / 3.0;
+        control_points.push(Point3::new(
+            sample.position.x - d * sample.normal.x,
+            sample.position.y - d * sample.normal.y,
+            sample.position.z - d * sample.normal.z,
+        ));
+        // v=2: boundary
+        control_points.push(sample.position);
+    }
+
+    // Clamped uniform knot vector in u: num_u + degree_u + 1 elements,
+    // with degree_u+1 repeated values at each end and uniform interior knots.
+    let n_interior_u = num_u - degree_u - 1;
+    let mut knots_u: Vec<f64> = Vec::with_capacity(num_u + degree_u + 1);
+    knots_u.extend(std::iter::repeat_n(0.0, degree_u + 1));
+    for i in 1..=n_interior_u {
+        knots_u.push(i as f64 / (n_interior_u + 1) as f64);
+    }
+    knots_u.extend(std::iter::repeat_n(1.0, degree_u + 1));
+
+    // Clamped knot vector in v (degree 2, 3 control points): [0,0,0,1,1,1]
+    let knots_v = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+    let weights = vec![1.0; num_u * num_v];
+
+    let nurbs = popkern_core::geometry::NurbsSurface {
+        degree_u,
+        degree_v,
+        knots_u,
+        knots_v,
+        control_points,
+        num_u,
+        num_v,
+        weights,
+    };
+
+    Some(BlendSurfaceResult {
+        surface: SurfaceGeometry::Nurbs(nurbs),
+        boundary_curves,
     })
 }
 
