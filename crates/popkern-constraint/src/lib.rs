@@ -185,6 +185,91 @@ impl Sketch {
         solver::solve(self, options)
     }
 
+    /// Return the current geometric value that a driven constraint measures.
+    ///
+    /// For dimensional constraints (Distance, Angle, PointLineDistance) this
+    /// evaluates the live geometric quantity. For other constraint kinds the
+    /// residual magnitude is returned.
+    ///
+    /// Returns `None` if the handle is invalid or the referenced elements
+    /// are missing.
+    pub fn driven_value(&self, handle: ConstraintHandle) -> Option<f64> {
+        let entry = self.constraints.get(handle)?;
+        match &entry.constraint {
+            Constraint::Distance(p1, p2, _) => {
+                let (x1, y1) = self.point_position(*p1)?;
+                let (x2, y2) = self.point_position(*p2)?;
+                Some(((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt())
+            }
+            Constraint::Angle(l1, l2, _) => {
+                let line1 = self.lines.get(*l1)?;
+                let line2 = self.lines.get(*l2)?;
+                let (x11, y11) = self.point_position(line1.start)?;
+                let (x12, y12) = self.point_position(line1.end)?;
+                let (x21, y21) = self.point_position(line2.start)?;
+                let (x22, y22) = self.point_position(line2.end)?;
+                let dx1 = x12 - x11;
+                let dy1 = y12 - y11;
+                let dx2 = x22 - x21;
+                let dy2 = y22 - y21;
+                let cross = dx1 * dy2 - dy1 * dx2;
+                let dot = dx1 * dx2 + dy1 * dy2;
+                Some(cross.atan2(dot))
+            }
+            Constraint::PointLineDistance(p, l, _) => {
+                let (px, py) = self.point_position(*p)?;
+                let line = self.lines.get(*l)?;
+                let (x1, y1) = self.point_position(line.start)?;
+                let (x2, y2) = self.point_position(line.end)?;
+                let dx = x2 - x1;
+                let dy = y2 - y1;
+                let len = (dx * dx + dy * dy).sqrt();
+                if len < 1e-15 {
+                    return Some(((px - x1).powi(2) + (py - y1).powi(2)).sqrt());
+                }
+                let signed = ((px - x1) * dy - (py - y1) * dx) / len;
+                Some(signed.abs())
+            }
+            _ => {
+                // For non-dimensional constraints, return residual magnitude.
+                let output = equations::evaluate_constraint(self, entry, 0);
+                let norm_sq: f64 = output.residuals.iter().map(|r| r * r).sum();
+                Some(norm_sq.sqrt())
+            }
+        }
+    }
+
+    /// Modify the target value of a dimensional constraint.
+    ///
+    /// Only Distance, PointLineDistance, and Angle constraints have a
+    /// modifiable value parameter. Returns an error for non-dimensional
+    /// constraint kinds.
+    pub fn set_constraint_value(
+        &mut self,
+        handle: ConstraintHandle,
+        value: f64,
+    ) -> Result<(), ConstraintError> {
+        let entry = self
+            .constraints
+            .get_mut(handle)
+            .ok_or(ConstraintError::InvalidHandle)?;
+        match &mut entry.constraint {
+            Constraint::Distance(_, _, d) => {
+                *d = value;
+                Ok(())
+            }
+            Constraint::PointLineDistance(_, _, d) => {
+                *d = value;
+                Ok(())
+            }
+            Constraint::Angle(_, _, a) => {
+                *a = value;
+                Ok(())
+            }
+            _ => Err(ConstraintError::NotDimensional),
+        }
+    }
+
     /// Snapshot the current parameter values that a `Fixed` or `FixedLine`
     /// constraint needs to lock in place.
     ///
@@ -260,5 +345,78 @@ mod tests {
 
         sketch.remove_constraint(ch);
         assert!(sketch.constraint_status(ch).is_none());
+    }
+
+    #[test]
+    fn driven_distance_reports_current_distance() {
+        let mut sketch = Sketch::new();
+        let a = sketch.add_point(0.0, 0.0);
+        let b = sketch.add_point(3.0, 4.0);
+        // Driven constraint — just observes distance, doesn't drive geometry.
+        let ch = sketch.add_driven(Constraint::Distance(a, b, 0.0));
+
+        let val = sketch.driven_value(ch);
+        assert!(val.is_some());
+        assert!(
+            (val.unwrap() - 5.0).abs() < 1e-8,
+            "expected distance 5.0, got {:?}",
+            val
+        );
+    }
+
+    #[test]
+    fn driving_distance_set_value_and_solve() {
+        let mut sketch = Sketch::new();
+        let a = sketch.add_point(0.0, 0.0);
+        let b = sketch.add_point(3.0, 0.0);
+        sketch.add_constraint(Constraint::Fixed(a));
+        let ch = sketch.add_constraint(Constraint::Distance(a, b, 3.0));
+
+        // Solve at distance=3.
+        sketch.solve().unwrap();
+        let d1 = sketch.driven_value(ch).unwrap();
+        assert!((d1 - 3.0).abs() < 1e-8, "initial distance: {}", d1);
+
+        // Change to distance=5.
+        sketch.set_constraint_value(ch, 5.0).unwrap();
+        sketch.solve().unwrap();
+        let d2 = sketch.driven_value(ch).unwrap();
+        assert!((d2 - 5.0).abs() < 1e-8, "updated distance: {}", d2);
+    }
+
+    #[test]
+    fn set_value_on_horizontal_returns_error() {
+        let mut sketch = Sketch::new();
+        let a = sketch.add_point(0.0, 0.0);
+        let b = sketch.add_point(1.0, 0.0);
+        let l = sketch.add_line(a, b);
+        let ch = sketch.add_constraint(Constraint::Horizontal(l));
+
+        let result = sketch.set_constraint_value(ch, 1.0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ConstraintError::NotDimensional
+        ));
+    }
+
+    #[test]
+    fn driven_angle_reports_current_angle() {
+        let mut sketch = Sketch::new();
+        let a = sketch.add_point(0.0, 0.0);
+        let b = sketch.add_point(1.0, 0.0);
+        let c = sketch.add_point(0.0, 0.0);
+        let d = sketch.add_point(0.0, 1.0);
+        let l1 = sketch.add_line(a, b); // horizontal
+        let l2 = sketch.add_line(c, d); // vertical
+        let ch = sketch.add_driven(Constraint::Angle(l1, l2, 0.0));
+
+        let val = sketch.driven_value(ch).unwrap();
+        let expected = std::f64::consts::FRAC_PI_2;
+        assert!(
+            (val - expected).abs() < 1e-8,
+            "expected angle pi/2, got {}",
+            val
+        );
     }
 }

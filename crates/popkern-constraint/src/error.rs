@@ -9,6 +9,10 @@ pub enum ConstraintError {
     #[error("invalid handle")]
     InvalidHandle,
 
+    /// The constraint does not have a modifiable dimensional value.
+    #[error("constraint is not a dimensional type (Distance, Angle, or PointLineDistance)")]
+    NotDimensional,
+
     /// The Newton–Raphson solver failed to converge.
     #[error("solve failed: {0}")]
     SolveFailed(String),
