@@ -29,7 +29,7 @@ pub(crate) fn apply_trim(
     triangles: &[[usize; 3]],
     trim_loops: &[TrimLoop],
     surface: &SurfaceGeometry,
-    _orientation: bool,
+    orientation: bool,
 ) -> (Vec<MeshVertex>, Vec<[usize; 3]>) {
     let mut new_verts: Vec<MeshVertex> = vertices.to_vec();
     let mut new_tris: Vec<[usize; 3]> = Vec::new();
@@ -58,6 +58,7 @@ pub(crate) fn apply_trim(
                     vertices,
                     trim_loops,
                     surface,
+                    orientation,
                     &mut new_verts,
                     &mut new_tris,
                     &mut edge_splits,
@@ -104,11 +105,13 @@ pub(crate) fn apply_trim(
 /// snaps near-vertex intersections, creates new mesh vertices, and
 /// fan-triangulates the resulting polygon, keeping only sub-triangles
 /// whose centroids are inside the trim region.
+#[allow(clippy::too_many_arguments)]
 fn clip_boundary_triangle(
     tri: &[usize; 3],
     vertices: &[MeshVertex],
     trim_loops: &[TrimLoop],
     surface: &SurfaceGeometry,
+    orientation: bool,
     new_verts: &mut Vec<MeshVertex>,
     new_tris: &mut Vec<[usize; 3]>,
     edge_splits: &mut HashMap<(usize, usize), Vec<usize>>,
@@ -201,6 +204,8 @@ fn clip_boundary_triangle(
             } else {
                 (pos_from_uv, surface.normal_at(uv_pt.0, uv_pt.1))
             };
+            // Flip normal for reversed-orientation faces (e.g., inner shell walls).
+            let normal = if orientation { normal } else { -normal };
             let new_idx = new_verts.len();
             new_verts.push(MeshVertex {
                 position: pos,
