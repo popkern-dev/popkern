@@ -88,6 +88,7 @@ pub struct SplitInfo {
     /// Anchor vertices on face 2 (start, end matching fillet edge direction).
     pub face_2_anchors: (VertexHandle, VertexHandle),
     /// Edge splits performed: `(old_edge, edge_a, edge_b)`.
+    #[allow(dead_code)]
     pub edge_splits: Vec<(EdgeHandle, EdgeHandle, EdgeHandle)>,
 }
 

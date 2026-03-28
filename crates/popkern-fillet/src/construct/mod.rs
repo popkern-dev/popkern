@@ -11,6 +11,7 @@ pub(crate) mod blend_topo;
 pub(crate) mod helpers;
 pub(crate) mod merge;
 pub(crate) mod pcurve_attach;
+pub(crate) mod surface_fix;
 
 use std::collections::HashMap;
 
@@ -67,14 +68,163 @@ pub fn apply_blend_geometry(
     let mut result = brep.clone();
     let mut failures: Vec<(EdgeHandle, BlendFailure)> = Vec::new();
     let mut warnings: Vec<(EdgeHandle, BlendWarning)> = Vec::new();
-    let mut edge_remap: HashMap<EdgeHandle, EdgeHandle> = HashMap::new();
-    let mut face_remap: HashMap<FaceHandle, FaceHandle> = HashMap::new();
+
+    // ── Phase A: ALL perpendicular edge splits ─────────────────────
+    // Perp splits only modify edges (inserting vertices), not faces.
+    // All can be done on the original face handles.
+    struct PerpSplitData {
+        face_1_anchors: (VertexHandle, VertexHandle),
+        face_2_anchors: (VertexHandle, VertexHandle),
+    }
+    let mut perp_data: Vec<Option<PerpSplitData>> = Vec::new();
 
     for eg in edge_geometries {
-        if let Err(reason) =
-            apply_single_blend(&mut result, eg, tolerance, &mut edge_remap, &mut face_remap)
-        {
-            failures.push((eg.analysis.edge, reason));
+        match helpers::split_perpendicular_edges_by_radius(
+            &mut result,
+            eg.analysis.face_1,
+            eg.analysis.face_2,
+            eg.analysis.edge,
+            eg.effective_radius,
+            tolerance,
+        ) {
+            Ok(info) => perp_data.push(Some(PerpSplitData {
+                face_1_anchors: info.face_1_anchors,
+                face_2_anchors: info.face_2_anchors,
+            })),
+            Err(e) => {
+                failures.push((
+                    eg.analysis.edge,
+                    BlendFailure::InvalidTopology { reason: e },
+                ));
+                perp_data.push(None);
+            }
+        }
+    }
+
+    // ── Phase B: ALL face splits + merges ───────────────────────────
+    // Now faces can be split. Each split may invalidate handles for
+    // subsequent edges, so we track remaps.
+    let mut face_remap: HashMap<FaceHandle, FaceHandle> = HashMap::new();
+
+    for (idx, eg) in edge_geometries.iter().enumerate() {
+        let Some(ref pd) = perp_data[idx] else {
+            continue;
+        };
+        let face_1 = surface_fix::resolve(&face_remap, eg.analysis.face_1);
+        let face_2 = surface_fix::resolve(&face_remap, eg.analysis.face_2);
+
+        // Clip anchors to the current face boundary (handles crossing trims).
+        let a1 =
+            surface_fix::clip_anchors_to_face(&mut result, face_1, pd.face_1_anchors, tolerance);
+        let p1a = result.vertices[a1.0].position;
+        let p1b = result.vertices[a1.1].position;
+        let pc1 = match helpers::pcurve_for_face(&result, face_1, &p1a, &p1b) {
+            Ok(pc) => pc,
+            Err(e) => {
+                failures.push((
+                    eg.analysis.edge,
+                    BlendFailure::InvalidTopology { reason: e },
+                ));
+                continue;
+            }
+        };
+        let t3d1 = helpers::line_nurbs(&p1a, &p1b);
+
+        let a2 =
+            surface_fix::clip_anchors_to_face(&mut result, face_2, pd.face_2_anchors, tolerance);
+        let p2a = result.vertices[a2.0].position;
+        let p2b = result.vertices[a2.1].position;
+        let pc2 = match helpers::pcurve_for_face(&result, face_2, &p2a, &p2b) {
+            Ok(pc) => pc,
+            Err(e) => {
+                failures.push((
+                    eg.analysis.edge,
+                    BlendFailure::InvalidTopology { reason: e },
+                ));
+                continue;
+            }
+        };
+        let t3d2 = helpers::line_nurbs(&p2a, &p2b);
+
+        let s1 = match split_face_with_trim(&mut result, face_1, &pc1, &t3d1, tolerance) {
+            Ok(s) => s,
+            Err(e) => {
+                failures.push((eg.analysis.edge, e));
+                continue;
+            }
+        };
+        let s2 = match split_face_with_trim(&mut result, face_2, &pc2, &t3d2, tolerance) {
+            Ok(s) => s,
+            Err(e) => {
+                failures.push((eg.analysis.edge, e));
+                continue;
+            }
+        };
+
+        let (kept_1, consumed_1) = match helpers::identify_consumed_face(
+            &result,
+            s1.face_a,
+            s1.face_b,
+            eg.analysis.edge,
+        ) {
+            Ok(kc) => kc,
+            Err(e) => {
+                failures.push((
+                    eg.analysis.edge,
+                    BlendFailure::InvalidTopology { reason: e },
+                ));
+                continue;
+            }
+        };
+        let (kept_2, consumed_2) = match helpers::identify_consumed_face(
+            &result,
+            s2.face_a,
+            s2.face_b,
+            eg.analysis.edge,
+        ) {
+            Ok(kc) => kc,
+            Err(e) => {
+                failures.push((
+                    eg.analysis.edge,
+                    BlendFailure::InvalidTopology { reason: e },
+                ));
+                continue;
+            }
+        };
+
+        if kept_1 != face_1 {
+            face_remap.insert(face_1, kept_1);
+        }
+        if kept_2 != face_2 {
+            face_remap.insert(face_2, kept_2);
+        }
+
+        match helpers::merge_consumed_faces(
+            &mut result,
+            consumed_1,
+            consumed_2,
+            eg.analysis.edge,
+            &eg.surface,
+        ) {
+            Ok(fillet_face) => {
+                let params = pcurve_attach::FilletPcurveParams {
+                    fillet_face,
+                    fillet_surface: &eg.surface,
+                    trim_edges_1: &s1.new_edges,
+                    trim_edges_2: &s2.new_edges,
+                    eg_pcurve_1: &pc1,
+                    eg_pcurve_2: &pc2,
+                    trim_3d_1: &t3d1,
+                    trim_3d_2: &t3d2,
+                };
+                pcurve_attach::attach_fillet_pcurves(&mut result, &params);
+            }
+            Err(e) => {
+                failures.push((
+                    eg.analysis.edge,
+                    BlendFailure::InvalidTopology { reason: e },
+                ));
+            }
         }
     }
 
@@ -128,357 +278,12 @@ pub fn apply_blend_geometry(
         .iter()
         .map(|eg| eg.surface.clone())
         .collect();
-    correct_face_surfaces(&mut result, brep, &fillet_surfaces);
+    surface_fix::correct_face_surfaces(&mut result, brep, &fillet_surfaces);
 
     Ok(ApplyBlendResult {
         brep: result,
         warnings,
     })
-}
-
-/// Apply a single fillet/chamfer blend to the BRep.
-fn apply_single_blend(
-    brep: &mut BRep,
-    eg: &EdgeGeometry,
-    tolerance: &Tolerance,
-    edge_remap: &mut HashMap<EdgeHandle, EdgeHandle>,
-    face_remap: &mut HashMap<FaceHandle, FaceHandle>,
-) -> Result<(), BlendFailure> {
-    let fillet_edge = resolve(edge_remap, eg.analysis.edge);
-    let face_1 = resolve(face_remap, eg.analysis.face_1);
-    let face_2 = resolve(face_remap, eg.analysis.face_2);
-
-    let radius = eg.effective_radius;
-    if radius < tolerance.linear {
-        return Err(BlendFailure::InvalidTopology {
-            reason: "fillet radius is too small".into(),
-        });
-    }
-
-    let split_info = helpers::split_perpendicular_edges_by_radius(
-        brep,
-        face_1,
-        face_2,
-        fillet_edge,
-        radius,
-        tolerance,
-    )
-    .map_err(|e| BlendFailure::InvalidTopology { reason: e })?;
-
-    for &(old, edge_a, _) in &split_info.edge_splits {
-        edge_remap.insert(old, edge_a);
-    }
-
-    // Compute trim curves and split faces. If an anchor is on a consumed
-    // sub-face from a previous fillet, clip the trim to the face boundary
-    // by splitting the crossing edge at the intersection point.
-    let anchors_1 = clip_anchors_to_face(brep, face_1, split_info.face_1_anchors, tolerance);
-    let p1a = brep.vertices[anchors_1.0].position;
-    let p1b = brep.vertices[anchors_1.1].position;
-    let pc1 = helpers::pcurve_for_face(brep, face_1, &p1a, &p1b)
-        .map_err(|e| BlendFailure::InvalidTopology { reason: e })?;
-    let t3d1 = helpers::line_nurbs(&p1a, &p1b);
-
-    let anchors_2 = clip_anchors_to_face(brep, face_2, split_info.face_2_anchors, tolerance);
-    let p2a = brep.vertices[anchors_2.0].position;
-    let p2b = brep.vertices[anchors_2.1].position;
-    let pc2 = helpers::pcurve_for_face(brep, face_2, &p2a, &p2b)
-        .map_err(|e| BlendFailure::InvalidTopology { reason: e })?;
-    let t3d2 = helpers::line_nurbs(&p2a, &p2b);
-
-    let s1 = split_face_with_trim(brep, face_1, &pc1, &t3d1, tolerance)?;
-    let s2 = split_face_with_trim(brep, face_2, &pc2, &t3d2, tolerance)?;
-
-    let (kept_1, consumed_1) =
-        helpers::identify_consumed_face(brep, s1.face_a, s1.face_b, fillet_edge)
-            .map_err(|e| BlendFailure::InvalidTopology { reason: e })?;
-    let (kept_2, consumed_2) =
-        helpers::identify_consumed_face(brep, s2.face_a, s2.face_b, fillet_edge)
-            .map_err(|e| BlendFailure::InvalidTopology { reason: e })?;
-
-    if kept_1 != face_1 {
-        face_remap.insert(face_1, kept_1);
-    }
-    if kept_2 != face_2 {
-        face_remap.insert(face_2, kept_2);
-    }
-
-    let fillet_face =
-        helpers::merge_consumed_faces(brep, consumed_1, consumed_2, fillet_edge, &eg.surface)
-            .map_err(|e| BlendFailure::InvalidTopology { reason: e })?;
-
-    let params = pcurve_attach::FilletPcurveParams {
-        fillet_face,
-        fillet_surface: &eg.surface,
-        trim_edges_1: &s1.new_edges,
-        trim_edges_2: &s2.new_edges,
-        eg_pcurve_1: &pc1,
-        eg_pcurve_2: &pc2,
-        trim_3d_1: &t3d1,
-        trim_3d_2: &t3d2,
-    };
-    pcurve_attach::attach_fillet_pcurves(brep, &params);
-
-    Ok(())
-}
-
-/// Resolve a handle through a remap table with depth limit.
-fn resolve<H: Copy + Eq + std::hash::Hash>(remap: &HashMap<H, H>, mut h: H) -> H {
-    for _ in 0..64 {
-        match remap.get(&h) {
-            Some(&new) => h = new,
-            None => return h,
-        }
-    }
-    h
-}
-
-/// Correct face surface assignments after topology modifications.
-///
-/// Checks every face. If a face has no surface, or if its surface does
-/// not match its boundary vertices (max vertex-to-surface distance
-/// exceeds threshold), replaces it with the best matching surface from
-/// the pool of original planar surfaces and fillet surfaces.
-fn correct_face_surfaces(brep: &mut BRep, original: &BRep, fillet_surfaces: &[SurfaceGeometry]) {
-    use popkern_core::geometry::surface::{SurfaceEval, SurfaceOnFace};
-    use popkern_core::geometry::uv_projection::project_point_to_uv;
-
-    let mut candidates: Vec<SurfaceOnFace> = original
-        .faces
-        .iter()
-        .filter_map(|(_, f)| f.surface.clone())
-        .collect();
-    for surf in fillet_surfaces {
-        candidates.push(SurfaceOnFace {
-            geometry: surf.clone(),
-            orientation: true,
-        });
-    }
-
-    let face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
-
-    for fh in face_handles {
-        let positions = brep.face_outer_loop_positions(fh);
-        if positions.is_empty() {
-            continue;
-        }
-
-        // Check if current surface is geometrically correct.
-        let current_max_dist = brep.faces[fh]
-            .surface
-            .as_ref()
-            .map(|sof| {
-                positions
-                    .iter()
-                    .filter_map(|p| {
-                        project_point_to_uv(&sof.geometry, p)
-                            .map(|(u, v)| p.distance_to(&sof.geometry.point_at(u, v)))
-                    })
-                    .fold(0.0_f64, f64::max)
-            })
-            .unwrap_or(f64::INFINITY);
-
-        if current_max_dist < 0.01 {
-            continue;
-        }
-
-        // Find the best matching surface that improves on current.
-        // Never replace a non-planar surface with a plane (fillet
-        // surfaces are intentionally assigned even if vertices aren't
-        // exactly on them).
-        let current_is_nonplanar = brep.faces[fh]
-            .surface
-            .as_ref()
-            .is_some_and(|s| !matches!(s.geometry, SurfaceGeometry::Plane { .. }));
-
-        let mut best: Option<(SurfaceOnFace, f64)> = None;
-        for sof in &candidates {
-            // Don't downgrade non-planar to planar.
-            if current_is_nonplanar && matches!(sof.geometry, SurfaceGeometry::Plane { .. }) {
-                continue;
-            }
-            let max_dist: f64 = positions
-                .iter()
-                .map(|p| {
-                    project_point_to_uv(&sof.geometry, p)
-                        .map(|(u, v)| p.distance_to(&sof.geometry.point_at(u, v)))
-                        .unwrap_or(f64::INFINITY)
-                })
-                .fold(0.0_f64, f64::max);
-
-            if max_dist < current_max_dist {
-                match &best {
-                    Some((_, bd)) if max_dist >= *bd => {}
-                    _ => best = Some((sof.clone(), max_dist)),
-                }
-            }
-        }
-
-        if let Some((sof, _dist)) = best {
-            brep.faces[fh].surface = Some(sof);
-            continue;
-        }
-
-        // Last resort: fit a plane through face vertices. Only for faces
-        // that don't already have a non-planar surface (fillet surfaces
-        // are intentionally assigned even if imprecise).
-        if current_is_nonplanar {
-            continue;
-        }
-        if positions.len() >= 3 {
-            let p0 = positions[0];
-            let p1 = positions[1];
-            let p2 = positions[2];
-            let u = popkern_core::geometry::Vec3::new(p1.x - p0.x, p1.y - p0.y, p1.z - p0.z);
-            let v = popkern_core::geometry::Vec3::new(p2.x - p0.x, p2.y - p0.y, p2.z - p0.z);
-            let n = u.cross(&v);
-            let len = n.length();
-            if len > 1e-12 {
-                let normal = popkern_core::geometry::Vec3::new(n.x / len, n.y / len, n.z / len);
-                let ul = u.length();
-                let u_axis = popkern_core::geometry::Vec3::new(u.x / ul, u.y / ul, u.z / ul);
-                let v_axis = normal.cross(&u_axis);
-                brep.faces[fh].surface = Some(SurfaceOnFace {
-                    geometry: SurfaceGeometry::Plane {
-                        origin: p0,
-                        normal,
-                        u_axis,
-                        v_axis,
-                    },
-                    orientation: true,
-                });
-            }
-        }
-    }
-}
-
-/// Clip trim anchors to the face boundary. If an anchor is NOT on the
-/// face (consumed by a previous fillet), find where the trim line crosses
-/// a boundary edge, split it, and return the intersection vertex.
-fn clip_anchors_to_face(
-    brep: &mut BRep,
-    face: FaceHandle,
-    anchors: (VertexHandle, VertexHandle),
-    tolerance: &Tolerance,
-) -> (VertexHandle, VertexHandle) {
-    let a = clip_one_anchor(brep, face, anchors.0, anchors.1, tolerance);
-    let b = clip_one_anchor(brep, face, anchors.1, anchors.0, tolerance);
-    (a, b)
-}
-
-/// Clip one anchor to the face boundary if it's not on the loop.
-fn clip_one_anchor(
-    brep: &mut BRep,
-    face: FaceHandle,
-    anchor: VertexHandle,
-    other: VertexHandle,
-    _tolerance: &Tolerance,
-) -> VertexHandle {
-    if is_vertex_on_face(brep, face, anchor) {
-        return anchor;
-    }
-
-    let anchor_pos = brep.vertices[anchor].position;
-    let other_pos = brep.vertices[other].position;
-
-    // Walk the face boundary. For each edge, compute the intersection
-    // of the trim line (anchor→other) with the edge line segment.
-    let face_data = match brep.faces.get(face) {
-        Some(f) => f,
-        None => return anchor,
-    };
-    let start_he = match brep.loops.get(face_data.outer_loop) {
-        Some(l) => l.half_edge,
-        None => return anchor,
-    };
-
-    let mut best: Option<(EdgeHandle, f64, popkern_core::geometry::Point3)> = None;
-    let mut cursor = start_he;
-    let limit = brep.half_edges.len() + 1;
-    for _ in 0..limit {
-        let he = &brep.half_edges[cursor];
-        let next_he = &brep.half_edges[he.next];
-        let e0 = brep.vertices[he.origin].position;
-        let e1 = brep.vertices[next_he.origin].position;
-
-        if let Some((t_edge, pt)) = line_line_nearest(anchor_pos, other_pos, e0, e1)
-            && (0.001..=0.999).contains(&t_edge)
-        {
-            let dist = pt.distance_to(&anchor_pos);
-            let is_closer = best
-                .as_ref()
-                .is_none_or(|(_, _, bp)| dist < bp.distance_to(&anchor_pos));
-            if is_closer {
-                best = Some((he.edge, t_edge, pt));
-            }
-        }
-
-        cursor = he.next;
-        if cursor == start_he {
-            break;
-        }
-    }
-
-    let Some((edge, t, _)) = best else {
-        return anchor;
-    };
-
-    match brep.split_edge(edge, t) {
-        Ok(split) => split.vertex,
-        Err(_) => anchor,
-    }
-}
-
-/// Check if a vertex is on a face's outer loop boundary.
-fn is_vertex_on_face(brep: &BRep, face: FaceHandle, vertex: VertexHandle) -> bool {
-    let face_data = match brep.faces.get(face) {
-        Some(f) => f,
-        None => return false,
-    };
-    let start_he = match brep.loops.get(face_data.outer_loop) {
-        Some(l) => l.half_edge,
-        None => return false,
-    };
-    let mut cursor = start_he;
-    let limit = brep.half_edges.len() + 1;
-    for _ in 0..limit {
-        if brep.half_edges[cursor].origin == vertex {
-            return true;
-        }
-        cursor = brep.half_edges[cursor].next;
-        if cursor == start_he {
-            break;
-        }
-    }
-    false
-}
-
-/// Intersect two 3D line segments. Returns `(t_b, point)` if they cross.
-fn line_line_nearest(
-    a0: popkern_core::geometry::Point3,
-    a1: popkern_core::geometry::Point3,
-    b0: popkern_core::geometry::Point3,
-    b1: popkern_core::geometry::Point3,
-) -> Option<(f64, popkern_core::geometry::Point3)> {
-    use popkern_core::geometry::{Point3, Vec3};
-    let da = Vec3::new(a1.x - a0.x, a1.y - a0.y, a1.z - a0.z);
-    let db = Vec3::new(b1.x - b0.x, b1.y - b0.y, b1.z - b0.z);
-    let d0 = Vec3::new(a0.x - b0.x, a0.y - b0.y, a0.z - b0.z);
-    let denom = da.dot(&da) * db.dot(&db) - da.dot(&db).powi(2);
-    if denom.abs() < 1e-20 {
-        return None;
-    }
-    let t_a = (da.dot(&db) * d0.dot(&db) - db.dot(&db) * d0.dot(&da)) / denom;
-    let t_b = (da.dot(&da) * d0.dot(&db) - da.dot(&db) * d0.dot(&da)) / denom;
-    if !(-0.1..=1.1).contains(&t_a) || !(-0.1..=1.1).contains(&t_b) {
-        return None;
-    }
-    let pa = Point3::new(a0.x + t_a * da.x, a0.y + t_a * da.y, a0.z + t_a * da.z);
-    let pb = Point3::new(b0.x + t_b * db.x, b0.y + t_b * db.y, b0.z + t_b * db.z);
-    if pa.distance_to(&pb) > 0.01 {
-        return None;
-    }
-    Some((t_b, pb))
 }
 
 /// Split a face along a trim curve, handling errors gracefully.
