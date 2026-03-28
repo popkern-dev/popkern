@@ -1,20 +1,7 @@
-//! Surface correction and trim clipping utilities for multi-edge fillets.
-
-use std::collections::HashMap;
+//! Surface correction utilities for multi-edge fillets.
 
 use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
-
-pub(crate) fn resolve<H: Copy + Eq + std::hash::Hash>(remap: &HashMap<H, H>, mut h: H) -> H {
-    for _ in 0..64 {
-        match remap.get(&h) {
-            Some(&new) => h = new,
-            None => return h,
-        }
-    }
-    h
-}
+use popkern_core::topology::{BRep, FaceHandle};
 
 /// Correct face surface assignments after topology modifications.
 ///
@@ -167,91 +154,6 @@ pub(crate) fn correct_face_surfaces(
     }
 }
 
-/// Clip trim anchors to the face boundary. If an anchor is NOT on the
-/// face (consumed by a previous fillet), find where the trim line crosses
-/// a boundary edge, split it, and return the intersection vertex.
-pub(crate) fn clip_anchors_to_face(
-    brep: &mut BRep,
-    face: FaceHandle,
-    anchors: (VertexHandle, VertexHandle),
-    tolerance: &Tolerance,
-) -> (VertexHandle, VertexHandle) {
-    let a = clip_one_anchor(brep, face, anchors.0, anchors.1, tolerance);
-    let b = clip_one_anchor(brep, face, anchors.1, anchors.0, tolerance);
-    (a, b)
-}
-
-/// Clip one anchor to the face boundary if it's not on the loop.
-fn clip_one_anchor(
-    brep: &mut BRep,
-    face: FaceHandle,
-    anchor: VertexHandle,
-    other: VertexHandle,
-    _tolerance: &Tolerance,
-) -> VertexHandle {
-    if is_vertex_on_face(brep, face, anchor) {
-        return anchor;
-    }
-
-    let anchor_pos = brep.vertices[anchor].position;
-    let other_pos = brep.vertices[other].position;
-
-    // Walk the face boundary. For each edge, compute the intersection
-    // of the trim line (anchor→other) with the edge line segment.
-    let face_data = match brep.faces.get(face) {
-        Some(f) => f,
-        None => return anchor,
-    };
-    let start_he = match brep.loops.get(face_data.outer_loop) {
-        Some(l) => l.half_edge,
-        None => return anchor,
-    };
-
-    // Strategy 1: Find where the trim line crosses a boundary edge.
-    let mut best_crossing: Option<(VertexHandle, Option<(EdgeHandle, f64)>)> = None;
-    let mut best_cross_dist = f64::INFINITY;
-    let mut cursor = start_he;
-    let limit = brep.half_edges.len() + 1;
-    for _ in 0..limit {
-        let he = &brep.half_edges[cursor];
-        let next_he = &brep.half_edges[he.next];
-        let he_origin = he.origin;
-        let he_dest = next_he.origin;
-        let e0 = brep.vertices[he_origin].position;
-        let e1 = brep.vertices[he_dest].position;
-
-        if let Some((t_edge, pt)) = line_line_nearest(anchor_pos, other_pos, e0, e1) {
-            let dist = pt.distance_to(&anchor_pos);
-            if dist < best_cross_dist {
-                if t_edge <= 0.001 {
-                    best_crossing = Some((he_origin, None));
-                } else if t_edge >= 0.999 {
-                    best_crossing = Some((he_dest, None));
-                } else {
-                    best_crossing = Some((he_origin, Some((he.edge, t_edge))));
-                }
-                best_cross_dist = dist;
-            }
-        }
-
-        cursor = he.next;
-        if cursor == start_he {
-            break;
-        }
-    }
-
-    if let Some((vertex, split_info)) = best_crossing {
-        return match split_info {
-            None => vertex,
-            Some((edge, t)) => brep.split_edge(edge, t).map_or(anchor, |s| s.vertex),
-        };
-    }
-
-    // No crossing found — keep the original anchor.
-    // The face split will fail, which is handled as a per-edge failure.
-    anchor
-}
-
 /// Try to construct a sphere surface for a vertex blend corner.
 ///
 /// Finds the nearest vertex of the original solid. The sphere center
@@ -325,56 +227,4 @@ fn try_sphere_for_corner(
         },
         orientation: true,
     })
-}
-
-/// Check if a vertex is on a face's outer loop boundary.
-fn is_vertex_on_face(brep: &BRep, face: FaceHandle, vertex: VertexHandle) -> bool {
-    let face_data = match brep.faces.get(face) {
-        Some(f) => f,
-        None => return false,
-    };
-    let start_he = match brep.loops.get(face_data.outer_loop) {
-        Some(l) => l.half_edge,
-        None => return false,
-    };
-    let mut cursor = start_he;
-    let limit = brep.half_edges.len() + 1;
-    for _ in 0..limit {
-        if brep.half_edges[cursor].origin == vertex {
-            return true;
-        }
-        cursor = brep.half_edges[cursor].next;
-        if cursor == start_he {
-            break;
-        }
-    }
-    false
-}
-
-/// Intersect two 3D line segments. Returns `(t_b, point)` if they cross.
-fn line_line_nearest(
-    a0: popkern_core::geometry::Point3,
-    a1: popkern_core::geometry::Point3,
-    b0: popkern_core::geometry::Point3,
-    b1: popkern_core::geometry::Point3,
-) -> Option<(f64, popkern_core::geometry::Point3)> {
-    use popkern_core::geometry::{Point3, Vec3};
-    let da = Vec3::new(a1.x - a0.x, a1.y - a0.y, a1.z - a0.z);
-    let db = Vec3::new(b1.x - b0.x, b1.y - b0.y, b1.z - b0.z);
-    let d0 = Vec3::new(a0.x - b0.x, a0.y - b0.y, a0.z - b0.z);
-    let denom = da.dot(&da) * db.dot(&db) - da.dot(&db).powi(2);
-    if denom.abs() < 1e-20 {
-        return None;
-    }
-    let t_a = (da.dot(&db) * d0.dot(&db) - db.dot(&db) * d0.dot(&da)) / denom;
-    let t_b = (da.dot(&da) * d0.dot(&db) - da.dot(&db) * d0.dot(&da)) / denom;
-    if !(-0.1..=1.1).contains(&t_a) || !(-0.1..=1.1).contains(&t_b) {
-        return None;
-    }
-    let pa = Point3::new(a0.x + t_a * da.x, a0.y + t_a * da.y, a0.z + t_a * da.z);
-    let pb = Point3::new(b0.x + t_b * db.x, b0.y + t_b * db.y, b0.z + t_b * db.z);
-    if pa.distance_to(&pb) > 0.01 {
-        return None;
-    }
-    Some((t_b, pb))
 }
