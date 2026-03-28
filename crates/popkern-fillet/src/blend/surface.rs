@@ -2,7 +2,7 @@
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, Vec3};
+use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
@@ -145,61 +145,66 @@ fn build_smooth_blend(
 
 /// Try to build a spherical cap blend.
 ///
-/// Derives the sphere center from the torus geometry of the fillet surfaces:
-/// for each `FilletEnd` segment, computes the inward direction from the vertex
-/// toward the torus center and averages the directions to find the bisector.
-/// The sphere center is placed at `vertex_position + avg_radius * bisector`.
-/// Returns `None` if no torus fillets are found or the geometry is degenerate.
+/// Computes the circumcenter of the boundary points — the point
+/// equidistant from all of them. If the points lie on a sphere (max
+/// deviation < tolerance), returns that sphere. This handles cube
+/// corners with equal-radius perpendicular fillets exactly.
+///
+/// Returns `None` if the geometry is degenerate or the points don't
+/// lie on a sphere.
 fn try_spherical_blend(
-    boundary: &BlendBoundary,
-    fillet_surfaces: &[FilletSurfaceResult],
+    _boundary: &BlendBoundary,
+    _fillet_surfaces: &[FilletSurfaceResult],
     points: &[Point3],
     boundary_curves: &[NurbsCurve],
     tolerance: &Tolerance,
 ) -> Option<BlendSurfaceResult> {
-    if points.len() < 3 {
+    if points.len() < 4 {
         return None;
     }
 
-    let mut inward_sum = Vec3::new(0.0, 0.0, 0.0);
-    let mut radius_sum = 0.0;
-    let mut count = 0usize;
+    // Compute the circumcenter by solving the linear system:
+    // 2*(p_j - p_0) · c = |p_j|² - |p_0|²  for j = 1..N
+    //
+    // This finds the point equidistant from all boundary points.
+    // Use the first 3 non-degenerate point differences to solve for c,
+    // then verify against all points.
+    let p0 = points[0];
+    let p0_sq = p0.x * p0.x + p0.y * p0.y + p0.z * p0.z;
 
-    for seg in &boundary.segments {
-        if let BoundarySegment::FilletEnd { fillet_index, .. } = seg
-            && let Some(fillet) = fillet_surfaces.get(*fillet_index)
-            && let SurfaceGeometry::Torus {
-                center,
-                minor_radius,
-                ..
-            } = &fillet.surface
-        {
-            let dir = Vec3::new(
-                center.x - boundary.vertex_position.x,
-                center.y - boundary.vertex_position.y,
-                center.z - boundary.vertex_position.z,
-            );
-            if let Some(n) = dir.normalized() {
-                inward_sum = Vec3::new(inward_sum.x + n.x, inward_sum.y + n.y, inward_sum.z + n.z);
-            }
-            radius_sum += minor_radius;
-            count += 1;
+    // Build a 3x4 augmented matrix [A | b] from the first 3 valid equations.
+    let mut rows: Vec<[f64; 4]> = Vec::new();
+    for p in points.iter().skip(1) {
+        let dx = p.x - p0.x;
+        let dy = p.y - p0.y;
+        let dz = p.z - p0.z;
+        if dx.abs() + dy.abs() + dz.abs() < 1e-12 {
+            continue; // Skip near-duplicate points.
+        }
+        let rhs = p.x * p.x + p.y * p.y + p.z * p.z - p0_sq;
+        rows.push([2.0 * dx, 2.0 * dy, 2.0 * dz, rhs]);
+        if rows.len() == 3 {
+            break;
         }
     }
 
-    if count == 0 {
+    if rows.len() < 3 {
+        return None; // Not enough independent equations.
+    }
+
+    // Solve 3x3 system by Gaussian elimination with partial pivoting.
+    let (cx, cy, cz) = solve_circumcenter_3x3(&rows)?;
+    let center = Point3::new(cx, cy, cz);
+
+    // Compute radius as average distance from center to all points.
+    let avg_radius: f64 =
+        points.iter().map(|p| p.distance_to(&center)).sum::<f64>() / points.len() as f64;
+
+    if avg_radius < tolerance.linear {
         return None;
     }
 
-    let avg_radius = radius_sum / count as f64;
-    let bisector = inward_sum.normalized()?;
-
-    let center = Point3::new(
-        boundary.vertex_position.x + avg_radius * bisector.x,
-        boundary.vertex_position.y + avg_radius * bisector.y,
-        boundary.vertex_position.z + avg_radius * bisector.z,
-    );
-
+    // Verify ALL boundary points are equidistant from center.
     let max_deviation: f64 = points
         .iter()
         .map(|p| (p.distance_to(&center) - avg_radius).abs())
@@ -367,127 +372,7 @@ fn sample_boundary_points(curves: &[NurbsCurve], samples_per_curve: usize) -> Ve
     points
 }
 
-/// Compute the centroid of a point cloud.
-fn compute_centroid(points: &[Point3]) -> Point3 {
-    let n = points.len() as f64;
-    let x = points.iter().map(|p| p.x).sum::<f64>() / n;
-    let y = points.iter().map(|p| p.y).sum::<f64>() / n;
-    let z = points.iter().map(|p| p.z).sum::<f64>() / n;
-    Point3::new(x, y, z)
-}
-
-/// Fit a least-squares plane through a set of points.
-///
-/// Returns `(centroid, normal)`. The normal is the eigenvector corresponding
-/// to the smallest eigenvalue of the covariance matrix — computed via a
-/// simplified power-iteration approach for the 3x3 case.
-fn fit_plane_least_squares(points: &[Point3]) -> Result<(Point3, Vec3), String> {
-    if points.len() < 3 {
-        return Err("need at least 3 points to fit a plane".into());
-    }
-
-    let centroid = compute_centroid(points);
-
-    // Build 3x3 covariance matrix.
-    let mut cov = [[0.0f64; 3]; 3];
-    for p in points {
-        let dx = p.x - centroid.x;
-        let dy = p.y - centroid.y;
-        let dz = p.z - centroid.z;
-        let d = [dx, dy, dz];
-        for r in 0..3 {
-            for c in 0..3 {
-                cov[r][c] += d[r] * d[c];
-            }
-        }
-    }
-
-    // Find the eigenvector with the smallest eigenvalue using inverse
-    // power iteration. For robustness, we use the cross-product of the
-    // two largest-variance directions instead.
-    let normal = smallest_eigenvector_3x3(&cov)?;
-
-    Ok((centroid, normal))
-}
-
-/// Find the eigenvector corresponding to the smallest eigenvalue of a
-/// symmetric 3x3 matrix.
-///
-/// Uses a simplified approach: compute the normal as the cross product
-/// of the two most spread directions.
-fn smallest_eigenvector_3x3(cov: &[[f64; 3]; 3]) -> Result<Vec3, String> {
-    // The diagonal elements give variance along each axis.
-    // The smallest-variance axis is approximately the normal.
-    // For a more robust result, try cross products of sample vectors.
-
-    // Power iteration to find the largest eigenvector.
-    let mut v = [1.0, 0.0, 0.0];
-    for _ in 0..50 {
-        let mut w = [0.0f64; 3];
-        for r in 0..3 {
-            for c in 0..3 {
-                w[r] += cov[r][c] * v[c];
-            }
-        }
-        let len = (w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt();
-        if len < 1e-30 {
-            break;
-        }
-        v = [w[0] / len, w[1] / len, w[2] / len];
-    }
-    let e1 = Vec3::new(v[0], v[1], v[2]);
-
-    // Deflate and find second largest.
-    let lambda1: f64 = {
-        let mut w = [0.0f64; 3];
-        for r in 0..3 {
-            for c in 0..3 {
-                w[r] += cov[r][c] * v[c];
-            }
-        }
-        (w[0] * v[0] + w[1] * v[1] + w[2] * v[2]).max(0.0)
-    };
-
-    let mut cov2 = *cov;
-    for r in 0..3 {
-        for c in 0..3 {
-            cov2[r][c] -= lambda1 * v[r] * v[c];
-        }
-    }
-
-    let mut v2 = [0.0, 1.0, 0.0];
-    for _ in 0..50 {
-        let mut w = [0.0f64; 3];
-        for r in 0..3 {
-            for c in 0..3 {
-                w[r] += cov2[r][c] * v2[c];
-            }
-        }
-        let len = (w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt();
-        if len < 1e-30 {
-            break;
-        }
-        v2 = [w[0] / len, w[1] / len, w[2] / len];
-    }
-    let e2 = Vec3::new(v2[0], v2[1], v2[2]);
-
-    // Normal = cross product of the two largest eigenvectors.
-    let normal = e1.cross(&e2);
-    normal
-        .normalized()
-        .ok_or_else(|| "degenerate covariance — cannot fit plane".to_string())
-}
-
-/// Pick a vector perpendicular to the given vector.
-fn pick_perpendicular(v: &Vec3) -> Vec3 {
-    let candidate = if v.x.abs() < 0.9 {
-        Vec3::new(1.0, 0.0, 0.0)
-    } else {
-        Vec3::new(0.0, 1.0, 0.0)
-    };
-    let perp = v.cross(&candidate);
-    perp.normalized().unwrap_or(Vec3::new(1.0, 0.0, 0.0))
-}
+use super::surface_math::{fit_plane_least_squares, pick_perpendicular, solve_circumcenter_3x3};
 
 #[cfg(test)]
 #[path = "surface_tests.rs"]
