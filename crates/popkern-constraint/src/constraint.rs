@@ -82,6 +82,72 @@ pub enum Constraint {
     Collinear(LineHandle, LineHandle),
 }
 
+impl Constraint {
+    /// Return `true` if this constraint references the given point.
+    pub fn references_point(&self, ph: PointHandle) -> bool {
+        match self {
+            Constraint::Coincident(a, b) | Constraint::Distance(a, b, _) => *a == ph || *b == ph,
+            Constraint::Fixed(p) => *p == ph,
+            Constraint::PointOnLine(p, _) | Constraint::PointLineDistance(p, _, _) => *p == ph,
+            Constraint::PointOnArc(p, _) => *p == ph,
+            Constraint::Symmetric(a, b, _) => *a == ph || *b == ph,
+            Constraint::Midpoint(p, _) => *p == ph,
+            // Line-only and arc-only constraints do not reference points directly.
+            Constraint::Horizontal(_)
+            | Constraint::Vertical(_)
+            | Constraint::FixedLine(_)
+            | Constraint::Angle(..)
+            | Constraint::Parallel(..)
+            | Constraint::Perpendicular(..)
+            | Constraint::EqualLength(..)
+            | Constraint::Tangent(..)
+            | Constraint::ArcTangent(..)
+            | Constraint::EqualRadius(..)
+            | Constraint::Concentric(..)
+            | Constraint::Collinear(..) => false,
+        }
+    }
+
+    /// Return `true` if this constraint references the given line.
+    pub fn references_line(&self, lh: LineHandle) -> bool {
+        match self {
+            Constraint::PointOnLine(_, l)
+            | Constraint::PointLineDistance(_, l, _)
+            | Constraint::Horizontal(l)
+            | Constraint::Vertical(l)
+            | Constraint::FixedLine(l)
+            | Constraint::Midpoint(_, l) => *l == lh,
+            Constraint::Angle(a, b, _)
+            | Constraint::Parallel(a, b)
+            | Constraint::Perpendicular(a, b)
+            | Constraint::EqualLength(a, b)
+            | Constraint::Collinear(a, b) => *a == lh || *b == lh,
+            Constraint::Tangent(l, _) => *l == lh,
+            Constraint::Symmetric(_, _, l) => *l == lh,
+            // Point-only and arc-only constraints do not reference lines.
+            Constraint::Coincident(..)
+            | Constraint::Distance(..)
+            | Constraint::Fixed(_)
+            | Constraint::PointOnArc(..)
+            | Constraint::ArcTangent(..)
+            | Constraint::EqualRadius(..)
+            | Constraint::Concentric(..) => false,
+        }
+    }
+
+    /// Return `true` if this constraint references the given arc.
+    pub fn references_arc(&self, ah: ArcHandle) -> bool {
+        match self {
+            Constraint::PointOnArc(_, a) | Constraint::Tangent(_, a) => *a == ah,
+            Constraint::ArcTangent(a, b)
+            | Constraint::EqualRadius(a, b)
+            | Constraint::Concentric(a, b) => *a == ah || *b == ah,
+            // Everything else does not reference arcs.
+            _ => false,
+        }
+    }
+}
+
 /// Whether a constraint drives the geometry or is merely displayed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConstraintKind {

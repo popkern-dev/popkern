@@ -354,6 +354,79 @@ impl Sketch {
         self.drag_context = None;
     }
 
+    /// Remove a geometric element and cascade-delete dependent elements
+    /// and constraints.
+    ///
+    /// - **Point:** removes all lines that use this point as an endpoint
+    ///   (recursively cascading their constraints), all constraints that
+    ///   reference the point, then the point itself.
+    /// - **Line:** removes all constraints that reference the line, then
+    ///   the line (endpoint points are **not** removed).
+    /// - **Arc:** removes all constraints that reference the arc, then
+    ///   the arc.
+    pub fn remove_element(&mut self, element: ElementHandle) {
+        match element {
+            ElementHandle::Point(ph) => self.remove_point(ph),
+            ElementHandle::Line(lh) => self.remove_line(lh),
+            ElementHandle::Arc(ah) => self.remove_arc(ah),
+        }
+    }
+
+    /// Remove a point and cascade to dependent lines and constraints.
+    fn remove_point(&mut self, ph: PointHandle) {
+        // Find all lines that use this point as an endpoint.
+        let dependent_lines: Vec<LineHandle> = self
+            .lines
+            .iter()
+            .filter(|(_, l)| l.start == ph || l.end == ph)
+            .map(|(h, _)| h)
+            .collect();
+        for lh in dependent_lines {
+            self.remove_line(lh);
+        }
+        // Remove constraints that directly reference this point.
+        let to_remove: Vec<ConstraintHandle> = self
+            .constraints
+            .iter()
+            .filter(|(_, e)| e.constraint.references_point(ph))
+            .map(|(h, _)| h)
+            .collect();
+        for ch in to_remove {
+            self.constraints.remove(ch);
+        }
+        // Remove the point itself.
+        self.points.remove(ph);
+    }
+
+    /// Remove a line and its dependent constraints (but not endpoint
+    /// points).
+    fn remove_line(&mut self, lh: LineHandle) {
+        let to_remove: Vec<ConstraintHandle> = self
+            .constraints
+            .iter()
+            .filter(|(_, e)| e.constraint.references_line(lh))
+            .map(|(h, _)| h)
+            .collect();
+        for ch in to_remove {
+            self.constraints.remove(ch);
+        }
+        self.lines.remove(lh);
+    }
+
+    /// Remove an arc and its dependent constraints.
+    fn remove_arc(&mut self, ah: ArcHandle) {
+        let to_remove: Vec<ConstraintHandle> = self
+            .constraints
+            .iter()
+            .filter(|(_, e)| e.constraint.references_arc(ah))
+            .map(|(h, _)| h)
+            .collect();
+        for ch in to_remove {
+            self.constraints.remove(ch);
+        }
+        self.arcs.remove(ah);
+    }
+
     /// Snapshot the current parameter values that a `Fixed` or `FixedLine`
     /// constraint needs to lock in place.
     ///

@@ -182,3 +182,75 @@ fn begin_drag_invalid_handle_returns_error() {
         ConstraintError::InvalidHandle
     ));
 }
+
+// ── Element deletion with cascade ────────────────────────────────────────
+
+#[test]
+fn remove_point_cascades_line_and_constraints() {
+    use crate::elements::ElementHandle;
+
+    let mut sketch = Sketch::new();
+    let p1 = sketch.add_point(0.0, 0.0);
+    let p2 = sketch.add_point(1.0, 0.0);
+    let p3 = sketch.add_point(2.0, 0.0);
+    let l12 = sketch.add_line(p1, p2);
+    let _l23 = sketch.add_line(p2, p3);
+
+    let ch_horiz = sketch.add_constraint(Constraint::Horizontal(l12));
+    let ch_fix = sketch.add_constraint(Constraint::Fixed(p1));
+
+    // Remove p1 → l12 should be removed (cascade), ch_horiz on l12 too,
+    // ch_fix on p1 too. p2 and p3 survive (not endpoints of removed line
+    // from their perspective, and p2/p3 are not the removed point).
+    sketch.remove_element(ElementHandle::Point(p1));
+
+    // p1 is gone.
+    assert!(sketch.point_position(p1).is_none());
+    // l12 is gone (p1 was an endpoint).
+    assert!(sketch.lines.get(l12).is_none());
+    // Constraints on l12 and p1 are gone.
+    assert!(sketch.constraint_status(ch_horiz).is_none());
+    assert!(sketch.constraint_status(ch_fix).is_none());
+    // p2 and p3 survive.
+    assert!(sketch.point_position(p2).is_some());
+    assert!(sketch.point_position(p3).is_some());
+}
+
+#[test]
+fn remove_line_keeps_endpoint_points() {
+    use crate::elements::ElementHandle;
+
+    let mut sketch = Sketch::new();
+    let p1 = sketch.add_point(0.0, 0.0);
+    let p2 = sketch.add_point(1.0, 0.0);
+    let l = sketch.add_line(p1, p2);
+
+    let ch = sketch.add_constraint(Constraint::Horizontal(l));
+
+    sketch.remove_element(ElementHandle::Line(l));
+
+    // Line and its constraint are gone.
+    assert!(sketch.lines.get(l).is_none());
+    assert!(sketch.constraint_status(ch).is_none());
+    // But the endpoint points survive.
+    assert!(sketch.point_position(p1).is_some());
+    assert!(sketch.point_position(p2).is_some());
+}
+
+#[test]
+fn remove_arc_cascades_constraints() {
+    use crate::elements::ElementHandle;
+
+    let mut sketch = Sketch::new();
+    let a = sketch.add_arc(0.0, 0.0, 1.0, 0.0, std::f64::consts::PI);
+    let p = sketch.add_point(1.0, 0.0);
+
+    let ch = sketch.add_constraint(Constraint::PointOnArc(p, a));
+
+    sketch.remove_element(ElementHandle::Arc(a));
+
+    assert!(sketch.arcs.get(a).is_none());
+    assert!(sketch.constraint_status(ch).is_none());
+    // The point survives.
+    assert!(sketch.point_position(p).is_some());
+}
