@@ -1,16 +1,20 @@
 pub mod constraint;
 pub mod elements;
-#[allow(dead_code)] // Used by the solver (Task 6); no callers yet.
 pub(crate) mod equations;
 pub mod error;
-#[allow(dead_code)] // Used by the solver (Task 6); no callers yet.
 pub(crate) mod jacobian;
+mod solver;
+
+#[cfg(test)]
+#[path = "solver_tests.rs"]
+mod solver_tests;
 
 pub use constraint::{
     Constraint, ConstraintEntry, ConstraintHandle, ConstraintKind, ConstraintStatus,
 };
 pub use elements::{Arc, ArcHandle, ElementHandle, Line, LineHandle, Point, PointHandle};
 pub use error::{ConstraintError, FreedomInfo, SolveResult, SolveStatus};
+pub use solver::SolverOptions;
 
 use slotmap::SlotMap;
 
@@ -159,6 +163,25 @@ impl Sketch {
     /// invalid.
     pub fn constraint_status(&self, handle: ConstraintHandle) -> Option<ConstraintStatus> {
         Some(self.constraints.get(handle)?.status)
+    }
+
+    /// Solve the constraint system using default solver options.
+    ///
+    /// Updates the parameter vector in place so that all driving constraints
+    /// are satisfied (if a solution exists).
+    pub fn solve(&mut self) -> Result<SolveResult, ConstraintError> {
+        self.solve_with_options(&SolverOptions::default())
+    }
+
+    /// Solve the constraint system with custom solver options.
+    ///
+    /// Updates the parameter vector in place so that all driving constraints
+    /// are satisfied (if a solution exists).
+    pub fn solve_with_options(
+        &mut self,
+        options: &SolverOptions,
+    ) -> Result<SolveResult, ConstraintError> {
+        solver::solve(self, options)
     }
 
     /// Snapshot the current parameter values that a `Fixed` or `FixedLine`
