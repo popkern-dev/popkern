@@ -63,11 +63,10 @@ fn twelve_edge_fillet_surface_correctness() {
         .collect();
     let result = fillet_edges(&cube, &specs, &FilletOptions::default(), tol).unwrap();
     let (bad_count, details) = count_bad_faces(&result.brep, 0.05);
-    // Remaining ≤3 bad faces have vertices from topology operations
-    // (mef/kef) outside the blend region on the face boundary. The
-    // blend surface is correct for its region, but the face includes
-    // vertices from original faces. Fix requires tighter vertex blend
-    // topology cuts.
+    // Remaining ≤3 faces at ≤0.10 error:
+    //  - 1 blend face (Sphere, 0.07): includes cube corner vertex outside blend region
+    //  - 2 kept faces (Plane, 0.10): anchor vertices at fillet trim boundary are at
+    //    distance R from the face plane (on perpendicular edges)
     assert!(
         bad_count <= 3,
         "expected at most 3 bad faces (blend face boundary extends beyond blend region), got {bad_count}:\n{}",
