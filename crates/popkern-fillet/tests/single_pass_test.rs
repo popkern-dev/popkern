@@ -63,9 +63,12 @@ fn twelve_edge_fillet_surface_correctness() {
         .collect();
     let result = fillet_edges(&cube, &specs, &FilletOptions::default(), tol).unwrap();
     let (bad_count, details) = count_bad_faces(&result.brep, 0.05);
+    // Remaining ≤3 are 3-fillet cube corners where the blend region is
+    // not spherical (boundary lies on torus, not sphere). A toric rotule
+    // surface is needed for these — see vertex_blend_surface_precision memory.
     assert!(
         bad_count <= 3,
-        "expected at most 3 bad faces (blend surface precision), got {bad_count}:\n{}",
+        "expected at most 3 bad faces (3-fillet corners need toric rotule), got {bad_count}:\n{}",
         details.join("\n"),
     );
 }

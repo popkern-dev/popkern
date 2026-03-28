@@ -25,3 +25,4 @@ target
 
 # Generated example output (STEP files, PNG renders)
 examples/output/
+docs/reports/kernel-analysis/
