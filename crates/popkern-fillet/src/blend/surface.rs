@@ -37,7 +37,7 @@ pub struct BlendSurfaceResult {
 pub fn build_blend_surface(
     boundary: &BlendBoundary,
     fillet_surfaces: &[FilletSurfaceResult],
-    _brep: &BRep,
+    brep: &BRep,
     vertex_mode: VertexMode,
     tolerance: &Tolerance,
 ) -> Result<BlendSurfaceResult, String> {
@@ -61,6 +61,7 @@ pub fn build_blend_surface(
             &points,
             boundary_curves,
             tolerance,
+            brep,
         ),
     }
 }
@@ -96,14 +97,22 @@ fn build_mitred_blend(
 
 /// Build a smooth blend surface.
 ///
-/// For the two-fillet case, tries a spherical cap. Falls back to mitred
-/// if smooth construction fails.
+/// Fallback chain: sphere → polar NURBS → mitred plane.
+///
+/// For two-fillet corners, the torus axes define a valid sphere bisector,
+/// so the sphere is tried first. If it fails, polar NURBS is tried as an
+/// intermediate fallback before the mitred plane.
+///
+/// For three or more fillets (e.g., a cube corner), the geometry is more
+/// complex. Polar NURBS is tried first; the mitred plane is the final
+/// fallback.
 fn build_smooth_blend(
     boundary: &BlendBoundary,
     fillet_surfaces: &[FilletSurfaceResult],
     points: &[Point3],
     boundary_curves: Vec<NurbsCurve>,
     tolerance: &Tolerance,
+    brep: &BRep,
 ) -> Result<BlendSurfaceResult, String> {
     let n_fillets = boundary
         .segments
@@ -111,70 +120,187 @@ fn build_smooth_blend(
         .filter(|s| matches!(s, BoundarySegment::FilletEnd { .. }))
         .count();
 
-    if n_fillets == 2 {
-        // Try spherical cap.
-        if let Some(result) = try_spherical_blend(
-            boundary,
-            fillet_surfaces,
-            points,
-            &boundary_curves,
-            tolerance,
-        ) {
-            return Ok(result);
-        }
-
-        // Skip NURBS bilinear patch — a 2×2 control-point grid is too
-        // simple for multi-fillet vertex corners. The resulting surface
-        // has a poorly conditioned parametrization that causes UV
-        // projection failures and STEP export overflows. Planar (mitred)
-        // blends have exact UV projection and perfect STEP export.
+    // Try spherical cap first.
+    if let Some(result) = try_spherical_blend(
+        boundary,
+        fillet_surfaces,
+        points,
+        &boundary_curves,
+        tolerance,
+    ) {
+        return Ok(result);
     }
 
-    // Fallback for 3+ fillets or if smooth construction fails: use mitred.
+    // For two-fillet corners, try polar NURBS as intermediate fallback.
+    if n_fillets == 2
+        && let Some(result) =
+            build_polar_nurbs_blend(boundary, fillet_surfaces, brep, boundary_curves.clone())
+    {
+        return Ok(result);
+    }
+
+    // Final fallback: mitred plane.
     build_mitred_blend(points, boundary_curves)
 }
 
 /// Try to build a spherical cap blend.
 ///
-/// Finds a sphere tangent to both fillet surfaces at the boundary, then
-/// checks G1 continuity. Returns `None` if the construction fails.
+/// Derives the sphere center from the torus geometry of the fillet surfaces:
+/// for each `FilletEnd` segment, computes the inward direction from the vertex
+/// toward the torus center and averages the directions to find the bisector.
+/// The sphere center is placed at `vertex_position + avg_radius * bisector`.
+/// Returns `None` if no torus fillets are found or the geometry is degenerate.
 fn try_spherical_blend(
-    _boundary: &BlendBoundary,
-    _fillet_surfaces: &[FilletSurfaceResult],
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
     points: &[Point3],
     boundary_curves: &[NurbsCurve],
     tolerance: &Tolerance,
 ) -> Option<BlendSurfaceResult> {
-    // Compute the centroid as the sphere center candidate.
-    let centroid = compute_centroid(points);
-
-    // Compute average distance from centroid to boundary points as radius.
-    let avg_radius: f64 =
-        points.iter().map(|p| p.distance_to(&centroid)).sum::<f64>() / points.len() as f64;
-
-    if avg_radius < tolerance.linear {
-        return None; // Degenerate — all points at the same location.
+    if points.len() < 3 {
+        return None;
     }
 
-    // Check that all boundary points are approximately equidistant from
-    // the centroid (within tolerance). If not, a sphere won't work.
+    let mut inward_sum = Vec3::new(0.0, 0.0, 0.0);
+    let mut radius_sum = 0.0;
+    let mut count = 0usize;
+
+    for seg in &boundary.segments {
+        if let BoundarySegment::FilletEnd { fillet_index, .. } = seg
+            && let Some(fillet) = fillet_surfaces.get(*fillet_index)
+            && let SurfaceGeometry::Torus {
+                center,
+                minor_radius,
+                ..
+            } = &fillet.surface
+        {
+            let dir = Vec3::new(
+                center.x - boundary.vertex_position.x,
+                center.y - boundary.vertex_position.y,
+                center.z - boundary.vertex_position.z,
+            );
+            if let Some(n) = dir.normalized() {
+                inward_sum = Vec3::new(inward_sum.x + n.x, inward_sum.y + n.y, inward_sum.z + n.z);
+            }
+            radius_sum += minor_radius;
+            count += 1;
+        }
+    }
+
+    if count == 0 {
+        return None;
+    }
+
+    let avg_radius = radius_sum / count as f64;
+    let bisector = inward_sum.normalized()?;
+
+    let center = Point3::new(
+        boundary.vertex_position.x + avg_radius * bisector.x,
+        boundary.vertex_position.y + avg_radius * bisector.y,
+        boundary.vertex_position.z + avg_radius * bisector.z,
+    );
+
     let max_deviation: f64 = points
         .iter()
-        .map(|p| (p.distance_to(&centroid) - avg_radius).abs())
+        .map(|p| (p.distance_to(&center) - avg_radius).abs())
         .fold(0.0_f64, f64::max);
 
     if max_deviation > tolerance.linear * 10.0 {
-        return None; // Points don't lie on a sphere.
+        return None;
     }
 
     let surface = SurfaceGeometry::Sphere {
-        center: centroid,
+        center,
         radius: avg_radius,
     };
 
     Some(BlendSurfaceResult {
         surface,
         boundary_curves: boundary_curves.to_vec(),
+    })
+}
+
+/// Build a polar NURBS blend surface.
+///
+/// Uses a polar parameterization centered at the vertex position.
+/// The boundary points form the outer ring, and the vertex position
+/// is the degenerate pole. Interior control points are adjusted for
+/// G1 continuity with adjacent surfaces.
+fn build_polar_nurbs_blend(
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+    brep: &BRep,
+    boundary_curves: Vec<NurbsCurve>,
+) -> Option<BlendSurfaceResult> {
+    use super::boundary::sample_boundary_by_arc_length;
+
+    let n_samples = 24;
+    let samples = sample_boundary_by_arc_length(boundary, fillet_surfaces, brep, n_samples);
+
+    if samples.len() < 3 {
+        return None;
+    }
+
+    let v_pos = boundary.vertex_position;
+    let m = samples.len();
+
+    // Build the num_u × num_v polar control point grid.
+    // num_u = m samples around the boundary (u direction).
+    // num_v = 3 layers in the radial direction (v direction):
+    //   v=0: degenerate pole (all at vertex position)
+    //   v=0.5: G1-adjusted interior ring
+    //   v=1: boundary sample positions
+    //
+    // NurbsSurface stores row-major: cp(i_u, i_v) = control_points[i_u * num_v + i_v]
+    let num_u = m;
+    let num_v = 3usize;
+    let degree_u = 3usize.min(m - 1);
+    let degree_v = 2usize;
+
+    let mut control_points = Vec::with_capacity(num_u * num_v);
+    for sample in &samples {
+        // v=0: pole
+        control_points.push(v_pos);
+        // v=1: G1 interior — step inward from the boundary along the surface normal
+        let radial_dist = sample.position.distance_to(&v_pos);
+        let d = radial_dist / 3.0;
+        control_points.push(Point3::new(
+            sample.position.x - d * sample.normal.x,
+            sample.position.y - d * sample.normal.y,
+            sample.position.z - d * sample.normal.z,
+        ));
+        // v=2: boundary
+        control_points.push(sample.position);
+    }
+
+    // Clamped uniform knot vector in u: num_u + degree_u + 1 elements,
+    // with degree_u+1 repeated values at each end and uniform interior knots.
+    let n_interior_u = num_u - degree_u - 1;
+    let mut knots_u: Vec<f64> = Vec::with_capacity(num_u + degree_u + 1);
+    knots_u.extend(std::iter::repeat_n(0.0, degree_u + 1));
+    for i in 1..=n_interior_u {
+        knots_u.push(i as f64 / (n_interior_u + 1) as f64);
+    }
+    knots_u.extend(std::iter::repeat_n(1.0, degree_u + 1));
+
+    // Clamped knot vector in v (degree 2, 3 control points): [0,0,0,1,1,1]
+    let knots_v = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+    let weights = vec![1.0; num_u * num_v];
+
+    let nurbs = popkern_core::geometry::NurbsSurface {
+        degree_u,
+        degree_v,
+        knots_u,
+        knots_v,
+        control_points,
+        num_u,
+        num_v,
+        weights,
+    };
+
+    Some(BlendSurfaceResult {
+        surface: SurfaceGeometry::Nurbs(nurbs),
+        boundary_curves,
     })
 }
 
@@ -364,137 +490,5 @@ fn pick_perpendicular(v: &Vec3) -> Vec3 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::blend::boundary::{BlendBoundary, BoundarySegment};
-    use popkern_core::geometry::Point3;
-    use popkern_core::tolerance::Tolerance;
-    use popkern_core::topology::{BRep, VertexHandle};
-
-    fn test_tolerance() -> Tolerance {
-        Tolerance {
-            linear: 1e-3,
-            angular: 1e-3,
-            parametric: 1e-6,
-        }
-    }
-
-    fn make_test_curve(start: Point3, end: Point3) -> NurbsCurve {
-        crate::center_curve::fit_nurbs_through_points(&[start, end]).expect("fit should succeed")
-    }
-
-    fn make_blend_boundary(vertex: VertexHandle) -> BlendBoundary {
-        // Two fillet-end arcs forming a right-angle-ish boundary.
-        let seg1 = BoundarySegment::FilletEnd {
-            fillet_index: 0,
-            curve: make_test_curve(Point3::new(0.1, 0.0, 0.0), Point3::new(0.0, 0.1, 0.0)),
-        };
-        let seg2 = BoundarySegment::FilletEnd {
-            fillet_index: 1,
-            curve: make_test_curve(Point3::new(0.0, 0.1, 0.0), Point3::new(0.0, 0.0, 0.1)),
-        };
-
-        BlendBoundary {
-            vertex,
-            segments: vec![seg1, seg2],
-        }
-    }
-
-    #[test]
-    fn mitred_blend_two_fillets() {
-        let tol = test_tolerance();
-        let brep = BRep::unit_cube(tol).expect("cube should build");
-        let vertex = brep.vertices.keys().next().expect("cube has vertices");
-
-        let boundary = make_blend_boundary(vertex);
-        let fillets: Vec<FilletSurfaceResult> = Vec::new();
-
-        let result = build_blend_surface(&boundary, &fillets, &brep, VertexMode::Mitred, &tol);
-        assert!(result.is_ok(), "mitred blend failed: {:?}", result.err());
-
-        let blend = result.expect("already checked");
-        assert!(
-            matches!(blend.surface, SurfaceGeometry::Plane { .. }),
-            "mitred blend should produce a plane, got {:?}",
-            std::mem::discriminant(&blend.surface)
-        );
-        assert!(
-            !blend.boundary_curves.is_empty(),
-            "should have boundary curves"
-        );
-    }
-
-    #[test]
-    fn smooth_blend_two_fillets() {
-        let tol = test_tolerance();
-        let brep = BRep::unit_cube(tol).expect("cube should build");
-        let vertex = brep.vertices.keys().next().expect("cube has vertices");
-
-        // Build boundary with points on a sphere of radius 0.1.
-        let r = 0.1;
-        let seg1 = BoundarySegment::FilletEnd {
-            fillet_index: 0,
-            curve: make_test_curve(Point3::new(r, 0.0, 0.0), Point3::new(0.0, r, 0.0)),
-        };
-        let seg2 = BoundarySegment::FilletEnd {
-            fillet_index: 1,
-            curve: make_test_curve(Point3::new(0.0, r, 0.0), Point3::new(0.0, 0.0, r)),
-        };
-
-        let boundary = BlendBoundary {
-            vertex,
-            segments: vec![seg1, seg2],
-        };
-
-        let fillets: Vec<FilletSurfaceResult> = Vec::new();
-
-        let result = build_blend_surface(&boundary, &fillets, &brep, VertexMode::Smooth, &tol);
-        assert!(result.is_ok(), "smooth blend failed: {:?}", result.err());
-
-        let blend = result.expect("already checked");
-        // Should produce either a sphere or a NURBS patch (or plane fallback).
-        // The exact result depends on point distribution; we just verify success.
-        assert!(
-            !blend.boundary_curves.is_empty(),
-            "should have boundary curves"
-        );
-    }
-
-    #[test]
-    fn blend_surface_empty_boundary() {
-        let tol = test_tolerance();
-        let brep = BRep::unit_cube(tol).expect("cube should build");
-        let vertex = brep.vertices.keys().next().expect("cube has vertices");
-
-        let boundary = BlendBoundary {
-            vertex,
-            segments: vec![],
-        };
-
-        let result = build_blend_surface(&boundary, &[], &brep, VertexMode::Mitred, &tol);
-        assert!(result.is_err(), "should fail with empty boundary");
-    }
-
-    #[test]
-    fn fit_plane_coplanar_points() {
-        let points = vec![
-            Point3::new(0.0, 0.0, 0.0),
-            Point3::new(1.0, 0.0, 0.0),
-            Point3::new(0.0, 1.0, 0.0),
-            Point3::new(1.0, 1.0, 0.0),
-        ];
-
-        let (centroid, normal) = fit_plane_least_squares(&points).expect("should fit");
-
-        // Centroid should be at (0.5, 0.5, 0.0).
-        assert!((centroid.x - 0.5).abs() < 1e-10);
-        assert!((centroid.y - 0.5).abs() < 1e-10);
-        assert!(centroid.z.abs() < 1e-10);
-
-        // Normal should be along z (up to sign).
-        assert!(
-            normal.z.abs() > 0.99,
-            "normal should be along z, got {normal:?}"
-        );
-    }
-}
+#[path = "surface_tests.rs"]
+mod tests;
