@@ -1,5 +1,7 @@
 pub mod constraint;
 pub mod elements;
+#[allow(dead_code)] // Used by the solver (Task 6); no callers yet.
+pub(crate) mod equations;
 pub mod error;
 
 pub use constraint::{
