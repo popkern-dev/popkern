@@ -263,33 +263,40 @@ fn correct_face_surfaces(brep: &mut BRep, original: &BRep, fillet_surfaces: &[Su
             continue;
         }
 
-        // Skip faces that already have a non-planar surface. These
-        // were explicitly assigned by merge_consumed_faces and should
-        // not be replaced by the heuristic.
-        if let Some(sof) = &brep.faces[fh].surface
-            && !matches!(sof.geometry, SurfaceGeometry::Plane { .. })
-        {
-            continue;
-        }
-
-        // Check if current planar surface is geometrically correct.
-        let current_ok = brep.faces[fh].surface.as_ref().is_some_and(|sof| {
-            positions.iter().all(|p| {
-                project_point_to_uv(&sof.geometry, p)
-                    .map(|(u, v)| p.distance_to(&sof.geometry.point_at(u, v)))
-                    .unwrap_or(f64::INFINITY)
-                    < 0.01
+        // Check if current surface is geometrically correct.
+        let current_max_dist = brep.faces[fh]
+            .surface
+            .as_ref()
+            .map(|sof| {
+                positions
+                    .iter()
+                    .filter_map(|p| {
+                        project_point_to_uv(&sof.geometry, p)
+                            .map(|(u, v)| p.distance_to(&sof.geometry.point_at(u, v)))
+                    })
+                    .fold(0.0_f64, f64::max)
             })
-        });
+            .unwrap_or(f64::INFINITY);
 
-        if current_ok {
+        if current_max_dist < 0.01 {
             continue;
         }
 
-        // Find the best matching surface. Prefer planes (tight match)
-        // over fillet surfaces (looser match).
+        // Find the best matching surface that improves on current.
+        // Never replace a non-planar surface with a plane (fillet
+        // surfaces are intentionally assigned even if vertices aren't
+        // exactly on them).
+        let current_is_nonplanar = brep.faces[fh]
+            .surface
+            .as_ref()
+            .is_some_and(|s| !matches!(s.geometry, SurfaceGeometry::Plane { .. }));
+
         let mut best: Option<(SurfaceOnFace, f64)> = None;
         for sof in &candidates {
+            // Don't downgrade non-planar to planar.
+            if current_is_nonplanar && matches!(sof.geometry, SurfaceGeometry::Plane { .. }) {
+                continue;
+            }
             let max_dist: f64 = positions
                 .iter()
                 .map(|p| {
@@ -299,12 +306,7 @@ fn correct_face_surfaces(brep: &mut BRep, original: &BRep, fillet_surfaces: &[Su
                 })
                 .fold(0.0_f64, f64::max);
 
-            let thresh = if matches!(sof.geometry, SurfaceGeometry::Plane { .. }) {
-                0.01
-            } else {
-                0.15
-            };
-            if max_dist < thresh {
+            if max_dist < current_max_dist {
                 match &best {
                     Some((_, bd)) if max_dist >= *bd => {}
                     _ => best = Some((sof.clone(), max_dist)),
@@ -317,9 +319,12 @@ fn correct_face_surfaces(brep: &mut BRep, original: &BRep, fillet_surfaces: &[Su
             continue;
         }
 
-        // Last resort: fit a plane through face vertices. This handles
-        // topologically malformed faces from handle remapping where
-        // vertices span multiple original surfaces.
+        // Last resort: fit a plane through face vertices. Only for faces
+        // that don't already have a non-planar surface (fillet surfaces
+        // are intentionally assigned even if imprecise).
+        if current_is_nonplanar {
+            continue;
+        }
         if positions.len() >= 3 {
             let p0 = positions[0];
             let p1 = positions[1];
@@ -455,7 +460,7 @@ fn line_line_nearest(
     b0: popkern_core::geometry::Point3,
     b1: popkern_core::geometry::Point3,
 ) -> Option<(f64, popkern_core::geometry::Point3)> {
-    use popkern_core::geometry::Vec3;
+    use popkern_core::geometry::{Point3, Vec3};
     let da = Vec3::new(a1.x - a0.x, a1.y - a0.y, a1.z - a0.z);
     let db = Vec3::new(b1.x - b0.x, b1.y - b0.y, b1.z - b0.z);
     let d0 = Vec3::new(a0.x - b0.x, a0.y - b0.y, a0.z - b0.z);
@@ -468,16 +473,8 @@ fn line_line_nearest(
     if !(-0.1..=1.1).contains(&t_a) || !(-0.1..=1.1).contains(&t_b) {
         return None;
     }
-    let pa = popkern_core::geometry::Point3::new(
-        a0.x + t_a * da.x,
-        a0.y + t_a * da.y,
-        a0.z + t_a * da.z,
-    );
-    let pb = popkern_core::geometry::Point3::new(
-        b0.x + t_b * db.x,
-        b0.y + t_b * db.y,
-        b0.z + t_b * db.z,
-    );
+    let pa = Point3::new(a0.x + t_a * da.x, a0.y + t_a * da.y, a0.z + t_a * da.z);
+    let pb = Point3::new(b0.x + t_b * db.x, b0.y + t_b * db.y, b0.z + t_b * db.z);
     if pa.distance_to(&pb) > 0.01 {
         return None;
     }
