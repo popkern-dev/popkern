@@ -169,15 +169,19 @@ fn apply_single_blend(
         edge_remap.insert(old, edge_a);
     }
 
-    // Compute pcurves from anchor positions on current faces.
-    let p1a = brep.vertices[split_info.face_1_anchors.0].position;
-    let p1b = brep.vertices[split_info.face_1_anchors.1].position;
+    // Compute trim curves and split faces. If an anchor is on a consumed
+    // sub-face from a previous fillet, clip the trim to the face boundary
+    // by splitting the crossing edge at the intersection point.
+    let anchors_1 = clip_anchors_to_face(brep, face_1, split_info.face_1_anchors, tolerance);
+    let p1a = brep.vertices[anchors_1.0].position;
+    let p1b = brep.vertices[anchors_1.1].position;
     let pc1 = helpers::pcurve_for_face(brep, face_1, &p1a, &p1b)
         .map_err(|e| BlendFailure::InvalidTopology { reason: e })?;
     let t3d1 = helpers::line_nurbs(&p1a, &p1b);
 
-    let p2a = brep.vertices[split_info.face_2_anchors.0].position;
-    let p2b = brep.vertices[split_info.face_2_anchors.1].position;
+    let anchors_2 = clip_anchors_to_face(brep, face_2, split_info.face_2_anchors, tolerance);
+    let p2a = brep.vertices[anchors_2.0].position;
+    let p2b = brep.vertices[anchors_2.1].position;
     let pc2 = helpers::pcurve_for_face(brep, face_2, &p2a, &p2b)
         .map_err(|e| BlendFailure::InvalidTopology { reason: e })?;
     let t3d2 = helpers::line_nurbs(&p2a, &p2b);
@@ -341,6 +345,143 @@ fn correct_face_surfaces(brep: &mut BRep, original: &BRep, fillet_surfaces: &[Su
             }
         }
     }
+}
+
+/// Clip trim anchors to the face boundary. If an anchor is NOT on the
+/// face (consumed by a previous fillet), find where the trim line crosses
+/// a boundary edge, split it, and return the intersection vertex.
+fn clip_anchors_to_face(
+    brep: &mut BRep,
+    face: FaceHandle,
+    anchors: (VertexHandle, VertexHandle),
+    tolerance: &Tolerance,
+) -> (VertexHandle, VertexHandle) {
+    let a = clip_one_anchor(brep, face, anchors.0, anchors.1, tolerance);
+    let b = clip_one_anchor(brep, face, anchors.1, anchors.0, tolerance);
+    (a, b)
+}
+
+/// Clip one anchor to the face boundary if it's not on the loop.
+fn clip_one_anchor(
+    brep: &mut BRep,
+    face: FaceHandle,
+    anchor: VertexHandle,
+    other: VertexHandle,
+    _tolerance: &Tolerance,
+) -> VertexHandle {
+    if is_vertex_on_face(brep, face, anchor) {
+        return anchor;
+    }
+
+    let anchor_pos = brep.vertices[anchor].position;
+    let other_pos = brep.vertices[other].position;
+
+    // Walk the face boundary. For each edge, compute the intersection
+    // of the trim line (anchor→other) with the edge line segment.
+    let face_data = match brep.faces.get(face) {
+        Some(f) => f,
+        None => return anchor,
+    };
+    let start_he = match brep.loops.get(face_data.outer_loop) {
+        Some(l) => l.half_edge,
+        None => return anchor,
+    };
+
+    let mut best: Option<(EdgeHandle, f64, popkern_core::geometry::Point3)> = None;
+    let mut cursor = start_he;
+    let limit = brep.half_edges.len() + 1;
+    for _ in 0..limit {
+        let he = &brep.half_edges[cursor];
+        let next_he = &brep.half_edges[he.next];
+        let e0 = brep.vertices[he.origin].position;
+        let e1 = brep.vertices[next_he.origin].position;
+
+        if let Some((t_edge, pt)) = line_line_nearest(anchor_pos, other_pos, e0, e1)
+            && (0.001..=0.999).contains(&t_edge)
+        {
+            let dist = pt.distance_to(&anchor_pos);
+            let is_closer = best
+                .as_ref()
+                .is_none_or(|(_, _, bp)| dist < bp.distance_to(&anchor_pos));
+            if is_closer {
+                best = Some((he.edge, t_edge, pt));
+            }
+        }
+
+        cursor = he.next;
+        if cursor == start_he {
+            break;
+        }
+    }
+
+    let Some((edge, t, _)) = best else {
+        return anchor;
+    };
+
+    match brep.split_edge(edge, t) {
+        Ok(split) => split.vertex,
+        Err(_) => anchor,
+    }
+}
+
+/// Check if a vertex is on a face's outer loop boundary.
+fn is_vertex_on_face(brep: &BRep, face: FaceHandle, vertex: VertexHandle) -> bool {
+    let face_data = match brep.faces.get(face) {
+        Some(f) => f,
+        None => return false,
+    };
+    let start_he = match brep.loops.get(face_data.outer_loop) {
+        Some(l) => l.half_edge,
+        None => return false,
+    };
+    let mut cursor = start_he;
+    let limit = brep.half_edges.len() + 1;
+    for _ in 0..limit {
+        if brep.half_edges[cursor].origin == vertex {
+            return true;
+        }
+        cursor = brep.half_edges[cursor].next;
+        if cursor == start_he {
+            break;
+        }
+    }
+    false
+}
+
+/// Intersect two 3D line segments. Returns `(t_b, point)` if they cross.
+fn line_line_nearest(
+    a0: popkern_core::geometry::Point3,
+    a1: popkern_core::geometry::Point3,
+    b0: popkern_core::geometry::Point3,
+    b1: popkern_core::geometry::Point3,
+) -> Option<(f64, popkern_core::geometry::Point3)> {
+    use popkern_core::geometry::Vec3;
+    let da = Vec3::new(a1.x - a0.x, a1.y - a0.y, a1.z - a0.z);
+    let db = Vec3::new(b1.x - b0.x, b1.y - b0.y, b1.z - b0.z);
+    let d0 = Vec3::new(a0.x - b0.x, a0.y - b0.y, a0.z - b0.z);
+    let denom = da.dot(&da) * db.dot(&db) - da.dot(&db).powi(2);
+    if denom.abs() < 1e-20 {
+        return None;
+    }
+    let t_a = (da.dot(&db) * d0.dot(&db) - db.dot(&db) * d0.dot(&da)) / denom;
+    let t_b = (da.dot(&da) * d0.dot(&db) - da.dot(&db) * d0.dot(&da)) / denom;
+    if !(-0.1..=1.1).contains(&t_a) || !(-0.1..=1.1).contains(&t_b) {
+        return None;
+    }
+    let pa = popkern_core::geometry::Point3::new(
+        a0.x + t_a * da.x,
+        a0.y + t_a * da.y,
+        a0.z + t_a * da.z,
+    );
+    let pb = popkern_core::geometry::Point3::new(
+        b0.x + t_b * db.x,
+        b0.y + t_b * db.y,
+        b0.z + t_b * db.z,
+    );
+    if pa.distance_to(&pb) > 0.01 {
+        return None;
+    }
+    Some((t_b, pb))
 }
 
 /// Split a face along a trim curve, handling errors gracefully.
