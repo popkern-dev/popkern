@@ -243,6 +243,20 @@ impl Sketch {
         Some(self.constraints.get(handle)?.status)
     }
 
+    /// Return the current arc parameters `(cx, cy, r, start_angle,
+    /// end_angle)`, or `None` if the handle is invalid.
+    pub fn arc_params(&self, handle: ArcHandle) -> Option<(f64, f64, f64, f64, f64)> {
+        let a = self.arcs.get(handle)?;
+        let [icx, icy, ir, isa, iea] = a.param_indices();
+        Some((
+            self.params[icx],
+            self.params[icy],
+            self.params[ir],
+            self.params[isa],
+            self.params[iea],
+        ))
+    }
+
     /// Solve the constraint system using default solver options.
     ///
     /// Updates the parameter vector in place so that all driving constraints
