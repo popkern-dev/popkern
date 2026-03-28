@@ -116,9 +116,14 @@ pub(crate) fn correct_face_surfaces(
             }
         }
 
-        if let Some((sof, _dist)) = best {
-            brep.faces[fh].surface = Some(sof);
-            continue;
+        if let Some((sof, dist)) = best {
+            // Only assign if the candidate actually fits reasonably well.
+            // Without this threshold, a wrong surface that happens to be
+            // the "least bad" in the pool would still be assigned.
+            if dist < 0.5 {
+                brep.faces[fh].surface = Some(sof);
+                continue;
+            }
         }
 
         // Last resort: fit a plane through face vertices. Only for faces
