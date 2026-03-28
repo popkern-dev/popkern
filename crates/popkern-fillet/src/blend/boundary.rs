@@ -17,6 +17,8 @@ use crate::fillet_surface::FilletSurfaceResult;
 pub struct BlendBoundary {
     /// The vertex being blended.
     pub vertex: VertexHandle,
+    /// Position of the vertex (saved before vertex removal by blend insertion).
+    pub vertex_position: Point3,
     /// Boundary curve segments (alternating fillet-end arcs and face edge segments).
     pub segments: Vec<BoundarySegment>,
 }
@@ -89,7 +91,11 @@ pub fn compute_blend_boundary(
     // vertex. For now, the fillet-end segments alone define the blend region;
     // face-edge segments can be added when topology walking is available.
 
-    Ok(BlendBoundary { vertex, segments })
+    Ok(BlendBoundary {
+        vertex,
+        vertex_position: vertex_pos,
+        segments,
+    })
 }
 
 /// Extract the end curve of a fillet surface closest to a vertex.

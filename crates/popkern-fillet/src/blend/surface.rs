@@ -396,6 +396,7 @@ mod tests {
 
         BlendBoundary {
             vertex,
+            vertex_position: Point3::new(0.0, 0.0, 0.0),
             segments: vec![seg1, seg2],
         }
     }
@@ -443,6 +444,7 @@ mod tests {
 
         let boundary = BlendBoundary {
             vertex,
+            vertex_position: Point3::new(0.0, 0.0, 0.0),
             segments: vec![seg1, seg2],
         };
 
@@ -468,6 +470,7 @@ mod tests {
 
         let boundary = BlendBoundary {
             vertex,
+            vertex_position: Point3::new(0.0, 0.0, 0.0),
             segments: vec![],
         };
 
