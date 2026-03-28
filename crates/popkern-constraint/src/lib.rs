@@ -1,3 +1,4 @@
+pub(crate) mod analysis;
 pub mod constraint;
 pub mod elements;
 pub(crate) mod equations;

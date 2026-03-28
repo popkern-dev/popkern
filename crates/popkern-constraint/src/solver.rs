@@ -5,6 +5,7 @@
 //! builds a dense Jacobian, and iteratively updates the sketch parameter
 //! vector until the residual norm drops below a tolerance.
 
+use crate::analysis;
 use crate::error::{ConstraintError, SolveResult, SolveStatus};
 use crate::jacobian::assemble;
 use crate::Sketch;
@@ -46,43 +47,34 @@ pub(crate) fn solve(
     sketch: &mut Sketch,
     options: &SolverOptions,
 ) -> Result<SolveResult, ConstraintError> {
+    let (iterations, converged) = newton_loop(sketch, options);
+
+    // Run post-solve analysis to determine the real status.
+    finalize(sketch, options, iterations, converged)
+}
+
+/// Run the Newton–Raphson iteration loop.
+///
+/// Returns `(iterations, converged)`.
+fn newton_loop(sketch: &mut Sketch, options: &SolverOptions) -> (u32, bool) {
     for iteration in 0..options.max_iterations {
-        // (a) Assemble equation system.
         let sys = assemble(sketch);
 
         if sys.num_equations == 0 {
-            return Ok(SolveResult {
-                status: SolveStatus::UnderConstrained(Vec::new()),
-                iterations: iteration as u32,
-                residual_norm: 0.0,
-            });
+            return (iteration as u32, true);
         }
 
-        // (b) Check convergence.
         let norm = residual_norm(&sys.residuals);
         if norm < options.tolerance {
-            let status = if sys.num_equations == sys.num_params {
-                SolveStatus::FullyConstrained
-            } else if sys.num_equations < sys.num_params {
-                SolveStatus::UnderConstrained(Vec::new())
-            } else {
-                // More equations than params but still satisfied — redundant.
-                SolveStatus::FullyConstrained
-            };
-            return Ok(SolveResult {
-                status,
-                iterations: iteration as u32,
-                residual_norm: norm,
-            });
+            return (iteration as u32, true);
         }
 
         let m = sys.num_equations;
         let n = sys.num_params;
 
-        // (c) Build dense Jacobian matrix and RHS from triplets.
+        // Build dense Jacobian matrix and RHS from triplets.
         let mut j_mat = Mat::<f64>::zeros(m, n);
         for &(row, col, val) in &sys.jacobian_triplets {
-            // Accumulate in case multiple constraints write to the same entry.
             let existing = j_mat.read(row, col);
             j_mat.write(row, col, existing + val);
         }
@@ -92,9 +84,6 @@ pub(crate) fn solve(
             rhs.write(i, 0, -r);
         }
 
-        // (d) Solve J * dx = -F.
-        //     Overdetermined (m >= n): QR least-squares.
-        //     Underdetermined (m < n): minimum-norm via J^T (J J^T)^{-1} (-F).
         let dx: Vec<f64> = if m >= n {
             let qr = j_mat.col_piv_qr();
             let dx_mat = qr.solve_lstsq(&rhs);
@@ -103,13 +92,12 @@ pub(crate) fn solve(
             solve_underdetermined(&j_mat, &rhs, n)
         };
 
-        // (e) Backtracking line search.
+        // Backtracking line search.
         let saved_params = sketch.params.clone();
         let mut step_accepted = false;
 
         let mut alpha = 1.0;
         for _ in 0..options.line_search_max {
-            // Apply step: params = saved + alpha * dx
             for (i, p) in sketch.params.iter_mut().enumerate() {
                 *p = saved_params[i] + alpha * dx[i];
             }
@@ -129,46 +117,71 @@ pub(crate) fn solve(
             continue;
         }
 
-        // (f) Line search failed — try Levenberg–Marquardt.
-        // Restore params before LM attempts.
+        // Line search failed — try Levenberg–Marquardt.
         sketch.params.copy_from_slice(&saved_params);
 
         let lm_accepted = try_levenberg_marquardt(sketch, &j_mat, &sys.residuals, norm, options);
 
         if !lm_accepted {
-            // Neither line search nor LM improved the residual.
             sketch.params.copy_from_slice(&saved_params);
-            let final_norm = residual_norm(&assemble(sketch).residuals);
-            return Ok(SolveResult {
-                status: SolveStatus::Failed(
-                    "line search and Levenberg-Marquardt both failed to reduce residual"
-                        .to_string(),
-                ),
-                iterations: (iteration + 1) as u32,
-                residual_norm: final_norm,
-            });
+            return ((iteration + 1) as u32, false);
         }
     }
 
-    // Exhausted iterations.
-    let final_sys = assemble(sketch);
-    let final_norm = residual_norm(&final_sys.residuals);
-    if final_norm < options.tolerance {
-        Ok(SolveResult {
-            status: SolveStatus::FullyConstrained,
-            iterations: options.max_iterations as u32,
-            residual_norm: final_norm,
-        })
-    } else {
-        Ok(SolveResult {
+    // Exhausted iterations — check if we converged on the last step.
+    let final_norm = residual_norm(&assemble(sketch).residuals);
+    (
+        options.max_iterations as u32,
+        final_norm < options.tolerance,
+    )
+}
+
+/// Post-solve analysis: DOF analysis + constraint status.
+fn finalize(
+    sketch: &mut Sketch,
+    options: &SolverOptions,
+    iterations: u32,
+    converged: bool,
+) -> Result<SolveResult, ConstraintError> {
+    let final_norm = residual_norm(&assemble(sketch).residuals);
+
+    // Run constraint status detection (sets per-constraint Satisfied/Violated).
+    let conflicting = analysis::analyze_constraints(sketch, options.tolerance);
+
+    if !converged && final_norm >= options.tolerance {
+        return Ok(SolveResult {
             status: SolveStatus::Failed(format!(
                 "did not converge after {} iterations (residual {:.2e})",
-                options.max_iterations, final_norm
+                iterations, final_norm
             )),
-            iterations: options.max_iterations as u32,
+            iterations,
             residual_norm: final_norm,
-        })
+        });
     }
+
+    // Check for over-constrained system.
+    if !conflicting.is_empty() {
+        return Ok(SolveResult {
+            status: SolveStatus::OverConstrained(conflicting),
+            iterations,
+            residual_norm: final_norm,
+        });
+    }
+
+    // DOF analysis.
+    let freedoms = analysis::analyze_dof(sketch);
+
+    let status = if freedoms.is_empty() {
+        SolveStatus::FullyConstrained
+    } else {
+        SolveStatus::UnderConstrained(freedoms)
+    };
+
+    Ok(SolveResult {
+        status,
+        iterations,
+        residual_norm: final_norm,
+    })
 }
 
 /// Minimum-norm solution for underdetermined systems (m < n):
