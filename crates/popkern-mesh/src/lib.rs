@@ -24,11 +24,11 @@ use thiserror::Error;
 pub struct TessellationOptions {
     /// Maximum chord-height deviation allowed between the mesh and the true surface.
     ///
-    /// Smaller values produce finer meshes. Default: `0.01`.
+    /// Smaller values produce finer meshes. Default: `0.005`.
     pub chord_height: f64,
     /// Minimum number of subdivisions along each parametric direction per face.
     ///
-    /// Default: `2`.
+    /// Default: `4`.
     pub min_subdivisions: usize,
     /// Maximum number of subdivisions along each parametric direction per face.
     ///
@@ -39,8 +39,8 @@ pub struct TessellationOptions {
 impl Default for TessellationOptions {
     fn default() -> Self {
         Self {
-            chord_height: 0.01,
-            min_subdivisions: 2,
+            chord_height: 0.005,
+            min_subdivisions: 4,
             max_subdivisions: 64,
         }
     }
@@ -137,8 +137,8 @@ mod tests {
     #[test]
     fn tessellation_options_default_values() {
         let opts = TessellationOptions::default();
-        assert!((opts.chord_height - 0.01).abs() < f64::EPSILON);
-        assert_eq!(opts.min_subdivisions, 2);
+        assert!((opts.chord_height - 0.005).abs() < f64::EPSILON);
+        assert_eq!(opts.min_subdivisions, 4);
         assert_eq!(opts.max_subdivisions, 64);
     }
 }

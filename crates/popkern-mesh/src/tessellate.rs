@@ -284,10 +284,10 @@ mod tests {
     fn tessellate_unit_cube_correct_counts() {
         let cube = BRep::unit_cube(Tolerance::default()).unwrap();
         let mesh = tessellate(&cube, &TessellationOptions::default()).unwrap();
-        // With min_subdivisions=2, each planar face gets a 2x2 grid of quads,
-        // each split into 2 triangles: 6 faces * 4 quads * 2 = 48 triangles.
-        assert_eq!(mesh.triangles.len(), 48);
-        assert_eq!(mesh.face_map.len(), 48);
+        // With min_subdivisions=4, each planar face gets a 4x4 grid of quads,
+        // each split into 2 triangles: 6 faces * 16 quads * 2 = 192 triangles.
+        assert_eq!(mesh.triangles.len(), 192);
+        assert_eq!(mesh.face_map.len(), 192);
         assert_eq!(mesh.face_meshes.len(), 6);
     }
 
