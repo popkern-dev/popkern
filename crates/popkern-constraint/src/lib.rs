@@ -19,6 +19,7 @@ pub use elements::{Arc, ArcHandle, ElementHandle, Line, LineHandle, Point, Point
 pub use error::{ConstraintError, FreedomInfo, SolveResult, SolveStatus};
 pub use solver::SolverOptions;
 
+use serde::{Deserialize, Serialize};
 use slotmap::SlotMap;
 use undo::Snapshot;
 
@@ -37,6 +38,7 @@ pub(crate) struct DragState {
 
 /// A 2D parametric sketch: a collection of geometric elements connected by
 /// constraints.
+#[derive(Serialize, Deserialize)]
 pub struct Sketch {
     /// Flat parameter vector shared by all elements.
     pub(crate) params: Vec<f64>,
@@ -49,16 +51,25 @@ pub struct Sketch {
     /// Constraints, keyed by [`ConstraintHandle`].
     pub(crate) constraints: SlotMap<ConstraintHandle, ConstraintEntry>,
     /// Active drag context (transient, not serialised).
+    #[serde(skip)]
     pub(crate) drag_context: Option<DragState>,
     /// Undo snapshot log (session-local, not serialised).
+    #[serde(skip)]
     pub(crate) undo_log: Vec<Snapshot>,
     /// Cursor into [`undo_log`](Self::undo_log) — points to the next
     /// insert position. Snapshots before the cursor can be undone;
     /// snapshots at or after the cursor can be redone.
+    #[serde(skip)]
     pub(crate) undo_cursor: usize,
     /// When `false`, mutations do not record snapshots (used by undo/redo
     /// to avoid infinite recursion).
+    #[serde(skip, default = "default_recording")]
     pub(crate) recording: bool,
+}
+
+/// Default for the `recording` field when deserialising (always `true`).
+fn default_recording() -> bool {
+    true
 }
 
 impl Sketch {

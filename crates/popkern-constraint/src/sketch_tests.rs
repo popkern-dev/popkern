@@ -237,6 +237,67 @@ fn remove_line_keeps_endpoint_points() {
     assert!(sketch.point_position(p2).is_some());
 }
 
+// ── Serialization ───────────────────────────────────────────────────────
+
+#[test]
+fn serialize_roundtrip() {
+    let mut sketch = Sketch::new();
+    let p1 = sketch.add_point(0.0, 0.0);
+    let p2 = sketch.add_point(1.0, 0.0);
+    let _line = sketch.add_line(p1, p2);
+    sketch.add_constraint(Constraint::Horizontal(_line));
+    sketch.add_constraint(Constraint::Distance(p1, p2, 2.0));
+
+    let json = serde_json::to_string(&sketch).expect("serialize");
+    let loaded: Sketch = serde_json::from_str(&json).expect("deserialize");
+
+    assert_eq!(loaded.points.len(), 2);
+    assert_eq!(loaded.lines.len(), 1);
+    assert_eq!(loaded.constraints.len(), 2);
+    assert_eq!(loaded.params.len(), sketch.params.len());
+}
+
+#[test]
+fn loaded_sketch_solves() {
+    let mut sketch = Sketch::new();
+    let p1 = sketch.add_point(0.0, 0.0);
+    let p2 = sketch.add_point(3.0, 0.5);
+    let l = sketch.add_line(p1, p2);
+    sketch.add_constraint(Constraint::Fixed(p1));
+    sketch.add_constraint(Constraint::Horizontal(l));
+    sketch.add_constraint(Constraint::Distance(p1, p2, 5.0));
+
+    let json = serde_json::to_string(&sketch).expect("serialize");
+    let mut loaded: Sketch = serde_json::from_str(&json).expect("deserialize");
+
+    // The loaded sketch should be solvable.
+    let result = loaded.solve().expect("solve");
+    let (x2, y2) = loaded.point_position(p2).unwrap();
+    assert!((x2 - 5.0).abs() < 1e-6, "expected x2 ~ 5.0, got {}", x2);
+    assert!(y2.abs() < 1e-6, "expected y2 ~ 0.0, got {}", y2);
+    assert!(
+        result.residual_norm < 1e-8,
+        "residual too large: {}",
+        result.residual_norm
+    );
+}
+
+#[test]
+fn serialization_skips_undo_and_drag() {
+    let mut sketch = Sketch::new();
+    let _p = sketch.add_point(1.0, 2.0);
+    // Undo log has entries now.
+    assert!(sketch.can_undo());
+
+    let json = serde_json::to_string(&sketch).expect("serialize");
+    let loaded: Sketch = serde_json::from_str(&json).expect("deserialize");
+
+    // Undo history is not preserved across serialization.
+    assert!(!loaded.can_undo());
+    // Recording is re-enabled.
+    assert!(loaded.recording);
+}
+
 #[test]
 fn remove_arc_cascades_constraints() {
     use crate::elements::ElementHandle;
