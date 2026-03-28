@@ -179,24 +179,30 @@ fn clip_one_anchor(
         None => return anchor,
     };
 
-    let mut best: Option<(EdgeHandle, f64, popkern_core::geometry::Point3)> = None;
+    // Strategy 1: Find where the trim line crosses a boundary edge.
+    let mut best_crossing: Option<(VertexHandle, Option<(EdgeHandle, f64)>)> = None;
+    let mut best_cross_dist = f64::INFINITY;
     let mut cursor = start_he;
     let limit = brep.half_edges.len() + 1;
     for _ in 0..limit {
         let he = &brep.half_edges[cursor];
         let next_he = &brep.half_edges[he.next];
-        let e0 = brep.vertices[he.origin].position;
-        let e1 = brep.vertices[next_he.origin].position;
+        let he_origin = he.origin;
+        let he_dest = next_he.origin;
+        let e0 = brep.vertices[he_origin].position;
+        let e1 = brep.vertices[he_dest].position;
 
-        if let Some((t_edge, pt)) = line_line_nearest(anchor_pos, other_pos, e0, e1)
-            && (0.001..=0.999).contains(&t_edge)
-        {
+        if let Some((t_edge, pt)) = line_line_nearest(anchor_pos, other_pos, e0, e1) {
             let dist = pt.distance_to(&anchor_pos);
-            let is_closer = best
-                .as_ref()
-                .is_none_or(|(_, _, bp)| dist < bp.distance_to(&anchor_pos));
-            if is_closer {
-                best = Some((he.edge, t_edge, pt));
+            if dist < best_cross_dist {
+                if t_edge <= 0.001 {
+                    best_crossing = Some((he_origin, None));
+                } else if t_edge >= 0.999 {
+                    best_crossing = Some((he_dest, None));
+                } else {
+                    best_crossing = Some((he_origin, Some((he.edge, t_edge))));
+                }
+                best_cross_dist = dist;
             }
         }
 
@@ -206,14 +212,16 @@ fn clip_one_anchor(
         }
     }
 
-    let Some((edge, t, _)) = best else {
-        return anchor;
-    };
-
-    match brep.split_edge(edge, t) {
-        Ok(split) => split.vertex,
-        Err(_) => anchor,
+    if let Some((vertex, split_info)) = best_crossing {
+        return match split_info {
+            None => vertex,
+            Some((edge, t)) => brep.split_edge(edge, t).map_or(anchor, |s| s.vertex),
+        };
     }
+
+    // No crossing found — keep the original anchor.
+    // The face split will fail, which is handled as a per-edge failure.
+    anchor
 }
 
 /// Check if a vertex is on a face's outer loop boundary.
