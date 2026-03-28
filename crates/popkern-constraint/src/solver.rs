@@ -92,6 +92,13 @@ fn newton_loop(sketch: &mut Sketch, options: &SolverOptions) -> (u32, bool) {
             solve_underdetermined(&j_mat, &rhs, n)
         };
 
+        // If the step is tiny, we are at a (possibly non-zero) minimum.
+        // This handles over-determined / conflicting systems.
+        let step_norm = dx.iter().map(|d| d * d).sum::<f64>().sqrt();
+        if step_norm < options.tolerance * 1e-2 {
+            return (iteration as u32, true);
+        }
+
         // Backtracking line search.
         let saved_params = sketch.params.clone();
         let mut step_accepted = false;

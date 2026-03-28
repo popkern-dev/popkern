@@ -19,6 +19,19 @@ pub use solver::SolverOptions;
 
 use slotmap::SlotMap;
 
+/// Transient drag state used during interactive point dragging.
+#[derive(Debug, Clone)]
+pub(crate) struct DragState {
+    /// The point being dragged.
+    point: PointHandle,
+    /// Parameter snapshot taken at the start of the drag (available for
+    /// future undo support).
+    #[allow(dead_code)]
+    saved_params: Vec<f64>,
+    /// Temporary Fixed constraint added during each `drag_to` step.
+    temp_constraint: Option<ConstraintHandle>,
+}
+
 /// A 2D parametric sketch: a collection of geometric elements connected by
 /// constraints.
 pub struct Sketch {
@@ -32,6 +45,8 @@ pub struct Sketch {
     pub(crate) arcs: SlotMap<ArcHandle, Arc>,
     /// Constraints, keyed by [`ConstraintHandle`].
     pub(crate) constraints: SlotMap<ConstraintHandle, ConstraintEntry>,
+    /// Active drag context (transient, not serialised).
+    pub(crate) drag_context: Option<DragState>,
 }
 
 impl Sketch {
@@ -43,6 +58,7 @@ impl Sketch {
             lines: SlotMap::with_key(),
             arcs: SlotMap::with_key(),
             constraints: SlotMap::with_key(),
+            drag_context: None,
         }
     }
 
@@ -270,6 +286,74 @@ impl Sketch {
         }
     }
 
+    /// Begin an interactive drag on a point.
+    ///
+    /// Saves the current parameter snapshot so subsequent [`drag_to`](Self::drag_to)
+    /// calls can solve relative to the original state.
+    pub fn begin_drag(&mut self, point: PointHandle) -> Result<(), ConstraintError> {
+        if !self.points.contains_key(point) {
+            return Err(ConstraintError::InvalidHandle);
+        }
+        self.drag_context = Some(DragState {
+            point,
+            saved_params: self.params.clone(),
+            temp_constraint: None,
+        });
+        Ok(())
+    }
+
+    /// Move the dragged point to `(x, y)` and re-solve the sketch.
+    ///
+    /// Sets the point parameters to the target position (warm start), adds
+    /// a temporary Fixed constraint, solves, then removes the constraint.
+    /// The solver finds the nearest valid configuration to the drag target.
+    pub fn drag_to(&mut self, x: f64, y: f64) -> Result<SolveResult, ConstraintError> {
+        let drag = self
+            .drag_context
+            .as_ref()
+            .ok_or(ConstraintError::NoDragActive)?;
+        let point = drag.point;
+
+        // Set the point to the target position (warm start).
+        let p = self
+            .points
+            .get(point)
+            .ok_or(ConstraintError::InvalidHandle)?;
+        let [ix, iy] = p.param_indices();
+        self.params[ix] = x;
+        self.params[iy] = y;
+
+        // Add a temporary Fixed constraint at (x, y).
+        let temp = self.constraints.insert(ConstraintEntry {
+            constraint: Constraint::Fixed(point),
+            kind: ConstraintKind::Driving,
+            status: ConstraintStatus::Unknown,
+            fixed_values: vec![x, y],
+        });
+        if let Some(drag) = self.drag_context.as_mut() {
+            drag.temp_constraint = Some(temp);
+        }
+
+        // Solve — for over-determined systems the QR least-squares path
+        // finds the nearest valid configuration.
+        let result = self.solve();
+
+        // Always remove the temporary constraint, even on failure.
+        self.constraints.remove(temp);
+        if let Some(drag) = self.drag_context.as_mut() {
+            drag.temp_constraint = None;
+        }
+
+        result
+    }
+
+    /// End the interactive drag, committing the current geometry.
+    ///
+    /// Does not restore the parameter snapshot — the drag result is kept.
+    pub fn end_drag(&mut self) {
+        self.drag_context = None;
+    }
+
     /// Snapshot the current parameter values that a `Fixed` or `FixedLine`
     /// constraint needs to lock in place.
     ///
@@ -311,112 +395,5 @@ impl Default for Sketch {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn add_point_and_read_position() {
-        let mut sketch = Sketch::new();
-        let h = sketch.add_point(3.0, 4.0);
-        assert_eq!(sketch.point_position(h), Some((3.0, 4.0)));
-    }
-
-    #[test]
-    fn add_line_shares_point_params() {
-        let mut sketch = Sketch::new();
-        let a = sketch.add_point(0.0, 0.0);
-        let b = sketch.add_point(1.0, 0.0);
-        let _l = sketch.add_line(a, b);
-
-        // Mutate the underlying param vector directly to verify sharing.
-        let idx = sketch.points[a].param_indices()[0];
-        sketch.params[idx] = 5.0;
-
-        assert_eq!(sketch.point_position(a), Some((5.0, 0.0)));
-    }
-
-    #[test]
-    fn add_and_remove_constraint() {
-        let mut sketch = Sketch::new();
-        let a = sketch.add_point(0.0, 0.0);
-        let b = sketch.add_point(1.0, 0.0);
-        let ch = sketch.add_constraint(Constraint::Coincident(a, b));
-        assert!(sketch.constraint_status(ch).is_some());
-
-        sketch.remove_constraint(ch);
-        assert!(sketch.constraint_status(ch).is_none());
-    }
-
-    #[test]
-    fn driven_distance_reports_current_distance() {
-        let mut sketch = Sketch::new();
-        let a = sketch.add_point(0.0, 0.0);
-        let b = sketch.add_point(3.0, 4.0);
-        // Driven constraint — just observes distance, doesn't drive geometry.
-        let ch = sketch.add_driven(Constraint::Distance(a, b, 0.0));
-
-        let val = sketch.driven_value(ch);
-        assert!(val.is_some());
-        assert!(
-            (val.unwrap() - 5.0).abs() < 1e-8,
-            "expected distance 5.0, got {:?}",
-            val
-        );
-    }
-
-    #[test]
-    fn driving_distance_set_value_and_solve() {
-        let mut sketch = Sketch::new();
-        let a = sketch.add_point(0.0, 0.0);
-        let b = sketch.add_point(3.0, 0.0);
-        sketch.add_constraint(Constraint::Fixed(a));
-        let ch = sketch.add_constraint(Constraint::Distance(a, b, 3.0));
-
-        // Solve at distance=3.
-        sketch.solve().unwrap();
-        let d1 = sketch.driven_value(ch).unwrap();
-        assert!((d1 - 3.0).abs() < 1e-8, "initial distance: {}", d1);
-
-        // Change to distance=5.
-        sketch.set_constraint_value(ch, 5.0).unwrap();
-        sketch.solve().unwrap();
-        let d2 = sketch.driven_value(ch).unwrap();
-        assert!((d2 - 5.0).abs() < 1e-8, "updated distance: {}", d2);
-    }
-
-    #[test]
-    fn set_value_on_horizontal_returns_error() {
-        let mut sketch = Sketch::new();
-        let a = sketch.add_point(0.0, 0.0);
-        let b = sketch.add_point(1.0, 0.0);
-        let l = sketch.add_line(a, b);
-        let ch = sketch.add_constraint(Constraint::Horizontal(l));
-
-        let result = sketch.set_constraint_value(ch, 1.0);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            ConstraintError::NotDimensional
-        ));
-    }
-
-    #[test]
-    fn driven_angle_reports_current_angle() {
-        let mut sketch = Sketch::new();
-        let a = sketch.add_point(0.0, 0.0);
-        let b = sketch.add_point(1.0, 0.0);
-        let c = sketch.add_point(0.0, 0.0);
-        let d = sketch.add_point(0.0, 1.0);
-        let l1 = sketch.add_line(a, b); // horizontal
-        let l2 = sketch.add_line(c, d); // vertical
-        let ch = sketch.add_driven(Constraint::Angle(l1, l2, 0.0));
-
-        let val = sketch.driven_value(ch).unwrap();
-        let expected = std::f64::consts::FRAC_PI_2;
-        assert!(
-            (val - expected).abs() < 1e-8,
-            "expected angle pi/2, got {}",
-            val
-        );
-    }
-}
+#[path = "sketch_tests.rs"]
+mod tests;

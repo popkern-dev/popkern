@@ -13,6 +13,10 @@ pub enum ConstraintError {
     #[error("constraint is not a dimensional type (Distance, Angle, or PointLineDistance)")]
     NotDimensional,
 
+    /// `drag_to` was called without an active drag session.
+    #[error("no drag is active — call begin_drag first")]
+    NoDragActive,
+
     /// The Newton–Raphson solver failed to converge.
     #[error("solve failed: {0}")]
     SolveFailed(String),
