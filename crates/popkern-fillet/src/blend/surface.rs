@@ -136,39 +136,75 @@ fn build_smooth_blend(
 
 /// Try to build a spherical cap blend.
 ///
-/// Finds a sphere tangent to both fillet surfaces at the boundary, then
-/// checks G1 continuity. Returns `None` if the construction fails.
+/// Derives the sphere center from the torus geometry of the fillet surfaces:
+/// for each `FilletEnd` segment, computes the inward direction from the vertex
+/// toward the torus center and averages the directions to find the bisector.
+/// The sphere center is placed at `vertex_position + avg_radius * bisector`.
+/// Returns `None` if no torus fillets are found or the geometry is degenerate.
 fn try_spherical_blend(
-    _boundary: &BlendBoundary,
-    _fillet_surfaces: &[FilletSurfaceResult],
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
     points: &[Point3],
     boundary_curves: &[NurbsCurve],
     tolerance: &Tolerance,
 ) -> Option<BlendSurfaceResult> {
-    // Compute the centroid as the sphere center candidate.
-    let centroid = compute_centroid(points);
-
-    // Compute average distance from centroid to boundary points as radius.
-    let avg_radius: f64 =
-        points.iter().map(|p| p.distance_to(&centroid)).sum::<f64>() / points.len() as f64;
-
-    if avg_radius < tolerance.linear {
-        return None; // Degenerate — all points at the same location.
+    if points.len() < 3 {
+        return None;
     }
 
-    // Check that all boundary points are approximately equidistant from
-    // the centroid (within tolerance). If not, a sphere won't work.
+    let mut inward_sum = Vec3::new(0.0, 0.0, 0.0);
+    let mut radius_sum = 0.0;
+    let mut count = 0usize;
+
+    for seg in &boundary.segments {
+        if let BoundarySegment::FilletEnd { fillet_index, .. } = seg {
+            if let Some(fillet) = fillet_surfaces.get(*fillet_index) {
+                if let SurfaceGeometry::Torus {
+                    center,
+                    minor_radius,
+                    ..
+                } = &fillet.surface
+                {
+                    let dir = Vec3::new(
+                        center.x - boundary.vertex_position.x,
+                        center.y - boundary.vertex_position.y,
+                        center.z - boundary.vertex_position.z,
+                    );
+                    if let Some(n) = dir.normalized() {
+                        inward_sum =
+                            Vec3::new(inward_sum.x + n.x, inward_sum.y + n.y, inward_sum.z + n.z);
+                    }
+                    radius_sum += minor_radius;
+                    count += 1;
+                }
+            }
+        }
+    }
+
+    if count == 0 {
+        return None;
+    }
+
+    let avg_radius = radius_sum / count as f64;
+    let bisector = inward_sum.normalized()?;
+
+    let center = Point3::new(
+        boundary.vertex_position.x + avg_radius * bisector.x,
+        boundary.vertex_position.y + avg_radius * bisector.y,
+        boundary.vertex_position.z + avg_radius * bisector.z,
+    );
+
     let max_deviation: f64 = points
         .iter()
-        .map(|p| (p.distance_to(&centroid) - avg_radius).abs())
+        .map(|p| (p.distance_to(&center) - avg_radius).abs())
         .fold(0.0_f64, f64::max);
 
     if max_deviation > tolerance.linear * 10.0 {
-        return None; // Points don't lie on a sphere.
+        return None;
     }
 
     let surface = SurfaceGeometry::Sphere {
-        center: centroid,
+        center,
         radius: avg_radius,
     };
 
@@ -364,140 +400,5 @@ fn pick_perpendicular(v: &Vec3) -> Vec3 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::blend::boundary::{BlendBoundary, BoundarySegment};
-    use popkern_core::geometry::Point3;
-    use popkern_core::tolerance::Tolerance;
-    use popkern_core::topology::{BRep, VertexHandle};
-
-    fn test_tolerance() -> Tolerance {
-        Tolerance {
-            linear: 1e-3,
-            angular: 1e-3,
-            parametric: 1e-6,
-        }
-    }
-
-    fn make_test_curve(start: Point3, end: Point3) -> NurbsCurve {
-        crate::center_curve::fit_nurbs_through_points(&[start, end]).expect("fit should succeed")
-    }
-
-    fn make_blend_boundary(vertex: VertexHandle) -> BlendBoundary {
-        // Two fillet-end arcs forming a right-angle-ish boundary.
-        let seg1 = BoundarySegment::FilletEnd {
-            fillet_index: 0,
-            curve: make_test_curve(Point3::new(0.1, 0.0, 0.0), Point3::new(0.0, 0.1, 0.0)),
-        };
-        let seg2 = BoundarySegment::FilletEnd {
-            fillet_index: 1,
-            curve: make_test_curve(Point3::new(0.0, 0.1, 0.0), Point3::new(0.0, 0.0, 0.1)),
-        };
-
-        BlendBoundary {
-            vertex,
-            vertex_position: Point3::new(0.0, 0.0, 0.0),
-            segments: vec![seg1, seg2],
-        }
-    }
-
-    #[test]
-    fn mitred_blend_two_fillets() {
-        let tol = test_tolerance();
-        let brep = BRep::unit_cube(tol).expect("cube should build");
-        let vertex = brep.vertices.keys().next().expect("cube has vertices");
-
-        let boundary = make_blend_boundary(vertex);
-        let fillets: Vec<FilletSurfaceResult> = Vec::new();
-
-        let result = build_blend_surface(&boundary, &fillets, &brep, VertexMode::Mitred, &tol);
-        assert!(result.is_ok(), "mitred blend failed: {:?}", result.err());
-
-        let blend = result.expect("already checked");
-        assert!(
-            matches!(blend.surface, SurfaceGeometry::Plane { .. }),
-            "mitred blend should produce a plane, got {:?}",
-            std::mem::discriminant(&blend.surface)
-        );
-        assert!(
-            !blend.boundary_curves.is_empty(),
-            "should have boundary curves"
-        );
-    }
-
-    #[test]
-    fn smooth_blend_two_fillets() {
-        let tol = test_tolerance();
-        let brep = BRep::unit_cube(tol).expect("cube should build");
-        let vertex = brep.vertices.keys().next().expect("cube has vertices");
-
-        // Build boundary with points on a sphere of radius 0.1.
-        let r = 0.1;
-        let seg1 = BoundarySegment::FilletEnd {
-            fillet_index: 0,
-            curve: make_test_curve(Point3::new(r, 0.0, 0.0), Point3::new(0.0, r, 0.0)),
-        };
-        let seg2 = BoundarySegment::FilletEnd {
-            fillet_index: 1,
-            curve: make_test_curve(Point3::new(0.0, r, 0.0), Point3::new(0.0, 0.0, r)),
-        };
-
-        let boundary = BlendBoundary {
-            vertex,
-            vertex_position: Point3::new(0.0, 0.0, 0.0),
-            segments: vec![seg1, seg2],
-        };
-
-        let fillets: Vec<FilletSurfaceResult> = Vec::new();
-
-        let result = build_blend_surface(&boundary, &fillets, &brep, VertexMode::Smooth, &tol);
-        assert!(result.is_ok(), "smooth blend failed: {:?}", result.err());
-
-        let blend = result.expect("already checked");
-        // Should produce either a sphere or a NURBS patch (or plane fallback).
-        // The exact result depends on point distribution; we just verify success.
-        assert!(
-            !blend.boundary_curves.is_empty(),
-            "should have boundary curves"
-        );
-    }
-
-    #[test]
-    fn blend_surface_empty_boundary() {
-        let tol = test_tolerance();
-        let brep = BRep::unit_cube(tol).expect("cube should build");
-        let vertex = brep.vertices.keys().next().expect("cube has vertices");
-
-        let boundary = BlendBoundary {
-            vertex,
-            vertex_position: Point3::new(0.0, 0.0, 0.0),
-            segments: vec![],
-        };
-
-        let result = build_blend_surface(&boundary, &[], &brep, VertexMode::Mitred, &tol);
-        assert!(result.is_err(), "should fail with empty boundary");
-    }
-
-    #[test]
-    fn fit_plane_coplanar_points() {
-        let points = vec![
-            Point3::new(0.0, 0.0, 0.0),
-            Point3::new(1.0, 0.0, 0.0),
-            Point3::new(0.0, 1.0, 0.0),
-            Point3::new(1.0, 1.0, 0.0),
-        ];
-
-        let (centroid, normal) = fit_plane_least_squares(&points).expect("should fit");
-
-        // Centroid should be at (0.5, 0.5, 0.0).
-        assert!((centroid.x - 0.5).abs() < 1e-10);
-        assert!((centroid.y - 0.5).abs() < 1e-10);
-        assert!(centroid.z.abs() < 1e-10);
-
-        // Normal should be along z (up to sign).
-        assert!(
-            normal.z.abs() > 0.99,
-            "normal should be along z, got {normal:?}"
-        );
-    }
-}
+#[path = "surface_tests.rs"]
+mod tests;
