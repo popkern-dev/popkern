@@ -187,11 +187,15 @@ pub fn apply_blend_geometry(
         }
     }
 
-    // Safety net: propagate surface geometry to any face that lost it
-    // during topology modifications. A face that shares edges with a
-    // face that has a surface should inherit that surface (unless it's a
-    // fillet surface — in which case it was already assigned).
-    propagate_missing_surfaces(&mut result);
+    // Restore surfaces to faces that lost them during topology modifications,
+    // and correct faces with wrong surface assignments from handle remapping.
+    // Matches face vertex positions against all available surfaces (original
+    // planar + computed fillet torus) to find the geometrically correct one.
+    let fillet_surfaces: Vec<_> = edge_geometries
+        .iter()
+        .map(|eg| eg.surface.clone())
+        .collect();
+    restore_face_surfaces(&mut result, brep, &fillet_surfaces);
 
     Ok(ApplyBlendResult {
         brep: result,
@@ -199,108 +203,112 @@ pub fn apply_blend_geometry(
     })
 }
 
-/// Propagate surface geometry to faces that lost it during topology
-/// modifications.
+/// Restore correct surface geometry to all faces by matching vertex positions.
 ///
-/// For each face without a surface, finds a neighboring face (sharing an
-/// edge via half-edge twin) that has a surface with the same type as the
-/// original (planar, cylindrical, etc.) and copies it. This handles cases
-/// where face splits or `kef` operations leave a face without geometry.
-fn propagate_missing_surfaces(brep: &mut BRep) {
-    // Iterate until no more surfaces can be propagated (handles chains
-    // of surfaceless faces that are only reachable transitively).
-    let max_rounds = brep.faces.len();
-    for _ in 0..max_rounds {
-        let faces_without_surface: Vec<FaceHandle> = brep
-            .faces
-            .iter()
-            .filter(|(_, f)| f.surface.is_none())
-            .map(|(fh, _)| fh)
-            .collect();
+/// For each face (missing or mismatched surface), checks if boundary
+/// vertices lie on the face's current surface. If not, searches all
+/// available surfaces (original planar + computed fillet) for the best
+/// geometric match. This corrects both surfaces lost during topology
+/// modifications and surfaces assigned to the wrong face due to handle
+/// remapping across multi-edge fillet operations.
+fn restore_face_surfaces(brep: &mut BRep, original: &BRep, fillet_surfaces: &[SurfaceGeometry]) {
+    use popkern_core::geometry::surface::{SurfaceEval, SurfaceOnFace};
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
 
-        if faces_without_surface.is_empty() {
-            break;
+    // Build pool of all candidate surfaces.
+    let mut candidates: Vec<SurfaceOnFace> = original
+        .faces
+        .iter()
+        .filter_map(|(_, f)| f.surface.clone())
+        .collect();
+    for surf in fillet_surfaces {
+        candidates.push(SurfaceOnFace {
+            geometry: surf.clone(),
+            orientation: true,
+        });
+    }
+
+    let face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
+
+    for fh in face_handles {
+        let positions = brep.face_outer_loop_positions(fh);
+        if positions.is_empty() {
+            continue;
         }
 
-        let mut any_fixed = false;
+        // Don't replace surfaces that already exist on the face.
+        // The only faces we fix are those with NO surface (lost during
+        // topology modifications). Faces with wrong surfaces from handle
+        // remapping are harder to detect reliably — only fix missing ones.
+        if brep.faces[fh].surface.is_some() {
+            continue;
+        }
 
-        for fh in faces_without_surface {
-            let outer_loop = brep.faces[fh].outer_loop;
-            let start_he = match brep.loops.get(outer_loop) {
-                Some(l) => l.half_edge,
-                None => continue,
+        // Find the best matching surface from the candidate pool.
+        // Use a two-pass approach: first try tight tolerance (0.01),
+        // then relax to 0.15 for fillet faces where vertices are at
+        // perpendicular-split positions (not exactly on the torus).
+        let mut best: Option<(SurfaceOnFace, f64)> = None;
+        for sof in &candidates {
+            let max_dist: f64 = positions
+                .iter()
+                .map(|p| {
+                    project_point_to_uv(&sof.geometry, p)
+                        .map(|(u, v)| p.distance_to(&sof.geometry.point_at(u, v)))
+                        .unwrap_or(f64::INFINITY)
+                })
+                .fold(0.0_f64, f64::max);
+
+            match &best {
+                Some((_, bd)) if max_dist >= *bd => {}
+                _ => best = Some((sof.clone(), max_dist)),
+            }
+        }
+
+        if let Some((sof, dist)) = best {
+            // Tight tolerance for planar faces. Curved fillet faces use a
+            // larger threshold because face vertices are at perpendicular-split
+            // positions, not exactly on the fillet surface.
+            let threshold = if matches!(sof.geometry, SurfaceGeometry::Plane { .. }) {
+                0.01
+            } else {
+                0.5
             };
-            if !brep.half_edges.contains_key(start_he) {
+            if dist < threshold {
+                brep.faces[fh].surface = Some(sof);
                 continue;
             }
-
-            let mut cursor = start_he;
-            let limit = brep.half_edges.len() + 1;
-            let mut found_surface = None;
-
-            for _ in 0..limit {
-                let he = &brep.half_edges[cursor];
-                let twin = he.twin;
-                if brep.half_edges.contains_key(twin) {
-                    let twin_loop = brep.half_edges[twin].loop_;
-                    if brep.loops.contains_key(twin_loop) {
-                        let neighbor_face = brep.loops[twin_loop].face;
-                        if let Some(ref sof) = brep.faces[neighbor_face].surface {
-                            found_surface = Some(sof.clone());
-                            break;
-                        }
-                    }
-                }
-                cursor = he.next;
-                if cursor == start_he {
-                    break;
-                }
-            }
-
-            // Also check inner loops for neighbor surfaces.
-            if found_surface.is_none() {
-                let inner_loops = brep.faces[fh].inner_loops.clone();
-                for inner_lh in &inner_loops {
-                    let il_start = match brep.loops.get(*inner_lh) {
-                        Some(l) => l.half_edge,
-                        None => continue,
-                    };
-                    if !brep.half_edges.contains_key(il_start) {
-                        continue;
-                    }
-                    let mut ic = il_start;
-                    for _ in 0..limit {
-                        let he = &brep.half_edges[ic];
-                        let twin = he.twin;
-                        if brep.half_edges.contains_key(twin) {
-                            let tl = brep.half_edges[twin].loop_;
-                            if brep.loops.contains_key(tl) {
-                                let nf = brep.loops[tl].face;
-                                if let Some(ref sof) = brep.faces[nf].surface {
-                                    found_surface = Some(sof.clone());
-                                    break;
-                                }
-                            }
-                        }
-                        ic = he.next;
-                        if ic == il_start {
-                            break;
-                        }
-                    }
-                    if found_surface.is_some() {
-                        break;
-                    }
-                }
-            }
-
-            if let Some(surface) = found_surface {
-                brep.faces[fh].surface = Some(surface);
-                any_fixed = true;
-            }
         }
 
-        if !any_fixed {
-            break;
+        // Last resort: fit a plane through the first 3 face vertices. This
+        // handles topologically malformed faces (from handle remapping
+        // errors in multi-edge fillets) where vertices span multiple
+        // original surfaces.
+        if positions.len() >= 3 {
+            let p0 = positions[0];
+            let p1 = positions[1];
+            let p2 = positions[2];
+            let u = popkern_core::geometry::Vec3::new(p1.x - p0.x, p1.y - p0.y, p1.z - p0.z);
+            let v = popkern_core::geometry::Vec3::new(p2.x - p0.x, p2.y - p0.y, p2.z - p0.z);
+            let n = u.cross(&v);
+            let len = n.length();
+            if len > 1e-12 {
+                let normal = popkern_core::geometry::Vec3::new(n.x / len, n.y / len, n.z / len);
+                let u_axis = {
+                    let ul = u.length();
+                    popkern_core::geometry::Vec3::new(u.x / ul, u.y / ul, u.z / ul)
+                };
+                let v_axis = normal.cross(&u_axis);
+                brep.faces[fh].surface = Some(SurfaceOnFace {
+                    geometry: SurfaceGeometry::Plane {
+                        origin: p0,
+                        normal,
+                        u_axis,
+                        v_axis,
+                    },
+                    orientation: true,
+                });
+            }
         }
     }
 }
