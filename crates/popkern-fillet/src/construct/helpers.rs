@@ -77,9 +77,11 @@ pub fn split_perpendicular_edges_by_radius(
 /// Information returned by perpendicular edge splitting.
 #[derive(Debug)]
 pub struct SplitInfo {
-    /// Corrected 3D trim curve for face 1.
+    /// Corrected 3D trim curve for face 1 (kept for compatibility).
+    #[allow(dead_code)]
     pub trim_3d_1: NurbsCurve,
-    /// Corrected 3D trim curve for face 2.
+    /// Corrected 3D trim curve for face 2 (kept for compatibility).
+    #[allow(dead_code)]
     pub trim_3d_2: NurbsCurve,
     /// Anchor vertices on face 1 (start, end matching fillet edge direction).
     pub face_1_anchors: (VertexHandle, VertexHandle),
@@ -90,7 +92,7 @@ pub struct SplitInfo {
 }
 
 /// Build a simple linear NURBS curve between two points.
-fn line_nurbs(a: &Point3, b: &Point3) -> NurbsCurve {
+pub(crate) fn line_nurbs(a: &Point3, b: &Point3) -> NurbsCurve {
     NurbsCurve {
         degree: 1,
         knots: vec![0.0, 0.0, 1.0, 1.0],
