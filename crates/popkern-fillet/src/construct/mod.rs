@@ -308,7 +308,9 @@ pub fn apply_blend_geometry(
 
     // ── Phase C cleanup: undo orphaned consumed faces ─────────────
     // If a fillet edge only had one side split, its consumed face is
-    // dangling. Undo the split by kef-ing the trim edge.
+    // dangling. Undo the split by kef-ing the trim edge, but only if
+    // the resulting merged face stays small (≤ 8 vertices). This
+    // prevents creating oversized faces that no surface can fit.
     for tr in &trim_results {
         if merged_consumed.contains(&tr.consumed) {
             continue;
@@ -320,8 +322,21 @@ pub fn apply_blend_geometry(
             if !result.edges.contains_key(trim_edge) {
                 continue;
             }
+            // Check vertex count of both faces before merging.
             let he = result.edges[trim_edge].half_edge;
-            let _ = result.kef(he); // Best-effort cleanup.
+            let he_face = result.loops[result.half_edges[he].loop_].face;
+            let twin = result.half_edges[he].twin;
+            let twin_face = result.loops[result.half_edges[twin].loop_].face;
+            if he_face == twin_face {
+                continue;
+            }
+            let verts_a = result.face_outer_loop_positions(he_face).len();
+            let verts_b = result.face_outer_loop_positions(twin_face).len();
+            // After kef, the merged face has approximately verts_a + verts_b - 2 vertices.
+            if verts_a + verts_b > 10 {
+                continue; // Would create an oversized face.
+            }
+            let _ = result.kef(he);
         }
     }
 
