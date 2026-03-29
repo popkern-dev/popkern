@@ -11,6 +11,7 @@ fn entry(constraint: Constraint, fixed_values: Vec<f64>) -> ConstraintEntry {
         kind: ConstraintKind::Driving,
         status: ConstraintStatus::Unknown,
         fixed_values,
+        group: None,
     }
 }
 

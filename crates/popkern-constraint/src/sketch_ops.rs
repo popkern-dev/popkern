@@ -165,6 +165,7 @@ impl Sketch {
             kind: ConstraintKind::Driving,
             status: ConstraintStatus::Unknown,
             fixed_values: vec![x, y],
+            group: None,
         });
         if let Some(drag) = self.drag_context.as_mut() {
             drag.temp_constraint = Some(temp);
@@ -211,6 +212,7 @@ impl Sketch {
         self.ellipses.insert(crate::Ellipse {
             param_start,
             construction: false,
+            rigid_set: None,
         })
     }
 
@@ -236,6 +238,7 @@ impl Sketch {
         self.parabolas.insert(crate::Parabola {
             param_start,
             construction: false,
+            rigid_set: None,
         })
     }
 
@@ -263,6 +266,7 @@ impl Sketch {
         self.hyperbolas.insert(crate::Hyperbola {
             param_start,
             construction: false,
+            rigid_set: None,
         })
     }
 

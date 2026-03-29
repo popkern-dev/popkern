@@ -6,7 +6,9 @@
 
 use crate::constraint::ConstraintKind;
 use crate::equations::{equation_count, evaluate_constraint};
+use crate::rigid_set;
 use crate::Sketch;
+use std::collections::HashMap;
 
 /// Assembled equation system: residuals F(x) and sparse Jacobian dF/dx.
 pub(crate) struct EquationSystem {
@@ -23,15 +25,46 @@ pub(crate) struct EquationSystem {
 /// Assemble the full equation system from all driving constraints.
 ///
 /// Only constraints with [`ConstraintKind::Driving`] are included; driven
-/// (display-only) constraints are skipped.
+/// (display-only) constraints are skipped. Constraints whose elements are
+/// all within the same rigid set are also skipped (the rigid body
+/// automatically satisfies intra-set geometric relationships).
+///
+/// Jacobian columns for rigid-set member parameters are remapped to the
+/// rigid-body parameters (tx, ty, theta).
 pub(crate) fn assemble(sketch: &Sketch) -> EquationSystem {
     let num_params = sketch.params.len();
+
+    // Build rigid-param lookup once.
+    let rigid_lookup = rigid_set::build_rigid_param_lookup(sketch);
+
+    // Read theta values for each rigid set (needed for chain-rule).
+    let theta_map: HashMap<usize, f64> = sketch
+        .rigid_sets
+        .values()
+        .map(|rs| (rs.param_start, sketch.params[rs.param_start + 2]))
+        .collect();
 
     // Pre-count total equations so we can reserve capacity.
     let total_equations: usize = sketch
         .constraints
         .values()
-        .filter(|e| e.kind == ConstraintKind::Driving)
+        .filter(|e| {
+            if e.kind != ConstraintKind::Driving {
+                return false;
+            }
+            if let Some(gh) = e.group {
+                if let Some(g) = sketch.groups.get(gh) {
+                    if !g.enabled {
+                        return false;
+                    }
+                }
+            }
+            // Skip intra-set constraints.
+            if rigid_set::all_in_same_rigid_set(sketch, &e.constraint).is_some() {
+                return false;
+            }
+            true
+        })
         .map(|e| equation_count(&e.constraint))
         .sum();
 
@@ -43,11 +76,52 @@ pub(crate) fn assemble(sketch: &Sketch) -> EquationSystem {
         if entry.kind != ConstraintKind::Driving {
             continue;
         }
+        if let Some(gh) = entry.group {
+            if let Some(g) = sketch.groups.get(gh) {
+                if !g.enabled {
+                    continue;
+                }
+            }
+        }
+        // Skip intra-set constraints.
+        if rigid_set::all_in_same_rigid_set(sketch, &entry.constraint).is_some() {
+            continue;
+        }
 
         let output = evaluate_constraint(sketch, Some(handle), entry, row_offset);
 
         residuals.extend_from_slice(&output.residuals);
-        triplets.extend_from_slice(&output.jacobian);
+
+        // Remap Jacobian columns for rigid-set members.
+        for &(row, col, val) in &output.jacobian {
+            if let Some(&(rs_param_start, rx, ry)) = rigid_lookup.get(&col) {
+                let theta = theta_map.get(&rs_param_start).copied().unwrap_or(0.0);
+                let (sin_t, cos_t) = theta.sin_cos();
+                let pt_param = sketch.points.values().find(|p| {
+                    let [ix, _] = p.param_indices();
+                    ix == col || ix + 1 == col
+                });
+                let is_x_param = pt_param.map_or_else(
+                    || col % 2 == 0, // fallback for center params
+                    |p| p.param_indices()[0] == col,
+                );
+                if is_x_param {
+                    // dF/dtx += val * 1.0
+                    triplets.push((row, rs_param_start, val));
+                    // dF/dtheta += val * (-rx*sin(theta) - ry*cos(theta))
+                    let dtheta = val * (-rx * sin_t - ry * cos_t);
+                    triplets.push((row, rs_param_start + 2, dtheta));
+                } else {
+                    // dF/dty += val * 1.0
+                    triplets.push((row, rs_param_start + 1, val));
+                    // dF/dtheta += val * (rx*cos(theta) - ry*sin(theta))
+                    let dtheta = val * (rx * cos_t - ry * sin_t);
+                    triplets.push((row, rs_param_start + 2, dtheta));
+                }
+            } else {
+                triplets.push((row, col, val));
+            }
+        }
 
         row_offset += equation_count(&entry.constraint);
     }

@@ -9,6 +9,7 @@ use crate::constraint::{ConstraintHandle, ConstraintKind, ConstraintStatus};
 use crate::equations::{equation_count, evaluate_constraint};
 use crate::error::FreedomInfo;
 use crate::jacobian::assemble;
+use crate::rigid_set;
 use crate::Sketch;
 use faer::Mat;
 
@@ -119,6 +120,21 @@ pub(crate) fn analyze_constraints(sketch: &mut Sketch, tolerance: f64) -> Vec<Co
             status_updates.push((handle, status));
             continue;
         }
+        // Skip constraints whose group is disabled — they are not in the
+        // assembled residual vector.
+        if let Some(gh) = entry.group {
+            if let Some(g) = sketch.groups.get(gh) {
+                if !g.enabled {
+                    status_updates.push((handle, ConstraintStatus::Unknown));
+                    continue;
+                }
+            }
+        }
+        // Skip intra-set constraints — they are not in the assembled system.
+        if rigid_set::all_in_same_rigid_set(sketch, &entry.constraint).is_some() {
+            status_updates.push((handle, ConstraintStatus::Satisfied));
+            continue;
+        }
         let max_residual = sys.residuals[row_offset..row_offset + neq]
             .iter()
             .map(|r| r.abs())
@@ -182,6 +198,10 @@ fn find_conflicting_constraints(
 
     for (handle, entry) in sketch.constraints.iter() {
         if entry.kind != ConstraintKind::Driving {
+            continue;
+        }
+        // Skip intra-set constraints.
+        if rigid_set::all_in_same_rigid_set(sketch, &entry.constraint).is_some() {
             continue;
         }
         let neq = equation_count(&entry.constraint);

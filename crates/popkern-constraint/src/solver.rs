@@ -8,6 +8,7 @@
 use crate::analysis;
 use crate::error::{ConstraintError, SolveResult, SolveStatus};
 use crate::jacobian::assemble;
+use crate::rigid_set;
 use crate::Sketch;
 use faer::prelude::{SpSolver, SpSolverLstsq};
 use faer::Mat;
@@ -47,6 +48,10 @@ pub(crate) fn solve(
     sketch: &mut Sketch,
     options: &SolverOptions,
 ) -> Result<SolveResult, ConstraintError> {
+    // Evaluate dimension expressions before the Newton loop so the solver
+    // sees up-to-date constant values.
+    crate::expression::evaluate_all(sketch).map_err(ConstraintError::ExpressionError)?;
+
     let (iterations, converged) = newton_loop(sketch, options);
 
     // Run post-solve analysis to determine the real status.
@@ -108,6 +113,7 @@ fn newton_loop(sketch: &mut Sketch, options: &SolverOptions) -> (u32, bool) {
             for (i, p) in sketch.params.iter_mut().enumerate() {
                 *p = saved_params[i] + alpha * dx[i];
             }
+            rigid_set::sync_rigid_sets(sketch);
 
             let new_sys = assemble(sketch);
             let new_norm = residual_norm(&new_sys.residuals);
@@ -248,6 +254,7 @@ fn try_levenberg_marquardt(
         for (i, p) in sketch.params.iter_mut().enumerate() {
             *p = saved_params[i] + dx[i];
         }
+        rigid_set::sync_rigid_sets(sketch);
 
         let new_norm = residual_norm(&assemble(sketch).residuals);
         if new_norm < current_norm {

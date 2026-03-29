@@ -12,12 +12,16 @@
 
 use crate::constraint::ConstraintEntry;
 use crate::elements::{Arc, Ellipse, Hyperbola, Parabola, Point, Spline};
+use crate::expression::Expression;
+use crate::groups::{ConstraintGroup, GroupHandle};
 use crate::pattern::{PatternDef, PatternHandle};
+use crate::rigid_set::{RigidSet, RigidSetHandle};
 use crate::{
     ArcHandle, ConstraintHandle, EllipseHandle, HyperbolaHandle, Line, LineHandle, ParabolaHandle,
     PointHandle, SplineHandle,
 };
 use slotmap::SlotMap;
+use std::collections::HashMap;
 
 /// A complete snapshot of the mutable sketch state, captured before each
 /// mutation for undo support.
@@ -41,8 +45,14 @@ pub(crate) struct Snapshot {
     pub splines: SlotMap<SplineHandle, Spline>,
     /// All constraints.
     pub constraints: SlotMap<ConstraintHandle, ConstraintEntry>,
+    /// All constraint groups.
+    pub groups: SlotMap<GroupHandle, ConstraintGroup>,
     /// All patterns.
     pub patterns: SlotMap<PatternHandle, PatternDef>,
+    /// All rigid sets.
+    pub rigid_sets: SlotMap<RigidSetHandle, RigidSet>,
+    /// Dimension expressions.
+    pub expressions: HashMap<ConstraintHandle, Expression>,
 }
 
 #[cfg(test)]

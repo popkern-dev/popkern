@@ -25,6 +25,15 @@ pub enum ConstraintError {
     /// element already in a pattern instance).
     #[error("invalid pattern: {0}")]
     InvalidPattern(String),
+
+    /// Setting an expression would create a circular dependency.
+    #[error("expression creates a circular dependency")]
+    CircularExpression,
+
+    /// An expression failed to evaluate (division by zero, sqrt of
+    /// negative, missing reference, etc.).
+    #[error("expression evaluation failed: {0}")]
+    ExpressionError(String),
 }
 
 /// The outcome of a solve attempt.
