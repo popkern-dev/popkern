@@ -208,3 +208,81 @@ fn tilted_plane_geometry() {
         );
     }
 }
+
+/// Test 7: Sketch rectangle -> to_brep -> extrude -> valid box.
+#[test]
+fn sketch_rectangle_extrude_to_box() {
+    let mut sop = SketchOnPlane::new(SketchPlane::xy());
+    let p0 = sop.sketch.add_point(0.0, 0.0);
+    let p1 = sop.sketch.add_point(1.0, 0.0);
+    let p2 = sop.sketch.add_point(1.0, 1.0);
+    let p3 = sop.sketch.add_point(0.0, 1.0);
+    let _l0 = sop.sketch.add_line(p0, p1);
+    let _l1 = sop.sketch.add_line(p1, p2);
+    let _l2 = sop.sketch.add_line(p2, p3);
+    let _l3 = sop.sketch.add_line(p3, p0);
+
+    let tol = Tolerance::default();
+    let mut result = sop.to_brep(tol).unwrap();
+    assert_eq!(result.regions.len(), 1);
+
+    let face = result.regions[0].face;
+
+    // Extrude along Z by 1.0
+    result
+        .brep
+        .extrude(face, Vec3::new(0.0, 0.0, 1.0), 1.0)
+        .unwrap();
+
+    // Verify box topology: V=8, E=12, F=6
+    assert_eq!(result.brep.vertices.len(), 8, "box should have 8 vertices");
+    assert_eq!(result.brep.edges.len(), 12, "box should have 12 edges");
+    assert_eq!(result.brep.faces.len(), 6, "box should have 6 faces");
+
+    // Euler characteristic: V - E + F = 2
+    let v = result.brep.vertices.len() as i64;
+    let e = result.brep.edges.len() as i64;
+    let f = result.brep.faces.len() as i64;
+    assert_eq!(v - e + f, 2, "Euler characteristic should be 2");
+}
+
+/// Test 8: Sketch circle (two semicircles) -> to_brep -> extrude -> cylinder topology.
+#[test]
+fn sketch_circle_extrude_to_cylinder() {
+    use std::f64::consts::PI;
+
+    let mut sop = SketchOnPlane::new(SketchPlane::xy());
+
+    // Two semicircular arcs forming a closed circle at origin, radius 1.
+    let _arc1 = sop.sketch.add_arc(0.0, 0.0, 1.0, 0.0, PI);
+    let _arc2 = sop.sketch.add_arc(0.0, 0.0, 1.0, PI, 2.0 * PI);
+
+    let tol = Tolerance::default();
+    let mut result = sop.to_brep(tol).unwrap();
+    assert_eq!(result.regions.len(), 1);
+
+    let face = result.regions[0].face;
+
+    // Extrude along Z by 2.0
+    result
+        .brep
+        .extrude(face, Vec3::new(0.0, 0.0, 1.0), 2.0)
+        .unwrap();
+
+    // Cylinder-like topology from 2-edge circle:
+    // Base: 2 vertices, 2 edges (from the two semicircles)
+    // After extrude: V=4, E=6, F=4 (base, top, 2 side faces)
+    assert_eq!(
+        result.brep.vertices.len(),
+        4,
+        "cylinder should have 4 vertices"
+    );
+    assert_eq!(result.brep.edges.len(), 6, "cylinder should have 6 edges");
+    assert_eq!(result.brep.faces.len(), 4, "cylinder should have 4 faces");
+
+    // Euler characteristic: V - E + F = 2
+    let v = result.brep.vertices.len() as i64;
+    let e = result.brep.edges.len() as i64;
+    let f = result.brep.faces.len() as i64;
+    assert_eq!(v - e + f, 2, "Euler characteristic should be 2");
+}
