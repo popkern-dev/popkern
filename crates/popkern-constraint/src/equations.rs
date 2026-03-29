@@ -69,7 +69,20 @@ pub(crate) fn equation_count(constraint: &Constraint) -> usize {
         | Constraint::OffsetLine(..)
         | Constraint::OffsetArc(..)
         | Constraint::OrdinateX(..)
-        | Constraint::OrdinateY(..) => 1,
+        | Constraint::OrdinateY(..)
+        | Constraint::SplineEndTangent(..)
+        | Constraint::SplineEndTangentToArc(..)
+        | Constraint::SplineFixedEndCurvature(..)
+        | Constraint::SplineLength(..) => 1,
+        Constraint::PointOnSpline(..)
+        | Constraint::SplineFixedEndTangent(..)
+        | Constraint::SplineTangentToLine(..)
+        | Constraint::SplineTangentToArc(..)
+        | Constraint::SplineG1(..) => 2,
+        Constraint::SplineTangentToEllipse(..)
+        | Constraint::SplineTangentToParabola(..)
+        | Constraint::SplineTangentToHyperbola(..) => 3,
+        Constraint::SplineG2(..) => 4,
     }
 }
 
@@ -183,6 +196,20 @@ pub(crate) fn evaluate_constraint(
                 .unwrap_or(0);
             conics_arc::eval_tangent_arc_hyperbola(sketch, *a, *h, aux_idx, row_offset)
         }
+        // ── Spline constraints (Task 2–6) ──────────────────────────────
+        Constraint::PointOnSpline(..) => todo!("spline constraints - Task 2"),
+        Constraint::SplineEndTangent(..) => todo!("spline constraints - Task 4"),
+        Constraint::SplineEndTangentToArc(..) => todo!("spline constraints - Task 4"),
+        Constraint::SplineFixedEndTangent(..) => todo!("spline constraints - Task 4"),
+        Constraint::SplineFixedEndCurvature(..) => todo!("spline constraints - Task 4"),
+        Constraint::SplineTangentToLine(..) => todo!("spline constraints - Task 5"),
+        Constraint::SplineTangentToArc(..) => todo!("spline constraints - Task 5"),
+        Constraint::SplineTangentToEllipse(..) => todo!("spline constraints - Task 5"),
+        Constraint::SplineTangentToParabola(..) => todo!("spline constraints - Task 5"),
+        Constraint::SplineTangentToHyperbola(..) => todo!("spline constraints - Task 5"),
+        Constraint::SplineG1(..) => todo!("spline constraints - Task 6"),
+        Constraint::SplineG2(..) => todo!("spline constraints - Task 6"),
+        Constraint::SplineLength(..) => todo!("spline constraints - Task 6"),
     }
 }
 

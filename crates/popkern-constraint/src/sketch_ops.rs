@@ -5,7 +5,7 @@
 
 use crate::constraint::{Constraint, ConstraintEntry, ConstraintHandle};
 use crate::constraint::{ConstraintKind, ConstraintStatus};
-use crate::elements::{ElementHandle, LineHandle, PointHandle};
+use crate::elements::{ElementHandle, LineHandle, PointHandle, SplineHandle};
 use crate::error::ConstraintError;
 use crate::{equations, DragState, Sketch};
 
@@ -326,10 +326,16 @@ impl Sketch {
             ElementHandle::Ellipse(eh) => self.remove_ellipse(eh),
             ElementHandle::Parabola(ph) => self.remove_parabola(ph),
             ElementHandle::Hyperbola(hh) => self.remove_hyperbola(hh),
+            ElementHandle::Spline(sh) => self.remove_spline(sh),
         }
     }
 
-    /// Remove a point and cascade to dependent lines and constraints.
+    /// Remove a point and cascade to dependent lines, splines, and
+    /// constraints.
+    ///
+    /// Splines that list this point as a control point are removed first
+    /// (a spline is invalid without all its control points).  Their
+    /// constraints are cascade-deleted by `remove_spline`.
     fn remove_point(&mut self, ph: PointHandle) {
         let dependent_lines: Vec<LineHandle> = self
             .lines
@@ -339,6 +345,15 @@ impl Sketch {
             .collect();
         for lh in dependent_lines {
             self.remove_line(lh);
+        }
+        let dependent_splines: Vec<SplineHandle> = self
+            .splines
+            .iter()
+            .filter(|(_, sp)| sp.control_points.contains(&ph))
+            .map(|(h, _)| h)
+            .collect();
+        for sh in dependent_splines {
+            self.remove_spline(sh);
         }
         let to_remove: Vec<ConstraintHandle> = self
             .constraints

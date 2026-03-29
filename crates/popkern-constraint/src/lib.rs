@@ -5,6 +5,7 @@ pub(crate) mod equations;
 pub mod error;
 pub(crate) mod jacobian;
 mod sketch_ops;
+mod sketch_spline;
 mod solver;
 pub(crate) mod undo;
 
@@ -17,7 +18,7 @@ pub use constraint::{
 };
 pub use elements::{
     Arc, ArcHandle, ElementHandle, Ellipse, EllipseHandle, Hyperbola, HyperbolaHandle, Line,
-    LineHandle, Parabola, ParabolaHandle, Point, PointHandle,
+    LineHandle, Parabola, ParabolaHandle, Point, PointHandle, Spline, SplineHandle,
 };
 pub use error::{ConstraintError, FreedomInfo, SolveResult, SolveStatus};
 pub use solver::SolverOptions;
@@ -57,6 +58,8 @@ pub struct Sketch {
     pub(crate) parabolas: SlotMap<ParabolaHandle, Parabola>,
     /// Hyperbola elements, keyed by [`HyperbolaHandle`].
     pub(crate) hyperbolas: SlotMap<HyperbolaHandle, Hyperbola>,
+    /// Spline elements, keyed by [`SplineHandle`].
+    pub(crate) splines: SlotMap<SplineHandle, Spline>,
     /// Constraints, keyed by [`ConstraintHandle`].
     pub(crate) constraints: SlotMap<ConstraintHandle, ConstraintEntry>,
     /// Active drag context (transient, not serialised).
@@ -96,6 +99,7 @@ impl Sketch {
             ellipses: SlotMap::with_key(),
             parabolas: SlotMap::with_key(),
             hyperbolas: SlotMap::with_key(),
+            splines: SlotMap::with_key(),
             constraints: SlotMap::with_key(),
             drag_context: None,
             aux_param_map: std::collections::HashMap::new(),
@@ -117,6 +121,7 @@ impl Sketch {
             ellipses: self.ellipses.clone(),
             parabolas: self.parabolas.clone(),
             hyperbolas: self.hyperbolas.clone(),
+            splines: self.splines.clone(),
             constraints: self.constraints.clone(),
         });
         self.undo_cursor += 1;
@@ -215,6 +220,11 @@ impl Sketch {
             ElementHandle::Hyperbola(h) => {
                 if let Some(hp) = self.hyperbolas.get_mut(h) {
                     hp.construction = value;
+                }
+            }
+            ElementHandle::Spline(h) => {
+                if let Some(sp) = self.splines.get_mut(h) {
+                    sp.construction = value;
                 }
             }
         }
@@ -356,6 +366,7 @@ impl Sketch {
                 ellipses: self.ellipses.clone(),
                 parabolas: self.parabolas.clone(),
                 hyperbolas: self.hyperbolas.clone(),
+                splines: self.splines.clone(),
                 constraints: self.constraints.clone(),
             });
         }
@@ -386,6 +397,7 @@ impl Sketch {
         self.ellipses = snapshot.ellipses;
         self.parabolas = snapshot.parabolas;
         self.hyperbolas = snapshot.hyperbolas;
+        self.splines = snapshot.splines;
         self.constraints = snapshot.constraints;
     }
 

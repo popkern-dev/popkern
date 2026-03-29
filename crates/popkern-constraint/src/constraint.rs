@@ -1,5 +1,6 @@
 use crate::elements::{
     ArcHandle, EllipseHandle, HyperbolaHandle, LineHandle, ParabolaHandle, PointHandle,
+    SplineHandle,
 };
 use serde::{Deserialize, Serialize};
 
@@ -169,180 +170,73 @@ pub enum Constraint {
     ///
     /// Equation: py - value = 0.
     OrdinateY(PointHandle, f64),
-}
 
-impl Constraint {
-    /// Return `true` if this constraint references the given point.
-    pub fn references_point(&self, ph: PointHandle) -> bool {
-        match self {
-            Constraint::Coincident(a, b) | Constraint::Distance(a, b, _) => *a == ph || *b == ph,
-            Constraint::Fixed(p) => *p == ph,
-            Constraint::PointOnLine(p, _) | Constraint::PointLineDistance(p, _, _) => *p == ph,
-            Constraint::PointOnArc(p, _)
-            | Constraint::PointOnEllipse(p, _)
-            | Constraint::PointOnParabola(p, _)
-            | Constraint::PointOnHyperbola(p, _) => *p == ph,
-            Constraint::Symmetric(a, b, _) => *a == ph || *b == ph,
-            Constraint::Midpoint(p, _) => *p == ph,
-            Constraint::OrdinateX(p, _) | Constraint::OrdinateY(p, _) => *p == ph,
-            // Line-only, arc-only, and conic-only constraints do not reference
-            // points directly.
-            Constraint::Horizontal(_)
-            | Constraint::Vertical(_)
-            | Constraint::FixedLine(_)
-            | Constraint::Angle(..)
-            | Constraint::Parallel(..)
-            | Constraint::Perpendicular(..)
-            | Constraint::EqualLength(..)
-            | Constraint::Tangent(..)
-            | Constraint::ArcTangent(..)
-            | Constraint::EqualRadius(..)
-            | Constraint::Concentric(..)
-            | Constraint::Collinear(..)
-            | Constraint::TangentLineEllipse(..)
-            | Constraint::TangentLineParabola(..)
-            | Constraint::TangentLineHyperbola(..)
-            | Constraint::TangentArcEllipse(..)
-            | Constraint::TangentArcParabola(..)
-            | Constraint::TangentArcHyperbola(..)
-            | Constraint::ConcentricEllipse(..)
-            | Constraint::ConcentricArcEllipse(..)
-            | Constraint::EqualSemiAxis(..)
-            | Constraint::FocalDistance(..)
-            | Constraint::EllipseEccentricity(..)
-            | Constraint::HyperbolaEccentricity(..)
-            | Constraint::FixedEllipse(..)
-            | Constraint::FixedParabola(..)
-            | Constraint::FixedHyperbola(..)
-            | Constraint::Coradial(..)
-            | Constraint::OffsetLine(..)
-            | Constraint::OffsetArc(..) => false,
-        }
-    }
-
-    /// Return `true` if this constraint references the given line.
-    pub fn references_line(&self, lh: LineHandle) -> bool {
-        match self {
-            Constraint::PointOnLine(_, l)
-            | Constraint::PointLineDistance(_, l, _)
-            | Constraint::Horizontal(l)
-            | Constraint::Vertical(l)
-            | Constraint::FixedLine(l)
-            | Constraint::Midpoint(_, l) => *l == lh,
-            Constraint::Angle(a, b, _)
-            | Constraint::Parallel(a, b)
-            | Constraint::Perpendicular(a, b)
-            | Constraint::EqualLength(a, b)
-            | Constraint::Collinear(a, b)
-            | Constraint::OffsetLine(a, b, _) => *a == lh || *b == lh,
-            Constraint::Tangent(l, _)
-            | Constraint::TangentLineEllipse(l, _)
-            | Constraint::TangentLineParabola(l, _)
-            | Constraint::TangentLineHyperbola(l, _) => *l == lh,
-            Constraint::Symmetric(_, _, l) => *l == lh,
-            // Point-only, arc-only, and conic-only constraints do not
-            // reference lines.
-            Constraint::Coincident(..)
-            | Constraint::Distance(..)
-            | Constraint::Fixed(_)
-            | Constraint::PointOnArc(..)
-            | Constraint::PointOnEllipse(..)
-            | Constraint::PointOnParabola(..)
-            | Constraint::PointOnHyperbola(..)
-            | Constraint::ArcTangent(..)
-            | Constraint::EqualRadius(..)
-            | Constraint::Concentric(..)
-            | Constraint::TangentArcEllipse(..)
-            | Constraint::TangentArcParabola(..)
-            | Constraint::TangentArcHyperbola(..)
-            | Constraint::ConcentricEllipse(..)
-            | Constraint::ConcentricArcEllipse(..)
-            | Constraint::EqualSemiAxis(..)
-            | Constraint::FocalDistance(..)
-            | Constraint::EllipseEccentricity(..)
-            | Constraint::HyperbolaEccentricity(..)
-            | Constraint::FixedEllipse(..)
-            | Constraint::FixedParabola(..)
-            | Constraint::FixedHyperbola(..)
-            | Constraint::Coradial(..)
-            | Constraint::OffsetArc(..)
-            | Constraint::OrdinateX(..)
-            | Constraint::OrdinateY(..) => false,
-        }
-    }
-
-    /// Return `true` if this constraint references the given ellipse.
-    pub fn references_ellipse(&self, eh: EllipseHandle) -> bool {
-        match self {
-            Constraint::PointOnEllipse(_, e)
-            | Constraint::TangentLineEllipse(_, e)
-            | Constraint::TangentArcEllipse(_, e)
-            | Constraint::ConcentricArcEllipse(_, e)
-            | Constraint::FocalDistance(e, _)
-            | Constraint::EllipseEccentricity(e, _)
-            | Constraint::FixedEllipse(e) => *e == eh,
-            Constraint::ConcentricEllipse(a, b) | Constraint::EqualSemiAxis(a, b) => {
-                *a == eh || *b == eh
-            }
-            _ => false,
-        }
-    }
-
-    /// Return `true` if this constraint references the given parabola.
-    pub fn references_parabola(&self, ph: ParabolaHandle) -> bool {
-        match self {
-            Constraint::PointOnParabola(_, p)
-            | Constraint::TangentLineParabola(_, p)
-            | Constraint::TangentArcParabola(_, p)
-            | Constraint::FixedParabola(p) => *p == ph,
-            _ => false,
-        }
-    }
-
-    /// Return `true` if this constraint references the given hyperbola.
-    pub fn references_hyperbola(&self, hh: HyperbolaHandle) -> bool {
-        match self {
-            Constraint::PointOnHyperbola(_, h)
-            | Constraint::TangentLineHyperbola(_, h)
-            | Constraint::TangentArcHyperbola(_, h)
-            | Constraint::HyperbolaEccentricity(h, _)
-            | Constraint::FixedHyperbola(h) => *h == hh,
-            _ => false,
-        }
-    }
-
-    /// Return the number of auxiliary parameters this constraint requires.
+    // ── Spline constraints ─────────────────────────────────────────────────
+    /// Force a point to lie on a spline curve.
     ///
-    /// Auxiliary parameters are solver-internal unknowns (e.g. a contact
-    /// angle for arc-to-conic tangency) that do not correspond to any
-    /// geometric element.
-    pub fn aux_param_count(&self) -> usize {
-        match self {
-            Constraint::TangentArcEllipse(..)
-            | Constraint::TangentArcParabola(..)
-            | Constraint::TangentArcHyperbola(..) => 1,
-            _ => 0,
-        }
-    }
+    /// Uses one auxiliary parameter for the spline parameter `t`.
+    PointOnSpline(PointHandle, SplineHandle),
 
-    /// Return `true` if this constraint references the given arc.
-    pub fn references_arc(&self, ah: ArcHandle) -> bool {
-        match self {
-            Constraint::PointOnArc(_, a) | Constraint::Tangent(_, a) => *a == ah,
-            Constraint::ArcTangent(a, b)
-            | Constraint::EqualRadius(a, b)
-            | Constraint::Concentric(a, b)
-            | Constraint::Coradial(a, b)
-            | Constraint::OffsetArc(a, b, _) => *a == ah || *b == ah,
-            Constraint::TangentArcEllipse(a, _)
-            | Constraint::TangentArcParabola(a, _)
-            | Constraint::TangentArcHyperbola(a, _) => *a == ah,
-            Constraint::ConcentricArcEllipse(a, _) => *a == ah,
-            // Everything else does not reference arcs.
-            _ => false,
-        }
-    }
+    /// Constrain the end tangent of a spline at endpoint `end_idx` (0 or 1)
+    /// to be parallel to a line.
+    SplineEndTangent(SplineHandle, usize, LineHandle),
+
+    /// Constrain the end tangent of a spline at endpoint `end_idx` (0 or 1)
+    /// to be tangent to an arc.
+    SplineEndTangentToArc(SplineHandle, usize, ArcHandle),
+
+    /// Fix the end tangent of a spline at endpoint `end_idx` (0 or 1) to the
+    /// direction `(dx, dy)` (not required to be unit length).
+    SplineFixedEndTangent(SplineHandle, usize, f64, f64),
+
+    /// Fix the end curvature of a spline at endpoint `end_idx` (0 or 1) to
+    /// a given signed value.
+    SplineFixedEndCurvature(SplineHandle, usize, f64),
+
+    /// Force a spline to be tangent to a line at their intersection.
+    ///
+    /// Uses one auxiliary parameter for the contact parameter `t`.
+    SplineTangentToLine(SplineHandle, LineHandle),
+
+    /// Force a spline to be tangent to an arc at their intersection.
+    ///
+    /// Uses one auxiliary parameter for the contact parameter `t`.
+    SplineTangentToArc(SplineHandle, ArcHandle),
+
+    /// Force a spline to be tangent to an ellipse at their intersection.
+    ///
+    /// Uses two auxiliary parameters: spline parameter `t` and ellipse
+    /// contact angle.
+    SplineTangentToEllipse(SplineHandle, EllipseHandle),
+
+    /// Force a spline to be tangent to a parabola at their intersection.
+    ///
+    /// Uses two auxiliary parameters: spline parameter `t` and parabola
+    /// contact parameter.
+    SplineTangentToParabola(SplineHandle, ParabolaHandle),
+
+    /// Force a spline to be tangent to a hyperbola at their intersection.
+    ///
+    /// Uses two auxiliary parameters: spline parameter `t` and hyperbola
+    /// contact parameter.
+    SplineTangentToHyperbola(SplineHandle, HyperbolaHandle),
+
+    /// G1 (tangent) continuity between two splines at the specified endpoints
+    /// (`end_idx` 0 or 1 for each).
+    SplineG1(SplineHandle, usize, SplineHandle, usize),
+
+    /// G2 (curvature) continuity between two splines at the specified
+    /// endpoints (`end_idx` 0 or 1 for each).
+    SplineG2(SplineHandle, usize, SplineHandle, usize),
+
+    /// Fix the arc length of a spline to `value`.
+    SplineLength(SplineHandle, f64),
 }
+
+// References and aux_param_count methods are in the constraint_refs submodule,
+// split out to stay within the 500-line file limit.
+#[path = "constraint_refs.rs"]
+mod refs;
 
 /// Whether a constraint drives the geometry or is merely displayed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -30,6 +30,11 @@ slotmap::new_key_type! {
     pub struct HyperbolaHandle;
 }
 
+slotmap::new_key_type! {
+    /// Opaque handle to a [`Spline`] inside a [`Sketch`](crate::Sketch).
+    pub struct SplineHandle;
+}
+
 /// A reference to any geometric element in the sketch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ElementHandle {
@@ -45,6 +50,8 @@ pub enum ElementHandle {
     Parabola(ParabolaHandle),
     /// References a [`Hyperbola`].
     Hyperbola(HyperbolaHandle),
+    /// References a [`Spline`].
+    Spline(SplineHandle),
 }
 
 impl From<PointHandle> for ElementHandle {
@@ -80,6 +87,12 @@ impl From<ParabolaHandle> for ElementHandle {
 impl From<HyperbolaHandle> for ElementHandle {
     fn from(h: HyperbolaHandle) -> Self {
         ElementHandle::Hyperbola(h)
+    }
+}
+
+impl From<SplineHandle> for ElementHandle {
+    fn from(h: SplineHandle) -> Self {
+        ElementHandle::Spline(h)
     }
 }
 
@@ -239,4 +252,28 @@ impl Hyperbola {
             self.param_start + 4,
         ]
     }
+}
+
+/// A NURBS spline whose geometry is fully determined by its control points.
+///
+/// The spline itself stores no parameters in the global parameter vector —
+/// all numeric values come from the referenced [`Point`] elements in
+/// `control_points`.  The `knots` and `weights` vectors are fixed structural
+/// data that do not participate in the Newton–Raphson solver.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Spline {
+    /// Ordered list of control point handles that define the spline shape.
+    pub control_points: Vec<PointHandle>,
+    /// Polynomial degree of each Bézier segment (≥ 1).
+    pub degree: usize,
+    /// Knot vector of length `control_points.len() + degree + 1`.
+    pub knots: Vec<f64>,
+    /// Per-control-point weights for rational (NURBS) evaluation.
+    /// Must have the same length as `control_points`.
+    pub weights: Vec<f64>,
+    /// `true` if the spline is periodic (wraps around to form a closed loop).
+    pub periodic: bool,
+    /// When `true` this element is reference geometry and is not exported
+    /// as a model edge.
+    pub construction: bool,
 }
