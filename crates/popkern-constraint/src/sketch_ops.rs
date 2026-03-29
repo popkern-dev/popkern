@@ -170,6 +170,126 @@ impl Sketch {
         self.drag_context = None;
     }
 
+    /// Add an ellipse defined by centre `(cx, cy)`, semi-axes `semi_a`
+    /// and `semi_b`, and `rotation` angle (radians).
+    ///
+    /// The ellipse owns five consecutive entries in the parameter vector.
+    pub fn add_ellipse(
+        &mut self,
+        cx: f64,
+        cy: f64,
+        semi_a: f64,
+        semi_b: f64,
+        rotation: f64,
+    ) -> crate::EllipseHandle {
+        if self.recording {
+            self.push_undo_snapshot();
+        }
+        let param_start = self.params.len();
+        self.params.push(cx);
+        self.params.push(cy);
+        self.params.push(semi_a);
+        self.params.push(semi_b);
+        self.params.push(rotation);
+        self.ellipses.insert(crate::Ellipse {
+            param_start,
+            construction: false,
+        })
+    }
+
+    /// Add a parabola defined by vertex `(vx, vy)`, `focal_dist`, and
+    /// `rotation` angle (radians).
+    ///
+    /// The parabola owns four consecutive entries in the parameter vector.
+    pub fn add_parabola(
+        &mut self,
+        vx: f64,
+        vy: f64,
+        focal_dist: f64,
+        rotation: f64,
+    ) -> crate::ParabolaHandle {
+        if self.recording {
+            self.push_undo_snapshot();
+        }
+        let param_start = self.params.len();
+        self.params.push(vx);
+        self.params.push(vy);
+        self.params.push(focal_dist);
+        self.params.push(rotation);
+        self.parabolas.insert(crate::Parabola {
+            param_start,
+            construction: false,
+        })
+    }
+
+    /// Add a hyperbola defined by centre `(cx, cy)`, semi-axes `semi_a`
+    /// and `semi_b`, and `rotation` angle (radians).
+    ///
+    /// The hyperbola owns five consecutive entries in the parameter vector.
+    pub fn add_hyperbola(
+        &mut self,
+        cx: f64,
+        cy: f64,
+        semi_a: f64,
+        semi_b: f64,
+        rotation: f64,
+    ) -> crate::HyperbolaHandle {
+        if self.recording {
+            self.push_undo_snapshot();
+        }
+        let param_start = self.params.len();
+        self.params.push(cx);
+        self.params.push(cy);
+        self.params.push(semi_a);
+        self.params.push(semi_b);
+        self.params.push(rotation);
+        self.hyperbolas.insert(crate::Hyperbola {
+            param_start,
+            construction: false,
+        })
+    }
+
+    /// Return the current ellipse parameters `(cx, cy, semi_a, semi_b,
+    /// rotation)`, or `None` if the handle is invalid.
+    pub fn ellipse_params(&self, h: crate::EllipseHandle) -> Option<(f64, f64, f64, f64, f64)> {
+        let e = self.ellipses.get(h)?;
+        let [icx, icy, ia, ib, ir] = e.param_indices();
+        Some((
+            self.params[icx],
+            self.params[icy],
+            self.params[ia],
+            self.params[ib],
+            self.params[ir],
+        ))
+    }
+
+    /// Return the current parabola parameters `(vx, vy, focal_dist,
+    /// rotation)`, or `None` if the handle is invalid.
+    pub fn parabola_params(&self, h: crate::ParabolaHandle) -> Option<(f64, f64, f64, f64)> {
+        let p = self.parabolas.get(h)?;
+        let [ivx, ivy, ifd, ir] = p.param_indices();
+        Some((
+            self.params[ivx],
+            self.params[ivy],
+            self.params[ifd],
+            self.params[ir],
+        ))
+    }
+
+    /// Return the current hyperbola parameters `(cx, cy, semi_a, semi_b,
+    /// rotation)`, or `None` if the handle is invalid.
+    pub fn hyperbola_params(&self, h: crate::HyperbolaHandle) -> Option<(f64, f64, f64, f64, f64)> {
+        let hp = self.hyperbolas.get(h)?;
+        let [icx, icy, ia, ib, ir] = hp.param_indices();
+        Some((
+            self.params[icx],
+            self.params[icy],
+            self.params[ia],
+            self.params[ib],
+            self.params[ir],
+        ))
+    }
+
     /// Remove a geometric element and cascade-delete dependent elements
     /// and constraints.
     ///

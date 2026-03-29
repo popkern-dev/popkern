@@ -82,6 +82,61 @@ pub enum Constraint {
 
     /// Force two lines to be collinear (same infinite line).
     Collinear(LineHandle, LineHandle),
+
+    // ── Conic constraints ──────────────────────────────────────────────────
+    /// Force a point to lie on an ellipse.
+    PointOnEllipse(PointHandle, EllipseHandle),
+
+    /// Force a point to lie on a parabola.
+    PointOnParabola(PointHandle, ParabolaHandle),
+
+    /// Force a point to lie on a hyperbola.
+    PointOnHyperbola(PointHandle, HyperbolaHandle),
+
+    /// Force a line to be tangent to an ellipse.
+    TangentLineEllipse(LineHandle, EllipseHandle),
+
+    /// Force a line to be tangent to a parabola.
+    TangentLineParabola(LineHandle, ParabolaHandle),
+
+    /// Force a line to be tangent to a hyperbola.
+    TangentLineHyperbola(LineHandle, HyperbolaHandle),
+
+    /// Force an arc to be tangent to an ellipse (uses one auxiliary param).
+    TangentArcEllipse(ArcHandle, EllipseHandle),
+
+    /// Force an arc to be tangent to a parabola (uses one auxiliary param).
+    TangentArcParabola(ArcHandle, ParabolaHandle),
+
+    /// Force an arc to be tangent to a hyperbola (uses one auxiliary param).
+    TangentArcHyperbola(ArcHandle, HyperbolaHandle),
+
+    /// Force two ellipses to share the same centre.
+    ConcentricEllipse(EllipseHandle, EllipseHandle),
+
+    /// Force an arc and an ellipse to share the same centre.
+    ConcentricArcEllipse(ArcHandle, EllipseHandle),
+
+    /// Force two ellipses to have equal semi-major axis.
+    EqualSemiAxis(EllipseHandle, EllipseHandle),
+
+    /// Fix the focal distance of an ellipse to `value`.
+    FocalDistance(EllipseHandle, f64),
+
+    /// Fix the eccentricity of an ellipse to `value`.
+    EllipseEccentricity(EllipseHandle, f64),
+
+    /// Fix the eccentricity of a hyperbola to `value`.
+    HyperbolaEccentricity(HyperbolaHandle, f64),
+
+    /// Lock an ellipse at its current position and shape.
+    FixedEllipse(EllipseHandle),
+
+    /// Lock a parabola at its current position and shape.
+    FixedParabola(ParabolaHandle),
+
+    /// Lock a hyperbola at its current position and shape.
+    FixedHyperbola(HyperbolaHandle),
 }
 
 impl Constraint {
@@ -91,10 +146,14 @@ impl Constraint {
             Constraint::Coincident(a, b) | Constraint::Distance(a, b, _) => *a == ph || *b == ph,
             Constraint::Fixed(p) => *p == ph,
             Constraint::PointOnLine(p, _) | Constraint::PointLineDistance(p, _, _) => *p == ph,
-            Constraint::PointOnArc(p, _) => *p == ph,
+            Constraint::PointOnArc(p, _)
+            | Constraint::PointOnEllipse(p, _)
+            | Constraint::PointOnParabola(p, _)
+            | Constraint::PointOnHyperbola(p, _) => *p == ph,
             Constraint::Symmetric(a, b, _) => *a == ph || *b == ph,
             Constraint::Midpoint(p, _) => *p == ph,
-            // Line-only and arc-only constraints do not reference points directly.
+            // Line-only, arc-only, and conic-only constraints do not reference
+            // points directly.
             Constraint::Horizontal(_)
             | Constraint::Vertical(_)
             | Constraint::FixedLine(_)
@@ -106,7 +165,22 @@ impl Constraint {
             | Constraint::ArcTangent(..)
             | Constraint::EqualRadius(..)
             | Constraint::Concentric(..)
-            | Constraint::Collinear(..) => false,
+            | Constraint::Collinear(..)
+            | Constraint::TangentLineEllipse(..)
+            | Constraint::TangentLineParabola(..)
+            | Constraint::TangentLineHyperbola(..)
+            | Constraint::TangentArcEllipse(..)
+            | Constraint::TangentArcParabola(..)
+            | Constraint::TangentArcHyperbola(..)
+            | Constraint::ConcentricEllipse(..)
+            | Constraint::ConcentricArcEllipse(..)
+            | Constraint::EqualSemiAxis(..)
+            | Constraint::FocalDistance(..)
+            | Constraint::EllipseEccentricity(..)
+            | Constraint::HyperbolaEccentricity(..)
+            | Constraint::FixedEllipse(..)
+            | Constraint::FixedParabola(..)
+            | Constraint::FixedHyperbola(..) => false,
         }
     }
 
@@ -124,35 +198,90 @@ impl Constraint {
             | Constraint::Perpendicular(a, b)
             | Constraint::EqualLength(a, b)
             | Constraint::Collinear(a, b) => *a == lh || *b == lh,
-            Constraint::Tangent(l, _) => *l == lh,
+            Constraint::Tangent(l, _)
+            | Constraint::TangentLineEllipse(l, _)
+            | Constraint::TangentLineParabola(l, _)
+            | Constraint::TangentLineHyperbola(l, _) => *l == lh,
             Constraint::Symmetric(_, _, l) => *l == lh,
-            // Point-only and arc-only constraints do not reference lines.
+            // Point-only, arc-only, and conic-only constraints do not
+            // reference lines.
             Constraint::Coincident(..)
             | Constraint::Distance(..)
             | Constraint::Fixed(_)
             | Constraint::PointOnArc(..)
+            | Constraint::PointOnEllipse(..)
+            | Constraint::PointOnParabola(..)
+            | Constraint::PointOnHyperbola(..)
             | Constraint::ArcTangent(..)
             | Constraint::EqualRadius(..)
-            | Constraint::Concentric(..) => false,
+            | Constraint::Concentric(..)
+            | Constraint::TangentArcEllipse(..)
+            | Constraint::TangentArcParabola(..)
+            | Constraint::TangentArcHyperbola(..)
+            | Constraint::ConcentricEllipse(..)
+            | Constraint::ConcentricArcEllipse(..)
+            | Constraint::EqualSemiAxis(..)
+            | Constraint::FocalDistance(..)
+            | Constraint::EllipseEccentricity(..)
+            | Constraint::HyperbolaEccentricity(..)
+            | Constraint::FixedEllipse(..)
+            | Constraint::FixedParabola(..)
+            | Constraint::FixedHyperbola(..) => false,
         }
     }
 
     /// Return `true` if this constraint references the given ellipse.
-    pub fn references_ellipse(&self, _eh: EllipseHandle) -> bool {
-        // No existing constraint variants reference ellipses yet.
-        false
+    pub fn references_ellipse(&self, eh: EllipseHandle) -> bool {
+        match self {
+            Constraint::PointOnEllipse(_, e)
+            | Constraint::TangentLineEllipse(_, e)
+            | Constraint::TangentArcEllipse(_, e)
+            | Constraint::ConcentricArcEllipse(_, e)
+            | Constraint::FocalDistance(e, _)
+            | Constraint::EllipseEccentricity(e, _)
+            | Constraint::FixedEllipse(e) => *e == eh,
+            Constraint::ConcentricEllipse(a, b) | Constraint::EqualSemiAxis(a, b) => {
+                *a == eh || *b == eh
+            }
+            _ => false,
+        }
     }
 
     /// Return `true` if this constraint references the given parabola.
-    pub fn references_parabola(&self, _ph: ParabolaHandle) -> bool {
-        // No existing constraint variants reference parabolas yet.
-        false
+    pub fn references_parabola(&self, ph: ParabolaHandle) -> bool {
+        match self {
+            Constraint::PointOnParabola(_, p)
+            | Constraint::TangentLineParabola(_, p)
+            | Constraint::TangentArcParabola(_, p)
+            | Constraint::FixedParabola(p) => *p == ph,
+            _ => false,
+        }
     }
 
     /// Return `true` if this constraint references the given hyperbola.
-    pub fn references_hyperbola(&self, _hh: HyperbolaHandle) -> bool {
-        // No existing constraint variants reference hyperbolas yet.
-        false
+    pub fn references_hyperbola(&self, hh: HyperbolaHandle) -> bool {
+        match self {
+            Constraint::PointOnHyperbola(_, h)
+            | Constraint::TangentLineHyperbola(_, h)
+            | Constraint::TangentArcHyperbola(_, h)
+            | Constraint::HyperbolaEccentricity(h, _)
+            | Constraint::FixedHyperbola(h) => *h == hh,
+            _ => false,
+        }
+    }
+
+    /// Return the number of auxiliary parameters this constraint requires.
+    ///
+    /// Auxiliary parameters are solver-internal unknowns (e.g. a contact
+    /// angle for arc-to-conic tangency) that do not correspond to any
+    /// geometric element.
+    pub fn aux_param_count(&self) -> usize {
+        match self {
+            Constraint::TangentArcEllipse(..)
+            | Constraint::TangentArcParabola(..)
+            | Constraint::TangentArcHyperbola(..) => 1,
+            _ => 0,
+        }
     }
 
     /// Return `true` if this constraint references the given arc.
@@ -162,6 +291,10 @@ impl Constraint {
             Constraint::ArcTangent(a, b)
             | Constraint::EqualRadius(a, b)
             | Constraint::Concentric(a, b) => *a == ah || *b == ah,
+            Constraint::TangentArcEllipse(a, _)
+            | Constraint::TangentArcParabola(a, _)
+            | Constraint::TangentArcHyperbola(a, _) => *a == ah,
+            Constraint::ConcentricArcEllipse(a, _) => *a == ah,
             // Everything else does not reference arcs.
             _ => false,
         }

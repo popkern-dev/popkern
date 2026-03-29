@@ -70,6 +70,10 @@ pub struct Sketch {
     /// snapshots at or after the cursor can be redone.
     #[serde(skip)]
     pub(crate) undo_cursor: usize,
+    /// Maps constraint handles to the start index of their auxiliary
+    /// parameters in the parameter vector. Transient — rebuilt as needed.
+    #[serde(skip)]
+    pub(crate) aux_param_map: std::collections::HashMap<ConstraintHandle, usize>,
     /// When `false`, mutations do not record snapshots (used by undo/redo
     /// to avoid infinite recursion).
     #[serde(skip, default = "default_recording")]
@@ -94,6 +98,7 @@ impl Sketch {
             hyperbolas: SlotMap::with_key(),
             constraints: SlotMap::with_key(),
             drag_context: None,
+            aux_param_map: std::collections::HashMap::new(),
             undo_log: Vec::new(),
             undo_cursor: 0,
             recording: true,
@@ -224,12 +229,19 @@ impl Sketch {
             self.push_undo_snapshot();
         }
         let fixed_values = self.capture_fixed_values(&constraint);
-        self.constraints.insert(ConstraintEntry {
+        let aux_count = constraint.aux_param_count();
+        let handle = self.constraints.insert(ConstraintEntry {
             constraint,
             kind: ConstraintKind::Driving,
             status: ConstraintStatus::Unknown,
             fixed_values,
-        })
+        });
+        if aux_count > 0 {
+            let aux_start = self.params.len();
+            self.params.extend(std::iter::repeat_n(0.0, aux_count));
+            self.aux_param_map.insert(handle, aux_start);
+        }
+        handle
     }
 
     /// Add a driven constraint to the sketch.
@@ -241,12 +253,19 @@ impl Sketch {
             self.push_undo_snapshot();
         }
         let fixed_values = self.capture_fixed_values(&constraint);
-        self.constraints.insert(ConstraintEntry {
+        let aux_count = constraint.aux_param_count();
+        let handle = self.constraints.insert(ConstraintEntry {
             constraint,
             kind: ConstraintKind::Driven,
             status: ConstraintStatus::Unknown,
             fixed_values,
-        })
+        });
+        if aux_count > 0 {
+            let aux_start = self.params.len();
+            self.params.extend(std::iter::repeat_n(0.0, aux_count));
+            self.aux_param_map.insert(handle, aux_start);
+        }
+        handle
     }
 
     /// Remove a constraint from the sketch.
@@ -370,10 +389,10 @@ impl Sketch {
         self.constraints = snapshot.constraints;
     }
 
-    /// Snapshot the current parameter values that a `Fixed` or `FixedLine`
-    /// constraint needs to lock in place.
+    /// Snapshot the current parameter values that a fixed constraint needs
+    /// to lock in place.
     ///
-    /// Returns an empty vector for all other constraint kinds.
+    /// Returns an empty vector for all non-fixed constraint kinds.
     pub fn capture_fixed_values(&self, constraint: &Constraint) -> Vec<f64> {
         match constraint {
             Constraint::Fixed(ph) => {
@@ -395,6 +414,30 @@ impl Sketch {
                         }
                     }
                     vals
+                } else {
+                    vec![]
+                }
+            }
+            Constraint::FixedEllipse(eh) => {
+                if let Some(e) = self.ellipses.get(*eh) {
+                    let idx = e.param_indices();
+                    idx.iter().map(|&i| self.params[i]).collect()
+                } else {
+                    vec![]
+                }
+            }
+            Constraint::FixedParabola(ph) => {
+                if let Some(p) = self.parabolas.get(*ph) {
+                    let idx = p.param_indices();
+                    idx.iter().map(|&i| self.params[i]).collect()
+                } else {
+                    vec![]
+                }
+            }
+            Constraint::FixedHyperbola(hh) => {
+                if let Some(h) = self.hyperbolas.get(*hh) {
+                    let idx = h.param_indices();
+                    idx.iter().map(|&i| self.params[i]).collect()
                 } else {
                     vec![]
                 }

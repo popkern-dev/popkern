@@ -32,6 +32,12 @@ pub(crate) fn equation_count(constraint: &Constraint) -> usize {
         Constraint::Symmetric(..) => 2,
         Constraint::Midpoint(..) => 2,
         Constraint::Concentric(..) => 2,
+        Constraint::ConcentricEllipse(..) | Constraint::ConcentricArcEllipse(..) => 2,
+        Constraint::FixedEllipse(..) | Constraint::FixedHyperbola(..) => 5,
+        Constraint::FixedParabola(..) => 4,
+        Constraint::TangentArcEllipse(..)
+        | Constraint::TangentArcParabola(..)
+        | Constraint::TangentArcHyperbola(..) => 2,
         Constraint::Horizontal(..)
         | Constraint::Vertical(..)
         | Constraint::Distance(..)
@@ -45,7 +51,17 @@ pub(crate) fn equation_count(constraint: &Constraint) -> usize {
         | Constraint::EqualRadius(..)
         | Constraint::Parallel(..)
         | Constraint::Perpendicular(..)
-        | Constraint::Collinear(..) => 1,
+        | Constraint::Collinear(..)
+        | Constraint::PointOnEllipse(..)
+        | Constraint::PointOnParabola(..)
+        | Constraint::PointOnHyperbola(..)
+        | Constraint::TangentLineEllipse(..)
+        | Constraint::TangentLineParabola(..)
+        | Constraint::TangentLineHyperbola(..)
+        | Constraint::EqualSemiAxis(..)
+        | Constraint::FocalDistance(..)
+        | Constraint::EllipseEccentricity(..)
+        | Constraint::HyperbolaEccentricity(..) => 1,
     }
 }
 
@@ -82,6 +98,25 @@ pub(crate) fn evaluate_constraint(
         Constraint::Midpoint(p, l) => tier2::eval_midpoint(sketch, *p, *l, row_offset),
         Constraint::Concentric(a1, a2) => tier2::eval_concentric(sketch, *a1, *a2, row_offset),
         Constraint::Collinear(l1, l2) => tier2::eval_collinear(sketch, *l1, *l2, row_offset),
+        // ── Conic constraints (equations TBD in Tasks 3-5) ────────────
+        Constraint::PointOnEllipse(..) => todo!("Task 3: point-on-ellipse equation"),
+        Constraint::PointOnParabola(..) => todo!("Task 3: point-on-parabola equation"),
+        Constraint::PointOnHyperbola(..) => todo!("Task 3: point-on-hyperbola equation"),
+        Constraint::FixedEllipse(..) => todo!("Task 3: fixed-ellipse equation"),
+        Constraint::FixedParabola(..) => todo!("Task 3: fixed-parabola equation"),
+        Constraint::FixedHyperbola(..) => todo!("Task 3: fixed-hyperbola equation"),
+        Constraint::FocalDistance(..) => todo!("Task 3: focal-distance equation"),
+        Constraint::EllipseEccentricity(..) => todo!("Task 3: ellipse-eccentricity equation"),
+        Constraint::HyperbolaEccentricity(..) => todo!("Task 3: hyperbola-eccentricity equation"),
+        Constraint::EqualSemiAxis(..) => todo!("Task 3: equal-semi-axis equation"),
+        Constraint::TangentLineEllipse(..) => todo!("Task 4: line-ellipse tangency"),
+        Constraint::TangentLineParabola(..) => todo!("Task 4: line-parabola tangency"),
+        Constraint::TangentLineHyperbola(..) => todo!("Task 4: line-hyperbola tangency"),
+        Constraint::TangentArcEllipse(..) => todo!("Task 5: arc-ellipse tangency"),
+        Constraint::TangentArcParabola(..) => todo!("Task 5: arc-parabola tangency"),
+        Constraint::TangentArcHyperbola(..) => todo!("Task 5: arc-hyperbola tangency"),
+        Constraint::ConcentricEllipse(..) => todo!("Task 5: concentric-ellipse equation"),
+        Constraint::ConcentricArcEllipse(..) => todo!("Task 5: concentric-arc-ellipse equation"),
     }
 }
 
