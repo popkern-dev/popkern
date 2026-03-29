@@ -212,6 +212,7 @@ impl Sketch {
         self.ellipses.insert(crate::Ellipse {
             param_start,
             construction: false,
+            rigid_set: None,
         })
     }
 
@@ -237,6 +238,7 @@ impl Sketch {
         self.parabolas.insert(crate::Parabola {
             param_start,
             construction: false,
+            rigid_set: None,
         })
     }
 
@@ -264,6 +266,7 @@ impl Sketch {
         self.hyperbolas.insert(crate::Hyperbola {
             param_start,
             construction: false,
+            rigid_set: None,
         })
     }
 

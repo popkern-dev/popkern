@@ -1,3 +1,4 @@
+use crate::rigid_set::RigidSetHandle;
 use serde::{Deserialize, Serialize};
 
 slotmap::new_key_type! {
@@ -105,6 +106,9 @@ pub struct Point {
     /// When `true` this element is reference geometry and is not exported
     /// as a model edge.
     pub construction: bool,
+    /// Rigid set membership, if any.
+    #[serde(default)]
+    pub rigid_set: Option<RigidSetHandle>,
 }
 
 impl Point {
@@ -144,6 +148,9 @@ pub struct Arc {
     pub param_start: usize,
     /// When `true` this element is reference geometry.
     pub construction: bool,
+    /// Rigid set membership, if any.
+    #[serde(default)]
+    pub rigid_set: Option<RigidSetHandle>,
 }
 
 impl Arc {
@@ -176,6 +183,9 @@ pub struct Ellipse {
     pub param_start: usize,
     /// When `true` this element is reference geometry.
     pub construction: bool,
+    /// Rigid set membership, if any.
+    #[serde(default)]
+    pub rigid_set: Option<RigidSetHandle>,
 }
 
 impl Ellipse {
@@ -207,6 +217,9 @@ pub struct Parabola {
     pub param_start: usize,
     /// When `true` this element is reference geometry.
     pub construction: bool,
+    /// Rigid set membership, if any.
+    #[serde(default)]
+    pub rigid_set: Option<RigidSetHandle>,
 }
 
 impl Parabola {
@@ -238,6 +251,9 @@ pub struct Hyperbola {
     pub param_start: usize,
     /// When `true` this element is reference geometry.
     pub construction: bool,
+    /// Rigid set membership, if any.
+    #[serde(default)]
+    pub rigid_set: Option<RigidSetHandle>,
 }
 
 impl Hyperbola {

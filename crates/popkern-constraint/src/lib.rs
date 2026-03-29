@@ -4,19 +4,23 @@ pub mod constraint;
 pub mod elements;
 pub(crate) mod equations;
 pub mod error;
+pub mod expression;
 pub mod groups;
 pub(crate) mod jacobian;
 pub mod pattern;
 pub(crate) mod pattern_clone;
 pub(crate) mod pattern_geo_helpers;
 pub(crate) mod pattern_remap;
+pub mod rigid_set;
 mod sketch_config;
+mod sketch_expr;
 mod sketch_fixed;
 mod sketch_groups;
 mod sketch_ops;
 mod sketch_pattern;
 mod sketch_pattern_geo;
 mod sketch_pattern_update;
+mod sketch_rigid;
 mod sketch_spline;
 mod solver;
 pub(crate) mod spline_interp;
@@ -35,8 +39,10 @@ pub use elements::{
     LineHandle, Parabola, ParabolaHandle, Point, PointHandle, Spline, SplineHandle,
 };
 pub use error::{ConstraintError, FreedomInfo, SolveResult, SolveStatus};
+pub use expression::{BinOp, Expression, UnaryFunc};
 pub use groups::{ConstraintGroup, GroupHandle};
 pub use pattern::{PatternDef, PatternHandle, PatternInstance, PatternKind};
+pub use rigid_set::{RigidSet, RigidSetHandle};
 pub use solver::SolverOptions;
 
 use serde::{Deserialize, Serialize};
@@ -84,6 +90,8 @@ pub struct Sketch {
     pub(crate) configs: SlotMap<config::ConfigHandle, config::Configuration>,
     /// Pattern definitions, keyed by [`PatternHandle`].
     pub(crate) patterns: SlotMap<PatternHandle, PatternDef>,
+    /// Rigid set definitions, keyed by [`RigidSetHandle`].
+    pub(crate) rigid_sets: SlotMap<RigidSetHandle, rigid_set::RigidSet>,
     /// Active drag context (transient, not serialised).
     #[serde(skip)]
     pub(crate) drag_context: Option<DragState>,
@@ -95,6 +103,15 @@ pub struct Sketch {
     /// snapshots at or after the cursor can be redone.
     #[serde(skip)]
     pub(crate) undo_cursor: usize,
+    /// Dimension expressions keyed by constraint handle. When present, the
+    /// expression is evaluated before each solve and the result written into
+    /// the constraint's target value.
+    #[serde(
+        default,
+        serialize_with = "sketch_expr::serialize_expressions",
+        deserialize_with = "sketch_expr::deserialize_expressions"
+    )]
+    pub(crate) expressions: std::collections::HashMap<ConstraintHandle, expression::Expression>,
     /// Maps constraint handles to the start index of their auxiliary
     /// parameters in the parameter vector. Transient — rebuilt as needed.
     #[serde(skip)]
@@ -126,7 +143,9 @@ impl Sketch {
             groups: SlotMap::with_key(),
             configs: SlotMap::with_key(),
             patterns: SlotMap::with_key(),
+            rigid_sets: SlotMap::with_key(),
             drag_context: None,
+            expressions: std::collections::HashMap::new(),
             aux_param_map: std::collections::HashMap::new(),
             undo_log: Vec::new(),
             undo_cursor: 0,
@@ -150,6 +169,8 @@ impl Sketch {
             constraints: self.constraints.clone(),
             groups: self.groups.clone(),
             patterns: self.patterns.clone(),
+            rigid_sets: self.rigid_sets.clone(),
+            expressions: self.expressions.clone(),
         });
         self.undo_cursor += 1;
     }
@@ -167,6 +188,7 @@ impl Sketch {
         self.points.insert(Point {
             param_start,
             construction: false,
+            rigid_set: None,
         })
     }
 
@@ -209,6 +231,7 @@ impl Sketch {
         self.arcs.insert(Arc {
             param_start,
             construction: false,
+            rigid_set: None,
         })
     }
 
@@ -309,12 +332,14 @@ impl Sketch {
 
     /// Remove a constraint from the sketch.
     ///
+    /// Also removes any dimension expression targeting this constraint.
     /// Does nothing if the handle is no longer valid.
     pub fn remove_constraint(&mut self, handle: ConstraintHandle) {
         if self.recording {
             self.push_undo_snapshot();
         }
         self.constraints.remove(handle);
+        self.expressions.remove(&handle);
     }
 
     /// Return the current `(x, y)` position of a point, or `None` if the
@@ -399,6 +424,8 @@ impl Sketch {
                 constraints: self.constraints.clone(),
                 groups: self.groups.clone(),
                 patterns: self.patterns.clone(),
+                rigid_sets: self.rigid_sets.clone(),
+                expressions: self.expressions.clone(),
             });
         }
         self.undo_cursor -= 1;
@@ -432,6 +459,8 @@ impl Sketch {
         self.constraints = snapshot.constraints;
         self.groups = snapshot.groups;
         self.patterns = snapshot.patterns;
+        self.rigid_sets = snapshot.rigid_sets;
+        self.expressions = snapshot.expressions;
     }
 
     // capture_fixed_values is implemented in sketch_ops (split for line-limit).
