@@ -92,7 +92,7 @@ impl SketchOnPlane {
         }
 
         // 2. Trace loops.
-        let loops = loop_tracer::trace_loops(&graph);
+        let loops = loop_tracer::trace_loops(&graph, &self.sketch);
         if loops.is_empty() {
             return Err(SketchError::NoClosedLoops);
         }

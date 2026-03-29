@@ -62,12 +62,56 @@ pub(crate) fn build_edge_graph(
             continue;
         };
 
-        // Filter degenerate edges.
+        // Filter degenerate edges, but allow full-circle arcs.
         let dx = end.0 - start.0;
         let dy = end.1 - start.1;
         let dist = (dx * dx + dy * dy).sqrt();
         if dist < tolerance.linear {
-            warnings.push(SketchWarning::DegenerateEdge);
+            // Check if this is a full-circle arc (angular span > PI).
+            let is_full_circle = match &element {
+                ElementHandle::Arc(ah) => {
+                    if let Some((_, _, _, start_angle, end_angle)) = sketch.arc_params(*ah) {
+                        (end_angle - start_angle).abs() > std::f64::consts::PI
+                    } else {
+                        false
+                    }
+                }
+                _ => false,
+            };
+
+            if is_full_circle {
+                // Split the full circle into two semicircular arcs sharing
+                // a midpoint at the opposite side of the circle. This avoids
+                // self-loop edges which complicate Euler operators.
+                if let ElementHandle::Arc(ah) = &element {
+                    if let Some((cx, cy, r, start_angle, end_angle)) = sketch.arc_params(*ah) {
+                        let mid_angle = start_angle + (end_angle - start_angle) * 0.5;
+                        let mid_pos = (cx + r * mid_angle.cos(), cy + r * mid_angle.sin());
+
+                        let start_node = find_or_insert_node(&mut nodes, start, tolerance);
+                        let mid_node = find_or_insert_node(&mut nodes, mid_pos, tolerance);
+
+                        // First half-arc: start -> midpoint
+                        edges.push(GraphEdge {
+                            element,
+                            start_node,
+                            end_node: mid_node,
+                            start_pos: start,
+                            end_pos: mid_pos,
+                        });
+                        // Second half-arc: midpoint -> start (closes the circle)
+                        edges.push(GraphEdge {
+                            element,
+                            start_node: mid_node,
+                            end_node: start_node,
+                            start_pos: mid_pos,
+                            end_pos: start,
+                        });
+                    }
+                }
+            } else {
+                warnings.push(SketchWarning::DegenerateEdge);
+            }
             continue;
         }
 
@@ -304,13 +348,43 @@ mod tests {
         assert!((edge.end_pos.0 - 0.0).abs() < 1e-10);
         assert!((edge.end_pos.1 - 1.0).abs() < 1e-10);
 
-        // Full circle arc (start == end, should be degenerate check)
+        // Full circle arc (start == end) is split into two half-arcs.
         let mut sk2 = Sketch::new();
         let _arc2 = sk2.add_arc(0.0, 0.0, 1.0, 0.0, 2.0 * PI);
-        let (graph2, _) = build_edge_graph(&sk2, &tol);
-        // 2*PI arc: start and end are extremely close but cos(2pi) ~= 1,
-        // sin(2pi) ~= 0, same as start. Will be degenerate.
-        assert_eq!(graph2.edges.len(), 0);
+        let (graph2, warnings2) = build_edge_graph(&sk2, &tol);
+        // Full circle should produce 2 edges (split at the midpoint)
+        // and 2 nodes (start/end and midpoint).
+        assert!(
+            warnings2.is_empty(),
+            "full circle should not produce warnings"
+        );
+        assert_eq!(
+            graph2.edges.len(),
+            2,
+            "full circle should split into 2 edges"
+        );
+        assert_eq!(graph2.nodes.len(), 2, "full circle should have 2 nodes");
+    }
+
+    #[test]
+    fn full_circle_produces_two_edges_and_two_nodes() {
+        use std::f64::consts::PI;
+        let mut sk = Sketch::new();
+        let _arc = sk.add_arc(0.0, 0.0, 1.0, 0.0, 2.0 * PI);
+
+        let tol = Tolerance::default();
+        let (graph, warnings) = build_edge_graph(&sk, &tol);
+
+        assert!(warnings.is_empty());
+        assert_eq!(graph.edges.len(), 2, "full circle split into 2 edges");
+        assert_eq!(graph.nodes.len(), 2, "full circle has 2 nodes");
+
+        // The two edges should form a cycle: edge0.end == edge1.start,
+        // edge1.end == edge0.start.
+        let e0 = &graph.edges[0];
+        let e1 = &graph.edges[1];
+        assert_eq!(e0.end_node, e1.start_node);
+        assert_eq!(e1.end_node, e0.start_node);
     }
 
     #[test]

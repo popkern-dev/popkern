@@ -17,7 +17,7 @@ fn rectangle_single_ccw_loop() {
 
     let tol = Tolerance::default();
     let (graph, _) = build_edge_graph(&sk, &tol);
-    let loops = trace_loops(&graph);
+    let loops = trace_loops(&graph, &sk);
 
     assert_eq!(
         loops.len(),
@@ -56,7 +56,7 @@ fn two_separate_triangles() {
 
     let tol = Tolerance::default();
     let (graph, _) = build_edge_graph(&sk, &tol);
-    let loops = trace_loops(&graph);
+    let loops = trace_loops(&graph, &sk);
 
     assert_eq!(
         loops.len(),
@@ -90,7 +90,7 @@ fn rectangle_with_chord_two_loops() {
 
     let tol = Tolerance::default();
     let (graph, _) = build_edge_graph(&sk, &tol);
-    let loops = trace_loops(&graph);
+    let loops = trace_loops(&graph, &sk);
 
     assert_eq!(
         loops.len(),
@@ -108,11 +108,12 @@ fn rectangle_with_chord_two_loops() {
 
 #[test]
 fn empty_graph_no_loops() {
+    let sk = Sketch::new();
     let graph = EdgeGraph {
         nodes: Vec::new(),
         edges: Vec::new(),
     };
-    let loops = trace_loops(&graph);
+    let loops = trace_loops(&graph, &sk);
     assert!(loops.is_empty());
 }
 
@@ -125,7 +126,7 @@ fn single_edge_no_loop() {
 
     let tol = Tolerance::default();
     let (graph, _) = build_edge_graph(&sk, &tol);
-    let loops = trace_loops(&graph);
+    let loops = trace_loops(&graph, &sk);
 
     assert!(loops.is_empty(), "single edge should produce no loops");
 }
@@ -143,7 +144,7 @@ fn triangle_area_correct() {
 
     let tol = Tolerance::default();
     let (graph, _) = build_edge_graph(&sk, &tol);
-    let loops = trace_loops(&graph);
+    let loops = trace_loops(&graph, &sk);
 
     assert_eq!(loops.len(), 1);
     assert!(

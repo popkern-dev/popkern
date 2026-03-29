@@ -18,7 +18,7 @@ fn make_rectangle_loop() -> (TracedLoop, Sketch) {
 
     let tol = Tolerance::default();
     let (graph, _) = build_edge_graph(&sk, &tol);
-    let loops = trace_loops(&graph);
+    let loops = trace_loops(&graph, &sk);
     assert_eq!(loops.len(), 1);
     (loops.into_iter().next().unwrap(), sk)
 }
@@ -67,7 +67,7 @@ fn triangle_containment() {
 
     let tol = Tolerance::default();
     let (graph, _) = build_edge_graph(&sk, &tol);
-    let loops = trace_loops(&graph);
+    let loops = trace_loops(&graph, &sk);
     assert_eq!(loops.len(), 1);
     let loop_ = &loops[0];
 

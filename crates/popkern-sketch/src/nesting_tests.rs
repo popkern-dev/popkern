@@ -18,7 +18,7 @@ fn single_rectangle_one_face_root() {
 
     let tol = Tolerance::default();
     let (graph, _) = build_edge_graph(&sk, &tol);
-    let loops = trace_loops(&graph);
+    let loops = trace_loops(&graph, &sk);
     let nesting = classify_nesting(&loops, &sk);
 
     assert_eq!(nesting.len(), 1, "single rectangle = 1 root");
@@ -49,7 +49,7 @@ fn rectangle_with_inner_triangle_hole() {
 
     let tol = Tolerance::default();
     let (graph, _) = build_edge_graph(&sk, &tol);
-    let loops = trace_loops(&graph);
+    let loops = trace_loops(&graph, &sk);
 
     assert_eq!(loops.len(), 2, "should have outer rect + inner triangle");
 
@@ -89,7 +89,7 @@ fn two_disjoint_rectangles_two_roots() {
 
     let tol = Tolerance::default();
     let (graph, _) = build_edge_graph(&sk, &tol);
-    let loops = trace_loops(&graph);
+    let loops = trace_loops(&graph, &sk);
     let nesting = classify_nesting(&loops, &sk);
 
     assert_eq!(nesting.len(), 2, "two disjoint rectangles = 2 roots");
@@ -136,7 +136,7 @@ fn three_nested_loops() {
 
     let tol = Tolerance::default();
     let (graph, _) = build_edge_graph(&sk, &tol);
-    let loops = trace_loops(&graph);
+    let loops = trace_loops(&graph, &sk);
     assert_eq!(loops.len(), 3);
 
     let nesting = classify_nesting(&loops, &sk);

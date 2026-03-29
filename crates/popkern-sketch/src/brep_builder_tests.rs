@@ -22,7 +22,7 @@ fn rectangle_pipeline() -> (Vec<TracedLoop>, Vec<NestingNode>, Sketch) {
 
     let tol = Tolerance::default();
     let (graph, _warnings) = edge_graph::build_edge_graph(&sk, &tol);
-    let loops = loop_tracer::trace_loops(&graph);
+    let loops = loop_tracer::trace_loops(&graph, &sk);
     let roots = nesting::classify_nesting(&loops, &sk);
 
     (loops, roots, sk)
@@ -126,7 +126,7 @@ fn triangle_builds_valid_brep() {
 
     let tol = Tolerance::default();
     let (graph, _) = edge_graph::build_edge_graph(&sk, &tol);
-    let loops = loop_tracer::trace_loops(&graph);
+    let loops = loop_tracer::trace_loops(&graph, &sk);
     let roots = nesting::classify_nesting(&loops, &sk);
 
     let plane = SketchPlane::xy();
@@ -196,7 +196,7 @@ fn rectangle_with_hole_builds() {
 
     let tol = Tolerance::default();
     let (graph, _) = edge_graph::build_edge_graph(&sk, &tol);
-    let loops = loop_tracer::trace_loops(&graph);
+    let loops = loop_tracer::trace_loops(&graph, &sk);
     let roots = nesting::classify_nesting(&loops, &sk);
 
     let plane = SketchPlane::xy();
