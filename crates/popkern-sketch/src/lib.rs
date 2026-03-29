@@ -12,6 +12,7 @@
 
 pub(crate) mod edge_graph;
 pub mod error;
+pub(crate) mod loop_tracer;
 pub mod plane;
 
 pub use error::{SketchError, SketchWarning};
