@@ -11,6 +11,7 @@
 //!    loop tracing, and topology building
 
 pub(crate) mod containment;
+pub(crate) mod curve_convert;
 pub(crate) mod edge_graph;
 pub mod error;
 pub(crate) mod loop_tracer;

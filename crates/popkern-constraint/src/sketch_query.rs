@@ -84,6 +84,12 @@ impl Sketch {
         self.splines.get(handle).map(|s| s.periodic)
     }
 
+    /// Return the weight vector for a spline, or `None` if the handle is
+    /// invalid.
+    pub fn spline_weights(&self, handle: SplineHandle) -> Option<&[f64]> {
+        self.splines.get(handle).map(|s| s.weights.as_slice())
+    }
+
     /// Iterate over all non-construction curve element handles.
     ///
     /// Returns lines, arcs, ellipses, parabolas, hyperbolas, and splines
