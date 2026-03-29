@@ -21,6 +21,7 @@ mod sketch_ops;
 mod sketch_pattern;
 mod sketch_pattern_geo;
 mod sketch_pattern_update;
+mod sketch_query;
 mod sketch_rigid;
 mod sketch_spline;
 mod solver;
