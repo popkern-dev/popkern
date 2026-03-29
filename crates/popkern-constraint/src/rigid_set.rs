@@ -233,7 +233,7 @@ fn element_rigid_set(sketch: &Sketch, elem: &ElementHandle) -> Option<RigidSetHa
 ///
 /// Returns a flat list of all elements involved (points, lines, arcs,
 /// conics, splines).
-fn constraint_element_handles(c: &crate::constraint::Constraint) -> Vec<ElementHandle> {
+pub(crate) fn constraint_element_handles(c: &crate::constraint::Constraint) -> Vec<ElementHandle> {
     use crate::constraint::Constraint;
     match c {
         Constraint::Coincident(a, b) | Constraint::Distance(a, b, _) => {
