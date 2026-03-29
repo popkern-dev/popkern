@@ -137,6 +137,38 @@ pub enum Constraint {
 
     /// Lock a hyperbola at its current position and shape.
     FixedHyperbola(HyperbolaHandle),
+
+    // ── Convenience arc constraints ────────────────────────────────────────
+    /// Force two arcs to share the same centre AND radius (Concentric +
+    /// EqualRadius combined as a single 3-equation constraint).
+    ///
+    /// Equations: cx1-cx2 = 0, cy1-cy2 = 0, r1-r2 = 0.
+    Coradial(ArcHandle, ArcHandle),
+
+    // ── Offset constraints ─────────────────────────────────────────────────
+    /// Fix the perpendicular distance between two parallel lines to `d`.
+    ///
+    /// Uses the squared distance from the midpoint of L1 to the infinite
+    /// line through L2. Assumes the lines are already parallel (enforce
+    /// that separately with [`Constraint::Parallel`]).
+    OffsetLine(LineHandle, LineHandle, f64),
+
+    /// Fix the radial distance between two concentric arcs to `d`.
+    ///
+    /// Equation: (r1-r2)^2 - d^2 = 0 (squared form).  Concentricity is
+    /// not enforced here — add a [`Constraint::Concentric`] separately.
+    OffsetArc(ArcHandle, ArcHandle, f64),
+
+    // ── Ordinate constraints ────────────────────────────────────────────────
+    /// Fix the x coordinate of a point to `value`.
+    ///
+    /// Equation: px - value = 0.
+    OrdinateX(PointHandle, f64),
+
+    /// Fix the y coordinate of a point to `value`.
+    ///
+    /// Equation: py - value = 0.
+    OrdinateY(PointHandle, f64),
 }
 
 impl Constraint {
@@ -152,6 +184,7 @@ impl Constraint {
             | Constraint::PointOnHyperbola(p, _) => *p == ph,
             Constraint::Symmetric(a, b, _) => *a == ph || *b == ph,
             Constraint::Midpoint(p, _) => *p == ph,
+            Constraint::OrdinateX(p, _) | Constraint::OrdinateY(p, _) => *p == ph,
             // Line-only, arc-only, and conic-only constraints do not reference
             // points directly.
             Constraint::Horizontal(_)
@@ -180,7 +213,10 @@ impl Constraint {
             | Constraint::HyperbolaEccentricity(..)
             | Constraint::FixedEllipse(..)
             | Constraint::FixedParabola(..)
-            | Constraint::FixedHyperbola(..) => false,
+            | Constraint::FixedHyperbola(..)
+            | Constraint::Coradial(..)
+            | Constraint::OffsetLine(..)
+            | Constraint::OffsetArc(..) => false,
         }
     }
 
@@ -197,7 +233,8 @@ impl Constraint {
             | Constraint::Parallel(a, b)
             | Constraint::Perpendicular(a, b)
             | Constraint::EqualLength(a, b)
-            | Constraint::Collinear(a, b) => *a == lh || *b == lh,
+            | Constraint::Collinear(a, b)
+            | Constraint::OffsetLine(a, b, _) => *a == lh || *b == lh,
             Constraint::Tangent(l, _)
             | Constraint::TangentLineEllipse(l, _)
             | Constraint::TangentLineParabola(l, _)
@@ -226,7 +263,11 @@ impl Constraint {
             | Constraint::HyperbolaEccentricity(..)
             | Constraint::FixedEllipse(..)
             | Constraint::FixedParabola(..)
-            | Constraint::FixedHyperbola(..) => false,
+            | Constraint::FixedHyperbola(..)
+            | Constraint::Coradial(..)
+            | Constraint::OffsetArc(..)
+            | Constraint::OrdinateX(..)
+            | Constraint::OrdinateY(..) => false,
         }
     }
 
@@ -290,7 +331,9 @@ impl Constraint {
             Constraint::PointOnArc(_, a) | Constraint::Tangent(_, a) => *a == ah,
             Constraint::ArcTangent(a, b)
             | Constraint::EqualRadius(a, b)
-            | Constraint::Concentric(a, b) => *a == ah || *b == ah,
+            | Constraint::Concentric(a, b)
+            | Constraint::Coradial(a, b)
+            | Constraint::OffsetArc(a, b, _) => *a == ah || *b == ah,
             Constraint::TangentArcEllipse(a, _)
             | Constraint::TangentArcParabola(a, _)
             | Constraint::TangentArcHyperbola(a, _) => *a == ah,
