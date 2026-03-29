@@ -88,9 +88,9 @@ pub(crate) fn equation_count(constraint: &Constraint) -> usize {
         Constraint::PointOnSpline(..)
         | Constraint::SplineFixedEndTangent(..)
         | Constraint::SplineTangentToLine(..)
-        | Constraint::SplineTangentToArc(..)
-        | Constraint::SplineG1(..) => 2,
-        Constraint::SplineTangentToEllipse(..)
+        | Constraint::SplineTangentToArc(..) => 2,
+        Constraint::SplineG1(..)
+        | Constraint::SplineTangentToEllipse(..)
         | Constraint::SplineTangentToParabola(..)
         | Constraint::SplineTangentToHyperbola(..) => 3,
         Constraint::SplineG2(..) => 4,
@@ -250,9 +250,15 @@ pub(crate) fn evaluate_constraint(
                 sketch, *s, *h, handle, row_offset,
             )
         }
-        Constraint::SplineG1(..) => todo!("spline constraints - Task 6"),
-        Constraint::SplineG2(..) => todo!("spline constraints - Task 6"),
-        Constraint::SplineLength(..) => todo!("spline constraints - Task 6"),
+        Constraint::SplineG1(s1, e1, s2, e2) => {
+            splines::eval_spline_g1(sketch, *s1, *e1, *s2, *e2, row_offset)
+        }
+        Constraint::SplineG2(s1, e1, s2, e2) => {
+            splines::eval_spline_g2(sketch, *s1, *e1, *s2, *e2, row_offset)
+        }
+        Constraint::SplineLength(s, len) => {
+            splines::eval_spline_length(sketch, *s, *len, row_offset)
+        }
     }
 }
 

@@ -340,3 +340,128 @@ fn through_point_spline_solve() {
 
     let _ = sh; // suppress warning
 }
+
+// ── 6. SplineG1 tests ────────────────────────────────────────────────────
+
+#[test]
+fn spline_g1_satisfied() {
+    // Two Bezier splines that share an endpoint and have matching tangent.
+    // S1: P0=(0,0), P1=(1,2), P2=(3,2), P3=(4,0).  End tangent = (3, -6).
+    // S2: P0=(4,0), P1=(5,-2), P2=(7,-2), P3=(8,0). Start tangent = 3*(5-4,-2-0) = (3, -6).
+    // They share endpoint (4,0) and tangent direction (3,-6).
+    let mut sk = Sketch::new();
+    let p = [
+        sk.add_point(0.0, 0.0),
+        sk.add_point(1.0, 2.0),
+        sk.add_point(3.0, 2.0),
+        sk.add_point(4.0, 0.0),
+    ];
+    let sh1 = sk.add_spline(&p, 3);
+
+    let q = [
+        sk.add_point(4.0, 0.0),
+        sk.add_point(5.0, -2.0),
+        sk.add_point(7.0, -2.0),
+        sk.add_point(8.0, 0.0),
+    ];
+    let sh2 = sk.add_spline(&q, 3);
+
+    let c = Constraint::SplineG1(sh1, 1, sh2, 0);
+    let e = entry(c, vec![]);
+    let output = evaluate_constraint(&sk, None, &e, 0);
+    assert_eq!(output.residuals.len(), 3);
+    for (i, r) in output.residuals.iter().enumerate() {
+        assert!(r.abs() < 1e-10, "G1 F{} = {}", i + 1, r);
+    }
+}
+
+#[test]
+fn spline_g1_jacobian_fd() {
+    let mut sk = Sketch::new();
+    let p = [
+        sk.add_point(0.0, 0.0),
+        sk.add_point(1.0, 2.0),
+        sk.add_point(3.0, 2.5),
+        sk.add_point(4.0, 0.5),
+    ];
+    let sh1 = sk.add_spline(&p, 3);
+    let q = [
+        sk.add_point(4.5, 0.0),
+        sk.add_point(5.0, -1.5),
+        sk.add_point(7.0, -2.0),
+        sk.add_point(8.0, 0.0),
+    ];
+    let sh2 = sk.add_spline(&q, 3);
+
+    let c = Constraint::SplineG1(sh1, 1, sh2, 0);
+    let e = entry(c, vec![]);
+    check_jacobian_fd_with_aux(&mut sk, None, &e, 0, 1e-7);
+}
+
+// ── 7. SplineG2 tests ────────────────────────────────────────────────────
+
+#[test]
+fn spline_g2_equation_count() {
+    let s = crate::SplineHandle::default();
+    assert_eq!(equation_count(&Constraint::SplineG2(s, 0, s, 1)), 4);
+}
+
+#[test]
+fn spline_g2_jacobian_fd() {
+    let mut sk = Sketch::new();
+    let p = [
+        sk.add_point(0.0, 0.0),
+        sk.add_point(1.0, 2.0),
+        sk.add_point(3.0, 2.5),
+        sk.add_point(4.0, 0.5),
+    ];
+    let sh1 = sk.add_spline(&p, 3);
+    let q = [
+        sk.add_point(4.5, 0.0),
+        sk.add_point(5.0, -1.5),
+        sk.add_point(7.0, -2.0),
+        sk.add_point(8.0, 0.0),
+    ];
+    let sh2 = sk.add_spline(&q, 3);
+
+    let c = Constraint::SplineG2(sh1, 1, sh2, 0);
+    let e = entry(c, vec![]);
+    check_jacobian_fd_with_aux(&mut sk, None, &e, 0, 1e-7);
+}
+
+// ── 8. SplineLength tests ────────────────────────────────────────────────
+
+#[test]
+fn spline_length_satisfied() {
+    let (sk, sh) = cubic_bezier_sketch();
+    let sp = &sk.splines[sh];
+    // Compute the actual arc length.
+    let (actual_len, _) = crate::equations::spline_deriv::eval_arc_length(sp, 0.0, 1.0, &sk);
+
+    let c = Constraint::SplineLength(sh, actual_len);
+    let e = entry(c, vec![]);
+    let output = evaluate_constraint(&sk, None, &e, 0);
+    assert_eq!(output.residuals.len(), 1);
+    assert!(
+        output.residuals[0].abs() < 1e-10,
+        "residual = {}",
+        output.residuals[0]
+    );
+}
+
+#[test]
+fn spline_length_jacobian_fd() {
+    let (mut sk, sh) = cubic_bezier_sketch();
+    let c = Constraint::SplineLength(sh, 5.0);
+    let e = entry(c, vec![]);
+    // Use wider tolerance since arc length is approximate (quadrature).
+    check_jacobian_fd_with_aux(&mut sk, None, &e, 0, 1e-6);
+}
+
+#[test]
+fn spline_g1_g2_length_equation_counts() {
+    let s = crate::SplineHandle::default();
+    assert_eq!(equation_count(&Constraint::SplineG1(s, 0, s, 1)), 3);
+    assert_eq!(equation_count(&Constraint::SplineG2(s, 0, s, 1)), 4);
+    assert_eq!(equation_count(&Constraint::SplineLength(s, 5.0)), 1);
+}

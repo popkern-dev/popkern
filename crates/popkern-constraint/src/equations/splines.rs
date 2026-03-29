@@ -280,6 +280,155 @@ pub(crate) fn eval_spline_fixed_end_curvature(
     }
 }
 
+// ── 6. SplineG1 ──────────────────────────────────────────────────────────
+
+/// `SplineG1(Spline1, end_idx1, Spline2, end_idx2)` -- 3 equations.
+///
+/// Position continuity (2 eqs) + tangent parallelism (1 eq):
+/// ```text
+/// F1 = S1_x(t1) - S2_x(t2) = 0
+/// F2 = S1_y(t1) - S2_y(t2) = 0
+/// F3 = S1'_x(t1)*S2'_y(t2) - S1'_y(t1)*S2'_x(t2) = 0
+/// ```
+pub(crate) fn eval_spline_g1(
+    sketch: &Sketch,
+    s1: SplineHandle,
+    end_idx1: usize,
+    s2: SplineHandle,
+    end_idx2: usize,
+    row: usize,
+) -> EquationOutput {
+    let sp1 = &sketch.splines[s1];
+    let sp2 = &sketch.splines[s2];
+    let t1 = endpoint_t(sketch, s1, end_idx1);
+    let t2 = endpoint_t(sketch, s2, end_idx2);
+
+    let pos1 = eval_point(sp1, t1, sketch);
+    let pos2 = eval_point(sp2, t2, sketch);
+    let tang1 = eval_tangent(sp1, t1, sketch);
+    let tang2 = eval_tangent(sp2, t2, sketch);
+
+    let f1 = pos1.x - pos2.x;
+    let f2 = pos1.y - pos2.y;
+    let f3 = tang1.x * tang2.y - tang1.y * tang2.x;
+
+    let mut jacobian = Vec::new();
+
+    // F1, F2: position jacobians
+    for &(pi, dx, dy) in &pos1.jacobian {
+        if dx.abs() > f64::EPSILON {
+            jacobian.push((row, pi, dx));
+        }
+        if dy.abs() > f64::EPSILON {
+            jacobian.push((row + 1, pi, dy));
+        }
+    }
+    for &(pi, dx, dy) in &pos2.jacobian {
+        if dx.abs() > f64::EPSILON {
+            jacobian.push((row, pi, -dx));
+        }
+        if dy.abs() > f64::EPSILON {
+            jacobian.push((row + 1, pi, -dy));
+        }
+    }
+
+    // F3: tangent cross-product jacobian
+    // dF3/d(cp1) = d(tang1.x)/d(cp) * tang2.y - d(tang1.y)/d(cp) * tang2.x
+    for &(pi, dtx, dty) in &tang1.jacobian {
+        let val = dtx * tang2.y - dty * tang2.x;
+        if val.abs() > f64::EPSILON {
+            merge_or_push(&mut jacobian, row + 2, pi, val);
+        }
+    }
+    // dF3/d(cp2) = tang1.x * d(tang2.y)/d(cp) - tang1.y * d(tang2.x)/d(cp)
+    for &(pi, dtx, dty) in &tang2.jacobian {
+        let val = tang1.x * dty - tang1.y * dtx;
+        if val.abs() > f64::EPSILON {
+            merge_or_push(&mut jacobian, row + 2, pi, val);
+        }
+    }
+
+    EquationOutput {
+        residuals: vec![f1, f2, f3],
+        jacobian,
+    }
+}
+
+// ── 7. SplineG2 ──────────────────────────────────────────────────────────
+
+/// `SplineG2(Spline1, end_idx1, Spline2, end_idx2)` -- 4 equations.
+///
+/// G1 (3 equations) plus curvature match:
+/// ```text
+/// F4 = kappa1(t1) - kappa2(t2) = 0
+/// ```
+pub(crate) fn eval_spline_g2(
+    sketch: &Sketch,
+    s1: SplineHandle,
+    end_idx1: usize,
+    s2: SplineHandle,
+    end_idx2: usize,
+    row: usize,
+) -> EquationOutput {
+    // Start with G1 equations.
+    let mut out = eval_spline_g1(sketch, s1, end_idx1, s2, end_idx2, row);
+
+    let sp1 = &sketch.splines[s1];
+    let sp2 = &sketch.splines[s2];
+    let t1 = endpoint_t(sketch, s1, end_idx1);
+    let t2 = endpoint_t(sketch, s2, end_idx2);
+
+    let (k1, k1_jac) = eval_curvature(sp1, t1, sketch);
+    let (k2, k2_jac) = eval_curvature(sp2, t2, sketch);
+
+    // F4 = kappa1 - kappa2
+    out.residuals.push(k1 - k2);
+
+    for &(pi, dk) in &k1_jac {
+        if dk.abs() > f64::EPSILON {
+            merge_or_push(&mut out.jacobian, row + 3, pi, dk);
+        }
+    }
+    for &(pi, dk) in &k2_jac {
+        if dk.abs() > f64::EPSILON {
+            merge_or_push(&mut out.jacobian, row + 3, pi, -dk);
+        }
+    }
+
+    out
+}
+
+// ── 8. SplineLength ──────────────────────────────────────────────────────
+
+/// `SplineLength(Spline, target_length)` -- 1 equation.
+///
+/// ```text
+/// F = arc_length(spline, t_start, t_end) - L = 0
+/// ```
+pub(crate) fn eval_spline_length(
+    sketch: &Sketch,
+    spline: SplineHandle,
+    target_length: f64,
+    row: usize,
+) -> EquationOutput {
+    let sp = &sketch.splines[spline];
+    let t0 = sp.knots[sp.degree];
+    let t1 = sp.knots[sp.control_points.len()];
+    let (length, len_jac) = super::spline_deriv::eval_arc_length(sp, t0, t1, sketch);
+
+    let mut jacobian = Vec::new();
+    for &(pi, dl) in &len_jac {
+        if dl.abs() > f64::EPSILON {
+            jacobian.push((row, pi, dl));
+        }
+    }
+
+    EquationOutput {
+        residuals: vec![length - target_length],
+        jacobian,
+    }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 /// Merge a Jacobian entry into the vector, adding to an existing entry for

@@ -98,7 +98,8 @@ impl Sketch {
             | Constraint::OffsetLine(..)
             | Constraint::OffsetArc(..)
             | Constraint::OrdinateX(..)
-            | Constraint::OrdinateY(..) => {}
+            | Constraint::OrdinateY(..)
+            | Constraint::SplineLength(..) => {}
             _ => return Err(ConstraintError::NotDimensional),
         }
         if self.recording {
@@ -116,6 +117,7 @@ impl Sketch {
             Constraint::OffsetArc(_, _, d) => *d = value,
             Constraint::OrdinateX(_, v) => *v = value,
             Constraint::OrdinateY(_, v) => *v = value,
+            Constraint::SplineLength(_, l) => *l = value,
             _ => return Err(ConstraintError::NotDimensional),
         }
         Ok(())
