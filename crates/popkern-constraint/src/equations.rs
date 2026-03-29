@@ -4,6 +4,7 @@
 //! sparse Jacobian entries (row, col, value) for use by the Newton-Raphson
 //! solver.
 
+pub(crate) mod conics;
 mod tier2;
 
 #[cfg(test)]
@@ -98,25 +99,48 @@ pub(crate) fn evaluate_constraint(
         Constraint::Midpoint(p, l) => tier2::eval_midpoint(sketch, *p, *l, row_offset),
         Constraint::Concentric(a1, a2) => tier2::eval_concentric(sketch, *a1, *a2, row_offset),
         Constraint::Collinear(l1, l2) => tier2::eval_collinear(sketch, *l1, *l2, row_offset),
-        // ── Conic constraints (equations TBD in Tasks 3-5) ────────────
-        Constraint::PointOnEllipse(..) => todo!("Task 3: point-on-ellipse equation"),
-        Constraint::PointOnParabola(..) => todo!("Task 3: point-on-parabola equation"),
-        Constraint::PointOnHyperbola(..) => todo!("Task 3: point-on-hyperbola equation"),
-        Constraint::FixedEllipse(..) => todo!("Task 3: fixed-ellipse equation"),
-        Constraint::FixedParabola(..) => todo!("Task 3: fixed-parabola equation"),
-        Constraint::FixedHyperbola(..) => todo!("Task 3: fixed-hyperbola equation"),
-        Constraint::FocalDistance(..) => todo!("Task 3: focal-distance equation"),
-        Constraint::EllipseEccentricity(..) => todo!("Task 3: ellipse-eccentricity equation"),
-        Constraint::HyperbolaEccentricity(..) => todo!("Task 3: hyperbola-eccentricity equation"),
-        Constraint::EqualSemiAxis(..) => todo!("Task 3: equal-semi-axis equation"),
+        // ── Conic constraints ──────────────────────────────────────────
+        Constraint::PointOnEllipse(p, e) => {
+            conics::eval_point_on_ellipse(sketch, *p, *e, row_offset)
+        }
+        Constraint::PointOnParabola(p, pa) => {
+            conics::eval_point_on_parabola(sketch, *p, *pa, row_offset)
+        }
+        Constraint::PointOnHyperbola(p, h) => {
+            conics::eval_point_on_hyperbola(sketch, *p, *h, row_offset)
+        }
+        Constraint::FixedEllipse(e) => {
+            conics::eval_fixed_ellipse(sketch, *e, &entry.fixed_values, row_offset)
+        }
+        Constraint::FixedParabola(p) => {
+            conics::eval_fixed_parabola(sketch, *p, &entry.fixed_values, row_offset)
+        }
+        Constraint::FixedHyperbola(h) => {
+            conics::eval_fixed_hyperbola(sketch, *h, &entry.fixed_values, row_offset)
+        }
+        Constraint::FocalDistance(e, d) => conics::eval_focal_distance(sketch, *e, *d, row_offset),
+        Constraint::EllipseEccentricity(e, ecc) => {
+            conics::eval_ellipse_eccentricity(sketch, *e, *ecc, row_offset)
+        }
+        Constraint::HyperbolaEccentricity(h, ecc) => {
+            conics::eval_hyperbola_eccentricity(sketch, *h, *ecc, row_offset)
+        }
+        Constraint::EqualSemiAxis(e1, e2) => {
+            conics::eval_equal_semi_axis(sketch, *e1, *e2, row_offset)
+        }
+        Constraint::ConcentricEllipse(e1, e2) => {
+            conics::eval_concentric_ellipse(sketch, *e1, *e2, row_offset)
+        }
+        Constraint::ConcentricArcEllipse(a, e) => {
+            conics::eval_concentric_arc_ellipse(sketch, *a, *e, row_offset)
+        }
         Constraint::TangentLineEllipse(..) => todo!("Task 4: line-ellipse tangency"),
         Constraint::TangentLineParabola(..) => todo!("Task 4: line-parabola tangency"),
         Constraint::TangentLineHyperbola(..) => todo!("Task 4: line-hyperbola tangency"),
+        // ── Arc-to-conic tangency (Task 5) ───────────────────────────
         Constraint::TangentArcEllipse(..) => todo!("Task 5: arc-ellipse tangency"),
         Constraint::TangentArcParabola(..) => todo!("Task 5: arc-parabola tangency"),
         Constraint::TangentArcHyperbola(..) => todo!("Task 5: arc-hyperbola tangency"),
-        Constraint::ConcentricEllipse(..) => todo!("Task 5: concentric-ellipse equation"),
-        Constraint::ConcentricArcEllipse(..) => todo!("Task 5: concentric-arc-ellipse equation"),
     }
 }
 

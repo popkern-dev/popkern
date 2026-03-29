@@ -3,6 +3,9 @@
 #[path = "equations_tests_tier2.rs"]
 mod tier2;
 
+#[path = "equations_tests_conics.rs"]
+mod conics;
+
 use crate::constraint::{Constraint, ConstraintEntry, ConstraintKind, ConstraintStatus};
 use crate::equations::{equation_count, evaluate_constraint};
 use crate::Sketch;
