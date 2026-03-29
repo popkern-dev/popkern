@@ -134,6 +134,90 @@ pub(crate) fn assemble(sketch: &Sketch) -> EquationSystem {
     }
 }
 
+/// Assemble the equation system for a single connected component.
+///
+/// Only iterates constraints in the component and remaps Jacobian column
+/// indices from global to local coordinates. The rigid-set Jacobian
+/// remapping is also applied within the component.
+pub(crate) fn assemble_component(
+    sketch: &Sketch,
+    component: &crate::decompose::SubProblem,
+) -> EquationSystem {
+    let num_params = component.global_indices.len();
+    let rigid_lookup = rigid_set::build_rigid_param_lookup(sketch);
+    let theta_map: HashMap<usize, f64> = sketch
+        .rigid_sets
+        .values()
+        .map(|rs| (rs.param_start, sketch.params[rs.param_start + 2]))
+        .collect();
+
+    let total_equations: usize = component
+        .constraints
+        .iter()
+        .filter_map(|&ch| sketch.constraints.get(ch))
+        .map(|e| equation_count(&e.constraint))
+        .sum();
+
+    let mut residuals = Vec::with_capacity(total_equations);
+    let mut triplets: Vec<(usize, usize, f64)> = Vec::new();
+    let mut row_offset: usize = 0;
+
+    for &ch in &component.constraints {
+        let entry = match sketch.constraints.get(ch) {
+            Some(e) => e,
+            None => continue,
+        };
+
+        let output = evaluate_constraint(sketch, Some(ch), entry, row_offset);
+        residuals.extend_from_slice(&output.residuals);
+
+        // Remap Jacobian columns: first rigid-set remapping, then global-to-local.
+        for &(row, col, val) in &output.jacobian {
+            if let Some(&(rs_param_start, rx, ry)) = rigid_lookup.get(&col) {
+                let theta = theta_map.get(&rs_param_start).copied().unwrap_or(0.0);
+                let (sin_t, cos_t) = theta.sin_cos();
+                let pt_param = sketch.points.values().find(|p| {
+                    let [ix, _] = p.param_indices();
+                    ix == col || ix + 1 == col
+                });
+                let is_x_param =
+                    pt_param.map_or_else(|| col % 2 == 0, |p| p.param_indices()[0] == col);
+                if is_x_param {
+                    if let Some(&local_tx) = component.local_indices.get(&rs_param_start) {
+                        triplets.push((row, local_tx, val));
+                    }
+                    let dtheta = val * (-rx * sin_t - ry * cos_t);
+                    if let Some(&local_theta) = component.local_indices.get(&(rs_param_start + 2)) {
+                        triplets.push((row, local_theta, dtheta));
+                    }
+                } else {
+                    if let Some(&local_ty) = component.local_indices.get(&(rs_param_start + 1)) {
+                        triplets.push((row, local_ty, val));
+                    }
+                    let dtheta = val * (rx * cos_t - ry * sin_t);
+                    if let Some(&local_theta) = component.local_indices.get(&(rs_param_start + 2)) {
+                        triplets.push((row, local_theta, dtheta));
+                    }
+                }
+            } else if let Some(&local_col) = component.local_indices.get(&col) {
+                triplets.push((row, local_col, val));
+            }
+            // If the column isn't in the component's local_indices, it means
+            // it's a param outside this component (shouldn't happen for a
+            // correctly partitioned graph, but we silently ignore).
+        }
+
+        row_offset += equation_count(&entry.constraint);
+    }
+
+    EquationSystem {
+        residuals,
+        jacobian_triplets: triplets,
+        num_equations: row_offset,
+        num_params,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
