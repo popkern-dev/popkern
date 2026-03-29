@@ -6,6 +6,9 @@ mod tier2;
 #[path = "equations_tests_conics.rs"]
 mod conics;
 
+#[path = "conics_arc_tests.rs"]
+mod conics_arc;
+
 use crate::constraint::{Constraint, ConstraintEntry, ConstraintKind, ConstraintStatus};
 use crate::equations::{equation_count, evaluate_constraint};
 use crate::Sketch;
@@ -17,11 +20,11 @@ pub(super) fn check_jacobian_fd(
     row_offset: usize,
     eps: f64,
 ) {
-    let base = evaluate_constraint(sketch, entry, row_offset);
+    let base = evaluate_constraint(sketch, None, entry, row_offset);
     for param_idx in 0..sketch.params.len() {
         let orig = sketch.params[param_idx];
         sketch.params[param_idx] = orig + eps;
-        let perturbed = evaluate_constraint(sketch, entry, row_offset);
+        let perturbed = evaluate_constraint(sketch, None, entry, row_offset);
         sketch.params[param_idx] = orig;
         for (eq_idx, (base_r, pert_r)) in
             base.residuals.iter().zip(&perturbed.residuals).enumerate()
@@ -61,7 +64,7 @@ fn coincident_satisfied() {
     let p1 = sk.add_point(3.0, 4.0);
     let p2 = sk.add_point(3.0, 4.0);
     let e = entry(Constraint::Coincident(p1, p2), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert_eq!(equation_count(&e.constraint), 2);
     assert!(out.residuals.iter().all(|r| r.abs() < 1e-15));
 }
@@ -72,7 +75,7 @@ fn coincident_violated() {
     let p1 = sk.add_point(1.0, 2.0);
     let p2 = sk.add_point(3.0, 4.0);
     let e = entry(Constraint::Coincident(p1, p2), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() > 1e-10);
 }
 
@@ -92,7 +95,7 @@ fn fixed_satisfied() {
     let mut sk = Sketch::new();
     let p = sk.add_point(5.0, 6.0);
     let e = entry(Constraint::Fixed(p), vec![5.0, 6.0]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals.iter().all(|r| r.abs() < 1e-15));
 }
 
@@ -101,7 +104,7 @@ fn fixed_violated() {
     let mut sk = Sketch::new();
     let p = sk.add_point(5.0, 6.0);
     let e = entry(Constraint::Fixed(p), vec![1.0, 2.0]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!((out.residuals[0] - 4.0).abs() < 1e-15);
 }
 
@@ -122,7 +125,7 @@ fn fixed_line_satisfied() {
     let b = sk.add_point(3.0, 4.0);
     let l = sk.add_line(a, b);
     let e = entry(Constraint::FixedLine(l), vec![1.0, 2.0, 3.0, 4.0]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert_eq!(equation_count(&e.constraint), 4);
     assert!(out.residuals.iter().all(|r| r.abs() < 1e-15));
 }
@@ -146,7 +149,7 @@ fn horizontal_satisfied() {
     let b = sk.add_point(10.0, 5.0);
     let l = sk.add_line(a, b);
     let e = entry(Constraint::Horizontal(l), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() < 1e-15);
 }
 
@@ -157,7 +160,7 @@ fn horizontal_violated() {
     let b = sk.add_point(10.0, 5.0);
     let l = sk.add_line(a, b);
     let e = entry(Constraint::Horizontal(l), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!((out.residuals[0] - 5.0).abs() < 1e-15);
 }
 
@@ -180,7 +183,7 @@ fn vertical_satisfied() {
     let b = sk.add_point(5.0, 10.0);
     let l = sk.add_line(a, b);
     let e = entry(Constraint::Vertical(l), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() < 1e-15);
 }
 
@@ -192,7 +195,7 @@ fn distance_satisfied() {
     let p1 = sk.add_point(0.0, 0.0);
     let p2 = sk.add_point(3.0, 4.0);
     let e = entry(Constraint::Distance(p1, p2, 5.0), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() < 1e-12);
 }
 
@@ -202,7 +205,7 @@ fn distance_violated() {
     let p1 = sk.add_point(0.0, 0.0);
     let p2 = sk.add_point(3.0, 4.0);
     let e = entry(Constraint::Distance(p1, p2, 10.0), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() > 1.0);
 }
 
@@ -225,7 +228,7 @@ fn point_on_line_satisfied() {
     let b = sk.add_point(4.0, 4.0);
     let l = sk.add_line(a, b);
     let e = entry(Constraint::PointOnLine(p, l), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() < 1e-15);
 }
 
@@ -237,7 +240,7 @@ fn point_on_line_violated() {
     let b = sk.add_point(0.0, 4.0);
     let l = sk.add_line(a, b);
     let e = entry(Constraint::PointOnLine(p, l), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() > 0.5);
 }
 
@@ -264,7 +267,7 @@ fn parallel_satisfied() {
     let l1 = sk.add_line(a1, b1);
     let l2 = sk.add_line(a2, b2);
     let e = entry(Constraint::Parallel(l1, l2), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() < 1e-15);
 }
 
@@ -293,7 +296,7 @@ fn perpendicular_satisfied() {
     let l1 = sk.add_line(a1, b1);
     let l2 = sk.add_line(a2, b2);
     let e = entry(Constraint::Perpendicular(l1, l2), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() < 1e-15);
 }
 
@@ -322,7 +325,7 @@ fn equal_length_satisfied() {
     let l1 = sk.add_line(a1, b1);
     let l2 = sk.add_line(a2, b2);
     let e = entry(Constraint::EqualLength(l1, l2), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() < 1e-12);
 }
 
@@ -347,7 +350,7 @@ fn row_offset_applied_correctly() {
     let p1 = sk.add_point(1.0, 2.0);
     let p2 = sk.add_point(3.0, 4.0);
     let e = entry(Constraint::Coincident(p1, p2), vec![]);
-    let out = evaluate_constraint(&sk, &e, 10);
+    let out = evaluate_constraint(&sk, None, &e, 10);
     for (r, _, _) in &out.jacobian {
         assert!(*r >= 10);
     }
