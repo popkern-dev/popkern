@@ -20,6 +20,11 @@ pub enum ConstraintError {
     /// The Newton–Raphson solver failed to converge.
     #[error("solve failed: {0}")]
     SolveFailed(String),
+
+    /// A pattern operation received invalid arguments (e.g. count < 2,
+    /// element already in a pattern instance).
+    #[error("invalid pattern: {0}")]
+    InvalidPattern(String),
 }
 
 /// The outcome of a solve attempt.

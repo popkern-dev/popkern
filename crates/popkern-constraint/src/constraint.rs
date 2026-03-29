@@ -1,6 +1,6 @@
 use crate::elements::{
-    ArcHandle, EllipseHandle, HyperbolaHandle, LineHandle, ParabolaHandle, PointHandle,
-    SplineHandle,
+    ArcHandle, ElementHandle, EllipseHandle, HyperbolaHandle, LineHandle, ParabolaHandle,
+    PointHandle, SplineHandle,
 };
 use serde::{Deserialize, Serialize};
 
@@ -231,6 +231,48 @@ pub enum Constraint {
 
     /// Fix the arc length of a spline to `value`.
     SplineLength(SplineHandle, f64),
+
+    // ── Pattern constraints ────────────────────────────────────────────
+    /// Constrain P2 to be offset from P1 by a fixed `(dx, dy)` vector.
+    ///
+    /// Equations: p2x - p1x - dx = 0, p2y - p1y - dy = 0.
+    RelativePosition(PointHandle, PointHandle, f64, f64),
+
+    /// Constrain P2 to be the rotation of P1 about Center by angle `theta`.
+    ///
+    /// Applies 2D rotation matrix centred at Center.
+    RotatedPosition(PointHandle, PointHandle, PointHandle, f64),
+
+    /// Constrain P2 to be the reflection of P1 across the infinite line
+    /// through the endpoints of Line.
+    ReflectedPosition(PointHandle, PointHandle, LineHandle),
+
+    /// Pin a point to the centre (or vertex) of a curved element.
+    ///
+    /// Dispatches on element type: Arc/Ellipse centre, Parabola vertex,
+    /// Hyperbola centre.
+    PinToCenter(PointHandle, ElementHandle),
+
+    /// Offset the start and end angles of Arc2 from Arc1 by `theta`.
+    ///
+    /// Equations: arc2.start - arc1.start - theta = 0,
+    ///            arc2.end   - arc1.end   - theta = 0.
+    AngleOffsetArc(ArcHandle, ArcHandle, f64),
+
+    /// Offset the rotation parameter of a conic (Ellipse, Parabola, or
+    /// Hyperbola) E2 from E1 by `theta`.
+    ///
+    /// Equation: e2.rotation - e1.rotation - theta = 0.
+    AngleOffsetConic(ElementHandle, ElementHandle, f64),
+
+    /// Mirror the arc angles of Arc2 to be the reflection of Arc1's angles
+    /// about the angle of a mirror line. Note that start/end swap to
+    /// preserve winding.
+    MirrorAnglesArc(ArcHandle, ArcHandle, LineHandle),
+
+    /// Mirror the rotation of a conic E2 to be the reflection of E1's
+    /// rotation about the angle of a mirror line.
+    MirrorAnglesConic(ElementHandle, ElementHandle, LineHandle),
 }
 
 // References and aux_param_count methods are in the constraint_refs submodule,

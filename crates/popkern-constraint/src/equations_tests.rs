@@ -15,6 +15,9 @@ mod splines;
 #[path = "equations_tests_splines_tangent.rs"]
 mod splines_tangent;
 
+#[path = "equations_tests_patterns.rs"]
+mod patterns;
+
 use crate::constraint::{Constraint, ConstraintEntry, ConstraintKind, ConstraintStatus};
 use crate::equations::{equation_count, evaluate_constraint};
 use crate::Sketch;
