@@ -412,3 +412,39 @@ fn rigid_set_spans_one_component() {
         d_ac
     );
 }
+
+#[test]
+fn intersection_point_convenience() {
+    use popkern_constraint::*;
+
+    let mut sketch = Sketch::new();
+
+    // Two crossing lines: horizontal through (0,0)→(2,0) and vertical through (1,-1)→(1,1)
+    let p1 = sketch.add_point(0.0, 0.0);
+    let p2 = sketch.add_point(2.0, 0.0);
+    let p3 = sketch.add_point(1.0, -1.0);
+    let p4 = sketch.add_point(1.0, 1.0);
+    let line1 = sketch.add_line(p1, p2);
+    let line2 = sketch.add_line(p3, p4);
+
+    // Fix the lines
+    sketch.add_constraint(Constraint::Fixed(p1));
+    sketch.add_constraint(Constraint::Fixed(p2));
+    sketch.add_constraint(Constraint::Fixed(p3));
+    sketch.add_constraint(Constraint::Fixed(p4));
+
+    // Intersection point — initially at a wrong position
+    let ip = sketch.add_point(0.5, 0.5);
+    let handles = sketch
+        .constrain_intersection(ip, ElementHandle::Line(line1), ElementHandle::Line(line2))
+        .unwrap();
+    assert_eq!(handles.len(), 2);
+
+    let result = sketch.solve().unwrap();
+    assert!(result.residual_norm < 1e-8);
+
+    // The intersection of y=0 and x=1 is (1, 0)
+    let (x, y) = sketch.point_position(ip).unwrap();
+    assert!((x - 1.0).abs() < 1e-6, "expected x=1.0, got {x}");
+    assert!(y.abs() < 1e-6, "expected y=0.0, got {y}");
+}
