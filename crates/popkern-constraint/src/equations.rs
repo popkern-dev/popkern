@@ -7,11 +7,19 @@
 pub(crate) mod conics;
 mod conics_arc;
 mod conics_tangent;
+#[allow(dead_code)]
+pub(crate) mod spline_deriv;
+#[allow(dead_code)]
+pub(crate) mod spline_eval;
 mod tier2;
 
 #[cfg(test)]
 #[path = "equations_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "equations/spline_eval_tests.rs"]
+mod spline_eval_tests;
 
 use crate::constraint::{Constraint, ConstraintEntry, ConstraintHandle};
 use crate::elements::{ArcHandle, LineHandle, PointHandle};
@@ -196,8 +204,8 @@ pub(crate) fn evaluate_constraint(
                 .unwrap_or(0);
             conics_arc::eval_tangent_arc_hyperbola(sketch, *a, *h, aux_idx, row_offset)
         }
-        // ── Spline constraints (Task 2–6) ──────────────────────────────
-        Constraint::PointOnSpline(..) => todo!("spline constraints - Task 2"),
+        // ── Spline constraints (Task 4+) ──────────────────────────────
+        Constraint::PointOnSpline(..) => todo!("spline constraints - Task 4"),
         Constraint::SplineEndTangent(..) => todo!("spline constraints - Task 4"),
         Constraint::SplineEndTangentToArc(..) => todo!("spline constraints - Task 4"),
         Constraint::SplineFixedEndTangent(..) => todo!("spline constraints - Task 4"),

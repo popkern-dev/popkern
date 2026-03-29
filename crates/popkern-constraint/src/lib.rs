@@ -7,6 +7,7 @@ pub(crate) mod jacobian;
 mod sketch_ops;
 mod sketch_spline;
 mod solver;
+pub(crate) mod spline_interp;
 pub(crate) mod undo;
 
 #[cfg(test)]

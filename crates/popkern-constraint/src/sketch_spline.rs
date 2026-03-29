@@ -2,7 +2,7 @@
 //!
 //! Split from `sketch_ops.rs` to stay within the 500-line file limit.
 
-use crate::constraint::ConstraintHandle;
+use crate::constraint::{Constraint, ConstraintHandle};
 use crate::elements::{PointHandle, Spline, SplineHandle};
 use crate::error::ConstraintError;
 use crate::Sketch;
@@ -85,6 +85,106 @@ impl Sketch {
         self.splines
             .get(spline)
             .map(|sp| sp.control_points.as_slice())
+    }
+
+    /// Create a B-spline that passes through the given points.
+    ///
+    /// Internally computes control points via cubic interpolation, adds
+    /// them as sketch points, creates the spline, and constrains each
+    /// through-point to lie on the spline at its interpolation parameter.
+    ///
+    /// Returns `(spline_handle, through_point_handles)`.
+    pub fn add_spline_through_points(
+        &mut self,
+        through_points: &[(f64, f64)],
+    ) -> Result<(SplineHandle, Vec<PointHandle>), ConstraintError> {
+        use crate::spline_interp::interpolate_cubic;
+
+        let (cp_positions, knots, t_values) =
+            interpolate_cubic(through_points).map_err(ConstraintError::SolveFailed)?;
+
+        // Create point handles for through-points.
+        let tp_handles: Vec<PointHandle> = through_points
+            .iter()
+            .map(|&(x, y)| self.add_point(x, y))
+            .collect();
+
+        // Create point handles for computed control points.
+        let cp_handles: Vec<PointHandle> = cp_positions
+            .iter()
+            .map(|&(x, y)| self.add_point(x, y))
+            .collect();
+
+        let degree = if cp_handles.len() >= 4 {
+            3
+        } else {
+            cp_handles.len() - 1
+        };
+
+        // Create the spline.
+        let sh = self.splines.insert(Spline {
+            control_points: cp_handles.clone(),
+            degree,
+            knots,
+            weights: vec![1.0; cp_handles.len()],
+            periodic: false,
+            construction: false,
+        });
+
+        // Add PointOnSpline constraints and set aux params to t_i.
+        for (i, &tph) in tp_handles.iter().enumerate() {
+            let ch = self.add_constraint(Constraint::PointOnSpline(tph, sh));
+            if let Some(&aux_start) = self.aux_param_map.get(&ch) {
+                self.params[aux_start] = t_values[i];
+            }
+        }
+
+        Ok((sh, tp_handles))
+    }
+
+    /// Create a closed (periodic) B-spline that passes through the given
+    /// points.
+    ///
+    /// Similar to [`add_spline_through_points`](Self::add_spline_through_points)
+    /// but the spline wraps smoothly from the last point back to the first.
+    ///
+    /// Returns `(spline_handle, through_point_handles)`.
+    pub fn add_closed_spline_through_points(
+        &mut self,
+        through_points: &[(f64, f64)],
+    ) -> Result<(SplineHandle, Vec<PointHandle>), ConstraintError> {
+        use crate::spline_interp::interpolate_cubic_periodic;
+
+        let (cp_positions, knots, t_values) = interpolate_cubic_periodic(through_points)
+            .map_err(ConstraintError::SolveFailed)?;
+
+        let tp_handles: Vec<PointHandle> = through_points
+            .iter()
+            .map(|&(x, y)| self.add_point(x, y))
+            .collect();
+
+        let cp_handles: Vec<PointHandle> = cp_positions
+            .iter()
+            .map(|&(x, y)| self.add_point(x, y))
+            .collect();
+
+        let sh = self.splines.insert(Spline {
+            control_points: cp_handles.clone(),
+            degree: 3,
+            knots,
+            weights: vec![1.0; cp_handles.len()],
+            periodic: true,
+            construction: false,
+        });
+
+        for (i, &tph) in tp_handles.iter().enumerate() {
+            let ch = self.add_constraint(Constraint::PointOnSpline(tph, sh));
+            if let Some(&aux_start) = self.aux_param_map.get(&ch) {
+                self.params[aux_start] = t_values[i];
+            }
+        }
+
+        Ok((sh, tp_handles))
     }
 
     /// Remove a spline and all constraints that reference it.
