@@ -1,9 +1,10 @@
-//! Spline creation, modification, and deletion methods for [`Sketch`].
+//! Spline creation, modification, and deletion methods for [`Sketch`],
+//! plus the intersection-point convenience method.
 //!
 //! Split from `sketch_ops.rs` to stay within the 500-line file limit.
 
 use crate::constraint::{Constraint, ConstraintHandle};
-use crate::elements::{PointHandle, Spline, SplineHandle};
+use crate::elements::{ElementHandle, PointHandle, Spline, SplineHandle};
 use crate::error::ConstraintError;
 use crate::Sketch;
 
@@ -202,6 +203,75 @@ impl Sketch {
             self.constraints.remove(ch);
         }
         self.splines.remove(sh);
+    }
+
+    /// Constrain a point to lie at the intersection of two curves.
+    ///
+    /// This is a convenience method that adds two point-on-curve constraints
+    /// to the same point — one for each curve. The solver naturally finds
+    /// the intersection. Supported curve types: Line, Arc, Ellipse, Parabola,
+    /// Hyperbola, Spline.
+    ///
+    /// Returns the two constraint handles created.
+    pub fn constrain_intersection(
+        &mut self,
+        point: PointHandle,
+        curve1: ElementHandle,
+        curve2: ElementHandle,
+    ) -> Result<[ConstraintHandle; 2], ConstraintError> {
+        let c1 = self.add_point_on_curve(point, curve1)?;
+        let c2 = self.add_point_on_curve(point, curve2)?;
+        Ok([c1, c2])
+    }
+
+    /// Add a point-on-curve constraint, dispatching on the curve element type.
+    fn add_point_on_curve(
+        &mut self,
+        point: PointHandle,
+        curve: ElementHandle,
+    ) -> Result<ConstraintHandle, ConstraintError> {
+        let constraint = match curve {
+            ElementHandle::Line(lh) => {
+                if !self.lines.contains_key(lh) {
+                    return Err(ConstraintError::InvalidHandle);
+                }
+                Constraint::PointOnLine(point, lh)
+            }
+            ElementHandle::Arc(ah) => {
+                if !self.arcs.contains_key(ah) {
+                    return Err(ConstraintError::InvalidHandle);
+                }
+                Constraint::PointOnArc(point, ah)
+            }
+            ElementHandle::Ellipse(eh) => {
+                if !self.ellipses.contains_key(eh) {
+                    return Err(ConstraintError::InvalidHandle);
+                }
+                Constraint::PointOnEllipse(point, eh)
+            }
+            ElementHandle::Parabola(ph) => {
+                if !self.parabolas.contains_key(ph) {
+                    return Err(ConstraintError::InvalidHandle);
+                }
+                Constraint::PointOnParabola(point, ph)
+            }
+            ElementHandle::Hyperbola(hh) => {
+                if !self.hyperbolas.contains_key(hh) {
+                    return Err(ConstraintError::InvalidHandle);
+                }
+                Constraint::PointOnHyperbola(point, hh)
+            }
+            ElementHandle::Spline(sh) => {
+                if !self.splines.contains_key(sh) {
+                    return Err(ConstraintError::InvalidHandle);
+                }
+                Constraint::PointOnSpline(point, sh)
+            }
+            ElementHandle::Point(_) => {
+                return Err(ConstraintError::InvalidHandle);
+            }
+        };
+        Ok(self.add_constraint(constraint))
     }
 }
 
