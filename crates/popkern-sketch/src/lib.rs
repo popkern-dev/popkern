@@ -14,6 +14,7 @@ pub(crate) mod edge_graph;
 pub mod error;
 pub(crate) mod loop_tracer;
 pub mod plane;
+pub(crate) mod self_intersection;
 
 pub use error::{SketchError, SketchWarning};
 pub use plane::SketchPlane;
