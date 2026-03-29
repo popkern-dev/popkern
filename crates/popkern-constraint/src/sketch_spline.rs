@@ -155,8 +155,8 @@ impl Sketch {
     ) -> Result<(SplineHandle, Vec<PointHandle>), ConstraintError> {
         use crate::spline_interp::interpolate_cubic_periodic;
 
-        let (cp_positions, knots, t_values) = interpolate_cubic_periodic(through_points)
-            .map_err(ConstraintError::SolveFailed)?;
+        let (cp_positions, knots, t_values) =
+            interpolate_cubic_periodic(through_points).map_err(ConstraintError::SolveFailed)?;
 
         let tp_handles: Vec<PointHandle> = through_points
             .iter()

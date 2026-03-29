@@ -19,9 +19,7 @@ type InterpResult = Result<(Vec<(f64, f64)>, Vec<f64>, Vec<f64>), String>;
 /// 2. Knot averaging for interior knots
 /// 3. Build interpolation matrix (basis function values at each parameter)
 /// 4. LU solve for control point coordinates
-pub(crate) fn interpolate_cubic(
-    through_points: &[(f64, f64)],
-) -> InterpResult {
+pub(crate) fn interpolate_cubic(through_points: &[(f64, f64)]) -> InterpResult {
     let n = through_points.len();
     if n < 2 {
         return Err("need at least 2 through-points".into());
@@ -59,9 +57,7 @@ pub(crate) fn interpolate_cubic(
 ///
 /// The spline wraps around: the last point connects smoothly back to the
 /// first.  Uses uniform parameterization and a periodic knot vector.
-pub(crate) fn interpolate_cubic_periodic(
-    through_points: &[(f64, f64)],
-) -> InterpResult {
+pub(crate) fn interpolate_cubic_periodic(through_points: &[(f64, f64)]) -> InterpResult {
     let n = through_points.len();
     if n < 3 {
         return Err("need at least 3 through-points for periodic spline".into());
@@ -201,9 +197,7 @@ fn solve_interpolation(
 ///
 /// For a cubic with 2 points we need 4 control points. Place them
 /// along the straight line to produce a linear segment.
-fn interpolate_two_points(
-    pts: &[(f64, f64)],
-) -> InterpResult {
+fn interpolate_two_points(pts: &[(f64, f64)]) -> InterpResult {
     let (x0, y0) = pts[0];
     let (x1, y1) = pts[1];
     let control_points = vec![
@@ -223,9 +217,7 @@ fn interpolate_two_points(
 /// Actually with 3 through-points and degree 3, we need 3 CPs but
 /// a cubic needs at least 4 CPs (degree+1). So we interpolate with
 /// degree = min(degree, n-1) = 2, then return as-is.
-fn interpolate_low_order(
-    through_points: &[(f64, f64)],
-) -> InterpResult {
+fn interpolate_low_order(through_points: &[(f64, f64)]) -> InterpResult {
     let n = through_points.len();
     let degree = n - 1; // n=3 -> degree=2
 
