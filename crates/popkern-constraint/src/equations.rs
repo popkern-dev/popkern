@@ -5,6 +5,7 @@
 //! solver.
 
 pub(crate) mod conics;
+mod conics_tangent;
 mod tier2;
 
 #[cfg(test)]
@@ -134,9 +135,15 @@ pub(crate) fn evaluate_constraint(
         Constraint::ConcentricArcEllipse(a, e) => {
             conics::eval_concentric_arc_ellipse(sketch, *a, *e, row_offset)
         }
-        Constraint::TangentLineEllipse(..) => todo!("Task 4: line-ellipse tangency"),
-        Constraint::TangentLineParabola(..) => todo!("Task 4: line-parabola tangency"),
-        Constraint::TangentLineHyperbola(..) => todo!("Task 4: line-hyperbola tangency"),
+        Constraint::TangentLineEllipse(l, e) => {
+            conics_tangent::eval_tangent_line_ellipse(sketch, *l, *e, row_offset)
+        }
+        Constraint::TangentLineParabola(l, p) => {
+            conics_tangent::eval_tangent_line_parabola(sketch, *l, *p, row_offset)
+        }
+        Constraint::TangentLineHyperbola(l, h) => {
+            conics_tangent::eval_tangent_line_hyperbola(sketch, *l, *h, row_offset)
+        }
         // ── Arc-to-conic tangency (Task 5) ───────────────────────────
         Constraint::TangentArcEllipse(..) => todo!("Task 5: arc-ellipse tangency"),
         Constraint::TangentArcParabola(..) => todo!("Task 5: arc-parabola tangency"),

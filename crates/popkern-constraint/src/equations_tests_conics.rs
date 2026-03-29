@@ -307,3 +307,109 @@ fn hyperbola_eccentricity_jacobian_fd() {
     check_jacobian_fd(&mut sk, &ce, 0, 1e-7);
 }
 
+// ── TangentLineEllipse ───────────────────────────────────────────────────
+
+#[test]
+fn tangent_line_ellipse_satisfied() {
+    let mut sk = Sketch::new();
+    // Horizontal line y=1 tangent to ellipse a=2, b=1 centered at origin
+    let p1 = sk.add_point(-5.0, 1.0);
+    let p2 = sk.add_point(5.0, 1.0);
+    let l = sk.add_line(p1, p2);
+    let e = sk.add_ellipse(0.0, 0.0, 2.0, 1.0, 0.0);
+    let ce = entry(Constraint::TangentLineEllipse(l, e), vec![]);
+    let out = evaluate_constraint(&sk, &ce, 0);
+    assert_eq!(equation_count(&ce.constraint), 1);
+    assert!(out.residuals[0].abs() < 1e-10, "res={}", out.residuals[0]);
+}
+
+#[test]
+fn tangent_line_ellipse_violated() {
+    let mut sk = Sketch::new();
+    // Line y=0.5 is NOT tangent to unit circle (a=1, b=1)
+    let p1 = sk.add_point(-5.0, 0.5);
+    let p2 = sk.add_point(5.0, 0.5);
+    let l = sk.add_line(p1, p2);
+    let e = sk.add_ellipse(0.0, 0.0, 1.0, 1.0, 0.0);
+    let ce = entry(Constraint::TangentLineEllipse(l, e), vec![]);
+    let out = evaluate_constraint(&sk, &ce, 0);
+    assert!(out.residuals[0].abs() > 0.1);
+}
+
+#[test]
+fn tangent_line_ellipse_jacobian_fd() {
+    let mut sk = Sketch::new();
+    // Use moderate coordinates to keep derivative magnitudes within FD
+    // tolerance (the dual-conic residual is polynomial, so large coords
+    // produce large second derivatives).
+    let p1 = sk.add_point(-1.0, 1.2);
+    let p2 = sk.add_point(1.5, 1.5);
+    let l = sk.add_line(p1, p2);
+    let e = sk.add_ellipse(0.2, -0.1, 1.5, 0.8, 0.3);
+    let ce = entry(Constraint::TangentLineEllipse(l, e), vec![]);
+    check_jacobian_fd(&mut sk, &ce, 0, 1e-7);
+}
+
+// ── TangentLineParabola ──────────────────────────────────────────────────
+
+#[test]
+fn tangent_line_parabola_satisfied() {
+    let mut sk = Sketch::new();
+    // Parabola v^2 = 4u (f=1), tangent line at u=1, v=2: slope dv/du = 2/(2v) = 1/2
+    // In parametric: v = 2t, u = t^2. At t=1: u=1, v=2.
+    // Tangent direction: (du/dt, dv/dt) = (2t, 2) = (2, 2) at t=1.
+    // Line through (1,2) with direction (2,2): point + t*(2,2)
+    // So another point: (3, 4)
+    let p1 = sk.add_point(1.0, 2.0);
+    let p2 = sk.add_point(3.0, 4.0);
+    let l = sk.add_line(p1, p2);
+    let pa = sk.add_parabola(0.0, 0.0, 1.0, 0.0);
+    let ce = entry(Constraint::TangentLineParabola(l, pa), vec![]);
+    let out = evaluate_constraint(&sk, &ce, 0);
+    assert_eq!(equation_count(&ce.constraint), 1);
+    assert!(out.residuals[0].abs() < 1e-10, "res={}", out.residuals[0]);
+}
+
+#[test]
+fn tangent_line_parabola_jacobian_fd() {
+    let mut sk = Sketch::new();
+    let p1 = sk.add_point(-2.0, 1.0);
+    let p2 = sk.add_point(3.0, 4.0);
+    let l = sk.add_line(p1, p2);
+    let pa = sk.add_parabola(0.5, -0.3, 1.5, 0.3);
+    let ce = entry(Constraint::TangentLineParabola(l, pa), vec![]);
+    check_jacobian_fd(&mut sk, &ce, 0, 1e-7);
+}
+
+// ── TangentLineHyperbola ─────────────────────────────────────────────────
+
+#[test]
+fn tangent_line_hyperbola_satisfied() {
+    let mut sk = Sketch::new();
+    // Hyperbola u^2 - v^2 = 1 (a=1, b=1). At point (cosh(t), sinh(t)).
+    // Take t=1: u=cosh(1), v=sinh(1).
+    // Tangent direction: (sinh(1), cosh(1)).
+    let u0 = 1.0_f64.cosh();
+    let v0 = 1.0_f64.sinh();
+    let du = 1.0_f64.sinh();
+    let dv = 1.0_f64.cosh();
+    let p1 = sk.add_point(u0, v0);
+    let p2 = sk.add_point(u0 + du, v0 + dv);
+    let l = sk.add_line(p1, p2);
+    let h = sk.add_hyperbola(0.0, 0.0, 1.0, 1.0, 0.0);
+    let ce = entry(Constraint::TangentLineHyperbola(l, h), vec![]);
+    let out = evaluate_constraint(&sk, &ce, 0);
+    assert_eq!(equation_count(&ce.constraint), 1);
+    assert!(out.residuals[0].abs() < 1e-10, "res={}", out.residuals[0]);
+}
+
+#[test]
+fn tangent_line_hyperbola_jacobian_fd() {
+    let mut sk = Sketch::new();
+    let p1 = sk.add_point(-1.0, 0.8);
+    let p2 = sk.add_point(1.5, 0.5);
+    let l = sk.add_line(p1, p2);
+    let h = sk.add_hyperbola(0.2, -0.1, 1.2, 0.8, 0.3);
+    let ce = entry(Constraint::TangentLineHyperbola(l, h), vec![]);
+    check_jacobian_fd(&mut sk, &ce, 0, 1e-7);
+}
