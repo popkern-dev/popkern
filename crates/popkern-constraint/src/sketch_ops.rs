@@ -310,6 +310,9 @@ impl Sketch {
     /// Remove a geometric element and cascade-delete dependent elements
     /// and constraints.
     ///
+    /// If the element is a seed or instance element of a pattern, the
+    /// entire pattern is deleted first.
+    ///
     /// - **Point:** removes all lines that use this point as an endpoint
     ///   (recursively cascading their constraints), all constraints that
     ///   reference the point, then the point itself.
@@ -320,6 +323,11 @@ impl Sketch {
     pub fn remove_element(&mut self, element: ElementHandle) {
         if self.recording {
             self.push_undo_snapshot();
+        }
+        // If the element belongs to a pattern, delete the entire pattern first.
+        if let Some(ph) = self.find_pattern_for_element(&element) {
+            // Ignore error -- pattern may already be removed.
+            let _ = self.delete_pattern(ph);
         }
         match element {
             ElementHandle::Point(ph) => self.remove_point(ph),

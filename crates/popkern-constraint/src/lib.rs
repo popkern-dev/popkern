@@ -5,11 +5,12 @@ pub(crate) mod equations;
 pub mod error;
 pub(crate) mod jacobian;
 pub mod pattern;
-#[allow(dead_code)]
 pub(crate) mod pattern_clone;
-#[allow(dead_code)]
+pub(crate) mod pattern_geo_helpers;
 pub(crate) mod pattern_remap;
 mod sketch_ops;
+mod sketch_pattern;
+mod sketch_pattern_geo;
 mod sketch_spline;
 mod solver;
 pub(crate) mod spline_interp;
