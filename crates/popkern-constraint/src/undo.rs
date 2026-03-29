@@ -11,10 +11,10 @@
 //! correctly restore handles. Snapshot-based undo avoids this limitation.
 
 use crate::constraint::ConstraintEntry;
-use crate::elements::{Arc, Ellipse, Hyperbola, Parabola, Point};
+use crate::elements::{Arc, Ellipse, Hyperbola, Parabola, Point, Spline};
 use crate::{
     ArcHandle, ConstraintHandle, EllipseHandle, HyperbolaHandle, Line, LineHandle, ParabolaHandle,
-    PointHandle,
+    PointHandle, SplineHandle,
 };
 use slotmap::SlotMap;
 
@@ -36,6 +36,8 @@ pub(crate) struct Snapshot {
     pub parabolas: SlotMap<ParabolaHandle, Parabola>,
     /// All hyperbolas.
     pub hyperbolas: SlotMap<HyperbolaHandle, Hyperbola>,
+    /// All splines.
+    pub splines: SlotMap<SplineHandle, Spline>,
     /// All constraints.
     pub constraints: SlotMap<ConstraintHandle, ConstraintEntry>,
 }

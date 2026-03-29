@@ -7,11 +7,22 @@
 pub(crate) mod conics;
 mod conics_arc;
 mod conics_tangent;
+#[allow(dead_code)]
+pub(crate) mod spline_deriv;
+#[allow(dead_code)]
+pub(crate) mod spline_eval;
+mod splines;
+mod splines_tangent;
+mod splines_tangent_conic;
 mod tier2;
 
 #[cfg(test)]
 #[path = "equations_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "equations/spline_eval_tests.rs"]
+mod spline_eval_tests;
 
 use crate::constraint::{Constraint, ConstraintEntry, ConstraintHandle};
 use crate::elements::{ArcHandle, LineHandle, PointHandle};
@@ -69,7 +80,20 @@ pub(crate) fn equation_count(constraint: &Constraint) -> usize {
         | Constraint::OffsetLine(..)
         | Constraint::OffsetArc(..)
         | Constraint::OrdinateX(..)
-        | Constraint::OrdinateY(..) => 1,
+        | Constraint::OrdinateY(..)
+        | Constraint::SplineEndTangent(..)
+        | Constraint::SplineEndTangentToArc(..)
+        | Constraint::SplineFixedEndCurvature(..)
+        | Constraint::SplineLength(..) => 1,
+        Constraint::PointOnSpline(..)
+        | Constraint::SplineFixedEndTangent(..)
+        | Constraint::SplineTangentToLine(..)
+        | Constraint::SplineTangentToArc(..) => 2,
+        Constraint::SplineG1(..)
+        | Constraint::SplineTangentToEllipse(..)
+        | Constraint::SplineTangentToParabola(..)
+        | Constraint::SplineTangentToHyperbola(..) => 3,
+        Constraint::SplineG2(..) => 4,
     }
 }
 
@@ -182,6 +206,58 @@ pub(crate) fn evaluate_constraint(
                 .and_then(|h| sketch.aux_param_map.get(&h).copied())
                 .unwrap_or(0);
             conics_arc::eval_tangent_arc_hyperbola(sketch, *a, *h, aux_idx, row_offset)
+        }
+        // ── Spline constraints ─────────────────────────────────────────
+        Constraint::PointOnSpline(p, s) => {
+            splines::eval_point_on_spline(sketch, *p, *s, handle, row_offset)
+        }
+        Constraint::SplineEndTangent(s, end_idx, l) => {
+            splines::eval_spline_end_tangent(sketch, *s, *end_idx, *l, row_offset)
+        }
+        Constraint::SplineEndTangentToArc(s, end_idx, a) => {
+            splines::eval_spline_end_tangent_to_arc(sketch, *s, *end_idx, *a, row_offset)
+        }
+        Constraint::SplineFixedEndTangent(s, end_idx, _tx, _ty) => {
+            splines::eval_spline_fixed_end_tangent(
+                sketch,
+                *s,
+                *end_idx,
+                &entry.fixed_values,
+                row_offset,
+            )
+        }
+        Constraint::SplineFixedEndCurvature(s, end_idx, val) => {
+            splines::eval_spline_fixed_end_curvature(sketch, *s, *end_idx, *val, row_offset)
+        }
+        Constraint::SplineTangentToLine(s, l) => {
+            splines_tangent::eval_spline_tangent_to_line(sketch, *s, *l, handle, row_offset)
+        }
+        Constraint::SplineTangentToArc(s, a) => {
+            splines_tangent::eval_spline_tangent_to_arc(sketch, *s, *a, handle, row_offset)
+        }
+        Constraint::SplineTangentToEllipse(s, e) => {
+            splines_tangent_conic::eval_spline_tangent_to_ellipse(
+                sketch, *s, *e, handle, row_offset,
+            )
+        }
+        Constraint::SplineTangentToParabola(s, p) => {
+            splines_tangent_conic::eval_spline_tangent_to_parabola(
+                sketch, *s, *p, handle, row_offset,
+            )
+        }
+        Constraint::SplineTangentToHyperbola(s, h) => {
+            splines_tangent_conic::eval_spline_tangent_to_hyperbola(
+                sketch, *s, *h, handle, row_offset,
+            )
+        }
+        Constraint::SplineG1(s1, e1, s2, e2) => {
+            splines::eval_spline_g1(sketch, *s1, *e1, *s2, *e2, row_offset)
+        }
+        Constraint::SplineG2(s1, e1, s2, e2) => {
+            splines::eval_spline_g2(sketch, *s1, *e1, *s2, *e2, row_offset)
+        }
+        Constraint::SplineLength(s, len) => {
+            splines::eval_spline_length(sketch, *s, *len, row_offset)
         }
     }
 }
