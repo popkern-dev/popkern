@@ -188,6 +188,9 @@ impl Sketch {
             ElementHandle::Point(ph) => self.remove_point(ph),
             ElementHandle::Line(lh) => self.remove_line(lh),
             ElementHandle::Arc(ah) => self.remove_arc(ah),
+            ElementHandle::Ellipse(eh) => self.remove_ellipse(eh),
+            ElementHandle::Parabola(ph) => self.remove_parabola(ph),
+            ElementHandle::Hyperbola(hh) => self.remove_hyperbola(hh),
         }
     }
 
@@ -241,5 +244,47 @@ impl Sketch {
             self.constraints.remove(ch);
         }
         self.arcs.remove(ah);
+    }
+
+    /// Remove an ellipse and its dependent constraints.
+    fn remove_ellipse(&mut self, eh: crate::EllipseHandle) {
+        let to_remove: Vec<ConstraintHandle> = self
+            .constraints
+            .iter()
+            .filter(|(_, e)| e.constraint.references_ellipse(eh))
+            .map(|(h, _)| h)
+            .collect();
+        for ch in to_remove {
+            self.constraints.remove(ch);
+        }
+        self.ellipses.remove(eh);
+    }
+
+    /// Remove a parabola and its dependent constraints.
+    fn remove_parabola(&mut self, ph: crate::ParabolaHandle) {
+        let to_remove: Vec<ConstraintHandle> = self
+            .constraints
+            .iter()
+            .filter(|(_, e)| e.constraint.references_parabola(ph))
+            .map(|(h, _)| h)
+            .collect();
+        for ch in to_remove {
+            self.constraints.remove(ch);
+        }
+        self.parabolas.remove(ph);
+    }
+
+    /// Remove a hyperbola and its dependent constraints.
+    fn remove_hyperbola(&mut self, hh: crate::HyperbolaHandle) {
+        let to_remove: Vec<ConstraintHandle> = self
+            .constraints
+            .iter()
+            .filter(|(_, e)| e.constraint.references_hyperbola(hh))
+            .map(|(h, _)| h)
+            .collect();
+        for ch in to_remove {
+            self.constraints.remove(ch);
+        }
+        self.hyperbolas.remove(hh);
     }
 }

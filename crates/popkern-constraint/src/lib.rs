@@ -15,7 +15,10 @@ mod solver_tests;
 pub use constraint::{
     Constraint, ConstraintEntry, ConstraintHandle, ConstraintKind, ConstraintStatus,
 };
-pub use elements::{Arc, ArcHandle, ElementHandle, Line, LineHandle, Point, PointHandle};
+pub use elements::{
+    Arc, ArcHandle, ElementHandle, Ellipse, EllipseHandle, Hyperbola, HyperbolaHandle, Line,
+    LineHandle, Parabola, ParabolaHandle, Point, PointHandle,
+};
 pub use error::{ConstraintError, FreedomInfo, SolveResult, SolveStatus};
 pub use solver::SolverOptions;
 
@@ -48,6 +51,12 @@ pub struct Sketch {
     pub(crate) lines: SlotMap<LineHandle, Line>,
     /// Arc elements, keyed by [`ArcHandle`].
     pub(crate) arcs: SlotMap<ArcHandle, Arc>,
+    /// Ellipse elements, keyed by [`EllipseHandle`].
+    pub(crate) ellipses: SlotMap<EllipseHandle, Ellipse>,
+    /// Parabola elements, keyed by [`ParabolaHandle`].
+    pub(crate) parabolas: SlotMap<ParabolaHandle, Parabola>,
+    /// Hyperbola elements, keyed by [`HyperbolaHandle`].
+    pub(crate) hyperbolas: SlotMap<HyperbolaHandle, Hyperbola>,
     /// Constraints, keyed by [`ConstraintHandle`].
     pub(crate) constraints: SlotMap<ConstraintHandle, ConstraintEntry>,
     /// Active drag context (transient, not serialised).
@@ -80,6 +89,9 @@ impl Sketch {
             points: SlotMap::with_key(),
             lines: SlotMap::with_key(),
             arcs: SlotMap::with_key(),
+            ellipses: SlotMap::with_key(),
+            parabolas: SlotMap::with_key(),
+            hyperbolas: SlotMap::with_key(),
             constraints: SlotMap::with_key(),
             drag_context: None,
             undo_log: Vec::new(),
@@ -97,6 +109,9 @@ impl Sketch {
             points: self.points.clone(),
             lines: self.lines.clone(),
             arcs: self.arcs.clone(),
+            ellipses: self.ellipses.clone(),
+            parabolas: self.parabolas.clone(),
+            hyperbolas: self.hyperbolas.clone(),
             constraints: self.constraints.clone(),
         });
         self.undo_cursor += 1;
@@ -180,6 +195,21 @@ impl Sketch {
             ElementHandle::Arc(h) => {
                 if let Some(a) = self.arcs.get_mut(h) {
                     a.construction = value;
+                }
+            }
+            ElementHandle::Ellipse(h) => {
+                if let Some(e) = self.ellipses.get_mut(h) {
+                    e.construction = value;
+                }
+            }
+            ElementHandle::Parabola(h) => {
+                if let Some(p) = self.parabolas.get_mut(h) {
+                    p.construction = value;
+                }
+            }
+            ElementHandle::Hyperbola(h) => {
+                if let Some(hp) = self.hyperbolas.get_mut(h) {
+                    hp.construction = value;
                 }
             }
         }
@@ -304,6 +334,9 @@ impl Sketch {
                 points: self.points.clone(),
                 lines: self.lines.clone(),
                 arcs: self.arcs.clone(),
+                ellipses: self.ellipses.clone(),
+                parabolas: self.parabolas.clone(),
+                hyperbolas: self.hyperbolas.clone(),
                 constraints: self.constraints.clone(),
             });
         }
@@ -331,6 +364,9 @@ impl Sketch {
         self.points = snapshot.points;
         self.lines = snapshot.lines;
         self.arcs = snapshot.arcs;
+        self.ellipses = snapshot.ellipses;
+        self.parabolas = snapshot.parabolas;
+        self.hyperbolas = snapshot.hyperbolas;
         self.constraints = snapshot.constraints;
     }
 

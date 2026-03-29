@@ -1,4 +1,6 @@
-use crate::elements::{ArcHandle, LineHandle, PointHandle};
+use crate::elements::{
+    ArcHandle, EllipseHandle, HyperbolaHandle, LineHandle, ParabolaHandle, PointHandle,
+};
 use serde::{Deserialize, Serialize};
 
 slotmap::new_key_type! {
@@ -133,6 +135,24 @@ impl Constraint {
             | Constraint::EqualRadius(..)
             | Constraint::Concentric(..) => false,
         }
+    }
+
+    /// Return `true` if this constraint references the given ellipse.
+    pub fn references_ellipse(&self, _eh: EllipseHandle) -> bool {
+        // No existing constraint variants reference ellipses yet.
+        false
+    }
+
+    /// Return `true` if this constraint references the given parabola.
+    pub fn references_parabola(&self, _ph: ParabolaHandle) -> bool {
+        // No existing constraint variants reference parabolas yet.
+        false
+    }
+
+    /// Return `true` if this constraint references the given hyperbola.
+    pub fn references_hyperbola(&self, _hh: HyperbolaHandle) -> bool {
+        // No existing constraint variants reference hyperbolas yet.
+        false
     }
 
     /// Return `true` if this constraint references the given arc.

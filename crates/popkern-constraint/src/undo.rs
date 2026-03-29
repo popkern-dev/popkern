@@ -11,8 +11,11 @@
 //! correctly restore handles. Snapshot-based undo avoids this limitation.
 
 use crate::constraint::ConstraintEntry;
-use crate::elements::{Arc, Point};
-use crate::{ArcHandle, ConstraintHandle, Line, LineHandle, PointHandle};
+use crate::elements::{Arc, Ellipse, Hyperbola, Parabola, Point};
+use crate::{
+    ArcHandle, ConstraintHandle, EllipseHandle, HyperbolaHandle, Line, LineHandle, ParabolaHandle,
+    PointHandle,
+};
 use slotmap::SlotMap;
 
 /// A complete snapshot of the mutable sketch state, captured before each
@@ -27,6 +30,12 @@ pub(crate) struct Snapshot {
     pub lines: SlotMap<LineHandle, Line>,
     /// All arcs.
     pub arcs: SlotMap<ArcHandle, Arc>,
+    /// All ellipses.
+    pub ellipses: SlotMap<EllipseHandle, Ellipse>,
+    /// All parabolas.
+    pub parabolas: SlotMap<ParabolaHandle, Parabola>,
+    /// All hyperbolas.
+    pub hyperbolas: SlotMap<HyperbolaHandle, Hyperbola>,
     /// All constraints.
     pub constraints: SlotMap<ConstraintHandle, ConstraintEntry>,
 }
