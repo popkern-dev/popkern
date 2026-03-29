@@ -62,7 +62,8 @@ pub(crate) fn build_edge_graph(
             continue;
         };
 
-        // Filter degenerate edges, but allow full-circle arcs.
+        // Filter degenerate edges, but allow full-circle arcs, full ellipses,
+        // and periodic (closed) splines — these have coincident start/end.
         let dx = end.0 - start.0;
         let dy = end.1 - start.1;
         let dist = (dx * dx + dy * dy).sqrt();
@@ -76,6 +77,15 @@ pub(crate) fn build_edge_graph(
                         false
                     }
                 }
+                _ => false,
+            };
+
+            // Check if this is a full ellipse (always a closed curve).
+            let is_full_ellipse = matches!(&element, ElementHandle::Ellipse(_));
+
+            // Check if this is a periodic (closed) spline.
+            let is_periodic_spline = match &element {
+                ElementHandle::Spline(sh) => sketch.spline_periodic(*sh).unwrap_or(false),
                 _ => false,
             };
 
@@ -107,6 +117,91 @@ pub(crate) fn build_edge_graph(
                             start_pos: mid_pos,
                             end_pos: start,
                         });
+                    }
+                }
+            } else if is_full_ellipse {
+                // Split the full ellipse into four quarter-ellipses at the
+                // major/minor axis endpoints (t=0, PI/2, PI, 3*PI/2). This
+                // gives four graph edges forming a closed loop, avoiding the
+                // self-loop problem and giving the loop tracer enough nodes.
+                if let ElementHandle::Ellipse(eh) = &element {
+                    if let Some((cx, cy, semi_a, semi_b, rotation)) = sketch.ellipse_params(*eh) {
+                        let cos_r = rotation.cos();
+                        let sin_r = rotation.sin();
+                        // Evaluate ellipse at t=0, PI/2, PI, 3*PI/2.
+                        let eval_ellipse = |t: f64| -> (f64, f64) {
+                            let lx = semi_a * t.cos();
+                            let ly = semi_b * t.sin();
+                            (cx + lx * cos_r - ly * sin_r, cy + lx * sin_r + ly * cos_r)
+                        };
+                        use std::f64::consts::PI;
+                        let p0 = eval_ellipse(0.0);
+                        let p1 = eval_ellipse(PI * 0.5);
+                        let p2 = eval_ellipse(PI);
+                        let p3 = eval_ellipse(PI * 1.5);
+
+                        let n0 = find_or_insert_node(&mut nodes, p0, tolerance);
+                        let n1 = find_or_insert_node(&mut nodes, p1, tolerance);
+                        let n2 = find_or_insert_node(&mut nodes, p2, tolerance);
+                        let n3 = find_or_insert_node(&mut nodes, p3, tolerance);
+
+                        // Four quarter-ellipses: p0->p1, p1->p2, p2->p3, p3->p0
+                        for (sn, en, sp, ep) in [
+                            (n0, n1, p0, p1),
+                            (n1, n2, p1, p2),
+                            (n2, n3, p2, p3),
+                            (n3, n0, p3, p0),
+                        ] {
+                            edges.push(GraphEdge {
+                                element,
+                                start_node: sn,
+                                end_node: en,
+                                start_pos: sp,
+                                end_pos: ep,
+                            });
+                        }
+                    }
+                }
+            } else if is_periodic_spline {
+                // Split the periodic spline into four quarter-splines at
+                // t=0, t=period/4, t=period/2, t=3*period/4. Using four
+                // segments (rather than two halves) ensures the chord polygon
+                // has non-zero signed area for reliable outer-boundary detection.
+                if let ElementHandle::Spline(sh) = &element {
+                    let split_ok = (|| -> Option<()> {
+                        let knots = sketch.spline_knots(*sh)?;
+                        let t0 = knots[0];
+                        let t_end = knots[knots.len() - 1];
+                        let period = t_end - t0;
+                        let t1 = t0 + period * 0.25;
+                        let t2 = t0 + period * 0.5;
+                        let t3 = t0 + period * 0.75;
+                        let p0 = start; // = spline_point_at(t0)
+                        let p1 = sketch.spline_point_at(*sh, t1)?;
+                        let p2 = sketch.spline_point_at(*sh, t2)?;
+                        let p3 = sketch.spline_point_at(*sh, t3)?;
+                        let n0 = find_or_insert_node(&mut nodes, p0, tolerance);
+                        let n1 = find_or_insert_node(&mut nodes, p1, tolerance);
+                        let n2 = find_or_insert_node(&mut nodes, p2, tolerance);
+                        let n3 = find_or_insert_node(&mut nodes, p3, tolerance);
+                        for (sn, en, sp, ep) in [
+                            (n0, n1, p0, p1),
+                            (n1, n2, p1, p2),
+                            (n2, n3, p2, p3),
+                            (n3, n0, p3, p0),
+                        ] {
+                            edges.push(GraphEdge {
+                                element,
+                                start_node: sn,
+                                end_node: en,
+                                start_pos: sp,
+                                end_pos: ep,
+                            });
+                        }
+                        Some(())
+                    })();
+                    if split_ok.is_none() {
+                        warnings.push(SketchWarning::DegenerateEdge);
                     }
                 }
             } else {
@@ -168,18 +263,14 @@ fn element_endpoints(sketch: &Sketch, element: &ElementHandle) -> Option<((f64, 
         }
         ElementHandle::Ellipse(h) => {
             let (cx, cy, semi_a, _semi_b, rotation) = sketch.ellipse_params(*h)?;
-            // Ellipse is a full curve; endpoints at t=0 and t=2*PI
+            // Ellipse is a full closed curve. Return coincident start/end at
+            // the t=0 point on the major axis so the build_edge_graph loop
+            // detects dist ≈ 0 and routes into the full-ellipse splitting path.
             let cos_r = rotation.cos();
             let sin_r = rotation.sin();
-            // At t=0: (cx + semi_a * cos_r, cy + semi_a * sin_r)
-            let start_x = cx + semi_a * cos_r;
-            let start_y = cy + semi_a * sin_r;
-            // At t=PI: (cx - semi_a * cos_r, cy - semi_a * sin_r)
-            let end_x = cx - semi_a * cos_r;
-            let end_y = cy - semi_a * sin_r;
-            // Full ellipse is closed, so start == end. Use t=0 for both.
-            // For the graph, a closed curve has coincident endpoints.
-            Some(((start_x, start_y), (end_x, end_y)))
+            let x0 = cx + semi_a * cos_r;
+            let y0 = cy + semi_a * sin_r;
+            Some(((x0, y0), (x0, y0)))
         }
         ElementHandle::Parabola(h) => {
             let (vx, vy, focal_dist, rotation) = sketch.parabola_params(*h)?;
@@ -245,167 +336,5 @@ fn rotate_and_translate(local: (f64, f64), cos_r: f64, sin_r: f64, tx: f64, ty: 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rectangle_four_lines() {
-        let mut sk = Sketch::new();
-        let p0 = sk.add_point(0.0, 0.0);
-        let p1 = sk.add_point(1.0, 0.0);
-        let p2 = sk.add_point(1.0, 1.0);
-        let p3 = sk.add_point(0.0, 1.0);
-        let _l0 = sk.add_line(p0, p1);
-        let _l1 = sk.add_line(p1, p2);
-        let _l2 = sk.add_line(p2, p3);
-        let _l3 = sk.add_line(p3, p0);
-
-        let tol = Tolerance::default();
-        let (graph, warnings) = build_edge_graph(&sk, &tol);
-
-        assert!(warnings.is_empty());
-        assert_eq!(graph.nodes.len(), 4);
-        assert_eq!(graph.edges.len(), 4);
-    }
-
-    #[test]
-    fn zero_length_line_filtered() {
-        let mut sk = Sketch::new();
-        let p0 = sk.add_point(0.0, 0.0);
-        let p1 = sk.add_point(0.0, 0.0); // same position
-        let _l = sk.add_line(p0, p1);
-
-        let tol = Tolerance::default();
-        let (graph, warnings) = build_edge_graph(&sk, &tol);
-
-        assert_eq!(graph.edges.len(), 0);
-        assert_eq!(warnings.len(), 1);
-        assert!(matches!(warnings[0], SketchWarning::DegenerateEdge));
-    }
-
-    #[test]
-    fn two_separate_shapes() {
-        let mut sk = Sketch::new();
-        // Shape 1: triangle
-        let p0 = sk.add_point(0.0, 0.0);
-        let p1 = sk.add_point(1.0, 0.0);
-        let p2 = sk.add_point(0.5, 1.0);
-        let _l0 = sk.add_line(p0, p1);
-        let _l1 = sk.add_line(p1, p2);
-        let _l2 = sk.add_line(p2, p0);
-
-        // Shape 2: separate line segment
-        let p3 = sk.add_point(10.0, 10.0);
-        let p4 = sk.add_point(11.0, 10.0);
-        let _l3 = sk.add_line(p3, p4);
-
-        let tol = Tolerance::default();
-        let (graph, warnings) = build_edge_graph(&sk, &tol);
-
-        assert!(warnings.is_empty());
-        assert_eq!(graph.edges.len(), 4); // 3 triangle + 1 separate
-        assert_eq!(graph.nodes.len(), 5); // 3 triangle + 2 separate
-    }
-
-    #[test]
-    fn construction_lines_excluded() {
-        let mut sk = Sketch::new();
-        let p0 = sk.add_point(0.0, 0.0);
-        let p1 = sk.add_point(1.0, 0.0);
-        let p2 = sk.add_point(1.0, 1.0);
-        let l0 = sk.add_line(p0, p1);
-        let _l1 = sk.add_line(p1, p2);
-
-        // Mark first line as construction
-        sk.set_construction(ElementHandle::Line(l0), true);
-
-        let tol = Tolerance::default();
-        let (graph, warnings) = build_edge_graph(&sk, &tol);
-
-        assert!(warnings.is_empty());
-        assert_eq!(graph.edges.len(), 1);
-    }
-
-    #[test]
-    fn arc_endpoints_computed_correctly() {
-        use std::f64::consts::{FRAC_PI_2, PI};
-
-        let mut sk = Sketch::new();
-        // Arc centered at origin, radius 1, from 0 to PI/2
-        let _arc = sk.add_arc(0.0, 0.0, 1.0, 0.0, FRAC_PI_2);
-
-        let tol = Tolerance::default();
-        let (graph, warnings) = build_edge_graph(&sk, &tol);
-
-        assert!(warnings.is_empty());
-        assert_eq!(graph.edges.len(), 1);
-
-        let edge = &graph.edges[0];
-        // Start at angle 0: (1, 0)
-        assert!((edge.start_pos.0 - 1.0).abs() < 1e-10);
-        assert!((edge.start_pos.1 - 0.0).abs() < 1e-10);
-        // End at angle PI/2: (0, 1)
-        assert!((edge.end_pos.0 - 0.0).abs() < 1e-10);
-        assert!((edge.end_pos.1 - 1.0).abs() < 1e-10);
-
-        // Full circle arc (start == end) is split into two half-arcs.
-        let mut sk2 = Sketch::new();
-        let _arc2 = sk2.add_arc(0.0, 0.0, 1.0, 0.0, 2.0 * PI);
-        let (graph2, warnings2) = build_edge_graph(&sk2, &tol);
-        // Full circle should produce 2 edges (split at the midpoint)
-        // and 2 nodes (start/end and midpoint).
-        assert!(
-            warnings2.is_empty(),
-            "full circle should not produce warnings"
-        );
-        assert_eq!(
-            graph2.edges.len(),
-            2,
-            "full circle should split into 2 edges"
-        );
-        assert_eq!(graph2.nodes.len(), 2, "full circle should have 2 nodes");
-    }
-
-    #[test]
-    fn full_circle_produces_two_edges_and_two_nodes() {
-        use std::f64::consts::PI;
-        let mut sk = Sketch::new();
-        let _arc = sk.add_arc(0.0, 0.0, 1.0, 0.0, 2.0 * PI);
-
-        let tol = Tolerance::default();
-        let (graph, warnings) = build_edge_graph(&sk, &tol);
-
-        assert!(warnings.is_empty());
-        assert_eq!(graph.edges.len(), 2, "full circle split into 2 edges");
-        assert_eq!(graph.nodes.len(), 2, "full circle has 2 nodes");
-
-        // The two edges should form a cycle: edge0.end == edge1.start,
-        // edge1.end == edge0.start.
-        let e0 = &graph.edges[0];
-        let e1 = &graph.edges[1];
-        assert_eq!(e0.end_node, e1.start_node);
-        assert_eq!(e1.end_node, e0.start_node);
-    }
-
-    #[test]
-    fn node_merging_within_tolerance() {
-        let mut sk = Sketch::new();
-        // Two lines sharing an endpoint, but with slight numerical noise
-        let p0 = sk.add_point(0.0, 0.0);
-        let p1 = sk.add_point(1.0, 0.0);
-        let p2 = sk.add_point(1.0 + 1e-9, 0.0); // very close to p1
-        let p3 = sk.add_point(2.0, 0.0);
-        let _l0 = sk.add_line(p0, p1);
-        let _l1 = sk.add_line(p2, p3);
-
-        let tol = Tolerance::default(); // linear = 1e-6
-        let (graph, warnings) = build_edge_graph(&sk, &tol);
-
-        assert!(warnings.is_empty());
-        assert_eq!(graph.edges.len(), 2);
-        // p1 and p2 should merge into the same node
-        assert_eq!(graph.nodes.len(), 3);
-        // The two edges should share a node
-        assert_eq!(graph.edges[0].end_node, graph.edges[1].start_node);
-    }
-}
+#[path = "edge_graph_tests.rs"]
+mod tests;
