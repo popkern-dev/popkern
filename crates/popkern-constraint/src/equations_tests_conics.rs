@@ -13,7 +13,7 @@ fn point_on_ellipse_satisfied() {
     let p = sk.add_point(2.0, 0.0);
     let e = sk.add_ellipse(0.0, 0.0, 2.0, 1.0, 0.0);
     let ce = entry(Constraint::PointOnEllipse(p, e), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert_eq!(equation_count(&ce.constraint), 1);
     assert!(out.residuals[0].abs() < 1e-12, "res={}", out.residuals[0]);
 }
@@ -26,7 +26,7 @@ fn point_on_ellipse_satisfied_rotated() {
     let p = sk.add_point(0.0, 3.0);
     let e = sk.add_ellipse(0.0, 0.0, 3.0, 1.0, theta);
     let ce = entry(Constraint::PointOnEllipse(p, e), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert!(out.residuals[0].abs() < 1e-12, "res={}", out.residuals[0]);
 }
 
@@ -36,7 +36,7 @@ fn point_on_ellipse_violated() {
     let p = sk.add_point(3.0, 0.0);
     let e = sk.add_ellipse(0.0, 0.0, 2.0, 1.0, 0.0);
     let ce = entry(Constraint::PointOnEllipse(p, e), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert!(out.residuals[0].abs() > 0.5);
 }
 
@@ -58,7 +58,7 @@ fn point_on_parabola_satisfied() {
     let p = sk.add_point(1.0, 2.0);
     let pa = sk.add_parabola(0.0, 0.0, 1.0, 0.0);
     let ce = entry(Constraint::PointOnParabola(p, pa), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert_eq!(equation_count(&ce.constraint), 1);
     assert!(out.residuals[0].abs() < 1e-12, "res={}", out.residuals[0]);
 }
@@ -69,7 +69,7 @@ fn point_on_parabola_violated() {
     let p = sk.add_point(1.0, 1.0);
     let pa = sk.add_parabola(0.0, 0.0, 1.0, 0.0);
     let ce = entry(Constraint::PointOnParabola(p, pa), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert!(out.residuals[0].abs() > 0.5);
 }
 
@@ -91,7 +91,7 @@ fn point_on_hyperbola_satisfied() {
     let p = sk.add_point(2.0, 0.0);
     let h = sk.add_hyperbola(0.0, 0.0, 2.0, 1.0, 0.0);
     let ce = entry(Constraint::PointOnHyperbola(p, h), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert_eq!(equation_count(&ce.constraint), 1);
     assert!(out.residuals[0].abs() < 1e-12, "res={}", out.residuals[0]);
 }
@@ -105,7 +105,7 @@ fn point_on_hyperbola_satisfied_off_axis() {
     let p = sk.add_point(u, v);
     let h = sk.add_hyperbola(0.0, 0.0, 1.0, 1.0, 0.0);
     let ce = entry(Constraint::PointOnHyperbola(p, h), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert!(out.residuals[0].abs() < 1e-12, "res={}", out.residuals[0]);
 }
 
@@ -125,7 +125,7 @@ fn fixed_ellipse_satisfied() {
     let mut sk = Sketch::new();
     let e = sk.add_ellipse(1.0, 2.0, 3.0, 1.5, 0.5);
     let ce = entry(Constraint::FixedEllipse(e), vec![1.0, 2.0, 3.0, 1.5, 0.5]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert_eq!(equation_count(&ce.constraint), 5);
     assert!(out.residuals.iter().all(|r| r.abs() < 1e-15));
 }
@@ -145,7 +145,7 @@ fn fixed_parabola_satisfied() {
     let mut sk = Sketch::new();
     let p = sk.add_parabola(1.0, 2.0, 3.0, 0.5);
     let ce = entry(Constraint::FixedParabola(p), vec![1.0, 2.0, 3.0, 0.5]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert_eq!(equation_count(&ce.constraint), 4);
     assert!(out.residuals.iter().all(|r| r.abs() < 1e-15));
 }
@@ -165,7 +165,7 @@ fn fixed_hyperbola_satisfied() {
     let mut sk = Sketch::new();
     let h = sk.add_hyperbola(1.0, 2.0, 3.0, 1.5, 0.5);
     let ce = entry(Constraint::FixedHyperbola(h), vec![1.0, 2.0, 3.0, 1.5, 0.5]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert_eq!(equation_count(&ce.constraint), 5);
     assert!(out.residuals.iter().all(|r| r.abs() < 1e-15));
 }
@@ -186,7 +186,7 @@ fn concentric_ellipse_satisfied() {
     let e1 = sk.add_ellipse(3.0, 4.0, 5.0, 2.0, 0.0);
     let e2 = sk.add_ellipse(3.0, 4.0, 2.0, 1.0, 1.0);
     let ce = entry(Constraint::ConcentricEllipse(e1, e2), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert_eq!(equation_count(&ce.constraint), 2);
     assert!(out.residuals.iter().all(|r| r.abs() < 1e-15));
 }
@@ -208,7 +208,7 @@ fn concentric_arc_ellipse_satisfied() {
     let a = sk.add_arc(3.0, 4.0, 2.0, 0.0, std::f64::consts::PI);
     let e = sk.add_ellipse(3.0, 4.0, 5.0, 2.0, 0.0);
     let ce = entry(Constraint::ConcentricArcEllipse(a, e), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert_eq!(equation_count(&ce.constraint), 2);
     assert!(out.residuals.iter().all(|r| r.abs() < 1e-15));
 }
@@ -230,7 +230,7 @@ fn equal_semi_axis_satisfied() {
     let e1 = sk.add_ellipse(0.0, 0.0, 5.0, 2.0, 0.0);
     let e2 = sk.add_ellipse(10.0, 10.0, 5.0, 3.0, 1.0);
     let ce = entry(Constraint::EqualSemiAxis(e1, e2), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert_eq!(equation_count(&ce.constraint), 1);
     assert!(out.residuals[0].abs() < 1e-15);
 }
@@ -252,7 +252,7 @@ fn focal_distance_satisfied() {
     // a=5, b=3, focal distance c = sqrt(25-9) = 4
     let e = sk.add_ellipse(0.0, 0.0, 5.0, 3.0, 0.0);
     let ce = entry(Constraint::FocalDistance(e, 4.0), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert_eq!(equation_count(&ce.constraint), 1);
     assert!(out.residuals[0].abs() < 1e-12, "res={}", out.residuals[0]);
 }
@@ -273,7 +273,7 @@ fn ellipse_eccentricity_satisfied() {
     // a=5, b=3, ecc = sqrt(1 - 9/25) = sqrt(16/25) = 0.8
     let e = sk.add_ellipse(0.0, 0.0, 5.0, 3.0, 0.0);
     let ce = entry(Constraint::EllipseEccentricity(e, 0.8), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert_eq!(equation_count(&ce.constraint), 1);
     assert!(out.residuals[0].abs() < 1e-12, "res={}", out.residuals[0]);
 }
@@ -294,7 +294,7 @@ fn hyperbola_eccentricity_satisfied() {
     // a=3, b=4, ecc = sqrt(1 + 16/9) = sqrt(25/9) = 5/3
     let h = sk.add_hyperbola(0.0, 0.0, 3.0, 4.0, 0.0);
     let ce = entry(Constraint::HyperbolaEccentricity(h, 5.0 / 3.0), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert_eq!(equation_count(&ce.constraint), 1);
     assert!(out.residuals[0].abs() < 1e-12, "res={}", out.residuals[0]);
 }
@@ -318,7 +318,7 @@ fn tangent_line_ellipse_satisfied() {
     let l = sk.add_line(p1, p2);
     let e = sk.add_ellipse(0.0, 0.0, 2.0, 1.0, 0.0);
     let ce = entry(Constraint::TangentLineEllipse(l, e), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert_eq!(equation_count(&ce.constraint), 1);
     assert!(out.residuals[0].abs() < 1e-10, "res={}", out.residuals[0]);
 }
@@ -332,7 +332,7 @@ fn tangent_line_ellipse_violated() {
     let l = sk.add_line(p1, p2);
     let e = sk.add_ellipse(0.0, 0.0, 1.0, 1.0, 0.0);
     let ce = entry(Constraint::TangentLineEllipse(l, e), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert!(out.residuals[0].abs() > 0.1);
 }
 
@@ -365,7 +365,7 @@ fn tangent_line_parabola_satisfied() {
     let l = sk.add_line(p1, p2);
     let pa = sk.add_parabola(0.0, 0.0, 1.0, 0.0);
     let ce = entry(Constraint::TangentLineParabola(l, pa), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert_eq!(equation_count(&ce.constraint), 1);
     assert!(out.residuals[0].abs() < 1e-10, "res={}", out.residuals[0]);
 }
@@ -398,7 +398,7 @@ fn tangent_line_hyperbola_satisfied() {
     let l = sk.add_line(p1, p2);
     let h = sk.add_hyperbola(0.0, 0.0, 1.0, 1.0, 0.0);
     let ce = entry(Constraint::TangentLineHyperbola(l, h), vec![]);
-    let out = evaluate_constraint(&sk, &ce, 0);
+    let out = evaluate_constraint(&sk, None, &ce, 0);
     assert_eq!(equation_count(&ce.constraint), 1);
     assert!(out.residuals[0].abs() < 1e-10, "res={}", out.residuals[0]);
 }

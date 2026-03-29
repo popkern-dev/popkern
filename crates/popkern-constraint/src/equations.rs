@@ -5,6 +5,7 @@
 //! solver.
 
 pub(crate) mod conics;
+mod conics_arc;
 mod conics_tangent;
 mod tier2;
 
@@ -12,7 +13,7 @@ mod tier2;
 #[path = "equations_tests.rs"]
 mod tests;
 
-use crate::constraint::{Constraint, ConstraintEntry};
+use crate::constraint::{Constraint, ConstraintEntry, ConstraintHandle};
 use crate::elements::{ArcHandle, LineHandle, PointHandle};
 use crate::Sketch;
 
@@ -69,10 +70,15 @@ pub(crate) fn equation_count(constraint: &Constraint) -> usize {
 
 /// Evaluate the residuals and Jacobian for a single constraint.
 ///
+/// `handle` is needed so that constraints with auxiliary parameters
+/// (e.g. arc-to-conic tangency) can look up their auxiliary parameter
+/// indices via [`Sketch::aux_param_map`].
+///
 /// `row_offset` is added to every row index so that constraints can be
 /// stacked into a single system.
 pub(crate) fn evaluate_constraint(
     sketch: &Sketch,
+    handle: Option<ConstraintHandle>,
     entry: &ConstraintEntry,
     row_offset: usize,
 ) -> EquationOutput {
@@ -144,10 +150,25 @@ pub(crate) fn evaluate_constraint(
         Constraint::TangentLineHyperbola(l, h) => {
             conics_tangent::eval_tangent_line_hyperbola(sketch, *l, *h, row_offset)
         }
-        // ── Arc-to-conic tangency (Task 5) ───────────────────────────
-        Constraint::TangentArcEllipse(..) => todo!("Task 5: arc-ellipse tangency"),
-        Constraint::TangentArcParabola(..) => todo!("Task 5: arc-parabola tangency"),
-        Constraint::TangentArcHyperbola(..) => todo!("Task 5: arc-hyperbola tangency"),
+        // ── Arc-to-conic tangency (aux param required) ─────────────
+        Constraint::TangentArcEllipse(a, e) => {
+            let aux_idx = handle
+                .and_then(|h| sketch.aux_param_map.get(&h).copied())
+                .unwrap_or(0);
+            conics_arc::eval_tangent_arc_ellipse(sketch, *a, *e, aux_idx, row_offset)
+        }
+        Constraint::TangentArcParabola(a, p) => {
+            let aux_idx = handle
+                .and_then(|h| sketch.aux_param_map.get(&h).copied())
+                .unwrap_or(0);
+            conics_arc::eval_tangent_arc_parabola(sketch, *a, *p, aux_idx, row_offset)
+        }
+        Constraint::TangentArcHyperbola(a, h) => {
+            let aux_idx = handle
+                .and_then(|h| sketch.aux_param_map.get(&h).copied())
+                .unwrap_or(0);
+            conics_arc::eval_tangent_arc_hyperbola(sketch, *a, *h, aux_idx, row_offset)
+        }
     }
 }
 

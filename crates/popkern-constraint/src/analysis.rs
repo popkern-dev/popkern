@@ -105,7 +105,7 @@ pub(crate) fn analyze_constraints(sketch: &mut Sketch, tolerance: f64) -> Vec<Co
     for (handle, entry) in sketch.constraints.iter() {
         let neq = equation_count(&entry.constraint);
         if entry.kind != ConstraintKind::Driving {
-            let output = evaluate_constraint(sketch, entry, 0);
+            let output = evaluate_constraint(sketch, Some(handle), entry, 0);
             let max_residual = output
                 .residuals
                 .iter()
@@ -185,7 +185,7 @@ fn find_conflicting_constraints(
             continue;
         }
         let neq = equation_count(&entry.constraint);
-        let output = evaluate_constraint(sketch, entry, 0);
+        let output = evaluate_constraint(sketch, Some(handle), entry, 0);
 
         let prev_rank = matrix_rank(&accumulated_rows, n);
 

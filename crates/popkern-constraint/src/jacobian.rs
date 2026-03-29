@@ -39,12 +39,12 @@ pub(crate) fn assemble(sketch: &Sketch) -> EquationSystem {
     let mut triplets: Vec<(usize, usize, f64)> = Vec::new();
     let mut row_offset: usize = 0;
 
-    for entry in sketch.constraints.values() {
+    for (handle, entry) in sketch.constraints.iter() {
         if entry.kind != ConstraintKind::Driving {
             continue;
         }
 
-        let output = evaluate_constraint(sketch, entry, row_offset);
+        let output = evaluate_constraint(sketch, Some(handle), entry, row_offset);
 
         residuals.extend_from_slice(&output.residuals);
         triplets.extend_from_slice(&output.jacobian);

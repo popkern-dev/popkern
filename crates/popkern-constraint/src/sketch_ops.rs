@@ -29,7 +29,7 @@ impl Sketch {
             Constraint::Angle(l1, l2, _) => self.compute_angle_value(*l1, *l2),
             Constraint::PointLineDistance(p, l, _) => self.compute_point_line_distance(*p, *l),
             _ => {
-                let output = equations::evaluate_constraint(self, entry, 0);
+                let output = equations::evaluate_constraint(self, Some(handle), entry, 0);
                 let norm_sq: f64 = output.residuals.iter().map(|r| r * r).sum();
                 Some(norm_sq.sqrt())
             }

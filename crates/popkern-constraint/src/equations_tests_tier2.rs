@@ -13,7 +13,7 @@ fn point_on_arc_satisfied() {
     let p = sk.add_point(5.0, 0.0);
     let a = sk.add_arc(0.0, 0.0, 5.0, 0.0, std::f64::consts::PI);
     let e = entry(Constraint::PointOnArc(p, a), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() < 1e-12);
 }
 
@@ -23,7 +23,7 @@ fn point_on_arc_violated() {
     let p = sk.add_point(3.0, 0.0);
     let a = sk.add_arc(0.0, 0.0, 5.0, 0.0, std::f64::consts::PI);
     let e = entry(Constraint::PointOnArc(p, a), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() > 1.0);
 }
 
@@ -46,7 +46,7 @@ fn point_line_distance_satisfied() {
     let b = sk.add_point(10.0, 0.0);
     let l = sk.add_line(a, b);
     let e = entry(Constraint::PointLineDistance(p, l, 3.0), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() < 1e-12);
 }
 
@@ -76,7 +76,7 @@ fn angle_satisfied() {
         Constraint::Angle(l1, l2, std::f64::consts::FRAC_PI_2),
         vec![],
     );
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() < 1e-14);
 }
 
@@ -103,7 +103,7 @@ fn tangent_satisfied() {
     let l = sk.add_line(a, b);
     let arc = sk.add_arc(3.0, 0.0, 5.0, 0.0, std::f64::consts::PI);
     let e = entry(Constraint::Tangent(l, arc), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() < 1e-12);
 }
 
@@ -126,7 +126,7 @@ fn arc_tangent_satisfied() {
     let a1 = sk.add_arc(0.0, 0.0, 3.0, 0.0, std::f64::consts::PI);
     let a2 = sk.add_arc(5.0, 0.0, 2.0, 0.0, std::f64::consts::PI);
     let e = entry(Constraint::ArcTangent(a1, a2), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() < 1e-12);
 }
 
@@ -147,7 +147,7 @@ fn equal_radius_satisfied() {
     let a1 = sk.add_arc(0.0, 0.0, 5.0, 0.0, std::f64::consts::PI);
     let a2 = sk.add_arc(10.0, 10.0, 5.0, 0.0, std::f64::consts::PI);
     let e = entry(Constraint::EqualRadius(a1, a2), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() < 1e-15);
 }
 
@@ -171,7 +171,7 @@ fn symmetric_satisfied() {
     let lb = sk.add_point(5.0, 1.0);
     let l = sk.add_line(la, lb);
     let e = entry(Constraint::Symmetric(p1, p2, l), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert_eq!(equation_count(&e.constraint), 2);
     assert!(
         out.residuals[0].abs() < 1e-14,
@@ -207,7 +207,7 @@ fn midpoint_satisfied() {
     let b = sk.add_point(4.0, 5.0);
     let l = sk.add_line(a, b);
     let e = entry(Constraint::Midpoint(p, l), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals.iter().all(|r| r.abs() < 1e-14));
 }
 
@@ -230,7 +230,7 @@ fn concentric_satisfied() {
     let a1 = sk.add_arc(3.0, 4.0, 5.0, 0.0, std::f64::consts::PI);
     let a2 = sk.add_arc(3.0, 4.0, 2.0, 0.0, std::f64::consts::PI);
     let e = entry(Constraint::Concentric(a1, a2), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals.iter().all(|r| r.abs() < 1e-15));
 }
 
@@ -255,7 +255,7 @@ fn collinear_satisfied() {
     let l1 = sk.add_line(a1, b1);
     let l2 = sk.add_line(a2, b2);
     let e = entry(Constraint::Collinear(l1, l2), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() < 1e-14);
 }
 
@@ -269,7 +269,7 @@ fn collinear_violated() {
     let l1 = sk.add_line(a1, b1);
     let l2 = sk.add_line(a2, b2);
     let e = entry(Constraint::Collinear(l1, l2), vec![]);
-    let out = evaluate_constraint(&sk, &e, 0);
+    let out = evaluate_constraint(&sk, None, &e, 0);
     assert!(out.residuals[0].abs() > 0.5);
 }
 
