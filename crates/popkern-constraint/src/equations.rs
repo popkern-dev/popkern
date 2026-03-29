@@ -11,6 +11,7 @@ mod conics_tangent;
 pub(crate) mod spline_deriv;
 #[allow(dead_code)]
 pub(crate) mod spline_eval;
+mod splines;
 mod tier2;
 
 #[cfg(test)]
@@ -204,12 +205,28 @@ pub(crate) fn evaluate_constraint(
                 .unwrap_or(0);
             conics_arc::eval_tangent_arc_hyperbola(sketch, *a, *h, aux_idx, row_offset)
         }
-        // ── Spline constraints (Task 4+) ──────────────────────────────
-        Constraint::PointOnSpline(..) => todo!("spline constraints - Task 4"),
-        Constraint::SplineEndTangent(..) => todo!("spline constraints - Task 4"),
-        Constraint::SplineEndTangentToArc(..) => todo!("spline constraints - Task 4"),
-        Constraint::SplineFixedEndTangent(..) => todo!("spline constraints - Task 4"),
-        Constraint::SplineFixedEndCurvature(..) => todo!("spline constraints - Task 4"),
+        // ── Spline constraints ─────────────────────────────────────────
+        Constraint::PointOnSpline(p, s) => {
+            splines::eval_point_on_spline(sketch, *p, *s, handle, row_offset)
+        }
+        Constraint::SplineEndTangent(s, end_idx, l) => {
+            splines::eval_spline_end_tangent(sketch, *s, *end_idx, *l, row_offset)
+        }
+        Constraint::SplineEndTangentToArc(s, end_idx, a) => {
+            splines::eval_spline_end_tangent_to_arc(sketch, *s, *end_idx, *a, row_offset)
+        }
+        Constraint::SplineFixedEndTangent(s, end_idx, _tx, _ty) => {
+            splines::eval_spline_fixed_end_tangent(
+                sketch,
+                *s,
+                *end_idx,
+                &entry.fixed_values,
+                row_offset,
+            )
+        }
+        Constraint::SplineFixedEndCurvature(s, end_idx, val) => {
+            splines::eval_spline_fixed_end_curvature(sketch, *s, *end_idx, *val, row_offset)
+        }
         Constraint::SplineTangentToLine(..) => todo!("spline constraints - Task 5"),
         Constraint::SplineTangentToArc(..) => todo!("spline constraints - Task 5"),
         Constraint::SplineTangentToEllipse(..) => todo!("spline constraints - Task 5"),

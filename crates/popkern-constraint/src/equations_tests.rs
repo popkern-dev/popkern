@@ -9,6 +9,9 @@ mod conics;
 #[path = "conics_arc_tests.rs"]
 mod conics_arc;
 
+#[path = "equations_tests_splines.rs"]
+mod splines;
+
 use crate::constraint::{Constraint, ConstraintEntry, ConstraintKind, ConstraintStatus};
 use crate::equations::{equation_count, evaluate_constraint};
 use crate::Sketch;

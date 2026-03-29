@@ -455,6 +455,9 @@ impl Sketch {
                     vec![]
                 }
             }
+            Constraint::SplineFixedEndTangent(_s, _end_idx, tx, ty) => {
+                vec![*tx, *ty]
+            }
             _ => vec![],
         }
     }
