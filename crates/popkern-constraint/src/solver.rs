@@ -1,11 +1,18 @@
-//! Newton–Raphson solver with backtracking line search and
-//! Levenberg–Marquardt fallback.
+//! Newton-Raphson solver with backtracking line search and
+//! Levenberg-Marquardt fallback.
 //!
 //! The solver assembles the equation system from all driving constraints,
 //! builds a dense Jacobian, and iteratively updates the sketch parameter
 //! vector until the residual norm drops below a tolerance.
+//!
+//! When the constraint graph decomposes into multiple independent connected
+//! components, each sub-problem is solved separately to reduce system size.
+
+#[path = "solver_component.rs"]
+mod component;
 
 use crate::analysis;
+use crate::decompose;
 use crate::error::{ConstraintError, SolveResult, SolveStatus};
 use crate::jacobian::assemble;
 use crate::rigid_set;
@@ -13,7 +20,7 @@ use crate::Sketch;
 use faer::prelude::{SpSolver, SpSolverLstsq};
 use faer::Mat;
 
-/// Options controlling the Newton–Raphson solver.
+/// Options controlling the Newton-Raphson solver.
 #[derive(Debug, Clone)]
 pub struct SolverOptions {
     /// Convergence tolerance on the L2 residual norm.
@@ -22,9 +29,9 @@ pub struct SolverOptions {
     pub max_iterations: usize,
     /// Maximum number of backtracking line-search halvings.
     pub line_search_max: usize,
-    /// Initial Levenberg–Marquardt damping parameter.
+    /// Initial Levenberg-Marquardt damping parameter.
     pub lm_lambda_init: f64,
-    /// Maximum Levenberg–Marquardt damping parameter before giving up.
+    /// Maximum Levenberg-Marquardt damping parameter before giving up.
     pub lm_lambda_max: f64,
 }
 
@@ -42,6 +49,10 @@ impl Default for SolverOptions {
 
 /// Solve the constraint system, updating `sketch.params` in place.
 ///
+/// When the constraint graph decomposes into multiple independent
+/// components, each is solved separately. A single-component sketch
+/// takes the fast path with zero decomposition overhead.
+///
 /// Returns the solve result with status, iteration count, and final
 /// residual norm.
 pub(crate) fn solve(
@@ -52,13 +63,46 @@ pub(crate) fn solve(
     // sees up-to-date constant values.
     crate::expression::evaluate_all(sketch).map_err(ConstraintError::ExpressionError)?;
 
-    let (iterations, converged) = newton_loop(sketch, options);
+    let components = decompose::find_components(sketch);
 
-    // Run post-solve analysis to determine the real status.
+    // Fast path: 0 or 1 component means no decomposition overhead.
+    if components.len() <= 1 {
+        return solve_single(sketch, options);
+    }
+
+    // Multi-component path: solve each sub-problem independently.
+    let total_iterations = {
+        let mut max_iter = 0u32;
+        for comp in &components {
+            let result = component::solve_component(sketch, comp, options);
+            if result.iterations > max_iter {
+                max_iter = result.iterations;
+            }
+        }
+        max_iter
+    };
+
+    // Run post-solve analysis on the full sketch after all components.
+    let final_sys = assemble(sketch);
+    let final_norm = residual_norm(&final_sys.residuals);
+    let converged = final_norm < options.tolerance || final_sys.num_equations == 0;
+
+    finalize(sketch, options, total_iterations, converged)
+}
+
+/// Solve the full (monolithic) constraint system.
+///
+/// This is the original solver path: assemble the complete system and
+/// run the Newton-Raphson loop on all parameters at once.
+fn solve_single(
+    sketch: &mut Sketch,
+    options: &SolverOptions,
+) -> Result<SolveResult, ConstraintError> {
+    let (iterations, converged) = newton_loop(sketch, options);
     finalize(sketch, options, iterations, converged)
 }
 
-/// Run the Newton–Raphson iteration loop.
+/// Run the Newton-Raphson iteration loop (monolithic system).
 ///
 /// Returns `(iterations, converged)`.
 fn newton_loop(sketch: &mut Sketch, options: &SolverOptions) -> (u32, bool) {
@@ -98,7 +142,6 @@ fn newton_loop(sketch: &mut Sketch, options: &SolverOptions) -> (u32, bool) {
         };
 
         // If the step is tiny, we are at a (possibly non-zero) minimum.
-        // This handles over-determined / conflicting systems.
         let step_norm = dx.iter().map(|d| d * d).sum::<f64>().sqrt();
         if step_norm < options.tolerance * 1e-2 {
             return (iteration as u32, true);
@@ -130,7 +173,7 @@ fn newton_loop(sketch: &mut Sketch, options: &SolverOptions) -> (u32, bool) {
             continue;
         }
 
-        // Line search failed — try Levenberg–Marquardt.
+        // Line search failed -- try Levenberg-Marquardt.
         sketch.params.copy_from_slice(&saved_params);
 
         let lm_accepted = try_levenberg_marquardt(sketch, &j_mat, &sys.residuals, norm, options);
@@ -141,7 +184,7 @@ fn newton_loop(sketch: &mut Sketch, options: &SolverOptions) -> (u32, bool) {
         }
     }
 
-    // Exhausted iterations — check if we converged on the last step.
+    // Exhausted iterations -- check if we converged on the last step.
     let final_norm = residual_norm(&assemble(sketch).residuals);
     (
         options.max_iterations as u32,
@@ -201,7 +244,7 @@ fn finalize(
 ///   dx = J^T (J J^T)^{-1} (-F)
 ///
 /// This finds the smallest step that satisfies the linearised equations.
-fn solve_underdetermined(j_mat: &Mat<f64>, neg_f: &Mat<f64>, n: usize) -> Vec<f64> {
+pub(super) fn solve_underdetermined(j_mat: &Mat<f64>, neg_f: &Mat<f64>, n: usize) -> Vec<f64> {
     let jt = j_mat.transpose().to_owned();
     let jjt = j_mat * &jt; // m x m
     let lu = jjt.partial_piv_lu();
@@ -210,7 +253,7 @@ fn solve_underdetermined(j_mat: &Mat<f64>, neg_f: &Mat<f64>, n: usize) -> Vec<f6
     (0..n).map(|i| dx_mat.read(i, 0)).collect()
 }
 
-/// Attempt a Levenberg–Marquardt step: solve (J^T J + lambda I) dx = -J^T F
+/// Attempt a Levenberg-Marquardt step: solve (J^T J + lambda I) dx = -J^T F
 /// with increasing lambda until the residual decreases.
 ///
 /// Returns `true` if a step was accepted (and sketch.params is updated).
@@ -225,11 +268,9 @@ fn try_levenberg_marquardt(
     let n = j_mat.ncols();
     let saved_params = sketch.params.clone();
 
-    // J^T * J
     let jt = j_mat.transpose().to_owned();
     let jtj = &jt * j_mat;
 
-    // J^T * (-F)
     let mut neg_f = Mat::<f64>::zeros(m, 1);
     for (i, &r) in residuals.iter().enumerate() {
         neg_f.write(i, 0, -r);
@@ -238,19 +279,16 @@ fn try_levenberg_marquardt(
 
     let mut lambda = options.lm_lambda_init;
     while lambda <= options.lm_lambda_max {
-        // (J^T J + lambda I)
         let mut damped = jtj.to_owned();
         for i in 0..n {
             let existing = damped.read(i, i);
             damped.write(i, i, existing + lambda);
         }
 
-        // Solve via LU.
         let lu = damped.partial_piv_lu();
         let dx_mat = lu.solve(&jtf);
         let dx: Vec<f64> = (0..n).map(|i| dx_mat.read(i, 0)).collect();
 
-        // Apply step.
         for (i, p) in sketch.params.iter_mut().enumerate() {
             *p = saved_params[i] + dx[i];
         }
@@ -264,7 +302,6 @@ fn try_levenberg_marquardt(
         lambda *= 10.0;
     }
 
-    // Restore params — no improvement found.
     sketch.params.copy_from_slice(&saved_params);
     false
 }
