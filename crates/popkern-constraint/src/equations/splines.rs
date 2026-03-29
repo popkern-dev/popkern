@@ -284,7 +284,7 @@ pub(crate) fn eval_spline_fixed_end_curvature(
 
 /// Merge a Jacobian entry into the vector, adding to an existing entry for
 /// the same (row, col) pair or pushing a new one.
-fn merge_or_push(jac: &mut Vec<(usize, usize, f64)>, row: usize, col: usize, val: f64) {
+pub(crate) fn merge_or_push(jac: &mut Vec<(usize, usize, f64)>, row: usize, col: usize, val: f64) {
     if let Some(entry) = jac.iter_mut().find(|(r, c, _)| *r == row && *c == col) {
         entry.2 += val;
     } else {

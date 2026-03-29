@@ -12,6 +12,8 @@ pub(crate) mod spline_deriv;
 #[allow(dead_code)]
 pub(crate) mod spline_eval;
 mod splines;
+mod splines_tangent;
+mod splines_tangent_conic;
 mod tier2;
 
 #[cfg(test)]
@@ -227,11 +229,27 @@ pub(crate) fn evaluate_constraint(
         Constraint::SplineFixedEndCurvature(s, end_idx, val) => {
             splines::eval_spline_fixed_end_curvature(sketch, *s, *end_idx, *val, row_offset)
         }
-        Constraint::SplineTangentToLine(..) => todo!("spline constraints - Task 5"),
-        Constraint::SplineTangentToArc(..) => todo!("spline constraints - Task 5"),
-        Constraint::SplineTangentToEllipse(..) => todo!("spline constraints - Task 5"),
-        Constraint::SplineTangentToParabola(..) => todo!("spline constraints - Task 5"),
-        Constraint::SplineTangentToHyperbola(..) => todo!("spline constraints - Task 5"),
+        Constraint::SplineTangentToLine(s, l) => {
+            splines_tangent::eval_spline_tangent_to_line(sketch, *s, *l, handle, row_offset)
+        }
+        Constraint::SplineTangentToArc(s, a) => {
+            splines_tangent::eval_spline_tangent_to_arc(sketch, *s, *a, handle, row_offset)
+        }
+        Constraint::SplineTangentToEllipse(s, e) => {
+            splines_tangent_conic::eval_spline_tangent_to_ellipse(
+                sketch, *s, *e, handle, row_offset,
+            )
+        }
+        Constraint::SplineTangentToParabola(s, p) => {
+            splines_tangent_conic::eval_spline_tangent_to_parabola(
+                sketch, *s, *p, handle, row_offset,
+            )
+        }
+        Constraint::SplineTangentToHyperbola(s, h) => {
+            splines_tangent_conic::eval_spline_tangent_to_hyperbola(
+                sketch, *s, *h, handle, row_offset,
+            )
+        }
         Constraint::SplineG1(..) => todo!("spline constraints - Task 6"),
         Constraint::SplineG2(..) => todo!("spline constraints - Task 6"),
         Constraint::SplineLength(..) => todo!("spline constraints - Task 6"),
