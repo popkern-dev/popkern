@@ -4,13 +4,16 @@
 //! sparse Jacobian entries (row, col, value) for use by the Newton-Raphson
 //! solver.
 
+pub(crate) mod conics;
+mod conics_arc;
+mod conics_tangent;
 mod tier2;
 
 #[cfg(test)]
 #[path = "equations_tests.rs"]
 mod tests;
 
-use crate::constraint::{Constraint, ConstraintEntry};
+use crate::constraint::{Constraint, ConstraintEntry, ConstraintHandle};
 use crate::elements::{ArcHandle, LineHandle, PointHandle};
 use crate::Sketch;
 
@@ -32,6 +35,12 @@ pub(crate) fn equation_count(constraint: &Constraint) -> usize {
         Constraint::Symmetric(..) => 2,
         Constraint::Midpoint(..) => 2,
         Constraint::Concentric(..) => 2,
+        Constraint::ConcentricEllipse(..) | Constraint::ConcentricArcEllipse(..) => 2,
+        Constraint::FixedEllipse(..) | Constraint::FixedHyperbola(..) => 5,
+        Constraint::FixedParabola(..) => 4,
+        Constraint::TangentArcEllipse(..)
+        | Constraint::TangentArcParabola(..)
+        | Constraint::TangentArcHyperbola(..) => 2,
         Constraint::Horizontal(..)
         | Constraint::Vertical(..)
         | Constraint::Distance(..)
@@ -45,16 +54,31 @@ pub(crate) fn equation_count(constraint: &Constraint) -> usize {
         | Constraint::EqualRadius(..)
         | Constraint::Parallel(..)
         | Constraint::Perpendicular(..)
-        | Constraint::Collinear(..) => 1,
+        | Constraint::Collinear(..)
+        | Constraint::PointOnEllipse(..)
+        | Constraint::PointOnParabola(..)
+        | Constraint::PointOnHyperbola(..)
+        | Constraint::TangentLineEllipse(..)
+        | Constraint::TangentLineParabola(..)
+        | Constraint::TangentLineHyperbola(..)
+        | Constraint::EqualSemiAxis(..)
+        | Constraint::FocalDistance(..)
+        | Constraint::EllipseEccentricity(..)
+        | Constraint::HyperbolaEccentricity(..) => 1,
     }
 }
 
 /// Evaluate the residuals and Jacobian for a single constraint.
 ///
+/// `handle` is needed so that constraints with auxiliary parameters
+/// (e.g. arc-to-conic tangency) can look up their auxiliary parameter
+/// indices via [`Sketch::aux_param_map`].
+///
 /// `row_offset` is added to every row index so that constraints can be
 /// stacked into a single system.
 pub(crate) fn evaluate_constraint(
     sketch: &Sketch,
+    handle: Option<ConstraintHandle>,
     entry: &ConstraintEntry,
     row_offset: usize,
 ) -> EquationOutput {
@@ -82,6 +106,69 @@ pub(crate) fn evaluate_constraint(
         Constraint::Midpoint(p, l) => tier2::eval_midpoint(sketch, *p, *l, row_offset),
         Constraint::Concentric(a1, a2) => tier2::eval_concentric(sketch, *a1, *a2, row_offset),
         Constraint::Collinear(l1, l2) => tier2::eval_collinear(sketch, *l1, *l2, row_offset),
+        // ── Conic constraints ──────────────────────────────────────────
+        Constraint::PointOnEllipse(p, e) => {
+            conics::eval_point_on_ellipse(sketch, *p, *e, row_offset)
+        }
+        Constraint::PointOnParabola(p, pa) => {
+            conics::eval_point_on_parabola(sketch, *p, *pa, row_offset)
+        }
+        Constraint::PointOnHyperbola(p, h) => {
+            conics::eval_point_on_hyperbola(sketch, *p, *h, row_offset)
+        }
+        Constraint::FixedEllipse(e) => {
+            conics::eval_fixed_ellipse(sketch, *e, &entry.fixed_values, row_offset)
+        }
+        Constraint::FixedParabola(p) => {
+            conics::eval_fixed_parabola(sketch, *p, &entry.fixed_values, row_offset)
+        }
+        Constraint::FixedHyperbola(h) => {
+            conics::eval_fixed_hyperbola(sketch, *h, &entry.fixed_values, row_offset)
+        }
+        Constraint::FocalDistance(e, d) => conics::eval_focal_distance(sketch, *e, *d, row_offset),
+        Constraint::EllipseEccentricity(e, ecc) => {
+            conics::eval_ellipse_eccentricity(sketch, *e, *ecc, row_offset)
+        }
+        Constraint::HyperbolaEccentricity(h, ecc) => {
+            conics::eval_hyperbola_eccentricity(sketch, *h, *ecc, row_offset)
+        }
+        Constraint::EqualSemiAxis(e1, e2) => {
+            conics::eval_equal_semi_axis(sketch, *e1, *e2, row_offset)
+        }
+        Constraint::ConcentricEllipse(e1, e2) => {
+            conics::eval_concentric_ellipse(sketch, *e1, *e2, row_offset)
+        }
+        Constraint::ConcentricArcEllipse(a, e) => {
+            conics::eval_concentric_arc_ellipse(sketch, *a, *e, row_offset)
+        }
+        Constraint::TangentLineEllipse(l, e) => {
+            conics_tangent::eval_tangent_line_ellipse(sketch, *l, *e, row_offset)
+        }
+        Constraint::TangentLineParabola(l, p) => {
+            conics_tangent::eval_tangent_line_parabola(sketch, *l, *p, row_offset)
+        }
+        Constraint::TangentLineHyperbola(l, h) => {
+            conics_tangent::eval_tangent_line_hyperbola(sketch, *l, *h, row_offset)
+        }
+        // ── Arc-to-conic tangency (aux param required) ─────────────
+        Constraint::TangentArcEllipse(a, e) => {
+            let aux_idx = handle
+                .and_then(|h| sketch.aux_param_map.get(&h).copied())
+                .unwrap_or(0);
+            conics_arc::eval_tangent_arc_ellipse(sketch, *a, *e, aux_idx, row_offset)
+        }
+        Constraint::TangentArcParabola(a, p) => {
+            let aux_idx = handle
+                .and_then(|h| sketch.aux_param_map.get(&h).copied())
+                .unwrap_or(0);
+            conics_arc::eval_tangent_arc_parabola(sketch, *a, *p, aux_idx, row_offset)
+        }
+        Constraint::TangentArcHyperbola(a, h) => {
+            let aux_idx = handle
+                .and_then(|h| sketch.aux_param_map.get(&h).copied())
+                .unwrap_or(0);
+            conics_arc::eval_tangent_arc_hyperbola(sketch, *a, *h, aux_idx, row_offset)
+        }
     }
 }
 

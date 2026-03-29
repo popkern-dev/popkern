@@ -15,7 +15,10 @@ mod solver_tests;
 pub use constraint::{
     Constraint, ConstraintEntry, ConstraintHandle, ConstraintKind, ConstraintStatus,
 };
-pub use elements::{Arc, ArcHandle, ElementHandle, Line, LineHandle, Point, PointHandle};
+pub use elements::{
+    Arc, ArcHandle, ElementHandle, Ellipse, EllipseHandle, Hyperbola, HyperbolaHandle, Line,
+    LineHandle, Parabola, ParabolaHandle, Point, PointHandle,
+};
 pub use error::{ConstraintError, FreedomInfo, SolveResult, SolveStatus};
 pub use solver::SolverOptions;
 
@@ -48,6 +51,12 @@ pub struct Sketch {
     pub(crate) lines: SlotMap<LineHandle, Line>,
     /// Arc elements, keyed by [`ArcHandle`].
     pub(crate) arcs: SlotMap<ArcHandle, Arc>,
+    /// Ellipse elements, keyed by [`EllipseHandle`].
+    pub(crate) ellipses: SlotMap<EllipseHandle, Ellipse>,
+    /// Parabola elements, keyed by [`ParabolaHandle`].
+    pub(crate) parabolas: SlotMap<ParabolaHandle, Parabola>,
+    /// Hyperbola elements, keyed by [`HyperbolaHandle`].
+    pub(crate) hyperbolas: SlotMap<HyperbolaHandle, Hyperbola>,
     /// Constraints, keyed by [`ConstraintHandle`].
     pub(crate) constraints: SlotMap<ConstraintHandle, ConstraintEntry>,
     /// Active drag context (transient, not serialised).
@@ -61,6 +70,10 @@ pub struct Sketch {
     /// snapshots at or after the cursor can be redone.
     #[serde(skip)]
     pub(crate) undo_cursor: usize,
+    /// Maps constraint handles to the start index of their auxiliary
+    /// parameters in the parameter vector. Transient — rebuilt as needed.
+    #[serde(skip)]
+    pub(crate) aux_param_map: std::collections::HashMap<ConstraintHandle, usize>,
     /// When `false`, mutations do not record snapshots (used by undo/redo
     /// to avoid infinite recursion).
     #[serde(skip, default = "default_recording")]
@@ -80,8 +93,12 @@ impl Sketch {
             points: SlotMap::with_key(),
             lines: SlotMap::with_key(),
             arcs: SlotMap::with_key(),
+            ellipses: SlotMap::with_key(),
+            parabolas: SlotMap::with_key(),
+            hyperbolas: SlotMap::with_key(),
             constraints: SlotMap::with_key(),
             drag_context: None,
+            aux_param_map: std::collections::HashMap::new(),
             undo_log: Vec::new(),
             undo_cursor: 0,
             recording: true,
@@ -97,6 +114,9 @@ impl Sketch {
             points: self.points.clone(),
             lines: self.lines.clone(),
             arcs: self.arcs.clone(),
+            ellipses: self.ellipses.clone(),
+            parabolas: self.parabolas.clone(),
+            hyperbolas: self.hyperbolas.clone(),
             constraints: self.constraints.clone(),
         });
         self.undo_cursor += 1;
@@ -182,6 +202,21 @@ impl Sketch {
                     a.construction = value;
                 }
             }
+            ElementHandle::Ellipse(h) => {
+                if let Some(e) = self.ellipses.get_mut(h) {
+                    e.construction = value;
+                }
+            }
+            ElementHandle::Parabola(h) => {
+                if let Some(p) = self.parabolas.get_mut(h) {
+                    p.construction = value;
+                }
+            }
+            ElementHandle::Hyperbola(h) => {
+                if let Some(hp) = self.hyperbolas.get_mut(h) {
+                    hp.construction = value;
+                }
+            }
         }
     }
 
@@ -194,12 +229,19 @@ impl Sketch {
             self.push_undo_snapshot();
         }
         let fixed_values = self.capture_fixed_values(&constraint);
-        self.constraints.insert(ConstraintEntry {
+        let aux_count = constraint.aux_param_count();
+        let handle = self.constraints.insert(ConstraintEntry {
             constraint,
             kind: ConstraintKind::Driving,
             status: ConstraintStatus::Unknown,
             fixed_values,
-        })
+        });
+        if aux_count > 0 {
+            let aux_start = self.params.len();
+            self.params.extend(std::iter::repeat_n(0.0, aux_count));
+            self.aux_param_map.insert(handle, aux_start);
+        }
+        handle
     }
 
     /// Add a driven constraint to the sketch.
@@ -211,12 +253,19 @@ impl Sketch {
             self.push_undo_snapshot();
         }
         let fixed_values = self.capture_fixed_values(&constraint);
-        self.constraints.insert(ConstraintEntry {
+        let aux_count = constraint.aux_param_count();
+        let handle = self.constraints.insert(ConstraintEntry {
             constraint,
             kind: ConstraintKind::Driven,
             status: ConstraintStatus::Unknown,
             fixed_values,
-        })
+        });
+        if aux_count > 0 {
+            let aux_start = self.params.len();
+            self.params.extend(std::iter::repeat_n(0.0, aux_count));
+            self.aux_param_map.insert(handle, aux_start);
+        }
+        handle
     }
 
     /// Remove a constraint from the sketch.
@@ -304,6 +353,9 @@ impl Sketch {
                 points: self.points.clone(),
                 lines: self.lines.clone(),
                 arcs: self.arcs.clone(),
+                ellipses: self.ellipses.clone(),
+                parabolas: self.parabolas.clone(),
+                hyperbolas: self.hyperbolas.clone(),
                 constraints: self.constraints.clone(),
             });
         }
@@ -331,13 +383,16 @@ impl Sketch {
         self.points = snapshot.points;
         self.lines = snapshot.lines;
         self.arcs = snapshot.arcs;
+        self.ellipses = snapshot.ellipses;
+        self.parabolas = snapshot.parabolas;
+        self.hyperbolas = snapshot.hyperbolas;
         self.constraints = snapshot.constraints;
     }
 
-    /// Snapshot the current parameter values that a `Fixed` or `FixedLine`
-    /// constraint needs to lock in place.
+    /// Snapshot the current parameter values that a fixed constraint needs
+    /// to lock in place.
     ///
-    /// Returns an empty vector for all other constraint kinds.
+    /// Returns an empty vector for all non-fixed constraint kinds.
     pub fn capture_fixed_values(&self, constraint: &Constraint) -> Vec<f64> {
         match constraint {
             Constraint::Fixed(ph) => {
@@ -359,6 +414,30 @@ impl Sketch {
                         }
                     }
                     vals
+                } else {
+                    vec![]
+                }
+            }
+            Constraint::FixedEllipse(eh) => {
+                if let Some(e) = self.ellipses.get(*eh) {
+                    let idx = e.param_indices();
+                    idx.iter().map(|&i| self.params[i]).collect()
+                } else {
+                    vec![]
+                }
+            }
+            Constraint::FixedParabola(ph) => {
+                if let Some(p) = self.parabolas.get(*ph) {
+                    let idx = p.param_indices();
+                    idx.iter().map(|&i| self.params[i]).collect()
+                } else {
+                    vec![]
+                }
+            }
+            Constraint::FixedHyperbola(hh) => {
+                if let Some(h) = self.hyperbolas.get(*hh) {
+                    let idx = h.param_indices();
+                    idx.iter().map(|&i| self.params[i]).collect()
                 } else {
                     vec![]
                 }
