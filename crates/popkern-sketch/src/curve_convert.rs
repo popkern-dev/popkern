@@ -109,19 +109,25 @@ fn convert_line_pcurve(directed: &DirectedEdge) -> Result<NurbsCurve, SketchErro
 // ---------------------------------------------------------------------------
 
 /// Convert an arc directed edge to a 3D CurveOnEdge.
+///
+/// Derives the actual angular range from the directed edge's start/end
+/// positions, which may differ from the original arc parameters when a
+/// full circle has been split into two half-arcs.
 fn convert_arc_3d(
     directed: &DirectedEdge,
     sketch: &Sketch,
     plane: &SketchPlane,
     handle: popkern_constraint::ArcHandle,
 ) -> Result<CurveOnEdge, SketchError> {
-    let (cx, cy, r, mut start_angle, mut end_angle) = sketch
+    let (cx, cy, r, _original_start, _original_end) = sketch
         .arc_params(handle)
         .ok_or_else(|| SketchError::InvalidTopology("arc handle is invalid".into()))?;
 
-    if directed.reversed {
-        std::mem::swap(&mut start_angle, &mut end_angle);
-    }
+    // Derive angles from the directed edge's 2D positions rather than
+    // the sketch arc's original parameters. This correctly handles arcs
+    // that have been split (e.g., full circles split into semicircles).
+    let start_angle = (directed.start.1 - cy).atan2(directed.start.0 - cx);
+    let end_angle = (directed.end.1 - cy).atan2(directed.end.0 - cx);
 
     let center_3d = plane.to_3d(cx, cy);
 
@@ -139,18 +145,22 @@ fn convert_arc_3d(
 }
 
 /// Convert an arc directed edge to a 2D pcurve (sampled NURBS).
+///
+/// Derives the actual angular range from the directed edge's start/end
+/// positions, which may differ from the original arc parameters when a
+/// full circle has been split into two half-arcs.
 fn convert_arc_pcurve(
     directed: &DirectedEdge,
     sketch: &Sketch,
     handle: popkern_constraint::ArcHandle,
 ) -> Result<NurbsCurve, SketchError> {
-    let (cx, cy, r, mut start_angle, mut end_angle) = sketch
+    let (cx, cy, r, _original_start, _original_end) = sketch
         .arc_params(handle)
         .ok_or_else(|| SketchError::InvalidTopology("arc handle is invalid".into()))?;
 
-    if directed.reversed {
-        std::mem::swap(&mut start_angle, &mut end_angle);
-    }
+    // Derive angles from the directed edge's 2D positions.
+    let start_angle = (directed.start.1 - cy).atan2(directed.start.0 - cx);
+    let end_angle = (directed.end.1 - cy).atan2(directed.end.0 - cx);
 
     let n = CONIC_SAMPLE_COUNT;
     let points: Vec<Point3> = (0..=n)

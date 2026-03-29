@@ -18,7 +18,7 @@ fn non_crossing_rectangle_ok() {
 
     let tol = Tolerance::default();
     let (graph, _) = build_edge_graph(&sk, &tol);
-    let loops = trace_loops(&graph);
+    let loops = trace_loops(&graph, &sk);
 
     assert!(check_self_intersection(&loops, &sk, &tol).is_ok());
 }
@@ -44,7 +44,7 @@ fn crossing_lines_detected() {
 
     let tol = Tolerance::default();
     let (graph, _) = build_edge_graph(&sk, &tol);
-    let loops = trace_loops(&graph);
+    let loops = trace_loops(&graph, &sk);
 
     // The loop tracer will find loops. At least one loop should have
     // crossing non-adjacent edges.
@@ -73,7 +73,7 @@ fn adjacent_edges_not_flagged() {
 
     let tol = Tolerance::default();
     let (graph, _) = build_edge_graph(&sk, &tol);
-    let loops = trace_loops(&graph);
+    let loops = trace_loops(&graph, &sk);
 
     assert!(check_self_intersection(&loops, &sk, &tol).is_ok());
 }

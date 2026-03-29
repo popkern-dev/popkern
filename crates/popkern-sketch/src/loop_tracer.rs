@@ -9,7 +9,7 @@
 //! boundary loop (largest-magnitude CW area) is discarded.
 
 use crate::edge_graph::EdgeGraph;
-use popkern_constraint::ElementHandle;
+use popkern_constraint::{ElementHandle, Sketch};
 use std::collections::HashSet;
 
 /// A sketch edge with its traversal direction.
@@ -59,7 +59,11 @@ struct AdjEntry {
 /// 2. For each unvisited directed half-edge, trace a loop by always
 ///    picking the smallest CW turn (rightmost turn)
 /// 3. Discard the outermost boundary (largest |negative area|)
-pub(crate) fn trace_loops(graph: &EdgeGraph) -> Vec<TracedLoop> {
+///
+/// The `sketch` parameter is used to compute accurate signed areas for
+/// loops containing arc edges (where the shoelace formula on chord
+/// endpoints alone would give incorrect results).
+pub(crate) fn trace_loops(graph: &EdgeGraph, sketch: &Sketch) -> Vec<TracedLoop> {
     if graph.edges.is_empty() {
         return Vec::new();
     }
@@ -74,7 +78,8 @@ pub(crate) fn trace_loops(graph: &EdgeGraph) -> Vec<TracedLoop> {
             if visited.contains(&(edge_idx, forward)) {
                 continue;
             }
-            if let Some(traced) = trace_one_loop(graph, &adjacency, &mut visited, edge_idx, forward)
+            if let Some(traced) =
+                trace_one_loop(graph, &adjacency, &mut visited, edge_idx, forward, sketch)
             {
                 loops.push(traced);
             }
@@ -136,6 +141,7 @@ fn trace_one_loop(
     visited: &mut HashSet<HalfEdgeId>,
     start_edge_idx: usize,
     start_forward: bool,
+    sketch: &Sketch,
 ) -> Option<TracedLoop> {
     let start_edge = &graph.edges[start_edge_idx];
     let (start_from, start_to) = if start_forward {
@@ -176,7 +182,7 @@ fn trace_one_loop(
 
         // Have we closed the loop?
         if cur_to == loop_start_node {
-            let signed_area = compute_signed_area(&directed_edges);
+            let signed_area = compute_signed_area(&directed_edges, sketch);
             return Some(TracedLoop {
                 edges: directed_edges,
                 signed_area,
@@ -291,13 +297,58 @@ fn normalize_angle(a: f64) -> f64 {
 }
 
 /// Compute signed area of a loop via the shoelace formula on edge
-/// endpoint positions.
-fn compute_signed_area(edges: &[DirectedEdge]) -> f64 {
+/// endpoint positions, with corrections for arc curvature.
+///
+/// For straight edges, the shoelace formula on endpoints is exact. For
+/// arcs, a correction term is added that accounts for the area between
+/// the chord and the arc using the Green's theorem integral along the
+/// actual arc path.
+fn compute_signed_area(edges: &[DirectedEdge], sketch: &Sketch) -> f64 {
     let mut sum = 0.0;
     for edge in edges {
         let (x_i, y_i) = edge.start;
         let (x_next, y_next) = edge.end;
-        sum += x_i * y_next - x_next * y_i;
+        // Shoelace (chord) contribution.
+        let chord = x_i * y_next - x_next * y_i;
+
+        // For arcs, replace the chord contribution with the exact arc
+        // integral using Green's theorem: 0.5 * integral(x*dy - y*dx).
+        let contribution = match &edge.element {
+            ElementHandle::Arc(ah) => {
+                if let Some((cx, cy, r, _sa, _ea)) = sketch.arc_params(*ah) {
+                    // Derive angles from the directed edge's positions.
+                    let theta1 = (y_i - cy).atan2(x_i - cx);
+                    let theta2 = (y_next - cy).atan2(x_next - cx);
+                    let mut d_theta = theta2 - theta1;
+                    // Arc edges in the graph follow the CCW direction of
+                    // the arc when not reversed. Use the reversed flag to
+                    // determine the correct sweep direction:
+                    //   - reversed=false (forward): CCW sweep, d_theta > 0
+                    //   - reversed=true (backward): CW sweep, d_theta < 0
+                    let two_pi = 2.0 * std::f64::consts::PI;
+                    if !edge.reversed {
+                        // CCW: ensure d_theta is in (0, 2*PI]
+                        while d_theta <= 0.0 {
+                            d_theta += two_pi;
+                        }
+                    } else {
+                        // CW: ensure d_theta is in [-2*PI, 0)
+                        while d_theta >= 0.0 {
+                            d_theta -= two_pi;
+                        }
+                    }
+                    // Green's theorem integral for a circular arc:
+                    // integral = r*(cx*(sin(θ2)-sin(θ1)) -
+                    //               cy*(cos(θ2)-cos(θ1)) + r*dθ)
+                    r * (cx * (theta2.sin() - theta1.sin()) - cy * (theta2.cos() - theta1.cos())
+                        + r * d_theta)
+                } else {
+                    chord
+                }
+            }
+            _ => chord,
+        };
+        sum += contribution;
     }
     0.5 * sum
 }

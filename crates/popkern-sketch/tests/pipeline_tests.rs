@@ -184,3 +184,23 @@ fn warnings_from_degenerate_edge() {
     );
     assert_eq!(result.regions.len(), 1);
 }
+
+#[test]
+fn full_circle_to_brep() {
+    use std::f64::consts::PI;
+
+    let mut sop = SketchOnPlane::new(SketchPlane::xy());
+    let _arc = sop.sketch.add_arc(0.0, 0.0, 2.0, 0.0, 2.0 * PI);
+
+    let result = sop.to_brep(Tolerance::default()).unwrap();
+
+    assert_eq!(
+        result.regions.len(),
+        1,
+        "full circle should produce 1 face region"
+    );
+    // Full circle split into 2 semicircular edges, 2 vertices.
+    assert_eq!(result.brep.edges.len(), 2);
+    assert_eq!(result.brep.vertices.len(), 2);
+    assert!(result.warnings.is_empty(), "no warnings expected");
+}
