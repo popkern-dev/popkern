@@ -28,6 +28,13 @@ impl Sketch {
             }
             Constraint::Angle(l1, l2, _) => self.compute_angle_value(*l1, *l2),
             Constraint::PointLineDistance(p, l, _) => self.compute_point_line_distance(*p, *l),
+            Constraint::OrdinateX(p, _) => Some(self.point_position(*p)?.0),
+            Constraint::OrdinateY(p, _) => Some(self.point_position(*p)?.1),
+            Constraint::OffsetArc(a1, a2, _) => {
+                let (_, _, r1, _, _) = self.arc_params(*a1)?;
+                let (_, _, r2, _, _) = self.arc_params(*a2)?;
+                Some((r1 - r2).abs())
+            }
             _ => {
                 let output = equations::evaluate_constraint(self, Some(handle), entry, 0);
                 let norm_sq: f64 = output.residuals.iter().map(|r| r * r).sum();
@@ -87,7 +94,11 @@ impl Sketch {
         match &entry.constraint {
             Constraint::Distance(..)
             | Constraint::PointLineDistance(..)
-            | Constraint::Angle(..) => {}
+            | Constraint::Angle(..)
+            | Constraint::OffsetLine(..)
+            | Constraint::OffsetArc(..)
+            | Constraint::OrdinateX(..)
+            | Constraint::OrdinateY(..) => {}
             _ => return Err(ConstraintError::NotDimensional),
         }
         if self.recording {
@@ -101,6 +112,10 @@ impl Sketch {
             Constraint::Distance(_, _, d) => *d = value,
             Constraint::PointLineDistance(_, _, d) => *d = value,
             Constraint::Angle(_, _, a) => *a = value,
+            Constraint::OffsetLine(_, _, d) => *d = value,
+            Constraint::OffsetArc(_, _, d) => *d = value,
+            Constraint::OrdinateX(_, v) => *v = value,
+            Constraint::OrdinateY(_, v) => *v = value,
             _ => return Err(ConstraintError::NotDimensional),
         }
         Ok(())

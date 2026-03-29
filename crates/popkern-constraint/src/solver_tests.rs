@@ -241,3 +241,53 @@ fn under_constrained_status() {
     let result = sketch.solve().unwrap();
     assert!(matches!(result.status, SolveStatus::UnderConstrained(_)));
 }
+
+#[test]
+fn ordinate_xy_converge() {
+    // Pin a point to (7, -3) using OrdinateX + OrdinateY.
+    let mut sketch = Sketch::new();
+    let p = sketch.add_point(0.0, 0.0);
+    sketch.add_constraint(Constraint::OrdinateX(p, 7.0));
+    sketch.add_constraint(Constraint::OrdinateY(p, -3.0));
+
+    let result = sketch.solve().unwrap();
+    assert!(
+        result.residual_norm < 1e-10,
+        "residual too large: {}",
+        result.residual_norm
+    );
+
+    let (x, y) = sketch.point_position(p).unwrap();
+    assert!((x - 7.0).abs() < 1e-8, "x should be 7, got {}", x);
+    assert!((y + 3.0).abs() < 1e-8, "y should be -3, got {}", y);
+}
+
+#[test]
+fn offset_line_converges() {
+    // Two horizontal lines; fix the lower one, apply OffsetLine to set
+    // the perpendicular separation to 5.
+    let mut sketch = Sketch::new();
+    let a1 = sketch.add_point(0.0, 0.0);
+    let b1 = sketch.add_point(6.0, 0.0);
+    let a2 = sketch.add_point(0.0, 2.0);
+    let b2 = sketch.add_point(6.0, 2.0);
+    let l1 = sketch.add_line(a1, b1);
+    let l2 = sketch.add_line(a2, b2);
+
+    // Fix the base line and force both lines to stay horizontal.
+    sketch.add_constraint(Constraint::Fixed(a1));
+    sketch.add_constraint(Constraint::Fixed(b1));
+    sketch.add_constraint(Constraint::Horizontal(l2));
+    sketch.add_constraint(Constraint::OffsetLine(l2, l1, 5.0));
+
+    let result = sketch.solve().unwrap();
+    assert!(
+        result.residual_norm < 1e-10,
+        "residual too large: {}",
+        result.residual_norm
+    );
+
+    // The y-coordinate of l2 should be 5.
+    let (_, y_a2) = sketch.point_position(a2).unwrap();
+    assert!((y_a2 - 5.0).abs() < 1e-7, "l2 y should be 5, got {}", y_a2);
+}

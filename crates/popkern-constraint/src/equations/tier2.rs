@@ -327,6 +327,127 @@ pub(crate) fn eval_concentric(
     }
 }
 
+/// Coradial(A1, A2): F0 = cx1-cx2, F1 = cy1-cy2, F2 = r1-r2
+pub(crate) fn eval_coradial(
+    sketch: &Sketch,
+    a1: ArcHandle,
+    a2: ArcHandle,
+    row: usize,
+) -> EquationOutput {
+    let (cx1, cy1, r1, icx1, icy1, ir1) = ar(sketch, a1);
+    let (cx2, cy2, r2, icx2, icy2, ir2) = ar(sketch, a2);
+    EquationOutput {
+        residuals: vec![cx1 - cx2, cy1 - cy2, r1 - r2],
+        jacobian: vec![
+            (row, icx1, 1.0),
+            (row, icx2, -1.0),
+            (row + 1, icy1, 1.0),
+            (row + 1, icy2, -1.0),
+            (row + 2, ir1, 1.0),
+            (row + 2, ir2, -1.0),
+        ],
+    }
+}
+
+/// OffsetLine(L1, L2, d): squared distance from midpoint of L1 to line L2
+/// equals d^2.
+///
+/// F = N^2 / D - d^2, where
+///   N = (mx-x21)(y22-y21) - (my-y21)(x22-x21),   mx=(x11+x12)/2, my=(y11+y12)/2
+///   D = (x22-x21)^2 + (y22-y21)^2
+pub(crate) fn eval_offset_line(
+    sketch: &Sketch,
+    l1: LineHandle,
+    l2: LineHandle,
+    d: f64,
+    row: usize,
+) -> EquationOutput {
+    let (x11, y11, ix11, iy11, x12, y12, ix12, iy12) = ln(sketch, l1);
+    let (x21, y21, ix21, iy21, x22, y22, ix22, iy22) = ln(sketch, l2);
+    let mx = (x11 + x12) / 2.0;
+    let my = (y11 + y12) / 2.0;
+    let ldx = x22 - x21;
+    let ldy = y22 - y21;
+    let n = (mx - x21) * ldy - (my - y21) * ldx;
+    let denom = ldx * ldx + ldy * ldy;
+    let f = n * n / denom - d * d;
+
+    let d2 = denom * denom;
+    let two_n = 2.0 * n;
+    let df = |dn: f64, dd: f64| -> f64 { (two_n * dn * denom - n * n * dd) / d2 };
+
+    // Partial derivatives of N w.r.t. midpoint components:
+    //   dN/dmx = ldy, dN/dmy = -ldx
+    // Midpoint partials: dmx/dx11 = dmx/dx12 = 0.5, dmy/dy11 = dmy/dy12 = 0.5
+    // So dN/dx11 = 0.5*ldy, dN/dx12 = 0.5*ldy
+    //    dN/dy11 = -0.5*ldx, dN/dy12 = -0.5*ldx
+    // Partials of N w.r.t. L2 endpoints (same as PointLineDistance with
+    // point = midpoint):
+    //   dN/dx21 = my - y22, dN/dy21 = x22 - mx
+    //   dN/dx22 = -(my - y21), dN/dy22 = mx - x21
+    // Partials of D (same as PointLineDistance):
+    //   dD/dx21 = -2*ldx, dD/dy21 = -2*ldy
+    //   dD/dx22 = 2*ldx, dD/dy22 = 2*ldy
+    EquationOutput {
+        residuals: vec![f],
+        jacobian: vec![
+            (row, ix11, df(0.5 * ldy, 0.0)),
+            (row, iy11, df(-0.5 * ldx, 0.0)),
+            (row, ix12, df(0.5 * ldy, 0.0)),
+            (row, iy12, df(-0.5 * ldx, 0.0)),
+            (row, ix21, df(my - y22, -2.0 * ldx)),
+            (row, iy21, df(x22 - mx, -2.0 * ldy)),
+            (row, ix22, df(-(my - y21), 2.0 * ldx)),
+            (row, iy22, df(mx - x21, 2.0 * ldy)),
+        ],
+    }
+}
+
+/// OffsetArc(A1, A2, d): F = (r1-r2)^2 - d^2
+pub(crate) fn eval_offset_arc(
+    sketch: &Sketch,
+    a1: ArcHandle,
+    a2: ArcHandle,
+    d: f64,
+    row: usize,
+) -> EquationOutput {
+    let (_, _, r1, _, _, ir1) = ar(sketch, a1);
+    let (_, _, r2, _, _, ir2) = ar(sketch, a2);
+    let diff = r1 - r2;
+    EquationOutput {
+        residuals: vec![diff * diff - d * d],
+        jacobian: vec![(row, ir1, 2.0 * diff), (row, ir2, -2.0 * diff)],
+    }
+}
+
+/// OrdinateX(P, value): F = px - value
+pub(crate) fn eval_ordinate_x(
+    sketch: &Sketch,
+    p: PointHandle,
+    value: f64,
+    row: usize,
+) -> EquationOutput {
+    let (px, _, ipx, _) = pt(sketch, p);
+    EquationOutput {
+        residuals: vec![px - value],
+        jacobian: vec![(row, ipx, 1.0)],
+    }
+}
+
+/// OrdinateY(P, value): F = py - value
+pub(crate) fn eval_ordinate_y(
+    sketch: &Sketch,
+    p: PointHandle,
+    value: f64,
+    row: usize,
+) -> EquationOutput {
+    let (_, py, _, ipy) = pt(sketch, p);
+    EquationOutput {
+        residuals: vec![py - value],
+        jacobian: vec![(row, ipy, 1.0)],
+    }
+}
+
 /// Collinear(L1, L2): one endpoint of L2 lies on line through L1.
 /// F = (x21-x11)(y12-y11) - (y21-y11)(x12-x11)
 pub(crate) fn eval_collinear(

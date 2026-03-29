@@ -41,6 +41,7 @@ pub(crate) fn equation_count(constraint: &Constraint) -> usize {
         Constraint::TangentArcEllipse(..)
         | Constraint::TangentArcParabola(..)
         | Constraint::TangentArcHyperbola(..) => 2,
+        Constraint::Coradial(..) => 3,
         Constraint::Horizontal(..)
         | Constraint::Vertical(..)
         | Constraint::Distance(..)
@@ -64,7 +65,11 @@ pub(crate) fn equation_count(constraint: &Constraint) -> usize {
         | Constraint::EqualSemiAxis(..)
         | Constraint::FocalDistance(..)
         | Constraint::EllipseEccentricity(..)
-        | Constraint::HyperbolaEccentricity(..) => 1,
+        | Constraint::HyperbolaEccentricity(..)
+        | Constraint::OffsetLine(..)
+        | Constraint::OffsetArc(..)
+        | Constraint::OrdinateX(..)
+        | Constraint::OrdinateY(..) => 1,
     }
 }
 
@@ -106,6 +111,15 @@ pub(crate) fn evaluate_constraint(
         Constraint::Midpoint(p, l) => tier2::eval_midpoint(sketch, *p, *l, row_offset),
         Constraint::Concentric(a1, a2) => tier2::eval_concentric(sketch, *a1, *a2, row_offset),
         Constraint::Collinear(l1, l2) => tier2::eval_collinear(sketch, *l1, *l2, row_offset),
+        Constraint::Coradial(a1, a2) => tier2::eval_coradial(sketch, *a1, *a2, row_offset),
+        Constraint::OffsetLine(l1, l2, d) => {
+            tier2::eval_offset_line(sketch, *l1, *l2, *d, row_offset)
+        }
+        Constraint::OffsetArc(a1, a2, d) => {
+            tier2::eval_offset_arc(sketch, *a1, *a2, *d, row_offset)
+        }
+        Constraint::OrdinateX(p, v) => tier2::eval_ordinate_x(sketch, *p, *v, row_offset),
+        Constraint::OrdinateY(p, v) => tier2::eval_ordinate_y(sketch, *p, *v, row_offset),
         // ── Conic constraints ──────────────────────────────────────────
         Constraint::PointOnEllipse(p, e) => {
             conics::eval_point_on_ellipse(sketch, *p, *e, row_offset)
