@@ -10,9 +10,11 @@
 //! 3. Convert the sketch into a BRep face via edge graph construction,
 //!    loop tracing, and topology building
 
+pub(crate) mod containment;
 pub(crate) mod edge_graph;
 pub mod error;
 pub(crate) mod loop_tracer;
+pub(crate) mod nesting;
 pub mod plane;
 pub(crate) mod self_intersection;
 
