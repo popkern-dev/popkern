@@ -10,6 +10,7 @@
 //! 3. Convert the sketch into a BRep face via edge graph construction,
 //!    loop tracing, and topology building
 
+pub(crate) mod brep_builder;
 pub(crate) mod containment;
 pub(crate) mod curve_convert;
 pub(crate) mod edge_graph;
