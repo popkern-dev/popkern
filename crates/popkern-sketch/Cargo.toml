@@ -1,0 +1,14 @@
+[package]
+name = "popkern-sketch"
+version = "0.1.0"
+edition = "2021"
+description = "Sketch-to-BRep bridge for the popkern CAD kernel"
+
+[dependencies]
+popkern-core = { path = "../popkern-core" }
+popkern-constraint = { path = "../popkern-constraint" }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+popkern-sweep = { path = "../popkern-sweep" }

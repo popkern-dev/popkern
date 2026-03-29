@@ -3142,6 +3142,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "popkern-sketch"
+version = "0.1.0"
+dependencies = [
+ "popkern-constraint",
+ "popkern-core",
+ "popkern-sweep",
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "popkern-structural-tests"
 version = "0.1.0"
 dependencies = [
