@@ -119,6 +119,16 @@ pub(crate) fn analyze_constraints(sketch: &mut Sketch, tolerance: f64) -> Vec<Co
             status_updates.push((handle, status));
             continue;
         }
+        // Skip constraints whose group is disabled — they are not in the
+        // assembled residual vector.
+        if let Some(gh) = entry.group {
+            if let Some(g) = sketch.groups.get(gh) {
+                if !g.enabled {
+                    status_updates.push((handle, ConstraintStatus::Unknown));
+                    continue;
+                }
+            }
+        }
         let max_residual = sys.residuals[row_offset..row_offset + neq]
             .iter()
             .map(|r| r.abs())

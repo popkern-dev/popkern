@@ -2,6 +2,7 @@ use crate::elements::{
     ArcHandle, ElementHandle, EllipseHandle, HyperbolaHandle, LineHandle, ParabolaHandle,
     PointHandle, SplineHandle,
 };
+use crate::groups::GroupHandle;
 use serde::{Deserialize, Serialize};
 
 slotmap::new_key_type! {
@@ -316,4 +317,9 @@ pub struct ConstraintEntry {
     /// Parameter values captured at creation time (used by [`Constraint::Fixed`]
     /// and [`Constraint::FixedLine`]).
     pub fixed_values: Vec<f64>,
+    /// Optional group membership. A constraint belongs to at most one group.
+    ///
+    /// When the group is disabled the constraint is excluded from the solver.
+    #[serde(default)]
+    pub group: Option<GroupHandle>,
 }

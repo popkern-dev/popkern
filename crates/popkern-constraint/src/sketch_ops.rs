@@ -165,6 +165,7 @@ impl Sketch {
             kind: ConstraintKind::Driving,
             status: ConstraintStatus::Unknown,
             fixed_values: vec![x, y],
+            group: None,
         });
         if let Some(drag) = self.drag_context.as_mut() {
             drag.temp_constraint = Some(temp);

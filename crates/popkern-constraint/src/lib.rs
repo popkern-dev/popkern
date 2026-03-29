@@ -3,11 +3,13 @@ pub mod constraint;
 pub mod elements;
 pub(crate) mod equations;
 pub mod error;
+pub mod groups;
 pub(crate) mod jacobian;
 pub mod pattern;
 pub(crate) mod pattern_clone;
 pub(crate) mod pattern_geo_helpers;
 pub(crate) mod pattern_remap;
+mod sketch_groups;
 mod sketch_ops;
 mod sketch_pattern;
 mod sketch_pattern_geo;
@@ -29,6 +31,7 @@ pub use elements::{
     LineHandle, Parabola, ParabolaHandle, Point, PointHandle, Spline, SplineHandle,
 };
 pub use error::{ConstraintError, FreedomInfo, SolveResult, SolveStatus};
+pub use groups::{ConstraintGroup, GroupHandle};
 pub use pattern::{PatternDef, PatternHandle, PatternInstance, PatternKind};
 pub use solver::SolverOptions;
 
@@ -71,6 +74,8 @@ pub struct Sketch {
     pub(crate) splines: SlotMap<SplineHandle, Spline>,
     /// Constraints, keyed by [`ConstraintHandle`].
     pub(crate) constraints: SlotMap<ConstraintHandle, ConstraintEntry>,
+    /// Constraint groups, keyed by [`GroupHandle`].
+    pub(crate) groups: SlotMap<GroupHandle, groups::ConstraintGroup>,
     /// Pattern definitions, keyed by [`PatternHandle`].
     pub(crate) patterns: SlotMap<PatternHandle, PatternDef>,
     /// Active drag context (transient, not serialised).
@@ -112,6 +117,7 @@ impl Sketch {
             hyperbolas: SlotMap::with_key(),
             splines: SlotMap::with_key(),
             constraints: SlotMap::with_key(),
+            groups: SlotMap::with_key(),
             patterns: SlotMap::with_key(),
             drag_context: None,
             aux_param_map: std::collections::HashMap::new(),
@@ -135,6 +141,7 @@ impl Sketch {
             hyperbolas: self.hyperbolas.clone(),
             splines: self.splines.clone(),
             constraints: self.constraints.clone(),
+            groups: self.groups.clone(),
             patterns: self.patterns.clone(),
         });
         self.undo_cursor += 1;
@@ -258,6 +265,7 @@ impl Sketch {
             kind: ConstraintKind::Driving,
             status: ConstraintStatus::Unknown,
             fixed_values,
+            group: None,
         });
         if aux_count > 0 {
             let aux_start = self.params.len();
@@ -282,6 +290,7 @@ impl Sketch {
             kind: ConstraintKind::Driven,
             status: ConstraintStatus::Unknown,
             fixed_values,
+            group: None,
         });
         if aux_count > 0 {
             let aux_start = self.params.len();
@@ -381,6 +390,7 @@ impl Sketch {
                 hyperbolas: self.hyperbolas.clone(),
                 splines: self.splines.clone(),
                 constraints: self.constraints.clone(),
+                groups: self.groups.clone(),
                 patterns: self.patterns.clone(),
             });
         }
@@ -413,6 +423,7 @@ impl Sketch {
         self.hyperbolas = snapshot.hyperbolas;
         self.splines = snapshot.splines;
         self.constraints = snapshot.constraints;
+        self.groups = snapshot.groups;
         self.patterns = snapshot.patterns;
     }
 

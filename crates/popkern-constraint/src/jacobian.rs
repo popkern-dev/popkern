@@ -31,7 +31,19 @@ pub(crate) fn assemble(sketch: &Sketch) -> EquationSystem {
     let total_equations: usize = sketch
         .constraints
         .values()
-        .filter(|e| e.kind == ConstraintKind::Driving)
+        .filter(|e| {
+            if e.kind != ConstraintKind::Driving {
+                return false;
+            }
+            if let Some(gh) = e.group {
+                if let Some(g) = sketch.groups.get(gh) {
+                    if !g.enabled {
+                        return false;
+                    }
+                }
+            }
+            true
+        })
         .map(|e| equation_count(&e.constraint))
         .sum();
 
@@ -42,6 +54,13 @@ pub(crate) fn assemble(sketch: &Sketch) -> EquationSystem {
     for (handle, entry) in sketch.constraints.iter() {
         if entry.kind != ConstraintKind::Driving {
             continue;
+        }
+        if let Some(gh) = entry.group {
+            if let Some(g) = sketch.groups.get(gh) {
+                if !g.enabled {
+                    continue;
+                }
+            }
         }
 
         let output = evaluate_constraint(sketch, Some(handle), entry, row_offset);

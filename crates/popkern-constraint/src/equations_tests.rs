@@ -62,6 +62,7 @@ pub(super) fn entry(constraint: Constraint, fixed_values: Vec<f64>) -> Constrain
         kind: ConstraintKind::Driving,
         status: ConstraintStatus::Unknown,
         fixed_values,
+        group: None,
     }
 }
 
