@@ -17,6 +17,7 @@ pub mod error;
 pub(crate) mod loop_tracer;
 pub(crate) mod nesting;
 pub mod plane;
+pub(crate) mod reference_import;
 pub(crate) mod self_intersection;
 
 pub use error::{SketchError, SketchWarning};
