@@ -12,6 +12,7 @@
 
 use crate::constraint::ConstraintEntry;
 use crate::elements::{Arc, Ellipse, Hyperbola, Parabola, Point, Spline};
+use crate::pattern::{PatternDef, PatternHandle};
 use crate::{
     ArcHandle, ConstraintHandle, EllipseHandle, HyperbolaHandle, Line, LineHandle, ParabolaHandle,
     PointHandle, SplineHandle,
@@ -40,6 +41,8 @@ pub(crate) struct Snapshot {
     pub splines: SlotMap<SplineHandle, Spline>,
     /// All constraints.
     pub constraints: SlotMap<ConstraintHandle, ConstraintEntry>,
+    /// All patterns.
+    pub patterns: SlotMap<PatternHandle, PatternDef>,
 }
 
 #[cfg(test)]

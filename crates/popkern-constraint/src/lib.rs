@@ -4,6 +4,11 @@ pub mod elements;
 pub(crate) mod equations;
 pub mod error;
 pub(crate) mod jacobian;
+pub mod pattern;
+#[allow(dead_code)]
+pub(crate) mod pattern_clone;
+#[allow(dead_code)]
+pub(crate) mod pattern_remap;
 mod sketch_ops;
 mod sketch_spline;
 mod solver;
@@ -22,6 +27,7 @@ pub use elements::{
     LineHandle, Parabola, ParabolaHandle, Point, PointHandle, Spline, SplineHandle,
 };
 pub use error::{ConstraintError, FreedomInfo, SolveResult, SolveStatus};
+pub use pattern::{PatternDef, PatternHandle, PatternInstance, PatternKind};
 pub use solver::SolverOptions;
 
 use serde::{Deserialize, Serialize};
@@ -63,6 +69,8 @@ pub struct Sketch {
     pub(crate) splines: SlotMap<SplineHandle, Spline>,
     /// Constraints, keyed by [`ConstraintHandle`].
     pub(crate) constraints: SlotMap<ConstraintHandle, ConstraintEntry>,
+    /// Pattern definitions, keyed by [`PatternHandle`].
+    pub(crate) patterns: SlotMap<PatternHandle, PatternDef>,
     /// Active drag context (transient, not serialised).
     #[serde(skip)]
     pub(crate) drag_context: Option<DragState>,
@@ -102,6 +110,7 @@ impl Sketch {
             hyperbolas: SlotMap::with_key(),
             splines: SlotMap::with_key(),
             constraints: SlotMap::with_key(),
+            patterns: SlotMap::with_key(),
             drag_context: None,
             aux_param_map: std::collections::HashMap::new(),
             undo_log: Vec::new(),
@@ -124,6 +133,7 @@ impl Sketch {
             hyperbolas: self.hyperbolas.clone(),
             splines: self.splines.clone(),
             constraints: self.constraints.clone(),
+            patterns: self.patterns.clone(),
         });
         self.undo_cursor += 1;
     }
@@ -369,6 +379,7 @@ impl Sketch {
                 hyperbolas: self.hyperbolas.clone(),
                 splines: self.splines.clone(),
                 constraints: self.constraints.clone(),
+                patterns: self.patterns.clone(),
             });
         }
         self.undo_cursor -= 1;
@@ -400,6 +411,7 @@ impl Sketch {
         self.hyperbolas = snapshot.hyperbolas;
         self.splines = snapshot.splines;
         self.constraints = snapshot.constraints;
+        self.patterns = snapshot.patterns;
     }
 
     /// Snapshot the current parameter values that a fixed constraint needs
