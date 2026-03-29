@@ -10,6 +10,8 @@ pub mod constructors;
 pub mod error;
 pub mod euler;
 pub mod geometry;
+pub mod naming;
+pub mod naming_criteria;
 pub mod tolerance;
 pub mod topology;
 pub mod validation;
