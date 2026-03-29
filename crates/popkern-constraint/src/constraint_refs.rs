@@ -4,8 +4,8 @@
 
 use super::Constraint;
 use crate::elements::{
-    ArcHandle, EllipseHandle, HyperbolaHandle, LineHandle, ParabolaHandle, PointHandle,
-    SplineHandle,
+    ArcHandle, ElementHandle, EllipseHandle, HyperbolaHandle, LineHandle, ParabolaHandle,
+    PointHandle, SplineHandle,
 };
 
 impl Constraint {
@@ -23,6 +23,11 @@ impl Constraint {
             Constraint::Midpoint(p, _) => *p == ph,
             Constraint::OrdinateX(p, _) | Constraint::OrdinateY(p, _) => *p == ph,
             Constraint::PointOnSpline(p, _) => *p == ph,
+            // ── Pattern constraints ────────────────────────────────────
+            Constraint::RelativePosition(a, b, _, _) => *a == ph || *b == ph,
+            Constraint::RotatedPosition(a, b, c, _) => *a == ph || *b == ph || *c == ph,
+            Constraint::ReflectedPosition(a, b, _) => *a == ph || *b == ph,
+            Constraint::PinToCenter(p, _) => *p == ph,
             // Line-only, arc-only, conic-only, and spline-only constraints do
             // not reference points directly.
             Constraint::Horizontal(_)
@@ -66,7 +71,11 @@ impl Constraint {
             | Constraint::SplineTangentToHyperbola(..)
             | Constraint::SplineG1(..)
             | Constraint::SplineG2(..)
-            | Constraint::SplineLength(..) => false,
+            | Constraint::SplineLength(..)
+            | Constraint::AngleOffsetArc(..)
+            | Constraint::AngleOffsetConic(..)
+            | Constraint::MirrorAnglesArc(..)
+            | Constraint::MirrorAnglesConic(..) => false,
         }
     }
 
@@ -91,6 +100,11 @@ impl Constraint {
             | Constraint::TangentLineHyperbola(l, _) => *l == lh,
             Constraint::Symmetric(_, _, l) => *l == lh,
             Constraint::SplineEndTangent(_, _, l) | Constraint::SplineTangentToLine(_, l) => {
+                *l == lh
+            }
+            // ── Pattern constraints ────────────────────────────────────
+            Constraint::ReflectedPosition(_, _, l) => *l == lh,
+            Constraint::MirrorAnglesArc(_, _, l) | Constraint::MirrorAnglesConic(_, _, l) => {
                 *l == lh
             }
             // Point-only, arc-only, conic-only, and non-line spline
@@ -131,7 +145,12 @@ impl Constraint {
             | Constraint::SplineTangentToHyperbola(..)
             | Constraint::SplineG1(..)
             | Constraint::SplineG2(..)
-            | Constraint::SplineLength(..) => false,
+            | Constraint::SplineLength(..)
+            | Constraint::RelativePosition(..)
+            | Constraint::RotatedPosition(..)
+            | Constraint::PinToCenter(..)
+            | Constraint::AngleOffsetArc(..)
+            | Constraint::AngleOffsetConic(..) => false,
         }
     }
 
@@ -151,6 +170,11 @@ impl Constraint {
             Constraint::SplineEndTangentToArc(_, _, a) | Constraint::SplineTangentToArc(_, a) => {
                 *a == ah
             }
+            // ── Pattern constraints ────────────────────────────────────
+            Constraint::AngleOffsetArc(a, b, _) | Constraint::MirrorAnglesArc(a, b, _) => {
+                *a == ah || *b == ah
+            }
+            Constraint::PinToCenter(_, elem) => matches!(elem, ElementHandle::Arc(a) if *a == ah),
             // Everything else does not reference arcs.
             _ => false,
         }
@@ -170,6 +194,14 @@ impl Constraint {
             Constraint::ConcentricEllipse(a, b) | Constraint::EqualSemiAxis(a, b) => {
                 *a == eh || *b == eh
             }
+            // ── Pattern constraints ────────────────────────────────────
+            Constraint::PinToCenter(_, elem) => {
+                matches!(elem, ElementHandle::Ellipse(e) if *e == eh)
+            }
+            Constraint::AngleOffsetConic(e1, e2, _) | Constraint::MirrorAnglesConic(e1, e2, _) => {
+                matches!(e1, ElementHandle::Ellipse(e) if *e == eh)
+                    || matches!(e2, ElementHandle::Ellipse(e) if *e == eh)
+            }
             _ => false,
         }
     }
@@ -182,6 +214,14 @@ impl Constraint {
             | Constraint::TangentArcParabola(_, p)
             | Constraint::FixedParabola(p)
             | Constraint::SplineTangentToParabola(_, p) => *p == ph,
+            // ── Pattern constraints ────────────────────────────────────
+            Constraint::PinToCenter(_, elem) => {
+                matches!(elem, ElementHandle::Parabola(p) if *p == ph)
+            }
+            Constraint::AngleOffsetConic(e1, e2, _) | Constraint::MirrorAnglesConic(e1, e2, _) => {
+                matches!(e1, ElementHandle::Parabola(p) if *p == ph)
+                    || matches!(e2, ElementHandle::Parabola(p) if *p == ph)
+            }
             _ => false,
         }
     }
@@ -195,6 +235,14 @@ impl Constraint {
             | Constraint::HyperbolaEccentricity(h, _)
             | Constraint::FixedHyperbola(h)
             | Constraint::SplineTangentToHyperbola(_, h) => *h == hh,
+            // ── Pattern constraints ────────────────────────────────────
+            Constraint::PinToCenter(_, elem) => {
+                matches!(elem, ElementHandle::Hyperbola(h) if *h == hh)
+            }
+            Constraint::AngleOffsetConic(e1, e2, _) | Constraint::MirrorAnglesConic(e1, e2, _) => {
+                matches!(e1, ElementHandle::Hyperbola(h) if *h == hh)
+                    || matches!(e2, ElementHandle::Hyperbola(h) if *h == hh)
+            }
             _ => false,
         }
     }
