@@ -447,4 +447,29 @@ impl Sketch {
         }
         self.hyperbolas.remove(hh);
     }
+
+    /// Return a reference to a pattern definition, or `None` if the
+    /// handle is invalid.
+    pub fn pattern(
+        &self,
+        handle: crate::pattern::PatternHandle,
+    ) -> Option<&crate::pattern::PatternDef> {
+        self.patterns.get(handle)
+    }
+
+    /// Return the line endpoint handles, or `None` if the handle is
+    /// invalid.
+    pub fn line_endpoints(&self, handle: LineHandle) -> Option<(PointHandle, PointHandle)> {
+        self.lines.get(handle).map(|l| (l.start, l.end))
+    }
+
+    /// Return the number of points currently in the sketch.
+    pub fn point_count(&self) -> usize {
+        self.points.len()
+    }
+
+    /// Return the number of constraints currently in the sketch.
+    pub fn constraint_count(&self) -> usize {
+        self.constraints.len()
+    }
 }
