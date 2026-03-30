@@ -322,7 +322,15 @@ fn build_drafted_mold() -> BRep {
         .map(|(fh, _)| fh)
         .expect("cube should have a side face");
 
-    match draft_face(&cube, face, 0.087, pull_dir, NeutralReference::Auto, tol) {
+    match draft_face(
+        &cube,
+        face,
+        0.087,
+        pull_dir,
+        NeutralReference::Auto,
+        tol,
+        None,
+    ) {
         Ok(result) => result.brep,
         Err(_) => cube,
     }

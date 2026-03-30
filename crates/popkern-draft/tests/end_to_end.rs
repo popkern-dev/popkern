@@ -97,6 +97,7 @@ fn draft_one_cube_face() {
         Vec3::new(0.0, 0.0, 1.0),
         NeutralReference::Auto,
         tol(),
+        None,
     );
 
     assert!(result.is_ok(), "draft failed: {:?}", result.err());
@@ -136,7 +137,7 @@ fn draft_two_opposite_faces() {
         },
     ];
 
-    let result = draft_faces(&brep, &specs, &DraftOptions::default(), tol());
+    let result = draft_faces(&brep, &specs, &DraftOptions::default(), tol(), None);
     assert!(result.is_ok(), "draft failed: {:?}", result.err());
     let dr = result.unwrap();
     assert_euler(&dr.brep);
@@ -169,7 +170,7 @@ fn draft_all_side_faces() {
         return; // Skip if cube faces couldn't be classified.
     }
 
-    let result = draft_faces(&brep, &specs, &DraftOptions::default(), tol());
+    let result = draft_faces(&brep, &specs, &DraftOptions::default(), tol(), None);
     assert!(result.is_ok(), "draft failed: {:?}", result.err());
     let dr = result.unwrap();
     assert_euler(&dr.brep);
@@ -192,7 +193,7 @@ fn draft_variable_angle() {
         ]),
     }];
 
-    let result = draft_faces(&brep, &specs, &DraftOptions::default(), tol());
+    let result = draft_faces(&brep, &specs, &DraftOptions::default(), tol(), None);
     assert!(result.is_ok(), "variable draft failed: {:?}", result.err());
     let dr = result.unwrap();
     assert_euler(&dr.brep);
@@ -241,7 +242,7 @@ fn draft_with_transition_faces() {
         ..DraftOptions::default()
     };
 
-    let result = draft_faces(&brep, &specs, &options, tol());
+    let result = draft_faces(&brep, &specs, &options, tol(), None);
     assert!(
         result.is_ok(),
         "transition draft failed: {:?}",
@@ -264,6 +265,7 @@ fn draft_angle_too_large() {
         Vec3::new(0.0, 0.0, 1.0),
         NeutralReference::Auto,
         tol(),
+        None,
     );
 
     assert!(matches!(result, Err(DraftError::AngleTooLarge { .. })));
@@ -272,7 +274,7 @@ fn draft_angle_too_large() {
 #[test]
 fn draft_empty_specs() {
     let brep = BRep::unit_cube(tol()).unwrap();
-    let result = draft_faces(&brep, &[], &DraftOptions::default(), tol());
+    let result = draft_faces(&brep, &[], &DraftOptions::default(), tol(), None);
     assert!(matches!(result, Err(DraftError::EmptySpecs)));
 }
 
@@ -286,6 +288,7 @@ fn draft_invalid_face() {
         Vec3::new(0.0, 0.0, 1.0),
         NeutralReference::Auto,
         tol(),
+        None,
     );
     assert!(matches!(result, Err(DraftError::InvalidFace(_))));
 }
@@ -308,6 +311,7 @@ fn draft_angle_matches_request() {
         Vec3::new(0.0, 0.0, 1.0),
         NeutralReference::Auto,
         tol(),
+        None,
     );
 
     assert!(result.is_ok(), "draft failed: {:?}", result.err());
@@ -348,6 +352,7 @@ fn drafted_mold_has_pcurves_on_all_half_edges() {
         Vec3::new(0.0, 0.0, 1.0),
         NeutralReference::Auto,
         tol(),
+        None,
     )
     .unwrap();
     // Check half-edges reachable from face loops.

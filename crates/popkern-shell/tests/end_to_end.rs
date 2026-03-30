@@ -92,7 +92,6 @@ fn try_structurally_valid(brep: &BRep) -> bool {
         }
     }
 }
-
 #[test]
 fn shell_cube_no_removal() {
     let brep = BRep::unit_cube(tol()).unwrap();

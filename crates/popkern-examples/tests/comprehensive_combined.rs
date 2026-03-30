@@ -213,7 +213,7 @@ fn t48_drafted_mold_cavity() {
         })
         .map(|(fh, _)| fh)
         .unwrap();
-    let drafted = draft_face(&cube, face, 0.087, pull, NeutralReference::Auto, tol).unwrap();
+    let drafted = draft_face(&cube, face, 0.087, pull, NeutralReference::Auto, tol, None).unwrap();
     // Then subtract a hole
     let hole = BRep::cylinder(0.15, 2.0, tol)
         .unwrap()
