@@ -20,18 +20,22 @@
 
 pub(crate) mod body;
 pub mod cache;
+pub mod delete;
 pub mod error;
 pub mod feature;
 pub mod node;
+pub mod queries;
 pub(crate) mod replay;
 pub(crate) mod resolve;
 pub mod timeline;
 pub(crate) mod undo;
 
 pub use cache::CacheStrategy;
+pub use delete::{DeleteBehavior, DeleteResult};
 pub use error::{FeatureResult, HistoryError, ReplayError};
 pub use feature::{BoolOpKind, Feature, ShellDirectionKind, SketchPlaneDesc, Vec3Desc};
 pub use node::{BodyId, FeatureId, FeatureNode};
+pub use queries::ImpactReport;
 
 use std::collections::HashMap;
 use std::time::Instant;
