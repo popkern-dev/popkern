@@ -181,6 +181,7 @@ fn t47_cube_with_hole_then_shell() {
                 &[],
                 &ShellOptions::default(),
                 tol,
+                None,
             ) {
                 Ok(result) => {
                     assert!(result.brep.faces.len() > 6);
@@ -303,6 +304,7 @@ fn t51_filleted_shelled_box() {
                 &[],
                 &ShellOptions::default(),
                 tol,
+                None,
             ) {
                 Ok(result) => {
                     assert!(result.brep.faces.len() > 7);

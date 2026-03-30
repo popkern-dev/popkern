@@ -92,7 +92,7 @@ fn build_boolean_showcase() -> BRep {
         .transform(&Transform3::translation(0.5, 0.5, -0.5))
         .expect("translate");
 
-    match boolean(BoolOperation::Subtraction, cube.clone(), hole, tol) {
+    match boolean(BoolOperation::Subtraction, cube.clone(), hole, tol, None) {
         Ok(brep) => brep,
         Err(_) => cube,
     }
@@ -393,6 +393,7 @@ fn build_shelled_box() -> BRep {
         &[],
         &ShellOptions::default(),
         tol,
+        None,
     )
     .expect("shell")
     .brep

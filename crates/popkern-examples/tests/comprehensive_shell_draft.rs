@@ -127,6 +127,7 @@ fn t35_shell_cube_no_removal() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     let brep = &result.brep;
@@ -149,6 +150,7 @@ fn t36_shell_cube_one_face_removed() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     let brep = &result.brep;
@@ -180,6 +182,7 @@ fn t37_shell_cube_inward_outward_midplane() {
             &[],
             &ShellOptions::default(),
             tol(),
+            None,
         )
         .unwrap();
         let brep = &result.brep;
@@ -256,6 +259,7 @@ fn t40_shell_step_roundtrip() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     assert_step_roundtrip(&result.brep, "shelled_cube");

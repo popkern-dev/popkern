@@ -218,6 +218,7 @@ fn build_shelled_box() -> Option<BRep> {
         &[],
         &popkern_shell::ShellOptions::default(),
         tol,
+        None,
     ) {
         Ok(result) => Some(result.brep),
         Err(e) => {

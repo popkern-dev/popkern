@@ -20,6 +20,7 @@ fn shelled_box_has_pcurves_on_all_half_edges() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     // Check half-edges reachable from face loops (assembly may leave
@@ -59,6 +60,7 @@ fn shell_no_removal_has_pcurves() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     for (_fh, face) in result.brep.faces.iter() {

@@ -32,6 +32,7 @@ fn main() {
         &[],
         &ShellOptions::default(),
         tol,
+        None,
     ) {
         Ok(result) => {
             let brep = &result.brep;
