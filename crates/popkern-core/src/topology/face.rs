@@ -1,4 +1,5 @@
 use crate::geometry::SurfaceOnFace;
+use crate::naming::NameId;
 use crate::topology::{LoopHandle, ShellHandle};
 use serde::{Deserialize, Serialize};
 
@@ -13,4 +14,7 @@ pub struct Face {
     pub shell: ShellHandle,
     /// Geometric surface.
     pub surface: Option<SurfaceOnFace>,
+    /// Stable topological name for this face.
+    #[serde(default)]
+    pub name: Option<NameId>,
 }

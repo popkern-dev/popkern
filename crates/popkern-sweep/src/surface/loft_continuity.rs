@@ -326,6 +326,7 @@ mod tests {
                 },
                 orientation: true,
             }),
+            name: None,
         });
         brep.loops[loop_handle].face = face_handle;
         brep.shells[shell_handle].face = face_handle;

@@ -117,6 +117,7 @@ impl BRep {
             inner_loops: vec![],
             shell: Default::default(), // patched below
             surface: None,
+            name: None,
         });
 
         // Update the loop to point to the new face.

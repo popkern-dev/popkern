@@ -165,6 +165,7 @@ impl BRep {
         let edge = self.edges.insert(Edge {
             half_edge: Default::default(),
             curve: None,
+            name: None,
         });
 
         // Create new_he: v_outer -> v_inner (spliced into the merged loop)

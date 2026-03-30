@@ -77,6 +77,7 @@ impl BRep {
         let edge = self.edges.insert(Edge {
             half_edge: Default::default(),
             curve: None,
+            name: None,
         });
 
         // Create new face (inherits parent surface).
@@ -85,6 +86,7 @@ impl BRep {
             inner_loops: vec![],
             shell,
             surface: self.faces[old_face].surface.clone(),
+            name: None,
         });
 
         // Create new loop for the new face.

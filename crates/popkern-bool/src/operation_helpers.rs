@@ -250,6 +250,7 @@ fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, Bo
         let new_h = a.vertices.insert(Vertex {
             position: v.position,
             outgoing: popkern_core::topology::HalfEdgeHandle::default(),
+            name: v.name,
         });
         v_map.insert(old_h, new_h);
     }
@@ -259,6 +260,7 @@ fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, Bo
         let new_h = a.edges.insert(Edge {
             half_edge: popkern_core::topology::HalfEdgeHandle::default(),
             curve: e.curve.clone(),
+            name: e.name,
         });
         e_map.insert(old_h, new_h);
     }
@@ -320,6 +322,7 @@ fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, Bo
             inner_loops: Vec::new(),
             shell: popkern_core::topology::ShellHandle::default(),
             surface,
+            name: f.name,
         });
         f_map.insert(old_h, new_h);
     }

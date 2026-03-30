@@ -123,10 +123,12 @@ impl BRep {
         let v_base = brep.vertices.insert(Vertex {
             position: Point3::new(radius, 0.0, 0.0),
             outgoing: Default::default(),
+            name: None,
         });
         let v_apex = brep.vertices.insert(Vertex {
             position: Point3::new(0.0, 0.0, h),
             outgoing: Default::default(),
+            name: None,
         });
 
         // -- Solid / Shell --
@@ -154,12 +156,14 @@ impl BRep {
             inner_loops: Vec::new(),
             shell: shell_h,
             surface: None,
+            name: None,
         });
         let f_cap = brep.faces.insert(Face {
             outer_loop: loop_cap,
             inner_loops: Vec::new(),
             shell: shell_h,
             surface: None,
+            name: None,
         });
 
         brep.loops[loop_lateral].face = f_lateral;
@@ -170,10 +174,12 @@ impl BRep {
         let e_base_circle = brep.edges.insert(Edge {
             half_edge: Default::default(),
             curve: None,
+            name: None,
         });
         let e_seam = brep.edges.insert(Edge {
             half_edge: Default::default(),
             curve: None,
+            name: None,
         });
 
         // -- Half-edges --

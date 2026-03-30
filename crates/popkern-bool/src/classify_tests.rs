@@ -231,6 +231,7 @@ fn face_parameter_range_face_with_no_surface_returns_default() {
         inner_loops: Vec::new(),
         shell: popkern_core::topology::ShellHandle::default(),
         surface: None,
+        name: None,
     });
     brep.loops[loop_h].face = face_h;
     let ((u_min, u_max), (v_min, v_max)) = face_parameter_range(&brep, face_h);
@@ -293,6 +294,7 @@ fn pick_sample_point_face_with_plane_surface_uses_fallback() {
             },
             orientation: true,
         }),
+        name: None,
     });
     brep.loops[loop_h].face = face_h;
     // No half-edges exist, so face_vertex_positions returns empty.
@@ -327,6 +329,7 @@ fn pick_sample_point_face_with_sphere_surface_uses_finite_range() {
             },
             orientation: true,
         }),
+        name: None,
     });
     brep.loops[loop_h].face = face_h;
     let pt = pick_sample_point(&brep, face_h);
@@ -350,6 +353,7 @@ fn face_vertex_positions_missing_loop_returns_empty() {
         inner_loops: Vec::new(),
         shell: ShellHandle::default(),
         surface: None,
+        name: None,
     });
     // pick_sample_point calls face_vertex_positions; with missing loop it
     // returns empty, then falls through to the origin fallback.
@@ -425,6 +429,7 @@ fn face_parameter_range_with_missing_loop_returns_default() {
             },
             orientation: true,
         }),
+        name: None,
     });
     brep.loops[loop_h].face = face_h;
     // Remove the loop so face_vertex_positions can't find half-edges.
@@ -451,6 +456,7 @@ fn pick_sample_point_face_with_no_surface_returns_origin() {
         inner_loops: Vec::new(),
         shell: ShellHandle::default(),
         surface: None,
+        name: None,
     });
     brep.loops[loop_h].face = face_h;
     let pt = pick_sample_point(&brep, face_h);

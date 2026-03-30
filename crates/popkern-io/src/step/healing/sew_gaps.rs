@@ -241,14 +241,17 @@ mod tests {
         let _v0 = brep.vertices.insert(Vertex {
             position: Point3::new(0.0, 0.0, 0.0),
             outgoing: Default::default(),
+            name: None,
         });
         let _v1 = brep.vertices.insert(Vertex {
             position: Point3::new(0.0, 0.0, 0.0),
             outgoing: Default::default(),
+            name: None,
         });
         let _v2 = brep.vertices.insert(Vertex {
             position: Point3::new(1.0, 0.0, 0.0),
             outgoing: Default::default(),
+            name: None,
         });
 
         assert_eq!(brep.vertices.len(), 3);
@@ -263,10 +266,12 @@ mod tests {
         let _v0 = brep.vertices.insert(Vertex {
             position: Point3::new(0.0, 0.0, 0.0),
             outgoing: Default::default(),
+            name: None,
         });
         let _v1 = brep.vertices.insert(Vertex {
             position: Point3::new(1.0, 0.0, 0.0),
             outgoing: Default::default(),
+            name: None,
         });
 
         let removed = merge_coincident_vertices(&mut brep, &tol());
@@ -318,6 +323,7 @@ mod tests {
         let _ = brep.vertices.insert(Vertex {
             position: Point3::new(0.0, 0.0, 0.0),
             outgoing: Default::default(),
+            name: None,
         });
         let entry = DiagnosticEntry {
             severity: crate::step::diagnostics::Severity::Warning,
@@ -404,10 +410,12 @@ mod tests {
         let _ = brep.vertices.insert(Vertex {
             position: Point3::new(0.0, 0.0, 0.0),
             outgoing: Default::default(),
+            name: None,
         });
         let _ = brep.vertices.insert(Vertex {
             position: Point3::new(0.0, 0.0, 0.0),
             outgoing: Default::default(),
+            name: None,
         });
         let entry = DiagnosticEntry {
             severity: crate::step::diagnostics::Severity::Warning,
@@ -440,20 +448,24 @@ mod tests {
         let v0 = brep.vertices.insert(Vertex {
             position: Point3::new(0.0, 0.0, 0.0),
             outgoing: Default::default(),
+            name: None,
         });
         // v1 is coincident with v0
         let v1 = brep.vertices.insert(Vertex {
             position: Point3::new(0.0, 0.0, 0.0),
             outgoing: Default::default(),
+            name: None,
         });
         let v2 = brep.vertices.insert(Vertex {
             position: Point3::new(1.0, 0.0, 0.0),
             outgoing: Default::default(),
+            name: None,
         });
 
         let edge_handle = brep.edges.insert(Edge {
             half_edge: HalfEdgeHandle::default(),
             curve: None,
+            name: None,
         });
         // half-edge from v1 (will be remapped to v0)
         let he = brep.half_edges.insert(HalfEdge {

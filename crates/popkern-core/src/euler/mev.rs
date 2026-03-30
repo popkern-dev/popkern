@@ -55,12 +55,14 @@ impl BRep {
         let new_vertex = self.vertices.insert(Vertex {
             position,
             outgoing: Default::default(),
+            name: None,
         });
 
         // Create the edge.
         let edge = self.edges.insert(Edge {
             half_edge: Default::default(),
             curve: None,
+            name: None,
         });
 
         // Create half-edges with placeholder handles; we'll patch after insertion.
@@ -134,12 +136,14 @@ impl BRep {
         let new_vertex = self.vertices.insert(Vertex {
             position,
             outgoing: Default::default(),
+            name: None,
         });
 
         // Create the edge.
         let edge = self.edges.insert(Edge {
             half_edge: Default::default(),
             curve: None,
+            name: None,
         });
 
         // Create he_out: existing_vertex -> new_vertex

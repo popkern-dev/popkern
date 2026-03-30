@@ -13,7 +13,7 @@ pub enum SweepProfile {
     /// A face from an existing BRep.
     Face {
         /// The BRep containing the face.
-        brep: BRep,
+        brep: Box<BRep>,
         /// Handle to the face to sweep.
         face: FaceHandle,
     },

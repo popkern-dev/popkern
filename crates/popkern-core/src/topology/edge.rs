@@ -1,4 +1,5 @@
 use crate::geometry::CurveOnEdge;
+use crate::naming::NameId;
 use crate::topology::HalfEdgeHandle;
 use serde::{Deserialize, Serialize};
 
@@ -9,4 +10,7 @@ pub struct Edge {
     pub half_edge: HalfEdgeHandle,
     /// Geometric curve.
     pub curve: Option<CurveOnEdge>,
+    /// Stable topological name for this edge.
+    #[serde(default)]
+    pub name: Option<NameId>,
 }
