@@ -27,6 +27,7 @@ pub mod node;
 pub mod queries;
 pub(crate) mod replay;
 pub(crate) mod resolve;
+pub mod serialize;
 pub mod timeline;
 pub(crate) mod undo;
 
@@ -43,6 +44,7 @@ use std::time::Instant;
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
+use serde::{Deserialize, Serialize};
 use slotmap::SlotMap;
 
 use crate::body::BodyManager;
@@ -65,7 +67,13 @@ pub struct ReplayResult {
 /// Stores all features in a [`SlotMap`] keyed by [`FeatureId`], and maintains
 /// a separate `timeline` [`Vec`] that specifies evaluation order.  The tree
 /// supports replay, rollback, suppression, and intermediate-state caching.
-#[derive(Debug, Clone)]
+///
+/// # Serialization
+///
+/// Only the structural state (features, timeline, rollback index, next op id)
+/// is persisted.  Session-local fields (cached BReps, undo log) are skipped —
+/// call [`replay`](Self::replay) after loading to rebuild runtime state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureTree {
     /// All feature nodes, keyed by their stable [`FeatureId`].
     pub(crate) features: SlotMap<FeatureId, FeatureNode>,
@@ -79,16 +87,31 @@ pub struct FeatureTree {
     pub(crate) next_op_id: u64,
     /// The BRep produced by the most recent replay, or `None` if the tree
     /// has not been replayed yet.
+    ///
+    /// Not serialized — call [`replay`](Self::replay) after loading.
+    #[serde(skip)]
     pub(crate) current_brep: Option<BRep>,
     /// Cache of intermediate BRep snapshots.
+    ///
+    /// Not serialized — rebuilt on demand after loading.
+    #[serde(skip)]
     pub(crate) cache: BRepCache,
     /// Tracks the mapping from [`BodyId`]s to features and BRep snapshots.
+    ///
+    /// Not serialized — rebuilt from features on replay after loading.
+    #[serde(skip)]
     pub(crate) body_manager: BodyManager,
     /// Log of reversible tree mutations, oldest first.
+    ///
+    /// Not serialized — session-local undo history is not persisted.
+    #[serde(skip)]
     pub(crate) undo_log: Vec<TreeCommand>,
     /// Index into `undo_log` pointing to the next command that would be
     /// redone.  Commands at `[0..undo_cursor]` have been applied; commands
     /// at `[undo_cursor..]` are "future" (available for redo).
+    ///
+    /// Not serialized — reset to 0 on load.
+    #[serde(skip)]
     pub(crate) undo_cursor: usize,
 }
 

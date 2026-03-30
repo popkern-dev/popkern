@@ -23,6 +23,12 @@ pub(crate) struct BodyManager {
     next_id: u32,
 }
 
+impl Default for BodyManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BodyManager {
     /// Create a new, empty body manager.
     pub fn new() -> Self {

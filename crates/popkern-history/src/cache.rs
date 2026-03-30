@@ -50,6 +50,12 @@ pub(crate) struct BRepCache {
     insertion_order: Vec<FeatureId>,
 }
 
+impl Default for BRepCache {
+    fn default() -> Self {
+        Self::new(CacheStrategy::EveryStep)
+    }
+}
+
 #[allow(dead_code)] // Several methods are used only in tests or future tasks.
 impl BRepCache {
     /// Create a new, empty cache with the given strategy.

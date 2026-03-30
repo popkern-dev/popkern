@@ -42,5 +42,8 @@ pub struct FeatureNode {
     pub body: BodyId,
     /// Cached outcome of the most recent evaluation, or `None` if the node
     /// has never been evaluated.
+    ///
+    /// Not serialized — rebuilt by [`crate::FeatureTree::replay`] after loading.
+    #[serde(skip)]
     pub last_result: Option<FeatureResult>,
 }
