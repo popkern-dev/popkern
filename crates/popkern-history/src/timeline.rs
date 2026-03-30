@@ -14,6 +14,7 @@ use crate::body::BodyManager;
 use crate::error::HistoryError;
 use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
 use crate::node::{BodyId, FeatureId, FeatureNode};
+use crate::undo::TreeCommand;
 
 // ---------------------------------------------------------------------------
 // EntityName extraction
@@ -189,6 +190,14 @@ impl FeatureTree {
         let id = self.features.insert(node);
         self.timeline.push(id);
         self.body_manager.assign_feature(body, id);
+
+        let index = self.timeline.len() - 1;
+        self.record_undo(TreeCommand::AddFeature {
+            id,
+            snapshot: self.features[id].clone(),
+            index,
+        });
+
         id
     }
 
@@ -256,6 +265,13 @@ impl FeatureTree {
         let id = self.features.insert(node);
         self.timeline.insert(index, id);
         self.body_manager.assign_feature(body, id);
+
+        self.record_undo(TreeCommand::AddFeature {
+            id,
+            snapshot: self.features[id].clone(),
+            index,
+        });
+
         Ok(id)
     }
 
@@ -313,12 +329,94 @@ impl FeatureTree {
             }
         }
 
+        // Record the undo command before applying.
+        // `insert_at` after removal mirrors the clamped logic below.
+        let mut candidate_len = self.timeline.len();
+        candidate_len -= 1; // account for the remove
+        let final_index = new_index.min(candidate_len);
+
+        self.record_undo(TreeCommand::ReorderFeature {
+            id,
+            old_index: current_pos,
+            new_index: final_index,
+        });
+
         // Apply the reorder.
         self.timeline.remove(current_pos);
         let insert_at = new_index.min(self.timeline.len());
         self.timeline.insert(insert_at, id);
 
         Ok(())
+    }
+
+    /// Suppress a feature, skipping it during replay.
+    ///
+    /// If the feature is already suppressed this is a no-op.
+    pub fn suppress(&mut self, id: FeatureId) {
+        if let Some(node) = self.features.get_mut(id)
+            && !node.suppressed
+        {
+            node.suppressed = true;
+            self.record_undo(TreeCommand::Suppress { id });
+        }
+    }
+
+    /// Unsuppress a previously suppressed feature.
+    ///
+    /// If the feature is not suppressed this is a no-op.
+    pub fn unsuppress(&mut self, id: FeatureId) {
+        if let Some(node) = self.features.get_mut(id)
+            && node.suppressed
+        {
+            node.suppressed = false;
+            self.record_undo(TreeCommand::Unsuppress { id });
+        }
+    }
+
+    /// Modify a feature's parameters.
+    ///
+    /// Records an undo command, re-infers dependencies, and invalidates the
+    /// cache from this feature onward.
+    pub fn modify_feature(&mut self, id: FeatureId, feature: Feature) {
+        // Check existence first; bail early if not found.
+        if !self.features.contains_key(id) {
+            return;
+        }
+
+        let old = self.features[id].feature.clone();
+        self.features[id].feature = feature.clone();
+
+        // Re-infer dependencies — needs immutable access to self.features,
+        // so update the node in a second step after the mutable borrow ends.
+        let new_deps = infer_dependencies(&self.features[id].feature, &self.features);
+        self.features[id].depends_on = new_deps;
+
+        self.record_undo(TreeCommand::ModifyFeature {
+            id,
+            old,
+            new: feature,
+        });
+
+        // Invalidate cache from this feature onward.
+        if let Some(pos) = self.timeline.iter().position(|&fid| fid == id) {
+            let timeline_snap = self.timeline.clone();
+            self.cache.invalidate_from(pos, &timeline_snap);
+        }
+    }
+
+    /// Rename a feature.
+    ///
+    /// Records an undo command.
+    pub fn rename_feature(&mut self, id: FeatureId, label: &str) {
+        if let Some(node) = self.features.get_mut(id) {
+            let old_label = node.label.clone();
+            node.label = label.to_string();
+            self.record_undo(TreeCommand::RenameFeature {
+                id,
+                old_label,
+                new_label: label.to_string(),
+            });
+        }
     }
 }
 

@@ -26,6 +26,7 @@ pub mod node;
 pub(crate) mod replay;
 pub(crate) mod resolve;
 pub mod timeline;
+pub(crate) mod undo;
 
 pub use cache::CacheStrategy;
 pub use error::{FeatureResult, HistoryError, ReplayError};
@@ -42,6 +43,7 @@ use slotmap::SlotMap;
 
 use crate::body::BodyManager;
 use crate::cache::BRepCache;
+use crate::undo::TreeCommand;
 
 /// The result of replaying a feature tree.
 ///
@@ -78,6 +80,12 @@ pub struct FeatureTree {
     pub(crate) cache: BRepCache,
     /// Tracks the mapping from [`BodyId`]s to features and BRep snapshots.
     pub(crate) body_manager: BodyManager,
+    /// Log of reversible tree mutations, oldest first.
+    pub(crate) undo_log: Vec<TreeCommand>,
+    /// Index into `undo_log` pointing to the next command that would be
+    /// redone.  Commands at `[0..undo_cursor]` have been applied; commands
+    /// at `[undo_cursor..]` are "future" (available for redo).
+    pub(crate) undo_cursor: usize,
 }
 
 impl FeatureTree {
@@ -91,6 +99,8 @@ impl FeatureTree {
             current_brep: None,
             cache: BRepCache::new(CacheStrategy::EveryStep),
             body_manager: BodyManager::new(),
+            undo_log: Vec::new(),
+            undo_cursor: 0,
         }
     }
 
@@ -181,7 +191,12 @@ impl FeatureTree {
     /// Returns the cached BRep for the feature immediately *before* the bar
     /// (i.e. the BRep state at `index − 1`) if one exists in the cache.
     pub fn rollback_to(&mut self, index: usize) -> Option<&BRep> {
+        let old = self.rollback_index;
         self.rollback_index = Some(index);
+        self.record_undo(TreeCommand::MoveRollback {
+            old,
+            new: Some(index),
+        });
         if index > 0 {
             let id = self.timeline[index - 1];
             self.cache.get(id)
@@ -263,6 +278,49 @@ impl FeatureTree {
     /// Evict all cached BRep snapshots.
     pub fn clear_cache(&mut self) {
         self.cache.clear();
+    }
+
+    // -----------------------------------------------------------------------
+    // Undo / redo
+    // -----------------------------------------------------------------------
+
+    /// Undo the last tree mutation. Returns `true` if something was undone.
+    pub fn undo(&mut self) -> bool {
+        if self.undo_cursor == 0 {
+            return false;
+        }
+        self.undo_cursor -= 1;
+        let cmd = self.undo_log[self.undo_cursor].clone();
+        undo::reverse_command(self, &cmd);
+        true
+    }
+
+    /// Redo the last undone mutation. Returns `true` if something was redone.
+    pub fn redo(&mut self) -> bool {
+        if self.undo_cursor >= self.undo_log.len() {
+            return false;
+        }
+        let cmd = self.undo_log[self.undo_cursor].clone();
+        undo::apply_command(self, &cmd);
+        self.undo_cursor += 1;
+        true
+    }
+
+    /// Whether undo is available.
+    pub fn can_undo(&self) -> bool {
+        self.undo_cursor > 0
+    }
+
+    /// Whether redo is available.
+    pub fn can_redo(&self) -> bool {
+        self.undo_cursor < self.undo_log.len()
+    }
+
+    /// Record a command in the undo log. Truncates any redo history.
+    pub(crate) fn record_undo(&mut self, cmd: TreeCommand) {
+        self.undo_log.truncate(self.undo_cursor);
+        self.undo_log.push(cmd);
+        self.undo_cursor = self.undo_log.len();
     }
 
     // -----------------------------------------------------------------------
