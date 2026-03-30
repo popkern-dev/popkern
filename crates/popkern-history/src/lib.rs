@@ -25,7 +25,6 @@ pub mod timeline;
 pub use error::{FeatureResult, HistoryError, ReplayError};
 pub use feature::{BoolOpKind, Feature, ShellDirectionKind, SketchPlaneDesc, Vec3Desc};
 pub use node::{BodyId, FeatureId, FeatureNode};
-pub use timeline::{feature_entity_names, infer_dependencies};
 
 use slotmap::SlotMap;
 

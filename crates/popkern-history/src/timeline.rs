@@ -42,7 +42,7 @@ fn sketch_plane_entity_names(desc: &SketchPlaneDesc) -> Vec<&EntityName> {
 /// This walks the Feature enum recursively, collecting every stable name that
 /// the feature references.  Boolean features reference a [`BodyId`] rather than
 /// entity names, so they return an empty list.
-pub fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
+pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
     match feature {
         Feature::Sketch { plane, .. } => sketch_plane_entity_names(plane),
         Feature::Extrude {
@@ -79,7 +79,7 @@ pub fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
 /// For each [`EntityName`] referenced by `feature`, the function extracts the
 /// [`OperationId`] and searches the `features` slotmap for the node whose
 /// `operation_id` matches.  The resulting list is deduplicated.
-pub fn infer_dependencies(
+pub(crate) fn infer_dependencies(
     feature: &Feature,
     features: &SlotMap<FeatureId, FeatureNode>,
 ) -> Vec<FeatureId> {
