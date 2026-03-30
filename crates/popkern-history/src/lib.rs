@@ -34,14 +34,15 @@ use slotmap::SlotMap;
 /// inserting, suppressing, reordering, and replaying features will be added in
 /// subsequent tasks.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // fields used in subsequent tasks (timeline, replay, cache)
 pub struct FeatureTree {
     /// All feature nodes, keyed by their stable [`FeatureId`].
-    pub features: SlotMap<FeatureId, FeatureNode>,
+    pub(crate) features: SlotMap<FeatureId, FeatureNode>,
     /// Ordered sequence of feature handles defining the evaluation timeline.
-    pub timeline: Vec<FeatureId>,
+    pub(crate) timeline: Vec<FeatureId>,
     /// When `Some(n)`, replay stops after the feature at index `n − 1` in the
     /// timeline (i.e. the tree is "rolled back" to that point).
-    pub rollback_index: Option<usize>,
+    pub(crate) rollback_index: Option<usize>,
 }
 
 impl FeatureTree {

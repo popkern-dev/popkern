@@ -23,10 +23,10 @@ new_key_type! {
 pub struct BodyId(pub u32);
 
 /// A single node in the parametric feature timeline.
+///
+/// The node's [`FeatureId`] is the SlotMap key — callers already hold it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureNode {
-    /// The stable handle for this node.
-    pub id: FeatureId,
     /// The operation and its parameters.
     pub feature: Feature,
     /// The [`OperationId`] assigned when this feature last evaluated
