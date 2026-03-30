@@ -221,6 +221,51 @@ pub(crate) fn apply_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
 }
 
 // ---------------------------------------------------------------------------
+// FeatureTree public undo/redo API
+// ---------------------------------------------------------------------------
+
+impl FeatureTree {
+    /// Undo the last tree mutation. Returns `true` if something was undone.
+    pub fn undo(&mut self) -> bool {
+        if self.undo_cursor == 0 {
+            return false;
+        }
+        self.undo_cursor -= 1;
+        let cmd = self.undo_log[self.undo_cursor].clone();
+        reverse_command(self, &cmd);
+        true
+    }
+
+    /// Redo the last undone mutation. Returns `true` if something was redone.
+    pub fn redo(&mut self) -> bool {
+        if self.undo_cursor >= self.undo_log.len() {
+            return false;
+        }
+        let cmd = self.undo_log[self.undo_cursor].clone();
+        apply_command(self, &cmd);
+        self.undo_cursor += 1;
+        true
+    }
+
+    /// Whether undo is available.
+    pub fn can_undo(&self) -> bool {
+        self.undo_cursor > 0
+    }
+
+    /// Whether redo is available.
+    pub fn can_redo(&self) -> bool {
+        self.undo_cursor < self.undo_log.len()
+    }
+
+    /// Record a command in the undo log. Truncates any redo history.
+    pub(crate) fn record_undo(&mut self, cmd: TreeCommand) {
+        self.undo_log.truncate(self.undo_cursor);
+        self.undo_log.push(cmd);
+        self.undo_cursor = self.undo_log.len();
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
 

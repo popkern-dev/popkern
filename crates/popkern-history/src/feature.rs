@@ -71,6 +71,40 @@ pub enum Feature {
         /// Neutral plane face, identified by stable name.
         neutral_plane: EntityName,
     },
+    /// Sweep a face along a path curve.
+    Sweep {
+        /// The face to sweep, identified by stable name.
+        face: EntityName,
+        /// The edge whose curve defines the sweep path.
+        path_edge: EntityName,
+        /// Twist angle applied along the sweep (radians).
+        twist: f64,
+    },
+    /// Loft through multiple cross-section faces.
+    Loft {
+        /// Ordered cross-section faces to loft between.
+        sections: Vec<EntityName>,
+        /// Whether the loft wraps around to connect last section to first.
+        closed: bool,
+    },
+    /// Create a pipe (tube) along a path with constant radius.
+    Pipe {
+        /// The edge whose curve defines the pipe path.
+        path_edge: EntityName,
+        /// Pipe radius.
+        radius: f64,
+    },
+    /// Revolve a face around an axis.
+    Revolve {
+        /// The face to revolve.
+        face: EntityName,
+        /// Axis origin in world coordinates.
+        axis_origin: [f64; 3],
+        /// Axis direction in world coordinates.
+        axis_direction: [f64; 3],
+        /// Revolution angle in radians (2π for full revolution).
+        angle: f64,
+    },
 }
 
 /// Describes the plane a sketch is placed on.

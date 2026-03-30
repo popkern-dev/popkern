@@ -23,6 +23,7 @@ pub mod cache;
 pub mod delete;
 pub mod error;
 pub mod feature;
+pub mod health;
 pub mod node;
 pub mod queries;
 pub(crate) mod replay;
@@ -35,6 +36,7 @@ pub use cache::CacheStrategy;
 pub use delete::{DeleteBehavior, DeleteResult};
 pub use error::{FeatureResult, HistoryError, ReplayError};
 pub use feature::{BoolOpKind, Feature, ShellDirectionKind, SketchPlaneDesc, Vec3Desc};
+pub use health::{HealthReport, ReferenceIssue};
 pub use node::{BodyId, FeatureId, FeatureNode};
 pub use queries::ImpactReport;
 
@@ -51,6 +53,9 @@ use slotmap::SlotMap;
 use crate::body::BodyManager;
 use crate::cache::BRepCache;
 use crate::undo::TreeCommand;
+
+/// Per-body BReps paired with per-feature outcomes from a replay pass.
+type ReplayRangeOutput = (HashMap<BodyId, BRep>, HashMap<FeatureId, FeatureResult>);
 
 /// The result of replaying a feature tree.
 ///
@@ -86,6 +91,10 @@ pub struct FeatureTree {
     /// Monotonically increasing counter for [`popkern_core::naming::OperationId`]
     /// assignment.  Starts at 1 (0 is reserved for "unassigned").
     pub(crate) next_op_id: u64,
+    /// Timeline index below which features are "frozen" — never rebuilt.
+    /// `None` means nothing is frozen.
+    #[serde(default)]
+    pub(crate) frozen_index: Option<usize>,
     /// The BRep produced by the most recent replay, or `None` if the tree
     /// has not been replayed yet.
     ///
@@ -130,6 +139,7 @@ impl FeatureTree {
             timeline: Vec::new(),
             rollback_index: None,
             next_op_id: 1,
+            frozen_index: None,
             current_brep: None,
             cache: BRepCache::new(CacheStrategy::EveryStep),
             body_manager: BodyManager::new(),
@@ -139,15 +149,13 @@ impl FeatureTree {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Replay
-    // -----------------------------------------------------------------------
+    // -- Replay ---------------------------------------------------------------
 
     /// Replay the entire feature tree from scratch.
     ///
     /// Evaluates features in timeline order up to the rollback index (or the
     /// end of the timeline). Suppressed features are skipped. Failed features
-    /// record an error but do not abort the replay — the BRep continues from
+    /// record an error but do not abort the replay -- the BRep continues from
     /// the last good state.
     ///
     /// # Errors
@@ -159,17 +167,29 @@ impl FeatureTree {
         let start = Instant::now();
         let end = self.rollback_index.unwrap_or(self.timeline.len());
 
-        let (brep, results) = self.replay_range(BRep::new(tolerance), 0, end, &tolerance)?;
+        // If frozen, try to start from the cached BRep at the freeze point.
+        let (start_bodies, from) = if let Some(frozen) = self.frozen_index {
+            let frozen = frozen.min(end);
+            if frozen > 0 {
+                let freeze_id = self.timeline[frozen - 1];
+                if let Some(cached) = self.cache.get(freeze_id) {
+                    let body = self.features[freeze_id].body;
+                    let mut bodies = HashMap::new();
+                    bodies.insert(body, cached.clone());
+                    (bodies, frozen)
+                } else {
+                    // No cache at freeze point — replay from scratch.
+                    (HashMap::new(), 0)
+                }
+            } else {
+                (HashMap::new(), 0)
+            }
+        } else {
+            (HashMap::new(), 0)
+        };
 
-        self.current_brep = Some(brep);
-
-        // Store the final BRep for the default body so that `body_brep()`
-        // works for single-body models.  Full multi-body replay (parallel
-        // independent bodies) is a known limitation for a future iteration.
-        if let Some(b) = &self.current_brep {
-            self.body_manager.set_brep(BodyId(0), b.clone());
-        }
-
+        let (body_breps, results) = self.replay_range(start_bodies, from, end, &tolerance)?;
+        self.store_body_breps(&body_breps);
         Ok(ReplayResult {
             feature_results: results,
             elapsed: start.elapsed(),
@@ -197,32 +217,28 @@ impl FeatureTree {
 
         // Find the nearest cached BRep at or before `pos`.
         let mut start_pos = 0;
-        let mut start_brep = BRep::new(tolerance);
+        let mut start_bodies: HashMap<BodyId, BRep> = HashMap::new();
         for i in (0..pos).rev() {
             let fid = self.timeline[i];
             if let Some(cached) = self.cache.get(fid) {
                 start_pos = i + 1;
-                start_brep = cached.clone();
+                let body = self.features[fid].body;
+                start_bodies.insert(body, cached.clone());
                 break;
             }
         }
 
         let timer = Instant::now();
         let end = self.rollback_index.unwrap_or(self.timeline.len());
-
-        let (brep, results) = self.replay_range(start_brep, start_pos, end, &tolerance)?;
-
-        self.current_brep = Some(brep);
-
+        let (body_breps, results) = self.replay_range(start_bodies, start_pos, end, &tolerance)?;
+        self.store_body_breps(&body_breps);
         Ok(ReplayResult {
             feature_results: results,
             elapsed: timer.elapsed(),
         })
     }
 
-    // -----------------------------------------------------------------------
-    // Rollback / scrubbing
-    // -----------------------------------------------------------------------
+    // -- Rollback / scrubbing -------------------------------------------------
 
     /// Move the rollback bar to `index`.
     ///
@@ -310,9 +326,7 @@ impl FeatureTree {
             })
     }
 
-    // -----------------------------------------------------------------------
-    // Cache management
-    // -----------------------------------------------------------------------
+    // -- Cache management -----------------------------------------------------
 
     /// Replace the caching strategy.  All existing cached snapshots are evicted.
     pub fn set_cache_strategy(&mut self, strategy: CacheStrategy) {
@@ -324,52 +338,27 @@ impl FeatureTree {
         self.cache.clear();
     }
 
-    // -----------------------------------------------------------------------
-    // Undo / redo
-    // -----------------------------------------------------------------------
+    // -- Feature freeze -------------------------------------------------------
 
-    /// Undo the last tree mutation. Returns `true` if something was undone.
-    pub fn undo(&mut self) -> bool {
-        if self.undo_cursor == 0 {
-            return false;
-        }
-        self.undo_cursor -= 1;
-        let cmd = self.undo_log[self.undo_cursor].clone();
-        undo::reverse_command(self, &cmd);
-        true
+    /// Freeze all features up to (but not including) `index`.
+    ///
+    /// Frozen features are never re-evaluated during replay — the cached
+    /// BRep at the freeze point is used as the starting state.
+    pub fn freeze_to(&mut self, index: usize) {
+        self.frozen_index = Some(index);
     }
 
-    /// Redo the last undone mutation. Returns `true` if something was redone.
-    pub fn redo(&mut self) -> bool {
-        if self.undo_cursor >= self.undo_log.len() {
-            return false;
-        }
-        let cmd = self.undo_log[self.undo_cursor].clone();
-        undo::apply_command(self, &cmd);
-        self.undo_cursor += 1;
-        true
+    /// Remove the freeze point, allowing all features to be rebuilt.
+    pub fn unfreeze(&mut self) {
+        self.frozen_index = None;
     }
 
-    /// Whether undo is available.
-    pub fn can_undo(&self) -> bool {
-        self.undo_cursor > 0
+    /// Return the current freeze index, or `None` if nothing is frozen.
+    pub fn frozen_index(&self) -> Option<usize> {
+        self.frozen_index
     }
 
-    /// Whether redo is available.
-    pub fn can_redo(&self) -> bool {
-        self.undo_cursor < self.undo_log.len()
-    }
-
-    /// Record a command in the undo log. Truncates any redo history.
-    pub(crate) fn record_undo(&mut self, cmd: TreeCommand) {
-        self.undo_log.truncate(self.undo_cursor);
-        self.undo_log.push(cmd);
-        self.undo_cursor = self.undo_log.len();
-    }
-
-    // -----------------------------------------------------------------------
-    // BRep accessor
-    // -----------------------------------------------------------------------
+    // -- BRep accessor --------------------------------------------------------
 
     /// Return a reference to the BRep produced by the most recent replay.
     ///
@@ -378,9 +367,7 @@ impl FeatureTree {
         self.current_brep.as_ref()
     }
 
-    // -----------------------------------------------------------------------
-    // Body accessors
-    // -----------------------------------------------------------------------
+    // -- Body accessors -------------------------------------------------------
 
     /// Return all body IDs currently tracked by this tree.
     pub fn bodies(&self) -> Vec<BodyId> {
@@ -402,11 +389,9 @@ impl FeatureTree {
         self.body_manager.body_features(body)
     }
 
-    // -----------------------------------------------------------------------
-    // Index maintenance
-    // -----------------------------------------------------------------------
+    // -- Index maintenance ----------------------------------------------------
 
-    /// Rebuild the [`OperationId`] → [`FeatureId`] index from the features
+    /// Rebuild the [`OperationId`] -> [`FeatureId`] index from the features
     /// SlotMap.
     ///
     /// Called after deserialization to restore the transient `op_index` field.
@@ -417,23 +402,36 @@ impl FeatureTree {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Private helpers
-    // -----------------------------------------------------------------------
+    // -- Private helpers ------------------------------------------------------
 
-    /// Execute features `from..to` against `start_brep`, caching results and
-    /// returning the final BRep together with per-feature outcomes.
+    /// Persist replay results: update body_manager and current_brep.
+    fn store_body_breps(&mut self, body_breps: &HashMap<BodyId, BRep>) {
+        for (body_id, brep) in body_breps {
+            self.body_manager.set_brep(*body_id, brep.clone());
+        }
+        self.current_brep = body_breps
+            .get(&BodyId(0))
+            .cloned()
+            .or_else(|| body_breps.values().next().cloned());
+    }
+
+    /// Execute features `from..to` using per-body BRep maps, caching results
+    /// and returning the final body BReps together with per-feature outcomes.
     ///
     /// This is the shared core used by both [`replay`](Self::replay) and
     /// [`replay_from`](Self::replay_from).
+    ///
+    /// Each feature's body BRep is temporarily removed from the map before
+    /// calling [`replay::execute_feature`] so that Boolean features can freely
+    /// access (and consume) the tool body's BRep without borrow conflicts.
     fn replay_range(
         &mut self,
-        start_brep: BRep,
+        body_breps: HashMap<BodyId, BRep>,
         from: usize,
         to: usize,
         tolerance: &Tolerance,
-    ) -> Result<(BRep, HashMap<FeatureId, FeatureResult>), ReplayError> {
-        let mut brep = start_brep;
+    ) -> Result<ReplayRangeOutput, ReplayError> {
+        let mut body_breps = body_breps;
         let mut results = HashMap::new();
 
         for i in from..to {
@@ -446,12 +444,19 @@ impl FeatureTree {
             }
 
             let mut ctx = TrackingContext::new(node.operation_id);
-
-            // Clone the feature so we don't hold a borrow on self.features
-            // while mutating brep.
             let feature = node.feature.clone();
+            let body = node.body;
 
-            match replay::execute_feature(&mut brep, &feature, &mut ctx, tolerance) {
+            // Take this body's BRep out of the map so we can pass both
+            // `&mut brep` and `&mut body_breps` to execute_feature.
+            let mut brep = body_breps
+                .remove(&body)
+                .unwrap_or_else(|| BRep::new(*tolerance));
+
+            let exec_result =
+                replay::execute_feature(&mut brep, &feature, &mut ctx, tolerance, &mut body_breps);
+
+            match exec_result {
                 Ok(()) => {
                     let history = ctx.finish();
                     results.insert(
@@ -461,7 +466,6 @@ impl FeatureTree {
                         },
                     );
                     self.features[id].last_result = Some(FeatureResult::Success { history });
-                    // Store snapshot in cache.
                     self.cache.store(id, brep.clone(), i);
                 }
                 Err(e) => {
@@ -474,12 +478,14 @@ impl FeatureTree {
                     );
                     self.features[id].last_result =
                         Some(FeatureResult::Failed { error: error_msg });
-                    // Continue with the BRep as-is (last good state).
                 }
             }
+
+            // Put the BRep back (even on failure — keeps last good state).
+            body_breps.insert(body, brep);
         }
 
-        Ok((brep, results))
+        Ok((body_breps, results))
     }
 }
 

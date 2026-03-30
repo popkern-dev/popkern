@@ -36,7 +36,6 @@ pub(crate) fn resolve_face(name: &EntityName, brep: &BRep) -> Result<FaceHandle,
 /// Resolve an [`EntityName`] to an [`EdgeHandle`].
 ///
 /// For split resolutions, returns the first edge found in the successor list.
-#[allow(dead_code)] // used by future Feature variants (e.g. variable chamfer)
 pub(crate) fn resolve_edge(name: &EntityName, brep: &BRep) -> Result<EdgeHandle, ReplayError> {
     match resolve_name(name, brep) {
         Resolution::Exact(ResolvedEntity::Edge(h)) => Ok(h),
