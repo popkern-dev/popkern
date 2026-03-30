@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/popkern-core", "crates/popkern-bool", "crates/popkern-draft", "crates/popkern-fillet", "crates/popkern-sweep", "crates/popkern-shell", "crates/popkern-io", "crates/popkern-mesh", "crates/popkern-viz", "crates/popkern-examples", "crates/popkern-constraint", "crates/popkern-sketch", "tools/lints", "tools/structural-tests"]
+members = ["crates/popkern-core", "crates/popkern-bool", "crates/popkern-draft", "crates/popkern-fillet", "crates/popkern-sweep", "crates/popkern-shell", "crates/popkern-io", "crates/popkern-mesh", "crates/popkern-viz", "crates/popkern-examples", "crates/popkern-constraint", "crates/popkern-sketch", "crates/popkern-history", "tools/lints", "tools/structural-tests"]
 
 [workspace.package]
 edition = "2024"
