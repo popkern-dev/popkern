@@ -48,7 +48,7 @@ impl BRep {
         let mef = brep.mef(last_twin, mev1.half_edge)?;
 
         // 5. extrude along direction * distance
-        brep.extrude(mef.face, direction, distance)?;
+        brep.extrude(mef.face, direction, distance, None)?;
 
         // Attach geometry to all edges and faces.
         brep.attach_geometry()?;

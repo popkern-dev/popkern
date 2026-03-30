@@ -3147,6 +3147,7 @@ version = "0.1.0"
 dependencies = [
  "popkern-constraint",
  "popkern-core",
+ "popkern-fillet",
  "popkern-sweep",
  "serde",
  "thiserror 2.0.18",

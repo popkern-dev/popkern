@@ -30,7 +30,7 @@ impl BRep {
         let mef = brep.mef(mev3.half_edge_twin, mev1.half_edge)?;
 
         // 6. extrude along (0,0,1) by 1.0
-        brep.extrude(mef.face, Vec3::new(0.0, 0.0, 1.0), 1.0)?;
+        brep.extrude(mef.face, Vec3::new(0.0, 0.0, 1.0), 1.0, None)?;
 
         // Attach geometry to all edges and faces.
         brep.attach_geometry()?;

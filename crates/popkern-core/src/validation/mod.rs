@@ -103,7 +103,7 @@ mod tests {
             .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
             .unwrap();
         let mef = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
-        brep.extrude(mef.face, Vec3::new(0.0, 0.0, 1.0), 1.0)
+        brep.extrude(mef.face, Vec3::new(0.0, 0.0, 1.0), 1.0, None)
             .unwrap();
         brep
     }
@@ -157,7 +157,7 @@ mod tests {
             .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
             .unwrap();
         let mef = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
-        brep.extrude(mef.face, Vec3::new(0.0, 0.0, 1.0), 1.0)
+        brep.extrude(mef.face, Vec3::new(0.0, 0.0, 1.0), 1.0, None)
             .unwrap();
 
         assert!(brep.validate_face_orientation().is_ok());
@@ -180,7 +180,7 @@ mod tests {
             .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
             .unwrap();
         let mef = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
-        brep.extrude(mef.face, Vec3::new(0.0, 0.0, 1.0), 1.0)
+        brep.extrude(mef.face, Vec3::new(0.0, 0.0, 1.0), 1.0, None)
             .unwrap();
 
         assert!(brep.validate().is_ok());
