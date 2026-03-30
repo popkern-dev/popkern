@@ -13,6 +13,7 @@ pub mod geometry;
 pub mod history;
 pub mod naming;
 pub mod naming_criteria;
+pub mod naming_resolve;
 pub mod tolerance;
 pub mod topology;
 pub mod validation;
