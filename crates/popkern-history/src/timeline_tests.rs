@@ -299,3 +299,53 @@ fn vec3_desc_negated_recurses() {
     assert_eq!(names.len(), 1);
     assert_eq!(names[0].operation, OperationId(42));
 }
+
+#[test]
+fn sweep_entity_names_extracts_face_and_path() {
+    let f = Feature::Sweep {
+        face: entity_name(1),
+        path_edge: entity_name(2),
+        twist: 0.0,
+    };
+    let names = feature_entity_names(&f);
+    assert_eq!(names.len(), 2);
+    assert_eq!(names[0].operation, OperationId(1));
+    assert_eq!(names[1].operation, OperationId(2));
+}
+
+#[test]
+fn loft_entity_names_extracts_all_sections() {
+    let f = Feature::Loft {
+        sections: vec![entity_name(10), entity_name(20), entity_name(30)],
+        closed: false,
+    };
+    let names = feature_entity_names(&f);
+    assert_eq!(names.len(), 3);
+    assert_eq!(names[0].operation, OperationId(10));
+    assert_eq!(names[1].operation, OperationId(20));
+    assert_eq!(names[2].operation, OperationId(30));
+}
+
+#[test]
+fn pipe_entity_names_extracts_path_edge() {
+    let f = Feature::Pipe {
+        path_edge: entity_name(5),
+        radius: 1.0,
+    };
+    let names = feature_entity_names(&f);
+    assert_eq!(names.len(), 1);
+    assert_eq!(names[0].operation, OperationId(5));
+}
+
+#[test]
+fn revolve_entity_names_extracts_face() {
+    let f = Feature::Revolve {
+        face: entity_name(7),
+        axis_origin: [0.0, 0.0, 0.0],
+        axis_direction: [0.0, 0.0, 1.0],
+        angle: std::f64::consts::TAU,
+    };
+    let names = feature_entity_names(&f);
+    assert_eq!(names.len(), 1);
+    assert_eq!(names[0].operation, OperationId(7));
+}

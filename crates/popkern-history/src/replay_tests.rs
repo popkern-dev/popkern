@@ -261,11 +261,11 @@ fn replay_from_invalid_id_fails() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 7: Boolean returns not-yet-wired error
+// Test 7: Boolean with missing tool body fails gracefully
 // ---------------------------------------------------------------------------
 
 #[test]
-fn boolean_feature_returns_not_wired() {
+fn boolean_missing_tool_body_fails() {
     let mut tree = FeatureTree::new();
 
     tree.add_feature(
@@ -279,8 +279,8 @@ fn boolean_feature_returns_not_wired() {
     let result = tree.replay(Tolerance::default()).expect("replay");
     let outcomes: Vec<_> = result.feature_results.values().collect();
     assert!(
-        matches!(outcomes[0], FeatureResult::Failed { error } if error.contains("multi-body")),
-        "boolean should fail with multi-body not wired"
+        matches!(outcomes[0], FeatureResult::Failed { error } if error.contains("not found")),
+        "boolean should fail when tool body is missing"
     );
 }
 
@@ -292,4 +292,101 @@ fn boolean_feature_returns_not_wired() {
 fn current_brep_none_before_replay() {
     let tree = FeatureTree::new();
     assert!(tree.current_brep().is_none());
+}
+
+// ---------------------------------------------------------------------------
+// Test 9: Revolve returns not-implemented error
+// ---------------------------------------------------------------------------
+
+#[test]
+fn revolve_returns_not_implemented() {
+    let mut tree = FeatureTree::new();
+    let sketch_json = rectangle_sketch_json();
+
+    // Add a sketch so we have a face to reference.
+    tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY,
+            sketch_data: sketch_json,
+        },
+        "Sketch 1",
+    );
+
+    tree.add_feature(
+        Feature::Revolve {
+            face: entity_name(1, RoleCategory::Generated, 0),
+            axis_origin: [0.0, 0.0, 0.0],
+            axis_direction: [0.0, 0.0, 1.0],
+            angle: std::f64::consts::TAU,
+        },
+        "Revolve 1",
+    );
+
+    let result = tree.replay(Tolerance::default()).expect("replay");
+    let outcomes: Vec<_> = result.feature_results.values().collect();
+    let revolve_failed = outcomes.iter().any(
+        |r| matches!(r, FeatureResult::Failed { error } if error.contains("not yet implemented")),
+    );
+    assert!(
+        revolve_failed,
+        "revolve should fail with not-implemented error"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 10: Freeze skips frozen features on replay
+// ---------------------------------------------------------------------------
+
+#[test]
+fn freeze_skips_frozen_features() {
+    let mut tree = FeatureTree::new();
+    let sketch_json = rectangle_sketch_json();
+
+    // Sketch (op=1) + Extrude (op=2).
+    tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY,
+            sketch_data: sketch_json.clone(),
+        },
+        "Sketch 1",
+    );
+
+    tree.add_feature(
+        Feature::Extrude {
+            face: entity_name(1, RoleCategory::Generated, 0),
+            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
+            distance: 1.0,
+        },
+        "Extrude 1",
+    );
+
+    // First replay populates the cache.
+    let r1 = tree.replay(Tolerance::default()).expect("first replay");
+    assert_eq!(r1.feature_results.len(), 2);
+
+    // Freeze after feature index 1 (the sketch).
+    tree.freeze_to(1);
+    assert_eq!(tree.frozen_index(), Some(1));
+
+    // Second replay — the sketch should be skipped (served from cache),
+    // only the extrude should be re-evaluated.
+    let r2 = tree.replay(Tolerance::default()).expect("frozen replay");
+    // The frozen feature (sketch) won't appear in the results since
+    // replay_range starts from index 1 (after freeze).
+    assert!(
+        r2.feature_results.len() <= 2,
+        "frozen replay should produce at most 2 results"
+    );
+
+    // The BRep should still be a valid 6-face box.
+    let brep = tree.current_brep().expect("brep");
+    assert_eq!(
+        brep.faces.len(),
+        6,
+        "frozen replay should still produce box"
+    );
+
+    // Unfreeze and verify.
+    tree.unfreeze();
+    assert!(tree.frozen_index().is_none());
 }

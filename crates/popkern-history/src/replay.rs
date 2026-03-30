@@ -2,15 +2,19 @@
 //! appropriate popkern operation and records naming history.
 
 use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::BRep;
+use popkern_core::topology::{BRep, EdgeHandle};
+
+use std::collections::HashMap;
 
 use crate::error::ReplayError;
-use crate::feature::{Feature, ShellDirectionKind};
+use crate::feature::{BoolOpKind, Feature, ShellDirectionKind};
+use crate::node::BodyId;
 use crate::resolve::{
-    resolve_direction, resolve_edges, resolve_face, resolve_faces, resolve_sketch_plane,
+    resolve_direction, resolve_edge, resolve_edges, resolve_face, resolve_faces,
+    resolve_sketch_plane,
 };
 
 /// Execute a single feature against the current BRep.
@@ -19,6 +23,10 @@ use crate::resolve::{
 /// operation. For operations that return a new BRep (fillet, chamfer, shell,
 /// draft), the current `brep` is replaced. For operations that mutate in
 /// place (extrude), the BRep is updated directly.
+///
+/// The `body_breps` map holds the BReps for all other bodies. Most features
+/// ignore it. Boolean features use it to look up (and consume) the tool
+/// body's BRep.
 ///
 /// # Errors
 ///
@@ -29,6 +37,7 @@ pub(crate) fn execute_feature(
     feature: &Feature,
     tracking: &mut TrackingContext,
     tolerance: &Tolerance,
+    body_breps: &mut HashMap<BodyId, BRep>,
 ) -> Result<(), ReplayError> {
     match feature {
         Feature::Sketch { plane, sketch_data } => {
@@ -94,10 +103,28 @@ pub(crate) fn execute_feature(
             *brep = result.brep;
             Ok(())
         }
-        Feature::Boolean { .. } => Err(ReplayError::FeatureFailed {
-            label: "boolean".into(),
-            error: "multi-body not yet wired".into(),
-        }),
+        Feature::Boolean {
+            operation,
+            tool_body,
+        } => {
+            let tool_brep =
+                body_breps
+                    .remove(tool_body)
+                    .ok_or_else(|| ReplayError::FeatureFailed {
+                        label: "boolean".into(),
+                        error: format!("tool body {tool_body:?} not found"),
+                    })?;
+
+            let bool_op = to_bool_operation(*operation);
+            let result =
+                popkern_bool::boolean(bool_op, brep.clone(), tool_brep, *tolerance, Some(tracking))
+                    .map_err(|e| ReplayError::FeatureFailed {
+                        label: "boolean".into(),
+                        error: e.to_string(),
+                    })?;
+            *brep = result;
+            Ok(())
+        }
         Feature::Shell {
             faces_to_remove,
             thickness,
@@ -159,6 +186,74 @@ pub(crate) fn execute_feature(
             *brep = result.brep;
             Ok(())
         }
+        Feature::Sweep {
+            face,
+            path_edge,
+            twist,
+        } => {
+            let face_handle = resolve_face(face, brep)?;
+            let edge_handle = resolve_edge(path_edge, brep)?;
+            let path_curve = extract_edge_curve(brep, edge_handle)?;
+            let profile = popkern_sweep::SweepProfile::Face {
+                brep: Box::new(brep.clone()),
+                face: face_handle,
+            };
+            let options = popkern_sweep::SweepOptions {
+                twist: *twist,
+                ..popkern_sweep::SweepOptions::default()
+            };
+            let result = popkern_sweep::sweep(&profile, &path_curve, &options, *tolerance)
+                .map_err(|e| ReplayError::FeatureFailed {
+                    label: "sweep".into(),
+                    error: e.to_string(),
+                })?;
+            *brep = result.brep;
+            Ok(())
+        }
+        Feature::Loft { sections, closed } => {
+            let mut loft_sections = Vec::new();
+            for section_name in sections {
+                let face_handle = resolve_face(section_name, brep)?;
+                let curve = extract_face_outer_curve(brep, face_handle)?;
+                loft_sections.push(popkern_sweep::LoftSection {
+                    curve,
+                    position: None,
+                });
+            }
+            let options = popkern_sweep::LoftOptions {
+                closed: *closed,
+                ..popkern_sweep::LoftOptions::default()
+            };
+            let result =
+                popkern_sweep::loft(&loft_sections, &options, *tolerance).map_err(|e| {
+                    ReplayError::FeatureFailed {
+                        label: "loft".into(),
+                        error: e.to_string(),
+                    }
+                })?;
+            *brep = result.brep;
+            Ok(())
+        }
+        Feature::Pipe { path_edge, radius } => {
+            let edge_handle = resolve_edge(path_edge, brep)?;
+            let path_curve = extract_edge_curve(brep, edge_handle)?;
+            let result = popkern_sweep::pipe(
+                &path_curve,
+                &popkern_sweep::PipeRadius::Constant(*radius),
+                &popkern_sweep::SweepOptions::default(),
+                *tolerance,
+            )
+            .map_err(|e| ReplayError::FeatureFailed {
+                label: "pipe".into(),
+                error: e.to_string(),
+            })?;
+            *brep = result.brep;
+            Ok(())
+        }
+        Feature::Revolve { .. } => Err(ReplayError::FeatureFailed {
+            label: "revolve".into(),
+            error: "revolve not yet implemented in popkern-sweep".into(),
+        }),
     }
 }
 
@@ -211,6 +306,46 @@ fn to_shell_direction(kind: &ShellDirectionKind) -> popkern_shell::ShellDirectio
         ShellDirectionKind::Outward => popkern_shell::ShellDirection::Outward,
         ShellDirectionKind::Midplane => popkern_shell::ShellDirection::Midplane,
     }
+}
+
+/// Convert a serialisable [`BoolOpKind`] to the runtime
+/// [`popkern_bool::BoolOperation`].
+fn to_bool_operation(kind: BoolOpKind) -> popkern_bool::BoolOperation {
+    match kind {
+        BoolOpKind::Union => popkern_bool::BoolOperation::Union,
+        BoolOpKind::Intersection => popkern_bool::BoolOperation::Intersection,
+        BoolOpKind::Subtraction => popkern_bool::BoolOperation::Subtraction,
+    }
+}
+
+/// Extract a [`NurbsCurve`] from an edge's curve geometry.
+fn extract_edge_curve(brep: &BRep, edge: EdgeHandle) -> Result<NurbsCurve, ReplayError> {
+    let curve_on_edge =
+        brep.edges[edge]
+            .curve
+            .as_ref()
+            .ok_or_else(|| ReplayError::FeatureFailed {
+                label: "sweep".into(),
+                error: "path edge has no curve geometry".into(),
+            })?;
+    Ok(curve_on_edge
+        .geometry
+        .to_nurbs_in_range((curve_on_edge.t_start, curve_on_edge.t_end)))
+}
+
+/// Extract the outer loop of a face as a single [`NurbsCurve`].
+///
+/// Uses the first edge's curve from the face's outer loop. For simple
+/// cross-section faces (single-curve boundary) this is sufficient; complex
+/// multi-edge boundaries would need curve concatenation (future enhancement).
+fn extract_face_outer_curve(
+    brep: &BRep,
+    face: popkern_core::topology::FaceHandle,
+) -> Result<NurbsCurve, ReplayError> {
+    let outer_loop = brep.faces[face].outer_loop;
+    let first_he = brep.loops[outer_loop].half_edge;
+    let first_edge = brep.half_edges[first_he].edge;
+    extract_edge_curve(brep, first_edge)
 }
 
 /// Extract the plane origin and normal from a face's planar surface.

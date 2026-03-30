@@ -70,6 +70,12 @@ pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
             names.push(neutral_plane);
             names
         }
+        Feature::Sweep {
+            face, path_edge, ..
+        } => vec![face, path_edge],
+        Feature::Loft { sections, .. } => sections.iter().collect(),
+        Feature::Pipe { path_edge, .. } => vec![path_edge],
+        Feature::Revolve { face, .. } => vec![face],
     }
 }
 
