@@ -459,7 +459,7 @@ mod tests {
         let brep = BRep::unit_cube(Tolerance::default()).unwrap();
         let face = brep.faces.keys().next().unwrap();
         let profile = SweepProfile::Face {
-            brep: brep.clone(),
+            brep: Box::new(brep.clone()),
             face,
         };
         let result = analyze_profile(&profile, &Tolerance::default());

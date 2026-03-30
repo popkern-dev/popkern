@@ -1,5 +1,6 @@
 //! BRep — the top-level boundary representation container.
 
+use crate::naming::{NamePool, OperationLabels};
 use crate::tolerance::Tolerance;
 use crate::topology::*;
 use serde::{Deserialize, Serialize};
@@ -27,6 +28,12 @@ pub struct BRep {
     pub solids: SlotMap<SolidHandle, Solid>,
     /// Geometric tolerance for this model.
     pub tolerance: Tolerance,
+    /// Pool of stable topological names for entities in this model.
+    #[serde(default)]
+    pub name_pool: NamePool,
+    /// Human-readable labels for modelling operations.
+    #[serde(default)]
+    pub operation_labels: OperationLabels,
 }
 
 impl BRep {
@@ -41,6 +48,8 @@ impl BRep {
             shells: SlotMap::with_key(),
             solids: SlotMap::with_key(),
             tolerance,
+            name_pool: NamePool::new(),
+            operation_labels: OperationLabels::default(),
         }
     }
 }

@@ -300,6 +300,7 @@ mod tests {
             inner_loops: Vec::new(),
             shell: brep.faces[mvfs.face].shell,
             surface: None,
+            name: None,
         });
         brep.loops[new_loop].face = new_face;
         brep.half_edges[mev.half_edge_twin].loop_ = new_loop;

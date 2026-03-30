@@ -33,6 +33,7 @@ impl BRep {
         let vertex = self.vertices.insert(Vertex {
             position,
             outgoing: Default::default(),
+            name: None,
         });
 
         // We need face, loop, shell, solid — they are mutually referential.
@@ -42,6 +43,7 @@ impl BRep {
             inner_loops: vec![],
             shell: Default::default(),
             surface: None,
+            name: None,
         });
 
         let loop_ = self.loops.insert(Loop {

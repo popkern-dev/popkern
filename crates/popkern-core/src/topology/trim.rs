@@ -77,6 +77,7 @@ impl BRep {
             let vh = self.vertices.insert(Vertex {
                 position: pos,
                 outgoing: Default::default(),
+                name: None,
             });
             vertices.push(vh);
         }
@@ -124,6 +125,7 @@ impl BRep {
                     t_start: 0.0,
                     t_end: 1.0,
                 }),
+                name: None,
             });
             edges.push(edge_h);
 

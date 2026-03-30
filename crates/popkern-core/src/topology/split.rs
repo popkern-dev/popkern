@@ -101,6 +101,7 @@ impl BRep {
         let vertex_v = self.vertices.insert(Vertex {
             position: split_pos,
             outgoing: Default::default(),
+            name: None,
         });
 
         // Split pcurves for he_ab (A->B direction) and he_ba (B->A direction).
@@ -113,6 +114,7 @@ impl BRep {
         let edge_b = self.edges.insert(Edge {
             half_edge: Default::default(),
             curve: None,
+            name: None,
         });
 
         // Create new half-edges: he_vb (V->B) and he_bv (B->V).
