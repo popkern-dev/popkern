@@ -41,7 +41,15 @@ fn main() {
 
     println!("  Drafting one face at {:.1} degrees", angle.to_degrees());
 
-    match draft_face(&cube, face, angle, pull_dir, NeutralReference::Auto, tol) {
+    match draft_face(
+        &cube,
+        face,
+        angle,
+        pull_dir,
+        NeutralReference::Auto,
+        tol,
+        None,
+    ) {
         Ok(result) => {
             let brep = &result.brep;
             println!(

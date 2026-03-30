@@ -11,7 +11,7 @@ fn default_tol() -> Tolerance {
 fn fillet_result_100_percent_pcurve_coverage() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     let edge = brep.edges.keys().next().unwrap();
-    let result = popkern_fillet::fillet_edge(&brep, edge, 0.1, default_tol()).unwrap();
+    let result = popkern_fillet::fillet_edge(&brep, edge, 0.1, default_tol(), None).unwrap();
     for (he_handle, he) in result.brep.half_edges.iter() {
         assert!(
             he.pcurve.is_some(),
@@ -28,7 +28,7 @@ fn fillet_pcurves_have_uv_within_surface_range() {
 
     let brep = BRep::unit_cube(default_tol()).unwrap();
     let edge = brep.edges.keys().next().unwrap();
-    let result = popkern_fillet::fillet_edge(&brep, edge, 0.1, default_tol()).unwrap();
+    let result = popkern_fillet::fillet_edge(&brep, edge, 0.1, default_tol(), None).unwrap();
 
     for fh in result.brep.faces.keys() {
         let face = &result.brep.faces[fh];

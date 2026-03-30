@@ -27,7 +27,7 @@ fn fillet_single_cube_edge() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     assert_euler_poincare(&brep, "input cube");
     let edge = brep.edges.keys().next().unwrap();
-    let result = popkern_fillet::fillet_edge(&brep, edge, 0.1, default_tol());
+    let result = popkern_fillet::fillet_edge(&brep, edge, 0.1, default_tol(), None);
     assert!(
         result.is_ok(),
         "fillet should not error: {:?}",
@@ -46,7 +46,7 @@ fn fillet_single_cube_edge() {
 fn fillet_single_cube_edge_produces_valid_brep() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     let edge = brep.edges.keys().next().unwrap();
-    let result = popkern_fillet::fillet_edge(&brep, edge, 0.1, default_tol()).unwrap();
+    let result = popkern_fillet::fillet_edge(&brep, edge, 0.1, default_tol(), None).unwrap();
 
     // Must have MORE faces than original (6 original - 2 consumed + 2 kept + 1 fillet = 7).
     assert_eq!(
@@ -79,7 +79,7 @@ fn fillet_single_cube_edge_produces_valid_brep() {
 fn chamfer_single_cube_edge() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     let edge = brep.edges.keys().next().unwrap();
-    let result = popkern_fillet::chamfer_edge(&brep, edge, 0.2, default_tol());
+    let result = popkern_fillet::chamfer_edge(&brep, edge, 0.2, default_tol(), None);
     assert!(
         result.is_ok(),
         "chamfer should not error: {:?}",
@@ -97,7 +97,7 @@ fn chamfer_single_cube_edge() {
 fn chamfer_single_cube_edge_produces_valid_brep() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     let edge = brep.edges.keys().next().unwrap();
-    let result = popkern_fillet::chamfer_edge(&brep, edge, 0.2, default_tol()).unwrap();
+    let result = popkern_fillet::chamfer_edge(&brep, edge, 0.2, default_tol(), None).unwrap();
 
     assert_eq!(
         result.brep.faces.len(),
@@ -135,7 +135,7 @@ fn fillet_all_cube_edges() {
             radius: FilletRadius::Constant(0.05),
         })
         .collect();
-    let result = popkern_fillet::fillet_edges(&brep, &specs, &FilletOptions::default(), tol);
+    let result = popkern_fillet::fillet_edges(&brep, &specs, &FilletOptions::default(), tol, None);
     // Some edges may fail due to overlapping fillets, but the call should not panic.
     // Accept either Ok or PartialFailure.
     match &result {
@@ -166,7 +166,8 @@ fn chamfer_all_cube_edges() {
             kind: ChamferKind::Equal(0.05),
         })
         .collect();
-    let result = popkern_fillet::chamfer_edges(&brep, &specs, &ChamferOptions::default(), tol);
+    let result =
+        popkern_fillet::chamfer_edges(&brep, &specs, &ChamferOptions::default(), tol, None);
     match &result {
         Ok(blend) => {
             assert!(
@@ -184,7 +185,8 @@ fn chamfer_all_cube_edges() {
 #[test]
 fn fillet_empty_specs_returns_error() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
-    let result = popkern_fillet::fillet_edges(&brep, &[], &FilletOptions::default(), default_tol());
+    let result =
+        popkern_fillet::fillet_edges(&brep, &[], &FilletOptions::default(), default_tol(), None);
     assert!(result.is_err(), "empty specs should return an error");
 }
 
@@ -192,7 +194,7 @@ fn fillet_empty_specs_returns_error() {
 fn chamfer_empty_specs_returns_error() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     let result =
-        popkern_fillet::chamfer_edges(&brep, &[], &ChamferOptions::default(), default_tol());
+        popkern_fillet::chamfer_edges(&brep, &[], &ChamferOptions::default(), default_tol(), None);
     assert!(result.is_err(), "empty specs should return an error");
 }
 
@@ -200,7 +202,7 @@ fn chamfer_empty_specs_returns_error() {
 fn fillet_invalid_edge_handle() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     let bogus = popkern_core::topology::EdgeHandle::default();
-    let result = popkern_fillet::fillet_edge(&brep, bogus, 0.1, default_tol());
+    let result = popkern_fillet::fillet_edge(&brep, bogus, 0.1, default_tol(), None);
     assert!(result.is_err(), "invalid edge should return an error");
 }
 
@@ -208,7 +210,7 @@ fn fillet_invalid_edge_handle() {
 fn chamfer_invalid_edge_handle() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     let bogus = popkern_core::topology::EdgeHandle::default();
-    let result = popkern_fillet::chamfer_edge(&brep, bogus, 0.1, default_tol());
+    let result = popkern_fillet::chamfer_edge(&brep, bogus, 0.1, default_tol(), None);
     assert!(result.is_err(), "invalid edge should return an error");
 }
 
@@ -223,8 +225,13 @@ fn fillet_variable_radius_single_edge() {
             end: 0.1,
         },
     };
-    let result =
-        popkern_fillet::fillet_edges(&brep, &[spec], &FilletOptions::default(), default_tol());
+    let result = popkern_fillet::fillet_edges(
+        &brep,
+        &[spec],
+        &FilletOptions::default(),
+        default_tol(),
+        None,
+    );
     // Variable radius may fail geometrically but should not panic.
     match &result {
         Ok(_) | Err(popkern_fillet::BlendError::PartialFailure { .. }) => {}
@@ -240,8 +247,13 @@ fn fillet_by_points_single_edge() {
         edge,
         radius: FilletRadius::ByPoints(vec![(0.0, 0.05), (0.5, 0.08), (1.0, 0.05)]),
     };
-    let result =
-        popkern_fillet::fillet_edges(&brep, &[spec], &FilletOptions::default(), default_tol());
+    let result = popkern_fillet::fillet_edges(
+        &brep,
+        &[spec],
+        &FilletOptions::default(),
+        default_tol(),
+        None,
+    );
     match &result {
         Ok(_) | Err(popkern_fillet::BlendError::PartialFailure { .. }) => {}
         Err(e) => panic!("unexpected error: {e:?}"),
@@ -252,7 +264,7 @@ fn fillet_by_points_single_edge() {
 fn blend_result_has_warnings_field() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     let edge = brep.edges.keys().next().unwrap();
-    let result = popkern_fillet::fillet_edge(&brep, edge, 0.1, default_tol());
+    let result = popkern_fillet::fillet_edge(&brep, edge, 0.1, default_tol(), None);
     if let Ok(blend) = result {
         // Warnings vector should exist (may be empty).
         let _ = blend.edge_warnings.len();
@@ -323,7 +335,7 @@ fn fillet_three_edges_at_cube_corner() {
         vertex_mode: popkern_fillet::VertexMode::Smooth,
     };
 
-    let result = popkern_fillet::fillet_edges(&brep, &specs, &opts, tol);
+    let result = popkern_fillet::fillet_edges(&brep, &specs, &opts, tol, None);
     let blend = result.unwrap();
 
     // Must produce more faces than the original cube (6 + 3 fillets - merged = 8).
@@ -368,7 +380,7 @@ fn fillet_three_edges_at_cube_corner_mitred() {
         vertex_mode: popkern_fillet::VertexMode::Mitred,
     };
 
-    let result = popkern_fillet::fillet_edges(&brep, &specs, &opts, tol);
+    let result = popkern_fillet::fillet_edges(&brep, &specs, &opts, tol, None);
     let blend = result.unwrap();
 
     assert_euler_poincare(&blend.brep, "3-edge mitred fillet");
@@ -408,7 +420,7 @@ fn fillet_two_adjacent_edges() {
         vertex_mode: popkern_fillet::VertexMode::Smooth,
     };
 
-    let result = popkern_fillet::fillet_edges(&brep, &specs, &opts, tol);
+    let result = popkern_fillet::fillet_edges(&brep, &specs, &opts, tol, None);
     let blend = result.unwrap();
 
     assert_euler_poincare(&blend.brep, "2-edge fillet");
@@ -442,7 +454,7 @@ fn large_radius_detects_overlap_or_fails() {
         vertex_mode: popkern_fillet::VertexMode::Mitred,
     };
 
-    let result = popkern_fillet::fillet_edges(&brep, &specs, &opts, tol);
+    let result = popkern_fillet::fillet_edges(&brep, &specs, &opts, tol, None);
 
     match result {
         Ok(blend) => {

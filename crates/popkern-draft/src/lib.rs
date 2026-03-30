@@ -21,6 +21,7 @@ pub use parting::draft_parting_line;
 pub use types::*;
 
 use popkern_core::geometry::Vec3;
+use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
@@ -39,6 +40,7 @@ pub fn draft_faces(
     specs: &[DraftSpec],
     options: &DraftOptions,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<DraftResult, DraftError> {
     if specs.is_empty() {
         return Err(DraftError::EmptySpecs);
@@ -91,8 +93,14 @@ pub fn draft_faces(
 
     // Stages 3-4: Apply topology modifications (clone, surface replacement,
     // vertex/edge recomputation, adjacent face handling).
-    let (result_brep, warnings) =
+    let (mut result_brep, warnings) =
         topology::apply_draft_topology(brep, &drafted_surfaces, options, &tolerance)?;
+
+    // Assign stable names when tracking is active.
+    // Draft modifies faces in place (tilts surfaces), so all faces are Modified.
+    if let Some(ctx) = tracking {
+        assign_draft_names(&mut result_brep, ctx, specs);
+    }
 
     Ok(DraftResult {
         brep: result_brep,
@@ -115,6 +123,7 @@ pub fn draft_face(
     pull_direction: Vec3,
     neutral: NeutralReference,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<DraftResult, DraftError> {
     draft_faces(
         brep,
@@ -127,7 +136,37 @@ pub fn draft_face(
         }],
         &DraftOptions::default(),
         tolerance,
+        tracking,
     )
+}
+
+/// Assign stable names to drafted faces.
+///
+/// Draft modifies existing faces in place (tilts their surfaces), so all
+/// drafted faces get `Modified` names with their original face name as
+/// ancestor.
+fn assign_draft_names(brep: &mut BRep, ctx: &mut TrackingContext, specs: &[DraftSpec]) {
+    use popkern_core::naming::{EntityName, EntityRole, RoleCategory};
+    use popkern_core::naming_criteria::{GeometricCriteria, capture_face};
+
+    for (i, spec) in specs.iter().enumerate() {
+        if !brep.faces.contains_key(spec.face) {
+            continue;
+        }
+        let ancestors: Vec<_> = brep.faces[spec.face].name.into_iter().collect();
+        let name = EntityName {
+            operation: ctx.operation,
+            role: EntityRole {
+                category: RoleCategory::Modified,
+                index: i as u32,
+            },
+            ancestors,
+        };
+        let criteria = capture_face(brep, spec.face).map(GeometricCriteria::Face);
+        let name_id = brep.name_pool.intern(name.clone(), criteria);
+        brep.faces[spec.face].name = Some(name_id);
+        ctx.record_generated(name);
+    }
 }
 
 #[cfg(test)]
@@ -144,7 +183,7 @@ mod tests {
     #[test]
     fn draft_empty_specs_returns_error() {
         let brep = BRep::unit_cube(tol()).unwrap();
-        let result = draft_faces(&brep, &[], &DraftOptions::default(), tol());
+        let result = draft_faces(&brep, &[], &DraftOptions::default(), tol(), None);
         assert!(matches!(result, Err(DraftError::EmptySpecs)));
     }
 
@@ -159,7 +198,7 @@ mod tests {
             neutral: NeutralReference::Auto,
             angle_variation: AngleVariation::Constant,
         }];
-        let result = draft_faces(&brep, &specs, &DraftOptions::default(), tol());
+        let result = draft_faces(&brep, &specs, &DraftOptions::default(), tol(), None);
         assert!(matches!(result, Err(DraftError::AngleTooLarge { .. })));
     }
 
@@ -173,7 +212,7 @@ mod tests {
             neutral: NeutralReference::Auto,
             angle_variation: AngleVariation::Constant,
         }];
-        let result = draft_faces(&brep, &specs, &DraftOptions::default(), tol());
+        let result = draft_faces(&brep, &specs, &DraftOptions::default(), tol(), None);
         assert!(matches!(result, Err(DraftError::InvalidFace(_))));
     }
 
@@ -188,7 +227,7 @@ mod tests {
             neutral: NeutralReference::Auto,
             angle_variation: AngleVariation::Constant,
         }];
-        let result = draft_faces(&brep, &specs, &DraftOptions::default(), tol());
+        let result = draft_faces(&brep, &specs, &DraftOptions::default(), tol(), None);
         assert!(result.is_ok(), "draft failed: {:?}", result.err());
         assert_eq!(result.unwrap().brep.faces.len(), 6);
     }
@@ -200,7 +239,15 @@ mod tests {
         let pull = Vec3::new(0.0, 0.0, 1.0);
         let angle = 0.087;
 
-        let result1 = draft_face(&brep, face, angle, pull, NeutralReference::Auto, tol());
+        let result1 = draft_face(
+            &brep,
+            face,
+            angle,
+            pull,
+            NeutralReference::Auto,
+            tol(),
+            None,
+        );
         let result2 = draft_faces(
             &brep,
             &[DraftSpec {
@@ -212,6 +259,7 @@ mod tests {
             }],
             &DraftOptions::default(),
             tol(),
+            None,
         );
 
         assert!(result1.is_ok());

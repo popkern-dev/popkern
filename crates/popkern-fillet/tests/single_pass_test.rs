@@ -61,7 +61,7 @@ fn twelve_edge_fillet_surface_correctness() {
             radius: FilletRadius::Constant(0.1),
         })
         .collect();
-    let result = fillet_edges(&cube, &specs, &FilletOptions::default(), tol).unwrap();
+    let result = fillet_edges(&cube, &specs, &FilletOptions::default(), tol, None).unwrap();
     let (bad_count, details) = count_bad_faces(&result.brep, 0.05);
     // Remaining ≤3 faces at ≤0.10 error:
     //  - 1 blend face (Sphere, 0.07): includes cube corner vertex outside blend region
@@ -87,7 +87,7 @@ fn twelve_edge_fillet_no_missing_surfaces() {
             radius: FilletRadius::Constant(0.1),
         })
         .collect();
-    let result = fillet_edges(&cube, &specs, &FilletOptions::default(), tol).unwrap();
+    let result = fillet_edges(&cube, &specs, &FilletOptions::default(), tol, None).unwrap();
     let missing: Vec<_> = result
         .brep
         .faces

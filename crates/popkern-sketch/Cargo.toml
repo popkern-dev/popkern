@@ -12,3 +12,4 @@ serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 popkern-sweep = { path = "../popkern-sweep" }
+popkern-fillet = { path = "../popkern-fillet" }

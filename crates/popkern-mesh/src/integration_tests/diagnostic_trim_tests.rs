@@ -218,6 +218,7 @@ fn build_shelled_box() -> Option<BRep> {
         &[],
         &popkern_shell::ShellOptions::default(),
         tol,
+        None,
     ) {
         Ok(result) => Some(result.brep),
         Err(e) => {
@@ -243,6 +244,7 @@ fn build_fillet_showcase() -> Option<BRep> {
         &specs,
         &popkern_fillet::FilletOptions::default(),
         tol,
+        None,
     ) {
         Ok(result) => Some(result.brep),
         Err(e) => {
@@ -256,6 +258,7 @@ fn build_fillet_showcase() -> Option<BRep> {
                 &single,
                 &popkern_fillet::FilletOptions::default(),
                 tol,
+                None,
             ) {
                 Ok(r) => Some(r.brep),
                 Err(e2) => {
@@ -279,6 +282,7 @@ fn build_boolean_showcase() -> Option<BRep> {
         cube.clone(),
         hole,
         tol,
+        None,
     ) {
         Ok(brep) => Some(brep),
         Err(e) => {
@@ -354,7 +358,7 @@ fn print_single_fillet_vertices() {
     let tol = popkern_core::tolerance::Tolerance::default();
     let cube = popkern_core::topology::BRep::unit_cube(tol).unwrap();
     let edge = cube.edges.keys().next().unwrap();
-    let result = popkern_fillet::fillet_edge(&cube, edge, 0.1, tol).unwrap();
+    let result = popkern_fillet::fillet_edge(&cube, edge, 0.1, tol, None).unwrap();
     eprintln!(
         "Single-edge fillet: {} vertices",
         result.brep.vertices.len()
@@ -387,7 +391,7 @@ fn print_fillet_footprint_positions() {
         v_start.x, v_start.y, v_start.z, v_end.x, v_end.y, v_end.z
     );
 
-    let result = popkern_fillet::fillet_edge(&cube, edge, 0.1, tol).unwrap();
+    let result = popkern_fillet::fillet_edge(&cube, edge, 0.1, tol, None).unwrap();
     // Print all non-corner vertices
     for (_, v) in result.brep.vertices.iter() {
         let p = v.position;

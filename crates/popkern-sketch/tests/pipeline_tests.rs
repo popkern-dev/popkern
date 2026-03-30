@@ -14,7 +14,7 @@ fn rectangle_to_brep_produces_valid_region() {
     let _l2 = sop.sketch.add_line(p2, p3);
     let _l3 = sop.sketch.add_line(p3, p0);
 
-    let result = sop.to_brep(Tolerance::default()).unwrap();
+    let result = sop.to_brep(Tolerance::default(), None).unwrap();
 
     // 1 face region.
     assert_eq!(result.regions.len(), 1);
@@ -43,7 +43,7 @@ fn triangle_to_brep_euler_passes() {
     let _l1 = sop.sketch.add_line(p1, p2);
     let _l2 = sop.sketch.add_line(p2, p0);
 
-    let result = sop.to_brep(Tolerance::default()).unwrap();
+    let result = sop.to_brep(Tolerance::default(), None).unwrap();
 
     assert_eq!(result.regions.len(), 1);
     assert!(result.brep.validate_euler_poincare().is_ok());
@@ -52,7 +52,7 @@ fn triangle_to_brep_euler_passes() {
 #[test]
 fn no_edges_returns_error() {
     let sop = SketchOnPlane::new(SketchPlane::xy());
-    let result = sop.to_brep(Tolerance::default());
+    let result = sop.to_brep(Tolerance::default(), None);
     assert!(result.is_err());
 }
 
@@ -63,7 +63,7 @@ fn open_wire_returns_no_closed_loops() {
     let p1 = sop.sketch.add_point(1.0, 0.0);
     let _l = sop.sketch.add_line(p0, p1);
 
-    let result = sop.to_brep(Tolerance::default());
+    let result = sop.to_brep(Tolerance::default(), None);
     assert!(result.is_err());
 }
 
@@ -91,7 +91,7 @@ fn rectangle_with_arc_edge() {
         .sketch
         .add_arc(0.0, 1.0, 1.0, FRAC_PI_2, FRAC_PI_2 + std::f64::consts::PI);
 
-    let result = sop.to_brep(Tolerance::default()).unwrap();
+    let result = sop.to_brep(Tolerance::default(), None).unwrap();
 
     assert_eq!(result.regions.len(), 1);
     assert_eq!(result.brep.edges.len(), 4);
@@ -109,7 +109,7 @@ fn rectangle_on_xz_plane() {
     let _l2 = sop.sketch.add_line(p2, p3);
     let _l3 = sop.sketch.add_line(p3, p0);
 
-    let result = sop.to_brep(Tolerance::default()).unwrap();
+    let result = sop.to_brep(Tolerance::default(), None).unwrap();
 
     assert_eq!(result.regions.len(), 1);
 
@@ -147,7 +147,7 @@ fn rectangle_with_hole_pipeline() {
     let _m2 = sop.sketch.add_line(q2, q3);
     let _m3 = sop.sketch.add_line(q3, q0);
 
-    let result = sop.to_brep(Tolerance::default()).unwrap();
+    let result = sop.to_brep(Tolerance::default(), None).unwrap();
 
     assert_eq!(result.regions.len(), 1, "should have 1 face region");
     assert_eq!(
@@ -176,7 +176,7 @@ fn warnings_from_degenerate_edge() {
     let d1 = sop.sketch.add_point(5.0, 5.0);
     let _ld = sop.sketch.add_line(d0, d1);
 
-    let result = sop.to_brep(Tolerance::default()).unwrap();
+    let result = sop.to_brep(Tolerance::default(), None).unwrap();
 
     assert!(
         !result.warnings.is_empty(),
@@ -192,7 +192,7 @@ fn full_circle_to_brep() {
     let mut sop = SketchOnPlane::new(SketchPlane::xy());
     let _arc = sop.sketch.add_arc(0.0, 0.0, 2.0, 0.0, 2.0 * PI);
 
-    let result = sop.to_brep(Tolerance::default()).unwrap();
+    let result = sop.to_brep(Tolerance::default(), None).unwrap();
 
     assert_eq!(
         result.regions.len(),

@@ -86,7 +86,7 @@ fn concave_edge_from_subtraction() {
     let xf = Transform3::translation(0.25, 0.25, 0.5).compose(&Transform3::scale_uniform(0.5));
     let small = BRep::unit_cube(tol).unwrap().transform(&xf).unwrap();
 
-    let result = popkern_bool::subtraction(big, small, tol);
+    let result = popkern_bool::subtraction(big, small, tol, None);
     if let Ok(subtracted) = result {
         let edges: Vec<EdgeHandle> = subtracted.edges.keys().collect();
         if !edges.is_empty() {
@@ -217,7 +217,7 @@ fn convexity_classification_samples_multiple_points() {
     let xf = Transform3::translation(0.25, 0.25, 0.5).compose(&Transform3::scale_uniform(0.5));
     let small = BRep::unit_cube(tol).unwrap().transform(&xf).unwrap();
 
-    if let Ok(subtracted) = popkern_bool::subtraction(big, small, tol) {
+    if let Ok(subtracted) = popkern_bool::subtraction(big, small, tol, None) {
         let edges: Vec<EdgeHandle> = subtracted.edges.keys().collect();
         if let Ok(analyses) = analyze_edges(&subtracted, &edges, false) {
             // At least one concave edge should exist, and multi-point

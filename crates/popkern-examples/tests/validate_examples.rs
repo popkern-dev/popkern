@@ -92,7 +92,7 @@ fn build_boolean_showcase() -> BRep {
         .transform(&Transform3::translation(0.5, 0.5, -0.5))
         .expect("translate");
 
-    match boolean(BoolOperation::Subtraction, cube.clone(), hole, tol) {
+    match boolean(BoolOperation::Subtraction, cube.clone(), hole, tol, None) {
         Ok(brep) => brep,
         Err(_) => cube,
     }
@@ -227,7 +227,7 @@ fn build_fillet_showcase() -> BRep {
         })
         .collect();
 
-    match fillet_edges(&cube, &specs, &FilletOptions::default(), tol) {
+    match fillet_edges(&cube, &specs, &FilletOptions::default(), tol, None) {
         Ok(result) => result.brep,
         Err(_) => {
             // Try single edge as fallback
@@ -235,7 +235,7 @@ fn build_fillet_showcase() -> BRep {
                 edge: edges[0],
                 radius: FilletRadius::Constant(0.1),
             }];
-            fillet_edges(&cube, &single, &FilletOptions::default(), tol)
+            fillet_edges(&cube, &single, &FilletOptions::default(), tol, None)
                 .map(|r| r.brep)
                 .unwrap_or(cube)
         }
@@ -322,7 +322,15 @@ fn build_drafted_mold() -> BRep {
         .map(|(fh, _)| fh)
         .expect("cube should have a side face");
 
-    match draft_face(&cube, face, 0.087, pull_dir, NeutralReference::Auto, tol) {
+    match draft_face(
+        &cube,
+        face,
+        0.087,
+        pull_dir,
+        NeutralReference::Auto,
+        tol,
+        None,
+    ) {
         Ok(result) => result.brep,
         Err(_) => cube,
     }
@@ -393,6 +401,7 @@ fn build_shelled_box() -> BRep {
         &[],
         &ShellOptions::default(),
         tol,
+        None,
     )
     .expect("shell")
     .brep

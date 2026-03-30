@@ -81,7 +81,7 @@ fn scale_to_enclosing(mut brep: BRep) -> BRep {
 fn overlapping_cubes_union_succeeds() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(0.5, 0.3, 0.2));
-    let result = crate::union(a, b, tol());
+    let result = crate::union(a, b, tol(), None);
     assert!(result.is_ok(), "Union should succeed: {:?}", result.err());
     let brep = result.unwrap();
     let errs = brep.validate_all();
@@ -93,7 +93,7 @@ fn overlapping_cubes_union_succeeds() {
 fn overlapping_cubes_intersection_succeeds() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(0.5, 0.3, 0.2));
-    let result = crate::intersection(a, b, tol());
+    let result = crate::intersection(a, b, tol(), None);
     assert!(
         result.is_ok(),
         "Intersection should succeed: {:?}",
@@ -113,7 +113,7 @@ fn overlapping_cubes_intersection_succeeds() {
 fn overlapping_cubes_subtraction_succeeds() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(0.5, 0.3, 0.2));
-    let result = crate::subtraction(a, b, tol());
+    let result = crate::subtraction(a, b, tol(), None);
     assert!(
         result.is_ok(),
         "Subtraction should succeed: {:?}",
@@ -135,7 +135,7 @@ fn overlapping_cubes_subtraction_succeeds() {
 fn disjoint_cubes_union_has_12_faces() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(5.0, 0.0, 0.0));
-    let result = crate::union(a, b, tol()).unwrap();
+    let result = crate::union(a, b, tol(), None).unwrap();
     assert_eq!(result.faces.len(), 12);
 }
 
@@ -143,7 +143,7 @@ fn disjoint_cubes_union_has_12_faces() {
 fn disjoint_cubes_intersection_is_empty() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(5.0, 0.0, 0.0));
-    let result = crate::intersection(a, b, tol()).unwrap();
+    let result = crate::intersection(a, b, tol(), None).unwrap();
     assert_eq!(result.faces.len(), 0);
 }
 
@@ -151,7 +151,7 @@ fn disjoint_cubes_intersection_is_empty() {
 fn disjoint_cubes_subtraction_has_6_faces() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(5.0, 0.0, 0.0));
-    let result = crate::subtraction(a, b, tol()).unwrap();
+    let result = crate::subtraction(a, b, tol(), None).unwrap();
     assert_eq!(result.faces.len(), 6);
 }
 
@@ -161,7 +161,7 @@ fn disjoint_cubes_subtraction_has_6_faces() {
 fn containment_union_returns_outer() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = scale_to_enclosing(BRep::unit_cube(tol()).unwrap());
-    let result = crate::union(a, b, tol()).unwrap();
+    let result = crate::union(a, b, tol(), None).unwrap();
     assert_eq!(result.faces.len(), 6, "Union should return B (6 faces)");
 }
 
@@ -169,7 +169,7 @@ fn containment_union_returns_outer() {
 fn containment_intersection_returns_inner() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = scale_to_enclosing(BRep::unit_cube(tol()).unwrap());
-    let result = crate::intersection(a, b, tol()).unwrap();
+    let result = crate::intersection(a, b, tol(), None).unwrap();
     assert_eq!(
         result.faces.len(),
         6,
@@ -181,7 +181,8 @@ fn containment_intersection_returns_inner() {
 fn containment_subtraction_a_inside_b_is_empty() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = scale_to_enclosing(BRep::unit_cube(tol()).unwrap());
-    let result = crate::subtraction(a, b, tol()).expect("A inside B subtraction should succeed");
+    let result =
+        crate::subtraction(a, b, tol(), None).expect("A inside B subtraction should succeed");
     assert_eq!(result.faces.len(), 0, "A inside B: A − B should be empty");
 }
 
@@ -198,7 +199,7 @@ fn containment_subtraction_hollow_solid() {
         );
     }
     let result =
-        crate::subtraction(outer, inner, tol()).expect("hollow subtraction should succeed");
+        crate::subtraction(outer, inner, tol(), None).expect("hollow subtraction should succeed");
     assert_eq!(result.faces.len(), 12, "hollow solid should have 12 faces");
 }
 
@@ -208,7 +209,7 @@ fn containment_subtraction_hollow_solid() {
 fn ref_variants_preserve_inputs() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(5.0, 0.0, 0.0));
-    let result = crate::union_ref(&a, &b, tol());
+    let result = crate::union_ref(&a, &b, tol(), None);
     assert!(result.is_ok());
     // Verify inputs are still usable after the borrow-based call.
     assert_eq!(a.faces.len(), 6);
@@ -219,8 +220,8 @@ fn ref_variants_preserve_inputs() {
 fn ref_intersection_matches_owned() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(5.0, 0.0, 0.0));
-    let ref_result = crate::intersection_ref(&a, &b, tol()).unwrap();
-    let owned_result = crate::intersection(a.clone(), b.clone(), tol()).unwrap();
+    let ref_result = crate::intersection_ref(&a, &b, tol(), None).unwrap();
+    let owned_result = crate::intersection(a.clone(), b.clone(), tol(), None).unwrap();
     assert_eq!(ref_result.faces.len(), owned_result.faces.len());
 }
 
@@ -228,8 +229,8 @@ fn ref_intersection_matches_owned() {
 fn ref_subtraction_matches_owned() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(5.0, 0.0, 0.0));
-    let ref_result = crate::subtraction_ref(&a, &b, tol()).unwrap();
-    let owned_result = crate::subtraction(a.clone(), b.clone(), tol()).unwrap();
+    let ref_result = crate::subtraction_ref(&a, &b, tol(), None).unwrap();
+    let owned_result = crate::subtraction(a.clone(), b.clone(), tol(), None).unwrap();
     assert_eq!(ref_result.faces.len(), owned_result.faces.len());
 }
 
@@ -276,7 +277,7 @@ fn csg_tree_subtraction_then_union() {
 fn coincident_cubes_returns_error() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = BRep::unit_cube(tol()).unwrap(); // Same position — faces coincide.
-    let result = crate::union(a, b, tol());
+    let result = crate::union(a, b, tol(), None);
     assert!(result.is_err(), "Coincident cubes should produce an error");
     // The error should be CoincidentFaces.
     let err = result.unwrap_err();
@@ -290,7 +291,7 @@ fn coincident_cubes_returns_error() {
 fn coincident_cubes_intersection_returns_error() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = BRep::unit_cube(tol()).unwrap();
-    let result = crate::intersection(a, b, tol());
+    let result = crate::intersection(a, b, tol(), None);
     assert!(result.is_err());
 }
 
@@ -298,7 +299,7 @@ fn coincident_cubes_intersection_returns_error() {
 fn coincident_cubes_subtraction_returns_error() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = BRep::unit_cube(tol()).unwrap();
-    let result = crate::subtraction(a, b, tol());
+    let result = crate::subtraction(a, b, tol(), None);
     assert!(result.is_err());
 }
 
@@ -309,7 +310,7 @@ fn boolean_generic_union() {
     use crate::BoolOperation;
     let a = BRep::unit_cube(tol()).unwrap();
     let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(5.0, 0.0, 0.0));
-    let result = crate::boolean(BoolOperation::Union, a, b, tol()).unwrap();
+    let result = crate::boolean(BoolOperation::Union, a, b, tol(), None).unwrap();
     assert_eq!(result.faces.len(), 12);
 }
 
@@ -318,7 +319,7 @@ fn boolean_ref_generic_intersection() {
     use crate::BoolOperation;
     let a = BRep::unit_cube(tol()).unwrap();
     let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(5.0, 0.0, 0.0));
-    let result = crate::boolean_ref(BoolOperation::Intersection, &a, &b, tol()).unwrap();
+    let result = crate::boolean_ref(BoolOperation::Intersection, &a, &b, tol(), None).unwrap();
     assert_eq!(result.faces.len(), 0);
     // Inputs still usable.
     assert_eq!(a.faces.len(), 6);
@@ -335,7 +336,7 @@ fn cube_minus_contained_sphere_returns_cube() {
         BRep::sphere(0.3, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, 0.5),
     );
-    let result = crate::subtraction(cube, sphere, t);
+    let result = crate::subtraction(cube, sphere, t, None);
     // Containment subtraction is a TODO — returns cube unchanged or errors
     assert!(result.is_ok() || result.is_err());
 }
@@ -351,7 +352,7 @@ fn cube_minus_overlapping_sphere_succeeds() {
         BRep::sphere(0.8, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, 0.5),
     );
-    let result = crate::subtraction(cube, sphere, t);
+    let result = crate::subtraction(cube, sphere, t, None);
     assert!(
         result.is_ok(),
         "Cube-sphere subtraction should succeed: {:?}",
@@ -372,7 +373,7 @@ fn sphere_minus_overlapping_cube_does_not_hang() {
         Vec3::new(0.5, 0.5, 0.5),
     );
     let cube = BRep::unit_cube(t.clone()).unwrap();
-    let _result = crate::subtraction(sphere, cube, t);
+    let _result = crate::subtraction(sphere, cube, t, None);
     // Result may be Ok or Err — both are acceptable at this stage.
 }
 
@@ -385,7 +386,7 @@ fn cube_union_overlapping_sphere_succeeds() {
         BRep::sphere(0.8, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, 0.5),
     );
-    let result = crate::union(cube, sphere, t);
+    let result = crate::union(cube, sphere, t, None);
     assert!(
         result.is_ok(),
         "Cube-sphere union should succeed: {:?}",

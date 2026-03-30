@@ -127,6 +127,7 @@ fn t35_shell_cube_no_removal() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     let brep = &result.brep;
@@ -149,6 +150,7 @@ fn t36_shell_cube_one_face_removed() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     let brep = &result.brep;
@@ -180,6 +182,7 @@ fn t37_shell_cube_inward_outward_midplane() {
             &[],
             &ShellOptions::default(),
             tol(),
+            None,
         )
         .unwrap();
         let brep = &result.brep;
@@ -256,6 +259,7 @@ fn t40_shell_step_roundtrip() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     assert_step_roundtrip(&result.brep, "shelled_cube");
@@ -268,7 +272,16 @@ fn t41_draft_one_side_face() {
     let cube = BRep::unit_cube(tol()).unwrap();
     let pull = Vec3::new(0.0, 0.0, 1.0);
     let face = find_side_face(&cube, pull);
-    let result = draft_face(&cube, face, 0.087, pull, NeutralReference::Auto, tol()).unwrap();
+    let result = draft_face(
+        &cube,
+        face,
+        0.087,
+        pull,
+        NeutralReference::Auto,
+        tol(),
+        None,
+    )
+    .unwrap();
     let brep = &result.brep;
     assert_eq!(brep.faces.len(), 6, "draft should keep 6 faces");
     assert_eq!(brep.edges.len(), 12);
@@ -303,7 +316,7 @@ fn t42_draft_all_side_faces() {
             angle_variation: popkern_draft::AngleVariation::Constant,
         })
         .collect();
-    match draft_faces(&cube, &specs, &DraftOptions::default(), tol()) {
+    match draft_faces(&cube, &specs, &DraftOptions::default(), tol(), None) {
         Ok(result) => {
             let brep = &result.brep;
             assert_eq!(brep.faces.len(), 6);
@@ -350,7 +363,16 @@ fn t44_draft_preserves_euler() {
     let cube = BRep::unit_cube(tol()).unwrap();
     let pull = Vec3::new(0.0, 0.0, 1.0);
     let face = find_side_face(&cube, pull);
-    let result = draft_face(&cube, face, 0.087, pull, NeutralReference::Auto, tol()).unwrap();
+    let result = draft_face(
+        &cube,
+        face,
+        0.087,
+        pull,
+        NeutralReference::Auto,
+        tol(),
+        None,
+    )
+    .unwrap();
     assert_euler(&result.brep);
 }
 
@@ -359,6 +381,15 @@ fn t45_draft_step_roundtrip() {
     let cube = BRep::unit_cube(tol()).unwrap();
     let pull = Vec3::new(0.0, 0.0, 1.0);
     let face = find_side_face(&cube, pull);
-    let result = draft_face(&cube, face, 0.087, pull, NeutralReference::Auto, tol()).unwrap();
+    let result = draft_face(
+        &cube,
+        face,
+        0.087,
+        pull,
+        NeutralReference::Auto,
+        tol(),
+        None,
+    )
+    .unwrap();
     assert_step_roundtrip(&result.brep, "drafted_face");
 }

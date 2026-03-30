@@ -25,7 +25,7 @@ fn ellipse_full_pipeline() {
     );
 
     let tol = Tolerance::default();
-    let result = sop.to_brep(tol).unwrap();
+    let result = sop.to_brep(tol, None).unwrap();
 
     assert_eq!(
         result.regions.len(),
@@ -72,7 +72,7 @@ fn periodic_spline_full_pipeline() {
     );
 
     let tol = Tolerance::default();
-    let result = sop.to_brep(tol).unwrap();
+    let result = sop.to_brep(tol, None).unwrap();
 
     assert_eq!(
         result.regions.len(),
@@ -125,7 +125,7 @@ fn open_spline_in_closed_profile() {
     );
 
     let tol = Tolerance::default();
-    let result = sop.to_brep(tol).unwrap();
+    let result = sop.to_brep(tol, None).unwrap();
 
     assert_eq!(
         result.regions.len(),
@@ -169,7 +169,7 @@ fn nested_rectangles_with_hole() {
     sop.sketch.add_line(q3, q0);
 
     let tol = Tolerance::default();
-    let result = sop.to_brep(tol).unwrap();
+    let result = sop.to_brep(tol, None).unwrap();
 
     assert_eq!(result.regions.len(), 1, "should have 1 face region");
     assert_eq!(
@@ -208,13 +208,13 @@ fn tilted_plane_extrude_euler() {
     sop.sketch.solve().unwrap();
 
     let tol = Tolerance::default();
-    let mut result = sop.to_brep(tol).unwrap();
+    let mut result = sop.to_brep(tol, None).unwrap();
     assert_eq!(result.regions.len(), 1, "should produce 1 face region");
 
     let face = result.regions[0].face;
     // Extrude along the plane normal by 1.0.
     let extrude_dir = plane.normal;
-    result.brep.extrude(face, extrude_dir, 1.0).unwrap();
+    result.brep.extrude(face, extrude_dir, 1.0, None).unwrap();
 
     // Verify Euler characteristic: V - E + F = 2.
     let v = result.brep.vertices.len() as i64;
@@ -261,7 +261,7 @@ fn multi_region_extrude_first_region() {
     sop.sketch.add_line(b3, b0);
 
     let tol = Tolerance::default();
-    let mut result = sop.to_brep(tol).unwrap();
+    let mut result = sop.to_brep(tol, None).unwrap();
     assert_eq!(
         result.regions.len(),
         2,
@@ -272,7 +272,7 @@ fn multi_region_extrude_first_region() {
     let face = result.regions[0].face;
     result
         .brep
-        .extrude(face, Vec3::new(0.0, 0.0, 1.0), 1.0)
+        .extrude(face, Vec3::new(0.0, 0.0, 1.0), 1.0, None)
         .unwrap();
 
     // After extruding one face, Euler characteristic still holds globally

@@ -34,7 +34,7 @@ fn main() {
 
     let options = FilletOptions::default();
 
-    match fillet_edges(&cube, &specs, &options, tol) {
+    match fillet_edges(&cube, &specs, &options, tol, None) {
         Ok(result) => {
             let brep = &result.brep;
             println!(
@@ -62,7 +62,7 @@ fn main() {
                 edge: edge_handles[0],
                 radius: FilletRadius::Constant(0.1),
             }];
-            match fillet_edges(&cube, &single_spec, &options, tol) {
+            match fillet_edges(&cube, &single_spec, &options, tol, None) {
                 Ok(result) => {
                     let brep = &result.brep;
                     println!(

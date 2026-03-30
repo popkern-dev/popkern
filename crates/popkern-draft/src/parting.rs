@@ -97,7 +97,7 @@ pub fn draft_parting_line(
         ));
     }
 
-    crate::draft_faces(brep, &specs, options, tolerance)
+    crate::draft_faces(brep, &specs, options, tolerance, None)
 }
 
 /// Resolve a parting line definition into an origin point and normal direction.

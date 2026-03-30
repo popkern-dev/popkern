@@ -143,12 +143,12 @@ fn t46_cube_with_hole_and_fillets() {
         .unwrap()
         .transform(&Transform3::translation(0.5, 0.5, -0.5))
         .unwrap();
-    match subtraction(cube, hole, tol) {
+    match subtraction(cube, hole, tol, None) {
         Ok(with_hole) => {
             assert_finite_vertices(&with_hole);
             // Try to fillet one edge of the result
             let edge = with_hole.edges.keys().next().unwrap();
-            match fillet_edge(&with_hole, edge, 0.05, tol) {
+            match fillet_edge(&with_hole, edge, 0.05, tol, None) {
                 Ok(result) => {
                     assert!(result.brep.faces.len() > with_hole.faces.len());
                     assert_no_structural_errors(&result.brep);
@@ -169,7 +169,7 @@ fn t47_cube_with_hole_then_shell() {
         .unwrap()
         .transform(&Transform3::translation(0.5, 0.5, -0.5))
         .unwrap();
-    match subtraction(cube, hole, tol) {
+    match subtraction(cube, hole, tol, None) {
         Ok(with_hole) => {
             assert_finite_vertices(&with_hole);
             let face = with_hole.faces.keys().next().unwrap();
@@ -181,6 +181,7 @@ fn t47_cube_with_hole_then_shell() {
                 &[],
                 &ShellOptions::default(),
                 tol,
+                None,
             ) {
                 Ok(result) => {
                     assert!(result.brep.faces.len() > 6);
@@ -212,13 +213,13 @@ fn t48_drafted_mold_cavity() {
         })
         .map(|(fh, _)| fh)
         .unwrap();
-    let drafted = draft_face(&cube, face, 0.087, pull, NeutralReference::Auto, tol).unwrap();
+    let drafted = draft_face(&cube, face, 0.087, pull, NeutralReference::Auto, tol, None).unwrap();
     // Then subtract a hole
     let hole = BRep::cylinder(0.15, 2.0, tol)
         .unwrap()
         .transform(&Transform3::translation(0.5, 0.5, -0.5))
         .unwrap();
-    match subtraction(drafted.brep, hole, tol) {
+    match subtraction(drafted.brep, hole, tol, None) {
         Ok(result) => {
             assert!(result.faces.len() > 6);
             assert_no_structural_errors(&result);
@@ -244,7 +245,7 @@ fn t49_pipe_with_flanges() {
         .unwrap()
         .transform(&Transform3::translation(0.0, 0.0, -0.1))
         .unwrap();
-    match union(pipe_result.brep, flange, tol) {
+    match union(pipe_result.brep, flange, tol, None) {
         Ok(result) => {
             assert!(result.faces.len() >= 3);
             assert_no_structural_errors(&result);
@@ -265,7 +266,7 @@ fn t50_cube_with_multiple_holes() {
             .unwrap()
             .transform(&Transform3::translation(x, y, -0.5))
             .unwrap();
-        match subtraction(current.clone(), hole, tol) {
+        match subtraction(current.clone(), hole, tol, None) {
             Ok(result) => {
                 assert_finite_vertices(&result);
                 current = result;
@@ -291,7 +292,7 @@ fn t51_filleted_shelled_box() {
     let cube = BRep::unit_cube(tol).unwrap();
     // Fillet one edge first
     let edge = cube.edges.keys().next().unwrap();
-    match fillet_edge(&cube, edge, 0.1, tol) {
+    match fillet_edge(&cube, edge, 0.1, tol, None) {
         Ok(filleted) => {
             assert_finite_vertices(&filleted.brep);
             let face = filleted.brep.faces.keys().next().unwrap();
@@ -303,6 +304,7 @@ fn t51_filleted_shelled_box() {
                 &[],
                 &ShellOptions::default(),
                 tol,
+                None,
             ) {
                 Ok(result) => {
                     assert!(result.brep.faces.len() > 7);
@@ -374,7 +376,7 @@ fn t54_mechanical_bracket() {
         .unwrap()
         .transform(&Transform3::translation(0.0, 1.0, 0.0))
         .unwrap();
-    match union(block1, block2, tol) {
+    match union(block1, block2, tol, None) {
         Ok(l_shape) => {
             assert_finite_vertices(&l_shape);
             // Punch a hole
@@ -382,12 +384,12 @@ fn t54_mechanical_bracket() {
                 .unwrap()
                 .transform(&Transform3::translation(0.5, 0.5, -0.5))
                 .unwrap();
-            match subtraction(l_shape, hole, tol) {
+            match subtraction(l_shape, hole, tol, None) {
                 Ok(with_hole) => {
                     assert_finite_vertices(&with_hole);
                     // Fillet an edge
                     let edge = with_hole.edges.keys().next().unwrap();
-                    match fillet_edge(&with_hole, edge, 0.05, tol) {
+                    match fillet_edge(&with_hole, edge, 0.05, tol, None) {
                         Ok(result) => {
                             assert_no_structural_errors(&result.brep);
                             assert_finite_vertices(&result.brep);

@@ -37,7 +37,7 @@ fn sketch_rectangle_to_face() {
     );
 
     let tol = Tolerance::default();
-    let result = sop.to_brep(tol).unwrap();
+    let result = sop.to_brep(tol, None).unwrap();
     assert_eq!(result.regions.len(), 1);
     assert!(result.brep.faces.len() >= 1);
     assert!(result.brep.edges.len() >= 4);
@@ -73,7 +73,7 @@ fn sketch_on_cube_face() {
     sop.sketch.add_constraint(Constraint::Fixed(p4));
 
     sop.sketch.solve().unwrap();
-    let result = sop.to_brep(tol).unwrap();
+    let result = sop.to_brep(tol, None).unwrap();
     assert_eq!(result.regions.len(), 1);
 }
 
@@ -89,7 +89,7 @@ fn circle_sketch_to_face() {
     let _arc2 = sop.sketch.add_arc(0.0, 0.0, 2.0, PI, 2.0 * PI);
 
     let tol = Tolerance::default();
-    let result = sop.to_brep(tol).unwrap();
+    let result = sop.to_brep(tol, None).unwrap();
 
     assert_eq!(
         result.regions.len(),
@@ -120,7 +120,7 @@ fn rectangle_with_circle_hole() {
     let _arc2 = sop.sketch.add_arc(5.0, 5.0, 2.0, PI, 2.0 * PI);
 
     let tol = Tolerance::default();
-    let result = sop.to_brep(tol).unwrap();
+    let result = sop.to_brep(tol, None).unwrap();
 
     assert_eq!(result.regions.len(), 1, "should have 1 face region");
     assert_eq!(
@@ -156,7 +156,7 @@ fn two_disjoint_rectangles() {
     let _lb3 = sop.sketch.add_line(b3, b0);
 
     let tol = Tolerance::default();
-    let result = sop.to_brep(tol).unwrap();
+    let result = sop.to_brep(tol, None).unwrap();
 
     assert_eq!(
         result.regions.len(),
@@ -190,7 +190,7 @@ fn tilted_plane_geometry() {
     sop.sketch.solve().unwrap();
 
     let tol = Tolerance::default();
-    let result = sop.to_brep(tol).unwrap();
+    let result = sop.to_brep(tol, None).unwrap();
 
     assert_eq!(result.regions.len(), 1);
 
@@ -223,7 +223,7 @@ fn sketch_rectangle_extrude_to_box() {
     let _l3 = sop.sketch.add_line(p3, p0);
 
     let tol = Tolerance::default();
-    let mut result = sop.to_brep(tol).unwrap();
+    let mut result = sop.to_brep(tol, None).unwrap();
     assert_eq!(result.regions.len(), 1);
 
     let face = result.regions[0].face;
@@ -231,7 +231,7 @@ fn sketch_rectangle_extrude_to_box() {
     // Extrude along Z by 1.0
     result
         .brep
-        .extrude(face, Vec3::new(0.0, 0.0, 1.0), 1.0)
+        .extrude(face, Vec3::new(0.0, 0.0, 1.0), 1.0, None)
         .unwrap();
 
     // Verify box topology: V=8, E=12, F=6
@@ -258,7 +258,7 @@ fn sketch_circle_extrude_to_cylinder() {
     let _arc2 = sop.sketch.add_arc(0.0, 0.0, 1.0, PI, 2.0 * PI);
 
     let tol = Tolerance::default();
-    let mut result = sop.to_brep(tol).unwrap();
+    let mut result = sop.to_brep(tol, None).unwrap();
     assert_eq!(result.regions.len(), 1);
 
     let face = result.regions[0].face;
@@ -266,7 +266,7 @@ fn sketch_circle_extrude_to_cylinder() {
     // Extrude along Z by 2.0
     result
         .brep
-        .extrude(face, Vec3::new(0.0, 0.0, 1.0), 2.0)
+        .extrude(face, Vec3::new(0.0, 0.0, 1.0), 2.0, None)
         .unwrap();
 
     // Cylinder-like topology from 2-edge circle:

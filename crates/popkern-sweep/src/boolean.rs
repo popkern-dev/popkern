@@ -19,7 +19,7 @@ pub fn sweep_add(
     tolerance: Tolerance,
 ) -> Result<SweepResult, SweepError> {
     let swept = crate::sweep(profile, path, options, tolerance)?;
-    let result = popkern_bool::union(brep.clone(), swept.brep, tolerance)
+    let result = popkern_bool::union(brep.clone(), swept.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
     Ok(SweepResult {
         brep: result,
@@ -36,7 +36,7 @@ pub fn sweep_cut(
     tolerance: Tolerance,
 ) -> Result<SweepResult, SweepError> {
     let swept = crate::sweep(profile, path, options, tolerance)?;
-    let result = popkern_bool::subtraction(brep.clone(), swept.brep, tolerance)
+    let result = popkern_bool::subtraction(brep.clone(), swept.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
     Ok(SweepResult {
         brep: result,
@@ -53,7 +53,7 @@ pub fn sweep_intersect(
     tolerance: Tolerance,
 ) -> Result<SweepResult, SweepError> {
     let swept = crate::sweep(profile, path, options, tolerance)?;
-    let result = popkern_bool::intersection(brep.clone(), swept.brep, tolerance)
+    let result = popkern_bool::intersection(brep.clone(), swept.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
     Ok(SweepResult {
         brep: result,
@@ -69,7 +69,7 @@ pub fn loft_add(
     tolerance: Tolerance,
 ) -> Result<SweepResult, SweepError> {
     let lofted = crate::loft(sections, options, tolerance)?;
-    let result = popkern_bool::union(brep.clone(), lofted.brep, tolerance)
+    let result = popkern_bool::union(brep.clone(), lofted.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
     Ok(SweepResult {
         brep: result,
@@ -85,7 +85,7 @@ pub fn loft_cut(
     tolerance: Tolerance,
 ) -> Result<SweepResult, SweepError> {
     let lofted = crate::loft(sections, options, tolerance)?;
-    let result = popkern_bool::subtraction(brep.clone(), lofted.brep, tolerance)
+    let result = popkern_bool::subtraction(brep.clone(), lofted.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
     Ok(SweepResult {
         brep: result,
@@ -102,7 +102,7 @@ pub fn pipe_add(
     tolerance: Tolerance,
 ) -> Result<SweepResult, SweepError> {
     let piped = crate::pipe(path, radius, options, tolerance)?;
-    let result = popkern_bool::union(brep.clone(), piped.brep, tolerance)
+    let result = popkern_bool::union(brep.clone(), piped.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
     Ok(SweepResult {
         brep: result,
@@ -119,7 +119,7 @@ pub fn pipe_cut(
     tolerance: Tolerance,
 ) -> Result<SweepResult, SweepError> {
     let piped = crate::pipe(path, radius, options, tolerance)?;
-    let result = popkern_bool::subtraction(brep.clone(), piped.brep, tolerance)
+    let result = popkern_bool::subtraction(brep.clone(), piped.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
     Ok(SweepResult {
         brep: result,

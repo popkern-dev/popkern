@@ -71,7 +71,7 @@ fn cylinder_through_cube_union_produces_result() {
         BRep::cylinder(0.3, 2.0, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, -0.5),
     );
-    let result = crate::union(cube, cyl, t).expect("cylinder-cube union should succeed");
+    let result = crate::union(cube, cyl, t, None).expect("cylinder-cube union should succeed");
     assert!(
         result.faces.len() > 6,
         "Union should have more faces than cube alone, got {}",
@@ -89,7 +89,7 @@ fn cylinder_through_cube_subtraction_produces_result() {
         Vec3::new(0.5, 0.5, -0.5),
     );
     let result =
-        crate::subtraction(cube, cyl, t).expect("cylinder-cube subtraction should succeed");
+        crate::subtraction(cube, cyl, t, None).expect("cylinder-cube subtraction should succeed");
     // Subtraction: cube faces with inner loops (cylinder holes).
     // The cylinder lateral face may or may not be included depending on
     // sample point selection.
@@ -120,7 +120,7 @@ fn disjoint_cylinder_and_cube_union_has_9_faces() {
         BRep::cylinder(0.3, 1.0, t.clone()).unwrap(),
         Vec3::new(5.0, 0.0, 0.0),
     );
-    let result = crate::union(cube, cyl, t).unwrap();
+    let result = crate::union(cube, cyl, t, None).unwrap();
     assert_eq!(
         result.faces.len(),
         9,
@@ -137,7 +137,7 @@ fn disjoint_cylinder_and_cube_intersection_is_empty() {
         BRep::cylinder(0.3, 1.0, t.clone()).unwrap(),
         Vec3::new(5.0, 0.0, 0.0),
     );
-    let result = crate::intersection(cube, cyl, t).unwrap();
+    let result = crate::intersection(cube, cyl, t, None).unwrap();
     assert_eq!(
         result.faces.len(),
         0,
@@ -153,7 +153,7 @@ fn disjoint_cylinder_and_cube_subtraction_has_6_faces() {
         BRep::cylinder(0.3, 1.0, t.clone()).unwrap(),
         Vec3::new(5.0, 0.0, 0.0),
     );
-    let result = crate::subtraction(cube, cyl, t).unwrap();
+    let result = crate::subtraction(cube, cyl, t, None).unwrap();
     assert_eq!(
         result.faces.len(),
         6,
@@ -180,8 +180,8 @@ fn cube_minus_contained_cylinder_returns_ok() {
         BRep::cylinder(0.1, 0.3, t.clone()).unwrap(),
         Vec3::new(0.45, 0.45, 0.35),
     );
-    let result =
-        crate::subtraction(cube, cyl, t).expect("contained cylinder subtraction should succeed");
+    let result = crate::subtraction(cube, cyl, t, None)
+        .expect("contained cylinder subtraction should succeed");
     assert!(
         result.faces.len() >= 6,
         "result should have at least cube faces, got {}",
@@ -201,7 +201,7 @@ fn cone_through_cube_union_produces_result() {
         BRep::cone(0.4, 2.0, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, -0.5),
     );
-    let result = crate::union(cube, cone, t).expect("cone-cube union should succeed");
+    let result = crate::union(cube, cone, t, None).expect("cone-cube union should succeed");
     assert!(
         result.faces.len() > 6,
         "Union should have more faces than cube alone, got {}",
@@ -217,7 +217,8 @@ fn cone_through_cube_subtraction_produces_result() {
         BRep::cone(0.4, 2.0, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, -0.5),
     );
-    let result = crate::subtraction(cube, cone, t).expect("cone-cube subtraction should succeed");
+    let result =
+        crate::subtraction(cube, cone, t, None).expect("cone-cube subtraction should succeed");
     assert!(
         result.faces.len() >= 6,
         "Subtraction should have at least cube faces, got {}",
@@ -244,7 +245,7 @@ fn disjoint_cone_and_cube_union_succeeds() {
         BRep::cone(0.5, 1.0, t.clone()).unwrap(),
         Vec3::new(5.0, 0.0, 0.0),
     );
-    let result = crate::union(cube, cone, t).unwrap();
+    let result = crate::union(cube, cone, t, None).unwrap();
     assert_eq!(
         result.faces.len(),
         8,
@@ -261,7 +262,7 @@ fn disjoint_cone_and_cube_intersection_is_empty() {
         BRep::cone(0.5, 1.0, t.clone()).unwrap(),
         Vec3::new(5.0, 0.0, 0.0),
     );
-    let result = crate::intersection(cube, cone, t).unwrap();
+    let result = crate::intersection(cube, cone, t, None).unwrap();
     assert_eq!(
         result.faces.len(),
         0,
@@ -277,7 +278,7 @@ fn disjoint_cone_and_cube_subtraction_has_6_faces() {
         BRep::cone(0.5, 1.0, t.clone()).unwrap(),
         Vec3::new(5.0, 0.0, 0.0),
     );
-    let result = crate::subtraction(cube, cone, t).unwrap();
+    let result = crate::subtraction(cube, cone, t, None).unwrap();
     assert_eq!(
         result.faces.len(),
         6,
@@ -304,7 +305,7 @@ fn cube_minus_contained_cone_returns_ok() {
         Vec3::new(0.45, 0.45, 0.4),
     );
     let result =
-        crate::subtraction(cube, cone, t).expect("contained cone subtraction should succeed");
+        crate::subtraction(cube, cone, t, None).expect("contained cone subtraction should succeed");
     assert!(
         result.faces.len() >= 6,
         "result should have at least cube faces, got {}",
@@ -325,7 +326,7 @@ fn disjoint_sphere_and_cube_union_has_7_faces() {
         BRep::sphere(0.4, t.clone()).unwrap(),
         Vec3::new(5.0, 0.0, 0.0),
     );
-    let result = crate::union(cube, sphere, t).unwrap();
+    let result = crate::union(cube, sphere, t, None).unwrap();
     assert_eq!(
         result.faces.len(),
         7,
@@ -348,7 +349,7 @@ fn disjoint_sphere_and_cube_intersection_is_empty() {
         BRep::sphere(0.4, t.clone()).unwrap(),
         Vec3::new(5.0, 0.0, 0.0),
     );
-    let result = crate::intersection(cube, sphere, t).unwrap();
+    let result = crate::intersection(cube, sphere, t, None).unwrap();
     assert_eq!(
         result.faces.len(),
         0,
@@ -364,7 +365,7 @@ fn disjoint_sphere_and_cube_subtraction_has_6_faces() {
         BRep::sphere(0.4, t.clone()).unwrap(),
         Vec3::new(5.0, 0.0, 0.0),
     );
-    let result = crate::subtraction(cube, sphere, t).unwrap();
+    let result = crate::subtraction(cube, sphere, t, None).unwrap();
     assert_eq!(
         result.faces.len(),
         6,
@@ -390,7 +391,7 @@ fn sphere_through_cube_union_produces_result() {
         BRep::sphere(0.8, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, 0.5),
     );
-    let result = crate::union(cube, sphere, t).expect("sphere-cube union should succeed");
+    let result = crate::union(cube, sphere, t, None).expect("sphere-cube union should succeed");
     // For r=0.8 sphere enclosing cube, the union is the sphere.
     // The empty-selection fallback detects all-A-inside and returns B (sphere).
     assert!(
@@ -410,7 +411,7 @@ fn sphere_through_cube_subtraction_produces_result() {
         Vec3::new(0.5, 0.5, 0.5),
     );
     let result =
-        crate::subtraction(cube, sphere, t).expect("sphere-cube subtraction should succeed");
+        crate::subtraction(cube, sphere, t, None).expect("sphere-cube subtraction should succeed");
     assert!(
         result.faces.len() >= 1,
         "Subtraction should produce faces, got {}",
@@ -428,7 +429,7 @@ fn sphere_medium_cube_subtraction_has_inner_loops() {
         BRep::sphere(0.6, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, 0.5),
     );
-    let result = crate::subtraction(cube, sphere, t).expect("medium sphere-cube subtraction");
+    let result = crate::subtraction(cube, sphere, t, None).expect("medium sphere-cube subtraction");
     assert!(
         result.faces.len() >= 7,
         "Should have 6 cube faces + sphere face, got {}",
@@ -450,8 +451,8 @@ fn sphere_through_cube_intersection_produces_result() {
         BRep::sphere(0.8, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, 0.5),
     );
-    let _result =
-        crate::intersection(cube, sphere, t).expect("sphere-cube intersection should succeed");
+    let _result = crate::intersection(cube, sphere, t, None)
+        .expect("sphere-cube intersection should succeed");
 }
 
 // ── Sphere × cube: containment ──────────────────────────────────────────────
@@ -465,8 +466,8 @@ fn cube_minus_contained_sphere_returns_ok() {
         BRep::sphere(0.2, t.clone()).unwrap(),
         Vec3::new(0.5, 0.5, 0.5),
     );
-    let result =
-        crate::subtraction(cube, sphere, t).expect("contained sphere subtraction should succeed");
+    let result = crate::subtraction(cube, sphere, t, None)
+        .expect("contained sphere subtraction should succeed");
     assert!(
         result.faces.len() >= 6,
         "result should have at least cube faces, got {}",

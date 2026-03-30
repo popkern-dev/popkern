@@ -92,7 +92,6 @@ fn try_structurally_valid(brep: &BRep) -> bool {
         }
     }
 }
-
 #[test]
 fn shell_cube_no_removal() {
     let brep = BRep::unit_cube(tol()).unwrap();
@@ -104,6 +103,7 @@ fn shell_cube_no_removal() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     // Outer (6) + inner (6) = 12 faces, two disjoint closed surfaces.
@@ -124,6 +124,7 @@ fn shell_cube_one_face_removed() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     // Outer (5) + inner (5) + side walls (4) = 14 faces.
@@ -144,6 +145,7 @@ fn shell_cube_two_adjacent_removed() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     // Outer (4) + inner (4) + side walls (varies, 6-8 depending on adjacency).
@@ -169,6 +171,7 @@ fn shell_variable_thickness() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     assert_eq!(result.brep.faces.len(), 12);
@@ -188,6 +191,7 @@ fn shell_inward_outward_midplane() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     assert_eq!(r_in.brep.faces.len(), 12);
@@ -202,6 +206,7 @@ fn shell_inward_outward_midplane() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     assert_eq!(r_out.brep.faces.len(), 12);
@@ -216,6 +221,7 @@ fn shell_inward_outward_midplane() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     assert_eq!(r_mid.brep.faces.len(), 12);
@@ -293,6 +299,7 @@ fn shell_empty_brep_error() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     );
     assert!(matches!(result, Err(ShellError::NoFaces)));
 }
@@ -323,6 +330,7 @@ fn shell_cylinder() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     );
     match result {
         Ok(r) => {
@@ -472,6 +480,7 @@ fn shell_thin_prism_collision_or_error() {
         &[],
         &ShellOptions::default(),
         tol(),
+        None,
     );
     match result {
         Ok(r) => {

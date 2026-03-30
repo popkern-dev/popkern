@@ -51,7 +51,7 @@ fn cube_cube_union_still_validates() {
         BRep::unit_cube(t.clone()).unwrap(),
         Vec3::new(0.5, 0.3, 0.2),
     );
-    let result = crate::union(a, b, t).unwrap();
+    let result = crate::union(a, b, t, None).unwrap();
     let errs = result.validate_all();
     assert!(
         errs.is_empty(),
@@ -68,7 +68,7 @@ fn overlapping_cube_subtraction_still_validates() {
         BRep::unit_cube(t.clone()).unwrap(),
         Vec3::new(0.5, 0.3, 0.2),
     );
-    let result = crate::subtraction(a, b, t).unwrap();
+    let result = crate::subtraction(a, b, t, None).unwrap();
     let errs = result.validate_all();
     assert!(
         errs.is_empty(),
@@ -87,7 +87,7 @@ fn disjoint_cube_union_preserves_pcurves() {
         BRep::unit_cube(t.clone()).unwrap(),
         Vec3::new(5.0, 0.0, 0.0),
     );
-    let result = crate::union(a, b, t).unwrap();
+    let result = crate::union(a, b, t, None).unwrap();
     let with_pcurves = result
         .half_edges
         .values()
@@ -107,7 +107,7 @@ fn boolean_subtraction_preserves_and_creates_pcurves() {
         .unwrap()
         .transform(&Transform3::translation(0.5, 0.5, -0.5))
         .unwrap();
-    let result = crate::subtraction(cube, cyl, tol).unwrap();
+    let result = crate::subtraction(cube, cyl, tol, None).unwrap();
 
     let total = result.half_edges.len();
     let with_pcurves = result
