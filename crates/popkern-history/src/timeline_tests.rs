@@ -1,0 +1,301 @@
+// Structural lint marker: this file is test code, included via #[path] under #[cfg(test)].
+#[cfg(test)]
+use super::*;
+use popkern_core::naming::{EntityName, EntityRole, NameId, OperationId, RoleCategory};
+
+/// Helper: create an EntityName referencing a given OperationId.
+fn entity_name(op_id: u64) -> EntityName {
+    EntityName {
+        operation: OperationId(op_id),
+        role: EntityRole {
+            category: RoleCategory::Generated,
+            index: 0,
+        },
+        ancestors: vec![NameId(0)],
+    }
+}
+
+#[test]
+fn add_three_features_timeline_order() {
+    let mut tree = FeatureTree::new();
+
+    let id0 = tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY,
+            sketch_data: String::new(),
+        },
+        "Sketch 1",
+    );
+    let id1 = tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XZ,
+            sketch_data: String::new(),
+        },
+        "Sketch 2",
+    );
+    let id2 = tree.add_feature(
+        Feature::Boolean {
+            operation: crate::feature::BoolOpKind::Union,
+            tool_body: BodyId(1),
+        },
+        "Union",
+    );
+
+    assert_eq!(tree.timeline(), &[id0, id1, id2]);
+}
+
+#[test]
+fn auto_dependency_extrude_references_sketch() {
+    let mut tree = FeatureTree::new();
+
+    // Sketch gets operation_id = OperationId(1) (first add).
+    let sketch_id = tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY,
+            sketch_data: String::new(),
+        },
+        "Sketch 1",
+    );
+
+    // Extrude references a face created by OperationId(1).
+    let extrude_id = tree.add_feature(
+        Feature::Extrude {
+            face: entity_name(1), // references the sketch's OperationId
+            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
+            distance: 10.0,
+        },
+        "Extrude 1",
+    );
+
+    let extrude_node = tree.feature(extrude_id).expect("extrude should exist");
+    assert!(
+        extrude_node.depends_on.contains(&sketch_id),
+        "extrude should auto-depend on sketch"
+    );
+}
+
+#[test]
+fn insert_at_shifts_timeline() {
+    let mut tree = FeatureTree::new();
+
+    let id0 = tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY,
+            sketch_data: String::new(),
+        },
+        "Sketch 1",
+    );
+    let id2 = tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XZ,
+            sketch_data: String::new(),
+        },
+        "Sketch 3",
+    );
+
+    // Insert at position 1 (between the two sketches).
+    let id1 = tree
+        .insert_feature_at(
+            1,
+            Feature::Sketch {
+                plane: SketchPlaneDesc::YZ,
+                sketch_data: String::new(),
+            },
+            "Sketch 2",
+        )
+        .expect("insert should succeed");
+
+    assert_eq!(tree.timeline(), &[id0, id1, id2]);
+}
+
+#[test]
+fn insert_with_dependency_after_insert_point_fails() {
+    let mut tree = FeatureTree::new();
+
+    // Sketch gets OperationId(1).
+    let _sketch_id = tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY,
+            sketch_data: String::new(),
+        },
+        "Sketch 1",
+    );
+
+    // Try to insert an Extrude that depends on the sketch at position 0
+    // (before the sketch).
+    let result = tree.insert_feature_at(
+        0,
+        Feature::Extrude {
+            face: entity_name(1),
+            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
+            distance: 10.0,
+        },
+        "Extrude 1",
+    );
+
+    assert!(
+        matches!(result, Err(HistoryError::DependencyAfterInsert(_))),
+        "should fail: dependency is after insertion point"
+    );
+}
+
+#[test]
+fn reorder_violating_dependency_fails() {
+    let mut tree = FeatureTree::new();
+
+    // Sketch gets OperationId(1).
+    let _sketch_id = tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY,
+            sketch_data: String::new(),
+        },
+        "Sketch 1",
+    );
+
+    // Extrude depends on sketch (OperationId(1)).
+    let extrude_id = tree.add_feature(
+        Feature::Extrude {
+            face: entity_name(1),
+            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
+            distance: 10.0,
+        },
+        "Extrude 1",
+    );
+
+    // Try to reorder the extrude to position 0 (before its dependency).
+    let result = tree.reorder(extrude_id, 0);
+    assert!(
+        matches!(result, Err(HistoryError::DependencyAfterInsert(_))),
+        "should fail: dependency would be after the feature"
+    );
+}
+
+#[test]
+fn feature_lookup_returns_correct_node() {
+    let mut tree = FeatureTree::new();
+
+    let id = tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY,
+            sketch_data: "test-data".to_string(),
+        },
+        "My Sketch",
+    );
+
+    let node = tree.feature(id).expect("feature should exist");
+    assert_eq!(node.label, "My Sketch");
+    assert_eq!(node.operation_id, OperationId(1));
+    assert!(node.depends_on.is_empty());
+    assert!(!node.suppressed);
+}
+
+#[test]
+fn timeline_returns_correct_slice() {
+    let tree = FeatureTree::new();
+    assert!(tree.timeline().is_empty());
+
+    let mut tree = FeatureTree::new();
+    let id = tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY,
+            sketch_data: String::new(),
+        },
+        "S1",
+    );
+    assert_eq!(tree.timeline(), &[id]);
+}
+
+#[test]
+fn feature_entity_names_extracts_all_variants() {
+    // Fillet: should extract edges
+    let f = Feature::Fillet {
+        edges: vec![entity_name(1), entity_name(2)],
+        radius: 1.0,
+    };
+    let names = feature_entity_names(&f);
+    assert_eq!(names.len(), 2);
+    assert_eq!(names[0].operation, OperationId(1));
+    assert_eq!(names[1].operation, OperationId(2));
+
+    // Boolean: should extract nothing
+    let f = Feature::Boolean {
+        operation: crate::feature::BoolOpKind::Union,
+        tool_body: BodyId(1),
+    };
+    assert!(feature_entity_names(&f).is_empty());
+
+    // Draft: faces + neutral_plane
+    let f = Feature::Draft {
+        faces: vec![entity_name(3)],
+        angle: 0.1,
+        neutral_plane: entity_name(4),
+    };
+    let names = feature_entity_names(&f);
+    assert_eq!(names.len(), 2);
+
+    // Sketch OnFace: should extract the face
+    let f = Feature::Sketch {
+        plane: SketchPlaneDesc::OnFace(entity_name(5)),
+        sketch_data: String::new(),
+    };
+    let names = feature_entity_names(&f);
+    assert_eq!(names.len(), 1);
+    assert_eq!(names[0].operation, OperationId(5));
+
+    // Extrude with FaceNormal direction: face + direction ref
+    let f = Feature::Extrude {
+        face: entity_name(6),
+        direction: Vec3Desc::FaceNormal(entity_name(7)),
+        distance: 5.0,
+    };
+    let names = feature_entity_names(&f);
+    assert_eq!(names.len(), 2);
+
+    // Shell
+    let f = Feature::Shell {
+        faces_to_remove: vec![entity_name(8), entity_name(9)],
+        thickness: 1.0,
+        direction: crate::feature::ShellDirectionKind::Inward,
+    };
+    let names = feature_entity_names(&f);
+    assert_eq!(names.len(), 2);
+}
+
+#[test]
+fn reorder_dependent_before_feature_fails() {
+    let mut tree = FeatureTree::new();
+
+    // Sketch (op=1), then Extrude (op=2) depending on sketch.
+    let sketch_id = tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY,
+            sketch_data: String::new(),
+        },
+        "Sketch 1",
+    );
+
+    let _extrude_id = tree.add_feature(
+        Feature::Extrude {
+            face: entity_name(1),
+            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
+            distance: 10.0,
+        },
+        "Extrude 1",
+    );
+
+    // Try to move the sketch to position 1 (after the extrude).
+    // The extrude depends on the sketch, so this should fail.
+    let result = tree.reorder(sketch_id, 1);
+    assert!(
+        matches!(result, Err(HistoryError::DependencyAfterInsert(_))),
+        "should fail: extrude depends on sketch but would be before it"
+    );
+}
+
+#[test]
+fn vec3_desc_negated_recurses() {
+    let nested = Vec3Desc::Negated(Box::new(Vec3Desc::FaceNormal(entity_name(42))));
+    let names = vec3_desc_entity_names(&nested);
+    assert_eq!(names.len(), 1);
+    assert_eq!(names[0].operation, OperationId(42));
+}

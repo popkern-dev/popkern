@@ -20,10 +20,12 @@
 pub mod error;
 pub mod feature;
 pub mod node;
+pub mod timeline;
 
 pub use error::{FeatureResult, HistoryError, ReplayError};
 pub use feature::{BoolOpKind, Feature, ShellDirectionKind, SketchPlaneDesc, Vec3Desc};
 pub use node::{BodyId, FeatureId, FeatureNode};
+pub use timeline::{feature_entity_names, infer_dependencies};
 
 use slotmap::SlotMap;
 
@@ -43,6 +45,9 @@ pub struct FeatureTree {
     /// When `Some(n)`, replay stops after the feature at index `n − 1` in the
     /// timeline (i.e. the tree is "rolled back" to that point).
     pub(crate) rollback_index: Option<usize>,
+    /// Monotonically increasing counter for [`popkern_core::naming::OperationId`]
+    /// assignment.  Starts at 1 (0 is reserved for "unassigned").
+    pub(crate) next_op_id: u64,
 }
 
 impl FeatureTree {
@@ -52,6 +57,7 @@ impl FeatureTree {
             features: SlotMap::with_key(),
             timeline: Vec::new(),
             rollback_index: None,
+            next_op_id: 1,
         }
     }
 }

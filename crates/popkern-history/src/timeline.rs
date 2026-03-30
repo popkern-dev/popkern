@@ -1,0 +1,257 @@
+//! Timeline management and dependency inference for the feature tree.
+//!
+//! This module provides:
+//! - Automatic dependency inference by walking [`Feature`] variants for
+//!   [`EntityName`] references and mapping them back to the features that
+//!   produced them (via [`OperationId`]).
+//! - Timeline insertion and reordering with dependency validation.
+
+use popkern_core::naming::{EntityName, OperationId};
+use slotmap::SlotMap;
+
+use crate::FeatureTree;
+use crate::error::HistoryError;
+use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+use crate::node::{BodyId, FeatureId, FeatureNode};
+
+// ---------------------------------------------------------------------------
+// EntityName extraction
+// ---------------------------------------------------------------------------
+
+/// Collect [`EntityName`] references from a [`Vec3Desc`].
+fn vec3_desc_entity_names(desc: &Vec3Desc) -> Vec<&EntityName> {
+    match desc {
+        Vec3Desc::Literal(_) => Vec::new(),
+        Vec3Desc::FaceNormal(name) => vec![name],
+        Vec3Desc::Negated(inner) => vec3_desc_entity_names(inner),
+    }
+}
+
+/// Collect [`EntityName`] references from a [`SketchPlaneDesc`].
+fn sketch_plane_entity_names(desc: &SketchPlaneDesc) -> Vec<&EntityName> {
+    match desc {
+        SketchPlaneDesc::XY | SketchPlaneDesc::XZ | SketchPlaneDesc::YZ => Vec::new(),
+        SketchPlaneDesc::OnFace(name) => vec![name],
+        SketchPlaneDesc::OnFaceOffset(name, _) => vec![name],
+        SketchPlaneDesc::Custom { .. } => Vec::new(),
+    }
+}
+
+/// Extract all [`EntityName`] references from a [`Feature`] variant.
+///
+/// This walks the Feature enum recursively, collecting every stable name that
+/// the feature references.  Boolean features reference a [`BodyId`] rather than
+/// entity names, so they return an empty list.
+pub fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
+    match feature {
+        Feature::Sketch { plane, .. } => sketch_plane_entity_names(plane),
+        Feature::Extrude {
+            face, direction, ..
+        } => {
+            let mut names = vec![face];
+            names.extend(vec3_desc_entity_names(direction));
+            names
+        }
+        Feature::Fillet { edges, .. } | Feature::Chamfer { edges, .. } => edges.iter().collect(),
+        Feature::Boolean { .. } => Vec::new(),
+        Feature::Shell {
+            faces_to_remove, ..
+        } => faces_to_remove.iter().collect(),
+        Feature::Draft {
+            faces,
+            neutral_plane,
+            ..
+        } => {
+            let mut names: Vec<&EntityName> = faces.iter().collect();
+            names.push(neutral_plane);
+            names
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Dependency inference
+// ---------------------------------------------------------------------------
+
+/// Infer dependencies by mapping [`EntityName`] references to the
+/// [`FeatureId`]s that produced them.
+///
+/// For each [`EntityName`] referenced by `feature`, the function extracts the
+/// [`OperationId`] and searches the `features` slotmap for the node whose
+/// `operation_id` matches.  The resulting list is deduplicated.
+pub fn infer_dependencies(
+    feature: &Feature,
+    features: &SlotMap<FeatureId, FeatureNode>,
+) -> Vec<FeatureId> {
+    let entity_names = feature_entity_names(feature);
+    let mut deps: Vec<FeatureId> = Vec::new();
+
+    for name in entity_names {
+        let target_op = name.operation;
+        // Find the feature node whose operation_id matches.
+        for (fid, node) in features.iter() {
+            if node.operation_id == target_op && !deps.contains(&fid) {
+                deps.push(fid);
+            }
+        }
+    }
+
+    deps
+}
+
+// ---------------------------------------------------------------------------
+// FeatureTree methods
+// ---------------------------------------------------------------------------
+
+impl FeatureTree {
+    /// Append a new feature at the end of the timeline.
+    ///
+    /// The feature's dependencies are automatically inferred from its
+    /// [`EntityName`] references.  A new [`OperationId`] is assigned from the
+    /// tree's internal counter.
+    pub fn add_feature(&mut self, feature: Feature, label: &str) -> FeatureId {
+        let op_id = OperationId(self.next_op_id);
+        self.next_op_id += 1;
+
+        let depends_on = infer_dependencies(&feature, &self.features);
+
+        let node = FeatureNode {
+            feature,
+            operation_id: op_id,
+            label: label.to_string(),
+            depends_on,
+            suppressed: false,
+            body: BodyId(0),
+            last_result: None,
+        };
+
+        let id = self.features.insert(node);
+        self.timeline.push(id);
+        id
+    }
+
+    /// Return the timeline as a slice of [`FeatureId`]s in evaluation order.
+    pub fn timeline(&self) -> &[FeatureId] {
+        &self.timeline
+    }
+
+    /// Look up a feature node by its [`FeatureId`].
+    pub fn feature(&self, id: FeatureId) -> Option<&FeatureNode> {
+        self.features.get(id)
+    }
+
+    /// Insert a new feature at a specific position in the timeline.
+    ///
+    /// All auto-inferred dependencies must appear before `index` in the
+    /// timeline.  Returns [`HistoryError::DependencyAfterInsert`] if any
+    /// dependency would be at or after the insertion point, and
+    /// [`HistoryError::InvalidPosition`] if `index` is out of range.
+    pub fn insert_feature_at(
+        &mut self,
+        index: usize,
+        feature: Feature,
+        label: &str,
+    ) -> Result<FeatureId, HistoryError> {
+        if index > self.timeline.len() {
+            return Err(HistoryError::InvalidPosition(index));
+        }
+
+        let op_id = OperationId(self.next_op_id);
+        let depends_on = infer_dependencies(&feature, &self.features);
+
+        // Validate: every dependency must appear before `index` in the timeline.
+        let timeline_before = &self.timeline[..index];
+        for &dep_id in &depends_on {
+            if !timeline_before.contains(&dep_id) {
+                let dep_label = self
+                    .features
+                    .get(dep_id)
+                    .map(|n| n.label.clone())
+                    .unwrap_or_else(|| String::from("<unknown>"));
+                return Err(HistoryError::DependencyAfterInsert(dep_label));
+            }
+        }
+
+        self.next_op_id += 1;
+
+        let node = FeatureNode {
+            feature,
+            operation_id: op_id,
+            label: label.to_string(),
+            depends_on,
+            suppressed: false,
+            body: BodyId(0),
+            last_result: None,
+        };
+
+        let id = self.features.insert(node);
+        self.timeline.insert(index, id);
+        Ok(id)
+    }
+
+    /// Move an existing feature to a new position in the timeline.
+    ///
+    /// Validates that:
+    /// 1. All dependencies of the moved feature appear before `new_index`.
+    /// 2. No feature that depends on the moved feature would end up after it.
+    ///
+    /// Returns [`HistoryError::FeatureNotFound`] if `id` is not in the tree,
+    /// [`HistoryError::InvalidPosition`] if `new_index` is out of range, or
+    /// [`HistoryError::DependencyAfterInsert`] if the move would violate
+    /// dependency ordering.
+    pub fn reorder(&mut self, id: FeatureId, new_index: usize) -> Result<(), HistoryError> {
+        // Find and remove from current position.
+        let current_pos = self
+            .timeline
+            .iter()
+            .position(|&fid| fid == id)
+            .ok_or(HistoryError::FeatureNotFound)?;
+
+        if new_index >= self.timeline.len() {
+            return Err(HistoryError::InvalidPosition(new_index));
+        }
+
+        // Build the candidate timeline with the feature removed.
+        let mut candidate = self.timeline.clone();
+        candidate.remove(current_pos);
+
+        // Clamp new_index to the valid range after removal.
+        let insert_at = new_index.min(candidate.len());
+
+        // Check 1: all dependencies of `id` must appear before `insert_at`.
+        if let Some(node) = self.features.get(id) {
+            let before = &candidate[..insert_at];
+            for dep_id in &node.depends_on {
+                if !before.contains(dep_id) {
+                    let dep_label = self
+                        .features
+                        .get(*dep_id)
+                        .map(|n| n.label.clone())
+                        .unwrap_or_else(|| String::from("<unknown>"));
+                    return Err(HistoryError::DependencyAfterInsert(dep_label));
+                }
+            }
+        }
+
+        // Check 2: any feature that depends on `id` must not appear before `insert_at`.
+        for &fid in &candidate[..insert_at] {
+            if let Some(node) = self.features.get(fid)
+                && node.depends_on.contains(&id)
+            {
+                let dep_label = node.label.clone();
+                return Err(HistoryError::DependencyAfterInsert(dep_label));
+            }
+        }
+
+        // Apply the reorder.
+        self.timeline.remove(current_pos);
+        let insert_at = new_index.min(self.timeline.len());
+        self.timeline.insert(insert_at, id);
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[path = "timeline_tests.rs"]
+mod tests;
