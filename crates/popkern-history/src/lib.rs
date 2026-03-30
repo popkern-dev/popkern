@@ -219,8 +219,11 @@ impl FeatureTree {
         if index > 0 {
             let id = self.timeline[index - 1];
             if self.cache.get(id).is_some() {
-                // Re-borrow through cache to satisfy the borrow checker.
-                return Ok(self.cache.get(id).expect("just confirmed Some"));
+                // SAFETY: we just checked `is_some()`. The two-step pattern
+                // (check then re-borrow) is required to avoid holding an
+                // immutable borrow on `self.cache` across the mutable
+                // `self.replay()` call below.
+                return self.cache.get(id).ok_or(HistoryError::FeatureNotFound.into());
             }
         }
 

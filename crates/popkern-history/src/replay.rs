@@ -180,12 +180,10 @@ fn execute_sketch(
         })?;
 
     // Re-solve the sketch so parametric changes take effect on replay.
-    sketch
-        .solve()
-        .map_err(|e| ReplayError::FeatureFailed {
-            label: "sketch".into(),
-            error: format!("constraint solve failed: {e}"),
-        })?;
+    sketch.solve().map_err(|e| ReplayError::FeatureFailed {
+        label: "sketch".into(),
+        error: format!("constraint solve failed: {e}"),
+    })?;
 
     let mut sketch_on_plane = popkern_sketch::SketchOnPlane {
         sketch,
