@@ -82,7 +82,7 @@ fn assert_step_roundtrip(brep: &BRep, name: &str) {
 fn t19_fillet_single_cube_edge() {
     let cube = BRep::unit_cube(tol()).unwrap();
     let edge = cube.edges.keys().next().unwrap();
-    let result = fillet_edge(&cube, edge, 0.1, tol()).unwrap();
+    let result = fillet_edge(&cube, edge, 0.1, tol(), None).unwrap();
     let brep = &result.brep;
     assert_eq!(brep.faces.len(), 7, "single fillet adds 1 face: 6+1=7");
     assert_no_structural_errors(brep);
@@ -102,7 +102,7 @@ fn t20_fillet_three_edges_at_corner() {
             radius: FilletRadius::Constant(0.1),
         })
         .collect();
-    match fillet_edges(&cube, &specs, &FilletOptions::default(), tol()) {
+    match fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None) {
         Ok(result) => {
             let brep = &result.brep;
             assert!(
@@ -130,7 +130,7 @@ fn t21_fillet_all_cube_edges() {
             radius: FilletRadius::Constant(0.1),
         })
         .collect();
-    match fillet_edges(&cube, &specs, &FilletOptions::default(), tol()) {
+    match fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None) {
         Ok(result) => {
             let brep = &result.brep;
             // 6 original + 12 fillet faces + 8 vertex blends - merged faces
@@ -154,7 +154,7 @@ fn t21_fillet_all_cube_edges() {
 fn t22_fillet_result_has_torus_surfaces() {
     let cube = BRep::unit_cube(tol()).unwrap();
     let edge = cube.edges.keys().next().unwrap();
-    let result = fillet_edge(&cube, edge, 0.1, tol()).unwrap();
+    let result = fillet_edge(&cube, edge, 0.1, tol(), None).unwrap();
     // The fillet face should have a cylindrical or torus surface
     let has_fillet_surface = result.brep.faces.values().any(|f| {
         f.surface.as_ref().is_some_and(|s| {
@@ -183,7 +183,7 @@ fn t23_fillet_varying_radius() {
             end: 0.15,
         },
     }];
-    match fillet_edges(&cube, &specs, &FilletOptions::default(), tol()) {
+    match fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None) {
         Ok(result) => {
             let brep = &result.brep;
             assert!(
@@ -214,7 +214,7 @@ fn t24_fillet_with_mitred_vertex() {
         vertex_mode: VertexMode::Mitred,
         ..FilletOptions::default()
     };
-    match fillet_edges(&cube, &specs, &opts, tol()) {
+    match fillet_edges(&cube, &specs, &opts, tol(), None) {
         Ok(result) => {
             let brep = &result.brep;
             assert!(brep.faces.len() > 6);
@@ -231,7 +231,7 @@ fn t24_fillet_with_mitred_vertex() {
 fn t25_fillet_step_roundtrip() {
     let cube = BRep::unit_cube(tol()).unwrap();
     let edge = cube.edges.keys().next().unwrap();
-    let result = fillet_edge(&cube, edge, 0.1, tol()).unwrap();
+    let result = fillet_edge(&cube, edge, 0.1, tol(), None).unwrap();
     assert_step_roundtrip(&result.brep, "fillet_single_edge");
 }
 
@@ -243,7 +243,7 @@ fn t26_chamfer_single_edge() {
         edge,
         kind: ChamferKind::Equal(0.1),
     }];
-    match chamfer_edges(&cube, &specs, &ChamferOptions::default(), tol()) {
+    match chamfer_edges(&cube, &specs, &ChamferOptions::default(), tol(), None) {
         Ok(result) => {
             let brep = &result.brep;
             assert_eq!(brep.faces.len(), 7, "chamfer adds 1 flat face: 6+1=7");

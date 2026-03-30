@@ -117,7 +117,7 @@ fn fillet_edge_between_plane_and_cylinder() {
     };
 
     // Try to fillet the edge. Both success and geometric failure are OK.
-    let result = popkern_fillet::fillet_edge(&subtracted, edge, 0.05, tol);
+    let result = popkern_fillet::fillet_edge(&subtracted, edge, 0.05, tol, None);
 
     match result {
         Ok(blend) => {
@@ -164,7 +164,7 @@ fn fillet_edge_on_boolean_cube_result() {
         None => return,
     };
 
-    let result = popkern_fillet::fillet_edge(&subtracted, edge, 0.05, tol);
+    let result = popkern_fillet::fillet_edge(&subtracted, edge, 0.05, tol, None);
 
     match result {
         Ok(blend) => {
@@ -191,7 +191,7 @@ fn fillet_cube_edge_has_torus_or_nurbs_surface() {
     let original_face_count = cube.faces.len();
     let edge = cube.edges.keys().next().unwrap();
 
-    let result = popkern_fillet::fillet_edge(&cube, edge, 0.1, tol);
+    let result = popkern_fillet::fillet_edge(&cube, edge, 0.1, tol, None);
     let blend = result.unwrap();
 
     // Fillet must add at least one face.
@@ -272,7 +272,7 @@ fn fillet_edge_between_two_cylinders() {
         None => return,
     };
 
-    let result = popkern_fillet::fillet_edge(&subtracted, edge, 0.03, tol);
+    let result = popkern_fillet::fillet_edge(&subtracted, edge, 0.03, tol, None);
 
     match result {
         Ok(blend) => {

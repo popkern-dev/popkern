@@ -227,7 +227,7 @@ fn build_fillet_showcase() -> BRep {
         })
         .collect();
 
-    match fillet_edges(&cube, &specs, &FilletOptions::default(), tol) {
+    match fillet_edges(&cube, &specs, &FilletOptions::default(), tol, None) {
         Ok(result) => result.brep,
         Err(_) => {
             // Try single edge as fallback
@@ -235,7 +235,7 @@ fn build_fillet_showcase() -> BRep {
                 edge: edges[0],
                 radius: FilletRadius::Constant(0.1),
             }];
-            fillet_edges(&cube, &single, &FilletOptions::default(), tol)
+            fillet_edges(&cube, &single, &FilletOptions::default(), tol, None)
                 .map(|r| r.brep)
                 .unwrap_or(cube)
         }

@@ -148,7 +148,7 @@ fn t46_cube_with_hole_and_fillets() {
             assert_finite_vertices(&with_hole);
             // Try to fillet one edge of the result
             let edge = with_hole.edges.keys().next().unwrap();
-            match fillet_edge(&with_hole, edge, 0.05, tol) {
+            match fillet_edge(&with_hole, edge, 0.05, tol, None) {
                 Ok(result) => {
                     assert!(result.brep.faces.len() > with_hole.faces.len());
                     assert_no_structural_errors(&result.brep);
@@ -291,7 +291,7 @@ fn t51_filleted_shelled_box() {
     let cube = BRep::unit_cube(tol).unwrap();
     // Fillet one edge first
     let edge = cube.edges.keys().next().unwrap();
-    match fillet_edge(&cube, edge, 0.1, tol) {
+    match fillet_edge(&cube, edge, 0.1, tol, None) {
         Ok(filleted) => {
             assert_finite_vertices(&filleted.brep);
             let face = filleted.brep.faces.keys().next().unwrap();
@@ -387,7 +387,7 @@ fn t54_mechanical_bracket() {
                     assert_finite_vertices(&with_hole);
                     // Fillet an edge
                     let edge = with_hole.edges.keys().next().unwrap();
-                    match fillet_edge(&with_hole, edge, 0.05, tol) {
+                    match fillet_edge(&with_hole, edge, 0.05, tol, None) {
                         Ok(result) => {
                             assert_no_structural_errors(&result.brep);
                             assert_finite_vertices(&result.brep);
