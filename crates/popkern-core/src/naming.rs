@@ -27,7 +27,7 @@ pub struct NameId(pub u32);
 ///
 /// Assigned by the feature tree; two executions of the same feature use the
 /// same `OperationId`.
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Default, Serialize, Deserialize)]
 pub struct OperationId(pub u64);
 
 // ---------------------------------------------------------------------------
