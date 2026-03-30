@@ -305,11 +305,34 @@ fn fillet_names_trace_to_edge() {
         let fillet_history = ctx_fillet.finish();
         let fillet_brep = blend_result.brep;
 
-        // Should have generated face names.
+        // Should have generated face names (new fillet faces).
         assert!(
             !fillet_history.generated.is_empty(),
             "fillet should produce generated names"
         );
+
+        // Modified faces (trimmed originals) should trace back to their ancestors.
+        assert!(
+            !fillet_history.modified.is_empty(),
+            "fillet should produce modified names tracing to original faces"
+        );
+
+        // All modified entries should have at least one successor.
+        for (old_name, new_names) in &fillet_history.modified {
+            assert!(
+                !new_names.is_empty(),
+                "modified entry for {:?} should have successors",
+                old_name.role
+            );
+            // Each successor should have the old name as ancestor.
+            for new_name in new_names {
+                assert!(
+                    !new_name.ancestors.is_empty(),
+                    "modified face {:?} should carry an ancestor",
+                    new_name.role
+                );
+            }
+        }
 
         // Generated (fillet face) names should be resolvable.
         for name in &fillet_history.generated {

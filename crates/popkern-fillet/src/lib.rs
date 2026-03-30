@@ -275,8 +275,9 @@ use geometry_compute::{build_overlap_inputs, compute_chamfer_geometry, compute_f
 
 /// Assign stable names to entities produced by a fillet or chamfer operation.
 ///
-/// New faces (not in the pre-operation set) are `Generated` (fillet/chamfer
-/// faces). Faces that survived from the original set are `Modified` (trimmed).
+/// Surviving faces from the original set receive `Modified` names with the
+/// original face name as ancestor (tracked via `record_modified`). New
+/// fillet/chamfer faces receive `Generated` names.
 fn assign_fillet_names(
     brep: &mut BRep,
     ctx: &mut TrackingContext,
@@ -292,9 +293,13 @@ fn assign_fillet_names(
 
     for fh in &post_faces {
         if pre_faces.contains(fh) {
-            // Surviving face — Modified.
+            // Surviving face — Modified (trimmed by the fillet).
+            let old_name = brep.faces[*fh]
+                .name
+                .and_then(|nid| brep.name_pool.get(nid).cloned());
+
             let ancestors: Vec<_> = brep.faces[*fh].name.into_iter().collect();
-            let name = EntityName {
+            let new_name = EntityName {
                 operation: ctx.operation,
                 role: EntityRole {
                     category: RoleCategory::Modified,
@@ -303,13 +308,18 @@ fn assign_fillet_names(
                 ancestors,
             };
             let criteria = capture_face(brep, *fh).map(GeometricCriteria::Face);
-            let name_id = brep.name_pool.intern(name.clone(), criteria);
+            let name_id = brep.name_pool.intern(new_name.clone(), criteria);
             brep.faces[*fh].name = Some(name_id);
-            ctx.record_generated(name);
+
+            if let Some(old) = old_name {
+                ctx.record_modified(old, new_name);
+            } else {
+                ctx.record_generated(new_name);
+            }
             mod_idx += 1;
         } else {
             // New fillet/chamfer face — Generated.
-            let name = EntityName {
+            let new_name = EntityName {
                 operation: ctx.operation,
                 role: EntityRole {
                     category: RoleCategory::Generated,
@@ -318,9 +328,9 @@ fn assign_fillet_names(
                 ancestors: Vec::new(),
             };
             let criteria = capture_face(brep, *fh).map(GeometricCriteria::Face);
-            let name_id = brep.name_pool.intern(name.clone(), criteria);
+            let name_id = brep.name_pool.intern(new_name.clone(), criteria);
             brep.faces[*fh].name = Some(name_id);
-            ctx.record_generated(name);
+            ctx.record_generated(new_name);
             gen_idx += 1;
         }
     }

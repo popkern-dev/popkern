@@ -144,7 +144,7 @@ pub fn draft_face(
 ///
 /// Draft modifies existing faces in place (tilts their surfaces), so all
 /// drafted faces get `Modified` names with their original face name as
-/// ancestor.
+/// ancestor. The old→new mapping is recorded via `record_modified`.
 fn assign_draft_names(brep: &mut BRep, ctx: &mut TrackingContext, specs: &[DraftSpec]) {
     use popkern_core::naming::{EntityName, EntityRole, RoleCategory};
     use popkern_core::naming_criteria::{GeometricCriteria, capture_face};
@@ -153,8 +153,14 @@ fn assign_draft_names(brep: &mut BRep, ctx: &mut TrackingContext, specs: &[Draft
         if !brep.faces.contains_key(spec.face) {
             continue;
         }
+
+        // Resolve the existing name (if any) to an EntityName for tracking.
+        let old_name = brep.faces[spec.face]
+            .name
+            .and_then(|nid| brep.name_pool.get(nid).cloned());
+
         let ancestors: Vec<_> = brep.faces[spec.face].name.into_iter().collect();
-        let name = EntityName {
+        let new_name = EntityName {
             operation: ctx.operation,
             role: EntityRole {
                 category: RoleCategory::Modified,
@@ -163,9 +169,16 @@ fn assign_draft_names(brep: &mut BRep, ctx: &mut TrackingContext, specs: &[Draft
             ancestors,
         };
         let criteria = capture_face(brep, spec.face).map(GeometricCriteria::Face);
-        let name_id = brep.name_pool.intern(name.clone(), criteria);
+        let name_id = brep.name_pool.intern(new_name.clone(), criteria);
         brep.faces[spec.face].name = Some(name_id);
-        ctx.record_generated(name);
+
+        // Record as modified (old→new) when the face had a prior name,
+        // otherwise record as generated.
+        if let Some(old) = old_name {
+            ctx.record_modified(old, new_name);
+        } else {
+            ctx.record_generated(new_name);
+        }
     }
 }
 

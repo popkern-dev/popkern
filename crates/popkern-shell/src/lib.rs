@@ -21,9 +21,21 @@ pub mod vertex_recompute;
 pub use error::{ShellError, ShellWarning};
 pub use types::*;
 
+use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::history::TrackingContext;
+use popkern_core::naming::EntityName;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
+
+/// Collected face data for ancestry matching during shell naming.
+struct InputFaceData {
+    /// The entity name (or placeholder).
+    name: EntityName,
+    /// Boundary centroid.
+    centroid: Point3,
+    /// Surface normal at the centroid.
+    normal: Vec3,
+}
 
 /// Create a thin-walled solid by offsetting faces of a BRep body.
 ///
@@ -47,7 +59,11 @@ pub fn shell(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<ShellResult, ShellError> {
-    let pre_faces: std::collections::HashSet<FaceHandle> = brep.faces.keys().collect();
+    let input_faces = if tracking.is_some() {
+        collect_shell_face_data(brep)
+    } else {
+        Vec::new()
+    };
     let mut result = shell_impl(
         brep,
         thickness,
@@ -58,7 +74,7 @@ pub fn shell(
         tolerance,
     )?;
     if let Some(ctx) = tracking {
-        assign_shell_names(&mut result.brep, ctx, &pre_faces);
+        assign_shell_names(&mut result.brep, ctx, &input_faces, &brep.tolerance);
     }
     Ok(result)
 }
@@ -83,7 +99,11 @@ pub fn shell_variable(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<ShellResult, ShellError> {
-    let pre_faces: std::collections::HashSet<FaceHandle> = brep.faces.keys().collect();
+    let input_faces = if tracking.is_some() {
+        collect_shell_face_data(brep)
+    } else {
+        Vec::new()
+    };
     let mut result = shell_impl(
         brep,
         default_thickness,
@@ -94,7 +114,7 @@ pub fn shell_variable(
         tolerance,
     )?;
     if let Some(ctx) = tracking {
-        assign_shell_names(&mut result.brep, ctx, &pre_faces);
+        assign_shell_names(&mut result.brep, ctx, &input_faces, &brep.tolerance);
     }
     Ok(result)
 }
@@ -169,40 +189,109 @@ fn shell_impl(
     })
 }
 
+/// Collect face names, centroids, and normals from a BRep for ancestry matching.
+fn collect_shell_face_data(brep: &BRep) -> Vec<InputFaceData> {
+    use popkern_core::naming::{EntityRole, OperationId, RoleCategory};
+    use popkern_core::naming_criteria::capture_face;
+
+    let mut result = Vec::new();
+    for (i, (fh, _face)) in brep.faces.iter().enumerate() {
+        let Some(fc) = capture_face(brep, fh) else {
+            continue;
+        };
+        let name = if let Some(name_id) = brep.faces[fh].name {
+            if let Some(n) = brep.name_pool.get(name_id) {
+                n.clone()
+            } else {
+                EntityName {
+                    operation: OperationId(0),
+                    role: EntityRole {
+                        category: RoleCategory::Generated,
+                        index: i as u32,
+                    },
+                    ancestors: Vec::new(),
+                }
+            }
+        } else {
+            EntityName {
+                operation: OperationId(0),
+                role: EntityRole {
+                    category: RoleCategory::Generated,
+                    index: i as u32,
+                },
+                ancestors: Vec::new(),
+            }
+        };
+        result.push(InputFaceData {
+            name,
+            centroid: fc.centroid,
+            normal: fc.normal,
+        });
+    }
+    result
+}
+
 /// Assign stable names to entities produced by a shell operation.
 ///
-/// Faces from the pre-operation set are `Modified` (outer skin faces that
-/// were offset). New faces are `Generated` (inner skin and side walls).
+/// Matches output faces to input faces by centroid proximity and normal
+/// alignment. Outer skin faces that match an input face (same-direction
+/// normal) get `Modified` with the input face as ancestor. Inner skin
+/// faces that match an input face (opposite normal) also get `Modified`
+/// with the input face as ancestor. Side wall faces (no match) get
+/// `Generated`.
 fn assign_shell_names(
     brep: &mut BRep,
     ctx: &mut TrackingContext,
-    pre_faces: &std::collections::HashSet<FaceHandle>,
+    input_faces: &[InputFaceData],
+    tol: &Tolerance,
 ) {
-    use popkern_core::naming::{EntityName, EntityRole, RoleCategory};
+    use popkern_core::naming::{EntityRole, RoleCategory};
     use popkern_core::naming_criteria::{GeometricCriteria, capture_face};
 
     let post_faces: Vec<FaceHandle> = brep.faces.keys().collect();
     let mut gen_idx: u32 = 0;
     let mut mod_idx: u32 = 0;
+    let generous_dist = tol.linear * 100.0;
 
     for fh in &post_faces {
-        if pre_faces.contains(fh) {
-            let ancestors: Vec<_> = brep.faces[*fh].name.into_iter().collect();
-            let name = EntityName {
+        let Some(fc) = capture_face(brep, *fh) else {
+            continue;
+        };
+        let centroid = fc.centroid;
+        let normal = fc.normal;
+
+        // Match against input faces: allow same-direction (outer) or
+        // opposite-direction (inner/offset) normals.
+        let best_match = input_faces
+            .iter()
+            .filter(|inp| {
+                centroid.distance_to(&inp.centroid) < generous_dist
+                    && normal.dot(&inp.normal).abs() > 0.9
+            })
+            .min_by(|a, b| {
+                centroid
+                    .distance_to(&a.centroid)
+                    .partial_cmp(&centroid.distance_to(&b.centroid))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+        if let Some(input) = best_match {
+            let ancestor_id = brep.name_pool.intern(input.name.clone(), None);
+            let new_name = EntityName {
                 operation: ctx.operation,
                 role: EntityRole {
                     category: RoleCategory::Modified,
                     index: mod_idx,
                 },
-                ancestors,
+                ancestors: vec![ancestor_id],
             };
-            let criteria = capture_face(brep, *fh).map(GeometricCriteria::Face);
-            let name_id = brep.name_pool.intern(name.clone(), criteria);
-            brep.faces[*fh].name = Some(name_id);
-            ctx.record_generated(name);
+            let criteria = Some(GeometricCriteria::Face(fc));
+            let new_id = brep.name_pool.intern(new_name.clone(), criteria);
+            brep.faces[*fh].name = Some(new_id);
+            ctx.record_modified(input.name.clone(), new_name);
             mod_idx += 1;
         } else {
-            let name = EntityName {
+            let new_name = EntityName {
                 operation: ctx.operation,
                 role: EntityRole {
                     category: RoleCategory::Generated,
@@ -210,10 +299,10 @@ fn assign_shell_names(
                 },
                 ancestors: Vec::new(),
             };
-            let criteria = capture_face(brep, *fh).map(GeometricCriteria::Face);
-            let name_id = brep.name_pool.intern(name.clone(), criteria);
-            brep.faces[*fh].name = Some(name_id);
-            ctx.record_generated(name);
+            let criteria = Some(GeometricCriteria::Face(fc));
+            let new_id = brep.name_pool.intern(new_name.clone(), criteria);
+            brep.faces[*fh].name = Some(new_id);
+            ctx.record_generated(new_name);
             gen_idx += 1;
         }
     }
