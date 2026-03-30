@@ -96,7 +96,7 @@ fn tessellate_boolean_union_result() {
     let tol = Tolerance::default();
     let a = BRep::unit_cube(tol).unwrap();
     let b = translate(BRep::unit_cube(tol).unwrap(), Vec3::new(0.5, 0.3, 0.2));
-    let union = popkern_bool::union(a, b, tol).unwrap();
+    let union = popkern_bool::union(a, b, tol, None).unwrap();
     // Faces without surface geometry (from the merge stage) are skipped gracefully.
     let mesh = tessellate(&union, &TessellationOptions::default()).unwrap();
     assert!(
@@ -110,7 +110,7 @@ fn tessellate_boolean_subtraction_result() {
     let tol = Tolerance::default();
     let a = BRep::unit_cube(tol).unwrap();
     let b = translate(BRep::unit_cube(tol).unwrap(), Vec3::new(0.5, 0.3, 0.2));
-    let result = popkern_bool::subtraction(a, b, tol).unwrap();
+    let result = popkern_bool::subtraction(a, b, tol, None).unwrap();
     let mesh = tessellate(&result, &TessellationOptions::default()).unwrap();
     assert!(!mesh.triangles.is_empty());
 }
@@ -382,7 +382,7 @@ fn tessellate_disjoint_cylinder_cube_union() {
         BRep::cylinder(0.3, 1.0, tol).unwrap(),
         Vec3::new(5.0, 0.0, 0.0),
     );
-    let result = popkern_bool::union(cube, cyl, tol).unwrap();
+    let result = popkern_bool::union(cube, cyl, tol, None).unwrap();
     let mesh = tessellate(&result, &TessellationOptions::default()).unwrap();
     assert!(
         !mesh.triangles.is_empty(),
@@ -404,7 +404,7 @@ fn tessellate_cylinder_through_cube_union() {
         BRep::cylinder(0.3, 2.0, tol).unwrap(),
         Vec3::new(0.5, 0.5, -0.5),
     );
-    let result = popkern_bool::union(cube, cyl, tol).unwrap();
+    let result = popkern_bool::union(cube, cyl, tol, None).unwrap();
     let mesh = tessellate(&result, &TessellationOptions::default()).unwrap();
     assert!(
         !mesh.triangles.is_empty(),

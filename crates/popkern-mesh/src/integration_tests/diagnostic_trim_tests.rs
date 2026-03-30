@@ -281,6 +281,7 @@ fn build_boolean_showcase() -> Option<BRep> {
         cube.clone(),
         hole,
         tol,
+        None,
     ) {
         Ok(brep) => Some(brep),
         Err(e) => {

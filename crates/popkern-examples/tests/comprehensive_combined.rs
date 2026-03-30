@@ -143,7 +143,7 @@ fn t46_cube_with_hole_and_fillets() {
         .unwrap()
         .transform(&Transform3::translation(0.5, 0.5, -0.5))
         .unwrap();
-    match subtraction(cube, hole, tol) {
+    match subtraction(cube, hole, tol, None) {
         Ok(with_hole) => {
             assert_finite_vertices(&with_hole);
             // Try to fillet one edge of the result
@@ -169,7 +169,7 @@ fn t47_cube_with_hole_then_shell() {
         .unwrap()
         .transform(&Transform3::translation(0.5, 0.5, -0.5))
         .unwrap();
-    match subtraction(cube, hole, tol) {
+    match subtraction(cube, hole, tol, None) {
         Ok(with_hole) => {
             assert_finite_vertices(&with_hole);
             let face = with_hole.faces.keys().next().unwrap();
@@ -218,7 +218,7 @@ fn t48_drafted_mold_cavity() {
         .unwrap()
         .transform(&Transform3::translation(0.5, 0.5, -0.5))
         .unwrap();
-    match subtraction(drafted.brep, hole, tol) {
+    match subtraction(drafted.brep, hole, tol, None) {
         Ok(result) => {
             assert!(result.faces.len() > 6);
             assert_no_structural_errors(&result);
@@ -244,7 +244,7 @@ fn t49_pipe_with_flanges() {
         .unwrap()
         .transform(&Transform3::translation(0.0, 0.0, -0.1))
         .unwrap();
-    match union(pipe_result.brep, flange, tol) {
+    match union(pipe_result.brep, flange, tol, None) {
         Ok(result) => {
             assert!(result.faces.len() >= 3);
             assert_no_structural_errors(&result);
@@ -265,7 +265,7 @@ fn t50_cube_with_multiple_holes() {
             .unwrap()
             .transform(&Transform3::translation(x, y, -0.5))
             .unwrap();
-        match subtraction(current.clone(), hole, tol) {
+        match subtraction(current.clone(), hole, tol, None) {
             Ok(result) => {
                 assert_finite_vertices(&result);
                 current = result;
@@ -374,7 +374,7 @@ fn t54_mechanical_bracket() {
         .unwrap()
         .transform(&Transform3::translation(0.0, 1.0, 0.0))
         .unwrap();
-    match union(block1, block2, tol) {
+    match union(block1, block2, tol, None) {
         Ok(l_shape) => {
             assert_finite_vertices(&l_shape);
             // Punch a hole
@@ -382,7 +382,7 @@ fn t54_mechanical_bracket() {
                 .unwrap()
                 .transform(&Transform3::translation(0.5, 0.5, -0.5))
                 .unwrap();
-            match subtraction(l_shape, hole, tol) {
+            match subtraction(l_shape, hole, tol, None) {
                 Ok(with_hole) => {
                     assert_finite_vertices(&with_hole);
                     // Fillet an edge

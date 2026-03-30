@@ -53,6 +53,7 @@ mod integration_tests_multicurve;
 #[cfg(test)]
 mod translate_helper_tests;
 
+use popkern_core::history::TrackingContext;
 use popkern_core::{tolerance::Tolerance, topology::BRep};
 
 /// Perform a boolean operation on two solids, consuming both inputs.
@@ -65,8 +66,18 @@ use popkern_core::{tolerance::Tolerance, topology::BRep};
 /// * `a` — the first (left-hand) operand solid.
 /// * `b` — the second (right-hand) operand solid.
 /// * `tol` — geometric tolerance for all distance and coincidence tests.
-pub fn boolean(op: BoolOperation, a: BRep, b: BRep, tol: Tolerance) -> Result<BRep, BoolError> {
-    operation::execute_boolean(op, a, b, &tol)
+pub fn boolean(
+    op: BoolOperation,
+    a: BRep,
+    b: BRep,
+    tol: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+) -> Result<BRep, BoolError> {
+    let mut result = operation::execute_boolean(op, a, b, &tol)?;
+    if let Some(ctx) = tracking {
+        assign_boolean_names(&mut result, ctx);
+    }
+    Ok(result)
 }
 
 /// Perform a boolean operation on two solids, borrowing both inputs.
@@ -80,53 +91,110 @@ pub fn boolean(op: BoolOperation, a: BRep, b: BRep, tol: Tolerance) -> Result<BR
 /// * `a` — the first (left-hand) operand solid.
 /// * `b` — the second (right-hand) operand solid.
 /// * `tol` — geometric tolerance for all distance and coincidence tests.
+/// * `tracking` — optional tracking context for stable naming.
 pub fn boolean_ref(
     op: BoolOperation,
     a: &BRep,
     b: &BRep,
     tol: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<BRep, BoolError> {
-    operation::execute_boolean(op, a.clone(), b.clone(), &tol)
+    boolean(op, a.clone(), b.clone(), tol, tracking)
 }
 
 /// Compute the union of two solids (A ∪ B), consuming both inputs.
 ///
-/// Equivalent to `boolean(BoolOperation::Union, a, b, tol)`.
-pub fn union(a: BRep, b: BRep, tol: Tolerance) -> Result<BRep, BoolError> {
-    boolean(BoolOperation::Union, a, b, tol)
+/// Equivalent to `boolean(BoolOperation::Union, a, b, tol, tracking)`.
+pub fn union(
+    a: BRep,
+    b: BRep,
+    tol: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+) -> Result<BRep, BoolError> {
+    boolean(BoolOperation::Union, a, b, tol, tracking)
 }
 
 /// Compute the union of two solids (A ∪ B), borrowing both inputs.
 ///
-/// Equivalent to `boolean_ref(BoolOperation::Union, a, b, tol)`.
-pub fn union_ref(a: &BRep, b: &BRep, tol: Tolerance) -> Result<BRep, BoolError> {
-    boolean_ref(BoolOperation::Union, a, b, tol)
+/// Equivalent to `boolean_ref(BoolOperation::Union, a, b, tol, tracking)`.
+pub fn union_ref(
+    a: &BRep,
+    b: &BRep,
+    tol: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+) -> Result<BRep, BoolError> {
+    boolean_ref(BoolOperation::Union, a, b, tol, tracking)
 }
 
 /// Compute the intersection of two solids (A ∩ B), consuming both inputs.
 ///
-/// Equivalent to `boolean(BoolOperation::Intersection, a, b, tol)`.
-pub fn intersection(a: BRep, b: BRep, tol: Tolerance) -> Result<BRep, BoolError> {
-    boolean(BoolOperation::Intersection, a, b, tol)
+/// Equivalent to `boolean(BoolOperation::Intersection, a, b, tol, tracking)`.
+pub fn intersection(
+    a: BRep,
+    b: BRep,
+    tol: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+) -> Result<BRep, BoolError> {
+    boolean(BoolOperation::Intersection, a, b, tol, tracking)
 }
 
 /// Compute the intersection of two solids (A ∩ B), borrowing both inputs.
 ///
-/// Equivalent to `boolean_ref(BoolOperation::Intersection, a, b, tol)`.
-pub fn intersection_ref(a: &BRep, b: &BRep, tol: Tolerance) -> Result<BRep, BoolError> {
-    boolean_ref(BoolOperation::Intersection, a, b, tol)
+/// Equivalent to `boolean_ref(BoolOperation::Intersection, a, b, tol, tracking)`.
+pub fn intersection_ref(
+    a: &BRep,
+    b: &BRep,
+    tol: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+) -> Result<BRep, BoolError> {
+    boolean_ref(BoolOperation::Intersection, a, b, tol, tracking)
 }
 
 /// Subtract `b` from `a` (A − B), consuming both inputs.
 ///
-/// Equivalent to `boolean(BoolOperation::Subtraction, a, b, tol)`.
-pub fn subtraction(a: BRep, b: BRep, tol: Tolerance) -> Result<BRep, BoolError> {
-    boolean(BoolOperation::Subtraction, a, b, tol)
+/// Equivalent to `boolean(BoolOperation::Subtraction, a, b, tol, tracking)`.
+pub fn subtraction(
+    a: BRep,
+    b: BRep,
+    tol: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+) -> Result<BRep, BoolError> {
+    boolean(BoolOperation::Subtraction, a, b, tol, tracking)
 }
 
 /// Subtract `b` from `a` (A − B), borrowing both inputs.
 ///
-/// Equivalent to `boolean_ref(BoolOperation::Subtraction, a, b, tol)`.
-pub fn subtraction_ref(a: &BRep, b: &BRep, tol: Tolerance) -> Result<BRep, BoolError> {
-    boolean_ref(BoolOperation::Subtraction, a, b, tol)
+/// Equivalent to `boolean_ref(BoolOperation::Subtraction, a, b, tol, tracking)`.
+pub fn subtraction_ref(
+    a: &BRep,
+    b: &BRep,
+    tol: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+) -> Result<BRep, BoolError> {
+    boolean_ref(BoolOperation::Subtraction, a, b, tol, tracking)
+}
+
+/// Assign stable names to all faces in a boolean result.
+///
+/// All surviving faces are assigned `Generated` names since the boolean
+/// creates an entirely new solid topology.
+fn assign_boolean_names(brep: &mut BRep, ctx: &mut TrackingContext) {
+    use popkern_core::naming::{EntityName, EntityRole, RoleCategory};
+    use popkern_core::naming_criteria::{GeometricCriteria, capture_face};
+
+    let face_handles: Vec<_> = brep.faces.keys().collect();
+    for (i, fh) in face_handles.iter().enumerate() {
+        let name = EntityName {
+            operation: ctx.operation,
+            role: EntityRole {
+                category: RoleCategory::Generated,
+                index: i as u32,
+            },
+            ancestors: Vec::new(),
+        };
+        let criteria = capture_face(brep, *fh).map(GeometricCriteria::Face);
+        let name_id = brep.name_pool.intern(name.clone(), criteria);
+        brep.faces[*fh].name = Some(name_id);
+        ctx.record_generated(name);
+    }
 }

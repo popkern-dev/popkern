@@ -94,7 +94,7 @@ fn t09_cube_minus_translated_cube() {
         .unwrap()
         .transform(&Transform3::translation(0.5, 0.5, 0.0))
         .unwrap();
-    match subtraction(a, b, tol) {
+    match subtraction(a, b, tol, None) {
         Ok(result) => {
             assert!(
                 result.faces.len() > 6,
@@ -119,7 +119,7 @@ fn t10_cube_minus_cylinder_hole() {
     let hole = hole
         .transform(&Transform3::translation(0.5, 0.5, -0.5))
         .unwrap();
-    match subtraction(cube, hole, tol) {
+    match subtraction(cube, hole, tol, None) {
         Ok(result) => {
             assert!(
                 result.faces.len() > 6,
@@ -144,7 +144,7 @@ fn t11_cube_union_cube() {
         .unwrap()
         .transform(&Transform3::translation(0.5, 0.0, 0.0))
         .unwrap();
-    match union(a, b, tol) {
+    match union(a, b, tol, None) {
         Ok(result) => {
             assert!(
                 result.faces.len() >= 6,
@@ -168,7 +168,7 @@ fn t12_cube_intersection_cube() {
         .unwrap()
         .transform(&Transform3::translation(0.5, 0.5, 0.5))
         .unwrap();
-    match intersection(a, b, tol) {
+    match intersection(a, b, tol, None) {
         Ok(result) => {
             assert!(result.faces.len() >= 6, "intersection should have faces");
             assert_no_structural_errors(&result);
@@ -188,7 +188,7 @@ fn t13_two_cylinders_union() {
         .unwrap()
         .transform(&Transform3::translation(0.5, 0.0, 0.0))
         .unwrap();
-    match union(a, b, tol) {
+    match union(a, b, tol, None) {
         Ok(result) => {
             assert!(result.faces.len() >= 3, "cylinder union should have faces");
             assert_no_structural_errors(&result);
@@ -212,10 +212,10 @@ fn t14_cube_minus_two_holes() {
         .unwrap()
         .transform(&Transform3::translation(0.7, 0.7, -0.5))
         .unwrap();
-    match subtraction(cube, hole1, tol) {
+    match subtraction(cube, hole1, tol, None) {
         Ok(intermediate) => {
             assert_finite_vertices(&intermediate);
-            match subtraction(intermediate, hole2, tol) {
+            match subtraction(intermediate, hole2, tol, None) {
                 Ok(result) => {
                     assert!(result.faces.len() > 6, "two holes should produce >6 faces");
                     assert_no_structural_errors(&result);
@@ -236,7 +236,7 @@ fn t15_cube_minus_centered_sphere() {
         .unwrap()
         .transform(&Transform3::translation(0.5, 0.5, 0.5))
         .unwrap();
-    match subtraction(cube, sphere, tol) {
+    match subtraction(cube, sphere, tol, None) {
         Ok(result) => {
             assert!(
                 result.faces.len() >= 6,
@@ -260,7 +260,7 @@ fn t16_boolean_result_is_watertight() {
         .unwrap()
         .transform(&Transform3::translation(0.5, 0.0, 0.0))
         .unwrap();
-    if let Ok(result) = union(a, b, tol) {
+    if let Ok(result) = union(a, b, tol, None) {
         // Every edge in a watertight solid should have exactly 2 half-edges
         assert_no_structural_errors(&result);
         assert_finite_vertices(&result);
@@ -275,7 +275,7 @@ fn t17_boolean_preserves_euler() {
         .unwrap()
         .transform(&Transform3::translation(0.5, 0.0, 0.0))
         .unwrap();
-    if let Ok(result) = union(a, b, tol) {
+    if let Ok(result) = union(a, b, tol, None) {
         assert_euler(&result);
     }
     let a2 = BRep::unit_cube(tol).unwrap();
@@ -283,7 +283,7 @@ fn t17_boolean_preserves_euler() {
         .unwrap()
         .transform(&Transform3::translation(0.5, 0.5, 0.0))
         .unwrap();
-    if let Ok(result) = subtraction_ref(&a2, &b2, tol) {
+    if let Ok(result) = subtraction_ref(&a2, &b2, tol, None) {
         assert_euler(&result);
     }
 }
@@ -296,7 +296,7 @@ fn t18_boolean_step_roundtrip() {
         .unwrap()
         .transform(&Transform3::translation(0.5, 0.0, 0.0))
         .unwrap();
-    if let Ok(result) = union(a, b, tol) {
+    if let Ok(result) = union(a, b, tol, None) {
         assert_step_roundtrip(&result, "boolean_union");
     }
 }

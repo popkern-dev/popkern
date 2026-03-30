@@ -53,7 +53,7 @@ fn boolean_face_with_hole_produces_outer_and_inner_loops() {
         ))
         .unwrap();
 
-    let result = popkern_bool::subtraction(cube, cyl, tol).unwrap();
+    let result = popkern_bool::subtraction(cube, cyl, tol, None).unwrap();
 
     // Check ALL faces with inner_loops; at least one must produce the
     // expected outer + inner trim loop pattern.
@@ -147,7 +147,7 @@ fn boolean_hole_face_inner_trim_loop_has_points() {
             0.5, 0.5, -0.5,
         ))
         .unwrap();
-    let result = popkern_bool::subtraction(cube, cyl, tol).unwrap();
+    let result = popkern_bool::subtraction(cube, cyl, tol, None).unwrap();
 
     // Find faces with inner loops.
     for fh in result.faces.keys() {

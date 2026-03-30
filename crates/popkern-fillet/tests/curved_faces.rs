@@ -102,7 +102,8 @@ fn fillet_edge_between_plane_and_cylinder() {
         .unwrap();
 
     // Subtract the cylinder from the cube to create plane-cylinder edges.
-    let subtracted = popkern_bool::boolean(BoolOperation::Subtraction, cube, translated_cyl, tol);
+    let subtracted =
+        popkern_bool::boolean(BoolOperation::Subtraction, cube, translated_cyl, tol, None);
 
     // Boolean may fail if the geometry is too complex — that's acceptable.
     let subtracted = match subtracted {
@@ -151,7 +152,7 @@ fn fillet_edge_on_boolean_cube_result() {
         .unwrap();
 
     // Subtract cube_b from cube_a.
-    let subtracted = popkern_bool::boolean(BoolOperation::Subtraction, cube_a, cube_b, tol);
+    let subtracted = popkern_bool::boolean(BoolOperation::Subtraction, cube_a, cube_b, tol, None);
 
     let subtracted = match subtracted {
         Ok(b) => b,
@@ -259,7 +260,7 @@ fn fillet_edge_between_two_cylinders() {
         .unwrap();
 
     // Subtract cyl_b from cyl_a.
-    let subtracted = popkern_bool::boolean(BoolOperation::Subtraction, cyl_a, cyl_b, tol);
+    let subtracted = popkern_bool::boolean(BoolOperation::Subtraction, cyl_a, cyl_b, tol, None);
 
     let subtracted = match subtracted {
         Ok(b) => b,

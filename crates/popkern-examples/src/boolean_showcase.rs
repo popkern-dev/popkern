@@ -31,7 +31,7 @@ fn main() {
     println!("  Hole cylinder: {} faces", hole1.faces.len());
 
     // 3. Subtract the cylinder from the cube.
-    let with_hole = match boolean(BoolOperation::Subtraction, cube, hole1, tol) {
+    let with_hole = match boolean(BoolOperation::Subtraction, cube, hole1, tol, None) {
         Ok(brep) => {
             println!(
                 "  After hole subtraction: {} faces, {} edges",

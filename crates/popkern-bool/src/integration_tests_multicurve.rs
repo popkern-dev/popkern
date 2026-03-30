@@ -73,7 +73,7 @@ fn two_cubes_subtracted_from_center_cube() {
     );
 
     // Subtract left cube from center.
-    let result1 = crate::subtraction(center, left, t.clone());
+    let result1 = crate::subtraction(center, left, t.clone(), None);
     assert!(
         result1.is_ok(),
         "first subtraction should succeed: {:?}",
@@ -89,7 +89,7 @@ fn two_cubes_subtracted_from_center_cube() {
     );
 
     // Subtract right cube from the intermediate result.
-    let result2 = crate::subtraction(intermediate, right, t);
+    let result2 = crate::subtraction(intermediate, right, t, None);
     assert!(
         result2.is_ok(),
         "second subtraction should succeed: {:?}",
@@ -120,7 +120,7 @@ fn subtraction_result_has_valid_half_edge_loops() {
         Vec3::new(-0.7, 0.25, 0.25),
     );
 
-    let result = crate::subtraction(a, b, t);
+    let result = crate::subtraction(a, b, t, None);
     assert!(
         result.is_ok(),
         "subtraction should succeed: {:?}",
@@ -222,7 +222,8 @@ fn chained_subtraction_result_validates() {
         Vec3::new(-0.7, 0.25, 0.25),
     );
 
-    let intermediate = crate::subtraction(center, left, t.clone()).expect("first subtraction");
+    let intermediate =
+        crate::subtraction(center, left, t.clone(), None).expect("first subtraction");
 
     // Check intermediate result's loop integrity.
     let mut broken = Vec::new();
@@ -284,7 +285,7 @@ fn chained_subtraction_result_validates() {
         BRep::unit_cube(t.clone()).expect("right cube"),
         Vec3::new(0.7, 0.25, 0.25),
     );
-    let result2 = crate::subtraction(intermediate, right, t);
+    let result2 = crate::subtraction(intermediate, right, t, None);
     assert!(
         result2.is_ok(),
         "second subtraction should succeed: {:?}",
@@ -332,7 +333,7 @@ fn cylinder_through_plate_creates_hole() {
         Vec3::new(0.5, 0.5, -0.5),
     );
 
-    let result = crate::subtraction(plate, cyl, t);
+    let result = crate::subtraction(plate, cyl, t, None);
     assert!(
         result.is_ok(),
         "plate-cylinder subtraction should succeed: {:?}",
