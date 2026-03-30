@@ -6,6 +6,8 @@
 //!   produced them (via [`OperationId`]).
 //! - Timeline insertion and reordering with dependency validation.
 
+use std::collections::HashMap;
+
 use popkern_core::naming::{EntityName, OperationId};
 use slotmap::SlotMap;
 
@@ -79,22 +81,20 @@ pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
 /// [`FeatureId`]s that produced them.
 ///
 /// For each [`EntityName`] referenced by `feature`, the function extracts the
-/// [`OperationId`] and searches the `features` slotmap for the node whose
-/// `operation_id` matches.  The resulting list is deduplicated.
+/// [`OperationId`] and looks it up in `op_index` for an O(1) mapping to the
+/// originating [`FeatureId`].  The resulting list is deduplicated.
 pub(crate) fn infer_dependencies(
     feature: &Feature,
-    features: &SlotMap<FeatureId, FeatureNode>,
+    op_index: &HashMap<OperationId, FeatureId>,
 ) -> Vec<FeatureId> {
     let entity_names = feature_entity_names(feature);
     let mut deps: Vec<FeatureId> = Vec::new();
 
     for name in entity_names {
-        let target_op = name.operation;
-        // Find the feature node whose operation_id matches.
-        for (fid, node) in features.iter() {
-            if node.operation_id == target_op && !deps.contains(&fid) {
-                deps.push(fid);
-            }
+        if let Some(&fid) = op_index.get(&name.operation)
+            && !deps.contains(&fid)
+        {
+            deps.push(fid);
         }
     }
 
@@ -168,7 +168,7 @@ impl FeatureTree {
         let op_id = OperationId(self.next_op_id);
         self.next_op_id += 1;
 
-        let depends_on = infer_dependencies(&feature, &self.features);
+        let depends_on = infer_dependencies(&feature, &self.op_index);
 
         let body = resolve_body(
             &feature,
@@ -190,6 +190,7 @@ impl FeatureTree {
         let id = self.features.insert(node);
         self.timeline.push(id);
         self.body_manager.assign_feature(body, id);
+        self.op_index.insert(op_id, id);
 
         let index = self.timeline.len() - 1;
         self.record_undo(TreeCommand::AddFeature {
@@ -228,7 +229,7 @@ impl FeatureTree {
         }
 
         let op_id = OperationId(self.next_op_id);
-        let depends_on = infer_dependencies(&feature, &self.features);
+        let depends_on = infer_dependencies(&feature, &self.op_index);
 
         // Validate: every dependency must appear before `index` in the timeline.
         let timeline_before = &self.timeline[..index];
@@ -265,6 +266,7 @@ impl FeatureTree {
         let id = self.features.insert(node);
         self.timeline.insert(index, id);
         self.body_manager.assign_feature(body, id);
+        self.op_index.insert(op_id, id);
 
         self.record_undo(TreeCommand::AddFeature {
             id,
@@ -404,9 +406,8 @@ impl FeatureTree {
         let old = self.features[id].feature.clone();
         self.features[id].feature = feature.clone();
 
-        // Re-infer dependencies — needs immutable access to self.features,
-        // so update the node in a second step after the mutable borrow ends.
-        let new_deps = infer_dependencies(&self.features[id].feature, &self.features);
+        // Re-infer dependencies using the op_index for O(1) lookup.
+        let new_deps = infer_dependencies(&self.features[id].feature, &self.op_index);
         self.features[id].depends_on = new_deps;
 
         self.record_undo(TreeCommand::ModifyFeature {

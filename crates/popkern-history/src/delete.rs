@@ -78,14 +78,16 @@ impl FeatureTree {
         // Collect all transitive dependents (including `id`), in timeline order.
         let to_delete = self.transitive_dependents(id);
 
-        // Snapshot each deleted node together with its current timeline position,
-        // so the undo handler can restore them at exactly the right index.
-        let mut snapshots: Vec<(crate::node::FeatureNode, usize)> = Vec::new();
+        // Snapshot each deleted node together with its FeatureId and current
+        // timeline position, so the undo handler can restore them at exactly
+        // the right index.
+        let mut snapshots: Vec<(crate::node::FeatureId, crate::node::FeatureNode, usize)> =
+            Vec::new();
         for &did in &to_delete {
             if let Some(pos) = self.timeline.iter().position(|&fid| fid == did) {
                 // clone here before we mutate the timeline below
                 if let Some(node) = self.features.get(did) {
-                    snapshots.push((node.clone(), pos));
+                    snapshots.push((did, node.clone(), pos));
                 }
             }
         }
@@ -144,7 +146,7 @@ impl FeatureTree {
             }
         }
 
-        // Snapshot the single deleted feature.
+        // Snapshot the single deleted feature with its FeatureId.
         let pos = self.timeline.iter().position(|&fid| fid == id).unwrap_or(0);
         let snapshot = self
             .features
@@ -155,7 +157,7 @@ impl FeatureTree {
         self.timeline.retain(|&fid| fid != id);
 
         self.record_undo(TreeCommand::DeleteFeature {
-            snapshots: vec![(snapshot, pos)],
+            snapshots: vec![(id, snapshot, pos)],
         });
         self.cache.clear();
 

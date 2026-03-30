@@ -42,6 +42,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use popkern_core::history::TrackingContext;
+use popkern_core::naming::OperationId;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use serde::{Deserialize, Serialize};
@@ -101,6 +102,12 @@ pub struct FeatureTree {
     /// Not serialized — rebuilt from features on replay after loading.
     #[serde(skip)]
     pub(crate) body_manager: BodyManager,
+    /// Index from [`OperationId`] to [`FeatureId`] for O(1) dependency lookup.
+    ///
+    /// Not serialized — rebuilt from features on load via
+    /// [`rebuild_indices`](Self::rebuild_indices).
+    #[serde(skip)]
+    pub(crate) op_index: HashMap<OperationId, FeatureId>,
     /// Log of reversible tree mutations, oldest first.
     ///
     /// Not serialized — session-local undo history is not persisted.
@@ -126,6 +133,7 @@ impl FeatureTree {
             current_brep: None,
             cache: BRepCache::new(CacheStrategy::EveryStep),
             body_manager: BodyManager::new(),
+            op_index: HashMap::new(),
             undo_log: Vec::new(),
             undo_cursor: 0,
         }
@@ -154,6 +162,13 @@ impl FeatureTree {
         let (brep, results) = self.replay_range(BRep::new(tolerance), 0, end, &tolerance)?;
 
         self.current_brep = Some(brep);
+
+        // Store the final BRep for the default body so that `body_brep()`
+        // works for single-body models.  Full multi-body replay (parallel
+        // independent bodies) is a known limitation for a future iteration.
+        if let Some(b) = &self.current_brep {
+            self.body_manager.set_brep(BodyId(0), b.clone());
+        }
 
         Ok(ReplayResult {
             feature_results: results,
@@ -234,7 +249,9 @@ impl FeatureTree {
 
     /// Remove the rollback bar, making all features in the timeline active.
     pub fn rollback_to_end(&mut self) {
+        let old = self.rollback_index;
         self.rollback_index = None;
+        self.record_undo(TreeCommand::MoveRollback { old, new: None });
     }
 
     /// Return the current rollback position, or `None` if no bar is set.
@@ -383,6 +400,21 @@ impl FeatureTree {
     /// Returns an empty [`Vec`] if the body does not exist.
     pub fn body_features(&self, body: BodyId) -> Vec<FeatureId> {
         self.body_manager.body_features(body)
+    }
+
+    // -----------------------------------------------------------------------
+    // Index maintenance
+    // -----------------------------------------------------------------------
+
+    /// Rebuild the [`OperationId`] → [`FeatureId`] index from the features
+    /// SlotMap.
+    ///
+    /// Called after deserialization to restore the transient `op_index` field.
+    pub(crate) fn rebuild_indices(&mut self) {
+        self.op_index.clear();
+        for (fid, node) in &self.features {
+            self.op_index.insert(node.operation_id, fid);
+        }
     }
 
     // -----------------------------------------------------------------------

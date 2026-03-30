@@ -28,8 +28,8 @@ pub(crate) enum TreeCommand {
     },
     /// One or more features were deleted.
     DeleteFeature {
-        /// Each deleted node paired with its former timeline index.
-        snapshots: Vec<(FeatureNode, usize)>,
+        /// Each deleted feature's ID, node snapshot, and former timeline index.
+        snapshots: Vec<(FeatureId, FeatureNode, usize)>,
     },
     /// A feature's parameters were modified.
     ModifyFeature {
@@ -97,11 +97,12 @@ pub(crate) fn reverse_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
         }
 
         TreeCommand::DeleteFeature { snapshots } => {
-            // Re-insert each snapshot at its former index, in order.
+            // Re-insert each feature ID at its former timeline position.
+            // The SlotMap entries are still intact (delete only removes from
+            // the timeline), so we just restore the timeline ordering.
             let mut sorted = snapshots.clone();
-            sorted.sort_by_key(|(_, idx)| *idx);
-            for (node, idx) in sorted {
-                let id = tree.features.insert(node.clone());
+            sorted.sort_by_key(|(_, _, idx)| *idx);
+            for (id, node, idx) in sorted {
                 let insert_at = idx.min(tree.timeline.len());
                 tree.timeline.insert(insert_at, id);
                 tree.body_manager.assign_feature(node.body, id);
@@ -169,19 +170,10 @@ pub(crate) fn apply_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
         }
 
         TreeCommand::DeleteFeature { snapshots } => {
-            // Remove each feature from the timeline and slotmap.
-            for (node, _) in snapshots {
-                // Find the feature ID by matching the node pointer via slotmap iteration.
-                let target_id = tree
-                    .features
-                    .iter()
-                    .find(|(_, n)| n.operation_id == node.operation_id && n.label == node.label)
-                    .map(|(fid, _)| fid);
-
-                if let Some(fid) = target_id {
-                    tree.timeline.retain(|&tid| tid != fid);
-                    tree.features.remove(fid);
-                }
+            // Remove each feature from the timeline only — the SlotMap
+            // entries are kept so undo can restore them.
+            for (id, _, _) in snapshots {
+                tree.timeline.retain(|&tid| tid != *id);
             }
         }
 

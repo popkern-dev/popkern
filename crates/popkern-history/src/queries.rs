@@ -4,7 +4,7 @@
 //! *"which features depend on this one?"*, *"what are this feature's direct
 //! parents?"*, and *"if I change this feature, what will need to rebuild?"*.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 
 use popkern_core::naming::EntityName;
 
@@ -37,42 +37,25 @@ pub struct ImpactReport {
 impl FeatureTree {
     /// Return all features that transitively depend on `id`, in timeline order.
     ///
-    /// This is a BFS over the dependency graph starting from `id`'s direct
-    /// dependents.  The result does **not** include `id` itself.  Features not
-    /// in the current timeline (e.g. orphaned slot-map entries left over from a
-    /// delete) are excluded.
+    /// Uses a single-pass walk over the timeline — O(n) rather than O(n^2).
+    /// The result does **not** include `id` itself.
     pub fn dependents(&self, id: FeatureId) -> Vec<FeatureId> {
-        let mut visited: HashSet<FeatureId> = HashSet::new();
-        let mut queue: VecDeque<FeatureId> = VecDeque::new();
+        let mut visited = HashSet::new();
+        visited.insert(id);
+        let mut result = Vec::new();
 
-        // Seed: direct dependents of `id` that are in the timeline.
-        for (fid, node) in &self.features {
-            if node.depends_on.contains(&id) && self.timeline.contains(&fid) {
-                queue.push_back(fid);
-            }
-        }
-
-        while let Some(current) = queue.pop_front() {
-            if !visited.insert(current) {
+        for &fid in &self.timeline {
+            if fid == id {
                 continue;
             }
-            // Find dependents of `current`.
-            for (fid, node) in &self.features {
-                if node.depends_on.contains(&current)
-                    && self.timeline.contains(&fid)
-                    && !visited.contains(&fid)
-                {
-                    queue.push_back(fid);
-                }
+            if let Some(node) = self.features.get(fid)
+                && node.depends_on.iter().any(|dep| visited.contains(dep))
+            {
+                visited.insert(fid);
+                result.push(fid);
             }
         }
-
-        // Return in timeline order.
-        self.timeline
-            .iter()
-            .filter(|&&fid| visited.contains(&fid))
-            .copied()
-            .collect()
+        result
     }
 
     /// Return the direct dependencies of `id` (the features it depends on).

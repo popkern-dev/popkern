@@ -5,7 +5,7 @@
 //! [`crate::FeatureTree::replay_from`] to resume replays from the nearest
 //! already-computed ancestor rather than from scratch.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use popkern_core::topology::BRep;
 use serde::{Deserialize, Serialize};
@@ -47,7 +47,7 @@ pub(crate) struct BRepCache {
     cache: HashMap<FeatureId, BRep>,
     strategy: CacheStrategy,
     /// Tracks insertion order, oldest entry first, for LRU eviction.
-    insertion_order: Vec<FeatureId>,
+    insertion_order: VecDeque<FeatureId>,
 }
 
 impl Default for BRepCache {
@@ -63,7 +63,7 @@ impl BRepCache {
         Self {
             cache: HashMap::new(),
             strategy,
-            insertion_order: Vec::new(),
+            insertion_order: VecDeque::new(),
         }
     }
 
@@ -94,8 +94,9 @@ impl BRepCache {
         // For MemoryBudget, evict oldest entries until we are under budget.
         if let CacheStrategy::MemoryBudget { max_bytes } = self.strategy {
             while self.memory_bytes() > max_bytes && self.insertion_order.len() > 1 {
-                let oldest = self.insertion_order.remove(0);
-                self.cache.remove(&oldest);
+                if let Some(oldest) = self.insertion_order.pop_front() {
+                    self.cache.remove(&oldest);
+                }
             }
         }
     }
@@ -154,7 +155,7 @@ impl BRepCache {
     /// Insert an entry, maintaining `insertion_order`.
     fn insert(&mut self, id: FeatureId, brep: BRep) {
         if !self.cache.contains_key(&id) {
-            self.insertion_order.push(id);
+            self.insertion_order.push_back(id);
         }
         self.cache.insert(id, brep);
     }
