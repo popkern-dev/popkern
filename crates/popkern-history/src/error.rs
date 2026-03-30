@@ -44,6 +44,9 @@ pub enum ReplayError {
     /// A core geometry or topology error occurred.
     #[error("core error: {0}")]
     CoreError(#[from] popkern_core::error::CoreError),
+    /// A tree-level error (feature not found, invalid position, etc.).
+    #[error("history error: {0}")]
+    HistoryError(#[from] HistoryError),
 }
 
 /// The cached outcome of evaluating a single [`crate::feature::Feature`].

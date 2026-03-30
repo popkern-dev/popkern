@@ -173,10 +173,18 @@ fn execute_sketch(
 ) -> Result<(), ReplayError> {
     let plane = resolve_sketch_plane(plane_desc, brep)?;
 
-    let sketch: popkern_constraint::Sketch =
+    let mut sketch: popkern_constraint::Sketch =
         serde_json::from_str(sketch_data).map_err(|e| ReplayError::FeatureFailed {
             label: "sketch".into(),
             error: format!("failed to deserialize sketch: {e}"),
+        })?;
+
+    // Re-solve the sketch so parametric changes take effect on replay.
+    sketch
+        .solve()
+        .map_err(|e| ReplayError::FeatureFailed {
+            label: "sketch".into(),
+            error: format!("constraint solve failed: {e}"),
         })?;
 
     let mut sketch_on_plane = popkern_sketch::SketchOnPlane {

@@ -165,14 +165,11 @@ impl FeatureTree {
         tolerance: Tolerance,
     ) -> Result<ReplayResult, ReplayError> {
         // Validate that id exists in the timeline.
-        let _pos =
-            self.timeline
-                .iter()
-                .position(|&fid| fid == id)
-                .ok_or(ReplayError::FeatureFailed {
-                    label: "replay_from".into(),
-                    error: "feature not in timeline".into(),
-                })?;
+        let _pos = self
+            .timeline
+            .iter()
+            .position(|&fid| fid == id)
+            .ok_or(HistoryError::FeatureNotFound)?;
 
         // Without caching we must replay from scratch.
         self.replay(tolerance)
