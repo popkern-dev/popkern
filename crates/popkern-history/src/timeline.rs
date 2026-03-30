@@ -10,6 +10,7 @@ use popkern_core::naming::{EntityName, OperationId};
 use slotmap::SlotMap;
 
 use crate::FeatureTree;
+use crate::body::BodyManager;
 use crate::error::HistoryError;
 use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
 use crate::node::{BodyId, FeatureId, FeatureNode};
@@ -100,6 +101,53 @@ pub(crate) fn infer_dependencies(
 }
 
 // ---------------------------------------------------------------------------
+// Body resolution
+// ---------------------------------------------------------------------------
+
+/// Determine the [`BodyId`] for a newly created feature.
+///
+/// Rules:
+/// - A [`Feature::Sketch`] with no dependencies creates a new body.
+/// - All other features inherit the body of their first dependency.
+/// - If there are no dependencies, fall back to `BodyId(0)`.
+fn resolve_body(
+    feature: &Feature,
+    depends_on: &[FeatureId],
+    body_manager: &mut BodyManager,
+    features: &SlotMap<FeatureId, FeatureNode>,
+) -> BodyId {
+    // A base sketch (no planar face dependency) always starts a new body.
+    if matches!(
+        feature,
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY
+                | SketchPlaneDesc::XZ
+                | SketchPlaneDesc::YZ
+                | SketchPlaneDesc::Custom { .. },
+            ..
+        }
+    ) && depends_on.is_empty()
+    {
+        return body_manager.create_body();
+    }
+
+    // Inherit from the first dependency's body.
+    if let Some(&first_dep) = depends_on.first()
+        && let Some(node) = features.get(first_dep)
+    {
+        return node.body;
+    }
+
+    // No dependencies: fall back to BodyId(0), creating it if needed.
+    if !body_manager.bodies().contains(&BodyId(0)) {
+        // Insert BodyId(0) explicitly without incrementing next_id past 0
+        // (create_body would assign 0 if next_id == 0).
+        body_manager.create_body();
+    }
+    BodyId(0)
+}
+
+// ---------------------------------------------------------------------------
 // FeatureTree methods
 // ---------------------------------------------------------------------------
 
@@ -109,11 +157,24 @@ impl FeatureTree {
     /// The feature's dependencies are automatically inferred from its
     /// [`EntityName`] references.  A new [`OperationId`] is assigned from the
     /// tree's internal counter.
+    ///
+    /// Body assignment follows these rules:
+    /// - A [`Feature::Sketch`] with no dependencies creates a new body.
+    /// - All other features (and sketches placed on a face) inherit the body
+    ///   of their first dependency.  If there are no dependencies, they fall
+    ///   back to `BodyId(0)`.
     pub fn add_feature(&mut self, feature: Feature, label: &str) -> FeatureId {
         let op_id = OperationId(self.next_op_id);
         self.next_op_id += 1;
 
         let depends_on = infer_dependencies(&feature, &self.features);
+
+        let body = resolve_body(
+            &feature,
+            &depends_on,
+            &mut self.body_manager,
+            &self.features,
+        );
 
         let node = FeatureNode {
             feature,
@@ -121,12 +182,13 @@ impl FeatureTree {
             label: label.to_string(),
             depends_on,
             suppressed: false,
-            body: BodyId(0),
+            body,
             last_result: None,
         };
 
         let id = self.features.insert(node);
         self.timeline.push(id);
+        self.body_manager.assign_feature(body, id);
         id
     }
 
@@ -174,18 +236,26 @@ impl FeatureTree {
 
         self.next_op_id += 1;
 
+        let body = resolve_body(
+            &feature,
+            &depends_on,
+            &mut self.body_manager,
+            &self.features,
+        );
+
         let node = FeatureNode {
             feature,
             operation_id: op_id,
             label: label.to_string(),
             depends_on,
             suppressed: false,
-            body: BodyId(0),
+            body,
             last_result: None,
         };
 
         let id = self.features.insert(node);
         self.timeline.insert(index, id);
+        self.body_manager.assign_feature(body, id);
         Ok(id)
     }
 

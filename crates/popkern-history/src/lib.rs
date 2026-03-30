@@ -18,6 +18,7 @@
 //!   └── cache: BRepCache                  // intermediate BRep snapshots
 //! ```
 
+pub(crate) mod body;
 pub mod cache;
 pub mod error;
 pub mod feature;
@@ -39,6 +40,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use slotmap::SlotMap;
 
+use crate::body::BodyManager;
 use crate::cache::BRepCache;
 
 /// The result of replaying a feature tree.
@@ -74,6 +76,8 @@ pub struct FeatureTree {
     pub(crate) current_brep: Option<BRep>,
     /// Cache of intermediate BRep snapshots.
     pub(crate) cache: BRepCache,
+    /// Tracks the mapping from [`BodyId`]s to features and BRep snapshots.
+    pub(crate) body_manager: BodyManager,
 }
 
 impl FeatureTree {
@@ -86,6 +90,7 @@ impl FeatureTree {
             next_op_id: 1,
             current_brep: None,
             cache: BRepCache::new(CacheStrategy::EveryStep),
+            body_manager: BodyManager::new(),
         }
     }
 
@@ -223,7 +228,10 @@ impl FeatureTree {
                 // (check then re-borrow) is required to avoid holding an
                 // immutable borrow on `self.cache` across the mutable
                 // `self.replay()` call below.
-                return self.cache.get(id).ok_or(HistoryError::FeatureNotFound.into());
+                return self
+                    .cache
+                    .get(id)
+                    .ok_or(HistoryError::FeatureNotFound.into());
             }
         }
 
@@ -266,6 +274,30 @@ impl FeatureTree {
     /// Returns `None` if the tree has not been replayed yet.
     pub fn current_brep(&self) -> Option<&BRep> {
         self.current_brep.as_ref()
+    }
+
+    // -----------------------------------------------------------------------
+    // Body accessors
+    // -----------------------------------------------------------------------
+
+    /// Return all body IDs currently tracked by this tree.
+    pub fn bodies(&self) -> Vec<BodyId> {
+        self.body_manager.bodies()
+    }
+
+    /// Return the current BRep snapshot for a body.
+    ///
+    /// Returns `None` if no snapshot has been stored yet (i.e. the tree has
+    /// not been replayed, or the body does not exist).
+    pub fn body_brep(&self, body: BodyId) -> Option<&BRep> {
+        self.body_manager.get_brep(body)
+    }
+
+    /// Return the features assigned to a body, in insertion order.
+    ///
+    /// Returns an empty [`Vec`] if the body does not exist.
+    pub fn body_features(&self, body: BodyId) -> Vec<FeatureId> {
+        self.body_manager.body_features(body)
     }
 
     // -----------------------------------------------------------------------
