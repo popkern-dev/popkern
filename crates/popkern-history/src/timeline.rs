@@ -275,6 +275,24 @@ impl FeatureTree {
         Ok(id)
     }
 
+    /// Insert a new feature at the current rollback position.
+    ///
+    /// Equivalent to [`insert_feature_at`](Self::insert_feature_at) with
+    /// the current [`rollback_position`](Self::rollback_position) (or the
+    /// end of the timeline if no rollback bar is set).
+    ///
+    /// # Errors
+    ///
+    /// Same as [`insert_feature_at`](Self::insert_feature_at).
+    pub fn insert_feature_at_rollback(
+        &mut self,
+        feature: Feature,
+        label: &str,
+    ) -> Result<FeatureId, HistoryError> {
+        let index = self.rollback_index.unwrap_or(self.timeline.len());
+        self.insert_feature_at(index, feature, label)
+    }
+
     /// Move an existing feature to a new position in the timeline.
     ///
     /// Validates that:
