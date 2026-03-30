@@ -1,0 +1,23 @@
+[package]
+name = "popkern-history"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Parametric feature tree for the popkern CAD kernel"
+
+[dependencies]
+popkern-core = { path = "../popkern-core" }
+popkern-constraint = { path = "../popkern-constraint" }
+popkern-sketch = { path = "../popkern-sketch" }
+popkern-fillet = { path = "../popkern-fillet" }
+popkern-bool = { path = "../popkern-bool" }
+popkern-shell = { path = "../popkern-shell" }
+popkern-draft = { path = "../popkern-draft" }
+popkern-sweep = { path = "../popkern-sweep" }
+slotmap = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[dev-dependencies]
+bincode = "1"
