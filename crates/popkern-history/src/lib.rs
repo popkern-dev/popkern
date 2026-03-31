@@ -19,7 +19,6 @@
 //! ```
 
 pub(crate) mod body;
-pub(crate) mod measure_resolve;
 pub mod cache;
 pub mod config;
 pub mod config_api;
@@ -32,6 +31,7 @@ pub mod feature;
 pub mod format;
 pub mod health;
 pub mod measure_query;
+pub(crate) mod measure_resolve;
 pub mod node;
 pub mod param_api;
 pub mod parameter;

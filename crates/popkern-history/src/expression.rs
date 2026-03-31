@@ -208,10 +208,8 @@ pub fn evaluate(
                 evaluate(else_expr, table, ctx)
             }
         }
-        Expression::Measure(query) => {
-            crate::measure_resolve::resolve_and_evaluate(query, ctx)
-                .map_err(|e| format!("measurement failed: {e}"))
-        }
+        Expression::Measure(query) => crate::measure_resolve::resolve_and_evaluate(query, ctx)
+            .map_err(|e| format!("measurement failed: {e}")),
     }
 }
 

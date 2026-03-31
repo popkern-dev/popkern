@@ -14,12 +14,13 @@ pub(crate) fn resolve_and_evaluate(
     query: &MeasureQuery,
     ctx: &MeasureContext<'_>,
 ) -> Result<f64, ReplayError> {
-    let brep = ctx.bodies.get(&ctx.active_body).ok_or_else(|| {
-        ReplayError::FeatureFailed {
+    let brep = ctx
+        .bodies
+        .get(&ctx.active_body)
+        .ok_or_else(|| ReplayError::FeatureFailed {
             label: "measure".into(),
             error: "no BRep for active body".into(),
-        }
-    })?;
+        })?;
 
     match query {
         MeasureQuery::EdgeLength(name) => {
@@ -46,8 +47,7 @@ pub(crate) fn resolve_and_evaluate(
         }
         MeasureQuery::FaceCentroid(name, comp) => {
             let h = resolve_face(name, brep)?;
-            let c =
-                popkern_measure::face_centroid(brep, h, ctx.tolerance).map_err(measure_err)?;
+            let c = popkern_measure::face_centroid(brep, h, ctx.tolerance).map_err(measure_err)?;
             Ok(extract_component(c.x, c.y, c.z, comp))
         }
         MeasureQuery::FaceRadius(name) => {
@@ -56,14 +56,12 @@ pub(crate) fn resolve_and_evaluate(
         }
         MeasureQuery::FaceMinCurvature(name) => {
             let h = resolve_face(name, brep)?;
-            let (k_min, _) =
-                popkern_measure::face_curvature(brep, h).map_err(measure_err)?;
+            let (k_min, _) = popkern_measure::face_curvature(brep, h).map_err(measure_err)?;
             Ok(k_min)
         }
         MeasureQuery::FaceMaxCurvature(name) => {
             let h = resolve_face(name, brep)?;
-            let (_, k_max) =
-                popkern_measure::face_curvature(brep, h).map_err(measure_err)?;
+            let (_, k_max) = popkern_measure::face_curvature(brep, h).map_err(measure_err)?;
             Ok(k_max)
         }
         MeasureQuery::VertexPosition(name, comp) => {
@@ -111,8 +109,7 @@ pub(crate) fn resolve_and_evaluate(
             })
         }
         MeasureQuery::BodyMomentOfInertia(axis) => {
-            popkern_measure::body_moment_of_inertia(brep, *axis, ctx.tolerance)
-                .map_err(measure_err)
+            popkern_measure::body_moment_of_inertia(brep, *axis, ctx.tolerance).map_err(measure_err)
         }
     }
 }

@@ -55,10 +55,7 @@ pub(crate) fn resolve_edge(name: &EntityName, brep: &BRep) -> Result<EdgeHandle,
 /// Resolve an [`EntityName`] to a [`VertexHandle`].
 ///
 /// For split resolutions, returns the first vertex found in the successor list.
-pub(crate) fn resolve_vertex(
-    name: &EntityName,
-    brep: &BRep,
-) -> Result<VertexHandle, ReplayError> {
+pub(crate) fn resolve_vertex(name: &EntityName, brep: &BRep) -> Result<VertexHandle, ReplayError> {
     match resolve_name(name, brep) {
         Resolution::Exact(ResolvedEntity::Vertex(h)) => Ok(h),
         Resolution::Split(entities) => {
