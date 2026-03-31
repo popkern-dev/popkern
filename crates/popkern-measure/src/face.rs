@@ -13,6 +13,98 @@ use crate::MeasureError;
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+/// Compute the UV extent of a face's outer loop from its pcurves.
+///
+/// Returns `Some(((u0, u1), (v0, v1)))` if every half-edge in the outer loop
+/// has a pcurve. Handles periodic surfaces (cylinder u, sphere u, torus u/v)
+/// by unwrapping consecutive UV samples so a face that crosses the seam is
+/// represented as a contiguous range rather than two fragments.
+///
+/// Returns `None` if any half-edge lacks a pcurve.
+fn pcurve_uv_range(brep: &BRep, face: FaceHandle) -> Option<((f64, f64), (f64, f64))> {
+    let face_data = brep.faces.get(face)?;
+    let surface_on_face = face_data.surface.as_ref()?;
+    let (period_u, period_v) = surface_on_face.geometry.periodicity();
+
+    let loop_ = brep.loops.get(face_data.outer_loop)?;
+    let start_he = loop_.half_edge;
+    if !brep.half_edges.contains_key(start_he) {
+        return None;
+    }
+
+    const SAMPLES: usize = 16;
+    let mut all_u: Vec<f64> = Vec::new();
+    let mut all_v: Vec<f64> = Vec::new();
+
+    let mut current = start_he;
+    loop {
+        let he = &brep.half_edges[current];
+        let pcurve = he.pcurve.as_ref()?;
+        let (t0, t1) = pcurve.parameter_range();
+        for i in 0..=SAMPLES {
+            let t = t0 + (t1 - t0) * (i as f64 / SAMPLES as f64);
+            let pt = pcurve.point_at(t);
+            all_u.push(pt.x);
+            all_v.push(pt.y);
+        }
+        current = he.next;
+        if current == start_he {
+            break;
+        }
+    }
+
+    if all_u.is_empty() {
+        return None;
+    }
+
+    // Unwrap periodic directions so a face crossing the seam doesn't get
+    // inflated to the full period.
+    unwrap_periodic(&mut all_u, period_u);
+    unwrap_periodic(&mut all_v, period_v);
+
+    let u_min = all_u.iter().cloned().fold(f64::INFINITY, f64::min);
+    let u_max = all_u.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let v_min = all_v.iter().cloned().fold(f64::INFINITY, f64::min);
+    let v_max = all_v.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+
+    if !u_min.is_finite() || !u_max.is_finite() || !v_min.is_finite() || !v_max.is_finite() {
+        return None;
+    }
+
+    // On a fully-closed periodic surface (e.g., a complete sphere or full
+    // cylinder before trimming), all boundary UV samples lie on the single
+    // seam line so Δu ≈ 0 after unwrapping. In that case the face spans the
+    // full period in that direction.
+    let u_range = match period_u {
+        Some(p) if (u_max - u_min) < 1e-6 * p => (u_min, u_min + p),
+        _ => (u_min, u_max),
+    };
+    let v_range = match period_v {
+        Some(p) if (v_max - v_min) < 1e-6 * p => (v_min, v_min + p),
+        _ => (v_min, v_max),
+    };
+
+    Some((u_range, v_range))
+}
+
+/// Unwrap periodic values in-place so consecutive entries never jump by more
+/// than half the period across the seam.
+fn unwrap_periodic(values: &mut [f64], period: Option<f64>) {
+    let Some(p) = period else { return };
+    if p <= 0.0 || values.len() < 2 {
+        return;
+    }
+    let half = p * 0.5;
+    for i in 1..values.len() {
+        let diff = values[i] - values[i - 1];
+        if diff > half {
+            values[i] -= p;
+        } else if diff < -half {
+            values[i] += p;
+        }
+    }
+}
+
 /// Collect 3-D vertex positions for every half-edge in a loop.
 fn loop_positions(brep: &BRep, loop_handle: popkern_core::topology::LoopHandle) -> Vec<Point3> {
     let Some(loop_) = brep.loops.get(loop_handle) else {
@@ -56,6 +148,32 @@ fn planar_polygon_area(positions: &[Point3], normal: Vec3) -> f64 {
     0.5 * sum.dot(&normal).abs()
 }
 
+/// Compute face area by tessellating and summing triangle areas.
+fn tessellate_area(
+    brep: &BRep,
+    face: FaceHandle,
+    tolerance: &Tolerance,
+) -> Result<f64, MeasureError> {
+    let opts = TessellationOptions {
+        chord_height: tolerance.linear.max(1e-4),
+        ..TessellationOptions::default()
+    };
+    let face_mesh = popkern_mesh::tessellate_face(brep, face, &opts)
+        .map_err(|e| MeasureError::TessellationFailed(e.to_string()))?;
+    let area: f64 = face_mesh
+        .triangles
+        .iter()
+        .map(|tri| {
+            triangle_area(
+                face_mesh.vertices[tri[0]].position,
+                face_mesh.vertices[tri[1]].position,
+                face_mesh.vertices[tri[2]].position,
+            )
+        })
+        .sum();
+    Ok(area)
+}
+
 /// Compute the area contribution of a triangulated face by summing triangle areas.
 fn triangle_area(a: Point3, b: Point3, c: Point3) -> f64 {
     let ab = b - a;
@@ -69,9 +187,10 @@ fn triangle_area(a: Point3, b: Point3, c: Point3) -> f64 {
 
 /// Compute the surface area of a face.
 ///
-/// For planar faces the exact Shoelace formula is used (outer loop minus inner
-/// loop holes). For all other surface types the face is tessellated and the
-/// triangle areas are summed.
+/// Exact analytic formulas are used for `Plane`, `Cylinder`, and `Sphere`
+/// faces that have no inner-loop holes. For `Cone`, `Torus`, `Nurbs`, and any
+/// curved face that contains holes, the face is tessellated and triangle areas
+/// are summed.
 pub fn face_area(
     brep: &BRep,
     face: FaceHandle,
@@ -101,25 +220,33 @@ pub fn face_area(
                 .sum();
             Ok(outer_area - hole_area)
         }
+        // Exact formula for cylinder faces without holes.
+        // Parameterization: u = angle θ [0, 2π), v = axial height.
+        // Area element = radius * du * dv, so area = radius * |Δu| * |Δv|.
+        SurfaceGeometry::Cylinder { radius, .. } if face_data.inner_loops.is_empty() => {
+            if let Some(((u0, u1), (v0, v1))) = pcurve_uv_range(brep, face) {
+                Ok(radius * (u1 - u0).abs() * (v1 - v0).abs())
+            } else {
+                // No pcurves — fall through to tessellation.
+                tessellate_area(brep, face, tolerance)
+            }
+        }
+        // Exact formula for sphere faces without holes.
+        // Parameterization: u = longitude [0, 2π), v = colatitude [0, π]
+        // (v=0 is the north pole). Area element = r² * sin(v) * du * dv.
+        // Integrated: area = r² * |Δu| * |cos(v0) - cos(v1)|.
+        SurfaceGeometry::Sphere { radius, .. } if face_data.inner_loops.is_empty() => {
+            if let Some(((u0, u1), (v0, v1))) = pcurve_uv_range(brep, face) {
+                Ok(radius * radius * (u1 - u0).abs() * (v0.cos() - v1.cos()).abs())
+            } else {
+                // No pcurves — fall through to tessellation.
+                tessellate_area(brep, face, tolerance)
+            }
+        }
         _ => {
-            let opts = TessellationOptions {
-                chord_height: tolerance.linear.max(1e-4),
-                ..TessellationOptions::default()
-            };
-            let face_mesh = popkern_mesh::tessellate_face(brep, face, &opts)
-                .map_err(|e| MeasureError::TessellationFailed(e.to_string()))?;
-            let area: f64 = face_mesh
-                .triangles
-                .iter()
-                .map(|tri| {
-                    triangle_area(
-                        face_mesh.vertices[tri[0]].position,
-                        face_mesh.vertices[tri[1]].position,
-                        face_mesh.vertices[tri[2]].position,
-                    )
-                })
-                .sum();
-            Ok(area)
+            // Tessellation fallback for Cone, Torus, NURBS, and any face with
+            // inner loops on a curved surface.
+            tessellate_area(brep, face, tolerance)
         }
     }
 }
@@ -366,56 +493,5 @@ fn surface_type_name(geom: &SurfaceGeometry) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use popkern_core::tolerance::Tolerance;
-    use popkern_core::topology::BRep;
-
-    fn make_cube() -> BRep {
-        BRep::unit_cube(Tolerance::default()).expect("cube")
-    }
-
-    #[test]
-    fn unit_cube_face_area_is_one() {
-        let cube = make_cube();
-        let tol = Tolerance::default();
-        let face = cube.faces.keys().next().unwrap();
-        let area = face_area(&cube, face, &tol).unwrap();
-        assert!((area - 1.0).abs() < 1e-10, "expected 1.0, got {area}");
-    }
-
-    #[test]
-    fn unit_cube_face_perimeter_is_four() {
-        let cube = make_cube();
-        let face = cube.faces.keys().next().unwrap();
-        let perim = face_perimeter(&cube, face).unwrap();
-        assert!((perim - 4.0).abs() < 1e-10, "expected 4.0, got {perim}");
-    }
-
-    #[test]
-    fn unit_cube_face_normal_is_unit() {
-        let cube = make_cube();
-        let face = cube.faces.keys().next().unwrap();
-        let n = face_normal(&cube, face).unwrap();
-        assert!((n.length() - 1.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn planar_face_radius_is_incompatible() {
-        let cube = make_cube();
-        let face = cube.faces.keys().next().unwrap();
-        assert!(matches!(
-            face_radius(&cube, face),
-            Err(MeasureError::IncompatibleSurface { .. })
-        ));
-    }
-
-    #[test]
-    fn planar_face_curvature_is_zero() {
-        let cube = make_cube();
-        let face = cube.faces.keys().next().unwrap();
-        let (k_min, k_max) = face_curvature(&cube, face).unwrap();
-        assert!(k_min.abs() < 1e-10);
-        assert!(k_max.abs() < 1e-10);
-    }
-}
+#[path = "face_tests.rs"]
+mod tests;
