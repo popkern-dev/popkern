@@ -25,6 +25,42 @@ pub enum HistoryError {
     /// Serialization or deserialization of the tree failed.
     #[error("serialization error: {0}")]
     SerializeError(String),
+    /// The file was saved with a newer format version than this build supports.
+    #[error("file version {file_version} not supported (max: {max_supported})")]
+    UnsupportedVersion {
+        /// Version number found in the file.
+        file_version: u32,
+        /// Highest version this build can read.
+        max_supported: u32,
+    },
+    /// A cycle was detected while topologically sorting parameter expressions.
+    #[error("expression cycle detected: {0:?}")]
+    ExpressionCycle(Vec<crate::parameter::ParameterId>),
+    /// A parameter was used with a unit whose [`DimensionKind`] does not match.
+    ///
+    /// [`DimensionKind`]: crate::unit::DimensionKind
+    #[error("dimension mismatch: expected {expected:?}, got {got:?}")]
+    DimensionMismatch {
+        /// The parameter whose unit was violated.
+        param: crate::parameter::ParameterId,
+        /// The kind that was expected.
+        expected: crate::unit::DimensionKind,
+        /// The kind that was supplied.
+        got: crate::unit::DimensionKind,
+    },
+    /// An expression references a parameter that could not be resolved.
+    #[error("expression references unknown parameter {0:?}")]
+    ExpressionUnresolved(crate::parameter::ParameterId),
+    /// Attempted to remove a parameter that is still referenced by other
+    /// parameters.
+    #[error("parameter is referenced by: {0:?}")]
+    ParameterInUse(Vec<crate::parameter::ParameterId>),
+    /// Attempted to modify a read-only built-in parameter.
+    #[error("cannot modify read-only parameter")]
+    ReadOnlyParameter,
+    /// A parameter name was already in use.
+    #[error("duplicate parameter name: {0}")]
+    DuplicateParameterName(String),
 }
 
 /// Errors arising during replay (re-evaluating features against a BRep).

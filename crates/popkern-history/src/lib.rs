@@ -25,12 +25,14 @@ pub mod error;
 pub mod feature;
 pub mod health;
 pub mod node;
+pub mod parameter;
 pub mod queries;
 pub(crate) mod replay;
 pub(crate) mod resolve;
 pub mod serialize;
 pub mod timeline;
 pub(crate) mod undo;
+pub mod unit;
 
 pub use cache::CacheStrategy;
 pub use delete::{DeleteBehavior, DeleteResult};
@@ -38,7 +40,9 @@ pub use error::{FeatureResult, HistoryError, ReplayError};
 pub use feature::{BoolOpKind, Feature, ShellDirectionKind, SketchPlaneDesc, Vec3Desc};
 pub use health::{HealthReport, ReferenceIssue};
 pub use node::{BodyId, FeatureId, FeatureNode};
+pub use parameter::{EvaluationWarning, ParamScope, Parameter, ParameterId, ParameterTable};
 pub use queries::ImpactReport;
+pub use unit::{DimensionKind, Unit};
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -129,6 +133,10 @@ pub struct FeatureTree {
     /// Not serialized — reset to 0 on load.
     #[serde(skip)]
     pub(crate) undo_cursor: usize,
+    /// All named parameters used by features in this tree.
+    ///
+    /// Serialized as part of the tree's persistent state.
+    pub(crate) parameter_table: ParameterTable,
 }
 
 impl FeatureTree {
@@ -146,7 +154,19 @@ impl FeatureTree {
             op_index: HashMap::new(),
             undo_log: Vec::new(),
             undo_cursor: 0,
+            parameter_table: ParameterTable::new(),
         }
+    }
+
+    /// Return a shared reference to the parameter table.
+    pub fn parameters(&self) -> &ParameterTable {
+        &self.parameter_table
+    }
+
+    /// Return a mutable reference to the parameter table (crate-internal).
+    #[allow(dead_code)]
+    pub(crate) fn parameters_mut(&mut self) -> &mut ParameterTable {
+        &mut self.parameter_table
     }
 
     // -- Replay ---------------------------------------------------------------
