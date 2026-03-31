@@ -10,7 +10,7 @@ use crate::mesh::{FaceMesh, MeshVertex, TriMesh};
 use crate::{MeshError, TessellationOptions};
 
 /// Tessellate a single BRep face into a triangle mesh.
-pub(crate) fn tessellate_face(
+pub fn tessellate_face(
     brep: &BRep,
     face_handle: FaceHandle,
     options: &TessellationOptions,

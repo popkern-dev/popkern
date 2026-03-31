@@ -13,6 +13,7 @@ mod trim;
 mod trim_clip;
 
 pub use mesh::{FaceMesh, MeshVertex, TriMesh};
+pub use tessellate::tessellate_face;
 
 use popkern_core::topology::BRep;
 use std::io::Write;

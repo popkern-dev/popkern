@@ -5,7 +5,7 @@ use popkern_core::geometry::uv_projection::tight_bounded_parameter_range;
 use popkern_core::geometry::{CurveEval, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
-use popkern_mesh::{TessellationOptions, tessellate};
+use popkern_mesh::TessellationOptions;
 
 use crate::MeasureError;
 
@@ -102,23 +102,21 @@ pub fn face_area(
             Ok(outer_area - hole_area)
         }
         _ => {
-            // Tessellate the whole BRep and filter triangles for this face.
             let opts = TessellationOptions {
                 chord_height: tolerance.linear.max(1e-4),
                 ..TessellationOptions::default()
             };
-            let mesh = tessellate(brep, &opts)
+            let face_mesh = popkern_mesh::tessellate_face(brep, face, &opts)
                 .map_err(|e| MeasureError::TessellationFailed(e.to_string()))?;
-            let area: f64 = mesh
+            let area: f64 = face_mesh
                 .triangles
                 .iter()
-                .zip(mesh.face_map.iter())
-                .filter(|(_, fh)| **fh == face)
-                .map(|(tri, _)| {
-                    let a = mesh.vertices[tri[0]].position;
-                    let b = mesh.vertices[tri[1]].position;
-                    let c = mesh.vertices[tri[2]].position;
-                    triangle_area(a, b, c)
+                .map(|tri| {
+                    triangle_area(
+                        face_mesh.vertices[tri[0]].position,
+                        face_mesh.vertices[tri[1]].position,
+                        face_mesh.vertices[tri[2]].position,
+                    )
                 })
                 .sum();
             Ok(area)
@@ -218,28 +216,22 @@ pub fn face_centroid(
         chord_height: tolerance.linear.max(1e-4),
         ..TessellationOptions::default()
     };
-    let mesh =
-        tessellate(brep, &opts).map_err(|e| MeasureError::TessellationFailed(e.to_string()))?;
+    let face_mesh = popkern_mesh::tessellate_face(brep, face, &opts)
+        .map_err(|e| MeasureError::TessellationFailed(e.to_string()))?;
 
     let mut cx = 0.0_f64;
     let mut cy = 0.0_f64;
     let mut cz = 0.0_f64;
     let mut total_area = 0.0_f64;
 
-    for (tri, fh) in mesh.triangles.iter().zip(mesh.face_map.iter()) {
-        if *fh != face {
-            continue;
-        }
-        let a = mesh.vertices[tri[0]].position;
-        let b = mesh.vertices[tri[1]].position;
-        let c = mesh.vertices[tri[2]].position;
+    for tri in &face_mesh.triangles {
+        let a = face_mesh.vertices[tri[0]].position;
+        let b = face_mesh.vertices[tri[1]].position;
+        let c = face_mesh.vertices[tri[2]].position;
         let area = triangle_area(a, b, c);
-        let tx = (a.x + b.x + c.x) / 3.0;
-        let ty = (a.y + b.y + c.y) / 3.0;
-        let tz = (a.z + b.z + c.z) / 3.0;
-        cx += tx * area;
-        cy += ty * area;
-        cz += tz * area;
+        cx += (a.x + b.x + c.x) / 3.0 * area;
+        cy += (a.y + b.y + c.y) / 3.0 * area;
+        cz += (a.z + b.z + c.z) / 3.0 * area;
         total_area += area;
     }
 
