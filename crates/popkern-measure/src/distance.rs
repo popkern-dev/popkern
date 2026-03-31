@@ -81,8 +81,8 @@ fn vertex_vertex(
 
 /// Minimum distance from a vertex to an edge.
 ///
-/// Samples the edge curve at 64 uniformly-spaced parameter values and returns
-/// the smallest distance found.
+/// Samples the edge curve at 64 uniformly-spaced parameter values, then
+/// refines the closest sample with Newton iteration for a precise result.
 fn vertex_edge(
     brep_v: &BRep,
     v: VertexHandle,
@@ -94,7 +94,7 @@ fn vertex_edge(
         .get(v)
         .ok_or_else(|| MeasureError::InvalidHandle("vertex".into()))?
         .position;
-    let curve_on_edge = brep_e
+    let coe = brep_e
         .edges
         .get(e)
         .ok_or_else(|| MeasureError::InvalidHandle("edge".into()))?
@@ -102,25 +102,46 @@ fn vertex_edge(
         .as_ref()
         .ok_or(MeasureError::MissingCurve)?;
 
-    let t0 = curve_on_edge.t_start;
-    let t1 = curve_on_edge.t_end;
+    let t0 = coe.t_start;
+    let t1 = coe.t_end;
     const N: usize = 64;
     let mut min_d = f64::MAX;
+    let mut t_best = t0;
     for i in 0..=N {
         let t = t0 + (t1 - t0) * (i as f64 / N as f64);
-        let q = curve_on_edge.geometry.point_at(t);
+        let q = coe.geometry.point_at(t);
         let d = p.distance_to(&q);
         if d < min_d {
             min_d = d;
+            t_best = t;
         }
     }
-    Ok(min_d)
+
+    // Newton refinement: find t where (C(t) - P) · C'(t) = 0.
+    for _ in 0..10 {
+        let cp = coe.geometry.point_at(t_best);
+        let tangent = coe.geometry.tangent_at(t_best);
+        let diff = cp - p;
+        let dot = diff.dot(&tangent);
+        let tang_sq = tangent.dot(&tangent);
+        if tang_sq < f64::EPSILON {
+            break;
+        }
+        let t_new = (t_best - dot / tang_sq).clamp(t0, t1);
+        if (t_new - t_best).abs() < 1e-12 {
+            t_best = t_new;
+            break;
+        }
+        t_best = t_new;
+    }
+    let final_pt = coe.geometry.point_at(t_best);
+    Ok(p.distance_to(&final_pt))
 }
 
 /// Minimum distance from a vertex to a face.
 ///
 /// Samples the outer boundary vertices plus a 16×16 UV grid over the face's
-/// bounded parameter domain.
+/// bounded parameter domain, then refines with Newton iteration.
 fn vertex_face(
     brep_v: &BRep,
     v: VertexHandle,
@@ -138,21 +159,26 @@ fn vertex_face(
         .faces
         .get(f)
         .ok_or_else(|| MeasureError::InvalidHandle("face".into()))?;
-    let surface_on_face = face_data
+    let sof = face_data
         .surface
         .as_ref()
         .ok_or(MeasureError::MissingSurface)?;
 
     let positions = brep_f.face_outer_loop_positions(f);
-    let ((u0, u1), (v0, v1)) = tight_bounded_parameter_range(&positions, &surface_on_face.geometry);
+    let (u_range, v_range) = tight_bounded_parameter_range(&positions, &sof.geometry);
+    let (u0, u1) = u_range;
+    let (v0, v1) = v_range;
 
     let mut min_d = f64::MAX;
+    let mut u_best = u0;
+    let mut v_best = v0;
 
     // Sample boundary positions directly.
     for q in &positions {
         let d = p.distance_to(q);
         if d < min_d {
             min_d = d;
+            // Boundary positions don't map back to (u,v) easily; keep grid seed.
         }
     }
 
@@ -162,19 +188,51 @@ fn vertex_face(
         for j in 0..=N {
             let u = u0 + (u1 - u0) * (i as f64 / N as f64);
             let vv = v0 + (v1 - v0) * (j as f64 / N as f64);
-            let q = surface_on_face.geometry.point_at(u, vv);
+            let q = sof.geometry.point_at(u, vv);
             let d = p.distance_to(&q);
             if d < min_d {
                 min_d = d;
+                u_best = u;
+                v_best = vv;
             }
         }
     }
-    Ok(min_d)
+
+    // Newton refinement: find (u, v) where the foot-point condition holds.
+    for _ in 0..10 {
+        let sp = sof.geometry.point_at(u_best, v_best);
+        let diff = sp - p;
+        let su = sof.geometry.partial_u(u_best, v_best);
+        let sv = sof.geometry.partial_v(u_best, v_best);
+        let j00 = su.dot(&su);
+        let j01 = su.dot(&sv);
+        let j11 = sv.dot(&sv);
+        let r0 = diff.dot(&su);
+        let r1 = diff.dot(&sv);
+        let det = j00 * j11 - j01 * j01;
+        if det.abs() < f64::EPSILON {
+            break;
+        }
+        let du = (j11 * r0 - j01 * r1) / det;
+        let dv = (j00 * r1 - j01 * r0) / det;
+        let u_new = (u_best - du).clamp(u0, u1);
+        let v_new = (v_best - dv).clamp(v0, v1);
+        if (u_new - u_best).abs() < 1e-12 && (v_new - v_best).abs() < 1e-12 {
+            u_best = u_new;
+            v_best = v_new;
+            break;
+        }
+        u_best = u_new;
+        v_best = v_new;
+    }
+    let final_sp = sof.geometry.point_at(u_best, v_best);
+    Ok(p.distance_to(&final_sp))
 }
 
 /// Minimum distance between two edges.
 ///
-/// Samples each curve at 64 points and returns the closest pair distance.
+/// Samples each curve at 64 points to find the closest pair, then refines
+/// both parameter values with Newton iteration.
 fn edge_edge(
     brep_a: &BRep,
     ea: EdgeHandle,
@@ -197,29 +255,57 @@ fn edge_edge(
         .ok_or(MeasureError::MissingCurve)?;
 
     const N: usize = 64;
-    let pts_a: Vec<_> = (0..=N)
-        .map(|i| {
-            let t = coe_a.t_start + (coe_a.t_end - coe_a.t_start) * (i as f64 / N as f64);
-            coe_a.geometry.point_at(t)
-        })
-        .collect();
-    let pts_b: Vec<_> = (0..=N)
-        .map(|i| {
-            let t = coe_b.t_start + (coe_b.t_end - coe_b.t_start) * (i as f64 / N as f64);
-            coe_b.geometry.point_at(t)
-        })
-        .collect();
-
     let mut min_d = f64::MAX;
-    for pa in &pts_a {
-        for pb in &pts_b {
-            let d = pa.distance_to(pb);
+    let mut ta_best = coe_a.t_start;
+    let mut tb_best = coe_b.t_start;
+
+    for i in 0..=N {
+        let ta = coe_a.t_start + (coe_a.t_end - coe_a.t_start) * (i as f64 / N as f64);
+        let pa = coe_a.geometry.point_at(ta);
+        for j in 0..=N {
+            let tb = coe_b.t_start + (coe_b.t_end - coe_b.t_start) * (j as f64 / N as f64);
+            let pb = coe_b.geometry.point_at(tb);
+            let d = pa.distance_to(&pb);
             if d < min_d {
                 min_d = d;
+                ta_best = ta;
+                tb_best = tb;
             }
         }
     }
-    Ok(min_d)
+
+    // Newton refinement: minimise |C_a(ta) - C_b(tb)|^2 jointly.
+    // Conditions: (C_a - C_b)·C_a' = 0 and (C_a - C_b)·C_b' = 0.
+    for _ in 0..10 {
+        let pa = coe_a.geometry.point_at(ta_best);
+        let pb = coe_b.geometry.point_at(tb_best);
+        let diff = pa - pb;
+        let da = coe_a.geometry.tangent_at(ta_best);
+        let db = coe_b.geometry.tangent_at(tb_best);
+        let f0 = diff.dot(&da);
+        let f1 = -diff.dot(&db);
+        let j00 = da.dot(&da);
+        let j01 = -da.dot(&db);
+        let j11 = db.dot(&db);
+        let det = j00 * j11 - j01 * j01;
+        if det.abs() < f64::EPSILON {
+            break;
+        }
+        let dta = (j11 * f0 - j01 * f1) / det;
+        let dtb = (j00 * f1 - j01 * f0) / det;
+        let ta_new = (ta_best - dta).clamp(coe_a.t_start, coe_a.t_end);
+        let tb_new = (tb_best - dtb).clamp(coe_b.t_start, coe_b.t_end);
+        if (ta_new - ta_best).abs() < 1e-12 && (tb_new - tb_best).abs() < 1e-12 {
+            ta_best = ta_new;
+            tb_best = tb_new;
+            break;
+        }
+        ta_best = ta_new;
+        tb_best = tb_new;
+    }
+    let pa = coe_a.geometry.point_at(ta_best);
+    let pb = coe_b.geometry.point_at(tb_best);
+    Ok(pa.distance_to(&pb))
 }
 
 /// Minimum distance between an edge and a face.
@@ -350,150 +436,5 @@ fn face_face(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use popkern_core::tolerance::Tolerance;
-    use popkern_core::topology::BRep;
-
-    fn make_cube() -> BRep {
-        BRep::unit_cube(Tolerance::default()).expect("cube")
-    }
-
-    #[test]
-    fn same_vertex_distance_is_zero() {
-        let cube = make_cube();
-        let v = cube.vertices.keys().next().unwrap();
-        let d = min_distance(
-            &cube,
-            TopoHandle::Vertex(v),
-            &cube,
-            TopoHandle::Vertex(v),
-            &Tolerance::default(),
-        )
-        .unwrap();
-        assert!(d < 1e-10, "self-distance should be 0, got {d}");
-    }
-
-    #[test]
-    fn vertex_to_vertex_distance() {
-        let cube = make_cube();
-        let verts: Vec<_> = cube.vertices.keys().collect();
-        let d = min_distance(
-            &cube,
-            TopoHandle::Vertex(verts[0]),
-            &cube,
-            TopoHandle::Vertex(verts[1]),
-            &Tolerance::default(),
-        )
-        .unwrap();
-        assert!(d > 0.0 && d <= 1.74, "distance = {d}");
-    }
-
-    #[test]
-    fn vertex_to_edge_distance() {
-        let cube = make_cube();
-        let v = cube.vertices.keys().next().unwrap();
-        let e = cube.edges.keys().next().unwrap();
-        let d = min_distance(
-            &cube,
-            TopoHandle::Vertex(v),
-            &cube,
-            TopoHandle::Edge(e),
-            &Tolerance::default(),
-        )
-        .unwrap();
-        assert!(d >= 0.0 && d <= 1.74, "distance = {d}");
-    }
-
-    #[test]
-    fn edge_to_vertex_symmetry() {
-        let cube = make_cube();
-        let v = cube.vertices.keys().next().unwrap();
-        let e = cube.edges.keys().next().unwrap();
-        let tol = Tolerance::default();
-        let d_ve = min_distance(
-            &cube,
-            TopoHandle::Vertex(v),
-            &cube,
-            TopoHandle::Edge(e),
-            &tol,
-        )
-        .unwrap();
-        let d_ev = min_distance(
-            &cube,
-            TopoHandle::Edge(e),
-            &cube,
-            TopoHandle::Vertex(v),
-            &tol,
-        )
-        .unwrap();
-        assert!(
-            (d_ve - d_ev).abs() < 1e-10,
-            "symmetry violated: {d_ve} vs {d_ev}"
-        );
-    }
-
-    #[test]
-    fn vertex_to_face_distance() {
-        let cube = make_cube();
-        let v = cube.vertices.keys().next().unwrap();
-        let f = cube.faces.keys().next().unwrap();
-        let tol = Tolerance::default();
-        let d = min_distance(
-            &cube,
-            TopoHandle::Vertex(v),
-            &cube,
-            TopoHandle::Face(f),
-            &tol,
-        )
-        .unwrap();
-        assert!(d >= 0.0 && d <= 1.74, "distance = {d}");
-    }
-
-    #[test]
-    fn edge_to_edge_distance() {
-        let cube = make_cube();
-        let edges: Vec<_> = cube.edges.keys().collect();
-        let tol = Tolerance::default();
-        let d = min_distance(
-            &cube,
-            TopoHandle::Edge(edges[0]),
-            &cube,
-            TopoHandle::Edge(edges[0]),
-            &tol,
-        )
-        .unwrap();
-        assert!(d < 1e-10, "self edge distance should be ~0, got {d}");
-    }
-
-    #[test]
-    fn face_to_face_distance() {
-        let cube = make_cube();
-        let faces: Vec<_> = cube.faces.keys().collect();
-        let tol = Tolerance::default();
-        let d = min_distance(
-            &cube,
-            TopoHandle::Face(faces[0]),
-            &cube,
-            TopoHandle::Face(faces[0]),
-            &tol,
-        )
-        .unwrap();
-        assert!(d < 1e-10, "self face distance should be ~0, got {d}");
-    }
-
-    #[test]
-    fn invalid_vertex_handle_returns_error() {
-        let cube = make_cube();
-        let bad_v = VertexHandle::default();
-        let v = cube.vertices.keys().next().unwrap();
-        let result = min_distance(
-            &cube,
-            TopoHandle::Vertex(bad_v),
-            &cube,
-            TopoHandle::Vertex(v),
-            &Tolerance::default(),
-        );
-        assert!(result.is_err());
-    }
-}
+#[path = "distance_tests.rs"]
+mod tests;
