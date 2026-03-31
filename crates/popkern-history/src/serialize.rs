@@ -11,6 +11,13 @@
 //! human-readable and git-friendly.  Future versions may offer a compact
 //! binary encoding via the `bincode` dev-dependency.
 //!
+//! # Versions
+//!
+//! | Version | Description |
+//! |---------|-------------|
+//! | 1       | Feature dimensions stored as bare `f64` fields. |
+//! | 2       | Feature dimensions stored as [`crate::parameter::ParameterId`] handles; full [`crate::parameter::ParameterTable`] persisted. |
+//!
 //! # Round-trip
 //!
 //! ```no_run
@@ -23,68 +30,95 @@
 //! loaded.replay(Tolerance::default()).expect("replay failed");
 //! ```
 
+#[path = "serialize_v1.rs"]
+mod serialize_v1;
+
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::FeatureTree;
 use crate::error::HistoryError;
 
 /// Current document format version.
-const CURRENT_VERSION: u32 = 1;
+const CURRENT_VERSION: u32 = 2;
 
-/// Versioned envelope wrapping the [`FeatureTree`] on disk.
+/// Versioned envelope used for serialization (writing).
 ///
-/// Adding a version field up-front makes it possible to introduce
-/// backward-incompatible schema changes in the future without breaking
-/// existing `.pkn` files.
-#[derive(Serialize, Deserialize)]
-struct PknDocument {
+/// The `tree` field is the full [`FeatureTree`] payload.
+#[derive(Serialize)]
+struct PknDocumentOut<'a> {
     /// Format version — currently always [`CURRENT_VERSION`].
     version: u32,
     /// The feature tree payload.
-    tree: FeatureTree,
+    tree: &'a FeatureTree,
+}
+
+/// Versioned envelope used for deserialization (reading).
+///
+/// The `tree` field is kept as a raw [`Value`] so that [`load`] can dispatch
+/// to a version-specific decoder before attempting structural parsing.
+///
+/// [`load`]: FeatureTree::load
+#[derive(Deserialize)]
+struct PknDocumentIn {
+    /// Format version found in the file.
+    version: u32,
+    /// Raw JSON of the tree payload.
+    tree: Value,
 }
 
 impl FeatureTree {
     /// Serialize the feature tree to bytes (JSON format).
     ///
-    /// The output is wrapped in a versioned [`PknDocument`] envelope.
-    /// Session-local state (cache, undo log, current BRep, body BReps) is
-    /// **not** serialized.  After loading, call [`replay`](Self::replay) to
-    /// rebuild all runtime state.
+    /// The output is wrapped in a versioned document envelope at
+    /// [`CURRENT_VERSION`].  Session-local state (cache, undo log, current
+    /// BRep, body BReps) is **not** serialized.  After loading, call
+    /// [`replay`](Self::replay) to rebuild all runtime state.
     ///
     /// # Errors
     ///
     /// Returns [`HistoryError::SerializeError`] if JSON serialization fails.
     pub fn save(&self) -> Result<Vec<u8>, HistoryError> {
-        let doc = PknDocument {
+        let doc = PknDocumentOut {
             version: CURRENT_VERSION,
-            tree: self.clone(),
+            tree: self,
         };
         serde_json::to_vec(&doc).map_err(|e| HistoryError::SerializeError(e.to_string()))
     }
 
     /// Deserialize a feature tree from bytes.
     ///
-    /// Expects the versioned [`PknDocument`] envelope.  The returned tree has
-    /// no BRep state — call [`replay`](Self::replay) to rebuild it.
+    /// Dispatches to a version-specific loader:
+    ///
+    /// - **v1** — migrates bare `f64` dimensions to a new
+    ///   [`crate::parameter::ParameterTable`].  See [`serialize_v1`].
+    /// - **v2** — deserializes directly; rebuilds transient indices.
+    /// - **other** — returns [`HistoryError::UnsupportedVersion`].
+    ///
+    /// The returned tree has no BRep state — call [`replay`](Self::replay) to
+    /// rebuild it.
     ///
     /// # Errors
     ///
-    /// Returns [`HistoryError::SerializeError`] if JSON deserialization fails,
-    /// the data is structurally invalid, or the document version is
-    /// unsupported.
+    /// - [`HistoryError::SerializeError`] — malformed JSON or structural mismatch.
+    /// - [`HistoryError::UnsupportedVersion`] — file was written by a newer build.
     pub fn load(data: &[u8]) -> Result<Self, HistoryError> {
-        let doc: PknDocument = serde_json::from_slice(data)
+        let doc: PknDocumentIn = serde_json::from_slice(data)
             .map_err(|e| HistoryError::SerializeError(e.to_string()))?;
-        if doc.version != CURRENT_VERSION {
-            return Err(HistoryError::SerializeError(format!(
-                "unsupported document version {} (expected {})",
-                doc.version, CURRENT_VERSION
-            )));
+
+        match doc.version {
+            1 => serialize_v1::migrate_v1(doc.tree),
+            2 => {
+                let mut tree: FeatureTree = serde_json::from_value(doc.tree)
+                    .map_err(|e| HistoryError::SerializeError(e.to_string()))?;
+                tree.rebuild_indices();
+                Ok(tree)
+            }
+            v => Err(HistoryError::UnsupportedVersion {
+                file_version: v,
+                max_supported: CURRENT_VERSION,
+            }),
         }
-        let mut tree = doc.tree;
-        tree.rebuild_indices();
-        Ok(tree)
     }
 }
 

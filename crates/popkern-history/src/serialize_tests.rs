@@ -286,3 +286,10 @@ fn rollback_index_preserved() {
         "rollback index should survive round-trip"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Tests 7–12: v2 format and v1→v2 migration (separate file, under 500 lines)
+// ---------------------------------------------------------------------------
+
+#[path = "serialize_v2_tests.rs"]
+mod v2_tests;
