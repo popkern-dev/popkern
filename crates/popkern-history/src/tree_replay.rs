@@ -12,6 +12,10 @@ mod integration_tests;
 #[path = "config_replay_tests.rs"]
 mod config_replay_tests;
 
+#[cfg(test)]
+#[path = "reference_replay_tests.rs"]
+mod reference_replay_tests;
+
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -20,8 +24,12 @@ use crate::config::ConfigId;
 use crate::config_eval;
 use crate::error::{FeatureResult, ReplayError};
 use crate::expression::Expression;
+use crate::feature::Feature;
+use crate::measure_query::MeasureContext;
+use crate::measure_resolve;
 use crate::node::{BodyId, FeatureId};
 use crate::parameter::{EvaluationWarning, ParameterId};
+use crate::unit::{DimensionKind, Unit};
 use crate::{FeatureTree, ReplayRangeOutput, replay};
 
 impl FeatureTree {
@@ -145,6 +153,70 @@ impl FeatureTree {
                 continue;
             }
 
+            // Reference features are evaluated at the tree level — they
+            // don't modify the BRep, so we skip execute_feature entirely.
+            if let Feature::Reference { name: _, query } = &node.feature.clone() {
+                let body = node.body;
+                let measure_ctx = MeasureContext {
+                    bodies: &body_breps,
+                    active_body: body,
+                    tolerance,
+                };
+                let eval_result = measure_resolve::resolve_and_evaluate(query, &measure_ctx);
+
+                let label = node.label.clone();
+                let qualified_name = format!("{}.value", label.to_lowercase().replace(' ', "_"));
+                let dimension_unit = dimension_kind_to_unit(query.dimension_kind());
+
+                match eval_result {
+                    Ok(value) => {
+                        self.upsert_reference_param(id, &qualified_name, value, dimension_unit);
+                        let history = popkern_core::history::HistoryMap::default();
+                        results.insert(
+                            id,
+                            FeatureResult::Success {
+                                history: history.clone(),
+                            },
+                        );
+                        self.features[id].last_result = Some(FeatureResult::Success { history });
+                    }
+                    Err(e) => {
+                        // Check for a last_known stale value.
+                        let stale_value = self
+                            .parameter_table
+                            .resolve_name(&qualified_name)
+                            .and_then(|pid| {
+                                self.parameter_table.get(pid).and_then(|p| p.last_known)
+                            });
+
+                        if let Some(stale) = stale_value {
+                            // Use stale value — feature succeeds with a warning.
+                            self.upsert_reference_param(id, &qualified_name, stale, dimension_unit);
+                            let history = popkern_core::history::HistoryMap::default();
+                            results.insert(
+                                id,
+                                FeatureResult::Success {
+                                    history: history.clone(),
+                                },
+                            );
+                            self.features[id].last_result =
+                                Some(FeatureResult::Success { history });
+                        } else {
+                            let error_msg = e.to_string();
+                            results.insert(
+                                id,
+                                FeatureResult::Failed {
+                                    error: error_msg.clone(),
+                                },
+                            );
+                            self.features[id].last_result =
+                                Some(FeatureResult::Failed { error: error_msg });
+                        }
+                    }
+                }
+                continue;
+            }
+
             let mut ctx = TrackingContext::new(node.operation_id);
             let feature = node.feature.clone();
             let body = node.body;
@@ -205,6 +277,52 @@ impl FeatureTree {
         }
 
         Ok((body_breps, results))
+    }
+}
+
+// -- Reference parameter helpers ----------------------------------------------
+
+/// Map a [`DimensionKind`] to its default SI [`Unit`].
+fn dimension_kind_to_unit(kind: DimensionKind) -> Unit {
+    match kind {
+        DimensionKind::Length => Unit::Meters,
+        DimensionKind::Area => Unit::SquareMeters,
+        DimensionKind::Volume => Unit::CubicMeters,
+        DimensionKind::Angle => Unit::Radians,
+        DimensionKind::InverseLength => Unit::PerMeter,
+        DimensionKind::MomentOfArea => Unit::MetersToFourth,
+        DimensionKind::Dimensionless => Unit::Ratio,
+    }
+}
+
+impl FeatureTree {
+    /// Create or update the read-only parameter for a Reference feature.
+    ///
+    /// If the parameter already exists (by qualified name), its value and
+    /// `last_known` are updated in place.  Otherwise a new feature-scoped
+    /// parameter is created.
+    fn upsert_reference_param(
+        &mut self,
+        feature_id: FeatureId,
+        qualified_name: &str,
+        value: f64,
+        unit: Unit,
+    ) {
+        if let Some(pid) = self.parameter_table.resolve_name(qualified_name) {
+            // Update existing parameter.
+            if let Some(param) = self.parameter_table.get_mut(pid) {
+                param.value = value;
+                param.last_known = Some(value);
+            }
+        } else if let Ok(pid) =
+            self.parameter_table
+                .add_feature_param(qualified_name, feature_id, value, unit)
+            && let Some(param) = self.parameter_table.get_mut(pid)
+        {
+            // Create new feature-scoped, read-only parameter.
+            param.read_only = true;
+            param.last_known = Some(value);
+        }
     }
 }
 

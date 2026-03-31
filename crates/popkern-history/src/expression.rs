@@ -480,18 +480,16 @@ pub fn evaluate_all(
             }
             Err(msg) => {
                 // For MEASURE failures, fall back to last_known if available.
-                if has_measure {
-                    if let Some(last) = table.get(id).and_then(|p| p.last_known) {
-                        let warning = EvaluationWarning::MeasureStale {
-                            message: msg.clone(),
-                        };
-                        warnings.push((id, warning.clone()));
-                        if let Some(param) = table.get_mut(id) {
-                            param.value = last;
-                            param.eval_warning = Some(warning);
-                        }
-                        continue;
+                if has_measure && let Some(last) = table.get(id).and_then(|p| p.last_known) {
+                    let warning = EvaluationWarning::MeasureStale {
+                        message: msg.clone(),
+                    };
+                    warnings.push((id, warning.clone()));
+                    if let Some(param) = table.get_mut(id) {
+                        param.value = last;
+                        param.eval_warning = Some(warning);
                     }
+                    continue;
                 }
                 // Normal error path — keep last good value, record MathError.
                 let warning = EvaluationWarning::MathError { message: msg };
