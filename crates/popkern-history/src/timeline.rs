@@ -467,11 +467,16 @@ impl FeatureTree {
 
     /// Rename a feature.
     ///
-    /// Records an undo command.
+    /// Records an undo command.  Also updates the qualified names of all
+    /// parameters scoped to this feature so that `"old_label.field"` becomes
+    /// `"new_label.field"`.
     pub fn rename_feature(&mut self, id: FeatureId, label: &str) {
         if let Some(node) = self.features.get_mut(id) {
             let old_label = node.label.clone();
             node.label = label.to_string();
+            // Update parameter qualified names for this feature.
+            self.parameter_table
+                .rename_feature_params(id, &old_label, label);
             self.record_undo(TreeCommand::RenameFeature {
                 id,
                 old_label,

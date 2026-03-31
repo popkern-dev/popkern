@@ -27,6 +27,7 @@ pub mod feature;
 pub mod format;
 pub mod health;
 pub mod node;
+pub mod param_api;
 pub mod parameter;
 pub mod parse;
 pub mod queries;
@@ -170,6 +171,9 @@ impl FeatureTree {
     }
 
     /// Return a mutable reference to the parameter table.
+    ///
+    /// Prefer the undo-safe methods (`set_parameter_value`, `add_global_parameter`,
+    /// etc.) for mutations that should be reversible.
     pub fn parameters_mut(&mut self) -> &mut ParameterTable {
         &mut self.parameter_table
     }

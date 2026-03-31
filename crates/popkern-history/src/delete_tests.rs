@@ -337,3 +337,70 @@ fn reparent_produces_warnings_for_each_reparented_feature() {
         "one warning per reparented feature"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 8. Delete cascade → feature params removed from table
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cascade_delete_removes_feature_params() {
+    let mut tree = FeatureTree::new();
+
+    let a = tree.add_feature(sketch_xy(), "A");
+    let a_op = tree.feature(a).unwrap().operation_id;
+
+    let dist_b = add_param(&mut tree, "_b_distance", 5.0, Unit::Meters);
+
+    let b = tree.add_feature(
+        Feature::Extrude {
+            face: entity_name(a_op.0),
+            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
+            distance: dist_b,
+        },
+        "B",
+    );
+
+    // dist_b is registered as a feature param for B during add_feature.
+    // After cascade delete of B, its feature params should be gone.
+    tree.delete_feature(b, DeleteBehavior::Cascade)
+        .expect("delete should succeed");
+
+    // The parameter b.distance should be gone from the table.
+    let b_params = tree.parameters().feature_params(b);
+    assert!(
+        b_params.is_empty(),
+        "cascade delete should remove feature-scoped params"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 9. Delete reparent → deleted feature's params removed
+// ---------------------------------------------------------------------------
+
+#[test]
+fn reparent_delete_removes_target_feature_params() {
+    let mut tree = FeatureTree::new();
+
+    let a = tree.add_feature(sketch_xy(), "A");
+    let a_op = tree.feature(a).unwrap().operation_id;
+
+    let dist_b = add_param(&mut tree, "_b_dist2", 5.0, Unit::Meters);
+
+    let b = tree.add_feature(
+        Feature::Extrude {
+            face: entity_name(a_op.0),
+            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
+            distance: dist_b,
+        },
+        "B2",
+    );
+
+    tree.delete_feature(b, DeleteBehavior::Reparent)
+        .expect("delete should succeed");
+
+    let b_params = tree.parameters().feature_params(b);
+    assert!(
+        b_params.is_empty(),
+        "reparent delete should remove feature-scoped params for deleted feature"
+    );
+}

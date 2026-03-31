@@ -6,8 +6,11 @@
 //! entries — avoiding infinite recursion.
 
 use crate::FeatureTree;
+use crate::expression::Expression;
 use crate::feature::Feature;
 use crate::node::{FeatureId, FeatureNode};
+use crate::parameter::{Parameter, ParameterId};
+use crate::unit::Unit;
 
 // ---------------------------------------------------------------------------
 // TreeCommand
@@ -74,6 +77,69 @@ pub(crate) enum TreeCommand {
         old_label: String,
         /// The label after the rename.
         new_label: String,
+    },
+    /// An expression was set or cleared on a parameter.
+    SetExpression {
+        /// The parameter whose expression changed.
+        param: ParameterId,
+        /// The expression before the change (`None` = was literal).
+        old: Option<Expression>,
+        /// The expression after the change (`None` = cleared).
+        new: Option<Expression>,
+    },
+    /// A parameter's value and/or unit was changed.
+    SetParamValue {
+        /// The parameter whose value changed.
+        param: ParameterId,
+        /// The value before the change (SI units).
+        old_value: f64,
+        /// The unit before the change.
+        old_unit: Unit,
+        /// The value after the change (SI units).
+        new_value: f64,
+        /// The unit after the change.
+        new_unit: Unit,
+    },
+    /// Parameter bounds were changed or cleared.
+    SetBounds {
+        /// The parameter whose bounds changed.
+        param: ParameterId,
+        /// The bounds before the change.
+        old: Option<(f64, f64)>,
+        /// The bounds after the change.
+        new: Option<(f64, f64)>,
+    },
+    /// A global parameter was added.
+    AddGlobalParam {
+        /// The stable ID assigned to the new parameter.
+        id: ParameterId,
+        /// Full snapshot of the parameter at insertion time.
+        snapshot: Parameter,
+    },
+    /// A global parameter was removed.
+    RemoveGlobalParam {
+        /// The ID of the removed parameter.
+        id: ParameterId,
+        /// Full snapshot of the parameter before removal.
+        snapshot: Parameter,
+    },
+    /// A parameter was renamed.
+    RenameParam {
+        /// The parameter that was renamed.
+        id: ParameterId,
+        /// The name before the rename.
+        old_name: String,
+        /// The name after the rename.
+        new_name: String,
+    },
+    /// A suppress_if expression was set or cleared on a feature.
+    SetSuppressIf {
+        /// The feature whose suppress_if changed.
+        feature: FeatureId,
+        /// The expression before the change.
+        old: Option<Expression>,
+        /// The expression after the change.
+        new: Option<Expression>,
     },
 }
 
@@ -150,6 +216,55 @@ pub(crate) fn reverse_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
                 node.label = old_label.clone();
             }
         }
+
+        TreeCommand::SetExpression { param, old, .. } => match old {
+            Some(expr) => {
+                let _ = tree.parameter_table.set_expression(*param, expr.clone());
+            }
+            None => {
+                tree.parameter_table.clear_expression(*param);
+            }
+        },
+
+        TreeCommand::SetParamValue {
+            param,
+            old_value,
+            old_unit,
+            ..
+        } => {
+            let _ = tree
+                .parameter_table
+                .set_value(*param, *old_value, *old_unit);
+        }
+
+        TreeCommand::SetBounds { param, old, .. } => match old {
+            Some((min, max)) => tree.parameter_table.set_bounds(*param, *min, *max),
+            None => tree.parameter_table.clear_bounds(*param),
+        },
+
+        TreeCommand::AddGlobalParam { id, .. } => {
+            // On undo, remove from name_index only — leave the SlotMap entry
+            // intact so that redo can re-register the name without a key
+            // conflict.
+            tree.parameter_table.deregister_name(*id);
+        }
+
+        TreeCommand::RemoveGlobalParam { id, snapshot } => {
+            // On undo of a remove, re-register the name in the index.
+            // The SlotMap entry was never actually removed (same pattern as
+            // AddGlobalParam undo above).
+            tree.parameter_table.reregister_name(*id, &snapshot.name);
+        }
+
+        TreeCommand::RenameParam { id, old_name, .. } => {
+            let _ = tree.parameter_table.rename(*id, old_name);
+        }
+
+        TreeCommand::SetSuppressIf { feature, old, .. } => {
+            if let Some(node) = tree.features.get_mut(*feature) {
+                node.suppress_if = old.clone();
+            }
+        }
     }
 }
 
@@ -215,6 +330,51 @@ pub(crate) fn apply_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
         TreeCommand::RenameFeature { id, new_label, .. } => {
             if let Some(node) = tree.features.get_mut(*id) {
                 node.label = new_label.clone();
+            }
+        }
+
+        TreeCommand::SetExpression { param, new, .. } => match new {
+            Some(expr) => {
+                let _ = tree.parameter_table.set_expression(*param, expr.clone());
+            }
+            None => {
+                tree.parameter_table.clear_expression(*param);
+            }
+        },
+
+        TreeCommand::SetParamValue {
+            param,
+            new_value,
+            new_unit,
+            ..
+        } => {
+            let _ = tree
+                .parameter_table
+                .set_value(*param, *new_value, *new_unit);
+        }
+
+        TreeCommand::SetBounds { param, new, .. } => match new {
+            Some((min, max)) => tree.parameter_table.set_bounds(*param, *min, *max),
+            None => tree.parameter_table.clear_bounds(*param),
+        },
+
+        TreeCommand::AddGlobalParam { id, snapshot } => {
+            // Redo: re-register the name in the index.
+            tree.parameter_table.reregister_name(*id, &snapshot.name);
+        }
+
+        TreeCommand::RemoveGlobalParam { id, .. } => {
+            // Redo: remove from name_index only, leave SlotMap intact.
+            tree.parameter_table.deregister_name(*id);
+        }
+
+        TreeCommand::RenameParam { id, new_name, .. } => {
+            let _ = tree.parameter_table.rename(*id, new_name);
+        }
+
+        TreeCommand::SetSuppressIf { feature, new, .. } => {
+            if let Some(node) = tree.features.get_mut(*feature) {
+                node.suppress_if = new.clone();
             }
         }
     }
