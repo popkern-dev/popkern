@@ -8,3 +8,7 @@
 mod error;
 
 pub use error::MeasureError;
+
+mod edge;
+
+pub use edge::{edge_length, edge_tangent};
