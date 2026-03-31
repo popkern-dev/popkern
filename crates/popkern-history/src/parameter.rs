@@ -145,6 +145,21 @@ impl ParameterTable {
         Ok(id)
     }
 
+    /// Add a global parameter using a value in the given display unit.
+    ///
+    /// The value is automatically converted to SI for internal storage.
+    ///
+    /// Returns [`HistoryError::DuplicateParameterName`] if the name is already
+    /// in use.
+    pub fn add_global_display(
+        &mut self,
+        name: &str,
+        display_value: f64,
+        unit: Unit,
+    ) -> Result<ParameterId, HistoryError> {
+        self.add_global(name, unit.to_si(display_value), unit)
+    }
+
     /// Add a feature-scoped parameter. Called internally during feature
     /// registration.
     ///
@@ -344,6 +359,23 @@ impl ParameterTable {
         param.value = unit.to_si(value);
         param.unit = unit;
         Ok(())
+    }
+
+    /// Set a parameter's value using a value in the given display unit.
+    ///
+    /// Equivalent to [`set_value`](Self::set_value) — the name makes the
+    /// display-unit convention explicit at the call site.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`set_value`](Self::set_value).
+    pub fn set_value_display(
+        &mut self,
+        id: ParameterId,
+        display_value: f64,
+        unit: Unit,
+    ) -> Result<(), HistoryError> {
+        self.set_value(id, display_value, unit)
     }
 
     /// Set the expression driving a parameter.

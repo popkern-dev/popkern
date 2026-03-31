@@ -77,6 +77,8 @@ pub struct ReplayResult {
     pub feature_results: HashMap<FeatureId, FeatureResult>,
     /// Wall-clock time spent replaying.
     pub elapsed: std::time::Duration,
+    /// Warnings from expression evaluation (math errors, bounds clamping).
+    pub eval_warnings: Vec<(ParameterId, EvaluationWarning)>,
 }
 
 /// The parametric feature tree.
@@ -197,7 +199,7 @@ impl FeatureTree {
 
         // Phase 1: Evaluate all expression-driven parameters in topological
         // order so that derived values are up-to-date before features run.
-        let _eval_warnings = expression::evaluate_all(&mut self.parameter_table);
+        let eval_warnings = expression::evaluate_all(&mut self.parameter_table);
 
         let end = self.rollback_index.unwrap_or(self.timeline.len());
 
@@ -227,6 +229,7 @@ impl FeatureTree {
         Ok(ReplayResult {
             feature_results: results,
             elapsed: start.elapsed(),
+            eval_warnings,
         })
     }
 
@@ -263,12 +266,14 @@ impl FeatureTree {
         }
 
         let timer = Instant::now();
+        let eval_warnings = expression::evaluate_all(&mut self.parameter_table);
         let end = self.rollback_index.unwrap_or(self.timeline.len());
         let (body_breps, results) = self.replay_range(start_bodies, start_pos, end, &tolerance)?;
         self.store_body_breps(&body_breps);
         Ok(ReplayResult {
             feature_results: results,
             elapsed: timer.elapsed(),
+            eval_warnings,
         })
     }
 

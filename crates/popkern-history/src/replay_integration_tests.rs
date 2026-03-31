@@ -7,8 +7,9 @@ use popkern_constraint::{Constraint, Sketch};
 use popkern_core::naming::{EntityName, EntityRole, OperationId, RoleCategory};
 use popkern_core::tolerance::Tolerance;
 
-use crate::expression::Expression;
+use crate::expression::{BinOp, Expression};
 use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+use crate::parameter::EvaluationWarning;
 use crate::unit::Unit;
 use crate::{FeatureResult, FeatureTree};
 
@@ -332,5 +333,104 @@ fn transaction_rollback_restores_brep_on_failure() {
         brep.faces.len() < 6,
         "brep should not have box faces after failed extrude, got {}",
         brep.faces.len()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 6: ReplayResult.eval_warnings populated on math error
+// ---------------------------------------------------------------------------
+
+#[test]
+fn eval_warnings_populated_on_math_error() {
+    let mut tree = FeatureTree::new();
+
+    // Create a parameter with an expression that divides by zero.
+    let zero_id = tree
+        .parameters_mut()
+        .add_global("zero_val", 0.0, Unit::Ratio)
+        .expect("add zero_val");
+
+    let bad_id = tree
+        .parameters_mut()
+        .add_global("bad", 1.0, Unit::Ratio)
+        .expect("add bad");
+
+    // bad = 1.0 / zero_val → division by zero
+    tree.parameters_mut()
+        .set_expression(
+            bad_id,
+            Expression::BinOp(
+                Box::new(Expression::Literal(1.0)),
+                BinOp::Div,
+                Box::new(Expression::Param(zero_id)),
+            ),
+        )
+        .expect("set expression");
+
+    // Add a sketch so replay has something to do.
+    tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY,
+            sketch_data: rectangle_sketch_json(),
+        },
+        "Sketch 1",
+    );
+
+    let result = tree.replay(Tolerance::default()).expect("replay");
+
+    // The eval_warnings should contain a MathError for the bad parameter.
+    assert!(
+        !result.eval_warnings.is_empty(),
+        "eval_warnings should be populated on math error"
+    );
+    let (warn_id, ref warning) = result.eval_warnings[0];
+    assert_eq!(warn_id, bad_id, "warning should be for the bad parameter");
+    assert!(
+        matches!(warning, EvaluationWarning::MathError { .. }),
+        "warning should be a MathError, got {warning:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 7: ReplayResult.eval_warnings populated on bounds clamping
+// ---------------------------------------------------------------------------
+
+#[test]
+fn eval_warnings_populated_on_bounds_clamping() {
+    let mut tree = FeatureTree::new();
+
+    let clamped_id = tree
+        .parameters_mut()
+        .add_global("clamped", 5.0, Unit::Ratio)
+        .expect("add clamped");
+    tree.parameters_mut().set_bounds(clamped_id, 0.0, 10.0);
+
+    // Expression that produces 20.0, which exceeds the max bound of 10.0.
+    tree.parameters_mut()
+        .set_expression(clamped_id, Expression::Literal(20.0))
+        .expect("set expression");
+
+    tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY,
+            sketch_data: rectangle_sketch_json(),
+        },
+        "Sketch 1",
+    );
+
+    let result = tree.replay(Tolerance::default()).expect("replay");
+
+    assert!(
+        !result.eval_warnings.is_empty(),
+        "eval_warnings should be populated on bounds clamping"
+    );
+    let (warn_id, ref warning) = result.eval_warnings[0];
+    assert_eq!(
+        warn_id, clamped_id,
+        "warning should be for the clamped parameter"
+    );
+    assert!(
+        matches!(warning, EvaluationWarning::BoundsClamped { .. }),
+        "warning should be BoundsClamped, got {warning:?}"
     );
 }

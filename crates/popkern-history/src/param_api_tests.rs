@@ -3,7 +3,7 @@
 use crate::FeatureTree;
 use crate::expression::Expression;
 use crate::feature::{Feature, SketchPlaneDesc};
-use crate::unit::Unit;
+use crate::unit::{DimensionKind, Unit};
 
 fn sketch_xy() -> Feature {
     Feature::Sketch {
@@ -300,7 +300,8 @@ fn set_suppress_if_undo_restores_none() {
     tree.undo_cursor = 0;
 
     let expr = Expression::Literal(1.0);
-    tree.set_suppress_if(fid, Some(expr));
+    tree.set_suppress_if(fid, Some(expr))
+        .expect("set suppress_if");
     assert!(tree.feature(fid).unwrap().suppress_if.is_some());
 
     tree.undo();
@@ -318,7 +319,8 @@ fn set_suppress_if_redo_reapplies() {
     tree.undo_cursor = 0;
 
     let expr = Expression::Literal(0.5);
-    tree.set_suppress_if(fid, Some(expr));
+    tree.set_suppress_if(fid, Some(expr))
+        .expect("set suppress_if");
     tree.undo();
     tree.redo();
 
@@ -378,4 +380,113 @@ fn clear_expression_undo_restores_expression() {
         tree.parameters().get(id).unwrap().expression.is_some(),
         "undo should restore expression"
     );
+}
+
+// 9. display-value API --
+
+#[test]
+fn add_global_display_converts_to_si() {
+    let mut tree = FeatureTree::new();
+    let id = tree
+        .add_global_parameter_display("width", 50.0, Unit::Millimeters)
+        .expect("add display param");
+    let param = tree.parameters().get(id).expect("param exists");
+    // 50 mm = 0.05 m (SI)
+    assert!(
+        (param.value - 0.05).abs() < 1e-12,
+        "50 mm should be stored as 0.05 SI, got {}",
+        param.value
+    );
+    assert_eq!(param.unit, Unit::Millimeters);
+}
+
+#[test]
+fn set_parameter_value_display_converts_to_si() {
+    let mut tree = FeatureTree::new();
+    let id = tree
+        .add_global_parameter("height", 0.1, Unit::Meters)
+        .expect("add param");
+    tree.set_parameter_value_display(id, 200.0, Unit::Millimeters)
+        .expect("set display value");
+    let param = tree.parameters().get(id).expect("param exists");
+    // 200 mm = 0.2 m (SI)
+    assert!(
+        (param.value - 0.2).abs() < 1e-12,
+        "200 mm should be stored as 0.2 SI, got {}",
+        param.value
+    );
+}
+
+// 10. expression dimension type-checking --
+
+#[test]
+fn set_expression_rejects_dimension_mismatch() {
+    let mut tree = FeatureTree::new();
+    let angle_id = tree
+        .add_global_parameter("angle", 1.0, Unit::Radians)
+        .expect("add angle param");
+    let length_id = tree
+        .add_global_parameter("dist", 0.1, Unit::Meters)
+        .expect("add length param");
+
+    // Expression referencing a Length parameter on an Angle parameter → error.
+    let expr = Expression::Param(length_id);
+    let result = tree.set_parameter_expression(angle_id, expr);
+    assert!(result.is_err(), "should reject length expr on angle param");
+    match result.unwrap_err() {
+        crate::error::HistoryError::DimensionMismatch { expected, got, .. } => {
+            assert_eq!(expected, DimensionKind::Angle);
+            assert_eq!(got, DimensionKind::Length);
+        }
+        other => panic!("expected DimensionMismatch, got {other:?}"),
+    }
+}
+
+#[test]
+fn set_expression_allows_dimensionless_on_any_param() {
+    let mut tree = FeatureTree::new();
+    let len_id = tree
+        .add_global_parameter("dist", 0.1, Unit::Meters)
+        .expect("add param");
+
+    // A literal (Dimensionless) is always allowed.
+    let expr = Expression::Literal(42.0);
+    tree.set_parameter_expression(len_id, expr)
+        .expect("dimensionless literal should be allowed on Length param");
+}
+
+// 11. suppress_if dimension type-checking --
+
+#[test]
+fn suppress_if_rejects_non_dimensionless() {
+    let mut tree = FeatureTree::new();
+    let fid = tree.add_feature(sketch_xy(), "S1");
+    let length_id = tree
+        .add_global_parameter("len", 0.1, Unit::Meters)
+        .expect("add param");
+
+    // Expression referencing a Length parameter — not dimensionless.
+    let expr = Expression::Param(length_id);
+    let result = tree.set_suppress_if(fid, Some(expr));
+    assert!(
+        result.is_err(),
+        "should reject non-dimensionless suppress_if"
+    );
+    match result.unwrap_err() {
+        crate::error::HistoryError::SuppressIfNotDimensionless(kind) => {
+            assert_eq!(kind, DimensionKind::Length);
+        }
+        other => panic!("expected SuppressIfNotDimensionless, got {other:?}"),
+    }
+}
+
+#[test]
+fn suppress_if_accepts_dimensionless() {
+    let mut tree = FeatureTree::new();
+    let fid = tree.add_feature(sketch_xy(), "S1");
+
+    let expr = Expression::Literal(1.0);
+    tree.set_suppress_if(fid, Some(expr))
+        .expect("dimensionless suppress_if should be accepted");
+    assert!(tree.feature(fid).unwrap().suppress_if.is_some());
 }

@@ -13,6 +13,24 @@ use crate::error::ReplayError;
 use crate::feature::{BoolOpKind, Feature, ShellDirectionKind};
 use crate::node::BodyId;
 use crate::parameter::{ParameterId, ParameterTable};
+
+/// Side effects produced by a successful feature execution.
+///
+/// Returned from [`execute_feature`] so that the caller can apply deferred
+/// mutations (e.g. removing consumed tool bodies) only on success.
+pub(crate) struct ExecuteSideEffects {
+    /// Body IDs that were consumed by this feature (e.g. Boolean tool body).
+    pub consumed_bodies: Vec<BodyId>,
+}
+
+impl ExecuteSideEffects {
+    /// No side effects.
+    pub fn empty() -> Self {
+        Self {
+            consumed_bodies: Vec::new(),
+        }
+    }
+}
 use crate::resolve::{
     resolve_direction, resolve_edge, resolve_edges, resolve_face, resolve_faces,
     resolve_sketch_plane,
@@ -51,10 +69,11 @@ pub(crate) fn execute_feature(
     tolerance: &Tolerance,
     body_breps: &mut HashMap<BodyId, BRep>,
     param_table: &ParameterTable,
-) -> Result<(), ReplayError> {
+) -> Result<ExecuteSideEffects, ReplayError> {
     match feature {
         Feature::Sketch { plane, sketch_data } => {
-            execute_sketch(brep, plane, sketch_data, tracking, tolerance, param_table)
+            execute_sketch(brep, plane, sketch_data, tracking, tolerance, param_table)?;
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Extrude {
             face,
@@ -69,7 +88,7 @@ pub(crate) fn execute_feature(
                     label: "extrude".into(),
                     error: e.to_string(),
                 })?;
-            Ok(())
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Fillet { edges, radius } => {
             let r = resolve_param(param_table, *radius)?;
@@ -93,7 +112,7 @@ pub(crate) fn execute_feature(
                 error: e.to_string(),
             })?;
             *brep = result.brep;
-            Ok(())
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Chamfer { edges, distance } => {
             let dist = resolve_param(param_table, *distance)?;
@@ -117,7 +136,7 @@ pub(crate) fn execute_feature(
                 error: e.to_string(),
             })?;
             *brep = result.brep;
-            Ok(())
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Boolean {
             operation,
@@ -125,7 +144,8 @@ pub(crate) fn execute_feature(
         } => {
             let tool_brep =
                 body_breps
-                    .remove(tool_body)
+                    .get(tool_body)
+                    .cloned()
                     .ok_or_else(|| ReplayError::FeatureFailed {
                         label: "boolean".into(),
                         error: format!("tool body {tool_body:?} not found"),
@@ -139,7 +159,9 @@ pub(crate) fn execute_feature(
                         error: e.to_string(),
                     })?;
             *brep = result;
-            Ok(())
+            Ok(ExecuteSideEffects {
+                consumed_bodies: vec![*tool_body],
+            })
         }
         Feature::Shell {
             faces_to_remove,
@@ -164,7 +186,7 @@ pub(crate) fn execute_feature(
                 error: e.to_string(),
             })?;
             *brep = result.brep;
-            Ok(())
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Draft {
             faces,
@@ -202,7 +224,7 @@ pub(crate) fn execute_feature(
                 error: e.to_string(),
             })?;
             *brep = result.brep;
-            Ok(())
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Sweep {
             face,
@@ -227,7 +249,7 @@ pub(crate) fn execute_feature(
                     error: e.to_string(),
                 })?;
             *brep = result.brep;
-            Ok(())
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Loft { sections, closed } => {
             let mut loft_sections = Vec::new();
@@ -251,7 +273,7 @@ pub(crate) fn execute_feature(
                     }
                 })?;
             *brep = result.brep;
-            Ok(())
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Pipe { path_edge, radius } => {
             let r = resolve_param(param_table, *radius)?;
@@ -268,7 +290,7 @@ pub(crate) fn execute_feature(
                 error: e.to_string(),
             })?;
             *brep = result.brep;
-            Ok(())
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Revolve { .. } => Err(ReplayError::FeatureFailed {
             label: "revolve".into(),

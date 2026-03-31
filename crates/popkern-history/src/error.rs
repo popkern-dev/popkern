@@ -61,6 +61,9 @@ pub enum HistoryError {
     /// A parameter name was already in use.
     #[error("duplicate parameter name: {0}")]
     DuplicateParameterName(String),
+    /// A `suppress_if` expression must be dimensionless but had a different kind.
+    #[error("suppress_if expression must be dimensionless, got {0:?}")]
+    SuppressIfNotDimensionless(crate::unit::DimensionKind),
 }
 
 /// Errors arising during replay (re-evaluating features against a BRep).

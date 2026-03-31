@@ -336,7 +336,8 @@ fn conditional_suppression_end_to_end() {
     };
 
     // suppress_if = Literal(1.0) → always suppressed
-    tree.set_suppress_if(fillet_id, Some(Expression::Literal(1.0)));
+    tree.set_suppress_if(fillet_id, Some(Expression::Literal(1.0)))
+        .expect("set suppress_if");
     let result = tree
         .replay(Tolerance::default())
         .expect("replay suppressed");
@@ -351,7 +352,8 @@ fn conditional_suppression_end_to_end() {
     );
 
     // Change suppress_if to Literal(0.0) → fillet should be attempted
-    tree.set_suppress_if(fillet_id, Some(Expression::Literal(0.0)));
+    tree.set_suppress_if(fillet_id, Some(Expression::Literal(0.0)))
+        .expect("set suppress_if");
     let result2 = tree
         .replay(Tolerance::default())
         .expect("replay unsuppressed");

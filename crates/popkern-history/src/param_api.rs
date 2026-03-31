@@ -9,26 +9,47 @@ use crate::expression::Expression;
 use crate::node::FeatureId;
 use crate::parameter::ParameterId;
 use crate::undo::TreeCommand;
-use crate::unit::Unit;
+use crate::unit::{DimensionKind, Unit};
 
 impl FeatureTree {
     /// Set an expression on a parameter. Records undo.
     ///
+    /// Validates dimensional consistency before accepting: the expression's
+    /// [`DimensionKind`] must match the parameter's unit, unless the expression
+    /// is [`DimensionKind::Dimensionless`] (literal numbers are allowed on any
+    /// parameter).
+    ///
     /// # Errors
     ///
-    /// Returns [`HistoryError::FeatureNotFound`] if `id` is invalid, or
-    /// [`HistoryError::ReadOnlyParameter`] if the parameter is read-only.
+    /// Returns [`HistoryError::FeatureNotFound`] if `id` is invalid,
+    /// [`HistoryError::ReadOnlyParameter`] if the parameter is read-only, or
+    /// [`HistoryError::DimensionMismatch`] if the expression produces a
+    /// dimension incompatible with the parameter's unit.
     pub fn set_parameter_expression(
         &mut self,
         id: ParameterId,
         expr: Expression,
     ) -> Result<(), HistoryError> {
-        let old = self
+        let param = self
             .parameter_table
             .get(id)
-            .ok_or(HistoryError::FeatureNotFound)?
-            .expression
-            .clone();
+            .ok_or(HistoryError::FeatureNotFound)?;
+        let param_kind = param.unit.kind();
+        let old = param.expression.clone();
+
+        // Validate dimensional consistency.
+        let expr_kind = crate::expression::dimension_kind(&expr, &self.parameter_table)?;
+        if param_kind != DimensionKind::Dimensionless
+            && expr_kind != param_kind
+            && expr_kind != DimensionKind::Dimensionless
+        {
+            return Err(HistoryError::DimensionMismatch {
+                param: id,
+                expected: param_kind,
+                got: expr_kind,
+            });
+        }
+
         self.parameter_table.set_expression(id, expr.clone())?;
         self.record_undo(TreeCommand::SetExpression {
             param: id,
@@ -82,6 +103,23 @@ impl FeatureTree {
         Ok(())
     }
 
+    /// Set a parameter's value using a display-unit value. Records undo.
+    ///
+    /// Equivalent to [`set_parameter_value`](Self::set_parameter_value) — the
+    /// name makes the display-unit convention explicit at the call site.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`set_parameter_value`](Self::set_parameter_value).
+    pub fn set_parameter_value_display(
+        &mut self,
+        id: ParameterId,
+        display_value: f64,
+        unit: Unit,
+    ) -> Result<(), HistoryError> {
+        self.set_parameter_value(id, display_value, unit)
+    }
+
     /// Set min/max bounds on a parameter. Records undo.
     pub fn set_parameter_bounds(&mut self, id: ParameterId, min: f64, max: f64) {
         let old = self.parameter_table.get(id).and_then(|p| p.bounds);
@@ -125,6 +163,23 @@ impl FeatureTree {
             .ok_or(HistoryError::FeatureNotFound)?;
         self.record_undo(TreeCommand::AddGlobalParam { id, snapshot });
         Ok(id)
+    }
+
+    /// Add a global parameter using a display-unit value. Records undo.
+    ///
+    /// The value is automatically converted to SI for internal storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::DuplicateParameterName`] if the name is already
+    /// in use.
+    pub fn add_global_parameter_display(
+        &mut self,
+        name: &str,
+        display_value: f64,
+        unit: Unit,
+    ) -> Result<ParameterId, HistoryError> {
+        self.add_global_parameter(name, unit.to_si(display_value), unit)
     }
 
     /// Remove a global parameter. Records undo. Returns an error if in use.
@@ -199,7 +254,25 @@ impl FeatureTree {
     }
 
     /// Set or clear the suppress_if expression on a feature. Records undo.
-    pub fn set_suppress_if(&mut self, feature: FeatureId, expr: Option<Expression>) {
+    ///
+    /// If an expression is provided, it must produce
+    /// [`DimensionKind::Dimensionless`] — suppress_if is a boolean condition.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::SuppressIfNotDimensionless`] if the expression
+    /// has a non-dimensionless dimension.
+    pub fn set_suppress_if(
+        &mut self,
+        feature: FeatureId,
+        expr: Option<Expression>,
+    ) -> Result<(), HistoryError> {
+        if let Some(ref e) = expr {
+            let kind = crate::expression::dimension_kind(e, &self.parameter_table)?;
+            if kind != DimensionKind::Dimensionless {
+                return Err(HistoryError::SuppressIfNotDimensionless(kind));
+            }
+        }
         let old = self
             .features
             .get(feature)
@@ -212,6 +285,7 @@ impl FeatureTree {
             old,
             new: expr,
         });
+        Ok(())
     }
 }
 

@@ -94,7 +94,11 @@ impl FeatureTree {
             );
 
             match exec_result {
-                Ok(()) => {
+                Ok(side_effects) => {
+                    // Apply deferred side effects only on success.
+                    for consumed in &side_effects.consumed_bodies {
+                        body_breps.remove(consumed);
+                    }
                     let history = ctx.finish();
                     results.insert(
                         id,
@@ -108,6 +112,7 @@ impl FeatureTree {
                 Err(e) => {
                     // Atomically restore the pre-execution BRep so the body
                     // remains in a consistent state for subsequent features.
+                    // Side effects NOT applied — tool body remains in the map.
                     brep = brep_backup;
                     let error_msg = e.to_string();
                     results.insert(
