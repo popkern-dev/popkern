@@ -2,7 +2,7 @@
 //!
 //! Extracted from `lib.rs` to stay within the 500-line structural limit.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[cfg(test)]
 #[path = "replay_integration_tests.rs"]
@@ -28,7 +28,7 @@ use crate::feature::Feature;
 use crate::measure_query::MeasureContext;
 use crate::measure_resolve;
 use crate::node::{BodyId, FeatureId};
-use crate::parameter::{EvaluationWarning, ParameterId};
+use crate::parameter::{EvaluationWarning, ParamScope, ParameterId};
 use crate::unit::{DimensionKind, Unit};
 use crate::{FeatureTree, ReplayRangeOutput, replay};
 
@@ -117,6 +117,11 @@ impl FeatureTree {
         let mut body_breps = body_breps;
         let mut results = HashMap::new();
 
+        // Track stale reference parameter IDs for StaleInput propagation.
+        let mut stale_param_ids: HashSet<ParameterId> = HashSet::new();
+        // Track failed (never-valid) reference feature IDs for suppression cascade.
+        let mut failed_ref_ids: HashSet<FeatureId> = HashSet::new();
+
         for i in from..to {
             let id = self.timeline[i];
             let node = &self.features[id];
@@ -151,6 +156,56 @@ impl FeatureTree {
             if auto_suppressed {
                 results.insert(id, FeatureResult::Suppressed);
                 continue;
+            }
+
+            // Suppress features that depend on a failed (never-valid) Reference.
+            // Check both entity-level deps and parameter expression refs.
+            if !failed_ref_ids.is_empty() {
+                let depends_on_failed = node
+                    .depends_on
+                    .iter()
+                    .any(|dep| failed_ref_ids.contains(dep));
+                let params_depend_on_failed = self.parameter_table.feature_params(id).iter().any(|&pid| {
+                    self.parameter_table.get(pid)
+                        .and_then(|p| p.expression.as_ref())
+                        .map(|expr| {
+                            crate::expression::expression_param_refs(expr).iter().any(|ref_id| {
+                                self.parameter_table.get(*ref_id)
+                                    .map(|rp| matches!(rp.scope, ParamScope::Feature(fid) if failed_ref_ids.contains(&fid)))
+                                    .unwrap_or(false)
+                            })
+                        })
+                        .unwrap_or(false)
+                });
+
+                if depends_on_failed || params_depend_on_failed {
+                    results.insert(id, FeatureResult::Suppressed);
+                    failed_ref_ids.insert(id); // cascade
+                    continue;
+                }
+            }
+
+            // Propagate StaleInput warnings to parameters that reference stale measures.
+            if !stale_param_ids.is_empty() {
+                for param_id in self.parameter_table.feature_params(id) {
+                    let refs = self
+                        .parameter_table
+                        .get(param_id)
+                        .and_then(|p| p.expression.as_ref())
+                        .map(crate::expression::expression_param_refs)
+                        .unwrap_or_default();
+                    for ref_id in refs {
+                        if stale_param_ids.contains(&ref_id) {
+                            let source = self
+                                .parameter_table
+                                .qualified_name(ref_id)
+                                .unwrap_or_else(|| "unknown".to_string());
+                            if let Some(p) = self.parameter_table.get_mut(param_id) {
+                                p.eval_warning = Some(EvaluationWarning::StaleInput { source });
+                            }
+                        }
+                    }
+                }
             }
 
             // Reference features are evaluated at the tree level — they
@@ -192,6 +247,17 @@ impl FeatureTree {
                         if let Some(stale) = stale_value {
                             // Use stale value — feature succeeds with a warning.
                             self.upsert_reference_param(id, &qualified_name, stale, dimension_unit);
+
+                            // Mark the reference parameter as stale.
+                            if let Some(pid) = self.parameter_table.resolve_name(&qualified_name) {
+                                if let Some(p) = self.parameter_table.get_mut(pid) {
+                                    p.eval_warning = Some(EvaluationWarning::MeasureStale {
+                                        message: e.to_string(),
+                                    });
+                                }
+                                stale_param_ids.insert(pid);
+                            }
+
                             let history = popkern_core::history::HistoryMap::default();
                             results.insert(
                                 id,
@@ -202,6 +268,7 @@ impl FeatureTree {
                             self.features[id].last_result =
                                 Some(FeatureResult::Success { history });
                         } else {
+                            // Never-valid: no stale value to fall back on.
                             let error_msg = e.to_string();
                             results.insert(
                                 id,
@@ -211,6 +278,7 @@ impl FeatureTree {
                             );
                             self.features[id].last_result =
                                 Some(FeatureResult::Failed { error: error_msg });
+                            failed_ref_ids.insert(id);
                         }
                     }
                 }

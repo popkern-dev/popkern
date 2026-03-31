@@ -289,3 +289,189 @@ fn reference_parameter_updates_on_re_replay() {
         "volume should increase when extrude distance doubles: v1={v1}, v2={v2}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Test 6: Stale Reference propagates StaleInput to downstream feature params
+// ---------------------------------------------------------------------------
+
+#[test]
+fn stale_reference_propagates_stale_input_to_dependents() {
+    use crate::expression::Expression;
+    use crate::parameter::EvaluationWarning;
+
+    let mut tree = box_tree();
+    tree.add_feature(
+        Feature::Reference {
+            name: "Vol".into(),
+            query: MeasureQuery::BodyVolume,
+        },
+        "Vol Ref",
+    );
+    let dist2 = tree
+        .parameters_mut()
+        .add_global("dist2", 1.0, Unit::Meters)
+        .expect("ok");
+    tree.add_feature(
+        Feature::Extrude {
+            face: entity_name(1, RoleCategory::Generated, 0),
+            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
+            distance: dist2,
+        },
+        "Extrude 2",
+    );
+
+    // First replay — everything succeeds, vol_ref.value gets last_known.
+    tree.replay(Tolerance::default()).expect("first replay");
+
+    let vol_pid = tree
+        .parameters()
+        .resolve_name("vol_ref.value")
+        .expect("exists");
+    let ext2_pid = tree
+        .parameters()
+        .resolve_name("extrude_2.distance")
+        .expect("exists");
+    tree.parameters_mut()
+        .set_expression(ext2_pid, Expression::Param(vol_pid))
+        .expect("set expr");
+
+    // Suppress sketch and extrude so body is absent — Reference goes stale.
+    tree.suppress(tree.timeline()[0]); // sketch
+    tree.suppress(tree.timeline()[1]); // extrude
+    tree.replay(Tolerance::default()).expect("second replay");
+
+    let vol_p = tree.parameters().get(vol_pid).expect("vol param");
+    assert!(
+        matches!(
+            vol_p.eval_warning,
+            Some(EvaluationWarning::MeasureStale { .. })
+        ),
+        "vol_ref.value should have MeasureStale, got {:?}",
+        vol_p.eval_warning
+    );
+    let ext2_p = tree.parameters().get(ext2_pid).expect("ext2 param");
+    assert!(
+        matches!(
+            ext2_p.eval_warning,
+            Some(EvaluationWarning::StaleInput { .. })
+        ),
+        "extrude_2.distance should have StaleInput, got {:?}",
+        ext2_p.eval_warning
+    );
+    if let Some(EvaluationWarning::StaleInput { source }) = &ext2_p.eval_warning {
+        assert_eq!(source, "vol_ref.value");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Test 7: Never-valid Reference suppresses downstream features
+// ---------------------------------------------------------------------------
+
+#[test]
+fn never_valid_reference_suppresses_dependents() {
+    let mut tree = FeatureTree::new();
+    // No sketch — BodyVolume will fail (no BRep body at all).
+    let ref_id = tree.add_feature(
+        Feature::Reference {
+            name: "Bad".into(),
+            query: MeasureQuery::BodyVolume,
+        },
+        "Bad Ref",
+    );
+    let dist = tree
+        .parameters_mut()
+        .add_global("dist", 1.0, Unit::Meters)
+        .expect("ok");
+    let ext_id = tree.add_feature(
+        Feature::Extrude {
+            face: entity_name(1, RoleCategory::Generated, 0),
+            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
+            distance: dist,
+        },
+        "Extrude 1",
+    );
+    tree.features[ext_id].depends_on.push(ref_id);
+
+    let result = tree.replay(Tolerance::default()).expect("replay");
+
+    assert!(
+        matches!(
+            result.feature_results.get(&ref_id),
+            Some(FeatureResult::Failed { .. })
+        ),
+        "reference should fail, got {:?}",
+        result.feature_results.get(&ref_id)
+    );
+    assert!(
+        matches!(
+            result.feature_results.get(&ext_id),
+            Some(FeatureResult::Suppressed)
+        ),
+        "dependent should be suppressed, got {:?}",
+        result.feature_results.get(&ext_id)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 8: Never-valid suppression cascades through multiple levels
+// ---------------------------------------------------------------------------
+
+#[test]
+fn never_valid_suppression_cascades() {
+    let mut tree = FeatureTree::new();
+    // No sketch — BodyVolume will fail (no BRep body at all).
+    let ref_id = tree.add_feature(
+        Feature::Reference {
+            name: "Bad".into(),
+            query: MeasureQuery::BodyVolume,
+        },
+        "Bad Ref",
+    );
+
+    let da = tree
+        .parameters_mut()
+        .add_global("dist_a", 1.0, Unit::Meters)
+        .expect("ok");
+    let feat_a = tree.add_feature(
+        Feature::Extrude {
+            face: entity_name(1, RoleCategory::Generated, 0),
+            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
+            distance: da,
+        },
+        "Extrude A",
+    );
+    tree.features[feat_a].depends_on.push(ref_id);
+
+    let db = tree
+        .parameters_mut()
+        .add_global("dist_b", 1.0, Unit::Meters)
+        .expect("ok");
+    let feat_b = tree.add_feature(
+        Feature::Extrude {
+            face: entity_name(1, RoleCategory::Generated, 0),
+            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
+            distance: db,
+        },
+        "Extrude B",
+    );
+    tree.features[feat_b].depends_on.push(feat_a);
+
+    let result = tree.replay(Tolerance::default()).expect("replay");
+
+    assert!(
+        matches!(
+            result.feature_results.get(&feat_a),
+            Some(FeatureResult::Suppressed)
+        ),
+        "feat_a should be suppressed, got {:?}",
+        result.feature_results.get(&feat_a)
+    );
+    assert!(
+        matches!(
+            result.feature_results.get(&feat_b),
+            Some(FeatureResult::Suppressed)
+        ),
+        "feat_b should cascade-suppress, got {:?}",
+        result.feature_results.get(&feat_b)
+    );
+}
