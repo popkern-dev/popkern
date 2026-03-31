@@ -427,12 +427,7 @@ impl ParameterTable {
         }
     }
 
-    /// Return the qualified display name for a parameter.
-    ///
-    /// For global parameters this is the bare name; for feature-scoped
-    /// parameters it is the full dotted name as stored in the index.
-    ///
-    /// Returns `None` if `id` is invalid.
+    /// Return the qualified display name, or `None` if `id` is invalid.
     pub fn qualified_name(&self, id: ParameterId) -> Option<String> {
         self.name_index
             .iter()
@@ -440,11 +435,7 @@ impl ParameterTable {
             .map(|(k, _)| k.clone())
     }
 
-    /// Update the name-index entry for a parameter to a new qualified name.
-    ///
-    /// Removes any existing index entry that points to `id`, then inserts the
-    /// new `qualified_name` -> `id` mapping.  Used internally during feature
-    /// parameter registration.
+    /// Replace the name-index entry for `id` with `qualified_name`.
     pub(crate) fn update_name_index(&mut self, id: ParameterId, qualified_name: &str) {
         // Remove old key(s) pointing to this id.
         self.name_index.retain(|_, &mut v| v != id);
