@@ -108,7 +108,6 @@ pub enum UnaryFunc {
 ///
 /// Pass [`MeasureContext::empty()`](crate::measure_query::MeasureContext::empty)
 /// when no live model is available.
-#[allow(clippy::only_used_in_recursion)] // ctx will be used by Measure dispatch (Task 11)
 pub fn evaluate(
     expr: &Expression,
     table: &ParameterTable,
@@ -209,8 +208,9 @@ pub fn evaluate(
                 evaluate(else_expr, table, ctx)
             }
         }
-        Expression::Measure(_query) => {
-            Err("MEASURE evaluation requires model context (not yet wired)".into())
+        Expression::Measure(query) => {
+            crate::measure_resolve::resolve_and_evaluate(query, ctx)
+                .map_err(|e| format!("measurement failed: {e}"))
         }
     }
 }

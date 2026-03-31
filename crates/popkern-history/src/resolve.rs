@@ -9,7 +9,7 @@ use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::naming::EntityName;
 use popkern_core::naming_resolve::{Resolution, ResolvedEntity, resolve_name};
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 use popkern_sketch::SketchPlane;
 
 use crate::error::ReplayError;
@@ -43,6 +43,27 @@ pub(crate) fn resolve_edge(name: &EntityName, brep: &BRep) -> Result<EdgeHandle,
         Resolution::Split(entities) => {
             for e in entities {
                 if let ResolvedEntity::Edge(h) = e {
+                    return Ok(h);
+                }
+            }
+            Err(ReplayError::ResolutionFailed(name.clone()))
+        }
+        _ => Err(ReplayError::ResolutionFailed(name.clone())),
+    }
+}
+
+/// Resolve an [`EntityName`] to a [`VertexHandle`].
+///
+/// For split resolutions, returns the first vertex found in the successor list.
+pub(crate) fn resolve_vertex(
+    name: &EntityName,
+    brep: &BRep,
+) -> Result<VertexHandle, ReplayError> {
+    match resolve_name(name, brep) {
+        Resolution::Exact(ResolvedEntity::Vertex(h)) => Ok(h),
+        Resolution::Split(entities) => {
+            for e in entities {
+                if let ResolvedEntity::Vertex(h) = e {
                     return Ok(h);
                 }
             }

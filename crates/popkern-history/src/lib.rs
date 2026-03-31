@@ -19,6 +19,7 @@
 //! ```
 
 pub(crate) mod body;
+pub(crate) mod measure_resolve;
 pub mod cache;
 pub mod config;
 pub mod config_api;
