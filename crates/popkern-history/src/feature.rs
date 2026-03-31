@@ -106,6 +106,14 @@ pub enum Feature {
         /// Revolution angle in radians (resolved via parameter table).
         angle: ParameterId,
     },
+    /// A named measurement reference. Evaluates a geometric query and
+    /// exposes the result as read-only parameter(s).
+    Reference {
+        /// User-visible name for this measurement.
+        name: String,
+        /// The geometric query to evaluate.
+        query: crate::measure_query::MeasureQuery,
+    },
 }
 
 /// Describes the plane a sketch is placed on.
@@ -167,7 +175,10 @@ pub(crate) fn feature_param_ids(feature: &Feature) -> Vec<(&str, ParameterId)> {
         Feature::Sweep { twist, .. } => vec![("twist", *twist)],
         Feature::Pipe { radius, .. } => vec![("radius", *radius)],
         Feature::Revolve { angle, .. } => vec![("angle", *angle)],
-        Feature::Sketch { .. } | Feature::Boolean { .. } | Feature::Loft { .. } => vec![],
+        Feature::Sketch { .. }
+        | Feature::Boolean { .. }
+        | Feature::Loft { .. }
+        | Feature::Reference { .. } => vec![],
     };
     // Handle SketchPlaneDesc::OnFaceOffset parameter.
     if let Feature::Sketch {

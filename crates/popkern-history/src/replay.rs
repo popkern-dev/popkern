@@ -324,6 +324,11 @@ pub(crate) fn execute_feature(
             *brep = result.brep;
             Ok(ExecuteSideEffects::empty())
         }
+        Feature::Reference { .. } => {
+            // Reference features don't modify the BRep. Measurement evaluation
+            // and parameter update happen at the tree-replay level.
+            Ok(ExecuteSideEffects::empty())
+        }
     }
 }
 

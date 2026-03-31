@@ -66,6 +66,9 @@ pub struct Parameter {
     /// Warning from the most recent evaluation.
     #[serde(skip)]
     pub eval_warning: Option<EvaluationWarning>,
+    /// Last successfully computed value (for MEASURE staleness recovery).
+    #[serde(default)]
+    pub last_known: Option<f64>,
 }
 
 /// A table of all named parameters used by the feature tree.
@@ -112,6 +115,7 @@ impl ParameterTable {
                 bounds: None,
                 read_only: true,
                 eval_warning: None,
+                last_known: None,
             });
             table.name_index.insert(name.to_string(), id);
         }
@@ -140,6 +144,7 @@ impl ParameterTable {
             bounds: None,
             read_only: false,
             eval_warning: None,
+            last_known: None,
         });
         self.name_index.insert(name.to_string(), id);
         Ok(id)
@@ -191,6 +196,7 @@ impl ParameterTable {
             bounds: None,
             read_only: false,
             eval_warning: None,
+            last_known: None,
         });
         self.name_index.insert(name.to_string(), id);
         Ok(id)

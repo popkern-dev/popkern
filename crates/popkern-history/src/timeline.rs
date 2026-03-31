@@ -77,6 +77,7 @@ pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
         Feature::Loft { sections, .. } => sections.iter().collect(),
         Feature::Pipe { path_edge, .. } => vec![path_edge],
         Feature::Revolve { face, .. } => vec![face],
+        Feature::Reference { query, .. } => query.entity_names(),
     }
 }
 
