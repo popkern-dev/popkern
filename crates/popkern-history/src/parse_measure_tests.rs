@@ -213,7 +213,7 @@ fn test_measure_entity_normal_with_resolver() {
 #[test]
 fn test_measure_entity_unknown() {
     use super::parse_expression_with_resolver;
-    use popkern_core::naming::{EntityName, EntityRole, OperationId, RoleCategory};
+    use popkern_core::naming::EntityName;
 
     struct TestResolver;
     impl super::EntityResolver for TestResolver {
