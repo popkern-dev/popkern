@@ -20,6 +20,7 @@
 
 pub(crate) mod body;
 pub mod cache;
+pub mod config;
 pub mod delete;
 pub mod error;
 pub mod expression;
@@ -40,6 +41,7 @@ pub(crate) mod undo;
 pub mod unit;
 
 pub use cache::CacheStrategy;
+pub use config::{ConfigId, Configuration, DeleteConfigResult, ParamOverride};
 pub use delete::{DeleteBehavior, DeleteResult};
 pub use error::{FeatureResult, HistoryError, ReplayError};
 pub use expression::{BinOp, CmpOp, Expression, UnaryFunc};
@@ -146,6 +148,13 @@ pub struct FeatureTree {
     ///
     /// Serialized as part of the tree's persistent state.
     pub(crate) parameter_table: ParameterTable,
+    /// Named configurations (design table variants).
+    #[serde(default)]
+    pub(crate) configs: SlotMap<ConfigId, Configuration>,
+    /// Currently active configuration. None = default (no overrides).
+    /// Serialized — restores the last-active config when the file is opened.
+    #[serde(default)]
+    pub(crate) active_config: Option<ConfigId>,
 }
 
 impl FeatureTree {
@@ -164,6 +173,8 @@ impl FeatureTree {
             undo_log: Vec::new(),
             undo_cursor: 0,
             parameter_table: ParameterTable::new(),
+            configs: SlotMap::with_key(),
+            active_config: None,
         }
     }
 

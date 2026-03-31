@@ -64,6 +64,15 @@ pub enum HistoryError {
     /// A `suppress_if` expression must be dimensionless but had a different kind.
     #[error("suppress_if expression must be dimensionless, got {0:?}")]
     SuppressIfNotDimensionless(crate::unit::DimensionKind),
+    /// The requested configuration does not exist.
+    #[error("configuration not found")]
+    ConfigNotFound,
+    /// Adding the requested parent would create an inheritance cycle.
+    #[error("configuration inheritance cycle detected")]
+    InheritanceCycle,
+    /// A configuration with this name already exists.
+    #[error("duplicate configuration name: {0}")]
+    DuplicateConfigName(String),
 }
 
 /// Errors arising during replay (re-evaluating features against a BRep).
