@@ -450,6 +450,9 @@ pub fn evaluate_all(
             None => continue,
         };
 
+        // Detect whether this expression contains any MEASURE nodes.
+        let has_measure = !crate::measure_query::expression_measure_refs(&expr).is_empty();
+
         match evaluate(&expr, table, ctx) {
             Ok(mut value) => {
                 // Check bounds.
@@ -466,14 +469,31 @@ pub fn evaluate_all(
                     ));
                     value = clamped;
                 }
-                // Write resolved value.
+                // Write resolved value and update last_known for MEASURE expressions.
                 if let Some(param) = table.get_mut(id) {
                     param.value = value;
                     param.eval_warning = None;
+                    if has_measure {
+                        param.last_known = Some(value);
+                    }
                 }
             }
             Err(msg) => {
-                // Keep last good value, record warning.
+                // For MEASURE failures, fall back to last_known if available.
+                if has_measure {
+                    if let Some(last) = table.get(id).and_then(|p| p.last_known) {
+                        let warning = EvaluationWarning::MeasureStale {
+                            message: msg.clone(),
+                        };
+                        warnings.push((id, warning.clone()));
+                        if let Some(param) = table.get_mut(id) {
+                            param.value = last;
+                            param.eval_warning = Some(warning);
+                        }
+                        continue;
+                    }
+                }
+                // Normal error path — keep last good value, record MathError.
                 let warning = EvaluationWarning::MathError { message: msg };
                 warnings.push((id, warning.clone()));
                 if let Some(param) = table.get_mut(id) {

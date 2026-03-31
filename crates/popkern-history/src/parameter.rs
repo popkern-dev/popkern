@@ -44,6 +44,16 @@ pub enum EvaluationWarning {
         /// The clamped value that was actually stored.
         clamped: f64,
     },
+    /// A MEASURE reference is stale — the entity was previously valid but is now missing.
+    MeasureStale {
+        /// Description of what went stale.
+        message: String,
+    },
+    /// A parameter depends on a stale MEASURE reference.
+    StaleInput {
+        /// The stale parameter's qualified name.
+        source: String,
+    },
 }
 
 /// A single parameter in the parameter table.
