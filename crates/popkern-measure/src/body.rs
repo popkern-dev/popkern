@@ -1,6 +1,7 @@
 //! Body-level measurement functions (volume, surface area, centroid, bounding box,
 //! moment of inertia).
 
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -83,9 +84,24 @@ fn to_vec3(p: Point3) -> Vec3 {
 
 /// Compute the volume of a closed BRep solid using the divergence theorem.
 ///
-/// The solid is tessellated at high resolution and then the signed tetrahedral
-/// volume formula `V = (1/6) * Σ v0 · (v1 × v2)` is summed over all triangles.
+/// If every face is planar the volume is computed exactly from the polygon
+/// faces without tessellating. Otherwise the solid is tessellated at high
+/// resolution and the signed tetrahedral volume formula
+/// `V = (1/6) * Σ v0 · (v1 × v2)` is summed over all triangles.
 pub fn body_volume(brep: &BRep, _tol: &Tolerance) -> Result<f64, MeasureError> {
+    // Fast path: all-planar bodies (boxes, prisms, polyhedra) are exact.
+    let all_planar = brep.faces.iter().all(|(_, face)| {
+        face.surface
+            .as_ref()
+            .map(|s| matches!(s.geometry, SurfaceGeometry::Plane { .. }))
+            .unwrap_or(false)
+    });
+
+    if all_planar {
+        return exact_polyhedral_volume(brep);
+    }
+
+    // Fallback: tessellate and apply divergence theorem on triangles.
     let mesh = tessellate_fine(brep)?;
 
     let volume: f64 = mesh
@@ -101,6 +117,47 @@ pub fn body_volume(brep: &BRep, _tol: &Tolerance) -> Result<f64, MeasureError> {
         .abs();
 
     Ok(volume)
+}
+
+/// Exact volume for a polyhedron with only planar faces via the divergence theorem.
+///
+/// Each face polygon is fan-triangulated from its first vertex and the signed
+/// tetrahedral contribution `v0 · (v1 × v2) / 6` is accumulated. Inner loops
+/// (holes) are handled by the same accumulation — their opposite winding
+/// automatically subtracts their area from the enclosing face contribution.
+fn exact_polyhedral_volume(brep: &BRep) -> Result<f64, MeasureError> {
+    let mut volume = 0.0_f64;
+
+    for (_, face) in &brep.faces {
+        let positions = crate::face_helpers::loop_positions(brep, face.outer_loop);
+        if positions.len() < 3 {
+            continue;
+        }
+        // Fan triangulation from the first vertex.
+        let v0 = to_vec3(positions[0]);
+        for i in 1..positions.len() - 1 {
+            let v1 = to_vec3(positions[i]);
+            let v2 = to_vec3(positions[i + 1]);
+            volume += signed_tet_volume(v0, v1, v2);
+        }
+
+        // Inner loops (holes): their opposite winding already gives the correct
+        // sign, so we just accumulate their contributions directly.
+        for &inner_loop in &face.inner_loops {
+            let hole_positions = crate::face_helpers::loop_positions(brep, inner_loop);
+            if hole_positions.len() < 3 {
+                continue;
+            }
+            let h0 = to_vec3(hole_positions[0]);
+            for i in 1..hole_positions.len() - 1 {
+                let h1 = to_vec3(hole_positions[i]);
+                let h2 = to_vec3(hole_positions[i + 1]);
+                volume += signed_tet_volume(h0, h1, h2);
+            }
+        }
+    }
+
+    Ok(volume.abs())
 }
 
 /// Compute the total surface area of a BRep solid.

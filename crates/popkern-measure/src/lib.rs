@@ -9,6 +9,8 @@ mod error;
 
 pub use error::MeasureError;
 
+mod face_helpers;
+
 mod edge;
 
 pub use edge::{edge_length, edge_tangent};
