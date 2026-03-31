@@ -107,7 +107,7 @@ impl FeatureTree {
                         },
                     );
                     self.features[id].last_result = Some(FeatureResult::Success { history });
-                    self.cache.store(id, brep.clone(), i);
+                    self.cache.store(self.active_config, id, brep.clone(), i);
                 }
                 Err(e) => {
                     // Atomically restore the pre-execution BRep so the body

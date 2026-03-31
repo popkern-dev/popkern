@@ -219,7 +219,7 @@ impl FeatureTree {
             let frozen = frozen.min(end);
             if frozen > 0 {
                 let freeze_id = self.timeline[frozen - 1];
-                if let Some(cached) = self.cache.get(freeze_id) {
+                if let Some(cached) = self.cache.get(self.active_config, freeze_id) {
                     let body = self.features[freeze_id].body;
                     let mut bodies = HashMap::new();
                     bodies.insert(body, cached.clone());
@@ -268,7 +268,7 @@ impl FeatureTree {
         let mut start_bodies: HashMap<BodyId, BRep> = HashMap::new();
         for i in (0..pos).rev() {
             let fid = self.timeline[i];
-            if let Some(cached) = self.cache.get(fid) {
+            if let Some(cached) = self.cache.get(self.active_config, fid) {
                 start_pos = i + 1;
                 let body = self.features[fid].body;
                 start_bodies.insert(body, cached.clone());
@@ -307,7 +307,7 @@ impl FeatureTree {
         });
         if index > 0 {
             let id = self.timeline[index - 1];
-            self.cache.get(id)
+            self.cache.get(self.active_config, id)
         } else {
             None
         }
@@ -348,14 +348,14 @@ impl FeatureTree {
         // Fast path: already cached.
         if index > 0 {
             let id = self.timeline[index - 1];
-            if self.cache.get(id).is_some() {
+            if self.cache.get(self.active_config, id).is_some() {
                 // SAFETY: we just checked `is_some()`. The two-step pattern
                 // (check then re-borrow) is required to avoid holding an
                 // immutable borrow on `self.cache` across the mutable
                 // `self.replay()` call below.
                 return self
                     .cache
-                    .get(id)
+                    .get(self.active_config, id)
                     .ok_or(HistoryError::FeatureNotFound.into());
             }
         }
