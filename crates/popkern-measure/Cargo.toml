@@ -9,6 +9,7 @@ description = "Geometric measurement queries for popkern BRep solids"
 popkern-core = { path = "../popkern-core" }
 popkern-mesh = { path = "../popkern-mesh" }
 thiserror = "2"
+serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 popkern-bool = { path = "../popkern-bool" }
