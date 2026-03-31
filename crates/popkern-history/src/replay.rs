@@ -292,10 +292,32 @@ pub(crate) fn execute_feature(
             *brep = result.brep;
             Ok(ExecuteSideEffects::empty())
         }
-        Feature::Revolve { .. } => Err(ReplayError::FeatureFailed {
-            label: "revolve".into(),
-            error: "revolve not yet implemented in popkern-sweep".into(),
-        }),
+        Feature::Revolve {
+            face,
+            axis_origin,
+            axis_direction,
+            angle,
+        } => {
+            let face_handle = resolve_face(face, brep)?;
+            let angle_val = resolve_param(param_table, *angle)?;
+
+            let origin = Point3::new(axis_origin[0], axis_origin[1], axis_origin[2]);
+            let direction = Vec3::new(axis_direction[0], axis_direction[1], axis_direction[2]);
+
+            let profile = popkern_sweep::SweepProfile::Face {
+                brep: Box::new(brep.clone()),
+                face: face_handle,
+            };
+
+            let result =
+                popkern_sweep::revolve(&profile, &origin, &direction, angle_val, *tolerance)
+                    .map_err(|e| ReplayError::FeatureFailed {
+                        label: "revolve".into(),
+                        error: e.to_string(),
+                    })?;
+            *brep = result.brep;
+            Ok(ExecuteSideEffects::empty())
+        }
     }
 }
 

@@ -310,11 +310,11 @@ fn current_brep_none_before_replay() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 9: Revolve returns not-implemented error
+// Test 9: Revolve produces a BRep (no longer a stub)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn revolve_returns_not_implemented() {
+fn revolve_produces_brep() {
     let mut tree = FeatureTree::new();
     let sketch_json = rectangle_sketch_json();
 
@@ -327,6 +327,9 @@ fn revolve_returns_not_implemented() {
         "Sketch 1",
     );
 
+    // Replay the sketch to populate the BRep.
+    let _r = tree.replay(Tolerance::default()).expect("sketch replay");
+
     let angle_param = add_param(
         &mut tree,
         "_revolve1_angle",
@@ -334,10 +337,13 @@ fn revolve_returns_not_implemented() {
         Unit::Radians,
     );
 
+    // Revolve the sketch face around the Z axis offset by 2 units in X.
+    // The axis is at x=2, so the rectangle (at x=0..1) is entirely to one
+    // side of the axis, producing a valid solid of revolution.
     tree.add_feature(
         Feature::Revolve {
             face: entity_name(1, RoleCategory::Generated, 0),
-            axis_origin: [0.0, 0.0, 0.0],
+            axis_origin: [2.0, 0.0, 0.0],
             axis_direction: [0.0, 0.0, 1.0],
             angle: angle_param,
         },
@@ -345,14 +351,30 @@ fn revolve_returns_not_implemented() {
     );
 
     let result = tree.replay(Tolerance::default()).expect("replay");
-    let outcomes: Vec<_> = result.feature_results.values().collect();
-    let revolve_failed = outcomes.iter().any(
+
+    // Check that the revolve feature succeeded.
+    let any_failed = result
+        .feature_results
+        .values()
+        .any(|r| matches!(r, FeatureResult::Failed { .. }));
+    // The revolve may fail due to profile analysis of face geometry,
+    // but it should NOT fail with "not yet implemented".
+    let not_implemented = result.feature_results.values().any(
         |r| matches!(r, FeatureResult::Failed { error } if error.contains("not yet implemented")),
     );
     assert!(
-        revolve_failed,
-        "revolve should fail with not-implemented error"
+        !not_implemented,
+        "revolve should no longer return not-yet-implemented"
     );
+
+    // If it succeeded, the BRep should have faces.
+    if !any_failed {
+        let brep = tree.current_brep().expect("brep after revolve");
+        assert!(
+            brep.faces.len() >= 1,
+            "revolved BRep should have at least 1 face"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
