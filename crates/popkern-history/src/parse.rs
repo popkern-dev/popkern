@@ -14,6 +14,13 @@ use parse_lexer::{Token, tokenize};
 use crate::expression::{BinOp, CmpOp, Expression, UnaryFunc};
 use crate::parameter::ParameterTable;
 
+/// Resolves a string entity reference (e.g., `"face_0"`, `"extrude_1.cap_0"`)
+/// to an [`EntityName`] for use in `MEASURE` expressions.
+pub trait EntityResolver {
+    /// Resolve a name string to an [`EntityName`], or return `None` if not found.
+    fn resolve_entity(&self, name: &str) -> Option<popkern_core::naming::EntityName>;
+}
+
 /// A parse error with column information.
 #[derive(Debug, thiserror::Error)]
 #[error("parse error at column {column}: {message}")]
@@ -42,15 +49,22 @@ struct Parser<'a> {
     pos: usize,
     table: &'a ParameterTable,
     input_len: usize,
+    entity_resolver: Option<&'a dyn EntityResolver>,
 }
 
 impl<'a> Parser<'a> {
-    fn new(tokens: Vec<(Token, usize)>, table: &'a ParameterTable, input_len: usize) -> Self {
+    fn new(
+        tokens: Vec<(Token, usize)>,
+        table: &'a ParameterTable,
+        input_len: usize,
+        entity_resolver: Option<&'a dyn EntityResolver>,
+    ) -> Self {
         Self {
             tokens,
             pos: 0,
             table,
             input_len,
+            entity_resolver,
         }
     }
 
@@ -204,6 +218,9 @@ impl<'a> Parser<'a> {
 
     /// Parse arguments for a function call (opening '(' already consumed).
     fn parse_call_args(&mut self, name: &str, col: usize) -> Result<Expression, ParseError> {
+        if name == "MEASURE" {
+            return self.parse_measure(col);
+        }
         match name {
             "min" | "max" => {
                 let a = self.parse_expr()?;
@@ -279,6 +296,41 @@ impl<'a> Parser<'a> {
         Ok(Expression::Func(func, Box::new(arg)))
     }
 
+    /// Parse the interior of a `MEASURE(...)` call.
+    ///
+    /// The opening `(` has already been consumed by [`parse_call_args`].
+    fn parse_measure(&mut self, col: usize) -> Result<Expression, ParseError> {
+        let (first_ident, first_col) = self.consume_ident()?;
+
+        // Check for comma (pair query: MEASURE(a, b.property))
+        if self.peek() == Some(&Token::Comma) {
+            self.advance(); // consume ','
+            let (second_ident, _) = self.consume_ident()?;
+            self.expect_rparen()?;
+            return parse_measure::build_pair_measure(
+                &first_ident,
+                &second_ident,
+                self.entity_resolver,
+                first_col,
+            );
+        }
+
+        self.expect_rparen()?;
+        parse_measure::build_single_measure(&first_ident, self.entity_resolver, col)
+    }
+
+    /// Consume a `)` token or produce a parse error.
+    fn expect_rparen(&mut self) -> Result<(), ParseError> {
+        let col = self.current_col();
+        match self.peek() {
+            Some(Token::RParen) => {
+                self.advance();
+                Ok(())
+            }
+            _ => Err(ParseError::new(col, "expected ')'")),
+        }
+    }
+
     fn parse_primary(&mut self) -> Result<Expression, ParseError> {
         let col = self.current_col();
         match self.peek().cloned() {
@@ -321,10 +373,32 @@ impl<'a> Parser<'a> {
 /// [`ParseError`].  Numbers with a unit suffix are converted to SI immediately:
 /// `50mm` becomes `Literal(0.05)`.
 ///
+/// Body-level `MEASURE(...)` expressions (e.g. `MEASURE(body.volume)`) are
+/// supported without a resolver. For entity-level measurements use
+/// [`parse_expression_with_resolver`].
+///
 /// # Errors
 ///
 /// Returns [`ParseError`] on any syntax error or unknown parameter reference.
 pub fn parse_expression(input: &str, table: &ParameterTable) -> Result<Expression, ParseError> {
+    parse_expression_with_resolver(input, table, None)
+}
+
+/// Parse an expression string into an [`Expression`] AST with entity resolution.
+///
+/// Like [`parse_expression`] but accepts an optional [`EntityResolver`] that
+/// maps string names (e.g. `"face_0"`) to [`EntityName`] objects. When a
+/// resolver is provided, entity-level `MEASURE(...)` expressions are supported.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] on any syntax error, unknown parameter reference, or
+/// unresolvable entity name.
+pub fn parse_expression_with_resolver(
+    input: &str,
+    table: &ParameterTable,
+    resolver: Option<&dyn EntityResolver>,
+) -> Result<Expression, ParseError> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return Err(ParseError::new(0, "empty expression"));
@@ -334,7 +408,7 @@ pub fn parse_expression(input: &str, table: &ParameterTable) -> Result<Expressio
         return Err(ParseError::new(0, "empty expression"));
     }
     let input_len = trimmed.len();
-    let mut parser = Parser::new(tokens, table, input_len);
+    let mut parser = Parser::new(tokens, table, input_len, resolver);
     let expr = parser.parse_expr()?;
     if parser.peek().is_some() {
         let col = parser.current_col();
@@ -343,6 +417,13 @@ pub fn parse_expression(input: &str, table: &ParameterTable) -> Result<Expressio
     Ok(expr)
 }
 
+#[path = "parse_measure.rs"]
+mod parse_measure;
+
 #[cfg(test)]
 #[path = "parse_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "parse_measure_tests.rs"]
+mod measure_tests;

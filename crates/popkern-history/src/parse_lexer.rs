@@ -258,8 +258,8 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        // Handle dotted names: "extrude1.distance"
-        if self.peek() == Some('.')
+        // Handle dotted names: "extrude1.distance" or "body.centroid.x"
+        while self.peek() == Some('.')
             && self
                 .peek2()
                 .map(|c| c.is_alphabetic() || c == '_')

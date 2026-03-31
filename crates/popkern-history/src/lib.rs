@@ -59,7 +59,7 @@ pub use health::{HealthReport, ReferenceIssue};
 pub use measure_query::{BoundExtent, Component, MeasureContext, MeasureQuery};
 pub use node::{BodyId, FeatureId, FeatureNode};
 pub use parameter::{EvaluationWarning, ParamScope, Parameter, ParameterId, ParameterTable};
-pub use parse::{ParseError, parse_expression};
+pub use parse::{EntityResolver, ParseError, parse_expression, parse_expression_with_resolver};
 pub use queries::ImpactReport;
 pub use unit::{DimensionKind, Unit};
 
