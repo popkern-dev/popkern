@@ -21,6 +21,7 @@
 pub(crate) mod body;
 pub mod cache;
 pub mod config;
+pub(crate) mod config_eval;
 pub mod delete;
 pub mod error;
 pub mod expression;
@@ -208,9 +209,12 @@ impl FeatureTree {
     pub fn replay(&mut self, tolerance: Tolerance) -> Result<ReplayResult, ReplayError> {
         let start = Instant::now();
 
-        // Phase 1: Evaluate all expression-driven parameters in topological
-        // order so that derived values are up-to-date before features run.
-        let eval_warnings = expression::evaluate_all(&mut self.parameter_table);
+        // Phase 1: Evaluate parameters — config-aware when a config is active.
+        let eval_warnings = if self.active_config.is_some() {
+            self.apply_config_and_evaluate()
+        } else {
+            expression::evaluate_all(&mut self.parameter_table)
+        };
 
         let end = self.rollback_index.unwrap_or(self.timeline.len());
 
