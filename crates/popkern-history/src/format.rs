@@ -4,6 +4,7 @@
 //! parentheses are added based on operator precedence.
 
 use crate::expression::{BinOp, CmpOp, Expression, UnaryFunc};
+use crate::measure_query::{BoundExtent, Component, MeasureQuery};
 use crate::parameter::ParameterTable;
 use crate::unit::Unit;
 
@@ -131,8 +132,119 @@ fn fmt_inner(expr: &Expression, table: &ParameterTable, unit: Option<Unit>) -> S
             format!("{c} ? {t} : {e}")
         }
 
-        Expression::Measure(query) => format!("MEASURE({query:?})"),
+        Expression::Measure(query) => format!("MEASURE({})", format_measure_query(query)),
     }
+}
+
+// ---------------------------------------------------------------------------
+// MEASURE query formatting
+// ---------------------------------------------------------------------------
+
+/// Format a [`MeasureQuery`] to the parser-accepted dotted-path syntax.
+///
+/// Body-level queries (e.g. `BodyVolume`) produce exact round-trip strings
+/// like `"body.volume"`. Entity-level queries produce a deterministic
+/// placeholder like `"op1_gen0.area"` that can be parsed back if an
+/// [`EntityResolver`](crate::parse::EntityResolver) is provided.
+pub(crate) fn format_measure_query(query: &MeasureQuery) -> String {
+    match query {
+        // Body queries
+        MeasureQuery::BodyVolume => "body.volume".to_string(),
+        MeasureQuery::BodySurfaceArea => "body.surface_area".to_string(),
+        MeasureQuery::BodyCentroid(c) => format!("body.centroid.{}", comp_str(c)),
+        MeasureQuery::BodyBound(e) => format!("body.bound.{}", bound_str(e)),
+        MeasureQuery::BodyMomentOfInertia(a) => format!("body.moment_of_inertia.{}", axis_str(a)),
+
+        // Edge queries
+        MeasureQuery::EdgeLength(n) => format!("{}.length", entity_placeholder(n)),
+        MeasureQuery::EdgeTangent(n, c) => {
+            format!("{}.tangent.{}", entity_placeholder(n), comp_str(c))
+        }
+
+        // Face queries
+        MeasureQuery::FaceArea(n) => format!("{}.area", entity_placeholder(n)),
+        MeasureQuery::FacePerimeter(n) => format!("{}.perimeter", entity_placeholder(n)),
+        MeasureQuery::FaceNormal(n, c) => {
+            format!("{}.normal.{}", entity_placeholder(n), comp_str(c))
+        }
+        MeasureQuery::FaceCentroid(n, c) => {
+            format!("{}.centroid.{}", entity_placeholder(n), comp_str(c))
+        }
+        MeasureQuery::FaceRadius(n) => format!("{}.radius", entity_placeholder(n)),
+        MeasureQuery::FaceMinCurvature(n) => format!("{}.min_curvature", entity_placeholder(n)),
+        MeasureQuery::FaceMaxCurvature(n) => format!("{}.max_curvature", entity_placeholder(n)),
+
+        // Vertex queries
+        MeasureQuery::VertexPosition(n, c) => {
+            format!("{}.position.{}", entity_placeholder(n), comp_str(c))
+        }
+
+        // Pair queries
+        MeasureQuery::MinDistance(a, b) => format!(
+            "{}, {}.min_distance",
+            entity_placeholder(a),
+            entity_placeholder(b)
+        ),
+        MeasureQuery::DihedralAngle(a, b) => format!(
+            "{}, {}.dihedral_angle",
+            entity_placeholder(a),
+            entity_placeholder(b)
+        ),
+        MeasureQuery::EdgeAngle(a, b) => format!(
+            "{}, {}.edge_angle",
+            entity_placeholder(a),
+            entity_placeholder(b)
+        ),
+    }
+}
+
+fn comp_str(c: &Component) -> &'static str {
+    match c {
+        Component::X => "x",
+        Component::Y => "y",
+        Component::Z => "z",
+    }
+}
+
+fn bound_str(e: &BoundExtent) -> &'static str {
+    match e {
+        BoundExtent::MinX => "min_x",
+        BoundExtent::MinY => "min_y",
+        BoundExtent::MinZ => "min_z",
+        BoundExtent::MaxX => "max_x",
+        BoundExtent::MaxY => "max_y",
+        BoundExtent::MaxZ => "max_z",
+        BoundExtent::SizeX => "size_x",
+        BoundExtent::SizeY => "size_y",
+        BoundExtent::SizeZ => "size_z",
+    }
+}
+
+fn axis_str(a: &popkern_measure::Axis) -> &'static str {
+    match a {
+        popkern_measure::Axis::X => "x",
+        popkern_measure::Axis::Y => "y",
+        popkern_measure::Axis::Z => "z",
+    }
+}
+
+/// Format an [`EntityName`] as a deterministic placeholder string.
+///
+/// Uses the pattern `op{id}_{category}{index}`, e.g. `op1_gen0`. This
+/// placeholder can be parsed back when a matching
+/// [`EntityResolver`](crate::parse::EntityResolver) is provided that maps
+/// this string to the original [`EntityName`].
+fn entity_placeholder(name: &popkern_core::naming::EntityName) -> String {
+    use popkern_core::naming::RoleCategory;
+    let cat = match name.role.category {
+        RoleCategory::Modified => "mod",
+        RoleCategory::Generated => "gen",
+        RoleCategory::Lateral => "lat",
+        RoleCategory::Cap => "cap",
+        RoleCategory::Intersection => "int",
+        RoleCategory::Junction => "jnc",
+    };
+    format!("op{}_{}{}", name.operation.0, cat, name.role.index)
 }
 
 /// Return the (precedence, symbol) for arithmetic binary operators.
