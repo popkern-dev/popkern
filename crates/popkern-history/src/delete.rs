@@ -92,6 +92,12 @@ impl FeatureTree {
             }
         }
 
+        // Collect param IDs BEFORE removing them (needed for config cleanup).
+        let mut all_param_ids: Vec<crate::parameter::ParameterId> = Vec::new();
+        for &did in &to_delete {
+            all_param_ids.extend(self.parameter_table.feature_params(did));
+        }
+
         // Remove from timeline (remove in reverse-index order to keep indices stable).
         for &did in to_delete.iter().rev() {
             self.timeline.retain(|&fid| fid != did);
@@ -100,6 +106,16 @@ impl FeatureTree {
         // Remove parameters owned by all deleted features.
         for &did in &to_delete {
             self.parameter_table.remove_feature_params(did);
+        }
+
+        // Clean up config overrides that reference deleted features or params.
+        for (_, config) in &mut self.configs {
+            for &did in &to_delete {
+                config.suppression.remove(&did);
+            }
+            for &pid in &all_param_ids {
+                config.overrides.remove(&pid);
+            }
         }
 
         self.record_undo(TreeCommand::DeleteFeature { snapshots });
@@ -151,6 +167,9 @@ impl FeatureTree {
             }
         }
 
+        // Collect param IDs BEFORE removing them (needed for config cleanup).
+        let param_ids: Vec<crate::parameter::ParameterId> = self.parameter_table.feature_params(id);
+
         // Snapshot the single deleted feature with its FeatureId.
         let pos = self.timeline.iter().position(|&fid| fid == id).unwrap_or(0);
         let snapshot = self
@@ -163,6 +182,14 @@ impl FeatureTree {
 
         // Remove parameters owned by the deleted feature.
         self.parameter_table.remove_feature_params(id);
+
+        // Clean up config overrides that reference the deleted feature or params.
+        for (_, config) in &mut self.configs {
+            config.suppression.remove(&id);
+            for &pid in &param_ids {
+                config.overrides.remove(&pid);
+            }
+        }
 
         self.record_undo(TreeCommand::DeleteFeature {
             snapshots: vec![(id, snapshot, pos)],

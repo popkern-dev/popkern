@@ -4,144 +4,14 @@
 //! [`reverse_command`] and [`apply_command`] directly mutate the
 //! [`crate::FeatureTree`]'s internal state **without** recording new undo
 //! entries — avoiding infinite recursion.
+//!
+//! The [`TreeCommand`] enum is defined in [`crate::undo_command`]; config
+//! command handlers live in [`crate::undo_config`].
 
 use crate::FeatureTree;
-use crate::expression::Expression;
-use crate::feature::Feature;
-use crate::node::{FeatureId, FeatureNode};
-use crate::parameter::{Parameter, ParameterId};
-use crate::unit::Unit;
+use crate::undo_config;
 
-// ---------------------------------------------------------------------------
-// TreeCommand
-// ---------------------------------------------------------------------------
-
-/// A single reversible tree mutation recorded in the undo log.
-#[derive(Debug, Clone)]
-#[allow(dead_code)] // DeleteFeature wired in Task 7; snapshot kept for spec completeness
-pub(crate) enum TreeCommand {
-    /// A feature was added at a specific timeline index.
-    AddFeature {
-        /// The ID that was assigned to the new feature.
-        id: FeatureId,
-        /// Full snapshot of the node at the time of insertion.
-        snapshot: FeatureNode,
-        /// The timeline index at which the feature was inserted.
-        index: usize,
-    },
-    /// One or more features were deleted.
-    DeleteFeature {
-        /// Each deleted feature's ID, node snapshot, and former timeline index.
-        snapshots: Vec<(FeatureId, FeatureNode, usize)>,
-    },
-    /// A feature's parameters were modified.
-    ModifyFeature {
-        /// The ID of the modified feature.
-        id: FeatureId,
-        /// The previous feature parameters.
-        old: Feature,
-        /// The new feature parameters.
-        new: Feature,
-    },
-    /// A feature was moved in the timeline.
-    ReorderFeature {
-        /// The ID of the moved feature.
-        id: FeatureId,
-        /// The timeline index before the move.
-        old_index: usize,
-        /// The timeline index after the move.
-        new_index: usize,
-    },
-    /// A feature was suppressed.
-    Suppress {
-        /// The ID of the suppressed feature.
-        id: FeatureId,
-    },
-    /// A feature was unsuppressed.
-    Unsuppress {
-        /// The ID of the unsuppressed feature.
-        id: FeatureId,
-    },
-    /// The rollback bar was moved.
-    MoveRollback {
-        /// The previous rollback position.
-        old: Option<usize>,
-        /// The new rollback position.
-        new: Option<usize>,
-    },
-    /// A feature was renamed.
-    RenameFeature {
-        /// The ID of the renamed feature.
-        id: FeatureId,
-        /// The label before the rename.
-        old_label: String,
-        /// The label after the rename.
-        new_label: String,
-    },
-    /// An expression was set or cleared on a parameter.
-    SetExpression {
-        /// The parameter whose expression changed.
-        param: ParameterId,
-        /// The expression before the change (`None` = was literal).
-        old: Option<Expression>,
-        /// The expression after the change (`None` = cleared).
-        new: Option<Expression>,
-    },
-    /// A parameter's value and/or unit was changed.
-    SetParamValue {
-        /// The parameter whose value changed.
-        param: ParameterId,
-        /// The value before the change (SI units).
-        old_value: f64,
-        /// The unit before the change.
-        old_unit: Unit,
-        /// The value after the change (SI units).
-        new_value: f64,
-        /// The unit after the change.
-        new_unit: Unit,
-    },
-    /// Parameter bounds were changed or cleared.
-    SetBounds {
-        /// The parameter whose bounds changed.
-        param: ParameterId,
-        /// The bounds before the change.
-        old: Option<(f64, f64)>,
-        /// The bounds after the change.
-        new: Option<(f64, f64)>,
-    },
-    /// A global parameter was added.
-    AddGlobalParam {
-        /// The stable ID assigned to the new parameter.
-        id: ParameterId,
-        /// Full snapshot of the parameter at insertion time.
-        snapshot: Parameter,
-    },
-    /// A global parameter was removed.
-    RemoveGlobalParam {
-        /// The ID of the removed parameter.
-        id: ParameterId,
-        /// Full snapshot of the parameter before removal.
-        snapshot: Parameter,
-    },
-    /// A parameter was renamed.
-    RenameParam {
-        /// The parameter that was renamed.
-        id: ParameterId,
-        /// The name before the rename.
-        old_name: String,
-        /// The name after the rename.
-        new_name: String,
-    },
-    /// A suppress_if expression was set or cleared on a feature.
-    SetSuppressIf {
-        /// The feature whose suppress_if changed.
-        feature: FeatureId,
-        /// The expression before the change.
-        old: Option<Expression>,
-        /// The expression after the change.
-        new: Option<Expression>,
-    },
-}
+pub(crate) use crate::undo_command::TreeCommand;
 
 // ---------------------------------------------------------------------------
 // reverse_command (undo)
@@ -265,6 +135,37 @@ pub(crate) fn reverse_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
                 node.suppress_if = old.clone();
             }
         }
+
+        // Config commands — delegated to undo_config helpers.
+        TreeCommand::AddConfig { id, .. } | TreeCommand::DuplicateConfig { id, .. } => {
+            undo_config::reverse_add_config(tree, *id);
+        }
+        TreeCommand::DeleteConfig {
+            id,
+            snapshot,
+            reparented,
+        } => {
+            undo_config::reverse_delete_config(tree, *id, snapshot, reparented);
+        }
+        TreeCommand::RenameConfig { id, old_name, .. } => {
+            undo_config::reverse_rename_config(tree, *id, old_name);
+        }
+        TreeCommand::SetConfigDescription { id, old, .. } => {
+            undo_config::reverse_set_config_description(tree, *id, old);
+        }
+        TreeCommand::SetConfigOverride {
+            config, param, old, ..
+        } => {
+            undo_config::reverse_set_config_override(tree, *config, *param, old.as_ref());
+        }
+        TreeCommand::SetConfigSuppression {
+            config,
+            feature,
+            old,
+            ..
+        } => {
+            undo_config::reverse_set_config_suppression(tree, *config, *feature, *old);
+        }
     }
 }
 
@@ -377,6 +278,33 @@ pub(crate) fn apply_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
                 node.suppress_if = new.clone();
             }
         }
+
+        // Config commands — delegated to undo_config helpers.
+        TreeCommand::AddConfig { id, snapshot } | TreeCommand::DuplicateConfig { id, snapshot } => {
+            undo_config::apply_add_config(tree, *id, snapshot);
+        }
+        TreeCommand::DeleteConfig { id, reparented, .. } => {
+            undo_config::apply_delete_config(tree, *id, reparented);
+        }
+        TreeCommand::RenameConfig { id, new_name, .. } => {
+            undo_config::apply_rename_config(tree, *id, new_name);
+        }
+        TreeCommand::SetConfigDescription { id, new, .. } => {
+            undo_config::apply_set_config_description(tree, *id, new);
+        }
+        TreeCommand::SetConfigOverride {
+            config, param, new, ..
+        } => {
+            undo_config::apply_set_config_override(tree, *config, *param, new.as_ref());
+        }
+        TreeCommand::SetConfigSuppression {
+            config,
+            feature,
+            new,
+            ..
+        } => {
+            undo_config::apply_set_config_suppression(tree, *config, *feature, *new);
+        }
     }
 }
 
@@ -434,7 +362,12 @@ impl FeatureTree {
 ///
 /// Uses a remove-then-insert approach, clamping `to_index` to the valid range
 /// after removal.
-fn move_in_timeline(tree: &mut FeatureTree, id: FeatureId, _from_index: usize, to_index: usize) {
+fn move_in_timeline(
+    tree: &mut FeatureTree,
+    id: crate::node::FeatureId,
+    _from_index: usize,
+    to_index: usize,
+) {
     // Find the feature by ID rather than trusting the caller's index
     // directly — positions may have shifted.
     let actual_pos = match tree.timeline.iter().position(|&fid| fid == id) {

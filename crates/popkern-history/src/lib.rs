@@ -20,6 +20,10 @@
 
 pub(crate) mod body;
 pub mod cache;
+pub mod config;
+pub mod config_api;
+pub(crate) mod config_eval;
+pub mod csv;
 pub mod delete;
 pub mod error;
 pub mod expression;
@@ -37,9 +41,13 @@ pub mod serialize;
 pub mod timeline;
 mod tree_replay;
 pub(crate) mod undo;
+pub(crate) mod undo_command;
+pub(crate) mod undo_config;
 pub mod unit;
 
 pub use cache::CacheStrategy;
+pub use config::{ConfigId, Configuration, DeleteConfigResult, ParamOverride};
+pub use csv::CsvImportResult;
 pub use delete::{DeleteBehavior, DeleteResult};
 pub use error::{FeatureResult, HistoryError, ReplayError};
 pub use expression::{BinOp, CmpOp, Expression, UnaryFunc};
@@ -146,6 +154,13 @@ pub struct FeatureTree {
     ///
     /// Serialized as part of the tree's persistent state.
     pub(crate) parameter_table: ParameterTable,
+    /// Named configurations (design table variants).
+    #[serde(default)]
+    pub(crate) configs: SlotMap<ConfigId, Configuration>,
+    /// Currently active configuration. None = default (no overrides).
+    /// Serialized — restores the last-active config when the file is opened.
+    #[serde(default)]
+    pub(crate) active_config: Option<ConfigId>,
 }
 
 impl FeatureTree {
@@ -164,6 +179,8 @@ impl FeatureTree {
             undo_log: Vec::new(),
             undo_cursor: 0,
             parameter_table: ParameterTable::new(),
+            configs: SlotMap::with_key(),
+            active_config: None,
         }
     }
 
@@ -197,9 +214,12 @@ impl FeatureTree {
     pub fn replay(&mut self, tolerance: Tolerance) -> Result<ReplayResult, ReplayError> {
         let start = Instant::now();
 
-        // Phase 1: Evaluate all expression-driven parameters in topological
-        // order so that derived values are up-to-date before features run.
-        let eval_warnings = expression::evaluate_all(&mut self.parameter_table);
+        // Phase 1: Evaluate parameters — config-aware when a config is active.
+        let eval_warnings = if self.active_config.is_some() {
+            self.apply_config_and_evaluate()
+        } else {
+            expression::evaluate_all(&mut self.parameter_table)
+        };
 
         let end = self.rollback_index.unwrap_or(self.timeline.len());
 
@@ -208,7 +228,7 @@ impl FeatureTree {
             let frozen = frozen.min(end);
             if frozen > 0 {
                 let freeze_id = self.timeline[frozen - 1];
-                if let Some(cached) = self.cache.get(freeze_id) {
+                if let Some(cached) = self.cache.get(self.active_config, freeze_id) {
                     let body = self.features[freeze_id].body;
                     let mut bodies = HashMap::new();
                     bodies.insert(body, cached.clone());
@@ -257,7 +277,7 @@ impl FeatureTree {
         let mut start_bodies: HashMap<BodyId, BRep> = HashMap::new();
         for i in (0..pos).rev() {
             let fid = self.timeline[i];
-            if let Some(cached) = self.cache.get(fid) {
+            if let Some(cached) = self.cache.get(self.active_config, fid) {
                 start_pos = i + 1;
                 let body = self.features[fid].body;
                 start_bodies.insert(body, cached.clone());
@@ -296,7 +316,7 @@ impl FeatureTree {
         });
         if index > 0 {
             let id = self.timeline[index - 1];
-            self.cache.get(id)
+            self.cache.get(self.active_config, id)
         } else {
             None
         }
@@ -337,14 +357,14 @@ impl FeatureTree {
         // Fast path: already cached.
         if index > 0 {
             let id = self.timeline[index - 1];
-            if self.cache.get(id).is_some() {
+            if self.cache.get(self.active_config, id).is_some() {
                 // SAFETY: we just checked `is_some()`. The two-step pattern
                 // (check then re-borrow) is required to avoid holding an
                 // immutable borrow on `self.cache` across the mutable
                 // `self.replay()` call below.
                 return self
                     .cache
-                    .get(id)
+                    .get(self.active_config, id)
                     .ok_or(HistoryError::FeatureNotFound.into());
             }
         }

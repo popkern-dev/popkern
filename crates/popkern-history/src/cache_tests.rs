@@ -94,11 +94,11 @@ fn every_step_caches_all_features() {
 
     // Both feature positions should be cached now.
     assert!(
-        tree.cache.get(sketch_id).is_some(),
+        tree.cache.get(None, sketch_id).is_some(),
         "sketch BRep should be cached"
     );
     assert!(
-        tree.cache.get(extrude_id).is_some(),
+        tree.cache.get(None, extrude_id).is_some(),
         "extrude BRep should be cached"
     );
 }
@@ -194,8 +194,8 @@ fn invalidate_from_clears_downstream() {
     tree.replay(Tolerance::default()).expect("replay");
 
     // Both should be cached before invalidation.
-    assert!(tree.cache.get(sketch_id).is_some());
-    assert!(tree.cache.get(extrude_id).is_some());
+    assert!(tree.cache.get(None, sketch_id).is_some());
+    assert!(tree.cache.get(None, extrude_id).is_some());
 
     // Invalidate from index 1 (the extrude is at position 1 in the timeline).
     let timeline: Vec<FeatureId> = tree.timeline().to_vec();
@@ -203,12 +203,12 @@ fn invalidate_from_clears_downstream() {
 
     // Sketch (index 0) should still be cached.
     assert!(
-        tree.cache.get(sketch_id).is_some(),
+        tree.cache.get(None, sketch_id).is_some(),
         "sketch cache should be retained"
     );
     // Extrude (index 1) should be evicted.
     assert!(
-        tree.cache.get(extrude_id).is_none(),
+        tree.cache.get(None, extrude_id).is_none(),
         "extrude cache should be invalidated"
     );
 }
@@ -266,10 +266,22 @@ fn every_nth_caches_only_matching_indices() {
 
     // Indices 0 and 2 should be cached (0 % 2 == 0, 2 % 2 == 0).
     // Indices 1 and 3 should not be cached.
-    assert!(tree.cache.get(s1).is_some(), "index 0 should be cached");
-    assert!(tree.cache.get(e1).is_none(), "index 1 should NOT be cached");
-    assert!(tree.cache.get(s2).is_some(), "index 2 should be cached");
-    assert!(tree.cache.get(e2).is_none(), "index 3 should NOT be cached");
+    assert!(
+        tree.cache.get(None, s1).is_some(),
+        "index 0 should be cached"
+    );
+    assert!(
+        tree.cache.get(None, e1).is_none(),
+        "index 1 should NOT be cached"
+    );
+    assert!(
+        tree.cache.get(None, s2).is_some(),
+        "index 2 should be cached"
+    );
+    assert!(
+        tree.cache.get(None, e2).is_none(),
+        "index 3 should NOT be cached"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -283,11 +295,11 @@ fn on_demand_does_not_cache_automatically() {
     tree.replay(Tolerance::default()).expect("replay");
 
     assert!(
-        tree.cache.get(sketch_id).is_none(),
+        tree.cache.get(None, sketch_id).is_none(),
         "OnDemand: sketch should not be cached"
     );
     assert!(
-        tree.cache.get(extrude_id).is_none(),
+        tree.cache.get(None, extrude_id).is_none(),
         "OnDemand: extrude should not be cached"
     );
 }
@@ -332,17 +344,17 @@ fn clear_cache_removes_all_entries() {
     tree.set_cache_strategy(CacheStrategy::EveryStep);
     tree.replay(Tolerance::default()).expect("replay");
 
-    assert!(tree.cache.get(sketch_id).is_some());
-    assert!(tree.cache.get(extrude_id).is_some());
+    assert!(tree.cache.get(None, sketch_id).is_some());
+    assert!(tree.cache.get(None, extrude_id).is_some());
 
     tree.clear_cache();
 
     assert!(
-        tree.cache.get(sketch_id).is_none(),
+        tree.cache.get(None, sketch_id).is_none(),
         "cache should be empty after clear"
     );
     assert!(
-        tree.cache.get(extrude_id).is_none(),
+        tree.cache.get(None, extrude_id).is_none(),
         "cache should be empty after clear"
     );
 }
@@ -357,13 +369,13 @@ fn set_strategy_clears_cache() {
     tree.set_cache_strategy(CacheStrategy::EveryStep);
     tree.replay(Tolerance::default()).expect("replay");
 
-    assert!(tree.cache.get(sketch_id).is_some());
+    assert!(tree.cache.get(None, sketch_id).is_some());
 
     // Switching strategy should evict all cached entries.
     tree.set_cache_strategy(CacheStrategy::OnDemand);
 
     assert!(
-        tree.cache.get(sketch_id).is_none(),
+        tree.cache.get(None, sketch_id).is_none(),
         "cache should be cleared after set_strategy"
     );
 }

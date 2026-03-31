@@ -1,15 +1,18 @@
 //! BRep intermediate-state cache for the parametric feature tree.
 //!
-//! [`BRepCache`] stores cloned [`BRep`] snapshots keyed by [`FeatureId`],
-//! allowing [`crate::FeatureTree::brep_at`] and
-//! [`crate::FeatureTree::replay_from`] to resume replays from the nearest
-//! already-computed ancestor rather than from scratch.
+//! [`BRepCache`] stores cloned [`BRep`] snapshots keyed by
+//! `(Option<ConfigId>, FeatureId)`, allowing [`crate::FeatureTree::brep_at`]
+//! and [`crate::FeatureTree::replay_from`] to resume replays from the nearest
+//! already-computed ancestor rather than from scratch.  Each configuration
+//! maintains its own independent set of snapshots so that switching between
+//! design variants never serves stale BReps from a different config.
 
 use std::collections::{HashMap, VecDeque};
 
 use popkern_core::topology::BRep;
 use serde::{Deserialize, Serialize};
 
+use crate::config::ConfigId;
 use crate::node::FeatureId;
 
 // ---------------------------------------------------------------------------
@@ -40,14 +43,18 @@ pub enum CacheStrategy {
 // BRepCache
 // ---------------------------------------------------------------------------
 
-/// Cache of intermediate BRep states, keyed by the [`FeatureId`] of the last
-/// feature that was applied to produce each snapshot.
+/// Cache of intermediate BRep states, keyed by `(config, feature_id)`.
+///
+/// Using a compound key means each named configuration stores its own
+/// independent snapshots, so switching configs never serves stale BReps built
+/// under a different set of parameter overrides.  `config = None` represents
+/// the default (no-override) state.
 #[derive(Debug, Clone)]
 pub(crate) struct BRepCache {
-    cache: HashMap<FeatureId, BRep>,
+    cache: HashMap<(Option<ConfigId>, FeatureId), BRep>,
     strategy: CacheStrategy,
     /// Tracks insertion order, oldest entry first, for LRU eviction.
-    insertion_order: VecDeque<FeatureId>,
+    insertion_order: VecDeque<(Option<ConfigId>, FeatureId)>,
 }
 
 impl Default for BRepCache {
@@ -67,17 +74,25 @@ impl BRepCache {
         }
     }
 
-    /// Return a reference to the cached BRep produced after `id`, or `None`
-    /// if no snapshot exists for that feature.
-    pub(crate) fn get(&self, id: FeatureId) -> Option<&BRep> {
-        self.cache.get(&id)
+    /// Return a reference to the cached BRep produced after `id` under `config`,
+    /// or `None` if no snapshot exists for that `(config, feature)` pair.
+    pub(crate) fn get(&self, config: Option<ConfigId>, id: FeatureId) -> Option<&BRep> {
+        self.cache.get(&(config, id))
     }
 
     /// Store a snapshot according to the current [`CacheStrategy`].
     ///
     /// `timeline_index` is the zero-based position of this feature in the
     /// timeline; it is used to decide whether to cache for `EveryNth`.
-    pub(crate) fn store(&mut self, id: FeatureId, brep: BRep, timeline_index: usize) {
+    /// The snapshot is stored under the `(config, id)` compound key so that
+    /// different configurations never share cached BReps.
+    pub(crate) fn store(
+        &mut self,
+        config: Option<ConfigId>,
+        id: FeatureId,
+        brep: BRep,
+        timeline_index: usize,
+    ) {
         let should_store = match self.strategy {
             CacheStrategy::EveryStep => true,
             CacheStrategy::EveryNth(n) => n > 0 && timeline_index.is_multiple_of(n),
@@ -89,7 +104,7 @@ impl BRepCache {
             return;
         }
 
-        self.insert(id, brep);
+        self.insert(config, id, brep);
 
         // For MemoryBudget, evict oldest entries until we are under budget.
         if let CacheStrategy::MemoryBudget { max_bytes } = self.strategy {
@@ -104,22 +119,23 @@ impl BRepCache {
     /// Store a snapshot unconditionally, regardless of the current strategy.
     ///
     /// Use this to manually pin a snapshot when using [`CacheStrategy::OnDemand`].
-    pub(crate) fn store_explicit(&mut self, id: FeatureId, brep: BRep) {
-        self.insert(id, brep);
+    /// The snapshot is keyed by `(config, id)`.
+    pub(crate) fn store_explicit(&mut self, config: Option<ConfigId>, id: FeatureId, brep: BRep) {
+        self.insert(config, id, brep);
     }
 
     /// Remove cached BReps for every feature at or after `index` in
-    /// `timeline`.
+    /// `timeline`, across **all** configurations.
     ///
     /// This is called after editing a feature so that stale downstream
-    /// snapshots are evicted, while snapshots for unaffected ancestors are
-    /// retained.
+    /// snapshots are evicted for every config, while snapshots for unaffected
+    /// ancestors are retained.
     pub(crate) fn invalidate_from(&mut self, index: usize, timeline: &[FeatureId]) {
         let to_remove: Vec<FeatureId> = timeline[index..].to_vec();
-        for id in &to_remove {
-            self.cache.remove(id);
-        }
-        self.insertion_order.retain(|id| !to_remove.contains(id));
+        // Remove entries for ANY config that match these feature ids.
+        self.cache.retain(|&(_, fid), _| !to_remove.contains(&fid));
+        self.insertion_order
+            .retain(|&(_, fid)| !to_remove.contains(&fid));
     }
 
     /// Remove all cached snapshots.
@@ -153,11 +169,12 @@ impl BRepCache {
     // -----------------------------------------------------------------------
 
     /// Insert an entry, maintaining `insertion_order`.
-    fn insert(&mut self, id: FeatureId, brep: BRep) {
-        if !self.cache.contains_key(&id) {
-            self.insertion_order.push_back(id);
+    fn insert(&mut self, config: Option<ConfigId>, id: FeatureId, brep: BRep) {
+        let key = (config, id);
+        if !self.cache.contains_key(&key) {
+            self.insertion_order.push_back(key);
         }
-        self.cache.insert(id, brep);
+        self.cache.insert(key, brep);
     }
 }
 
