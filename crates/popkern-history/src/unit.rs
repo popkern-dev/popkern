@@ -11,8 +11,16 @@ use serde::{Deserialize, Serialize};
 pub enum DimensionKind {
     /// Linear distance (meters, millimeters, inches, etc.).
     Length,
+    /// Inverse linear distance (curvature: 1/m).
+    InverseLength,
+    /// Area (m^2).
+    Area,
+    /// Volume (m^3).
+    Volume,
     /// Angular measurement (radians, degrees).
     Angle,
+    /// Second moment of area (m^4).
+    MomentOfArea,
     /// Unitless ratio, count, or boolean-like value.
     Dimensionless,
 }
@@ -37,6 +45,14 @@ pub enum Unit {
     Degrees,
     /// Dimensionless ratio or pure number.
     Ratio,
+    /// Square metres (area).
+    SquareMeters,
+    /// Cubic metres (volume).
+    CubicMeters,
+    /// Per metre (inverse length, curvature).
+    PerMeter,
+    /// Metres to the fourth power (second moment of area).
+    MetersToFourth,
 }
 
 impl Unit {
@@ -48,6 +64,10 @@ impl Unit {
             }
             Unit::Radians | Unit::Degrees => DimensionKind::Angle,
             Unit::Ratio => DimensionKind::Dimensionless,
+            Unit::SquareMeters => DimensionKind::Area,
+            Unit::CubicMeters => DimensionKind::Volume,
+            Unit::PerMeter => DimensionKind::InverseLength,
+            Unit::MetersToFourth => DimensionKind::MomentOfArea,
         }
     }
 
@@ -61,6 +81,9 @@ impl Unit {
             Unit::Radians => display_value,
             Unit::Degrees => display_value * std::f64::consts::PI / 180.0,
             Unit::Ratio => display_value,
+            Unit::SquareMeters | Unit::CubicMeters | Unit::PerMeter | Unit::MetersToFourth => {
+                display_value
+            }
         }
     }
 
@@ -74,6 +97,9 @@ impl Unit {
             Unit::Radians => si_value,
             Unit::Degrees => si_value * 180.0 / std::f64::consts::PI,
             Unit::Ratio => si_value,
+            Unit::SquareMeters | Unit::CubicMeters | Unit::PerMeter | Unit::MetersToFourth => {
+                si_value
+            }
         }
     }
 
@@ -87,6 +113,10 @@ impl Unit {
             Unit::Radians => "rad",
             Unit::Degrees => "deg",
             Unit::Ratio => "",
+            Unit::SquareMeters => "m²",
+            Unit::CubicMeters => "m³",
+            Unit::PerMeter => "1/m",
+            Unit::MetersToFourth => "m⁴",
         }
     }
 }

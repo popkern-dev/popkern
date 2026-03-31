@@ -325,6 +325,12 @@ fn mul_div_kind(lk: DimensionKind, rk: DimensionKind) -> Result<DimensionKind, H
         (Dimensionless, Dimensionless) => Ok(Dimensionless),
         (Length, Dimensionless) | (Dimensionless, Length) => Ok(Length),
         (Angle, Dimensionless) | (Dimensionless, Angle) => Ok(Angle),
+        (Area, Dimensionless) | (Dimensionless, Area) => Ok(Area),
+        (Volume, Dimensionless) | (Dimensionless, Volume) => Ok(Volume),
+        (InverseLength, Dimensionless) | (Dimensionless, InverseLength) => Ok(InverseLength),
+        (MomentOfArea, Dimensionless) | (Dimensionless, MomentOfArea) => Ok(MomentOfArea),
+        (Length, Length) => Ok(Area),
+        (Area, Length) | (Length, Area) => Ok(Volume),
         _ => Err(dim_mismatch(lk, rk)),
     }
 }

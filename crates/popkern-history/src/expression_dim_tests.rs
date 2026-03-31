@@ -109,14 +109,14 @@ fn dim_mul_dimensionless_length() {
 }
 
 #[test]
-fn dim_mul_length_length_error() {
+fn dim_mul_length_length_gives_area() {
     let mut table = ParameterTable::new();
     let a = table.add_global("a", 1.0, Unit::Meters).unwrap();
     let b = table.add_global("b", 2.0, Unit::Meters).unwrap();
-    assert!(matches!(
-        dimension_kind(&binop(param(a), BinOp::Mul, param(b)), &table),
-        Err(HistoryError::DimensionMismatch { .. })
-    ));
+    assert_eq!(
+        dimension_kind(&binop(param(a), BinOp::Mul, param(b)), &table).unwrap(),
+        DimensionKind::Area
+    );
 }
 
 #[test]
