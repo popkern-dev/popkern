@@ -4,6 +4,10 @@
 
 use std::collections::HashMap;
 
+#[cfg(test)]
+#[path = "replay_integration_tests.rs"]
+mod integration_tests;
+
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -52,6 +56,21 @@ impl FeatureTree {
                 continue;
             }
 
+            // Evaluate conditional suppression. Clone suppress_if first to
+            // release the immutable borrow on `node` before we need `self`
+            // mutably below.
+            let suppress_if = node.suppress_if.clone();
+            let auto_suppressed = suppress_if
+                .as_ref()
+                .and_then(|expr| crate::expression::evaluate(expr, &self.parameter_table).ok())
+                .map(|v| v != 0.0)
+                .unwrap_or(false);
+
+            if auto_suppressed {
+                results.insert(id, FeatureResult::Suppressed);
+                continue;
+            }
+
             let mut ctx = TrackingContext::new(node.operation_id);
             let feature = node.feature.clone();
             let body = node.body;
@@ -61,6 +80,9 @@ impl FeatureTree {
             let mut brep = body_breps
                 .remove(&body)
                 .unwrap_or_else(|| BRep::new(*tolerance));
+
+            // Snapshot BRep before execution for atomic rollback on failure.
+            let brep_backup = brep.clone();
 
             let exec_result = replay::execute_feature(
                 &mut brep,
@@ -84,6 +106,9 @@ impl FeatureTree {
                     self.cache.store(id, brep.clone(), i);
                 }
                 Err(e) => {
+                    // Atomically restore the pre-execution BRep so the body
+                    // remains in a consistent state for subsequent features.
+                    brep = brep_backup;
                     let error_msg = e.to_string();
                     results.insert(
                         id,
@@ -96,7 +121,7 @@ impl FeatureTree {
                 }
             }
 
-            // Put the BRep back (even on failure — keeps last good state).
+            // Put the BRep back (restored to backup on failure, or updated on success).
             body_breps.insert(body, brep);
         }
 

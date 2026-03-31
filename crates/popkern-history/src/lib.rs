@@ -190,6 +190,11 @@ impl FeatureTree {
     /// [`ReplayResult::feature_results`].
     pub fn replay(&mut self, tolerance: Tolerance) -> Result<ReplayResult, ReplayError> {
         let start = Instant::now();
+
+        // Phase 1: Evaluate all expression-driven parameters in topological
+        // order so that derived values are up-to-date before features run.
+        let _eval_warnings = expression::evaluate_all(&mut self.parameter_table);
+
         let end = self.rollback_index.unwrap_or(self.timeline.len());
 
         // If frozen, try to start from the cached BRep at the freeze point.
