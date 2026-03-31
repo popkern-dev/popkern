@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use slotmap::{SlotMap, new_key_type};
 
 use crate::error::HistoryError;
+use crate::expression::{Expression, expression_param_refs};
 use crate::node::FeatureId;
 use crate::unit::Unit;
 
@@ -57,11 +58,7 @@ pub struct Parameter {
     /// Display/input unit.
     pub unit: Unit,
     /// Expression driving this parameter. `None` = user-entered literal.
-    ///
-    /// NOTE: Expression type defined in a later task. This placeholder field
-    /// will be changed to `Option<Expression>` in Task 2.
-    #[serde(skip)]
-    pub expression: Option<()>,
+    pub expression: Option<Expression>,
     /// Optional min/max bounds in SI units.
     pub bounds: Option<(f64, f64)>,
     /// Whether this is a built-in read-only parameter (`pi`, `e`, `tau`).
@@ -252,12 +249,19 @@ impl ParameterTable {
 
     /// Remove a parameter and clear all expressions referencing it.
     ///
-    /// Since expressions are not yet implemented, this is identical to
-    /// [`remove`](Self::remove) but without the dependency check, and it never
-    /// fails (silently ignores invalid `id`).
+    /// Any parameter whose expression references `id` has its expression
+    /// cleared (keeping its last resolved value). Silently ignores invalid
+    /// `id`.
     pub fn remove_cascade(&mut self, id: ParameterId) {
         if self.params.get(id).is_none() {
             return;
+        }
+        // Clear expressions that reference this parameter.
+        let dependents = self.dependents(id);
+        for dep_id in dependents {
+            if let Some(param) = self.params.get_mut(dep_id) {
+                param.expression = None;
+            }
         }
         self.name_index.retain(|_, &mut v| v != id);
         self.params.remove(id);
@@ -292,11 +296,18 @@ impl ParameterTable {
     }
 
     /// Return IDs of parameters whose expressions reference this one.
-    ///
-    /// Always returns an empty [`Vec`] until expression support is added in
-    /// Task 2.
-    pub fn dependents(&self, _id: ParameterId) -> Vec<ParameterId> {
-        Vec::new()
+    pub fn dependents(&self, id: ParameterId) -> Vec<ParameterId> {
+        self.params
+            .iter()
+            .filter(|(_, param)| {
+                param
+                    .expression
+                    .as_ref()
+                    .map(|expr| expression_param_refs(expr).contains(&id))
+                    .unwrap_or(false)
+            })
+            .map(|(pid, _)| pid)
+            .collect()
     }
 
     /// Set the value of a parameter.
@@ -333,6 +344,35 @@ impl ParameterTable {
         param.value = unit.to_si(value);
         param.unit = unit;
         Ok(())
+    }
+
+    /// Set the expression driving a parameter.
+    ///
+    /// # Errors
+    ///
+    /// - [`HistoryError::FeatureNotFound`] if `id` is invalid.
+    /// - [`HistoryError::ReadOnlyParameter`] if the parameter is read-only.
+    pub fn set_expression(
+        &mut self,
+        id: ParameterId,
+        expr: Expression,
+    ) -> Result<(), HistoryError> {
+        let param = self
+            .params
+            .get_mut(id)
+            .ok_or(HistoryError::FeatureNotFound)?;
+        if param.read_only {
+            return Err(HistoryError::ReadOnlyParameter);
+        }
+        param.expression = Some(expr);
+        Ok(())
+    }
+
+    /// Clear the expression on a parameter, leaving its current value.
+    pub fn clear_expression(&mut self, id: ParameterId) {
+        if let Some(param) = self.params.get_mut(id) {
+            param.expression = None;
+        }
     }
 
     /// Set optional min/max bounds (in SI units) on a parameter.
