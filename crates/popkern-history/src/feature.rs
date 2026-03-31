@@ -5,6 +5,7 @@
 //! so that references survive rollback and tree reordering.
 
 use crate::node::BodyId;
+use crate::parameter::ParameterId;
 use popkern_core::naming::EntityName;
 use serde::{Deserialize, Serialize};
 
@@ -29,22 +30,22 @@ pub enum Feature {
         face: EntityName,
         /// Direction of extrusion.
         direction: Vec3Desc,
-        /// Distance to extrude.
-        distance: f64,
+        /// Distance to extrude (resolved via parameter table).
+        distance: ParameterId,
     },
     /// Round one or more edges with a constant radius.
     Fillet {
         /// The edges to fillet, identified by stable name.
         edges: Vec<EntityName>,
-        /// Fillet radius.
-        radius: f64,
+        /// Fillet radius (resolved via parameter table).
+        radius: ParameterId,
     },
     /// Chamfer one or more edges with a constant distance.
     Chamfer {
         /// The edges to chamfer, identified by stable name.
         edges: Vec<EntityName>,
-        /// Chamfer distance.
-        distance: f64,
+        /// Chamfer distance (resolved via parameter table).
+        distance: ParameterId,
     },
     /// Boolean set operation combining the current body with a tool body.
     Boolean {
@@ -57,8 +58,8 @@ pub enum Feature {
     Shell {
         /// Faces to remove (the "opening"), identified by stable name.
         faces_to_remove: Vec<EntityName>,
-        /// Wall thickness.
-        thickness: f64,
+        /// Wall thickness (resolved via parameter table).
+        thickness: ParameterId,
         /// Direction to offset the shell.
         direction: ShellDirectionKind,
     },
@@ -66,8 +67,8 @@ pub enum Feature {
     Draft {
         /// Faces to draft, identified by stable name.
         faces: Vec<EntityName>,
-        /// Draft angle in radians.
-        angle: f64,
+        /// Draft angle in radians (resolved via parameter table).
+        angle: ParameterId,
         /// Neutral plane face, identified by stable name.
         neutral_plane: EntityName,
     },
@@ -77,8 +78,8 @@ pub enum Feature {
         face: EntityName,
         /// The edge whose curve defines the sweep path.
         path_edge: EntityName,
-        /// Twist angle applied along the sweep (radians).
-        twist: f64,
+        /// Twist angle applied along the sweep (resolved via parameter table).
+        twist: ParameterId,
     },
     /// Loft through multiple cross-section faces.
     Loft {
@@ -91,8 +92,8 @@ pub enum Feature {
     Pipe {
         /// The edge whose curve defines the pipe path.
         path_edge: EntityName,
-        /// Pipe radius.
-        radius: f64,
+        /// Pipe radius (resolved via parameter table).
+        radius: ParameterId,
     },
     /// Revolve a face around an axis.
     Revolve {
@@ -102,8 +103,8 @@ pub enum Feature {
         axis_origin: [f64; 3],
         /// Axis direction in world coordinates.
         axis_direction: [f64; 3],
-        /// Revolution angle in radians (2π for full revolution).
-        angle: f64,
+        /// Revolution angle in radians (resolved via parameter table).
+        angle: ParameterId,
     },
 }
 
@@ -118,8 +119,9 @@ pub enum SketchPlaneDesc {
     YZ,
     /// A planar face in the model, referenced by stable name.
     OnFace(EntityName),
-    /// A plane offset from a model face by the given distance.
-    OnFaceOffset(EntityName, f64),
+    /// A plane offset from a model face by the given distance (resolved via
+    /// parameter table).
+    OnFaceOffset(EntityName, ParameterId),
     /// An arbitrary plane defined by an origin point and a unit normal.
     Custom {
         /// Plane origin in world space.
@@ -149,6 +151,33 @@ pub enum BoolOpKind {
     Intersection,
     /// Subtract the tool body from the target.
     Subtraction,
+}
+
+/// Extract all [`ParameterId`] fields from a [`Feature`] with their field names.
+///
+/// Used for automatic scope assignment and qualified-name indexing when a
+/// feature is inserted into the timeline.
+pub(crate) fn feature_param_ids(feature: &Feature) -> Vec<(&str, ParameterId)> {
+    let mut ids = match feature {
+        Feature::Extrude { distance, .. } => vec![("distance", *distance)],
+        Feature::Fillet { radius, .. } => vec![("radius", *radius)],
+        Feature::Chamfer { distance, .. } => vec![("distance", *distance)],
+        Feature::Shell { thickness, .. } => vec![("thickness", *thickness)],
+        Feature::Draft { angle, .. } => vec![("angle", *angle)],
+        Feature::Sweep { twist, .. } => vec![("twist", *twist)],
+        Feature::Pipe { radius, .. } => vec![("radius", *radius)],
+        Feature::Revolve { angle, .. } => vec![("angle", *angle)],
+        Feature::Sketch { .. } | Feature::Boolean { .. } | Feature::Loft { .. } => vec![],
+    };
+    // Handle SketchPlaneDesc::OnFaceOffset parameter.
+    if let Feature::Sketch {
+        plane: SketchPlaneDesc::OnFaceOffset(_, offset_id),
+        ..
+    } = feature
+    {
+        ids.push(("offset", *offset_id));
+    }
+    ids
 }
 
 /// Shell offset direction.

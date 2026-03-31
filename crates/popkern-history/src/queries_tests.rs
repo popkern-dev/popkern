@@ -2,6 +2,8 @@
 #[cfg(test)]
 use crate::FeatureTree;
 use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+use crate::parameter::ParameterId;
+use crate::unit::Unit;
 use popkern_core::naming::{EntityName, EntityRole, NameId, OperationId, RoleCategory};
 
 /// Build an [`EntityName`] referencing a given raw operation id.
@@ -30,6 +32,12 @@ fn sketch_xz() -> Feature {
     }
 }
 
+fn add_param(tree: &mut FeatureTree, name: &str, value: f64, unit: Unit) -> ParameterId {
+    tree.parameters_mut()
+        .add_global(name, value, unit)
+        .expect("add param")
+}
+
 // ---------------------------------------------------------------------------
 // 1. dependents(A) returns B and C when A → B → C
 // ---------------------------------------------------------------------------
@@ -41,20 +49,24 @@ fn dependents_returns_transitive_downstream() {
     let a = tree.add_feature(sketch_xy(), "A");
     let a_op = tree.feature(a).unwrap().operation_id;
 
+    let dist_b = add_param(&mut tree, "_b_distance", 5.0, Unit::Meters);
+
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 5.0,
+            distance: dist_b,
         },
         "B",
     );
     let b_op = tree.feature(b).unwrap().operation_id;
 
+    let radius_c = add_param(&mut tree, "_c_radius", 1.0, Unit::Meters);
+
     let c = tree.add_feature(
         Feature::Fillet {
             edges: vec![entity_name(b_op.0)],
-            radius: 1.0,
+            radius: radius_c,
         },
         "C",
     );
@@ -77,11 +89,14 @@ fn dependents_empty_for_leaf_feature() {
     let mut tree = FeatureTree::new();
     let a = tree.add_feature(sketch_xy(), "A");
     let a_op = tree.feature(a).unwrap().operation_id;
+
+    let dist_b = add_param(&mut tree, "_b_distance", 5.0, Unit::Meters);
+
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 5.0,
+            distance: dist_b,
         },
         "B",
     );
@@ -101,20 +116,24 @@ fn dependents_in_timeline_order() {
     let a = tree.add_feature(sketch_xy(), "A");
     let a_op = tree.feature(a).unwrap().operation_id;
 
+    let dist_b = add_param(&mut tree, "_b_distance", 5.0, Unit::Meters);
+
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 5.0,
+            distance: dist_b,
         },
         "B",
     );
     let b_op = tree.feature(b).unwrap().operation_id;
 
+    let radius_c = add_param(&mut tree, "_c_radius", 1.0, Unit::Meters);
+
     let c = tree.add_feature(
         Feature::Fillet {
             edges: vec![entity_name(b_op.0)],
-            radius: 1.0,
+            radius: radius_c,
         },
         "C",
     );
@@ -137,20 +156,24 @@ fn dependencies_returns_direct_parents() {
     let a = tree.add_feature(sketch_xy(), "A");
     let a_op = tree.feature(a).unwrap().operation_id;
 
+    let dist_b = add_param(&mut tree, "_b_distance", 5.0, Unit::Meters);
+
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 5.0,
+            distance: dist_b,
         },
         "B",
     );
     let b_op = tree.feature(b).unwrap().operation_id;
 
+    let radius_c = add_param(&mut tree, "_c_radius", 1.0, Unit::Meters);
+
     let c = tree.add_feature(
         Feature::Fillet {
             edges: vec![entity_name(b_op.0)],
-            radius: 1.0,
+            radius: radius_c,
         },
         "C",
     );
@@ -200,20 +223,24 @@ fn impact_analysis_will_rebuild_matches_dependents() {
     let a = tree.add_feature(sketch_xy(), "A");
     let a_op = tree.feature(a).unwrap().operation_id;
 
+    let dist_b = add_param(&mut tree, "_b_distance", 5.0, Unit::Meters);
+
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 5.0,
+            distance: dist_b,
         },
         "B",
     );
     let b_op = tree.feature(b).unwrap().operation_id;
 
+    let radius_c = add_param(&mut tree, "_c_radius", 1.0, Unit::Meters);
+
     let c = tree.add_feature(
         Feature::Fillet {
             edges: vec![entity_name(b_op.0)],
-            radius: 1.0,
+            radius: radius_c,
         },
         "C",
     );
@@ -249,12 +276,14 @@ fn impact_analysis_at_risk_empty_without_cached_result() {
     let a = tree.add_feature(sketch_xy(), "A");
     let a_op = tree.feature(a).unwrap().operation_id;
 
+    let dist_b = add_param(&mut tree, "_b_distance", 5.0, Unit::Meters);
+
     // B depends on A but A has no cached result (never replayed).
     let _b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 5.0,
+            distance: dist_b,
         },
         "B",
     );
@@ -277,11 +306,14 @@ fn dependents_does_not_cross_roots() {
     // Root 1
     let a = tree.add_feature(sketch_xy(), "A");
     let a_op = tree.feature(a).unwrap().operation_id;
+
+    let dist_b = add_param(&mut tree, "_b_distance", 5.0, Unit::Meters);
+
     let _b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 5.0,
+            distance: dist_b,
         },
         "B",
     );

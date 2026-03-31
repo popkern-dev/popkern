@@ -402,6 +402,17 @@ impl ParameterTable {
             .map(|(k, _)| k.clone())
     }
 
+    /// Update the name-index entry for a parameter to a new qualified name.
+    ///
+    /// Removes any existing index entry that points to `id`, then inserts the
+    /// new `qualified_name` -> `id` mapping.  Used internally during feature
+    /// parameter registration.
+    pub(crate) fn update_name_index(&mut self, id: ParameterId, qualified_name: &str) {
+        // Remove old key(s) pointing to this id.
+        self.name_index.retain(|_, &mut v| v != id);
+        self.name_index.insert(qualified_name.to_string(), id);
+    }
+
     /// Rename all parameters scoped to a feature when the feature is renamed.
     ///
     /// Updates every key in `name_index` that starts with `"<old_label>."` to

@@ -14,8 +14,9 @@ use slotmap::SlotMap;
 use crate::FeatureTree;
 use crate::body::BodyManager;
 use crate::error::HistoryError;
-use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc, feature_param_ids};
 use crate::node::{BodyId, FeatureId, FeatureNode};
+use crate::parameter::{ParamScope, ParameterTable};
 use crate::undo::TreeCommand;
 
 // ---------------------------------------------------------------------------
@@ -155,6 +156,31 @@ fn resolve_body(
 }
 
 // ---------------------------------------------------------------------------
+// Parameter registration
+// ---------------------------------------------------------------------------
+
+/// Update parameter scopes and register qualified names after feature insertion.
+fn register_feature_params(
+    table: &mut ParameterTable,
+    feature: &Feature,
+    feature_id: FeatureId,
+    label: &str,
+) {
+    let param_fields = feature_param_ids(feature);
+    let prefix = label.to_lowercase().replace(' ', "_");
+    for (field_name, param_id) in param_fields {
+        if let Some(param) = table.get_mut(param_id) {
+            param.scope = ParamScope::Feature(feature_id);
+            param.name = field_name.to_string();
+        }
+        // Update name_index with qualified name.
+        let qualified = format!("{prefix}.{field_name}");
+        // Remove old entry if one exists for this param_id.
+        table.update_name_index(param_id, &qualified);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // FeatureTree methods
 // ---------------------------------------------------------------------------
 
@@ -190,13 +216,18 @@ impl FeatureTree {
             depends_on,
             suppressed: false,
             body,
+            suppress_if: None,
             last_result: None,
         };
 
+        let feature_clone = node.feature.clone();
         let id = self.features.insert(node);
         self.timeline.push(id);
         self.body_manager.assign_feature(body, id);
         self.op_index.insert(op_id, id);
+
+        // Register parameter scopes and qualified names.
+        register_feature_params(&mut self.parameter_table, &feature_clone, id, label);
 
         let index = self.timeline.len() - 1;
         self.record_undo(TreeCommand::AddFeature {
@@ -266,13 +297,18 @@ impl FeatureTree {
             depends_on,
             suppressed: false,
             body,
+            suppress_if: None,
             last_result: None,
         };
 
+        let feature_clone = node.feature.clone();
         let id = self.features.insert(node);
         self.timeline.insert(index, id);
         self.body_manager.assign_feature(body, id);
         self.op_index.insert(op_id, id);
+
+        // Register parameter scopes and qualified names.
+        register_feature_params(&mut self.parameter_table, &feature_clone, id, label);
 
         self.record_undo(TreeCommand::AddFeature {
             id,

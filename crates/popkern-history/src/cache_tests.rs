@@ -8,6 +8,8 @@ use crate::cache::CacheStrategy;
 use crate::error::FeatureResult;
 use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
 use crate::node::FeatureId;
+use crate::parameter::ParameterId;
+use crate::unit::Unit;
 use popkern_core::naming::{EntityName, EntityRole, OperationId, RoleCategory};
 
 // ---------------------------------------------------------------------------
@@ -40,6 +42,12 @@ fn entity_name(op_id: u64, category: RoleCategory, index: u32) -> EntityName {
     }
 }
 
+fn add_param(tree: &mut FeatureTree, name: &str, value: f64, unit: Unit) -> ParameterId {
+    tree.parameters_mut()
+        .add_global(name, value, unit)
+        .expect("add param")
+}
+
 /// Build a tree with one sketch + one extrude, replay, return the tree and
 /// both feature ids.
 fn build_sketch_extrude_tree() -> (FeatureTree, FeatureId, FeatureId) {
@@ -57,11 +65,13 @@ fn build_sketch_extrude_tree() -> (FeatureTree, FeatureId, FeatureId) {
     // Replay sketch first to discover what entity names it produced.
     tree.replay(Tolerance::default()).expect("sketch replay");
 
+    let dist_param = add_param(&mut tree, "_extrude1_distance", 1.0, Unit::Meters);
+
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 1.0,
+            distance: dist_param,
         },
         "Extrude 1",
     );
@@ -131,11 +141,13 @@ fn memory_budget_evicts_oldest() {
 
     tree.replay(Tolerance::default()).expect("sketch replay");
 
+    let dist_param = add_param(&mut tree, "_extrude1_distance", 1.0, Unit::Meters);
+
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 1.0,
+            distance: dist_param,
         },
         "Extrude 1",
     );
@@ -222,11 +234,13 @@ fn every_nth_caches_only_matching_indices() {
 
     tree.replay(Tolerance::default()).expect("replay s1");
 
+    let dist_param = add_param(&mut tree, "_extrude1_distance", 1.0, Unit::Meters);
+
     let e1 = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 1.0,
+            distance: dist_param,
         },
         "Extrude 1",
     );

@@ -9,7 +9,7 @@ use popkern_core::naming::{EntityName, EntityRole, OperationId, RoleCategory};
 use popkern_core::tolerance::Tolerance;
 use popkern_history::*;
 
-// ── Helpers ──────────────────────────────────────────────────────────────
+// -- Helpers ------------------------------------------------------------------
 
 /// Solved 1x1 rectangle sketch serialized to JSON.
 fn rectangle_sketch_json() -> String {
@@ -43,6 +43,12 @@ fn sketch_face_name(op_id: u64) -> EntityName {
     entity_name(op_id, RoleCategory::Generated, 0)
 }
 
+fn add_param(tree: &mut FeatureTree, name: &str, value: f64, unit: Unit) -> ParameterId {
+    tree.parameters_mut()
+        .add_global(name, value, unit)
+        .expect("add param")
+}
+
 /// Sketch + extrude tree. Returns (tree, sketch_id, extrude_id).
 fn build_sketch_extrude(distance: f64) -> (FeatureTree, FeatureId, FeatureId) {
     let mut tree = FeatureTree::new();
@@ -53,11 +59,12 @@ fn build_sketch_extrude(distance: f64) -> (FeatureTree, FeatureId, FeatureId) {
         },
         "Sketch1",
     );
+    let dist_param = add_param(&mut tree, "_extrude1_distance", distance, Unit::Meters);
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: sketch_face_name(1),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance,
+            distance: dist_param,
         },
         "Extrude1",
     );
@@ -68,16 +75,16 @@ fn build_sketch_extrude(distance: f64) -> (FeatureTree, FeatureId, FeatureId) {
 fn find_named_edge(tree: &FeatureTree) -> EntityName {
     let brep = tree.current_brep().expect("brep should exist");
     for (_h, edge) in &brep.edges {
-        if let Some(nid) = edge.name {
-            if let Some(name) = brep.name_pool.get(nid) {
-                return name.clone();
-            }
+        if let Some(nid) = edge.name
+            && let Some(name) = brep.name_pool.get(nid)
+        {
+            return name.clone();
         }
     }
     panic!("no named edge found in BRep");
 }
 
-// ── 1. Sketch -> extrude -> fillet pipeline ─────────────────────────────
+// -- 1. Sketch -> extrude -> fillet pipeline ---------------------------------
 
 #[test]
 fn sketch_extrude_fillet_pipeline() {
@@ -86,10 +93,11 @@ fn sketch_extrude_fillet_pipeline() {
     assert_eq!(tree.current_brep().unwrap().faces.len(), 6);
 
     let edge_name = find_named_edge(&tree);
+    let radius_param = add_param(&mut tree, "_fillet1_radius", 0.1, Unit::Meters);
     let fillet_id = tree.add_feature(
         Feature::Fillet {
             edges: vec![edge_name],
-            radius: 0.1,
+            radius: radius_param,
         },
         "Fillet1",
     );
@@ -112,7 +120,7 @@ fn sketch_extrude_fillet_pipeline() {
     assert!(tree.current_brep().unwrap().faces.len() >= 6);
 }
 
-// ── 2. Modify extrude distance -> rebuild ───────────────────────────────
+// -- 2. Modify extrude distance -> rebuild -----------------------------------
 
 #[test]
 fn modify_extrude_distance_and_rebuild() {
@@ -120,12 +128,14 @@ fn modify_extrude_distance_and_rebuild() {
     tree.replay(Tolerance::default()).expect("replay");
     assert_eq!(tree.current_brep().unwrap().faces.len(), 6);
 
+    let new_dist_param = add_param(&mut tree, "_extrude1_distance_v2", 2.0, Unit::Meters);
+
     tree.modify_feature(
         extrude_id,
         Feature::Extrude {
             face: sketch_face_name(1),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 2.0,
+            distance: new_dist_param,
         },
     );
     tree.replay_from(extrude_id, Tolerance::default())
@@ -144,7 +154,7 @@ fn modify_extrude_distance_and_rebuild() {
     );
 }
 
-// ── 3. Timeline scrubbing with brep_at ──────────────────────────────────
+// -- 3. Timeline scrubbing with brep_at --------------------------------------
 
 #[test]
 fn timeline_scrubbing() {
@@ -153,14 +163,14 @@ fn timeline_scrubbing() {
 
     // After sketch: flat face.
     let brep1 = tree.brep_at(1, tol).expect("brep_at(1)");
-    assert!(brep1.faces.len() >= 1 && brep1.faces.len() < 6);
+    assert!(!brep1.faces.is_empty() && brep1.faces.len() < 6);
 
     // After extrude: box.
     let brep2 = tree.brep_at(2, tol).expect("brep_at(2)");
     assert_eq!(brep2.faces.len(), 6);
 }
 
-// ── 4. Rollback + insert ────────────────────────────────────────────────
+// -- 4. Rollback + insert ----------------------------------------------------
 
 #[test]
 fn rollback_and_insert_feature() {
@@ -199,7 +209,7 @@ fn rollback_and_insert_feature() {
     assert!(tree.feature(ins).unwrap().last_result.is_some());
 }
 
-// ── 5. Delete cascade ───────────────────────────────────────────────────
+// -- 5. Delete cascade -------------------------------------------------------
 
 #[test]
 fn delete_extrude_cascades() {
@@ -207,10 +217,11 @@ fn delete_extrude_cascades() {
     tree.replay(Tolerance::default()).expect("replay");
 
     let edge_name = find_named_edge(&tree);
+    let radius_param = add_param(&mut tree, "_fillet1_radius", 0.1, Unit::Meters);
     let _fillet_id = tree.add_feature(
         Feature::Fillet {
             edges: vec![edge_name],
-            radius: 0.1,
+            radius: radius_param,
         },
         "Fillet1",
     );
@@ -226,7 +237,7 @@ fn delete_extrude_cascades() {
     assert!(tree.current_brep().unwrap().faces.len() < 6);
 }
 
-// ── 6. Suppress / unsuppress ────────────────────────────────────────────
+// -- 6. Suppress / unsuppress ------------------------------------------------
 
 #[test]
 fn suppress_and_unsuppress_extrude() {
@@ -245,7 +256,7 @@ fn suppress_and_unsuppress_extrude() {
     assert_eq!(tree.current_brep().unwrap().faces.len(), 6);
 }
 
-// ── 7. Save / load round-trip ───────────────────────────────────────────
+// -- 7. Save / load round-trip -----------------------------------------------
 
 #[test]
 fn save_load_round_trip() {
@@ -263,16 +274,17 @@ fn save_load_round_trip() {
     assert_eq!(loaded.timeline().len(), orig_len);
 }
 
-// ── 8. Broken reference -> Failed ───────────────────────────────────────
+// -- 8. Broken reference -> Failed -------------------------------------------
 
 #[test]
 fn broken_reference_produces_failed() {
     let (mut tree, _sk, extrude_id) = build_sketch_extrude(1.0);
     let bogus = entity_name(99, RoleCategory::Lateral, 0);
+    let radius_param = add_param(&mut tree, "_broken_fillet_radius", 0.1, Unit::Meters);
     let fillet_id = tree.add_feature(
         Feature::Fillet {
             edges: vec![bogus],
-            radius: 0.1,
+            radius: radius_param,
         },
         "BrokenFillet",
     );
@@ -299,7 +311,7 @@ fn broken_reference_produces_failed() {
     );
 }
 
-// ── 9. Tree undo / redo ─────────────────────────────────────────────────
+// -- 9. Tree undo / redo -----------------------------------------------------
 
 #[test]
 fn tree_undo_redo() {
@@ -321,7 +333,7 @@ fn tree_undo_redo() {
     assert_eq!(tree.current_brep().unwrap().faces.len(), 6);
 }
 
-// ── 10. Dependency and impact queries ───────────────────────────────────
+// -- 10. Dependency and impact queries ---------------------------------------
 
 #[test]
 fn dependency_and_impact_queries() {
@@ -329,10 +341,11 @@ fn dependency_and_impact_queries() {
     tree.replay(Tolerance::default()).expect("replay");
 
     let edge_name = find_named_edge(&tree);
+    let radius_param = add_param(&mut tree, "_fillet1_radius", 0.1, Unit::Meters);
     let fillet_id = tree.add_feature(
         Feature::Fillet {
             edges: vec![edge_name],
-            radius: 0.1,
+            radius: radius_param,
         },
         "Fillet1",
     );
@@ -348,7 +361,7 @@ fn dependency_and_impact_queries() {
     );
 }
 
-// ── 11. Multiple sketches create separate bodies ────────────────────────
+// -- 11. Multiple sketches create separate bodies ----------------------------
 
 #[test]
 fn multiple_sketches_create_separate_bodies() {
@@ -373,10 +386,10 @@ fn multiple_sketches_create_separate_bodies() {
     );
 
     tree.replay(Tolerance::default()).expect("replay");
-    assert!(tree.current_brep().unwrap().faces.len() >= 1);
+    assert!(!tree.current_brep().unwrap().faces.is_empty());
 }
 
-// ── 12. Save/load preserves rollback index ──────────────────────────────
+// -- 12. Save/load preserves rollback index ----------------------------------
 
 #[test]
 fn save_load_preserves_rollback_index() {
@@ -388,3 +401,5 @@ fn save_load_preserves_rollback_index() {
     let loaded = FeatureTree::load(&bytes).expect("load");
     assert_eq!(loaded.rollback_position(), Some(1));
 }
+
+// Multi-body and Boolean integration tests are in multi_body.rs.

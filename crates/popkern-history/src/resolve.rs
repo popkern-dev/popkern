@@ -14,6 +14,7 @@ use popkern_sketch::SketchPlane;
 
 use crate::error::ReplayError;
 use crate::feature::{SketchPlaneDesc, Vec3Desc};
+use crate::parameter::{ParameterId, ParameterTable};
 
 /// Resolve an [`EntityName`] to a [`FaceHandle`].
 ///
@@ -100,10 +101,22 @@ pub(crate) fn resolve_faces(
     Ok(faces)
 }
 
+/// Resolve a [`ParameterId`] to its `f64` value via the parameter table.
+fn resolve_param(table: &ParameterTable, id: ParameterId) -> Result<f64, ReplayError> {
+    table
+        .get(id)
+        .map(|p| p.value)
+        .ok_or_else(|| ReplayError::FeatureFailed {
+            label: "parameter".into(),
+            error: format!("parameter {id:?} not found"),
+        })
+}
+
 /// Resolve a [`SketchPlaneDesc`] to a concrete [`SketchPlane`].
 pub(crate) fn resolve_sketch_plane(
     desc: &SketchPlaneDesc,
     brep: &BRep,
+    param_table: &ParameterTable,
 ) -> Result<SketchPlane, ReplayError> {
     match desc {
         SketchPlaneDesc::XY => Ok(SketchPlane::xy()),
@@ -116,9 +129,10 @@ pub(crate) fn resolve_sketch_plane(
                 error: e.to_string(),
             })
         }
-        SketchPlaneDesc::OnFaceOffset(name, dist) => {
+        SketchPlaneDesc::OnFaceOffset(name, offset_param) => {
             let face = resolve_face(name, brep)?;
-            SketchPlane::from_face_offset(brep, face, *dist).map_err(|e| {
+            let offset = resolve_param(param_table, *offset_param)?;
+            SketchPlane::from_face_offset(brep, face, offset).map_err(|e| {
                 ReplayError::FeatureFailed {
                     label: "sketch plane".into(),
                     error: e.to_string(),

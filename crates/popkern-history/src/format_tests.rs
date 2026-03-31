@@ -36,10 +36,10 @@ fn test_literal_with_deg_unit() {
 #[test]
 fn test_literal_bare() {
     let t = ParameterTable::new();
-    let expr = Expression::Literal(3.14);
+    let expr = Expression::Literal(3.125);
     let s = format_expression(&expr, &t);
     // Should be a reasonable number representation.
-    assert!(s.starts_with("3.14"), "got: {s}");
+    assert!(s.starts_with("3.125"), "got: {s}");
 }
 
 #[test]
@@ -64,7 +64,6 @@ fn test_param_name() {
 
 #[test]
 fn test_param_unknown() {
-    use slotmap::SlotMap;
     // Build a table and extract a valid id, then use a fresh table that doesn't have it.
     let mut t1 = ParameterTable::new();
     let _ = t1.add_global("x", 1.0, Unit::Ratio).unwrap();

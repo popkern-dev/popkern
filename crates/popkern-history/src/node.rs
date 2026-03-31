@@ -5,6 +5,7 @@
 //! by the tree: dependencies, suppression state, cached result, etc.
 
 use crate::error::FeatureResult;
+use crate::expression::Expression;
 use crate::feature::Feature;
 use popkern_core::naming::OperationId;
 use serde::{Deserialize, Serialize};
@@ -40,6 +41,10 @@ pub struct FeatureNode {
     pub suppressed: bool,
     /// Which body this feature belongs to / operates on.
     pub body: BodyId,
+    /// Auto-suppress condition. When this expression evaluates to non-zero,
+    /// the feature is skipped during replay.
+    #[serde(default)]
+    pub suppress_if: Option<Expression>,
     /// Cached outcome of the most recent evaluation, or `None` if the node
     /// has never been evaluated.
     ///

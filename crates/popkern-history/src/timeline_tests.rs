@@ -1,6 +1,8 @@
 // Structural lint marker: this file is test code, included via #[path] under #[cfg(test)].
 #[cfg(test)]
 use super::*;
+use crate::parameter::ParameterId;
+use crate::unit::Unit;
 use popkern_core::naming::{EntityName, EntityRole, NameId, OperationId, RoleCategory};
 
 /// Helper: create an EntityName referencing a given OperationId.
@@ -13,6 +15,13 @@ fn entity_name(op_id: u64) -> EntityName {
         },
         ancestors: vec![NameId(0)],
     }
+}
+
+/// Helper: add a global parameter to the tree and return its id.
+fn add_param(tree: &mut crate::FeatureTree, name: &str, value: f64, unit: Unit) -> ParameterId {
+    tree.parameters_mut()
+        .add_global(name, value, unit)
+        .expect("add param")
 }
 
 #[test]
@@ -57,12 +66,14 @@ fn auto_dependency_extrude_references_sketch() {
         "Sketch 1",
     );
 
+    let dist_param = add_param(&mut tree, "_extrude1_distance", 10.0, Unit::Meters);
+
     // Extrude references a face created by OperationId(1).
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1), // references the sketch's OperationId
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 10.0,
+            distance: dist_param,
         },
         "Extrude 1",
     );
@@ -121,6 +132,8 @@ fn insert_with_dependency_after_insert_point_fails() {
         "Sketch 1",
     );
 
+    let dist_param = add_param(&mut tree, "_bad_extrude_distance", 10.0, Unit::Meters);
+
     // Try to insert an Extrude that depends on the sketch at position 0
     // (before the sketch).
     let result = tree.insert_feature_at(
@@ -128,7 +141,7 @@ fn insert_with_dependency_after_insert_point_fails() {
         Feature::Extrude {
             face: entity_name(1),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 10.0,
+            distance: dist_param,
         },
         "Extrude 1",
     );
@@ -152,12 +165,14 @@ fn reorder_violating_dependency_fails() {
         "Sketch 1",
     );
 
+    let dist_param = add_param(&mut tree, "_extrude1_distance", 10.0, Unit::Meters);
+
     // Extrude depends on sketch (OperationId(1)).
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 10.0,
+            distance: dist_param,
         },
         "Extrude 1",
     );
@@ -207,10 +222,12 @@ fn timeline_returns_correct_slice() {
 
 #[test]
 fn feature_entity_names_extracts_all_variants() {
+    let dummy_id = ParameterId::default();
+
     // Fillet: should extract edges
     let f = Feature::Fillet {
         edges: vec![entity_name(1), entity_name(2)],
-        radius: 1.0,
+        radius: dummy_id,
     };
     let names = feature_entity_names(&f);
     assert_eq!(names.len(), 2);
@@ -227,7 +244,7 @@ fn feature_entity_names_extracts_all_variants() {
     // Draft: faces + neutral_plane
     let f = Feature::Draft {
         faces: vec![entity_name(3)],
-        angle: 0.1,
+        angle: dummy_id,
         neutral_plane: entity_name(4),
     };
     let names = feature_entity_names(&f);
@@ -246,7 +263,7 @@ fn feature_entity_names_extracts_all_variants() {
     let f = Feature::Extrude {
         face: entity_name(6),
         direction: Vec3Desc::FaceNormal(entity_name(7)),
-        distance: 5.0,
+        distance: dummy_id,
     };
     let names = feature_entity_names(&f);
     assert_eq!(names.len(), 2);
@@ -254,7 +271,7 @@ fn feature_entity_names_extracts_all_variants() {
     // Shell
     let f = Feature::Shell {
         faces_to_remove: vec![entity_name(8), entity_name(9)],
-        thickness: 1.0,
+        thickness: dummy_id,
         direction: crate::feature::ShellDirectionKind::Inward,
     };
     let names = feature_entity_names(&f);
@@ -274,11 +291,13 @@ fn reorder_dependent_before_feature_fails() {
         "Sketch 1",
     );
 
+    let dist_param = add_param(&mut tree, "_extrude1_distance", 10.0, Unit::Meters);
+
     let _extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 10.0,
+            distance: dist_param,
         },
         "Extrude 1",
     );
@@ -302,10 +321,11 @@ fn vec3_desc_negated_recurses() {
 
 #[test]
 fn sweep_entity_names_extracts_face_and_path() {
+    let dummy_id = ParameterId::default();
     let f = Feature::Sweep {
         face: entity_name(1),
         path_edge: entity_name(2),
-        twist: 0.0,
+        twist: dummy_id,
     };
     let names = feature_entity_names(&f);
     assert_eq!(names.len(), 2);
@@ -328,9 +348,10 @@ fn loft_entity_names_extracts_all_sections() {
 
 #[test]
 fn pipe_entity_names_extracts_path_edge() {
+    let dummy_id = ParameterId::default();
     let f = Feature::Pipe {
         path_edge: entity_name(5),
-        radius: 1.0,
+        radius: dummy_id,
     };
     let names = feature_entity_names(&f);
     assert_eq!(names.len(), 1);
@@ -339,11 +360,12 @@ fn pipe_entity_names_extracts_path_edge() {
 
 #[test]
 fn revolve_entity_names_extracts_face() {
+    let dummy_id = ParameterId::default();
     let f = Feature::Revolve {
         face: entity_name(7),
         axis_origin: [0.0, 0.0, 0.0],
         axis_direction: [0.0, 0.0, 1.0],
-        angle: std::f64::consts::TAU,
+        angle: dummy_id,
     };
     let names = feature_entity_names(&f);
     assert_eq!(names.len(), 1);

@@ -8,6 +8,8 @@ use crate::FeatureTree;
 use crate::error::FeatureResult;
 use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
 use crate::node::FeatureId;
+use crate::parameter::ParameterId;
+use crate::unit::Unit;
 
 /// Create a solved rectangle sketch and serialize it to JSON.
 fn rectangle_sketch_json() -> String {
@@ -41,6 +43,13 @@ fn entity_name(op_id: u64, category: RoleCategory, index: u32) -> EntityName {
     }
 }
 
+/// Helper: add a global parameter to the tree and return its id.
+fn add_param(tree: &mut FeatureTree, name: &str, value: f64, unit: Unit) -> ParameterId {
+    tree.parameters_mut()
+        .add_global(name, value, unit)
+        .expect("add param")
+}
+
 // ---------------------------------------------------------------------------
 // Test 1: Sketch replay produces a valid BRep
 // ---------------------------------------------------------------------------
@@ -63,7 +72,7 @@ fn sketch_replay_produces_faces() {
         .expect("replay should succeed");
 
     // The sketch should succeed.
-    for (_, outcome) in &result.feature_results {
+    for outcome in result.feature_results.values() {
         assert!(
             matches!(outcome, FeatureResult::Success { .. }),
             "sketch should succeed, got: {outcome:?}"
@@ -72,7 +81,7 @@ fn sketch_replay_produces_faces() {
 
     // The resulting BRep should have geometry (a rectangle has 2 faces).
     let brep = tree.current_brep().expect("brep should exist");
-    assert!(brep.faces.len() >= 1, "expected at least 1 face");
+    assert!(!brep.faces.is_empty(), "expected at least 1 face");
     assert!(brep.edges.len() >= 4, "expected at least 4 edges");
     assert!(brep.vertices.len() >= 4, "expected at least 4 vertices");
 }
@@ -103,12 +112,14 @@ fn sketch_and_extrude_replay_produces_box() {
     // Find a face to extrude.
     let face_name = entity_name(1, RoleCategory::Generated, 0);
 
+    let dist_param = add_param(&mut tree, "_extrude1_distance", 1.0, Unit::Meters);
+
     // Add extrude — gets OperationId(2).
     tree.add_feature(
         Feature::Extrude {
             face: face_name,
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 1.0,
+            distance: dist_param,
         },
         "Extrude 1",
     );
@@ -146,11 +157,13 @@ fn suppressed_feature_is_skipped() {
         "Sketch 1",
     );
 
+    let dist_param = add_param(&mut tree, "_extrude1_distance", 1.0, Unit::Meters);
+
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 1.0,
+            distance: dist_param,
         },
         "Extrude 1",
     );
@@ -192,13 +205,15 @@ fn suppressed_feature_is_skipped() {
 fn missing_reference_produces_failed() {
     let mut tree = FeatureTree::new();
 
+    let dist_param = add_param(&mut tree, "_bad_extrude_distance", 1.0, Unit::Meters);
+
     // Add an extrude that references a bogus entity name (OperationId 99
     // does not exist in any BRep produced so far).
     tree.add_feature(
         Feature::Extrude {
             face: entity_name(99, RoleCategory::Generated, 0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 1.0,
+            distance: dist_param,
         },
         "Bad Extrude",
     );
@@ -312,12 +327,19 @@ fn revolve_returns_not_implemented() {
         "Sketch 1",
     );
 
+    let angle_param = add_param(
+        &mut tree,
+        "_revolve1_angle",
+        std::f64::consts::TAU,
+        Unit::Radians,
+    );
+
     tree.add_feature(
         Feature::Revolve {
             face: entity_name(1, RoleCategory::Generated, 0),
             axis_origin: [0.0, 0.0, 0.0],
             axis_direction: [0.0, 0.0, 1.0],
-            angle: std::f64::consts::TAU,
+            angle: angle_param,
         },
         "Revolve 1",
     );
@@ -351,11 +373,13 @@ fn freeze_skips_frozen_features() {
         "Sketch 1",
     );
 
+    let dist_param = add_param(&mut tree, "_extrude1_distance", 1.0, Unit::Meters);
+
     tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 1.0,
+            distance: dist_param,
         },
         "Extrude 1",
     );

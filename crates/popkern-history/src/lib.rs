@@ -169,9 +169,8 @@ impl FeatureTree {
         &self.parameter_table
     }
 
-    /// Return a mutable reference to the parameter table (crate-internal).
-    #[allow(dead_code)]
-    pub(crate) fn parameters_mut(&mut self) -> &mut ParameterTable {
+    /// Return a mutable reference to the parameter table.
+    pub fn parameters_mut(&mut self) -> &mut ParameterTable {
         &mut self.parameter_table
     }
 

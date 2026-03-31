@@ -62,8 +62,14 @@ impl FeatureTree {
                 .remove(&body)
                 .unwrap_or_else(|| BRep::new(*tolerance));
 
-            let exec_result =
-                replay::execute_feature(&mut brep, &feature, &mut ctx, tolerance, &mut body_breps);
+            let exec_result = replay::execute_feature(
+                &mut brep,
+                &feature,
+                &mut ctx,
+                tolerance,
+                &mut body_breps,
+                &self.parameter_table,
+            );
 
             match exec_result {
                 Ok(()) => {
