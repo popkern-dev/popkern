@@ -8,6 +8,10 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 use crate::MeasureError;
 
+#[path = "distance_newton.rs"]
+mod newton;
+use newton::{refine_curve_param, refine_surface_params};
+
 /// A tagged union for any topology handle type.
 #[derive(Debug, Clone, Copy)]
 pub enum TopoHandle {
@@ -118,22 +122,7 @@ fn vertex_edge(
     }
 
     // Newton refinement: find t where (C(t) - P) · C'(t) = 0.
-    for _ in 0..10 {
-        let cp = coe.geometry.point_at(t_best);
-        let tangent = coe.geometry.tangent_at(t_best);
-        let diff = cp - p;
-        let dot = diff.dot(&tangent);
-        let tang_sq = tangent.dot(&tangent);
-        if tang_sq < f64::EPSILON {
-            break;
-        }
-        let t_new = (t_best - dot / tang_sq).clamp(t0, t1);
-        if (t_new - t_best).abs() < 1e-12 {
-            t_best = t_new;
-            break;
-        }
-        t_best = t_new;
-    }
+    t_best = refine_curve_param(&coe.geometry, t_best, t0, t1, [p.x, p.y, p.z]);
     let final_pt = coe.geometry.point_at(t_best);
     Ok(p.distance_to(&final_pt))
 }
@@ -199,32 +188,13 @@ fn vertex_face(
     }
 
     // Newton refinement: find (u, v) where the foot-point condition holds.
-    for _ in 0..10 {
-        let sp = sof.geometry.point_at(u_best, v_best);
-        let diff = sp - p;
-        let su = sof.geometry.partial_u(u_best, v_best);
-        let sv = sof.geometry.partial_v(u_best, v_best);
-        let j00 = su.dot(&su);
-        let j01 = su.dot(&sv);
-        let j11 = sv.dot(&sv);
-        let r0 = diff.dot(&su);
-        let r1 = diff.dot(&sv);
-        let det = j00 * j11 - j01 * j01;
-        if det.abs() < f64::EPSILON {
-            break;
-        }
-        let du = (j11 * r0 - j01 * r1) / det;
-        let dv = (j00 * r1 - j01 * r0) / det;
-        let u_new = (u_best - du).clamp(u0, u1);
-        let v_new = (v_best - dv).clamp(v0, v1);
-        if (u_new - u_best).abs() < 1e-12 && (v_new - v_best).abs() < 1e-12 {
-            u_best = u_new;
-            v_best = v_new;
-            break;
-        }
-        u_best = u_new;
-        v_best = v_new;
-    }
+    (u_best, v_best) = refine_surface_params(
+        &sof.geometry,
+        u_best,
+        v_best,
+        [u0, u1, v0, v1],
+        [p.x, p.y, p.z],
+    );
     let final_sp = sof.geometry.point_at(u_best, v_best);
     Ok(p.distance_to(&final_sp))
 }
@@ -310,8 +280,9 @@ fn edge_edge(
 
 /// Minimum distance between an edge and a face.
 ///
-/// Samples the edge at 32 points and the face UV grid at 16×16, then returns
-/// the closest pair distance.
+/// Samples the edge at 32 points and the face UV grid at 16×16 to seed the
+/// best parameters, then refines with alternating Newton iteration between the
+/// curve parameter and the surface (u, v) parameters.
 fn edge_face(
     brep_e: &BRep,
     e: EdgeHandle,
@@ -335,43 +306,71 @@ fn edge_face(
         .as_ref()
         .ok_or(MeasureError::MissingSurface)?;
 
-    const NE: usize = 32;
-    let edge_pts: Vec<_> = (0..=NE)
-        .map(|i| {
-            let t = coe.t_start + (coe.t_end - coe.t_start) * (i as f64 / NE as f64);
-            coe.geometry.point_at(t)
-        })
-        .collect();
-
     let positions = brep_f.face_outer_loop_positions(f);
     let ((u0, u1), (v0, v1)) = tight_bounded_parameter_range(&positions, &surface_on_face.geometry);
 
+    const NE: usize = 32;
     const NF: usize = 16;
-    let face_pts: Vec<_> = (0..=NF)
-        .flat_map(|i| {
-            let u = u0 + (u1 - u0) * (i as f64 / NF as f64);
-            (0..=NF).map(move |j| {
-                let vv = v0 + (v1 - v0) * (j as f64 / NF as f64);
-                surface_on_face.geometry.point_at(u, vv)
-            })
-        })
-        .collect();
+    let dt = (coe.t_end - coe.t_start) / NE as f64;
+    let du = (u1 - u0) / NF as f64;
+    let dv = (v1 - v0) / NF as f64;
 
     let mut min_d = f64::MAX;
-    for pe in &edge_pts {
-        for pf in &face_pts {
-            let d = pe.distance_to(pf);
-            if d < min_d {
-                min_d = d;
+    let mut t_best = coe.t_start;
+    let mut u_best = u0;
+    let mut v_best = v0;
+
+    for i in 0..=NE {
+        let t = coe.t_start + dt * i as f64;
+        let pe = coe.geometry.point_at(t);
+        for ui in 0..=NF {
+            for vi in 0..=NF {
+                let u = u0 + du * ui as f64;
+                let v = v0 + dv * vi as f64;
+                let pf = surface_on_face.geometry.point_at(u, v);
+                let d = pe.distance_to(&pf);
+                if d < min_d {
+                    min_d = d;
+                    t_best = t;
+                    u_best = u;
+                    v_best = v;
+                }
             }
         }
     }
-    Ok(min_d)
+
+    // Alternating Newton refinement.
+    for _ in 0..5 {
+        // Step 1: fix (u, v), refine t — solve (C(t) - S(u,v))·C'(t) = 0.
+        let sp = surface_on_face.geometry.point_at(u_best, v_best);
+        t_best = refine_curve_param(
+            &coe.geometry,
+            t_best,
+            coe.t_start,
+            coe.t_end,
+            [sp.x, sp.y, sp.z],
+        );
+
+        // Step 2: fix t, refine (u, v) — solve Gram 2×2 system.
+        let cp = coe.geometry.point_at(t_best);
+        (u_best, v_best) = refine_surface_params(
+            &surface_on_face.geometry,
+            u_best,
+            v_best,
+            [u0, u1, v0, v1],
+            [cp.x, cp.y, cp.z],
+        );
+    }
+
+    let final_cp = coe.geometry.point_at(t_best);
+    let final_sp = surface_on_face.geometry.point_at(u_best, v_best);
+    Ok(final_cp.distance_to(&final_sp))
 }
 
 /// Minimum distance between two faces.
 ///
-/// Samples a 16×16 UV grid on each face and returns the closest pair distance.
+/// Samples a 16×16 UV grid on each face to seed the best parameters, then
+/// refines with alternating Newton iteration between the two surfaces.
 fn face_face(
     brep_a: &BRep,
     fa: FaceHandle,
@@ -404,35 +403,66 @@ fn face_face(
     let ((bu0, bu1), (bv0, bv1)) = tight_bounded_parameter_range(&positions_b, &surf_b.geometry);
 
     const N: usize = 16;
-    let pts_a: Vec<_> = (0..=N)
-        .flat_map(|i| {
-            let u = au0 + (au1 - au0) * (i as f64 / N as f64);
-            (0..=N).map(move |j| {
-                let v = av0 + (av1 - av0) * (j as f64 / N as f64);
-                surf_a.geometry.point_at(u, v)
-            })
-        })
-        .collect();
-    let pts_b: Vec<_> = (0..=N)
-        .flat_map(|i| {
-            let u = bu0 + (bu1 - bu0) * (i as f64 / N as f64);
-            (0..=N).map(move |j| {
-                let v = bv0 + (bv1 - bv0) * (j as f64 / N as f64);
-                surf_b.geometry.point_at(u, v)
-            })
-        })
-        .collect();
+    let dua = (au1 - au0) / N as f64;
+    let dva = (av1 - av0) / N as f64;
+    let dub = (bu1 - bu0) / N as f64;
+    let dvb = (bv1 - bv0) / N as f64;
 
     let mut min_d = f64::MAX;
-    for pa in &pts_a {
-        for pb in &pts_b {
-            let d = pa.distance_to(pb);
-            if d < min_d {
-                min_d = d;
+    let mut ua_best = au0;
+    let mut va_best = av0;
+    let mut ub_best = bu0;
+    let mut vb_best = bv0;
+
+    for i in 0..=N {
+        for j in 0..=N {
+            let ua = au0 + dua * i as f64;
+            let va = av0 + dva * j as f64;
+            let pa = surf_a.geometry.point_at(ua, va);
+            for k in 0..=N {
+                for l in 0..=N {
+                    let ub = bu0 + dub * k as f64;
+                    let vb = bv0 + dvb * l as f64;
+                    let pb = surf_b.geometry.point_at(ub, vb);
+                    let d = pa.distance_to(&pb);
+                    if d < min_d {
+                        min_d = d;
+                        ua_best = ua;
+                        va_best = va;
+                        ub_best = ub;
+                        vb_best = vb;
+                    }
+                }
             }
         }
     }
-    Ok(min_d)
+
+    // Alternating Newton refinement.
+    for _ in 0..5 {
+        // Step 1: fix (ub, vb), project onto surface A.
+        let pb = surf_b.geometry.point_at(ub_best, vb_best);
+        (ua_best, va_best) = refine_surface_params(
+            &surf_a.geometry,
+            ua_best,
+            va_best,
+            [au0, au1, av0, av1],
+            [pb.x, pb.y, pb.z],
+        );
+
+        // Step 2: fix (ua, va), project onto surface B.
+        let pa = surf_a.geometry.point_at(ua_best, va_best);
+        (ub_best, vb_best) = refine_surface_params(
+            &surf_b.geometry,
+            ub_best,
+            vb_best,
+            [bu0, bu1, bv0, bv1],
+            [pa.x, pa.y, pa.z],
+        );
+    }
+
+    let final_pa = surf_a.geometry.point_at(ua_best, va_best);
+    let final_pb = surf_b.geometry.point_at(ub_best, vb_best);
+    Ok(final_pa.distance_to(&final_pb))
 }
 
 #[cfg(test)]
