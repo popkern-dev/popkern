@@ -1,0 +1,16 @@
+[package]
+name = "popkern-measure"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Geometric measurement queries for popkern BRep solids"
+
+[dependencies]
+popkern-core = { path = "../popkern-core" }
+popkern-mesh = { path = "../popkern-mesh" }
+thiserror = "2"
+
+[dev-dependencies]
+popkern-bool = { path = "../popkern-bool" }
+popkern-fillet = { path = "../popkern-fillet" }
+popkern-sweep = { path = "../popkern-sweep" }
