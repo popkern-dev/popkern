@@ -21,6 +21,7 @@
 pub(crate) mod body;
 pub mod cache;
 pub mod config;
+pub mod config_api;
 pub(crate) mod config_eval;
 pub mod delete;
 pub mod error;
@@ -39,6 +40,8 @@ pub mod serialize;
 pub mod timeline;
 mod tree_replay;
 pub(crate) mod undo;
+pub(crate) mod undo_command;
+pub(crate) mod undo_config;
 pub mod unit;
 
 pub use cache::CacheStrategy;
