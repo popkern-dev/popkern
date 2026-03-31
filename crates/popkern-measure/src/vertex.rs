@@ -7,7 +7,9 @@ use crate::MeasureError;
 
 /// Return the position of a vertex.
 pub fn vertex_position(brep: &BRep, vertex: VertexHandle) -> Result<Point3, MeasureError> {
-    let v = brep.vertices.get(vertex)
+    let v = brep
+        .vertices
+        .get(vertex)
         .ok_or_else(|| MeasureError::InvalidHandle("vertex".into()))?;
     Ok(v.position)
 }

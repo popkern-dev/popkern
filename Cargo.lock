@@ -3156,6 +3156,7 @@ dependencies = [
  "popkern-fillet",
  "popkern-mesh",
  "popkern-sweep",
+ "serde",
  "thiserror 2.0.18",
 ]
 
