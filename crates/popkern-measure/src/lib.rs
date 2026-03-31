@@ -16,3 +16,9 @@ pub use edge::{edge_length, edge_tangent};
 mod vertex;
 
 pub use vertex::vertex_position;
+
+mod face;
+
+pub use face::{
+    face_area, face_centroid, face_curvature, face_normal, face_perimeter, face_radius,
+};
