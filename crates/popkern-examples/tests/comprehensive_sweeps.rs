@@ -165,6 +165,7 @@ fn t27_pipe_along_straight_line() {
         &PipeRadius::Constant(0.3),
         &SweepOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     let brep = &result.brep;
@@ -183,6 +184,7 @@ fn t28_pipe_along_quarter_arc() {
         &PipeRadius::Constant(0.2),
         &SweepOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     let brep = &result.brep;
@@ -201,6 +203,7 @@ fn t29_pipe_has_correct_face_count() {
         &PipeRadius::Constant(1.0),
         &SweepOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     assert_eq!(result.brep.faces.len(), 3, "pipe has 3 faces");
@@ -210,7 +213,7 @@ fn t29_pipe_has_correct_face_count() {
 fn t30_sweep_circle_along_line() {
     let profile = SweepProfile::Wire(nurbs_circle(Point3::new(0.0, 0.0, 0.0), 0.5));
     let path = straight_line(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 3.0));
-    match sweep(&profile, &path, &SweepOptions::default(), tol()) {
+    match sweep(&profile, &path, &SweepOptions::default(), tol(), None) {
         Ok(result) => {
             let brep = &result.brep;
             assert!(brep.faces.len() >= 3, "swept circle = cylinder-like");
@@ -228,7 +231,7 @@ fn t30_sweep_circle_along_line() {
 fn t31_sweep_rectangle_along_line() {
     let profile = SweepProfile::Wire(nurbs_rectangle(0.0, 0.0, 0.0, 1.0, 0.5));
     let path = straight_line(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 2.0));
-    match sweep(&profile, &path, &SweepOptions::default(), tol()) {
+    match sweep(&profile, &path, &SweepOptions::default(), tol(), None) {
         Ok(result) => {
             let brep = &result.brep;
             assert!(
@@ -255,7 +258,7 @@ fn t32_loft_two_circles() {
         curve: nurbs_circle(Point3::new(0.0, 0.0, 2.0), 0.5),
         position: None,
     };
-    match loft(&[s1, s2], &LoftOptions::default(), tol()) {
+    match loft(&[s1, s2], &LoftOptions::default(), tol(), None) {
         Ok(result) => {
             let brep = &result.brep;
             assert!(brep.faces.len() >= 3, "loft two circles -> cylinder-like");
@@ -280,7 +283,7 @@ fn t33_loft_two_different_radii() {
         curve: nurbs_circle(Point3::new(0.0, 0.0, 2.0), 0.8),
         position: None,
     };
-    match loft(&[s1, s2], &LoftOptions::default(), tol()) {
+    match loft(&[s1, s2], &LoftOptions::default(), tol(), None) {
         Ok(result) => {
             let brep = &result.brep;
             assert!(
@@ -304,6 +307,7 @@ fn t34_sweep_step_roundtrip() {
         &PipeRadius::Constant(0.3),
         &SweepOptions::default(),
         tol(),
+        None,
     )
     .unwrap();
     assert_step_roundtrip(&result.brep, "pipe_roundtrip");

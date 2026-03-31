@@ -8,6 +8,7 @@
 
 use popkern_core::geometry::revolution::{revolution_surface, rotate_point};
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
+use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 
 use crate::error::SweepError;
@@ -38,6 +39,7 @@ pub fn revolve(
     axis_direction: &Vec3,
     angle: f64,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
     // 1. Analyze profile into smooth spans.
     let analyzed = analyze_profile(profile, &tolerance)?;
@@ -84,6 +86,7 @@ pub fn revolve(
         &end_caps,
         use_closed_topology,
         tolerance,
+        tracking,
     )?;
 
     Ok(SweepResult {
@@ -168,6 +171,7 @@ mod tests {
             &Vec3::new(0.0, 0.0, 1.0),
             TAU,
             Tolerance::default(),
+            None,
         );
         assert!(result.is_ok(), "revolve failed: {:?}", result.err());
         let brep = &result.unwrap().brep; // ok in tests
@@ -187,6 +191,7 @@ mod tests {
             &Vec3::new(0.0, 0.0, 1.0),
             FRAC_PI_2,
             Tolerance::default(),
+            None,
         );
         assert!(result.is_ok(), "revolve failed: {:?}", result.err());
         let brep = &result.unwrap().brep; // ok in tests
@@ -206,6 +211,7 @@ mod tests {
             &Vec3::new(0.0, 0.0, 1.0),
             PI,
             Tolerance::default(),
+            None,
         );
         assert!(result.is_ok(), "revolve failed: {:?}", result.err());
         let brep = &result.unwrap().brep; // ok in tests
@@ -226,6 +232,7 @@ mod tests {
             &Vec3::new(0.0, 0.0, 1.0),
             TAU,
             Tolerance::default(),
+            None,
         );
         assert!(result.is_ok(), "revolve failed: {:?}", result.err());
         let brep = &result.unwrap().brep; // ok in tests
@@ -252,6 +259,7 @@ mod tests {
             &Vec3::new(0.0, 0.0, 1.0),
             PI,
             Tolerance::default(),
+            None,
         );
         assert!(result.is_ok(), "revolve failed: {:?}", result.err());
     }
@@ -265,6 +273,7 @@ mod tests {
             &Vec3::new(0.0, 0.0, 1.0),
             0.0,
             Tolerance::default(),
+            None,
         );
         assert!(result.is_err(), "zero angle should fail");
     }
@@ -278,6 +287,7 @@ mod tests {
             &Vec3::new(0.0, 0.0, 1.0),
             -1.0,
             Tolerance::default(),
+            None,
         );
         assert!(result.is_err(), "negative angle should fail");
     }

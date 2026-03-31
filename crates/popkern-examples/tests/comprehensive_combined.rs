@@ -238,6 +238,7 @@ fn t49_pipe_with_flanges() {
         &PipeRadius::Constant(0.3),
         &SweepOptions::default(),
         tol,
+        None,
     )
     .unwrap();
     // Union a cylinder at one end as a flange
@@ -336,7 +337,7 @@ fn t52_lofted_vase_shape() {
             position: None,
         },
     ];
-    match loft(&sections, &LoftOptions::default(), tol) {
+    match loft(&sections, &LoftOptions::default(), tol, None) {
         Ok(result) => {
             let brep = &result.brep;
             assert!(brep.faces.len() >= 3, "vase loft should have faces");
@@ -357,6 +358,7 @@ fn t53_swept_handle() {
         &PipeRadius::Constant(0.15),
         &SweepOptions::default(),
         tol,
+        None,
     )
     .unwrap();
     let brep = &result.brep;
@@ -431,6 +433,7 @@ fn t55_spring_coil() {
                 &PipeRadius::Constant(0.1),
                 &SweepOptions::default(),
                 tol,
+                None,
             ) {
                 Ok(result) => {
                     let brep = &result.brep;

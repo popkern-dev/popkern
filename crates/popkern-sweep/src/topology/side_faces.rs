@@ -7,8 +7,9 @@ use popkern_core::constructors::builder::BRepBuilder;
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3};
+use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, HalfEdgeHandle};
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 use crate::error::SweepError;
 use crate::topology::caps::create_cap_face;
@@ -38,16 +39,23 @@ pub fn build_sweep_topology(
     end_cap_curves: &[NurbsCurve],
     is_closed_profile: bool,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<BRep, SweepError> {
     if surfaces.is_empty() {
         return Err(SweepError::Topology("no surfaces to build".into()));
     }
 
-    if is_closed_profile {
-        build_closed_profile_topology(surfaces, start_cap_curves, end_cap_curves, tolerance)
+    let mut brep = if is_closed_profile {
+        build_closed_profile_topology(surfaces, start_cap_curves, end_cap_curves, tolerance)?
     } else {
-        build_open_profile_topology(surfaces, tolerance)
+        build_open_profile_topology(surfaces, tolerance)?
+    };
+
+    if let Some(ctx) = tracking {
+        assign_sweep_names(&mut brep, ctx);
     }
+
+    Ok(brep)
 }
 
 /// Build topology for a closed profile (solid body with caps).
@@ -233,6 +241,64 @@ fn build_open_profile_topology(
     Ok(builder.build_unchecked())
 }
 
+/// Assign stable [`EntityName`]s to all entities in a sweep BRep.
+///
+/// All faces, edges, and vertices receive `Generated` names since sweeps
+/// create entirely new geometry rather than modifying existing entities.
+fn assign_sweep_names(brep: &mut BRep, ctx: &mut TrackingContext) {
+    use popkern_core::naming::{EntityName, EntityRole, RoleCategory};
+    use popkern_core::naming_criteria::GeometricCriteria;
+    use popkern_core::naming_criteria::{capture_edge, capture_face, capture_vertex};
+
+    let face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
+    for (i, &fh) in face_handles.iter().enumerate() {
+        let name = EntityName {
+            operation: ctx.operation,
+            role: EntityRole {
+                category: RoleCategory::Generated,
+                index: i as u32,
+            },
+            ancestors: Vec::new(),
+        };
+        let criteria = capture_face(brep, fh).map(GeometricCriteria::Face);
+        let name_id = brep.name_pool.intern(name.clone(), criteria);
+        brep.faces[fh].name = Some(name_id);
+        ctx.record_generated(name);
+    }
+
+    let edge_handles: Vec<EdgeHandle> = brep.edges.keys().collect();
+    for (i, &eh) in edge_handles.iter().enumerate() {
+        let name = EntityName {
+            operation: ctx.operation,
+            role: EntityRole {
+                category: RoleCategory::Generated,
+                index: i as u32,
+            },
+            ancestors: Vec::new(),
+        };
+        let criteria = capture_edge(brep, eh).map(GeometricCriteria::Edge);
+        let name_id = brep.name_pool.intern(name.clone(), criteria);
+        brep.edges[eh].name = Some(name_id);
+        ctx.record_generated(name);
+    }
+
+    let vertex_handles: Vec<VertexHandle> = brep.vertices.keys().collect();
+    for (i, &vh) in vertex_handles.iter().enumerate() {
+        let name = EntityName {
+            operation: ctx.operation,
+            role: EntityRole {
+                category: RoleCategory::Generated,
+                index: i as u32,
+            },
+            ancestors: Vec::new(),
+        };
+        let criteria = capture_vertex(brep, vh).map(GeometricCriteria::Vertex);
+        let name_id = brep.name_pool.intern(name.clone(), criteria);
+        brep.vertices[vh].name = Some(name_id);
+        ctx.record_generated(name);
+    }
+}
+
 /// Build a degree-1 NURBS line in UV parameter space.
 ///
 /// The pcurve is stored as a `NurbsCurve` with `Point3(u, v, 0.0)`.
@@ -314,7 +380,7 @@ mod tests {
         let end_cap = vec![cap_curve(5.0)];
         let tol = Tolerance::default();
 
-        let result = build_sweep_topology(&[surface], &start_cap, &end_cap, true, tol);
+        let result = build_sweep_topology(&[surface], &start_cap, &end_cap, true, tol, None);
         assert!(result.is_ok(), "topology failed: {:?}", result.err());
 
         let brep = result.unwrap(); // ok in tests
@@ -336,7 +402,7 @@ mod tests {
         let surface = bilinear_patch(0.0, 5.0);
         let tol = Tolerance::default();
 
-        let result = build_sweep_topology(&[surface], &[], &[], false, tol);
+        let result = build_sweep_topology(&[surface], &[], &[], false, tol, None);
         assert!(result.is_ok(), "topology failed: {:?}", result.err());
 
         let brep = result.unwrap(); // ok in tests
@@ -348,7 +414,7 @@ mod tests {
     #[test]
     fn empty_surfaces_returns_error() {
         let tol = Tolerance::default();
-        let result = build_sweep_topology(&[], &[], &[], true, tol);
+        let result = build_sweep_topology(&[], &[], &[], true, tol, None);
         assert!(result.is_err());
     }
 
@@ -360,7 +426,7 @@ mod tests {
         let end_caps = vec![cap_curve(5.0), cap_curve(5.0)];
         let tol = Tolerance::default();
 
-        let result = build_sweep_topology(&[s1, s2], &start_caps, &end_caps, true, tol);
+        let result = build_sweep_topology(&[s1, s2], &start_caps, &end_caps, true, tol, None);
         assert!(result.is_ok(), "topology failed: {:?}", result.err());
 
         let brep = result.unwrap(); // ok in tests

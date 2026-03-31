@@ -243,8 +243,9 @@ pub(crate) fn execute_feature(
                 twist: tw,
                 ..popkern_sweep::SweepOptions::default()
             };
-            let result = popkern_sweep::sweep(&profile, &path_curve, &options, *tolerance)
-                .map_err(|e| ReplayError::FeatureFailed {
+            let result =
+                popkern_sweep::sweep(&profile, &path_curve, &options, *tolerance, Some(tracking))
+                    .map_err(|e| ReplayError::FeatureFailed {
                     label: "sweep".into(),
                     error: e.to_string(),
                 })?;
@@ -265,12 +266,10 @@ pub(crate) fn execute_feature(
                 closed: *closed,
                 ..popkern_sweep::LoftOptions::default()
             };
-            let result =
-                popkern_sweep::loft(&loft_sections, &options, *tolerance).map_err(|e| {
-                    ReplayError::FeatureFailed {
-                        label: "loft".into(),
-                        error: e.to_string(),
-                    }
+            let result = popkern_sweep::loft(&loft_sections, &options, *tolerance, Some(tracking))
+                .map_err(|e| ReplayError::FeatureFailed {
+                    label: "loft".into(),
+                    error: e.to_string(),
                 })?;
             *brep = result.brep;
             Ok(ExecuteSideEffects::empty())
@@ -284,6 +283,7 @@ pub(crate) fn execute_feature(
                 &popkern_sweep::PipeRadius::Constant(r),
                 &popkern_sweep::SweepOptions::default(),
                 *tolerance,
+                Some(tracking),
             )
             .map_err(|e| ReplayError::FeatureFailed {
                 label: "pipe".into(),
@@ -309,12 +309,18 @@ pub(crate) fn execute_feature(
                 face: face_handle,
             };
 
-            let result =
-                popkern_sweep::revolve(&profile, &origin, &direction, angle_val, *tolerance)
-                    .map_err(|e| ReplayError::FeatureFailed {
-                        label: "revolve".into(),
-                        error: e.to_string(),
-                    })?;
+            let result = popkern_sweep::revolve(
+                &profile,
+                &origin,
+                &direction,
+                angle_val,
+                *tolerance,
+                Some(tracking),
+            )
+            .map_err(|e| ReplayError::FeatureFailed {
+                label: "revolve".into(),
+                error: e.to_string(),
+            })?;
             *brep = result.brep;
             Ok(ExecuteSideEffects::empty())
         }

@@ -4,6 +4,7 @@
 //! (union, subtraction, intersection) against an existing BRep solid.
 
 use popkern_core::geometry::NurbsCurve;
+use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
@@ -17,8 +18,9 @@ pub fn sweep_add(
     path: &NurbsCurve,
     options: &SweepOptions,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
-    let swept = crate::sweep(profile, path, options, tolerance)?;
+    let swept = crate::sweep(profile, path, options, tolerance, tracking)?;
     let result = popkern_bool::union(brep.clone(), swept.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
     Ok(SweepResult {
@@ -34,8 +36,9 @@ pub fn sweep_cut(
     path: &NurbsCurve,
     options: &SweepOptions,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
-    let swept = crate::sweep(profile, path, options, tolerance)?;
+    let swept = crate::sweep(profile, path, options, tolerance, tracking)?;
     let result = popkern_bool::subtraction(brep.clone(), swept.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
     Ok(SweepResult {
@@ -51,8 +54,9 @@ pub fn sweep_intersect(
     path: &NurbsCurve,
     options: &SweepOptions,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
-    let swept = crate::sweep(profile, path, options, tolerance)?;
+    let swept = crate::sweep(profile, path, options, tolerance, tracking)?;
     let result = popkern_bool::intersection(brep.clone(), swept.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
     Ok(SweepResult {
@@ -67,8 +71,9 @@ pub fn loft_add(
     sections: &[LoftSection],
     options: &LoftOptions,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
-    let lofted = crate::loft(sections, options, tolerance)?;
+    let lofted = crate::loft(sections, options, tolerance, tracking)?;
     let result = popkern_bool::union(brep.clone(), lofted.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
     Ok(SweepResult {
@@ -83,8 +88,9 @@ pub fn loft_cut(
     sections: &[LoftSection],
     options: &LoftOptions,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
-    let lofted = crate::loft(sections, options, tolerance)?;
+    let lofted = crate::loft(sections, options, tolerance, tracking)?;
     let result = popkern_bool::subtraction(brep.clone(), lofted.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
     Ok(SweepResult {
@@ -100,8 +106,9 @@ pub fn pipe_add(
     radius: &PipeRadius,
     options: &SweepOptions,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
-    let piped = crate::pipe(path, radius, options, tolerance)?;
+    let piped = crate::pipe(path, radius, options, tolerance, tracking)?;
     let result = popkern_bool::union(brep.clone(), piped.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
     Ok(SweepResult {
@@ -117,8 +124,9 @@ pub fn pipe_cut(
     radius: &PipeRadius,
     options: &SweepOptions,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
-    let piped = crate::pipe(path, radius, options, tolerance)?;
+    let piped = crate::pipe(path, radius, options, tolerance, tracking)?;
     let result = popkern_bool::subtraction(brep.clone(), piped.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
     Ok(SweepResult {
@@ -179,7 +187,7 @@ mod tests {
         let options = SweepOptions::default();
         let tol = Tolerance::default();
 
-        let result = sweep_add(&cube, &profile, &path, &options, tol);
+        let result = sweep_add(&cube, &profile, &path, &options, tol, None);
         // Boolean may fail on complex geometry; we just check it returns.
         assert!(result.is_ok() || result.is_err());
     }
@@ -197,7 +205,7 @@ mod tests {
         let options = SweepOptions::default();
         let tol = Tolerance::default();
 
-        let result = sweep_cut(&cube, &profile, &path, &options, tol);
+        let result = sweep_cut(&cube, &profile, &path, &options, tol, None);
         assert!(result.is_ok() || result.is_err());
     }
 }

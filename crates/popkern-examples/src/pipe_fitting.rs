@@ -34,7 +34,7 @@ fn main() {
     let radius = &PipeRadius::Constant(0.3);
     let options = SweepOptions::default();
 
-    match pipe(&path, radius, &options, tol) {
+    match pipe(&path, radius, &options, tol, None) {
         Ok(result) => {
             let brep = &result.brep;
             println!(

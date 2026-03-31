@@ -24,6 +24,7 @@ pub use types::*;
 
 use popkern_core::geometry::NurbsCurve;
 use popkern_core::geometry::curve::CurveEval;
+use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 
 /// Default number of arc-length samples for path parameterization.
@@ -48,6 +49,7 @@ pub fn sweep(
     path: &NurbsCurve,
     options: &SweepOptions,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
     // 1. Analyze profile.
     let analyzed = profile::analyze_profile(profile, &tolerance)?;
@@ -89,6 +91,7 @@ pub fn sweep(
         &surface_result.end_cap,
         analyzed.is_closed,
         tolerance,
+        tracking,
     )?;
 
     Ok(SweepResult { brep, warnings })
@@ -108,6 +111,7 @@ pub fn loft(
     sections: &[LoftSection],
     options: &LoftOptions,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
     let result = surface::generate_loft_surface(sections, options, &tolerance)?;
 
@@ -128,6 +132,7 @@ pub fn loft(
         std::slice::from_ref(&result.end_cap),
         is_closed,
         tolerance,
+        tracking,
     )?;
 
     Ok(SweepResult {
@@ -149,6 +154,7 @@ pub fn pipe(
     radius: &PipeRadius,
     options: &SweepOptions,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
     let surface_result = pipe::generate_pipe_surface(path, radius, options, &tolerance)?;
 
@@ -158,6 +164,7 @@ pub fn pipe(
         &surface_result.end_cap,
         true, // pipes are always closed profiles
         tolerance,
+        tracking,
     )?;
 
     Ok(SweepResult {
@@ -180,9 +187,10 @@ pub fn helical_sweep(
     spec: &HelixSpec,
     options: &SweepOptions,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
     let (path, mut warnings) = helix::build_helix_path(spec)?;
-    let mut result = sweep(profile, &path, options, tolerance)?;
+    let mut result = sweep(profile, &path, options, tolerance, tracking)?;
     result.warnings.append(&mut warnings);
     Ok(result)
 }
@@ -202,6 +210,7 @@ pub fn guided_sweep(
     guides: &[NurbsCurve],
     options: &SweepOptions,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
     // Generate the base sweep.
     let analyzed = profile::analyze_profile(profile, &tolerance)?;
@@ -230,6 +239,7 @@ pub fn guided_sweep(
         &surface_result.end_cap,
         analyzed.is_closed,
         tolerance,
+        tracking,
     )?;
 
     Ok(SweepResult { brep, warnings })
@@ -245,6 +255,7 @@ pub fn guided_loft(
     guides: &[NurbsCurve],
     options: &LoftOptions,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
     let result = surface::generate_loft_surface(sections, options, &tolerance)?;
 
@@ -267,6 +278,7 @@ pub fn guided_loft(
         std::slice::from_ref(&result.end_cap),
         is_closed,
         tolerance,
+        tracking,
     )?;
 
     Ok(SweepResult {
@@ -288,6 +300,7 @@ pub fn swept_blend(
     path: &NurbsCurve,
     options: &SweepOptions,
     tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
     let result =
         surface::swept_blend::generate_swept_blend_surface(profiles, path, options, &tolerance)?;
@@ -298,6 +311,7 @@ pub fn swept_blend(
         std::slice::from_ref(&result.end_cap),
         false, // swept blend sections may not be closed
         tolerance,
+        tracking,
     )?;
 
     Ok(SweepResult {
@@ -322,179 +336,5 @@ fn check_path_closed(path: &NurbsCurve, tolerance: &Tolerance) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use popkern_core::geometry::Point3;
-
-    /// Build a unit circle profile.
-    fn circle_profile(radius: f64) -> SweepProfile {
-        let w = std::f64::consts::FRAC_1_SQRT_2;
-        let r = radius;
-        SweepProfile::Wire(NurbsCurve {
-            degree: 2,
-            knots: vec![
-                0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0,
-            ],
-            control_points: vec![
-                Point3::new(r, 0.0, 0.0),
-                Point3::new(r, r, 0.0),
-                Point3::new(0.0, r, 0.0),
-                Point3::new(-r, r, 0.0),
-                Point3::new(-r, 0.0, 0.0),
-                Point3::new(-r, -r, 0.0),
-                Point3::new(0.0, -r, 0.0),
-                Point3::new(r, -r, 0.0),
-                Point3::new(r, 0.0, 0.0),
-            ],
-            weights: vec![1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0],
-        })
-    }
-
-    /// Build a straight-line path along the Z axis.
-    fn z_path(length: f64) -> NurbsCurve {
-        NurbsCurve {
-            degree: 1,
-            knots: vec![0.0, 0.0, 1.0, 1.0],
-            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, length)],
-            weights: vec![1.0, 1.0],
-        }
-    }
-
-    /// Build a line segment profile (open).
-    fn line_profile() -> SweepProfile {
-        SweepProfile::Wire(NurbsCurve {
-            degree: 1,
-            knots: vec![0.0, 0.0, 1.0, 1.0],
-            control_points: vec![Point3::new(-1.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
-            weights: vec![1.0, 1.0],
-        })
-    }
-
-    #[test]
-    fn sweep_circle_along_z() {
-        let profile = circle_profile(1.0);
-        let path = z_path(5.0);
-        let result = sweep(
-            &profile,
-            &path,
-            &SweepOptions::default(),
-            Tolerance::default(),
-        );
-        assert!(result.is_ok(), "sweep failed: {:?}", result.err());
-        let brep = &result.unwrap().brep; // ok in tests
-        assert!(brep.faces.len() >= 1, "expected at least 1 face");
-    }
-
-    #[test]
-    fn sweep_open_profile_produces_sheet() {
-        let profile = line_profile();
-        let path = z_path(3.0);
-        let result = sweep(
-            &profile,
-            &path,
-            &SweepOptions::default(),
-            Tolerance::default(),
-        );
-        assert!(result.is_ok(), "sweep failed: {:?}", result.err());
-        let brep = &result.unwrap().brep; // ok in tests
-        // Open profile: no caps, just side faces.
-        assert!(brep.faces.len() >= 1);
-    }
-
-    #[test]
-    fn loft_two_circles() {
-        let sections = vec![
-            LoftSection {
-                curve: circle_profile(1.0).into_wire(),
-                position: None,
-            },
-            LoftSection {
-                curve: circle_profile(1.0).into_wire_at_z(3.0),
-                position: None,
-            },
-        ];
-        let result = loft(&sections, &LoftOptions::default(), Tolerance::default());
-        assert!(result.is_ok(), "loft failed: {:?}", result.err());
-    }
-
-    #[test]
-    fn pipe_constant_radius() {
-        let path = z_path(5.0);
-        let result = pipe(
-            &path,
-            &PipeRadius::Constant(1.0),
-            &SweepOptions::default(),
-            Tolerance::default(),
-        );
-        assert!(result.is_ok(), "pipe failed: {:?}", result.err());
-    }
-
-    #[test]
-    fn helical_sweep_circle() {
-        let profile = circle_profile(0.5);
-        let spec = HelixSpec {
-            axis_origin: Point3::new(0.0, 0.0, 0.0),
-            axis_dir: popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0),
-            start_radius: 3.0,
-            end_radius: 3.0,
-            pitch: HelixPitch::Constant(2.0),
-            turns: 1.0,
-        };
-        let result = helical_sweep(
-            &profile,
-            &spec,
-            &SweepOptions::default(),
-            Tolerance::default(),
-        );
-        assert!(result.is_ok(), "helical sweep failed: {:?}", result.err());
-    }
-
-    #[test]
-    fn compute_sample_count_reasonable() {
-        let path = z_path(5.0);
-        let table = arc_length::ArcLengthTable::build(&path, 100);
-        let count = compute_sample_count(&table);
-        assert!(count >= MIN_FRAMES);
-        assert!(count <= 200);
-    }
-
-    #[test]
-    fn check_path_closed_open() {
-        let path = z_path(5.0);
-        let tol = Tolerance::default();
-        assert!(!check_path_closed(&path, &tol));
-    }
-}
-
-// Helper trait for test convenience.
-impl SweepProfile {
-    /// Extract the inner wire curve (panics if not a Wire variant).
-    #[cfg(test)]
-    fn into_wire(&self) -> NurbsCurve {
-        match self {
-            SweepProfile::Wire(c) => c.clone(),
-            _ => panic!("expected Wire"),
-        }
-    }
-
-    /// Extract the wire and translate to a given Z position.
-    #[cfg(test)]
-    fn into_wire_at_z(&self, z: f64) -> NurbsCurve {
-        match self {
-            SweepProfile::Wire(c) => {
-                let control_points = c
-                    .control_points
-                    .iter()
-                    .map(|p| popkern_core::geometry::Point3::new(p.x, p.y, z))
-                    .collect();
-                NurbsCurve {
-                    degree: c.degree,
-                    knots: c.knots.clone(),
-                    control_points,
-                    weights: c.weights.clone(),
-                }
-            }
-            _ => panic!("expected Wire"),
-        }
-    }
-}
+#[path = "lib_tests.rs"]
+mod tests;

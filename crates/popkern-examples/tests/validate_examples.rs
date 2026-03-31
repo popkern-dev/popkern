@@ -162,6 +162,7 @@ fn build_pipe_fitting() -> BRep {
         &PipeRadius::Constant(0.3),
         &SweepOptions::default(),
         tol,
+        None,
     )
     .expect("pipe")
     .brep

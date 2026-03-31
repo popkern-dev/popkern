@@ -77,7 +77,13 @@ fn default_tol() -> Tolerance {
 fn sweep_circle_along_line() {
     let profile = circle_profile(1.0);
     let path = z_path(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 5.0));
-    let result = popkern_sweep::sweep(&profile, &path, &SweepOptions::default(), default_tol());
+    let result = popkern_sweep::sweep(
+        &profile,
+        &path,
+        &SweepOptions::default(),
+        default_tol(),
+        None,
+    );
     assert!(result.is_ok(), "sweep failed: {:?}", result.err());
     let brep = &result.unwrap().brep;
     assert!(brep.faces.len() >= 1, "expected at least 1 face");
@@ -94,7 +100,13 @@ fn sweep_open_profile_is_sheet() {
         weights: vec![1.0, 1.0],
     });
     let path = z_path(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 3.0));
-    let result = popkern_sweep::sweep(&profile, &path, &SweepOptions::default(), default_tol());
+    let result = popkern_sweep::sweep(
+        &profile,
+        &path,
+        &SweepOptions::default(),
+        default_tol(),
+        None,
+    );
     assert!(result.is_ok(), "open sweep failed: {:?}", result.err());
     let brep = &result.unwrap().brep;
     // Open profile: no caps.
@@ -113,7 +125,7 @@ fn loft_two_circles() {
             position: None,
         },
     ];
-    let result = popkern_sweep::loft(&sections, &LoftOptions::default(), default_tol());
+    let result = popkern_sweep::loft(&sections, &LoftOptions::default(), default_tol(), None);
     assert!(result.is_ok(), "loft failed: {:?}", result.err());
     let brep = &result.unwrap().brep;
     assert!(brep.faces.len() >= 1, "expected at least 1 face");
@@ -135,7 +147,7 @@ fn loft_three_sections_varying_radius() {
             position: None,
         },
     ];
-    let result = popkern_sweep::loft(&sections, &LoftOptions::default(), default_tol());
+    let result = popkern_sweep::loft(&sections, &LoftOptions::default(), default_tol(), None);
     assert!(result.is_ok(), "loft 3 sections failed: {:?}", result.err());
 }
 
@@ -147,6 +159,7 @@ fn pipe_constant_radius() {
         &PipeRadius::Constant(1.0),
         &SweepOptions::default(),
         default_tol(),
+        None,
     );
     assert!(result.is_ok(), "pipe failed: {:?}", result.err());
     let brep = &result.unwrap().brep;
@@ -161,6 +174,7 @@ fn pipe_variable_radius() {
         &PipeRadius::Variable(vec![(0.0, 1.0), (1.0, 2.0)]),
         &SweepOptions::default(),
         default_tol(),
+        None,
     );
     assert!(result.is_ok(), "variable pipe failed: {:?}", result.err());
 }
@@ -176,8 +190,13 @@ fn helical_sweep_circle() {
         pitch: HelixPitch::Constant(2.0),
         turns: 1.0,
     };
-    let result =
-        popkern_sweep::helical_sweep(&profile, &spec, &SweepOptions::default(), default_tol());
+    let result = popkern_sweep::helical_sweep(
+        &profile,
+        &spec,
+        &SweepOptions::default(),
+        default_tol(),
+        None,
+    );
     assert!(result.is_ok(), "helical sweep failed: {:?}", result.err());
     let brep = &result.unwrap().brep;
     assert!(brep.faces.len() >= 1);
@@ -187,8 +206,13 @@ fn helical_sweep_circle() {
 fn swept_blend_two_circles() {
     let profiles = vec![(0.0, circle_profile(1.0)), (1.0, circle_profile(2.0))];
     let path = z_path(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 10.0));
-    let result =
-        popkern_sweep::swept_blend(&profiles, &path, &SweepOptions::default(), default_tol());
+    let result = popkern_sweep::swept_blend(
+        &profiles,
+        &path,
+        &SweepOptions::default(),
+        default_tol(),
+        None,
+    );
     assert!(result.is_ok(), "swept blend failed: {:?}", result.err());
 }
 
@@ -198,7 +222,7 @@ fn sweep_with_twist() {
     let path = z_path(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 5.0));
     let mut options = SweepOptions::default();
     options.twist = std::f64::consts::PI; // 180 degree twist
-    let result = popkern_sweep::sweep(&profile, &path, &options, default_tol());
+    let result = popkern_sweep::sweep(&profile, &path, &options, default_tol(), None);
     assert!(result.is_ok(), "twisted sweep failed: {:?}", result.err());
 }
 
@@ -208,7 +232,7 @@ fn sweep_with_scaling() {
     let path = z_path(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 5.0));
     let mut options = SweepOptions::default();
     options.scale = popkern_sweep::ScaleMethod::Uniform(vec![(0.0, 1.0), (1.0, 2.0)]);
-    let result = popkern_sweep::sweep(&profile, &path, &options, default_tol());
+    let result = popkern_sweep::sweep(&profile, &path, &options, default_tol(), None);
     assert!(result.is_ok(), "scaled sweep failed: {:?}", result.err());
 }
 
@@ -228,6 +252,7 @@ fn sweep_cut_through_cube() {
         &path,
         &SweepOptions::default(),
         default_tol(),
+        None,
     );
     // Boolean operations on curved/planar intersections are complex;
     // we check that the pipeline at least produces a result or a clean error.
@@ -262,6 +287,7 @@ fn sweep_add_to_cube() {
         &path,
         &SweepOptions::default(),
         default_tol(),
+        None,
     );
     match result {
         Ok(r) => {
@@ -288,6 +314,7 @@ fn pipe_add_to_cube() {
         &PipeRadius::Constant(0.2),
         &SweepOptions::default(),
         default_tol(),
+        None,
     );
     match result {
         Ok(r) => {
@@ -308,7 +335,13 @@ fn invalid_profile_returns_error() {
         weights: vec![],
     });
     let path = z_path(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 5.0));
-    let result = popkern_sweep::sweep(&profile, &path, &SweepOptions::default(), default_tol());
+    let result = popkern_sweep::sweep(
+        &profile,
+        &path,
+        &SweepOptions::default(),
+        default_tol(),
+        None,
+    );
     assert!(result.is_err());
 }
 
@@ -320,6 +353,7 @@ fn pipe_has_pcurves_on_all_half_edges() {
         &PipeRadius::Constant(1.0),
         &SweepOptions::default(),
         default_tol(),
+        None,
     );
     assert!(result.is_ok(), "pipe failed: {:?}", result.err());
     let brep = &result.unwrap().brep;
@@ -338,7 +372,13 @@ fn pipe_has_pcurves_on_all_half_edges() {
 fn sweep_circle_has_pcurves_on_all_half_edges() {
     let profile = circle_profile(1.0);
     let path = z_path(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 5.0));
-    let result = popkern_sweep::sweep(&profile, &path, &SweepOptions::default(), default_tol());
+    let result = popkern_sweep::sweep(
+        &profile,
+        &path,
+        &SweepOptions::default(),
+        default_tol(),
+        None,
+    );
     assert!(result.is_ok(), "sweep failed: {:?}", result.err());
     let brep = &result.unwrap().brep;
 
@@ -367,7 +407,7 @@ fn self_intersection_allowed_produces_warning() {
     };
     let mut options = SweepOptions::default();
     options.allow_self_intersection = true;
-    let result = popkern_sweep::sweep(&profile, &path, &options, default_tol());
+    let result = popkern_sweep::sweep(&profile, &path, &options, default_tol(), None);
     // Should either succeed (with possible warning) or fail for a reason other than self-intersection.
     match result {
         Ok(r) => {
