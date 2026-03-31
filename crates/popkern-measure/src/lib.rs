@@ -12,3 +12,7 @@ pub use error::MeasureError;
 mod edge;
 
 pub use edge::{edge_length, edge_tangent};
+
+mod vertex;
+
+pub use vertex::vertex_position;
