@@ -337,6 +337,124 @@ fn test_round_trip_min_max() {
 }
 
 // ---------------------------------------------------------------------------
+// MEASURE formatting
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_measure_body_volume_format() {
+    use crate::measure_query::MeasureQuery;
+
+    let t = ParameterTable::new();
+    let expr = Expression::Measure(MeasureQuery::BodyVolume);
+    let s = format_expression(&expr, &t);
+    assert_eq!(s, "MEASURE(body.volume)");
+}
+
+#[test]
+fn test_measure_body_surface_area_format() {
+    use crate::measure_query::MeasureQuery;
+
+    let t = ParameterTable::new();
+    let expr = Expression::Measure(MeasureQuery::BodySurfaceArea);
+    let s = format_expression(&expr, &t);
+    assert_eq!(s, "MEASURE(body.surface_area)");
+}
+
+#[test]
+fn test_measure_body_centroid_format() {
+    use crate::measure_query::{Component, MeasureQuery};
+
+    let t = ParameterTable::new();
+    let cases = [
+        (Component::X, "MEASURE(body.centroid.x)"),
+        (Component::Y, "MEASURE(body.centroid.y)"),
+        (Component::Z, "MEASURE(body.centroid.z)"),
+    ];
+    for (comp, expected) in cases {
+        let expr = Expression::Measure(MeasureQuery::BodyCentroid(comp));
+        let s = format_expression(&expr, &t);
+        assert_eq!(s, expected, "comp: {comp:?}");
+    }
+}
+
+#[test]
+fn test_measure_body_bound_format() {
+    use crate::measure_query::{BoundExtent, MeasureQuery};
+
+    let t = ParameterTable::new();
+    let cases = [
+        (BoundExtent::MinX, "MEASURE(body.bound.min_x)"),
+        (BoundExtent::MinY, "MEASURE(body.bound.min_y)"),
+        (BoundExtent::MinZ, "MEASURE(body.bound.min_z)"),
+        (BoundExtent::MaxX, "MEASURE(body.bound.max_x)"),
+        (BoundExtent::MaxY, "MEASURE(body.bound.max_y)"),
+        (BoundExtent::MaxZ, "MEASURE(body.bound.max_z)"),
+        (BoundExtent::SizeX, "MEASURE(body.bound.size_x)"),
+        (BoundExtent::SizeY, "MEASURE(body.bound.size_y)"),
+        (BoundExtent::SizeZ, "MEASURE(body.bound.size_z)"),
+    ];
+    for (extent, expected) in cases {
+        let expr = Expression::Measure(MeasureQuery::BodyBound(extent));
+        let s = format_expression(&expr, &t);
+        assert_eq!(s, expected, "extent: {extent:?}");
+    }
+}
+
+#[test]
+fn test_measure_body_moment_of_inertia_format() {
+    let t = ParameterTable::new();
+    let cases = [
+        (
+            popkern_measure::Axis::X,
+            "MEASURE(body.moment_of_inertia.x)",
+        ),
+        (
+            popkern_measure::Axis::Y,
+            "MEASURE(body.moment_of_inertia.y)",
+        ),
+        (
+            popkern_measure::Axis::Z,
+            "MEASURE(body.moment_of_inertia.z)",
+        ),
+    ];
+    for (axis, expected) in cases {
+        let expr = Expression::Measure(crate::measure_query::MeasureQuery::BodyMomentOfInertia(
+            axis,
+        ));
+        let s = format_expression(&expr, &t);
+        assert_eq!(s, expected, "axis: {axis:?}");
+    }
+}
+
+/// Body-level MEASURE expressions should round-trip through the parser.
+#[test]
+fn test_measure_body_round_trip() {
+    use crate::measure_query::MeasureQuery;
+
+    let t = ParameterTable::new();
+    let body_queries = [
+        MeasureQuery::BodyVolume,
+        MeasureQuery::BodySurfaceArea,
+        MeasureQuery::BodyCentroid(crate::measure_query::Component::X),
+        MeasureQuery::BodyBound(crate::measure_query::BoundExtent::MaxZ),
+        MeasureQuery::BodyMomentOfInertia(popkern_measure::Axis::Y),
+    ];
+    for query in &body_queries {
+        let expr = Expression::Measure(query.clone());
+        let formatted = format_expression(&expr, &t);
+        // The formatted string must parse back without error.
+        let reparsed = parse_expression(&formatted, &t)
+            .unwrap_or_else(|e| panic!("re-parse of '{formatted}' failed: {e}"));
+        // Re-format the re-parsed expression and check it matches.
+        let reformatted = format_expression(&reparsed, &t);
+        assert_eq!(
+            formatted, reformatted,
+            "format not stable for query {query:?}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Additional formatting edge cases
 // ---------------------------------------------------------------------------
 

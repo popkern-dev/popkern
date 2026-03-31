@@ -25,8 +25,8 @@ use crate::config_eval;
 use crate::error::{FeatureResult, ReplayError};
 use crate::expression::Expression;
 use crate::feature::Feature;
+use crate::measure_cache::MeasureCache;
 use crate::measure_query::MeasureContext;
-use crate::measure_resolve;
 use crate::node::{BodyId, FeatureId};
 use crate::parameter::{EvaluationWarning, ParamScope, ParameterId};
 use crate::unit::{DimensionKind, Unit};
@@ -116,6 +116,7 @@ impl FeatureTree {
     ) -> Result<ReplayRangeOutput, ReplayError> {
         let mut body_breps = body_breps;
         let mut results = HashMap::new();
+        let mut measure_cache = MeasureCache::new();
 
         // Track stale reference parameter IDs for StaleInput propagation.
         let mut stale_param_ids: HashSet<ParameterId> = HashSet::new();
@@ -217,7 +218,7 @@ impl FeatureTree {
                     active_body: body,
                     tolerance,
                 };
-                let eval_result = measure_resolve::resolve_and_evaluate(query, &measure_ctx);
+                let eval_result = measure_cache.get_or_evaluate(query, &measure_ctx);
 
                 let label = node.label.clone();
                 let qualified_name = format!("{}.value", label.to_lowercase().replace(' ', "_"));
@@ -322,6 +323,7 @@ impl FeatureTree {
                     );
                     self.features[id].last_result = Some(FeatureResult::Success { history });
                     self.cache.store(self.active_config, id, brep.clone(), i);
+                    measure_cache.invalidate();
                 }
                 Err(e) => {
                     // Atomically restore the pre-execution BRep so the body

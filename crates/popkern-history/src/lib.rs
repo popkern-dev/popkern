@@ -30,6 +30,7 @@ pub mod expression;
 pub mod feature;
 pub mod format;
 pub mod health;
+pub(crate) mod measure_cache;
 pub mod measure_query;
 pub(crate) mod measure_resolve;
 pub mod node;
