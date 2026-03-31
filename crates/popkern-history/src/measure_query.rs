@@ -142,9 +142,9 @@ impl MeasureQuery {
             | Self::FaceMaxCurvature(n)
             | Self::VertexPosition(n, _) => vec![n],
 
-            Self::MinDistance(a, b)
-            | Self::DihedralAngle(a, b)
-            | Self::EdgeAngle(a, b) => vec![a, b],
+            Self::MinDistance(a, b) | Self::DihedralAngle(a, b) | Self::EdgeAngle(a, b) => {
+                vec![a, b]
+            }
 
             Self::BodyVolume
             | Self::BodySurfaceArea
@@ -176,11 +176,32 @@ impl MeasureContext<'_> {
         static EMPTY_BODIES: std::sync::LazyLock<HashMap<BodyId, BRep>> =
             std::sync::LazyLock::new(HashMap::new);
         static DEFAULT_TOL: std::sync::LazyLock<Tolerance> =
-            std::sync::LazyLock::new(|| Tolerance::default());
+            std::sync::LazyLock::new(Tolerance::default);
         MeasureContext {
             bodies: &EMPTY_BODIES,
             active_body: BodyId(0),
             tolerance: &DEFAULT_TOL,
+        }
+    }
+}
+
+/// Extract all [`EntityName`] references from `Measure` nodes in an expression.
+pub fn expression_measure_refs(expr: &crate::expression::Expression) -> Vec<EntityName> {
+    use crate::expression::Expression;
+    match expr {
+        Expression::Measure(query) => query.entity_names().into_iter().cloned().collect(),
+        Expression::Literal(_) | Expression::Param(_) => vec![],
+        Expression::BinOp(l, _, r) | Expression::Compare(l, _, r) => {
+            let mut refs = expression_measure_refs(l);
+            refs.extend(expression_measure_refs(r));
+            refs
+        }
+        Expression::Func(_, arg) => expression_measure_refs(arg),
+        Expression::Conditional(c, t, f) => {
+            let mut refs = expression_measure_refs(c);
+            refs.extend(expression_measure_refs(t));
+            refs.extend(expression_measure_refs(f));
+            refs
         }
     }
 }

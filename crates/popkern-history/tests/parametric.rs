@@ -398,8 +398,9 @@ fn expression_parser_integration() {
 
     // Evaluate: 0.05 * 2 + 0.1 = 0.2
     let result = {
+        use popkern_history::MeasureContext;
         use popkern_history::expression::evaluate;
-        evaluate(&expr, tree.parameters()).expect("evaluate")
+        evaluate(&expr, tree.parameters(), &MeasureContext::empty()).expect("evaluate")
     };
     assert!(
         (result - 0.2).abs() < 1e-10,
@@ -442,12 +443,14 @@ fn expression_formatter_round_trip() {
 
     // Evaluate both and compare
     let eval_orig = {
+        use popkern_history::MeasureContext;
         use popkern_history::expression::evaluate;
-        evaluate(&original, tree.parameters()).expect("eval original")
+        evaluate(&original, tree.parameters(), &MeasureContext::empty()).expect("eval original")
     };
     let eval_reparsed = {
+        use popkern_history::MeasureContext;
         use popkern_history::expression::evaluate;
-        evaluate(&reparsed, tree.parameters()).expect("eval reparsed")
+        evaluate(&reparsed, tree.parameters(), &MeasureContext::empty()).expect("eval reparsed")
     };
     assert!(
         (eval_orig - eval_reparsed).abs() < 1e-10,

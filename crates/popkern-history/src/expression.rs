@@ -29,6 +29,8 @@ pub enum Expression {
     Compare(Box<Expression>, CmpOp, Box<Expression>),
     /// Conditional: if condition != 0 then true_branch else false_branch.
     Conditional(Box<Expression>, Box<Expression>, Box<Expression>),
+    /// A geometric measurement query evaluated against the current BRep.
+    Measure(crate::measure_query::MeasureQuery),
 }
 
 /// Binary arithmetic / logical operators.
@@ -104,8 +106,14 @@ pub enum UnaryFunc {
 
 /// Evaluate an expression against the parameter table.
 ///
-/// Returns the f64 result or a human-readable error description.
-pub fn evaluate(expr: &Expression, table: &ParameterTable) -> Result<f64, String> {
+/// Pass [`MeasureContext::empty()`](crate::measure_query::MeasureContext::empty)
+/// when no live model is available.
+#[allow(clippy::only_used_in_recursion)] // ctx will be used by Measure dispatch (Task 11)
+pub fn evaluate(
+    expr: &Expression,
+    table: &ParameterTable,
+    ctx: &crate::measure_query::MeasureContext<'_>,
+) -> Result<f64, String> {
     match expr {
         Expression::Literal(v) => Ok(*v),
         Expression::Param(id) => table
@@ -113,8 +121,8 @@ pub fn evaluate(expr: &Expression, table: &ParameterTable) -> Result<f64, String
             .map(|p| p.value)
             .ok_or_else(|| format!("parameter {id:?} not found")),
         Expression::BinOp(left, op, right) => {
-            let l = evaluate(left, table)?;
-            let r = evaluate(right, table)?;
+            let l = evaluate(left, table, ctx)?;
+            let r = evaluate(right, table, ctx)?;
             let result = match op {
                 BinOp::Add => l + r,
                 BinOp::Sub => l - r,
@@ -145,7 +153,7 @@ pub fn evaluate(expr: &Expression, table: &ParameterTable) -> Result<f64, String
             check_finite(result)
         }
         Expression::Func(func, arg) => {
-            let a = evaluate(arg, table)?;
+            let a = evaluate(arg, table, ctx)?;
             let result = match func {
                 UnaryFunc::Sin => a.sin(),
                 UnaryFunc::Cos => a.cos(),
@@ -181,8 +189,8 @@ pub fn evaluate(expr: &Expression, table: &ParameterTable) -> Result<f64, String
             check_finite(result)
         }
         Expression::Compare(left, op, right) => {
-            let l = evaluate(left, table)?;
-            let r = evaluate(right, table)?;
+            let l = evaluate(left, table, ctx)?;
+            let r = evaluate(right, table, ctx)?;
             let result = match op {
                 CmpOp::Gt => l > r,
                 CmpOp::Lt => l < r,
@@ -194,12 +202,15 @@ pub fn evaluate(expr: &Expression, table: &ParameterTable) -> Result<f64, String
             Ok(if result { 1.0 } else { 0.0 })
         }
         Expression::Conditional(cond, then_expr, else_expr) => {
-            let c = evaluate(cond, table)?;
+            let c = evaluate(cond, table, ctx)?;
             if c != 0.0 {
-                evaluate(then_expr, table)
+                evaluate(then_expr, table, ctx)
             } else {
-                evaluate(else_expr, table)
+                evaluate(else_expr, table, ctx)
             }
+        }
+        Expression::Measure(_query) => {
+            Err("MEASURE evaluation requires model context (not yet wired)".into())
         }
     }
 }
@@ -304,6 +315,7 @@ pub fn dimension_kind(
                 Err(dim_mismatch(tk, ek))
             }
         }
+        Expression::Measure(query) => Ok(query.dimension_kind()),
     }
 }
 
@@ -338,7 +350,7 @@ fn mul_div_kind(lk: DimensionKind, rk: DimensionKind) -> Result<DimensionKind, H
 /// Collect all [`ParameterId`] references in an expression.
 pub(crate) fn expression_param_refs(expr: &Expression) -> Vec<ParameterId> {
     match expr {
-        Expression::Literal(_) => vec![],
+        Expression::Literal(_) | Expression::Measure(_) => vec![],
         Expression::Param(id) => vec![*id],
         Expression::BinOp(l, _, r) | Expression::Compare(l, _, r) => {
             let mut refs = expression_param_refs(l);
@@ -415,10 +427,18 @@ fn topo_visit(
 
 /// Evaluate all parameter expressions in topological order.
 ///
+/// The [`MeasureContext`](crate::measure_query::MeasureContext) provides BRep
+/// access for `Measure` expressions. Pass
+/// [`MeasureContext::empty()`](crate::measure_query::MeasureContext::empty) when
+/// no live model is available.
+///
 /// On math error the last good value is kept and an [`EvaluationWarning`] is
 /// recorded. On bounds violation the value is clamped and a warning recorded.
 /// Returns all warnings produced during this pass.
-pub fn evaluate_all(table: &mut ParameterTable) -> Vec<(ParameterId, EvaluationWarning)> {
+pub fn evaluate_all(
+    table: &mut ParameterTable,
+    ctx: &crate::measure_query::MeasureContext<'_>,
+) -> Vec<(ParameterId, EvaluationWarning)> {
     let order = match topological_sort(table) {
         Ok(order) => order,
         Err(_) => return vec![], // Cycle — caller handles via topological_sort
@@ -432,7 +452,7 @@ pub fn evaluate_all(table: &mut ParameterTable) -> Vec<(ParameterId, EvaluationW
             None => continue,
         };
 
-        match evaluate(&expr, table) {
+        match evaluate(&expr, table, ctx) {
             Ok(mut value) => {
                 // Check bounds.
                 if let Some((min, max)) = table.get(id).and_then(|p| p.bounds)

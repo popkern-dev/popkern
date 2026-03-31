@@ -1,5 +1,6 @@
 use super::*;
 use crate::error::HistoryError;
+use crate::measure_query::MeasureContext;
 use crate::parameter::ParameterTable;
 use crate::unit::{DimensionKind, Unit};
 
@@ -351,7 +352,7 @@ fn evaluate_all_propagates_values() {
         .set_expression(a, binop(param(b), BinOp::Mul, lit(2.0)))
         .unwrap();
 
-    let warnings = evaluate_all(&mut table);
+    let warnings = evaluate_all(&mut table, &MeasureContext::empty());
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     assert!((table.get(b).unwrap().value - 11.0).abs() < 1e-12);
     assert!((table.get(a).unwrap().value - 22.0).abs() < 1e-12);
@@ -365,7 +366,7 @@ fn evaluate_all_math_error_keeps_last_value() {
         .set_expression(a, func(UnaryFunc::Sqrt, lit(-1.0)))
         .unwrap();
 
-    let warnings = evaluate_all(&mut table);
+    let warnings = evaluate_all(&mut table, &MeasureContext::empty());
     assert_eq!(warnings.len(), 1);
     assert!(matches!(
         &warnings[0].1,
@@ -381,7 +382,7 @@ fn evaluate_all_bounds_clamped() {
     table.set_bounds(a, 0.0, 10.0);
     table.set_expression(a, lit(20.0)).unwrap();
 
-    let warnings = evaluate_all(&mut table);
+    let warnings = evaluate_all(&mut table, &MeasureContext::empty());
     assert_eq!(warnings.len(), 1);
     assert!(matches!(
         &warnings[0].1,

@@ -103,7 +103,10 @@ pub(crate) fn evaluate_config(
     if config.is_none() {
         // No config — return default values after evaluation.
         let mut clone = table.clone();
-        let _ = crate::expression::evaluate_all(&mut clone);
+        let _ = crate::expression::evaluate_all(
+            &mut clone,
+            &crate::measure_query::MeasureContext::empty(),
+        );
         return clone.all_params().map(|(pid, p)| (pid, p.value)).collect();
     }
 
@@ -126,7 +129,8 @@ pub(crate) fn evaluate_config(
     }
 
     // Evaluate in topological order.
-    let _ = crate::expression::evaluate_all(&mut clone);
+    let _ =
+        crate::expression::evaluate_all(&mut clone, &crate::measure_query::MeasureContext::empty());
 
     clone.all_params().map(|(pid, p)| (pid, p.value)).collect()
 }

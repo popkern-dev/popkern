@@ -64,7 +64,10 @@ impl FeatureTree {
         // Evaluate — literal-overridden params have no expression, so they
         // keep their pinned value; expression-overridden params are evaluated
         // in topological order.
-        let warnings = crate::expression::evaluate_all(&mut self.parameter_table);
+        let warnings = crate::expression::evaluate_all(
+            &mut self.parameter_table,
+            &crate::measure_query::MeasureContext::empty(),
+        );
 
         // Restore default expressions (leave evaluated values in place).
         for (pid, original_expr) in saved {
@@ -126,7 +129,14 @@ impl FeatureTree {
             let suppress_if = node.suppress_if.clone();
             let auto_suppressed = suppress_if
                 .as_ref()
-                .and_then(|expr| crate::expression::evaluate(expr, &self.parameter_table).ok())
+                .and_then(|expr| {
+                    crate::expression::evaluate(
+                        expr,
+                        &self.parameter_table,
+                        &crate::measure_query::MeasureContext::empty(),
+                    )
+                    .ok()
+                })
                 .map(|v| v != 0.0)
                 .unwrap_or(false);
 

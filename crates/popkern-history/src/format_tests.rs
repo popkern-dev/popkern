@@ -258,13 +258,14 @@ fn test_func_sin_format() {
 /// match.
 fn round_trip_value(input: &str, table: &ParameterTable) {
     use crate::expression::evaluate;
+    use crate::measure_query::MeasureContext;
 
     let expr1 = parse_expression(input, table).expect("first parse failed");
-    let val1 = evaluate(&expr1, table).expect("first eval failed");
+    let val1 = evaluate(&expr1, table, &MeasureContext::empty()).expect("first eval failed");
 
     let formatted = format_expression(&expr1, table);
     let expr2 = parse_expression(&formatted, table).expect("second parse failed");
-    let val2 = evaluate(&expr2, table).expect("second eval failed");
+    let val2 = evaluate(&expr2, table, &MeasureContext::empty()).expect("second eval failed");
 
     assert!(
         (val1 - val2).abs() < 1e-9,
@@ -304,13 +305,14 @@ fn test_round_trip_functions() {
 fn test_round_trip_with_unit() {
     // A literal with unit context: format in mm, re-parse as mm.
     use crate::expression::evaluate;
+    use crate::measure_query::MeasureContext;
 
     let t = ParameterTable::new();
     let expr1 = parse_expression("50mm", &t).unwrap();
-    let val1 = evaluate(&expr1, &t).unwrap();
+    let val1 = evaluate(&expr1, &t, &MeasureContext::empty()).unwrap();
     let formatted = format_expression_with_unit(&expr1, &t, Unit::Millimeters);
     let expr2 = parse_expression(&formatted, &t).unwrap();
-    let val2 = evaluate(&expr2, &t).unwrap();
+    let val2 = evaluate(&expr2, &t, &MeasureContext::empty()).unwrap();
     assert!(
         (val1 - val2).abs() < 1e-12,
         "values differ: {val1} vs {val2}"

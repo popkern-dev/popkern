@@ -401,8 +401,9 @@ fn builtin_constants_accessible() {
         parse_expression("pi / 4", tree.parameters()).expect("parse 'pi / 4' should succeed");
 
     let result = {
+        use popkern_history::MeasureContext;
         use popkern_history::expression::evaluate;
-        evaluate(&expr, tree.parameters()).expect("evaluate")
+        evaluate(&expr, tree.parameters(), &MeasureContext::empty()).expect("evaluate")
     };
 
     let expected = std::f64::consts::PI / 4.0;

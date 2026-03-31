@@ -55,9 +55,9 @@ pub use expression::{BinOp, CmpOp, Expression, UnaryFunc};
 pub use feature::{BoolOpKind, Feature, ShellDirectionKind, SketchPlaneDesc, Vec3Desc};
 pub use format::{format_expression, format_expression_with_unit};
 pub use health::{HealthReport, ReferenceIssue};
+pub use measure_query::{BoundExtent, Component, MeasureContext, MeasureQuery};
 pub use node::{BodyId, FeatureId, FeatureNode};
 pub use parameter::{EvaluationWarning, ParamScope, Parameter, ParameterId, ParameterTable};
-pub use measure_query::{BoundExtent, Component, MeasureContext, MeasureQuery};
 pub use parse::{ParseError, parse_expression};
 pub use queries::ImpactReport;
 pub use unit::{DimensionKind, Unit};
@@ -220,7 +220,10 @@ impl FeatureTree {
         let eval_warnings = if self.active_config.is_some() {
             self.apply_config_and_evaluate()
         } else {
-            expression::evaluate_all(&mut self.parameter_table)
+            expression::evaluate_all(
+                &mut self.parameter_table,
+                &measure_query::MeasureContext::empty(),
+            )
         };
 
         let end = self.rollback_index.unwrap_or(self.timeline.len());
@@ -288,7 +291,10 @@ impl FeatureTree {
         }
 
         let timer = Instant::now();
-        let eval_warnings = expression::evaluate_all(&mut self.parameter_table);
+        let eval_warnings = expression::evaluate_all(
+            &mut self.parameter_table,
+            &measure_query::MeasureContext::empty(),
+        );
         let end = self.rollback_index.unwrap_or(self.timeline.len());
         let (body_breps, results) = self.replay_range(start_bodies, start_pos, end, &tolerance)?;
         self.store_body_breps(&body_breps);

@@ -3125,6 +3125,7 @@ dependencies = [
  "popkern-core",
  "popkern-draft",
  "popkern-fillet",
+ "popkern-measure",
  "popkern-shell",
  "popkern-sketch",
  "popkern-sweep",

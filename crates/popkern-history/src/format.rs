@@ -24,7 +24,7 @@ const PREC_ATOM: u8 = 7;
 /// Return the precedence level for an expression.
 fn expr_prec(expr: &Expression) -> u8 {
     match expr {
-        Expression::Literal(_) | Expression::Param(_) => PREC_ATOM,
+        Expression::Literal(_) | Expression::Param(_) | Expression::Measure(_) => PREC_ATOM,
         Expression::BinOp(_, op, _) => match op {
             BinOp::And | BinOp::Or => PREC_LOGIC,
             BinOp::Add | BinOp::Sub => PREC_ADD,
@@ -130,6 +130,8 @@ fn fmt_inner(expr: &Expression, table: &ParameterTable, unit: Option<Unit>) -> S
             let e = fmt_with_prec(else_expr, table, PREC_TERNARY, unit);
             format!("{c} ? {t} : {e}")
         }
+
+        Expression::Measure(query) => format!("MEASURE({query:?})"),
     }
 }
 
