@@ -15,6 +15,45 @@ use crate::expression::Expression;
 use crate::node::FeatureId;
 use crate::parameter::ParameterId;
 
+// ---------------------------------------------------------------------------
+// HashMap serialisation helpers for slotmap-keyed maps
+// ---------------------------------------------------------------------------
+//
+// serde_json requires map keys to be strings.  `ParameterId` and `FeatureId`
+// are slotmap keys that serialise as structs `{"idx": …, "version": …}`,
+// which is not a valid JSON object key.  The helper modules below convert the
+// map to/from `Vec<(K, V)>` (a JSON array of 2-element arrays) so that the
+// round-trip is lossless without adding an external crate.
+
+/// Serialise/deserialise a `HashMap<K, V>` as `Vec<(K, V)>`.
+mod serde_map_as_vec {
+    use std::collections::HashMap;
+    use std::hash::Hash;
+
+    use serde::de::DeserializeOwned;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S, K, V>(map: &HashMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        K: Serialize + Eq + Hash,
+        V: Serialize,
+    {
+        let vec: Vec<(&K, &V)> = map.iter().collect();
+        vec.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D, K, V>(deserializer: D) -> Result<HashMap<K, V>, D::Error>
+    where
+        D: Deserializer<'de>,
+        K: DeserializeOwned + Eq + Hash,
+        V: DeserializeOwned,
+    {
+        let vec: Vec<(K, V)> = Vec::deserialize(deserializer)?;
+        Ok(vec.into_iter().collect())
+    }
+}
+
 new_key_type! {
     /// Stable handle for a named configuration in the [`crate::FeatureTree`].
     pub struct ConfigId;
@@ -47,9 +86,17 @@ pub struct Configuration {
     pub parent: Option<ConfigId>,
     /// Parameter value/expression overrides. Only parameters that differ
     /// from the parent are stored here.
+    ///
+    /// Serialised as a `Vec<(ParameterId, ParamOverride)>` because serde_json
+    /// requires map keys to be strings, but [`ParameterId`] is a slotmap key.
+    #[serde(with = "serde_map_as_vec")]
     pub overrides: HashMap<ParameterId, ParamOverride>,
     /// Feature suppression overrides. Only features whose suppression
     /// state differs from the parent are stored here.
+    ///
+    /// Serialised as a `Vec<(FeatureId, bool)>` for the same reason as
+    /// `overrides`.
+    #[serde(with = "serde_map_as_vec")]
     pub suppression: HashMap<FeatureId, bool>,
 }
 
