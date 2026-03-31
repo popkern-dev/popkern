@@ -104,10 +104,7 @@ pub enum UnaryFunc {
     Ln,
 }
 
-/// Evaluate an expression against the parameter table.
-///
-/// Pass [`MeasureContext::empty()`](crate::measure_query::MeasureContext::empty)
-/// when no live model is available.
+/// Evaluate an expression against the parameter table and optional model context.
 pub fn evaluate(
     expr: &Expression,
     table: &ParameterTable,
@@ -223,9 +220,6 @@ fn check_finite(v: f64) -> Result<f64, String> {
 }
 
 /// Determine the [`DimensionKind`] that an expression produces.
-///
-/// Enforces dimensional consistency: e.g. adding a length to an angle is an
-/// error, and `sin()` requires an angle input.
 pub fn dimension_kind(
     expr: &Expression,
     table: &ParameterTable,
@@ -365,10 +359,7 @@ pub(crate) fn expression_param_refs(expr: &Expression) -> Vec<ParameterId> {
     }
 }
 
-/// Topological sort of all parameters with expressions.
-///
-/// Returns evaluation order (dependencies before dependents). Detects cycles
-/// and returns [`HistoryError::ExpressionCycle`] with the participating IDs.
+/// Topological sort of parameters with expressions (dependencies before dependents).
 pub fn topological_sort(table: &ParameterTable) -> Result<Vec<ParameterId>, HistoryError> {
     // Build adjacency list: param → [params it depends on].
     let mut deps: HashMap<ParameterId, Vec<ParameterId>> = HashMap::new();
@@ -425,14 +416,8 @@ fn topo_visit(
 
 /// Evaluate all parameter expressions in topological order.
 ///
-/// The [`MeasureContext`](crate::measure_query::MeasureContext) provides BRep
-/// access for `Measure` expressions. Pass
-/// [`MeasureContext::empty()`](crate::measure_query::MeasureContext::empty) when
-/// no live model is available.
-///
-/// On math error the last good value is kept and an [`EvaluationWarning`] is
-/// recorded. On bounds violation the value is clamped and a warning recorded.
-/// Returns all warnings produced during this pass.
+/// Pass [`MeasureContext::empty()`](crate::measure_query::MeasureContext::empty)
+/// when no live model is available. On error, last good value is kept with a warning.
 pub fn evaluate_all(
     table: &mut ParameterTable,
     ctx: &crate::measure_query::MeasureContext<'_>,

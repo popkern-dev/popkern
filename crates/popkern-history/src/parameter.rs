@@ -452,25 +452,17 @@ impl ParameterTable {
         self.name_index.insert(qualified_name.to_string(), id);
     }
 
-    /// Remove all `name_index` entries pointing to `id`, without touching the
-    /// SlotMap.  Used by undo to "hide" a parameter without destroying its key.
+    /// Hide a parameter from name lookups without removing it from the SlotMap.
     pub(crate) fn deregister_name(&mut self, id: ParameterId) {
         self.name_index.retain(|_, &mut v| v != id);
     }
 
-    /// Re-insert a `name -> id` mapping.  Used by undo/redo to restore a
-    /// parameter that was hidden via [`deregister_name`].
-    ///
-    /// Silently ignores conflicts (the name may already be present if redo
-    /// is called repeatedly).
+    /// Re-insert a `name -> id` mapping (undo/redo). Ignores conflicts.
     pub(crate) fn reregister_name(&mut self, id: ParameterId, name: &str) {
         self.name_index.entry(name.to_string()).or_insert(id);
     }
 
-    /// Rename all parameters scoped to a feature when the feature is renamed.
-    ///
-    /// Updates every key in `name_index` that starts with `"<old_label>."` to
-    /// start with `"<new_label>."` instead.
+    /// Rename all parameters scoped to a feature when the feature label changes.
     pub(crate) fn rename_feature_params(
         &mut self,
         feature: FeatureId,
