@@ -147,6 +147,7 @@ fn two_independent_sketches_create_two_bodies() {
 fn extrude_inherits_sketch_body() {
     use crate::FeatureTree;
     use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+    use crate::unit::Unit;
     use popkern_core::naming::{EntityName, EntityRole, NameId, OperationId, RoleCategory};
 
     fn entity_name(op_id: u64) -> EntityName {
@@ -171,12 +172,17 @@ fn extrude_inherits_sketch_body() {
         "Sketch 1",
     );
 
+    let dist_param = tree
+        .parameters_mut()
+        .add_global("_extrude1_distance", 10.0, Unit::Meters)
+        .expect("add param");
+
     // Extrude references a face from OperationId(1) → depends on sketch.
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 10.0,
+            distance: dist_param,
         },
         "Extrude 1",
     );
@@ -193,6 +199,7 @@ fn extrude_inherits_sketch_body() {
 fn body_features_returns_correct_list() {
     use crate::FeatureTree;
     use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+    use crate::unit::Unit;
     use popkern_core::naming::{EntityName, EntityRole, NameId, OperationId, RoleCategory};
 
     fn entity_name(op_id: u64) -> EntityName {
@@ -215,11 +222,17 @@ fn body_features_returns_correct_list() {
         },
         "Sketch 1",
     );
+
+    let dist_param = tree
+        .parameters_mut()
+        .add_global("_extrude1_distance", 5.0, Unit::Meters)
+        .expect("add param");
+
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 5.0,
+            distance: dist_param,
         },
         "Extrude 1",
     );

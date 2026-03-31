@@ -3,6 +3,8 @@
 use crate::FeatureTree;
 use crate::delete::DeleteBehavior;
 use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+use crate::parameter::ParameterId;
+use crate::unit::Unit;
 use popkern_core::naming::{EntityName, EntityRole, NameId, OperationId, RoleCategory};
 
 /// Build an [`EntityName`] that references a given raw operation id.
@@ -24,6 +26,12 @@ fn sketch_xy() -> Feature {
     }
 }
 
+fn add_param(tree: &mut FeatureTree, name: &str, value: f64, unit: Unit) -> ParameterId {
+    tree.parameters_mut()
+        .add_global(name, value, unit)
+        .expect("add param")
+}
+
 // ---------------------------------------------------------------------------
 // 1. Cascade: A → B → C; delete A removes B and C from timeline too
 // ---------------------------------------------------------------------------
@@ -36,22 +44,26 @@ fn cascade_removes_transitive_dependents() {
     let a = tree.add_feature(sketch_xy(), "A");
     let a_op = tree.feature(a).unwrap().operation_id;
 
+    let dist_b = add_param(&mut tree, "_b_distance", 5.0, Unit::Meters);
+
     // B — extrude referencing A's face (op_id 2)
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 5.0,
+            distance: dist_b,
         },
         "B",
     );
     let b_op = tree.feature(b).unwrap().operation_id;
 
+    let radius_c = add_param(&mut tree, "_c_radius", 1.0, Unit::Meters);
+
     // C — fillet referencing B's edge (op_id 3)
     let c = tree.add_feature(
         Feature::Fillet {
             edges: vec![entity_name(b_op.0)],
-            radius: 1.0,
+            radius: radius_c,
         },
         "C",
     );
@@ -114,20 +126,24 @@ fn reparent_rewires_dependents_to_grandparent() {
     let a = tree.add_feature(sketch_xy(), "A");
     let a_op = tree.feature(a).unwrap().operation_id;
 
+    let dist_b = add_param(&mut tree, "_b_distance", 5.0, Unit::Meters);
+
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 5.0,
+            distance: dist_b,
         },
         "B",
     );
     let b_op = tree.feature(b).unwrap().operation_id;
 
+    let radius_c = add_param(&mut tree, "_c_radius", 1.0, Unit::Meters);
+
     let c = tree.add_feature(
         Feature::Fillet {
             edges: vec![entity_name(b_op.0)],
-            radius: 1.0,
+            radius: radius_c,
         },
         "C",
     );
@@ -185,11 +201,14 @@ fn cascade_delete_undo_restores_timeline() {
     let mut tree = FeatureTree::new();
     let a = tree.add_feature(sketch_xy(), "A");
     let a_op = tree.feature(a).unwrap().operation_id;
+
+    let dist_b = add_param(&mut tree, "_b_distance", 5.0, Unit::Meters);
+
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 5.0,
+            distance: dist_b,
         },
         "B",
     );
@@ -230,19 +249,25 @@ fn reparent_delete_undo_restores_deps() {
 
     let a = tree.add_feature(sketch_xy(), "A");
     let a_op = tree.feature(a).unwrap().operation_id;
+
+    let dist_b = add_param(&mut tree, "_b_distance", 5.0, Unit::Meters);
+
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 5.0,
+            distance: dist_b,
         },
         "B",
     );
     let b_op = tree.feature(b).unwrap().operation_id;
+
+    let radius_c = add_param(&mut tree, "_c_radius", 1.0, Unit::Meters);
+
     let c = tree.add_feature(
         Feature::Fillet {
             edges: vec![entity_name(b_op.0)],
-            radius: 1.0,
+            radius: radius_c,
         },
         "C",
     );
@@ -268,27 +293,36 @@ fn reparent_produces_warnings_for_each_reparented_feature() {
 
     let a = tree.add_feature(sketch_xy(), "A");
     let a_op = tree.feature(a).unwrap().operation_id;
+
+    let dist_b = add_param(&mut tree, "_b_distance", 5.0, Unit::Meters);
+
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 5.0,
+            distance: dist_b,
         },
         "B",
     );
     let b_op = tree.feature(b).unwrap().operation_id;
+
+    let radius_c = add_param(&mut tree, "_c_radius", 1.0, Unit::Meters);
+
     // Two features depending on B.
     let _c = tree.add_feature(
         Feature::Fillet {
             edges: vec![entity_name(b_op.0)],
-            radius: 1.0,
+            radius: radius_c,
         },
         "C",
     );
+
+    let dist_d = add_param(&mut tree, "_d_distance", 0.5, Unit::Meters);
+
     let _d = tree.add_feature(
         Feature::Chamfer {
             edges: vec![entity_name(b_op.0)],
-            distance: 0.5,
+            distance: dist_d,
         },
         "D",
     );
@@ -301,5 +335,72 @@ fn reparent_produces_warnings_for_each_reparented_feature() {
         result.warnings.len(),
         2,
         "one warning per reparented feature"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 8. Delete cascade → feature params removed from table
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cascade_delete_removes_feature_params() {
+    let mut tree = FeatureTree::new();
+
+    let a = tree.add_feature(sketch_xy(), "A");
+    let a_op = tree.feature(a).unwrap().operation_id;
+
+    let dist_b = add_param(&mut tree, "_b_distance", 5.0, Unit::Meters);
+
+    let b = tree.add_feature(
+        Feature::Extrude {
+            face: entity_name(a_op.0),
+            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
+            distance: dist_b,
+        },
+        "B",
+    );
+
+    // dist_b is registered as a feature param for B during add_feature.
+    // After cascade delete of B, its feature params should be gone.
+    tree.delete_feature(b, DeleteBehavior::Cascade)
+        .expect("delete should succeed");
+
+    // The parameter b.distance should be gone from the table.
+    let b_params = tree.parameters().feature_params(b);
+    assert!(
+        b_params.is_empty(),
+        "cascade delete should remove feature-scoped params"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 9. Delete reparent → deleted feature's params removed
+// ---------------------------------------------------------------------------
+
+#[test]
+fn reparent_delete_removes_target_feature_params() {
+    let mut tree = FeatureTree::new();
+
+    let a = tree.add_feature(sketch_xy(), "A");
+    let a_op = tree.feature(a).unwrap().operation_id;
+
+    let dist_b = add_param(&mut tree, "_b_dist2", 5.0, Unit::Meters);
+
+    let b = tree.add_feature(
+        Feature::Extrude {
+            face: entity_name(a_op.0),
+            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
+            distance: dist_b,
+        },
+        "B2",
+    );
+
+    tree.delete_feature(b, DeleteBehavior::Reparent)
+        .expect("delete should succeed");
+
+    let b_params = tree.parameters().feature_params(b);
+    assert!(
+        b_params.is_empty(),
+        "reparent delete should remove feature-scoped params for deleted feature"
     );
 }

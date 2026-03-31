@@ -97,6 +97,11 @@ impl FeatureTree {
             self.timeline.retain(|&fid| fid != did);
         }
 
+        // Remove parameters owned by all deleted features.
+        for &did in &to_delete {
+            self.parameter_table.remove_feature_params(did);
+        }
+
         self.record_undo(TreeCommand::DeleteFeature { snapshots });
         self.cache.clear();
 
@@ -155,6 +160,9 @@ impl FeatureTree {
             .ok_or(HistoryError::FeatureNotFound)?;
 
         self.timeline.retain(|&fid| fid != id);
+
+        // Remove parameters owned by the deleted feature.
+        self.parameter_table.remove_feature_params(id);
 
         self.record_undo(TreeCommand::DeleteFeature {
             snapshots: vec![(id, snapshot, pos)],

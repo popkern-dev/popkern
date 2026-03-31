@@ -6,6 +6,8 @@ use popkern_core::tolerance::Tolerance;
 
 use crate::FeatureTree;
 use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+use crate::parameter::ParameterId;
+use crate::unit::Unit;
 
 /// Create a solved rectangle sketch and serialize it to JSON.
 fn rectangle_sketch_json() -> String {
@@ -33,6 +35,12 @@ fn entity_name(op_id: u64, category: RoleCategory, index: u32) -> EntityName {
         role: EntityRole { category, index },
         ancestors: Vec::new(),
     }
+}
+
+fn add_param(tree: &mut FeatureTree, name: &str, value: f64, unit: Unit) -> ParameterId {
+    tree.parameters_mut()
+        .add_global(name, value, unit)
+        .expect("add param")
 }
 
 #[test]
@@ -76,13 +84,15 @@ fn healthy_sketch_on_face_reference_resolves() {
         "Sketch 1",
     );
 
+    let dist_param = add_param(&mut tree, "_extrude1_distance", 1.0, Unit::Meters);
+
     // Extrude to create a box — the sketch face name should survive
     // as a history reference in the extruded BRep.
     tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 1.0,
+            distance: dist_param,
         },
         "Extrude 1",
     );
@@ -111,12 +121,14 @@ fn broken_reference_detected() {
         "Sketch 1",
     );
 
+    let dist_param = add_param(&mut tree, "_bad_extrude_distance", 1.0, Unit::Meters);
+
     // Extrude with a bogus reference (op 99 doesn't exist).
     tree.add_feature(
         Feature::Extrude {
             face: entity_name(99, RoleCategory::Generated, 0),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 1.0,
+            distance: dist_param,
         },
         "Bad Extrude",
     );

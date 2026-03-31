@@ -12,6 +12,25 @@ use std::collections::HashMap;
 use crate::error::ReplayError;
 use crate::feature::{BoolOpKind, Feature, ShellDirectionKind};
 use crate::node::BodyId;
+use crate::parameter::{ParameterId, ParameterTable};
+
+/// Side effects produced by a successful feature execution.
+///
+/// Returned from [`execute_feature`] so that the caller can apply deferred
+/// mutations (e.g. removing consumed tool bodies) only on success.
+pub(crate) struct ExecuteSideEffects {
+    /// Body IDs that were consumed by this feature (e.g. Boolean tool body).
+    pub consumed_bodies: Vec<BodyId>,
+}
+
+impl ExecuteSideEffects {
+    /// No side effects.
+    pub fn empty() -> Self {
+        Self {
+            consumed_bodies: Vec::new(),
+        }
+    }
+}
 use crate::resolve::{
     resolve_direction, resolve_edge, resolve_edges, resolve_face, resolve_faces,
     resolve_sketch_plane,
@@ -32,16 +51,29 @@ use crate::resolve::{
 ///
 /// Returns [`ReplayError`] if entity resolution fails or the underlying
 /// operation fails.
+/// Resolve a [`ParameterId`] to its `f64` value via the parameter table.
+fn resolve_param(table: &ParameterTable, id: ParameterId) -> Result<f64, ReplayError> {
+    table
+        .get(id)
+        .map(|p| p.value)
+        .ok_or_else(|| ReplayError::FeatureFailed {
+            label: "parameter".into(),
+            error: format!("parameter {id:?} not found"),
+        })
+}
+
 pub(crate) fn execute_feature(
     brep: &mut BRep,
     feature: &Feature,
     tracking: &mut TrackingContext,
     tolerance: &Tolerance,
     body_breps: &mut HashMap<BodyId, BRep>,
-) -> Result<(), ReplayError> {
+    param_table: &ParameterTable,
+) -> Result<ExecuteSideEffects, ReplayError> {
     match feature {
         Feature::Sketch { plane, sketch_data } => {
-            execute_sketch(brep, plane, sketch_data, tracking, tolerance)
+            execute_sketch(brep, plane, sketch_data, tracking, tolerance, param_table)?;
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Extrude {
             face,
@@ -50,20 +82,22 @@ pub(crate) fn execute_feature(
         } => {
             let face_handle = resolve_face(face, brep)?;
             let dir = resolve_direction(direction, brep)?;
-            brep.extrude(face_handle, dir, *distance, Some(tracking))
+            let dist = resolve_param(param_table, *distance)?;
+            brep.extrude(face_handle, dir, dist, Some(tracking))
                 .map_err(|e| ReplayError::FeatureFailed {
                     label: "extrude".into(),
                     error: e.to_string(),
                 })?;
-            Ok(())
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Fillet { edges, radius } => {
+            let r = resolve_param(param_table, *radius)?;
             let edge_handles = resolve_edges(edges, brep)?;
             let specs: Vec<popkern_fillet::FilletSpec> = edge_handles
                 .into_iter()
                 .map(|edge| popkern_fillet::FilletSpec {
                     edge,
-                    radius: popkern_fillet::FilletRadius::Constant(*radius),
+                    radius: popkern_fillet::FilletRadius::Constant(r),
                 })
                 .collect();
             let result = popkern_fillet::fillet_edges(
@@ -78,15 +112,16 @@ pub(crate) fn execute_feature(
                 error: e.to_string(),
             })?;
             *brep = result.brep;
-            Ok(())
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Chamfer { edges, distance } => {
+            let dist = resolve_param(param_table, *distance)?;
             let edge_handles = resolve_edges(edges, brep)?;
             let specs: Vec<popkern_fillet::ChamferSpec> = edge_handles
                 .into_iter()
                 .map(|edge| popkern_fillet::ChamferSpec {
                     edge,
-                    kind: popkern_fillet::ChamferKind::Equal(*distance),
+                    kind: popkern_fillet::ChamferKind::Equal(dist),
                 })
                 .collect();
             let result = popkern_fillet::chamfer_edges(
@@ -101,7 +136,7 @@ pub(crate) fn execute_feature(
                 error: e.to_string(),
             })?;
             *brep = result.brep;
-            Ok(())
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Boolean {
             operation,
@@ -109,7 +144,8 @@ pub(crate) fn execute_feature(
         } => {
             let tool_brep =
                 body_breps
-                    .remove(tool_body)
+                    .get(tool_body)
+                    .cloned()
                     .ok_or_else(|| ReplayError::FeatureFailed {
                         label: "boolean".into(),
                         error: format!("tool body {tool_body:?} not found"),
@@ -123,18 +159,21 @@ pub(crate) fn execute_feature(
                         error: e.to_string(),
                     })?;
             *brep = result;
-            Ok(())
+            Ok(ExecuteSideEffects {
+                consumed_bodies: vec![*tool_body],
+            })
         }
         Feature::Shell {
             faces_to_remove,
             thickness,
             direction,
         } => {
+            let thick = resolve_param(param_table, *thickness)?;
             let face_handles = resolve_faces(faces_to_remove, brep)?;
             let shell_dir = to_shell_direction(direction);
             let result = popkern_shell::shell(
                 brep,
-                *thickness,
+                thick,
                 shell_dir,
                 &face_handles,
                 &[],
@@ -147,13 +186,14 @@ pub(crate) fn execute_feature(
                 error: e.to_string(),
             })?;
             *brep = result.brep;
-            Ok(())
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Draft {
             faces,
             angle,
             neutral_plane,
         } => {
+            let ang = resolve_param(param_table, *angle)?;
             let face_handles = resolve_faces(faces, brep)?;
             let neutral_face = resolve_face(neutral_plane, brep)?;
             let (neutral_origin, neutral_normal) = extract_plane_from_face(brep, neutral_face)?;
@@ -163,7 +203,7 @@ pub(crate) fn execute_feature(
                 .into_iter()
                 .map(|face| popkern_draft::DraftSpec {
                     face,
-                    angle: *angle,
+                    angle: ang,
                     pull_direction,
                     neutral: popkern_draft::NeutralReference::Plane {
                         origin: neutral_origin,
@@ -184,13 +224,14 @@ pub(crate) fn execute_feature(
                 error: e.to_string(),
             })?;
             *brep = result.brep;
-            Ok(())
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Sweep {
             face,
             path_edge,
             twist,
         } => {
+            let tw = resolve_param(param_table, *twist)?;
             let face_handle = resolve_face(face, brep)?;
             let edge_handle = resolve_edge(path_edge, brep)?;
             let path_curve = extract_edge_curve(brep, edge_handle)?;
@@ -199,7 +240,7 @@ pub(crate) fn execute_feature(
                 face: face_handle,
             };
             let options = popkern_sweep::SweepOptions {
-                twist: *twist,
+                twist: tw,
                 ..popkern_sweep::SweepOptions::default()
             };
             let result = popkern_sweep::sweep(&profile, &path_curve, &options, *tolerance)
@@ -208,7 +249,7 @@ pub(crate) fn execute_feature(
                     error: e.to_string(),
                 })?;
             *brep = result.brep;
-            Ok(())
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Loft { sections, closed } => {
             let mut loft_sections = Vec::new();
@@ -232,14 +273,15 @@ pub(crate) fn execute_feature(
                     }
                 })?;
             *brep = result.brep;
-            Ok(())
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Pipe { path_edge, radius } => {
+            let r = resolve_param(param_table, *radius)?;
             let edge_handle = resolve_edge(path_edge, brep)?;
             let path_curve = extract_edge_curve(brep, edge_handle)?;
             let result = popkern_sweep::pipe(
                 &path_curve,
-                &popkern_sweep::PipeRadius::Constant(*radius),
+                &popkern_sweep::PipeRadius::Constant(r),
                 &popkern_sweep::SweepOptions::default(),
                 *tolerance,
             )
@@ -248,7 +290,7 @@ pub(crate) fn execute_feature(
                 error: e.to_string(),
             })?;
             *brep = result.brep;
-            Ok(())
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::Revolve { .. } => Err(ReplayError::FeatureFailed {
             label: "revolve".into(),
@@ -265,8 +307,9 @@ fn execute_sketch(
     sketch_data: &str,
     tracking: &mut TrackingContext,
     tolerance: &Tolerance,
+    param_table: &ParameterTable,
 ) -> Result<(), ReplayError> {
-    let plane = resolve_sketch_plane(plane_desc, brep)?;
+    let plane = resolve_sketch_plane(plane_desc, brep, param_table)?;
 
     let mut sketch: popkern_constraint::Sketch =
         serde_json::from_str(sketch_data).map_err(|e| ReplayError::FeatureFailed {

@@ -6,6 +6,8 @@ use popkern_core::tolerance::Tolerance;
 
 use crate::FeatureTree;
 use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+use crate::parameter::ParameterId;
+use crate::unit::Unit;
 
 /// Create a solved rectangle sketch and serialize it to JSON.
 fn rectangle_sketch_json() -> String {
@@ -38,6 +40,12 @@ fn face_name(op_id: u64) -> EntityName {
     }
 }
 
+fn add_param(tree: &mut FeatureTree, name: &str, value: f64, unit: Unit) -> ParameterId {
+    tree.parameters_mut()
+        .add_global(name, value, unit)
+        .expect("add param")
+}
+
 // ---------------------------------------------------------------------------
 // Test 1: Build tree → save → load → same timeline and features
 // ---------------------------------------------------------------------------
@@ -54,11 +62,14 @@ fn save_load_preserves_structure() {
         },
         "Sketch 1",
     );
+
+    let dist_param = add_param(&mut tree, "_extrude1_distance", 1.0, Unit::Meters);
+
     tree.add_feature(
         Feature::Extrude {
             face: face_name(1),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 1.0,
+            distance: dist_param,
         },
         "Extrude 1",
     );
@@ -164,11 +175,14 @@ fn save_load_replay_produces_same_brep() {
         },
         "Sketch 1",
     );
+
+    let dist_param = add_param(&mut tree, "_extrude1_distance", 1.0, Unit::Meters);
+
     tree.add_feature(
         Feature::Extrude {
             face: face_name(1),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 1.0,
+            distance: dist_param,
         },
         "Extrude 1",
     );
@@ -247,11 +261,14 @@ fn rollback_index_preserved() {
         },
         "Sketch 1",
     );
+
+    let dist_param = add_param(&mut tree, "_extrude1_distance", 1.0, Unit::Meters);
+
     tree.add_feature(
         Feature::Extrude {
             face: face_name(1),
             direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: 1.0,
+            distance: dist_param,
         },
         "Extrude 1",
     );
@@ -269,3 +286,10 @@ fn rollback_index_preserved() {
         "rollback index should survive round-trip"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Tests 7–12: v2 format and v1→v2 migration (separate file, under 500 lines)
+// ---------------------------------------------------------------------------
+
+#[path = "serialize_v2_tests.rs"]
+mod v2_tests;
