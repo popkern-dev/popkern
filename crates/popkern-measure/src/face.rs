@@ -129,16 +129,25 @@ pub fn face_area(
         }
         // Torus: area element = r*(R + r*cos(v)) du dv.
         // Integrated: r * |du| * |R*(v1-v0) + r*(sin(v1)-sin(v0))|.
+        // Only valid for rectangular UV patches (|du| <= pi, |dv| <= pi);
+        // seam-closing faces that span > half the period use tessellation.
         SurfaceGeometry::Torus {
             major_radius,
             minor_radius,
             ..
         } if face_data.inner_loops.is_empty() => {
             if let Some(((u0, u1), (v0, v1))) = pcurve_uv_range(brep, face) {
-                let r = *minor_radius;
-                let big_r = *major_radius;
-                let integral = (big_r * (v1 - v0) + r * (v1.sin() - v0.sin())).abs();
-                Ok(r * (u1 - u0).abs() * integral)
+                let du = (u1 - u0).abs();
+                let dv = (v1 - v0).abs();
+                // Guard: seam faces get inflated UV bbox (> half-period).
+                if du <= std::f64::consts::PI && dv <= std::f64::consts::PI {
+                    let r = *minor_radius;
+                    let big_r = *major_radius;
+                    let integral = (big_r * dv + r * (v1.sin() - v0.sin())).abs();
+                    Ok(r * du * integral)
+                } else {
+                    tessellate_area(brep, face, tolerance)
+                }
             } else {
                 tessellate_area(brep, face, tolerance)
             }

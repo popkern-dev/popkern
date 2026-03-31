@@ -124,3 +124,74 @@ fn sphere_face_area_custom_radius() {
         "expected {expected}, got {area}"
     );
 }
+
+#[test]
+fn cone_lateral_face_area_exact() {
+    // r=1, h=1 => lateral area = pi * r * sqrt(r^2 + h^2) = pi * sqrt(2)
+    let cone = BRep::cone(1.0, 1.0, Tolerance::default()).unwrap();
+    let tol = Tolerance::default();
+    let face = find_face_by_surface(&cone, |g| matches!(g, SurfaceGeometry::Cone { .. }))
+        .expect("cone lateral face");
+    let area = face_area(&cone, face, &tol).unwrap();
+    let expected = std::f64::consts::PI * (2.0_f64).sqrt();
+    assert!(
+        (area - expected).abs() < 1e-10,
+        "expected {expected}, got {area}"
+    );
+}
+
+#[test]
+fn cone_lateral_face_area_custom_params() {
+    // r=2, h=3 => lateral area = pi * r * sqrt(r^2 + h^2) = pi * 2 * sqrt(13)
+    let cone = BRep::cone(2.0, 3.0, Tolerance::default()).unwrap();
+    let tol = Tolerance::default();
+    let face = find_face_by_surface(&cone, |g| matches!(g, SurfaceGeometry::Cone { .. }))
+        .expect("cone lateral face");
+    let area = face_area(&cone, face, &tol).unwrap();
+    let expected = std::f64::consts::PI * 2.0 * 13.0_f64.sqrt();
+    assert!(
+        (area - expected).abs() < 1e-10,
+        "expected {expected}, got {area}"
+    );
+}
+
+#[test]
+fn torus_rectangular_patch_area_exact() {
+    // A rectangular torus patch at (u=[0,pi/2], v=[0,pi/2]) with R=3, r=1.
+    // Exact: r * du * |R*dv + r*(sin(v1)-sin(v0))|
+    //       = 1 * pi/2 * |3*(pi/2) + 1*(1-0)|
+    //       = pi/2 * (3*pi/2 + 1)
+    let tol = Tolerance::default();
+    let torus = BRep::torus(3.0, 1.0, tol).unwrap();
+    // Find a face with both delta_u and delta_v = pi/2 (rectangular patch).
+    use crate::face_helpers::pcurve_uv_range;
+    use std::f64::consts::PI;
+    let half = PI / 2.0;
+    // Find a face at (u=[0,pi/2], v=[0,pi/2]) — the first v-band.
+    let face = torus
+        .faces
+        .iter()
+        .find_map(|(fh, fd)| {
+            fd.surface.as_ref().and_then(|s| {
+                if !matches!(s.geometry, SurfaceGeometry::Torus { .. }) {
+                    return None;
+                }
+                let ((u0, u1), (v0, v1)) = pcurve_uv_range(&torus, fh)?;
+                let du = (u1 - u0).abs();
+                let dv = (v1 - v0).abs();
+                if (du - half).abs() < 1e-9 && (dv - half).abs() < 1e-9 && v0.abs() < 1e-9 {
+                    Some(fh)
+                } else {
+                    None
+                }
+            })
+        })
+        .expect("rectangular torus patch at v=[0,pi/2]");
+    let area = face_area(&torus, face, &tol).unwrap();
+    // Expected: pi/2 * (3*pi/2 + 1)  (v0=0, v1=pi/2)
+    let expected = (PI / 2.0) * (3.0 * PI / 2.0 + 1.0);
+    assert!(
+        (area - expected).abs() < 1e-10,
+        "expected {expected}, got {area}"
+    );
+}
