@@ -11,6 +11,7 @@ pub mod frame;
 pub mod helix;
 pub mod pipe;
 pub mod profile;
+pub mod revolve;
 pub mod self_intersect;
 pub mod surface;
 pub mod topology;
@@ -18,6 +19,7 @@ pub mod types;
 
 pub use boolean::{loft_add, loft_cut, pipe_add, pipe_cut, sweep_add, sweep_cut, sweep_intersect};
 pub use error::{SweepError, SweepWarning};
+pub use revolve::revolve;
 pub use types::*;
 
 use popkern_core::geometry::NurbsCurve;

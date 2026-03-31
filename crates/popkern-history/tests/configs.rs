@@ -442,7 +442,11 @@ fn csv_import_is_single_undo_step() {
 
     // Single undo should reverse the entire import.
     assert!(tree2.undo());
-    assert_eq!(tree2.configs().len(), 0, "one undo cleared both imported configs");
+    assert_eq!(
+        tree2.configs().len(),
+        0,
+        "one undo cleared both imported configs"
+    );
 
     // Single redo restores both.
     assert!(tree2.redo());
