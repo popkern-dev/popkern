@@ -22,6 +22,12 @@ pub(crate) use crate::undo_command::TreeCommand;
 /// Directly mutates `tree` without recording a new undo entry.
 pub(crate) fn reverse_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
     match cmd {
+        TreeCommand::Compound(cmds) => {
+            // Undo in reverse order.
+            for c in cmds.iter().rev() {
+                reverse_command(tree, c);
+            }
+        }
         TreeCommand::AddFeature { id, index, .. } => {
             // Remove from timeline only; leave the slotmap entry intact so that
             // redo can re-insert it without needing to generate a new key.
@@ -178,6 +184,12 @@ pub(crate) fn reverse_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
 /// Directly mutates `tree` without recording a new undo entry.
 pub(crate) fn apply_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
     match cmd {
+        TreeCommand::Compound(cmds) => {
+            // Redo in forward order.
+            for c in cmds {
+                apply_command(tree, c);
+            }
+        }
         TreeCommand::AddFeature { id, index, .. } => {
             // The slotmap entry still exists from the original insertion.
             // Simply re-insert the ID into the timeline at the recorded index.

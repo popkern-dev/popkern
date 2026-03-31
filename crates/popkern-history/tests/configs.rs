@@ -421,3 +421,30 @@ fn config_aware_caching_brep_at_uses_config_specific_slots() {
     );
     assert_eq!(faces_default, faces_alt, "both configs: 6-face box");
 }
+
+/// CSV import is a single undo step — one undo reverses the entire import.
+#[test]
+fn csv_import_is_single_undo_step() {
+    let (mut tree, _, _, _) = build_sketch_extrude(0.1);
+
+    // Export, then import 2 configs via CSV.
+    let _cfg1 = tree.add_config("Alpha", "first").expect("cfg1");
+    let _cfg2 = tree.add_config("Beta", "second").expect("cfg2");
+    let csv = tree.export_configs_csv();
+
+    // Start fresh tree, import the CSV.
+    let (mut tree2, _, _, _) = build_sketch_extrude(0.1);
+    assert!(tree2.configs().is_empty());
+
+    let import_result = tree2.import_configs_csv(&csv).expect("import");
+    assert_eq!(import_result.created.len(), 2);
+    assert_eq!(tree2.configs().len(), 2);
+
+    // Single undo should reverse the entire import.
+    assert!(tree2.undo());
+    assert_eq!(tree2.configs().len(), 0, "one undo cleared both imported configs");
+
+    // Single redo restores both.
+    assert!(tree2.redo());
+    assert_eq!(tree2.configs().len(), 2, "one redo restored both configs");
+}

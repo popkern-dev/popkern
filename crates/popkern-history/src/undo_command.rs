@@ -13,8 +13,11 @@ use crate::unit::Unit;
 
 /// A single reversible tree mutation recorded in the undo log.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // DeleteFeature wired in Task 7; snapshot kept for spec completeness
+#[allow(dead_code)]
 pub(crate) enum TreeCommand {
+    /// A batch of commands treated as a single undo/redo step.
+    /// Used by CSV import and other bulk operations.
+    Compound(Vec<TreeCommand>),
     /// A feature was added at a specific timeline index.
     AddFeature {
         /// The ID that was assigned to the new feature.

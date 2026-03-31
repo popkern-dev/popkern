@@ -57,6 +57,10 @@ impl FeatureTree {
             warnings: Vec::new(),
         };
 
+        // Capture undo cursor so we can wrap all import operations into a
+        // single compound undo step.
+        let undo_start = self.undo_cursor;
+
         // Split into lines, handling both \r\n and \n.
         let lines: Vec<&str> = csv.lines().map(|l| l.trim_end_matches('\r')).collect();
 
@@ -164,6 +168,16 @@ impl FeatureTree {
                         .unwrap_or("?")
                 ));
             }
+        }
+
+        // Wrap all individual undo entries from this import into a single
+        // compound command so the entire import is one undo step.
+        if self.undo_cursor > undo_start {
+            let individual_cmds: Vec<_> =
+                self.undo_log.drain(undo_start..self.undo_cursor).collect();
+            self.undo_log
+                .push(crate::undo::TreeCommand::Compound(individual_cmds));
+            self.undo_cursor = self.undo_log.len();
         }
 
         Ok(result)
