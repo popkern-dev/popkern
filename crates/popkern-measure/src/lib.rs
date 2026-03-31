@@ -22,3 +22,7 @@ mod face;
 pub use face::{
     face_area, face_centroid, face_curvature, face_normal, face_perimeter, face_radius,
 };
+
+mod angle;
+
+pub use angle::{dihedral_angle, edge_angle};
