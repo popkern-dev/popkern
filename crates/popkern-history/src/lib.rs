@@ -23,6 +23,7 @@ pub mod cache;
 pub mod config;
 pub mod config_api;
 pub(crate) mod config_eval;
+pub mod csv;
 pub mod delete;
 pub mod error;
 pub mod expression;
@@ -46,6 +47,7 @@ pub mod unit;
 
 pub use cache::CacheStrategy;
 pub use config::{ConfigId, Configuration, DeleteConfigResult, ParamOverride};
+pub use csv::CsvImportResult;
 pub use delete::{DeleteBehavior, DeleteResult};
 pub use error::{FeatureResult, HistoryError, ReplayError};
 pub use expression::{BinOp, CmpOp, Expression, UnaryFunc};
