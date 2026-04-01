@@ -226,6 +226,85 @@ impl Transform3 {
         })
     }
 
+    /// Create a rotation transform around an arbitrary axis through a point.
+    ///
+    /// Uses Rodrigues' rotation formula composed with translation to/from
+    /// the axis origin.
+    pub fn rotation_around_axis(
+        origin: Point3,
+        axis: Vec3,
+        angle: f64,
+    ) -> Result<Self, crate::error::CoreError> {
+        let u = axis.normalized().ok_or_else(|| {
+            crate::error::CoreError::PreconditionFailed(
+                "axis is zero-length in rotation_around_axis".into(),
+            )
+        })?;
+        let (ux, uy, uz) = (u.x, u.y, u.z);
+        let (sin_a, cos_a) = angle.sin_cos();
+        let c = 1.0 - cos_a;
+        let r = [
+            [
+                cos_a + ux * ux * c,
+                ux * uy * c - uz * sin_a,
+                ux * uz * c + uy * sin_a,
+            ],
+            [
+                uy * ux * c + uz * sin_a,
+                cos_a + uy * uy * c,
+                uy * uz * c - ux * sin_a,
+            ],
+            [
+                uz * ux * c - uy * sin_a,
+                uz * uy * c + ux * sin_a,
+                cos_a + uz * uz * c,
+            ],
+        ];
+        // Translation so that origin is a fixed point: t = origin - R * origin
+        let tx = origin.x - (r[0][0] * origin.x + r[0][1] * origin.y + r[0][2] * origin.z);
+        let ty = origin.y - (r[1][0] * origin.x + r[1][1] * origin.y + r[1][2] * origin.z);
+        let tz = origin.z - (r[2][0] * origin.x + r[2][1] * origin.y + r[2][2] * origin.z);
+        Ok(Self {
+            matrix: [
+                [r[0][0], r[0][1], r[0][2], tx],
+                [r[1][0], r[1][1], r[1][2], ty],
+                [r[2][0], r[2][1], r[2][2], tz],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+        })
+    }
+
+    /// Create a reflection (mirror) transform across a plane defined by
+    /// origin and normal.
+    ///
+    /// Uses the Householder reflection: `I - 2 * n * nᵀ`, composed with
+    /// translation so the plane origin is a fixed point.
+    pub fn reflection(origin: Point3, normal: Vec3) -> Result<Self, crate::error::CoreError> {
+        let n = normal.normalized().ok_or_else(|| {
+            crate::error::CoreError::PreconditionFailed(
+                "normal is zero-length in reflection".into(),
+            )
+        })?;
+        let (nx, ny, nz) = (n.x, n.y, n.z);
+        let h = [
+            [1.0 - 2.0 * nx * nx, -2.0 * nx * ny, -2.0 * nx * nz],
+            [-2.0 * ny * nx, 1.0 - 2.0 * ny * ny, -2.0 * ny * nz],
+            [-2.0 * nz * nx, -2.0 * nz * ny, 1.0 - 2.0 * nz * nz],
+        ];
+        // Translation so that origin is a fixed point: t = origin - H * origin
+        let tx = origin.x - (h[0][0] * origin.x + h[0][1] * origin.y + h[0][2] * origin.z);
+        let ty = origin.y - (h[1][0] * origin.x + h[1][1] * origin.y + h[1][2] * origin.z);
+        let tz = origin.z - (h[2][0] * origin.x + h[2][1] * origin.y + h[2][2] * origin.z);
+        Ok(Self {
+            matrix: [
+                [h[0][0], h[0][1], h[0][2], tx],
+                [h[1][0], h[1][1], h[1][2], ty],
+                [h[2][0], h[2][1], h[2][2], tz],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+        })
+    }
+
     /// Check if two transforms are approximately equal.
     pub fn approx_eq(&self, other: &Self, tolerance: f64) -> bool {
         for i in 0..4 {
@@ -240,172 +319,5 @@ impl Transform3 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::geometry::Point3;
-    use std::f64::consts::FRAC_PI_2;
-
-    #[test]
-    fn identity_transform_point_unchanged() {
-        let t = Transform3::identity();
-        let p = Point3::new(1.0, 2.0, 3.0);
-        let q = t.apply_point(&p);
-        assert!((q.x - 1.0).abs() < 1e-12);
-        assert!((q.y - 2.0).abs() < 1e-12);
-        assert!((q.z - 3.0).abs() < 1e-12);
-    }
-
-    #[test]
-    fn translation_moves_point() {
-        let t = Transform3::translation(10.0, 20.0, 30.0);
-        let p = Point3::new(1.0, 2.0, 3.0);
-        let q = t.apply_point(&p);
-        assert!((q.x - 11.0).abs() < 1e-12);
-        assert!((q.y - 22.0).abs() < 1e-12);
-        assert!((q.z - 33.0).abs() < 1e-12);
-    }
-
-    #[test]
-    fn translation_does_not_affect_direction() {
-        let t = Transform3::translation(10.0, 20.0, 30.0);
-        let v = Vec3::new(1.0, 0.0, 0.0);
-        let u = t.apply_direction(&v);
-        assert!((u.x - 1.0).abs() < 1e-12);
-        assert!((u.y).abs() < 1e-12);
-        assert!((u.z).abs() < 1e-12);
-    }
-
-    #[test]
-    fn rotation_z_90_degrees() {
-        let t = Transform3::rotation_z(FRAC_PI_2);
-        let p = Point3::new(1.0, 0.0, 0.0);
-        let q = t.apply_point(&p);
-        assert!((q.x).abs() < 1e-12);
-        assert!((q.y - 1.0).abs() < 1e-12);
-        assert!((q.z).abs() < 1e-12);
-    }
-
-    #[test]
-    fn rotation_x_90_degrees() {
-        let t = Transform3::rotation_x(FRAC_PI_2);
-        let p = Point3::new(0.0, 1.0, 0.0);
-        let q = t.apply_point(&p);
-        assert!((q.x).abs() < 1e-12);
-        assert!((q.y).abs() < 1e-12);
-        assert!((q.z - 1.0).abs() < 1e-12);
-    }
-
-    #[test]
-    fn rotation_y_90_degrees() {
-        let t = Transform3::rotation_y(FRAC_PI_2);
-        let p = Point3::new(0.0, 0.0, 1.0);
-        let q = t.apply_point(&p);
-        assert!((q.x - 1.0).abs() < 1e-12);
-        assert!((q.y).abs() < 1e-12);
-        assert!((q.z).abs() < 1e-12);
-    }
-
-    #[test]
-    fn uniform_scale() {
-        let t = Transform3::scale_uniform(2.0);
-        let p = Point3::new(1.0, 2.0, 3.0);
-        let q = t.apply_point(&p);
-        assert!((q.x - 2.0).abs() < 1e-12);
-        assert!((q.y - 4.0).abs() < 1e-12);
-        assert!((q.z - 6.0).abs() < 1e-12);
-    }
-
-    #[test]
-    fn non_uniform_scale() {
-        let t = Transform3::scale(2.0, 3.0, 4.0);
-        let p = Point3::new(1.0, 1.0, 1.0);
-        let q = t.apply_point(&p);
-        assert!((q.x - 2.0).abs() < 1e-12);
-        assert!((q.y - 3.0).abs() < 1e-12);
-        assert!((q.z - 4.0).abs() < 1e-12);
-    }
-
-    #[test]
-    fn compose_translation_then_rotation() {
-        let t = Transform3::translation(1.0, 0.0, 0.0);
-        let r = Transform3::rotation_z(FRAC_PI_2);
-        let combined = r.compose(&t);
-        let p = Point3::new(1.0, 0.0, 0.0);
-        let q = combined.apply_point(&p);
-        assert!((q.x).abs() < 1e-12);
-        assert!((q.y - 2.0).abs() < 1e-12);
-    }
-
-    #[test]
-    fn inverse_undoes_transform() {
-        let t = Transform3::translation(3.0, 4.0, 5.0);
-        let inv = t.inverse().expect("translation is invertible");
-        let combined = inv.compose(&t);
-        let p = Point3::new(7.0, 8.0, 9.0);
-        let q = combined.apply_point(&p);
-        assert!((q.x - 7.0).abs() < 1e-12);
-        assert!((q.y - 8.0).abs() < 1e-12);
-        assert!((q.z - 9.0).abs() < 1e-12);
-    }
-
-    #[test]
-    fn inverse_of_rotation() {
-        let t = Transform3::rotation_z(1.23);
-        let inv = t.inverse().expect("rotation is invertible");
-        let p = Point3::new(1.0, 2.0, 3.0);
-        let q = inv.apply_point(&t.apply_point(&p));
-        assert!((q.x - 1.0).abs() < 1e-10);
-        assert!((q.y - 2.0).abs() < 1e-10);
-        assert!((q.z - 3.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn singular_matrix_has_no_inverse() {
-        let mut t = Transform3::identity();
-        t.matrix[0] = [0.0; 4];
-        assert!(t.inverse().is_err());
-    }
-
-    #[test]
-    fn from_axis_placement_identity_axes() {
-        let t = Transform3::from_axis_placement(
-            Point3::new(0.0, 0.0, 0.0),
-            Vec3::new(0.0, 0.0, 1.0),
-            Vec3::new(1.0, 0.0, 0.0),
-        )
-        .expect("valid axes");
-        let p = Point3::new(1.0, 2.0, 3.0);
-        let q = t.apply_point(&p);
-        assert!((q.x - 1.0).abs() < 1e-12);
-        assert!((q.y - 2.0).abs() < 1e-12);
-        assert!((q.z - 3.0).abs() < 1e-12);
-    }
-
-    #[test]
-    fn from_axis_placement_with_offset() {
-        let t = Transform3::from_axis_placement(
-            Point3::new(10.0, 20.0, 30.0),
-            Vec3::new(0.0, 0.0, 1.0),
-            Vec3::new(1.0, 0.0, 0.0),
-        )
-        .expect("valid axes");
-        let p = Point3::new(0.0, 0.0, 0.0);
-        let q = t.apply_point(&p);
-        assert!((q.x - 10.0).abs() < 1e-12);
-        assert!((q.y - 20.0).abs() < 1e-12);
-        assert!((q.z - 30.0).abs() < 1e-12);
-    }
-
-    #[test]
-    fn approx_eq_identical() {
-        let t = Transform3::rotation_z(1.0);
-        assert!(t.approx_eq(&t, 1e-12));
-    }
-
-    #[test]
-    fn approx_eq_different() {
-        let a = Transform3::translation(1.0, 0.0, 0.0);
-        let b = Transform3::translation(2.0, 0.0, 0.0);
-        assert!(!a.approx_eq(&b, 1e-6));
-    }
-}
+#[path = "transform_tests.rs"]
+mod tests;
