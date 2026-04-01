@@ -251,6 +251,124 @@ fn override_pattern_instance_param_stores_value() {
 }
 
 #[test]
+fn linear_pitch_total_distance_expression_re_evaluates_on_count_change() {
+    use crate::expression::evaluate_all;
+    use crate::measure_query::MeasureContext;
+
+    let mut tree = FeatureTree::new();
+    let (sketch, extrude) = add_seed(&mut tree, "expr_check");
+
+    tree.add_linear_pattern_with_pitch(
+        vec![sketch, extrude],
+        Vec3Desc::Literal([1.0, 0.0, 0.0]),
+        4.0,  // count = 4
+        10.0, // pitch = 10 mm
+        "expr_lin",
+    )
+    .expect("create pitch pattern");
+
+    // Initial: total = 10mm * (4-1) = 30mm = 0.030 m
+    let total_id = tree
+        .parameters()
+        .resolve_name("expr_lin.primary_total_distance")
+        .expect("total_distance param");
+    let total_val = tree.parameters().get(total_id).expect("param").value;
+    assert!(
+        (total_val - 0.030).abs() < 1e-9,
+        "initial total should be 0.030 m, got {total_val}"
+    );
+
+    // Verify the expression is set.
+    assert!(
+        tree.parameters()
+            .get(total_id)
+            .expect("param")
+            .expression
+            .is_some(),
+        "total_distance should have an expression"
+    );
+
+    // Change count to 6 and re-evaluate expressions.
+    let count_id = tree
+        .parameters()
+        .resolve_name("expr_lin.primary_count")
+        .expect("count param");
+    tree.parameter_table
+        .set_value(count_id, 6.0, Unit::Ratio)
+        .expect("set count to 6");
+
+    evaluate_all(&mut tree.parameter_table, &MeasureContext::empty());
+
+    // total = 10mm * (6-1) = 50mm = 0.050 m
+    let total_val_new = tree.parameters().get(total_id).expect("param").value;
+    assert!(
+        (total_val_new - 0.050).abs() < 1e-9,
+        "after count=6: total should be 0.050 m, got {total_val_new}"
+    );
+}
+
+#[test]
+fn circular_pitch_total_angle_expression_re_evaluates_on_count_change() {
+    use crate::expression::evaluate_all;
+    use crate::measure_query::MeasureContext;
+
+    let mut tree = FeatureTree::new();
+    let (sketch, extrude) = add_seed(&mut tree, "circ_expr");
+
+    let pitch = std::f64::consts::PI / 6.0; // 30 degrees
+    tree.add_circular_pattern_with_pitch(
+        vec![sketch, extrude],
+        AxisDesc::Literal {
+            origin: [0.0, 0.0, 0.0],
+            direction: [0.0, 0.0, 1.0],
+        },
+        4.0,   // count = 4
+        pitch, // pitch = 30°
+        "expr_circ",
+    )
+    .expect("create pitch circular pattern");
+
+    // Initial: total = PI/6 * (4-1) = PI/2
+    let total_id = tree
+        .parameters()
+        .resolve_name("expr_circ.total_angle")
+        .expect("total_angle param");
+    let total_val = tree.parameters().get(total_id).expect("param").value;
+    assert!(
+        (total_val - std::f64::consts::FRAC_PI_2).abs() < 1e-12,
+        "initial total_angle should be PI/2, got {total_val}"
+    );
+
+    // Verify the expression is set.
+    assert!(
+        tree.parameters()
+            .get(total_id)
+            .expect("param")
+            .expression
+            .is_some(),
+        "total_angle should have an expression"
+    );
+
+    // Change count to 7 and re-evaluate.
+    let count_id = tree
+        .parameters()
+        .resolve_name("expr_circ.count")
+        .expect("count param");
+    tree.parameter_table
+        .set_value(count_id, 7.0, Unit::Ratio)
+        .expect("set count to 7");
+
+    evaluate_all(&mut tree.parameter_table, &MeasureContext::empty());
+
+    // total = PI/6 * (7-1) = PI
+    let total_val_new = tree.parameters().get(total_id).expect("param").value;
+    assert!(
+        (total_val_new - std::f64::consts::PI).abs() < 1e-12,
+        "after count=7: total_angle should be PI, got {total_val_new}"
+    );
+}
+
+#[test]
 fn duplicate_label_returns_error() {
     let mut tree = FeatureTree::new();
     let (sketch_g, extrude_g) = add_seed(&mut tree, "g");
