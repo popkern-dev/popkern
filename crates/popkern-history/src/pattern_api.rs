@@ -10,12 +10,14 @@ use slotmap::SlotMap;
 
 use crate::FeatureTree;
 use crate::error::HistoryError;
+use crate::expression::{BinOp, Expression};
 use crate::feature::{AxisDesc, Feature, Vec3Desc};
 use crate::node::{FeatureId, FeatureNode};
 use crate::parameter::ParameterId;
 use crate::pattern::{InstanceOverride, MirrorPlaneDesc, PatternDirection};
 use crate::pattern_validate::validate_seed_features;
 use crate::unit::Unit;
+use popkern_core::naming::EntityName;
 
 /// Collect the union of all seed [`FeatureId`]s that are already claimed
 /// by an existing pattern feature in the tree.
@@ -42,8 +44,9 @@ impl FeatureTree {
     /// Creates three feature-scoped parameters:
     /// - `{label}.primary_count` — number of instances (including the seed).
     /// - `{label}.primary_pitch` — distance between consecutive instances.
-    /// - `{label}.primary_total_distance` — total span (`pitch × (count − 1)`);
-    ///   stored as a literal value computed from the supplied arguments.
+    /// - `{label}.primary_total_distance` — total span; driven by the
+    ///   expression `pitch * (count - 1)` so that changing count or pitch
+    ///   automatically re-evaluates the total distance.
     ///
     /// # Errors
     ///
@@ -81,17 +84,87 @@ impl FeatureTree {
             Unit::Millimeters,
         )?;
 
-        // total_distance = pitch × (count − 1), computed eagerly as a literal.
-        // TODO: link total_distance to an expression `pitch * (count - 1)` once
-        // expression-parameter linking supports cross-parameter references by ID.
+        // total_distance = pitch * (count - 1), stored as an expression so that
+        // changing count or pitch automatically re-evaluates the total distance.
         let total_si = pitch_si * (count - 1.0).max(0.0);
         let total_id = self.parameter_table.add_global(
             &format!("{prefix}.primary_total_distance"),
             total_si,
             Unit::Millimeters,
         )?;
+        // pitch * (count - 1)
+        let expr = Expression::BinOp(
+            Box::new(Expression::Param(pitch_id)),
+            BinOp::Mul,
+            Box::new(Expression::BinOp(
+                Box::new(Expression::Param(count_id)),
+                BinOp::Sub,
+                Box::new(Expression::Literal(1.0)),
+            )),
+        );
+        self.parameter_table.set_expression(total_id, expr)?;
 
-        let _ = pitch_id; // exposed via parameter table; not stored in Feature variant
+        let feature = crate::feature::Feature::LinearPattern {
+            seed_features,
+            primary: PatternDirection {
+                direction,
+                count: count_id,
+                total_distance: total_id,
+            },
+            secondary: None,
+            geometry_pattern: false,
+            instance_overrides: std::collections::HashMap::new(),
+        };
+
+        Ok(self.add_feature(feature, label))
+    }
+
+    /// Add a linear pattern using total-distance spacing.
+    ///
+    /// Creates two feature-scoped parameters as plain values (no expression
+    /// linking between them):
+    /// - `{label}.primary_count` — number of instances (including the seed).
+    /// - `{label}.primary_total_distance` — total span from seed to last
+    ///   instance.
+    ///
+    /// Use this variant when the total distance is the primary design intent
+    /// and the pitch is derived (or irrelevant).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::DuplicateParameterName`] if any generated
+    /// parameter name conflicts with an existing entry in the parameter table.
+    pub fn add_linear_pattern_with_total(
+        &mut self,
+        seed_features: Vec<FeatureId>,
+        direction: Vec3Desc,
+        count: f64,
+        total_distance: f64,
+        label: &str,
+    ) -> Result<FeatureId, HistoryError> {
+        let existing_seeds = collect_existing_seeds(&self.features);
+        validate_seed_features(
+            &seed_features,
+            &self.features,
+            &self.timeline,
+            &existing_seeds,
+        )?;
+
+        let prefix = label.to_lowercase().replace(' ', "_");
+
+        let count_id = self.parameter_table.add_global(
+            &format!("{prefix}.primary_count"),
+            count,
+            Unit::Ratio,
+        )?;
+
+        // total_distance is stored in SI (metres); the caller passes mm.
+        let total_si = Unit::Millimeters.to_si(total_distance);
+        let total_id = self.parameter_table.add_global(
+            &format!("{prefix}.primary_total_distance"),
+            total_si,
+            Unit::Millimeters,
+        )?;
 
         let feature = crate::feature::Feature::LinearPattern {
             seed_features,
@@ -161,9 +234,11 @@ impl FeatureTree {
     ///
     /// Creates three feature-scoped parameters:
     /// - `{label}.count` — number of instances (including the seed).
-    /// - `{label}.pitch_angle` — angular spacing between consecutive instances.
-    /// - `{label}.total_angle` — total angular span (`pitch_angle × (count − 1)`);
-    ///   stored as a literal value computed from the supplied arguments.
+    /// - `{label}.pitch_angle` — angular spacing between consecutive instances
+    ///   (in radians).
+    /// - `{label}.total_angle` — total angular span; driven by the expression
+    ///   `pitch_angle * (count - 1)` so that changing count or pitch
+    ///   automatically re-evaluates the total angle.
     ///
     /// # Errors
     ///
@@ -198,23 +273,131 @@ impl FeatureTree {
             Unit::Radians,
         )?;
 
-        // total_angle = pitch_angle × (count − 1), computed eagerly as a literal.
-        // TODO: link total_angle to an expression `pitch_angle * (count - 1)` once
-        // expression-parameter linking supports cross-parameter references by ID.
+        // total_angle = pitch_angle * (count - 1), stored as an expression so
+        // that changing count or pitch_angle automatically re-evaluates.
         let total_angle = pitch_angle * (count - 1.0).max(0.0);
         let total_angle_id = self.parameter_table.add_global(
             &format!("{prefix}.total_angle"),
             total_angle,
             Unit::Radians,
         )?;
-
-        let _ = pitch_id; // exposed via parameter table; not stored in Feature variant
+        // pitch_angle * (count - 1)
+        let expr = Expression::BinOp(
+            Box::new(Expression::Param(pitch_id)),
+            BinOp::Mul,
+            Box::new(Expression::BinOp(
+                Box::new(Expression::Param(count_id)),
+                BinOp::Sub,
+                Box::new(Expression::Literal(1.0)),
+            )),
+        );
+        self.parameter_table.set_expression(total_angle_id, expr)?;
 
         let feature = crate::feature::Feature::CircularPattern {
             seed_features,
             axis,
             count: count_id,
             total_angle: total_angle_id,
+            geometry_pattern: false,
+            instance_overrides: std::collections::HashMap::new(),
+        };
+
+        Ok(self.add_feature(feature, label))
+    }
+
+    /// Add a circular pattern using an explicit total angular span.
+    ///
+    /// Creates two feature-scoped parameters as plain values (no expression
+    /// linking between them):
+    /// - `{label}.count` — number of instances (including the seed).
+    /// - `{label}.total_angle` — total angular span in radians.
+    ///
+    /// Use this variant when the total span is the primary design intent and
+    /// the angular pitch is derived (or irrelevant).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::DuplicateParameterName`] if any generated
+    /// parameter name conflicts with an existing entry in the parameter table.
+    pub fn add_circular_pattern_with_span(
+        &mut self,
+        seed_features: Vec<FeatureId>,
+        axis: AxisDesc,
+        count: f64,
+        total_angle: f64,
+        label: &str,
+    ) -> Result<FeatureId, HistoryError> {
+        let existing_seeds = collect_existing_seeds(&self.features);
+        validate_seed_features(
+            &seed_features,
+            &self.features,
+            &self.timeline,
+            &existing_seeds,
+        )?;
+
+        let prefix = label.to_lowercase().replace(' ', "_");
+
+        let count_id =
+            self.parameter_table
+                .add_global(&format!("{prefix}.count"), count, Unit::Ratio)?;
+
+        // total_angle is in radians (caller passes radians directly).
+        let total_angle_id = self.parameter_table.add_global(
+            &format!("{prefix}.total_angle"),
+            total_angle,
+            Unit::Radians,
+        )?;
+
+        let feature = crate::feature::Feature::CircularPattern {
+            seed_features,
+            axis,
+            count: count_id,
+            total_angle: total_angle_id,
+            geometry_pattern: false,
+            instance_overrides: std::collections::HashMap::new(),
+        };
+
+        Ok(self.add_feature(feature, label))
+    }
+
+    /// Add a curve-driven pattern that places instances along an edge curve.
+    ///
+    /// Creates one feature-scoped parameter:
+    /// - `{label}.count` — number of instances (including the seed).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::DuplicateParameterName`] if any generated
+    /// parameter name conflicts with an existing entry in the parameter table.
+    pub fn add_curve_pattern(
+        &mut self,
+        seed_features: Vec<FeatureId>,
+        curve: EntityName,
+        count: f64,
+        equal_spacing: bool,
+        align_to_curve: bool,
+        label: &str,
+    ) -> Result<FeatureId, HistoryError> {
+        let existing_seeds = collect_existing_seeds(&self.features);
+        validate_seed_features(
+            &seed_features,
+            &self.features,
+            &self.timeline,
+            &existing_seeds,
+        )?;
+
+        let prefix = label.to_lowercase().replace(' ', "_");
+
+        let count_id =
+            self.parameter_table
+                .add_global(&format!("{prefix}.count"), count, Unit::Ratio)?;
+
+        let feature = crate::feature::Feature::CurvePattern {
+            seed_features,
+            curve,
+            count: count_id,
+            equal_spacing,
+            align_to_curve,
             geometry_pattern: false,
             instance_overrides: std::collections::HashMap::new(),
         };
@@ -287,6 +470,35 @@ impl FeatureTree {
             }
             _ => {}
         }
+    }
+
+    /// Suppress a specific instance in a 2D grid pattern using row/column
+    /// coordinates.
+    ///
+    /// The flat index is computed as `row * count_secondary + col` (row-major),
+    /// where `count_secondary` is read from the secondary direction's count
+    /// parameter in the parameter table.
+    ///
+    /// If `pattern_id` does not refer to a [`Feature::LinearPattern`] with a
+    /// secondary direction, or if the secondary count parameter is missing or
+    /// has a non-positive value, this is a no-op.
+    pub fn skip_pattern_instance_2d(&mut self, pattern_id: FeatureId, row: usize, col: usize) {
+        // Look up the secondary count to compute the flat index.
+        let secondary_count_id = match self.features.get(pattern_id).map(|n| &n.feature) {
+            Some(Feature::LinearPattern {
+                secondary: Some(sec),
+                ..
+            }) => sec.count,
+            _ => return,
+        };
+
+        let count2 = match self.parameter_table.get(secondary_count_id) {
+            Some(p) if p.value > 0.0 => p.value as usize,
+            _ => return,
+        };
+
+        let flat = row * count2 + col;
+        self.skip_pattern_instance(pattern_id, flat);
     }
 
     /// Override a parameter value for a specific pattern instance.

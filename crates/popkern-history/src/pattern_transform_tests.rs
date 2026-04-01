@@ -115,14 +115,16 @@ fn linear_2d_grid_3x2() {
     let transforms = compute_pattern_transforms(&feature, &brep, &table).unwrap();
     assert_eq!(transforms.len(), 6, "3×2 grid should have 6 instances");
 
-    // Row 0 (j=0): j=0, i=0,1,2  → translations at (0,0), (10,0), (20,0)
-    // Row 1 (j=1): j=1, i=0,1,2  → translations at (0,10), (10,10), (20,10)
+    // Row-major ordering: index = i * count2 + j.
+    // i=0, j=0 → (0,0);  i=0, j=1 → (0,10)
+    // i=1, j=0 → (10,0); i=1, j=1 → (10,10)
+    // i=2, j=0 → (20,0); i=2, j=1 → (20,10)
     let expected = [
         (0.0, 0.0),
-        (10.0, 0.0),
-        (20.0, 0.0),
         (0.0, 10.0),
+        (10.0, 0.0),
         (10.0, 10.0),
+        (20.0, 0.0),
         (20.0, 10.0),
     ];
     for (idx, (ex, ey)) in expected.iter().enumerate() {

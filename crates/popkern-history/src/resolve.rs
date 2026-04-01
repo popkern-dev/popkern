@@ -218,7 +218,7 @@ pub(crate) fn resolve_direction(desc: &Vec3Desc, brep: &BRep) -> Result<Vec3, Re
                     error: "edge has no curve geometry".into(),
                 }
             })?;
-            let t = curve_on_edge.t_start;
+            let t = (curve_on_edge.t_start + curve_on_edge.t_end) / 2.0;
             Ok(curve_on_edge.geometry.tangent_at(t))
         }
         Vec3Desc::Negated(inner) => {

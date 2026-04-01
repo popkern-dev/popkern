@@ -234,7 +234,7 @@ pub enum Vec3Desc {
     Literal([f64; 3]),
     /// The outward normal of a named face.
     FaceNormal(EntityName),
-    /// The tangent direction of a named edge at its start point.
+    /// The tangent direction of a named edge at its midpoint.
     EdgeDirection(EntityName),
     /// The negation of another direction.
     Negated(Box<Vec3Desc>),

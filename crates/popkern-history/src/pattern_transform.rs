@@ -107,8 +107,10 @@ fn compute_linear_transforms(
 
     let total = count1 * count2;
     let mut transforms = Vec::with_capacity(total);
-    for j in 0..count2 {
-        for i in 0..count1 {
+    // Row-major ordering: instance index = i * count2 + j.
+    // Instance 0 is (i=0, j=0), instance 1 is (i=0, j=1), etc.
+    for i in 0..count1 {
+        for j in 0..count2 {
             let offset = dir1 * (i as f64 * pitch1) + dir2 * (j as f64 * pitch2);
             transforms.push(Transform3::translation(offset.x, offset.y, offset.z));
         }
@@ -134,6 +136,8 @@ fn compute_circular_transforms(
     }
 
     let raw_angle = resolve_param(total_angle_id, param_table)?;
+    // TODO: spec says "clamp to 360° with warning" — a structured warning
+    // channel doesn't exist yet.  For now we clamp silently.
     let total_angle = raw_angle.clamp(-std::f64::consts::TAU, std::f64::consts::TAU);
 
     let angle_step = if count > 1 {
@@ -181,6 +185,27 @@ fn compute_curve_transforms(
     }
 
     let edge_handle = resolve::resolve_edge(curve, brep)?;
+
+    // Guard: only linear (straight) edges are supported in v1.
+    let curve_on_edge =
+        brep.edges[edge_handle]
+            .curve
+            .as_ref()
+            .ok_or_else(|| ReplayError::FeatureFailed {
+                label: String::new(),
+                error: "curve pattern edge has no curve geometry".into(),
+            })?;
+    if !matches!(
+        curve_on_edge.geometry,
+        popkern_core::geometry::curve::CurveGeometry::Line { .. }
+    ) {
+        return Err(ReplayError::FeatureFailed {
+            label: String::new(),
+            error: "CurvePattern along non-linear edges is not yet implemented; use a linear edge"
+                .into(),
+        });
+    }
+
     let (start_pos, end_pos) = edge_chord(brep, edge_handle)?;
 
     let chord = end_pos - start_pos;
