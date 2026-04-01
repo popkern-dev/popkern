@@ -7,7 +7,7 @@
 
 use popkern_core::geometry::CurveEval;
 use popkern_core::geometry::surface::SurfaceEval;
-use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::geometry::{CurveGeometry, Point3, Vec3};
 use popkern_core::naming::EntityName;
 use popkern_core::naming_resolve::{Resolution, ResolvedEntity, resolve_name};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
@@ -231,7 +231,6 @@ pub(crate) fn resolve_direction(desc: &Vec3Desc, brep: &BRep) -> Result<Vec3, Re
 /// Compute the AABB diagonal of a BRep by iterating all vertex positions.
 ///
 /// Returns 0.0 for an empty BRep (no vertices).
-#[allow(dead_code)] // Used by resolve_extrude_distance; suppressed until callers land.
 fn brep_aabb_diagonal(brep: &BRep) -> f64 {
     let mut min = [f64::MAX; 3];
     let mut max = [f64::MIN; 3];
@@ -262,7 +261,6 @@ fn brep_aabb_diagonal(brep: &BRep) -> f64 {
 ///   Returns an error if the edge is degenerate (too short).
 /// - [`AxisDesc::Literal`]: converts the stored arrays to [`Point3`]/[`Vec3`]
 ///   and normalises the direction.  Returns an error if the direction is zero.
-#[allow(dead_code)] // Used by Revolve/CircularPattern replay; callers land in future tasks.
 pub(crate) fn resolve_axis(desc: &AxisDesc, brep: &BRep) -> Result<(Point3, Vec3), ReplayError> {
     match desc {
         AxisDesc::Edge(name) => {
@@ -294,21 +292,25 @@ pub(crate) fn resolve_axis(desc: &AxisDesc, brep: &BRep) -> Result<(Point3, Vec3
 /// Resolve an [`ExtrudeEnd`] to a concrete extrude distance in world units.
 ///
 /// - [`ExtrudeEnd::Blind`]: looks up the distance parameter value.
-/// - [`ExtrudeEnd::ThroughAll`]: uses the host body AABB diagonal × 2.0 as a
+/// - [`ExtrudeEnd::ThroughAll`]: uses the host body AABB diagonal x 2.0 as a
 ///   safe overshoot; the boolean will clip the result.
-/// - [`ExtrudeEnd::UpToSurface`]: returns an error — not yet implemented.
-/// - [`ExtrudeEnd::OffsetFromSurface`]: delegates to `UpToSurface` and will
-///   also return an error — not yet implemented.
-/// - [`ExtrudeEnd::UpToVertex`]: returns an error — not yet implemented.
+/// - [`ExtrudeEnd::UpToSurface`]: intersects a ray (from `extrude_origin`
+///   along `extrude_dir`) with the target face's surface and returns the
+///   distance to the nearest forward intersection.
+/// - [`ExtrudeEnd::OffsetFromSurface`]: delegates to `UpToSurface` and adds
+///   the signed offset distance.
+/// - [`ExtrudeEnd::UpToVertex`]: projects the target vertex position onto the
+///   extrude direction to compute the distance.
 /// - [`ExtrudeEnd::MidPlane`]: looks up the half_distance parameter value;
 ///   callers are responsible for the bidirectional extrude logic.
-#[allow(dead_code)] // Used by Extrude replay; callers land in future tasks.
 pub(crate) fn resolve_extrude_distance(
     end: &ExtrudeEnd,
+    extrude_origin: Point3,
+    extrude_dir: Vec3,
     host_brep: Option<&BRep>,
     brep: &BRep,
     param_table: &ParameterTable,
-    _tolerance: &popkern_core::tolerance::Tolerance,
+    tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Result<f64, ReplayError> {
     match end {
         ExtrudeEnd::Blind { distance } => resolve_param(param_table, *distance),
@@ -316,18 +318,89 @@ pub(crate) fn resolve_extrude_distance(
             let diag = host_brep.map_or_else(|| brep_aabb_diagonal(brep), brep_aabb_diagonal);
             Ok(diag * 2.0)
         }
-        ExtrudeEnd::UpToSurface { .. } => Err(ReplayError::FeatureFailed {
-            label: String::new(),
-            error: "UpToSurface end condition is not yet implemented".into(),
-        }),
-        ExtrudeEnd::OffsetFromSurface { .. } => Err(ReplayError::FeatureFailed {
-            label: String::new(),
-            error: "UpToSurface end condition is not yet implemented".into(),
-        }),
-        ExtrudeEnd::UpToVertex { .. } => Err(ReplayError::FeatureFailed {
-            label: String::new(),
-            error: "UpToVertex end condition is not yet implemented".into(),
-        }),
+        ExtrudeEnd::UpToSurface { face } => {
+            let target_brep = host_brep.unwrap_or(brep);
+            let face_handle = resolve_face(face, target_brep)?;
+            let sof = target_brep.faces[face_handle]
+                .surface
+                .as_ref()
+                .ok_or_else(|| ReplayError::FeatureFailed {
+                    label: String::new(),
+                    error: "target face has no surface geometry".into(),
+                })?;
+            let surface = &sof.geometry;
+
+            // Build ray as a Line curve geometry.
+            let ray_curve = CurveGeometry::Line {
+                origin: extrude_origin,
+                direction: extrude_dir,
+            };
+
+            // Get bounded UV range for the target surface.
+            let positions = target_brep.face_outer_loop_positions(face_handle);
+            let (u_range, v_range) =
+                popkern_core::geometry::uv_projection::bounded_parameter_range(&positions, surface);
+
+            // Intersect ray with surface.
+            let result = popkern_core::geometry::intersection::intersect_surface_curve(
+                surface,
+                u_range,
+                v_range,
+                &ray_curve,
+                (0.0, 1e6),
+                tolerance,
+            )?;
+
+            // Find the nearest forward intersection.
+            let mut min_t = f64::MAX;
+            for isect in &result.intersections {
+                if let popkern_core::geometry::intersection::SurfaceCurveIntersection::Point {
+                    t,
+                    ..
+                } = isect
+                    && *t > tolerance.linear
+                    && *t < min_t
+                {
+                    min_t = *t;
+                }
+            }
+
+            if min_t == f64::MAX {
+                return Err(ReplayError::FeatureFailed {
+                    label: String::new(),
+                    error: "extrude ray does not intersect target surface".into(),
+                });
+            }
+
+            Ok(min_t)
+        }
+        ExtrudeEnd::OffsetFromSurface { face, offset } => {
+            let base_dist = resolve_extrude_distance(
+                &ExtrudeEnd::UpToSurface { face: face.clone() },
+                extrude_origin,
+                extrude_dir,
+                host_brep,
+                brep,
+                param_table,
+                tolerance,
+            )?;
+            let off = resolve_param(param_table, *offset)?;
+            Ok(base_dist + off)
+        }
+        ExtrudeEnd::UpToVertex { vertex } => {
+            let target_brep = host_brep.unwrap_or(brep);
+            let vh = resolve_vertex(vertex, target_brep)?;
+            let pos = target_brep.vertices[vh].position;
+            let diff = pos - extrude_origin;
+            let dist = diff.dot(&extrude_dir);
+            if dist <= tolerance.linear {
+                return Err(ReplayError::FeatureFailed {
+                    label: String::new(),
+                    error: "target vertex is behind or at extrude origin".into(),
+                });
+            }
+            Ok(dist)
+        }
         ExtrudeEnd::MidPlane { half_distance } => resolve_param(param_table, *half_distance),
     }
 }
@@ -339,7 +412,6 @@ pub(crate) fn resolve_extrude_distance(
 /// - [`RevolveEnd::MidPlane`]: looks up the half_angle parameter value;
 ///   callers are responsible for the bidirectional revolve logic.
 /// - [`RevolveEnd::UpToSurface`]: not yet implemented — returns an error.
-#[allow(dead_code)] // Used by Revolve replay; callers land in future tasks.
 pub(crate) fn resolve_revolve_angle(
     end: &RevolveEnd,
     param_table: &ParameterTable,
@@ -350,7 +422,9 @@ pub(crate) fn resolve_revolve_angle(
         RevolveEnd::MidPlane { half_angle } => resolve_param(param_table, *half_angle),
         RevolveEnd::UpToSurface { .. } => Err(ReplayError::FeatureFailed {
             label: "revolve".into(),
-            error: "RevolveEnd::UpToSurface not yet implemented".into(),
+            error: "RevolveEnd::UpToSurface requires axis and profile context; \
+                    use Blind or FullCircle instead"
+                .into(),
         }),
     }
 }

@@ -15,13 +15,12 @@ use crate::parameter::ParameterTable;
 #[path = "replay_fns.rs"]
 mod replay_fns;
 use replay_fns::{
-    execute_sketch, extract_edge_curve, extract_face_outer_curve, extract_plane_from_face,
-    resolve_param, to_bool_operation, to_shell_direction,
+    execute_extrude, execute_sketch, extract_edge_curve, extract_face_outer_curve,
+    extract_plane_from_face, resolve_param, to_bool_operation, to_shell_direction,
 };
 
 use crate::resolve::{
-    resolve_axis, resolve_direction, resolve_edge, resolve_edges, resolve_extrude_distance,
-    resolve_face, resolve_faces, resolve_revolve_angle,
+    resolve_axis, resolve_edge, resolve_edges, resolve_face, resolve_faces, resolve_revolve_angle,
 };
 
 /// Side effects produced by a successful feature execution.
@@ -78,54 +77,17 @@ pub(crate) fn execute_feature(
             second_direction,
             ..
         } => {
-            let face_handle = resolve_face(face, brep)?;
-            let dir = match direction {
-                Some(d) => resolve_direction(d, brep)?,
-                None => {
-                    // Default to the face normal when no direction is specified.
-                    let sof = brep.faces[face_handle].surface.as_ref().ok_or_else(|| {
-                        ReplayError::FeatureFailed {
-                            label: "extrude".into(),
-                            error: "face has no surface geometry".into(),
-                        }
-                    })?;
-                    match &sof.geometry {
-                        popkern_core::geometry::SurfaceGeometry::Plane { normal, .. } => {
-                            if sof.orientation { *normal } else { -*normal }
-                        }
-                        _ => {
-                            return Err(ReplayError::FeatureFailed {
-                                label: "extrude".into(),
-                                error: "direction=None only supported for planar faces".into(),
-                            });
-                        }
-                    }
-                }
-            };
-            if draft_angle.is_some() {
-                return Err(ReplayError::FeatureFailed {
-                    label: String::new(),
-                    error: "draft angle is not yet implemented".into(),
-                });
-            }
-            if second_direction.is_some() {
-                return Err(ReplayError::FeatureFailed {
-                    label: String::new(),
-                    error: "bidirectional extrude is not yet implemented".into(),
-                });
-            }
-            let dist = resolve_extrude_distance(
-                end_condition,
-                None, // host_brep not available here; auto-merge supplies it
+            execute_extrude(
                 brep,
-                param_table,
+                face,
+                direction.as_ref(),
+                end_condition,
+                draft_angle.as_ref(),
+                second_direction.as_ref(),
+                tracking,
                 tolerance,
+                param_table,
             )?;
-            brep.extrude(face_handle, dir, dist, Some(tracking))
-                .map_err(|e| ReplayError::FeatureFailed {
-                    label: "extrude".into(),
-                    error: e.to_string(),
-                })?;
             Ok(ExecuteSideEffects::empty())
         }
         Feature::Fillet { edges, radius } => {
