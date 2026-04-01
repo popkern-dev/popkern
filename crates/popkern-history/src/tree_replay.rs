@@ -20,11 +20,12 @@ use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
+use crate::auto_merge;
 use crate::config::ConfigId;
 use crate::config_eval;
 use crate::error::{FeatureResult, ReplayError};
 use crate::expression::Expression;
-use crate::feature::Feature;
+use crate::feature::{Feature, OperationMode};
 use crate::measure_cache::MeasureCache;
 use crate::measure_query::MeasureContext;
 use crate::node::{BodyId, FeatureId};
@@ -117,6 +118,28 @@ impl FeatureTree {
         let mut body_breps = body_breps;
         let mut results = HashMap::new();
         let mut measure_cache = MeasureCache::new();
+
+        // Collect seed features of all pattern features in the replay range.
+        // Seed features should NOT be auto-merged — the pattern handles that.
+        let seed_feature_ids: HashSet<FeatureId> = self.timeline[from..to]
+            .iter()
+            .filter_map(|&fid| {
+                if let Some(node) = self.features.get(fid) {
+                    match &node.feature {
+                        Feature::LinearPattern { seed_features, .. }
+                        | Feature::CircularPattern { seed_features, .. }
+                        | Feature::CurvePattern { seed_features, .. }
+                        | Feature::Mirror { seed_features, .. } => {
+                            Some(seed_features.iter().copied())
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .collect();
 
         // Track stale reference parameter IDs for StaleInput propagation.
         let mut stale_param_ids: HashSet<ParameterId> = HashSet::new();
@@ -324,6 +347,32 @@ impl FeatureTree {
                     self.features[id].last_result = Some(FeatureResult::Success { history });
                     self.cache.store(self.active_config, id, brep.clone(), i);
                     measure_cache.invalidate();
+
+                    // Put the BRep back before auto-merge so detect_host_body can
+                    // search all body BReps including this one.
+                    body_breps.insert(body, brep);
+
+                    // Auto-merge: Boss/Cut modes merge the tool body into the host.
+                    let mode = auto_merge::feature_mode(&feature);
+                    if !matches!(mode, OperationMode::NewBody)
+                        && !seed_feature_ids.contains(&id)
+                        && let Some(host) =
+                            auto_merge::detect_host_body(id, &self.features, &body_breps)
+                        && host != body
+                    {
+                        let mut merge_ctx = TrackingContext::new(self.features[id].operation_id);
+                        auto_merge::execute_auto_merge(
+                            mode,
+                            body,
+                            host,
+                            &mut body_breps,
+                            &mut merge_ctx,
+                            tolerance,
+                        )?;
+                    }
+
+                    // Skip the normal BRep re-insert below — already handled above.
+                    continue;
                 }
                 Err(e) => {
                     // Atomically restore the pre-execution BRep so the body

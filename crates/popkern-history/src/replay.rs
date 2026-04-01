@@ -1,8 +1,6 @@
 //! Feature execution engine — dispatches each [`Feature`] variant to the
 //! appropriate popkern operation and records naming history.
 
-use popkern_core::geometry::CurveEval;
-use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -10,7 +8,7 @@ use popkern_core::topology::BRep;
 use std::collections::HashMap;
 
 use crate::error::ReplayError;
-use crate::feature::{AxisDesc, ExtrudeEnd, Feature, RevolveEnd};
+use crate::feature::Feature;
 use crate::node::BodyId;
 use crate::parameter::ParameterTable;
 
@@ -21,7 +19,10 @@ use replay_fns::{
     resolve_param, to_bool_operation, to_shell_direction,
 };
 
-use crate::resolve::{resolve_direction, resolve_edge, resolve_edges, resolve_face, resolve_faces};
+use crate::resolve::{
+    resolve_axis, resolve_direction, resolve_edge, resolve_edges, resolve_extrude_distance,
+    resolve_face, resolve_faces, resolve_revolve_angle,
+};
 
 /// Side effects produced by a successful feature execution.
 ///
@@ -99,18 +100,15 @@ pub(crate) fn execute_feature(
                     }
                 }
             };
-            let dist = match end_condition {
-                ExtrudeEnd::Blind { distance } => resolve_param(param_table, *distance)?,
-                ExtrudeEnd::MidPlane { half_distance } => {
-                    resolve_param(param_table, *half_distance)? * 2.0
-                }
-                ExtrudeEnd::ThroughAll
-                | ExtrudeEnd::UpToSurface { .. }
-                | ExtrudeEnd::OffsetFromSurface { .. }
-                | ExtrudeEnd::UpToVertex { .. } => {
-                    todo!("end condition {:?} not yet implemented", end_condition)
-                }
-            };
+            // TODO: draft_angle — apply taper along the extrude direction
+            // TODO: second_direction — bidirectional extrude
+            let dist = resolve_extrude_distance(
+                end_condition,
+                None, // host_brep not available here; auto-merge supplies it
+                brep,
+                param_table,
+                tolerance,
+            )?;
             brep.extrude(face_handle, dir, dist, Some(tracking))
                 .map_err(|e| ReplayError::FeatureFailed {
                     label: "extrude".into(),
@@ -332,37 +330,8 @@ pub(crate) fn execute_feature(
             ..
         } => {
             let face_handle = resolve_face(face, brep)?;
-            let angle_val = match end_condition {
-                RevolveEnd::Blind { angle } => resolve_param(param_table, *angle)?,
-                RevolveEnd::FullCircle => std::f64::consts::TAU,
-                RevolveEnd::MidPlane { half_angle } => {
-                    resolve_param(param_table, *half_angle)? * 2.0
-                }
-                RevolveEnd::UpToSurface { .. } => {
-                    todo!("RevolveEnd::UpToSurface not yet implemented")
-                }
-            };
-
-            let (origin, direction) = match axis {
-                AxisDesc::Literal {
-                    origin: o,
-                    direction: d,
-                } => (Point3::new(o[0], o[1], o[2]), Vec3::new(d[0], d[1], d[2])),
-                AxisDesc::Edge(name) => {
-                    let edge_handle = resolve_edge(name, brep)?;
-                    let curve_on_edge =
-                        brep.edges[edge_handle].curve.as_ref().ok_or_else(|| {
-                            ReplayError::FeatureFailed {
-                                label: "revolve".into(),
-                                error: "axis edge has no curve geometry".into(),
-                            }
-                        })?;
-                    let t = curve_on_edge.t_start;
-                    let tangent = curve_on_edge.geometry.tangent_at(t);
-                    let pt = curve_on_edge.geometry.point_at(t);
-                    (pt, tangent)
-                }
-            };
+            let angle_val = resolve_revolve_angle(end_condition, param_table)?;
+            let (origin, direction) = resolve_axis(axis, brep)?;
 
             let profile = popkern_sweep::SweepProfile::Face {
                 brep: Box::new(brep.clone()),
@@ -393,7 +362,10 @@ pub(crate) fn execute_feature(
         | Feature::CircularPattern { .. }
         | Feature::CurvePattern { .. }
         | Feature::Mirror { .. } => {
-            todo!("pattern execution not yet implemented")
+            // Pattern features are executed by the pattern_execute module, not
+            // by execute_feature.  Return empty side effects so the replay loop
+            // can record a success result.
+            Ok(ExecuteSideEffects::empty())
         }
     }
 }

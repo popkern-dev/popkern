@@ -18,6 +18,7 @@
 //!   └── cache: BRepCache                  // intermediate BRep snapshots
 //! ```
 
+pub(crate) mod auto_merge;
 pub(crate) mod body;
 pub mod cache;
 pub mod config;
