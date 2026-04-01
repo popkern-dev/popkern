@@ -14,7 +14,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 use popkern_sketch::SketchPlane;
 
 use crate::error::ReplayError;
-use crate::feature::{SketchPlaneDesc, Vec3Desc};
+use crate::feature::{AxisDesc, ExtrudeEnd, RevolveEnd, SketchPlaneDesc, Vec3Desc};
 use crate::parameter::{ParameterId, ParameterTable};
 
 /// Resolve an [`EntityName`] to a [`FaceHandle`].
@@ -225,5 +225,142 @@ pub(crate) fn resolve_direction(desc: &Vec3Desc, brep: &BRep) -> Result<Vec3, Re
             let v = resolve_direction(inner, brep)?;
             Ok(-v)
         }
+    }
+}
+
+/// Compute the AABB diagonal of a BRep by iterating all vertex positions.
+///
+/// Returns 0.0 for an empty BRep (no vertices).
+#[allow(dead_code)] // Used by resolve_extrude_distance; suppressed until callers land.
+fn brep_aabb_diagonal(brep: &BRep) -> f64 {
+    let mut min = [f64::MAX; 3];
+    let mut max = [f64::MIN; 3];
+    let mut found = false;
+    for (_, v) in &brep.vertices {
+        let p = v.position;
+        min[0] = min[0].min(p.x);
+        min[1] = min[1].min(p.y);
+        min[2] = min[2].min(p.z);
+        max[0] = max[0].max(p.x);
+        max[1] = max[1].max(p.y);
+        max[2] = max[2].max(p.z);
+        found = true;
+    }
+    if !found {
+        return 0.0;
+    }
+    let dx = max[0] - min[0];
+    let dy = max[1] - min[1];
+    let dz = max[2] - min[2];
+    (dx * dx + dy * dy + dz * dz).sqrt()
+}
+
+/// Resolve an [`AxisDesc`] to a concrete axis (origin point + unit direction).
+///
+/// - [`AxisDesc::Edge`]: resolves the edge, reads start and end vertex
+///   positions from the half-edge topology, and computes the unit direction.
+///   Returns an error if the edge is degenerate (too short).
+/// - [`AxisDesc::Literal`]: converts the stored arrays to [`Point3`]/[`Vec3`]
+///   and normalises the direction.  Returns an error if the direction is zero.
+#[allow(dead_code)] // Used by Revolve/CircularPattern replay; callers land in future tasks.
+pub(crate) fn resolve_axis(desc: &AxisDesc, brep: &BRep) -> Result<(Point3, Vec3), ReplayError> {
+    match desc {
+        AxisDesc::Edge(name) => {
+            let edge_handle = resolve_edge(name, brep)?;
+            let edge = &brep.edges[edge_handle];
+            let he = &brep.half_edges[edge.half_edge];
+            let twin = &brep.half_edges[he.twin];
+            let start = brep.vertices[he.origin].position;
+            let end = brep.vertices[twin.origin].position;
+            let dir = end - start;
+            let unit = dir.normalized().ok_or_else(|| ReplayError::FeatureFailed {
+                label: "axis".into(),
+                error: "axis edge is degenerate (too short)".into(),
+            })?;
+            Ok((start, unit))
+        }
+        AxisDesc::Literal { origin, direction } => {
+            let o = Point3::new(origin[0], origin[1], origin[2]);
+            let d = Vec3::new(direction[0], direction[1], direction[2]);
+            let unit = d.normalized().ok_or_else(|| ReplayError::FeatureFailed {
+                label: "axis".into(),
+                error: "axis direction is zero-length".into(),
+            })?;
+            Ok((o, unit))
+        }
+    }
+}
+
+/// Resolve an [`ExtrudeEnd`] to a concrete extrude distance in world units.
+///
+/// - [`ExtrudeEnd::Blind`]: looks up the distance parameter value.
+/// - [`ExtrudeEnd::ThroughAll`]: uses the host body AABB diagonal × 2.0 as a
+///   safe overshoot; the boolean will clip the result.
+/// - [`ExtrudeEnd::UpToSurface`]: approximates with the host AABB diagonal.
+///   TODO: replace with proper ray-surface intersection.
+/// - [`ExtrudeEnd::OffsetFromSurface`]: UpToSurface approximation plus the
+///   signed offset parameter value.
+/// - [`ExtrudeEnd::UpToVertex`]: resolves the vertex position and returns its
+///   distance from the world origin along Z as a rough approximation.
+///   TODO: project the vertex onto the extrude direction vector instead.
+/// - [`ExtrudeEnd::MidPlane`]: looks up the half_distance parameter value;
+///   callers are responsible for the bidirectional extrude logic.
+#[allow(dead_code)] // Used by Extrude replay; callers land in future tasks.
+pub(crate) fn resolve_extrude_distance(
+    end: &ExtrudeEnd,
+    host_brep: Option<&BRep>,
+    brep: &BRep,
+    param_table: &ParameterTable,
+    _tolerance: &popkern_core::tolerance::Tolerance,
+) -> Result<f64, ReplayError> {
+    match end {
+        ExtrudeEnd::Blind { distance } => resolve_param(param_table, *distance),
+        ExtrudeEnd::ThroughAll => {
+            let diag = host_brep.map_or_else(|| brep_aabb_diagonal(brep), brep_aabb_diagonal);
+            Ok(diag * 2.0)
+        }
+        ExtrudeEnd::UpToSurface { face } => {
+            // TODO: replace with exact ray-surface intersection.
+            let _ = resolve_face(face, brep)?;
+            let diag = host_brep.map_or_else(|| brep_aabb_diagonal(brep), brep_aabb_diagonal);
+            Ok(diag)
+        }
+        ExtrudeEnd::OffsetFromSurface { face, offset } => {
+            // TODO: replace with exact ray-surface intersection.
+            let _ = resolve_face(face, brep)?;
+            let diag = host_brep.map_or_else(|| brep_aabb_diagonal(brep), brep_aabb_diagonal);
+            let offset_val = resolve_param(param_table, *offset)?;
+            Ok(diag + offset_val)
+        }
+        ExtrudeEnd::UpToVertex { vertex } => {
+            // TODO: project vertex onto the extrude direction instead of using Z.
+            let vertex_handle = resolve_vertex(vertex, brep)?;
+            let pos = brep.vertices[vertex_handle].position;
+            Ok(pos.z.abs())
+        }
+        ExtrudeEnd::MidPlane { half_distance } => resolve_param(param_table, *half_distance),
+    }
+}
+
+/// Resolve a [`RevolveEnd`] to a concrete angle in radians.
+///
+/// - [`RevolveEnd::Blind`]: looks up the angle parameter value.
+/// - [`RevolveEnd::FullCircle`]: returns `2π` (τ).
+/// - [`RevolveEnd::MidPlane`]: looks up the half_angle parameter value;
+///   callers are responsible for the bidirectional revolve logic.
+/// - [`RevolveEnd::UpToSurface`]: not yet implemented — returns an error.
+#[allow(dead_code)] // Used by Revolve replay; callers land in future tasks.
+pub(crate) fn resolve_revolve_angle(
+    end: &RevolveEnd,
+    param_table: &ParameterTable,
+) -> Result<f64, ReplayError> {
+    match end {
+        RevolveEnd::Blind { angle } => resolve_param(param_table, *angle),
+        RevolveEnd::FullCircle => Ok(std::f64::consts::TAU),
+        RevolveEnd::MidPlane { half_angle } => resolve_param(param_table, *half_angle),
+        RevolveEnd::UpToSurface { .. } => Err(ReplayError::FeatureFailed {
+            label: "revolve".into(),
+            error: "RevolveEnd::UpToSurface not yet implemented".into(),
+        }),
     }
 }
