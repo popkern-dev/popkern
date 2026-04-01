@@ -1,6 +1,7 @@
 //! Feature execution engine — dispatches each [`Feature`] variant to the
 //! appropriate popkern operation and records naming history.
 
+use popkern_core::geometry::Point3;
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -304,8 +305,29 @@ pub(crate) fn execute_feature(
             ..
         } => {
             let face_handle = resolve_face(face, brep)?;
-            let angle_val = resolve_revolve_angle(end_condition, param_table)?;
             let (origin, direction) = resolve_axis(axis, brep)?;
+
+            // Build context for UpToSurface resolution (centroid of profile face).
+            let positions = brep.face_outer_loop_positions(face_handle);
+            let profile_centroid = if positions.is_empty() {
+                Point3::new(0.0, 0.0, 0.0)
+            } else {
+                let n = positions.len() as f64;
+                Point3::new(
+                    positions.iter().map(|p| p.x).sum::<f64>() / n,
+                    positions.iter().map(|p| p.y).sum::<f64>() / n,
+                    positions.iter().map(|p| p.z).sum::<f64>() / n,
+                )
+            };
+            let revolve_ctx = crate::resolve::RevolveContext {
+                axis_origin: origin,
+                axis_dir: direction,
+                profile_centroid,
+                brep,
+                tolerance,
+            };
+            let angle_val =
+                resolve_revolve_angle(end_condition, param_table, Some(&revolve_ctx))?;
 
             let profile = popkern_sweep::SweepProfile::Face {
                 brep: Box::new(brep.clone()),
