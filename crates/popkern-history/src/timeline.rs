@@ -159,7 +159,9 @@ pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
 ///
 /// For each [`EntityName`] referenced by `feature`, the function extracts the
 /// [`OperationId`] and looks it up in `op_index` for an O(1) mapping to the
-/// originating [`FeatureId`].  The resulting list is deduplicated.
+/// originating [`FeatureId`].  Pattern features additionally record direct
+/// `FeatureId` dependencies on their seed features.  The resulting list is
+/// deduplicated.
 pub(crate) fn infer_dependencies(
     feature: &Feature,
     op_index: &HashMap<OperationId, FeatureId>,
@@ -175,6 +177,21 @@ pub(crate) fn infer_dependencies(
         }
     }
 
+    // Add direct seed feature dependencies for pattern features.
+    match feature {
+        Feature::LinearPattern { seed_features, .. }
+        | Feature::CircularPattern { seed_features, .. }
+        | Feature::CurvePattern { seed_features, .. }
+        | Feature::Mirror { seed_features, .. } => {
+            for &seed_id in seed_features {
+                if !deps.contains(&seed_id) {
+                    deps.push(seed_id);
+                }
+            }
+        }
+        _ => {}
+    }
+
     deps
 }
 
@@ -186,6 +203,10 @@ pub(crate) fn infer_dependencies(
 ///
 /// Rules:
 /// - A [`Feature::Sketch`] with no dependencies creates a new body.
+/// - Pattern features ([`Feature::LinearPattern`], [`Feature::CircularPattern`],
+///   [`Feature::CurvePattern`], [`Feature::Mirror`]) are always assigned
+///   `BodyId(0)` — they operate on the host body and the concrete body is
+///   resolved at replay time.
 /// - All other features inherit the body of their first dependency.
 /// - If there are no dependencies, fall back to `BodyId(0)`.
 pub(super) fn resolve_body(
@@ -207,6 +228,21 @@ pub(super) fn resolve_body(
     ) && depends_on.is_empty()
     {
         return body_manager.create_body();
+    }
+
+    // Pattern features always land on BodyId(0); the real body is resolved at
+    // replay time when the seed features are evaluated.
+    if matches!(
+        feature,
+        Feature::LinearPattern { .. }
+            | Feature::CircularPattern { .. }
+            | Feature::CurvePattern { .. }
+            | Feature::Mirror { .. }
+    ) {
+        if !body_manager.bodies().contains(&BodyId(0)) {
+            body_manager.create_body();
+        }
+        return BodyId(0);
     }
 
     // Inherit from the first dependency's body.
@@ -256,3 +292,7 @@ mod timeline_ops;
 #[cfg(test)]
 #[path = "timeline_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "timeline_pattern_tests.rs"]
+mod pattern_tests;
