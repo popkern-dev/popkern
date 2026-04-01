@@ -48,7 +48,7 @@ fn linear_4_instances_along_x() {
         instance_overrides: Default::default(),
     };
 
-    let transforms = compute_pattern_transforms(&feature, &brep, &table).unwrap();
+    let (transforms, _warnings) = compute_pattern_transforms(&feature, &brep, &table).unwrap();
     assert_eq!(transforms.len(), 4);
 
     let expected = [0.0, 10.0, 20.0, 30.0];
@@ -82,7 +82,7 @@ fn linear_1_instance_is_identity() {
         instance_overrides: Default::default(),
     };
 
-    let transforms = compute_pattern_transforms(&feature, &brep, &table).unwrap();
+    let (transforms, _warnings) = compute_pattern_transforms(&feature, &brep, &table).unwrap();
     assert_eq!(transforms.len(), 1);
     assert!(transforms[0].approx_eq(&Transform3::identity(), 1e-10));
 }
@@ -112,7 +112,7 @@ fn linear_2d_grid_3x2() {
         instance_overrides: Default::default(),
     };
 
-    let transforms = compute_pattern_transforms(&feature, &brep, &table).unwrap();
+    let (transforms, _warnings) = compute_pattern_transforms(&feature, &brep, &table).unwrap();
     assert_eq!(transforms.len(), 6, "3×2 grid should have 6 instances");
 
     // Row-major ordering: index = i * count2 + j.
@@ -190,7 +190,7 @@ fn circular_4_instances_full_circle() {
         instance_overrides: Default::default(),
     };
 
-    let transforms = compute_pattern_transforms(&feature, &brep, &table).unwrap();
+    let (transforms, _warnings) = compute_pattern_transforms(&feature, &brep, &table).unwrap();
     assert_eq!(transforms.len(), 4);
 
     // Instance 0 is identity.
@@ -241,7 +241,7 @@ fn circular_1_instance_is_identity() {
         instance_overrides: Default::default(),
     };
 
-    let transforms = compute_pattern_transforms(&feature, &brep, &table).unwrap();
+    let (transforms, _warnings) = compute_pattern_transforms(&feature, &brep, &table).unwrap();
     assert_eq!(transforms.len(), 1);
     assert!(
         transforms[0].approx_eq(&Transform3::identity(), 1e-10),
@@ -286,7 +286,8 @@ fn mirror_yz_gives_identity_and_reflection() {
         merge_result: true,
     };
 
-    let transforms = compute_pattern_transforms(&feature, &brep, &ParameterTable::new()).unwrap();
+    let (transforms, _warnings) =
+        compute_pattern_transforms(&feature, &brep, &ParameterTable::new()).unwrap();
     assert_eq!(transforms.len(), 2);
 
     // First is identity.
@@ -317,7 +318,8 @@ fn mirror_xy_gives_correct_reflection() {
         merge_result: true,
     };
 
-    let transforms = compute_pattern_transforms(&feature, &brep, &ParameterTable::new()).unwrap();
+    let (transforms, _warnings) =
+        compute_pattern_transforms(&feature, &brep, &ParameterTable::new()).unwrap();
     assert_eq!(transforms.len(), 2);
 
     let expected_reflection = Transform3::reflection(
@@ -344,7 +346,8 @@ fn mirror_custom_plane() {
         merge_result: false,
     };
 
-    let transforms = compute_pattern_transforms(&feature, &brep, &ParameterTable::new()).unwrap();
+    let (transforms, _warnings) =
+        compute_pattern_transforms(&feature, &brep, &ParameterTable::new()).unwrap();
     assert_eq!(transforms.len(), 2);
     assert!(
         transforms[0].approx_eq(&Transform3::identity(), 1e-10),

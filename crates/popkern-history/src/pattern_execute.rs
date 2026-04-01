@@ -72,7 +72,7 @@ pub(crate) fn execute_pattern(ctx: &mut PatternContext<'_>) -> Result<PatternRes
             })?;
 
     // 2. Compute per-instance transforms.
-    let transforms = pattern_transform::compute_pattern_transforms(
+    let (transforms, warnings) = pattern_transform::compute_pattern_transforms(
         ctx.pattern_feature,
         host_brep,
         ctx.param_table,
@@ -200,7 +200,7 @@ pub(crate) fn execute_pattern(ctx: &mut PatternContext<'_>) -> Result<PatternRes
         }
     }
 
-    Ok(build_pattern_result(outcomes))
+    Ok(build_pattern_result(outcomes, warnings))
 }
 
 // ---------------------------------------------------------------------------
@@ -390,8 +390,11 @@ fn try_geometry_fallback(
     Ok(())
 }
 
-/// Build a [`PatternResult`] from per-instance outcomes.
-fn build_pattern_result(outcomes: Vec<(usize, InstanceOutcome)>) -> PatternResult {
+/// Build a [`PatternResult`] from per-instance outcomes and transform warnings.
+fn build_pattern_result(
+    outcomes: Vec<(usize, InstanceOutcome)>,
+    warnings: Vec<String>,
+) -> PatternResult {
     let mut failed: Vec<(usize, String)> = Vec::new();
     let mut succeeded: Vec<(usize, InstanceOutcome)> = Vec::new();
 
@@ -405,10 +408,15 @@ fn build_pattern_result(outcomes: Vec<(usize, InstanceOutcome)>) -> PatternResul
     if failed.is_empty() {
         PatternResult::AllSucceeded {
             count: succeeded.len(),
+            warnings,
         }
     } else if succeeded.is_empty() {
         PatternResult::AllFailed { errors: failed }
     } else {
-        PatternResult::PartialSuccess { succeeded, failed }
+        PatternResult::PartialSuccess {
+            succeeded,
+            failed,
+            warnings,
+        }
     }
 }

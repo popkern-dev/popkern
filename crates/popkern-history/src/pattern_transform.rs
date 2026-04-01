@@ -12,9 +12,11 @@ use crate::feature::{AxisDesc, Feature};
 use crate::parameter::ParameterTable;
 use crate::pattern::MirrorPlaneDesc;
 use crate::resolve;
+use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::transform::Transform3;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::BRep;
+use popkern_sweep::arc_length::ArcLengthTable;
 
 /// Look up a parameter value by ID.
 fn resolve_param(
@@ -32,8 +34,10 @@ fn resolve_param(
 
 /// Compute per-instance spatial transforms for a pattern feature.
 ///
-/// Returns a [`Vec`] of [`Transform3`] values, one per instance.  Instance 0
-/// is always [`Transform3::identity`] (the seed itself).
+/// Returns a tuple of ([`Vec`] of [`Transform3`], [`Vec`] of warning strings).
+/// The transforms list has one entry per instance; instance 0 is always
+/// [`Transform3::identity`] (the seed itself).  Warnings are non-fatal
+/// messages (e.g. angle clamping) that callers should surface to the user.
 ///
 /// # Errors
 ///
@@ -43,21 +47,42 @@ pub(crate) fn compute_pattern_transforms(
     feature: &Feature,
     brep: &BRep,
     param_table: &ParameterTable,
-) -> Result<Vec<Transform3>, ReplayError> {
+) -> Result<(Vec<Transform3>, Vec<String>), ReplayError> {
     match feature {
         Feature::LinearPattern {
             primary, secondary, ..
-        } => compute_linear_transforms(primary, secondary.as_ref(), brep, param_table),
+        } => {
+            let transforms =
+                compute_linear_transforms(primary, secondary.as_ref(), brep, param_table)?;
+            Ok((transforms, Vec::new()))
+        }
         Feature::CircularPattern {
             axis,
             count,
             total_angle,
             ..
         } => compute_circular_transforms(axis, *count, *total_angle, brep, param_table),
-        Feature::CurvePattern { curve, count, .. } => {
-            compute_curve_transforms(curve, *count, brep, param_table)
+        Feature::CurvePattern {
+            curve,
+            count,
+            equal_spacing,
+            align_to_curve,
+            ..
+        } => {
+            let transforms = compute_curve_transforms(
+                curve,
+                *count,
+                *equal_spacing,
+                *align_to_curve,
+                brep,
+                param_table,
+            )?;
+            Ok((transforms, Vec::new()))
         }
-        Feature::Mirror { plane, .. } => compute_mirror_transforms(plane, brep),
+        Feature::Mirror { plane, .. } => {
+            let transforms = compute_mirror_transforms(plane, brep)?;
+            Ok((transforms, Vec::new()))
+        }
         _ => Err(ReplayError::FeatureFailed {
             label: String::new(),
             error: "compute_pattern_transforms called on non-pattern feature".into(),
@@ -119,13 +144,16 @@ fn compute_linear_transforms(
 }
 
 /// Compute transforms for a circular pattern.
+///
+/// Returns `(transforms, warnings)`.  If the requested total angle exceeds
+/// 360 degrees, it is clamped and a warning is emitted.
 fn compute_circular_transforms(
     axis: &AxisDesc,
     count_id: crate::parameter::ParameterId,
     total_angle_id: crate::parameter::ParameterId,
     brep: &BRep,
     param_table: &ParameterTable,
-) -> Result<Vec<Transform3>, ReplayError> {
+) -> Result<(Vec<Transform3>, Vec<String>), ReplayError> {
     let (origin, dir) = resolve::resolve_axis(axis, brep)?;
     let count = resolve_param(count_id, param_table)?.round() as usize;
     if count == 0 {
@@ -136,9 +164,16 @@ fn compute_circular_transforms(
     }
 
     let raw_angle = resolve_param(total_angle_id, param_table)?;
-    // TODO: spec says "clamp to 360° with warning" — a structured warning
-    // channel doesn't exist yet.  For now we clamp silently.
-    let total_angle = raw_angle.clamp(-std::f64::consts::TAU, std::f64::consts::TAU);
+    let mut warnings = Vec::new();
+    let total_angle = if raw_angle.abs() > std::f64::consts::TAU {
+        warnings.push(format!(
+            "circular pattern total angle {:.1}\u{00b0} exceeds 360\u{00b0}; clamped to 360\u{00b0}",
+            raw_angle.to_degrees(),
+        ));
+        raw_angle.signum() * std::f64::consts::TAU
+    } else {
+        raw_angle
+    };
 
     let angle_step = if count > 1 {
         total_angle / (count - 1) as f64
@@ -157,22 +192,23 @@ fn compute_circular_transforms(
         })?;
         transforms.push(t);
     }
-    Ok(transforms)
+    Ok((transforms, warnings))
 }
 
 /// Compute transforms for a curve-driven pattern.
 ///
-/// Resolves the named edge to extract its start and end vertices, then
-/// distributes `count` instances evenly along the chord (start → end
-/// direction) as pure translations.
+/// Resolves the named edge, converts its geometry to a [`NurbsCurve`], and
+/// distributes `count` instances along the curve.  When `equal_spacing` is
+/// `true` the instances are placed at equal arc-length intervals; otherwise
+/// they are placed at equal parameter intervals.
 ///
-/// TODO: replace with full arc-length distribution using
-/// `popkern_sweep::arc_length::ArcLengthTable` once that crate is available
-/// as a dependency.  Frame alignment (aligning each instance tangent to the
-/// curve) also needs the arc-length reparameterisation.
+/// When `align_to_curve` is `true`, each instance is additionally rotated so
+/// that its local frame tracks the curve tangent.
 fn compute_curve_transforms(
     curve: &popkern_core::naming::EntityName,
     count_id: crate::parameter::ParameterId,
+    equal_spacing: bool,
+    align_to_curve: bool,
     brep: &BRep,
     param_table: &ParameterTable,
 ) -> Result<Vec<Transform3>, ReplayError> {
@@ -186,7 +222,6 @@ fn compute_curve_transforms(
 
     let edge_handle = resolve::resolve_edge(curve, brep)?;
 
-    // Guard: only linear (straight) edges are supported in v1.
     let curve_on_edge =
         brep.edges[edge_handle]
             .curve
@@ -195,47 +230,80 @@ fn compute_curve_transforms(
                 label: String::new(),
                 error: "curve pattern edge has no curve geometry".into(),
             })?;
-    if !matches!(
-        curve_on_edge.geometry,
-        popkern_core::geometry::curve::CurveGeometry::Line { .. }
-    ) {
-        return Err(ReplayError::FeatureFailed {
-            label: String::new(),
-            error: "CurvePattern along non-linear edges is not yet implemented; use a linear edge"
-                .into(),
-        });
-    }
 
-    let (start_pos, end_pos) = edge_chord(brep, edge_handle)?;
+    // Convert to NurbsCurve for arc-length parameterization.
+    let nurbs = curve_on_edge
+        .geometry
+        .to_nurbs_in_range((curve_on_edge.t_start, curve_on_edge.t_end));
 
-    let chord = end_pos - start_pos;
-    let chord_len = chord.length();
+    let (t0, t1) = nurbs.parameter_range();
+    let start_pos = nurbs.point_at(t0);
+    let start_tangent = nurbs.tangent_at(t0);
+
+    // Build arc-length table for equal-spacing mode.
+    let table = if equal_spacing {
+        Some(ArcLengthTable::build(&nurbs, 100))
+    } else {
+        None
+    };
 
     let mut transforms = Vec::with_capacity(count);
     for i in 0..count {
-        let t = if count > 1 && chord_len > f64::EPSILON {
-            let frac = i as f64 / (count - 1) as f64;
-            let offset = chord * frac;
-            Transform3::translation(offset.x, offset.y, offset.z)
+        let frac = if count > 1 {
+            i as f64 / (count - 1) as f64
         } else {
-            Transform3::identity()
+            0.0
         };
-        transforms.push(t);
+
+        let t_param = if let Some(ref tbl) = table {
+            let s = frac * tbl.total_length;
+            tbl.s_to_t(s)
+        } else {
+            t0 + frac * (t1 - t0)
+        };
+
+        let pos = nurbs.point_at(t_param);
+        let offset = pos - start_pos;
+        let translation = Transform3::translation(offset.x, offset.y, offset.z);
+
+        let transform = if align_to_curve {
+            let current_tangent = nurbs.tangent_at(t_param);
+            match alignment_rotation(start_tangent, current_tangent) {
+                Some((axis, angle)) => {
+                    let rotation =
+                        Transform3::rotation_around_axis(pos, axis, angle).map_err(|e| {
+                            ReplayError::FeatureFailed {
+                                label: String::new(),
+                                error: e.to_string(),
+                            }
+                        })?;
+                    rotation.compose(&translation)
+                }
+                None => translation,
+            }
+        } else {
+            translation
+        };
+
+        transforms.push(transform);
     }
     Ok(transforms)
 }
 
-/// Return the start and end world-space positions of an edge's chord.
-fn edge_chord(
-    brep: &BRep,
-    edge_handle: popkern_core::topology::EdgeHandle,
-) -> Result<(Point3, Point3), ReplayError> {
-    let edge = &brep.edges[edge_handle];
-    let he = &brep.half_edges[edge.half_edge];
-    let twin = &brep.half_edges[he.twin];
-    let start = brep.vertices[he.origin].position;
-    let end = brep.vertices[twin.origin].position;
-    Ok((start, end))
+/// Compute the (axis, angle) rotation that takes `from` to `to`.
+///
+/// Returns `None` when the vectors are (anti-)parallel or either is zero-length,
+/// in which case no rotation is needed or determinable.
+fn alignment_rotation(from: Vec3, to: Vec3) -> Option<(Vec3, f64)> {
+    let cross = from.cross(&to);
+    let sin_len = cross.length();
+    if sin_len < 1e-10 {
+        return None;
+    }
+    let dot = from.dot(&to).clamp(-1.0, 1.0);
+    let angle = dot.acos();
+    let axis = cross.normalized()?;
+    Some((axis, angle))
 }
 
 /// Compute transforms for a mirror pattern.

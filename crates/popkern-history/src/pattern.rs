@@ -62,6 +62,9 @@ pub enum PatternResult {
     AllSucceeded {
         /// Total number of instances that were produced.
         count: usize,
+        /// Non-fatal warnings emitted during transform computation.
+        #[serde(default)]
+        warnings: Vec<String>,
     },
     /// Some instances succeeded and some failed.
     PartialSuccess {
@@ -69,6 +72,9 @@ pub enum PatternResult {
         succeeded: Vec<(usize, InstanceOutcome)>,
         /// Instances that failed, paired with an error message.
         failed: Vec<(usize, String)>,
+        /// Non-fatal warnings emitted during transform computation.
+        #[serde(default)]
+        warnings: Vec<String>,
     },
     /// Every instance failed; no geometry was produced.
     AllFailed {
