@@ -6,7 +6,7 @@ use popkern_core::tolerance::Tolerance;
 use crate::FeatureTree;
 use crate::cache::CacheStrategy;
 use crate::error::FeatureResult;
-use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+use crate::feature::{ExtrudeEnd, Feature, OperationMode, SketchPlaneDesc, Vec3Desc};
 use crate::node::FeatureId;
 use crate::parameter::ParameterId;
 use crate::unit::Unit;
@@ -70,8 +70,13 @@ fn build_sketch_extrude_tree() -> (FeatureTree, FeatureId, FeatureId) {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -146,8 +151,13 @@ fn memory_budget_evicts_oldest() {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -239,8 +249,13 @@ fn every_nth_caches_only_matching_indices() {
     let e1 = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );

@@ -55,7 +55,10 @@ pub use csv::CsvImportResult;
 pub use delete::{DeleteBehavior, DeleteResult};
 pub use error::{FeatureResult, HistoryError, ReplayError};
 pub use expression::{BinOp, CmpOp, Expression, UnaryFunc};
-pub use feature::{BoolOpKind, Feature, ShellDirectionKind, SketchPlaneDesc, Vec3Desc};
+pub use feature::{
+    AxisDesc, BoolOpKind, ExtrudeEnd, ExtrudeSecondDir, Feature, OperationMode, RevolveEnd,
+    ShellDirectionKind, SketchPlaneDesc, Vec3Desc,
+};
 pub use format::{format_expression, format_expression_with_unit};
 pub use health::{HealthReport, ReferenceIssue};
 pub use measure_query::{BoundExtent, Component, MeasureContext, MeasureQuery};

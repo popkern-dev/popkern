@@ -10,7 +10,10 @@ use serde_json::Value;
 
 use crate::FeatureTree;
 use crate::error::HistoryError;
-use crate::feature::{BoolOpKind, Feature, ShellDirectionKind, SketchPlaneDesc, Vec3Desc};
+use crate::feature::{
+    AxisDesc, BoolOpKind, ExtrudeEnd, Feature, OperationMode, RevolveEnd, ShellDirectionKind,
+    SketchPlaneDesc, Vec3Desc,
+};
 use crate::node::BodyId;
 use crate::parameter::ParameterId;
 use crate::unit::Unit;
@@ -228,8 +231,11 @@ fn convert_v1_feature_json(
             let distance = alloc(get_f64(&data, "distance")?, Unit::Meters)?;
             Ok(Feature::Extrude {
                 face,
-                direction,
-                distance,
+                direction: Some(direction),
+                end_condition: ExtrudeEnd::Blind { distance },
+                mode: OperationMode::NewBody,
+                draft_angle: None,
+                second_direction: None,
             })
         }
         "Fillet" => {
@@ -293,17 +299,26 @@ fn convert_v1_feature_json(
                 face,
                 path_edge,
                 twist,
+                mode: OperationMode::NewBody,
             })
         }
         "Loft" => {
             let sections = get_entities(&data, "sections")?;
             let closed = data.get("closed").and_then(Value::as_bool).unwrap_or(false);
-            Ok(Feature::Loft { sections, closed })
+            Ok(Feature::Loft {
+                sections,
+                closed,
+                mode: OperationMode::NewBody,
+            })
         }
         "Pipe" => {
             let path_edge = get_entity(&data, "path_edge")?;
             let radius = alloc(get_f64(&data, "radius")?, Unit::Meters)?;
-            Ok(Feature::Pipe { path_edge, radius })
+            Ok(Feature::Pipe {
+                path_edge,
+                radius,
+                mode: OperationMode::NewBody,
+            })
         }
         "Revolve" => {
             let face = get_entity(&data, "face")?;
@@ -312,9 +327,12 @@ fn convert_v1_feature_json(
             let angle = alloc(get_f64(&data, "angle")?, Unit::Radians)?;
             Ok(Feature::Revolve {
                 face,
-                axis_origin,
-                axis_direction,
-                angle,
+                axis: AxisDesc::Literal {
+                    origin: axis_origin,
+                    direction: axis_direction,
+                },
+                end_condition: RevolveEnd::Blind { angle },
+                mode: OperationMode::NewBody,
             })
         }
         other => Err(err(&format!("unknown v1 feature variant '{other}'"))),

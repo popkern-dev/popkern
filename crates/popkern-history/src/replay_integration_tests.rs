@@ -8,7 +8,7 @@ use popkern_core::naming::{EntityName, EntityRole, OperationId, RoleCategory};
 use popkern_core::tolerance::Tolerance;
 
 use crate::expression::{BinOp, Expression};
-use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+use crate::feature::{ExtrudeEnd, Feature, OperationMode, SketchPlaneDesc, Vec3Desc};
 use crate::parameter::EvaluationWarning;
 use crate::unit::Unit;
 use crate::{FeatureResult, FeatureTree};
@@ -65,8 +65,11 @@ fn suppress_if_true_skips_feature() {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -125,8 +128,11 @@ fn suppress_if_false_executes_feature() {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -173,8 +179,11 @@ fn manual_suppress_independent_of_suppress_if() {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -230,8 +239,13 @@ fn expression_evaluation_propagates_before_replay() {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: derived_id,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: derived_id,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -295,8 +309,11 @@ fn transaction_rollback_restores_brep_on_failure() {
     let bad_extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(99, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Bad Extrude",
     );

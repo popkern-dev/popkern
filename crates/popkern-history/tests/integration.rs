@@ -63,8 +63,13 @@ fn build_sketch_extrude(distance: f64) -> (FeatureTree, FeatureId, FeatureId) {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: sketch_face_name(1),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude1",
     );
@@ -134,8 +139,13 @@ fn modify_extrude_distance_and_rebuild() {
         extrude_id,
         Feature::Extrude {
             face: sketch_face_name(1),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: new_dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: new_dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
     );
     tree.replay_from(extrude_id, Tolerance::default())

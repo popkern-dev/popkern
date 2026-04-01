@@ -5,7 +5,7 @@ use popkern_core::naming::{EntityName, EntityRole, OperationId, RoleCategory};
 use popkern_core::tolerance::Tolerance;
 
 use crate::FeatureTree;
-use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+use crate::feature::{ExtrudeEnd, Feature, OperationMode, SketchPlaneDesc, Vec3Desc};
 use crate::parameter::ParameterId;
 use crate::unit::Unit;
 
@@ -68,8 +68,13 @@ fn save_load_preserves_structure() {
     tree.add_feature(
         Feature::Extrude {
             face: face_name(1),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -181,8 +186,13 @@ fn save_load_replay_produces_same_brep() {
     tree.add_feature(
         Feature::Extrude {
             face: face_name(1),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -267,8 +277,13 @@ fn rollback_index_preserved() {
     tree.add_feature(
         Feature::Extrude {
             face: face_name(1),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );

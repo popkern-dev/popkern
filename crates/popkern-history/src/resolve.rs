@@ -5,6 +5,7 @@
 //!
 //! [`Feature`]: crate::feature::Feature
 
+use popkern_core::geometry::CurveEval;
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::naming::EntityName;
@@ -208,6 +209,17 @@ pub(crate) fn resolve_direction(desc: &Vec3Desc, brep: &BRep) -> Result<Vec3, Re
             // Flip normal if the surface orientation is reversed.
             let normal = if sof.orientation { normal } else { -normal };
             Ok(normal)
+        }
+        Vec3Desc::EdgeDirection(name) => {
+            let edge_handle = resolve_edge(name, brep)?;
+            let curve_on_edge = brep.edges[edge_handle].curve.as_ref().ok_or_else(|| {
+                ReplayError::FeatureFailed {
+                    label: "direction".into(),
+                    error: "edge has no curve geometry".into(),
+                }
+            })?;
+            let t = curve_on_edge.t_start;
+            Ok(curve_on_edge.geometry.tangent_at(t))
         }
         Vec3Desc::Negated(inner) => {
             let v = resolve_direction(inner, brep)?;

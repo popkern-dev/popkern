@@ -6,7 +6,9 @@ use popkern_core::tolerance::Tolerance;
 
 use crate::FeatureTree;
 use crate::error::FeatureResult;
-use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+use crate::feature::{
+    AxisDesc, ExtrudeEnd, Feature, OperationMode, RevolveEnd, SketchPlaneDesc, Vec3Desc,
+};
 use crate::node::FeatureId;
 use crate::parameter::ParameterId;
 use crate::unit::Unit;
@@ -118,8 +120,13 @@ fn sketch_and_extrude_replay_produces_box() {
     tree.add_feature(
         Feature::Extrude {
             face: face_name,
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -162,8 +169,13 @@ fn suppressed_feature_is_skipped() {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -212,8 +224,13 @@ fn missing_reference_produces_failed() {
     tree.add_feature(
         Feature::Extrude {
             face: entity_name(99, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Bad Extrude",
     );
@@ -343,9 +360,12 @@ fn revolve_produces_brep() {
     tree.add_feature(
         Feature::Revolve {
             face: entity_name(1, RoleCategory::Generated, 0),
-            axis_origin: [2.0, 0.0, 0.0],
-            axis_direction: [0.0, 0.0, 1.0],
-            angle: angle_param,
+            axis: AxisDesc::Literal {
+                origin: [2.0, 0.0, 0.0],
+                direction: [0.0, 0.0, 1.0],
+            },
+            end_condition: RevolveEnd::Blind { angle: angle_param },
+            mode: OperationMode::NewBody,
         },
         "Revolve 1",
     );
@@ -400,8 +420,13 @@ fn freeze_skips_frozen_features() {
     tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );

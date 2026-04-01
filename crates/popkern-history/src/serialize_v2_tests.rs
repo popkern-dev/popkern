@@ -4,7 +4,7 @@
 use popkern_core::tolerance::Tolerance;
 
 use crate::FeatureTree;
-use crate::feature::{Feature, SketchPlaneDesc};
+use crate::feature::{ExtrudeEnd, Feature, OperationMode, SketchPlaneDesc};
 use crate::unit::Unit;
 
 use super::{add_param, face_name, rectangle_sketch_json};
@@ -43,8 +43,13 @@ fn parameters_preserved_across_round_trip() {
     tree.add_feature(
         Feature::Extrude {
             face: face_name(1),
-            direction: crate::feature::Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(crate::feature::Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -279,8 +284,11 @@ fn round_trip_with_expressions_produces_same_brep() {
     tree.add_feature(
         Feature::Extrude {
             face: face_name(1),
-            direction: crate::feature::Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_id,
+            direction: Some(crate::feature::Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_id },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );

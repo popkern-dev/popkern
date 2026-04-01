@@ -1,18 +1,27 @@
 //! Feature execution engine — dispatches each [`Feature`] variant to the
 //! appropriate popkern operation and records naming history.
 
-use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
+use popkern_core::geometry::CurveEval;
+use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, EdgeHandle};
+use popkern_core::topology::BRep;
 
 use std::collections::HashMap;
 
 use crate::error::ReplayError;
-use crate::feature::{BoolOpKind, Feature, ShellDirectionKind};
+use crate::feature::{AxisDesc, ExtrudeEnd, Feature, RevolveEnd};
 use crate::node::BodyId;
-use crate::parameter::{ParameterId, ParameterTable};
+use crate::parameter::ParameterTable;
+
+#[path = "replay_fns.rs"]
+mod replay_fns;
+use replay_fns::{
+    execute_sketch, extract_edge_curve, extract_face_outer_curve, extract_plane_from_face,
+    resolve_param, to_bool_operation, to_shell_direction,
+};
+
+use crate::resolve::{resolve_direction, resolve_edge, resolve_edges, resolve_face, resolve_faces};
 
 /// Side effects produced by a successful feature execution.
 ///
@@ -31,10 +40,6 @@ impl ExecuteSideEffects {
         }
     }
 }
-use crate::resolve::{
-    resolve_direction, resolve_edge, resolve_edges, resolve_face, resolve_faces,
-    resolve_sketch_plane,
-};
 
 /// Execute a single feature against the current BRep.
 ///
@@ -51,17 +56,6 @@ use crate::resolve::{
 ///
 /// Returns [`ReplayError`] if entity resolution fails or the underlying
 /// operation fails.
-/// Resolve a [`ParameterId`] to its `f64` value via the parameter table.
-fn resolve_param(table: &ParameterTable, id: ParameterId) -> Result<f64, ReplayError> {
-    table
-        .get(id)
-        .map(|p| p.value)
-        .ok_or_else(|| ReplayError::FeatureFailed {
-            label: "parameter".into(),
-            error: format!("parameter {id:?} not found"),
-        })
-}
-
 pub(crate) fn execute_feature(
     brep: &mut BRep,
     feature: &Feature,
@@ -78,11 +72,45 @@ pub(crate) fn execute_feature(
         Feature::Extrude {
             face,
             direction,
-            distance,
+            end_condition,
+            ..
         } => {
             let face_handle = resolve_face(face, brep)?;
-            let dir = resolve_direction(direction, brep)?;
-            let dist = resolve_param(param_table, *distance)?;
+            let dir = match direction {
+                Some(d) => resolve_direction(d, brep)?,
+                None => {
+                    // Default to the face normal when no direction is specified.
+                    let sof = brep.faces[face_handle].surface.as_ref().ok_or_else(|| {
+                        ReplayError::FeatureFailed {
+                            label: "extrude".into(),
+                            error: "face has no surface geometry".into(),
+                        }
+                    })?;
+                    match &sof.geometry {
+                        popkern_core::geometry::SurfaceGeometry::Plane { normal, .. } => {
+                            if sof.orientation { *normal } else { -*normal }
+                        }
+                        _ => {
+                            return Err(ReplayError::FeatureFailed {
+                                label: "extrude".into(),
+                                error: "direction=None only supported for planar faces".into(),
+                            });
+                        }
+                    }
+                }
+            };
+            let dist = match end_condition {
+                ExtrudeEnd::Blind { distance } => resolve_param(param_table, *distance)?,
+                ExtrudeEnd::MidPlane { half_distance } => {
+                    resolve_param(param_table, *half_distance)? * 2.0
+                }
+                ExtrudeEnd::ThroughAll
+                | ExtrudeEnd::UpToSurface { .. }
+                | ExtrudeEnd::OffsetFromSurface { .. }
+                | ExtrudeEnd::UpToVertex { .. } => {
+                    todo!("end condition {:?} not yet implemented", end_condition)
+                }
+            };
             brep.extrude(face_handle, dir, dist, Some(tracking))
                 .map_err(|e| ReplayError::FeatureFailed {
                     label: "extrude".into(),
@@ -230,6 +258,7 @@ pub(crate) fn execute_feature(
             face,
             path_edge,
             twist,
+            ..
         } => {
             let tw = resolve_param(param_table, *twist)?;
             let face_handle = resolve_face(face, brep)?;
@@ -252,7 +281,9 @@ pub(crate) fn execute_feature(
             *brep = result.brep;
             Ok(ExecuteSideEffects::empty())
         }
-        Feature::Loft { sections, closed } => {
+        Feature::Loft {
+            sections, closed, ..
+        } => {
             let mut loft_sections = Vec::new();
             for section_name in sections {
                 let face_handle = resolve_face(section_name, brep)?;
@@ -274,7 +305,9 @@ pub(crate) fn execute_feature(
             *brep = result.brep;
             Ok(ExecuteSideEffects::empty())
         }
-        Feature::Pipe { path_edge, radius } => {
+        Feature::Pipe {
+            path_edge, radius, ..
+        } => {
             let r = resolve_param(param_table, *radius)?;
             let edge_handle = resolve_edge(path_edge, brep)?;
             let path_curve = extract_edge_curve(brep, edge_handle)?;
@@ -294,15 +327,42 @@ pub(crate) fn execute_feature(
         }
         Feature::Revolve {
             face,
-            axis_origin,
-            axis_direction,
-            angle,
+            axis,
+            end_condition,
+            ..
         } => {
             let face_handle = resolve_face(face, brep)?;
-            let angle_val = resolve_param(param_table, *angle)?;
+            let angle_val = match end_condition {
+                RevolveEnd::Blind { angle } => resolve_param(param_table, *angle)?,
+                RevolveEnd::FullCircle => std::f64::consts::TAU,
+                RevolveEnd::MidPlane { half_angle } => {
+                    resolve_param(param_table, *half_angle)? * 2.0
+                }
+                RevolveEnd::UpToSurface { .. } => {
+                    todo!("RevolveEnd::UpToSurface not yet implemented")
+                }
+            };
 
-            let origin = Point3::new(axis_origin[0], axis_origin[1], axis_origin[2]);
-            let direction = Vec3::new(axis_direction[0], axis_direction[1], axis_direction[2]);
+            let (origin, direction) = match axis {
+                AxisDesc::Literal {
+                    origin: o,
+                    direction: d,
+                } => (Point3::new(o[0], o[1], o[2]), Vec3::new(d[0], d[1], d[2])),
+                AxisDesc::Edge(name) => {
+                    let edge_handle = resolve_edge(name, brep)?;
+                    let curve_on_edge =
+                        brep.edges[edge_handle].curve.as_ref().ok_or_else(|| {
+                            ReplayError::FeatureFailed {
+                                label: "revolve".into(),
+                                error: "axis edge has no curve geometry".into(),
+                            }
+                        })?;
+                    let t = curve_on_edge.t_start;
+                    let tangent = curve_on_edge.geometry.tangent_at(t);
+                    let pt = curve_on_edge.geometry.point_at(t);
+                    (pt, tangent)
+                }
+            };
 
             let profile = popkern_sweep::SweepProfile::Face {
                 brep: Box::new(brep.clone()),
@@ -329,124 +389,12 @@ pub(crate) fn execute_feature(
             // and parameter update happen at the tree-replay level.
             Ok(ExecuteSideEffects::empty())
         }
-    }
-}
-
-/// Execute a sketch feature: deserialize the sketch, place it on a plane,
-/// assign stable names, solve, and convert to BRep.
-fn execute_sketch(
-    brep: &mut BRep,
-    plane_desc: &crate::feature::SketchPlaneDesc,
-    sketch_data: &str,
-    tracking: &mut TrackingContext,
-    tolerance: &Tolerance,
-    param_table: &ParameterTable,
-) -> Result<(), ReplayError> {
-    let plane = resolve_sketch_plane(plane_desc, brep, param_table)?;
-
-    let mut sketch: popkern_constraint::Sketch =
-        serde_json::from_str(sketch_data).map_err(|e| ReplayError::FeatureFailed {
-            label: "sketch".into(),
-            error: format!("failed to deserialize sketch: {e}"),
-        })?;
-
-    // Re-solve the sketch so parametric changes take effect on replay.
-    sketch.solve().map_err(|e| ReplayError::FeatureFailed {
-        label: "sketch".into(),
-        error: format!("constraint solve failed: {e}"),
-    })?;
-
-    let mut sketch_on_plane = popkern_sketch::SketchOnPlane {
-        sketch,
-        plane,
-        element_names: std::collections::HashMap::new(),
-    };
-    sketch_on_plane.assign_element_names(tracking.operation);
-
-    let result = sketch_on_plane
-        .to_brep(*tolerance, Some(tracking))
-        .map_err(|e| ReplayError::FeatureFailed {
-            label: "sketch".into(),
-            error: e.to_string(),
-        })?;
-
-    *brep = result.brep;
-    Ok(())
-}
-
-/// Convert a serialisable [`ShellDirectionKind`] to the runtime
-/// [`popkern_shell::ShellDirection`].
-fn to_shell_direction(kind: &ShellDirectionKind) -> popkern_shell::ShellDirection {
-    match kind {
-        ShellDirectionKind::Inward => popkern_shell::ShellDirection::Inward,
-        ShellDirectionKind::Outward => popkern_shell::ShellDirection::Outward,
-        ShellDirectionKind::Midplane => popkern_shell::ShellDirection::Midplane,
-    }
-}
-
-/// Convert a serialisable [`BoolOpKind`] to the runtime
-/// [`popkern_bool::BoolOperation`].
-fn to_bool_operation(kind: BoolOpKind) -> popkern_bool::BoolOperation {
-    match kind {
-        BoolOpKind::Union => popkern_bool::BoolOperation::Union,
-        BoolOpKind::Intersection => popkern_bool::BoolOperation::Intersection,
-        BoolOpKind::Subtraction => popkern_bool::BoolOperation::Subtraction,
-    }
-}
-
-/// Extract a [`NurbsCurve`] from an edge's curve geometry.
-fn extract_edge_curve(brep: &BRep, edge: EdgeHandle) -> Result<NurbsCurve, ReplayError> {
-    let curve_on_edge =
-        brep.edges[edge]
-            .curve
-            .as_ref()
-            .ok_or_else(|| ReplayError::FeatureFailed {
-                label: "sweep".into(),
-                error: "path edge has no curve geometry".into(),
-            })?;
-    Ok(curve_on_edge
-        .geometry
-        .to_nurbs_in_range((curve_on_edge.t_start, curve_on_edge.t_end)))
-}
-
-/// Extract the outer loop of a face as a single [`NurbsCurve`].
-///
-/// Uses the first edge's curve from the face's outer loop. For simple
-/// cross-section faces (single-curve boundary) this is sufficient; complex
-/// multi-edge boundaries would need curve concatenation (future enhancement).
-fn extract_face_outer_curve(
-    brep: &BRep,
-    face: popkern_core::topology::FaceHandle,
-) -> Result<NurbsCurve, ReplayError> {
-    let outer_loop = brep.faces[face].outer_loop;
-    let first_he = brep.loops[outer_loop].half_edge;
-    let first_edge = brep.half_edges[first_he].edge;
-    extract_edge_curve(brep, first_edge)
-}
-
-/// Extract the plane origin and normal from a face's planar surface.
-///
-/// Returns an error if the face has no surface or its surface is not a plane.
-fn extract_plane_from_face(
-    brep: &BRep,
-    face: popkern_core::topology::FaceHandle,
-) -> Result<(Point3, Vec3), ReplayError> {
-    let sof = brep.faces[face]
-        .surface
-        .as_ref()
-        .ok_or_else(|| ReplayError::FeatureFailed {
-            label: "draft".into(),
-            error: "neutral plane face has no surface geometry".into(),
-        })?;
-    match &sof.geometry {
-        SurfaceGeometry::Plane { origin, normal, .. } => {
-            let n = if sof.orientation { *normal } else { -*normal };
-            Ok((*origin, n))
+        Feature::LinearPattern { .. }
+        | Feature::CircularPattern { .. }
+        | Feature::CurvePattern { .. }
+        | Feature::Mirror { .. } => {
+            todo!("pattern execution not yet implemented")
         }
-        _ => Err(ReplayError::FeatureFailed {
-            label: "draft".into(),
-            error: "neutral plane face is not planar".into(),
-        }),
     }
 }
 

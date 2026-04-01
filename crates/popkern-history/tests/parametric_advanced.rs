@@ -85,8 +85,11 @@ fn save_load_with_expressions_round_trip() {
     tree.add_feature(
         Feature::Extrude {
             face: sketch_face_name(sketch_op),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude1",
     );
@@ -172,8 +175,11 @@ fn undo_parameter_expression_and_replay() {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: sketch_face_name(sketch_op),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude1",
     );
@@ -318,8 +324,11 @@ fn delete_cleans_up_feature_parameters() {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: sketch_face_name(sketch_op),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude1",
     );

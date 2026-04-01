@@ -1,6 +1,9 @@
 // Structural lint marker: this file is test code, included via #[path] under #[cfg(test)].
 #[cfg(test)]
 use super::*;
+use crate::FeatureTree;
+use crate::error::HistoryError;
+use crate::feature::{AxisDesc, ExtrudeEnd, OperationMode, RevolveEnd};
 use crate::parameter::ParameterId;
 use crate::unit::Unit;
 use popkern_core::naming::{EntityName, EntityRole, NameId, OperationId, RoleCategory};
@@ -72,8 +75,13 @@ fn auto_dependency_extrude_references_sketch() {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1), // references the sketch's OperationId
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -140,8 +148,13 @@ fn insert_with_dependency_after_insert_point_fails() {
         0,
         Feature::Extrude {
             face: entity_name(1),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -171,8 +184,13 @@ fn reorder_violating_dependency_fails() {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -262,8 +280,11 @@ fn feature_entity_names_extracts_all_variants() {
     // Extrude with FaceNormal direction: face + direction ref
     let f = Feature::Extrude {
         face: entity_name(6),
-        direction: Vec3Desc::FaceNormal(entity_name(7)),
-        distance: dummy_id,
+        direction: Some(Vec3Desc::FaceNormal(entity_name(7))),
+        end_condition: ExtrudeEnd::Blind { distance: dummy_id },
+        mode: OperationMode::NewBody,
+        draft_angle: None,
+        second_direction: None,
     };
     let names = feature_entity_names(&f);
     assert_eq!(names.len(), 2);
@@ -296,8 +317,13 @@ fn reorder_dependent_before_feature_fails() {
     let _extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -326,6 +352,7 @@ fn sweep_entity_names_extracts_face_and_path() {
         face: entity_name(1),
         path_edge: entity_name(2),
         twist: dummy_id,
+        mode: OperationMode::NewBody,
     };
     let names = feature_entity_names(&f);
     assert_eq!(names.len(), 2);
@@ -338,6 +365,7 @@ fn loft_entity_names_extracts_all_sections() {
     let f = Feature::Loft {
         sections: vec![entity_name(10), entity_name(20), entity_name(30)],
         closed: false,
+        mode: OperationMode::NewBody,
     };
     let names = feature_entity_names(&f);
     assert_eq!(names.len(), 3);
@@ -352,6 +380,7 @@ fn pipe_entity_names_extracts_path_edge() {
     let f = Feature::Pipe {
         path_edge: entity_name(5),
         radius: dummy_id,
+        mode: OperationMode::NewBody,
     };
     let names = feature_entity_names(&f);
     assert_eq!(names.len(), 1);
@@ -363,9 +392,12 @@ fn revolve_entity_names_extracts_face() {
     let dummy_id = ParameterId::default();
     let f = Feature::Revolve {
         face: entity_name(7),
-        axis_origin: [0.0, 0.0, 0.0],
-        axis_direction: [0.0, 0.0, 1.0],
-        angle: dummy_id,
+        axis: AxisDesc::Literal {
+            origin: [0.0, 0.0, 0.0],
+            direction: [0.0, 0.0, 1.0],
+        },
+        end_condition: RevolveEnd::Blind { angle: dummy_id },
+        mode: OperationMode::NewBody,
     };
     let names = feature_entity_names(&f);
     assert_eq!(names.len(), 1);
@@ -405,8 +437,11 @@ fn rename_feature_updates_parameter_qualified_names() {
                 },
                 ancestors: vec![NameId(0)],
             },
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude1",
     );

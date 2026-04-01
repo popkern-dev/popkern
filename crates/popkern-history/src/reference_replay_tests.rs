@@ -7,7 +7,7 @@ use popkern_constraint::{Constraint, Sketch};
 use popkern_core::naming::{EntityName, EntityRole, OperationId, RoleCategory};
 use popkern_core::tolerance::Tolerance;
 
-use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+use crate::feature::{ExtrudeEnd, Feature, OperationMode, SketchPlaneDesc, Vec3Desc};
 use crate::measure_query::MeasureQuery;
 use crate::parameter::ParamScope;
 use crate::unit::Unit;
@@ -61,8 +61,11 @@ fn box_tree() -> FeatureTree {
     tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -314,8 +317,11 @@ fn stale_reference_propagates_stale_input_to_dependents() {
     tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist2,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist2 },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 2",
     );
@@ -385,8 +391,11 @@ fn never_valid_reference_suppresses_dependents() {
     let ext_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -435,8 +444,11 @@ fn never_valid_suppression_cascades() {
     let feat_a = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: da,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: da },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude A",
     );
@@ -449,8 +461,11 @@ fn never_valid_suppression_cascades() {
     let feat_b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: db,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: db },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude B",
     );
