@@ -39,6 +39,8 @@ pub mod param_api;
 pub mod parameter;
 pub mod parse;
 pub mod pattern;
+pub(crate) mod pattern_execute;
+pub(crate) mod pattern_replay;
 pub(crate) mod pattern_transform;
 pub(crate) mod pattern_validate;
 pub mod queries;

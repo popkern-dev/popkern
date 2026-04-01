@@ -4,10 +4,8 @@
 //! [`Vec`] of [`Transform3`] values — one per instance.  Instance 0 is always
 //! the identity (the seed position).
 //!
-//! The public-facing entry point is [`compute_pattern_transforms`].  Callers
-//! land in a later task (pattern execution); the `dead_code` lint is suppressed
-//! in the meantime.
-#![allow(dead_code)]
+//! The public-facing entry point is [`compute_pattern_transforms`], called by
+//! [`crate::pattern_execute::execute_pattern`].
 
 use crate::error::ReplayError;
 use crate::feature::{AxisDesc, Feature};
