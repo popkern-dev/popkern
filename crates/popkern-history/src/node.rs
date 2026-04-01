@@ -10,6 +10,7 @@ use crate::feature::Feature;
 use popkern_core::naming::OperationId;
 use serde::{Deserialize, Serialize};
 use slotmap::new_key_type;
+use std::collections::HashMap;
 
 new_key_type! {
     /// Stable handle for a feature node in the [`crate::FeatureTree`].
@@ -45,6 +46,12 @@ pub struct FeatureNode {
     /// the feature is skipped during replay.
     #[serde(default)]
     pub suppress_if: Option<Expression>,
+    /// Persisted OperationIds for pattern instances.
+    ///
+    /// Key: `(instance_index, seed_feature_index_within_chain)`.
+    /// Only populated for pattern features (LinearPattern, CircularPattern, etc.).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub instance_op_ids: HashMap<(u32, u32), OperationId>,
     /// Cached outcome of the most recent evaluation, or `None` if the node
     /// has never been evaluated.
     ///

@@ -46,6 +46,7 @@ impl FeatureTree {
             suppressed: false,
             body,
             suppress_if: None,
+            instance_op_ids: std::collections::HashMap::new(),
             last_result: None,
         };
 
@@ -127,6 +128,7 @@ impl FeatureTree {
             suppressed: false,
             body,
             suppress_if: None,
+            instance_op_ids: std::collections::HashMap::new(),
             last_result: None,
         };
 
