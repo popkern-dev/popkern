@@ -9,7 +9,7 @@ mod conics;
 #[path = "conics_arc_tests.rs"]
 mod conics_arc;
 
-#[path = "equations_tests_splines.rs"]
+#[path = "equations_splines_tests.rs"]
 mod splines;
 
 #[path = "equations_tests_splines_tangent.rs"]

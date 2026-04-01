@@ -92,11 +92,9 @@ fn patch_feature(feature: &mut Value) -> Result<(), HistoryError> {
     // Only call patch_extrude / patch_revolve when the variant value is an
     // actual object.  `get_mut` returns `Some(&mut Value::Null)` for keys
     // whose value is null, so we must guard with `filter`.
-    if obj.get("Extrude").map(Value::is_object).unwrap_or(false) {
-        let extrude_val = obj.get_mut("Extrude").expect("checked above");
+    if let Some(extrude_val) = obj.get_mut("Extrude").filter(|v| v.is_object()) {
         patch_extrude(extrude_val)?;
-    } else if obj.get("Revolve").map(Value::is_object).unwrap_or(false) {
-        let revolve_val = obj.get_mut("Revolve").expect("checked above");
+    } else if let Some(revolve_val) = obj.get_mut("Revolve").filter(|v| v.is_object()) {
         patch_revolve(revolve_val)?;
     }
     Ok(())

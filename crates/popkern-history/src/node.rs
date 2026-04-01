@@ -50,7 +50,12 @@ pub struct FeatureNode {
     ///
     /// Key: `(instance_index, seed_feature_index_within_chain)`.
     /// Only populated for pattern features (LinearPattern, CircularPattern, etc.).
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "HashMap::is_empty",
+        serialize_with = "serialize_op_ids",
+        deserialize_with = "deserialize_op_ids"
+    )]
     pub instance_op_ids: HashMap<(u32, u32), OperationId>,
     /// Cached outcome of the most recent evaluation, or `None` if the node
     /// has never been evaluated.
@@ -58,4 +63,39 @@ pub struct FeatureNode {
     /// Not serialized — rebuilt by [`crate::FeatureTree::replay`] after loading.
     #[serde(skip)]
     pub last_result: Option<FeatureResult>,
+}
+
+/// Serializes `instance_op_ids` with tuple keys encoded as `"inst_seed"` strings.
+///
+/// JSON object keys must be strings; this converts `(u32, u32)` to `"<inst>_<seed>"`.
+fn serialize_op_ids<S: serde::Serializer>(
+    map: &HashMap<(u32, u32), OperationId>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeMap;
+    let mut s = serializer.serialize_map(Some(map.len()))?;
+    for (&(inst, seed), op_id) in map {
+        let key = format!("{inst}_{seed}");
+        s.serialize_entry(&key, op_id)?;
+    }
+    s.end()
+}
+
+/// Deserializes `instance_op_ids` from `"inst_seed"` string keys back to `(u32, u32)`.
+fn deserialize_op_ids<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<HashMap<(u32, u32), OperationId>, D::Error> {
+    use serde::de::Error;
+    let string_map: HashMap<String, OperationId> = HashMap::deserialize(deserializer)?;
+    let mut result = HashMap::new();
+    for (key, op_id) in string_map {
+        let parts: Vec<&str> = key.split('_').collect();
+        if parts.len() != 2 {
+            return Err(D::Error::custom(format!("invalid op_id key: {key}")));
+        }
+        let inst: u32 = parts[0].parse().map_err(D::Error::custom)?;
+        let seed: u32 = parts[1].parse().map_err(D::Error::custom)?;
+        result.insert((inst, seed), op_id);
+    }
+    Ok(result)
 }
