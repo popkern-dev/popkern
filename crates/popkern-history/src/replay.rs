@@ -326,8 +326,7 @@ pub(crate) fn execute_feature(
                 brep,
                 tolerance,
             };
-            let angle_val =
-                resolve_revolve_angle(end_condition, param_table, Some(&revolve_ctx))?;
+            let angle_val = resolve_revolve_angle(end_condition, param_table, Some(&revolve_ctx))?;
 
             let profile = popkern_sweep::SweepProfile::Face {
                 brep: Box::new(brep.clone()),
