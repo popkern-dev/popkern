@@ -4,7 +4,6 @@
 use crate::FeatureTree;
 use crate::feature::{AxisDesc, Vec3Desc};
 use crate::node::FeatureId;
-use crate::pattern::PatternDirection;
 use crate::unit::Unit;
 
 /// Helper: add a sketch + extrude pair and return `(sketch_id, extrude_id)`.
