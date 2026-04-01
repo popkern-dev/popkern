@@ -1,7 +1,7 @@
 // Structural lint marker: this file is test code, included via #[path] under #[cfg(test)].
 #[cfg(test)]
 use crate::FeatureTree;
-use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+use crate::feature::{ExtrudeEnd, Feature, OperationMode, SketchPlaneDesc, Vec3Desc};
 use crate::parameter::ParameterId;
 use crate::unit::Unit;
 use popkern_core::naming::{EntityName, EntityRole, NameId, OperationId, RoleCategory};
@@ -54,8 +54,11 @@ fn dependents_returns_transitive_downstream() {
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_b,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_b },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "B",
     );
@@ -95,8 +98,11 @@ fn dependents_empty_for_leaf_feature() {
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_b,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_b },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "B",
     );
@@ -121,8 +127,11 @@ fn dependents_in_timeline_order() {
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_b,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_b },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "B",
     );
@@ -161,8 +170,11 @@ fn dependencies_returns_direct_parents() {
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_b,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_b },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "B",
     );
@@ -228,8 +240,11 @@ fn impact_analysis_will_rebuild_matches_dependents() {
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_b,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_b },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "B",
     );
@@ -282,8 +297,11 @@ fn impact_analysis_at_risk_empty_without_cached_result() {
     let _b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_b,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_b },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "B",
     );
@@ -312,8 +330,11 @@ fn dependents_does_not_cross_roots() {
     let _b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_b,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_b },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "B",
     );

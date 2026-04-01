@@ -2,7 +2,7 @@
 #[cfg(test)]
 use crate::FeatureTree;
 use crate::delete::DeleteBehavior;
-use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+use crate::feature::{ExtrudeEnd, Feature, OperationMode, SketchPlaneDesc, Vec3Desc};
 use crate::parameter::ParameterId;
 use crate::unit::Unit;
 use popkern_core::naming::{EntityName, EntityRole, NameId, OperationId, RoleCategory};
@@ -50,8 +50,11 @@ fn cascade_removes_transitive_dependents() {
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_b,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_b },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "B",
     );
@@ -131,8 +134,11 @@ fn reparent_rewires_dependents_to_grandparent() {
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_b,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_b },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "B",
     );
@@ -207,8 +213,11 @@ fn cascade_delete_undo_restores_timeline() {
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_b,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_b },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "B",
     );
@@ -255,8 +264,11 @@ fn reparent_delete_undo_restores_deps() {
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_b,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_b },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "B",
     );
@@ -299,8 +311,11 @@ fn reparent_produces_warnings_for_each_reparented_feature() {
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_b,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_b },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "B",
     );
@@ -354,8 +369,11 @@ fn cascade_delete_removes_feature_params() {
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_b,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_b },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "B",
     );
@@ -389,8 +407,11 @@ fn reparent_delete_removes_target_feature_params() {
     let b = tree.add_feature(
         Feature::Extrude {
             face: entity_name(a_op.0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_b,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_b },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "B2",
     );

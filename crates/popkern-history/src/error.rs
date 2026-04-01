@@ -73,6 +73,24 @@ pub enum HistoryError {
     /// A configuration with this name already exists.
     #[error("duplicate configuration name: {0}")]
     DuplicateConfigName(String),
+    /// The seed features list for a pattern is empty.
+    #[error("seed features must not be empty")]
+    EmptySeedFeatures,
+    /// Seed features belong to more than one body.
+    #[error("seed features must all be on the same body")]
+    SeedBodyMismatch,
+    /// Seed features do not occupy consecutive positions in the timeline.
+    #[error("seed features must be contiguous in the timeline")]
+    SeedNotContiguous,
+    /// The first seed feature is not a Sketch.
+    #[error("seed chain must start with a Sketch feature")]
+    SeedMissingSketch,
+    /// No seed feature has an [`OperationMode::Boss`] or [`OperationMode::Cut`] mode.
+    #[error("seed chain must contain at least one feature with Boss or Cut mode")]
+    SeedMissingMode,
+    /// A seed feature is already used by another pattern.
+    #[error("seed feature is already owned by another pattern")]
+    SeedAlreadyOwned,
 }
 
 /// Errors arising during replay (re-evaluating features against a BRep).

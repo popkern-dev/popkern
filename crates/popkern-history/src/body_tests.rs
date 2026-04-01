@@ -146,7 +146,7 @@ fn two_independent_sketches_create_two_bodies() {
 #[test]
 fn extrude_inherits_sketch_body() {
     use crate::FeatureTree;
-    use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+    use crate::feature::{ExtrudeEnd, Feature, OperationMode, SketchPlaneDesc, Vec3Desc};
     use crate::unit::Unit;
     use popkern_core::naming::{EntityName, EntityRole, NameId, OperationId, RoleCategory};
 
@@ -181,8 +181,13 @@ fn extrude_inherits_sketch_body() {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );
@@ -198,7 +203,7 @@ fn extrude_inherits_sketch_body() {
 #[test]
 fn body_features_returns_correct_list() {
     use crate::FeatureTree;
-    use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+    use crate::feature::{ExtrudeEnd, Feature, OperationMode, SketchPlaneDesc, Vec3Desc};
     use crate::unit::Unit;
     use popkern_core::naming::{EntityName, EntityRole, NameId, OperationId, RoleCategory};
 
@@ -231,8 +236,13 @@ fn body_features_returns_correct_list() {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude 1",
     );

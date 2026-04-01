@@ -61,8 +61,13 @@ fn build_sketch_extrude(distance: f64) -> (FeatureTree, FeatureId, FeatureId) {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: sketch_face_name(1),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_param,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: dist_param,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude1",
     );
@@ -91,8 +96,11 @@ fn two_bodies_with_separate_breps() {
     let ex1 = tree.add_feature(
         Feature::Extrude {
             face: sk1_face,
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_ex1,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_ex1 },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude1",
     );
@@ -113,8 +121,11 @@ fn two_bodies_with_separate_breps() {
     let ex2 = tree.add_feature(
         Feature::Extrude {
             face: sk2_face,
-            direction: Vec3Desc::Literal([0.0, 1.0, 0.0]),
-            distance: dist_ex2,
+            direction: Some(Vec3Desc::Literal([0.0, 1.0, 0.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_ex2 },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude2",
     );
@@ -166,8 +177,11 @@ fn boolean_union_of_two_bodies() {
     tree.add_feature(
         Feature::Extrude {
             face: sk1_face,
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_ex1,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_ex1 },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude1",
     );
@@ -188,8 +202,11 @@ fn boolean_union_of_two_bodies() {
     tree.add_feature(
         Feature::Extrude {
             face: sk2_face,
-            direction: Vec3Desc::Literal([0.0, 1.0, 0.0]),
-            distance: dist_ex2,
+            direction: Some(Vec3Desc::Literal([0.0, 1.0, 0.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_ex2 },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude2",
     );

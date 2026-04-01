@@ -18,6 +18,7 @@
 //!   └── cache: BRepCache                  // intermediate BRep snapshots
 //! ```
 
+pub(crate) mod auto_merge;
 pub(crate) mod body;
 pub mod cache;
 pub mod config;
@@ -37,6 +38,13 @@ pub mod node;
 pub mod param_api;
 pub mod parameter;
 pub mod parse;
+pub mod pattern;
+pub mod pattern_api;
+pub mod pattern_api_extras;
+pub(crate) mod pattern_execute;
+pub(crate) mod pattern_replay;
+pub(crate) mod pattern_transform;
+pub(crate) mod pattern_validate;
 pub mod queries;
 pub(crate) mod replay;
 pub(crate) mod resolve;
@@ -54,7 +62,10 @@ pub use csv::CsvImportResult;
 pub use delete::{DeleteBehavior, DeleteResult};
 pub use error::{FeatureResult, HistoryError, ReplayError};
 pub use expression::{BinOp, CmpOp, Expression, UnaryFunc};
-pub use feature::{BoolOpKind, Feature, ShellDirectionKind, SketchPlaneDesc, Vec3Desc};
+pub use feature::{
+    AxisDesc, BoolOpKind, ExtrudeEnd, ExtrudeSecondDir, Feature, OperationMode, RevolveEnd,
+    ShellDirectionKind, SketchPlaneDesc, Vec3Desc,
+};
 pub use format::{format_expression, format_expression_with_unit};
 pub use health::{HealthReport, ReferenceIssue};
 pub use measure_query::{BoundExtent, Component, MeasureContext, MeasureQuery};

@@ -16,21 +16,24 @@ mod config_replay_tests;
 #[path = "reference_replay_tests.rs"]
 mod reference_replay_tests;
 
+#[path = "tree_replay_helpers.rs"]
+mod helpers;
+
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
-use crate::config::ConfigId;
+use crate::auto_merge;
 use crate::config_eval;
 use crate::error::{FeatureResult, ReplayError};
 use crate::expression::Expression;
-use crate::feature::Feature;
+use crate::feature::{Feature, OperationMode};
 use crate::measure_cache::MeasureCache;
 use crate::measure_query::MeasureContext;
 use crate::node::{BodyId, FeatureId};
 use crate::parameter::{EvaluationWarning, ParamScope, ParameterId};
-use crate::unit::{DimensionKind, Unit};
 use crate::{FeatureTree, ReplayRangeOutput, replay};
+use helpers::{dimension_kind_to_unit, is_pattern_feature};
 
 impl FeatureTree {
     /// Apply config overrides to the parameter table and evaluate all expressions.
@@ -117,6 +120,28 @@ impl FeatureTree {
         let mut body_breps = body_breps;
         let mut results = HashMap::new();
         let mut measure_cache = MeasureCache::new();
+
+        // Collect seed features of all pattern features in the replay range.
+        // Seed features should NOT be auto-merged — the pattern handles that.
+        let seed_feature_ids: HashSet<FeatureId> = self.timeline[from..to]
+            .iter()
+            .filter_map(|&fid| {
+                if let Some(node) = self.features.get(fid) {
+                    match &node.feature {
+                        Feature::LinearPattern { seed_features, .. }
+                        | Feature::CircularPattern { seed_features, .. }
+                        | Feature::CurvePattern { seed_features, .. }
+                        | Feature::Mirror { seed_features, .. } => {
+                            Some(seed_features.iter().copied())
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .collect();
 
         // Track stale reference parameter IDs for StaleInput propagation.
         let mut stale_param_ids: HashSet<ParameterId> = HashSet::new();
@@ -213,44 +238,29 @@ impl FeatureTree {
             // don't modify the BRep, so we skip execute_feature entirely.
             if let Feature::Reference { name: _, query } = &node.feature.clone() {
                 let body = node.body;
-                let measure_ctx = MeasureContext {
+                let ctx = MeasureContext {
                     bodies: &body_breps,
                     active_body: body,
                     tolerance,
                 };
-                let eval_result = measure_cache.get_or_evaluate(query, &measure_ctx);
-
+                let eval_result = measure_cache.get_or_evaluate(query, &ctx);
                 let label = node.label.clone();
-                let qualified_name = format!("{}.value", label.to_lowercase().replace(' ', "_"));
-                let dimension_unit = dimension_kind_to_unit(query.dimension_kind());
-
-                match eval_result {
+                let qname = format!("{}.value", label.to_lowercase().replace(' ', "_"));
+                let dim_unit = dimension_kind_to_unit(query.dimension_kind());
+                let fr = match eval_result {
                     Ok(value) => {
-                        self.upsert_reference_param(id, &qualified_name, value, dimension_unit);
-                        let history = popkern_core::history::HistoryMap::default();
-                        results.insert(
-                            id,
-                            FeatureResult::Success {
-                                history: history.clone(),
-                            },
-                        );
-                        self.features[id].last_result = Some(FeatureResult::Success { history });
+                        self.upsert_reference_param(id, &qname, value, dim_unit);
+                        FeatureResult::Success {
+                            history: popkern_core::history::HistoryMap::default(),
+                        }
                     }
                     Err(e) => {
-                        // Check for a last_known stale value.
-                        let stale_value = self
-                            .parameter_table
-                            .resolve_name(&qualified_name)
-                            .and_then(|pid| {
-                                self.parameter_table.get(pid).and_then(|p| p.last_known)
-                            });
-
-                        if let Some(stale) = stale_value {
-                            // Use stale value — feature succeeds with a warning.
-                            self.upsert_reference_param(id, &qualified_name, stale, dimension_unit);
-
-                            // Mark the reference parameter as stale.
-                            if let Some(pid) = self.parameter_table.resolve_name(&qualified_name) {
+                        let stale = self.parameter_table.resolve_name(&qname).and_then(|pid| {
+                            self.parameter_table.get(pid).and_then(|p| p.last_known)
+                        });
+                        if let Some(sv) = stale {
+                            self.upsert_reference_param(id, &qname, sv, dim_unit);
+                            if let Some(pid) = self.parameter_table.resolve_name(&qname) {
                                 if let Some(p) = self.parameter_table.get_mut(pid) {
                                     p.eval_warning = Some(EvaluationWarning::MeasureStale {
                                         message: e.to_string(),
@@ -258,31 +268,36 @@ impl FeatureTree {
                                 }
                                 stale_param_ids.insert(pid);
                             }
-
-                            let history = popkern_core::history::HistoryMap::default();
-                            results.insert(
-                                id,
-                                FeatureResult::Success {
-                                    history: history.clone(),
-                                },
-                            );
-                            self.features[id].last_result =
-                                Some(FeatureResult::Success { history });
+                            FeatureResult::Success {
+                                history: popkern_core::history::HistoryMap::default(),
+                            }
                         } else {
-                            // Never-valid: no stale value to fall back on.
-                            let error_msg = e.to_string();
-                            results.insert(
-                                id,
-                                FeatureResult::Failed {
-                                    error: error_msg.clone(),
-                                },
-                            );
-                            self.features[id].last_result =
-                                Some(FeatureResult::Failed { error: error_msg });
                             failed_ref_ids.insert(id);
+                            FeatureResult::Failed {
+                                error: e.to_string(),
+                            }
                         }
                     }
-                }
+                };
+                results.insert(id, fr.clone());
+                self.features[id].last_result = Some(fr);
+                continue;
+            }
+
+            // Pattern features are executed by the pattern_execute module.
+            if is_pattern_feature(&node.feature) {
+                let fr = match self.execute_pattern_feature(id, &mut body_breps, tolerance) {
+                    Ok(()) => {
+                        measure_cache.invalidate();
+                        let h = popkern_core::history::HistoryMap::default();
+                        FeatureResult::Success { history: h }
+                    }
+                    Err(e) => FeatureResult::Failed {
+                        error: e.to_string(),
+                    },
+                };
+                results.insert(id, fr.clone());
+                self.features[id].last_result = Some(fr);
                 continue;
             }
 
@@ -324,6 +339,32 @@ impl FeatureTree {
                     self.features[id].last_result = Some(FeatureResult::Success { history });
                     self.cache.store(self.active_config, id, brep.clone(), i);
                     measure_cache.invalidate();
+
+                    // Put the BRep back before auto-merge so detect_host_body can
+                    // search all body BReps including this one.
+                    body_breps.insert(body, brep);
+
+                    // Auto-merge: Boss/Cut modes merge the tool body into the host.
+                    let mode = auto_merge::feature_mode(&feature);
+                    if !matches!(mode, OperationMode::NewBody)
+                        && !seed_feature_ids.contains(&id)
+                        && let Some(host) =
+                            auto_merge::detect_host_body(id, &self.features, &body_breps)
+                        && host != body
+                    {
+                        let mut merge_ctx = TrackingContext::new(self.features[id].operation_id);
+                        auto_merge::execute_auto_merge(
+                            mode,
+                            body,
+                            host,
+                            &mut body_breps,
+                            &mut merge_ctx,
+                            tolerance,
+                        )?;
+                    }
+
+                    // Skip the normal BRep re-insert below — already handled above.
+                    continue;
                 }
                 Err(e) => {
                     // Atomically restore the pre-execution BRep so the body
@@ -347,95 +388,5 @@ impl FeatureTree {
         }
 
         Ok((body_breps, results))
-    }
-}
-
-// -- Reference parameter helpers ----------------------------------------------
-
-/// Map a [`DimensionKind`] to its default SI [`Unit`].
-fn dimension_kind_to_unit(kind: DimensionKind) -> Unit {
-    match kind {
-        DimensionKind::Length => Unit::Meters,
-        DimensionKind::Area => Unit::SquareMeters,
-        DimensionKind::Volume => Unit::CubicMeters,
-        DimensionKind::Angle => Unit::Radians,
-        DimensionKind::InverseLength => Unit::PerMeter,
-        DimensionKind::MomentOfArea => Unit::MetersToFourth,
-        DimensionKind::Dimensionless => Unit::Ratio,
-    }
-}
-
-impl FeatureTree {
-    /// Create or update the read-only parameter for a Reference feature.
-    ///
-    /// If the parameter already exists (by qualified name), its value and
-    /// `last_known` are updated in place.  Otherwise a new feature-scoped
-    /// parameter is created.
-    fn upsert_reference_param(
-        &mut self,
-        feature_id: FeatureId,
-        qualified_name: &str,
-        value: f64,
-        unit: Unit,
-    ) {
-        if let Some(pid) = self.parameter_table.resolve_name(qualified_name) {
-            // Update existing parameter.
-            if let Some(param) = self.parameter_table.get_mut(pid) {
-                param.value = value;
-                param.last_known = Some(value);
-            }
-        } else if let Ok(pid) =
-            self.parameter_table
-                .add_feature_param(qualified_name, feature_id, value, unit)
-            && let Some(param) = self.parameter_table.get_mut(pid)
-        {
-            // Create new feature-scoped, read-only parameter.
-            param.read_only = true;
-            param.last_known = Some(value);
-        }
-    }
-}
-
-// -- Config-aware parameter accessors -----------------------------------------
-//
-// These methods live here rather than in lib.rs to keep lib.rs under the
-// 500-line structural limit.
-
-impl FeatureTree {
-    /// Effective parameter value for the active config.
-    ///
-    /// Reads directly from the parameter table, which always reflects the most
-    /// recent replay evaluation.  For no active config this returns the default
-    /// evaluated value.
-    pub fn effective_value(&self, param: ParameterId) -> f64 {
-        self.parameter_table
-            .get(param)
-            .map(|p| p.value)
-            .unwrap_or(0.0)
-    }
-
-    /// Effective suppression state for a feature considering the active config.
-    ///
-    /// Config suppression overrides take priority over the node's `suppressed`
-    /// field.  Returns `false` if the feature does not exist.
-    pub fn effective_suppressed(&self, feature: FeatureId) -> bool {
-        if let Some(overridden) =
-            config_eval::resolve_suppression(feature, self.active_config, &self.configs)
-        {
-            return overridden;
-        }
-        self.features
-            .get(feature)
-            .map(|n| n.suppressed)
-            .unwrap_or(false)
-    }
-
-    /// Evaluate all parameters for a specific config (expensive — full evaluation).
-    ///
-    /// Clones the parameter table, applies overrides for `config`, evaluates
-    /// all expressions, and returns the resulting value map.  Does not mutate
-    /// `self`.
-    pub fn evaluate_config(&self, config: Option<ConfigId>) -> HashMap<ParameterId, f64> {
-        config_eval::evaluate_config(config, &self.configs, &self.parameter_table)
     }
 }

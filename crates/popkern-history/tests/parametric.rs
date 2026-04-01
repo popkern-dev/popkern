@@ -91,8 +91,11 @@ fn parametric_extrude_with_expression() {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: sketch_face_name(sketch_op),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude1",
     );
@@ -186,8 +189,13 @@ fn expression_chain_across_features() {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: sketch_face_name(sketch_op),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: extrude_dist,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind {
+                distance: extrude_dist,
+            },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude1",
     );
@@ -282,8 +290,11 @@ fn conditional_suppression_end_to_end() {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: sketch_face_name(sketch_op),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude1",
     );

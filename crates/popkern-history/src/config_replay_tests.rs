@@ -8,7 +8,7 @@ use popkern_core::naming::{EntityName, EntityRole, OperationId, RoleCategory};
 use popkern_core::tolerance::Tolerance;
 
 use crate::config::ParamOverride;
-use crate::feature::{Feature, SketchPlaneDesc, Vec3Desc};
+use crate::feature::{ExtrudeEnd, Feature, OperationMode, SketchPlaneDesc, Vec3Desc};
 use crate::unit::Unit;
 use crate::{Configuration, FeatureResult, FeatureTree};
 
@@ -66,8 +66,11 @@ fn replay_with_literal_override_uses_config_value() {
     tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_id,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_id },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude",
     );
@@ -129,8 +132,11 @@ fn replay_with_config_suppression_skips_feature() {
     let extrude_id = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_id,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_id },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude",
     );
@@ -190,8 +196,11 @@ fn replay_without_config_uses_defaults() {
     tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
-            direction: Vec3Desc::Literal([0.0, 0.0, 1.0]),
-            distance: dist_id,
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: dist_id },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
         },
         "Extrude",
     );
