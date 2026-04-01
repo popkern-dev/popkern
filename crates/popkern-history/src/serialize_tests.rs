@@ -308,3 +308,10 @@ fn rollback_index_preserved() {
 
 #[path = "serialize_v2_tests.rs"]
 mod v2_tests;
+
+// ---------------------------------------------------------------------------
+// Tests 13–14: v2→v3 migration (old Extrude/Revolve fields)
+// ---------------------------------------------------------------------------
+
+#[path = "serialize_v3_tests.rs"]
+mod v3_tests;

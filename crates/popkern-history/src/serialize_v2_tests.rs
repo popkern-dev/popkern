@@ -10,16 +10,16 @@ use crate::unit::Unit;
 use super::{add_param, face_name, rectangle_sketch_json};
 
 // ---------------------------------------------------------------------------
-// Test 7: version number in saved bytes is 2
+// Test 7: version number in saved bytes is 3
 // ---------------------------------------------------------------------------
 
 #[test]
-fn saved_document_version_is_2() {
+fn saved_document_version_is_3() {
     let tree = FeatureTree::new();
     let bytes = tree.save().expect("save should succeed");
     let doc: serde_json::Value = serde_json::from_slice(&bytes).expect("should be valid JSON");
     let version = doc["version"].as_u64().expect("version must be u64");
-    assert_eq!(version, 2, "saved document should have version 2");
+    assert_eq!(version, 3, "saved document should have version 3");
 }
 
 // ---------------------------------------------------------------------------
@@ -155,10 +155,10 @@ fn load_unsupported_version_returns_error() {
             err,
             HistoryError::UnsupportedVersion {
                 file_version: 99,
-                max_supported: 2,
+                max_supported: 3,
             }
         ),
-        "expected UnsupportedVersion {{99, 2}}, got: {err:?}"
+        "expected UnsupportedVersion {{99, 3}}, got: {err:?}"
     );
 }
 

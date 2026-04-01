@@ -17,6 +17,7 @@
 //! |---------|-------------|
 //! | 1       | Feature dimensions stored as bare `f64` fields. |
 //! | 2       | Feature dimensions stored as [`crate::parameter::ParameterId`] handles; full [`crate::parameter::ParameterTable`] persisted. |
+//! | 3       | `Extrude` uses `end_condition: ExtrudeEnd` and `Revolve` uses `axis: AxisDesc` + `end_condition: RevolveEnd`. |
 //!
 //! # Round-trip
 //!
@@ -33,6 +34,9 @@
 #[path = "serialize_v1.rs"]
 mod serialize_v1;
 
+#[path = "serialize_v2.rs"]
+mod serialize_v2;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -40,7 +44,7 @@ use crate::FeatureTree;
 use crate::error::HistoryError;
 
 /// Current document format version.
-const CURRENT_VERSION: u32 = 2;
+const CURRENT_VERSION: u32 = 3;
 
 /// Versioned envelope used for serialization (writing).
 ///
@@ -92,7 +96,9 @@ impl FeatureTree {
     ///
     /// - **v1** — migrates bare `f64` dimensions to a new
     ///   [`crate::parameter::ParameterTable`].  See [`serialize_v1`].
-    /// - **v2** — deserializes directly; rebuilds transient indices.
+    /// - **v2** — migrates old flat `Extrude`/`Revolve` fields to the v3
+    ///   `ExtrudeEnd`/`AxisDesc`/`RevolveEnd` wrappers.  See [`serialize_v2`].
+    /// - **v3** — deserializes directly; rebuilds transient indices.
     /// - **other** — returns [`HistoryError::UnsupportedVersion`].
     ///
     /// The returned tree has no BRep state — call [`replay`](Self::replay) to
@@ -108,7 +114,8 @@ impl FeatureTree {
 
         match doc.version {
             1 => serialize_v1::migrate_v1(doc.tree),
-            2 => {
+            2 => serialize_v2::migrate_v2(doc.tree),
+            3 => {
                 let mut tree: FeatureTree = serde_json::from_value(doc.tree)
                     .map_err(|e| HistoryError::SerializeError(e.to_string()))?;
                 tree.rebuild_indices();
