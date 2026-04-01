@@ -14,7 +14,6 @@ use crate::error::HistoryError;
 use crate::feature::{Feature, OperationMode};
 use crate::node::{FeatureId, FeatureNode};
 
-#[allow(dead_code)] // Called by pattern insertion helpers; callers land in a future task.
 /// Validate that a proposed set of seed features is well-formed for use in a
 /// pattern.
 ///

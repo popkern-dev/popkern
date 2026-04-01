@@ -305,16 +305,24 @@ fn try_feature_replay(
         }
     }
 
-    let remapped: Vec<(Feature, OperationId)> = seed_features
-        .iter()
-        .enumerate()
-        .map(|(seed_idx, feat)| {
-            let cloned = pattern_replay::clone_seed_feature(feat, &op_remap);
-            let key = (inst_idx as u32, seed_idx as u32);
-            let op = instance_op_ids.get(&key).copied().unwrap_or(OperationId(0));
-            (cloned, op)
-        })
-        .collect();
+    let remapped: Vec<(Feature, OperationId)> =
+        seed_features
+            .iter()
+            .enumerate()
+            .map(|(seed_idx, feat)| {
+                let cloned = pattern_replay::clone_seed_feature(feat, &op_remap);
+                let key = (inst_idx as u32, seed_idx as u32);
+                let op = instance_op_ids.get(&key).copied().ok_or_else(|| {
+                    ReplayError::FeatureFailed {
+                        label: String::new(),
+                        error: format!(
+                            "missing instance OperationId for instance {inst_idx}, seed {seed_idx}"
+                        ),
+                    }
+                })?;
+                Ok((cloned, op))
+            })
+            .collect::<Result<Vec<_>, ReplayError>>()?;
 
     let tool_brep =
         pattern_replay::replay_seed_chain(&remapped, tolerance, param_table, body_breps)?;

@@ -74,6 +74,8 @@ pub(crate) fn execute_feature(
             face,
             direction,
             end_condition,
+            draft_angle,
+            second_direction,
             ..
         } => {
             let face_handle = resolve_face(face, brep)?;
@@ -100,8 +102,18 @@ pub(crate) fn execute_feature(
                     }
                 }
             };
-            // TODO: draft_angle — apply taper along the extrude direction
-            // TODO: second_direction — bidirectional extrude
+            if draft_angle.is_some() {
+                return Err(ReplayError::FeatureFailed {
+                    label: String::new(),
+                    error: "draft angle is not yet implemented".into(),
+                });
+            }
+            if second_direction.is_some() {
+                return Err(ReplayError::FeatureFailed {
+                    label: String::new(),
+                    error: "bidirectional extrude is not yet implemented".into(),
+                });
+            }
             let dist = resolve_extrude_distance(
                 end_condition,
                 None, // host_brep not available here; auto-merge supplies it

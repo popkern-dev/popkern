@@ -296,13 +296,10 @@ pub(crate) fn resolve_axis(desc: &AxisDesc, brep: &BRep) -> Result<(Point3, Vec3
 /// - [`ExtrudeEnd::Blind`]: looks up the distance parameter value.
 /// - [`ExtrudeEnd::ThroughAll`]: uses the host body AABB diagonal × 2.0 as a
 ///   safe overshoot; the boolean will clip the result.
-/// - [`ExtrudeEnd::UpToSurface`]: approximates with the host AABB diagonal.
-///   TODO: replace with proper ray-surface intersection.
-/// - [`ExtrudeEnd::OffsetFromSurface`]: UpToSurface approximation plus the
-///   signed offset parameter value.
-/// - [`ExtrudeEnd::UpToVertex`]: resolves the vertex position and returns its
-///   distance from the world origin along Z as a rough approximation.
-///   TODO: project the vertex onto the extrude direction vector instead.
+/// - [`ExtrudeEnd::UpToSurface`]: returns an error — not yet implemented.
+/// - [`ExtrudeEnd::OffsetFromSurface`]: delegates to `UpToSurface` and will
+///   also return an error — not yet implemented.
+/// - [`ExtrudeEnd::UpToVertex`]: returns an error — not yet implemented.
 /// - [`ExtrudeEnd::MidPlane`]: looks up the half_distance parameter value;
 ///   callers are responsible for the bidirectional extrude logic.
 #[allow(dead_code)] // Used by Extrude replay; callers land in future tasks.
@@ -319,25 +316,18 @@ pub(crate) fn resolve_extrude_distance(
             let diag = host_brep.map_or_else(|| brep_aabb_diagonal(brep), brep_aabb_diagonal);
             Ok(diag * 2.0)
         }
-        ExtrudeEnd::UpToSurface { face } => {
-            // TODO: replace with exact ray-surface intersection.
-            let _ = resolve_face(face, brep)?;
-            let diag = host_brep.map_or_else(|| brep_aabb_diagonal(brep), brep_aabb_diagonal);
-            Ok(diag)
-        }
-        ExtrudeEnd::OffsetFromSurface { face, offset } => {
-            // TODO: replace with exact ray-surface intersection.
-            let _ = resolve_face(face, brep)?;
-            let diag = host_brep.map_or_else(|| brep_aabb_diagonal(brep), brep_aabb_diagonal);
-            let offset_val = resolve_param(param_table, *offset)?;
-            Ok(diag + offset_val)
-        }
-        ExtrudeEnd::UpToVertex { vertex } => {
-            // TODO: project vertex onto the extrude direction instead of using Z.
-            let vertex_handle = resolve_vertex(vertex, brep)?;
-            let pos = brep.vertices[vertex_handle].position;
-            Ok(pos.z.abs())
-        }
+        ExtrudeEnd::UpToSurface { .. } => Err(ReplayError::FeatureFailed {
+            label: String::new(),
+            error: "UpToSurface end condition is not yet implemented".into(),
+        }),
+        ExtrudeEnd::OffsetFromSurface { .. } => Err(ReplayError::FeatureFailed {
+            label: String::new(),
+            error: "UpToSurface end condition is not yet implemented".into(),
+        }),
+        ExtrudeEnd::UpToVertex { .. } => Err(ReplayError::FeatureFailed {
+            label: String::new(),
+            error: "UpToVertex end condition is not yet implemented".into(),
+        }),
         ExtrudeEnd::MidPlane { half_distance } => resolve_param(param_table, *half_distance),
     }
 }

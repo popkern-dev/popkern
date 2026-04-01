@@ -6,8 +6,11 @@ use crate::feature::{AxisDesc, Vec3Desc};
 use crate::pattern::MirrorPlaneDesc;
 use crate::unit::Unit;
 
-/// Helper: add a sketch + extrude pair and return the extrude FeatureId.
-fn add_seed(tree: &mut FeatureTree, tag: &str) -> crate::node::FeatureId {
+/// Helper: add a sketch + extrude pair and return `(sketch_id, extrude_id)`.
+///
+/// Pattern seed lists must start with a Sketch and contain a Boss/Cut feature,
+/// so callers should pass `vec![sketch_id, extrude_id]` as the seed list.
+fn add_seed(tree: &mut FeatureTree, tag: &str) -> (crate::node::FeatureId, crate::node::FeatureId) {
     use crate::feature::{ExtrudeEnd, Feature, OperationMode, SketchPlaneDesc};
 
     let dist_name = format!("_dist_{tag}");
@@ -45,17 +48,17 @@ fn add_seed(tree: &mut FeatureTree, tag: &str) -> crate::node::FeatureId {
         },
         &format!("Extrude_{tag}"),
     );
-    extrude
+    (sketch, extrude)
 }
 
 #[test]
 fn add_linear_pattern_with_pitch_creates_feature() {
     let mut tree = FeatureTree::new();
-    let seed = add_seed(&mut tree, "a");
+    let (sketch, extrude) = add_seed(&mut tree, "a");
 
     let pattern_id = tree
         .add_linear_pattern_with_pitch(
-            vec![seed],
+            vec![sketch, extrude],
             Vec3Desc::Literal([1.0, 0.0, 0.0]),
             4.0,
             10.0, // 10 mm pitch
@@ -64,7 +67,7 @@ fn add_linear_pattern_with_pitch_creates_feature() {
         .expect("add_linear_pattern_with_pitch");
 
     let node = tree.feature(pattern_id).expect("pattern node");
-    assert!(node.depends_on.contains(&seed), "should depend on seed");
+    assert!(node.depends_on.contains(&extrude), "should depend on seed");
 
     // Parameters should exist in the table.
     assert!(
@@ -95,11 +98,11 @@ fn add_linear_pattern_with_pitch_creates_feature() {
 #[test]
 fn add_circular_pattern_full_circle_creates_feature() {
     let mut tree = FeatureTree::new();
-    let seed = add_seed(&mut tree, "b");
+    let (sketch, extrude) = add_seed(&mut tree, "b");
 
     let pattern_id = tree
         .add_circular_pattern_full_circle(
-            vec![seed],
+            vec![sketch, extrude],
             AxisDesc::Literal {
                 origin: [0.0, 0.0, 0.0],
                 direction: [0.0, 0.0, 1.0],
@@ -110,7 +113,7 @@ fn add_circular_pattern_full_circle_creates_feature() {
         .expect("add_circular_pattern_full_circle");
 
     let node = tree.feature(pattern_id).expect("pattern node");
-    assert!(node.depends_on.contains(&seed));
+    assert!(node.depends_on.contains(&extrude));
 
     let angle_id = tree
         .parameters()
@@ -126,12 +129,12 @@ fn add_circular_pattern_full_circle_creates_feature() {
 #[test]
 fn add_circular_pattern_with_pitch_creates_feature() {
     let mut tree = FeatureTree::new();
-    let seed = add_seed(&mut tree, "c");
+    let (sketch, extrude) = add_seed(&mut tree, "c");
     let pitch = std::f64::consts::PI / 4.0; // 45 degrees
 
     let pattern_id = tree
         .add_circular_pattern_with_pitch(
-            vec![seed],
+            vec![sketch, extrude],
             AxisDesc::Literal {
                 origin: [0.0, 0.0, 0.0],
                 direction: [0.0, 0.0, 1.0],
@@ -143,7 +146,7 @@ fn add_circular_pattern_with_pitch_creates_feature() {
         .expect("add_circular_pattern_with_pitch");
 
     let node = tree.feature(pattern_id).expect("pattern node");
-    assert!(node.depends_on.contains(&seed));
+    assert!(node.depends_on.contains(&extrude));
 
     // total_angle = pitch × (count - 1) = PI/4 × 3 = 3PI/4
     let total_id = tree
@@ -161,12 +164,14 @@ fn add_circular_pattern_with_pitch_creates_feature() {
 #[test]
 fn add_mirror_creates_feature() {
     let mut tree = FeatureTree::new();
-    let seed = add_seed(&mut tree, "d");
+    let (sketch, extrude) = add_seed(&mut tree, "d");
 
-    let mirror_id = tree.add_mirror(vec![seed], MirrorPlaneDesc::XZ, true, "mir1");
+    let mirror_id = tree
+        .add_mirror(vec![sketch, extrude], MirrorPlaneDesc::XZ, true, "mir1")
+        .expect("add_mirror");
 
     let node = tree.feature(mirror_id).expect("mirror node");
-    assert!(node.depends_on.contains(&seed));
+    assert!(node.depends_on.contains(&extrude));
     match &node.feature {
         crate::feature::Feature::Mirror { merge_result, .. } => {
             assert!(*merge_result);
@@ -178,11 +183,11 @@ fn add_mirror_creates_feature() {
 #[test]
 fn skip_pattern_instance_sets_suppressed() {
     let mut tree = FeatureTree::new();
-    let seed = add_seed(&mut tree, "e");
+    let (sketch, extrude) = add_seed(&mut tree, "e");
 
     let pattern_id = tree
         .add_circular_pattern_full_circle(
-            vec![seed],
+            vec![sketch, extrude],
             AxisDesc::Literal {
                 origin: [0.0, 0.0, 0.0],
                 direction: [0.0, 0.0, 1.0],
@@ -209,11 +214,11 @@ fn skip_pattern_instance_sets_suppressed() {
 #[test]
 fn override_pattern_instance_param_stores_value() {
     let mut tree = FeatureTree::new();
-    let seed = add_seed(&mut tree, "f");
+    let (sketch, extrude) = add_seed(&mut tree, "f");
 
     let pattern_id = tree
         .add_linear_pattern_with_pitch(
-            vec![seed],
+            vec![sketch, extrude],
             Vec3Desc::Literal([0.0, 1.0, 0.0]),
             3.0,
             5.0,
@@ -248,10 +253,11 @@ fn override_pattern_instance_param_stores_value() {
 #[test]
 fn duplicate_label_returns_error() {
     let mut tree = FeatureTree::new();
-    let seed = add_seed(&mut tree, "g");
+    let (sketch_g, extrude_g) = add_seed(&mut tree, "g");
+    let (sketch_h, extrude_h) = add_seed(&mut tree, "h");
 
     tree.add_linear_pattern_with_pitch(
-        vec![seed],
+        vec![sketch_g, extrude_g],
         Vec3Desc::Literal([1.0, 0.0, 0.0]),
         2.0,
         5.0,
@@ -260,7 +266,7 @@ fn duplicate_label_returns_error() {
     .expect("first insert");
 
     let result = tree.add_linear_pattern_with_pitch(
-        vec![seed],
+        vec![sketch_h, extrude_h],
         Vec3Desc::Literal([1.0, 0.0, 0.0]),
         2.0,
         5.0,

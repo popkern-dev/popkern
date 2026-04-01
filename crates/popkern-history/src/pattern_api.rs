@@ -4,13 +4,37 @@
 //! feature variants (linear, circular, mirror) without requiring callers to
 //! manually pre-allocate parameter IDs or construct the inner types.
 
+use std::collections::HashSet;
+
+use slotmap::SlotMap;
+
 use crate::FeatureTree;
 use crate::error::HistoryError;
-use crate::feature::{AxisDesc, Vec3Desc};
-use crate::node::FeatureId;
+use crate::feature::{AxisDesc, Feature, Vec3Desc};
+use crate::node::{FeatureId, FeatureNode};
 use crate::parameter::ParameterId;
 use crate::pattern::{InstanceOverride, MirrorPlaneDesc, PatternDirection};
+use crate::pattern_validate::validate_seed_features;
 use crate::unit::Unit;
+
+/// Collect the union of all seed [`FeatureId`]s that are already claimed
+/// by an existing pattern feature in the tree.
+///
+/// Used by the convenience API to satisfy the "no shared seeds" rule checked
+/// by [`validate_seed_features`].
+fn collect_existing_seeds(features: &SlotMap<FeatureId, FeatureNode>) -> HashSet<FeatureId> {
+    features
+        .values()
+        .filter_map(|node| match &node.feature {
+            Feature::LinearPattern { seed_features, .. }
+            | Feature::CircularPattern { seed_features, .. }
+            | Feature::CurvePattern { seed_features, .. }
+            | Feature::Mirror { seed_features, .. } => Some(seed_features.iter().copied()),
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
 
 impl FeatureTree {
     /// Add a linear pattern using pitch-based spacing.
@@ -33,6 +57,14 @@ impl FeatureTree {
         pitch: f64,
         label: &str,
     ) -> Result<FeatureId, HistoryError> {
+        let existing_seeds = collect_existing_seeds(&self.features);
+        validate_seed_features(
+            &seed_features,
+            &self.features,
+            &self.timeline,
+            &existing_seeds,
+        )?;
+
         let prefix = label.to_lowercase().replace(' ', "_");
 
         let count_id = self.parameter_table.add_global(
@@ -93,6 +125,14 @@ impl FeatureTree {
         count: f64,
         label: &str,
     ) -> Result<FeatureId, HistoryError> {
+        let existing_seeds = collect_existing_seeds(&self.features);
+        validate_seed_features(
+            &seed_features,
+            &self.features,
+            &self.timeline,
+            &existing_seeds,
+        )?;
+
         let prefix = label.to_lowercase().replace(' ', "_");
 
         let count_id =
@@ -137,6 +177,14 @@ impl FeatureTree {
         pitch_angle: f64,
         label: &str,
     ) -> Result<FeatureId, HistoryError> {
+        let existing_seeds = collect_existing_seeds(&self.features);
+        validate_seed_features(
+            &seed_features,
+            &self.features,
+            &self.timeline,
+            &existing_seeds,
+        )?;
+
         let prefix = label.to_lowercase().replace(' ', "_");
 
         let count_id =
@@ -176,21 +224,35 @@ impl FeatureTree {
 
     /// Add a mirror feature that reflects seed features about a plane.
     ///
-    /// Unlike pattern variants this method is infallible: mirror features carry
-    /// no numeric parameters and therefore cannot produce name conflicts.
+    /// Validates that `seed_features` is non-empty, all features exist and
+    /// belong to the same body, form a contiguous timeline range, start with a
+    /// [`Feature::Sketch`], contain at least one Boss/Cut operation, and are not
+    /// already owned by another pattern.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError`] if any seed-feature validation rule is violated.
     pub fn add_mirror(
         &mut self,
         seed_features: Vec<FeatureId>,
         plane: MirrorPlaneDesc,
         merge_result: bool,
         label: &str,
-    ) -> FeatureId {
+    ) -> Result<FeatureId, HistoryError> {
+        let existing_seeds = collect_existing_seeds(&self.features);
+        validate_seed_features(
+            &seed_features,
+            &self.features,
+            &self.timeline,
+            &existing_seeds,
+        )?;
+
         let feature = crate::feature::Feature::Mirror {
             seed_features,
             plane,
             merge_result,
         };
-        self.add_feature(feature, label)
+        Ok(self.add_feature(feature, label))
     }
 
     /// Suppress a specific instance of a pattern feature.
