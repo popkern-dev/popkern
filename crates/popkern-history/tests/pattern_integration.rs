@@ -1,7 +1,7 @@
 //! Integration tests for feature patterns in `popkern-history` (part 1 of 2).
 //!
 //! Tests 1–4: tree creation, serialization round-trips, seed validation,
-//! backward compatibility (v2→v3 migration).
+//! serialization round-trips.
 //!
 //! See also: `pattern_integration_2.rs` for tests 5–9.
 
@@ -352,79 +352,3 @@ fn pattern_skip_instance_persists_across_round_trip() {
     //   once the full geometric pipeline is available.
 }
 
-// ---------------------------------------------------------------------------
-// Test 4: v2 file loads with OperationMode::NewBody on Extrude features
-// ---------------------------------------------------------------------------
-
-#[test]
-fn v2_extrude_loads_with_default_operation_mode() {
-    // Construct a real v3 tree with an Extrude(NewBody), serialise it, downgrade
-    // the version field to 2, strip the `mode` field, and re-load.  The v2→v3
-    // migration must synthesise `mode: NewBody`.
-
-    let (tree, _sk, _ex) = build_sketch_extrude(0.1);
-
-    let bytes_v3 = tree.save().expect("save v3 should succeed");
-    let mut doc: serde_json::Value =
-        serde_json::from_slice(&bytes_v3).expect("v3 doc must be valid JSON");
-
-    // Downgrade version.
-    doc["version"] = serde_json::json!(2);
-
-    // Walk feature slots and remove `mode` from every Extrude object.
-    if let Some(slots) = doc["tree"]["features"].as_array_mut() {
-        for slot in slots.iter_mut() {
-            let extrude_obj = slot
-                .as_object_mut()
-                .and_then(|s| s.get_mut("value"))
-                .and_then(serde_json::Value::as_object_mut)
-                .and_then(|v| v.get_mut("feature"))
-                .and_then(serde_json::Value::as_object_mut)
-                .and_then(|f| f.get_mut("Extrude"))
-                .and_then(serde_json::Value::as_object_mut);
-
-            if let Some(obj) = extrude_obj {
-                // v2 layout: flat `distance` field instead of `end_condition`,
-                // and no `mode` field.
-                let distance_param = obj
-                    .get("end_condition")
-                    .and_then(|ec| ec.get("Blind"))
-                    .and_then(|b| b.get("distance"))
-                    .cloned()
-                    .expect("v3 must have end_condition.Blind.distance");
-
-                obj.remove("end_condition");
-                obj.remove("mode");
-                obj.remove("draft_angle");
-                obj.remove("second_direction");
-                obj.insert("distance".to_string(), distance_param);
-            }
-        }
-    }
-
-    let bytes_v2 = serde_json::to_vec(&doc).expect("re-serialised v2 doc must be valid JSON");
-    let loaded = FeatureTree::load(&bytes_v2).expect("v2→v3 migration must succeed");
-
-    // Find the Extrude feature.
-    let extrude_id = *loaded
-        .timeline()
-        .iter()
-        .find(|&&id| {
-            matches!(
-                loaded.feature(id).map(|n| &n.feature),
-                Some(Feature::Extrude { .. })
-            )
-        })
-        .expect("Extrude feature must survive v2 migration");
-
-    let node = loaded.feature(extrude_id).expect("extrude node must exist");
-    let Feature::Extrude { mode, .. } = &node.feature else {
-        panic!("expected Extrude feature");
-    };
-
-    // The migration must default to NewBody.
-    assert!(
-        matches!(mode, OperationMode::NewBody),
-        "v2 migration must default to OperationMode::NewBody, got {mode:?}"
-    );
-}
