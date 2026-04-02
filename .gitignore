@@ -29,3 +29,9 @@ docs/reports/kernel-analysis/
 
 # Personal prompt log (not committed)
 .prompt-log/
+
+# Flowchart databases and generated JSON (regenerated from seeds/)
+flowcharts/*.db
+flowcharts/*.db-wal
+flowcharts/*.db-shm
+flowcharts/json/
