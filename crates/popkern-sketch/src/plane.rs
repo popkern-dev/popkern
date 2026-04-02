@@ -231,3 +231,7 @@ impl SketchPlane {
         (d.dot(&self.u_axis), d.dot(&self.v_axis))
     }
 }
+
+#[cfg(test)]
+#[path = "plane_tests.rs"]
+mod tests;

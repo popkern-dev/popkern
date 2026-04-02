@@ -257,3 +257,7 @@ mod tests {
         assert_ne!(ColorMode::Surface, ColorMode::None);
     }
 }
+
+#[cfg(test)]
+#[path = "scene_tests.rs"]
+mod scene_tests;

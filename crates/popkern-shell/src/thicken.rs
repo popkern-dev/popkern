@@ -162,27 +162,5 @@ fn build_combined_skin_map(outer_map: &SkinMap, inner_map: &SkinMap) -> SkinMap 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn tol() -> Tolerance {
-        Tolerance::default()
-    }
-
-    #[test]
-    fn thicken_cube_produces_result() {
-        // A cube is a closed solid, not a sheet, but thicken should still
-        // work (producing outer + inner skins with no side walls).
-        let brep = BRep::unit_cube(tol()).unwrap();
-        let result = thicken(&brep, 0.2, &ShellOptions::default(), tol()).unwrap();
-        // Outer (6) + inner (6) = 12 faces.
-        assert_eq!(result.brep.faces.len(), 12);
-    }
-
-    #[test]
-    fn thicken_empty_brep_errors() {
-        let brep = BRep::new(tol());
-        let result = thicken(&brep, 0.1, &ShellOptions::default(), tol());
-        assert!(matches!(result, Err(ShellError::NoFaces)));
-    }
-}
+#[path = "thicken_tests.rs"]
+mod tests;

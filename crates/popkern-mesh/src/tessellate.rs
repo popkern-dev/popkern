@@ -372,3 +372,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tessellate_edge_tests.rs"]
+mod tessellate_edge_tests;

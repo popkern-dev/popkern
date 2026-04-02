@@ -387,3 +387,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "headless_tests.rs"]
+mod headless_tests;

@@ -173,6 +173,10 @@ impl SketchOnPlane {
     }
 }
 
+#[cfg(test)]
+#[path = "lib_tests.rs"]
+mod lib_tests;
+
 /// Assign stable names to all entities in a freshly-built sketch BRep.
 ///
 /// Faces get `Generated` names, edges get `Generated` names, and

@@ -220,3 +220,7 @@ mod tests {
         assert_eq!(cam.up, Vec3::Y);
     }
 }
+
+#[cfg(test)]
+#[path = "camera_tests.rs"]
+mod camera_tests;

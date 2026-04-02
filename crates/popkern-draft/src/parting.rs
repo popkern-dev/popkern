@@ -210,5 +210,5 @@ fn compute_face_centroid(brep: &BRep, face: popkern_core::topology::FaceHandle) 
 mod tests;
 
 #[cfg(test)]
-#[path = "parting_tests_edge_cases.rs"]
+#[path = "parting_edge_case_tests.rs"]
 mod tests_edge_cases;

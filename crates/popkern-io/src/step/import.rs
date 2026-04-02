@@ -154,6 +154,10 @@ pub fn import_step_file(
 }
 
 #[cfg(test)]
+#[path = "import_malformed_tests.rs"]
+mod malformed_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

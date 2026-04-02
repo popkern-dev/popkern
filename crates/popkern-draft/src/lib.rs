@@ -183,6 +183,10 @@ fn assign_draft_names(brep: &mut BRep, ctx: &mut TrackingContext, specs: &[Draft
 }
 
 #[cfg(test)]
+#[path = "lib_edge_case_tests.rs"]
+mod edge_case_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use popkern_core::geometry::Vec3;
