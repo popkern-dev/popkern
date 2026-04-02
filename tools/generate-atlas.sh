@@ -406,4 +406,176 @@ echo "Generating atlas index..."
 
 } > "${ATLAS_DIR}/index.md"
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Generate cross-crate type flow map
+# ──────────────────────────────────────────────────────────────────────────────
+echo "Generating cross-crate type flow map..."
+
+# Core types to track (defined in popkern-core)
+CORE_TYPES=(
+    BRep
+    FaceHandle
+    EdgeHandle
+    VertexHandle
+    ShellHandle
+    LoopHandle
+    HalfEdgeHandle
+    SolidHandle
+    SurfaceGeometry
+    CurveGeometry
+    NurbsSurface
+    NurbsCurve
+    Tolerance
+    Point3
+    Vec3
+)
+
+# Collect per-type usage data across all crates (excluding popkern-core itself)
+declare -A TYPE_CRATES=()   # type -> space-separated list of short crate names
+declare -A TYPE_COUNT=()    # type -> count of crates using it
+
+for type_name in "${CORE_TYPES[@]}"; do
+    crate_list=""
+    count=0
+    for crate_dir in crates/popkern-*/; do
+        crate=$(basename "$crate_dir")
+        if [[ "$crate" == "popkern-core" ]]; then
+            continue
+        fi
+        src_dir="${crate_dir}src"
+        if [[ ! -d "$src_dir" ]]; then
+            continue
+        fi
+        # Count files (not lines) that reference this type, excluding test files
+        file_count=$(find "$src_dir" -name "*.rs" \
+            ! -name "*_tests.rs" \
+            ! -name "test_*.rs" \
+            ! -path "*/tests/*" \
+            2>/dev/null \
+            -exec grep -l "\b${type_name}\b" {} + 2>/dev/null \
+            | wc -l | tr -d ' ' || true)
+        if [[ "${file_count:-0}" -gt 0 ]]; then
+            short="${crate#popkern-}"
+            crate_list="${crate_list}${short}, "
+            (( count++ )) || true
+        fi
+    done
+    TYPE_CRATES["$type_name"]="${crate_list%, }"
+    TYPE_COUNT["$type_name"]="$count"
+done
+
+# Collect error type data — which crate defines each error, and re-exports
+declare -a ERROR_TYPES_LIST=()
+declare -A ERROR_DEFINED_IN=()
+declare -A ERROR_REEXPORTED_BY=()
+
+# Known error types per crate
+declare -A CRATE_ERRORS=(
+    [popkern-core]="ValidationError CoreError"
+    [popkern-bool]="BoolError"
+    [popkern-draft]="DraftError"
+    [popkern-fillet]="BlendError"
+    [popkern-sweep]="SweepError"
+    [popkern-shell]="ShellError"
+    [popkern-io]="IoError"
+    [popkern-mesh]="MeshError"
+    [popkern-sketch]="SketchError"
+    [popkern-history]="HistoryError ReplayError"
+    [popkern-measure]="MeasureError"
+    [popkern-constraint]="ConstraintError"
+    [popkern-viz]="VizError"
+)
+
+for crate in "${!CRATE_ERRORS[@]}"; do
+    for err in ${CRATE_ERRORS[$crate]}; do
+        ERROR_TYPES_LIST+=("$err")
+        ERROR_DEFINED_IN["$err"]="${crate#popkern-}"
+        # Check if any other crate re-exports this error
+        reexported=""
+        for other_dir in crates/popkern-*/; do
+            other=$(basename "$other_dir")
+            if [[ "$other" == "$crate" ]]; then
+                continue
+            fi
+            if grep -r "pub use.*\b${err}\b" "${other_dir}src" --include="*.rs" -q 2>/dev/null; then
+                reexported="${reexported}${other#popkern-}, "
+            fi
+        done
+        ERROR_REEXPORTED_BY["$err"]="${reexported%, }"
+    done
+done
+
+# Sort ERROR_TYPES_LIST for stable output
+IFS=$'\n' sorted_errors=($(printf '%s\n' "${ERROR_TYPES_LIST[@]}" | sort)) ; unset IFS
+
+# Sort CORE_TYPES by usage count descending for the high-impact list
+declare -a sorted_types=()
+for type_name in "${CORE_TYPES[@]}"; do
+    sorted_types+=("${TYPE_COUNT[$type_name]} $type_name")
+done
+IFS=$'\n' sorted_types=($(printf '%s\n' "${sorted_types[@]}" | sort -rn)) ; unset IFS
+
+# Total crate count (excluding core, for context)
+non_core_count=$(( ${#ALL_CRATES[@]} - 1 ))
+
+{
+    echo "# Cross-Crate Type Flow"
+    echo ""
+    echo "Auto-generated map of which core types are used across crate boundaries."
+    echo "Regenerate with \`tools/generate-atlas.sh\`."
+    echo ""
+    echo "Shows: \"If you change type X, these crates are affected.\""
+    echo ""
+    echo "## Core Types"
+    echo ""
+    echo "| Type | Defined in | Used by (N crates) | Crates |"
+    echo "|------|-----------|---------------------|--------|"
+    for type_name in "${CORE_TYPES[@]}"; do
+        count="${TYPE_COUNT[$type_name]}"
+        crates_str="${TYPE_CRATES[$type_name]:-(none)}"
+        echo "| \`${type_name}\` | popkern-core | ${count} | ${crates_str} |"
+    done
+    echo ""
+    echo "## Error Types"
+    echo ""
+    echo "| Type | Defined in | Re-exported by |"
+    echo "|------|-----------|----------------|"
+    for err in "${sorted_errors[@]}"; do
+        defined="${ERROR_DEFINED_IN[$err]:-(unknown)}"
+        reexported="${ERROR_REEXPORTED_BY[$err]:-(none)}"
+        echo "| \`${err}\` | popkern-${defined} | ${reexported} |"
+    done
+    echo ""
+    echo "## High-Impact Types"
+    echo ""
+    echo "Types used by 8+ crates — changes here have the widest blast radius:"
+    echo ""
+    rank=1
+    any_high_impact=0
+    for entry in "${sorted_types[@]}"; do
+        count="${entry%% *}"
+        type_name="${entry#* }"
+        if [[ "$count" -ge 8 ]]; then
+            echo "${rank}. \`${type_name}\` — ${count} crates"
+            (( rank++ )) || true
+            any_high_impact=1
+        fi
+    done
+    if [[ "$any_high_impact" -eq 0 ]]; then
+        echo "(no types used by 8+ crates)"
+    fi
+    echo ""
+    echo "## All Types by Usage"
+    echo ""
+    echo "Sorted by number of crates using the type (descending):"
+    echo ""
+    for entry in "${sorted_types[@]}"; do
+        count="${entry%% *}"
+        type_name="${entry#* }"
+        crates_str="${TYPE_CRATES[$type_name]:-(none)}"
+        echo "- \`${type_name}\` — ${count}/${non_core_count} crates: ${crates_str}"
+    done
+
+} > "${ATLAS_DIR}/cross-crate.md"
+
 echo "Done. Atlas written to ${ATLAS_DIR}/"
