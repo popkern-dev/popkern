@@ -351,4 +351,3 @@ fn pattern_skip_instance_persists_across_round_trip() {
     // TODO: replay and assert that only 3 instances appear in current_brep()
     //   once the full geometric pipeline is available.
 }
-

@@ -410,3 +410,7 @@ fn vertex_bounded_parameter_range(
 #[cfg(test)]
 #[path = "uv_projection_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "uv_projection_tests_extended.rs"]
+mod extended_tests;

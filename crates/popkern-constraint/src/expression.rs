@@ -281,3 +281,7 @@ fn collect_refs_inner(expr: &Expression, refs: &mut Vec<ConstraintHandle>) {
 #[cfg(test)]
 #[path = "expression_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "expression_cycle_tests.rs"]
+mod cycle_tests;

@@ -155,6 +155,115 @@ fn cone_lateral_face_area_custom_params() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// face_curvature tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cylinder_curvature_is_zero_and_reciprocal_radius() {
+    // Cylinder r=1: principal curvatures are (0, 1/r) = (0, 1).
+    let cyl = BRep::cylinder(1.0, 2.0, Tolerance::default()).unwrap();
+    let face = find_face_by_surface(&cyl, |g| matches!(g, SurfaceGeometry::Cylinder { .. }))
+        .expect("cylinder face");
+    let (k_min, k_max) = face_curvature(&cyl, face).unwrap();
+    assert!(k_min.abs() < 1e-10, "k_min should be 0, got {k_min}");
+    assert!(
+        (k_max - 1.0).abs() < 1e-10,
+        "k_max should be 1/r=1.0, got {k_max}"
+    );
+}
+
+#[test]
+fn cylinder_curvature_custom_radius() {
+    // Cylinder r=3: principal curvatures are (0, 1/3).
+    let cyl = BRep::cylinder(3.0, 1.0, Tolerance::default()).unwrap();
+    let face = find_face_by_surface(&cyl, |g| matches!(g, SurfaceGeometry::Cylinder { .. }))
+        .expect("cylinder face");
+    let (k_min, k_max) = face_curvature(&cyl, face).unwrap();
+    assert!(k_min.abs() < 1e-10, "k_min should be 0, got {k_min}");
+    assert!(
+        (k_max - 1.0 / 3.0).abs() < 1e-10,
+        "k_max should be 1/3, got {k_max}"
+    );
+}
+
+#[test]
+fn sphere_curvature_both_equal_reciprocal_radius() {
+    // Sphere r=1: both principal curvatures = 1/r = 1.
+    let sph = BRep::sphere(1.0, Tolerance::default()).unwrap();
+    let face = find_face_by_surface(&sph, |g| matches!(g, SurfaceGeometry::Sphere { .. }))
+        .expect("sphere face");
+    let (k_min, k_max) = face_curvature(&sph, face).unwrap();
+    assert!(
+        (k_min - 1.0).abs() < 1e-10,
+        "k_min should be 1.0, got {k_min}"
+    );
+    assert!(
+        (k_max - 1.0).abs() < 1e-10,
+        "k_max should be 1.0, got {k_max}"
+    );
+}
+
+#[test]
+fn sphere_curvature_custom_radius() {
+    // Sphere r=5: both principal curvatures = 1/5 = 0.2.
+    let sph = BRep::sphere(5.0, Tolerance::default()).unwrap();
+    let face = find_face_by_surface(&sph, |g| matches!(g, SurfaceGeometry::Sphere { .. }))
+        .expect("sphere face");
+    let (k_min, k_max) = face_curvature(&sph, face).unwrap();
+    assert!(
+        (k_min - 0.2).abs() < 1e-10,
+        "k_min should be 0.2, got {k_min}"
+    );
+    assert!(
+        (k_max - 0.2).abs() < 1e-10,
+        "k_max should be 0.2, got {k_max}"
+    );
+}
+
+#[test]
+fn cone_curvature_is_zero_zero() {
+    // Cone is a ruled surface — the analytic branch returns (0, 0).
+    let cone = BRep::cone(1.0, 2.0, Tolerance::default()).unwrap();
+    let face = find_face_by_surface(&cone, |g| matches!(g, SurfaceGeometry::Cone { .. }))
+        .expect("cone face");
+    let (k_min, k_max) = face_curvature(&cone, face).unwrap();
+    assert!(k_min.abs() < 1e-10, "k_min should be 0, got {k_min}");
+    assert!(k_max.abs() < 1e-10, "k_max should be 0, got {k_max}");
+}
+
+#[test]
+fn torus_curvature_via_fundamental_forms() {
+    // Torus (R=3, r=1) curvature is computed via the finite-difference path.
+    // At the outer equator (u=0, v=0): k_min = 1/(R+r) = 1/4, k_max = 1/r = 1.
+    // We get values from the UV centroid of a patch, so just check ordering and sign.
+    let torus = BRep::torus(3.0, 1.0, Tolerance::default()).unwrap();
+    let face = find_face_by_surface(&torus, |g| matches!(g, SurfaceGeometry::Torus { .. }))
+        .expect("torus face");
+    let (k_min, k_max) = face_curvature(&torus, face).unwrap();
+    // Both curvatures should be positive on the outer part of the torus.
+    // k_min should be less than k_max.
+    assert!(k_min <= k_max, "k_min={k_min} > k_max={k_max}");
+    // For a torus with R=3, r=1, k_max (the tube direction) should be close to 1/r=1.
+    assert!(
+        k_max > 0.0,
+        "k_max on torus outer surface should be positive"
+    );
+}
+
+#[test]
+fn planar_face_curvature_all_cube_faces() {
+    // All 6 faces of a cube should have (0, 0) curvature.
+    let cube = make_cube();
+    for (fh, _) in &cube.faces {
+        let (k_min, k_max) = face_curvature(&cube, fh).unwrap();
+        assert!(
+            k_min.abs() < 1e-10 && k_max.abs() < 1e-10,
+            "plane curvature should be (0,0), got ({k_min},{k_max})"
+        );
+    }
+}
+
 #[test]
 fn torus_rectangular_patch_area_exact() {
     // A rectangular torus patch at (u=[0,pi/2], v=[0,pi/2]) with R=3, r=1.

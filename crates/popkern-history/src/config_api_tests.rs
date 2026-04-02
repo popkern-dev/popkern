@@ -396,3 +396,86 @@ fn delete_reparent_removes_config_suppression_overrides() {
         "reparent delete should clean up config suppression overrides"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Inheritance cycle detection — negative tests via would_create_cycle
+// ---------------------------------------------------------------------------
+
+/// Helper: insert a named config into a SlotMap.
+fn insert_cfg(
+    configs: &mut slotmap::SlotMap<crate::config::ConfigId, crate::config::Configuration>,
+    name: &str,
+    parent: Option<crate::config::ConfigId>,
+) -> crate::config::ConfigId {
+    configs.insert(crate::config::Configuration {
+        name: name.into(),
+        description: String::new(),
+        parent,
+        overrides: Default::default(),
+        suppression: Default::default(),
+    })
+}
+
+#[test]
+fn cycle_self_reference() {
+    use crate::config_eval::would_create_cycle;
+    let mut configs = slotmap::SlotMap::with_key();
+    let a = insert_cfg(&mut configs, "A", None);
+    assert!(would_create_cycle(a, a, &configs), "A -> A is a cycle");
+}
+
+#[test]
+fn cycle_two_node() {
+    use crate::config_eval::would_create_cycle;
+    let mut configs = slotmap::SlotMap::with_key();
+    let a = insert_cfg(&mut configs, "A", None);
+    let b = insert_cfg(&mut configs, "B", Some(a));
+    assert!(would_create_cycle(a, b, &configs), "A -> B -> A is a cycle");
+}
+
+#[test]
+fn cycle_three_node() {
+    use crate::config_eval::would_create_cycle;
+    let mut configs = slotmap::SlotMap::with_key();
+    let a = insert_cfg(&mut configs, "A", None);
+    let b = insert_cfg(&mut configs, "B", Some(a));
+    let c = insert_cfg(&mut configs, "C", Some(b));
+    assert!(
+        would_create_cycle(a, c, &configs),
+        "A -> C -> B -> A is a cycle"
+    );
+}
+
+#[test]
+fn valid_linear_chain() {
+    use crate::config_eval::would_create_cycle;
+    let mut configs = slotmap::SlotMap::with_key();
+    let a = insert_cfg(&mut configs, "A", None);
+    let b = insert_cfg(&mut configs, "B", Some(a));
+    let c = insert_cfg(&mut configs, "C", None);
+    assert!(!would_create_cycle(c, b, &configs), "C -> B -> A is valid");
+}
+
+#[test]
+fn valid_sibling_reparent() {
+    use crate::config_eval::would_create_cycle;
+    let mut configs = slotmap::SlotMap::with_key();
+    let root = insert_cfg(&mut configs, "Root", None);
+    let left = insert_cfg(&mut configs, "Left", Some(root));
+    let right = insert_cfg(&mut configs, "Right", Some(root));
+    assert!(
+        !would_create_cycle(left, right, &configs),
+        "Left -> Right -> Root is valid"
+    );
+}
+
+#[test]
+fn add_derived_config_valid_chain_succeeds() {
+    let mut tree = FeatureTree::new();
+    let a = tree.add_config("A", "").unwrap();
+    let b = tree.add_derived_config("B", "", a).unwrap();
+    let c = tree.add_derived_config("C", "", b).unwrap();
+    assert_eq!(tree.config(b).unwrap().parent, Some(a));
+    assert_eq!(tree.config(c).unwrap().parent, Some(b));
+    assert_eq!(tree.configs().len(), 3);
+}

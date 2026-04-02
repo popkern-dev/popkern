@@ -303,3 +303,7 @@ impl NurbsSurface {
         (current, count)
     }
 }
+
+#[cfg(test)]
+#[path = "knot_ops_tests.rs"]
+mod knot_ops_tests;

@@ -269,3 +269,203 @@ fn export_empty_document() {
     let result = import_step(&exported, &StepImportOptions::default()).unwrap();
     assert!(result.document.products.is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// Test 9: Programmatic cube → export → import → verify topology and positions
+// ---------------------------------------------------------------------------
+
+/// Build a unit cube from scratch, export to STEP, re-import, and verify that
+/// the topology counts and vertex positions survive the round-trip.
+#[test]
+fn round_trip_programmatic_cube_topology_and_positions() {
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::BRep;
+    use popkern_io::{
+        OpaqueBag, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument, StepProductNode,
+        UnitContext,
+    };
+    use std::sync::Arc;
+
+    let tol = Tolerance::default();
+    let brep = BRep::unit_cube(tol).unwrap();
+
+    // Collect vertex positions from the original BRep.
+    let mut original_positions: Vec<[f64; 3]> = brep
+        .vertices
+        .values()
+        .map(|v| [v.position.x, v.position.y, v.position.z])
+        .collect();
+    original_positions.sort_by(|a, b| {
+        a[0].partial_cmp(&b[0])
+            .unwrap()
+            .then(a[1].partial_cmp(&b[1]).unwrap())
+            .then(a[2].partial_cmp(&b[2]).unwrap())
+    });
+
+    let original_face_count = brep.faces.len();
+    let original_edge_count = brep.edges.len();
+    let original_vertex_count = brep.vertices.len();
+
+    // Build a StepDocument wrapping the BRep.
+    let doc = StepDocument {
+        products: vec![StepProductNode {
+            name: "RoundTripCube".into(),
+            id: "RT-001".into(),
+            children: vec![],
+            shapes: vec![Arc::new(ShapeRep {
+                kind: ShapeRepKind::AdvancedBrep,
+                solids: vec![brep],
+                context: RepresentationContext::default(),
+                non_brep_items: vec![],
+            })],
+            metadata: Default::default(),
+        }],
+        roots: vec![0],
+        units: UnitContext::default(),
+        opaque_bag: OpaqueBag::default(),
+    };
+
+    // Export to STEP bytes.
+    let exported = export_step(&doc, &StepExportOptions::default()).expect("export should succeed");
+
+    // Re-import with no healing to get raw topology.
+    let import_opts = StepImportOptions {
+        healing: popkern_io::step::healing::HealingLevel::None,
+        ..Default::default()
+    };
+    let result = import_step(&exported, &import_opts).expect("re-import should succeed");
+
+    // Verify product structure.
+    assert!(
+        !result.document.products.is_empty(),
+        "re-imported document should have products"
+    );
+    assert_eq!(result.document.products[0].name, "RoundTripCube");
+
+    // Extract the first solid.
+    let reimported_brep = first_solid(&result).expect("should have at least one solid");
+
+    // Verify topology counts.
+    assert_eq!(
+        reimported_brep.faces.len(),
+        original_face_count,
+        "face count mismatch: expected {original_face_count}, got {}",
+        reimported_brep.faces.len()
+    );
+    assert_eq!(
+        reimported_brep.edges.len(),
+        original_edge_count,
+        "edge count mismatch: expected {original_edge_count}, got {}",
+        reimported_brep.edges.len()
+    );
+    assert_eq!(
+        reimported_brep.vertices.len(),
+        original_vertex_count,
+        "vertex count mismatch: expected {original_vertex_count}, got {}",
+        reimported_brep.vertices.len()
+    );
+
+    // Verify vertex positions are within tolerance.
+    let mut reimported_positions: Vec<[f64; 3]> = reimported_brep
+        .vertices
+        .values()
+        .map(|v| [v.position.x, v.position.y, v.position.z])
+        .collect();
+    reimported_positions.sort_by(|a, b| {
+        a[0].partial_cmp(&b[0])
+            .unwrap()
+            .then(a[1].partial_cmp(&b[1]).unwrap())
+            .then(a[2].partial_cmp(&b[2]).unwrap())
+    });
+
+    let position_tol = 1e-6;
+    assert_eq!(
+        original_positions.len(),
+        reimported_positions.len(),
+        "sorted position list lengths must match"
+    );
+    for (i, (orig, reimp)) in original_positions
+        .iter()
+        .zip(reimported_positions.iter())
+        .enumerate()
+    {
+        let dist = ((orig[0] - reimp[0]).powi(2)
+            + (orig[1] - reimp[1]).powi(2)
+            + (orig[2] - reimp[2]).powi(2))
+        .sqrt();
+        assert!(
+            dist < position_tol,
+            "vertex {i} position mismatch: original={orig:?}, reimported={reimp:?}, dist={dist}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Test 10: Double round-trip — export → import → export → import
+// ---------------------------------------------------------------------------
+
+/// Verifies that a second round-trip through STEP preserves topology.
+#[test]
+fn double_round_trip_preserves_topology() {
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::BRep;
+    use popkern_io::{
+        OpaqueBag, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument, StepProductNode,
+        UnitContext,
+    };
+    use std::sync::Arc;
+
+    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let original_vertices = brep.vertices.len();
+    let original_edges = brep.edges.len();
+    let original_faces = brep.faces.len();
+
+    let doc = StepDocument {
+        products: vec![StepProductNode {
+            name: "DoubleCube".into(),
+            id: "D-001".into(),
+            children: vec![],
+            shapes: vec![Arc::new(ShapeRep {
+                kind: ShapeRepKind::AdvancedBrep,
+                solids: vec![brep],
+                context: RepresentationContext::default(),
+                non_brep_items: vec![],
+            })],
+            metadata: Default::default(),
+        }],
+        roots: vec![0],
+        units: UnitContext::default(),
+        opaque_bag: OpaqueBag::default(),
+    };
+
+    let import_opts = StepImportOptions {
+        healing: popkern_io::step::healing::HealingLevel::None,
+        ..Default::default()
+    };
+    let export_opts = StepExportOptions::default();
+
+    // First round-trip.
+    let step1 = export_step(&doc, &export_opts).expect("export 1");
+    let result1 = import_step(&step1, &import_opts).expect("import 1");
+
+    // Second round-trip.
+    let step2 = export_step(&result1.document, &export_opts).expect("export 2");
+    let result2 = import_step(&step2, &import_opts).expect("import 2");
+
+    let solid = first_solid(&result2).expect("solid after double round-trip");
+    assert_eq!(
+        solid.vertices.len(),
+        original_vertices,
+        "vertex count after double round-trip"
+    );
+    assert_eq!(
+        solid.edges.len(),
+        original_edges,
+        "edge count after double round-trip"
+    );
+    assert_eq!(
+        solid.faces.len(),
+        original_faces,
+        "face count after double round-trip"
+    );
+}

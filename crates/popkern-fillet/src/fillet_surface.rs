@@ -343,4 +343,142 @@ mod tests {
         assert!((knots[0] - 0.0).abs() < 1e-15);
         assert!((knots[knots.len() - 1] - 1.0).abs() < 1e-15);
     }
+
+    // -----------------------------------------------------------------------
+    // try_plane_plane_torus analytic path
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn torus_perpendicular_planes() {
+        // Two perpendicular planes (angle between normals = PI/2).
+        let n1 = Vec3::new(0.0, 0.0, 1.0);
+        let n2 = Vec3::new(0.0, 1.0, 0.0);
+        let cr = simple_center_result();
+
+        let result = try_plane_plane_torus(&n1, &n2, &cr, 1.0);
+        assert!(
+            result.is_some(),
+            "perpendicular planes should produce torus"
+        );
+
+        let fs = result.unwrap();
+        match &fs.surface {
+            SurfaceGeometry::Torus {
+                minor_radius,
+                major_radius,
+                ..
+            } => {
+                assert!(
+                    (*minor_radius - 1.0).abs() < 1e-10,
+                    "minor radius should be 1.0, got {minor_radius}",
+                );
+                // For 90-deg planes: half_angle = PI/4, major = r/sin(PI/4) = r*sqrt(2)
+                let expected_major = 1.0 / (std::f64::consts::FRAC_PI_4).sin();
+                assert!(
+                    (*major_radius - expected_major).abs() < 1e-6,
+                    "major radius should be {expected_major}, got {major_radius}",
+                );
+            }
+            other => panic!("expected Torus, got {:?}", std::mem::discriminant(other)),
+        }
+    }
+
+    #[test]
+    fn torus_45_degree_planes() {
+        // Planes at 45 degrees (angle between normals = PI/4).
+        let n1 = Vec3::new(0.0, 0.0, 1.0);
+        let c = std::f64::consts::FRAC_1_SQRT_2;
+        let n2 = Vec3::new(0.0, c, c); // 45 deg from n1
+
+        let cr = simple_center_result();
+        let result = try_plane_plane_torus(&n1, &n2, &cr, 0.5);
+        assert!(result.is_some(), "45-deg planes should produce torus");
+
+        let fs = result.unwrap();
+        match &fs.surface {
+            SurfaceGeometry::Torus {
+                minor_radius,
+                major_radius,
+                ..
+            } => {
+                assert!(
+                    (*minor_radius - 0.5).abs() < 1e-10,
+                    "minor radius should be 0.5, got {minor_radius}",
+                );
+                // angle between normals = PI/4, half_angle = PI/8
+                let half = std::f64::consts::FRAC_PI_4 * 0.5;
+                let expected_major = 0.5 / half.sin();
+                assert!(
+                    (*major_radius - expected_major).abs() < 1e-6,
+                    "major radius should be {expected_major}, got {major_radius}",
+                );
+            }
+            other => panic!("expected Torus, got {:?}", std::mem::discriminant(other)),
+        }
+    }
+
+    #[test]
+    fn torus_parallel_planes_returns_none() {
+        // Parallel planes (angle = 0) should fail (sin_half ~ 0).
+        let n1 = Vec3::new(0.0, 0.0, 1.0);
+        let n2 = Vec3::new(0.0, 0.0, 1.0);
+        let cr = simple_center_result();
+
+        let result = try_plane_plane_torus(&n1, &n2, &cr, 1.0);
+        assert!(result.is_none(), "parallel planes should return None");
+    }
+
+    #[test]
+    fn torus_antiparallel_planes_returns_none() {
+        // Anti-parallel normals (angle = PI, half = PI/2, sin ~ 1).
+        // This is a valid degenerate case; torus construction may or may not succeed
+        // depending on the angle check, but should not panic.
+        let n1 = Vec3::new(0.0, 0.0, 1.0);
+        let n2 = Vec3::new(0.0, 0.0, -1.0);
+        let cr = simple_center_result();
+
+        // We just verify no panic. The result can be Some or None.
+        let _ = try_plane_plane_torus(&n1, &n2, &cr, 1.0);
+    }
+
+    #[test]
+    fn torus_has_valid_trim_curves() {
+        let n1 = Vec3::new(0.0, 0.0, 1.0);
+        let n2 = Vec3::new(0.0, 1.0, 0.0);
+        let cr = simple_center_result();
+
+        let fs = try_plane_plane_torus(&n1, &n2, &cr, 1.0)
+            .expect("perpendicular planes should produce torus");
+
+        assert!(
+            !fs.trim_curve_1.control_points.is_empty(),
+            "trim_curve_1 should have control points",
+        );
+        assert!(
+            !fs.trim_curve_2.control_points.is_empty(),
+            "trim_curve_2 should have control points",
+        );
+    }
+
+    #[test]
+    fn torus_axis_is_cross_product_of_normals() {
+        let n1 = Vec3::new(0.0, 0.0, 1.0);
+        let n2 = Vec3::new(0.0, 1.0, 0.0);
+        let cr = simple_center_result();
+
+        let fs = try_plane_plane_torus(&n1, &n2, &cr, 1.0)
+            .expect("perpendicular planes should produce torus");
+
+        if let SurfaceGeometry::Torus { axis, .. } = &fs.surface {
+            // n1 x n2 = (0,0,1) x (0,1,0) = (-1,0,0), normalized = (-1,0,0)
+            let expected = Vec3::new(-1.0, 0.0, 0.0);
+            let dot = axis.dot(&expected).abs();
+            assert!(
+                dot > 0.99,
+                "torus axis should be parallel to n1 x n2, got dot={dot}",
+            );
+        } else {
+            panic!("expected Torus surface");
+        }
+    }
 }

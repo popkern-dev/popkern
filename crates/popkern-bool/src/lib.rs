@@ -43,6 +43,8 @@ pub use error::{
 };
 
 #[cfg(test)]
+mod error_and_tracking_tests;
+#[cfg(test)]
 mod integration_tests;
 #[cfg(test)]
 mod integration_tests_curved;

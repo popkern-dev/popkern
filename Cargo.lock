@@ -3170,6 +3170,7 @@ dependencies = [
  "popkern-fillet",
  "popkern-shell",
  "popkern-sweep",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.18",
 ]

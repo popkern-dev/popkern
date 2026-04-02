@@ -335,3 +335,7 @@ fn fit_march_samples(
 #[cfg(test)]
 #[path = "surface_surface_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "surface_surface_tests_degenerate.rs"]
+mod degenerate_tests;

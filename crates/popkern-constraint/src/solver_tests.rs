@@ -291,3 +291,185 @@ fn offset_line_converges() {
     let (_, y_a2) = sketch.point_position(a2).unwrap();
     assert!((y_a2 - 5.0).abs() < 1e-7, "l2 y should be 5, got {}", y_a2);
 }
+
+// ── Solver error paths ─────────────────────────────────────────────────
+
+#[test]
+fn empty_constraint_system_succeeds_trivially() {
+    // No constraints at all — the solver should succeed immediately with
+    // zero iterations and zero residual.
+    let mut sketch = Sketch::new();
+    let _p1 = sketch.add_point(1.0, 2.0);
+    let _p2 = sketch.add_point(3.0, 4.0);
+    let result = sketch.solve().unwrap();
+    assert_eq!(result.iterations, 0);
+    assert_eq!(result.residual_norm, 0.0);
+    assert!(matches!(result.status, SolveStatus::UnderConstrained(_)));
+}
+
+#[test]
+fn contradictory_distances_detected_as_over_constrained() {
+    // Two contradictory distance constraints on the same pair of points:
+    // distance=5 AND distance=10. The solver cannot satisfy both.
+    let mut sketch = Sketch::new();
+    let p1 = sketch.add_point(0.0, 0.0);
+    let p2 = sketch.add_point(3.0, 0.0);
+
+    sketch.add_constraint(Constraint::Fixed(p1));
+    sketch.add_constraint(Constraint::Fixed(p2));
+    sketch.add_constraint(Constraint::Distance(p1, p2, 5.0));
+    sketch.add_constraint(Constraint::Distance(p1, p2, 10.0));
+
+    let result = sketch.solve().unwrap();
+    // With both points fixed, the geometry cannot change to satisfy either
+    // distance. The system should report over-constrained or failed.
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::OverConstrained(_) | SolveStatus::Failed(_)
+        ),
+        "expected OverConstrained or Failed, got {:?}",
+        result.status
+    );
+}
+
+#[test]
+fn over_constrained_redundant_fixed_constraints() {
+    // Fix the same point twice with different target positions — contradictory.
+    let mut sketch = Sketch::new();
+    let p1 = sketch.add_point(0.0, 0.0);
+
+    // Fix p1 at origin.
+    sketch.add_constraint(Constraint::Fixed(p1));
+    // Also fix it via OrdinateX=5 — contradicts the Fixed constraint.
+    sketch.add_constraint(Constraint::OrdinateX(p1, 5.0));
+
+    let result = sketch.solve().unwrap();
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::OverConstrained(_) | SolveStatus::Failed(_)
+        ),
+        "expected OverConstrained or Failed, got {:?}",
+        result.status
+    );
+}
+
+#[test]
+fn under_constrained_reports_freedoms() {
+    // One fixed point, one free point — 2 DOF remain.
+    let mut sketch = Sketch::new();
+    let p1 = sketch.add_point(0.0, 0.0);
+    let _p2 = sketch.add_point(3.0, 4.0);
+
+    sketch.add_constraint(Constraint::Fixed(p1));
+
+    let result = sketch.solve().unwrap();
+    assert!(
+        matches!(result.status, SolveStatus::UnderConstrained(ref f) if !f.is_empty()),
+        "expected UnderConstrained with freedoms, got {:?}",
+        result.status
+    );
+}
+
+#[test]
+fn divergence_with_extreme_initial_guess() {
+    // Place points extremely far from where the constraints want them,
+    // with very few iterations allowed, to trigger non-convergence.
+    let mut sketch = Sketch::new();
+    let p1 = sketch.add_point(0.0, 0.0);
+    let p2 = sketch.add_point(1e12, 1e12);
+
+    sketch.add_constraint(Constraint::Fixed(p1));
+    sketch.add_constraint(Constraint::Distance(p1, p2, 1.0));
+
+    // Use very restrictive solver options to force non-convergence.
+    let opts = SolverOptions {
+        tolerance: 1e-15,
+        max_iterations: 1,
+        line_search_max: 0,
+        lm_lambda_init: 1e30,
+        lm_lambda_max: 1e30,
+    };
+
+    let result = sketch.solve_with_options(&opts).unwrap();
+    // With only 1 iteration, no line search, and extreme starting point,
+    // it should fail to converge.
+    assert!(
+        matches!(result.status, SolveStatus::Failed(_)),
+        "expected Failed status, got {:?}",
+        result.status
+    );
+}
+
+#[test]
+fn contradictory_horizontal_and_angle() {
+    // Line forced to be horizontal AND at a 45-degree angle — contradictory.
+    let mut sketch = Sketch::new();
+    let p1 = sketch.add_point(0.0, 0.0);
+    let p2 = sketch.add_point(1.0, 0.0);
+    let p3 = sketch.add_point(0.0, 1.0);
+    let l1 = sketch.add_line(p1, p2);
+    let l2 = sketch.add_line(p1, p3);
+
+    sketch.add_constraint(Constraint::Fixed(p1));
+    sketch.add_constraint(Constraint::Fixed(p2));
+    sketch.add_constraint(Constraint::Fixed(p3));
+    sketch.add_constraint(Constraint::Horizontal(l1));
+    // Force angle between l1 and l2 to be pi/4, but both lines are fixed.
+    sketch.add_constraint(Constraint::Angle(l1, l2, std::f64::consts::FRAC_PI_4));
+
+    let result = sketch.solve().unwrap();
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::OverConstrained(_) | SolveStatus::Failed(_)
+        ),
+        "expected OverConstrained or Failed, got {:?}",
+        result.status
+    );
+}
+
+#[test]
+fn single_point_no_constraints_is_under_constrained() {
+    let mut sketch = Sketch::new();
+    let _p = sketch.add_point(5.0, 5.0);
+    let result = sketch.solve().unwrap();
+    assert!(matches!(result.status, SolveStatus::UnderConstrained(_)));
+}
+
+#[test]
+fn fully_constrained_triangle() {
+    // 3 points, all fixed — fully constrained system with zero residual.
+    let mut sketch = Sketch::new();
+    let p1 = sketch.add_point(0.0, 0.0);
+    let p2 = sketch.add_point(3.0, 0.0);
+    let p3 = sketch.add_point(0.0, 4.0);
+
+    sketch.add_constraint(Constraint::Fixed(p1));
+    sketch.add_constraint(Constraint::Fixed(p2));
+    sketch.add_constraint(Constraint::Fixed(p3));
+
+    let result = sketch.solve().unwrap();
+    assert!(result.residual_norm < 1e-10);
+    assert!(matches!(result.status, SolveStatus::FullyConstrained));
+}
+
+#[test]
+fn zero_iteration_convergence_with_tight_options() {
+    // System that is already satisfied. Even with max_iterations=0, the
+    // solver checks convergence before the loop and returns success.
+    let mut sketch = Sketch::new();
+    let p1 = sketch.add_point(0.0, 0.0);
+    let p2 = sketch.add_point(5.0, 0.0);
+    let l = sketch.add_line(p1, p2);
+    sketch.add_constraint(Constraint::Horizontal(l));
+
+    let opts = SolverOptions {
+        max_iterations: 0,
+        ..SolverOptions::default()
+    };
+
+    let result = sketch.solve_with_options(&opts).unwrap();
+    assert!(result.residual_norm < 1e-10);
+}
