@@ -104,7 +104,29 @@ pub(crate) fn execute_boolean(
         return Ok(result);
     }
 
+    // Cellular decomposition: compute cell selection for diagnostics.
+    // This validates the operation type against the cellular model.
+    if let Ok(cellular_result) = crate::cellular::boolean::cellular_boolean(
+        &original_a,
+        &original_b,
+        &intersection_result,
+        op,
+        tolerance,
+    ) {
+        #[cfg(debug_assertions)]
+        if !cellular_result.trivial {
+            eprintln!(
+                "[boolean] cellular: {} cells, {} selected",
+                cellular_result.decomposition.cell_count(),
+                cellular_result.selected_cells.len(),
+            );
+        }
+    }
+
     // Stage 5: Graph Merge — build intersection graph and assemble result.
+    // NOTE: This remains the primary assembly path. The cellular decomposition
+    // above provides diagnostic validation. Once the cellular path has its own
+    // assembly, it will replace graph_merge here.
     let result = graph_merge(
         &original_a,
         &original_b,

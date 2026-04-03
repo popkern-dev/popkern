@@ -13,6 +13,7 @@
 //! This architecture subsumes all boolean types and enables custom
 //! predicates without modifying intersection, imprinting, or assembly.
 
+pub mod boolean;
 pub mod cell;
 pub mod decompose;
 pub mod select;
