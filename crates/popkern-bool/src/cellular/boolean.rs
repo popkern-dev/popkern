@@ -15,7 +15,6 @@ use popkern_core::topology::BRep;
 
 use crate::error::{BoolDiagnostics, BoolOperation, PointClassification};
 use crate::intersect::IntersectionResult;
-use crate::merge::assemble::assemble_result;
 use crate::merge::fragment_classify::FragmentSelection;
 use crate::merge::graph::{IntersectionGraph, Operand};
 use crate::merge::graph_build::insert_operand_topology;
@@ -72,8 +71,8 @@ pub(crate) fn cellular_graph_merge(
     let selections =
         classify_fragments_cellular(&fragments, &graph, original_a, original_b, op, tolerance)?;
 
-    // Phase 7: Assemble result BRep (reuses graph-merge assembly).
-    assemble_result(
+    // Phase 7: Order-independent assembly from selected fragments.
+    super::assemble::cellular_assemble(
         &graph,
         &fragments,
         &selections,

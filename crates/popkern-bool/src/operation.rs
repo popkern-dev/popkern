@@ -104,9 +104,9 @@ pub(crate) fn execute_boolean(
         return Ok(result);
     }
 
-    // Stage 5: Cellular graph merge — order-independent fragment selection
-    // via cell membership classification. Falls back to standard graph-merge
-    // if the cellular path fails.
+    // Stage 5: Cellular graph merge — order-independent fragment selection.
+    // Falls back to standard graph-merge if cellular fails or produces
+    // invalid topology.
     let result = crate::cellular::boolean::cellular_graph_merge(
         &original_a,
         &original_b,
@@ -114,8 +114,11 @@ pub(crate) fn execute_boolean(
         op,
         tolerance,
     )
-    .or_else(|_| {
-        // Fallback: standard graph-merge with per-fragment ray casting
+    .ok()
+    .filter(|r| r.validate().is_ok()) // only use if topology is valid
+    .map(Ok)
+    .unwrap_or_else(|| {
+        // Fallback: standard graph-merge
         graph_merge(
             &original_a,
             &original_b,
