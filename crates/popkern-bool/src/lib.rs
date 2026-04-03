@@ -39,6 +39,8 @@ pub(crate) mod intersect;
 pub(crate) mod intersect_hierarchy;
 pub(crate) mod merge;
 pub(crate) mod operation;
+pub mod ops;
+pub mod postprocess;
 pub(crate) mod select;
 pub(crate) mod split;
 pub(crate) mod split_inner_loop;
