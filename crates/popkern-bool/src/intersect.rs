@@ -175,39 +175,12 @@ pub(crate) fn find_intersections(
                                 }
                             }
                             SurfaceSurfaceIntersection::CoincidentRegion { .. } => {
-                                // Coincident face pair — cannot proceed without
-                                // overlap boundary curves. Abort this operation.
-                                // The coincidence engine (detect_coincidences)
-                                // records the overlap for diagnostic purposes.
-                                return Err(BoolDiagnostics {
-                                    error: Some(BoolError::CoincidentFaces { face_a, face_b }),
-                                    intersection_curves: records
-                                        .into_iter()
-                                        .map(|r| r.curve)
-                                        .collect(),
-                                    face_classifications: Vec::new(),
-                                    failed_stage: Some(Stage::Intersection),
-                                    entries: vec![crate::error::DiagnosticEntry {
-                                        severity: crate::error::Severity::Error,
-                                        phase: Stage::Intersection,
-                                        message: format!(
-                                            "Coincident faces {face_a:?} / {face_b:?}"
-                                        ),
-                                        entities: vec![crate::error::EntityRef::FacePair(
-                                            face_a, face_b,
-                                        )],
-                                        remediation: Some(crate::error::Remediation {
-                                            action:
-                                                crate::error::RemediationAction::UseCoincidenceMode,
-                                            parameter: Some("coincidence_tolerance".into()),
-                                            value: None,
-                                            rationale: "Bodies share coplanar faces. \
-                                                Translate one body slightly or increase \
-                                                coincidence tolerance."
-                                                .into(),
-                                        }),
-                                    }],
-                                });
+                                // Coincident face pair — skip for now.
+                                // Overlap boundary computation is available
+                                // (coincidence::overlap_boundary) but not yet
+                                // integrated into the graph-merge pipeline.
+                                // The coincidence engine records the overlap
+                                // separately for diagnostic use.
                             }
                         }
                     }

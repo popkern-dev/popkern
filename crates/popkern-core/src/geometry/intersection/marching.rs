@@ -54,20 +54,6 @@ pub(crate) fn march(
         surface1, u1_range, v1_range, surface2, u2_range, v2_range, start, 1.0, tolerance, handler,
     );
 
-    // Check if forward march closed back to start.
-    let forward_closed = if forward.len() > 5 {
-        let last = &forward[forward.len() - 1];
-        let closure_tol = tolerance.linear * 10.0;
-        last.point.distance_to(&start.point) < closure_tol
-    } else {
-        false
-    };
-
-    if forward_closed {
-        // Closed loop — no need for backward march.
-        return (forward, true);
-    }
-
     // March in -T direction.
     let mut backward = march_one_direction(
         surface1, u1_range, v1_range, surface2, u2_range, v2_range, start, -1.0, tolerance, handler,
@@ -77,18 +63,18 @@ pub(crate) fn march(
     backward.reverse();
 
     // Merge: backward (without duplicate start) + forward.
+    // backward ends at start, forward starts at start, so drop last of backward.
     if !backward.is_empty() {
         backward.pop(); // remove duplicate start point
     }
     backward.extend(forward);
     let samples = backward;
 
-    // Check if merged result is closed.
-    let closure_tol = tolerance.linear * 10.0;
-    let is_closed = if samples.len() > 5 {
+    // Check if closed: last sample within tolerance of first, and enough steps.
+    let is_closed = if samples.len() > 3 {
         let first = &samples[0];
         let last = &samples[samples.len() - 1];
-        first.point.distance_to(&last.point) < closure_tol
+        first.point.distance_to(&last.point) < tolerance.linear
     } else {
         false
     };
@@ -421,12 +407,11 @@ fn march_one_direction(
                     // closure tolerance proportional to step size (not just
                     // linear tolerance) to handle periodic surfaces where
                     // the march may overshoot slightly.
-                    // Check for closure in the forward direction only.
-                    let min_steps_before_closure_check = 10;
-                    let closure_tol = (step_size * 3.0).max(tolerance.linear * 5.0);
-                    if direction_sign > 0.0
-                        && samples.len() > min_steps_before_closure_check
-                        && sample.point.distance_to(&start.point) < closure_tol
+                    // Check for closure: if we've marched at least a few
+                    // steps and the new point is back near the start, stop.
+                    let min_steps_before_closure_check = 3;
+                    if samples.len() > min_steps_before_closure_check
+                        && sample.point.distance_to(&start.point) < tolerance.linear
                     {
                         samples.push(sample);
                         return samples;

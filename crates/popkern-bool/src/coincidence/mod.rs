@@ -13,6 +13,8 @@ pub mod types;
 
 pub(crate) mod classify;
 pub(crate) mod detect;
+#[allow(dead_code)]
+pub(crate) mod overlap_boundary;
 
 pub use types::CoincidenceMap;
 

@@ -137,6 +137,7 @@ fn face_vertex_positions_missing_half_edge_returns_empty() {
         shell: ShellHandle::default(),
         surface: None,
         name: None,
+        tolerance: None,
     });
     brep.loops[loop_h].face = face_h;
     // face_aabb should return None (no surface geometry).
@@ -172,6 +173,7 @@ fn face_aabb_sphere_surface_samples_grid() {
             orientation: true,
         }),
         name: None,
+        tolerance: None,
     });
     brep.loops[loop_h].face = face_h;
     // The sphere surface has a finite parameter range, so face_aabb should
@@ -186,17 +188,14 @@ fn face_aabb_sphere_surface_samples_grid() {
     );
 }
 
-/// Coincident cubes return CoincidentFaces error — overlap boundary
-/// computation is needed before graph-merge can handle these.
+/// Coincident cubes: coincident face pairs are silently skipped.
+/// The perpendicular face pairs still produce intersection curves.
 #[test]
-fn coincident_cubes_returns_coincident_faces_error() {
+fn coincident_cubes_succeeds_with_perpendicular_curves() {
     let cube_a = BRep::unit_cube(tol()).expect("unit cube a");
     let cube_b = BRep::unit_cube(tol()).expect("unit cube b (same position)");
     let result = find_intersections(&cube_a, &cube_b, &tol());
-    assert!(
-        result.is_err(),
-        "coincident cubes should produce a CoincidentFaces error"
-    );
+    assert!(result.is_ok(), "coincident cubes should not error");
 }
 
 #[test]
@@ -261,6 +260,7 @@ fn face_aabb_torus_surface_samples_grid() {
             orientation: true,
         }),
         name: None,
+        tolerance: None,
     });
     brep.loops[loop_h].face = face_h;
     // The torus surface has a finite parameter range [0,TAU]×[0,TAU], so

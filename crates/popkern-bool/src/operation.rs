@@ -123,6 +123,11 @@ pub(crate) fn execute_boolean(
     // Log validation issues (don't fail — diagnostic only for now).
     log_validation_issues(&result, op);
 
+    // Post-processing: redundant edge removal is available but disabled by
+    // default because KEF can corrupt topology on complex boolean results.
+    // Enable selectively when the result is known to be well-formed.
+    // remove_redundant_edges(&mut result, tolerance);
+
     // Post-processing diagnostics: sliver detection and watertightness.
     log_post_processing_diagnostics(&result, tolerance);
 
@@ -161,6 +166,40 @@ fn log_validation_issues(result: &BRep, op: BoolOperation) {
             );
         }
         _ => {}
+    }
+}
+
+/// Remove redundant edges between co-surfacial same-orientation faces.
+///
+/// Uses the KEF (Kill-Edge-Face) Euler operator to merge faces that
+/// share the same underlying surface. Silently skips edges that fail
+/// to remove (e.g., due to topology constraints).
+#[allow(dead_code)]
+fn remove_redundant_edges(result: &mut BRep, tolerance: &Tolerance) {
+    use crate::postprocess::redundant_edge::find_redundant_edges;
+
+    let report = find_redundant_edges(result, tolerance);
+
+    if report.redundant_edges.is_empty() {
+        return;
+    }
+
+    let mut removed = 0;
+    for eh in &report.redundant_edges {
+        // Get a half-edge for this edge to pass to KEF
+        let he = match result.edges.get(*eh) {
+            Some(e) => e.half_edge,
+            None => continue,
+        };
+        // KEF merges the two faces on either side of this edge
+        if result.kef(he).is_ok() {
+            removed += 1;
+        }
+    }
+
+    if removed > 0 {
+        #[cfg(debug_assertions)]
+        eprintln!("[boolean] post-processing: removed {removed} redundant edge(s)");
     }
 }
 

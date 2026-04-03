@@ -43,6 +43,7 @@ fn face_vertex_positions_loop_not_in_brep_returns_empty() {
         shell: ShellHandle::default(),
         surface: None,
         name: None,
+        tolerance: None,
     });
     let positions = face_vertex_positions(&brep, face_h);
     assert!(
