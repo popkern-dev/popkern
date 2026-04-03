@@ -410,7 +410,7 @@ pub(crate) fn classify_fragments(
 /// inside the face boundary), then falls back to edge midpoint (for faces with
 /// inner loops) or vertex centroid (for simple faces). Falls back to the surface
 /// parameter midpoint for faces without vertices.
-fn pick_sample_point(brep: &BRep, face_handle: FaceHandle) -> Point3 {
+pub(crate) fn pick_sample_point(brep: &BRep, face_handle: FaceHandle) -> Point3 {
     let face = &brep.faces[face_handle];
 
     // Try UV-centroid sampling for faces with surface geometry and pcurves.

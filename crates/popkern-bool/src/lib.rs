@@ -26,6 +26,9 @@
 //! ```
 
 pub(crate) mod classify;
+pub mod classify_on_face;
+pub mod classify_propagation;
+pub mod classify_winding;
 pub(crate) mod clip;
 pub mod coincidence;
 pub mod csg;
