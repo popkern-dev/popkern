@@ -27,6 +27,7 @@
 
 pub(crate) mod classify;
 pub(crate) mod clip;
+pub mod coincidence;
 pub mod csg;
 pub mod error;
 pub(crate) mod intersect;

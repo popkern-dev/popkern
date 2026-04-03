@@ -14,7 +14,7 @@ use crate::tolerance::Tolerance;
 /// This is a fast O(1) comparison that handles Plane, Cylinder, Cone, Sphere,
 /// and Torus pairs. For NURBS surfaces or mixed-type pairs it always returns
 /// `false` — the caller should fall back to sample-based coincidence detection.
-pub(crate) fn are_surfaces_coincident_analytic(
+pub fn are_surfaces_coincident_analytic(
     surface1: &SurfaceGeometry,
     surface2: &SurfaceGeometry,
     tolerance: &Tolerance,

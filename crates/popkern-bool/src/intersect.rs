@@ -57,6 +57,9 @@ pub(crate) struct IntersectionResult {
     /// Sub-FF intersection hierarchy results (VV/VE/EE/VF/EF).
     #[allow(dead_code)]
     pub hierarchy: crate::intersect_hierarchy::HierarchyResult,
+    /// Coincidence map: vertex merges, edge overlaps, and face overlaps.
+    #[allow(dead_code)]
+    pub coincidence: crate::coincidence::CoincidenceMap,
 }
 
 /// Sample a face to compute its AABB.
@@ -122,6 +125,7 @@ pub(crate) fn find_intersections(
     let aabbs_a = compute_face_aabbs(a);
     let aabbs_b = compute_face_aabbs(b);
     let mut records: Vec<IntersectionRecord> = Vec::new();
+    let mut coincident_pairs: Vec<(FaceHandle, FaceHandle)> = Vec::new();
 
     // Use BVH for face-pair filtering: combine both sets with tagged IDs.
     // IDs 0..n_a are body A faces, n_a..n_a+n_b are body B faces.
@@ -184,13 +188,9 @@ pub(crate) fn find_intersections(
                             }
                         }
                         SurfaceSurfaceIntersection::CoincidentRegion { .. } => {
-                            return Err(BoolDiagnostics {
-                                error: Some(BoolError::CoincidentFaces { face_a, face_b }),
-                                intersection_curves: records.into_iter().map(|r| r.curve).collect(),
-                                face_classifications: Vec::new(),
-                                failed_stage: Some(Stage::Intersection),
-                                entries: Vec::new(),
-                            });
+                            // Record as a coincident face pair instead of failing.
+                            // The coincidence engine will handle classification.
+                            coincident_pairs.push((face_a, face_b));
                         }
                     }
                 }
@@ -217,12 +217,52 @@ pub(crate) fn find_intersections(
     let hierarchy =
         crate::intersect_hierarchy::compute_hierarchy(a, b, &aabbs_a, &aabbs_b, &bool_tol);
 
+    // Build the coincidence map: start from the coincidence engine's detection,
+    // then add any face pairs that the surface-surface solver flagged as coincident.
+    let bool_tol2 = crate::tolerance::BoolTolerance::from(*tolerance);
+    let mut coincidence =
+        crate::coincidence::detect::detect_coincidences(a, b, &aabbs_a, &aabbs_b, &bool_tol2);
+
+    // Add face pairs detected by intersect_surfaces' CoincidentRegion path
+    for (fa, fb) in coincident_pairs {
+        let already_recorded = coincidence
+            .face_overlaps
+            .iter()
+            .any(|fo| fo.face_a == fa && fo.face_b == fb);
+        if !already_recorded {
+            let orientation = crate::coincidence::classify::classify_face_orientation(a, fa, b, fb);
+            let positions_a = crate::clip::face_vertex_positions(a, fa);
+            let positions_b = crate::clip::face_vertex_positions(b, fb);
+            let all: Vec<_> = positions_a.iter().chain(positions_b.iter()).collect();
+            let center = if all.is_empty() {
+                popkern_core::geometry::Point3::new(0.0, 0.0, 0.0)
+            } else {
+                let n = all.len() as f64;
+                popkern_core::geometry::Point3::new(
+                    all.iter().map(|p| p.x).sum::<f64>() / n,
+                    all.iter().map(|p| p.y).sum::<f64>() / n,
+                    all.iter().map(|p| p.z).sum::<f64>() / n,
+                )
+            };
+            coincidence
+                .face_overlaps
+                .push(crate::coincidence::types::FaceOverlap {
+                    face_a: fa,
+                    face_b: fb,
+                    orientation,
+                    full_overlap: false,
+                    overlap_center: center,
+                });
+        }
+    }
+
     Ok(IntersectionResult {
         records,
         aabbs_a,
         aabbs_b,
         edge_face_hits,
         hierarchy,
+        coincidence,
     })
 }
 
