@@ -25,6 +25,7 @@
 //! let result = boolean(BoolOperation::Union, solid_a, solid_b, Tolerance::default())?;
 //! ```
 
+pub mod cellular;
 pub(crate) mod classify;
 pub mod classify_on_face;
 pub mod classify_propagation;
