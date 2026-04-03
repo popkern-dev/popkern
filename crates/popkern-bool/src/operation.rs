@@ -104,36 +104,26 @@ pub(crate) fn execute_boolean(
         return Ok(result);
     }
 
-    // Cellular decomposition: compute cell selection for diagnostics.
-    // This validates the operation type against the cellular model.
-    if let Ok(cellular_result) = crate::cellular::boolean::cellular_boolean(
-        &original_a,
-        &original_b,
-        &intersection_result,
-        op,
-        tolerance,
-    ) {
-        #[cfg(debug_assertions)]
-        if !cellular_result.trivial {
-            eprintln!(
-                "[boolean] cellular: {} cells, {} selected",
-                cellular_result.decomposition.cell_count(),
-                cellular_result.selected_cells.len(),
-            );
-        }
-    }
-
-    // Stage 5: Graph Merge — build intersection graph and assemble result.
-    // NOTE: This remains the primary assembly path. The cellular decomposition
-    // above provides diagnostic validation. Once the cellular path has its own
-    // assembly, it will replace graph_merge here.
-    let result = graph_merge(
+    // Stage 5: Cellular graph merge — order-independent fragment selection
+    // via cell membership classification. Falls back to standard graph-merge
+    // if the cellular path fails.
+    let result = crate::cellular::boolean::cellular_graph_merge(
         &original_a,
         &original_b,
         &intersection_result,
         op,
         tolerance,
     )
+    .or_else(|_| {
+        // Fallback: standard graph-merge with per-fragment ray casting
+        graph_merge(
+            &original_a,
+            &original_b,
+            &intersection_result,
+            op,
+            tolerance,
+        )
+    })
     .map_err(|diag| diag.into_error())?;
 
     // Recompute pcurves on all faces so that the tessellation pipeline

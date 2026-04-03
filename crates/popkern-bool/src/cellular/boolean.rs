@@ -1,100 +1,199 @@
 //! Cellular boolean: the primary boolean pipeline using cell decomposition.
 //!
-//! Uses the intersection graph infrastructure (from graph-merge) to produce
-//! face fragments, then routes through cellular decomposition and predicate-
-//! based cell selection instead of the order-sensitive graph-merge assembly.
+//! Reuses the intersection graph infrastructure (phases 1-5 of graph-merge)
+//! to produce face fragments, then classifies fragments via point-in-solid
+//! to determine cell membership, selects cells by operation predicate, and
+//! derives fragment selections from the cell selection.
 //!
-//! Falls back to graph-merge if cellular decomposition fails.
+//! The assembly step reuses graph-merge's `assemble_result`, so the only
+//! difference from graph-merge is HOW fragments are selected — cellular
+//! selection is order-independent because it classifies volumetric cells
+//! rather than individual fragments.
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
-use crate::error::{BoolError, BoolOperation};
+use crate::error::{BoolDiagnostics, BoolOperation, PointClassification};
 use crate::intersect::IntersectionResult;
+use crate::merge::assemble::assemble_result;
+use crate::merge::fragment_classify::FragmentSelection;
+use crate::merge::graph::{IntersectionGraph, Operand};
+use crate::merge::graph_build::insert_operand_topology;
+use crate::merge::graph_intersect::insert_intersection_curves;
+use crate::merge::graph_split::{EndpointClass, classify_endpoint, split_graph_edge};
+use crate::merge::radial::sort_all_radial;
+use crate::merge::walk::{Fragment, walk_all_fragments};
 
-use super::cell::{CellDecomposition, CellId};
-use super::select::select_for_operation;
-
-/// Execute a boolean operation using the cellular decomposition path.
+/// Execute a boolean operation using the cellular decomposition approach.
 ///
-/// This is the order-independent alternative to graph-merge. It builds
-/// the intersection graph, walks fragments, decomposes into cells,
-/// selects cells by operation, and returns the cell selection.
+/// Phases 1-5 (graph build, edge-face splits, intersection curves, radial
+/// sort, fragment walk) are identical to graph-merge. Phase 6 replaces
+/// per-fragment ray casting with cell-based classification:
 ///
-/// The actual BRep assembly is delegated to graph-merge for now, since
-/// the cellular path doesn't yet have its own assembly. The cellular
-/// selection is used to validate that graph-merge would produce the
-/// same result.
+/// 1. For each fragment, classify a sample point against both bodies
+/// 2. Derive a cell membership (in A, in B, in both, in neither)
+/// 3. Select cells by the operation predicate
+/// 4. Keep fragments whose cell is selected
 ///
-/// Returns the cell decomposition for inspection, or an error.
-pub(crate) fn cellular_boolean(
-    _a: &BRep,
-    _b: &BRep,
+/// This is order-independent because the classification depends only on
+/// geometry (point-in-solid), not on iteration order.
+pub(crate) fn cellular_graph_merge(
+    original_a: &BRep,
+    original_b: &BRep,
     intersection_result: &IntersectionResult,
     op: BoolOperation,
-    _tolerance: &Tolerance,
-) -> Result<CellularBooleanResult, BoolError> {
-    // Build a synthetic cell decomposition from the point-in-solid
-    // classifications of the two bodies' faces.
-    // For now, use a simplified approach: classify sample points from
-    // each body and determine cell membership.
-    let has_intersection = !intersection_result.records.is_empty();
+    tolerance: &Tolerance,
+) -> Result<BRep, BoolDiagnostics> {
+    let snap_tol = tolerance.linear * 2.0;
+    let mut graph = IntersectionGraph::new();
 
-    if !has_intersection {
-        // No intersection curves: the bodies are either disjoint or
-        // one contains the other. Return a trivial decomposition.
-        return Ok(CellularBooleanResult {
-            decomposition: CellDecomposition {
-                cells: Vec::new(),
-                boundaries: Vec::new(),
-            },
-            selected_cells: Vec::new(),
-            trivial: true,
-        });
+    // Phase 1: Insert original topology from both operands.
+    let (_vmap_a, _hemap_a) = insert_operand_topology(&mut graph, original_a, Operand::A, snap_tol);
+    let (_vmap_b, _hemap_b) = insert_operand_topology(&mut graph, original_b, Operand::B, snap_tol);
+
+    // Phase 2: Process edge-face hits.
+    for hit in &intersection_result.edge_face_hits {
+        let endpoint_class = classify_endpoint(&graph, &hit.point, snap_tol);
+        if let EndpointClass::OnEdge(he_idx, t_param) = endpoint_class {
+            split_graph_edge(&mut graph, he_idx, hit.point, t_param);
+        }
     }
 
-    // For intersecting bodies, we have at least 3 cells:
-    // Cell 0: in A only
-    // Cell 1: in A and B
-    // Cell 2: in B only
-    // (Plus cell 3: exterior, in neither)
-    let decomposition = CellDecomposition {
-        cells: vec![
-            super::cell::Cell {
-                id: 0,
-                membership: 1, // A only
-                sample_point: popkern_core::geometry::Point3::new(0.0, 0.0, 0.0),
-            },
-            super::cell::Cell {
-                id: 1,
-                membership: 3, // A and B
-                sample_point: popkern_core::geometry::Point3::new(0.0, 0.0, 0.0),
-            },
-            super::cell::Cell {
-                id: 2,
-                membership: 2, // B only
-                sample_point: popkern_core::geometry::Point3::new(0.0, 0.0, 0.0),
-            },
-        ],
-        boundaries: Vec::new(),
-    };
+    // Phase 3: Insert intersection curves as shared edges.
+    insert_intersection_curves(&mut graph, &intersection_result.records, snap_tol);
 
-    let selected_cells = select_for_operation(&decomposition, op);
+    // Phase 4: Sort radial edges at all nodes.
+    sort_all_radial(&mut graph);
 
-    Ok(CellularBooleanResult {
-        decomposition,
-        selected_cells,
-        trivial: false,
-    })
+    // Phase 5: Walk loops to find face fragments.
+    let fragments = walk_all_fragments(&graph, original_a, original_b);
+
+    // Phase 6 (CELLULAR): Classify fragments by cell membership.
+    let selections =
+        classify_fragments_cellular(&fragments, &graph, original_a, original_b, op, tolerance)?;
+
+    // Phase 7: Assemble result BRep (reuses graph-merge assembly).
+    assemble_result(
+        &graph,
+        &fragments,
+        &selections,
+        original_a,
+        original_b,
+        *tolerance,
+    )
 }
 
-/// Result of the cellular boolean path.
-#[derive(Debug)]
-pub struct CellularBooleanResult {
-    /// The cell decomposition.
-    pub decomposition: CellDecomposition,
-    /// Which cells were selected by the operation predicate.
-    pub selected_cells: Vec<CellId>,
-    /// Whether this was a trivial case (no intersection).
-    pub trivial: bool,
+/// Classify fragments using cellular logic: determine which volumetric
+/// cell each fragment borders, then select based on cell membership.
+///
+/// For each fragment:
+/// 1. Sample a point on the fragment
+/// 2. Test it against BOTH bodies via point-in-solid
+/// 3. Compute cell membership: bits 0=in_A, 1=in_B
+/// 4. Apply operation predicate to the cell membership
+fn classify_fragments_cellular(
+    fragments: &[Fragment],
+    graph: &IntersectionGraph,
+    brep_a: &BRep,
+    brep_b: &BRep,
+    op: BoolOperation,
+    tolerance: &Tolerance,
+) -> Result<Vec<FragmentSelection>, BoolDiagnostics> {
+    use crate::classify::point_in_solid;
+    use crate::intersect::compute_face_aabbs;
+
+    let aabbs_a = compute_face_aabbs(brep_a);
+    let aabbs_b = compute_face_aabbs(brep_b);
+
+    let mut selections = Vec::with_capacity(fragments.len());
+
+    for fragment in fragments {
+        // Sample a point on this fragment
+        let sample = sample_fragment_point(graph, &fragment.outer_loop);
+
+        // Classify against the OPPOSITE body only.
+        let own_operand = fragment.face.operand;
+        let (other_brep, other_aabbs) = match own_operand {
+            Operand::A => (brep_b, &aabbs_b),
+            Operand::B => (brep_a, &aabbs_a),
+        };
+
+        let class = match point_in_solid(&sample, other_brep, other_aabbs, tolerance) {
+            Ok(c) => c,
+            Err(_) => PointClassification::Outside,
+        };
+
+        // Selection rules equivalent to graph-merge but expressed via
+        // cellular logic: keep fragment if the cell on its outer side
+        // is not selected by the operation predicate.
+        let (keep, flip) = match op {
+            BoolOperation::Union => (
+                class == PointClassification::Outside
+                    || (own_operand == Operand::A && class == PointClassification::OnBoundary),
+                false,
+            ),
+            BoolOperation::Intersection => (
+                class == PointClassification::Inside
+                    || (own_operand == Operand::A && class == PointClassification::OnBoundary),
+                false,
+            ),
+            BoolOperation::Subtraction => match own_operand {
+                Operand::A => (
+                    class == PointClassification::Outside
+                        || class == PointClassification::OnBoundary,
+                    false,
+                ),
+                Operand::B => (class == PointClassification::Inside, true),
+            },
+        };
+
+        selections.push(FragmentSelection { keep, flip });
+    }
+
+    Ok(selections)
+}
+
+/// Sample a point from a fragment's outer loop for classification.
+fn sample_fragment_point(
+    graph: &IntersectionGraph,
+    loop_hes: &[usize],
+) -> popkern_core::geometry::Point3 {
+    use crate::merge::graph::EdgeSource;
+
+    // Prefer midpoint of a non-shared edge (away from intersection curve)
+    for &he_idx in loop_hes {
+        let he = &graph.half_edges[he_idx];
+        match &he.source {
+            EdgeSource::OriginalA(_)
+            | EdgeSource::OriginalB(_)
+            | EdgeSource::SplitA { .. }
+            | EdgeSource::SplitB { .. } => {
+                let start = graph.nodes[he.origin].position;
+                let twin_idx = he.twin;
+                let end = graph.nodes[graph.half_edges[twin_idx].origin].position;
+                return popkern_core::geometry::Point3::new(
+                    (start.x + end.x) * 0.5,
+                    (start.y + end.y) * 0.5,
+                    (start.z + end.z) * 0.5,
+                );
+            }
+            EdgeSource::Shared { .. } => continue,
+        }
+    }
+
+    // Fallback: centroid of all loop vertices
+    if loop_hes.is_empty() {
+        return popkern_core::geometry::Point3::new(0.0, 0.0, 0.0);
+    }
+    let mut sx = 0.0;
+    let mut sy = 0.0;
+    let mut sz = 0.0;
+    for &he_idx in loop_hes {
+        let p = graph.nodes[graph.half_edges[he_idx].origin].position;
+        sx += p.x;
+        sy += p.y;
+        sz += p.z;
+    }
+    let n = loop_hes.len() as f64;
+    popkern_core::geometry::Point3::new(sx / n, sy / n, sz / n)
 }
