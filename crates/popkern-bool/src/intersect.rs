@@ -125,77 +125,83 @@ pub(crate) fn find_intersections(
     let aabbs_b = compute_face_aabbs(b);
     let mut records: Vec<IntersectionRecord> = Vec::new();
 
-    // N^2 face-pair loop with AABB pre-filtering.
-    // NOTE: BVH acceleration is available via Bvh::find_overlapping_pairs but
-    // the graph-merge pipeline is currently order-sensitive, so we preserve the
-    // deterministic iteration order until the cellular decomposition (Phase 6)
-    // replaces it.
-    for (face_a, aabb_a) in &aabbs_a {
-        for (face_b, aabb_b) in &aabbs_b {
-            if !aabb_a.overlaps(aabb_b, tolerance.linear) {
-                continue;
-            }
+    // BVH-accelerated face-pair filtering. The cellular assembly is
+    // order-independent, so BVH pair ordering is safe.
+    use popkern_core::validation::bvh::Bvh;
+    let n_a = aabbs_a.len();
+    let mut combined: Vec<(usize, Aabb)> = Vec::with_capacity(n_a + aabbs_b.len());
+    for (i, (_, aabb)) in aabbs_a.iter().enumerate() {
+        combined.push((i, aabb.clone()));
+    }
+    for (i, (_, aabb)) in aabbs_b.iter().enumerate() {
+        combined.push((n_a + i, aabb.clone()));
+    }
+    let bvh = Bvh::build(&combined);
+    let candidate_pairs = bvh.find_overlapping_pairs(tolerance.linear);
 
-            let face_a = *face_a;
-            let face_b = *face_b;
+    for (id_x, id_y) in &candidate_pairs {
+        let (a_idx, b_idx) = if *id_x < n_a && *id_y >= n_a {
+            (*id_x, *id_y - n_a)
+        } else if *id_y < n_a && *id_x >= n_a {
+            (*id_y, *id_x - n_a)
+        } else {
+            continue;
+        };
 
-            let surf_a = match a.faces[face_a].surface.as_ref() {
-                Some(s) => &s.geometry,
-                None => continue,
-            };
-            let surf_b = match b.faces[face_b].surface.as_ref() {
-                Some(s) => &s.geometry,
-                None => continue,
-            };
+        let face_a = aabbs_a[a_idx].0;
+        let face_b = aabbs_b[b_idx].0;
 
-            let ((u1_min, u1_max), (v1_min, v1_max)) = bounded_parameter_range(a, face_a, surf_a);
-            let ((u2_min, u2_max), (v2_min, v2_max)) = bounded_parameter_range(b, face_b, surf_b);
+        let surf_a = match a.faces[face_a].surface.as_ref() {
+            Some(s) => &s.geometry,
+            None => continue,
+        };
+        let surf_b = match b.faces[face_b].surface.as_ref() {
+            Some(s) => &s.geometry,
+            None => continue,
+        };
 
-            match intersect_surfaces(
-                surf_a,
-                (u1_min, u1_max),
-                (v1_min, v1_max),
-                surf_b,
-                (u2_min, u2_max),
-                (v2_min, v2_max),
-                tolerance,
-            ) {
-                Ok(result) => {
-                    for isect in result.intersections {
-                        match isect {
-                            SurfaceSurfaceIntersection::Curve(curve) => {
-                                if let Some(clipped) =
-                                    clip_curve_to_faces(a, face_a, b, face_b, &curve)
-                                {
-                                    records.push(IntersectionRecord {
-                                        face_a,
-                                        face_b,
-                                        curve: clipped,
-                                    });
-                                }
+        let ((u1_min, u1_max), (v1_min, v1_max)) = bounded_parameter_range(a, face_a, surf_a);
+        let ((u2_min, u2_max), (v2_min, v2_max)) = bounded_parameter_range(b, face_b, surf_b);
+
+        match intersect_surfaces(
+            surf_a,
+            (u1_min, u1_max),
+            (v1_min, v1_max),
+            surf_b,
+            (u2_min, u2_max),
+            (v2_min, v2_max),
+            tolerance,
+        ) {
+            Ok(result) => {
+                for isect in result.intersections {
+                    match isect {
+                        SurfaceSurfaceIntersection::Curve(curve) => {
+                            if let Some(clipped) = clip_curve_to_faces(a, face_a, b, face_b, &curve)
+                            {
+                                records.push(IntersectionRecord {
+                                    face_a,
+                                    face_b,
+                                    curve: clipped,
+                                });
                             }
-                            SurfaceSurfaceIntersection::CoincidentRegion { .. } => {
-                                // Coincident face pair — skip for now.
-                                // Overlap boundary computation is available
-                                // (coincidence::overlap_boundary) but not yet
-                                // integrated into the graph-merge pipeline.
-                                // The coincidence engine records the overlap
-                                // separately for diagnostic use.
-                            }
+                        }
+                        SurfaceSurfaceIntersection::CoincidentRegion { .. } => {
+                            // Coincident face pair — skip. Coincidence engine
+                            // records the overlap separately.
                         }
                     }
                 }
-                Err(e) => {
-                    return Err(BoolDiagnostics {
-                        error: Some(BoolError::IntersectionFailed(format!(
-                            "face_a={face_a:?} face_b={face_b:?}: {e}"
-                        ))),
-                        intersection_curves: records.into_iter().map(|r| r.curve).collect(),
-                        face_classifications: Vec::new(),
-                        failed_stage: Some(Stage::Intersection),
-                        entries: Vec::new(),
-                    });
-                }
+            }
+            Err(e) => {
+                return Err(BoolDiagnostics {
+                    error: Some(BoolError::IntersectionFailed(format!(
+                        "face_a={face_a:?} face_b={face_b:?}: {e}"
+                    ))),
+                    intersection_curves: records.into_iter().map(|r| r.curve).collect(),
+                    face_classifications: Vec::new(),
+                    failed_stage: Some(Stage::Intersection),
+                    entries: Vec::new(),
+                });
             }
         }
     }
