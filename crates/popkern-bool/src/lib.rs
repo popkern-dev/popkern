@@ -43,6 +43,7 @@ pub(crate) mod select;
 pub(crate) mod split;
 pub(crate) mod split_inner_loop;
 pub mod tolerance;
+pub mod validate;
 
 pub use classify::point_in_solid;
 pub use csg::{CsgNode, csg_eval};
