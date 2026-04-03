@@ -167,3 +167,127 @@ fn arbitrary_perpendicular_both_branches() {
     let perp2 = arbitrary_perpendicular(Vec3::new(1.0, 0.0, 0.0));
     assert!(perp2.dot(&Vec3::new(1.0, 0.0, 0.0)).abs() < 1e-10);
 }
+
+// --- closest_point tests ---
+
+#[test]
+fn line_closest_point_perpendicular() {
+    let line = CurveGeometry::Line {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        direction: Vec3::new(1.0, 0.0, 0.0),
+    };
+    // Point at (3, 5, 0): closest on x-axis is t=3
+    let t = line.closest_point(&Point3::new(3.0, 5.0, 0.0)).unwrap();
+    assert!((t - 3.0).abs() < 1e-10, "t = {t}");
+}
+
+#[test]
+fn line_closest_point_negative_t() {
+    let line = CurveGeometry::Line {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        direction: Vec3::new(1.0, 0.0, 0.0),
+    };
+    let t = line.closest_point(&Point3::new(-2.0, 1.0, 0.0)).unwrap();
+    assert!((t - (-2.0)).abs() < 1e-10, "t = {t}");
+}
+
+#[test]
+fn circle_closest_point_exterior() {
+    let circle = CurveGeometry::Circle {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    // Point at (5, 0, 0): closest on unit circle should be at t≈0 (point (1,0,0))
+    let t = circle.closest_point(&Point3::new(5.0, 0.0, 0.0)).unwrap();
+    let closest = circle.point_at(t);
+    let dist = closest.distance_to(&Point3::new(1.0, 0.0, 0.0));
+    assert!(
+        dist < 0.1,
+        "closest should be near (1,0,0), got {:?}",
+        closest
+    );
+}
+
+#[test]
+fn arc_closest_point() {
+    let arc = CurveGeometry::Arc {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+        start_angle: 0.0,
+        end_angle: FRAC_PI_2,
+    };
+    // Point at (3, 3, 0): closest should be near t≈PI/4 (point at 45 degrees)
+    let t = arc.closest_point(&Point3::new(3.0, 3.0, 0.0)).unwrap();
+    let closest = arc.point_at(t);
+    let r = (closest.x.powi(2) + closest.y.powi(2)).sqrt();
+    assert!((r - 1.0).abs() < 0.01, "should be on unit circle, r = {r}");
+}
+
+#[test]
+fn nurbs_closest_point() {
+    use crate::geometry::nurbs_curve::NurbsCurve;
+    let nurbs = CurveGeometry::Nurbs(NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+        weights: vec![1.0, 1.0],
+    });
+    // Linear NURBS from (0,0,0) to (1,0,0). Point at (0.3, 1.0, 0.0).
+    let t = nurbs.closest_point(&Point3::new(0.3, 1.0, 0.0)).unwrap();
+    assert!((t - 0.3).abs() < 0.05, "t = {t}, expected ~0.3");
+}
+
+// --- curve_bounding_box tests ---
+
+#[test]
+fn line_bounding_box_finite_range() {
+    let line = CurveGeometry::Line {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        direction: Vec3::new(1.0, 2.0, 3.0),
+    };
+    let bbox = line.curve_bounding_box((0.0, 1.0));
+    // At t=0: (0,0,0), at t=1: (1,2,3)
+    assert!(bbox.min.x <= 0.01);
+    assert!(bbox.max.x >= 0.99);
+    assert!(bbox.max.z >= 2.99);
+}
+
+#[test]
+fn circle_bounding_box_full() {
+    use std::f64::consts::TAU;
+    let circle = CurveGeometry::Circle {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        radius: 2.0,
+    };
+    let bbox = circle.curve_bounding_box((0.0, TAU));
+    // Full circle of radius 2: bbox should be roughly [-2, 2] x [-2, 2] x [0, 0]
+    assert!(bbox.min.x < -1.9, "min.x = {}", bbox.min.x);
+    assert!(bbox.max.x > 1.9, "max.x = {}", bbox.max.x);
+    assert!(bbox.min.y < -1.9, "min.y = {}", bbox.min.y);
+    assert!(bbox.max.y > 1.9, "max.y = {}", bbox.max.y);
+    assert!(bbox.min.z.abs() < 0.01);
+    assert!(bbox.max.z.abs() < 0.01);
+}
+
+#[test]
+fn arc_bounding_box_quarter() {
+    let arc = CurveGeometry::Arc {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+        start_angle: 0.0,
+        end_angle: FRAC_PI_2,
+    };
+    let bbox = arc.curve_bounding_box((0.0, FRAC_PI_2));
+    // Arc basis vectors for normal=(0,0,1): u=(0,1,0), v=(-1,0,0)
+    // t=0 -> (0,1,0), t=PI/2 -> (-1,0,0), so bbox spans that region
+    let diag = bbox.diagonal();
+    assert!(diag > 0.5, "bbox should have nonzero extent, diag={diag}");
+    assert!(diag < 3.0, "bbox should not be oversized, diag={diag}");
+    // z should be near zero (arc in XY plane)
+    assert!(bbox.min.z.abs() < 0.01);
+    assert!(bbox.max.z.abs() < 0.01);
+}

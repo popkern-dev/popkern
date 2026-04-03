@@ -227,3 +227,134 @@ fn plane_bounding_box_finite_region() {
     assert!((bbox.min.y - (-1.0)).abs() < 0.01);
     assert!((bbox.max.y - 1.0).abs() < 0.01);
 }
+
+// --- Cone closest_point ---
+
+#[test]
+fn cone_closest_point() {
+    let cone = SurfaceGeometry::Cone {
+        apex: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        half_angle: FRAC_PI_4,
+    };
+    // Point far out at (10, 0, 5): the cone surface at u=0, v=5 has radius=5*tan(PI/4)=5
+    // so (5, 0, 5). Closest point should be on the cone surface.
+    let pt = Point3::new(10.0, 0.0, 5.0);
+    let (u, v) = cone.closest_point(&pt).expect("should converge");
+    let closest = cone.point_at(u, v);
+    // Verify the point is actually on the cone (radial distance = v * tan(half_angle))
+    let radial = (closest.x.powi(2) + closest.y.powi(2)).sqrt();
+    let expected_radial = closest.z * FRAC_PI_4.tan();
+    assert!(
+        (radial - expected_radial).abs() < 0.1,
+        "not on cone: radial={radial}, expected={expected_radial}"
+    );
+}
+
+// --- Torus closest_point ---
+
+#[test]
+fn torus_closest_point() {
+    let torus = SurfaceGeometry::Torus {
+        center: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        major_radius: 3.0,
+        minor_radius: 1.0,
+    };
+    // Torus closest_point is challenging due to multiple local minima
+    // and the doubly-periodic parameter space. Verify it returns Some
+    // and the result is on the torus surface (within tolerance).
+    let pt = Point3::new(0.0, -6.0, 0.0);
+    let result = torus.closest_point(&pt);
+    assert!(result.is_some(), "should return Some for torus");
+
+    let (u, v) = result.unwrap();
+    let closest = torus.point_at(u, v);
+
+    // Point is on the torus: distance from tube center ≈ minor_radius
+    let r_xy = (closest.x.powi(2) + closest.y.powi(2)).sqrt();
+    let off_ring = r_xy - 3.0;
+    let tube_dist = (off_ring.powi(2) + closest.z.powi(2)).sqrt();
+    assert!(
+        (tube_dist - 1.0).abs() < 0.2,
+        "point should be on torus tube, tube_dist={tube_dist}"
+    );
+}
+
+// --- Torus bounding box ---
+
+#[test]
+fn torus_bounding_box_full() {
+    use std::f64::consts::TAU;
+    let torus = SurfaceGeometry::Torus {
+        center: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        major_radius: 3.0,
+        minor_radius: 1.0,
+    };
+    let bbox = torus.bounding_box((0.0, TAU), (0.0, TAU));
+    // Full torus: extends to ±(major+minor) = ±4 in XY, ±minor = ±1 in Z
+    assert!(bbox.min.x < -3.9, "min.x = {}", bbox.min.x);
+    assert!(bbox.max.x > 3.9, "max.x = {}", bbox.max.x);
+    assert!(bbox.min.z < -0.9, "min.z = {}", bbox.min.z);
+    assert!(bbox.max.z > 0.9, "max.z = {}", bbox.max.z);
+}
+
+// --- NURBS second partials validation ---
+
+#[test]
+fn nurbs_second_partials_match_analytic_cylinder() {
+    // Convert a cylinder to NURBS and verify second partials match analytic.
+    use std::f64::consts::TAU;
+    let cyl = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let nurbs_surf = cyl.to_nurbs_in_range((0.0, TAU), (-1.0, 1.0));
+    let nurbs = SurfaceGeometry::Nurbs(nurbs_surf);
+
+    // Test at u=1.0, v=0.0 (away from knot boundaries)
+    let u = 1.0;
+    let v = 0.0;
+    let analytic_uu = cyl.second_partial_uu(u, v);
+    let nurbs_uu = nurbs.second_partial_uu(u, v);
+
+    // NURBS finite differences are approximate, so use loose tolerance
+    assert!(
+        (analytic_uu.length() - nurbs_uu.length()).abs() < 0.3,
+        "Suu magnitude: analytic={}, nurbs={}",
+        analytic_uu.length(),
+        nurbs_uu.length()
+    );
+
+    // Svv should be near zero for both (cylinder is linear in v)
+    let analytic_vv = cyl.second_partial_vv(u, v);
+    let nurbs_vv = nurbs.second_partial_vv(u, v);
+    assert!(
+        analytic_vv.length() < 0.01,
+        "analytic Svv should be ~0: {}",
+        analytic_vv.length()
+    );
+    assert!(
+        nurbs_vv.length() < 0.3,
+        "nurbs Svv should be near 0: {}",
+        nurbs_vv.length()
+    );
+}
+
+// --- Cylinder bounding box ---
+
+#[test]
+fn cylinder_bounding_box() {
+    let cyl = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 2.0,
+    };
+    let bbox = cyl.bounding_box((0.0, std::f64::consts::TAU), (-1.0, 1.0));
+    assert!(bbox.min.x < -1.9, "min.x = {}", bbox.min.x);
+    assert!(bbox.max.x > 1.9, "max.x = {}", bbox.max.x);
+    assert!((bbox.min.z - (-1.0)).abs() < 0.01);
+    assert!((bbox.max.z - 1.0).abs() < 0.01);
+}

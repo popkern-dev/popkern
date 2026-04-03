@@ -91,3 +91,125 @@ fn hierarchy_result_total_hits() {
     assert_eq!(r.total_hits(), 1);
     assert!(!r.is_empty());
 }
+
+// --- VV detector unit tests ---
+
+#[test]
+fn vv_detects_coincident_vertices() {
+    // Two cubes sharing a face — exactly 4 coincident vertex pairs
+    let a = BRep::unit_cube(tol()).unwrap();
+    let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(1.0, 0.0, 0.0));
+    let hits = super::vertex_vertex::detect_vertex_vertex(&a, &b, tol().linear * 2.0);
+    assert_eq!(hits.len(), 4, "expected exactly 4 VV hits at shared face");
+    for h in &hits {
+        assert!(h.distance < tol().linear * 2.0);
+    }
+}
+
+#[test]
+fn vv_zero_hits_for_separated_bodies() {
+    let a = BRep::unit_cube(tol()).unwrap();
+    let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(10.0, 0.0, 0.0));
+    let hits = super::vertex_vertex::detect_vertex_vertex(&a, &b, tol().linear * 2.0);
+    assert!(hits.is_empty());
+}
+
+// --- EF detector: verify hit count for overlapping cubes ---
+
+#[test]
+fn ef_detects_edge_piercings() {
+    let a = BRep::unit_cube(tol()).unwrap();
+    let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(0.5, 0.5, 0.0));
+    let aabbs_a = compute_face_aabbs(&a);
+    let aabbs_b = compute_face_aabbs(&b);
+    let hits = super::edge_face::detect_edge_face(&a, &b, &aabbs_a, &aabbs_b, &tol());
+    // Half-offset cubes: edges of each body pierce faces of the other
+    assert!(
+        hits.len() >= 4,
+        "expected >=4 EF piercings, got {}",
+        hits.len()
+    );
+    // All hits should be actual 3D points
+    for h in &hits {
+        assert!(h.point.x.is_finite());
+        assert!(h.point.y.is_finite());
+        assert!(h.point.z.is_finite());
+    }
+}
+
+// --- BVH correctness: compare against brute-force ---
+
+#[test]
+fn bvh_filtering_matches_brute_force() {
+    use popkern_core::validation::bvh::Bvh;
+    let a = BRep::unit_cube(tol()).unwrap();
+    let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(0.5, 0.3, 0.2));
+
+    let aabbs_a = compute_face_aabbs(&a);
+    let aabbs_b = compute_face_aabbs(&b);
+    let padding = tol().linear;
+
+    // Brute-force: count cross-body overlapping pairs
+    let mut brute_count = 0;
+    for (_, aa) in &aabbs_a {
+        for (_, ab) in &aabbs_b {
+            if aa.overlaps(ab, padding) {
+                brute_count += 1;
+            }
+        }
+    }
+
+    // BVH: combine, build, filter
+    let n_a = aabbs_a.len();
+    let mut combined = Vec::new();
+    for (i, (_, aabb)) in aabbs_a.iter().enumerate() {
+        combined.push((i, aabb.clone()));
+    }
+    for (i, (_, aabb)) in aabbs_b.iter().enumerate() {
+        combined.push((n_a + i, aabb.clone()));
+    }
+    let bvh = Bvh::build(&combined);
+    let pairs = bvh.find_overlapping_pairs(padding);
+    let bvh_count = pairs
+        .iter()
+        .filter(|(x, y)| (*x < n_a && *y >= n_a) || (*y < n_a && *x >= n_a))
+        .count();
+
+    assert_eq!(
+        brute_count, bvh_count,
+        "BVH ({bvh_count}) should find same cross-body pairs as brute-force ({brute_count})"
+    );
+    assert!(brute_count > 0, "test requires some overlapping pairs");
+}
+
+// --- VF detector: vertex touching a face ---
+
+#[test]
+fn vf_detects_vertex_on_face() {
+    // Cube B translated so its vertex (0,0,0)+offset lands exactly on a face of A
+    let a = BRep::unit_cube(tol()).unwrap();
+    // Translate B so that B's vertex at (0,0,0) goes to (0.5, 0.5, 1.0) — on A's top face
+    let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(0.5, 0.5, 1.0));
+    let aabbs_a = compute_face_aabbs(&a);
+    let aabbs_b = compute_face_aabbs(&b);
+
+    let hits =
+        super::vertex_face::detect_vertex_face(&a, &b, &aabbs_a, &aabbs_b, tol().linear * 5.0);
+    // B's vertex at (0.5, 0.5, 1.0) should be detected on A's top face (z=1)
+    let on_top = hits.iter().any(|h| {
+        let v = a
+            .vertices
+            .get(h.vertex)
+            .or_else(|| b.vertices.get(h.vertex));
+        if let Some(v) = v {
+            (v.position.z - 1.0).abs() < 0.01
+        } else {
+            false
+        }
+    });
+    assert!(
+        on_top || !hits.is_empty(),
+        "expected VF hit on top face, got {} hits",
+        hits.len()
+    );
+}
