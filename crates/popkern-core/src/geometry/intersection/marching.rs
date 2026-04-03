@@ -9,6 +9,9 @@ mod marching_newton;
 pub(crate) use marching_newton::march_project;
 use marching_newton::march_project_with_iters;
 
+use crate::geometry::intersection::adaptive_step::{
+    curvature_based_step, estimate_intersection_curvature,
+};
 use crate::geometry::intersection::degeneracy::DegeneracyHandler;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::{Point3, Vec3};
@@ -347,6 +350,18 @@ fn march_one_direction(
                         step_size = (retry_step * 0.5).max(min_step);
                     } else {
                         step_size = retry_step;
+                    }
+
+                    // Curvature-based cap: limit step in high-curvature regions
+                    // to maintain chord-deviation quality. Uses second derivatives
+                    // to estimate the intersection curve curvature.
+                    let curvature = estimate_intersection_curvature(
+                        surface1, sample.u1, sample.v1, surface2, sample.u2, sample.v2,
+                    );
+                    let curvature_cap =
+                        curvature_based_step(curvature, tolerance.linear, min_step, max_step);
+                    if curvature_cap < step_size {
+                        step_size = step_size * 0.7 + curvature_cap * 0.3;
                     }
 
                     // Wrap parameters for periodic surfaces before domain check.

@@ -130,4 +130,110 @@ pub struct BoolDiagnostics {
     pub face_classifications: Vec<(FaceHandle, Classification)>,
     /// The pipeline stage at which the operation failed, if any.
     pub failed_stage: Option<Stage>,
+    /// Structured diagnostic entries with severity and entity references.
+    pub entries: Vec<DiagnosticEntry>,
+}
+
+impl BoolDiagnostics {
+    /// Add a diagnostic entry.
+    pub fn add(&mut self, entry: DiagnosticEntry) {
+        self.entries.push(entry);
+    }
+
+    /// Add an informational diagnostic.
+    pub fn info(&mut self, phase: Stage, message: impl Into<String>) {
+        self.entries.push(DiagnosticEntry {
+            severity: Severity::Info,
+            phase,
+            message: message.into(),
+            entities: Vec::new(),
+            remediation: None,
+        });
+    }
+
+    /// Add a warning diagnostic.
+    pub fn warn(&mut self, phase: Stage, message: impl Into<String>) {
+        self.entries.push(DiagnosticEntry {
+            severity: Severity::Warning,
+            phase,
+            message: message.into(),
+            entities: Vec::new(),
+            remediation: None,
+        });
+    }
+
+    /// Returns true if any entry has `Error` or `Critical` severity.
+    pub fn has_errors(&self) -> bool {
+        self.entries
+            .iter()
+            .any(|e| matches!(e.severity, Severity::Error | Severity::Critical))
+    }
+}
+
+/// Severity level for diagnostic entries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Severity {
+    /// Succeeded, notable condition (e.g. "12 redundant edges removed").
+    Info,
+    /// Succeeded with degraded quality (e.g. "3 sliver faces in result").
+    Warning,
+    /// Failed, model unchanged.
+    Error,
+    /// System-level failure, possible resource leak.
+    Critical,
+}
+
+/// A reference to a topological entity involved in a diagnostic.
+#[derive(Debug, Clone)]
+pub enum EntityRef {
+    /// A face handle.
+    Face(FaceHandle),
+    /// A pair of faces (e.g. a coincident face pair).
+    FacePair(FaceHandle, FaceHandle),
+}
+
+/// A structured diagnostic entry with severity, entity references, and
+/// optional remediation suggestion.
+#[derive(Debug, Clone)]
+pub struct DiagnosticEntry {
+    /// How severe this diagnostic is.
+    pub severity: Severity,
+    /// Which pipeline phase produced this diagnostic.
+    pub phase: Stage,
+    /// Human-readable description.
+    pub message: String,
+    /// Topological entities involved.
+    pub entities: Vec<EntityRef>,
+    /// Machine-readable remediation suggestion.
+    pub remediation: Option<Remediation>,
+}
+
+/// A suggested fix for a boolean operation failure.
+#[derive(Debug, Clone)]
+pub struct Remediation {
+    /// What action to take.
+    pub action: RemediationAction,
+    /// Which tolerance parameter to adjust, if applicable.
+    pub parameter: Option<String>,
+    /// Suggested new value, if applicable.
+    pub value: Option<f64>,
+    /// Why this might help.
+    pub rationale: String,
+}
+
+/// Possible remediation actions suggested by the engine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemediationAction {
+    /// Increase a tolerance parameter.
+    IncreaseTolerance,
+    /// Decrease a tolerance parameter.
+    DecreaseTolerance,
+    /// Heal the input geometry before retrying.
+    HealInput,
+    /// Use coincidence detection mode for the problematic face pair.
+    UseCoincidenceMode,
+    /// Simplify the input geometry.
+    SimplifyGeometry,
+    /// Retry with geometric perturbation.
+    RetryWithPerturbation,
 }

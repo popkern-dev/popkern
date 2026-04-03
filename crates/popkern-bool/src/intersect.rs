@@ -4,6 +4,7 @@
 //! using AABB filtering followed by surface-surface intersection.
 
 use popkern_core::geometry::curve_on_surface::CurveOnSurface;
+use popkern_core::validation::bvh::Bvh;
 use popkern_core::{
     geometry::{
         intersection::{SurfaceSurfaceIntersection, intersect_surfaces, surface_subdivision::Aabb},
@@ -53,6 +54,9 @@ pub(crate) struct IntersectionResult {
     /// Edge-face intersection hits (diagnostic only, not yet used by split).
     #[allow(dead_code)]
     pub edge_face_hits: Vec<EdgeFaceHit>,
+    /// Sub-FF intersection hierarchy results (VV/VE/EE/VF/EF).
+    #[allow(dead_code)]
+    pub hierarchy: crate::intersect_hierarchy::HierarchyResult,
 }
 
 /// Sample a face to compute its AABB.
@@ -119,93 +123,106 @@ pub(crate) fn find_intersections(
     let aabbs_b = compute_face_aabbs(b);
     let mut records: Vec<IntersectionRecord> = Vec::new();
 
-    for (face_a, aabb_a) in &aabbs_a {
-        for (face_b, aabb_b) in &aabbs_b {
-            if !aabb_a.overlaps(aabb_b, tolerance.linear) {
-                continue;
-            }
+    // Use BVH for face-pair filtering: combine both sets with tagged IDs.
+    // IDs 0..n_a are body A faces, n_a..n_a+n_b are body B faces.
+    let n_a = aabbs_a.len();
+    let mut combined: Vec<(usize, Aabb)> = Vec::with_capacity(n_a + aabbs_b.len());
+    for (i, (_, aabb)) in aabbs_a.iter().enumerate() {
+        combined.push((i, aabb.clone()));
+    }
+    for (i, (_, aabb)) in aabbs_b.iter().enumerate() {
+        combined.push((n_a + i, aabb.clone()));
+    }
+    let bvh = Bvh::build(&combined);
+    let candidate_pairs = bvh.find_overlapping_pairs(tolerance.linear);
 
-            // Both faces are guaranteed to have surface geometry because
-            // compute_face_aabbs only includes faces with surfaces.
-            let surf_a = match a.faces[*face_a].surface.as_ref() {
-                Some(s) => &s.geometry,
-                None => continue,
-            };
-            let surf_b = match b.faces[*face_b].surface.as_ref() {
-                Some(s) => &s.geometry,
-                None => continue,
-            };
+    // Filter to cross-body pairs only (one from A, one from B)
+    for (id_x, id_y) in &candidate_pairs {
+        let (a_idx, b_idx) = if *id_x < n_a && *id_y >= n_a {
+            (*id_x, *id_y - n_a)
+        } else if *id_y < n_a && *id_x >= n_a {
+            (*id_y, *id_x - n_a)
+        } else {
+            continue; // same-body pair, skip
+        };
 
-            let ((u1_min, u1_max), (v1_min, v1_max)) = bounded_parameter_range(a, *face_a, surf_a);
-            let ((u2_min, u2_max), (v2_min, v2_max)) = bounded_parameter_range(b, *face_b, surf_b);
+        let face_a = aabbs_a[a_idx].0;
+        let face_b = aabbs_b[b_idx].0;
 
-            match intersect_surfaces(
-                surf_a,
-                (u1_min, u1_max),
-                (v1_min, v1_max),
-                surf_b,
-                (u2_min, u2_max),
-                (v2_min, v2_max),
-                tolerance,
-            ) {
-                Ok(result) => {
-                    for isect in result.intersections {
-                        match isect {
-                            SurfaceSurfaceIntersection::Curve(curve) => {
-                                // Clip the curve to both face boundaries.
-                                match clip_curve_to_faces(a, *face_a, b, *face_b, &curve) {
-                                    Some(clipped) => {
-                                        records.push(IntersectionRecord {
-                                            face_a: *face_a,
-                                            face_b: *face_b,
-                                            curve: clipped,
-                                        });
-                                    }
-                                    None => {
-                                        // Curve doesn't intersect both face
-                                        // polygons — skip it.
-                                    }
-                                }
-                            }
-                            SurfaceSurfaceIntersection::CoincidentRegion { .. } => {
-                                return Err(BoolDiagnostics {
-                                    error: Some(BoolError::CoincidentFaces {
-                                        face_a: *face_a,
-                                        face_b: *face_b,
-                                    }),
-                                    intersection_curves: records
-                                        .into_iter()
-                                        .map(|r| r.curve)
-                                        .collect(),
-                                    face_classifications: Vec::new(),
-                                    failed_stage: Some(Stage::Intersection),
+        let surf_a = match a.faces[face_a].surface.as_ref() {
+            Some(s) => &s.geometry,
+            None => continue,
+        };
+        let surf_b = match b.faces[face_b].surface.as_ref() {
+            Some(s) => &s.geometry,
+            None => continue,
+        };
+
+        let ((u1_min, u1_max), (v1_min, v1_max)) = bounded_parameter_range(a, face_a, surf_a);
+        let ((u2_min, u2_max), (v2_min, v2_max)) = bounded_parameter_range(b, face_b, surf_b);
+
+        match intersect_surfaces(
+            surf_a,
+            (u1_min, u1_max),
+            (v1_min, v1_max),
+            surf_b,
+            (u2_min, u2_max),
+            (v2_min, v2_max),
+            tolerance,
+        ) {
+            Ok(result) => {
+                for isect in result.intersections {
+                    match isect {
+                        SurfaceSurfaceIntersection::Curve(curve) => {
+                            if let Some(clipped) = clip_curve_to_faces(a, face_a, b, face_b, &curve)
+                            {
+                                records.push(IntersectionRecord {
+                                    face_a,
+                                    face_b,
+                                    curve: clipped,
                                 });
                             }
                         }
+                        SurfaceSurfaceIntersection::CoincidentRegion { .. } => {
+                            return Err(BoolDiagnostics {
+                                error: Some(BoolError::CoincidentFaces { face_a, face_b }),
+                                intersection_curves: records.into_iter().map(|r| r.curve).collect(),
+                                face_classifications: Vec::new(),
+                                failed_stage: Some(Stage::Intersection),
+                                entries: Vec::new(),
+                            });
+                        }
                     }
                 }
-                Err(e) => {
-                    return Err(BoolDiagnostics {
-                        error: Some(BoolError::IntersectionFailed(format!(
-                            "face_a={face_a:?} face_b={face_b:?}: {e}"
-                        ))),
-                        intersection_curves: records.into_iter().map(|r| r.curve).collect(),
-                        face_classifications: Vec::new(),
-                        failed_stage: Some(Stage::Intersection),
-                    });
-                }
+            }
+            Err(e) => {
+                return Err(BoolDiagnostics {
+                    error: Some(BoolError::IntersectionFailed(format!(
+                        "face_a={face_a:?} face_b={face_b:?}: {e}"
+                    ))),
+                    intersection_curves: records.into_iter().map(|r| r.curve).collect(),
+                    face_classifications: Vec::new(),
+                    failed_stage: Some(Stage::Intersection),
+                    entries: Vec::new(),
+                });
             }
         }
     }
 
-    // Diagnostic: detect edge-face intersections.
+    // Diagnostic: detect edge-face intersections (legacy path).
     let edge_face_hits = detect_edge_face_intersections(a, b, &aabbs_b, &aabbs_a, tolerance);
+
+    // Compute the sub-FF intersection hierarchy.
+    let bool_tol = crate::tolerance::BoolTolerance::from(*tolerance);
+    let hierarchy =
+        crate::intersect_hierarchy::compute_hierarchy(a, b, &aabbs_a, &aabbs_b, &bool_tol);
 
     Ok(IntersectionResult {
         records,
         aabbs_a,
         aabbs_b,
         edge_face_hits,
+        hierarchy,
     })
 }
 

@@ -1,5 +1,6 @@
 //! Curve-curve intersection algorithms.
 
+pub(crate) mod adaptive_step;
 mod bezier_clipping;
 mod circle_circle;
 pub mod coincident;

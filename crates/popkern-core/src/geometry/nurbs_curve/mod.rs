@@ -274,6 +274,19 @@ impl CurveEval for NurbsCurve {
         }
         sum * half_len
     }
+
+    fn closest_point(&self, point: &Point3) -> Option<f64> {
+        use crate::geometry::curve::closest_point_on_curve;
+        closest_point_on_curve(self, point)
+    }
+
+    fn curve_bounding_box(
+        &self,
+        t_range: (f64, f64),
+    ) -> crate::geometry::intersection::surface_subdivision::Aabb {
+        use crate::geometry::curve::curve_bounding_box_by_sampling;
+        curve_bounding_box_by_sampling(self, t_range)
+    }
 }
 
 #[cfg(test)]

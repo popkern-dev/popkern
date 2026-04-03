@@ -1,5 +1,6 @@
 //! Surface geometry types, evaluation trait, and topology binding.
 
+use crate::geometry::intersection::surface_subdivision::Aabb;
 use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,157 @@ pub trait SurfaceEval {
     fn normal_at(&self, u: f64, v: f64) -> Vec3;
     /// Valid parameter range ((u_min, u_max), (v_min, v_max)).
     fn parameter_range(&self) -> ((f64, f64), (f64, f64));
+
+    /// Second partial derivative d²S/du² at (u, v).
+    fn second_partial_uu(&self, u: f64, v: f64) -> Vec3 {
+        let h = 1e-7;
+        let fwd = self.partial_u(u + h, v);
+        let bwd = self.partial_u(u - h, v);
+        (fwd - bwd) * (1.0 / (2.0 * h))
+    }
+
+    /// Mixed second partial derivative d²S/dudv at (u, v).
+    fn second_partial_uv(&self, u: f64, v: f64) -> Vec3 {
+        let h = 1e-7;
+        let fwd = self.partial_u(u, v + h);
+        let bwd = self.partial_u(u, v - h);
+        (fwd - bwd) * (1.0 / (2.0 * h))
+    }
+
+    /// Second partial derivative d²S/dv² at (u, v).
+    fn second_partial_vv(&self, u: f64, v: f64) -> Vec3 {
+        let h = 1e-7;
+        let fwd = self.partial_v(u, v + h);
+        let bwd = self.partial_v(u, v - h);
+        (fwd - bwd) * (1.0 / (2.0 * h))
+    }
+
+    /// Find the (u, v) parameters of the closest point on the surface to `point`.
+    ///
+    /// Uses Gauss-Newton projection. Returns `None` if the projection fails
+    /// to converge (e.g. the surface is degenerate or the point is equidistant
+    /// from multiple locations).
+    fn closest_point(&self, point: &Point3) -> Option<(f64, f64)>;
+
+    /// Compute an axis-aligned bounding box over the given parameter ranges.
+    ///
+    /// Samples the surface on a grid and returns the tight AABB of those samples.
+    fn bounding_box(&self, u_range: (f64, f64), v_range: (f64, f64)) -> Aabb;
+}
+
+/// Gauss-Newton closest-point projection for any `SurfaceEval`.
+///
+/// Multi-start from 5 candidates (center + 4 quadrant midpoints) within the
+/// parameter range. Returns the (u, v) that minimizes distance to `point`,
+/// or `None` if all starts fail to converge.
+pub fn closest_point_gauss_newton(surface: &dyn SurfaceEval, point: &Point3) -> Option<(f64, f64)> {
+    let ((u0, u1), (v0, v1)) = surface.parameter_range();
+    // Clamp infinite ranges for the search
+    let u_lo = u0.max(-100.0);
+    let u_hi = u1.min(100.0);
+    let v_lo = v0.max(-100.0);
+    let v_hi = v1.min(100.0);
+
+    // 4x4 grid of starts covers the parameter domain well
+    let n_grid = 4;
+    let mut starts = Vec::with_capacity(n_grid * n_grid);
+    for i in 0..n_grid {
+        let u = u_lo + (u_hi - u_lo) * (i as f64 + 0.5) / (n_grid as f64);
+        for j in 0..n_grid {
+            let v = v_lo + (v_hi - v_lo) * (j as f64 + 0.5) / (n_grid as f64);
+            starts.push((u, v));
+        }
+    }
+
+    let max_iter = 20;
+    let step_tol = 1e-12;
+    let max_dist = 1e6;
+
+    let mut best: Option<(f64, f64, f64)> = None; // (u, v, dist)
+
+    for (u_start, v_start) in starts {
+        let mut u = u_start;
+        let mut v = v_start;
+
+        for _ in 0..max_iter {
+            let p = surface.point_at(u, v);
+            let diff = p - *point;
+            let dist = diff.length();
+            if dist > max_dist {
+                break;
+            }
+
+            let su = surface.partial_u(u, v);
+            let sv = surface.partial_v(u, v);
+
+            // 2x2 normal equation: J^T J [du, dv]^T = -J^T r
+            let a00 = su.dot(&su);
+            let a01 = su.dot(&sv);
+            let a11 = sv.dot(&sv);
+            let b0 = diff.dot(&su);
+            let b1 = diff.dot(&sv);
+
+            let det = a00 * a11 - a01 * a01;
+            if det.abs() < 1e-30 {
+                break;
+            }
+
+            let du = -(a11 * b0 - a01 * b1) / det;
+            let dv = -(a00 * b1 - a01 * b0) / det;
+
+            u += du;
+            v += dv;
+
+            if du * du + dv * dv < step_tol {
+                let final_p = surface.point_at(u, v);
+                let final_dist = final_p.distance_to(point);
+                match &best {
+                    Some((_, _, bd)) if final_dist >= *bd => {}
+                    _ => best = Some((u, v, final_dist)),
+                }
+                break;
+            }
+        }
+
+        // Even if we didn't converge, record the best distance found
+        let p = surface.point_at(u, v);
+        let dist = p.distance_to(point);
+        match &best {
+            Some((_, _, bd)) if dist >= *bd => {}
+            _ => best = Some((u, v, dist)),
+        }
+    }
+
+    best.map(|(u, v, _)| (u, v))
+}
+
+/// Compute AABB by sampling the surface on a grid.
+pub fn bounding_box_by_sampling(
+    surface: &dyn SurfaceEval,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+) -> Aabb {
+    let n = 8;
+    let mut points = Vec::with_capacity((n + 1) * (n + 1));
+
+    for i in 0..=n {
+        let u = u_range.0 + (u_range.1 - u_range.0) * (i as f64) / (n as f64);
+        for j in 0..=n {
+            let v = v_range.0 + (v_range.1 - v_range.0) * (j as f64) / (n as f64);
+            points.push(surface.point_at(u, v));
+        }
+    }
+
+    Aabb::from_points(&points).unwrap_or(Aabb {
+        min: points
+            .first()
+            .copied()
+            .unwrap_or(Point3::new(0.0, 0.0, 0.0)),
+        max: points
+            .first()
+            .copied()
+            .unwrap_or(Point3::new(0.0, 0.0, 0.0)),
+    })
 }
 
 /// Geometric surface types.
@@ -240,196 +392,5 @@ impl SurfaceGeometry {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::geometry::surface::SurfaceEval;
-
-    #[test]
-    fn plane_is_not_periodic() {
-        let plane = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        assert_eq!(plane.is_periodic(), (false, false));
-    }
-
-    #[test]
-    fn cylinder_is_periodic_in_u_only() {
-        let cyl = SurfaceGeometry::Cylinder {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            radius: 1.0,
-        };
-        assert_eq!(cyl.is_periodic(), (true, false));
-    }
-
-    #[test]
-    fn cone_is_periodic_in_u_only() {
-        let cone = SurfaceGeometry::Cone {
-            apex: Point3::new(0.0, 0.0, 1.0),
-            axis: Vec3::new(0.0, 0.0, -1.0),
-            half_angle: std::f64::consts::FRAC_PI_4,
-        };
-        assert_eq!(cone.is_periodic(), (true, false));
-    }
-
-    #[test]
-    fn sphere_is_periodic_in_u_only() {
-        let sphere = SurfaceGeometry::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 1.0,
-        };
-        assert_eq!(sphere.is_periodic(), (true, false));
-    }
-
-    #[test]
-    fn torus_is_periodic_in_both() {
-        let torus = SurfaceGeometry::Torus {
-            center: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            major_radius: 2.0,
-            minor_radius: 0.5,
-        };
-        assert_eq!(torus.is_periodic(), (true, true));
-    }
-
-    #[test]
-    fn periodicity_returns_correct_periods() {
-        use std::f64::consts::TAU;
-        let plane = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        assert_eq!(plane.periodicity(), (None, None));
-
-        let cyl = SurfaceGeometry::Cylinder {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            radius: 1.0,
-        };
-        assert_eq!(cyl.periodicity(), (Some(TAU), None));
-
-        let torus = SurfaceGeometry::Torus {
-            center: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            major_radius: 2.0,
-            minor_radius: 0.5,
-        };
-        assert_eq!(torus.periodicity(), (Some(TAU), Some(TAU)));
-    }
-
-    #[test]
-    fn nurbs_is_not_periodic() {
-        let nurbs = crate::geometry::nurbs_surface::NurbsSurface {
-            degree_u: 1,
-            degree_v: 1,
-            knots_u: vec![0.0, 0.0, 1.0, 1.0],
-            knots_v: vec![0.0, 0.0, 1.0, 1.0],
-            control_points: vec![
-                Point3::new(0.0, 0.0, 0.0),
-                Point3::new(0.0, 1.0, 0.0),
-                Point3::new(1.0, 0.0, 0.0),
-                Point3::new(1.0, 1.0, 0.0),
-            ],
-            num_u: 2,
-            num_v: 2,
-            weights: vec![1.0, 1.0, 1.0, 1.0],
-        };
-        let geom = SurfaceGeometry::Nurbs(nurbs);
-        assert_eq!(geom.is_periodic(), (false, false));
-    }
-
-    #[test]
-    fn plane_to_nurbs_preserves_shape() {
-        let plane = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        let nurbs = plane.to_nurbs_in_range((-1.0, 1.0), (-1.0, 1.0));
-        for u in [-1.0_f64, -0.5, 0.0, 0.5, 0.99] {
-            for v in [-1.0_f64, -0.5, 0.0, 0.5, 0.99] {
-                let p1 = plane.point_at(u, v);
-                let p2 = nurbs.point_at(u, v);
-                assert!(
-                    p1.distance_to(&p2) < 1e-8,
-                    "Plane-to-NURBS mismatch at u={u}, v={v}: p1={p1:?}, p2={p2:?}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn nurbs_to_nurbs_is_clone() {
-        let nurbs = NurbsSurface {
-            degree_u: 1,
-            degree_v: 1,
-            knots_u: vec![0.0, 0.0, 1.0, 1.0],
-            knots_v: vec![0.0, 0.0, 1.0, 1.0],
-            control_points: vec![
-                Point3::new(0.0, 0.0, 0.0),
-                Point3::new(0.0, 1.0, 0.0),
-                Point3::new(1.0, 0.0, 0.0),
-                Point3::new(1.0, 1.0, 0.0),
-            ],
-            num_u: 2,
-            num_v: 2,
-            weights: vec![1.0, 1.0, 1.0, 1.0],
-        };
-        let geom = SurfaceGeometry::Nurbs(nurbs.clone());
-        let promoted = geom.to_nurbs_in_range((0.0, 1.0), (0.0, 1.0));
-        assert_eq!(promoted.degree_u, nurbs.degree_u);
-    }
-
-    #[test]
-    fn sphere_to_nurbs_approximate() {
-        let sphere = SurfaceGeometry::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 1.0,
-        };
-        let nurbs = sphere.to_nurbs_in_range((0.5, 2.5), (0.5, 2.5));
-        for u in [0.6_f64, 1.0, 1.5, 2.0, 2.4] {
-            for v in [0.6_f64, 1.0, 1.5, 2.0, 2.4] {
-                let p = nurbs.point_at(u, v);
-                let r = (p.x * p.x + p.y * p.y + p.z * p.z).sqrt();
-                assert!(
-                    (r - 1.0).abs() < 0.1,
-                    "Point not on unit sphere: r={r} at u={u}, v={v}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn sphere_to_nurbs_default_range() {
-        // Tests the to_nurbs() method (lines 195-198) which uses parameter_range()
-        let sphere = SurfaceGeometry::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 1.0,
-        };
-        let nurbs = sphere.to_nurbs();
-        // Sphere parameter range is [0, TAU] x [0, PI]
-        let p = nurbs.point_at(std::f64::consts::FRAC_PI_2, std::f64::consts::FRAC_PI_2);
-        let r = (p.x * p.x + p.y * p.y + p.z * p.z).sqrt();
-        assert!((r - 1.0).abs() < 0.15, "Point not on unit sphere: r={r}");
-    }
-
-    #[test]
-    fn cylinder_to_nurbs_in_range() {
-        // Cylinder's default range may be infinite, so use explicit range
-        let cyl = SurfaceGeometry::Cylinder {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            radius: 1.0,
-        };
-        let nurbs = cyl.to_nurbs_in_range((0.0, std::f64::consts::TAU), (-1.0, 1.0));
-        let p = nurbs.point_at(std::f64::consts::FRAC_PI_2, 0.0);
-        let r = (p.x * p.x + p.y * p.y).sqrt();
-        assert!((r - 1.0).abs() < 0.15, "Point not on cylinder: r={r}");
-    }
-}
+#[path = "surface_tests.rs"]
+mod tests;

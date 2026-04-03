@@ -1,4 +1,5 @@
 #![warn(missing_docs)]
+#![allow(clippy::result_large_err)]
 
 //! popkern-bool: Boolean set operations on BRep solids.
 //!
@@ -29,11 +30,13 @@ pub(crate) mod clip;
 pub mod csg;
 pub mod error;
 pub(crate) mod intersect;
+pub(crate) mod intersect_hierarchy;
 pub(crate) mod merge;
 pub(crate) mod operation;
 pub(crate) mod select;
 pub(crate) mod split;
 pub(crate) mod split_inner_loop;
+pub mod tolerance;
 
 pub use classify::point_in_solid;
 pub use csg::{CsgNode, csg_eval};

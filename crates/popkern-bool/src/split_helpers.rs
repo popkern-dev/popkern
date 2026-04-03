@@ -210,6 +210,7 @@ pub(super) fn split_err(
         intersection_curves: records.iter().map(|r| r.curve.clone()).collect(),
         face_classifications: Vec::new(),
         failed_stage: Some(Stage::Split),
+        entries: Vec::new(),
     }
 }
 

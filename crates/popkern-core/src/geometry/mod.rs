@@ -24,3 +24,7 @@ pub use nurbs_surface::NurbsSurface;
 pub use point::Point3;
 pub use surface::{SurfaceEval, SurfaceGeometry, SurfaceOnFace};
 pub use vector::Vec3;
+
+#[cfg(test)]
+#[path = "surface_deriv2_tests.rs"]
+mod surface_deriv2_tests;

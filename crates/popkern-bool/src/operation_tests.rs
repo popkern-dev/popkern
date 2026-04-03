@@ -120,6 +120,7 @@ fn into_error_fallback_when_no_error_set() {
         intersection_curves: Vec::new(),
         face_classifications: Vec::new(),
         failed_stage: None,
+        entries: Vec::new(),
     };
     let err = diag.into_error();
     assert!(

@@ -102,6 +102,7 @@ mod tests {
             aabbs_a: aabbs.clone(),
             aabbs_b: aabbs,
             edge_face_hits: vec![],
+            hierarchy: Default::default(),
         };
 
         // With no intersection curves, the graph has only original topology.
