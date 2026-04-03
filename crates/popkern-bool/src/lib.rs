@@ -30,6 +30,7 @@ pub(crate) mod clip;
 pub mod coincidence;
 pub mod csg;
 pub mod error;
+pub mod imprint;
 pub(crate) mod intersect;
 pub(crate) mod intersect_hierarchy;
 pub(crate) mod merge;
