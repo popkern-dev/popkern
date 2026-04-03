@@ -35,16 +35,17 @@ pub(crate) fn graph_merge(
     op: BoolOperation,
     tolerance: &Tolerance,
 ) -> Result<BRep, BoolDiagnostics> {
-    let tol = tolerance.linear;
+    // Use snap tolerance (2x linear) for vertex merging to prevent micro-edges.
+    let snap_tol = tolerance.linear * 2.0;
     let mut graph = IntersectionGraph::new();
 
     // Phase 1: Insert original topology from both operands.
-    let (_vmap_a, _hemap_a) = insert_operand_topology(&mut graph, original_a, Operand::A, tol);
-    let (_vmap_b, _hemap_b) = insert_operand_topology(&mut graph, original_b, Operand::B, tol);
+    let (_vmap_a, _hemap_a) = insert_operand_topology(&mut graph, original_a, Operand::A, snap_tol);
+    let (_vmap_b, _hemap_b) = insert_operand_topology(&mut graph, original_b, Operand::B, snap_tol);
 
     // Phase 2: Process edge-face hits — split edges at pierce points.
     for hit in &intersection_result.edge_face_hits {
-        let endpoint_class = classify_endpoint(&graph, &hit.point, tol);
+        let endpoint_class = classify_endpoint(&graph, &hit.point, snap_tol);
         if let EndpointClass::OnEdge(he_idx, t_param) = endpoint_class {
             split_graph_edge(&mut graph, he_idx, hit.point, t_param);
         }
@@ -53,7 +54,7 @@ pub(crate) fn graph_merge(
     }
 
     // Phase 3: Insert intersection curves as shared edges.
-    insert_intersection_curves(&mut graph, &intersection_result.records, tol);
+    insert_intersection_curves(&mut graph, &intersection_result.records, snap_tol);
 
     // Phase 4: Sort radial edges at all nodes.
     sort_all_radial(&mut graph);
@@ -62,13 +63,20 @@ pub(crate) fn graph_merge(
     let fragments = walk_all_fragments(&graph, original_a, original_b);
 
     // Phase 6: Classify and select fragments.
-    let selections =
-        classify_and_select_fragments(&fragments, &graph, original_a, original_b, op, tolerance)
-            .map_err(|e| BoolDiagnostics {
-                error: Some(e),
-                failed_stage: Some(Stage::Classification),
-                ..Default::default()
-            })?;
+    let selections = classify_and_select_fragments(
+        &fragments,
+        &graph,
+        original_a,
+        original_b,
+        op,
+        tolerance,
+        &intersection_result.coincidence,
+    )
+    .map_err(|e| BoolDiagnostics {
+        error: Some(e),
+        failed_stage: Some(Stage::Classification),
+        ..Default::default()
+    })?;
 
     // Phase 7: Assemble result BRep.
     assemble_result(

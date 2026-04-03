@@ -187,7 +187,26 @@ pub(crate) fn find_intersections(
                                         .collect(),
                                     face_classifications: Vec::new(),
                                     failed_stage: Some(Stage::Intersection),
-                                    entries: Vec::new(),
+                                    entries: vec![crate::error::DiagnosticEntry {
+                                        severity: crate::error::Severity::Error,
+                                        phase: Stage::Intersection,
+                                        message: format!(
+                                            "Coincident faces {face_a:?} / {face_b:?}"
+                                        ),
+                                        entities: vec![crate::error::EntityRef::FacePair(
+                                            face_a, face_b,
+                                        )],
+                                        remediation: Some(crate::error::Remediation {
+                                            action:
+                                                crate::error::RemediationAction::UseCoincidenceMode,
+                                            parameter: Some("coincidence_tolerance".into()),
+                                            value: None,
+                                            rationale: "Bodies share coplanar faces. \
+                                                Translate one body slightly or increase \
+                                                coincidence tolerance."
+                                                .into(),
+                                        }),
+                                    }],
                                 });
                             }
                         }

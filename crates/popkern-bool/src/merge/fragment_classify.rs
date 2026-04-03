@@ -12,7 +12,9 @@ use popkern_core::{geometry::Point3, tolerance::Tolerance, topology::BRep};
 use super::graph::{EdgeSource, IntersectionGraph, Operand};
 use super::walk::Fragment;
 use crate::classify::point_in_solid;
-use crate::error::{BoolError, BoolOperation, PointClassification};
+use crate::classify_on_face::classify_on_face;
+use crate::coincidence::CoincidenceMap;
+use crate::error::{BoolError, BoolOperation, Classification, PointClassification};
 use crate::intersect::compute_face_aabbs;
 
 /// Selection decision for a fragment.
@@ -41,6 +43,7 @@ pub(crate) fn classify_and_select_fragments(
     brep_b: &BRep,
     op: BoolOperation,
     tolerance: &Tolerance,
+    coincidence: &CoincidenceMap,
 ) -> Result<Vec<FragmentSelection>, BoolError> {
     // Precompute face AABBs for both operands (needed by point_in_solid).
     let aabbs_a = compute_face_aabbs(brep_a);
@@ -49,36 +52,61 @@ pub(crate) fn classify_and_select_fragments(
     let mut selections = Vec::with_capacity(fragments.len());
 
     for fragment in fragments {
-        // Use the midpoint of a non-shared (original/split) edge as the
-        // sample point.  The centroid of the entire loop can land inside the
-        // opposite solid for *both* fragments of a split face, causing wrong
-        // classification.  An original edge's midpoint is guaranteed to be
-        // well inside the fragment and away from the intersection curve.
+        let own_operand = fragment.face.operand;
+        let is_a = own_operand == Operand::A;
+
+        // First check: is this fragment on a coincident face?
+        // If so, use the ON-face rules from the spec (§5.1).
+        if let Some(on_class) = classify_on_face(fragment.face.face, is_a, op, coincidence) {
+            let selection = on_face_to_selection(on_class, own_operand, op);
+            selections.push(selection);
+            continue;
+        }
+
+        // Normal path: sample point + ray casting
         let sample = sample_point_for_fragment(graph, &fragment.outer_loop);
 
-        // Determine which operand this fragment belongs to.
-        let (own_operand, other_brep, other_aabbs) = match fragment.face.operand {
+        let (_, other_brep, other_aabbs) = match own_operand {
             Operand::A => (Operand::A, brep_b, &aabbs_b),
             Operand::B => (Operand::B, brep_a, &aabbs_a),
         };
 
-        // Classify the sample point against the other operand.
         let classification = match point_in_solid(&sample, other_brep, other_aabbs, tolerance) {
             Ok(c) => c,
-            Err(_) => {
-                // Fall back to Outside if classification fails (e.g. no
-                // conclusive ray). This is conservative — fragments default
-                // to being kept for union, discarded for intersection.
-                PointClassification::Outside
-            }
+            Err(_) => PointClassification::Outside,
         };
 
-        // Apply selection table.
         let selection = apply_selection_table(op, own_operand, classification);
         selections.push(selection);
     }
 
     Ok(selections)
+}
+
+/// Convert an ON-face classification to a fragment selection.
+fn on_face_to_selection(
+    class: Classification,
+    _operand: Operand,
+    _op: BoolOperation,
+) -> FragmentSelection {
+    match class {
+        Classification::Outside => FragmentSelection {
+            keep: true,
+            flip: false,
+        },
+        Classification::Inside => FragmentSelection {
+            keep: false,
+            flip: false,
+        },
+        Classification::OnBoundaryCooriented => FragmentSelection {
+            keep: true,
+            flip: false,
+        },
+        Classification::OnBoundaryCrossing => FragmentSelection {
+            keep: true,
+            flip: true,
+        },
+    }
 }
 
 /// Pick a representative sample point for a fragment.

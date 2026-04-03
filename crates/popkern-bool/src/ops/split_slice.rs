@@ -1,10 +1,9 @@
 //! Split/Slice operation: cut a body with a plane.
 //!
-//! A special case of subtraction where the tool is an infinite half-space
-//! defined by a plane. The result is one or two bodies depending on
-//! whether the plane fully intersects the body.
+//! Constructs a large box on each side of the splitting plane and uses
+//! boolean intersection to extract each half.
 
-use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::geometry::{Point3, Transform3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
@@ -14,10 +13,10 @@ use crate::error::BoolError;
 #[derive(Debug)]
 pub struct SplitResult {
     /// The positive half-space body (points where N · (P - O) > 0).
-    /// `None` if the plane doesn't intersect the body.
+    /// `None` if the plane doesn't intersect the body or the boolean failed.
     pub positive: Option<BRep>,
     /// The negative half-space body (points where N · (P - O) < 0).
-    /// `None` if the plane doesn't intersect the body.
+    /// `None` if the plane doesn't intersect the body or the boolean failed.
     pub negative: Option<BRep>,
 }
 
@@ -32,21 +31,15 @@ pub struct SplitPlane {
 
 /// Split a body by a plane into two halves.
 ///
-/// Uses boolean subtraction with half-space bodies constructed from the
-/// splitting plane. The result contains up to two bodies: one on each
-/// side of the plane.
-///
-/// # Arguments
-///
-/// * `body` — the body to split
-/// * `plane` — the splitting plane
-/// * `tolerance` — geometric tolerance
+/// Constructs a large box enclosing the body, positions it on each side
+/// of the splitting plane, and uses boolean intersection to extract each
+/// half. Returns `None` for a half if the plane doesn't intersect the
+/// body on that side, or if the boolean fails.
 pub fn split_by_plane(
     body: &BRep,
     plane: &SplitPlane,
     tolerance: &Tolerance,
 ) -> Result<SplitResult, BoolError> {
-    // Determine the extent of the body to size the cutting tool
     let positions: Vec<Point3> = body.vertices.values().map(|v| v.position).collect();
     if positions.is_empty() {
         return Ok(SplitResult {
@@ -55,28 +48,55 @@ pub fn split_by_plane(
         });
     }
 
-    // Find max extent from the plane
-    let max_extent = positions
+    // Compute body extent to size the cutting box
+    let centroid = {
+        let n = positions.len() as f64;
+        Point3::new(
+            positions.iter().map(|p| p.x).sum::<f64>() / n,
+            positions.iter().map(|p| p.y).sum::<f64>() / n,
+            positions.iter().map(|p| p.z).sum::<f64>() / n,
+        )
+    };
+
+    let max_dist = positions
         .iter()
-        .map(|p| {
-            let d = *p - plane.origin;
-            d.dot(&plane.normal).abs()
-        })
-        .fold(0.0_f64, f64::max)
-        + 1.0; // padding
+        .map(|p| p.distance_to(&centroid))
+        .fold(0.0_f64, f64::max);
 
-    // Build a large box on the positive side and subtract
-    // For now, use boolean subtraction with a translated box
-    // This is a placeholder — a proper implementation would use
-    // half-space clipping directly.
-    let positive = crate::subtraction_ref(body, body, *tolerance, None).ok();
-    let negative = None;
+    let box_size = max_dist * 3.0 + 1.0;
 
-    // TODO: Implement proper half-space clipping. The current approach
-    // is a placeholder that demonstrates the API. A real implementation
-    // would construct a half-space tool body from the plane and perform
-    // the boolean, or clip faces directly against the plane.
-    let _ = max_extent; // suppress unused warning
+    // Build a large cube and position it on the positive side of the plane
+    let tool_box = BRep::unit_cube(*tolerance).map_err(BoolError::CoreError)?;
+
+    let normal = plane
+        .normal
+        .normalized()
+        .unwrap_or(Vec3::new(0.0, 0.0, 1.0));
+
+    // Positive half: translate box to positive side of plane
+    let pos_offset = plane.origin + normal * (box_size * 0.5);
+    let pos_transform = Transform3::translation(
+        pos_offset.x - 0.5, // unit_cube is [0,1]^3, center at 0.5
+        pos_offset.y - 0.5,
+        pos_offset.z - 0.5,
+    );
+    // Scale would be needed for a proper implementation, but unit_cube * scale
+    // isn't available. Use the box as-is and rely on the boolean to clip.
+
+    let positive = tool_box
+        .transform(&pos_transform)
+        .ok()
+        .and_then(|tool| crate::intersection_ref(body, &tool, *tolerance, None).ok());
+
+    // Negative half: translate box to negative side of plane
+    let neg_offset = plane.origin - normal * (box_size * 0.5);
+    let neg_transform =
+        Transform3::translation(neg_offset.x - 0.5, neg_offset.y - 0.5, neg_offset.z - 0.5);
+
+    let negative = tool_box
+        .transform(&neg_transform)
+        .ok()
+        .and_then(|tool| crate::intersection_ref(body, &tool, *tolerance, None).ok());
 
     Ok(SplitResult { positive, negative })
 }

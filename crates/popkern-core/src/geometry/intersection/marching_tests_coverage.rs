@@ -349,9 +349,9 @@ fn march_tangent_during_march_robust_handler_recovers() {
 /// both u and v (the torus is periodic in both directions) and produces a closed
 /// curve, verifying the closure detection path inside `march_one_direction`.
 ///
-/// NOTE: Closure detection on periodic surfaces is sensitive to step size and
-/// domain boundary handling. This test is ignored until the closure detection
-/// is enhanced with parametric-distance tracking (Phase 2 spec §2.3.5).
+/// NOTE: Closure detection on torus requires march trajectory debugging —
+/// the curvature adaptation causes step drift that prevents the march from
+/// returning cleanly to the start point. Tracked as shortcoming #4.
 #[test]
 #[ignore]
 fn march_torus_plane_closed_curve() {
@@ -395,6 +395,22 @@ fn march_torus_plane_closed_curve() {
         "torus-plane intersection should produce multiple samples, got {}",
         samples.len()
     );
+    if !is_closed && samples.len() > 1 {
+        let first = &samples[0].point;
+        let last = &samples[samples.len() - 1].point;
+        let dist = first.distance_to(last);
+        eprintln!(
+            "[torus-plane] {} samples, first=({:.3},{:.3},{:.3}), last=({:.3},{:.3},{:.3}), dist={:.6}",
+            samples.len(),
+            first.x,
+            first.y,
+            first.z,
+            last.x,
+            last.y,
+            last.z,
+            dist
+        );
+    }
     assert!(
         is_closed,
         "torus-plane intersection should be a closed curve"
@@ -409,14 +425,7 @@ fn march_torus_plane_closed_curve() {
     }
 }
 
-/// `march_one_direction` closes the curve early (before the outer `march` closure
-/// check) when the new sample returns to within `tolerance.linear` of the start.
-///
-/// A small torus with tight tolerance exercises this inner closure detection path:
-/// the inner march detects the return while `samples.len() > 3` within
-/// `march_one_direction` itself and pushes the closing sample then returns early.
-///
-/// NOTE: Same periodic surface closure issue as `march_torus_plane_closed_curve`.
+/// Same torus closure issue as march_torus_plane_closed_curve.
 #[test]
 #[ignore]
 fn march_one_direction_inner_closure_detection() {

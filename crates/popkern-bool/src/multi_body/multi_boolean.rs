@@ -9,16 +9,24 @@ use popkern_core::topology::BRep;
 use crate::cellular::cell::CellDecomposition;
 use crate::error::BoolError;
 
+/// Batch transaction semantics for multi-body operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BatchMode {
+    /// If any pairwise operation fails, roll back all and return error.
+    AllOrNothing,
+    /// Apply successful operations, skip failures. The result is partial.
+    PartialSuccess,
+}
+
 /// A multi-body boolean operation specification.
 #[derive(Debug, Clone)]
 pub struct MultiBooleanSpec {
     /// The input bodies.
     pub bodies: Vec<BRep>,
-    /// Cell selection predicate: given a membership bitmask where bit i
-    /// indicates the cell is inside body i, return true to include the cell.
-    /// This is stored as a description string; the actual predicate is
-    /// passed at evaluation time.
+    /// Cell selection predicate description.
     pub description: String,
+    /// Batch transaction mode.
+    pub batch_mode: BatchMode,
 }
 
 /// Result of a multi-body boolean operation.
@@ -32,6 +40,8 @@ pub struct MultiBooleanResult {
     pub body_count: usize,
     /// Number of cells in the decomposition.
     pub cell_count: usize,
+    /// Indices of bodies that failed to boolean (for PartialSuccess mode).
+    pub failed_bodies: Vec<usize>,
 }
 
 /// Compute a multi-body boolean using pairwise intersection + cellular decomposition.
@@ -56,6 +66,7 @@ pub fn multi_body_boolean(
     bodies: &[BRep],
     predicate: impl Fn(u64) -> bool,
     tolerance: &Tolerance,
+    batch_mode: BatchMode,
 ) -> Result<MultiBooleanResult, BoolError> {
     if bodies.len() < 2 {
         return Err(BoolError::DegenerateInput(
@@ -91,20 +102,16 @@ pub fn multi_body_boolean(
             decomposition: None,
             body_count,
             cell_count: 0,
+            failed_bodies: Vec::new(),
         });
     }
 
     // For N > 2: sequential pairwise reduction.
-    // Start with body 0, union/intersect with each subsequent body.
-    // This is the naive approach; a true multi-body implementation would
-    // compute all pairwise intersections simultaneously.
     let mut accumulated = bodies[0].clone();
+    let mut failed_bodies = Vec::new();
 
     for (i, body) in bodies.iter().enumerate().skip(1) {
-        // For each additional body, determine the pairwise operation
-        // by checking the predicate with the accumulated body as "A"
-        // and the new body as "B".
-        let in_a = predicate(1 << 0); // simplified: treat accumulated as body 0
+        let in_a = predicate(1 << 0);
         let in_b = predicate(1 << i);
         let in_both = in_a && in_b;
 
@@ -118,9 +125,12 @@ pub fn multi_body_boolean(
 
         match crate::boolean_ref(op, &accumulated, body, *tolerance, None) {
             Ok(result) => accumulated = result,
-            Err(_) => {
-                // Skip bodies that fail to boolean (e.g., no intersection)
-                continue;
+            Err(e) => {
+                failed_bodies.push(i);
+                if batch_mode == BatchMode::AllOrNothing {
+                    return Err(e);
+                }
+                // PartialSuccess: skip this body and continue
             }
         }
     }
@@ -130,5 +140,6 @@ pub fn multi_body_boolean(
         decomposition: None,
         body_count,
         cell_count: 0,
+        failed_bodies,
     })
 }

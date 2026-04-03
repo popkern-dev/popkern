@@ -301,6 +301,7 @@ mod tests {
             shell: brep.faces[mvfs.face].shell,
             surface: None,
             name: None,
+            tolerance: None,
         });
         brep.loops[new_loop].face = new_face;
         brep.half_edges[mev.half_edge_twin].loop_ = new_loop;
