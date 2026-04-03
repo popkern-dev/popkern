@@ -186,18 +186,16 @@ fn face_aabb_sphere_surface_samples_grid() {
     );
 }
 
-/// Coincident cubes produce a CoincidenceMap with face overlaps
-/// rather than an error (coincidence is now handled, not rejected).
+/// Coincident cubes return CoincidentFaces error because graph-merge
+/// cannot yet handle them without overlap boundary curves.
 #[test]
-fn coincident_cubes_produces_coincidence_map() {
+fn coincident_cubes_returns_coincident_faces_error() {
     let cube_a = BRep::unit_cube(tol()).expect("unit cube a");
     let cube_b = BRep::unit_cube(tol()).expect("unit cube b (same position)");
     let result = find_intersections(&cube_a, &cube_b, &tol());
-    assert!(result.is_ok(), "coincident cubes should not error");
-    let result = result.unwrap();
     assert!(
-        !result.coincidence.face_overlaps.is_empty(),
-        "coincident cubes should have face overlaps in coincidence map"
+        result.is_err(),
+        "coincident cubes should produce a CoincidentFaces error"
     );
 }
 

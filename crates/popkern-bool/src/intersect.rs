@@ -4,7 +4,6 @@
 //! using AABB filtering followed by surface-surface intersection.
 
 use popkern_core::geometry::curve_on_surface::CurveOnSurface;
-use popkern_core::validation::bvh::Bvh;
 use popkern_core::{
     geometry::{
         intersection::{SurfaceSurfaceIntersection, intersect_surfaces, surface_subdivision::Aabb},
@@ -125,86 +124,85 @@ pub(crate) fn find_intersections(
     let aabbs_a = compute_face_aabbs(a);
     let aabbs_b = compute_face_aabbs(b);
     let mut records: Vec<IntersectionRecord> = Vec::new();
-    let mut coincident_pairs: Vec<(FaceHandle, FaceHandle)> = Vec::new();
 
-    // Use BVH for face-pair filtering: combine both sets with tagged IDs.
-    // IDs 0..n_a are body A faces, n_a..n_a+n_b are body B faces.
-    let n_a = aabbs_a.len();
-    let mut combined: Vec<(usize, Aabb)> = Vec::with_capacity(n_a + aabbs_b.len());
-    for (i, (_, aabb)) in aabbs_a.iter().enumerate() {
-        combined.push((i, aabb.clone()));
-    }
-    for (i, (_, aabb)) in aabbs_b.iter().enumerate() {
-        combined.push((n_a + i, aabb.clone()));
-    }
-    let bvh = Bvh::build(&combined);
-    let candidate_pairs = bvh.find_overlapping_pairs(tolerance.linear);
+    // N^2 face-pair loop with AABB pre-filtering.
+    // NOTE: BVH acceleration is available via Bvh::find_overlapping_pairs but
+    // the graph-merge pipeline is currently order-sensitive, so we preserve the
+    // deterministic iteration order until the cellular decomposition (Phase 6)
+    // replaces it.
+    for (face_a, aabb_a) in &aabbs_a {
+        for (face_b, aabb_b) in &aabbs_b {
+            if !aabb_a.overlaps(aabb_b, tolerance.linear) {
+                continue;
+            }
 
-    // Filter to cross-body pairs only (one from A, one from B)
-    for (id_x, id_y) in &candidate_pairs {
-        let (a_idx, b_idx) = if *id_x < n_a && *id_y >= n_a {
-            (*id_x, *id_y - n_a)
-        } else if *id_y < n_a && *id_x >= n_a {
-            (*id_y, *id_x - n_a)
-        } else {
-            continue; // same-body pair, skip
-        };
+            let face_a = *face_a;
+            let face_b = *face_b;
 
-        let face_a = aabbs_a[a_idx].0;
-        let face_b = aabbs_b[b_idx].0;
+            let surf_a = match a.faces[face_a].surface.as_ref() {
+                Some(s) => &s.geometry,
+                None => continue,
+            };
+            let surf_b = match b.faces[face_b].surface.as_ref() {
+                Some(s) => &s.geometry,
+                None => continue,
+            };
 
-        let surf_a = match a.faces[face_a].surface.as_ref() {
-            Some(s) => &s.geometry,
-            None => continue,
-        };
-        let surf_b = match b.faces[face_b].surface.as_ref() {
-            Some(s) => &s.geometry,
-            None => continue,
-        };
+            let ((u1_min, u1_max), (v1_min, v1_max)) = bounded_parameter_range(a, face_a, surf_a);
+            let ((u2_min, u2_max), (v2_min, v2_max)) = bounded_parameter_range(b, face_b, surf_b);
 
-        let ((u1_min, u1_max), (v1_min, v1_max)) = bounded_parameter_range(a, face_a, surf_a);
-        let ((u2_min, u2_max), (v2_min, v2_max)) = bounded_parameter_range(b, face_b, surf_b);
-
-        match intersect_surfaces(
-            surf_a,
-            (u1_min, u1_max),
-            (v1_min, v1_max),
-            surf_b,
-            (u2_min, u2_max),
-            (v2_min, v2_max),
-            tolerance,
-        ) {
-            Ok(result) => {
-                for isect in result.intersections {
-                    match isect {
-                        SurfaceSurfaceIntersection::Curve(curve) => {
-                            if let Some(clipped) = clip_curve_to_faces(a, face_a, b, face_b, &curve)
-                            {
-                                records.push(IntersectionRecord {
-                                    face_a,
-                                    face_b,
-                                    curve: clipped,
+            match intersect_surfaces(
+                surf_a,
+                (u1_min, u1_max),
+                (v1_min, v1_max),
+                surf_b,
+                (u2_min, u2_max),
+                (v2_min, v2_max),
+                tolerance,
+            ) {
+                Ok(result) => {
+                    for isect in result.intersections {
+                        match isect {
+                            SurfaceSurfaceIntersection::Curve(curve) => {
+                                if let Some(clipped) =
+                                    clip_curve_to_faces(a, face_a, b, face_b, &curve)
+                                {
+                                    records.push(IntersectionRecord {
+                                        face_a,
+                                        face_b,
+                                        curve: clipped,
+                                    });
+                                }
+                            }
+                            SurfaceSurfaceIntersection::CoincidentRegion { .. } => {
+                                // Coincident face pair — graph_merge cannot yet handle
+                                // these without overlap boundary curves. Return error
+                                // until Phase 3.3 overlap boundary computation is done.
+                                return Err(BoolDiagnostics {
+                                    error: Some(BoolError::CoincidentFaces { face_a, face_b }),
+                                    intersection_curves: records
+                                        .into_iter()
+                                        .map(|r| r.curve)
+                                        .collect(),
+                                    face_classifications: Vec::new(),
+                                    failed_stage: Some(Stage::Intersection),
+                                    entries: Vec::new(),
                                 });
                             }
                         }
-                        SurfaceSurfaceIntersection::CoincidentRegion { .. } => {
-                            // Record as a coincident face pair instead of failing.
-                            // The coincidence engine will handle classification.
-                            coincident_pairs.push((face_a, face_b));
-                        }
                     }
                 }
-            }
-            Err(e) => {
-                return Err(BoolDiagnostics {
-                    error: Some(BoolError::IntersectionFailed(format!(
-                        "face_a={face_a:?} face_b={face_b:?}: {e}"
-                    ))),
-                    intersection_curves: records.into_iter().map(|r| r.curve).collect(),
-                    face_classifications: Vec::new(),
-                    failed_stage: Some(Stage::Intersection),
-                    entries: Vec::new(),
-                });
+                Err(e) => {
+                    return Err(BoolDiagnostics {
+                        error: Some(BoolError::IntersectionFailed(format!(
+                            "face_a={face_a:?} face_b={face_b:?}: {e}"
+                        ))),
+                        intersection_curves: records.into_iter().map(|r| r.curve).collect(),
+                        face_classifications: Vec::new(),
+                        failed_stage: Some(Stage::Intersection),
+                        entries: Vec::new(),
+                    });
+                }
             }
         }
     }
@@ -217,44 +215,10 @@ pub(crate) fn find_intersections(
     let hierarchy =
         crate::intersect_hierarchy::compute_hierarchy(a, b, &aabbs_a, &aabbs_b, &bool_tol);
 
-    // Build the coincidence map: start from the coincidence engine's detection,
-    // then add any face pairs that the surface-surface solver flagged as coincident.
+    // Build the coincidence map from dedicated coincidence detection.
     let bool_tol2 = crate::tolerance::BoolTolerance::from(*tolerance);
-    let mut coincidence =
+    let coincidence =
         crate::coincidence::detect::detect_coincidences(a, b, &aabbs_a, &aabbs_b, &bool_tol2);
-
-    // Add face pairs detected by intersect_surfaces' CoincidentRegion path
-    for (fa, fb) in coincident_pairs {
-        let already_recorded = coincidence
-            .face_overlaps
-            .iter()
-            .any(|fo| fo.face_a == fa && fo.face_b == fb);
-        if !already_recorded {
-            let orientation = crate::coincidence::classify::classify_face_orientation(a, fa, b, fb);
-            let positions_a = crate::clip::face_vertex_positions(a, fa);
-            let positions_b = crate::clip::face_vertex_positions(b, fb);
-            let all: Vec<_> = positions_a.iter().chain(positions_b.iter()).collect();
-            let center = if all.is_empty() {
-                popkern_core::geometry::Point3::new(0.0, 0.0, 0.0)
-            } else {
-                let n = all.len() as f64;
-                popkern_core::geometry::Point3::new(
-                    all.iter().map(|p| p.x).sum::<f64>() / n,
-                    all.iter().map(|p| p.y).sum::<f64>() / n,
-                    all.iter().map(|p| p.z).sum::<f64>() / n,
-                )
-            };
-            coincidence
-                .face_overlaps
-                .push(crate::coincidence::types::FaceOverlap {
-                    face_a: fa,
-                    face_b: fb,
-                    orientation,
-                    full_overlap: false,
-                    overlap_center: center,
-                });
-        }
-    }
 
     Ok(IntersectionResult {
         records,

@@ -274,46 +274,29 @@ fn csg_tree_subtraction_then_union() {
 // ── Error diagnostics ──────────────────────────────────────────────────
 
 #[test]
-fn coincident_cubes_union_does_not_crash() {
-    // Coincident cubes are now handled via the coincidence engine.
-    // The boolean may produce a result or a non-CoincidentFaces error
-    // depending on graph merge behavior, but it should never panic
-    // and should never return BoolError::CoincidentFaces.
+fn coincident_cubes_returns_error() {
+    // Coincident cubes trigger CoincidentFaces error because graph-merge
+    // cannot yet handle them without overlap boundary curves.
     let a = BRep::unit_cube(tol()).unwrap();
     let b = BRep::unit_cube(tol()).unwrap();
     let result = crate::union(a, b, tol(), None);
-    if let Err(ref e) = result {
-        assert!(
-            !matches!(e, BoolError::CoincidentFaces { .. }),
-            "CoincidentFaces error should no longer be returned: {e:?}"
-        );
-    }
+    assert!(result.is_err(), "Coincident cubes should produce an error");
 }
 
 #[test]
-fn coincident_cubes_intersection_does_not_crash() {
+fn coincident_cubes_intersection_returns_error() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = BRep::unit_cube(tol()).unwrap();
     let result = crate::intersection(a, b, tol(), None);
-    if let Err(ref e) = result {
-        assert!(
-            !matches!(e, BoolError::CoincidentFaces { .. }),
-            "CoincidentFaces error should no longer be returned: {e:?}"
-        );
-    }
+    assert!(result.is_err());
 }
 
 #[test]
-fn coincident_cubes_subtraction_does_not_crash() {
+fn coincident_cubes_subtraction_returns_error() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = BRep::unit_cube(tol()).unwrap();
     let result = crate::subtraction(a, b, tol(), None);
-    if let Err(ref e) = result {
-        assert!(
-            !matches!(e, BoolError::CoincidentFaces { .. }),
-            "CoincidentFaces error should no longer be returned: {e:?}"
-        );
-    }
+    assert!(result.is_err());
 }
 
 // ── boolean() generic entry point ──────────────────────────────────────

@@ -141,7 +141,6 @@ fn fillet_edge_between_plane_and_cylinder() {
 }
 
 #[test]
-#[ignore] // Euler check fragile with BVH pair ordering; tracked for Phase 6
 fn fillet_edge_on_boolean_cube_result() {
     let tol = default_tol();
 
