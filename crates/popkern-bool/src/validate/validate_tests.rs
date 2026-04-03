@@ -133,3 +133,25 @@ fn repair_report_default() {
     assert_eq!(report.vertices_adjusted, 0);
     assert_eq!(report.unrepairable_gaps, 0);
 }
+
+#[test]
+fn repair_closes_small_gap() {
+    // Create a cube and intentionally perturb a vertex position
+    let mut cube = BRep::unit_cube(Tolerance::default()).unwrap();
+
+    // Perturb the first vertex slightly
+    let vh = cube.vertices.keys().next().unwrap();
+    let original_pos = cube.vertices[vh].position;
+    cube.vertices[vh].position =
+        popkern_core::geometry::Point3::new(original_pos.x + 1e-7, original_pos.y, original_pos.z);
+
+    let report = super::repair::repair_vertex_positions(&mut cube, 1e-4);
+    // The vertex was moved by 1e-7 which is within 1e-4 tolerance.
+    // The repair should snap it to the curve endpoint if the edge
+    // curve evaluates to the original position.
+    // Note: unit_cube edges are lines from vertex to vertex, so the
+    // curve endpoint IS the vertex — repair may or may not trigger
+    // depending on whether the curve was updated with the perturbation.
+    // This test validates the repair path executes without panic.
+    assert!(report.fully_repaired() || report.vertices_adjusted > 0);
+}

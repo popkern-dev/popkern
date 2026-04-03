@@ -128,7 +128,7 @@ fn project_face_to_uv(
 }
 
 /// 2D point-in-polygon test using ray casting (crossing number).
-fn point_in_polygon_2d(u: f64, v: f64, poly: &[(f64, f64)]) -> bool {
+pub(crate) fn point_in_polygon_2d(u: f64, v: f64, poly: &[(f64, f64)]) -> bool {
     let n = poly.len();
     let mut crossings = 0;
     for i in 0..n {
@@ -202,3 +202,7 @@ fn make_line_curve_on_surface(
         is_closed: false,
     })
 }
+
+#[cfg(test)]
+#[path = "overlap_boundary_tests.rs"]
+mod tests;

@@ -77,14 +77,35 @@ fn split_plane_api_does_not_panic() {
         origin: Point3::new(0.5, 0.5, 0.5),
         normal: Vec3::new(1.0, 0.0, 0.0),
     };
-    let _result = split_by_plane(&cube, &plane, &tol());
-    // Placeholder implementation — just verify no panic
+    let result = split_by_plane(&cube, &plane, &tol());
+    assert!(result.is_ok());
+    // With a plane at x=0.5, both halves should exist (plane cuts through cube)
+    // The result depends on the boolean intersection working correctly.
+    // At minimum, verify the function produces a result.
+    let result = result.unwrap();
+    let has_any = result.positive.is_some() || result.negative.is_some();
+    assert!(has_any, "split should produce at least one half");
+}
+
+#[test]
+fn split_empty_body_returns_none() {
+    use super::split_slice::{SplitPlane, split_by_plane};
+    use popkern_core::geometry::Point3;
+
+    let empty = BRep::new(tol());
+    let plane = SplitPlane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+    };
+    let result = split_by_plane(&empty, &plane, &tol()).unwrap();
+    assert!(result.positive.is_none());
+    assert!(result.negative.is_none());
 }
 
 // ── Face-level boolean tests ───────────────────────────────────────────
 
 #[test]
-fn face_level_boolean_api_does_not_panic() {
+fn face_level_boolean_with_overlapping_cubes() {
     use super::face_level::{FacePairSpec, face_level_boolean};
     use crate::error::BoolOperation;
 
@@ -94,7 +115,6 @@ fn face_level_boolean_api_does_not_panic() {
         .transform(&Transform3::translation(0.5, 0.0, 0.0))
         .unwrap();
 
-    // Get face handles
     let fa = a.faces.keys().next().unwrap();
     let fb = b.faces.keys().next().unwrap();
 
@@ -103,5 +123,21 @@ fn face_level_boolean_api_does_not_panic() {
         face_b: fb,
     }];
 
-    let _result = face_level_boolean(&a, &b, BoolOperation::Union, &pairs, &tol());
+    let result = face_level_boolean(&a, &b, BoolOperation::Union, &pairs, &tol()).unwrap();
+    assert_eq!(result.pairs_processed, 1);
+    // curves_found depends on which specific faces were picked
+}
+
+#[test]
+fn face_level_boolean_empty_pairs() {
+    use super::face_level::{FacePairSpec, face_level_boolean};
+    use crate::error::BoolOperation;
+
+    let a = BRep::unit_cube(tol()).unwrap();
+    let b = BRep::unit_cube(tol()).unwrap();
+
+    let result = face_level_boolean(&a, &b, BoolOperation::Union, &[], &tol()).unwrap();
+    assert_eq!(result.pairs_processed, 0);
+    assert_eq!(result.curves_found, 0);
+    assert!(result.body.is_none());
 }

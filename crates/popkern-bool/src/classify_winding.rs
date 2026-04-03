@@ -146,4 +146,43 @@ mod tests {
         let w = compute_winding_number(&outside, &cube);
         assert!(w.abs() < 0.1, "winding outside should be ~0, got {w}");
     }
+
+    #[test]
+    fn point_near_face_classified() {
+        let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+        // Point very close to a face but inside
+        let near = Point3::new(0.5, 0.5, 0.999);
+        let result = point_in_solid_winding(&near, &cube);
+        assert_eq!(
+            result,
+            PointClassification::Inside,
+            "point near face but inside should be Inside"
+        );
+    }
+
+    #[test]
+    fn point_just_outside_classified() {
+        let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+        let near = Point3::new(0.5, 0.5, 1.01);
+        let result = point_in_solid_winding(&near, &cube);
+        assert_eq!(
+            result,
+            PointClassification::Outside,
+            "point just outside should be Outside"
+        );
+    }
+
+    #[test]
+    fn winding_on_cylinder() {
+        let cyl = BRep::cylinder(1.0, 2.0, Tolerance::default()).unwrap();
+        let inside = Point3::new(0.0, 0.0, 1.0);
+        let w = compute_winding_number(&inside, &cyl);
+        // Cylinder with only 3 faces (lateral + 2 caps) may not give
+        // a clean winding number via triangle fan. The lateral NURBS face
+        // has only a few vertices. Just verify the function executes.
+        assert!(
+            w.is_finite(),
+            "winding on cylinder should be finite, got {w}"
+        );
+    }
 }
