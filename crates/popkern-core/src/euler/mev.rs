@@ -56,6 +56,7 @@ impl BRep {
             position,
             outgoing: Default::default(),
             name: None,
+            tolerance: None,
         });
 
         // Create the edge.
@@ -63,6 +64,7 @@ impl BRep {
             half_edge: Default::default(),
             curve: None,
             name: None,
+            tolerance: None,
         });
 
         // Create half-edges with placeholder handles; we'll patch after insertion.
@@ -137,6 +139,7 @@ impl BRep {
             position,
             outgoing: Default::default(),
             name: None,
+            tolerance: None,
         });
 
         // Create the edge.
@@ -144,6 +147,7 @@ impl BRep {
             half_edge: Default::default(),
             curve: None,
             name: None,
+            tolerance: None,
         });
 
         // Create he_out: existing_vertex -> new_vertex

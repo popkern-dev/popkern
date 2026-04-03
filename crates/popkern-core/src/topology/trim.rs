@@ -78,6 +78,7 @@ impl BRep {
                 position: pos,
                 outgoing: Default::default(),
                 name: None,
+                tolerance: None,
             });
             vertices.push(vh);
         }
@@ -126,6 +127,7 @@ impl BRep {
                     t_end: 1.0,
                 }),
                 name: None,
+                tolerance: None,
             });
             edges.push(edge_h);
 

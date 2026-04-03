@@ -13,4 +13,8 @@ pub struct Vertex {
     /// Stable topological name for this vertex.
     #[serde(default)]
     pub name: Option<NameId>,
+    /// Per-entity tolerance (accuracy of this vertex's position).
+    /// `None` means use the BRep-level default tolerance.
+    #[serde(default)]
+    pub tolerance: Option<f64>,
 }

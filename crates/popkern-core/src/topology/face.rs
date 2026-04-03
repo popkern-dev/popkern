@@ -17,4 +17,8 @@ pub struct Face {
     /// Stable topological name for this face.
     #[serde(default)]
     pub name: Option<NameId>,
+    /// Per-entity tolerance (accuracy of this face's surface geometry).
+    /// `None` means use the BRep-level default tolerance.
+    #[serde(default)]
+    pub tolerance: Option<f64>,
 }

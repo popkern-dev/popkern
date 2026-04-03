@@ -114,21 +114,25 @@ fn build_quad_face(
         position: p0,
         outgoing: Default::default(),
         name: None,
+        tolerance: None,
     });
     let vh1 = brep.vertices.insert(Vertex {
         position: p1,
         outgoing: Default::default(),
         name: None,
+        tolerance: None,
     });
     let vh2 = brep.vertices.insert(Vertex {
         position: p2,
         outgoing: Default::default(),
         name: None,
+        tolerance: None,
     });
     let vh3 = brep.vertices.insert(Vertex {
         position: p3,
         outgoing: Default::default(),
         name: None,
+        tolerance: None,
     });
 
     let shell_h = brep
@@ -147,6 +151,7 @@ fn build_quad_face(
             orientation: true,
         }),
         name: None,
+        tolerance: None,
     });
     let loop_h = brep.loops.insert(Loop {
         half_edge: Default::default(),
@@ -206,6 +211,7 @@ fn build_quad_face(
             half_edge: he,
             curve,
             name: None,
+            tolerance: None,
         });
         brep.half_edges[he].edge = edge;
         brep.half_edges[tw].edge = edge;

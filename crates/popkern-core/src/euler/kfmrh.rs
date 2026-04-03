@@ -118,6 +118,7 @@ impl BRep {
             shell: Default::default(), // patched below
             surface: None,
             name: None,
+            tolerance: None,
         });
 
         // Update the loop to point to the new face.

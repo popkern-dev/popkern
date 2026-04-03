@@ -31,6 +31,7 @@ impl BRepBuilder {
             position,
             outgoing: HalfEdgeHandle::default(),
             name: None,
+            tolerance: None,
         })
     }
 
@@ -67,6 +68,7 @@ impl BRepBuilder {
             half_edge: HalfEdgeHandle::default(),
             curve: None,
             name: None,
+            tolerance: None,
         });
 
         let he1 = self.brep.half_edges.insert(HalfEdge {
@@ -111,6 +113,7 @@ impl BRepBuilder {
             shell,
             surface: None,
             name: None,
+            tolerance: None,
         });
         if self.brep.shells[shell].face == FaceHandle::default() {
             self.brep.shells[shell].face = fh;

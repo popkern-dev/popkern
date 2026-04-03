@@ -297,6 +297,7 @@ fn build_hole_loop(
                 position: ctx.plane.to_3d(de.start.0, de.start.1),
                 outgoing: Default::default(),
                 name: None,
+                tolerance: None,
             })
         })
         .collect();
@@ -311,6 +312,7 @@ fn build_hole_loop(
             half_edge: Default::default(),
             curve: None,
             name: None,
+            tolerance: None,
         });
 
         let he_fwd = brep.half_edges.insert(HalfEdge {

@@ -102,6 +102,7 @@ impl BRep {
             position: split_pos,
             outgoing: Default::default(),
             name: None,
+            tolerance: None,
         });
 
         // Split pcurves for he_ab (A->B direction) and he_ba (B->A direction).
@@ -115,6 +116,7 @@ impl BRep {
             half_edge: Default::default(),
             curve: None,
             name: None,
+            tolerance: None,
         });
 
         // Create new half-edges: he_vb (V->B) and he_bv (B->V).

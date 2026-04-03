@@ -34,6 +34,7 @@ impl BRep {
             position,
             outgoing: Default::default(),
             name: None,
+            tolerance: None,
         });
 
         // We need face, loop, shell, solid — they are mutually referential.
@@ -44,6 +45,7 @@ impl BRep {
             shell: Default::default(),
             surface: None,
             name: None,
+            tolerance: None,
         });
 
         let loop_ = self.loops.insert(Loop {

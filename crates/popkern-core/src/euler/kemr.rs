@@ -166,6 +166,7 @@ impl BRep {
             half_edge: Default::default(),
             curve: None,
             name: None,
+            tolerance: None,
         });
 
         // Create new_he: v_outer -> v_inner (spliced into the merged loop)

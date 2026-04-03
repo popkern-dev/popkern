@@ -251,6 +251,7 @@ fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, Bo
             position: v.position,
             outgoing: popkern_core::topology::HalfEdgeHandle::default(),
             name: v.name,
+            tolerance: None,
         });
         v_map.insert(old_h, new_h);
     }
@@ -261,6 +262,7 @@ fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, Bo
             half_edge: popkern_core::topology::HalfEdgeHandle::default(),
             curve: e.curve.clone(),
             name: e.name,
+            tolerance: None,
         });
         e_map.insert(old_h, new_h);
     }
@@ -323,6 +325,7 @@ fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, Bo
             shell: popkern_core::topology::ShellHandle::default(),
             surface,
             name: f.name,
+            tolerance: None,
         });
         f_map.insert(old_h, new_h);
     }

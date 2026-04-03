@@ -13,4 +13,8 @@ pub struct Edge {
     /// Stable topological name for this edge.
     #[serde(default)]
     pub name: Option<NameId>,
+    /// Per-entity tolerance (accuracy of this edge's curve geometry).
+    /// `None` means use the BRep-level default tolerance.
+    #[serde(default)]
+    pub tolerance: Option<f64>,
 }

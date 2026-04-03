@@ -142,6 +142,21 @@ impl BRep {
         points
     }
 
+    /// Get the effective tolerance for a vertex (entity-level or BRep default).
+    pub fn vertex_tolerance(&self, vh: VertexHandle) -> f64 {
+        self.vertices[vh].tolerance.unwrap_or(self.tolerance.linear)
+    }
+
+    /// Get the effective tolerance for an edge (entity-level or BRep default).
+    pub fn edge_tolerance(&self, eh: EdgeHandle) -> f64 {
+        self.edges[eh].tolerance.unwrap_or(self.tolerance.linear)
+    }
+
+    /// Get the effective tolerance for a face (entity-level or BRep default).
+    pub fn face_tolerance(&self, fh: FaceHandle) -> f64 {
+        self.faces[fh].tolerance.unwrap_or(self.tolerance.linear)
+    }
+
     /// Apply a rigid transformation to the entire BRep, returning a new copy.
     ///
     /// Transforms vertex positions, surface geometry on every face, edge
