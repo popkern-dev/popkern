@@ -175,9 +175,10 @@ pub(crate) fn find_intersections(
                                 }
                             }
                             SurfaceSurfaceIntersection::CoincidentRegion { .. } => {
-                                // Coincident face pair — graph_merge cannot yet handle
-                                // these without overlap boundary curves. Return error
-                                // until Phase 3.3 overlap boundary computation is done.
+                                // Coincident face pair — cannot proceed without
+                                // overlap boundary curves. Abort this operation.
+                                // The coincidence engine (detect_coincidences)
+                                // records the overlap for diagnostic purposes.
                                 return Err(BoolDiagnostics {
                                     error: Some(BoolError::CoincidentFaces { face_a, face_b }),
                                     intersection_curves: records

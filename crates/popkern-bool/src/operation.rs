@@ -123,6 +123,9 @@ pub(crate) fn execute_boolean(
     // Log validation issues (don't fail — diagnostic only for now).
     log_validation_issues(&result, op);
 
+    // Post-processing diagnostics: sliver detection and watertightness.
+    log_post_processing_diagnostics(&result, tolerance);
+
     Ok(result)
 }
 
@@ -158,6 +161,45 @@ fn log_validation_issues(result: &BRep, op: BoolOperation) {
             );
         }
         _ => {}
+    }
+}
+
+/// Log post-processing diagnostics: sliver detection and watertightness.
+///
+/// Runs sliver analysis on each face and watertightness validation on all
+/// edges. Results are logged to stderr (diagnostic only, does not fail).
+fn log_post_processing_diagnostics(result: &BRep, tolerance: &Tolerance) {
+    use crate::clip::face_vertex_positions;
+    use crate::imprint::shared_geometry::validate_watertightness;
+    use crate::imprint::sliver::{SliverThresholds, analyze_face_polygon};
+
+    let sliver_thresholds = SliverThresholds::from_tolerance(tolerance.linear * 5.0);
+
+    // Sliver detection
+    let mut sliver_count = 0;
+    for fh in result.faces.keys() {
+        let positions = face_vertex_positions(result, fh);
+        if positions.len() >= 3 {
+            let report = analyze_face_polygon(&positions, &sliver_thresholds);
+            if report.is_sliver {
+                sliver_count += 1;
+            }
+        }
+    }
+    if sliver_count > 0 {
+        #[cfg(debug_assertions)]
+        eprintln!("[boolean] post-processing: {sliver_count} sliver face(s) detected");
+    }
+
+    // Watertightness validation
+    let wt_report = validate_watertightness(result, tolerance.linear * 10.0, 3);
+    if !wt_report.is_watertight() {
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[boolean] post-processing: {} watertightness gap(s), max deviation: {:.2e}",
+            wt_report.gaps.len(),
+            wt_report.max_gap()
+        );
     }
 }
 

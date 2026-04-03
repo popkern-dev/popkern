@@ -60,21 +60,34 @@ fn detect_one_direction(
             None => continue,
         };
 
-        let edge_aabb = match Aabb::from_points(&[v_start, v_end]) {
-            Some(a) => a,
-            None => continue,
+        // Use actual edge curve geometry when available; fall back to line.
+        let (edge_curve, t_range, edge_aabb) = if let Some(coe) = &edge.curve {
+            let bbox = coe
+                .geometry
+                .curve_bounding_box((coe.t_start.min(coe.t_end), coe.t_start.max(coe.t_end)));
+            (
+                coe.geometry.clone(),
+                (coe.t_start.min(coe.t_end), coe.t_start.max(coe.t_end)),
+                bbox,
+            )
+        } else {
+            let direction = v_end - v_start;
+            if direction.length_squared() < 1e-30 {
+                continue;
+            }
+            let bbox = match Aabb::from_points(&[v_start, v_end]) {
+                Some(a) => a,
+                None => continue,
+            };
+            (
+                CurveGeometry::Line {
+                    origin: v_start,
+                    direction,
+                },
+                (0.0, 1.0),
+                bbox,
+            )
         };
-
-        // Construct a line curve from vertex positions
-        let direction = v_end - v_start;
-        if direction.length_squared() < 1e-30 {
-            continue;
-        }
-        let edge_curve = CurveGeometry::Line {
-            origin: v_start,
-            direction,
-        };
-        let t_range = (0.0, 1.0);
 
         for (face_h, face_aabb) in face_aabbs {
             if !edge_aabb.overlaps(face_aabb, tolerance.linear) {

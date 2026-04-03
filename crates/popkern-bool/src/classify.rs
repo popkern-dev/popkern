@@ -383,25 +383,36 @@ pub(crate) fn classify_fragments(
     fragments_brep: &BRep,
     other_brep: &BRep,
     other_face_aabbs: &[(FaceHandle, Aabb)],
-    _intersection_edges: &HashSet<EdgeHandle>,
+    intersection_edges: &HashSet<EdgeHandle>,
     tolerance: &Tolerance,
 ) -> Result<HashMap<FaceHandle, Classification>, BoolError> {
-    let mut result = HashMap::new();
-
-    for face_handle in fragments_brep.faces.keys() {
-        let sample = pick_sample_point(fragments_brep, face_handle);
-        let pc = point_in_solid(&sample, other_brep, other_face_aabbs, tolerance)?;
-
-        let class = match pc {
-            PointClassification::Inside => Classification::Inside,
-            PointClassification::Outside => Classification::Outside,
-            PointClassification::OnBoundary => Classification::OnBoundaryCooriented,
-        };
-
-        result.insert(face_handle, class);
+    // Use topological propagation: classify one seed per connected component,
+    // then propagate across non-intersection edges. Falls back to per-face
+    // ray casting if propagation fails.
+    match crate::classify_propagation::classify_with_propagation(
+        fragments_brep,
+        other_brep,
+        other_face_aabbs,
+        intersection_edges,
+        tolerance,
+    ) {
+        Ok((result, _ray_count)) => Ok(result),
+        Err(_) => {
+            // Propagation failed — fall back to per-face classification
+            let mut result = HashMap::new();
+            for face_handle in fragments_brep.faces.keys() {
+                let sample = pick_sample_point(fragments_brep, face_handle);
+                let pc = point_in_solid(&sample, other_brep, other_face_aabbs, tolerance)?;
+                let class = match pc {
+                    PointClassification::Inside => Classification::Inside,
+                    PointClassification::Outside => Classification::Outside,
+                    PointClassification::OnBoundary => Classification::OnBoundaryCooriented,
+                };
+                result.insert(face_handle, class);
+            }
+            Ok(result)
+        }
     }
-
-    Ok(result)
 }
 
 /// Pick a representative sample point on a face for classification.

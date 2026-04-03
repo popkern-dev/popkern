@@ -186,8 +186,8 @@ fn face_aabb_sphere_surface_samples_grid() {
     );
 }
 
-/// Coincident cubes return CoincidentFaces error because graph-merge
-/// cannot yet handle them without overlap boundary curves.
+/// Coincident cubes return CoincidentFaces error — overlap boundary
+/// computation is needed before graph-merge can handle these.
 #[test]
 fn coincident_cubes_returns_coincident_faces_error() {
     let cube_a = BRep::unit_cube(tol()).expect("unit cube a");

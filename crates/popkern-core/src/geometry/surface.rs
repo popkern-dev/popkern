@@ -68,9 +68,11 @@ pub fn closest_point_gauss_newton(surface: &dyn SurfaceEval, point: &Point3) -> 
     let v_lo = v0.max(-100.0);
     let v_hi = v1.min(100.0);
 
-    // 4x4 grid of starts covers the parameter domain well
-    let n_grid = 4;
-    let mut starts = Vec::with_capacity(n_grid * n_grid);
+    // 5x5 grid of starts plus domain corners for periodic surfaces.
+    // The 5x5 grid covers the interior; corners catch periodic boundary
+    // cases where the closest point is near u=0 or v=0 on a torus/sphere.
+    let n_grid = 5;
+    let mut starts = Vec::with_capacity(n_grid * n_grid + 4);
     for i in 0..n_grid {
         let u = u_lo + (u_hi - u_lo) * (i as f64 + 0.5) / (n_grid as f64);
         for j in 0..n_grid {
@@ -78,6 +80,11 @@ pub fn closest_point_gauss_newton(surface: &dyn SurfaceEval, point: &Point3) -> 
             starts.push((u, v));
         }
     }
+    // Add domain corners (important for periodic surfaces)
+    starts.push((u_lo, v_lo));
+    starts.push((u_lo, v_hi));
+    starts.push((u_hi, v_lo));
+    starts.push((u_hi, v_hi));
 
     let max_iter = 20;
     let step_tol = 1e-12;

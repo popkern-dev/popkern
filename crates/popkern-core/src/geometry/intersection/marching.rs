@@ -364,6 +364,22 @@ fn march_one_direction(
                         step_size = step_size * 0.7 + curvature_cap * 0.3;
                     }
 
+                    // Near-tangent step reduction: when surfaces are nearly
+                    // parallel, the intersection curve direction is poorly
+                    // defined and smaller steps improve stability.
+                    let n1_post = surface1.normal_at(sample.u1, sample.v1);
+                    let n2_post = surface2.normal_at(sample.u2, sample.v2);
+                    let cross_len = n1_post.cross(&n2_post).length();
+                    let norms = n1_post.length() * n2_post.length();
+                    if norms > 1e-15 {
+                        let sin_angle = cross_len / norms;
+                        // Only intervene for very near-tangent (sin < 0.01 ≈ < 0.6°)
+                        if sin_angle < 0.01 {
+                            let factor = (sin_angle * 100.0).max(0.2);
+                            step_size = (step_size * factor).max(min_step);
+                        }
+                    }
+
                     // Wrap parameters for periodic surfaces before domain check.
                     let (periodic_u1, periodic_v1) = surface1.is_periodic();
                     let (periodic_u2, periodic_v2) = surface2.is_periodic();

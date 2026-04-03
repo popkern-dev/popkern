@@ -275,8 +275,6 @@ fn csg_tree_subtraction_then_union() {
 
 #[test]
 fn coincident_cubes_returns_error() {
-    // Coincident cubes trigger CoincidentFaces error because graph-merge
-    // cannot yet handle them without overlap boundary curves.
     let a = BRep::unit_cube(tol()).unwrap();
     let b = BRep::unit_cube(tol()).unwrap();
     let result = crate::union(a, b, tol(), None);
@@ -287,16 +285,14 @@ fn coincident_cubes_returns_error() {
 fn coincident_cubes_intersection_returns_error() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = BRep::unit_cube(tol()).unwrap();
-    let result = crate::intersection(a, b, tol(), None);
-    assert!(result.is_err());
+    assert!(crate::intersection(a, b, tol(), None).is_err());
 }
 
 #[test]
 fn coincident_cubes_subtraction_returns_error() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = BRep::unit_cube(tol()).unwrap();
-    let result = crate::subtraction(a, b, tol(), None);
-    assert!(result.is_err());
+    assert!(crate::subtraction(a, b, tol(), None).is_err());
 }
 
 // ── boolean() generic entry point ──────────────────────────────────────
