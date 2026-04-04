@@ -121,8 +121,37 @@ pub(crate) fn find_intersections(
     b: &BRep,
     tolerance: &Tolerance,
 ) -> Result<IntersectionResult, BoolDiagnostics> {
-    let aabbs_a = compute_face_aabbs(a);
-    let aabbs_b = compute_face_aabbs(b);
+    find_intersections_with_aabbs(a, b, None, None, tolerance)
+}
+
+/// Find intersections with optional precomputed AABBs.
+///
+/// When `pre_aabbs_a` or `pre_aabbs_b` is Some, uses the provided AABBs
+/// instead of recomputing. This avoids redundant work in multi-body
+/// operations where the same body's AABBs are needed multiple times.
+pub(crate) fn find_intersections_with_aabbs(
+    a: &BRep,
+    b: &BRep,
+    pre_aabbs_a: Option<&[(FaceHandle, Aabb)]>,
+    pre_aabbs_b: Option<&[(FaceHandle, Aabb)]>,
+    tolerance: &Tolerance,
+) -> Result<IntersectionResult, BoolDiagnostics> {
+    let owned_aabbs_a;
+    let owned_aabbs_b;
+    let aabbs_a = match pre_aabbs_a {
+        Some(a) => a,
+        None => {
+            owned_aabbs_a = compute_face_aabbs(a);
+            &owned_aabbs_a
+        }
+    };
+    let aabbs_b = match pre_aabbs_b {
+        Some(b) => b,
+        None => {
+            owned_aabbs_b = compute_face_aabbs(b);
+            &owned_aabbs_b
+        }
+    };
     let mut records: Vec<IntersectionRecord> = Vec::new();
 
     // BVH-accelerated face-pair filtering. The cellular assembly is
@@ -221,22 +250,22 @@ pub(crate) fn find_intersections(
     }
 
     // Diagnostic: detect edge-face intersections (legacy path).
-    let edge_face_hits = detect_edge_face_intersections(a, b, &aabbs_b, &aabbs_a, tolerance);
+    let edge_face_hits = detect_edge_face_intersections(a, b, aabbs_b, aabbs_a, tolerance);
 
     // Compute the sub-FF intersection hierarchy.
     let bool_tol = crate::tolerance::BoolTolerance::from(*tolerance);
     let hierarchy =
-        crate::intersect_hierarchy::compute_hierarchy(a, b, &aabbs_a, &aabbs_b, &bool_tol);
+        crate::intersect_hierarchy::compute_hierarchy(a, b, aabbs_a, aabbs_b, &bool_tol);
 
     // Build the coincidence map from dedicated coincidence detection.
     let bool_tol2 = crate::tolerance::BoolTolerance::from(*tolerance);
     let coincidence =
-        crate::coincidence::detect::detect_coincidences(a, b, &aabbs_a, &aabbs_b, &bool_tol2);
+        crate::coincidence::detect::detect_coincidences(a, b, aabbs_a, aabbs_b, &bool_tol2);
 
     Ok(IntersectionResult {
         records,
-        aabbs_a,
-        aabbs_b,
+        aabbs_a: aabbs_a.to_vec(),
+        aabbs_b: aabbs_b.to_vec(),
         edge_face_hits,
         hierarchy,
         coincidence,
