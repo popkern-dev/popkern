@@ -57,6 +57,24 @@ pub(crate) fn execute_boolean(
         );
     }
 
+    // Coincident-body shortcut: if all face overlaps cover at least half
+    // the faces of either body, treat as full containment.
+    if !intersection_result.coincidence.face_overlaps.is_empty() {
+        let n_a = a.faces.len();
+        let n_b = b.faces.len();
+        let n_overlaps = intersection_result.coincidence.face_overlaps.len();
+        if n_overlaps >= n_a.min(n_b) / 2 {
+            return handle_no_intersection(
+                op,
+                a,
+                b,
+                &intersection_result.aabbs_a,
+                &intersection_result.aabbs_b,
+                tolerance,
+            );
+        }
+    }
+
     // Clone originals for graph merge (graph merge reads originals, not split).
     let original_a = a.clone();
     let original_b = b.clone();
@@ -138,10 +156,11 @@ pub(crate) fn execute_boolean(
     // Log validation issues (don't fail — diagnostic only for now).
     log_validation_issues(&result, op);
 
-    // Post-processing: redundant edge removal is available but disabled by
-    // default because KEF can corrupt topology on complex boolean results.
-    // Enable selectively when the result is known to be well-formed.
-    // remove_redundant_edges(&mut result, tolerance);
+    // Post-processing: remove redundant edges if the result topology is valid.
+    // Only attempt on results that pass structural validation.
+    if result.validate().is_ok() {
+        remove_redundant_edges_safe(&mut result, tolerance);
+    }
 
     // Post-processing diagnostics: sliver detection and watertightness.
     log_post_processing_diagnostics(&result, tolerance);
@@ -184,13 +203,12 @@ fn log_validation_issues(result: &BRep, op: BoolOperation) {
     }
 }
 
-/// Remove redundant edges between co-surfacial same-orientation faces.
+/// Safely remove redundant edges, validating after each removal.
 ///
-/// Uses the KEF (Kill-Edge-Face) Euler operator to merge faces that
-/// share the same underlying surface. Silently skips edges that fail
-/// to remove (e.g., due to topology constraints).
-#[allow(dead_code)]
-fn remove_redundant_edges(result: &mut BRep, tolerance: &Tolerance) {
+/// Finds redundant edges and removes them one at a time via KEF.
+/// After each removal, validates the topology. If validation fails,
+/// stops immediately (leaving remaining redundant edges in place).
+fn remove_redundant_edges_safe(result: &mut BRep, tolerance: &Tolerance) {
     use crate::postprocess::redundant_edge::find_redundant_edges;
 
     let report = find_redundant_edges(result, tolerance);
@@ -201,13 +219,27 @@ fn remove_redundant_edges(result: &mut BRep, tolerance: &Tolerance) {
 
     let mut removed = 0;
     for eh in &report.redundant_edges {
-        // Get a half-edge for this edge to pass to KEF
         let he = match result.edges.get(*eh) {
             Some(e) => e.half_edge,
             None => continue,
         };
-        // KEF merges the two faces on either side of this edge
+
+        // Snapshot vertex/edge/face counts before KEF
+        let pre_v = result.vertices.len();
+        let pre_e = result.edges.len();
+        let pre_f = result.faces.len();
+
         if result.kef(he).is_ok() {
+            // Validate after removal — if topology is corrupted, stop
+            if result.validate().is_err() {
+                // Revert is impossible, but at least stop making it worse
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "[boolean] KEF corrupted topology after removing edge, stopping. \
+                     Before: V={pre_v} E={pre_e} F={pre_f}"
+                );
+                break;
+            }
             removed += 1;
         }
     }

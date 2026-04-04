@@ -274,13 +274,25 @@ fn csg_tree_subtraction_then_union() {
 // ── Error diagnostics ──────────────────────────────────────────────────
 
 #[test]
-fn coincident_cubes_union_does_not_panic() {
-    // Coincident cubes now compute overlap boundary curves instead of
-    // erroring. The boolean may succeed or fail downstream, but should
-    // never return CoincidentFaces and never panic.
+fn coincident_cubes_union_produces_valid_result() {
+    // Union of two identical cubes should produce a single cube.
+    // The coincident coplanar face pairs are skipped; the perpendicular
+    // face pairs produce intersection curves at the shared edges.
     let a = BRep::unit_cube(tol()).unwrap();
     let b = BRep::unit_cube(tol()).unwrap();
-    let _result = crate::union(a, b, tol(), None);
+    if let Ok(result) = crate::union(a, b, tol(), None) {
+        // The result should have a valid topology
+        let v = result.vertices.len();
+        let e = result.edges.len();
+        let f = result.faces.len();
+        eprintln!(
+            "[coincident union] V={v} E={e} F={f} euler={}",
+            v as i64 - e as i64 + f as i64
+        );
+        // Union of identical cubes = one cube
+        assert_eq!(f, 6, "union of identical cubes should have 6 faces");
+        assert_eq!(v as i64 - e as i64 + f as i64, 2, "Euler V-E+F should be 2");
+    }
 }
 
 #[test]
