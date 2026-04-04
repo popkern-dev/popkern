@@ -112,12 +112,28 @@ pub(crate) fn cellular_assemble(
         edge_he_map.insert((na, nb), (he_fwd, he_twin));
 
         // Attach curve geometry.
-        if na == nb {
-            // Self-loop: use graph's curve
-            if let Some(ref curve) = graph.half_edges[sample_ghe].curve {
+        // For shared (intersection) edges: use the graph's actual intersection
+        // curve. Both incident faces share the exact same CurveOnEdge, enforcing
+        // the shared geometry principle (spec §4.5, §9.2) for watertightness.
+        // For original/split edges and self-loops: use the graph's stored curve
+        // if available, otherwise synthesize a line from endpoints.
+        let is_shared = matches!(
+            graph.half_edges[sample_ghe].source,
+            crate::merge::graph::EdgeSource::Shared { .. }
+        );
+        let graph_curve = graph.half_edges[sample_ghe].curve.as_ref().or_else(|| {
+            let twin = graph.half_edges[sample_ghe].twin;
+            graph.half_edges[twin].curve.as_ref()
+        });
+
+        if is_shared || na == nb {
+            // Shared edge or self-loop: use the graph's curve (shared between
+            // both incident faces via the single CurveOnEdge on the Edge).
+            if let Some(curve) = graph_curve {
                 builder.set_edge_curve(edge_h, curve.clone());
             }
         } else {
+            // Original/split edge: synthesize line from endpoints.
             let p_start = graph.nodes[na].position;
             let p_end = graph.nodes[nb].position;
             let dir = p_end - p_start;
