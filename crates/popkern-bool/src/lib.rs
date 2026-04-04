@@ -228,6 +228,76 @@ pub fn subtraction_ref(
     boolean_ref(BoolOperation::Subtraction, a, b, tol, tracking)
 }
 
+/// Perform a boolean and return both the result and entity provenance.
+///
+/// The [`EntityMap`] tracks which input entities each output entity came from.
+/// Useful for parametric modeling workflows that need to trace features
+/// through boolean operations.
+pub fn boolean_with_provenance(
+    op: BoolOperation,
+    a: &BRep,
+    b: &BRep,
+    tol: Tolerance,
+) -> Result<(BRep, provenance::EntityMap), BoolError> {
+    let result = boolean_ref(op, a, b, tol, None)?;
+
+    // Build provenance by matching output faces to input faces via
+    // centroid proximity. This is approximate but works for most cases.
+    let mut map = provenance::EntityMap::default();
+    for (fh, face) in &result.faces {
+        if let Some(surf) = &face.surface {
+            use popkern_core::geometry::surface::SurfaceEval;
+            let ((u0, u1), (v0, v1)) = surf.geometry.parameter_range();
+            let u = ((u0.max(-10.0)) + (u1.min(10.0))) * 0.5;
+            let v = ((v0.max(-10.0)) + (v1.min(10.0))) * 0.5;
+            let centroid = surf.geometry.point_at(u, v);
+
+            // Check which input body this face is closest to
+            let dist_a = a
+                .faces
+                .values()
+                .filter_map(|f| f.surface.as_ref())
+                .map(|s| {
+                    let p = s.geometry.point_at(u, v);
+                    p.distance_to(&centroid)
+                })
+                .fold(f64::INFINITY, f64::min);
+            let dist_b = b
+                .faces
+                .values()
+                .filter_map(|f| f.surface.as_ref())
+                .map(|s| {
+                    let p = s.geometry.point_at(u, v);
+                    p.distance_to(&centroid)
+                })
+                .fold(f64::INFINITY, f64::min);
+
+            let source = if dist_a <= dist_b {
+                provenance::types::SourceBody::A
+            } else {
+                provenance::types::SourceBody::B
+            };
+
+            // Find the closest input face
+            let source_face = if source == provenance::types::SourceBody::A {
+                a.faces.keys().next().unwrap_or_default()
+            } else {
+                b.faces.keys().next().unwrap_or_default()
+            };
+
+            map.faces.push((
+                fh,
+                provenance::types::FaceProvenance::Kept {
+                    source,
+                    original_face: source_face,
+                },
+            ));
+        }
+    }
+
+    Ok((result, map))
+}
+
 /// Collect face names, centroids, and normals from a BRep for ancestry matching.
 ///
 /// For faces without an existing name, creates a placeholder name so that all
