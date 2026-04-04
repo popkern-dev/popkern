@@ -265,6 +265,7 @@ fn propagate_output_tolerances(result: &mut BRep, tolerance: &Tolerance) {
 /// Fix zero-thickness sheet faces: two faces sharing the same surface
 /// with the same orientation, which creates a non-manifold internal sheet.
 /// Remove one of the duplicate faces.
+#[allow(dead_code)]
 fn fix_zero_thickness_sheets(result: &mut BRep, tolerance: &Tolerance) {
     use popkern_core::geometry::intersection::coincident_analytic::are_surfaces_coincident_analytic;
 

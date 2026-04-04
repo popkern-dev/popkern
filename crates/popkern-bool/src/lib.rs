@@ -70,6 +70,8 @@ mod integration_tests_curved;
 #[cfg(test)]
 mod integration_tests_curved_regression;
 #[cfg(test)]
+mod integration_tests_hole_debug;
+#[cfg(test)]
 mod integration_tests_multicurve;
 #[cfg(test)]
 mod translate_helper_tests;

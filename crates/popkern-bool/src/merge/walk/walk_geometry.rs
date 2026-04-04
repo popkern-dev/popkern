@@ -200,6 +200,34 @@ pub(super) fn signed_area(graph: &IntersectionGraph, loop_hes: &[usize]) -> f64 
         .collect();
 
     if positions.len() < 3 {
+        // Self-loop edge (closed curve like a circle): estimate area from
+        // the curve geometry by sampling points along the curve.
+        if loop_hes.len() == 1 {
+            let he = &graph.half_edges[loop_hes[0]];
+            if let Some(ref curve) = he.curve {
+                use popkern_core::geometry::curve::CurveEval;
+                let n_samples = 16;
+                let (t0, t1) = (curve.t_start, curve.t_end);
+                let mut pts = Vec::with_capacity(n_samples);
+                for i in 0..n_samples {
+                    let t = t0 + (t1 - t0) * (i as f64) / (n_samples as f64);
+                    pts.push(curve.geometry.point_at(t));
+                }
+                // Newell's method on sampled points
+                let mut nx = 0.0;
+                let mut ny = 0.0;
+                let mut nz = 0.0;
+                for i in 0..pts.len() {
+                    let cur = &pts[i];
+                    let next = &pts[(i + 1) % pts.len()];
+                    nx += (cur.y - next.y) * (cur.z + next.z);
+                    ny += (cur.z - next.z) * (cur.x + next.x);
+                    nz += (cur.x - next.x) * (cur.y + next.y);
+                }
+                let normal = Vec3::new(nx, ny, nz);
+                return normal.length() * 0.5 * normal.z.signum();
+            }
+        }
         return 0.0;
     }
 
