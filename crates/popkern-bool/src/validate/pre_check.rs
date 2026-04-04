@@ -68,8 +68,9 @@ impl PreCheckReport {
 pub fn pre_check(a: &BRep, b: &BRep, check_self_intersection: bool) -> PreCheckReport {
     let mut report = PreCheckReport::default();
 
-    validate_one_body(a, 0, check_self_intersection, &mut report);
-    validate_one_body(b, 1, check_self_intersection, &mut report);
+    let tol_linear = a.tolerance.linear;
+    validate_one_body(a, 0, check_self_intersection, tol_linear, &mut report);
+    validate_one_body(b, 1, check_self_intersection, tol_linear, &mut report);
 
     // Check that both bodies have faces
     if a.faces.is_empty() {
@@ -117,6 +118,7 @@ fn validate_one_body(
     brep: &BRep,
     operand: usize,
     check_self_intersection: bool,
+    tol_linear: f64,
     report: &mut PreCheckReport,
 ) {
     let label = if operand == 0 { "A" } else { "B" };
@@ -156,6 +158,27 @@ fn validate_one_body(
                 error: Some(e),
             });
         }
+    }
+
+    // Edge validity check
+    let edge_report =
+        crate::imprint::edge_validity::validate_edges(brep, tol_linear * 0.5, tol_linear * 10.0);
+    if !edge_report.is_valid() {
+        let msg = format!(
+            "Body {label}: {} edge issues ({} collapsed, {} short, {} endpoint mismatch)",
+            edge_report.collapsed_range.len()
+                + edge_report.too_short.len()
+                + edge_report.endpoint_mismatch.len(),
+            edge_report.collapsed_range.len(),
+            edge_report.too_short.len(),
+            edge_report.endpoint_mismatch.len()
+        );
+        report.findings.push(PreCheckFinding {
+            severity: Severity::Warning,
+            operand,
+            message: msg,
+            error: None,
+        });
     }
 
     // Optional expensive check
