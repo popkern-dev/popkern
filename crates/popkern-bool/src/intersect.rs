@@ -6,6 +6,7 @@
 use popkern_core::geometry::curve_on_surface::CurveOnSurface;
 use popkern_core::{
     geometry::{
+        CurveEval,
         intersection::{SurfaceSurfaceIntersection, intersect_surfaces, surface_subdivision::Aabb},
         surface::SurfaceEval,
     },
@@ -236,11 +237,23 @@ pub(crate) fn find_intersections_with_aabbs(
                         SurfaceSurfaceIntersection::Curve(curve) => {
                             if let Some(clipped) = clip_curve_to_faces(a, face_a, b, face_b, &curve)
                             {
+                                // Classify tangency at curve midpoint
+                                let (t0, t1) = clipped.curve_3d.parameter_range();
+                                let t_mid = (t0 + t1) * 0.5;
+                                let mid_uv1 = clipped.curve_uv1.point_at(t_mid);
+                                let mid_uv2 = clipped.curve_uv2.point_at(t_mid);
+                                let n1 = surf_a.normal_at(mid_uv1.x, mid_uv1.y);
+                                let n2 = surf_b.normal_at(mid_uv2.x, mid_uv2.y);
+                                let cross_len = n1.cross(&n2).length();
+                                let norms = n1.length() * n2.length();
+                                let is_tangent =
+                                    norms > 1e-15 && (cross_len / norms) < tolerance.angular;
+
                                 records.push(IntersectionRecord {
                                     face_a,
                                     face_b,
                                     curve: clipped,
-                                    is_tangent: false,
+                                    is_tangent,
                                     is_coincident: false,
                                     start_boundary: Default::default(),
                                     end_boundary: Default::default(),

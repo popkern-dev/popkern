@@ -110,7 +110,7 @@ pub fn classify_tangent_contact(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use popkern_core::geometry::Point3;
+    use popkern_core::geometry::{Point3, Vec3};
 
     #[test]
     fn sphere_plane_tangent_is_touching() {

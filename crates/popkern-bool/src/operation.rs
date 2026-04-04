@@ -161,10 +161,13 @@ pub(crate) fn execute_boolean(
         remove_redundant_edges_safe(&mut result, tolerance);
     }
 
-    // Post-processing: fix non-manifold edges by removing zero-thickness
-    // sheet faces (two faces sharing the same surface with same orientation
-    // — a duplicate face that should have been eliminated by ON-face rules).
+    // Post-processing: fix non-manifold zero-thickness sheets.
     fix_zero_thickness_sheets(&mut result, tolerance);
+
+    // Post-processing: face simplification (merge co-surfacial faces).
+    if result.validate().is_ok() {
+        crate::postprocess::face_simplify::apply_face_simplification(&mut result, tolerance);
+    }
 
     // Post-processing: collapse micro-edges (position merge).
     let micro_edges = crate::imprint::micro_edge::find_micro_edges(&result, tolerance.linear);

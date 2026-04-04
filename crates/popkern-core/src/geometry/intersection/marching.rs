@@ -407,13 +407,29 @@ pub(crate) fn march_one_direction(
 
                         // Branch point detection: record location where
                         // condition drops below threshold (spec §2.4).
+                        // Also performs second-order contact analysis (§2.5)
+                        // using curvature comparison to determine crossing
+                        // vs touching.
                         if sin_angle < 0.05 && sin_angle > 1e-10 {
-                            branch_points.push(BranchPoint {
-                                point: sample.point,
-                                u1: sample.u1,
-                                v1: sample.v1,
-                                condition: sin_angle,
-                            });
+                            // Second-order analysis: compare curvatures
+                            let suu1 = surface1.second_partial_uu(sample.u1, sample.v1);
+                            let svv1 = surface1.second_partial_vv(sample.u1, sample.v1);
+                            let suu2 = surface2.second_partial_uu(sample.u2, sample.v2);
+                            let svv2 = surface2.second_partial_vv(sample.u2, sample.v2);
+                            let n_unit = n1_post * (1.0 / n1_post.length().max(1e-15));
+                            let curv_diff =
+                                (suu1 - suu2).dot(&n_unit).abs() + (svv1 - svv2).dot(&n_unit).abs();
+
+                            // If curvature difference is significant, it's a
+                            // crossing or branch; if near zero, it's touching.
+                            if curv_diff > tolerance.linear {
+                                branch_points.push(BranchPoint {
+                                    point: sample.point,
+                                    u1: sample.u1,
+                                    v1: sample.v1,
+                                    condition: sin_angle,
+                                });
+                            }
                         }
 
                         // Near-tangent step reduction

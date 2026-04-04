@@ -206,11 +206,27 @@ pub(super) fn split_err(
     records: &[IntersectionRecord],
 ) -> BoolDiagnostics {
     BoolDiagnostics {
-        error: Some(BoolError::SplitFailed { face, reason }),
+        error: Some(BoolError::SplitFailed {
+            face,
+            reason: reason.clone(),
+        }),
         intersection_curves: records.iter().map(|r| r.curve.clone()).collect(),
         face_classifications: Vec::new(),
         failed_stage: Some(Stage::Split),
-        entries: Vec::new(),
+        entries: vec![crate::error::DiagnosticEntry {
+            severity: crate::error::Severity::Error,
+            phase: Stage::Split,
+            message: format!("Split failed on face {face:?}: {reason}"),
+            entities: vec![crate::error::EntityRef::Face(face)],
+            remediation: Some(crate::error::Remediation {
+                action: crate::error::RemediationAction::IncreaseTolerance,
+                parameter: Some("linear".into()),
+                value: None,
+                rationale: "Face splitting failed. Try increasing linear \
+                    tolerance or simplifying the input geometry."
+                    .into(),
+            }),
+        }],
     }
 }
 
