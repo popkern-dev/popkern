@@ -31,10 +31,83 @@ pub(crate) fn detect_coincidences(
     // 1. Vertex-vertex merges (from hierarchy VV hits)
     detect_vertex_merges(a, b, tol, &mut map);
 
-    // 2. Face-face coincidence
+    // 2. Edge-edge overlap detection
+    detect_edge_overlaps(a, b, tol, &mut map);
+
+    // 3. Face-face coincidence
     detect_face_coincidences(a, b, aabbs_a, aabbs_b, tol, &mut map);
 
     map
+}
+
+/// Detect overlapping edge pairs between two bodies.
+///
+/// Two edges overlap when their underlying curves are geometrically
+/// identical (within tolerance) along some sub-interval. Detected by
+/// checking if both endpoints of edge A lie on edge B's curve and
+/// vice versa.
+fn detect_edge_overlaps(a: &BRep, b: &BRep, tol: &BoolTolerance, map: &mut CoincidenceMap) {
+    use popkern_core::geometry::CurveEval;
+
+    for (ea_h, ea) in &a.edges {
+        if ea.curve.is_none() {
+            continue;
+        }
+        // Get edge A's endpoint positions
+        let he_a = match a.half_edges.get(ea.half_edge) {
+            Some(h) => h,
+            None => continue,
+        };
+        let twin_a = match a.half_edges.get(he_a.twin) {
+            Some(t) => t,
+            None => continue,
+        };
+        let a_start = a.vertices[he_a.origin].position;
+        let a_end = a.vertices[twin_a.origin].position;
+
+        for (eb_h, eb) in &b.edges {
+            let cb = match &eb.curve {
+                Some(c) => c,
+                None => continue,
+            };
+            let he_b = match b.half_edges.get(eb.half_edge) {
+                Some(h) => h,
+                None => continue,
+            };
+            let twin_b = match b.half_edges.get(he_b.twin) {
+                Some(t) => t,
+                None => continue,
+            };
+            let b_start = b.vertices[he_b.origin].position;
+            let b_end = b.vertices[twin_b.origin].position;
+
+            // Check if A's endpoints lie on B's curve
+            let a_start_on_b = if let Some(t) = cb.geometry.closest_point(&a_start) {
+                let t_clamped = t.clamp(cb.t_start.min(cb.t_end), cb.t_start.max(cb.t_end));
+                cb.geometry.point_at(t_clamped).distance_to(&a_start) < tol.snap
+            } else {
+                false
+            };
+
+            let a_end_on_b = if let Some(t) = cb.geometry.closest_point(&a_end) {
+                let t_clamped = t.clamp(cb.t_start.min(cb.t_end), cb.t_start.max(cb.t_end));
+                cb.geometry.point_at(t_clamped).distance_to(&a_end) < tol.snap
+            } else {
+                false
+            };
+
+            if a_start_on_b && a_end_on_b {
+                // Both endpoints of A lie on B's curve — edges overlap.
+                // Determine direction: same or reversed.
+                let reversed = a_start.distance_to(&b_end) < a_start.distance_to(&b_start);
+                map.edge_overlaps.push(super::types::EdgeOverlap {
+                    edge_a: ea_h,
+                    edge_b: eb_h,
+                    reversed,
+                });
+            }
+        }
+    }
 }
 
 /// Detect vertex pairs that should be merged.

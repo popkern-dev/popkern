@@ -157,9 +157,19 @@ pub(crate) fn execute_boolean(
     log_validation_issues(&result, op);
 
     // Post-processing: remove redundant edges if the result topology is valid.
-    // Only attempt on results that pass structural validation.
     if result.validate().is_ok() {
         remove_redundant_edges_safe(&mut result, tolerance);
+    }
+
+    // Post-processing: fix non-manifold edges by removing zero-thickness
+    // sheet faces (two faces sharing the same surface with same orientation
+    // — a duplicate face that should have been eliminated by ON-face rules).
+    fix_zero_thickness_sheets(&mut result, tolerance);
+
+    // Post-processing: collapse micro-edges (position merge).
+    let micro_edges = crate::imprint::micro_edge::find_micro_edges(&result, tolerance.linear);
+    if !micro_edges.is_empty() {
+        crate::imprint::micro_edge::collapse_micro_edge_positions(&mut result, &micro_edges);
     }
 
     // Post-processing diagnostics: sliver detection and watertightness.
@@ -200,6 +210,65 @@ fn log_validation_issues(result: &BRep, op: BoolOperation) {
             );
         }
         _ => {}
+    }
+}
+
+/// Fix zero-thickness sheet faces: two faces sharing the same surface
+/// with the same orientation, which creates a non-manifold internal sheet.
+/// Remove one of the duplicate faces.
+fn fix_zero_thickness_sheets(result: &mut BRep, tolerance: &Tolerance) {
+    use popkern_core::geometry::intersection::coincident_analytic::are_surfaces_coincident_analytic;
+
+    let face_handles: Vec<_> = result.faces.keys().collect();
+    let mut to_remove = Vec::new();
+
+    for i in 0..face_handles.len() {
+        if to_remove.contains(&face_handles[i]) {
+            continue;
+        }
+        for j in (i + 1)..face_handles.len() {
+            if to_remove.contains(&face_handles[j]) {
+                continue;
+            }
+
+            let surf_a = match result
+                .faces
+                .get(face_handles[i])
+                .and_then(|f| f.surface.as_ref())
+            {
+                Some(s) => s,
+                None => continue,
+            };
+            let surf_b = match result
+                .faces
+                .get(face_handles[j])
+                .and_then(|f| f.surface.as_ref())
+            {
+                Some(s) => s,
+                None => continue,
+            };
+
+            // Same surface, same orientation → zero-thickness sheet
+            if surf_a.orientation == surf_b.orientation
+                && are_surfaces_coincident_analytic(&surf_a.geometry, &surf_b.geometry, tolerance)
+            {
+                to_remove.push(face_handles[j]);
+            }
+        }
+    }
+
+    // Remove duplicate faces (simple removal — topology may become invalid,
+    // but this is a best-effort cleanup).
+    for fh in &to_remove {
+        result.faces.remove(*fh);
+    }
+
+    if !to_remove.is_empty() {
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[boolean] removed {} zero-thickness sheet face(s)",
+            to_remove.len()
+        );
     }
 }
 

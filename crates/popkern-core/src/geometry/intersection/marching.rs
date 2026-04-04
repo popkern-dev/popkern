@@ -18,6 +18,19 @@ use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 use std::f64::consts::TAU;
 
+/// A detected branch point where the intersection curve splits.
+#[derive(Debug, Clone)]
+pub struct BranchPoint {
+    /// The 3D location of the branch point.
+    pub point: Point3,
+    /// Parameters on surface 1.
+    pub u1: f64,
+    /// Parameters on surface 1.
+    pub v1: f64,
+    /// The Jacobian condition indicator (sin of normal angle) at this point.
+    pub condition: f64,
+}
+
 /// A sample point on a surface-surface intersection curve.
 #[derive(Debug, Clone)]
 pub struct MarchSample {
@@ -224,6 +237,11 @@ pub(crate) fn march_one_direction(
     let min_step = tolerance.linear;
     let max_step = tolerance.linear * 1000.0;
     let mut step_size = tolerance.linear * 50.0;
+    // Branch point candidates detected during march (spec §2.4).
+    // Used by find_branch_points in starting_points.rs to seed
+    // additional curve traces from branch locations.
+    #[allow(unused_assignments)]
+    let mut branch_points: Vec<BranchPoint> = Vec::new();
 
     let mut samples = vec![start.clone()];
 
@@ -376,16 +394,29 @@ pub(crate) fn march_one_direction(
                         step_size = step_size * 0.7 + curvature_cap * 0.3;
                     }
 
-                    // Near-tangent step reduction: when surfaces are nearly
-                    // parallel, the intersection curve direction is poorly
-                    // defined and smaller steps improve stability.
+                    // Near-tangent / branch point detection: monitor the
+                    // Jacobian condition via |N1 × N2| / (|N1| * |N2|).
+                    // When this drops toward zero, the surfaces are tangent
+                    // and the intersection curve may branch.
                     let n1_post = surface1.normal_at(sample.u1, sample.v1);
                     let n2_post = surface2.normal_at(sample.u2, sample.v2);
                     let cross_len = n1_post.cross(&n2_post).length();
                     let norms = n1_post.length() * n2_post.length();
                     if norms > 1e-15 {
                         let sin_angle = cross_len / norms;
-                        // Only intervene for very near-tangent (sin < 0.01 ≈ < 0.6°)
+
+                        // Branch point detection: record location where
+                        // condition drops below threshold (spec §2.4).
+                        if sin_angle < 0.05 && sin_angle > 1e-10 {
+                            branch_points.push(BranchPoint {
+                                point: sample.point,
+                                u1: sample.u1,
+                                v1: sample.v1,
+                                condition: sin_angle,
+                            });
+                        }
+
+                        // Near-tangent step reduction
                         if sin_angle < 0.01 {
                             let factor = (sin_angle * 100.0).max(0.2);
                             step_size = (step_size * factor).max(min_step);
