@@ -36,6 +36,7 @@ pub mod coincidence;
 pub mod csg;
 pub mod error;
 pub mod imprint;
+pub mod instancing;
 pub(crate) mod intersect;
 pub(crate) mod intersect_hierarchy;
 pub(crate) mod merge;
@@ -49,6 +50,7 @@ pub mod provenance;
 pub(crate) mod select;
 pub(crate) mod split;
 pub(crate) mod split_inner_loop;
+pub mod tangent_analysis;
 pub mod tolerance;
 pub mod validate;
 
