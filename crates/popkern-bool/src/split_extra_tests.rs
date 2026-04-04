@@ -76,6 +76,10 @@ fn split_a_side_failure_returns_diagnostics() {
         face_a: face_a_h,
         face_b: dummy_face_b, // not in brep_b → B-side skip
         curve,
+        is_tangent: false,
+        is_coincident: false,
+        start_boundary: Default::default(),
+        end_boundary: Default::default(),
     };
 
     let result = split_along_curves(brep_a, brep_b, &[record], &tol());
@@ -202,6 +206,10 @@ fn non_planar_face_is_skipped_during_split() {
         face_a: face_a_h,
         face_b: popkern_core::topology::FaceHandle::default(),
         curve,
+        is_tangent: false,
+        is_coincident: false,
+        start_boundary: Default::default(),
+        end_boundary: Default::default(),
     };
 
     let brep_b = BRep::new(tol());
@@ -254,6 +262,10 @@ fn point_on_segment_degenerate_edge_does_not_panic() {
         face_a: face_a_h,
         face_b: popkern_core::topology::FaceHandle::default(),
         curve,
+        is_tangent: false,
+        is_coincident: false,
+        start_boundary: Default::default(),
+        end_boundary: Default::default(),
     };
 
     let brep_b = BRep::new(tol());
@@ -307,6 +319,10 @@ fn split_a_face_failure_via_tight_tolerance_is_handled() {
         face_a: face_a_h,
         face_b: popkern_core::topology::FaceHandle::default(),
         curve,
+        is_tangent: false,
+        is_coincident: false,
+        start_boundary: Default::default(),
+        end_boundary: Default::default(),
     };
 
     let brep_b = BRep::new(Tolerance::default());
@@ -413,6 +429,10 @@ fn planar_faces_without_pcurves_still_split() {
         face_a: face_a_h,
         face_b: face_b_h,
         curve,
+        is_tangent: false,
+        is_coincident: false,
+        start_boundary: Default::default(),
+        end_boundary: Default::default(),
     };
 
     let a_before = brep_a.faces.len();
@@ -457,6 +477,10 @@ fn uv_curve_outside_boundary_skips_face() {
         face_a: face_h,
         face_b: popkern_core::topology::FaceHandle::default(),
         curve,
+        is_tangent: false,
+        is_coincident: false,
+        start_boundary: Default::default(),
+        end_boundary: Default::default(),
     };
 
     let brep_b = BRep::new(tol());

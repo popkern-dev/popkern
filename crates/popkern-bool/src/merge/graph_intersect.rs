@@ -184,6 +184,10 @@ mod tests {
             face_a,
             face_b,
             curve: cos,
+            is_tangent: false,
+            is_coincident: false,
+            start_boundary: Default::default(),
+            end_boundary: Default::default(),
         }
     }
 

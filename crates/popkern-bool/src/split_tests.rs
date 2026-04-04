@@ -116,6 +116,10 @@ fn split_with_synthetic_record() {
         face_a: face_a_handle,
         face_b: face_a_handle, // dummy — won't be used for B
         curve,
+        is_tangent: false,
+        is_coincident: false,
+        start_boundary: Default::default(),
+        end_boundary: Default::default(),
     };
 
     // Use a trivial BRep for B (no faces affected).
@@ -195,6 +199,10 @@ fn split_both_sides_succeeds() {
         face_a: face_a_h,
         face_b: face_b_h,
         curve,
+        is_tangent: false,
+        is_coincident: false,
+        start_boundary: Default::default(),
+        end_boundary: Default::default(),
     };
 
     let a_faces_before = brep_a.faces.len();
@@ -268,6 +276,10 @@ fn split_b_side_failure_returns_diagnostics() {
         face_a: dummy_face_a, // not in brep_a → A-side skip
         face_b: face_b_h,
         curve,
+        is_tangent: false,
+        is_coincident: false,
+        start_boundary: Default::default(),
+        end_boundary: Default::default(),
     };
 
     let result = split_along_curves(brep_a, brep_b, &[record], &tol());

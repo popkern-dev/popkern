@@ -30,8 +30,28 @@ fn bounded_parameter_range(
     popkern_core::geometry::uv_projection::bounded_parameter_range(&positions, surface)
 }
 
+/// Boundary type at an intersection curve endpoint (spec §2.7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[allow(dead_code)]
+pub(crate) enum EndpointBoundaryType {
+    /// Exits through an edge of Face A.
+    #[default]
+    OnEdgeA,
+    /// Exits through an edge of Face B.
+    OnEdgeB,
+    /// At a boundary of both faces.
+    OnEdgeBoth,
+    /// At an existing vertex.
+    OnVertex,
+    /// Meets another intersection curve (branch point).
+    OnBranchPoint,
+    /// In the face interior (closed loop endpoint).
+    Interior,
+}
+
 /// A single face-face intersection record.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub(crate) struct IntersectionRecord {
     /// Face handle from solid A.
     pub face_a: FaceHandle,
@@ -39,6 +59,15 @@ pub(crate) struct IntersectionRecord {
     pub face_b: FaceHandle,
     /// The intersection curve on both surfaces.
     pub curve: CurveOnSurface,
+    /// True if surfaces are tangent along this curve.
+    #[allow(dead_code)]
+    pub is_tangent: bool,
+    /// True if this bounds a coincident-face region.
+    pub is_coincident: bool,
+    /// Boundary type at the start endpoint.
+    pub start_boundary: EndpointBoundaryType,
+    /// Boundary type at the end endpoint.
+    pub end_boundary: EndpointBoundaryType,
 }
 
 /// Complete result of Stage 1 intersection computation.
@@ -211,6 +240,10 @@ pub(crate) fn find_intersections_with_aabbs(
                                     face_a,
                                     face_b,
                                     curve: clipped,
+                                    is_tangent: false,
+                                    is_coincident: false,
+                                    start_boundary: Default::default(),
+                                    end_boundary: Default::default(),
                                 });
                             }
                         }
