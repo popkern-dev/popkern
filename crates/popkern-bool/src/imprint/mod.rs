@@ -4,6 +4,7 @@
 //! and shared geometry validation. These are consumed by the graph-merge
 //! pipeline and the assembly phase to produce watertight, sliver-free output.
 
+pub mod edge_validity;
 pub mod micro_edge;
 pub mod shared_geometry;
 pub mod sliver;

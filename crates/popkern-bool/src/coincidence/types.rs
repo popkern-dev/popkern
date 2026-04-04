@@ -65,6 +65,8 @@ pub struct CoincidenceMap {
     pub edge_overlaps: Vec<EdgeOverlap>,
     /// Overlapping face pairs.
     pub face_overlaps: Vec<FaceOverlap>,
+    /// Coincidence detection mode used (spec §3.5).
+    pub mode: CoincidenceMode,
 }
 
 impl CoincidenceMap {
@@ -74,7 +76,27 @@ impl CoincidenceMap {
             && self.edge_overlaps.is_empty()
             && self.face_overlaps.is_empty()
     }
+}
 
+/// Configurable coincidence detection mode (spec §3.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CoincidenceMode {
+    /// Full geometric detection (default): for every face pair, compute
+    /// proximity metric and classify as transversal/coincident/near-coincident.
+    #[default]
+    FullGeometric,
+    /// Caller asserts certain face pairs are fully coincident.
+    /// Skips geometric detection for those pairs.
+    AssumedFull,
+    /// Caller asserts certain face pairs are partially coincident.
+    /// The engine refines the overlap boundary rather than computing from scratch.
+    AssumedPartial,
+    /// Automatic tolerance escalation: when the intersection algorithm
+    /// detects near-tangent conditions, automatically widen to coincidence handling.
+    ToleranceEscalation,
+}
+
+impl CoincidenceMap {
     /// Total number of coincidences across all levels.
     pub fn total(&self) -> usize {
         self.vertex_merges.len() + self.edge_overlaps.len() + self.face_overlaps.len()
