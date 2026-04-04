@@ -207,7 +207,7 @@ fn find_tangent_march_direction(
 
 /// March in one direction along the intersection curve.
 #[allow(clippy::too_many_arguments)]
-fn march_one_direction(
+pub(crate) fn march_one_direction(
     surface1: &SurfaceGeometry,
     u1_range: (f64, f64),
     v1_range: (f64, f64),
