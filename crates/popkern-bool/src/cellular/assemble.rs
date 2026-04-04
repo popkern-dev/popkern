@@ -121,16 +121,27 @@ pub(crate) fn cellular_assemble(
             graph.half_edges[sample_ghe].source,
             crate::merge::graph::EdgeSource::Shared { .. }
         );
-        let graph_curve = graph.half_edges[sample_ghe].curve.as_ref().or_else(|| {
-            let twin = graph.half_edges[sample_ghe].twin;
-            graph.half_edges[twin].curve.as_ref()
-        });
-
         if is_shared || na == nb {
-            // Shared edge or self-loop: use the graph's curve (shared between
-            // both incident faces via the single CurveOnEdge on the Edge).
-            if let Some(curve) = graph_curve {
-                builder.set_edge_curve(edge_h, curve.clone());
+            // Shared edge or self-loop: use the graph's actual intersection
+            // curve for watertightness (spec §4.5, §9.2).
+            //
+            // Determine which graph half-edge owns the curve and align the
+            // parameterization to match the canonical edge direction (na→nb).
+            let (curve_he, curve_ref) = if graph.half_edges[sample_ghe].curve.is_some() {
+                (sample_ghe, graph.half_edges[sample_ghe].curve.as_ref())
+            } else {
+                let twin = graph.half_edges[sample_ghe].twin;
+                (twin, graph.half_edges[twin].curve.as_ref())
+            };
+
+            if let Some(curve) = curve_ref {
+                let curve_origin = graph.half_edges[curve_he].origin;
+                let mut aligned = curve.clone();
+                if curve_origin != na && na != nb {
+                    // Curve goes nb→na but we need na→nb: swap parameters
+                    std::mem::swap(&mut aligned.t_start, &mut aligned.t_end);
+                }
+                builder.set_edge_curve(edge_h, aligned);
             }
         } else {
             // Original/split edge: synthesize line from endpoints.

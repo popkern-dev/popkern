@@ -125,17 +125,30 @@ pub(crate) fn assemble_result(
             he_map.insert(ghe_idx, he_fwd);
             he_map.insert(twin_ghe, he_twin);
 
-            // Attach curve geometry. For self-loop edges (same start/end
-            // vertex, e.g. closed circles), use the graph's curve geometry
-            // since a line would be degenerate. For other edges, synthesize
-            // a line from the endpoint positions.
-            if origin_node == end_node {
-                // Self-loop: use the intersection curve (e.g. a closed NURBS circle).
-                if let Some(ref curve) = graph.half_edges[ghe_idx].curve {
-                    builder.set_edge_curve(edge_h, curve.clone());
-                } else if let Some(ref curve) = graph.half_edges[twin_ghe].curve {
-                    builder.set_edge_curve(edge_h, curve.clone());
+            // Attach curve geometry.
+            // For shared (intersection) edges and self-loops: use the graph's
+            // actual curve for watertightness (shared geometry principle §4.5).
+            // For original/split edges: synthesize a line from endpoints.
+            let is_shared = matches!(
+                graph.half_edges[ghe_idx].source,
+                super::graph::EdgeSource::Shared { .. }
+            );
+
+            // Determine which graph half-edge owns the curve.
+            let (curve_he, actual_curve) = if graph.half_edges[ghe_idx].curve.is_some() {
+                (ghe_idx, graph.half_edges[ghe_idx].curve.as_ref())
+            } else {
+                (twin_ghe, graph.half_edges[twin_ghe].curve.as_ref())
+            };
+
+            if let Some(curve_ref) = actual_curve.filter(|_| is_shared || origin_node == end_node) {
+                let mut curve = curve_ref.clone();
+                // Align parameterization to match BRep edge direction.
+                let curve_origin = graph.half_edges[curve_he].origin;
+                if curve_origin != origin_node && origin_node != end_node {
+                    std::mem::swap(&mut curve.t_start, &mut curve.t_end);
                 }
+                builder.set_edge_curve(edge_h, curve);
             } else {
                 let p_start = graph.nodes[origin_node].position;
                 let p_end = graph.nodes[end_node].position;
