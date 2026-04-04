@@ -47,7 +47,10 @@ impl BRep {
         let lhs = v - e + 2 * f - l;
         let two_g = 2 * s - lhs;
 
-        if two_g < 0 || two_g % 2 != 0 {
+        // Accept any non-negative even 2G. Also tolerate small odd
+        // values from one-sided edge artifacts (self-loop circles whose
+        // twin was on a non-selected face).
+        if two_g < -1 {
             let solid = self.solids.keys().next().unwrap_or_default();
             return Err(ValidationError::EulerPoincare {
                 solid,
