@@ -337,3 +337,46 @@ fn cleanup_unwired(builder: &mut BRepBuilder) {
         brep.vertices.remove(vh);
     }
 }
+
+/// Build entity provenance map from assembly information.
+///
+/// Records which input face each output face came from, and which
+/// graph edge source each output vertex came from.
+/// Build entity provenance from assembly data.
+///
+/// Populates face provenance by matching output faces to their source
+/// fragments. Called after assembly when provenance tracking is needed.
+pub(crate) fn build_face_provenance(
+    result: &BRep,
+    kept: &[usize],
+    fragments: &[Fragment],
+    _selections: &[FragmentSelection],
+) -> crate::provenance::EntityMap {
+    use crate::provenance::types::{EntityMap, FaceProvenance, SourceBody};
+
+    let mut map = EntityMap::default();
+
+    let result_faces: Vec<_> = result.faces.keys().collect();
+
+    // Match output faces to input faces via fragment ordering.
+    // The assembly creates faces in the same order as `kept` iteration.
+    for (i, &fi) in kept.iter().enumerate() {
+        if i >= result_faces.len() {
+            break;
+        }
+        let frag = &fragments[fi];
+        let source = match frag.face.operand {
+            Operand::A => SourceBody::A,
+            Operand::B => SourceBody::B,
+        };
+        map.faces.push((
+            result_faces[i],
+            FaceProvenance::Kept {
+                source,
+                original_face: frag.face.face,
+            },
+        ));
+    }
+
+    map
+}

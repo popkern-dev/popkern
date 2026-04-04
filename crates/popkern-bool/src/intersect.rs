@@ -200,7 +200,21 @@ pub(crate) fn find_intersections(
                     intersection_curves: records.into_iter().map(|r| r.curve).collect(),
                     face_classifications: Vec::new(),
                     failed_stage: Some(Stage::Intersection),
-                    entries: Vec::new(),
+                    entries: vec![crate::error::DiagnosticEntry {
+                        severity: crate::error::Severity::Error,
+                        phase: Stage::Intersection,
+                        message: format!("Surface intersection failed: {e}"),
+                        entities: vec![crate::error::EntityRef::FacePair(face_a, face_b)],
+                        remediation: Some(crate::error::Remediation {
+                            action: crate::error::RemediationAction::RetryWithPerturbation,
+                            parameter: None,
+                            value: None,
+                            rationale: "Surface intersection solver failed. \
+                                Try boolean_with_perturbation() to slightly \
+                                offset the geometry and retry."
+                                .into(),
+                        }),
+                    }],
                 });
             }
         }

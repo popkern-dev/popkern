@@ -106,7 +106,26 @@ pub fn boolean(
         Vec::new()
     };
 
-    let mut result = operation::execute_boolean(op, a, b, &tol)?;
+    let mut result = operation::execute_boolean(op, a.clone(), b.clone(), &tol).or_else(|e| {
+        // Perturbation fallback: retry with slightly perturbed geometry
+        // if the error is the kind that perturbation can fix.
+        if matches!(
+            e,
+            BoolError::CoincidentFaces { .. }
+                | BoolError::IntersectionFailed(_)
+                | BoolError::ClassificationFailed { .. }
+        ) {
+            perturbation::boolean_with_perturbation(
+                op,
+                &a,
+                &b,
+                tol,
+                &perturbation::PerturbationConfig::default(),
+            )
+        } else {
+            Err(e)
+        }
+    })?;
     if let Some(ctx) = tracking {
         assign_boolean_names(&mut result, &input_a_faces, &input_b_faces, ctx, &tol);
     }

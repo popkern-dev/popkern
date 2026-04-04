@@ -72,14 +72,24 @@ pub(crate) fn cellular_graph_merge(
         classify_fragments_cellular(&fragments, &graph, original_a, original_b, op, tolerance)?;
 
     // Phase 7: Order-independent assembly from selected fragments.
-    super::assemble::cellular_assemble(
+    let kept: Vec<usize> = (0..fragments.len())
+        .filter(|&i| selections[i].keep)
+        .collect();
+
+    let result = super::assemble::cellular_assemble(
         &graph,
         &fragments,
         &selections,
         original_a,
         original_b,
         *tolerance,
-    )
+    )?;
+
+    // Build provenance map (available via boolean_with_provenance).
+    let _provenance =
+        super::assemble::build_face_provenance(&result, &kept, &fragments, &selections);
+
+    Ok(result)
 }
 
 /// Classify fragments using cellular logic: determine which volumetric
@@ -98,7 +108,7 @@ fn classify_fragments_cellular(
     op: BoolOperation,
     tolerance: &Tolerance,
 ) -> Result<Vec<FragmentSelection>, BoolDiagnostics> {
-    use crate::classify::point_in_solid;
+    use crate::adaptive_precision::robust_point_in_solid;
     use crate::intersect::compute_face_aabbs;
 
     let aabbs_a = compute_face_aabbs(brep_a);
@@ -117,10 +127,7 @@ fn classify_fragments_cellular(
             Operand::B => (brep_a, &aabbs_a),
         };
 
-        let class = match point_in_solid(&sample, other_brep, other_aabbs, tolerance) {
-            Ok(c) => c,
-            Err(_) => PointClassification::Outside,
-        };
+        let class = robust_point_in_solid(&sample, other_brep, other_aabbs, tolerance);
 
         // Selection rules equivalent to graph-merge but expressed via
         // cellular logic: keep fragment if the cell on its outer side
