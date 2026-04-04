@@ -161,13 +161,12 @@ pub(crate) fn execute_boolean(
         remove_redundant_edges_safe(&mut result, tolerance);
     }
 
-    // Post-processing: fix non-manifold zero-thickness sheets.
-    fix_zero_thickness_sheets(&mut result, tolerance);
-
-    // Post-processing: face simplification (merge co-surfacial faces).
-    if result.validate().is_ok() {
-        crate::postprocess::face_simplify::apply_face_simplification(&mut result, tolerance);
-    }
+    // Post-processing: face simplification and zero-thickness sheet removal
+    // are disabled — the current implementations are too aggressive and
+    // remove valid faces from boolean results. They compare all face pairs
+    // globally, but should only compare ADJACENT face pairs.
+    // fix_zero_thickness_sheets(&mut result, tolerance);
+    // crate::postprocess::face_simplify::apply_face_simplification(&mut result, tolerance);
 
     // Post-processing: collapse micro-edges (position merge).
     let micro_edges = crate::imprint::micro_edge::find_micro_edges(&result, tolerance.linear);

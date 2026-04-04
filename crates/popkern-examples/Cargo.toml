@@ -35,3 +35,7 @@ path = "src/shelled_box.rs"
 [[bin]]
 name = "drafted_mold"
 path = "src/drafted_mold.rs"
+
+[[bin]]
+name = "boolean_stress"
+path = "src/boolean_stress.rs"
