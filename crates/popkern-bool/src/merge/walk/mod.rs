@@ -208,8 +208,31 @@ fn next_around_face(
     let candidates: Vec<usize> = outgoing
         .iter()
         .copied()
-        .filter(|idx| {
-            face_hes.contains(idx) && *idx != twin_idx && (!is_self_loop || *idx != he_idx)
+        .filter(|&idx| {
+            if !face_hes.contains(&idx) {
+                return false;
+            }
+            // Exclude the twin (U-turn prevention)
+            if idx == twin_idx {
+                return false;
+            }
+            // If we're on a self-loop, also exclude ourselves
+            if is_self_loop && idx == he_idx {
+                return false;
+            }
+            // When walking a NON-self-loop path, exclude self-loop
+            // candidates. Self-loops (shared intersection circles) form
+            // inner loops and should only be reachable when the walk
+            // starts from the self-loop itself.
+            if !is_self_loop {
+                let twin_c = graph.half_edges[idx].twin;
+                let is_candidate_self_loop =
+                    graph.half_edges[idx].origin == graph.half_edges[twin_c].origin;
+                if is_candidate_self_loop {
+                    return false;
+                }
+            }
+            true
         })
         .collect();
 

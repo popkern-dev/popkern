@@ -199,11 +199,19 @@ pub(super) fn signed_area(graph: &IntersectionGraph, loop_hes: &[usize]) -> f64 
         .map(|&he_idx| graph.nodes[graph.half_edges[he_idx].origin].position)
         .collect();
 
-    if positions.len() < 3 {
+    // Check if all positions are coincident (self-loop structure).
+    // If so, sample curve geometry to compute area.
+    let all_coincident = positions.len() >= 2
+        && positions
+            .iter()
+            .all(|p| p.distance_to(&positions[0]) < 1e-10);
+
+    if positions.len() < 3 || all_coincident {
         // Self-loop edge (closed curve like a circle): estimate area from
         // the curve geometry by sampling points along the curve.
-        if loop_hes.len() == 1 {
-            let he = &graph.half_edges[loop_hes[0]];
+        // Try each half-edge in the loop until one has curve geometry.
+        for &he_idx in loop_hes {
+            let he = &graph.half_edges[he_idx];
             if let Some(ref curve) = he.curve {
                 use popkern_core::geometry::curve::CurveEval;
                 let n_samples = 16;
