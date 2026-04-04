@@ -11,7 +11,10 @@ use super::fragment_classify::classify_and_select_fragments;
 use super::graph::IntersectionGraph;
 use super::graph_build::insert_operand_topology;
 use super::graph_intersect::insert_intersection_curves;
-use super::graph_split::{EndpointClass, classify_endpoint, split_graph_edge};
+use super::graph_split::{
+    EndpointClass, classify_endpoint, remove_collinear_duplicates, split_edges_at_shared_nodes,
+    split_graph_edge,
+};
 use super::radial::sort_all_radial;
 use super::walk::walk_all_fragments;
 use crate::error::{BoolDiagnostics, BoolOperation, Stage};
@@ -55,6 +58,20 @@ pub(crate) fn graph_merge(
 
     // Phase 3: Insert intersection curves as shared edges.
     insert_intersection_curves(&mut graph, &intersection_result.records, snap_tol);
+
+    // Phase 3.1–3.2: Handle coincident face boundaries.
+    // Only needed when partially overlapping faces exist (e.g., two cubes
+    // sharing a z-face). Splits edges on coincident boundaries and removes
+    // collinear duplicates.
+    if intersection_result
+        .coincidence
+        .face_overlaps
+        .iter()
+        .any(|o| !o.full_overlap)
+    {
+        split_edges_at_shared_nodes(&mut graph, snap_tol);
+        remove_collinear_duplicates(&mut graph);
+    }
 
     // Phase 4: Sort radial edges at all nodes.
     sort_all_radial(&mut graph);

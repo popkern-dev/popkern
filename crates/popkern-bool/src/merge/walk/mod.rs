@@ -49,12 +49,42 @@ pub(crate) fn walk_all_fragments(
         let mut visited: HashSet<usize> = HashSet::new();
         let mut loops: Vec<Vec<usize>> = Vec::new();
 
-        // Self-loop inner loops are collected during the main walk via
-        // area-based classification. No pre-extraction needed — the
-        // signed_area function handles self-loop curves by sampling.
+        // Sort starting edges: seam-like first, then other non-shared, then shared.
+        // Seam-like edges (where the twin is also on this face) form the outer
+        // boundary "spine" that connects self-loop circles. Starting from them
+        // ensures the outer boundary walk includes expanded cap circles rather
+        // than consuming them as standalone loops.
+        let mut sorted_hes: Vec<usize> = he_indices.clone();
+        sorted_hes.sort_by_key(|&idx| {
+            let is_shared = matches!(
+                graph.half_edges[idx].source,
+                super::graph::EdgeSource::Shared { .. }
+            );
+            // Primary key: seam-like (0) → non-shared (1) → shared (2).
+            // Secondary key: half-edge index (lower first) for deterministic
+            // fragment ordering — ensures the walk starts from the same edge
+            // regardless of face_edges insertion order.
+            let priority = if is_shared {
+                2u8
+            } else {
+                let twin = graph.half_edges[idx].twin;
+                let twin_on_same_face = graph.half_edges[twin].face.as_ref() == Some(face_ref);
+                if twin_on_same_face { 0 } else { 1 }
+            };
+            (priority, idx)
+        });
 
-        for &start_he in he_indices {
+        for &start_he in &sorted_hes {
             if visited.contains(&start_he) {
+                continue;
+            }
+            // Skip cross-registered self-loop half-edges as starting
+            // points. They appear in face_edges due to cross-registration
+            // but should not form standalone loops on this face.
+            let twin_he = graph.half_edges[start_he].twin;
+            let is_self_loop =
+                graph.half_edges[start_he].origin == graph.half_edges[twin_he].origin;
+            if is_self_loop && graph.half_edges[start_he].face.as_ref() != Some(face_ref) {
                 continue;
             }
 
@@ -66,10 +96,20 @@ pub(crate) fn walk_all_fragments(
                     break;
                 }
                 visited.insert(he);
+
                 current_loop.push(he);
 
                 // Find next half-edge around this face.
-                match next_around_face(graph, he, face_ref, &face_hes, brep_a, brep_b) {
+                match next_around_face(
+                    graph,
+                    he,
+                    face_ref,
+                    &face_hes,
+                    brep_a,
+                    brep_b,
+                    Some(start_he),
+                    &visited,
+                ) {
                     Some(next_he) => he = next_he,
                     None => break,
                 }
@@ -111,16 +151,37 @@ pub(crate) fn walk_all_fragments(
             .fold(f64::NEG_INFINITY, f64::max);
         let threshold = max_area * 0.5;
 
-        let outer_idx = areas
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| {
-                a.abs()
-                    .partial_cmp(&b.abs())
-                    .unwrap_or(std::cmp::Ordering::Equal)
+        // Check if any loop contains self-loop edges (closed curves).
+        // When self-loops are present, the Newell area for the boundary
+        // loop can be zero (all vertices on the seam line). In this case,
+        // use edge count as the primary metric: the longest loop is the
+        // outer boundary.
+        let has_self_loop_edges = loops.iter().any(|lp| {
+            lp.iter().any(|&he_idx| {
+                let twin = graph.half_edges[he_idx].twin;
+                graph.half_edges[he_idx].origin == graph.half_edges[twin].origin
             })
-            .map(|(i, _)| i)
-            .unwrap_or(0);
+        });
+
+        let outer_idx = if has_self_loop_edges {
+            loops
+                .iter()
+                .enumerate()
+                .max_by_key(|(_, lp)| lp.len())
+                .map(|(i, _)| i)
+                .unwrap_or(0)
+        } else {
+            areas
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| {
+                    a.abs()
+                        .partial_cmp(&b.abs())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|(i, _)| i)
+                .unwrap_or(0)
+        };
 
         // Extract the outer loop (swap-remove to avoid shifting).
         let outer_loop = loops.swap_remove(outer_idx);
@@ -188,6 +249,7 @@ pub(crate) fn walk_all_fragments(
 /// incoming direction.  This uses per-face angular comparison rather than
 /// the global radial sort, because intersection nodes sit at the junction
 /// of multiple faces with different normals.
+#[allow(clippy::too_many_arguments)]
 fn next_around_face(
     graph: &IntersectionGraph,
     he_idx: usize,
@@ -195,6 +257,8 @@ fn next_around_face(
     face_hes: &HashSet<usize>,
     brep_a: &BRep,
     brep_b: &BRep,
+    start_he: Option<usize>,
+    visited: &HashSet<usize>,
 ) -> Option<usize> {
     let twin_idx = graph.half_edges[he_idx].twin;
     let end_node = graph.half_edges[twin_idx].origin;
@@ -212,6 +276,16 @@ fn next_around_face(
             if !face_hes.contains(&idx) {
                 return false;
             }
+            // Allow the start_he (loop closure) even if it would normally
+            // be excluded by U-turn prevention or visited check.
+            if start_he == Some(idx) {
+                return true;
+            }
+            // Exclude already-visited half-edges to prevent the walk
+            // from crossing into edges consumed by a previous iteration.
+            if visited.contains(&idx) {
+                return false;
+            }
             // Exclude the twin (U-turn prevention)
             if idx == twin_idx {
                 return false;
@@ -221,14 +295,15 @@ fn next_around_face(
                 return false;
             }
             // When walking a NON-self-loop path, exclude self-loop
-            // candidates. Self-loops (shared intersection circles) form
-            // inner loops and should only be reachable when the walk
-            // starts from the self-loop itself.
+            // candidates from other faces. Self-loops whose face matches
+            // the current face are boundary edges (e.g., intersection
+            // circles on the barrel face); cross-registered self-loops
+            // from other faces should still be excluded.
             if !is_self_loop {
                 let twin_c = graph.half_edges[idx].twin;
                 let is_candidate_self_loop =
                     graph.half_edges[idx].origin == graph.half_edges[twin_c].origin;
-                if is_candidate_self_loop {
+                if is_candidate_self_loop && graph.half_edges[idx].face.as_ref() != Some(face) {
                     return false;
                 }
             }
@@ -241,6 +316,36 @@ fn next_around_face(
     }
     if candidates.len() == 1 {
         return Some(candidates[0]);
+    }
+
+    // Prefer loop closure: if start_he is among the candidates, return
+    // it immediately. Closing the loop takes priority over extending
+    // into additional edges (which may be cross-registered duplicates).
+    if let Some(sh) = start_he
+        && candidates.contains(&sh)
+    {
+        return Some(sh);
+    }
+
+    // At seam T-junctions on curved surfaces (where seam continuation
+    // competes with a self-loop circle), prefer the unvisited self-loop.
+    // Self-loops with matching face are actual boundary edges; the seam
+    // is just the internal spine of a periodic surface.
+    let self_loop_candidates: Vec<usize> = candidates
+        .iter()
+        .copied()
+        .filter(|&c| {
+            !visited.contains(&c) && {
+                let twin_c = graph.half_edges[c].twin;
+                graph.half_edges[c].origin == graph.half_edges[twin_c].origin
+            }
+        })
+        .collect();
+    if !self_loop_candidates.is_empty() && self_loop_candidates.len() < candidates.len() {
+        if self_loop_candidates.len() == 1 {
+            return Some(self_loop_candidates[0]);
+        }
+        return pick_by_angle(graph, he_idx, &self_loop_candidates, face, brep_a, brep_b);
     }
 
     // Use per-face angular comparison for all multi-candidate cases.

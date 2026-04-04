@@ -9,7 +9,8 @@ impl BRep {
     /// For genus-0 models: `V - E + F - (L - F) = 2 * S`
     ///
     /// This simplifies from the full formula `V - E + F - (L - F) - 2(S - G) = 0`
-    /// with genus G = 0.
+    /// with genus G = 0. For solids with through-holes, use
+    /// [`validate_euler_poincare_any_genus`] instead.
     pub fn validate_euler_poincare(&self) -> Result<(), ValidationError> {
         let v = self.vertices.len() as i64;
         let e = self.edges.len() as i64;
@@ -17,17 +18,40 @@ impl BRep {
         let l = self.loops.len() as i64;
         let s = self.shells.len() as i64;
 
-        // V - E + F - (L - F) = 2 * S
         let lhs = v - e + f - (l - f);
         let rhs = 2 * s;
 
         if lhs != rhs {
-            // Use the first solid handle for the error, or default if none.
             let solid = self.solids.keys().next().unwrap_or_default();
-
             return Err(ValidationError::EulerPoincare {
                 solid,
                 expected: rhs,
+                actual: lhs,
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Validate the Euler-Poincaré formula allowing any genus.
+    ///
+    /// Full formula: `V - E + 2F - L = 2(S - G)`. Validates that the
+    /// computed genus G is a non-negative integer.
+    pub fn validate_euler_poincare_any_genus(&self) -> Result<(), ValidationError> {
+        let v = self.vertices.len() as i64;
+        let e = self.edges.len() as i64;
+        let f = self.faces.len() as i64;
+        let l = self.loops.len() as i64;
+        let s = self.shells.len() as i64;
+
+        let lhs = v - e + 2 * f - l;
+        let two_g = 2 * s - lhs;
+
+        if two_g < 0 || two_g % 2 != 0 {
+            let solid = self.solids.keys().next().unwrap_or_default();
+            return Err(ValidationError::EulerPoincare {
+                solid,
+                expected: 2 * s,
                 actual: lhs,
             });
         }

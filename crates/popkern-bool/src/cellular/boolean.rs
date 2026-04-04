@@ -19,7 +19,10 @@ use crate::merge::fragment_classify::FragmentSelection;
 use crate::merge::graph::{IntersectionGraph, Operand};
 use crate::merge::graph_build::insert_operand_topology;
 use crate::merge::graph_intersect::insert_intersection_curves;
-use crate::merge::graph_split::{EndpointClass, classify_endpoint, split_graph_edge};
+use crate::merge::graph_split::{
+    EndpointClass, classify_endpoint, remove_collinear_duplicates, split_edges_at_shared_nodes,
+    split_graph_edge,
+};
 use crate::merge::radial::sort_all_radial;
 use crate::merge::walk::{Fragment, walk_all_fragments};
 
@@ -60,6 +63,17 @@ pub(crate) fn cellular_graph_merge(
 
     // Phase 3: Insert intersection curves as shared edges.
     insert_intersection_curves(&mut graph, &intersection_result.records, snap_tol);
+
+    // Phase 3.1–3.2: Handle coincident face boundaries.
+    if intersection_result
+        .coincidence
+        .face_overlaps
+        .iter()
+        .any(|o| !o.full_overlap)
+    {
+        split_edges_at_shared_nodes(&mut graph, snap_tol);
+        remove_collinear_duplicates(&mut graph);
+    }
 
     // Phase 4: Sort radial edges at all nodes.
     sort_all_radial(&mut graph);

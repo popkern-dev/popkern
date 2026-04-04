@@ -7,13 +7,15 @@
 // Used by later pipeline stages; not yet called from the main merge path.
 #![allow(dead_code)]
 
-use popkern_core::{geometry::Point3, tolerance::Tolerance, topology::BRep};
+use popkern_core::{tolerance::Tolerance, topology::BRep};
 
-use super::graph::{EdgeSource, IntersectionGraph, Operand};
+use super::fragment_sample::{compute_centroid, sample_point_for_fragment, sample_point_uv};
+use super::graph::{IntersectionGraph, Operand};
 use super::walk::Fragment;
 use crate::classify::point_in_solid;
 use crate::classify_on_face::classify_on_face;
 use crate::coincidence::CoincidenceMap;
+use crate::coincidence::types::CoincidenceOrientation;
 use crate::error::{BoolError, BoolOperation, Classification, PointClassification};
 use crate::intersect::compute_face_aabbs;
 
@@ -63,20 +65,78 @@ pub(crate) fn classify_and_select_fragments(
             continue;
         }
 
-        // Normal path: sample point + ray casting
-        let sample = sample_point_for_fragment(graph, &fragment.outer_loop);
+        // Second check: is this fragment in the overlap region of a
+        // PARTIAL coincident face? If the fragment's sample point is
+        // inside both face polygons, apply coincidence rules.
+        if let Some(on_class) =
+            classify_partial_overlap(graph, fragment, is_a, op, coincidence, brep_a, brep_b)
+        {
+            let selection = on_face_to_selection(on_class, own_operand, op);
+            selections.push(selection);
+            continue;
+        }
 
+        // Normal path: sample point + ray casting.
+        // Try the split-edge midpoint first, then fall back to the loop
+        // centroid. Split-edge midpoints can land on the opposite operand's
+        // boundary (where two faces share an edge), giving ambiguous results.
         let (_, other_brep, other_aabbs) = match own_operand {
             Operand::A => (Operand::A, brep_b, &aabbs_b),
             Operand::B => (Operand::B, brep_a, &aabbs_a),
         };
 
-        let classification = match point_in_solid(&sample, other_brep, other_aabbs, tolerance) {
+        let sample = sample_point_for_fragment(graph, &fragment.outer_loop);
+        let mut classification = match point_in_solid(&sample, other_brep, other_aabbs, tolerance) {
             Ok(c) => c,
             Err(_) => PointClassification::Outside,
         };
 
+        // When the primary sample results in rejection, retry with a
+        // UV-space interior point for PLANAR faces only. On planar faces,
+        // the UV↔3D mapping is linear, so the UV centroid reliably maps
+        // to the face interior. Split-edge midpoints can land exactly on
+        // the opposite operand's surface (at shared intersection edges),
+        // giving ambiguous Outside results.
+        // On curved faces (spheres, cylinders), UV centroids can map to
+        // misleading 3D positions — skip the retry for those.
+        // UV retry: only for B-fragments in subtraction on planar faces.
+        // This targets the specific case where B's inner wall faces have
+        // split-edge midpoints on A's surface (shared intersection edges).
+        let eligible_for_uv_retry = !apply_selection_table(op, own_operand, classification).keep
+            && own_operand == Operand::B
+            && op == BoolOperation::Subtraction;
+        if eligible_for_uv_retry {
+            let own_brep = match own_operand {
+                Operand::A => brep_a,
+                Operand::B => brep_b,
+            };
+            let is_planar = own_brep
+                .faces
+                .get(fragment.face.face)
+                .and_then(|f| f.surface.as_ref())
+                .is_some_and(|s| {
+                    matches!(
+                        s.geometry,
+                        popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
+                    )
+                });
+            if is_planar
+                && let Some(uv_sample) =
+                    sample_point_uv(graph, &fragment.outer_loop, &fragment.face, brep_a, brep_b)
+            {
+                let uv_class = match point_in_solid(&uv_sample, other_brep, other_aabbs, tolerance)
+                {
+                    Ok(c) => c,
+                    Err(_) => classification,
+                };
+                if apply_selection_table(op, own_operand, uv_class).keep {
+                    classification = uv_class;
+                }
+            }
+        }
+
         let selection = apply_selection_table(op, own_operand, classification);
+
         selections.push(selection);
     }
 
@@ -84,6 +144,107 @@ pub(crate) fn classify_and_select_fragments(
 }
 
 /// Convert an ON-face classification to a fragment selection.
+/// Check if a fragment lies in the overlap region of a partial coincident face.
+///
+/// For partial overlaps, `classify_on_face` returns `None` (it only handles
+/// full overlaps). This function checks if the fragment's centroid is in the
+/// overlap region (inside both face polygons in shared UV space). If so,
+/// returns the coincidence classification. Otherwise returns `None` to fall
+/// through to normal ray-casting.
+fn classify_partial_overlap(
+    graph: &IntersectionGraph,
+    fragment: &Fragment,
+    operand_is_a: bool,
+    operation: BoolOperation,
+    coincidence: &CoincidenceMap,
+    brep_a: &BRep,
+    brep_b: &BRep,
+) -> Option<Classification> {
+    use crate::coincidence::overlap_boundary::point_in_polygon_2d;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    // Find a partial overlap for this fragment's face.
+    let overlap = coincidence.face_overlaps.iter().find(|fo| {
+        let matches = if operand_is_a {
+            fo.face_a == fragment.face.face
+        } else {
+            fo.face_b == fragment.face.face
+        };
+        matches && !fo.full_overlap
+    })?;
+
+    // Get both face surfaces — must be planar for UV projection.
+    let surf_a = brep_a.faces.get(overlap.face_a)?.surface.as_ref()?;
+    let SurfaceGeometry::Plane {
+        origin,
+        u_axis,
+        v_axis,
+        ..
+    } = &surf_a.geometry
+    else {
+        return None;
+    };
+
+    // Project both face boundaries into shared UV space.
+    let project = |brep: &BRep, fh: popkern_core::topology::FaceHandle| -> Vec<(f64, f64)> {
+        crate::clip::face_vertex_positions(brep, fh)
+            .iter()
+            .map(|p| {
+                let d = *p - *origin;
+                (d.dot(u_axis), d.dot(v_axis))
+            })
+            .collect()
+    };
+    let poly_a = project(brep_a, overlap.face_a);
+    let poly_b = project(brep_b, overlap.face_b);
+
+    if poly_a.len() < 3 || poly_b.len() < 3 {
+        return None;
+    }
+
+    // Get fragment centroid and project to UV.
+    let centroid = compute_centroid(graph, &fragment.outer_loop);
+    let d = centroid - *origin;
+    let u = d.dot(u_axis);
+    let v = d.dot(v_axis);
+
+    // Check if centroid is inside BOTH polygons (= in the overlap region).
+    if point_in_polygon_2d(u, v, &poly_a) && point_in_polygon_2d(u, v, &poly_b) {
+        // In the overlap region — apply coincidence rules.
+        let orientation = overlap.orientation;
+        Some(match (operation, orientation) {
+            (BoolOperation::Subtraction, CoincidenceOrientation::Same) => Classification::Inside,
+            (BoolOperation::Subtraction, CoincidenceOrientation::Opposite) => {
+                if operand_is_a {
+                    Classification::OnBoundaryCrossing
+                } else {
+                    Classification::Inside
+                }
+            }
+            (BoolOperation::Union, CoincidenceOrientation::Same) => {
+                if operand_is_a {
+                    Classification::OnBoundaryCooriented
+                } else {
+                    Classification::Inside
+                }
+            }
+            (BoolOperation::Union, CoincidenceOrientation::Opposite) => Classification::Inside,
+            (BoolOperation::Intersection, CoincidenceOrientation::Same) => {
+                if operand_is_a {
+                    Classification::OnBoundaryCooriented
+                } else {
+                    Classification::Outside
+                }
+            }
+            (BoolOperation::Intersection, CoincidenceOrientation::Opposite) => {
+                Classification::Outside
+            }
+        })
+    } else {
+        None // Not in overlap region — fall through to ray casting.
+    }
+}
+
 fn on_face_to_selection(
     class: Classification,
     _operand: Operand,
@@ -114,56 +275,6 @@ fn on_face_to_selection(
 /// Prefers the midpoint of a non-shared (original or split) edge, which is
 /// guaranteed to lie well inside the fragment and away from the intersection
 /// curve.  Falls back to the loop centroid if every edge is shared.
-fn sample_point_for_fragment(graph: &IntersectionGraph, loop_hes: &[usize]) -> Point3 {
-    for &he_idx in loop_hes {
-        let he = &graph.half_edges[he_idx];
-        match &he.source {
-            EdgeSource::OriginalA(_)
-            | EdgeSource::OriginalB(_)
-            | EdgeSource::SplitA { .. }
-            | EdgeSource::SplitB { .. } => {
-                let start = graph.nodes[he.origin].position;
-                let twin_idx = he.twin;
-                let end = graph.nodes[graph.half_edges[twin_idx].origin].position;
-                return Point3::new(
-                    (start.x + end.x) * 0.5,
-                    (start.y + end.y) * 0.5,
-                    (start.z + end.z) * 0.5,
-                );
-            }
-            EdgeSource::Shared { .. } => continue,
-        }
-    }
-    // Fallback: all edges are shared (shouldn't normally happen).
-    compute_centroid(graph, loop_hes)
-}
-
-/// Compute the centroid of a loop's vertex positions.
-fn compute_centroid(graph: &IntersectionGraph, loop_hes: &[usize]) -> Point3 {
-    if loop_hes.is_empty() {
-        return Point3::new(0.0, 0.0, 0.0);
-    }
-
-    let mut sum_x = 0.0;
-    let mut sum_y = 0.0;
-    let mut sum_z = 0.0;
-
-    for &he_idx in loop_hes {
-        let origin = graph.half_edges[he_idx].origin;
-        let pos = graph.nodes[origin].position;
-        sum_x += pos.x;
-        sum_y += pos.y;
-        sum_z += pos.z;
-    }
-
-    let n = loop_hes.len() as f64;
-    Point3::new(sum_x / n, sum_y / n, sum_z / n)
-}
-
-/// Apply the boolean selection table.
-///
-/// Returns a [`FragmentSelection`] indicating whether to keep the fragment
-/// and whether to flip its normal.
 fn apply_selection_table(
     op: BoolOperation,
     operand: Operand,

@@ -24,13 +24,18 @@ pub fn classify_on_face(
     operation: BoolOperation,
     coincidence: &CoincidenceMap,
 ) -> Option<Classification> {
-    // Find this face in the coincidence map
+    // Find this face in the coincidence map.
+    // Only apply coincidence rules for full overlaps. For partial overlaps,
+    // the face has been split into coincident and non-coincident fragments.
+    // Ray-casting classification handles partial overlaps correctly at the
+    // fragment level.
     let overlap = coincidence.face_overlaps.iter().find(|fo| {
-        if operand_is_a {
+        let matches = if operand_is_a {
             fo.face_a == face
         } else {
             fo.face_b == face
-        }
+        };
+        matches && fo.full_overlap
     })?;
 
     let orientation = overlap.orientation;

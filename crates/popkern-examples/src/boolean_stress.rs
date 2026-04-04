@@ -27,7 +27,7 @@ fn validate_result(name: &str, result: &BRep) -> bool {
     let euler = v as i64 - e as i64 + f as i64;
 
     // Structural checks (topology)
-    let structural_ok = result.validate_euler_poincare().is_ok()
+    let structural_ok = result.validate_euler_poincare_any_genus().is_ok()
         && result.validate_half_edge_pairing().is_ok()
         && result.validate_manifold_edges().is_ok();
 

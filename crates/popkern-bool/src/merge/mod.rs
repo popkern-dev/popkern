@@ -7,6 +7,7 @@
 pub(crate) mod assemble;
 pub(crate) mod curve_split;
 pub(crate) mod fragment_classify;
+pub(crate) mod fragment_sample;
 pub(crate) mod graph;
 pub(crate) mod graph_build;
 pub(crate) mod graph_intersect;
