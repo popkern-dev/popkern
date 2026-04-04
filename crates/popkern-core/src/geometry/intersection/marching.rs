@@ -70,11 +70,23 @@ pub(crate) fn march(
     backward.extend(forward);
     let samples = backward;
 
-    // Check if closed: last sample within tolerance of first, and enough steps.
-    let is_closed = if samples.len() > 3 {
+    // Check if closed: last sample within a step-sized tolerance of first.
+    // The march steps in discrete increments, so exact closure is impossible.
+    // Use the average step length as the closure tolerance.
+    let avg_step = if samples.len() > 1 {
+        let total_arc: f64 = samples
+            .windows(2)
+            .map(|w| w[0].point.distance_to(&w[1].point))
+            .sum();
+        total_arc / (samples.len() - 1) as f64
+    } else {
+        tolerance.linear
+    };
+    let closure_tol = (avg_step * 2.0).max(tolerance.linear);
+    let is_closed = if samples.len() > 10 {
         let first = &samples[0];
         let last = &samples[samples.len() - 1];
-        first.point.distance_to(&last.point) < tolerance.linear
+        first.point.distance_to(&last.point) < closure_tol
     } else {
         false
     };
@@ -402,16 +414,14 @@ fn march_one_direction(
                         return samples;
                     }
 
-                    // Check for closure: if we've marched enough steps and
-                    // the new point is back near the start, stop. Use a
-                    // closure tolerance proportional to step size (not just
-                    // linear tolerance) to handle periodic surfaces where
-                    // the march may overshoot slightly.
-                    // Check for closure: if we've marched at least a few
-                    // steps and the new point is back near the start, stop.
-                    let min_steps_before_closure_check = 3;
+                    // Check for closure: use step_size as the tolerance since
+                    // the march can only land within one step of the start.
+                    // Require enough steps to have traversed a meaningful
+                    // distance (avoid false closure on first few steps).
+                    let min_steps_before_closure_check = 20;
+                    let closure_tol = step_size * 1.5;
                     if samples.len() > min_steps_before_closure_check
-                        && sample.point.distance_to(&start.point) < tolerance.linear
+                        && sample.point.distance_to(&start.point) < closure_tol
                     {
                         samples.push(sample);
                         return samples;

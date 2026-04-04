@@ -349,11 +349,7 @@ fn march_tangent_during_march_robust_handler_recovers() {
 /// both u and v (the torus is periodic in both directions) and produces a closed
 /// curve, verifying the closure detection path inside `march_one_direction`.
 ///
-/// NOTE: Closure detection on torus requires march trajectory debugging —
-/// the curvature adaptation causes step drift that prevents the march from
-/// returning cleanly to the start point. Tracked as shortcoming #4.
 #[test]
-#[ignore]
 fn march_torus_plane_closed_curve() {
     // Torus with major radius 2, minor radius 0.5, axis along Z.
     let torus = SurfaceGeometry::Torus {
@@ -395,22 +391,6 @@ fn march_torus_plane_closed_curve() {
         "torus-plane intersection should produce multiple samples, got {}",
         samples.len()
     );
-    if !is_closed && samples.len() > 1 {
-        let first = &samples[0].point;
-        let last = &samples[samples.len() - 1].point;
-        let dist = first.distance_to(last);
-        eprintln!(
-            "[torus-plane] {} samples, first=({:.3},{:.3},{:.3}), last=({:.3},{:.3},{:.3}), dist={:.6}",
-            samples.len(),
-            first.x,
-            first.y,
-            first.z,
-            last.x,
-            last.y,
-            last.z,
-            dist
-        );
-    }
     assert!(
         is_closed,
         "torus-plane intersection should be a closed curve"
@@ -425,9 +405,7 @@ fn march_torus_plane_closed_curve() {
     }
 }
 
-/// Same torus closure issue as march_torus_plane_closed_curve.
 #[test]
-#[ignore]
 fn march_one_direction_inner_closure_detection() {
     // Use a small torus so the march wraps around quickly.
     let torus = SurfaceGeometry::Torus {
