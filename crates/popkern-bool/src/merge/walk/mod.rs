@@ -318,13 +318,31 @@ fn next_around_face(
         return Some(candidates[0]);
     }
 
-    // Prefer loop closure: if start_he is among the candidates, return
-    // it immediately. Closing the loop takes priority over extending
-    // into additional edges (which may be cross-registered duplicates).
+    // Prefer loop closure when start_he is a candidate AND all other
+    // candidates are already visited. This avoids closing the loop
+    // prematurely (skipping unvisited boundary edges like cap circles)
+    // while still preventing extension into cross-registered duplicates.
     if let Some(sh) = start_he
         && candidates.contains(&sh)
     {
-        return Some(sh);
+        // Only defer closure if there are unvisited candidates whose face
+        // matches (actual boundary edges, not cross-registered duplicates).
+        // Only defer closure for unvisited NON-SHARED face-matching
+        // candidates (actual boundary edges like cap circles). Shared
+        // edges (even face-matching ones from cross-registration) should
+        // not prevent loop closure.
+        let unvisited_face_matching = candidates.iter().any(|&c| {
+            c != sh
+                && !visited.contains(&c)
+                && graph.half_edges[c].face.as_ref() == Some(face)
+                && !matches!(
+                    graph.half_edges[c].source,
+                    super::graph::EdgeSource::Shared { .. }
+                )
+        });
+        if !unvisited_face_matching {
+            return Some(sh);
+        }
     }
 
     // At seam T-junctions on curved surfaces (where seam continuation
