@@ -25,6 +25,7 @@
 //! let result = boolean(BoolOperation::Union, solid_a, solid_b, Tolerance::default())?;
 //! ```
 
+pub mod adaptive_precision;
 pub mod cellular;
 pub(crate) mod classify;
 pub mod classify_on_face;
@@ -42,7 +43,9 @@ pub mod multi_body;
 pub(crate) mod operation;
 pub mod ops;
 pub mod parallel;
+pub mod perturbation;
 pub mod postprocess;
+pub mod provenance;
 pub(crate) mod select;
 pub(crate) mod split;
 pub(crate) mod split_inner_loop;
