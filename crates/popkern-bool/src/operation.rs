@@ -133,7 +133,14 @@ pub(crate) fn execute_boolean(
         tolerance,
     )
     .ok()
-    .filter(|r| r.validate().is_ok()) // only use if topology is valid
+    .filter(|r| {
+        let valid = r.validate().is_ok();
+        #[cfg(debug_assertions)]
+        if !valid {
+            eprintln!("[boolean] cellular assembly invalid, falling back to graph-merge");
+        }
+        valid
+    })
     .map(Ok)
     .unwrap_or_else(|| {
         // Fallback: standard graph-merge
