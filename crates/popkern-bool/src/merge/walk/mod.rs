@@ -49,6 +49,10 @@ pub(crate) fn walk_all_fragments(
         let mut visited: HashSet<usize> = HashSet::new();
         let mut loops: Vec<Vec<usize>> = Vec::new();
 
+        // Self-loop inner loops are collected during the main walk via
+        // area-based classification. No pre-extraction needed — the
+        // signed_area function handles self-loop curves by sampling.
+
         for &start_he in he_indices {
             if visited.contains(&start_he) {
                 continue;
