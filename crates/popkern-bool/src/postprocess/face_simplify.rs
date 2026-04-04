@@ -129,3 +129,65 @@ pub fn find_merge_candidates(brep: &BRep, tolerance: &Tolerance) -> FaceSimplify
 
     report
 }
+
+/// Apply face simplification: merge faces within each group by removing
+/// shared edges via KEF. Validates after each removal; stops a group
+/// if validation fails.
+///
+/// Returns the number of faces eliminated.
+pub fn apply_face_simplification(brep: &mut BRep, tolerance: &Tolerance) -> usize {
+    let report = find_merge_candidates(brep, tolerance);
+    let mut eliminated = 0;
+
+    for group in &report.merge_groups {
+        if group.len() < 2 {
+            continue;
+        }
+
+        // Find shared edges between faces in this group
+        let group_set: std::collections::HashSet<FaceHandle> = group.iter().copied().collect();
+
+        let shared_edges: Vec<_> = brep
+            .edges
+            .keys()
+            .filter(|&eh| {
+                let edge = &brep.edges[eh];
+                let he = match brep.half_edges.get(edge.half_edge) {
+                    Some(h) => h,
+                    None => return false,
+                };
+                let twin = match brep.half_edges.get(he.twin) {
+                    Some(t) => t,
+                    None => return false,
+                };
+                let fa = match brep.loops.get(he.loop_) {
+                    Some(l) => l.face,
+                    None => return false,
+                };
+                let fb = match brep.loops.get(twin.loop_) {
+                    Some(l) => l.face,
+                    None => return false,
+                };
+                fa != fb && group_set.contains(&fa) && group_set.contains(&fb)
+            })
+            .collect();
+
+        // Remove shared edges one at a time with validation
+        for eh in shared_edges {
+            let he = match brep.edges.get(eh) {
+                Some(e) => e.half_edge,
+                None => continue,
+            };
+
+            if brep.kef(he).is_ok() {
+                if brep.validate().is_err() {
+                    // Topology corrupted — stop this group
+                    break;
+                }
+                eliminated += 1;
+            }
+        }
+    }
+
+    eliminated
+}

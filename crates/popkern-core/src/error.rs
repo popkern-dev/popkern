@@ -102,6 +102,13 @@ pub enum ValidationError {
         /// Second face involved in intersection.
         face_b: FaceHandle,
     },
+
+    /// A face's surface normal reverses direction (surface folds over itself).
+    #[error("Twisted surface on face {face:?}")]
+    TwistedSurface {
+        /// The face with a twisted surface.
+        face: FaceHandle,
+    },
 }
 
 /// Top-level error type for popkern-core operations.

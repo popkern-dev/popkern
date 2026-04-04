@@ -71,6 +71,24 @@ pub fn process_pairs_sequential(
         .collect()
 }
 
+/// Process face pairs in parallel using rayon.
+///
+/// Requires the `parallel` feature flag. Each face pair is independent
+/// and can be processed on a separate thread.
+#[cfg(feature = "parallel")]
+pub fn process_pairs_parallel(
+    candidates: &[FacePairCandidate],
+    a: &BRep,
+    b: &BRep,
+    tolerance: &Tolerance,
+) -> Vec<FacePairResult> {
+    use rayon::prelude::*;
+    candidates
+        .par_iter()
+        .filter_map(|candidate| process_one_pair(candidate, a, b, tolerance))
+        .collect()
+}
+
 /// Process a single face pair.
 fn process_one_pair(
     candidate: &FacePairCandidate,

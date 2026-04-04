@@ -5,8 +5,12 @@ edition.workspace = true
 license.workspace = true
 description = "Boolean operations (union, intersection, subtraction) on BRep solids"
 
+[features]
+parallel = ["rayon"]
+
 [dependencies]
 popkern-core = { path = "../popkern-core" }
+rayon = { version = "1", optional = true }
 thiserror = "2"
 
 [dev-dependencies]
