@@ -247,7 +247,8 @@ pub(crate) fn find_intersections_with_aabbs(
                                 let cross_len = n1.cross(&n2).length();
                                 let norms = n1.length() * n2.length();
                                 let is_tangent =
-                                    norms > 1e-15 && (cross_len / norms) < tolerance.angular();
+                                    norms > tolerance.numerical_floor()
+                                        && (cross_len / norms) < tolerance.angular();
 
                                 records.push(IntersectionRecord {
                                     face_a,
@@ -413,7 +414,7 @@ fn detect_edges_vs_faces(
         // Construct a line curve from vertex positions (handles cases where
         // stored CurveOnEdge geometry is out of sync with vertex positions).
         let direction = v_end - v_start;
-        if direction.length_squared() < 1e-30 {
+        if direction.length_squared() < tolerance.numerical_floor().powi(2) {
             continue;
         }
         let edge_curve = CurveGeometry::Line {

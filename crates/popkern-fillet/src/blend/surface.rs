@@ -178,7 +178,7 @@ fn try_spherical_blend(
         let dx = p.x - p0.x;
         let dy = p.y - p0.y;
         let dz = p.z - p0.z;
-        if dx.abs() + dy.abs() + dz.abs() < 1e-12 {
+        if dx.abs() + dy.abs() + dz.abs() < tolerance.solver() {
             continue; // Skip near-duplicate points.
         }
         let rhs = p.x * p.x + p.y * p.y + p.z * p.z - p0_sq;

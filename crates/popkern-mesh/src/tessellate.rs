@@ -60,7 +60,7 @@ pub fn tessellate_face(
                 let mut normal = surface.normal_at(u, v);
                 // Normalize the normal vector.
                 let len = normal.length();
-                if len > 1e-12 {
+                if len > brep.tolerance.numerical_floor() {
                     normal = Vec3::new(normal.x / len, normal.y / len, normal.z / len);
                 }
                 // Flip normal if face orientation is reversed.

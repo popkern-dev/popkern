@@ -64,7 +64,7 @@ pub fn repair_vertex_positions(brep: &mut BRep, repair_tolerance: f64) -> Repair
         // Check start vertex
         let v_start_pos = brep.vertices[vh_start].position;
         let start_dev = v_start_pos.distance_to(&curve_start);
-        if start_dev > 1e-15 && start_dev < repair_tolerance {
+        if start_dev > brep.tolerance.numerical_floor() && start_dev < repair_tolerance {
             brep.vertices[vh_start].position = curve_start;
             report.vertices_adjusted += 1;
             report.max_gap_closed = report.max_gap_closed.max(start_dev);
@@ -75,7 +75,7 @@ pub fn repair_vertex_positions(brep: &mut BRep, repair_tolerance: f64) -> Repair
         // Check end vertex
         let v_end_pos = brep.vertices[vh_end].position;
         let end_dev = v_end_pos.distance_to(&curve_end);
-        if end_dev > 1e-15 && end_dev < repair_tolerance {
+        if end_dev > brep.tolerance.numerical_floor() && end_dev < repair_tolerance {
             brep.vertices[vh_end].position = curve_end;
             report.vertices_adjusted += 1;
             report.max_gap_closed = report.max_gap_closed.max(end_dev);

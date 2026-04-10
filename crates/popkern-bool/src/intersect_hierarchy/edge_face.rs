@@ -72,7 +72,7 @@ fn detect_one_direction(
             )
         } else {
             let direction = v_end - v_start;
-            if direction.length_squared() < 1e-30 {
+            if direction.length_squared() < tolerance.numerical_floor().powi(2) {
                 continue;
             }
             let bbox = match Aabb::from_points(&[v_start, v_end]) {

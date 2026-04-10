@@ -98,15 +98,17 @@ pub(crate) fn solve_point_on_two_planes(
     n2: Vec3,
     d2: f64,
     direction: Vec3,
-    _tolerance: &Tolerance,
+    tolerance: &Tolerance,
 ) -> Result<Point3, DraftError> {
     let ax = direction.x.abs();
     let ay = direction.y.abs();
     let az = direction.z.abs();
 
+    let solver_tol = tolerance.solver();
+
     let (x, y, z) = if ax >= ay && ax >= az {
         let det = n1.y * n2.z - n1.z * n2.y;
-        if det.abs() < 1e-12 {
+        if det.abs() < solver_tol {
             return Err(DraftError::InvalidNeutral(
                 "degenerate plane-plane intersection".into(),
             ));
@@ -116,7 +118,7 @@ pub(crate) fn solve_point_on_two_planes(
         (0.0, y, z)
     } else if ay >= ax && ay >= az {
         let det = n1.x * n2.z - n1.z * n2.x;
-        if det.abs() < 1e-12 {
+        if det.abs() < solver_tol {
             return Err(DraftError::InvalidNeutral(
                 "degenerate plane-plane intersection".into(),
             ));
@@ -126,7 +128,7 @@ pub(crate) fn solve_point_on_two_planes(
         (x, 0.0, z)
     } else {
         let det = n1.x * n2.y - n1.y * n2.x;
-        if det.abs() < 1e-12 {
+        if det.abs() < solver_tol {
             return Err(DraftError::InvalidNeutral(
                 "degenerate plane-plane intersection".into(),
             ));

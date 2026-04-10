@@ -136,6 +136,9 @@ fn solve_3_planes(
     let cross12 = n1.cross(n2);
     let det = n0.dot(&cross12);
 
+    // Use a tight numerical threshold for the 3x3 determinant singularity
+    // check.  This is a pure linear-algebra guard — not a geometric tolerance —
+    // so 1e-12 is appropriate regardless of the tolerance object.
     if det.abs() < 1e-12 {
         return None;
     }

@@ -235,7 +235,7 @@ fn classify_tangent(
     let len2 = n2.length();
 
     // Degenerate normals can't be classified; treat as non-tangent.
-    if len1 < 1e-14 || len2 < 1e-14 {
+    if len1 < tolerance.numerical_floor() || len2 < tolerance.numerical_floor() {
         return false;
     }
 

@@ -97,7 +97,7 @@ fn compute_edge_curve(
     edge_handle: EdgeHandle,
     surf1: &SurfaceGeometry,
     surf2: &SurfaceGeometry,
-    _tolerance: &Tolerance,
+    tolerance: &Tolerance,
 ) -> Result<Option<CurveOnEdge>, ShellError> {
     // Get edge endpoint positions for trimming.
     let edge = &inner.edges[edge_handle];
@@ -122,7 +122,7 @@ fn compute_edge_curve(
             // Plane-plane intersection: line direction is n1 x n2.
             let direction = n1.cross(n2);
             let dir_len = direction.length();
-            if dir_len < 1e-12 {
+            if dir_len < tolerance.solver() {
                 // Parallel planes — no intersection line (shouldn't happen
                 // for adjacent faces of a valid solid).
                 return Ok(None);

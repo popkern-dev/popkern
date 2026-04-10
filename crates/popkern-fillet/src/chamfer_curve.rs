@@ -133,7 +133,7 @@ fn compute_offset_points(
     edge_points: &[Point3],
     surface: &SurfaceGeometry,
     distance: f64,
-    _tolerance: &Tolerance,
+    tolerance: &Tolerance,
 ) -> Result<Vec<Point3>, String> {
     if edge_points.len() < 2 {
         return Err("need at least 2 edge points".into());
@@ -151,7 +151,7 @@ fn compute_offset_points(
             edge_points[i + 1] - edge_points[i - 1]
         };
         let tangent_len = tangent.length();
-        if tangent_len < 1e-15 {
+        if tangent_len < tolerance.numerical_floor() {
             offset_points.push(*pt);
             continue;
         }
@@ -165,7 +165,7 @@ fn compute_offset_points(
         let (u, v) = find_uv_for_point(surface, pt);
         let normal = surface.normal_at(u, v);
         let normal_len = normal.length();
-        if normal_len < 1e-15 {
+        if normal_len < tolerance.numerical_floor() {
             offset_points.push(*pt);
             continue;
         }
@@ -174,7 +174,7 @@ fn compute_offset_points(
         // offset_dir = normalize(normal x tangent)
         let offset_raw = normal.cross(&tangent_unit);
         let offset_len = offset_raw.length();
-        if offset_len < 1e-15 {
+        if offset_len < tolerance.numerical_floor() {
             offset_points.push(*pt);
             continue;
         }

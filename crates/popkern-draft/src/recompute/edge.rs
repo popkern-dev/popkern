@@ -105,7 +105,7 @@ fn compute_edge_curve(
     edge_handle: EdgeHandle,
     surf1: &SurfaceGeometry,
     surf2: &SurfaceGeometry,
-    _tolerance: &Tolerance,
+    tolerance: &Tolerance,
 ) -> Result<Option<CurveOnEdge>, DraftError> {
     let edge = &brep.edges[edge_handle];
     let he = &brep.half_edges[edge.half_edge];
@@ -128,7 +128,7 @@ fn compute_edge_curve(
         ) => {
             let direction = n1.cross(n2);
             let dir_len = direction.length();
-            if dir_len < 1e-12 {
+            if dir_len < tolerance.solver() {
                 return Ok(None);
             }
             let direction = direction * (1.0 / dir_len);

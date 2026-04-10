@@ -195,7 +195,7 @@ fn find_tangent_march_direction(
     tolerance: &Tolerance,
 ) -> Option<Vec3> {
     let n1 = surface1.normal_at(u1, v1);
-    if n1.length() < 1e-12 {
+    if n1.length() < tolerance.numerical_floor() {
         return None;
     }
     let delta = tolerance.linear() * 10.0;
@@ -233,7 +233,7 @@ pub(crate) fn march_one_direction(
     handler: &dyn DegeneracyHandler,
 ) -> Vec<MarchSample> {
     let max_steps = 10_000;
-    let epsilon = 1e-12;
+    let epsilon = tolerance.solver();
     let min_step = tolerance.linear();
     let max_step = tolerance.linear() * 1000.0;
     let mut step_size = tolerance.linear() * 50.0;
@@ -402,7 +402,7 @@ pub(crate) fn march_one_direction(
                     let n2_post = surface2.normal_at(sample.u2, sample.v2);
                     let cross_len = n1_post.cross(&n2_post).length();
                     let norms = n1_post.length() * n2_post.length();
-                    if norms > 1e-15 {
+                    if norms > tolerance.numerical_floor() {
                         let sin_angle = cross_len / norms;
 
                         // Branch point detection: record location where
@@ -410,13 +410,13 @@ pub(crate) fn march_one_direction(
                         // Also performs second-order contact analysis (§2.5)
                         // using curvature comparison to determine crossing
                         // vs touching.
-                        if sin_angle < 0.05 && sin_angle > 1e-10 {
+                        if sin_angle < 0.05 && sin_angle > tolerance.solver() {
                             // Second-order analysis: compare curvatures
                             let suu1 = surface1.second_partial_uu(sample.u1, sample.v1);
                             let svv1 = surface1.second_partial_vv(sample.u1, sample.v1);
                             let suu2 = surface2.second_partial_uu(sample.u2, sample.v2);
                             let svv2 = surface2.second_partial_vv(sample.u2, sample.v2);
-                            let n_unit = n1_post * (1.0 / n1_post.length().max(1e-15));
+                            let n_unit = n1_post * (1.0 / n1_post.length().max(tolerance.numerical_floor()));
                             let curv_diff =
                                 (suu1 - suu2).dot(&n_unit).abs() + (svv1 - svv2).dot(&n_unit).abs();
 
