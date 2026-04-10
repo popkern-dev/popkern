@@ -20,7 +20,7 @@ fn collect_candidates_overlapping() {
     let aabbs_a = compute_face_aabbs(&a);
     let aabbs_b = compute_face_aabbs(&b);
 
-    let candidates = super::ff_parallel::collect_candidates(&aabbs_a, &aabbs_b, tol().linear);
+    let candidates = super::ff_parallel::collect_candidates(&aabbs_a, &aabbs_b, tol().linear());
     assert!(!candidates.is_empty(), "should find overlapping pairs");
 }
 
@@ -34,7 +34,7 @@ fn collect_candidates_disjoint() {
     let aabbs_a = compute_face_aabbs(&a);
     let aabbs_b = compute_face_aabbs(&b);
 
-    let candidates = super::ff_parallel::collect_candidates(&aabbs_a, &aabbs_b, tol().linear);
+    let candidates = super::ff_parallel::collect_candidates(&aabbs_a, &aabbs_b, tol().linear());
     assert!(candidates.is_empty());
 }
 
@@ -48,7 +48,7 @@ fn process_pairs_produces_results() {
     let aabbs_a = compute_face_aabbs(&a);
     let aabbs_b = compute_face_aabbs(&b);
 
-    let candidates = super::ff_parallel::collect_candidates(&aabbs_a, &aabbs_b, tol().linear);
+    let candidates = super::ff_parallel::collect_candidates(&aabbs_a, &aabbs_b, tol().linear());
     let results = super::ff_parallel::process_pairs_sequential(&candidates, &a, &b, &tol());
 
     let total_curves: usize = results.iter().map(|r| r.curves.len()).sum();
@@ -69,7 +69,7 @@ fn process_pairs_matches_find_intersections() {
     let aabbs_a = compute_face_aabbs(&a);
     let aabbs_b = compute_face_aabbs(&b);
 
-    let candidates = super::ff_parallel::collect_candidates(&aabbs_a, &aabbs_b, tol().linear);
+    let candidates = super::ff_parallel::collect_candidates(&aabbs_a, &aabbs_b, tol().linear());
     let parallel_results =
         super::ff_parallel::process_pairs_sequential(&candidates, &a, &b, &tol());
     let parallel_curves: usize = parallel_results.iter().map(|r| r.curves.len()).sum();

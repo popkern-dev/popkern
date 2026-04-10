@@ -105,7 +105,7 @@ pub(super) fn ensure_endpoint_vertices(
             let end_pos = brep.vertices[next_he.origin].position;
 
             if let Some(_t_loop) =
-                point_on_segment(&origin_pos, &end_pos, endpoint, tolerance.linear)
+                point_on_segment(&origin_pos, &end_pos, endpoint, tolerance.linear())
             {
                 // Compute t relative to the edge's canonical direction.
                 let edge_he = brep.edges[he.edge].half_edge;
@@ -113,7 +113,7 @@ pub(super) fn ensure_endpoint_vertices(
                 let edge_twin = brep.half_edges[edge_he].twin;
                 let edge_end = brep.vertices[brep.half_edges[edge_twin].origin].position;
                 if let Some(t_edge) =
-                    point_on_segment(&edge_origin, &edge_end, endpoint, tolerance.linear)
+                    point_on_segment(&edge_origin, &edge_end, endpoint, tolerance.linear())
                 {
                     best = Some((he.edge, t_edge));
                 }

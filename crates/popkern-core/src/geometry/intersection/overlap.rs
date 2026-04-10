@@ -91,8 +91,8 @@ pub(crate) fn detect_overlaps(
         samples.push(Sample { t1, t2, dist });
     }
 
-    // Collect contiguous runs where dist < tolerance.linear.
-    let tol = tolerance.linear;
+    // Collect contiguous runs where dist < tolerance.linear().
+    let tol = tolerance.linear();
     let mut overlaps: Vec<CurveIntersection> = Vec::new();
 
     let mut run_start: Option<usize> = None;

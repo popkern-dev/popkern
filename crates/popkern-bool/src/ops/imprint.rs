@@ -54,7 +54,7 @@ pub fn imprint(
 
     for (face_t, aabb_t) in &aabbs_target {
         for (face_tool, aabb_tool) in &aabbs_tool {
-            if !aabb_t.overlaps(aabb_tool, tolerance.linear) {
+            if !aabb_t.overlaps(aabb_tool, tolerance.linear()) {
                 continue;
             }
             pairs_tested += 1;

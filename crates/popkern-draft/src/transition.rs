@@ -59,8 +59,8 @@ pub(crate) fn insert_transition_face(
     let old_end = original_positions.get(&v_end).copied().unwrap_or(new_end);
 
     // Check if either vertex actually moved.
-    let start_moved = old_start.distance_to(&new_start) > tolerance.linear;
-    let end_moved = old_end.distance_to(&new_end) > tolerance.linear;
+    let start_moved = old_start.distance_to(&new_start) > tolerance.linear();
+    let end_moved = old_end.distance_to(&new_end) > tolerance.linear();
 
     if !start_moved && !end_moved {
         // No gap to bridge — no transition face needed.
@@ -193,7 +193,7 @@ fn build_quad_face(
         let end_pos = brep.vertices[dest].position;
         let dir = end_pos - start_pos;
         let dir_len = dir.length();
-        let curve = if dir_len > tolerance.linear {
+        let curve = if dir_len > tolerance.linear() {
             let direction = dir * (1.0 / dir_len);
             Some(CurveOnEdge {
                 geometry: CurveGeometry::Line {

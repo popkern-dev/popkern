@@ -134,7 +134,7 @@ fn shell_impl(
         classify::classify_faces(brep, thickness, face_thicknesses, direction, removed_faces)?;
 
     // Stage 2: compute offset surfaces.
-    let stage_tol = Tolerance::default().with_linear(tolerance.linear / 4.0);
+    let stage_tol = Tolerance::default().with_linear(tolerance.linear() / 4.0);
     let offset_result = surface_offset::compute_offset_surfaces(
         brep,
         &classification,
@@ -251,7 +251,7 @@ fn assign_shell_names(
     let post_faces: Vec<FaceHandle> = brep.faces.keys().collect();
     let mut gen_idx: u32 = 0;
     let mut mod_idx: u32 = 0;
-    let generous_dist = tol.linear * 100.0;
+    let generous_dist = tol.linear() * 100.0;
 
     for fh in &post_faces {
         let Some(fc) = capture_face(brep, *fh) else {

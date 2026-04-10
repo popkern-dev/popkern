@@ -76,10 +76,10 @@ pub(crate) fn intersect_nurbs_nurbs(
             newton::newton_refine(&geom1, *t1_approx, &geom2, *t2_approx, tolerance)
         {
             // Only keep results within the requested ranges (with some slack)
-            if t1 >= t1_range.0 - tolerance.parametric
-                && t1 <= t1_range.1 + tolerance.parametric
-                && t2 >= t2_range.0 - tolerance.parametric
-                && t2 <= t2_range.1 + tolerance.parametric
+            if t1 >= t1_range.0 - tolerance.parametric_base()
+                && t1 <= t1_range.1 + tolerance.parametric_base()
+                && t2 >= t2_range.0 - tolerance.parametric_base()
+                && t2 <= t2_range.1 + tolerance.parametric_base()
             {
                 results.push(CurveIntersection::Point { point, t1, t2 });
             }
@@ -170,7 +170,7 @@ fn sample_candidates(
             if best_dist <= dist_left && best_dist <= dist_right {
                 // Use a tighter threshold: sampling resolution gives approximate distance
                 let sample_resolution = (t1_range.1 - t1_range.0) / (n1 as f64) * coarse_threshold;
-                if best_dist < sample_resolution.max(tolerance.linear * 1000.0) {
+                if best_dist < sample_resolution.max(tolerance.linear() * 1000.0) {
                     candidates.push((t1, pts2[best_j].0));
                 }
             }
@@ -260,7 +260,7 @@ fn aabb_overlap(pts1: &[Point3], pts2: &[Point3]) -> bool {
 }
 
 /// Deduplicate intersection results: merge points whose 3D positions are
-/// within `tolerance.linear` OR whose parameters are within `tolerance.parametric`.
+/// within `tolerance.linear()` OR whose parameters are within `tolerance.parametric_base()`.
 fn deduplicate(results: &mut Vec<CurveIntersection>, tolerance: &Tolerance) {
     let mut i = 0;
     while i < results.len() {
@@ -291,9 +291,9 @@ fn is_duplicate(a: &CurveIntersection, b: &CurveIntersection, tolerance: &Tolera
                 t2: t2b,
             },
         ) => {
-            pa.distance_to(pb) < tolerance.linear
-                || ((t1a - t1b).abs() < tolerance.parametric
-                    && (t2a - t2b).abs() < tolerance.parametric)
+            pa.distance_to(pb) < tolerance.linear()
+                || ((t1a - t1b).abs() < tolerance.parametric_base()
+                    && (t2a - t2b).abs() < tolerance.parametric_base())
         }
         _ => false,
     }

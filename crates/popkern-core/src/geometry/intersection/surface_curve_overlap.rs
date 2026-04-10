@@ -136,7 +136,7 @@ fn closest_point_sq_dist(
 /// Samples the curve at [`NUM_SAMPLES`] evenly-spaced parameter values within
 /// `t_range`.  For each sample the closest point on the surface is found (see
 /// [`closest_point_sq_dist`]).  Contiguous runs of [`MIN_RUN`] or more samples
-/// whose distance to the surface is below `tolerance.linear` are returned as
+/// whose distance to the surface is below `tolerance.linear()` are returned as
 /// [`SurfaceCurveIntersection::Overlap`] results, one per run.
 pub(crate) fn detect_surface_curve_overlaps(
     surface: &SurfaceGeometry,
@@ -148,7 +148,7 @@ pub(crate) fn detect_surface_curve_overlaps(
 ) -> Vec<SurfaceCurveIntersection> {
     let (t0, t1) = t_range;
 
-    let lin_sq = tolerance.linear * tolerance.linear;
+    let lin_sq = tolerance.linear() * tolerance.linear();
 
     // --- Step 1: evaluate the distance from each sample to the surface -------
 

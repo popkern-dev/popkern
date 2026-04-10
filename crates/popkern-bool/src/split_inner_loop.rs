@@ -61,7 +61,7 @@ pub(crate) fn point_inside_face_uv(
     for (_he, pcurve) in &boundary {
         let (t0, t1) = pcurve.parameter_range();
         let range = t1 - t0;
-        if range.abs() < tolerance.linear {
+        if range.abs() < tolerance.linear() {
             continue;
         }
         for i in 0..samples_per_edge {

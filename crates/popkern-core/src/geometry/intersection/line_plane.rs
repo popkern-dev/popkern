@@ -14,7 +14,7 @@ use crate::tolerance::Tolerance;
 /// - An empty `Vec` when there is no intersection within the given ranges.
 /// - A single `Point` result when the line pierces the patch.
 /// - A single `Overlap` result when the line lies inside the plane (within
-///   `tolerance.linear`) — the full `t_range` is returned because the line is
+///   `tolerance.linear()`) — the full `t_range` is returned because the line is
 ///   coincident with the surface everywhere along its parameter domain.
 #[allow(dead_code, clippy::too_many_arguments)]
 pub(crate) fn intersect_line_plane(
@@ -41,7 +41,7 @@ pub(crate) fn intersect_line_plane(
         let offset = *plane_origin - *line_origin; // O - P
         let dist = offset.dot(plane_normal).abs();
 
-        if dist < tolerance.linear {
+        if dist < tolerance.linear() {
             // Line lies in the plane — overlap over the full t_range.
             return vec![SurfaceCurveIntersection::Overlap { t_range }];
         }

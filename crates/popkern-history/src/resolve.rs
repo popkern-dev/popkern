@@ -358,7 +358,7 @@ pub(crate) fn resolve_extrude_distance(
                     t,
                     ..
                 } = isect
-                    && *t > tolerance.linear
+                    && *t > tolerance.linear()
                     && *t < min_t
                 {
                     min_t = *t;
@@ -393,7 +393,7 @@ pub(crate) fn resolve_extrude_distance(
             let pos = target_brep.vertices[vh].position;
             let diff = pos - extrude_origin;
             let dist = diff.dot(&extrude_dir);
-            if dist <= tolerance.linear {
+            if dist <= tolerance.linear() {
                 return Err(ReplayError::FeatureFailed {
                     label: String::new(),
                     error: "target vertex is behind or at extrude origin".into(),

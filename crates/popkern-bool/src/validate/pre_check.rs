@@ -68,7 +68,7 @@ impl PreCheckReport {
 pub fn pre_check(a: &BRep, b: &BRep, check_self_intersection: bool) -> PreCheckReport {
     let mut report = PreCheckReport::default();
 
-    let tol_linear = a.tolerance.linear;
+    let tol_linear = a.tolerance.linear();
     validate_one_body(a, 0, check_self_intersection, tol_linear, &mut report);
     validate_one_body(b, 1, check_self_intersection, tol_linear, &mut report);
 

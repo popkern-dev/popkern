@@ -41,7 +41,7 @@ pub(crate) fn intersect_line_line(
             perp.length()
         };
 
-        if dist >= tolerance.linear {
+        if dist >= tolerance.linear() {
             // Parallel, non-coincident
             return Vec::new();
         }
@@ -131,7 +131,7 @@ pub(crate) fn intersect_line_line(
     let point_on_2 = *p2 + *d2 * s;
     let gap = (point_on_1 - point_on_2).length();
 
-    if gap >= tolerance.linear {
+    if gap >= tolerance.linear() {
         return Vec::new();
     }
 

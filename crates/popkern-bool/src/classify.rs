@@ -226,7 +226,7 @@ fn ray_crossing_count(
             match isect {
                 SurfaceCurveIntersection::Point { t, u, v, .. } => {
                     // Only forward intersections (t > 0).
-                    if *t < tolerance.linear {
+                    if *t < tolerance.linear() {
                         continue;
                     }
 
@@ -246,7 +246,7 @@ fn ray_crossing_count(
                     let dot = n_unit.dot(&d_unit).abs();
 
                     // If the hit is nearly tangent, the ray is inconclusive.
-                    if dot < tolerance.angular {
+                    if dot < tolerance.angular() {
                         return Err(());
                     }
 

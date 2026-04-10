@@ -200,7 +200,7 @@ fn try_spherical_blend(
     let avg_radius: f64 =
         points.iter().map(|p| p.distance_to(&center)).sum::<f64>() / points.len() as f64;
 
-    if avg_radius < tolerance.linear {
+    if avg_radius < tolerance.linear() {
         return None;
     }
 
@@ -210,7 +210,7 @@ fn try_spherical_blend(
         .map(|p| (p.distance_to(&center) - avg_radius).abs())
         .fold(0.0_f64, f64::max);
 
-    if max_deviation > tolerance.linear * 10.0 {
+    if max_deviation > tolerance.linear() * 10.0 {
         return None;
     }
 

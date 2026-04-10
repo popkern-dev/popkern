@@ -42,13 +42,13 @@ pub(crate) fn try_plane_plane(
     let d_len_sq = d.length_squared();
 
     // Check for parallel planes: |d|² < sin²(angular_tol) ≈ angular_tol² for small angles.
-    let sin_tol = tolerance.angular.sin();
+    let sin_tol = tolerance.angular().sin();
     if d_len_sq < sin_tol * sin_tol {
         // Planes are parallel (or anti-parallel). Measure the signed distance
         // from origin2 to plane 1: dist = (origin2 - origin1) · n1.
         let diff = origin2 - origin1;
         let dist = diff.dot(&normal1).abs();
-        if dist < tolerance.linear {
+        if dist < tolerance.linear() {
             // Coincident planes.
             return Ok(vec![SurfaceSurfaceIntersection::CoincidentRegion {
                 u1_range,
@@ -95,7 +95,7 @@ pub(crate) fn try_plane_plane(
         v2_range,
     );
 
-    if t_max - t_min < tolerance.linear {
+    if t_max - t_min < tolerance.linear() {
         // Intersection line does not pass through the parameter regions.
         return Ok(vec![]);
     }

@@ -159,7 +159,7 @@ fn make_line_curve_on_surface(
 
     let dir = end - start;
     let len = dir.length();
-    if len < tolerance.linear {
+    if len < tolerance.linear() {
         return None;
     }
 

@@ -50,7 +50,7 @@ pub(crate) fn find_starting_points(
         .iter()
         .flat_map(|p1| {
             patches2.iter().filter_map(move |p2| {
-                if p1.bbox.overlaps(&p2.bbox, tolerance.linear) {
+                if p1.bbox.overlaps(&p2.bbox, tolerance.linear()) {
                     Some((p1.clone(), p2.clone(), 0u32))
                 } else {
                     None
@@ -67,13 +67,13 @@ pub(crate) fn find_starting_points(
             break;
         }
         let diag = patch1.bbox.diagonal().max(patch2.bbox.diagonal());
-        if depth < 6 && diag > 100.0 * tolerance.linear {
+        if depth < 6 && diag > 100.0 * tolerance.linear() {
             // Refine both patches and re-cull sub-pairs.
             let sub1 = refine_patch(&patch1);
             let sub2 = refine_patch(&patch2);
             for sp1 in &sub1 {
                 for sp2 in &sub2 {
-                    if sp1.bbox.overlaps(&sp2.bbox, tolerance.linear) {
+                    if sp1.bbox.overlaps(&sp2.bbox, tolerance.linear()) {
                         queue.push((sp1.clone(), sp2.clone(), depth + 1));
                     }
                 }
@@ -148,13 +148,13 @@ fn pick_march_dir(n1: Vec3, n2: Vec3, surface1: &SurfaceGeometry, u1: f64, v1: f
     Vec3::new(1.0, 0.0, 0.0)
 }
 
-/// Remove duplicate samples: keep first occurrence, skip any within `tolerance.linear`.
+/// Remove duplicate samples: keep first occurrence, skip any within `tolerance.linear()`.
 #[allow(dead_code)]
 fn deduplicate(samples: Vec<MarchSample>, tolerance: &Tolerance) -> Vec<MarchSample> {
     let mut unique: Vec<MarchSample> = Vec::new();
     'outer: for s in samples {
         for u in &unique {
-            if s.point.distance_to(&u.point) < tolerance.linear {
+            if s.point.distance_to(&u.point) < tolerance.linear() {
                 continue 'outer;
             }
         }
@@ -181,7 +181,7 @@ pub(crate) fn find_branch_points(
     start: &MarchSample,
     tolerance: &Tolerance,
 ) -> Vec<MarchSample> {
-    let delta = tolerance.linear * 50.0;
+    let delta = tolerance.linear() * 50.0;
     let mut branches = Vec::new();
 
     // Perturb in 4 directions in surface 1's parameter space.
@@ -210,7 +210,7 @@ pub(crate) fn find_branch_points(
             // Only keep it if it is not already on the existing traced curve.
             let on_existing = traced_samples
                 .iter()
-                .any(|s| s.point.distance_to(&candidate.point) < tolerance.linear * 10.0);
+                .any(|s| s.point.distance_to(&candidate.point) < tolerance.linear() * 10.0);
             if !on_existing {
                 branches.push(candidate);
             }
@@ -240,7 +240,7 @@ fn classify_tangent(
     }
 
     let cos_angle = n1.dot(&n2).abs() / (len1 * len2);
-    cos_angle > 1.0 - tolerance.angular
+    cos_angle > 1.0 - tolerance.angular()
 }
 
 #[cfg(test)]

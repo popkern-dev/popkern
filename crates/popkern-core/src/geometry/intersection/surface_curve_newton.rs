@@ -39,7 +39,7 @@ pub(crate) fn newton_surface_curve(
         // Residual vector: F = curve(t) - surface(u,v)
         let f = pc - ps;
 
-        if f.length() < tolerance.linear {
+        if f.length() < tolerance.linear() {
             return Some((t, u, v, pc));
         }
 

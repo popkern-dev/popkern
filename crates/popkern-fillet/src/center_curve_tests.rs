@@ -20,11 +20,10 @@ fn xz_plane() -> SurfaceGeometry {
 }
 
 fn test_tolerance() -> Tolerance {
-    Tolerance {
-        linear: 1e-3,
-        angular: 1e-3,
-        parametric: 1e-6,
-    }
+    Tolerance::default()
+        .with_linear(1e-3)
+        .with_angular(1e-3)
+        .with_parametric(1e-6)
 }
 
 /// Plane at 45 degrees for variable-angle tests. Normal = (0, sin45, cos45).

@@ -67,7 +67,7 @@ pub(crate) fn build_edge_graph(
         let dx = end.0 - start.0;
         let dy = end.1 - start.1;
         let dist = (dx * dx + dy * dy).sqrt();
-        if dist < tolerance.linear {
+        if dist < tolerance.linear() {
             // Check if this is a full-circle arc (angular span > PI).
             let is_full_circle = match &element {
                 ElementHandle::Arc(ah) => {
@@ -234,7 +234,7 @@ fn find_or_insert_node(
     for (i, node) in nodes.iter().enumerate() {
         let dx = node.0 - pos.0;
         let dy = node.1 - pos.1;
-        if (dx * dx + dy * dy).sqrt() < tolerance.linear {
+        if (dx * dx + dy * dy).sqrt() < tolerance.linear() {
             return i;
         }
     }

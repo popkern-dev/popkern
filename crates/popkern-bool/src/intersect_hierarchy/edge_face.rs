@@ -90,7 +90,7 @@ fn detect_one_direction(
         };
 
         for (face_h, face_aabb) in face_aabbs {
-            if !edge_aabb.overlaps(face_aabb, tolerance.linear) {
+            if !edge_aabb.overlaps(face_aabb, tolerance.linear()) {
                 continue;
             }
 
@@ -116,7 +116,7 @@ fn detect_one_direction(
                 for isect in &result.intersections {
                     if let SurfaceCurveIntersection::Point { t, u, v, .. } = *isect {
                         // Filter endpoints (VV/VE hits, not EF piercings)
-                        let eps = tolerance.linear;
+                        let eps = tolerance.linear();
                         if (t - t_range.0).abs() < eps || (t - t_range.1).abs() < eps {
                             continue;
                         }

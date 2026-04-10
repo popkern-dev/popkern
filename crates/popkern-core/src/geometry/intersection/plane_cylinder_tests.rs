@@ -7,11 +7,10 @@ use crate::tolerance::Tolerance;
 use std::f64::consts::TAU;
 
 fn test_tolerance() -> Tolerance {
-    Tolerance {
-        linear: 1e-6,
-        angular: 1e-6,
-        parametric: 1e-9,
-    }
+    Tolerance::default()
+        .with_linear(1e-6)
+        .with_angular(1e-6)
+        .with_parametric(1e-9)
 }
 
 fn z_axis_cylinder(radius: f64) -> SurfaceGeometry {

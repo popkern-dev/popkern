@@ -41,7 +41,7 @@ fn tessellate_area(
     tolerance: &Tolerance,
 ) -> Result<f64, MeasureError> {
     let opts = TessellationOptions {
-        chord_height: tolerance.linear.max(1e-4),
+        chord_height: tolerance.linear().max(1e-4),
         ..TessellationOptions::default()
     };
     let face_mesh = popkern_mesh::tessellate_face(brep, face, &opts)
@@ -245,7 +245,7 @@ pub fn face_centroid(
         .ok_or_else(|| MeasureError::InvalidHandle("face".into()))?;
 
     let opts = TessellationOptions {
-        chord_height: tolerance.linear.max(1e-4),
+        chord_height: tolerance.linear().max(1e-4),
         ..TessellationOptions::default()
     };
     let face_mesh = popkern_mesh::tessellate_face(brep, face, &opts)

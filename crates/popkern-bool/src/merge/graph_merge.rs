@@ -39,7 +39,7 @@ pub(crate) fn graph_merge(
     tolerance: &Tolerance,
 ) -> Result<BRep, BoolDiagnostics> {
     // Use snap tolerance (2x linear) for vertex merging to prevent micro-edges.
-    let snap_tol = tolerance.linear * 2.0;
+    let snap_tol = tolerance.linear() * 2.0;
     let mut graph = IntersectionGraph::new();
 
     // Phase 1: Insert original topology from both operands.

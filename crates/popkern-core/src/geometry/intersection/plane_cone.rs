@@ -113,13 +113,13 @@ fn intersect_impl(
 ) -> Option<Vec<SurfaceSurfaceIntersection>> {
     // Check if the plane passes through (or very near) the apex.
     let apex_dist = (apex - po).dot(&pn).abs();
-    if apex_dist < tol.linear {
+    if apex_dist < tol.linear() {
         // Degenerate: plane through apex produces lines, not a conic.
         return None;
     }
 
     let cos_alpha = pn.dot(&ca).abs();
-    if cos_alpha > 1.0 - tol.angular {
+    if cos_alpha > 1.0 - tol.angular() {
         Some(case_perpendicular(
             po, pn, pu, pv, apex, ca, half_angle, tol, swapped,
         ))
@@ -144,13 +144,13 @@ fn case_perpendicular(
     swapped: bool,
 ) -> Vec<SurfaceSurfaceIntersection> {
     let axis_dot = ca.dot(&pn);
-    if axis_dot.abs() < tol.angular {
+    if axis_dot.abs() < tol.angular() {
         return vec![];
     }
 
     // v = signed distance along axis from apex to plane intersection.
     let v = (po - apex).dot(&pn) / axis_dot;
-    if v < tol.linear {
+    if v < tol.linear() {
         // Plane intersects at or before the apex (v <= 0): no intersection
         // on the positive half of the cone.
         return vec![];
@@ -238,7 +238,7 @@ fn case_oblique(
 
     // Ellipse condition: a² > b² + d² (denominator never zero).
     let disc = a * a - b * b - d * d;
-    if disc < tol.angular * tol.angular {
+    if disc < tol.angular() * tol.angular() {
         // Parabola or hyperbola: fall through to marching.
         return None;
     }
@@ -253,7 +253,7 @@ fn case_oblique(
     // Both v-extremes must be positive (same sign of c and denominator).
     let v_at_min = c / denom_min;
     let v_at_max = c / denom_max;
-    if v_at_min < tol.linear || v_at_max < tol.linear {
+    if v_at_min < tol.linear() || v_at_max < tol.linear() {
         // The intersection is on the "wrong" side of the apex or
         // partially behind it.  Return empty.
         return Some(vec![]);

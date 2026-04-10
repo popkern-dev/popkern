@@ -187,7 +187,7 @@ fn self_intersecting_faces_detected() {
 /// Verify that the tighter 2× tolerance catches a near-intersection that the
 /// old 10× tolerance would have missed.
 ///
-/// Two non-adjacent flat patches are placed 3× `tolerance.linear` apart in Z.
+/// Two non-adjacent flat patches are placed 3× `tolerance.linear()` apart in Z.
 /// With 2× tolerance the intersection test uses a coarse tolerance of 2×, which
 /// is smaller than the 3× gap — so the surfaces are not within that band and
 /// the test **passes** (no intersection flagged).  The test serves as a
@@ -198,8 +198,8 @@ fn self_intersecting_faces_detected() {
 #[test]
 fn tighter_tolerance_catches_near_intersection() {
     let tol = Tolerance::default();
-    let gap_3x = tol.linear * 3.0; // outside 2× band → should NOT be flagged
-    let gap_half = tol.linear * 0.5; // inside 2× band → should be flagged
+    let gap_3x = tol.linear() * 3.0; // outside 2× band → should NOT be flagged
+    let gap_half = tol.linear() * 0.5; // inside 2× band → should be flagged
 
     // Helper: build a two-disconnected-face BRep with patch A in the XY plane
     // (z=0) and patch B offset by `z_offset` in Z.

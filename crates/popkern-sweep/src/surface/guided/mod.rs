@@ -71,7 +71,7 @@ pub fn validate_guide_rails(
         guide_deviations.push(dev);
     }
 
-    if max_deviation > tolerance.linear {
+    if max_deviation > tolerance.linear() {
         return Err(SweepError::GuideDeviation {
             deviation: max_deviation,
         });
@@ -123,7 +123,7 @@ pub fn apply_guide_rails(
 
     // Check if already within tolerance.
     let initial_dev = compute_max_deviation(surface, guides);
-    if initial_dev <= tolerance.linear {
+    if initial_dev <= tolerance.linear() {
         return Ok(GuideValidation {
             max_deviation: initial_dev,
             guide_deviations: compute_per_guide_deviations(surface, guides),
@@ -136,7 +136,7 @@ pub fn apply_guide_rails(
         adjust_control_points_once(surface, guides);
 
         let current_dev = compute_max_deviation(surface, guides);
-        if current_dev <= tolerance.linear {
+        if current_dev <= tolerance.linear() {
             return Ok(GuideValidation {
                 max_deviation: current_dev,
                 guide_deviations: compute_per_guide_deviations(surface, guides),
@@ -147,7 +147,7 @@ pub fn apply_guide_rails(
 
     // Final check after all iterations.
     let final_dev = compute_max_deviation(surface, guides);
-    if final_dev > tolerance.linear {
+    if final_dev > tolerance.linear() {
         return Err(SweepError::GuideDeviation {
             deviation: final_dev,
         });

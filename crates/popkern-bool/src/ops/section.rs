@@ -47,7 +47,7 @@ pub fn section(a: &BRep, b: &BRep, tolerance: &Tolerance) -> Result<SectionResul
 
     for (face_a, aabb_a) in &aabbs_a {
         for (face_b, aabb_b) in &aabbs_b {
-            if !aabb_a.overlaps(aabb_b, tolerance.linear) {
+            if !aabb_a.overlaps(aabb_b, tolerance.linear()) {
                 continue;
             }
             pairs_tested += 1;

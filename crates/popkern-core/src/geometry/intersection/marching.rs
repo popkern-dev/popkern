@@ -93,9 +93,9 @@ pub(crate) fn march(
             .sum();
         total_arc / (samples.len() - 1) as f64
     } else {
-        tolerance.linear
+        tolerance.linear()
     };
-    let closure_tol = (avg_step * 2.0).max(tolerance.linear);
+    let closure_tol = (avg_step * 2.0).max(tolerance.linear());
     let is_closed = if samples.len() > 10 {
         let first = &samples[0];
         let last = &samples[samples.len() - 1];
@@ -198,7 +198,7 @@ fn find_tangent_march_direction(
     if n1.length() < 1e-12 {
         return None;
     }
-    let delta = tolerance.linear * 10.0;
+    let delta = tolerance.linear() * 10.0;
     let (tu, tv) = tangent_basis(&n1);
 
     let mut best_dir = Vec3::zero();
@@ -234,9 +234,9 @@ pub(crate) fn march_one_direction(
 ) -> Vec<MarchSample> {
     let max_steps = 10_000;
     let epsilon = 1e-12;
-    let min_step = tolerance.linear;
-    let max_step = tolerance.linear * 1000.0;
-    let mut step_size = tolerance.linear * 50.0;
+    let min_step = tolerance.linear();
+    let max_step = tolerance.linear() * 1000.0;
+    let mut step_size = tolerance.linear() * 50.0;
     // Branch point candidates detected during march (spec §2.4).
     // Used by find_branch_points in starting_points.rs to seed
     // additional curve traces from branch locations.
@@ -258,7 +258,7 @@ pub(crate) fn march_one_direction(
                 break;
             }
             // Handler returned false (robust): attempt normal estimation near singularity.
-            let delta = tolerance.linear * 10.0;
+            let delta = tolerance.linear() * 10.0;
             match estimate_normal_near_singularity(surface1, current.u1, current.v1, delta) {
                 Some(estimated) => n1 = estimated,
                 None => {
@@ -293,7 +293,7 @@ pub(crate) fn march_one_direction(
                 break;
             }
             // Handler returned false (robust): attempt normal estimation near singularity.
-            let delta = tolerance.linear * 10.0;
+            let delta = tolerance.linear() * 10.0;
             match estimate_normal_near_singularity(surface2, current.u2, current.v2, delta) {
                 Some(estimated) => n2 = estimated,
                 None => {
@@ -333,8 +333,8 @@ pub(crate) fn march_one_direction(
                 break;
             }
             // Handler returned false (robust): use perturbation-based direction.
-            // Reduce step size to tolerance.linear for finer tracing.
-            step_size = tolerance.linear;
+            // Reduce step size to tolerance.linear() for finer tracing.
+            step_size = tolerance.linear();
             match find_tangent_march_direction(
                 surface1,
                 current.u1,
@@ -389,7 +389,7 @@ pub(crate) fn march_one_direction(
                         surface1, sample.u1, sample.v1, surface2, sample.u2, sample.v2,
                     );
                     let curvature_cap =
-                        curvature_based_step(curvature, tolerance.linear, min_step, max_step);
+                        curvature_based_step(curvature, tolerance.linear(), min_step, max_step);
                     if curvature_cap < step_size {
                         step_size = step_size * 0.7 + curvature_cap * 0.3;
                     }
@@ -422,7 +422,7 @@ pub(crate) fn march_one_direction(
 
                             // If curvature difference is significant, it's a
                             // crossing or branch; if near zero, it's touching.
-                            if curv_diff > tolerance.linear {
+                            if curv_diff > tolerance.linear() {
                                 branch_points.push(BranchPoint {
                                     point: sample.point,
                                     u1: sample.u1,

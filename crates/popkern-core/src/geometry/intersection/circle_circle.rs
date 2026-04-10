@@ -70,7 +70,7 @@ pub(crate) fn intersect_circle_circle(
     c2_angle_range: (f64, f64),
     tolerance: &Tolerance,
 ) -> Vec<CurveIntersection> {
-    let tol = tolerance.linear;
+    let tol = tolerance.linear();
 
     // Normalize normals
     let n1 = match c1_normal.normalized() {
@@ -86,7 +86,7 @@ pub(crate) fn intersect_circle_circle(
     let cross = n1.cross(&n2);
     let cross_len = cross.length();
 
-    if cross_len < tolerance.angular {
+    if cross_len < tolerance.angular() {
         // Normals are parallel — check if circles are coplanar
         // Distance from c2_center to the plane of circle 1
         let delta = *c2_center - *c1_center;
@@ -136,7 +136,7 @@ fn intersect_coplanar(
     c2_angle_range: (f64, f64),
     tolerance: &Tolerance,
 ) -> Vec<CurveIntersection> {
-    let tol = tolerance.linear;
+    let tol = tolerance.linear();
     let delta = *c2_center - *c1_center;
     let d = delta.length();
 
@@ -187,8 +187,8 @@ fn intersect_coplanar(
         let t1 = angle_on_circle(&p_mid, c1_center, &u1, &v1);
         let t2 = angle_on_circle(&p_mid, c2_center, &u2, &v2);
 
-        if angle_in_range(t1, c1_angle_range, tolerance.parametric)
-            && angle_in_range(t2, c2_angle_range, tolerance.parametric)
+        if angle_in_range(t1, c1_angle_range, tolerance.parametric_base())
+            && angle_in_range(t2, c2_angle_range, tolerance.parametric_base())
         {
             return vec![CurveIntersection::Point {
                 point: p_mid,
@@ -218,8 +218,8 @@ fn intersect_coplanar(
         let t1 = angle_on_circle(pt, c1_center, &u1, &v1);
         let t2 = angle_on_circle(pt, c2_center, &u2, &v2);
 
-        if angle_in_range(t1, c1_angle_range, tolerance.parametric)
-            && angle_in_range(t2, c2_angle_range, tolerance.parametric)
+        if angle_in_range(t1, c1_angle_range, tolerance.parametric_base())
+            && angle_in_range(t2, c2_angle_range, tolerance.parametric_base())
         {
             results.push(CurveIntersection::Point { point: *pt, t1, t2 });
         }
@@ -244,7 +244,7 @@ fn intersect_non_coplanar(
     c2_angle_range: (f64, f64),
     tolerance: &Tolerance,
 ) -> Vec<CurveIntersection> {
-    let tol = tolerance.linear;
+    let tol = tolerance.linear();
 
     // Find the line of intersection of the two planes.
     // Plane 1: n1 . (P - C1) = 0
@@ -300,8 +300,8 @@ fn intersect_non_coplanar(
                 let t1 = angle_on_circle(&mid, c1_center, &u1, &v1);
                 let t2 = angle_on_circle(&mid, c2_center, &u2, &v2);
 
-                if angle_in_range(t1, c1_angle_range, tolerance.parametric)
-                    && angle_in_range(t2, c2_angle_range, tolerance.parametric)
+                if angle_in_range(t1, c1_angle_range, tolerance.parametric_base())
+                    && angle_in_range(t2, c2_angle_range, tolerance.parametric_base())
                 {
                     results.push(CurveIntersection::Point { point: mid, t1, t2 });
                 }

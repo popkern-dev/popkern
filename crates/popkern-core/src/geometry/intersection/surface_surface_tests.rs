@@ -4,11 +4,10 @@ use std::f64::consts::{PI, TAU};
 
 /// A coarser tolerance so marching takes fewer, larger steps in tests.
 fn test_tolerance() -> Tolerance {
-    Tolerance {
-        linear: 1e-3,
-        angular: 1e-3,
-        parametric: 1e-6,
-    }
+    Tolerance::default()
+        .with_linear(1e-3)
+        .with_angular(1e-3)
+        .with_parametric(1e-6)
 }
 
 #[test]
@@ -102,11 +101,10 @@ fn coincident_cylinders_return_region_not_hang() {
         axis: Vec3::new(0.0, 0.0, 1.0),
         radius: 0.15,
     };
-    let tol = Tolerance {
-        linear: 1e-3,
-        angular: 1e-3,
-        parametric: 1e-6,
-    };
+    let tol = Tolerance::default()
+        .with_linear(1e-3)
+        .with_angular(1e-3)
+        .with_parametric(1e-6);
     let result = intersect_surfaces(
         &cyl,
         (0.0, TAU),

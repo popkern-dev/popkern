@@ -202,7 +202,7 @@ fn segment_intersection(
     let u = (d13.0 * d_a.1 - d13.1 * d_a.0) / cross;
 
     // Exclusive of endpoints: use tolerance-based margin.
-    let margin = tolerance.linear * 0.01; // small margin to avoid endpoint noise
+    let margin = tolerance.linear() * 0.01; // small margin to avoid endpoint noise
     let lo = margin;
     let hi = 1.0 - margin;
 

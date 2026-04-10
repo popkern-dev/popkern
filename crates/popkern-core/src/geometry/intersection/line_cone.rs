@@ -49,7 +49,7 @@ pub(crate) fn intersect_line_cone(
     let disc = qb * qb - 4.0 * qa * qc;
 
     // Threshold for treating as degenerate quadratic
-    let eps2 = tolerance.linear * tolerance.linear;
+    let eps2 = tolerance.linear() * tolerance.linear();
 
     let candidates: Vec<f64> = if qa.abs() < eps2 {
         // Degenerate: linear in t (or no solution)
@@ -79,7 +79,7 @@ pub(crate) fn intersect_line_cone(
 
     for t in candidates {
         // Filter by line t_range
-        if t < t_range.0 - tolerance.linear || t > t_range.1 + tolerance.linear {
+        if t < t_range.0 - tolerance.linear() || t > t_range.1 + tolerance.linear() {
             continue;
         }
 
@@ -87,12 +87,12 @@ pub(crate) fn intersect_line_cone(
 
         // Forward nappe filter: v = Q·A must be > 0 (within tolerance)
         let v = q.dot(&a);
-        if v < -tolerance.linear {
+        if v < -tolerance.linear() {
             continue;
         }
 
         // Filter by surface v_range
-        if v < v_range.0 - tolerance.linear || v > v_range.1 + tolerance.linear {
+        if v < v_range.0 - tolerance.linear() || v > v_range.1 + tolerance.linear() {
             continue;
         }
 
@@ -104,7 +104,7 @@ pub(crate) fn intersect_line_cone(
         let u = ((u_raw % tau) + tau) % tau;
 
         // Filter by surface u_range
-        if !u_in_range(u, u_range, tolerance.angular) {
+        if !u_in_range(u, u_range, tolerance.angular()) {
             continue;
         }
 

@@ -268,7 +268,7 @@ pub(crate) fn intersect_surface_curve_general(
     let surface_cells = build_surface_grid(surface, u_range, v_range, GRID_N);
 
     // --- Step 4: AABB culling + Newton polish ---
-    let margin = tolerance.linear * 10.0; // small margin for AABB overlap test
+    let margin = tolerance.linear() * 10.0; // small margin for AABB overlap test
     let mut point_results: Vec<(f64, f64, f64, Point3)> = Vec::new();
 
     for cseg in &curve_segments {
@@ -286,12 +286,12 @@ pub(crate) fn intersect_surface_curve_general(
                 newton_surface_curve(curve, t_mid, surface, u_mid, v_mid, tolerance)
             {
                 // Check that the result is within the requested ranges.
-                if t >= t_range.0 - tolerance.parametric
-                    && t <= t_range.1 + tolerance.parametric
-                    && u >= u_range.0 - tolerance.parametric
-                    && u <= u_range.1 + tolerance.parametric
-                    && v >= v_range.0 - tolerance.parametric
-                    && v <= v_range.1 + tolerance.parametric
+                if t >= t_range.0 - tolerance.parametric_base()
+                    && t <= t_range.1 + tolerance.parametric_base()
+                    && u >= u_range.0 - tolerance.parametric_base()
+                    && u <= u_range.1 + tolerance.parametric_base()
+                    && v >= v_range.0 - tolerance.parametric_base()
+                    && v <= v_range.1 + tolerance.parametric_base()
                 {
                     point_results.push((t, u, v, pt));
                 }
@@ -300,7 +300,7 @@ pub(crate) fn intersect_surface_curve_general(
     }
 
     // --- Step 5: deduplicate ---
-    let dedup_dist = tolerance.linear * 10.0;
+    let dedup_dist = tolerance.linear() * 10.0;
     let mut unique: Vec<(f64, f64, f64, Point3)> = Vec::new();
     'outer: for (t, u, v, pt) in point_results {
         for &(et, _eu, _ev, ref ep) in &unique {

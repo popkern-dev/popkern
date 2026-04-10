@@ -253,7 +253,9 @@ pub(crate) fn intersect_line_torus(
 
     for root in raw_roots {
         // Check t is within the line's parameter range (with small tolerance)
-        if root < t_range.0 - tolerance.parametric || root > t_range.1 + tolerance.parametric {
+        if root < t_range.0 - tolerance.parametric_base()
+            || root > t_range.1 + tolerance.parametric_base()
+        {
             continue;
         }
 
@@ -270,7 +272,7 @@ pub(crate) fn intersect_line_torus(
         // Verify the point actually lies on the torus (within tolerance)
         let dist_xy = (local_pt.x * local_pt.x + local_pt.y * local_pt.y).sqrt();
         let tube_dist = ((dist_xy - big_r).powi(2) + local_pt.z * local_pt.z).sqrt();
-        if (tube_dist - small_r).abs() > tolerance.linear.max(1e-6) {
+        if (tube_dist - small_r).abs() > tolerance.linear().max(1e-6) {
             continue;
         }
 

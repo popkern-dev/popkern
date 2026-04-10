@@ -7,11 +7,10 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, VertexHandle};
 
 fn test_tolerance() -> Tolerance {
-    Tolerance {
-        linear: 1e-3,
-        angular: 1e-3,
-        parametric: 1e-6,
-    }
+    Tolerance::default()
+        .with_linear(1e-3)
+        .with_angular(1e-3)
+        .with_parametric(1e-6)
 }
 
 fn make_test_curve(start: Point3, end: Point3) -> NurbsCurve {

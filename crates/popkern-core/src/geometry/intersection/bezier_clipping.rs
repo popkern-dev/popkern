@@ -311,7 +311,7 @@ fn bezier_intersect_inner_with_stalls(
     let b_span = b_range.1 - b_range.0;
 
     // Base case: both ranges small enough
-    if a_span < tolerance.parametric && b_span < tolerance.parametric {
+    if a_span < tolerance.parametric_base() && b_span < tolerance.parametric_base() {
         let t1 = (a_range.0 + a_range.1) * 0.5;
         let t2 = (b_range.0 + b_range.1) * 0.5;
         results.push((t1, t2));
@@ -322,13 +322,13 @@ fn bezier_intersect_inner_with_stalls(
     // This happens in near-tangent cases where the clipping isolates A but B remains
     // wide. Report the intersection at the A midpoint; Newton polishing downstream
     // will refine the B parameter.
-    if a_span < tolerance.parametric {
+    if a_span < tolerance.parametric_base() {
         let t1 = (a_range.0 + a_range.1) * 0.5;
         let t2 = (b_range.0 + b_range.1) * 0.5;
         results.push((t1, t2));
         return;
     }
-    if b_span < tolerance.parametric {
+    if b_span < tolerance.parametric_base() {
         let t1 = (a_range.0 + a_range.1) * 0.5;
         let t2 = (b_range.0 + b_range.1) * 0.5;
         results.push((t1, t2));
@@ -346,12 +346,12 @@ fn bezier_intersect_inner_with_stalls(
     // Tangent-specific termination: when intervals are small but not yet
     // at parametric tolerance, check for closest approach and report if
     // the curves are within linear tolerance (handles near-tangent cases).
-    if a_span < tolerance.parametric * 10.0 && b_span < tolerance.parametric * 10.0 {
+    if a_span < tolerance.parametric_base() * 10.0 && b_span < tolerance.parametric_base() * 10.0 {
         let a_sub_mid = subdivide_bezier(a_points, a_range.0, a_range.1);
         let b_sub_mid = subdivide_bezier(b_points, b_range.0, b_range.1);
         let pa = evaluate_bezier_midpoint(&a_sub_mid);
         let pb = evaluate_bezier_midpoint(&b_sub_mid);
-        if pa.distance_to(&pb) < tolerance.linear {
+        if pa.distance_to(&pb) < tolerance.linear() {
             let t1 = (a_range.0 + a_range.1) * 0.5;
             let t2 = (b_range.0 + b_range.1) * 0.5;
             results.push((t1, t2));
