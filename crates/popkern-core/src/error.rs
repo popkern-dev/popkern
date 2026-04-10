@@ -109,6 +109,13 @@ pub enum ValidationError {
         /// The face with a twisted surface.
         face: FaceHandle,
     },
+
+    /// Precision constraint violated.
+    #[error("precision: {}", .diagnostic.remediation)]
+    Precision {
+        /// The diagnostic describing the precision violation.
+        diagnostic: crate::precision::PrecisionDiagnostic,
+    },
 }
 
 /// Top-level error type for popkern-core operations.
