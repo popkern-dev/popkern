@@ -43,6 +43,7 @@ fn ray_intersects_aabb(origin: &Point3, direction: &Vec3, aabb: &Aabb) -> bool {
     for (o, d, bmin, bmax) in axes {
         if d.abs() < 1e-15 {
             // Ray is parallel to this slab — miss if origin outside.
+            // (1e-15: numerical floor, no tolerance in scope)
             if o < bmin || o > bmax {
                 return false;
             }
@@ -232,13 +233,13 @@ fn ray_crossing_count(
 
                     let normal = surface.normal_at(*u, *v);
                     let n_len = normal.length();
-                    if n_len < 1e-12 {
+                    if n_len < tolerance.numerical_floor() {
                         // Degenerate normal — skip.
                         continue;
                     }
                     let n_unit = normal * (1.0 / n_len);
                     let d_len = direction.length();
-                    if d_len < 1e-12 {
+                    if d_len < tolerance.numerical_floor() {
                         return Err(());
                     }
                     let d_unit = *direction * (1.0 / d_len);

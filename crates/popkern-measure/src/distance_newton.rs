@@ -26,6 +26,8 @@ pub(crate) fn refine_curve_param(
             break;
         }
         let t_new = (t - dot / ct_sq).clamp(t_min, t_max);
+        // Convergence stall: parametric step below solver threshold.
+        // No Tolerance param — this is an internal Newton convergence constant.
         if (t_new - t).abs() < 1e-12 {
             t = t_new;
             break;
@@ -68,6 +70,7 @@ pub(crate) fn refine_surface_params(
         let dv = (j00 * r1 - j01 * r0) / det;
         let u_new = (u - du).clamp(u_min, u_max);
         let v_new = (v - dv).clamp(v_min, v_max);
+        // Convergence stall (no Tolerance param — internal Newton constant).
         if (u_new - u).abs() < 1e-12 && (v_new - v).abs() < 1e-12 {
             u = u_new;
             v = v_new;

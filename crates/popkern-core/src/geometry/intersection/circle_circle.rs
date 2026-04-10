@@ -277,10 +277,22 @@ fn intersect_non_coplanar(
     let line_point = *c1_center + *c1_normal * s + *c2_normal * (-t);
 
     // Now intersect this line with each circle
-    let pts1 =
-        intersect_line_with_circle(&line_point, &line_dir_n, c1_center, c1_normal, c1_radius);
-    let pts2 =
-        intersect_line_with_circle(&line_point, &line_dir_n, c2_center, c2_normal, c2_radius);
+    let pts1 = intersect_line_with_circle(
+        &line_point,
+        &line_dir_n,
+        c1_center,
+        c1_normal,
+        c1_radius,
+        tolerance,
+    );
+    let pts2 = intersect_line_with_circle(
+        &line_point,
+        &line_dir_n,
+        c2_center,
+        c2_normal,
+        c2_radius,
+        tolerance,
+    );
 
     let (u1, v1) = circle_basis(*c1_normal);
     let (u2, v2) = circle_basis(*c2_normal);
@@ -322,6 +334,7 @@ fn intersect_line_with_circle(
     circle_center: &Point3,
     circle_normal: &Vec3,
     circle_radius: f64,
+    tolerance: &Tolerance,
 ) -> Vec<Point3> {
     // Project everything into the plane of the circle.
     // The line must lie in (or near) the circle's plane for there to be intersections.
@@ -348,7 +361,7 @@ fn intersect_line_with_circle(
 
     let disc = b * b - 4.0 * a * c;
 
-    if disc < -1e-10 {
+    if disc < -tolerance.solver() {
         return Vec::new();
     }
 
@@ -359,7 +372,7 @@ fn intersect_line_with_circle(
     let t1 = (-b + disc_sqrt) / (2.0 * a);
     let t2 = (-b - disc_sqrt) / (2.0 * a);
 
-    if (t1 - t2).abs() < 1e-10 {
+    if (t1 - t2).abs() < tolerance.solver() {
         // Single tangent point
         let p = *line_point + *line_dir * t1;
         points.push(p);
