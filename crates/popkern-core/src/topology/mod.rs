@@ -16,7 +16,7 @@ pub mod solid;
 /// Vertex topology entity.
 pub mod vertex;
 
-pub use edge::Edge;
+pub use edge::{CanonicalForm, Edge};
 pub use face::Face;
 pub use half_edge::HalfEdge;
 pub use handles::*;
@@ -30,6 +30,12 @@ pub use brep::BRep;
 
 /// Pcurve recomputation for BRep faces.
 mod pcurve_recompute;
+
+/// Identity queries and recovery operations for precision tracking.
+mod brep_precision_queries;
+
+/// Geometric deviation measurement for edges and vertices.
+mod brep_measurement;
 
 /// Edge and face splitting operations.
 pub mod split;

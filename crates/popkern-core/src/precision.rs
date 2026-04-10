@@ -274,6 +274,7 @@ impl Default for NearCoincidenceConfig {
 ///
 /// Maintains a sliding window of (operation_name, max_imprecision) pairs
 /// to estimate the rate of degradation and remaining budget.
+#[derive(Debug, Clone)]
 pub struct DegradationTracker {
     history: VecDeque<(&'static str, f64)>,
     window_size: usize,

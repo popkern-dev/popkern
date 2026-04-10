@@ -65,6 +65,7 @@ impl BRep {
             curve: None,
             name: None,
             tolerance: None,
+            canonical: Default::default(),
         });
 
         // Create half-edges with placeholder handles; we'll patch after insertion.
@@ -148,6 +149,7 @@ impl BRep {
             curve: None,
             name: None,
             tolerance: None,
+            canonical: Default::default(),
         });
 
         // Create he_out: existing_vertex -> new_vertex

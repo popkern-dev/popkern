@@ -69,6 +69,7 @@ impl BRepBuilder {
             curve: None,
             name: None,
             tolerance: None,
+            canonical: Default::default(),
         });
 
         let he1 = self.brep.half_edges.insert(HalfEdge {

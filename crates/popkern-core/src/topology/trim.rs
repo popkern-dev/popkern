@@ -128,6 +128,7 @@ impl BRep {
                 }),
                 name: None,
                 tolerance: None,
+                canonical: Default::default(),
             });
             edges.push(edge_h);
 

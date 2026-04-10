@@ -11,6 +11,7 @@ pub mod commands;
 pub mod cpu_render;
 pub mod error;
 pub mod headless;
+pub mod imprecision;
 pub mod loader;
 pub mod mesh_data;
 pub mod picking;

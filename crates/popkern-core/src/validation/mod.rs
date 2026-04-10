@@ -7,6 +7,7 @@ mod euler_poincare;
 mod half_edge_checks;
 mod manifold;
 mod orientation;
+mod precision;
 mod self_intersection;
 
 use crate::error::ValidationError;
@@ -27,6 +28,8 @@ impl BRep {
         self.validate_loop_closure()?;
         self.validate_curve_surface()?;
         self.validate_watertight()?;
+        // Precision checks (11)
+        self.validate_precision_fast()?;
         // Note: validate_self_intersection is intentionally excluded from
         // the fast validation path. It is O(n²) in face count, involves
         // surface-surface intersection solving, and should only be used
@@ -71,7 +74,9 @@ impl BRep {
         if let Err(e) = self.validate_watertight() {
             errors.push(e);
         }
-        // Geometric check 11: self-intersection (most expensive — run last,
+        // Precision checks (11)
+        errors.extend(self.validate_precision_thorough());
+        // Geometric check 12: self-intersection (most expensive — run last,
         // and only when there are no structural errors to avoid false reports
         // from broken topology).
         if errors.is_empty()

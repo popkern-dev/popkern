@@ -95,6 +95,7 @@ impl BRep {
             curve: None,
             name: None,
             tolerance: None,
+            canonical: Default::default(),
         });
 
         // -- Half-edges --

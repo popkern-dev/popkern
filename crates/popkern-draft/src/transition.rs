@@ -212,6 +212,7 @@ fn build_quad_face(
             curve,
             name: None,
             tolerance: None,
+            canonical: Default::default(),
         });
         brep.half_edges[he].edge = edge;
         brep.half_edges[tw].edge = edge;
