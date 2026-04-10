@@ -246,9 +246,8 @@ pub(crate) fn find_intersections_with_aabbs(
                                 let n2 = surf_b.normal_at(mid_uv2.x, mid_uv2.y);
                                 let cross_len = n1.cross(&n2).length();
                                 let norms = n1.length() * n2.length();
-                                let is_tangent =
-                                    norms > tolerance.numerical_floor()
-                                        && (cross_len / norms) < tolerance.angular();
+                                let is_tangent = norms > tolerance.numerical_floor()
+                                    && (cross_len / norms) < tolerance.angular();
 
                                 records.push(IntersectionRecord {
                                     face_a,

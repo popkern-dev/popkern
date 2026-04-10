@@ -416,7 +416,8 @@ pub(crate) fn march_one_direction(
                             let svv1 = surface1.second_partial_vv(sample.u1, sample.v1);
                             let suu2 = surface2.second_partial_uu(sample.u2, sample.v2);
                             let svv2 = surface2.second_partial_vv(sample.u2, sample.v2);
-                            let n_unit = n1_post * (1.0 / n1_post.length().max(tolerance.numerical_floor()));
+                            let n_unit =
+                                n1_post * (1.0 / n1_post.length().max(tolerance.numerical_floor()));
                             let curv_diff =
                                 (suu1 - suu2).dot(&n_unit).abs() + (svv1 - svv2).dot(&n_unit).abs();
 

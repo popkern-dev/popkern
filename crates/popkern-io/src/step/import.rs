@@ -16,9 +16,7 @@ use crate::step::mapping::product::map_products;
 use crate::step::mapping::topology::map_brep_solids;
 use crate::step::parser::entities::parse_step_file;
 use crate::step::parser::graph::EntityGraph;
-use crate::step::schema::product::{
-    GlobalUncertaintyAssignedContext, UncertaintyMeasureWithUnit,
-};
+use crate::step::schema::product::{GlobalUncertaintyAssignedContext, UncertaintyMeasureWithUnit};
 
 /// Options controlling how a STEP file is imported.
 #[derive(Debug, Clone)]
@@ -167,17 +165,17 @@ pub fn import_step_file(
 fn extract_step_uncertainty(graph: &EntityGraph, log: &mut DiagnosticLog) -> Option<f64> {
     for (_, entity) in graph.iter() {
         // Check standalone entity
-        if entity.type_name == "GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT" {
-            if let Ok(guac) = GlobalUncertaintyAssignedContext::from_params(&entity.params) {
-                return resolve_uncertainty_value(graph, &guac.uncertainty, log);
-            }
+        if entity.type_name == "GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT"
+            && let Ok(guac) = GlobalUncertaintyAssignedContext::from_params(&entity.params)
+        {
+            return resolve_uncertainty_value(graph, &guac.uncertainty, log);
         }
         // Check complex-entity parts
         for (part_type, part_params) in &entity.complex_parts {
-            if part_type == "GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT" {
-                if let Ok(guac) = GlobalUncertaintyAssignedContext::from_params(part_params) {
-                    return resolve_uncertainty_value(graph, &guac.uncertainty, log);
-                }
+            if part_type == "GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT"
+                && let Ok(guac) = GlobalUncertaintyAssignedContext::from_params(part_params)
+            {
+                return resolve_uncertainty_value(graph, &guac.uncertainty, log);
             }
         }
     }
@@ -191,20 +189,20 @@ fn resolve_uncertainty_value(
     log: &mut DiagnosticLog,
 ) -> Option<f64> {
     for &ref_id in refs {
-        if let Some(ent) = graph.get(ref_id) {
-            if let Ok(umu) = UncertaintyMeasureWithUnit::from_params(&ent.params) {
-                if umu.value > 0.0 && umu.value.is_finite() {
-                    log.warn(
-                        Phase::MapTopology,
-                        Some(ref_id),
-                        format!(
-                            "using STEP uncertainty {:.2e} from '{}'",
-                            umu.value, umu.name
-                        ),
-                    );
-                    return Some(umu.value);
-                }
-            }
+        if let Some(ent) = graph.get(ref_id)
+            && let Ok(umu) = UncertaintyMeasureWithUnit::from_params(&ent.params)
+            && umu.value > 0.0
+            && umu.value.is_finite()
+        {
+            log.warn(
+                Phase::MapTopology,
+                Some(ref_id),
+                format!(
+                    "using STEP uncertainty {:.2e} from '{}'",
+                    umu.value, umu.name
+                ),
+            );
+            return Some(umu.value);
         }
     }
     None
@@ -223,10 +221,7 @@ fn measure_import_deviations(brep: &mut popkern_core::topology::BRep, log: &mut 
     for eh in edge_handles {
         let dev = brep.measure_edge_deviation(eh);
         if dev > linear_tol * 0.1 {
-            brep.set_entity_tolerance(
-                popkern_core::precision::EntityHandle::Edge(eh),
-                dev,
-            );
+            brep.set_entity_tolerance(popkern_core::precision::EntityHandle::Edge(eh), dev);
             edge_count += 1;
         }
     }
