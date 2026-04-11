@@ -176,7 +176,7 @@ pub(crate) fn execute_boolean(
     // crate::postprocess::face_simplify::apply_face_simplification(&mut result, tolerance);
 
     // Post-processing: collapse micro-edges (position merge).
-    let micro_edges = crate::imprint::micro_edge::find_micro_edges(&result, tolerance.linear);
+    let micro_edges = crate::imprint::micro_edge::find_micro_edges(&result, tolerance.linear());
     if !micro_edges.is_empty() {
         crate::imprint::micro_edge::collapse_micro_edge_positions(&mut result, &micro_edges);
     }
@@ -241,7 +241,7 @@ fn propagate_output_tolerances(result: &mut BRep, tolerance: &Tolerance) {
     // only if they don't match the BRep's default tolerance. This is
     // a no-op for most cases — the real benefit comes when the boolean
     // is called with a tolerance different from the BRep's default.
-    let bool_tol = tolerance.linear;
+    let bool_tol = tolerance.linear();
 
     // Set per-entity tolerance on all entities to the boolean tolerance
     // so downstream operations know the achieved accuracy.
@@ -378,7 +378,7 @@ fn log_post_processing_diagnostics(result: &BRep, tolerance: &Tolerance) {
     use crate::imprint::shared_geometry::validate_watertightness;
     use crate::imprint::sliver::{SliverThresholds, analyze_face_polygon};
 
-    let sliver_thresholds = SliverThresholds::from_tolerance(tolerance.linear * 5.0);
+    let sliver_thresholds = SliverThresholds::from_tolerance(tolerance.linear() * 5.0);
 
     // Sliver detection
     let mut sliver_count = 0;
@@ -397,7 +397,7 @@ fn log_post_processing_diagnostics(result: &BRep, tolerance: &Tolerance) {
     }
 
     // Watertightness validation
-    let wt_report = validate_watertightness(result, tolerance.linear * 10.0, 3);
+    let wt_report = validate_watertightness(result, tolerance.linear() * 10.0, 3);
     if !wt_report.is_watertight() {
         #[cfg(debug_assertions)]
         eprintln!(

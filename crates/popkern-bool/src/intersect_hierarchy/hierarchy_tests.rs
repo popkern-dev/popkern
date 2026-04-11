@@ -99,10 +99,10 @@ fn vv_detects_coincident_vertices() {
     // Two cubes sharing a face — exactly 4 coincident vertex pairs
     let a = BRep::unit_cube(tol()).unwrap();
     let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(1.0, 0.0, 0.0));
-    let hits = super::vertex_vertex::detect_vertex_vertex(&a, &b, tol().linear * 2.0);
+    let hits = super::vertex_vertex::detect_vertex_vertex(&a, &b, tol().linear() * 2.0);
     assert_eq!(hits.len(), 4, "expected exactly 4 VV hits at shared face");
     for h in &hits {
-        assert!(h.distance < tol().linear * 2.0);
+        assert!(h.distance < tol().linear() * 2.0);
     }
 }
 
@@ -110,7 +110,7 @@ fn vv_detects_coincident_vertices() {
 fn vv_zero_hits_for_separated_bodies() {
     let a = BRep::unit_cube(tol()).unwrap();
     let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(10.0, 0.0, 0.0));
-    let hits = super::vertex_vertex::detect_vertex_vertex(&a, &b, tol().linear * 2.0);
+    let hits = super::vertex_vertex::detect_vertex_vertex(&a, &b, tol().linear() * 2.0);
     assert!(hits.is_empty());
 }
 
@@ -147,7 +147,7 @@ fn bvh_filtering_matches_brute_force() {
 
     let aabbs_a = compute_face_aabbs(&a);
     let aabbs_b = compute_face_aabbs(&b);
-    let padding = tol().linear;
+    let padding = tol().linear();
 
     // Brute-force: count cross-body overlapping pairs
     let mut brute_count = 0;
@@ -194,7 +194,7 @@ fn vf_detects_vertex_on_face() {
     let aabbs_b = compute_face_aabbs(&b);
 
     let hits =
-        super::vertex_face::detect_vertex_face(&a, &b, &aabbs_a, &aabbs_b, tol().linear * 5.0);
+        super::vertex_face::detect_vertex_face(&a, &b, &aabbs_a, &aabbs_b, tol().linear() * 5.0);
     // B's vertex at (0.5, 0.5, 1.0) should be detected on A's top face (z=1)
     let on_top = hits.iter().any(|h| {
         let v = a

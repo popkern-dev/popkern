@@ -78,7 +78,7 @@ pub(super) fn uv_centroid_sample(brep: &BRep, face_handle: FaceHandle) -> Option
             .iter()
             .map(|p| p.distance_to(&centroid_pt))
             .fold(0.0f64, f64::max);
-        let threshold = (max_dist * 0.5).max(brep.tolerance.linear * 10.0);
+        let threshold = (max_dist * 0.5).max(brep.tolerance.linear() * 10.0);
         if sample_3d.distance_to(&centroid_pt) > threshold {
             return None;
         }

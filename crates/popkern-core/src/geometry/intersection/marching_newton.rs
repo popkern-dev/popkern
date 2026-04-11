@@ -41,7 +41,7 @@ pub(crate) fn march_project(
         // Row 3 residual: (S1 - target) · march_dir
         let f4 = (p1 - *target).dot(march_dir);
 
-        if f.length() < tolerance.linear && f4.abs() < tolerance.linear {
+        if f.length() < tolerance.linear() && f4.abs() < tolerance.linear() {
             return Some(MarchSample {
                 u1,
                 v1,
@@ -113,7 +113,7 @@ pub(crate) fn march_project_with_iters(
         let f = p1 - p2;
         let f4 = (p1 - *target).dot(march_dir);
 
-        if f.length() < tolerance.linear && f4.abs() < tolerance.linear {
+        if f.length() < tolerance.linear() && f4.abs() < tolerance.linear() {
             return Some((
                 MarchSample {
                     u1,

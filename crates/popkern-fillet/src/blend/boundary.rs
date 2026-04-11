@@ -295,11 +295,10 @@ mod tests {
     use popkern_core::topology::BRep;
 
     fn test_tolerance() -> Tolerance {
-        Tolerance {
-            linear: 1e-3,
-            angular: 1e-3,
-            parametric: 1e-6,
-        }
+        Tolerance::default()
+            .with_linear(1e-3)
+            .with_angular(1e-3)
+            .with_parametric(1e-6)
     }
 
     fn make_fillet_result(

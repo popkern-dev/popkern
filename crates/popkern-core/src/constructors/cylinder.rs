@@ -193,18 +193,21 @@ impl BRep {
             curve: None,
             name: None,
             tolerance: None,
+            canonical: Default::default(),
         });
         let e_top_circle = brep.edges.insert(Edge {
             half_edge: Default::default(),
             curve: None,
             name: None,
             tolerance: None,
+            canonical: Default::default(),
         });
         let e_seam = brep.edges.insert(Edge {
             half_edge: Default::default(),
             curve: None,
             name: None,
             tolerance: None,
+            canonical: Default::default(),
         });
 
         // -- Half-edges --

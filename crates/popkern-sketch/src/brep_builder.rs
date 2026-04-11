@@ -313,6 +313,7 @@ fn build_hole_loop(
             curve: None,
             name: None,
             tolerance: None,
+            canonical: Default::default(),
         });
 
         let he_fwd = brep.half_edges.insert(HalfEdge {

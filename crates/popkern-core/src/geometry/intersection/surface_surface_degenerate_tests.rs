@@ -4,11 +4,10 @@ use std::f64::consts::{PI, TAU};
 
 /// A coarser tolerance so marching takes fewer, larger steps in tests.
 fn test_tolerance() -> Tolerance {
-    Tolerance {
-        linear: 1e-3,
-        angular: 1e-3,
-        parametric: 1e-6,
-    }
+    Tolerance::default()
+        .with_linear(1e-3)
+        .with_angular(1e-3)
+        .with_parametric(1e-6)
 }
 
 // ── Parallel planes (no intersection) ──────────────────────────────────
@@ -78,7 +77,7 @@ fn anti_parallel_planes_separated_no_intersection() {
 #[test]
 fn near_coincident_planes_within_tolerance() {
     let tol = test_tolerance();
-    let tiny_offset = tol.linear * 0.1;
+    let tiny_offset = tol.linear() * 0.1;
     let s1 = SurfaceGeometry::Plane {
         origin: Point3::new(0.0, 0.0, 0.0),
         normal: Vec3::new(0.0, 0.0, 1.0),

@@ -45,7 +45,7 @@ fn offset_point(surface: &SurfaceGeometry, u: f64, v: f64, distance: f64, sign: 
 /// each sample by `distance` along the surface normal, then builds a
 /// degree-1 NURBS surface through the offset points. The grid is refined
 /// (doubled) until the maximum deviation at inter-sample midpoints is within
-/// `tolerance.linear / 4`, up to a 64x64 ceiling.
+/// `tolerance.linear() / 4`, up to a 64x64 ceiling.
 pub fn offset_nurbs(
     surface: &SurfaceGeometry,
     distance: f64,
@@ -55,7 +55,7 @@ pub fn offset_nurbs(
     tolerance: &Tolerance,
 ) -> Result<SurfaceGeometry, String> {
     let sign = if inward { -1.0 } else { 1.0 };
-    let stage_tol = tolerance.linear / 4.0;
+    let stage_tol = tolerance.linear() / 4.0;
     let degree: usize = 1;
 
     let mut n_u: usize = 8;

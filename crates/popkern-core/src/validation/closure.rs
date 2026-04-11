@@ -12,7 +12,7 @@ impl BRep {
     /// Check 8: Loop closure.
     ///
     /// Walks each loop and verifies that the end of the last edge coincides
-    /// with the start of the first edge, within `self.tolerance.linear`.
+    /// with the start of the first edge, within `self.tolerance.linear()`.
     ///
     /// For edges without curve geometry, the check is based on vertex positions.
     /// For edges with [`CurveOnEdge`], the curve is evaluated at `t_end` and
@@ -88,7 +88,7 @@ impl BRep {
             // start_pos (within linear tolerance).
             if let (Some(first), Some(last_end)) = (first_pos, prev_end_pos) {
                 let gap = first.distance_to(&last_end);
-                if gap > self.tolerance.linear {
+                if gap > self.tolerance.linear() {
                     return Err(ValidationError::OpenLoop {
                         loop_: loop_handle,
                         gap,
@@ -141,13 +141,13 @@ impl BRep {
             let gap_start = v_he.distance_to(&p_start);
             let gap_end = v_twin.distance_to(&p_end);
 
-            if gap_start > self.tolerance.linear {
+            if gap_start > self.tolerance.linear() {
                 return Err(ValidationError::ShellGap {
                     edge: edge_handle,
                     gap: gap_start,
                 });
             }
-            if gap_end > self.tolerance.linear {
+            if gap_end > self.tolerance.linear() {
                 return Err(ValidationError::ShellGap {
                     edge: edge_handle,
                     gap: gap_end,

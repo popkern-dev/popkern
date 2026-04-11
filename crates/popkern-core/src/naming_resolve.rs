@@ -125,7 +125,7 @@ fn resolve_face_by_criteria(
     brep: &BRep,
     tolerance: &Tolerance,
 ) -> Resolution {
-    let generous_linear = tolerance.linear * 10.0;
+    let generous_linear = tolerance.linear() * 10.0;
     let mut matches = Vec::new();
 
     for (handle, _face) in &brep.faces {
@@ -142,9 +142,9 @@ fn resolve_face_by_criteria(
         }
         // Normal within angular tolerance (compare via dot product).
         let dot = fc.normal.dot(&criteria.normal);
-        // dot ≈ 1.0 means same direction; allow tolerance.angular deviation.
+        // dot ≈ 1.0 means same direction; allow tolerance.angular() deviation.
         // cos(theta) >= cos(angular) ≈ 1 - angular^2/2 for small angles.
-        if dot < 1.0 - tolerance.angular {
+        if dot < 1.0 - tolerance.angular() {
             continue;
         }
         // Area within 20%.
@@ -166,7 +166,7 @@ fn resolve_edge_by_criteria(
     brep: &BRep,
     tolerance: &Tolerance,
 ) -> Resolution {
-    let generous_linear = tolerance.linear * 10.0;
+    let generous_linear = tolerance.linear() * 10.0;
     let mut matches = Vec::new();
 
     for (handle, _edge) in &brep.edges {
@@ -183,7 +183,7 @@ fn resolve_edge_by_criteria(
         }
         // Tangent within angular tolerance (compare absolute dot for direction).
         let dot = ec.tangent.dot(&criteria.tangent).abs();
-        if dot < 1.0 - tolerance.angular {
+        if dot < 1.0 - tolerance.angular() {
             continue;
         }
         // Length within 20%.
@@ -208,7 +208,7 @@ fn resolve_vertex_by_criteria(
     let mut matches = Vec::new();
 
     for (handle, vertex) in &brep.vertices {
-        if vertex.position.distance_to(&criteria.position) <= tolerance.linear {
+        if vertex.position.distance_to(&criteria.position) <= tolerance.linear() {
             matches.push(ResolvedEntity::Vertex(handle));
         }
     }

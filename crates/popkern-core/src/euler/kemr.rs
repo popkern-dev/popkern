@@ -167,6 +167,7 @@ impl BRep {
             curve: None,
             name: None,
             tolerance: None,
+            canonical: Default::default(),
         });
 
         // Create new_he: v_outer -> v_inner (spliced into the merged loop)

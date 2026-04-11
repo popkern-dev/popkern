@@ -192,6 +192,7 @@ pub fn evaluate(
                 CmpOp::Lt => l < r,
                 CmpOp::Ge => l >= r,
                 CmpOp::Le => l <= r,
+                // Scalar equality — not geometric tolerance; no Tolerance param.
                 CmpOp::Eq => (l - r).abs() < 1e-12,
                 CmpOp::Ne => (l - r).abs() >= 1e-12,
             };

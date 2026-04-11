@@ -263,6 +263,7 @@ fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, Bo
             curve: e.curve.clone(),
             name: e.name,
             tolerance: None,
+            canonical: e.canonical,
         });
         e_map.insert(old_h, new_h);
     }

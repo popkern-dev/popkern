@@ -76,7 +76,7 @@ fn resolve_revolve_up_to_surface(
     let radial = ctx.profile_centroid - circle_center;
     let radius = radial.length();
 
-    if radius < ctx.tolerance.linear {
+    if radius < ctx.tolerance.linear() {
         return Err(ReplayError::FeatureFailed {
             label: "revolve".into(),
             error: "profile centroid is on the revolve axis".into(),
@@ -110,7 +110,7 @@ fn resolve_revolve_up_to_surface(
     for isect in &result.intersections {
         if let popkern_core::geometry::intersection::SurfaceCurveIntersection::Point { t, .. } =
             isect
-            && *t > ctx.tolerance.angular
+            && *t > ctx.tolerance.angular()
             && *t < min_t
         {
             min_t = *t;

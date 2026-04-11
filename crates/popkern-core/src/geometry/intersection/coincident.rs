@@ -36,7 +36,7 @@ pub(crate) fn detect_coincident_regions(
 
             let dist = closest_point_distance(p1, surface2, u2_range, v2_range);
 
-            if dist < tolerance.linear {
+            if dist < tolerance.linear() {
                 within_count += 1;
             }
         }

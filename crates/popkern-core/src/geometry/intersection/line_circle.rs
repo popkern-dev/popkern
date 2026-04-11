@@ -21,12 +21,12 @@ pub(crate) fn intersect_line_circle(
 ) -> Vec<CurveIntersection> {
     let d_dot_n = line_dir.dot(circle_normal);
 
-    if d_dot_n.abs() < tolerance.linear {
+    if d_dot_n.abs() < tolerance.linear() {
         // Line is parallel to the circle's plane.
         // Check if line lies in the plane.
         let cp = *line_origin - *circle_center;
         let dist_to_plane = cp.dot(circle_normal).abs();
-        if dist_to_plane > tolerance.linear {
+        if dist_to_plane > tolerance.linear() {
             // Parallel but not in plane — no intersection.
             return Vec::new();
         }
@@ -46,8 +46,8 @@ pub(crate) fn intersect_line_circle(
         let cp = *circle_center - *line_origin;
         let t_pierce = cp.dot(circle_normal) / d_dot_n;
 
-        if t_pierce < t_line_range.0 - tolerance.linear
-            || t_pierce > t_line_range.1 + tolerance.linear
+        if t_pierce < t_line_range.0 - tolerance.linear()
+            || t_pierce > t_line_range.1 + tolerance.linear()
         {
             return Vec::new();
         }
@@ -55,7 +55,7 @@ pub(crate) fn intersect_line_circle(
         let pierce_pt = *line_origin + *line_dir * t_pierce;
         let dist_from_center = (pierce_pt - *circle_center).length();
 
-        if (dist_from_center - circle_radius).abs() > tolerance.linear {
+        if (dist_from_center - circle_radius).abs() > tolerance.linear() {
             return Vec::new();
         }
 
@@ -102,7 +102,7 @@ fn in_plane_intersections(
 
     let discriminant = b * b - 4.0 * a * c;
 
-    if discriminant < -(tolerance.linear * tolerance.linear * a) {
+    if discriminant < -(tolerance.linear() * tolerance.linear() * a) {
         // No real intersection.
         return Vec::new();
     }
@@ -111,7 +111,7 @@ fn in_plane_intersections(
 
     let mut results = Vec::new();
 
-    if discriminant <= tolerance.linear * tolerance.linear * a {
+    if discriminant <= tolerance.linear() * tolerance.linear() * a {
         // Tangent — one solution.
         let t = -b / (2.0 * a);
         if let Some(isect) = make_intersection(
@@ -176,7 +176,7 @@ fn make_intersection(
     angle_range: (f64, f64),
     tolerance: &Tolerance,
 ) -> Option<CurveIntersection> {
-    if t < t_line_range.0 - tolerance.linear || t > t_line_range.1 + tolerance.linear {
+    if t < t_line_range.0 - tolerance.linear() || t > t_line_range.1 + tolerance.linear() {
         return None;
     }
 
@@ -215,7 +215,7 @@ fn normalise_angle(angle: f64, angle_range: (f64, f64)) -> f64 {
 
 /// Returns true if `angle` lies within [angle_range.0, angle_range.1] (inclusive within tolerance).
 fn angle_in_range(angle: f64, angle_range: (f64, f64), tolerance: &Tolerance) -> bool {
-    angle >= angle_range.0 - tolerance.angular && angle <= angle_range.1 + tolerance.angular
+    angle >= angle_range.0 - tolerance.angular() && angle <= angle_range.1 + tolerance.angular()
 }
 
 #[cfg(test)]

@@ -46,7 +46,7 @@ pub(crate) fn cellular_graph_merge(
     op: BoolOperation,
     tolerance: &Tolerance,
 ) -> Result<BRep, BoolDiagnostics> {
-    let snap_tol = tolerance.linear * 2.0;
+    let snap_tol = tolerance.linear() * 2.0;
     let mut graph = IntersectionGraph::new();
 
     // Phase 1: Insert original topology from both operands.

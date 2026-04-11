@@ -22,7 +22,7 @@ use popkern_core::tolerance::Tolerance;
 /// use popkern_bool::tolerance::BoolTolerance;
 ///
 /// let tol = BoolTolerance::from(Tolerance::default());
-/// assert!(tol.snap >= tol.core.linear);
+/// assert!(tol.snap >= tol.core.linear());
 /// assert!(tol.sliver >= tol.snap);
 /// assert!(tol.coincidence >= tol.sliver);
 /// ```
@@ -54,9 +54,9 @@ impl BoolTolerance {
     /// `core.linear <= snap <= sliver <= coincidence`.
     pub fn new(core: Tolerance, snap: f64, coincidence: f64, sliver: f64, micro_edge: f64) -> Self {
         debug_assert!(
-            core.linear <= snap && snap <= sliver && sliver <= coincidence,
+            core.linear() <= snap && snap <= sliver && sliver <= coincidence,
             "BoolTolerance ordering violated: linear={} <= snap={} <= sliver={} <= coincidence={}",
-            core.linear,
+            core.linear(),
             snap,
             sliver,
             coincidence
@@ -83,10 +83,10 @@ impl BoolTolerance {
     ) -> Self {
         Self::new(
             core,
-            core.linear * snap_mult,
-            core.linear * coincidence_mult,
-            core.linear * sliver_mult,
-            core.linear * micro_edge_mult,
+            core.linear() * snap_mult,
+            core.linear() * coincidence_mult,
+            core.linear() * sliver_mult,
+            core.linear() * micro_edge_mult,
         )
     }
 }
@@ -98,7 +98,7 @@ impl From<Tolerance> for BoolTolerance {
     /// - `coincidence` = 10x linear
     /// - `micro_edge` = 1x linear
     fn from(core: Tolerance) -> Self {
-        let linear = core.linear;
+        let linear = core.linear();
         Self {
             core,
             snap: linear * 2.0,
@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn default_ordering_invariant() {
         let bt = BoolTolerance::from(Tolerance::default());
-        assert!(bt.core.linear <= bt.snap);
+        assert!(bt.core.linear() <= bt.snap);
         assert!(bt.snap <= bt.sliver);
         assert!(bt.sliver <= bt.coincidence);
     }
@@ -131,16 +131,16 @@ mod tests {
     fn custom_multipliers() {
         let core = Tolerance::default().with_linear(1e-4);
         let bt = BoolTolerance::with_multipliers(core, 3.0, 20.0, 8.0, 0.5);
-        assert!((bt.snap - core.linear * 3.0).abs() < 1e-15);
-        assert!((bt.coincidence - core.linear * 20.0).abs() < 1e-15);
-        assert!((bt.sliver - core.linear * 8.0).abs() < 1e-15);
-        assert!((bt.micro_edge - core.linear * 0.5).abs() < 1e-15);
+        assert!((bt.snap - core.linear() * 3.0).abs() < 1e-15);
+        assert!((bt.coincidence - core.linear() * 20.0).abs() < 1e-15);
+        assert!((bt.sliver - core.linear() * 8.0).abs() < 1e-15);
+        assert!((bt.micro_edge - core.linear() * 0.5).abs() < 1e-15);
     }
 
     #[test]
     fn from_ref() {
         let core = Tolerance::default();
         let bt = BoolTolerance::from(&core);
-        assert!((bt.core.linear - core.linear).abs() < 1e-15);
+        assert!((bt.core.linear() - core.linear()).abs() < 1e-15);
     }
 }

@@ -326,6 +326,7 @@ mod tests {
                 },
                 orientation: true,
             }),
+            tolerance: None,
             name: None,
         });
         brep.loops[loop_handle].face = face_handle;

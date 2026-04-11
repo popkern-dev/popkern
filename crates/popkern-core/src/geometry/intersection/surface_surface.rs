@@ -167,7 +167,7 @@ pub fn intersect_surfaces_with_handler(
         // Skip if already traced through this region.
         if consumed
             .iter()
-            .any(|c| c.distance_to(&seed.point) < tolerance.linear * 10.0)
+            .any(|c| c.distance_to(&seed.point) < tolerance.linear() * 10.0)
         {
             continue;
         }
@@ -204,7 +204,7 @@ pub fn intersect_surfaces_with_handler(
             for branch in new_branches {
                 let already_consumed = consumed
                     .iter()
-                    .any(|c| c.distance_to(&branch.point) < tolerance.linear * 10.0);
+                    .any(|c| c.distance_to(&branch.point) < tolerance.linear() * 10.0);
                 if !already_consumed {
                     branch_queue.push(branch);
                 }
@@ -253,7 +253,7 @@ fn try_coincident_fast(
         (u1_range.1, v1_range.0),
         (u1_range.1, v1_range.1),
     ];
-    let rejection_threshold = tolerance.linear * 10.0;
+    let rejection_threshold = tolerance.linear() * 10.0;
     for (u, v) in &corners {
         let p = surface1.point_at(*u, *v);
         let dist = closest_point_distance_pub(p, surface2, u2_range, v2_range);

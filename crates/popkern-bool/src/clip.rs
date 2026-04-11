@@ -138,7 +138,7 @@ pub(crate) fn find_uv_crossings(
 
     let curve_range = curve_uv.parameter_range();
     // Skip if curve has zero-length parameter range.
-    if (curve_range.1 - curve_range.0).abs() < 1e-15 {
+    if (curve_range.1 - curve_range.0).abs() < tolerance.numerical_floor() {
         return Some(crossings);
     }
 
@@ -164,7 +164,7 @@ pub(crate) fn find_uv_crossings(
 
     for (he_handle, boundary_pcurve) in &boundary {
         let boundary_range = boundary_pcurve.parameter_range();
-        if (boundary_range.1 - boundary_range.0).abs() < 1e-15 {
+        if (boundary_range.1 - boundary_range.0).abs() < tolerance.numerical_floor() {
             continue;
         }
 

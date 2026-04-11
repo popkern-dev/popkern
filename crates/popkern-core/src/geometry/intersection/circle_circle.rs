@@ -70,7 +70,7 @@ pub(crate) fn intersect_circle_circle(
     c2_angle_range: (f64, f64),
     tolerance: &Tolerance,
 ) -> Vec<CurveIntersection> {
-    let tol = tolerance.linear;
+    let tol = tolerance.linear();
 
     // Normalize normals
     let n1 = match c1_normal.normalized() {
@@ -86,7 +86,7 @@ pub(crate) fn intersect_circle_circle(
     let cross = n1.cross(&n2);
     let cross_len = cross.length();
 
-    if cross_len < tolerance.angular {
+    if cross_len < tolerance.angular() {
         // Normals are parallel — check if circles are coplanar
         // Distance from c2_center to the plane of circle 1
         let delta = *c2_center - *c1_center;
@@ -136,7 +136,7 @@ fn intersect_coplanar(
     c2_angle_range: (f64, f64),
     tolerance: &Tolerance,
 ) -> Vec<CurveIntersection> {
-    let tol = tolerance.linear;
+    let tol = tolerance.linear();
     let delta = *c2_center - *c1_center;
     let d = delta.length();
 
@@ -187,8 +187,8 @@ fn intersect_coplanar(
         let t1 = angle_on_circle(&p_mid, c1_center, &u1, &v1);
         let t2 = angle_on_circle(&p_mid, c2_center, &u2, &v2);
 
-        if angle_in_range(t1, c1_angle_range, tolerance.parametric)
-            && angle_in_range(t2, c2_angle_range, tolerance.parametric)
+        if angle_in_range(t1, c1_angle_range, tolerance.parametric_base())
+            && angle_in_range(t2, c2_angle_range, tolerance.parametric_base())
         {
             return vec![CurveIntersection::Point {
                 point: p_mid,
@@ -218,8 +218,8 @@ fn intersect_coplanar(
         let t1 = angle_on_circle(pt, c1_center, &u1, &v1);
         let t2 = angle_on_circle(pt, c2_center, &u2, &v2);
 
-        if angle_in_range(t1, c1_angle_range, tolerance.parametric)
-            && angle_in_range(t2, c2_angle_range, tolerance.parametric)
+        if angle_in_range(t1, c1_angle_range, tolerance.parametric_base())
+            && angle_in_range(t2, c2_angle_range, tolerance.parametric_base())
         {
             results.push(CurveIntersection::Point { point: *pt, t1, t2 });
         }
@@ -244,7 +244,7 @@ fn intersect_non_coplanar(
     c2_angle_range: (f64, f64),
     tolerance: &Tolerance,
 ) -> Vec<CurveIntersection> {
-    let tol = tolerance.linear;
+    let tol = tolerance.linear();
 
     // Find the line of intersection of the two planes.
     // Plane 1: n1 . (P - C1) = 0
@@ -277,10 +277,22 @@ fn intersect_non_coplanar(
     let line_point = *c1_center + *c1_normal * s + *c2_normal * (-t);
 
     // Now intersect this line with each circle
-    let pts1 =
-        intersect_line_with_circle(&line_point, &line_dir_n, c1_center, c1_normal, c1_radius);
-    let pts2 =
-        intersect_line_with_circle(&line_point, &line_dir_n, c2_center, c2_normal, c2_radius);
+    let pts1 = intersect_line_with_circle(
+        &line_point,
+        &line_dir_n,
+        c1_center,
+        c1_normal,
+        c1_radius,
+        tolerance,
+    );
+    let pts2 = intersect_line_with_circle(
+        &line_point,
+        &line_dir_n,
+        c2_center,
+        c2_normal,
+        c2_radius,
+        tolerance,
+    );
 
     let (u1, v1) = circle_basis(*c1_normal);
     let (u2, v2) = circle_basis(*c2_normal);
@@ -300,8 +312,8 @@ fn intersect_non_coplanar(
                 let t1 = angle_on_circle(&mid, c1_center, &u1, &v1);
                 let t2 = angle_on_circle(&mid, c2_center, &u2, &v2);
 
-                if angle_in_range(t1, c1_angle_range, tolerance.parametric)
-                    && angle_in_range(t2, c2_angle_range, tolerance.parametric)
+                if angle_in_range(t1, c1_angle_range, tolerance.parametric_base())
+                    && angle_in_range(t2, c2_angle_range, tolerance.parametric_base())
                 {
                     results.push(CurveIntersection::Point { point: mid, t1, t2 });
                 }
@@ -322,6 +334,7 @@ fn intersect_line_with_circle(
     circle_center: &Point3,
     circle_normal: &Vec3,
     circle_radius: f64,
+    tolerance: &Tolerance,
 ) -> Vec<Point3> {
     // Project everything into the plane of the circle.
     // The line must lie in (or near) the circle's plane for there to be intersections.
@@ -348,7 +361,7 @@ fn intersect_line_with_circle(
 
     let disc = b * b - 4.0 * a * c;
 
-    if disc < -1e-10 {
+    if disc < -tolerance.solver() {
         return Vec::new();
     }
 
@@ -359,7 +372,7 @@ fn intersect_line_with_circle(
     let t1 = (-b + disc_sqrt) / (2.0 * a);
     let t2 = (-b - disc_sqrt) / (2.0 * a);
 
-    if (t1 - t2).abs() < 1e-10 {
+    if (t1 - t2).abs() < tolerance.solver() {
         // Single tangent point
         let p = *line_point + *line_dir * t1;
         points.push(p);
@@ -374,120 +387,5 @@ fn intersect_line_with_circle(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::f64::consts::TAU;
-
-    fn cc(
-        c1: Point3,
-        n1: Vec3,
-        r1: f64,
-        a1: (f64, f64),
-        c2: Point3,
-        n2: Vec3,
-        r2: f64,
-        a2: (f64, f64),
-    ) -> Vec<CurveIntersection> {
-        intersect_circle_circle(&c1, &n1, r1, a1, &c2, &n2, r2, a2, &Tolerance::default())
-    }
-    fn zn() -> Vec3 {
-        Vec3::new(0.0, 0.0, 1.0)
-    }
-    fn o() -> Point3 {
-        Point3::new(0.0, 0.0, 0.0)
-    }
-    fn full() -> (f64, f64) {
-        (0.0, TAU)
-    }
-
-    #[test]
-    fn coplanar_cases() {
-        // Two points
-        let r = cc(
-            o(),
-            zn(),
-            1.0,
-            full(),
-            Point3::new(1.0, 0.0, 0.0),
-            zn(),
-            1.0,
-            full(),
-        );
-        assert_eq!(r.len(), 2);
-        // Tangent
-        assert_eq!(
-            cc(
-                o(),
-                zn(),
-                1.0,
-                full(),
-                Point3::new(2.0, 0.0, 0.0),
-                zn(),
-                1.0,
-                full()
-            )
-            .len(),
-            1
-        );
-        // Disjoint
-        assert!(
-            cc(
-                o(),
-                zn(),
-                1.0,
-                full(),
-                Point3::new(5.0, 0.0, 0.0),
-                zn(),
-                1.0,
-                full()
-            )
-            .is_empty()
-        );
-        // Identical => overlap
-        let r = cc(o(), zn(), 1.0, full(), o(), zn(), 1.0, full());
-        assert!(matches!(&r[0], CurveIntersection::Overlap { .. }));
-        // Concentric different radii
-        assert!(cc(o(), zn(), 1.0, full(), o(), zn(), 2.0, full()).is_empty());
-    }
-
-    #[test]
-    fn non_coplanar_cases() {
-        let xn = Vec3::new(1.0, 0.0, 0.0);
-        assert_eq!(cc(o(), zn(), 1.0, full(), o(), xn, 1.0, full()).len(), 2);
-        // Disjoint non-coplanar
-        assert!(
-            cc(
-                o(),
-                zn(),
-                1.0,
-                full(),
-                Point3::new(10.0, 10.0, 10.0),
-                xn,
-                1.0,
-                full()
-            )
-            .is_empty()
-        );
-        // Restricted arc range
-        assert!(cc(o(), zn(), 1.0, (0.0, 1.0), o(), xn, 1.0, full()).len() <= 2);
-    }
-
-    #[test]
-    fn degenerate_and_offset_cases() {
-        let z = Vec3::new(0.0, 0.0, 0.0);
-        let pz = Point3::new(0.0, 0.0, 5.0);
-        assert!(cc(o(), z, 1.0, full(), o(), zn(), 1.0, full()).is_empty());
-        assert!(cc(o(), zn(), 1.0, full(), o(), z, 1.0, full()).is_empty());
-        assert!(cc(o(), zn(), 1.0, full(), pz, zn(), 1.0, full()).is_empty());
-    }
-
-    #[test]
-    fn angle_in_range_cases() {
-        assert!(angle_in_range(-0.1, (0.0, TAU), 0.2));
-        assert!(angle_in_range(0.1, (-0.1, 1.0), 0.01));
-        // Wrapping range
-        assert!(angle_in_range(5.5, (5.0, 1.0), 0.01));
-        assert!(angle_in_range(0.5, (5.0, 1.0), 0.01));
-        assert!(!angle_in_range(3.0, (5.0, 1.0), 0.01));
-    }
-}
+#[path = "circle_circle_tests.rs"]
+mod circle_circle_tests;

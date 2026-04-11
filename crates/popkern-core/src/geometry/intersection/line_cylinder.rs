@@ -55,14 +55,14 @@ pub(crate) fn intersect_line_cylinder(
     // Degenerate: line is parallel to axis (D_perp ≈ 0).
     // The line either lies wholly on the surface (overlap) or never intersects.
     // Defer to the general solver in both cases.
-    if a_coef.abs() < tolerance.linear * tolerance.linear {
+    if a_coef.abs() < tolerance.linear() * tolerance.linear() {
         return Vec::new();
     }
 
     let discriminant = b_coef * b_coef - 4.0 * a_coef * c_coef;
 
     // Classify discriminant relative to a tolerance band.
-    let disc_eps = tolerance.linear * tolerance.linear * a_coef;
+    let disc_eps = tolerance.linear() * tolerance.linear() * a_coef;
 
     let t_candidates: Vec<f64> = if discriminant < -disc_eps {
         // No real intersection — line misses the cylinder.
@@ -86,7 +86,9 @@ pub(crate) fn intersect_line_cylinder(
 
     for t in t_candidates {
         // --- filter t ---
-        if t < t_range.0 - tolerance.parametric || t > t_range.1 + tolerance.parametric {
+        if t < t_range.0 - tolerance.parametric_base()
+            || t > t_range.1 + tolerance.parametric_base()
+        {
             continue;
         }
 
@@ -106,12 +108,12 @@ pub(crate) fn intersect_line_cylinder(
         let u_norm = normalise_angle(u_param, u_range);
 
         // --- filter u ---
-        if u_norm < u_range.0 - tolerance.angular || u_norm > u_range.1 + tolerance.angular {
+        if u_norm < u_range.0 - tolerance.angular() || u_norm > u_range.1 + tolerance.angular() {
             continue;
         }
 
         // --- filter v ---
-        if v_param < v_range.0 - tolerance.linear || v_param > v_range.1 + tolerance.linear {
+        if v_param < v_range.0 - tolerance.linear() || v_param > v_range.1 + tolerance.linear() {
             continue;
         }
 

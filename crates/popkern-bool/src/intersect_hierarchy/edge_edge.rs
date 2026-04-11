@@ -41,7 +41,7 @@ pub(crate) fn detect_edge_edge(
             };
 
             // AABB filter
-            if !aabb_a.overlaps(&aabb_b, tolerance.linear) {
+            if !aabb_a.overlaps(&aabb_b, tolerance.linear()) {
                 continue;
             }
 

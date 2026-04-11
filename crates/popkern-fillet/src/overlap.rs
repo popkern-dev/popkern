@@ -124,7 +124,7 @@ fn sample_based_intersection_check(a: &NurbsCurve, b: &NurbsCurve, tolerance: &T
             let t_b = b_min + (b_max - b_min) * (j as f64) / ((n - 1).max(1) as f64);
             let pb = b.point_at(t_b);
 
-            if pa.distance_to(&pb) < tolerance.linear {
+            if pa.distance_to(&pb) < tolerance.linear() {
                 return true;
             }
         }
@@ -182,7 +182,7 @@ fn face_is_consumed(trims: &[NurbsCurve], tolerance: &Tolerance) -> bool {
         let dx = p.x - cx;
         let dy = p.y - cy;
         let dist = (dx * dx + dy * dy).sqrt();
-        if dist < tolerance.linear {
+        if dist < tolerance.linear() {
             continue;
         }
         let q = match (dx >= 0.0, dy >= 0.0) {
@@ -210,11 +210,10 @@ mod tests {
     }
 
     fn test_tolerance() -> Tolerance {
-        Tolerance {
-            linear: 1e-3,
-            angular: 1e-3,
-            parametric: 1e-6,
-        }
+        Tolerance::default()
+            .with_linear(1e-3)
+            .with_angular(1e-3)
+            .with_parametric(1e-6)
     }
 
     #[test]

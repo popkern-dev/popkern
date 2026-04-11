@@ -86,9 +86,9 @@ fn intersect_impl(
     swapped: bool,
 ) -> Vec<SurfaceSurfaceIntersection> {
     let cos_alpha = pn.dot(&ca).abs();
-    if cos_alpha > 1.0 - tol.angular {
+    if cos_alpha > 1.0 - tol.angular() {
         case_perpendicular(po, pn, pu, pv, co, ca, cr, tol, swapped)
-    } else if cos_alpha < tol.angular {
+    } else if cos_alpha < tol.angular() {
         case_parallel(po, pn, pu, pv, co, ca, cr, tol, swapped)
     } else {
         case_oblique(po, pn, pu, pv, co, ca, cr, tol, swapped)
@@ -111,7 +111,7 @@ fn case_perpendicular(
     swapped: bool,
 ) -> Vec<SurfaceSurfaceIntersection> {
     let axis_dot = ca.dot(&pn);
-    if axis_dot.abs() < tol.angular {
+    if axis_dot.abs() < tol.angular() {
         return vec![];
     }
     let t = (po - co).dot(&pn) / axis_dot;
@@ -151,10 +151,10 @@ fn case_parallel(
     swapped: bool,
 ) -> Vec<SurfaceSurfaceIntersection> {
     let d = (co - po).dot(&pn);
-    if d.abs() > cr + tol.linear {
+    if d.abs() > cr + tol.linear() {
         return vec![];
     }
-    if d.abs() > cr - tol.linear {
+    if d.abs() > cr - tol.linear() {
         return vec![];
     } // tangent
 
@@ -162,7 +162,7 @@ fn case_parallel(
     let n1 = pn.dot(&p1);
     let n2 = pn.dot(&p2);
     let amp = (n1 * n1 + n2 * n2).sqrt();
-    if amp < tol.angular {
+    if amp < tol.angular() {
         return vec![];
     }
 
@@ -246,7 +246,7 @@ fn case_oblique(
     swapped: bool,
 ) -> Vec<SurfaceSurfaceIntersection> {
     let nd = ca.dot(&pn);
-    if nd.abs() < tol.angular {
+    if nd.abs() < tol.angular() {
         return vec![];
     }
 

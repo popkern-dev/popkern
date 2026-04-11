@@ -50,6 +50,8 @@ pub fn classify_tangent_contact(
 
     let n1_len = n1.length();
     let n2_len = n2.length();
+    // Degenerate normal guard — no Tolerance param available.
+    // 1e-12 is a numerical floor for vector magnitude.
     if n1_len < 1e-12 || n2_len < 1e-12 {
         return TangentContactType::Inconclusive;
     }

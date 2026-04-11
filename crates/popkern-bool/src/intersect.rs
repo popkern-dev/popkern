@@ -196,7 +196,7 @@ pub(crate) fn find_intersections_with_aabbs(
         combined.push((n_a + i, aabb.clone()));
     }
     let bvh = Bvh::build(&combined);
-    let candidate_pairs = bvh.find_overlapping_pairs(tolerance.linear);
+    let candidate_pairs = bvh.find_overlapping_pairs(tolerance.linear());
 
     for (id_x, id_y) in &candidate_pairs {
         let (a_idx, b_idx) = if *id_x < n_a && *id_y >= n_a {
@@ -246,8 +246,8 @@ pub(crate) fn find_intersections_with_aabbs(
                                 let n2 = surf_b.normal_at(mid_uv2.x, mid_uv2.y);
                                 let cross_len = n1.cross(&n2).length();
                                 let norms = n1.length() * n2.length();
-                                let is_tangent =
-                                    norms > 1e-15 && (cross_len / norms) < tolerance.angular;
+                                let is_tangent = norms > tolerance.numerical_floor()
+                                    && (cross_len / norms) < tolerance.angular();
 
                                 records.push(IntersectionRecord {
                                     face_a,
@@ -413,7 +413,7 @@ fn detect_edges_vs_faces(
         // Construct a line curve from vertex positions (handles cases where
         // stored CurveOnEdge geometry is out of sync with vertex positions).
         let direction = v_end - v_start;
-        if direction.length_squared() < 1e-30 {
+        if direction.length_squared() < tolerance.numerical_floor().powi(2) {
             continue;
         }
         let edge_curve = CurveGeometry::Line {
@@ -423,7 +423,7 @@ fn detect_edges_vs_faces(
         let t_range = (0.0, 1.0);
 
         for (face_h, face_aabb) in face_aabbs {
-            if !edge_aabb.overlaps(face_aabb, tolerance.linear) {
+            if !edge_aabb.overlaps(face_aabb, tolerance.linear()) {
                 continue;
             }
 
@@ -450,7 +450,7 @@ fn detect_edges_vs_faces(
                     if let SurfaceCurveIntersection::Point { t, u, v, .. } = *isect {
                         // Filter out intersections at edge endpoints (these are
                         // vertex-face touches, not edge-face piercings).
-                        let eps = tolerance.linear;
+                        let eps = tolerance.linear();
                         if (t - t_range.0).abs() < eps || (t - t_range.1).abs() < eps {
                             continue;
                         }

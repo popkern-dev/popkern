@@ -85,12 +85,12 @@ fn intersect_plane_sphere(
     let d = diff.dot(&plane_normal);
 
     // No intersection: sphere is too far from plane.
-    if d.abs() > sphere_radius + tolerance.linear {
+    if d.abs() > sphere_radius + tolerance.linear() {
         return vec![];
     }
 
     // Tangent (degenerate): intersection would be a single point.
-    if d.abs() > sphere_radius - tolerance.linear {
+    if d.abs() > sphere_radius - tolerance.linear() {
         return vec![];
     }
 

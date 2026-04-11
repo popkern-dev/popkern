@@ -150,7 +150,7 @@ pub(crate) fn sample_loop(
                 let samples = 32_usize;
                 let curve_start = curve_on_edge.geometry.point_at(curve_on_edge.t_start);
                 let he_origin = brep.vertices[he.origin].position;
-                let forward = curve_start.distance_to(&he_origin) < 1e-6;
+                let forward = brep.tolerance.points_coincident(&curve_start, &he_origin);
                 let (t_lo, t_hi) = if forward {
                     (curve_on_edge.t_start, curve_on_edge.t_end)
                 } else {

@@ -117,11 +117,11 @@ impl BRep {
         // genuine self-intersections, loose enough for fast intersection testing.
         // This is conservative: may report near-misses as intersections (false positives)
         // but won't miss actual intersections within tolerance (no false negatives).
-        let linear_tol = self.tolerance.linear;
+        let linear_tol = self.tolerance.linear();
         let coarse_tol = Tolerance::default()
             .with_linear(linear_tol * 2.0)
-            .with_angular(self.tolerance.angular)
-            .with_parametric(self.tolerance.parametric);
+            .with_angular(self.tolerance.angular())
+            .with_parametric(self.tolerance.parametric_base());
 
         // ------------------------------------------------------------------ //
         // 3. Test non-adjacent, AABB-overlapping pairs with intersect_surfaces //

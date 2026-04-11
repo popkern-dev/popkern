@@ -1,6 +1,9 @@
 //! BRep — the top-level boundary representation container.
 
 use crate::naming::{NamePool, OperationLabels};
+use crate::precision::{
+    DegradationTracker, EntityHandle, OperationPrecisionReport, PrecisionHealth, PrecisionSummary,
+};
 use crate::tolerance::Tolerance;
 use crate::topology::*;
 use serde::{Deserialize, Serialize};
@@ -34,11 +37,26 @@ pub struct BRep {
     /// Human-readable labels for modelling operations.
     #[serde(default)]
     pub operation_labels: OperationLabels,
+    /// Maximum imprecision allowed before the model is considered invalid.
+    #[serde(default = "BRep::default_max_imprecision")]
+    pub max_imprecision: f64,
+    /// Tracks precision degradation across operations.
+    #[serde(skip)]
+    degradation_tracker: Option<DegradationTracker>,
 }
 
 impl BRep {
+    /// Default max imprecision sentinel used during deserialization.
+    fn default_max_imprecision() -> f64 {
+        // Deserialization path — tolerance is not yet known, use a safe
+        // fallback.  The caller should set this after deserialization if
+        // the BRep's tolerance differs from the default.
+        Tolerance::default().linear() * 100.0
+    }
+
     /// Create a new empty BRep with the given tolerance.
     pub fn new(tolerance: Tolerance) -> Self {
+        let max_imprecision = tolerance.linear() * 100.0;
         Self {
             vertices: SlotMap::with_key(),
             half_edges: SlotMap::with_key(),
@@ -50,6 +68,8 @@ impl BRep {
             tolerance,
             name_pool: NamePool::new(),
             operation_labels: OperationLabels::default(),
+            max_imprecision,
+            degradation_tracker: None,
         }
     }
 }
@@ -144,17 +164,161 @@ impl BRep {
 
     /// Get the effective tolerance for a vertex (entity-level or BRep default).
     pub fn vertex_tolerance(&self, vh: VertexHandle) -> f64 {
-        self.vertices[vh].tolerance.unwrap_or(self.tolerance.linear)
+        self.vertices[vh]
+            .tolerance
+            .unwrap_or(self.tolerance.linear())
     }
 
     /// Get the effective tolerance for an edge (entity-level or BRep default).
     pub fn edge_tolerance(&self, eh: EdgeHandle) -> f64 {
-        self.edges[eh].tolerance.unwrap_or(self.tolerance.linear)
+        self.edges[eh].tolerance.unwrap_or(self.tolerance.linear())
     }
 
     /// Get the effective tolerance for a face (entity-level or BRep default).
     pub fn face_tolerance(&self, fh: FaceHandle) -> f64 {
-        self.faces[fh].tolerance.unwrap_or(self.tolerance.linear)
+        self.faces[fh].tolerance.unwrap_or(self.tolerance.linear())
+    }
+
+    /// Set entity tolerance — debug-asserts value >= current (monotonicity).
+    pub fn set_entity_tolerance(&mut self, handle: EntityHandle, value: f64) {
+        match handle {
+            EntityHandle::Vertex(vh) => {
+                debug_assert!(value >= self.vertex_tolerance(vh), "monotonicity");
+                self.vertices[vh].tolerance = Some(value);
+            }
+            EntityHandle::Edge(eh) => {
+                debug_assert!(value >= self.edge_tolerance(eh), "monotonicity");
+                self.edges[eh].tolerance = Some(value);
+            }
+            EntityHandle::Face(fh) => {
+                debug_assert!(value >= self.face_tolerance(fh), "monotonicity");
+                self.faces[fh].tolerance = Some(value);
+            }
+        }
+    }
+
+    /// Intentionally tighten tolerance after recovery (only code path that reduces).
+    pub fn recover_entity_tolerance(&mut self, handle: EntityHandle, value: f64) {
+        match handle {
+            EntityHandle::Vertex(vh) => self.vertices[vh].tolerance = Some(value),
+            EntityHandle::Edge(eh) => self.edges[eh].tolerance = Some(value),
+            EntityHandle::Face(fh) => self.faces[fh].tolerance = Some(value),
+        }
+    }
+
+    /// Enable degradation tracking.
+    pub fn enable_degradation_tracking(&mut self, window_size: usize) {
+        self.degradation_tracker = Some(DegradationTracker::new(window_size));
+    }
+
+    /// Record an operation report.
+    pub fn record_operation(&mut self, op_name: &'static str, report: &OperationPrecisionReport) {
+        if let Some(ref mut tracker) = self.degradation_tracker {
+            tracker.record(op_name, report);
+        }
+    }
+
+    /// Compute aggregate precision health.
+    pub fn precision_summary(&self) -> PrecisionSummary {
+        let mut worst: Option<(EntityHandle, f64)> = None;
+        let mut degraded_count = 0usize;
+        let mut critical_count = 0usize;
+        let degraded_thresh = self.max_imprecision * 0.5;
+        let critical_thresh = self.max_imprecision * 0.9;
+
+        // Scan vertices.
+        for (vh, v) in &self.vertices {
+            if let Some(tol) = v.tolerance {
+                if tol >= critical_thresh {
+                    critical_count += 1;
+                } else if tol >= degraded_thresh {
+                    degraded_count += 1;
+                }
+                let entity = EntityHandle::Vertex(vh);
+                if worst.is_none_or(|(_, w)| tol > w) {
+                    worst = Some((entity, tol));
+                }
+            }
+        }
+        // Scan edges.
+        for (eh, e) in &self.edges {
+            if let Some(tol) = e.tolerance {
+                if tol >= critical_thresh {
+                    critical_count += 1;
+                } else if tol >= degraded_thresh {
+                    degraded_count += 1;
+                }
+                let entity = EntityHandle::Edge(eh);
+                if worst.is_none_or(|(_, w)| tol > w) {
+                    worst = Some((entity, tol));
+                }
+            }
+        }
+        // Scan faces.
+        for (fh, face) in &self.faces {
+            if let Some(tol) = face.tolerance {
+                if tol >= critical_thresh {
+                    critical_count += 1;
+                } else if tol >= degraded_thresh {
+                    degraded_count += 1;
+                }
+                let entity = EntityHandle::Face(fh);
+                if worst.is_none_or(|(_, w)| tol > w) {
+                    worst = Some((entity, tol));
+                }
+            }
+        }
+
+        let health = if critical_count > 0 {
+            PrecisionHealth::Critical
+        } else if degraded_count > 0 {
+            PrecisionHealth::Degraded
+        } else {
+            PrecisionHealth::Good
+        };
+
+        let health_score = match worst {
+            Some((_, w)) => (1.0 - w / self.max_imprecision).max(0.0),
+            None => 1.0,
+        };
+
+        let estimated_remaining = self.degradation_tracker.as_ref().and_then(|t| {
+            let current = worst.map(|(_, w)| w).unwrap_or(0.0);
+            t.estimated_operations_remaining(current, self.max_imprecision)
+        });
+
+        PrecisionSummary {
+            health_score,
+            health,
+            worst_entity: worst,
+            degraded_count,
+            critical_count,
+            estimated_remaining,
+        }
+    }
+
+    /// List entities sorted by imprecision (worst first).
+    ///
+    /// Only entities with explicit (non-`None`) tolerance are included.
+    pub fn degraded_entities(&self) -> Vec<(EntityHandle, f64)> {
+        let mut result = Vec::new();
+        for (vh, v) in &self.vertices {
+            if let Some(tol) = v.tolerance {
+                result.push((EntityHandle::Vertex(vh), tol));
+            }
+        }
+        for (eh, e) in &self.edges {
+            if let Some(tol) = e.tolerance {
+                result.push((EntityHandle::Edge(eh), tol));
+            }
+        }
+        for (fh, face) in &self.faces {
+            if let Some(tol) = face.tolerance {
+                result.push((EntityHandle::Face(fh), tol));
+            }
+        }
+        result.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        result
     }
 
     /// Apply a rigid transformation to the entire BRep, returning a new copy.
@@ -317,86 +481,5 @@ fn transform_curve(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn new_brep_is_empty() {
-        let brep = BRep::new(Tolerance::default());
-        assert_eq!(brep.vertices.len(), 0);
-        assert_eq!(brep.half_edges.len(), 0);
-        assert_eq!(brep.edges.len(), 0);
-        assert_eq!(brep.loops.len(), 0);
-        assert_eq!(brep.faces.len(), 0);
-        assert_eq!(brep.shells.len(), 0);
-        assert_eq!(brep.solids.len(), 0);
-    }
-
-    #[test]
-    fn brep_has_tolerance() {
-        let tol = Tolerance::default().with_linear(1e-3);
-        let brep = BRep::new(tol);
-        assert_eq!(brep.tolerance.linear, 1e-3);
-    }
-
-    #[test]
-    fn brep_serializes_round_trip() {
-        let brep = BRep::new(Tolerance::default());
-        let json = serde_json::to_string(&brep).unwrap();
-        let brep2: BRep = serde_json::from_str(&json).unwrap();
-        assert_eq!(brep2.vertices.len(), 0);
-    }
-
-    #[test]
-    fn brep_transform_translates_vertices() {
-        use crate::geometry::transform::Transform3;
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let t = Transform3::translation(10.0, 0.0, 0.0);
-        let transformed = brep.transform(&t).unwrap();
-        for (_, v) in &transformed.vertices {
-            assert!(v.position.x >= 10.0 - 1e-10);
-        }
-    }
-}
-
-#[cfg(test)]
-mod face_loop_tests {
-    use super::*;
-    use crate::tolerance::Tolerance;
-
-    #[test]
-    fn face_outer_loop_positions_unit_cube() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let face_handle = brep.faces.keys().next().unwrap();
-        let positions = brep.face_outer_loop_positions(face_handle);
-        assert_eq!(positions.len(), 4, "each cube face should have 4 vertices");
-        for pos in &positions {
-            assert!(
-                pos.x >= -1e-10 && pos.x <= 1.0 + 1e-10,
-                "x={} out of [0,1]",
-                pos.x
-            );
-            assert!(
-                pos.y >= -1e-10 && pos.y <= 1.0 + 1e-10,
-                "y={} out of [0,1]",
-                pos.y
-            );
-            assert!(
-                pos.z >= -1e-10 && pos.z <= 1.0 + 1e-10,
-                "z={} out of [0,1]",
-                pos.z
-            );
-        }
-    }
-
-    #[test]
-    fn face_outer_loop_positions_invalid_face_returns_empty() {
-        let brep = BRep::new(Tolerance::default());
-        let bogus = FaceHandle::default();
-        let positions = brep.face_outer_loop_positions(bogus);
-        assert!(
-            positions.is_empty(),
-            "invalid handle should yield empty vec"
-        );
-    }
-}
+#[path = "brep_tests.rs"]
+mod brep_tests;

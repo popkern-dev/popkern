@@ -37,7 +37,7 @@ pub fn thicken(
     tolerance: Tolerance,
 ) -> Result<ShellResult, ShellError> {
     let half = thickness / 2.0;
-    let stage_tol = Tolerance::default().with_linear(tolerance.linear / 4.0);
+    let stage_tol = Tolerance::default().with_linear(tolerance.linear() / 4.0);
 
     // Offset outward to create the outer skin.
     let class_out = classify_faces(brep, half, &[], ShellDirection::Outward, &[])?;

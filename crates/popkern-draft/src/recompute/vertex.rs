@@ -193,7 +193,7 @@ fn newton_vertex_position(
         let correction = sum * (1.0 / count as f64);
         pos = pos + correction;
 
-        if correction.length() < tolerance.linear {
+        if correction.length() < tolerance.linear() {
             break;
         }
     }

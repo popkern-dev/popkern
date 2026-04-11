@@ -123,7 +123,7 @@ pub fn post_check(result: &BRep, tolerance: &Tolerance) -> PostCheckReport {
     }
 
     // 6. Watertightness
-    let wt = shared_geometry::validate_watertightness(result, tolerance.linear * 10.0, 3);
+    let wt = shared_geometry::validate_watertightness(result, tolerance.linear() * 10.0, 3);
     report.max_gap = wt.max_gap();
     if !wt.is_watertight() {
         report.findings.push(PostCheckFinding {

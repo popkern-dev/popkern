@@ -23,7 +23,7 @@ pub(crate) fn newton_refine(
         let p2 = curve2.point_at(t2);
         let f = p1 - p2; // Vec3 residual
 
-        if f.length() < tolerance.linear {
+        if f.length() < tolerance.linear() {
             return Some((t1, t2, p1));
         }
 

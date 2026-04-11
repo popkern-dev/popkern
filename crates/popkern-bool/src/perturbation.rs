@@ -59,7 +59,7 @@ pub fn boolean_with_perturbation(
         }
     }
 
-    let magnitude = tolerance.linear * config.magnitude_fraction;
+    let magnitude = tolerance.linear() * config.magnitude_fraction;
 
     // Perturbation directions: 6 cardinal + 2 diagonal
     let directions = [

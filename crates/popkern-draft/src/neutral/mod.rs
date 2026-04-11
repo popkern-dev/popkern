@@ -117,7 +117,7 @@ fn compute_planar_neutral(
 
     let direction = fn_norm.cross(&nn);
     let dir_len = direction.length();
-    if dir_len < tolerance.linear {
+    if dir_len < tolerance.linear() {
         return Err(DraftError::InvalidNeutral(
             "neutral plane parallel to face".into(),
         ));

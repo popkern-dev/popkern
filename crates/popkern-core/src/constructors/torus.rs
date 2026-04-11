@@ -153,7 +153,7 @@ fn attach_torus_pcurves(brep: &mut BRep) -> Result<(), CoreError> {
         {
             let curve_start = curve.geometry.point_at(curve.t_start);
             let forward = start_pos.distance_to(&curve_start) < start_pos.distance_to(&end_pos)
-                || start_pos.distance_to(&curve_start) < 1e-6;
+                || brep.tolerance.points_coincident(&start_pos, &curve_start);
             if forward {
                 (
                     curve.geometry.point_at(curve.t_start),

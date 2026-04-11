@@ -53,7 +53,7 @@ pub fn draft_parting_line(
             let face_normal = sof.geometry.normal_at(0.0, 0.0);
             if let Some(fn_unit) = face_normal.normalized() {
                 let dot = fn_unit.dot(&parting_normal).abs();
-                if dot > 1.0 - tolerance.angular {
+                if dot > 1.0 - tolerance.angular() {
                     continue;
                 }
             }
@@ -64,7 +64,7 @@ pub fn draft_parting_line(
         let signed_dist = offset.dot(&parting_normal);
 
         // Skip faces on the parting line (within tolerance).
-        if signed_dist.abs() < tolerance.linear {
+        if signed_dist.abs() < tolerance.linear() {
             continue;
         }
 
@@ -75,7 +75,7 @@ pub fn draft_parting_line(
         };
 
         // Skip faces with zero draft angle.
-        if angle.abs() < tolerance.angular {
+        if angle.abs() < tolerance.angular() {
             continue;
         }
 

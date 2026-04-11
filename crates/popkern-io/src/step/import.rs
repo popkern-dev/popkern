@@ -16,6 +16,7 @@ use crate::step::mapping::product::map_products;
 use crate::step::mapping::topology::map_brep_solids;
 use crate::step::parser::entities::parse_step_file;
 use crate::step::parser::graph::EntityGraph;
+use crate::step::schema::product::{GlobalUncertaintyAssignedContext, UncertaintyMeasureWithUnit};
 
 /// Options controlling how a STEP file is imported.
 #[derive(Debug, Clone)]
@@ -79,10 +80,12 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
     // Phase 2: Build entity graph
     let graph = EntityGraph::build(parse_result.entities, &mut log);
 
-    // Phase 3: Determine tolerance
+    // Phase 3: Determine tolerance from override, STEP uncertainty, or default
     let tolerance = match options.tolerance_override {
         Some(tol) => Tolerance::default().with_linear(tol),
-        None => Tolerance::default(),
+        None => extract_step_uncertainty(&graph, &mut log)
+            .map(|u| Tolerance::default().with_linear(u))
+            .unwrap_or_default(),
     };
 
     // Phase 4: Map geometry + topology
@@ -93,11 +96,12 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
     let mut solids_only: Vec<_> = brep_solids.iter().map(|(_, b)| b.clone()).collect();
     let heal_log = log.clone();
     run_healing(&mut solids_only, &heal_log, options.healing, &mut log)?;
-    // Put healed solids back
+    // Put healed solids back and measure edge deviations for precision tracking
     for (i, (_, brep)) in brep_solids.iter_mut().enumerate() {
         if let Some(healed) = solids_only.get(i) {
             *brep = healed.clone();
         }
+        measure_import_deviations(brep, &mut log);
     }
 
     // Phase 6: Map product structure
@@ -151,6 +155,84 @@ pub fn import_step_file(
 ) -> Result<StepImportResult, IoError> {
     let data = std::fs::read(path)?;
     import_step(&data, options)
+}
+
+/// Extract geometric uncertainty from the STEP entity graph.
+///
+/// Scans for `GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT` entities (both standalone
+/// and as complex-entity parts), resolves their `UNCERTAINTY_MEASURE_WITH_UNIT`
+/// references, and returns the first uncertainty value found.
+fn extract_step_uncertainty(graph: &EntityGraph, log: &mut DiagnosticLog) -> Option<f64> {
+    for (_, entity) in graph.iter() {
+        // Check standalone entity
+        if entity.type_name == "GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT"
+            && let Ok(guac) = GlobalUncertaintyAssignedContext::from_params(&entity.params)
+        {
+            return resolve_uncertainty_value(graph, &guac.uncertainty, log);
+        }
+        // Check complex-entity parts
+        for (part_type, part_params) in &entity.complex_parts {
+            if part_type == "GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT"
+                && let Ok(guac) = GlobalUncertaintyAssignedContext::from_params(part_params)
+            {
+                return resolve_uncertainty_value(graph, &guac.uncertainty, log);
+            }
+        }
+    }
+    None
+}
+
+/// Resolve uncertainty measure references to a concrete value.
+fn resolve_uncertainty_value(
+    graph: &EntityGraph,
+    refs: &[u64],
+    log: &mut DiagnosticLog,
+) -> Option<f64> {
+    for &ref_id in refs {
+        if let Some(ent) = graph.get(ref_id)
+            && let Ok(umu) = UncertaintyMeasureWithUnit::from_params(&ent.params)
+            && umu.value > 0.0
+            && umu.value.is_finite()
+        {
+            log.warn(
+                Phase::MapTopology,
+                Some(ref_id),
+                format!(
+                    "using STEP uncertainty {:.2e} from '{}'",
+                    umu.value, umu.name
+                ),
+            );
+            return Some(umu.value);
+        }
+    }
+    None
+}
+
+/// Measure edge deviations on an imported BRep and set entity tolerances.
+///
+/// For each edge with a curve, measures the deviation between the 3D curve
+/// and the surface evaluations via pcurves. If the deviation exceeds
+/// a small threshold, records it as the edge's tracked imprecision.
+fn measure_import_deviations(brep: &mut popkern_core::topology::BRep, log: &mut DiagnosticLog) {
+    let edge_handles: Vec<_> = brep.edges.keys().collect();
+    let linear_tol = brep.tolerance.linear();
+    let mut edge_count = 0u32;
+
+    for eh in edge_handles {
+        let dev = brep.measure_edge_deviation(eh);
+        if dev > linear_tol * 0.1 {
+            brep.set_entity_tolerance(popkern_core::precision::EntityHandle::Edge(eh), dev);
+            edge_count += 1;
+        }
+    }
+
+    if edge_count > 0 {
+        log.warn(
+            Phase::Validate,
+            None,
+            format!("{edge_count} edge(s) with measurable deviation tracked"),
+        );
+    }
 }
 
 #[cfg(test)]

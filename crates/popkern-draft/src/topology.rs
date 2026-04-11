@@ -148,7 +148,7 @@ fn snap_shared_vertices(
                 projected_sum.z / count as f64,
             );
             let delta = pos.distance_to(&avg);
-            if delta < tolerance.linear * 100.0 && delta > tolerance.linear * 0.01 {
+            if delta < tolerance.linear() * 100.0 && delta > tolerance.linear() * 0.01 {
                 brep.vertices[vh].position = avg;
             }
         }

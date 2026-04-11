@@ -43,7 +43,7 @@ pub fn offset_solid(
     let abs_dist = distance.abs();
 
     let classification = classify_faces(brep, abs_dist, &[], direction, &[])?;
-    let stage_tol = Tolerance::default().with_linear(tolerance.linear / 4.0);
+    let stage_tol = Tolerance::default().with_linear(tolerance.linear() / 4.0);
     let offset_result =
         compute_offset_surfaces(brep, &classification, options.allow_partial, &stage_tol)?;
 
@@ -112,7 +112,7 @@ pub fn offset_solid_variable(
         .collect();
 
     let classification = classify_faces(brep, abs_default, &abs_faces, direction, &[])?;
-    let stage_tol = Tolerance::default().with_linear(tolerance.linear / 4.0);
+    let stage_tol = Tolerance::default().with_linear(tolerance.linear() / 4.0);
     let offset_result =
         compute_offset_surfaces(brep, &classification, options.allow_partial, &stage_tol)?;
 

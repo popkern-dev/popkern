@@ -107,7 +107,7 @@ fn make_sections_compatible(
                     && c.knots
                         .iter()
                         .zip(first_knots.iter())
-                        .all(|(a, b)| (a - b).abs() < tolerance.linear)
+                        .all(|(a, b)| (a - b).abs() < tolerance.linear())
             });
 
             if knots_match {

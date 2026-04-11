@@ -373,7 +373,7 @@ fn assign_boolean_names(
         let normal = fc.normal;
 
         // Find the closest input face by centroid + normal alignment.
-        let generous_dist = tol.linear * 100.0;
+        let generous_dist = tol.linear() * 100.0;
         let best_match = all_inputs
             .iter()
             .filter(|(_, ic, in_)| {

@@ -161,11 +161,10 @@ fn faces_parallel_to_parting_plane_are_skipped() {
 #[test]
 fn all_faces_on_parting_plane_returns_error() {
     let brep = BRep::unit_cube(tol()).unwrap();
-    let big_tol = Tolerance {
-        linear: 10.0,
-        angular: 1e-10,
-        parametric: 1e-8,
-    };
+    let big_tol = Tolerance::default()
+        .with_linear(10.0)
+        .with_angular(1e-10)
+        .with_parametric(1e-8);
     let parting = PartingLine::Plane {
         origin: Point3::new(0.5, 0.5, 0.5),
         normal: Vec3::new(1.0, 0.0, 0.0),
@@ -340,11 +339,10 @@ fn parting_line_only_below_nonzero() {
 #[test]
 fn parting_plane_all_parallel_returns_error() {
     let brep = BRep::unit_cube(tol()).unwrap();
-    let wide_tol = Tolerance {
-        linear: 1e-6,
-        angular: 1.5,
-        parametric: 1e-8,
-    };
+    let wide_tol = Tolerance::default()
+        .with_linear(1e-6)
+        .with_angular(1.5)
+        .with_parametric(1e-8);
     let parting = PartingLine::Plane {
         origin: Point3::new(0.5, 0.5, 0.5),
         normal: Vec3::new(0.0, 0.0, 1.0),

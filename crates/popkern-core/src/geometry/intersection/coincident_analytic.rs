@@ -33,9 +33,9 @@ pub fn are_surfaces_coincident_analytic(
                 ..
             },
         ) => {
-            let normals_parallel = n1.dot(n2).abs() > 1.0 - tolerance.angular;
+            let normals_parallel = n1.dot(n2).abs() > 1.0 - tolerance.angular();
             let d = *o1 - *o2;
-            let origin_on_plane = d.dot(n1).abs() < tolerance.linear;
+            let origin_on_plane = d.dot(n1).abs() < tolerance.linear();
             normals_parallel && origin_on_plane
         }
 
@@ -52,13 +52,13 @@ pub fn are_surfaces_coincident_analytic(
                 radius: r2,
             },
         ) => {
-            let axes_parallel = a1.dot(a2).abs() > 1.0 - tolerance.angular;
-            let same_radius = (r1 - r2).abs() < tolerance.linear;
+            let axes_parallel = a1.dot(a2).abs() > 1.0 - tolerance.angular();
+            let same_radius = (r1 - r2).abs() < tolerance.linear();
             // Colinear axes: perpendicular component of origin separation < tolerance
             let d = *o1 - *o2;
             let along = d.dot(a1);
             let perp = d - *a1 * along;
-            let axes_colinear = perp.length() < tolerance.linear;
+            let axes_colinear = perp.length() < tolerance.linear();
             axes_parallel && same_radius && axes_colinear
         }
 
@@ -75,9 +75,9 @@ pub fn are_surfaces_coincident_analytic(
                 half_angle: ha2,
             },
         ) => {
-            let same_apex = apex1.distance_to(apex2) < tolerance.linear;
-            let axes_parallel = a1.dot(a2).abs() > 1.0 - tolerance.angular;
-            let same_half_angle = (ha1 - ha2).abs() < tolerance.angular;
+            let same_apex = apex1.distance_to(apex2) < tolerance.linear();
+            let axes_parallel = a1.dot(a2).abs() > 1.0 - tolerance.angular();
+            let same_half_angle = (ha1 - ha2).abs() < tolerance.angular();
             same_apex && axes_parallel && same_half_angle
         }
 
@@ -92,8 +92,8 @@ pub fn are_surfaces_coincident_analytic(
                 radius: r2,
             },
         ) => {
-            let same_center = c1.distance_to(c2) < tolerance.linear;
-            let same_radius = (r1 - r2).abs() < tolerance.linear;
+            let same_center = c1.distance_to(c2) < tolerance.linear();
+            let same_radius = (r1 - r2).abs() < tolerance.linear();
             same_center && same_radius
         }
 
@@ -112,10 +112,10 @@ pub fn are_surfaces_coincident_analytic(
                 minor_radius: min2,
             },
         ) => {
-            let same_center = c1.distance_to(c2) < tolerance.linear;
-            let axes_parallel = a1.dot(a2).abs() > 1.0 - tolerance.angular;
-            let same_major = (maj1 - maj2).abs() < tolerance.linear;
-            let same_minor = (min1 - min2).abs() < tolerance.linear;
+            let same_center = c1.distance_to(c2) < tolerance.linear();
+            let axes_parallel = a1.dot(a2).abs() > 1.0 - tolerance.angular();
+            let same_major = (maj1 - maj2).abs() < tolerance.linear();
+            let same_minor = (min1 - min2).abs() < tolerance.linear();
             same_center && axes_parallel && same_major && same_minor
         }
 
