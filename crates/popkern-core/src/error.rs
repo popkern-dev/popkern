@@ -111,12 +111,71 @@ pub enum ValidationError {
     },
 }
 
+/// Errors from healing analysis and repair operations.
+#[derive(Debug, Error)]
+pub enum HealingError {
+    /// Gap repair failed on a specific edge.
+    #[error("gap repair failed on edge {edge:?}: {reason}")]
+    GapRepairFailed {
+        /// The edge where repair failed.
+        edge: EdgeHandle,
+        /// Why the repair failed.
+        reason: String,
+    },
+
+    /// Tolerance hierarchy enforcement failed.
+    #[error("tolerance enforcement failed: {0}")]
+    ToleranceEnforcementFailed(String),
+
+    /// Surface simplification failed on a specific face.
+    #[error("surface simplification failed on face {face:?}: {reason}")]
+    SimplificationFailed {
+        /// The face where simplification failed.
+        face: FaceHandle,
+        /// Why the simplification failed.
+        reason: String,
+    },
+
+    /// Repair pipeline failed at a specific step.
+    #[error("repair pipeline failed at step {step}: {reason}")]
+    PipelineFailed {
+        /// The pipeline step that failed.
+        step: String,
+        /// Why the step failed.
+        reason: String,
+    },
+
+    /// A repair would displace geometry beyond the configured limit.
+    #[error("max displacement {displacement:.6} exceeded limit {limit:.6} on edge {edge:?}")]
+    DisplacementExceeded {
+        /// The edge where displacement was too large.
+        edge: EdgeHandle,
+        /// The actual displacement.
+        displacement: f64,
+        /// The configured limit.
+        limit: f64,
+    },
+
+    /// Repair iteration made the model worse (more defects after than before).
+    #[error("repair made model worse: {before} defects before, {after} after")]
+    RepairRegression {
+        /// Defect count before the repair pass.
+        before: usize,
+        /// Defect count after the repair pass.
+        after: usize,
+    },
+}
+
 /// Top-level error type for popkern-core operations.
 #[derive(Debug, Error)]
 pub enum CoreError {
     /// A validation check failed.
     #[error(transparent)]
     Validation(#[from] ValidationError),
+
+    /// A healing operation failed.
+    #[error(transparent)]
+    Healing(#[from] HealingError),
 
     /// A handle does not exist in the BRep.
     #[error("invalid handle: {0}")]

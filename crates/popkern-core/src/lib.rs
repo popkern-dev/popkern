@@ -10,6 +10,7 @@ pub mod constructors;
 pub mod error;
 pub mod euler;
 pub mod geometry;
+pub mod healing;
 pub mod history;
 pub mod naming;
 pub mod naming_criteria;
