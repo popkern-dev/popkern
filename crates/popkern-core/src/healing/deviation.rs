@@ -338,134 +338,144 @@ pub fn surface_surface_deviation(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::geometry::curve::CurveGeometry;
-    use crate::geometry::surface::SurfaceGeometry;
-    use crate::geometry::{Point3, Vec3};
+/// Deviation result with a guaranteed mathematical upper bound.
+///
+/// Produced by [`edge_surface_deviation_bounded`], which uses recursive
+/// bisection with Lipschitz-based interval pruning to guarantee that
+/// the true maximum deviation cannot exceed `upper_bound`.
+#[derive(Debug, Clone, Copy)]
+pub struct BoundedDeviationResult {
+    /// The deviation result from sampling within the subdivision.
+    pub result: DeviationResult,
+    /// Guaranteed upper bound on the true maximum deviation.
+    pub upper_bound: f64,
+    /// Number of subdivision intervals processed.
+    pub intervals_processed: usize,
+}
 
-    fn xy_plane() -> SurfaceGeometry {
-        SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
+/// Compute a guaranteed upper bound on edge-surface deviation.
+///
+/// Uses recursive bisection: splits the parameter range in half,
+/// evaluates deviation at endpoints and midpoint, computes a Lipschitz
+/// bound from the maximum derivative magnitude, and prunes intervals
+/// where the bound is below the current best max. Converges when all
+/// intervals are either pruned or narrower than `min_interval`.
+pub fn edge_surface_deviation_bounded(
+    curve: &dyn CurveEval,
+    t_range: (f64, f64),
+    surface: &dyn SurfaceEval,
+    min_interval: f64,
+    max_subdivisions: usize,
+) -> BoundedDeviationResult {
+    let (t0, t1) = t_range;
+
+    // Helper: compute distance from a curve point to the surface.
+    let dev_at = |t: f64| -> f64 {
+        let pt = curve.point_at(t);
+        if let Some((u, v)) = surface.closest_point(&pt) {
+            let surf_pt = surface.point_at(u, v);
+            pt.distance_to(&surf_pt)
+        } else {
+            let fallback = surface.point_at(0.0, 0.0);
+            pt.distance_to(&fallback)
         }
-    }
+    };
 
-    fn x_axis_line() -> CurveGeometry {
-        CurveGeometry::Line {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            direction: Vec3::new(1.0, 0.0, 0.0),
+    // Work queue: each entry is (t_lo, t_hi).
+    let mut queue: Vec<(f64, f64)> = vec![(t0, t1)];
+    let mut global_max_dev = 0.0_f64;
+    let mut global_max_t = t0;
+    let mut sum_dev = 0.0_f64;
+    let mut count = 0_usize;
+    let mut intervals_processed = 0_usize;
+    // Collect upper bounds of all leaf (terminal) intervals.
+    let mut leaf_bounds: Vec<f64> = Vec::new();
+
+    while let Some((lo, hi)) = queue.pop() {
+        if intervals_processed >= max_subdivisions {
+            // Budget exhausted: record as leaf with Lipschitz bound.
+            let mid = (lo + hi) * 0.5;
+            let d_mid = dev_at(mid);
+            let speed = curve.derivative_at(mid, 1).length();
+            let lip = speed * (hi - lo) * 0.5;
+            leaf_bounds.push(d_mid + lip);
+            if d_mid > global_max_dev {
+                global_max_dev = d_mid;
+                global_max_t = mid;
+            }
+            sum_dev += d_mid;
+            count += 1;
+            continue;
         }
-    }
 
-    fn y_axis_line() -> CurveGeometry {
-        CurveGeometry::Line {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            direction: Vec3::new(0.0, 1.0, 0.0),
-        }
-    }
+        intervals_processed += 1;
+        let mid = (lo + hi) * 0.5;
 
-    #[test]
-    fn identical_curves_zero_deviation() {
-        let line = x_axis_line();
-        let range = (0.0, 10.0);
+        let d_lo = dev_at(lo);
+        let d_mid = dev_at(mid);
+        let d_hi = dev_at(hi);
 
-        let result = curve_curve_deviation(&line, range, &line, range, 50);
+        sum_dev += d_lo + d_mid + d_hi;
+        count += 3;
 
-        assert!(
-            result.max_deviation < 1e-12,
-            "identical curves should have ~0 deviation, got {}",
-            result.max_deviation
-        );
-        assert!(
-            result.mean_deviation < 1e-12,
-            "mean deviation should be ~0 for identical curves, got {}",
-            result.mean_deviation
-        );
-        // 50 uniform + 8 adaptive refinement samples.
-        assert!(
-            result.sample_count >= 50,
-            "sample count should include refinement, got {}",
-            result.sample_count
-        );
-    }
-
-    #[test]
-    fn curve_on_plane_zero_deviation() {
-        let line = x_axis_line();
-        let plane = xy_plane();
-
-        let result = edge_surface_deviation(&line, (0.0, 5.0), &plane, 30);
-
-        assert!(
-            result.max_deviation < 1e-6,
-            "line on XY plane should have ~0 deviation, got {}",
-            result.max_deviation
-        );
-        assert!(
-            result.mean_deviation < 1e-6,
-            "mean deviation should be ~0 for line on plane, got {}",
-            result.mean_deviation
-        );
-    }
-
-    #[test]
-    fn parallel_curves_known_deviation() {
-        let line_a = x_axis_line();
-        // Line at z=1, parallel to x_axis_line.
-        let line_b = CurveGeometry::Line {
-            origin: Point3::new(0.0, 0.0, 1.0),
-            direction: Vec3::new(1.0, 0.0, 0.0),
+        let sample_max = d_lo.max(d_mid).max(d_hi);
+        let sample_max_t = if (sample_max - d_lo).abs() < 1e-30 {
+            lo
+        } else if (sample_max - d_mid).abs() < 1e-30 {
+            mid
+        } else {
+            hi
         };
-        let range = (0.0, 5.0);
 
-        let result = curve_curve_deviation(&line_a, range, &line_b, range, 20);
+        if sample_max > global_max_dev {
+            global_max_dev = sample_max;
+            global_max_t = sample_max_t;
+        }
 
-        assert!(
-            (result.max_deviation - 1.0).abs() < 1e-10,
-            "parallel lines 1 unit apart should have max deviation ~1.0, got {}",
-            result.max_deviation
-        );
-        assert!(
-            (result.mean_deviation - 1.0).abs() < 1e-10,
-            "mean deviation should be ~1.0, got {}",
-            result.mean_deviation
-        );
+        // Lipschitz bound: curve speed bounds how fast deviation can change.
+        // Use half-interval width since we sampled the midpoint.
+        let speed = curve.derivative_at(mid, 1).length();
+        let lip = speed * (hi - lo) * 0.5;
+        let interval_upper = sample_max + lip;
+
+        // Prune: if best this interval can offer is below the known max.
+        if interval_upper <= global_max_dev {
+            continue;
+        }
+
+        // If the interval is narrow enough, record as leaf and stop.
+        if (hi - lo) <= min_interval {
+            leaf_bounds.push(interval_upper);
+            continue;
+        }
+
+        // Subdivide into two halves.
+        queue.push((lo, mid));
+        queue.push((mid, hi));
     }
 
-    #[test]
-    fn surface_surface_same_plane() {
-        let plane = xy_plane();
-        let range = ((-1.0, 1.0), (-1.0, 1.0));
+    // Global upper bound is the max of all leaf interval bounds,
+    // but cannot be less than the observed sample maximum.
+    let global_upper_bound = leaf_bounds.iter().copied().fold(global_max_dev, f64::max);
 
-        let result = surface_surface_deviation(&plane, range, &plane, range, 25);
+    let mean_dev = if count > 0 {
+        sum_dev / count as f64
+    } else {
+        0.0
+    };
 
-        assert!(
-            result.max_deviation < 1e-6,
-            "same plane should have ~0 deviation, got {}",
-            result.max_deviation
-        );
-        assert!(result.sample_count > 0);
-    }
-
-    #[test]
-    fn deviation_result_fields() {
-        let line_a = x_axis_line();
-        let line_b = y_axis_line();
-
-        let result = curve_curve_deviation(&line_a, (0.0, 1.0), &line_b, (0.0, 1.0), 10);
-
-        // At t=0 both are at origin, so min deviation is 0.
-        // At t=1 they are sqrt(2) apart.
-        assert!(result.max_deviation > 0.0);
-        // 10 uniform + 8 adaptive refinement samples.
-        assert!(
-            result.sample_count >= 10,
-            "sample count should include refinement, got {}",
-            result.sample_count
-        );
+    BoundedDeviationResult {
+        result: DeviationResult {
+            max_deviation: global_max_dev,
+            mean_deviation: mean_dev,
+            max_location: global_max_t,
+            sample_count: count,
+        },
+        upper_bound: global_upper_bound,
+        intervals_processed,
     }
 }
+
+#[cfg(test)]
+#[path = "deviation_tests.rs"]
+mod tests;

@@ -12,6 +12,7 @@ use crate::healing::repair::complexity::{self, ComplexityReductionResult};
 use crate::healing::repair::degeneracy::{self, DegeneracyRepairResult};
 use crate::healing::repair::gap_repair::{self, GapRepairResult, GapRepairStrategy};
 use crate::healing::repair::merge_faces::{self, FaceMergeResult};
+use crate::healing::repair::rederive::{self, RederiveResult};
 use crate::healing::repair::simplification::{self, SimplificationResult};
 use crate::healing::repair::stitch::{self, StitchResult};
 use crate::healing::repair::tolerance_mgmt::{self, ToleranceAdjustment};
@@ -34,6 +35,8 @@ pub enum RepairStep {
     BoundaryStitch,
     /// Remove unnecessary NURBS knots from edge curves.
     ComplexityReduction,
+    /// Re-derive edge curves from adjacent surface intersections.
+    Rederive,
 }
 
 /// Aggregate result of running the repair pipeline.
@@ -57,6 +60,8 @@ pub struct HealResult {
     pub boundary_stitches: Vec<StitchResult>,
     /// All complexity reduction results across all iterations.
     pub complexity_reductions: Vec<ComplexityReductionResult>,
+    /// All edge re-derivation results across all iterations.
+    pub rederive_results: Vec<RederiveResult>,
     /// Number of iterations the pipeline ran.
     pub iterations: usize,
 }
@@ -81,6 +86,7 @@ fn steps_for_strategy(strategy: HealStrategy) -> Vec<RepairStep> {
             RepairStep::DegeneracyRepair,
             RepairStep::BoundaryStitch,
             RepairStep::GapRepair(GapRepairStrategy::GeometricAdjustment),
+            RepairStep::Rederive,
             RepairStep::SurfaceSimplification,
             RepairStep::ComplexityReduction,
             RepairStep::CoplanarFaceMerge,
@@ -118,6 +124,7 @@ pub fn run_pipeline(brep: &mut BRep, options: &HealOptions) -> Result<HealResult
     let mut all_face_merges: Vec<FaceMergeResult> = Vec::new();
     let mut all_boundary_stitches: Vec<StitchResult> = Vec::new();
     let mut all_complexity_reductions: Vec<ComplexityReductionResult> = Vec::new();
+    let mut all_rederive_results: Vec<RederiveResult> = Vec::new();
     let mut current_defects = defects_before;
     let mut iterations = 0;
 
@@ -162,6 +169,10 @@ pub fn run_pipeline(brep: &mut BRep, options: &HealOptions) -> Result<HealResult
                     let result = complexity::reduce_all_curves(brep, options.tolerance.linear());
                     all_complexity_reductions.push(result);
                 }
+                RepairStep::Rederive => {
+                    let results = rederive::rederive_all_edges(brep, &options.tolerance);
+                    all_rederive_results.extend(results);
+                }
             }
         }
 
@@ -195,6 +206,7 @@ pub fn run_pipeline(brep: &mut BRep, options: &HealOptions) -> Result<HealResult
         face_merges: all_face_merges,
         boundary_stitches: all_boundary_stitches,
         complexity_reductions: all_complexity_reductions,
+        rederive_results: all_rederive_results,
         iterations,
     })
 }
@@ -241,6 +253,7 @@ mod tests {
     fn aggressive_strategy_includes_simplification() {
         let steps = steps_for_strategy(HealStrategy::Aggressive);
         assert!(steps.contains(&RepairStep::SurfaceSimplification));
+        assert!(steps.contains(&RepairStep::Rederive));
     }
 
     #[test]

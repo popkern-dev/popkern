@@ -9,6 +9,7 @@
 
 use crate::error::ValidationError;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use crate::tolerance::Tolerance;
 use crate::topology::{BRep, FaceHandle};
 
 /// Result of a self-intersection repair attempt.
@@ -286,52 +287,203 @@ pub fn repair_self_intersection(brep: &mut BRep, face: FaceHandle) -> SelfInters
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tolerance::Tolerance;
-    use crate::topology::BRep;
+/// Attempt to repair self-intersection by identifying the fold region
+/// and splitting the surface.
+///
+/// For NURBS surfaces, finds the parameter-space curve where the surface
+/// folds (normal reversal boundary) and splits the surface into two
+/// parts: the valid region and the folded region. The folded region
+/// is discarded.
+///
+/// This is more aggressive than smoothing but handles cases where the
+/// fold is too severe for smoothing to fix.
+pub fn repair_by_splitting(
+    brep: &mut BRep,
+    face: FaceHandle,
+    tolerance: &Tolerance,
+) -> SelfIntersectionRepairResult {
+    let face_data = match brep.faces.get(face) {
+        Some(f) => f,
+        None => {
+            return SelfIntersectionRepairResult {
+                face,
+                repaired: false,
+                description: "Face not found in BRep".to_string(),
+            };
+        }
+    };
 
-    #[test]
-    fn valid_cube_has_no_self_intersections() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let pairs = detect_self_intersecting_faces(&brep);
-        assert!(
-            pairs.is_empty(),
-            "valid cube should have no self-intersecting faces"
-        );
+    let surface_on_face = match face_data.surface.as_ref() {
+        Some(s) => s,
+        None => {
+            return SelfIntersectionRepairResult {
+                face,
+                repaired: false,
+                description: "Face has no surface geometry".to_string(),
+            };
+        }
+    };
+
+    // Only NURBS surfaces can self-intersect and be split.
+    let nurbs = match &surface_on_face.geometry {
+        SurfaceGeometry::Nurbs(n) => n.clone(),
+        _ => {
+            return SelfIntersectionRepairResult {
+                face,
+                repaired: false,
+                description: "Only NURBS surfaces can be split; \
+                              analytical surfaces cannot self-intersect"
+                    .to_string(),
+            };
+        }
+    };
+
+    // Detect normal reversals on a 10x10 grid.
+    let reversals = detect_normal_reversals(brep, face);
+    if reversals.is_empty() {
+        return SelfIntersectionRepairResult {
+            face,
+            repaired: false,
+            description: "No normal reversals detected; surface is clean".to_string(),
+        };
     }
 
-    #[test]
-    fn repair_on_valid_cube_face_is_noop() {
-        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let face = brep.faces.keys().next().unwrap();
-        let result = repair_self_intersection(&mut brep, face);
-        // Cube faces are planar (analytical), so repair returns immediately.
-        assert!(
-            !result.repaired,
-            "analytical surface should not be repaired"
-        );
-        assert!(
-            result.description.contains("Analytical"),
-            "expected analytical surface message, got: {}",
-            result.description
-        );
+    // Get bounded parameter range for this face.
+    let positions = brep.face_outer_loop_positions(face);
+    if positions.is_empty() {
+        return SelfIntersectionRepairResult {
+            face,
+            repaired: false,
+            description: "Face has no outer loop positions".to_string(),
+        };
+    }
+    let surface = &surface_on_face.geometry;
+    let ((u_min, u_max), (v_min, v_max)) =
+        crate::geometry::uv_projection::tight_bounded_parameter_range(&positions, surface);
+
+    // Build a 10x10 grid of normal directions to find the fold boundary.
+    let n = 10usize;
+    let mut grid_ok = vec![true; n * n];
+    let ref_normal =
+        surface.normal_at(u_min + (u_max - u_min) * 0.5, v_min + (v_max - v_min) * 0.5);
+
+    for i in 0..n {
+        let u = u_min + (u_max - u_min) * (i as f64 + 0.5) / (n as f64);
+        for j in 0..n {
+            let v = v_min + (v_max - v_min) * (j as f64 + 0.5) / (n as f64);
+            let normal = surface.normal_at(u, v);
+            if normal.length() > 1e-12 && normal.dot(&ref_normal) < 0.0 {
+                grid_ok[i * n + j] = false;
+            }
+        }
     }
 
-    #[test]
-    fn repair_on_missing_face_returns_not_found() {
-        let mut brep = BRep::new(Tolerance::default());
-        let bogus = FaceHandle::default();
-        let result = repair_self_intersection(&mut brep, bogus);
-        assert!(!result.repaired);
-        assert!(result.description.contains("not found"));
+    let ok_count = grid_ok.iter().filter(|&&ok| ok).count();
+    let fold_count = n * n - ok_count;
+
+    if fold_count == 0 {
+        return SelfIntersectionRepairResult {
+            face,
+            repaired: false,
+            description: "Grid analysis found no folded region".to_string(),
+        };
     }
 
-    #[test]
-    fn detect_on_empty_brep_returns_empty() {
-        let brep = BRep::new(Tolerance::default());
-        let pairs = detect_self_intersecting_faces(&brep);
-        assert!(pairs.is_empty());
+    // Find the fold boundary in parameter space: midpoints between
+    // adjacent grid cells where the normal flips.
+    let mut fold_u_min = u_max;
+    let mut fold_u_max = u_min;
+    let mut fold_v_min = v_max;
+    let mut fold_v_max = v_min;
+
+    for i in 0..n {
+        let u = u_min + (u_max - u_min) * (i as f64 + 0.5) / (n as f64);
+        for j in 0..n {
+            if !grid_ok[i * n + j] {
+                let v = v_min + (v_max - v_min) * (j as f64 + 0.5) / (n as f64);
+                if u < fold_u_min {
+                    fold_u_min = u;
+                }
+                if u > fold_u_max {
+                    fold_u_max = u;
+                }
+                if v < fold_v_min {
+                    fold_v_min = v;
+                }
+                if v > fold_v_max {
+                    fold_v_max = v;
+                }
+            }
+        }
+    }
+
+    // Determine which side of the fold to trim.
+    // The valid region is the larger area.
+    let u_range = u_max - u_min;
+    let v_range = v_max - v_min;
+    let _ = tolerance; // tolerance used above via linear()
+
+    // Try splitting along the dominant fold direction.
+    // If the fold is near u_min/u_max, split in u; if near v_min/v_max, split in v.
+    let fold_near_u_min = (fold_u_min - u_min) / u_range < 0.3;
+    let fold_near_u_max = (u_max - fold_u_max) / u_range < 0.3;
+    let fold_near_v_min = (fold_v_min - v_min) / v_range < 0.3;
+    let fold_near_v_max = (v_max - fold_v_max) / v_range < 0.3;
+
+    let orientation = surface_on_face.orientation;
+
+    // Attempt to split the NURBS surface, keeping the valid side.
+    let split_result = if fold_near_u_min && !fold_near_u_max {
+        // Fold is at the low-u end; split and keep the right (high-u) part.
+        nurbs
+            .split_at_u(fold_u_max)
+            .ok()
+            .map(|(_left, right)| right)
+    } else if fold_near_u_max && !fold_near_u_min {
+        // Fold is at the high-u end; split and keep the left (low-u) part.
+        nurbs.split_at_u(fold_u_min).ok().map(|(left, _right)| left)
+    } else if fold_near_v_min && !fold_near_v_max {
+        nurbs
+            .split_at_v(fold_v_max)
+            .ok()
+            .map(|(_left, right)| right)
+    } else if fold_near_v_max && !fold_near_v_min {
+        nurbs.split_at_v(fold_v_min).ok().map(|(left, _right)| left)
+    } else {
+        // Fold is in the interior; cannot cleanly split with a single cut.
+        None
+    };
+
+    match split_result {
+        Some(trimmed) => {
+            if let Some(f) = brep.faces.get_mut(face) {
+                f.surface = Some(crate::geometry::SurfaceOnFace {
+                    geometry: SurfaceGeometry::Nurbs(trimmed),
+                    orientation,
+                });
+            }
+            SelfIntersectionRepairResult {
+                face,
+                repaired: true,
+                description: format!(
+                    "Split surface to remove fold region ({fold_count} of \
+                     {total} grid cells were folded)",
+                    total = n * n,
+                ),
+            }
+        }
+        None => SelfIntersectionRepairResult {
+            face,
+            repaired: false,
+            description: format!(
+                "Fold region spans interior ({fold_count} of {} grid cells); \
+                 single-cut split not possible",
+                n * n,
+            ),
+        },
     }
 }
+
+#[cfg(test)]
+#[path = "self_intersection_tests.rs"]
+mod tests;

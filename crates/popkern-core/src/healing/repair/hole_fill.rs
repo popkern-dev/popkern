@@ -9,8 +9,9 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::geometry::surface::SurfaceEval;
 use crate::tolerance::Tolerance;
-use crate::topology::{BRep, EdgeHandle, VertexHandle};
+use crate::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 /// Strategy for filling a hole.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -178,14 +179,156 @@ pub fn detect_holes(brep: &BRep) -> Vec<DetectedHole> {
     holes
 }
 
+/// Get the adjacent face (the non-hole side) for a boundary edge.
+///
+/// Returns `None` if the edge or its topology is broken.
+fn adjacent_face_for_edge(brep: &BRep, edge: EdgeHandle) -> Option<FaceHandle> {
+    let edge_data = brep.edges.get(edge)?;
+    let he = brep.half_edges.get(edge_data.half_edge)?;
+    let loop_data = brep.loops.get(he.loop_)?;
+    Some(loop_data.face)
+}
+
+/// Sample 4 evenly-spaced points along an edge's curve geometry.
+///
+/// Falls back to linear interpolation between endpoints if no curve is
+/// available. Returns an empty vec only if the topology is broken.
+fn sample_edge_points(brep: &BRep, edge: EdgeHandle, n: usize) -> Vec<crate::geometry::Point3> {
+    use crate::geometry::curve::CurveEval;
+
+    let edge_data = match brep.edges.get(edge) {
+        Some(e) => e,
+        None => return Vec::new(),
+    };
+
+    // If the edge has curve geometry, sample along the curve.
+    if let Some(ref curve_on_edge) = edge_data.curve {
+        let t0 = curve_on_edge.t_start;
+        let t1 = curve_on_edge.t_end;
+        return (0..n)
+            .map(|i| {
+                let t = t0 + (t1 - t0) * (i as f64 + 0.5) / (n as f64);
+                curve_on_edge.geometry.point_at(t)
+            })
+            .collect();
+    }
+
+    // Fallback: interpolate between edge endpoints.
+    let he = match brep.half_edges.get(edge_data.half_edge) {
+        Some(h) => h,
+        None => return Vec::new(),
+    };
+    let twin = match brep.half_edges.get(he.twin) {
+        Some(t) => t,
+        None => return Vec::new(),
+    };
+    let p0 = match brep.vertices.get(he.origin) {
+        Some(v) => v.position,
+        None => return Vec::new(),
+    };
+    let p1 = match brep.vertices.get(twin.origin) {
+        Some(v) => v.position,
+        None => return Vec::new(),
+    };
+
+    (0..n)
+        .map(|i| {
+            let t = (i as f64 + 0.5) / (n as f64);
+            crate::geometry::Point3::new(
+                p0.x + (p1.x - p0.x) * t,
+                p0.y + (p1.y - p0.y) * t,
+                p0.z + (p1.z - p0.z) * t,
+            )
+        })
+        .collect()
+}
+
+/// Attempt to fill a hole by extending adjacent face surfaces.
+///
+/// For each edge in the hole boundary, evaluates the adjacent face's
+/// surface beyond the edge to see if it can cover the hole. Picks the
+/// face whose surface extension has the smallest deviation from the
+/// other boundary edges.
+///
+/// This works well for small holes in smooth regions where adjacent
+/// surfaces naturally extend across the gap.
+///
+/// This is analysis/assessment only -- actually creating the fill face
+/// topology would require Euler operators. But it determines WHETHER
+/// extension is viable and WHICH surface to extend, which is the core
+/// algorithmic work.
+pub fn fill_by_extension(
+    brep: &BRep,
+    hole: &DetectedHole,
+    tolerance: &Tolerance,
+) -> Option<HoleFillResult> {
+    let mut best_deviation = f64::MAX;
+
+    for (edge_idx, &edge) in hole.boundary_edges.iter().enumerate() {
+        // Get the adjacent face (the non-hole side).
+        let face = match adjacent_face_for_edge(brep, edge) {
+            Some(f) => f,
+            None => continue,
+        };
+
+        // Get the face's surface geometry.
+        let face_data = match brep.faces.get(face) {
+            Some(f) => f,
+            None => continue,
+        };
+        let surface_on_face = match face_data.surface.as_ref() {
+            Some(s) => s,
+            None => continue,
+        };
+        let surface = &surface_on_face.geometry;
+
+        // For each OTHER boundary edge in the hole, sample and project.
+        let mut total_deviation = 0.0_f64;
+        let mut sample_count = 0usize;
+
+        for (other_idx, &other_edge) in hole.boundary_edges.iter().enumerate() {
+            if other_idx == edge_idx {
+                continue;
+            }
+            let points = sample_edge_points(brep, other_edge, 4);
+            for pt in &points {
+                // Project the point onto the extending surface.
+                if let Some((u, v)) = surface.closest_point(pt) {
+                    let projected = surface.point_at(u, v);
+                    total_deviation += pt.distance_to(&projected);
+                    sample_count += 1;
+                }
+            }
+        }
+
+        if sample_count > 0 {
+            let avg_deviation = total_deviation / sample_count as f64;
+            if avg_deviation < best_deviation {
+                best_deviation = avg_deviation;
+            }
+        }
+    }
+
+    // Loose threshold: the extending surface should be within
+    // 100x linear tolerance of the other boundary edges.
+    let threshold = tolerance.linear() * 100.0;
+    if best_deviation < threshold {
+        Some(HoleFillResult {
+            holes_detected: 1,
+            holes_filled: 1,
+            strategy: HoleFillStrategy::Extension,
+        })
+    } else {
+        None
+    }
+}
+
 /// Attempt to fill detected holes.
 ///
-/// Currently uses surface extension strategy: for each hole, finds
-/// the adjacent face surfaces and evaluates whether extending them
-/// could close the hole. This is a detection + reporting operation;
-/// actual surface construction (Coons patch, energy-minimizing fill)
-/// requires significant infrastructure and is deferred to a future
-/// iteration.
+/// Tries extension first (for all holes). If extension fails and the
+/// hole is 4-sided, a Coons patch fill would be attempted (deferred
+/// to a future iteration). Energy-minimizing fill is not yet
+/// implemented; reports detection only.
 ///
 /// Returns the number of holes detected and how many could
 /// potentially be filled.
@@ -200,32 +343,26 @@ pub fn fill_holes(
 
     match strategy {
         HoleFillStrategy::Extension => {
-            // For each hole, check if adjacent faces have surface geometry
-            // that could plausibly be extended. Count fillable holes.
             for hole in &holes {
-                let has_adjacent_surfaces = hole.boundary_edges.iter().any(|&edge| {
-                    let edge_data = match brep.edges.get(edge) {
-                        Some(e) => e,
-                        None => return false,
-                    };
-                    let he = match brep.half_edges.get(edge_data.half_edge) {
-                        Some(h) => h,
-                        None => return false,
-                    };
-                    let loop_data = match brep.loops.get(he.loop_) {
-                        Some(l) => l,
-                        None => return false,
-                    };
-                    let face_data = match brep.faces.get(loop_data.face) {
-                        Some(f) => f,
-                        None => return false,
-                    };
-                    face_data.surface.is_some()
-                });
-
-                if has_adjacent_surfaces {
-                    // Hole is fillable in principle -- actual fill is deferred.
+                // Try extension first.
+                if fill_by_extension(brep, hole, _tolerance).is_some() {
                     holes_filled += 1;
+                    continue;
+                }
+                // Extension failed. For 4-sided holes a Coons patch fill
+                // could be attempted (deferred to future iteration). For
+                // now, check if adjacent surfaces exist as a fallback
+                // heuristic.
+                if hole.num_sides == 4 {
+                    let has_adjacent_surfaces = hole.boundary_edges.iter().any(|&edge| {
+                        adjacent_face_for_edge(brep, edge)
+                            .and_then(|f| brep.faces.get(f))
+                            .and_then(|fd| fd.surface.as_ref())
+                            .is_some()
+                    });
+                    if has_adjacent_surfaces {
+                        holes_filled += 1;
+                    }
                 }
             }
         }
@@ -280,6 +417,26 @@ mod tests {
         let brep = BRep::new(Tolerance::default());
         let holes = detect_holes(&brep);
         assert!(holes.is_empty());
+    }
+
+    #[test]
+    fn fill_by_extension_on_valid_cube_returns_none() {
+        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let tol = Tolerance::default();
+        // A valid cube has no holes, so detect_holes returns empty.
+        let holes = detect_holes(&brep);
+        assert!(holes.is_empty());
+        // Manually create a fake hole and verify extension returns None
+        // when there are no actual boundary edges.
+        let fake_hole = DetectedHole {
+            boundary_edges: Vec::new(),
+            num_sides: 0,
+        };
+        let result = fill_by_extension(&brep, &fake_hole, &tol);
+        assert!(
+            result.is_none(),
+            "extension should return None for empty hole boundary"
+        );
     }
 
     #[test]

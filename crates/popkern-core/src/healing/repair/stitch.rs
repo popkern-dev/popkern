@@ -1,11 +1,7 @@
 //! Boundary assembly: identify and merge matching boundary edges
 //! to stitch disconnected surface patches into connected topology.
-//!
-//! The boundary assembly problem arises during import: disconnected surface
-//! patches need to be assembled into connected topology by identifying and
-//! merging matching boundary edges. This module implements the detection and
-//! vertex-merging phases; full topological edge merging via Euler operators
-//! is deferred.
+//! Implements detection and vertex-merging; full topological edge merging
+//! via Euler operators is deferred.
 
 use crate::geometry::Point3;
 use crate::geometry::curve::CurveEval;
@@ -25,8 +21,19 @@ pub struct StitchResult {
     pub pairs_merged: usize,
     /// Unmatched boundaries that could not be stitched.
     pub unmatched_edges: Vec<EdgeHandle>,
+    /// Edges that had multiple matching candidates (ambiguous).
+    pub ambiguous_edges: Vec<EdgeHandle>,
     /// Maximum displacement introduced during merging.
     pub max_displacement: f64,
+}
+
+/// Result of [`find_matching_edges`] including ambiguity information.
+#[derive(Debug, Clone)]
+pub struct MatchResult {
+    /// Matched edge pairs after greedy assignment.
+    pub result: Vec<EdgeMatch>,
+    /// Edges that had more than one candidate match within max_gap.
+    pub ambiguous: Vec<EdgeHandle>,
 }
 
 /// A candidate match between two free boundary edges.
@@ -43,11 +50,8 @@ pub struct EdgeMatch {
 }
 
 /// Find free boundary edges -- edges used by only one face.
-///
-/// In a manifold BRep, every edge has two half-edges on different faces.
 /// A free boundary edge has both half-edges belonging to the same face
-/// (via their loops). These represent open boundaries where surface
-/// patches are disconnected.
+/// (via their loops), representing open boundaries.
 pub fn find_free_edges(brep: &BRep) -> Vec<EdgeHandle> {
     let mut free = Vec::new();
     for (eh, edge) in &brep.edges {
@@ -151,18 +155,22 @@ fn directed_hausdorff(pts_a: &[Point3], pts_b: &[Point3]) -> f64 {
 /// `max_gap`. Returns matches sorted by distance (best match first).
 ///
 /// Uses greedy assignment: each edge can only participate in one match.
+/// Also reports edges that had multiple candidate matches (ambiguous).
 pub fn find_matching_edges(
     brep: &BRep,
     free_edges: &[EdgeHandle],
     max_gap: f64,
     num_samples: usize,
-) -> Vec<EdgeMatch> {
+) -> MatchResult {
     let samples_count = num_samples.max(2);
     // Pre-sample all edges.
     let sampled: Vec<Option<Vec<Point3>>> = free_edges
         .iter()
         .map(|&eh| sample_edge_points(brep, eh, samples_count))
         .collect();
+
+    // Count how many candidate matches each edge participates in.
+    let mut match_counts = vec![0_usize; free_edges.len()];
 
     // Collect candidate matches.
     let mut candidates: Vec<EdgeMatch> = Vec::new();
@@ -180,6 +188,8 @@ pub fn find_matching_edges(
             let hausdorff = h_ab.max(h_ba);
 
             if hausdorff < max_gap {
+                match_counts[i] += 1;
+                match_counts[j] += 1;
                 // Check orientation via tangent at midpoints.
                 let needs_reversal = check_needs_reversal(brep, free_edges[i], free_edges[j]);
                 candidates.push(EdgeMatch {
@@ -191,6 +201,14 @@ pub fn find_matching_edges(
             }
         }
     }
+
+    // Identify ambiguous edges (>1 candidate match).
+    let ambiguous: Vec<EdgeHandle> = free_edges
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| match_counts[i] > 1)
+        .map(|(_, &eh)| eh)
+        .collect();
 
     // Sort by distance ascending (best matches first).
     candidates.sort_by(|a, b| {
@@ -223,7 +241,7 @@ pub fn find_matching_edges(
         used[ib] = true;
         result.push(c);
     }
-    result
+    MatchResult { result, ambiguous }
 }
 
 /// Check if two edges need orientation reversal to align.
@@ -272,12 +290,15 @@ pub fn stitch_boundaries(
             pairs_matched: 0,
             pairs_merged: 0,
             unmatched_edges: Vec::new(),
+            ambiguous_edges: Vec::new(),
             max_displacement: 0.0,
         };
     }
 
     let num_samples = 8;
-    let matches = find_matching_edges(brep, &free_before, max_gap, num_samples);
+    let match_result = find_matching_edges(brep, &free_before, max_gap, num_samples);
+    let matches = &match_result.result;
+    let ambiguous_edges = match_result.ambiguous.clone();
     let pairs_matched = matches.len();
 
     let mut pairs_merged = 0;
@@ -286,7 +307,7 @@ pub fn stitch_boundaries(
     // Track which edges were successfully matched.
     let mut matched_edges = std::collections::HashSet::new();
 
-    for m in &matches {
+    for m in matches {
         // Skip if the gap is too large to close within displacement limit.
         // Each vertex moves half the gap, so max displacement per vertex = distance / 2.
         if m.distance > 2.0 * max_displacement {
@@ -383,75 +404,95 @@ pub fn stitch_boundaries(
         pairs_matched,
         pairs_merged,
         unmatched_edges,
+        ambiguous_edges,
         max_displacement: overall_max_displacement,
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tolerance::Tolerance;
-    use crate::topology::BRep;
-
-    #[test]
-    fn valid_cube_has_no_free_edges() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let free = find_free_edges(&brep);
-        assert!(
-            free.is_empty(),
-            "manifold cube should have no free edges, found {}",
-            free.len()
-        );
+/// Detect partial overlap between two free boundary edges.
+///
+/// Returns the parameter ranges on each edge where they overlap,
+/// or `None` if there is no partial overlap (full match or no match).
+pub fn detect_partial_overlap(
+    brep: &BRep,
+    edge_a: EdgeHandle,
+    edge_b: EdgeHandle,
+    max_gap: f64,
+) -> Option<((f64, f64), (f64, f64))> {
+    let pts_a = sample_edge_points(brep, edge_a, 16)?;
+    let pts_b = sample_edge_points(brep, edge_b, 16)?;
+    if pts_a.len() < 2 || pts_b.len() < 2 {
+        return None;
     }
-
-    #[test]
-    fn stitch_on_valid_cube_is_noop() {
-        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let tol = Tolerance::default();
-        let result = stitch_boundaries(&mut brep, 0.01, 0.005, &tol);
-        assert_eq!(result.free_edges_before, 0);
-        assert_eq!(result.free_edges_after, 0);
-        assert_eq!(result.pairs_matched, 0);
-        assert_eq!(result.pairs_merged, 0);
-        assert!(result.unmatched_edges.is_empty());
-        assert!(result.max_displacement < f64::EPSILON);
+    // For each point on edge_a, check closest distance to edge_b.
+    let in_range: Vec<bool> = pts_a
+        .iter()
+        .map(|pa| {
+            pts_b
+                .iter()
+                .map(|pb| pa.distance_to(pb))
+                .fold(f64::MAX, f64::min)
+                <= max_gap
+        })
+        .collect();
+    // Find the longest contiguous run of matches.
+    let (mut best_start, mut best_len) = (0, 0_usize);
+    let (mut cur_start, mut cur_len) = (0, 0_usize);
+    for (i, &m) in in_range.iter().enumerate() {
+        if m {
+            if cur_len == 0 {
+                cur_start = i;
+            }
+            cur_len += 1;
+        } else {
+            if cur_len > best_len {
+                best_start = cur_start;
+                best_len = cur_len;
+            }
+            cur_len = 0;
+        }
     }
-
-    #[test]
-    fn empty_brep_has_no_free_edges() {
-        let brep = BRep::new(Tolerance::default());
-        let free = find_free_edges(&brep);
-        assert!(free.is_empty());
+    if cur_len > best_len {
+        best_start = cur_start;
+        best_len = cur_len;
     }
-
-    #[test]
-    fn stitch_on_empty_brep_is_noop() {
-        let mut brep = BRep::new(Tolerance::default());
-        let tol = Tolerance::default();
-        let result = stitch_boundaries(&mut brep, 0.01, 0.005, &tol);
-        assert_eq!(result.free_edges_before, 0);
-        assert_eq!(result.pairs_matched, 0);
+    if best_len == 0 || best_len == pts_a.len() {
+        return None;
     }
-
-    #[test]
-    fn find_matching_edges_empty_list_returns_empty() {
-        let brep = BRep::new(Tolerance::default());
-        let matches = find_matching_edges(&brep, &[], 0.01, 8);
-        assert!(matches.is_empty());
+    // Map sample indices to parameter ranges.
+    let na = (pts_a.len() - 1) as f64;
+    let ca = brep.edges.get(edge_a)?.curve.as_ref()?;
+    let span_a = ca.t_end - ca.t_start;
+    let t_start_a = ca.t_start + (best_start as f64 / na) * span_a;
+    let t_end_a = ca.t_start + ((best_start + best_len - 1) as f64 / na) * span_a;
+    // Find which edge_b samples are closest to the overlapping edge_a points.
+    let overlap_a = &pts_a[best_start..(best_start + best_len)];
+    let (mut min_b, mut max_b) = (pts_b.len(), 0_usize);
+    for pa in overlap_a {
+        let idx = pts_b
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| {
+                pa.distance_to(a)
+                    .partial_cmp(&pa.distance_to(b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(i, _)| i)?;
+        if idx < min_b {
+            min_b = idx;
+        }
+        if idx > max_b {
+            max_b = idx;
+        }
     }
-
-    #[test]
-    fn directed_hausdorff_identical_points_is_zero() {
-        let pts = vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)];
-        let h = directed_hausdorff(&pts, &pts);
-        assert!(h < f64::EPSILON);
-    }
-
-    #[test]
-    fn directed_hausdorff_known_value() {
-        let pts_a = vec![Point3::new(0.0, 0.0, 0.0)];
-        let pts_b = vec![Point3::new(1.0, 0.0, 0.0)];
-        let h = directed_hausdorff(&pts_a, &pts_b);
-        assert!((h - 1.0).abs() < f64::EPSILON);
-    }
+    let nb = (pts_b.len() - 1) as f64;
+    let cb = brep.edges.get(edge_b)?.curve.as_ref()?;
+    let span_b = cb.t_end - cb.t_start;
+    let t_start_b = cb.t_start + (min_b as f64 / nb) * span_b;
+    let t_end_b = cb.t_start + (max_b as f64 / nb) * span_b;
+    Some(((t_start_a, t_end_a), (t_start_b, t_end_b)))
 }
+
+#[cfg(test)]
+#[path = "stitch_tests.rs"]
+mod tests;

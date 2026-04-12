@@ -44,6 +44,7 @@ pub mod quality;
 pub mod regional;
 pub mod repair;
 pub mod singularity;
+pub mod streaming;
 pub mod telemetry;
 
 // Re-export key types for ergonomic access.
@@ -60,7 +61,8 @@ pub use curvature::surface_curvature::{
     principal_curvatures, surface_curvature_at,
 };
 pub use deviation::{
-    DeviationResult, curve_curve_deviation, edge_surface_deviation, surface_surface_deviation,
+    BoundedDeviationResult, DeviationResult, curve_curve_deviation, edge_surface_deviation,
+    edge_surface_deviation_bounded, surface_surface_deviation,
 };
 pub use diagnostics::{
     DefectCategory, DefectLocation, DefectRecord, EntityRef, HealingReport, HealingSummary,
@@ -80,19 +82,23 @@ pub use repair::complexity::{
 };
 pub use repair::coons_patch::{CoonsBoundary, CoonsPatchResult};
 pub use repair::degeneracy::DegeneracyRepairResult;
+pub use repair::g1_coons_patch::{CrossDerivatives, construct_g1_coons_patch};
 pub use repair::gap_repair::{GapRepairResult, GapRepairStrategy};
 pub use repair::hole_fill::{DetectedHole, HoleFillResult, HoleFillStrategy};
 pub use repair::import_repair::{
     ImportRepairConfig, ImportRepairOp, ImportRepairReport, run_batch_import_repair,
 };
 pub use repair::merge_faces::FaceMergeResult;
+pub use repair::n_sided_fill::fill_n_sided_hole;
 pub use repair::pipeline::HealResult;
 pub use repair::preview::RepairPreview;
+pub use repair::rederive::RederiveResult;
 pub use repair::self_intersection::SelfIntersectionRepairResult;
 pub use repair::simplification::{AnalyticalKind, SimplificationResult};
 pub use repair::stitch::StitchResult;
 pub use repair::tolerance_mgmt::ToleranceAdjustment;
 pub use singularity::{SingularityKind, SingularityRecord};
+pub use streaming::{StreamingConfig, StreamingResult};
 pub use telemetry::{HealingTelemetry, OperationTiming};
 
 use crate::error::CoreError;

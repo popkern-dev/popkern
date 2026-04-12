@@ -4,6 +4,10 @@
 //! bilinear Coons patch formula. The result is a NURBS surface that
 //! achieves G0 continuity with all boundary curves.
 //!
+//! The G1-continuous variant (in [`super::g1_coons_patch`]) additionally
+//! matches tangent planes at the boundaries using Hermite blending of
+//! cross-boundary derivatives.
+//!
 //! # Coons Patch Theory
 //!
 //! Given four boundary curves forming a 4-sided hole:
@@ -65,19 +69,19 @@ const ORIGIN: Point3 = Point3 {
 };
 
 /// Convert a Point3 to a Vec3 (position vector from origin).
-fn point_to_vec(p: Point3) -> Vec3 {
+pub(super) fn point_to_vec(p: Point3) -> Vec3 {
     p - ORIGIN
 }
 
 /// Convert a Vec3 back to a Point3 (position from origin).
-fn vec_to_point(v: Vec3) -> Point3 {
+pub(super) fn vec_to_point(v: Vec3) -> Point3 {
     ORIGIN + v
 }
 
 /// Evaluate the bilinear Coons patch formula at (u, v).
 ///
 /// Returns the surface point as a Vec3 (position vector from origin).
-fn coons_eval(
+pub(super) fn coons_eval(
     bottom: &NurbsCurve,
     top: &NurbsCurve,
     left: &NurbsCurve,
@@ -123,7 +127,12 @@ fn coons_eval(
 ///
 /// The knot vector spans `[range_start, range_end]` with uniform interior
 /// spacing and multiplicity `degree + 1` at both ends.
-fn build_clamped_knots(n: usize, degree: usize, range_start: f64, range_end: f64) -> Vec<f64> {
+pub(super) fn build_clamped_knots(
+    n: usize,
+    degree: usize,
+    range_start: f64,
+    range_end: f64,
+) -> Vec<f64> {
     let num_knots = n + degree + 1;
     let mut knots = Vec::with_capacity(num_knots);
 
@@ -254,7 +263,7 @@ pub fn construct_coons_patch(
 ///
 /// Samples each boundary (u=0, u=1, v=0, v=1) at 20 points and computes
 /// the maximum distance to the corresponding original boundary curve.
-fn measure_boundary_deviation(surface: &NurbsSurface, boundary: &CoonsBoundary) -> f64 {
+pub(super) fn measure_boundary_deviation(surface: &NurbsSurface, boundary: &CoonsBoundary) -> f64 {
     use crate::geometry::surface::SurfaceEval;
 
     let n_samples = 20;
