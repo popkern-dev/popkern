@@ -8,7 +8,9 @@
 use crate::error::{CoreError, HealingError};
 use crate::healing::defects;
 use crate::healing::options::{AnalysisOptions, HealOptions, HealStrategy};
+use crate::healing::repair::degeneracy::{self, DegeneracyRepairResult};
 use crate::healing::repair::gap_repair::{self, GapRepairResult, GapRepairStrategy};
+use crate::healing::repair::merge_faces::{self, FaceMergeResult};
 use crate::healing::repair::simplification::{self, SimplificationResult};
 use crate::healing::repair::tolerance_mgmt::{self, ToleranceAdjustment};
 use crate::topology::BRep;
@@ -22,6 +24,10 @@ pub enum RepairStep {
     ToleranceEnforcement,
     /// Replace over-parameterized NURBS with analytical surfaces.
     SurfaceSimplification,
+    /// Remove zero-length edges and collapse small faces.
+    DegeneracyRepair,
+    /// Detect and merge adjacent coplanar faces.
+    CoplanarFaceMerge,
 }
 
 /// Aggregate result of running the repair pipeline.
@@ -37,6 +43,10 @@ pub struct HealResult {
     pub tolerance_adjustments: Vec<ToleranceAdjustment>,
     /// All surface simplifications performed across all iterations.
     pub simplifications: Vec<SimplificationResult>,
+    /// All degeneracy repairs performed across all iterations.
+    pub degeneracy_repairs: Vec<DegeneracyRepairResult>,
+    /// All coplanar face merge results across all iterations.
+    pub face_merges: Vec<FaceMergeResult>,
     /// Number of iterations the pipeline ran.
     pub iterations: usize,
 }
@@ -50,13 +60,17 @@ fn steps_for_strategy(strategy: HealStrategy) -> Vec<RepairStep> {
         ],
         HealStrategy::Standard => vec![
             RepairStep::ToleranceEnforcement,
+            RepairStep::DegeneracyRepair,
             RepairStep::GapRepair(GapRepairStrategy::GeometricAdjustment),
             RepairStep::SurfaceSimplification,
+            RepairStep::CoplanarFaceMerge,
         ],
         HealStrategy::Aggressive => vec![
             RepairStep::ToleranceEnforcement,
+            RepairStep::DegeneracyRepair,
             RepairStep::GapRepair(GapRepairStrategy::GeometricAdjustment),
             RepairStep::SurfaceSimplification,
+            RepairStep::CoplanarFaceMerge,
         ],
     }
 }
@@ -87,6 +101,8 @@ pub fn run_pipeline(brep: &mut BRep, options: &HealOptions) -> Result<HealResult
     let mut all_gap_repairs: Vec<GapRepairResult> = Vec::new();
     let mut all_tol_adjustments: Vec<ToleranceAdjustment> = Vec::new();
     let mut all_simplifications: Vec<SimplificationResult> = Vec::new();
+    let mut all_degeneracy_repairs: Vec<DegeneracyRepairResult> = Vec::new();
+    let mut all_face_merges: Vec<FaceMergeResult> = Vec::new();
     let mut current_defects = defects_before;
     let mut iterations = 0;
 
@@ -109,6 +125,14 @@ pub fn run_pipeline(brep: &mut BRep, options: &HealOptions) -> Result<HealResult
                     let simps =
                         simplification::simplify_all_faces(brep, options.tolerance.linear());
                     all_simplifications.extend(simps);
+                }
+                RepairStep::DegeneracyRepair => {
+                    let result = degeneracy::repair_degeneracies(brep, &options.tolerance);
+                    all_degeneracy_repairs.push(result);
+                }
+                RepairStep::CoplanarFaceMerge => {
+                    let result = merge_faces::merge_coplanar_faces(brep, &options.tolerance);
+                    all_face_merges.push(result);
                 }
             }
         }
@@ -139,6 +163,8 @@ pub fn run_pipeline(brep: &mut BRep, options: &HealOptions) -> Result<HealResult
         gap_repairs: all_gap_repairs,
         tolerance_adjustments: all_tol_adjustments,
         simplifications: all_simplifications,
+        degeneracy_repairs: all_degeneracy_repairs,
+        face_merges: all_face_merges,
         iterations,
     })
 }

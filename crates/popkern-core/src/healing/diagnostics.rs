@@ -151,6 +151,10 @@ pub enum RemediationAction {
     RestoreSingularityTopology,
     /// Re-derive edge curve from adjacent surfaces.
     RecomputeEdgeCurve,
+    /// Reparameterize a surface to reduce UV distortion.
+    ReparameterizeSurface,
+    /// Recompute a half-edge's parameter curve from 3D geometry.
+    RecomputePCurve,
 }
 
 /// A single detected defect with full diagnostic context.

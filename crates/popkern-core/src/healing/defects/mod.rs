@@ -5,6 +5,7 @@
 //! check category lives in its own submodule and can be enabled or disabled
 //! via [`AnalysisOptions`].
 
+pub mod containment;
 pub mod degenerate;
 pub mod geometric;
 pub mod import;

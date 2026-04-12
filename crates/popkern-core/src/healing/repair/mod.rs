@@ -1,18 +1,27 @@
 //! Repair operations for BRep healing.
 //!
 //! Provides gap repair, tolerance management, surface simplification,
-//! a multi-step repair pipeline, and a preview-before-apply workflow.
+//! degeneracy repair, coplanar face merging, a multi-step repair pipeline,
+//! and a preview-before-apply workflow.
 //!
 //! # Submodules
 //!
 //! - [`gap_repair`] -- close geometric gaps between adjacent faces
 //! - [`tolerance_mgmt`] -- adjust and enforce entity tolerance hierarchy
 //! - [`simplification`] -- detect and replace over-parameterized NURBS
+//! - [`degeneracy`] -- remove zero-length edges and collapse small faces
+//! - [`merge_faces`] -- detect and merge adjacent coplanar faces
 //! - [`pipeline`] -- orchestrate repair passes with transactional rollback
 //! - [`preview`] -- preview proposed repairs before committing
 
+/// Degeneracy repair (zero-length edges, small faces).
+pub mod degeneracy;
 /// Gap repair strategies and execution.
 pub mod gap_repair;
+/// Import repair pipeline for models from external formats.
+pub mod import_repair;
+/// Coplanar face merging.
+pub mod merge_faces;
 /// Multi-step repair pipeline with transactional rollback.
 pub mod pipeline;
 /// Preview proposed repairs before applying.
@@ -22,7 +31,10 @@ pub mod simplification;
 /// Tolerance hierarchy enforcement and auto-adjustment.
 pub mod tolerance_mgmt;
 
+pub use degeneracy::DegeneracyRepairResult;
 pub use gap_repair::{GapRepairResult, GapRepairStrategy};
+pub use import_repair::{ImportRepairConfig, ImportRepairOp, ImportRepairReport};
+pub use merge_faces::FaceMergeResult;
 pub use pipeline::HealResult;
 pub use preview::RepairPreview;
 pub use simplification::{AnalyticalKind, SimplificationResult};

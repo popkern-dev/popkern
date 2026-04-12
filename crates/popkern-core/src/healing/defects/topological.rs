@@ -5,6 +5,7 @@
 //! the healing report.
 
 use crate::error::ValidationError;
+use crate::geometry::curve::CurveEval;
 use crate::healing::diagnostics::{
     DefectCategory, DefectRecord, EntityRef, HealingReport, Severity,
 };
@@ -20,6 +21,7 @@ pub fn check_all(brep: &BRep, tolerance: &Tolerance, report: &mut HealingReport)
     check_manifold_edges(brep, report);
     check_face_orientation(brep, report);
     check_shell_closure(brep, report);
+    check_boundary_simplicity(brep, tolerance, report);
 }
 
 /// Check that every loop is geometrically closed within tolerance.
@@ -90,6 +92,103 @@ pub fn check_face_orientation(brep: &BRep, report: &mut HealingReport) {
 pub fn check_shell_closure(brep: &BRep, report: &mut HealingReport) {
     if let Err(e) = brep.validate_watertight() {
         report.push(validation_error_to_defect(&e, Severity::Error));
+    }
+}
+
+/// Check boundary simplicity -- no wire loop self-intersects (Section 5.1.2).
+///
+/// For each loop, samples edge curves at several points and checks whether
+/// any pair of non-adjacent edge segments comes within tolerance of each other.
+/// This is a simplified check using point sampling rather than exact
+/// curve-curve intersection.
+pub fn check_boundary_simplicity(brep: &BRep, tolerance: &Tolerance, report: &mut HealingReport) {
+    const SAMPLES_PER_EDGE: usize = 4;
+
+    for (loop_handle, loop_data) in &brep.loops {
+        // Collect (edge_handle, sample_points, origin_vertex, end_vertex) per edge.
+        let mut edge_samples: Vec<(
+            crate::topology::EdgeHandle,
+            Vec<crate::geometry::Point3>,
+            crate::topology::VertexHandle,
+            crate::topology::VertexHandle,
+        )> = Vec::new();
+
+        let start_he = loop_data.half_edge;
+        let mut cursor = start_he;
+        let bound = brep.half_edges.len().max(1);
+
+        for _ in 0..=bound {
+            let Some(he) = brep.half_edges.get(cursor) else {
+                break;
+            };
+
+            let origin_v = he.origin;
+            // End vertex is the origin of the next half-edge.
+            let end_v = brep
+                .half_edges
+                .get(he.next)
+                .map(|next_he| next_he.origin)
+                .unwrap_or(origin_v);
+
+            let edge_handle = he.edge;
+            let mut points = Vec::new();
+
+            if let Some(edge_data) = brep.edges.get(edge_handle)
+                && let Some(ref curve_on_edge) = edge_data.curve
+            {
+                let t0 = curve_on_edge.t_start;
+                let t1 = curve_on_edge.t_end;
+                for k in 0..SAMPLES_PER_EDGE {
+                    let frac = (k as f64 + 0.5) / SAMPLES_PER_EDGE as f64;
+                    let t = t0 + (t1 - t0) * frac;
+                    points.push(curve_on_edge.geometry.point_at(t));
+                }
+            }
+
+            edge_samples.push((edge_handle, points, origin_v, end_v));
+
+            cursor = he.next;
+            if cursor == start_he {
+                break;
+            }
+        }
+
+        // Check all pairs of non-adjacent edges for proximity.
+        let n = edge_samples.len();
+        for i in 0..n {
+            for j in (i + 2)..n {
+                // Skip adjacent edges (they share a vertex).
+                if i == 0 && j == n - 1 {
+                    continue; // first and last edges are adjacent in a loop
+                }
+                let (_, ref pts_a, _, _) = edge_samples[i];
+                let (_, ref pts_b, _, _) = edge_samples[j];
+                for pa in pts_a {
+                    for pb in pts_b {
+                        if pa.distance_to(pb) < tolerance.linear() {
+                            report.push(DefectRecord {
+                                category: DefectCategory::Topological,
+                                severity: Severity::Error,
+                                description: "Loop boundary self-intersection \
+                                              detected between non-adjacent edges"
+                                    .into(),
+                                entities: vec![
+                                    EntityRef::Loop(loop_handle),
+                                    EntityRef::Edge(edge_samples[i].0),
+                                    EntityRef::Edge(edge_samples[j].0),
+                                ],
+                                location: None,
+                                measured_value: Some(pa.distance_to(pb)),
+                                threshold: Some(tolerance.linear()),
+                                remediation: None,
+                            });
+                            // One defect per loop is enough for this pair.
+                            break;
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -287,6 +386,28 @@ mod tests {
         let brep = BRep::new(Tolerance::default());
         let mut report = HealingReport::new();
         check_all(&brep, &Tolerance::default(), &mut report);
+        assert!(report.is_empty());
+    }
+
+    #[test]
+    fn boundary_simplicity_on_valid_cube() {
+        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let tol = Tolerance::default();
+        let mut report = HealingReport::new();
+        check_boundary_simplicity(&brep, &tol, &mut report);
+        assert!(
+            report.is_empty(),
+            "Valid cube loops should not self-intersect, got {}",
+            report.len()
+        );
+    }
+
+    #[test]
+    fn boundary_simplicity_on_empty_brep() {
+        let brep = BRep::new(Tolerance::default());
+        let tol = Tolerance::default();
+        let mut report = HealingReport::new();
+        check_boundary_simplicity(&brep, &tol, &mut report);
         assert!(report.is_empty());
     }
 }

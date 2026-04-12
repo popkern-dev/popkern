@@ -36,6 +36,7 @@ pub mod curvature;
 pub mod defects;
 pub mod deviation;
 pub mod diagnostics;
+pub mod fairing;
 pub mod options;
 pub mod quality;
 pub mod regional;
@@ -61,6 +62,7 @@ pub use diagnostics::{
     DefectCategory, DefectLocation, DefectRecord, EntityRef, HealingReport, HealingSummary,
     Remediation, RemediationAction, Severity,
 };
+pub use fairing::FairingResult;
 pub use options::{
     AnalysisOptions, CheckSet, HealOptions, HealStrategy, SampleDensity, ToleranceBounds,
 };
@@ -69,7 +71,10 @@ pub use quality::{
     validate_against_profile,
 };
 pub use regional::{CurvatureBounds, RegionalAnalysis};
+pub use repair::degeneracy::DegeneracyRepairResult;
 pub use repair::gap_repair::{GapRepairResult, GapRepairStrategy};
+pub use repair::import_repair::{ImportRepairConfig, ImportRepairOp, ImportRepairReport};
+pub use repair::merge_faces::FaceMergeResult;
 pub use repair::pipeline::HealResult;
 pub use repair::preview::RepairPreview;
 pub use repair::simplification::{AnalyticalKind, SimplificationResult};

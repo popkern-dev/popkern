@@ -5,6 +5,9 @@
 //! (vertex tolerance must be <= edge tolerance <= face tolerance).
 
 use crate::error::ValidationError;
+use crate::geometry::surface::SurfaceEval;
+use crate::geometry::uv_projection::tight_bounded_parameter_range;
+use crate::healing::curvature::fundamental_forms::first_fundamental_form;
 use crate::healing::deviation::edge_surface_deviation;
 use crate::healing::diagnostics::{
     DefectCategory, DefectRecord, EntityRef, HealingReport, Remediation, RemediationAction,
@@ -24,6 +27,9 @@ pub fn check_all(
     check_edge_surface_consistency(brep, tolerance, sample_density, report);
     check_tolerance_hierarchy(brep, report);
     check_self_intersection(brep, report);
+    check_parameterization_quality(brep, tolerance, report);
+    super::containment::check_surface_containment(brep, report);
+    super::containment::check_boundary_containment(brep, tolerance, sample_density, report);
 }
 
 /// Check that each edge's curve is consistent with adjacent face surfaces.
@@ -256,6 +262,106 @@ pub fn check_self_intersection(brep: &BRep, report: &mut HealingReport) {
     }
 }
 
+/// Check for parameterization quality issues on face surfaces (Section 4.2).
+///
+/// Detects severely distorted parameterizations where the area element
+/// ratio (max/min) exceeds a threshold, indicating that the UV mapping
+/// is highly non-uniform.
+pub fn check_parameterization_quality(
+    brep: &BRep,
+    tolerance: &Tolerance,
+    report: &mut HealingReport,
+) {
+    const GRID_SIZE: usize = 4;
+    const DISTORTION_THRESHOLD: f64 = 1000.0;
+
+    let degenerate_threshold = tolerance.linear() * tolerance.linear();
+
+    for (face_handle, face_data) in &brep.faces {
+        let Some(ref surface_on_face) = face_data.surface else {
+            continue;
+        };
+
+        let positions = brep.face_outer_loop_positions(face_handle);
+        if positions.is_empty() {
+            continue;
+        }
+
+        let ((u_min, u_max), (v_min, v_max)) =
+            tight_bounded_parameter_range(&positions, &surface_on_face.geometry);
+
+        let u_span = u_max - u_min;
+        let v_span = v_max - v_min;
+        if u_span <= 0.0 || v_span <= 0.0 {
+            continue;
+        }
+
+        let surface: &dyn SurfaceEval = &surface_on_face.geometry;
+        let mut min_area = f64::INFINITY;
+        let mut max_area = 0.0_f64;
+        let mut has_near_degenerate = false;
+
+        for i in 0..GRID_SIZE {
+            let u = u_min + u_span * (i as f64 + 0.5) / GRID_SIZE as f64;
+            for j in 0..GRID_SIZE {
+                let v = v_min + v_span * (j as f64 + 0.5) / GRID_SIZE as f64;
+                let area = first_fundamental_form(surface, u, v).area_element();
+
+                if area < degenerate_threshold {
+                    has_near_degenerate = true;
+                    continue; // skip near-zero for ratio computation
+                }
+
+                min_area = min_area.min(area);
+                max_area = max_area.max(area);
+            }
+        }
+
+        if has_near_degenerate {
+            report.push(DefectRecord {
+                category: DefectCategory::Geometric,
+                severity: Severity::Warning,
+                description: "Near-degenerate parameterization point detected".into(),
+                entities: vec![EntityRef::Face(face_handle)],
+                location: None,
+                measured_value: None,
+                threshold: Some(degenerate_threshold),
+                remediation: Some(Remediation {
+                    action: RemediationAction::ReparameterizeSurface,
+                    parameter: None,
+                    value: None,
+                    rationale: "Reparameterize surface to remove \
+                                near-degenerate UV mapping"
+                        .into(),
+                }),
+            });
+        }
+
+        if min_area > 0.0 && max_area / min_area > DISTORTION_THRESHOLD {
+            report.push(DefectRecord {
+                category: DefectCategory::Geometric,
+                severity: Severity::Warning,
+                description: format!(
+                    "Severely distorted parameterization: area element ratio {:.1}",
+                    max_area / min_area
+                ),
+                entities: vec![EntityRef::Face(face_handle)],
+                location: None,
+                measured_value: Some(max_area / min_area),
+                threshold: Some(DISTORTION_THRESHOLD),
+                remediation: Some(Remediation {
+                    action: RemediationAction::ReparameterizeSurface,
+                    parameter: None,
+                    value: None,
+                    rationale: "Reparameterize surface to reduce \
+                                UV distortion ratio"
+                        .into(),
+                }),
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,6 +466,29 @@ mod tests {
         let density = SampleDensity::Standard;
         let mut report = HealingReport::new();
         check_all(&brep, &tol, &density, &mut report);
+        assert!(report.is_empty());
+    }
+
+    #[test]
+    fn parameterization_quality_on_valid_cube() {
+        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let tol = Tolerance::default();
+        let mut report = HealingReport::new();
+        check_parameterization_quality(&brep, &tol, &mut report);
+        // Plane surfaces have uniform parameterization (area element = 1.0 everywhere).
+        assert!(
+            report.is_empty(),
+            "Valid cube should have no parameterization defects, got {}",
+            report.len()
+        );
+    }
+
+    #[test]
+    fn parameterization_quality_on_empty_brep() {
+        let brep = BRep::new(Tolerance::default());
+        let tol = Tolerance::default();
+        let mut report = HealingReport::new();
+        check_parameterization_quality(&brep, &tol, &mut report);
         assert!(report.is_empty());
     }
 }
