@@ -19,6 +19,10 @@ pub struct PostCheckFinding {
     pub message: String,
     /// The underlying validation error, if any.
     pub error: Option<ValidationError>,
+    /// Measured geometric value (§13.1) — e.g. the maximum
+    /// watertightness gap in linear units, or `None` if the finding
+    /// is intrinsically topological.
+    pub measured_value: Option<f64>,
 }
 
 /// Result of post-boolean validation.
@@ -85,6 +89,7 @@ pub fn post_check(
             severity: Severity::Error,
             message: format!("Non-manifold edges: {e}"),
             error: Some(e),
+            measured_value: None,
         });
     }
 
@@ -100,6 +105,7 @@ pub fn post_check(
                 report.euler_characteristic
             ),
             error: Some(e),
+            measured_value: Some(report.euler_characteristic as f64),
         });
     }
 
@@ -109,6 +115,7 @@ pub fn post_check(
             severity: Severity::Error,
             message: format!("Half-edge pairing error: {e}"),
             error: Some(e),
+            measured_value: None,
         });
     }
 
@@ -118,6 +125,7 @@ pub fn post_check(
             severity: Severity::Error,
             message: format!("Half-edge cycle error: {e}"),
             error: Some(e),
+            measured_value: None,
         });
     }
 
@@ -127,6 +135,7 @@ pub fn post_check(
             severity: Severity::Warning,
             message: format!("Vertex consistency: {e}"),
             error: Some(e),
+            measured_value: None,
         });
     }
 
@@ -142,6 +151,9 @@ pub fn post_check(
                 wt.max_gap()
             ),
             error: None,
+            // §13.1: surface the maximum measured gap so callers
+            // can compare against their own tolerance budget.
+            measured_value: Some(wt.max_gap()),
         });
     }
 
@@ -151,6 +163,7 @@ pub fn post_check(
             severity: Severity::Warning,
             message: format!("Face orientation: {e}"),
             error: Some(e),
+            measured_value: None,
         });
     }
 
@@ -164,6 +177,7 @@ pub fn post_check(
             severity: Severity::Warning,
             message: format!("Self-intersection in result: {e}"),
             error: Some(e),
+            measured_value: None,
         });
     }
 

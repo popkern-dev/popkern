@@ -305,13 +305,26 @@ fn diagnostic_entry_carries_3d_location() {
         remediation: None,
     });
 
+    assert!(diag3.entries[0].location.is_none());
+
     // warn_with_measure convenience method (§13.1).
     let mut diag4 = BoolDiagnostics::default();
     diag4.warn_with_measure(Stage::Validation, "gap of 0.003mm", 0.003);
     let measured = diag4.entries.first().unwrap();
     assert_eq!(measured.measured_value, Some(0.003));
     assert!(matches!(measured.severity, Severity::Warning));
-    assert!(diag3.entries[0].location.is_none());
+}
+
+#[test]
+fn bool_error_categories_cover_interference_and_system() {
+    // §13.2: every failure mode has a corresponding error category.
+    // This test pins the new variants so the spec coverage matrix
+    // doesn't regress.
+    use crate::error::BoolError;
+    let interference = BoolError::InterferenceFailed("BVH lookup failed".into());
+    assert!(matches!(interference, BoolError::InterferenceFailed(_)));
+    let system = BoolError::SystemError("out of memory".into());
+    assert!(matches!(system, BoolError::SystemError(_)));
 }
 
 #[test]

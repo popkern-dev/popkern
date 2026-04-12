@@ -136,6 +136,17 @@ pub enum BoolError {
         /// True if operand B is an open shell.
         b: bool,
     },
+
+    /// Interference detection failed (§13.2). The check could not
+    /// determine whether the bodies overlap, typically because the
+    /// underlying surface intersection or BVH lookup errored.
+    #[error("interference detection failed: {0}")]
+    InterferenceFailed(String),
+
+    /// System-level resource failure (§13.2): out of memory,
+    /// per-stage iteration limit exceeded, etc.
+    #[error("system error: {0}")]
+    SystemError(String),
 }
 
 /// Per-stage timing and counter sample (§16 telemetry).
