@@ -292,6 +292,10 @@ pub fn heal_with_telemetry(
 }
 
 #[cfg(test)]
+#[path = "mod_tests.rs"]
+mod mod_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::tolerance::Tolerance;

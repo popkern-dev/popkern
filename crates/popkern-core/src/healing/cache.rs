@@ -299,4 +299,133 @@ mod tests {
         cache.set_edge_deviation(e1, sample_deviation());
         assert_eq!(cache.len(), 3);
     }
+
+    #[test]
+    fn overwrite_face_curvature() {
+        let mut hf = HandleFactory::new();
+        let face = hf.face();
+        let mut cache = HealingCache::new();
+
+        cache.set_face_curvature(face, sample_curvature());
+        assert_eq!(cache.len(), 1);
+
+        // Overwrite with new data.
+        let updated = CachedCurvature {
+            gaussian_samples: vec![(1.0, 1.0, 2.0), (2.0, 2.0, 3.0)],
+            mean_samples: vec![(1.0, 1.0, 1.5)],
+        };
+        cache.set_face_curvature(face, updated);
+        assert_eq!(cache.len(), 1); // Still one entry.
+        assert_eq!(
+            cache
+                .get_face_curvature(face)
+                .map(|c| c.gaussian_samples.len()),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn overwrite_edge_deviation() {
+        let mut hf = HandleFactory::new();
+        let edge = hf.edge();
+        let mut cache = HealingCache::new();
+
+        cache.set_edge_deviation(edge, sample_deviation());
+        assert_eq!(cache.len(), 1);
+
+        let updated = CachedDeviation {
+            max_deviation: 0.05,
+            mean_deviation: 0.025,
+        };
+        cache.set_edge_deviation(edge, updated);
+        assert_eq!(cache.len(), 1);
+        assert!(
+            (cache
+                .get_edge_deviation(edge)
+                .map(|c| c.max_deviation)
+                .unwrap_or(0.0)
+                - 0.05)
+                .abs()
+                < 1e-12
+        );
+    }
+
+    #[test]
+    fn register_face_edges_overwrites_previous() {
+        let mut hf = HandleFactory::new();
+        let face = hf.face();
+        let e1 = hf.edge();
+        let e2 = hf.edge();
+        let e3 = hf.edge();
+
+        let mut cache = HealingCache::new();
+        cache.set_face_curvature(face, sample_curvature());
+        cache.set_edge_deviation(e1, sample_deviation());
+        cache.set_edge_deviation(e2, sample_deviation());
+        cache.set_edge_deviation(e3, sample_deviation());
+
+        // Register e1 and e2 as adjacent.
+        cache.register_face_edges(face, vec![e1, e2]);
+        // Overwrite: now only e3 is adjacent.
+        cache.register_face_edges(face, vec![e3]);
+
+        cache.invalidate_face(face);
+
+        // e1 and e2 should still be cached (no longer registered).
+        assert!(cache.get_edge_deviation(e1).is_some());
+        assert!(cache.get_edge_deviation(e2).is_some());
+        // e3 should be invalidated along with the face.
+        assert!(cache.get_edge_deviation(e3).is_none());
+    }
+
+    #[test]
+    fn multiple_faces_share_edge() {
+        let mut hf = HandleFactory::new();
+        let f1 = hf.face();
+        let f2 = hf.face();
+        let shared_edge = hf.edge();
+
+        let mut cache = HealingCache::new();
+        cache.set_face_curvature(f1, sample_curvature());
+        cache.set_face_curvature(f2, sample_curvature());
+        cache.set_edge_deviation(shared_edge, sample_deviation());
+
+        cache.register_face_edges(f1, vec![shared_edge]);
+        cache.register_face_edges(f2, vec![shared_edge]);
+
+        // Invalidate f1 — removes shared edge deviation.
+        cache.invalidate_face(f1);
+        assert!(cache.get_edge_deviation(shared_edge).is_none());
+        // f2 curvature still cached.
+        assert!(cache.get_face_curvature(f2).is_some());
+    }
+
+    #[test]
+    fn clear_after_registrations() {
+        let mut hf = HandleFactory::new();
+        let face = hf.face();
+        let edge = hf.edge();
+
+        let mut cache = HealingCache::new();
+        cache.set_face_curvature(face, sample_curvature());
+        cache.set_edge_deviation(edge, sample_deviation());
+        cache.register_face_edges(face, vec![edge]);
+
+        cache.clear();
+        assert!(cache.is_empty());
+
+        // Invalidating after clear should not panic.
+        cache.invalidate_face(face);
+        cache.invalidate_edge(edge);
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn default_is_same_as_new() {
+        let d = HealingCache::default();
+        let n = HealingCache::new();
+        assert_eq!(d.len(), n.len());
+        assert!(d.is_empty());
+        assert!(n.is_empty());
+    }
 }

@@ -349,6 +349,10 @@ impl fmt::Display for HealingReport {
 }
 
 #[cfg(test)]
+#[path = "diagnostics_tests.rs"]
+mod diagnostics_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
