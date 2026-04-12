@@ -115,6 +115,7 @@ pub use repair::self_intersection::SelfIntersectionRepairResult;
 pub use repair::simplification::{AnalyticalKind, SimplificationResult};
 pub use repair::stitch::StitchResult;
 pub use repair::tolerance_mgmt::ToleranceAdjustment;
+pub use repair::type_specific::{SurfaceType, TypeDetectionResult, TypeSpecificRepairResult};
 pub use scoring::{QualityGrade, QualityScore, ScoringProfile, score_delta, score_model};
 pub use singularity::{SingularityKind, SingularityRecord};
 pub use streaming::{StreamingConfig, StreamingResult};

@@ -58,6 +58,8 @@ pub(crate) mod spatial_grid;
 pub mod stitch;
 /// Tolerance hierarchy enforcement and auto-adjustment.
 pub mod tolerance_mgmt;
+/// Geometry-type-specific healing for fillet, offset, and swept surfaces.
+pub mod type_specific;
 
 pub use complexity::{ComplexityReductionResult, CurveReductionResult, SurfaceReductionResult};
 pub use coons_patch::{CoonsBoundary, CoonsPatchResult};
@@ -82,3 +84,4 @@ pub use self_intersection::{SelfIntersectionRepairResult, repair_by_splitting};
 pub use simplification::{AnalyticalKind, SimplificationResult};
 pub use stitch::StitchResult;
 pub use tolerance_mgmt::ToleranceAdjustment;
+pub use type_specific::{SurfaceType, TypeDetectionResult, TypeSpecificRepairResult};
