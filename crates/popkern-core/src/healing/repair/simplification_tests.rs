@@ -1,5 +1,5 @@
 use super::*;
-use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use crate::geometry::surface::{SurfaceEval, SurfaceGeometry, SurfaceOnFace};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 use crate::topology::BRep;
@@ -26,7 +26,6 @@ fn detect_cylinder_from_analytical() {
         axis: Vec3::new(0.0, 0.0, 1.0),
         radius: 1.0,
     };
-    // Sample a partial cylinder arc with finite height.
     let result = detect_analytical_form(&cylinder, ((0.2, 2.5), (-1.0, 1.0)), 1e-6);
     assert!(result.is_some(), "should detect cylinder");
     let (kind, geom, dev) = result.unwrap();
@@ -71,7 +70,6 @@ fn detect_sphere_from_analytical() {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 3.0,
     };
-    // Sample a patch (not full sphere to avoid degenerate poles).
     let result = detect_analytical_form(&sphere, ((0.2, 2.0), (0.5, 2.5)), 1e-6);
     assert!(result.is_some(), "should detect sphere");
     let (kind, geom, dev) = result.unwrap();
@@ -96,7 +94,6 @@ fn detect_sphere_from_nurbs() {
     };
     let nurbs = SurfaceGeometry::Nurbs(sphere.to_nurbs_in_range((0.2, 2.0), (0.5, 2.5)));
     let param_range = nurbs.parameter_range();
-    // NURBS sampling introduces approximation error; use wider tolerance.
     let result = detect_analytical_form(&nurbs, param_range, 0.2);
     assert!(result.is_some(), "should detect sphere from NURBS");
     let (kind, geom, dev) = result.unwrap();
@@ -115,7 +112,6 @@ fn detect_sphere_from_nurbs() {
 
 #[test]
 fn non_analytical_surface_returns_none() {
-    // A saddle surface: z = x*y, which is not plane, cylinder, or sphere.
     use crate::geometry::nurbs_surface::NurbsSurface;
     let n = 5;
     let mut control_points = Vec::with_capacity(n * n);
@@ -138,33 +134,99 @@ fn non_analytical_surface_returns_none() {
     });
     let param_range = nurbs.parameter_range();
     let result = detect_analytical_form(&nurbs, param_range, 1e-6);
-    assert!(
-        result.is_none(),
-        "saddle surface should not match any analytical form"
-    );
+    assert!(result.is_none());
 }
 
 #[test]
 fn simplify_face_on_cube_is_noop() {
     let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let face = brep.faces.keys().next().unwrap();
-    // Cube faces are already Plane geometry, so simplification should be a no-op.
     let result = simplify_face(&mut brep, face, 1e-6);
-    assert!(
-        result.is_none(),
-        "already-analytical face should not be simplified"
-    );
+    assert!(result.is_none());
 }
 
 #[test]
 fn simplify_all_faces_on_cube_returns_empty() {
     let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let results = simplify_all_faces(&mut brep, 1e-6);
-    assert!(results.is_empty(), "all cube faces are already planar");
+    assert!(results.is_empty());
 }
 
 #[test]
 fn analytical_kind_values() {
     assert_ne!(AnalyticalKind::Plane, AnalyticalKind::Cylinder);
     assert_ne!(AnalyticalKind::Sphere, AnalyticalKind::Torus);
+}
+
+// -----------------------------------------------------------------------
+// Tests targeting uncovered branches: simplify_face / simplify_all_faces
+// -----------------------------------------------------------------------
+
+#[test]
+fn simplify_face_replaces_nurbs_plane() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let fh = brep.faces.keys().next().unwrap();
+    let sof = brep.faces[fh].surface.as_ref().unwrap();
+    let nurbs = sof.geometry.to_nurbs_in_range((0.0, 1.0), (0.0, 1.0));
+    let orientation = sof.orientation;
+    brep.faces[fh].surface = Some(SurfaceOnFace {
+        geometry: SurfaceGeometry::Nurbs(nurbs),
+        orientation,
+    });
+    let result = simplify_face(&mut brep, fh, 1e-3);
+    assert!(result.is_some(), "NURBS plane should be detected");
+    let r = result.unwrap();
+    assert_eq!(r.detected_kind, AnalyticalKind::Plane);
+    assert!(r.max_deviation < 1e-3);
+    assert!(matches!(
+        brep.faces[fh].surface.as_ref().unwrap().geometry,
+        SurfaceGeometry::Plane { .. }
+    ));
+}
+
+#[test]
+fn simplify_face_replaces_nurbs_cylinder() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let fh = brep.faces.keys().next().unwrap();
+    let cyl = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    brep.faces[fh].surface = Some(SurfaceOnFace {
+        geometry: SurfaceGeometry::Nurbs(cyl.to_nurbs_in_range((0.2, 2.5), (-1.0, 1.0))),
+        orientation: true,
+    });
+    let result = simplify_face(&mut brep, fh, 0.1);
+    assert!(result.is_some(), "NURBS cylinder should be detected");
+    assert_eq!(result.unwrap().detected_kind, AnalyticalKind::Cylinder);
+}
+
+#[test]
+fn simplify_all_faces_on_all_nurbs_cube() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let faces: Vec<_> = brep.faces.keys().collect();
+    for fh in &faces {
+        let sof = brep.faces[*fh].surface.as_ref().unwrap();
+        let nurbs = sof.geometry.to_nurbs_in_range((-1.0, 2.0), (-1.0, 2.0));
+        let orientation = sof.orientation;
+        brep.faces[*fh].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Nurbs(nurbs),
+            orientation,
+        });
+    }
+    let results = simplify_all_faces(&mut brep, 1e-3);
+    assert!(!results.is_empty());
+    assert_eq!(results.len(), 6);
+    for r in &results {
+        assert_eq!(r.detected_kind, AnalyticalKind::Plane);
+    }
+}
+
+#[test]
+fn simplify_face_returns_none_for_missing_surface() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let fh = brep.faces.keys().next().unwrap();
+    brep.faces[fh].surface = None;
+    assert!(simplify_face(&mut brep, fh, 1e-3).is_none());
 }

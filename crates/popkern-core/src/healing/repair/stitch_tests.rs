@@ -312,3 +312,154 @@ fn sample_edge_points_linear_fallback() {
     let pts = pts.unwrap();
     assert_eq!(pts.len(), 3);
 }
+
+// -----------------------------------------------------------------------
+// Tests targeting uncovered branches
+// -----------------------------------------------------------------------
+
+/// Helper: attach a line curve to an edge.
+fn attach_line(b: &mut BRepBuilder, eh: EdgeHandle, start: Point3, end: Point3) {
+    let dir = Vec3::new(end.x - start.x, end.y - start.y, end.z - start.z);
+    let len = dir.length();
+    b.set_edge_curve(
+        eh,
+        CurveOnEdge {
+            geometry: CurveGeometry::Line {
+                origin: start,
+                direction: dir,
+            },
+            t_start: 0.0,
+            t_end: if len > 0.0 { 1.0 } else { 0.0 },
+        },
+    );
+}
+
+/// Two patches where boundary edge on B is reversed vs A.
+fn make_two_reversed_patches() -> BRep {
+    let mut b = BRepBuilder::new(Tolerance::default());
+    let a0 = b.add_vertex(Point3::new(0.0, 0.0, 0.0));
+    let a1 = b.add_vertex(Point3::new(1.0, 0.0, 0.0));
+    let a2 = b.add_vertex(Point3::new(1.0, 1.0, 0.0));
+    let a3 = b.add_vertex(Point3::new(0.0, 1.0, 0.0));
+    let b0 = b.add_vertex(Point3::new(1.0, 1.0, 0.0));
+    let b1 = b.add_vertex(Point3::new(1.0, 0.0, 0.0));
+    let b2 = b.add_vertex(Point3::new(2.0, 0.0, 0.0));
+    let b3 = b.add_vertex(Point3::new(2.0, 1.0, 0.0));
+    let solid = b.add_solid();
+    let shell = b.add_shell(solid);
+    let (ea01, ha01, _) = b.add_edge(a0, a1);
+    let (ea12, ha12, _) = b.add_edge(a1, a2);
+    let (ea23, ha23, _) = b.add_edge(a2, a3);
+    let (ea30, ha30, _) = b.add_edge(a3, a0);
+    let (eb01, hb01, _) = b.add_edge(b0, b1);
+    let (eb12, hb12, _) = b.add_edge(b1, b2);
+    let (eb23, hb23, _) = b.add_edge(b2, b3);
+    let (eb30, hb30, _) = b.add_edge(b3, b0);
+    for (eh, s, e) in [
+        (ea01, [0., 0., 0.], [1., 0., 0.]),
+        (ea12, [1., 0., 0.], [1., 1., 0.]),
+        (ea23, [1., 1., 0.], [0., 1., 0.]),
+        (ea30, [0., 1., 0.], [0., 0., 0.]),
+        (eb01, [1., 1., 0.], [1., 0., 0.]),
+        (eb12, [1., 0., 0.], [2., 0., 0.]),
+        (eb23, [2., 0., 0.], [2., 1., 0.]),
+        (eb30, [2., 1., 0.], [1., 1., 0.]),
+    ] {
+        attach_line(
+            &mut b,
+            eh,
+            Point3::new(s[0], s[1], s[2]),
+            Point3::new(e[0], e[1], e[2]),
+        );
+    }
+    let fa = b.add_face(shell);
+    b.add_loop(&[ha01, ha12, ha23, ha30], fa).unwrap();
+    let fb = b.add_face(shell);
+    b.add_loop(&[hb01, hb12, hb23, hb30], fb).unwrap();
+    b.build_unchecked()
+}
+
+#[test]
+fn stitch_with_reversed_edges_detects_reversal() {
+    let brep = make_two_reversed_patches();
+    let free = find_free_edges(&brep);
+    assert_eq!(free.len(), 8);
+    let matches = find_matching_edges(&brep, &free, 0.01, 8);
+    assert!(!matches.result.is_empty());
+    assert!(matches.result[0].needs_reversal);
+}
+
+#[test]
+fn stitch_merges_reversed_boundary() {
+    let mut brep = make_two_reversed_patches();
+    let tol = Tolerance::default();
+    let result = stitch_boundaries(&mut brep, 0.01, 0.005, &tol);
+    assert_eq!(result.pairs_matched, 1);
+    assert_eq!(result.pairs_merged, 1);
+    assert!(result.max_displacement < 1e-10);
+}
+
+/// Overlapping edges: (0,0,0)->(2,0,0) and (1,0,0)->(3,0,0).
+fn make_overlapping_edge_brep() -> (BRep, EdgeHandle, EdgeHandle) {
+    let mut b = BRepBuilder::new(Tolerance::default());
+    let a0 = b.add_vertex(Point3::new(0.0, 0.0, 0.0));
+    let a1 = b.add_vertex(Point3::new(2.0, 0.0, 0.0));
+    let a2 = b.add_vertex(Point3::new(2.0, 1.0, 0.0));
+    let a3 = b.add_vertex(Point3::new(0.0, 1.0, 0.0));
+    let b0 = b.add_vertex(Point3::new(1.0, 0.0, 0.0));
+    let b1 = b.add_vertex(Point3::new(3.0, 0.0, 0.0));
+    let b2 = b.add_vertex(Point3::new(3.0, 1.0, 0.0));
+    let b3 = b.add_vertex(Point3::new(1.0, 1.0, 0.0));
+    let solid = b.add_solid();
+    let shell = b.add_shell(solid);
+    let (ea01, ha01, _) = b.add_edge(a0, a1);
+    let (ea12, ha12, _) = b.add_edge(a1, a2);
+    let (ea23, ha23, _) = b.add_edge(a2, a3);
+    let (ea30, ha30, _) = b.add_edge(a3, a0);
+    let (eb01, hb01, _) = b.add_edge(b0, b1);
+    let (eb12, hb12, _) = b.add_edge(b1, b2);
+    let (eb23, hb23, _) = b.add_edge(b2, b3);
+    let (eb30, hb30, _) = b.add_edge(b3, b0);
+    for (eh, s, e) in [
+        (ea01, [0., 0., 0.], [2., 0., 0.]),
+        (ea12, [2., 0., 0.], [2., 1., 0.]),
+        (ea23, [2., 1., 0.], [0., 1., 0.]),
+        (ea30, [0., 1., 0.], [0., 0., 0.]),
+        (eb01, [1., 0., 0.], [3., 0., 0.]),
+        (eb12, [3., 0., 0.], [3., 1., 0.]),
+        (eb23, [3., 1., 0.], [1., 1., 0.]),
+        (eb30, [1., 1., 0.], [1., 0., 0.]),
+    ] {
+        attach_line(
+            &mut b,
+            eh,
+            Point3::new(s[0], s[1], s[2]),
+            Point3::new(e[0], e[1], e[2]),
+        );
+    }
+    let fa = b.add_face(shell);
+    b.add_loop(&[ha01, ha12, ha23, ha30], fa).unwrap();
+    let fb = b.add_face(shell);
+    b.add_loop(&[hb01, hb12, hb23, hb30], fb).unwrap();
+    (b.build_unchecked(), ea01, eb01)
+}
+
+#[test]
+fn detect_partial_overlap_on_overlapping_edges() {
+    let (brep, ea, eb) = make_overlapping_edge_brep();
+    let result = detect_partial_overlap(&brep, ea, eb, 0.2);
+    assert!(result.is_some());
+    let ((t_start_a, t_end_a), (t_start_b, _)) = result.unwrap();
+    assert!(t_start_a > 0.05 && t_start_a < 0.7);
+    assert!(t_end_a > 0.8);
+    assert!(t_start_b < 0.2);
+}
+
+#[test]
+fn check_needs_reversal_with_adjacent_patches() {
+    let brep = make_two_adjacent_patches();
+    let free = find_free_edges(&brep);
+    let matches = find_matching_edges(&brep, &free, 0.01, 8);
+    assert!(!matches.result.is_empty());
+    assert!(matches.result[0].needs_reversal);
+}

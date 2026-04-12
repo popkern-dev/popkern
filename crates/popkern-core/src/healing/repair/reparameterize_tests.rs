@@ -77,9 +77,6 @@ fn make_distorted_nurbs() -> NurbsSurface {
     let n_v = 5;
     let degree = 3;
 
-    // Place control points with quadratic spacing in x (the u direction):
-    // x_i = (i/(n-1))^2, so points are compressed near x=0 and
-    // stretched near x=1.
     let mut control_points = Vec::with_capacity(n_u * n_v);
     for i in 0..n_u {
         let x = (i as f64 / (n_u - 1) as f64).powi(2);
@@ -117,13 +114,8 @@ fn reparameterize_distorted_nurbs_improves_uniformity() {
         "distorted surface should have ratio > 1.5, got {before}"
     );
 
-    // Allow generous deviation for this test.
     let result = reparameterize_surface(&nurbs, u_range, v_range, 1.5, 1.0);
     let Some((new_nurbs, reparam_result)) = result else {
-        // If reparameterization returns None, it means the surface is
-        // either already below threshold or deviation is too large.
-        // The surface is flat so deviation should be small; check that
-        // the distortion was below threshold.
         assert!(
             before <= 1.5,
             "reparameterize_surface returned None but distortion_before={before} > 1.5"
@@ -136,7 +128,6 @@ fn reparameterize_distorted_nurbs_improves_uniformity() {
         "distortion_before should be > 1.0"
     );
 
-    // New surface should evaluate to similar 3D points.
     let new_range = new_nurbs.parameter_range();
     let p_old = nurbs.point_at((u_range.0 + u_range.1) * 0.5, (v_range.0 + v_range.1) * 0.5);
     let p_new = new_nurbs.point_at(
@@ -155,7 +146,6 @@ fn measure_distortion_small_grid_returns_none() {
         u_axis: crate::geometry::Vec3::new(1.0, 0.0, 0.0),
         v_axis: crate::geometry::Vec3::new(0.0, 1.0, 0.0),
     };
-    // Grid size < 2 should return None.
     assert!(measure_distortion(&plane, (0.0, 1.0), (0.0, 1.0), 1).is_none());
     assert!(measure_distortion(&plane, (0.0, 1.0), (0.0, 1.0), 0).is_none());
 }
@@ -175,16 +165,10 @@ fn measure_distortion_zero_span_returns_none() {
 #[test]
 fn arc_length_to_param_clamps_correctly() {
     let table = vec![(0.0, 0.0), (1.0, 0.5), (3.0, 1.0)];
-
-    // Before start.
     let t = arc_length_to_param(&table, -1.0);
     assert!((t - 0.0).abs() < 1e-10);
-
-    // After end.
     let t = arc_length_to_param(&table, 10.0);
     assert!((t - 1.0).abs() < 1e-10);
-
-    // Interpolated midpoint.
     let t = arc_length_to_param(&table, 0.5);
     assert!((t - 0.25).abs() < 0.01, "got {t}");
 }
@@ -192,17 +176,130 @@ fn arc_length_to_param_clamps_correctly() {
 #[test]
 fn uniform_clamped_knots_structure() {
     let knots = uniform_clamped_knots(5, 3);
-    // Should have 5 + 3 + 1 = 9 knots.
     assert_eq!(knots.len(), 9, "expected 9 knots, got {}", knots.len());
-    // First 4 should be 0.0 and last 4 should be 1.0.
     for k in &knots[..4] {
         assert!((k - 0.0).abs() < 1e-15);
     }
     for k in &knots[5..] {
         assert!((k - 1.0).abs() < 1e-15);
     }
-    // Should be monotonically non-decreasing.
     for w in knots.windows(2) {
         assert!(w[1] >= w[0], "knot vector not non-decreasing: {:?}", knots);
     }
+}
+
+// -----------------------------------------------------------------------
+// Tests targeting uncovered branches
+// -----------------------------------------------------------------------
+
+/// NURBS with extreme (cubic) non-uniform parameter spacing.
+fn make_highly_distorted_nurbs() -> NurbsSurface {
+    let (n_u, n_v, degree) = (6, 6, 3);
+    let mut cps = Vec::with_capacity(n_u * n_v);
+    for i in 0..n_u {
+        let x = (i as f64 / (n_u - 1) as f64).powi(3) * 10.0;
+        for j in 0..n_v {
+            let y = (j as f64 / (n_v - 1) as f64).powi(3) * 10.0;
+            cps.push(Point3::new(x, y, 0.0));
+        }
+    }
+    NurbsSurface {
+        degree_u: degree,
+        degree_v: degree,
+        knots_u: vec![0.0, 0.0, 0.0, 0.0, 0.33, 0.67, 1.0, 1.0, 1.0, 1.0],
+        knots_v: vec![0.0, 0.0, 0.0, 0.0, 0.33, 0.67, 1.0, 1.0, 1.0, 1.0],
+        control_points: cps,
+        num_u: n_u,
+        num_v: n_v,
+        weights: vec![1.0; n_u * n_v],
+    }
+}
+
+#[test]
+fn reparameterize_highly_distorted_surface() {
+    let nurbs = make_highly_distorted_nurbs();
+    let (u_range, v_range) = nurbs.parameter_range();
+    let before =
+        measure_distortion(&nurbs, u_range, v_range, 10).expect("distortion should be measurable");
+    assert!(before > 2.0, "expected ratio > 2.0, got {before}");
+    let result = reparameterize_surface(&nurbs, u_range, v_range, 2.0, 5.0);
+    assert!(result.is_some(), "reparameterization should succeed");
+    let (_new, r) = result.unwrap();
+    assert!(r.distortion_before > 2.0);
+}
+
+#[test]
+fn reparameterize_surface_returns_none_below_target() {
+    // When distortion is already below target_ratio, returns None.
+    let nurbs = make_distorted_nurbs();
+    let (u_range, v_range) = nurbs.parameter_range();
+    // Use a very high target ratio that the surface already satisfies.
+    let result = reparameterize_surface(&nurbs, u_range, v_range, 1000.0, 1.0);
+    assert!(
+        result.is_none(),
+        "should return None when already below target"
+    );
+}
+
+#[test]
+fn arc_length_table_on_cylinder_surface() {
+    let cyl = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: crate::geometry::Vec3::new(0.0, 0.0, 1.0),
+        radius: 2.0,
+    };
+    let table = arc_length_table(&cyl, 0.0, (0.0, std::f64::consts::PI), true, 20);
+    assert_eq!(table.len(), 20);
+    assert!((table[0].0).abs() < 1e-15);
+    let expected = std::f64::consts::PI * 2.0;
+    let actual = table.last().map_or(0.0, |e| e.0);
+    assert!(
+        (actual - expected).abs() < 0.5,
+        "expected ~{expected}, got {actual}"
+    );
+}
+
+#[test]
+fn reparameterize_face_on_distorted_nurbs() {
+    use crate::geometry::surface::SurfaceOnFace;
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
+    let fh = match brep.faces.keys().next() {
+        Some(f) => f,
+        None => return,
+    };
+    if let Some(ref sof) = brep.faces[fh].surface {
+        let orientation = sof.orientation;
+        brep.faces[fh].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Nurbs(make_distorted_nurbs()),
+            orientation,
+        });
+    }
+    let result = reparameterize_face(&mut brep, fh, 1.5, 1.0);
+    if let Some(r) = result {
+        assert!(r.distortion_before > 1.0);
+        assert_eq!(r.face, fh);
+    }
+}
+
+#[test]
+fn arc_length_to_param_empty_table() {
+    let t = arc_length_to_param(&[], 0.5);
+    assert!((t).abs() < 1e-15);
+}
+
+#[test]
+fn reparameterize_surface_returns_none_for_degenerate() {
+    let nurbs = NurbsSurface {
+        degree_u: 0,
+        degree_v: 0,
+        knots_u: vec![0.0, 1.0],
+        knots_v: vec![0.0, 1.0],
+        control_points: vec![Point3::new(0.0, 0.0, 0.0)],
+        num_u: 1,
+        num_v: 1,
+        weights: vec![1.0],
+    };
+    let result = reparameterize_surface(&nurbs, (0.0, 1.0), (0.0, 1.0), 1.0, 1.0);
+    assert!(result.is_none());
 }

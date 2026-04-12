@@ -234,15 +234,8 @@ mod tests {
         let tol = Tolerance::default();
         let result = verified_cross_boundary_continuity(&plane, &plane, &samples, &tol, 5);
 
-        assert!(
-            result.g0_guarantee_met,
-            "Identical planes should meet 1.1x guarantee"
-        );
-        assert!(
-            result.g0_upper_bound < 1e-12,
-            "Identical planes should have near-zero upper bound, got {}",
-            result.g0_upper_bound
-        );
+        assert!(result.g0_guarantee_met);
+        assert!(result.g0_upper_bound < 1e-12);
     }
 
     #[test]
@@ -270,18 +263,8 @@ mod tests {
         let tol = Tolerance::default();
         let result = verified_cross_boundary_continuity(&plane_a, &plane_b, &samples, &tol, 5);
 
-        // For parallel offset planes, deviation is constant, so Lipschitz bound is 0.
-        assert!(
-            result.g0_guarantee_met,
-            "Offset planes should meet 1.1x guarantee"
-        );
-
-        // The deviation should be exactly 0.01.
-        assert!(
-            (result.measurement.g0_max - 0.01).abs() < 1e-10,
-            "Expected g0_max near 0.01, got {}",
-            result.measurement.g0_max
-        );
+        assert!(result.g0_guarantee_met);
+        assert!((result.measurement.g0_max - 0.01).abs() < 1e-10);
     }
 
     #[test]
@@ -302,7 +285,6 @@ mod tests {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: r,
         };
-        // Boundary at v=pi/2 (equator), same surface both sides.
         let samples: Vec<BoundarySample> = (0..20)
             .map(|i| {
                 let t = (i as f64 / 19.0) * std::f64::consts::TAU;
@@ -314,13 +296,108 @@ mod tests {
                 }
             })
             .collect();
-
         let tol = Tolerance::default();
         let result = verified_cross_boundary_continuity(&sphere, &sphere, &samples, &tol, 5);
+        assert!(result.g0_guarantee_met);
+    }
 
-        assert!(
-            result.g0_guarantee_met,
-            "Same surface should meet guarantee"
-        );
+    // -------------------------------------------------------------------
+    // Tests targeting uncovered branches
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn zero_max_refinement_skips_refinement() {
+        let plane_a = xy_plane();
+        let plane_b = SurfaceGeometry::Plane {
+            origin: Point3::new(0.0, 0.0, 0.05),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            u_axis: Vec3::new(1.0, 0.0, 0.0),
+            v_axis: Vec3::new(0.0, 1.0, 0.0),
+        };
+        let samples: Vec<BoundarySample> = (0..10)
+            .map(|i| {
+                let t = i as f64 / 9.0;
+                BoundarySample {
+                    u_a: t,
+                    v_a: 0.0,
+                    u_b: t,
+                    v_b: 0.0,
+                }
+            })
+            .collect();
+        let tol = Tolerance::default();
+        let result = verified_cross_boundary_continuity(&plane_a, &plane_b, &samples, &tol, 0);
+        assert_eq!(result.refinement_passes, 0);
+    }
+
+    #[test]
+    fn tilted_planes_exercise_refinement_loop() {
+        let plane_a = xy_plane();
+        let plane_b = SurfaceGeometry::Plane {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(-0.1, 0.0, 1.0),
+            u_axis: Vec3::new(1.0, 0.0, 0.1),
+            v_axis: Vec3::new(0.0, 1.0, 0.0),
+        };
+        let samples: Vec<BoundarySample> = (0..5)
+            .map(|i| {
+                let t = i as f64 / 4.0;
+                BoundarySample {
+                    u_a: t,
+                    v_a: 0.0,
+                    u_b: t,
+                    v_b: 0.0,
+                }
+            })
+            .collect();
+        let tol = Tolerance::default();
+        let result = verified_cross_boundary_continuity(&plane_a, &plane_b, &samples, &tol, 10);
+        assert!(result.refinement_passes > 0);
+        assert!(result.measurement.g0_max > 0.0);
+    }
+
+    #[test]
+    fn single_sample_meets_guarantee() {
+        let plane = xy_plane();
+        let plane_b = SurfaceGeometry::Plane {
+            origin: Point3::new(0.0, 0.0, 0.02),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            u_axis: Vec3::new(1.0, 0.0, 0.0),
+            v_axis: Vec3::new(0.0, 1.0, 0.0),
+        };
+        let samples = vec![BoundarySample {
+            u_a: 0.5,
+            v_a: 0.0,
+            u_b: 0.5,
+            v_b: 0.0,
+        }];
+        let tol = Tolerance::default();
+        let result = verified_cross_boundary_continuity(&plane, &plane_b, &samples, &tol, 5);
+        assert!(result.g0_guarantee_met);
+    }
+
+    #[test]
+    fn refinement_exhausts_max_passes() {
+        let plane = xy_plane();
+        let cyl = SurfaceGeometry::Cylinder {
+            origin: Point3::new(0.5, 0.0, -1.0),
+            axis: Vec3::new(0.0, 1.0, 0.0),
+            radius: 1.0,
+        };
+        let samples: Vec<BoundarySample> = (0..4)
+            .map(|i| {
+                let t = i as f64 / 3.0;
+                BoundarySample {
+                    u_a: t,
+                    v_a: 0.0,
+                    u_b: t * std::f64::consts::PI,
+                    v_b: 0.0,
+                }
+            })
+            .collect();
+        let tol = Tolerance::default();
+        let result = verified_cross_boundary_continuity(&plane, &cyl, &samples, &tol, 1);
+        assert_eq!(result.refinement_passes, 1);
+        assert!(result.g0_upper_bound >= result.measurement.g0_max);
     }
 }

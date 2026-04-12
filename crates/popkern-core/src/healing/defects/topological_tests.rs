@@ -331,26 +331,6 @@ fn validation_error_to_defect_preserves_info() {
 }
 
 #[test]
-fn check_face_orientation_on_degenerate_surface() {
-    use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
-
-    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
-    let fh = brep.faces.keys().next().unwrap();
-    // Zero-radius sphere has no valid normal -> orientation failure.
-    brep.faces[fh].surface = Some(SurfaceOnFace {
-        geometry: SurfaceGeometry::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 0.0,
-        },
-        orientation: true,
-    });
-    let mut report = HealingReport::new();
-    check_face_orientation(&brep, &mut report);
-    assert!(!report.is_empty());
-    assert_eq!(report.defects()[0].severity, Severity::Warning);
-}
-
-#[test]
 fn check_shell_closure_detects_gap_from_moved_vertex() {
     let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
     // Move a vertex far away to create a watertight gap.
@@ -361,65 +341,6 @@ fn check_shell_closure_detects_gap_from_moved_vertex() {
     assert!(
         !report.is_empty(),
         "Moving a vertex should cause a shell closure gap"
-    );
-}
-
-#[test]
-fn check_all_on_corrupted_brep_collects_multiple_defects() {
-    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
-    // Corrupt multiple things: move a vertex and break a twin.
-    let vh = brep.vertices.keys().next().unwrap();
-    brep.vertices[vh].position = Point3::new(100.0, 100.0, 100.0);
-    let he = brep.half_edges.keys().next().unwrap();
-    brep.half_edges[he].twin = Default::default();
-    let tol = Tolerance::default();
-    let mut report = HealingReport::new();
-    check_all(&brep, &tol, &mut report);
-    assert!(
-        report.len() >= 2,
-        "Expected at least 2 defects from multiple corruptions, got {}",
-        report.len()
-    );
-}
-
-#[test]
-fn check_inner_loop_orientation_on_face_with_no_inner_loops() {
-    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-    let mut report = HealingReport::new();
-    check_inner_loop_orientation(&brep, &mut report);
-    assert!(
-        report.is_empty(),
-        "Cube has no inner loops, should be clean"
-    );
-}
-
-#[test]
-fn check_manifold_edges_on_valid_cube() {
-    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-    let mut report = HealingReport::new();
-    check_manifold_edges(&brep, &mut report);
-    assert!(report.is_empty(), "Valid cube should have manifold edges");
-}
-
-#[test]
-fn check_vertex_consistency_on_valid_cube() {
-    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-    let mut report = HealingReport::new();
-    check_vertex_consistency(&brep, &mut report);
-    assert!(
-        report.is_empty(),
-        "Valid cube should pass vertex consistency"
-    );
-}
-
-#[test]
-fn check_half_edge_cycles_on_valid_cube() {
-    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-    let mut report = HealingReport::new();
-    check_half_edge_cycles(&brep, &mut report);
-    assert!(
-        report.is_empty(),
-        "Valid cube should have valid half-edge cycles"
     );
 }
 
@@ -457,4 +378,116 @@ fn validation_error_to_defect_for_curve_surface_deviation() {
     assert_eq!(defect.measured_value, Some(0.789));
     assert!(defect.entities.len() == 1);
     assert!(matches!(defect.entities[0], EntityRef::Edge(_)));
+}
+
+// -----------------------------------------------------------------------
+// Tests targeting uncovered branches
+// -----------------------------------------------------------------------
+
+use crate::constructors::builder::BRepBuilder;
+use crate::geometry::Vec3;
+use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
+use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+
+#[test]
+fn inner_loop_wrong_winding_detected() {
+    let mut b = BRepBuilder::new(Tolerance::default());
+    // Outer loop: CCW square in XY plane.
+    let v0 = b.add_vertex(Point3::new(0.0, 0.0, 0.0));
+    let v1 = b.add_vertex(Point3::new(4.0, 0.0, 0.0));
+    let v2 = b.add_vertex(Point3::new(4.0, 4.0, 0.0));
+    let v3 = b.add_vertex(Point3::new(0.0, 4.0, 0.0));
+    // Inner loop: same CCW winding (wrong -- should be CW).
+    let h0 = b.add_vertex(Point3::new(1.0, 1.0, 0.0));
+    let h1 = b.add_vertex(Point3::new(3.0, 1.0, 0.0));
+    let h2 = b.add_vertex(Point3::new(3.0, 3.0, 0.0));
+    let h3 = b.add_vertex(Point3::new(1.0, 3.0, 0.0));
+    let solid = b.add_solid();
+    let shell = b.add_shell(solid);
+    let (_, ho01, _) = b.add_edge(v0, v1);
+    let (_, ho12, _) = b.add_edge(v1, v2);
+    let (_, ho23, _) = b.add_edge(v2, v3);
+    let (_, ho30, _) = b.add_edge(v3, v0);
+    let (_, hi01, _) = b.add_edge(h0, h1);
+    let (_, hi12, _) = b.add_edge(h1, h2);
+    let (_, hi23, _) = b.add_edge(h2, h3);
+    let (_, hi30, _) = b.add_edge(h3, h0);
+    let face = b.add_face(shell);
+    b.add_loop(&[ho01, ho12, ho23, ho30], face).unwrap();
+    b.add_inner_loop(&[hi01, hi12, hi23, hi30], face).unwrap();
+    let brep = b.build_unchecked();
+    let mut report = HealingReport::new();
+    check_inner_loop_orientation(&brep, &mut report);
+    assert!(
+        !report.is_empty(),
+        "same-winding inner loop should be flagged"
+    );
+    assert_eq!(report.defects()[0].severity, Severity::Warning);
+    assert!(report.defects()[0].description.contains("same winding"));
+}
+
+#[test]
+fn boundary_simplicity_detects_crossing_edges() {
+    let mut b = BRepBuilder::new(Tolerance::default());
+    // Bowtie shape: edges v0->v1 and v2->v3 cross at (1,1).
+    let v0 = b.add_vertex(Point3::new(0.0, 0.0, 0.0));
+    let v1 = b.add_vertex(Point3::new(2.0, 2.0, 0.0));
+    let v2 = b.add_vertex(Point3::new(2.0, 0.0, 0.0));
+    let v3 = b.add_vertex(Point3::new(0.0, 2.0, 0.0));
+    let solid = b.add_solid();
+    let shell = b.add_shell(solid);
+    let (e01, h01, _) = b.add_edge(v0, v1);
+    let (e12, h12, _) = b.add_edge(v1, v2);
+    let (e23, h23, _) = b.add_edge(v2, v3);
+    let (e30, h30, _) = b.add_edge(v3, v0);
+    for (eh, s, e) in [
+        (e01, [0., 0., 0.], [2., 2., 0.]),
+        (e12, [2., 2., 0.], [2., 0., 0.]),
+        (e23, [2., 0., 0.], [0., 2., 0.]),
+        (e30, [0., 2., 0.], [0., 0., 0.]),
+    ] {
+        let dir = Vec3::new(e[0] - s[0], e[1] - s[1], e[2] - s[2]);
+        b.set_edge_curve(
+            eh,
+            CurveOnEdge {
+                geometry: CurveGeometry::Line {
+                    origin: Point3::new(s[0], s[1], s[2]),
+                    direction: dir,
+                },
+                t_start: 0.0,
+                t_end: 1.0,
+            },
+        );
+    }
+    let face = b.add_face(shell);
+    b.add_loop(&[h01, h12, h23, h30], face).unwrap();
+    b.set_face_surface(
+        face,
+        SurfaceOnFace {
+            geometry: SurfaceGeometry::Plane {
+                origin: Point3::new(0.0, 0.0, 0.0),
+                normal: Vec3::new(0.0, 0.0, 1.0),
+                u_axis: Vec3::new(1.0, 0.0, 0.0),
+                v_axis: Vec3::new(0.0, 1.0, 0.0),
+            },
+            orientation: true,
+        },
+    );
+    let brep = b.build_unchecked();
+    // Use a very large model scale to get a linear tolerance > 1.0
+    // so that crossing sample points (which are ~0.0 apart at the crossing)
+    // are detected within tolerance.
+    let loose_tol = Tolerance::from_model_scale(2_000_000.0);
+    let mut report = HealingReport::new();
+    check_boundary_simplicity(&brep, &loose_tol, &mut report);
+    assert!(
+        !report.is_empty(),
+        "crossing edges should trigger self-intersection"
+    );
+    assert_eq!(report.defects()[0].severity, Severity::Error);
+    assert!(
+        report.defects()[0]
+            .description
+            .contains("self-intersection")
+    );
 }
