@@ -7,6 +7,7 @@
 pub mod classification;
 pub mod enforcement;
 pub mod measurement;
+mod nurbs_adjust;
 
 pub use classification::{
     EdgeClassification, SmoothChain, classify_all_edges, classify_edge_smoothness,

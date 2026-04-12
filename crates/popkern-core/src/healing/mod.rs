@@ -73,6 +73,10 @@ pub use quality::{
     validate_against_profile,
 };
 pub use regional::{CurvatureBounds, RegionalAnalysis};
+pub use repair::complexity::{
+    ComplexityReductionResult, CurveReductionResult, SurfaceReductionResult,
+};
+pub use repair::coons_patch::{CoonsBoundary, CoonsPatchResult};
 pub use repair::degeneracy::DegeneracyRepairResult;
 pub use repair::gap_repair::{GapRepairResult, GapRepairStrategy};
 pub use repair::hole_fill::{DetectedHole, HoleFillResult, HoleFillStrategy};

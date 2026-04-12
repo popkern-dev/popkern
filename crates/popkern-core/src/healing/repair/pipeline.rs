@@ -8,6 +8,7 @@
 use crate::error::{CoreError, HealingError};
 use crate::healing::defects;
 use crate::healing::options::{AnalysisOptions, HealOptions, HealStrategy};
+use crate::healing::repair::complexity::{self, ComplexityReductionResult};
 use crate::healing::repair::degeneracy::{self, DegeneracyRepairResult};
 use crate::healing::repair::gap_repair::{self, GapRepairResult, GapRepairStrategy};
 use crate::healing::repair::merge_faces::{self, FaceMergeResult};
@@ -31,6 +32,8 @@ pub enum RepairStep {
     CoplanarFaceMerge,
     /// Identify and merge matching free boundary edges.
     BoundaryStitch,
+    /// Remove unnecessary NURBS knots from edge curves.
+    ComplexityReduction,
 }
 
 /// Aggregate result of running the repair pipeline.
@@ -52,6 +55,8 @@ pub struct HealResult {
     pub face_merges: Vec<FaceMergeResult>,
     /// All boundary stitch results across all iterations.
     pub boundary_stitches: Vec<StitchResult>,
+    /// All complexity reduction results across all iterations.
+    pub complexity_reductions: Vec<ComplexityReductionResult>,
     /// Number of iterations the pipeline ran.
     pub iterations: usize,
 }
@@ -77,6 +82,7 @@ fn steps_for_strategy(strategy: HealStrategy) -> Vec<RepairStep> {
             RepairStep::BoundaryStitch,
             RepairStep::GapRepair(GapRepairStrategy::GeometricAdjustment),
             RepairStep::SurfaceSimplification,
+            RepairStep::ComplexityReduction,
             RepairStep::CoplanarFaceMerge,
         ],
     }
@@ -111,6 +117,7 @@ pub fn run_pipeline(brep: &mut BRep, options: &HealOptions) -> Result<HealResult
     let mut all_degeneracy_repairs: Vec<DegeneracyRepairResult> = Vec::new();
     let mut all_face_merges: Vec<FaceMergeResult> = Vec::new();
     let mut all_boundary_stitches: Vec<StitchResult> = Vec::new();
+    let mut all_complexity_reductions: Vec<ComplexityReductionResult> = Vec::new();
     let mut current_defects = defects_before;
     let mut iterations = 0;
 
@@ -151,6 +158,10 @@ pub fn run_pipeline(brep: &mut BRep, options: &HealOptions) -> Result<HealResult
                     );
                     all_boundary_stitches.push(result);
                 }
+                RepairStep::ComplexityReduction => {
+                    let result = complexity::reduce_all_curves(brep, options.tolerance.linear());
+                    all_complexity_reductions.push(result);
+                }
             }
         }
 
@@ -183,6 +194,7 @@ pub fn run_pipeline(brep: &mut BRep, options: &HealOptions) -> Result<HealResult
         degeneracy_repairs: all_degeneracy_repairs,
         face_merges: all_face_merges,
         boundary_stitches: all_boundary_stitches,
+        complexity_reductions: all_complexity_reductions,
         iterations,
     })
 }

@@ -15,9 +15,14 @@
 //! - [`stitch`] -- identify and merge matching boundary edges
 //! - [`self_intersection`] -- detect and repair self-intersecting surfaces
 //! - [`hole_fill`] -- detect and fill holes in shell boundaries
+//! - [`complexity`] -- reduce unnecessary NURBS knots
 //! - [`pipeline`] -- orchestrate repair passes with transactional rollback
 //! - [`preview`] -- preview proposed repairs before committing
 
+/// NURBS complexity reduction (knot removal).
+pub mod complexity;
+/// Coons patch surface construction for hole filling.
+pub mod coons_patch;
 /// Degeneracy repair (zero-length edges, small faces).
 pub mod degeneracy;
 /// Gap repair strategies and execution.
@@ -41,6 +46,8 @@ pub mod stitch;
 /// Tolerance hierarchy enforcement and auto-adjustment.
 pub mod tolerance_mgmt;
 
+pub use complexity::{ComplexityReductionResult, CurveReductionResult, SurfaceReductionResult};
+pub use coons_patch::{CoonsBoundary, CoonsPatchResult};
 pub use degeneracy::DegeneracyRepairResult;
 pub use gap_repair::{GapRepairResult, GapRepairStrategy};
 pub use hole_fill::{DetectedHole, HoleFillResult, HoleFillStrategy};
