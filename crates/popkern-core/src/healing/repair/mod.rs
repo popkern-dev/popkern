@@ -48,6 +48,8 @@ pub mod preview;
 pub mod progressive;
 /// Re-derivation gap repair (recompute edge curves from adjacent surfaces).
 pub mod rederive;
+/// Arc-length reparameterization for NURBS UV uniformity.
+pub mod reparameterize;
 /// Self-intersection detection and repair.
 pub mod self_intersection;
 /// Surface simplification (NURBS to analytical).
@@ -80,6 +82,7 @@ pub use pipeline::{ConvergenceStatus, HealResult};
 pub use preview::RepairPreview;
 pub use progressive::{HealingCheckpoint, ProgressiveHealResult, heal_progressive};
 pub use rederive::RederiveResult;
+pub use reparameterize::ReparamResult;
 pub use self_intersection::{SelfIntersectionRepairResult, repair_by_splitting};
 pub use simplification::{AnalyticalKind, SimplificationResult};
 pub use stitch::StitchResult;

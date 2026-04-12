@@ -111,6 +111,7 @@ pub use repair::pipeline::{ConvergenceStatus, HealResult};
 pub use repair::preview::RepairPreview;
 pub use repair::progressive::{HealingCheckpoint, ProgressiveHealResult, heal_progressive};
 pub use repair::rederive::RederiveResult;
+pub use repair::reparameterize::ReparamResult;
 pub use repair::self_intersection::SelfIntersectionRepairResult;
 pub use repair::simplification::{AnalyticalKind, SimplificationResult};
 pub use repair::stitch::StitchResult;
