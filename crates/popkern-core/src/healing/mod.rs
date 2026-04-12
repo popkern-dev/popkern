@@ -32,6 +32,9 @@
 //! ```
 
 pub mod cache;
+pub mod constraints;
+pub(crate) mod constraints_helpers;
+pub mod constraints_repair;
 pub mod continuity;
 pub mod curvature;
 pub mod defects;
@@ -55,6 +58,8 @@ pub mod visual_analysis;
 
 // Re-export key types for ergonomic access.
 pub use cache::HealingCache;
+pub use constraints::{ConstraintSet, ConstraintViolation, GeometricConstraint, check_constraints};
+pub use constraints_repair::{ConstrainedRepairResult, heal_with_constraints};
 pub use continuity::classification::{EdgeClassification, SmoothChain};
 pub use continuity::enforcement::EnforcementResult;
 pub use continuity::measurement::ContinuityMeasurement;
