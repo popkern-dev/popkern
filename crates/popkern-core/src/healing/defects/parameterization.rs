@@ -108,6 +108,7 @@ pub fn check_self_overlapping_parameterization(brep: &BRep, report: &mut Healing
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
     use crate::healing::diagnostics::HealingReport;
     use crate::tolerance::Tolerance;
     use crate::topology::BRep;
@@ -129,6 +130,47 @@ mod tests {
         let brep = BRep::new(Tolerance::default());
         let mut report = HealingReport::new();
         check_self_overlapping_parameterization(&brep, &mut report);
+        assert!(report.is_empty());
+    }
+
+    #[test]
+    fn nurbs_face_without_overlap_no_defect() {
+        // Build a BRep with a NURBS face (plane converted to NURBS).
+        // Should not trigger self-overlapping since NURBS-plane has
+        // positive Jacobian everywhere.
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let fh = brep.faces.keys().next().unwrap();
+        let positions = brep.face_outer_loop_positions(fh);
+        assert!(!positions.is_empty());
+        if let Some(ref surf) = brep.faces[fh].surface {
+            let nurbs = surf.geometry.to_nurbs_in_range((0.0, 1.0), (0.0, 1.0));
+            brep.faces[fh].surface = Some(SurfaceOnFace {
+                geometry: SurfaceGeometry::Nurbs(nurbs),
+                orientation: true,
+            });
+        }
+        let mut report = HealingReport::new();
+        check_self_overlapping_parameterization(&brep, &mut report);
+        assert!(report.is_empty());
+    }
+
+    #[test]
+    fn face_without_surface_skipped() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let fh = brep.faces.keys().next().unwrap();
+        brep.faces[fh].surface = None;
+        let mut report = HealingReport::new();
+        check_self_overlapping_parameterization(&brep, &mut report);
+        assert!(report.is_empty());
+    }
+
+    #[test]
+    fn analytical_surface_skipped() {
+        // Verify the "not NURBS -> continue" branch.
+        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let mut report = HealingReport::new();
+        check_self_overlapping_parameterization(&brep, &mut report);
+        // All planes -> skipped, no defects.
         assert!(report.is_empty());
     }
 }

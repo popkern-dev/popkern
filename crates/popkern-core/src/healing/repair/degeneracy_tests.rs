@@ -98,3 +98,110 @@ fn repair_degeneracies_full_on_empty_brep() {
     assert_eq!(result.zero_area_faces_detected, 0);
     assert_eq!(result.cusps_detected, 0);
 }
+
+#[test]
+fn repair_degeneracies_full_exercises_all_paths() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let tol = Tolerance::default();
+    let result = repair_degeneracies_full(&mut brep, &tol);
+    assert_eq!(result.zero_area_faces_detected, 0);
+    assert_eq!(result.cusps_detected, 0);
+    assert_eq!(result.zero_length_edges_removed, 0);
+    assert_eq!(result.self_tangent_faces_detected, 0);
+}
+
+#[test]
+fn detect_zero_area_faces_with_nurbs_face() {
+    use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let fh = brep.faces.keys().next().unwrap();
+    // Convert the plane to NURBS to exercise the NURBS sampling path.
+    if let Some(ref surf) = brep.faces[fh].surface.clone() {
+        let nurbs = surf.geometry.to_nurbs_in_range((0.0, 1.0), (0.0, 1.0));
+        brep.faces[fh].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Nurbs(nurbs),
+            orientation: true,
+        });
+    }
+    let tol = Tolerance::default();
+    let result = detect_zero_area_faces(&brep, &tol);
+    assert!(result.is_empty(), "NURBS plane has non-zero area");
+}
+
+#[test]
+fn detect_cusps_with_nurbs_face() {
+    use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let fh = brep.faces.keys().next().unwrap();
+    // Convert to NURBS to exercise the NURBS sampling path in detect_cusps.
+    if let Some(ref surf) = brep.faces[fh].surface.clone() {
+        let nurbs = surf.geometry.to_nurbs_in_range((0.0, 1.0), (0.0, 1.0));
+        brep.faces[fh].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Nurbs(nurbs),
+            orientation: true,
+        });
+    }
+    let tol = Tolerance::default();
+    let result = detect_cusps(&brep, &tol);
+    assert!(result.is_empty(), "Flat NURBS has no cusps");
+}
+
+#[test]
+fn detect_self_tangent_faces_on_valid_cube() {
+    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let tol = Tolerance::default();
+    let result = detect_self_tangent_faces(&brep, &tol);
+    // Planes are skipped by detect_self_tangent_faces (NURBS only).
+    assert!(
+        result.is_empty(),
+        "Valid cube should have no self-tangent faces"
+    );
+}
+
+#[test]
+fn detect_self_tangent_faces_with_nurbs_surface() {
+    use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let fh = brep.faces.keys().next().unwrap();
+    // Convert to NURBS to exercise the sampling grid path.
+    if let Some(ref surf) = brep.faces[fh].surface.clone() {
+        let nurbs = surf.geometry.to_nurbs_in_range((0.0, 1.0), (0.0, 1.0));
+        brep.faces[fh].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Nurbs(nurbs),
+            orientation: true,
+        });
+    }
+    let tol = Tolerance::default();
+    let result = detect_self_tangent_faces(&brep, &tol);
+    assert!(
+        result.is_empty(),
+        "Flat NURBS plane should not be self-tangent"
+    );
+}
+
+#[test]
+fn detect_zero_area_faces_on_empty_brep() {
+    let brep = BRep::new(Tolerance::default());
+    let tol = Tolerance::default();
+    let result = detect_zero_area_faces(&brep, &tol);
+    assert!(result.is_empty());
+}
+
+#[test]
+fn detect_cusps_on_empty_brep() {
+    let brep = BRep::new(Tolerance::default());
+    let tol = Tolerance::default();
+    let result = detect_cusps(&brep, &tol);
+    assert!(result.is_empty());
+}
+
+#[test]
+fn detect_self_tangent_faces_on_empty_brep() {
+    let brep = BRep::new(Tolerance::default());
+    let tol = Tolerance::default();
+    let result = detect_self_tangent_faces(&brep, &tol);
+    assert!(result.is_empty());
+}

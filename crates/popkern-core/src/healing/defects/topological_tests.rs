@@ -329,3 +329,132 @@ fn validation_error_to_defect_preserves_info() {
     assert_eq!(defect.measured_value, Some(0.05));
     assert!(!defect.entities.is_empty());
 }
+
+#[test]
+fn check_face_orientation_on_degenerate_surface() {
+    use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let fh = brep.faces.keys().next().unwrap();
+    // Zero-radius sphere has no valid normal -> orientation failure.
+    brep.faces[fh].surface = Some(SurfaceOnFace {
+        geometry: SurfaceGeometry::Sphere {
+            center: Point3::new(0.0, 0.0, 0.0),
+            radius: 0.0,
+        },
+        orientation: true,
+    });
+    let mut report = HealingReport::new();
+    check_face_orientation(&brep, &mut report);
+    assert!(!report.is_empty());
+    assert_eq!(report.defects()[0].severity, Severity::Warning);
+}
+
+#[test]
+fn check_shell_closure_detects_gap_from_moved_vertex() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    // Move a vertex far away to create a watertight gap.
+    let vh = brep.vertices.keys().next().unwrap();
+    brep.vertices[vh].position = Point3::new(999.0, 999.0, 999.0);
+    let mut report = HealingReport::new();
+    check_shell_closure(&brep, &mut report);
+    assert!(
+        !report.is_empty(),
+        "Moving a vertex should cause a shell closure gap"
+    );
+}
+
+#[test]
+fn check_all_on_corrupted_brep_collects_multiple_defects() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    // Corrupt multiple things: move a vertex and break a twin.
+    let vh = brep.vertices.keys().next().unwrap();
+    brep.vertices[vh].position = Point3::new(100.0, 100.0, 100.0);
+    let he = brep.half_edges.keys().next().unwrap();
+    brep.half_edges[he].twin = Default::default();
+    let tol = Tolerance::default();
+    let mut report = HealingReport::new();
+    check_all(&brep, &tol, &mut report);
+    assert!(
+        report.len() >= 2,
+        "Expected at least 2 defects from multiple corruptions, got {}",
+        report.len()
+    );
+}
+
+#[test]
+fn check_inner_loop_orientation_on_face_with_no_inner_loops() {
+    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let mut report = HealingReport::new();
+    check_inner_loop_orientation(&brep, &mut report);
+    assert!(
+        report.is_empty(),
+        "Cube has no inner loops, should be clean"
+    );
+}
+
+#[test]
+fn check_manifold_edges_on_valid_cube() {
+    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let mut report = HealingReport::new();
+    check_manifold_edges(&brep, &mut report);
+    assert!(report.is_empty(), "Valid cube should have manifold edges");
+}
+
+#[test]
+fn check_vertex_consistency_on_valid_cube() {
+    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let mut report = HealingReport::new();
+    check_vertex_consistency(&brep, &mut report);
+    assert!(
+        report.is_empty(),
+        "Valid cube should pass vertex consistency"
+    );
+}
+
+#[test]
+fn check_half_edge_cycles_on_valid_cube() {
+    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let mut report = HealingReport::new();
+    check_half_edge_cycles(&brep, &mut report);
+    assert!(
+        report.is_empty(),
+        "Valid cube should have valid half-edge cycles"
+    );
+}
+
+#[test]
+fn validation_error_to_defect_for_broken_cycle() {
+    let e = ValidationError::BrokenCycle {
+        half_edge: Default::default(),
+        loop_: Default::default(),
+    };
+    let defect = validation_error_to_defect(&e, Severity::Error);
+    assert_eq!(defect.category, DefectCategory::Topological);
+    assert_eq!(defect.severity, Severity::Error);
+    assert_eq!(defect.entities.len(), 2);
+}
+
+#[test]
+fn validation_error_to_defect_for_inconsistent_vertex() {
+    let e = ValidationError::InconsistentVertex {
+        vertex: Default::default(),
+        half_edge: Default::default(),
+    };
+    let defect = validation_error_to_defect(&e, Severity::Warning);
+    assert_eq!(defect.severity, Severity::Warning);
+    assert_eq!(defect.entities.len(), 2);
+    assert!(matches!(defect.entities[0], EntityRef::Vertex(_)));
+}
+
+#[test]
+fn validation_error_to_defect_for_curve_surface_deviation() {
+    let e = ValidationError::CurveSurfaceDeviation {
+        edge: Default::default(),
+        max_deviation: 0.789,
+    };
+    let defect = validation_error_to_defect(&e, Severity::Error);
+    assert_eq!(defect.measured_value, Some(0.789));
+    assert!(defect.entities.len() == 1);
+    assert!(matches!(defect.entities[0], EntityRef::Edge(_)));
+}

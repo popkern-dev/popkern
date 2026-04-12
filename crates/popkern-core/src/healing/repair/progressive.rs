@@ -275,4 +275,89 @@ mod tests {
             "progressive healing should run at least one iteration"
         );
     }
+
+    #[test]
+    fn progressive_heal_on_corrupted_cube_creates_checkpoints() {
+        use crate::geometry::Point3;
+
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        // Perturb a vertex slightly to create a defect.
+        let vh = brep.vertices.keys().next().unwrap();
+        brep.vertices[vh].position = Point3::new(
+            brep.vertices[vh].position.x + 0.01,
+            brep.vertices[vh].position.y,
+            brep.vertices[vh].position.z,
+        );
+        let opts = HealOptions::new(Tolerance::default());
+        let result = heal_progressive(&mut brep, &opts).unwrap();
+        // Should have at least one checkpoint.
+        assert!(
+            !result.checkpoints.is_empty(),
+            "Progressive healing should produce at least one checkpoint"
+        );
+    }
+
+    #[test]
+    fn progressive_heal_checkpoints_are_monotonic() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let opts = HealOptions::new(Tolerance::default());
+        let result = heal_progressive(&mut brep, &opts).unwrap();
+        // Each checkpoint should have <= defects than the previous.
+        for w in result.checkpoints.windows(2) {
+            assert!(
+                w[1].defect_count <= w[0].defect_count,
+                "Phase {} ({} defects) should not exceed phase {} ({} defects)",
+                w[1].phase,
+                w[1].defect_count,
+                w[0].phase,
+                w[0].defect_count,
+            );
+        }
+    }
+
+    #[test]
+    fn progressive_heal_checkpoint_snapshots_are_valid() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let opts = HealOptions::new(Tolerance::default());
+        let result = heal_progressive(&mut brep, &opts).unwrap();
+        // Each checkpoint snapshot should be a structurally valid BRep.
+        for cp in &result.checkpoints {
+            assert!(
+                !cp.description.is_empty(),
+                "Phase {} should have a description",
+                cp.phase
+            );
+            // Verify the snapshot has the same basic entity counts as expected.
+            assert!(
+                cp.brep_snapshot.faces.len() > 0 || cp.defect_count == 0,
+                "Checkpoint should have faces or be defect-free"
+            );
+        }
+    }
+
+    #[test]
+    fn progressive_heal_final_result_defects_after_matches_last_checkpoint() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let opts = HealOptions::new(Tolerance::default());
+        let result = heal_progressive(&mut brep, &opts).unwrap();
+        if let Some(last_cp) = result.checkpoints.last() {
+            assert_eq!(
+                result.final_result.defects_after, last_cp.defect_count,
+                "Final defects_after should match the last checkpoint's defect_count"
+            );
+        }
+    }
+
+    #[test]
+    fn progressive_heal_with_max_iterations_one() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let mut opts = HealOptions::new(Tolerance::default());
+        opts.max_iterations = 1;
+        let result = heal_progressive(&mut brep, &opts).unwrap();
+        // Should still produce at least one checkpoint (one phase).
+        assert!(
+            !result.checkpoints.is_empty(),
+            "Even with max_iterations=1, at least one checkpoint should be produced"
+        );
+    }
 }

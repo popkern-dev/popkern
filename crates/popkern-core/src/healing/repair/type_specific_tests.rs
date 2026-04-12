@@ -360,3 +360,101 @@ fn edges_shared_with_neighbors_on_cube() {
         assert_eq!(edges.len(), 4);
     }
 }
+
+#[test]
+fn detect_type_on_nurbs_face_runs_all_checks() {
+    // Build a BRep with a NURBS face and run detection.
+    // Even if nothing is detected, all detection branches execute.
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let fh = brep.faces.keys().next().unwrap();
+    // Convert face surface to NURBS.
+    if let Some(ref surf) = brep.faces[fh].surface {
+        let nurbs = surf.geometry.to_nurbs_in_range((0.0, 1.0), (0.0, 1.0));
+        brep.faces[fh].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Nurbs(nurbs),
+            orientation: true,
+        });
+    }
+    let tol = Tolerance::default();
+    let result = detect_surface_type(&brep, fh, &tol);
+    assert_eq!(result.surface_type, SurfaceType::General);
+}
+
+#[test]
+fn repair_fillet_on_nurbs_face() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    // Convert all face surfaces to NURBS so fillet detection runs.
+    let faces: Vec<_> = brep.faces.keys().collect();
+    for &fh in &faces {
+        if let Some(ref surf) = brep.faces[fh].surface {
+            let nurbs = surf.geometry.to_nurbs_in_range((-1.0, 2.0), (-1.0, 2.0));
+            brep.faces[fh].surface = Some(SurfaceOnFace {
+                geometry: SurfaceGeometry::Nurbs(nurbs),
+                orientation: true,
+            });
+        }
+    }
+    let tol = Tolerance::default();
+    let result = repair_fillet(&mut brep, faces[0], &tol, 1.0);
+    // Even if not detected as fillet, the function should run without error.
+    assert!(result.max_displacement >= 0.0);
+}
+
+#[test]
+fn repair_offset_on_nurbs_face() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let faces: Vec<_> = brep.faces.keys().collect();
+    for &fh in &faces {
+        if let Some(ref surf) = brep.faces[fh].surface {
+            let nurbs = surf.geometry.to_nurbs_in_range((-1.0, 2.0), (-1.0, 2.0));
+            brep.faces[fh].surface = Some(SurfaceOnFace {
+                geometry: SurfaceGeometry::Nurbs(nurbs),
+                orientation: true,
+            });
+        }
+    }
+    let tol = Tolerance::default();
+    let result = repair_offset(&mut brep, faces[0], &tol, 1.0);
+    assert!(result.max_displacement >= 0.0);
+}
+
+#[test]
+fn repair_swept_on_nurbs_face() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let faces: Vec<_> = brep.faces.keys().collect();
+    for &fh in &faces {
+        if let Some(ref surf) = brep.faces[fh].surface {
+            let nurbs = surf.geometry.to_nurbs_in_range((-1.0, 2.0), (-1.0, 2.0));
+            brep.faces[fh].surface = Some(SurfaceOnFace {
+                geometry: SurfaceGeometry::Nurbs(nurbs),
+                orientation: true,
+            });
+        }
+    }
+    let tol = Tolerance::default();
+    let result = repair_swept(&mut brep, faces[0], &tol, 1.0);
+    assert!(result.max_displacement >= 0.0);
+}
+
+#[test]
+fn repair_all_type_specific_on_nurbs_cube() {
+    // Convert all surfaces to NURBS, run repair_all.
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let faces: Vec<_> = brep.faces.keys().collect();
+    for &fh in &faces {
+        if let Some(ref surf) = brep.faces[fh].surface {
+            let nurbs = surf.geometry.to_nurbs_in_range((-1.0, 2.0), (-1.0, 2.0));
+            brep.faces[fh].surface = Some(SurfaceOnFace {
+                geometry: SurfaceGeometry::Nurbs(nurbs),
+                orientation: true,
+            });
+        }
+    }
+    let tol = Tolerance::default();
+    let results = repair_all_type_specific(&mut brep, &tol, 1.0);
+    // Plane-converted NURBS typically not detected as special types,
+    // so results should be empty or contain only type-specific repairs.
+    for r in &results {
+        assert!(r.max_displacement >= 0.0);
+    }
+}

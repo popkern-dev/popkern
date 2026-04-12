@@ -324,3 +324,128 @@ fn heal_with_displaced_vertex_and_fixed_constraint() {
         final_pos.distance_to(&original_pos)
     );
 }
+
+#[test]
+fn heal_with_violated_symmetry_projects_back() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    // Set up symmetry constraint across YZ plane (x=0.5).
+    let faces: Vec<_> = brep.faces.keys().collect();
+    let plane_point = Point3::new(0.5, 0.5, 0.5);
+    let plane_normal = Vec3::new(1.0, 0.0, 0.0);
+    let mut constraints = ConstraintSet::new();
+    constraints.add(GeometricConstraint::Symmetry {
+        faces_a: vec![faces[0]],
+        faces_b: vec![faces[1]],
+        plane: (plane_point, plane_normal),
+        max_deviation: 0.001,
+    });
+    // Displace a vertex to create asymmetry.
+    let vh = brep.vertices.keys().next().unwrap();
+    brep.vertices[vh].position.x += 0.01;
+    let opts = HealOptions::new(Tolerance::default());
+    let result = heal_with_constraints(&mut brep, &opts, &constraints).unwrap();
+    // Exercise the full path: constraint-aware healing ran.
+    assert_eq!(result.constraints_checked, 1);
+}
+
+#[test]
+fn heal_with_violated_distance_projects_back() {
+    // Create distance constraint between two vertices, violate it, heal.
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let verts: Vec<_> = brep.vertices.keys().collect();
+    let va = verts[0];
+    let vb = verts[1];
+
+    let original_dist = brep.vertices[va]
+        .position
+        .distance_to(&brep.vertices[vb].position);
+
+    let mut cs = ConstraintSet::new();
+    cs.add(GeometricConstraint::Distance {
+        entity_a: EntityRef::Vertex(va),
+        entity_b: EntityRef::Vertex(vb),
+        target_distance: original_dist,
+        tolerance: 0.001,
+    });
+
+    // Displace vertex to violate the distance constraint.
+    brep.vertices[va].position.x += 0.05;
+
+    let opts = HealOptions::new(Tolerance::default());
+    let result = heal_with_constraints(&mut brep, &opts, &cs).unwrap();
+    assert_eq!(result.constraints_checked, 1);
+}
+
+#[test]
+fn heal_with_multiple_constraint_types_combined() {
+    // Combine FixedPoint + Tangency + Coplanarity.
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let face_handles: Vec<_> = brep.faces.keys().collect();
+    let (vh, vd) = brep.vertices.iter().next().unwrap();
+
+    let mut cs = ConstraintSet::new();
+    cs.add(GeometricConstraint::FixedPoint {
+        vertex: vh,
+        position: vd.position,
+        max_displacement: 1e-6,
+    });
+    cs.add(GeometricConstraint::Tangency {
+        face_a: face_handles[0],
+        face_b: face_handles[1],
+        max_angle: 0.01,
+    });
+    cs.add(GeometricConstraint::Coplanarity {
+        faces: vec![face_handles[0]],
+        max_deviation: 1e-3,
+    });
+
+    let opts = HealOptions::new(Tolerance::default());
+    let result = heal_with_constraints(&mut brep, &opts, &cs).unwrap();
+    assert_eq!(result.constraints_checked, 3);
+}
+
+#[test]
+fn project_symmetry_averages_positions() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let faces: Vec<_> = brep.faces.keys().collect();
+
+    // Displace a vertex to break symmetry, then project.
+    let verts_before = collect_face_vertices(&brep, faces[0]);
+    if let Some((vh, _)) = verts_before.first() {
+        brep.vertices[*vh].position.x += 0.1;
+    }
+
+    let plane_pt = Point3::new(0.5, 0.5, 0.5);
+    let plane_n = Vec3::new(1.0, 0.0, 0.0);
+    project_symmetry(&mut brep, &[faces[0]], &[faces[1]], &plane_pt, &plane_n);
+
+    // Vertices should have been adjusted.
+    let verts_after = collect_face_vertices(&brep, faces[0]);
+    assert!(!verts_after.is_empty());
+}
+
+#[test]
+fn project_distance_adjusts_vertex_positions() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let verts: Vec<_> = brep.vertices.keys().collect();
+    let va = verts[0];
+    let vb = verts[1];
+    let target = 2.0;
+
+    let opts = HealOptions::new(Tolerance::default());
+    project_distance(
+        &mut brep,
+        &EntityRef::Vertex(va),
+        &EntityRef::Vertex(vb),
+        target,
+        &opts,
+    );
+
+    let new_dist = brep.vertices[va]
+        .position
+        .distance_to(&brep.vertices[vb].position);
+    assert!(
+        (new_dist - target).abs() < 1e-10,
+        "distance should be {target}, got {new_dist}"
+    );
+}

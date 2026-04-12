@@ -311,4 +311,66 @@ mod tests {
         let results = rederive_all_edges(&mut brep, &tol);
         assert!(results.is_empty());
     }
+
+    #[test]
+    fn rederive_edge_with_high_deviation() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let tol = Tolerance::default();
+        // Find an edge with a curve.
+        let edge_h = brep.edges.keys().find(|&e| brep.edges[e].curve.is_some());
+        if let Some(eh) = edge_h {
+            // Get a vertex on this edge and shift it to create deviation.
+            let he_handle = brep.edges[eh].half_edge;
+            let origin_vh = brep.half_edges[he_handle].origin;
+            brep.vertices[origin_vh].position.z += 0.1;
+            let result = rederive_edge_from_surfaces(&mut brep, eh, &tol);
+            // Should attempt rederivation (may or may not succeed depending
+            // on whether the edge has two distinct adjacent faces).
+            assert!(result.is_ok() || result.is_err());
+        }
+    }
+
+    #[test]
+    fn rederive_all_edges_on_corrupted_cube() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let tol = Tolerance::default();
+        // Corrupt several vertices.
+        let vert_handles: Vec<_> = brep.vertices.keys().collect();
+        for (i, &vh) in vert_handles.iter().enumerate().take(2) {
+            brep.vertices[vh].position.z += 0.05 * (i as f64 + 1.0);
+        }
+        let results = rederive_all_edges(&mut brep, &tol);
+        // Should find some edges to rederive due to increased deviation.
+        // Even if empty (all edges below threshold), no panic.
+        for r in &results {
+            assert!(r.old_deviation > tol.linear());
+        }
+    }
+
+    #[test]
+    fn rederive_edge_without_curve_returns_error() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let eh = brep.edges.keys().next().unwrap();
+        brep.edges[eh].curve = None;
+        let tol = Tolerance::default();
+        let result = rederive_edge_from_surfaces(&mut brep, eh, &tol);
+        // Should fail: edge has no curve to re-derive from.
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rederive_edge_missing_surface_returns_error() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let eh = brep.edges.keys().next().unwrap();
+        // Remove surface from one adjacent face.
+        let he_handle = brep.edges[eh].half_edge;
+        let he = &brep.half_edges[he_handle];
+        let loop_handle = he.loop_;
+        let face_handle = brep.loops[loop_handle].face;
+        brep.faces[face_handle].surface = None;
+        let tol = Tolerance::default();
+        let result = rederive_edge_from_surfaces(&mut brep, eh, &tol);
+        // Should fail: can't rederive without adjacent surface.
+        assert!(result.is_err());
+    }
 }

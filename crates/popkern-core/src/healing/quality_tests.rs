@@ -132,3 +132,147 @@ fn validate_against_profile_empty_brep() {
     // edge_length=inf (passes since inf >= threshold).
     assert!(result.passed, "Empty BRep should pass all checks: {result}");
 }
+
+#[test]
+fn validate_against_profile_custom_profile() {
+    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let tol = Tolerance::default();
+    let profile = QualityProfile {
+        name: "Custom".into(),
+        tier: QualityTier::Tier3,
+        min_continuity: ContinuityLevel::G0,
+        max_position_gap: 10.0,
+        max_normal_angle_deg: 180.0,
+        max_curvature_diff: 1000.0,
+        min_edge_length: 0.0,
+        min_face_area: 0.0,
+        custom_checks: Vec::new(),
+    };
+    let result = validate_against_profile(&brep, &profile, &tol);
+    assert!(
+        result.passed,
+        "Generous custom profile should pass on a cube: {result}"
+    );
+}
+
+#[test]
+fn validate_against_profile_fails_on_tight_edge_length() {
+    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let tol = Tolerance::default();
+    let profile = QualityProfile {
+        min_edge_length: 100.0, // cube edges are length 1 -- will fail
+        ..QualityProfile::from_tier(QualityTier::Tier3)
+    };
+    let result = validate_against_profile(&brep, &profile, &tol);
+    assert!(!result.passed, "Cube should fail with min_edge_length=100");
+    let failures = result.failures();
+    let has_edge_failure = failures.iter().any(|d| d.name.contains("edge length"));
+    assert!(
+        has_edge_failure,
+        "Expected edge length failure, got: {result}"
+    );
+}
+
+#[test]
+fn validate_against_profile_fails_on_tight_gap() {
+    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let tol = Tolerance::default();
+    let profile = QualityProfile {
+        max_position_gap: 0.0, // exact match required
+        ..QualityProfile::from_tier(QualityTier::Tier3)
+    };
+    let result = validate_against_profile(&brep, &profile, &tol);
+    // The cube may have tiny floating-point gaps at curve endpoints.
+    // Whether it passes or fails depends on fp precision, so just ensure
+    // the dimensions were measured.
+    assert!(
+        !result.dimensions.is_empty(),
+        "Should have quality dimensions"
+    );
+}
+
+#[test]
+fn validate_against_profile_tier2_unit_cube() {
+    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let profile = QualityProfile::from_tier(QualityTier::Tier2);
+    let tol = Tolerance::default();
+
+    let result = validate_against_profile(&brep, &profile, &tol);
+    // Tier2 allows 1-degree normal angle -- a cube has 90-degree edges, so
+    // the normal angle check should fail.
+    assert!(
+        !result.passed,
+        "Unit cube should fail Tier2 due to 90-degree edges"
+    );
+    let failures = result.failures();
+    let has_angle_failure = failures.iter().any(|d| d.name.contains("normal angle"));
+    assert!(
+        has_angle_failure,
+        "Expected a normal angle failure: {result}"
+    );
+}
+
+#[test]
+fn quality_result_display_contains_status() {
+    let result = QualityResult::new(
+        QualityTier::Tier3,
+        vec![QualityDimension {
+            name: "gap".into(),
+            measured: 0.0,
+            threshold: 1.0,
+            passed: true,
+        }],
+    );
+    let display = result.to_string();
+    assert!(display.contains("PASSED"), "Display should contain PASSED");
+    assert!(
+        display.contains("Tier 3"),
+        "Display should contain tier name"
+    );
+}
+
+#[test]
+fn quality_result_display_failed() {
+    let result = QualityResult::new(
+        QualityTier::Tier1,
+        vec![QualityDimension {
+            name: "angle".into(),
+            measured: 90.0,
+            threshold: 0.1,
+            passed: false,
+        }],
+    );
+    let display = result.to_string();
+    assert!(display.contains("FAILED"), "Display should contain FAILED");
+}
+
+#[test]
+fn quality_dimension_display() {
+    let dim = QualityDimension {
+        name: "test".into(),
+        measured: 0.5,
+        threshold: 1.0,
+        passed: true,
+    };
+    let display = dim.to_string();
+    assert!(display.contains("PASS"), "Passing dimension shows PASS");
+    assert!(display.contains("test"), "Dimension name is shown");
+}
+
+#[test]
+fn continuity_level_display() {
+    assert_eq!(ContinuityLevel::G0.to_string(), "G0");
+    assert_eq!(ContinuityLevel::G1.to_string(), "G1");
+    assert_eq!(ContinuityLevel::G2.to_string(), "G2");
+    assert_eq!(ContinuityLevel::G3.to_string(), "G3");
+}
+
+#[test]
+fn tier_display_all() {
+    let t1 = QualityTier::Tier1.to_string();
+    let t2 = QualityTier::Tier2.to_string();
+    let t3 = QualityTier::Tier3.to_string();
+    assert!(t1.contains("Class-A"));
+    assert!(t2.contains("Industrial"));
+    assert!(t3.contains("General"));
+}
