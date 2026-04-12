@@ -1,9 +1,10 @@
 //! Continuity enforcement — adjust geometry to achieve target continuity.
 //!
 //! Supports G0 enforcement (close positional gaps), G1 enforcement
-//! (tangent-plane continuity via NURBS control-point adjustment), and
+//! (tangent-plane continuity via NURBS control-point adjustment),
 //! G2 enforcement (curvature continuity via second-row control-point
-//! adjustment).
+//! adjustment), and dispatches to [`super::g3_enforcement`] for G3
+//! (curvature-rate continuity via third-row control-point adjustment).
 
 use crate::error::CoreError;
 use crate::geometry::Point3;
@@ -300,8 +301,9 @@ pub fn enforce_continuity_all(
         let r = match target_level {
             ContinuityLevel::G0 => enforce_g0(brep, eh, tolerance, max_displacement),
             ContinuityLevel::G1 => enforce_g1(brep, eh, tolerance, max_displacement),
-            ContinuityLevel::G2 | ContinuityLevel::G3 => {
-                enforce_g2(brep, eh, tolerance, max_displacement)
+            ContinuityLevel::G2 => enforce_g2(brep, eh, tolerance, max_displacement),
+            ContinuityLevel::G3 => {
+                super::g3_enforcement::enforce_g3(brep, eh, tolerance, max_displacement)
             }
         };
         if let Ok(result) = r {
@@ -316,7 +318,7 @@ pub fn enforce_continuity_all(
 // ---------------------------------------------------------------------------
 
 /// Retrieve the two adjacent face surfaces across an edge.
-fn get_adjacent_surfaces(
+pub(super) fn get_adjacent_surfaces(
     brep: &BRep,
     edge: EdgeHandle,
 ) -> Result<
@@ -368,7 +370,11 @@ fn get_adjacent_surfaces(
 }
 
 /// Sample UV coordinates on both adjacent surfaces along an edge.
-fn sample_edge_uvs(brep: &BRep, edge: EdgeHandle, count: usize) -> Vec<(f64, f64, f64, f64)> {
+pub(super) fn sample_edge_uvs(
+    brep: &BRep,
+    edge: EdgeHandle,
+    count: usize,
+) -> Vec<(f64, f64, f64, f64)> {
     let Some(ed) = brep.edges.get(edge) else {
         return Vec::new();
     };

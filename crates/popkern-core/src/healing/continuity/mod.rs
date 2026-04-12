@@ -1,11 +1,12 @@
 //! Continuity analysis for surface boundaries.
 //!
-//! Measures cross-boundary continuity (G0/G1/G2) between adjacent faces
+//! Measures cross-boundary continuity (G0/G1/G2/G3) between adjacent faces
 //! and classifies edges by their achieved continuity level. Smooth chains
 //! of edges are detected for downstream fillet and blending operations.
 
 pub mod classification;
 pub mod enforcement;
+pub mod g3_enforcement;
 pub mod measurement;
 mod nurbs_adjust;
 pub mod verified_measurement;

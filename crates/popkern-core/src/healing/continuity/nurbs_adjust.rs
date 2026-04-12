@@ -270,6 +270,127 @@ fn shift_second_row(
     worst
 }
 
+/// Adjust NURBS control points on adjacent faces for G3 continuity.
+///
+/// Targets the third row of control points to smooth the rate of
+/// curvature change across the boundary. Uses quadratic extrapolation
+/// from rows 0-2 to compute target positions for row 3, then shifts
+/// toward the target with damping.
+pub(super) fn adjust_for_g3(
+    brep: &mut BRep,
+    face1: FaceHandle,
+    face2: FaceHandle,
+    samples: &[(f64, f64, f64, f64)],
+    max_displacement: f64,
+) -> f64 {
+    let damping = 0.3_f64;
+    let mut worst = 0.0_f64;
+
+    for &fh in &[face1, face2] {
+        let nurbs = match extract_nurbs_g3(brep, fh) {
+            Some(n) => n,
+            None => continue,
+        };
+        let sample_uv = if fh == face1 {
+            (samples[0].0, samples[0].1)
+        } else {
+            (samples[0].2, samples[0].3)
+        };
+        let ((u_min, u_max), (v_min, v_max)) = nurbs.parameter_range();
+        let boundary = identify_boundary(sample_uv, u_min, u_max, v_min, v_max);
+        let mut nc = nurbs;
+        let d = shift_third_row(&mut nc, boundary, damping, max_displacement);
+        worst = worst.max(d);
+        write_nurbs(brep, fh, nc);
+    }
+    worst
+}
+
+/// Extract a cloned NURBS surface from a face, requiring degree >= 5.
+fn extract_nurbs_g3(brep: &BRep, fh: FaceHandle) -> Option<NurbsSurface> {
+    let n = extract_nurbs(brep, fh)?;
+    if n.degree_u >= 5 && n.degree_v >= 5 {
+        Some(n)
+    } else {
+        None
+    }
+}
+
+/// Shift the third row for G3 curvature-rate smoothing.
+///
+/// Computes a target for each third-row control point via quadratic
+/// extrapolation from rows 0, 1, and 2:
+///   target = 3 * P[2] - 3 * P[1] + P[0]
+/// This is the cubic extension that produces a zero third-derivative
+/// discontinuity at the boundary.
+fn shift_third_row(
+    nurbs: &mut NurbsSurface,
+    boundary: Boundary,
+    damping: f64,
+    max_disp: f64,
+) -> f64 {
+    let mut worst = 0.0_f64;
+    let quads = third_row_quads(nurbs, boundary);
+    for (idx_a, idx_b, idx_c, idx_d) in quads {
+        let pa = nurbs.control_points[idx_a];
+        let pb = nurbs.control_points[idx_b];
+        let pc = nurbs.control_points[idx_c];
+        let pd = nurbs.control_points[idx_d];
+        // Quadratic extrapolation: target = 3*P[2] - 3*P[1] + P[0].
+        let target = Point3::new(
+            3.0 * pc.x - 3.0 * pb.x + pa.x,
+            3.0 * pc.y - 3.0 * pb.y + pa.y,
+            3.0 * pc.z - 3.0 * pb.z + pa.z,
+        );
+        let new_d = Point3::new(
+            pd.x + (target.x - pd.x) * damping,
+            pd.y + (target.y - pd.y) * damping,
+            pd.z + (target.z - pd.z) * damping,
+        );
+        let d = pd.distance_to(&new_d);
+        if d <= max_disp {
+            worst = worst.max(d);
+            nurbs.control_points[idx_d] = new_d;
+        }
+    }
+    worst
+}
+
+/// Returns (boundary, next, second, third) index quads for a boundary.
+///
+/// Indices are: row 0 (boundary), row 1, row 2, row 3 (target).
+fn third_row_quads(nurbs: &NurbsSurface, boundary: Boundary) -> Vec<(usize, usize, usize, usize)> {
+    let nv = nurbs.num_v;
+    match boundary {
+        Boundary::UMin if nurbs.num_u >= 4 => (0..nv)
+            .map(|j| (j, nv + j, 2 * nv + j, 3 * nv + j))
+            .collect(),
+        Boundary::UMax if nurbs.num_u >= 4 => {
+            let r = nurbs.num_u - 1;
+            (0..nv)
+                .map(|j| {
+                    (
+                        r * nv + j,
+                        (r - 1) * nv + j,
+                        (r - 2) * nv + j,
+                        (r - 3) * nv + j,
+                    )
+                })
+                .collect()
+        }
+        Boundary::VMin if nurbs.num_v >= 4 => (0..nurbs.num_u)
+            .map(|i| (i * nv, i * nv + 1, i * nv + 2, i * nv + 3))
+            .collect(),
+        Boundary::VMax if nurbs.num_v >= 4 => {
+            let c = nv - 1;
+            (0..nurbs.num_u)
+                .map(|i| (i * nv + c, i * nv + c - 1, i * nv + c - 2, i * nv + c - 3))
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// Returns (boundary, next, second) index triples for a boundary.
 fn second_row_triples(nurbs: &NurbsSurface, boundary: Boundary) -> Vec<(usize, usize, usize)> {
     let nv = nurbs.num_v;

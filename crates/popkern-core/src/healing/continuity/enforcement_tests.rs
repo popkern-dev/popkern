@@ -139,6 +139,30 @@ fn enforce_g2_on_invalid_edge_returns_error() {
     assert!(result.is_err());
 }
 
+// ---- G3 enforcement tests ----
+
+#[test]
+fn enforce_g3_on_cube_edge_graceful_degradation() {
+    // Cube faces are analytical planes — G3 enforcement cannot proceed
+    // past G1 (since G1 returns G0 for analytical surfaces). Should
+    // gracefully degrade.
+    let mut brep = BRep::unit_cube(Tolerance::default()).ok().unwrap();
+    let tol = Tolerance::default();
+    let edge = brep.edges.keys().next().unwrap();
+    let result = super::super::g3_enforcement::enforce_g3(&mut brep, edge, &tol, 1.0).unwrap();
+    // Analytical surfaces cannot achieve G1, so G3 degrades to G0.
+    assert_eq!(result.achieved_level, ContinuityLevel::G0);
+}
+
+#[test]
+fn enforce_g3_on_invalid_edge_returns_error() {
+    let mut brep = BRep::new(Tolerance::default());
+    let bogus = EdgeHandle::default();
+    let tol = Tolerance::default();
+    let result = super::super::g3_enforcement::enforce_g3(&mut brep, bogus, &tol, 1.0);
+    assert!(result.is_err());
+}
+
 // ---- enforce_continuity_all tests ----
 
 #[test]
@@ -173,6 +197,17 @@ fn enforce_continuity_all_g2_on_valid_cube() {
     let tol = Tolerance::default();
     let results = enforce_continuity_all(&mut brep, ContinuityLevel::G2, &tol, 1.0);
     // All faces are analytical planes — G2 enforcement returns G0 for each.
+    for r in &results {
+        assert_eq!(r.achieved_level, ContinuityLevel::G0);
+    }
+}
+
+#[test]
+fn enforce_continuity_all_g3_on_valid_cube() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).ok().unwrap();
+    let tol = Tolerance::default();
+    let results = enforce_continuity_all(&mut brep, ContinuityLevel::G3, &tol, 1.0);
+    // All faces are analytical planes — G3 enforcement degrades to G0 for each.
     for r in &results {
         assert_eq!(r.achieved_level, ContinuityLevel::G0);
     }
