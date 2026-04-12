@@ -35,7 +35,7 @@ fn make_two_body_decomposition() -> CellDecomposition {
     // Face 2: outer face of cell 0 (A-only) — between cell 0 and exterior (cell 3 implicit)
     // Face 3: outer face of cell 2 (B-only)
     // For simplicity, we model only the intersection boundaries + exterior as a large cell.
-    let exterior_cell = 3; // not in cells vec — represents "outside both"
+    let _exterior_cell = 3; // not in cells vec — represents "outside both"
     let mut cells_with_exterior = cells;
     cells_with_exterior.push(Cell {
         id: 3,

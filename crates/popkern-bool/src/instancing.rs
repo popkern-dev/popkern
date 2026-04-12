@@ -73,7 +73,6 @@ pub fn boolean_pattern(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use popkern_core::geometry::Vec3;
 
     fn tol() -> Tolerance {
         Tolerance::default()

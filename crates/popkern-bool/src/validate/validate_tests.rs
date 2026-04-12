@@ -1,6 +1,6 @@
 //! Tests for boolean validation and repair.
 
-use popkern_core::geometry::{Point3, Transform3, Vec3};
+use popkern_core::geometry::Transform3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
@@ -102,6 +102,30 @@ fn pre_check_clean_cube_has_no_g0_violations() {
     assert_eq!(
         g0_violations, 0,
         "clean cube should have no G0 violations: {:?}",
+        report.findings
+    );
+}
+
+#[test]
+fn pre_check_clean_cube_has_no_g1_violations() {
+    // Cube has perpendicular faces (90° edges). The G1 detector
+    // should NOT fire on sharp edges — only on near-tangent
+    // (smooth) edges with subtle misalignment. Cube is the
+    // canonical "no false positive" fixture.
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let other = BRep::unit_cube(tol())
+        .unwrap()
+        .transform(&Transform3::translation(5.0, 0.0, 0.0))
+        .unwrap();
+    let report = super::pre_check::pre_check(&cube, &other, false);
+    let g1_violations = report
+        .findings
+        .iter()
+        .filter(|f| f.message.contains("G1 (tangent) violation"))
+        .count();
+    assert_eq!(
+        g1_violations, 0,
+        "cube edges are sharp; G1 detector must not fire: {:?}",
         report.findings
     );
 }

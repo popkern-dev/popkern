@@ -1,6 +1,6 @@
 //! Tests for the intersection hierarchy.
 
-use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::geometry::Vec3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 

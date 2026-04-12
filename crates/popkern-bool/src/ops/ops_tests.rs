@@ -164,7 +164,7 @@ fn face_level_boolean_with_overlapping_cubes() {
 
 #[test]
 fn face_level_boolean_empty_pairs() {
-    use super::face_level::{FacePairSpec, face_level_boolean};
+    use super::face_level::face_level_boolean;
     use crate::error::BoolOperation;
 
     let a = BRep::unit_cube(tol()).unwrap();

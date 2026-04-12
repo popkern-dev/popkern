@@ -4,7 +4,7 @@
 //! (1e-6) produces invalid topology, while at coarse tolerance (1e-2) it works.
 //! These tests trace the issue.
 
-use popkern_core::geometry::{Transform3, Vec3};
+use popkern_core::geometry::Transform3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 

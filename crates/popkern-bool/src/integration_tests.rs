@@ -12,7 +12,6 @@ use popkern_core::{
 };
 
 use crate::csg::{CsgNode, csg_eval};
-use crate::error::BoolError;
 
 fn tol() -> Tolerance {
     Tolerance::default()

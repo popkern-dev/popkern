@@ -117,7 +117,7 @@ fn triangle_is_not_a_sliver() {
 
 #[test]
 fn degenerate_triangle_is_sliver() {
-    use super::sliver::{SliverThresholds, SliverType, analyze_face_polygon};
+    use super::sliver::{SliverThresholds, analyze_face_polygon};
 
     let thresholds = SliverThresholds::from_tolerance(1e-4);
     // Very thin triangle (height ~ 1e-5)
@@ -195,7 +195,7 @@ fn cylinder_is_watertight() {
 #[test]
 fn boolean_result_watertightness() {
     use super::shared_geometry::validate_watertightness;
-    use popkern_core::geometry::{Transform3, Vec3};
+    use popkern_core::geometry::Transform3;
 
     let tol = Tolerance::default();
     let a = BRep::unit_cube(tol).unwrap();

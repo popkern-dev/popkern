@@ -211,7 +211,7 @@ fn detect_g0_g1_violations(
     let n_samples = 3;
 
     let mut g0_count = 0_usize;
-    let g1_count = 0_usize; // Reserved for future tangent-mismatch detection.
+    let mut g1_count = 0_usize;
 
     for (_eh, edge) in &brep.edges {
         let Some(curve_on_edge) = &edge.curve else {
@@ -266,8 +266,17 @@ fn detect_g0_g1_violations(
                 break;
             }
 
-            // G1 check: tangent planes (normals) should be related.
-            // Allow same-orientation OR opposite-orientation alignment.
+            // G1 check: tangent-plane mismatch on near-tangent edges.
+            //
+            // Two surfaces meeting at an edge are G1-continuous when
+            // their tangent planes (normals) align. For a SHARP edge
+            // (e.g. cube corner), the surfaces meet at a large angle
+            // and discontinuity is expected — no violation.
+            //
+            // We only flag the SUBTLE case: surfaces that are
+            // nearly-parallel (designed to be tangent) but slightly
+            // off. The detection: |cos(angle)| > 0.99 (so the edge
+            // SHOULD be smooth) AND sin(angle) > tolerance.
             let n_a = surf_a.geometry.normal_at(u_a, v_a);
             let n_b = surf_b.geometry.normal_at(u_b, v_b);
             let na_len = n_a.length();
@@ -276,17 +285,17 @@ fn detect_g0_g1_violations(
                 continue;
             }
             let cos_angle = n_a.dot(&n_b) / (na_len * nb_len);
-            // sin² = 1 − cos². If both surfaces are tangent at the
-            // edge, expect |cos| ≈ 1 and sin ≈ 0. Allow either sign.
-            let sin_sq = (1.0 - cos_angle * cos_angle).max(0.0);
-            // The G1 check fires when neither parallel nor anti-parallel:
-            // the sin of the deviation angle exceeds the tolerance.
-            // For typical analytic surfaces meeting at an edge, the
-            // tangent planes are NOT parallel (e.g. a cube edge has
-            // perpendicular adjacent faces) — so this check
-            // intentionally only flags very-near-tangent edges that
-            // are subtly mismatched, not transversal edges.
-            let _ = (sin_sq, g1_threshold_sin); // Reserved for future use.
+            let abs_cos = cos_angle.abs();
+            // Only check edges that are designed to be smooth (within
+            // ~8° of tangent: |cos| > 0.99). Sharp transitions
+            // (cube edges, etc.) are excluded by this gate.
+            if abs_cos > 0.99 {
+                let sin_sq = (1.0 - cos_angle * cos_angle).max(0.0);
+                if sin_sq > g1_threshold_sin * g1_threshold_sin {
+                    g1_count += 1;
+                    break;
+                }
+            }
         }
     }
 

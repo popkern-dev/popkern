@@ -1,6 +1,6 @@
 //! Tests for parallel intersection infrastructure.
 
-use popkern_core::geometry::{Transform3, Vec3};
+use popkern_core::geometry::Transform3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 

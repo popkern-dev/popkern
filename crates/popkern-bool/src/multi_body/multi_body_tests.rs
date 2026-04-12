@@ -1,6 +1,6 @@
 //! Tests for multi-body boolean operations.
 
-use popkern_core::geometry::{Transform3, Vec3};
+use popkern_core::geometry::Transform3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
