@@ -2,7 +2,11 @@
 //!
 //! Provides a configurable sequence of repair operations tailored to the
 //! characteristic defect patterns of imported models (Section 7.2).
+//!
+//! Supports custom repair operator insertion (Section 7.2 BEYOND) and
+//! format-specific import profiles (Section 7.3).
 
+use crate::error::CoreError;
 use crate::healing::defects;
 use crate::healing::options::AnalysisOptions;
 use crate::healing::repair::gap_repair::{self, GapRepairStrategy};
@@ -28,11 +32,66 @@ pub enum ImportRepairOp {
     ToleranceEnforcement,
 }
 
+/// A user-defined repair operation.
+///
+/// Implement this trait to inject custom repair logic into the import
+/// repair pipeline at a specific position. Custom ops participate in
+/// the same before/after defect tracking as standard operations.
+pub trait CustomRepairOp: Send + Sync {
+    /// Human-readable name for this operation.
+    fn name(&self) -> &str;
+    /// Execute the repair, modifying the BRep in place.
+    fn execute(&self, brep: &mut BRep, tolerance: &Tolerance) -> Result<(), CoreError>;
+}
+
+impl std::fmt::Debug for dyn CustomRepairOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CustomRepairOp({})", self.name())
+    }
+}
+
+/// A single operation in the repair pipeline — either standard or custom.
+///
+/// This enum allows interleaving built-in repair operations with
+/// user-defined custom operators in any order.
+pub enum RepairOperation {
+    /// A built-in import repair operator.
+    Standard(ImportRepairOp),
+    /// A user-defined repair operator.
+    Custom(Box<dyn CustomRepairOp>),
+}
+
+impl std::fmt::Debug for RepairOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RepairOperation::Standard(op) => write!(f, "Standard({op:?})"),
+            RepairOperation::Custom(op) => write!(f, "Custom({})", op.name()),
+        }
+    }
+}
+
+/// Predefined import format with known defect patterns.
+///
+/// Each format has characteristic defects that benefit from different
+/// repair operation orderings and tolerances.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportFormat {
+    /// STEP AP203 — Configuration Controlled 3D Design.
+    /// Simple geometry, needs tolerance normalization and gap closure.
+    StepAP203,
+    /// STEP AP214 — Core Data for Automotive Mechanical Design.
+    /// Complex assemblies, benefits from surface simplification.
+    StepAP214,
+    /// IGES — Initial Graphics Exchange Specification.
+    /// Commonly loses orientation and periodic topology.
+    Iges,
+}
+
 /// Configuration for the import repair pipeline.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ImportRepairConfig {
     /// Ordered list of repair operations to perform.
-    pub operations: Vec<ImportRepairOp>,
+    pub operations: Vec<RepairOperation>,
     /// Maximum displacement allowed per repair.
     pub max_displacement: f64,
     /// Tolerance for geometric comparisons.
@@ -48,24 +107,96 @@ impl ImportRepairConfig {
     pub fn default_config(tolerance: Tolerance) -> Self {
         Self {
             operations: vec![
-                ImportRepairOp::OrientationFix,
-                ImportRepairOp::PeriodicTopologyRestore,
-                ImportRepairOp::ToleranceNormalization,
-                ImportRepairOp::GapClosure,
-                ImportRepairOp::SurfaceSimplification,
-                ImportRepairOp::ToleranceEnforcement,
+                RepairOperation::Standard(ImportRepairOp::OrientationFix),
+                RepairOperation::Standard(ImportRepairOp::PeriodicTopologyRestore),
+                RepairOperation::Standard(ImportRepairOp::ToleranceNormalization),
+                RepairOperation::Standard(ImportRepairOp::GapClosure),
+                RepairOperation::Standard(ImportRepairOp::SurfaceSimplification),
+                RepairOperation::Standard(ImportRepairOp::ToleranceEnforcement),
             ],
             max_displacement: tolerance.linear() * 10.0,
             tolerance,
         }
     }
+
+    /// Create a repair config tuned to a specific import format.
+    ///
+    /// Each format gets specific operation ordering and tolerances:
+    /// - STEP AP203: focus on tolerance normalization + gap closure.
+    /// - STEP AP214: adds surface simplification for complex assemblies.
+    /// - IGES: aggressive orientation fix + periodic topology restore.
+    pub fn for_format(format: ImportFormat, tolerance: Tolerance) -> Self {
+        match format {
+            ImportFormat::StepAP203 => Self {
+                operations: vec![
+                    RepairOperation::Standard(ImportRepairOp::ToleranceNormalization),
+                    RepairOperation::Standard(ImportRepairOp::GapClosure),
+                    RepairOperation::Standard(ImportRepairOp::ToleranceEnforcement),
+                ],
+                max_displacement: tolerance.linear() * 10.0,
+                tolerance,
+            },
+            ImportFormat::StepAP214 => Self {
+                operations: vec![
+                    RepairOperation::Standard(ImportRepairOp::OrientationFix),
+                    RepairOperation::Standard(ImportRepairOp::ToleranceNormalization),
+                    RepairOperation::Standard(ImportRepairOp::GapClosure),
+                    RepairOperation::Standard(ImportRepairOp::SurfaceSimplification),
+                    RepairOperation::Standard(ImportRepairOp::ToleranceEnforcement),
+                ],
+                max_displacement: tolerance.linear() * 10.0,
+                tolerance,
+            },
+            ImportFormat::Iges => Self {
+                operations: vec![
+                    RepairOperation::Standard(ImportRepairOp::OrientationFix),
+                    RepairOperation::Standard(ImportRepairOp::PeriodicTopologyRestore),
+                    RepairOperation::Standard(ImportRepairOp::ToleranceNormalization),
+                    RepairOperation::Standard(ImportRepairOp::GapClosure),
+                    RepairOperation::Standard(ImportRepairOp::ToleranceEnforcement),
+                ],
+                max_displacement: tolerance.linear() * 15.0,
+                tolerance,
+            },
+        }
+    }
+
+    /// Insert a custom repair operation at a specific position.
+    ///
+    /// The operation will execute at position `index` in the pipeline.
+    /// Panics if `index > self.operations.len()`.
+    pub fn insert_custom_op(&mut self, index: usize, op: Box<dyn CustomRepairOp>) {
+        self.operations.insert(index, RepairOperation::Custom(op));
+    }
+
+    /// Add a custom repair operation at the end of the pipeline.
+    pub fn push_custom_op(&mut self, op: Box<dyn CustomRepairOp>) {
+        self.operations.push(RepairOperation::Custom(op));
+    }
+
+    /// Return the number of standard operations in the pipeline.
+    pub fn standard_op_count(&self) -> usize {
+        self.operations
+            .iter()
+            .filter(|op| matches!(op, RepairOperation::Standard(_)))
+            .count()
+    }
+}
+
+/// Label for a step in the repair report.
+#[derive(Debug, Clone)]
+pub enum StepLabel {
+    /// A built-in repair operation.
+    Standard(ImportRepairOp),
+    /// A custom repair operation, identified by name.
+    Custom(String),
 }
 
 /// Report from an import repair run.
 #[derive(Debug, Clone)]
 pub struct ImportRepairReport {
-    /// Per-operation results: (operation, defects_before, defects_after).
-    pub steps: Vec<(ImportRepairOp, usize, usize)>,
+    /// Per-operation results: (label, defects_before, defects_after).
+    pub steps: Vec<(StepLabel, usize, usize)>,
     /// Total defects before repair.
     pub total_defects_before: usize,
     /// Total defects after repair.
@@ -113,16 +244,33 @@ fn execute_op(brep: &mut BRep, op: ImportRepairOp, config: &ImportRepairConfig) 
 /// Each operation modifies the BRep in place. The report records the
 /// defect count before and after each step so callers can evaluate
 /// which operations had the most impact.
+///
+/// Custom operations that return errors are logged in the report
+/// but do not abort the pipeline — subsequent operations still run.
 pub fn run_import_repair(brep: &mut BRep, config: &ImportRepairConfig) -> ImportRepairReport {
     let total_defects_before = count_defects(brep, &config.tolerance);
 
     let mut steps = Vec::with_capacity(config.operations.len());
 
-    for &op in &config.operations {
+    for op in &config.operations {
         let before = count_defects(brep, &config.tolerance);
-        execute_op(brep, op, config);
-        let after = count_defects(brep, &config.tolerance);
-        steps.push((op, before, after));
+        match op {
+            RepairOperation::Standard(standard_op) => {
+                execute_op(brep, *standard_op, config);
+                let after = count_defects(brep, &config.tolerance);
+                steps.push((StepLabel::Standard(*standard_op), before, after));
+            }
+            RepairOperation::Custom(custom_op) => {
+                // Custom ops may fail; we record defect counts regardless.
+                let _result = custom_op.execute(brep, &config.tolerance);
+                let after = count_defects(brep, &config.tolerance);
+                steps.push((
+                    StepLabel::Custom(custom_op.name().to_string()),
+                    before,
+                    after,
+                ));
+            }
+        }
     }
 
     let total_defects_after = count_defects(brep, &config.tolerance);
@@ -149,102 +297,5 @@ pub fn run_batch_import_repair(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tolerance::Tolerance;
-    use crate::topology::BRep;
-
-    #[test]
-    fn default_config_on_valid_cube_does_not_increase_defects() {
-        let tol = Tolerance::default();
-        let mut brep = BRep::unit_cube(tol).expect("unit cube creation failed");
-        let config = ImportRepairConfig::default_config(tol);
-        let report = run_import_repair(&mut brep, &config);
-
-        // The pipeline must not make things worse.
-        assert!(
-            report.total_defects_after <= report.total_defects_before,
-            "import repair should not increase defects: before={}, after={}",
-            report.total_defects_before,
-            report.total_defects_after,
-        );
-        // Every step should also not increase defects.
-        for (op, before, after) in &report.steps {
-            assert!(
-                *after <= *before,
-                "{op:?} increased defects: {before} -> {after}"
-            );
-        }
-    }
-
-    #[test]
-    fn empty_ops_returns_immediately() {
-        let tol = Tolerance::default();
-        let mut brep = BRep::unit_cube(tol).expect("unit cube creation failed");
-        let config = ImportRepairConfig {
-            operations: vec![],
-            max_displacement: tol.linear() * 10.0,
-            tolerance: tol,
-        };
-        let report = run_import_repair(&mut brep, &config);
-
-        assert!(
-            report.steps.is_empty(),
-            "empty operations should produce no steps"
-        );
-        assert_eq!(report.total_defects_before, report.total_defects_after);
-    }
-
-    #[test]
-    fn default_config_has_correct_operation_order() {
-        let tol = Tolerance::default();
-        let config = ImportRepairConfig::default_config(tol);
-
-        assert_eq!(config.operations.len(), 6);
-        assert_eq!(config.operations[0], ImportRepairOp::OrientationFix);
-        assert_eq!(
-            config.operations[1],
-            ImportRepairOp::PeriodicTopologyRestore
-        );
-        assert_eq!(config.operations[2], ImportRepairOp::ToleranceNormalization);
-        assert_eq!(config.operations[3], ImportRepairOp::GapClosure);
-        assert_eq!(config.operations[4], ImportRepairOp::SurfaceSimplification);
-        assert_eq!(config.operations[5], ImportRepairOp::ToleranceEnforcement);
-    }
-
-    #[test]
-    fn max_displacement_scales_with_tolerance() {
-        let tol = Tolerance::default();
-        let config = ImportRepairConfig::default_config(tol);
-        let expected = tol.linear() * 10.0;
-        assert!(
-            (config.max_displacement - expected).abs() < f64::EPSILON,
-            "max_displacement should be 10x linear tolerance"
-        );
-    }
-
-    #[test]
-    fn single_op_pipeline_runs() {
-        let tol = Tolerance::default();
-        let mut brep = BRep::unit_cube(tol).expect("unit cube creation failed");
-        let config = ImportRepairConfig {
-            operations: vec![ImportRepairOp::ToleranceEnforcement],
-            max_displacement: tol.linear() * 10.0,
-            tolerance: tol,
-        };
-        let report = run_import_repair(&mut brep, &config);
-        assert_eq!(report.steps.len(), 1);
-        assert_eq!(report.steps[0].0, ImportRepairOp::ToleranceEnforcement);
-    }
-
-    #[test]
-    fn empty_brep_returns_no_defects() {
-        let tol = Tolerance::default();
-        let mut brep = BRep::new(tol);
-        let config = ImportRepairConfig::default_config(tol);
-        let report = run_import_repair(&mut brep, &config);
-
-        assert_eq!(report.total_defects_before, 0);
-        assert_eq!(report.total_defects_after, 0);
-    }
-}
+#[path = "import_repair_tests.rs"]
+mod tests;

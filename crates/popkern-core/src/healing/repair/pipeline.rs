@@ -39,6 +39,25 @@ pub enum RepairStep {
     Rederive,
 }
 
+/// Convergence status of the repair pipeline.
+///
+/// Indicates how and why the pipeline terminated. This enables callers
+/// to distinguish between successful convergence and various early-exit
+/// conditions (stabilization, oscillation, regression).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConvergenceStatus {
+    /// Defect count reached zero.
+    Converged,
+    /// Defect count stabilized (no improvement for 2+ iterations).
+    Stabilized,
+    /// Maximum iterations reached.
+    MaxIterations,
+    /// Defect count oscillating (same count seen 3+ times).
+    Oscillating,
+    /// Repair made things worse, rolled back.
+    Regressed,
+}
+
 /// Aggregate result of running the repair pipeline.
 #[derive(Debug, Clone)]
 pub struct HealResult {
@@ -64,6 +83,8 @@ pub struct HealResult {
     pub rederive_results: Vec<RederiveResult>,
     /// Number of iterations the pipeline ran.
     pub iterations: usize,
+    /// How the pipeline terminated.
+    pub convergence: ConvergenceStatus,
 }
 
 /// Determine the ordered list of repair steps for a given strategy.
@@ -127,10 +148,11 @@ pub fn run_pipeline(brep: &mut BRep, options: &HealOptions) -> Result<HealResult
     let mut all_rederive_results: Vec<RederiveResult> = Vec::new();
     let mut current_defects = defects_before;
     let mut iterations = 0;
+    let mut convergence = ConvergenceStatus::MaxIterations;
+    let mut defect_history: Vec<usize> = vec![defects_before];
 
     for _ in 0..options.max_iterations {
         iterations += 1;
-        let defects_before_iter = current_defects;
 
         for step in &steps {
             match step {
@@ -179,9 +201,34 @@ pub fn run_pipeline(brep: &mut BRep, options: &HealOptions) -> Result<HealResult
         // Re-analyze after this iteration.
         let report = defects::run_all_checks(brep, &analysis_opts);
         current_defects = report.len();
+        defect_history.push(current_defects);
 
-        // If no improvement, stop iterating.
-        if current_defects >= defects_before_iter {
+        // Check convergence conditions in priority order.
+        if current_defects == 0 {
+            convergence = ConvergenceStatus::Converged;
+            break;
+        }
+
+        if current_defects > defects_before {
+            convergence = ConvergenceStatus::Regressed;
+            break;
+        }
+
+        // Check for oscillation: same count appears 3+ times in history.
+        let occurrence_count = defect_history
+            .iter()
+            .filter(|&&c| c == current_defects)
+            .count();
+        if occurrence_count >= 3 {
+            convergence = ConvergenceStatus::Oscillating;
+            break;
+        }
+
+        // Check for stabilization: no improvement over previous iteration.
+        if let Some(&prev) = defect_history.get(defect_history.len().wrapping_sub(2))
+            && current_defects >= prev
+        {
+            convergence = ConvergenceStatus::Stabilized;
             break;
         }
     }
@@ -208,6 +255,7 @@ pub fn run_pipeline(brep: &mut BRep, options: &HealOptions) -> Result<HealResult
         complexity_reductions: all_complexity_reductions,
         rederive_results: all_rederive_results,
         iterations,
+        convergence,
     })
 }
 
@@ -227,6 +275,7 @@ mod tests {
         assert_eq!(result.defects_after, 0);
         assert!(result.gap_repairs.is_empty());
         assert!(result.simplifications.is_empty());
+        assert_eq!(result.convergence, ConvergenceStatus::Converged);
     }
 
     #[test]
@@ -298,5 +347,39 @@ mod tests {
         };
         let result = run_pipeline(&mut brep, &options).unwrap();
         assert!(result.iterations <= 1, "should not exceed max_iterations");
+    }
+
+    #[test]
+    fn convergence_status_converged_on_zero_defects() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let options = HealOptions::new(Tolerance::default());
+        let result = run_pipeline(&mut brep, &options).unwrap();
+        // A valid cube has 0 defects, so the pipeline converges immediately.
+        assert_eq!(result.convergence, ConvergenceStatus::Converged);
+        assert_eq!(result.defects_after, 0);
+    }
+
+    #[test]
+    fn convergence_status_on_empty_brep() {
+        let mut brep = BRep::new(Tolerance::default());
+        let options = HealOptions::new(Tolerance::default());
+        let result = run_pipeline(&mut brep, &options).unwrap();
+        assert_eq!(result.convergence, ConvergenceStatus::Converged);
+    }
+
+    #[test]
+    fn convergence_status_variants_are_distinct() {
+        // Ensure all variants can be compared for equality.
+        assert_ne!(ConvergenceStatus::Converged, ConvergenceStatus::Stabilized);
+        assert_ne!(
+            ConvergenceStatus::Stabilized,
+            ConvergenceStatus::MaxIterations
+        );
+        assert_ne!(
+            ConvergenceStatus::MaxIterations,
+            ConvergenceStatus::Oscillating
+        );
+        assert_ne!(ConvergenceStatus::Oscillating, ConvergenceStatus::Regressed);
+        assert_eq!(ConvergenceStatus::Converged, ConvergenceStatus::Converged);
     }
 }

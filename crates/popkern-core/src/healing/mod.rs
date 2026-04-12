@@ -42,12 +42,16 @@ pub mod interval;
 pub mod interval_curvature;
 pub mod options;
 pub mod parallel;
+pub mod progress;
 pub mod quality;
 pub mod regional;
 pub mod repair;
+pub mod scoring;
 pub mod singularity;
 pub mod streaming;
 pub mod telemetry;
+pub mod test_oracle;
+pub mod visual_analysis;
 
 // Re-export key types for ergonomic access.
 pub use cache::HealingCache;
@@ -79,6 +83,9 @@ pub use interval_curvature::GuaranteedCurvatureBounds;
 pub use options::{
     AnalysisOptions, CheckSet, HealOptions, HealStrategy, SampleDensity, ToleranceBounds,
 };
+pub use progress::{
+    CancellationToken, ClosureProgress, NoProgress, ProgressCallback, ProgressTracker,
+};
 pub use quality::{
     ContinuityLevel, QualityDimension, QualityProfile, QualityResult, QualityTier,
     validate_against_profile,
@@ -89,24 +96,34 @@ pub use repair::complexity::{
 };
 pub use repair::coons_patch::{CoonsBoundary, CoonsPatchResult};
 pub use repair::degeneracy::DegeneracyRepairResult;
-pub use repair::g1_coons_patch::{CrossDerivatives, construct_g1_coons_patch};
+pub use repair::g1_coons_patch::{
+    CrossDerivatives, SecondDerivatives, construct_g1_coons_patch, construct_g2_coons_patch,
+};
 pub use repair::gap_repair::{GapRepairResult, GapRepairStrategy};
 pub use repair::hole_fill::{DetectedHole, HoleFillResult, HoleFillStrategy};
 pub use repair::import_repair::{
-    ImportRepairConfig, ImportRepairOp, ImportRepairReport, run_batch_import_repair,
+    CustomRepairOp, ImportFormat, ImportRepairConfig, ImportRepairOp, ImportRepairReport,
+    RepairOperation, StepLabel, run_batch_import_repair,
 };
 pub use repair::merge_faces::FaceMergeResult;
 pub use repair::n_sided_fill::fill_n_sided_hole;
-pub use repair::pipeline::HealResult;
+pub use repair::pipeline::{ConvergenceStatus, HealResult};
 pub use repair::preview::RepairPreview;
+pub use repair::progressive::{HealingCheckpoint, ProgressiveHealResult, heal_progressive};
 pub use repair::rederive::RederiveResult;
 pub use repair::self_intersection::SelfIntersectionRepairResult;
 pub use repair::simplification::{AnalyticalKind, SimplificationResult};
 pub use repair::stitch::StitchResult;
 pub use repair::tolerance_mgmt::ToleranceAdjustment;
+pub use scoring::{QualityGrade, QualityScore, ScoringProfile, score_delta, score_model};
 pub use singularity::{SingularityKind, SingularityRecord};
 pub use streaming::{StreamingConfig, StreamingResult};
 pub use telemetry::{HealingTelemetry, OperationTiming};
+pub use test_oracle::{OracleResult, PlantedDefect, TestModel, run_oracle};
+pub use visual_analysis::{
+    Isophote, ReflectionLine, ZebraStripeField, compute_highlight_lines, compute_isophotes,
+    compute_reflection_lines, compute_zebra_stripes,
+};
 
 use crate::error::CoreError;
 use crate::tolerance::Tolerance;

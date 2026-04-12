@@ -44,6 +44,8 @@ pub mod n_sided_fill;
 pub mod pipeline;
 /// Preview proposed repairs before applying.
 pub mod preview;
+/// Progressive healing with checkpoints and severity-based phases.
+pub mod progressive;
 /// Re-derivation gap repair (recompute edge curves from adjacent surfaces).
 pub mod rederive;
 /// Self-intersection detection and repair.
@@ -63,14 +65,18 @@ pub use degeneracy::{
     DegeneracyRepairResult, detect_cusps, detect_self_tangent_faces, detect_zero_area_faces,
     repair_degeneracies_full,
 };
-pub use g1_coons_patch::CrossDerivatives;
+pub use g1_coons_patch::{CrossDerivatives, SecondDerivatives};
 pub use gap_repair::{GapRepairResult, GapRepairStrategy};
 pub use hole_fill::{DetectedHole, HoleFillResult, HoleFillStrategy, fill_by_extension};
-pub use import_repair::{ImportRepairConfig, ImportRepairOp, ImportRepairReport};
+pub use import_repair::{
+    CustomRepairOp, ImportFormat, ImportRepairConfig, ImportRepairOp, ImportRepairReport,
+    RepairOperation, StepLabel,
+};
 pub use merge_faces::FaceMergeResult;
 pub use n_sided_fill::fill_n_sided_hole;
-pub use pipeline::HealResult;
+pub use pipeline::{ConvergenceStatus, HealResult};
 pub use preview::RepairPreview;
+pub use progressive::{HealingCheckpoint, ProgressiveHealResult, heal_progressive};
 pub use rederive::RederiveResult;
 pub use self_intersection::{SelfIntersectionRepairResult, repair_by_splitting};
 pub use simplification::{AnalyticalKind, SimplificationResult};
