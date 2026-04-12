@@ -46,7 +46,7 @@ impl std::fmt::Display for SmallFaceKind {
 
 /// Run all degenerate entity checks.
 pub fn check_all(brep: &BRep, tolerance: &Tolerance, report: &mut HealingReport) {
-    check_small_edges(brep, tolerance.linear, report);
+    check_small_edges(brep, tolerance.linear(), report);
     check_missing_edge_geometry(brep, report);
     check_missing_face_geometry(brep, report);
     check_small_faces(brep, tolerance, report);
@@ -157,7 +157,7 @@ pub fn check_missing_face_geometry(brep: &BRep, report: &mut HealingReport) {
 /// positions. If the diagonal is smaller than `tolerance.linear * 10`,
 /// the face is flagged as a small face.
 pub fn check_small_faces(brep: &BRep, tolerance: &Tolerance, report: &mut HealingReport) {
-    let threshold = tolerance.linear * 10.0;
+    let threshold = tolerance.linear() * 10.0;
 
     for (face_handle, _face_data) in &brep.faces {
         let positions = brep.face_outer_loop_positions(face_handle);
@@ -223,7 +223,7 @@ mod tests {
         let mut report = HealingReport::new();
         // Only run small edges, small faces (not missing geometry, since
         // unit_cube has full geometry and we want to test non-degenerate).
-        check_small_edges(&brep, tol.linear, &mut report);
+        check_small_edges(&brep, tol.linear(), &mut report);
         check_small_faces(&brep, &tol, &mut report);
         assert!(
             report.is_empty(),

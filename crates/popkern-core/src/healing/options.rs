@@ -212,7 +212,7 @@ impl HealOptions {
     pub fn new(tolerance: Tolerance) -> Self {
         Self {
             strategy: HealStrategy::Standard,
-            max_displacement: tolerance.linear * 10.0,
+            max_displacement: tolerance.linear() * 10.0,
             max_iterations: 3,
             tolerance_bounds: ToleranceBounds::default(),
             tolerance,
@@ -266,7 +266,7 @@ mod tests {
         let opts = HealOptions::new(tol);
         assert_eq!(opts.strategy, HealStrategy::Standard);
         assert_eq!(opts.max_iterations, 3);
-        assert!((opts.max_displacement - tol.linear * 10.0).abs() < 1e-15);
+        assert!((opts.max_displacement - tol.linear() * 10.0).abs() < 1e-15);
     }
 
     #[test]

@@ -71,19 +71,20 @@ pub fn check_edge_surface_consistency(
                 num_samples,
             );
 
-            if result.max_deviation > tolerance.linear {
+            if result.max_deviation > tolerance.linear() {
                 report.push(DefectRecord {
                     category: DefectCategory::Geometric,
                     severity: Severity::Error,
                     description: format!(
                         "Edge curve deviates from adjacent face surface by {:.6} \
                          (tolerance: {:.6})",
-                        result.max_deviation, tolerance.linear
+                        result.max_deviation,
+                        tolerance.linear()
                     ),
                     entities: vec![EntityRef::Edge(edge_handle)],
                     location: None,
                     measured_value: Some(result.max_deviation),
-                    threshold: Some(tolerance.linear),
+                    threshold: Some(tolerance.linear()),
                     remediation: Some(Remediation {
                         action: RemediationAction::RecomputeEdgeCurve,
                         parameter: None,

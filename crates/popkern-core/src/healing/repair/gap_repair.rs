@@ -116,7 +116,7 @@ pub fn repair_gap(
     };
 
     // Already within tolerance -- nothing to do.
-    if gap < tolerance.linear {
+    if gap < tolerance.linear() {
         return Ok(GapRepairResult {
             edge,
             strategy_used: strategy,
@@ -214,7 +214,7 @@ pub fn repair_all_gaps(
     let mut results = Vec::new();
     for eh in edge_handles {
         if let Ok(result) = repair_gap(brep, eh, strategy, tolerance)
-            && result.original_gap >= tolerance.linear
+            && result.original_gap >= tolerance.linear()
         {
             results.push(result);
         }
@@ -242,7 +242,7 @@ mod tests {
         .unwrap();
         // A valid cube has no gaps, so displacement should be zero.
         assert!(
-            result.max_displacement < tol.linear,
+            result.max_displacement < tol.linear(),
             "expected no displacement on valid cube, got {}",
             result.max_displacement
         );
@@ -274,7 +274,7 @@ mod tests {
         )
         .unwrap();
         assert!(
-            result.original_gap < tol.linear,
+            result.original_gap < tol.linear(),
             "valid cube should have no curve-vertex gap"
         );
     }

@@ -106,7 +106,8 @@ pub fn run_pipeline(brep: &mut BRep, options: &HealOptions) -> Result<HealResult
                     all_gap_repairs.extend(repairs);
                 }
                 RepairStep::SurfaceSimplification => {
-                    let simps = simplification::simplify_all_faces(brep, options.tolerance.linear);
+                    let simps =
+                        simplification::simplify_all_faces(brep, options.tolerance.linear());
                     all_simplifications.extend(simps);
                 }
             }

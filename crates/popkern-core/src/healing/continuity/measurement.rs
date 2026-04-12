@@ -152,8 +152,8 @@ pub fn cross_boundary_continuity(
     };
 
     // Determine achieved level (each level subsumes the previous).
-    let passes_g0 = g0_max < tolerance.linear;
-    let passes_g1 = passes_g0 && g1_max_angle < tolerance.angular;
+    let passes_g0 = g0_max < tolerance.linear();
+    let passes_g1 = passes_g0 && g1_max_angle < tolerance.angular();
     let passes_g2 = passes_g1 && g2_max_curvature_diff < G2_CURVATURE_THRESHOLD;
 
     let achieved_level = if passes_g2 {
