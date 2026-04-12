@@ -31,6 +31,7 @@
 //! preview.apply_all(&mut brep)?;
 //! ```
 
+pub mod cache;
 pub mod continuity;
 pub mod curvature;
 pub mod defects;
@@ -46,6 +47,7 @@ pub mod singularity;
 pub mod telemetry;
 
 // Re-export key types for ergonomic access.
+pub use cache::HealingCache;
 pub use continuity::classification::{EdgeClassification, SmoothChain};
 pub use continuity::enforcement::EnforcementResult;
 pub use continuity::measurement::ContinuityMeasurement;

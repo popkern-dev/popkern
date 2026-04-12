@@ -9,6 +9,7 @@ pub mod containment;
 pub mod degenerate;
 pub mod geometric;
 pub mod import;
+pub mod parameterization;
 pub mod topological;
 
 use crate::healing::diagnostics::{DefectCategory, DefectRecord, HealingReport, Severity};

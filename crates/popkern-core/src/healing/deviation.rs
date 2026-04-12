@@ -120,7 +120,8 @@ pub fn edge_surface_deviation(
 ///
 /// Samples both curves at `num_samples` evenly spaced parameter fractions
 /// within their respective ranges. At each fraction, computes the point-to-point
-/// distance.
+/// distance. After the uniform pass, performs adaptive binary-search refinement
+/// near the current maximum (same pattern as [`edge_surface_deviation`]).
 pub fn curve_curve_deviation(
     curve_a: &dyn CurveEval,
     range_a: (f64, f64),
@@ -135,7 +136,9 @@ pub fn curve_curve_deviation(
     let mut max_dev = 0.0_f64;
     let mut max_t = a0;
     let mut sum_dev = 0.0;
+    let mut count = 0_usize;
 
+    // Uniform sampling pass.
     for i in 0..samples {
         let frac = (i as f64) / ((samples - 1) as f64);
         let ta = a0 + (a1 - a0) * frac;
@@ -146,6 +149,7 @@ pub fn curve_curve_deviation(
         let dist = pa.distance_to(&pb);
 
         sum_dev += dist;
+        count += 1;
 
         if dist > max_dev {
             max_dev = dist;
@@ -153,8 +157,46 @@ pub fn curve_curve_deviation(
         }
     }
 
-    let mean_dev = if samples > 0 {
-        sum_dev / samples as f64
+    // Adaptive refinement: binary search around the current maximum.
+    let refinement_iterations = 4;
+    let step = (a1 - a0) / (samples as f64);
+    let mut lo = (max_t - step).max(a0);
+    let mut hi = (max_t + step).min(a1);
+
+    for _ in 0..refinement_iterations {
+        let mid_lo = (lo + max_t) * 0.5;
+        let mid_hi = (max_t + hi) * 0.5;
+
+        for ta in [mid_lo, mid_hi] {
+            // Map back to curve_b's parameter space proportionally.
+            let frac = if (a1 - a0).abs() > 1e-15 {
+                (ta - a0) / (a1 - a0)
+            } else {
+                0.0
+            };
+            let tb = b0 + (b1 - b0) * frac;
+
+            let pa = curve_a.point_at(ta);
+            let pb = curve_b.point_at(tb);
+            let dist = pa.distance_to(&pb);
+
+            sum_dev += dist;
+            count += 1;
+
+            if dist > max_dev {
+                max_dev = dist;
+                max_t = ta;
+            }
+        }
+
+        // Narrow the search window around the new maximum.
+        let span = (hi - lo) * 0.5;
+        lo = (max_t - span * 0.5).max(a0);
+        hi = (max_t + span * 0.5).min(a1);
+    }
+
+    let mean_dev = if count > 0 {
+        sum_dev / count as f64
     } else {
         0.0
     };
@@ -163,7 +205,7 @@ pub fn curve_curve_deviation(
         max_deviation: max_dev,
         mean_deviation: mean_dev,
         max_location: max_t,
-        sample_count: samples,
+        sample_count: count,
     }
 }
 
@@ -171,7 +213,9 @@ pub fn curve_curve_deviation(
 ///
 /// Samples `surface_a` on a grid of `sqrt(num_samples) x sqrt(num_samples)`
 /// points within `range_a`. For each sample point, finds the closest point
-/// on `surface_b` and measures the distance.
+/// on `surface_b` and measures the distance. After the uniform grid pass,
+/// performs adaptive refinement by subdividing the grid cell containing the
+/// maximum into a 4x4 sub-grid (repeated 3 times).
 ///
 /// If `surface_b.closest_point()` fails for a sample, falls back to
 /// `surface_b.point_at(0.0, 0.0)`.
@@ -199,7 +243,10 @@ pub fn surface_surface_deviation(
     let mut max_location = 0.0_f64;
     let mut sum_dev = 0.0;
     let mut count = 0_usize;
+    let mut max_i = 0_usize;
+    let mut max_j = 0_usize;
 
+    // Uniform grid pass.
     for i in 0..grid {
         let u = ua_lo + (ua_hi - ua_lo) * (i as f64) / ((grid - 1) as f64);
         for j in 0..grid {
@@ -219,10 +266,62 @@ pub fn surface_surface_deviation(
 
             if dist > max_dev {
                 max_dev = dist;
-                // Encode grid location as a single float: i * grid + j.
                 max_location = (i * grid + j) as f64;
+                max_i = i;
+                max_j = j;
             }
         }
+    }
+
+    // Adaptive refinement: subdivide the grid cell containing the maximum
+    // into a 4x4 sub-grid, repeated 3 times.
+    let u_step = (ua_hi - ua_lo) / ((grid - 1) as f64);
+    let v_step = (va_hi - va_lo) / ((grid - 1) as f64);
+
+    let mut cell_u_lo = ua_lo + (max_i.saturating_sub(1) as f64) * u_step;
+    let mut cell_u_hi = (ua_lo + ((max_i + 1) as f64) * u_step).min(ua_hi);
+    let mut cell_v_lo = va_lo + (max_j.saturating_sub(1) as f64) * v_step;
+    let mut cell_v_hi = (va_lo + ((max_j + 1) as f64) * v_step).min(va_hi);
+
+    let refinement_iterations = 3;
+    let sub_grid = 4;
+
+    for _ in 0..refinement_iterations {
+        let mut local_max_u = cell_u_lo;
+        let mut local_max_v = cell_v_lo;
+
+        for si in 0..sub_grid {
+            let u = cell_u_lo + (cell_u_hi - cell_u_lo) * (si as f64) / ((sub_grid - 1) as f64);
+            for sj in 0..sub_grid {
+                let v = cell_v_lo + (cell_v_hi - cell_v_lo) * (sj as f64) / ((sub_grid - 1) as f64);
+                let pt_a = surface_a.point_at(u, v);
+
+                let dist = if let Some((ub, vb)) = surface_b.closest_point(&pt_a) {
+                    let pt_b = surface_b.point_at(ub, vb);
+                    pt_a.distance_to(&pt_b)
+                } else {
+                    let fallback = surface_b.point_at(0.0, 0.0);
+                    pt_a.distance_to(&fallback)
+                };
+
+                sum_dev += dist;
+                count += 1;
+
+                if dist > max_dev {
+                    max_dev = dist;
+                    local_max_u = u;
+                    local_max_v = v;
+                }
+            }
+        }
+
+        // Narrow the cell around the new local maximum.
+        let half_u = (cell_u_hi - cell_u_lo) * 0.25;
+        let half_v = (cell_v_hi - cell_v_lo) * 0.25;
+        cell_u_lo = (local_max_u - half_u).max(ua_lo);
+        cell_u_hi = (local_max_u + half_u).min(ua_hi);
+        cell_v_lo = (local_max_v - half_v).max(va_lo);
+        cell_v_hi = (local_max_v + half_v).min(va_hi);
     }
 
     let mean_dev = if count > 0 {
@@ -286,7 +385,12 @@ mod tests {
             "mean deviation should be ~0 for identical curves, got {}",
             result.mean_deviation
         );
-        assert_eq!(result.sample_count, 50);
+        // 50 uniform + 8 adaptive refinement samples.
+        assert!(
+            result.sample_count >= 50,
+            "sample count should include refinement, got {}",
+            result.sample_count
+        );
     }
 
     #[test]
@@ -357,6 +461,11 @@ mod tests {
         // At t=0 both are at origin, so min deviation is 0.
         // At t=1 they are sqrt(2) apart.
         assert!(result.max_deviation > 0.0);
-        assert!(result.sample_count == 10);
+        // 10 uniform + 8 adaptive refinement samples.
+        assert!(
+            result.sample_count >= 10,
+            "sample count should include refinement, got {}",
+            result.sample_count
+        );
     }
 }

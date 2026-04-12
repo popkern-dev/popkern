@@ -24,8 +24,8 @@ pub struct BoundarySample {
 
 /// Result of cross-boundary continuity measurement.
 ///
-/// Contains per-level statistics (G0 position, G1 normal angle, G2 curvature)
-/// and the highest achieved continuity level.
+/// Contains per-level statistics (G0 position, G1 normal angle, G2 curvature,
+/// G3 curvature rate) and the highest achieved continuity level.
 #[derive(Debug, Clone)]
 pub struct ContinuityMeasurement {
     /// Highest continuity level that passes the tolerance thresholds.
@@ -50,6 +50,10 @@ pub struct ContinuityMeasurement {
     pub g2_max_curvature_diff: f64,
     /// Mean Gaussian curvature difference.
     pub g2_mean_curvature_diff: f64,
+    /// Maximum curvature-rate difference (derivative of curvature w.r.t. arc length).
+    pub g3_max_curvature_rate_diff: f64,
+    /// Mean curvature-rate difference.
+    pub g3_mean_curvature_rate_diff: f64,
     /// Number of boundary samples evaluated.
     pub sample_count: usize,
 }
@@ -59,6 +63,11 @@ pub struct ContinuityMeasurement {
 /// If the maximum absolute difference in Gaussian curvature across all
 /// samples is below this value, the boundary is considered G2.
 const G2_CURVATURE_THRESHOLD: f64 = 1e-3;
+
+/// Curvature-rate-difference threshold for G3 continuity.
+///
+/// Curvature rate matching is inherently loose, so the default is 1.0.
+const G3_CURVATURE_RATE_THRESHOLD: f64 = 1.0;
 
 /// Compute the 95th-percentile value from a sorted slice.
 ///
@@ -100,7 +109,11 @@ fn median(sorted: &[f64]) -> f64 {
 ///   [`gaussian_curvature`]. Samples where curvature is undefined (degenerate
 ///   points) are skipped.
 ///
+/// - **G3** (curvature rate): difference in the derivative of Gaussian curvature
+///   w.r.t. arc length, estimated via finite differences between adjacent samples.
+///
 /// The achieved level is determined by comparing statistics against `tolerance`:
+/// - G3 if `g3_max < G3_CURVATURE_RATE_THRESHOLD` **and** G2 passes
 /// - G2 if `g2_max_curvature_diff < G2_CURVATURE_THRESHOLD` **and** G1 passes
 /// - G1 if `g1_max_angle < tolerance.angular` **and** G0 passes
 /// - G0 if `g0_max < tolerance.linear`
@@ -173,20 +186,51 @@ pub fn cross_boundary_continuity(
         g2_values.iter().sum::<f64>() / g2_values.len() as f64
     };
 
+    // Compute G3: curvature rate (d(curvature)/d(arc_length)) difference.
+    let mut g3_values = Vec::new();
+    if g2_values.len() >= 2 {
+        let mut ka_vals = Vec::with_capacity(samples.len());
+        let mut kb_vals = Vec::with_capacity(samples.len());
+        let mut pts_a = Vec::with_capacity(samples.len());
+        for s in samples {
+            ka_vals.push(gaussian_curvature(surface_a, s.u_a, s.v_a));
+            kb_vals.push(gaussian_curvature(surface_b, s.u_b, s.v_b));
+            pts_a.push(surface_a.point_at(s.u_a, s.v_a));
+        }
+        for i in 0..ka_vals.len() - 1 {
+            if let (Some(ka_i), Some(ka_n)) = (ka_vals[i], ka_vals[i + 1])
+                && let (Some(kb_i), Some(kb_n)) = (kb_vals[i], kb_vals[i + 1])
+            {
+                let ds = pts_a[i].distance_to(&pts_a[i + 1]);
+                if ds > 1e-15 {
+                    let rate_a = (ka_n - ka_i) / ds;
+                    let rate_b = (kb_n - kb_i) / ds;
+                    g3_values.push((rate_a - rate_b).abs());
+                }
+            }
+        }
+    }
+    let g3_max_curvature_rate_diff = g3_values.iter().copied().fold(0.0_f64, f64::max);
+    let g3_mean_curvature_rate_diff = if g3_values.is_empty() {
+        0.0
+    } else {
+        g3_values.iter().sum::<f64>() / g3_values.len() as f64
+    };
+
     // Determine achieved level (each level subsumes the previous).
     let passes_g0 = g0_max < tolerance.linear();
     let passes_g1 = passes_g0 && g1_max_angle < tolerance.angular();
     let passes_g2 = passes_g1 && g2_max_curvature_diff < G2_CURVATURE_THRESHOLD;
+    let passes_g3 = passes_g2 && g3_max_curvature_rate_diff < G3_CURVATURE_RATE_THRESHOLD;
 
-    let achieved_level = if passes_g2 {
+    let achieved_level = if passes_g3 {
+        ContinuityLevel::G3
+    } else if passes_g2 {
         ContinuityLevel::G2
     } else if passes_g1 {
         ContinuityLevel::G1
-    } else if passes_g0 {
-        ContinuityLevel::G0
     } else {
-        // Even G0 fails — still report G0 as the nominal level since
-        // there is no "below G0" variant.
+        // G0 is the base level (no "below G0" variant).
         ContinuityLevel::G0
     };
 
@@ -202,6 +246,8 @@ pub fn cross_boundary_continuity(
         g1_median_angle,
         g2_max_curvature_diff,
         g2_mean_curvature_diff,
+        g3_max_curvature_rate_diff,
+        g3_mean_curvature_rate_diff,
         sample_count: samples.len(),
     }
 }
@@ -334,160 +380,5 @@ fn check_adjacent_continuity(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::geometry::surface::SurfaceGeometry;
-    use crate::geometry::{Point3, Vec3};
-
-    fn xy_plane() -> SurfaceGeometry {
-        SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        }
-    }
-
-    /// Two identical planes should achieve G2 with all deviations zero.
-    #[test]
-    fn identical_planes_g2() {
-        let plane = xy_plane();
-        let samples: Vec<BoundarySample> = (0..10)
-            .map(|i| {
-                let t = i as f64 / 9.0;
-                BoundarySample {
-                    u_a: t,
-                    v_a: 0.0,
-                    u_b: t,
-                    v_b: 0.0,
-                }
-            })
-            .collect();
-
-        let tol = Tolerance::default();
-        let result = cross_boundary_continuity(&plane, &plane, &samples, &tol);
-
-        assert_eq!(result.achieved_level, ContinuityLevel::G2);
-        assert!(
-            result.g0_max < 1e-15,
-            "g0_max should be ~0: {}",
-            result.g0_max
-        );
-        assert!(
-            result.g0_mean < 1e-15,
-            "g0_mean should be ~0: {}",
-            result.g0_mean
-        );
-        assert!(
-            result.g1_max_angle < 1e-15,
-            "g1_max_angle should be ~0: {}",
-            result.g1_max_angle
-        );
-        assert!(
-            result.g2_max_curvature_diff < 1e-15,
-            "g2_max_curvature_diff should be ~0: {}",
-            result.g2_max_curvature_diff
-        );
-        assert_eq!(result.sample_count, 10);
-    }
-
-    /// Two planes with a 45-degree angular offset should be G0 but not G1.
-    #[test]
-    fn angled_planes_g0_not_g1() {
-        let plane_a = xy_plane();
-        // Plane B is tilted 45 degrees around the X axis (normal rotated).
-        let angle = std::f64::consts::FRAC_PI_4;
-        let plane_b = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, -angle.sin(), angle.cos()),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, angle.cos(), angle.sin()),
-        };
-
-        // Sample along the shared x-axis boundary (y=0, z=0) where both
-        // planes coincide positionally.
-        let samples: Vec<BoundarySample> = (0..10)
-            .map(|i| {
-                let t = i as f64 / 9.0;
-                BoundarySample {
-                    u_a: t,
-                    v_a: 0.0,
-                    u_b: t,
-                    v_b: 0.0,
-                }
-            })
-            .collect();
-
-        let tol = Tolerance::default();
-        let result = cross_boundary_continuity(&plane_a, &plane_b, &samples, &tol);
-
-        // Positionally coincident along the shared boundary.
-        assert!(
-            result.g0_max < 1e-12,
-            "planes share boundary: g0_max={}",
-            result.g0_max
-        );
-        // Normal angle should be ~45 degrees, well above the angular tolerance.
-        assert!(
-            result.g1_max_angle > 0.1,
-            "should detect angular deviation: {}",
-            result.g1_max_angle
-        );
-        // Achieved level should be G0 (not G1) since the normals differ.
-        assert_eq!(result.achieved_level, ContinuityLevel::G0);
-    }
-
-    #[test]
-    fn empty_samples_returns_zero_stats() {
-        let plane = xy_plane();
-        let tol = Tolerance::default();
-        let result = cross_boundary_continuity(&plane, &plane, &[], &tol);
-        assert_eq!(result.sample_count, 0);
-        assert!(result.g0_max < 1e-15);
-    }
-
-    #[test]
-    fn percentile_95_basic() {
-        let mut values: Vec<f64> = (0..100).map(|i| i as f64).collect();
-        values.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let p95 = super::percentile_95(&values);
-        // 95th percentile of [0..99]: ceil(100 * 0.95) = 95 => values[95] = 95
-        assert!((p95 - 95.0).abs() < 1e-10, "p95={p95}");
-    }
-
-    #[test]
-    fn percentile_95_empty() {
-        assert!((super::percentile_95(&[]) - 0.0).abs() < 1e-15);
-    }
-
-    #[test]
-    fn plane_has_no_internal_discontinuities() {
-        let plane = xy_plane();
-        let tol = Tolerance::default();
-        let records = internal_discontinuities(&plane, ContinuityLevel::G2, &tol, 8);
-        assert!(
-            records.is_empty(),
-            "Plane should have no internal discontinuities, got {}",
-            records.len()
-        );
-    }
-
-    #[test]
-    fn sphere_has_no_internal_discontinuities_with_wide_tolerance() {
-        let sphere = SurfaceGeometry::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 1.0,
-        };
-        // A coarse grid on a sphere produces normal angle changes proportional
-        // to the grid spacing. With 20 samples, each step is ~0.3 rad, so use
-        // an angular tolerance larger than that. A smooth surface should still
-        // report no discontinuities when the tolerance accounts for grid spacing.
-        let tol = Tolerance::default().with_angular(1.0);
-        let records = internal_discontinuities(&sphere, ContinuityLevel::G1, &tol, 20);
-        assert!(
-            records.is_empty(),
-            "Sphere should have no G1 discontinuities at wide tolerance, got {}",
-            records.len()
-        );
-    }
-}
+#[path = "measurement_tests.rs"]
+mod tests;

@@ -1,9 +1,11 @@
 //! Import-specific defect detection (Section 5.4).
 //!
 //! Detects defects that commonly occur during STEP/IGES import:
-//! lost periodic topology (seam edges missing on cylinders, tori, etc.)
-//! and orientation inconsistencies introduced by translator bugs.
+//! lost periodic topology (seam edges missing on cylinders, tori, etc.),
+//! orientation inconsistencies introduced by translator bugs, and
+//! representation discontinuities from format conversion artifacts.
 
+use crate::geometry::curve::CurveGeometry;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::healing::diagnostics::{
     DefectCategory, DefectRecord, EntityRef, HealingReport, Remediation, RemediationAction,
@@ -19,6 +21,7 @@ pub fn check_all(brep: &BRep, tolerance: &Tolerance, report: &mut HealingReport)
     check_lost_singularity_topology(brep, report);
     check_coordinate_artifacts(brep, tolerance, report);
     check_tolerance_mismatch(brep, tolerance, report);
+    check_representation_discontinuities(brep, tolerance, report);
 }
 
 /// Check for lost periodic topology on faces with periodic surfaces.
@@ -245,105 +248,52 @@ fn has_zero_length_edge_in_loop(brep: &BRep, loop_handle: crate::topology::LoopH
 pub fn check_tolerance_mismatch(brep: &BRep, tolerance: &Tolerance, report: &mut HealingReport) {
     let linear = tolerance.linear();
 
-    for (vertex_handle, vertex) in &brep.vertices {
-        if let Some(tol) = vertex.tolerance {
-            if tol > linear * 100.0 {
-                report.push(DefectRecord {
-                    category: DefectCategory::Import,
-                    severity: Severity::Warning,
-                    description: format!(
-                        "Entity tolerance {tol:.2e} is much larger than model tolerance \
-                         {linear:.2e} — possible import from a coarser system"
-                    ),
-                    entities: vec![EntityRef::Vertex(vertex_handle)],
-                    location: None,
-                    measured_value: Some(tol),
-                    threshold: Some(linear),
-                    remediation: None,
-                });
-            } else if tol < linear * 0.01 {
-                report.push(DefectRecord {
-                    category: DefectCategory::Import,
-                    severity: Severity::Info,
-                    description: format!(
-                        "Entity tolerance {tol:.2e} is much tighter than model tolerance \
-                         {linear:.2e} — possible import from a finer system"
-                    ),
-                    entities: vec![EntityRef::Vertex(vertex_handle)],
-                    location: None,
-                    measured_value: Some(tol),
-                    threshold: Some(linear),
-                    remediation: None,
-                });
-            }
-        }
-    }
+    // Collect (entity_ref, entity_tolerance) triples.
+    let entities: Vec<(EntityRef, f64)> = brep
+        .vertices
+        .iter()
+        .filter_map(|(h, v)| v.tolerance.map(|t| (EntityRef::Vertex(h), t)))
+        .chain(
+            brep.edges
+                .iter()
+                .filter_map(|(h, e)| e.tolerance.map(|t| (EntityRef::Edge(h), t))),
+        )
+        .chain(
+            brep.faces
+                .iter()
+                .filter_map(|(h, f)| f.tolerance.map(|t| (EntityRef::Face(h), t))),
+        )
+        .collect();
 
-    for (edge_handle, edge) in &brep.edges {
-        if let Some(tol) = edge.tolerance {
-            if tol > linear * 100.0 {
-                report.push(DefectRecord {
-                    category: DefectCategory::Import,
-                    severity: Severity::Warning,
-                    description: format!(
-                        "Entity tolerance {tol:.2e} is much larger than model tolerance \
-                         {linear:.2e} — possible import from a coarser system"
-                    ),
-                    entities: vec![EntityRef::Edge(edge_handle)],
-                    location: None,
-                    measured_value: Some(tol),
-                    threshold: Some(linear),
-                    remediation: None,
-                });
-            } else if tol < linear * 0.01 {
-                report.push(DefectRecord {
-                    category: DefectCategory::Import,
-                    severity: Severity::Info,
-                    description: format!(
-                        "Entity tolerance {tol:.2e} is much tighter than model tolerance \
-                         {linear:.2e} — possible import from a finer system"
-                    ),
-                    entities: vec![EntityRef::Edge(edge_handle)],
-                    location: None,
-                    measured_value: Some(tol),
-                    threshold: Some(linear),
-                    remediation: None,
-                });
-            }
-        }
-    }
-
-    for (face_handle, face) in &brep.faces {
-        if let Some(tol) = face.tolerance {
-            if tol > linear * 100.0 {
-                report.push(DefectRecord {
-                    category: DefectCategory::Import,
-                    severity: Severity::Warning,
-                    description: format!(
-                        "Entity tolerance {tol:.2e} is much larger than model tolerance \
-                         {linear:.2e} — possible import from a coarser system"
-                    ),
-                    entities: vec![EntityRef::Face(face_handle)],
-                    location: None,
-                    measured_value: Some(tol),
-                    threshold: Some(linear),
-                    remediation: None,
-                });
-            } else if tol < linear * 0.01 {
-                report.push(DefectRecord {
-                    category: DefectCategory::Import,
-                    severity: Severity::Info,
-                    description: format!(
-                        "Entity tolerance {tol:.2e} is much tighter than model tolerance \
-                         {linear:.2e} — possible import from a finer system"
-                    ),
-                    entities: vec![EntityRef::Face(face_handle)],
-                    location: None,
-                    measured_value: Some(tol),
-                    threshold: Some(linear),
-                    remediation: None,
-                });
-            }
+    for (entity, tol) in entities {
+        if tol > linear * 100.0 {
+            report.push(DefectRecord {
+                category: DefectCategory::Import,
+                severity: Severity::Warning,
+                description: format!(
+                    "Entity tolerance {tol:.2e} is much larger than model tolerance \
+                     {linear:.2e} — possible import from a coarser system"
+                ),
+                entities: vec![entity],
+                location: None,
+                measured_value: Some(tol),
+                threshold: Some(linear),
+                remediation: None,
+            });
+        } else if tol < linear * 0.01 {
+            report.push(DefectRecord {
+                category: DefectCategory::Import,
+                severity: Severity::Info,
+                description: format!(
+                    "Entity tolerance {tol:.2e} is much tighter than model tolerance \
+                     {linear:.2e} — possible import from a finer system"
+                ),
+                entities: vec![entity],
+                location: None,
+                measured_value: Some(tol),
+                threshold: Some(linear),
+                remediation: None,
+            });
         }
     }
 }
@@ -392,102 +342,133 @@ pub fn check_coordinate_artifacts(brep: &BRep, tolerance: &Tolerance, report: &m
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tolerance::Tolerance;
-    use crate::topology::BRep;
-
-    #[test]
-    fn valid_cube_no_import_defects() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let tol = Tolerance::default();
-        let mut report = HealingReport::new();
-        check_all(&brep, &tol, &mut report);
-        // The unit cube has planar faces (non-periodic), so no lost
-        // periodic topology, and valid orientation.
-        assert!(
-            report.is_empty(),
-            "Valid cube should have no import defects, got {}",
-            report.len()
-        );
+/// Check for representation discontinuities from format conversion (Section 5.4).
+///
+/// Detects NURBS curves and surfaces that have internal continuity
+/// breaks at knot boundaries, which may indicate conversion artifacts
+/// from rational-to-polynomial approximation or representation changes.
+pub fn check_representation_discontinuities(
+    brep: &BRep,
+    _tolerance: &Tolerance,
+    report: &mut HealingReport,
+) {
+    for (edge_handle, edge) in &brep.edges {
+        if let Some(ref coe) = edge.curve
+            && let CurveGeometry::Nurbs(nurbs) = &coe.geometry
+        {
+            emit_knot_defects(
+                &nurbs.knots,
+                nurbs.degree,
+                "NURBS curve",
+                "",
+                EntityRef::Edge(edge_handle),
+                report,
+            );
+        }
     }
-
-    #[test]
-    fn orientation_inconsistency_detected() {
-        use crate::geometry::Point3;
-        use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
-
-        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let face_handle = brep.faces.keys().next().unwrap();
-        // Attach a degenerate surface to trigger orientation failure.
-        brep.faces[face_handle].surface = Some(SurfaceOnFace {
-            geometry: SurfaceGeometry::Sphere {
-                center: Point3::new(0.0, 0.0, 0.0),
-                radius: 0.0,
-            },
-            orientation: true,
-        });
-
-        let mut report = HealingReport::new();
-        check_orientation_inconsistencies(&brep, &mut report);
-        assert!(
-            !report.is_empty(),
-            "Degenerate surface should trigger orientation defect"
-        );
-        assert_eq!(report.defects()[0].category, DefectCategory::Import);
-    }
-
-    #[test]
-    fn empty_brep_no_import_defects() {
-        let brep = BRep::new(Tolerance::default());
-        let tol = Tolerance::default();
-        let mut report = HealingReport::new();
-        check_all(&brep, &tol, &mut report);
-        assert!(report.is_empty());
-    }
-
-    #[test]
-    fn non_periodic_face_skipped() {
-        // A cube has only planar faces; none should trigger periodic checks.
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let mut report = HealingReport::new();
-        check_lost_periodic_topology(&brep, &mut report);
-        assert!(report.is_empty());
-    }
-
-    #[test]
-    fn lost_singularity_topology_on_cube_produces_no_defect() {
-        // A cube has planar faces; no sphere/cone surfaces.
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let mut report = HealingReport::new();
-        check_lost_singularity_topology(&brep, &mut report);
-        assert!(
-            report.is_empty(),
-            "Cube with planar faces should have no singularity topology defects"
-        );
-    }
-
-    #[test]
-    fn coordinate_artifacts_on_valid_cube() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let tol = Tolerance::default();
-        let mut report = HealingReport::new();
-        check_coordinate_artifacts(&brep, &tol, &mut report);
-        // Unit cube vertices are at 0.0 and 1.0 — none in the suspicious range.
-        assert!(
-            report.is_empty(),
-            "Valid cube should have no coordinate artifact defects"
-        );
-    }
-
-    #[test]
-    fn empty_brep_no_singularity_or_artifact_defects() {
-        let brep = BRep::new(Tolerance::default());
-        let tol = Tolerance::default();
-        let mut report = HealingReport::new();
-        check_lost_singularity_topology(&brep, &mut report);
-        check_coordinate_artifacts(&brep, &tol, &mut report);
-        assert!(report.is_empty());
+    for (face_handle, face) in &brep.faces {
+        if let Some(ref sof) = face.surface
+            && let SurfaceGeometry::Nurbs(nurbs) = &sof.geometry
+        {
+            let entity = EntityRef::Face(face_handle);
+            emit_knot_defects(
+                &nurbs.knots_u,
+                nurbs.degree_u,
+                "NURBS surface",
+                " in u-direction",
+                entity.clone(),
+                report,
+            );
+            emit_knot_defects(
+                &nurbs.knots_v,
+                nurbs.degree_v,
+                "NURBS surface",
+                " in v-direction",
+                entity,
+                report,
+            );
+        }
     }
 }
+
+/// Emit defect records for high-multiplicity interior knots.
+fn emit_knot_defects(
+    knots: &[f64],
+    degree: usize,
+    entity_label: &str,
+    dir_suffix: &str,
+    entity: EntityRef,
+    report: &mut HealingReport,
+) {
+    for (knot_idx, mult) in knot_multiplicities(knots, degree) {
+        if mult >= degree {
+            report.push(DefectRecord {
+                category: DefectCategory::Import,
+                severity: Severity::Warning,
+                description: format!(
+                    "{entity_label} has C0 discontinuity{dir_suffix} at interior \
+                     knot index {knot_idx} (multiplicity {mult} = degree {degree}); \
+                     possible conversion artifact"
+                ),
+                entities: vec![entity.clone()],
+                location: None,
+                measured_value: Some(mult as f64),
+                threshold: Some(degree as f64),
+                remediation: Some(Remediation {
+                    action: RemediationAction::AdjustGeometry,
+                    parameter: None,
+                    value: None,
+                    rationale: format!(
+                        "Remove or reduce knot multiplicity to restore \
+                         smoothness{dir_suffix}"
+                    ),
+                }),
+            });
+        } else if mult + 1 >= degree && degree >= 2 {
+            report.push(DefectRecord {
+                category: DefectCategory::Import,
+                severity: Severity::Info,
+                description: format!(
+                    "{entity_label} has C1 discontinuity{dir_suffix} at interior \
+                     knot index {knot_idx} (multiplicity {mult} = degree {degree} - 1); \
+                     possible conversion artifact"
+                ),
+                entities: vec![entity.clone()],
+                location: None,
+                measured_value: Some(mult as f64),
+                threshold: Some(degree as f64),
+                remediation: None,
+            });
+        }
+    }
+}
+
+/// Compute the multiplicity of each distinct interior knot.
+///
+/// Interior knots are those not in the first `degree + 1` or last
+/// `degree + 1` positions of the knot vector. Returns `(knot_index,
+/// multiplicity)` pairs for each distinct interior knot.
+fn knot_multiplicities(knots: &[f64], degree: usize) -> Vec<(usize, usize)> {
+    let n = knots.len();
+    let boundary = degree + 1;
+    if n <= 2 * boundary || boundary >= n - boundary {
+        return Vec::new();
+    }
+    let (start, end) = (boundary, n - boundary);
+    let mut result = Vec::new();
+    let mut i = start;
+    while i < end {
+        let val = knots[i];
+        let mut m = 1;
+        while i + m < end && (knots[i + m] - val).abs() < 1e-14 {
+            m += 1;
+        }
+        result.push((i, m));
+        i += m;
+    }
+    result
+}
+
+#[cfg(test)]
+#[path = "import_tests.rs"]
+mod tests;

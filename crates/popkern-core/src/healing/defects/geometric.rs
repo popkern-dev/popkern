@@ -28,6 +28,7 @@ pub fn check_all(
     check_tolerance_hierarchy(brep, report);
     check_self_intersection(brep, report);
     check_parameterization_quality(brep, tolerance, report);
+    super::parameterization::check_self_overlapping_parameterization(brep, report);
     super::containment::check_surface_containment(brep, report);
     super::containment::check_boundary_containment(brep, tolerance, sample_density, report);
 }
