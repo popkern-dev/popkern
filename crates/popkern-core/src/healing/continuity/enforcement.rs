@@ -482,3 +482,7 @@ fn midpoint(a: &Point3, b: &Point3) -> Point3 {
 #[cfg(test)]
 #[path = "enforcement_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "enforcement_nurbs_tests.rs"]
+mod nurbs_tests;

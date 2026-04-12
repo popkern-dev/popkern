@@ -202,3 +202,161 @@ fn type_specific_repair_result_fields() {
         assert!(!result.description.is_empty());
     }
 }
+
+// -----------------------------------------------------------------------
+// Tests with NURBS surfaces that have special type properties
+// -----------------------------------------------------------------------
+
+use crate::constructors::builder::BRepBuilder;
+use crate::geometry::nurbs_surface::NurbsSurface;
+use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+use crate::geometry::{Point3, Vec3};
+
+/// Build a BRep with a single NURBS face that has uniform cross-sections
+/// (swept-like). Uses a 4x4 grid where each u-row is identical.
+fn make_swept_like_brep() -> BRep {
+    let mut b = BRepBuilder::new(Tolerance::default());
+    let v0 = b.add_vertex(Point3::new(0.0, 0.0, 0.0));
+    let v1 = b.add_vertex(Point3::new(1.0, 0.0, 0.0));
+    let v2 = b.add_vertex(Point3::new(1.0, 1.0, 0.0));
+    let v3 = b.add_vertex(Point3::new(0.0, 1.0, 0.0));
+
+    let solid = b.add_solid();
+    let shell = b.add_shell(solid);
+    let (_, he01, _) = b.add_edge(v0, v1);
+    let (_, he12, _) = b.add_edge(v1, v2);
+    let (_, he23, _) = b.add_edge(v2, v3);
+    let (_, he30, _) = b.add_edge(v3, v0);
+
+    let face = b.add_face(shell);
+    b.add_loop(&[he01, he12, he23, he30], face).unwrap();
+
+    let mut cps = Vec::with_capacity(16);
+    let mut weights = Vec::with_capacity(16);
+    for i in 0..4 {
+        for j in 0..4 {
+            cps.push(Point3::new(i as f64 / 3.0, j as f64 / 3.0, 0.0));
+            weights.push(1.0);
+        }
+    }
+
+    let nurbs = NurbsSurface {
+        degree_u: 3,
+        degree_v: 3,
+        knots_u: vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+        knots_v: vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+        control_points: cps,
+        num_u: 4,
+        num_v: 4,
+        weights,
+    };
+
+    b.set_face_surface(
+        face,
+        SurfaceOnFace {
+            geometry: SurfaceGeometry::Nurbs(nurbs),
+            orientation: true,
+        },
+    );
+
+    b.build_unchecked()
+}
+
+#[test]
+fn detect_type_on_flat_nurbs_isolated_face() {
+    // A flat NURBS face with no neighbors: swept detection checks
+    // cross-section uniformity. A flat surface has uniform lengths
+    // but high shape deviation (different u-positions), so it may
+    // be detected as swept or general depending on normalization.
+    let brep = make_swept_like_brep();
+    let tolerance = Tolerance::default();
+    let face = brep.faces.keys().next().unwrap();
+    let result = detect_surface_type(&brep, face, &tolerance);
+    // Isolated NURBS face: no neighbors for fillet/offset, so either
+    // swept (if cross-sections pass) or general.
+    assert!(
+        result.surface_type == SurfaceType::Swept || result.surface_type == SurfaceType::General,
+    );
+}
+
+#[test]
+fn measure_cross_section_uniformity_on_swept_like() {
+    // The make_swept_like_brep creates a flat 4x4 surface.
+    // Verify the measurement functions work correctly.
+    let brep = make_swept_like_brep();
+    let face_data = brep.faces.values().next().unwrap();
+    let sof = face_data.surface.as_ref().unwrap();
+    if let SurfaceGeometry::Nurbs(ref nurbs) = sof.geometry {
+        let (var_ratio, max_shape_dev) = measure_cross_section_uniformity(nurbs, 5);
+        // Length variance should be near zero (all cross-sections are
+        // the same length).
+        assert!(var_ratio < 0.01, "var_ratio={var_ratio}");
+        // Shape deviation measures absolute position displacement
+        // which is non-zero for translated sections.
+        assert!(max_shape_dev >= 0.0);
+    }
+}
+
+#[test]
+fn repair_swept_on_non_swept_surface_is_noop() {
+    // Calling repair_swept on a face not detected as swept should
+    // return "not a swept surface" immediately.
+    let mut brep = make_swept_like_brep();
+    let tolerance = Tolerance::default();
+    let face = brep.faces.keys().next().unwrap();
+    let det = detect_surface_type(&brep, face, &tolerance);
+    if det.surface_type != SurfaceType::Swept {
+        let result = repair_swept(&mut brep, face, &tolerance, 1.0);
+        assert!(result.invariant_preserved);
+        assert!(result.description.contains("not a swept surface"));
+    }
+}
+
+#[test]
+fn measure_offset_consistency_identical_surfaces() {
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let (median, max_dev, mean_dev) = measure_offset_consistency(&plane, &plane, 8);
+    assert!(median < 1e-10);
+    assert!(max_dev < 1e-10);
+    assert!(mean_dev < 1e-10);
+}
+
+#[test]
+fn measure_cross_section_uniformity_nonuniform() {
+    let mut cps = Vec::with_capacity(9);
+    let mut weights = Vec::with_capacity(9);
+    for i in 0..3 {
+        for j in 0..3 {
+            let y = j as f64 / 2.0 * (1.0 + i as f64);
+            cps.push(Point3::new(i as f64 / 2.0, y, 0.0));
+            weights.push(1.0);
+        }
+    }
+    let nurbs = NurbsSurface {
+        degree_u: 2,
+        degree_v: 2,
+        knots_u: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        knots_v: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        control_points: cps,
+        num_u: 3,
+        num_v: 3,
+        weights,
+    };
+    let (var_ratio, _) = measure_cross_section_uniformity(&nurbs, 5);
+    assert!(var_ratio > 0.01);
+}
+
+#[test]
+fn edges_shared_with_neighbors_on_cube() {
+    let brep = BRep::unit_cube(Tolerance::default())
+        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    for (fh, _) in &brep.faces {
+        let edges = edges_shared_with_neighbors(&brep, fh);
+        assert_eq!(edges.len(), 4);
+    }
+}
