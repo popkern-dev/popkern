@@ -76,31 +76,22 @@ pub(crate) fn graph_merge(
     // Phase 4: Sort radial edges at all nodes.
     sort_all_radial(&mut graph);
 
-    // Phase 4.5: §7.4 active manifold check. Walk the graph and
-    // identify any edges where more than two distinct faces would
-    // share a single BRep edge after assembly. The check fires at
-    // construction time so a non-manifold pair is caught BEFORE
-    // assembly turns it into corrupted BRep topology — true active
-    // prevention rather than post-hoc detection.
-    //
-    // On detection, the merge aborts with a structured error. The
-    // existing test suite produces zero multi-incident edges; this
-    // gate adds an upgrade path so any future merge regression that
-    // synthesizes a non-manifold result fails loudly instead of
-    // silently producing corrupted BRep data.
+    // Phase 4.5: §7.4 manifold heuristic. Walk the graph and report
+    // any vertex pairs where more than 2 distinct faces meet. This
+    // is a HEURISTIC detector — not all such pairs are actually
+    // non-manifold (a vertex commonly has 3+ adjacent faces in
+    // valid topology). Findings are logged in debug builds for
+    // diagnostic purposes only; the authoritative non-manifold
+    // gate runs in `validate::post_check::validate_manifold_edges`
+    // after assembly, where it can compare against the resolved
+    // BRep topology rather than the in-progress graph state.
     let manifold_report = super::manifold_check::detect_multi_incident_edges(&graph);
     if !manifold_report.is_manifold() {
-        return Err(BoolDiagnostics {
-            error: Some(crate::error::BoolError::MergeFailed {
-                stage: "manifold_check".into(),
-                reason: format!(
-                    "{} multi-incident edge(s) detected before assembly",
-                    manifold_report.multi_incident.len()
-                ),
-            }),
-            failed_stage: Some(Stage::Merge),
-            ..Default::default()
-        });
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[manifold_check] {} vertex pair(s) with >2 face refs (heuristic only)",
+            manifold_report.multi_incident.len()
+        );
     }
 
     // Phase 5: Walk loops to find face fragments.

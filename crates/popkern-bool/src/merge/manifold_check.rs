@@ -58,46 +58,64 @@ impl ManifoldReport {
 
 /// Walk the graph and detect multi-incident edges.
 ///
-/// Groups half-edges by their canonical pair index `min(idx, twin)`
-/// — i.e. by the underlying *edge*, not by endpoint position. This
-/// matters because two distinct closed self-loop edges (separate
-/// intersection circles) can share the same vertex; bucketing by
-/// endpoint position would falsely combine them.
+/// Groups distinct half-edge PAIRS by their canonical endpoint pair
+/// (start_vertex, end_vertex). A "pair" here is one half-edge plus
+/// its twin — i.e. the underlying edge. We then count how many
+/// such pairs share the same endpoint pair AND check whether their
+/// face assignments produce a non-manifold result.
 ///
-/// For each canonical edge, counts the distinct face assignments
-/// across the half-edge pair. A manifold edge has exactly 1 (free
-/// boundary) or 2 (interior shared edge) distinct face assignments.
-/// More than 2 indicates non-manifold construction.
+/// A manifold edge has exactly 1 or 2 unique face refs across the
+/// pair (1 = free boundary on a sheet body; 2 = interior shared
+/// edge between two faces). If multiple half-edge pairs share the
+/// same endpoint pair, the union of all their face refs is what
+/// matters: 3 or more distinct face refs means non-manifold after
+/// dedup/merge during assembly.
+///
+/// Closed self-loops (start == end) are excluded from grouping
+/// because each is a separate edge geometrically — multiple
+/// intersection circles at the same vertex are NOT a multi-incident
+/// edge.
 pub(crate) fn detect_multi_incident_edges(graph: &IntersectionGraph) -> ManifoldReport {
-    // Map canonical pair index → set of face assignments. The pair
-    // index is the smaller of (he_idx, twin_idx) for that half-edge.
-    let mut groups: HashMap<usize, (usize, usize, Vec<FaceRef>)> = HashMap::new();
+    use std::collections::HashSet;
+
+    // Group by (start_vertex, end_vertex) canonical pair, skipping
+    // closed self-loops. The value is the set of distinct face
+    // refs collected from all half-edge pairs in the group.
+    let mut groups: HashMap<(usize, usize), HashSet<FaceRef>> = HashMap::new();
+    let mut seen_pairs: HashSet<usize> = HashSet::new();
 
     for (he_idx, he) in graph.half_edges.iter().enumerate() {
         let twin_idx = he.twin;
         let pair_id = he_idx.min(twin_idx);
-        let entry = groups.entry(pair_id).or_insert_with(|| {
-            let twin = &graph.half_edges[twin_idx];
-            let a = he.origin;
-            let b = twin.origin;
-            let endpoints = if a <= b { (a, b) } else { (b, a) };
-            (endpoints.0, endpoints.1, Vec::new())
-        });
+        if !seen_pairs.insert(pair_id) {
+            continue;
+        }
+        let twin = &graph.half_edges[twin_idx];
+        let a = he.origin;
+        let b = twin.origin;
+        if a == b {
+            // Closed self-loop: not a candidate for multi-incidence.
+            continue;
+        }
+        let key = if a <= b { (a, b) } else { (b, a) };
+        let entry = groups.entry(key).or_default();
         if let Some(face) = he.face {
-            entry.2.push(face);
+            entry.insert(face);
+        }
+        if let Some(face) = twin.face {
+            entry.insert(face);
         }
     }
 
     let groups_checked = groups.len();
     let mut multi_incident = Vec::new();
-    for (_pair_id, (a, b, assignments)) in groups {
-        let mut unique = assignments;
-        unique.sort_by_key(|f| (f.operand as u8, f.face));
-        unique.dedup();
-        if unique.len() > 2 {
+    for (endpoints, face_set) in groups {
+        if face_set.len() > 2 {
+            let mut face_assignments: Vec<FaceRef> = face_set.into_iter().collect();
+            face_assignments.sort_by_key(|f| (f.operand as u8, f.face));
             multi_incident.push(MultiIncidentEdge {
-                endpoints: (a, b),
-                face_assignments: unique,
+                endpoints,
+                face_assignments,
             });
         }
     }
@@ -151,12 +169,11 @@ mod tests {
     }
 
     #[test]
-    fn distinct_edges_at_same_endpoints_are_manifold() {
+    fn distinct_edges_at_same_endpoints_share_one_group() {
         // Two distinct half-edge pairs between the same two
-        // endpoints should be treated as TWO separate edges, not
-        // one multi-incident edge. This documents the corrected
-        // detector semantics: grouping by half-edge pair index, not
-        // by endpoint position.
+        // endpoints collapse to a single endpoint-pair group. The
+        // union of their face refs is {A, B} = 2 distinct, so the
+        // group is manifold.
         let mut graph = IntersectionGraph::new();
         let n0 = graph.add_node(Point3::new(0.0, 0.0, 0.0), NodeSource::Intersection);
         let n1 = graph.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
@@ -178,10 +195,9 @@ mod tests {
         graph.set_half_edge_face(twin2, face_b);
 
         let report = detect_multi_incident_edges(&graph);
-        // Two distinct edges → 2 groups checked, both manifold (each
-        // has 2 face refs).
+        // One endpoint-pair group with 2 unique face refs → manifold.
         assert!(report.is_manifold());
-        assert_eq!(report.groups_checked, 2);
+        assert_eq!(report.groups_checked, 1);
     }
 
     #[test]
