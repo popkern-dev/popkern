@@ -251,4 +251,91 @@ mod tests {
         check_boundary_containment(&brep, &tol, &density, &mut report);
         assert!(report.is_empty());
     }
+
+    #[test]
+    fn surface_containment_on_sphere_face_with_pcurves() {
+        use crate::geometry::Point3;
+        use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let fh = brep.faces.keys().next().unwrap();
+        // Sphere has a finite parameter range, so the check won't skip it.
+        brep.faces[fh].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Sphere {
+                center: Point3::new(0.5, 0.5, 0.5),
+                radius: 1.0,
+            },
+            orientation: true,
+        });
+        let mut report = HealingReport::new();
+        check_surface_containment(&brep, &mut report);
+        // Cube pcurves are designed for planes; on a sphere they may lie
+        // outside the domain. Either way, the check exercises the main path.
+        // We just verify it doesn't panic.
+        let _ = report.len();
+    }
+
+    #[test]
+    fn boundary_containment_detects_deviation_on_corrupted_pcurve() {
+        use crate::geometry::Point3;
+        use crate::geometry::nurbs_curve::NurbsCurve;
+
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        // Corrupt a pcurve so it maps to a wildly wrong 3D point.
+        let he_h = brep.half_edges.keys().next().unwrap();
+        // Replace pcurve with one that maps to (100, 100, 0) in UV space.
+        brep.half_edges[he_h].pcurve = Some(NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(100.0, 100.0, 0.0),
+                Point3::new(200.0, 200.0, 0.0),
+            ],
+            weights: vec![1.0, 1.0],
+        });
+        let tol = Tolerance::default();
+        let density = SampleDensity::Standard;
+        let mut report = HealingReport::new();
+        check_boundary_containment(&brep, &tol, &density, &mut report);
+        // The badly-mapped pcurve will produce 3D points far from the edge curve.
+        assert!(
+            !report.is_empty(),
+            "Should detect trim curve deviation from corrupted pcurve"
+        );
+    }
+
+    #[test]
+    fn surface_containment_pcurve_outside_domain() {
+        use crate::geometry::Point3;
+        use crate::geometry::nurbs_curve::NurbsCurve;
+        use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let fh = brep.faces.keys().next().unwrap();
+        // Sphere has finite parameter domain [0, 2PI] x [0, PI].
+        brep.faces[fh].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Sphere {
+                center: Point3::new(0.0, 0.0, 0.0),
+                radius: 1.0,
+            },
+            orientation: true,
+        });
+        // Set a pcurve on the first half-edge of this face's outer loop
+        // that lies way outside the sphere's parameter domain.
+        let face_data = &brep.faces[fh];
+        let loop_data = &brep.loops[face_data.outer_loop];
+        let he_h = loop_data.half_edge;
+        brep.half_edges[he_h].pcurve = Some(NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(50.0, 50.0, 0.0), Point3::new(60.0, 60.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        });
+        let mut report = HealingReport::new();
+        check_surface_containment(&brep, &mut report);
+        assert!(
+            !report.is_empty(),
+            "Should detect pcurve outside sphere parameter domain"
+        );
+    }
 }

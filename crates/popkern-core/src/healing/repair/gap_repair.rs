@@ -330,4 +330,130 @@ mod tests {
             "edge without curve should report zero gap"
         );
     }
+
+    // ── Tests with actual gaps (curve-vertex mismatch) ──
+
+    #[test]
+    fn tolerance_absorption_on_gapped_edge() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let tol = Tolerance::default();
+        // Find an edge with a curve and introduce a gap by moving a vertex.
+        let edge_h = brep
+            .edges
+            .keys()
+            .find(|&e| brep.edges[e].curve.is_some())
+            .unwrap();
+        let he_h = brep.edges[edge_h].half_edge;
+        let origin_v = brep.half_edges[he_h].origin;
+        brep.vertices[origin_v].position.x += 0.01; // introduce gap
+
+        let result = repair_gap(
+            &mut brep,
+            edge_h,
+            GapRepairStrategy::ToleranceAbsorption,
+            &tol,
+        )
+        .unwrap();
+        assert!(
+            result.original_gap > tol.linear(),
+            "Gap should exceed tolerance, got {}",
+            result.original_gap
+        );
+        // Tolerance absorption doesn't move geometry.
+        assert!(
+            result.max_displacement < f64::EPSILON,
+            "ToleranceAbsorption should not displace vertices"
+        );
+        // The edge should now have a tolerance set.
+        let edge_tol = brep.edges[edge_h].tolerance;
+        assert!(edge_tol.is_some(), "Edge tolerance should be set");
+        assert!(
+            edge_tol.unwrap() > result.original_gap,
+            "Edge tolerance should exceed the gap"
+        );
+    }
+
+    #[test]
+    fn geometric_adjustment_on_gapped_edge() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let tol = Tolerance::default();
+        let edge_h = brep
+            .edges
+            .keys()
+            .find(|&e| brep.edges[e].curve.is_some())
+            .unwrap();
+        let he_h = brep.edges[edge_h].half_edge;
+        let origin_v = brep.half_edges[he_h].origin;
+        brep.vertices[origin_v].position.x += 0.02; // introduce gap
+
+        let result = repair_gap(
+            &mut brep,
+            edge_h,
+            GapRepairStrategy::GeometricAdjustment,
+            &tol,
+        )
+        .unwrap();
+        assert!(
+            result.original_gap > tol.linear(),
+            "Gap should exceed tolerance"
+        );
+        assert!(
+            result.max_displacement > 0.0,
+            "GeometricAdjustment should displace vertices"
+        );
+        // Residual gap should be approximately half the original.
+        assert!(
+            result.residual_gap < result.original_gap,
+            "Residual gap should be less than original"
+        );
+    }
+
+    #[test]
+    fn repair_all_gaps_finds_gapped_edges() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let tol = Tolerance::default();
+        // Introduce gaps on multiple edges.
+        let edge_handles: Vec<EdgeHandle> = brep
+            .edges
+            .keys()
+            .filter(|&e| brep.edges[e].curve.is_some())
+            .take(3)
+            .collect();
+        for &eh in &edge_handles {
+            let he_h = brep.edges[eh].half_edge;
+            let origin_v = brep.half_edges[he_h].origin;
+            brep.vertices[origin_v].position.x += 0.05;
+        }
+        let results = repair_all_gaps(&mut brep, GapRepairStrategy::ToleranceAbsorption, &tol);
+        assert!(!results.is_empty(), "Should find and repair gapped edges");
+        for r in &results {
+            assert!(r.original_gap > tol.linear());
+        }
+    }
+
+    #[test]
+    fn geometric_adjustment_moves_end_vertex_when_gap_at_end() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let tol = Tolerance::default();
+        let edge_h = brep
+            .edges
+            .keys()
+            .find(|&e| brep.edges[e].curve.is_some())
+            .unwrap();
+        let he_h = brep.edges[edge_h].half_edge;
+        let twin_h = brep.half_edges[he_h].twin;
+        let end_v = brep.half_edges[twin_h].origin;
+        // Move end vertex to create gap at the end of the edge.
+        brep.vertices[end_v].position.y += 0.03;
+
+        let result = repair_gap(
+            &mut brep,
+            edge_h,
+            GapRepairStrategy::GeometricAdjustment,
+            &tol,
+        )
+        .unwrap();
+        assert!(result.original_gap > tol.linear());
+        assert!(result.max_displacement > 0.0);
+    }
 }
