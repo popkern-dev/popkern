@@ -48,6 +48,7 @@ pub mod ops;
 pub mod parallel;
 pub mod perturbation;
 pub mod postprocess;
+pub mod progress;
 pub mod provenance;
 pub(crate) mod select;
 pub mod sheet;
@@ -66,9 +67,10 @@ pub use error::{
 pub use ops::interference::{InterferenceMode, InterferenceReport, interference_check};
 pub use postprocess::quality::{QualityReport, QualityThresholds, quality_report};
 pub use postprocess::sliver_removal::{SliverRemovalReport, remove_slivers};
+pub use progress::{CaptureReporter, NullReporter, ProgressEvent, ProgressReporter};
 pub use sheet::{
-    SheetOperationKind, SideOfSheet, classify_sheet_operation, is_closed_solid, is_sheet_body,
-    side_of_sheet,
+    SheetBooleanResult, SheetOperationKind, SideOfSheet, boolean_with_sheets,
+    classify_sheet_operation, is_closed_solid, is_sheet_body, side_of_sheet,
 };
 
 #[cfg(test)]
@@ -298,7 +300,40 @@ pub fn boolean_cancellable(
     cancel: &cancellation::CancellationToken,
 ) -> Result<BRep, BoolError> {
     let mut metrics = Vec::new();
-    operation::execute_boolean_full(op, a.clone(), b.clone(), &tol, &mut metrics, Some(cancel))
+    operation::execute_boolean_full(
+        op,
+        a.clone(),
+        b.clone(),
+        &tol,
+        &mut metrics,
+        Some(cancel),
+        None,
+    )
+}
+
+/// Perform a boolean and report progress through a [`progress::ProgressReporter`] (§15).
+///
+/// Behaves identically to [`boolean`] but invokes `reporter.on_phase`
+/// after every pipeline stage with a [`progress::ProgressEvent`].
+/// Combine with [`boolean_cancellable`] in your own wrapper if you
+/// need both progress notifications and cancellation.
+pub fn boolean_with_progress(
+    op: BoolOperation,
+    a: &BRep,
+    b: &BRep,
+    tol: Tolerance,
+    reporter: &mut dyn progress::ProgressReporter,
+) -> Result<BRep, BoolError> {
+    let mut metrics = Vec::new();
+    operation::execute_boolean_full(
+        op,
+        a.clone(),
+        b.clone(),
+        &tol,
+        &mut metrics,
+        None,
+        Some(reporter),
+    )
 }
 
 /// Perform a boolean operation and enforce post-validation on the result.

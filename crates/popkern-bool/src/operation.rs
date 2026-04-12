@@ -16,8 +16,33 @@ use crate::classify::classify_fragments;
 use crate::error::{BoolDiagnostics, BoolError, BoolOperation, PhaseMetric, Stage};
 use crate::intersect::find_intersections;
 use crate::merge::graph_merge::graph_merge;
+use crate::progress::{ProgressEvent, ProgressReporter};
 use crate::select::{Operand, select_faces};
 use crate::split::split_along_curves;
+
+const TOTAL_PHASES: usize = 6;
+
+/// Notify the reporter (if any) that a stage just completed.
+///
+/// Takes `&mut Option<...>` so the caller can re-borrow `progress`
+/// across multiple calls without moving it.
+fn report_phase(
+    reporter: &mut Option<&mut dyn ProgressReporter>,
+    stage: Stage,
+    phase_index: usize,
+    duration: std::time::Duration,
+    entity_count: usize,
+) {
+    if let Some(r) = reporter.as_deref_mut() {
+        r.on_phase(ProgressEvent {
+            stage,
+            phase_index,
+            total_phases: TOTAL_PHASES,
+            duration,
+            entity_count,
+        });
+    }
+}
 
 /// Check `cancel` and short-circuit with `BoolError::Cancelled` if set.
 ///
@@ -59,7 +84,7 @@ pub(crate) fn execute_boolean(
     b: BRep,
     tolerance: &Tolerance,
 ) -> Result<BRep, BoolError> {
-    execute_boolean_full(op, a, b, tolerance, &mut Vec::new(), None)
+    execute_boolean_full(op, a, b, tolerance, &mut Vec::new(), None, None)
 }
 
 /// Execute a boolean and populate `metrics` with per-stage timing samples.
@@ -72,14 +97,17 @@ pub(crate) fn execute_boolean_with_metrics(
     tolerance: &Tolerance,
     metrics: &mut Vec<PhaseMetric>,
 ) -> Result<BRep, BoolError> {
-    execute_boolean_full(op, a, b, tolerance, metrics, None)
+    execute_boolean_full(op, a, b, tolerance, metrics, None, None)
 }
 
-/// Execute a boolean with full pipeline knobs: telemetry and cancellation.
+/// Execute a boolean with full pipeline knobs: telemetry, cancellation,
+/// and progress reporting.
 ///
-/// Appends a [`PhaseMetric`] after each stage that runs to completion and
-/// polls `cancel` between stages. Returns [`BoolError::Cancelled`] as soon
-/// as a cancellation is observed; the input model is unchanged.
+/// Appends a [`PhaseMetric`] after each stage that runs to completion,
+/// polls `cancel` between stages, and notifies `progress` (if any)
+/// after each stage with a [`ProgressEvent`]. Returns
+/// [`BoolError::Cancelled`] as soon as a cancellation is observed;
+/// the input model is unchanged.
 pub(crate) fn execute_boolean_full(
     op: BoolOperation,
     a: BRep,
@@ -87,6 +115,7 @@ pub(crate) fn execute_boolean_full(
     tolerance: &Tolerance,
     metrics: &mut Vec<PhaseMetric>,
     cancel: Option<&CancellationToken>,
+    mut progress: Option<&mut dyn ProgressReporter>,
 ) -> Result<BRep, BoolError> {
     check_cancel(cancel)?;
 
@@ -94,11 +123,20 @@ pub(crate) fn execute_boolean_full(
     let t_intersect = Instant::now();
     let intersection_result =
         find_intersections(&a, &b, tolerance).map_err(|diag| diag.into_error())?;
+    let elapsed_intersect = t_intersect.elapsed();
+    let count_intersect = intersection_result.records.len();
     metrics.push(PhaseMetric {
         stage: Stage::Intersection,
-        duration: t_intersect.elapsed(),
-        entity_count: intersection_result.records.len(),
+        duration: elapsed_intersect,
+        entity_count: count_intersect,
     });
+    report_phase(
+        &mut progress,
+        Stage::Intersection,
+        0,
+        elapsed_intersect,
+        count_intersect,
+    );
     check_cancel(cancel)?;
 
     // No-intersection shortcut.
@@ -159,11 +197,19 @@ pub(crate) fn execute_boolean_full(
     let split_result = split_along_curves(a, b, &intersection_result.records, tolerance)
         .map_err(|diag| diag.into_error())?;
     let split_fragment_count = split_result.a.faces.len() + split_result.b.faces.len();
+    let elapsed_split = t_split.elapsed();
     metrics.push(PhaseMetric {
         stage: Stage::Split,
-        duration: t_split.elapsed(),
+        duration: elapsed_split,
         entity_count: split_fragment_count,
     });
+    report_phase(
+        &mut progress,
+        Stage::Split,
+        1,
+        elapsed_split,
+        split_fragment_count,
+    );
     check_cancel(cancel)?;
 
     // Stage 3: Classify — label each fragment as inside/outside/on-boundary.
@@ -183,11 +229,20 @@ pub(crate) fn execute_boolean_full(
         &split_result.fragments_b.intersection_edges,
         tolerance,
     )?;
+    let elapsed_classify = t_classify.elapsed();
+    let count_classify = classifications_a.len() + classifications_b.len();
     metrics.push(PhaseMetric {
         stage: Stage::Classification,
-        duration: t_classify.elapsed(),
-        entity_count: classifications_a.len() + classifications_b.len(),
+        duration: elapsed_classify,
+        entity_count: count_classify,
     });
+    report_phase(
+        &mut progress,
+        Stage::Classification,
+        2,
+        elapsed_classify,
+        count_classify,
+    );
     check_cancel(cancel)?;
 
     // Build the combined classification list for Stage 4.
@@ -202,11 +257,20 @@ pub(crate) fn execute_boolean_full(
     // Stage 4: Select — choose which fragments belong to the result.
     let t_select = Instant::now();
     let selection = select_faces(op, &all_classifications);
+    let elapsed_select = t_select.elapsed();
+    let count_select = selection.keep_a.len() + selection.keep_b.len();
     metrics.push(PhaseMetric {
         stage: Stage::Selection,
-        duration: t_select.elapsed(),
-        entity_count: selection.keep_a.len() + selection.keep_b.len(),
+        duration: elapsed_select,
+        entity_count: count_select,
     });
+    report_phase(
+        &mut progress,
+        Stage::Selection,
+        3,
+        elapsed_select,
+        count_select,
+    );
     check_cancel(cancel)?;
 
     // If selection is empty, the split/classify pipeline classified all fragments
@@ -251,11 +315,14 @@ pub(crate) fn execute_boolean_full(
         )
     })
     .map_err(|diag| diag.into_error())?;
+    let elapsed_merge = t_merge.elapsed();
+    let count_merge = result.faces.len();
     metrics.push(PhaseMetric {
         stage: Stage::Merge,
-        duration: t_merge.elapsed(),
-        entity_count: result.faces.len(),
+        duration: elapsed_merge,
+        entity_count: count_merge,
     });
+    report_phase(&mut progress, Stage::Merge, 4, elapsed_merge, count_merge);
 
     // Recompute pcurves on all faces so that the tessellation pipeline
     // can build accurate trim loops. Boolean merge may leave seam edges
@@ -283,11 +350,20 @@ pub(crate) fn execute_boolean_full(
         .map(|f| f.message.clone())
         .collect();
     log_validation_issues(&result, op);
+    let elapsed_validate = t_validate.elapsed();
+    let count_validate = result.faces.len();
     metrics.push(PhaseMetric {
         stage: Stage::Validation,
-        duration: t_validate.elapsed(),
-        entity_count: result.faces.len(),
+        duration: elapsed_validate,
+        entity_count: count_validate,
     });
+    report_phase(
+        &mut progress,
+        Stage::Validation,
+        5,
+        elapsed_validate,
+        count_validate,
+    );
     if !pc_errors.is_empty() {
         return Err(BoolError::ValidationFailed(pc_errors.join("; ")));
     }

@@ -282,6 +282,36 @@ fn diagnostic_entry_carries_3d_location() {
 }
 
 #[test]
+fn boolean_with_progress_emits_phase_events() {
+    use crate::progress::{CaptureReporter, ProgressReporter};
+    let a = BRep::unit_cube(tol()).unwrap();
+    let b = BRep::unit_cube(tol())
+        .unwrap()
+        .transform(&Transform3::translation(0.5, 0.3, 0.2))
+        .unwrap();
+    let mut reporter = CaptureReporter::default();
+    let trait_ref: &mut dyn ProgressReporter = &mut reporter;
+    let _ = crate::boolean_with_progress(crate::BoolOperation::Union, &a, &b, tol(), trait_ref);
+    // Overlapping cubes run the full pipeline; expect events for
+    // multiple stages.
+    assert!(
+        reporter.events.len() >= 2,
+        "expected progress events from intersect/split/etc., got {} events",
+        reporter.events.len()
+    );
+    // First event should be the intersection stage at phase_index 0.
+    let first = reporter.events.first().unwrap();
+    assert_eq!(first.stage, crate::error::Stage::Intersection);
+    assert_eq!(first.phase_index, 0);
+    // Percent monotonically increases.
+    let mut last_percent = 0;
+    for ev in &reporter.events {
+        assert!(ev.percent() >= last_percent);
+        last_percent = ev.percent();
+    }
+}
+
+#[test]
 fn boolean_with_diagnostics_records_phase_metrics() {
     use crate::error::Stage;
 

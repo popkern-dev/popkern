@@ -140,7 +140,110 @@ pub(crate) fn classify_and_select_fragments(
         selections.push(selection);
     }
 
+    // §6.4: deferred ON resolution auto-override pass.
+    //
+    // Walk every fragment whose face appears in the coincidence map's
+    // partial-overlap (ambiguous-on) list and ask
+    // `classify_on_deferred::disambiguate_with_neighbors` whether the
+    // immediate ON resolution should be replaced with a different
+    // classification based on neighbour majority. If it would, swap
+    // the selection.
+    //
+    // This is a no-op when the coincidence map has zero partial
+    // overlaps (the existing test suite). When future inputs DO
+    // produce partial overlaps, this pass picks up the more global
+    // classification automatically.
+    apply_deferred_on_overrides(fragments, &mut selections, brep_a, brep_b, op, coincidence);
+
     Ok(selections)
+}
+
+/// Walk fragments whose face is in an ambiguous-on pair and apply
+/// `disambiguate_with_neighbors` to refine the classification.
+fn apply_deferred_on_overrides(
+    fragments: &[Fragment],
+    selections: &mut [FragmentSelection],
+    brep_a: &BRep,
+    brep_b: &BRep,
+    op: BoolOperation,
+    coincidence: &CoincidenceMap,
+) {
+    use crate::classify_on_deferred::find_ambiguous_pairs;
+
+    let pairs = find_ambiguous_pairs(coincidence);
+    if pairs.is_empty() {
+        return;
+    }
+
+    // Build the map (face_handle, classification) for both operands by
+    // reading back the existing selections. The classification is
+    // synthesized from the FragmentSelection: keep=true → Inside,
+    // keep=false → Outside (for the disambiguator's vote logic).
+    let mut classes_a: Vec<(popkern_core::topology::FaceHandle, Classification)> = Vec::new();
+    let mut classes_b: Vec<(popkern_core::topology::FaceHandle, Classification)> = Vec::new();
+    for (frag, sel) in fragments.iter().zip(selections.iter()) {
+        let class = if sel.keep {
+            Classification::Inside
+        } else {
+            Classification::Outside
+        };
+        match frag.face.operand {
+            Operand::A => classes_a.push((frag.face.face, class)),
+            Operand::B => classes_b.push((frag.face.face, class)),
+        }
+    }
+
+    // For each ambiguous pair, query the disambiguator. The pair
+    // contains face_a (operand A) and face_b (operand B).
+    for pair in &pairs {
+        // Operand A side.
+        if let Some((_, original)) = classes_a.iter().find(|(f, _)| *f == pair.face_a) {
+            let suggested = crate::classify_on_deferred::disambiguate_with_neighbors(
+                pair.face_a,
+                *original,
+                brep_a,
+                &classes_a,
+            );
+            if suggested != *original {
+                let point_class = classification_to_point(suggested);
+                for (i, frag) in fragments.iter().enumerate() {
+                    if frag.face.operand == Operand::A && frag.face.face == pair.face_a {
+                        selections[i] = apply_selection_table(op, Operand::A, point_class);
+                    }
+                }
+            }
+        }
+
+        // Operand B side.
+        if let Some((_, original)) = classes_b.iter().find(|(f, _)| *f == pair.face_b) {
+            let suggested = crate::classify_on_deferred::disambiguate_with_neighbors(
+                pair.face_b,
+                *original,
+                brep_b,
+                &classes_b,
+            );
+            if suggested != *original {
+                let point_class = classification_to_point(suggested);
+                for (i, frag) in fragments.iter().enumerate() {
+                    if frag.face.operand == Operand::B && frag.face.face == pair.face_b {
+                        selections[i] = apply_selection_table(op, Operand::B, point_class);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Convert a `Classification` (which may be ON-with-orientation) to
+/// a `PointClassification` (which has only Inside/Outside/OnBoundary).
+fn classification_to_point(c: Classification) -> PointClassification {
+    match c {
+        Classification::Inside => PointClassification::Inside,
+        Classification::Outside => PointClassification::Outside,
+        Classification::OnBoundaryCooriented | Classification::OnBoundaryCrossing => {
+            PointClassification::OnBoundary
+        }
+    }
 }
 
 /// Convert an ON-face classification to a fragment selection.

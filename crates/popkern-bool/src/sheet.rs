@@ -209,6 +209,86 @@ pub enum SheetOperationKind {
     Unsupported,
 }
 
+/// Result of a [`boolean_with_sheets`] call.
+///
+/// Sheet-aware boolean operations can produce three different shapes
+/// of result depending on the operation:
+///
+/// - [`SheetBooleanResult::Solid`] — a closed solid (e.g. solid-solid
+///   union, or solid-minus-sheet trim that produced a single piece).
+/// - [`SheetBooleanResult::Curves`] — a list of intersection curves
+///   (e.g. sheet-sheet intersection produces a 1D wire result).
+/// - [`SheetBooleanResult::OpenShell`] — an open shell BRep (e.g.
+///   sheet-intersect-solid returns the portion of the sheet inside
+///   the solid; the result is itself a sheet body).
+#[derive(Debug)]
+pub enum SheetBooleanResult {
+    /// A closed solid result.
+    Solid(popkern_core::topology::BRep),
+    /// A list of intersection curves (no enclosing volume).
+    Curves(Vec<popkern_core::geometry::curve_on_surface::CurveOnSurface>),
+    /// An open shell BRep result.
+    OpenShell(popkern_core::topology::BRep),
+}
+
+/// Sheet-aware boolean operation dispatcher (§2.3).
+///
+/// Inspects whether each input is a sheet body (via [`is_sheet_body`]),
+/// classifies the (operation, is_a_sheet, is_b_sheet) tuple via
+/// [`classify_sheet_operation`], and routes to the appropriate
+/// sub-operation:
+///
+/// | Kind | Implementation |
+/// |---|---|
+/// | `SolidSolid` | Delegates to standard [`crate::boolean`]. |
+/// | `SheetSheetIntersection` | Calls [`crate::ops::section::section`] and returns the curves. |
+/// | `SolidMinusSheet` | Calls [`crate::ops::imprint::imprint`] — imprints sheet curves onto the solid (does NOT yet split into multiple pieces; that's a future iteration). |
+/// | `InvalidSheetMinusSolid` | Rejects with [`crate::BoolError::OpenShellNotSupported`]. |
+/// | Other variants | Returns [`crate::BoolError::OpenShellNotSupported`] (future work). |
+///
+/// Use this entry point when you need sheet support; the standard
+/// `boolean()` rejects sheet inputs upfront so non-sheet callers
+/// don't accidentally invoke half-implemented sheet operations.
+pub fn boolean_with_sheets(
+    op: crate::BoolOperation,
+    a: &popkern_core::topology::BRep,
+    b: &popkern_core::topology::BRep,
+    tol: popkern_core::tolerance::Tolerance,
+) -> Result<SheetBooleanResult, crate::BoolError> {
+    let a_is_sheet = is_sheet_body(a);
+    let b_is_sheet = is_sheet_body(b);
+    let kind = classify_sheet_operation(op, a_is_sheet, b_is_sheet);
+
+    match kind {
+        SheetOperationKind::SolidSolid => {
+            let result = crate::boolean(op, a.clone(), b.clone(), tol, None)?;
+            Ok(SheetBooleanResult::Solid(result))
+        }
+        SheetOperationKind::SheetSheetIntersection => {
+            let section = crate::ops::section::section(a, b, &tol)?;
+            let curves = section.curves.into_iter().map(|c| c.curve).collect();
+            Ok(SheetBooleanResult::Curves(curves))
+        }
+        SheetOperationKind::SolidMinusSheet => {
+            // Use imprint to add the sheet's curves to the solid as
+            // edges. This doesn't split the solid into multiple
+            // pieces — that's a future iteration that requires
+            // running the full classification + assembly loop with
+            // the sheet acting as a cutter.
+            let imprint = crate::ops::imprint::imprint(a, b, &tol)?;
+            Ok(SheetBooleanResult::Solid(imprint.imprinted_target))
+        }
+        SheetOperationKind::InvalidSheetMinusSolid
+        | SheetOperationKind::SheetIntersectSolid
+        | SheetOperationKind::SolidUnionSheet
+        | SheetOperationKind::SheetSheetUnion
+        | SheetOperationKind::Unsupported => Err(crate::BoolError::OpenShellNotSupported {
+            a: a_is_sheet,
+            b: b_is_sheet,
+        }),
+    }
+}
+
 /// Classify a boolean call by sheet-aware operation matrix (§2.3).
 ///
 /// Returns the [`SheetOperationKind`] that best fits the (operation,
@@ -375,6 +455,37 @@ mod tests {
         use crate::BoolOperation;
         let kind = classify_sheet_operation(BoolOperation::Intersection, true, true);
         assert!(matches!(kind, SheetOperationKind::SheetSheetIntersection));
+    }
+
+    #[test]
+    fn boolean_with_sheets_solid_solid_delegates_to_boolean() {
+        use crate::BoolOperation;
+        use popkern_core::geometry::Transform3;
+        let a = BRep::unit_cube(tol()).unwrap();
+        let b = BRep::unit_cube(tol())
+            .unwrap()
+            .transform(&Transform3::translation(5.0, 0.0, 0.0))
+            .unwrap();
+        let result = boolean_with_sheets(BoolOperation::Union, &a, &b, tol()).unwrap();
+        assert!(matches!(result, SheetBooleanResult::Solid(_)));
+    }
+
+    #[test]
+    fn boolean_with_sheets_invalid_sheet_minus_solid_rejected() {
+        // A is a sheet, B is a solid, op is subtraction → invalid.
+        use crate::BoolOperation;
+        use popkern_core::geometry::Point3;
+        let mut sheet = BRep::new(tol());
+        let mvfs = sheet.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let _mev = sheet
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let cube = BRep::unit_cube(tol()).unwrap();
+        let result = boolean_with_sheets(BoolOperation::Subtraction, &sheet, &cube, tol());
+        assert!(matches!(
+            result,
+            Err(crate::BoolError::OpenShellNotSupported { a: true, b: false })
+        ));
     }
 
     #[test]
