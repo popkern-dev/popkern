@@ -287,6 +287,7 @@ pub(crate) fn find_intersections_with_aabbs(
                         message: format!("Surface intersection failed: {e}"),
                         entities: vec![crate::error::EntityRef::FacePair(face_a, face_b)],
                         location: Some(location),
+                        measured_value: None,
                         remediation: Some(crate::error::Remediation {
                             action: crate::error::RemediationAction::RetryWithPerturbation,
                             parameter: None,

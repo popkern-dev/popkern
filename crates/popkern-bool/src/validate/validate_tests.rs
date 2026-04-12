@@ -278,6 +278,7 @@ fn diagnostic_entry_carries_3d_location() {
         message: "test diagnostic at known point".into(),
         entities: Vec::new(),
         location: Some(pt),
+        measured_value: None,
         remediation: None,
     });
 
@@ -300,8 +301,16 @@ fn diagnostic_entry_carries_3d_location() {
         message: "no location".into(),
         entities: vec![EntityRef::Face(Default::default())],
         location: None,
+        measured_value: None,
         remediation: None,
     });
+
+    // warn_with_measure convenience method (§13.1).
+    let mut diag4 = BoolDiagnostics::default();
+    diag4.warn_with_measure(Stage::Validation, "gap of 0.003mm", 0.003);
+    let measured = diag4.entries.first().unwrap();
+    assert_eq!(measured.measured_value, Some(0.003));
+    assert!(matches!(measured.severity, Severity::Warning));
     assert!(diag3.entries[0].location.is_none());
 }
 

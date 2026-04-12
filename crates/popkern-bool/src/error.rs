@@ -186,6 +186,7 @@ impl BoolDiagnostics {
             message: message.into(),
             entities: Vec::new(),
             location: None,
+            measured_value: None,
             remediation: None,
         });
     }
@@ -198,6 +199,7 @@ impl BoolDiagnostics {
             message: message.into(),
             entities: Vec::new(),
             location: None,
+            measured_value: None,
             remediation: None,
         });
     }
@@ -210,6 +212,25 @@ impl BoolDiagnostics {
             message: message.into(),
             entities: Vec::new(),
             location: Some(location),
+            measured_value: None,
+            remediation: None,
+        });
+    }
+
+    /// Add a warning diagnostic with a measured geometric value (§13.1).
+    pub fn warn_with_measure(
+        &mut self,
+        phase: Stage,
+        message: impl Into<String>,
+        measured_value: f64,
+    ) {
+        self.entries.push(DiagnosticEntry {
+            severity: Severity::Warning,
+            phase,
+            message: message.into(),
+            entities: Vec::new(),
+            location: None,
+            measured_value: Some(measured_value),
             remediation: None,
         });
     }
@@ -256,6 +277,12 @@ pub struct DiagnosticEntry {
     pub message: String,
     /// Topological entities involved.
     pub entities: Vec<EntityRef>,
+    /// Measured geometric value associated with the diagnostic (§13.1).
+    /// For example a "gap of 0.003mm" diagnostic would set this to
+    /// `Some(0.003)`. The unit is the model's linear unit; angular
+    /// values are stored in radians. `None` when the diagnostic is
+    /// not associated with a single scalar measurement.
+    pub measured_value: Option<f64>,
     /// 3D location where the problem occurs (§13.1). Populated when the
     /// failure site has a known coordinate (e.g. an intersection endpoint,
     /// a face centroid, a measured gap point); `None` for diagnostics

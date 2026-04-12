@@ -232,6 +232,7 @@ pub(super) fn split_err(
             message: format!("Split failed on face {face:?}: {reason}"),
             entities: vec![crate::error::EntityRef::Face(face)],
             location,
+            measured_value: None,
             remediation: Some(crate::error::Remediation {
                 action: crate::error::RemediationAction::IncreaseTolerance,
                 parameter: Some("linear".into()),
