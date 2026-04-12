@@ -42,6 +42,398 @@ fn hole_at_coarse_tol_works() {
 }
 
 #[test]
+fn hole_at_coarse_tol_passes_strict_post_check() {
+    // After the merge-phase cut-behavior fix, the cube-minus-cylinder
+    // case should produce a topologically clean genus-1 result
+    // (V-E+F-(L-F)=0). This test uses boolean_strict to enforce
+    // post-check validation; if the merge regresses, this fires.
+    let tol = coarse_tol();
+    let cube = BRep::unit_cube(tol).unwrap();
+    let cyl = BRep::cylinder(0.2, 2.0, tol)
+        .unwrap()
+        .transform(&Transform3::translation(0.5, 0.5, -0.5))
+        .unwrap();
+    let result = crate::boolean_strict(crate::BoolOperation::Subtraction, &cube, &cyl, tol, false);
+    assert!(
+        result.is_ok(),
+        "cube-minus-cylinder should pass strict post-check, got {result:?}"
+    );
+}
+
+#[test]
+#[ignore = "diagnostic-only — see docs/reports/coverage/booleans-vs-requirements.md"]
+fn diagnose_merge_fragments() {
+    // Run the merge phases manually so we can see exactly how many
+    // fragments walk_all_fragments produces for the cylinder side
+    // face, and what they look like.
+    use crate::intersect::find_intersections;
+    use crate::merge::graph::{IntersectionGraph, Operand};
+    use crate::merge::graph_build::insert_operand_topology;
+    use crate::merge::graph_intersect::insert_intersection_curves;
+    use crate::merge::graph_split::{
+        EndpointClass, classify_endpoint, remove_collinear_duplicates, split_edges_at_shared_nodes,
+        split_graph_edge,
+    };
+    use crate::merge::radial::sort_all_radial;
+    use crate::merge::walk::walk_all_fragments;
+
+    let tol = coarse_tol();
+    let cube = BRep::unit_cube(tol).unwrap();
+    let cyl = BRep::cylinder(0.2, 2.0, tol)
+        .unwrap()
+        .transform(&Transform3::translation(0.5, 0.5, -0.5))
+        .unwrap();
+
+    let intersection_result = find_intersections(&cube, &cyl, &tol)
+        .map_err(|d| format!("intersection: {d:?}"))
+        .unwrap();
+    eprintln!(
+        "[merge-diag] intersection records: {}",
+        intersection_result.records.len()
+    );
+
+    let snap_tol = tol.linear() * 2.0;
+    let mut graph = IntersectionGraph::new();
+    insert_operand_topology(&mut graph, &cube, Operand::A, snap_tol);
+    insert_operand_topology(&mut graph, &cyl, Operand::B, snap_tol);
+    eprintln!(
+        "[merge-diag] after operand insert: nodes={} half_edges={}",
+        graph.nodes.len(),
+        graph.half_edges.len()
+    );
+
+    for hit in &intersection_result.edge_face_hits {
+        let endpoint_class = classify_endpoint(&graph, &hit.point, snap_tol);
+        if let EndpointClass::OnEdge(he_idx, t_param) = endpoint_class {
+            split_graph_edge(&mut graph, he_idx, hit.point, t_param);
+        }
+    }
+    eprintln!(
+        "[merge-diag] after edge-face hit splits: nodes={} half_edges={}",
+        graph.nodes.len(),
+        graph.half_edges.len()
+    );
+
+    insert_intersection_curves(&mut graph, &intersection_result.records, snap_tol);
+    eprintln!(
+        "[merge-diag] after intersection curve insert: nodes={} half_edges={}",
+        graph.nodes.len(),
+        graph.half_edges.len()
+    );
+
+    if intersection_result
+        .coincidence
+        .face_overlaps
+        .iter()
+        .any(|o| !o.full_overlap)
+    {
+        split_edges_at_shared_nodes(&mut graph, snap_tol);
+        remove_collinear_duplicates(&mut graph);
+    }
+
+    sort_all_radial(&mut graph);
+
+    let fragments = walk_all_fragments(&graph, &cube, &cyl);
+    eprintln!("[merge-diag] fragments produced: {}", fragments.len());
+    for (i, frag) in fragments.iter().enumerate() {
+        eprintln!(
+            "[merge-diag]   fragment[{}] face={:?} outer_loop_len={} inner_loops={}",
+            i,
+            frag.face,
+            frag.outer_loop.len(),
+            frag.inner_loops.len()
+        );
+        // Print the half-edge sequence for the cylinder side face fragment.
+        if frag.face.operand == Operand::B {
+            for (j, &he_idx) in frag.outer_loop.iter().enumerate() {
+                let he = &graph.half_edges[he_idx];
+                let twin = &graph.half_edges[he.twin];
+                let start = graph.nodes[he.origin].position;
+                let end = graph.nodes[twin.origin].position;
+                eprintln!(
+                    "[merge-diag]     [{}] he={} ({:.2},{:.2},{:.2}) -> ({:.2},{:.2},{:.2}) src={:?}",
+                    j, he_idx, start.x, start.y, start.z, end.x, end.y, end.z, he.source,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "diagnostic-only — see docs/reports/coverage/booleans-vs-requirements.md"]
+fn diagnose_input_topology_counts() {
+    // Reference counts for the bodies that go INTO the failing
+    // boolean. If the boolean drops or merges entities, comparing
+    // input/output deltas pinpoints which phase is responsible.
+    let tol = coarse_tol();
+    let cube = BRep::unit_cube(tol).unwrap();
+    let cyl = BRep::cylinder(0.2, 2.0, tol)
+        .unwrap()
+        .transform(&Transform3::translation(0.5, 0.5, -0.5))
+        .unwrap();
+    eprintln!(
+        "[input] cube V={} E={} F={} L={}",
+        cube.vertices.len(),
+        cube.edges.len(),
+        cube.faces.len(),
+        cube.loops.len()
+    );
+    eprintln!(
+        "[input] cyl  V={} E={} F={} L={}",
+        cyl.vertices.len(),
+        cyl.edges.len(),
+        cyl.faces.len(),
+        cyl.loops.len()
+    );
+    let cube_lhs = cube.vertices.len() as i64 - cube.edges.len() as i64 + cube.faces.len() as i64
+        - (cube.loops.len() as i64 - cube.faces.len() as i64);
+    let cyl_lhs = cyl.vertices.len() as i64 - cyl.edges.len() as i64 + cyl.faces.len() as i64
+        - (cyl.loops.len() as i64 - cyl.faces.len() as i64);
+    eprintln!("[input] cube Euler lhs = {cube_lhs} (expected 2)");
+    eprintln!("[input] cyl  Euler lhs = {cyl_lhs} (expected 2)");
+}
+
+#[test]
+#[ignore = "diagnostic-only — see docs/reports/coverage/booleans-vs-requirements.md"]
+fn diagnose_hole_euler_violation() {
+    // Run the cube-minus-cylinder case at coarse tol and report the
+    // full topology counts. The cube-with-hole result should be a
+    // genus-1 solid: V - E + F - (L - F) = 0 = 2(S - G) with S=1, G=1.
+    // Anything else is corruption that this diagnostic surfaces.
+    let result = make_cube_with_hole(coarse_tol()).expect("coarse tol should work");
+    let v = result.vertices.len() as i64;
+    let e = result.edges.len() as i64;
+    let f = result.faces.len() as i64;
+    let l = result.loops.len() as i64;
+    let s = result.shells.len() as i64;
+    let chi = v - e + f;
+    let lhs = v - e + f - (l - f);
+    let inner_loops: usize = result.faces.values().map(|fi| fi.inner_loops.len()).sum();
+
+    eprintln!("[diag] V={v} E={e} F={f} L={l} S={s}");
+    eprintln!("[diag] chi=V-E+F={chi}");
+    eprintln!("[diag] lhs (full Euler) = V-E+F-(L-F) = {lhs}");
+    eprintln!("[diag] expected lhs for genus-0 single-shell: 2");
+    eprintln!("[diag] expected lhs for genus-1 single-shell: 0");
+    eprintln!("[diag] inner_loops total = {inner_loops}");
+    eprintln!("[diag] outer_loops = F = {f}");
+    eprintln!(
+        "[diag] L should equal F + inner_loops = {}",
+        f + inner_loops as i64
+    );
+    eprintln!("[diag] L actual = {l}");
+
+    // Walk and report each face's loop counts.
+    for (i, (_, face)) in result.faces.iter().enumerate() {
+        eprintln!(
+            "[diag] face[{}] inner_loops={} surface={:?}",
+            i,
+            face.inner_loops.len(),
+            face.surface
+                .as_ref()
+                .map(|s| std::any::type_name_of_val(&s.geometry)),
+        );
+    }
+
+    // Walk every edge and report which faces use it.
+    eprintln!("[diag] edge -> face usage:");
+    for (eh, edge) in &result.edges {
+        let he = &result.half_edges[edge.half_edge];
+        let twin = &result.half_edges[he.twin];
+        let face_a = result.loops.get(he.loop_).map(|l| l.face);
+        let face_b = result.loops.get(twin.loop_).map(|l| l.face);
+        eprintln!(
+            "[diag]   edge {:?}: face_a={:?} face_b={:?}",
+            eh, face_a, face_b
+        );
+    }
+
+    // Walk every vertex and report its position.
+    eprintln!("[diag] vertices:");
+    for (vh, v) in &result.vertices {
+        eprintln!(
+            "[diag]   {:?}: ({:.3}, {:.3}, {:.3})",
+            vh, v.position.x, v.position.y, v.position.z
+        );
+    }
+
+    // Per-face loop counts: outer loop length + each inner loop length.
+    eprintln!("[diag] per-face loop layout:");
+    for (fh, face) in &result.faces {
+        let outer_len = walk_loop_length(&result, face.outer_loop);
+        eprintln!(
+            "[diag]   face {:?}: outer_loop_len={} inner_loops={}",
+            fh,
+            outer_len,
+            face.inner_loops.len()
+        );
+        for &inner in &face.inner_loops {
+            let inner_len = walk_loop_length(&result, inner);
+            eprintln!("[diag]     inner_loop len={inner_len}");
+        }
+    }
+}
+
+#[test]
+#[ignore = "diagnostic-only — see docs/reports/coverage/booleans-vs-requirements.md"]
+fn diagnose_orphan_loops() {
+    use std::collections::HashSet;
+    let result = make_cube_with_hole(coarse_tol()).expect("coarse tol should work");
+
+    // Collect all loop handles referenced by faces.
+    let mut owned: HashSet<popkern_core::topology::LoopHandle> = HashSet::new();
+    for (_, face) in &result.faces {
+        owned.insert(face.outer_loop);
+        for &inner in &face.inner_loops {
+            owned.insert(inner);
+        }
+    }
+
+    eprintln!("[diag] total loops in slotmap: {}", result.loops.len());
+    eprintln!("[diag] loops referenced by faces: {}", owned.len());
+
+    // Walk every loop in the slotmap and report whether it's owned.
+    for (lh, ld) in &result.loops {
+        let face_of = ld.face;
+        let referenced = owned.contains(&lh);
+        eprintln!(
+            "[diag]   loop {:?}: face={:?} referenced_by_face={}",
+            lh, face_of, referenced
+        );
+        if !referenced {
+            // Orphan loop — walk it and report length and starting half-edge.
+            let len = walk_loop_length(&result, lh);
+            eprintln!("[diag]     ORPHAN loop length={len}");
+        }
+    }
+}
+
+#[test]
+#[ignore = "diagnostic-only — see docs/reports/coverage/booleans-vs-requirements.md"]
+fn diagnose_loop_repair_outcome() {
+    // Run the boolean and then explicitly run loop_repair on the
+    // result. Print the report so we can see whether the pass
+    // identified stranded half-edges and whether the removal stuck.
+    let mut result = make_cube_with_hole(coarse_tol()).expect("coarse tol should work");
+    let report = crate::postprocess::loop_repair::repair_stranded_loops(&mut result);
+    eprintln!("[diag] loop_repair report: {report:?}");
+    let v = result.vertices.len();
+    let e = result.edges.len();
+    let f = result.faces.len();
+    let l = result.loops.len();
+    eprintln!("[diag] post-repair V={v} E={e} F={f} L={l}");
+}
+
+#[test]
+#[ignore = "diagnostic-only — see docs/reports/coverage/booleans-vs-requirements.md"]
+fn diagnose_unreachable_half_edges() {
+    use std::collections::HashSet;
+    let result = make_cube_with_hole(coarse_tol()).expect("coarse tol should work");
+
+    let mut reachable: HashSet<popkern_core::topology::HalfEdgeHandle> = HashSet::new();
+    for (_, face) in &result.faces {
+        collect_loop(&result, face.outer_loop, &mut reachable);
+        for &inner in &face.inner_loops {
+            collect_loop(&result, inner, &mut reachable);
+        }
+    }
+
+    eprintln!("[diag] half-edges in slotmap = {}", result.half_edges.len());
+    eprintln!(
+        "[diag] half-edges reachable from face loops = {}",
+        reachable.len()
+    );
+
+    let mut leftover_count = 0;
+    for (heh, he) in &result.half_edges {
+        if !reachable.contains(&heh) {
+            leftover_count += 1;
+            let origin_pos = result.vertices.get(he.origin).map(|v| v.position);
+            eprintln!(
+                "[diag]   leftover half-edge {:?}: origin={:?}, loop_={:?}",
+                heh, origin_pos, he.loop_
+            );
+        }
+    }
+    eprintln!("[diag] total leftover half-edges = {leftover_count}");
+
+    // Per-face: count expected (sum of self-loop edges * 2 + manifold edges)
+    // versus actual outer-loop reach to find loop-graph inconsistencies.
+    eprintln!("[diag] per-face half-edge usage:");
+    for (fh, face) in &result.faces {
+        let mut declared = 0;
+        for (_, edge) in &result.edges {
+            let he = &result.half_edges[edge.half_edge];
+            let twin = &result.half_edges[he.twin];
+            let face_a = result.loops.get(he.loop_).map(|l| l.face);
+            let face_b = result.loops.get(twin.loop_).map(|l| l.face);
+            if face_a == Some(fh) {
+                declared += 1;
+            }
+            if face_b == Some(fh) {
+                declared += 1;
+            }
+        }
+        let outer_walked = walk_loop_length(&result, face.outer_loop);
+        let inner_walked: usize = face
+            .inner_loops
+            .iter()
+            .map(|&l| walk_loop_length(&result, l))
+            .sum();
+        eprintln!(
+            "[diag]   face {fh:?}: declared_he={declared} outer_walked={outer_walked} inner_walked={inner_walked} delta={}",
+            declared as i64 - outer_walked as i64 - inner_walked as i64
+        );
+    }
+}
+
+fn collect_loop(
+    brep: &BRep,
+    loop_h: popkern_core::topology::LoopHandle,
+    out: &mut std::collections::HashSet<popkern_core::topology::HalfEdgeHandle>,
+) {
+    let Some(loop_data) = brep.loops.get(loop_h) else {
+        return;
+    };
+    let start = loop_data.half_edge;
+    let mut cursor = start;
+    let limit = brep.half_edges.len() + 1;
+    for _ in 0..limit {
+        out.insert(cursor);
+        if let Some(he) = brep.half_edges.get(cursor) {
+            cursor = he.next;
+        } else {
+            break;
+        }
+        if cursor == start {
+            break;
+        }
+    }
+}
+
+fn walk_loop_length(brep: &BRep, loop_h: popkern_core::topology::LoopHandle) -> usize {
+    let Some(loop_data) = brep.loops.get(loop_h) else {
+        return 0;
+    };
+    let start = loop_data.half_edge;
+    let mut count = 0;
+    let mut cursor = start;
+    let limit = brep.half_edges.len() + 1;
+    for _ in 0..limit {
+        count += 1;
+        if let Some(he) = brep.half_edges.get(cursor) {
+            cursor = he.next;
+        } else {
+            break;
+        }
+        if cursor == start {
+            break;
+        }
+    }
+    count
+}
+
+#[test]
 fn hole_at_medium_tol() {
     let result = make_cube_with_hole(medium_tol());
     match result {

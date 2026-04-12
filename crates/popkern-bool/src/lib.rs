@@ -26,8 +26,10 @@
 //! ```
 
 pub mod adaptive_precision;
+pub mod cancellation;
 pub mod cellular;
 pub(crate) mod classify;
+pub mod classify_on_deferred;
 pub mod classify_on_face;
 pub mod classify_propagation;
 pub mod classify_winding;
@@ -48,6 +50,7 @@ pub mod perturbation;
 pub mod postprocess;
 pub mod provenance;
 pub(crate) mod select;
+pub mod sheet;
 pub(crate) mod split;
 pub(crate) mod split_inner_loop;
 pub mod tangent_analysis;
@@ -60,6 +63,9 @@ pub use csg::{CsgNode, csg_eval};
 pub use error::{
     BoolDiagnostics, BoolError, BoolOperation, Classification, PointClassification, Stage,
 };
+pub use ops::interference::{InterferenceMode, InterferenceReport, interference_check};
+pub use postprocess::quality::{QualityReport, QualityThresholds, quality_report};
+pub use postprocess::sliver_removal::{SliverRemovalReport, remove_slivers};
 
 #[cfg(test)]
 mod error_and_tracking_tests;
@@ -98,6 +104,19 @@ pub fn boolean(
     tol: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<BRep, BoolError> {
+    // §2.3: reject sheet body inputs with a structured error rather
+    // than letting volume-based classification produce undefined
+    // results. Future work will add boundary-relative semantics; for
+    // now this is the only safe response.
+    let a_is_sheet = sheet::is_sheet_body(&a);
+    let b_is_sheet = sheet::is_sheet_body(&b);
+    if a_is_sheet || b_is_sheet {
+        return Err(BoolError::OpenShellNotSupported {
+            a: a_is_sheet,
+            b: b_is_sheet,
+        });
+    }
+
     // Collect input face data before the boolean consumes the inputs.
     let input_a_faces = if tracking.is_some() {
         collect_face_data(&a)
@@ -228,6 +247,100 @@ pub fn subtraction_ref(
     tracking: Option<&mut TrackingContext>,
 ) -> Result<BRep, BoolError> {
     boolean_ref(BoolOperation::Subtraction, a, b, tol, tracking)
+}
+
+/// Perform a boolean operation and return per-phase telemetry alongside the result.
+///
+/// Identical to [`boolean`] but populates a [`BoolDiagnostics`] with
+/// [`PhaseMetric`](crate::error::PhaseMetric) samples for each pipeline stage
+/// (intersection, split, classification, selection, merge, validation). Use
+/// this entry point for performance regression detection and tooling that
+/// needs to attribute time to specific phases.
+///
+/// # Arguments
+///
+/// * `op` — the boolean set operation.
+/// * `a`, `b` — operand solids (cloned).
+/// * `tol` — geometric tolerance.
+pub fn boolean_with_diagnostics(
+    op: BoolOperation,
+    a: &BRep,
+    b: &BRep,
+    tol: Tolerance,
+) -> Result<(BRep, BoolDiagnostics), BoolError> {
+    let mut metrics = Vec::new();
+    let result =
+        operation::execute_boolean_with_metrics(op, a.clone(), b.clone(), &tol, &mut metrics)?;
+    let diagnostics = BoolDiagnostics {
+        phase_metrics: metrics,
+        ..BoolDiagnostics::default()
+    };
+    Ok((result, diagnostics))
+}
+
+/// Perform a boolean with cooperative cancellation support (§15).
+///
+/// Behaves identically to [`boolean`] but checks `cancel` between
+/// pipeline phases and returns [`BoolError::Cancelled`] as soon as a
+/// cancellation request is observed. The input model is unchanged.
+///
+/// Pair this with [`cancellation::CancellationToken`] held by a UI
+/// progress dialog or signal handler.
+pub fn boolean_cancellable(
+    op: BoolOperation,
+    a: &BRep,
+    b: &BRep,
+    tol: Tolerance,
+    cancel: &cancellation::CancellationToken,
+) -> Result<BRep, BoolError> {
+    let mut metrics = Vec::new();
+    operation::execute_boolean_full(op, a.clone(), b.clone(), &tol, &mut metrics, Some(cancel))
+}
+
+/// Perform a boolean operation and enforce post-validation on the result.
+///
+/// Runs the standard boolean pipeline, then applies the post-check
+/// validator (manifold edges, Euler-Poincaré, half-edge cycles, watertightness,
+/// face orientation, and optional self-intersection). Any `Severity::Error`
+/// or `Severity::Critical` finding causes the operation to return
+/// [`BoolError::ValidationFailed`] with a concatenated description.
+///
+/// This is the strict counterpart to [`boolean`]: prefer it when the caller
+/// needs a guaranteed-valid result and is willing to fail on degenerate
+/// boolean cases that the lenient pipeline would tolerate.
+///
+/// # Arguments
+///
+/// * `op` — the boolean set operation.
+/// * `a`, `b` — operand solids (cloned).
+/// * `tol` — geometric tolerance.
+/// * `check_self_intersection` — opt in to the O(n²) result self-intersection
+///   check (§9.2). Off by default in the lenient path; recommended for any
+///   strict workflow.
+pub fn boolean_strict(
+    op: BoolOperation,
+    a: &BRep,
+    b: &BRep,
+    tol: Tolerance,
+    check_self_intersection: bool,
+) -> Result<BRep, BoolError> {
+    use crate::error::Severity;
+
+    let result = boolean_ref(op, a, b, tol, None)?;
+    let report = validate::post_check::post_check(&result, &tol, check_self_intersection);
+
+    let errors: Vec<String> = report
+        .findings
+        .iter()
+        .filter(|f| matches!(f.severity, Severity::Error | Severity::Critical))
+        .map(|f| f.message.clone())
+        .collect();
+
+    if errors.is_empty() {
+        Ok(result)
+    } else {
+        Err(BoolError::ValidationFailed(errors.join("; ")))
+    }
 }
 
 /// Perform a boolean and return both the result and entity provenance.

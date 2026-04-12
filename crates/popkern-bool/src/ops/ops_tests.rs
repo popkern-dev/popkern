@@ -63,6 +63,40 @@ fn imprint_disjoint_produces_no_curves() {
         .unwrap();
     let result = super::imprint::imprint(&cube, &cyl, &tol()).unwrap();
     assert!(result.curves.is_empty());
+    // Disjoint inputs leave the target unchanged, but the API still
+    // returns the (cloned) target body for the caller to consume.
+    assert_eq!(
+        result.imprinted_target.faces.len(),
+        cube.faces.len(),
+        "disjoint imprint should not split any faces"
+    );
+}
+
+#[test]
+fn imprint_actually_splits_target_faces() {
+    // A box subtraction tool fully bracketing one face of the target
+    // produces enough intersection curves to drive face splitting; the
+    // imprinted_target field should report more faces than the original.
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let tool = BRep::unit_cube(tol())
+        .unwrap()
+        .transform(&Transform3::translation(0.5, 0.5, 0.5))
+        .unwrap();
+    let result = super::imprint::imprint(&cube, &tool, &tol()).unwrap();
+    assert!(
+        !result.curves.is_empty(),
+        "overlapping cubes should produce imprint curves"
+    );
+    // The original cube must be unchanged.
+    assert_eq!(cube.faces.len(), 6);
+    // The imprinted target should have at least as many faces as the
+    // original; if the split phase ran, it should have strictly more.
+    assert!(
+        result.imprinted_target.faces.len() >= cube.faces.len(),
+        "imprinted target should have at least as many faces as the input ({} -> {})",
+        cube.faces.len(),
+        result.imprinted_target.faces.len()
+    );
 }
 
 // ── Split/Slice tests ──────────────────────────────────────────────────

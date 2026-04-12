@@ -1,7 +1,10 @@
 //! Post-processing for boolean results: redundant edge removal and face simplification.
 
 pub mod face_simplify;
+pub mod loop_repair;
+pub mod quality;
 pub mod redundant_edge;
+pub mod sliver_removal;
 
 #[cfg(test)]
 #[path = "postprocess_tests.rs"]

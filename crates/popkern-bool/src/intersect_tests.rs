@@ -309,3 +309,35 @@ fn translate_brep_without_geometry_covers_no_surface_no_curve_branches() {
         assert!(v.position.x >= 0.5, "vertex x should have been translated");
     }
 }
+
+#[test]
+fn branch_point_labeling_marks_coincident_endpoints() {
+    // Two unit cubes overlapping at the corner produce intersection
+    // curves whose endpoints meet at the shared corner — a branch
+    // point. After labeling, at least one record should have
+    // OnBranchPoint at one of its endpoints.
+    let cube_a = BRep::unit_cube(tol()).unwrap();
+    let cube_b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(0.5, 0.5, 0.5));
+    let result = find_intersections(&cube_a, &cube_b, &tol()).unwrap();
+
+    let any_branch = result.records.iter().any(|r| {
+        matches!(r.start_boundary, EndpointBoundaryType::OnBranchPoint)
+            || matches!(r.end_boundary, EndpointBoundaryType::OnBranchPoint)
+    });
+    assert!(
+        any_branch,
+        "corner-overlapping cubes should produce branch-point endpoints; got records={}, branches=0",
+        result.records.len()
+    );
+}
+
+#[test]
+fn branch_point_labeling_skips_disjoint_records() {
+    // Disjoint cubes have no intersection curves at all, so the
+    // labeling pass is a no-op. The records vector should remain
+    // empty without panicking.
+    let cube_a = BRep::unit_cube(tol()).unwrap();
+    let cube_b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(5.0, 0.0, 0.0));
+    let result = find_intersections(&cube_a, &cube_b, &tol()).unwrap();
+    assert!(result.records.is_empty());
+}

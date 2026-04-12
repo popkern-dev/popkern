@@ -4,7 +4,8 @@
 //! Catches problems early that would cause failures deep in the pipeline.
 
 use popkern_core::error::ValidationError;
-use popkern_core::topology::BRep;
+use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::error::Severity;
 
@@ -21,11 +22,60 @@ pub struct PreCheckFinding {
     pub error: Option<ValidationError>,
 }
 
+/// A face flagged as geometrically degenerate by pre-check.
+#[derive(Debug, Clone)]
+pub struct DegenerateFace {
+    /// Which operand the face is on (0 = A, 1 = B).
+    pub operand: usize,
+    /// The face handle.
+    pub face: FaceHandle,
+    /// Approximate area as computed by `analyze_face_polygon`.
+    pub area: f64,
+    /// Why it was flagged (`"zero_area"`, `"too_few_vertices"`, etc.).
+    pub reason: String,
+}
+
+/// A potentially problematic face pair flagged by pre-check (§12.4 [BEYOND]).
+///
+/// Identified by an AABB-overlap test followed by either a near-coincidence
+/// or near-tangent classification. Helps callers preemptively repair or
+/// adjust geometry before running the full boolean.
+#[derive(Debug, Clone)]
+pub struct ProblematicPair {
+    /// Face from operand A.
+    pub face_a: FaceHandle,
+    /// Face from operand B.
+    pub face_b: FaceHandle,
+    /// Why this pair is potentially problematic.
+    pub kind: ProblematicKind,
+    /// Quantitative measure: distance for `NearCoincident`, sin(angle) for `NearTangent`.
+    pub measure: f64,
+}
+
+/// Classification of a problematic face pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProblematicKind {
+    /// Faces are within 10× tolerance and same orientation: likely
+    /// to trip the coincidence detector at a tolerance cliff edge.
+    NearCoincident,
+    /// Surface normals are nearly parallel (within angular tolerance):
+    /// the SSI solver's Jacobian is rank-deficient at this configuration.
+    NearTangent,
+}
+
 /// Result of pre-boolean validation.
 #[derive(Debug, Default)]
 pub struct PreCheckReport {
     /// All findings.
     pub findings: Vec<PreCheckFinding>,
+    /// Faces flagged as geometrically degenerate (zero area, too few vertices).
+    pub degenerate_faces: Vec<DegenerateFace>,
+    /// Face pairs flagged as potentially problematic (§12.4 [BEYOND]).
+    pub problematic_pairs: Vec<ProblematicPair>,
+    /// Heuristic estimate of how likely the boolean is to succeed (§12.4 [BEYOND]).
+    /// `1.0` = no issues detected; `0.0` = many issues. Computed by
+    /// [`PreCheckReport::compute_success_likelihood`] from the other fields.
+    pub success_likelihood: f64,
 }
 
 impl PreCheckReport {
@@ -63,6 +113,8 @@ impl PreCheckReport {
 /// - Face orientation consistency
 /// - Loop closure (no gaps between edges)
 /// - Missing surface/curve geometry
+/// - Degenerate faces (§12.4)
+/// - Problematic face pairs and success likelihood (§12.4 [BEYOND])
 ///
 /// Optionally checks self-intersection (expensive).
 pub fn pre_check(a: &BRep, b: &BRep, check_self_intersection: bool) -> PreCheckReport {
@@ -110,7 +162,185 @@ pub fn pre_check(a: &BRep, b: &BRep, check_self_intersection: bool) -> PreCheckR
         });
     }
 
+    // Detect degenerate faces (§12.4) — area below tolerance² is a
+    // strong indicator that the face will collapse during subdivision.
+    let tol = Tolerance::with_linear(Tolerance::default(), tol_linear);
+    detect_degenerate_faces(a, 0, &tol, &mut report);
+    detect_degenerate_faces(b, 1, &tol, &mut report);
+
+    // Identify problematic face pairs (§12.4 [BEYOND]).
+    detect_problematic_pairs(a, b, &tol, &mut report);
+
+    // Compute success likelihood from accumulated findings.
+    report.success_likelihood = report.compute_success_likelihood();
+
     report
+}
+
+/// Walk every face of `brep` and flag those whose polygon area falls
+/// below `tolerance.linear()²` or that have fewer than 3 vertices.
+fn detect_degenerate_faces(
+    brep: &BRep,
+    operand: usize,
+    tolerance: &Tolerance,
+    report: &mut PreCheckReport,
+) {
+    use crate::clip::face_vertex_positions;
+    use crate::imprint::sliver::{SliverThresholds, analyze_face_polygon};
+
+    let thresholds = SliverThresholds::from_tolerance(tolerance.linear());
+    for fh in brep.faces.keys() {
+        let positions = face_vertex_positions(brep, fh);
+        if positions.len() < 3 {
+            report.degenerate_faces.push(DegenerateFace {
+                operand,
+                face: fh,
+                area: 0.0,
+                reason: "too_few_vertices".into(),
+            });
+            continue;
+        }
+        let analysis = analyze_face_polygon(&positions, &thresholds);
+        if analysis.area < thresholds.min_area {
+            report.degenerate_faces.push(DegenerateFace {
+                operand,
+                face: fh,
+                area: analysis.area,
+                reason: format!(
+                    "area {:.2e} < tolerance² {:.2e}",
+                    analysis.area, thresholds.min_area
+                ),
+            });
+        }
+    }
+}
+
+/// Use the BVH-filtered face-pair set to identify near-coincident
+/// and near-tangent pairs that historically cause boolean failures.
+fn detect_problematic_pairs(
+    a: &BRep,
+    b: &BRep,
+    tolerance: &Tolerance,
+    report: &mut PreCheckReport,
+) {
+    use popkern_core::geometry::intersection::surface_subdivision::Aabb;
+    use popkern_core::geometry::surface::SurfaceEval;
+    use popkern_core::validation::bvh::Bvh;
+
+    use crate::intersect::compute_face_aabbs;
+
+    let aabbs_a = compute_face_aabbs(a);
+    let aabbs_b = compute_face_aabbs(b);
+    let n_a = aabbs_a.len();
+
+    let mut combined: Vec<(usize, Aabb)> = Vec::with_capacity(n_a + aabbs_b.len());
+    for (i, (_, aabb)) in aabbs_a.iter().enumerate() {
+        combined.push((i, aabb.clone()));
+    }
+    for (i, (_, aabb)) in aabbs_b.iter().enumerate() {
+        combined.push((n_a + i, aabb.clone()));
+    }
+    let bvh = Bvh::build(&combined);
+    let candidates = bvh.find_overlapping_pairs(tolerance.linear() * 10.0);
+
+    let near_coincident_threshold = tolerance.linear() * 10.0;
+    let angular_threshold = tolerance.angular() * 10.0;
+
+    for (id_x, id_y) in &candidates {
+        let (a_idx, b_idx) = if *id_x < n_a && *id_y >= n_a {
+            (*id_x, *id_y - n_a)
+        } else if *id_y < n_a && *id_x >= n_a {
+            (*id_y, *id_x - n_a)
+        } else {
+            continue;
+        };
+        let face_a = aabbs_a[a_idx].0;
+        let face_b = aabbs_b[b_idx].0;
+
+        let surf_a = match a.faces[face_a].surface.as_ref() {
+            Some(s) => &s.geometry,
+            None => continue,
+        };
+        let surf_b = match b.faces[face_b].surface.as_ref() {
+            Some(s) => &s.geometry,
+            None => continue,
+        };
+
+        // Sample the surface midpoints. For analytic surfaces this is
+        // representative; for NURBS it's a heuristic. Either way the
+        // measure is a proxy, not a proof.
+        let ((u1_min, u1_max), (v1_min, v1_max)) = surf_a.parameter_range();
+        let ((u2_min, u2_max), (v2_min, v2_max)) = surf_b.parameter_range();
+        let u1 = midpoint_safe(u1_min, u1_max);
+        let v1 = midpoint_safe(v1_min, v1_max);
+        let u2 = midpoint_safe(u2_min, u2_max);
+        let v2 = midpoint_safe(v2_min, v2_max);
+        let p1 = surf_a.point_at(u1, v1);
+        let p2 = surf_b.point_at(u2, v2);
+        let dist = p1.distance_to(&p2);
+
+        let n1 = surf_a.normal_at(u1, v1);
+        let n2 = surf_b.normal_at(u2, v2);
+        let cross_len = n1.cross(&n2).length();
+        let norms = n1.length() * n2.length();
+        let sin_angle = if norms > 1e-30 {
+            cross_len / norms
+        } else {
+            f64::INFINITY
+        };
+
+        if dist < near_coincident_threshold && sin_angle < angular_threshold {
+            report.problematic_pairs.push(ProblematicPair {
+                face_a,
+                face_b,
+                kind: ProblematicKind::NearCoincident,
+                measure: dist,
+            });
+        } else if sin_angle < angular_threshold {
+            report.problematic_pairs.push(ProblematicPair {
+                face_a,
+                face_b,
+                kind: ProblematicKind::NearTangent,
+                measure: sin_angle,
+            });
+        }
+    }
+}
+
+/// Return a finite midpoint for a parameter range, clamping infinite
+/// bounds to ±10 to avoid evaluating analytic surfaces at infinity.
+fn midpoint_safe(lo: f64, hi: f64) -> f64 {
+    let lo = if lo.is_finite() { lo } else { -10.0 };
+    let hi = if hi.is_finite() { hi } else { 10.0 };
+    0.5 * (lo + hi)
+}
+
+impl PreCheckReport {
+    /// Compute the success likelihood (0.0–1.0) from the accumulated
+    /// findings, degenerate faces, and problematic pairs.
+    ///
+    /// Heuristic, not a proof: high values mean the boolean is more
+    /// likely to succeed; low values mean significant manual repair
+    /// is probably needed before running the operation.
+    pub fn compute_success_likelihood(&self) -> f64 {
+        let mut score = 1.0_f64;
+        for f in &self.findings {
+            score -= match f.severity {
+                Severity::Critical => 0.50,
+                Severity::Error => 0.30,
+                Severity::Warning => 0.05,
+                Severity::Info => 0.0,
+            };
+        }
+        score -= self.degenerate_faces.len() as f64 * 0.05;
+        for p in &self.problematic_pairs {
+            score -= match p.kind {
+                ProblematicKind::NearCoincident => 0.10,
+                ProblematicKind::NearTangent => 0.05,
+            };
+        }
+        score.clamp(0.0, 1.0)
+    }
 }
 
 /// Run core validation checks on a single body.

@@ -13,5 +13,6 @@ pub(crate) mod graph_build;
 pub(crate) mod graph_intersect;
 pub(crate) mod graph_merge;
 pub(crate) mod graph_split;
+pub(crate) mod manifold_check;
 pub(crate) mod radial;
 pub(crate) mod walk;

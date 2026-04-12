@@ -12,26 +12,30 @@ use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::clip::{clip_curve_to_faces, face_vertex_positions};
 use crate::error::BoolError;
-use crate::intersect::compute_face_aabbs;
+use crate::intersect::{IntersectionRecord, compute_face_aabbs};
+use crate::split::split_along_curves;
 
 /// Result of an imprint operation.
 #[derive(Debug)]
 pub struct ImprintResult {
-    /// The imprinted body (target with intersection curves added as edges).
-    /// Note: actual face splitting requires the split pipeline, which is
-    /// not yet integrated here. This result contains the computed curves
-    /// that would be used for splitting.
+    /// The target body with intersection curves split into its faces.
+    /// Faces that crossed an intersection curve have been replaced by
+    /// fragments along the curve; faces that did not cross any curve
+    /// are unchanged. The tool body is consumed and not returned.
+    pub imprinted_target: BRep,
+    /// The intersection curves that drove the imprint, for inspection
+    /// or to drive secondary operations.
     pub curves: Vec<ImprintCurve>,
     /// Number of face pairs tested.
     pub pairs_tested: usize,
 }
 
-/// A curve to be imprinted onto the target body.
+/// A curve produced by the imprint operation.
 #[derive(Debug, Clone)]
 pub struct ImprintCurve {
     /// The intersection curve.
     pub curve: CurveOnSurface,
-    /// Face on the target body to split.
+    /// Face on the target body that this curve lies on.
     pub target_face: FaceHandle,
     /// Face on the tool body that produced this curve.
     pub tool_face: FaceHandle,
@@ -39,9 +43,15 @@ pub struct ImprintCurve {
 
 /// Compute the imprint of a tool body onto a target body.
 ///
-/// Finds all intersection curves between `target` and `tool`, returning
-/// curves that lie on the target body's faces. These curves can be used
-/// to split the target's faces without removing material.
+/// Finds all intersection curves between `target` and `tool`, then runs
+/// the split phase of the boolean pipeline against the target body
+/// only, replacing each crossed face by its fragments along the
+/// intersection curves. The tool body is consumed and not returned;
+/// the original `target` is unchanged (the result is built from a
+/// clone).
+///
+/// Returns an [`ImprintResult`] containing the imprinted target, the
+/// intersection curves, and a `pairs_tested` counter for telemetry.
 pub fn imprint(
     target: &BRep,
     tool: &BRep,
@@ -50,6 +60,7 @@ pub fn imprint(
     let aabbs_target = compute_face_aabbs(target);
     let aabbs_tool = compute_face_aabbs(tool);
     let mut curves = Vec::new();
+    let mut records: Vec<IntersectionRecord> = Vec::new();
     let mut pairs_tested = 0;
 
     for (face_t, aabb_t) in &aabbs_target {
@@ -98,9 +109,18 @@ pub fn imprint(
                             clip_curve_to_faces(target, *face_t, tool, *face_tool, &curve)
                     {
                         curves.push(ImprintCurve {
-                            curve: clipped,
+                            curve: clipped.clone(),
                             target_face: *face_t,
                             tool_face: *face_tool,
+                        });
+                        records.push(IntersectionRecord {
+                            face_a: *face_t,
+                            face_b: *face_tool,
+                            curve: clipped,
+                            is_tangent: false,
+                            is_coincident: false,
+                            start_boundary: Default::default(),
+                            end_boundary: Default::default(),
                         });
                     }
                 }
@@ -108,7 +128,23 @@ pub fn imprint(
         }
     }
 
+    // If no intersections, the target is unchanged.
+    if records.is_empty() {
+        return Ok(ImprintResult {
+            imprinted_target: target.clone(),
+            curves,
+            pairs_tested,
+        });
+    }
+
+    // Run the split phase against (target, tool) clones. The split
+    // pipeline splits both inputs but only the target side is returned;
+    // the tool clone is discarded.
+    let split_result = split_along_curves(target.clone(), tool.clone(), &records, tolerance)
+        .map_err(|diag| diag.into_error())?;
+
     Ok(ImprintResult {
+        imprinted_target: split_result.a,
         curves,
         pairs_tested,
     })

@@ -76,6 +76,22 @@ pub(crate) fn graph_merge(
     // Phase 4: Sort radial edges at all nodes.
     sort_all_radial(&mut graph);
 
+    // Phase 4.5: §7.4 active manifold check. Walk the graph and
+    // identify any edges where more than two distinct faces would
+    // share a single BRep edge after assembly. Findings are logged
+    // in debug mode but do NOT abort the merge — flipping this to
+    // a hard error would require the strict mode entry point and
+    // is gated on the underlying Euler-violation bug we're tracking
+    // separately.
+    let manifold_report = super::manifold_check::detect_multi_incident_edges(&graph);
+    if !manifold_report.is_manifold() {
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[graph_merge] manifold check: {} multi-incident edge(s) detected before assembly",
+            manifold_report.multi_incident.len()
+        );
+    }
+
     // Phase 5: Walk loops to find face fragments.
     let fragments = walk_all_fragments(&graph, original_a, original_b);
 

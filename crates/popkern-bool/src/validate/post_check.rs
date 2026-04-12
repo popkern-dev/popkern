@@ -64,7 +64,12 @@ impl PostCheckReport {
 /// 3. Orientation consistency (half-edge pairing)
 /// 4. Watertightness (edge-surface deviation)
 /// 5. No degenerate topology (half-edge cycles, vertex consistency)
-pub fn post_check(result: &BRep, tolerance: &Tolerance) -> PostCheckReport {
+/// 6. Self-intersection (optional, expensive O(n²) face-pair check)
+pub fn post_check(
+    result: &BRep,
+    tolerance: &Tolerance,
+    check_self_intersection: bool,
+) -> PostCheckReport {
     let mut report = PostCheckReport {
         face_count: result.faces.len(),
         edge_count: result.edges.len(),
@@ -83,8 +88,11 @@ pub fn post_check(result: &BRep, tolerance: &Tolerance) -> PostCheckReport {
         });
     }
 
-    // 2. Euler-Poincaré (closed shell)
-    if let Err(e) = result.validate_euler_poincare() {
+    // 2. Euler-Poincaré (closed shell). Boolean results may be
+    // higher-genus (e.g. cube minus cylinder = genus-1 torus-like
+    // solid), so use the genus-tolerant variant. The strict
+    // genus-0 check is too restrictive for general booleans.
+    if let Err(e) = result.validate_euler_poincare_any_genus() {
         report.findings.push(PostCheckFinding {
             severity: Severity::Error,
             message: format!(
@@ -142,6 +150,19 @@ pub fn post_check(result: &BRep, tolerance: &Tolerance) -> PostCheckReport {
         report.findings.push(PostCheckFinding {
             severity: Severity::Warning,
             message: format!("Face orientation: {e}"),
+            error: Some(e),
+        });
+    }
+
+    // 8. Self-intersection (opt-in, O(n²) face-pair check).
+    // Required by §9.2: result must not self-intersect. Reported as Warning
+    // because for boolean results a detected self-intersection usually
+    // indicates a degenerate input rather than an outright pipeline bug,
+    // and the caller may still want the result for diagnostic purposes.
+    if check_self_intersection && let Err(e) = result.validate_self_intersection() {
+        report.findings.push(PostCheckFinding {
+            severity: Severity::Warning,
+            message: format!("Self-intersection in result: {e}"),
             error: Some(e),
         });
     }

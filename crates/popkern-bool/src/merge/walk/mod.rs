@@ -109,6 +109,7 @@ pub(crate) fn walk_all_fragments(
                     brep_b,
                     Some(start_he),
                     &visited,
+                    &current_loop,
                 ) {
                     Some(next_he) => he = next_he,
                     None => break,
@@ -249,6 +250,16 @@ pub(crate) fn walk_all_fragments(
 /// incoming direction.  This uses per-face angular comparison rather than
 /// the global radial sort, because intersection nodes sit at the junction
 /// of multiple faces with different normals.
+///
+/// **Cut behavior:** when `he_idx` is a closed self-loop on a `Shared`
+/// edge — i.e. an intersection circle that the boolean inserted as a
+/// cut through the face — and the previous edge in `current_loop`
+/// has its twin among the candidates, the walker bounces back along
+/// that twin. This treats the intersection circle as a topological
+/// cut: walk in via some boundary edge, traverse the circle, walk
+/// back out the same way. Without this rule, the walker keeps going
+/// past the cut and merges multiple regions into a single mega-loop
+/// (the cube-minus-cylinder Euler-violation bug).
 #[allow(clippy::too_many_arguments)]
 fn next_around_face(
     graph: &IntersectionGraph,
@@ -259,6 +270,7 @@ fn next_around_face(
     brep_b: &BRep,
     start_he: Option<usize>,
     visited: &HashSet<usize>,
+    current_loop: &[usize],
 ) -> Option<usize> {
     let twin_idx = graph.half_edges[he_idx].twin;
     let end_node = graph.half_edges[twin_idx].origin;
@@ -318,6 +330,28 @@ fn next_around_face(
         return Some(candidates[0]);
     }
 
+    // §7.4 cut behavior: when the previous edge is a closed self-loop
+    // on a Shared edge (an intersection circle that the boolean
+    // inserted as a cut through this face), bounce back along the
+    // twin of the edge that brought us TO this circle. The
+    // intersection circle acts as a topological barrier — without
+    // this rule, the walker continues past the cut and merges
+    // multiple disjoint regions into a single mega-loop.
+    //
+    // The detection: `he_idx` is a closed self-loop (origin == end),
+    // its source is `Shared`, and the SECOND-most-recent edge in
+    // `current_loop` (the one before he_idx) has its twin in the
+    // candidate set.
+    if is_self_loop_shared(graph, he_idx)
+        && current_loop.len() >= 2
+        && let Some(prev_prev) = current_loop.get(current_loop.len().wrapping_sub(2))
+    {
+        let prev_prev_twin = graph.half_edges[*prev_prev].twin;
+        if candidates.contains(&prev_prev_twin) {
+            return Some(prev_prev_twin);
+        }
+    }
+
     // Prefer loop closure when start_he is a candidate AND all other
     // candidates are already visited. This avoids closing the loop
     // prematurely (skipping unvisited boundary edges like cap circles)
@@ -368,6 +402,14 @@ fn next_around_face(
 
     // Use per-face angular comparison for all multi-candidate cases.
     pick_by_angle(graph, he_idx, &candidates, face, brep_a, brep_b)
+}
+
+/// True if `he_idx` is a closed self-loop half-edge whose source is
+/// `Shared` (an intersection circle).
+fn is_self_loop_shared(graph: &IntersectionGraph, he_idx: usize) -> bool {
+    let he = &graph.half_edges[he_idx];
+    let twin = &graph.half_edges[he.twin];
+    he.origin == twin.origin && matches!(he.source, super::graph::EdgeSource::Shared { .. })
 }
 
 #[cfg(test)]

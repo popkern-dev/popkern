@@ -48,12 +48,73 @@ fn pre_check_report_counts() {
     assert_eq!(report.warning_count(), 0);
 }
 
+#[test]
+fn pre_check_clean_cubes_have_high_likelihood() {
+    let a = BRep::unit_cube(tol()).unwrap();
+    let b = BRep::unit_cube(tol())
+        .unwrap()
+        .transform(&Transform3::translation(5.0, 0.0, 0.0))
+        .unwrap();
+    let report = super::pre_check::pre_check(&a, &b, false);
+    // Disjoint clean cubes should have no degenerate faces and a
+    // success likelihood close to 1.0.
+    assert_eq!(report.degenerate_faces.len(), 0);
+    assert!(
+        report.success_likelihood >= 0.9,
+        "clean disjoint cubes should be highly likely to succeed; got {}",
+        report.success_likelihood
+    );
+}
+
+#[test]
+fn pre_check_touching_cubes_flag_problematic_pairs() {
+    // Two unit cubes sharing a face (translation = 1.0 in x). The
+    // +X face of A and the -X face of B sit on the same plane with
+    // anti-parallel normals — a textbook near-coincident pair that
+    // boolean engines must handle as a coincident face merge or
+    // cancellation. Pre-check should flag the pair.
+    let a = BRep::unit_cube(tol()).unwrap();
+    let b = BRep::unit_cube(tol())
+        .unwrap()
+        .transform(&Transform3::translation(1.0, 0.0, 0.0))
+        .unwrap();
+    let report = super::pre_check::pre_check(&a, &b, false);
+    assert!(
+        !report.problematic_pairs.is_empty(),
+        "touching cubes should flag at least one problematic pair, got {}",
+        report.problematic_pairs.len()
+    );
+}
+
+#[test]
+fn pre_check_likelihood_decreases_with_problematic_pairs() {
+    // Two overlapping cubes (lots of parallel faces) should score
+    // lower than two disjoint cubes (no parallel pairs).
+    let a = BRep::unit_cube(tol()).unwrap();
+    let b_disjoint = BRep::unit_cube(tol())
+        .unwrap()
+        .transform(&Transform3::translation(5.0, 0.0, 0.0))
+        .unwrap();
+    let b_overlap = BRep::unit_cube(tol())
+        .unwrap()
+        .transform(&Transform3::translation(0.5, 0.3, 0.2))
+        .unwrap();
+    let report_disjoint = super::pre_check::pre_check(&a, &b_disjoint, false);
+    let report_overlap = super::pre_check::pre_check(&a, &b_overlap, false);
+    assert!(
+        report_disjoint.success_likelihood >= report_overlap.success_likelihood,
+        "disjoint score ({}) should be ≥ overlap score ({})",
+        report_disjoint.success_likelihood,
+        report_overlap.success_likelihood
+    );
+}
+
 // ── Post-check tests ───────────────────────────────────────────────────
 
 #[test]
 fn post_check_valid_cube() {
     let cube = BRep::unit_cube(tol()).unwrap();
-    let report = super::post_check::post_check(&cube, &tol());
+    let report = super::post_check::post_check(&cube, &tol(), false);
     assert!(
         report.is_ok(),
         "valid cube should pass post-check, got {} errors: {:?}",
@@ -68,7 +129,7 @@ fn post_check_valid_cube() {
 #[test]
 fn post_check_valid_cylinder() {
     let cyl = BRep::cylinder(1.0, 2.0, tol()).unwrap();
-    let report = super::post_check::post_check(&cyl, &tol());
+    let report = super::post_check::post_check(&cyl, &tol(), false);
     // Cylinder may have minor geometric warnings but no structural errors
     let structural_errors = report
         .findings
@@ -93,7 +154,7 @@ fn post_check_boolean_result() {
         .transform(&Transform3::translation(0.5, 0.3, 0.2))
         .unwrap();
     if let Ok(result) = crate::union(a, b, tol(), None) {
-        let report = super::post_check::post_check(&result, &tol());
+        let report = super::post_check::post_check(&result, &tol(), false);
         // Log but don't hard-assert — graph-merge may produce imperfect results
         if !report.is_ok() {
             eprintln!(
@@ -109,11 +170,117 @@ fn post_check_boolean_result() {
 #[test]
 fn post_check_report_metadata() {
     let cube = BRep::unit_cube(tol()).unwrap();
-    let report = super::post_check::post_check(&cube, &tol());
+    let report = super::post_check::post_check(&cube, &tol(), false);
     assert!(report.face_count > 0);
     assert!(report.edge_count > 0);
     assert!(report.vertex_count > 0);
     assert!(report.max_gap >= 0.0);
+}
+
+#[test]
+fn post_check_self_intersection_clean_cube() {
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let report = super::post_check::post_check(&cube, &tol(), true);
+    assert!(
+        report.is_ok(),
+        "valid cube should pass self-intersection check, got: {:?}",
+        report.findings
+    );
+}
+
+#[test]
+fn boolean_strict_disjoint_cubes_succeeds() {
+    let a = BRep::unit_cube(tol()).unwrap();
+    let b = BRep::unit_cube(tol())
+        .unwrap()
+        .transform(&Transform3::translation(5.0, 0.0, 0.0))
+        .unwrap();
+    let result = crate::boolean_strict(crate::BoolOperation::Union, &a, &b, tol(), false);
+    assert!(
+        result.is_ok(),
+        "disjoint-cube union should pass strict post-check, got {:?}",
+        result.err()
+    );
+}
+
+#[test]
+fn diagnostic_entry_carries_3d_location() {
+    use crate::error::{BoolDiagnostics, DiagnosticEntry, EntityRef, Severity, Stage};
+    use popkern_core::geometry::Point3;
+
+    let mut diag = BoolDiagnostics::default();
+    let pt = Point3::new(1.0, 2.0, 3.0);
+    diag.add(DiagnosticEntry {
+        severity: Severity::Error,
+        phase: Stage::Intersection,
+        message: "test diagnostic at known point".into(),
+        entities: Vec::new(),
+        location: Some(pt),
+        remediation: None,
+    });
+
+    let entry = diag.entries.first().expect("entry recorded");
+    let loc = entry.location.expect("location populated");
+    assert_eq!(loc, pt);
+
+    // warn_at convenience method.
+    let mut diag2 = BoolDiagnostics::default();
+    diag2.warn_at(Stage::Merge, "another", Point3::new(4.0, 5.0, 6.0));
+    let warn = diag2.entries.first().unwrap();
+    assert_eq!(warn.location, Some(Point3::new(4.0, 5.0, 6.0)));
+    assert!(matches!(warn.severity, Severity::Warning));
+
+    // EntityRef still independent of location.
+    let mut diag3 = BoolDiagnostics::default();
+    diag3.add(DiagnosticEntry {
+        severity: Severity::Info,
+        phase: Stage::Validation,
+        message: "no location".into(),
+        entities: vec![EntityRef::Face(Default::default())],
+        location: None,
+        remediation: None,
+    });
+    assert!(diag3.entries[0].location.is_none());
+}
+
+#[test]
+fn boolean_with_diagnostics_records_phase_metrics() {
+    use crate::error::Stage;
+
+    let a = BRep::unit_cube(tol()).unwrap();
+    let b = BRep::unit_cube(tol())
+        .unwrap()
+        .transform(&Transform3::translation(0.5, 0.3, 0.2))
+        .unwrap();
+    let (_result, diag) =
+        crate::boolean_with_diagnostics(crate::BoolOperation::Union, &a, &b, tol())
+            .expect("intersecting cubes union should succeed");
+
+    // The pipeline ran the full set of stages (no shortcut), so we expect
+    // a metric for each. The cellular shortcut paths return earlier and
+    // may produce fewer metrics — for genuinely intersecting cubes the
+    // full pipeline runs.
+    let stages: Vec<Stage> = diag.phase_metrics.iter().map(|m| m.stage).collect();
+    assert!(
+        stages.contains(&Stage::Intersection),
+        "phase_metrics should record an Intersection sample, got {stages:?}"
+    );
+    assert!(
+        stages.contains(&Stage::Merge),
+        "phase_metrics should record a Merge sample, got {stages:?}"
+    );
+
+    // Every recorded sample must have a non-zero entity count for the
+    // intersection stage on inputs known to intersect.
+    let intersect_metric = diag
+        .phase_metrics
+        .iter()
+        .find(|m| m.stage == Stage::Intersection)
+        .expect("intersection metric present");
+    assert!(
+        intersect_metric.entity_count > 0,
+        "intersection should report > 0 records for overlapping cubes"
+    );
 }
 
 // ── Repair tests ───────────────────────────────────────────────────────

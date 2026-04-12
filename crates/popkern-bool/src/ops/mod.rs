@@ -2,6 +2,7 @@
 
 pub mod face_level;
 pub mod imprint;
+pub mod interference;
 pub mod section;
 pub mod split_slice;
 

@@ -268,6 +268,12 @@ pub(crate) fn find_intersections_with_aabbs(
                 }
             }
             Err(e) => {
+                // §13.1: report a 3D location for the failure. The midpoint
+                // of face_a's bounded UV range is the closest cheap proxy
+                // for "where" the intersection solver gave up.
+                let u_mid = 0.5 * (u1_min + u1_max);
+                let v_mid = 0.5 * (v1_min + v1_max);
+                let location = surf_a.point_at(u_mid, v_mid);
                 return Err(BoolDiagnostics {
                     error: Some(BoolError::IntersectionFailed(format!(
                         "face_a={face_a:?} face_b={face_b:?}: {e}"
@@ -280,6 +286,7 @@ pub(crate) fn find_intersections_with_aabbs(
                         phase: Stage::Intersection,
                         message: format!("Surface intersection failed: {e}"),
                         entities: vec![crate::error::EntityRef::FacePair(face_a, face_b)],
+                        location: Some(location),
                         remediation: Some(crate::error::Remediation {
                             action: crate::error::RemediationAction::RetryWithPerturbation,
                             parameter: None,
@@ -290,10 +297,18 @@ pub(crate) fn find_intersections_with_aabbs(
                                 .into(),
                         }),
                     }],
+                    phase_metrics: Vec::new(),
                 });
             }
         }
     }
+
+    // §4.2 branch-point labeling: if two intersection-curve endpoints
+    // are coincident within tolerance, mark both as `OnBranchPoint`.
+    // The label is informational today (downstream consumers are
+    // gated by `#[allow(dead_code)]`) but is required by future split
+    // logic to preserve branch topology when subdividing faces.
+    label_branch_point_endpoints(&mut records, tolerance);
 
     // Diagnostic: detect edge-face intersections (legacy path).
     let edge_face_hits = detect_edge_face_intersections(a, b, aabbs_b, aabbs_a, tolerance);
@@ -316,6 +331,74 @@ pub(crate) fn find_intersections_with_aabbs(
         hierarchy,
         coincidence,
     })
+}
+
+// ---------------------------------------------------------------------------
+// §4.2 branch-point labeling
+// ---------------------------------------------------------------------------
+
+/// Label endpoints of intersection records that coincide with another
+/// curve's endpoint as `OnBranchPoint`.
+///
+/// Two endpoints "coincide" when their 3D positions are within
+/// `tolerance.linear() * 10.0`. The 10× factor matches the consumed
+/// proxy used by the SSI marching loop in `popkern-core`, so it
+/// catches the same junctions the solver itself treats as coincident.
+///
+/// The check is O(n²) in the number of intersection records, which is
+/// fine for typical boolean operations (well under 100 curves). The
+/// label is consumed by future split logic that needs to preserve
+/// branch topology when subdividing faces; today it is informational.
+fn label_branch_point_endpoints(records: &mut [IntersectionRecord], tolerance: &Tolerance) {
+    use popkern_core::geometry::CurveEval;
+    if records.len() < 2 {
+        return;
+    }
+
+    let snap = tolerance.linear() * 10.0;
+    let snap_sq = snap * snap;
+
+    // Snapshot every endpoint with its (record_idx, is_start) location.
+    let endpoints: Vec<(usize, bool, popkern_core::geometry::Point3)> = records
+        .iter()
+        .enumerate()
+        .flat_map(|(i, r)| {
+            let (t0, t1) = r.curve.curve_3d.parameter_range();
+            let p0 = r.curve.curve_3d.point_at(t0);
+            let p1 = r.curve.curve_3d.point_at(t1);
+            [(i, true, p0), (i, false, p1)]
+        })
+        .collect();
+
+    let mut is_branch = vec![[false; 2]; records.len()];
+
+    for i in 0..endpoints.len() {
+        for j in (i + 1)..endpoints.len() {
+            // Endpoints from the same record are not branches between
+            // each other (they are the two ends of one curve).
+            if endpoints[i].0 == endpoints[j].0 {
+                continue;
+            }
+            let dx = endpoints[i].2.x - endpoints[j].2.x;
+            let dy = endpoints[i].2.y - endpoints[j].2.y;
+            let dz = endpoints[i].2.z - endpoints[j].2.z;
+            if dx * dx + dy * dy + dz * dz < snap_sq {
+                let (idx_i, start_i, _) = endpoints[i];
+                let (idx_j, start_j, _) = endpoints[j];
+                is_branch[idx_i][if start_i { 0 } else { 1 }] = true;
+                is_branch[idx_j][if start_j { 0 } else { 1 }] = true;
+            }
+        }
+    }
+
+    for (i, record) in records.iter_mut().enumerate() {
+        if is_branch[i][0] {
+            record.start_boundary = EndpointBoundaryType::OnBranchPoint;
+        }
+        if is_branch[i][1] {
+            record.end_boundary = EndpointBoundaryType::OnBranchPoint;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

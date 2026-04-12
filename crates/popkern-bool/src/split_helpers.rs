@@ -205,6 +205,19 @@ pub(super) fn split_err(
     reason: String,
     records: &[IntersectionRecord],
 ) -> BoolDiagnostics {
+    // §13.1: derive a 3D location from the first intersection curve that
+    // touches this face if one is available; otherwise leave None. The
+    // first record's curve midpoint is a reasonable proxy for "where on
+    // this face the split hit a problem."
+    let location = records
+        .iter()
+        .find(|r| r.face_a == face || r.face_b == face)
+        .or_else(|| records.first())
+        .map(|r| {
+            let (t0, t1) = r.curve.curve_3d.parameter_range();
+            let t_mid = (t0 + t1) * 0.5;
+            r.curve.curve_3d.point_at(t_mid)
+        });
     BoolDiagnostics {
         error: Some(BoolError::SplitFailed {
             face,
@@ -218,6 +231,7 @@ pub(super) fn split_err(
             phase: Stage::Split,
             message: format!("Split failed on face {face:?}: {reason}"),
             entities: vec![crate::error::EntityRef::Face(face)],
+            location,
             remediation: Some(crate::error::Remediation {
                 action: crate::error::RemediationAction::IncreaseTolerance,
                 parameter: Some("linear".into()),
@@ -227,6 +241,7 @@ pub(super) fn split_err(
                     .into(),
             }),
         }],
+        phase_metrics: Vec::new(),
     }
 }
 

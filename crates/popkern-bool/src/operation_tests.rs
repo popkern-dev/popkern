@@ -121,6 +121,7 @@ fn into_error_fallback_when_no_error_set() {
         face_classifications: Vec::new(),
         failed_stage: None,
         entries: Vec::new(),
+        phase_metrics: Vec::new(),
     };
     let err = diag.into_error();
     assert!(

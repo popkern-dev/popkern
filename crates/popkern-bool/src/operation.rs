@@ -7,14 +7,32 @@
 #[path = "operation_helpers.rs"]
 mod helpers;
 
+use std::time::Instant;
+
 use popkern_core::{tolerance::Tolerance, topology::BRep};
 
+use crate::cancellation::CancellationToken;
 use crate::classify::classify_fragments;
-use crate::error::{BoolDiagnostics, BoolError, BoolOperation};
+use crate::error::{BoolDiagnostics, BoolError, BoolOperation, PhaseMetric, Stage};
 use crate::intersect::find_intersections;
 use crate::merge::graph_merge::graph_merge;
 use crate::select::{Operand, select_faces};
 use crate::split::split_along_curves;
+
+/// Check `cancel` and short-circuit with `BoolError::Cancelled` if set.
+///
+/// `Option<&CancellationToken>` keeps existing call sites that pass
+/// `None` zero-cost — there is no atomic load when the caller did not
+/// supply a token.
+#[inline]
+fn check_cancel(cancel: Option<&CancellationToken>) -> Result<(), BoolError> {
+    if let Some(t) = cancel
+        && t.is_cancelled()
+    {
+        return Err(BoolError::Cancelled);
+    }
+    Ok(())
+}
 
 use self::helpers::{handle_empty_selection, handle_no_intersection};
 
@@ -41,9 +59,47 @@ pub(crate) fn execute_boolean(
     b: BRep,
     tolerance: &Tolerance,
 ) -> Result<BRep, BoolError> {
+    execute_boolean_full(op, a, b, tolerance, &mut Vec::new(), None)
+}
+
+/// Execute a boolean and populate `metrics` with per-stage timing samples.
+///
+/// Backwards-compatible wrapper used by `boolean_with_diagnostics`.
+pub(crate) fn execute_boolean_with_metrics(
+    op: BoolOperation,
+    a: BRep,
+    b: BRep,
+    tolerance: &Tolerance,
+    metrics: &mut Vec<PhaseMetric>,
+) -> Result<BRep, BoolError> {
+    execute_boolean_full(op, a, b, tolerance, metrics, None)
+}
+
+/// Execute a boolean with full pipeline knobs: telemetry and cancellation.
+///
+/// Appends a [`PhaseMetric`] after each stage that runs to completion and
+/// polls `cancel` between stages. Returns [`BoolError::Cancelled`] as soon
+/// as a cancellation is observed; the input model is unchanged.
+pub(crate) fn execute_boolean_full(
+    op: BoolOperation,
+    a: BRep,
+    b: BRep,
+    tolerance: &Tolerance,
+    metrics: &mut Vec<PhaseMetric>,
+    cancel: Option<&CancellationToken>,
+) -> Result<BRep, BoolError> {
+    check_cancel(cancel)?;
+
     // Stage 1: Intersect — compute face-face intersection curves.
+    let t_intersect = Instant::now();
     let intersection_result =
         find_intersections(&a, &b, tolerance).map_err(|diag| diag.into_error())?;
+    metrics.push(PhaseMetric {
+        stage: Stage::Intersection,
+        duration: t_intersect.elapsed(),
+        entity_count: intersection_result.records.len(),
+    });
+    check_cancel(cancel)?;
 
     // No-intersection shortcut.
     if intersection_result.records.is_empty() {
@@ -80,10 +136,19 @@ pub(crate) fn execute_boolean(
     let original_b = b.clone();
 
     // Stage 2: Split — trim faces along intersection curves.
+    let t_split = Instant::now();
     let split_result = split_along_curves(a, b, &intersection_result.records, tolerance)
         .map_err(|diag| diag.into_error())?;
+    let split_fragment_count = split_result.a.faces.len() + split_result.b.faces.len();
+    metrics.push(PhaseMetric {
+        stage: Stage::Split,
+        duration: t_split.elapsed(),
+        entity_count: split_fragment_count,
+    });
+    check_cancel(cancel)?;
 
     // Stage 3: Classify — label each fragment as inside/outside/on-boundary.
+    let t_classify = Instant::now();
     let classifications_a = classify_fragments(
         &split_result.a,
         &split_result.b,
@@ -99,6 +164,12 @@ pub(crate) fn execute_boolean(
         &split_result.fragments_b.intersection_edges,
         tolerance,
     )?;
+    metrics.push(PhaseMetric {
+        stage: Stage::Classification,
+        duration: t_classify.elapsed(),
+        entity_count: classifications_a.len() + classifications_b.len(),
+    });
+    check_cancel(cancel)?;
 
     // Build the combined classification list for Stage 4.
     let mut all_classifications = Vec::new();
@@ -110,7 +181,14 @@ pub(crate) fn execute_boolean(
     }
 
     // Stage 4: Select — choose which fragments belong to the result.
+    let t_select = Instant::now();
     let selection = select_faces(op, &all_classifications);
+    metrics.push(PhaseMetric {
+        stage: Stage::Selection,
+        duration: t_select.elapsed(),
+        entity_count: selection.keep_a.len() + selection.keep_b.len(),
+    });
+    check_cancel(cancel)?;
 
     // If selection is empty, the split/classify pipeline classified all fragments
     // the same way (e.g. all Inside). Infer containment and return the
@@ -125,6 +203,7 @@ pub(crate) fn execute_boolean(
     // Stage 5: Cellular graph merge — order-independent fragment selection.
     // Falls back to standard graph-merge if cellular fails or produces
     // invalid topology.
+    let t_merge = Instant::now();
     let result = crate::cellular::boolean::cellular_graph_merge(
         &original_a,
         &original_b,
@@ -153,6 +232,11 @@ pub(crate) fn execute_boolean(
         )
     })
     .map_err(|diag| diag.into_error())?;
+    metrics.push(PhaseMetric {
+        stage: Stage::Merge,
+        duration: t_merge.elapsed(),
+        entity_count: result.faces.len(),
+    });
 
     // Recompute pcurves on all faces so that the tessellation pipeline
     // can build accurate trim loops. Boolean merge may leave seam edges
@@ -160,12 +244,53 @@ pub(crate) fn execute_boolean(
     let mut result = result;
     let _ = result.recompute_all_pcurves();
 
-    // Log validation issues (don't fail — diagnostic only for now).
+    // §12.5 / §7.3: gated post-validation. Run the boolean-specific
+    // post-check (manifold, Euler, half-edge cycles, watertightness).
+    // Surface any errors as a structured failure rather than silently
+    // returning a corrupted result. The merge-phase cut-behavior fix
+    // (commit history) made this consistently green; if a future
+    // change regresses, fail loudly.
+    let t_validate = Instant::now();
+    let pc_report = crate::validate::post_check::post_check(&result, tolerance, false);
+    let pc_errors: Vec<String> = pc_report
+        .findings
+        .iter()
+        .filter(|f| {
+            matches!(
+                f.severity,
+                crate::error::Severity::Error | crate::error::Severity::Critical
+            )
+        })
+        .map(|f| f.message.clone())
+        .collect();
     log_validation_issues(&result, op);
+    metrics.push(PhaseMetric {
+        stage: Stage::Validation,
+        duration: t_validate.elapsed(),
+        entity_count: result.faces.len(),
+    });
+    if !pc_errors.is_empty() {
+        return Err(BoolError::ValidationFailed(pc_errors.join("; ")));
+    }
+
+    // Post-processing: prune stranded half-edges left behind by
+    // broken merge loops. The merge phase occasionally tags
+    // half-edges with a loop handle they're not reachable from;
+    // this pruning step removes them so the visible topology
+    // matches the Euler-Poincaré accounting.
+    let _ = crate::postprocess::loop_repair::repair_stranded_loops(&mut result);
 
     // Post-processing: remove redundant edges if the result topology is valid.
     if result.validate().is_ok() {
         remove_redundant_edges_safe(&mut result, tolerance);
+    }
+
+    // Post-processing: remove sliver faces (§8.3.1) if the topology
+    // is still valid. The pass merges each sliver into a non-sliver
+    // neighbor via KEF, validating after every removal and bailing
+    // out on any corruption rather than compounding damage.
+    if result.validate().is_ok() {
+        let _ = crate::postprocess::sliver_removal::remove_slivers(&mut result, tolerance);
     }
 
     // Post-processing: face simplification and zero-thickness sheet removal
@@ -410,7 +535,7 @@ fn log_post_processing_diagnostics(result: &BRep, tolerance: &Tolerance) {
 
 impl BoolDiagnostics {
     /// Extract the error from diagnostics, or produce a generic error if none.
-    fn into_error(self) -> BoolError {
+    pub(crate) fn into_error(self) -> BoolError {
         self.error.unwrap_or_else(|| BoolError::MergeFailed {
             stage: format!("{:?}", self.failed_stage),
             reason: "unknown error in boolean pipeline".to_string(),

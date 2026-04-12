@@ -1,7 +1,8 @@
 //! Error and diagnostic types for popkern-bool.
 
 use popkern_core::{
-    error::CoreError, geometry::curve_on_surface::CurveOnSurface, topology::FaceHandle,
+    error::CoreError, geometry::Point3, geometry::curve_on_surface::CurveOnSurface,
+    topology::FaceHandle,
 };
 use thiserror::Error;
 
@@ -115,6 +116,41 @@ pub enum BoolError {
     /// An error propagated from popkern-core.
     #[error(transparent)]
     CoreError(#[from] CoreError),
+
+    /// The caller cancelled the operation via a cancellation token (§15).
+    /// The input model is unchanged.
+    #[error("boolean operation cancelled by caller")]
+    Cancelled,
+
+    /// At least one input is an open shell / sheet body and the
+    /// requested operation does not yet have a sheet-aware code
+    /// path (§2.3). The input model is unchanged. Callers can
+    /// detect this case via [`crate::sheet::is_sheet_body`] before
+    /// calling the boolean.
+    #[error(
+        "boolean operation on sheet body not yet supported: operand_a_is_sheet={a}, operand_b_is_sheet={b}"
+    )]
+    OpenShellNotSupported {
+        /// True if operand A is an open shell.
+        a: bool,
+        /// True if operand B is an open shell.
+        b: bool,
+    },
+}
+
+/// Per-stage timing and counter sample (§16 telemetry).
+///
+/// One `PhaseMetric` is recorded per pipeline stage that runs to completion.
+/// `entity_count` is stage-specific: pair count for intersection, fragment
+/// count for split/classify, etc.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PhaseMetric {
+    /// Which pipeline stage this measurement covers.
+    pub stage: Stage,
+    /// Wall-clock duration of the stage.
+    pub duration: std::time::Duration,
+    /// Stage-specific entity count (pairs, fragments, etc.).
+    pub entity_count: usize,
 }
 
 /// Diagnostic snapshot collected during a boolean operation.
@@ -132,6 +168,8 @@ pub struct BoolDiagnostics {
     pub failed_stage: Option<Stage>,
     /// Structured diagnostic entries with severity and entity references.
     pub entries: Vec<DiagnosticEntry>,
+    /// Per-phase timing and counters (§16 telemetry).
+    pub phase_metrics: Vec<PhaseMetric>,
 }
 
 impl BoolDiagnostics {
@@ -147,6 +185,7 @@ impl BoolDiagnostics {
             phase,
             message: message.into(),
             entities: Vec::new(),
+            location: None,
             remediation: None,
         });
     }
@@ -158,6 +197,19 @@ impl BoolDiagnostics {
             phase,
             message: message.into(),
             entities: Vec::new(),
+            location: None,
+            remediation: None,
+        });
+    }
+
+    /// Add a warning diagnostic with a 3D location (§13.1).
+    pub fn warn_at(&mut self, phase: Stage, message: impl Into<String>, location: Point3) {
+        self.entries.push(DiagnosticEntry {
+            severity: Severity::Warning,
+            phase,
+            message: message.into(),
+            entities: Vec::new(),
+            location: Some(location),
             remediation: None,
         });
     }
@@ -204,6 +256,11 @@ pub struct DiagnosticEntry {
     pub message: String,
     /// Topological entities involved.
     pub entities: Vec<EntityRef>,
+    /// 3D location where the problem occurs (§13.1). Populated when the
+    /// failure site has a known coordinate (e.g. an intersection endpoint,
+    /// a face centroid, a measured gap point); `None` for diagnostics
+    /// that are intrinsically topological.
+    pub location: Option<Point3>,
     /// Machine-readable remediation suggestion.
     pub remediation: Option<Remediation>,
 }
