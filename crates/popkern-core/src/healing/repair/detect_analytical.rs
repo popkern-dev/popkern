@@ -3,9 +3,16 @@
 //! Detects planar, cylindrical, spherical, conical, and toroidal surfaces
 //! by fitting geometric primitives to sampled surface data.
 
+#[path = "detect_analytical_helpers.rs"]
+mod helpers;
+
 use crate::geometry::analytic_surfaces::orthonormal_basis;
 use crate::geometry::surface::SurfaceEval;
 use crate::geometry::{Point3, Vec3};
+use helpers::{
+    estimate_axis, estimate_axis_from_positions, estimate_center_from_rays,
+    estimate_cone_axis_from_normals, fit_circle_2d,
+};
 
 /// Check if all sampled normals are parallel and all points lie on a plane.
 pub(super) fn try_detect_plane(
@@ -56,79 +63,6 @@ pub(super) fn build_plane_axes(normal: &Vec3) -> (Vec3, Vec3) {
     (u_axis, v_axis)
 }
 
-/// Estimate axis direction from cross products of normal pairs.
-fn estimate_axis(normals: &[Vec3]) -> Option<Vec3> {
-    let unit_normals: Vec<Vec3> = normals.iter().filter_map(|n| n.normalized()).collect();
-    if unit_normals.len() < 2 {
-        return None;
-    }
-    let mut accum = Vec3::zero();
-    let mut count = 0usize;
-    for i in 0..unit_normals.len() {
-        for j in (i + 1)..unit_normals.len() {
-            let c = unit_normals[i].cross(&unit_normals[j]);
-            if c.length_squared() > 1e-12 {
-                let to_add = if count > 0 && c.dot(&accum) < 0.0 {
-                    c * -1.0
-                } else {
-                    c
-                };
-                accum = accum + to_add;
-                count += 1;
-            }
-        }
-    }
-    accum.normalized()
-}
-
-/// Fit a circle to 2D points using the algebraic Kasa method.
-///
-/// Returns `Some((cx, cy, radius))` or `None` if the system is degenerate.
-pub(super) fn fit_circle_2d(pts: &[(f64, f64)]) -> Option<(f64, f64, f64)> {
-    let n = pts.len() as f64;
-    if n < 3.0 {
-        return None;
-    }
-    let (mut sx, mut sy) = (0.0, 0.0);
-    let (mut sxx, mut syy, mut sxy) = (0.0, 0.0, 0.0);
-    let (mut sxxx, mut syyy) = (0.0, 0.0);
-    let (mut sxxy, mut sxyy) = (0.0, 0.0);
-    for &(x, y) in pts {
-        sx += x;
-        sy += y;
-        sxx += x * x;
-        syy += y * y;
-        sxy += x * y;
-        sxxx += x * x * x;
-        syyy += y * y * y;
-        sxxy += x * x * y;
-        sxyy += x * y * y;
-    }
-    let rhs0 = sxxx + sxyy;
-    let rhs1 = sxxy + syyy;
-    let rhs2 = sxx + syy;
-    let det = sxx * (syy * n - sy * sy) - sxy * (sxy * n - sy * sx) + sx * (sxy * sy - syy * sx);
-    if det.abs() < 1e-30 {
-        return None;
-    }
-    let a = (rhs0 * (syy * n - sy * sy) - sxy * (rhs1 * n - sy * rhs2)
-        + sx * (rhs1 * sy - syy * rhs2))
-        / det;
-    let b = (sxx * (rhs1 * n - sy * rhs2) - rhs0 * (sxy * n - sy * sx)
-        + sx * (sxy * rhs2 - rhs1 * sx))
-        / det;
-    let c = (sxx * (syy * rhs2 - rhs1 * sy) - sxy * (sxy * rhs2 - rhs1 * sx)
-        + rhs0 * (sxy * sy - syy * sx))
-        / det;
-    let cx = a / 2.0;
-    let cy = b / 2.0;
-    let r_sq = c + cx * cx + cy * cy;
-    if r_sq <= 0.0 {
-        return None;
-    }
-    Some((cx, cy, r_sq.sqrt()))
-}
-
 /// Attempt to detect a cylindrical surface from sampled points and normals.
 pub(super) fn try_detect_cylinder(
     points: &[Point3],
@@ -162,55 +96,6 @@ pub(super) fn try_detect_cylinder(
         return None;
     }
     Some((axis, origin, radius, max_dev))
-}
-
-/// Estimate center from closest approach of point+normal ray pairs.
-fn estimate_center_from_rays(points: &[Point3], normals: &[Vec3]) -> Option<(Point3, Vec<f64>)> {
-    let pairs: Vec<(Point3, Vec3)> = points
-        .iter()
-        .zip(normals.iter())
-        .filter_map(|(p, n)| n.normalized().map(|un| (*p, un)))
-        .collect();
-    if pairs.len() < 3 {
-        return None;
-    }
-    let mut accum = Vec3::zero();
-    let mut cnt = 0usize;
-    'outer: for i in 0..pairs.len() {
-        for j in (i + 1)..pairs.len() {
-            if cnt >= 50 {
-                break 'outer;
-            }
-            let (pi, ni) = &pairs[i];
-            let (pj, nj) = &pairs[j];
-            let d = *pi - *pj;
-            let a = ni.dot(ni);
-            let b = ni.dot(nj);
-            let c = nj.dot(nj);
-            let denom = a * c - b * b;
-            if denom.abs() < 1e-12 {
-                continue;
-            }
-            let e = ni.dot(&d);
-            let f = nj.dot(&d);
-            let ci = *pi + *ni * ((b * f - c * e) / denom);
-            let cj = *pj + *nj * ((a * f - b * e) / denom);
-            accum = accum
-                + Vec3::new(
-                    (ci.x + cj.x) * 0.5,
-                    (ci.y + cj.y) * 0.5,
-                    (ci.z + cj.z) * 0.5,
-                );
-            cnt += 1;
-        }
-    }
-    if cnt == 0 {
-        return None;
-    }
-    let inv = 1.0 / cnt as f64;
-    let center = Point3::new(accum.x * inv, accum.y * inv, accum.z * inv);
-    let distances: Vec<f64> = points.iter().map(|p| (*p - center).length()).collect();
-    Some((center, distances))
 }
 
 /// Attempt to detect a spherical surface from sampled points and normals.
@@ -252,10 +137,11 @@ pub(super) fn try_detect_cone(
     if points.len() < 4 || normals.len() < 4 {
         return None;
     }
-    // Try both axis estimation methods and keep the one that yields a valid cone.
+    // Try multiple axis estimation methods and keep the first that yields a valid cone.
     let axis_candidates = [
         estimate_cone_axis_from_normals(normals),
         estimate_axis(normals),
+        estimate_axis_from_positions(points),
     ];
     for axis_opt in &axis_candidates {
         let Some(axis) = axis_opt else { continue };
@@ -266,46 +152,6 @@ pub(super) fn try_detect_cone(
     None
 }
 
-/// Estimate cone axis from normal differences (for analytical surfaces).
-fn estimate_cone_axis_from_normals(normals: &[Vec3]) -> Option<Vec3> {
-    let mut un: Vec<Vec3> = Vec::new();
-    for n in normals {
-        if let Some(unit) = n.normalized()
-            && !un
-                .iter()
-                .any(|prev| (unit - *prev).length_squared() < 1e-10)
-        {
-            un.push(unit);
-        }
-    }
-    if un.len() < 3 {
-        return None;
-    }
-    let mut accum = Vec3::zero();
-    let mut count = 0usize;
-    for i in 1..un.len() {
-        let d1 = un[i] - un[0];
-        if d1.length_squared() < 1e-12 {
-            continue;
-        }
-        for j in (i + 1)..un.len() {
-            let d2 = un[j] - un[0];
-            let c = d1.cross(&d2);
-            if c.length_squared() < 1e-12 {
-                continue;
-            }
-            let to_add = if count > 0 && c.dot(&accum) < 0.0 {
-                c * -1.0
-            } else {
-                c
-            };
-            accum = accum + to_add;
-            count += 1;
-        }
-    }
-    accum.normalized()
-}
-
 /// Try fitting a cone with a given axis direction.
 fn try_fit_cone_with_axis(
     points: &[Point3],
@@ -313,14 +159,6 @@ fn try_fit_cone_with_axis(
     axis: Vec3,
     tolerance: f64,
 ) -> Option<(Point3, Vec3, f64, f64)> {
-    // Half-angle from normal-axis dot products.
-    let un: Vec<Vec3> = normals.iter().filter_map(|n| n.normalized()).collect();
-    let mean_dot = un.iter().map(|n| n.dot(&axis).abs()).sum::<f64>() / un.len() as f64;
-    let half_angle = mean_dot.clamp(0.0, 1.0).asin();
-    if !(1e-6..=std::f64::consts::FRAC_PI_2 - 1e-6).contains(&half_angle) {
-        return None;
-    }
-    let tan_ha = half_angle.tan();
     let n = points.len() as f64;
     let (perp1, perp2) = orthonormal_basis(axis);
     // Linear regression: R = slope * h + intercept (per-point h, R from axis).
@@ -346,6 +184,19 @@ fn try_fit_cone_with_axis(
     if slope.abs() < 1e-6 {
         return None;
     }
+    // Geometry-based half-angle from the linear fit slope, with normal-based fallback.
+    let geo_ha = slope.abs().atan();
+    let un: Vec<Vec3> = normals.iter().filter_map(|nn| nn.normalized()).collect();
+    let mean_dot = un.iter().map(|nn| nn.dot(&axis).abs()).sum::<f64>() / (un.len().max(1) as f64);
+    let normal_ha = mean_dot.clamp(0.0, 1.0).asin();
+    let half_angle = if (1e-6..=std::f64::consts::FRAC_PI_2 - 1e-6).contains(&geo_ha) {
+        geo_ha
+    } else if (1e-6..=std::f64::consts::FRAC_PI_2 - 1e-6).contains(&normal_ha) {
+        normal_ha
+    } else {
+        return None;
+    };
+    let tan_ha = half_angle.tan();
     let h_apex = -intercept / slope;
     // Axis 2D position: extrapolate each point's radial direction to R=0.
     let (mut ax, mut ay) = (0.0_f64, 0.0_f64);
@@ -394,10 +245,105 @@ fn dist_to_major_circle(v: Vec3, axis: Vec3, major_radius: f64) -> f64 {
     (v - in_plane * (major_radius / d)).length()
 }
 
+/// Compute variance of distances-to-major-circle for a given center candidate.
+fn torus_fit_variance(points: &[Point3], center: Point3, axis: Vec3, major_r: f64) -> f64 {
+    let dists: Vec<f64> = points
+        .iter()
+        .map(|p| dist_to_major_circle(*p - center, axis, major_r))
+        .collect();
+    let mean = dists.iter().sum::<f64>() / dists.len() as f64;
+    dists.iter().map(|d| (d - mean) * (d - mean)).sum::<f64>() / dists.len() as f64
+}
+
+/// Estimate the torus center and major radius from per-point radial projections.
+///
+/// Projects points onto the plane perpendicular to the axis and iteratively
+/// refines the center estimate. Then optimizes the height along the axis
+/// to minimize variance in minor-radius distances.
+fn estimate_torus_center(
+    points: &[Point3],
+    axis: Vec3,
+    perp1: Vec3,
+    perp2: Vec3,
+) -> Option<(Point3, f64)> {
+    let n = points.len() as f64;
+    // Project all points to (perp1, perp2) coordinates.
+    let pts_2d: Vec<(f64, f64)> = points
+        .iter()
+        .map(|p| {
+            let pv = Vec3::new(p.x, p.y, p.z);
+            (pv.dot(&perp1), pv.dot(&perp2))
+        })
+        .collect();
+    // Initial center: centroid of 2D projections.
+    let mut cx = pts_2d.iter().map(|(x, _)| x).sum::<f64>() / n;
+    let mut cy = pts_2d.iter().map(|(_, y)| y).sum::<f64>() / n;
+    let mut major_r = 0.0;
+    // Iteratively refine in-plane center: each point votes for center at P - dir*R.
+    for _ in 0..50 {
+        let mut sum_r = 0.0_f64;
+        let mut new_cx = 0.0_f64;
+        let mut new_cy = 0.0_f64;
+        let mut cnt = 0usize;
+        for &(px, py) in &pts_2d {
+            let dx = px - cx;
+            let dy = py - cy;
+            let r = (dx * dx + dy * dy).sqrt();
+            if r > 1e-15 {
+                sum_r += r;
+                cnt += 1;
+            }
+        }
+        if cnt == 0 {
+            return None;
+        }
+        major_r = sum_r / cnt as f64;
+        for &(px, py) in &pts_2d {
+            let dx = px - cx;
+            let dy = py - cy;
+            let r = (dx * dx + dy * dy).sqrt();
+            if r > 1e-15 {
+                new_cx += px - dx / r * major_r;
+                new_cy += py - dy / r * major_r;
+            }
+        }
+        cx = new_cx / cnt as f64;
+        cy = new_cy / cnt as f64;
+    }
+    // Refine height along axis to minimize variance of dist_to_major_circle.
+    let heights: Vec<f64> = points
+        .iter()
+        .map(|p| Vec3::new(p.x, p.y, p.z).dot(&axis))
+        .collect();
+    let h_min = heights.iter().copied().fold(f64::INFINITY, f64::min);
+    let h_max = heights.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let base_center = Point3::new(0.0, 0.0, 0.0) + perp1 * cx + perp2 * cy;
+    // Golden-section search for optimal height.
+    let gr = 0.5 * (5.0_f64.sqrt() - 1.0);
+    let (mut a, mut b) = (h_min - (h_max - h_min), h_max + (h_max - h_min));
+    let mut c = b - gr * (b - a);
+    let mut d = a + gr * (b - a);
+    for _ in 0..30 {
+        let fc = torus_fit_variance(points, base_center + axis * c, axis, major_r);
+        let fd = torus_fit_variance(points, base_center + axis * d, axis, major_r);
+        if fc < fd {
+            b = d;
+        } else {
+            a = c;
+        }
+        c = b - gr * (b - a);
+        d = a + gr * (b - a);
+    }
+    let ch = (a + b) * 0.5;
+    let center = base_center + axis * ch;
+    Some((center, major_r))
+}
+
 /// Try to detect a torus from sampled surface points and normals.
 ///
-/// Estimates axis via normal cross-products, fits the major circle,
-/// then derives minor_radius from distances to that circle.
+/// Estimates axis via position covariance (falling back to normal
+/// cross-products), iteratively fits the major circle center and
+/// radius, then derives minor_radius from distances to that circle.
 pub(super) fn try_detect_torus(
     surface: &dyn SurfaceEval,
     points: &[Point3],
@@ -408,26 +354,14 @@ pub(super) fn try_detect_torus(
     if points.len() < 6 || normals.len() < 6 {
         return None;
     }
-    let axis = estimate_cone_axis_from_normals(normals).or_else(|| estimate_axis(normals))?;
-    let n = points.len() as f64;
-    let ctr = Point3::new(
-        points.iter().map(|p| p.x).sum::<f64>() / n,
-        points.iter().map(|p| p.y).sum::<f64>() / n,
-        points.iter().map(|p| p.z).sum::<f64>() / n,
-    );
+    let axis = estimate_axis_from_positions(points)
+        .or_else(|| estimate_cone_axis_from_normals(normals))
+        .or_else(|| estimate_axis(normals))?;
     let (perp1, perp2) = orthonormal_basis(axis);
-    let proj: Vec<(f64, f64)> = points
-        .iter()
-        .map(|p| {
-            let v = *p - ctr;
-            (v.dot(&perp1), v.dot(&perp2))
-        })
-        .collect();
-    let (cx, cy, major_radius) = fit_circle_2d(&proj)?;
+    let (center, major_radius) = estimate_torus_center(points, axis, perp1, perp2)?;
     if major_radius < tolerance {
         return None;
     }
-    let center = ctr + perp1 * cx + perp2 * cy;
     // Compute minor_radius as average distance from each point to major circle.
     let dists: Vec<f64> = points
         .iter()
