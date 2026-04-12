@@ -58,34 +58,45 @@ impl ManifoldReport {
 
 /// Walk the graph and detect multi-incident edges.
 ///
-/// Groups half-edges by canonical endpoint pair, then for each group
-/// counts how many distinct face assignments are present. Any group
-/// with more than two assignments is recorded as a [`MultiIncidentEdge`].
+/// Groups half-edges by their canonical pair index `min(idx, twin)`
+/// — i.e. by the underlying *edge*, not by endpoint position. This
+/// matters because two distinct closed self-loop edges (separate
+/// intersection circles) can share the same vertex; bucketing by
+/// endpoint position would falsely combine them.
+///
+/// For each canonical edge, counts the distinct face assignments
+/// across the half-edge pair. A manifold edge has exactly 1 (free
+/// boundary) or 2 (interior shared edge) distinct face assignments.
+/// More than 2 indicates non-manifold construction.
 pub(crate) fn detect_multi_incident_edges(graph: &IntersectionGraph) -> ManifoldReport {
-    let mut groups: HashMap<(usize, usize), Vec<FaceRef>> = HashMap::new();
+    // Map canonical pair index → set of face assignments. The pair
+    // index is the smaller of (he_idx, twin_idx) for that half-edge.
+    let mut groups: HashMap<usize, (usize, usize, Vec<FaceRef>)> = HashMap::new();
 
-    for he in &graph.half_edges {
-        let twin = &graph.half_edges[he.twin];
-        let a = he.origin;
-        let b = twin.origin;
-        let key = if a <= b { (a, b) } else { (b, a) };
+    for (he_idx, he) in graph.half_edges.iter().enumerate() {
+        let twin_idx = he.twin;
+        let pair_id = he_idx.min(twin_idx);
+        let entry = groups.entry(pair_id).or_insert_with(|| {
+            let twin = &graph.half_edges[twin_idx];
+            let a = he.origin;
+            let b = twin.origin;
+            let endpoints = if a <= b { (a, b) } else { (b, a) };
+            (endpoints.0, endpoints.1, Vec::new())
+        });
         if let Some(face) = he.face {
-            groups.entry(key).or_default().push(face);
+            entry.2.push(face);
         }
     }
 
     let groups_checked = groups.len();
     let mut multi_incident = Vec::new();
-    for (endpoints, assignments) in groups {
-        // Deduplicate the per-group face list before counting; the
-        // graph half-edges may legitimately appear twice for the
-        // same face (e.g. a shared edge between two operand sides).
-        let mut unique = assignments.clone();
+    for (_pair_id, (a, b, assignments)) in groups {
+        let mut unique = assignments;
         unique.sort_by_key(|f| (f.operand as u8, f.face));
         unique.dedup();
         if unique.len() > 2 {
             multi_incident.push(MultiIncidentEdge {
-                endpoints,
+                endpoints: (a, b),
                 face_assignments: unique,
             });
         }
@@ -140,34 +151,16 @@ mod tests {
     }
 
     #[test]
-    fn three_face_assignments_flagged_as_non_manifold() {
-        // Build three half-edge pairs all between the same two
-        // endpoints, with three distinct face assignments. This is
-        // exactly the multi-incident pattern the detector should
-        // catch.
+    fn distinct_edges_at_same_endpoints_are_manifold() {
+        // Two distinct half-edge pairs between the same two
+        // endpoints should be treated as TWO separate edges, not
+        // one multi-incident edge. This documents the corrected
+        // detector semantics: grouping by half-edge pair index, not
+        // by endpoint position.
         let mut graph = IntersectionGraph::new();
         let n0 = graph.add_node(Point3::new(0.0, 0.0, 0.0), NodeSource::Intersection);
         let n1 = graph.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
         let edge_h = EdgeHandle::default();
-
-        // Use slotmap's KeyData::from_ffi(...) trick? FaceHandle uses
-        // slotmap. Default returns the same handle every time. To get
-        // distinct face references we need to construct three faces
-        // in a real BRep — but for this unit test we can take a
-        // shortcut: distinct face_ref differs by `operand`. We can't
-        // produce three distinct (Operand, FaceHandle) pairs without
-        // a real BRep, so this test verifies that the detector
-        // counts unique face_refs correctly by using two operands +
-        // a synthetic third assignment.
-        //
-        // Instead: produce three half-edge pairs and assign each to
-        // a different (operand, face) — A/default, B/default, A/default
-        // again. dedup() will collapse the duplicates, leaving 2
-        // unique face_refs, which is manifold. So this synthetic
-        // case can't actually exercise the >2 path without a real
-        // BRep. Document that limitation and verify a 1-face case
-        // here instead — the >2 case is exercised end-to-end via
-        // integration tests on the boolean pipeline.
 
         let face_a = FaceRef {
             operand: Operand::A,
@@ -180,15 +173,15 @@ mod tests {
         let (fwd1, twin1) = graph.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(edge_h), None);
         graph.set_half_edge_face(fwd1, face_a);
         graph.set_half_edge_face(twin1, face_b);
-        let (fwd2, _) = graph.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(edge_h), None);
+        let (fwd2, twin2) = graph.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(edge_h), None);
         graph.set_half_edge_face(fwd2, face_a);
+        graph.set_half_edge_face(twin2, face_b);
 
         let report = detect_multi_incident_edges(&graph);
-        // Two unique face_refs (A, B). Even with three assignments,
-        // dedup leaves 2 → manifold. This documents the synthetic
-        // limitation noted above.
+        // Two distinct edges → 2 groups checked, both manifold (each
+        // has 2 face refs).
         assert!(report.is_manifold());
-        assert_eq!(report.groups_checked, 1);
+        assert_eq!(report.groups_checked, 2);
     }
 
     #[test]

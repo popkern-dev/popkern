@@ -113,6 +113,25 @@ pub(crate) fn execute_boolean_full(
         );
     }
 
+    // §6.4: deferred ON audit. When the coincidence map contains
+    // partial-overlap pairs, log the count so callers (and debug
+    // builds) know how many ambiguous-on cases exist. The audit
+    // itself is read-only and runs after assembly via the
+    // public `classify_on_deferred::audit_ambiguous_on_classifications`
+    // helper for callers that want to inspect or override the
+    // immediate ON resolution.
+    #[cfg(debug_assertions)]
+    {
+        let ambiguous =
+            crate::classify_on_deferred::find_ambiguous_pairs(&intersection_result.coincidence);
+        if !ambiguous.is_empty() {
+            eprintln!(
+                "[boolean] {} ambiguous-on face pair(s) detected (partial overlaps)",
+                ambiguous.len()
+            );
+        }
+    }
+
     // Coincident-body shortcut: if all face overlaps cover at least half
     // the faces of either body, treat as full containment.
     if !intersection_result.coincidence.face_overlaps.is_empty() {
@@ -293,12 +312,17 @@ pub(crate) fn execute_boolean_full(
         let _ = crate::postprocess::sliver_removal::remove_slivers(&mut result, tolerance);
     }
 
-    // Post-processing: face simplification and zero-thickness sheet removal
-    // are disabled — the current implementations are too aggressive and
-    // remove valid faces from boolean results. They compare all face pairs
-    // globally, but should only compare ADJACENT face pairs.
+    // Post-processing: face simplification (§11.2). Merges adjacent
+    // co-surfacial faces via KEF, validating after each merge with
+    // rollback on regression. The previous implementation was
+    // disabled because of a stale-edge-handle bug; the iterate-and-
+    // recompute pattern fixes that.
+    if result.validate().is_ok() {
+        crate::postprocess::face_simplify::apply_face_simplification(&mut result, tolerance);
+    }
+    // Note: fix_zero_thickness_sheets remains disabled — its global
+    // face-pair comparison is unrelated to this fix and still risky.
     // fix_zero_thickness_sheets(&mut result, tolerance);
-    // crate::postprocess::face_simplify::apply_face_simplification(&mut result, tolerance);
 
     // Post-processing: collapse micro-edges (position merge).
     let micro_edges = crate::imprint::micro_edge::find_micro_edges(&result, tolerance.linear());

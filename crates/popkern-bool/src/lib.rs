@@ -66,6 +66,10 @@ pub use error::{
 pub use ops::interference::{InterferenceMode, InterferenceReport, interference_check};
 pub use postprocess::quality::{QualityReport, QualityThresholds, quality_report};
 pub use postprocess::sliver_removal::{SliverRemovalReport, remove_slivers};
+pub use sheet::{
+    SheetOperationKind, SideOfSheet, classify_sheet_operation, is_closed_solid, is_sheet_body,
+    side_of_sheet,
+};
 
 #[cfg(test)]
 mod error_and_tracking_tests;

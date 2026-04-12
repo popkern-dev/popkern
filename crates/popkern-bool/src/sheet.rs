@@ -92,6 +92,152 @@ pub fn is_closed_solid(brep: &BRep) -> bool {
     !is_sheet_body(brep)
 }
 
+/// Side of a sheet body relative to a query point (§6.x boundary-relative).
+///
+/// Sheet bodies do not enclose a volume, so point-set "inside/outside"
+/// classification is undefined. Instead, classify the point by which
+/// side of the oriented surface it lies on. The "front" side is the
+/// half-space the surface normal points into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SideOfSheet {
+    /// Point is on the side the sheet's outward normal points to.
+    Front,
+    /// Point is on the opposite side.
+    Back,
+    /// Point lies on the sheet itself within tolerance.
+    On,
+    /// Sheet has no orientable face near the query — undefined.
+    Indeterminate,
+}
+
+/// Classify a query point against a sheet body via boundary-relative
+/// semantics.
+///
+/// Finds the closest face on the sheet, evaluates its surface and
+/// outward normal at the closest UV, and reports which side the
+/// point lies on. If the point is closer than `tolerance.linear()`,
+/// returns `On`.
+///
+/// This is the building block §6.x asks for: open-shell classification
+/// uses "which side of the oriented surface" instead of "inside/outside
+/// volume". Callers can use [`side_of_sheet`] in their own
+/// sheet-aware boolean wrappers.
+pub fn side_of_sheet(
+    sheet: &BRep,
+    point: &popkern_core::geometry::Point3,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> SideOfSheet {
+    use popkern_core::geometry::surface::SurfaceEval;
+
+    let mut best_dist = f64::INFINITY;
+    let mut best_signed_dist = 0.0_f64;
+    let mut best_found = false;
+
+    for (_fh, face) in &sheet.faces {
+        let Some(surf) = face.surface.as_ref() else {
+            continue;
+        };
+        let Some((u, v)) = surf.geometry.closest_point(point) else {
+            continue;
+        };
+        let p_surf = surf.geometry.point_at(u, v);
+        let mut normal = surf.geometry.normal_at(u, v);
+        // Apply the face's surface-orientation flag so we always
+        // work with the OUTWARD-facing normal, matching the convention
+        // used by coincidence/classify::face_outward_normal.
+        if !surf.orientation {
+            normal = normal * (-1.0);
+        }
+        let n_len = normal.length();
+        if n_len < 1e-30 {
+            continue;
+        }
+        let to_point = *point - p_surf;
+        let dist = to_point.length();
+        if dist < best_dist {
+            best_dist = dist;
+            // Signed distance along the outward normal. Positive
+            // means point is on the front side, negative on back.
+            let signed = to_point.dot(&normal) / n_len;
+            best_signed_dist = signed;
+            best_found = true;
+        }
+    }
+
+    if !best_found {
+        return SideOfSheet::Indeterminate;
+    }
+
+    if best_dist < tolerance.linear() {
+        SideOfSheet::On
+    } else if best_signed_dist >= 0.0 {
+        SideOfSheet::Front
+    } else {
+        SideOfSheet::Back
+    }
+}
+
+/// Operation matrix classification (§2.3) for an (operation, A, B) tuple.
+///
+/// Categorizes a boolean call by which inputs are sheet bodies and
+/// whether the requested operation is well-defined for that combination.
+/// Use [`classify_sheet_operation`] to dispatch a boolean call to the
+/// correct sub-operation or surface a structured rejection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SheetOperationKind {
+    /// Both inputs are closed solids — standard boolean.
+    SolidSolid,
+    /// A is solid, B is sheet, op is subtraction. Trims solid along
+    /// the sheet (valid; produces solid result).
+    SolidMinusSheet,
+    /// A is solid, B is sheet, op is intersection. Returns the portion
+    /// of the sheet inside the solid (open shell result).
+    SheetIntersectSolid,
+    /// A is solid, B is sheet, op is union. Conceptually merges, but
+    /// not yet implemented.
+    SolidUnionSheet,
+    /// A is sheet, B is solid, op is subtraction. Subtracting a volume
+    /// from a 2D sheet is undefined; this case is rejected.
+    InvalidSheetMinusSolid,
+    /// Both inputs are sheets, op is intersection. Returns shared
+    /// curves (1D) or shared regions (2D); not yet implemented.
+    SheetSheetIntersection,
+    /// Both inputs are sheets, op is union. Combines into one open
+    /// shell; not yet implemented.
+    SheetSheetUnion,
+    /// Combination not yet covered by the operation matrix.
+    Unsupported,
+}
+
+/// Classify a boolean call by sheet-aware operation matrix (§2.3).
+///
+/// Returns the [`SheetOperationKind`] that best fits the (operation,
+/// is_a_sheet, is_b_sheet) tuple. The classification is intended for
+/// dispatch: a sheet-aware boolean wrapper inspects the result and
+/// routes to the appropriate sub-operation, or returns
+/// [`crate::BoolError::OpenShellNotSupported`] for `Unsupported` /
+/// `Invalid*` cases.
+pub fn classify_sheet_operation(
+    op: crate::BoolOperation,
+    a_is_sheet: bool,
+    b_is_sheet: bool,
+) -> SheetOperationKind {
+    use crate::BoolOperation;
+    match (op, a_is_sheet, b_is_sheet) {
+        (_, false, false) => SheetOperationKind::SolidSolid,
+        (BoolOperation::Subtraction, false, true) => SheetOperationKind::SolidMinusSheet,
+        (BoolOperation::Intersection, false, true) => SheetOperationKind::SheetIntersectSolid,
+        (BoolOperation::Intersection, true, false) => SheetOperationKind::SheetIntersectSolid,
+        (BoolOperation::Union, false, true) | (BoolOperation::Union, true, false) => {
+            SheetOperationKind::SolidUnionSheet
+        }
+        (BoolOperation::Subtraction, true, false) => SheetOperationKind::InvalidSheetMinusSolid,
+        (BoolOperation::Subtraction, true, true) => SheetOperationKind::Unsupported,
+        (BoolOperation::Intersection, true, true) => SheetOperationKind::SheetSheetIntersection,
+        (BoolOperation::Union, true, true) => SheetOperationKind::SheetSheetUnion,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,6 +284,97 @@ mod tests {
             is_sheet_body(&brep),
             "dangling-edge BRep should be a sheet body"
         );
+    }
+
+    #[test]
+    fn side_of_sheet_outside_cube_is_front_of_closest_face() {
+        // For a multi-face body, side_of_sheet picks the closest
+        // face and reports relative to its outward normal. A point
+        // outside the cube is on the front side of its closest face
+        // (because every face's outward normal points away from
+        // the cube interior). This test pins that behavior — for
+        // a true sheet body the function returns Front/Back relative
+        // to the single oriented surface.
+        let cube = BRep::unit_cube(tol()).unwrap();
+        use popkern_core::geometry::Point3;
+        let above = Point3::new(0.5, 0.5, 5.0);
+        let below = Point3::new(0.5, 0.5, -5.0);
+        let side_above = side_of_sheet(&cube, &above, &tol());
+        let side_below = side_of_sheet(&cube, &below, &tol());
+        assert!(matches!(side_above, SideOfSheet::Front));
+        assert!(matches!(side_below, SideOfSheet::Front));
+    }
+
+    #[test]
+    fn side_of_sheet_classifies_consistently() {
+        // For a closed solid, side_of_sheet picks the closest face
+        // and reports relative to its outward normal. The exact
+        // Front/Back assignment depends on construction-time loop
+        // orientation, but the function MUST be deterministic for
+        // identical inputs and MUST report `On` when the point lies
+        // on the surface within tolerance.
+        let cube = BRep::unit_cube(tol()).unwrap();
+        use popkern_core::geometry::Point3;
+        let inside = Point3::new(0.5, 0.5, 0.5);
+        let outside = Point3::new(0.5, 0.5, 5.0);
+
+        // Determinism: identical input produces identical output.
+        let side_inside_1 = side_of_sheet(&cube, &inside, &tol());
+        let side_inside_2 = side_of_sheet(&cube, &inside, &tol());
+        assert_eq!(side_inside_1, side_inside_2);
+
+        // Both classifications must be either Front or Back, never
+        // Indeterminate (the cube has surfaces).
+        for side in [
+            side_of_sheet(&cube, &inside, &tol()),
+            side_of_sheet(&cube, &outside, &tol()),
+        ] {
+            assert!(matches!(
+                side,
+                SideOfSheet::Front | SideOfSheet::Back | SideOfSheet::On
+            ));
+        }
+    }
+
+    #[test]
+    fn side_of_sheet_returns_on_for_point_on_surface() {
+        let cube = BRep::unit_cube(tol()).unwrap();
+        use popkern_core::geometry::Point3;
+        // A point on the +Z face of the unit cube.
+        let on_face = Point3::new(0.5, 0.5, 1.0);
+        let side = side_of_sheet(&cube, &on_face, &tol());
+        assert!(
+            matches!(side, SideOfSheet::On),
+            "point on face should be On, got {side:?}"
+        );
+    }
+
+    #[test]
+    fn classify_sheet_operation_solid_solid() {
+        use crate::BoolOperation;
+        let kind = classify_sheet_operation(BoolOperation::Union, false, false);
+        assert!(matches!(kind, SheetOperationKind::SolidSolid));
+    }
+
+    #[test]
+    fn classify_sheet_operation_solid_minus_sheet() {
+        use crate::BoolOperation;
+        let kind = classify_sheet_operation(BoolOperation::Subtraction, false, true);
+        assert!(matches!(kind, SheetOperationKind::SolidMinusSheet));
+    }
+
+    #[test]
+    fn classify_sheet_operation_invalid_sheet_minus_solid() {
+        use crate::BoolOperation;
+        let kind = classify_sheet_operation(BoolOperation::Subtraction, true, false);
+        assert!(matches!(kind, SheetOperationKind::InvalidSheetMinusSolid));
+    }
+
+    #[test]
+    fn classify_sheet_operation_sheet_sheet_intersection() {
+        use crate::BoolOperation;
+        let kind = classify_sheet_operation(BoolOperation::Intersection, true, true);
+        assert!(matches!(kind, SheetOperationKind::SheetSheetIntersection));
     }
 
     #[test]

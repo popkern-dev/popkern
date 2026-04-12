@@ -87,6 +87,44 @@ fn pre_check_touching_cubes_flag_problematic_pairs() {
 }
 
 #[test]
+fn pre_check_clean_cube_has_no_g0_violations() {
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let other = BRep::unit_cube(tol())
+        .unwrap()
+        .transform(&Transform3::translation(5.0, 0.0, 0.0))
+        .unwrap();
+    let report = super::pre_check::pre_check(&cube, &other, false);
+    let g0_violations = report
+        .findings
+        .iter()
+        .filter(|f| f.message.contains("G0 (positional) violation"))
+        .count();
+    assert_eq!(
+        g0_violations, 0,
+        "clean cube should have no G0 violations: {:?}",
+        report.findings
+    );
+}
+
+#[test]
+fn pre_check_torus_warns() {
+    use popkern_core::geometry::Point3;
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let torus = BRep::torus(1.0, 0.3, tol()).unwrap();
+    let _ = Point3::new(0.0, 0.0, 0.0); // exercise import path
+    let report = super::pre_check::pre_check(&cube, &torus, false);
+    let torus_warning = report
+        .findings
+        .iter()
+        .any(|f| f.message.contains("Torus surfaces present"));
+    assert!(
+        torus_warning,
+        "torus input should produce a warning: {:?}",
+        report.findings
+    );
+}
+
+#[test]
 fn pre_check_likelihood_decreases_with_problematic_pairs() {
     // Two overlapping cubes (lots of parallel faces) should score
     // lower than two disjoint cubes (no parallel pairs).

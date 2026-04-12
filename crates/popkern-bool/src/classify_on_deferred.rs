@@ -64,6 +64,41 @@ pub fn find_ambiguous_pairs(coincidence: &CoincidenceMap) -> Vec<AmbiguousOnPair
         .collect()
 }
 
+/// Audit a classification result for ambiguous-ON disagreements.
+///
+/// Walks every ambiguous pair from `coincidence` and, for each one
+/// that has a corresponding entry in `face_classifications`, runs
+/// [`disambiguate_with_neighbors`] using the other classifications
+/// as neighbour votes. Returns a list of `(face_handle, original,
+/// suggested)` tuples where the disambiguation would change the
+/// classification — useful as a diagnostic to see how often the
+/// deferred resolver would override the immediate decision.
+///
+/// The audit is read-only — it never mutates the classifications.
+/// Callers can either ignore the report or apply it themselves.
+pub fn audit_ambiguous_on_classifications(
+    brep: &BRep,
+    coincidence: &CoincidenceMap,
+    face_classifications: &[(FaceHandle, Classification)],
+) -> Vec<(FaceHandle, Classification, Classification)> {
+    let pairs = find_ambiguous_pairs(coincidence);
+    let mut disagreements = Vec::new();
+    for pair in &pairs {
+        // Try both face_a and face_b in case the classification map
+        // only contains one side of the pair.
+        for face in [pair.face_a, pair.face_b] {
+            if let Some((_, original)) = face_classifications.iter().find(|(f, _)| *f == face) {
+                let suggested =
+                    disambiguate_with_neighbors(face, *original, brep, face_classifications);
+                if suggested != *original {
+                    disagreements.push((face, *original, suggested));
+                }
+            }
+        }
+    }
+    disagreements
+}
+
 /// Resolve an ambiguous-ON classification using neighbour context.
 ///
 /// Given the ray-casting result for `face` and the classifications
@@ -220,6 +255,49 @@ mod tests {
             .collect();
         let resolved = disambiguate_with_neighbors(face, Classification::Outside, &cube, &votes);
         assert_eq!(resolved, Classification::Inside);
+    }
+
+    #[test]
+    fn audit_with_no_ambiguous_pairs_returns_empty() {
+        let cube = BRep::unit_cube(tol()).unwrap();
+        let face = cube.faces.keys().next().unwrap();
+        let coincidence = CoincidenceMap::default();
+        let classes = vec![(face, Classification::Inside)];
+        let report = audit_ambiguous_on_classifications(&cube, &coincidence, &classes);
+        assert!(report.is_empty());
+    }
+
+    #[test]
+    fn audit_returns_disagreement_when_neighbors_outvote() {
+        let cube = BRep::unit_cube(tol()).unwrap();
+        let target = cube.faces.keys().next().unwrap();
+
+        // Vote every neighbor as Inside; the target is Outside.
+        // The audit should disagree with the original classification.
+        let neighbors = collect_face_neighbors(&cube, target);
+        let mut classes: Vec<(FaceHandle, Classification)> = neighbors
+            .iter()
+            .map(|&n| (n, Classification::Inside))
+            .collect();
+        classes.push((target, Classification::Outside));
+
+        // Build a coincidence map with target as a partial overlap so
+        // it's flagged as ambiguous.
+        let mut coincidence = CoincidenceMap::default();
+        coincidence.face_overlaps.push(make_overlap(false));
+        // The default overlap uses FaceHandle::default(); fix the
+        // face_a to be our actual target so the audit picks it up.
+        coincidence.face_overlaps[0].face_a = target;
+
+        let report = audit_ambiguous_on_classifications(&cube, &coincidence, &classes);
+        assert!(
+            !report.is_empty(),
+            "audit should report disagreement when neighbors outvote target"
+        );
+        let (face, original, suggested) = report[0];
+        assert_eq!(face, target);
+        assert_eq!(original, Classification::Outside);
+        assert_eq!(suggested, Classification::Inside);
     }
 
     #[test]

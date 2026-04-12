@@ -130,62 +130,72 @@ pub fn find_merge_candidates(brep: &BRep, tolerance: &Tolerance) -> FaceSimplify
     report
 }
 
-/// Apply face simplification: merge faces within each group by removing
-/// shared edges via KEF. Validates after each removal; stops a group
-/// if validation fails.
+/// Apply face simplification: merge co-surfacial adjacent faces via KEF.
 ///
-/// Returns the number of faces eliminated.
+/// Iterates until no more merges are possible. After each individual
+/// KEF, re-runs `find_merge_candidates` so the next iteration sees
+/// the post-merge topology — this avoids the stale-handle bug where
+/// `shared_edges` was computed once but the BFS group used stale
+/// face references after the first merge.
+///
+/// Validates after each KEF; on validation failure, rolls back the
+/// merge by restoring from a snapshot and stops the pass. Returns
+/// the number of faces eliminated.
 pub fn apply_face_simplification(brep: &mut BRep, tolerance: &Tolerance) -> usize {
-    let report = find_merge_candidates(brep, tolerance);
     let mut eliminated = 0;
+    // Hard cap so a pathological case can't run forever. Each merge
+    // strictly decreases the face count, so the actual cap is the
+    // initial face count anyway.
+    let max_iterations = brep.faces.len() + 1;
 
-    for group in &report.merge_groups {
-        if group.len() < 2 {
-            continue;
+    for _ in 0..max_iterations {
+        let report = find_merge_candidates(brep, tolerance);
+        if report.merge_groups.is_empty() {
+            break;
         }
 
-        // Find shared edges between faces in this group
-        let group_set: std::collections::HashSet<FaceHandle> = group.iter().copied().collect();
+        let mut merged_this_iter = false;
+        for group in &report.merge_groups {
+            if group.len() < 2 {
+                continue;
+            }
+            let group_set: std::collections::HashSet<FaceHandle> = group.iter().copied().collect();
 
-        let shared_edges: Vec<_> = brep
-            .edges
-            .keys()
-            .filter(|&eh| {
-                let edge = &brep.edges[eh];
-                let he = match brep.half_edges.get(edge.half_edge) {
-                    Some(h) => h,
-                    None => return false,
-                };
-                let twin = match brep.half_edges.get(he.twin) {
-                    Some(t) => t,
-                    None => return false,
-                };
-                let fa = match brep.loops.get(he.loop_) {
-                    Some(l) => l.face,
-                    None => return false,
-                };
-                let fb = match brep.loops.get(twin.loop_) {
-                    Some(l) => l.face,
-                    None => return false,
-                };
-                fa != fb && group_set.contains(&fa) && group_set.contains(&fb)
-            })
-            .collect();
+            // Find one shared edge between any two distinct faces in
+            // the group. Picking just one — and re-running find_merge_candidates
+            // afterwards — keeps the loop self-consistent with the
+            // mutating topology.
+            let shared = brep.edges.iter().find_map(|(_, edge)| {
+                let he = brep.half_edges.get(edge.half_edge)?;
+                let twin = brep.half_edges.get(he.twin)?;
+                let fa = brep.loops.get(he.loop_)?.face;
+                let fb = brep.loops.get(twin.loop_)?.face;
+                if fa != fb && group_set.contains(&fa) && group_set.contains(&fb) {
+                    Some(edge.half_edge)
+                } else {
+                    None
+                }
+            });
 
-        // Remove shared edges one at a time with validation
-        for eh in shared_edges {
-            let he = match brep.edges.get(eh) {
-                Some(e) => e.half_edge,
-                None => continue,
+            let Some(he_h) = shared else {
+                continue;
             };
 
-            if brep.kef(he).is_ok() {
-                if brep.validate().is_err() {
-                    // Topology corrupted — stop this group
-                    break;
-                }
+            // Snapshot for rollback on validation regression.
+            let snapshot = brep.clone();
+            if brep.kef(he_h).is_ok() && brep.validate().is_ok() {
                 eliminated += 1;
+                merged_this_iter = true;
+                // Restart the outer loop so find_merge_candidates
+                // sees the post-merge topology.
+                break;
+            } else {
+                *brep = snapshot;
             }
+        }
+
+        if !merged_this_iter {
+            break;
         }
     }
 
