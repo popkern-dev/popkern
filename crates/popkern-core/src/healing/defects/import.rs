@@ -18,6 +18,7 @@ pub fn check_all(brep: &BRep, tolerance: &Tolerance, report: &mut HealingReport)
     check_orientation_inconsistencies(brep, report);
     check_lost_singularity_topology(brep, report);
     check_coordinate_artifacts(brep, tolerance, report);
+    check_tolerance_mismatch(brep, tolerance, report);
 }
 
 /// Check for lost periodic topology on faces with periodic surfaces.
@@ -234,6 +235,117 @@ fn has_zero_length_edge_in_loop(brep: &BRep, loop_handle: crate::topology::LoopH
     }
 
     false
+}
+
+/// Check for tolerance mismatch between model entities and BRep tolerance (Section 5.4).
+///
+/// Flags entities whose tracked tolerance is significantly larger or
+/// smaller than the BRep's linear tolerance, suggesting the model was
+/// imported from a system with different precision conventions.
+pub fn check_tolerance_mismatch(brep: &BRep, tolerance: &Tolerance, report: &mut HealingReport) {
+    let linear = tolerance.linear();
+
+    for (vertex_handle, vertex) in &brep.vertices {
+        if let Some(tol) = vertex.tolerance {
+            if tol > linear * 100.0 {
+                report.push(DefectRecord {
+                    category: DefectCategory::Import,
+                    severity: Severity::Warning,
+                    description: format!(
+                        "Entity tolerance {tol:.2e} is much larger than model tolerance \
+                         {linear:.2e} — possible import from a coarser system"
+                    ),
+                    entities: vec![EntityRef::Vertex(vertex_handle)],
+                    location: None,
+                    measured_value: Some(tol),
+                    threshold: Some(linear),
+                    remediation: None,
+                });
+            } else if tol < linear * 0.01 {
+                report.push(DefectRecord {
+                    category: DefectCategory::Import,
+                    severity: Severity::Info,
+                    description: format!(
+                        "Entity tolerance {tol:.2e} is much tighter than model tolerance \
+                         {linear:.2e} — possible import from a finer system"
+                    ),
+                    entities: vec![EntityRef::Vertex(vertex_handle)],
+                    location: None,
+                    measured_value: Some(tol),
+                    threshold: Some(linear),
+                    remediation: None,
+                });
+            }
+        }
+    }
+
+    for (edge_handle, edge) in &brep.edges {
+        if let Some(tol) = edge.tolerance {
+            if tol > linear * 100.0 {
+                report.push(DefectRecord {
+                    category: DefectCategory::Import,
+                    severity: Severity::Warning,
+                    description: format!(
+                        "Entity tolerance {tol:.2e} is much larger than model tolerance \
+                         {linear:.2e} — possible import from a coarser system"
+                    ),
+                    entities: vec![EntityRef::Edge(edge_handle)],
+                    location: None,
+                    measured_value: Some(tol),
+                    threshold: Some(linear),
+                    remediation: None,
+                });
+            } else if tol < linear * 0.01 {
+                report.push(DefectRecord {
+                    category: DefectCategory::Import,
+                    severity: Severity::Info,
+                    description: format!(
+                        "Entity tolerance {tol:.2e} is much tighter than model tolerance \
+                         {linear:.2e} — possible import from a finer system"
+                    ),
+                    entities: vec![EntityRef::Edge(edge_handle)],
+                    location: None,
+                    measured_value: Some(tol),
+                    threshold: Some(linear),
+                    remediation: None,
+                });
+            }
+        }
+    }
+
+    for (face_handle, face) in &brep.faces {
+        if let Some(tol) = face.tolerance {
+            if tol > linear * 100.0 {
+                report.push(DefectRecord {
+                    category: DefectCategory::Import,
+                    severity: Severity::Warning,
+                    description: format!(
+                        "Entity tolerance {tol:.2e} is much larger than model tolerance \
+                         {linear:.2e} — possible import from a coarser system"
+                    ),
+                    entities: vec![EntityRef::Face(face_handle)],
+                    location: None,
+                    measured_value: Some(tol),
+                    threshold: Some(linear),
+                    remediation: None,
+                });
+            } else if tol < linear * 0.01 {
+                report.push(DefectRecord {
+                    category: DefectCategory::Import,
+                    severity: Severity::Info,
+                    description: format!(
+                        "Entity tolerance {tol:.2e} is much tighter than model tolerance \
+                         {linear:.2e} — possible import from a finer system"
+                    ),
+                    entities: vec![EntityRef::Face(face_handle)],
+                    location: None,
+                    measured_value: Some(tol),
+                    threshold: Some(linear),
+                    remediation: None,
+                });
+            }
+        }
+    }
 }
 
 /// Check for coordinate system artifacts (Section 5.4).

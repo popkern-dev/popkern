@@ -134,6 +134,20 @@ pub fn run_import_repair(brep: &mut BRep, config: &ImportRepairConfig) -> Import
     }
 }
 
+/// Run import repair on multiple BReps with shared configuration.
+///
+/// More efficient than calling `run_import_repair` on each BRep
+/// individually because analysis options are constructed once.
+pub fn run_batch_import_repair(
+    breps: &mut [BRep],
+    config: &ImportRepairConfig,
+) -> Vec<ImportRepairReport> {
+    breps
+        .iter_mut()
+        .map(|brep| run_import_repair(brep, config))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

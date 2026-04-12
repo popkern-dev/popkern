@@ -36,12 +36,16 @@ pub struct ContinuityMeasurement {
     pub g0_mean: f64,
     /// 95th percentile positional deviation.
     pub g0_p95: f64,
+    /// Median positional deviation.
+    pub g0_median: f64,
     /// Maximum normal angle deviation (radians).
     pub g1_max_angle: f64,
     /// Mean normal angle deviation (radians).
     pub g1_mean_angle: f64,
     /// 95th percentile normal angle deviation (radians).
     pub g1_p95_angle: f64,
+    /// Median normal angle deviation (radians).
+    pub g1_median_angle: f64,
     /// Maximum Gaussian curvature difference.
     pub g2_max_curvature_diff: f64,
     /// Mean Gaussian curvature difference.
@@ -66,6 +70,22 @@ fn percentile_95(sorted: &[f64]) -> f64 {
     let idx = ((sorted.len() as f64) * 0.95).ceil() as usize;
     let idx = idx.min(sorted.len() - 1);
     sorted[idx]
+}
+
+/// Compute the median value from a sorted slice.
+///
+/// Returns 0.0 for empty input. For even-length slices, returns the
+/// average of the two middle values.
+fn median(sorted: &[f64]) -> f64 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    let n = sorted.len();
+    if n % 2 == 1 {
+        sorted[n / 2]
+    } else {
+        (sorted[n / 2 - 1] + sorted[n / 2]) * 0.5
+    }
 }
 
 /// Measure cross-boundary continuity between two surfaces along a shared boundary.
@@ -131,6 +151,7 @@ pub fn cross_boundary_continuity(
     let mut g0_sorted = g0_values.clone();
     g0_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let g0_p95 = percentile_95(&g0_sorted);
+    let g0_median = median(&g0_sorted);
 
     // Compute G1 statistics.
     let g1_max_angle = g1_values.iter().copied().fold(0.0_f64, f64::max);
@@ -142,6 +163,7 @@ pub fn cross_boundary_continuity(
     let mut g1_sorted = g1_values.clone();
     g1_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let g1_p95_angle = percentile_95(&g1_sorted);
+    let g1_median_angle = median(&g1_sorted);
 
     // Compute G2 statistics.
     let g2_max_curvature_diff = g2_values.iter().copied().fold(0.0_f64, f64::max);
@@ -173,9 +195,11 @@ pub fn cross_boundary_continuity(
         g0_max,
         g0_mean,
         g0_p95,
+        g0_median,
         g1_max_angle,
         g1_mean_angle,
         g1_p95_angle,
+        g1_median_angle,
         g2_max_curvature_diff,
         g2_mean_curvature_diff,
         sample_count: samples.len(),

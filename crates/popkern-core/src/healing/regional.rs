@@ -26,6 +26,21 @@ pub struct CurvatureBounds {
     pub min_radius: f64,
 }
 
+/// First and second order derivative bounds over a parameter region.
+#[derive(Debug, Clone, Copy)]
+pub struct DerivativeBounds {
+    /// Maximum magnitude of dS/du over the region.
+    pub du_max: f64,
+    /// Maximum magnitude of dS/dv over the region.
+    pub dv_max: f64,
+    /// Maximum magnitude of d²S/du² over the region.
+    pub duu_max: f64,
+    /// Maximum magnitude of d²S/dudv over the region.
+    pub duv_max: f64,
+    /// Maximum magnitude of d²S/dv² over the region.
+    pub dvv_max: f64,
+}
+
 /// Regional analysis result combining curvature bounds, planarity, and degeneracy.
 #[derive(Debug, Clone)]
 pub struct RegionalAnalysis {
@@ -39,6 +54,8 @@ pub struct RegionalAnalysis {
     pub has_degeneracy: bool,
     /// Minimum area element found across the sampled region.
     pub min_area_element: f64,
+    /// First and second order derivative bounds, or `None` if not computed.
+    pub derivative_bounds: Option<DerivativeBounds>,
 }
 
 /// Generate uniformly spaced sample parameters over a 2D range.
@@ -193,6 +210,41 @@ pub fn detect_degeneracy(
     (min_area < threshold, min_area)
 }
 
+/// Compute first and second order derivative bounds over a parameter region.
+///
+/// Samples the surface on a `sample_density x sample_density` grid and
+/// evaluates partial derivatives at each point, tracking the maximum
+/// magnitude of each derivative component.
+pub fn derivative_bounds(
+    surface: &dyn SurfaceEval,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+    sample_density: usize,
+) -> DerivativeBounds {
+    let grid = sample_grid(u_range, v_range, sample_density);
+    let mut du_max = 0.0_f64;
+    let mut dv_max = 0.0_f64;
+    let mut duu_max = 0.0_f64;
+    let mut duv_max = 0.0_f64;
+    let mut dvv_max = 0.0_f64;
+
+    for (u, v) in &grid {
+        du_max = du_max.max(surface.partial_u(*u, *v).length());
+        dv_max = dv_max.max(surface.partial_v(*u, *v).length());
+        duu_max = duu_max.max(surface.second_partial_uu(*u, *v).length());
+        duv_max = duv_max.max(surface.second_partial_uv(*u, *v).length());
+        dvv_max = dvv_max.max(surface.second_partial_vv(*u, *v).length());
+    }
+
+    DerivativeBounds {
+        du_max,
+        dv_max,
+        duu_max,
+        duv_max,
+        dvv_max,
+    }
+}
+
 /// Full regional analysis combining curvature bounds, planarity, and degeneracy.
 ///
 /// Runs [`curvature_bounds`], [`detect_planarity`], and [`detect_degeneracy`]
@@ -220,6 +272,7 @@ pub fn analyze_region(
         degeneracy_threshold,
         sample_density,
     );
+    let deriv_bounds = derivative_bounds(surface, u_range, v_range, sample_density);
 
     RegionalAnalysis {
         curvature_bounds: bounds,
@@ -227,6 +280,7 @@ pub fn analyze_region(
         planarity_deviation,
         has_degeneracy,
         min_area_element,
+        derivative_bounds: Some(deriv_bounds),
     }
 }
 

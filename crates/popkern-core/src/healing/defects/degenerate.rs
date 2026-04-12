@@ -152,6 +152,56 @@ pub fn check_missing_face_geometry(brep: &BRep, report: &mut HealingReport) {
     }
 }
 
+/// Classify a small face into a sub-category based on its shape.
+///
+/// Uses the bounding box aspect ratios of the face's outer loop vertices:
+/// - **Pin**: one dimension is negligible relative to the largest (ratio < 0.01)
+/// - **Sliver**: high aspect ratio (smallest/middle ratio < 0.1)
+/// - **Micro**: small in all dimensions (roughly isotropic)
+///
+/// Bridge and Slot classifications require topological analysis and are
+/// deferred to a future implementation.
+fn classify_small_face(brep: &BRep, face: crate::topology::FaceHandle) -> SmallFaceKind {
+    let positions = brep.face_outer_loop_positions(face);
+    if positions.len() < 2 {
+        return SmallFaceKind::Pin;
+    }
+
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut min_z = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    let mut max_z = f64::NEG_INFINITY;
+
+    for pos in &positions {
+        min_x = min_x.min(pos.x);
+        min_y = min_y.min(pos.y);
+        min_z = min_z.min(pos.z);
+        max_x = max_x.max(pos.x);
+        max_y = max_y.max(pos.y);
+        max_z = max_z.max(pos.z);
+    }
+
+    let mut dims = [max_x - min_x, max_y - min_y, max_z - min_z];
+    dims.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let smallest = dims[0];
+    let middle = dims[1];
+    let largest = dims[2];
+
+    if largest < 1e-15 {
+        return SmallFaceKind::Pin;
+    }
+
+    if smallest / largest < 0.01 {
+        SmallFaceKind::Pin
+    } else if smallest / middle < 0.1 {
+        SmallFaceKind::Sliver
+    } else {
+        SmallFaceKind::Micro
+    }
+}
+
 /// Check for faces whose characteristic size is below the tolerance threshold.
 ///
 /// Computes the bounding box diagonal of the face's outer loop vertex
@@ -189,11 +239,12 @@ pub fn check_small_faces(brep: &BRep, tolerance: &Tolerance, report: &mut Healin
         let diagonal = (dx * dx + dy * dy + dz * dz).sqrt();
 
         if diagonal < threshold {
+            let kind = classify_small_face(brep, face_handle);
             report.push(DefectRecord {
                 category: DefectCategory::Degenerate,
                 severity: Severity::Warning,
                 description: format!(
-                    "Small face: bounding box diagonal {:.6} is below threshold {:.6}",
+                    "Small face ({kind}): bounding box diagonal {:.6} is below threshold {:.6}",
                     diagonal, threshold
                 ),
                 entities: vec![EntityRef::Face(face_handle)],

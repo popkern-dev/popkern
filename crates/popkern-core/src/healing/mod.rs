@@ -72,7 +72,7 @@ pub use quality::{
     ContinuityLevel, QualityDimension, QualityProfile, QualityResult, QualityTier,
     validate_against_profile,
 };
-pub use regional::{CurvatureBounds, RegionalAnalysis};
+pub use regional::{CurvatureBounds, DerivativeBounds, RegionalAnalysis};
 pub use repair::complexity::{
     ComplexityReductionResult, CurveReductionResult, SurfaceReductionResult,
 };
@@ -80,7 +80,9 @@ pub use repair::coons_patch::{CoonsBoundary, CoonsPatchResult};
 pub use repair::degeneracy::DegeneracyRepairResult;
 pub use repair::gap_repair::{GapRepairResult, GapRepairStrategy};
 pub use repair::hole_fill::{DetectedHole, HoleFillResult, HoleFillStrategy};
-pub use repair::import_repair::{ImportRepairConfig, ImportRepairOp, ImportRepairReport};
+pub use repair::import_repair::{
+    ImportRepairConfig, ImportRepairOp, ImportRepairReport, run_batch_import_repair,
+};
 pub use repair::merge_faces::FaceMergeResult;
 pub use repair::pipeline::HealResult;
 pub use repair::preview::RepairPreview;
