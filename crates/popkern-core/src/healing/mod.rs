@@ -38,11 +38,13 @@ pub mod deviation;
 pub mod diagnostics;
 pub mod options;
 pub mod quality;
+pub mod regional;
 pub mod repair;
 pub mod singularity;
 
 // Re-export key types for ergonomic access.
 pub use continuity::classification::{EdgeClassification, SmoothChain};
+pub use continuity::enforcement::EnforcementResult;
 pub use continuity::measurement::ContinuityMeasurement;
 pub use curvature::curve_curvature::{curve_curvature_at, curve_torsion_at};
 pub use curvature::fundamental_forms::{
@@ -62,7 +64,11 @@ pub use diagnostics::{
 pub use options::{
     AnalysisOptions, CheckSet, HealOptions, HealStrategy, SampleDensity, ToleranceBounds,
 };
-pub use quality::{ContinuityLevel, QualityDimension, QualityProfile, QualityResult, QualityTier};
+pub use quality::{
+    ContinuityLevel, QualityDimension, QualityProfile, QualityResult, QualityTier,
+    validate_against_profile,
+};
+pub use regional::{CurvatureBounds, RegionalAnalysis};
 pub use repair::gap_repair::{GapRepairResult, GapRepairStrategy};
 pub use repair::pipeline::HealResult;
 pub use repair::preview::RepairPreview;

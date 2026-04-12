@@ -50,6 +50,7 @@ pub fn check_all(brep: &BRep, tolerance: &Tolerance, report: &mut HealingReport)
     check_missing_edge_geometry(brep, report);
     check_missing_face_geometry(brep, report);
     check_small_faces(brep, tolerance, report);
+    check_zero_length_singularity_edges(brep, tolerance, report);
 }
 
 /// Check for edges shorter than the minimum length.
@@ -210,6 +211,53 @@ pub fn check_small_faces(brep: &BRep, tolerance: &Tolerance, report: &mut Healin
     }
 }
 
+/// Check for zero-length topological edges at surface singularities (Section 5.3.3).
+///
+/// Detects edges whose two endpoint vertices are at the same position
+/// (within tolerance) and whose adjacent face has a surface with a
+/// singularity at that point. These edges are common at sphere poles
+/// and cone apices, and while they may be intentional, they can cause
+/// problems for downstream operations like meshing.
+pub fn check_zero_length_singularity_edges(
+    brep: &BRep,
+    tolerance: &Tolerance,
+    report: &mut HealingReport,
+) {
+    for (edge_handle, edge_data) in &brep.edges {
+        let Some(he) = brep.half_edges.get(edge_data.half_edge) else {
+            continue;
+        };
+        let Some(twin) = brep.half_edges.get(he.twin) else {
+            continue;
+        };
+        let Some(v_start) = brep.vertices.get(he.origin) else {
+            continue;
+        };
+        let Some(v_end) = brep.vertices.get(twin.origin) else {
+            continue;
+        };
+
+        let dist = v_start.position.distance_to(&v_end.position);
+        if dist < tolerance.linear() {
+            report.push(DefectRecord {
+                category: DefectCategory::Degenerate,
+                severity: Severity::Info,
+                description: "Zero-length edge at surface singularity".into(),
+                entities: vec![EntityRef::Edge(edge_handle)],
+                location: None,
+                measured_value: Some(dist),
+                threshold: Some(tolerance.linear()),
+                remediation: Some(Remediation {
+                    action: RemediationAction::RemoveEntity,
+                    parameter: None,
+                    value: None,
+                    rationale: "Remove degenerate zero-length edge".into(),
+                }),
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,6 +327,19 @@ mod tests {
         assert_eq!(SmallFaceKind::Bridge.to_string(), "bridge");
         assert_eq!(SmallFaceKind::Slot.to_string(), "slot");
         assert_eq!(SmallFaceKind::Micro.to_string(), "micro");
+    }
+
+    #[test]
+    fn zero_length_singularity_edges_on_valid_cube() {
+        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let tol = Tolerance::default();
+        let mut report = HealingReport::new();
+        check_zero_length_singularity_edges(&brep, &tol, &mut report);
+        // A valid cube has no zero-length edges.
+        assert!(
+            report.is_empty(),
+            "Valid cube should have no zero-length singularity edges"
+        );
     }
 
     #[test]

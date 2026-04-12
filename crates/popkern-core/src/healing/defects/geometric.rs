@@ -4,6 +4,7 @@
 //! and the adjacent face's surface) and tolerance hierarchy violations
 //! (vertex tolerance must be <= edge tolerance <= face tolerance).
 
+use crate::error::ValidationError;
 use crate::healing::deviation::edge_surface_deviation;
 use crate::healing::diagnostics::{
     DefectCategory, DefectRecord, EntityRef, HealingReport, Remediation, RemediationAction,
@@ -22,6 +23,7 @@ pub fn check_all(
 ) {
     check_edge_surface_consistency(brep, tolerance, sample_density, report);
     check_tolerance_hierarchy(brep, report);
+    check_self_intersection(brep, report);
 }
 
 /// Check that each edge's curve is consistent with adjacent face surfaces.
@@ -223,6 +225,37 @@ fn check_vertex_edge_tolerance(
     }
 }
 
+/// Check for self-intersecting faces (Section 5.2.4).
+///
+/// Wraps the existing `validate_self_intersection()` method, converting
+/// the result to a [`DefectRecord`]. Only runs on BReps with at least
+/// two faces (same precondition as `validate_all`).
+pub fn check_self_intersection(brep: &BRep, report: &mut HealingReport) {
+    if let Err(e) = brep.validate_self_intersection() {
+        let entities = match &e {
+            ValidationError::SelfIntersection { face_a, face_b } => {
+                vec![EntityRef::FacePair(*face_a, *face_b)]
+            }
+            _ => Vec::new(),
+        };
+        report.push(DefectRecord {
+            category: DefectCategory::Geometric,
+            severity: Severity::Error,
+            description: e.to_string(),
+            entities,
+            location: None,
+            measured_value: None,
+            threshold: None,
+            remediation: Some(Remediation {
+                action: RemediationAction::SplitEntity,
+                parameter: None,
+                value: None,
+                rationale: "Split surface at self-intersection curve".into(),
+            }),
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,6 +339,17 @@ mod tests {
         assert!(
             !report.is_empty(),
             "Edge tolerance > face tolerance should produce a defect"
+        );
+    }
+
+    #[test]
+    fn self_intersection_on_valid_cube_produces_no_defect() {
+        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let mut report = HealingReport::new();
+        check_self_intersection(&brep, &mut report);
+        assert!(
+            report.is_empty(),
+            "Valid cube should have no self-intersection defects"
         );
     }
 

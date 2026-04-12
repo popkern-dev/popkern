@@ -4,6 +4,7 @@
 //! lost periodic topology (seam edges missing on cylinders, tori, etc.)
 //! and orientation inconsistencies introduced by translator bugs.
 
+use crate::geometry::surface::SurfaceGeometry;
 use crate::healing::diagnostics::{
     DefectCategory, DefectRecord, EntityRef, HealingReport, Remediation, RemediationAction,
     Severity,
@@ -12,9 +13,11 @@ use crate::tolerance::Tolerance;
 use crate::topology::BRep;
 
 /// Run all import-specific defect checks.
-pub fn check_all(brep: &BRep, _tolerance: &Tolerance, report: &mut HealingReport) {
+pub fn check_all(brep: &BRep, tolerance: &Tolerance, report: &mut HealingReport) {
     check_lost_periodic_topology(brep, report);
     check_orientation_inconsistencies(brep, report);
+    check_lost_singularity_topology(brep, report);
+    check_coordinate_artifacts(brep, tolerance, report);
 }
 
 /// Check for lost periodic topology on faces with periodic surfaces.
@@ -132,6 +135,151 @@ pub fn check_orientation_inconsistencies(brep: &BRep, report: &mut HealingReport
     }
 }
 
+/// Check for lost singularity topology at surface poles (Section 5.4).
+///
+/// Surfaces with poles (sphere, cone) should have zero-length degenerate
+/// edges at those poles. If the pole is within the face's parameter range
+/// but no degenerate edge exists, the topology may have been corrupted
+/// during import.
+///
+/// This is a heuristic check: not all spherical/conical faces necessarily
+/// cover a pole. The check looks for faces whose outer loop vertex positions
+/// are close to the pole location but lack a zero-length edge there.
+pub fn check_lost_singularity_topology(brep: &BRep, report: &mut HealingReport) {
+    for (face_handle, face_data) in &brep.faces {
+        let Some(ref surface_on_face) = face_data.surface else {
+            continue;
+        };
+
+        // Identify pole locations based on surface type.
+        let poles: Vec<crate::geometry::Point3> = match &surface_on_face.geometry {
+            SurfaceGeometry::Sphere { center, radius } => {
+                // Sphere poles at top (v=PI) and bottom (v=0) along Z axis.
+                vec![
+                    crate::geometry::Point3::new(center.x, center.y, center.z - radius),
+                    crate::geometry::Point3::new(center.x, center.y, center.z + radius),
+                ]
+            }
+            SurfaceGeometry::Cone { apex, .. } => {
+                // Cone singularity at the apex.
+                vec![*apex]
+            }
+            _ => continue,
+        };
+
+        // Check if any outer loop vertex is near a pole.
+        let positions = brep.face_outer_loop_positions(face_handle);
+        let has_zero_length_edge = has_zero_length_edge_in_loop(brep, face_data.outer_loop);
+
+        for pole in &poles {
+            let near_pole = positions.iter().any(|p| p.distance_to(pole) < 1e-6);
+            if near_pole && !has_zero_length_edge {
+                report.push(DefectRecord {
+                    category: DefectCategory::Import,
+                    severity: Severity::Warning,
+                    description: format!(
+                        "Face near surface pole at ({:.4}, {:.4}, {:.4}) \
+                         but has no degenerate edge; singularity topology \
+                         may have been lost during import",
+                        pole.x, pole.y, pole.z
+                    ),
+                    entities: vec![EntityRef::Face(face_handle)],
+                    location: None,
+                    measured_value: None,
+                    threshold: None,
+                    remediation: Some(Remediation {
+                        action: RemediationAction::RestoreSingularityTopology,
+                        parameter: None,
+                        value: None,
+                        rationale: "Reconstruct degenerate edge at surface pole".into(),
+                    }),
+                });
+            }
+        }
+    }
+}
+
+/// Helper: check if a loop contains any zero-length edge (vertex distance < 1e-10).
+fn has_zero_length_edge_in_loop(brep: &BRep, loop_handle: crate::topology::LoopHandle) -> bool {
+    let Some(loop_data) = brep.loops.get(loop_handle) else {
+        return false;
+    };
+
+    let start_he = loop_data.half_edge;
+    if !brep.half_edges.contains_key(start_he) {
+        return false;
+    }
+
+    let mut cursor = start_he;
+    let bound = brep.half_edges.len().max(1);
+
+    for _ in 0..=bound {
+        let Some(he) = brep.half_edges.get(cursor) else {
+            break;
+        };
+        let Some(twin) = brep.half_edges.get(he.twin) else {
+            break;
+        };
+
+        if let (Some(v1), Some(v2)) = (brep.vertices.get(he.origin), brep.vertices.get(twin.origin))
+            && v1.position.distance_to(&v2.position) < 1e-10
+        {
+            return true;
+        }
+
+        cursor = he.next;
+        if cursor == start_he {
+            break;
+        }
+    }
+
+    false
+}
+
+/// Check for coordinate system artifacts (Section 5.4).
+///
+/// Detects vertices that are suspiciously close to zero in all coordinates
+/// but not exactly zero, suggesting floating-point errors from coordinate
+/// transformations during import. These near-origin vertices may indicate
+/// that a transform collapsed geometry to the origin.
+pub fn check_coordinate_artifacts(brep: &BRep, tolerance: &Tolerance, report: &mut HealingReport) {
+    let linear_tol = tolerance.linear();
+
+    for (vertex_handle, vertex) in &brep.vertices {
+        let x = vertex.position.x.abs();
+        let y = vertex.position.y.abs();
+        let z = vertex.position.z.abs();
+
+        // All coordinates are in (1e-15, linear_tolerance) — close to
+        // zero but not exactly zero, suggesting a transform artifact.
+        if x > 1e-15 && x < linear_tol && y > 1e-15 && y < linear_tol && z > 1e-15 && z < linear_tol
+        {
+            let dist = (x * x + y * y + z * z).sqrt();
+            report.push(DefectRecord {
+                category: DefectCategory::Import,
+                severity: Severity::Info,
+                description: format!(
+                    "Vertex at ({:.2e}, {:.2e}, {:.2e}) is suspiciously \
+                     close to origin — possible coordinate transform artifact",
+                    vertex.position.x, vertex.position.y, vertex.position.z
+                ),
+                entities: vec![EntityRef::Vertex(vertex_handle)],
+                location: None,
+                measured_value: Some(dist),
+                threshold: Some(linear_tol),
+                remediation: Some(Remediation {
+                    action: RemediationAction::AdjustGeometry,
+                    parameter: None,
+                    value: None,
+                    rationale: "Snap vertex to exact origin if intended to be \
+                                at the coordinate system origin"
+                        .into(),
+                }),
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,6 +341,41 @@ mod tests {
         let brep = BRep::unit_cube(Tolerance::default()).unwrap();
         let mut report = HealingReport::new();
         check_lost_periodic_topology(&brep, &mut report);
+        assert!(report.is_empty());
+    }
+
+    #[test]
+    fn lost_singularity_topology_on_cube_produces_no_defect() {
+        // A cube has planar faces; no sphere/cone surfaces.
+        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let mut report = HealingReport::new();
+        check_lost_singularity_topology(&brep, &mut report);
+        assert!(
+            report.is_empty(),
+            "Cube with planar faces should have no singularity topology defects"
+        );
+    }
+
+    #[test]
+    fn coordinate_artifacts_on_valid_cube() {
+        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let tol = Tolerance::default();
+        let mut report = HealingReport::new();
+        check_coordinate_artifacts(&brep, &tol, &mut report);
+        // Unit cube vertices are at 0.0 and 1.0 — none in the suspicious range.
+        assert!(
+            report.is_empty(),
+            "Valid cube should have no coordinate artifact defects"
+        );
+    }
+
+    #[test]
+    fn empty_brep_no_singularity_or_artifact_defects() {
+        let brep = BRep::new(Tolerance::default());
+        let tol = Tolerance::default();
+        let mut report = HealingReport::new();
+        check_lost_singularity_topology(&brep, &mut report);
+        check_coordinate_artifacts(&brep, &tol, &mut report);
         assert!(report.is_empty());
     }
 }

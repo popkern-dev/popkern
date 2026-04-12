@@ -5,10 +5,15 @@
 //! of edges are detected for downstream fillet and blending operations.
 
 pub mod classification;
+pub mod enforcement;
 pub mod measurement;
 
 pub use classification::{
     EdgeClassification, SmoothChain, classify_all_edges, classify_edge_smoothness,
     detect_smooth_chains,
 };
-pub use measurement::{BoundarySample, ContinuityMeasurement, cross_boundary_continuity};
+pub use enforcement::EnforcementResult;
+pub use measurement::{
+    BoundarySample, ContinuityMeasurement, DiscontinuityRecord, cross_boundary_continuity,
+    internal_discontinuities,
+};

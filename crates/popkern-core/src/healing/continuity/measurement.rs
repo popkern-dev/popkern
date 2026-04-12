@@ -182,6 +182,133 @@ pub fn cross_boundary_continuity(
     }
 }
 
+/// A single detected internal discontinuity on a surface.
+#[derive(Debug, Clone)]
+pub struct DiscontinuityRecord {
+    /// Parameter location of the discontinuity.
+    pub u: f64,
+    /// Parameter location of the discontinuity.
+    pub v: f64,
+    /// The highest continuity level achieved at this location.
+    pub achieved_level: ContinuityLevel,
+    /// Magnitude of the deviation at the target level.
+    pub deviation: f64,
+}
+
+/// Detect internal discontinuities on a single surface.
+///
+/// Samples the surface on a grid and evaluates continuity between adjacent
+/// sample points. Reports locations where continuity drops below the
+/// `target_level`. For NURBS surfaces this catches knot-line discontinuities;
+/// for analytical surfaces it should report nothing.
+///
+/// This implements Section 2.2(a) of the healing requirements.
+pub fn internal_discontinuities(
+    surface: &dyn SurfaceEval,
+    target_level: ContinuityLevel,
+    tolerance: &Tolerance,
+    sample_density: usize,
+) -> Vec<DiscontinuityRecord> {
+    let ((u0, u1), (v0, v1)) = surface.parameter_range();
+    let u_lo = u0.max(-100.0);
+    let u_hi = u1.min(100.0);
+    let v_lo = v0.max(-100.0);
+    let v_hi = v1.min(100.0);
+
+    let n = sample_density.max(4);
+    let mut records = Vec::new();
+    let h_u = (u_hi - u_lo) / (n as f64);
+    let h_v = (v_hi - v_lo) / (n as f64);
+
+    // Check continuity in the u-direction along each v-row.
+    for j in 0..=n {
+        let v = v_lo + (j as f64) * h_v;
+        for i in 0..n {
+            let u_left = u_lo + (i as f64) * h_u;
+            let u_right = u_left + h_u;
+            let u_mid = (u_left + u_right) * 0.5;
+            let pts = ((u_left, v), (u_right, v), (u_mid, v));
+            if let Some(rec) = check_adjacent_continuity(surface, pts, target_level, tolerance) {
+                records.push(rec);
+            }
+        }
+    }
+
+    // Check continuity in the v-direction along each u-column.
+    for i in 0..=n {
+        let u = u_lo + (i as f64) * h_u;
+        for j in 0..n {
+            let v_bot = v_lo + (j as f64) * h_v;
+            let v_top = v_bot + h_v;
+            let v_mid = (v_bot + v_top) * 0.5;
+            let pts = ((u, v_bot), (u, v_top), (u, v_mid));
+            if let Some(rec) = check_adjacent_continuity(surface, pts, target_level, tolerance) {
+                records.push(rec);
+            }
+        }
+    }
+
+    records
+}
+
+/// Check continuity between two adjacent sample points on the same surface.
+///
+/// `pts` is `((u1,v1), (u2,v2), (u_mid,v_mid))`. Evaluates normals and
+/// curvature at the endpoints. If the values are inconsistent, a
+/// discontinuity is reported at the midpoint location.
+fn check_adjacent_continuity(
+    surface: &dyn SurfaceEval,
+    pts: ((f64, f64), (f64, f64), (f64, f64)),
+    target_level: ContinuityLevel,
+    tolerance: &Tolerance,
+) -> Option<DiscontinuityRecord> {
+    let ((u1, v1), (u2, v2), (u_mid, v_mid)) = pts;
+    let n1 = surface.normal_at(u1, v1);
+    let n2 = surface.normal_at(u2, v2);
+    let n1_len = n1.length();
+    let n2_len = n2.length();
+
+    // Skip singular points.
+    if n1_len < 1e-15 || n2_len < 1e-15 {
+        return None;
+    }
+
+    // G1 check: angle between normals at adjacent points.
+    let n1_unit = n1 * (1.0 / n1_len);
+    let n2_unit = n2 * (1.0 / n2_len);
+    let dot = n1_unit.dot(&n2_unit).clamp(-1.0, 1.0);
+    let angle = dot.abs().acos();
+
+    if target_level >= ContinuityLevel::G1 && angle > tolerance.angular() {
+        return Some(DiscontinuityRecord {
+            u: u_mid,
+            v: v_mid,
+            achieved_level: ContinuityLevel::G0,
+            deviation: angle,
+        });
+    }
+
+    // G2 check: curvature difference between adjacent points.
+    if target_level >= ContinuityLevel::G2 {
+        let k1 = gaussian_curvature(surface, u1, v1);
+        let k2 = gaussian_curvature(surface, u2, v2);
+        if let (Some(kv1), Some(kv2)) = (k1, k2) {
+            let curv_diff = (kv1 - kv2).abs();
+            let threshold = 0.1; // curvature difference threshold
+            if curv_diff > threshold {
+                return Some(DiscontinuityRecord {
+                    u: u_mid,
+                    v: v_mid,
+                    achieved_level: ContinuityLevel::G1,
+                    deviation: curv_diff,
+                });
+            }
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,5 +434,36 @@ mod tests {
     #[test]
     fn percentile_95_empty() {
         assert!((super::percentile_95(&[]) - 0.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn plane_has_no_internal_discontinuities() {
+        let plane = xy_plane();
+        let tol = Tolerance::default();
+        let records = internal_discontinuities(&plane, ContinuityLevel::G2, &tol, 8);
+        assert!(
+            records.is_empty(),
+            "Plane should have no internal discontinuities, got {}",
+            records.len()
+        );
+    }
+
+    #[test]
+    fn sphere_has_no_internal_discontinuities_with_wide_tolerance() {
+        let sphere = SurfaceGeometry::Sphere {
+            center: Point3::new(0.0, 0.0, 0.0),
+            radius: 1.0,
+        };
+        // A coarse grid on a sphere produces normal angle changes proportional
+        // to the grid spacing. With 20 samples, each step is ~0.3 rad, so use
+        // an angular tolerance larger than that. A smooth surface should still
+        // report no discontinuities when the tolerance accounts for grid spacing.
+        let tol = Tolerance::default().with_angular(1.0);
+        let records = internal_discontinuities(&sphere, ContinuityLevel::G1, &tol, 20);
+        assert!(
+            records.is_empty(),
+            "Sphere should have no G1 discontinuities at wide tolerance, got {}",
+            records.len()
+        );
     }
 }

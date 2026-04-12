@@ -10,7 +10,7 @@ pub mod geometric;
 pub mod import;
 pub mod topological;
 
-use crate::healing::diagnostics::HealingReport;
+use crate::healing::diagnostics::{DefectCategory, DefectRecord, HealingReport, Severity};
 use crate::healing::options::AnalysisOptions;
 use crate::topology::BRep;
 
@@ -38,6 +38,28 @@ pub fn run_all_checks(brep: &BRep, options: &AnalysisOptions) -> HealingReport {
     }
     if options.checks.import {
         import::check_all(brep, &options.tolerance, &mut report);
+    }
+
+    if options.checks.quality_profile
+        && let Some(tier) = options.quality_tier
+    {
+        let profile = crate::healing::quality::QualityProfile::from_tier(tier);
+        let qr =
+            crate::healing::quality::validate_against_profile(brep, &profile, &options.tolerance);
+        for dim in &qr.dimensions {
+            if !dim.passed {
+                report.push(DefectRecord {
+                    category: DefectCategory::Geometric,
+                    severity: Severity::Warning,
+                    description: format!("Quality check failed: {dim}"),
+                    entities: Vec::new(),
+                    location: None,
+                    measured_value: Some(dim.measured),
+                    threshold: Some(dim.threshold),
+                    remediation: None,
+                });
+            }
+        }
     }
 
     report

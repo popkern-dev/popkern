@@ -1,11 +1,12 @@
 //! Surface simplification: detect and replace over-parameterized NURBS
 //! surfaces with exact analytical forms.
 //!
-//! Currently detects planar NURBS surfaces.  Cylinder, sphere, cone, and
-//! torus detection are planned for future iterations.
+//! Currently detects planar, cylindrical, and spherical NURBS surfaces.
+//! Cone and torus detection are planned for future iterations.
 
 use serde::{Deserialize, Serialize};
 
+use crate::geometry::analytic_surfaces::orthonormal_basis;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry, SurfaceOnFace};
 use crate::geometry::{Point3, Vec3};
 use crate::topology::{BRep, FaceHandle};
@@ -39,8 +40,7 @@ pub struct SimplificationResult {
 /// Attempt to detect an analytical surface form from a parametric surface.
 ///
 /// Samples the surface on a 5x5 grid within `parameter_range` and tests
-/// for planarity (all normals parallel within 1e-6 rad, all points within
-/// `tolerance` of a fitted plane).
+/// for planarity, cylindricality, and sphericality.
 ///
 /// Returns `Some((kind, geometry, max_deviation))` if a match is found,
 /// or `None` if the surface does not fit any known analytical form.
@@ -70,7 +70,16 @@ pub fn detect_analytical_form(
         return Some(result);
     }
 
-    // Future: try_detect_cylinder, try_detect_sphere, etc.
+    // Try cylinder detection.
+    if let Some((geom, dev)) = try_detect_cylinder(&points, &normals, tolerance) {
+        return Some((AnalyticalKind::Cylinder, geom, dev));
+    }
+
+    // Try sphere detection.
+    if let Some((geom, dev)) = try_detect_sphere(&points, &normals, tolerance) {
+        return Some((AnalyticalKind::Sphere, geom, dev));
+    }
+
     None
 }
 
@@ -150,6 +159,261 @@ fn build_plane_axes(normal: &Vec3) -> (Vec3, Vec3) {
     (u_axis, v_axis)
 }
 
+/// Attempt to detect a cylindrical surface from sampled points and normals.
+///
+/// Estimates the cylinder axis from cross products of normal pairs, projects
+/// points onto the perpendicular plane, fits a circle using the algebraic
+/// Kasa method, and checks that all points lie within `tolerance`.
+fn try_detect_cylinder(
+    points: &[Point3],
+    normals: &[Vec3],
+    tolerance: f64,
+) -> Option<(SurfaceGeometry, f64)> {
+    if points.len() < 3 || normals.len() < 3 {
+        return None;
+    }
+
+    // Step 1: estimate axis from cross products of normal pairs.
+    let unit_normals: Vec<Vec3> = normals.iter().filter_map(|n| n.normalized()).collect();
+    if unit_normals.len() < 2 {
+        return None;
+    }
+
+    let mut axis_accum = Vec3::zero();
+    let mut cross_count = 0usize;
+    for i in 0..unit_normals.len() {
+        for j in (i + 1)..unit_normals.len() {
+            let c = unit_normals[i].cross(&unit_normals[j]);
+            if c.length_squared() > 1e-12 {
+                let to_add = if cross_count > 0 && c.dot(&axis_accum) < 0.0 {
+                    c * -1.0
+                } else {
+                    c
+                };
+                axis_accum = Vec3::new(
+                    axis_accum.x + to_add.x,
+                    axis_accum.y + to_add.y,
+                    axis_accum.z + to_add.z,
+                );
+                cross_count += 1;
+            }
+        }
+    }
+
+    let axis = axis_accum.normalized()?;
+
+    // Step 2: project all points onto a plane perpendicular to the axis.
+    let (perp1, perp2) = orthonormal_basis(axis);
+
+    // Use absolute coordinates for projection (not relative to centroid).
+    let projected_2d: Vec<(f64, f64)> = points
+        .iter()
+        .map(|p| {
+            let v = Vec3::new(p.x, p.y, p.z);
+            (v.dot(&perp1), v.dot(&perp2))
+        })
+        .collect();
+
+    // Step 3: algebraic circle fit (Kasa method).
+    // Solve for (a, b, c) in: x^2 + y^2 = a*x + b*y + c
+    // via least squares: [sum_xx, sum_xy, sum_x] [a]   [sum_x3_xy2]
+    //                    [sum_xy, sum_yy, sum_y] [b] = [sum_x2y_y3]
+    //                    [sum_x,  sum_y,  n    ] [c]   [sum_x2_y2 ]
+    let (cx, cy, radius) = fit_circle_2d(&projected_2d)?;
+
+    if radius < tolerance {
+        return None;
+    }
+
+    // Step 4: compute 3D origin on the axis line.
+    let origin_3d = Point3::new(0.0, 0.0, 0.0) + perp1 * cx + perp2 * cy;
+
+    // Step 5: max deviation = |distance_from_axis - radius| for each point.
+    let mut max_dev = 0.0_f64;
+    for p in points {
+        let v = *p - origin_3d;
+        let along = v.dot(&axis);
+        let radial = Vec3::new(
+            v.x - axis.x * along,
+            v.y - axis.y * along,
+            v.z - axis.z * along,
+        );
+        max_dev = max_dev.max((radial.length() - radius).abs());
+    }
+
+    if max_dev > tolerance {
+        return None;
+    }
+
+    let geom = SurfaceGeometry::Cylinder {
+        origin: origin_3d,
+        axis,
+        radius,
+    };
+    Some((geom, max_dev))
+}
+
+/// Fit a circle to 2D points using the algebraic Kasa method.
+///
+/// Returns `Some((cx, cy, radius))` or `None` if the system is degenerate.
+fn fit_circle_2d(pts: &[(f64, f64)]) -> Option<(f64, f64, f64)> {
+    let n = pts.len() as f64;
+    if n < 3.0 {
+        return None;
+    }
+
+    let (mut sx, mut sy) = (0.0, 0.0);
+    let (mut sxx, mut syy, mut sxy) = (0.0, 0.0, 0.0);
+    let (mut sxxx, mut syyy) = (0.0, 0.0);
+    let (mut sxxy, mut sxyy) = (0.0, 0.0);
+
+    for &(x, y) in pts {
+        sx += x;
+        sy += y;
+        sxx += x * x;
+        syy += y * y;
+        sxy += x * y;
+        sxxx += x * x * x;
+        syyy += y * y * y;
+        sxxy += x * x * y;
+        sxyy += x * y * y;
+    }
+
+    // Right-hand side.
+    let rhs0 = sxxx + sxyy;
+    let rhs1 = sxxy + syyy;
+    let rhs2 = sxx + syy;
+
+    // Solve 3x3 system via Cramer's rule.
+    let det = sxx * (syy * n - sy * sy) - sxy * (sxy * n - sy * sx) + sx * (sxy * sy - syy * sx);
+
+    if det.abs() < 1e-30 {
+        return None;
+    }
+
+    let a = (rhs0 * (syy * n - sy * sy) - sxy * (rhs1 * n - sy * rhs2)
+        + sx * (rhs1 * sy - syy * rhs2))
+        / det;
+    let b = (sxx * (rhs1 * n - sy * rhs2) - rhs0 * (sxy * n - sy * sx)
+        + sx * (sxy * rhs2 - rhs1 * sx))
+        / det;
+    let c = (sxx * (syy * rhs2 - rhs1 * sy) - sxy * (sxy * rhs2 - rhs1 * sx)
+        + rhs0 * (sxy * sy - syy * sx))
+        / det;
+
+    let cx = a / 2.0;
+    let cy = b / 2.0;
+    let r_sq = c + cx * cx + cy * cy;
+    if r_sq <= 0.0 {
+        return None;
+    }
+
+    Some((cx, cy, r_sq.sqrt()))
+}
+
+/// Attempt to detect a spherical surface from sampled points and normals.
+///
+/// Estimates the sphere center by finding the closest approach of
+/// point+normal ray pairs, then checks that all points lie within
+/// `tolerance` of the fitted sphere.
+fn try_detect_sphere(
+    points: &[Point3],
+    normals: &[Vec3],
+    tolerance: f64,
+) -> Option<(SurfaceGeometry, f64)> {
+    if points.len() < 3 || normals.len() < 3 {
+        return None;
+    }
+
+    // Collect valid (point, unit_normal) pairs.
+    let pairs: Vec<(Point3, Vec3)> = points
+        .iter()
+        .zip(normals.iter())
+        .filter_map(|(p, n)| n.normalized().map(|un| (*p, un)))
+        .collect();
+
+    if pairs.len() < 3 {
+        return None;
+    }
+
+    // Estimate center from closest approach of ray pairs.
+    let mut center_accum = Vec3::zero();
+    let mut pair_count = 0usize;
+    let max_pairs = 50;
+
+    'outer: for i in 0..pairs.len() {
+        for j in (i + 1)..pairs.len() {
+            if pair_count >= max_pairs {
+                break 'outer;
+            }
+            let (pi, ni) = &pairs[i];
+            let (pj, nj) = &pairs[j];
+
+            let d = *pi - *pj;
+            let a = ni.dot(ni);
+            let b = ni.dot(nj);
+            let c = nj.dot(nj);
+            let e = ni.dot(&d);
+            let f = nj.dot(&d);
+
+            let denom = a * c - b * b;
+            if denom.abs() < 1e-12 {
+                continue; // Lines are parallel, skip.
+            }
+
+            let t = (b * f - c * e) / denom;
+            let s = (a * f - b * e) / denom;
+
+            let close_i = *pi + *ni * t;
+            let close_j = *pj + *nj * s;
+            let mid = Vec3::new(
+                (close_i.x + close_j.x) * 0.5,
+                (close_i.y + close_j.y) * 0.5,
+                (close_i.z + close_j.z) * 0.5,
+            );
+
+            center_accum = Vec3::new(
+                center_accum.x + mid.x,
+                center_accum.y + mid.y,
+                center_accum.z + mid.z,
+            );
+            pair_count += 1;
+        }
+    }
+
+    if pair_count == 0 {
+        return None;
+    }
+
+    let center = Point3::new(
+        center_accum.x / pair_count as f64,
+        center_accum.y / pair_count as f64,
+        center_accum.z / pair_count as f64,
+    );
+
+    // Compute radius = average distance from center to all points.
+    let count = points.len() as f64;
+    let radius: f64 = points.iter().map(|p| (*p - center).length()).sum::<f64>() / count;
+
+    if radius < tolerance {
+        return None; // Degenerate.
+    }
+
+    // Max deviation = max |distance_to_center - radius|.
+    let mut max_dev = 0.0_f64;
+    for p in points {
+        let dist = (*p - center).length();
+        max_dev = max_dev.max((dist - radius).abs());
+    }
+
+    if max_dev > tolerance {
+        return None;
+    }
+
+    let geom = SurfaceGeometry::Sphere { center, radius };
+    Some((geom, max_dev))
+}
+
 /// Simplify a single face's surface if it is an over-parameterized NURBS.
 ///
 /// If the face's surface is already analytical (Plane, Cylinder, etc.),
@@ -206,62 +470,5 @@ pub fn simplify_all_faces(brep: &mut BRep, tolerance: f64) -> Vec<Simplification
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::geometry::surface::SurfaceGeometry;
-    use crate::tolerance::Tolerance;
-    use crate::topology::BRep;
-
-    #[test]
-    fn detect_plane_from_planar_points() {
-        // Create a plane surface and sample it.
-        let plane = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        let result = detect_analytical_form(&plane, ((-1.0, 1.0), (-1.0, 1.0)), 1e-6);
-        assert!(result.is_some(), "should detect plane");
-        let (kind, _, dev) = result.unwrap();
-        assert_eq!(kind, AnalyticalKind::Plane);
-        assert!(dev < 1e-10, "deviation should be near zero for exact plane");
-    }
-
-    #[test]
-    fn detect_fails_on_cylinder() {
-        let cylinder = SurfaceGeometry::Cylinder {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            radius: 1.0,
-        };
-        // A cylinder is not planar, so plane detection should fail.
-        let result = detect_analytical_form(&cylinder, ((0.0, 1.0), (0.0, 1.0)), 1e-6);
-        assert!(result.is_none(), "cylinder should not be detected as plane");
-    }
-
-    #[test]
-    fn simplify_face_on_cube_is_noop() {
-        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let face = brep.faces.keys().next().unwrap();
-        // Cube faces are already Plane geometry, so simplification should be a no-op.
-        let result = simplify_face(&mut brep, face, 1e-6);
-        assert!(
-            result.is_none(),
-            "already-analytical face should not be simplified"
-        );
-    }
-
-    #[test]
-    fn simplify_all_faces_on_cube_returns_empty() {
-        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let results = simplify_all_faces(&mut brep, 1e-6);
-        assert!(results.is_empty(), "all cube faces are already planar");
-    }
-
-    #[test]
-    fn analytical_kind_values() {
-        assert_ne!(AnalyticalKind::Plane, AnalyticalKind::Cylinder);
-        assert_ne!(AnalyticalKind::Sphere, AnalyticalKind::Torus);
-    }
-}
+#[path = "simplification_tests.rs"]
+mod tests;
