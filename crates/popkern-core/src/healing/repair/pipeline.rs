@@ -12,6 +12,7 @@ use crate::healing::repair::degeneracy::{self, DegeneracyRepairResult};
 use crate::healing::repair::gap_repair::{self, GapRepairResult, GapRepairStrategy};
 use crate::healing::repair::merge_faces::{self, FaceMergeResult};
 use crate::healing::repair::simplification::{self, SimplificationResult};
+use crate::healing::repair::stitch::{self, StitchResult};
 use crate::healing::repair::tolerance_mgmt::{self, ToleranceAdjustment};
 use crate::topology::BRep;
 
@@ -28,6 +29,8 @@ pub enum RepairStep {
     DegeneracyRepair,
     /// Detect and merge adjacent coplanar faces.
     CoplanarFaceMerge,
+    /// Identify and merge matching free boundary edges.
+    BoundaryStitch,
 }
 
 /// Aggregate result of running the repair pipeline.
@@ -47,6 +50,8 @@ pub struct HealResult {
     pub degeneracy_repairs: Vec<DegeneracyRepairResult>,
     /// All coplanar face merge results across all iterations.
     pub face_merges: Vec<FaceMergeResult>,
+    /// All boundary stitch results across all iterations.
+    pub boundary_stitches: Vec<StitchResult>,
     /// Number of iterations the pipeline ran.
     pub iterations: usize,
 }
@@ -61,6 +66,7 @@ fn steps_for_strategy(strategy: HealStrategy) -> Vec<RepairStep> {
         HealStrategy::Standard => vec![
             RepairStep::ToleranceEnforcement,
             RepairStep::DegeneracyRepair,
+            RepairStep::BoundaryStitch,
             RepairStep::GapRepair(GapRepairStrategy::GeometricAdjustment),
             RepairStep::SurfaceSimplification,
             RepairStep::CoplanarFaceMerge,
@@ -68,6 +74,7 @@ fn steps_for_strategy(strategy: HealStrategy) -> Vec<RepairStep> {
         HealStrategy::Aggressive => vec![
             RepairStep::ToleranceEnforcement,
             RepairStep::DegeneracyRepair,
+            RepairStep::BoundaryStitch,
             RepairStep::GapRepair(GapRepairStrategy::GeometricAdjustment),
             RepairStep::SurfaceSimplification,
             RepairStep::CoplanarFaceMerge,
@@ -103,6 +110,7 @@ pub fn run_pipeline(brep: &mut BRep, options: &HealOptions) -> Result<HealResult
     let mut all_simplifications: Vec<SimplificationResult> = Vec::new();
     let mut all_degeneracy_repairs: Vec<DegeneracyRepairResult> = Vec::new();
     let mut all_face_merges: Vec<FaceMergeResult> = Vec::new();
+    let mut all_boundary_stitches: Vec<StitchResult> = Vec::new();
     let mut current_defects = defects_before;
     let mut iterations = 0;
 
@@ -133,6 +141,15 @@ pub fn run_pipeline(brep: &mut BRep, options: &HealOptions) -> Result<HealResult
                 RepairStep::CoplanarFaceMerge => {
                     let result = merge_faces::merge_coplanar_faces(brep, &options.tolerance);
                     all_face_merges.push(result);
+                }
+                RepairStep::BoundaryStitch => {
+                    let result = stitch::stitch_boundaries(
+                        brep,
+                        options.max_displacement * 2.0,
+                        options.max_displacement,
+                        &options.tolerance,
+                    );
+                    all_boundary_stitches.push(result);
                 }
             }
         }
@@ -165,6 +182,7 @@ pub fn run_pipeline(brep: &mut BRep, options: &HealOptions) -> Result<HealResult
         simplifications: all_simplifications,
         degeneracy_repairs: all_degeneracy_repairs,
         face_merges: all_face_merges,
+        boundary_stitches: all_boundary_stitches,
         iterations,
     })
 }
