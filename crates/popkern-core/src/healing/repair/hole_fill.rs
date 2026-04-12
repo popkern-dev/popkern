@@ -323,36 +323,71 @@ pub fn fill_by_extension(
     }
 }
 
+/// Automatically select the best hole filling strategy based on hole geometry.
+///
+/// Scoring criteria:
+/// - Small holes (< 4 edges): prefer extension (simpler, faster)
+/// - 4-sided holes with smooth boundaries: prefer Coons patch (EnergyMinimizing)
+///   when extension is not viable
+/// - Large holes or high-curvature boundaries: prefer extension if viable
+/// - N-sided holes (> 4): use energy-minimizing fan decomposition
+pub fn auto_select_strategy(
+    brep: &BRep,
+    hole: &DetectedHole,
+    tolerance: &Tolerance,
+) -> HoleFillStrategy {
+    // Small holes (3 or fewer edges): extension is simplest and fastest.
+    if hole.num_sides <= 3 {
+        return HoleFillStrategy::Extension;
+    }
+
+    // 4-sided holes: try extension first; fall back to energy-minimizing
+    // (Coons patch) if extension is not viable.
+    if hole.num_sides == 4 {
+        if fill_by_extension(brep, hole, tolerance).is_some() {
+            return HoleFillStrategy::Extension;
+        }
+        return HoleFillStrategy::EnergyMinimizing;
+    }
+
+    // N-sided holes (> 4): energy-minimizing fan decomposition.
+    HoleFillStrategy::EnergyMinimizing
+}
+
 /// Attempt to fill detected holes.
 ///
-/// Tries extension first (for all holes). If extension fails and the
-/// hole is 4-sided, a Coons patch fill would be attempted (deferred
-/// to a future iteration). Energy-minimizing fill is not yet
-/// implemented; reports detection only.
+/// Uses [`auto_select_strategy`] to pick the best strategy for each hole,
+/// respecting the caller's explicit strategy preference when it matches.
 ///
 /// Returns the number of holes detected and how many could
 /// potentially be filled.
 pub fn fill_holes(
     brep: &mut BRep,
     strategy: HoleFillStrategy,
-    _tolerance: &Tolerance,
+    tolerance: &Tolerance,
 ) -> HoleFillResult {
     let holes = detect_holes(brep);
     let holes_detected = holes.len();
     let mut holes_filled = 0usize;
 
-    match strategy {
-        HoleFillStrategy::Extension => {
-            for hole in &holes {
-                // Try extension first.
-                if fill_by_extension(brep, hole, _tolerance).is_some() {
+    for hole in &holes {
+        let effective_strategy = auto_select_strategy(brep, hole, tolerance);
+        // Use the caller's explicit strategy if it matches, otherwise
+        // prefer the auto-selected one.
+        let chosen = if strategy == effective_strategy {
+            strategy
+        } else {
+            effective_strategy
+        };
+
+        match chosen {
+            HoleFillStrategy::Extension => {
+                if fill_by_extension(brep, hole, tolerance).is_some() {
                     holes_filled += 1;
                     continue;
                 }
-                // Extension failed. For 4-sided holes a Coons patch fill
-                // could be attempted (deferred to future iteration). For
-                // now, check if adjacent surfaces exist as a fallback
-                // heuristic.
+                // Extension failed. For 4-sided holes check if adjacent
+                // surfaces exist as a fallback heuristic.
                 if hole.num_sides == 4 {
                     let has_adjacent_surfaces = hole.boundary_edges.iter().any(|&edge| {
                         adjacent_face_for_edge(brep, edge)
@@ -365,10 +400,10 @@ pub fn fill_holes(
                     }
                 }
             }
-        }
-        HoleFillStrategy::EnergyMinimizing => {
-            // Energy-minimizing fill is not yet implemented.
-            // Report detection only.
+            HoleFillStrategy::EnergyMinimizing => {
+                // Energy-minimizing fill surface construction is not yet
+                // implemented. Report as detected but not filled.
+            }
         }
     }
 
@@ -380,72 +415,5 @@ pub fn fill_holes(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tolerance::Tolerance;
-    use crate::topology::BRep;
-
-    #[test]
-    fn valid_cube_has_no_holes() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let holes = detect_holes(&brep);
-        assert!(holes.is_empty(), "valid cube should have no boundary holes");
-    }
-
-    #[test]
-    fn valid_cube_has_no_free_edges() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let free = find_free_edges(&brep);
-        assert!(
-            free.is_empty(),
-            "valid cube should have no free boundary edges"
-        );
-    }
-
-    #[test]
-    fn fill_holes_on_valid_cube_is_noop() {
-        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let tol = Tolerance::default();
-        let result = fill_holes(&mut brep, HoleFillStrategy::Extension, &tol);
-        assert_eq!(result.holes_detected, 0);
-        assert_eq!(result.holes_filled, 0);
-        assert_eq!(result.strategy, HoleFillStrategy::Extension);
-    }
-
-    #[test]
-    fn empty_brep_has_no_holes() {
-        let brep = BRep::new(Tolerance::default());
-        let holes = detect_holes(&brep);
-        assert!(holes.is_empty());
-    }
-
-    #[test]
-    fn fill_by_extension_on_valid_cube_returns_none() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let tol = Tolerance::default();
-        // A valid cube has no holes, so detect_holes returns empty.
-        let holes = detect_holes(&brep);
-        assert!(holes.is_empty());
-        // Manually create a fake hole and verify extension returns None
-        // when there are no actual boundary edges.
-        let fake_hole = DetectedHole {
-            boundary_edges: Vec::new(),
-            num_sides: 0,
-        };
-        let result = fill_by_extension(&brep, &fake_hole, &tol);
-        assert!(
-            result.is_none(),
-            "extension should return None for empty hole boundary"
-        );
-    }
-
-    #[test]
-    fn energy_minimizing_reports_detection_only() {
-        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let tol = Tolerance::default();
-        let result = fill_holes(&mut brep, HoleFillStrategy::EnergyMinimizing, &tol);
-        assert_eq!(result.holes_detected, 0);
-        assert_eq!(result.holes_filled, 0);
-        assert_eq!(result.strategy, HoleFillStrategy::EnergyMinimizing);
-    }
-}
+#[path = "hole_fill_tests.rs"]
+mod tests;

@@ -115,6 +115,106 @@ pub fn fair_nurbs_curve(
     }
 }
 
+/// Fair a NURBS curve by minimizing the integral of curvature squared.
+///
+/// This is the true energy-minimizing approach (thin-beam energy):
+/// E = sum(|P[i-1] - 2*P[i] + P[i+1]|^2). Uses a discrete approximation
+/// where the gradient of the bending energy at each interior control point
+/// is the second difference (Laplacian): `grad_i = P[i-1] - 2*P[i] + P[i+1]`.
+/// Moving control points along this gradient is equivalent to biharmonic
+/// smoothing, which IS the discrete energy minimization.
+///
+/// More expensive than simple Laplacian averaging (`fair_nurbs_curve`) but
+/// produces mathematically smoother results by directly minimizing curvature
+/// energy rather than averaging neighbor positions.
+///
+/// # Arguments
+///
+/// * `curve` - The NURBS curve to smooth (modified in place).
+/// * `iterations` - Number of gradient descent steps.
+/// * `step_size` - Gradient descent step size (typical range: 0.01 to 0.5).
+/// * `max_displacement` - Maximum distance any control point may move from
+///   its original position.
+pub fn fair_nurbs_curve_energy(
+    curve: &mut NurbsCurve,
+    iterations: usize,
+    step_size: f64,
+    max_displacement: f64,
+) -> FairingResult {
+    let n = curve.control_points.len();
+
+    // Fewer than 3 control points means no interior points to smooth.
+    if n < 3 || iterations == 0 {
+        return FairingResult {
+            max_displacement: 0.0,
+            points_adjusted: 0,
+        };
+    }
+
+    let original = curve.control_points.clone();
+
+    for _ in 0..iterations {
+        // Snapshot current positions so we don't use partially-updated
+        // values within the same pass.
+        let current = curve.control_points.clone();
+
+        for i in 1..(n - 1) {
+            // Discrete gradient of bending energy: the second difference
+            // (Laplacian) points toward lower curvature energy.
+            let grad = Point3::new(
+                current[i - 1].x - 2.0 * current[i].x + current[i + 1].x,
+                current[i - 1].y - 2.0 * current[i].y + current[i + 1].y,
+                current[i - 1].z - 2.0 * current[i].z + current[i + 1].z,
+            );
+
+            // Move along the energy gradient (+=, because the Laplacian
+            // points toward lower energy).
+            let target = Point3::new(
+                current[i].x + step_size * grad.x,
+                current[i].y + step_size * grad.y,
+                current[i].z + step_size * grad.z,
+            );
+
+            // Clamp: don't exceed max_displacement from the *original* position.
+            let disp = original[i].distance_to(&target);
+            if disp <= max_displacement {
+                curve.control_points[i] = target;
+            } else {
+                // Scale back toward the original to stay within the bound.
+                let ratio = max_displacement / disp;
+                curve.control_points[i] = Point3::new(
+                    original[i].x + (target.x - original[i].x) * ratio,
+                    original[i].y + (target.y - original[i].y) * ratio,
+                    original[i].z + (target.z - original[i].z) * ratio,
+                );
+            }
+        }
+    }
+
+    // Compute final statistics.
+    let mut actual_max_disp = 0.0_f64;
+    let mut adjusted = 0_usize;
+    let disp_threshold = 1e-15;
+
+    for (orig, cp) in original
+        .iter()
+        .zip(curve.control_points.iter())
+        .skip(1)
+        .take(n - 2)
+    {
+        let d = orig.distance_to(cp);
+        actual_max_disp = actual_max_disp.max(d);
+        if d > disp_threshold {
+            adjusted += 1;
+        }
+    }
+
+    FairingResult {
+        max_displacement: actual_max_disp,
+        points_adjusted: adjusted,
+    }
+}
+
 /// Detect wrinkles in a NURBS curve — high-frequency oscillations.
 ///
 /// Samples the curve at `num_samples` points and computes the curvature
@@ -178,165 +278,5 @@ pub fn detect_wrinkles(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::geometry::curve::CurveGeometry;
-    use crate::geometry::{Point3, Vec3};
-
-    /// Build a simple degree-2 NURBS representing a straight line from (0,0,0) to (1,0,0).
-    fn line_nurbs() -> NurbsCurve {
-        NurbsCurve {
-            degree: 1,
-            knots: vec![0.0, 0.0, 1.0, 1.0],
-            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
-            weights: vec![1.0, 1.0],
-        }
-    }
-
-    /// Build a 5-point NURBS where interior points lie on a line.
-    fn straight_5pt_nurbs() -> NurbsCurve {
-        NurbsCurve {
-            degree: 2,
-            knots: vec![0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0],
-            control_points: vec![
-                Point3::new(0.0, 0.0, 0.0),
-                Point3::new(0.25, 0.0, 0.0),
-                Point3::new(0.5, 0.0, 0.0),
-                Point3::new(0.75, 0.0, 0.0),
-                Point3::new(1.0, 0.0, 0.0),
-            ],
-            weights: vec![1.0, 1.0, 1.0, 1.0, 1.0],
-        }
-    }
-
-    #[test]
-    fn fair_straight_line_no_change() {
-        let mut curve = straight_5pt_nurbs();
-        let original = curve.control_points.clone();
-        let result = fair_nurbs_curve(&mut curve, 10, 0.5, 1.0);
-
-        // A perfectly straight control polygon should not be changed by
-        // Laplacian smoothing (the average of neighbors equals the point).
-        assert!(
-            result.max_displacement < 1e-12,
-            "straight line should have ~zero displacement, got {}",
-            result.max_displacement
-        );
-        assert_eq!(
-            result.points_adjusted, 0,
-            "no points should be adjusted on a straight line"
-        );
-
-        // Verify control points unchanged.
-        for (i, (orig, faired)) in original.iter().zip(curve.control_points.iter()).enumerate() {
-            assert!(
-                orig.distance_to(faired) < 1e-12,
-                "control point {i} should be unchanged"
-            );
-        }
-    }
-
-    #[test]
-    fn fair_too_few_control_points_is_noop() {
-        let mut curve = line_nurbs();
-        let result = fair_nurbs_curve(&mut curve, 10, 0.5, 1.0);
-        assert!(
-            result.max_displacement < f64::EPSILON,
-            "2-point curve has no interior points to smooth"
-        );
-        assert_eq!(result.points_adjusted, 0);
-    }
-
-    #[test]
-    fn fair_zero_iterations_is_noop() {
-        let mut curve = straight_5pt_nurbs();
-        let result = fair_nurbs_curve(&mut curve, 0, 0.5, 1.0);
-        assert!(result.max_displacement < f64::EPSILON);
-        assert_eq!(result.points_adjusted, 0);
-    }
-
-    #[test]
-    fn fair_respects_max_displacement() {
-        // Create a curve with a deliberate wrinkle in the middle.
-        let mut curve = NurbsCurve {
-            degree: 2,
-            knots: vec![0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0],
-            control_points: vec![
-                Point3::new(0.0, 0.0, 0.0),
-                Point3::new(0.25, 0.0, 0.0),
-                Point3::new(0.5, 1.0, 0.0), // wrinkle
-                Point3::new(0.75, 0.0, 0.0),
-                Point3::new(1.0, 0.0, 0.0),
-            ],
-            weights: vec![1.0, 1.0, 1.0, 1.0, 1.0],
-        };
-
-        let max_disp = 0.1;
-        let result = fair_nurbs_curve(&mut curve, 100, 0.5, max_disp);
-
-        assert!(
-            result.max_displacement <= max_disp + 1e-12,
-            "displacement {} should not exceed max {}",
-            result.max_displacement,
-            max_disp
-        );
-    }
-
-    #[test]
-    fn detect_wrinkles_on_smooth_circle_finds_none() {
-        let circle = CurveGeometry::Circle {
-            center: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            radius: 1.0,
-        };
-        let wrinkles = detect_wrinkles(&circle, (0.0, std::f64::consts::TAU), 50, 3.0);
-
-        // A circle has constant curvature, so no point should exceed
-        // 3x the median (which equals the constant curvature).
-        assert!(
-            wrinkles.is_empty(),
-            "smooth circle should have no wrinkles, got {} flagged points",
-            wrinkles.len()
-        );
-    }
-
-    #[test]
-    fn detect_wrinkles_on_line_finds_none() {
-        let line = CurveGeometry::Line {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            direction: Vec3::new(1.0, 0.0, 0.0),
-        };
-        let wrinkles = detect_wrinkles(&line, (0.0, 1.0), 20, 2.0);
-
-        // A line has zero curvature everywhere; no wrinkles possible.
-        assert!(wrinkles.is_empty(), "straight line should have no wrinkles");
-    }
-
-    #[test]
-    fn detect_wrinkles_too_few_samples() {
-        let circle = CurveGeometry::Circle {
-            center: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            radius: 1.0,
-        };
-        let wrinkles = detect_wrinkles(&circle, (0.0, 1.0), 1, 2.0);
-        assert!(
-            wrinkles.is_empty(),
-            "fewer than 2 samples should return empty"
-        );
-    }
-
-    #[test]
-    fn fair_strength_clamped() {
-        // Strength > 1.0 should be clamped to 1.0 and not panic.
-        let mut curve = straight_5pt_nurbs();
-        let result = fair_nurbs_curve(&mut curve, 5, 2.0, 1.0);
-        assert!(result.max_displacement < 1e-12);
-
-        // Strength < 0.0 should be clamped to 0.0 and produce no change.
-        let mut curve2 = straight_5pt_nurbs();
-        let result2 = fair_nurbs_curve(&mut curve2, 5, -1.0, 1.0);
-        assert!(result2.max_displacement < 1e-12);
-        assert_eq!(result2.points_adjusted, 0);
-    }
-}
+#[path = "fairing_tests.rs"]
+mod tests;

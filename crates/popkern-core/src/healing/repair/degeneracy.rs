@@ -20,6 +20,8 @@ pub struct DegeneracyRepairResult {
     pub zero_area_faces_detected: usize,
     /// Number of cusps detected (surface points where curvature is infinite).
     pub cusps_detected: usize,
+    /// Number of self-tangent face locations detected.
+    pub self_tangent_faces_detected: usize,
 }
 
 /// Remove zero-length edges from a BRep.
@@ -104,6 +106,7 @@ pub fn repair_degeneracies(brep: &mut BRep, tolerance: &Tolerance) -> Degeneracy
         small_faces_collapsed: 0,
         zero_area_faces_detected: 0,
         cusps_detected: 0,
+        self_tangent_faces_detected: 0,
     }
 }
 
@@ -238,13 +241,83 @@ pub fn repair_degeneracies_full(brep: &mut BRep, tolerance: &Tolerance) -> Degen
     let zero_length_edges_removed = remove_zero_length_edges(brep, tolerance);
     let zero_area = detect_zero_area_faces(brep, tolerance);
     let cusps = detect_cusps(brep, tolerance);
+    let self_tangent = detect_self_tangent_faces(brep, tolerance);
 
     DegeneracyRepairResult {
         zero_length_edges_removed,
         small_faces_collapsed: 0,
         zero_area_faces_detected: zero_area.len(),
         cusps_detected: cusps.len(),
+        self_tangent_faces_detected: self_tangent.len(),
     }
+}
+
+/// Detect self-tangent surfaces -- surfaces that touch themselves without crossing.
+///
+/// Returns a list of `(face, u1, v1, u2, v2)` tuples identifying each
+/// detected self-tangent location in parameter space.
+pub fn detect_self_tangent_faces(
+    brep: &BRep,
+    tolerance: &Tolerance,
+) -> Vec<(FaceHandle, f64, f64, f64, f64)> {
+    let linear_tol = tolerance.linear();
+    let mut results = Vec::new();
+    for (face_handle, face_data) in &brep.faces {
+        let sof = match face_data.surface.as_ref() {
+            Some(s) => s,
+            None => continue,
+        };
+        if !matches!(
+            sof.geometry,
+            crate::geometry::surface::SurfaceGeometry::Nurbs(_)
+        ) {
+            continue;
+        }
+        let positions = brep.face_outer_loop_positions(face_handle);
+        if positions.is_empty() {
+            continue;
+        }
+        let ((u_min, u_max), (v_min, v_max)) =
+            crate::geometry::uv_projection::tight_bounded_parameter_range(
+                &positions,
+                &sof.geometry,
+            );
+        let u_span = u_max - u_min;
+        let v_span = v_max - v_min;
+        if u_span < 1e-15 || v_span < 1e-15 {
+            continue;
+        }
+        let grid_n = 8usize;
+        let mut grid_pts = Vec::with_capacity(grid_n * grid_n);
+        let mut grid_uvs: Vec<(usize, usize, f64, f64)> = Vec::with_capacity(grid_n * grid_n);
+        for i in 0..grid_n {
+            let u = u_min + u_span * (i as f64 + 0.5) / (grid_n as f64);
+            for j in 0..grid_n {
+                let v = v_min + v_span * (j as f64 + 0.5) / (grid_n as f64);
+                grid_pts.push(sof.geometry.point_at(u, v));
+                grid_uvs.push((i, j, u, v));
+            }
+        }
+        let uv_min_dist = 0.1 * (u_span * u_span + v_span * v_span).sqrt();
+        for a in 0..grid_pts.len() {
+            let (ai, aj, au, av) = grid_uvs[a];
+            for b in (a + 1)..grid_pts.len() {
+                let (bi, bj, bu, bv) = grid_uvs[b];
+                if ai.abs_diff(bi) <= 1 && aj.abs_diff(bj) <= 1 {
+                    continue;
+                }
+                let du = au - bu;
+                let dv = av - bv;
+                if (du * du + dv * dv).sqrt() < uv_min_dist {
+                    continue;
+                }
+                if grid_pts[a].distance_to(&grid_pts[b]) < linear_tol {
+                    results.push((face_handle, au, av, bu, bv));
+                }
+            }
+        }
+    }
+    results
 }
 
 #[cfg(test)]

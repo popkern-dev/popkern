@@ -3,10 +3,14 @@
 //! Implements detection and vertex-merging; full topological edge merging
 //! via Euler operators is deferred.
 
+use std::collections::{HashMap, HashSet};
+
 use crate::geometry::Point3;
 use crate::geometry::curve::CurveEval;
 use crate::tolerance::Tolerance;
 use crate::topology::{BRep, EdgeHandle, VertexHandle};
+
+use super::spatial_grid::SpatialGrid;
 
 /// Result of boundary assembly.
 #[derive(Debug, Clone)]
@@ -150,9 +154,9 @@ fn directed_hausdorff(pts_a: &[Point3], pts_b: &[Point3]) -> f64 {
 
 /// Find matching pairs among free boundary edges.
 ///
-/// Uses pairwise proximity: for each free edge, samples points along the
-/// edge and finds the nearest free edge whose sampled points are within
-/// `max_gap`. Returns matches sorted by distance (best match first).
+/// Uses a spatial grid to accelerate proximity queries: for each free
+/// edge, computes its midpoint, inserts it into the grid, then queries
+/// nearby edges instead of checking all pairs.
 ///
 /// Uses greedy assignment: each edge can only participate in one match.
 /// Also reports edges that had multiple candidate matches (ambiguous).
@@ -163,34 +167,53 @@ pub fn find_matching_edges(
     num_samples: usize,
 ) -> MatchResult {
     let samples_count = num_samples.max(2);
-    // Pre-sample all edges.
     let sampled: Vec<Option<Vec<Point3>>> = free_edges
         .iter()
         .map(|&eh| sample_edge_points(brep, eh, samples_count))
         .collect();
-
-    // Count how many candidate matches each edge participates in.
+    let mut grid = SpatialGrid::new(if max_gap > 0.0 { max_gap } else { 1.0 });
+    let midpoints: Vec<Option<Point3>> = sampled
+        .iter()
+        .enumerate()
+        .map(|(i, pts_opt)| {
+            let pts = pts_opt.as_ref()?;
+            if pts.is_empty() {
+                return None;
+            }
+            let n = pts.len() as f64;
+            let mid = Point3::new(
+                pts.iter().map(|p| p.x).sum::<f64>() / n,
+                pts.iter().map(|p| p.y).sum::<f64>() / n,
+                pts.iter().map(|p| p.z).sum::<f64>() / n,
+            );
+            grid.insert(i, &mid);
+            Some(mid)
+        })
+        .collect();
     let mut match_counts = vec![0_usize; free_edges.len()];
-
-    // Collect candidate matches.
     let mut candidates: Vec<EdgeMatch> = Vec::new();
+    let mut checked = HashSet::new();
     for i in 0..free_edges.len() {
+        let Some(mid) = &midpoints[i] else {
+            continue;
+        };
         let Some(pts_a) = &sampled[i] else {
             continue;
         };
-        for j in (i + 1)..free_edges.len() {
+        for j in grid.query_nearby(mid) {
+            if j <= i {
+                continue;
+            }
+            if !checked.insert((i, j)) {
+                continue;
+            }
             let Some(pts_b) = &sampled[j] else {
                 continue;
             };
-            // Symmetric Hausdorff = max(directed(a->b), directed(b->a)).
-            let h_ab = directed_hausdorff(pts_a, pts_b);
-            let h_ba = directed_hausdorff(pts_b, pts_a);
-            let hausdorff = h_ab.max(h_ba);
-
+            let hausdorff = directed_hausdorff(pts_a, pts_b).max(directed_hausdorff(pts_b, pts_a));
             if hausdorff < max_gap {
                 match_counts[i] += 1;
                 match_counts[j] += 1;
-                // Check orientation via tangent at midpoints.
                 let needs_reversal = check_needs_reversal(brep, free_edges[i], free_edges[j]);
                 candidates.push(EdgeMatch {
                     edge_a: free_edges[i],
@@ -201,31 +224,23 @@ pub fn find_matching_edges(
             }
         }
     }
-
-    // Identify ambiguous edges (>1 candidate match).
     let ambiguous: Vec<EdgeHandle> = free_edges
         .iter()
         .enumerate()
         .filter(|&(i, _)| match_counts[i] > 1)
         .map(|(_, &eh)| eh)
         .collect();
-
-    // Sort by distance ascending (best matches first).
     candidates.sort_by(|a, b| {
         a.distance
             .partial_cmp(&b.distance)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-
-    // Greedy assignment: each edge used at most once.
     let mut used = vec![false; free_edges.len()];
-    // Build index map: EdgeHandle -> position in free_edges.
-    let index_of: std::collections::HashMap<EdgeHandle, usize> = free_edges
+    let index_of: HashMap<EdgeHandle, usize> = free_edges
         .iter()
         .enumerate()
         .map(|(i, &eh)| (eh, i))
         .collect();
-
     let mut result = Vec::new();
     for c in candidates {
         let Some(&ia) = index_of.get(&c.edge_a) else {
@@ -305,7 +320,7 @@ pub fn stitch_boundaries(
     let mut overall_max_displacement = 0.0_f64;
 
     // Track which edges were successfully matched.
-    let mut matched_edges = std::collections::HashSet::new();
+    let mut matched_edges = HashSet::new();
 
     for m in matches {
         // Skip if the gap is too large to close within displacement limit.
@@ -335,38 +350,26 @@ pub fn stitch_boundaries(
             continue;
         };
 
-        // Determine which pairing of endpoints is closer (forward or reversed).
         let (pair1_a, pair1_b, pair2_a, pair2_b) = if m.needs_reversal {
-            // a_start <-> b_end, a_end <-> b_start
             (va_start, vb_end, va_end, vb_start)
         } else {
-            // a_start <-> b_start, a_end <-> b_end
             (va_start, vb_start, va_end, vb_end)
         };
-
-        let pos1_a = pa_start;
-        let pos1_b = if m.needs_reversal { pb_end } else { pb_start };
-        let pos2_a = pa_end;
-        let pos2_b = if m.needs_reversal { pb_start } else { pb_end };
-
-        let disp1 = pos1_a.distance_to(&pos1_b) * 0.5;
-        let disp2 = pos2_a.distance_to(&pos2_b) * 0.5;
-        let pair_max_disp = disp1.max(disp2);
-
+        let (p1a, p1b) = (pa_start, if m.needs_reversal { pb_end } else { pb_start });
+        let (p2a, p2b) = (pa_end, if m.needs_reversal { pb_start } else { pb_end });
+        let pair_max_disp = (p1a.distance_to(&p1b) * 0.5).max(p2a.distance_to(&p2b) * 0.5);
         if pair_max_disp > max_displacement {
             continue;
         }
-
-        // Merge: move both vertices of each pair to their midpoint.
         let mid1 = Point3::new(
-            (pos1_a.x + pos1_b.x) * 0.5,
-            (pos1_a.y + pos1_b.y) * 0.5,
-            (pos1_a.z + pos1_b.z) * 0.5,
+            (p1a.x + p1b.x) * 0.5,
+            (p1a.y + p1b.y) * 0.5,
+            (p1a.z + p1b.z) * 0.5,
         );
         let mid2 = Point3::new(
-            (pos2_a.x + pos2_b.x) * 0.5,
-            (pos2_a.y + pos2_b.y) * 0.5,
-            (pos2_a.z + pos2_b.z) * 0.5,
+            (p2a.x + p2b.x) * 0.5,
+            (p2a.y + p2b.y) * 0.5,
+            (p2a.z + p2b.z) * 0.5,
         );
 
         // Only merge if the displacement exceeds the numerical floor.

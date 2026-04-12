@@ -151,18 +151,167 @@ pub fn detect_coplanar_pairs(brep: &BRep, tolerance: &Tolerance) -> Vec<(FaceHan
 ///
 /// For each pair, attempts to remove the shared edge, merging the two
 /// faces into one.  This simplifies topology without changing geometry.
-///
-/// Currently a detection-only stub: returns the detected pairs count
-/// but does not modify topology (face merging requires careful Euler
-/// operator sequences that are deferred to a future iteration).
+/// Only pairs that share exactly one edge are merged; complex multi-edge
+/// boundaries are skipped.
 pub fn merge_coplanar_faces(brep: &mut BRep, tolerance: &Tolerance) -> FaceMergeResult {
     let pairs = detect_coplanar_pairs(brep, tolerance);
     let pairs_detected = pairs.len();
+    let mut pairs_merged = 0;
+
+    for (face_a, face_b) in &pairs {
+        // Skip pairs where one face has already been removed by
+        // a prior merge in this batch.
+        if !brep.faces.contains_key(*face_a) || !brep.faces.contains_key(*face_b) {
+            continue;
+        }
+        if attempt_face_merge(brep, *face_a, *face_b).is_ok() {
+            pairs_merged += 1;
+        }
+    }
 
     FaceMergeResult {
         pairs_detected,
-        pairs_merged: 0,
+        pairs_merged,
     }
+}
+
+/// Attempt to merge two faces by removing their shared edge.
+///
+/// This is a simplified merge that works when the two faces share
+/// exactly one edge. It reassigns the second face's half-edges to
+/// the first face's loop and removes the shared edge and second face.
+///
+/// Returns `Err` if the faces don't share exactly one edge or if
+/// the topology is too complex for this simplified merge.
+fn attempt_face_merge(
+    brep: &mut BRep,
+    face_a: FaceHandle,
+    face_b: FaceHandle,
+) -> Result<(), crate::error::CoreError> {
+    use crate::error::CoreError;
+    use crate::topology::{EdgeHandle, HalfEdgeHandle};
+
+    // Find shared edges: edges where one half-edge's face == face_a
+    // and the twin's face == face_b.
+    let mut shared_edges: Vec<(EdgeHandle, HalfEdgeHandle, HalfEdgeHandle)> = Vec::new();
+
+    for (edge_handle, edge_data) in &brep.edges {
+        let Some(he) = brep.half_edges.get(edge_data.half_edge) else {
+            continue;
+        };
+        let Some(twin) = brep.half_edges.get(he.twin) else {
+            continue;
+        };
+
+        let Some(loop_he) = brep.loops.get(he.loop_) else {
+            continue;
+        };
+        let Some(loop_twin) = brep.loops.get(twin.loop_) else {
+            continue;
+        };
+
+        let (f_he, f_twin) = (loop_he.face, loop_twin.face);
+
+        if (f_he == face_a && f_twin == face_b) || (f_he == face_b && f_twin == face_a) {
+            // Ensure he_a is on face_a, he_b is on face_b.
+            let (he_a, he_b) = if f_he == face_a {
+                (edge_data.half_edge, he.twin)
+            } else {
+                (he.twin, edge_data.half_edge)
+            };
+            shared_edges.push((edge_handle, he_a, he_b));
+        }
+    }
+
+    // Only handle the simple case: exactly one shared edge.
+    if shared_edges.len() != 1 {
+        return Err(CoreError::PreconditionFailed(format!(
+            "face merge requires exactly 1 shared edge, found {}",
+            shared_edges.len()
+        )));
+    }
+
+    let (shared_edge, he_a, he_b) = shared_edges[0];
+
+    // Read link pointers before mutation.
+    let he_a_prev = brep
+        .half_edges
+        .get(he_a)
+        .ok_or_else(|| CoreError::InvalidHandle("he_a".into()))?
+        .prev;
+    let he_a_next = brep
+        .half_edges
+        .get(he_a)
+        .ok_or_else(|| CoreError::InvalidHandle("he_a".into()))?
+        .next;
+    let he_b_prev = brep
+        .half_edges
+        .get(he_b)
+        .ok_or_else(|| CoreError::InvalidHandle("he_b".into()))?
+        .prev;
+    let he_b_next = brep
+        .half_edges
+        .get(he_b)
+        .ok_or_else(|| CoreError::InvalidHandle("he_b".into()))?
+        .next;
+
+    // Relink: bypass the shared edge in both loops.
+    if let Some(prev) = brep.half_edges.get_mut(he_a_prev) {
+        prev.next = he_b_next;
+    }
+    if let Some(next) = brep.half_edges.get_mut(he_b_next) {
+        next.prev = he_a_prev;
+    }
+    if let Some(prev) = brep.half_edges.get_mut(he_b_prev) {
+        prev.next = he_a_next;
+    }
+    if let Some(next) = brep.half_edges.get_mut(he_a_next) {
+        next.prev = he_b_prev;
+    }
+
+    // Get face_a's outer loop and face_b's outer loop before removal.
+    let loop_a = brep
+        .faces
+        .get(face_a)
+        .ok_or_else(|| CoreError::InvalidHandle("face_a".into()))?
+        .outer_loop;
+    let loop_b = brep
+        .faces
+        .get(face_b)
+        .ok_or_else(|| CoreError::InvalidHandle("face_b".into()))?
+        .outer_loop;
+
+    // Reassign all of face_b's loop half-edges to face_a's loop.
+    let mut current = he_b_next;
+    let mut guard = 0usize;
+    let max_steps = brep.half_edges.len();
+    while let Some(he) = brep.half_edges.get_mut(current) {
+        he.loop_ = loop_a;
+        current = he.next;
+        guard += 1;
+        if current == he_b_next || guard > max_steps {
+            break;
+        }
+    }
+
+    // Update the loop_a half_edge pointer in case it pointed to the
+    // removed half-edge.
+    if let Some(la) = brep.loops.get_mut(loop_a)
+        && la.half_edge == he_a
+    {
+        la.half_edge = he_b_next;
+    }
+
+    // Remove the shared edge and its two half-edges.
+    brep.half_edges.remove(he_a);
+    brep.half_edges.remove(he_b);
+    brep.edges.remove(shared_edge);
+
+    // Remove face_b and its loop.
+    brep.loops.remove(loop_b);
+    brep.faces.remove(face_b);
+
+    Ok(())
 }
 
 // -----------------------------------------------------------------------

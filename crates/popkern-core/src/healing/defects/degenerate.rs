@@ -152,15 +152,98 @@ pub fn check_missing_face_geometry(brep: &BRep, report: &mut HealingReport) {
     }
 }
 
+/// Count the number of edges in a face's outer loop.
+///
+/// Walks the outer loop's half-edges and counts them.
+fn count_face_edges(brep: &BRep, face: crate::topology::FaceHandle) -> usize {
+    let Some(face_data) = brep.faces.get(face) else {
+        return 0;
+    };
+    let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
+        return 0;
+    };
+    let start_he = loop_data.half_edge;
+    if !brep.half_edges.contains_key(start_he) {
+        return 0;
+    }
+    let mut count = 0usize;
+    let mut current = start_he;
+    loop {
+        count += 1;
+        let he = &brep.half_edges[current];
+        current = he.next;
+        if current == start_he {
+            break;
+        }
+        // Guard against degenerate loops.
+        if count > brep.half_edges.len() {
+            break;
+        }
+    }
+    count
+}
+
+/// Count distinct neighbor faces adjacent to a face via shared edges.
+///
+/// Walks the outer loop half-edges, finds each twin's face, and collects
+/// unique faces (excluding the face itself).
+fn count_distinct_neighbor_faces(brep: &BRep, face: crate::topology::FaceHandle) -> usize {
+    use std::collections::HashSet;
+
+    let Some(face_data) = brep.faces.get(face) else {
+        return 0;
+    };
+    let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
+        return 0;
+    };
+    let start_he = loop_data.half_edge;
+    if !brep.half_edges.contains_key(start_he) {
+        return 0;
+    }
+
+    let mut neighbors = HashSet::new();
+    let mut current = start_he;
+    let mut guard = 0usize;
+    loop {
+        let he = &brep.half_edges[current];
+        if let Some(twin) = brep.half_edges.get(he.twin)
+            && let Some(twin_loop) = brep.loops.get(twin.loop_)
+            && twin_loop.face != face
+        {
+            neighbors.insert(twin_loop.face);
+        }
+        current = he.next;
+        guard += 1;
+        if current == start_he || guard > brep.half_edges.len() {
+            break;
+        }
+    }
+    neighbors.len()
+}
+
+/// Check whether a face is narrow between its two neighbors.
+///
+/// A bridge face is narrow in the direction perpendicular to its long
+/// axis. We check that the bounding box smallest dimension is much less
+/// than the largest (aspect ratio < 0.3).
+fn is_narrow_between_neighbors(dims: [f64; 3]) -> bool {
+    let largest = dims[2];
+    if largest < 1e-15 {
+        return false;
+    }
+    // A bridge is elongated: smallest dimension << largest.
+    dims[0] / largest < 0.3
+}
+
 /// Classify a small face into a sub-category based on its shape.
 ///
-/// Uses the bounding box aspect ratios of the face's outer loop vertices:
+/// Uses a combination of bounding box aspect ratios and topological
+/// analysis of the face's outer loop:
+/// - **Bridge**: 4 edges, 2 distinct neighbor faces, narrow shape
+/// - **Slot**: 4 edges, 1 distinct neighbor face (both long edges on same face)
 /// - **Pin**: one dimension is negligible relative to the largest (ratio < 0.01)
 /// - **Sliver**: high aspect ratio (smallest/middle ratio < 0.1)
 /// - **Micro**: small in all dimensions (roughly isotropic)
-///
-/// Bridge and Slot classifications require topological analysis and are
-/// deferred to a future implementation.
 fn classify_small_face(brep: &BRep, face: crate::topology::FaceHandle) -> SmallFaceKind {
     let positions = brep.face_outer_loop_positions(face);
     if positions.len() < 2 {
@@ -193,6 +276,23 @@ fn classify_small_face(brep: &BRep, face: crate::topology::FaceHandle) -> SmallF
         return SmallFaceKind::Pin;
     }
 
+    // Topological analysis for Bridge and Slot detection.
+    let edge_count = count_face_edges(brep, face);
+    let neighbor_count = count_distinct_neighbor_faces(brep, face);
+
+    // Bridge: a narrow face connecting two larger regions.
+    // Exactly 4 edges with 2 distinct neighbors, and the face is narrow.
+    if edge_count == 4 && neighbor_count == 2 && is_narrow_between_neighbors(dims) {
+        return SmallFaceKind::Bridge;
+    }
+
+    // Slot: a narrow channel where both long edges are shared with the
+    // same face (forming a slot/groove). 4 edges, only 1 neighbor.
+    if edge_count == 4 && neighbor_count == 1 {
+        return SmallFaceKind::Slot;
+    }
+
+    // Fall back to geometric classification.
     if smallest / largest < 0.01 {
         SmallFaceKind::Pin
     } else if smallest / middle < 0.1 {
@@ -310,95 +410,5 @@ pub fn check_zero_length_singularity_edges(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tolerance::Tolerance;
-    use crate::topology::BRep;
-
-    #[test]
-    fn valid_cube_no_degenerate_defects() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let tol = Tolerance::default();
-        let mut report = HealingReport::new();
-        // Only run small edges, small faces (not missing geometry, since
-        // unit_cube has full geometry and we want to test non-degenerate).
-        check_small_edges(&brep, tol.linear(), &mut report);
-        check_small_faces(&brep, &tol, &mut report);
-        assert!(
-            report.is_empty(),
-            "Valid cube should have no small edges/faces, got {}",
-            report.len()
-        );
-    }
-
-    #[test]
-    fn cube_with_geometry_has_no_missing_geometry() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let mut report = HealingReport::new();
-        check_missing_edge_geometry(&brep, &mut report);
-        check_missing_face_geometry(&brep, &mut report);
-        assert!(
-            report.is_empty(),
-            "Unit cube with geometry should have no missing geometry defects"
-        );
-    }
-
-    #[test]
-    fn topology_only_cube_reports_missing_geometry() {
-        use crate::geometry::{Point3, Vec3};
-
-        let mut brep = BRep::new(Tolerance::default());
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev1 = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        let mev2 = brep
-            .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
-            .unwrap();
-        let mev3 = brep
-            .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
-            .unwrap();
-        let mef = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
-        brep.extrude(mef.face, Vec3::new(0.0, 0.0, 1.0), 1.0, None)
-            .unwrap();
-
-        let mut report = HealingReport::new();
-        check_missing_edge_geometry(&brep, &mut report);
-        assert!(
-            !report.is_empty(),
-            "Topology-only cube should report missing edge geometry"
-        );
-        assert_eq!(report.defects()[0].severity, Severity::Info);
-    }
-
-    #[test]
-    fn small_face_kind_display() {
-        assert_eq!(SmallFaceKind::Pin.to_string(), "pin");
-        assert_eq!(SmallFaceKind::Sliver.to_string(), "sliver");
-        assert_eq!(SmallFaceKind::Bridge.to_string(), "bridge");
-        assert_eq!(SmallFaceKind::Slot.to_string(), "slot");
-        assert_eq!(SmallFaceKind::Micro.to_string(), "micro");
-    }
-
-    #[test]
-    fn zero_length_singularity_edges_on_valid_cube() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let tol = Tolerance::default();
-        let mut report = HealingReport::new();
-        check_zero_length_singularity_edges(&brep, &tol, &mut report);
-        // A valid cube has no zero-length edges.
-        assert!(
-            report.is_empty(),
-            "Valid cube should have no zero-length singularity edges"
-        );
-    }
-
-    #[test]
-    fn empty_brep_no_degenerate_defects() {
-        let brep = BRep::new(Tolerance::default());
-        let tol = Tolerance::default();
-        let mut report = HealingReport::new();
-        check_all(&brep, &tol, &mut report);
-        assert!(report.is_empty());
-    }
-}
+#[path = "degenerate_tests.rs"]
+mod tests;

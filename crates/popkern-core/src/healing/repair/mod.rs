@@ -26,6 +26,8 @@ pub mod complexity;
 pub mod coons_patch;
 /// Degeneracy repair (zero-length edges, small faces).
 pub mod degeneracy;
+/// Analytical surface detection (plane, cylinder, sphere, cone, torus).
+pub mod detect_analytical;
 /// G1-continuous Coons patch with cross-boundary derivative matching.
 pub mod g1_coons_patch;
 /// Gap repair strategies and execution.
@@ -48,6 +50,8 @@ pub mod rederive;
 pub mod self_intersection;
 /// Surface simplification (NURBS to analytical).
 pub mod simplification;
+/// Spatial grid for proximity acceleration.
+pub(crate) mod spatial_grid;
 /// Boundary assembly (matching and merging free boundary edges).
 pub mod stitch;
 /// Tolerance hierarchy enforcement and auto-adjustment.
@@ -56,7 +60,8 @@ pub mod tolerance_mgmt;
 pub use complexity::{ComplexityReductionResult, CurveReductionResult, SurfaceReductionResult};
 pub use coons_patch::{CoonsBoundary, CoonsPatchResult};
 pub use degeneracy::{
-    DegeneracyRepairResult, detect_cusps, detect_zero_area_faces, repair_degeneracies_full,
+    DegeneracyRepairResult, detect_cusps, detect_self_tangent_faces, detect_zero_area_faces,
+    repair_degeneracies_full,
 };
 pub use g1_coons_patch::CrossDerivatives;
 pub use gap_repair::{GapRepairResult, GapRepairStrategy};
