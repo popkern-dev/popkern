@@ -38,6 +38,8 @@ pub mod defects;
 pub mod deviation;
 pub mod diagnostics;
 pub mod fairing;
+pub mod interval;
+pub mod interval_curvature;
 pub mod options;
 pub mod parallel;
 pub mod quality;
@@ -52,6 +54,9 @@ pub use cache::HealingCache;
 pub use continuity::classification::{EdgeClassification, SmoothChain};
 pub use continuity::enforcement::EnforcementResult;
 pub use continuity::measurement::ContinuityMeasurement;
+pub use continuity::verified_measurement::{
+    VerifiedContinuityMeasurement, verified_cross_boundary_continuity,
+};
 pub use curvature::curve_curvature::{curve_curvature_at, curve_torsion_at};
 pub use curvature::fundamental_forms::{
     FirstFundamentalForm, SecondFundamentalForm, ShapeOperator,
@@ -69,6 +74,8 @@ pub use diagnostics::{
     Remediation, RemediationAction, Severity,
 };
 pub use fairing::FairingResult;
+pub use interval::Interval;
+pub use interval_curvature::GuaranteedCurvatureBounds;
 pub use options::{
     AnalysisOptions, CheckSet, HealOptions, HealStrategy, SampleDensity, ToleranceBounds,
 };

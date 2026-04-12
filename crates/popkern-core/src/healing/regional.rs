@@ -10,6 +10,7 @@ use crate::geometry::Vec3;
 use crate::geometry::surface::SurfaceEval;
 use crate::healing::curvature::fundamental_forms::first_fundamental_form;
 use crate::healing::curvature::surface_curvature::surface_curvature_at;
+use crate::healing::interval_curvature::GuaranteedCurvatureBounds;
 
 /// Curvature bounds over a parameter region.
 #[derive(Debug, Clone, Copy)]
@@ -56,6 +57,8 @@ pub struct RegionalAnalysis {
     pub min_area_element: f64,
     /// First and second order derivative bounds, or `None` if not computed.
     pub derivative_bounds: Option<DerivativeBounds>,
+    /// Guaranteed curvature bounds via interval arithmetic, or `None` if not computed.
+    pub guaranteed_curvature_bounds: Option<GuaranteedCurvatureBounds>,
 }
 
 /// Generate uniformly spaced sample parameters over a 2D range.
@@ -273,6 +276,9 @@ pub fn analyze_region(
         sample_density,
     );
     let deriv_bounds = derivative_bounds(surface, u_range, v_range, sample_density);
+    let guaranteed = crate::healing::interval_curvature::guaranteed_curvature_bounds(
+        surface, u_range, v_range, 0.1, 3,
+    );
 
     RegionalAnalysis {
         curvature_bounds: bounds,
@@ -281,6 +287,7 @@ pub fn analyze_region(
         has_degeneracy,
         min_area_element,
         derivative_bounds: Some(deriv_bounds),
+        guaranteed_curvature_bounds: Some(guaranteed),
     }
 }
 

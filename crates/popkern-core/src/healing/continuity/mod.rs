@@ -8,6 +8,7 @@ pub mod classification;
 pub mod enforcement;
 pub mod measurement;
 mod nurbs_adjust;
+pub mod verified_measurement;
 
 pub use classification::{
     EdgeClassification, SmoothChain, classify_all_edges, classify_edge_smoothness,
@@ -18,3 +19,4 @@ pub use measurement::{
     BoundarySample, ContinuityMeasurement, DiscontinuityRecord, cross_boundary_continuity,
     internal_discontinuities,
 };
+pub use verified_measurement::{VerifiedContinuityMeasurement, verified_cross_boundary_continuity};
