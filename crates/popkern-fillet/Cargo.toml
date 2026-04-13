@@ -11,3 +11,8 @@ thiserror = "2"
 
 [dev-dependencies]
 popkern-bool = { path = "../popkern-bool" }
+criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }
+
+[[bench]]
+name = "modify_inplace_speedup"
+harness = false

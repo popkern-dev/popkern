@@ -39,7 +39,7 @@ use crate::unfillet_surgery::rebuild_curves_touching;
 /// - [`BlendError::InvalidParameter`] if `fillet_face` isn't a
 ///   closed-fillet annulus, if the supports aren't a plane-cylinder
 ///   pair, or if the cylinder axis is parallel to the plane.
-pub(crate) fn modify_closed_in_place(
+pub fn modify_closed_in_place(
     brep: &BRep,
     fillet_face: FaceHandle,
     new_radius: f64,
@@ -256,7 +256,7 @@ fn collect_closed_layout(brep: &BRep, fillet_face: FaceHandle) -> Result<ClosedL
 /// - [`BlendError::InvalidParameter`] if `fillet_face` isn't an
 ///   identifiable plane-plane fillet, the corners can't be found,
 ///   or the support planes can't be extracted.
-pub(crate) fn modify_open_in_place(
+pub fn modify_open_in_place(
     brep: &BRep,
     fillet_face: FaceHandle,
     new_radius: f64,
@@ -272,7 +272,7 @@ pub(crate) fn modify_open_in_place(
 /// callers needing exact NURBS-sweep surface fidelity should use
 /// the remove+recreate path via [`crate::modify_fillet_radius`]
 /// with a `FilletRadius::Variable` spec.
-pub(crate) fn modify_open_in_place_variable(
+pub fn modify_open_in_place_variable(
     brep: &BRep,
     fillet_face: FaceHandle,
     r_start: f64,
@@ -287,7 +287,7 @@ pub(crate) fn modify_open_in_place_variable(
 /// `Variable`), and the fillet surface is built as a NURBS sweep
 /// driven by a piecewise-linear closure over the *full* points
 /// list — so intermediate radius points shape the surface.
-pub(crate) fn modify_open_in_place_bypoints(
+pub fn modify_open_in_place_bypoints(
     brep: &BRep,
     fillet_face: FaceHandle,
     points: &[(f64, f64)],
