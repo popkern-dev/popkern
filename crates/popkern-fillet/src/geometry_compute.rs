@@ -38,6 +38,34 @@ pub(crate) fn compute_fillet_geometry(
     let (u1_range, v1_range) = face_param_range(brep, analysis.face_1, &analysis.surface_1);
     let (u2_range, v2_range) = face_param_range(brep, analysis.face_2, &analysis.surface_2);
 
+    // Pre-flight: the rolling-ball radius must not exceed the local
+    // minimum curvature radius on either support surface, or the
+    // offset surface self-intersects before the intersection solver
+    // has a chance. The self-intersection checker returns the
+    // largest safe radius, which we thread into
+    // `BlendFailure::RadiusTooLarge.max_radius` for the remediation
+    // hint. §10.4 "feasibility bounds".
+    if let Some(max_safe) = self_intersection_safe_radius(
+        &analysis.surface_1,
+        &analysis.surface_2,
+        radius,
+        analysis.orientation_1,
+        analysis.orientation_2,
+        u1_range,
+        v1_range,
+        u2_range,
+        v2_range,
+    ) {
+        let requested = largest_requested_radius(radius);
+        if requested > max_safe {
+            return Err(BlendFailure::RadiusTooLarge {
+                requested,
+                max_radius: Some(max_safe),
+                location: Some(edge_midpoint),
+            });
+        }
+    }
+
     let center_result = match radius {
         FilletRadius::Constant(r) => center_curve::constant_radius_center_curve(
             &analysis.surface_1,
@@ -52,7 +80,10 @@ pub(crate) fn compute_fillet_geometry(
             analysis.orientation_1,
             analysis.orientation_2,
         )
-        .map_err(|e| BlendFailure::IntersectionFailed { reason: e })?,
+        .map_err(|e| BlendFailure::IntersectionFailed {
+            reason: e,
+            location: Some(edge_midpoint),
+        })?,
         FilletRadius::Variable { start, end } => center_curve::variable_radius_center_curve(
             &analysis.surface_1,
             u1_range,
@@ -67,14 +98,23 @@ pub(crate) fn compute_fillet_geometry(
             analysis.orientation_1,
             analysis.orientation_2,
         )
-        .map_err(|e| BlendFailure::IntersectionFailed { reason: e })?,
+        .map_err(|e| BlendFailure::IntersectionFailed {
+            reason: e,
+            location: Some(edge_midpoint),
+        })?,
         FilletRadius::ByPoints(pts) => {
             let (r_start, r_end) = if pts.len() >= 2 {
                 (pts[0].1, pts[pts.len() - 1].1)
             } else if pts.len() == 1 {
                 (pts[0].1, pts[0].1)
             } else {
-                return Err(BlendFailure::RadiusTooLarge { max_radius: 0.0 });
+                // This path should be unreachable after API-level
+                // parameter validation, but we keep a defensive
+                // belt-and-suspenders branch so an internal caller
+                // that bypasses validation cannot panic.
+                return Err(BlendFailure::InvalidTopology {
+                    reason: "ByPoints radius with empty point list".to_string(),
+                });
             };
             center_curve::variable_radius_center_curve(
                 &analysis.surface_1,
@@ -90,7 +130,10 @@ pub(crate) fn compute_fillet_geometry(
                 analysis.orientation_1,
                 analysis.orientation_2,
             )
-            .map_err(|e| BlendFailure::IntersectionFailed { reason: e })?
+            .map_err(|e| BlendFailure::IntersectionFailed {
+                reason: e,
+                location: Some(edge_midpoint),
+            })?
         }
     };
 
@@ -99,7 +142,9 @@ pub(crate) fn compute_fillet_geometry(
         FilletRadius::Variable { start, end } => (*start + *end) * 0.5,
         FilletRadius::ByPoints(pts) => {
             if pts.is_empty() {
-                return Err(BlendFailure::RadiusTooLarge { max_radius: 0.0 });
+                return Err(BlendFailure::InvalidTopology {
+                    reason: "ByPoints radius with empty point list".to_string(),
+                });
             }
             pts.iter().map(|(_, r)| *r).sum::<f64>() / pts.len() as f64
         }
@@ -112,7 +157,10 @@ pub(crate) fn compute_fillet_geometry(
         effective_radius,
         8, // arc samples
     )
-    .map_err(|e| BlendFailure::IntersectionFailed { reason: e })?;
+    .map_err(|e| BlendFailure::IntersectionFailed {
+        reason: e,
+        location: Some(edge_midpoint),
+    })?;
 
     let trim_curves = trim::compute_trim_curves(
         &analysis.surface_1,
@@ -120,7 +168,10 @@ pub(crate) fn compute_fillet_geometry(
         &analysis.surface_2,
         &center_result.footprint_2,
     )
-    .map_err(|e| BlendFailure::IntersectionFailed { reason: e })?;
+    .map_err(|e| BlendFailure::IntersectionFailed {
+        reason: e,
+        location: Some(edge_midpoint),
+    })?;
 
     Ok(EdgeGeometry {
         analysis: rebuild_analysis(analysis, brep)?,
@@ -140,8 +191,13 @@ pub(crate) fn compute_chamfer_geometry(
     brep: &BRep,
     tolerance: &Tolerance,
 ) -> Result<EdgeGeometry, BlendFailure> {
-    let chamfer_result = chamfer_curve::compute_chamfer(analysis, brep, kind, tolerance)
-        .map_err(|e| BlendFailure::IntersectionFailed { reason: e })?;
+    let chamfer_result =
+        chamfer_curve::compute_chamfer(analysis, brep, kind, tolerance).map_err(|e| {
+            BlendFailure::IntersectionFailed {
+                reason: e,
+                location: None,
+            }
+        })?;
 
     let effective_radius = match kind {
         ChamferKind::Equal(d) => *d,
@@ -158,6 +214,69 @@ pub(crate) fn compute_chamfer_geometry(
         pcurve_2: chamfer_result.pcurve_2,
         effective_radius,
     })
+}
+
+/// Largest requested radius in a radius spec. Used as the "requested"
+/// value in `BlendFailure::RadiusTooLarge`, so the user sees the
+/// worst-case instance of their spec, not an arbitrary midpoint.
+pub(crate) fn largest_requested_radius(radius: &FilletRadius) -> f64 {
+    match radius {
+        FilletRadius::Constant(r) => *r,
+        FilletRadius::Variable { start, end } => start.max(*end),
+        FilletRadius::ByPoints(pts) => pts
+            .iter()
+            .map(|(_, r)| *r)
+            .fold(0.0_f64, |acc, r| acc.max(r)),
+    }
+}
+
+/// Pre-flight self-intersection check for a rolling-ball fillet at the
+/// requested radius. Returns `Some(max_safe_radius)` when the
+/// requested radius would exceed the feasibility envelope on either
+/// support surface, or `None` when the radius is safe (i.e. the
+/// caller should proceed with the normal geometry pipeline).
+///
+/// For [`FilletRadius::Constant`] we test the single value. For
+/// variable/by-points specs we test the peak requested radius —
+/// if the peak is unsafe, the spec is unconditionally unsafe.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn self_intersection_safe_radius(
+    surface_1: &popkern_core::geometry::surface::SurfaceGeometry,
+    surface_2: &popkern_core::geometry::surface::SurfaceGeometry,
+    radius: &FilletRadius,
+    orientation_1: bool,
+    orientation_2: bool,
+    u1_range: (f64, f64),
+    v1_range: (f64, f64),
+    u2_range: (f64, f64),
+    v2_range: (f64, f64),
+) -> Option<f64> {
+    use crate::offset::self_intersect::check_offset_self_intersection;
+
+    let peak = largest_requested_radius(radius);
+    if peak <= 0.0 {
+        return None;
+    }
+
+    // "inward" matches the logic in center_curve.rs — offset_surface's
+    // inward flag moves AGAINST the normal, and face normals point
+    // into the solid, so we need `inward = !orientation`.
+    let inward_1 = !orientation_1;
+    let inward_2 = !orientation_2;
+
+    let max_1 = check_offset_self_intersection(surface_1, peak, inward_1, u1_range, v1_range);
+    let max_2 = check_offset_self_intersection(surface_2, peak, inward_2, u2_range, v2_range);
+
+    // Both surfaces reported "safe" — nothing to flag.
+    match (max_1, max_2) {
+        (None, None) => None,
+        // One or both reported a safety bound — take the tighter
+        // (smaller) bound since both surfaces have to accommodate
+        // the rolling ball simultaneously.
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+    }
 }
 
 /// Get the 3D midpoint of an edge for center-curve selection.
