@@ -257,20 +257,40 @@ pub(crate) fn modify_open_in_place(
     fillet_face: FaceHandle,
     new_radius: f64,
 ) -> Result<BRep, BlendError> {
+    modify_open_in_place_general(brep, fillet_face, new_radius, new_radius)
+}
+
+/// Variable-radius variant of [`modify_open_in_place`] (Round 5h).
+/// Moves the start-end corners to distance `r_start` from the
+/// start sharp-edge endpoint and the end-end corners to distance
+/// `r_end` from the end sharp-edge endpoint. The fillet face's
+/// surface is approximated as a Torus with the average minor radius;
+/// callers needing exact NURBS-sweep surface fidelity should use
+/// the remove+recreate path via [`crate::modify_fillet_radius`]
+/// with a `FilletRadius::Variable` spec.
+pub(crate) fn modify_open_in_place_variable(
+    brep: &BRep,
+    fillet_face: FaceHandle,
+    r_start: f64,
+    r_end: f64,
+) -> Result<BRep, BlendError> {
+    modify_open_in_place_general(brep, fillet_face, r_start, r_end)
+}
+
+fn modify_open_in_place_general(
+    brep: &BRep,
+    fillet_face: FaceHandle,
+    r_start: f64,
+    r_end: f64,
+) -> Result<BRep, BlendError> {
     let plan = compute_unfillet_plan(brep, fillet_face)?;
     let plane_a = extract_plane(brep, plan.support_a)?;
     let plane_b = extract_plane(brep, plan.support_b)?;
 
     // Identify the 4 fillet corners by analytic direction matching.
-    // For a plane-plane fillet at radius R, each corner is at
-    // sharp_edge_endpoint + perp_in_support_plane * R, where the
-    // perp direction is `support_normal × sharp_edge_direction`
-    // (sign chosen by which side of the sharp edge the fillet sits
-    // on). We compute the four expected corner *directions* (unit
-    // vectors), then for each direction we find the loop vertex
-    // whose offset from its sharp-edge endpoint best matches that
-    // direction, and move it to the new radius along the same
-    // direction.
+    // For each end of the sharp edge we use the local radius
+    // (`r_start` at the start, `r_end` at the end). The constant
+    // case is the special case `r_start == r_end`.
     let edge_dir = {
         let d = plan.restored_edge_direction;
         let len = d.length();
@@ -288,11 +308,6 @@ pub(crate) fn modify_open_in_place(
     let perp_a = perpendicular_in_plane(&plane_a.normal, &edge_dir);
     let perp_b = perpendicular_in_plane(&plane_b.normal, &edge_dir);
 
-    // Determine sign: the fillet sits on whichever side of the
-    // sharp edge has loop vertices. Walk the loop, project each
-    // vertex's offset onto each perp candidate, and pick the sign
-    // (positive or negative perp) with at least one matching
-    // vertex.
     let loop_vertices = collect_outer_loop_vertices(brep, fillet_face);
     let signed_perp_a = pick_signed_perpendicular(&perp_a, &plan, &loop_vertices, brep);
     let signed_perp_b = pick_signed_perpendicular(&perp_b, &plan, &loop_vertices, brep);
@@ -300,10 +315,10 @@ pub(crate) fn modify_open_in_place(
     let mut out = brep.clone();
     let mut welded: Vec<VertexHandle> = Vec::with_capacity(4);
 
-    // For each combination of (endpoint, signed_perp), find the loop
-    // vertex whose offset best aligns with that perpendicular and
-    // move it to (endpoint + signed_perp * new_radius).
-    for &endpoint in [&plan.restored_edge_start, &plan.restored_edge_end].iter() {
+    for (endpoint, local_radius) in [
+        (&plan.restored_edge_start, r_start),
+        (&plan.restored_edge_end, r_end),
+    ] {
         for &perp in [&signed_perp_a, &signed_perp_b].iter() {
             let Some(v) = find_corner_vertex(brep, &loop_vertices, endpoint, perp) else {
                 return Err(BlendError::InvalidParameter {
@@ -314,29 +329,22 @@ pub(crate) fn modify_open_in_place(
                 });
             };
             out.vertices[v].position = Point3::new(
-                endpoint.x + perp.x * new_radius,
-                endpoint.y + perp.y * new_radius,
-                endpoint.z + perp.z * new_radius,
+                endpoint.x + perp.x * local_radius,
+                endpoint.y + perp.y * local_radius,
+                endpoint.z + perp.z * local_radius,
             );
             welded.push(v);
         }
     }
 
-    // Rebuild every edge that touches a moved vertex as a fresh
-    // straight line. For plane-plane fillets all the affected edges
-    // are straight (long contact lines parallel to the sharp edge,
-    // short end-cap lines perpendicular to it, perpendicular cube
-    // edge segments), so a linear curve is exact.
     rebuild_curves_touching(&mut out, &welded);
 
-    // Reassign the fillet face surface to a new torus with the new
-    // minor radius. Mirrors the construction in
-    // `fillet_surface::try_plane_plane_torus`: the dihedral
-    // half-angle determines the major radius; the cross product of
-    // the support normals gives the torus axis (= sharp edge
-    // direction); the centre is placed at the midpoint of the new
-    // sharp-edge segment offset into the dihedral by the
-    // appropriate amount.
+    // Reassign the fillet face surface. For constant radius this is
+    // an exact analytic torus. For variable radius the surface is
+    // an approximation — a Torus with the *average* minor radius —
+    // which renders correctly enough for visualisation but is not
+    // geometrically exact. Use remove+recreate for exact fidelity.
+    let avg_radius = (r_start + r_end) * 0.5;
     let cos_angle = plane_a.normal.dot(&plane_b.normal).clamp(-1.0, 1.0);
     let dihedral = cos_angle.acos();
     let half_angle = dihedral * 0.5;
@@ -353,7 +361,7 @@ pub(crate) fn modify_open_in_place(
         } else {
             Vec3::new(0.0, 0.0, 1.0)
         };
-        let major = new_radius / sin_half;
+        let major = avg_radius / sin_half;
         let centre = Point3::new(
             (plan.restored_edge_start.x + plan.restored_edge_end.x) * 0.5,
             (plan.restored_edge_start.y + plan.restored_edge_end.y) * 0.5,
@@ -364,7 +372,7 @@ pub(crate) fn modify_open_in_place(
                 center: centre,
                 axis,
                 major_radius: major,
-                minor_radius: new_radius,
+                minor_radius: avg_radius,
             },
             orientation: true,
         });

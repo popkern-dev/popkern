@@ -74,22 +74,39 @@ pub fn modify_fillet_radius(
 }
 
 /// Open (plane-plane) fillet path — tries the in-place geometry
-/// update first (Round 5d-3 — true §14.7 ≥2× speedup) when the
-/// radius is constant, and falls back to remove+recreate via
-/// `compute_unfillet_plan` + `unfillet_face` + `fillet_edges` for
-/// constant cases that don't fit the fast path or for any
-/// variable-radius spec.
+/// update first (Round 5d-3 for constant, Round 5h for variable).
+/// Falls back to remove+recreate via `compute_unfillet_plan` +
+/// `unfillet_face` + `fillet_edges` when the in-place path can't
+/// handle the spec (e.g. `ByPoints`) or fails for any reason.
 fn modify_open_fillet_radius(
     brep: &BRep,
     fillet_face: FaceHandle,
     new_radius: FilletRadius,
     tolerance: Tolerance,
 ) -> Result<BRep, BlendError> {
-    // Fast path: in-place geometry update (constant only).
-    if let FilletRadius::Constant(r) = &new_radius
-        && let Ok(out) = crate::modify_inplace::modify_open_in_place(brep, fillet_face, *r)
-    {
-        return Ok(out);
+    // Fast path: in-place geometry update.
+    match &new_radius {
+        FilletRadius::Constant(r) => {
+            if let Ok(out) = crate::modify_inplace::modify_open_in_place(brep, fillet_face, *r) {
+                return Ok(out);
+            }
+        }
+        FilletRadius::Variable { start, end } => {
+            if let Ok(out) = crate::modify_inplace::modify_open_in_place_variable(
+                brep,
+                fillet_face,
+                *start,
+                *end,
+            ) {
+                return Ok(out);
+            }
+        }
+        FilletRadius::ByPoints(_) => {
+            // ByPoints carries arbitrary parameter→radius pairs; for
+            // a 4-corner plane-plane fillet only the start (parameter
+            // 0) and end (parameter 1) values matter. Fall through
+            // to remove+recreate which honours the full profile.
+        }
     }
 
     // Fallback: remove + recreate.
