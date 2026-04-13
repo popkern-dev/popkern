@@ -192,11 +192,26 @@ impl IntersectionGraph {
 
     /// Find a node whose position is within `tolerance` of `position`.
     /// Returns `None` if no such node exists. O(N) scan.
+    ///
+    /// Uses [`popkern_core::adaptive_precision::adaptive_dist_sq_lt`]
+    /// for the distance comparison — avoids the sqrt in
+    /// [`Point3::distance_to`] and escalates to double-precision
+    /// when the f64 answer falls inside the ambiguity margin, so
+    /// snap decisions at the edge of the tolerance envelope are
+    /// deterministic and order-independent.
     pub fn find_node(&self, position: &Point3, tolerance: f64) -> Option<usize> {
+        let threshold_sq = tolerance * tolerance;
+        let p = (position.x, position.y, position.z);
         self.nodes
             .iter()
             .enumerate()
-            .find(|(_, n)| n.position.distance_to(position) < tolerance)
+            .find(|(_, n)| {
+                popkern_core::adaptive_precision::adaptive_dist_sq_lt(
+                    (n.position.x, n.position.y, n.position.z),
+                    p,
+                    threshold_sq,
+                )
+            })
             .map(|(i, _)| i)
     }
 

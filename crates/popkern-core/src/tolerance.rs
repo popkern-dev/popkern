@@ -188,8 +188,17 @@ impl Tolerance {
     }
 
     /// Returns true if two points are within linear tolerance.
+    ///
+    /// Uses [`crate::adaptive_precision::adaptive_dist_sq_lt`] so
+    /// the decision is order-independent and deterministic at the
+    /// edge of the tolerance envelope. Avoids the sqrt in
+    /// [`Point3::distance_to`] by comparing squared distances.
     pub fn points_coincident(&self, a: &Point3, b: &Point3) -> bool {
-        a.distance_to(b) < self.linear
+        crate::adaptive_precision::adaptive_dist_sq_lt(
+            (a.x, a.y, a.z),
+            (b.x, b.y, b.z),
+            self.linear * self.linear,
+        )
     }
 
     /// Returns true if two angles (in radians) are within angular tolerance.
