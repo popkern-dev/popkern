@@ -58,6 +58,120 @@ fn modify_open_in_place_variable_assigns_nurbs_sweep_surface() {
     }
 }
 
+/// Round 5p: closed plane-cylinder Variable specs take the
+/// in-place fast path by averaging the radius profile. This
+/// matches the existing fallback's behaviour (the closed-fillet
+/// construct phase already uses one effective radius regardless
+/// of the spec) and unlocks the ~5µs in-place speed for variable
+/// closed callers.
+#[test]
+fn modify_closed_variable_takes_in_place_fast_path() {
+    use popkern_bool::{BoolOperation, boolean};
+    use popkern_core::geometry::Transform3;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    use std::time::Instant;
+
+    let cube_brep = cube();
+    let cyl = BRep::cylinder(0.3, 2.0, tol()).unwrap();
+    let translated = cyl
+        .transform(&Transform3::translation(0.5, 0.5, -0.5))
+        .unwrap();
+    let subtracted = match boolean(
+        BoolOperation::Subtraction,
+        cube_brep,
+        translated,
+        tol(),
+        None,
+    ) {
+        Ok(b) => b,
+        Err(_) => return,
+    };
+    let edge = subtracted.edges.keys().find(|e| {
+        let he = &subtracted.half_edges[subtracted.edges[*e].half_edge];
+        let fa = subtracted.loops[he.loop_].face;
+        let fb = subtracted.loops[subtracted.half_edges[he.twin].loop_].face;
+        let sa = subtracted.faces[fa].surface.as_ref().map(|s| &s.geometry);
+        let sb = subtracted.faces[fb].surface.as_ref().map(|s| &s.geometry);
+        matches!(
+            (sa, sb),
+            (
+                Some(SurfaceGeometry::Plane { .. }),
+                Some(SurfaceGeometry::Cylinder { .. })
+            ) | (
+                Some(SurfaceGeometry::Cylinder { .. }),
+                Some(SurfaceGeometry::Plane { .. })
+            )
+        )
+    });
+    let Some(edge) = edge else { return };
+    let r1 = match crate::fillet_edge(&subtracted, edge, 0.05, tol(), None) {
+        Ok(b) => b,
+        Err(_) => return,
+    };
+    let annulus = r1.brep.faces.keys().find(|fh| {
+        let f = &r1.brep.faces[*fh];
+        if f.inner_loops.len() != 1 {
+            return false;
+        }
+        let single = |lh: popkern_core::topology::LoopHandle| -> bool {
+            let Some(l) = r1.brep.loops.get(lh) else {
+                return false;
+            };
+            let start = l.half_edge;
+            let Some(he) = r1.brep.half_edges.get(start) else {
+                return false;
+            };
+            he.next == start && he.prev == start
+        };
+        single(f.outer_loop) && single(f.inner_loops[0])
+    });
+    let Some(annulus) = annulus else { return };
+
+    // Variable spec — should average to 0.07.
+    let t0 = Instant::now();
+    let modified = crate::modify_fillet_radius(
+        &r1.brep,
+        annulus,
+        FilletRadius::Variable {
+            start: 0.04,
+            end: 0.10,
+        },
+        tol(),
+    )
+    .unwrap();
+    let elapsed = t0.elapsed();
+
+    // Should be MUCH faster than the ~17ms remove+recreate fallback.
+    // Loose 5ms cap to be CI-safe; in practice ~30µs.
+    assert!(
+        elapsed.as_millis() < 5,
+        "variable closed should take in-place fast path; took {elapsed:?}"
+    );
+
+    // Find the modified annulus and assert its torus has the
+    // averaged minor radius (0.07).
+    let mut found_torus = false;
+    for fh in modified.faces.keys() {
+        let f = &modified.faces[fh];
+        if f.inner_loops.len() != 1 {
+            continue;
+        }
+        if let Some(SurfaceGeometry::Torus { minor_radius, .. }) =
+            f.surface.as_ref().map(|s| &s.geometry)
+        {
+            assert!(
+                (minor_radius - 0.07).abs() < 1e-9,
+                "averaged minor_radius should be 0.07, got {minor_radius}"
+            );
+            found_torus = true;
+        }
+    }
+    assert!(
+        found_torus,
+        "should find a Torus annulus face after variable modify"
+    );
+}
+
 /// Round 5m: `modify_open_in_place_bypoints` accepts a `ByPoints`
 /// radius profile. Corners are positioned by the radii at
 /// parameters 0 and 1, and the fillet surface is a NURBS sweep

@@ -144,19 +144,37 @@ fn modify_open_fillet_radius(
 }
 
 /// Closed-fillet (annulus) path — tries the in-place geometry
-/// update first (Round 5d-2 — true §14.7 ≥2× speedup) when the
-/// radius is constant, and falls back to remove+recreate for any
-/// variable-radius spec or for constant cases that don't fit the
-/// fast path.
+/// update first (Round 5d-2 for constant; Round 5p extended to
+/// Variable/ByPoints by averaging) and falls back to remove+
+/// recreate on failure.
 fn modify_closed_fillet_radius(
     brep: &BRep,
     fillet_face: FaceHandle,
     new_radius: FilletRadius,
     tolerance: Tolerance,
 ) -> Result<BRep, BlendError> {
-    // Fast path: in-place geometry update (constant only).
-    if let FilletRadius::Constant(r) = &new_radius
-        && let Ok(out) = crate::modify_inplace::modify_closed_in_place(brep, fillet_face, *r)
+    // Fast path: in-place geometry update.
+    //
+    // Round 5p: a closed-fillet annulus has a single circular rim
+    // with one anchor vertex per contact circle, so a "variable"
+    // radius around the rim has no canonical orientation. The
+    // existing remove+recreate path already collapses Variable
+    // and ByPoints specs to the average radius (the closed-fillet
+    // construct phase uses one effective radius regardless), so
+    // we mirror that behaviour in the fast path: average the spec
+    // and dispatch to the constant in-place. Future work could
+    // produce a true varying-radius NURBS sweep for closed
+    // fillets, but it's not a regression vs the slow path today.
+    let averaged = match &new_radius {
+        FilletRadius::Constant(r) => *r,
+        FilletRadius::Variable { start, end } => (*start + *end) * 0.5,
+        FilletRadius::ByPoints(pts) if !pts.is_empty() => {
+            pts.iter().map(|(_, r)| *r).sum::<f64>() / pts.len() as f64
+        }
+        FilletRadius::ByPoints(_) => 0.0,
+    };
+    if averaged > 0.0
+        && let Ok(out) = crate::modify_inplace::modify_closed_in_place(brep, fillet_face, averaged)
     {
         return Ok(out);
     }
