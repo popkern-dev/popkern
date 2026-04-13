@@ -147,8 +147,10 @@ pub fn analyze_face_polygon(vertices: &[Point3], thresholds: &SliverThresholds) 
 
     // Classification via squared-form comparisons where possible.
     // `area < min_area` ⇔ `4·area² < 4·min_area²`. A small f64
-    // margin catches rounding at the decision boundary without
-    // needing full DP recomputation.
+    // margin catches rounding at the decision boundary; if the
+    // f64 answer is inside the margin, escalate to double-precision
+    // via `polygon_four_area_sq_dp` so we never misclassify a
+    // near-degenerate sliver.
     let four_min_area_sq = 4.0 * thresholds.min_area * thresholds.min_area;
     let area_margin = 16.0 * f64::EPSILON * four_area_sq.max(four_min_area_sq);
     let small_area = if four_area_sq + area_margin < four_min_area_sq {
@@ -156,11 +158,12 @@ pub fn analyze_face_polygon(vertices: &[Point3], thresholds: &SliverThresholds) 
     } else if four_area_sq > four_min_area_sq + area_margin {
         false
     } else {
-        // Ambiguous f64 — fall back to the sqrt'd scalar compare
-        // as a tiebreaker. This is the same decision the old
-        // path made, so behaviour at the exact boundary is
-        // preserved.
-        area < thresholds.min_area
+        // Ambiguous f64 — recompute Newell's normal entirely in
+        // double-precision (per-axis `from_sub` + `from_mul` +
+        // DP accumulation) and compare the DP `|N|²` against the
+        // DP threshold.
+        let dp_four_area_sq = polygon_four_area_sq_dp(vertices);
+        dp_four_area_sq < four_min_area_sq
     };
     let bad_aspect = aspect_ratio < thresholds.min_aspect_ratio;
 
@@ -212,4 +215,58 @@ fn polygon_four_area_sq(vertices: &[Point3]) -> f64 {
     }
 
     nx * nx + ny * ny + nz * nz
+}
+
+/// Compute `4·area²` in double-precision as the slow-path fallback
+/// for the sliver area classification.
+///
+/// Uses [`DoublePrecision::from_sub`] for the vertex-coordinate
+/// differences — this is where catastrophic cancellation happens
+/// for near-degenerate polygons whose adjacent vertices agree to
+/// many bits — and [`DoublePrecision::from_mul`] for the Newell
+/// products. The accumulators are full DP, and the final
+/// `|N|²` is returned as an f64 from `to_f64()`.
+///
+/// Called from `analyze_face_polygon` only when the f64 area
+/// comparison lands inside the ambiguity margin, so the DP cost
+/// is paid at most once per face and only for near-threshold
+/// polygons.
+fn polygon_four_area_sq_dp(vertices: &[Point3]) -> f64 {
+    use popkern_core::adaptive_precision::DoublePrecision;
+
+    if vertices.len() < 3 {
+        return 0.0;
+    }
+
+    let mut nx = DoublePrecision::from_f64(0.0);
+    let mut ny = DoublePrecision::from_f64(0.0);
+    let mut nz = DoublePrecision::from_f64(0.0);
+    let n = vertices.len();
+
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let vi = &vertices[i];
+        let vj = &vertices[j];
+
+        // Per-axis difference and sum — from_sub captures the
+        // cancellation residual; the sum can be done in naive f64
+        // since adding two values of the same sign has bounded
+        // error.
+        let dy_sub = DoublePrecision::from_sub(vi.y, vj.y);
+        let dz_add = DoublePrecision::from_f64(vi.z + vj.z);
+        nx = nx.dd_add(dy_sub.dd_mul(dz_add));
+
+        let dz_sub = DoublePrecision::from_sub(vi.z, vj.z);
+        let dx_add = DoublePrecision::from_f64(vi.x + vj.x);
+        ny = ny.dd_add(dz_sub.dd_mul(dx_add));
+
+        let dx_sub = DoublePrecision::from_sub(vi.x, vj.x);
+        let dy_add = DoublePrecision::from_f64(vi.y + vj.y);
+        nz = nz.dd_add(dx_sub.dd_mul(dy_add));
+    }
+
+    let nx_sq = nx.dd_mul(nx);
+    let ny_sq = ny.dd_mul(ny);
+    let nz_sq = nz.dd_mul(nz);
+    nx_sq.dd_add(ny_sq).dd_add(nz_sq).to_f64()
 }
