@@ -104,20 +104,18 @@ fn collect_vertex_positions(brep: &BRep) -> Vec<Point3> {
 }
 
 /// Symmetric Hausdorff over vertex point clouds. Reports the
-/// distance for diagnostic output; assertion is loose because the
-/// closed case has angular freedom (the contact circle is a closed
-/// curve with one anchor vertex whose position is not uniquely
-/// determined) and the open case has a known construct-phase quirk
-/// that places a stray vertex at a different position depending on
-/// the path. Tighter equivalence is asserted via bbox + surface
-/// parameter checks.
+/// distance via `eprintln!` so test output captures it.
 fn report_vertex_hausdorff(a: &BRep, b: &BRep, label: &str) -> f64 {
     let va = collect_vertex_positions(a);
     let vb = collect_vertex_positions(b);
     let h_ab = one_sided_hausdorff_sq(&va, &vb).sqrt();
     let h_ba = one_sided_hausdorff_sq(&vb, &va).sqrt();
     let max = h_ab.max(h_ba);
-    eprintln!("[5d-4 {label}] vertex Hausdorff: A→B={h_ab:.6}, B→A={h_ba:.6}");
+    eprintln!(
+        "[5d-4 {label}] vertex Hausdorff: A→B={h_ab:.6}, B→A={h_ba:.6}, |A|={}, |B|={}",
+        va.len(),
+        vb.len()
+    );
     max
 }
 
@@ -347,8 +345,14 @@ fn open_in_place_matches_remove_recreate_geometry() {
         "in-place torus minor_radius {in_place_minor} should equal new radius {new_radius}"
     );
 
-    // Diagnostic only — vertex positions differ due to a
-    // pre-existing construct-phase quirk that creates stray
-    // vertices at non-canonical positions.
-    let _ = report_vertex_hausdorff(&in_place, &removed_recreated, "open");
+    // Round 5e fixed the construct-phase perp-split orientation —
+    // in-place now produces correct corners. Vertex Hausdorff is
+    // diagnostic only because the remove+recreate baseline still
+    // has a *separate* pre-existing bug: `unfillet_face` doesn't
+    // fully clean up the old fillet's perp-split vertices, so the
+    // baseline carries leftover vertices at the *original* radius.
+    // Until that is fixed (Round 5f or later), the two paths' vertex
+    // sets diverge at exactly the original radius.
+    let h = report_vertex_hausdorff(&in_place, &removed_recreated, "open");
+    let _ = h;
 }

@@ -254,29 +254,51 @@ fn split_face_perp_edges(
                 let p1 = brep.vertices[dest].position;
                 let edge_len = p0.distance_to(&p1);
 
+                // `split_edge(edge, t)` interprets `t` against the
+                // edge's canonical primary half-edge — *not* the
+                // half-edge we're currently walking. When the walked
+                // half-edge is the twin, the parameter must be
+                // inverted so the new vertex still lands at
+                // `radius` from the matched fillet endpoint.
+                let canonical_he_h = brep.edges[he.edge].half_edge;
+                let canonical_origin = brep.half_edges[canonical_he_h].origin;
+                let walked_matches_canonical = canonical_origin == origin;
+                let invert = !walked_matches_canonical;
+
+                let normalise = |t_from_origin: f64| -> f64 {
+                    let raw = if invert {
+                        1.0 - t_from_origin
+                    } else {
+                        t_from_origin
+                    };
+                    raw.clamp(0.001, 0.999)
+                };
+
                 if origin == v_start && edge_len > 1e-15 {
-                    // This edge leaves v_start. Split at radius/edge_len from origin.
-                    let t = (radius / edge_len).min(0.999);
-                    if t > 0.001 && perp_start.is_none() {
-                        perp_start = Some((he.edge, t));
+                    let t_from_origin = (radius / edge_len).min(0.999);
+                    if t_from_origin > 0.001 && perp_start.is_none() {
+                        perp_start = Some((he.edge, normalise(t_from_origin)));
                     }
                 } else if dest == v_start && edge_len > 1e-15 {
-                    // This edge arrives at v_start. Split at 1 - radius/edge_len.
-                    let t = 1.0 - (radius / edge_len).min(0.999);
-                    if t > 0.001 && t < 0.999 && perp_start.is_none() {
-                        perp_start = Some((he.edge, t));
+                    // The matched endpoint is at the END of the edge
+                    // (in walked-direction terms), so t-from-walked-
+                    // origin is `1 - r/L`. The normalise() call
+                    // re-orients it for the canonical direction.
+                    let t_from_origin = 1.0 - (radius / edge_len).min(0.999);
+                    if t_from_origin > 0.001 && t_from_origin < 0.999 && perp_start.is_none() {
+                        perp_start = Some((he.edge, normalise(t_from_origin)));
                     }
                 }
 
                 if origin == v_end && edge_len > 1e-15 {
-                    let t = (radius / edge_len).min(0.999);
-                    if t > 0.001 && perp_end.is_none() {
-                        perp_end = Some((he.edge, t));
+                    let t_from_origin = (radius / edge_len).min(0.999);
+                    if t_from_origin > 0.001 && perp_end.is_none() {
+                        perp_end = Some((he.edge, normalise(t_from_origin)));
                     }
                 } else if dest == v_end && edge_len > 1e-15 {
-                    let t = 1.0 - (radius / edge_len).min(0.999);
-                    if t > 0.001 && t < 0.999 && perp_end.is_none() {
-                        perp_end = Some((he.edge, t));
+                    let t_from_origin = 1.0 - (radius / edge_len).min(0.999);
+                    if t_from_origin > 0.001 && t_from_origin < 0.999 && perp_end.is_none() {
+                        perp_end = Some((he.edge, normalise(t_from_origin)));
                     }
                 }
             }
