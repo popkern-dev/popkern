@@ -23,7 +23,15 @@ pub(crate) fn newton_refine(
         let p2 = curve2.point_at(t2);
         let f = p1 - p2; // Vec3 residual
 
-        if f.length() < tolerance.linear() {
+        // Newton convergence test: |p1 - p2| < linear tolerance,
+        // evaluated via the adaptive squared-distance predicate so
+        // iterates that settle at the tolerance boundary produce
+        // deterministic termination.
+        if crate::adaptive_precision::adaptive_dist_sq_lt(
+            (p1.x, p1.y, p1.z),
+            (p2.x, p2.y, p2.z),
+            tolerance.linear() * tolerance.linear(),
+        ) {
             return Some((t1, t2, p1));
         }
 

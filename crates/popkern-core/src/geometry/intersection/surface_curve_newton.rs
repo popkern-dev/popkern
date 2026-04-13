@@ -39,7 +39,13 @@ pub(crate) fn newton_surface_curve(
         // Residual vector: F = curve(t) - surface(u,v)
         let f = pc - ps;
 
-        if f.length() < tolerance.linear() {
+        // Adaptive convergence check on the squared residual —
+        // deterministic termination at the tolerance boundary.
+        if crate::adaptive_precision::adaptive_dist_sq_lt(
+            (pc.x, pc.y, pc.z),
+            (ps.x, ps.y, ps.z),
+            tolerance.linear() * tolerance.linear(),
+        ) {
             return Some((t, u, v, pc));
         }
 

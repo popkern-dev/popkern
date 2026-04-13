@@ -58,7 +58,13 @@ pub fn are_surfaces_coincident_analytic(
             let d = *o1 - *o2;
             let along = d.dot(a1);
             let perp = d - *a1 * along;
-            let axes_colinear = perp.length() < tolerance.linear();
+            // `perp.length() < linear` rewritten as adaptive squared-
+            // distance check from the origin to the perp tip.
+            let axes_colinear = crate::adaptive_precision::adaptive_dist_sq_lt(
+                (0.0, 0.0, 0.0),
+                (perp.x, perp.y, perp.z),
+                tolerance.linear() * tolerance.linear(),
+            );
             axes_parallel && same_radius && axes_colinear
         }
 
