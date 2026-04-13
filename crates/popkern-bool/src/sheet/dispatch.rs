@@ -163,25 +163,62 @@ pub fn boolean_with_sheets(
         }
         SheetOperationKind::SheetSheetUnion => {
             // §2.3 SheetSheetUnion: combine two open shells into one
-            // open shell. Non-overlapping case only: if the bodies
-            // share any surface/curve geometry the result would need
-            // a proper merge pipeline (which we don't yet have for
-            // sheets), so reject that case with a structured error.
+            // open shell.
             //
-            // Detection: the intersection-curve count from `section`
-            // decides. Zero intersection curves AND zero coincident
-            // face overlaps means the two sheets are spatially
-            // disjoint (or at worst touching at points), and the
-            // structural concatenation via `combine_breps` produces
-            // a valid combined sheet body.
+            // Three cases:
+            //
+            // 1. Fully disjoint — no intersection curves, no
+            //    coincident face overlaps: structural concatenation
+            //    via `combine_breps`. Fast path.
+            //
+            // 2. Coincident overlap — face pairs that share a
+            //    surface region. Drop the duplicate faces from `b`
+            //    via `super::split_curved::drop_coincident_faces`
+            //    and then concatenate.
+            //
+            // 3. Transversal crossing — the two sheets properly
+            //    intersect along a curve (no shared region).
+            //    Handling this cleanly requires a sheet-aware merge
+            //    pipeline (welding the shared curves into both
+            //    sides), which we don't have yet. Return
+            //    `OpenShellNotSupported` with a clear structured
+            //    error.
             let section = crate::ops::section::section(a, b, &tol)?;
-            if !section.curves.is_empty() {
+            let aabbs_a = crate::intersect::compute_face_aabbs(a);
+            let aabbs_b = crate::intersect::compute_face_aabbs(b);
+            let bool_tol = crate::tolerance::BoolTolerance::from(tol);
+            let coincidence = crate::coincidence::detect::detect_coincidences(
+                a, b, &aabbs_a, &aabbs_b, &bool_tol,
+            );
+
+            // Case 3: transversal crossing (intersection curves
+            // without coincident face overlaps).
+            if !section.curves.is_empty() && coincidence.face_overlaps.is_empty() {
                 return Err(crate::BoolError::OpenShellNotSupported {
                     a: a_is_sheet,
                     b: b_is_sheet,
                 });
             }
-            let combined = crate::operation::helpers::combine_breps(a.clone(), b.clone())?;
+
+            // Case 1: fully disjoint — direct concatenation.
+            if section.curves.is_empty() && coincidence.face_overlaps.is_empty() {
+                let combined = crate::operation::helpers::combine_breps(a.clone(), b.clone())?;
+                return Ok(SheetBooleanResult::OpenShell(combined));
+            }
+
+            // Case 2: coincident overlap — dedupe then concatenate.
+            // Collect the set of `b` faces that are coincident with
+            // any face on `a`; remove those faces from a clone of
+            // `b` before concatenating.
+            use std::collections::HashSet;
+            let coincident_b_faces: HashSet<popkern_core::topology::FaceHandle> = coincidence
+                .face_overlaps
+                .iter()
+                .map(|fo| fo.face_b)
+                .collect();
+            let mut b_deduped = b.clone();
+            super::dedupe::drop_faces_and_prune(&mut b_deduped, &coincident_b_faces);
+            let combined = crate::operation::helpers::combine_breps(a.clone(), b_deduped)?;
             Ok(SheetBooleanResult::OpenShell(combined))
         }
         SheetOperationKind::SolidUnionSheet => {

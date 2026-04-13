@@ -39,16 +39,17 @@ pub(super) fn trim_sheet(
     use crate::error::PointClassification;
     use crate::point_in_solid;
     use popkern_core::topology::FaceHandle;
+    use std::collections::HashSet;
 
     let solid_aabbs = crate::intersect::compute_face_aabbs(solid);
 
-    // Step 1: classify every sheet face as inside / outside / on by
-    // sampling its centroid.
-    let mut faces_to_remove: Vec<FaceHandle> = Vec::new();
+    // Classify every sheet face as inside / outside / on by sampling
+    // its centroid and collect the ones to remove.
+    let mut faces_to_remove: HashSet<FaceHandle> = HashSet::new();
     for fh in sheet.faces.keys() {
         let positions = face_vertex_positions(&sheet, fh);
         if positions.is_empty() {
-            faces_to_remove.push(fh);
+            faces_to_remove.insert(fh);
             continue;
         }
         let mut cx = 0.0;
@@ -71,69 +72,10 @@ pub(super) fn trim_sheet(
             ),
         };
         if discard {
-            faces_to_remove.push(fh);
+            faces_to_remove.insert(fh);
         }
     }
 
-    // Step 2: remove outside faces via slotmap delete; clean up the
-    // orphaned half-edges / edges / vertices left behind.
-    for fh in &faces_to_remove {
-        if let Some(face) = sheet.faces.get(*fh) {
-            let outer_loop = face.outer_loop;
-            let inner_loops = face.inner_loops.clone();
-            sheet.loops.remove(outer_loop);
-            for il in inner_loops {
-                sheet.loops.remove(il);
-            }
-            sheet.faces.remove(*fh);
-        }
-    }
-
-    // Step 3: prune orphaned half-edges.
-    let orphan_he: Vec<_> = sheet
-        .half_edges
-        .iter()
-        .filter_map(|(heh, he)| {
-            if sheet.loops.get(he.loop_).is_none() {
-                Some(heh)
-            } else {
-                None
-            }
-        })
-        .collect();
-    for heh in orphan_he {
-        sheet.half_edges.remove(heh);
-    }
-
-    // Step 4: prune orphaned edges.
-    let orphan_edges: Vec<_> = sheet
-        .edges
-        .iter()
-        .filter_map(|(eh, edge)| {
-            if sheet.half_edges.get(edge.half_edge).is_none() {
-                Some(eh)
-            } else {
-                None
-            }
-        })
-        .collect();
-    for eh in orphan_edges {
-        sheet.edges.remove(eh);
-    }
-
-    // Step 5: prune orphaned vertices.
-    let mut vertex_in_use = std::collections::HashSet::new();
-    for (_, he) in &sheet.half_edges {
-        vertex_in_use.insert(he.origin);
-    }
-    let orphan_vertices: Vec<_> = sheet
-        .vertices
-        .keys()
-        .filter(|vh| !vertex_in_use.contains(vh))
-        .collect();
-    for vh in orphan_vertices {
-        sheet.vertices.remove(vh);
-    }
-
+    super::dedupe::drop_faces_and_prune(&mut sheet, &faces_to_remove);
     sheet
 }
