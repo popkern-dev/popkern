@@ -69,15 +69,22 @@ pub fn modify_fillet_radius(
     modify_open_fillet_radius(brep, fillet_face, new_radius, tolerance)
 }
 
-/// Open (plane-plane) fillet path — uses `compute_unfillet_plan`
-/// to capture the restored edge endpoints, then matches a new edge
-/// in the unfilleted BRep by spatial lookup.
+/// Open (plane-plane) fillet path — tries the in-place geometry
+/// update first (Round 5d-3 — true §14.7 ≥2× speedup), and falls
+/// back to remove+recreate via `compute_unfillet_plan` +
+/// `unfillet_face` + `fillet_edge` on failure.
 fn modify_open_fillet_radius(
     brep: &BRep,
     fillet_face: FaceHandle,
     new_radius: f64,
     tolerance: Tolerance,
 ) -> Result<BRep, BlendError> {
+    // Fast path: in-place geometry update.
+    if let Ok(out) = crate::modify_inplace::modify_open_in_place(brep, fillet_face, new_radius) {
+        return Ok(out);
+    }
+
+    // Fallback: remove + recreate.
     let plan = compute_unfillet_plan(brep, fillet_face)?;
     let p_start = plan.restored_edge_start;
     let p_end = plan.restored_edge_end;

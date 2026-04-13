@@ -2,12 +2,13 @@
 //! radius without any topology surgery. This is the ≥2× speedup
 //! path: instead of unfilleting and re-filleting (which rebuilds
 //! topology, recomputes pcurves, and re-runs validation), we just
-//! move the contact-circle vertices, rebuild the contact-circle
-//! edge curves, rebuild the seam edge, and update the fillet face's
-//! surface.
+//! move the contact vertices, rebuild the touching edges, and
+//! update the fillet face's surface.
 //!
-//! Round 5d-2 scope: closed plane-cylinder annulus only (the case
-//! Round 5c-3 produces). Open plane-plane is a future round.
+//! - Round 5d-2: closed plane-cylinder annulus
+//!   ([`modify_closed_in_place`])
+//! - Round 5d-3: open plane-plane fillet
+//!   ([`modify_open_in_place`])
 //!
 //! # Why "in place" is faster
 //!
@@ -22,8 +23,8 @@
 //! plane+cylinder pair, the new contact circles are determined
 //! analytically by the new radius.
 
-use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 use crate::error::BlendError;
@@ -31,10 +32,13 @@ use crate::modify_inplace_geometry::{
     determine_fillet_signs, move_cyl_side_vertex, move_plane_side_vertex,
     project_to_cylinder_axis_at_height, project_to_plane_along_axis, rebuild_circle_edge,
 };
+use crate::unfillet::{UnfilletPlan, compute_unfillet_plan};
 use crate::unfillet_closed_helpers::{
     Side, classify_support_pair, extract_cylinder_geometry, extract_plane_geometry,
     find_seam_edge_at_vertex_excluding, rebuild_line_curve,
 };
+use crate::unfillet_helpers::extract_plane;
+use crate::unfillet_surgery::rebuild_curves_touching;
 
 /// Modify a closed-fillet annulus's radius in place. Returns a
 /// fresh BRep (clone of `brep`) with the contact-circle vertices,
@@ -238,3 +242,258 @@ fn collect_closed_layout(brep: &BRep, fillet_face: FaceHandle) -> Result<ClosedL
         v_cyl_side,
     })
 }
+
+/// Modify an open plane-plane fillet's radius in place. The fillet
+/// face must have a single outer loop (no inner loops) bounding two
+/// long contact lines (parallel to the original sharp edge) and two
+/// short end-cap lines.
+///
+/// The implementation:
+///   1. Uses [`compute_unfillet_plan`] to capture the support faces
+///      and the original sharp-edge endpoints.
+///   2. Calls [`corner_vertex_pair_near`] at each endpoint to find
+///      the two corner vertices on the fillet face boundary.
+///   3. Each corner is at distance `R` from the sharp-edge endpoint
+///      along a perpendicular direction in its support plane —
+///      moves it to distance `new_radius` along the same direction.
+///   4. Calls [`rebuild_curves_touching`] to refit every edge whose
+///      endpoint just moved (the long contact edges, the short
+///      end-cap edges, and the perpendicular cube-edge segments).
+///   5. Reassigns the fillet face's surface to a new analytic torus
+///      with `minor_radius = new_radius`.
+///
+/// # Errors
+///
+/// - [`BlendError::InvalidParameter`] if `fillet_face` isn't an
+///   identifiable plane-plane fillet, the corners can't be found,
+///   or the support planes can't be extracted.
+pub(crate) fn modify_open_in_place(
+    brep: &BRep,
+    fillet_face: FaceHandle,
+    new_radius: f64,
+) -> Result<BRep, BlendError> {
+    let plan = compute_unfillet_plan(brep, fillet_face)?;
+    let plane_a = extract_plane(brep, plan.support_a)?;
+    let plane_b = extract_plane(brep, plan.support_b)?;
+
+    // Identify the 4 fillet corners by analytic direction matching.
+    // For a plane-plane fillet at radius R, each corner is at
+    // sharp_edge_endpoint + perp_in_support_plane * R, where the
+    // perp direction is `support_normal × sharp_edge_direction`
+    // (sign chosen by which side of the sharp edge the fillet sits
+    // on). We compute the four expected corner *directions* (unit
+    // vectors), then for each direction we find the loop vertex
+    // whose offset from its sharp-edge endpoint best matches that
+    // direction, and move it to the new radius along the same
+    // direction.
+    let edge_dir = {
+        let d = plan.restored_edge_direction;
+        let len = d.length();
+        if len > 1e-12 {
+            Vec3::new(d.x / len, d.y / len, d.z / len)
+        } else {
+            return Err(BlendError::InvalidParameter {
+                parameter: "fillet_face".to_string(),
+                value: format!("{fillet_face:?}"),
+                reason: "restored edge direction is degenerate".to_string(),
+            });
+        }
+    };
+
+    let perp_a = perpendicular_in_plane(&plane_a.normal, &edge_dir);
+    let perp_b = perpendicular_in_plane(&plane_b.normal, &edge_dir);
+
+    // Determine sign: the fillet sits on whichever side of the
+    // sharp edge has loop vertices. Walk the loop, project each
+    // vertex's offset onto each perp candidate, and pick the sign
+    // (positive or negative perp) with at least one matching
+    // vertex.
+    let loop_vertices = collect_outer_loop_vertices(brep, fillet_face);
+    let signed_perp_a = pick_signed_perpendicular(&perp_a, &plan, &loop_vertices, brep);
+    let signed_perp_b = pick_signed_perpendicular(&perp_b, &plan, &loop_vertices, brep);
+
+    let mut out = brep.clone();
+    let mut welded: Vec<VertexHandle> = Vec::with_capacity(4);
+
+    // For each combination of (endpoint, signed_perp), find the loop
+    // vertex whose offset best aligns with that perpendicular and
+    // move it to (endpoint + signed_perp * new_radius).
+    for &endpoint in [&plan.restored_edge_start, &plan.restored_edge_end].iter() {
+        for &perp in [&signed_perp_a, &signed_perp_b].iter() {
+            let Some(v) = find_corner_vertex(brep, &loop_vertices, endpoint, perp) else {
+                return Err(BlendError::InvalidParameter {
+                    parameter: "fillet_face".to_string(),
+                    value: format!("{fillet_face:?}"),
+                    reason: "could not locate a fillet corner along an expected perpendicular"
+                        .to_string(),
+                });
+            };
+            out.vertices[v].position = Point3::new(
+                endpoint.x + perp.x * new_radius,
+                endpoint.y + perp.y * new_radius,
+                endpoint.z + perp.z * new_radius,
+            );
+            welded.push(v);
+        }
+    }
+
+    // Rebuild every edge that touches a moved vertex as a fresh
+    // straight line. For plane-plane fillets all the affected edges
+    // are straight (long contact lines parallel to the sharp edge,
+    // short end-cap lines perpendicular to it, perpendicular cube
+    // edge segments), so a linear curve is exact.
+    rebuild_curves_touching(&mut out, &welded);
+
+    // Reassign the fillet face surface to a new torus with the new
+    // minor radius. Mirrors the construction in
+    // `fillet_surface::try_plane_plane_torus`: the dihedral
+    // half-angle determines the major radius; the cross product of
+    // the support normals gives the torus axis (= sharp edge
+    // direction); the centre is placed at the midpoint of the new
+    // sharp-edge segment offset into the dihedral by the
+    // appropriate amount.
+    let cos_angle = plane_a.normal.dot(&plane_b.normal).clamp(-1.0, 1.0);
+    let dihedral = cos_angle.acos();
+    let half_angle = dihedral * 0.5;
+    let sin_half = half_angle.sin();
+    if sin_half.abs() > 1e-10 {
+        let axis_raw = plane_a.normal.cross(&plane_b.normal);
+        let axis_len = axis_raw.length();
+        let axis = if axis_len > 1e-12 {
+            Vec3::new(
+                axis_raw.x / axis_len,
+                axis_raw.y / axis_len,
+                axis_raw.z / axis_len,
+            )
+        } else {
+            Vec3::new(0.0, 0.0, 1.0)
+        };
+        let major = new_radius / sin_half;
+        let centre = Point3::new(
+            (plan.restored_edge_start.x + plan.restored_edge_end.x) * 0.5,
+            (plan.restored_edge_start.y + plan.restored_edge_end.y) * 0.5,
+            (plan.restored_edge_start.z + plan.restored_edge_end.z) * 0.5,
+        );
+        out.faces[fillet_face].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Torus {
+                center: centre,
+                axis,
+                major_radius: major,
+                minor_radius: new_radius,
+            },
+            orientation: true,
+        });
+    }
+
+    Ok(out)
+}
+
+/// Compute a unit perpendicular vector that lies in `plane_normal`'s
+/// plane and is perpendicular to `edge_dir`. Sign is arbitrary.
+fn perpendicular_in_plane(plane_normal: &Vec3, edge_dir: &Vec3) -> Vec3 {
+    let raw = plane_normal.cross(edge_dir);
+    let len = raw.length();
+    if len > 1e-12 {
+        Vec3::new(raw.x / len, raw.y / len, raw.z / len)
+    } else {
+        Vec3::new(0.0, 0.0, 1.0)
+    }
+}
+
+/// Collect the unique vertices in `fillet_face`'s outer loop.
+fn collect_outer_loop_vertices(brep: &BRep, fillet_face: FaceHandle) -> Vec<VertexHandle> {
+    let mut out = Vec::new();
+    let lh = brep.faces[fillet_face].outer_loop;
+    let start_he = brep.loops[lh].half_edge;
+    let mut he = start_he;
+    let mut safety = 0;
+    loop {
+        safety += 1;
+        if safety > 10_000 {
+            break;
+        }
+        let h = &brep.half_edges[he];
+        if !out.contains(&h.origin) {
+            out.push(h.origin);
+        }
+        he = h.next;
+        if he == start_he {
+            break;
+        }
+    }
+    out
+}
+
+/// Resolve the sign of `perp` so that it points toward the side of
+/// the sharp edge where the fillet sits. Picks whichever sign has
+/// more loop vertices' offsets aligning positively with it.
+fn pick_signed_perpendicular(
+    perp: &Vec3,
+    plan: &UnfilletPlan,
+    loop_vertices: &[VertexHandle],
+    brep: &BRep,
+) -> Vec3 {
+    let mut pos_count = 0;
+    let mut neg_count = 0;
+    for &v in loop_vertices {
+        let pos = brep.vertices[v].position;
+        let d_start = (pos.x - plan.restored_edge_start.x).powi(2)
+            + (pos.y - plan.restored_edge_start.y).powi(2)
+            + (pos.z - plan.restored_edge_start.z).powi(2);
+        let d_end = (pos.x - plan.restored_edge_end.x).powi(2)
+            + (pos.y - plan.restored_edge_end.y).powi(2)
+            + (pos.z - plan.restored_edge_end.z).powi(2);
+        let endpoint = if d_start <= d_end {
+            plan.restored_edge_start
+        } else {
+            plan.restored_edge_end
+        };
+        let offset = Vec3::new(pos.x - endpoint.x, pos.y - endpoint.y, pos.z - endpoint.z);
+        if offset.length() < 1e-9 {
+            continue;
+        }
+        let aligned = offset.dot(perp);
+        if aligned > 1e-6 {
+            pos_count += 1;
+        } else if aligned < -1e-6 {
+            neg_count += 1;
+        }
+    }
+    if pos_count >= neg_count {
+        *perp
+    } else {
+        Vec3::new(-perp.x, -perp.y, -perp.z)
+    }
+}
+
+/// Find the loop vertex whose direction from `endpoint` best aligns
+/// with `perp`. Cosine-similarity scored.
+fn find_corner_vertex(
+    brep: &BRep,
+    loop_vertices: &[VertexHandle],
+    endpoint: &Point3,
+    perp: &Vec3,
+) -> Option<VertexHandle> {
+    let mut best: Option<(VertexHandle, f64)> = None;
+    for &v in loop_vertices {
+        let pos = brep.vertices[v].position;
+        let offset = Vec3::new(pos.x - endpoint.x, pos.y - endpoint.y, pos.z - endpoint.z);
+        let len = offset.length();
+        if len < 1e-9 {
+            continue;
+        }
+        let cos_sim = offset.dot(perp) / len;
+        if cos_sim < 0.5 {
+            continue;
+        }
+        match &best {
+            Some((_, prev)) if cos_sim <= *prev => {}
+            _ => best = Some((v, cos_sim)),
+        }
+    }
+    best.map(|(v, _)| v)
+}
+
+#[cfg(test)]
+#[path = "modify_inplace_tests.rs"]
+mod tests;
