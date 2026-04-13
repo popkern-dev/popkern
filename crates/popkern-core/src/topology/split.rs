@@ -183,20 +183,61 @@ impl BRep {
                 .to_nurbs_in_range((curve.t_start, curve.t_end));
             match nurbs.split_at(t_param) {
                 Ok((left, right)) => {
-                    use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
+                    use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 
-                    let left_range = left.parameter_range();
+                    // The original edge spans vertex_a → vertex_b in
+                    // half-edge convention, but the curve geometry
+                    // may have been authored in the *opposite*
+                    // direction (e.g. by a boolean engine that
+                    // captured intersection curves without enforcing
+                    // a canonical orientation). After splitting we
+                    // therefore inspect each half's endpoints and
+                    // route them to the half-edge whose vertex
+                    // positions they actually match. Without this
+                    // routing the loop validator sees a curve whose
+                    // span is the *other* half of the original edge,
+                    // producing an OpenLoop with a gap equal to the
+                    // length of the misrouted segment.
+                    let left_endpoints = {
+                        let (t0, t1) = left.parameter_range();
+                        (left.point_at(t0), left.point_at(t1))
+                    };
+                    let right_endpoints = {
+                        let (t0, t1) = right.parameter_range();
+                        (right.point_at(t0), right.point_at(t1))
+                    };
+                    let dist2 = |a: &Point3, b: &Point3| -> f64 {
+                        (a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)
+                    };
+                    // Score "LEFT to old, RIGHT to new" vs "RIGHT to old, LEFT to new".
+                    // Each option pays the squared distance from the
+                    // expected endpoint to the actual vertex positions.
+                    let cost_natural = dist2(&left_endpoints.0, &pos_a)
+                        + dist2(&left_endpoints.1, &split_pos)
+                        + dist2(&right_endpoints.0, &split_pos)
+                        + dist2(&right_endpoints.1, &pos_b);
+                    let cost_swapped = dist2(&right_endpoints.0, &pos_a)
+                        + dist2(&right_endpoints.1, &split_pos)
+                        + dist2(&left_endpoints.0, &split_pos)
+                        + dist2(&left_endpoints.1, &pos_b);
+                    let (old_half, new_half) = if cost_natural <= cost_swapped {
+                        (left, right)
+                    } else {
+                        (right, left)
+                    };
+
+                    let old_range = old_half.parameter_range();
                     self.edges[edge].curve = Some(CurveOnEdge {
-                        geometry: CurveGeometry::Nurbs(left),
-                        t_start: left_range.0,
-                        t_end: left_range.1,
+                        geometry: CurveGeometry::Nurbs(old_half),
+                        t_start: old_range.0,
+                        t_end: old_range.1,
                     });
 
-                    let right_range = right.parameter_range();
+                    let new_range = new_half.parameter_range();
                     self.edges[edge_b].curve = Some(CurveOnEdge {
-                        geometry: CurveGeometry::Nurbs(right),
-                        t_start: right_range.0,
-                        t_end: right_range.1,
+                        geometry: CurveGeometry::Nurbs(new_half),
+                        t_start: new_range.0,
+                        t_end: new_range.1,
                     });
                 }
                 Err(_) => {

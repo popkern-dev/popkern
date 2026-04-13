@@ -54,14 +54,22 @@ impl BRep {
                 };
 
                 let end_pos = if let Some(curve_on_edge) = &edge.curve {
-                    // Evaluate the curve at the correct end parameter.
-                    // If this half-edge is the canonical one (edge.half_edge),
-                    // the end is at t_end. If it's the twin, the end is at t_start.
-                    let is_canonical = edge.half_edge == cursor;
-                    if is_canonical {
-                        curve_on_edge.geometry.point_at(curve_on_edge.t_end)
+                    // The curve has two endpoints (t_start, t_end). One
+                    // matches this half-edge's *origin* vertex; the other
+                    // matches its destination. We can't assume the curve
+                    // direction matches the canonical half-edge direction
+                    // — boolean-engine outputs sometimes carry curves
+                    // authored in the opposite direction. Pick the
+                    // endpoint *farther* from `start_pos` (the half-edge's
+                    // origin position) as this half-edge's "end".
+                    let p_t_start = curve_on_edge.geometry.point_at(curve_on_edge.t_start);
+                    let p_t_end = curve_on_edge.geometry.point_at(curve_on_edge.t_end);
+                    let d_to_start = start_pos.distance_to(&p_t_start);
+                    let d_to_end = start_pos.distance_to(&p_t_end);
+                    if d_to_start <= d_to_end {
+                        p_t_end
                     } else {
-                        curve_on_edge.geometry.point_at(curve_on_edge.t_start)
+                        p_t_start
                     }
                 } else {
                     // No curve: read the next half-edge's origin vertex.
@@ -236,13 +244,12 @@ mod tests {
 
     #[test]
     fn loop_closure_twin_path_with_curve() {
-        use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
-
         // Build a cube with geometry, then verify closure works through twin-side curve eval
         let brep =
             crate::topology::BRep::unit_cube(crate::tolerance::Tolerance::default()).unwrap();
         // The cube has curves on all edges. Loop closure walks all loops and
-        // evaluates curves via is_canonical check. Just ensure it passes.
+        // picks the correct curve endpoint for each half-edge by direction
+        // matching. Just ensure it passes.
         assert!(brep.validate_loop_closure().is_ok());
     }
 
@@ -279,8 +286,6 @@ mod tests {
 
     #[test]
     fn watertight_with_bad_gap() {
-        use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
-
         // Create a cube with geometry, then corrupt a vertex position to create a gap
         let mut brep =
             crate::topology::BRep::unit_cube(crate::tolerance::Tolerance::default()).unwrap();
