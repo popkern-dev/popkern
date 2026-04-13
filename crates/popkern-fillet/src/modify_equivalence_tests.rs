@@ -345,14 +345,13 @@ fn open_in_place_matches_remove_recreate_geometry() {
         "in-place torus minor_radius {in_place_minor} should equal new radius {new_radius}"
     );
 
-    // Round 5e fixed the construct-phase perp-split orientation —
-    // in-place now produces correct corners. Vertex Hausdorff is
-    // diagnostic only because the remove+recreate baseline still
-    // has a *separate* pre-existing bug: `unfillet_face` doesn't
-    // fully clean up the old fillet's perp-split vertices, so the
-    // baseline carries leftover vertices at the *original* radius.
-    // Until that is fixed (Round 5f or later), the two paths' vertex
-    // sets diverge at exactly the original radius.
+    // After Round 5e (construct-phase perp-split fix) and Round 5f
+    // (unfillet leftover-vertex cleanup), the open in-place and
+    // remove+recreate paths now produce **byte-identical vertex
+    // sets**. Hausdorff should be exactly zero.
     let h = report_vertex_hausdorff(&in_place, &removed_recreated, "open");
-    let _ = h;
+    assert!(
+        h < 1e-9,
+        "open vertex Hausdorff {h} should be ~0 after Rounds 5e+5f"
+    );
 }

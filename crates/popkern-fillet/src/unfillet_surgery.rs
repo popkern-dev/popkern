@@ -12,15 +12,57 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, Verte
 
 use crate::error::BlendError;
 
-/// Find the two vertices on the blend face's outer loop that are
-/// closest to the given 3D position. Returns them sorted by
-/// distance (closest first). Errors if fewer than 2 distinct
-/// vertices are reachable.
-pub(crate) fn corner_vertex_pair_near(
+/// Find ALL blend-face loop vertices that are "near" `target` —
+/// the cube corner vertex (often at distance 0 because the
+/// construct phase leaves it in the loop) plus the perpendicular-
+/// edge split vertices on each support face (at distance ≈ R from
+/// the cube corner). Used by [`crate::unfillet::unfillet_face`] to
+/// weld the entire cluster of vertices at one fillet endpoint into
+/// a single canonical vertex, eliminating leftover perp-split
+/// vertices that the old `corner_vertex_pair_near`-based pipeline
+/// missed.
+///
+/// Threshold is `2 *` the second-closest distance, which catches
+/// vertices roughly at the same fillet-radius distance from
+/// `target` while excluding the far-side endpoint and unrelated
+/// vertices.
+pub(crate) fn corners_near_endpoint(
     brep: &BRep,
     blend_face: FaceHandle,
     target: &Point3,
 ) -> Result<Vec<VertexHandle>, BlendError> {
+    let candidates = sorted_loop_candidates(brep, blend_face, target)?;
+    if candidates.len() < 2 {
+        return Err(BlendError::InvalidParameter {
+            parameter: "blend_face".to_string(),
+            value: format!("{blend_face:?}"),
+            reason: format!(
+                "blend face has only {} distinct boundary vertices; need ≥2 for unfillet",
+                candidates.len()
+            ),
+        });
+    }
+    // Use the second-closest distance² as the radius² scale. The
+    // closest is typically a cube corner at distance 0; the second
+    // is one of the perp-split vertices at distance ≈ R, so ≈ R².
+    // Anything within 2× that distance is a sibling perp-split
+    // vertex on the same fillet endpoint.
+    let r2 = candidates[1].1;
+    let threshold = (r2 * 4.0).max(1e-12);
+    Ok(candidates
+        .into_iter()
+        .filter(|(_, d2)| *d2 <= threshold)
+        .map(|(v, _)| v)
+        .collect())
+}
+
+/// Walk the blend face's outer loop and return every distinct
+/// vertex with its squared distance to `target`, sorted ascending.
+fn sorted_loop_candidates(
+    brep: &BRep,
+    blend_face: FaceHandle,
+    target: &Point3,
+) -> Result<Vec<(VertexHandle, f64)>, BlendError> {
     let face_data = brep
         .faces
         .get(blend_face)
@@ -64,18 +106,7 @@ pub(crate) fn corner_vertex_pair_near(
         }
     }
     candidates.sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-    if candidates.len() < 2 {
-        return Err(BlendError::InvalidParameter {
-            parameter: "blend_face".to_string(),
-            value: format!("{blend_face:?}"),
-            reason: format!(
-                "blend face has only {} distinct boundary vertices; need ≥2 for unfillet",
-                candidates.len()
-            ),
-        });
-    }
-    Ok(vec![candidates[0].0, candidates[1].0])
+    Ok(candidates)
 }
 
 /// Walk every edge in the BRep and, if the edge touches one of the

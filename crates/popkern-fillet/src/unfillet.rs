@@ -88,7 +88,7 @@ use crate::unfillet_helpers::{
     intersect_planes, pick_extreme_endpoints, walk_blend_boundary,
 };
 use crate::unfillet_surgery::{
-    corner_vertex_pair_near, find_he_in_face_with_origin, rebuild_curves_touching,
+    corners_near_endpoint, find_he_in_face_with_origin, rebuild_curves_touching,
     remove_degenerate_self_loop_edges,
 };
 
@@ -290,14 +290,19 @@ pub fn unfillet_face(brep: &BRep, blend_face: FaceHandle) -> Result<BRep, BlendE
             reason: "support B has no attached surface geometry".to_string(),
         })?;
 
-    // 3. Identify the four "fillet corner vertices" — the vertices
-    //    on the blend face's outer loop that are closest to each
-    //    restored sharp-edge endpoint. After the KEFs we'll move
-    //    each pair to the exact restored corner position and weld
-    //    them, leaving one vertex per corner.
-    let corner_pair_at_start =
-        corner_vertex_pair_near(brep, blend_face, &plan.restored_edge_start)?;
-    let corner_pair_at_end = corner_vertex_pair_near(brep, blend_face, &plan.restored_edge_end)?;
+    // 3. Identify the cluster of "fillet corner vertices" at each
+    //    sharp-edge endpoint. A unit cube fillet end has 2 perp-
+    //    split contact corners (one per support face) plus,
+    //    courtesy of the construct phase leaving them in the loop,
+    //    the original cube corner itself — so 3 vertices per end
+    //    in the typical case. We collect ALL near vertices (Round
+    //    5f) so the welding step can collapse the entire cluster
+    //    into one canonical vertex; the old `corner_vertex_pair_near`
+    //    only returned 2, leaving one perp-split vertex behind in
+    //    the BRep at its original-radius position.
+    let corner_cluster_at_start =
+        corners_near_endpoint(brep, blend_face, &plan.restored_edge_start)?;
+    let corner_cluster_at_end = corners_near_endpoint(brep, blend_face, &plan.restored_edge_end)?;
 
     // 4. Topology surgery. We do all mutation on a clone so the
     //    input BRep is unchanged on failure.
@@ -325,19 +330,26 @@ pub fn unfillet_face(brep: &BRep, blend_face: FaceHandle) -> Result<BRep, BlendE
     //     twin is on B's loop, which gets killed.
     out.kef(long_b).map_err(BlendError::Topology)?;
 
-    // 5. Move the corner vertices to their exact restored positions,
-    //    then weld coincident pairs into single representatives.
-    //    We move BOTH vertices of each pair onto the same point,
-    //    then weld_vertex_pair collapses them.
-    if let [v0, v1] = corner_pair_at_start[..] {
-        out.vertices[v0].position = plan.restored_edge_start;
-        out.vertices[v1].position = plan.restored_edge_start;
-        out.weld_vertex_pair(v0, v1).map_err(BlendError::Topology)?;
+    // 5. Move every corner-cluster vertex onto its endpoint and
+    //    iteratively weld them into the cluster's primary (the
+    //    first vertex returned by `corners_near_endpoint`). With ≥3
+    //    cluster members we need a sequence of `weld_vertex_pair`
+    //    calls — `weld_vertex_pair(primary, vk)` keeps `primary`
+    //    and removes `vk`, so we can weld each non-primary vertex
+    //    against the same primary and the chain converges.
+    let primary_start = corner_cluster_at_start[0];
+    out.vertices[primary_start].position = plan.restored_edge_start;
+    for &v in &corner_cluster_at_start[1..] {
+        out.vertices[v].position = plan.restored_edge_start;
+        out.weld_vertex_pair(primary_start, v)
+            .map_err(BlendError::Topology)?;
     }
-    if let [v0, v1] = corner_pair_at_end[..] {
-        out.vertices[v0].position = plan.restored_edge_end;
-        out.vertices[v1].position = plan.restored_edge_end;
-        out.weld_vertex_pair(v0, v1).map_err(BlendError::Topology)?;
+    let primary_end = corner_cluster_at_end[0];
+    out.vertices[primary_end].position = plan.restored_edge_end;
+    for &v in &corner_cluster_at_end[1..] {
+        out.vertices[v].position = plan.restored_edge_end;
+        out.weld_vertex_pair(primary_end, v)
+            .map_err(BlendError::Topology)?;
     }
 
     // 5b. Welding leaves behind "degenerate" edges where both
@@ -356,20 +368,20 @@ pub fn unfillet_face(brep: &BRep, blend_face: FaceHandle) -> Result<BRep, BlendE
     //     surviving edges and rebuild any curve to fit the new
     //     endpoint positions as a straight line (correct for the
     //     plane-plane scope).
-    let welded_vertices = [corner_pair_at_start[0], corner_pair_at_end[0]];
+    let welded_vertices = [primary_start, primary_end];
     rebuild_curves_touching(&mut out, &welded_vertices);
 
     // 6. After the welds, the two surviving canonical vertices are
-    //    `corner_pair_at_start[0]` and `corner_pair_at_end[0]`
-    //    (weld_vertex_pair keeps the primary, removes the secondary).
+    //    `primary_start` and `primary_end` — every other cluster
+    //    member was collapsed into them by `weld_vertex_pair`.
     //    Find half-edges in the merged face whose origin is each
     //    surviving vertex — these are the MEF endpoints.
     //
     //    The merged face is support_a — the kef chain killed F and
     //    B but kept A as the surviving face holding the merged loop.
     let merged_face = plan.support_a;
-    let surviving_start = corner_pair_at_start[0];
-    let surviving_end = corner_pair_at_end[0];
+    let surviving_start = primary_start;
+    let surviving_end = primary_end;
 
     let he_at_start =
         find_he_in_face_with_origin(&out, merged_face, surviving_start).ok_or_else(|| {
