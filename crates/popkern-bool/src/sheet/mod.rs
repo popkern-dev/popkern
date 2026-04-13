@@ -32,7 +32,7 @@ pub mod split;
 mod trim;
 
 pub use classify::{SheetOperationKind, classify_sheet_operation};
-pub use detect::{is_closed_solid, is_planar_sheet, is_sheet_body};
+pub use detect::{is_approximately_planar_sheet, is_closed_solid, is_planar_sheet, is_sheet_body};
 pub use dispatch::{SheetBooleanResult, boolean_with_sheets};
 pub use side::{SideOfSheet, side_of_sheet};
 pub use split::split_solid_by_plane;

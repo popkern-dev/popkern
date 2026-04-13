@@ -302,6 +302,75 @@ fn is_planar_sheet_accepts_multi_face_coplanar() {
 }
 
 #[test]
+fn is_approximately_planar_sheet_accepts_nearly_flat_vertices() {
+    // A sheet with vertices that bow by 1e-9 above and below
+    // z=0.5 should be detected as approximately planar when the
+    // deviation envelope is 1e-3.
+    use popkern_core::constructors::builder::BRepBuilder;
+    use popkern_core::geometry::Point3;
+
+    let mut b = BRepBuilder::new(tol());
+    let solid = b.add_solid();
+    let shell = b.add_shell(solid);
+    let face = b.add_face(shell);
+    // Four vertices forming a nearly-planar quad at z≈0.5.
+    let _v0 = b.add_vertex(Point3::new(0.0, 0.0, 0.5));
+    let _v1 = b.add_vertex(Point3::new(1.0, 0.0, 0.5 + 1e-9));
+    let _v2 = b.add_vertex(Point3::new(1.0, 1.0, 0.5 - 1e-9));
+    let _v3 = b.add_vertex(Point3::new(0.0, 1.0, 0.5));
+    // Note: no edges/loops — the approximate-planar detector only
+    // inspects vertex positions, so we can skip the topology wiring
+    // for this focused test.
+    let _ = face;
+    let sheet = b.build_unchecked();
+
+    let detected = is_approximately_planar_sheet(&sheet, 1.0e-3);
+    assert!(
+        detected.is_some(),
+        "nearly-planar sheet should be detected within 1e-3 envelope"
+    );
+    let (_, normal) = detected.unwrap();
+    // Normal should be approximately ±Z.
+    assert!((normal.z.abs() - 1.0).abs() < 1.0e-3);
+    assert!(normal.x.abs() < 1.0e-3);
+    assert!(normal.y.abs() < 1.0e-3);
+}
+
+#[test]
+fn is_approximately_planar_sheet_rejects_curved_vertices() {
+    // A sheet whose vertex positions trace out a sphere-cap should
+    // NOT be detected as approximately planar at a tight envelope.
+    use popkern_core::constructors::builder::BRepBuilder;
+    use popkern_core::geometry::Point3;
+
+    let mut b = BRepBuilder::new(tol());
+    let solid = b.add_solid();
+    let shell = b.add_shell(solid);
+    let face = b.add_face(shell);
+    // Generate 8 points on a sphere of radius 1, forming a cap.
+    for i in 0..8 {
+        let theta = (i as f64) * std::f64::consts::PI / 4.0;
+        let _v = b.add_vertex(Point3::new(theta.cos(), theta.sin(), (theta * 0.5).sin()));
+    }
+    let _ = face;
+    let sheet = b.build_unchecked();
+
+    // Very tight envelope should reject.
+    let detected = is_approximately_planar_sheet(&sheet, 1.0e-6);
+    assert!(
+        detected.is_none(),
+        "sphere-cap vertices should NOT be detected as planar at 1e-6 envelope"
+    );
+}
+
+#[test]
+fn is_approximately_planar_sheet_requires_three_vertices() {
+    // Fewer than 3 vertices can't define a plane.
+    let empty = BRep::new(tol());
+    assert!(is_approximately_planar_sheet(&empty, 1.0).is_none());
+}
+
+#[test]
 fn is_planar_sheet_rejects_offset_coplanar_faces() {
     // Two planar faces sharing a normal but at different z-heights
     // (0.5 vs 1.5) should NOT be treated as a single plane — they

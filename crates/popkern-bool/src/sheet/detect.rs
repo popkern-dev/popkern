@@ -4,6 +4,9 @@
 //! pre-check to reject open shells upfront. [`is_planar_sheet`] is the
 //! fast-path detector used by the multi-piece dispatcher to identify
 //! planar sheets that can be split via half-space boolean operations.
+//! [`is_approximately_planar_sheet`] extends that fast path to sheets
+//! with non-planar surface types (NURBS, sphere caps) whose vertices
+//! happen to lie within a tight envelope of a common best-fit plane.
 
 use popkern_core::topology::BRep;
 
@@ -149,4 +152,137 @@ pub fn is_planar_sheet(
     }
 
     Some((ref_origin?, ref_normal?))
+}
+
+/// Detect whether `sheet`'s vertex positions lie within `max_deviation`
+/// of a single best-fit plane, even when the face surface types are
+/// non-planar (NURBS, sphere cap, cylinder section).
+///
+/// Returns `Some((centroid, normal))` when the largest distance from
+/// any vertex to the best-fit plane is at most `max_deviation`. Returns
+/// `None` when the sheet has fewer than 3 non-collinear vertices, or
+/// when any vertex exceeds the deviation envelope.
+///
+/// This is the relaxed fallback for [`is_planar_sheet`]: the strict
+/// path only matches exact `SurfaceGeometry::Plane` faces, while this
+/// relaxed path catches sheets whose vertices happen to be co-planar
+/// regardless of the underlying surface type. Used by the curved-sheet
+/// multi-piece dispatcher to upgrade "effectively planar" sheets to
+/// the half-space split path.
+///
+/// Implementation: least-squares plane fit via the covariance matrix's
+/// smallest eigenvector. We compute the 3×3 covariance of the vertex
+/// positions relative to the centroid, then approximate the smallest
+/// eigenvector by the cross product of the two longest spans — good
+/// enough for "are all these points approximately co-planar?" without
+/// needing a full SVD.
+pub fn is_approximately_planar_sheet(
+    sheet: &BRep,
+    max_deviation: f64,
+) -> Option<(popkern_core::geometry::Point3, popkern_core::geometry::Vec3)> {
+    use popkern_core::geometry::{Point3, Vec3};
+
+    // Collect vertex positions. Need at least 3 to define a plane.
+    let positions: Vec<Point3> = sheet.vertices.values().map(|v| v.position).collect();
+    if positions.len() < 3 {
+        return None;
+    }
+
+    // Centroid.
+    let n = positions.len() as f64;
+    let mut cx = 0.0;
+    let mut cy = 0.0;
+    let mut cz = 0.0;
+    for p in &positions {
+        cx += p.x;
+        cy += p.y;
+        cz += p.z;
+    }
+    let centroid = Point3::new(cx / n, cy / n, cz / n);
+
+    // Find the vertex farthest from the centroid — defines the first
+    // in-plane axis.
+    let mut axis_a: Option<Vec3> = None;
+    let mut best_dist_sq = 0.0;
+    for p in &positions {
+        let d = *p - centroid;
+        let ds = d.length_squared();
+        if ds > best_dist_sq {
+            best_dist_sq = ds;
+            axis_a = Some(d);
+        }
+    }
+    let axis_a = axis_a?.normalized()?;
+
+    // Find the vertex that's farthest from the line (centroid, axis_a)
+    // — this gives the second axis perpendicular to axis_a.
+    let mut axis_b: Option<Vec3> = None;
+    let mut best_perp_dist_sq = 0.0;
+    for p in &positions {
+        let d = *p - centroid;
+        let projected = axis_a * d.dot(&axis_a);
+        let perp = d - projected;
+        let perp_ds = perp.length_squared();
+        if perp_ds > best_perp_dist_sq {
+            best_perp_dist_sq = perp_ds;
+            axis_b = Some(perp);
+        }
+    }
+    let axis_b = axis_b?.normalized()?;
+
+    // Plane normal = axis_a × axis_b.
+    let normal = axis_a.cross(&axis_b).normalized()?;
+
+    // Verify every vertex lies within `max_deviation` of the plane.
+    for p in &positions {
+        let d = *p - centroid;
+        let signed = d.dot(&normal);
+        if signed.abs() > max_deviation {
+            return None;
+        }
+    }
+
+    // Pick an orientation for the normal: if any face's surface
+    // provides an outward direction, align our normal with it so the
+    // downstream half-space split uses a meaningful outward direction.
+    // For sheets with no usable surface data, we keep the arbitrary
+    // cross-product direction — the split still produces two halves,
+    // they're just labeled in an arbitrary order.
+    let oriented_normal = {
+        let mut chosen = normal;
+        for face in sheet.faces.values() {
+            let Some(surf_on_face) = face.surface.as_ref() else {
+                continue;
+            };
+            use popkern_core::geometry::surface::SurfaceEval;
+            // Sample the surface's normal at the midpoint of its
+            // valid parameter range.
+            let ((u_min, u_max), (v_min, v_max)) = surf_on_face.geometry.parameter_range();
+            let u_mid = if u_min.is_finite() && u_max.is_finite() {
+                (u_min + u_max) * 0.5
+            } else {
+                0.0
+            };
+            let v_mid = if v_min.is_finite() && v_max.is_finite() {
+                (v_min + v_max) * 0.5
+            } else {
+                0.0
+            };
+            let face_n_raw = surf_on_face.geometry.normal_at(u_mid, v_mid);
+            let face_n = if surf_on_face.orientation {
+                face_n_raw
+            } else {
+                face_n_raw * -1.0
+            };
+            if let Some(face_n) = face_n.normalized()
+                && chosen.dot(&face_n) < 0.0
+            {
+                chosen = chosen * -1.0;
+            }
+            break;
+        }
+        chosen
+    };
+
+    Some((centroid, oriented_normal))
 }

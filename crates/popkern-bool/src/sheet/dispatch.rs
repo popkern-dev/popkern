@@ -8,7 +8,7 @@
 //! intersection curves depending on the case.
 
 use super::classify::{SheetOperationKind, classify_sheet_operation};
-use super::detect::{is_planar_sheet, is_sheet_body};
+use super::detect::{is_approximately_planar_sheet, is_planar_sheet, is_sheet_body};
 use super::split::split_solid_by_plane;
 use super::trim::{KeepSide, trim_sheet};
 use popkern_core::topology::BRep;
@@ -95,18 +95,46 @@ pub fn boolean_with_sheets(
             Ok(SheetBooleanResult::Curves(curves))
         }
         SheetOperationKind::SolidMinusSheet => {
-            // Multi-piece dispatch (§2.3): if the sheet is a single
-            // planar face, take the half-space split fast path —
-            // intersect the solid with each side of the plane to
-            // produce closed sub-solids on each side.
+            // Multi-piece dispatch (§2.3). Two paths:
             //
-            // For non-planar (curved) sheets, fall back to the
-            // single-piece imprint that adds curves to the target
-            // without cutting it into pieces. Curved-sheet bisection
-            // requires the Phase 2 approach in super::split_curved.
+            // 1. Exact planar fast path: if every face of the sheet
+            //    has a SurfaceGeometry::Plane surface on a single
+            //    supporting plane, call split_solid_by_plane with
+            //    that analytic plane.
+            //
+            // 2. Approximate planar fallback: if the sheet's vertex
+            //    positions lie within `tol.linear() * 1e3` of a best-
+            //    fit plane, use that best-fit plane for the split.
+            //    This catches NURBS/spherical/cylindrical sheets that
+            //    are actually near-flat (slight bow, triangulation
+            //    noise). The 1e3 factor over tol.linear() is the
+            //    "planarity budget" — larger deviations route to the
+            //    single-piece imprint fallback so the user doesn't
+            //    silently get a planar cut in place of a curved one.
+            //
+            // 3. Curved fallback: single-piece imprint that adds the
+            //    cut curves to the solid's boundary without splitting
+            //    it into sub-solids. Fully general curved splitting
+            //    would need a sheet-aware merge pipeline (documented
+            //    as future work in docs/reports/coverage/).
             let (sheet, solid) = if a_is_sheet { (a, b) } else { (b, a) };
             if let Some((origin, normal)) = is_planar_sheet(sheet) {
                 let pieces = split_solid_by_plane(solid, origin, normal, tol)?;
+                return match pieces.len() {
+                    0 => Err(crate::BoolError::OpenShellNotSupported {
+                        a: a_is_sheet,
+                        b: b_is_sheet,
+                    }),
+                    1 => Ok(SheetBooleanResult::Solid(
+                        pieces.into_iter().next().unwrap(),
+                    )),
+                    _ => Ok(SheetBooleanResult::Pieces(pieces)),
+                };
+            }
+            let planarity_budget = tol.linear() * 1.0e3;
+            if let Some((centroid, normal)) = is_approximately_planar_sheet(sheet, planarity_budget)
+            {
+                let pieces = split_solid_by_plane(solid, centroid, normal, tol)?;
                 return match pieces.len() {
                     0 => Err(crate::BoolError::OpenShellNotSupported {
                         a: a_is_sheet,
