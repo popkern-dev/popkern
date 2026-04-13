@@ -136,19 +136,24 @@ pub fn modify_closed_in_place(
     Ok(out)
 }
 
+pub use crate::modify_inplace_closed_sweep::modify_closed_in_place_bypoints;
+
 /// Topology layout of a closed-fillet annulus, captured by walking
 /// the outer + inner loops. All handles refer to the input BRep.
-struct ClosedLayout {
-    plane_support: FaceHandle,
-    cyl_support: FaceHandle,
-    cyl_twin_h: HalfEdgeHandle,
-    plane_edge: EdgeHandle,
-    cyl_edge: EdgeHandle,
-    v_plane_side: VertexHandle,
-    v_cyl_side: VertexHandle,
+pub(crate) struct ClosedLayout {
+    pub(crate) plane_support: FaceHandle,
+    pub(crate) cyl_support: FaceHandle,
+    pub(crate) cyl_twin_h: HalfEdgeHandle,
+    pub(crate) plane_edge: EdgeHandle,
+    pub(crate) cyl_edge: EdgeHandle,
+    pub(crate) v_plane_side: VertexHandle,
+    pub(crate) v_cyl_side: VertexHandle,
 }
 
-fn collect_closed_layout(brep: &BRep, fillet_face: FaceHandle) -> Result<ClosedLayout, BlendError> {
+pub(crate) fn collect_closed_layout(
+    brep: &BRep,
+    fillet_face: FaceHandle,
+) -> Result<ClosedLayout, BlendError> {
     let face_data = brep
         .faces
         .get(fillet_face)

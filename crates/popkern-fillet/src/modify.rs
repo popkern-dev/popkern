@@ -153,18 +153,31 @@ fn modify_closed_fillet_radius(
     new_radius: FilletRadius,
     tolerance: Tolerance,
 ) -> Result<BRep, BlendError> {
-    // Fast path: in-place geometry update.
+    // Round 5s: `ByPoints` closed-fillet modify takes the true
+    // around-the-rim NURBS-sweep fast path, interpreting each
+    // `(t, r)` pair's `t` as the normalized angular position
+    // around the cylinder axis (t = 0 at the seam). The resulting
+    // fillet surface is a tensor-product NURBS with the local
+    // minor radius following the piecewise-linear profile, and
+    // both contact loops become closed NURBS curves with
+    // actually-varying effective radii. See
+    // `modify_inplace::modify_closed_in_place_bypoints`.
     //
-    // Round 5p: a closed-fillet annulus has a single circular rim
-    // with one anchor vertex per contact circle, so a "variable"
-    // radius around the rim has no canonical orientation. The
-    // existing remove+recreate path already collapses Variable
-    // and ByPoints specs to the average radius (the closed-fillet
-    // construct phase uses one effective radius regardless), so
-    // we mirror that behaviour in the fast path: average the spec
-    // and dispatch to the constant in-place. Future work could
-    // produce a true varying-radius NURBS sweep for closed
-    // fillets, but it's not a regression vs the slow path today.
+    // `Variable` still averages — a 2-value `(start, end)` spec
+    // has no canonical interpretation around a closed rim (no
+    // start or end vertex) and the existing tests lock the
+    // averaged-Torus behaviour. Callers wanting a true varying
+    // sweep should use `FilletRadius::ByPoints`.
+    if let FilletRadius::ByPoints(pts) = &new_radius
+        && !pts.is_empty()
+        && let Ok(out) =
+            crate::modify_inplace::modify_closed_in_place_bypoints(brep, fillet_face, pts)
+    {
+        return Ok(out);
+    }
+
+    // Fast path: averaged in-place geometry update (Constant,
+    // Variable, and fallback for empty/degenerate ByPoints).
     let averaged = match &new_radius {
         FilletRadius::Constant(r) => *r,
         FilletRadius::Variable { start, end } => (*start + *end) * 0.5,

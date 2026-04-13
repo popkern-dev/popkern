@@ -20,6 +20,7 @@ pub mod identify;
 pub(crate) mod identify_helpers;
 pub mod modify;
 pub mod modify_inplace;
+pub(crate) mod modify_inplace_closed_sweep;
 pub(crate) mod modify_inplace_geometry;
 pub(crate) mod modify_inplace_sweep;
 pub(crate) mod naming;
