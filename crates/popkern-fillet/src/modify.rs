@@ -1,0 +1,218 @@
+//! In-place fillet radius modification (§14.7).
+//!
+//! [`modify_fillet_radius`] is the no-record path for changing a
+//! fillet's radius after the fact — given just the BRep and the
+//! fillet face's handle, it composes algorithmic unfillet (Round
+//! 5b/5c) with a fresh fillet at the new radius. The record-based
+//! path lives on [`crate::FilletOperationRecord::with_uniform_radius`]
+//! and should be preferred when the caller has the original record
+//! (it skips the unfillet step).
+//!
+//! # §14.7 acceptance criteria
+//!
+//! - **Identical to remove+recreate**: yes — that's literally what
+//!   the implementation does (algorithmic unfillet → fillet at new
+//!   radius). Any topology/geometry difference would be a bug in
+//!   one of the underlying primitives.
+//! - **≥2x faster than remove+recreate**: not yet. Today the
+//!   function pays the full cost of unfillet + fillet. A future
+//!   round will add a true in-place geometry update that only
+//!   touches the fillet surface, contact edges, and corner
+//!   vertices without rebuilding topology.
+//!
+//! # When to use which path
+//!
+//! | Caller has...               | Use                                              |
+//! |-----------------------------|--------------------------------------------------|
+//! | `FilletOperationRecord`     | [`crate::FilletOperationRecord::with_uniform_radius`] |
+//! | only the BRep + face handle | [`modify_fillet_radius`]                         |
+
+use popkern_core::geometry::Point3;
+use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
+
+use crate::error::BlendError;
+use crate::unfillet::{compute_unfillet_plan, unfillet_face};
+
+/// Modify the radius of a fillet face by composing algorithmic
+/// unfillet with a fresh fillet at `new_radius`.
+///
+/// This is the "no record" §14.7 path — when the caller has only a
+/// BRep and a fillet face handle (no [`crate::FilletOperationRecord`]),
+/// they can still change the fillet's radius in one call.
+///
+/// The implementation:
+///   1. Captures the position of the original sharp edge from
+///      [`compute_unfillet_plan`] (open fillets) or by walking the
+///      annulus loops (closed fillets).
+///   2. Runs [`unfillet_face`] to restore the sharp edge.
+///   3. Locates the restored edge in the unfilleted BRep by spatial
+///      lookup against the captured positions.
+///   4. Calls [`crate::fillet_edge`] at `new_radius` on that edge.
+///
+/// # Errors
+///
+/// - [`BlendError::InvalidParameter`] if `fillet_face` isn't
+///   recognised as a fillet, or if the restored edge can't be
+///   located in the unfilleted BRep.
+/// - Any error from the underlying [`unfillet_face`] /
+///   [`crate::fillet_edge`] calls.
+pub fn modify_fillet_radius(
+    brep: &BRep,
+    fillet_face: FaceHandle,
+    new_radius: f64,
+    tolerance: Tolerance,
+) -> Result<BRep, BlendError> {
+    if is_closed_annulus(brep, fillet_face) {
+        return modify_closed_fillet_radius(brep, fillet_face, new_radius, tolerance);
+    }
+    modify_open_fillet_radius(brep, fillet_face, new_radius, tolerance)
+}
+
+/// Open (plane-plane) fillet path — uses `compute_unfillet_plan`
+/// to capture the restored edge endpoints, then matches a new edge
+/// in the unfilleted BRep by spatial lookup.
+fn modify_open_fillet_radius(
+    brep: &BRep,
+    fillet_face: FaceHandle,
+    new_radius: f64,
+    tolerance: Tolerance,
+) -> Result<BRep, BlendError> {
+    let plan = compute_unfillet_plan(brep, fillet_face)?;
+    let p_start = plan.restored_edge_start;
+    let p_end = plan.restored_edge_end;
+
+    let unfilleted = unfillet_face(brep, fillet_face)?;
+
+    let restored_edge = find_edge_with_endpoints(&unfilleted, &p_start, &p_end, &tolerance)
+        .ok_or_else(|| BlendError::InvalidParameter {
+            parameter: "fillet_face".to_string(),
+            value: format!("{fillet_face:?}"),
+            reason: "could not locate restored sharp edge in the unfilleted BRep".to_string(),
+        })?;
+
+    let result = crate::fillet_edge(&unfilleted, restored_edge, new_radius, tolerance, None)?;
+    Ok(result.brep)
+}
+
+/// Closed-fillet (annulus) path — uses the closed-fillet unfillet,
+/// then locates the new closed rim edge between a Plane support and
+/// a Cylinder support.
+fn modify_closed_fillet_radius(
+    brep: &BRep,
+    fillet_face: FaceHandle,
+    new_radius: f64,
+    tolerance: Tolerance,
+) -> Result<BRep, BlendError> {
+    let unfilleted = crate::unfillet_closed::unfillet_closed_annulus(brep, fillet_face)?;
+
+    let restored_edge = find_closed_plane_cylinder_edge(&unfilleted).ok_or_else(|| {
+        BlendError::InvalidParameter {
+            parameter: "fillet_face".to_string(),
+            value: format!("{fillet_face:?}"),
+            reason: "could not locate restored closed rim edge after unfillet".to_string(),
+        }
+    })?;
+
+    let result = crate::fillet_edge(&unfilleted, restored_edge, new_radius, tolerance, None)?;
+    Ok(result.brep)
+}
+
+/// True when `face` is a closed-fillet annulus (one outer + one
+/// inner loop, both single-element self-closed). Mirrors the
+/// detector in [`crate::unfillet`] but inlined here so this module
+/// has no cross-module visibility dependency.
+fn is_closed_annulus(brep: &BRep, face: FaceHandle) -> bool {
+    let Some(face_data) = brep.faces.get(face) else {
+        return false;
+    };
+    if face_data.inner_loops.len() != 1 {
+        return false;
+    }
+    let single = |lh: popkern_core::topology::LoopHandle| -> bool {
+        let Some(l) = brep.loops.get(lh) else {
+            return false;
+        };
+        let start = l.half_edge;
+        let Some(he) = brep.half_edges.get(start) else {
+            return false;
+        };
+        he.next == start && he.prev == start
+    };
+    single(face_data.outer_loop) && single(face_data.inner_loops[0])
+}
+
+/// Find an edge whose two endpoint vertices are at `p_start` and
+/// `p_end` (in either order) within `tolerance.linear`.
+fn find_edge_with_endpoints(
+    brep: &BRep,
+    p_start: &Point3,
+    p_end: &Point3,
+    tolerance: &Tolerance,
+) -> Option<EdgeHandle> {
+    let tol = tolerance.linear().max(1e-9);
+    let close = |a: &Point3, b: &Point3| -> bool {
+        let dx = a.x - b.x;
+        let dy = a.y - b.y;
+        let dz = a.z - b.z;
+        (dx * dx + dy * dy + dz * dz).sqrt() < tol
+    };
+    for (eh, edata) in brep.edges.iter() {
+        let he_h = edata.half_edge;
+        let Some(he) = brep.half_edges.get(he_h) else {
+            continue;
+        };
+        let Some(twin) = brep.half_edges.get(he.twin) else {
+            continue;
+        };
+        let v0_pos = brep.vertices[he.origin].position;
+        let v1_pos = brep.vertices[twin.origin].position;
+        if (close(&v0_pos, p_start) && close(&v1_pos, p_end))
+            || (close(&v0_pos, p_end) && close(&v1_pos, p_start))
+        {
+            return Some(eh);
+        }
+    }
+    None
+}
+
+/// Find a closed (v_start == v_end) edge whose two adjacent faces
+/// are a Plane and a Cylinder — the topological signature of the
+/// rim edge restored by [`crate::unfillet_closed::unfillet_closed_annulus`].
+fn find_closed_plane_cylinder_edge(brep: &BRep) -> Option<EdgeHandle> {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    for (eh, edata) in brep.edges.iter() {
+        let he_h = edata.half_edge;
+        let Some(he) = brep.half_edges.get(he_h) else {
+            continue;
+        };
+        let Some(twin) = brep.half_edges.get(he.twin) else {
+            continue;
+        };
+        if he.origin != twin.origin {
+            continue;
+        }
+        let face_a = brep.loops.get(he.loop_)?.face;
+        let face_b = brep.loops.get(twin.loop_)?.face;
+        let surf_a = brep.faces.get(face_a)?.surface.as_ref()?;
+        let surf_b = brep.faces.get(face_b)?.surface.as_ref()?;
+        let is_plane_cyl = matches!(
+            (&surf_a.geometry, &surf_b.geometry),
+            (
+                SurfaceGeometry::Plane { .. },
+                SurfaceGeometry::Cylinder { .. },
+            ) | (
+                SurfaceGeometry::Cylinder { .. },
+                SurfaceGeometry::Plane { .. },
+            )
+        );
+        if is_plane_cyl {
+            return Some(eh);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+#[path = "modify_tests.rs"]
+mod tests;

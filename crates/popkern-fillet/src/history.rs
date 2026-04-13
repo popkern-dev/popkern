@@ -19,7 +19,9 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
 use crate::error::BlendError;
-use crate::types::{BlendResult, ChamferOptions, ChamferSpec, FilletOptions, FilletSpec};
+use crate::types::{
+    BlendResult, ChamferOptions, ChamferSpec, FilletOptions, FilletRadius, FilletSpec,
+};
 
 /// A record of one fillet operation, suitable for storage in an
 /// application-level undo/redo history list.
@@ -67,6 +69,9 @@ impl FilletOperationRecord {
     /// matches what the engine produces today (e.g. after a
     /// kernel upgrade), or when the cached `result` BRep has
     /// drifted out of sync with the rest of the model.
+    ///
+    /// # Errors
+    /// Same as [`crate::fillet_edges`].
     pub fn re_execute(&self) -> Result<BRep, BlendError> {
         let result = crate::fillet_edges(
             &self.input,
@@ -76,6 +81,58 @@ impl FilletOperationRecord {
             None,
         )?;
         Ok(result.brep)
+    }
+
+    /// Re-run the fillet on the cached input with replacement
+    /// specs, returning a fresh record. The original record is
+    /// unchanged — callers managing an undo/redo list typically
+    /// push the new record onto the history stack.
+    ///
+    /// This is the record-based path for §14.7 in-place
+    /// modification: the caller substitutes the desired specs (e.g.
+    /// to change the radius of one or more edges) and gets back a
+    /// new record whose `result` reflects those changes. Edge
+    /// handles in `new_specs` must reference the original input
+    /// BRep (`self.input`) — they're stable across the operation
+    /// because the input is what's being re-filleted.
+    ///
+    /// # Errors
+    /// Same as [`crate::fillet_edges`].
+    pub fn re_execute_with_specs(
+        &self,
+        new_specs: &[FilletSpec],
+    ) -> Result<FilletOperationRecord, BlendError> {
+        let result =
+            crate::fillet_edges(&self.input, new_specs, &self.options, self.tolerance, None)?;
+        Ok(FilletOperationRecord {
+            input: self.input.clone(),
+            specs: new_specs.to_vec(),
+            options: self.options.clone(),
+            tolerance: self.tolerance,
+            result: result.brep,
+        })
+    }
+
+    /// Convenience: re-run the fillet with all specs replaced by a
+    /// single uniform constant radius. Edge handles are preserved
+    /// from the original specs. This is the simplest §14.7 entry
+    /// point — bind a UI slider's `on_change` callback to it.
+    ///
+    /// # Errors
+    /// Same as [`re_execute_with_specs`](Self::re_execute_with_specs).
+    pub fn with_uniform_radius(
+        &self,
+        new_radius: f64,
+    ) -> Result<FilletOperationRecord, BlendError> {
+        let new_specs: Vec<FilletSpec> = self
+            .specs
+            .iter()
+            .map(|s| FilletSpec {
+                edge: s.edge,
+                radius: FilletRadius::Constant(new_radius),
+            })
+            .collect();
+        self.re_execute_with_specs(&new_specs)
     }
 }
 

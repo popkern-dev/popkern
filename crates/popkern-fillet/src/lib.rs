@@ -18,6 +18,7 @@ pub(crate) mod geometry_compute;
 pub mod history;
 pub mod identify;
 pub(crate) mod identify_helpers;
+pub mod modify;
 pub(crate) mod naming;
 pub mod offset;
 pub mod overlap;
@@ -29,6 +30,8 @@ pub mod remediation;
 pub mod trim;
 pub mod types;
 pub mod unfillet;
+pub(crate) mod unfillet_closed;
+pub(crate) mod unfillet_closed_helpers;
 pub(crate) mod unfillet_helpers;
 pub(crate) mod unfillet_surgery;
 pub mod validate;
@@ -44,6 +47,7 @@ pub use identify::{
     BlendInfo, BlendKind, IdentificationSource, blend_neighbours, blend_radius,
     blend_support_faces, identify_all_blends, identify_blend,
 };
+pub use modify::modify_fillet_radius;
 pub use precheck::{
     BlendQuality, ComputeQualityInput, FilletFeasibility, FilletIssue, FilletRadiusBounds,
     feasible_radius_bounds, fillet_quality, precheck_fillet,

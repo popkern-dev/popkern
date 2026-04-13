@@ -46,6 +46,43 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 use crate::error::BlendError;
 use crate::history::FilletOperationRecord;
 use crate::identify::{BlendKind, identify_blend};
+
+/// True when `face` is the annulus produced by the Round 5c-3
+/// closed-fillet construction path.
+///
+/// Detection is topological, not geometric: a closed-fillet annulus
+/// has exactly one outer loop AND exactly one inner loop, and BOTH
+/// loops are single-element (one self-looping half-edge). Non-
+/// closed-fillet faces with holes (e.g. a cube top with a cylinder
+/// cutout) have a multi-element outer loop and so are excluded.
+/// Checking topology rather than surface type is robust to the
+/// surface-fix post-pass, which can reassign a closed-fillet face's
+/// NURBS sweep to a nearby cylinder when the vertices happen to lie
+/// on it.
+fn is_closed_fillet_annulus(brep: &BRep, face: FaceHandle) -> bool {
+    let Some(face_data) = brep.faces.get(face) else {
+        return false;
+    };
+    if face_data.inner_loops.len() != 1 {
+        return false;
+    }
+    let outer_single = loop_is_single_element(brep, face_data.outer_loop);
+    let inner_single = loop_is_single_element(brep, face_data.inner_loops[0]);
+    outer_single && inner_single
+}
+
+/// True when `loop_` is a closed loop made of a single self-looping
+/// half-edge (next == prev == self).
+fn loop_is_single_element(brep: &BRep, loop_: popkern_core::topology::LoopHandle) -> bool {
+    let Some(l) = brep.loops.get(loop_) else {
+        return false;
+    };
+    let start = l.half_edge;
+    let Some(he) = brep.half_edges.get(start) else {
+        return false;
+    };
+    he.next == start && he.prev == start
+}
 use crate::unfillet_helpers::{
     collect_end_face_planes, extract_plane, find_torus_support_faces, intersect_line_plane,
     intersect_planes, pick_extreme_endpoints, walk_blend_boundary,
@@ -211,6 +248,14 @@ pub fn compute_unfillet_plan(
 ///   implemented yet. The remediation hint points to the working
 ///   alternatives.
 pub fn unfillet_face(brep: &BRep, blend_face: FaceHandle) -> Result<BRep, BlendError> {
+    // Closed-fillet annulus dispatch (Round 5c-4): if the face is
+    // an annulus (outer + inner loops), it was created by the
+    // closed-fillet construction path and needs the inverse
+    // surgery rather than the open-edge plan.
+    if is_closed_fillet_annulus(brep, blend_face) {
+        return crate::unfillet_closed::unfillet_closed_annulus(brep, blend_face);
+    }
+
     // 1. Plan validates that the face is a blend and gives us the
     //    geometry we need (restored edge endpoints, support pair,
     //    long boundary half-edges).
@@ -352,6 +397,29 @@ pub fn unfillet_face(brep: &BRep, blend_face: FaceHandle) -> Result<BRep, BlendE
     let mef_result = out
         .mef(he_at_start, he_at_end)
         .map_err(BlendError::Topology)?;
+
+    // 7b. MEF creates the edge but doesn't attach a curve. The
+    //     restored sharp edge between two planes is always a
+    //     straight line (the planes' intersection), so attach a
+    //     Line curve spanning the welded vertices. Without this
+    //     downstream callers (e.g. `modify_fillet_radius` →
+    //     `fillet_edge`) fail with NoValidEdges("no curve geometry").
+    use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+    let dir = Vec3::new(
+        plan.restored_edge_end.x - plan.restored_edge_start.x,
+        plan.restored_edge_end.y - plan.restored_edge_start.y,
+        plan.restored_edge_end.z - plan.restored_edge_start.z,
+    );
+    if dir.length() > 1e-12 {
+        out.edges[mef_result.edge].curve = Some(CurveOnEdge {
+            geometry: CurveGeometry::Line {
+                origin: plan.restored_edge_start,
+                direction: dir,
+            },
+            t_start: 0.0,
+            t_end: 1.0,
+        });
+    }
 
     // 8. The MEF result has TWO faces sharing the new edge: the
     //    parent (still A) and `mef_result.face` (also A's plane,
