@@ -81,25 +81,52 @@ fn detect_edge_overlaps(a: &BRep, b: &BRep, tol: &BoolTolerance, map: &mut Coinc
             let b_start = b.vertices[he_b.origin].position;
             let b_end = b.vertices[twin_b.origin].position;
 
-            // Check if A's endpoints lie on B's curve
+            // Check if A's endpoints lie on B's curve (both checks
+            // use adaptive_dist_sq_lt so the decision is deterministic
+            // at the snap threshold).
+            let snap_sq = tol.snap * tol.snap;
             let a_start_on_b = if let Some(t) = cb.geometry.closest_point(&a_start) {
                 let t_clamped = t.clamp(cb.t_start.min(cb.t_end), cb.t_start.max(cb.t_end));
-                cb.geometry.point_at(t_clamped).distance_to(&a_start) < tol.snap
+                let p = cb.geometry.point_at(t_clamped);
+                popkern_core::adaptive_precision::adaptive_dist_sq_lt(
+                    (p.x, p.y, p.z),
+                    (a_start.x, a_start.y, a_start.z),
+                    snap_sq,
+                )
             } else {
                 false
             };
 
             let a_end_on_b = if let Some(t) = cb.geometry.closest_point(&a_end) {
                 let t_clamped = t.clamp(cb.t_start.min(cb.t_end), cb.t_start.max(cb.t_end));
-                cb.geometry.point_at(t_clamped).distance_to(&a_end) < tol.snap
+                let p = cb.geometry.point_at(t_clamped);
+                popkern_core::adaptive_precision::adaptive_dist_sq_lt(
+                    (p.x, p.y, p.z),
+                    (a_end.x, a_end.y, a_end.z),
+                    snap_sq,
+                )
             } else {
                 false
             };
 
             if a_start_on_b && a_end_on_b {
                 // Both endpoints of A lie on B's curve — edges overlap.
-                // Determine direction: same or reversed.
-                let reversed = a_start.distance_to(&b_end) < a_start.distance_to(&b_start);
+                // Determine direction by comparing squared distances
+                // (monotonic, avoids sqrt and gives the same ordering
+                // for every caller).
+                let d_end_sq = {
+                    let dx = a_start.x - b_end.x;
+                    let dy = a_start.y - b_end.y;
+                    let dz = a_start.z - b_end.z;
+                    dx * dx + dy * dy + dz * dz
+                };
+                let d_start_sq = {
+                    let dx = a_start.x - b_start.x;
+                    let dy = a_start.y - b_start.y;
+                    let dz = a_start.z - b_start.z;
+                    dx * dx + dy * dy + dz * dz
+                };
+                let reversed = d_end_sq < d_start_sq;
                 map.edge_overlaps.push(super::types::EdgeOverlap {
                     edge_a: ea_h,
                     edge_b: eb_h,
@@ -225,16 +252,23 @@ fn is_near_coincident(
     let mut within_count = 0;
     let total = GRID * GRID;
 
+    let coincidence_sq = tol.coincidence * tol.coincidence;
     for i in 0..GRID {
         let u = u_min + (u_max - u_min) * (i as f64 + 0.5) / (GRID as f64);
         for j in 0..GRID {
             let v = v_min + (v_max - v_min) * (j as f64 + 0.5) / (GRID as f64);
             let p = surf_a.point_at(u, v);
 
-            // Project onto surface B
+            // Project onto surface B; decide via adaptive predicate
+            // so surfaces exactly at the coincidence threshold
+            // produce a deterministic classification.
             if let Some((u2, v2)) = surf_b.closest_point(&p) {
                 let closest = surf_b.point_at(u2, v2);
-                if p.distance_to(&closest) < tol.coincidence {
+                if popkern_core::adaptive_precision::adaptive_dist_sq_lt(
+                    (p.x, p.y, p.z),
+                    (closest.x, closest.y, closest.z),
+                    coincidence_sq,
+                ) {
                     within_count += 1;
                 }
             }

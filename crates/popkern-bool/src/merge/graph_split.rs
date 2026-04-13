@@ -287,9 +287,20 @@ pub(crate) fn remove_collinear_duplicates(graph: &mut IntersectionGraph) {
             let p0 = graph.nodes[he.origin].position;
             let p1 = graph.nodes[graph.half_edges[he.twin].origin].position;
 
+            // Use the adaptive squared-distance predicate so the
+            // duplicate-detection decision is order-independent at
+            // the tolerance boundary.
+            let tol_sq = tol * tol;
+            let close =
+                |a: &popkern_core::geometry::Point3, b: &popkern_core::geometry::Point3| -> bool {
+                    popkern_core::adaptive_precision::adaptive_dist_sq_lt(
+                        (a.x, a.y, a.z),
+                        (b.x, b.y, b.z),
+                        tol_sq,
+                    )
+                };
             let is_dup = shared_segs.iter().any(|(sp0, sp1)| {
-                (sp0.distance_to(&p0) < tol && sp1.distance_to(&p1) < tol)
-                    || (sp0.distance_to(&p1) < tol && sp1.distance_to(&p0) < tol)
+                (close(sp0, &p0) && close(sp1, &p1)) || (close(sp0, &p1) && close(sp1, &p0))
             });
 
             if is_dup {

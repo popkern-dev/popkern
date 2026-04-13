@@ -25,7 +25,11 @@ impl BRep {
                 let tol_a = self.vertex_tolerance(va);
                 let tol_b = self.vertex_tolerance(vb);
                 let threshold = tol_a.max(tol_b);
-                pos_a.distance_to(&pos_b) < threshold
+                crate::adaptive_precision::adaptive_dist_sq_lt(
+                    (pos_a.x, pos_a.y, pos_a.z),
+                    (pos_b.x, pos_b.y, pos_b.z),
+                    threshold * threshold,
+                )
             }
             // Edge-edge and face-face: future work.
             _ => false,
@@ -48,7 +52,11 @@ impl BRep {
                 let tol_a = self.vertex_tolerance(va);
                 let tol_b = self.vertex_tolerance(vb);
                 let threshold = tol_a + tol_b;
-                pos_a.distance_to(&pos_b) < threshold
+                crate::adaptive_precision::adaptive_dist_sq_lt(
+                    (pos_a.x, pos_a.y, pos_a.z),
+                    (pos_b.x, pos_b.y, pos_b.z),
+                    threshold * threshold,
+                )
             }
             // Edge-edge and face-face: future work.
             _ => false,

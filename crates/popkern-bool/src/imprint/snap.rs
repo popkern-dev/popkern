@@ -116,6 +116,12 @@ pub fn snap_to_nearest(
 /// Check if a proposed edge (between two points) would be a micro-edge.
 ///
 /// Returns `true` if the edge length is below `micro_edge_tolerance`.
+/// Uses the adaptive squared-distance predicate so decisions at the
+/// micro-edge threshold are deterministic.
 pub fn is_micro_edge(p1: &Point3, p2: &Point3, micro_edge_tolerance: f64) -> bool {
-    p1.distance_to(p2) < micro_edge_tolerance
+    popkern_core::adaptive_precision::adaptive_dist_sq_lt(
+        (p1.x, p1.y, p1.z),
+        (p2.x, p2.y, p2.z),
+        micro_edge_tolerance * micro_edge_tolerance,
+    )
 }

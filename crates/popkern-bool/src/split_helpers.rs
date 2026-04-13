@@ -67,7 +67,13 @@ pub(super) fn point_on_segment(a: &Point3, b: &Point3, point: &Point3, tol: f64)
         return None;
     }
     let closest = *a + Vec3::new(ab.x * t, ab.y * t, ab.z * t);
-    if point.distance_to(&closest) < tol {
+    // Adaptive predicate: determinate on-segment decision at the
+    // tolerance envelope, avoids the sqrt.
+    if popkern_core::adaptive_precision::adaptive_dist_sq_lt(
+        (point.x, point.y, point.z),
+        (closest.x, closest.y, closest.z),
+        tol * tol,
+    ) {
         Some(t)
     } else {
         None
