@@ -19,6 +19,8 @@ pub mod history;
 pub mod identify;
 pub(crate) mod identify_helpers;
 pub mod modify;
+pub(crate) mod modify_inplace;
+pub(crate) mod modify_inplace_geometry;
 pub(crate) mod naming;
 pub mod offset;
 pub mod overlap;

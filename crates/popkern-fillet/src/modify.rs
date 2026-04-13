@@ -95,17 +95,24 @@ fn modify_open_fillet_radius(
     Ok(result.brep)
 }
 
-/// Closed-fillet (annulus) path — uses the closed-fillet unfillet,
-/// then locates the new closed rim edge between a Plane support and
-/// a Cylinder support.
+/// Closed-fillet (annulus) path — tries the in-place geometry
+/// update first (Round 5d-2 — true §14.7 ≥2× speedup), and falls
+/// back to the remove+recreate path on failure. Both produce
+/// geometrically equivalent results; the in-place path is much
+/// faster because it skips topology surgery and pcurve recompute.
 fn modify_closed_fillet_radius(
     brep: &BRep,
     fillet_face: FaceHandle,
     new_radius: f64,
     tolerance: Tolerance,
 ) -> Result<BRep, BlendError> {
-    let unfilleted = crate::unfillet_closed::unfillet_closed_annulus(brep, fillet_face)?;
+    // Fast path: in-place geometry update.
+    if let Ok(out) = crate::modify_inplace::modify_closed_in_place(brep, fillet_face, new_radius) {
+        return Ok(out);
+    }
 
+    // Fallback: remove + recreate via algorithmic unfillet.
+    let unfilleted = crate::unfillet_closed::unfillet_closed_annulus(brep, fillet_face)?;
     let restored_edge = find_closed_plane_cylinder_edge(&unfilleted).ok_or_else(|| {
         BlendError::InvalidParameter {
             parameter: "fillet_face".to_string(),
@@ -113,7 +120,6 @@ fn modify_closed_fillet_radius(
             reason: "could not locate restored closed rim edge after unfillet".to_string(),
         }
     })?;
-
     let result = crate::fillet_edge(&unfilleted, restored_edge, new_radius, tolerance, None)?;
     Ok(result.brep)
 }
