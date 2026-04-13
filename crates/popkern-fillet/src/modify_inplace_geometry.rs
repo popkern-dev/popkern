@@ -27,19 +27,33 @@ pub(crate) fn determine_fillet_signs(
     v_plane_pos: &Point3,
     v_cyl_pos: &Point3,
 ) -> Result<FilletSigns, BlendError> {
-    let cyl_offset_from_plane = Vec3::new(
-        v_cyl_pos.x - plane.origin.x,
-        v_cyl_pos.y - plane.origin.y,
-        v_cyl_pos.z - plane.origin.z,
-    )
-    .dot(&plane.normal);
-    let s_plane = if cyl_offset_from_plane.abs() < 1e-12 {
+    // s_plane: along which direction of `cyl.axis` the cyl-side
+    // vertex sits relative to the plane. Computed from the AXIS
+    // projection — NOT the plane normal — so it gives the correct
+    // sign for `move_cyl_side_vertex`'s `plane_along + s_plane * R`
+    // formula regardless of how `plane.normal` is oriented.
+    let denom = cyl.axis.dot(&plane.normal);
+    let plane_along = if denom.abs() < 1e-12 {
+        0.0
+    } else {
+        let diff = Vec3::new(
+            plane.origin.x - cyl.origin.x,
+            plane.origin.y - cyl.origin.y,
+            plane.origin.z - cyl.origin.z,
+        );
+        diff.dot(&plane.normal) / denom
+    };
+    let cyl_along = (v_cyl_pos.x - cyl.origin.x) * cyl.axis.x
+        + (v_cyl_pos.y - cyl.origin.y) * cyl.axis.y
+        + (v_cyl_pos.z - cyl.origin.z) * cyl.axis.z;
+    let cyl_offset_along_axis = cyl_along - plane_along;
+    let s_plane = if cyl_offset_along_axis.abs() < 1e-12 {
         return Err(BlendError::InvalidParameter {
             parameter: "fillet_face".to_string(),
             value: "cyl-side vertex on plane".to_string(),
             reason: "degenerate fillet (zero radius?)".to_string(),
         });
-    } else if cyl_offset_from_plane > 0.0 {
+    } else if cyl_offset_along_axis > 0.0 {
         1.0
     } else {
         -1.0

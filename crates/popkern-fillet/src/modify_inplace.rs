@@ -1,27 +1,12 @@
 //! True in-place geometry update for §14.7 — modifies a fillet's
-//! radius without any topology surgery. This is the ≥2× speedup
-//! path: instead of unfilleting and re-filleting (which rebuilds
-//! topology, recomputes pcurves, and re-runs validation), we just
-//! move the contact vertices, rebuild the touching edges, and
-//! update the fillet face's surface.
+//! radius without any topology surgery. The ≥2× speedup path:
+//! instead of unfillet+refillet, just move the contact vertices,
+//! rebuild touching edges, and update the fillet face's surface.
 //!
 //! - Round 5d-2: closed plane-cylinder annulus
 //!   ([`modify_closed_in_place`])
 //! - Round 5d-3: open plane-plane fillet
 //!   ([`modify_open_in_place`])
-//!
-//! # Why "in place" is faster
-//!
-//! The remove+recreate path through `modify_fillet_radius` runs:
-//!   1. Validate (~µs)
-//!   2. `compute_unfillet_plan` or `unfillet_closed_annulus` (~ms — surface intersections, vertex welding)
-//!   3. `fillet_edge` end-to-end (~ms — analyze, geometry compute, topology surgery, pcurve recompute, validation)
-//!
-//! In-place skips steps 2 and most of step 3 — no topology surgery,
-//! no pcurve recompute, no second validation. The geometry compute
-//! itself is short-circuited by reusing the fact that for a known
-//! plane+cylinder pair, the new contact circles are determined
-//! analytically by the new radius.
 
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::{Point3, Vec3};
@@ -497,3 +482,7 @@ fn find_corner_vertex(
 #[cfg(test)]
 #[path = "modify_inplace_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "modify_equivalence_tests.rs"]
+mod equivalence_tests;
