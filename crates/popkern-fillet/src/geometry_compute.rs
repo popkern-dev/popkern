@@ -103,28 +103,24 @@ pub(crate) fn compute_fillet_geometry(
             location: Some(edge_midpoint),
         })?,
         FilletRadius::ByPoints(pts) => {
-            let (r_start, r_end) = if pts.len() >= 2 {
-                (pts[0].1, pts[pts.len() - 1].1)
-            } else if pts.len() == 1 {
-                (pts[0].1, pts[0].1)
-            } else {
-                // This path should be unreachable after API-level
-                // parameter validation, but we keep a defensive
-                // belt-and-suspenders branch so an internal caller
-                // that bypasses validation cannot panic.
+            if pts.is_empty() {
                 return Err(BlendFailure::InvalidTopology {
                     reason: "ByPoints radius with empty point list".to_string(),
                 });
-            };
-            center_curve::variable_radius_center_curve(
+            }
+            // Round 5l: build the center curve using a piecewise-
+            // linear closure over the *full* ByPoints profile, not
+            // just the endpoint radii. The intermediate points now
+            // shape the center curve rather than being silently
+            // dropped.
+            center_curve::parametric_radius_center_curve(
                 &analysis.surface_1,
                 u1_range,
                 v1_range,
                 &analysis.surface_2,
                 u2_range,
                 v2_range,
-                r_start,
-                r_end,
+                |t| center_curve::bypoints_local_radius(pts, t),
                 &edge_midpoint,
                 tolerance,
                 analysis.orientation_1,

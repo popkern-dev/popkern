@@ -130,18 +130,49 @@ pub fn variable_radius_center_curve(
     orientation_1: bool,
     orientation_2: bool,
 ) -> Result<CenterCurveResult, String> {
+    parametric_radius_center_curve(
+        surface1,
+        u1_range,
+        v1_range,
+        surface2,
+        u2_range,
+        v2_range,
+        |t| radius_start + (radius_end - radius_start) * t,
+        edge_midpoint,
+        tolerance,
+        orientation_1,
+        orientation_2,
+    )
+}
+
+/// Build a center curve for an arbitrary local-radius profile
+/// `radius_at(t)` where `t` ranges over `[0, 1]` along the sharp
+/// edge. Round 5l: ByPoints uses this with a piecewise-linear
+/// closure so the full profile (not just the endpoint radii)
+/// drives the rolling-ball center curve and footprints.
+#[allow(clippy::too_many_arguments)]
+pub fn parametric_radius_center_curve(
+    surface1: &SurfaceGeometry,
+    u1_range: (f64, f64),
+    v1_range: (f64, f64),
+    surface2: &SurfaceGeometry,
+    u2_range: (f64, f64),
+    v2_range: (f64, f64),
+    radius_at: impl Fn(f64) -> f64,
+    edge_midpoint: &Point3,
+    tolerance: &Tolerance,
+    orientation_1: bool,
+    orientation_2: bool,
+) -> Result<CenterCurveResult, String> {
     let n_samples = 20usize;
     let mut center_points = Vec::with_capacity(n_samples);
     let mut footprint_1 = Vec::with_capacity(n_samples);
     let mut footprint_2 = Vec::with_capacity(n_samples);
 
-    // Use the constant-radius solver at a few key stations to seed iteration.
-    // For simplicity, solve independently at each sample using local radius.
     for i in 0..n_samples {
         let t = i as f64 / (n_samples - 1).max(1) as f64;
-        let local_radius = radius_start + (radius_end - radius_start) * t;
+        let local_radius = radius_at(t);
 
-        // Offset surfaces at local radius and find the nearest intersection point.
         let center_pt = find_center_point_at_radius(
             surface1,
             u1_range,
@@ -166,7 +197,6 @@ pub fn variable_radius_center_curve(
 
     let center_curve = fit_nurbs_through_points(&center_points)?;
 
-    // Clip footprint points to face UV bounds.
     let footprint_1 = clip_footprint_to_bounds(surface1, u1_range, v1_range, &footprint_1);
     let footprint_2 = clip_footprint_to_bounds(surface2, u2_range, v2_range, &footprint_2);
 
@@ -175,6 +205,31 @@ pub fn variable_radius_center_curve(
         footprint_1,
         footprint_2,
     })
+}
+
+/// Piecewise-linear interpolation of a `ByPoints` radius profile.
+/// `pts` must be sorted by parameter ascending. Out-of-range `t`
+/// is clamped to the endpoint radii.
+pub fn bypoints_local_radius(pts: &[(f64, f64)], t: f64) -> f64 {
+    if pts.is_empty() {
+        return 0.0;
+    }
+    if t <= pts[0].0 {
+        return pts[0].1;
+    }
+    if t >= pts[pts.len() - 1].0 {
+        return pts[pts.len() - 1].1;
+    }
+    for window in pts.windows(2) {
+        let (t0, r0) = window[0];
+        let (t1, r1) = window[1];
+        if t >= t0 && t <= t1 {
+            let span = (t1 - t0).max(1e-12);
+            let frac = (t - t0) / span;
+            return r0 + (r1 - r0) * frac;
+        }
+    }
+    pts[pts.len() - 1].1
 }
 
 // ---------------------------------------------------------------------------

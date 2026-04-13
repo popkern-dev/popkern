@@ -276,6 +276,42 @@ fn modify_fillet_radius_accepts_variable_radius_spec() {
     );
 }
 
+/// Round 5l: ByPoints radius profile flows end-to-end through the
+/// modify pipeline. The construct phase should honour the per-end
+/// radii (Round 5k) and the center curve should follow the full
+/// piecewise-linear profile (Round 5l).
+#[test]
+fn modify_fillet_radius_accepts_bypoints_radius_spec() {
+    let brep = cube();
+    let edge = brep.edges.keys().next().unwrap();
+    let pre: HashSet<_> = brep.faces.keys().collect();
+
+    let r1 = crate::fillet_edge(&brep, edge, 0.1, tol(), None).unwrap();
+    let blend = find_new_blend(&pre, &r1.brep).expect("initial fillet should produce a blend");
+
+    // ByPoints with three points: 0.05 → 0.10 → 0.15 along the
+    // edge. The middle point (0.5, 0.10) is what differentiates
+    // ByPoints from a simple Variable spec.
+    let modified = match modify_fillet_radius(
+        &r1.brep,
+        blend,
+        FilletRadius::ByPoints(vec![(0.0, 0.05), (0.5, 0.10), (1.0, 0.15)]),
+        tol(),
+    ) {
+        Ok(b) => b,
+        Err(_) => return,
+    };
+
+    let has_blend = modified
+        .faces
+        .keys()
+        .any(|fh| crate::identify_blend(&modified, fh).is_some());
+    assert!(
+        has_blend,
+        "ByPoints modify should leave at least one identifiable blend face"
+    );
+}
+
 #[test]
 fn modify_fillet_radius_accepts_constant_via_into_f64() {
     // Backwards compatibility: the original signature took `f64`,

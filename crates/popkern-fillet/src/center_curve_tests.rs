@@ -236,3 +236,39 @@ fn variable_center_curve_small_radius_range() {
         result.err(),
     );
 }
+
+#[test]
+fn bypoints_local_radius_endpoints() {
+    let pts = vec![(0.0, 0.05), (0.5, 0.10), (1.0, 0.15)];
+    assert_eq!(bypoints_local_radius(&pts, 0.0), 0.05);
+    assert_eq!(bypoints_local_radius(&pts, 1.0), 0.15);
+    assert_eq!(bypoints_local_radius(&pts, 0.5), 0.10);
+}
+
+#[test]
+fn bypoints_local_radius_piecewise_linear() {
+    let pts = vec![(0.0, 0.05), (0.5, 0.10), (1.0, 0.15)];
+    // Halfway between 0 and 0.5 → r interpolates from 0.05 to 0.10 → 0.075.
+    assert!((bypoints_local_radius(&pts, 0.25) - 0.075).abs() < 1e-12);
+    // Halfway between 0.5 and 1.0 → r interpolates from 0.10 to 0.15 → 0.125.
+    assert!((bypoints_local_radius(&pts, 0.75) - 0.125).abs() < 1e-12);
+}
+
+#[test]
+fn bypoints_local_radius_clamps_out_of_range() {
+    let pts = vec![(0.2, 0.05), (0.8, 0.15)];
+    // Below the first point: clamp to first.
+    assert_eq!(bypoints_local_radius(&pts, 0.0), 0.05);
+    assert_eq!(bypoints_local_radius(&pts, -1.0), 0.05);
+    // Above the last point: clamp to last.
+    assert_eq!(bypoints_local_radius(&pts, 1.0), 0.15);
+    assert_eq!(bypoints_local_radius(&pts, 5.0), 0.15);
+}
+
+#[test]
+fn bypoints_local_radius_single_point() {
+    let pts = vec![(0.5, 0.1)];
+    assert_eq!(bypoints_local_radius(&pts, 0.0), 0.1);
+    assert_eq!(bypoints_local_radius(&pts, 0.5), 0.1);
+    assert_eq!(bypoints_local_radius(&pts, 1.0), 0.1);
+}
