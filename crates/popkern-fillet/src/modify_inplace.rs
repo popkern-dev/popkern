@@ -18,7 +18,9 @@ use crate::modify_inplace_geometry::{
     move_plane_side_vertex, perpendicular_in_plane, pick_signed_perpendicular,
     project_to_cylinder_axis_at_height, project_to_plane_along_axis, rebuild_circle_edge,
 };
-use crate::modify_inplace_sweep::{VariableSweepInputs, build_variable_plane_plane_sweep};
+use crate::modify_inplace_sweep::{
+    VariableSweepInputs, build_parametric_plane_plane_sweep, build_variable_plane_plane_sweep,
+};
 use crate::unfillet::{UnfilletPlan, compute_unfillet_plan};
 use crate::unfillet_closed_helpers::{
     Side, classify_support_pair, extract_cylinder_geometry, extract_plane_geometry,
@@ -259,7 +261,7 @@ pub(crate) fn modify_open_in_place(
     fillet_face: FaceHandle,
     new_radius: f64,
 ) -> Result<BRep, BlendError> {
-    modify_open_in_place_general(brep, fillet_face, new_radius, new_radius)
+    modify_open_in_place_general(brep, fillet_face, new_radius, new_radius, None)
 }
 
 /// Variable-radius variant of [`modify_open_in_place`] (Round 5h).
@@ -276,7 +278,33 @@ pub(crate) fn modify_open_in_place_variable(
     r_start: f64,
     r_end: f64,
 ) -> Result<BRep, BlendError> {
-    modify_open_in_place_general(brep, fillet_face, r_start, r_end)
+    modify_open_in_place_general(brep, fillet_face, r_start, r_end, None)
+}
+
+/// Round 5m: ByPoints variant of the in-place open path. The
+/// corners are positioned by the radii at parameters 0 and 1
+/// (matching the perp-split convention used for `Constant` and
+/// `Variable`), and the fillet surface is built as a NURBS sweep
+/// driven by a piecewise-linear closure over the *full* points
+/// list — so intermediate radius points shape the surface.
+pub(crate) fn modify_open_in_place_bypoints(
+    brep: &BRep,
+    fillet_face: FaceHandle,
+    points: &[(f64, f64)],
+) -> Result<BRep, BlendError> {
+    if points.is_empty() {
+        return Err(BlendError::InvalidParameter {
+            parameter: "points".to_string(),
+            value: "empty".to_string(),
+            reason: "ByPoints radius profile must have at least one point".to_string(),
+        });
+    }
+    let r_start = crate::center_curve::bypoints_local_radius(points, 0.0);
+    let r_end = crate::center_curve::bypoints_local_radius(points, 1.0);
+    let pts: Vec<(f64, f64)> = points.to_vec();
+    let closure: Box<dyn Fn(f64) -> f64> =
+        Box::new(move |t| crate::center_curve::bypoints_local_radius(&pts, t));
+    modify_open_in_place_general(brep, fillet_face, r_start, r_end, Some(closure))
 }
 
 fn modify_open_in_place_general(
@@ -284,6 +312,7 @@ fn modify_open_in_place_general(
     fillet_face: FaceHandle,
     r_start: f64,
     r_end: f64,
+    radius_closure: Option<Box<dyn Fn(f64) -> f64>>,
 ) -> Result<BRep, BlendError> {
     let plan = compute_unfillet_plan(brep, fillet_face)?;
     let plane_a = extract_plane(brep, plan.support_a)?;
@@ -341,22 +370,30 @@ fn modify_open_in_place_general(
 
     rebuild_curves_touching(&mut out, &welded);
 
-    // Reassign the fillet face surface. Constant radius → exact
-    // analytic torus matching `try_plane_plane_torus`. Variable
-    // radius → a true tensor-product NURBS sweep (Round 5i).
-    let new_surface = if (r_start - r_end).abs() > 1e-12 {
-        build_variable_plane_plane_sweep(&VariableSweepInputs {
-            p_start: plan.restored_edge_start,
-            p_end: plan.restored_edge_end,
-            plane_a_normal: plane_a.normal,
-            plane_b_normal: plane_b.normal,
-            signed_perp_a,
-            signed_perp_b,
-            r_start,
-            r_end,
-            n_sections: 8,
-            n_arc_samples: 8,
-        })
+    // Reassign the fillet face surface.
+    //   - ByPoints (closure provided) → tensor-product NURBS sweep
+    //     driven by the piecewise-linear closure over the full
+    //     points list. Round 5m.
+    //   - Variable (no closure, r_start ≠ r_end) → linear-interp
+    //     NURBS sweep. Round 5i.
+    //   - Constant (no closure, r_start == r_end) → analytic torus
+    //     matching `try_plane_plane_torus`. Round 5d-3.
+    let sweep_inputs = VariableSweepInputs {
+        p_start: plan.restored_edge_start,
+        p_end: plan.restored_edge_end,
+        plane_a_normal: plane_a.normal,
+        plane_b_normal: plane_b.normal,
+        signed_perp_a,
+        signed_perp_b,
+        r_start,
+        r_end,
+        n_sections: 8,
+        n_arc_samples: 8,
+    };
+    let new_surface = if let Some(radius_at) = radius_closure.as_deref() {
+        build_parametric_plane_plane_sweep(&sweep_inputs, radius_at)
+    } else if (r_start - r_end).abs() > 1e-12 {
+        build_variable_plane_plane_sweep(&sweep_inputs)
     } else {
         constant_plane_plane_torus(&plane_a.normal, &plane_b.normal, &plan, r_start)
     };

@@ -101,11 +101,17 @@ fn modify_open_fillet_radius(
                 return Ok(out);
             }
         }
-        FilletRadius::ByPoints(_) => {
-            // ByPoints carries arbitrary parameter→radius pairs; for
-            // a 4-corner plane-plane fillet only the start (parameter
-            // 0) and end (parameter 1) values matter. Fall through
-            // to remove+recreate which honours the full profile.
+        FilletRadius::ByPoints(points) => {
+            // Round 5m: ByPoints in-place. The corners are
+            // positioned by the radii at parameters 0 and 1, but
+            // the fillet surface is built as a NURBS sweep driven
+            // by a piecewise-linear closure over the full points
+            // list — intermediate radii shape the surface.
+            if let Ok(out) =
+                crate::modify_inplace::modify_open_in_place_bypoints(brep, fillet_face, points)
+            {
+                return Ok(out);
+            }
         }
     }
 

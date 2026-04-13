@@ -23,14 +23,31 @@ pub(crate) struct VariableSweepInputs {
 /// Build a true variable-radius NURBS sweep surface for a
 /// plane-plane fillet. Samples `n_sections` cross-section arcs
 /// along the sharp edge from `(p_start, r_start)` to
-/// `(p_end, r_end)`, each at the locally interpolated radius, and
-/// skins them into a tensor-product NurbsSurface (degree 1 × 1).
+/// `(p_end, r_end)`, each at the locally interpolated radius
+/// (linear interpolation), and skins them into a tensor-product
+/// NurbsSurface (degree 1 × 1).
 ///
 /// Used by Round 5i to produce a geometrically exact variable-
-/// radius fillet surface in place — the alternative (a Torus with
-/// the average minor radius) is correct for visualisation but not
-/// for downstream consumers that read the surface for analysis.
+/// radius fillet surface in place. For arbitrary radius profiles
+/// (e.g. `FilletRadius::ByPoints`) use
+/// [`build_parametric_plane_plane_sweep`] directly with a
+/// piecewise-linear closure.
 pub(crate) fn build_variable_plane_plane_sweep(inputs: &VariableSweepInputs) -> SurfaceGeometry {
+    let r_start = inputs.r_start;
+    let r_end = inputs.r_end;
+    build_parametric_plane_plane_sweep(inputs, |t| r_start + t * (r_end - r_start))
+}
+
+/// Generalised variant of [`build_variable_plane_plane_sweep`] that
+/// takes a `radius_at: Fn(f64) -> f64` closure for the local-radius
+/// profile. The linear-radius variant calls this with a linear
+/// closure; Round 5m's `ByPoints` in-place path passes a
+/// piecewise-linear closure over the full points list, so
+/// intermediate radius points shape the swept surface.
+pub(crate) fn build_parametric_plane_plane_sweep<F: Fn(f64) -> f64>(
+    inputs: &VariableSweepInputs,
+    radius_at: F,
+) -> SurfaceGeometry {
     let VariableSweepInputs {
         p_start,
         p_end,
@@ -38,8 +55,8 @@ pub(crate) fn build_variable_plane_plane_sweep(inputs: &VariableSweepInputs) -> 
         plane_b_normal,
         signed_perp_a,
         signed_perp_b,
-        r_start,
-        r_end,
+        r_start: _,
+        r_end: _,
         n_sections,
         n_arc_samples,
     } = *inputs;
@@ -74,7 +91,7 @@ pub(crate) fn build_variable_plane_plane_sweep(inputs: &VariableSweepInputs) -> 
             p_start.y + t * (p_end.y - p_start.y),
             p_start.z + t * (p_end.z - p_start.z),
         );
-        let r_i = r_start + t * (r_end - r_start);
+        let r_i = radius_at(t);
 
         let footprint_a = Point3::new(
             p_i.x + signed_perp_a.x * r_i,
