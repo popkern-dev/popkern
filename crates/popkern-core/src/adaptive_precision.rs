@@ -33,6 +33,13 @@
 //!   escalation pattern. Used for near-parallel-normal detection
 //!   where catastrophic cancellation in the cross-product
 //!   components would otherwise flip the sign.
+//! - [`adaptive_abs_plane_distance_lt`] — `|(point - origin) ·
+//!   normal| < threshold` (signed distance from a point to a
+//!   plane) with escalation. Cancellation in the per-axis
+//!   subtraction is captured via [`DoublePrecision::from_sub`],
+//!   and the dot product is re-accumulated in DP so the sign
+//!   flips that f64 can produce at the threshold boundary become
+//!   impossible.
 
 /// Evaluate a sign predicate with adaptive precision.
 ///
@@ -287,6 +294,51 @@ pub fn adaptive_cross_ratio_sq_lt(
     let dp_rhs = dp_norms_sq.dd_mul(DoublePrecision::from_f64(threshold_sq));
 
     dp_cross_len_sq.dd_sub(dp_rhs).to_f64() < 0.0
+}
+
+/// Adaptive `|(point - origin) · normal| < threshold` predicate.
+///
+/// Computes the signed distance from `point` to the plane defined
+/// by `origin` and `normal` (assumed to be a unit vector), then
+/// compares the magnitude against `threshold`.
+///
+/// Two-stage evaluation:
+/// 1. **Fast path**: compute the f64 signed distance and check
+///    against `threshold` with a conservative 6·ε margin.
+/// 2. **Slow path**: recompute each `point.i - origin.i`
+///    subtraction with [`DoublePrecision::from_sub`] so any
+///    cancellation bits are recovered, then re-accumulate the
+///    dot product in DP and compare against `threshold`.
+pub fn adaptive_abs_plane_distance_lt(
+    point: (f64, f64, f64),
+    origin: (f64, f64, f64),
+    normal: (f64, f64, f64),
+    threshold: f64,
+) -> bool {
+    // Fast path.
+    let dx = point.0 - origin.0;
+    let dy = point.1 - origin.1;
+    let dz = point.2 - origin.2;
+    let f = dx * normal.0 + dy * normal.1 + dz * normal.2;
+    let f_abs = f.abs();
+    let margin = 6.0 * f64::EPSILON * f_abs.max(threshold);
+
+    if f_abs + margin < threshold {
+        return true;
+    }
+    if f_abs > threshold + margin {
+        return false;
+    }
+
+    // Slow path: recompute in double precision.
+    let dp_dx = DoublePrecision::from_sub(point.0, origin.0);
+    let dp_dy = DoublePrecision::from_sub(point.1, origin.1);
+    let dp_dz = DoublePrecision::from_sub(point.2, origin.2);
+    let dp_f = dp_dx
+        .dd_mul(DoublePrecision::from_f64(normal.0))
+        .dd_add(dp_dy.dd_mul(DoublePrecision::from_f64(normal.1)))
+        .dd_add(dp_dz.dd_mul(DoublePrecision::from_f64(normal.2)));
+    dp_f.to_f64().abs() < threshold
 }
 
 #[cfg(test)]

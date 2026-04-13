@@ -45,8 +45,12 @@ pub(crate) fn march_project(
             (p1.x, p1.y, p1.z),
             (p2.x, p2.y, p2.z),
             tolerance.linear() * tolerance.linear(),
-        ) && f4.abs() < tolerance.linear()
-        {
+        ) && crate::adaptive_precision::adaptive_abs_plane_distance_lt(
+            (p1.x, p1.y, p1.z),
+            (target.x, target.y, target.z),
+            (march_dir.x, march_dir.y, march_dir.z),
+            tolerance.linear(),
+        ) {
             return Some(MarchSample {
                 u1,
                 v1,
@@ -122,8 +126,12 @@ pub(crate) fn march_project_with_iters(
             (p1.x, p1.y, p1.z),
             (p2.x, p2.y, p2.z),
             tolerance.linear() * tolerance.linear(),
-        ) && f4.abs() < tolerance.linear()
-        {
+        ) && crate::adaptive_precision::adaptive_abs_plane_distance_lt(
+            (p1.x, p1.y, p1.z),
+            (target.x, target.y, target.z),
+            (march_dir.x, march_dir.y, march_dir.z),
+            tolerance.linear(),
+        ) {
             return Some((
                 MarchSample {
                     u1,

@@ -194,3 +194,45 @@ fn adaptive_cross_ratio_sq_lt_antiparallel_vectors_are_tangent() {
     let n2 = (-1.0, 0.0, 0.0);
     assert!(adaptive_cross_ratio_sq_lt(n1, n2, 1e-4));
 }
+
+#[test]
+fn adaptive_abs_plane_distance_lt_on_plane_is_below_threshold() {
+    // Point on the plane: signed distance is zero, clearly below
+    // any positive threshold.
+    let point = (0.5, 0.5, 0.0);
+    let origin = (0.0, 0.0, 0.0);
+    let normal = (0.0, 0.0, 1.0); // XY plane
+    assert!(adaptive_abs_plane_distance_lt(point, origin, normal, 1e-6));
+}
+
+#[test]
+fn adaptive_abs_plane_distance_lt_far_from_plane() {
+    let point = (0.0, 0.0, 5.0);
+    let origin = (0.0, 0.0, 0.0);
+    let normal = (0.0, 0.0, 1.0);
+    // Signed distance = 5 > 0.1 threshold.
+    assert!(!adaptive_abs_plane_distance_lt(point, origin, normal, 0.1));
+}
+
+#[test]
+fn adaptive_abs_plane_distance_lt_both_signs_respected() {
+    let origin = (0.0, 0.0, 0.0);
+    let normal = (0.0, 0.0, 1.0);
+    // Point below the plane: signed distance is negative, magnitude is 2.
+    assert!(!adaptive_abs_plane_distance_lt(
+        (0.0, 0.0, -2.0),
+        origin,
+        normal,
+        1.0
+    ));
+}
+
+#[test]
+fn adaptive_abs_plane_distance_lt_at_threshold_boundary() {
+    // Point exactly at threshold distance — the strict < makes
+    // this false, and the adaptive recomputation must agree.
+    let point = (0.0, 0.0, 1.0);
+    let origin = (0.0, 0.0, 0.0);
+    let normal = (0.0, 0.0, 1.0);
+    assert!(!adaptive_abs_plane_distance_lt(point, origin, normal, 1.0));
+}
