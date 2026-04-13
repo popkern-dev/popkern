@@ -169,6 +169,7 @@ impl DoublePrecision {
 /// The f64 margin is `4 * f64::EPSILON * max(dist_sq, threshold_sq)`,
 /// a standard conservative bound for the worst-case error of three
 /// multiplies + two adds + one subtract in f64.
+#[inline]
 pub fn adaptive_dist_sq_lt(p1: (f64, f64, f64), p2: (f64, f64, f64), threshold_sq: f64) -> bool {
     let dx = p1.0 - p2.0;
     let dy = p1.1 - p2.1;
@@ -183,7 +184,13 @@ pub fn adaptive_dist_sq_lt(p1: (f64, f64, f64), p2: (f64, f64, f64), threshold_s
         return false;
     }
 
-    // Ambiguous — recompute in double precision.
+    // Slow path goes through a non-inline helper so the
+    // inlined fast path stays compact.
+    adaptive_dist_sq_lt_slow(p1, p2, threshold_sq)
+}
+
+#[inline(never)]
+fn adaptive_dist_sq_lt_slow(p1: (f64, f64, f64), p2: (f64, f64, f64), threshold_sq: f64) -> bool {
     let dp_dx = DoublePrecision::from_sub(p1.0, p2.0);
     let dp_dy = DoublePrecision::from_sub(p1.1, p2.1);
     let dp_dz = DoublePrecision::from_sub(p1.2, p2.2);
@@ -227,6 +234,7 @@ pub fn adaptive_dist_sq_lt(p1: (f64, f64, f64), p2: (f64, f64, f64), threshold_s
 /// Returns `false` if either input has effectively zero magnitude
 /// (`|n1|² · |n2|²` below `f64::EPSILON`) — mirrors the existing
 /// intersect.rs guard against dividing by a tiny number.
+#[inline]
 pub fn adaptive_cross_ratio_sq_lt(
     n1: (f64, f64, f64),
     n2: (f64, f64, f64),
@@ -309,6 +317,7 @@ pub fn adaptive_cross_ratio_sq_lt(
 ///    subtraction with [`DoublePrecision::from_sub`] so any
 ///    cancellation bits are recovered, then re-accumulate the
 ///    dot product in DP and compare against `threshold`.
+#[inline]
 pub fn adaptive_abs_plane_distance_lt(
     point: (f64, f64, f64),
     origin: (f64, f64, f64),
