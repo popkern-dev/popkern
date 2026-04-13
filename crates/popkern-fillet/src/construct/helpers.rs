@@ -9,16 +9,18 @@ use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, LoopHandle, VertexHandle};
 
-pub use super::merge::{
-    identify_consumed_face, identify_consumed_face_contains, merge_consumed_faces,
-};
+pub use super::merge::{identify_consumed_face_any, merge_consumed_faces_any};
 
 /// Split perpendicular edges at the fillet offset distance.
 ///
-/// For each face adjacent to the fillet edge, finds the boundary edges that
-/// share a vertex with the fillet edge, and splits them at the offset distance
-/// (fillet radius) from the shared vertex. This creates the anchor vertices
-/// where the trim curves will start and end.
+/// `brep_snapshot` is an immutable clone of the BRep captured *before*
+/// Phase A began. This function reads the fillet edge's topology and
+/// perpendicular boundary edges from the snapshot — so even when an
+/// earlier iteration of Phase A has already split one of them, the
+/// anchor *positions* are computed from the original un-fragmented
+/// geometry. Vertex insertion then happens in the mutable `brep` via
+/// `insert_anchor_at_position`, which locates the descendant sub-edge
+/// currently containing each 3D anchor point.
 ///
 /// `radius_at_start` is used for splits at `v_start` (the fillet
 /// edge's start vertex) and `radius_at_end` for splits at `v_end`.
@@ -26,7 +28,15 @@ pub use super::merge::{
 /// spec, they're the per-end values from `FilletRadius::Variable`.
 /// Round 5k (continued): the construct phase now honours the full
 /// variable profile rather than collapsing it to a single average.
+///
+/// Round 5r+: `edge_splits` in the returned `SplitInfo` is now
+/// populated and consumed by `apply_blend_geometry` to maintain a
+/// per-fillet-edge descendants map — Phase C identifies a consumed
+/// face by matching *any* descendant sub-edge of the canonical
+/// fillet edge handle.
+#[allow(clippy::too_many_arguments)]
 pub fn split_perpendicular_edges_by_radius(
+    brep_snapshot: &BRep,
     brep: &mut BRep,
     face_1: FaceHandle,
     face_2: FaceHandle,
@@ -35,29 +45,23 @@ pub fn split_perpendicular_edges_by_radius(
     radius_at_end: f64,
     _tolerance: &Tolerance,
 ) -> Result<SplitInfo, String> {
-    let edge_data = brep
+    let edge_data = brep_snapshot
         .edges
         .get(fillet_edge)
-        .ok_or_else(|| format!("fillet edge {fillet_edge:?} not found"))?;
+        .ok_or_else(|| format!("fillet edge {fillet_edge:?} not found in snapshot"))?;
     let he_fwd = edge_data.half_edge;
-    let he_fwd_data = brep
+    let he_fwd_data = brep_snapshot
         .half_edges
         .get(he_fwd)
         .ok_or_else(|| "half-edge not found".to_string())?;
     let he_rev = he_fwd_data.twin;
     let v_start = he_fwd_data.origin;
-    let v_end = brep
+    let v_end = brep_snapshot
         .half_edges
         .get(he_rev)
         .ok_or_else(|| "twin not found".to_string())?
         .origin;
 
-    // Closed fillet edges (v_start == v_end) — e.g. the rim of a
-    // cylindrical hole — are not yet supported. The construct phase
-    // builds anchor vertices on perpendicular boundary edges and
-    // there are no such edges when the fillet edge is a closed loop.
-    // Return a clean diagnostic so the caller sees an actionable
-    // error instead of "no perpendicular edge found".
     if v_start == v_end {
         return Err(format!(
             "closed fillet edges (v_start == v_end on edge {fillet_edge:?}) are not yet \
@@ -66,9 +70,8 @@ pub fn split_perpendicular_edges_by_radius(
         ));
     }
 
-    // Split perpendicular edges on face_1, using the per-end radii.
-    let result_1 = split_face_perp_edges(
-        brep,
+    let pos_1 = compute_perp_anchor_positions_for_face(
+        brep_snapshot,
         face_1,
         fillet_edge,
         v_start,
@@ -76,10 +79,8 @@ pub fn split_perpendicular_edges_by_radius(
         radius_at_start,
         radius_at_end,
     )?;
-
-    // Split perpendicular edges on face_2.
-    let result_2 = split_face_perp_edges(
-        brep,
+    let pos_2 = compute_perp_anchor_positions_for_face(
+        brep_snapshot,
         face_2,
         fillet_edge,
         v_start,
@@ -88,15 +89,16 @@ pub fn split_perpendicular_edges_by_radius(
         radius_at_end,
     )?;
 
-    // Collect all edge splits for handle remapping.
-    let mut edge_splits = result_1.edge_splits;
-    edge_splits.extend(result_2.edge_splits);
+    let mut edge_splits: Vec<(EdgeHandle, EdgeHandle, EdgeHandle)> = Vec::new();
+    let v1_start = insert_anchor_at_position(brep, pos_1.0, &mut edge_splits)?;
+    let v1_end = insert_anchor_at_position(brep, pos_1.1, &mut edge_splits)?;
+    let v2_start = insert_anchor_at_position(brep, pos_2.0, &mut edge_splits)?;
+    let v2_end = insert_anchor_at_position(brep, pos_2.1, &mut edge_splits)?;
 
-    // Build trim 3D curves from the new vertex positions (straight lines for now).
-    let p1_a = brep.vertices[result_1.anchor_start].position;
-    let p1_b = brep.vertices[result_1.anchor_end].position;
-    let p2_a = brep.vertices[result_2.anchor_start].position;
-    let p2_b = brep.vertices[result_2.anchor_end].position;
+    let p1_a = brep.vertices[v1_start].position;
+    let p1_b = brep.vertices[v1_end].position;
+    let p2_a = brep.vertices[v2_start].position;
+    let p2_b = brep.vertices[v2_end].position;
 
     let trim_3d_1 = line_nurbs(&p1_a, &p1_b);
     let trim_3d_2 = line_nurbs(&p2_a, &p2_b);
@@ -104,10 +106,76 @@ pub fn split_perpendicular_edges_by_radius(
     Ok(SplitInfo {
         trim_3d_1,
         trim_3d_2,
-        face_1_anchors: (result_1.anchor_start, result_1.anchor_end),
-        face_2_anchors: (result_2.anchor_start, result_2.anchor_end),
+        face_1_anchors: (v1_start, v1_end),
+        face_2_anchors: (v2_start, v2_end),
         edge_splits,
     })
+}
+
+/// Scan all edges in `brep` and find the one whose 3D line segment
+/// contains `point` within a small tolerance, returning the edge
+/// handle and parameter along the edge in `(0.001, 0.999)`.
+fn find_edge_and_param_at(brep: &BRep, point: Point3) -> Option<(EdgeHandle, f64)> {
+    for (eh, edata) in brep.edges.iter() {
+        let he_h = edata.half_edge;
+        let Some(he) = brep.half_edges.get(he_h) else {
+            continue;
+        };
+        let Some(twin) = brep.half_edges.get(he.twin) else {
+            continue;
+        };
+        let v0 = brep.vertices[he.origin].position;
+        let v1 = brep.vertices[twin.origin].position;
+        let dx = v1.x - v0.x;
+        let dy = v1.y - v0.y;
+        let dz = v1.z - v0.z;
+        let len_sq = dx * dx + dy * dy + dz * dz;
+        if len_sq < 1e-18 {
+            continue;
+        }
+        let t = ((point.x - v0.x) * dx + (point.y - v0.y) * dy + (point.z - v0.z) * dz) / len_sq;
+        if !(0.001..=0.999).contains(&t) {
+            continue;
+        }
+        let px = v0.x + t * dx;
+        let py = v0.y + t * dy;
+        let pz = v0.z + t * dz;
+        let dist_sq = (point.x - px).powi(2) + (point.y - py).powi(2) + (point.z - pz).powi(2);
+        if dist_sq < 1e-10 {
+            return Some((eh, t));
+        }
+    }
+    None
+}
+
+/// Insert a new vertex at `position` in the mutable BRep by finding
+/// the descendant sub-edge currently containing it and splitting it.
+/// Appends `(old_edge, edge_a, edge_b)` to `edge_splits` so the
+/// caller can maintain a fillet-edge → descendants map.
+///
+/// If a vertex already exists at `position` (another Phase A
+/// iteration put one there — e.g. a shared cube corner anchor), we
+/// reuse it without splitting any edge.
+fn insert_anchor_at_position(
+    brep: &mut BRep,
+    position: Point3,
+    edge_splits: &mut Vec<(EdgeHandle, EdgeHandle, EdgeHandle)>,
+) -> Result<VertexHandle, String> {
+    for (vh, v) in brep.vertices.iter() {
+        let d_sq = (v.position.x - position.x).powi(2)
+            + (v.position.y - position.y).powi(2)
+            + (v.position.z - position.z).powi(2);
+        if d_sq < 1e-12 {
+            return Ok(vh);
+        }
+    }
+    let (eh, t) = find_edge_and_param_at(brep, position)
+        .ok_or_else(|| format!("no edge contains anchor position {position:?}"))?;
+    let split = brep
+        .split_edge(eh, t)
+        .map_err(|e| format!("split_edge for anchor failed: {e}"))?;
+    edge_splits.push((eh, split.edge_a, split.edge_b));
+    Ok(split.vertex)
 }
 
 /// Information returned by perpendicular edge splitting.
@@ -204,49 +272,37 @@ pub fn pcurve_for_face(
     ))
 }
 
-/// Result of splitting perpendicular edges on a single face.
-struct FacePerpSplitResult {
-    /// Anchor vertex near the fillet edge start vertex.
-    anchor_start: VertexHandle,
-    /// Anchor vertex near the fillet edge end vertex.
-    anchor_end: VertexHandle,
-    /// Edge splits: `(old_edge, edge_a, edge_b)`.
-    edge_splits: Vec<(EdgeHandle, EdgeHandle, EdgeHandle)>,
-}
-
-/// For a given face, find the two perpendicular boundary edges that share
-/// vertices with the fillet edge, and split them at `radius` distance from
-/// the shared vertex. Returns the two new anchor vertices and the list of
-/// edge splits performed as `(old_edge, edge_a, edge_b)`.
+/// Compute the 3D positions of the two perpendicular anchors for
+/// a single face. Read-only — this function never mutates `brep`.
+/// Called on the Phase A snapshot (un-fragmented BRep), so anchor
+/// positions are always computed on the *original* full-length
+/// perpendicular edges rather than whatever sub-edge an earlier
+/// batch member already split off.
 ///
-/// Walks every loop on the face (outer + inner). The fillet edge can sit
-/// on an inner loop when the face has a hole — for example, when the
-/// fillet edge is the rim of a cylindrical hole on a planar face. Walking
-/// only the outer loop in that case finds no incident edges and produces
-/// the historical "no perpendicular edge found" failure.
-fn split_face_perp_edges(
-    brep: &mut BRep,
+/// Walks every loop on the face (outer + inner). The fillet edge
+/// can sit on an inner loop when the face has a hole — for example,
+/// a cube top face with a cylindrical drilling — so walking only
+/// the outer loop would miss the incident perpendicular edges.
+fn compute_perp_anchor_positions_for_face(
+    brep: &BRep,
     face: FaceHandle,
     fillet_edge: EdgeHandle,
     v_start: VertexHandle,
     v_end: VertexHandle,
     radius_at_start: f64,
     radius_at_end: f64,
-) -> Result<FacePerpSplitResult, String> {
+) -> Result<(Point3, Point3), String> {
     let face_data = brep
         .faces
         .get(face)
         .ok_or_else(|| format!("face {face:?} not found"))?;
 
-    // Walk every loop on the face — outer + inner. The fillet edge may
-    // be on an inner loop (hole boundary) when the support face has a
-    // hole, e.g. a cube top face with a cylindrical drilling.
     let mut loop_handles: Vec<LoopHandle> = Vec::with_capacity(1 + face_data.inner_loops.len());
     loop_handles.push(face_data.outer_loop);
     loop_handles.extend(face_data.inner_loops.iter().copied());
 
-    let mut perp_start: Option<(EdgeHandle, f64)> = None;
-    let mut perp_end: Option<(EdgeHandle, f64)> = None;
+    let mut perp_start: Option<Point3> = None;
+    let mut perp_end: Option<Point3> = None;
 
     let max_iters = brep.half_edges.len() + 1;
     for loop_handle in loop_handles {
@@ -274,50 +330,35 @@ fn split_face_perp_edges(
                 let p0 = brep.vertices[origin].position;
                 let p1 = brep.vertices[dest].position;
                 let edge_len = p0.distance_to(&p1);
-
-                // The caller computes `t` in the *walked* half-edge
-                // direction, but `split_edge` interprets `t` in the
-                // edge's *canonical* primary half-edge direction.
-                // When the walked half-edge is the twin of the
-                // canonical, invert `t` so the new vertex lands at
-                // the right end. (The split.rs Round 5n direction-
-                // alignment fix handles only the curve-vs-canonical
-                // axis; canonical-vs-walked is a separate axis that
-                // the caller must reconcile.)
-                let canonical_he_h = brep.edges[he.edge].half_edge;
-                let canonical_origin = brep.half_edges[canonical_he_h].origin;
-                let walked_matches_canonical = canonical_origin == origin;
-                let invert = !walked_matches_canonical;
-                let normalise = |t_from_origin: f64| -> f64 {
-                    let raw = if invert {
-                        1.0 - t_from_origin
-                    } else {
-                        t_from_origin
-                    };
-                    raw.clamp(0.001, 0.999)
+                let along = |t: f64| -> Point3 {
+                    Point3::new(
+                        p0.x + t * (p1.x - p0.x),
+                        p0.y + t * (p1.y - p0.y),
+                        p0.z + t * (p1.z - p0.z),
+                    )
                 };
 
                 if origin == v_start && edge_len > 1e-15 {
-                    let t_from_origin = (radius_at_start / edge_len).min(0.999);
-                    if t_from_origin > 0.001 && perp_start.is_none() {
-                        perp_start = Some((he.edge, normalise(t_from_origin)));
+                    let t = (radius_at_start / edge_len).min(0.999);
+                    if t > 0.001 && perp_start.is_none() {
+                        perp_start = Some(along(t));
                     }
                 } else if dest == v_start && edge_len > 1e-15 {
-                    let t_from_origin = 1.0 - (radius_at_start / edge_len).min(0.999);
-                    if t_from_origin > 0.001 && t_from_origin < 0.999 && perp_start.is_none() {
-                        perp_start = Some((he.edge, normalise(t_from_origin)));
+                    let t = 1.0 - (radius_at_start / edge_len).min(0.999);
+                    if (0.001..0.999).contains(&t) && perp_start.is_none() {
+                        perp_start = Some(along(t));
                     }
                 }
 
                 if origin == v_end && edge_len > 1e-15 {
-                    let t_from_origin = (radius_at_end / edge_len).min(0.999);
-                    if t_from_origin > 0.001 && perp_end.is_none() {
-                        perp_end = Some((he.edge, normalise(t_from_origin)));
+                    let t = (radius_at_end / edge_len).min(0.999);
+                    if t > 0.001 && perp_end.is_none() {
+                        perp_end = Some(along(t));
                     }
                 } else if dest == v_end && edge_len > 1e-15 {
-                    let t_from_origin = 1.0 - (radius_at_end / edge_len).min(0.999);
-                    if t_from_origin > 0.001 && t_from_origin < 0.999 && perp_end.is_none() {
-                        perp_end = Some((he.edge, normalise(t_from_origin)));
+                    let t = 1.0 - (radius_at_end / edge_len).min(0.999);
+                    if (0.001..0.999).contains(&t) && perp_end.is_none() {
+                        perp_end = Some(along(t));
                     }
                 }
             }
@@ -330,29 +371,11 @@ fn split_face_perp_edges(
         }
     }
 
-    let (edge_a, t_a) = perp_start
+    let start_pos = perp_start
         .ok_or_else(|| format!("no perpendicular edge found at v_start on face {face:?}"))?;
-    let (edge_b, t_b) =
+    let end_pos =
         perp_end.ok_or_else(|| format!("no perpendicular edge found at v_end on face {face:?}"))?;
-
-    // Split the edges to create anchor vertices.
-    let split_a = brep
-        .split_edge(edge_a, t_a)
-        .map_err(|e| format!("split_edge at v_start perp failed: {e}"))?;
-    let split_b = brep
-        .split_edge(edge_b, t_b)
-        .map_err(|e| format!("split_edge at v_end perp failed: {e}"))?;
-
-    let edge_splits = vec![
-        (edge_a, split_a.edge_a, split_a.edge_b),
-        (edge_b, split_b.edge_a, split_b.edge_b),
-    ];
-
-    Ok(FacePerpSplitResult {
-        anchor_start: split_a.vertex,
-        anchor_end: split_b.vertex,
-        edge_splits,
-    })
+    Ok((start_pos, end_pos))
 }
 
 /// Extract the fillet radius from the edge geometry analysis.

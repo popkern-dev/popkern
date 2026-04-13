@@ -3,8 +3,6 @@
 use popkern_core::geometry::NurbsCurve;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
-use crate::error::BlendFailure;
-
 /// A trim to be applied to a face during Phase B.
 pub(super) struct FaceTrim {
     /// Index into the edge_geometries array (determines sort order).
@@ -74,18 +72,4 @@ pub(super) fn find_face_containing_vertices(
         }
     }
     None
-}
-
-/// Split a face along a trim curve, handling errors gracefully.
-pub(super) fn split_face_with_trim(
-    brep: &mut BRep,
-    face: FaceHandle,
-    pcurve: &NurbsCurve,
-    trim_3d: &NurbsCurve,
-    tolerance: &popkern_core::tolerance::Tolerance,
-) -> Result<popkern_core::topology::SplitFaceResult, BlendFailure> {
-    brep.split_face(face, pcurve, trim_3d, tolerance)
-        .map_err(|e| BlendFailure::InvalidTopology {
-            reason: format!("face split failed: {e}"),
-        })
 }

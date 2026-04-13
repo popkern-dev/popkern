@@ -37,6 +37,7 @@ pub(crate) mod blend_topo;
 pub(crate) mod closed_fillet;
 pub(crate) mod helpers;
 pub(crate) mod merge;
+mod multi_chord;
 pub(crate) mod pcurve_attach;
 mod phase_split;
 pub(crate) mod surface_fix;
@@ -51,7 +52,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 use crate::analysis::EdgeAnalysis;
 use crate::error::{BlendFailure, BlendWarning};
 use crate::types::VertexMode;
-use phase_split::{FaceTrim, TrimSplitResult, find_face_containing_vertices, split_face_with_trim};
+use phase_split::{FaceTrim, TrimSplitResult};
 
 /// Geometry computed for one fillet/chamfer edge.
 #[derive(Debug)]
@@ -120,6 +121,24 @@ pub fn apply_blend_geometry(
     // already finalised); they skip Phase B and Phase C entirely.
     let mut closed_handled: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
+    // Round 5r+: capture an immutable snapshot *before* any perp
+    // splits mutate `result`. Each fillet edge's anchor positions
+    // are computed from this snapshot (the un-fragmented original
+    // geometry), while the vertex inserts go into the mutable
+    // `result` via position-based sub-edge lookup.
+    let phase_a_snapshot = result.clone();
+
+    // Round 5r+: descendants map — for each original fillet edge,
+    // the set of current sub-edge handles descended from it via
+    // Phase A's perp splits. Phase C uses this to locate the
+    // consumed face by matching *any* descendant half-edge on the
+    // face's outer loop, rather than only the now-possibly-shortened
+    // canonical handle.
+    let mut descendants: HashMap<EdgeHandle, Vec<EdgeHandle>> = HashMap::new();
+    for eg in edge_geometries {
+        descendants.insert(eg.analysis.edge, vec![eg.analysis.edge]);
+    }
+
     for (idx, eg) in edge_geometries.iter().enumerate() {
         // Closed fillet edges (e.g. cylindrical hole rims) don't
         // have perpendicular boundary edges to split. Dispatch to
@@ -141,6 +160,7 @@ pub fn apply_blend_geometry(
         }
 
         match helpers::split_perpendicular_edges_by_radius(
+            &phase_a_snapshot,
             &mut result,
             eg.analysis.face_1,
             eg.analysis.face_2,
@@ -149,10 +169,24 @@ pub fn apply_blend_geometry(
             eg.radius_at_end,
             tolerance,
         ) {
-            Ok(info) => perp_data.push(Some(PerpSplitData {
-                face_1_anchors: info.face_1_anchors,
-                face_2_anchors: info.face_2_anchors,
-            })),
+            Ok(info) => {
+                // Propagate every split that happened in this
+                // iteration to the descendants map: any fillet
+                // edge whose current descendants list contained
+                // `old_edge` now tracks `edge_a` and `edge_b`
+                // instead.
+                for (old_edge, edge_a, edge_b) in &info.edge_splits {
+                    for desc_list in descendants.values_mut() {
+                        if let Some(pos) = desc_list.iter().position(|e| e == old_edge) {
+                            desc_list.splice(pos..=pos, [*edge_a, *edge_b]);
+                        }
+                    }
+                }
+                perp_data.push(Some(PerpSplitData {
+                    face_1_anchors: info.face_1_anchors,
+                    face_2_anchors: info.face_2_anchors,
+                }))
+            }
             Err(e) => {
                 failures.push((
                     eg.analysis.edge,
@@ -197,127 +231,99 @@ pub fn apply_blend_geometry(
     }
 
     // ── Phase B: Split ALL faces by their trim curves ─────────────
+    //
+    // Delegates to `multi_chord::apply_multi_chord_for_face`, which
+    // precomputes pairwise chord-chord intersections on each face
+    // and inserts intermediate vertices where chords cross so each
+    // sub-chord's endpoints live on the same sub-face. For faces
+    // with a single trim (or parallel non-intersecting trims) this
+    // degenerates to the historical per-trim split.
     let mut trim_results: Vec<TrimSplitResult> = Vec::new();
 
     for (original_face, trims) in &face_trims {
-        // Track ALL sub-faces of this original face (both kept and
-        // consumed). Consumed faces must remain searchable because
-        // later trims may have anchor vertices on consumed sub-faces
-        // (e.g., at cube corners where multiple fillet edges share
-        // perpendicular edges). Phase C knows which faces are consumed
-        // from TrimSplitResult.
-        let mut sub_faces = vec![*original_face];
-
-        for trim in trims {
-            let target =
-                find_face_containing_vertices(&result, &sub_faces, trim.anchors.0, trim.anchors.1);
-
-            let Some(target) = target else {
-                // Round 5r investigation: on multi-edge batches (e.g.
-                // a 12-edge cube fillet), this branch is hit when
-                // anchors for a later trim end up on DIFFERENT sub-
-                // faces created by an earlier trim's split. The two
-                // anchors straddle the earlier chord. A true fix
-                // requires a multi-chord face-split that handles
-                // chord intersections (the inset-square topology at
-                // a cube corner). Tracked as future work. For now
-                // the trim is skipped, the partial result survives
-                // the `count_bad_faces` threshold via median fit.
-                failures.push((
-                    edge_geometries[trim.edge_idx].analysis.edge,
-                    BlendFailure::InvalidTopology {
-                        reason: format!(
-                            "anchor vertices not found on any sub-face of {original_face:?}"
-                        ),
-                    },
-                ));
-                continue;
-            };
-
-            // Compute pcurve and 3D trim from actual vertex positions.
-            // Done here (before kef) so the face surface identity is unambiguous.
-            let p_a = result.vertices[trim.anchors.0].position;
-            let p_b = result.vertices[trim.anchors.1].position;
-            let pc = match helpers::pcurve_for_face(&result, target, &p_a, &p_b) {
-                Ok(pc) => pc,
-                Err(e) => {
-                    failures.push((
-                        edge_geometries[trim.edge_idx].analysis.edge,
-                        BlendFailure::InvalidTopology { reason: e },
-                    ));
-                    continue;
+        let fillet_edges_by_trim: Vec<EdgeHandle> = trims
+            .iter()
+            .map(|t| edge_geometries[t.edge_idx].analysis.edge)
+            .collect();
+        let outcome = multi_chord::apply_multi_chord_for_face(
+            &mut result,
+            *original_face,
+            trims,
+            &fillet_edges_by_trim,
+            &descendants,
+            tolerance,
+        );
+        // Fold multi-chord's sub-edge splits (from inserting
+        // crossing-point vertices on earlier trims' sub-chords)
+        // into the global descendants map. Without this, Phase C
+        // can't find the fillet edge on a face whose owning
+        // sub-chord edge has been split.
+        for (old_edge, edge_a, edge_b) in &outcome.extra_edge_splits {
+            for desc_list in descendants.values_mut() {
+                if let Some(pos) = desc_list.iter().position(|e| e == old_edge) {
+                    desc_list.splice(pos..=pos, [*edge_a, *edge_b]);
                 }
-            };
-            let t3d = helpers::line_nurbs(&p_a, &p_b);
-
-            let split = match split_face_with_trim(&mut result, target, &pc, &t3d, tolerance) {
-                Ok(s) => s,
-                Err(e) => {
-                    failures.push((edge_geometries[trim.edge_idx].analysis.edge, e));
-                    continue;
-                }
-            };
-
-            let (kept, consumed) = match helpers::identify_consumed_face(
-                &result,
-                split.face_a,
-                split.face_b,
-                edge_geometries[trim.edge_idx].analysis.edge,
-            ) {
-                Ok(kc) => kc,
-                Err(e) => {
-                    failures.push((
-                        edge_geometries[trim.edge_idx].analysis.edge,
-                        BlendFailure::InvalidTopology { reason: e },
-                    ));
-                    // Cannot determine which is consumed. Replace target
-                    // with both halves so later trims can still find anchors.
-                    if let Some(pos) = sub_faces.iter().position(|&f| f == target) {
-                        sub_faces[pos] = split.face_a;
-                        sub_faces.push(split.face_b);
-                    }
-                    continue;
-                }
-            };
-
-            trim_results.push(TrimSplitResult {
-                edge_idx: trim.edge_idx,
-                side: trim.side,
-                consumed,
-                trim_edges: split.new_edges.clone(),
-                pcurve: pc,
-                trim_3d: t3d,
-            });
-
-            // Replace target with both sub-faces so later trims can
-            // find anchor vertices on either half.
-            if let Some(pos) = sub_faces.iter().position(|&f| f == target) {
-                sub_faces[pos] = kept;
-                sub_faces.push(consumed);
             }
         }
+        trim_results.extend(outcome.trim_results);
+        failures.extend(outcome.failures);
     }
 
-    // ── Re-identify consumed faces ──────────────────────────────────
-    // A consumed face from an earlier trim may have been split by a
-    // later trim on the same original face. The stored `consumed` handle
-    // may now refer to only part of the original strip. Re-identify by
-    // finding which current face contains the fillet edge's half-edge.
+    // ── Re-identify consumed faces from descendants ────────────────
+    // For each trim, replace the stored `consumed` with the face
+    // incident to the LONGEST descendant sub-edge (the middle
+    // portion of the fillet edge after all Phase A + Phase B
+    // splits). Choose the side that matches the original trim's
+    // face (via `find_original_face_for_sub_face`).
     for tr in &mut trim_results {
-        let fillet_edge = edge_geometries[tr.edge_idx].analysis.edge;
-        if !result.faces.contains_key(tr.consumed) {
-            continue; // Handle was recycled — skip, Phase C will fail gracefully.
-        }
-        // Check if the stored consumed face still contains the fillet edge.
-        if helpers::identify_consumed_face_contains(&result, tr.consumed, fillet_edge) {
-            continue; // Still correct.
-        }
-        // Search all faces for the one containing this fillet edge.
-        for fh in result.faces.keys() {
-            if helpers::identify_consumed_face_contains(&result, fh, fillet_edge) {
-                tr.consumed = fh;
-                break;
+        let original_edge = edge_geometries[tr.edge_idx].analysis.edge;
+        let fillet_descendants: &[EdgeHandle] = descendants
+            .get(&original_edge)
+            .map(|v| v.as_slice())
+            .unwrap_or(std::slice::from_ref(&original_edge));
+
+        // The trim's original face is face_1 or face_2 of the
+        // fillet edge depending on `tr.side`.
+        let eg = &edge_geometries[tr.edge_idx];
+        let desired_parent = if tr.side == 1 {
+            eg.analysis.face_1
+        } else {
+            eg.analysis.face_2
+        };
+
+        // Find the longest descendant and, of its two adjacent
+        // faces, pick the one that's a descendant of
+        // `desired_parent`.
+        let mut longest: Option<(f64, FaceHandle, FaceHandle)> = None;
+        for &d in fillet_descendants {
+            let Some(edata) = result.edges.get(d) else {
+                continue;
+            };
+            let he_h = edata.half_edge;
+            let Some(he) = result.half_edges.get(he_h) else {
+                continue;
+            };
+            let Some(twin) = result.half_edges.get(he.twin) else {
+                continue;
+            };
+            let p0 = result.vertices[he.origin].position;
+            let p1 = result.vertices[twin.origin].position;
+            let len = p0.distance_to(&p1);
+            let f_a = result.loops[he.loop_].face;
+            let f_b = result.loops[twin.loop_].face;
+            if longest.map(|(l, _, _)| len > l).unwrap_or(true) {
+                longest = Some((len, f_a, f_b));
             }
+        }
+        if let Some((_, f_a, f_b)) = longest {
+            // Prefer whichever of f_a, f_b descends from
+            // `desired_parent`. "Descends" here is checked by
+            // whether the face equals `desired_parent` (not yet
+            // split) or was created from its chain; absent an
+            // explicit chain, we fall back to whichever lies on
+            // the surface of `desired_parent`'s original face.
+            let pick = multi_chord::choose_side_face(&result, brep, desired_parent, f_a, f_b);
+            tr.consumed = pick;
         }
     }
 
@@ -345,11 +351,15 @@ pub fn apply_blend_geometry(
             continue;
         };
 
-        match helpers::merge_consumed_faces(
+        let fillet_descendants: &[EdgeHandle] = descendants
+            .get(&fillet_edge)
+            .map(|v| v.as_slice())
+            .unwrap_or(std::slice::from_ref(&fillet_edge));
+        match helpers::merge_consumed_faces_any(
             &mut result,
             s1.consumed,
             s2.consumed,
-            fillet_edge,
+            fillet_descendants,
             &eg.surface,
         ) {
             Ok(fillet_face) => {

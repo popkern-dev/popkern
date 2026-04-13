@@ -7,40 +7,37 @@
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
-/// Determine which of the two split faces is the "consumed" face.
+/// Round 5r+: descendants-aware consumed-face identifier. When
+/// Phase A's perp splits fragment a fillet edge handle (because
+/// that edge was the perpendicular of another fillet edge in the
+/// same batch), the canonical handle now points to only one of the
+/// two descendant sub-edges. This helper accepts the full set of
+/// descendant handles and matches any of them — any descendant
+/// sub-edge on a face's outer loop proves the face is adjacent to
+/// the (original) fillet edge.
 ///
-/// The consumed face is the one whose outer loop contains the original
-/// fillet edge. Returns `(kept_face, consumed_face)`.
-pub fn identify_consumed_face(
+/// Returns `(kept_face, consumed_face)`.
+pub fn identify_consumed_face_any(
     brep: &BRep,
     face_a: FaceHandle,
     face_b: FaceHandle,
-    fillet_edge: EdgeHandle,
+    descendants: &[EdgeHandle],
 ) -> Result<(FaceHandle, FaceHandle), String> {
-    if face_loop_contains_edge(brep, face_b, fillet_edge)? {
+    if face_loop_contains_any_edge(brep, face_b, descendants)? {
         Ok((face_a, face_b))
-    } else if face_loop_contains_edge(brep, face_a, fillet_edge)? {
+    } else if face_loop_contains_any_edge(brep, face_a, descendants)? {
         Ok((face_b, face_a))
     } else {
         Err(format!(
-            "neither split face contains fillet edge {fillet_edge:?}"
+            "neither split face contains any descendant of fillet edge {descendants:?}"
         ))
     }
 }
 
-/// Check if a face contains the given edge in its outer loop.
-///
-/// Used to re-identify consumed faces after Phase B splits may have
-/// fragmented them.
-pub fn identify_consumed_face_contains(brep: &BRep, face: FaceHandle, edge: EdgeHandle) -> bool {
-    face_loop_contains_edge(brep, face, edge).unwrap_or(false)
-}
-
-/// Check if a face's outer loop contains a half-edge belonging to the given edge.
-fn face_loop_contains_edge(
+fn face_loop_contains_any_edge(
     brep: &BRep,
     face: FaceHandle,
-    edge: EdgeHandle,
+    edges: &[EdgeHandle],
 ) -> Result<bool, String> {
     let face_data = brep
         .faces
@@ -61,7 +58,7 @@ fn face_loop_contains_edge(
             .half_edges
             .get(cursor)
             .ok_or_else(|| format!("half-edge {cursor:?} not found"))?;
-        if he.edge == edge {
+        if edges.contains(&he.edge) {
             return Ok(true);
         }
         cursor = he.next;
@@ -73,16 +70,51 @@ fn face_loop_contains_edge(
     Ok(false)
 }
 
-/// Find the half-edge of the given edge that lies in the given face's loop.
-pub fn find_edge_halfedge_on_face(
+/// Merge two consumed faces by removing a descendant fillet edge
+/// via `kef`. Walks `consumed_1`'s outer loop and finds the
+/// *first* half-edge whose `edge` is in `descendants` AND whose
+/// twin is on `consumed_2` — the key difference from a naive
+/// search is that on a cube corner, `consumed_1` may contain
+/// several descendant sub-edges, only one of which is adjacent
+/// across the fillet edge to `consumed_2`.
+///
+/// After merging, the surviving face is assigned the fillet
+/// surface geometry. Returns the handle of the merged (fillet)
+/// face.
+pub fn merge_consumed_faces_any(
+    brep: &mut BRep,
+    consumed_1: FaceHandle,
+    consumed_2: FaceHandle,
+    descendants: &[EdgeHandle],
+    surface: &SurfaceGeometry,
+) -> Result<FaceHandle, String> {
+    let he_on_consumed_1 =
+        find_adjacent_descendant_halfedge(brep, descendants, consumed_1, consumed_2)?;
+
+    brep.kef(he_on_consumed_1)
+        .map_err(|e| format!("kef failed: {e}"))?;
+
+    brep.faces[consumed_1].surface = Some(SurfaceOnFace {
+        geometry: surface.clone(),
+        orientation: true,
+    });
+
+    Ok(consumed_1)
+}
+
+/// Find a half-edge on `consumed_1`'s outer loop whose `edge` is
+/// one of `descendants` AND whose twin's loop face equals
+/// `consumed_2`. Returns an error if no such half-edge exists.
+fn find_adjacent_descendant_halfedge(
     brep: &BRep,
-    edge: EdgeHandle,
-    face: FaceHandle,
+    descendants: &[EdgeHandle],
+    consumed_1: FaceHandle,
+    consumed_2: FaceHandle,
 ) -> Result<HalfEdgeHandle, String> {
     let face_data = brep
         .faces
-        .get(face)
-        .ok_or_else(|| format!("face {face:?} not found"))?;
+        .get(consumed_1)
+        .ok_or_else(|| format!("face {consumed_1:?} not found"))?;
     let outer_loop = face_data.outer_loop;
     let start_he = brep
         .loops
@@ -92,61 +124,26 @@ pub fn find_edge_halfedge_on_face(
 
     let mut cursor = start_he;
     let max_iters = brep.half_edges.len() + 1;
-    let mut iters = 0;
-    loop {
+    for _ in 0..max_iters {
         let he = brep
             .half_edges
             .get(cursor)
             .ok_or_else(|| format!("half-edge {cursor:?} not found"))?;
-        if he.edge == edge {
-            return Ok(cursor);
+        if descendants.contains(&he.edge) {
+            let twin_handle = he.twin;
+            let twin_face = brep.loops[brep.half_edges[twin_handle].loop_].face;
+            if twin_face == consumed_2 {
+                return Ok(cursor);
+            }
         }
         cursor = he.next;
-        iters += 1;
-        if cursor == start_he || iters >= max_iters {
+        if cursor == start_he {
             break;
         }
     }
     Err(format!(
-        "edge {edge:?} not found in face {face:?}'s outer loop"
+        "no descendant half-edge on {consumed_1:?} has its twin on {consumed_2:?}"
     ))
-}
-
-/// Merge two consumed faces by removing the original fillet edge via `kef`.
-///
-/// After merging, the surviving face is assigned the fillet surface geometry.
-/// Returns the handle of the merged (fillet) face.
-pub fn merge_consumed_faces(
-    brep: &mut BRep,
-    consumed_1: FaceHandle,
-    consumed_2: FaceHandle,
-    fillet_edge: EdgeHandle,
-    surface: &SurfaceGeometry,
-) -> Result<FaceHandle, String> {
-    // Find the half-edge of the fillet edge that lies on consumed_1's loop.
-    let he_on_consumed_1 = find_edge_halfedge_on_face(brep, fillet_edge, consumed_1)?;
-
-    // Verify the twin is on consumed_2 (sanity check before kef).
-    let twin_handle = brep.half_edges[he_on_consumed_1].twin;
-    let twin_face = brep.loops[brep.half_edges[twin_handle].loop_].face;
-    if twin_face != consumed_2 {
-        return Err(format!(
-            "fillet edge twin is on face {twin_face:?}, expected {consumed_2:?}"
-        ));
-    }
-
-    // kef removes the edge and merges the two faces.
-    // It kills the twin's loop/face (consumed_2) and keeps consumed_1.
-    brep.kef(he_on_consumed_1)
-        .map_err(|e| format!("kef failed: {e}"))?;
-
-    // After kef, consumed_2 is removed and consumed_1 survives with the merged loop.
-    brep.faces[consumed_1].surface = Some(SurfaceOnFace {
-        geometry: surface.clone(),
-        orientation: true,
-    });
-
-    Ok(consumed_1)
 }
 
 #[cfg(test)]
@@ -164,19 +161,29 @@ mod tests {
         let he = &cube.half_edges[edge_data.half_edge];
         let face_of_he = cube.loops[he.loop_].face;
 
-        assert!(face_loop_contains_edge(&cube, face_of_he, edge).unwrap());
+        assert!(
+            face_loop_contains_any_edge(&cube, face_of_he, std::slice::from_ref(&edge)).unwrap()
+        );
     }
 
     #[test]
-    fn find_edge_halfedge_on_face_works() {
+    fn find_adjacent_descendant_halfedge_works() {
         let cube = BRep::unit_cube(Tolerance::default()).unwrap();
         let edge = cube.edges.keys().next().unwrap();
 
         let edge_data = &cube.edges[edge];
         let he = &cube.half_edges[edge_data.half_edge];
         let face_of_he = cube.loops[he.loop_].face;
+        let twin = &cube.half_edges[he.twin];
+        let twin_face = cube.loops[twin.loop_].face;
 
-        let found = find_edge_halfedge_on_face(&cube, edge, face_of_he).unwrap();
+        let found = find_adjacent_descendant_halfedge(
+            &cube,
+            std::slice::from_ref(&edge),
+            face_of_he,
+            twin_face,
+        )
+        .unwrap();
         assert_eq!(cube.half_edges[found].edge, edge);
     }
 
@@ -198,7 +205,12 @@ mod tests {
         });
 
         if let Some(unrelated_edge) = edge_not_on_either {
-            let result = identify_consumed_face(&cube, face_a, face_b, unrelated_edge);
+            let result = identify_consumed_face_any(
+                &cube,
+                face_a,
+                face_b,
+                std::slice::from_ref(&unrelated_edge),
+            );
             assert!(
                 result.is_err(),
                 "should fail when neither face contains the fillet edge"
@@ -213,32 +225,33 @@ mod tests {
     }
 
     #[test]
-    fn find_edge_halfedge_on_face_error_when_edge_not_on_face() {
+    fn find_adjacent_descendant_halfedge_error_when_edge_not_on_face() {
         let cube = BRep::unit_cube(Tolerance::default()).unwrap();
 
         // Pick an edge and a face that does NOT contain it.
         let edge = cube.edges.keys().next().unwrap();
         let edge_he = cube.edges[edge].half_edge;
         let face_of_edge = cube.loops[cube.half_edges[edge_he].loop_].face;
-
-        // Find a face that is NOT face_of_edge.
-        let other_face = cube.faces.keys().find(|&f| f != face_of_edge).unwrap();
-
-        // Also verify the twin face is not the other_face.
         let twin_handle = cube.half_edges[edge_he].twin;
         let twin_face = cube.loops[cube.half_edges[twin_handle].loop_].face;
-        if twin_face != other_face {
-            let result = find_edge_halfedge_on_face(&cube, edge, other_face);
-            assert!(
-                result.is_err(),
-                "should fail when edge is not on the face's outer loop"
-            );
-            let err = result.unwrap_err();
-            assert!(
-                err.contains("not found in face"),
-                "error should mention 'not found in face': {err}"
-            );
-        }
+
+        // Find a face that is NOT face_of_edge or twin_face.
+        let other_face = cube
+            .faces
+            .keys()
+            .find(|&f| f != face_of_edge && f != twin_face)
+            .unwrap();
+
+        let result = find_adjacent_descendant_halfedge(
+            &cube,
+            std::slice::from_ref(&edge),
+            other_face,
+            twin_face,
+        );
+        assert!(
+            result.is_err(),
+            "should fail when edge is not on the face's outer loop"
+        );
     }
 
     #[test]
@@ -253,7 +266,9 @@ mod tests {
             let twin_he = cube.half_edges[edge_he].twin;
             let twin_face = cube.loops[cube.half_edges[twin_he].loop_].face;
             if twin_face != other_face {
-                let contains = face_loop_contains_edge(&cube, other_face, edge).unwrap();
+                let contains =
+                    face_loop_contains_any_edge(&cube, other_face, std::slice::from_ref(&edge))
+                        .unwrap();
                 assert!(!contains, "unrelated face should not contain the edge");
             }
         }

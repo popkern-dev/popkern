@@ -24,7 +24,9 @@ fn closed_fillet_edge_returns_diagnostic_error() {
     let twin = &cube.half_edges[he.twin];
     let face_2 = cube.loops[twin.loop_].face;
 
+    let snapshot = cube.clone();
     let result = split_perpendicular_edges_by_radius(
+        &snapshot,
         &mut cube,
         face_1,
         face_2,
@@ -53,7 +55,9 @@ fn split_perp_edges_on_cube() {
     let twin = &cube.half_edges[he.twin];
     let face_2 = cube.loops[twin.loop_].face;
 
+    let snapshot = cube.clone();
     let result = split_perpendicular_edges_by_radius(
+        &snapshot,
         &mut cube,
         face_1,
         face_2,
@@ -164,7 +168,9 @@ fn split_perp_edges_invalid_fillet_edge() {
     let face_2 = cube.faces.keys().nth(1).unwrap();
     let bogus_edge = popkern_core::topology::EdgeHandle::default();
 
+    let snapshot = cube.clone();
     let result = split_perpendicular_edges_by_radius(
+        &snapshot,
         &mut cube,
         face_1,
         face_2,
