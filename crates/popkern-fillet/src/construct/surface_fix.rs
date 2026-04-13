@@ -3,10 +3,36 @@
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{BRep, FaceHandle};
 
+/// Compute a robust fit score for a surface against a set of
+/// boundary positions. Uses the **median** distance instead of the
+/// max so that 1-2 outlier vertices (which can creep into a face
+/// boundary when neighbouring fillets share perp-split vertices)
+/// don't dominate the fit metric. The median is invariant to those
+/// outliers and reflects how well the surface fits the *majority*
+/// of the boundary.
+fn fit_score(geom: &SurfaceGeometry, positions: &[popkern_core::geometry::Point3]) -> f64 {
+    use popkern_core::geometry::surface::SurfaceEval;
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
+
+    let mut distances: Vec<f64> = positions
+        .iter()
+        .map(|p| {
+            project_point_to_uv(geom, p)
+                .map(|(u, v)| p.distance_to(&geom.point_at(u, v)))
+                .unwrap_or(f64::INFINITY)
+        })
+        .collect();
+    if distances.is_empty() {
+        return 0.0;
+    }
+    distances.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    distances[distances.len() / 2]
+}
+
 /// Correct face surface assignments after topology modifications.
 ///
 /// Checks every face. If a face has no surface, or if its surface does
-/// not match its boundary vertices (max vertex-to-surface distance
+/// not match its boundary vertices (median vertex-to-surface distance
 /// exceeds threshold), replaces it with the best matching surface from
 /// the pool of original planar surfaces and fillet surfaces.
 pub(crate) fn correct_face_surfaces(
@@ -14,8 +40,7 @@ pub(crate) fn correct_face_surfaces(
     original: &BRep,
     fillet_surfaces: &[SurfaceGeometry],
 ) {
-    use popkern_core::geometry::surface::{SurfaceEval, SurfaceOnFace};
-    use popkern_core::geometry::uv_projection::project_point_to_uv;
+    use popkern_core::geometry::surface::SurfaceOnFace;
 
     let mut candidates: Vec<SurfaceOnFace> = original
         .faces
@@ -37,22 +62,16 @@ pub(crate) fn correct_face_surfaces(
             continue;
         }
 
-        // Check if current surface is geometrically correct.
-        let current_max_dist = brep.faces[fh]
+        // Check if current surface is geometrically correct (using
+        // the median fit so outlier boundary vertices don't make us
+        // throw away a surface that fits the majority well).
+        let current_score = brep.faces[fh]
             .surface
             .as_ref()
-            .map(|sof| {
-                positions
-                    .iter()
-                    .filter_map(|p| {
-                        project_point_to_uv(&sof.geometry, p)
-                            .map(|(u, v)| p.distance_to(&sof.geometry.point_at(u, v)))
-                    })
-                    .fold(0.0_f64, f64::max)
-            })
+            .map(|sof| fit_score(&sof.geometry, &positions))
             .unwrap_or(f64::INFINITY);
 
-        if current_max_dist < 0.01 {
+        if current_score < 0.01 {
             continue;
         }
 
@@ -71,19 +90,11 @@ pub(crate) fn correct_face_surfaces(
             if current_is_nonplanar && matches!(sof.geometry, SurfaceGeometry::Plane { .. }) {
                 continue;
             }
-            let max_dist: f64 = positions
-                .iter()
-                .map(|p| {
-                    project_point_to_uv(&sof.geometry, p)
-                        .map(|(u, v)| p.distance_to(&sof.geometry.point_at(u, v)))
-                        .unwrap_or(f64::INFINITY)
-                })
-                .fold(0.0_f64, f64::max);
-
-            if max_dist < current_max_dist {
+            let score = fit_score(&sof.geometry, &positions);
+            if score < current_score {
                 match &best {
-                    Some((_, bd)) if max_dist >= *bd => {}
-                    _ => best = Some((sof.clone(), max_dist)),
+                    Some((_, bd)) if score >= *bd => {}
+                    _ => best = Some((sof.clone(), score)),
                 }
             }
         }
@@ -95,20 +106,11 @@ pub(crate) fn correct_face_surfaces(
             && positions.len() <= 6
             && let Some(sphere_sof) = try_sphere_for_corner(&positions, original, fillet_surfaces)
         {
-            let sd: f64 = positions
-                .iter()
-                .map(|p| match &sphere_sof.geometry {
-                    SurfaceGeometry::Sphere { center, radius } => {
-                        let dist = ((p.x - center.x).powi(2)
-                            + (p.y - center.y).powi(2)
-                            + (p.z - center.z).powi(2))
-                        .sqrt();
-                        (dist - radius).abs()
-                    }
-                    _ => f64::INFINITY,
-                })
-                .fold(0.0_f64, f64::max);
-            if sd < current_max_dist {
+            // Use the same median-based fit metric as the
+            // surface-pool branch so outlier vertices don't tank
+            // the score.
+            let sd = fit_score(&sphere_sof.geometry, &positions);
+            if sd < current_score {
                 match &best {
                     Some((_, bd)) if sd >= *bd => {}
                     _ => best = Some((sphere_sof, sd)),
@@ -181,13 +183,23 @@ fn try_sphere_for_corner(
         .next()
         .unwrap_or(0.1);
 
-    // Face centroid.
-    let n = positions.len() as f64;
-    let cx = positions.iter().map(|p| p.x).sum::<f64>() / n;
-    let cy = positions.iter().map(|p| p.y).sum::<f64>() / n;
-    let cz = positions.iter().map(|p| p.z).sum::<f64>() / n;
+    // Use the per-coordinate **median** position rather than the
+    // mean centroid. The boundary of a multi-fillet vertex blend
+    // can include outlier vertices that bleed in from adjacent
+    // fillets' regions; the mean centroid is biased by them, but
+    // the median sits inside the dominant cluster and is robust.
+    let median_axis = |xs: &mut Vec<f64>| -> f64 {
+        xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        xs[xs.len() / 2]
+    };
+    let mut xs: Vec<f64> = positions.iter().map(|p| p.x).collect();
+    let mut ys: Vec<f64> = positions.iter().map(|p| p.y).collect();
+    let mut zs: Vec<f64> = positions.iter().map(|p| p.z).collect();
+    let cx = median_axis(&mut xs);
+    let cy = median_axis(&mut ys);
+    let cz = median_axis(&mut zs);
 
-    // Find nearest original vertex.
+    // Find nearest original vertex to the median position.
     let mut best_dist = f64::INFINITY;
     let mut best_pos = None;
     for (_, v) in &original.vertices {
