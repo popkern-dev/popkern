@@ -213,6 +213,130 @@ fn build_planar_sheet(x_min: f64, x_max: f64, y_min: f64, y_max: f64, z_height: 
 }
 
 #[test]
+fn is_planar_sheet_rejects_non_planar_surface() {
+    // A cylinder is not planar — is_planar_sheet should return None
+    // even though it's a closed solid with multiple faces.
+    let cyl = BRep::cylinder(0.5, 2.0, tol()).unwrap();
+    assert!(
+        is_planar_sheet(&cyl).is_none(),
+        "cylinder should NOT be detected as planar"
+    );
+}
+
+#[test]
+fn is_planar_sheet_rejects_mixed_normals() {
+    // A unit cube has 6 faces on 3 pairs of parallel planes, but the
+    // faces don't all share a normal. is_planar_sheet should return
+    // None.
+    let cube = BRep::unit_cube(tol()).unwrap();
+    assert!(
+        is_planar_sheet(&cube).is_none(),
+        "cube should NOT be detected as planar (mixed normals)"
+    );
+}
+
+#[test]
+fn is_planar_sheet_rejects_empty_brep() {
+    let empty = BRep::new(tol());
+    assert!(
+        is_planar_sheet(&empty).is_none(),
+        "empty BRep should NOT be detected as planar"
+    );
+}
+
+#[test]
+fn is_planar_sheet_accepts_multi_face_coplanar() {
+    // Build a minimal BRep with TWO face slots both pointing at the
+    // same z=0.5 plane. is_planar_sheet only inspects .faces and their
+    // surface geometry — it does not walk the topology — so we can
+    // smoke-test the detector by pre-populating the face slotmap
+    // directly without wiring a full loop+half-edge chain.
+    use popkern_core::geometry::Point3;
+    use popkern_core::geometry::Vec3;
+    use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+    use popkern_core::topology::Face;
+
+    let mut brep = BRep::new(tol());
+    let plane_a = SurfaceOnFace {
+        geometry: SurfaceGeometry::Plane {
+            origin: Point3::new(0.0, 0.0, 0.5),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            u_axis: Vec3::new(1.0, 0.0, 0.0),
+            v_axis: Vec3::new(0.0, 1.0, 0.0),
+        },
+        orientation: true,
+    };
+    let plane_b = SurfaceOnFace {
+        geometry: SurfaceGeometry::Plane {
+            origin: Point3::new(2.0, 2.0, 0.5),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            u_axis: Vec3::new(1.0, 0.0, 0.0),
+            v_axis: Vec3::new(0.0, 1.0, 0.0),
+        },
+        orientation: true,
+    };
+    brep.faces.insert(Face {
+        outer_loop: Default::default(),
+        inner_loops: Vec::new(),
+        shell: Default::default(),
+        surface: Some(plane_a),
+        name: None,
+        tolerance: None,
+    });
+    brep.faces.insert(Face {
+        outer_loop: Default::default(),
+        inner_loops: Vec::new(),
+        shell: Default::default(),
+        surface: Some(plane_b),
+        name: None,
+        tolerance: None,
+    });
+
+    let detected = is_planar_sheet(&brep);
+    assert!(
+        detected.is_some(),
+        "two co-planar faces should be detected as an effectively-planar sheet"
+    );
+    let (_, normal) = detected.unwrap();
+    assert_eq!(normal.z, 1.0);
+}
+
+#[test]
+fn is_planar_sheet_rejects_offset_coplanar_faces() {
+    // Two planar faces sharing a normal but at different z-heights
+    // (0.5 vs 1.5) should NOT be treated as a single plane — they
+    // lie on parallel planes, not the same plane.
+    use popkern_core::geometry::Point3;
+    use popkern_core::geometry::Vec3;
+    use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+    use popkern_core::topology::Face;
+
+    let mut brep = BRep::new(tol());
+    for z in [0.5, 1.5] {
+        brep.faces.insert(Face {
+            outer_loop: Default::default(),
+            inner_loops: Vec::new(),
+            shell: Default::default(),
+            surface: Some(SurfaceOnFace {
+                geometry: SurfaceGeometry::Plane {
+                    origin: Point3::new(0.0, 0.0, z),
+                    normal: Vec3::new(0.0, 0.0, 1.0),
+                    u_axis: Vec3::new(1.0, 0.0, 0.0),
+                    v_axis: Vec3::new(0.0, 1.0, 0.0),
+                },
+                orientation: true,
+            }),
+            name: None,
+            tolerance: None,
+        });
+    }
+    assert!(
+        is_planar_sheet(&brep).is_none(),
+        "offset parallel planes should NOT be detected as a single plane"
+    );
+}
+
+#[test]
 fn build_planar_sheet_passes_sheet_detector() {
     let sheet = build_planar_sheet(-0.5, 1.5, -0.5, 1.5, 0.5);
     assert!(
