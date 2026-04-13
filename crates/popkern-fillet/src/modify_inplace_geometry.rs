@@ -3,10 +3,120 @@
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
-use popkern_core::topology::{BRep, EdgeHandle};
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 use crate::error::BlendError;
+use crate::unfillet::UnfilletPlan;
 use crate::unfillet_closed_helpers::{CylinderGeometry, PlaneGeometry};
+
+/// Compute a unit perpendicular vector that lies in `plane_normal`'s
+/// plane and is perpendicular to `edge_dir`. Sign is arbitrary.
+pub(crate) fn perpendicular_in_plane(plane_normal: &Vec3, edge_dir: &Vec3) -> Vec3 {
+    let raw = plane_normal.cross(edge_dir);
+    let len = raw.length();
+    if len > 1e-12 {
+        Vec3::new(raw.x / len, raw.y / len, raw.z / len)
+    } else {
+        Vec3::new(0.0, 0.0, 1.0)
+    }
+}
+
+/// Collect the unique vertices in `fillet_face`'s outer loop.
+pub(crate) fn collect_outer_loop_vertices(
+    brep: &BRep,
+    fillet_face: FaceHandle,
+) -> Vec<VertexHandle> {
+    let mut out = Vec::new();
+    let lh = brep.faces[fillet_face].outer_loop;
+    let start_he = brep.loops[lh].half_edge;
+    let mut he = start_he;
+    let mut safety = 0;
+    loop {
+        safety += 1;
+        if safety > 10_000 {
+            break;
+        }
+        let h = &brep.half_edges[he];
+        if !out.contains(&h.origin) {
+            out.push(h.origin);
+        }
+        he = h.next;
+        if he == start_he {
+            break;
+        }
+    }
+    out
+}
+
+/// Resolve the sign of `perp` so that it points toward the side of
+/// the sharp edge where the fillet sits. Picks whichever sign has
+/// more loop vertices' offsets aligning positively with it.
+pub(crate) fn pick_signed_perpendicular(
+    perp: &Vec3,
+    plan: &UnfilletPlan,
+    loop_vertices: &[VertexHandle],
+    brep: &BRep,
+) -> Vec3 {
+    let mut pos_count = 0;
+    let mut neg_count = 0;
+    for &v in loop_vertices {
+        let pos = brep.vertices[v].position;
+        let d_start = (pos.x - plan.restored_edge_start.x).powi(2)
+            + (pos.y - plan.restored_edge_start.y).powi(2)
+            + (pos.z - plan.restored_edge_start.z).powi(2);
+        let d_end = (pos.x - plan.restored_edge_end.x).powi(2)
+            + (pos.y - plan.restored_edge_end.y).powi(2)
+            + (pos.z - plan.restored_edge_end.z).powi(2);
+        let endpoint = if d_start <= d_end {
+            plan.restored_edge_start
+        } else {
+            plan.restored_edge_end
+        };
+        let offset = Vec3::new(pos.x - endpoint.x, pos.y - endpoint.y, pos.z - endpoint.z);
+        if offset.length() < 1e-9 {
+            continue;
+        }
+        let aligned = offset.dot(perp);
+        if aligned > 1e-6 {
+            pos_count += 1;
+        } else if aligned < -1e-6 {
+            neg_count += 1;
+        }
+    }
+    if pos_count >= neg_count {
+        *perp
+    } else {
+        Vec3::new(-perp.x, -perp.y, -perp.z)
+    }
+}
+
+/// Find the loop vertex whose direction from `endpoint` best aligns
+/// with `perp`. Cosine-similarity scored.
+pub(crate) fn find_corner_vertex(
+    brep: &BRep,
+    loop_vertices: &[VertexHandle],
+    endpoint: &Point3,
+    perp: &Vec3,
+) -> Option<VertexHandle> {
+    let mut best: Option<(VertexHandle, f64)> = None;
+    for &v in loop_vertices {
+        let pos = brep.vertices[v].position;
+        let offset = Vec3::new(pos.x - endpoint.x, pos.y - endpoint.y, pos.z - endpoint.z);
+        let len = offset.length();
+        if len < 1e-9 {
+            continue;
+        }
+        let cos_sim = offset.dot(perp) / len;
+        if cos_sim < 0.5 {
+            continue;
+        }
+        match &best {
+            Some((_, prev)) if cos_sim <= *prev => {}
+            _ => best = Some((v, cos_sim)),
+        }
+    }
+    best.map(|(v, _)| v)
+}
 
 /// Sign conventions of the existing fillet, derived from the
 /// support geometries and the existing contact-vertex positions.

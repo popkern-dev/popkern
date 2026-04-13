@@ -14,9 +14,11 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, Verte
 
 use crate::error::BlendError;
 use crate::modify_inplace_geometry::{
-    determine_fillet_signs, move_cyl_side_vertex, move_plane_side_vertex,
+    collect_outer_loop_vertices, determine_fillet_signs, find_corner_vertex, move_cyl_side_vertex,
+    move_plane_side_vertex, perpendicular_in_plane, pick_signed_perpendicular,
     project_to_cylinder_axis_at_height, project_to_plane_along_axis, rebuild_circle_edge,
 };
+use crate::modify_inplace_sweep::{VariableSweepInputs, build_variable_plane_plane_sweep};
 use crate::unfillet::{UnfilletPlan, compute_unfillet_plan};
 use crate::unfillet_closed_helpers::{
     Side, classify_support_pair, extract_cylinder_geometry, extract_plane_geometry,
@@ -339,157 +341,72 @@ fn modify_open_in_place_general(
 
     rebuild_curves_touching(&mut out, &welded);
 
-    // Reassign the fillet face surface. For constant radius this is
-    // an exact analytic torus. For variable radius the surface is
-    // an approximation — a Torus with the *average* minor radius —
-    // which renders correctly enough for visualisation but is not
-    // geometrically exact. Use remove+recreate for exact fidelity.
-    let avg_radius = (r_start + r_end) * 0.5;
-    let cos_angle = plane_a.normal.dot(&plane_b.normal).clamp(-1.0, 1.0);
-    let dihedral = cos_angle.acos();
-    let half_angle = dihedral * 0.5;
-    let sin_half = half_angle.sin();
-    if sin_half.abs() > 1e-10 {
-        let axis_raw = plane_a.normal.cross(&plane_b.normal);
-        let axis_len = axis_raw.length();
-        let axis = if axis_len > 1e-12 {
-            Vec3::new(
-                axis_raw.x / axis_len,
-                axis_raw.y / axis_len,
-                axis_raw.z / axis_len,
-            )
-        } else {
-            Vec3::new(0.0, 0.0, 1.0)
-        };
-        let major = avg_radius / sin_half;
-        let centre = Point3::new(
-            (plan.restored_edge_start.x + plan.restored_edge_end.x) * 0.5,
-            (plan.restored_edge_start.y + plan.restored_edge_end.y) * 0.5,
-            (plan.restored_edge_start.z + plan.restored_edge_end.z) * 0.5,
-        );
-        out.faces[fillet_face].surface = Some(SurfaceOnFace {
-            geometry: SurfaceGeometry::Torus {
-                center: centre,
-                axis,
-                major_radius: major,
-                minor_radius: avg_radius,
-            },
-            orientation: true,
-        });
-    }
+    // Reassign the fillet face surface. Constant radius → exact
+    // analytic torus matching `try_plane_plane_torus`. Variable
+    // radius → a true tensor-product NURBS sweep (Round 5i).
+    let new_surface = if (r_start - r_end).abs() > 1e-12 {
+        build_variable_plane_plane_sweep(&VariableSweepInputs {
+            p_start: plan.restored_edge_start,
+            p_end: plan.restored_edge_end,
+            plane_a_normal: plane_a.normal,
+            plane_b_normal: plane_b.normal,
+            signed_perp_a,
+            signed_perp_b,
+            r_start,
+            r_end,
+            n_sections: 8,
+            n_arc_samples: 8,
+        })
+    } else {
+        constant_plane_plane_torus(&plane_a.normal, &plane_b.normal, &plan, r_start)
+    };
+    out.faces[fillet_face].surface = Some(SurfaceOnFace {
+        geometry: new_surface,
+        orientation: true,
+    });
 
     Ok(out)
 }
 
-/// Compute a unit perpendicular vector that lies in `plane_normal`'s
-/// plane and is perpendicular to `edge_dir`. Sign is arbitrary.
-fn perpendicular_in_plane(plane_normal: &Vec3, edge_dir: &Vec3) -> Vec3 {
-    let raw = plane_normal.cross(edge_dir);
-    let len = raw.length();
-    if len > 1e-12 {
-        Vec3::new(raw.x / len, raw.y / len, raw.z / len)
-    } else {
-        Vec3::new(0.0, 0.0, 1.0)
-    }
-}
-
-/// Collect the unique vertices in `fillet_face`'s outer loop.
-fn collect_outer_loop_vertices(brep: &BRep, fillet_face: FaceHandle) -> Vec<VertexHandle> {
-    let mut out = Vec::new();
-    let lh = brep.faces[fillet_face].outer_loop;
-    let start_he = brep.loops[lh].half_edge;
-    let mut he = start_he;
-    let mut safety = 0;
-    loop {
-        safety += 1;
-        if safety > 10_000 {
-            break;
-        }
-        let h = &brep.half_edges[he];
-        if !out.contains(&h.origin) {
-            out.push(h.origin);
-        }
-        he = h.next;
-        if he == start_he {
-            break;
-        }
-    }
-    out
-}
-
-/// Resolve the sign of `perp` so that it points toward the side of
-/// the sharp edge where the fillet sits. Picks whichever sign has
-/// more loop vertices' offsets aligning positively with it.
-fn pick_signed_perpendicular(
-    perp: &Vec3,
+/// Build the analytic Torus surface for a constant-radius
+/// plane-plane fillet, mirroring `try_plane_plane_torus` in
+/// `fillet_surface.rs`.
+fn constant_plane_plane_torus(
+    n_a: &Vec3,
+    n_b: &Vec3,
     plan: &UnfilletPlan,
-    loop_vertices: &[VertexHandle],
-    brep: &BRep,
-) -> Vec3 {
-    let mut pos_count = 0;
-    let mut neg_count = 0;
-    for &v in loop_vertices {
-        let pos = brep.vertices[v].position;
-        let d_start = (pos.x - plan.restored_edge_start.x).powi(2)
-            + (pos.y - plan.restored_edge_start.y).powi(2)
-            + (pos.z - plan.restored_edge_start.z).powi(2);
-        let d_end = (pos.x - plan.restored_edge_end.x).powi(2)
-            + (pos.y - plan.restored_edge_end.y).powi(2)
-            + (pos.z - plan.restored_edge_end.z).powi(2);
-        let endpoint = if d_start <= d_end {
-            plan.restored_edge_start
-        } else {
-            plan.restored_edge_end
-        };
-        let offset = Vec3::new(pos.x - endpoint.x, pos.y - endpoint.y, pos.z - endpoint.z);
-        if offset.length() < 1e-9 {
-            continue;
-        }
-        let aligned = offset.dot(perp);
-        if aligned > 1e-6 {
-            pos_count += 1;
-        } else if aligned < -1e-6 {
-            neg_count += 1;
-        }
+    radius: f64,
+) -> SurfaceGeometry {
+    let cos_angle = n_a.dot(n_b).clamp(-1.0, 1.0);
+    let half_angle = cos_angle.acos() * 0.5;
+    let sin_half = half_angle.sin().max(1e-10);
+    let axis_raw = n_a.cross(n_b);
+    let axis_len = axis_raw.length().max(1e-12);
+    let axis = Vec3::new(
+        axis_raw.x / axis_len,
+        axis_raw.y / axis_len,
+        axis_raw.z / axis_len,
+    );
+    let centre = Point3::new(
+        (plan.restored_edge_start.x + plan.restored_edge_end.x) * 0.5,
+        (plan.restored_edge_start.y + plan.restored_edge_end.y) * 0.5,
+        (plan.restored_edge_start.z + plan.restored_edge_end.z) * 0.5,
+    );
+    SurfaceGeometry::Torus {
+        center: centre,
+        axis,
+        major_radius: radius / sin_half,
+        minor_radius: radius,
     }
-    if pos_count >= neg_count {
-        *perp
-    } else {
-        Vec3::new(-perp.x, -perp.y, -perp.z)
-    }
-}
-
-/// Find the loop vertex whose direction from `endpoint` best aligns
-/// with `perp`. Cosine-similarity scored.
-fn find_corner_vertex(
-    brep: &BRep,
-    loop_vertices: &[VertexHandle],
-    endpoint: &Point3,
-    perp: &Vec3,
-) -> Option<VertexHandle> {
-    let mut best: Option<(VertexHandle, f64)> = None;
-    for &v in loop_vertices {
-        let pos = brep.vertices[v].position;
-        let offset = Vec3::new(pos.x - endpoint.x, pos.y - endpoint.y, pos.z - endpoint.z);
-        let len = offset.length();
-        if len < 1e-9 {
-            continue;
-        }
-        let cos_sim = offset.dot(perp) / len;
-        if cos_sim < 0.5 {
-            continue;
-        }
-        match &best {
-            Some((_, prev)) if cos_sim <= *prev => {}
-            _ => best = Some((v, cos_sim)),
-        }
-    }
-    best.map(|(v, _)| v)
 }
 
 #[cfg(test)]
 #[path = "modify_inplace_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "modify_inplace_variable_tests.rs"]
+mod variable_tests;
 
 #[cfg(test)]
 #[path = "modify_equivalence_tests.rs"]
