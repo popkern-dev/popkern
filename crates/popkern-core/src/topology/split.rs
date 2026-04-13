@@ -85,9 +85,21 @@ impl BRep {
         let pos_a = self.vertices[vertex_a].position;
         let pos_b = self.vertices[vertex_b].position;
 
+        // The caller passes `t` in the half-edge's direction:
+        // `t = 0` is at `vertex_a`, `t = 1` is at `vertex_b`. The
+        // edge's curve geometry, however, may be authored in the
+        // *opposite* direction (a common pattern in boolean-engine
+        // outputs). So we detect the curve direction by checking
+        // which curve endpoint is closer to `vertex_a`, and flip
+        // `t` if needed before sampling the curve. Without this,
+        // `split_pos` lands at the wrong end of the edge.
         let split_pos = match &curve_on_edge {
             Some(curve) => {
-                let t_param = curve.t_start + t * (curve.t_end - curve.t_start);
+                let p_t_start = curve.geometry.point_at(curve.t_start);
+                let p_t_end = curve.geometry.point_at(curve.t_end);
+                let curve_aligned = pos_a.distance_to(&p_t_start) <= pos_a.distance_to(&p_t_end);
+                let aligned_t = if curve_aligned { t } else { 1.0 - t };
+                let t_param = curve.t_start + aligned_t * (curve.t_end - curve.t_start);
                 curve.geometry.point_at(t_param)
             }
             None => Point3::new(
@@ -173,9 +185,15 @@ impl BRep {
             self.vertices[vertex_b].outgoing = he_bv;
         }
 
-        // Split curve geometry if present.
+        // Split curve geometry if present. Use the same direction-
+        // alignment logic as `split_pos` above so the curve is
+        // sampled consistently with the half-edge direction.
         if let Some(curve) = curve_on_edge {
-            let t_param = curve.t_start + t * (curve.t_end - curve.t_start);
+            let p_t_start = curve.geometry.point_at(curve.t_start);
+            let p_t_end = curve.geometry.point_at(curve.t_end);
+            let curve_aligned = pos_a.distance_to(&p_t_start) <= pos_a.distance_to(&p_t_end);
+            let aligned_t = if curve_aligned { t } else { 1.0 - t };
+            let t_param = curve.t_start + aligned_t * (curve.t_end - curve.t_start);
 
             // Try to split NURBS; if the curve is analytic, convert to NURBS first.
             let nurbs = curve
