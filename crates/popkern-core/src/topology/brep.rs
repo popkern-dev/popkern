@@ -40,6 +40,18 @@ pub struct BRep {
     /// Maximum imprecision allowed before the model is considered invalid.
     #[serde(default = "BRep::default_max_imprecision")]
     pub max_imprecision: f64,
+    /// Non-manifold radial cycle for half-edges whose parent edge is
+    /// shared by more than two half-edges (N > 2 case, e.g. the
+    /// crossing line of a transversal sheet-sheet union).
+    ///
+    /// For 2-manifold edges the cycle is the pair `(he, he.twin)` and
+    /// this map is empty — [`BRep::radial_next`] falls back to
+    /// `he.twin` when a half-edge is absent from the map. For
+    /// non-manifold edges with N > 2 half-edges, the map contains
+    /// every half-edge of the group and forms a full cyclic chain
+    /// `h1 → h2 → h3 → ... → hN → h1`.
+    #[serde(default)]
+    pub nonmanifold_radial: std::collections::HashMap<HalfEdgeHandle, HalfEdgeHandle>,
     /// Tracks precision degradation across operations.
     #[serde(skip)]
     degradation_tracker: Option<DegradationTracker>,
@@ -69,6 +81,7 @@ impl BRep {
             name_pool: NamePool::new(),
             operation_labels: OperationLabels::default(),
             max_imprecision,
+            nonmanifold_radial: std::collections::HashMap::new(),
             degradation_tracker: None,
         }
     }

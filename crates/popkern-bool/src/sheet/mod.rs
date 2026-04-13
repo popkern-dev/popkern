@@ -41,3 +41,6 @@ pub use split::split_solid_by_plane;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_dispatch;

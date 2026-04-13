@@ -28,6 +28,9 @@ pub use vertex::Vertex;
 pub mod brep;
 pub use brep::BRep;
 
+/// Non-manifold radial-cycle helpers for [`BRep`].
+mod brep_radial;
+
 /// Pcurve recomputation for BRep faces.
 mod pcurve_recompute;
 

@@ -243,6 +243,7 @@ pub fn boolean_with_sheets(
 
             let mut combined = crate::operation::helpers::combine_breps(a_prepared, b_ready)?;
             super::weld::weld_coincident_vertices(&mut combined, &tol);
+            super::weld::weld_coincident_edges(&mut combined);
             Ok(SheetBooleanResult::OpenShell(combined))
         }
         SheetOperationKind::SolidUnionSheet => {

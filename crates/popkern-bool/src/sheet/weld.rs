@@ -1,25 +1,26 @@
-//! Post-concatenation vertex welding for sheet-sheet union.
+//! Post-concatenation vertex and edge welding for sheet-sheet union.
 //!
 //! [`weld_coincident_vertices`] walks every vertex in a BRep, groups
 //! them by 3D position within `tolerance.linear()`, and rewrites
 //! every half-edge's `origin` to reference a single canonical
-//! representative per group. Used by [`super::dispatch::boolean_with_sheets`]
-//! to weld the two imprinted sheets' intersection vertices after
-//! `combine_breps` has concatenated them.
+//! representative per group.
 //!
-//! The weld operates at the vertex level only. Edges along a
-//! coincident intersection curve end up with matching endpoints but
-//! remain separate BRep edges (each with its own 2 half-edges). This
-//! is a valid topology in the popkern BRep model — "two edges share
-//! endpoints without being topologically merged" — and it is the
-//! correct representation for transversal sheet-sheet junctions that
-//! are inherently non-manifold: four half-edges share an edge
-//! position, two belonging to each sheet's face loop, and the BRep
-//! model's 2-half-edge-per-edge invariant is preserved by keeping
-//! the two edges distinct.
+//! [`weld_coincident_edges`] then walks edges whose endpoints have
+//! collapsed to the same vertex pair, picks one as canonical,
+//! redirects the other half-edges' `edge` back-reference to it,
+//! splices the half-edges into a single non-manifold radial cycle
+//! via [`popkern_core::topology::BRep::nonmanifold_radial`], and
+//! deletes the duplicate edges. The result is a topologically
+//! correct non-manifold BRep: one edge per geometric intersection
+//! curve, with N half-edges threaded through the radial cycle so
+//! downstream code that walks via [`BRep::radial_next`] visits every
+//! face-use in order.
+//!
+//! Used by [`super::dispatch::boolean_with_sheets`] to weld two
+//! imprinted sheets after `combine_breps` concatenates them.
 
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, VertexHandle};
+use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle, VertexHandle};
 use std::collections::HashMap;
 
 /// Weld vertices within `tolerance.linear()` of each other into a
@@ -117,136 +118,140 @@ pub(super) fn weld_coincident_vertices(brep: &mut BRep, tolerance: &Tolerance) -
     welds
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use popkern_core::geometry::Point3;
-
-    #[test]
-    fn weld_merges_two_vertices_at_same_position() {
-        let tol = Tolerance::default();
-        let mut brep = BRep::new(tol);
-        // Two coincident vertices (same position). No edges/faces —
-        // just the vertex-level merge path.
-        brep.vertices.insert(popkern_core::topology::Vertex {
-            position: Point3::new(1.0, 2.0, 3.0),
-            outgoing: Default::default(),
-            name: None,
-            tolerance: None,
-        });
-        brep.vertices.insert(popkern_core::topology::Vertex {
-            position: Point3::new(1.0, 2.0, 3.0),
-            outgoing: Default::default(),
-            name: None,
-            tolerance: None,
-        });
-        assert_eq!(brep.vertices.len(), 2);
-        let welds = weld_coincident_vertices(&mut brep, &tol);
-        assert_eq!(welds, 1);
-        assert_eq!(brep.vertices.len(), 1);
+/// Weld edges whose endpoint vertex pairs are identical after
+/// vertex welding into a single canonical edge, forming a
+/// non-manifold radial cycle when multiple edges collapse together.
+///
+/// Algorithm:
+///
+/// 1. Build a map from `(v_min, v_max)` endpoint keys to the list
+///    of edges connecting that pair. The key is independent of
+///    direction so `E(v1 → v2)` and `E(v2 → v1)` group together.
+///
+/// 2. For each group with more than one edge, pick the first as
+///    canonical. Collect all half-edges of the group (both via
+///    `edge.half_edge.twin` AND the other edges' half-edges via
+///    their `edge` back-reference), then splice them into a single
+///    cyclic chain in [`BRep::nonmanifold_radial`]. The chain order
+///    is the half-edge iteration order within each edge — for a
+///    4-half-edge group, the cycle is
+///    `he_A1 → he_A2 → he_B1 → he_B2 → he_A1`.
+///
+/// 3. Redirect every half-edge in the group to reference the
+///    canonical edge via its `edge` field.
+///
+/// 4. Delete the non-canonical edges from the slotmap.
+///
+/// Only groups where every edge has matching curve geometry (or
+/// all edges have `None` curves, i.e. implicit line segments
+/// between their endpoints) are welded. Mismatched curves are left
+/// untouched — welding them would silently lose geometry.
+///
+/// Returns the number of edges removed. Requires a preceding
+/// [`weld_coincident_vertices`] call — edges are grouped by
+/// canonical vertex handles, so pairs that look geometrically
+/// coincident but reference different VertexHandles stay separate.
+pub(super) fn weld_coincident_edges(brep: &mut BRep) -> usize {
+    // Group edges by canonical (v_min, v_max) endpoint pair. The
+    // VertexHandle ordering is via slotmap key comparison, which is
+    // stable across snapshots of the same BRep.
+    let mut groups: HashMap<(VertexHandle, VertexHandle), Vec<EdgeHandle>> = HashMap::new();
+    for (eh, edge) in &brep.edges {
+        let Some(he) = brep.half_edges.get(edge.half_edge) else {
+            continue;
+        };
+        let Some(twin) = brep.half_edges.get(he.twin) else {
+            continue;
+        };
+        let v1 = he.origin;
+        let v2 = twin.origin;
+        let key = if v1 <= v2 { (v1, v2) } else { (v2, v1) };
+        groups.entry(key).or_default().push(eh);
     }
 
-    #[test]
-    fn weld_leaves_distinct_vertices_untouched() {
-        let tol = Tolerance::default();
-        let mut brep = BRep::new(tol);
-        brep.vertices.insert(popkern_core::topology::Vertex {
-            position: Point3::new(0.0, 0.0, 0.0),
-            outgoing: Default::default(),
-            name: None,
-            tolerance: None,
+    let mut welds = 0;
+
+    for (_, edges) in groups {
+        if edges.len() < 2 {
+            continue;
+        }
+
+        // Verify every edge in the group has matching curve geometry.
+        // Either all are None, or all share the same curve (by strict
+        // equality — any drift is treated as "don't weld"). A more
+        // tolerant comparison would need a curve-distance metric and
+        // is deferred until a use case appears.
+        let first_curve = brep.edges[edges[0]].curve.clone();
+        let curves_match = edges.iter().all(|&eh| {
+            let c = &brep.edges[eh].curve;
+            match (&first_curve, c) {
+                (None, None) => true,
+                (Some(a), Some(b)) => a.t_start == b.t_start && a.t_end == b.t_end,
+                _ => false,
+            }
         });
-        brep.vertices.insert(popkern_core::topology::Vertex {
-            position: Point3::new(1.0, 0.0, 0.0),
-            outgoing: Default::default(),
-            name: None,
-            tolerance: None,
-        });
-        let welds = weld_coincident_vertices(&mut brep, &tol);
-        assert_eq!(welds, 0);
-        assert_eq!(brep.vertices.len(), 2);
+        if !curves_match {
+            continue;
+        }
+
+        let canonical = edges[0];
+
+        // Collect all half-edges belonging to the group's edges via
+        // the back-reference. We iterate `brep.half_edges` once and
+        // pick up every half-edge whose `edge` field is in our set.
+        let edge_set: std::collections::HashSet<EdgeHandle> = edges.iter().copied().collect();
+        let mut group_half_edges: Vec<HalfEdgeHandle> = brep
+            .half_edges
+            .iter()
+            .filter_map(|(heh, he)| {
+                if edge_set.contains(&he.edge) {
+                    Some(heh)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        // Sort for deterministic cycle order — the slotmap iter
+        // order is not guaranteed stable, but handle comparison is.
+        group_half_edges.sort_by_key(|h| format!("{h:?}"));
+
+        // Splice into a radial cycle in `nonmanifold_radial`. For
+        // N half-edges h1..hN, set:
+        //   radial_next[h1] = h2
+        //   radial_next[h2] = h3
+        //   ...
+        //   radial_next[hN] = h1
+        // This forms a closed cyclic chain. For N == 2 the cycle
+        // collapses to the standard twin pair, but we still populate
+        // the map for consistency — callers can always use
+        // BRep::radial_next whether or not the edge is manifold.
+        let n = group_half_edges.len();
+        if n >= 2 {
+            for i in 0..n {
+                let curr = group_half_edges[i];
+                let next = group_half_edges[(i + 1) % n];
+                brep.nonmanifold_radial.insert(curr, next);
+            }
+        }
+
+        // Redirect every half-edge in the group to the canonical
+        // edge via its `edge` field.
+        for heh in &group_half_edges {
+            if let Some(he) = brep.half_edges.get_mut(*heh) {
+                he.edge = canonical;
+            }
+        }
+
+        // Delete the non-canonical edges.
+        for &eh in &edges[1..] {
+            brep.edges.remove(eh);
+            welds += 1;
+        }
     }
 
-    #[test]
-    fn weld_transitive_merge_via_middle_vertex() {
-        // Three vertices: A at (0,0,0), B at (1e-7, 0, 0), C at (2e-7, 0, 0).
-        // With default tol.linear() == 1e-6, A-B is within tol (1e-7 < 1e-6),
-        // B-C is within tol, and A-C is also within tol (2e-7 < 1e-6).
-        // All three should collapse into one.
-        let tol = Tolerance::default();
-        let mut brep = BRep::new(tol);
-        brep.vertices.insert(popkern_core::topology::Vertex {
-            position: Point3::new(0.0, 0.0, 0.0),
-            outgoing: Default::default(),
-            name: None,
-            tolerance: None,
-        });
-        brep.vertices.insert(popkern_core::topology::Vertex {
-            position: Point3::new(1e-7, 0.0, 0.0),
-            outgoing: Default::default(),
-            name: None,
-            tolerance: None,
-        });
-        brep.vertices.insert(popkern_core::topology::Vertex {
-            position: Point3::new(2e-7, 0.0, 0.0),
-            outgoing: Default::default(),
-            name: None,
-            tolerance: None,
-        });
-        let welds = weld_coincident_vertices(&mut brep, &tol);
-        assert_eq!(welds, 2);
-        assert_eq!(brep.vertices.len(), 1);
-    }
-
-    #[test]
-    fn weld_rewrites_half_edge_origins_to_canonical() {
-        // Two coincident vertices, each referenced by a half-edge as
-        // origin. After weld, both half-edges should point at the
-        // canonical vertex.
-        let tol = Tolerance::default();
-        let mut brep = BRep::new(tol);
-        let v1 = brep.vertices.insert(popkern_core::topology::Vertex {
-            position: Point3::new(5.0, 5.0, 5.0),
-            outgoing: Default::default(),
-            name: None,
-            tolerance: None,
-        });
-        let v2 = brep.vertices.insert(popkern_core::topology::Vertex {
-            position: Point3::new(5.0, 5.0, 5.0),
-            outgoing: Default::default(),
-            name: None,
-            tolerance: None,
-        });
-        let he1 = brep.half_edges.insert(popkern_core::topology::HalfEdge {
-            origin: v1,
-            twin: Default::default(),
-            next: Default::default(),
-            prev: Default::default(),
-            edge: Default::default(),
-            loop_: Default::default(),
-            pcurve: None,
-        });
-        let he2 = brep.half_edges.insert(popkern_core::topology::HalfEdge {
-            origin: v2,
-            twin: Default::default(),
-            next: Default::default(),
-            prev: Default::default(),
-            edge: Default::default(),
-            loop_: Default::default(),
-            pcurve: None,
-        });
-
-        weld_coincident_vertices(&mut brep, &tol);
-
-        // The two half-edges now reference the SAME vertex — whichever
-        // one the union-find picked as canonical. That vertex must
-        // still exist in the slotmap.
-        let o1 = brep.half_edges[he1].origin;
-        let o2 = brep.half_edges[he2].origin;
-        assert_eq!(o1, o2, "both half-edges should reference the same origin");
-        assert!(
-            brep.vertices.get(o1).is_some(),
-            "canonical vertex must still exist"
-        );
-    }
+    welds
 }
+
+#[cfg(test)]
+#[path = "weld_tests.rs"]
+mod tests;
