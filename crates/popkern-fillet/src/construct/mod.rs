@@ -9,6 +9,7 @@
 
 pub(crate) mod blend_insert;
 pub(crate) mod blend_topo;
+pub(crate) mod closed_fillet;
 pub(crate) mod helpers;
 pub(crate) mod merge;
 pub(crate) mod pcurve_attach;
@@ -81,7 +82,30 @@ pub fn apply_blend_geometry(
     }
     let mut perp_data: Vec<Option<PerpSplitData>> = Vec::new();
 
-    for eg in edge_geometries {
+    // Track which edges took the closed-fillet path (and so are
+    // already finalised); they skip Phase B and Phase C entirely.
+    let mut closed_handled: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+    for (idx, eg) in edge_geometries.iter().enumerate() {
+        // Closed fillet edges (e.g. cylindrical hole rims) don't
+        // have perpendicular boundary edges to split. Dispatch to
+        // the closed-fillet surgery path and mark the edge as
+        // already handled — skip Phase B/C for it.
+        if closed_fillet::is_closed_fillet_edge(&result, eg.analysis.edge) {
+            match closed_fillet::apply_closed_fillet(&mut result, eg) {
+                Ok(()) => {
+                    closed_handled.insert(idx);
+                    perp_data.push(None);
+                    continue;
+                }
+                Err(failure) => {
+                    failures.push((eg.analysis.edge, failure));
+                    perp_data.push(None);
+                    continue;
+                }
+            }
+        }
+
         match helpers::split_perpendicular_edges_by_radius(
             &mut result,
             eg.analysis.face_1,

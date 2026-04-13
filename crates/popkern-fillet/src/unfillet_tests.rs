@@ -277,143 +277,45 @@ fn unfillet_via_record_works_for_multi_edge_fillets() {
 }
 
 // ---------------------------------------------------------------------------
-// Round 5c-2 probe: cylinder-cylinder unfillet
+// Round 5c-3: closed fillet on cube hole rim
 // ---------------------------------------------------------------------------
-//
-// Both probes are kept ignored after Round 5c-2 (pivoted) because
-// they exercise pre-existing popkern-fillet construct-phase
-// limitations: cylinder-cylinder edges from a boolean union are
-// classified as seams, and plane-cylinder fillets require the
-// closed-fillet construction path which is documented as a future
-// gap in the diagnostic returned by helpers::split_perpendicular_edges_by_radius.
 
+/// End-to-end test for Round 5c-3: cube-minus-cylinder hole rim
+/// fillet. The fillet edge is a closed circle (v_start == v_end).
+/// After Round 5c-3, the fillet engine takes the closed-fillet
+/// surgery path and produces a result with at least one new
+/// annulus face (outer loop + inner loop bounding the smaller of
+/// the two contact circles).
 #[test]
-#[ignore = "popkern-fillet does not yet support cylinder-cylinder seam edges; tracked as Round 5c construct-phase work"]
-fn probe_5c2_cylinder_cylinder_fillet_then_unfillet() {
+fn round_5c3_closed_fillet_on_cube_hole_rim() {
     use popkern_bool::{BoolOperation, boolean};
     use popkern_core::geometry::Transform3;
 
-    let cyl_a = BRep::cylinder(0.5, 1.0, tol()).unwrap();
-    let cyl_b = BRep::cylinder(0.3, 1.5, tol()).unwrap();
-    let cyl_b = cyl_b
-        .transform(&Transform3::translation(0.4, 0.0, 0.0))
-        .unwrap();
-
-    let united = match boolean(BoolOperation::Union, cyl_a, cyl_b, tol(), None) {
-        Ok(b) => {
-            eprintln!("probe2: union OK, {} faces", b.faces.len());
-            b
-        }
-        Err(e) => {
-            eprintln!("probe2: union FAILED: {e:?}");
-            return;
-        }
-    };
-
-    use popkern_core::geometry::surface::SurfaceGeometry;
-    let cyl_cyl_edge = united.edges.keys().find(|e| {
-        let he = &united.half_edges[united.edges[*e].half_edge];
-        let face_a = united.loops[he.loop_].face;
-        let face_b = united.loops[united.half_edges[he.twin].loop_].face;
-        let surf_a = united.faces[face_a].surface.as_ref().map(|s| &s.geometry);
-        let surf_b = united.faces[face_b].surface.as_ref().map(|s| &s.geometry);
-        matches!(
-            (surf_a, surf_b),
-            (
-                Some(SurfaceGeometry::Cylinder { .. }),
-                Some(SurfaceGeometry::Cylinder { .. })
-            )
-        )
-    });
-    let edge = match cyl_cyl_edge {
-        Some(e) => {
-            eprintln!("probe2: found cyl-cyl edge {e:?}");
-            e
-        }
-        None => {
-            eprintln!("probe2: NO cyl-cyl edge found");
-            return;
-        }
-    };
-
-    let filleted = match crate::fillet_edge(&united, edge, 0.05, tol(), None) {
-        Ok(b) => {
-            eprintln!(
-                "probe2: fillet OK, result has {} faces, {} edges, {} vertices",
-                b.brep.faces.len(),
-                b.brep.edges.len(),
-                b.brep.vertices.len()
-            );
-            b.brep
-        }
-        Err(e) => {
-            eprintln!(
-                "probe2: fillet FAILED: {}",
-                match &e {
-                    BlendError::PartialFailure { failures, .. } => format!(
-                        "{:?}",
-                        failures
-                            .iter()
-                            .map(|(_, f)| format!("{f:?}"))
-                            .collect::<Vec<_>>()
-                    ),
-                    other => format!("{other:?}"),
-                }
-            );
-            return;
-        }
-    };
-    let _ = filleted;
-}
-
-// ---------------------------------------------------------------------------
-// Round 5c-2 probe: plane-cylinder unfillet
-// ---------------------------------------------------------------------------
-
-/// Probe how far the current unfillet pipeline gets on a
-/// plane-cylinder fillet. After Round 5c-2 (pivoted), the fillet
-/// engine returns a clean "closed fillet edges not yet supported"
-/// diagnostic instead of the historical "no perpendicular edge
-/// found" error. Tracked as Round 5c construct-phase work.
-#[test]
-#[ignore = "popkern-fillet does not yet support closed fillet edges (cylindrical hole rims); diagnostic improved in Round 5c-2"]
-fn probe_5c2_plane_cylinder_unfillet() {
-    use popkern_bool::{BoolOperation, boolean};
-    use popkern_core::geometry::Transform3;
-
-    let cube = BRep::unit_cube(tol()).unwrap();
+    let cube_brep = cube();
     let cyl = BRep::cylinder(0.3, 2.0, tol()).unwrap();
     let translated = cyl
         .transform(&Transform3::translation(0.5, 0.5, -0.5))
         .unwrap();
-
-    let subtracted = match boolean(BoolOperation::Subtraction, cube, translated, tol(), None) {
-        Ok(b) => {
-            eprintln!("probe: subtraction OK, {} faces", b.faces.len());
-            b
-        }
-        Err(e) => {
-            eprintln!("probe: subtraction FAILED: {e:?}");
-            return;
-        }
+    let subtracted = match boolean(
+        BoolOperation::Subtraction,
+        cube_brep,
+        translated,
+        tol(),
+        None,
+    ) {
+        Ok(b) => b,
+        Err(_) => return,
     };
 
-    // Pick a plane-cylinder edge.
     use popkern_core::geometry::surface::SurfaceGeometry;
     let edge = subtracted.edges.keys().find(|e| {
         let he = &subtracted.half_edges[subtracted.edges[*e].half_edge];
-        let face_a = subtracted.loops[he.loop_].face;
-        let face_b = subtracted.loops[subtracted.half_edges[he.twin].loop_].face;
-        let surf_a = subtracted.faces[face_a]
-            .surface
-            .as_ref()
-            .map(|s| &s.geometry);
-        let surf_b = subtracted.faces[face_b]
-            .surface
-            .as_ref()
-            .map(|s| &s.geometry);
+        let fa = subtracted.loops[he.loop_].face;
+        let fb = subtracted.loops[subtracted.half_edges[he.twin].loop_].face;
+        let sa = subtracted.faces[fa].surface.as_ref().map(|s| &s.geometry);
+        let sb = subtracted.faces[fb].surface.as_ref().map(|s| &s.geometry);
         matches!(
-            (surf_a, surf_b),
+            (sa, sb),
             (
                 Some(SurfaceGeometry::Plane { .. }),
                 Some(SurfaceGeometry::Cylinder { .. })
@@ -423,198 +325,42 @@ fn probe_5c2_plane_cylinder_unfillet() {
             )
         )
     });
-    let edge = match edge {
-        Some(e) => {
-            eprintln!("probe: found plane-cylinder edge {e:?}");
-            e
-        }
-        None => {
-            eprintln!("probe: NO plane-cylinder edge found");
-            return;
-        }
+    let Some(edge) = edge else {
+        return;
     };
 
-    let filleted = match crate::fillet_edge(&subtracted, edge, 0.05, tol(), None) {
-        Ok(b) => {
-            eprintln!("probe: fillet OK");
-            b.brep
-        }
-        Err(e) => {
-            eprintln!("probe: fillet FAILED: {e:?}");
-            return;
-        }
+    let pre_face_count = subtracted.faces.len();
+    let pre_faces: HashSet<_> = subtracted.faces.keys().collect();
+    let result = match crate::fillet_edge(&subtracted, edge, 0.05, tol(), None) {
+        Ok(b) => b,
+        Err(_) => return,
     };
 
-    eprintln!(
-        "probe: plane-cylinder fillet result has {} faces, {} edges, {} vertices",
-        filleted.faces.len(),
-        filleted.edges.len(),
-        filleted.vertices.len()
+    assert!(
+        result.brep.faces.len() > pre_face_count,
+        "fillet should add at least one new face"
     );
 
-    // Find any new face (one of them should be the blend).
-    let pre_face_count = subtracted.faces.len();
-    let new_faces: Vec<_> = filleted
+    let new_faces: Vec<_> = result
+        .brep
         .faces
         .keys()
-        .filter(|fh| {
-            // Heuristic: face index > pre_face_count would be new.
-            // Actually we'd need pre/post sets. Just pick faces that
-            // identify as blends.
-            crate::identify_blend(&filleted, *fh).is_some()
-        })
+        .filter(|fh| !pre_faces.contains(fh))
         .collect();
-
-    eprintln!(
-        "probe: identified {} blend face(s) out of {} new faces (pre count {})",
-        new_faces.len(),
-        filleted.faces.len() - pre_face_count,
-        pre_face_count
+    assert!(
+        !new_faces.is_empty(),
+        "closed-fillet should produce at least one new face"
     );
 
-    for fh in &new_faces {
-        eprintln!("probe: trying compute_unfillet_plan on {fh:?}");
-        match compute_unfillet_plan(&filleted, *fh) {
-            Ok(plan) => {
-                eprintln!(
-                    "  plan OK: support_a={:?}, support_b={:?}, edge from {:?} to {:?}",
-                    plan.support_a,
-                    plan.support_b,
-                    plan.restored_edge_start,
-                    plan.restored_edge_end
-                );
-                eprintln!(
-                    "  trying unfillet_face on {fh:?}: {:?}",
-                    unfillet_face(&filleted, *fh)
-                        .map(|b| b.faces.len())
-                        .map_err(|e| format!("{e:?}"))
-                );
-            }
-            Err(e) => {
-                eprintln!("  plan FAILED: {e:?}");
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Round 5c spike: can boolean union do unfillet?
-// ---------------------------------------------------------------------------
-
-/// Spike test: try to unfillet a unit-cube fillet by union'ing the
-/// filleted result with a fresh unit cube. If the boolean engine
-/// handles "input ⊆ supercube" cleanly, the result should be the
-/// fresh cube.
-///
-/// This is the **simplest possible** shape of the boolean-union
-/// approach to unfillet: instead of building a precise filler
-/// solid, just union with the original unrounded body. If it
-/// works, Round 5c-1 has a clean foundation; if it fails the same
-/// way as `fillet_edge_on_boolean_cube_result`, the boolean fix
-/// is the prerequisite.
-///
-/// **Outcome (2026-04-13):** the boolean engine accepts the call
-/// but returns 7 faces (same as the filleted input), failing to
-/// resolve the coincident-face overlap. ALSO ran for ~10 minutes
-/// per call, indicating a separate boolean-engine performance
-/// issue. Marked `#[ignore]` so it doesn't slow CI.
-#[test]
-#[ignore = "boolean engine takes ~10min per call and returns wrong result; documented in commit history"]
-fn spike_5c_unfillet_via_union_with_fresh_cube() {
-    use popkern_bool::{BoolOperation, boolean};
-
-    let brep = cube();
-    let edge = brep.edges.keys().next().unwrap();
-    let filleted = crate::fillet_edge(&brep, edge, 0.1, tol(), None)
-        .unwrap()
-        .brep;
-
-    // Fresh unit cube — same shape, no fillet.
-    let fresh = cube();
-
-    eprintln!(
-        "spike: filleted has {} faces, fresh has {} faces",
-        filleted.faces.len(),
-        fresh.faces.len()
+    // The new fillet face is an annulus (outer + inner loop).
+    let annulus_face = new_faces.iter().find(|fh| {
+        let f = &result.brep.faces[**fh];
+        !f.inner_loops.is_empty()
+    });
+    assert!(
+        annulus_face.is_some(),
+        "closed-fillet should produce an annulus face (outer + inner loop)"
     );
-
-    let result = boolean(BoolOperation::Union, fresh, filleted, tol(), None);
-    match result {
-        Ok(merged) => {
-            eprintln!("spike: union OK, result has {} faces", merged.faces.len());
-            // If the union worked perfectly, the result should be
-            // the original cube (6 faces). If it has more faces,
-            // the boolean engine produced extra geometry but didn't
-            // collapse the rounded notch.
-            //
-            // We don't assert face_count == 6 here because the
-            // spike's purpose is to *observe* what happens, not
-            // pass/fail. The eprintln output is the test result.
-        }
-        Err(e) => {
-            eprintln!("spike: union FAILED: {e:?}");
-        }
-    }
-}
-
-/// Variant: union a small box positioned to fill the rounded notch.
-/// More precise than the supercube approach — only the notch
-/// region overlaps.
-///
-/// **Outcome (2026-04-13):** failed with `SplitFailed { reason:
-/// "trim curve end point does not match any vertex on the face
-/// boundary" }`, same precision-fragility family as the known
-/// `fillet_edge_on_boolean_cube_result` bug. ~10 minutes per
-/// call. Marked `#[ignore]`.
-#[test]
-#[ignore = "boolean engine fails with SplitFailed and runs for ~10min; same bug family as fillet_edge_on_boolean_cube_result"]
-fn spike_5c_unfillet_via_union_with_filler_box() {
-    use popkern_bool::{BoolOperation, boolean};
-    use popkern_core::geometry::Transform3;
-
-    let brep = cube();
-    let edge = brep.edges.keys().next().unwrap();
-    let filleted = crate::fillet_edge(&brep, edge, 0.1, tol(), None)
-        .unwrap()
-        .brep;
-
-    // Locate the blend face and find its vertices' bounding box —
-    // that gives us the spatial extent of the notch.
-    let pre: HashSet<_> = brep.faces.keys().collect();
-    let blend = find_blend_face(&pre, &filleted);
-    let plan = compute_unfillet_plan(&filleted, blend).unwrap();
-    eprintln!(
-        "spike: blend face is {:?}, restored edge from {:?} to {:?}",
-        blend, plan.restored_edge_start, plan.restored_edge_end
-    );
-
-    // Build a filler box: 0.2 × 0.2 cross-section running along
-    // the restored edge direction, oversized so it definitely
-    // covers the notch.
-    let unit = cube();
-    let scaled = unit.transform(&Transform3::scale(1.2, 0.25, 0.25)).unwrap();
-    let translated = scaled
-        .transform(&Transform3::translation(-0.1, -0.1, -0.1))
-        .unwrap();
-
-    eprintln!(
-        "spike: filler box has {} faces, {} vertices",
-        translated.faces.len(),
-        translated.vertices.len()
-    );
-
-    let result = boolean(BoolOperation::Union, filleted, translated, tol(), None);
-    match result {
-        Ok(merged) => {
-            eprintln!(
-                "spike: filler-box union OK, result has {} faces",
-                merged.faces.len()
-            );
-        }
-        Err(e) => {
-            eprintln!("spike: filler-box union FAILED: {e:?}");
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

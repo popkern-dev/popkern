@@ -38,15 +38,45 @@ fn default_tol() -> Tolerance {
     Tolerance::default()
 }
 
-/// Assert the Euler-Poincare invariant V - E + F == 2 for a closed solid.
-fn assert_euler_poincare(brep: &BRep, label: &str) {
+/// Compute the Euler-Poincare characteristic V - E + F - L for a
+/// BRep. By the formula V - E + F = 2(S - G) + L this equals
+/// 2(S - G), so it is constant for any topology-preserving
+/// modification of the same underlying solid. A genus-0 single-shell
+/// solid yields 2, a genus-1 (one through-hole) solid yields 0,
+/// genus-2 yields -2, etc.
+fn euler_characteristic(brep: &BRep) -> i64 {
     let v = brep.vertices.len() as i64;
     let e = brep.edges.len() as i64;
     let f = brep.faces.len() as i64;
-    let chi = v - e + f;
+    let l: i64 = brep
+        .faces
+        .values()
+        .map(|face| face.inner_loops.len() as i64)
+        .sum();
+    v - e + f - l
+}
+
+/// Assert the Euler-Poincare invariant for a closed-shell genus-0
+/// solid (V - E + F - L = 2). Used by tests that start from a
+/// closed cube (genus 0).
+fn assert_euler_poincare(brep: &BRep, label: &str) {
+    let chi = euler_characteristic(brep);
     assert!(
         chi == 2,
-        "{label}: Euler-Poincare V - E + F = {v} - {e} + {f} = {chi}, expected 2"
+        "{label}: Euler characteristic V - E + F - L = {chi}, expected 2 (genus 0)"
+    );
+}
+
+/// Assert that an operation preserved the Euler characteristic of
+/// the underlying solid — i.e. the fillet did not change the
+/// topology's genus or shell count. Used by tests that start from a
+/// solid of unknown genus (e.g. boolean results).
+fn assert_euler_preserved(pre: &BRep, post: &BRep, label: &str) {
+    let chi_pre = euler_characteristic(pre);
+    let chi_post = euler_characteristic(post);
+    assert!(
+        chi_pre == chi_post,
+        "{label}: Euler characteristic changed by operation: pre={chi_pre}, post={chi_post}"
     );
 }
 
@@ -129,8 +159,11 @@ fn fillet_edge_between_plane_and_cylinder() {
                 blend.brep.faces.len(),
                 subtracted.faces.len(),
             );
-            // Euler-Poincare must hold.
-            assert_euler_poincare(&blend.brep, "fillet plane-cylinder edge");
+            // The boolean engine produces a genus-1 result (cube
+            // with through-hole), so the fixed-value Euler test
+            // doesn't apply. Instead, assert the operation
+            // *preserved* whatever Euler value the input had.
+            assert_euler_preserved(&subtracted, &blend.brep, "fillet plane-cylinder edge");
             // No structural errors.
             assert_no_structural_errors(&blend.brep, "fillet plane-cylinder edge");
         }
@@ -176,7 +209,11 @@ fn fillet_edge_on_boolean_cube_result() {
                 blend.brep.faces.len(),
                 subtracted.faces.len(),
             );
-            assert_euler_poincare(&blend.brep, "fillet boolean cube result");
+            // Boolean result is of unknown genus (depends on which
+            // cube edge the test happens to pick); assert the
+            // fillet preserved the input's Euler characteristic
+            // rather than asserting a fixed genus-0 value.
+            assert_euler_preserved(&subtracted, &blend.brep, "fillet boolean cube result");
             assert_no_structural_errors(&blend.brep, "fillet boolean cube result");
         }
         Err(_) => {
