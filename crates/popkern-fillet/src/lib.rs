@@ -30,6 +30,7 @@ pub mod trim;
 pub mod types;
 pub mod unfillet;
 pub(crate) mod unfillet_helpers;
+pub(crate) mod unfillet_surgery;
 pub mod validate;
 
 pub use cancellation::CancellationToken;

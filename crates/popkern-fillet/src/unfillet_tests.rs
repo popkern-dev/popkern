@@ -127,26 +127,49 @@ fn compute_unfillet_plan_rejects_non_blend_face() {
 }
 
 // ---------------------------------------------------------------------------
-// unfillet_face: stub returns the documented Round-5c hand-off
+// unfillet_face: real algorithmic surgery (Round 5c-1)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn unfillet_face_returns_documented_not_implemented_for_now() {
+fn unfillet_face_round_trip_restores_unit_cube_face_count() {
     let (pre, post) = fillet_unit_cube_first_edge(0.1);
     let blend = find_blend_face(&pre, &post);
-    let err = unfillet_face(&post, blend).unwrap_err();
-    let BlendError::InvalidParameter { reason, .. } = &err else {
-        panic!("expected InvalidParameter, got {err:?}");
-    };
-    // The remediation rationale must point users at the two
-    // working alternatives so the hand-off is actionable.
-    assert!(
-        reason.contains("unfillet_via_record"),
-        "rationale should mention the snapshot path: {reason}"
+    let restored = unfillet_face(&post, blend).expect("unfillet_face should succeed");
+    // The original cube has 6 faces, the filleted result has 7.
+    // Unfillet should bring it back to 6.
+    assert_eq!(
+        restored.faces.len(),
+        6,
+        "unfillet should restore the cube to 6 faces, got {}",
+        restored.faces.len()
     );
+}
+
+#[test]
+fn unfillet_face_does_not_mutate_input_brep() {
+    let (pre, post) = fillet_unit_cube_first_edge(0.1);
+    let blend = find_blend_face(&pre, &post);
+    let pre_face_count = post.faces.len();
+    let pre_edge_count = post.edges.len();
+    let pre_vertex_count = post.vertices.len();
+    let _ = unfillet_face(&post, blend).unwrap();
+    // Input must be unchanged — surgery happens on a clone.
+    assert_eq!(post.faces.len(), pre_face_count);
+    assert_eq!(post.edges.len(), pre_edge_count);
+    assert_eq!(post.vertices.len(), pre_vertex_count);
+}
+
+#[test]
+fn unfillet_face_result_passes_brep_validation() {
+    let (pre, post) = fillet_unit_cube_first_edge(0.1);
+    let blend = find_blend_face(&pre, &post);
+    let restored = unfillet_face(&post, blend).unwrap();
+    // The restored BRep must validate as a closed solid.
+    let validation = restored.validate();
     assert!(
-        reason.contains("compute_unfillet_plan"),
-        "rationale should mention the plan path: {reason}"
+        validation.is_ok(),
+        "unfilleted result should validate, got {:?}",
+        validation.err()
     );
 }
 
@@ -158,6 +181,17 @@ fn unfillet_face_propagates_input_validation_errors() {
     // Same shape as compute_unfillet_plan — invalid face is
     // surfaced the same way regardless of which entry point hit it.
     assert!(matches!(err, BlendError::InvalidParameter { .. }));
+}
+
+#[test]
+fn unfillet_face_rejects_non_blend_face() {
+    let brep = cube();
+    let face = brep.faces.keys().next().unwrap();
+    let err = unfillet_face(&brep, face).unwrap_err();
+    let BlendError::InvalidParameter { reason, .. } = &err else {
+        panic!("expected InvalidParameter, got {err:?}");
+    };
+    assert!(reason.contains("not recognised as a blend"));
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +274,126 @@ fn unfillet_via_record_works_for_multi_edge_fillets() {
     assert_eq!(restored.faces.len(), brep.faces.len());
     assert_eq!(restored.edges.len(), brep.edges.len());
     assert_eq!(restored.vertices.len(), brep.vertices.len());
+}
+
+// ---------------------------------------------------------------------------
+// Round 5c spike: can boolean union do unfillet?
+// ---------------------------------------------------------------------------
+
+/// Spike test: try to unfillet a unit-cube fillet by union'ing the
+/// filleted result with a fresh unit cube. If the boolean engine
+/// handles "input ⊆ supercube" cleanly, the result should be the
+/// fresh cube.
+///
+/// This is the **simplest possible** shape of the boolean-union
+/// approach to unfillet: instead of building a precise filler
+/// solid, just union with the original unrounded body. If it
+/// works, Round 5c-1 has a clean foundation; if it fails the same
+/// way as `fillet_edge_on_boolean_cube_result`, the boolean fix
+/// is the prerequisite.
+///
+/// **Outcome (2026-04-13):** the boolean engine accepts the call
+/// but returns 7 faces (same as the filleted input), failing to
+/// resolve the coincident-face overlap. ALSO ran for ~10 minutes
+/// per call, indicating a separate boolean-engine performance
+/// issue. Marked `#[ignore]` so it doesn't slow CI.
+#[test]
+#[ignore = "boolean engine takes ~10min per call and returns wrong result; documented in commit history"]
+fn spike_5c_unfillet_via_union_with_fresh_cube() {
+    use popkern_bool::{BoolOperation, boolean};
+
+    let brep = cube();
+    let edge = brep.edges.keys().next().unwrap();
+    let filleted = crate::fillet_edge(&brep, edge, 0.1, tol(), None)
+        .unwrap()
+        .brep;
+
+    // Fresh unit cube — same shape, no fillet.
+    let fresh = cube();
+
+    eprintln!(
+        "spike: filleted has {} faces, fresh has {} faces",
+        filleted.faces.len(),
+        fresh.faces.len()
+    );
+
+    let result = boolean(BoolOperation::Union, fresh, filleted, tol(), None);
+    match result {
+        Ok(merged) => {
+            eprintln!("spike: union OK, result has {} faces", merged.faces.len());
+            // If the union worked perfectly, the result should be
+            // the original cube (6 faces). If it has more faces,
+            // the boolean engine produced extra geometry but didn't
+            // collapse the rounded notch.
+            //
+            // We don't assert face_count == 6 here because the
+            // spike's purpose is to *observe* what happens, not
+            // pass/fail. The eprintln output is the test result.
+        }
+        Err(e) => {
+            eprintln!("spike: union FAILED: {e:?}");
+        }
+    }
+}
+
+/// Variant: union a small box positioned to fill the rounded notch.
+/// More precise than the supercube approach — only the notch
+/// region overlaps.
+///
+/// **Outcome (2026-04-13):** failed with `SplitFailed { reason:
+/// "trim curve end point does not match any vertex on the face
+/// boundary" }`, same precision-fragility family as the known
+/// `fillet_edge_on_boolean_cube_result` bug. ~10 minutes per
+/// call. Marked `#[ignore]`.
+#[test]
+#[ignore = "boolean engine fails with SplitFailed and runs for ~10min; same bug family as fillet_edge_on_boolean_cube_result"]
+fn spike_5c_unfillet_via_union_with_filler_box() {
+    use popkern_bool::{BoolOperation, boolean};
+    use popkern_core::geometry::Transform3;
+
+    let brep = cube();
+    let edge = brep.edges.keys().next().unwrap();
+    let filleted = crate::fillet_edge(&brep, edge, 0.1, tol(), None)
+        .unwrap()
+        .brep;
+
+    // Locate the blend face and find its vertices' bounding box —
+    // that gives us the spatial extent of the notch.
+    let pre: HashSet<_> = brep.faces.keys().collect();
+    let blend = find_blend_face(&pre, &filleted);
+    let plan = compute_unfillet_plan(&filleted, blend).unwrap();
+    eprintln!(
+        "spike: blend face is {:?}, restored edge from {:?} to {:?}",
+        blend, plan.restored_edge_start, plan.restored_edge_end
+    );
+
+    // Build a filler box: 0.2 × 0.2 cross-section running along
+    // the restored edge direction, oversized so it definitely
+    // covers the notch.
+    let unit = cube();
+    let scaled = unit.transform(&Transform3::scale(1.2, 0.25, 0.25)).unwrap();
+    let translated = scaled
+        .transform(&Transform3::translation(-0.1, -0.1, -0.1))
+        .unwrap();
+
+    eprintln!(
+        "spike: filler box has {} faces, {} vertices",
+        translated.faces.len(),
+        translated.vertices.len()
+    );
+
+    let result = boolean(BoolOperation::Union, filleted, translated, tol(), None);
+    match result {
+        Ok(merged) => {
+            eprintln!(
+                "spike: filler-box union OK, result has {} faces",
+                merged.faces.len()
+            );
+        }
+        Err(e) => {
+            eprintln!("spike: filler-box union FAILED: {e:?}");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

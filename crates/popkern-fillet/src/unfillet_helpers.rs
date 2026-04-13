@@ -346,3 +346,6 @@ pub(crate) fn walk_blend_boundary(
 
     (long_he_to_a, long_he_to_b, edges_to_remove)
 }
+
+// Surgery helpers live in `unfillet_surgery` — kept separate so
+// each source file stays under the 500-line structural cap.

@@ -37,85 +37,11 @@ use std::collections::HashMap;
 /// sheet-body sizes seen by the boolean engine. A spatial index
 /// would only help for very large imprints.
 pub(super) fn weld_coincident_vertices(brep: &mut BRep, tolerance: &Tolerance) -> usize {
-    let eps = tolerance.linear();
-    let eps_sq = eps * eps;
-
-    // Snapshot the (handle, position) pairs before we start mutating.
-    let all: Vec<(VertexHandle, popkern_core::geometry::Point3)> =
-        brep.vertices.iter().map(|(h, v)| (h, v.position)).collect();
-    if all.len() < 2 {
-        return 0;
-    }
-
-    // Union-find: each vertex starts as its own class.
-    let mut parent: HashMap<VertexHandle, VertexHandle> =
-        all.iter().map(|(h, _)| (*h, *h)).collect();
-
-    // `find` with path compression.
-    fn find(parent: &mut HashMap<VertexHandle, VertexHandle>, vh: VertexHandle) -> VertexHandle {
-        let p = parent[&vh];
-        if p == vh {
-            return vh;
-        }
-        let root = find(parent, p);
-        parent.insert(vh, root);
-        root
-    }
-
-    // For each coincident pair, union.
-    for (i, &(vh_i, pos_i)) in all.iter().enumerate() {
-        for &(vh_j, pos_j) in all.iter().skip(i + 1) {
-            let dx = pos_i.x - pos_j.x;
-            let dy = pos_i.y - pos_j.y;
-            let dz = pos_i.z - pos_j.z;
-            if dx * dx + dy * dy + dz * dz <= eps_sq {
-                let root_i = find(&mut parent, vh_i);
-                let root_j = find(&mut parent, vh_j);
-                if root_i != root_j {
-                    parent.insert(root_j, root_i);
-                }
-            }
-        }
-    }
-
-    // Resolve canonical handles after all unions.
-    let keys: Vec<VertexHandle> = parent.keys().copied().collect();
-    let mut canonical: HashMap<VertexHandle, VertexHandle> = HashMap::new();
-    for vh in keys {
-        let root = find(&mut parent, vh);
-        canonical.insert(vh, root);
-    }
-
-    // Rewrite half-edge origins to point at canonical representatives.
-    for (_, he) in brep.half_edges.iter_mut() {
-        if let Some(&canon) = canonical.get(&he.origin)
-            && canon != he.origin
-        {
-            he.origin = canon;
-        }
-    }
-
-    // Rewrite vertex outgoing pointers for the CANONICAL vertices
-    // whose old outgoing reference still lives on a non-canonical
-    // vertex. Collect first to avoid borrow conflicts with the
-    // remove pass below.
-    //
-    // Non-canonical vertices will be deleted; their outgoing pointers
-    // become irrelevant, but canonical vertices keep their own
-    // outgoing which must still reference a live half-edge. This is
-    // preserved by default — half-edge handles themselves don't
-    // change during vertex welding; only their `origin` field does.
-
-    // Delete non-canonical vertices.
-    let to_remove: Vec<VertexHandle> = canonical
-        .iter()
-        .filter_map(|(&vh, &canon)| if vh != canon { Some(vh) } else { None })
-        .collect();
-    let welds = to_remove.len();
-    for vh in to_remove {
-        brep.vertices.remove(vh);
-    }
-    welds
+    // The implementation lives in popkern_core::topology::brep_weld
+    // as `BRep::weld_coincident_vertices`. This thin wrapper kept
+    // the previous internal call sites compiling unchanged; new
+    // call sites can use the inherent method directly.
+    brep.weld_coincident_vertices(tolerance)
 }
 
 /// Weld edges whose endpoint vertex pairs are identical after

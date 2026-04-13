@@ -47,3 +47,6 @@ pub use split::{SplitEdgeResult, SplitFaceResult};
 /// Inner loop (hole) creation for face trimming.
 pub mod trim;
 pub use trim::AddInnerLoopResult;
+
+/// Vertex-welding primitives for [`BRep`].
+mod brep_weld;
