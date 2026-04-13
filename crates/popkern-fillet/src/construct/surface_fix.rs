@@ -3,30 +3,19 @@
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{BRep, FaceHandle};
 
-/// Compute a robust fit score for a surface against a set of
-/// boundary positions. Uses the **median** distance instead of the
-/// max so that 1-2 outlier vertices (which can creep into a face
-/// boundary when neighbouring fillets share perp-split vertices)
-/// don't dominate the fit metric. The median is invariant to those
-/// outliers and reflects how well the surface fits the *majority*
-/// of the boundary.
-fn fit_score(geom: &SurfaceGeometry, positions: &[popkern_core::geometry::Point3]) -> f64 {
+/// Compute the *max* distance from a list of boundary positions to
+/// a candidate surface. Used as the "is this surface acceptable at
+/// all" gate, before falling through to candidate replacement.
+fn max_fit_score(geom: &SurfaceGeometry, positions: &[popkern_core::geometry::Point3]) -> f64 {
     use popkern_core::geometry::surface::SurfaceEval;
     use popkern_core::geometry::uv_projection::project_point_to_uv;
 
-    let mut distances: Vec<f64> = positions
+    positions
         .iter()
-        .map(|p| {
-            project_point_to_uv(geom, p)
-                .map(|(u, v)| p.distance_to(&geom.point_at(u, v)))
-                .unwrap_or(f64::INFINITY)
+        .filter_map(|p| {
+            project_point_to_uv(geom, p).map(|(u, v)| p.distance_to(&geom.point_at(u, v)))
         })
-        .collect();
-    if distances.is_empty() {
-        return 0.0;
-    }
-    distances.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    distances[distances.len() / 2]
+        .fold(0.0_f64, f64::max)
 }
 
 /// Correct face surface assignments after topology modifications.
@@ -62,18 +51,26 @@ pub(crate) fn correct_face_surfaces(
             continue;
         }
 
-        // Check if current surface is geometrically correct (using
-        // the median fit so outlier boundary vertices don't make us
-        // throw away a surface that fits the majority well).
-        let current_score = brep.faces[fh]
+        // Check if the current surface is acceptable as-is. Use
+        // **max** distance for the skip gate (so a face whose
+        // surface fits *all* its vertices well is preserved
+        // unchanged) AND for candidate comparison (so we don't
+        // accidentally pick a surface that perfectly fits the
+        // majority but has huge errors at outlier vertices). The
+        // unconditional vertex-blend sphere fallback below is the
+        // escape hatch for cases where the cube-plane "wins" max
+        // fit but the semantically correct surface is the sphere.
+        let current_max = brep.faces[fh]
             .surface
             .as_ref()
-            .map(|sof| fit_score(&sof.geometry, &positions))
+            .map(|sof| max_fit_score(&sof.geometry, &positions))
             .unwrap_or(f64::INFINITY);
 
-        if current_score < 0.01 {
+        if current_max < 0.01 {
             continue;
         }
+
+        let current_score = current_max;
 
         // Find the best matching surface that improves on current.
         // Never replace a non-planar surface with a plane (fillet
@@ -90,7 +87,7 @@ pub(crate) fn correct_face_surfaces(
             if current_is_nonplanar && matches!(sof.geometry, SurfaceGeometry::Plane { .. }) {
                 continue;
             }
-            let score = fit_score(&sof.geometry, &positions);
+            let score = max_fit_score(&sof.geometry, &positions);
             if score < current_score {
                 match &best {
                     Some((_, bd)) if score >= *bd => {}
@@ -99,38 +96,56 @@ pub(crate) fn correct_face_surfaces(
             }
         }
 
-        // Try a vertex blend sphere: if the face is small (≤6 verts)
-        // and its centroid is near a corner of the original solid,
-        // a sphere at (corner ± R) with radius R might fit.
-        if best.as_ref().is_none_or(|(_, d)| *d > 0.08)
-            && positions.len() <= 6
+        // Try a vertex blend sphere unconditionally for small
+        // faces. A vertex-blend face's boundary often has the
+        // 3-4 sphere contact corners + 1-3 cube-corner outliers,
+        // and the cube corners *also* lie on cube planes — so a
+        // cube plane wins the median fit even though the
+        // semantically correct surface is the blend sphere. The
+        // threshold-gated fallback above missed these because the
+        // plane's median was low. We now try the sphere for every
+        // small face (≤6 verts) and let `try_sphere_for_corner`'s
+        // own "centroid near a cube corner" filter prune real
+        // plane faces.
+        if positions.len() <= 6
             && let Some(sphere_sof) = try_sphere_for_corner(&positions, original, fillet_surfaces)
         {
-            // Use the same median-based fit metric as the
-            // surface-pool branch so outlier vertices don't tank
-            // the score.
-            let sd = fit_score(&sphere_sof.geometry, &positions);
+            let sd = max_fit_score(&sphere_sof.geometry, &positions);
             if sd < current_score {
-                match &best {
-                    Some((_, bd)) if sd >= *bd => {}
-                    _ => best = Some((sphere_sof, sd)),
+                let prefer_sphere = match &best {
+                    Some((existing, bd)) => {
+                        let existing_is_plane =
+                            matches!(existing.geometry, SurfaceGeometry::Plane { .. });
+                        // Prefer the sphere over an existing-best plane
+                        // when the sphere score is within 50% of the
+                        // plane score: the inherent rolling-ball-to-
+                        // sphere approximation error (~R*0.7) is the
+                        // same order as the plane's misfit at the
+                        // cube-corner outliers, so a strict <
+                        // comparison would miss the semantically
+                        // correct sphere.
+                        sd < *bd || (existing_is_plane && sd <= *bd * 1.5)
+                    }
+                    None => true,
+                };
+                if prefer_sphere {
+                    best = Some((sphere_sof, sd));
                 }
             }
         }
 
         if let Some((sof, dist)) = best {
             // Only assign if the candidate actually fits reasonably well.
-            // Without this threshold, a wrong surface that happens to be
-            // the "least bad" in the pool would still be assigned.
             if dist < 0.5 {
                 brep.faces[fh].surface = Some(sof);
                 continue;
             }
         }
 
-        // Last resort: fit a plane through face vertices. Only for faces
-        // that don't already have a non-planar surface (fillet surfaces
-        // are intentionally assigned even if imprecise).
+        // Last resort: fit a plane through face vertices. Only for
+        // faces that don't already have a non-planar surface
+        // (fillet surfaces are intentionally assigned even if
+        // imprecise).
         if current_is_nonplanar {
             continue;
         }
