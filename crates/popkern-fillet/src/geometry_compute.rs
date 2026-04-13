@@ -400,7 +400,6 @@ pub(crate) fn face_handle_to_index(brep: &BRep, face: popkern_core::topology::Fa
         .unwrap_or(0)
 }
 
-
 #[cfg(test)]
 #[path = "geometry_compute_tests.rs"]
 mod tests;
