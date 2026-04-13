@@ -11,6 +11,23 @@
 //!
 //! This provides the correctness of exact arithmetic with the performance
 //! of floating-point for the common (non-degenerate) case.
+//!
+//! ## Predicate primitives
+//!
+//! Low-level:
+//! - [`adaptive_sign`] — sign of a scalar with an ambiguity zone.
+//! - [`DoublePrecision`] — double-double arithmetic (≈106 bits of
+//!   significand). Constructors: [`DoublePrecision::from_f64`],
+//!   [`DoublePrecision::from_sub`], [`DoublePrecision::from_mul`].
+//!   Operations: [`dd_add`](DoublePrecision::dd_add),
+//!   [`dd_sub`](DoublePrecision::dd_sub),
+//!   [`dd_mul`](DoublePrecision::dd_mul),
+//!   [`dd_neg`](DoublePrecision::dd_neg).
+//!
+//! High-level (geometric):
+//! - [`adaptive_dist_sq_lt`] — `|p1 - p2|² < threshold²` with an
+//!   automatic escalation to double-precision when the f64 answer
+//!   lands inside the ambiguity margin.
 
 /// Evaluate a sign predicate with adaptive precision.
 ///
@@ -47,6 +64,40 @@ impl DoublePrecision {
         Self { hi: x, lo: 0.0 }
     }
 
+    /// Compute `a - b` exactly as a double-precision value.
+    ///
+    /// Uses the error-free subtraction `(a - b) + err` pattern so
+    /// catastrophic cancellation between nearby inputs is captured
+    /// in the `lo` term. For typical inputs the `lo` term is zero
+    /// or a few ulps of `hi`, but for subtractions like `1.0 - (1.0
+    /// - 1e-16)` the difference between what f64 reports and what
+    /// the mathematical result actually is lands in `lo`.
+    pub fn from_sub(a: f64, b: f64) -> Self {
+        let diff = a - b;
+        // Error term: the bit-level discrepancy between the f64
+        // result and the exact mathematical difference. When
+        // |a| ≈ |b|, `diff` loses significant bits; `err` recovers
+        // them.
+        let err = (a - diff) - b;
+        Self { hi: diff, lo: err }
+    }
+
+    /// Compute `a * b` exactly as a double-precision value via
+    /// Dekker's TwoProduct with FMA.
+    pub fn from_mul(a: f64, b: f64) -> Self {
+        let p = a * b;
+        let err = a.mul_add(b, -p);
+        Self { hi: p, lo: err }
+    }
+
+    /// Negate.
+    pub fn dd_neg(self) -> Self {
+        Self {
+            hi: -self.hi,
+            lo: -self.lo,
+        }
+    }
+
     /// Add two double-precision values.
     pub fn dd_add(self, other: Self) -> Self {
         // Knuth's two-sum algorithm
@@ -58,6 +109,11 @@ impl DoublePrecision {
         let hi = s + lo;
         let lo2 = lo - (hi - s);
         Self { hi, lo: lo2 }
+    }
+
+    /// Subtract `other` from `self`.
+    pub fn dd_sub(self, other: Self) -> Self {
+        self.dd_add(other.dd_neg())
     }
 
     /// Multiply two double-precision values.
@@ -80,6 +136,53 @@ impl DoublePrecision {
     pub fn sign(self, epsilon: f64) -> Option<std::cmp::Ordering> {
         adaptive_sign(self.hi + self.lo, epsilon)
     }
+}
+
+/// Adaptive `|p1 - p2|² < threshold_sq` predicate.
+///
+/// Two-stage evaluation:
+///
+/// 1. **Fast path**: compute the squared distance and the threshold's
+///    ambiguity margin in f64. If the result is outside the margin,
+///    return the f64 answer directly.
+///
+/// 2. **Slow path**: if the f64 answer lies inside the margin,
+///    recompute the squared distance using [`DoublePrecision`] for
+///    the three subtractions and three products, then compare the
+///    hi-precision result against the threshold. The DP recomputation
+///    eliminates catastrophic cancellation in the `p1.i - p2.i`
+///    subtractions, which is the dominant error source when `p1`
+///    and `p2` are numerically close.
+///
+/// The f64 margin is `4 * f64::EPSILON * max(dist_sq, threshold_sq)`,
+/// a standard conservative bound for the worst-case error of three
+/// multiplies + two adds + one subtract in f64.
+pub fn adaptive_dist_sq_lt(p1: (f64, f64, f64), p2: (f64, f64, f64), threshold_sq: f64) -> bool {
+    let dx = p1.0 - p2.0;
+    let dy = p1.1 - p2.1;
+    let dz = p1.2 - p2.2;
+    let dist_sq = dx * dx + dy * dy + dz * dz;
+    let margin = 4.0 * f64::EPSILON * dist_sq.max(threshold_sq);
+
+    if dist_sq + margin < threshold_sq {
+        return true;
+    }
+    if dist_sq > threshold_sq + margin {
+        return false;
+    }
+
+    // Ambiguous — recompute in double precision.
+    let dp_dx = DoublePrecision::from_sub(p1.0, p2.0);
+    let dp_dy = DoublePrecision::from_sub(p1.1, p2.1);
+    let dp_dz = DoublePrecision::from_sub(p1.2, p2.2);
+    let dp_dist_sq = dp_dx
+        .dd_mul(dp_dx)
+        .dd_add(dp_dy.dd_mul(dp_dy))
+        .dd_add(dp_dz.dd_mul(dp_dz));
+    dp_dist_sq
+        .dd_sub(DoublePrecision::from_f64(threshold_sq))
+        .to_f64()
+        < 0.0
 }
 
 #[cfg(test)]

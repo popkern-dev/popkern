@@ -111,15 +111,30 @@ fn detect_edge_overlaps(a: &BRep, b: &BRep, tol: &BoolTolerance, map: &mut Coinc
 }
 
 /// Detect vertex pairs that should be merged.
+///
+/// Uses [`popkern_core::adaptive_precision::adaptive_dist_sq_lt`] for
+/// the `dist² < snap²` comparison: the f64 fast path handles clear
+/// cases in one subtraction and one compare, and the double-
+/// precision slow path kicks in only when the f64 answer lands
+/// inside the ambiguity margin (`4 * ε * max(dist_sq, snap_sq)`).
+/// This gives consistent, order-independent merge decisions for
+/// vertex pairs that are near the snap threshold — the failure
+/// mode that caused tolerance-induced predicate inconsistency in
+/// the old naive-f64 path.
 fn detect_vertex_merges(a: &BRep, b: &BRep, tol: &BoolTolerance, map: &mut CoincidenceMap) {
     let snap_sq = tol.snap * tol.snap;
     for (va_h, va) in &a.vertices {
         for (vb_h, vb) in &b.vertices {
-            let dx = va.position.x - vb.position.x;
-            let dy = va.position.y - vb.position.y;
-            let dz = va.position.z - vb.position.z;
-            let dist_sq = dx * dx + dy * dy + dz * dz;
-            if dist_sq < snap_sq {
+            let p_a = (va.position.x, va.position.y, va.position.z);
+            let p_b = (vb.position.x, vb.position.y, vb.position.z);
+            if popkern_core::adaptive_precision::adaptive_dist_sq_lt(p_a, p_b, snap_sq) {
+                // For the recorded `distance` field, the naive f64
+                // magnitude is fine — it's diagnostic output, not a
+                // decision point.
+                let dx = va.position.x - vb.position.x;
+                let dy = va.position.y - vb.position.y;
+                let dz = va.position.z - vb.position.z;
+                let dist_sq = dx * dx + dy * dy + dz * dz;
                 map.vertex_merges.push(VertexMerge {
                     vertex_a: va_h,
                     vertex_b: vb_h,

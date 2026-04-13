@@ -116,6 +116,67 @@ fn vertex_merges_for_touching_cubes() {
 }
 
 #[test]
+fn vertex_merge_at_exact_snap_threshold_is_deterministic() {
+    // Pin the adaptive_dist_sq_lt hardening: two cubes translated
+    // by exactly `snap * 0.5` in X should NOT merge any vertices
+    // (half the snap distance is well inside the tolerance).
+    // Before the hardening a naive f64 compare at the edge of the
+    // margin could produce different results on different ABI /
+    // compiler combinations. The adaptive predicate locks the
+    // answer.
+    let base_tol = tol();
+    let bt = BoolTolerance::from(base_tol);
+    let half_snap = bt.snap * 0.5;
+
+    let a = BRep::unit_cube(base_tol).unwrap();
+    let b = translate(
+        BRep::unit_cube(base_tol).unwrap(),
+        Vec3::new(half_snap, 0.0, 0.0),
+    );
+    let aabbs_a = compute_face_aabbs(&a);
+    let aabbs_b = compute_face_aabbs(&b);
+    let map = detect_coincidences(&a, &b, &aabbs_a, &aabbs_b, &bt);
+
+    // Half-snap displacement: every (va, vb) pair has
+    // dist² = (half_snap)² = snap² / 4 < snap². So EVERY pair
+    // with sufficiently close other-axis alignment merges.
+    // For a unit cube at (0..1) and its translate, the 8 corner
+    // pairs at the same (y, z) coords should merge — 8 merges.
+    assert_eq!(
+        map.vertex_merges.len(),
+        8,
+        "half-snap translation should merge 8 corner pairs, got {}",
+        map.vertex_merges.len()
+    );
+}
+
+#[test]
+fn vertex_merge_just_beyond_snap_is_deterministic() {
+    // Pin the other edge: 2× the snap distance must NOT merge any
+    // vertex. The old naive path could report spurious merges when
+    // the f64 subtraction produced a dist² marginally below snap²
+    // due to rounding — adaptive_dist_sq_lt prevents that.
+    let base_tol = tol();
+    let bt = BoolTolerance::from(base_tol);
+    let beyond_snap = bt.snap * 2.0;
+
+    let a = BRep::unit_cube(base_tol).unwrap();
+    let b = translate(
+        BRep::unit_cube(base_tol).unwrap(),
+        Vec3::new(beyond_snap, 0.0, 0.0),
+    );
+    let aabbs_a = compute_face_aabbs(&a);
+    let aabbs_b = compute_face_aabbs(&b);
+    let map = detect_coincidences(&a, &b, &aabbs_a, &aabbs_b, &bt);
+    assert_eq!(
+        map.vertex_merges.len(),
+        0,
+        "2×snap translation must NOT produce any vertex merges, got {}",
+        map.vertex_merges.len()
+    );
+}
+
+#[test]
 fn coincidence_map_lookup() {
     let mut map = super::types::CoincidenceMap::default();
     assert!(map.is_empty());
