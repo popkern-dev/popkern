@@ -193,7 +193,13 @@ fn newton_vertex_position(
         let correction = sum * (1.0 / count as f64);
         pos = pos + correction;
 
-        if correction.length() < tolerance.linear() {
+        // Adaptive convergence: terminate when correction shrinks
+        // below `linear`, deterministic at the boundary.
+        if popkern_core::adaptive_precision::adaptive_dist_sq_lt(
+            (0.0, 0.0, 0.0),
+            (correction.x, correction.y, correction.z),
+            tolerance.linear() * tolerance.linear(),
+        ) {
             break;
         }
     }

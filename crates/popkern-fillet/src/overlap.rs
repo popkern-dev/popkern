@@ -124,7 +124,13 @@ fn sample_based_intersection_check(a: &NurbsCurve, b: &NurbsCurve, tolerance: &T
             let t_b = b_min + (b_max - b_min) * (j as f64) / ((n - 1).max(1) as f64);
             let pb = b.point_at(t_b);
 
-            if pa.distance_to(&pb) < tolerance.linear() {
+            // Adaptive squared-distance compare: deterministic at
+            // the tolerance boundary, no sqrt in the inner loop.
+            if popkern_core::adaptive_precision::adaptive_dist_sq_lt(
+                (pa.x, pa.y, pa.z),
+                (pb.x, pb.y, pb.z),
+                tolerance.linear() * tolerance.linear(),
+            ) {
                 return true;
             }
         }
