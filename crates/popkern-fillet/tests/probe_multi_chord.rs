@@ -39,10 +39,9 @@ fn twelve_edge_cube_fillet_face_type_count() {
         .collect();
     let result = fillet_edges(&cube, &specs, &FilletOptions::default(), tol, None).unwrap();
 
-    let (planes, tori, spheres, _others) = count_face_types(&result.brep);
-    eprintln!("12-edge cube decomposition: planes={planes} tori={tori} spheres={spheres}");
-    assert!(
-        tori >= 6,
-        "expected at least 6 torus strip faces for 12-edge cube fillet, got {tori}"
-    );
+    let (planes, tori, spheres, others) = count_face_types(&result.brep);
+    assert_eq!(planes, 6, "expected 6 plane centres");
+    assert_eq!(tori, 12, "expected 12 torus strip faces");
+    assert_eq!(spheres, 8, "expected 8 sphere vertex-blend faces");
+    assert_eq!(others, 0, "expected no other surface types");
 }

@@ -32,6 +32,7 @@
 //! per-face score robust to outlier vertices on the fragmented
 //! sub-faces). The 12-edge regression test still passes.
 
+mod blend_cleanup;
 pub(crate) mod blend_insert;
 pub(crate) mod blend_topo;
 pub(crate) mod closed_fillet;
@@ -470,6 +471,14 @@ pub fn apply_blend_geometry(
         .map(|eg| eg.surface.clone())
         .collect();
     surface_fix::correct_face_surfaces(&mut result, brep, &fillet_surfaces);
+
+    // Round 5r+: merge small triangular plane fragments into
+    // adjacent sphere vertex-blend faces. Multi-chord Phase B
+    // leaves 3-vert corner triangles (one per cube face per cube
+    // corner) that should be part of the sphere blend. We iterate
+    // and kef any edge shared between a ≤4-vert plane and a
+    // non-plane neighbour.
+    blend_cleanup::merge_corner_fragments_into_blends(&mut result);
 
     Ok(ApplyBlendResult {
         brep: result,
