@@ -13,15 +13,20 @@ pub mod chamfer_curve;
 pub mod construct;
 pub mod error;
 pub mod fillet_surface;
-mod geometry_compute;
+pub(crate) mod geometry_compute;
 pub mod offset;
 pub mod overlap;
+pub mod precheck;
 pub mod trim;
 pub mod types;
 pub mod validate;
 
 pub use error::{
     BlendError, BlendFailure, BlendWarning, Remediation, RemediationAction, RemediationContext,
+};
+pub use precheck::{
+    BlendQuality, ComputeQualityInput, FilletFeasibility, FilletIssue, FilletRadiusBounds,
+    feasible_radius_bounds, fillet_quality, precheck_fillet,
 };
 pub use types::*;
 
@@ -216,6 +221,47 @@ pub fn chamfer_edges(
         brep: apply_result.brep,
         edge_warnings: apply_result.warnings,
     })
+}
+
+/// Fillet a set of edges and return the result bundled with
+/// post-operation quality metrics ([`BlendQuality`]).
+///
+/// This is the commercial-grade entry point for UI callers: the
+/// quality record drives any "fillet health" indicator in a
+/// property panel, and the raw metrics (`R_min`, `patch_count`,
+/// `surface_area`) feed into manufacturing-readiness reports.
+///
+/// The operation is otherwise identical to [`fillet_edges`] — same
+/// parameter validation, same error taxonomy, same topology
+/// modifications. On success the returned [`BlendQuality`] is
+/// computed from the new-face delta between the input BRep and the
+/// output BRep using [`precheck::fillet_quality`].
+///
+/// # Errors
+///
+/// Same as [`fillet_edges`].
+pub fn fillet_edges_with_quality(
+    brep: &BRep,
+    specs: &[FilletSpec],
+    options: &FilletOptions,
+    tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+) -> Result<(BlendResult, BlendQuality), BlendError> {
+    let pre_faces: std::collections::HashSet<FaceHandle> = brep.faces.keys().collect();
+    let result = fillet_edges(brep, specs, options, tolerance, tracking)?;
+    // Use the spec's largest requested radius as the scoring
+    // denominator — for constant radius this is the request, for
+    // variable specs it's the peak.
+    let requested_radius = specs
+        .iter()
+        .map(|s| geometry_compute::largest_requested_radius(&s.radius))
+        .fold(0.0_f64, f64::max);
+    let quality = precheck::fillet_quality(&precheck::ComputeQualityInput {
+        post_brep: &result.brep,
+        pre_faces: &pre_faces,
+        requested_radius,
+    });
+    Ok((result, quality))
 }
 
 /// Convenience: fillet a single edge with a constant radius.
@@ -513,6 +559,37 @@ mod tests {
         }];
         let err = chamfer_edges(&brep, &specs, &copts(), tol(), None).unwrap_err();
         assert!(matches!(err, BlendError::InvalidParameter { .. }));
+    }
+
+    #[test]
+    fn fillet_edges_with_quality_returns_populated_metrics() {
+        let (brep, edge) = cube_and_edge();
+        let specs = vec![FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(0.1),
+        }];
+        let (result, quality) =
+            fillet_edges_with_quality(&brep, &specs, &fopts(), tol(), None).unwrap();
+        // The blend ran — at least one new face exists.
+        assert!(result.brep.faces.len() > brep.faces.len());
+        // Quality metrics populated.
+        assert!(quality.patch_count >= 1);
+        assert!(quality.surface_area > 0.0);
+        assert!(quality.composite_score >= 0.0);
+        assert!(quality.composite_score <= 1.0);
+    }
+
+    #[test]
+    fn fillet_edges_with_quality_propagates_validation_error() {
+        let (brep, edge) = cube_and_edge();
+        let specs = vec![FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(f64::NAN),
+        }];
+        assert!(matches!(
+            fillet_edges_with_quality(&brep, &specs, &fopts(), tol(), None),
+            Err(BlendError::InvalidParameter { .. })
+        ));
     }
 
     #[test]
