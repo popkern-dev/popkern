@@ -298,16 +298,15 @@ pub(crate) fn assemble_result(
         );
 
         if !outer_he_handles.is_empty() {
-            builder
-                .add_loop(&outer_he_handles, face_h)
-                .map_err(|e| BoolDiagnostics {
-                    error: Some(BoolError::MergeFailed {
+            builder.add_loop(&outer_he_handles, face_h).map_err(|e| {
+                BoolDiagnostics::from_error(
+                    BoolError::MergeFailed {
                         stage: format!("{:?}", Stage::Merge),
                         reason: format!("outer loop wiring failed: {e}"),
-                    }),
-                    failed_stage: Some(Stage::Merge),
-                    ..Default::default()
-                })?;
+                    },
+                    Stage::Merge,
+                )
+            })?;
         }
 
         // Build inner loops.
@@ -328,13 +327,14 @@ pub(crate) fn assemble_result(
             if !inner_he_handles.is_empty() {
                 builder
                     .add_inner_loop(&inner_he_handles, face_h)
-                    .map_err(|e| BoolDiagnostics {
-                        error: Some(BoolError::MergeFailed {
-                            stage: format!("{:?}", Stage::Merge),
-                            reason: format!("inner loop wiring failed: {e}"),
-                        }),
-                        failed_stage: Some(Stage::Merge),
-                        ..Default::default()
+                    .map_err(|e| {
+                        BoolDiagnostics::from_error(
+                            BoolError::MergeFailed {
+                                stage: format!("{:?}", Stage::Merge),
+                                reason: format!("inner loop wiring failed: {e}"),
+                            },
+                            Stage::Merge,
+                        )
                     })?;
             }
         }

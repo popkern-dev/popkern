@@ -459,3 +459,156 @@ fn owned_convenience_wrappers_work() {
     let (a, b) = mk();
     assert!(crate::subtraction(a, b, tol(), None).is_ok());
 }
+
+// ── §13.4 Remediation hint coverage ─────────────────────────
+
+#[test]
+fn every_bool_error_variant_has_a_remediation_hint() {
+    use crate::error::RemediationAction;
+    use popkern_core::error::CoreError;
+
+    // Construct a representative instance of every variant and
+    // verify that `remediation_hint()` returns a non-empty
+    // rationale string. Pins §13.4: every BoolError must carry
+    // actionable remediation data.
+    let variants = vec![
+        BoolError::NoIntersection,
+        BoolError::IntersectionFailed("solver failed".into()),
+        BoolError::SplitFailed {
+            face: FaceHandle::default(),
+            reason: "test".into(),
+        },
+        BoolError::ClassificationFailed {
+            face: FaceHandle::default(),
+            reason: "test".into(),
+        },
+        BoolError::MergeFailed {
+            stage: "Test".into(),
+            reason: "test".into(),
+        },
+        BoolError::ValidationFailed("test".into()),
+        BoolError::DegenerateInput("zero volume".into()),
+        BoolError::CoincidentFaces {
+            face_a: FaceHandle::default(),
+            face_b: FaceHandle::default(),
+        },
+        BoolError::CoreError(CoreError::InvalidHandle("test".into())),
+        BoolError::Cancelled,
+        BoolError::OpenShellNotSupported { a: true, b: false },
+        BoolError::InterferenceFailed("test".into()),
+        BoolError::SystemError("OOM".into()),
+    ];
+
+    for err in &variants {
+        let hint = err.remediation_hint();
+        assert!(
+            !hint.rationale.is_empty(),
+            "variant {err:?} returned an empty rationale"
+        );
+        // Every action must be a known variant.
+        match hint.action {
+            RemediationAction::IncreaseTolerance
+            | RemediationAction::DecreaseTolerance
+            | RemediationAction::HealInput
+            | RemediationAction::UseCoincidenceMode
+            | RemediationAction::SimplifyGeometry
+            | RemediationAction::RetryWithPerturbation
+            | RemediationAction::NoAction
+            | RemediationAction::Precheck => {}
+        }
+    }
+}
+
+#[test]
+fn remediation_hint_for_noin_intersection_is_no_action() {
+    // Specific check: NoIntersection shouldn't suggest a retry or
+    // tolerance bump — it's a semantic signal, not a failure.
+    use crate::error::RemediationAction;
+    let hint = BoolError::NoIntersection.remediation_hint();
+    assert_eq!(hint.action, RemediationAction::NoAction);
+}
+
+#[test]
+fn remediation_hint_for_cancelled_is_no_action() {
+    use crate::error::RemediationAction;
+    let hint = BoolError::Cancelled.remediation_hint();
+    assert_eq!(hint.action, RemediationAction::NoAction);
+}
+
+#[test]
+fn remediation_hint_for_coincident_faces_suggests_coincidence_mode() {
+    use crate::error::RemediationAction;
+    let hint = BoolError::CoincidentFaces {
+        face_a: FaceHandle::default(),
+        face_b: FaceHandle::default(),
+    }
+    .remediation_hint();
+    assert_eq!(hint.action, RemediationAction::UseCoincidenceMode);
+}
+
+#[test]
+fn remediation_hint_for_open_shell_suggests_precheck() {
+    use crate::error::RemediationAction;
+    let hint = BoolError::OpenShellNotSupported { a: true, b: false }.remediation_hint();
+    assert_eq!(hint.action, RemediationAction::Precheck);
+    assert!(
+        hint.rationale.contains("boolean_with_sheets"),
+        "rationale should point callers at the sheet-aware entry \
+         point, got: {}",
+        hint.rationale
+    );
+}
+
+#[test]
+fn fill_missing_remediations_populates_error_entries() {
+    use crate::error::{BoolDiagnostics, DiagnosticEntry, Severity, Stage};
+
+    let mut diag = BoolDiagnostics {
+        error: Some(BoolError::IntersectionFailed("test".into())),
+        failed_stage: Some(Stage::Intersection),
+        entries: vec![
+            DiagnosticEntry {
+                severity: Severity::Error,
+                phase: Stage::Intersection,
+                message: "test".into(),
+                entities: Vec::new(),
+                location: None,
+                measured_value: None,
+                remediation: None,
+            },
+            DiagnosticEntry {
+                severity: Severity::Warning,
+                phase: Stage::Intersection,
+                message: "warning".into(),
+                entities: Vec::new(),
+                location: None,
+                measured_value: None,
+                remediation: None,
+            },
+        ],
+        ..Default::default()
+    };
+
+    diag.fill_missing_remediations();
+
+    // Error entry gets filled.
+    assert!(diag.entries[0].remediation.is_some());
+    // Warning entry is left alone (fill is only for Error/Critical).
+    assert!(diag.entries[1].remediation.is_none());
+}
+
+#[test]
+fn from_error_builder_populates_entry() {
+    use crate::error::{BoolDiagnostics, Severity, Stage};
+
+    let diag = BoolDiagnostics::from_error(
+        BoolError::ValidationFailed("gap of 0.01".into()),
+        Stage::Validation,
+    );
+    assert_eq!(diag.entries.len(), 1);
+    assert_eq!(diag.entries[0].severity, Severity::Error);
+    assert_eq!(diag.entries[0].phase, Stage::Validation);
+    assert!(diag.entries[0].remediation.is_some());
+    assert_eq!(diag.failed_stage, Some(Stage::Validation));
+    assert!(diag.error.is_some());
+}

@@ -107,11 +107,7 @@ pub(crate) fn graph_merge(
         tolerance,
         &intersection_result.coincidence,
     )
-    .map_err(|e| BoolDiagnostics {
-        error: Some(e),
-        failed_stage: Some(Stage::Classification),
-        ..Default::default()
-    })?;
+    .map_err(|e| BoolDiagnostics::from_error(e, Stage::Classification))?;
 
     // Phase 7: Assemble result BRep.
     assemble_result(

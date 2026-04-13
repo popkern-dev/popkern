@@ -252,6 +252,62 @@ impl BoolDiagnostics {
             .iter()
             .any(|e| matches!(e.severity, Severity::Error | Severity::Critical))
     }
+
+    /// Populate missing `Remediation` fields on every `Error`- or
+    /// `Critical`-severity entry using the top-level `error`'s
+    /// [`BoolError::remediation_hint`] default.
+    ///
+    /// Entries that already have a custom remediation are left
+    /// untouched. Info / Warning entries are skipped because they
+    /// don't represent failure conditions. Used by the error-exit
+    /// paths in the pipeline orchestrator to guarantee that every
+    /// returned `BoolDiagnostics` carries actionable remediation
+    /// data (§13.4).
+    pub fn fill_missing_remediations(&mut self) {
+        let hint = match &self.error {
+            Some(e) => e.remediation_hint(),
+            None => return,
+        };
+        for entry in &mut self.entries {
+            if entry.remediation.is_none()
+                && matches!(entry.severity, Severity::Error | Severity::Critical)
+            {
+                entry.remediation = Some(hint.clone());
+            }
+        }
+    }
+
+    /// Build a diagnostic from a top-level [`BoolError`], auto-
+    /// populating a single error entry with a remediation hint
+    /// derived from the error variant (§13.4).
+    ///
+    /// Use this from failure sites that don't have enough local
+    /// context to build richer diagnostics — the resulting
+    /// `BoolDiagnostics` has one entry carrying the error message
+    /// and the default-mapped [`Remediation`]. Call sites with
+    /// richer context (measured values, 3D locations, specific
+    /// entity refs) should still hand-build their entries; this
+    /// builder is the floor, not the ceiling.
+    pub fn from_error(error: BoolError, phase: Stage) -> Self {
+        let hint = error.remediation_hint();
+        let message = error.to_string();
+        Self {
+            error: Some(error),
+            intersection_curves: Vec::new(),
+            face_classifications: Vec::new(),
+            failed_stage: Some(phase),
+            entries: vec![DiagnosticEntry {
+                severity: Severity::Error,
+                phase,
+                message,
+                entities: Vec::new(),
+                location: None,
+                measured_value: None,
+                remediation: Some(hint),
+            }],
+            phase_metrics: Vec::new(),
+        }
+    }
 }
 
 /// Severity level for diagnostic entries.
@@ -331,4 +387,157 @@ pub enum RemediationAction {
     SimplifyGeometry,
     /// Retry with geometric perturbation.
     RetryWithPerturbation,
+    /// The requested operation is not applicable (e.g. attempting a
+    /// boolean on disjoint bodies with no intersection). No action
+    /// is needed — the caller should recognise the no-op.
+    NoAction,
+    /// Split the operation into smaller parts, or run the caller's
+    /// own pre-check to identify problematic face pairs before
+    /// retrying.
+    Precheck,
+}
+
+impl Remediation {
+    /// Construct a remediation with an action and rationale and no
+    /// tolerance-parameter metadata.
+    pub fn new(action: RemediationAction, rationale: impl Into<String>) -> Self {
+        Self {
+            action,
+            parameter: None,
+            value: None,
+            rationale: rationale.into(),
+        }
+    }
+
+    /// Construct a tolerance-adjusting remediation that suggests
+    /// `new_value` for `parameter`.
+    pub fn adjust_tolerance(
+        action: RemediationAction,
+        parameter: impl Into<String>,
+        new_value: f64,
+        rationale: impl Into<String>,
+    ) -> Self {
+        Self {
+            action,
+            parameter: Some(parameter.into()),
+            value: Some(new_value),
+            rationale: rationale.into(),
+        }
+    }
+}
+
+impl BoolError {
+    /// Best-fit remediation hint for this error variant.
+    ///
+    /// Returns a structured [`Remediation`] suggestion derived
+    /// purely from the error kind — no access to tolerances or
+    /// input geometry is needed. Callers can use this as a default
+    /// when the failure site didn't populate its own entry-level
+    /// `Remediation`, or to build user-facing error messages.
+    ///
+    /// §13.4 acceptance criterion: every `BoolError` variant
+    /// returns a non-`None` hint, so `remediation_hint()` is a
+    /// total function.
+    pub fn remediation_hint(&self) -> Remediation {
+        match self {
+            BoolError::NoIntersection => Remediation::new(
+                RemediationAction::NoAction,
+                "The two solids do not intersect. No boolean result exists \
+                 for this operation. If you expected an intersection, verify \
+                 that the bodies are positioned as intended — a coordinate \
+                 error in one operand is the most common cause.",
+            ),
+            BoolError::IntersectionFailed(_) => Remediation::new(
+                RemediationAction::RetryWithPerturbation,
+                "Surface intersection solver failed. Try \
+                 `boolean_with_perturbation()` to slightly offset the \
+                 geometry and retry, or increase `linear` tolerance to \
+                 widen the solver's convergence envelope.",
+            ),
+            BoolError::SplitFailed { .. } => Remediation::new(
+                RemediationAction::IncreaseTolerance,
+                "Face splitting failed — typically caused by an \
+                 intersection curve that lies too close to an existing \
+                 edge or vertex. Try increasing `linear` tolerance, or \
+                 heal the input to snap near-coincident features before \
+                 retrying.",
+            ),
+            BoolError::ClassificationFailed { .. } => Remediation::new(
+                RemediationAction::IncreaseTolerance,
+                "Point-in-solid classification failed for a face \
+                 fragment. Try increasing `coincidence` tolerance so the \
+                 multi-ray sampler treats near-boundary points \
+                 deterministically, or heal the input to eliminate \
+                 near-tangent face pairs.",
+            ),
+            BoolError::MergeFailed { .. } => Remediation::new(
+                RemediationAction::HealInput,
+                "Assembling the result solid from selected face \
+                 fragments failed. This usually indicates non-manifold \
+                 topology in the intersection graph. Heal the input \
+                 geometry (close gaps, remove duplicate vertices) before \
+                 retrying.",
+            ),
+            BoolError::ValidationFailed(_) => Remediation::new(
+                RemediationAction::HealInput,
+                "Post-merge validation flagged the result solid as \
+                 invalid. The boolean pipeline may have produced slivers, \
+                 non-manifold edges, or open loops. Try healing the \
+                 result, or retry with tighter tolerances so the merge \
+                 phase produces cleaner topology.",
+            ),
+            BoolError::DegenerateInput(_) => Remediation::new(
+                RemediationAction::HealInput,
+                "One or both inputs are geometrically degenerate (zero \
+                 volume, duplicate vertices, or zero-area faces). Run \
+                 the healing pipeline on the inputs before retrying the \
+                 boolean.",
+            ),
+            BoolError::CoincidentFaces { .. } => Remediation::new(
+                RemediationAction::UseCoincidenceMode,
+                "Two faces of the input solids are geometrically \
+                 coincident, creating an ambiguous boundary. Set the \
+                 `BoolTolerance::mode` to `AssumedFull` or \
+                 `ToleranceEscalation` so the coincidence engine \
+                 handles the overlap explicitly instead of the \
+                 transversal solver.",
+            ),
+            BoolError::CoreError(_) => Remediation::new(
+                RemediationAction::HealInput,
+                "A core topology or geometry operation failed. This is \
+                 usually a sign of invalid input; running the healing \
+                 pipeline and re-running validation before retrying the \
+                 boolean is the safest first step.",
+            ),
+            BoolError::Cancelled => Remediation::new(
+                RemediationAction::NoAction,
+                "The operation was cancelled by the caller via a \
+                 cancellation token. No action needed — the input \
+                 model is unchanged.",
+            ),
+            BoolError::OpenShellNotSupported { .. } => Remediation::new(
+                RemediationAction::Precheck,
+                "At least one input is an open shell / sheet body. \
+                 Route through `boolean_with_sheets()` instead of the \
+                 standard `boolean()` entry point — the sheet-aware \
+                 dispatcher handles the operation matrix for open \
+                 shells.",
+            ),
+            BoolError::InterferenceFailed(_) => Remediation::new(
+                RemediationAction::RetryWithPerturbation,
+                "Interference detection could not determine whether the \
+                 bodies overlap. This is usually a near-tangent or \
+                 near-coincident configuration. Try \
+                 `boolean_with_perturbation()` or increase `linear` \
+                 tolerance.",
+            ),
+            BoolError::SystemError(_) => Remediation::new(
+                RemediationAction::Precheck,
+                "A system-level resource failure occurred (out of \
+                 memory, per-stage iteration limit exceeded). Simplify \
+                 the input (fewer faces, decimated NURBS surfaces, \
+                 smaller models) and retry.",
+            ),
+        }
+    }
 }

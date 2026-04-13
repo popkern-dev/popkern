@@ -223,16 +223,15 @@ pub(crate) fn cellular_assemble(
         let outer_hes = resolve_loop(&raw_outer, sel.flip);
 
         if !outer_hes.is_empty() {
-            builder
-                .add_loop(&outer_hes, face_h)
-                .map_err(|e| BoolDiagnostics {
-                    error: Some(BoolError::MergeFailed {
+            builder.add_loop(&outer_hes, face_h).map_err(|e| {
+                BoolDiagnostics::from_error(
+                    BoolError::MergeFailed {
                         stage: format!("{:?}", Stage::Merge),
                         reason: format!("cellular outer loop: {e}"),
-                    }),
-                    failed_stage: Some(Stage::Merge),
-                    ..Default::default()
-                })?;
+                    },
+                    Stage::Merge,
+                )
+            })?;
         }
 
         for inner in &frag.inner_loops {
