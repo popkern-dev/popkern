@@ -176,9 +176,8 @@ fn split_solid_by_plane_off_axis_still_bisects() {
 /// the multi-piece dispatcher tests.
 fn build_planar_sheet(x_min: f64, x_max: f64, y_min: f64, y_max: f64, z_height: f64) -> BRep {
     use popkern_core::constructors::builder::BRepBuilder;
-    use popkern_core::geometry::Point3;
-    use popkern_core::geometry::Vec3;
     use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+    use popkern_core::geometry::{Point3, Vec3};
 
     let mut builder = BRepBuilder::new(tol());
     let solid = builder.add_solid();
@@ -190,13 +189,23 @@ fn build_planar_sheet(x_min: f64, x_max: f64, y_min: f64, y_max: f64, z_height: 
     let v2 = builder.add_vertex(Point3::new(x_max, y_max, z_height));
     let v3 = builder.add_vertex(Point3::new(x_min, y_max, z_height));
 
-    let (_, he01_fwd, _) = builder.add_edge(v0, v1);
-    let (_, he12_fwd, _) = builder.add_edge(v1, v2);
-    let (_, he23_fwd, _) = builder.add_edge(v2, v3);
-    let (_, he30_fwd, _) = builder.add_edge(v3, v0);
+    let (_, he01_fwd, he01_rev) = builder.add_edge(v0, v1);
+    let (_, he12_fwd, he12_rev) = builder.add_edge(v1, v2);
+    let (_, he23_fwd, he23_rev) = builder.add_edge(v2, v3);
+    let (_, he30_fwd, he30_rev) = builder.add_edge(v3, v0);
 
+    // Outer loop: forward chain v0→v1→v2→v3→v0.
     builder
         .add_loop(&[he01_fwd, he12_fwd, he23_fwd, he30_fwd], face)
+        .unwrap();
+    // Inner loop: reverse chain via the twin half-edges. Without
+    // this, the twins' next/prev/loop_ fields remain default, and
+    // any downstream code that walks them (split_edge, imprint)
+    // panics on the invalid slotmap keys. Topologically this makes
+    // the face a ring with a zero-width hole — degenerate but
+    // structurally valid.
+    builder
+        .add_inner_loop(&[he30_rev, he23_rev, he12_rev, he01_rev], face)
         .unwrap();
 
     builder.brep_mut().faces.get_mut(face).unwrap().surface = Some(SurfaceOnFace {
@@ -637,11 +646,14 @@ fn boolean_with_sheets_sheet_sheet_union_transversal_concatenates() {
         let v1 = builder.add_vertex(Point3::new(0.5, 0.0, -0.5));
         let v2 = builder.add_vertex(Point3::new(0.5, 0.0, 0.5));
         let v3 = builder.add_vertex(Point3::new(-0.5, 0.0, 0.5));
-        let (_, he01, _) = builder.add_edge(v0, v1);
-        let (_, he12, _) = builder.add_edge(v1, v2);
-        let (_, he23, _) = builder.add_edge(v2, v3);
-        let (_, he30, _) = builder.add_edge(v3, v0);
+        let (_, he01, he01r) = builder.add_edge(v0, v1);
+        let (_, he12, he12r) = builder.add_edge(v1, v2);
+        let (_, he23, he23r) = builder.add_edge(v2, v3);
+        let (_, he30, he30r) = builder.add_edge(v3, v0);
         builder.add_loop(&[he01, he12, he23, he30], face).unwrap();
+        builder
+            .add_inner_loop(&[he30r, he23r, he12r, he01r], face)
+            .unwrap();
         builder.brep_mut().faces.get_mut(face).unwrap().surface = Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Plane {
                 origin: Point3::new(0.0, 0.0, 0.0),
@@ -653,11 +665,20 @@ fn boolean_with_sheets_sheet_sheet_union_transversal_concatenates() {
         });
         builder.build_unchecked()
     };
-    // The dispatcher routes through the transversal concatenation
-    // branch. combine_breps was hardened to tolerate BRepBuilder-
-    // constructed sheets with broken twin pointers by passing
-    // missing handles through as defaults instead of panicking,
-    // so this test expects a real OpenShell result.
+    // The dispatcher imprints both sheets against each other so the
+    // intersection curve becomes common vertices on both sides, then
+    // concatenates via combine_breps and runs weld_coincident_vertices.
+    // The welded result should have FEWER vertices than the naive
+    // concatenation would: specifically, every vertex on the crossing
+    // curve should collapse to one rather than two copies.
+    // Each sheet starts with 4 corner vertices. After imprint adds
+    // the 2 entry/exit points of the crossing line, each sheet gains
+    // 2 vertices. Naive concatenation of the imprinted pair would
+    // therefore have 4 + 2 + 4 + 2 = 12 vertices. Vertex welding
+    // collapses the 2 pairs of coincident crossing vertices (one
+    // pair per entry/exit), so the welded combined result has
+    // 12 - 2 = 10 vertices. This pins the welding behavior: if
+    // the weld stops working, the count jumps back to 12.
     let result = boolean_with_sheets(BoolOperation::Union, &sheet_a, &sheet_b, tol()).unwrap();
     match result {
         SheetBooleanResult::OpenShell(combined) => {
@@ -665,6 +686,13 @@ fn boolean_with_sheets_sheet_sheet_union_transversal_concatenates() {
                 combined.faces.len() >= 2,
                 "concatenated transversal sheets should preserve both faces, got {}",
                 combined.faces.len()
+            );
+            assert_eq!(
+                combined.vertices.len(),
+                10,
+                "welded result should have exactly 10 vertices \
+                 (4 + 4 corners + 4 imprint - 2 welds), got {}",
+                combined.vertices.len()
             );
         }
         other => panic!("expected OpenShell, got {other:?}"),

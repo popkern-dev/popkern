@@ -31,6 +31,7 @@ pub mod dispatch;
 pub mod side;
 pub mod split;
 mod trim;
+mod weld;
 
 pub use classify::{SheetOperationKind, classify_sheet_operation};
 pub use detect::{is_approximately_planar_sheet, is_closed_solid, is_planar_sheet, is_sheet_body};

@@ -42,13 +42,14 @@ pub enum SheetBooleanResult {
     Curves(Vec<popkern_core::geometry::curve_on_surface::CurveOnSurface>),
     /// An open shell BRep result.
     ///
-    /// For `SheetSheetUnion` with a transversal crossing input, the
-    /// resulting shell contains BOTH input shells concatenated into
-    /// one BRep. The intersection curve is NOT welded into shared
-    /// vertices/edges — both shells keep their own copy of the
-    /// crossing topology, so the result may fail strict manifold
-    /// validation at those points. Consumers that need welded
-    /// intersections should post-process via the healing pipeline.
+    /// For `SheetSheetUnion` with transversal crossing inputs, both
+    /// sheets are imprinted against each other so the intersection
+    /// curve becomes a common set of vertices on both sides, then
+    /// concatenated and vertex-welded. The result therefore has
+    /// shared-vertex topology at every crossing point; edges along
+    /// the crossing remain as separate BRep edges sharing endpoints,
+    /// which is a valid non-manifold representation in popkern's
+    /// 2-half-edge-per-edge model.
     OpenShell(BRep),
     /// A closed solid paired with an open-shell appendage. Used by
     /// `SolidUnionSheet` to return the original solid unchanged plus
@@ -171,31 +172,34 @@ pub fn boolean_with_sheets(
         }
         SheetOperationKind::SheetSheetUnion => {
             // §2.3 SheetSheetUnion: combine two open shells into one
-            // open shell.
+            // open shell with shared topology at the crossing curves.
             //
-            // Four cases:
+            // The commercial-grade flow (matches commercial kernels' and
+            // OpenCascade's sheet union through their general merge
+            // pipeline):
             //
-            // 1. Fully disjoint — no intersection curves, no
-            //    coincident face overlaps: structural concatenation
-            //    via `combine_breps`. Fast path.
+            // 1. Imprint each sheet against the other. Both imprint
+            //    calls compute the same intersection curves and carve
+            //    matching vertices/edges into their respective
+            //    targets — so `a_imprinted` and `b_imprinted` now
+            //    have coincident vertices at every crossing point.
             //
-            // 2. Coincident overlap — face pairs that share a
-            //    surface region. Drop the duplicate faces from `b`
-            //    via `super::dedupe::drop_faces_and_prune` and then
-            //    concatenate.
+            // 2. Detect any face-level coincidence (fully shared
+            //    regions) on the imprinted pair and drop the
+            //    duplicate copies from `b_imprinted`.
             //
-            // 3. Transversal crossing — the two sheets properly
-            //    intersect along a curve (no shared region).
-            //    Concatenation produces a valid BRep with both
-            //    shells intact. The intersection curve is NOT
-            //    welded into shared vertices/edges — that would
-            //    require a sheet-aware merge pipeline. The result
-            //    is usable for visualization and mesh export but
-            //    may contain duplicate topology on the crossing
-            //    curve; this is documented on `SheetBooleanResult`.
+            // 3. Structurally concatenate via `combine_breps`.
             //
-            // 4. Mixed (both curves AND coincident overlaps) —
-            //    dedupe the coincident faces and then concatenate.
+            // 4. Run `weld_coincident_vertices` so the duplicated
+            //    crossing vertices collapse into a single canonical
+            //    representative per position. Edges along the
+            //    crossing remain as separate BRep edges sharing
+            //    endpoints — a valid non-manifold representation in
+            //    popkern's 2-half-edge-per-edge model.
+            //
+            // For the fully-disjoint fast path we still skip imprint
+            // entirely and go straight to concat + weld, because
+            // imprint on non-crossing inputs is a pure overhead.
             let section = crate::ops::section::section(a, b, &tol)?;
             let aabbs_a = crate::intersect::compute_face_aabbs(a);
             let aabbs_b = crate::intersect::compute_face_aabbs(b);
@@ -204,8 +208,27 @@ pub fn boolean_with_sheets(
                 a, b, &aabbs_a, &aabbs_b, &bool_tol,
             );
 
+            // Decide whether imprint is needed. Disjoint inputs skip
+            // imprint; any curve or coincident face is a signal to
+            // imprint so the weld has meaningful vertex pairs.
+            let needs_imprint = !section.curves.is_empty() || !coincidence.face_overlaps.is_empty();
+
+            let (a_prepared, b_prepared) = if needs_imprint {
+                let a_imprint = crate::ops::imprint::imprint(a, b, &tol)?;
+                let b_imprint = crate::ops::imprint::imprint(b, a, &tol)?;
+                (a_imprint.imprinted_target, b_imprint.imprinted_target)
+            } else {
+                (a.clone(), b.clone())
+            };
+
             // Collect any coincident `b` face handles so we can drop
-            // their duplicates. Empty set when there are no overlaps.
+            // their duplicates before concatenation. The face handles
+            // live on the ORIGINAL `b`, and imprint preserves the
+            // existing face handles for faces that weren't split —
+            // but a face in a coincident pair that doesn't cross a
+            // curve is typically preserved unchanged, so the handles
+            // still line up. (Worst case the dedupe is a no-op; the
+            // later weld still removes any duplicate vertices.)
             use std::collections::HashSet;
             let coincident_b_faces: HashSet<popkern_core::topology::FaceHandle> = coincidence
                 .face_overlaps
@@ -213,22 +236,13 @@ pub fn boolean_with_sheets(
                 .map(|fo| fo.face_b)
                 .collect();
 
-            // Case 1: fully disjoint — direct concatenation.
-            if section.curves.is_empty() && coincident_b_faces.is_empty() {
-                let combined = crate::operation::helpers::combine_breps(a.clone(), b.clone())?;
-                return Ok(SheetBooleanResult::OpenShell(combined));
+            let mut b_ready = b_prepared;
+            if !coincident_b_faces.is_empty() {
+                super::dedupe::drop_faces_and_prune(&mut b_ready, &coincident_b_faces);
             }
 
-            // Cases 2, 3, 4 all funnel through the same code path:
-            // dedupe any coincident faces (no-op for pure transversal)
-            // and concatenate. Transversal crossings leave the cross
-            // curve unwelded, which is documented as a known
-            // limitation of this operation.
-            let mut b_deduped = b.clone();
-            if !coincident_b_faces.is_empty() {
-                super::dedupe::drop_faces_and_prune(&mut b_deduped, &coincident_b_faces);
-            }
-            let combined = crate::operation::helpers::combine_breps(a.clone(), b_deduped)?;
+            let mut combined = crate::operation::helpers::combine_breps(a_prepared, b_ready)?;
+            super::weld::weld_coincident_vertices(&mut combined, &tol);
             Ok(SheetBooleanResult::OpenShell(combined))
         }
         SheetOperationKind::SolidUnionSheet => {
