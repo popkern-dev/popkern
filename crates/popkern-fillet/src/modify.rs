@@ -32,6 +32,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
 use crate::error::BlendError;
+use crate::types::{FilletOptions, FilletRadius, FilletSpec};
 use crate::unfillet::{compute_unfillet_plan, unfillet_face};
 
 /// Modify the radius of a fillet face by composing algorithmic
@@ -41,14 +42,16 @@ use crate::unfillet::{compute_unfillet_plan, unfillet_face};
 /// BRep and a fillet face handle (no [`crate::FilletOperationRecord`]),
 /// they can still change the fillet's radius in one call.
 ///
-/// The implementation:
-///   1. Captures the position of the original sharp edge from
-///      [`compute_unfillet_plan`] (open fillets) or by walking the
-///      annulus loops (closed fillets).
-///   2. Runs [`unfillet_face`] to restore the sharp edge.
-///   3. Locates the restored edge in the unfilleted BRep by spatial
-///      lookup against the captured positions.
-///   4. Calls [`crate::fillet_edge`] at `new_radius` on that edge.
+/// `new_radius` accepts any value convertible into [`FilletRadius`]:
+///   - A bare `f64` becomes [`FilletRadius::Constant`] (the common case).
+///   - [`FilletRadius::Variable { start, end }`] applies a linearly-
+///     varying radius along the edge.
+///   - [`FilletRadius::ByPoints`] applies a per-parameter radius profile.
+///
+/// The constant case takes the in-place fast path (Round 5d-2/5d-3).
+/// Variable and `ByPoints` cases go through algorithmic unfillet
+/// followed by a fresh fillet at the new spec — slower but
+/// supported transparently.
 ///
 /// # Errors
 ///
@@ -56,31 +59,36 @@ use crate::unfillet::{compute_unfillet_plan, unfillet_face};
 ///   recognised as a fillet, or if the restored edge can't be
 ///   located in the unfilleted BRep.
 /// - Any error from the underlying [`unfillet_face`] /
-///   [`crate::fillet_edge`] calls.
+///   [`crate::fillet_edges`] calls.
 pub fn modify_fillet_radius(
     brep: &BRep,
     fillet_face: FaceHandle,
-    new_radius: f64,
+    new_radius: impl Into<FilletRadius>,
     tolerance: Tolerance,
 ) -> Result<BRep, BlendError> {
+    let radius = new_radius.into();
     if is_closed_annulus(brep, fillet_face) {
-        return modify_closed_fillet_radius(brep, fillet_face, new_radius, tolerance);
+        return modify_closed_fillet_radius(brep, fillet_face, radius, tolerance);
     }
-    modify_open_fillet_radius(brep, fillet_face, new_radius, tolerance)
+    modify_open_fillet_radius(brep, fillet_face, radius, tolerance)
 }
 
 /// Open (plane-plane) fillet path — tries the in-place geometry
-/// update first (Round 5d-3 — true §14.7 ≥2× speedup), and falls
-/// back to remove+recreate via `compute_unfillet_plan` +
-/// `unfillet_face` + `fillet_edge` on failure.
+/// update first (Round 5d-3 — true §14.7 ≥2× speedup) when the
+/// radius is constant, and falls back to remove+recreate via
+/// `compute_unfillet_plan` + `unfillet_face` + `fillet_edges` for
+/// constant cases that don't fit the fast path or for any
+/// variable-radius spec.
 fn modify_open_fillet_radius(
     brep: &BRep,
     fillet_face: FaceHandle,
-    new_radius: f64,
+    new_radius: FilletRadius,
     tolerance: Tolerance,
 ) -> Result<BRep, BlendError> {
-    // Fast path: in-place geometry update.
-    if let Ok(out) = crate::modify_inplace::modify_open_in_place(brep, fillet_face, new_radius) {
+    // Fast path: in-place geometry update (constant only).
+    if let FilletRadius::Constant(r) = &new_radius
+        && let Ok(out) = crate::modify_inplace::modify_open_in_place(brep, fillet_face, *r)
+    {
         return Ok(out);
     }
 
@@ -98,23 +106,35 @@ fn modify_open_fillet_radius(
             reason: "could not locate restored sharp edge in the unfilleted BRep".to_string(),
         })?;
 
-    let result = crate::fillet_edge(&unfilleted, restored_edge, new_radius, tolerance, None)?;
+    let specs = [FilletSpec {
+        edge: restored_edge,
+        radius: new_radius,
+    }];
+    let result = crate::fillet_edges(
+        &unfilleted,
+        &specs,
+        &FilletOptions::default(),
+        tolerance,
+        None,
+    )?;
     Ok(result.brep)
 }
 
 /// Closed-fillet (annulus) path — tries the in-place geometry
-/// update first (Round 5d-2 — true §14.7 ≥2× speedup), and falls
-/// back to the remove+recreate path on failure. Both produce
-/// geometrically equivalent results; the in-place path is much
-/// faster because it skips topology surgery and pcurve recompute.
+/// update first (Round 5d-2 — true §14.7 ≥2× speedup) when the
+/// radius is constant, and falls back to remove+recreate for any
+/// variable-radius spec or for constant cases that don't fit the
+/// fast path.
 fn modify_closed_fillet_radius(
     brep: &BRep,
     fillet_face: FaceHandle,
-    new_radius: f64,
+    new_radius: FilletRadius,
     tolerance: Tolerance,
 ) -> Result<BRep, BlendError> {
-    // Fast path: in-place geometry update.
-    if let Ok(out) = crate::modify_inplace::modify_closed_in_place(brep, fillet_face, new_radius) {
+    // Fast path: in-place geometry update (constant only).
+    if let FilletRadius::Constant(r) = &new_radius
+        && let Ok(out) = crate::modify_inplace::modify_closed_in_place(brep, fillet_face, *r)
+    {
         return Ok(out);
     }
 
@@ -127,7 +147,17 @@ fn modify_closed_fillet_radius(
             reason: "could not locate restored closed rim edge after unfillet".to_string(),
         }
     })?;
-    let result = crate::fillet_edge(&unfilleted, restored_edge, new_radius, tolerance, None)?;
+    let specs = [FilletSpec {
+        edge: restored_edge,
+        radius: new_radius,
+    }];
+    let result = crate::fillet_edges(
+        &unfilleted,
+        &specs,
+        &FilletOptions::default(),
+        tolerance,
+        None,
+    )?;
     Ok(result.brep)
 }
 

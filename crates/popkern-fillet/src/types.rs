@@ -38,6 +38,16 @@ pub enum FilletRadius {
     ByPoints(Vec<(f64, f64)>),
 }
 
+impl From<f64> for FilletRadius {
+    /// Convenience: a bare `f64` becomes a constant-radius profile.
+    /// Lets `modify_fillet_radius(brep, face, 0.2, tol)` and
+    /// `modify_fillet_radius(brep, face, FilletRadius::Variable { ... }, tol)`
+    /// share the same entry point.
+    fn from(r: f64) -> Self {
+        FilletRadius::Constant(r)
+    }
+}
+
 /// Options controlling fillet behaviour.
 #[derive(Debug, Clone)]
 pub struct FilletOptions {
