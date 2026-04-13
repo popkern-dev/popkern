@@ -196,16 +196,25 @@ pub fn construct_coons_patch(
     let r_start = boundary.right.point_at(t0_r);
     let r_end = boundary.right.point_at(t1_r);
 
-    if p00.distance_to(&l_start) > tolerance {
+    // Adaptive corner-match check: rejects the patch if any of the
+    // 4 corners is farther than `tolerance` from its expected
+    // boundary endpoint. Routed through adaptive_dist_sq_lt
+    // (negated since we want > tolerance) so the rejection is
+    // deterministic at the boundary.
+    let tol_sq = tolerance * tolerance;
+    let corner_check = |a: &crate::geometry::Point3, b: &crate::geometry::Point3| -> bool {
+        crate::adaptive_precision::adaptive_dist_sq_lt((a.x, a.y, a.z), (b.x, b.y, b.z), tol_sq)
+    };
+    if !corner_check(&p00, &l_start) {
         return None;
     }
-    if p10.distance_to(&r_start) > tolerance {
+    if !corner_check(&p10, &r_start) {
         return None;
     }
-    if p01.distance_to(&l_end) > tolerance {
+    if !corner_check(&p01, &l_end) {
         return None;
     }
-    if p11.distance_to(&r_end) > tolerance {
+    if !corner_check(&p11, &r_end) {
         return None;
     }
 

@@ -389,7 +389,11 @@ pub fn check_zero_length_singularity_edges(
         };
 
         let dist = v_start.position.distance_to(&v_end.position);
-        if dist < tolerance.linear() {
+        if crate::adaptive_precision::adaptive_dist_sq_lt(
+            (v_start.position.x, v_start.position.y, v_start.position.z),
+            (v_end.position.x, v_end.position.y, v_end.position.z),
+            tolerance.linear() * tolerance.linear(),
+        ) {
             report.push(DefectRecord {
                 category: DefectCategory::Degenerate,
                 severity: Severity::Info,
