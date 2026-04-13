@@ -277,6 +277,227 @@ fn unfillet_via_record_works_for_multi_edge_fillets() {
 }
 
 // ---------------------------------------------------------------------------
+// Round 5c-2 probe: cylinder-cylinder unfillet
+// ---------------------------------------------------------------------------
+//
+// Both probes are kept ignored after Round 5c-2 (pivoted) because
+// they exercise pre-existing popkern-fillet construct-phase
+// limitations: cylinder-cylinder edges from a boolean union are
+// classified as seams, and plane-cylinder fillets require the
+// closed-fillet construction path which is documented as a future
+// gap in the diagnostic returned by helpers::split_perpendicular_edges_by_radius.
+
+#[test]
+#[ignore = "popkern-fillet does not yet support cylinder-cylinder seam edges; tracked as Round 5c construct-phase work"]
+fn probe_5c2_cylinder_cylinder_fillet_then_unfillet() {
+    use popkern_bool::{BoolOperation, boolean};
+    use popkern_core::geometry::Transform3;
+
+    let cyl_a = BRep::cylinder(0.5, 1.0, tol()).unwrap();
+    let cyl_b = BRep::cylinder(0.3, 1.5, tol()).unwrap();
+    let cyl_b = cyl_b
+        .transform(&Transform3::translation(0.4, 0.0, 0.0))
+        .unwrap();
+
+    let united = match boolean(BoolOperation::Union, cyl_a, cyl_b, tol(), None) {
+        Ok(b) => {
+            eprintln!("probe2: union OK, {} faces", b.faces.len());
+            b
+        }
+        Err(e) => {
+            eprintln!("probe2: union FAILED: {e:?}");
+            return;
+        }
+    };
+
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let cyl_cyl_edge = united.edges.keys().find(|e| {
+        let he = &united.half_edges[united.edges[*e].half_edge];
+        let face_a = united.loops[he.loop_].face;
+        let face_b = united.loops[united.half_edges[he.twin].loop_].face;
+        let surf_a = united.faces[face_a].surface.as_ref().map(|s| &s.geometry);
+        let surf_b = united.faces[face_b].surface.as_ref().map(|s| &s.geometry);
+        matches!(
+            (surf_a, surf_b),
+            (
+                Some(SurfaceGeometry::Cylinder { .. }),
+                Some(SurfaceGeometry::Cylinder { .. })
+            )
+        )
+    });
+    let edge = match cyl_cyl_edge {
+        Some(e) => {
+            eprintln!("probe2: found cyl-cyl edge {e:?}");
+            e
+        }
+        None => {
+            eprintln!("probe2: NO cyl-cyl edge found");
+            return;
+        }
+    };
+
+    let filleted = match crate::fillet_edge(&united, edge, 0.05, tol(), None) {
+        Ok(b) => {
+            eprintln!(
+                "probe2: fillet OK, result has {} faces, {} edges, {} vertices",
+                b.brep.faces.len(),
+                b.brep.edges.len(),
+                b.brep.vertices.len()
+            );
+            b.brep
+        }
+        Err(e) => {
+            eprintln!(
+                "probe2: fillet FAILED: {}",
+                match &e {
+                    BlendError::PartialFailure { failures, .. } => format!(
+                        "{:?}",
+                        failures
+                            .iter()
+                            .map(|(_, f)| format!("{f:?}"))
+                            .collect::<Vec<_>>()
+                    ),
+                    other => format!("{other:?}"),
+                }
+            );
+            return;
+        }
+    };
+    let _ = filleted;
+}
+
+// ---------------------------------------------------------------------------
+// Round 5c-2 probe: plane-cylinder unfillet
+// ---------------------------------------------------------------------------
+
+/// Probe how far the current unfillet pipeline gets on a
+/// plane-cylinder fillet. After Round 5c-2 (pivoted), the fillet
+/// engine returns a clean "closed fillet edges not yet supported"
+/// diagnostic instead of the historical "no perpendicular edge
+/// found" error. Tracked as Round 5c construct-phase work.
+#[test]
+#[ignore = "popkern-fillet does not yet support closed fillet edges (cylindrical hole rims); diagnostic improved in Round 5c-2"]
+fn probe_5c2_plane_cylinder_unfillet() {
+    use popkern_bool::{BoolOperation, boolean};
+    use popkern_core::geometry::Transform3;
+
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let cyl = BRep::cylinder(0.3, 2.0, tol()).unwrap();
+    let translated = cyl
+        .transform(&Transform3::translation(0.5, 0.5, -0.5))
+        .unwrap();
+
+    let subtracted = match boolean(BoolOperation::Subtraction, cube, translated, tol(), None) {
+        Ok(b) => {
+            eprintln!("probe: subtraction OK, {} faces", b.faces.len());
+            b
+        }
+        Err(e) => {
+            eprintln!("probe: subtraction FAILED: {e:?}");
+            return;
+        }
+    };
+
+    // Pick a plane-cylinder edge.
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let edge = subtracted.edges.keys().find(|e| {
+        let he = &subtracted.half_edges[subtracted.edges[*e].half_edge];
+        let face_a = subtracted.loops[he.loop_].face;
+        let face_b = subtracted.loops[subtracted.half_edges[he.twin].loop_].face;
+        let surf_a = subtracted.faces[face_a]
+            .surface
+            .as_ref()
+            .map(|s| &s.geometry);
+        let surf_b = subtracted.faces[face_b]
+            .surface
+            .as_ref()
+            .map(|s| &s.geometry);
+        matches!(
+            (surf_a, surf_b),
+            (
+                Some(SurfaceGeometry::Plane { .. }),
+                Some(SurfaceGeometry::Cylinder { .. })
+            ) | (
+                Some(SurfaceGeometry::Cylinder { .. }),
+                Some(SurfaceGeometry::Plane { .. })
+            )
+        )
+    });
+    let edge = match edge {
+        Some(e) => {
+            eprintln!("probe: found plane-cylinder edge {e:?}");
+            e
+        }
+        None => {
+            eprintln!("probe: NO plane-cylinder edge found");
+            return;
+        }
+    };
+
+    let filleted = match crate::fillet_edge(&subtracted, edge, 0.05, tol(), None) {
+        Ok(b) => {
+            eprintln!("probe: fillet OK");
+            b.brep
+        }
+        Err(e) => {
+            eprintln!("probe: fillet FAILED: {e:?}");
+            return;
+        }
+    };
+
+    eprintln!(
+        "probe: plane-cylinder fillet result has {} faces, {} edges, {} vertices",
+        filleted.faces.len(),
+        filleted.edges.len(),
+        filleted.vertices.len()
+    );
+
+    // Find any new face (one of them should be the blend).
+    let pre_face_count = subtracted.faces.len();
+    let new_faces: Vec<_> = filleted
+        .faces
+        .keys()
+        .filter(|fh| {
+            // Heuristic: face index > pre_face_count would be new.
+            // Actually we'd need pre/post sets. Just pick faces that
+            // identify as blends.
+            crate::identify_blend(&filleted, *fh).is_some()
+        })
+        .collect();
+
+    eprintln!(
+        "probe: identified {} blend face(s) out of {} new faces (pre count {})",
+        new_faces.len(),
+        filleted.faces.len() - pre_face_count,
+        pre_face_count
+    );
+
+    for fh in &new_faces {
+        eprintln!("probe: trying compute_unfillet_plan on {fh:?}");
+        match compute_unfillet_plan(&filleted, *fh) {
+            Ok(plan) => {
+                eprintln!(
+                    "  plan OK: support_a={:?}, support_b={:?}, edge from {:?} to {:?}",
+                    plan.support_a,
+                    plan.support_b,
+                    plan.restored_edge_start,
+                    plan.restored_edge_end
+                );
+                eprintln!(
+                    "  trying unfillet_face on {fh:?}: {:?}",
+                    unfillet_face(&filleted, *fh)
+                        .map(|b| b.faces.len())
+                        .map_err(|e| format!("{e:?}"))
+                );
+            }
+            Err(e) => {
+                eprintln!("  plan FAILED: {e:?}");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Round 5c spike: can boolean union do unfillet?
 // ---------------------------------------------------------------------------
 
