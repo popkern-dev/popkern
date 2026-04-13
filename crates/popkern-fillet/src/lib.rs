@@ -28,6 +28,8 @@ pub mod quality;
 pub mod remediation;
 pub mod trim;
 pub mod types;
+pub mod unfillet;
+pub(crate) mod unfillet_helpers;
 pub mod validate;
 
 pub use cancellation::CancellationToken;
@@ -48,6 +50,7 @@ pub use precheck::{
 pub use preview::{PreviewEdgeGeometry, PreviewGeometry, preview_chamfer, preview_fillet};
 pub use progress::{CaptureReporter, FilletPhase, NullReporter, ProgressEvent, ProgressReporter};
 pub use types::*;
+pub use unfillet::{UnfilletPlan, compute_unfillet_plan, unfillet_face, unfillet_via_record};
 
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
