@@ -16,6 +16,8 @@ pub mod error;
 pub mod fillet_surface;
 pub(crate) mod geometry_compute;
 pub mod history;
+pub mod identify;
+pub(crate) mod identify_helpers;
 pub(crate) mod naming;
 pub mod offset;
 pub mod overlap;
@@ -34,6 +36,10 @@ pub use error::{
 };
 pub use history::{
     ChamferOperationRecord, FilletOperationRecord, chamfer_recorded, fillet_recorded,
+};
+pub use identify::{
+    BlendInfo, BlendKind, IdentificationSource, blend_neighbours, blend_radius,
+    blend_support_faces, identify_all_blends, identify_blend,
 };
 pub use precheck::{
     BlendQuality, ComputeQualityInput, FilletFeasibility, FilletIssue, FilletRadiusBounds,
