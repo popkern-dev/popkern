@@ -72,6 +72,14 @@ impl SliverThresholds {
 /// (closed polygon — last vertex connects back to first).
 ///
 /// Returns a [`SliverReport`] with detection results.
+///
+/// The edge-length / short-edge check uses
+/// [`popkern_core::adaptive_precision::adaptive_dist_sq_lt`] on
+/// every edge so micro-edge detection is deterministic at the
+/// tolerance envelope. The area and aspect checks remain in f64;
+/// their inputs are sums of products in Newell's method, and the
+/// decisions are typically far from the margin for non-pathological
+/// polygons.
 pub fn analyze_face_polygon(vertices: &[Point3], thresholds: &SliverThresholds) -> SliverReport {
     if vertices.len() < 3 {
         return SliverReport {
@@ -83,33 +91,52 @@ pub fn analyze_face_polygon(vertices: &[Point3], thresholds: &SliverThresholds) 
         };
     }
 
-    // Compute edge lengths
+    // Compute edge lengths. Tracks max/min via f64 squared
+    // distance (sqrt only at the end for the diagnostic value),
+    // and calls the adaptive predicate per edge for the decision.
     let n = vertices.len();
-    let mut edge_lengths = Vec::with_capacity(n);
-    let mut max_edge = 0.0_f64;
-    let mut min_edge = f64::INFINITY;
+    let min_edge_threshold_sq = thresholds.min_edge_length * thresholds.min_edge_length;
+    let mut max_edge_sq = 0.0_f64;
+    let mut min_edge_sq = f64::INFINITY;
+    let mut short_edge = false;
 
     for i in 0..n {
         let j = (i + 1) % n;
-        let len = vertices[i].distance_to(&vertices[j]);
-        edge_lengths.push(len);
-        max_edge = max_edge.max(len);
-        min_edge = min_edge.min(len);
+        let vi = &vertices[i];
+        let vj = &vertices[j];
+        let dx = vj.x - vi.x;
+        let dy = vj.y - vi.y;
+        let dz = vj.z - vi.z;
+        let len_sq = dx * dx + dy * dy + dz * dz;
+        if len_sq > max_edge_sq {
+            max_edge_sq = len_sq;
+        }
+        if len_sq < min_edge_sq {
+            min_edge_sq = len_sq;
+        }
+        if !short_edge
+            && popkern_core::adaptive_precision::adaptive_dist_sq_lt(
+                (vi.x, vi.y, vi.z),
+                (vj.x, vj.y, vj.z),
+                min_edge_threshold_sq,
+            )
+        {
+            short_edge = true;
+        }
     }
+    let min_edge = min_edge_sq.sqrt();
 
-    // Approximate area via shoelace on projected polygon
-    // Use the dominant plane (largest normal component)
+    // Approximate area via shoelace on projected polygon.
     let area = polygon_area(vertices);
 
-    // Aspect ratio: area / (max_edge^2) is a proxy for altitude/edge
-    let aspect_ratio = if max_edge > 1e-30 {
-        area / (max_edge * max_edge)
+    // Aspect ratio: area / max_edge² is a proxy for altitude/edge.
+    let aspect_ratio = if max_edge_sq > 1e-60 {
+        area / max_edge_sq
     } else {
         0.0
     };
 
     // Classification
-    let short_edge = min_edge < thresholds.min_edge_length;
     let small_area = area < thresholds.min_area;
     let bad_aspect = aspect_ratio < thresholds.min_aspect_ratio;
 
