@@ -338,58 +338,68 @@ fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, Bo
 
     // Now fix up all the cross-references.
 
-    // Fix half-edges.
+    // Fix half-edges. Source BReps that came out of `BRepBuilder`
+    // without a full loop wiring can have default (unset) handles
+    // in next/prev/twin — look those up via `.get()` so we pass
+    // them through as default in the target instead of panicking
+    // on an unknown key. The source's brokenness is preserved, but
+    // the copy itself doesn't panic.
     for (old_h, he) in &b.half_edges {
         let new_h = he_map[&old_h];
-        a.half_edges[new_h].origin = v_map[&he.origin];
-        a.half_edges[new_h].twin = he_map[&he.twin];
-        a.half_edges[new_h].next = he_map[&he.next];
-        a.half_edges[new_h].prev = he_map[&he.prev];
-        a.half_edges[new_h].edge = e_map[&he.edge];
-        a.half_edges[new_h].loop_ = l_map[&he.loop_];
+        a.half_edges[new_h].origin = v_map.get(&he.origin).copied().unwrap_or_default();
+        a.half_edges[new_h].twin = he_map.get(&he.twin).copied().unwrap_or_default();
+        a.half_edges[new_h].next = he_map.get(&he.next).copied().unwrap_or_default();
+        a.half_edges[new_h].prev = he_map.get(&he.prev).copied().unwrap_or_default();
+        a.half_edges[new_h].edge = e_map.get(&he.edge).copied().unwrap_or_default();
+        a.half_edges[new_h].loop_ = l_map.get(&he.loop_).copied().unwrap_or_default();
         a.half_edges[new_h].pcurve = he.pcurve.clone();
     }
 
-    // Fix vertices (outgoing).
+    // Fix vertices (outgoing). Same tolerance for broken inputs as
+    // the half-edge fixup above.
     for (old_h, v) in &b.vertices {
         let new_h = v_map[&old_h];
         if b.half_edges.contains_key(v.outgoing) {
-            a.vertices[new_h].outgoing = he_map[&v.outgoing];
+            a.vertices[new_h].outgoing = he_map.get(&v.outgoing).copied().unwrap_or_default();
         }
     }
 
     // Fix edges (half_edge).
     for (old_h, e) in &b.edges {
         let new_h = e_map[&old_h];
-        a.edges[new_h].half_edge = he_map[&e.half_edge];
+        a.edges[new_h].half_edge = he_map.get(&e.half_edge).copied().unwrap_or_default();
     }
 
     // Fix loops.
     for (old_h, l) in &b.loops {
         let new_h = l_map[&old_h];
-        a.loops[new_h].half_edge = he_map[&l.half_edge];
-        a.loops[new_h].face = f_map[&l.face];
+        a.loops[new_h].half_edge = he_map.get(&l.half_edge).copied().unwrap_or_default();
+        a.loops[new_h].face = f_map.get(&l.face).copied().unwrap_or_default();
     }
 
     // Fix faces.
     for (old_h, f) in &b.faces {
         let new_h = f_map[&old_h];
-        a.faces[new_h].outer_loop = l_map[&f.outer_loop];
-        a.faces[new_h].shell = sh_map[&f.shell];
-        a.faces[new_h].inner_loops = f.inner_loops.iter().map(|il| l_map[il]).collect();
+        a.faces[new_h].outer_loop = l_map.get(&f.outer_loop).copied().unwrap_or_default();
+        a.faces[new_h].shell = sh_map.get(&f.shell).copied().unwrap_or_default();
+        a.faces[new_h].inner_loops = f
+            .inner_loops
+            .iter()
+            .map(|il| l_map.get(il).copied().unwrap_or_default())
+            .collect();
     }
 
     // Fix shells.
     for (old_h, s) in &b.shells {
         let new_h = sh_map[&old_h];
-        a.shells[new_h].face = f_map[&s.face];
-        a.shells[new_h].solid = so_map[&s.solid];
+        a.shells[new_h].face = f_map.get(&s.face).copied().unwrap_or_default();
+        a.shells[new_h].solid = so_map.get(&s.solid).copied().unwrap_or_default();
     }
 
     // Fix solids.
     for (old_h, s) in &b.solids {
         let new_h = so_map[&old_h];
-        a.solids[new_h].shell = sh_map[&s.shell];
+        a.solids[new_h].shell = sh_map.get(&s.shell).copied().unwrap_or_default();
     }
 
     Ok(a)

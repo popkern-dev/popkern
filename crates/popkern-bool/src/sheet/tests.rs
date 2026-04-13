@@ -613,19 +613,18 @@ fn boolean_with_sheets_sheet_sheet_union_non_overlapping() {
 }
 
 #[test]
-fn boolean_with_sheets_sheet_sheet_union_transversal_rejected() {
+fn boolean_with_sheets_sheet_sheet_union_transversal_concatenates() {
     // When two sheets cross each other transversally (intersection
-    // curves but no coincident face overlap), SheetSheetUnion cannot
-    // be handled by the structural path and must return a structured
-    // error. This pins the existing dispatcher behavior.
+    // curves but no coincident face overlap), SheetSheetUnion
+    // concatenates them structurally — the intersection curve
+    // remains unwelded (both shells have duplicate topology on the
+    // crossing), which is documented as a known limitation of the
+    // operation.
     //
-    // Build two coincident planar quad sheets with different Z
-    // orientations that produce intersection curves but no
-    // face-overlap coincidence.
+    // Build two planar quad sheets that cross at the origin: one in
+    // the z=0 plane, one in the y=0 plane.
     use crate::BoolOperation;
     let sheet_a = build_planar_sheet(-0.5, 0.5, -0.5, 0.5, 0.0);
-    // Sheet B crosses A at right angles — plane y=0 over a
-    // comparable region.
     let sheet_b = {
         use popkern_core::constructors::builder::BRepBuilder;
         use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
@@ -654,15 +653,21 @@ fn boolean_with_sheets_sheet_sheet_union_transversal_rejected() {
         });
         builder.build_unchecked()
     };
-    // Union should route to the transversal branch (or any path
-    // downstream of it) — accept either an error OR a successful
-    // combined open-shell result.
-    let result = boolean_with_sheets(BoolOperation::Union, &sheet_a, &sheet_b, tol());
+    // The dispatcher routes through the transversal concatenation
+    // branch. combine_breps was hardened to tolerate BRepBuilder-
+    // constructed sheets with broken twin pointers by passing
+    // missing handles through as defaults instead of panicking,
+    // so this test expects a real OpenShell result.
+    let result = boolean_with_sheets(BoolOperation::Union, &sheet_a, &sheet_b, tol()).unwrap();
     match result {
-        Err(crate::BoolError::OpenShellNotSupported { .. }) => {}
-        Ok(SheetBooleanResult::OpenShell(_)) => {}
-        Ok(other) => panic!("expected OpenShell or structured error, got {other:?}"),
-        Err(other) => panic!("expected OpenShellNotSupported, got {other:?}"),
+        SheetBooleanResult::OpenShell(combined) => {
+            assert!(
+                combined.faces.len() >= 2,
+                "concatenated transversal sheets should preserve both faces, got {}",
+                combined.faces.len()
+            );
+        }
+        other => panic!("expected OpenShell, got {other:?}"),
     }
 }
 
