@@ -20,15 +20,19 @@ pub use super::merge::{
 /// (fillet radius) from the shared vertex. This creates the anchor vertices
 /// where the trim curves will start and end.
 ///
-/// The 3D trim curves from the geometry pipeline may extend beyond the face
-/// boundary, so instead we compute split positions geometrically from the
-/// fillet edge endpoints and radius.
+/// `radius_at_start` is used for splits at `v_start` (the fillet
+/// edge's start vertex) and `radius_at_end` for splits at `v_end`.
+/// For a constant-radius spec, both are equal; for a variable
+/// spec, they're the per-end values from `FilletRadius::Variable`.
+/// Round 5k (continued): the construct phase now honours the full
+/// variable profile rather than collapsing it to a single average.
 pub fn split_perpendicular_edges_by_radius(
     brep: &mut BRep,
     face_1: FaceHandle,
     face_2: FaceHandle,
     fillet_edge: EdgeHandle,
-    radius: f64,
+    radius_at_start: f64,
+    radius_at_end: f64,
     _tolerance: &Tolerance,
 ) -> Result<SplitInfo, String> {
     let edge_data = brep
@@ -62,11 +66,27 @@ pub fn split_perpendicular_edges_by_radius(
         ));
     }
 
-    // Split perpendicular edges on face_1.
-    let result_1 = split_face_perp_edges(brep, face_1, fillet_edge, v_start, v_end, radius)?;
+    // Split perpendicular edges on face_1, using the per-end radii.
+    let result_1 = split_face_perp_edges(
+        brep,
+        face_1,
+        fillet_edge,
+        v_start,
+        v_end,
+        radius_at_start,
+        radius_at_end,
+    )?;
 
     // Split perpendicular edges on face_2.
-    let result_2 = split_face_perp_edges(brep, face_2, fillet_edge, v_start, v_end, radius)?;
+    let result_2 = split_face_perp_edges(
+        brep,
+        face_2,
+        fillet_edge,
+        v_start,
+        v_end,
+        radius_at_start,
+        radius_at_end,
+    )?;
 
     // Collect all edge splits for handle remapping.
     let mut edge_splits = result_1.edge_splits;
@@ -210,7 +230,8 @@ fn split_face_perp_edges(
     fillet_edge: EdgeHandle,
     v_start: VertexHandle,
     v_end: VertexHandle,
-    radius: f64,
+    radius_at_start: f64,
+    radius_at_end: f64,
 ) -> Result<FacePerpSplitResult, String> {
     let face_data = brep
         .faces
@@ -275,7 +296,7 @@ fn split_face_perp_edges(
                 };
 
                 if origin == v_start && edge_len > 1e-15 {
-                    let t_from_origin = (radius / edge_len).min(0.999);
+                    let t_from_origin = (radius_at_start / edge_len).min(0.999);
                     if t_from_origin > 0.001 && perp_start.is_none() {
                         perp_start = Some((he.edge, normalise(t_from_origin)));
                     }
@@ -284,19 +305,19 @@ fn split_face_perp_edges(
                     // (in walked-direction terms), so t-from-walked-
                     // origin is `1 - r/L`. The normalise() call
                     // re-orients it for the canonical direction.
-                    let t_from_origin = 1.0 - (radius / edge_len).min(0.999);
+                    let t_from_origin = 1.0 - (radius_at_start / edge_len).min(0.999);
                     if t_from_origin > 0.001 && t_from_origin < 0.999 && perp_start.is_none() {
                         perp_start = Some((he.edge, normalise(t_from_origin)));
                     }
                 }
 
                 if origin == v_end && edge_len > 1e-15 {
-                    let t_from_origin = (radius / edge_len).min(0.999);
+                    let t_from_origin = (radius_at_end / edge_len).min(0.999);
                     if t_from_origin > 0.001 && perp_end.is_none() {
                         perp_end = Some((he.edge, normalise(t_from_origin)));
                     }
                 } else if dest == v_end && edge_len > 1e-15 {
-                    let t_from_origin = 1.0 - (radius / edge_len).min(0.999);
+                    let t_from_origin = 1.0 - (radius_at_end / edge_len).min(0.999);
                     if t_from_origin > 0.001 && t_from_origin < 0.999 && perp_end.is_none() {
                         perp_end = Some((he.edge, normalise(t_from_origin)));
                     }

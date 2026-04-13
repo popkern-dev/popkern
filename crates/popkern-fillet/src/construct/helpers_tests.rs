@@ -30,6 +30,7 @@ fn closed_fillet_edge_returns_diagnostic_error() {
         face_2,
         edge,
         0.1,
+        0.1,
         &Tolerance::default(),
     );
     // An open cube edge must NOT trigger the closed-edge guard.
@@ -57,6 +58,7 @@ fn split_perp_edges_on_cube() {
         face_1,
         face_2,
         edge,
+        0.1,
         0.1,
         &Tolerance::default(),
     );
@@ -167,6 +169,7 @@ fn split_perp_edges_invalid_fillet_edge() {
         face_1,
         face_2,
         bogus_edge,
+        0.1,
         0.1,
         &Tolerance::default(),
     );

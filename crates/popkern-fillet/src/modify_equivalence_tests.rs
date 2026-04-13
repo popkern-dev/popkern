@@ -474,21 +474,13 @@ fn open_in_place_variable_matches_remove_recreate_geometry() {
         .expect("in-place result should expose a NURBS sweep fillet face");
     let _ = in_place_blend;
 
-    // Vertex Hausdorff is reported diagnostically. The existing
-    // `compute_fillet_geometry` pipeline collapses a Variable
-    // spec to a single `effective_radius = (start + end) / 2`
-    // when calling `try_plane_plane_torus`, so the remove+recreate
-    // baseline produces corners at the *averaged* radius (0.1)
-    // while the in-place path uses the true per-end radii (0.05
-    // and 0.15). The expected divergence is therefore
-    // `|r_start - avg| = 0.05`. The in-place path is the
-    // correct one — fixing the geometry pipeline to honour the
-    // full variable profile is a future round.
+    // After Round 5k (geometry pipeline + construct phase honour
+    // per-end radii), the in-place and remove+recreate paths
+    // produce byte-identical vertex sets for variable plane-plane
+    // fillets. Hausdorff should be exactly zero.
     let h = report_vertex_hausdorff(&in_place, &removed_recreated, "variable");
-    let expected_divergence = (r_start - (r_start + r_end) * 0.5).abs();
     assert!(
-        h < expected_divergence + 1e-6,
-        "variable vertex Hausdorff {h} exceeds the documented pipeline-averaging \
-         divergence {expected_divergence}"
+        h < 1e-9,
+        "variable vertex Hausdorff {h} should be ~0 after Round 5k"
     );
 }

@@ -1,0 +1,262 @@
+use super::*;
+use crate::center_curve::CenterCurveResult;
+use popkern_core::geometry::{Point3, Vec3};
+
+fn simple_center_result() -> CenterCurveResult {
+    let fp1 = (0..5)
+        .map(|i| Point3::new(i as f64, 0.0, 0.0))
+        .collect::<Vec<_>>();
+    let fp2 = (0..5)
+        .map(|i| Point3::new(i as f64, 0.0, 1.0))
+        .collect::<Vec<_>>();
+    let center_pts: Vec<Point3> = (0..5).map(|i| Point3::new(i as f64, 0.0, 0.5)).collect();
+    let center_curve = crate::center_curve::fit_nurbs_through_points(&center_pts).unwrap();
+    CenterCurveResult {
+        center_curve,
+        footprint_1: fp1,
+        footprint_2: fp2,
+    }
+}
+
+#[test]
+fn fillet_surface_plane_plane() {
+    let s1 = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let s2 = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 1.0, 0.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 0.0, 1.0),
+    };
+    let cr = simple_center_result();
+
+    let result = build_fillet_surface(&s1, &s2, &cr, 1.0, 5, true);
+    assert!(result.is_ok(), "fillet surface failed: {:?}", result.err());
+    let fs = result.unwrap();
+    // Plane-plane (constant) should produce a torus.
+    assert!(
+        matches!(fs.surface, SurfaceGeometry::Torus { .. }),
+        "expected torus for plane-plane constant, got {:?}",
+        std::mem::discriminant(&fs.surface)
+    );
+}
+
+/// Round 5k regression guard: a Variable spec on plane-plane
+/// must NOT collapse to a Torus, even though the geometry is
+/// otherwise a plane-plane case. Setting `is_constant_radius =
+/// false` forces the NURBS sweep path.
+#[test]
+fn fillet_surface_plane_plane_variable_uses_nurbs_sweep() {
+    let s1 = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let s2 = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 1.0, 0.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 0.0, 1.0),
+    };
+    let cr = simple_center_result();
+    let result = build_fillet_surface(&s1, &s2, &cr, 1.0, 5, false);
+    assert!(result.is_ok(), "fillet surface failed: {:?}", result.err());
+    let fs = result.unwrap();
+    assert!(
+        matches!(fs.surface, SurfaceGeometry::Nurbs(_)),
+        "variable plane-plane should produce a NURBS sweep, got {:?}",
+        std::mem::discriminant(&fs.surface)
+    );
+}
+
+#[test]
+fn fillet_surface_general() {
+    let sphere = SurfaceGeometry::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 5.0,
+    };
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let cr = simple_center_result();
+
+    let result = build_fillet_surface(&sphere, &plane, &cr, 1.0, 5, true);
+    assert!(result.is_ok(), "fillet surface failed: {:?}", result.err());
+    let fs = result.unwrap();
+    // Non-plane-plane should produce NURBS.
+    assert!(
+        matches!(fs.surface, SurfaceGeometry::Nurbs(_)),
+        "expected NURBS for general case"
+    );
+}
+
+#[test]
+fn sample_arc_basic() {
+    let center = Point3::new(0.0, 0.0, 0.0);
+    let start = Point3::new(1.0, 0.0, 0.0);
+    let end = Point3::new(0.0, 1.0, 0.0);
+    let pts = sample_arc(&center, &start, &end, 1.0, 5);
+    assert_eq!(pts.len(), 5);
+
+    // First and last should be close to start and end.
+    assert!(pts[0].distance_to(&start) < 1e-10);
+    let end_dist = pts[4].distance_to(&end);
+    assert!(
+        end_dist < 0.2,
+        "last arc point should be near end, dist={end_dist}"
+    );
+}
+
+#[test]
+fn build_clamped_knots_basic() {
+    let knots = build_clamped_uniform_knots(4, 1);
+    assert_eq!(knots.len(), 4 + 1 + 1); // n + degree + 1
+    assert!((knots[0] - 0.0).abs() < 1e-15);
+    assert!((knots[knots.len() - 1] - 1.0).abs() < 1e-15);
+}
+
+// -----------------------------------------------------------------------
+// try_plane_plane_torus analytic path
+// -----------------------------------------------------------------------
+
+#[test]
+fn torus_perpendicular_planes() {
+    // Two perpendicular planes (angle between normals = PI/2).
+    let n1 = Vec3::new(0.0, 0.0, 1.0);
+    let n2 = Vec3::new(0.0, 1.0, 0.0);
+    let cr = simple_center_result();
+
+    let result = try_plane_plane_torus(&n1, &n2, &cr, 1.0);
+    assert!(
+        result.is_some(),
+        "perpendicular planes should produce torus"
+    );
+
+    let fs = result.unwrap();
+    match &fs.surface {
+        SurfaceGeometry::Torus {
+            minor_radius,
+            major_radius,
+            ..
+        } => {
+            assert!(
+                (*minor_radius - 1.0).abs() < 1e-10,
+                "minor radius should be 1.0, got {minor_radius}",
+            );
+            // For 90-deg planes: half_angle = PI/4, major = r/sin(PI/4) = r*sqrt(2)
+            let expected_major = 1.0 / (std::f64::consts::FRAC_PI_4).sin();
+            assert!(
+                (*major_radius - expected_major).abs() < 1e-6,
+                "major radius should be {expected_major}, got {major_radius}",
+            );
+        }
+        other => panic!("expected Torus, got {:?}", std::mem::discriminant(other)),
+    }
+}
+
+#[test]
+fn torus_45_degree_planes() {
+    // Planes at 45 degrees (angle between normals = PI/4).
+    let n1 = Vec3::new(0.0, 0.0, 1.0);
+    let c = std::f64::consts::FRAC_1_SQRT_2;
+    let n2 = Vec3::new(0.0, c, c); // 45 deg from n1
+
+    let cr = simple_center_result();
+    let result = try_plane_plane_torus(&n1, &n2, &cr, 0.5);
+    assert!(result.is_some(), "45-deg planes should produce torus");
+
+    let fs = result.unwrap();
+    match &fs.surface {
+        SurfaceGeometry::Torus {
+            minor_radius,
+            major_radius,
+            ..
+        } => {
+            assert!(
+                (*minor_radius - 0.5).abs() < 1e-10,
+                "minor radius should be 0.5, got {minor_radius}",
+            );
+            // angle between normals = PI/4, half_angle = PI/8
+            let half = std::f64::consts::FRAC_PI_4 * 0.5;
+            let expected_major = 0.5 / half.sin();
+            assert!(
+                (*major_radius - expected_major).abs() < 1e-6,
+                "major radius should be {expected_major}, got {major_radius}",
+            );
+        }
+        other => panic!("expected Torus, got {:?}", std::mem::discriminant(other)),
+    }
+}
+
+#[test]
+fn torus_parallel_planes_returns_none() {
+    // Parallel planes (angle = 0) should fail (sin_half ~ 0).
+    let n1 = Vec3::new(0.0, 0.0, 1.0);
+    let n2 = Vec3::new(0.0, 0.0, 1.0);
+    let cr = simple_center_result();
+
+    let result = try_plane_plane_torus(&n1, &n2, &cr, 1.0);
+    assert!(result.is_none(), "parallel planes should return None");
+}
+
+#[test]
+fn torus_antiparallel_planes_returns_none() {
+    // Anti-parallel normals (angle = PI, half = PI/2, sin ~ 1).
+    // This is a valid degenerate case; torus construction may or may not succeed
+    // depending on the angle check, but should not panic.
+    let n1 = Vec3::new(0.0, 0.0, 1.0);
+    let n2 = Vec3::new(0.0, 0.0, -1.0);
+    let cr = simple_center_result();
+
+    // We just verify no panic. The result can be Some or None.
+    let _ = try_plane_plane_torus(&n1, &n2, &cr, 1.0);
+}
+
+#[test]
+fn torus_has_valid_trim_curves() {
+    let n1 = Vec3::new(0.0, 0.0, 1.0);
+    let n2 = Vec3::new(0.0, 1.0, 0.0);
+    let cr = simple_center_result();
+
+    let fs = try_plane_plane_torus(&n1, &n2, &cr, 1.0)
+        .expect("perpendicular planes should produce torus");
+
+    assert!(
+        !fs.trim_curve_1.control_points.is_empty(),
+        "trim_curve_1 should have control points",
+    );
+    assert!(
+        !fs.trim_curve_2.control_points.is_empty(),
+        "trim_curve_2 should have control points",
+    );
+}
+
+#[test]
+fn torus_axis_is_cross_product_of_normals() {
+    let n1 = Vec3::new(0.0, 0.0, 1.0);
+    let n2 = Vec3::new(0.0, 1.0, 0.0);
+    let cr = simple_center_result();
+
+    let fs = try_plane_plane_torus(&n1, &n2, &cr, 1.0)
+        .expect("perpendicular planes should produce torus");
+
+    if let SurfaceGeometry::Torus { axis, .. } = &fs.surface {
+        // n1 x n2 = (0,0,1) x (0,1,0) = (-1,0,0), normalized = (-1,0,0)
+        let expected = Vec3::new(-1.0, 0.0, 0.0);
+        let dot = axis.dot(&expected).abs();
+        assert!(
+            dot > 0.99,
+            "torus axis should be parallel to n1 x n2, got dot={dot}",
+        );
+    } else {
+        panic!("expected Torus surface");
+    }
+}

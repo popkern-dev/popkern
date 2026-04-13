@@ -137,18 +137,40 @@ pub(crate) fn compute_fillet_geometry(
         }
     };
 
-    let effective_radius = match radius {
-        FilletRadius::Constant(r) => *r,
-        FilletRadius::Variable { start, end } => (*start + *end) * 0.5,
+    let (effective_radius, radius_at_start, radius_at_end) = match radius {
+        FilletRadius::Constant(r) => (*r, *r, *r),
+        FilletRadius::Variable { start, end } => ((*start + *end) * 0.5, *start, *end),
         FilletRadius::ByPoints(pts) => {
             if pts.is_empty() {
                 return Err(BlendFailure::InvalidTopology {
                     reason: "ByPoints radius with empty point list".to_string(),
                 });
             }
-            pts.iter().map(|(_, r)| *r).sum::<f64>() / pts.len() as f64
+            let avg = pts.iter().map(|(_, r)| *r).sum::<f64>() / pts.len() as f64;
+            // For ByPoints, look up the radii nearest the spec's
+            // start (parameter 0) and end (parameter 1) points.
+            let r_at = |target: f64| -> f64 {
+                pts.iter()
+                    .min_by(|a, b| {
+                        (a.0 - target)
+                            .abs()
+                            .partial_cmp(&(b.0 - target).abs())
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|(_, r)| *r)
+                    .unwrap_or(avg)
+            };
+            (avg, r_at(0.0), r_at(1.0))
         }
     };
+
+    // Round 5k: a Variable or ByPoints spec must NOT be collapsed
+    // to an analytic torus, because the torus has a single minor
+    // radius and would silently average the per-sample radii. The
+    // `is_constant_radius` flag forces `build_fillet_surface` to
+    // build a true NURBS sweep that follows the per-sample
+    // footprints from `variable_radius_center_curve`.
+    let is_constant_radius = matches!(radius, FilletRadius::Constant(_));
 
     let fillet_result = fillet_surface::build_fillet_surface(
         &analysis.surface_1,
@@ -156,6 +178,7 @@ pub(crate) fn compute_fillet_geometry(
         &center_result,
         effective_radius,
         8, // arc samples
+        is_constant_radius,
     )
     .map_err(|e| BlendFailure::IntersectionFailed {
         reason: e,
@@ -181,6 +204,8 @@ pub(crate) fn compute_fillet_geometry(
         pcurve_1: trim_curves.pcurve_1,
         pcurve_2: trim_curves.pcurve_2,
         effective_radius,
+        radius_at_start,
+        radius_at_end,
     })
 }
 
@@ -213,6 +238,11 @@ pub(crate) fn compute_chamfer_geometry(
         pcurve_1: chamfer_result.pcurve_1,
         pcurve_2: chamfer_result.pcurve_2,
         effective_radius,
+        // Chamfers are not parameterised by per-end radii; both
+        // are set to `effective_radius` so the shared construct
+        // pipeline sees a constant profile.
+        radius_at_start: effective_radius,
+        radius_at_end: effective_radius,
     })
 }
 

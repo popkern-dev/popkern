@@ -43,8 +43,17 @@ pub struct EdgeGeometry {
     pub pcurve_1: NurbsCurve,
     /// Pcurve on face 2.
     pub pcurve_2: NurbsCurve,
-    /// Effective fillet/chamfer radius for perpendicular edge splitting.
+    /// Average fillet/chamfer radius (kept for legacy callers).
     pub effective_radius: f64,
+    /// Radius at the fillet edge's start vertex. For a constant
+    /// spec, equals `effective_radius`. For
+    /// `FilletRadius::Variable { start, end }`, equals `start`.
+    /// Round 5k uses this to drive the perpendicular edge split
+    /// at the fillet edge's start endpoint.
+    pub radius_at_start: f64,
+    /// Radius at the fillet edge's end vertex. For a constant
+    /// spec, equals `effective_radius`. For `Variable`, equals `end`.
+    pub radius_at_end: f64,
 }
 
 /// Result of applying blend geometry, including warnings.
@@ -111,7 +120,8 @@ pub fn apply_blend_geometry(
             eg.analysis.face_1,
             eg.analysis.face_2,
             eg.analysis.edge,
-            eg.effective_radius,
+            eg.radius_at_start,
+            eg.radius_at_end,
             tolerance,
         ) {
             Ok(info) => perp_data.push(Some(PerpSplitData {
