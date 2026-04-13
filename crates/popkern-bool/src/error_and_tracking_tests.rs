@@ -612,3 +612,109 @@ fn from_error_builder_populates_entry() {
     assert_eq!(diag.failed_stage, Some(Stage::Validation));
     assert!(diag.error.is_some());
 }
+
+#[test]
+fn context_aware_hint_fills_suggested_value_from_tolerance() {
+    use crate::error::{RemediationAction, RemediationContext};
+    use popkern_core::tolerance::Tolerance;
+
+    let tol = Tolerance::default();
+    let ctx = RemediationContext {
+        tolerance: Some(&tol),
+        perturbation_attempted: false,
+    };
+
+    // SplitFailed is a tolerance-bump case; the suggested value
+    // should be the current linear tolerance × 10.
+    let hint = BoolError::SplitFailed {
+        face: FaceHandle::default(),
+        reason: "test".into(),
+    }
+    .remediation_hint_with_context(&ctx);
+    assert_eq!(hint.action, RemediationAction::IncreaseTolerance);
+    assert_eq!(hint.parameter.as_deref(), Some("linear"));
+    let expected = tol.linear() * 10.0;
+    assert_eq!(hint.value, Some(expected));
+}
+
+#[test]
+fn context_aware_hint_without_tolerance_has_no_value() {
+    use crate::error::{RemediationAction, RemediationContext};
+
+    // No tolerance in context — the hint has the action and
+    // parameter but value stays None.
+    let ctx = RemediationContext::default();
+    let hint = BoolError::SplitFailed {
+        face: FaceHandle::default(),
+        reason: "test".into(),
+    }
+    .remediation_hint_with_context(&ctx);
+    assert_eq!(hint.action, RemediationAction::IncreaseTolerance);
+    assert_eq!(hint.parameter.as_deref(), Some("linear"));
+    assert!(hint.value.is_none());
+}
+
+#[test]
+fn context_aware_hint_avoids_perturbation_loop() {
+    use crate::error::{RemediationAction, RemediationContext};
+
+    // After perturbation was attempted, IntersectionFailed should
+    // recommend IncreaseTolerance instead of RetryWithPerturbation.
+    let ctx = RemediationContext {
+        tolerance: None,
+        perturbation_attempted: true,
+    };
+    let hint =
+        BoolError::IntersectionFailed("solver stuck".into()).remediation_hint_with_context(&ctx);
+    assert_eq!(hint.action, RemediationAction::IncreaseTolerance);
+    assert!(
+        !hint.rationale.contains("boolean_with_perturbation"),
+        "rationale should not loop back to perturbation after it's been tried"
+    );
+}
+
+#[test]
+fn context_aware_hint_suggests_perturbation_when_untried() {
+    use crate::error::{RemediationAction, RemediationContext};
+
+    let ctx = RemediationContext::default();
+    let hint =
+        BoolError::IntersectionFailed("solver stuck".into()).remediation_hint_with_context(&ctx);
+    assert_eq!(hint.action, RemediationAction::RetryWithPerturbation);
+}
+
+#[test]
+fn context_aware_hint_coincidence_tolerance_scales_correctly() {
+    use crate::error::{RemediationAction, RemediationContext};
+    use popkern_core::tolerance::Tolerance;
+
+    let tol = Tolerance::default();
+    let ctx = RemediationContext {
+        tolerance: Some(&tol),
+        perturbation_attempted: false,
+    };
+
+    // ClassificationFailed suggests coincidence × 2. In the helper
+    // the coincidence parameter maps to linear × 10 × factor.
+    let hint = BoolError::ClassificationFailed {
+        face: FaceHandle::default(),
+        reason: "test".into(),
+    }
+    .remediation_hint_with_context(&ctx);
+    assert_eq!(hint.action, RemediationAction::IncreaseTolerance);
+    assert_eq!(hint.parameter.as_deref(), Some("coincidence"));
+    assert!(hint.value.is_some());
+    let expected = tol.linear() * 10.0 * 2.0;
+    assert_eq!(hint.value, Some(expected));
+}
+
+#[test]
+fn boolean_with_remediation_returns_ok_for_valid_inputs() {
+    // Smoke test the new entry point: a successful boolean on
+    // overlapping cubes should return Ok with empty diagnostics
+    // (no Remediation hint — there's no error).
+    let a = BRep::unit_cube(tol()).unwrap();
+    let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(0.5, 0.3, 0.2));
+    let result = crate::boolean_with_remediation(BoolOperation::Union, &a, &b, tol());
+    assert!(result.is_ok(), "union of overlapping cubes should succeed");
+}

@@ -284,6 +284,67 @@ pub fn boolean_with_diagnostics(
     Ok((result, diagnostics))
 }
 
+/// Perform a boolean and, on failure, return the error together with
+/// a context-aware [`crate::error::Remediation`] hint (§13.4).
+///
+/// This wraps [`boolean`] and its automatic perturbation fallback:
+/// if the pipeline fails on a perturbation-eligible error
+/// (`CoincidentFaces`, `IntersectionFailed`, `ClassificationFailed`),
+/// the fallback is attempted, and the final hint carries
+/// `perturbation_attempted: true` so callers know not to try
+/// perturbation again — the hint will recommend the next-best
+/// action (typically a tolerance bump).
+///
+/// The hint also includes a concrete suggested tolerance `value`
+/// computed from the caller-supplied `tol`, so UIs can display the
+/// "try `linear = 1e-5`" suggestion without computing it themselves.
+///
+/// On success, the hint is `None` and the caller gets the result
+/// solid plus the full diagnostics bundle (phase metrics, warnings
+/// from post-check, etc.).
+pub fn boolean_with_remediation(
+    op: BoolOperation,
+    a: &BRep,
+    b: &BRep,
+    tol: Tolerance,
+) -> Result<(BRep, BoolDiagnostics), (BoolError, crate::error::Remediation)> {
+    // Try the straight-through pipeline first. Track whether we
+    // fell through to the perturbation fallback so the final hint
+    // can avoid recommending it again.
+    let mut perturbation_attempted = false;
+    let result = operation::execute_boolean(op, a.clone(), b.clone(), &tol).or_else(|e| {
+        if matches!(
+            e,
+            BoolError::CoincidentFaces { .. }
+                | BoolError::IntersectionFailed(_)
+                | BoolError::ClassificationFailed { .. }
+        ) {
+            perturbation_attempted = true;
+            perturbation::boolean_with_perturbation(
+                op,
+                a,
+                b,
+                tol,
+                &perturbation::PerturbationConfig::default(),
+            )
+        } else {
+            Err(e)
+        }
+    });
+
+    match result {
+        Ok(brep) => Ok((brep, BoolDiagnostics::default())),
+        Err(err) => {
+            let ctx = crate::error::RemediationContext {
+                tolerance: Some(&tol),
+                perturbation_attempted,
+            };
+            let hint = err.remediation_hint_with_context(&ctx);
+            Err((err, hint))
+        }
+    }
+}
+
 /// Perform a boolean with cooperative cancellation support (§15).
 ///
 /// Behaves identically to [`boolean`] but checks `cancel` between
