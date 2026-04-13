@@ -28,6 +28,11 @@
 //! - [`adaptive_dist_sq_lt`] — `|p1 - p2|² < threshold²` with an
 //!   automatic escalation to double-precision when the f64 answer
 //!   lands inside the ambiguity margin.
+//! - [`adaptive_cross_ratio_sq_lt`] — `|n1 × n2|² / (|n1|²·|n2|²) <
+//!   threshold²` (the sine-of-angle tangency test) with the same
+//!   escalation pattern. Used for near-parallel-normal detection
+//!   where catastrophic cancellation in the cross-product
+//!   components would otherwise flip the sign.
 
 /// Evaluate a sign predicate with adaptive precision.
 ///
@@ -183,6 +188,105 @@ pub fn adaptive_dist_sq_lt(p1: (f64, f64, f64), p2: (f64, f64, f64), threshold_s
         .dd_sub(DoublePrecision::from_f64(threshold_sq))
         .to_f64()
         < 0.0
+}
+
+/// Adaptive `|n1 × n2|² / (|n1|²·|n2|²) < threshold²` predicate.
+///
+/// This is the sine-of-angle tangency test: it returns `true`
+/// when the two vectors are nearly parallel (within angular
+/// tolerance `threshold`, measured as `sin(θ) < threshold`).
+///
+/// Rewrites the comparison to avoid the division:
+///
+/// ```text
+/// |n1 × n2| / (|n1| * |n2|)      < threshold
+/// ⇔ |n1 × n2|²                    < threshold² · |n1|² · |n2|²
+/// ```
+///
+/// Two-stage evaluation:
+///
+/// 1. **Fast path**: compute the cross product components,
+///    `|cross|²`, and `threshold² · |n1|² · |n2|²` in f64. If the
+///    comparison is outside the margin (`12 * ε * max`), return
+///    the f64 answer.
+///
+/// 2. **Slow path**: recompute the cross-product components using
+///    [`DoublePrecision::from_mul`] and [`DoublePrecision::dd_sub`],
+///    then sum their squares. Compare against
+///    `threshold² · |n1|² · |n2|²` likewise computed in DP. Only
+///    pays the slow-path cost when the f64 answer lands inside
+///    the ambiguity margin.
+///
+/// Returns `false` if either input has effectively zero magnitude
+/// (`|n1|² · |n2|²` below `f64::EPSILON`) — mirrors the existing
+/// intersect.rs guard against dividing by a tiny number.
+pub fn adaptive_cross_ratio_sq_lt(
+    n1: (f64, f64, f64),
+    n2: (f64, f64, f64),
+    threshold: f64,
+) -> bool {
+    // Fast path: compute cross product and magnitudes in f64.
+    let cx = n1.1 * n2.2 - n1.2 * n2.1;
+    let cy = n1.2 * n2.0 - n1.0 * n2.2;
+    let cz = n1.0 * n2.1 - n1.1 * n2.0;
+    let cross_len_sq = cx * cx + cy * cy + cz * cz;
+
+    let n1_len_sq = n1.0 * n1.0 + n1.1 * n1.1 + n1.2 * n1.2;
+    let n2_len_sq = n2.0 * n2.0 + n2.1 * n2.1 + n2.2 * n2.2;
+    let norms_sq = n1_len_sq * n2_len_sq;
+
+    // Degenerate: one of the vectors has zero magnitude. Return
+    // false so callers don't classify as tangent.
+    if norms_sq <= f64::EPSILON {
+        return false;
+    }
+
+    let threshold_sq = threshold * threshold;
+    let rhs = threshold_sq * norms_sq;
+
+    // Margin: 3 multiplies + 2 adds for cross² (≈8 ulps) + 1
+    // multiply on the threshold (≈1 ulp). Conservative bound:
+    // 12 * ε * max(cross_len_sq, rhs).
+    let margin = 12.0 * f64::EPSILON * cross_len_sq.max(rhs);
+
+    if cross_len_sq + margin < rhs {
+        return true;
+    }
+    if cross_len_sq > rhs + margin {
+        return false;
+    }
+
+    // Slow path: recompute cross product in double precision.
+    let dp_n1_0 = DoublePrecision::from_f64(n1.0);
+    let dp_n1_1 = DoublePrecision::from_f64(n1.1);
+    let dp_n1_2 = DoublePrecision::from_f64(n1.2);
+    let dp_n2_0 = DoublePrecision::from_f64(n2.0);
+    let dp_n2_1 = DoublePrecision::from_f64(n2.1);
+    let dp_n2_2 = DoublePrecision::from_f64(n2.2);
+
+    // cx = n1.1 * n2.2 - n1.2 * n2.1 — use from_mul to get exact
+    // products, then dd_sub.
+    let dp_cx = DoublePrecision::from_mul(n1.1, n2.2).dd_sub(DoublePrecision::from_mul(n1.2, n2.1));
+    let dp_cy = DoublePrecision::from_mul(n1.2, n2.0).dd_sub(DoublePrecision::from_mul(n1.0, n2.2));
+    let dp_cz = DoublePrecision::from_mul(n1.0, n2.1).dd_sub(DoublePrecision::from_mul(n1.1, n2.0));
+
+    let dp_cross_len_sq = dp_cx
+        .dd_mul(dp_cx)
+        .dd_add(dp_cy.dd_mul(dp_cy))
+        .dd_add(dp_cz.dd_mul(dp_cz));
+
+    let dp_n1_len_sq = dp_n1_0
+        .dd_mul(dp_n1_0)
+        .dd_add(dp_n1_1.dd_mul(dp_n1_1))
+        .dd_add(dp_n1_2.dd_mul(dp_n1_2));
+    let dp_n2_len_sq = dp_n2_0
+        .dd_mul(dp_n2_0)
+        .dd_add(dp_n2_1.dd_mul(dp_n2_1))
+        .dd_add(dp_n2_2.dd_mul(dp_n2_2));
+    let dp_norms_sq = dp_n1_len_sq.dd_mul(dp_n2_len_sq);
+    let dp_rhs = dp_norms_sq.dd_mul(DoublePrecision::from_f64(threshold_sq));
+
+    dp_cross_len_sq.dd_sub(dp_rhs).to_f64() < 0.0
 }
 
 #[cfg(test)]

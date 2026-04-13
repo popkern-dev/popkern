@@ -237,17 +237,26 @@ pub(crate) fn find_intersections_with_aabbs(
                         SurfaceSurfaceIntersection::Curve(curve) => {
                             if let Some(clipped) = clip_curve_to_faces(a, face_a, b, face_b, &curve)
                             {
-                                // Classify tangency at curve midpoint
+                                // Classify tangency at curve midpoint.
+                                // Uses popkern_core::adaptive_precision::
+                                // adaptive_cross_ratio_sq_lt so near-parallel
+                                // normals produce deterministic decisions —
+                                // the f64 fast path handles clear cases,
+                                // and double-precision recomputation kicks
+                                // in only when the comparison lands inside
+                                // the ambiguity margin.
                                 let (t0, t1) = clipped.curve_3d.parameter_range();
                                 let t_mid = (t0 + t1) * 0.5;
                                 let mid_uv1 = clipped.curve_uv1.point_at(t_mid);
                                 let mid_uv2 = clipped.curve_uv2.point_at(t_mid);
                                 let n1 = surf_a.normal_at(mid_uv1.x, mid_uv1.y);
                                 let n2 = surf_b.normal_at(mid_uv2.x, mid_uv2.y);
-                                let cross_len = n1.cross(&n2).length();
-                                let norms = n1.length() * n2.length();
-                                let is_tangent = norms > tolerance.numerical_floor()
-                                    && (cross_len / norms) < tolerance.angular();
+                                let is_tangent =
+                                    popkern_core::adaptive_precision::adaptive_cross_ratio_sq_lt(
+                                        (n1.x, n1.y, n1.z),
+                                        (n2.x, n2.y, n2.z),
+                                        tolerance.angular(),
+                                    );
 
                                 records.push(IntersectionRecord {
                                     face_a,

@@ -146,3 +146,51 @@ fn adaptive_dist_sq_lt_degenerate_identical_points() {
     let p = (42.0, -17.0, 3.14);
     assert!(adaptive_dist_sq_lt(p, p, 1e-12));
 }
+
+#[test]
+fn adaptive_cross_ratio_sq_lt_parallel_vectors_are_tangent() {
+    // Exactly parallel vectors: cross product is zero, sine is
+    // zero, clearly below any positive threshold.
+    let n1 = (1.0, 0.0, 0.0);
+    let n2 = (2.0, 0.0, 0.0);
+    assert!(adaptive_cross_ratio_sq_lt(n1, n2, 1e-4));
+}
+
+#[test]
+fn adaptive_cross_ratio_sq_lt_perpendicular_vectors_are_not_tangent() {
+    // 90° apart: sin = 1, clearly above any tiny threshold.
+    let n1 = (1.0, 0.0, 0.0);
+    let n2 = (0.0, 1.0, 0.0);
+    assert!(!adaptive_cross_ratio_sq_lt(n1, n2, 0.1));
+}
+
+#[test]
+fn adaptive_cross_ratio_sq_lt_slightly_offset_is_tangent_at_loose_threshold() {
+    // Two vectors 1e-6 radians apart: sin ≈ 1e-6. A 1e-4
+    // threshold accepts them as tangent; a 1e-9 threshold rejects.
+    let n1 = (1.0, 0.0, 0.0);
+    let n2 = (1.0, 1e-6, 0.0);
+    assert!(adaptive_cross_ratio_sq_lt(n1, n2, 1e-4));
+    assert!(!adaptive_cross_ratio_sq_lt(n1, n2, 1e-9));
+}
+
+#[test]
+fn adaptive_cross_ratio_sq_lt_zero_vector_is_not_tangent() {
+    // Degenerate: one of the normals is zero. The predicate must
+    // NOT report tangent (no defined angle).
+    let n1 = (1.0, 0.0, 0.0);
+    let n_zero = (0.0, 0.0, 0.0);
+    assert!(!adaptive_cross_ratio_sq_lt(n1, n_zero, 1.0));
+    assert!(!adaptive_cross_ratio_sq_lt(n_zero, n1, 1.0));
+}
+
+#[test]
+fn adaptive_cross_ratio_sq_lt_antiparallel_vectors_are_tangent() {
+    // Antiparallel: cross product is zero, sine is zero — the
+    // predicate should report tangent (this test matches the
+    // existing intersect.rs semantics, which doesn't distinguish
+    // parallel from antiparallel).
+    let n1 = (1.0, 0.0, 0.0);
+    let n2 = (-1.0, 0.0, 0.0);
+    assert!(adaptive_cross_ratio_sq_lt(n1, n2, 1e-4));
+}
