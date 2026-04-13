@@ -236,3 +236,122 @@ fn adaptive_abs_plane_distance_lt_at_threshold_boundary() {
     let normal = (0.0, 0.0, 1.0);
     assert!(!adaptive_abs_plane_distance_lt(point, origin, normal, 1.0));
 }
+
+// ── DP slow-path coverage ──────────────────────────────────
+//
+// The next group of tests crafts inputs that fall INSIDE the f64
+// ambiguity margin so the double-precision recomputation branch
+// is forced to fire. Without these, the slow path is dead code
+// from the test suite's perspective and a regression that breaks
+// DP escalation could go unnoticed.
+
+#[test]
+fn adaptive_dist_sq_lt_slow_path_at_exact_equality_returns_false() {
+    // dist_sq exactly equals threshold_sq → fast path's two
+    // branches both fail (`+ margin < threshold` is false because
+    // the margin is positive; `> threshold + margin` is also
+    // false). Falls through to the DP recomputation, which
+    // computes 0.0 - 0.0 = 0.0 and returns `0.0 < 0.0 = false`.
+    let p1 = (0.0, 0.0, 0.0);
+    let p2 = (1.0, 0.0, 0.0);
+    let threshold_sq = 1.0;
+    assert!(!adaptive_dist_sq_lt(p1, p2, threshold_sq));
+}
+
+#[test]
+fn adaptive_dist_sq_lt_slow_path_just_below_returns_true() {
+    // Construct a case where dist_sq is just below threshold_sq
+    // by an amount inside the f64 margin. The fast path can't
+    // decide; the DP slow path computes the difference exactly.
+    //
+    // dist_sq = 1.0, threshold_sq = 1.0 + ulp.
+    let p1 = (0.0, 0.0, 0.0);
+    let p2 = (1.0, 0.0, 0.0);
+    // f64::EPSILON is the spacing at 1.0; threshold_sq = 1 + ε
+    // is one ulp above 1.0.
+    let threshold_sq = 1.0 + f64::EPSILON;
+    assert!(
+        adaptive_dist_sq_lt(p1, p2, threshold_sq),
+        "dist² = 1.0 vs threshold² = 1.0 + ε should report below"
+    );
+}
+
+#[test]
+fn adaptive_dist_sq_lt_slow_path_just_above_returns_false() {
+    // Mirror case: threshold_sq = 1.0 - ulp, dist_sq = 1.0.
+    let p1 = (0.0, 0.0, 0.0);
+    let p2 = (1.0, 0.0, 0.0);
+    let threshold_sq = 1.0 - f64::EPSILON;
+    assert!(
+        !adaptive_dist_sq_lt(p1, p2, threshold_sq),
+        "dist² = 1.0 vs threshold² = 1.0 - ε should report not-below"
+    );
+}
+
+#[test]
+fn adaptive_cross_ratio_sq_lt_slow_path_exact_perpendicular() {
+    // Vectors at exactly 90° produce cross_len_sq = 1 and
+    // norms_sq = 1, with threshold = 1 → rhs = 1. The fast path
+    // can't separate them; the DP path computes 0.0 - 0.0 = 0.0
+    // and the strict `< 0.0` returns false.
+    let n1 = (1.0, 0.0, 0.0);
+    let n2 = (0.0, 1.0, 0.0);
+    assert!(!adaptive_cross_ratio_sq_lt(n1, n2, 1.0));
+}
+
+#[test]
+fn adaptive_cross_ratio_sq_lt_slow_path_just_above_threshold() {
+    // sin(89.99°) ≈ 0.99998; with threshold = 0.99 we expect
+    // sin² > threshold² → cross_len_sq > rhs → return false.
+    // The angle is far enough from the threshold that DP
+    // recomputation just confirms the f64 answer, but the test
+    // pins the behaviour.
+    let n1 = (1.0, 0.0, 0.0);
+    let n2 = (
+        (89.99_f64).to_radians().cos(),
+        (89.99_f64).to_radians().sin(),
+        0.0,
+    );
+    assert!(!adaptive_cross_ratio_sq_lt(n1, n2, 0.99));
+}
+
+#[test]
+fn adaptive_abs_plane_distance_lt_slow_path_exact_threshold() {
+    // Point exactly at distance 1.0 from a plane through the
+    // origin with normal +Z, threshold = 1.0. Falls into the
+    // ambiguity zone; DP computes |1.0| < 1.0 = false.
+    let point = (0.0, 0.0, 1.0);
+    let origin = (0.0, 0.0, 0.0);
+    let normal = (0.0, 0.0, 1.0);
+    assert!(!adaptive_abs_plane_distance_lt(point, origin, normal, 1.0));
+}
+
+#[test]
+fn adaptive_abs_plane_distance_lt_slow_path_just_below() {
+    // Threshold one ulp above the point's distance — should
+    // return true. The DP recomputation is required because the
+    // f64 fast path's margin can't distinguish the two values.
+    let point = (0.0, 0.0, 1.0);
+    let origin = (0.0, 0.0, 0.0);
+    let normal = (0.0, 0.0, 1.0);
+    let threshold = 1.0 + f64::EPSILON;
+    assert!(adaptive_abs_plane_distance_lt(
+        point, origin, normal, threshold
+    ));
+}
+
+#[test]
+fn adaptive_dist_sq_lt_at_extreme_scale_collapses_to_origin() {
+    // Documents the fundamental limit: at coordinate scale 1e10
+    // the f64 ulp is ~1e-6, so any tolerance below that resolves
+    // points that *appear* close to be exactly identical. The
+    // adaptive predicate respects this — DP cannot recover
+    // precision that f64 lost at INPUT time.
+    let p1 = (1e10, 0.0, 0.0);
+    let p2 = (1e10 + 1e-10, 0.0, 0.0); // collapses to p1 in f64
+    let threshold_sq = 1e-20;
+    // The points are literally the same in f64 → distance is 0
+    // → 0 < threshold² → returns true. This is the CORRECT
+    // answer for inputs that f64 cannot distinguish.
+    assert!(adaptive_dist_sq_lt(p1, p2, threshold_sq));
+}
