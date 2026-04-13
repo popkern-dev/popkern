@@ -34,8 +34,17 @@ pub fn are_surfaces_coincident_analytic(
             },
         ) => {
             let normals_parallel = n1.dot(n2).abs() > 1.0 - tolerance.angular();
-            let d = *o1 - *o2;
-            let origin_on_plane = d.dot(n1).abs() < tolerance.linear();
+            // Plane-plane coincidence: origin of plane 2 must lie
+            // on plane 1, i.e. the signed distance from o2 to plane 1
+            // must be within linear tolerance. Routed through the
+            // adaptive predicate so cancellation in `o1 - o2` is
+            // captured at the tolerance boundary.
+            let origin_on_plane = crate::adaptive_precision::adaptive_abs_plane_distance_lt(
+                (o2.x, o2.y, o2.z),
+                (o1.x, o1.y, o1.z),
+                (n1.x, n1.y, n1.z),
+                tolerance.linear(),
+            );
             normals_parallel && origin_on_plane
         }
 
