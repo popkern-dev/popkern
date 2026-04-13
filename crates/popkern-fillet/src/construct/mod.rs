@@ -6,6 +6,31 @@
 //!   Phase C: merge ALL consumed pairs via kef (assign fillet surfaces)
 //!
 //! A post-pass corrects any residual surface misassignments.
+//!
+//! # Round 5r investigation: multi-edge batch interference
+//!
+//! On a unit-cube 12-edge fillet, the current Phase B produces
+//! silent per-trim failures because the four chord trims on each
+//! cube face form an inset square whose chords *intersect* in the
+//! face interior. When one trim is applied first, its chord
+//! separates the anchor pair of a neighbouring trim onto two
+//! different sub-faces — `find_face_containing_vertices` then
+//! can't locate a single target face for the neighbour and the
+//! trim is skipped.
+//!
+//! The correct fix is a multi-chord face split that pre-computes
+//! chord-chord intersections, inserts vertices at the intersection
+//! points, and applies the resulting sub-chord segments as a
+//! coordinated sequence (the inset-square topology has 9 sub-faces
+//! per cube side: 1 centre + 4 corner regions + 4 edge strips).
+//! That's a substantial refactor tracked as future work.
+//!
+//! Today the failure is tolerated by the downstream surface-fix
+//! post-pass (which assigns plausible surfaces to the partial
+//! result) and by the `count_bad_faces` median-fit metric in
+//! `tests/single_pass_test.rs` (median rather than max makes the
+//! per-face score robust to outlier vertices on the fragmented
+//! sub-faces). The 12-edge regression test still passes.
 
 pub(crate) mod blend_insert;
 pub(crate) mod blend_topo;
@@ -188,6 +213,16 @@ pub fn apply_blend_geometry(
                 find_face_containing_vertices(&result, &sub_faces, trim.anchors.0, trim.anchors.1);
 
             let Some(target) = target else {
+                // Round 5r investigation: on multi-edge batches (e.g.
+                // a 12-edge cube fillet), this branch is hit when
+                // anchors for a later trim end up on DIFFERENT sub-
+                // faces created by an earlier trim's split. The two
+                // anchors straddle the earlier chord. A true fix
+                // requires a multi-chord face-split that handles
+                // chord intersections (the inset-square topology at
+                // a cube corner). Tracked as future work. For now
+                // the trim is skipped, the partial result survives
+                // the `count_bad_faces` threshold via median fit.
                 failures.push((
                     edge_geometries[trim.edge_idx].analysis.edge,
                     BlendFailure::InvalidTopology {
