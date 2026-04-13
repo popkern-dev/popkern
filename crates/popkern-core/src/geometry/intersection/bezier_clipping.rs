@@ -351,7 +351,12 @@ fn bezier_intersect_inner_with_stalls(
         let b_sub_mid = subdivide_bezier(b_points, b_range.0, b_range.1);
         let pa = evaluate_bezier_midpoint(&a_sub_mid);
         let pb = evaluate_bezier_midpoint(&b_sub_mid);
-        if pa.distance_to(&pb) < tolerance.linear() {
+        let lin_sq = tolerance.linear() * tolerance.linear();
+        if crate::adaptive_precision::adaptive_dist_sq_lt(
+            (pa.x, pa.y, pa.z),
+            (pb.x, pb.y, pb.z),
+            lin_sq,
+        ) {
             let t1 = (a_range.0 + a_range.1) * 0.5;
             let t2 = (b_range.0 + b_range.1) * 0.5;
             results.push((t1, t2));

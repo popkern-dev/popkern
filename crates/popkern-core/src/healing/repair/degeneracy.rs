@@ -311,7 +311,13 @@ pub fn detect_self_tangent_faces(
                 if (du * du + dv * dv).sqrt() < uv_min_dist {
                     continue;
                 }
-                if grid_pts[a].distance_to(&grid_pts[b]) < linear_tol {
+                let pa = grid_pts[a];
+                let pb = grid_pts[b];
+                if crate::adaptive_precision::adaptive_dist_sq_lt(
+                    (pa.x, pa.y, pa.z),
+                    (pb.x, pb.y, pb.z),
+                    linear_tol * linear_tol,
+                ) {
                     results.push((face_handle, au, av, bu, bv));
                 }
             }

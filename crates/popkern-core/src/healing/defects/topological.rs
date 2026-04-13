@@ -164,9 +164,14 @@ pub fn check_boundary_simplicity(brep: &BRep, tolerance: &Tolerance, report: &mu
                 }
                 let (_, ref pts_a, _, _) = edge_samples[i];
                 let (_, ref pts_b, _, _) = edge_samples[j];
+                let lin_sq = tolerance.linear() * tolerance.linear();
                 for pa in pts_a {
                     for pb in pts_b {
-                        if pa.distance_to(pb) < tolerance.linear() {
+                        if crate::adaptive_precision::adaptive_dist_sq_lt(
+                            (pa.x, pa.y, pa.z),
+                            (pb.x, pb.y, pb.z),
+                            lin_sq,
+                        ) {
                             report.push(DefectRecord {
                                 category: DefectCategory::Topological,
                                 severity: Severity::Error,

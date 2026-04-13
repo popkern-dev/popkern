@@ -291,9 +291,12 @@ fn is_duplicate(a: &CurveIntersection, b: &CurveIntersection, tolerance: &Tolera
                 t2: t2b,
             },
         ) => {
-            pa.distance_to(pb) < tolerance.linear()
-                || ((t1a - t1b).abs() < tolerance.parametric_base()
-                    && (t2a - t2b).abs() < tolerance.parametric_base())
+            crate::adaptive_precision::adaptive_dist_sq_lt(
+                (pa.x, pa.y, pa.z),
+                (pb.x, pb.y, pb.z),
+                tolerance.linear() * tolerance.linear(),
+            ) || ((t1a - t1b).abs() < tolerance.parametric_base()
+                && (t2a - t2b).abs() < tolerance.parametric_base())
         }
         _ => false,
     }
