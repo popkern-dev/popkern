@@ -165,7 +165,12 @@ fn build_hollow_solid(a: BRep, b: BRep, _tolerance: &Tolerance) -> Result<BRep, 
 
 /// Combine two disjoint BReps into a single BRep by copying all topology
 /// from `b` into `a`.
-fn combine_breps(a: BRep, b: BRep) -> Result<BRep, BoolError> {
+///
+/// The two inputs should not share geometry — this is a structural
+/// concatenation that copies handles from `b` into fresh slotmap slots
+/// in `a` without welding at intersection points. Used by the sheet
+/// dispatcher to implement non-overlapping `SheetSheetUnion`.
+pub(crate) fn combine_breps(a: BRep, b: BRep) -> Result<BRep, BoolError> {
     copy_brep_into(a, b, false)
 }
 

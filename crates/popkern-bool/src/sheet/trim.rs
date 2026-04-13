@@ -1,30 +1,39 @@
-//! Trim a sheet body to the portion that lies inside a solid (§6.x).
+//! Trim a sheet body to the portion lying on one side of a solid (§6.x).
 //!
-//! Used by [`crate::sheet::boolean_with_sheets`] when dispatching the
-//! `SheetIntersectSolid` sub-operation: the sheet has already been
-//! imprinted with the solid's boundary curves, so its faces can be
-//! classified by centroid and the outside fragments pruned. The
-//! remaining fragments form an open-shell result.
+//! Used by [`crate::sheet::boolean_with_sheets`] to implement the two
+//! operations that cut a sheet against a solid: `SheetIntersectSolid`
+//! keeps the inside fragments, while `SolidUnionSheet` keeps the
+//! outside fragments as an open-shell appendage.
 
 use popkern_core::topology::BRep;
 
-/// Trim a sheet body to the portion that lies inside `solid`.
+/// Which half of the sheet to keep when trimming against a solid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum KeepSide {
+    /// Keep the portion of the sheet inside the solid.
+    Inside,
+    /// Keep the portion of the sheet outside the solid.
+    Outside,
+}
+
+/// Trim a sheet body to the portion on the requested side of `solid`.
 ///
 /// Walks every face of the (already-imprinted) sheet, samples a
 /// centroid point, and tests it via point-in-solid against the
-/// solid. Faces whose centroid is `Outside` are removed from the
-/// sheet via slotmap delete; orphaned edges and vertices are
-/// pruned afterwards.
+/// solid. Faces whose classification does not match `keep` are
+/// removed from the sheet via slotmap delete; orphaned edges and
+/// vertices are pruned afterwards.
 ///
-/// The result is an open shell BRep — possibly with multiple
-/// disconnected components — containing only the inside fragments.
+/// The result is an open-shell BRep — possibly with multiple
+/// disconnected components — containing only the surviving fragments.
 /// This is the §6.x boundary-relative classification path: instead
 /// of asking "what's the volume of the result", we ask "which
 /// pieces of the sheet survived the cut".
-pub(super) fn trim_sheet_to_inside(
+pub(super) fn trim_sheet(
     mut sheet: BRep,
     solid: &BRep,
     tolerance: &popkern_core::tolerance::Tolerance,
+    keep: KeepSide,
 ) -> BRep {
     use crate::clip::face_vertex_positions;
     use crate::error::PointClassification;
@@ -54,7 +63,14 @@ pub(super) fn trim_sheet_to_inside(
         let centroid = popkern_core::geometry::Point3::new(cx / n, cy / n, cz / n);
         let classification = point_in_solid(&centroid, solid, &solid_aabbs, tolerance)
             .unwrap_or(PointClassification::Outside);
-        if matches!(classification, PointClassification::Outside) {
+        let discard = match keep {
+            KeepSide::Inside => matches!(classification, PointClassification::Outside),
+            KeepSide::Outside => matches!(
+                classification,
+                PointClassification::Inside | PointClassification::OnBoundary
+            ),
+        };
+        if discard {
             faces_to_remove.push(fh);
         }
     }

@@ -10,12 +10,12 @@
 use super::classify::{SheetOperationKind, classify_sheet_operation};
 use super::detect::{is_planar_sheet, is_sheet_body};
 use super::split::split_solid_by_plane;
-use super::trim::trim_sheet_to_inside;
+use super::trim::{KeepSide, trim_sheet};
 use popkern_core::topology::BRep;
 
 /// Result of a [`boolean_with_sheets`] call.
 ///
-/// Sheet-aware boolean operations can produce four different shapes
+/// Sheet-aware boolean operations can produce several different shapes
 /// of result depending on the operation:
 ///
 /// - [`SheetBooleanResult::Solid`] — a closed solid (e.g. solid-solid
@@ -28,6 +28,10 @@ use popkern_core::topology::BRep;
 /// - [`SheetBooleanResult::OpenShell`] — an open shell BRep (e.g.
 ///   sheet-intersect-solid returns the portion of the sheet inside
 ///   the solid; the result is itself a sheet body).
+/// - [`SheetBooleanResult::Mixed`] — a closed solid paired with an
+///   open-shell "appendage" (e.g. solid-union-sheet returns the
+///   original solid plus the portion of the sheet that lies outside
+///   the solid).
 #[derive(Debug)]
 pub enum SheetBooleanResult {
     /// A single closed solid result.
@@ -38,6 +42,17 @@ pub enum SheetBooleanResult {
     Curves(Vec<popkern_core::geometry::curve_on_surface::CurveOnSurface>),
     /// An open shell BRep result.
     OpenShell(BRep),
+    /// A closed solid paired with an open-shell appendage. Used by
+    /// `SolidUnionSheet` to return the original solid unchanged plus
+    /// the trimmed portion of the sheet that lies outside the solid.
+    /// `open_shell` is boxed so this variant does not inflate the
+    /// stack size of the whole enum past the single-`BRep` variants.
+    Mixed {
+        /// The closed-solid portion of the result.
+        solid: BRep,
+        /// The open-shell portion — typically a trimmed sheet.
+        open_shell: Box<BRep>,
+    },
 }
 
 /// Sheet-aware boolean operation dispatcher (§2.3).
@@ -115,15 +130,53 @@ pub fn boolean_with_sheets(
             // solid — itself an open shell.
             let (sheet, solid) = if a_is_sheet { (a, b) } else { (b, a) };
             let imprint = crate::ops::imprint::imprint(sheet, solid, &tol)?;
-            let trimmed = trim_sheet_to_inside(imprint.imprinted_target, solid, &tol);
+            let trimmed = trim_sheet(imprint.imprinted_target, solid, &tol, KeepSide::Inside);
             Ok(SheetBooleanResult::OpenShell(trimmed))
         }
-        SheetOperationKind::InvalidSheetMinusSolid
-        | SheetOperationKind::SolidUnionSheet
-        | SheetOperationKind::SheetSheetUnion
-        | SheetOperationKind::Unsupported => Err(crate::BoolError::OpenShellNotSupported {
-            a: a_is_sheet,
-            b: b_is_sheet,
-        }),
+        SheetOperationKind::SheetSheetUnion => {
+            // §2.3 SheetSheetUnion: combine two open shells into one
+            // open shell. Non-overlapping case only: if the bodies
+            // share any surface/curve geometry the result would need
+            // a proper merge pipeline (which we don't yet have for
+            // sheets), so reject that case with a structured error.
+            //
+            // Detection: the intersection-curve count from `section`
+            // decides. Zero intersection curves AND zero coincident
+            // face overlaps means the two sheets are spatially
+            // disjoint (or at worst touching at points), and the
+            // structural concatenation via `combine_breps` produces
+            // a valid combined sheet body.
+            let section = crate::ops::section::section(a, b, &tol)?;
+            if !section.curves.is_empty() {
+                return Err(crate::BoolError::OpenShellNotSupported {
+                    a: a_is_sheet,
+                    b: b_is_sheet,
+                });
+            }
+            let combined = crate::operation::helpers::combine_breps(a.clone(), b.clone())?;
+            Ok(SheetBooleanResult::OpenShell(combined))
+        }
+        SheetOperationKind::SolidUnionSheet => {
+            // §2.3 SolidUnionSheet: the solid stays unchanged, and the
+            // portion of the sheet that lies OUTSIDE the solid is
+            // attached as an open-shell appendage. Mirror of
+            // SheetIntersectSolid — same imprint pipeline but the
+            // opposite side of the trim result. The returned `Mixed`
+            // variant pairs the original solid with the trimmed
+            // outside-of-solid fragment.
+            let (sheet, solid) = if a_is_sheet { (a, b) } else { (b, a) };
+            let imprint = crate::ops::imprint::imprint(sheet, solid, &tol)?;
+            let outside = trim_sheet(imprint.imprinted_target, solid, &tol, KeepSide::Outside);
+            Ok(SheetBooleanResult::Mixed {
+                solid: solid.clone(),
+                open_shell: Box::new(outside),
+            })
+        }
+        SheetOperationKind::InvalidSheetMinusSolid | SheetOperationKind::Unsupported => {
+            Err(crate::BoolError::OpenShellNotSupported {
+                a: a_is_sheet,
+                b: b_is_sheet,
+            })
+        }
     }
 }

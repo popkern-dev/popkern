@@ -5,7 +5,7 @@
 //! and accumulating diagnostics on failure.
 
 #[path = "operation_helpers.rs"]
-mod helpers;
+pub(crate) mod helpers;
 
 use std::time::Instant;
 
