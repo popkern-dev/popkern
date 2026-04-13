@@ -37,6 +37,7 @@ pub(crate) mod clip;
 pub mod coincidence;
 pub mod csg;
 pub mod error;
+pub mod history;
 pub mod imprint;
 pub mod instancing;
 pub(crate) mod intersect;
