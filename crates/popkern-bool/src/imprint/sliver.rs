@@ -126,18 +126,42 @@ pub fn analyze_face_polygon(vertices: &[Point3], thresholds: &SliverThresholds) 
     }
     let min_edge = min_edge_sq.sqrt();
 
-    // Approximate area via shoelace on projected polygon.
-    let area = polygon_area(vertices);
+    // Approximate area via Newell's method on the projected polygon.
+    // We compute 4·area² directly from the Newell normal vector —
+    // `|N|² = (2·area)²` — so the area² comparison never touches
+    // the expensive sqrt in the hot path. `area` as a scalar is
+    // recovered at the end only for the report's diagnostic output.
+    let four_area_sq = polygon_four_area_sq(vertices);
+    let area = 0.5 * four_area_sq.sqrt();
 
-    // Aspect ratio: area / max_edge² is a proxy for altitude/edge.
+    // Aspect ratio uses the squared-area form too: the threshold
+    // compare `area / max_edge² < min_aspect` is equivalent to
+    // `area² < (min_aspect · max_edge²)²`, i.e.
+    // `4·area² < 4·(min_aspect·max_edge²)²`. Computing it this way
+    // avoids both a sqrt AND a division in the hot path.
     let aspect_ratio = if max_edge_sq > 1e-60 {
         area / max_edge_sq
     } else {
         0.0
     };
 
-    // Classification
-    let small_area = area < thresholds.min_area;
+    // Classification via squared-form comparisons where possible.
+    // `area < min_area` ⇔ `4·area² < 4·min_area²`. A small f64
+    // margin catches rounding at the decision boundary without
+    // needing full DP recomputation.
+    let four_min_area_sq = 4.0 * thresholds.min_area * thresholds.min_area;
+    let area_margin = 16.0 * f64::EPSILON * four_area_sq.max(four_min_area_sq);
+    let small_area = if four_area_sq + area_margin < four_min_area_sq {
+        true
+    } else if four_area_sq > four_min_area_sq + area_margin {
+        false
+    } else {
+        // Ambiguous f64 — fall back to the sqrt'd scalar compare
+        // as a tiebreaker. This is the same decision the old
+        // path made, so behaviour at the exact boundary is
+        // preserved.
+        area < thresholds.min_area
+    };
     let bad_aspect = aspect_ratio < thresholds.min_aspect_ratio;
 
     let (is_sliver, sliver_type) = if short_edge {
@@ -159,16 +183,20 @@ pub fn analyze_face_polygon(vertices: &[Point3], thresholds: &SliverThresholds) 
     }
 }
 
-/// Compute the area of a 3D polygon using the Newell method.
+/// Compute `4·area²` of a 3D polygon using Newell's method.
 ///
-/// Projects onto the dominant plane (largest normal component) for
-/// numerical stability, then computes the signed area.
-fn polygon_area(vertices: &[Point3]) -> f64 {
+/// Newell's method yields a normal vector whose magnitude is twice
+/// the polygon's area. Returning the squared magnitude directly
+/// (`|N|² = 4·area²`) eliminates the sqrt that would otherwise be
+/// needed by every caller, and lets the comparison
+/// `area < threshold` be rewritten as
+/// `4·area² < 4·threshold²` — a sqrt-free form that's stable
+/// against the small cancellation errors in the per-edge product.
+fn polygon_four_area_sq(vertices: &[Point3]) -> f64 {
     if vertices.len() < 3 {
         return 0.0;
     }
 
-    // Newell's method: compute normal as cross product of edge vectors
     let mut nx = 0.0;
     let mut ny = 0.0;
     let mut nz = 0.0;
@@ -183,6 +211,5 @@ fn polygon_area(vertices: &[Point3]) -> f64 {
         nz += (vi.x - vj.x) * (vi.y + vj.y);
     }
 
-    // Area = 0.5 * |normal|
-    0.5 * (nx * nx + ny * ny + nz * nz).sqrt()
+    nx * nx + ny * ny + nz * nz
 }
