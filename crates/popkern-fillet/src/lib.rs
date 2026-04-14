@@ -12,6 +12,7 @@ pub mod center_curve;
 pub mod center_curve_helpers;
 pub mod chamfer_curve;
 pub mod construct;
+pub mod contact;
 pub mod error;
 pub mod fillet_surface;
 pub(crate) mod geometry_compute;

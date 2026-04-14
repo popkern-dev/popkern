@@ -262,8 +262,21 @@ fn select_nearest_curve(
         .ok_or_else(|| "no curve intersections found in offset result".into())
 }
 
-/// Find the center point at a given radius by intersecting offset surfaces
-/// and picking the point nearest to the target.
+/// Find the center point at a given radius for one spine sample.
+///
+/// **Routing:** if either surface is a [`SurfaceGeometry::Cone`] the
+/// existing offset-intersect short-cut errors out (no analytic offset
+/// for cones), so we route through the rolling-ball contact solver in
+/// `crate::contact`. For every other surface pair we keep the
+/// offset-intersect path as the primary because it produces analytic
+/// surfaces (torus / sphere / cylinder) that downstream code can
+/// recognise. On *unrelated* contact-solver failures (parallel
+/// normals, etc.) we still fall through to offset-intersect so the
+/// caller gets the historical error message.
+///
+/// This is phase 1a of the contact-solver integration. Phase 1b will
+/// route more aggressively via a spine walker; phase 1d will let the
+/// caller force the contact solver path even on analytic pairs.
 #[allow(clippy::too_many_arguments)]
 fn find_center_point_at_radius(
     surface1: &SurfaceGeometry,
@@ -278,6 +291,30 @@ fn find_center_point_at_radius(
     orientation_1: bool,
     orientation_2: bool,
 ) -> Result<Point3, String> {
+    // Cones don't have an analytic offset surface, so any cone in the
+    // pair forces the contact solver path. For other surface pairs the
+    // offset-intersect short-cut is exact and fast — keep it as the
+    // primary route.
+    let either_is_cone = matches!(surface1, SurfaceGeometry::Cone { .. })
+        || matches!(surface2, SurfaceGeometry::Cone { .. });
+    if either_is_cone
+        && let Some(center) = try_contact_solver(
+            surface1,
+            u1_range,
+            v1_range,
+            surface2,
+            u2_range,
+            v2_range,
+            radius,
+            target,
+            tolerance,
+            orientation_1,
+            orientation_2,
+        )
+    {
+        return Ok(center);
+    }
+
     let offset1 = offset_surface(
         surface1,
         radius,
@@ -312,6 +349,101 @@ fn find_center_point_at_radius(
     let (t0, t1) = curve.parameter_range();
     let mid = curve.point_at((t0 + t1) * 0.5);
     Ok(mid)
+}
+
+/// Try the rolling-ball contact solver at one spine sample.
+///
+/// Translates the legacy `(target, orientation_*)` interface into a
+/// `ContactRequest`: seeds the initial UV guesses by projecting
+/// `target` onto each surface (`closest_point`), maps `orientation_i`
+/// to `BallSide::Outside` (matching popkern's "face normals point into
+/// the solid" convention — the rolling ball is on the side opposite
+/// the face normal, which is the `+normal_at` side for an outward-
+/// pointing face surface normal), and uses the segment from `target`
+/// toward the surface mid-point as the spine plane normal.
+///
+/// Returns `Some(center)` on success, `None` on any failure (parallel
+/// normals, degenerate, out-of-bounds, etc.). The caller falls back
+/// to the offset-intersect path on `None`.
+#[allow(clippy::too_many_arguments)]
+fn try_contact_solver(
+    surface1: &SurfaceGeometry,
+    u1_range: (f64, f64),
+    v1_range: (f64, f64),
+    surface2: &SurfaceGeometry,
+    u2_range: (f64, f64),
+    v2_range: (f64, f64),
+    radius: f64,
+    target: &Point3,
+    tolerance: &Tolerance,
+    orientation_1: bool,
+    orientation_2: bool,
+) -> Option<Point3> {
+    use crate::contact::{BallSide, ContactOptions, ContactRequest, solve_rolling_ball_contact};
+
+    // Seed each surface's initial UV from target via closest_point.
+    let seed_uv0 = (surface1 as &dyn SurfaceEval).closest_point(target)?;
+    let seed_uv1 = (surface2 as &dyn SurfaceEval).closest_point(target)?;
+
+    // popkern face normals point INTO the solid. The rolling ball
+    // sits OUTSIDE the solid (on the side opposite the face normal),
+    // which is the `-face_normal` direction. The face's natural
+    // surface normal equals the face normal when `orientation = true`
+    // and is flipped when `orientation = false`. So:
+    //   - orientation=true → ball on -surface_normal side → BallSide::Inside
+    //   - orientation=false → ball on +surface_normal side → BallSide::Outside
+    let side_0 = if orientation_1 {
+        BallSide::Inside
+    } else {
+        BallSide::Outside
+    };
+    let side_1 = if orientation_2 {
+        BallSide::Inside
+    } else {
+        BallSide::Outside
+    };
+
+    // Spine plane: pin the ball center close to `target`. Walk the
+    // segment from target to the surface midpoint as the plane normal.
+    // For one-shot use this is approximate; phase 1b walker passes
+    // the actual spine tangent.
+    let p0 = surface1.point_at(seed_uv0.0, seed_uv0.1);
+    let p1 = surface2.point_at(seed_uv1.0, seed_uv1.1);
+    let mid = popkern_core::geometry::Point3::new(
+        (p0.x + p1.x) * 0.5,
+        (p0.y + p1.y) * 0.5,
+        (p0.z + p1.z) * 0.5,
+    );
+    let mut spine_plane_normal = mid - *target;
+    if spine_plane_normal.length() < tolerance.numerical_floor() {
+        // Target is at the contact midpoint; pick any tangent direction.
+        // Use the cross product of the two face partials — well-defined
+        // when the surfaces are not parallel, which we know they are
+        // not since we're in the cone branch.
+        let n0 = surface1.normal_at(seed_uv0.0, seed_uv0.1);
+        let n1 = surface2.normal_at(seed_uv1.0, seed_uv1.1);
+        spine_plane_normal = n0.cross(&n1);
+        if spine_plane_normal.length() < tolerance.numerical_floor() {
+            return None;
+        }
+    }
+
+    let request = ContactRequest {
+        surface_0: surface1,
+        surface_1: surface2,
+        side_0,
+        side_1,
+        radius,
+        initial_uv0: seed_uv0,
+        uv0_range: (u1_range, v1_range),
+        initial_uv1: seed_uv1,
+        uv1_range: (u2_range, v2_range),
+        spine_point: *target,
+        spine_plane_normal,
+    };
+    let solution =
+        solve_rolling_ball_contact(&request, &ContactOptions::default(), tolerance, None).ok()?;
+    Some(solution.center)
 }
 
 // Helper functions (clip, clamp, fit, project) are in center_curve_helpers.rs.
