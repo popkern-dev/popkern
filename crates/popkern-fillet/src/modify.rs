@@ -163,11 +163,15 @@ fn modify_closed_fillet_radius(
     // actually-varying effective radii. See
     // `modify_inplace::modify_closed_in_place_bypoints`.
     //
-    // `Variable` still averages — a 2-value `(start, end)` spec
-    // has no canonical interpretation around a closed rim (no
-    // start or end vertex) and the existing tests lock the
-    // averaged-Torus behaviour. Callers wanting a true varying
-    // sweep should use `FilletRadius::ByPoints`.
+    // `Variable { start, end }` takes the same sweep path by
+    // synthesizing a symmetric 3-point profile:
+    // `[(0.0, start), (0.5, end), (1.0, start)]`. The canonical
+    // interpretation for a closed rim is *"`start` at the seam
+    // (θ = 0), linearly interpolated to `end` at the opposite
+    // side of the rim (θ = π), then linearly back to `start`"*.
+    // The profile is continuous at the seam (t = 0 and t = 1
+    // both map to `start`), which is required for the closed
+    // NURBS-sweep builder to produce a well-formed surface.
     if let FilletRadius::ByPoints(pts) = &new_radius
         && !pts.is_empty()
         && let Ok(out) =
@@ -175,9 +179,19 @@ fn modify_closed_fillet_radius(
     {
         return Ok(out);
     }
+    if let FilletRadius::Variable { start, end } = &new_radius {
+        let synthetic: Vec<(f64, f64)> = vec![(0.0, *start), (0.5, *end), (1.0, *start)];
+        if let Ok(out) =
+            crate::modify_inplace::modify_closed_in_place_bypoints(brep, fillet_face, &synthetic)
+        {
+            return Ok(out);
+        }
+    }
 
-    // Fast path: averaged in-place geometry update (Constant,
-    // Variable, and fallback for empty/degenerate ByPoints).
+    // Fast path: averaged in-place geometry update (Constant
+    // only; Variable + ByPoints have already tried the true
+    // sweep path above, and this averaging branch is reached
+    // only if the sweep path failed for a structural reason).
     let averaged = match &new_radius {
         FilletRadius::Constant(r) => *r,
         FilletRadius::Variable { start, end } => (*start + *end) * 0.5,

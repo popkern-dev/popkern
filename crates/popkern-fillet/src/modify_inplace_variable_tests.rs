@@ -59,12 +59,15 @@ fn modify_open_in_place_variable_assigns_nurbs_sweep_surface() {
     }
 }
 
-/// Round 5p: closed plane-cylinder Variable specs take the
-/// in-place fast path by averaging the radius profile. This
-/// matches the existing fallback's behaviour (the closed-fillet
-/// construct phase already uses one effective radius regardless
-/// of the spec) and unlocks the ~5µs in-place speed for variable
-/// closed callers.
+/// Closed plane-cylinder `Variable` specs take the true around-
+/// the-rim NURBS-sweep fast path via a synthetic symmetric
+/// 3-point profile. The canonical interpretation on a closed rim
+/// is "`start` at the seam (θ = 0), linearly interpolated to
+/// `end` at the opposite side (θ = π), linearly back to `start`",
+/// so the profile is continuous at the seam. This supersedes the
+/// original Round 5p behaviour, which averaged `(start + end)/2`
+/// and produced a Torus because a 2-value spec was considered to
+/// have no canonical angular convention.
 #[test]
 fn modify_closed_variable_takes_in_place_fast_path() {
     use popkern_bool::{BoolOperation, boolean};
@@ -128,7 +131,7 @@ fn modify_closed_variable_takes_in_place_fast_path() {
     });
     let Some(annulus) = annulus else { return };
 
-    // Variable spec — should average to 0.07.
+    // Variable spec — takes the true around-the-rim sweep path.
     let t0 = Instant::now();
     let modified = crate::modify_fillet_radius(
         &r1.brep,
@@ -143,33 +146,30 @@ fn modify_closed_variable_takes_in_place_fast_path() {
     let elapsed = t0.elapsed();
 
     // Should be MUCH faster than the ~17ms remove+recreate fallback.
-    // Loose 5ms cap to be CI-safe; in practice ~30µs.
+    // The sweep path runs the full closed-fillet NURBS builder, so
+    // the budget is looser than the Torus-averaging path (~30µs)
+    // but still well under the remove+recreate fallback.
     assert!(
-        elapsed.as_millis() < 5,
-        "variable closed should take in-place fast path; took {elapsed:?}"
+        elapsed.as_millis() < 10,
+        "variable closed should take in-place sweep fast path; took {elapsed:?}"
     );
 
-    // Find the modified annulus and assert its torus has the
-    // averaged minor radius (0.07).
-    let mut found_torus = false;
+    // Find the modified annulus face and assert its surface is
+    // now a NURBS sweep (not a Torus), because Variable → the
+    // true sweep path via the synthetic symmetric profile.
+    let mut found_sweep = false;
     for fh in modified.faces.keys() {
         let f = &modified.faces[fh];
         if f.inner_loops.len() != 1 {
             continue;
         }
-        if let Some(SurfaceGeometry::Torus { minor_radius, .. }) =
-            f.surface.as_ref().map(|s| &s.geometry)
-        {
-            assert!(
-                (minor_radius - 0.07).abs() < 1e-9,
-                "averaged minor_radius should be 0.07, got {minor_radius}"
-            );
-            found_torus = true;
+        if let Some(SurfaceGeometry::Nurbs(_)) = f.surface.as_ref().map(|s| &s.geometry) {
+            found_sweep = true;
         }
     }
     assert!(
-        found_torus,
-        "should find a Torus annulus face after variable modify"
+        found_sweep,
+        "variable closed modify should now assign a NURBS sweep, not a Torus"
     );
 }
 
