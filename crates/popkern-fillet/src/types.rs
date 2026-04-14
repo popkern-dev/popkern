@@ -55,6 +55,21 @@ pub struct FilletOptions {
     pub propagate_tangent: bool,
     /// How to handle vertex blends where three or more fillets meet.
     pub vertex_mode: VertexMode,
+    /// Build the blend surface with **G2** (curvature-matching)
+    /// cross-sections rather than the default G1 (circular-arc)
+    /// sweep. Eliminates highlight-line breaks at the blend
+    /// boundaries — required for §15 Class-A surfaces.
+    ///
+    /// **Default `false`.** Setting `true` routes the blend through
+    /// the spine-walker contact solver
+    /// (`crate::g2_cross_section::g2_sweep_from_contact_solutions`),
+    /// which is currently active on the cone path. Other surface
+    /// pairs still build via the legacy arc sweep until the
+    /// non-cone center-curve producers also expose
+    /// `CenterCurveResult::contact_solutions`.
+    ///
+    /// See §2.4 / §7 G2 in `docs/requirements/fillets_blends.md`.
+    pub g2_cross_section: bool,
 }
 
 impl Default for FilletOptions {
@@ -62,6 +77,7 @@ impl Default for FilletOptions {
         Self {
             propagate_tangent: true,
             vertex_mode: VertexMode::Smooth,
+            g2_cross_section: false,
         }
     }
 }

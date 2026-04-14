@@ -108,7 +108,10 @@ pub fn preview_fillet(
         if i >= analyses.len() {
             continue;
         }
-        match compute_fillet_geometry(&analyses[i], &spec.radius, brep, &tolerance) {
+        // Preview always uses the legacy G1 cross-section (g2 = false)
+        // — preview is for cheap UI feedback and the G2 path is for
+        // commit-quality output.
+        match compute_fillet_geometry(&analyses[i], &spec.radius, brep, &tolerance, false) {
             Ok(geom) => per_edge.push(edge_geometry_to_preview(spec.edge, geom)),
             Err(f) => failed.push((i, f)),
         }

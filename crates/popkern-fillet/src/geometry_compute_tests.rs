@@ -109,7 +109,7 @@ fn compute_fillet_geometry_variable_radius() {
         start: 0.08,
         end: 0.12,
     };
-    let result = compute_fillet_geometry(&analysis, &radius, &brep, &tol());
+    let result = compute_fillet_geometry(&analysis, &radius, &brep, &tol(), false);
     assert!(
         result.is_ok(),
         "variable radius fillet geometry should compute: {:?}",
@@ -125,7 +125,7 @@ fn compute_fillet_geometry_by_points_two_points_exercises_path() {
     let radius = crate::types::FilletRadius::ByPoints(vec![(0.0, 0.1), (1.0, 0.1)]);
     // Either Ok or Err is acceptable — we just confirm no panic and that the
     // ByPoints code branch fires (particularly r_start/r_end extraction).
-    let _ = compute_fillet_geometry(&analysis, &radius, &brep, &tol());
+    let _ = compute_fillet_geometry(&analysis, &radius, &brep, &tol(), false);
 }
 
 #[test]
@@ -133,14 +133,14 @@ fn compute_fillet_geometry_by_points_single_point_exercises_path() {
     let (brep, analysis) = make_cube_and_analysis();
     let radius = crate::types::FilletRadius::ByPoints(vec![(0.5, 0.1)]);
     // Single-point ByPoints uses pts[0].1 for both r_start and r_end.
-    let _ = compute_fillet_geometry(&analysis, &radius, &brep, &tol());
+    let _ = compute_fillet_geometry(&analysis, &radius, &brep, &tol(), false);
 }
 
 #[test]
 fn compute_fillet_geometry_by_points_empty_fails() {
     let (brep, analysis) = make_cube_and_analysis();
     let radius = crate::types::FilletRadius::ByPoints(vec![]);
-    let result = compute_fillet_geometry(&analysis, &radius, &brep, &tol());
+    let result = compute_fillet_geometry(&analysis, &radius, &brep, &tol(), false);
     assert!(result.is_err(), "empty ByPoints should fail");
 }
 

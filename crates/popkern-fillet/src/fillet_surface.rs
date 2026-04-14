@@ -28,6 +28,16 @@ pub struct FilletSurfaceResult {
 /// single minor radius, so it can only represent a constant-radius fillet —
 /// passing `false` for a variable-radius spec forces the NURBS sweep path,
 /// which honours the per-sample radii baked into `center_result.footprint_*`.
+///
+/// When `g2_cross_section` is `true` AND `center_result.contact_solutions`
+/// is `Some` (i.e., the spine walker produced per-sample contact solutions),
+/// the sweep is built via [`crate::g2_cross_section::g2_sweep_from_contact_solutions`]
+/// — a degree-5 Bezier cross-section sweep that matches the surface
+/// normal curvature at the boundary (G2). Otherwise the legacy
+/// degree-1 arc sweep is used. The G2 path needs `orientation_*`
+/// to translate the popkern face-normal convention into the
+/// `BallSide` convention the contact solver uses.
+#[allow(clippy::too_many_arguments)]
 pub fn build_fillet_surface(
     surface1: &SurfaceGeometry,
     surface2: &SurfaceGeometry,
@@ -35,7 +45,46 @@ pub fn build_fillet_surface(
     radius: f64,
     arc_samples: usize,
     is_constant_radius: bool,
+    g2_cross_section: bool,
+    orientation_1: bool,
+    orientation_2: bool,
 ) -> Result<FilletSurfaceResult, String> {
+    // G2 path: route through the degree-5 Bezier sweep when the
+    // caller asked for it AND the center-curve producer (the spine
+    // walker) gave us per-sample contact solutions.
+    if g2_cross_section
+        && let Some(solutions) = center_result.contact_solutions.as_deref()
+        && solutions.len() >= 2
+    {
+        use crate::contact::BallSide;
+        use crate::g2_cross_section::g2_sweep_from_contact_solutions;
+
+        // Translate popkern face orientations into BallSide. popkern
+        // face normals point INTO the solid; the rolling ball sits
+        // on the side OPPOSITE the face normal. So:
+        //   orientation = true  → ball on -surface_normal side → BallSide::Inside
+        //   orientation = false → ball on +surface_normal side → BallSide::Outside
+        let side_0 = if orientation_1 {
+            BallSide::Inside
+        } else {
+            BallSide::Outside
+        };
+        let side_1 = if orientation_2 {
+            BallSide::Inside
+        } else {
+            BallSide::Outside
+        };
+        let nurbs = g2_sweep_from_contact_solutions(solutions, surface1, surface2, side_0, side_1)
+            .map_err(|e| format!("G2 sweep failed: {e}"))?;
+        let trim_1 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_1)?;
+        let trim_2 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_2)?;
+        return Ok(FilletSurfaceResult {
+            surface: SurfaceGeometry::Nurbs(nurbs),
+            trim_curve_1: trim_1,
+            trim_curve_2: trim_2,
+        });
+    }
+
     // Try analytic torus for plane-plane CONSTANT case only. For
     // variable radius, an analytic torus has the wrong shape — it
     // would silently average the radius — so we must build a true
@@ -50,7 +99,7 @@ pub fn build_fillet_surface(
         return Ok(result);
     }
 
-    // General case: NURBS swept surface.
+    // General case: NURBS swept surface (G1 arc).
     build_nurbs_sweep(center_result, radius, arc_samples)
 }
 

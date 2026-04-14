@@ -217,7 +217,13 @@ fn fillet_edges_internal(
         // Per-edge cancellation point — lets the user kill a long
         // NURBS surface intersection mid-stride.
         check_cancel!();
-        match compute_fillet_geometry(&analyses[i], &spec.radius, brep, &tolerance) {
+        match compute_fillet_geometry(
+            &analyses[i],
+            &spec.radius,
+            brep,
+            &tolerance,
+            options.g2_cross_section,
+        ) {
             Ok(geom) => edge_geometries.push(geom),
             Err(failure) => failures.push((spec.edge, failure)),
         }

@@ -324,12 +324,8 @@ fn jacobian_residual_at_known_solution_is_zero() {
         (c1 - Point3::new(1.0, 0.0, 1.0)).length() < 1e-12,
         "c1 should be (1,0,1), got {c1:?}"
     );
-    for i in 0..3 {
-        assert!(
-            residual[i].abs() < 1e-12,
-            "residual[{i}] = {} should be 0",
-            residual[i]
-        );
+    for (i, r) in residual.iter().enumerate().take(3) {
+        assert!(r.abs() < 1e-12, "residual[{i}] = {r} should be 0");
     }
     assert!(
         residual[3].abs() < 1e-12,

@@ -34,6 +34,7 @@ fn open_setup() -> (BRep, FaceHandle) {
     let opts = FilletOptions {
         propagate_tangent: false,
         vertex_mode: popkern_fillet::types::VertexMode::Mitred,
+        g2_cross_section: false,
     };
     let specs = vec![FilletSpec {
         edge,

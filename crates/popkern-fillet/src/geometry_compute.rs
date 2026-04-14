@@ -32,6 +32,7 @@ pub(crate) fn compute_fillet_geometry(
     radius: &FilletRadius,
     brep: &BRep,
     tolerance: &Tolerance,
+    g2_cross_section: bool,
 ) -> Result<EdgeGeometry, BlendFailure> {
     let edge_midpoint = get_edge_midpoint(brep, analysis)?;
 
@@ -202,6 +203,9 @@ pub(crate) fn compute_fillet_geometry(
         effective_radius,
         8, // arc samples
         is_constant_radius,
+        g2_cross_section,
+        analysis.orientation_1,
+        analysis.orientation_2,
     )
     .map_err(|e| BlendFailure::IntersectionFailed {
         reason: e,

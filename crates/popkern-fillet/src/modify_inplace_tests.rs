@@ -262,6 +262,7 @@ fn modify_open_in_place_preserves_topology_and_changes_radius() {
     let opts = FilletOptions {
         propagate_tangent: false,
         vertex_mode: crate::types::VertexMode::Mitred,
+        g2_cross_section: false,
     };
     let specs = vec![FilletSpec {
         edge,

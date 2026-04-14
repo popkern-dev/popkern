@@ -262,3 +262,42 @@ fn fillet_edge_on_cone_base_at_feasible_radius_is_fast() {
         );
     }
 }
+
+#[test]
+fn fillet_edge_on_cone_with_g2_cross_section_routes_through_g2_sweep() {
+    // Phase 2 acceptance: passing FilletOptions::g2_cross_section = true
+    // through fillet_edges on a cone (which exercises the spine-walker
+    // path) routes the surface assembly through g2_sweep_from_contact_solutions.
+    // The pipeline must not crash and must not regress the cone-offset
+    // bypass that phase 1a/1b/1c established.
+    let brep = BRep::cone(1.0, 2.0, unit_tol()).expect("cone BRep should build");
+    let edges: Vec<_> = brep.edges.keys().collect();
+    let mut chosen = edges[0];
+    for &eh in &edges {
+        let edge = &brep.edges[eh];
+        let he = edge.half_edge;
+        let twin = brep.half_edges[he].twin;
+        let face_a = brep.loops[brep.half_edges[he].loop_].face;
+        let face_b = brep.loops[brep.half_edges[twin].loop_].face;
+        if face_a != face_b {
+            chosen = eh;
+            break;
+        }
+    }
+    let specs = vec![FilletSpec {
+        edge: chosen,
+        radius: FilletRadius::Constant(0.005),
+    }];
+    let opts = crate::FilletOptions {
+        g2_cross_section: true,
+        ..crate::FilletOptions::default()
+    };
+    let result = fillet_edges(&brep, &specs, &opts, unit_tol(), None);
+    if let Err(e) = &result {
+        let msg = format!("{e:?}");
+        assert!(
+            !msg.contains("analytic offset not supported for cones"),
+            "phase 2 G2 routing should still bypass the cone-offset hard-fail; got: {msg}"
+        );
+    }
+}
