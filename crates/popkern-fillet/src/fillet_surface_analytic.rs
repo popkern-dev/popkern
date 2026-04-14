@@ -16,7 +16,17 @@
 //! | plane-plane (dihedral) | torus | [`try_plane_plane_torus`] |
 //! | plane-sphere | torus | [`try_circular_center_torus`] |
 //! | plane-cylinder (⊥ axis) | torus | [`try_circular_center_torus`] |
+//! | plane-cone (⊥ axis) | torus | [`try_circular_center_torus`] |
 //! | cylinder-cylinder (∥ axes) | cylinder | [`try_parallel_cylinder_cylinder`] |
+//!
+//! **Plane-cone reasoning.** A plane perpendicular to a cone's axis
+//! cuts the cone in a circle; by rotational symmetry the rolling-ball
+//! center curve is a 3D circle too, so the fillet surface is an
+//! exact torus. Oblique plane-cone intersections (ellipse, parabola,
+//! hyperbola) produce canal surfaces that popkern has no primitive
+//! for, so the detector gates on `|plane_normal · cone_axis| > 0.999`
+//! up front and leaves non-perpendicular cases to the generic NURBS
+//! sweep.
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
@@ -72,8 +82,9 @@ pub(crate) fn try_plane_plane_torus(
 }
 
 /// Try to build an analytic torus for a fillet whose center curve is
-/// a 3D circle (§11.1 `plane-sphere`, `plane-cylinder (perpendicular
-/// axis)`, and any other surface pair with a circular center curve).
+/// a 3D circle (§11.1 `plane-sphere`, `plane-cylinder`/`plane-cone`
+/// with the plane perpendicular to the axis, and any other surface
+/// pair with a circular center curve).
 ///
 /// **Geometry.** Whenever the rolling-ball center locus is a 3D
 /// circle, the resulting fillet surface is an exact torus:
@@ -86,16 +97,18 @@ pub(crate) fn try_plane_plane_torus(
 /// For a **plane-sphere** fillet the center curve is always a circle
 /// (intersection of a parallel plane with a concentric sphere).
 ///
-/// For a **plane-cylinder** fillet the center curve is a circle iff
-/// the plane is perpendicular to the cylinder axis. Oblique planes
-/// cut the cylinder in an ellipse, so the detector gates on
-/// `|plane_normal · cylinder_axis| > 0.999` up front.
+/// For a **plane-cylinder** or **plane-cone** fillet the center curve
+/// is a circle iff the plane is perpendicular to the curved surface's
+/// axis. Oblique planes cut a cylinder in an ellipse and a cone in
+/// an ellipse / parabola / hyperbola — none of which produce a
+/// circular center curve — so the detector gates on
+/// `|plane_normal · surface_axis| > 0.999` up front.
 ///
 /// Rather than derive the torus center + major radius from raw
-/// sphere/cylinder/plane math (which needs sign-juggling over which
-/// side of the plane the ball sits on), we read them directly from
-/// the already-computed `center_result.center_curve`. The approach
-/// mirrors [`try_plane_plane_torus`] above.
+/// sphere/cylinder/cone/plane math (which needs sign-juggling over
+/// which side of the plane the ball sits on), we read them directly
+/// from the already-computed `center_result.center_curve`. The
+/// approach mirrors [`try_plane_plane_torus`] above.
 pub(crate) fn try_circular_center_torus(
     surface1: &SurfaceGeometry,
     surface2: &SurfaceGeometry,
@@ -109,6 +122,20 @@ pub(crate) fn try_circular_center_torus(
         | (SurfaceGeometry::Cylinder { axis, .. }, SurfaceGeometry::Plane { normal, .. }) => {
             let n_unit = normal.normalized()?;
             let a_unit = axis.normalized()?;
+            if n_unit.dot(&a_unit).abs() < 0.999 {
+                return None;
+            }
+            *normal
+        }
+        (SurfaceGeometry::Plane { normal, .. }, SurfaceGeometry::Cone { axis, .. })
+        | (SurfaceGeometry::Cone { axis, .. }, SurfaceGeometry::Plane { normal, .. }) => {
+            let n_unit = normal.normalized()?;
+            let a_unit = axis.normalized()?;
+            // Oblique plane-cone intersections are conic sections
+            // other than circles (ellipse / parabola / hyperbola).
+            // Their fillet surfaces are canal surfaces with non-
+            // circular spines — no closed-form primitive exists,
+            // so we leave those cases to the generic NURBS sweep.
             if n_unit.dot(&a_unit).abs() < 0.999 {
                 return None;
             }

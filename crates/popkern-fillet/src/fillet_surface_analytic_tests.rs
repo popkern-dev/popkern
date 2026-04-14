@@ -2,14 +2,15 @@
 //!
 //! Split from `fillet_surface_tests.rs` so neither file exceeds
 //! the 500-line structural cap. Covers the surface pairs whose
-//! rolling-ball fillet is an exact torus:
+//! rolling-ball fillet is an exact torus or cylinder:
 //!
 //! - plane-sphere (always circular center curve)
 //! - plane-cylinder with axis perpendicular to the plane
+//! - plane-cone with axis perpendicular to the plane
+//! - cylinder-cylinder with parallel axes
 //!
-//! Plus the companion negative test that a non-perpendicular
-//! plane-cylinder configuration falls through to the generic
-//! NURBS sweep.
+//! Plus companion negative tests that non-perpendicular / non-
+//! parallel configurations fall through to the generic NURBS sweep.
 
 use super::*;
 use crate::center_curve::CenterCurveResult;
@@ -223,6 +224,129 @@ fn fillet_surface_plane_cylinder_perpendicular_produces_analytic_torus() {
             ),
         }
     }
+}
+
+/// §11.1 plane-cone (perpendicular axis) analytic fast path. A
+/// plane perpendicular to a cone's axis cuts the cone in a circle;
+/// by rotational symmetry the rolling-ball center curve is also a
+/// 3D circle, and the fillet surface is an exact torus.
+///
+/// Configuration: cone with apex at (0, 0, 2) opening downward with
+/// half-angle arctan(0.5) (base radius 1 at z = 0), plane z = 0.
+/// For a fillet radius r = 0.1, the rolling-ball 2D tangency in the
+/// (radial, axial) half-plane gives the ball center at some (ρ, z)
+/// with ρ slightly less than 1 and z slightly above 0 — exact value
+/// depends on the cone half-angle, but by rotational symmetry the
+/// 3D locus is a horizontal circle at that (ρ, z).
+///
+/// Instead of deriving ρ and z analytically, hand-build a plausible
+/// circle and verify `build_fillet_surface` takes the analytic path.
+/// The end-to-end test in `contact_cone_demo_tests.rs` drives the
+/// real walker → analytic-torus pipeline on `BRep::cone`.
+#[test]
+fn fillet_surface_plane_cone_perpendicular_produces_analytic_torus() {
+    let half_angle = 0.5_f64.atan();
+    let cone = SurfaceGeometry::Cone {
+        apex: Point3::new(0.0, 0.0, 2.0),
+        axis: Vec3::new(0.0, 0.0, -1.0),
+        half_angle,
+    };
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    // Approximate center curve: horizontal circle at ρ ≈ 0.9,
+    // z ≈ 0.1. Real values don't matter for the surface-type
+    // assertion; the detector just needs to see a circle.
+    let rho = 0.9;
+    let z = 0.1;
+    let n = 60usize;
+    let center_pts: Vec<Point3> = (0..n)
+        .map(|i| {
+            let theta = 2.0 * std::f64::consts::PI * (i as f64) / (n as f64);
+            Point3::new(rho * theta.cos(), rho * theta.sin(), z)
+        })
+        .collect();
+    let center_curve = crate::center_curve::fit_nurbs_through_points(&center_pts).unwrap();
+    // Footprints: on the cone's slant surface at radial 1, z = 0
+    // and on the plane at radial 0.9, z = 0. Plausible offsets from
+    // the rolling-ball center.
+    let fp1: Vec<Point3> = (0..n)
+        .map(|i| {
+            let theta = 2.0 * std::f64::consts::PI * (i as f64) / (n as f64);
+            Point3::new(theta.cos(), theta.sin(), 0.0)
+        })
+        .collect();
+    let fp2: Vec<Point3> = (0..n)
+        .map(|i| {
+            let theta = 2.0 * std::f64::consts::PI * (i as f64) / (n as f64);
+            Point3::new(0.85 * theta.cos(), 0.85 * theta.sin(), 0.0)
+        })
+        .collect();
+    let cr = CenterCurveResult {
+        center_curve,
+        footprint_1: fp1,
+        footprint_2: fp2,
+        contact_solutions: None,
+    };
+
+    let r = 0.1;
+    for (s1, s2) in [(&cone, &plane), (&plane, &cone)] {
+        let result = build_fillet_surface(s1, s2, &cr, r, 5, true, false, false, false)
+            .expect("plane-cone (perp) fillet should build");
+        match result.surface {
+            SurfaceGeometry::Torus {
+                axis, minor_radius, ..
+            } => {
+                assert!(
+                    axis.dot(&Vec3::new(0.0, 0.0, 1.0)).abs() > 0.999,
+                    "torus axis should be ±ẑ (parallel to cone axis), got {axis:?}"
+                );
+                assert!(
+                    (minor_radius - r).abs() < 1e-12,
+                    "minor_radius should equal fillet radius {r}, got {minor_radius}"
+                );
+            }
+            other => panic!(
+                "perpendicular plane-cone expected analytic Torus, got {:?}",
+                std::mem::discriminant(&other)
+            ),
+        }
+    }
+}
+
+/// A plane-cone pair where the plane is NOT perpendicular to the
+/// cone axis must NOT take the analytic torus path — the
+/// intersection is an ellipse / parabola / hyperbola and the
+/// rolling-ball fillet is a canal surface with no closed-form
+/// popkern primitive. Verify the detector bails to the NURBS
+/// sweep.
+#[test]
+fn fillet_surface_plane_cone_oblique_skips_analytic_torus() {
+    let cone = SurfaceGeometry::Cone {
+        apex: Point3::new(0.0, 0.0, 2.0),
+        axis: Vec3::new(0.0, 0.0, -1.0),
+        half_angle: 0.5_f64.atan(),
+    };
+    // Plane normal tilted 30° from the cone axis.
+    let c30 = 30f64.to_radians().cos();
+    let s30 = 30f64.to_radians().sin();
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, s30, c30),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, c30, -s30),
+    };
+    let cr = linear_center_result();
+    let result = build_fillet_surface(&cone, &plane, &cr, 0.1, 5, true, false, false, false)
+        .expect("oblique plane-cone fillet should still build (NURBS sweep)");
+    assert!(
+        matches!(result.surface, SurfaceGeometry::Nurbs(_)),
+        "oblique plane-cone should fall through to the NURBS sweep, got {:?}",
+        std::mem::discriminant(&result.surface)
+    );
 }
 
 /// §11.1 cylinder-cylinder parallel-axes analytic fast path: two
