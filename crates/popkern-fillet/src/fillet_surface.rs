@@ -100,9 +100,11 @@ pub fn build_fillet_surface(
         {
             return Ok(result);
         }
-        // §11.1 plane-sphere → torus. Works on either (Plane,
-        // Sphere) or (Sphere, Plane) ordering.
-        if let Some(result) = try_plane_sphere_torus(surface1, surface2, center_result, radius) {
+        // §11.1 analytic torus for fillets with a circular center
+        // curve: plane-sphere (always) and plane-cylinder (when
+        // the plane is perpendicular to the cylinder axis). Works
+        // on either ordering.
+        if let Some(result) = try_circular_center_torus(surface1, surface2, center_result, radius) {
             return Ok(result);
         }
     }
@@ -170,46 +172,69 @@ fn try_plane_plane_torus(
     })
 }
 
-/// Try to build an analytic torus for a plane-sphere fillet (§11.1).
+/// Try to build an analytic torus for a fillet whose center curve is
+/// a 3D circle (§11.1 `plane-sphere`, `plane-cylinder (perpendicular
+/// axis)`, and any other surface pair with a circular center curve).
 ///
-/// **Geometry.** The locus of rolling-ball centers tangent to both a
-/// plane and a sphere is the intersection of two offset surfaces: an
-/// offset plane (parallel to the original at distance `r`) and an
-/// offset sphere (concentric with the original at radius `R_s ± r`).
-/// Two parallel planes intersected with a sphere give a circle, so
-/// the center curve is a 3D circle lying in the offset plane. The
-/// rolling ball swept along that circle generates an exact torus:
+/// **Geometry.** Whenever the rolling-ball center locus is a 3D
+/// circle, the resulting fillet surface is an exact torus:
 ///
-/// - **Axis** = plane normal (the circle's normal)
-/// - **Center** = projection of the sphere center onto the offset
-///   plane = centroid of the circular center curve
+/// - **Axis** = normal to the plane containing the circle
+/// - **Center** = centroid of the circular center curve
 /// - **Major radius** = radius of the circular center curve
 /// - **Minor radius** = the fillet radius
 ///
-/// Rather than derive the torus center + major radius from raw
-/// sphere/plane math (which needs sign-juggling over which side of
-/// the plane the ball sits on and whether it is inside or outside
-/// the sphere), we read them directly from the already-computed
-/// `center_result.center_curve`: the centroid of N sampled points
-/// *is* the torus center, and the mean distance from the centroid
-/// *is* the major radius. The approach is analogous to the plane-
-/// plane path above that pulls the torus center from the center
-/// curve's midpoint.
+/// For a **plane-sphere** fillet the center curve is always a circle
+/// (intersection of a parallel plane with a concentric sphere), so
+/// this path applies unconditionally.
 ///
-/// Returns `None` for any surface pair that is not `(Plane, Sphere)`
-/// or `(Sphere, Plane)`, or when the center curve is too short to
-/// fit a meaningful circle (< 3 samples).
-fn try_plane_sphere_torus(
+/// For a **plane-cylinder** fillet the center curve is only a circle
+/// when the plane is perpendicular to the cylinder axis. At any
+/// other incidence the intersection is an ellipse, which fails the
+/// radial-spread check below and falls through to the generic NURBS
+/// sweep. We gate the cylinder case on `plane_normal ∥ cylinder_axis`
+/// up front so non-perpendicular cylinders skip the sampling work
+/// entirely.
+///
+/// Rather than derive the torus center + major radius from raw
+/// sphere/cylinder/plane math (which needs sign-juggling over which
+/// side of the plane the ball sits on and whether it is inside or
+/// outside the curved surface), we read them directly from the
+/// already-computed `center_result.center_curve`: the centroid of
+/// N sampled points *is* the torus center, and the mean distance
+/// from the centroid *is* the major radius. The approach is
+/// analogous to the plane-plane path above that pulls the torus
+/// center from the center curve's midpoint.
+///
+/// Returns `None` for any surface pair that is not one of the above,
+/// when the plane-cylinder case is non-perpendicular, or when the
+/// sampled center curve fails the planarity / radial-spread sanity
+/// checks that ensure it really is a circle.
+fn try_circular_center_torus(
     surface1: &SurfaceGeometry,
     surface2: &SurfaceGeometry,
     center_result: &CenterCurveResult,
     radius: f64,
 ) -> Option<FilletSurfaceResult> {
     // Match either ordering — the torus itself is symmetric in the
-    // two supports.
+    // two supports. Plane-sphere is accepted unconditionally;
+    // plane-cylinder is gated on the perpendicular-axis check.
     let plane_normal = match (surface1, surface2) {
         (SurfaceGeometry::Plane { normal, .. }, SurfaceGeometry::Sphere { .. })
         | (SurfaceGeometry::Sphere { .. }, SurfaceGeometry::Plane { normal, .. }) => *normal,
+        (SurfaceGeometry::Plane { normal, .. }, SurfaceGeometry::Cylinder { axis, .. })
+        | (SurfaceGeometry::Cylinder { axis, .. }, SurfaceGeometry::Plane { normal, .. }) => {
+            let n_unit = normal.normalized()?;
+            let a_unit = axis.normalized()?;
+            // Gate: plane must be perpendicular to the cylinder
+            // axis (plane normal parallel to axis). Oblique or
+            // parallel cases have non-circular center curves and
+            // are left for the generic NURBS sweep.
+            if n_unit.dot(&a_unit).abs() < 0.999 {
+                return None;
+            }
+            *normal
+        }
         _ => return None,
     };
 
@@ -431,3 +456,7 @@ fn build_clamped_uniform_knots(n: usize, degree: usize) -> Vec<f64> {
 #[cfg(test)]
 #[path = "fillet_surface_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "fillet_surface_analytic_tests.rs"]
+mod analytic_tests;
