@@ -25,8 +25,9 @@ use popkern_core::topology::{BRep, EdgeHandle};
 
 use crate::analysis::{self, Convexity};
 use crate::error::BlendError;
-use crate::geometry_compute::{
-    face_param_range, largest_requested_radius, self_intersection_safe_radius,
+use crate::geometry_compute::face_param_range;
+use crate::geometry_compute_feasibility::{
+    largest_requested_radius, self_intersection_safe_radius,
 };
 use crate::offset::self_intersect::check_offset_self_intersection;
 use crate::types::FilletRadius;
@@ -100,6 +101,11 @@ pub enum FilletIssue {
         /// Length of the smallest perpendicular edge used to measure.
         smallest_edge: f64,
     },
+    /// A §13.1 degeneracy was detected on the input edge. The
+    /// inner [`crate::degeneracy::DegeneracyKind`] names the
+    /// specific sub-category (collapsed edge / endpoint cusp /
+    /// nearly-tangent supports / vanishing support normal).
+    Degeneracy(crate::degeneracy::DegeneracyKind),
 }
 
 /// Run a non-destructive feasibility pre-check on a single edge
@@ -165,6 +171,15 @@ pub fn precheck_fillet(
         issues.push(FilletIssue::MixedConvexity);
     }
 
+    // 2b. §13.1 degeneracy detection. Same predicate the pipeline
+    //     path uses — collapsed edge, endpoint cusp, near-tangent
+    //     supports, vanishing support normal. Runs after seam /
+    //     convexity so the non-destructive report stays ordered
+    //     from structural to geometric issues.
+    if let Err(kind) = crate::degeneracy::check_edge_degeneracy(brep, &analysis, &tolerance) {
+        issues.push(FilletIssue::Degeneracy(kind));
+    }
+
     // 3. Maximum curvature-safe radius on either support surface.
     let (u1_range, v1_range) = face_param_range(brep, analysis.face_1, &analysis.surface_1);
     let (u2_range, v2_range) = face_param_range(brep, analysis.face_2, &analysis.surface_2);
@@ -218,14 +233,13 @@ pub fn precheck_fillet(
         }
     }
 
-    let _ = tolerance; // reserved for future use (§9 categories)
-
     let has_error = issues.iter().any(|i| {
         matches!(
             i,
             FilletIssue::SeamEdge
                 | FilletIssue::InvalidTopology { .. }
                 | FilletIssue::RadiusExceedsCurvature { .. }
+                | FilletIssue::Degeneracy(_)
         )
     });
 

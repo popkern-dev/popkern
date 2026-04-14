@@ -1,9 +1,8 @@
 #![warn(missing_docs)]
 //! popkern-fillet: Fillets and chamfers for the popkern BRep kernel.
 //!
-//! Provides [`fillet_edges`] and [`chamfer_edges`] for applying fillets and
-//! chamfers to BRep edges, plus convenience wrappers [`fillet_edge`] and
-//! [`chamfer_edge`] for single-edge operations.
+//! Public entry points: [`fillet_edges`], [`fillet_edge`],
+//! [`chamfer_edges`], [`chamfer_edge`].
 
 pub mod analysis;
 pub mod blend;
@@ -14,12 +13,14 @@ pub mod center_curve_walker;
 pub mod chamfer_curve;
 pub mod construct;
 pub mod contact;
+pub(crate) mod degeneracy;
 pub mod error;
 pub mod fillet_surface;
 pub mod fillet_surface_analytic;
 pub mod g2_cross_section;
 pub(crate) mod geometry_compute;
 pub(crate) mod geometry_compute_cone;
+pub(crate) mod geometry_compute_feasibility;
 pub mod history;
 pub mod identify;
 pub(crate) mod identify_helpers;
@@ -47,7 +48,6 @@ pub(crate) mod unfillet_surgery;
 pub mod validate;
 pub mod walker;
 pub(crate) mod walker_adaptive;
-
 pub use cancellation::CancellationToken;
 pub use error::{
     BlendError, BlendFailure, BlendWarning, Remediation, RemediationAction, RemediationContext,
@@ -428,7 +428,7 @@ pub fn fillet_edges_with_quality(
     // variable specs it's the peak.
     let requested_radius = specs
         .iter()
-        .map(|s| geometry_compute::largest_requested_radius(&s.radius))
+        .map(|s| geometry_compute_feasibility::largest_requested_radius(&s.radius))
         .fold(0.0_f64, f64::max);
     let quality = precheck::fillet_quality(&precheck::ComputeQualityInput {
         post_brep: &result.brep,

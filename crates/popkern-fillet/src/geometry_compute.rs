@@ -11,6 +11,9 @@ use crate::chamfer_curve;
 use crate::construct::EdgeGeometry;
 use crate::error::BlendFailure;
 use crate::fillet_surface;
+use crate::geometry_compute_feasibility::{
+    largest_requested_radius, self_intersection_safe_radius,
+};
 use crate::trim;
 use crate::types::{ChamferKind, FilletRadius};
 
@@ -34,6 +37,18 @@ pub(crate) fn compute_fillet_geometry(
     g2_cross_section: bool,
 ) -> Result<EdgeGeometry, BlendFailure> {
     let edge_midpoint = get_edge_midpoint(brep, analysis)?;
+
+    // §13.1 degeneracy pre-flight: collapsed edge, endpoint cusp,
+    // degenerate support normal, near-tangent knife-edge. Fails
+    // fast on clearly-degenerate input before any real geometry
+    // work. Repair (subdivide / reparameterize / stitch) is a
+    // separate, per-category follow-up.
+    if let Err(kind) = crate::degeneracy::check_edge_degeneracy(brep, analysis, tolerance) {
+        return Err(BlendFailure::InvalidTopology {
+            reason: kind.describe(),
+            location: Some(edge_midpoint),
+        });
+    }
 
     let (u1_range, v1_range) = face_param_range(brep, analysis.face_1, &analysis.surface_1);
     let (u2_range, v2_range) = face_param_range(brep, analysis.face_2, &analysis.surface_2);
@@ -278,68 +293,10 @@ pub(crate) fn compute_chamfer_geometry(
     })
 }
 
-/// Largest requested radius in a radius spec. Used as the "requested"
-/// value in `BlendFailure::RadiusTooLarge`, so the user sees the
-/// worst-case instance of their spec, not an arbitrary midpoint.
-pub(crate) fn largest_requested_radius(radius: &FilletRadius) -> f64 {
-    match radius {
-        FilletRadius::Constant(r) => *r,
-        FilletRadius::Variable { start, end } => start.max(*end),
-        FilletRadius::ByPoints(pts) => pts
-            .iter()
-            .map(|(_, r)| *r)
-            .fold(0.0_f64, |acc, r| acc.max(r)),
-    }
-}
-
-/// Pre-flight self-intersection check for a rolling-ball fillet at the
-/// requested radius. Returns `Some(max_safe_radius)` when the
-/// requested radius would exceed the feasibility envelope on either
-/// support surface, or `None` when the radius is safe (i.e. the
-/// caller should proceed with the normal geometry pipeline).
-///
-/// For [`FilletRadius::Constant`] we test the single value. For
-/// variable/by-points specs we test the peak requested radius —
-/// if the peak is unsafe, the spec is unconditionally unsafe.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn self_intersection_safe_radius(
-    surface_1: &popkern_core::geometry::surface::SurfaceGeometry,
-    surface_2: &popkern_core::geometry::surface::SurfaceGeometry,
-    radius: &FilletRadius,
-    orientation_1: bool,
-    orientation_2: bool,
-    u1_range: (f64, f64),
-    v1_range: (f64, f64),
-    u2_range: (f64, f64),
-    v2_range: (f64, f64),
-) -> Option<f64> {
-    use crate::offset::self_intersect::check_offset_self_intersection;
-
-    let peak = largest_requested_radius(radius);
-    if peak <= 0.0 {
-        return None;
-    }
-
-    // "inward" matches the logic in center_curve.rs — offset_surface's
-    // inward flag moves AGAINST the normal, and face normals point
-    // into the solid, so we need `inward = !orientation`.
-    let inward_1 = !orientation_1;
-    let inward_2 = !orientation_2;
-
-    let max_1 = check_offset_self_intersection(surface_1, peak, inward_1, u1_range, v1_range);
-    let max_2 = check_offset_self_intersection(surface_2, peak, inward_2, u2_range, v2_range);
-
-    // Both surfaces reported "safe" — nothing to flag.
-    match (max_1, max_2) {
-        (None, None) => None,
-        // One or both reported a safety bound — take the tighter
-        // (smaller) bound since both surfaces have to accommodate
-        // the rolling ball simultaneously.
-        (Some(a), Some(b)) => Some(a.min(b)),
-        (Some(a), None) => Some(a),
-        (None, Some(b)) => Some(b),
-    }
-}
+// `largest_requested_radius` and `self_intersection_safe_radius`
+// live in `geometry_compute_feasibility.rs` — extracted to keep
+// this file under the 500-line structural cap. Re-exported via
+// `pub(crate) use` at the top of the file.
 
 /// Get the 3D midpoint of an edge for center-curve selection.
 pub(crate) fn get_edge_midpoint(

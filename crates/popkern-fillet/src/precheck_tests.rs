@@ -16,6 +16,38 @@ fn cube_and_edge() -> (BRep, popkern_core::topology::EdgeHandle) {
 
 // ---------- precheck_fillet ----------
 
+/// §13.1 integration: `precheck_fillet` must report a
+/// `FilletIssue::Degeneracy` and flip `can_succeed` to false when
+/// the edge is collapsed. Synthesises a collapsed edge by moving
+/// one vertex of a cube edge to coincide with its neighbour.
+#[test]
+fn precheck_reports_collapsed_edge_as_degeneracy() {
+    let (mut brep, edge) = cube_and_edge();
+    let edge_rec = &brep.edges[edge];
+    let he = &brep.half_edges[edge_rec.half_edge];
+    let twin = &brep.half_edges[he.twin];
+    let v_start = he.origin;
+    let v_end = twin.origin;
+    brep.vertices[v_start].position = brep.vertices[v_end].position;
+
+    let f = precheck_fillet(&brep, edge, &FilletRadius::Constant(0.1), tol());
+    assert!(
+        !f.can_succeed,
+        "collapsed edge should flip can_succeed to false"
+    );
+    let has_degeneracy = f.issues.iter().any(|i| {
+        matches!(
+            i,
+            FilletIssue::Degeneracy(crate::degeneracy::DegeneracyKind::CollapsedEdge { .. })
+        )
+    });
+    assert!(
+        has_degeneracy,
+        "issues should contain a CollapsedEdge Degeneracy: {:?}",
+        f.issues
+    );
+}
+
 #[test]
 fn precheck_plane_plane_cube_edge_is_clean_for_small_radius() {
     let (brep, edge) = cube_and_edge();
