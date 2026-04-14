@@ -26,7 +26,7 @@ fn modify_open_in_place_variable_assigns_nurbs_sweep_surface() {
     let opts = FilletOptions {
         propagate_tangent: false,
         vertex_mode: crate::types::VertexMode::Mitred,
-        g2_cross_section: false,
+        ..FilletOptions::default()
     };
     let specs = vec![FilletSpec {
         edge,
@@ -186,7 +186,7 @@ fn modify_open_in_place_bypoints_assigns_nurbs_sweep() {
     let opts = FilletOptions {
         propagate_tangent: false,
         vertex_mode: crate::types::VertexMode::Mitred,
-        g2_cross_section: false,
+        ..FilletOptions::default()
     };
     let specs = vec![FilletSpec {
         edge,
@@ -265,7 +265,7 @@ fn modify_open_in_place_variable_uses_per_end_radii() {
     let opts = FilletOptions {
         propagate_tangent: false,
         vertex_mode: crate::types::VertexMode::Mitred,
-        g2_cross_section: false,
+        ..FilletOptions::default()
     };
     let specs = vec![FilletSpec {
         edge,

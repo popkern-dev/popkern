@@ -333,7 +333,7 @@ fn fillet_three_edges_at_cube_corner() {
     let opts = FilletOptions {
         propagate_tangent: false,
         vertex_mode: popkern_fillet::VertexMode::Smooth,
-        g2_cross_section: false,
+        ..FilletOptions::default()
     };
 
     let result = popkern_fillet::fillet_edges(&brep, &specs, &opts, tol, None);
@@ -379,7 +379,7 @@ fn fillet_three_edges_at_cube_corner_mitred() {
     let opts = FilletOptions {
         propagate_tangent: false,
         vertex_mode: popkern_fillet::VertexMode::Mitred,
-        g2_cross_section: false,
+        ..FilletOptions::default()
     };
 
     let result = popkern_fillet::fillet_edges(&brep, &specs, &opts, tol, None);
@@ -420,7 +420,7 @@ fn fillet_two_adjacent_edges() {
     let opts = FilletOptions {
         propagate_tangent: false,
         vertex_mode: popkern_fillet::VertexMode::Smooth,
-        g2_cross_section: false,
+        ..FilletOptions::default()
     };
 
     let result = popkern_fillet::fillet_edges(&brep, &specs, &opts, tol, None);
@@ -455,7 +455,7 @@ fn large_radius_detects_overlap_or_fails() {
     let opts = FilletOptions {
         propagate_tangent: false,
         vertex_mode: popkern_fillet::VertexMode::Mitred,
-        g2_cross_section: false,
+        ..FilletOptions::default()
     };
 
     let result = popkern_fillet::fillet_edges(&brep, &specs, &opts, tol, None);

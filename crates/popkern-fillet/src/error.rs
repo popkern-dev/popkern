@@ -274,6 +274,21 @@ pub enum BlendWarning {
         /// classified but not absorbed.
         kind: &'static str,
     },
+    /// §13.4 soft-supports mode was active for this fillet
+    /// operation: the pipeline's internal tolerance was scaled up
+    /// from the caller's value to accommodate low-precision input
+    /// geometry. Downstream consumers can distinguish soft-mode
+    /// results from strict ones by checking for this warning.
+    ///
+    /// Emitted exactly once per fillet call when
+    /// [`crate::types::FilletOptions::soft_supports`] is `true`.
+    SoftSupportTolerancesApplied {
+        /// The multiplicative factor applied to `tolerance.linear()`
+        /// when producing the relaxed tolerance. Defaults to 10,
+        /// set via
+        /// [`crate::types::FilletOptions::soft_support_factor`].
+        factor: f64,
+    },
 }
 
 // The Remediation types and the per-variant remediation-hint

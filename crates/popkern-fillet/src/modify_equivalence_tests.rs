@@ -279,7 +279,7 @@ fn open_in_place_matches_remove_recreate_geometry() {
     let opts = FilletOptions {
         propagate_tangent: false,
         vertex_mode: crate::types::VertexMode::Mitred,
-        g2_cross_section: false,
+        ..FilletOptions::default()
     };
     let specs = vec![FilletSpec {
         edge,
@@ -381,7 +381,7 @@ fn open_in_place_variable_matches_remove_recreate_geometry() {
     let opts = FilletOptions {
         propagate_tangent: false,
         vertex_mode: crate::types::VertexMode::Mitred,
-        g2_cross_section: false,
+        ..FilletOptions::default()
     };
     let initial_specs = vec![FilletSpec {
         edge,

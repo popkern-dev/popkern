@@ -104,6 +104,45 @@ pub struct FilletOptions {
     /// let result = fillet_edges(&brep, &specs, &opts, Tolerance::default(), None);
     /// ```
     pub g2_cross_section: bool,
+    /// **§13.4 soft-supports mode** for low-precision input
+    /// geometry (e.g. lossy STEP imports with vertex drift).
+    /// When `true`, the fillet pipeline runs against a relaxed
+    /// tolerance derived from the caller's input by scaling the
+    /// linear threshold up by `soft_support_factor` (default 10×).
+    /// The relaxed tolerance propagates to:
+    ///
+    /// - The walker's contact solver (loosened Newton residual)
+    /// - The §13.1 degeneracy detectors (loosened collapsed-
+    ///   edge / near-tangent / zero-area thresholds)
+    /// - The §13.1(2) sliver absorber (loosened sliver
+    ///   classification thresholds)
+    /// - The §13.2 post-construction self-intersection check
+    ///   (loosened coincidence threshold)
+    ///
+    /// **When to use.** Enable for operations on BReps that have
+    /// been round-tripped through a lossy format (STEP, IGES,
+    /// STL re-meshing) or produced by a boolean op that left
+    /// sub-tolerance drift. Leave disabled for authored geometry
+    /// that is known to be tight.
+    ///
+    /// **Always produces a warning.** When this flag causes the
+    /// tolerance to be relaxed, the result's `edge_warnings`
+    /// vector contains exactly one
+    /// [`crate::error::BlendWarning::SoftSupportTolerancesApplied`]
+    /// entry with the actual factor used, so downstream
+    /// consumers can distinguish soft-mode results from strict
+    /// ones for logging or auditing.
+    ///
+    /// See §13.4 "Soft Support Faces" in
+    /// `docs/requirements/fillets_blends.md`.
+    pub soft_supports: bool,
+    /// Linear tolerance multiplication factor applied when
+    /// [`Self::soft_supports`] is `true`. Default `10.0` — matches
+    /// the common loose-precision convention of "one order
+    /// of magnitude looser than the calling tolerance."
+    ///
+    /// Ignored when `soft_supports = false`.
+    pub soft_support_factor: f64,
 }
 
 impl Default for FilletOptions {
@@ -112,6 +151,37 @@ impl Default for FilletOptions {
             propagate_tangent: true,
             vertex_mode: VertexMode::Smooth,
             g2_cross_section: false,
+            soft_supports: false,
+            soft_support_factor: 10.0,
+        }
+    }
+}
+
+impl FilletOptions {
+    /// §13.4 tolerance relaxation. Returns `(relaxed_tolerance,
+    /// optional_warning)` — when soft-supports mode is active and
+    /// the factor is > 1, the returned tolerance has `linear` and
+    /// `angular` scaled up by the factor, and the warning side
+    /// carries a `BlendWarning::SoftSupportTolerancesApplied` that
+    /// the caller should attach to the result. Otherwise returns
+    /// the caller's tolerance unchanged and `None`.
+    pub(crate) fn relax_tolerance(
+        &self,
+        tolerance: popkern_core::tolerance::Tolerance,
+    ) -> (
+        popkern_core::tolerance::Tolerance,
+        Option<crate::error::BlendWarning>,
+    ) {
+        if self.soft_supports && self.soft_support_factor > 1.0 {
+            let relaxed = tolerance
+                .with_linear(tolerance.linear() * self.soft_support_factor)
+                .with_angular(tolerance.angular() * self.soft_support_factor);
+            let warn = crate::error::BlendWarning::SoftSupportTolerancesApplied {
+                factor: self.soft_support_factor,
+            };
+            (relaxed, Some(warn))
+        } else {
+            (tolerance, None)
         }
     }
 }

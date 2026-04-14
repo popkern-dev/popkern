@@ -170,8 +170,16 @@ fn fillet_edges_internal(
     emit!(progress::FilletPhase::Validate, t0, specs.len());
     check_cancel!();
 
+    // §13.4 soft-supports: loosen the pipeline's internal tolerance
+    // when the caller flagged the input as low-precision. Every
+    // subsequent phase sees the relaxed value via this shadow.
+    let (tolerance, soft_warn) = options.relax_tolerance(tolerance);
+    let mut prepass_warnings: Vec<BlendWarning> = soft_warn.into_iter().collect();
+
     // PHASE 0b: §13.1(5) collapsed-edge soft-skip + §13.1(1) cusp subdivide.
-    let (skipped, prepass_warnings) = collapsed_skip::skip_collapsed_edges(brep, specs, &tolerance);
+    let (skipped, collapsed_warnings) =
+        collapsed_skip::skip_collapsed_edges(brep, specs, &tolerance);
+    prepass_warnings.extend(collapsed_warnings);
     let (healed_brep, healed_specs) =
         cusp_subdivide::subdivide_cusp_edges(brep, &skipped, &tolerance);
     let brep = &healed_brep;
