@@ -1,7 +1,16 @@
-//! Phase 1b cone routing: compute the center curve via the spine
-//! walker. Pulls the edge curve from the BRep, builds a `WalkRequest`
-//! against it, and routes through `walker_based_center_curve` which
-//! handles the full radius-type matrix (Constant, Variable, ByPoints).
+//! Walker-based center-curve routing. Pulls the edge curve from the
+//! BRep, builds a `WalkRequest` against it, and routes through
+//! `walker_based_center_curve` which handles the full radius-type
+//! matrix (Constant, Variable, ByPoints).
+//!
+//! **When this path runs:**
+//! - Phase 1b: either support surface is a Cone (offset-intersect
+//!   path can't run because cones have no analytic offset).
+//! - Phase 2 step 4: the caller requested G2 cross-sections via
+//!   `FilletOptions::g2_cross_section`. The walker populates
+//!   `CenterCurveResult::contact_solutions`, which lets the downstream
+//!   `build_fillet_surface` route through `g2_sweep_from_contact_solutions`
+//!   on any surface pair (not just cones).
 //!
 //! Split out of `geometry_compute.rs` to keep the parent under the
 //! 500-line structural cap.
@@ -16,7 +25,7 @@ use crate::error::BlendFailure;
 use crate::types::FilletRadius;
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn compute_cone_center_via_walker(
+pub(crate) fn compute_center_via_walker(
     analysis: &analysis::EdgeAnalysis,
     radius: &FilletRadius,
     brep: &BRep,

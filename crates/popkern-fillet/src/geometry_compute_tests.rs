@@ -102,6 +102,46 @@ fn build_overlap_inputs_empty_geometries() {
     assert!(face_trim_map.is_empty());
 }
 
+/// Phase 2 step 4: when the caller requests G2 cross-sections on a
+/// non-cone surface pair (plane-plane cube edge), `compute_fillet_geometry`
+/// must route through the spine walker so that `contact_solutions` is
+/// populated and `build_fillet_surface` can skin a degree-5 Bezier sweep.
+/// The resulting surface must be a NURBS (not a Torus — the constant-
+/// radius plane-plane analytic path), proving the G2 branch fired.
+#[test]
+fn compute_fillet_geometry_g2_on_cube_edge_produces_nurbs_sweep() {
+    let (brep, analysis) = make_cube_and_analysis();
+    let radius = crate::types::FilletRadius::Constant(0.1);
+    let result = compute_fillet_geometry(&analysis, &radius, &brep, &tol(), true)
+        .expect("g2 cube fillet geometry should compute");
+    assert!(
+        matches!(
+            result.surface,
+            popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
+        ),
+        "g2 cube fillet should produce a NURBS sweep, not a Torus or Plane"
+    );
+}
+
+#[test]
+fn compute_fillet_geometry_legacy_constant_on_cube_produces_torus() {
+    // Companion to the G2 test above: with `g2_cross_section = false`
+    // the legacy constant-radius plane-plane analytic path runs and
+    // produces an analytic Torus. This pins the behaviour the G2
+    // opt-in path must NOT regress.
+    let (brep, analysis) = make_cube_and_analysis();
+    let radius = crate::types::FilletRadius::Constant(0.1);
+    let result = compute_fillet_geometry(&analysis, &radius, &brep, &tol(), false)
+        .expect("legacy cube fillet geometry should compute");
+    assert!(
+        matches!(
+            result.surface,
+            popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
+        ),
+        "legacy cube fillet should produce a Torus"
+    );
+}
+
 #[test]
 fn compute_fillet_geometry_variable_radius() {
     let (brep, analysis) = make_cube_and_analysis();

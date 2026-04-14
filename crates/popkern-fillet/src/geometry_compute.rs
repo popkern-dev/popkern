@@ -67,11 +67,14 @@ pub(crate) fn compute_fillet_geometry(
         }
     }
 
-    // Phase 1b: when either surface is a Cone, the offset-intersect
-    // path can't run (cones have no analytic offset). Route the
-    // entire center-curve computation through the spine walker, which
-    // builds the center curve from rolling-ball contact solutions
-    // along the actual edge curve.
+    // Walker routing trigger:
+    //   1. Phase 1b — either surface is a Cone (no analytic offset,
+    //      so the offset-intersect path can't run).
+    //   2. Phase 2 step 4 — caller requested G2 cross-sections. The
+    //      walker populates `CenterCurveResult::contact_solutions`,
+    //      which lets `build_fillet_surface` route through the
+    //      degree-5 Bezier G2 sweep on ANY surface pair (not just
+    //      cones).
     let either_is_cone = matches!(
         analysis.surface_1,
         popkern_core::geometry::surface::SurfaceGeometry::Cone { .. }
@@ -79,9 +82,10 @@ pub(crate) fn compute_fillet_geometry(
         analysis.surface_2,
         popkern_core::geometry::surface::SurfaceGeometry::Cone { .. }
     );
+    let use_walker = either_is_cone || g2_cross_section;
 
-    let center_result = if either_is_cone {
-        crate::geometry_compute_cone::compute_cone_center_via_walker(
+    let center_result = if use_walker {
+        crate::geometry_compute_cone::compute_center_via_walker(
             analysis,
             radius,
             brep,
