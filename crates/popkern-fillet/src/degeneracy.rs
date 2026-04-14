@@ -36,7 +36,6 @@
 //! failure" pattern.
 
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
@@ -194,6 +193,10 @@ pub fn check_edge_degeneracy(
     analysis: &EdgeAnalysis,
     tolerance: &Tolerance,
 ) -> Result<(), DegeneracyKind> {
+    use crate::degeneracy_surface::{
+        check_degenerate_support_normal, check_nearly_tangent_supports,
+        check_parameterization_singularity,
+    };
     check_collapsed_edge(brep, analysis, tolerance)?;
     check_zero_area_support(brep, analysis, tolerance)?;
     check_edge_tangent_cusp(brep, analysis, tolerance)?;
@@ -255,102 +258,10 @@ fn check_edge_tangent_cusp(
     Ok(())
 }
 
-/// §13.1(6): vanishing surface normal at the edge midpoint, on
-/// either support face.
-fn check_degenerate_support_normal(
-    brep: &BRep,
-    analysis: &EdgeAnalysis,
-    tolerance: &Tolerance,
-) -> Result<(), DegeneracyKind> {
-    let midpoint = match super::geometry_compute::get_edge_midpoint(brep, analysis) {
-        Ok(p) => p,
-        Err(_) => return Ok(()), // Can't compute midpoint — let the caller handle it.
-    };
-
-    let check_side = |surface: &popkern_core::geometry::surface::SurfaceGeometry,
-                      side: SupportSide|
-     -> Result<(), DegeneracyKind> {
-        let Some((u, v)) = surface.closest_point(&midpoint) else {
-            return Ok(());
-        };
-        let normal = surface.normal_at(u, v);
-        let mag = normal.length();
-        if mag < tolerance.linear() {
-            return Err(DegeneracyKind::DegenerateSupportNormal {
-                side,
-                magnitude: mag,
-            });
-        }
-        Ok(())
-    };
-
-    check_side(&analysis.surface_1, SupportSide::Face1)?;
-    check_side(&analysis.surface_2, SupportSide::Face2)?;
-    Ok(())
-}
-
-/// §13.1(3): nearly-tangent supports — the two face normals are
-/// anti-parallel within `2 * tolerance.angular()`.
-///
-/// popkern face normals point INTO the solid. A dihedral angle of
-/// π (flat, no edge) corresponds to `n1 · n2 = 1` (parallel); a
-/// dihedral angle of 0 (knife-edge) corresponds to `n1 · n2 = -1`
-/// (anti-parallel). We flag the knife-edge case because it is what
-/// makes a rolling-ball fillet impossible to place: as the dihedral
-/// shrinks, the rolling-ball centre escapes to infinity.
-///
-/// The flat case (dihedral ≈ π, `n1 · n2 ≈ 1`) is handled by the
-/// existing `Convexity::Mixed` classification in
-/// `analysis::analyze_edges` and is not re-checked here to avoid
-/// double-reporting.
-fn check_nearly_tangent_supports(
-    brep: &BRep,
-    analysis: &EdgeAnalysis,
-    tolerance: &Tolerance,
-) -> Result<(), DegeneracyKind> {
-    let midpoint = match super::geometry_compute::get_edge_midpoint(brep, analysis) {
-        Ok(p) => p,
-        Err(_) => return Ok(()),
-    };
-    let Some((u1, v1)) = analysis.surface_1.closest_point(&midpoint) else {
-        return Ok(());
-    };
-    let Some((u2, v2)) = analysis.surface_2.closest_point(&midpoint) else {
-        return Ok(());
-    };
-    let n1 = analysis.surface_1.normal_at(u1, v1);
-    let n2 = analysis.surface_2.normal_at(u2, v2);
-    let m1 = n1.length();
-    let m2 = n2.length();
-    if m1 < tolerance.linear() || m2 < tolerance.linear() {
-        return Ok(()); // already caught upstream by check_degenerate_support_normal
-    }
-    let n1u = n1 * (1.0 / m1);
-    let n2u = n2 * (1.0 / m2);
-    let dot = n1u.dot(&n2u);
-
-    // Apply popkern's orientation convention: if orientation is
-    // `true`, the surface's natural normal equals the face normal;
-    // otherwise the face normal is `-natural`. Face normals point
-    // into the solid.
-    let sign_1 = if analysis.orientation_1 { 1.0 } else { -1.0 };
-    let sign_2 = if analysis.orientation_2 { 1.0 } else { -1.0 };
-    let face_dot = sign_1 * sign_2 * dot;
-
-    // Knife-edge: face_dot near -1 → dihedral near 0.
-    // Threshold: angle between face normals > π - 2·tol_angular
-    //   ⇔ face_dot < -cos(2·tol_angular) ≈ -(1 - 2·tol_angular²)
-    let threshold = -(1.0 - 2.0 * tolerance.angular() * tolerance.angular());
-    if face_dot < threshold {
-        // Convert dot to angle for the diagnostic.
-        let angle_between_face_normals = face_dot.clamp(-1.0, 1.0).acos();
-        let dihedral = std::f64::consts::PI - angle_between_face_normals;
-        return Err(DegeneracyKind::NearlyTangentSupports {
-            angle_rad: dihedral,
-        });
-    }
-    Ok(())
-}
+// Surface-level detectors for §13.1(3), (4), (6) live in
+// `degeneracy_surface.rs` — split out to keep this file under the
+// 500-line structural cap. They are called from
+// `check_edge_degeneracy` above.
 
 /// §13.1(2): zero-area polygonal outer loop on either support face.
 ///
@@ -399,66 +310,6 @@ fn check_zero_area_support(
 
     check_side(analysis.face_1, SupportSide::Face1)?;
     check_side(analysis.face_2, SupportSide::Face2)?;
-    Ok(())
-}
-
-/// §13.1(4): NaN/∞ in surface evaluation at sampled (u, v) points.
-///
-/// Sweeps each support surface on an 8×8 UV grid over the natural
-/// parameter range (finite dimensions only; infinite dimensions
-/// clamp to `[-10, 10]` so the sweep terminates). At each sample
-/// checks `point_at`, `partial_u`, and `partial_v` for non-finite
-/// coordinates. Fires on the first non-finite sample found, so the
-/// cost is bounded at 8×8×6 = 384 float checks in the clean case.
-///
-/// This detector catches genuinely broken surfaces — pathological
-/// NURBS control polygons, bad knot vectors, arithmetic singularities
-/// in derived formulas. popkern's analytic primitives return finite
-/// values across their natural parameter range, so they will only
-/// fire on the NURBS case.
-fn check_parameterization_singularity(analysis: &EdgeAnalysis) -> Result<(), DegeneracyKind> {
-    check_surface_singularity(&analysis.surface_1, SupportSide::Face1)?;
-    check_surface_singularity(&analysis.surface_2, SupportSide::Face2)?;
-    Ok(())
-}
-
-fn check_surface_singularity(
-    surface: &popkern_core::geometry::surface::SurfaceGeometry,
-    side: SupportSide,
-) -> Result<(), DegeneracyKind> {
-    let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
-    // Clamp infinite dimensions to a bounded sweep range so the grid
-    // evaluation terminates. The specific bound is arbitrary — any
-    // finite value works because the detector is looking for NaN/∞
-    // from the surface evaluator, not from the range values.
-    let u_lo = if u_min.is_finite() { u_min } else { -10.0 };
-    let u_hi = if u_max.is_finite() { u_max } else { 10.0 };
-    let v_lo = if v_min.is_finite() { v_min } else { -10.0 };
-    let v_hi = if v_max.is_finite() { v_max } else { 10.0 };
-
-    const N: usize = 8;
-    let denom = (N - 1) as f64;
-    for i in 0..N {
-        let u = u_lo + (u_hi - u_lo) * (i as f64) / denom;
-        for j in 0..N {
-            let v = v_lo + (v_hi - v_lo) * (j as f64) / denom;
-            let p = surface.point_at(u, v);
-            let pu = surface.partial_u(u, v);
-            let pv = surface.partial_v(u, v);
-            if !p.x.is_finite()
-                || !p.y.is_finite()
-                || !p.z.is_finite()
-                || !pu.x.is_finite()
-                || !pu.y.is_finite()
-                || !pu.z.is_finite()
-                || !pv.x.is_finite()
-                || !pv.y.is_finite()
-                || !pv.z.is_finite()
-            {
-                return Err(DegeneracyKind::ParameterizationSingularity { side, uv: (u, v) });
-            }
-        }
-    }
     Ok(())
 }
 

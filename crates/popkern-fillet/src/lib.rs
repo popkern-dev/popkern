@@ -1,8 +1,7 @@
 #![warn(missing_docs)]
 //! popkern-fillet: Fillets and chamfers for the popkern BRep kernel.
 //!
-//! Public entry points: [`fillet_edges`], [`fillet_edge`],
-//! [`chamfer_edges`], [`chamfer_edge`].
+//! Public entry points: [`fillet_edges`]/[`fillet_edge`] and [`chamfer_edges`]/[`chamfer_edge`].
 
 pub mod analysis;
 pub mod blend;
@@ -14,6 +13,7 @@ pub mod chamfer_curve;
 pub mod construct;
 pub mod contact;
 pub(crate) mod degeneracy;
+pub(crate) mod degeneracy_surface;
 pub mod error;
 pub mod fillet_surface;
 pub mod fillet_surface_analytic;
