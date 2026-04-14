@@ -227,6 +227,15 @@ fn check_collapsed_edge(
 }
 
 /// §13.1(1): vanishing edge tangent at start or end.
+///
+/// Uses [`CurveEval::derivative_at(t, 1)`] rather than
+/// [`CurveEval::tangent_at`]: popkern's `tangent_at` returns a
+/// **normalized** tangent (or exactly zero when the derivative
+/// magnitude is below `normalized()`'s floor), so checking its
+/// length against a small tolerance only catches exact-zero
+/// derivatives. The un-normalized first derivative preserves
+/// magnitude information and is the correct quantity for "tangent
+/// vanishing" detection.
 fn check_edge_tangent_cusp(
     brep: &BRep,
     analysis: &EdgeAnalysis,
@@ -239,16 +248,16 @@ fn check_edge_tangent_cusp(
         return Ok(()); // No curve to inspect — can't evaluate tangent.
     };
     let curve = &curve_on_edge.geometry;
-    let tan_start = curve.tangent_at(curve_on_edge.t_start);
-    let mag_start = tan_start.length();
+    let d_start = curve.derivative_at(curve_on_edge.t_start, 1);
+    let mag_start = d_start.length();
     if mag_start < tolerance.linear() {
         return Err(DegeneracyKind::DegenerateEdgeTangent {
             at: EdgeEndpoint::Start,
             magnitude: mag_start,
         });
     }
-    let tan_end = curve.tangent_at(curve_on_edge.t_end);
-    let mag_end = tan_end.length();
+    let d_end = curve.derivative_at(curve_on_edge.t_end, 1);
+    let mag_end = d_end.length();
     if mag_end < tolerance.linear() {
         return Err(DegeneracyKind::DegenerateEdgeTangent {
             at: EdgeEndpoint::End,

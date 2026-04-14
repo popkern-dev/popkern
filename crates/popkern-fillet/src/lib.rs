@@ -12,6 +12,7 @@ pub mod center_curve_walker;
 pub mod chamfer_curve;
 pub mod construct;
 pub mod contact;
+pub(crate) mod cusp_subdivide;
 pub(crate) mod degeneracy;
 pub(crate) mod degeneracy_surface;
 pub mod error;
@@ -152,11 +153,7 @@ pub fn fillet_edges_with_progress(
     )
 }
 
-/// The real body of [`fillet_edges`]. The public entry points all
-/// dispatch here with their respective combinations of cancellation
-/// token and progress reporter. Keeping the pipeline in one place
-/// means cancellation / progress wiring cannot drift between the
-/// variants.
+/// Pipeline body for [`fillet_edges`] + cancellable/progress variants.
 fn fillet_edges_internal(
     brep: &BRep,
     specs: &[FilletSpec],
@@ -196,6 +193,10 @@ fn fillet_edges_internal(
     emit!(progress::FilletPhase::Validate, t0, specs.len());
     check_cancel!();
 
+    // PHASE 0b: §13.1(1) cusp-subdivide pre-pass (no-op on clean input).
+    let (healed_brep, healed_specs) = cusp_subdivide::subdivide_cusp_edges(brep, specs, &tolerance);
+    let brep = &healed_brep;
+    let specs: &[FilletSpec] = &healed_specs;
     // Capture pre-operation faces for naming.
     let pre_faces: std::collections::HashSet<FaceHandle> = brep.faces.keys().collect();
 
@@ -494,7 +495,6 @@ pub fn chamfer_edge(
 
 use geometry_compute::{build_overlap_inputs, compute_chamfer_geometry, compute_fillet_geometry};
 use naming::assign_fillet_names;
-
 #[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;
