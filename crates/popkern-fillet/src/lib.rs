@@ -43,6 +43,7 @@ pub(crate) mod unfillet_helpers;
 pub(crate) mod unfillet_surgery;
 pub mod validate;
 pub mod walker;
+pub(crate) mod walker_adaptive;
 
 pub use cancellation::CancellationToken;
 pub use error::{

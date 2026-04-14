@@ -86,6 +86,8 @@ pub fn walker_based_center_curve(
         uv0_range: (u1_range, v1_range),
         uv1_range: (u2_range, v2_range),
         initial_seed: None,
+        surface_0_periodicity: surface1.periodicity(),
+        surface_1_periodicity: surface2.periodicity(),
     };
     let walk = walk_spine(&request, &WalkOptions::default(), tolerance)
         .map_err(|e| format!("spine walker failed: {e}"))?;
