@@ -72,6 +72,7 @@ pub(crate) fn is_closed_fillet_edge(brep: &BRep, edge: EdgeHandle) -> bool {
 /// with the BRep topology).
 pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<(), BlendFailure> {
     let fillet_edge = eg.analysis.edge;
+    let edge_loc = crate::geometry_compute::edge_midpoint_by_handle(brep, fillet_edge);
 
     // 1. Locate the two half-edges of the closed edge and their loops.
     let edata = brep
@@ -79,6 +80,7 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
         .get(fillet_edge)
         .ok_or_else(|| BlendFailure::InvalidTopology {
             reason: format!("closed-fillet: edge {fillet_edge:?} not found"),
+            location: edge_loc,
         })?;
     let he_a_h = edata.half_edge;
     let he_a =
@@ -87,6 +89,7 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
             .cloned()
             .ok_or_else(|| BlendFailure::InvalidTopology {
                 reason: format!("closed-fillet: half-edge {he_a_h:?} not found"),
+                location: edge_loc,
             })?;
     let he_b_h = he_a.twin;
     let he_b =
@@ -95,12 +98,14 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
             .cloned()
             .ok_or_else(|| BlendFailure::InvalidTopology {
                 reason: format!("closed-fillet: twin half-edge {he_b_h:?} not found"),
+                location: edge_loc,
             })?;
 
     let v_old = he_a.origin;
     if v_old != he_b.origin {
         return Err(BlendFailure::InvalidTopology {
             reason: format!("closed-fillet: edge {fillet_edge:?} is not closed (v_start != v_end)"),
+            location: edge_loc,
         });
     }
 
@@ -111,6 +116,7 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
         .get(loop_a)
         .ok_or_else(|| BlendFailure::InvalidTopology {
             reason: format!("closed-fillet: loop {loop_a:?} not found"),
+            location: edge_loc,
         })?
         .face;
     let face_b = brep
@@ -118,6 +124,7 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
         .get(loop_b)
         .ok_or_else(|| BlendFailure::InvalidTopology {
             reason: format!("closed-fillet: loop {loop_b:?} not found"),
+            location: edge_loc,
         })?
         .face;
 
@@ -144,6 +151,7 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
                  ({:?}) nor analysis.face_2 ({:?})",
                 eg.analysis.face_1, eg.analysis.face_2
             ),
+            location: edge_loc,
         });
     };
     let _ = face_b;

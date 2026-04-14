@@ -127,6 +127,7 @@ fn preview_all_succeeded_false_when_spec_fails() {
             0,
             crate::error::BlendFailure::InvalidTopology {
                 reason: "test".to_string(),
+                location: None,
             },
         )],
     };

@@ -310,7 +310,7 @@ impl BlendFailure {
                 ),
             )
             .with_parameter("linear"),
-            BlendFailure::InvalidTopology { reason } => Remediation::new(
+            BlendFailure::InvalidTopology { reason, .. } => Remediation::new(
                 RemediationAction::HealInput,
                 format!(
                     "The edge's surrounding topology is not usable by \
@@ -322,6 +322,7 @@ impl BlendFailure {
             BlendFailure::ContactSolverFailed {
                 reason,
                 spine_parameter,
+                ..
             } => {
                 let where_ = spine_parameter
                     .map(|t| format!(" at spine t = {t:.3}"))
@@ -339,7 +340,7 @@ impl BlendFailure {
                     ),
                 )
             }
-            BlendFailure::AlreadyBlended => Remediation::new(
+            BlendFailure::AlreadyBlended { .. } => Remediation::new(
                 RemediationAction::NoAction,
                 "The edge is already part of an existing blend — the \
                  current engine does not support blend-on-blend \
@@ -347,7 +348,7 @@ impl BlendFailure {
                  `unfillet()` before re-applying, or target a \
                  different edge.",
             ),
-            BlendFailure::SeamEdge => Remediation::new(
+            BlendFailure::SeamEdge { .. } => Remediation::new(
                 RemediationAction::BreakTopology,
                 "The edge is a seam (same face on both sides, e.g. the \
                  U=0 seam on a cylinder). Seams cannot be filleted \

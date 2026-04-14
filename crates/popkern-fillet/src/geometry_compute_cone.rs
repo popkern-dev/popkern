@@ -42,12 +42,14 @@ pub(crate) fn compute_center_via_walker(
         .get(analysis.edge)
         .ok_or_else(|| BlendFailure::InvalidTopology {
             reason: format!("edge {:?} not found", analysis.edge),
+            location: None,
         })?;
     let curve_on_edge = edge
         .curve
         .as_ref()
         .ok_or_else(|| BlendFailure::InvalidTopology {
             reason: "cone fillet requires the edge to carry curve geometry".to_string(),
+            location: Some(edge_midpoint),
         })?;
 
     // Map the radius profile to a closure over the [0, 1] parameter
@@ -66,6 +68,7 @@ pub(crate) fn compute_center_via_walker(
             if pts.is_empty() {
                 return Err(BlendFailure::InvalidTopology {
                     reason: "ByPoints radius with empty point list".to_string(),
+                    location: Some(edge_midpoint),
                 });
             }
             let pts = pts.clone();
@@ -149,6 +152,7 @@ pub(crate) fn compute_legacy_center_curve(
             if pts.is_empty() {
                 return Err(BlendFailure::InvalidTopology {
                     reason: "ByPoints radius with empty point list".to_string(),
+                    location: Some(edge_midpoint),
                 });
             }
             center_curve::parametric_radius_center_curve(

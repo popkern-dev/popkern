@@ -111,6 +111,10 @@ pub enum BlendFailure {
         vertex: VertexHandle,
         /// Description of the failure.
         reason: String,
+        /// 3D location of the failing vertex, if available. Populated
+        /// at construction so UI consumers do not have to resolve the
+        /// `vertex` handle against the BRep.
+        location: Option<Point3>,
     },
     /// Surface intersection failed during trim computation.
     IntersectionFailed {
@@ -123,6 +127,9 @@ pub enum BlendFailure {
     InvalidTopology {
         /// Description of the topology issue.
         reason: String,
+        /// 3D location where the topology issue was detected, if
+        /// available. Typically the midpoint of the offending edge.
+        location: Option<Point3>,
     },
     /// The rolling-ball contact solver failed to converge on this
     /// edge — typically a near-tangent configuration or a singularity
@@ -132,14 +139,48 @@ pub enum BlendFailure {
         reason: String,
         /// Spine parameter where convergence broke down, if known.
         spine_parameter: Option<f64>,
+        /// 3D location along the spine where convergence broke down,
+        /// if available. Typically the edge point at `spine_parameter`.
+        location: Option<Point3>,
     },
     /// The edge is already part of a blend (already filleted or
     /// chamfered) and the engine is not configured for blend-on-blend.
-    AlreadyBlended,
+    AlreadyBlended {
+        /// 3D location of the already-blended edge, if available.
+        /// Typically the midpoint of the edge.
+        location: Option<Point3>,
+    },
     /// The edge is a degenerate seam edge (same face on both sides),
     /// which cannot be filleted or chamfered without breaking the
     /// seam first.
-    SeamEdge,
+    SeamEdge {
+        /// 3D location of the seam edge, if available. Typically the
+        /// midpoint of the edge.
+        location: Option<Point3>,
+    },
+}
+
+impl BlendFailure {
+    /// Best-available 3D location of the failure, for UI consumers
+    /// that want to 3D-pick every diagnostic.
+    ///
+    /// Returns `None` when the failure has no associated location
+    /// (none of the construction sites had a usable point) or when
+    /// the variant does not carry location data. Every current
+    /// variant carries `Option<Point3>`, so the return is purely a
+    /// reflection of whether the construction site populated it.
+    pub fn location(&self) -> Option<Point3> {
+        match self {
+            BlendFailure::RadiusTooLarge { location, .. }
+            | BlendFailure::OffsetFailed { location, .. }
+            | BlendFailure::VertexBlendFailed { location, .. }
+            | BlendFailure::IntersectionFailed { location, .. }
+            | BlendFailure::InvalidTopology { location, .. }
+            | BlendFailure::ContactSolverFailed { location, .. }
+            | BlendFailure::AlreadyBlended { location }
+            | BlendFailure::SeamEdge { location } => *location,
+        }
+    }
 }
 
 /// Non-fatal per-edge warning.

@@ -140,6 +140,7 @@ pub(crate) fn compute_fillet_geometry(
             if pts.is_empty() {
                 return Err(BlendFailure::InvalidTopology {
                     reason: "ByPoints radius with empty point list".to_string(),
+                    location: Some(edge_midpoint),
                 });
             }
             let avg = pts.iter().map(|(_, r)| *r).sum::<f64>() / pts.len() as f64;
@@ -318,6 +319,7 @@ pub(crate) fn get_edge_midpoint(
         .get(analysis.edge)
         .ok_or_else(|| BlendFailure::InvalidTopology {
             reason: format!("edge {:?} not found", analysis.edge),
+            location: None,
         })?;
 
     if let Some(curve) = &edge.curve {
@@ -332,6 +334,35 @@ pub(crate) fn get_edge_midpoint(
             (v1.z + v2.z) * 0.5,
         ))
     }
+}
+
+/// Best-effort 3D midpoint lookup for an edge by handle. Used by
+/// error-construction sites that want to populate
+/// `BlendFailure::*.location` without paying the cost of analysing
+/// the edge first. Returns `None` when the edge handle is stale or
+/// the edge carries neither a curve nor usable endpoint vertices.
+///
+/// Prefer this helper over inlining the curve-midpoint-or-vertex-
+/// average dance — it keeps every `location: ...` site uniform.
+pub(crate) fn edge_midpoint_by_handle(
+    brep: &BRep,
+    edge: popkern_core::topology::EdgeHandle,
+) -> Option<popkern_core::geometry::Point3> {
+    let e = brep.edges.get(edge)?;
+    if let Some(curve) = &e.curve {
+        let t_mid = (curve.t_start + curve.t_end) * 0.5;
+        return Some(curve.geometry.point_at(t_mid));
+    }
+    // Curve-less edges fall back to vertex midpoint via a half-edge walk.
+    let he = brep.half_edges.get(e.half_edge)?;
+    let origin = brep.vertices.get(he.origin)?.position;
+    let next = brep.half_edges.get(he.next)?;
+    let dest = brep.vertices.get(next.origin)?.position;
+    Some(popkern_core::geometry::Point3::new(
+        (origin.x + dest.x) * 0.5,
+        (origin.y + dest.y) * 0.5,
+        (origin.z + dest.z) * 0.5,
+    ))
 }
 
 /// Get finite parameter ranges for a surface, bounded by face vertex extents.

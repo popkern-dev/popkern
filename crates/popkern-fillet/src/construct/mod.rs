@@ -189,9 +189,13 @@ pub fn apply_blend_geometry(
                 }))
             }
             Err(e) => {
+                let loc = crate::geometry_compute::edge_midpoint_by_handle(brep, eg.analysis.edge);
                 failures.push((
                     eg.analysis.edge,
-                    BlendFailure::InvalidTopology { reason: e },
+                    BlendFailure::InvalidTopology {
+                        reason: e,
+                        location: loc,
+                    },
                 ));
                 perp_data.push(None);
             }
@@ -381,7 +385,14 @@ pub fn apply_blend_geometry(
                 pcurve_attach::attach_fillet_pcurves(&mut result, &params);
             }
             Err(e) => {
-                failures.push((fillet_edge, BlendFailure::InvalidTopology { reason: e }));
+                let loc = crate::geometry_compute::edge_midpoint_by_handle(brep, fillet_edge);
+                failures.push((
+                    fillet_edge,
+                    BlendFailure::InvalidTopology {
+                        reason: e,
+                        location: loc,
+                    },
+                ));
             }
         }
     }

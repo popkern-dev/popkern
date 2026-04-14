@@ -315,6 +315,15 @@ pub(super) fn apply_multi_chord_for_face(
             let start_v = endpoints[k];
             let end_v = endpoints[k + 1];
             let target = find_face_containing_vertices(brep, &sub_faces, start_v, end_v);
+            let sub_midpoint = {
+                let p_a = brep.vertices[start_v].position;
+                let p_b = brep.vertices[end_v].position;
+                Some(Point3::new(
+                    (p_a.x + p_b.x) * 0.5,
+                    (p_a.y + p_b.y) * 0.5,
+                    (p_a.z + p_b.z) * 0.5,
+                ))
+            };
             let Some(target) = target else {
                 failures.push((
                     fillet_edge,
@@ -322,6 +331,7 @@ pub(super) fn apply_multi_chord_for_face(
                         reason: format!(
                             "multi-chord sub-chord anchors not found on any sub-face of {original_face:?}"
                         ),
+                        location: sub_midpoint,
                     },
                 ));
                 sub_chord_failed = true;
@@ -333,7 +343,13 @@ pub(super) fn apply_multi_chord_for_face(
             let pc = match helpers::pcurve_for_face(brep, target, &p_a, &p_b) {
                 Ok(pc) => pc,
                 Err(e) => {
-                    failures.push((fillet_edge, BlendFailure::InvalidTopology { reason: e }));
+                    failures.push((
+                        fillet_edge,
+                        BlendFailure::InvalidTopology {
+                            reason: e,
+                            location: sub_midpoint,
+                        },
+                    ));
                     sub_chord_failed = true;
                     break;
                 }
@@ -347,6 +363,7 @@ pub(super) fn apply_multi_chord_for_face(
                         fillet_edge,
                         BlendFailure::InvalidTopology {
                             reason: format!("face split failed: {e}"),
+                            location: sub_midpoint,
                         },
                     ));
                     sub_chord_failed = true;
@@ -403,6 +420,7 @@ pub(super) fn apply_multi_chord_for_face(
                 BlendFailure::InvalidTopology {
                     reason: "multi-chord trim produced no sub-face containing the fillet edge"
                         .to_string(),
+                    location: crate::geometry_compute::edge_midpoint_by_handle(brep, fillet_edge),
                 },
             ));
             continue;

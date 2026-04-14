@@ -98,6 +98,7 @@ fn blend_failure_remediation_hint_is_total() {
         BlendFailure::VertexBlendFailed {
             vertex,
             reason: "cannot fit patch".to_string(),
+            location: None,
         },
         BlendFailure::IntersectionFailed {
             reason: "near-tangent".to_string(),
@@ -105,13 +106,15 @@ fn blend_failure_remediation_hint_is_total() {
         },
         BlendFailure::InvalidTopology {
             reason: "no adjacent faces".to_string(),
+            location: None,
         },
         BlendFailure::ContactSolverFailed {
             reason: "diverged".to_string(),
             spine_parameter: Some(0.5),
+            location: None,
         },
-        BlendFailure::AlreadyBlended,
-        BlendFailure::SeamEdge,
+        BlendFailure::AlreadyBlended { location: None },
+        BlendFailure::SeamEdge { location: None },
     ];
     for v in variants {
         let hint = v.remediation_hint();
@@ -192,6 +195,7 @@ fn vertex_blend_failed_routes_to_alternative_mode() {
     let failure = BlendFailure::VertexBlendFailed {
         vertex: popkern_core::topology::VertexHandle::default(),
         reason: "degenerate".to_string(),
+        location: None,
     };
     let hint = failure.remediation_hint();
     assert_eq!(hint.action, RemediationAction::UseAlternativeMode);
@@ -203,14 +207,14 @@ fn vertex_blend_failed_routes_to_alternative_mode() {
 
 #[test]
 fn seam_edge_routes_to_break_topology() {
-    let hint = BlendFailure::SeamEdge.remediation_hint();
+    let hint = BlendFailure::SeamEdge { location: None }.remediation_hint();
     assert_eq!(hint.action, RemediationAction::BreakTopology);
     assert!(hint.rationale.contains("seam"));
 }
 
 #[test]
 fn already_blended_routes_to_no_action_with_unfillet_hint() {
-    let hint = BlendFailure::AlreadyBlended.remediation_hint();
+    let hint = BlendFailure::AlreadyBlended { location: None }.remediation_hint();
     assert_eq!(hint.action, RemediationAction::NoAction);
     assert!(hint.rationale.contains("unfillet"));
 }
@@ -220,6 +224,7 @@ fn contact_solver_failed_mentions_spine_parameter_when_known() {
     let failure = BlendFailure::ContactSolverFailed {
         reason: "NaN residual".to_string(),
         spine_parameter: Some(0.73),
+        location: None,
     };
     let hint = failure.remediation_hint();
     assert_eq!(hint.action, RemediationAction::ReduceRadius);
@@ -271,6 +276,58 @@ fn blend_error_tolerance_context_fills_linear_value_on_tolerance_bump() {
     assert!(filled.value.is_some());
     let v = filled.value.unwrap();
     assert!((v - tol.linear() * 10.0).abs() < 1e-12);
+}
+
+#[test]
+fn blend_failure_location_returns_populated_point() {
+    let p = Point3::new(1.0, 2.0, 3.0);
+    let with_loc = BlendFailure::InvalidTopology {
+        reason: "x".to_string(),
+        location: Some(p),
+    };
+    let loc = with_loc.location().expect("location should be populated");
+    assert!((loc.x - 1.0).abs() < 1e-12);
+    assert!((loc.y - 2.0).abs() < 1e-12);
+    assert!((loc.z - 3.0).abs() < 1e-12);
+}
+
+#[test]
+fn blend_failure_location_returns_none_when_unset() {
+    // Every variant with a `location: None` returns `None`.
+    let variants = [
+        BlendFailure::RadiusTooLarge {
+            requested: 1.0,
+            max_radius: None,
+            location: None,
+        },
+        BlendFailure::OffsetFailed {
+            reason: "x".to_string(),
+            location: None,
+        },
+        BlendFailure::VertexBlendFailed {
+            vertex: popkern_core::topology::VertexHandle::default(),
+            reason: "x".to_string(),
+            location: None,
+        },
+        BlendFailure::IntersectionFailed {
+            reason: "x".to_string(),
+            location: None,
+        },
+        BlendFailure::InvalidTopology {
+            reason: "x".to_string(),
+            location: None,
+        },
+        BlendFailure::ContactSolverFailed {
+            reason: "x".to_string(),
+            spine_parameter: None,
+            location: None,
+        },
+        BlendFailure::AlreadyBlended { location: None },
+        BlendFailure::SeamEdge { location: None },
+    ];
+    for v in &variants {
+        assert!(v.location().is_none(), "expected None for {v:?}");
+    }
 }
 
 #[test]
