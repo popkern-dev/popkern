@@ -134,8 +134,11 @@ pub(crate) fn try_circular_center_torus(
             // Oblique plane-cone intersections are conic sections
             // other than circles (ellipse / parabola / hyperbola).
             // Their fillet surfaces are canal surfaces with non-
-            // circular spines — no closed-form primitive exists,
-            // so we leave those cases to the generic NURBS sweep.
+            // circular spines — popkern has no canal primitive in
+            // `SurfaceGeometry`, so we leave those cases to the
+            // generic NURBS sweep. The deferral is documented in
+            // `docs/decisions/2026-04-14-oblique-plane-cone-canal-
+            // deferred.md` with the trigger criteria for revisiting.
             if n_unit.dot(&a_unit).abs() < 0.999 {
                 return None;
             }
