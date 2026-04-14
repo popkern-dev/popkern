@@ -158,6 +158,29 @@ pub enum BlendFailure {
         /// midpoint of the edge.
         location: Option<Point3>,
     },
+    /// The constructed fillet surface self-intersects (§13.2
+    /// "Self-Intersection Detection"). Detected after
+    /// `build_fillet_surface` returns but before the topology
+    /// stitch-up phase by [`crate::surface_validate::validate_fillet_surface`].
+    ///
+    /// Typical causes:
+    /// - a spindle torus (minor_radius > major_radius) from an
+    ///   over-large fillet radius that still slipped past the
+    ///   pre-offset curvature check;
+    /// - a NURBS sweep whose control polygon has wrapped back on
+    ///   itself (walker instability on near-tangent geometry);
+    /// - a twist in the cross-section field (rotation > π between
+    ///   adjacent UV samples).
+    ///
+    /// The remediation is typically to reduce the radius; see
+    /// [`Self::remediation_hint`] for the full guidance.
+    SelfIntersectingBlend {
+        /// Structured description of the detected failure mode.
+        reason: String,
+        /// 3D location where the self-intersection was detected,
+        /// if available (typically the edge midpoint).
+        location: Option<Point3>,
+    },
 }
 
 impl BlendFailure {
@@ -177,6 +200,7 @@ impl BlendFailure {
             | BlendFailure::IntersectionFailed { location, .. }
             | BlendFailure::InvalidTopology { location, .. }
             | BlendFailure::ContactSolverFailed { location, .. }
+            | BlendFailure::SelfIntersectingBlend { location, .. }
             | BlendFailure::AlreadyBlended { location }
             | BlendFailure::SeamEdge { location } => *location,
         }

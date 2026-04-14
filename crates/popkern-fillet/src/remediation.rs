@@ -355,6 +355,17 @@ impl BlendFailure {
                  directly — split the face along the seam into two \
                  distinct faces before applying the fillet.",
             ),
+            BlendFailure::SelfIntersectingBlend { reason, .. } => Remediation::new(
+                RemediationAction::ReduceRadius,
+                format!(
+                    "The constructed fillet surface self-intersects ({reason}). \
+                     This is usually caused by a radius that exceeds the local \
+                     feasibility bound even though the pre-flight curvature check \
+                     passed. Reduce the radius and retry, or run \
+                     `feasible_radius_bounds()` for a concrete upper bound."
+                ),
+            )
+            .with_parameter("radius"),
         }
     }
 }

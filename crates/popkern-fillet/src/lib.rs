@@ -36,6 +36,7 @@ pub mod preview;
 pub mod progress;
 pub mod quality;
 pub mod remediation;
+pub mod surface_validate;
 pub mod trim;
 pub mod types;
 pub mod unfillet;
@@ -491,7 +492,6 @@ pub fn chamfer_edge(
     )
 }
 
-// Internal geometry computation is in `geometry_compute` module.
 use geometry_compute::{build_overlap_inputs, compute_chamfer_geometry, compute_fillet_geometry};
 use naming::assign_fillet_names;
 

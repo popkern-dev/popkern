@@ -115,6 +115,10 @@ fn blend_failure_remediation_hint_is_total() {
         },
         BlendFailure::AlreadyBlended { location: None },
         BlendFailure::SeamEdge { location: None },
+        BlendFailure::SelfIntersectingBlend {
+            reason: "spindle torus".to_string(),
+            location: None,
+        },
     ];
     for v in variants {
         let hint = v.remediation_hint();
@@ -279,6 +283,22 @@ fn blend_error_tolerance_context_fills_linear_value_on_tolerance_bump() {
 }
 
 #[test]
+fn self_intersecting_blend_routes_to_reduce_radius() {
+    let failure = BlendFailure::SelfIntersectingBlend {
+        reason: "spindle torus: minor_radius 0.5 > major_radius 0.3".to_string(),
+        location: None,
+    };
+    let hint = failure.remediation_hint();
+    assert_eq!(hint.action, RemediationAction::ReduceRadius);
+    assert_eq!(hint.parameter.as_deref(), Some("radius"));
+    assert!(
+        hint.rationale.contains("feasible_radius_bounds"),
+        "rationale should point to the feasibility query: {}",
+        hint.rationale
+    );
+}
+
+#[test]
 fn blend_failure_location_returns_populated_point() {
     let p = Point3::new(1.0, 2.0, 3.0);
     let with_loc = BlendFailure::InvalidTopology {
@@ -324,6 +344,10 @@ fn blend_failure_location_returns_none_when_unset() {
         },
         BlendFailure::AlreadyBlended { location: None },
         BlendFailure::SeamEdge { location: None },
+        BlendFailure::SelfIntersectingBlend {
+            reason: "spindle torus".to_string(),
+            location: None,
+        },
     ];
     for v in &variants {
         assert!(v.location().is_none(), "expected None for {v:?}");

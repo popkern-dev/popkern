@@ -185,6 +185,38 @@ pub(crate) fn compute_fillet_geometry(
         location: Some(edge_midpoint),
     })?;
 
+    // §13.2 post-construction self-intersection detection. The
+    // pre-flight `self_intersection_safe_radius` check above catches
+    // the "radius > support curvature radius" class of failures
+    // before the output surface exists; this checks the output
+    // itself for the residual cases (spindle torus, twisted NURBS
+    // sweep, coincident non-neighbour UV samples). Fires on a clean
+    // surface-type mismatch rather than a cryptic downstream
+    // topology error.
+    {
+        use popkern_core::geometry::surface::SurfaceEval;
+        let ((u_lo, u_hi), (v_lo, v_hi)) = fillet_result.surface.parameter_range();
+        let fillet_u_range = (
+            if u_lo.is_finite() { u_lo } else { 0.0_f64 },
+            if u_hi.is_finite() { u_hi } else { 1.0_f64 },
+        );
+        let fillet_v_range = (
+            if v_lo.is_finite() { v_lo } else { 0.0_f64 },
+            if v_hi.is_finite() { v_hi } else { 1.0_f64 },
+        );
+        if let Err(issue) = crate::surface_validate::validate_fillet_surface(
+            &fillet_result.surface,
+            fillet_u_range,
+            fillet_v_range,
+            tolerance,
+        ) {
+            return Err(BlendFailure::SelfIntersectingBlend {
+                reason: issue.describe(),
+                location: Some(edge_midpoint),
+            });
+        }
+    }
+
     let trim_curves = trim::compute_trim_curves(
         &analysis.surface_1,
         &center_result.footprint_1,
