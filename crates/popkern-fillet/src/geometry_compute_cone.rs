@@ -21,6 +21,7 @@ use popkern_core::topology::BRep;
 
 use crate::analysis;
 use crate::center_curve;
+use crate::center_curve::CenterCurveResult;
 use crate::error::BlendFailure;
 use crate::types::FilletRadius;
 
@@ -90,4 +91,80 @@ pub(crate) fn compute_center_via_walker(
         reason: e,
         location: Some(edge_midpoint),
     })
+}
+
+/// Legacy offset-intersect center curve: the pre-phase-1 path that
+/// analytically offsets both surfaces, intersects the offsets, and
+/// picks the curve closest to the edge midpoint. Used as the primary
+/// route when neither the cone trigger nor the G2 opt-in fires, and
+/// as a fallback when the walker fails on a G2 opt-in request
+/// (silently degrading the caller's G2 request to G1 rather than
+/// propagating a walker-specific error).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn compute_legacy_center_curve(
+    analysis: &analysis::EdgeAnalysis,
+    radius: &FilletRadius,
+    u1_range: (f64, f64),
+    v1_range: (f64, f64),
+    u2_range: (f64, f64),
+    v2_range: (f64, f64),
+    tolerance: &Tolerance,
+    edge_midpoint: Point3,
+) -> Result<CenterCurveResult, BlendFailure> {
+    let wrap_err = |e: String| BlendFailure::IntersectionFailed {
+        reason: e,
+        location: Some(edge_midpoint),
+    };
+    match radius {
+        FilletRadius::Constant(r) => center_curve::constant_radius_center_curve(
+            &analysis.surface_1,
+            u1_range,
+            v1_range,
+            &analysis.surface_2,
+            u2_range,
+            v2_range,
+            *r,
+            &edge_midpoint,
+            tolerance,
+            analysis.orientation_1,
+            analysis.orientation_2,
+        )
+        .map_err(wrap_err),
+        FilletRadius::Variable { start, end } => center_curve::variable_radius_center_curve(
+            &analysis.surface_1,
+            u1_range,
+            v1_range,
+            &analysis.surface_2,
+            u2_range,
+            v2_range,
+            *start,
+            *end,
+            &edge_midpoint,
+            tolerance,
+            analysis.orientation_1,
+            analysis.orientation_2,
+        )
+        .map_err(wrap_err),
+        FilletRadius::ByPoints(pts) => {
+            if pts.is_empty() {
+                return Err(BlendFailure::InvalidTopology {
+                    reason: "ByPoints radius with empty point list".to_string(),
+                });
+            }
+            center_curve::parametric_radius_center_curve(
+                &analysis.surface_1,
+                u1_range,
+                v1_range,
+                &analysis.surface_2,
+                u2_range,
+                v2_range,
+                |t| center_curve::bypoints_local_radius(pts, t),
+                &edge_midpoint,
+                tolerance,
+                analysis.orientation_1,
+                analysis.orientation_2,
+            )
+            .map_err(wrap_err)
+        }
+    }
 }

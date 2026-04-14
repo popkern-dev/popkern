@@ -7,7 +7,6 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
 use crate::analysis;
-use crate::center_curve;
 use crate::chamfer_curve;
 use crate::construct::EdgeGeometry;
 use crate::error::BlendFailure;
@@ -85,7 +84,7 @@ pub(crate) fn compute_fillet_geometry(
     let use_walker = either_is_cone || g2_cross_section;
 
     let center_result = if use_walker {
-        crate::geometry_compute_cone::compute_center_via_walker(
+        let walker_outcome = crate::geometry_compute_cone::compute_center_via_walker(
             analysis,
             radius,
             brep,
@@ -95,74 +94,43 @@ pub(crate) fn compute_fillet_geometry(
             v2_range,
             tolerance,
             edge_midpoint,
-        )?
-    } else {
-        match radius {
-            FilletRadius::Constant(r) => center_curve::constant_radius_center_curve(
-                &analysis.surface_1,
-                u1_range,
-                v1_range,
-                &analysis.surface_2,
-                u2_range,
-                v2_range,
-                *r,
-                &edge_midpoint,
-                tolerance,
-                analysis.orientation_1,
-                analysis.orientation_2,
-            )
-            .map_err(|e| BlendFailure::IntersectionFailed {
-                reason: e,
-                location: Some(edge_midpoint),
-            })?,
-            FilletRadius::Variable { start, end } => center_curve::variable_radius_center_curve(
-                &analysis.surface_1,
-                u1_range,
-                v1_range,
-                &analysis.surface_2,
-                u2_range,
-                v2_range,
-                *start,
-                *end,
-                &edge_midpoint,
-                tolerance,
-                analysis.orientation_1,
-                analysis.orientation_2,
-            )
-            .map_err(|e| BlendFailure::IntersectionFailed {
-                reason: e,
-                location: Some(edge_midpoint),
-            })?,
-            FilletRadius::ByPoints(pts) => {
-                if pts.is_empty() {
-                    return Err(BlendFailure::InvalidTopology {
-                        reason: "ByPoints radius with empty point list".to_string(),
-                    });
-                }
-                // Round 5l: build the center curve using a piecewise-
-                // linear closure over the *full* ByPoints profile, not
-                // just the endpoint radii. The intermediate points now
-                // shape the center curve rather than being silently
-                // dropped.
-                center_curve::parametric_radius_center_curve(
-                    &analysis.surface_1,
+        );
+        match walker_outcome {
+            Ok(r) => r,
+            Err(_walker_err) if !either_is_cone && g2_cross_section => {
+                // G2 opt-in walker failed on a non-cone pair. Silently
+                // degrade to the legacy G1 analytic path instead of
+                // propagating a walker-specific error — a commercial
+                // caller that asked for G2 would rather see a blend
+                // than see their whole operation fail. The resulting
+                // `CenterCurveResult` has `contact_solutions = None`,
+                // so `build_fillet_surface`'s G2 branch naturally
+                // won't fire and it'll fall through to the legacy
+                // arc sweep.
+                crate::geometry_compute_cone::compute_legacy_center_curve(
+                    analysis,
+                    radius,
                     u1_range,
                     v1_range,
-                    &analysis.surface_2,
                     u2_range,
                     v2_range,
-                    |t| center_curve::bypoints_local_radius(pts, t),
-                    &edge_midpoint,
                     tolerance,
-                    analysis.orientation_1,
-                    analysis.orientation_2,
-                )
-                .map_err(|e| BlendFailure::IntersectionFailed {
-                    reason: e,
-                    location: Some(edge_midpoint),
-                })?
+                    edge_midpoint,
+                )?
             }
+            Err(e) => return Err(e),
         }
+    } else {
+        crate::geometry_compute_cone::compute_legacy_center_curve(
+            analysis,
+            radius,
+            u1_range,
+            v1_range,
+            u2_range,
+            v2_range,
+            tolerance,
+            edge_midpoint,
+        )?
     };
 
     let (effective_radius, radius_at_start, radius_at_end) = match radius {

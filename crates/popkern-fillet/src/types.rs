@@ -61,14 +61,48 @@ pub struct FilletOptions {
     /// boundaries — required for §15 Class-A surfaces.
     ///
     /// **Default `false`.** Setting `true` routes the blend through
-    /// the spine-walker contact solver
-    /// (`crate::g2_cross_section::g2_sweep_from_contact_solutions`),
-    /// which is currently active on the cone path. Other surface
-    /// pairs still build via the legacy arc sweep until the
-    /// non-cone center-curve producers also expose
-    /// `CenterCurveResult::contact_solutions`.
+    /// the spine-walker contact solver and skins per-sample
+    /// [`contact::ContactSolution`](crate::contact::ContactSolution)s
+    /// into a degree-5 Bezier sweep via
+    /// [`g2_cross_section::g2_sweep_from_contact_solutions`](crate::g2_cross_section::g2_sweep_from_contact_solutions).
+    /// The G2 path applies to **any supported surface pair**
+    /// (plane-plane, plane-cylinder, sphere-plane, cone-plane, …),
+    /// not just cones.
+    ///
+    /// **Graceful degradation.** If the spine walker fails on a
+    /// non-cone pair (e.g. degenerate normals, periodicity edge
+    /// case), the routing silently falls back to the legacy G1
+    /// arc sweep rather than failing the whole fillet operation.
+    /// Callers who want G2 to be strict should audit the returned
+    /// surface type (a Torus/analytic result for plane-plane
+    /// indicates the fallback fired).
+    ///
+    /// **Cost.** G2 is materially more expensive than G1 — the
+    /// walker performs ~20 contact-solver iterations per spine
+    /// sample, where G1 does a single analytic offset intersect.
+    /// Leave this `false` for interactive preview and enable it
+    /// only for final / Class-A output.
     ///
     /// See §2.4 / §7 G2 in `docs/requirements/fillets_blends.md`.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use popkern_fillet::{FilletOptions, FilletSpec, FilletRadius, fillet_edges};
+    /// # use popkern_core::topology::BRep;
+    /// # use popkern_core::tolerance::Tolerance;
+    /// # let brep: BRep = unimplemented!();
+    /// # let edge = unimplemented!();
+    /// let specs = vec![FilletSpec {
+    ///     edge,
+    ///     radius: FilletRadius::Constant(0.1),
+    /// }];
+    /// let opts = FilletOptions {
+    ///     g2_cross_section: true,
+    ///     ..FilletOptions::default()
+    /// };
+    /// let result = fillet_edges(&brep, &specs, &opts, Tolerance::default(), None);
+    /// ```
     pub g2_cross_section: bool,
 }
 
