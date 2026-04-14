@@ -483,15 +483,9 @@ pub fn apply_blend_geometry(
         .collect();
     surface_fix::correct_face_surfaces(&mut result, brep, &fillet_surfaces);
 
-    // §13.1(2) sliver absorption: the general post-construction
-    // pass subsumes the Round 5r+ corner-fragment cleanup under
-    // a classify-apply-reclassify framework. Step 2 ships
-    // infrastructure + Class D (corner fragment → sphere). Step 3
-    // will add Classes A (zero-area), B (thin), C (redundant
-    // edge) without further plumbing changes. Returned warnings
-    // are always empty today; step 3 will route them into
-    // `warnings`.
-    let _sliver_warnings = sliver_absorb::absorb_slivers(&mut result, tolerance);
+    // §13.1(2) sliver absorption: Classes A/B/C/D. 12-edge cube
+    // test is the Class D regression guard (26 faces preserved).
+    sliver_absorb::run_and_route_warnings(&mut result, tolerance, edge_geometries, &mut warnings);
 
     Ok(ApplyBlendResult {
         brep: result,

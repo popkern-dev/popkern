@@ -257,6 +257,23 @@ pub enum BlendWarning {
         /// Measured 3D length between the edge's endpoint vertices.
         length: f64,
     },
+    /// A sliver face was detected in the fillet output topology but
+    /// could not be absorbed into a neighbour (no suitable target
+    /// or the topology surgery would be invalid). The output BRep
+    /// contains the sliver unchanged; downstream consumers may
+    /// choose to ignore it, run a separate healing pass, or fail.
+    ///
+    /// §13.1(2) "remove, stitch neighbors" — commercial kernels
+    /// ship this warning for the residual cases where absorption
+    /// is impossible. See `construct::sliver_absorb` for the
+    /// classifier details.
+    SliverRetained {
+        /// The residual sliver face.
+        face: popkern_core::topology::FaceHandle,
+        /// Short description of the sliver category that was
+        /// classified but not absorbed.
+        kind: &'static str,
+    },
 }
 
 // The Remediation types and the per-variant remediation-hint
