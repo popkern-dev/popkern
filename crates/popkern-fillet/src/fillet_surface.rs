@@ -8,6 +8,9 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, Vec3};
 
 use crate::center_curve::CenterCurveResult;
+use crate::fillet_surface_analytic::{
+    try_circular_center_torus, try_parallel_cylinder_cylinder, try_plane_plane_torus,
+};
 
 /// Result of a fillet surface construction.
 #[derive(Debug, Clone)]
@@ -102,211 +105,20 @@ pub fn build_fillet_surface(
         }
         // §11.1 analytic torus for fillets with a circular center
         // curve: plane-sphere (always) and plane-cylinder (when
-        // the plane is perpendicular to the cylinder axis). Works
-        // on either ordering.
+        // the plane is perpendicular to the cylinder axis).
         if let Some(result) = try_circular_center_torus(surface1, surface2, center_result, radius) {
+            return Ok(result);
+        }
+        // §11.1 analytic cylinder for parallel-axes cylinder-cylinder.
+        if let Some(result) =
+            try_parallel_cylinder_cylinder(surface1, surface2, center_result, radius)
+        {
             return Ok(result);
         }
     }
 
     // General case: NURBS swept surface (G1 arc).
     build_nurbs_sweep(center_result, radius, arc_samples)
-}
-
-/// Try to build an analytic torus section for a plane-plane fillet.
-///
-/// Returns `None` if the geometry is degenerate (e.g., parallel planes).
-fn try_plane_plane_torus(
-    n1: &Vec3,
-    n2: &Vec3,
-    center_result: &CenterCurveResult,
-    radius: f64,
-) -> Option<FilletSurfaceResult> {
-    // Compute the dihedral angle between the two planes.
-    let cos_angle = n1.dot(n2).clamp(-1.0, 1.0);
-    let angle = cos_angle.acos(); // angle between normals
-
-    // The half-angle of the dihedral measured from the inside.
-    let half_angle = angle * 0.5;
-    let sin_half = half_angle.sin();
-
-    // If planes are nearly parallel, can't build a torus fillet.
-    if sin_half.abs() < 1e-10 {
-        return None;
-    }
-
-    // Torus axis = cross product of the two normals (edge direction).
-    let axis = n1.cross(n2);
-    let axis = axis.normalized()?;
-
-    // Center of the torus: evaluate the center curve at its midpoint.
-    // The center curve is the locus of the rolling-ball center, so its
-    // midpoint lies on the torus axis at the correct offset from the edge.
-    // Using footprint points instead would inherit projection errors from
-    // the offset-surface intersection step.
-    use popkern_core::geometry::curve::CurveEval;
-    let (t0, t1) = center_result.center_curve.parameter_range();
-    let center = center_result.center_curve.point_at((t0 + t1) * 0.5);
-
-    // For a fillet between two planes at angle `angle`:
-    // Major radius = r / sin(half_angle) for a general dihedral.
-    // For 90-degree planes (angle = PI/2), major_radius = r / sin(PI/4) = r * sqrt(2).
-    // However, for a simple rolling-ball fillet the surface is always a
-    // cylinder section when angle = PI/2, or a torus section otherwise.
-    let major_radius = radius / sin_half;
-
-    let surface = SurfaceGeometry::Torus {
-        center,
-        axis,
-        major_radius,
-        minor_radius: radius,
-    };
-
-    let trim_1 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_1).ok()?;
-    let trim_2 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_2).ok()?;
-
-    Some(FilletSurfaceResult {
-        surface,
-        trim_curve_1: trim_1,
-        trim_curve_2: trim_2,
-    })
-}
-
-/// Try to build an analytic torus for a fillet whose center curve is
-/// a 3D circle (§11.1 `plane-sphere`, `plane-cylinder (perpendicular
-/// axis)`, and any other surface pair with a circular center curve).
-///
-/// **Geometry.** Whenever the rolling-ball center locus is a 3D
-/// circle, the resulting fillet surface is an exact torus:
-///
-/// - **Axis** = normal to the plane containing the circle
-/// - **Center** = centroid of the circular center curve
-/// - **Major radius** = radius of the circular center curve
-/// - **Minor radius** = the fillet radius
-///
-/// For a **plane-sphere** fillet the center curve is always a circle
-/// (intersection of a parallel plane with a concentric sphere), so
-/// this path applies unconditionally.
-///
-/// For a **plane-cylinder** fillet the center curve is only a circle
-/// when the plane is perpendicular to the cylinder axis. At any
-/// other incidence the intersection is an ellipse, which fails the
-/// radial-spread check below and falls through to the generic NURBS
-/// sweep. We gate the cylinder case on `plane_normal ∥ cylinder_axis`
-/// up front so non-perpendicular cylinders skip the sampling work
-/// entirely.
-///
-/// Rather than derive the torus center + major radius from raw
-/// sphere/cylinder/plane math (which needs sign-juggling over which
-/// side of the plane the ball sits on and whether it is inside or
-/// outside the curved surface), we read them directly from the
-/// already-computed `center_result.center_curve`: the centroid of
-/// N sampled points *is* the torus center, and the mean distance
-/// from the centroid *is* the major radius. The approach is
-/// analogous to the plane-plane path above that pulls the torus
-/// center from the center curve's midpoint.
-///
-/// Returns `None` for any surface pair that is not one of the above,
-/// when the plane-cylinder case is non-perpendicular, or when the
-/// sampled center curve fails the planarity / radial-spread sanity
-/// checks that ensure it really is a circle.
-fn try_circular_center_torus(
-    surface1: &SurfaceGeometry,
-    surface2: &SurfaceGeometry,
-    center_result: &CenterCurveResult,
-    radius: f64,
-) -> Option<FilletSurfaceResult> {
-    // Match either ordering — the torus itself is symmetric in the
-    // two supports. Plane-sphere is accepted unconditionally;
-    // plane-cylinder is gated on the perpendicular-axis check.
-    let plane_normal = match (surface1, surface2) {
-        (SurfaceGeometry::Plane { normal, .. }, SurfaceGeometry::Sphere { .. })
-        | (SurfaceGeometry::Sphere { .. }, SurfaceGeometry::Plane { normal, .. }) => *normal,
-        (SurfaceGeometry::Plane { normal, .. }, SurfaceGeometry::Cylinder { axis, .. })
-        | (SurfaceGeometry::Cylinder { axis, .. }, SurfaceGeometry::Plane { normal, .. }) => {
-            let n_unit = normal.normalized()?;
-            let a_unit = axis.normalized()?;
-            // Gate: plane must be perpendicular to the cylinder
-            // axis (plane normal parallel to axis). Oblique or
-            // parallel cases have non-circular center curves and
-            // are left for the generic NURBS sweep.
-            if n_unit.dot(&a_unit).abs() < 0.999 {
-                return None;
-            }
-            *normal
-        }
-        _ => return None,
-    };
-
-    // Sample the center curve at N points and compute the centroid
-    // + mean radial distance. Use N = 16 — dense enough to suppress
-    // per-sample jitter, cheap to evaluate.
-    use popkern_core::geometry::curve::CurveEval;
-    let n = 16usize;
-    let (t0, t1) = center_result.center_curve.parameter_range();
-    let mut samples: Vec<Point3> = Vec::with_capacity(n);
-    for i in 0..n {
-        let t = t0 + (t1 - t0) * (i as f64) / ((n - 1).max(1) as f64);
-        samples.push(center_result.center_curve.point_at(t));
-    }
-    if samples.len() < 3 {
-        return None;
-    }
-    let cx = samples.iter().map(|p| p.x).sum::<f64>() / samples.len() as f64;
-    let cy = samples.iter().map(|p| p.y).sum::<f64>() / samples.len() as f64;
-    let cz = samples.iter().map(|p| p.z).sum::<f64>() / samples.len() as f64;
-    let center = Point3::new(cx, cy, cz);
-
-    let radii: Vec<f64> = samples.iter().map(|p| (*p - center).length()).collect();
-    let major_radius = radii.iter().sum::<f64>() / radii.len() as f64;
-    if !major_radius.is_finite() || major_radius <= 0.0 {
-        return None;
-    }
-
-    // The center curve must be a CIRCLE — not just any 3D curve
-    // that happens to average to a point. Enforce two conditions:
-    //
-    //   1. The sampled points lie on a plane with the expected
-    //      normal `plane_normal` (no out-of-plane wobble). The
-    //      max residual must be < 0.1% of the major radius.
-    //
-    //   2. The sampled points are equidistant from the centroid
-    //      (no radial variation). The radial spread (max − min)
-    //      must be < 10% of the major radius. The threshold is
-    //      loose on purpose — a genuine circle sampled through a
-    //      cubic NURBS fit can pick up a few-percent spread from
-    //      the interpolation, while a non-circle like a straight
-    //      line has > 100% spread (linear samples have min = 0
-    //      at the centroid), so the two cases are well-separated.
-    let plane_normal_n = plane_normal.normalized()?;
-    let max_planar_residual = samples
-        .iter()
-        .map(|p| (*p - center).dot(&plane_normal_n).abs())
-        .fold(0.0_f64, f64::max);
-    if max_planar_residual > major_radius * 1e-3 {
-        return None;
-    }
-    let radial_min = radii.iter().cloned().fold(f64::INFINITY, f64::min);
-    let radial_max = radii.iter().cloned().fold(0.0_f64, f64::max);
-    if (radial_max - radial_min) > major_radius * 0.1 {
-        return None;
-    }
-
-    let surface = SurfaceGeometry::Torus {
-        center,
-        axis: plane_normal_n,
-        major_radius,
-        minor_radius: radius,
-    };
-
-    let trim_1 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_1).ok()?;
-    let trim_2 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_2).ok()?;
-
-    Some(FilletSurfaceResult {
-        surface,
-        trim_curve_1: trim_1,
-        trim_curve_2: trim_2,
-    })
 }
 
 /// Build a NURBS swept surface by skinning cross-section arcs along the center curve.

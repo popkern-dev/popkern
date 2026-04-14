@@ -16,6 +16,7 @@ pub mod construct;
 pub mod contact;
 pub mod error;
 pub mod fillet_surface;
+pub mod fillet_surface_analytic;
 pub mod g2_cross_section;
 pub(crate) mod geometry_compute;
 pub(crate) mod geometry_compute_cone;
