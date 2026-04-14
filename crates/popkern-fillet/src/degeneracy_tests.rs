@@ -138,6 +138,130 @@ fn nearly_tangent_supports_detector_passes_on_90_degree_cube_edge() {
 }
 
 // ---------------------------------------------------------------------------
+// zero-area-support detector
+// ---------------------------------------------------------------------------
+
+#[test]
+fn zero_area_support_is_detected_when_outer_loop_vertices_collapse() {
+    // Synthesise a degenerate cube face by moving every vertex of
+    // face_1's outer loop to coincide with vertex 0 of that loop.
+    // The polygonal area drops to 0; the detector must fire.
+    let (mut brep, analysis) = unit_cube_analysis();
+    let positions_before = brep.face_outer_loop_positions(analysis.face_1);
+    assert!(
+        positions_before.len() >= 3,
+        "cube face should have ≥3 outer-loop vertices"
+    );
+    // Walk the outer-loop half-edges and collapse every vertex
+    // origin to the first one's position.
+    let face_rec = &brep.faces[analysis.face_1];
+    let outer_loop = face_rec.outer_loop;
+    let start_he = brep.loops[outer_loop].half_edge;
+    let first_vertex = brep.half_edges[start_he].origin;
+    let first_pos = brep.vertices[first_vertex].position;
+    // Collect every unique origin vertex on the loop first, then
+    // apply the position change — mutating while walking the loop
+    // confuses the walker if the topology changes, which it
+    // doesn't here, but doing it in two passes is cleaner.
+    let mut vertices_to_collapse = Vec::new();
+    let mut current = start_he;
+    loop {
+        let origin = brep.half_edges[current].origin;
+        if origin != first_vertex {
+            vertices_to_collapse.push(origin);
+        }
+        current = brep.half_edges[current].next;
+        if current == start_he {
+            break;
+        }
+    }
+    for v in vertices_to_collapse {
+        brep.vertices[v].position = first_pos;
+    }
+
+    let result = super::check_zero_area_support(&brep, &analysis, &tol());
+    match result {
+        Err(DegeneracyKind::ZeroAreaSupport { side, area }) => {
+            assert_eq!(side, SupportSide::Face1);
+            assert!(
+                area < tol().linear() * tol().linear(),
+                "reported area {area} should be below tolerance² {}",
+                tol().linear() * tol().linear()
+            );
+        }
+        other => panic!("expected ZeroAreaSupport, got {other:?}"),
+    }
+}
+
+#[test]
+fn zero_area_support_passes_on_healthy_cube() {
+    // Every cube face has unit area — far from the tolerance²
+    // threshold, so no detector should fire on clean input.
+    let (brep, analysis) = unit_cube_analysis();
+    let result = super::check_zero_area_support(&brep, &analysis, &tol());
+    assert!(
+        result.is_ok(),
+        "healthy cube should not trip zero-area detector: {result:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// parameterization-singularity detector
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parameterization_singularity_passes_on_healthy_cube() {
+    // popkern's analytic primitives (Plane, Cylinder, Sphere, Cone,
+    // Torus) never produce NaN/∞ across their natural parameter
+    // range. A cube face is a Plane, which is the simplest case.
+    let (_brep, analysis) = unit_cube_analysis();
+    let result = super::check_parameterization_singularity(&analysis);
+    assert!(
+        result.is_ok(),
+        "healthy cube (Plane surfaces) should not trip parameterization-singularity detector: {result:?}"
+    );
+}
+
+#[test]
+fn parameterization_singularity_fires_on_nan_nurbs_control_point() {
+    // Build an EdgeAnalysis whose `surface_1` is a pathological
+    // NurbsSurface with a NaN control point. Any point_at evaluation
+    // that touches that control point (and the sweep covers the
+    // full parameter range, so it will) returns NaN, and the
+    // detector must fire.
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    use popkern_core::geometry::{NurbsSurface, Point3};
+
+    let (_brep, mut analysis) = unit_cube_analysis();
+    let nan = f64::NAN;
+    let control_points = vec![
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(1.0, 0.0, 0.0),
+        Point3::new(0.0, 1.0, 0.0),
+        Point3::new(nan, nan, nan), // poisoned corner
+    ];
+    let nurbs = NurbsSurface {
+        degree_u: 1,
+        degree_v: 1,
+        knots_u: vec![0.0, 0.0, 1.0, 1.0],
+        knots_v: vec![0.0, 0.0, 1.0, 1.0],
+        control_points,
+        num_u: 2,
+        num_v: 2,
+        weights: vec![1.0; 4],
+    };
+    analysis.surface_1 = SurfaceGeometry::Nurbs(nurbs);
+
+    let result = super::check_parameterization_singularity(&analysis);
+    match result {
+        Err(DegeneracyKind::ParameterizationSingularity { side, .. }) => {
+            assert_eq!(side, SupportSide::Face1);
+        }
+        other => panic!("expected ParameterizationSingularity, got {other:?}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // describe() rendering
 // ---------------------------------------------------------------------------
 
@@ -153,6 +277,14 @@ fn describe_renders_prefix_for_each_variant() {
         DegeneracyKind::DegenerateSupportNormal {
             side: SupportSide::Face1,
             magnitude: 1e-12,
+        },
+        DegeneracyKind::ZeroAreaSupport {
+            side: SupportSide::Face2,
+            area: 1e-16,
+        },
+        DegeneracyKind::ParameterizationSingularity {
+            side: SupportSide::Face1,
+            uv: (0.5, 0.5),
         },
     ];
     for v in &variants {
