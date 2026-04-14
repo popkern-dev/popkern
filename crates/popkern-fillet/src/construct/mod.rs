@@ -32,7 +32,6 @@
 //! per-face score robust to outlier vertices on the fragmented
 //! sub-faces). The 12-edge regression test still passes.
 
-mod blend_cleanup;
 pub(crate) mod blend_insert;
 pub(crate) mod blend_topo;
 pub(crate) mod closed_fillet;
@@ -41,6 +40,7 @@ pub(crate) mod merge;
 mod multi_chord;
 pub(crate) mod pcurve_attach;
 mod phase_split;
+mod sliver_absorb;
 pub(crate) mod surface_fix;
 
 use std::collections::HashMap;
@@ -483,13 +483,15 @@ pub fn apply_blend_geometry(
         .collect();
     surface_fix::correct_face_surfaces(&mut result, brep, &fillet_surfaces);
 
-    // Round 5r+: merge small triangular plane fragments into
-    // adjacent sphere vertex-blend faces. Multi-chord Phase B
-    // leaves 3-vert corner triangles (one per cube face per cube
-    // corner) that should be part of the sphere blend. We iterate
-    // and kef any edge shared between a ≤4-vert plane and a
-    // non-plane neighbour.
-    blend_cleanup::merge_corner_fragments_into_blends(&mut result);
+    // §13.1(2) sliver absorption: the general post-construction
+    // pass subsumes the Round 5r+ corner-fragment cleanup under
+    // a classify-apply-reclassify framework. Step 2 ships
+    // infrastructure + Class D (corner fragment → sphere). Step 3
+    // will add Classes A (zero-area), B (thin), C (redundant
+    // edge) without further plumbing changes. Returned warnings
+    // are always empty today; step 3 will route them into
+    // `warnings`.
+    let _sliver_warnings = sliver_absorb::absorb_slivers(&mut result, tolerance);
 
     Ok(ApplyBlendResult {
         brep: result,
