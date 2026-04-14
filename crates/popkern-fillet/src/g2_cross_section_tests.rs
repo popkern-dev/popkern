@@ -122,6 +122,9 @@ fn plane_plane_solution(radius: f64) -> (SurfaceGeometry, SurfaceGeometry, Conta
     (plane_z0, plane_x0, solution)
 }
 
+// G2 sweep tests live in `g2_sweep_tests.rs` to keep both files
+// under the 500-line structural cap.
+
 #[test]
 fn g2_cross_section_plane_plane_endpoints_match_contacts() {
     let (plane_z0, plane_x0, solution) = plane_plane_solution(0.5);

@@ -15,6 +15,7 @@ fn simple_center_result() -> CenterCurveResult {
         center_curve,
         footprint_1: fp1,
         footprint_2: fp2,
+        contact_solutions: None,
     }
 }
 

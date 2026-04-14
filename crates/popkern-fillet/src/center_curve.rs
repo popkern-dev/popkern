@@ -29,6 +29,16 @@ pub struct CenterCurveResult {
     pub footprint_1: Vec<Point3>,
     /// Footprint points on the second surface (closest points from center curve).
     pub footprint_2: Vec<Point3>,
+    /// Per-sample contact solver outputs from the spine walker, when
+    /// the producer used the walker path. `None` for the legacy
+    /// offset-intersect paths (which derive footprints from a
+    /// surface intersection rather than per-sample contact solves).
+    ///
+    /// When populated, downstream code can route through
+    /// `g2_cross_section::g2_sweep_from_contact_solutions` to build
+    /// a degree-5 Bezier (G2) sweep instead of a circular-arc (G1)
+    /// sweep. See §2.4 / §7 G2.
+    pub contact_solutions: Option<Vec<crate::contact::ContactSolution>>,
 }
 
 /// Compute the center curve for a constant-radius fillet between two surfaces.
@@ -109,6 +119,7 @@ pub fn constant_radius_center_curve(
         center_curve,
         footprint_1,
         footprint_2,
+        contact_solutions: None,
     })
 }
 
@@ -205,6 +216,7 @@ pub fn parametric_radius_center_curve(
         center_curve,
         footprint_1,
         footprint_2,
+        contact_solutions: None,
     })
 }
 

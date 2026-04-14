@@ -73,7 +73,7 @@
 //! for the broader phase-1 roadmap.
 
 use popkern_core::geometry::surface::SurfaceEval;
-use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
+use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, Vec3};
 
 use crate::contact::math::signed_unit_normal;
 use crate::contact::{BallSide, ContactSolution};
@@ -353,6 +353,108 @@ pub(crate) fn normal_curvature_in_direction(
     ii_tt / i_tt
 }
 
+// ---------------------------------------------------------------------------
+// G2 sweep (skin G2 cross-sections along the spine)
+// ---------------------------------------------------------------------------
+
+/// Build a NURBS swept surface by skinning G2 cross-sections along
+/// the spine, one per `ContactSolution`. The surface goes from
+/// `solutions[0].contact0..contact1` at u=0 to
+/// `solutions[N-1].contact0..contact1` at u=1, with degree-5 v-direction
+/// (the cross-section degree) and degree-1 u-direction (linear skin
+/// between consecutive cross-sections).
+///
+/// This is the G2 counterpart of `fillet_surface::build_nurbs_sweep`,
+/// which produces a degree-1 u, degree-1 v polyline-arc sweep. The
+/// cross-section direction here is degree-5 because each cross-
+/// section is a degree-5 Bezier from `g2_cross_section_bezier`. The
+/// u-direction degree is left at 1 to match the legacy sweep's
+/// behaviour; phase 2+ may bump it for smoother along-spine
+/// continuity.
+///
+/// Returns `Err(G2Error)` if any per-sample G2 cross-section build
+/// fails. Callers can fall back to `build_nurbs_sweep` (the legacy
+/// G1 path) on failure.
+pub fn g2_sweep_from_contact_solutions(
+    solutions: &[ContactSolution],
+    surface_0: &dyn SurfaceEval,
+    surface_1: &dyn SurfaceEval,
+    side_0: BallSide,
+    side_1: BallSide,
+) -> Result<NurbsSurface, G2Error> {
+    if solutions.len() < 2 {
+        return Err(G2Error::ZeroChord);
+    }
+
+    // Build a G2 cross-section curve at each spine sample.
+    let mut sections: Vec<NurbsCurve> = Vec::with_capacity(solutions.len());
+    for solution in solutions {
+        let req = G2Request {
+            surface_0,
+            surface_1,
+            side_0,
+            side_1,
+            solution,
+        };
+        let cs = g2_cross_section_bezier(&req)?;
+        sections.push(cs.curve);
+    }
+
+    // All cross-sections share the same degree (5) and number of
+    // control points (6). Skin them into a tensor-product surface
+    // with degree-1 u (linear between consecutive sections) and
+    // degree-5 v (the cross-section degree).
+    let n_sections = sections.len();
+    let n_v = 6;
+    let degree_u = 1;
+    let degree_v = 5;
+
+    // Control points are stored row-major: control_points[i*n_v + j]
+    // is the i-th section's j-th cross-section control point.
+    let mut control_points = Vec::with_capacity(n_sections * n_v);
+    for section in &sections {
+        for cp in &section.control_points {
+            control_points.push(*cp);
+        }
+    }
+
+    let knots_u = build_clamped_uniform_knots(n_sections, degree_u);
+    // The cross-section knot vector is the same for every section
+    // since they're all the same shape (degree-5, 6 cps, clamped
+    // uniform [0..1]); reuse it.
+    let knots_v = sections[0].knots.clone();
+    let weights = vec![1.0; n_sections * n_v];
+
+    Ok(NurbsSurface {
+        degree_u,
+        degree_v,
+        knots_u,
+        knots_v,
+        control_points,
+        num_u: n_sections,
+        num_v: n_v,
+        weights,
+    })
+}
+
+fn build_clamped_uniform_knots(n_control_points: usize, degree: usize) -> Vec<f64> {
+    // Standard clamped uniform knot vector: [0]*(p+1), interior, [1]*(p+1).
+    let n = n_control_points;
+    let p = degree;
+    let mut knots = Vec::with_capacity(n + p + 1);
+    knots.extend(std::iter::repeat_n(0.0, p + 1));
+    let interior = n.saturating_sub(p + 1);
+    for i in 1..=interior {
+        knots.push(i as f64 / (interior + 1) as f64);
+    }
+    knots.extend(std::iter::repeat_n(1.0, p + 1));
+    knots
+}
+
 #[cfg(test)]
 #[path = "g2_cross_section_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "g2_sweep_tests.rs"]
+mod sweep_tests;

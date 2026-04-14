@@ -95,10 +95,12 @@ pub fn walker_based_center_curve(
     let mut center_points: Vec<Point3> = Vec::with_capacity(walk.samples.len());
     let mut footprint_1: Vec<Point3> = Vec::with_capacity(walk.samples.len());
     let mut footprint_2: Vec<Point3> = Vec::with_capacity(walk.samples.len());
+    let mut contact_solutions = Vec::with_capacity(walk.samples.len());
     for sample in &walk.samples {
         center_points.push(sample.solution.center);
         footprint_1.push(sample.solution.contact0);
         footprint_2.push(sample.solution.contact1);
+        contact_solutions.push(sample.solution.clone());
     }
 
     let center_curve = fit_nurbs_through_points(&center_points)?;
@@ -109,5 +111,6 @@ pub fn walker_based_center_curve(
         center_curve,
         footprint_1,
         footprint_2,
+        contact_solutions: Some(contact_solutions),
     })
 }
