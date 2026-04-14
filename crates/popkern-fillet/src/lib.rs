@@ -10,6 +10,7 @@ pub mod center_curve;
 pub mod center_curve_helpers;
 pub mod center_curve_walker;
 pub mod chamfer_curve;
+pub(crate) mod collapsed_skip;
 pub mod construct;
 pub mod contact;
 pub(crate) mod cusp_subdivide;
@@ -74,15 +75,8 @@ use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
-/// Fillet the specified edges of a BRep solid.
-///
-/// Analyzes each edge, computes the rolling-ball center curve and fillet
-/// surface, derives trim curves, and applies the topology modifications.
-///
-/// # Errors
-///
-/// Returns [`BlendError::NoValidEdges`] if analysis fails for all edges, or
-/// [`BlendError::PartialFailure`] if some edges fail (with a partial result).
+/// Fillet the specified edges of a BRep solid. See
+/// [`BlendError`] for failure modes.
 pub fn fillet_edges(
     brep: &BRep,
     specs: &[FilletSpec],
@@ -93,18 +87,8 @@ pub fn fillet_edges(
     fillet_edges_internal(brep, specs, options, tolerance, tracking, None, None)
 }
 
-/// Fillet the specified edges, checking a [`CancellationToken`]
-/// between pipeline phases.
-///
-/// If the token reports `is_cancelled()` between any two phases,
-/// the operation returns [`BlendError::Cancelled`] and the input
-/// BRep is guaranteed unchanged. Otherwise behaves identically to
-/// [`fillet_edges`].
-///
-/// # Errors
-///
-/// Same as [`fillet_edges`], plus [`BlendError::Cancelled`] when
-/// cancellation was observed.
+/// Cancellable variant of [`fillet_edges`] — returns
+/// [`BlendError::Cancelled`] if the token fires between phases.
 pub fn fillet_edges_cancellable(
     brep: &BRep,
     specs: &[FilletSpec],
@@ -124,16 +108,9 @@ pub fn fillet_edges_cancellable(
     )
 }
 
-/// Fillet the specified edges, emitting progress events between
-/// pipeline phases via a [`ProgressReporter`].
-///
-/// The reporter is called once per pipeline phase in
-/// [`FilletPhase`]'s natural order. A slow reporter adds directly
-/// to the fillet's wall time, so implementations should be cheap.
-///
-/// # Errors
-///
-/// Same as [`fillet_edges`].
+/// Progress-reporting variant of [`fillet_edges`]. The reporter is
+/// called once per [`FilletPhase`]; a slow reporter adds to wall
+/// time, so implementations should be cheap.
 pub fn fillet_edges_with_progress(
     brep: &BRep,
     specs: &[FilletSpec],
@@ -193,8 +170,10 @@ fn fillet_edges_internal(
     emit!(progress::FilletPhase::Validate, t0, specs.len());
     check_cancel!();
 
-    // PHASE 0b: §13.1(1) cusp-subdivide pre-pass (no-op on clean input).
-    let (healed_brep, healed_specs) = cusp_subdivide::subdivide_cusp_edges(brep, specs, &tolerance);
+    // PHASE 0b: §13.1(5) collapsed-edge soft-skip + §13.1(1) cusp subdivide.
+    let (skipped, prepass_warnings) = collapsed_skip::skip_collapsed_edges(brep, specs, &tolerance);
+    let (healed_brep, healed_specs) =
+        cusp_subdivide::subdivide_cusp_edges(brep, &skipped, &tolerance);
     let brep = &healed_brep;
     let specs: &[FilletSpec] = &healed_specs;
     // Capture pre-operation faces for naming.
@@ -306,13 +285,21 @@ fn fillet_edges_internal(
         apply_result.brep.half_edges.len()
     );
 
-    // Merge overlap warnings with topology warnings.
+    // Merge overlap warnings with topology warnings, plus §13.1 pre-pass warnings.
     let mut all_warnings = apply_result.warnings;
+    let fallback_edge = specs
+        .first()
+        .map(|s| s.edge)
+        .or_else(|| edge_geometries.first().map(|g| g.analysis.edge))
+        .unwrap_or_default();
     for warn in overlap_warnings {
-        let edge_h = specs
-            .first()
-            .map(|s| s.edge)
-            .unwrap_or(edge_geometries[0].analysis.edge);
+        all_warnings.push((fallback_edge, warn));
+    }
+    for warn in prepass_warnings {
+        let edge_h = match &warn {
+            BlendWarning::CollapsedEdgeSkipped { edge, .. } => *edge,
+            _ => fallback_edge,
+        };
         all_warnings.push((edge_h, warn));
     }
 

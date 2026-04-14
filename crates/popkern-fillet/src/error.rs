@@ -245,6 +245,18 @@ pub enum BlendWarning {
         /// The estimated safe maximum radius.
         safe_radius: f64,
     },
+    /// A fillet spec was soft-skipped from the batch by the
+    /// §13.1(5) collapsed-edge pre-pass because the target edge's
+    /// two endpoint vertices were separated by less than the
+    /// geometric tolerance. The rest of the batch proceeds
+    /// normally; the caller should check `warnings` in addition
+    /// to `failures` to understand the full set of spec outcomes.
+    CollapsedEdgeSkipped {
+        /// The edge that was dropped.
+        edge: EdgeHandle,
+        /// Measured 3D length between the edge's endpoint vertices.
+        length: f64,
+    },
 }
 
 // The Remediation types and the per-variant remediation-hint
