@@ -201,11 +201,64 @@ fn fillet_edge_on_cone_base_does_not_crash_pipeline() {
     }
 }
 
-// A second test covering "fillet a cone at a radius small enough to
-// satisfy the curvature pre-check" was tried but takes ≥4 minutes
-// because the variable-radius sampling path (`parametric_radius_center_curve`)
-// does ~20 closest_point Gauss-Newton multi-starts per spine sample
-// on a cone. That's a phase 1b walker concern, not a phase 1a math
-// concern, so the test is deferred. The two tests above already
-// prove "the cone code path executes without crashing" which is the
-// phase 1a acceptance criterion.
+#[test]
+fn fillet_edge_on_cone_base_at_feasible_radius_is_fast() {
+    // Phase 1b acceptance: with the spine walker wired into the
+    // cone path, a fillet at a feasible radius on a unit cone must
+    // complete in well under 5 seconds (the phase-1a version of
+    // this test took 280+ seconds and was therefore deleted).
+    //
+    // The walker gets the win by warm-starting the contact solver
+    // from the previous spine sample's converged (uv0, uv1) — only
+    // the first sample pays the multi-start `closest_point` cost.
+    //
+    // We do NOT require the topology pass to succeed end-to-end yet
+    // (that's phase 1c/1d cone-corner work); we only require that
+    // the geometry-compute phase finish in bounded time and produce
+    // a structured success or structured failure (not a hang).
+    let brep = BRep::cone(1.0, 2.0, unit_tol()).expect("cone BRep should build");
+
+    let edges: Vec<_> = brep.edges.keys().collect();
+    let mut chosen = edges[0];
+    for &eh in &edges {
+        let edge = &brep.edges[eh];
+        let he = edge.half_edge;
+        let twin = brep.half_edges[he].twin;
+        let face_a = brep.loops[brep.half_edges[he].loop_].face;
+        let face_b = brep.loops[brep.half_edges[twin].loop_].face;
+        if face_a != face_b {
+            chosen = eh;
+            break;
+        }
+    }
+
+    let specs = vec![FilletSpec {
+        edge: chosen,
+        radius: FilletRadius::Constant(0.005),
+    }];
+    let start = std::time::Instant::now();
+    let result = fillet_edges(
+        &brep,
+        &specs,
+        &crate::FilletOptions::default(),
+        unit_tol(),
+        None,
+    );
+    let elapsed = start.elapsed();
+
+    // The hard requirement is "doesn't take 280 seconds." 5 seconds
+    // is a comfortable upper bound that catches any future regression.
+    assert!(
+        elapsed.as_secs() < 5,
+        "phase 1b: cone fillet at small radius should be fast, took {:?}",
+        elapsed
+    );
+
+    if let Err(e) = &result {
+        let msg = format!("{e:?}");
+        assert!(
+            !msg.contains("analytic offset not supported for cones"),
+            "phase 1b should still bypass the cone-offset hard-fail; got: {msg}"
+        );
+    }
+}

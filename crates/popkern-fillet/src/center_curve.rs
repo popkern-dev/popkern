@@ -18,6 +18,7 @@ use crate::offset::offset_surface;
 // Re-export commonly used items from helpers so external callers
 // (e.g. blend::surface tests) keep working with crate::center_curve::.
 pub use crate::center_curve_helpers::fit_nurbs_through_points;
+pub use crate::center_curve_walker::walker_based_center_curve;
 
 /// Result of a center curve computation.
 #[derive(Debug, Clone)]
@@ -206,6 +207,9 @@ pub fn parametric_radius_center_curve(
         footprint_2,
     })
 }
+
+// `walker_based_center_curve` lives in `center_curve_walker.rs` to
+// keep this file under the 500-line structural cap. Re-exported below.
 
 /// Piecewise-linear interpolation of a `ByPoints` radius profile.
 /// `pts` must be sorted by parameter ascending. Out-of-range `t`

@@ -10,12 +10,14 @@ pub mod blend;
 pub mod cancellation;
 pub mod center_curve;
 pub mod center_curve_helpers;
+pub mod center_curve_walker;
 pub mod chamfer_curve;
 pub mod construct;
 pub mod contact;
 pub mod error;
 pub mod fillet_surface;
 pub(crate) mod geometry_compute;
+pub(crate) mod geometry_compute_cone;
 pub mod history;
 pub mod identify;
 pub(crate) mod identify_helpers;
@@ -40,6 +42,7 @@ pub(crate) mod unfillet_closed_helpers;
 pub(crate) mod unfillet_helpers;
 pub(crate) mod unfillet_surgery;
 pub mod validate;
+pub mod walker;
 
 pub use cancellation::CancellationToken;
 pub use error::{

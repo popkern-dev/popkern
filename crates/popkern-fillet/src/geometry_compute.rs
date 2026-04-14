@@ -66,61 +66,41 @@ pub(crate) fn compute_fillet_geometry(
         }
     }
 
-    let center_result = match radius {
-        FilletRadius::Constant(r) => center_curve::constant_radius_center_curve(
-            &analysis.surface_1,
+    // Phase 1b: when either surface is a Cone, the offset-intersect
+    // path can't run (cones have no analytic offset). Route the
+    // entire center-curve computation through the spine walker, which
+    // builds the center curve from rolling-ball contact solutions
+    // along the actual edge curve.
+    let either_is_cone = matches!(
+        analysis.surface_1,
+        popkern_core::geometry::surface::SurfaceGeometry::Cone { .. }
+    ) || matches!(
+        analysis.surface_2,
+        popkern_core::geometry::surface::SurfaceGeometry::Cone { .. }
+    );
+
+    let center_result = if either_is_cone {
+        crate::geometry_compute_cone::compute_cone_center_via_walker(
+            analysis,
+            radius,
+            brep,
             u1_range,
             v1_range,
-            &analysis.surface_2,
             u2_range,
             v2_range,
-            *r,
-            &edge_midpoint,
             tolerance,
-            analysis.orientation_1,
-            analysis.orientation_2,
-        )
-        .map_err(|e| BlendFailure::IntersectionFailed {
-            reason: e,
-            location: Some(edge_midpoint),
-        })?,
-        FilletRadius::Variable { start, end } => center_curve::variable_radius_center_curve(
-            &analysis.surface_1,
-            u1_range,
-            v1_range,
-            &analysis.surface_2,
-            u2_range,
-            v2_range,
-            *start,
-            *end,
-            &edge_midpoint,
-            tolerance,
-            analysis.orientation_1,
-            analysis.orientation_2,
-        )
-        .map_err(|e| BlendFailure::IntersectionFailed {
-            reason: e,
-            location: Some(edge_midpoint),
-        })?,
-        FilletRadius::ByPoints(pts) => {
-            if pts.is_empty() {
-                return Err(BlendFailure::InvalidTopology {
-                    reason: "ByPoints radius with empty point list".to_string(),
-                });
-            }
-            // Round 5l: build the center curve using a piecewise-
-            // linear closure over the *full* ByPoints profile, not
-            // just the endpoint radii. The intermediate points now
-            // shape the center curve rather than being silently
-            // dropped.
-            center_curve::parametric_radius_center_curve(
+            edge_midpoint,
+        )?
+    } else {
+        match radius {
+            FilletRadius::Constant(r) => center_curve::constant_radius_center_curve(
                 &analysis.surface_1,
                 u1_range,
                 v1_range,
                 &analysis.surface_2,
                 u2_range,
                 v2_range,
-                |t| center_curve::bypoints_local_radius(pts, t),
+                *r,
                 &edge_midpoint,
                 tolerance,
                 analysis.orientation_1,
@@ -129,7 +109,54 @@ pub(crate) fn compute_fillet_geometry(
             .map_err(|e| BlendFailure::IntersectionFailed {
                 reason: e,
                 location: Some(edge_midpoint),
-            })?
+            })?,
+            FilletRadius::Variable { start, end } => center_curve::variable_radius_center_curve(
+                &analysis.surface_1,
+                u1_range,
+                v1_range,
+                &analysis.surface_2,
+                u2_range,
+                v2_range,
+                *start,
+                *end,
+                &edge_midpoint,
+                tolerance,
+                analysis.orientation_1,
+                analysis.orientation_2,
+            )
+            .map_err(|e| BlendFailure::IntersectionFailed {
+                reason: e,
+                location: Some(edge_midpoint),
+            })?,
+            FilletRadius::ByPoints(pts) => {
+                if pts.is_empty() {
+                    return Err(BlendFailure::InvalidTopology {
+                        reason: "ByPoints radius with empty point list".to_string(),
+                    });
+                }
+                // Round 5l: build the center curve using a piecewise-
+                // linear closure over the *full* ByPoints profile, not
+                // just the endpoint radii. The intermediate points now
+                // shape the center curve rather than being silently
+                // dropped.
+                center_curve::parametric_radius_center_curve(
+                    &analysis.surface_1,
+                    u1_range,
+                    v1_range,
+                    &analysis.surface_2,
+                    u2_range,
+                    v2_range,
+                    |t| center_curve::bypoints_local_radius(pts, t),
+                    &edge_midpoint,
+                    tolerance,
+                    analysis.orientation_1,
+                    analysis.orientation_2,
+                )
+                .map_err(|e| BlendFailure::IntersectionFailed {
+                    reason: e,
+                    location: Some(edge_midpoint),
+                })?
+            }
         }
     };
 
