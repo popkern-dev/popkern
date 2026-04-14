@@ -16,6 +16,8 @@ use crate::intersect::IntersectionRecord;
 
 #[path = "split_helpers.rs"]
 mod helpers;
+#[path = "split_helpers_uv.rs"]
+mod helpers_uv;
 use helpers::{find_fragment_for_curve, split_one_face};
 
 /// Provenance map tracking which original face each fragment came from,

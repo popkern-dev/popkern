@@ -481,3 +481,7 @@ use uv_sample::uv_centroid_sample;
 #[cfg(test)]
 #[path = "classify_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "classify_edge_tests.rs"]
+mod edge_tests;

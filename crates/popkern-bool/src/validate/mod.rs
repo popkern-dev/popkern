@@ -5,6 +5,7 @@
 
 pub mod post_check;
 pub mod pre_check;
+mod pre_check_geometry;
 pub mod repair;
 
 #[cfg(test)]

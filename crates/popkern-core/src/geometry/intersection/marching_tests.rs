@@ -348,7 +348,7 @@ fn tangent_basis_orthogonality() {
         Vec3::new(1.0, 1.0, 1.0),
     ];
     for normal in &normals {
-        let (tu, tv) = super::tangent_basis(normal);
+        let (tu, tv) = super::marching_helpers::tangent_basis(normal);
         let n = normal.normalized().unwrap();
         assert!(
             n.dot(&tu).abs() < 1e-10,
