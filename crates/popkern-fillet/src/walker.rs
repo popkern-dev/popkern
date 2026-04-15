@@ -26,6 +26,7 @@
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::tolerance::Tolerance;
+use thiserror::Error;
 
 use crate::contact::{
     BallSide, ContactError, ContactOptions, ContactRequest, ContactSolution,
@@ -195,13 +196,15 @@ pub struct WalkResult {
 }
 
 /// Failure modes for [`walk_spine`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Error)]
 pub enum WalkerError {
     /// The first contact solution at `t_start` failed. The spine seed
     /// was either wrong or the geometry is infeasible at the start.
+    #[error("spine walker: initial contact failed: {0}")]
     InitialContactFailed(ContactError),
     /// A subsequent step failed. `t_spine` identifies *which* sample.
     /// Phase 1c adds bisection / parametric detour to recover.
+    #[error("spine walker: step {sample_index} at t={t_spine:.4} failed: {error}")]
     StepFailed {
         /// Spine parameter where the step failed.
         t_spine: f64,
@@ -213,39 +216,12 @@ pub enum WalkerError {
     /// Could not seed the initial guess via `closest_point` — both
     /// surfaces' `closest_point` returned `None` at the spine start
     /// point.
+    #[error("spine walker: surface {surface_index} could not seed initial guess")]
     InitialSeedFailed {
         /// Which surface failed to project the spine start point.
         surface_index: usize,
     },
 }
-
-impl std::fmt::Display for WalkerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            WalkerError::InitialContactFailed(e) => {
-                write!(f, "spine walker: initial contact failed: {e}")
-            }
-            WalkerError::StepFailed {
-                t_spine,
-                sample_index,
-                error,
-            } => {
-                write!(
-                    f,
-                    "spine walker: step {sample_index} at t={t_spine:.4} failed: {error}"
-                )
-            }
-            WalkerError::InitialSeedFailed { surface_index } => {
-                write!(
-                    f,
-                    "spine walker: surface {surface_index} could not seed initial guess"
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for WalkerError {}
 
 // ---------------------------------------------------------------------------
 // Walker entry point

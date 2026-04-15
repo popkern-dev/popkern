@@ -74,6 +74,7 @@
 
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, Vec3};
+use thiserror::Error;
 
 use crate::contact::math::signed_unit_normal;
 use crate::contact::{BallSide, ContactSolution};
@@ -126,11 +127,14 @@ pub struct G2CrossSection {
 /// Failure modes for [`g2_cross_section_bezier`]. All three are
 /// "the geometry doesn't admit a G2 cross-section here" cases —
 /// degenerate normals, parallel surfaces, or a zero-length chord.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Error)]
 pub enum G2Error {
     /// One of the surfaces produced a degenerate normal at the
     /// contact point. The caller is expected to fall back to the
     /// G1 (arc) cross-section.
+    #[error(
+        "G2 cross-section: surface {surface_index} has a degenerate normal at the contact point"
+    )]
     DegenerateNormal {
         /// `0` for surface 0, `1` for surface 1.
         surface_index: usize,
@@ -138,38 +142,22 @@ pub enum G2Error {
     /// The two contact points coincide, so there's no chord to
     /// build a tangent against. This happens at "tangent contact"
     /// singularities.
+    #[error("G2 cross-section: the two contact points coincide (zero chord)")]
     ZeroChord,
     /// The cross-section tangent at one of the endpoints projected
     /// to zero in the corresponding tangent plane — i.e. the chord
     /// is exactly perpendicular to the surface tangent plane at
     /// that point. Should never happen for a normal rolling-ball
     /// solution but flagged defensively.
+    #[error(
+        "G2 cross-section: cross-section tangent degenerates on surface \
+         {surface_index} (chord is perpendicular to its tangent plane)"
+    )]
     TangentDegenerate {
         /// `0` for surface 0, `1` for surface 1.
         surface_index: usize,
     },
 }
-
-impl std::fmt::Display for G2Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            G2Error::DegenerateNormal { surface_index } => write!(
-                f,
-                "G2 cross-section: surface {surface_index} has a degenerate normal at the contact point"
-            ),
-            G2Error::ZeroChord => write!(
-                f,
-                "G2 cross-section: the two contact points coincide (zero chord)"
-            ),
-            G2Error::TangentDegenerate { surface_index } => write!(
-                f,
-                "G2 cross-section: cross-section tangent degenerates on surface {surface_index} (chord is perpendicular to its tangent plane)"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for G2Error {}
 
 /// Build a degree-5 Bezier cross-section with G2 (curvature-matching)
 /// boundary conditions at both contact points.

@@ -4,6 +4,7 @@
 
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{Point3, Vec3};
+use thiserror::Error;
 
 /// Which side of a surface the rolling-ball *center* sits on, defined
 /// **relative to the surface's natural `normal_at(u, v)` direction**.
@@ -213,9 +214,13 @@ pub enum SingularityKind {
 /// Failure modes of [`super::solve_rolling_ball_contact`]. Each variant
 /// carries enough structured data for `BlendFailure::ContactSolverFailed`
 /// to be populated with a 3D location and remediation suggestion.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Error)]
 pub enum ContactError {
     /// Newton residual increased over multiple consecutive steps.
+    #[error(
+        "rolling-ball contact solver diverged after {iterations} iterations \
+         (residual {last_residual:.3e})"
+    )]
     Diverged {
         /// Iterations attempted before declaring divergence.
         iterations: usize,
@@ -227,6 +232,10 @@ pub enum ContactError {
         last_uv1: (f64, f64),
     },
     /// Newton did not reach `residual_tolerance` within `max_iterations`.
+    #[error(
+        "rolling-ball contact solver did not converge \
+         (residual {residual:.3e} after {iterations} iterations)"
+    )]
     NotConverged {
         /// Iterations attempted (always `max_iterations`).
         iterations: usize,
@@ -239,6 +248,10 @@ pub enum ContactError {
     },
     /// Jacobian became near-singular and Levenberg-Marquardt
     /// regularization could not recover.
+    #[error(
+        "rolling-ball contact solver hit a singular Jacobian \
+         ({kind:?}, condition {condition:.3e}) after {iterations} iterations"
+    )]
     SingularJacobian {
         /// Iterations consumed.
         iterations: usize,
@@ -252,6 +265,12 @@ pub enum ContactError {
     },
     /// A surface normal evaluation produced a degenerate vector that
     /// could not be repaired by perturbation.
+    #[error(
+        "surface {surface_index} normal is degenerate at parameter \
+         ({:.4}, {:.4})",
+        uv.0,
+        uv.1
+    )]
     DegenerateNormal {
         /// `0` for surface 0, `1` for surface 1.
         surface_index: usize,
@@ -263,6 +282,12 @@ pub enum ContactError {
     /// The solution drifted outside the supplied UV bounds and
     /// clamping pushed it back to the boundary, producing an
     /// infeasible state.
+    #[error(
+        "rolling-ball contact drifted off surface {surface_index} \
+         at parameter ({:.4}, {:.4})",
+        uv.0,
+        uv.1
+    )]
     OutOfBounds {
         /// `0` for surface 0, `1` for surface 1.
         surface_index: usize,
@@ -296,56 +321,3 @@ pub enum ContactFeasibility {
         max_feasible_radius: Option<f64>,
     },
 }
-
-impl std::fmt::Display for ContactError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ContactError::Diverged {
-                iterations,
-                last_residual,
-                ..
-            } => write!(
-                f,
-                "rolling-ball contact solver diverged after {iterations} iterations \
-                 (residual {last_residual:.3e})"
-            ),
-            ContactError::NotConverged {
-                iterations,
-                residual,
-                ..
-            } => write!(
-                f,
-                "rolling-ball contact solver did not converge \
-                 (residual {residual:.3e} after {iterations} iterations)"
-            ),
-            ContactError::SingularJacobian {
-                iterations,
-                condition,
-                kind,
-                ..
-            } => write!(
-                f,
-                "rolling-ball contact solver hit a singular Jacobian \
-                 ({kind:?}, condition {condition:.3e}) after {iterations} iterations"
-            ),
-            ContactError::DegenerateNormal {
-                surface_index, uv, ..
-            } => write!(
-                f,
-                "surface {surface_index} normal is degenerate at parameter \
-                 ({:.4}, {:.4})",
-                uv.0, uv.1
-            ),
-            ContactError::OutOfBounds {
-                surface_index, uv, ..
-            } => write!(
-                f,
-                "rolling-ball contact drifted off surface {surface_index} \
-                 at parameter ({:.4}, {:.4})",
-                uv.0, uv.1
-            ),
-        }
-    }
-}
-
-impl std::error::Error for ContactError {}

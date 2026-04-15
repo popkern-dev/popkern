@@ -32,6 +32,7 @@
 //! ```
 
 pub mod cache;
+pub mod cache_stats;
 pub mod constraints;
 pub(crate) mod constraints_helpers;
 pub mod constraints_repair;
@@ -57,7 +58,8 @@ pub mod test_oracle;
 pub mod visual_analysis;
 
 // Re-export key types for ergonomic access.
-pub use cache::{CacheStats, HealingCache};
+pub use cache::HealingCache;
+pub use cache_stats::CacheStats;
 pub use constraints::{ConstraintSet, ConstraintViolation, GeometricConstraint, check_constraints};
 pub use constraints_repair::{ConstrainedRepairResult, heal_with_constraints};
 pub use continuity::classification::{EdgeClassification, SmoothChain};

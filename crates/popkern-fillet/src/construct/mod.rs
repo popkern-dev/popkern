@@ -81,14 +81,10 @@ pub struct EdgeGeometry {
     /// Radius at the fillet edge's end vertex. For a constant
     /// spec, equals `effective_radius`. For `Variable`, equals `end`.
     pub radius_at_end: f64,
-    /// §18 telemetry: Newton iterations from the walker path.
-    /// `None` on the legacy offset-intersect path.
+    /// §18 telemetry: walker-path Newton iterations (legacy path = None).
     pub iterations_used: Option<usize>,
-    /// §18 telemetry: total backtracking-line-search rejections
-    /// summed across every walker sample's contact solve. `None`
-    /// on the legacy offset-intersect path (no walker). A high
-    /// count relative to `iterations_used` suggests ill-conditioned
-    /// contact geometry for this edge.
+    /// §18 telemetry: walker-path line-search rejections (legacy = None).
+    /// A high value vs `iterations_used` flags ill-conditioned contact.
     pub step_rejections_used: Option<usize>,
 }
 
