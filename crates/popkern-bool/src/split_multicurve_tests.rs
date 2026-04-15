@@ -59,7 +59,7 @@ fn curves_per_face_collects_multiple_indices() {
     let face_b1 = popkern_core::topology::FaceHandle::default();
     let face_b2 = popkern_core::topology::FaceHandle::default();
 
-    let records = vec![
+    let records = [
         crate::intersect::IntersectionRecord {
             face_a,
             face_b: face_b1,
@@ -151,7 +151,7 @@ fn split_same_face_with_two_records_uses_first() {
             // First curve should split the face (adds 1 face).
             // Second curve is skipped for now.
             assert!(
-                r.a.faces.len() >= faces_before + 1,
+                r.a.faces.len() > faces_before,
                 "first curve should split the face"
             );
         }

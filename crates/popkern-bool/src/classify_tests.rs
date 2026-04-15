@@ -14,17 +14,17 @@ fn translate(mut brep: BRep, offset: Vec3) -> BRep {
         vertex.position = vertex.position + offset;
     }
     for (_, face) in &mut brep.faces {
-        if let Some(ref mut sof) = face.surface {
-            if let SurfaceGeometry::Plane { ref mut origin, .. } = sof.geometry {
-                *origin = *origin + offset;
-            }
+        if let Some(ref mut sof) = face.surface
+            && let SurfaceGeometry::Plane { ref mut origin, .. } = sof.geometry
+        {
+            *origin = *origin + offset;
         }
     }
     for (_, edge) in &mut brep.edges {
-        if let Some(ref mut coe) = edge.curve {
-            if let CurveGeometry::Line { ref mut origin, .. } = coe.geometry {
-                *origin = *origin + offset;
-            }
+        if let Some(ref mut coe) = edge.curve
+            && let CurveGeometry::Line { ref mut origin, .. } = coe.geometry
+        {
+            *origin = *origin + offset;
         }
     }
     brep
@@ -136,7 +136,7 @@ fn classify_cube_faces_against_disjoint_cube() {
 
     // All faces of cube_a should be outside cube_b.
     assert_eq!(result.len(), 6);
-    for (_, class) in &result {
+    for class in result.values() {
         assert_eq!(*class, Classification::Outside);
     }
 }
@@ -166,7 +166,7 @@ fn classify_small_cube_inside_large_cube() {
 
     // All faces of the inner cube should be inside the outer cube.
     assert_eq!(result.len(), 6);
-    for (_, class) in &result {
+    for class in result.values() {
         assert_eq!(
             *class,
             Classification::Inside,

@@ -256,7 +256,7 @@ fn classify_fragments_on_boundary_maps_to_cooriented() {
     assert_eq!(result.len(), 6);
     // All should be OnBoundaryCooriented (or Inside/Outside depending on
     // exact sample placement), but classification must not fail.
-    for (_, class) in &result {
+    for class in result.values() {
         assert!(
             matches!(
                 class,

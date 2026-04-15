@@ -18,17 +18,17 @@ fn translate(mut brep: BRep, offset: Vec3) -> BRep {
         vertex.position = vertex.position + offset;
     }
     for (_, face) in &mut brep.faces {
-        if let Some(ref mut sof) = face.surface {
-            if let SurfaceGeometry::Plane { ref mut origin, .. } = sof.geometry {
-                *origin = *origin + offset;
-            }
+        if let Some(ref mut sof) = face.surface
+            && let SurfaceGeometry::Plane { ref mut origin, .. } = sof.geometry
+        {
+            *origin = *origin + offset;
         }
     }
     for (_, edge) in &mut brep.edges {
-        if let Some(ref mut coe) = edge.curve {
-            if let CurveGeometry::Line { ref mut origin, .. } = coe.geometry {
-                *origin = *origin + offset;
-            }
+        if let Some(ref mut coe) = edge.curve
+            && let CurveGeometry::Line { ref mut origin, .. } = coe.geometry
+        {
+            *origin = *origin + offset;
         }
     }
     brep

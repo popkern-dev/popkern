@@ -160,7 +160,7 @@ mod tests {
         match result {
             Ok(brep) => {
                 // If it succeeds, the result should have some faces.
-                assert!(brep.faces.len() > 0 || brep.faces.is_empty());
+                assert!(!brep.faces.is_empty() || brep.faces.is_empty());
             }
             Err(_diag) => {
                 // Graph merge may fail on identity (no intersection curves

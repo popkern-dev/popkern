@@ -46,11 +46,8 @@ fn translate(mut brep: BRep, offset: Vec3) -> BRep {
 #[test]
 fn cube_cube_union_still_validates() {
     let t = Tolerance::default();
-    let a = BRep::unit_cube(t.clone()).unwrap();
-    let b = translate(
-        BRep::unit_cube(t.clone()).unwrap(),
-        Vec3::new(0.5, 0.3, 0.2),
-    );
+    let a = BRep::unit_cube(t).unwrap();
+    let b = translate(BRep::unit_cube(t).unwrap(), Vec3::new(0.5, 0.3, 0.2));
     let result = crate::union(a, b, t, None).unwrap();
     let errs = result.validate_all();
     assert!(
@@ -63,11 +60,8 @@ fn cube_cube_union_still_validates() {
 #[test]
 fn overlapping_cube_subtraction_still_validates() {
     let t = Tolerance::default();
-    let a = BRep::unit_cube(t.clone()).unwrap();
-    let b = translate(
-        BRep::unit_cube(t.clone()).unwrap(),
-        Vec3::new(0.5, 0.3, 0.2),
-    );
+    let a = BRep::unit_cube(t).unwrap();
+    let b = translate(BRep::unit_cube(t).unwrap(), Vec3::new(0.5, 0.3, 0.2));
     let result = crate::subtraction(a, b, t, None).unwrap();
     let errs = result.validate_all();
     assert!(
@@ -82,11 +76,8 @@ fn overlapping_cube_subtraction_still_validates() {
 #[test]
 fn disjoint_cube_union_preserves_pcurves() {
     let t = Tolerance::default();
-    let a = BRep::unit_cube(t.clone()).unwrap();
-    let b = translate(
-        BRep::unit_cube(t.clone()).unwrap(),
-        Vec3::new(5.0, 0.0, 0.0),
-    );
+    let a = BRep::unit_cube(t).unwrap();
+    let b = translate(BRep::unit_cube(t).unwrap(), Vec3::new(5.0, 0.0, 0.0));
     let result = crate::union(a, b, t, None).unwrap();
     let with_pcurves = result
         .half_edges

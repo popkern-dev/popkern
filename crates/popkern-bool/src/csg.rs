@@ -61,7 +61,7 @@ mod tests {
     #[test]
     fn leaf_returns_brep_unchanged() {
         let tol = Tolerance::default();
-        let cube = BRep::unit_cube(tol.clone()).unwrap();
+        let cube = BRep::unit_cube(tol).unwrap();
         let face_count = cube.faces.len();
         let result = csg_eval(CsgNode::Leaf(Box::new(cube)), &tol).unwrap();
         assert_eq!(result.faces.len(), face_count);
@@ -70,8 +70,8 @@ mod tests {
     #[test]
     fn union_of_disjoint_cubes() {
         let tol = Tolerance::default();
-        let a = BRep::unit_cube(tol.clone()).unwrap();
-        let mut b = BRep::unit_cube(tol.clone()).unwrap();
+        let a = BRep::unit_cube(tol).unwrap();
+        let mut b = BRep::unit_cube(tol).unwrap();
         for (_, v) in &mut b.vertices {
             v.position = v.position + Vec3::new(5.0, 0.0, 0.0);
         }
@@ -87,8 +87,8 @@ mod tests {
     fn subtraction_of_disjoint_returns_left() {
         // A - B where B is far away = A
         let tol = Tolerance::default();
-        let a = BRep::unit_cube(tol.clone()).unwrap();
-        let mut b = BRep::unit_cube(tol.clone()).unwrap();
+        let a = BRep::unit_cube(tol).unwrap();
+        let mut b = BRep::unit_cube(tol).unwrap();
         for (_, v) in &mut b.vertices {
             v.position = v.position + Vec3::new(5.0, 0.0, 0.0);
         }
@@ -105,8 +105,8 @@ mod tests {
         // A is a unit cube, B is a large cube containing A.
         // Intersection = A (6 faces).
         let tol = Tolerance::default();
-        let a = BRep::unit_cube(tol.clone()).unwrap();
-        let mut b = BRep::unit_cube(tol.clone()).unwrap();
+        let a = BRep::unit_cube(tol).unwrap();
+        let mut b = BRep::unit_cube(tol).unwrap();
         for (_, v) in &mut b.vertices {
             v.position = popkern_core::geometry::Point3::new(
                 v.position.x * 3.0 - 1.0,
@@ -127,12 +127,12 @@ mod tests {
     fn nested_tree_union_then_subtract() {
         // (A ∪ B) - C where all are disjoint
         let tol = Tolerance::default();
-        let a = BRep::unit_cube(tol.clone()).unwrap();
-        let mut b = BRep::unit_cube(tol.clone()).unwrap();
+        let a = BRep::unit_cube(tol).unwrap();
+        let mut b = BRep::unit_cube(tol).unwrap();
         for (_, v) in &mut b.vertices {
             v.position = v.position + Vec3::new(5.0, 0.0, 0.0);
         }
-        let mut c = BRep::unit_cube(tol.clone()).unwrap();
+        let mut c = BRep::unit_cube(tol).unwrap();
         for (_, v) in &mut c.vertices {
             v.position = v.position + Vec3::new(10.0, 0.0, 0.0);
         }

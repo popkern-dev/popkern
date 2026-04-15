@@ -63,17 +63,17 @@ fn translate(mut brep: BRep, offset: Vec3) -> BRep {
 #[test]
 fn two_cubes_subtracted_from_center_cube() {
     let t = coarse_tol();
-    let center = BRep::unit_cube(t.clone()).expect("center cube");
+    let center = BRep::unit_cube(t).expect("center cube");
 
     // First small cube overlapping the left side of the center cube.
     // Offset by 0.25 in Y and Z so faces don't coincide.
     let left = translate(
-        BRep::unit_cube(t.clone()).expect("left cube"),
+        BRep::unit_cube(t).expect("left cube"),
         Vec3::new(-0.7, 0.25, 0.25),
     );
 
     // Subtract left cube from center.
-    let result1 = crate::subtraction(center, left, t.clone(), None);
+    let result1 = crate::subtraction(center, left, t, None);
     assert!(
         result1.is_ok(),
         "first subtraction should succeed: {:?}",
@@ -84,7 +84,7 @@ fn two_cubes_subtracted_from_center_cube() {
     // Second small cube overlapping the right side.
     // Offset so no coincident faces with the intermediate result.
     let right = translate(
-        BRep::unit_cube(t.clone()).expect("right cube"),
+        BRep::unit_cube(t).expect("right cube"),
         Vec3::new(0.7, 0.25, 0.25),
     );
 
@@ -114,9 +114,9 @@ fn two_cubes_subtracted_from_center_cube() {
 #[test]
 fn subtraction_result_has_valid_half_edge_loops() {
     let t = coarse_tol();
-    let a = BRep::unit_cube(t.clone()).expect("cube a");
+    let a = BRep::unit_cube(t).expect("cube a");
     let b = translate(
-        BRep::unit_cube(t.clone()).expect("cube b"),
+        BRep::unit_cube(t).expect("cube b"),
         Vec3::new(-0.7, 0.25, 0.25),
     );
 
@@ -216,14 +216,13 @@ fn subtraction_result_has_valid_half_edge_loops() {
 #[test]
 fn chained_subtraction_result_validates() {
     let t = coarse_tol();
-    let center = BRep::unit_cube(t.clone()).expect("center cube");
+    let center = BRep::unit_cube(t).expect("center cube");
     let left = translate(
-        BRep::unit_cube(t.clone()).expect("left cube"),
+        BRep::unit_cube(t).expect("left cube"),
         Vec3::new(-0.7, 0.25, 0.25),
     );
 
-    let intermediate =
-        crate::subtraction(center, left, t.clone(), None).expect("first subtraction");
+    let intermediate = crate::subtraction(center, left, t, None).expect("first subtraction");
 
     // Check intermediate result's loop integrity.
     let mut broken = Vec::new();
@@ -282,7 +281,7 @@ fn chained_subtraction_result_validates() {
 
     // Now do the second subtraction.
     let right = translate(
-        BRep::unit_cube(t.clone()).expect("right cube"),
+        BRep::unit_cube(t).expect("right cube"),
         Vec3::new(0.7, 0.25, 0.25),
     );
     let result2 = crate::subtraction(intermediate, right, t, None);
@@ -325,11 +324,11 @@ fn cylinder_through_plate_creates_hole() {
 
     // Thin plate: unit cube is already 1x1x1; use it as-is.
     // The cylinder will pass through the Z=0 and Z=1 faces.
-    let plate = BRep::unit_cube(t.clone()).expect("plate");
+    let plate = BRep::unit_cube(t).expect("plate");
 
     // Cylinder centered on the plate, radius 0.3, tall enough to pass through.
     let cyl = translate(
-        BRep::cylinder(0.3, 2.0, t.clone()).expect("cylinder"),
+        BRep::cylinder(0.3, 2.0, t).expect("cylinder"),
         Vec3::new(0.5, 0.5, -0.5),
     );
 

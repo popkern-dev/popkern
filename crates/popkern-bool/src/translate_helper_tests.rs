@@ -63,7 +63,7 @@ fn translate(mut brep: BRep, offset: Vec3) -> BRep {
 #[test]
 fn translate_sphere_covers_sphere_surface_branch() {
     let t = coarse_tol();
-    let sphere = BRep::sphere(1.0, t.clone()).unwrap();
+    let sphere = BRep::sphere(1.0, t).unwrap();
     let translated = translate(sphere, Vec3::new(5.0, 0.0, 0.0));
 
     // All vertices should have x >= 4 (original range ~[-1, 1] + 5 = [4, 6]).
@@ -87,7 +87,7 @@ fn translate_torus_covers_torus_surface_branch() {
     use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 
     let t = coarse_tol();
-    let mut brep = BRep::unit_cube(t.clone()).unwrap();
+    let mut brep = BRep::unit_cube(t).unwrap();
 
     // Overwrite one face's surface with a Torus geometry.
     let fh = brep.faces.keys().next().unwrap();
@@ -109,13 +109,13 @@ fn translate_torus_covers_torus_surface_branch() {
     }
     // The face with the Torus surface should have its center translated.
     let face_data = &translated.faces[fh];
-    if let Some(ref surf) = face_data.surface {
-        if let SurfaceGeometry::Torus { ref center, .. } = surf.geometry {
-            assert!(
-                (center.x - 10.0).abs() < 0.01,
-                "Torus center x should be translated to ~10"
-            );
-        }
+    if let Some(ref surf) = face_data.surface
+        && let SurfaceGeometry::Torus { ref center, .. } = surf.geometry
+    {
+        assert!(
+            (center.x - 10.0).abs() < 0.01,
+            "Torus center x should be translated to ~10"
+        );
     }
 }
 
@@ -128,7 +128,7 @@ fn translate_brep_with_circle_curve_covers_circle_arc_branch() {
     use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 
     let t = coarse_tol();
-    let mut cube = BRep::unit_cube(t.clone()).unwrap();
+    let mut cube = BRep::unit_cube(t).unwrap();
 
     // Overwrite one edge's curve with a Circle geometry.
     let eh = cube.edges.keys().next().unwrap();
@@ -150,13 +150,13 @@ fn translate_brep_with_circle_curve_covers_circle_arc_branch() {
     }
     // The edge with the Circle curve should have its center translated.
     let edge_data = &translated.edges[eh];
-    if let Some(ref coe) = edge_data.curve {
-        if let CurveGeometry::Circle { ref center, .. } = coe.geometry {
-            assert!(
-                (center.x - 10.0).abs() < 0.01,
-                "Circle center x should be translated to ~10"
-            );
-        }
+    if let Some(ref coe) = edge_data.curve
+        && let CurveGeometry::Circle { ref center, .. } = coe.geometry
+    {
+        assert!(
+            (center.x - 10.0).abs() < 0.01,
+            "Circle center x should be translated to ~10"
+        );
     }
 }
 
@@ -172,7 +172,7 @@ fn translate_nurbs_geometry_hits_catchall_branches() {
     use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 
     let t = coarse_tol();
-    let mut cube = BRep::unit_cube(t.clone()).unwrap();
+    let mut cube = BRep::unit_cube(t).unwrap();
 
     // Assign a Nurbs surface to one face (hits the `_ => {}` surface catch-all).
     let fh = cube.faces.keys().next().unwrap();

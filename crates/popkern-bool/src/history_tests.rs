@@ -27,7 +27,7 @@ fn boolean_recorded_captures_inputs_and_result() {
     assert_eq!(record.op, BoolOperation::Union);
     assert_eq!(record.input_a.faces.len(), a_face_count);
     assert_eq!(record.input_b.faces.len(), b_face_count);
-    assert!(record.result.faces.len() > 0);
+    assert!(!record.result.faces.is_empty());
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn history_list_navigation() {
     history.pop(); // simulate undo
     assert_eq!(history.len(), 2);
     let after_undo = history.last().unwrap().redo_state();
-    assert!(after_undo.faces.len() > 0);
+    assert!(!after_undo.faces.is_empty());
 
     // Each record's undo_state restores the inputs of THAT step.
     for record in &history {
@@ -151,7 +151,7 @@ fn record_preserves_tolerance_for_re_execution() {
 
     assert_eq!(record.tolerance.linear(), 1e-4);
     let replay = record.re_execute().unwrap();
-    assert!(replay.faces.len() > 0);
+    assert!(!replay.faces.is_empty());
 }
 
 #[test]
