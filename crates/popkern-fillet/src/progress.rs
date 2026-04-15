@@ -18,10 +18,22 @@
 //! to expose **per-edge timing, per-phase timing, Newton iteration
 //! counts (mean, max, histogram), step rejection counts, memory
 //! high-water, cache hit rates — all queryable**. This module ships
-//! the first three categories via [`CaptureReporter::telemetry`].
-//! Step rejections, memory high-water, and cache hit rates are
-//! tracked separately (see `docs/requirements/fillets_blends.md`
-//! §18 for the full list).
+//! timing and iteration telemetry via [`CaptureReporter::telemetry`]
+//! plus step rejection counts via [`EdgeTelemetry::step_rejections`]
+//! and the `FilletTelemetry::*_step_rejections` aggregate accessors.
+//! Memory high-water is measured by the `alloc_profile` integration
+//! test's `CountingAlloc` at `crates/popkern-fillet/tests/alloc_profile.rs`.
+//!
+//! Cache hit rates are exposed by individual cache instances rather
+//! than the fillet-wide telemetry struct. The fillet pipeline itself
+//! currently maintains no caches — every Newton solve, trim curve,
+//! and pcurve is built from scratch per edge — so there is nothing
+//! for `FilletTelemetry` to aggregate on the fillet side. The
+//! reference implementation of the cache-hit-rate pattern lives at
+//! `popkern_core::healing::CacheStats` (and is wired into
+//! `HealingCache`); any future cache added to the fillet pipeline
+//! should reuse that type so the metric stays consistent across
+//! the engine.
 
 use popkern_core::topology::EdgeHandle;
 use std::time::Duration;
