@@ -11,11 +11,12 @@ use crate::chamfer_curve;
 use crate::construct::EdgeGeometry;
 use crate::error::BlendFailure;
 use crate::fillet_surface;
+use crate::geometry_compute_caps::build_edge_caps;
 use crate::geometry_compute_feasibility::{
     largest_requested_radius, self_intersection_safe_radius,
 };
 use crate::trim;
-use crate::types::{ChamferKind, FilletRadius};
+use crate::types::{CapKind, ChamferKind, FilletRadius};
 
 /// Trim curve triplet used by the overlap detector: (face_index, trim_on_face, other_trim).
 pub(crate) type OverlapTrimEntry = (
@@ -35,6 +36,7 @@ pub(crate) fn compute_fillet_geometry(
     brep: &BRep,
     tolerance: &Tolerance,
     g2_cross_section: bool,
+    cap_kind: CapKind,
 ) -> Result<EdgeGeometry, BlendFailure> {
     let edge_midpoint = get_edge_midpoint(brep, analysis)?;
 
@@ -260,6 +262,13 @@ pub(crate) fn compute_fillet_geometry(
         })
         .unwrap_or((None, None));
 
+    // §8.3 caps: build the cap geometry at each blend endpoint if
+    // the caller requested a non-`Open` cap kind. The construction
+    // is pure geometry — it does not touch the BRep. Topology
+    // insertion of the cap face is a separate follow-up pass.
+    let (start_cap, end_cap) =
+        build_edge_caps(cap_kind, &center_result, radius_at_start, radius_at_end);
+
     Ok(EdgeGeometry {
         analysis: rebuild_analysis(analysis, brep)?,
         surface: fillet_result.surface,
@@ -272,6 +281,8 @@ pub(crate) fn compute_fillet_geometry(
         radius_at_end,
         iterations_used,
         step_rejections_used,
+        start_cap,
+        end_cap,
     })
 }
 
@@ -312,6 +323,11 @@ pub(crate) fn compute_chamfer_geometry(
         // Chamfers don't run the walker/contact solver — always None.
         iterations_used: None,
         step_rejections_used: None,
+        // Chamfers don't grow blend caps — the chamfer surface is
+        // itself planar/ruled and terminates cleanly at the
+        // perpendicular edge splits.
+        start_cap: None,
+        end_cap: None,
     })
 }
 

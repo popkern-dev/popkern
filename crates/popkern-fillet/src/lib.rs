@@ -23,6 +23,7 @@ pub mod fillet_surface;
 pub mod fillet_surface_analytic;
 pub mod g2_cross_section;
 pub(crate) mod geometry_compute;
+pub(crate) mod geometry_compute_caps;
 pub(crate) mod geometry_compute_cone;
 pub(crate) mod geometry_compute_feasibility;
 pub mod highlight_line;
@@ -215,6 +216,7 @@ fn fillet_edges_internal(
             brep,
             &tolerance,
             options.g2_cross_section,
+            options.cap_kind,
         );
         if let Some(r) = reporter.as_deref_mut() {
             let (succeeded, newton_iterations, step_rejections) = match &compute_result {
@@ -397,23 +399,11 @@ pub fn chamfer_edges(
     })
 }
 
-/// Fillet a set of edges and return the result bundled with
-/// post-operation quality metrics ([`BlendQuality`]).
-///
-/// This is the commercial-grade entry point for UI callers: the
-/// quality record drives any "fillet health" indicator in a
-/// property panel, and the raw metrics (`R_min`, `patch_count`,
-/// `surface_area`) feed into manufacturing-readiness reports.
-///
-/// The operation is otherwise identical to [`fillet_edges`] — same
-/// parameter validation, same error taxonomy, same topology
-/// modifications. On success the returned [`BlendQuality`] is
-/// computed from the new-face delta between the input BRep and the
-/// output BRep using [`precheck::fillet_quality`].
-///
-/// # Errors
-///
-/// Same as [`fillet_edges`].
+/// Fillet the specified edges and bundle the result with post-op
+/// [`BlendQuality`] metrics (`R_min`, `patch_count`, `surface_area`,
+/// composite score). Same parameter validation and error taxonomy
+/// as [`fillet_edges`]; quality is computed from the new-face delta
+/// via [`precheck::fillet_quality`].
 pub fn fillet_edges_with_quality(
     brep: &BRep,
     specs: &[FilletSpec],

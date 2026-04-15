@@ -336,6 +336,7 @@ fn compute_fillet_geometry_on_cone_base_produces_analytic_torus() {
         &brep,
         &unit_tol(),
         false, // g2_cross_section off — we want to verify the analytic Torus path
+        crate::types::CapKind::Open,
     );
     let eg = match result {
         Ok(eg) => eg,

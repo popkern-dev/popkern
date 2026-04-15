@@ -286,6 +286,7 @@ fn probe_5c3_geometry_works_on_closed_fillet() {
         &subtracted,
         &tol(),
         false,
+        crate::types::CapKind::Open,
     ) {
         Ok(g) => g,
         Err(e) => {

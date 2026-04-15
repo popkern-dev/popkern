@@ -72,20 +72,20 @@ pub struct EdgeGeometry {
     pub pcurve_2: NurbsCurve,
     /// Average fillet/chamfer radius (kept for legacy callers).
     pub effective_radius: f64,
-    /// Radius at the fillet edge's start vertex. For a constant
-    /// spec, equals `effective_radius`. For
-    /// `FilletRadius::Variable { start, end }`, equals `start`.
-    /// Round 5k uses this to drive the perpendicular edge split
-    /// at the fillet edge's start endpoint.
+    /// Radius at the edge's start vertex. Constant spec ⇒ `effective_radius`;
+    /// `Variable { start, end }` ⇒ `start`. Drives the perpendicular split.
     pub radius_at_start: f64,
-    /// Radius at the fillet edge's end vertex. For a constant
-    /// spec, equals `effective_radius`. For `Variable`, equals `end`.
+    /// Radius at the edge's end vertex. `Variable { end }` analogue.
     pub radius_at_end: f64,
     /// §18 telemetry: walker-path Newton iterations (legacy path = None).
     pub iterations_used: Option<usize>,
     /// §18 telemetry: walker-path line-search rejections (legacy = None).
     /// A high value vs `iterations_used` flags ill-conditioned contact.
     pub step_rejections_used: Option<usize>,
+    /// §8.3 start-endpoint cap (`None` when `cap_kind == Open`).
+    pub start_cap: Option<crate::cap::CapGeometry>,
+    /// §8.3 end-endpoint cap (`None` when `cap_kind == Open`).
+    pub end_cap: Option<crate::cap::CapGeometry>,
 }
 
 /// Result of applying blend geometry, including warnings.

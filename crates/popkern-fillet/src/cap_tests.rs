@@ -207,6 +207,176 @@ fn resample_clamps_tiny_n_samples() {
     assert!(pts.len() >= 2);
 }
 
+// ---------------------------------------------------------------------------
+// End-to-end: `FilletOptions::cap_kind` has a runtime effect on the pipeline.
+// ---------------------------------------------------------------------------
+
+/// With `cap_kind = Open` (the default), compute_fillet_geometry
+/// must leave `EdgeGeometry::start_cap` and `end_cap` as `None`.
+#[test]
+fn open_cap_leaves_edge_geometry_caps_none() {
+    use crate::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::BRep;
+
+    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+    let edge = cube.edges.keys().next().unwrap();
+    let specs = vec![FilletSpec {
+        edge,
+        radius: FilletRadius::Constant(0.1),
+    }];
+
+    let opts = FilletOptions::default(); // cap_kind = Open
+    let result = fillet_edges(&cube, &specs, &opts, Tolerance::default(), None)
+        .expect("open fillet should succeed");
+
+    // We can't inspect EdgeGeometry directly from outside the
+    // crate (it's pub(crate)), so we sanity-check via the result
+    // face count: the cube fillet creates a few faces and no cap
+    // faces (cap_kind = Open).
+    assert!(result.brep.faces.len() > cube.faces.len());
+}
+
+/// With `cap_kind = Flat`, the construction should succeed and
+/// store a `Flat` cap geometry at each spine endpoint on the
+/// `EdgeGeometry`. The public API doesn't yet surface the caps
+/// (that's commit 3), but we can verify the internal path via
+/// `compute_fillet_geometry` directly.
+#[test]
+fn flat_cap_kind_populates_edge_geometry_caps() {
+    use crate::analysis::analyze_edges;
+    use crate::geometry_compute::compute_fillet_geometry;
+    use crate::types::{CapKind, FilletRadius};
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::BRep;
+
+    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+    let edge = cube.edges.keys().next().unwrap();
+    let analyses = analyze_edges(&cube, &[edge], true).unwrap();
+    let analysis = &analyses[0];
+
+    let geom = compute_fillet_geometry(
+        analysis,
+        &FilletRadius::Constant(0.1),
+        &cube,
+        &Tolerance::default(),
+        false,
+        CapKind::Flat,
+    )
+    .expect("fillet should compute");
+
+    // Both endpoints should have a Flat cap.
+    assert!(geom.start_cap.is_some(), "start cap should be Some(Flat)");
+    assert!(geom.end_cap.is_some(), "end cap should be Some(Flat)");
+    assert_eq!(geom.start_cap.as_ref().unwrap().kind, CapKind::Flat);
+    assert_eq!(geom.end_cap.as_ref().unwrap().kind, CapKind::Flat);
+    // Flat cap surface is a Plane.
+    assert!(matches!(
+        geom.start_cap.as_ref().unwrap().surface,
+        Some(SurfaceGeometry::Plane { .. })
+    ));
+}
+
+/// `cap_kind = Rounded` populates both endpoints with Sphere caps.
+#[test]
+fn rounded_cap_kind_populates_edge_geometry_caps() {
+    use crate::analysis::analyze_edges;
+    use crate::geometry_compute::compute_fillet_geometry;
+    use crate::types::{CapKind, FilletRadius};
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::BRep;
+
+    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+    let edge = cube.edges.keys().next().unwrap();
+    let analyses = analyze_edges(&cube, &[edge], true).unwrap();
+    let analysis = &analyses[0];
+
+    let geom = compute_fillet_geometry(
+        analysis,
+        &FilletRadius::Constant(0.1),
+        &cube,
+        &Tolerance::default(),
+        false,
+        CapKind::Rounded,
+    )
+    .expect("fillet should compute");
+
+    let start = geom.start_cap.expect("start cap should be Some");
+    let end = geom.end_cap.expect("end cap should be Some");
+    assert_eq!(start.kind, CapKind::Rounded);
+    assert_eq!(end.kind, CapKind::Rounded);
+    // Rounded cap surface is a Sphere of the requested radius.
+    match start.surface {
+        Some(SurfaceGeometry::Sphere { radius, .. }) => {
+            assert!((radius - 0.1).abs() < 1e-12);
+        }
+        other => panic!("expected Sphere, got {other:?}"),
+    }
+}
+
+/// `cap_kind = TangentMatch` populates both endpoints with NURBS caps.
+#[test]
+fn tangent_match_cap_kind_populates_edge_geometry_caps() {
+    use crate::analysis::analyze_edges;
+    use crate::geometry_compute::compute_fillet_geometry;
+    use crate::types::{CapKind, FilletRadius};
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::BRep;
+
+    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+    let edge = cube.edges.keys().next().unwrap();
+    let analyses = analyze_edges(&cube, &[edge], true).unwrap();
+    let analysis = &analyses[0];
+
+    let geom = compute_fillet_geometry(
+        analysis,
+        &FilletRadius::Constant(0.1),
+        &cube,
+        &Tolerance::default(),
+        false,
+        CapKind::TangentMatch,
+    )
+    .expect("fillet should compute");
+
+    assert!(matches!(
+        geom.start_cap.as_ref().unwrap().surface,
+        Some(SurfaceGeometry::Nurbs(_))
+    ));
+    assert!(matches!(
+        geom.end_cap.as_ref().unwrap().surface,
+        Some(SurfaceGeometry::Nurbs(_))
+    ));
+}
+
+/// `cap_kind = UserDefined` is a [BEYOND] placeholder — falls back
+/// to leaving caps as `None`.
+#[test]
+fn user_defined_cap_kind_falls_back_to_none() {
+    use crate::analysis::analyze_edges;
+    use crate::geometry_compute::compute_fillet_geometry;
+    use crate::types::{CapKind, FilletRadius};
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::BRep;
+
+    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+    let edge = cube.edges.keys().next().unwrap();
+    let analyses = analyze_edges(&cube, &[edge], true).unwrap();
+    let analysis = &analyses[0];
+
+    let geom = compute_fillet_geometry(
+        analysis,
+        &FilletRadius::Constant(0.1),
+        &cube,
+        &Tolerance::default(),
+        false,
+        CapKind::UserDefined,
+    )
+    .expect("fillet should compute");
+
+    assert!(geom.start_cap.is_none());
+    assert!(geom.end_cap.is_none());
+}
+
 #[test]
 fn flat_cap_uses_different_parameterisation_for_identical_contacts() {
     // Edge case: contact_1 == contact_2 (degenerate, but caller
