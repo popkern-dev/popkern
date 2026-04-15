@@ -84,6 +84,12 @@ pub struct EdgeGeometry {
     /// §18 telemetry: Newton iterations from the walker path.
     /// `None` on the legacy offset-intersect path.
     pub iterations_used: Option<usize>,
+    /// §18 telemetry: total backtracking-line-search rejections
+    /// summed across every walker sample's contact solve. `None`
+    /// on the legacy offset-intersect path (no walker). A high
+    /// count relative to `iterations_used` suggests ill-conditioned
+    /// contact geometry for this edge.
+    pub step_rejections_used: Option<usize>,
 }
 
 /// Result of applying blend geometry, including warnings.

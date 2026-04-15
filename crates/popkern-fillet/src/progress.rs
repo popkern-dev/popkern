@@ -106,6 +106,12 @@ pub struct EdgeTelemetry {
     /// walker ran but produced no contact solutions — shouldn't
     /// happen in practice.
     pub newton_iterations: Option<usize>,
+    /// Total backtracking-line-search rejections summed across
+    /// every walker sample's contact solve. `None` on the legacy
+    /// offset-intersect path. A high value relative to
+    /// `newton_iterations` indicates ill-conditioned contact
+    /// geometry — useful for flagging specific edges to a user.
+    pub step_rejections: Option<usize>,
     /// `true` if the edge's geometry compute succeeded, `false`
     /// if it returned a `BlendFailure`.
     pub succeeded: bool,
@@ -195,6 +201,62 @@ impl FilletTelemetry {
             }
         }
         hist.into_iter().collect()
+    }
+
+    /// Total backtracking line-search rejections summed across
+    /// every walker edge. Edges on the legacy offset-intersect
+    /// path (`step_rejections = None`) are excluded from the sum.
+    pub fn total_step_rejections(&self) -> usize {
+        self.edge_events
+            .iter()
+            .filter_map(|e| e.step_rejections)
+            .sum()
+    }
+
+    /// Mean step rejections per walker edge, or `None` when no
+    /// edge reported rejection counts.
+    pub fn mean_step_rejections(&self) -> Option<f64> {
+        let counts: Vec<usize> = self
+            .edge_events
+            .iter()
+            .filter_map(|e| e.step_rejections)
+            .collect();
+        if counts.is_empty() {
+            return None;
+        }
+        Some(counts.iter().sum::<usize>() as f64 / counts.len() as f64)
+    }
+
+    /// Maximum step rejections on any walker edge, or `None`
+    /// when no edge reported rejection counts.
+    pub fn max_step_rejections(&self) -> Option<usize> {
+        self.edge_events
+            .iter()
+            .filter_map(|e| e.step_rejections)
+            .max()
+    }
+
+    /// Ratio of step rejections to Newton iterations across every
+    /// walker edge that reported both. Returns `None` when no walker
+    /// edge ran. Intuition: 0.0 = line search always accepts on the
+    /// first try (healthy); values above ~0.5 suggest the contact
+    /// solver is burning half its iterations rejecting candidate
+    /// steps — an ill-conditioned-surface flag.
+    pub fn step_rejection_ratio(&self) -> Option<f64> {
+        let iters: usize = self
+            .edge_events
+            .iter()
+            .filter_map(|e| e.newton_iterations)
+            .sum();
+        if iters == 0 {
+            return None;
+        }
+        let rejs: usize = self
+            .edge_events
+            .iter()
+            .filter_map(|e| e.step_rejections)
+            .sum();
+        Some(rejs as f64 / iters as f64)
     }
 }
 

@@ -71,6 +71,11 @@ pub fn solve_rolling_ball_contact(
     let mut diverge_streak = 0_usize;
     const DIVERGE_STREAK_LIMIT: usize = 4;
 
+    // §18 telemetry: total line-search rejections across all
+    // Newton iterations of this solve. Bubbles up into the
+    // returned `ContactSolution`.
+    let mut total_step_rejections = 0_usize;
+
     for iteration in 0..effective_max_iter {
         let built = build_jacobian_and_residual(
             request.surface_0,
@@ -147,6 +152,7 @@ pub fn solve_rolling_ball_contact(
                 contact0: request.surface_0.point_at(uv0.0, uv0.1),
                 contact1: request.surface_1.point_at(uv1.0, uv1.1),
                 iterations: iteration,
+                step_rejections: total_step_rejections,
                 residual: residual_norm,
                 condition,
                 jacobian,
@@ -219,8 +225,9 @@ pub fn solve_rolling_ball_contact(
             }
         };
 
-        let (new_uv0, new_uv1, _accepted_residual) =
+        let (new_uv0, new_uv1, _accepted_residual, rejections_this_step) =
             line_search(request, uv0, uv1, &step, residual_norm, floor);
+        total_step_rejections += rejections_this_step;
         let step_length = ((new_uv0.0 - uv0.0).powi(2)
             + (new_uv0.1 - uv0.1).powi(2)
             + (new_uv1.0 - uv1.0).powi(2)
@@ -246,7 +253,13 @@ pub fn solve_rolling_ball_contact(
 
 /// Backtracking line search over the Newton step. Each candidate
 /// state is clamped to the request's `uv*_range` boxes before
-/// evaluation. Returns `(new_uv0, new_uv1, residual_at_new_state)`.
+/// evaluation. Returns `(new_uv0, new_uv1, residual_at_new_state,
+/// rejections)`, where `rejections` counts how many candidate `α`
+/// values were discarded before a usable step was found — §18
+/// step-rejection telemetry. A healthy well-conditioned contact
+/// converges with 0 rejections; a count near 6 means all attempts
+/// failed to improve residual and the line search fell through
+/// without progress.
 fn line_search(
     request: &ContactRequest,
     uv0: (f64, f64),
@@ -254,11 +267,12 @@ fn line_search(
     step: &[f64; 4],
     current_residual: f64,
     floor: f64,
-) -> ((f64, f64), (f64, f64), f64) {
+) -> ((f64, f64), (f64, f64), f64, usize) {
     let mut alpha = 1.0_f64;
     let mut accepted_uv0 = uv0;
     let mut accepted_uv1 = uv1;
     let mut accepted_res = current_residual;
+    let mut rejections = 0_usize;
 
     for _ in 0..6 {
         let raw_uv0 = (uv0.0 + alpha * step[0], uv0.1 + alpha * step[1]);
@@ -272,11 +286,12 @@ fn line_search(
             accepted_uv0 = try_uv0;
             accepted_uv1 = try_uv1;
             accepted_res = r;
-            return (accepted_uv0, accepted_uv1, accepted_res);
+            return (accepted_uv0, accepted_uv1, accepted_res, rejections);
         }
+        rejections += 1;
         alpha *= 0.5;
     }
-    (accepted_uv0, accepted_uv1, accepted_res)
+    (accepted_uv0, accepted_uv1, accepted_res, rejections)
 }
 
 /// Clamp `(u, v)` into the given `((u_min, u_max), (v_min, v_max))` box.

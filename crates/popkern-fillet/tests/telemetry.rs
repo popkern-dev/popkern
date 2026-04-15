@@ -173,6 +173,17 @@ fn walker_path_populates_newton_iterations() {
             !histogram.is_empty(),
             "histogram should include at least the walker edge's bucket"
         );
+
+        // Step rejections: the walker populates this whenever it
+        // populates iterations — expected `Some(n)` with n ≥ 0.
+        // On a healthy cone-base solve the line search usually
+        // accepts on the first try, so 0 is a valid count.
+        assert!(
+            ev.step_rejections.is_some(),
+            "successful walker-path edge should report step rejections, got None"
+        );
+        // Ratio accessor should also return Some here.
+        assert!(tel.step_rejection_ratio().is_some());
     }
 }
 
@@ -211,6 +222,11 @@ fn legacy_path_leaves_newton_iterations_none() {
                 "legacy offset-intersect path should leave iterations None, got {:?}",
                 ev.newton_iterations
             );
+            assert!(
+                ev.step_rejections.is_none(),
+                "legacy offset-intersect path should leave step rejections None, got {:?}",
+                ev.step_rejections
+            );
         }
     }
     // Aggregates should report nothing when no walker edges ran.
@@ -218,6 +234,11 @@ fn legacy_path_leaves_newton_iterations_none() {
     assert_eq!(tel.mean_newton_iterations(), None);
     assert_eq!(tel.max_newton_iterations(), None);
     assert!(tel.newton_histogram().is_empty());
+    // Step-rejection aggregates mirror Newton aggregates.
+    assert_eq!(tel.total_step_rejections(), 0);
+    assert_eq!(tel.mean_step_rejections(), None);
+    assert_eq!(tel.max_step_rejections(), None);
+    assert_eq!(tel.step_rejection_ratio(), None);
 }
 
 // ---------------------------------------------------------------------------
@@ -237,18 +258,21 @@ fn telemetry_aggregate_accessors_are_consistent() {
             edge: dummy,
             duration: Duration::from_micros(100),
             newton_iterations: Some(3),
+            step_rejections: Some(0),
             succeeded: true,
         },
         EdgeTelemetry {
             edge: dummy,
             duration: Duration::from_micros(200),
             newton_iterations: Some(5),
+            step_rejections: Some(2),
             succeeded: true,
         },
         EdgeTelemetry {
             edge: dummy,
             duration: Duration::from_micros(150),
             newton_iterations: Some(3),
+            step_rejections: Some(1),
             succeeded: false,
         },
     ];
@@ -266,4 +290,12 @@ fn telemetry_aggregate_accessors_are_consistent() {
     // Histogram: two edges at 3 iter, one edge at 5 iter.
     let histogram = tel.newton_histogram();
     assert_eq!(histogram, vec![(3, 2), (5, 1)]);
+
+    // Step rejection aggregates: 0 + 2 + 1 = 3 total across 3
+    // edges, so mean = 1.0 and max = 2. The rejection ratio is
+    // 3 rejections / 11 Newton iterations ≈ 0.2727.
+    assert_eq!(tel.total_step_rejections(), 3);
+    assert!((tel.mean_step_rejections().unwrap() - 1.0).abs() < 1e-12);
+    assert_eq!(tel.max_step_rejections(), Some(2));
+    assert!((tel.step_rejection_ratio().unwrap() - (3.0 / 11.0)).abs() < 1e-12);
 }

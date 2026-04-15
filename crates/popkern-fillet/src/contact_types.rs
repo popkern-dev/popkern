@@ -146,6 +146,14 @@ pub struct ContactSolution {
     pub contact1: Point3,
     /// Number of Newton iterations consumed.
     pub iterations: usize,
+    /// §18 telemetry: total backtracking-line-search rejections
+    /// across all Newton iterations. Each rejected step is a
+    /// candidate `α` value whose residual failed to improve on
+    /// the current state before the line search shrunk `α`.
+    /// A healthy convergent solve has very few rejections (often
+    /// zero); a high rejection count per iteration indicates
+    /// ill-conditioning or a near-tangent surface pair.
+    pub step_rejections: usize,
     /// Final residual norm (3D, model units).
     pub residual: f64,
     /// Estimated condition number of the final 4×4 Jacobian (1-norm).

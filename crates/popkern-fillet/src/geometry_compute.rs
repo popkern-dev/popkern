@@ -246,13 +246,19 @@ pub(crate) fn compute_fillet_geometry(
     // §18 telemetry: when the walker produced the center curve,
     // `center_result.contact_solutions` carries one
     // `ContactSolution` per spine sample, each recording its
-    // Newton iteration count. Sum them for the per-edge total.
-    // Legacy offset-intersect paths leave `contact_solutions` as
-    // `None`, which propagates as `iterations_used = None`.
-    let iterations_used = center_result
+    // Newton iteration count AND its line-search rejection count.
+    // Sum both across the samples for per-edge totals. Legacy
+    // offset-intersect paths leave `contact_solutions` as `None`,
+    // which propagates as `None` in both fields.
+    let (iterations_used, step_rejections_used) = center_result
         .contact_solutions
         .as_ref()
-        .map(|sols| sols.iter().map(|s| s.iterations).sum::<usize>());
+        .map(|sols| {
+            let iters: usize = sols.iter().map(|s| s.iterations).sum();
+            let rejs: usize = sols.iter().map(|s| s.step_rejections).sum();
+            (Some(iters), Some(rejs))
+        })
+        .unwrap_or((None, None));
 
     Ok(EdgeGeometry {
         analysis: rebuild_analysis(analysis, brep)?,
@@ -265,6 +271,7 @@ pub(crate) fn compute_fillet_geometry(
         radius_at_start,
         radius_at_end,
         iterations_used,
+        step_rejections_used,
     })
 }
 
@@ -304,6 +311,7 @@ pub(crate) fn compute_chamfer_geometry(
         radius_at_end: effective_radius,
         // Chamfers don't run the walker/contact solver — always None.
         iterations_used: None,
+        step_rejections_used: None,
     })
 }
 

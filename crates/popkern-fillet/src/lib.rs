@@ -213,14 +213,15 @@ fn fillet_edges_internal(
             options.g2_cross_section,
         );
         if let Some(r) = reporter.as_deref_mut() {
-            let (succeeded, newton_iterations) = match &compute_result {
-                Ok(g) => (true, g.iterations_used),
-                Err(_) => (false, None),
+            let (succeeded, newton_iterations, step_rejections) = match &compute_result {
+                Ok(g) => (true, g.iterations_used, g.step_rejections_used),
+                Err(_) => (false, None, None),
             };
             r.on_edge(progress::EdgeTelemetry {
                 edge: spec.edge,
                 duration: edge_start.elapsed(),
                 newton_iterations,
+                step_rejections,
                 succeeded,
             });
         }
