@@ -143,6 +143,35 @@ pub struct FilletOptions {
     ///
     /// Ignored when `soft_supports = false`.
     pub soft_support_factor: f64,
+    /// §8.3 cap type applied to every blend endpoint that
+    /// terminates at a free boundary (i.e. doesn't meet another
+    /// blend at a shared vertex). Default [`CapKind::Open`] — the
+    /// historical behaviour where the blend simply ends at the
+    /// face trim with no explicit cap surface.
+    ///
+    /// The four non-default cap kinds each produce a dedicated
+    /// cap surface inserted between the blend surface and the
+    /// support faces at the endpoint:
+    ///
+    /// - [`CapKind::Flat`] — a planar cap perpendicular to the
+    ///   spine tangent at the endpoint. G0 with the blend and
+    ///   supports. Cheapest and most common for chamfer-style
+    ///   closures.
+    /// - [`CapKind::Rounded`] — a spherical cap of radius equal
+    ///   to the blend's local minor radius, centred at the
+    ///   rolling-ball centre-curve endpoint. G1 with the blend
+    ///   surface (same radius of curvature at the join).
+    /// - [`CapKind::TangentMatch`] — a NURBS cap whose boundary
+    ///   tangents match both support-face tangents at the blend
+    ///   endpoint contact points. G1 with the supports and the
+    ///   blend. Most expensive, highest quality.
+    /// - [`CapKind::UserDefined`] — [BEYOND] the caller provides
+    ///   the cap surface. Not yet implemented.
+    ///
+    /// When a blend endpoint DOES meet another blend (shared
+    /// vertex), the `vertex_mode` field drives the join instead
+    /// and this field is ignored.
+    pub cap_kind: CapKind,
 }
 
 impl Default for FilletOptions {
@@ -153,6 +182,7 @@ impl Default for FilletOptions {
             g2_cross_section: false,
             soft_supports: false,
             soft_support_factor: 10.0,
+            cap_kind: CapKind::Open,
         }
     }
 }
@@ -193,6 +223,47 @@ pub enum VertexMode {
     Smooth,
     /// Mitred (flat) vertex blend.
     Mitred,
+}
+
+/// §8.3 blend cap type for free-boundary endpoints.
+///
+/// When a filleted edge terminates without meeting another blend
+/// (i.e. at a face boundary, a cut, or an open sheet edge), the
+/// engine applies one of five strategies to close the blend end.
+///
+/// The default is [`CapKind::Open`] — no explicit cap surface —
+/// which preserves the historical behaviour for callers that do
+/// not set [`FilletOptions::cap_kind`]. The other variants each
+/// produce a dedicated cap face matching a specific continuity
+/// requirement (G0 for flat, G1 for rounded and tangent-match).
+///
+/// See [`FilletOptions::cap_kind`] for the motivation and
+/// continuity guarantees of each kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapKind {
+    /// No cap surface — the blend ends at its natural trim boundary
+    /// and the free edge is reported to the caller as-is. This is
+    /// the default and matches the pre-§8.3 behaviour.
+    Open,
+    /// Planar cap perpendicular to the spine tangent at the blend
+    /// endpoint. G0 with the blend and supports. The cheapest cap
+    /// kind and the most common for chamfer-style end closures.
+    Flat,
+    /// Hemispherical cap of radius equal to the blend's local
+    /// minor radius, centred at the rolling-ball centre-curve
+    /// endpoint. G1 with the blend surface (matching radii of
+    /// curvature at the join).
+    Rounded,
+    /// NURBS cap surface whose boundary tangents match both
+    /// support-face tangents at the blend endpoint contact points.
+    /// G1 with the supports and the blend. The most expensive
+    /// cap kind and the highest quality for Class-A surfacing.
+    TangentMatch,
+    /// [BEYOND] The caller supplies the cap surface via a callback
+    /// or resource handle. Placeholder — not yet implemented;
+    /// requesting this kind currently falls back to [`Self::Open`]
+    /// with a warning.
+    UserDefined,
 }
 
 /// Specification for a single chamfer edge.

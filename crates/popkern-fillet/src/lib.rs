@@ -6,6 +6,7 @@
 pub mod analysis;
 pub mod blend;
 pub mod cancellation;
+pub mod cap;
 pub mod center_curve;
 pub mod center_curve_helpers;
 pub mod center_curve_walker;
