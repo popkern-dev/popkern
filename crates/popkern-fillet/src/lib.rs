@@ -58,11 +58,11 @@ pub mod validate;
 pub mod walker;
 pub(crate) mod walker_adaptive;
 pub use cancellation::CancellationToken;
-pub use chamfer_2d::chamfer_corner_2d;
-pub use fillet_2d::fillet_corner_2d;
+pub use chamfer_2d::{chamfer_corner_2d, chamfer_corners_2d};
 pub use error::{
     BlendError, BlendFailure, BlendWarning, Remediation, RemediationAction, RemediationContext,
 };
+pub use fillet_2d::{fillet_corner_2d, fillet_corners_2d};
 pub use history::{
     ChamferOperationRecord, FilletOperationRecord, chamfer_recorded, fillet_recorded,
 };

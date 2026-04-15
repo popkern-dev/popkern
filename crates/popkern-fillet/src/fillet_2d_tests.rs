@@ -180,6 +180,103 @@ fn fillet_corner_2d_result_validates() {
     result.validate().unwrap();
 }
 
+// ---------------------------------------------------------------------------
+// Batch (§5.7 + §5.8)
+// ---------------------------------------------------------------------------
+
+/// Fillet all 4 corners of a unit `sheet_quad` with radius 0.1
+/// in a single batch call. Expect 8 vertices, 8 edges, 2 faces.
+#[test]
+fn fillet_corners_2d_all_four_sheet_quad_corners() {
+    let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let specs: Vec<_> = sheet.vertices.keys().map(|v| (v, 0.1_f64)).collect();
+    assert_eq!(specs.len(), 4);
+
+    let result = fillet_corners_2d(&sheet, &specs).expect("all-4 fillet should succeed");
+    // Each corner: +1 vertex (2 new tangent - 1 deleted = +1), +1 edge (arc).
+    // 4 × (+1) = 4 new vertices + 4 new edges.
+    assert_eq!(result.vertices.len(), 8);
+    assert_eq!(result.edges.len(), 8);
+    assert_eq!(result.faces.len(), 2);
+    // Euler identity.
+    let euler =
+        result.vertices.len() as i64 - result.edges.len() as i64 + result.faces.len() as i64;
+    assert_eq!(euler, 2);
+    result.validate().unwrap();
+}
+
+/// Fillet all 3 corners of a triangle in one batch call.
+#[test]
+fn fillet_corners_2d_all_three_triangle_corners() {
+    let sheet = BRep::sheet_triangle(
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(3.0, 0.0, 0.0),
+        Point3::new(1.5, 3.0, 0.0),
+        tol(),
+    )
+    .unwrap();
+    let specs: Vec<_> = sheet.vertices.keys().map(|v| (v, 0.2)).collect();
+    let result = fillet_corners_2d(&sheet, &specs).unwrap();
+    // 3 corners × (+1 vertex +1 edge) = 6 vertices, 6 edges.
+    assert_eq!(result.vertices.len(), 6);
+    assert_eq!(result.edges.len(), 6);
+    assert_eq!(result.faces.len(), 2);
+    result.validate().unwrap();
+}
+
+/// Empty spec list returns the input unchanged.
+#[test]
+fn fillet_corners_2d_empty_specs_is_identity() {
+    let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let result = fillet_corners_2d(&sheet, &[]).unwrap();
+    assert_eq!(result.vertices.len(), sheet.vertices.len());
+    assert_eq!(result.edges.len(), sheet.edges.len());
+    assert_eq!(result.faces.len(), sheet.faces.len());
+}
+
+/// Collision detection: two adjacent corner fillets whose
+/// combined setbacks exceed the shared edge length should fail
+/// on the second call with a "setback too large" error.
+///
+/// Sheet quad with edge length 1.0. Filleting the first corner
+/// with radius 0.6 leaves the shared edge at length 0.4.
+/// Filleting the adjacent corner with radius 0.6 would need a
+/// 0.6 setback on an edge of length 0.4 — rejected.
+#[test]
+fn fillet_corners_2d_collision_rejects_second_corner() {
+    let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    // Pick two vertices that share an edge. On a unit_quad both
+    // (0,0) and (1,0) share the edge y=0.
+    let v0 = sheet
+        .vertices
+        .iter()
+        .find(|(_, v)| v.position.x == 0.0 && v.position.y == 0.0)
+        .map(|(h, _)| h)
+        .unwrap();
+    let v1 = sheet
+        .vertices
+        .iter()
+        .find(|(_, v)| v.position.x == 1.0 && v.position.y == 0.0)
+        .map(|(h, _)| h)
+        .unwrap();
+
+    // Collision: 0.6 + 0.6 > 1.0 shared edge length.
+    let err = fillet_corners_2d(&sheet, &[(v0, 0.6), (v1, 0.6)]).unwrap_err();
+    assert!(matches!(err, BlendError::PartialFailure { .. }));
+}
+
+/// Each batch operation must be independently valid. Passing an
+/// invalid radius in the middle of a batch surfaces the error
+/// without a partial result leaking out.
+#[test]
+fn fillet_corners_2d_aborts_on_invalid_spec() {
+    let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let corner = sheet.vertices.keys().next().unwrap();
+    // First spec valid, second spec has a NaN radius.
+    let err = fillet_corners_2d(&sheet, &[(corner, 0.1), (corner, f64::NAN)]).unwrap_err();
+    assert!(matches!(err, BlendError::InvalidParameter { .. }));
+}
+
 /// The result's front face still has a planar surface (we didn't
 /// accidentally lose it during the surgery).
 #[test]

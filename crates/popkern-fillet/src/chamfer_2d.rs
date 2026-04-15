@@ -113,6 +113,25 @@ pub fn chamfer_corner_2d(
     Ok(out)
 }
 
+/// Batch variant of [`chamfer_corner_2d`] — chamfer every
+/// `(vertex, dist_a, dist_b)` spec in sequence, chaining the BRep
+/// through each call.
+///
+/// Collision detection is the same implicit
+/// "setback-beats-remaining-edge-length" check as in the single-
+/// corner path. All-or-nothing semantics: any failure aborts the
+/// batch and discards the partial result.
+pub fn chamfer_corners_2d(
+    brep: &BRep,
+    specs: &[(VertexHandle, f64, f64)],
+) -> Result<BRep, BlendError> {
+    let mut current = brep.clone();
+    for &(vertex, dist_a, dist_b) in specs {
+        current = chamfer_corner_2d(&current, vertex, dist_a, dist_b)?;
+    }
+    Ok(current)
+}
+
 #[derive(Debug, Clone, Copy)]
 struct ChamferPlan {
     he_out_a: HalfEdgeHandle,

@@ -107,6 +107,36 @@ pub fn fillet_corner_2d(
     Ok(out)
 }
 
+/// Batch variant of [`fillet_corner_2d`] — fillet every
+/// `(vertex, radius)` spec in sequence, chaining the BRep through
+/// each call so later specs see the topology produced by earlier
+/// ones.
+///
+/// **Collision detection** is implicit: after filleting corner A,
+/// its adjacent edges are shortened; filleting a neighbouring
+/// corner B then sees the reduced budget via the existing
+/// "setback ≥ edge length" check in [`fillet_corner_2d`]. Callers
+/// that want predictable behaviour across sibling corners should
+/// order the specs deterministically and pick radii that leave
+/// the shared edges with strictly positive length after both
+/// operations.
+///
+/// The caller's input `brep` is unchanged on both success and
+/// failure.
+///
+/// # Errors
+///
+/// Returns the first per-corner error encountered, wrapped
+/// unchanged. On any failure the partial BRep is discarded —
+/// this is an all-or-nothing batch, not a best-effort one.
+pub fn fillet_corners_2d(brep: &BRep, specs: &[(VertexHandle, f64)]) -> Result<BRep, BlendError> {
+    let mut current = brep.clone();
+    for &(vertex, radius) in specs {
+        current = fillet_corner_2d(&current, vertex, radius)?;
+    }
+    Ok(current)
+}
+
 /// Pre-surgery analysis captured before we touch the mutable BRep.
 /// Collecting everything up front lets us bail out cleanly on any
 /// input validation failure without having to roll back partial

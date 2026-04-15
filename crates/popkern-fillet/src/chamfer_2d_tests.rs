@@ -175,6 +175,75 @@ fn chamfer_corner_2d_rejects_invalid_vertex() {
     assert!(matches!(err, BlendError::InvalidParameter { .. }));
 }
 
+// ---------------------------------------------------------------------------
+// Batch (§5.7 + §5.8)
+// ---------------------------------------------------------------------------
+
+/// Chamfer all 4 corners of a `sheet_quad` with equal 0.1×0.1
+/// distances in a single batch call.
+#[test]
+fn chamfer_corners_2d_all_four_sheet_quad_corners() {
+    let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let specs: Vec<_> = sheet.vertices.keys().map(|v| (v, 0.1, 0.1)).collect();
+    assert_eq!(specs.len(), 4);
+
+    let result = chamfer_corners_2d(&sheet, &specs).expect("all-4 chamfer should succeed");
+    // Each corner: +1 vertex, +1 edge.
+    assert_eq!(result.vertices.len(), 8);
+    assert_eq!(result.edges.len(), 8);
+    assert_eq!(result.faces.len(), 2);
+    let euler =
+        result.vertices.len() as i64 - result.edges.len() as i64 + result.faces.len() as i64;
+    assert_eq!(euler, 2);
+    result.validate().unwrap();
+}
+
+/// Empty spec list returns the input unchanged.
+#[test]
+fn chamfer_corners_2d_empty_specs_is_identity() {
+    let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let result = chamfer_corners_2d(&sheet, &[]).unwrap();
+    assert_eq!(result.vertices.len(), 4);
+}
+
+/// Collision: two adjacent chamfers whose combined distances
+/// exceed the shared edge length fail on the second call.
+#[test]
+fn chamfer_corners_2d_collision_rejects_second_corner() {
+    let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let v0 = sheet
+        .vertices
+        .iter()
+        .find(|(_, v)| v.position.x == 0.0 && v.position.y == 0.0)
+        .map(|(h, _)| h)
+        .unwrap();
+    let v1 = sheet
+        .vertices
+        .iter()
+        .find(|(_, v)| v.position.x == 1.0 && v.position.y == 0.0)
+        .map(|(h, _)| h)
+        .unwrap();
+    // 0.7 + 0.7 > 1.0 shared edge length.
+    let err = chamfer_corners_2d(&sheet, &[(v0, 0.7, 0.1), (v1, 0.7, 0.1)]).unwrap_err();
+    assert!(matches!(err, BlendError::PartialFailure { .. }));
+}
+
+/// Mixed batch: chamfer a corner with asymmetric distances
+/// followed by another with symmetric distances.
+#[test]
+fn chamfer_corners_2d_mixed_symmetric_asymmetric() {
+    let sheet = BRep::sheet_quad(0.0, 2.0, 0.0, 2.0, 0.0, tol()).unwrap();
+    let mut iter = sheet.vertices.iter().map(|(h, v)| (h, v.position));
+    let (v0, _) = iter.next().unwrap();
+    let (v1, _) = iter.next().unwrap();
+    let result =
+        chamfer_corners_2d(&sheet, &[(v0, 0.3, 0.5), (v1, 0.2, 0.2)]).expect("mixed batch works");
+    // 2 corners × (+1 vertex +1 edge) = 6 vertices, 6 edges.
+    assert_eq!(result.vertices.len(), 6);
+    assert_eq!(result.edges.len(), 6);
+    result.validate().unwrap();
+}
+
 /// Chamfer result passes full BRep validation.
 #[test]
 fn chamfer_corner_2d_result_validates() {
