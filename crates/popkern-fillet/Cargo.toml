@@ -16,3 +16,7 @@ criterion = { version = "0.5", default-features = false, features = ["plotters",
 [[bench]]
 name = "modify_inplace_speedup"
 harness = false
+
+[[bench]]
+name = "fillet_perf"
+harness = false
