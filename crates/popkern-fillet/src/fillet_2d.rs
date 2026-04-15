@@ -53,7 +53,10 @@ use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, Edge, HalfEdge, HalfEdgeHandle, VertexHandle};
 
-use crate::error::{BlendError, BlendFailure};
+use crate::corner_2d_helpers::{
+    circle_basis_like_core, rebuild_line_curve, require_line, topology_failure,
+};
+use crate::error::BlendError;
 
 /// Fillet a single sharp corner of a sheet body.
 ///
@@ -282,74 +285,6 @@ fn corner_plan(brep: &BRep, vertex: VertexHandle, radius: f64) -> Result<CornerP
     })
 }
 
-/// Rebuild `edge`'s curve as a straight `Line` whose direction
-/// runs from the canonical half-edge's origin vertex to its
-/// twin's origin. The origin-vertex positions are read from the
-/// current BRep, so this picks up any vertex moves that happened
-/// earlier in the surgery.
-///
-/// Shared between `fillet_2d` and `chamfer_2d` — both have to
-/// rebuild support-edge curves after moving their endpoints onto
-/// new tangent-point vertices.
-pub(crate) fn rebuild_line_curve(brep: &mut BRep, edge: popkern_core::topology::EdgeHandle) {
-    let canonical = brep.edges[edge].half_edge;
-    let twin = brep.half_edges[canonical].twin;
-    let v_from = brep.half_edges[canonical].origin;
-    let v_to = brep.half_edges[twin].origin;
-    let p_from = brep.vertices[v_from].position;
-    let p_to = brep.vertices[v_to].position;
-    brep.edges[edge].curve = Some(CurveOnEdge {
-        geometry: CurveGeometry::Line {
-            origin: p_from,
-            direction: p_to - p_from,
-        },
-        t_start: 0.0,
-        t_end: 1.0,
-    });
-}
-
-/// Replicate `popkern_core::geometry::analytic_curves::circle_basis`
-/// — which is private — so our computed start/end angles match the
-/// frame the core's Arc evaluation actually uses at runtime.
-fn circle_basis_like_core(normal: Vec3) -> (Vec3, Vec3) {
-    let axis = if normal.x.abs() < 0.9 {
-        Vec3::new(1.0, 0.0, 0.0)
-    } else {
-        Vec3::new(0.0, 1.0, 0.0)
-    };
-    let perp = normal.cross(&axis);
-    let u = perp.normalized().unwrap_or(Vec3::new(1.0, 0.0, 0.0));
-    let v = normal
-        .cross(&u)
-        .normalized()
-        .unwrap_or(Vec3::new(0.0, 1.0, 0.0));
-    (u, v)
-}
-
-/// Validate that the given edge's curve is a straight `Line`.
-/// Used by both `fillet_corner_2d` and `chamfer_corner_2d` to
-/// guard against curved boundary edges that neither currently
-/// handles.
-pub(crate) fn require_line(
-    brep: &BRep,
-    edge_h: popkern_core::topology::EdgeHandle,
-) -> Result<(), String> {
-    let edge = brep
-        .edges
-        .get(edge_h)
-        .ok_or_else(|| format!("edge {edge_h:?} not found"))?;
-    let curve = edge
-        .curve
-        .as_ref()
-        .ok_or_else(|| format!("edge {edge_h:?} has no curve geometry"))?;
-    match &curve.geometry {
-        CurveGeometry::Line { .. } => Ok(()),
-        other => Err(format!(
-            "edge {edge_h:?} curve must be a Line, got {other:?}"
-        )),
-    }
-}
-
 fn apply_corner_plan(
     brep: &mut BRep,
     corner: VertexHandle,
@@ -471,24 +406,6 @@ fn apply_corner_plan(
     brep.vertices.remove(corner);
 
     Ok(())
-}
-
-/// Build a uniform `PartialFailure` wrapping an `InvalidTopology`
-/// blend failure for a 2D corner operation. Shared between
-/// fillet and chamfer so both emit the same error shape.
-pub(crate) fn topology_failure(vertex: VertexHandle, reason: String) -> BlendError {
-    BlendError::PartialFailure {
-        failed: 1,
-        total: 1,
-        partial_result: Box::new(BRep::new(popkern_core::tolerance::Tolerance::default())),
-        failures: vec![(
-            popkern_core::topology::EdgeHandle::default(),
-            BlendFailure::InvalidTopology {
-                reason: format!("fillet_corner_2d at {vertex:?}: {reason}"),
-                location: None,
-            },
-        )],
-    }
 }
 
 #[cfg(test)]

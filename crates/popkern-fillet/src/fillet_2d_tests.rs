@@ -1,4 +1,5 @@
 use super::*;
+use crate::BlendFailure;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;

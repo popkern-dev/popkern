@@ -15,6 +15,7 @@ pub mod chamfer_curve;
 pub(crate) mod collapsed_skip;
 pub mod construct;
 pub mod contact;
+pub(crate) mod corner_2d_helpers;
 pub mod curvature_comb;
 pub(crate) mod cusp_subdivide;
 pub(crate) mod degeneracy;

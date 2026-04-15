@@ -40,8 +40,11 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::topology::{BRep, Edge, HalfEdge, HalfEdgeHandle, VertexHandle};
 
+use crate::corner_2d_helpers::{
+    edge_arc_length, point_at_arc_length_from_corner, rebuild_edge_curve_clipped, require_line,
+    tangent_at_corner_outgoing, topology_failure,
+};
 use crate::error::BlendError;
-use crate::fillet_2d::{rebuild_line_curve, require_line, topology_failure};
 
 /// Chamfer a single sharp corner of a sheet body by distances
 /// `dist_a` along the first adjacent edge and `dist_b` along the
@@ -319,54 +322,49 @@ fn chamfer_plan(
         ));
     }
 
-    let corner_pos = brep.vertices[vertex].position;
-
     let edge_a = brep.half_edges[outgoing[0]].edge;
     let edge_b = brep.half_edges[outgoing[1]].edge;
     if edge_a == edge_b {
         return Err("both outgoing half-edges belong to the same edge (degenerate loop)".into());
     }
 
-    require_line(brep, edge_a)?;
-    require_line(brep, edge_b)?;
+    // Curve-type gate: `chamfer_corner_2d` supports `Line` and
+    // `Arc` adjacent edges. `tangent_at_corner_outgoing` and
+    // `point_at_arc_length_from_corner` reject unsupported types
+    // (Circle, Nurbs) via their own error paths.
+    let dir_a = tangent_at_corner_outgoing(brep, outgoing[0])?;
+    let dir_b = tangent_at_corner_outgoing(brep, outgoing[1])?;
 
-    let v_a_far = brep.half_edges[brep.half_edges[outgoing[0]].twin].origin;
-    let v_b_far = brep.half_edges[brep.half_edges[outgoing[1]].twin].origin;
-    let p_a = brep.vertices[v_a_far].position;
-    let p_b = brep.vertices[v_b_far].position;
-
-    let dir_a_vec = p_a - corner_pos;
-    let dir_b_vec = p_b - corner_pos;
-    let len_a = dir_a_vec.length();
-    let len_b = dir_b_vec.length();
+    let len_a = edge_arc_length(brep, edge_a)?;
+    let len_b = edge_arc_length(brep, edge_b)?;
     if len_a < 1e-12 || len_b < 1e-12 {
         return Err("adjacent edge has near-zero length".into());
     }
-    let dir_a = dir_a_vec * (1.0 / len_a);
-    let dir_b = dir_b_vec * (1.0 / len_b);
 
     if dist_a >= len_a {
         return Err(format!(
-            "dist_a {dist_a:.6} ≥ adjacent edge length {len_a:.6}"
+            "dist_a {dist_a:.6} ≥ adjacent edge arc-length {len_a:.6}"
         ));
     }
     if dist_b >= len_b {
         return Err(format!(
-            "dist_b {dist_b:.6} ≥ adjacent edge length {len_b:.6}"
+            "dist_b {dist_b:.6} ≥ adjacent edge arc-length {len_b:.6}"
         ));
     }
 
-    // Check the edges aren't colinear — a chamfer on a colinear
-    // corner is pointless and the new line would overlap the
-    // support edges.
+    // Check the tangent directions at the corner aren't colinear
+    // — a chamfer on a colinear corner is pointless and the new
+    // line would overlap the support edges. For Line edges this
+    // is the straight-line direction; for Arc edges it's the
+    // tangent at the corner endpoint.
     let cos_angle = dir_a.dot(&dir_b).clamp(-1.0, 1.0);
     let angle = cos_angle.acos();
     if angle < 1.0e-4 {
         return Err("edges are nearly colinear (no meaningful corner)".into());
     }
 
-    let t1 = corner_pos + dir_a * dist_a;
-    let t2 = corner_pos + dir_b * dist_b;
+    let t1 = point_at_arc_length_from_corner(brep, outgoing[0], dist_a)?;
+    let t2 = point_at_arc_length_from_corner(brep, outgoing[1], dist_b)?;
 
     Ok(ChamferPlan {
         he_out_a: outgoing[0],
@@ -396,13 +394,16 @@ fn apply_chamfer_plan(
     });
 
     // 2. Reparent the outgoing half-edges at the corner onto the
-    //    new tangent vertices and rebuild their edge curves.
+    //    new tangent vertices and rebuild their edge curves. For
+    //    Line edges this is a straight Line rebuild; for Arc
+    //    edges it clips the arc's start/end angles to the new
+    //    tangent-point angles on the original circle.
     brep.half_edges[plan.he_out_a].origin = v_t1;
     brep.half_edges[plan.he_out_b].origin = v_t2;
     let edge_a_h = brep.half_edges[plan.he_out_a].edge;
     let edge_b_h = brep.half_edges[plan.he_out_b].edge;
-    rebuild_line_curve(brep, edge_a_h);
-    rebuild_line_curve(brep, edge_b_h);
+    rebuild_edge_curve_clipped(brep, edge_a_h)?;
+    rebuild_edge_curve_clipped(brep, edge_b_h)?;
 
     // 3. Create the new chamfer edge with a straight-line curve.
     let line = CurveGeometry::Line {
@@ -472,3 +473,7 @@ fn apply_chamfer_plan(
 #[cfg(test)]
 #[path = "chamfer_2d_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "chamfer_2d_curved_tests.rs"]
+mod curved_tests;
