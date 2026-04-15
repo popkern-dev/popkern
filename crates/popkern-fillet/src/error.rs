@@ -289,6 +289,32 @@ pub enum BlendWarning {
         /// [`crate::types::FilletOptions::soft_support_factor`].
         factor: f64,
     },
+    /// §8.3 cap was produced at a blend endpoint. Carries the
+    /// requested kind and a flag describing whether topology was
+    /// modified to insert the cap face (on an open-shell or
+    /// free-boundary endpoint) or whether the cap is represented
+    /// implicitly by an existing adjacent solid face (the common
+    /// case on closed bodies, where the adjacent third face at a
+    /// corner already serves as the natural "flat" cap).
+    ///
+    /// Emitted once per `(edge, endpoint)` pair whenever
+    /// [`crate::types::FilletOptions::cap_kind`] is non-`Open`.
+    /// Callers can inspect the per-edge `EdgeGeometry::start_cap` /
+    /// `end_cap` fields for the raw cap geometry (surface +
+    /// boundary polyline) regardless of the warning.
+    CapApplied {
+        /// The filleted edge the cap terminates.
+        edge: EdgeHandle,
+        /// `true` if the cap is at the spine's start endpoint
+        /// (`t = 0`); `false` if at the end (`t = 1`).
+        at_start: bool,
+        /// The cap kind the caller requested.
+        kind: crate::types::CapKind,
+        /// `true` if cap topology was inserted into the output
+        /// BRep; `false` if the endpoint was already closed by an
+        /// adjacent face and no insertion was needed.
+        topology_inserted: bool,
+    },
 }
 
 // The Remediation types and the per-variant remediation-hint

@@ -1,39 +1,18 @@
-//! Topology construction -- apply fillet/chamfer geometry to the BRep.
+//! Topology construction — apply fillet/chamfer geometry to the BRep.
 //!
-//! Three-phase single-pass approach:
-//!   Phase A: split ALL perpendicular edges (no face changes)
-//!   Phase B: split ALL faces by trim curves (tracking sub-faces)
-//!   Phase C: merge ALL consumed pairs via kef (assign fillet surfaces)
+//! Three-phase single-pass approach, followed by surface-fix,
+//! sliver absorb (§13.1(2)), and §8.3 cap insertion post-passes:
 //!
-//! A post-pass corrects any residual surface misassignments.
-//!
-//! # Round 5r investigation: multi-edge batch interference
-//!
-//! On a unit-cube 12-edge fillet, the current Phase B produces
-//! silent per-trim failures because the four chord trims on each
-//! cube face form an inset square whose chords *intersect* in the
-//! face interior. When one trim is applied first, its chord
-//! separates the anchor pair of a neighbouring trim onto two
-//! different sub-faces — `find_face_containing_vertices` then
-//! can't locate a single target face for the neighbour and the
-//! trim is skipped.
-//!
-//! The correct fix is a multi-chord face split that pre-computes
-//! chord-chord intersections, inserts vertices at the intersection
-//! points, and applies the resulting sub-chord segments as a
-//! coordinated sequence (the inset-square topology has 9 sub-faces
-//! per cube side: 1 centre + 4 corner regions + 4 edge strips).
-//! That's a substantial refactor tracked as future work.
-//!
-//! Today the failure is tolerated by the downstream surface-fix
-//! post-pass (which assigns plausible surfaces to the partial
-//! result) and by the `count_bad_faces` median-fit metric in
-//! `tests/single_pass_test.rs` (median rather than max makes the
-//! per-face score robust to outlier vertices on the fragmented
-//! sub-faces). The 12-edge regression test still passes.
+//! - **Phase A**: split ALL perpendicular edges (no face changes)
+//! - **Phase B**: multi-chord face splits honouring chord-chord
+//!   intersections (see `multi_chord.rs`); tracks per-fillet-edge
+//!   descendants so Phase C finds the right sub-edges
+//! - **Phase C**: merge consumed pairs via kef and assign fillet
+//!   surfaces using the descendants-aware `_any` helpers
 
 pub(crate) mod blend_insert;
 pub(crate) mod blend_topo;
+pub(crate) mod cap_insert;
 pub(crate) mod closed_fillet;
 pub(crate) mod helpers;
 pub(crate) mod merge;
@@ -491,6 +470,9 @@ pub fn apply_blend_geometry(
     // §13.1(2) sliver absorption: Classes A/B/C/D. 12-edge cube
     // test is the Class D regression guard (26 faces preserved).
     sliver_absorb::run_and_route_warnings(&mut result, tolerance, edge_geometries, &mut warnings);
+
+    // §8.3 caps — see `cap_insert` module docs.
+    cap_insert::insert_caps(&result, edge_geometries, &mut warnings);
 
     Ok(ApplyBlendResult {
         brep: result,
