@@ -33,45 +33,44 @@
 //!
 //! | Operation                     | Allocs  | Bytes    | Notes                       |
 //! |-------------------------------|---------|----------|-----------------------------|
-//! | Cone base (walker path)       | 176     | 30 KiB   | Pure walker, no overlap pair|
-//! | Single-edge cube (legacy)     | 3,047   | 322 KiB  | No overlap pairs (1 edge)   |
-//! | 12-edge cube (legacy, batch)  | 243,802 | 71.7 MiB | 84% in DetectOverlaps phase |
+//! | Cone base (walker path)       |      56 |   7.8 KB | Pure walker, no overlap pair|
+//! | Single-edge cube (legacy)     |   2,131 |    251 KB| No overlap pairs (1 edge)   |
+//! | 12-edge cube (legacy, batch)  |  40,943 |   6.5 MB | Post-de_boor + AABB filter  |
 //!
 //! **Per-phase breakdown for the 12-edge cube** (same workload):
 //!
 //! | Phase            | Allocs  | Bytes    | % of total |
 //! |------------------|---------|----------|------------|
-//! | Validate         |      24 |     624  |   0.01%    |
-//! | Analyze          |      85 |  14,796  |   0.03%    |
-//! | ComputeGeometry  |   1,167 |   192 KB |   0.47%    |
-//! | DetectOverlaps   | 205,484 |  66.7 MB |  84.3%     |
-//! | ApplyTopology    |   9,037 |   743 KB |   3.7%     |
-//! | RepairPcurves    |  28,000 |   4.0 MB |  11.5%     |
+//! | Validate         |      24 |     624  |   0.06%    |
+//! | Analyze          |      85 |  14,796  |   0.21%    |
+//! | ComputeGeometry  |     639 |   160 KB |   1.6%     |
+//! | DetectOverlaps   |  13,724 |   2.4 MB |  33.5%     |
+//! | ApplyTopology    |   6,720 |   537 KB |  16.4%     |
+//! | RepairPcurves    |  19,744 |   3.2 MB |  48.2%     |
 //!
-//! **Key finding:** DetectOverlaps dominates (84% of allocs, 93% of
-//! bytes). Round 1 of optimisation — an AABB pre-filter in
-//! `overlap::curves_intersect` — already dropped DetectOverlaps from
-//! 303,788 → 205,484 allocs (−32%) by skipping the full NURBS
-//! intersector when two trim curves' bounding boxes don't overlap.
-//! The remaining 205k allocs come from `intersect_curves` ⇒
-//! `intersect_nurbs_nurbs` ⇒ `decompose_to_bezier` +
-//! bezier clipping; further gains require cross-crate work on
-//! `NurbsCurve::de_boor` (which allocates a fresh homogeneous Vec
-//! on every point evaluation) or a tighter overlap heuristic.
+//! **Optimisation history:**
 //!
-//! ## What this commit ships vs. defers
+//! 1. **Baseline (commit 5b136e1):** 342,107 allocs / 103 MB. Flat
+//!    profile was deceptive — investigation showed DetectOverlaps
+//!    was 89% of the volume.
 //!
-//! **Ships:**
-//! - Measurement infrastructure (`CountingAlloc` + `profile`)
-//! - Baseline numbers for three representative operations
-//! - Per-phase breakdown via `PhaseAllocProfiler`
-//! - AABB pre-filter in `overlap::curves_intersect` (−98k allocs)
-//! - Tightened regression guards around the new baselines
+//! 2. **AABB pre-filter (commit dcc0f4a):** 243,802 allocs / 75 MB
+//!    (−29% / −31%). `overlap::curves_intersect` now checks curve
+//!    bounding boxes before wrapping curves in `CurveGeometry::Nurbs`
+//!    and calling the full NURBS intersector. Dropped DetectOverlaps
+//!    from 303,788 → 205,484 allocs (−32%).
 //!
-//! **Defers:**
-//! - Cross-crate `de_boor` refactor to eliminate per-call Vec alloc
-//! - Arena/pool adoption in `decompose_to_bezier` and the bezier
-//!   clipping recursion (popkern-core scope)
+//! 3. **Allocation-free de Boor (this commit):** 40,943 allocs / 6.5 MB
+//!    (−83% / −91% from AABB-filtered baseline). `NurbsCurve::de_boor`
+//!    used to build a fresh `Vec<Homogeneous>` on every `point_at` call
+//!    and `de_boor_1d` kept a Vec scratch buffer for the recursion.
+//!    Both now use a fixed-size stack array (max degree 31). Total
+//!    improvement from 5b136e1 baseline: **−88% allocs, −94% bytes**.
+//!
+//! The dominant phase is now RepairPcurves (pcurve recomputation),
+//! which is inherently allocation-heavy because it builds new NURBS
+//! pcurves per half-edge. Further reductions would require changing
+//! how pcurves are stored/computed — significantly larger scope.
 //!
 //! Run with:
 //! ```sh
@@ -313,23 +312,23 @@ fn baseline_12_edge_cube_fillet_allocation_profile() {
         let _ = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None);
     });
 
-    // Upper bound set ~40% above the current ~244k alloc baseline
+    // Upper bound set ~50% above the current ~41k alloc baseline
     // to absorb normal variance while catching unbounded regressions
     // (e.g. an accidental O(n²) push slipping into a hot loop). If
     // this trips, first check the per-phase breakdown to see which
     // phase regressed rather than assuming the fix is "bump the
     // threshold".
     assert!(
-        delta.count < 350_000,
+        delta.count < 60_000,
         "§18 regression: 12-edge cube fillet made {} allocations \
-         (threshold 350,000; baseline ~244k) — run the per-phase \
+         (threshold 60,000; baseline ~41k) — run the per-phase \
          profiler to locate the regression",
         delta.count
     );
     assert!(
-        delta.bytes < 110 * 1024 * 1024,
+        delta.bytes < 10 * 1024 * 1024,
         "§18 regression: 12-edge cube fillet allocated {} bytes \
-         (threshold 110 MiB; baseline ~72 MB) — check for \
+         (threshold 10 MiB; baseline ~6.5 MB) — check for \
          unbounded buffer growth",
         delta.bytes
     );
@@ -354,13 +353,13 @@ fn baseline_single_edge_cube_fillet_allocation_profile() {
 
     // Single-edge is a single spec with no overlap pairs, so should
     // be tiny relative to the 12-edge case. Threshold ~5× baseline
-    // (~3k allocs) catches per-edge allocation explosion without
+    // (~2.1k allocs) catches per-edge allocation explosion without
     // false-positiving on variance.
     assert!(
-        delta.count < 15_000,
+        delta.count < 10_000,
         "§18 regression: single-edge cube fillet made {} allocations \
-         (threshold 15,000; baseline ~3k) — check for regression on \
-         the fast path",
+         (threshold 10,000; baseline ~2.1k) — check for regression \
+         on the fast path",
         delta.count
     );
 }
@@ -398,13 +397,13 @@ fn baseline_cone_base_fillet_allocation_profile() {
     });
 
     // Walker path allocates per sample (default 20 samples) plus
-    // per-Newton-step temporaries. Baseline ~176 allocs; threshold
+    // per-Newton-step temporaries. Baseline ~56 allocs; threshold
     // set to 10× headroom to absorb any future change in sampling
     // or Newton iteration count without false-positiving.
     assert!(
-        delta.count < 2_000,
+        delta.count < 600,
         "§18 regression: cone walker fillet made {} allocations \
-         (threshold 2,000; baseline ~176) — check for regression \
+         (threshold 600; baseline ~56) — check for regression \
          on the walker path",
         delta.count
     );

@@ -2,7 +2,7 @@
 
 use crate::error::CoreError;
 use crate::geometry::curve::CurveEval;
-use crate::geometry::nurbs_ops::{self, Homogeneous, de_boor_1d};
+use crate::geometry::nurbs_ops::{self, Homogeneous, de_boor_1d_points};
 use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
 
@@ -183,14 +183,21 @@ impl NurbsCurve {
     }
 
     /// Evaluate the curve at parameter t using de Boor's algorithm in homogeneous coordinates.
+    ///
+    /// Allocation-free hot path: [`de_boor_1d_points`] handles the
+    /// homogeneous conversion inside a fixed-size stack scratch, so
+    /// neither this function nor the downstream recursion touches
+    /// the allocator. Measured impact on the §18 overlap-detect
+    /// profile: every `point_at` call that used to build a temporary
+    /// `Vec<Homogeneous>` now runs allocation-free.
     fn de_boor(&self, t: f64) -> Homogeneous {
-        let homogeneous_points: Vec<Homogeneous> = self
-            .control_points
-            .iter()
-            .zip(self.weights.iter())
-            .map(|(p, &w)| Homogeneous::from_point_weight(p, w))
-            .collect();
-        de_boor_1d(self.degree, &self.knots, &homogeneous_points, t)
+        de_boor_1d_points(
+            self.degree,
+            &self.knots,
+            &self.control_points,
+            &self.weights,
+            t,
+        )
     }
 }
 
