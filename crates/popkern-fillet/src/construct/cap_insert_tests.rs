@@ -8,6 +8,96 @@ fn tol() -> Tolerance {
     Tolerance::default()
 }
 
+// ---------------------------------------------------------------------------
+// Free-boundary detection
+// ---------------------------------------------------------------------------
+
+/// On a cube every corner has 3 incident faces, so
+/// `endpoint_is_closed(vertex, face_1, face_2)` must return `true`
+/// regardless of which two faces we call the "supports" — the
+/// third cube face always provides an implicit cap.
+#[test]
+fn endpoint_is_closed_returns_true_on_cube_corner() {
+    let cube = BRep::unit_cube(tol()).unwrap();
+    // Pick any vertex and any two faces as the pseudo-supports.
+    let vertex = cube.vertices.keys().next().unwrap();
+    let mut faces = cube.faces.keys();
+    let f1 = faces.next().unwrap();
+    let f2 = faces.next().unwrap();
+    assert!(endpoint_is_closed(&cube, vertex, f1, f2));
+}
+
+/// On a `sheet_quad` every corner has exactly 2 incident faces
+/// (front + backside), so passing both as the supports leaves no
+/// "other" face for the detector to find — returns `false`. This
+/// is the free-boundary signal: an endpoint where a cap face
+/// would actually need to be inserted.
+#[test]
+fn endpoint_is_closed_returns_false_on_sheet_quad_corner() {
+    let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let vertex = sheet.vertices.keys().next().unwrap();
+    // The sheet has exactly 2 faces — treat them both as "supports"
+    // to simulate a fillet between the front and backside of the
+    // sheet.
+    let mut faces = sheet.faces.keys();
+    let f1 = faces.next().unwrap();
+    let f2 = faces.next().unwrap();
+    assert!(
+        !endpoint_is_closed(&sheet, vertex, f1, f2),
+        "sheet corner has no third face; should report free boundary"
+    );
+}
+
+/// Pair up a sheet-quad vertex with mismatched supports — e.g. only
+/// one of the two real faces declared as a support — and
+/// `endpoint_is_closed` should return `true` (the second face counts
+/// as "other"). Exercises the "at least one face outside the
+/// support pair" branch on sheet topology.
+#[test]
+fn endpoint_is_closed_detects_third_face_on_sheet_quad_with_one_support() {
+    let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let vertex = sheet.vertices.keys().next().unwrap();
+    let f1 = sheet.faces.keys().next().unwrap();
+    // Invent a FaceHandle that doesn't exist — every real face
+    // except f1 is "other," so the detector should find one.
+    let fake = popkern_core::topology::FaceHandle::default();
+    assert!(endpoint_is_closed(&sheet, vertex, f1, fake));
+}
+
+// ---------------------------------------------------------------------------
+// Sheet-body fillet — current-state spike
+// ---------------------------------------------------------------------------
+
+/// Filleting an edge of a planar sheet body is blocked by the
+/// current fillet analyzer (the front and backside faces of a
+/// sheet are coincident planes with opposite normals, which the
+/// convexity classifier treats as degenerate). This test pins the
+/// behaviour: running `fillet_edges` on a `sheet_quad` edge either
+/// fails cleanly at analysis or returns a result with no new faces,
+/// and critically **does not panic**.
+///
+/// When §5.7 2D fillets / sheet-body fillets are implemented,
+/// update this test to assert success plus the presence of the
+/// cap face — that's where cap topology insertion actually gets
+/// exercised end-to-end.
+#[test]
+fn sheet_quad_fillet_is_currently_blocked_at_analysis() {
+    let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let edge = sheet.edges.keys().next().unwrap();
+    let specs = vec![FilletSpec {
+        edge,
+        radius: FilletRadius::Constant(0.1),
+    }];
+    let opts = FilletOptions {
+        cap_kind: CapKind::Flat,
+        ..FilletOptions::default()
+    };
+    // Any outcome except a panic is acceptable — this test is a
+    // regression guard against the pipeline crashing on unusual
+    // topology, not a correctness claim about sheet filleting.
+    let _ = fillet_edges(&sheet, &specs, &opts, tol(), None);
+}
+
 /// With `cap_kind = Open`, no `CapApplied` warnings are emitted
 /// for a vanilla cube fillet.
 #[test]

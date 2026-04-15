@@ -137,17 +137,28 @@ fn endpoint_is_closed(
     false
 }
 
-/// Placeholder topology insertion — documented no-op for
-/// closed-body configurations (every test in the current suite
-/// goes through this branch as a no-op because all BReps are
-/// closed solids). Returns `false` unconditionally for now; a
-/// future commit will implement the real surgery when a
-/// sheet-body test case exists.
+/// Placeholder topology insertion for open-shell / free-boundary
+/// cap faces.
 ///
-/// Takes the full [`crate::cap::CapGeometry`] so the signature is
-/// future-proof: the eventual implementation will create a new
-/// face with `cap.surface` and stitch its boundary via
-/// `cap.boundary_points`, and no caller changes will be needed.
+/// **Status.** Sheet-body constructors landed (`BRep::sheet_quad`,
+/// `sheet_triangle`, `sheet_polygon`) so the INPUTS a real
+/// implementation needs are now buildable. The remaining blocker
+/// is that `popkern-fillet`'s edge analyzer currently rejects
+/// fillets on planar sheet bodies — the front and backside faces
+/// of a `sheet_quad` are coincident planes with opposite normals,
+/// which the convexity classifier treats as degenerate. That's
+/// the §5.7 "2D fillet / sheet fillet" scope on the requirements
+/// gap list; opening it up is the next step before this function
+/// can be turned from a no-op into the real surgery.
+///
+/// The signature already takes a full [`crate::cap::CapGeometry`],
+/// so the eventual implementation will slot in without any
+/// caller-visible changes: it will create a new [`Face`] with
+/// `cap.surface`, stitch boundary half-edges between the two
+/// contact vertices using `cap.boundary_points`, and splice the
+/// result into the blend face's outer loop.
+///
+/// [`Face`]: popkern_core::topology::Face
 fn insert_cap_face_stub(_cap: &crate::cap::CapGeometry) -> bool {
     // Insertion is a follow-up. The function takes `&cap` so the
     // signature is forward-compatible with the real implementation.

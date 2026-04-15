@@ -7,6 +7,7 @@ mod cone;
 mod cube;
 mod cylinder;
 mod prism;
+mod sheet;
 mod sphere;
 mod torus;
 
