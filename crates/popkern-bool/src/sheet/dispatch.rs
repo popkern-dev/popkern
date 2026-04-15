@@ -134,9 +134,12 @@ pub fn boolean_with_sheets(
                         a: a_is_sheet,
                         b: b_is_sheet,
                     }),
-                    1 => Ok(SheetBooleanResult::Solid(
-                        pieces.into_iter().next().unwrap(),
-                    )),
+                    1 => Ok(SheetBooleanResult::Solid(pieces.into_iter().next().ok_or(
+                        crate::BoolError::OpenShellNotSupported {
+                            a: a_is_sheet,
+                            b: b_is_sheet,
+                        },
+                    )?)),
                     _ => Ok(SheetBooleanResult::Pieces(pieces)),
                 };
             }
@@ -149,9 +152,12 @@ pub fn boolean_with_sheets(
                         a: a_is_sheet,
                         b: b_is_sheet,
                     }),
-                    1 => Ok(SheetBooleanResult::Solid(
-                        pieces.into_iter().next().unwrap(),
-                    )),
+                    1 => Ok(SheetBooleanResult::Solid(pieces.into_iter().next().ok_or(
+                        crate::BoolError::OpenShellNotSupported {
+                            a: a_is_sheet,
+                            b: b_is_sheet,
+                        },
+                    )?)),
                     _ => Ok(SheetBooleanResult::Pieces(pieces)),
                 };
             }

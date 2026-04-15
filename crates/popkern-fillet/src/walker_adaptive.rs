@@ -113,7 +113,16 @@ pub(crate) fn walk_adaptive(
         }
         let solution = match step_solution {
             Some(s) => s,
-            None => return Err(last_error.expect("retry loop must record at least one error")),
+            // `STEP_RETRY_LIMIT > 0` guarantees the retry loop runs ≥1
+            // iteration; any iteration that doesn't set `step_solution`
+            // takes the `Err` branch and updates `last_error`. The
+            // `unwrap_or` fallback is dead in practice and exists only
+            // to satisfy the type system.
+            None => {
+                return Err(
+                    last_error.unwrap_or(WalkerError::InitialSeedFailed { surface_index: 0 })
+                );
+            }
         };
 
         let iters = solution.iterations;

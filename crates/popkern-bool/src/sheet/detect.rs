@@ -129,7 +129,7 @@ pub fn is_planar_sheet(
                 ref_origin = Some(*origin);
                 ref_normal = Some(face_normal);
             }
-            (Some(_), Some(rn)) => {
+            (Some(ref_origin_pt), Some(rn)) => {
                 // Compare normals (absolute value — opposite-facing
                 // planar faces are still on the same plane; we keep
                 // the first-seen direction as the reference normal).
@@ -141,7 +141,7 @@ pub fn is_planar_sheet(
                 // plane's signed-distance axis. If the offset is
                 // larger than `offset_tol`, the face sits on a
                 // different plane and we bail out.
-                let delta = *origin - ref_origin.unwrap();
+                let delta = *origin - ref_origin_pt;
                 let signed = delta.dot(&rn);
                 if signed.abs() > offset_tol {
                     return None;

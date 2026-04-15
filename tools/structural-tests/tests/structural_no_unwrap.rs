@@ -30,11 +30,27 @@ fn no_unwrap_or_expect_in_library_code() {
             continue;
         }
 
-        // Skip test files included via #[path = "tests.rs"] — they contain test code, not library code.
+        // Skip files inside a `benches/` directory — Criterion benchmarks
+        // are not library code, and `.unwrap()` is the standard bench
+        // setup pattern (panic-fail is acceptable for a perf harness).
+        let is_bench_file = file.components().any(|c| c.as_os_str() == "benches");
+        if is_bench_file {
+            continue;
+        }
+
+        // Skip test files included via `#[cfg(test)] mod <name>;` from a
+        // parent module. Several file-name patterns all denote test code:
+        //   `tests.rs`                  — inline tests (included via #[path])
+        //   `*_tests.rs`                — popkern convention (e.g. `cache_tests.rs`)
+        //   `test_*.rs`                 — legacy / single-suite files
+        //   `tests_*.rs`                — alternate suffix order (e.g. `tests_dispatch.rs`)
+        //   `integration_tests_*.rs`    — popkern-bool crate uses this convention
         let file_name = file.file_name().and_then(|n| n.to_str()).unwrap_or("");
         let is_test_module = file_name == "tests.rs"
             || file_name.ends_with("_tests.rs")
-            || file_name.starts_with("test_");
+            || file_name.starts_with("test_")
+            || file_name.starts_with("tests_")
+            || file_name.starts_with("integration_tests_");
         if is_test_module {
             continue;
         }

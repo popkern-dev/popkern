@@ -231,6 +231,17 @@ pub fn solve_with_max_feasible(
         }
     }
 
-    let solution = best_solution.expect("loop above guaranteed Some");
+    // `best_solution` is guaranteed `Some` at this point: the early
+    // return above (line 209-211) bails out if the doubling pass
+    // never found a working radius, and the bisection loop only
+    // ever assigns `Some(sol)` — it never resets to `None`. The
+    // `ok_or(...)?` fallback is dead in practice; it exists only
+    // so the type system sees a Result path instead of an expect.
+    let solution = best_solution.ok_or(ContactError::NotConverged {
+        iterations: 0,
+        residual: f64::INFINITY,
+        last_uv0: request.initial_uv0,
+        last_uv1: request.initial_uv1,
+    })?;
     Ok((solution, r_min_succeeding))
 }
