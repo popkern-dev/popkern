@@ -58,7 +58,7 @@ pub mod validate;
 pub mod walker;
 pub(crate) mod walker_adaptive;
 pub use cancellation::CancellationToken;
-pub use chamfer_2d::{chamfer_corner_2d, chamfer_corners_2d};
+pub use chamfer_2d::{chamfer_corner_2d, chamfer_corner_2d_by_angle, chamfer_corners_2d};
 pub use error::{
     BlendError, BlendFailure, BlendWarning, Remediation, RemediationAction, RemediationContext,
 };

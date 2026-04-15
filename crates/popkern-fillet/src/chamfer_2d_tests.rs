@@ -176,6 +176,156 @@ fn chamfer_corner_2d_rejects_invalid_vertex() {
 }
 
 // ---------------------------------------------------------------------------
+// Distance + angle mode (§2.3 / §5.7)
+// ---------------------------------------------------------------------------
+
+/// 45-45 symmetric chamfer via distance+angle: on a 90° corner
+/// with dist_a = 0.1 and angle = 135° (3π/4), the result should
+/// be identical to the symmetric distance-based chamfer
+/// `chamfer_corner_2d(b, v, 0.1, 0.1)`.
+#[test]
+fn chamfer_by_angle_45_45_matches_symmetric_distance_chamfer() {
+    let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let corner = sheet
+        .vertices
+        .iter()
+        .find(|(_, v)| v.position.x == 0.0 && v.position.y == 0.0)
+        .map(|(h, _)| h)
+        .unwrap();
+
+    let by_distance =
+        chamfer_corner_2d(&sheet, corner, 0.1, 0.1).expect("distance chamfer should succeed");
+    let by_angle =
+        chamfer_corner_2d_by_angle(&sheet, corner, 0.1, 3.0 * std::f64::consts::PI / 4.0)
+            .expect("angle chamfer should succeed");
+
+    // Same topology counts.
+    assert_eq!(by_angle.vertices.len(), by_distance.vertices.len());
+    assert_eq!(by_angle.edges.len(), by_distance.edges.len());
+    assert_eq!(by_angle.faces.len(), by_distance.faces.len());
+
+    // Same tangent-point positions — both methods should produce
+    // vertices at (0.1, 0, 0) and (0, 0.1, 0).
+    for (_, v) in &by_angle.vertices {
+        let eq_to_t1 = (v.position.x - 0.1).abs() < 1e-9
+            && v.position.y.abs() < 1e-9
+            && v.position.z.abs() < 1e-9;
+        let eq_to_t2 = v.position.x.abs() < 1e-9
+            && (v.position.y - 0.1).abs() < 1e-9
+            && v.position.z.abs() < 1e-9;
+        let eq_to_orig_v1 = (v.position.x - 1.0).abs() < 1e-9
+            && v.position.y.abs() < 1e-9
+            && v.position.z.abs() < 1e-9;
+        let eq_to_orig_v2 = (v.position.x - 1.0).abs() < 1e-9
+            && (v.position.y - 1.0).abs() < 1e-9
+            && v.position.z.abs() < 1e-9;
+        let eq_to_orig_v3 = v.position.x.abs() < 1e-9
+            && (v.position.y - 1.0).abs() < 1e-9
+            && v.position.z.abs() < 1e-9;
+        assert!(
+            eq_to_t1 || eq_to_t2 || eq_to_orig_v1 || eq_to_orig_v2 || eq_to_orig_v3,
+            "unexpected vertex position {:?}",
+            v.position
+        );
+    }
+}
+
+/// Asymmetric distance+angle: 0.1 along the first edge at 120°
+/// yields a non-equal second distance via law of sines.
+#[test]
+fn chamfer_by_angle_asymmetric_uses_law_of_sines() {
+    let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let corner = sheet
+        .vertices
+        .iter()
+        .find(|(_, v)| v.position.x == 0.0 && v.position.y == 0.0)
+        .map(|(h, _)| h)
+        .unwrap();
+
+    let dist_a = 0.2;
+    let angle_rad = 2.0 * std::f64::consts::PI / 3.0; // 120°
+    // Corner angle on a square is π/2 = 90°. With angle_rad = 120°
+    // the expected dist_b via law of sines is:
+    // dist_b = 0.2 · sin(120°) / sin(120° − 90°)
+    //        = 0.2 · (√3/2) / (1/2)
+    //        = 0.2 · √3
+    //        ≈ 0.3464
+    let expected_dist_b = 0.2 * 3.0_f64.sqrt();
+
+    let result = chamfer_corner_2d_by_angle(&sheet, corner, dist_a, angle_rad).unwrap();
+    // Verify a vertex at dist_b along the y-axis or x-axis (slot
+    // map ordering may pick either as "dist_a side").
+    let expected_found = result.vertices.values().any(|v| {
+        // Either (dist_a, 0, 0) + (0, expected_dist_b, 0) matches
+        // the (+x, +y) pair, or the permuted version.
+        ((v.position.x - expected_dist_b).abs() < 1e-6 && v.position.y.abs() < 1e-6)
+            || (v.position.x.abs() < 1e-6 && (v.position.y - expected_dist_b).abs() < 1e-6)
+    });
+    assert!(
+        expected_found,
+        "expected a vertex at distance {expected_dist_b} along one axis; got positions: {:?}",
+        result
+            .vertices
+            .values()
+            .map(|v| v.position)
+            .collect::<Vec<_>>()
+    );
+    result.validate().unwrap();
+}
+
+/// `angle_rad ≤ corner_angle` is rejected — the chamfer line
+/// would be parallel to (or away from) the second edge.
+#[test]
+fn chamfer_by_angle_rejects_angle_at_or_below_corner_angle() {
+    let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let corner = sheet.vertices.keys().next().unwrap();
+    // Corner angle is π/2; angle_rad = π/2 should be rejected.
+    let err =
+        chamfer_corner_2d_by_angle(&sheet, corner, 0.1, std::f64::consts::FRAC_PI_2).unwrap_err();
+    assert!(matches!(err, BlendError::PartialFailure { .. }));
+}
+
+/// `angle_rad ≥ π` is rejected.
+#[test]
+fn chamfer_by_angle_rejects_angle_at_or_above_pi() {
+    let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let corner = sheet.vertices.keys().next().unwrap();
+    let err = chamfer_corner_2d_by_angle(&sheet, corner, 0.1, std::f64::consts::PI).unwrap_err();
+    assert!(matches!(err, BlendError::PartialFailure { .. }));
+}
+
+/// Negative / zero / NaN / infinite distances and angles are
+/// rejected at the API boundary.
+#[test]
+fn chamfer_by_angle_rejects_invalid_inputs() {
+    let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let corner = sheet.vertices.keys().next().unwrap();
+
+    for bad in [-0.1_f64, 0.0, f64::NAN, f64::INFINITY] {
+        assert!(matches!(
+            chamfer_corner_2d_by_angle(&sheet, corner, bad, 2.0).unwrap_err(),
+            BlendError::InvalidParameter { .. }
+        ));
+        assert!(matches!(
+            chamfer_corner_2d_by_angle(&sheet, corner, 0.1, bad).unwrap_err(),
+            BlendError::InvalidParameter { .. }
+        ));
+    }
+}
+
+/// Derived `dist_b` exceeding the adjacent edge length is
+/// rejected with `InvalidTopology`.
+#[test]
+fn chamfer_by_angle_rejects_derived_dist_b_too_large() {
+    let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let corner = sheet.vertices.keys().next().unwrap();
+    // dist_a=0.9, angle_rad=100° → dist_b = 0.9 · sin(100°)/sin(10°) ≈ 5.10,
+    // well over the 1.0 edge length.
+    let err = chamfer_corner_2d_by_angle(&sheet, corner, 0.9, 100.0_f64.to_radians()).unwrap_err();
+    assert!(matches!(err, BlendError::PartialFailure { .. }));
+}
+
+// ---------------------------------------------------------------------------
 // Batch (§5.7 + §5.8)
 // ---------------------------------------------------------------------------
 
