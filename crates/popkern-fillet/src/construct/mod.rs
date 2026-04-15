@@ -81,6 +81,9 @@ pub struct EdgeGeometry {
     /// Radius at the fillet edge's end vertex. For a constant
     /// spec, equals `effective_radius`. For `Variable`, equals `end`.
     pub radius_at_end: f64,
+    /// §18 telemetry: Newton iterations from the walker path.
+    /// `None` on the legacy offset-intersect path.
+    pub iterations_used: Option<usize>,
 }
 
 /// Result of applying blend geometry, including warnings.

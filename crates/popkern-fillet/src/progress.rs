@@ -1,14 +1,29 @@
-//! Progress reporting for long-running fillet operations (§17).
+//! Progress reporting and §18 telemetry for long-running fillet
+//! operations.
 //!
 //! The fillet pipeline calls a [`ProgressReporter`] between every
-//! major phase, passing a [`ProgressEvent`] describing what just
-//! happened. Callers implement the trait to drive a UI progress
-//! bar, log to stderr, or aggregate metrics.
+//! major phase (phase-level events via [`ProgressEvent`]) AND after
+//! every individual edge's geometry computation (edge-level events
+//! via [`EdgeTelemetry`]). Callers implement the trait to drive a
+//! UI progress bar, log to stderr, or aggregate metrics into a
+//! structured [`FilletTelemetry`] report.
 //!
 //! Combine with [`crate::cancellation::CancellationToken`] for the
 //! full §17 interactive workflow: progress callback drives the UI,
 //! cancellation token responds to "Cancel".
+//!
+//! # §18 telemetry acceptance
+//!
+//! §18 of `docs/requirements/fillets_blends.md` requires the engine
+//! to expose **per-edge timing, per-phase timing, Newton iteration
+//! counts (mean, max, histogram), step rejection counts, memory
+//! high-water, cache hit rates — all queryable**. This module ships
+//! the first three categories via [`CaptureReporter::telemetry`].
+//! Step rejections, memory high-water, and cache hit rates are
+//! tracked separately (see `docs/requirements/fillets_blends.md`
+//! §18 for the full list).
 
+use popkern_core::topology::EdgeHandle;
 use std::time::Duration;
 
 /// Named phases in the fillet pipeline — one value per stage that
@@ -72,7 +87,119 @@ impl ProgressEvent {
     }
 }
 
-/// A progress callback the fillet pipeline invokes between phases.
+/// Per-edge §18 telemetry captured by the fillet pipeline's
+/// compute loop. One record per edge in the spec list, emitted
+/// immediately after `compute_fillet_geometry` returns for that
+/// edge — whether the edge succeeded or failed.
+#[derive(Debug, Clone, Copy)]
+pub struct EdgeTelemetry {
+    /// The edge handle the telemetry applies to.
+    pub edge: EdgeHandle,
+    /// Wall-clock duration of this edge's geometry computation
+    /// (the time spent inside `compute_fillet_geometry` for this
+    /// edge alone, excluding the pipeline-wide phases).
+    pub duration: Duration,
+    /// Total Newton iterations consumed by the rolling-ball
+    /// contact solver across all walker samples for this edge.
+    /// `None` on the legacy offset-intersect path (no walker, no
+    /// Newton iteration telemetry). `Some(0)` would indicate the
+    /// walker ran but produced no contact solutions — shouldn't
+    /// happen in practice.
+    pub newton_iterations: Option<usize>,
+    /// `true` if the edge's geometry compute succeeded, `false`
+    /// if it returned a `BlendFailure`.
+    pub succeeded: bool,
+}
+
+/// Aggregated §18 telemetry summary. Produced by
+/// [`CaptureReporter::telemetry`] after a fillet operation
+/// completes. Gives queryable access to every metric §18 asks
+/// for, without the caller having to iterate raw event vectors.
+#[derive(Debug, Clone, Default)]
+pub struct FilletTelemetry {
+    /// Phase-level events in pipeline order.
+    pub phase_events: Vec<ProgressEvent>,
+    /// Per-edge events in the order edges were processed.
+    pub edge_events: Vec<EdgeTelemetry>,
+}
+
+impl FilletTelemetry {
+    /// Sum of all phase durations. Equivalent to the wall-clock
+    /// time the reporter was called across, approximately equal
+    /// to the total `fillet_edges` runtime.
+    pub fn total_phase_duration(&self) -> Duration {
+        self.phase_events.iter().map(|e| e.duration).sum()
+    }
+
+    /// Sum of all per-edge compute durations. This is *less than*
+    /// [`Self::total_phase_duration`] because many phases (validate,
+    /// analyze, apply-topology) run outside the per-edge loop.
+    pub fn total_edge_duration(&self) -> Duration {
+        self.edge_events.iter().map(|e| e.duration).sum()
+    }
+
+    /// Number of edges that succeeded (edge events with
+    /// `succeeded = true`).
+    pub fn edges_succeeded(&self) -> usize {
+        self.edge_events.iter().filter(|e| e.succeeded).count()
+    }
+
+    /// Number of edges that failed.
+    pub fn edges_failed(&self) -> usize {
+        self.edge_events.iter().filter(|e| !e.succeeded).count()
+    }
+
+    /// Total Newton iterations summed across every walker edge
+    /// that reported iteration counts. Edges on the legacy offset-
+    /// intersect path (where `newton_iterations = None`) are
+    /// excluded from the sum.
+    pub fn total_newton_iterations(&self) -> usize {
+        self.edge_events
+            .iter()
+            .filter_map(|e| e.newton_iterations)
+            .sum()
+    }
+
+    /// Mean Newton iterations per walker edge, or `None` when no
+    /// edge reported iteration counts.
+    pub fn mean_newton_iterations(&self) -> Option<f64> {
+        let counts: Vec<usize> = self
+            .edge_events
+            .iter()
+            .filter_map(|e| e.newton_iterations)
+            .collect();
+        if counts.is_empty() {
+            return None;
+        }
+        Some(counts.iter().sum::<usize>() as f64 / counts.len() as f64)
+    }
+
+    /// Maximum Newton iterations on any walker edge, or `None`
+    /// when no edge reported iteration counts.
+    pub fn max_newton_iterations(&self) -> Option<usize> {
+        self.edge_events
+            .iter()
+            .filter_map(|e| e.newton_iterations)
+            .max()
+    }
+
+    /// Newton-iteration histogram as a sorted `(count, frequency)`
+    /// vector. Example: `[(3, 2), (5, 8), (7, 1)]` means 2 edges
+    /// used 3 iterations, 8 edges used 5, 1 edge used 7.
+    /// Useful for spotting outliers in the walker's convergence.
+    pub fn newton_histogram(&self) -> Vec<(usize, usize)> {
+        let mut hist: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
+        for e in &self.edge_events {
+            if let Some(count) = e.newton_iterations {
+                *hist.entry(count).or_insert(0) += 1;
+            }
+        }
+        hist.into_iter().collect()
+    }
+}
+
+/// A progress callback the fillet pipeline invokes between phases
+/// and after each per-edge geometry computation.
 ///
 /// Implementors typically drive a UI progress bar or write metrics
 /// to a log. Callers should keep the implementation cheap — the
@@ -81,6 +208,11 @@ impl ProgressEvent {
 pub trait ProgressReporter: Send {
     /// Called immediately after a pipeline phase completes.
     fn on_phase(&mut self, event: ProgressEvent);
+    /// Called immediately after an edge's geometry computation
+    /// completes (success or failure). Default implementation is
+    /// a no-op so existing `ProgressReporter` impls don't need
+    /// updating; override to capture per-edge telemetry.
+    fn on_edge(&mut self, _telemetry: EdgeTelemetry) {}
 }
 
 /// A no-op reporter that ignores all events. Useful as a default
@@ -92,18 +224,37 @@ impl ProgressReporter for NullReporter {
     fn on_phase(&mut self, _event: ProgressEvent) {}
 }
 
-/// A reporter that records every event into a vector. Primarily
+/// A reporter that records every event into vectors. Primarily
 /// useful for tests that need to verify the pipeline emitted the
-/// expected sequence of events.
+/// expected sequence of events, and for callers who want a
+/// structured §18 telemetry report after the fillet completes.
 #[derive(Debug, Default, Clone)]
 pub struct CaptureReporter {
-    /// All events recorded so far, in phase order.
+    /// All phase events recorded so far, in pipeline order.
     pub events: Vec<ProgressEvent>,
+    /// All edge events recorded so far, in the order edges were
+    /// processed.
+    pub edge_events: Vec<EdgeTelemetry>,
+}
+
+impl CaptureReporter {
+    /// Produce a structured [`FilletTelemetry`] report from the
+    /// captured events. Clones the internal vectors — cheap for
+    /// realistic batch sizes (hundreds of edges).
+    pub fn telemetry(&self) -> FilletTelemetry {
+        FilletTelemetry {
+            phase_events: self.events.clone(),
+            edge_events: self.edge_events.clone(),
+        }
+    }
 }
 
 impl ProgressReporter for CaptureReporter {
     fn on_phase(&mut self, event: ProgressEvent) {
         self.events.push(event);
+    }
+    fn on_edge(&mut self, telemetry: EdgeTelemetry) {
+        self.edge_events.push(telemetry);
     }
 }
 

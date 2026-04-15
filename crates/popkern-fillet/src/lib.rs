@@ -67,7 +67,7 @@ pub use precheck::{
     feasible_radius_bounds, fillet_quality, precheck_fillet,
 };
 pub use preview::{PreviewEdgeGeometry, PreviewGeometry, preview_chamfer, preview_fillet};
-pub use progress::{CaptureReporter, FilletPhase, NullReporter, ProgressEvent, ProgressReporter};
+pub use progress::*;
 pub use types::*;
 pub use unfillet::{UnfilletPlan, compute_unfillet_plan, unfillet_face, unfillet_via_record};
 
@@ -108,9 +108,7 @@ pub fn fillet_edges_cancellable(
     )
 }
 
-/// Progress-reporting variant of [`fillet_edges`]. The reporter is
-/// called once per [`FilletPhase`]; a slow reporter adds to wall
-/// time, so implementations should be cheap.
+/// Progress-reporting variant of [`fillet_edges`]. See [`ProgressReporter`].
 pub fn fillet_edges_with_progress(
     brep: &BRep,
     specs: &[FilletSpec],
@@ -170,9 +168,7 @@ fn fillet_edges_internal(
     emit!(progress::FilletPhase::Validate, t0, specs.len());
     check_cancel!();
 
-    // §13.4 soft-supports: loosen the pipeline's internal tolerance
-    // when the caller flagged the input as low-precision. Every
-    // subsequent phase sees the relaxed value via this shadow.
+    // §13.4 soft-supports: shadow-relax tolerance for low-precision input.
     let (tolerance, soft_warn) = options.relax_tolerance(tolerance);
     let mut prepass_warnings: Vec<BlendWarning> = soft_warn.into_iter().collect();
 
@@ -207,13 +203,28 @@ fn fillet_edges_internal(
         // Per-edge cancellation point — lets the user kill a long
         // NURBS surface intersection mid-stride.
         check_cancel!();
-        match compute_fillet_geometry(
+        // §18 telemetry: per-edge Instant bracketing + reporter event.
+        let edge_start = Instant::now();
+        let compute_result = compute_fillet_geometry(
             &analyses[i],
             &spec.radius,
             brep,
             &tolerance,
             options.g2_cross_section,
-        ) {
+        );
+        if let Some(r) = reporter.as_deref_mut() {
+            let (succeeded, newton_iterations) = match &compute_result {
+                Ok(g) => (true, g.iterations_used),
+                Err(_) => (false, None),
+            };
+            r.on_edge(progress::EdgeTelemetry {
+                edge: spec.edge,
+                duration: edge_start.elapsed(),
+                newton_iterations,
+                succeeded,
+            });
+        }
+        match compute_result {
             Ok(geom) => edge_geometries.push(geom),
             Err(failure) => failures.push((spec.edge, failure)),
         }
@@ -252,10 +263,6 @@ fn fillet_edges_internal(
         overlap_warnings.len()
     );
     check_cancel!();
-
-    // Face disappearance is checked geometrically using the actual fillet
-    // radius and face edge lengths, not the unbounded trim curves (which
-    // extend beyond the face boundary and produce false positives).
 
     if edge_geometries.is_empty() {
         return Err(BlendError::PartialFailure {
@@ -322,15 +329,7 @@ fn fillet_edges_internal(
     })
 }
 
-/// Chamfer the specified edges of a BRep solid.
-///
-/// Analyzes each edge, computes offset curves on each adjacent face, builds
-/// a ruled surface between them, and applies topology modifications.
-///
-/// # Errors
-///
-/// Returns [`BlendError::NoValidEdges`] if analysis fails for all edges, or
-/// [`BlendError::PartialFailure`] if some edges fail (with a partial result).
+/// Chamfer the specified edges of a BRep solid. See [`BlendError`] for failure modes.
 pub fn chamfer_edges(
     brep: &BRep,
     specs: &[ChamferSpec],

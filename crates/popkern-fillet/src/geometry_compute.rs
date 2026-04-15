@@ -243,6 +243,17 @@ pub(crate) fn compute_fillet_geometry(
         location: Some(edge_midpoint),
     })?;
 
+    // §18 telemetry: when the walker produced the center curve,
+    // `center_result.contact_solutions` carries one
+    // `ContactSolution` per spine sample, each recording its
+    // Newton iteration count. Sum them for the per-edge total.
+    // Legacy offset-intersect paths leave `contact_solutions` as
+    // `None`, which propagates as `iterations_used = None`.
+    let iterations_used = center_result
+        .contact_solutions
+        .as_ref()
+        .map(|sols| sols.iter().map(|s| s.iterations).sum::<usize>());
+
     Ok(EdgeGeometry {
         analysis: rebuild_analysis(analysis, brep)?,
         surface: fillet_result.surface,
@@ -253,6 +264,7 @@ pub(crate) fn compute_fillet_geometry(
         effective_radius,
         radius_at_start,
         radius_at_end,
+        iterations_used,
     })
 }
 
@@ -290,6 +302,8 @@ pub(crate) fn compute_chamfer_geometry(
         // pipeline sees a constant profile.
         radius_at_start: effective_radius,
         radius_at_end: effective_radius,
+        // Chamfers don't run the walker/contact solver — always None.
+        iterations_used: None,
     })
 }
 
