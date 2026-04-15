@@ -19,6 +19,7 @@ pub(crate) mod cusp_subdivide;
 pub(crate) mod degeneracy;
 pub(crate) mod degeneracy_surface;
 pub mod error;
+pub mod fillet_2d;
 pub mod fillet_surface;
 pub mod fillet_surface_analytic;
 pub mod g2_cross_section;
