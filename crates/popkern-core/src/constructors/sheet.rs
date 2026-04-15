@@ -169,6 +169,221 @@ impl BRep {
 
         Ok(brep)
     }
+
+    /// Construct an "arched triangle" sheet body — a half-disk
+    /// represented as a 3-vertex triangle where two edges are
+    /// quarter-circle arcs and one edge is the straight diameter.
+    ///
+    /// Vertex layout for the upper-half disk in the `z = z_plane`
+    /// plane:
+    ///
+    /// - `v0 = (−radius, 0, z_plane)` — left end of the diameter
+    /// - `v1 = (0, radius, z_plane)` — top of the arc
+    /// - `v2 = (radius, 0, z_plane)` — right end of the diameter
+    ///
+    /// Edges:
+    /// - `v0 → v1` — quarter-circle arc (left upper quadrant)
+    /// - `v1 → v2` — quarter-circle arc (right upper quadrant)
+    /// - `v2 → v0` — straight diameter
+    ///
+    /// **Corner angles** (useful for testing 2D corner ops with
+    /// mixed line-arc support):
+    /// - `v0` and `v2`: sharp **90°** corners between the diameter
+    ///   and the tangent of the arc (which is vertical at the
+    ///   diameter endpoints)
+    /// - `v1`: **180°** straight-through — the two adjacent arcs
+    ///   share a common tangent at the top. 2D corner operations
+    ///   correctly reject `v1` as "near-colinear," so it is not
+    ///   a usable corner target.
+    ///
+    /// **Test-vehicle purpose.** This shape is the smallest sheet
+    /// body in popkern with genuine line-arc sharp corners. It
+    /// exists specifically so future §5.7 extensions (curved-edge
+    /// chamfer and fillet) have a testable input without
+    /// requiring parallel-edge topology between the same two
+    /// vertices.
+    ///
+    /// # Errors
+    ///
+    /// - [`CoreError::PreconditionFailed`] if `radius ≤ 0`.
+    /// - [`CoreError::Validation`] if any downstream Euler
+    ///   operator or validation pass fails.
+    pub fn sheet_arched_triangle(
+        radius: f64,
+        z_plane: f64,
+        tolerance: Tolerance,
+    ) -> Result<Self, CoreError> {
+        if radius <= 0.0 || !radius.is_finite() {
+            return Err(CoreError::PreconditionFailed(format!(
+                "sheet_arched_triangle: radius must be positive and finite, got {radius}"
+            )));
+        }
+
+        // Build the triangular topology with straight-line curves
+        // on every edge first — `sheet_polygon` handles all the
+        // Euler operators and planar surface attachment for us.
+        let v0 = Point3::new(-radius, 0.0, z_plane);
+        let v1 = Point3::new(0.0, radius, z_plane);
+        let v2 = Point3::new(radius, 0.0, z_plane);
+        let mut brep = Self::sheet_polygon(&[v0, v1, v2], tolerance)?;
+
+        // Now rewrite two of the edges' curves from Line to Arc.
+        // We need to locate the edges `v0 → v1` and `v1 → v2`.
+        // The third edge `v2 → v0` stays as a Line — that's the
+        // diameter.
+        //
+        // The circle the arcs lie on: centre at the origin of the
+        // diameter midpoint (0, 0, z_plane), normal (0, 0, -1)
+        // (matches the plane normal from `plane_from_points`,
+        // which for our counter-clockwise walk of v0, v1, v2
+        // computes `(v1 - v0) × (v2 - v0) = (0, 0, −2r²) → normal
+        // (0, 0, −1)`), and our chosen `radius`.
+        //
+        // With `normal = (0, 0, −1)` the `circle_basis` helper
+        // picks `u = (0, −1, 0)` and `v = (−1, 0, 0)` (see
+        // `popkern_core::geometry::analytic_curves::circle_basis`).
+        // Angles of the three vertices in that frame:
+        // - v0 (−r, 0, 0) → `u·(−r,0,0)=0`, `v·(−r,0,0)=r` →
+        //   atan2(r, 0) = π/2
+        // - v1 (0,  r, 0) → `u·(0,r,0)=−r`, `v·(0,r,0)=0` →
+        //   atan2(0, −r) = π
+        // - v2 (r,  0, 0) → `u·(r,0,0)=0`, `v·(r,0,0)=−r` →
+        //   atan2(−r, 0) = 3π/2 (or −π/2)
+        //
+        // So the arc `v0 → v1` spans angles `[π/2, π]` (increasing),
+        // and the arc `v1 → v2` spans angles `[π, 3π/2]`
+        // (also increasing). Beautiful monotonic parameter
+        // ranges.
+        let arc_center = Point3::new(0.0, 0.0, z_plane);
+        let arc_normal = crate::geometry::Vec3::new(0.0, 0.0, -1.0);
+        rewrite_edge_as_arc(&mut brep, v0, v1, arc_center, arc_normal, radius)?;
+        rewrite_edge_as_arc(&mut brep, v1, v2, arc_center, arc_normal, radius)?;
+
+        // The curves changed; re-run the full validate to catch
+        // any watertight / manifold regressions before returning.
+        brep.validate().map_err(CoreError::Validation)?;
+
+        Ok(brep)
+    }
+}
+
+/// Locate the edge whose canonical half-edge runs from `p_from`
+/// to `p_to` (within linear tolerance) and replace its `Line`
+/// curve with an `Arc` on the specified circle.
+///
+/// Preserves the canonical half-edge's direction: the arc
+/// parameterisation `(t_start, t_end)` matches the canonical
+/// endpoint order.
+fn rewrite_edge_as_arc(
+    brep: &mut BRep,
+    p_from: Point3,
+    p_to: Point3,
+    center: Point3,
+    normal: crate::geometry::Vec3,
+    radius: f64,
+) -> Result<(), CoreError> {
+    let edge_h = find_edge_between_points(brep, p_from, p_to, 1.0e-9).ok_or_else(|| {
+        CoreError::PreconditionFailed(format!(
+            "arched_triangle: cannot find edge between {p_from:?} and {p_to:?}"
+        ))
+    })?;
+
+    // The canonical half-edge's origin gives the "first" vertex
+    // of the edge in parameter-range order. We use that to
+    // compute the angle at t_start.
+    let canonical_he = brep.edges[edge_h].half_edge;
+    let canonical_origin_vh = brep.half_edges[canonical_he].origin;
+    let canonical_twin_h = brep.half_edges[canonical_he].twin;
+    let canonical_twin_origin_vh = brep.half_edges[canonical_twin_h].origin;
+    let canonical_origin_pos = brep.vertices[canonical_origin_vh].position;
+    let canonical_twin_origin_pos = brep.vertices[canonical_twin_origin_vh].position;
+
+    let (u_basis, v_basis) = circle_basis_local(normal);
+    let t_start = angle_in_basis(canonical_origin_pos - center, u_basis, v_basis);
+    let t_end_raw = angle_in_basis(canonical_twin_origin_pos - center, u_basis, v_basis);
+    // Choose the "short" arc by ensuring `t_end` is within `π`
+    // of `t_start` (add or subtract `2π` as needed). For our
+    // arched-triangle case both endpoints are adjacent on the
+    // circle so the natural difference is already `< π`.
+    let t_end = wrap_nearest(t_start, t_end_raw);
+
+    let arc = crate::geometry::curve::CurveGeometry::Arc {
+        center,
+        normal,
+        radius,
+        start_angle: t_start,
+        end_angle: t_end,
+    };
+    brep.edges[edge_h].curve = Some(crate::geometry::curve::CurveOnEdge {
+        geometry: arc,
+        t_start,
+        t_end,
+    });
+    Ok(())
+}
+
+fn find_edge_between_points(
+    brep: &BRep,
+    p_from: Point3,
+    p_to: Point3,
+    tol_eps: f64,
+) -> Option<crate::topology::EdgeHandle> {
+    for (eh, edge) in &brep.edges {
+        let he_h = edge.half_edge;
+        let twin_h = brep.half_edges[he_h].twin;
+        let a = brep.vertices[brep.half_edges[he_h].origin].position;
+        let b = brep.vertices[brep.half_edges[twin_h].origin].position;
+        let matches = (a.distance_to(&p_from) < tol_eps && b.distance_to(&p_to) < tol_eps)
+            || (a.distance_to(&p_to) < tol_eps && b.distance_to(&p_from) < tol_eps);
+        if matches {
+            return Some(eh);
+        }
+    }
+    None
+}
+
+fn angle_in_basis(
+    rel: crate::geometry::Vec3,
+    u: crate::geometry::Vec3,
+    v: crate::geometry::Vec3,
+) -> f64 {
+    rel.dot(&v).atan2(rel.dot(&u))
+}
+
+/// Wrap `t` so it's within `±π` of `anchor`. Used to pick the
+/// short-arc parameter for an otherwise-ambiguous endpoint angle.
+fn wrap_nearest(anchor: f64, t: f64) -> f64 {
+    use std::f64::consts::{PI, TAU};
+    let mut result = t;
+    while result - anchor > PI {
+        result -= TAU;
+    }
+    while result - anchor < -PI {
+        result += TAU;
+    }
+    result
+}
+
+/// Local replica of the (private) `circle_basis` helper in
+/// `analytic_curves`, used here so the arc parameterisation we
+/// compute matches the frame `CurveGeometry::Arc::point_at`
+/// evaluates in at runtime.
+fn circle_basis_local(
+    normal: crate::geometry::Vec3,
+) -> (crate::geometry::Vec3, crate::geometry::Vec3) {
+    use crate::geometry::Vec3;
+    let axis = if normal.x.abs() < 0.9 {
+        Vec3::new(1.0, 0.0, 0.0)
+    } else {
+        Vec3::new(0.0, 1.0, 0.0)
+    };
+    let perp = normal.cross(&axis);
+    let u = perp.normalized().unwrap_or(Vec3::new(1.0, 0.0, 0.0));
+    let v = normal
+        .cross(&u)
+        .normalized()
+        .unwrap_or(Vec3::new(0.0, 1.0, 0.0));
+    (u, v)
 }
 
 #[cfg(test)]
