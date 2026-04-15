@@ -10,6 +10,7 @@ pub mod cap;
 pub mod center_curve;
 pub mod center_curve_helpers;
 pub mod center_curve_walker;
+pub mod chamfer_2d;
 pub mod chamfer_curve;
 pub(crate) mod collapsed_skip;
 pub mod construct;
@@ -57,6 +58,8 @@ pub mod validate;
 pub mod walker;
 pub(crate) mod walker_adaptive;
 pub use cancellation::CancellationToken;
+pub use chamfer_2d::chamfer_corner_2d;
+pub use fillet_2d::fillet_corner_2d;
 pub use error::{
     BlendError, BlendFailure, BlendWarning, Remediation, RemediationAction, RemediationContext,
 };

@@ -257,7 +257,11 @@ fn corner_plan(brep: &BRep, vertex: VertexHandle, radius: f64) -> Result<CornerP
 /// twin's origin. The origin-vertex positions are read from the
 /// current BRep, so this picks up any vertex moves that happened
 /// earlier in the surgery.
-fn rebuild_line_curve(brep: &mut BRep, edge: popkern_core::topology::EdgeHandle) {
+///
+/// Shared between `fillet_2d` and `chamfer_2d` — both have to
+/// rebuild support-edge curves after moving their endpoints onto
+/// new tangent-point vertices.
+pub(crate) fn rebuild_line_curve(brep: &mut BRep, edge: popkern_core::topology::EdgeHandle) {
     let canonical = brep.edges[edge].half_edge;
     let twin = brep.half_edges[canonical].twin;
     let v_from = brep.half_edges[canonical].origin;
@@ -292,7 +296,14 @@ fn circle_basis_like_core(normal: Vec3) -> (Vec3, Vec3) {
     (u, v)
 }
 
-fn require_line(brep: &BRep, edge_h: popkern_core::topology::EdgeHandle) -> Result<(), String> {
+/// Validate that the given edge's curve is a straight `Line`.
+/// Used by both `fillet_corner_2d` and `chamfer_corner_2d` to
+/// guard against curved boundary edges that neither currently
+/// handles.
+pub(crate) fn require_line(
+    brep: &BRep,
+    edge_h: popkern_core::topology::EdgeHandle,
+) -> Result<(), String> {
     let edge = brep
         .edges
         .get(edge_h)
@@ -432,7 +443,10 @@ fn apply_corner_plan(
     Ok(())
 }
 
-fn topology_failure(vertex: VertexHandle, reason: String) -> BlendError {
+/// Build a uniform `PartialFailure` wrapping an `InvalidTopology`
+/// blend failure for a 2D corner operation. Shared between
+/// fillet and chamfer so both emit the same error shape.
+pub(crate) fn topology_failure(vertex: VertexHandle, reason: String) -> BlendError {
     BlendError::PartialFailure {
         failed: 1,
         total: 1,
