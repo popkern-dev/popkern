@@ -261,8 +261,23 @@ pub fn bounded_parameter_range(
 ) -> ((f64, f64), (f64, f64)) {
     let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
 
-    // If both ranges are finite, return them as-is.
-    if u_min.is_finite() && u_max.is_finite() && v_min.is_finite() && v_max.is_finite() {
+    // If both ranges are finite AND the surface is non-periodic,
+    // the native range already describes the face extent. For
+    // periodic surfaces (Torus, Cylinder, Sphere) the native
+    // range is the full period — the face may only occupy a
+    // strip, so we fall through to vertex-based projection.
+    let is_periodic = matches!(
+        surface,
+        SurfaceGeometry::Torus { .. }
+            | SurfaceGeometry::Cylinder { .. }
+            | SurfaceGeometry::Sphere { .. }
+    );
+    if !is_periodic
+        && u_min.is_finite()
+        && u_max.is_finite()
+        && v_min.is_finite()
+        && v_max.is_finite()
+    {
         return ((u_min, u_max), (v_min, v_max));
     }
 

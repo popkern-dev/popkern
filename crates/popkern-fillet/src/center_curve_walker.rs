@@ -41,6 +41,7 @@ pub fn walker_based_center_curve(
     tolerance: &Tolerance,
     orientation_1: bool,
     orientation_2: bool,
+    pcurve_seed: Option<((f64, f64), (f64, f64))>,
 ) -> Result<CenterCurveResult, String> {
     // popkern face normals point INTO the solid. The rolling ball
     // sits OUTSIDE the solid (on the side opposite the face normal),
@@ -75,14 +76,6 @@ pub fn walker_based_center_curve(
         radius_at(t_norm.clamp(0.0, 1.0))
     };
 
-    let either_is_torus = matches!(
-        surface1,
-        popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
-    ) || matches!(
-        surface2,
-        popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
-    );
-
     let request = WalkRequest {
         surface_0: surface1,
         surface_1: surface2,
@@ -93,43 +86,22 @@ pub fn walker_based_center_curve(
         t_range,
         uv0_range: (u1_range, v1_range),
         uv1_range: (u2_range, v2_range),
-        // For torus/blend faces, surface.closest_point can return
-        // a wrapped UV outside the face's strip. Provide a seed
-        // clamped to the face UV midpoint — the walker's Newton
-        // solver refines from there.
-        initial_seed: if either_is_torus {
-            Some((
-                (
-                    0.5 * (u1_range.0 + u1_range.1),
-                    0.5 * (v1_range.0 + v1_range.1),
-                ),
-                (
-                    0.5 * (u2_range.0 + u2_range.1),
-                    0.5 * (v2_range.0 + v2_range.1),
-                ),
-            ))
-        } else {
-            None
-        },
+        // Use the pcurve-derived seed when available — it gives
+        // the exact UV at the spine start on each face, avoiding
+        // the wrapped-UV problem from closest_point on periodic
+        // surfaces (§12.3 blend-on-blend).
+        initial_seed: pcurve_seed,
         surface_0_periodicity: surface1.periodicity(),
         surface_1_periodicity: surface2.periodicity(),
     };
-    // §12.3 blend-on-blend: torus faces can produce UV-clamped
-    // initial guesses that are far from the solution. Enable
-    // Levenberg-Marquardt damping from the first iteration to
-    // stabilise convergence from imperfect initial points.
+    // §12.3: when a pcurve seed is available, enable UV clamping
+    // as a safety net for periodic surfaces. LM damping helps
+    // convergence from pcurve-derived starts that are on the
+    // face boundary rather than at the exact contact point.
     let mut walk_opts = WalkOptions::default();
-    let either_is_torus = matches!(
-        surface1,
-        popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
-    ) || matches!(
-        surface2,
-        popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
-    );
-    if either_is_torus {
-        walk_opts.contact_options.initial_damping = 0.1;
-        walk_opts.contact_options.max_iterations = 50;
+    if pcurve_seed.is_some() {
         walk_opts.contact_options.clamp_initial_uv = true;
+        walk_opts.contact_options.initial_damping = 0.01;
     }
     let walk = walk_spine(&request, &walk_opts, tolerance)
         .map_err(|e| format!("spine walker failed: {e}"))?;

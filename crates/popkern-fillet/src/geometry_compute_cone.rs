@@ -76,6 +76,28 @@ pub(crate) fn compute_center_via_walker(
         }
     };
 
+    // §12.3: project the spine MIDPOINT onto both surfaces to
+    // get an initial UV seed. Clamped to the face UV ranges so
+    // periodic surfaces (torus) don't wrap to the wrong sheet.
+    let initial_seed = {
+        use popkern_core::geometry::SurfaceEval;
+        use popkern_core::geometry::curve::CurveEval;
+        let t_mid = 0.5 * (curve_on_edge.t_start + curve_on_edge.t_end);
+        let p_mid = curve_on_edge.geometry.point_at(t_mid);
+        let uv0 = analysis.surface_1.closest_point(&p_mid);
+        let uv1 = analysis.surface_2.closest_point(&p_mid);
+        match (uv0, uv1) {
+            (Some((u0, v0)), Some((u1, v1))) => {
+                let cu0: f64 = u0.clamp(u1_range.0, u1_range.1);
+                let cv0: f64 = v0.clamp(v1_range.0, v1_range.1);
+                let cu1: f64 = u1.clamp(u2_range.0, u2_range.1);
+                let cv1: f64 = v1.clamp(v2_range.0, v2_range.1);
+                Some(((cu0, cv0), (cu1, cv1)))
+            }
+            _ => None,
+        }
+    };
+
     center_curve::walker_based_center_curve(
         &analysis.surface_1,
         u1_range,
@@ -89,6 +111,7 @@ pub(crate) fn compute_center_via_walker(
         tolerance,
         analysis.orientation_1,
         analysis.orientation_2,
+        initial_seed,
     )
     .map_err(|e| BlendFailure::IntersectionFailed {
         reason: e,
