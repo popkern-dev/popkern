@@ -39,17 +39,31 @@ use crate::error::BlendWarning;
 /// correction in `apply_blend_geometry`.
 pub(crate) fn insert_caps(
     brep: &mut BRep,
+    original_brep: &BRep,
     edge_geometries: &[EdgeGeometry],
     warnings: &mut Vec<(popkern_core::topology::EdgeHandle, BlendWarning)>,
 ) {
     for eg in edge_geometries {
-        process_endpoint(brep, eg, /* at_start = */ true, warnings);
-        process_endpoint(brep, eg, /* at_start = */ false, warnings);
+        process_endpoint(
+            brep,
+            original_brep,
+            eg,
+            /* at_start = */ true,
+            warnings,
+        );
+        process_endpoint(
+            brep,
+            original_brep,
+            eg,
+            /* at_start = */ false,
+            warnings,
+        );
     }
 }
 
 fn process_endpoint(
     brep: &mut BRep,
+    original_brep: &BRep,
     eg: &EdgeGeometry,
     at_start: bool,
     warnings: &mut Vec<(popkern_core::topology::EdgeHandle, BlendWarning)>,
@@ -83,7 +97,12 @@ fn process_endpoint(
     // supports and the third implicitly caps the blend). On an
     // open shell — e.g. a sheet body where the vertex has only
     // the two supports — the endpoint is free.
-    let closed = endpoint_is_closed(brep, vertex, eg.analysis.face_1, eg.analysis.face_2);
+    let closed = endpoint_is_closed(
+        original_brep,
+        vertex,
+        eg.analysis.face_1,
+        eg.analysis.face_2,
+    );
 
     let topology_inserted = if closed {
         false
@@ -121,9 +140,17 @@ fn endpoint_is_closed(
             continue;
         }
         let face = brep.loops[he.loop_].face;
-        if face != support_1 && face != support_2 {
-            return true;
+        if face == support_1 || face == support_2 {
+            continue;
         }
+        // Faces with no surface geometry are "virtual" backside
+        // faces (e.g. sheet bodies, or a solid face whose
+        // surface has been cleared to simulate an open shell).
+        // They don't count as a real implicit cap.
+        if brep.faces[face].surface.is_none() {
+            continue;
+        }
+        return true;
     }
     false
 }
@@ -153,9 +180,7 @@ fn insert_cap_face(brep: &mut BRep, vertex: VertexHandle, cap: &crate::cap::CapG
     let target_1 = cap.boundary_points[0];
     let target_2 = cap.boundary_points[cap.boundary_points.len() - 1];
 
-    // Find BRep vertices nearest to each contact, searching only
-    // among vertices incident to `vertex`'s neighbouring faces.
-    let tol_sq = 1.0e-4_f64; // generous tolerance²
+    let tol_sq = 1.0e-4_f64;
     let v1 = find_nearest_vertex(brep, vertex, target_1, tol_sq);
     let v2 = find_nearest_vertex(brep, vertex, target_2, tol_sq);
     let (Some(v1), Some(v2)) = (v1, v2) else {
