@@ -58,11 +58,17 @@ pub(crate) fn try_plane_plane_torus(
 
     use popkern_core::geometry::curve::CurveEval;
     let (t0, t1) = center_result.center_curve.parameter_range();
-    let center = center_result.center_curve.point_at((t0 + t1) * 0.5);
+    let spine_mid = center_result.center_curve.point_at((t0 + t1) * 0.5);
 
-    // Major radius = r / sin(half_angle). At α = π/2 this is r√2;
-    // at smaller dihedrals (tighter corners) the torus grows.
     let major_radius = radius / sin_half;
+
+    // The torus centre must be on the axis, not at the spine
+    // midpoint. The spine is on the major circle at distance
+    // `major_radius` from the axis. Project back to the axis
+    // via the bisector: for inward-pointing normals, (n1+n2)
+    // points from the axis toward the spine.
+    let bisector = (*n1 + *n2).normalized().unwrap_or(*n1);
+    let center = spine_mid - bisector * major_radius;
 
     let surface = SurfaceGeometry::Torus {
         center,

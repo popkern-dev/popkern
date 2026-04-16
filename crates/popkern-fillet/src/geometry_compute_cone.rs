@@ -84,8 +84,24 @@ pub(crate) fn compute_center_via_walker(
         use popkern_core::geometry::curve::CurveEval;
         let t_mid = 0.5 * (curve_on_edge.t_start + curve_on_edge.t_end);
         let p_mid = curve_on_edge.geometry.point_at(t_mid);
-        let uv0 = analysis.surface_1.closest_point(&p_mid);
-        let uv1 = analysis.surface_2.closest_point(&p_mid);
+        // The spine midpoint sits exactly on the torus major
+        // circle, where project_point_to_uv degenerates (atan2(0,0)
+        // → v=0 instead of v=π/2). Nudge the query point slightly
+        // toward each surface's inward normal to break the symmetry
+        // and get a well-defined minor angle.
+        let nudge = 1.0e-4;
+        let n1_at_mid = analysis.surface_1.normal_at(
+            0.5 * (u1_range.0 + u1_range.1),
+            0.5 * (v1_range.0 + v1_range.1),
+        );
+        let p_nudged_0 = p_mid + n1_at_mid * nudge;
+        let n2_at_mid = analysis.surface_2.normal_at(
+            0.5 * (u2_range.0 + u2_range.1),
+            0.5 * (v2_range.0 + v2_range.1),
+        );
+        let p_nudged_1 = p_mid + n2_at_mid * nudge;
+        let uv0 = analysis.surface_1.closest_point(&p_nudged_0);
+        let uv1 = analysis.surface_2.closest_point(&p_nudged_1);
         match (uv0, uv1) {
             (Some((u0, v0)), Some((u1, v1))) => {
                 let cu0: f64 = u0.clamp(u1_range.0, u1_range.1);
