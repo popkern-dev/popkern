@@ -122,7 +122,7 @@ fn remove_knot_u_fails_when_exceeds_tolerance() {
     let surface = biquadratic_bump();
     let mut inserted = surface.insert_knot_u(0.5).unwrap();
     // Perturb one of the new control points significantly.
-    inserted.control_points[1 * inserted.num_v + 1].z += 5.0;
+    inserted.control_points[inserted.num_v + 1].z += 5.0;
 
     // With zero tolerance, removal should fail because the geometry was altered.
     let result = inserted.remove_knot_u(3, 0.0);
@@ -139,7 +139,7 @@ fn remove_knot_v_fails_when_exceeds_tolerance() {
     let surface = biquadratic_bump();
     let mut inserted = surface.insert_knot_v(0.5).unwrap();
     // Perturb a control point.
-    inserted.control_points[1 * inserted.num_v + 1].z += 5.0;
+    inserted.control_points[inserted.num_v + 1].z += 5.0;
 
     let result = inserted.remove_knot_v(3, 0.0);
     assert!(
@@ -153,7 +153,7 @@ fn remove_knot_v_fails_when_exceeds_tolerance() {
 fn remove_knot_u_succeeds_with_large_tolerance() {
     let surface = biquadratic_bump();
     let mut inserted = surface.insert_knot_u(0.5).unwrap();
-    inserted.control_points[1 * inserted.num_v + 1].z += 0.5;
+    inserted.control_points[inserted.num_v + 1].z += 0.5;
 
     // With a generous tolerance, removal should succeed.
     let result = inserted.remove_knot_u(3, 10.0);
@@ -336,7 +336,7 @@ fn remove_knot_u_with_tolerance_allows_approximation() {
     let surface = biquadratic_bump();
     let mut inserted = surface.insert_knot_u(0.5).unwrap();
     // Small perturbation -- within a reasonable tolerance.
-    inserted.control_points[1 * inserted.num_v + 0].z += 0.01;
+    inserted.control_points[inserted.num_v].z += 0.01;
 
     // Zero tolerance should fail.
     assert!(inserted.remove_knot_u(3, 0.0).is_none());

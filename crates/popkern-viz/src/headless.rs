@@ -343,7 +343,7 @@ mod tests {
         let path = dir.join("popkern_test_headless.png");
 
         // 2x2 red image
-        let pixels: Vec<u8> = vec![255, 0, 0, 255].repeat(4);
+        let pixels: Vec<u8> = [255, 0, 0, 255].repeat(4);
         write_png(&path, 2, 2, &pixels).expect("png write should succeed");
 
         assert!(path.exists());

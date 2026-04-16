@@ -14,7 +14,6 @@ use slotmap::Key;
 
 // `image` is a regular dependency of popkern-viz (not just dev-dep), so it is
 // available in integration tests without any extra Cargo.toml entry.
-use image;
 
 // ---------------------------------------------------------------------------
 // 1. BRep JSON round-trip through viz

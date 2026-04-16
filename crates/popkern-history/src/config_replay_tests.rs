@@ -90,7 +90,7 @@ fn replay_with_literal_override_uses_config_value() {
     let result = tree.replay(Tolerance::default()).expect("replay");
 
     // Both features should succeed.
-    for (_, outcome) in &result.feature_results {
+    for outcome in result.feature_results.values() {
         assert!(
             matches!(outcome, FeatureResult::Success { .. }),
             "all features should succeed, got {outcome:?}"
@@ -209,7 +209,7 @@ fn replay_without_config_uses_defaults() {
     assert!(tree.active_config.is_none());
 
     let result = tree.replay(Tolerance::default()).expect("replay");
-    for (_, outcome) in &result.feature_results {
+    for outcome in result.feature_results.values() {
         assert!(
             matches!(outcome, FeatureResult::Success { .. }),
             "default replay should succeed, got {outcome:?}"

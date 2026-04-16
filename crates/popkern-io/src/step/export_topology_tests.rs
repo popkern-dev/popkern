@@ -55,7 +55,7 @@ fn export_cube_surfaces_are_planes() {
     // A cube has 6 planar faces; some planes may be shared if
     // the deduplication catches them, but typically 6 distinct planes
     assert!(
-        plane_count >= 3 && plane_count <= 6,
+        (3..=6).contains(&plane_count),
         "Expected 3-6 PLANEs for a cube, got {plane_count}"
     );
 }

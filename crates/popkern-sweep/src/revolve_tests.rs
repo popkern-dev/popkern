@@ -45,7 +45,7 @@ fn revolve_line_full() {
     );
     assert!(result.is_ok(), "revolve failed: {:?}", result.err());
     let brep = &result.unwrap().brep; // ok in tests
-    assert!(brep.faces.len() >= 1, "expected >= 1 face");
+    assert!(!brep.faces.is_empty(), "expected >= 1 face");
     assert!(!brep.edges.is_empty(), "expected edges");
     assert!(!brep.vertices.is_empty(), "expected vertices");
 }
@@ -62,7 +62,7 @@ fn revolve_line_partial() {
     );
     assert!(result.is_ok(), "revolve failed: {:?}", result.err());
     let brep = &result.unwrap().brep; // ok in tests
-    assert!(brep.faces.len() >= 1, "expected >= 1 face");
+    assert!(!brep.faces.is_empty(), "expected >= 1 face");
 }
 
 // ---- closed profile revolution ----
@@ -171,7 +171,7 @@ fn revolve_45_degrees_line() {
         None,
     );
     assert!(result.is_ok(), "45deg failed: {:?}", result.err());
-    assert!(result.unwrap().brep.faces.len() >= 1); // ok in tests
+    assert!(!result.unwrap().brep.faces.is_empty()); // ok in tests
 }
 
 #[test]
@@ -207,7 +207,7 @@ fn revolve_offset_axis() {
         None,
     );
     assert!(result.is_ok(), "offset axis failed: {:?}", result.err());
-    assert!(result.unwrap().brep.faces.len() >= 1); // ok in tests
+    assert!(!result.unwrap().brep.faces.is_empty()); // ok in tests
 }
 
 #[test]
@@ -227,7 +227,7 @@ fn revolve_x_axis() {
         None,
     );
     assert!(result.is_ok(), "X-axis failed: {:?}", result.err());
-    assert!(result.unwrap().brep.faces.len() >= 1); // ok in tests
+    assert!(!result.unwrap().brep.faces.is_empty()); // ok in tests
 }
 
 #[test]
@@ -247,7 +247,7 @@ fn revolve_y_axis() {
         None,
     );
     assert!(result.is_ok(), "Y-axis failed: {:?}", result.err());
-    assert!(result.unwrap().brep.faces.len() >= 1); // ok in tests
+    assert!(!result.unwrap().brep.faces.is_empty()); // ok in tests
 }
 
 // ---- warnings ----

@@ -1,6 +1,7 @@
 use super::*;
 use std::f64::consts::TAU;
 
+#[allow(clippy::too_many_arguments)]
 fn cc(
     c1: Point3,
     n1: Vec3,

@@ -1,7 +1,6 @@
 //! Tests for the analytic plane-cylinder intersection solver.
 
 use super::*;
-use crate::geometry::surface::SurfaceEval;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 use std::f64::consts::TAU;

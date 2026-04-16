@@ -81,7 +81,7 @@ fn plane_neutral_parallel_to_face_returns_error() {
     // Find the face whose surface normal is Z (top or bottom face).
     use popkern_core::geometry::surface::SurfaceEval;
     let z_face = brep.faces.iter().find(|(_, fd)| {
-        fd.surface.as_ref().map_or(false, |sof| {
+        fd.surface.as_ref().is_some_and(|sof| {
             let n = sof.geometry.normal_at(0.5, 0.5);
             n.z.abs() > 0.9
         })
@@ -158,7 +158,7 @@ fn auto_neutral_with_pull_parallel_to_face_normal_uses_edge_fallback() {
     let brep = BRep::unit_cube(tol()).unwrap();
     use popkern_core::geometry::surface::SurfaceEval;
     let z_face = brep.faces.iter().find(|(_, fd)| {
-        fd.surface.as_ref().map_or(false, |sof| {
+        fd.surface.as_ref().is_some_and(|sof| {
             let n = sof.geometry.normal_at(0.5, 0.5);
             n.z.abs() > 0.9
         })
@@ -185,7 +185,7 @@ fn plane_neutral_succeeds_for_side_face() {
     let brep = BRep::unit_cube(tol()).unwrap();
     use popkern_core::geometry::surface::SurfaceEval;
     let x_face = brep.faces.iter().find(|(_, fd)| {
-        fd.surface.as_ref().map_or(false, |sof| {
+        fd.surface.as_ref().is_some_and(|sof| {
             let n = sof.geometry.normal_at(0.5, 0.5);
             n.x.abs() > 0.9
         })

@@ -248,10 +248,10 @@ fn compact_removes_dead_names() {
 
     // Remap surviving entity name fields.
     for (_, face) in &mut cube.faces {
-        if let Some(ref mut nid) = face.name {
-            if let Some(&new) = remap.get(nid) {
-                *nid = new;
-            }
+        if let Some(ref mut nid) = face.name
+            && let Some(&new) = remap.get(nid)
+        {
+            *nid = new;
         }
     }
 

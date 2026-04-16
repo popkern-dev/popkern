@@ -306,7 +306,7 @@ mod tests {
     #[test]
     fn analyze_with_telemetry_returns_report_and_timings() {
         let brep = BRep::unit_cube(Tolerance::default())
-            .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+            .unwrap_or_else(|_| BRep::new(Tolerance::default()));
         let options = AnalysisOptions::new(Tolerance::default());
         let (report, telemetry) = analyze_with_telemetry(&brep, &options);
 
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn analyze_with_telemetry_matches_analyze_with() {
         let brep = BRep::unit_cube(Tolerance::default())
-            .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+            .unwrap_or_else(|_| BRep::new(Tolerance::default()));
         let options = AnalysisOptions::new(Tolerance::default());
 
         let plain_report = analyze_with(&brep, &options);
@@ -358,7 +358,7 @@ mod tests {
     #[test]
     fn heal_with_telemetry_returns_result_and_timings() {
         let mut brep = BRep::unit_cube(Tolerance::default())
-            .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+            .unwrap_or_else(|_| BRep::new(Tolerance::default()));
         let options = HealOptions::new(Tolerance::default());
         let result = heal_with_telemetry(&mut brep, &options);
         assert!(result.is_ok());

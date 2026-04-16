@@ -132,7 +132,7 @@ mod tests {
     #[test]
     fn streaming_on_valid_cube_matches_analyze() {
         let brep = BRep::unit_cube(Tolerance::default())
-            .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+            .unwrap_or_else(|_| BRep::new(Tolerance::default()));
         let options = AnalysisOptions::new(Tolerance::default());
         let config = StreamingConfig::default();
 
@@ -162,7 +162,7 @@ mod tests {
     #[test]
     fn streaming_with_small_batch_size() {
         let brep = BRep::unit_cube(Tolerance::default())
-            .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+            .unwrap_or_else(|_| BRep::new(Tolerance::default()));
         let options = AnalysisOptions::new(Tolerance::default());
         let config = StreamingConfig {
             batch_size: 2,
@@ -188,7 +188,7 @@ mod tests {
     #[test]
     fn streaming_result_has_correct_entity_count() {
         let brep = BRep::unit_cube(Tolerance::default())
-            .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+            .unwrap_or_else(|_| BRep::new(Tolerance::default()));
         let options = AnalysisOptions::new(Tolerance::default());
         let config = StreamingConfig::default();
 

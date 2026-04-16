@@ -178,7 +178,7 @@ mod tests {
         let coords = [centroid.x, centroid.y, centroid.z];
         for &c in &coords {
             assert!(
-                c >= -0.1 && c <= 1.1,
+                (-0.1..=1.1).contains(&c),
                 "centroid coordinate {c} out of range"
             );
         }

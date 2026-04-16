@@ -96,10 +96,11 @@ fn cylinder_seam_pcurve_is_degree_1() {
         let mut found_degree_1 = false;
         loop {
             let he = &brep.half_edges[cursor];
-            if let Some(ref pcurve) = he.pcurve {
-                if pcurve.degree == 1 && pcurve.control_points.len() == 2 {
-                    found_degree_1 = true;
-                }
+            if let Some(ref pcurve) = he.pcurve
+                && pcurve.degree == 1
+                && pcurve.control_points.len() == 2
+            {
+                found_degree_1 = true;
             }
             cursor = he.next;
             if cursor == loop_.half_edge {

@@ -251,7 +251,7 @@ fn build_vertex_edge_adjacency_for_single_face() {
     let free = find_free_edges(&brep);
     let adjacency = build_vertex_edge_adjacency(&brep, &free);
     assert_eq!(adjacency.len(), 4);
-    for (_vh, edges) in &adjacency {
+    for edges in adjacency.values() {
         assert_eq!(edges.len(), 2);
     }
 }

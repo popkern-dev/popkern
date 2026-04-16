@@ -193,6 +193,7 @@ mod tests {
     fn s(v: &str) -> Parameter {
         Parameter::String(v.into())
     }
+    #[allow(dead_code)]
     fn r(v: f64) -> Parameter {
         Parameter::Real(v)
     }

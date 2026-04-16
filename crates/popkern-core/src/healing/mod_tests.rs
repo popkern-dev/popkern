@@ -9,8 +9,8 @@ use crate::topology::BRep;
 
 #[test]
 fn analyze_valid_cube_returns_clean_report() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let report = super::analyze(&brep, &Tolerance::default());
     let summary = report.summary();
     assert_eq!(summary.critical, 0);
@@ -19,8 +19,8 @@ fn analyze_valid_cube_returns_clean_report() {
 
 #[test]
 fn analyze_with_custom_options() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let opts = AnalysisOptions {
         checks: CheckSet::FAST,
         ..AnalysisOptions::new(Tolerance::default())
@@ -31,8 +31,8 @@ fn analyze_with_custom_options() {
 
 #[test]
 fn heal_valid_cube_is_noop() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let face_count = brep.faces.len();
     let result = super::heal(&mut brep, &Tolerance::default());
     assert!(result.is_ok());
@@ -43,8 +43,8 @@ fn heal_valid_cube_is_noop() {
 
 #[test]
 fn heal_with_conservative_strategy() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let opts = HealOptions {
         strategy: HealStrategy::Conservative,
         ..HealOptions::new(Tolerance::default())
@@ -57,8 +57,8 @@ fn heal_with_conservative_strategy() {
 
 #[test]
 fn preview_repairs_does_not_modify_brep() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let vertex_count = brep.vertices.len();
     let opts = HealOptions::new(Tolerance::default());
     let preview = super::preview_repairs(&brep, &opts);
@@ -69,8 +69,8 @@ fn preview_repairs_does_not_modify_brep() {
 
 #[test]
 fn analyze_with_telemetry_returns_timing() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let opts = AnalysisOptions::new(Tolerance::default());
     let (report, telemetry) = super::analyze_with_telemetry(&brep, &opts);
     assert_eq!(report.summary().critical, 0);
@@ -80,8 +80,8 @@ fn analyze_with_telemetry_returns_timing() {
 
 #[test]
 fn heal_with_telemetry_returns_timing() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let opts = HealOptions::new(Tolerance::default());
     let result = super::heal_with_telemetry(&mut brep, &opts);
     assert!(result.is_ok());
@@ -110,8 +110,8 @@ fn heal_empty_brep() {
 
 #[test]
 fn analyze_delegates_to_analyze_with() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let tol = Tolerance::default();
     let direct = super::analyze(&brep, &tol);
     let via_opts = super::analyze_with(&brep, &AnalysisOptions::new(tol));
@@ -120,8 +120,8 @@ fn analyze_delegates_to_analyze_with() {
 
 #[test]
 fn heal_delegates_to_heal_with() {
-    let mut brep1 = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep1 =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let mut brep2 = brep1.clone();
     let tol = Tolerance::default();
 
@@ -147,8 +147,8 @@ fn preview_repairs_empty_brep() {
 
 #[test]
 fn analyze_with_geometric_only_checks() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let opts = AnalysisOptions {
         checks: CheckSet::GEOMETRIC_ONLY,
         ..AnalysisOptions::new(Tolerance::default())
@@ -159,8 +159,8 @@ fn analyze_with_geometric_only_checks() {
 
 #[test]
 fn heal_with_aggressive_strategy() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let opts = HealOptions {
         strategy: HealStrategy::Aggressive,
         ..HealOptions::new(Tolerance::default())

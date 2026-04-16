@@ -116,9 +116,8 @@ mod tests {
         let result = check_self_intersection(&surface, &tol);
         // We accept either detection or miss (heuristic), but log it.
         // The fold is quite dramatic so it should be caught.
-        if result.is_some() {
-            let v = result.unwrap(); // ok in tests
-            assert!(v >= 0.0 && v <= 1.0);
+        if let Some(v) = result {
+            assert!((0.0..=1.0).contains(&v));
         }
     }
 

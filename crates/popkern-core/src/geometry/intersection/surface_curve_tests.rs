@@ -96,7 +96,7 @@ fn dispatch_line_cone() {
         .filter(|i| matches!(i, SurfaceCurveIntersection::Point { .. }))
         .collect();
     assert!(
-        pts.len() >= 1,
+        !pts.is_empty(),
         "Expected at least 1 intersection for line through cone, got {}",
         pts.len()
     );

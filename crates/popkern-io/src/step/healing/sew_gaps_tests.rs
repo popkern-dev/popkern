@@ -239,7 +239,7 @@ fn merge_rewires_half_edge_origins() {
         tolerance: None,
         name: None,
     });
-    let v2 = brep.vertices.insert(Vertex {
+    let _v2 = brep.vertices.insert(Vertex {
         position: Point3::new(1.0, 0.0, 0.0),
         outgoing: Default::default(),
         tolerance: None,

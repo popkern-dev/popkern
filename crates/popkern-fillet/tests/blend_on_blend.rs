@@ -52,7 +52,7 @@ fn find_cylinder_plane_edge(brep: &BRep) -> Option<popkern_core::topology::EdgeH
             let v2 = brep.vertices[brep.half_edges[he_data.twin].origin].position;
             let len =
                 ((v1.x - v2.x).powi(2) + (v1.y - v2.y).powi(2) + (v1.z - v2.z).powi(2)).sqrt();
-            if best.map_or(true, |(_, bl)| len < bl) {
+            if best.is_none_or(|(_, bl)| len < bl) {
                 best = Some((eh, len));
             }
         }

@@ -4,7 +4,6 @@ use crate::geometry::intersection::degeneracy::{
     DefaultDegeneracyHandler, RobustDegeneracyHandler,
 };
 use crate::geometry::intersection::surface_surface::intersect_surfaces_with_handler;
-use crate::geometry::surface::SurfaceEval;
 use std::f64::consts::{PI, TAU};
 
 fn xy_plane() -> SurfaceGeometry {
@@ -409,6 +408,7 @@ fn find_tangent_march_direction_returns_unit_vec() {
 // Helper: fully-degenerate NURBS surface (all control points at the same spot).
 // Its normal_at is zero everywhere — useful for singularity-path testing.
 // ---------------------------------------------------------------------------
+#[allow(dead_code)]
 fn degenerate_nurbs_surface(origin: Point3) -> SurfaceGeometry {
     use crate::geometry::nurbs_surface::NurbsSurface;
     SurfaceGeometry::Nurbs(NurbsSurface {

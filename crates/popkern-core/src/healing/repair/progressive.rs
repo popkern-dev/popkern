@@ -329,7 +329,7 @@ mod tests {
             );
             // Verify the snapshot has the same basic entity counts as expected.
             assert!(
-                cp.brep_snapshot.faces.len() > 0 || cp.defect_count == 0,
+                !cp.brep_snapshot.faces.is_empty() || cp.defect_count == 0,
                 "Checkpoint should have faces or be defect-free"
             );
         }

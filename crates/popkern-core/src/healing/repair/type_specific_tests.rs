@@ -6,8 +6,8 @@ use crate::topology::BRep;
 
 #[test]
 fn detect_surface_type_on_cube_returns_general() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let tolerance = Tolerance::default();
 
     for (fh, _) in &brep.faces {
@@ -24,8 +24,8 @@ fn detect_surface_type_on_cube_returns_general() {
 
 #[test]
 fn detect_all_surface_types_on_cube_all_general() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let tolerance = Tolerance::default();
 
     let results = detect_all_surface_types(&brep, &tolerance);
@@ -37,8 +37,8 @@ fn detect_all_surface_types_on_cube_all_general() {
 
 #[test]
 fn repair_fillet_on_general_face_is_noop() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let tolerance = Tolerance::default();
 
     let face = brep.faces.keys().next();
@@ -52,8 +52,8 @@ fn repair_fillet_on_general_face_is_noop() {
 
 #[test]
 fn repair_offset_on_general_face_is_noop() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let tolerance = Tolerance::default();
 
     let face = brep.faces.keys().next();
@@ -67,8 +67,8 @@ fn repair_offset_on_general_face_is_noop() {
 
 #[test]
 fn repair_swept_on_general_face_is_noop() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let tolerance = Tolerance::default();
 
     let face = brep.faces.keys().next();
@@ -82,8 +82,8 @@ fn repair_swept_on_general_face_is_noop() {
 
 #[test]
 fn repair_all_type_specific_on_valid_cube_returns_empty() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let tolerance = Tolerance::default();
 
     let results = repair_all_type_specific(&mut brep, &tolerance, 1.0);
@@ -125,8 +125,8 @@ fn surface_type_enum_equality() {
 
 #[test]
 fn adjacent_faces_on_cube() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     for (fh, _) in &brep.faces {
         let neighbors = adjacent_faces(&brep, fh);
@@ -177,8 +177,8 @@ fn measure_cross_section_uniformity_on_flat_surface() {
 
 #[test]
 fn type_detection_result_fields() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let tolerance = Tolerance::default();
 
     if let Some((fh, _)) = brep.faces.iter().next() {
@@ -191,8 +191,8 @@ fn type_detection_result_fields() {
 
 #[test]
 fn type_specific_repair_result_fields() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let tolerance = Tolerance::default();
 
     if let Some(fh) = brep.faces.keys().next() {
@@ -353,8 +353,8 @@ fn measure_cross_section_uniformity_nonuniform() {
 
 #[test]
 fn edges_shared_with_neighbors_on_cube() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     for (fh, _) in &brep.faces {
         let edges = edges_shared_with_neighbors(&brep, fh);
         assert_eq!(edges.len(), 4);

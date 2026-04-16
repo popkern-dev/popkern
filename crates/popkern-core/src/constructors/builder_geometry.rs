@@ -26,7 +26,7 @@ impl BRepBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
+
     use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
     use crate::geometry::{Point3, Vec3};
     use crate::tolerance::Tolerance;

@@ -4,7 +4,7 @@
 use crate::geometry::surface::SurfaceEval;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
-use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
+use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 
 // --- Second partial derivatives: verify analytically ---
 

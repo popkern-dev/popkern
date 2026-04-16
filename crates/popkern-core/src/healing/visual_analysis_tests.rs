@@ -59,7 +59,7 @@ fn isophotes_on_plane_with_tilted_light_produces_straight_lines() {
     assert_eq!(isos.len(), 1);
     // On a plane, the field is constant, so no level other than the constant
     // should have crossings.
-    assert!(isos[0].samples.is_empty() || isos[0].samples.len() > 0);
+    assert!(isos[0].samples.is_empty() || !isos[0].samples.is_empty());
 
     // Verify with a light that creates variation:
     // Light exactly along X → N.L = 0 everywhere (normal is Z).

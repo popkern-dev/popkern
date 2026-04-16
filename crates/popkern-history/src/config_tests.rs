@@ -76,11 +76,11 @@ fn configuration_with_parent_serde_roundtrip() {
 
 #[test]
 fn param_override_literal_roundtrip() {
-    let ov = ParamOverride::Literal(3.14);
+    let ov = ParamOverride::Literal(3.5);
     let json = serde_json::to_string(&ov).expect("serialize");
     let back: ParamOverride = serde_json::from_str(&json).expect("deserialize");
     match back {
-        ParamOverride::Literal(v) => assert!((v - 3.14).abs() < 1e-12),
+        ParamOverride::Literal(v) => assert!((v - 3.5).abs() < 1e-12),
         _ => panic!("expected Literal"),
     }
 }

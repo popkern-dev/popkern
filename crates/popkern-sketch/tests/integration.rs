@@ -39,7 +39,7 @@ fn sketch_rectangle_to_face() {
     let tol = Tolerance::default();
     let result = sop.to_brep(tol, None).unwrap();
     assert_eq!(result.regions.len(), 1);
-    assert!(result.brep.faces.len() >= 1);
+    assert!(!result.brep.faces.is_empty());
     assert!(result.brep.edges.len() >= 4);
 }
 

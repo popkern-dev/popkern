@@ -143,7 +143,7 @@ fn adaptive_dist_sq_lt_near_threshold_from_below() {
 fn adaptive_dist_sq_lt_degenerate_identical_points() {
     // Identical points — distance 0, clearly below any positive
     // threshold.
-    let p = (42.0, -17.0, 3.14);
+    let p = (42.0, -17.0, 3.5);
     assert!(adaptive_dist_sq_lt(p, p, 1e-12));
 }
 

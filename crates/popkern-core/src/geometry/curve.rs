@@ -436,7 +436,7 @@ mod tests {
     fn arc_to_nurbs_boundary_split_fallback() {
         // Arc with start_angle at a knot boundary that might cause split_at to fail.
         // This is a degenerate case where the split parameter is at the boundary.
-        use std::f64::consts::{FRAC_PI_2, TAU};
+        use std::f64::consts::TAU;
 
         // Arc starting near TAU boundary
         let arc = CurveGeometry::Arc {

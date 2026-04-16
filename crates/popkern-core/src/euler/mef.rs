@@ -267,7 +267,7 @@ mod tests {
         // mef connects v3 to v0:
         // mev3.half_edge_twin originates at v3
         // mev1.half_edge originates at v0
-        let mef_r = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
+        let _mef_r = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
 
         assert_eq!(brep.faces.len(), 2);
         assert_eq!(brep.loops.len(), 2);

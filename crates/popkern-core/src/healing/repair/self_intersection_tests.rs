@@ -1,8 +1,8 @@
 use super::*;
 use crate::constructors::builder::BRepBuilder;
+use crate::geometry::Point3;
 use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
-use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 use crate::topology::BRep;
 
@@ -73,8 +73,8 @@ fn make_folded_nurbs() -> NurbsSurface {
     }
     // Push a block of interior control points below the plane to create
     // a severe fold that reverses normals in the center region.
-    control_points[1 * 5 + 1] = Point3::new(0.25, 0.25, -5.0);
-    control_points[1 * 5 + 2] = Point3::new(0.25, 0.50, -5.0);
+    control_points[5 + 1] = Point3::new(0.25, 0.25, -5.0);
+    control_points[5 + 2] = Point3::new(0.25, 0.50, -5.0);
     control_points[2 * 5 + 1] = Point3::new(0.50, 0.25, -5.0);
     control_points[2 * 5 + 2] = Point3::new(0.50, 0.50, -5.0);
     // Push opposite interior points far above

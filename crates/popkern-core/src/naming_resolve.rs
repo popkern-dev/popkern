@@ -232,7 +232,7 @@ fn to_resolution(matches: Vec<ResolvedEntity>) -> Resolution {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::naming::{EntityName, EntityRole, NamePool, OperationId, RoleCategory};
+    use crate::naming::{EntityName, EntityRole, OperationId, RoleCategory};
     use crate::tolerance::Tolerance;
 
     fn make_name(op: u64, cat: RoleCategory, idx: u32) -> EntityName {

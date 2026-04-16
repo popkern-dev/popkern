@@ -138,7 +138,7 @@ fn apply_guides_adjusts_surface_for_small_offset() {
 
     // Apply with a tolerance that forces adjustment but is achievable.
     let tol = Tolerance::default().with_linear(0.15);
-    let _result = apply_guide_rails(&mut surface, &[guide.clone()], &tol);
+    let _result = apply_guide_rails(&mut surface, std::slice::from_ref(&guide), &tol);
     // We may or may not converge within tolerance, but deviation
     // should be reduced from the original.
     let dev_after = measure_guide_deviation(&surface, &guide);
@@ -187,7 +187,7 @@ fn guided_adjustment_better_than_nearest_point() {
 
     // Run the weighted multi-point adjustment (10 iterations).
     let tol = Tolerance::default().with_linear(0.005);
-    let _result = apply_guide_rails(&mut surface, &[guide.clone()], &tol);
+    let _result = apply_guide_rails(&mut surface, std::slice::from_ref(&guide), &tol);
 
     let dev_after = measure_guide_deviation(&surface, &guide);
     // Should achieve at least 4x reduction from the weighted

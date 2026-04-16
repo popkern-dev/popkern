@@ -321,7 +321,6 @@ mod tests {
 
     #[test]
     fn validate_all_collects_loop_closure_error() {
-        use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
         // Build a cube with geometry, then corrupt a vertex to cause loop closure failure
         let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
         let v_handle = brep.vertices.keys().next().unwrap();

@@ -452,13 +452,13 @@ mod tests {
         let cone = BRep::cone(radius, height, Tolerance::default()).unwrap();
         let expected_half_angle = (radius / height).atan();
         for face in cone.faces.values() {
-            if let Some(ref sof) = face.surface {
-                if let SurfaceGeometry::Cone { half_angle, .. } = sof.geometry {
-                    assert!(
-                        (half_angle - expected_half_angle).abs() < 1e-10,
-                        "half_angle mismatch: got {half_angle}, expected {expected_half_angle}"
-                    );
-                }
+            if let Some(ref sof) = face.surface
+                && let SurfaceGeometry::Cone { half_angle, .. } = sof.geometry
+            {
+                assert!(
+                    (half_angle - expected_half_angle).abs() < 1e-10,
+                    "half_angle mismatch: got {half_angle}, expected {expected_half_angle}"
+                );
             }
         }
     }

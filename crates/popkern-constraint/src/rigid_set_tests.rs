@@ -246,12 +246,10 @@ fn intra_set_constraint_is_skipped() {
 
     let result = sketch.solve().expect("solve should succeed");
     // Should NOT be over-constrained because intra-set Distance is skipped.
-    match &result.status {
-        SolveStatus::OverConstrained(_) => {
-            panic!("should not be over-constrained — intra-set constraint should be skipped");
-        }
-        _ => {} // ok — either fully constrained or under-constrained
+    if let SolveStatus::OverConstrained(_) = &result.status {
+        panic!("should not be over-constrained — intra-set constraint should be skipped");
     }
+    // ok — either fully constrained or under-constrained
 }
 
 /// 5. Delete rigid set: Create, delete -> verify points are independent

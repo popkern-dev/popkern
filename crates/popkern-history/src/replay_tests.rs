@@ -391,7 +391,7 @@ fn revolve_produces_brep() {
     if !any_failed {
         let brep = tree.current_brep().expect("brep after revolve");
         assert!(
-            brep.faces.len() >= 1,
+            !brep.faces.is_empty(),
             "revolved BRep should have at least 1 face"
         );
     }

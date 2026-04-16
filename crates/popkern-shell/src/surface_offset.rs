@@ -225,10 +225,10 @@ mod tests {
         let mut brep = BRep::unit_cube(tol()).unwrap();
 
         // Strip surface geometry from one face.
-        let mut faces_iter = brep.faces.keys();
-        let stripped_face = faces_iter.next().unwrap();
-        let good_face = faces_iter.next().unwrap();
-        drop(faces_iter);
+        let (stripped_face, good_face) = {
+            let mut face_keys = brep.faces.keys();
+            (face_keys.next().unwrap(), face_keys.next().unwrap())
+        };
         brep.faces[stripped_face].surface = None;
 
         // Classification: the stripped face + one good face.

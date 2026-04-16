@@ -354,7 +354,6 @@ fn diagnostic_trim_regression() {
 
 #[test]
 fn print_single_fillet_vertices() {
-    use popkern_core::geometry::Transform3;
     let tol = popkern_core::tolerance::Tolerance::default();
     let cube = popkern_core::topology::BRep::unit_cube(tol).unwrap();
     let edge = cube.edges.keys().next().unwrap();
@@ -376,7 +375,6 @@ fn print_single_fillet_vertices() {
 
 #[test]
 fn print_fillet_footprint_positions() {
-    use popkern_core::geometry::surface::SurfaceEval;
     let tol = popkern_core::tolerance::Tolerance::default();
     let cube = popkern_core::topology::BRep::unit_cube(tol).unwrap();
     let edge = cube.edges.keys().next().unwrap();

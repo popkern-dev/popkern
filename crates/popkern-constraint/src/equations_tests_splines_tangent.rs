@@ -8,6 +8,7 @@ use crate::equations::{equation_count, evaluate_constraint};
 use crate::Sketch;
 
 /// Build a ConstraintEntry with default metadata.
+#[allow(dead_code)]
 fn entry(constraint: Constraint, fixed_values: Vec<f64>) -> ConstraintEntry {
     ConstraintEntry {
         constraint,

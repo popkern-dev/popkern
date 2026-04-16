@@ -9,8 +9,8 @@ use crate::topology::BRep;
 
 #[test]
 fn heal_with_constraints_empty_set_same_as_regular() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let options = HealOptions::new(Tolerance::default());
     let constraints = ConstraintSet::new();
 
@@ -23,8 +23,8 @@ fn heal_with_constraints_empty_set_same_as_regular() {
 
 #[test]
 fn heal_with_constraints_fixed_point_preserved() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     let (vh, v) = brep.vertices.iter().next().unwrap();
     let original_pos = v.position;
@@ -62,8 +62,8 @@ fn heal_with_constraints_on_empty_brep() {
 
 #[test]
 fn heal_with_constraints_satisfied_before_remain_satisfied() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     // Coplanarity of a single face — trivially satisfied.
     let fh = brep.faces.iter().next().unwrap().0;
@@ -84,8 +84,8 @@ fn heal_with_constraints_satisfied_before_remain_satisfied() {
 
 #[test]
 fn constrained_repair_result_fields() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     let (vh, v) = brep.vertices.iter().next().unwrap();
 
@@ -107,8 +107,8 @@ fn constrained_repair_result_fields() {
 
 #[test]
 fn heal_with_multiple_constraints() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     let mut verts = brep.vertices.iter();
     let (v1, vd1) = verts.next().unwrap();
@@ -135,8 +135,8 @@ fn heal_with_multiple_constraints() {
 
 #[test]
 fn heal_with_pre_violated_constraint_not_blamed() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     let (vh, _) = brep.vertices.iter().next().unwrap();
 
@@ -171,8 +171,8 @@ use crate::healing::diagnostics::EntityRef;
 
 #[test]
 fn heal_with_coplanarity_constraint_on_cube_face() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     let face_handles: Vec<_> = brep.faces.keys().collect();
     let mut cs = ConstraintSet::new();
@@ -188,8 +188,8 @@ fn heal_with_coplanarity_constraint_on_cube_face() {
 
 #[test]
 fn heal_with_distance_constraint_between_vertices() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     let verts: Vec<_> = brep.vertices.iter().collect();
     let (va, _) = verts[0];
@@ -216,8 +216,8 @@ fn heal_with_distance_constraint_between_vertices() {
 
 #[test]
 fn heal_with_symmetry_constraint_on_cube() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     let face_handles: Vec<_> = brep.faces.keys().collect();
     let mut cs = ConstraintSet::new();
@@ -235,8 +235,8 @@ fn heal_with_symmetry_constraint_on_cube() {
 
 #[test]
 fn heal_with_tangency_constraint_on_cube() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     let face_handles: Vec<_> = brep.faces.keys().collect();
     let mut cs = ConstraintSet::new();

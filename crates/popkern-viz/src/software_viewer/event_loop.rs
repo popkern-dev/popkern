@@ -171,13 +171,11 @@ impl ApplicationHandler for SoftwareViewerApp {
                 event_loop.exit();
             }
 
-            WindowEvent::Resized(size) => {
-                if size.width > 0 && size.height > 0 {
-                    self.scene.camera.aspect = size.width as f32 / size.height as f32;
-                    self.needs_redraw = true;
-                    if let Some(window) = self.window.as_ref() {
-                        window.request_redraw();
-                    }
+            WindowEvent::Resized(size) if size.width > 0 && size.height > 0 => {
+                self.scene.camera.aspect = size.width as f32 / size.height as f32;
+                self.needs_redraw = true;
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
                 }
             }
 
@@ -247,10 +245,8 @@ impl ApplicationHandler for SoftwareViewerApp {
                 }
             }
 
-            WindowEvent::RedrawRequested => {
-                if self.needs_redraw {
-                    self.redraw();
-                }
+            WindowEvent::RedrawRequested if self.needs_redraw => {
+                self.redraw();
             }
 
             _ => {}

@@ -12,9 +12,9 @@ fn find_face_by_normal(brep: &BRep, axis: Vec3) -> Option<popkern_core::topology
     brep.faces
         .iter()
         .find(|(_, fd)| {
-            fd.surface.as_ref().map_or(false, |sof| {
-                sof.geometry.normal_at(0.5, 0.5).dot(&axis).abs() > 0.9
-            })
+            fd.surface
+                .as_ref()
+                .is_some_and(|sof| sof.geometry.normal_at(0.5, 0.5).dot(&axis).abs() > 0.9)
         })
         .map(|(fh, _)| fh)
 }

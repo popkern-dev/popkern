@@ -62,7 +62,7 @@ fn sweep_circle_along_z() {
     );
     assert!(result.is_ok(), "sweep failed: {:?}", result.err());
     let brep = &result.unwrap().brep; // ok in tests
-    assert!(brep.faces.len() >= 1, "expected at least 1 face");
+    assert!(!brep.faces.is_empty(), "expected at least 1 face");
 }
 
 #[test]
@@ -79,18 +79,18 @@ fn sweep_open_profile_produces_sheet() {
     assert!(result.is_ok(), "sweep failed: {:?}", result.err());
     let brep = &result.unwrap().brep; // ok in tests
     // Open profile: no caps, just side faces.
-    assert!(brep.faces.len() >= 1);
+    assert!(!brep.faces.is_empty());
 }
 
 #[test]
 fn loft_two_circles() {
     let sections = vec![
         LoftSection {
-            curve: circle_profile(1.0).into_wire(),
+            curve: circle_profile(1.0).as_wire(),
             position: None,
         },
         LoftSection {
-            curve: circle_profile(1.0).into_wire_at_z(3.0),
+            curve: circle_profile(1.0).as_wire_at_z(3.0),
             position: None,
         },
     ];
@@ -195,7 +195,7 @@ fn sweep_tracking_assigns_names() {
 // Helper trait for test convenience.
 impl SweepProfile {
     /// Extract the inner wire curve (panics if not a Wire variant).
-    fn into_wire(&self) -> NurbsCurve {
+    fn as_wire(&self) -> NurbsCurve {
         match self {
             SweepProfile::Wire(c) => c.clone(),
             _ => panic!("expected Wire"),
@@ -203,7 +203,7 @@ impl SweepProfile {
     }
 
     /// Extract the wire and translate to a given Z position.
-    fn into_wire_at_z(&self, z: f64) -> NurbsCurve {
+    fn as_wire_at_z(&self, z: f64) -> NurbsCurve {
         match self {
             SweepProfile::Wire(c) => {
                 let control_points = c

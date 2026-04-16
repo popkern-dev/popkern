@@ -41,7 +41,7 @@ impl NurbsSurface {
         let mut new_pts = vec![Point3::new(0.0, 0.0, 0.0); new_num_u * new_num_v];
         let mut new_wts = vec![0.0f64; new_num_u * new_num_v];
         for (v_idx, (col_pts, col_wts)) in col_results.into_iter().enumerate() {
-            for (i_u, (pt, wt)) in col_pts.into_iter().zip(col_wts.into_iter()).enumerate() {
+            for (i_u, (pt, wt)) in col_pts.into_iter().zip(col_wts).enumerate() {
                 new_pts[i_u * new_num_v + v_idx] = pt;
                 new_wts[i_u * new_num_v + v_idx] = wt;
             }

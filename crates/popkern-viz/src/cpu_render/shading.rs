@@ -62,11 +62,10 @@ mod tests {
         let result = shade_vertex([0.577, 0.577, 0.577], [1.0, 1.0, 1.0, 1.0]);
         // With full diffuse, lighting = 0.3 + 0.7 * 1.0 = 1.0,
         // so linear 1.0 → sRGB 1.0.
-        for i in 0..3 {
+        for (i, &channel) in result.iter().take(3).enumerate() {
             assert!(
-                result[i] > 0.95,
-                "channel {i} should be near 1.0, got {}",
-                result[i]
+                channel > 0.95,
+                "channel {i} should be near 1.0, got {channel}"
             );
         }
         assert!((result[3] - 1.0).abs() < f32::EPSILON, "alpha unchanged");
@@ -79,11 +78,10 @@ mod tests {
         // lighting = 0.3 + 0.7 * 0.0 = 0.3
         // sRGB(0.3) ≈ 0.584
         let expected = linear_to_srgb(0.3);
-        for i in 0..3 {
+        for (i, &channel) in result.iter().take(3).enumerate() {
             assert!(
-                (result[i] - expected).abs() < 0.01,
-                "channel {i} should be ~{expected}, got {}",
-                result[i]
+                (channel - expected).abs() < 0.01,
+                "channel {i} should be ~{expected}, got {channel}"
             );
         }
     }

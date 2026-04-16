@@ -235,7 +235,7 @@ pub fn detect_smooth_chains(
         .collect();
 
     // Sort longest-first.
-    chains.sort_by(|a, b| b.edges.len().cmp(&a.edges.len()));
+    chains.sort_by_key(|c| std::cmp::Reverse(c.edges.len()));
     chains
 }
 

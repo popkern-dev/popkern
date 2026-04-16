@@ -232,7 +232,7 @@ fn tight_bounded_range_sphere_tighter_than_native() {
     let ((u0, u1), (v0, v1)) = tight_bounded_parameter_range(&vertices, &surface);
     assert!(u0 >= 0.0, "u0={u0}");
     assert!(u1 <= TAU, "u1={u1}");
-    assert!(v0 >= 0.0 && v0 < FRAC_PI_2, "v0={v0}");
+    assert!((0.0..FRAC_PI_2).contains(&v0), "v0={v0}");
     assert!(v1 > FRAC_PI_2 && v1 <= PI, "v1={v1}");
 }
 

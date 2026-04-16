@@ -53,7 +53,7 @@ fn inserted_knots_are_removed() {
     let result = reduce_curve_complexity(&inflated, 1e-6);
     assert!(result.is_some(), "should remove inserted knots");
 
-    let r = result.unwrap_or_else(|| CurveReductionResult {
+    let r = result.unwrap_or(CurveReductionResult {
         points_before: 0,
         points_after: 0,
         knots_removed: 0,
@@ -133,7 +133,7 @@ fn surface_inserted_knots_are_removed() {
     let result = reduce_surface_complexity(&inflated, 1e-6);
     assert!(result.is_some(), "should remove inserted surface knots");
 
-    let r = result.unwrap_or_else(|| SurfaceReductionResult {
+    let r = result.unwrap_or(SurfaceReductionResult {
         points_before: (0, 0),
         points_after: (0, 0),
         u_knots_removed: 0,

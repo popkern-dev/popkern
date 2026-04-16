@@ -423,7 +423,7 @@ fn builtin_constants_accessible() {
 
     // Verify approximate value
     assert!(
-        (result - 0.785_398).abs() < 1e-4,
+        (result - std::f64::consts::FRAC_PI_4).abs() < 1e-4,
         "pi/4 ≈ 0.785398, got {result}"
     );
 }

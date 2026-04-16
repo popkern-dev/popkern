@@ -224,6 +224,6 @@ fn nurbs_curved_surface_projects() {
     let result = project_point_to_uv(&surface, &Point3::new(0.5, 0.5, 0.5));
     assert!(result.is_some(), "curved NURBS should project");
     let (u, v) = result.expect("already checked is_some");
-    assert!(u >= 0.0 && u <= 1.0, "u={u} out of range");
-    assert!(v >= 0.0 && v <= 1.0, "v={v} out of range");
+    assert!((0.0..=1.0).contains(&u), "u={u} out of range");
+    assert!((0.0..=1.0).contains(&v), "v={v} out of range");
 }

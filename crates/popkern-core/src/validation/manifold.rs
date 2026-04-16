@@ -241,7 +241,7 @@ mod tests {
         let mut brep = make_cube();
         // Find a vertex and corrupt its fan by removing a twin
         let he_handle = brep.half_edges.keys().next().unwrap();
-        let twin = brep.half_edges[he_handle].twin;
+        let _twin = brep.half_edges[he_handle].twin;
         // Make twin point to invalid handle so the fan walk breaks early
         brep.half_edges[he_handle].twin = Default::default();
         // Should not panic; may return Ok or Err depending on resulting valence

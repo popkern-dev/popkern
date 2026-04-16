@@ -67,7 +67,7 @@ fn vertex_to_edge_distance() {
         &Tolerance::default(),
     )
     .unwrap();
-    assert!(d >= 0.0 && d <= 1.74, "distance = {d}");
+    assert!((0.0..=1.74).contains(&d), "distance = {d}");
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn vertex_to_face_distance() {
         &tol,
     )
     .unwrap();
-    assert!(d >= 0.0 && d <= 1.74, "distance = {d}");
+    assert!((0.0..=1.74).contains(&d), "distance = {d}");
 }
 
 #[test]
@@ -309,7 +309,7 @@ fn edge_face_same_body_touching() {
     .unwrap();
     // Edge is on or adjacent to the face, distance <= sqrt(2) for any edge-face
     // pair on a unit cube.
-    assert!(d >= 0.0 && d <= 1.5, "distance = {d}");
+    assert!((0.0..=1.5).contains(&d), "distance = {d}");
 }
 
 #[test]

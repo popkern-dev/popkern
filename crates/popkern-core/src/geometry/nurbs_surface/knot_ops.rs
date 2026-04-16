@@ -42,7 +42,7 @@ impl NurbsSurface {
             if v_idx == 0 {
                 new_knots_u = nk;
             }
-            for (i_u, (pt, wt)) in np.into_iter().zip(nw.into_iter()).enumerate() {
+            for (i_u, (pt, wt)) in np.into_iter().zip(nw).enumerate() {
                 new_pts[i_u * new_num_v + v_idx] = pt;
                 new_wts[i_u * new_num_v + v_idx] = wt;
             }

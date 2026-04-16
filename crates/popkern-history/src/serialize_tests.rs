@@ -379,7 +379,7 @@ fn save_load_all_feature_types() {
         "Boolean",
     );
 
-    let ra = add_param(&mut tree, "_ra", 3.14, Unit::Radians);
+    let ra = add_param(&mut tree, "_ra", 3.5, Unit::Radians);
     tree.add_feature(
         Feature::Revolve {
             face: face_name(2),

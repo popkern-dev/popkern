@@ -75,7 +75,7 @@ mod tests {
             .faces
             .iter()
             .find(|(_, fd)| {
-                fd.surface.as_ref().map_or(false, |sof| {
+                fd.surface.as_ref().is_some_and(|sof| {
                     let n = sof.geometry.normal_at(0.5, 0.5);
                     n.z.abs() < 0.1
                 })
@@ -117,9 +117,9 @@ mod tests {
             .faces
             .iter()
             .find(|(_, fd)| {
-                fd.surface.as_ref().map_or(false, |sof| {
-                    matches!(sof.geometry, SurfaceGeometry::Cylinder { .. })
-                })
+                fd.surface
+                    .as_ref()
+                    .is_some_and(|sof| matches!(sof.geometry, SurfaceGeometry::Cylinder { .. }))
             })
             .map(|(fh, _)| fh);
 

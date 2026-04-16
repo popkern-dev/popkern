@@ -86,7 +86,7 @@ fn sweep_circle_along_line() {
     );
     assert!(result.is_ok(), "sweep failed: {:?}", result.err());
     let brep = &result.unwrap().brep;
-    assert!(brep.faces.len() >= 1, "expected at least 1 face");
+    assert!(!brep.faces.is_empty(), "expected at least 1 face");
     assert!(!brep.vertices.is_empty(), "expected vertices");
     assert!(!brep.edges.is_empty(), "expected edges");
 }
@@ -128,7 +128,7 @@ fn loft_two_circles() {
     let result = popkern_sweep::loft(&sections, &LoftOptions::default(), default_tol(), None);
     assert!(result.is_ok(), "loft failed: {:?}", result.err());
     let brep = &result.unwrap().brep;
-    assert!(brep.faces.len() >= 1, "expected at least 1 face");
+    assert!(!brep.faces.is_empty(), "expected at least 1 face");
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn pipe_constant_radius() {
     );
     assert!(result.is_ok(), "pipe failed: {:?}", result.err());
     let brep = &result.unwrap().brep;
-    assert!(brep.faces.len() >= 1);
+    assert!(!brep.faces.is_empty());
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn helical_sweep_circle() {
     );
     assert!(result.is_ok(), "helical sweep failed: {:?}", result.err());
     let brep = &result.unwrap().brep;
-    assert!(brep.faces.len() >= 1);
+    assert!(!brep.faces.is_empty());
 }
 
 #[test]
@@ -220,8 +220,10 @@ fn swept_blend_two_circles() {
 fn sweep_with_twist() {
     let profile = circle_profile(1.0);
     let path = z_path(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 5.0));
-    let mut options = SweepOptions::default();
-    options.twist = std::f64::consts::PI; // 180 degree twist
+    let options = SweepOptions {
+        twist: std::f64::consts::PI, // 180 degree twist
+        ..SweepOptions::default()
+    };
     let result = popkern_sweep::sweep(&profile, &path, &options, default_tol(), None);
     assert!(result.is_ok(), "twisted sweep failed: {:?}", result.err());
 }
@@ -230,8 +232,10 @@ fn sweep_with_twist() {
 fn sweep_with_scaling() {
     let profile = circle_profile(1.0);
     let path = z_path(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 5.0));
-    let mut options = SweepOptions::default();
-    options.scale = popkern_sweep::ScaleMethod::Uniform(vec![(0.0, 1.0), (1.0, 2.0)]);
+    let options = SweepOptions {
+        scale: popkern_sweep::ScaleMethod::Uniform(vec![(0.0, 1.0), (1.0, 2.0)]),
+        ..SweepOptions::default()
+    };
     let result = popkern_sweep::sweep(&profile, &path, &options, default_tol(), None);
     assert!(result.is_ok(), "scaled sweep failed: {:?}", result.err());
 }
@@ -258,7 +262,7 @@ fn sweep_cut_through_cube() {
     // we check that the pipeline at least produces a result or a clean error.
     match result {
         Ok(r) => {
-            assert!(r.brep.faces.len() >= 1, "expected at least 1 face");
+            assert!(!r.brep.faces.is_empty(), "expected at least 1 face");
         }
         Err(e) => {
             // Boolean may legitimately fail on complex geometry.
@@ -291,7 +295,7 @@ fn sweep_add_to_cube() {
     );
     match result {
         Ok(r) => {
-            assert!(r.brep.faces.len() >= 1);
+            assert!(!r.brep.faces.is_empty());
         }
         Err(e) => {
             assert!(matches!(e, popkern_sweep::SweepError::Boolean(_)));
@@ -318,7 +322,7 @@ fn pipe_add_to_cube() {
     );
     match result {
         Ok(r) => {
-            assert!(r.brep.faces.len() >= 1);
+            assert!(!r.brep.faces.is_empty());
         }
         Err(e) => {
             assert!(matches!(e, popkern_sweep::SweepError::Boolean(_)));
@@ -405,14 +409,16 @@ fn self_intersection_allowed_produces_warning() {
         ],
         weights: vec![1.0, 1.0, 1.0],
     };
-    let mut options = SweepOptions::default();
-    options.allow_self_intersection = true;
+    let options = SweepOptions {
+        allow_self_intersection: true,
+        ..SweepOptions::default()
+    };
     let result = popkern_sweep::sweep(&profile, &path, &options, default_tol(), None);
     // Should either succeed (with possible warning) or fail for a reason other than self-intersection.
     match result {
         Ok(r) => {
             // May or may not have self-intersection warning depending on geometry.
-            assert!(r.brep.faces.len() >= 1);
+            assert!(!r.brep.faces.is_empty());
         }
         Err(e) => {
             // Should not be SelfIntersection since we allowed it.

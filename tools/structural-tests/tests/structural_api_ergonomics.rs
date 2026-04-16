@@ -257,11 +257,7 @@ fn count_non_self_params(sig: &str) -> Option<usize> {
     for ch in params_str.chars() {
         match ch {
             '<' | '(' | '[' => depth2 += 1,
-            '>' | ')' | ']' => {
-                if depth2 > 0 {
-                    depth2 -= 1;
-                }
-            }
+            '>' | ')' | ']' => depth2 = depth2.saturating_sub(1),
             ',' if depth2 == 0 => commas += 1,
             _ => {}
         }
@@ -270,7 +266,7 @@ fn count_non_self_params(sig: &str) -> Option<usize> {
 
     // Subtract 1 if the first param is a self receiver.
     let first_param = params_str
-        .splitn(2, ',')
+        .split(',')
         .next()
         .unwrap_or("")
         .trim()
@@ -324,11 +320,7 @@ fn api_functions_have_reasonable_param_counts() {
                                 depth += 1;
                                 found_open = true;
                             }
-                            ')' => {
-                                if depth > 0 {
-                                    depth -= 1;
-                                }
-                            }
+                            ')' => depth = depth.saturating_sub(1),
                             _ => {}
                         }
                     }
@@ -338,17 +330,17 @@ fn api_functions_have_reasonable_param_counts() {
                     j += 1;
                 }
 
-                if let Some(count) = count_non_self_params(&sig) {
-                    if count > max_params {
-                        violations.push(format!(
-                            "{}:{}: `pub fn` has {} parameters (limit: {}). \
-                             Remediation: Group related parameters into a typed options struct.",
-                            file.display(),
-                            start_line + 1,
-                            count,
-                            max_params,
-                        ));
-                    }
+                if let Some(count) = count_non_self_params(&sig)
+                    && count > max_params
+                {
+                    violations.push(format!(
+                        "{}:{}: `pub fn` has {} parameters (limit: {}). \
+                         Remediation: Group related parameters into a typed options struct.",
+                        file.display(),
+                        start_line + 1,
+                        count,
+                        max_params,
+                    ));
                 }
             }
             i += 1;

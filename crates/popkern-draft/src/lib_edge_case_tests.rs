@@ -14,7 +14,7 @@ fn side_face(brep: &BRep) -> popkern_core::topology::FaceHandle {
     brep.faces
         .iter()
         .find(|(_, fd)| {
-            fd.surface.as_ref().map_or(false, |sof| {
+            fd.surface.as_ref().is_some_and(|sof| {
                 let n = sof.geometry.normal_at(0.5, 0.5);
                 n.z.abs() < 0.1
             })
@@ -242,9 +242,9 @@ fn draft_cylinder_euler_characteristic_preserved() {
         .faces
         .iter()
         .find(|(_, fd)| {
-            fd.surface.as_ref().map_or(false, |sof| {
-                matches!(sof.geometry, SurfaceGeometry::Plane { .. })
-            })
+            fd.surface
+                .as_ref()
+                .is_some_and(|sof| matches!(sof.geometry, SurfaceGeometry::Plane { .. }))
         })
         .map(|(fh, _)| fh);
 
@@ -279,9 +279,9 @@ fn draft_cylinder_lateral_face_euler_preserved() {
         .faces
         .iter()
         .find(|(_, fd)| {
-            fd.surface.as_ref().map_or(false, |sof| {
-                matches!(sof.geometry, SurfaceGeometry::Cylinder { .. })
-            })
+            fd.surface
+                .as_ref()
+                .is_some_and(|sof| matches!(sof.geometry, SurfaceGeometry::Cylinder { .. }))
         })
         .map(|(fh, _)| fh);
 

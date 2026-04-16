@@ -8,6 +8,7 @@ use crate::Sketch;
 
 /// Build a sketch with an arc-to-ellipse tangency constraint.
 /// The aux parameter is initialised to `t_init`.
+#[allow(clippy::too_many_arguments)]
 fn build_arc_ellipse(
     acx: f64,
     acy: f64,
@@ -30,6 +31,7 @@ fn build_arc_ellipse(
 }
 
 /// Build a sketch with an arc-to-parabola tangency constraint.
+#[allow(clippy::too_many_arguments)]
 fn build_arc_parabola(
     acx: f64,
     acy: f64,
@@ -51,6 +53,7 @@ fn build_arc_parabola(
 }
 
 /// Build a sketch with an arc-to-hyperbola tangency constraint.
+#[allow(clippy::too_many_arguments)]
 fn build_arc_hyperbola(
     acx: f64,
     acy: f64,

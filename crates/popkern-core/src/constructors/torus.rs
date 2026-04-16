@@ -445,9 +445,9 @@ mod tests {
     #[test]
     fn torus_creates_valid_topology() {
         let torus = BRep::torus(3.0, 1.0, Tolerance::default()).unwrap();
-        assert!(torus.vertices.len() > 0);
-        assert!(torus.edges.len() > 0);
-        assert!(torus.faces.len() > 0);
+        assert!(!torus.vertices.is_empty());
+        assert!(!torus.edges.is_empty());
+        assert!(!torus.faces.is_empty());
         // Euler characteristic for genus-1: V - E + F = 0
         let v = torus.vertices.len() as i64;
         let e = torus.edges.len() as i64;

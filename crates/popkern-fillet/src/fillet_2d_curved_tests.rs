@@ -314,9 +314,9 @@ fn fillet_corner_2d_arc_arc_center_on_offset_circles() {
         let offset_b = (r_b * r_b - 0.25 * (1.0 + 1.5 * 1.5)).sqrt();
         (
             -0.5 + offset_a * 1.5 / chord_len,
-            1.5 * 0.5 + offset_a * (-1.0) / chord_len,
+            1.5 * 0.5 + -offset_a / chord_len,
             0.5 + offset_b * (-1.5) / chord_len,
-            1.5 * 0.5 + offset_b * (-1.0) / chord_len,
+            1.5 * 0.5 + -offset_b / chord_len,
         )
     };
 

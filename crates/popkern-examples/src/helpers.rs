@@ -10,6 +10,7 @@ use popkern_io::{
 };
 
 /// Export a BRep solid as a STEP file with the given product name.
+#[allow(dead_code)]
 pub fn export(brep: &BRep, name: &str, filename: &str) {
     let output_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -50,6 +51,7 @@ pub fn export(brep: &BRep, name: &str, filename: &str) {
 }
 
 /// Validate a STEP file by re-importing it and checking for errors.
+#[allow(dead_code)]
 fn validate_step_file(path: &Path) {
     use popkern_io::{StepImportOptions, import_step};
 
@@ -75,6 +77,7 @@ fn validate_step_file(path: &Path) {
 ///
 /// Produces `<base>_top.png`, `<base>_front.png`, `<base>_low.png`,
 /// and `<base>_inside.png`.
+#[allow(dead_code)]
 pub fn render_multi_angle(brep: &BRep, base: &str) {
     use glam::Vec3;
     use popkern_viz::camera::Camera;

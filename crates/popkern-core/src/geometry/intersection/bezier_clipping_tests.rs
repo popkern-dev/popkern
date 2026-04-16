@@ -16,7 +16,7 @@ fn clip_edge_cases() {
     assert!(clip_against_fat_line(&h, &[p(0.0, 2.0), p(1.0, 2.0)], (0.0, 1.0)).is_none());
     // Empty/short inputs
     assert!(clip_against_fat_line(&[p(0.0, 0.0)], &h, (0.0, 1.0)).is_none());
-    assert!(clip_against_fat_line(&h, &vec![], (0.0, 1.0)).is_none());
+    assert!(clip_against_fat_line(&h, &[], (0.0, 1.0)).is_none());
     // Degenerate A (coincident)
     assert!(clip_against_fat_line(&[p(0.5, 0.5), p(0.5, 0.5)], &h, (0.0, 1.0)).is_none());
 }

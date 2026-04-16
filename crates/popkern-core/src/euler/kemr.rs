@@ -270,7 +270,7 @@ mod tests {
         assert_eq!(brep.loops.len(), 1);
 
         // kemr on the bridge edge v0-v1
-        let kemr_r = brep.kemr(mev1.half_edge).unwrap();
+        let _kemr_r = brep.kemr(mev1.half_edge).unwrap();
 
         assert_eq!(brep.edges.len(), 2); // removed 1
         assert_eq!(brep.half_edges.len(), 4); // removed 2

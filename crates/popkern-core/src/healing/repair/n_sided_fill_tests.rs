@@ -1,6 +1,5 @@
 use super::*;
 use crate::geometry::Point3;
-use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::healing::repair::hole_fill::DetectedHole;
 use crate::tolerance::Tolerance;
 use crate::topology::BRep;

@@ -99,10 +99,7 @@ pub fn enforce_tolerance_hierarchy(brep: &mut BRep) -> Vec<ToleranceAdjustment> 
         }
 
         let mut current = start_he;
-        loop {
-            let Some(he) = brep.half_edges.get(current) else {
-                break;
-            };
+        while let Some(he) = brep.half_edges.get(current) {
             let edge_handle = he.edge;
             let next = he.next;
 

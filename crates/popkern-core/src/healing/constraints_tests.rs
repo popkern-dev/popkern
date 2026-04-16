@@ -8,8 +8,8 @@ use crate::topology::BRep;
 
 #[test]
 fn empty_constraint_set_no_violations() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let cs = ConstraintSet::new();
     let violations = check_constraints(&brep, &cs, &Tolerance::default());
     assert!(violations.is_empty());
@@ -63,8 +63,8 @@ fn constraint_set_iter() {
 
 #[test]
 fn fixed_point_satisfied_on_cube_vertex() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     // Find the first vertex and use its actual position.
     let (vh, v) = brep.vertices.iter().next().unwrap();
@@ -84,8 +84,8 @@ fn fixed_point_satisfied_on_cube_vertex() {
 
 #[test]
 fn fixed_point_violated_after_vertex_move() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     let (vh, v) = brep.vertices.iter().next().unwrap();
     let original = v.position;
@@ -109,8 +109,8 @@ fn fixed_point_violated_after_vertex_move() {
 
 #[test]
 fn fixed_point_within_tolerance() {
-    let mut brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let mut brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     let (vh, v) = brep.vertices.iter().next().unwrap();
     let original = v.position;
@@ -131,8 +131,8 @@ fn fixed_point_within_tolerance() {
 
 #[test]
 fn coplanarity_on_cube_face() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     // A single cube face is trivially coplanar.
     let fh = brep.faces.iter().next().unwrap().0;
@@ -197,8 +197,8 @@ fn best_fit_plane_too_few_points() {
 
 #[test]
 fn distance_constraint_satisfied() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     let mut verts = brep.vertices.iter();
     let (v1, _) = verts.next().unwrap();
@@ -222,8 +222,8 @@ fn distance_constraint_satisfied() {
 
 #[test]
 fn distance_constraint_violated() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     let mut verts = brep.vertices.iter();
     let (v1, _) = verts.next().unwrap();
@@ -244,8 +244,8 @@ fn distance_constraint_violated() {
 
 #[test]
 fn entity_representative_point_vertex() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let (vh, v) = brep.vertices.iter().next().unwrap();
     let pt = entity_representative_point(&brep, &EntityRef::Vertex(vh));
     assert!(pt.is_some());
@@ -255,8 +255,8 @@ fn entity_representative_point_vertex() {
 
 #[test]
 fn entity_representative_point_face() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let (fh, _) = brep.faces.iter().next().unwrap();
     let pt = entity_representative_point(&brep, &EntityRef::Face(fh));
     assert!(pt.is_some());
@@ -264,8 +264,8 @@ fn entity_representative_point_face() {
 
 #[test]
 fn entity_representative_point_edge() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
     let (eh, _) = brep.edges.iter().next().unwrap();
     let pt = entity_representative_point(&brep, &EntityRef::Edge(eh));
     assert!(pt.is_some());
@@ -280,8 +280,8 @@ fn entity_representative_point_invalid_handle() {
 
 #[test]
 fn tangency_constraint_on_adjacent_cube_faces() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     let faces: Vec<_> = brep.faces.iter().map(|(fh, _)| fh).collect();
     if faces.len() >= 2 {
@@ -305,8 +305,8 @@ fn tangency_constraint_on_adjacent_cube_faces() {
 
 #[test]
 fn multiple_constraints_mixed_results() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     let (vh, v) = brep.vertices.iter().next().unwrap();
 
@@ -337,8 +337,8 @@ fn multiple_constraints_mixed_results() {
 
 #[test]
 fn constraint_violation_has_description() {
-    let brep = BRep::unit_cube(Tolerance::default())
-        .map_or_else(|_| BRep::new(Tolerance::default()), |b| b);
+    let brep =
+        BRep::unit_cube(Tolerance::default()).unwrap_or_else(|_| BRep::new(Tolerance::default()));
 
     let (vh, _) = brep.vertices.iter().next().unwrap();
     let mut cs = ConstraintSet::new();

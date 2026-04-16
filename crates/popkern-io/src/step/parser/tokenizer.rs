@@ -344,8 +344,8 @@ mod tests {
 
     #[test]
     fn tokenize_real() {
-        let tokens = tokenize(b"3.14").unwrap();
-        assert_eq!(tokens, vec![Token::Real(3.14)]);
+        let tokens = tokenize(b"3.5").unwrap();
+        assert_eq!(tokens, vec![Token::Real(3.5)]);
     }
 
     #[test]

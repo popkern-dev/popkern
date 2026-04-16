@@ -106,7 +106,7 @@ fn sweep_cut_produces_brep() {
     let brep = &result.unwrap().brep; // ok in tests
     // Cut removes material: result should still have faces.
     assert!(
-        brep.faces.len() >= 1,
+        !brep.faces.is_empty(),
         "expected >= 1 face, got {}",
         brep.faces.len()
     );
@@ -128,7 +128,7 @@ fn sweep_intersect_produces_brep() {
     let brep = &result.unwrap().brep; // ok in tests
     // Intersection keeps overlap: should have at least 1 face.
     assert!(
-        brep.faces.len() >= 1,
+        !brep.faces.is_empty(),
         "expected >= 1 face, got {}",
         brep.faces.len()
     );
@@ -188,7 +188,7 @@ fn loft_cut_produces_brep() {
     assert!(result.is_ok(), "loft_cut failed: {:?}", result.err());
     let brep = &result.unwrap().brep; // ok in tests
     assert!(
-        brep.faces.len() >= 1,
+        !brep.faces.is_empty(),
         "expected >= 1 face, got {}",
         brep.faces.len()
     );
@@ -230,7 +230,7 @@ fn pipe_cut_produces_brep() {
     assert!(result.is_ok(), "pipe_cut failed: {:?}", result.err());
     let brep = &result.unwrap().brep; // ok in tests
     assert!(
-        brep.faces.len() >= 1,
+        !brep.faces.is_empty(),
         "expected >= 1 face, got {}",
         brep.faces.len()
     );

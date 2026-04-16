@@ -173,7 +173,7 @@ mod tests {
         let wts = vec![1.0, 1.0];
         let knots = vec![0.0, 0.0, 1.0, 1.0];
 
-        let (new_deg, new_knots, new_pts, new_wts) = elevate_degree_1d(1, &knots, &pts, &wts);
+        let (new_deg, new_knots, new_pts, _new_wts) = elevate_degree_1d(1, &knots, &pts, &wts);
         assert_eq!(new_deg, 2);
         assert_eq!(new_pts.len(), 3);
         assert_eq!(new_knots.len(), new_pts.len() + new_deg + 1);
@@ -189,7 +189,7 @@ mod tests {
 
         let original = NurbsCurve {
             degree: 1,
-            knots: knots,
+            knots,
             control_points: pts,
             weights: wts,
         };
@@ -223,7 +223,7 @@ mod tests {
 
         let original = NurbsCurve {
             degree: 2,
-            knots: knots,
+            knots,
             control_points: pts,
             weights: wts,
         };
@@ -255,9 +255,9 @@ mod tests {
 
         let (new_deg, new_knots, new_pts, new_wts) = elevate_degree_1d(2, &knots, &pts, &wts);
 
-        let original = NurbsCurve {
+        let _original = NurbsCurve {
             degree: 2,
-            knots: knots,
+            knots,
             control_points: pts,
             weights: wts,
         };
@@ -294,7 +294,7 @@ mod tests {
         let wts = vec![1.0, w, 1.0, w, 1.0];
         let knots = vec![0.0, 0.0, 0.0, 0.5, 0.5, 1.0, 1.0, 1.0];
 
-        let (new_deg, new_knots, new_pts, new_wts) = elevate_degree_1d(2, &knots, &pts, &wts);
+        let (new_deg, new_knots, new_pts, _new_wts) = elevate_degree_1d(2, &knots, &pts, &wts);
         assert_eq!(new_deg, 3);
         assert_eq!(new_knots.len(), new_pts.len() + new_deg + 1);
     }

@@ -165,6 +165,6 @@ mod tests {
         let brep = BRep::unit_cube(Tolerance::default()).unwrap();
         let options = HealOptions::new(Tolerance::default());
         let preview = compute_preview(&brep, &options);
-        assert_eq!(preview.is_empty(), preview.len() == 0);
+        assert_eq!(preview.is_empty(), preview.is_empty());
     }
 }
