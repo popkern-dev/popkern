@@ -136,14 +136,35 @@ fn face_area_estimate(brep: &BRep, face: popkern_core::topology::FaceHandle) -> 
     0.5 * (nx * nx + ny * ny + nz * nz).sqrt()
 }
 
+/// Minimum radius of curvature for a surface over the given UV range.
+///
+/// Analytic surfaces return exact values:
+/// - **Plane** — infinite (zero curvature everywhere).
+/// - **Cylinder** — `radius` (circumferential curvature `1/r`, axial
+///   curvature `0`). This covers straight-edge plane-plane fillets,
+///   which now produce Cylinder surfaces instead of Torus.
+/// - **Sphere** — `radius` (uniform curvature).
+/// - **Torus** — `minor_radius` (the cross-section curvature `1/r`
+///   of the rolling ball). This covers curved-edge fillets.
+///
+/// Cone and NURBS surfaces fall back to the sampling-based estimate
+/// via the offset self-intersection probe.
 fn surface_min_curvature_radius(
     surface: &SurfaceGeometry,
     u_range: (f64, f64),
     v_range: (f64, f64),
 ) -> f64 {
-    // Reuse the self-intersection probe — same curvature math.
-    let probe = 1e9;
-    check_offset_self_intersection(surface, probe, true, u_range, v_range)
-        .or_else(|| check_offset_self_intersection(surface, probe, false, u_range, v_range))
-        .unwrap_or(f64::INFINITY)
+    match surface {
+        SurfaceGeometry::Plane { .. } => f64::INFINITY,
+        SurfaceGeometry::Cylinder { radius, .. } => *radius,
+        SurfaceGeometry::Sphere { radius, .. } => *radius,
+        SurfaceGeometry::Torus { minor_radius, .. } => *minor_radius,
+        // Cone and NURBS: fall back to the sampling-based estimate.
+        _ => {
+            let probe = 1e9;
+            check_offset_self_intersection(surface, probe, true, u_range, v_range)
+                .or_else(|| check_offset_self_intersection(surface, probe, false, u_range, v_range))
+                .unwrap_or(f64::INFINITY)
+        }
+    }
 }

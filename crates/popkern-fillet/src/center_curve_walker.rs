@@ -99,9 +99,12 @@ pub fn walker_based_center_curve(
     // convergence from pcurve-derived starts that are on the
     // face boundary rather than at the exact contact point.
     let mut walk_opts = WalkOptions::default();
-    if pcurve_seed.is_some() {
+    let has_curved_support = !matches!(surface1, SurfaceGeometry::Plane { .. })
+        || !matches!(surface2, SurfaceGeometry::Plane { .. });
+    if pcurve_seed.is_some() || has_curved_support {
         walk_opts.contact_options.clamp_initial_uv = true;
-        walk_opts.contact_options.initial_damping = 0.01;
+        walk_opts.contact_options.initial_damping = 0.1;
+        walk_opts.contact_options.max_iterations = 40;
     }
     let walk = walk_spine(&request, &walk_opts, tolerance)
         .map_err(|e| format!("spine walker failed: {e}"))?;

@@ -17,10 +17,13 @@ pub(crate) struct PlaneData {
     pub normal: Vec3,
 }
 
-/// Find the two support faces of a Torus-surface blend by
-/// "plane neighbours whose normals are perpendicular to the torus
-/// axis". Returns `None` when the blend isn't a Torus or fewer
-/// than 2 such neighbours exist.
+/// Find the two support faces of a Torus- or Cylinder-surface
+/// blend by "plane neighbours whose normals are perpendicular to
+/// the fillet axis". Returns `None` when the blend isn't a Torus
+/// or Cylinder, or fewer than 2 such neighbours exist.
+///
+/// Straight-edge plane-plane fillets now produce Cylinder surfaces
+/// instead of Torus, so both surface types are accepted.
 ///
 /// More robust than reusing identify_blend's tangency sampling:
 /// the dihedral angle at a boundary midpoint can be non-zero on a
@@ -36,7 +39,7 @@ pub(crate) fn find_torus_support_faces(
     let face_data = brep.faces.get(blend_face)?;
     let surface_on_face = face_data.surface.as_ref()?;
     let torus_axis = match &surface_on_face.geometry {
-        SurfaceGeometry::Torus { axis, .. } => *axis,
+        SurfaceGeometry::Torus { axis, .. } | SurfaceGeometry::Cylinder { axis, .. } => *axis,
         _ => return None,
     };
 

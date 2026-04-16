@@ -245,6 +245,23 @@ pub(crate) fn estimate_chamfer_half_width(brep: &BRep, face: FaceHandle) -> Opti
     }
 }
 
+/// Check whether every distinct neighbour of a candidate face has a
+/// [`SurfaceGeometry::Plane`] surface.  Used by the Cylinder-as-fillet
+/// path: a cylinder face whose neighbours are all planes is a
+/// straight-edge plane-plane fillet (§11.1).
+pub(crate) fn all_neighbours_are_planes(brep: &BRep, boundary: &[BoundaryEntry]) -> bool {
+    let neighbours = distinct_neighbours(boundary);
+    if neighbours.is_empty() {
+        return false;
+    }
+    neighbours.iter().all(|&fh| {
+        brep.faces
+            .get(fh)
+            .and_then(|fd| fd.surface.as_ref())
+            .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Plane { .. }))
+    })
+}
+
 fn edge_length(brep: &BRep, edge: &popkern_core::topology::Edge) -> f64 {
     let Some(he) = brep.half_edges.get(edge.half_edge) else {
         return 0.0;

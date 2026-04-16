@@ -122,13 +122,15 @@ fn report_vertex_hausdorff(a: &BRep, b: &BRep, label: &str) -> f64 {
 /// Find the analytic Torus minor_radius of the fillet face in a
 /// post-fillet result. Returns None if the result has no Torus
 /// face (e.g. the surface-fix pass rewrote it to a Cylinder).
-fn fillet_torus_minor_radius(brep: &BRep) -> Option<f64> {
+fn fillet_radius(brep: &BRep) -> Option<f64> {
     use popkern_core::geometry::surface::SurfaceGeometry;
     for (_, f) in &brep.faces {
-        if let Some(surf) = &f.surface
-            && let SurfaceGeometry::Torus { minor_radius, .. } = &surf.geometry
-        {
-            return Some(*minor_radius);
+        if let Some(surf) = &f.surface {
+            match &surf.geometry {
+                SurfaceGeometry::Torus { minor_radius, .. } => return Some(*minor_radius),
+                SurfaceGeometry::Cylinder { radius, .. } => return Some(*radius),
+                _ => {}
+            }
         }
     }
     None
@@ -245,15 +247,15 @@ fn closed_in_place_matches_remove_recreate_geometry() {
     let bbox_baseline = compute_bbox(&removed_recreated);
     assert_bbox_close(bbox_in_place, bbox_baseline, 1e-6, "closed");
 
-    // Fillet torus minor_radius matches the requested new_radius
+    // Fillet fillet radius matches the requested new_radius
     // (in-place explicitly assigns a Torus; remove+recreate may
     // have its surface rewritten to Cylinder by surface_fix, so
     // we only assert presence in the in-place result).
-    let in_place_minor = fillet_torus_minor_radius(&in_place)
-        .expect("in-place result should expose a Torus fillet face");
+    let in_place_minor =
+        fillet_radius(&in_place).expect("in-place result should expose a fillet face");
     assert!(
         (in_place_minor - new_radius).abs() < 1e-9,
-        "in-place torus minor_radius {in_place_minor} should equal new radius {new_radius}"
+        "in-place fillet radius {in_place_minor} should equal new radius {new_radius}"
     );
 
     // Diagnostic only — closed contact circles have angular freedom,
@@ -293,10 +295,10 @@ fn open_in_place_matches_remove_recreate_geometry() {
         .find(|fh| {
             matches!(
                 r1.brep.faces[*fh].surface.as_ref().map(|s| &s.geometry),
-                Some(SurfaceGeometry::Torus { .. })
+                Some(SurfaceGeometry::Cylinder { .. })
             )
         })
-        .expect("post-fillet brep should contain a Torus face");
+        .expect("post-fillet brep should contain a Cylinder face");
 
     let new_radius = 0.2;
 
@@ -337,13 +339,13 @@ fn open_in_place_matches_remove_recreate_geometry() {
     let bbox_baseline = compute_bbox(&removed_recreated);
     assert_bbox_close(bbox_in_place, bbox_baseline, 1.0, "open");
 
-    // In-place result should expose a Torus fillet face with
+    // In-place result should expose a fillet face with
     // minor_radius == new_radius.
-    let in_place_minor = fillet_torus_minor_radius(&in_place)
-        .expect("in-place result should expose a Torus fillet face");
+    let in_place_minor =
+        fillet_radius(&in_place).expect("in-place result should expose a fillet face");
     assert!(
         (in_place_minor - new_radius).abs() < 1e-9,
-        "in-place torus minor_radius {in_place_minor} should equal new radius {new_radius}"
+        "in-place fillet radius {in_place_minor} should equal new radius {new_radius}"
     );
 
     // After Round 5e (construct-phase perp-split fix) and Round 5f
@@ -365,7 +367,7 @@ fn open_in_place_matches_remove_recreate_geometry() {
 ///
 /// In-place uses the Round 5i NURBS sweep surface; remove+recreate
 /// goes through `fillet_edges` with a `Variable` spec, which today
-/// hits `try_plane_plane_torus`'s averaged-Torus path. The two
+/// hits `try_plane_plane_analytic`'s averaged-Torus path. The two
 /// surfaces therefore differ in *type* (Nurbs vs Torus) — but the
 /// corner *positions* must match exactly, because both compute
 /// them from the same analytic perpendicular-offset formula.
@@ -395,10 +397,10 @@ fn open_in_place_variable_matches_remove_recreate_geometry() {
         .find(|fh| {
             matches!(
                 r1.brep.faces[*fh].surface.as_ref().map(|s| &s.geometry),
-                Some(SurfaceGeometry::Torus { .. })
+                Some(SurfaceGeometry::Cylinder { .. })
             )
         })
-        .expect("initial fillet should produce a Torus face");
+        .expect("initial fillet should produce a Cylinder face");
 
     let r_start = 0.05;
     let r_end = 0.15;

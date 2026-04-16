@@ -83,16 +83,17 @@ pub(crate) fn compute_fillet_geometry(
         }
     }
 
-    // Route through the walker when a support is Cone/Torus (no
-    // clean analytic offset intersection) or G2 was requested.
+    use popkern_core::geometry::surface::SurfaceGeometry;
     let either_needs_walker = matches!(
         analysis.surface_1,
-        popkern_core::geometry::surface::SurfaceGeometry::Cone { .. }
-            | popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
+        SurfaceGeometry::Cone { .. }
+            | SurfaceGeometry::Torus { .. }
+            | SurfaceGeometry::Cylinder { .. }
     ) || matches!(
         analysis.surface_2,
-        popkern_core::geometry::surface::SurfaceGeometry::Cone { .. }
-            | popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
+        SurfaceGeometry::Cone { .. }
+            | SurfaceGeometry::Torus { .. }
+            | SurfaceGeometry::Cylinder { .. }
     );
     let use_walker = either_needs_walker || g2_cross_section;
 
@@ -208,6 +209,10 @@ pub(crate) fn compute_fillet_geometry(
     // topology error.
     {
         use popkern_core::geometry::surface::SurfaceEval;
+        let is_analytic = !matches!(
+            fillet_result.surface,
+            popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
+        );
         let ((u_lo, u_hi), (v_lo, v_hi)) = fillet_result.surface.parameter_range();
         let fillet_u_range = (
             if u_lo.is_finite() { u_lo } else { 0.0_f64 },
@@ -217,12 +222,14 @@ pub(crate) fn compute_fillet_geometry(
             if v_lo.is_finite() { v_lo } else { 0.0_f64 },
             if v_hi.is_finite() { v_hi } else { 1.0_f64 },
         );
-        if let Err(issue) = crate::surface_validate::validate_fillet_surface(
-            &fillet_result.surface,
-            fillet_u_range,
-            fillet_v_range,
-            tolerance,
-        ) {
+        if !is_analytic
+            && let Err(issue) = crate::surface_validate::validate_fillet_surface(
+                &fillet_result.surface,
+                fillet_u_range,
+                fillet_v_range,
+                tolerance,
+            )
+        {
             return Err(BlendFailure::SelfIntersectingBlend {
                 reason: issue.describe(),
                 location: Some(edge_midpoint),
@@ -446,10 +453,7 @@ pub(crate) fn rebuild_analysis(
     })
 }
 
-/// Build the inputs needed for [`crate::overlap::detect_overlaps`] and
-/// [`crate::overlap::detect_face_disappearance`] from computed edge geometries.
-///
-/// Returns overlap trim tuples and a map of face-index to trim curves.
+/// Build overlap-detection inputs from computed edge geometries.
 pub(crate) fn build_overlap_inputs(
     edge_geometries: &[EdgeGeometry],
     brep: &BRep,

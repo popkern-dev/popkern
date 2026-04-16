@@ -40,10 +40,10 @@ fn modify_open_in_place_variable_assigns_nurbs_sweep_surface() {
         .find(|fh| {
             matches!(
                 r1.brep.faces[*fh].surface.as_ref().map(|s| &s.geometry),
-                Some(SurfaceGeometry::Torus { .. })
+                Some(SurfaceGeometry::Cylinder { .. })
             )
         })
-        .expect("post-fillet brep should contain a Torus face");
+        .expect("post-fillet brep should contain a Cylinder face");
 
     let modified =
         crate::modify_inplace::modify_open_in_place_variable(&r1.brep, blend, 0.05, 0.25)
@@ -200,10 +200,10 @@ fn modify_open_in_place_bypoints_assigns_nurbs_sweep() {
         .find(|fh| {
             matches!(
                 r1.brep.faces[*fh].surface.as_ref().map(|s| &s.geometry),
-                Some(SurfaceGeometry::Torus { .. })
+                Some(SurfaceGeometry::Cylinder { .. })
             )
         })
-        .expect("post-fillet brep should contain a Torus face");
+        .expect("post-fillet brep should contain a Cylinder face");
 
     // 3-point profile: 0.05 → 0.10 → 0.15 along the edge.
     let pts = vec![(0.0, 0.05), (0.5, 0.10), (1.0, 0.15)];
@@ -279,10 +279,10 @@ fn modify_open_in_place_variable_uses_per_end_radii() {
         .find(|fh| {
             matches!(
                 r1.brep.faces[*fh].surface.as_ref().map(|s| &s.geometry),
-                Some(SurfaceGeometry::Torus { .. })
+                Some(SurfaceGeometry::Cylinder { .. })
             )
         })
-        .expect("post-fillet brep should contain a Torus face");
+        .expect("post-fillet brep should contain a Cylinder face");
 
     let r_start = 0.05;
     let r_end = 0.25;

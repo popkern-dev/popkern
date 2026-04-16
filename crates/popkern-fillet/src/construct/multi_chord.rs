@@ -53,6 +53,12 @@ pub(super) fn choose_side_face(
     f_a: FaceHandle,
     f_b: FaceHandle,
 ) -> FaceHandle {
+    if f_a == desired_parent {
+        return f_a;
+    }
+    if f_b == desired_parent {
+        return f_b;
+    }
     let Some(parent_face) = original.faces.get(desired_parent) else {
         return f_a;
     };

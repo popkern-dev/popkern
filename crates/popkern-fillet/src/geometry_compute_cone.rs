@@ -76,42 +76,61 @@ pub(crate) fn compute_center_via_walker(
         }
     };
 
-    // §12.3: project the spine MIDPOINT onto both surfaces to
-    // get an initial UV seed. Clamped to the face UV ranges so
-    // periodic surfaces (torus) don't wrap to the wrong sheet.
-    let initial_seed = {
+    // Project a query point onto both surfaces to get an initial
+    // UV seed. Use the spine midpoint, nudged toward each surface
+    // normal to break atan2 degeneracies on periodic surfaces.
+    //
+    // For blend-on-blend (§12.3), the spine midpoint may NOT lie
+    // on both surfaces (e.g. edge from cube corner to cylinder
+    // rim). Fall back to the edge endpoint that IS on the non-
+    // planar surface by picking the vertex closest to the face
+    // centroid.
+    let (initial_seed, spine_t_range) = {
         use popkern_core::geometry::SurfaceEval;
         use popkern_core::geometry::curve::CurveEval;
-        let t_mid = 0.5 * (curve_on_edge.t_start + curve_on_edge.t_end);
+        let ts = curve_on_edge.t_start;
+        let te = curve_on_edge.t_end;
+        let t_mid = 0.5 * (ts + te);
         let p_mid = curve_on_edge.geometry.point_at(t_mid);
-        // The spine midpoint sits exactly on the torus major
-        // circle, where project_point_to_uv degenerates (atan2(0,0)
-        // → v=0 instead of v=π/2). Nudge the query point slightly
-        // toward each surface's inward normal to break the symmetry
-        // and get a well-defined minor angle.
-        let nudge = 1.0e-4;
-        let n1_at_mid = analysis.surface_1.normal_at(
-            0.5 * (u1_range.0 + u1_range.1),
-            0.5 * (v1_range.0 + v1_range.1),
-        );
-        let p_nudged_0 = p_mid + n1_at_mid * nudge;
-        let n2_at_mid = analysis.surface_2.normal_at(
-            0.5 * (u2_range.0 + u2_range.1),
-            0.5 * (v2_range.0 + v2_range.1),
-        );
-        let p_nudged_1 = p_mid + n2_at_mid * nudge;
-        let uv0 = analysis.surface_1.closest_point(&p_nudged_0);
-        let uv1 = analysis.surface_2.closest_point(&p_nudged_1);
-        match (uv0, uv1) {
-            (Some((u0, v0)), Some((u1, v1))) => {
-                let cu0: f64 = u0.clamp(u1_range.0, u1_range.1);
-                let cv0: f64 = v0.clamp(v1_range.0, v1_range.1);
-                let cu1: f64 = u1.clamp(u2_range.0, u2_range.1);
-                let cv1: f64 = v1.clamp(v2_range.0, v2_range.1);
-                Some(((cu0, cv0), (cu1, cv1)))
+        let p_start = curve_on_edge.geometry.point_at(ts);
+        let p_end = curve_on_edge.geometry.point_at(te);
+
+        let dist_to_surfs = |p: &Point3| -> f64 {
+            let d = |s: &popkern_core::geometry::surface::SurfaceGeometry| {
+                s.closest_point(p)
+                    .map(|(u, v)| (s.point_at(u, v) - *p).length())
+                    .unwrap_or(f64::INFINITY)
+            };
+            d(&analysis.surface_1).max(d(&analysis.surface_2))
+        };
+        let mut best_pt = p_mid;
+        for candidate in [p_start, p_end] {
+            if dist_to_surfs(&candidate) < dist_to_surfs(&best_pt) {
+                best_pt = candidate;
             }
-            _ => None,
         }
+
+        let nudge = 1.0e-4;
+        let proj = |s: &popkern_core::geometry::surface::SurfaceGeometry,
+                    ur: (f64, f64),
+                    vr: (f64, f64)|
+         -> Option<(f64, f64)> {
+            let n = s.normal_at(0.5 * (ur.0 + ur.1), 0.5 * (vr.0 + vr.1));
+            let (u, v) = s.closest_point(&(best_pt + n * nudge))?;
+            Some((u.clamp(ur.0, ur.1), v.clamp(vr.0, vr.1)))
+        };
+        let uv0 = proj(&analysis.surface_1, u1_range, v1_range);
+        let uv1 = proj(&analysis.surface_2, u2_range, v2_range);
+        let seed = match (uv0, uv1) {
+            (Some(a), Some(b)) => Some((a, b)),
+            _ => None,
+        };
+        // Walk from the end nearest to the seed point so the
+        // initial contact has the best chance of converging.
+        let ds = (best_pt - p_start).length();
+        let de = (best_pt - p_end).length();
+        let t_range = if de < ds { (te, ts) } else { (ts, te) };
+        (seed, t_range)
     };
 
     center_curve::walker_based_center_curve(
@@ -123,7 +142,7 @@ pub(crate) fn compute_center_via_walker(
         v2_range,
         radius_at_normalized,
         &curve_on_edge.geometry,
-        (curve_on_edge.t_start, curve_on_edge.t_end),
+        spine_t_range,
         tolerance,
         analysis.orientation_1,
         analysis.orientation_2,

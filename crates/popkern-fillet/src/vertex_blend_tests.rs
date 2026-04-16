@@ -23,23 +23,23 @@ fn origin_corner(cube: &BRep) -> VertexHandle {
 
 fn count_face_types(brep: &BRep) -> (usize, usize, usize, usize) {
     let mut planes = 0;
-    let mut tori = 0;
+    let mut fillets = 0;
     let mut spheres = 0;
     let mut others = 0;
     for fh in brep.faces.keys() {
         match brep.faces[fh].surface.as_ref().map(|s| &s.geometry) {
             Some(SurfaceGeometry::Plane { .. }) => planes += 1,
-            Some(SurfaceGeometry::Torus { .. }) => tori += 1,
+            Some(SurfaceGeometry::Torus { .. } | SurfaceGeometry::Cylinder { .. }) => fillets += 1,
             Some(SurfaceGeometry::Sphere { .. }) => spheres += 1,
             _ => others += 1,
         }
     }
-    (planes, tori, spheres, others)
+    (planes, fillets, spheres, others)
 }
 
 /// Vertex blend at a single cube corner with radius 0.1.
 /// Expect at least one sphere face appearing at the corner,
-/// plus torus strips on the three incident edges.
+/// plus fillet strips on the three incident edges.
 #[test]
 fn vertex_blend_3d_on_cube_corner_produces_sphere_patch() {
     let cube = BRep::unit_cube(tol()).unwrap();
@@ -47,10 +47,10 @@ fn vertex_blend_3d_on_cube_corner_produces_sphere_patch() {
     let result = vertex_blend_3d(&cube, corner, 0.1, &FilletOptions::default(), tol(), None)
         .expect("vertex blend on cube corner should succeed");
 
-    let (planes, tori, spheres, _others) = count_face_types(&result.brep);
+    let (planes, fillets, spheres, _others) = count_face_types(&result.brep);
     assert_eq!(
-        tori, 3,
-        "expected 3 torus strips (one per incident edge), got {tori}"
+        fillets, 3,
+        "expected 3 fillet strips (one per incident edge), got {fillets}"
     );
     assert_eq!(
         spheres, 1,
@@ -217,7 +217,7 @@ fn vertex_blend_3d_sphere_centre_at_rolling_ball_position() {
 /// A square pyramid's apex has 4 incident edges (one per
 /// slant), so vertex-blending it exercises the N-gon path in
 /// `insert_vertex_blend` that didn't get covered by the cube
-/// tests (all 3-valence). Expect 4 torus strips plus a single
+/// tests (all 3-valence). Expect 4 fillet strips plus a single
 /// sphere patch at the apex.
 #[test]
 fn vertex_blend_3d_on_pyramid_apex_produces_sphere_patch() {
@@ -235,7 +235,7 @@ fn vertex_blend_3d_on_pyramid_apex_produces_sphere_patch() {
     let (_planes, tori, spheres, _others) = count_face_types(&result.brep);
     assert_eq!(
         tori, 4,
-        "expected 4 torus strips (one per slant edge), got {tori}"
+        "expected 4 fillet strips (one per slant edge), got {tori}"
     );
     assert_eq!(
         spheres, 1,
@@ -251,7 +251,7 @@ fn vertex_blend_3d_on_pyramid_apex_produces_sphere_patch() {
 /// Vertex blending works when adjacent faces are curved. The
 /// cleanest properly-constructed test vehicle is the 12-edge
 /// cube fillet: every sphere vertex-blend face is bounded by
-/// **torus strips** (genuinely curved surfaces), not planes. If
+/// **fillet strips** (genuinely curved surfaces), not planes. If
 /// the batch pipeline's corner-resolution couldn't handle
 /// curved adjacencies, the torus-sphere boundaries would fail.
 ///
@@ -276,7 +276,7 @@ fn vertex_blend_3d_curved_face_support_via_full_cube_fillet() {
     assert_eq!(tori, 12, "expected 12 torus strip faces");
     assert_eq!(
         spheres, 8,
-        "each cube corner should have a sphere vertex-blend face bounded by torus strips"
+        "each cube corner should have a sphere vertex-blend face bounded by fillet strips"
     );
     result.brep.validate().unwrap();
 }
@@ -330,7 +330,7 @@ fn vertex_blend_3d_variable_radii_produce_distinct_torus_sizes() {
     // all three outcomes as long as the torus geometry is
     // correct and the BRep still validates.
     let (_, tori, _spheres, _) = count_face_types(&result.brep);
-    assert_eq!(tori, 3, "expected 3 torus strips, got {tori}");
+    assert_eq!(tori, 3, "expected 3 fillet strips, got {tori}");
 
     let mut minor_radii: Vec<f64> = result
         .brep
@@ -338,6 +338,7 @@ fn vertex_blend_3d_variable_radii_produce_distinct_torus_sizes() {
         .values()
         .filter_map(|f| match f.surface.as_ref().map(|s| &s.geometry) {
             Some(SurfaceGeometry::Torus { minor_radius, .. }) => Some(*minor_radius),
+            Some(SurfaceGeometry::Cylinder { radius, .. }) => Some(*radius),
             _ => None,
         })
         .collect();

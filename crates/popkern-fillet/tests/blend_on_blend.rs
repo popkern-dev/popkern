@@ -1,9 +1,9 @@
 //! §12.3 Blend-on-Blend tests. Fillet an edge whose support face
-//! is itself a blend surface (torus strip from a prior fillet).
+//! is itself a blend surface (cylinder strip from a prior fillet).
 //!
 //! Test vehicle: `vertex_blend_3d` on a cube corner produces 3
-//! torus strips + 1 sphere. Pick one of the torus-plane edges
-//! and fillet it again — that's blend-on-blend.
+//! cylinder strips + 1 sphere. Pick one of the cylinder-plane
+//! edges and fillet it again — that's blend-on-blend.
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
@@ -16,10 +16,15 @@ fn tol() -> Tolerance {
     Tolerance::default()
 }
 
-/// Find an edge in `brep` where one face is a Torus and the
-/// other is a Plane. This is the "blend-on-blend" edge: the
-/// torus is from a prior fillet, the plane is the original face.
-fn find_torus_plane_edge(brep: &BRep) -> Option<popkern_core::topology::EdgeHandle> {
+/// Find a short cylinder-plane edge in `brep` where the two
+/// surfaces meet at a non-tangent dihedral angle. The long rim
+/// edges are tangent (cylinder was designed to be C1-continuous
+/// with the plane there), so a fillet on those degenerates. The
+/// short end-cap edges at the far cube corners are the true
+/// blend-on-blend candidates where the cylinder surface meets a
+/// perpendicular plane face.
+fn find_cylinder_plane_edge(brep: &BRep) -> Option<popkern_core::topology::EdgeHandle> {
+    let mut best: Option<(popkern_core::topology::EdgeHandle, f64)> = None;
     for (eh, edge) in &brep.edges {
         let he = edge.half_edge;
         let Some(he_data) = brep.half_edges.get(he) else {
@@ -32,31 +37,37 @@ fn find_torus_plane_edge(brep: &BRep) -> Option<popkern_core::topology::EdgeHand
         let f2 = brep.loops[twin_data.loop_].face;
         let s1 = brep.faces[f1].surface.as_ref().map(|s| &s.geometry);
         let s2 = brep.faces[f2].surface.as_ref().map(|s| &s.geometry);
-        let is_torus_plane = matches!(
+        let is_cyl_plane = matches!(
             (s1, s2),
             (
-                Some(SurfaceGeometry::Torus { .. }),
+                Some(SurfaceGeometry::Cylinder { .. }),
                 Some(SurfaceGeometry::Plane { .. })
             ) | (
                 Some(SurfaceGeometry::Plane { .. }),
-                Some(SurfaceGeometry::Torus { .. })
+                Some(SurfaceGeometry::Cylinder { .. })
             )
         );
-        if is_torus_plane {
-            return Some(eh);
+        if is_cyl_plane {
+            let v1 = brep.vertices[he_data.origin].position;
+            let v2 = brep.vertices[brep.half_edges[he_data.twin].origin].position;
+            let len =
+                ((v1.x - v2.x).powi(2) + (v1.y - v2.y).powi(2) + (v1.z - v2.z).powi(2)).sqrt();
+            if best.map_or(true, |(_, bl)| len < bl) {
+                best = Some((eh, len));
+            }
         }
     }
-    None
+    best.map(|(eh, _)| eh)
 }
 
-/// §12.3 end-to-end: fillet a torus-plane edge produced by a
+/// §12.3 end-to-end: fillet a cylinder-plane edge produced by a
 /// prior vertex blend. This is the simplest blend-on-blend
 /// case — one support is a plane (the original cube face), the
-/// other is a torus (the rolling-ball fillet strip from the
+/// other is a cylinder (the rolling-ball fillet strip from the
 /// first pass).
 #[test]
 fn blend_on_blend_fillet_torus_plane_edge() {
-    // Step 1: produce a cube corner with torus strips.
+    // Step 1: produce a cube corner with cylinder strips.
     let cube = BRep::unit_cube(tol()).unwrap();
     let corner = cube
         .vertices
@@ -67,32 +78,15 @@ fn blend_on_blend_fillet_torus_plane_edge() {
     let blend1 = vertex_blend_3d(&cube, corner, 0.1, &FilletOptions::default(), tol(), None)
         .expect("first-pass vertex blend should succeed");
 
-    // Step 2: find a torus-plane edge in the output.
-    let tp_edge = find_torus_plane_edge(&blend1.brep)
-        .expect("vertex blend output should have torus-plane edges");
+    // Step 2: find a cylinder-plane edge in the output.
+    let cp_edge = find_cylinder_plane_edge(&blend1.brep)
+        .expect("vertex blend output should have cylinder-plane edges");
 
     // Step 3: fillet that edge with a smaller radius.
     let specs = vec![FilletSpec {
-        edge: tp_edge,
+        edge: cp_edge,
         radius: FilletRadius::Constant(0.02),
     }];
-    let result = fillet_edges(&blend1.brep, &specs, &FilletOptions::default(), tol(), None);
-
-    match result {
-        Ok(res) => {
-            println!(
-                "§12.3 blend-on-blend succeeded! faces={}",
-                res.brep.faces.len()
-            );
-            assert!(
-                res.brep.faces.len() > blend1.brep.faces.len(),
-                "blend-on-blend should add faces (was {}, now {})",
-                blend1.brep.faces.len(),
-                res.brep.faces.len()
-            );
-        }
-        Err(e) => {
-            eprintln!("§12.3 blend-on-blend error (non-fatal): {e:?}");
-        }
-    }
+    let _res = fillet_edges(&blend1.brep, &specs, &FilletOptions::default(), tol(), None)
+        .expect("§12.3 blend-on-blend should succeed");
 }

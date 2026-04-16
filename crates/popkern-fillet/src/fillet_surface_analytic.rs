@@ -13,7 +13,8 @@
 //!
 //! | Pair | Surface | Function |
 //! |---|---|---|
-//! | plane-plane (dihedral) | torus | [`try_plane_plane_torus`] |
+//! | plane-plane (straight edge) | cylinder | [`try_plane_plane_analytic`] |
+//! | plane-plane (curved edge) | torus | [`try_plane_plane_analytic`] |
 //! | plane-sphere | torus | [`try_circular_center_torus`] |
 //! | plane-cylinder (⊥ axis) | torus | [`try_circular_center_torus`] |
 //! | plane-cone (⊥ axis) | torus | [`try_circular_center_torus`] |
@@ -34,16 +35,18 @@ use popkern_core::geometry::{Point3, Vec3};
 use crate::center_curve::CenterCurveResult;
 use crate::fillet_surface::FilletSurfaceResult;
 
-/// Try to build an analytic torus section for a plane-plane fillet.
+/// Try to build an analytic surface for a plane-plane fillet.
 ///
-/// Returns `None` if the geometry is degenerate (e.g., parallel planes).
-pub(crate) fn try_plane_plane_torus(
+/// Returns a **cylinder** when the center curve is approximately
+/// a straight line (straight dihedral edge), or a **torus** when
+/// it is curved. Returns `None` for degenerate cases (parallel
+/// planes).
+pub(crate) fn try_plane_plane_analytic(
     n1: &Vec3,
     n2: &Vec3,
     center_result: &CenterCurveResult,
     radius: f64,
 ) -> Option<FilletSurfaceResult> {
-    // Compute the dihedral angle between the two planes.
     let cos_angle = n1.dot(n2).clamp(-1.0, 1.0);
     let angle = cos_angle.acos();
     let half_angle = angle * 0.5;
@@ -52,29 +55,43 @@ pub(crate) fn try_plane_plane_torus(
         return None;
     }
 
-    // Torus axis = cross product of the two normals (edge direction).
-    let axis = n1.cross(n2);
-    let axis = axis.normalized()?;
-
     use popkern_core::geometry::curve::CurveEval;
     let (t0, t1) = center_result.center_curve.parameter_range();
+    let p_start = center_result.center_curve.point_at(t0);
+    let p_end = center_result.center_curve.point_at(t1);
     let spine_mid = center_result.center_curve.point_at((t0 + t1) * 0.5);
 
-    let major_radius = radius / sin_half;
+    let chord = p_end - p_start;
+    let chord_len = chord.length();
 
-    // The torus centre must be on the axis, not at the spine
-    // midpoint. The spine is on the major circle at distance
-    // `major_radius` from the axis. Project back to the axis
-    // via the bisector: for inward-pointing normals, (n1+n2)
-    // points from the axis toward the spine.
-    let bisector = (*n1 + *n2).normalized().unwrap_or(*n1);
-    let center = spine_mid - bisector * major_radius;
+    // Straight-line test: midpoint deviation from chord < 1%.
+    let is_straight = if chord_len > 1e-12 {
+        let chord_dir = chord * (1.0 / chord_len);
+        let to_mid = spine_mid - p_start;
+        let proj = chord_dir * to_mid.dot(&chord_dir);
+        (to_mid - proj).length() < 0.01 * chord_len
+    } else {
+        false
+    };
 
-    let surface = SurfaceGeometry::Torus {
-        center,
-        axis,
-        major_radius,
-        minor_radius: radius,
+    let surface = if is_straight {
+        let axis = chord.normalized()?;
+        SurfaceGeometry::Cylinder {
+            origin: p_start,
+            axis,
+            radius,
+        }
+    } else {
+        let axis = n1.cross(n2).normalized()?;
+        let major_radius = radius / sin_half;
+        let bisector = (*n1 + *n2).normalized().unwrap_or(*n1);
+        let center = spine_mid - bisector * major_radius;
+        SurfaceGeometry::Torus {
+            center,
+            axis,
+            major_radius,
+            minor_radius: radius,
+        }
     };
 
     let trim_1 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_1).ok()?;
@@ -114,7 +131,7 @@ pub(crate) fn try_plane_plane_torus(
 /// sphere/cylinder/cone/plane math (which needs sign-juggling over
 /// which side of the plane the ball sits on), we read them directly
 /// from the already-computed `center_result.center_curve`. The
-/// approach mirrors [`try_plane_plane_torus`] above.
+/// approach mirrors [`try_plane_plane_analytic`] above.
 pub(crate) fn try_circular_center_torus(
     surface1: &SurfaceGeometry,
     surface2: &SurfaceGeometry,

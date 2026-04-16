@@ -38,10 +38,10 @@ fn fillet_surface_plane_plane() {
     let result = build_fillet_surface(&s1, &s2, &cr, 1.0, 5, true, false, false, false);
     assert!(result.is_ok(), "fillet surface failed: {:?}", result.err());
     let fs = result.unwrap();
-    // Plane-plane (constant) should produce a torus.
+    // Plane-plane (constant, straight center curve) produces a cylinder.
     assert!(
-        matches!(fs.surface, SurfaceGeometry::Torus { .. }),
-        "expected torus for plane-plane constant, got {:?}",
+        matches!(fs.surface, SurfaceGeometry::Cylinder { .. }),
+        "expected Cylinder for plane-plane constant, got {:?}",
         std::mem::discriminant(&fs.surface)
     );
 }
@@ -130,75 +130,52 @@ fn build_clamped_knots_basic() {
 }
 
 // -----------------------------------------------------------------------
-// try_plane_plane_torus analytic path
+// try_plane_plane_analytic analytic path
 // -----------------------------------------------------------------------
 
 #[test]
-fn torus_perpendicular_planes() {
-    // Two perpendicular planes (angle between normals = PI/2).
+fn cylinder_perpendicular_planes() {
     let n1 = Vec3::new(0.0, 0.0, 1.0);
     let n2 = Vec3::new(0.0, 1.0, 0.0);
     let cr = simple_center_result();
 
-    let result = try_plane_plane_torus(&n1, &n2, &cr, 1.0);
+    let result = try_plane_plane_analytic(&n1, &n2, &cr, 1.0);
     assert!(
         result.is_some(),
-        "perpendicular planes should produce torus"
+        "perpendicular planes should produce cylinder"
     );
 
     let fs = result.unwrap();
     match &fs.surface {
-        SurfaceGeometry::Torus {
-            minor_radius,
-            major_radius,
-            ..
-        } => {
+        SurfaceGeometry::Cylinder { radius, .. } => {
             assert!(
-                (*minor_radius - 1.0).abs() < 1e-10,
-                "minor radius should be 1.0, got {minor_radius}",
-            );
-            // For 90-deg planes: half_angle = PI/4, major = r/sin(PI/4) = r*sqrt(2)
-            let expected_major = 1.0 / (std::f64::consts::FRAC_PI_4).sin();
-            assert!(
-                (*major_radius - expected_major).abs() < 1e-6,
-                "major radius should be {expected_major}, got {major_radius}",
+                (radius - 1.0).abs() < 1e-10,
+                "cylinder radius should be 1.0, got {radius}",
             );
         }
-        other => panic!("expected Torus, got {:?}", std::mem::discriminant(other)),
+        other => panic!("expected Cylinder, got {:?}", std::mem::discriminant(other)),
     }
 }
 
 #[test]
-fn torus_45_degree_planes() {
-    // Planes at 45 degrees (angle between normals = PI/4).
+fn cylinder_45_degree_planes() {
     let n1 = Vec3::new(0.0, 0.0, 1.0);
     let c = std::f64::consts::FRAC_1_SQRT_2;
-    let n2 = Vec3::new(0.0, c, c); // 45 deg from n1
+    let n2 = Vec3::new(0.0, c, c);
 
     let cr = simple_center_result();
-    let result = try_plane_plane_torus(&n1, &n2, &cr, 0.5);
-    assert!(result.is_some(), "45-deg planes should produce torus");
+    let result = try_plane_plane_analytic(&n1, &n2, &cr, 0.5);
+    assert!(result.is_some(), "45-deg planes should produce cylinder");
 
     let fs = result.unwrap();
     match &fs.surface {
-        SurfaceGeometry::Torus {
-            minor_radius,
-            major_radius,
-            ..
-        } => {
+        SurfaceGeometry::Cylinder { radius, .. } => {
             assert!(
-                (*minor_radius - 0.5).abs() < 1e-10,
-                "minor radius should be 0.5, got {minor_radius}",
-            );
-            // angle between normals = PI/4, half_angle = PI/8
-            let half = std::f64::consts::FRAC_PI_4 * 0.5;
-            let expected_major = 0.5 / half.sin();
-            assert!(
-                (*major_radius - expected_major).abs() < 1e-6,
-                "major radius should be {expected_major}, got {major_radius}",
+                (radius - 0.5).abs() < 1e-10,
+                "cylinder radius should be 0.5, got {radius}",
             );
         }
-        other => panic!("expected Torus, got {:?}", std::mem::discriminant(other)),
+        other => panic!("expected Cylinder, got {:?}", std::mem::discriminant(other)),
     }
 }
 
@@ -209,7 +186,7 @@ fn torus_parallel_planes_returns_none() {
     let n2 = Vec3::new(0.0, 0.0, 1.0);
     let cr = simple_center_result();
 
-    let result = try_plane_plane_torus(&n1, &n2, &cr, 1.0);
+    let result = try_plane_plane_analytic(&n1, &n2, &cr, 1.0);
     assert!(result.is_none(), "parallel planes should return None");
 }
 
@@ -223,17 +200,17 @@ fn torus_antiparallel_planes_returns_none() {
     let cr = simple_center_result();
 
     // We just verify no panic. The result can be Some or None.
-    let _ = try_plane_plane_torus(&n1, &n2, &cr, 1.0);
+    let _ = try_plane_plane_analytic(&n1, &n2, &cr, 1.0);
 }
 
 #[test]
-fn torus_has_valid_trim_curves() {
+fn analytic_has_valid_trim_curves() {
     let n1 = Vec3::new(0.0, 0.0, 1.0);
     let n2 = Vec3::new(0.0, 1.0, 0.0);
     let cr = simple_center_result();
 
-    let fs = try_plane_plane_torus(&n1, &n2, &cr, 1.0)
-        .expect("perpendicular planes should produce torus");
+    let fs = try_plane_plane_analytic(&n1, &n2, &cr, 1.0)
+        .expect("perpendicular planes should produce cylinder");
 
     assert!(
         !fs.trim_curve_1.control_points.is_empty(),
@@ -246,23 +223,23 @@ fn torus_has_valid_trim_curves() {
 }
 
 #[test]
-fn torus_axis_is_cross_product_of_normals() {
+fn cylinder_axis_is_center_curve_direction() {
     let n1 = Vec3::new(0.0, 0.0, 1.0);
     let n2 = Vec3::new(0.0, 1.0, 0.0);
     let cr = simple_center_result();
 
-    let fs = try_plane_plane_torus(&n1, &n2, &cr, 1.0)
-        .expect("perpendicular planes should produce torus");
+    let fs = try_plane_plane_analytic(&n1, &n2, &cr, 1.0)
+        .expect("perpendicular planes should produce cylinder");
 
-    if let SurfaceGeometry::Torus { axis, .. } = &fs.surface {
-        // n1 x n2 = (0,0,1) x (0,1,0) = (-1,0,0), normalized = (-1,0,0)
-        let expected = Vec3::new(-1.0, 0.0, 0.0);
+    if let SurfaceGeometry::Cylinder { axis, .. } = &fs.surface {
+        // Center curve runs along x-axis: (0,0,0.5) → (4,0,0.5)
+        let expected = Vec3::new(1.0, 0.0, 0.0);
         let dot = axis.dot(&expected).abs();
         assert!(
             dot > 0.99,
-            "torus axis should be parallel to n1 x n2, got dot={dot}",
+            "cylinder axis should be parallel to center curve, got dot={dot}",
         );
     } else {
-        panic!("expected Torus surface");
+        panic!("expected Cylinder surface");
     }
 }

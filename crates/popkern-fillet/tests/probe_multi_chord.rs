@@ -15,7 +15,7 @@ fn count_face_types(brep: &BRep) -> (usize, usize, usize, usize) {
         let face = &brep.faces[fh];
         match face.surface.as_ref().map(|s| &s.geometry) {
             Some(SurfaceGeometry::Plane { .. }) => planes += 1,
-            Some(SurfaceGeometry::Torus { .. }) => tori += 1,
+            Some(SurfaceGeometry::Torus { .. } | SurfaceGeometry::Cylinder { .. }) => tori += 1,
             Some(SurfaceGeometry::Sphere { .. }) => spheres += 1,
             _ => others += 1,
         }

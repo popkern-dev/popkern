@@ -104,22 +104,22 @@ fn modify_closed_in_place_preserves_topology_and_changes_radius() {
         .as_ref()
         .expect("modified annulus should have a surface");
     match &new_surface.geometry {
-        SurfaceGeometry::Torus { minor_radius, .. } => {
+        SurfaceGeometry::Cylinder { radius, .. } => {
             assert!(
-                (minor_radius - 0.08).abs() < 1e-9,
-                "in-place torus minor radius {minor_radius} should equal new radius 0.08"
+                (radius - 0.08).abs() < 1e-9,
+                "in-place cylinder radius {radius} should equal new radius 0.08"
             );
         }
-        other => panic!("in-place modify should assign a Torus surface, got {other:?}"),
+        other => panic!("in-place modify should assign a Cylinder surface, got {other:?}"),
     }
 
     let original_surface = r1.brep.faces[annulus]
         .surface
         .as_ref()
         .expect("original annulus surface");
-    if let SurfaceGeometry::Torus { minor_radius, .. } = &original_surface.geometry {
+    if let SurfaceGeometry::Cylinder { radius, .. } = &original_surface.geometry {
         assert!(
-            (minor_radius - 0.08).abs() > 1e-6,
+            (radius - 0.08).abs() > 1e-6,
             "original surface should not have already been mutated"
         );
     }
@@ -276,10 +276,10 @@ fn modify_open_in_place_preserves_topology_and_changes_radius() {
         .find(|fh| {
             matches!(
                 r1.brep.faces[*fh].surface.as_ref().map(|s| &s.geometry),
-                Some(SurfaceGeometry::Torus { .. })
+                Some(SurfaceGeometry::Cylinder { .. })
             )
         })
-        .expect("post-fillet brep should contain a Torus face");
+        .expect("post-fillet brep should contain a Cylinder face");
 
     let pre_face_count = r1.brep.faces.len();
     let pre_edge_count = r1.brep.edges.len();
@@ -297,22 +297,22 @@ fn modify_open_in_place_preserves_topology_and_changes_radius() {
         .as_ref()
         .expect("modified blend should have a surface");
     match &surf.geometry {
-        SurfaceGeometry::Torus { minor_radius, .. } => {
+        SurfaceGeometry::Cylinder { radius, .. } => {
             assert!(
-                (minor_radius - 0.2).abs() < 1e-9,
-                "in-place torus minor radius {minor_radius} should equal new radius 0.2"
+                (radius - 0.2).abs() < 1e-9,
+                "in-place cylinder radius {radius} should equal new radius 0.2"
             );
         }
-        other => panic!("in-place open modify should assign a Torus, got {other:?}"),
+        other => panic!("in-place open modify should assign a Cylinder, got {other:?}"),
     }
 
     let original_surf = r1.brep.faces[blend]
         .surface
         .as_ref()
         .expect("original blend surface");
-    if let SurfaceGeometry::Torus { minor_radius, .. } = &original_surf.geometry {
+    if let SurfaceGeometry::Cylinder { radius, .. } = &original_surf.geometry {
         assert!(
-            (minor_radius - 0.2).abs() > 1e-6,
+            (radius - 0.2).abs() > 1e-6,
             "original blend surface should not have already been mutated"
         );
     }

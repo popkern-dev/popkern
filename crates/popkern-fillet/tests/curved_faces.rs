@@ -250,7 +250,9 @@ fn fillet_cube_edge_has_torus_or_nurbs_surface() {
                 .map(|s| {
                     matches!(
                         s.geometry,
-                        SurfaceGeometry::Torus { .. } | SurfaceGeometry::Nurbs(_)
+                        SurfaceGeometry::Torus { .. }
+                            | SurfaceGeometry::Cylinder { .. }
+                            | SurfaceGeometry::Nurbs(_)
                     )
                 })
                 .unwrap_or(false)

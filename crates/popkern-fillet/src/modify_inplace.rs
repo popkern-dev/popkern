@@ -382,7 +382,7 @@ fn modify_open_in_place_general(
     //   - Variable (no closure, r_start ≠ r_end) → linear-interp
     //     NURBS sweep. Round 5i.
     //   - Constant (no closure, r_start == r_end) → analytic torus
-    //     matching `try_plane_plane_torus`. Round 5d-3.
+    //     matching `try_plane_plane_analytic`. Round 5d-3.
     let sweep_inputs = VariableSweepInputs {
         p_start: plan.restored_edge_start,
         p_end: plan.restored_edge_end,
@@ -400,7 +400,7 @@ fn modify_open_in_place_general(
     } else if (r_start - r_end).abs() > 1e-12 {
         build_variable_plane_plane_sweep(&sweep_inputs)
     } else {
-        constant_plane_plane_torus(&plane_a.normal, &plane_b.normal, &plan, r_start)
+        constant_plane_plane_cylinder(&plane_a.normal, &plane_b.normal, &plan, r_start)
     };
     out.faces[fillet_face].surface = Some(SurfaceOnFace {
         geometry: new_surface,
@@ -410,35 +410,28 @@ fn modify_open_in_place_general(
     Ok(out)
 }
 
-/// Build the analytic Torus surface for a constant-radius
-/// plane-plane fillet, mirroring `try_plane_plane_torus` in
-/// `fillet_surface.rs`.
-fn constant_plane_plane_torus(
+/// Build the analytic Cylinder surface for a constant-radius
+/// plane-plane fillet, mirroring `try_plane_plane_analytic` in
+/// `fillet_surface_analytic.rs`. The center curve for a straight
+/// dihedral edge is a line, so the fillet envelope is a cylinder
+/// whose axis is the edge direction and radius equals the fillet
+/// radius.
+fn constant_plane_plane_cylinder(
     n_a: &Vec3,
     n_b: &Vec3,
     plan: &UnfilletPlan,
     radius: f64,
 ) -> SurfaceGeometry {
-    let cos_angle = n_a.dot(n_b).clamp(-1.0, 1.0);
-    let half_angle = cos_angle.acos() * 0.5;
-    let sin_half = half_angle.sin().max(1e-10);
-    let axis_raw = n_a.cross(n_b);
-    let axis_len = axis_raw.length().max(1e-12);
-    let axis = Vec3::new(
-        axis_raw.x / axis_len,
-        axis_raw.y / axis_len,
-        axis_raw.z / axis_len,
-    );
-    let centre = Point3::new(
-        (plan.restored_edge_start.x + plan.restored_edge_end.x) * 0.5,
-        (plan.restored_edge_start.y + plan.restored_edge_end.y) * 0.5,
-        (plan.restored_edge_start.z + plan.restored_edge_end.z) * 0.5,
-    );
-    SurfaceGeometry::Torus {
-        center: centre,
+    let bisector = (*n_a + *n_b).normalized().unwrap_or(*n_a);
+    let origin = plan.restored_edge_start + bisector * radius;
+    let chord = plan.restored_edge_end - plan.restored_edge_start;
+    let axis = chord
+        .normalized()
+        .unwrap_or_else(|| n_a.cross(n_b).normalized().unwrap_or(*n_a));
+    SurfaceGeometry::Cylinder {
+        origin,
         axis,
-        major_radius: radius / sin_half,
-        minor_radius: radius,
+        radius,
     }
 }
 

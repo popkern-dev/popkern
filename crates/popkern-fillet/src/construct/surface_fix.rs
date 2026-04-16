@@ -81,10 +81,21 @@ pub(crate) fn correct_face_surfaces(
             .as_ref()
             .is_some_and(|s| !matches!(s.geometry, SurfaceGeometry::Plane { .. }));
 
+        let is_sphere_eligible = positions.len() <= 6;
         let mut best: Option<(SurfaceOnFace, f64)> = None;
         for sof in &candidates {
             // Don't downgrade non-planar to planar.
             if current_is_nonplanar && matches!(sof.geometry, SurfaceGeometry::Plane { .. }) {
+                continue;
+            }
+            // For sphere-eligible faces, don't let fillet surfaces
+            // (Cylinder/Torus) compete — defer to the sphere check.
+            if is_sphere_eligible
+                && matches!(
+                    sof.geometry,
+                    SurfaceGeometry::Cylinder { .. } | SurfaceGeometry::Torus { .. }
+                )
+            {
                 continue;
             }
             let score = max_fit_score(&sof.geometry, &positions);
@@ -114,17 +125,12 @@ pub(crate) fn correct_face_surfaces(
             if sd < current_score {
                 let prefer_sphere = match &best {
                     Some((existing, bd)) => {
-                        let existing_is_plane =
-                            matches!(existing.geometry, SurfaceGeometry::Plane { .. });
-                        // Prefer the sphere over an existing-best plane
-                        // when the sphere score is within 50% of the
-                        // plane score: the inherent rolling-ball-to-
-                        // sphere approximation error (~R*0.7) is the
-                        // same order as the plane's misfit at the
-                        // cube-corner outliers, so a strict <
-                        // comparison would miss the semantically
-                        // correct sphere.
-                        sd < *bd || (existing_is_plane && sd <= *bd * 1.5)
+                        let existing_is_non_sphere =
+                            !matches!(existing.geometry, SurfaceGeometry::Sphere { .. });
+                        // Prefer the sphere over planes and fillet
+                        // surfaces (Cylinder/Torus) when the sphere
+                        // score is within 50% of the candidate score.
+                        sd < *bd || (existing_is_non_sphere && sd <= *bd * 1.5)
                     }
                     None => true,
                 };
@@ -188,11 +194,14 @@ fn try_sphere_for_corner(
 ) -> Option<popkern_core::geometry::surface::SurfaceOnFace> {
     use popkern_core::geometry::surface::SurfaceOnFace;
 
-    // Average fillet radius from torus minor radii.
+    // Average fillet radius from torus minor radii or cylinder radii.
+    // Straight-edge plane-plane fillets produce Cylinder surfaces;
+    // curved-edge fillets produce Torus surfaces.
     let avg_radius = fillet_surfaces
         .iter()
         .filter_map(|s| match s {
             SurfaceGeometry::Torus { minor_radius, .. } => Some(*minor_radius),
+            SurfaceGeometry::Cylinder { radius, .. } => Some(*radius),
             _ => None,
         })
         .next()

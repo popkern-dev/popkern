@@ -134,8 +134,8 @@ fn compute_fillet_geometry_g2_on_cube_edge_produces_nurbs_sweep() {
 fn compute_fillet_geometry_legacy_constant_on_cube_produces_torus() {
     // Companion to the G2 test above: with `g2_cross_section = false`
     // the legacy constant-radius plane-plane analytic path runs and
-    // produces an analytic Torus. This pins the behaviour the G2
-    // opt-in path must NOT regress.
+    // produces an analytic Cylinder (straight edge) or Torus (curved).
+    // This pins the behaviour the G2 opt-in path must NOT regress.
     let (brep, analysis) = make_cube_and_analysis();
     let radius = crate::types::FilletRadius::Constant(0.1);
     let result = compute_fillet_geometry(
@@ -150,7 +150,7 @@ fn compute_fillet_geometry_legacy_constant_on_cube_produces_torus() {
     assert!(
         matches!(
             result.surface,
-            popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
+            popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. }
         ),
         "legacy cube fillet should produce a Torus"
     );

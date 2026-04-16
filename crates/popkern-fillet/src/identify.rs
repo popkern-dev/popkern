@@ -22,8 +22,9 @@
 //!    at a sharp corner.
 //!
 //! 2. **Surface type.** The analytic surface kind names the blend:
-//!    `Torus` → rolling-ball fillet on two planar supports,
-//!    `Cylinder` → rolling-ball fillet on a plane + a cylindrical
+//!    `Torus` → rolling-ball fillet on a curved edge between two
+//!    planar supports, `Cylinder` → rolling-ball fillet on a
+//!    straight edge (plane-plane) or on a plane + cylindrical
 //!    support, `Sphere` → vertex blend, `Plane` with non-tangent
 //!    boundaries → chamfer.
 //!
@@ -47,8 +48,8 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::identify_helpers::{
-    boundary_tangency, chamfer_support_pair, distinct_neighbours, estimate_chamfer_half_width,
-    tangent_support_pair,
+    all_neighbours_are_planes, boundary_tangency, chamfer_support_pair, distinct_neighbours,
+    estimate_chamfer_half_width, tangent_support_pair,
 };
 
 /// Classification of an identified blend.
@@ -202,15 +203,42 @@ pub fn identify_blend(brep: &BRep, face: FaceHandle) -> Option<BlendInfo> {
             })
         }
         SurfaceGeometry::Cylinder { radius, .. } => {
-            // A cylinder face is a fillet only if it has at least
-            // one G1-tangent boundary to a neighbour. Otherwise
-            // it's a primitive cylinder (e.g. a hole or a shaft).
+            // A cylinder face is a fillet in two scenarios:
+            //
+            // 1. It has at least one G1-tangent boundary to a
+            //    neighbour (the classic cylinder-on-curved-support
+            //    case, e.g. plane + cylindrical hole).
+            //
+            // 2. All distinct neighbours are planes. This is the
+            //    straight-edge plane-plane fillet (§11.1): the
+            //    rolling ball sweeps along a straight dihedral edge
+            //    and the resulting surface is an exact cylinder
+            //    whose radius equals the fillet radius. The
+            //    boundaries are *not* G1-tangent (the cylinder
+            //    meets each plane at the rolling-ball contact
+            //    angle), so the tangent_count check alone would
+            //    miss it. Confidence is the same as the tangent
+            //    path (0.75): a cylinder between two planes is a
+            //    strong geometric signal.
+            //
+            // Otherwise the cylinder is a primitive (hole, shaft)
+            // and we return None.
             if tangent_count >= 1 {
                 Some(BlendInfo {
                     face,
                     kind: BlendKind::Fillet,
                     radius: Some(*radius),
                     support_faces: tangent_support_pair(&boundary, tangent_tol),
+                    source: IdentificationSource::CurvatureAnalysis,
+                    confidence: 0.75,
+                })
+            } else if all_neighbours_are_planes(brep, &boundary) {
+                let support_faces = chamfer_support_pair(&boundary, &distinct_neighbours);
+                Some(BlendInfo {
+                    face,
+                    kind: BlendKind::Fillet,
+                    radius: Some(*radius),
+                    support_faces,
                     source: IdentificationSource::CurvatureAnalysis,
                     confidence: 0.75,
                 })

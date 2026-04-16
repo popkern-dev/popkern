@@ -152,9 +152,9 @@ pub fn compute_unfillet_plan(
         });
     }
 
-    // For a Torus-surface fillet the canonical support detection is
-    // "plane neighbours whose normals are perpendicular to the torus
-    // axis". This is more reliable than reusing the
+    // For a Torus- or Cylinder-surface fillet the canonical support
+    // detection is "plane neighbours whose normals are perpendicular
+    // to the fillet axis". This is more reliable than reusing the
     // tangency-sample-based detection from identify_blend, which can
     // miss G1 boundaries when the contact-curve midpoint doesn't
     // land precisely on the tangent line. Falls back to

@@ -9,7 +9,7 @@ use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, Vec3};
 
 use crate::center_curve::CenterCurveResult;
 use crate::fillet_surface_analytic::{
-    try_circular_center_torus, try_parallel_cylinder_cylinder, try_plane_plane_torus,
+    try_circular_center_torus, try_parallel_cylinder_cylinder, try_plane_plane_analytic,
 };
 
 /// Result of a fillet surface construction.
@@ -99,7 +99,7 @@ pub fn build_fillet_surface(
             SurfaceGeometry::Plane { normal: n1, .. },
             SurfaceGeometry::Plane { normal: n2, .. },
         ) = (surface1, surface2)
-            && let Some(result) = try_plane_plane_torus(n1, n2, center_result, radius)
+            && let Some(result) = try_plane_plane_analytic(n1, n2, center_result, radius)
         {
             return Ok(result);
         }

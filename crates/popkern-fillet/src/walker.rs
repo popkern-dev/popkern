@@ -317,7 +317,7 @@ fn walk_fixed(
 
     for i in 0..n_samples {
         let t = t_start + (t_end - t_start) * (i as f64) / ((n_samples - 1) as f64);
-        let solution = step_at(
+        let result = step_at(
             request,
             tolerance,
             contact_options,
@@ -325,14 +325,23 @@ fn walk_fixed(
             t,
             current_uv0,
             current_uv1,
-        )?;
-        current_uv0 = solution.uv0;
-        current_uv1 = solution.uv1;
-        total_newton_iterations += solution.iterations;
-        samples.push(WalkSample {
-            t_spine: t,
-            solution,
-        });
+        );
+        match result {
+            Ok(solution) => {
+                current_uv0 = solution.uv0;
+                current_uv1 = solution.uv1;
+                total_newton_iterations += solution.iterations;
+                samples.push(WalkSample {
+                    t_spine: t,
+                    solution,
+                });
+            }
+            Err(ref e) if i == 0 && matches!(e, WalkerError::InitialContactFailed(_)) => {
+                return result.map(|_| unreachable!());
+            }
+            Err(_) if samples.len() >= 2 => break,
+            Err(e) => return Err(e),
+        }
     }
 
     Ok(WalkResult {

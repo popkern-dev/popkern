@@ -6,9 +6,10 @@
 //! The batch pipeline's corner-resolution phase (see
 //! `crate::construct::blend_insert`) produces a rolling-ball
 //! sphere patch at the vertex as a side effect: every incident
-//! edge becomes a torus strip, and where the torus strips meet
-//! the corner gets filled with an N-sided spherical patch
-//! tangent to all N incident faces.
+//! edge becomes a fillet strip (cylinder for straight edges,
+//! torus for curved edges), and where the strips meet the
+//! corner gets filled with an N-sided spherical patch tangent
+//! to all N incident faces.
 //!
 //! ## When to use this
 //!
@@ -38,8 +39,9 @@ use crate::{BlendResult, fillet_edges};
 /// a single batch via [`fillet_edges`]. The batch pipeline's
 /// corner-resolution phase produces the vertex blend patch
 /// automatically: for a trihedral vertex (e.g. a cube corner)
-/// the output has 3 torus strips plus 1 spherical patch at the
-/// corner; for higher-valence vertices the patch is an N-sided
+/// the output has 3 fillet strips (cylinder or torus) plus 1
+/// spherical patch at the corner; for higher-valence vertices
+/// the patch is an N-sided
 /// spherical region tangent to all N incident faces.
 ///
 /// The far ends of the incident edges become shorter (they're
