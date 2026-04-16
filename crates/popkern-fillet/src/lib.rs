@@ -3,6 +3,7 @@
 //! Public entry points: [`fillet_edges`], [`chamfer_edges`], [`vertex_blend_3d`].
 pub mod analysis;
 pub mod blend;
+pub mod blend_diagnostics;
 pub mod cancellation;
 pub mod cap;
 pub mod center_curve;
