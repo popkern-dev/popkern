@@ -94,15 +94,48 @@ impl BRep {
                 .geometry
                 .to_nurbs_in_range((curve.t_start, curve.t_end));
             if let Ok((left, right)) = nurbs.split_at(t_param) {
-                let lr = left.parameter_range();
+                // Route the two halves to the correct edges — see
+                // the matching block in `split_edge` for the
+                // rationale. The curve may have been authored in
+                // the opposite direction to the half-edge, in
+                // which case `left` actually covers the segment
+                // near `pos_b` and should go on the new edge, not
+                // the original. Pick the assignment that minimises
+                // the endpoint mismatch.
+                let left_endpoints = {
+                    let (t0, t1) = left.parameter_range();
+                    (left.point_at(t0), left.point_at(t1))
+                };
+                let right_endpoints = {
+                    let (t0, t1) = right.parameter_range();
+                    (right.point_at(t0), right.point_at(t1))
+                };
+                let dist2 = |a: &Point3, b: &Point3| -> f64 {
+                    (a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)
+                };
+                let cost_natural = dist2(&left_endpoints.0, &pos_a)
+                    + dist2(&left_endpoints.1, &split_pos)
+                    + dist2(&right_endpoints.0, &split_pos)
+                    + dist2(&right_endpoints.1, &pos_b);
+                let cost_swapped = dist2(&right_endpoints.0, &pos_a)
+                    + dist2(&right_endpoints.1, &split_pos)
+                    + dist2(&left_endpoints.0, &split_pos)
+                    + dist2(&left_endpoints.1, &pos_b);
+                let (old_half, new_half) = if cost_natural <= cost_swapped {
+                    (left, right)
+                } else {
+                    (right, left)
+                };
+
+                let lr = old_half.parameter_range();
                 self.edges[edge].curve = Some(CurveOnEdge {
-                    geometry: CurveGeometry::Nurbs(left),
+                    geometry: CurveGeometry::Nurbs(old_half),
                     t_start: lr.0,
                     t_end: lr.1,
                 });
-                let rr = right.parameter_range();
+                let rr = new_half.parameter_range();
                 self.edges[edge_b].curve = Some(CurveOnEdge {
-                    geometry: CurveGeometry::Nurbs(right),
+                    geometry: CurveGeometry::Nurbs(new_half),
                     t_start: rr.0,
                     t_end: rr.1,
                 });
