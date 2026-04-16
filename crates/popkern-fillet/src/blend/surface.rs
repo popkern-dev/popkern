@@ -7,7 +7,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
 use crate::fillet_surface::FilletSurfaceResult;
-use crate::types::VertexMode;
+use crate::types::{CornerMethod, VertexMode};
 
 use super::boundary::{BlendBoundary, BoundarySegment};
 
@@ -18,6 +18,10 @@ pub struct BlendSurfaceResult {
     pub surface: SurfaceGeometry,
     /// Boundary curves of the blend region.
     pub boundary_curves: Vec<NurbsCurve>,
+    /// §5.3 method used to build `surface`. Emitted on
+    /// [`crate::types::CornerPatchInfo::method`] so UI consumers
+    /// know which construction path fired.
+    pub method: CornerMethod,
 }
 
 /// Build a vertex blend surface.
@@ -92,6 +96,7 @@ fn build_mitred_blend(
     Ok(BlendSurfaceResult {
         surface,
         boundary_curves,
+        method: CornerMethod::Mitred,
     })
 }
 
@@ -214,6 +219,7 @@ fn try_spherical_blend(
         return None;
     }
 
+    let _ = CornerMethod::RollingBallSphere; // classification tag
     let surface = SurfaceGeometry::Sphere {
         center,
         radius: avg_radius,
@@ -222,6 +228,7 @@ fn try_spherical_blend(
     Some(BlendSurfaceResult {
         surface,
         boundary_curves: boundary_curves.to_vec(),
+        method: CornerMethod::RollingBallSphere,
     })
 }
 
@@ -306,6 +313,7 @@ fn build_polar_nurbs_blend(
     Some(BlendSurfaceResult {
         surface: SurfaceGeometry::Nurbs(nurbs),
         boundary_curves,
+        method: CornerMethod::PolarNurbs,
     })
 }
 
@@ -342,6 +350,7 @@ fn try_nurbs_blend(
     Some(BlendSurfaceResult {
         surface: SurfaceGeometry::Nurbs(nurbs),
         boundary_curves: boundary_curves.to_vec(),
+        method: CornerMethod::PolarNurbs,
     })
 }
 

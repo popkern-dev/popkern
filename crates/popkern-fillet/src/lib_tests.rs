@@ -239,6 +239,64 @@ fn fillet_edges_with_quality_propagates_validation_error() {
 
 /// G1-by-default fillets emit no `ContinuityDowngraded` warnings —
 /// negative-case regression guard for the §7 downgrade plumbing.
+/// §5.3 per-corner reporting: a full-cube fillet (12 edges) meets
+/// at 8 vertices, and every vertex with ≥2 filleted edges gets a
+/// corner patch entry in `BlendResult::corner_patches` with its
+/// `CornerMethod` and achieved continuity populated.
+#[test]
+fn full_cube_fillet_populates_corner_patches() {
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let specs: Vec<FilletSpec> = cube
+        .edges
+        .keys()
+        .map(|e| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(0.1),
+        })
+        .collect();
+    let result = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None).unwrap();
+    // A cube has 8 corners; the full-edge batch fillet produces a
+    // corner patch at each.
+    assert_eq!(
+        result.corner_patches.len(),
+        8,
+        "expected 8 corner patches on a full cube fillet, got {}",
+        result.corner_patches.len()
+    );
+    for info in &result.corner_patches {
+        assert_eq!(info.n_sides, 3, "cube corner is trihedral (N=3)");
+        // RollingBallSphere is the expected method for equal-radius
+        // uniform-convexity trihedral corners.
+        assert_eq!(
+            info.method,
+            crate::CornerMethod::RollingBallSphere,
+            "equal-radius trihedral cube corner should produce a RollingBallSphere; \
+             got {:?} (vertex={:?})",
+            info.method,
+            info.vertex,
+        );
+        assert_eq!(info.achieved_continuity, crate::ContinuityLevel::G1);
+    }
+}
+
+/// Negative control: a single-edge fillet produces no corner
+/// patches (no vertex has multiple filleted incident edges).
+#[test]
+fn single_edge_fillet_produces_no_corner_patches() {
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let edge = cube.edges.keys().next().unwrap();
+    let specs = vec![FilletSpec {
+        edge,
+        radius: FilletRadius::Constant(0.1),
+    }];
+    let result = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None).unwrap();
+    assert!(
+        result.corner_patches.is_empty(),
+        "single-edge fillet should not produce corner patches, got {}",
+        result.corner_patches.len()
+    );
+}
+
 #[test]
 fn g1_fillet_emits_no_continuity_downgraded_warning() {
     let (brep, edge) = cube_and_edge();

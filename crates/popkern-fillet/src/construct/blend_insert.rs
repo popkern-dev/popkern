@@ -15,7 +15,7 @@ use crate::construct::blend_topo::{
     collect_faces_around_vertex, find_face_anchors, find_halfedge_from_vertex_in_face,
     identify_corner_face, repair_vertex_outgoing,
 };
-use crate::types::VertexMode;
+use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo, VertexMode};
 
 /// Insert a smooth G1 vertex blend face at a multi-fillet vertex.
 ///
@@ -33,7 +33,7 @@ pub(crate) fn insert_vertex_blend(
     edge_indices: &[usize],
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
-) -> Result<(), String> {
+) -> Result<CornerPatchInfo, String> {
     // Repair the vertex's outgoing half-edge if it has become stale
     // due to prior topology operations (edge splitting, face splitting).
     repair_vertex_outgoing(brep, vertex)?;
@@ -66,14 +66,34 @@ pub(crate) fn insert_vertex_blend(
     remove_orphaned_vertex(brep, vertex);
 
     // Phase 4: Assign blend surface geometry to the merged face.
-    assign_blend_surface(
+    let method = assign_blend_surface(
         brep,
         blend_face,
         vertex,
         edge_indices,
         edge_geometries,
         tolerance,
-    )
+    )?;
+
+    // Achieved continuity is inferred from the method: the
+    // rolling-ball sphere is G1 with its incident blend strips by
+    // construction; the NURBS / Mitred fallbacks are G0 at the
+    // corner-to-blend boundaries (§5.3 Coons/Gregory upgrades
+    // deliver G1/G2, pending C3/C4).
+    let achieved_continuity = match method {
+        CornerMethod::RollingBallSphere => ContinuityLevel::G1,
+        CornerMethod::PolarNurbs | CornerMethod::Mitred => ContinuityLevel::G0,
+        CornerMethod::Coons | CornerMethod::Gregory => ContinuityLevel::G1,
+        CornerMethod::PlateMin => ContinuityLevel::G0,
+    };
+
+    Ok(CornerPatchInfo {
+        vertex,
+        n_sides: edge_indices.len(),
+        method,
+        achieved_continuity,
+        face: blend_face,
+    })
 }
 
 /// Phase 1: Split off corner triangles from each face around V.
@@ -155,6 +175,7 @@ fn remove_orphaned_vertex(brep: &mut BRep, vertex: VertexHandle) {
 }
 
 /// Phase 4: Compute and assign the blend surface to the merged face.
+/// Returns the [`CornerMethod`] that the fallback chain settled on.
 fn assign_blend_surface(
     brep: &mut BRep,
     blend_face: FaceHandle,
@@ -162,9 +183,8 @@ fn assign_blend_surface(
     edge_indices: &[usize],
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
-) -> Result<(), String> {
+) -> Result<CornerMethod, String> {
     let fillet_surfaces = build_fillet_surface_list(edge_indices, edge_geometries);
-    // Use local indices (0..N) for fillet_surfaces, not the original edge indices.
     let local_indices: Vec<usize> = (0..fillet_surfaces.len()).collect();
     let blend_boundary =
         blend::compute_blend_boundary(vertex, &local_indices, &fillet_surfaces, brep, tolerance)
@@ -179,12 +199,39 @@ fn assign_blend_surface(
     )
     .map_err(|e| format!("blend surface computation failed: {e}"))?;
 
+    let method = blend_result.method;
     brep.faces[blend_face].surface = Some(SurfaceOnFace {
         geometry: blend_result.surface,
         orientation: true,
     });
 
-    Ok(())
+    Ok(method)
+}
+
+/// Reclassify `CornerPatchInfo::method` from each patch's final
+/// face surface type, because `surface_fix::correct_face_surfaces`
+/// can override `build_blend_surface`'s initial choice (e.g.
+/// promoting a Mitred fallback plane to a fitted Sphere).
+pub(crate) fn reclassify_corner_methods(
+    brep: &BRep,
+    corner_patches: &mut [crate::types::CornerPatchInfo],
+) {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    for info in corner_patches.iter_mut() {
+        let Some(sof) = brep.faces.get(info.face).and_then(|f| f.surface.as_ref()) else {
+            continue;
+        };
+        let (method, continuity) = match &sof.geometry {
+            SurfaceGeometry::Sphere { .. } => {
+                (CornerMethod::RollingBallSphere, ContinuityLevel::G1)
+            }
+            SurfaceGeometry::Nurbs(_) => (CornerMethod::PolarNurbs, ContinuityLevel::G0),
+            SurfaceGeometry::Plane { .. } => (CornerMethod::Mitred, ContinuityLevel::G0),
+            _ => continue,
+        };
+        info.method = method;
+        info.achieved_continuity = continuity;
+    }
 }
 
 #[cfg(test)]

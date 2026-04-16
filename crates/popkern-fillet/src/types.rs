@@ -1,6 +1,6 @@
 //! API types for fillet and chamfer specifications.
 
-use popkern_core::topology::{EdgeHandle, FaceHandle};
+use popkern_core::topology::{EdgeHandle, FaceHandle, VertexHandle};
 
 use crate::error::BlendWarning;
 
@@ -11,6 +11,86 @@ pub struct BlendResult {
     pub brep: popkern_core::topology::BRep,
     /// Per-edge warnings emitted during blending.
     pub edge_warnings: Vec<(EdgeHandle, BlendWarning)>,
+    /// §5.3 per-corner patch reports — one entry per vertex where
+    /// three or more filleted edges met and a corner patch was
+    /// inserted. Empty when the operation produced no vertex
+    /// blends. See [`CornerPatchInfo`] for the schema.
+    pub corner_patches: Vec<CornerPatchInfo>,
+}
+
+/// §5.3 corner-resolution method used to build a single vertex-
+/// blend patch. Reported on [`CornerPatchInfo::method`] so a UI
+/// can tell at a glance which algorithm fired and colour the
+/// corners accordingly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CornerMethod {
+    /// Rolling-ball sphere. Used when the incident blend strips
+    /// all share one radius and the convexity is uniform (e.g. a
+    /// cube corner with equal-radius fillets). G1 by construction.
+    RollingBallSphere,
+    /// Polar NURBS surface fit through the boundary curves —
+    /// fallback when no sphere fits cleanly. Currently G0 with
+    /// the incoming blends.
+    PolarNurbs,
+    /// Flat (mitred) plane fit through the boundary points. Final
+    /// legacy fallback; G0, not suitable for Class-A surfaces.
+    Mitred,
+    /// §5.3 Coons patch for N=4 corners. Bilinear boundary
+    /// interpolation with G1 at each boundary. [Pending — C3.]
+    Coons,
+    /// §5.3 Gregory rational patch for general N. G1 reliable,
+    /// G2 implemented for N=3 and N=4 only. [Pending — C3/C4.]
+    Gregory,
+    /// §5.3 Plate-minimisation (thin-plate energy). [BEYOND, not
+    /// currently implemented.]
+    PlateMin,
+}
+
+impl CornerMethod {
+    /// Display string for diagnostics and UI.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CornerMethod::RollingBallSphere => "RollingBallSphere",
+            CornerMethod::PolarNurbs => "PolarNurbs",
+            CornerMethod::Mitred => "Mitred",
+            CornerMethod::Coons => "Coons",
+            CornerMethod::Gregory => "Gregory",
+            CornerMethod::PlateMin => "PlateMin",
+        }
+    }
+}
+
+impl std::fmt::Display for CornerMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// §5.3 per-corner patch report emitted on
+/// [`BlendResult::corner_patches`]. One entry per vertex where a
+/// blend patch was inserted. A UI uses this to annotate each corner
+/// with its method, N, and achieved continuity.
+#[derive(Debug, Clone)]
+pub struct CornerPatchInfo {
+    /// The original BRep vertex the corner was resolved at.
+    pub vertex: VertexHandle,
+    /// Number of incoming blend boundaries (the N in "N-sided
+    /// patch"). 2 for a two-blend corner; 3 for a cube-style
+    /// trihedral vertex; 4+ for higher-valence junctions.
+    pub n_sides: usize,
+    /// Which construction method produced the patch — see
+    /// [`CornerMethod`]. A UI should display this alongside the
+    /// achieved continuity so callers can distinguish a G1
+    /// Rolling-Ball-Sphere (clean analytic output) from a G0
+    /// Mitred fallback (flat plane, Class-A failure).
+    pub method: CornerMethod,
+    /// The [`ContinuityLevel`] actually achieved at the corner-vs-
+    /// edge boundaries. Lower than the requested
+    /// [`FilletOptions::continuity`] when the method couldn't
+    /// deliver — see [`crate::error::BlendWarning::CornerContinuityDowngraded`].
+    pub achieved_continuity: ContinuityLevel,
+    /// The corner face handle in the output BRep.
+    pub face: FaceHandle,
 }
 
 /// Specification for a single fillet edge.

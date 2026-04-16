@@ -337,6 +337,7 @@ fn fillet_edges_internal(
     Ok(BlendResult {
         brep: apply_result.brep,
         edge_warnings: all_warnings,
+        corner_patches: apply_result.corner_patches,
     })
 }
 
@@ -400,6 +401,7 @@ pub fn chamfer_edges(
     Ok(BlendResult {
         brep: apply_result.brep,
         edge_warnings: apply_result.warnings,
+        corner_patches: apply_result.corner_patches,
     })
 }
 

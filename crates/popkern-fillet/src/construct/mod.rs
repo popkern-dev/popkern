@@ -79,6 +79,9 @@ pub struct ApplyBlendResult {
     pub brep: BRep,
     /// Warnings generated during vertex mode handling.
     pub warnings: Vec<(EdgeHandle, BlendWarning)>,
+    /// §5.3 per-corner patch reports — one entry per vertex where
+    /// a blend patch was inserted.
+    pub corner_patches: Vec<crate::types::CornerPatchInfo>,
 }
 
 /// Apply computed fillet/chamfer geometry to a BRep.
@@ -98,6 +101,7 @@ pub fn apply_blend_geometry(
     let mut result = brep.clone();
     let mut failures: Vec<(EdgeHandle, BlendFailure)> = Vec::new();
     let mut warnings: Vec<(EdgeHandle, BlendWarning)> = Vec::new();
+    let mut corner_patches: Vec<crate::types::CornerPatchInfo> = Vec::new();
 
     // ── Phase A: ALL perpendicular edge splits ─────────────────────
     // Perp splits only modify edges (inserting vertices), not faces.
@@ -447,7 +451,7 @@ pub fn apply_blend_geometry(
                     edge_geometries,
                     tolerance,
                 ) {
-                    Ok(()) => {}
+                    Ok(info) => corner_patches.push(info),
                     Err(_) => {
                         let edge_idx = edge_indices[0];
                         if edge_idx < edge_geometries.len() {
@@ -480,8 +484,11 @@ pub fn apply_blend_geometry(
     // §8.3 caps — see `cap_insert` module docs.
     cap_insert::insert_caps(&mut result, brep, edge_geometries, &mut warnings);
 
+    blend_insert::reclassify_corner_methods(&result, &mut corner_patches);
+
     Ok(ApplyBlendResult {
         brep: result,
         warnings,
+        corner_patches,
     })
 }
