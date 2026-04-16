@@ -262,12 +262,19 @@ pub(crate) fn compute_fillet_geometry(
         })
         .unwrap_or((None, None));
 
-    // §8.3 caps: build the cap geometry at each blend endpoint if
-    // the caller requested a non-`Open` cap kind. The construction
-    // is pure geometry — it does not touch the BRep. Topology
-    // insertion of the cap face is a separate follow-up pass.
-    let (start_cap, end_cap) =
-        build_edge_caps(cap_kind, &center_result, radius_at_start, radius_at_end);
+    // §8.3 caps: geometry at each blend endpoint (pure, no BRep mutation).
+    let v_start_pos = brep.vertices[analysis.vertex_start].position;
+    let v_end_pos = brep.vertices[analysis.vertex_end].position;
+    let (start_cap, end_cap) = build_edge_caps(
+        cap_kind,
+        &center_result,
+        radius_at_start,
+        radius_at_end,
+        v_start_pos,
+        v_end_pos,
+        &trim_curves.curve_3d_1,
+        &trim_curves.curve_3d_2,
+    );
 
     Ok(EdgeGeometry {
         analysis: rebuild_analysis(analysis, brep)?,

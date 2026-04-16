@@ -418,11 +418,16 @@ fn insert_cap_face_creates_new_face_on_sheet_quad() {
     );
 }
 
-/// `insert_cap_face` returns false (no-op) when the boundary
-/// points don't map to real vertices near the endpoint.
+/// `insert_cap_face` returns false when the vertex has no
+/// adjacent vertices on faces with surface geometry — e.g.
+/// when all surrounding faces are virtual/surfaceless.
 #[test]
-fn insert_cap_face_returns_false_for_distant_contacts() {
+fn insert_cap_face_returns_false_when_all_faces_surfaceless() {
     let mut sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    // Clear ALL face surfaces so no face counts as "surfaced".
+    for fh in sheet.faces.keys().collect::<Vec<_>>() {
+        sheet.faces[fh].surface = None;
+    }
     let v0 = sheet.vertices.keys().next().unwrap();
     let cap = crate::cap::CapGeometry {
         kind: CapKind::Flat,
@@ -432,16 +437,13 @@ fn insert_cap_face_returns_false_for_distant_contacts() {
             u_axis: popkern_core::geometry::Vec3::new(1.0, 0.0, 0.0),
             v_axis: popkern_core::geometry::Vec3::new(0.0, 1.0, 0.0),
         }),
-        boundary_points: vec![
-            popkern_core::geometry::Point3::new(99.0, 99.0, 99.0),
-            popkern_core::geometry::Point3::new(100.0, 100.0, 100.0),
-        ],
+        boundary_points: vec![],
     };
     let faces_before = sheet.faces.len();
     let inserted = super::insert_cap_face(&mut sheet, v0, &cap);
     assert!(
         !inserted,
-        "cap insertion should fail when contacts are far from BRep vertices"
+        "cap insertion should fail when no adjacent face has a surface"
     );
     assert_eq!(sheet.faces.len(), faces_before);
 }

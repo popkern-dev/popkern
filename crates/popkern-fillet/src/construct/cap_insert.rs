@@ -174,35 +174,32 @@ fn insert_cap_face(brep: &mut BRep, vertex: VertexHandle, cap: &crate::cap::CapG
     let Some(surface) = &cap.surface else {
         return false;
     };
-    if cap.boundary_points.len() < 2 {
+
+    // Find the two vertices adjacent to `vertex` on a face with
+    // a surface (the fillet/torus face). These are the trim
+    // curve endpoints — the points where the fillet touches
+    // each support face at this endpoint. We derive them from
+    // the BRep topology (which is correct after Phase C) rather
+    // than from `cap.boundary_points` (which can overshoot due
+    // to footprint/center-curve extrapolation).
+    let adj = adjacent_vertices_on_surfaced_face(brep, vertex);
+    if adj.len() < 2 {
         return false;
     }
-    let target_1 = cap.boundary_points[0];
-    let target_2 = cap.boundary_points[cap.boundary_points.len() - 1];
-
-    let tol_sq = 1.0e-4_f64;
-    let v1 = find_nearest_vertex(brep, vertex, target_1, tol_sq);
-    let v2 = find_nearest_vertex(brep, vertex, target_2, tol_sq);
-    let (Some(v1), Some(v2)) = (v1, v2) else {
-        return false;
-    };
+    let v1 = adj[0];
+    let v2 = adj[1];
     if v1 == v2 {
         return false;
     }
 
-    // Find a pair of half-edges in the SAME loop, one with origin
-    // v1 and the other with origin v2.  `mef(he1, he2)` creates a
-    // new edge from he1.origin to he2.origin.
     let Some((he1, he2)) = find_common_loop_pair(brep, v1, v2) else {
         return false;
     };
 
-    // mef creates the new edge + face.
     let Ok(mef_r) = brep.mef(he1, he2) else {
         return false;
     };
 
-    // Assign the cap surface to the new face.
     brep.faces[mef_r.face].surface = Some(SurfaceOnFace {
         geometry: surface.clone(),
         orientation: true,
@@ -211,28 +208,29 @@ fn insert_cap_face(brep: &mut BRep, vertex: VertexHandle, cap: &crate::cap::CapG
     true
 }
 
-/// Walk faces around `vertex` and return the vertex whose
-/// position is closest to `target` (within `tol_sq` distance²).
-fn find_nearest_vertex(
-    brep: &BRep,
-    vertex: VertexHandle,
-    target: popkern_core::geometry::Point3,
-    tol_sq: f64,
-) -> Option<VertexHandle> {
-    let mut best: Option<(VertexHandle, f64)> = None;
-    for (vh, v) in brep.vertices.iter() {
-        if vh == vertex {
+/// Find vertices directly adjacent to `vertex` (connected by
+/// one edge) that lie on a face with non-None surface geometry.
+/// These are the fillet strip's trim endpoints at the cap
+/// boundary.
+fn adjacent_vertices_on_surfaced_face(brep: &BRep, vertex: VertexHandle) -> Vec<VertexHandle> {
+    let mut result = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (heh, he) in brep.half_edges.iter() {
+        if he.origin != vertex {
             continue;
         }
-        let dx = v.position.x - target.x;
-        let dy = v.position.y - target.y;
-        let dz = v.position.z - target.z;
-        let d2 = dx * dx + dy * dy + dz * dz;
-        if d2 < tol_sq && best.is_none_or(|(_, prev)| d2 < prev) {
-            best = Some((vh, d2));
+        let face = brep.loops[he.loop_].face;
+        if brep.faces[face].surface.is_none() {
+            continue;
         }
+        // The twin's origin is the "other end" of this edge.
+        let other = brep.half_edges[he.twin].origin;
+        if other != vertex && seen.insert(other) {
+            result.push(other);
+        }
+        let _ = heh;
     }
-    best.map(|(vh, _)| vh)
+    result
 }
 
 /// Find a pair of half-edges in the same face loop with origins

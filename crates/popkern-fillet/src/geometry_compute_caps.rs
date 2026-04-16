@@ -8,6 +8,7 @@
 
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::curve::CurveEval;
+use popkern_core::geometry::nurbs_curve::NurbsCurve;
 
 use crate::cap::{self, CapEndpoint, CapGeometry};
 use crate::center_curve::CenterCurveResult;
@@ -23,37 +24,62 @@ use crate::types::CapKind;
 /// determined by the endpoint contact data regardless of whether
 /// that endpoint is a "free boundary" in the BRep sense. The final
 /// topology insertion pass decides which caps to actually insert.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_edge_caps(
     cap_kind: CapKind,
     center_result: &CenterCurveResult,
     radius_at_start: f64,
     radius_at_end: f64,
+    vertex_start_pos: popkern_core::geometry::Point3,
+    _vertex_end_pos: popkern_core::geometry::Point3,
+    trim_3d_1: &NurbsCurve,
+    trim_3d_2: &NurbsCurve,
 ) -> (Option<CapGeometry>, Option<CapGeometry>) {
     if matches!(cap_kind, CapKind::Open | CapKind::UserDefined) {
         return (None, None);
     }
 
-    let fp1 = &center_result.footprint_1;
-    let fp2 = &center_result.footprint_2;
-    if fp1.is_empty() || fp2.is_empty() {
-        return (None, None);
-    }
+    // Derive contact positions from the trim curve endpoints
+    // rather than from the center curve's footprint samples.
+    // Footprints can overshoot the edge because the center
+    // curve (from offset-surface intersection) extends beyond
+    // the face boundaries. Trim curves are bounded correctly.
+    let (t1_lo, t1_hi) = trim_3d_1.parameter_range();
+    let (t2_lo, t2_hi) = trim_3d_2.parameter_range();
+    let trim1_start = trim_3d_1.point_at(t1_lo);
+    let trim1_end = trim_3d_1.point_at(t1_hi);
+    let trim2_start = trim_3d_2.point_at(t2_lo);
+    let trim2_end = trim_3d_2.point_at(t2_hi);
+
+    // Trim curves may run in either direction relative to the
+    // edge's vertex_start → vertex_end order. Pick the trim
+    // endpoint closest to each vertex for each cap.
+    let (c1_start, c1_end) =
+        if trim1_start.distance_to(&vertex_start_pos) <= trim1_end.distance_to(&vertex_start_pos) {
+            (trim1_start, trim1_end)
+        } else {
+            (trim1_end, trim1_start)
+        };
+    let (c2_start, c2_end) =
+        if trim2_start.distance_to(&vertex_start_pos) <= trim2_end.distance_to(&vertex_start_pos) {
+            (trim2_start, trim2_end)
+        } else {
+            (trim2_end, trim2_start)
+        };
 
     let start_cap = build_endpoint_cap(
         cap_kind,
         center_result,
-        fp1[0],
-        fp2[0],
+        c1_start,
+        c2_start,
         radius_at_start,
         true,
     );
-    let last = fp1.len() - 1;
-    let last2 = fp2.len() - 1;
     let end_cap = build_endpoint_cap(
         cap_kind,
         center_result,
-        fp1[last],
-        fp2[last2],
+        c1_end,
+        c2_end,
         radius_at_end,
         false,
     );
