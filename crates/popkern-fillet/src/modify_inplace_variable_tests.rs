@@ -154,22 +154,35 @@ fn modify_closed_variable_takes_in_place_fast_path() {
         "variable closed should take in-place sweep fast path; took {elapsed:?}"
     );
 
-    // Find the modified annulus face and assert its surface is
-    // now a NURBS sweep (not a Torus), because Variable → the
-    // true sweep path via the synthetic symmetric profile.
-    let mut found_sweep = false;
+    // Assert the surface is a NURBS sweep AND the minor radius
+    // actually varies around the rim (θ=π chord > 1.5× θ=0 chord,
+    // since start=0.04, end=0.10 → expected ratio ≈ 2.5).
+    let mut found = false;
     for fh in modified.faces.keys() {
         let f = &modified.faces[fh];
         if f.inner_loops.len() != 1 {
             continue;
         }
-        if let Some(SurfaceGeometry::Nurbs(_)) = f.surface.as_ref().map(|s| &s.geometry) {
-            found_sweep = true;
-        }
+        let Some(SurfaceGeometry::Nurbs(ns)) = f.surface.as_ref().map(|s| &s.geometry) else {
+            continue;
+        };
+        let (n_u, n_v) = (ns.num_u, ns.num_v);
+        let chord = |i: usize| -> f64 {
+            let a = ns.control_points[i * n_v];
+            let b = ns.control_points[i * n_v + (n_v - 1)];
+            ((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)).sqrt()
+        };
+        let c0 = chord(0);
+        let c_mid = chord(n_u / 2);
+        assert!(
+            c_mid > c0 * 1.5,
+            "Variable sweep: chord at θ=π ({c_mid}) should exceed seam chord ({c0})"
+        );
+        found = true;
     }
     assert!(
-        found_sweep,
-        "variable closed modify should now assign a NURBS sweep, not a Torus"
+        found,
+        "variable closed modify should assign a varying NURBS sweep"
     );
 }
 
