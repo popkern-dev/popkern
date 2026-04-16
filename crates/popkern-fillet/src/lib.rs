@@ -28,6 +28,9 @@ pub(crate) mod fillet_2d_plan;
 pub(crate) mod fillet_2d_solvers;
 pub mod fillet_surface;
 pub mod fillet_surface_analytic;
+#[cfg(test)]
+#[path = "g2_acceptance_tests.rs"]
+mod g2_acceptance_tests;
 pub mod g2_cross_section;
 pub(crate) mod geometry_compute;
 pub(crate) mod geometry_compute_caps;
