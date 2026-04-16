@@ -121,11 +121,18 @@ fn find_edge_and_param_at(brep: &BRep, point: Point3) -> Option<(EdgeHandle, f64
         let Some(he) = brep.half_edges.get(he_h) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        // The second vertex is the twin's origin on manifold
+        // edges, or the next half-edge's origin for boundary
+        // edges (whose twin is the null sentinel).
+        let v1_pos = if let Some(twin) = brep.half_edges.get(he.twin) {
+            brep.vertices[twin.origin].position
+        } else if let Some(next_he) = brep.half_edges.get(he.next) {
+            brep.vertices[next_he.origin].position
+        } else {
             continue;
         };
         let v0 = brep.vertices[he.origin].position;
-        let v1 = brep.vertices[twin.origin].position;
+        let v1 = v1_pos;
         let dx = v1.x - v0.x;
         let dy = v1.y - v0.y;
         let dz = v1.z - v0.z;

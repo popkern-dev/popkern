@@ -224,7 +224,11 @@ fn adjacent_vertices_on_surfaced_face(brep: &BRep, vertex: VertexHandle) -> Vec<
             continue;
         }
         // The twin's origin is the "other end" of this edge.
-        let other = brep.half_edges[he.twin].origin;
+        // Boundary edges have a null twin — skip.
+        let Some(twin) = brep.half_edges.get(he.twin) else {
+            continue;
+        };
+        let other = twin.origin;
         if other != vertex && seen.insert(other) {
             result.push(other);
         }

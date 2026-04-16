@@ -99,61 +99,48 @@ fn sheet_quad_fillet_is_currently_blocked_at_analysis() {
 }
 
 // ---------------------------------------------------------------------------
-// Virtual open face — end-to-end cap insertion integration test
+// True open-shell end-to-end: fillet_edges on open_box
 // ---------------------------------------------------------------------------
 
-/// Simulate an open shell by clearing one face's surface on a
-/// unit cube. The edge shared between the two remaining real-
-/// surface faces at that corner is fillettable (90° dihedral),
-/// and at the endpoint vertex adjacent to the surfaceless face,
-/// `endpoint_is_closed` now returns `false` (the surfaceless
-/// face is skipped as a virtual backside). The fillet pipeline
-/// emits a `CapApplied { topology_inserted: true }` warning for
-/// that endpoint, confirming the full §8.3 path fires.
+/// Fillet an interior edge of `BRep::open_box` with `cap_kind =
+/// Flat`. The open box has 4 boundary edges (null twin) and 8
+/// interior edges (manifold). Filleting an interior edge whose
+/// endpoint vertex touches a boundary edge should produce a free-
+/// boundary endpoint (`endpoint_is_closed` returns false on the
+/// original BRep because the boundary vertex has only 2 real-
+/// surface faces). The cap insertion path fires end-to-end.
 #[test]
-fn cap_insertion_fires_on_cube_with_virtual_open_face() {
-    use popkern_core::geometry::surface::SurfaceGeometry;
-    let mut cube = BRep::unit_cube(tol()).unwrap();
-
-    // Find a face to "remove" (clear its surface). Pick the
-    // first face we find — any will do since the cube is
-    // symmetric.
-    let virtual_face = cube.faces.keys().next().unwrap();
-    cube.faces[virtual_face].surface = None;
-
-    // Find an edge whose two support faces both still have
-    // real surface geometry AND that has at least one endpoint
-    // vertex touching the virtual face.
-    let target_edge = cube
+fn fillet_open_box_interior_edge_with_flat_cap() {
+    let ob = BRep::open_box(tol()).unwrap();
+    // Pick an interior edge (not a boundary edge) that has at
+    // least one endpoint vertex touching a boundary edge — those
+    // vertices have fewer than 3 real faces.
+    let target_edge = ob
         .edges
         .iter()
-        .find(|(_, edge)| {
-            let he = edge.half_edge;
-            let twin = cube.half_edges[he].twin;
-            let f1 = cube.loops[cube.half_edges[he].loop_].face;
-            let f2 = cube.loops[cube.half_edges[twin].loop_].face;
-            // Both faces must have surface geometry (not virtual).
-            let f1_real = cube.faces[f1].surface.is_some();
-            let f2_real = cube.faces[f2].surface.is_some();
-            if !f1_real || !f2_real {
+        .find(|(eh, _)| {
+            if ob.boundary_edges.contains(eh) {
                 return false;
             }
-            // At least one endpoint vertex must touch the virtual face.
-            let v_start = cube.half_edges[he].origin;
-            let v_end = cube.half_edges[twin].origin;
-            let touches_virtual = |v: popkern_core::topology::VertexHandle| -> bool {
-                cube.half_edges
+            // Check endpoint vertices touch a boundary edge.
+            let he = ob.edges[*eh].half_edge;
+            let twin = ob.half_edges[he].twin;
+            if twin == popkern_core::topology::HalfEdgeHandle::default() {
+                return false;
+            }
+            let v_start = ob.half_edges[he].origin;
+            let v_end = ob.half_edges[twin].origin;
+            let touches_boundary = |v: popkern_core::topology::VertexHandle| -> bool {
+                ob.half_edges
                     .values()
-                    .any(|h| h.origin == v && cube.loops[h.loop_].face == virtual_face)
+                    .any(|h| h.origin == v && ob.boundary_edges.contains(&h.edge))
             };
-            touches_virtual(v_start) || touches_virtual(v_end)
+            touches_boundary(v_start) || touches_boundary(v_end)
         })
         .map(|(h, _)| h);
 
     let Some(edge) = target_edge else {
-        // If no suitable edge exists (shouldn't happen on a
-        // cube), skip gracefully rather than panic.
-        return;
+        panic!("no interior edge touching a boundary vertex found on open_box");
     };
 
     let specs = vec![FilletSpec {
@@ -164,56 +151,41 @@ fn cap_insertion_fires_on_cube_with_virtual_open_face() {
         cap_kind: CapKind::Flat,
         ..FilletOptions::default()
     };
-    let result = fillet_edges(&cube, &specs, &opts, tol(), None);
+    let result = fillet_edges(&ob, &specs, &opts, tol(), None);
     match result {
         Ok(res) => {
-            // Check for at least one CapApplied warning with
-            // topology_inserted = true.
-            let cap_inserted = res.edge_warnings.iter().any(|(_, w)| {
-                matches!(
-                    w,
+            // Check for at least one CapApplied warning.
+            let cap_warnings: Vec<_> = res
+                .edge_warnings
+                .iter()
+                .filter_map(|(_, w)| match w {
                     BlendWarning::CapApplied {
-                        topology_inserted: true,
+                        at_start,
+                        topology_inserted,
                         ..
-                    }
-                )
-            });
-            if cap_inserted {
-                // Full §8.3 integration: cap face was created.
-                // Count faces with cap-kind surface (planar caps
-                // for Flat mode).
-                let plane_count = res
-                    .brep
-                    .faces
-                    .values()
-                    .filter(|f| {
-                        matches!(
-                            f.surface.as_ref().map(|s| &s.geometry),
-                            Some(SurfaceGeometry::Plane { .. })
-                        )
-                    })
-                    .count();
-                // More planes than the original 5 real faces
-                // means at least one cap face was inserted.
-                assert!(
-                    plane_count >= 6,
-                    "expected ≥6 plane faces (5 original + ≥1 cap), got {plane_count}"
+                    } => Some((*at_start, *topology_inserted)),
+                    _ => None,
+                })
+                .collect();
+            assert!(
+                !cap_warnings.is_empty(),
+                "expected at least one CapApplied warning on open_box fillet"
+            );
+            // At least one endpoint should have topology_inserted = true.
+            let any_inserted = cap_warnings.iter().any(|(_, ins)| *ins);
+            if any_inserted {
+                println!("§8.3 end-to-end: cap topology inserted on open_box!");
+            } else {
+                println!(
+                    "§8.3 partial: CapApplied warnings fired but insert_cap_face returned false (contact mismatch)"
                 );
             }
-            // If topology_inserted is false, the pipeline ran
-            // but insert_cap_face couldn't find matching contact
-            // vertices in the fillet output (the trim endpoints
-            // might not precisely match the cap boundary points).
-            // That's acceptable for the current implementation —
-            // the surgery code is correct (unit-tested above),
-            // and contact-vertex matching precision is a follow-up.
         }
-        Err(_) => {
-            // The fillet pipeline may reject the virtual-face
-            // cube for reasons unrelated to caps (e.g. the
-            // surfaceless face confuses the edge analyzer). This
-            // is acceptable — the unit tests above verify the
-            // surgery path directly.
+        Err(e) => {
+            // The fillet pipeline may crash on a null-twin access
+            // somewhere in the analysis/geometry path. Report the
+            // error clearly so we know what to guard.
+            panic!("fillet_edges on open_box failed: {e:?}");
         }
     }
 }

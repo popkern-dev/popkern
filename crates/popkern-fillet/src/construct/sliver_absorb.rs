@@ -213,7 +213,10 @@ fn find_corner_fragment_target(
         for _ in 0..walk_cap {
             let he = &brep.half_edges[cursor];
             let twin_h = he.twin;
-            let twin = &brep.half_edges[twin_h];
+            let Some(twin) = brep.half_edges.get(twin_h) else {
+                cursor = he.next;
+                continue;
+            };
             let twin_face = brep.loops[twin.loop_].face;
             if twin_face != fh
                 && let Some(twin_sof) = brep.faces[twin_face].surface.as_ref()
@@ -267,7 +270,10 @@ fn find_zero_area_target(
         for _ in 0..walk_cap {
             let he = &brep.half_edges[cursor];
             let twin_h = he.twin;
-            let twin = &brep.half_edges[twin_h];
+            let Some(twin) = brep.half_edges.get(twin_h) else {
+                cursor = he.next;
+                continue;
+            };
             let twin_face = brep.loops[twin.loop_].face;
             if twin_face != fh {
                 return Some((fh, twin_h, area));
@@ -294,7 +300,9 @@ fn find_redundant_edge_target(
         let he_h = brep.edges[eh].half_edge;
         let he = &brep.half_edges[he_h];
         let twin_h = he.twin;
-        let twin = &brep.half_edges[twin_h];
+        let Some(twin) = brep.half_edges.get(twin_h) else {
+            continue; // boundary edge
+        };
         let face_a = brep.loops[he.loop_].face;
         let face_b = brep.loops[twin.loop_].face;
         if face_a == face_b {

@@ -67,6 +67,23 @@ impl BRep {
         let vertex_a = he_ab_data.origin;
         let he_ab_next = he_ab_data.next;
         let he_ab_loop = he_ab_data.loop_;
+        let pcurve_ab = he_ab_data.pcurve.clone();
+
+        // Boundary edges have a null twin — handle them with a
+        // simplified split that only touches the surviving side.
+        let is_boundary = self.boundary_edges.contains(&edge);
+        if is_boundary {
+            return self.split_boundary_edge(
+                edge,
+                t,
+                he_ab,
+                vertex_a,
+                he_ab_next,
+                he_ab_loop,
+                &pcurve_ab,
+                &curve_on_edge,
+            );
+        }
 
         let he_ba_data = self
             .half_edges
@@ -76,9 +93,6 @@ impl BRep {
         let vertex_b = he_ba_data.origin;
         let he_ba_prev = he_ba_data.prev;
         let he_ba_loop = he_ba_data.loop_;
-
-        // Capture pcurves before mutation so we can split them.
-        let pcurve_ab = he_ab_data.pcurve.clone();
         let pcurve_ba = he_ba_data.pcurve.clone();
 
         // Compute the position of the new vertex.
@@ -271,8 +285,6 @@ impl BRep {
             edge_b,
         })
     }
-
-    /// Split a face along a trim curve.
     ///
     /// The trim curve endpoints must lie at existing vertices on the face's
     /// boundary (created by prior `split_edge` calls if needed). This method
@@ -439,7 +451,7 @@ impl BRep {
 /// Returns `(left, right)` where `left` covers the first portion and `right`
 /// covers the second. If the pcurve is `None` or splitting fails, returns
 /// `(None, None)`.
-fn split_pcurve_at(
+pub(crate) fn split_pcurve_at(
     pcurve: &Option<NurbsCurve>,
     t: f64,
 ) -> (Option<NurbsCurve>, Option<NurbsCurve>) {
