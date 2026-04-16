@@ -240,7 +240,7 @@ pub fn fillet_edges_2d_variable(
         }
     }
     let corners_ordered = walk_chain_corners(brep, edges)
-        .map_err(|reason| topology_failure(VertexHandle::default(), reason))?;
+        .map_err(|reason| topology_failure(brep, VertexHandle::default(), reason))?;
     let n = corners_ordered.len();
     if n == 0 {
         return Ok(brep.clone());
@@ -300,7 +300,7 @@ pub fn chamfer_edges_2d_variable(
         }
     }
     let corners_ordered = walk_chain_corners(brep, edges)
-        .map_err(|reason| topology_failure(VertexHandle::default(), reason))?;
+        .map_err(|reason| topology_failure(brep, VertexHandle::default(), reason))?;
     let n = corners_ordered.len();
     if n == 0 {
         return Ok(brep.clone());

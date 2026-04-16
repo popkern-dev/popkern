@@ -108,17 +108,17 @@ pub fn chamfer_corner_2d(
     }
 
     let plan = chamfer_plan(brep, vertex, dist_a, dist_b)
-        .map_err(|reason| topology_failure(vertex, reason))?;
+        .map_err(|reason| topology_failure(brep, vertex, reason))?;
 
     let mut out = brep.clone();
     apply_chamfer_plan(&mut out, vertex, &plan)
-        .map_err(|reason| topology_failure(vertex, reason))?;
+        .map_err(|reason| topology_failure(brep, vertex, reason))?;
 
     out.attach_planar_pcurves()
-        .map_err(|e| topology_failure(vertex, format!("pcurve refresh failed: {e:?}")))?;
+        .map_err(|e| topology_failure(brep, vertex, format!("pcurve refresh failed: {e:?}")))?;
 
     out.validate()
-        .map_err(|e| topology_failure(vertex, format!("validation failed: {e:?}")))?;
+        .map_err(|e| topology_failure(brep, vertex, format!("validation failed: {e:?}")))?;
 
     Ok(out)
 }

@@ -307,7 +307,7 @@ pub(crate) fn compute_chamfer_geometry(
         chamfer_curve::compute_chamfer(analysis, brep, kind, tolerance).map_err(|e| {
             BlendFailure::IntersectionFailed {
                 reason: e,
-                location: None,
+                location: edge_midpoint_by_handle(brep, analysis.edge),
             }
         })?;
 

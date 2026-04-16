@@ -92,18 +92,18 @@ pub fn fillet_corner_2d(
         });
     }
 
-    let plan =
-        corner_plan(brep, vertex, radius).map_err(|reason| topology_failure(vertex, reason))?;
+    let plan = corner_plan(brep, vertex, radius)
+        .map_err(|reason| topology_failure(brep, vertex, reason))?;
 
     let mut out = brep.clone();
     apply_corner_plan(&mut out, vertex, &plan)
-        .map_err(|reason| topology_failure(vertex, reason))?;
+        .map_err(|reason| topology_failure(brep, vertex, reason))?;
 
     out.attach_planar_pcurves()
-        .map_err(|e| topology_failure(vertex, format!("pcurve refresh failed: {e:?}")))?;
+        .map_err(|e| topology_failure(brep, vertex, format!("pcurve refresh failed: {e:?}")))?;
 
     out.validate()
-        .map_err(|e| topology_failure(vertex, format!("validation failed: {e:?}")))?;
+        .map_err(|e| topology_failure(brep, vertex, format!("validation failed: {e:?}")))?;
 
     Ok(out)
 }

@@ -135,11 +135,14 @@ fn fillet_corner_2d_rejects_invalid_radii() {
 
 /// A radius so large that the tangent setback exceeds the
 /// adjacent edge length is rejected with `InvalidTopology`
-/// (wrapped in `PartialFailure`).
+/// (wrapped in `PartialFailure`). The failure carries the corner
+/// vertex's 3D position as `location` so UI consumers can 3D-pick
+/// the diagnostic.
 #[test]
 fn fillet_corner_2d_rejects_radius_too_large() {
     let sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
     let corner = sheet.vertices.keys().next().unwrap();
+    let corner_pos = sheet.vertices[corner].position;
     // radius 2.0 on a unit-width quad has setback 2.0 which is
     // larger than the adjacent edge length of 1.0.
     let err = fillet_corner_2d(&sheet, corner, 2.0).unwrap_err();
@@ -147,8 +150,13 @@ fn fillet_corner_2d_rejects_radius_too_large() {
         BlendError::PartialFailure { failures, .. } => {
             let (_, f) = &failures[0];
             match f {
-                BlendFailure::InvalidTopology { reason, .. } => {
+                BlendFailure::InvalidTopology { reason, location } => {
                     assert!(reason.contains("too large"), "got reason: {reason}");
+                    let loc = location.expect("location should be populated");
+                    assert!(
+                        (loc - corner_pos).length() < 1e-12,
+                        "location {loc:?} != corner {corner_pos:?}"
+                    );
                 }
                 other => panic!("expected InvalidTopology, got {other:?}"),
             }
