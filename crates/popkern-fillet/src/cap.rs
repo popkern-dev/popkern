@@ -209,18 +209,32 @@ pub fn build_tangent_match_cap(endpoint: &CapEndpoint) -> CapGeometry {
     // Control points: 2×2 grid stored row-major (u varies within
     // each row). Corner CPs are the two contact points; the "far"
     // corners are each pushed along the opposite support face's
-    // inward normal by `r`, producing a curved surface that meets
-    // both supports tangentially at the contact boundaries.
+    // inward normal by `r`, with a small asymmetric bulge along the
+    // spine tangent to keep the surface non-degenerate.
+    //
+    // Without the bulge, the bilinear patch degenerates at (u=0.5,
+    // v=0.5) whenever (c2 − c1) is parallel to (inward_2 −
+    // inward_1) — which happens every time the two support faces
+    // meet at 90°, i.e. the typical cube-corner case. The normal
+    // goes to zero and `validate()` rejects the face.
+    //
+    // `spine_tangent_outward` is perpendicular to both support
+    // normals by rolling-ball geometry (the spine runs along the
+    // edge, ⊥ both support face normals at the contact points), so
+    // adding ±bulge * spine_tangent to P01 / P10 preserves the
+    // existing G1-with-support tangent-plane intent and only
+    // breaks the degenerate symmetry.
     let r = endpoint.radius;
     let c1 = endpoint.contact_1;
     let c2 = endpoint.contact_2;
     let inward_1 = endpoint.normal_1 * -r;
     let inward_2 = endpoint.normal_2 * -r;
+    let bulge = endpoint.spine_tangent_outward * (r * 0.5);
 
-    //          v=0          v=1
-    //  u=0:  [  c1  ,   c1 + inward_2  ]
-    //  u=1:  [ c2 + inward_1 ,   c2    ]
-    let control_points = vec![c1, c1 + inward_2, c2 + inward_1, c2];
+    //          v=0                      v=1
+    //  u=0:  [  c1  ,           c1 + inward_2 + bulge ]
+    //  u=1:  [ c2 + inward_1 - bulge ,   c2           ]
+    let control_points = vec![c1, c1 + inward_2 + bulge, c2 + inward_1 - bulge, c2];
     let weights = vec![1.0, 1.0, 1.0, 1.0];
     // Degree 1 in both directions — each row of CPs is a segment.
     let knots_u = vec![0.0, 0.0, 1.0, 1.0];

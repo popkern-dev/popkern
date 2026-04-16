@@ -215,18 +215,9 @@ fn fillet_open_box_interior_edge_with_rounded_cap() {
 }
 
 /// `CapKind::TangentMatch` on open_box: the inserted cap face
-/// carries a `Nurbs` surface (degree-1 bilinear patch per cap.rs).
-///
-/// **Ignored:** the bilinear NURBS patch produced by
-/// `build_tangent_match_cap` is hard-assigned `orientation: true`
-/// in `insert_cap_face`, which fails `validate()`
-/// (InconsistentOrientation). The NURBS control-point winding
-/// doesn't match the MEF-split face's loop direction on open_box;
-/// the cap-surface builder needs to compute orientation from the
-/// loop winding rather than hard-code it. Tracked as a follow-up
-/// — Flat and Rounded (with symmetric surfaces) do validate.
+/// carries a `Nurbs` surface (bilinear with a spine-tangent bulge
+/// so the (0.5, 0.5) normal stays non-degenerate).
 #[test]
-#[ignore]
 fn fillet_open_box_interior_edge_with_tangent_match_cap() {
     let result = fillet_open_box_with_cap(CapKind::TangentMatch);
     let inserted = result.edge_warnings.iter().any(|(_, w)| {
