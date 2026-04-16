@@ -321,6 +321,7 @@ mod tests {
             },
             trim_curve_1: trim_1,
             trim_curve_2: trim_2,
+            continuity_downgrade: None,
         }
     }
 

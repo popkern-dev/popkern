@@ -96,10 +96,11 @@ pub(crate) fn compute_fillet_geometry(
             | SurfaceGeometry::Torus { .. }
             | SurfaceGeometry::Cylinder { .. }
     );
-    let use_walker = either_needs_walker || wants_g2;
-
-    let center_result = if use_walker {
-        let walker_outcome = crate::geometry_compute_cone::compute_center_via_walker(
+    // §7 continuity downgrade tracking — populates
+    // `EdgeGeometry::continuity_downgrade` so `lib.rs` emits
+    // `BlendWarning::ContinuityDowngraded`.
+    let (center_result, mut downgrade_reason) =
+        crate::geometry_compute_cone::compute_center_with_fallback(
             analysis,
             radius,
             brep,
@@ -109,58 +110,22 @@ pub(crate) fn compute_fillet_geometry(
             v2_range,
             tolerance,
             edge_midpoint,
-        );
-        match walker_outcome {
-            Ok(r) => r,
-            Err(_walker_err) if !either_needs_walker && wants_g2 => {
-                // G2 opt-in walker failed on a non-cone pair. Silently
-                // degrade to the legacy G1 analytic path instead of
-                // propagating a walker-specific error — a commercial
-                // caller that asked for G2 would rather see a blend
-                // than see their whole operation fail. The resulting
-                // `CenterCurveResult` has `contact_solutions = None`,
-                // so `build_fillet_surface`'s G2 branch naturally
-                // won't fire and it'll fall through to the legacy
-                // arc sweep.
-                crate::geometry_compute_cone::compute_legacy_center_curve(
-                    analysis,
-                    radius,
-                    u1_range,
-                    v1_range,
-                    u2_range,
-                    v2_range,
-                    tolerance,
-                    edge_midpoint,
-                )?
-            }
-            Err(e) => return Err(e),
-        }
-    } else {
-        crate::geometry_compute_cone::compute_legacy_center_curve(
-            analysis,
-            radius,
-            u1_range,
-            v1_range,
-            u2_range,
-            v2_range,
-            tolerance,
-            edge_midpoint,
-        )?
-    };
+            either_needs_walker,
+            wants_g2,
+        )?;
 
     let (effective_radius, radius_at_start, radius_at_end) = match radius {
         FilletRadius::Constant(r) => (*r, *r, *r),
         FilletRadius::Variable { start, end } => ((*start + *end) * 0.5, *start, *end),
+        FilletRadius::ByPoints(pts) if pts.is_empty() => {
+            return Err(BlendFailure::InvalidTopology {
+                reason: "ByPoints radius with empty point list".to_string(),
+                location: Some(edge_midpoint),
+            });
+        }
         FilletRadius::ByPoints(pts) => {
-            if pts.is_empty() {
-                return Err(BlendFailure::InvalidTopology {
-                    reason: "ByPoints radius with empty point list".to_string(),
-                    location: Some(edge_midpoint),
-                });
-            }
             let avg = pts.iter().map(|(_, r)| *r).sum::<f64>() / pts.len() as f64;
-            // For ByPoints, look up the radii nearest the spec's
-            // start (parameter 0) and end (parameter 1) points.
+            // Look up radius at normalized parameter `target`.
             let r_at = |target: f64| -> f64 {
                 pts.iter()
                     .min_by(|a, b| {
@@ -199,6 +164,11 @@ pub(crate) fn compute_fillet_geometry(
         reason: e,
         location: Some(edge_midpoint),
     })?;
+
+    // Surface-builder downgrade (G2 sweep errored) — walker fallback takes precedence.
+    if downgrade_reason.is_none() {
+        downgrade_reason = fillet_result.continuity_downgrade.clone();
+    }
 
     // §13.2 post-construction self-intersection detection. The
     // pre-flight `self_intersection_safe_radius` check above catches
@@ -294,6 +264,7 @@ pub(crate) fn compute_fillet_geometry(
         step_rejections_used,
         start_cap,
         end_cap,
+        continuity_downgrade: crate::continuity::to_field(downgrade_reason),
     })
 }
 
@@ -339,6 +310,8 @@ pub(crate) fn compute_chamfer_geometry(
         // perpendicular edge splits.
         start_cap: None,
         end_cap: None,
+        // Chamfers are by definition G1 only — no continuity option.
+        continuity_downgrade: None,
     })
 }
 

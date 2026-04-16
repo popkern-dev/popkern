@@ -330,6 +330,7 @@ pub(crate) fn build_fillet_surface_list(
                 surface: eg.surface.clone(),
                 trim_curve_1: eg.trim_3d_1.clone(),
                 trim_curve_2: eg.trim_3d_2.clone(),
+                continuity_downgrade: None,
             })
         })
         .collect()

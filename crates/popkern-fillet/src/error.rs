@@ -315,6 +315,40 @@ pub enum BlendWarning {
         /// adjacent face and no insertion was needed.
         topology_inserted: bool,
     },
+    /// §7 continuity fallback: the caller requested a higher
+    /// continuity level than the engine was able to deliver for
+    /// this edge. The output is still a valid fillet — it just
+    /// sits at a lower level than requested.
+    ///
+    /// **When this fires.** The primary trigger is a G2 request
+    /// where either (a) the spine walker couldn't produce contact
+    /// solutions for the surface pair (e.g. degenerate normals,
+    /// analytic plane-plane path that bypasses the walker), or
+    /// (b) `g2_sweep_from_contact_solutions` errored on at least
+    /// one spine sample (`G2Error::ZeroChord`,
+    /// `DegenerateNormal`, or `TangentDegenerate`).
+    ///
+    /// **UI guidance.** Display this alongside
+    /// [`crate::quality::BlendQuality::achieved_continuity`] so the
+    /// caller sees both "you asked for G2" and "you got G1 because
+    /// the cross-section at sample 3 had a zero chord." Consumer
+    /// code that requires strict G2 should treat this as a failure
+    /// and reject the output.
+    ContinuityDowngraded {
+        /// The filleted edge whose blend surface was downgraded.
+        edge: EdgeHandle,
+        /// What the caller asked for (from
+        /// [`crate::types::FilletOptions::continuity`]).
+        requested: crate::types::ContinuityLevel,
+        /// What the engine actually delivered on this edge's blend
+        /// face. Always lower than `requested`.
+        achieved: crate::types::ContinuityLevel,
+        /// Human-readable reason for the downgrade. Comes from the
+        /// underlying walker / G2-sweep error so UI consumers can
+        /// surface the specific geometric condition that forced
+        /// the fallback.
+        reason: String,
+    },
 }
 
 // The Remediation types and the per-variant remediation-hint

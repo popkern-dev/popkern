@@ -65,6 +65,12 @@ pub struct EdgeGeometry {
     pub start_cap: Option<crate::cap::CapGeometry>,
     /// §8.3 end-endpoint cap (`None` when `cap_kind == Open`).
     pub end_cap: Option<crate::cap::CapGeometry>,
+    /// §7 continuity downgrade record: `Some((achieved_level, reason))`
+    /// when the engine fell back from the requested continuity. The
+    /// caller picks this up after `compute_fillet_geometry` returns
+    /// and emits a [`crate::error::BlendWarning::ContinuityDowngraded`]
+    /// on the result's `edge_warnings` list.
+    pub continuity_downgrade: Option<(crate::types::ContinuityLevel, String)>,
 }
 
 /// Result of applying blend geometry, including warnings.

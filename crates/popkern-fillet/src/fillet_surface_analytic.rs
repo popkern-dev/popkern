@@ -101,6 +101,7 @@ pub(crate) fn try_plane_plane_analytic(
         surface,
         trim_curve_1: trim_1,
         trim_curve_2: trim_2,
+        continuity_downgrade: None,
     })
 }
 
@@ -228,6 +229,7 @@ pub(crate) fn try_circular_center_torus(
         surface,
         trim_curve_1: trim_1,
         trim_curve_2: trim_2,
+        continuity_downgrade: None,
     })
 }
 
@@ -339,5 +341,6 @@ pub(crate) fn try_parallel_cylinder_cylinder(
         surface,
         trim_curve_1: trim_1,
         trim_curve_2: trim_2,
+        continuity_downgrade: None,
     })
 }

@@ -237,6 +237,48 @@ fn fillet_edges_with_quality_propagates_validation_error() {
     ));
 }
 
+/// G1-by-default fillets emit no `ContinuityDowngraded` warnings —
+/// negative-case regression guard for the §7 downgrade plumbing.
+#[test]
+fn g1_fillet_emits_no_continuity_downgraded_warning() {
+    let (brep, edge) = cube_and_edge();
+    let specs = vec![FilletSpec {
+        edge,
+        radius: FilletRadius::Constant(0.1),
+    }];
+    let r = fillet_edges(&brep, &specs, &FilletOptions::default(), tol(), None).unwrap();
+    let count = r
+        .edge_warnings
+        .iter()
+        .filter(|(_, w)| matches!(w, BlendWarning::ContinuityDowngraded { .. }))
+        .count();
+    assert_eq!(count, 0);
+}
+
+/// G2 fillet on a cube succeeds end-to-end on the primary blend
+/// strip (degree-5 NURBS) and fires no ContinuityDowngraded
+/// warning — the walker produces contact solutions, the G2 sweep
+/// converges on every sample.
+#[test]
+fn g2_cube_edge_fires_no_downgrade_warning() {
+    let (brep, edge) = cube_and_edge();
+    let specs = vec![FilletSpec {
+        edge,
+        radius: FilletRadius::Constant(0.1),
+    }];
+    let opts = FilletOptions {
+        continuity: crate::ContinuityLevel::G2,
+        ..FilletOptions::default()
+    };
+    let r = fillet_edges(&brep, &specs, &opts, tol(), None).unwrap();
+    let count = r
+        .edge_warnings
+        .iter()
+        .filter(|(_, w)| matches!(w, BlendWarning::ContinuityDowngraded { .. }))
+        .count();
+    assert_eq!(count, 0, "G2 cube edge should not downgrade");
+}
+
 #[test]
 fn fillet_cancellable_pre_signaled_returns_cancelled_without_mutation() {
     let (brep, edge) = cube_and_edge();

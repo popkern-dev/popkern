@@ -22,6 +22,11 @@ pub struct FilletSurfaceResult {
     pub trim_curve_1: NurbsCurve,
     /// Trim curve on the second surface (3D curve along footprint_2).
     pub trim_curve_2: NurbsCurve,
+    /// §7 continuity downgrade: `Some(reason)` when the caller
+    /// requested G2 but the G2 sweep errored and the builder fell
+    /// back to the legacy G1 arc sweep. `None` when the delivered
+    /// surface matches the requested continuity.
+    pub continuity_downgrade: Option<String>,
 }
 
 /// Build the fillet surface from center-curve data and the two adjacent surfaces.
@@ -55,7 +60,12 @@ pub fn build_fillet_surface(
 ) -> Result<FilletSurfaceResult, String> {
     // G2 path: route through the degree-5 Bezier sweep when the
     // caller asked for it AND the center-curve producer (the spine
-    // walker) gave us per-sample contact solutions.
+    // walker) gave us per-sample contact solutions. If the G2
+    // sweep errors on a specific cross-section (ZeroChord,
+    // DegenerateNormal, TangentDegenerate), fall back to the
+    // legacy G1 arc sweep and record the reason so the caller
+    // emits a ContinuityDowngraded warning.
+    let mut g2_fallback_reason: Option<String> = None;
     if continuity == ContinuityLevel::G2
         && let Some(solutions) = center_result.contact_solutions.as_deref()
         && solutions.len() >= 2
@@ -78,15 +88,24 @@ pub fn build_fillet_surface(
         } else {
             BallSide::Outside
         };
-        let nurbs = g2_sweep_from_contact_solutions(solutions, surface1, surface2, side_0, side_1)
-            .map_err(|e| format!("G2 sweep failed: {e}"))?;
-        let trim_1 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_1)?;
-        let trim_2 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_2)?;
-        return Ok(FilletSurfaceResult {
-            surface: SurfaceGeometry::Nurbs(nurbs),
-            trim_curve_1: trim_1,
-            trim_curve_2: trim_2,
-        });
+        match g2_sweep_from_contact_solutions(solutions, surface1, surface2, side_0, side_1) {
+            Ok(nurbs) => {
+                let trim_1 =
+                    crate::center_curve::fit_nurbs_through_points(&center_result.footprint_1)?;
+                let trim_2 =
+                    crate::center_curve::fit_nurbs_through_points(&center_result.footprint_2)?;
+                return Ok(FilletSurfaceResult {
+                    surface: SurfaceGeometry::Nurbs(nurbs),
+                    trim_curve_1: trim_1,
+                    trim_curve_2: trim_2,
+                    continuity_downgrade: None,
+                });
+            }
+            Err(e) => {
+                g2_fallback_reason = Some(format!("G2 sweep failed: {e}"));
+                // Fall through to the legacy arc-sweep path.
+            }
+        }
     }
 
     // Try analytic torus fast paths for constant-radius fillets.
@@ -118,8 +137,11 @@ pub fn build_fillet_surface(
         }
     }
 
-    // General case: NURBS swept surface (G1 arc).
-    build_nurbs_sweep(center_result, radius, arc_samples)
+    // General case: NURBS swept surface (G1 arc). If we fell here
+    // after a G2 sweep failure, attach the downgrade reason.
+    let mut result = build_nurbs_sweep(center_result, radius, arc_samples)?;
+    result.continuity_downgrade = g2_fallback_reason;
+    Ok(result)
 }
 
 /// Build a NURBS swept surface by skinning cross-section arcs along the center curve.
@@ -182,6 +204,7 @@ fn build_nurbs_sweep(
         surface: SurfaceGeometry::Nurbs(nurbs),
         trim_curve_1: trim_1,
         trim_curve_2: trim_2,
+        continuity_downgrade: None,
     })
 }
 

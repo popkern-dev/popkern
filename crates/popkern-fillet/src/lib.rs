@@ -15,6 +15,7 @@ pub mod chamfer_curve;
 pub(crate) mod collapsed_skip;
 pub mod construct;
 pub mod contact;
+pub(crate) mod continuity;
 pub(crate) mod corner_2d_helpers;
 pub mod curvature_comb;
 pub(crate) mod cusp_subdivide;
@@ -105,6 +106,7 @@ pub fn fillet_edges(
 
 /// Cancellable variant of [`fillet_edges`] — returns
 /// [`BlendError::Cancelled`] if the token fires between phases.
+#[rustfmt::skip]
 pub fn fillet_edges_cancellable(
     brep: &BRep,
     specs: &[FilletSpec],
@@ -113,18 +115,11 @@ pub fn fillet_edges_cancellable(
     tracking: Option<&mut TrackingContext>,
     cancel: &cancellation::CancellationToken,
 ) -> Result<BlendResult, BlendError> {
-    fillet_edges_internal(
-        brep,
-        specs,
-        options,
-        tolerance,
-        tracking,
-        Some(cancel),
-        None,
-    )
+    fillet_edges_internal(brep, specs, options, tolerance, tracking, Some(cancel), None)
 }
 
 /// Progress-reporting variant of [`fillet_edges`]. See [`ProgressReporter`].
+#[rustfmt::skip]
 pub fn fillet_edges_with_progress(
     brep: &BRep,
     specs: &[FilletSpec],
@@ -133,15 +128,7 @@ pub fn fillet_edges_with_progress(
     tracking: Option<&mut TrackingContext>,
     reporter: &mut dyn progress::ProgressReporter,
 ) -> Result<BlendResult, BlendError> {
-    fillet_edges_internal(
-        brep,
-        specs,
-        options,
-        tolerance,
-        tracking,
-        None,
-        Some(reporter),
-    )
+    fillet_edges_internal(brep, specs, options, tolerance, tracking, None, Some(reporter))
 }
 
 /// Pipeline body for [`fillet_edges`] + cancellable/progress variants.
@@ -335,6 +322,8 @@ fn fillet_edges_internal(
         };
         all_warnings.push((edge_h, warn));
     }
+
+    continuity::emit_downgrade_warnings(&edge_geometries, options, &mut all_warnings);
 
     // Assign stable names when tracking is active.
     if let Some(ctx) = tracking {

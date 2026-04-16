@@ -154,6 +154,69 @@ pub(crate) fn compute_center_via_walker(
     })
 }
 
+/// Walker-or-legacy center curve dispatch with §7 continuity
+/// downgrade tracking. Returns `(center_result, downgrade_reason)` —
+/// the reason string is `Some` when the walker failed on a non-cone
+/// G2 request and the pipeline degraded to the legacy path.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn compute_center_with_fallback(
+    analysis: &analysis::EdgeAnalysis,
+    radius: &FilletRadius,
+    brep: &BRep,
+    u1_range: (f64, f64),
+    v1_range: (f64, f64),
+    u2_range: (f64, f64),
+    v2_range: (f64, f64),
+    tolerance: &Tolerance,
+    edge_midpoint: Point3,
+    either_needs_walker: bool,
+    wants_g2: bool,
+) -> Result<(CenterCurveResult, Option<String>), BlendFailure> {
+    if either_needs_walker || wants_g2 {
+        let w = compute_center_via_walker(
+            analysis,
+            radius,
+            brep,
+            u1_range,
+            v1_range,
+            u2_range,
+            v2_range,
+            tolerance,
+            edge_midpoint,
+        );
+        match w {
+            Ok(r) => Ok((r, None)),
+            Err(walker_err) if !either_needs_walker && wants_g2 => {
+                let reason = format!("walker failed: {walker_err:?}");
+                let legacy = compute_legacy_center_curve(
+                    analysis,
+                    radius,
+                    u1_range,
+                    v1_range,
+                    u2_range,
+                    v2_range,
+                    tolerance,
+                    edge_midpoint,
+                )?;
+                Ok((legacy, Some(reason)))
+            }
+            Err(e) => Err(e),
+        }
+    } else {
+        compute_legacy_center_curve(
+            analysis,
+            radius,
+            u1_range,
+            v1_range,
+            u2_range,
+            v2_range,
+            tolerance,
+            edge_midpoint,
+        )
+        .map(|r| (r, None))
+    }
+}
+
 /// Legacy offset-intersect center curve: the pre-phase-1 path that
 /// analytically offsets both surfaces, intersects the offsets, and
 /// picks the curve closest to the edge midpoint. Used as the primary
