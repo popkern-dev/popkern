@@ -271,3 +271,7 @@ fn find_common_loop_pair(
 #[cfg(test)]
 #[path = "cap_insert_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cap_insert_integration_tests.rs"]
+mod integration_tests;

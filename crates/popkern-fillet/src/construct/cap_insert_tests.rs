@@ -81,157 +81,8 @@ fn sheet_quad_fillet_is_currently_blocked_at_analysis() {
 }
 
 // ---------------------------------------------------------------------------
-// True open-shell end-to-end: fillet_edges on open_box
+// Cap-warning shape on closed solids (cube)
 // ---------------------------------------------------------------------------
-
-/// Find an interior edge of `open_box` with at least one endpoint
-/// vertex on the boundary — the canonical case where cap insertion
-/// must fire.
-fn pick_boundary_adjacent_interior_edge(ob: &BRep) -> popkern_core::topology::EdgeHandle {
-    ob.edges
-        .iter()
-        .find(|(eh, _)| {
-            if ob.boundary_edges.contains(eh) {
-                return false;
-            }
-            let he = ob.edges[*eh].half_edge;
-            let twin = ob.half_edges[he].twin;
-            if twin == popkern_core::topology::HalfEdgeHandle::default() {
-                return false;
-            }
-            let v_start = ob.half_edges[he].origin;
-            let v_end = ob.half_edges[twin].origin;
-            let touches_boundary = |v: popkern_core::topology::VertexHandle| -> bool {
-                ob.half_edges
-                    .values()
-                    .any(|h| h.origin == v && ob.boundary_edges.contains(&h.edge))
-            };
-            touches_boundary(v_start) || touches_boundary(v_end)
-        })
-        .map(|(h, _)| h)
-        .expect("open_box has a boundary-adjacent interior edge")
-}
-
-/// Fillet an interior edge of `open_box` with a given `CapKind`,
-/// asserting the output validates end-to-end. Returns the result
-/// so callers can make kind-specific assertions about the cap.
-fn fillet_open_box_with_cap(kind: CapKind) -> crate::BlendResult {
-    let ob = BRep::open_box(tol()).unwrap();
-    let edge = pick_boundary_adjacent_interior_edge(&ob);
-    let specs = vec![FilletSpec {
-        edge,
-        radius: FilletRadius::Constant(0.1),
-    }];
-    let opts = FilletOptions {
-        cap_kind: kind,
-        ..FilletOptions::default()
-    };
-    let faces_before = ob.faces.len();
-    let result = fillet_edges(&ob, &specs, &opts, tol(), None)
-        .unwrap_or_else(|e| panic!("fillet on open_box (kind={kind:?}) failed: {e:?}"));
-    assert!(
-        result.brep.faces.len() > faces_before,
-        "{kind:?} cap: face count should grow (before={}, after={})",
-        faces_before,
-        result.brep.faces.len()
-    );
-    result
-        .brep
-        .validate()
-        .unwrap_or_else(|e| panic!("open_box fillet with {kind:?} cap should validate: {e:?}"));
-    result
-}
-
-/// `CapKind::Flat` on open_box: cap insertion fires at the free
-/// boundary endpoint, output validates, and at least one
-/// CapApplied warning carries `topology_inserted = true`.
-#[test]
-fn fillet_open_box_interior_edge_with_flat_cap() {
-    let result = fillet_open_box_with_cap(CapKind::Flat);
-    let any_inserted = result.edge_warnings.iter().any(|(_, w)| {
-        matches!(
-            w,
-            BlendWarning::CapApplied {
-                topology_inserted: true,
-                kind: CapKind::Flat,
-                ..
-            }
-        )
-    });
-    assert!(
-        any_inserted,
-        "§8.3 end-to-end: expected at least one Flat cap to be inserted on open_box"
-    );
-}
-
-/// Open cap on open_box: no insertion warnings, output validates.
-/// Confirms that the boundary-edge split path produces valid
-/// topology before cap insertion enters the picture.
-#[test]
-fn fillet_open_box_interior_edge_with_open_cap_validates() {
-    let result = fillet_open_box_with_cap(CapKind::Open);
-    let cap_warns = result
-        .edge_warnings
-        .iter()
-        .filter(|(_, w)| matches!(w, BlendWarning::CapApplied { .. }))
-        .count();
-    assert_eq!(
-        cap_warns, 0,
-        "Open cap must not emit CapApplied warnings on open_box"
-    );
-}
-
-/// `CapKind::Rounded` on open_box: the inserted cap face carries
-/// a `Sphere` surface (matching §8.3's G1-with-blend spec).
-#[test]
-fn fillet_open_box_interior_edge_with_rounded_cap() {
-    let result = fillet_open_box_with_cap(CapKind::Rounded);
-    let inserted = result.edge_warnings.iter().any(|(_, w)| {
-        matches!(
-            w,
-            BlendWarning::CapApplied {
-                topology_inserted: true,
-                kind: CapKind::Rounded,
-                ..
-            }
-        )
-    });
-    assert!(inserted, "Rounded cap should be inserted on open_box");
-    use popkern_core::geometry::surface::SurfaceGeometry;
-    let sphere_count = result
-        .brep
-        .faces
-        .values()
-        .filter(|f| {
-            f.surface
-                .as_ref()
-                .is_some_and(|sof| matches!(sof.geometry, SurfaceGeometry::Sphere { .. }))
-        })
-        .count();
-    assert!(
-        sphere_count >= 1,
-        "at least one face should carry a Sphere surface (cap or vertex blend)"
-    );
-}
-
-/// `CapKind::TangentMatch` on open_box: the inserted cap face
-/// carries a `Nurbs` surface (bilinear with a spine-tangent bulge
-/// so the (0.5, 0.5) normal stays non-degenerate).
-#[test]
-fn fillet_open_box_interior_edge_with_tangent_match_cap() {
-    let result = fillet_open_box_with_cap(CapKind::TangentMatch);
-    let inserted = result.edge_warnings.iter().any(|(_, w)| {
-        matches!(
-            w,
-            BlendWarning::CapApplied {
-                topology_inserted: true,
-                kind: CapKind::TangentMatch,
-                ..
-            }
-        )
-    });
-    assert!(inserted, "TangentMatch cap should be inserted on open_box");
-}
 
 /// With `cap_kind = Open`, no `CapApplied` warnings are emitted
 /// for a vanilla cube fillet.
@@ -243,26 +94,18 @@ fn open_cap_kind_emits_no_cap_applied_warnings() {
         edge,
         radius: FilletRadius::Constant(0.1),
     }];
-    let opts = FilletOptions::default(); // cap_kind = Open
-
-    let result = fillet_edges(&cube, &specs, &opts, tol(), None).expect("fillet should succeed");
-
-    let cap_warnings: Vec<_> = result
+    let opts = FilletOptions::default();
+    let result = fillet_edges(&cube, &specs, &opts, tol(), None).unwrap();
+    let count = result
         .edge_warnings
         .iter()
         .filter(|(_, w)| matches!(w, BlendWarning::CapApplied { .. }))
-        .collect();
-    assert!(
-        cap_warnings.is_empty(),
-        "open cap_kind should produce no CapApplied warnings, got {}",
-        cap_warnings.len()
-    );
+        .count();
+    assert_eq!(count, 0);
 }
 
-/// With `cap_kind = Flat` on a cube edge fillet, both endpoints
-/// should emit `CapApplied { topology_inserted: false }` warnings
-/// — the cube is a closed solid and every endpoint has an adjacent
-/// face that serves as the implicit cap.
+/// Cube edge with `Flat` cap: both endpoints emit implicit
+/// (topology_inserted: false) warnings.
 #[test]
 fn flat_cap_kind_emits_two_implicit_warnings_on_cube_edge() {
     let cube = BRep::unit_cube(tol()).unwrap();
@@ -275,9 +118,7 @@ fn flat_cap_kind_emits_two_implicit_warnings_on_cube_edge() {
         cap_kind: CapKind::Flat,
         ..FilletOptions::default()
     };
-
-    let result = fillet_edges(&cube, &specs, &opts, tol(), None).expect("fillet should succeed");
-
+    let result = fillet_edges(&cube, &specs, &opts, tol(), None).unwrap();
     let cap_warnings: Vec<_> = result
         .edge_warnings
         .iter()
@@ -297,7 +138,7 @@ fn flat_cap_kind_emits_two_implicit_warnings_on_cube_edge() {
     for (w_edge, at_start, kind, inserted) in cap_warnings {
         assert_eq!(w_edge, edge);
         assert_eq!(kind, CapKind::Flat);
-        assert!(!inserted, "cube corner is closed");
+        assert!(!inserted);
         if at_start {
             saw_start = true;
         } else {
@@ -307,8 +148,8 @@ fn flat_cap_kind_emits_two_implicit_warnings_on_cube_edge() {
     assert!(saw_start && saw_end);
 }
 
-/// `cap_kind = Rounded` and `TangentMatch` also emit the
-/// implicit-closed warnings on a cube. The kind field must match.
+/// `Rounded` and `TangentMatch` on a cube emit the same shape of
+/// warnings — kind propagates through.
 #[test]
 fn rounded_and_tangent_match_kinds_propagate_to_warnings() {
     for kind in [CapKind::Rounded, CapKind::TangentMatch] {
@@ -323,7 +164,6 @@ fn rounded_and_tangent_match_kinds_propagate_to_warnings() {
             ..FilletOptions::default()
         };
         let result = fillet_edges(&cube, &specs, &opts, tol(), None).unwrap();
-
         let kinds: Vec<CapKind> = result
             .edge_warnings
             .iter()
@@ -337,9 +177,8 @@ fn rounded_and_tangent_match_kinds_propagate_to_warnings() {
     }
 }
 
-/// `cap_kind = UserDefined` is a [BEYOND] placeholder that falls
-/// back to `Open` semantics: no cap geometry is produced and no
-/// `CapApplied` warnings fire.
+/// `UserDefined` is a [BEYOND] placeholder — falls back to Open
+/// semantics, no cap warnings.
 #[test]
 fn user_defined_cap_kind_emits_no_cap_applied_warnings() {
     let cube = BRep::unit_cube(tol()).unwrap();
@@ -353,24 +192,20 @@ fn user_defined_cap_kind_emits_no_cap_applied_warnings() {
         ..FilletOptions::default()
     };
     let result = fillet_edges(&cube, &specs, &opts, tol(), None).unwrap();
-
-    let cap_count = result
+    let count = result
         .edge_warnings
         .iter()
         .filter(|(_, w)| matches!(w, BlendWarning::CapApplied { .. }))
         .count();
-    assert_eq!(cap_count, 0, "UserDefined should not emit CapApplied");
+    assert_eq!(count, 0);
 }
 
 // ---------------------------------------------------------------------------
 // Direct topology surgery unit tests
 // ---------------------------------------------------------------------------
 
-/// Test `insert_cap_face` directly on a sheet_quad. Use
-/// vertices v1 = (1, 0, 0) and v3 = (0, 1, 0) as the "contact
-/// vertices" of a synthetic cap at the v0 = (0, 0, 0) corner.
-/// `mef` splits the front face along the v1-v3 diagonal,
-/// creating a new triangular face that gets the cap surface.
+/// `insert_cap_face` on a sheet_quad creates one new face + one
+/// new diagonal edge; the new face carries the cap's plane.
 #[test]
 fn insert_cap_face_creates_new_face_on_sheet_quad() {
     use popkern_core::geometry::surface::SurfaceGeometry;
@@ -381,8 +216,6 @@ fn insert_cap_face_creates_new_face_on_sheet_quad() {
         .find(|(_, v)| v.position.x == 0.0 && v.position.y == 0.0)
         .map(|(h, _)| h)
         .unwrap();
-    let contact_1_pos = popkern_core::geometry::Point3::new(1.0, 0.0, 0.0);
-    let contact_2_pos = popkern_core::geometry::Point3::new(0.0, 1.0, 0.0);
     let cap = crate::cap::CapGeometry {
         kind: CapKind::Flat,
         surface: Some(SurfaceGeometry::Plane {
@@ -391,7 +224,10 @@ fn insert_cap_face_creates_new_face_on_sheet_quad() {
             u_axis: popkern_core::geometry::Vec3::new(1.0, 0.0, 0.0),
             v_axis: popkern_core::geometry::Vec3::new(0.0, 1.0, 0.0),
         }),
-        boundary_points: vec![contact_1_pos, contact_2_pos],
+        boundary_points: vec![
+            popkern_core::geometry::Point3::new(1.0, 0.0, 0.0),
+            popkern_core::geometry::Point3::new(0.0, 1.0, 0.0),
+        ],
     };
     let faces_before = sheet.faces.len();
     let edges_before = sheet.edges.len();
@@ -405,13 +241,11 @@ fn insert_cap_face_creates_new_face_on_sheet_quad() {
     }));
 }
 
-/// `insert_cap_face` returns false when the vertex has no
-/// adjacent vertices on faces with surface geometry — e.g.
-/// when all surrounding faces are virtual/surfaceless.
+/// `insert_cap_face` returns false when no surrounding face has
+/// surface geometry.
 #[test]
 fn insert_cap_face_returns_false_when_all_faces_surfaceless() {
     let mut sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
-    // Clear ALL face surfaces so no face counts as "surfaced".
     for fh in sheet.faces.keys().collect::<Vec<_>>() {
         sheet.faces[fh].surface = None;
     }
@@ -427,18 +261,12 @@ fn insert_cap_face_returns_false_when_all_faces_surfaceless() {
         boundary_points: vec![],
     };
     let faces_before = sheet.faces.len();
-    let inserted = super::insert_cap_face(&mut sheet, v0, &cap);
-    assert!(
-        !inserted,
-        "cap insertion should fail when no adjacent face has a surface"
-    );
+    assert!(!super::insert_cap_face(&mut sheet, v0, &cap));
     assert_eq!(sheet.faces.len(), faces_before);
 }
 
-/// Cap insertion is a pure post-construct pass — enabling it does
-/// not change the BRep's face or edge count on closed solids. This
-/// is the "no regression" guard: every existing closed-body fillet
-/// result is byte-compatible with the pre-§8.3 output.
+/// Closed-solid cube fillet: cap insertion is a no-op — face /
+/// edge / vertex counts match across all cap modes.
 #[test]
 fn cap_insertion_is_a_no_op_on_closed_cube_topology() {
     let cube = BRep::unit_cube(tol()).unwrap();
@@ -447,7 +275,6 @@ fn cap_insertion_is_a_no_op_on_closed_cube_topology() {
         edge,
         radius: FilletRadius::Constant(0.1),
     }];
-
     let with_kind = |k: CapKind| {
         let opts = FilletOptions {
             cap_kind: k,
