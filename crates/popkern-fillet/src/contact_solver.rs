@@ -43,26 +43,29 @@ pub fn solve_rolling_ball_contact(
         ContactQuality::Preview => (3.min(options.max_iterations), residual_tol * 10.0),
     };
 
-    // Validate initial guesses are inside the supplied UV bounds.
+    // Validate or clamp initial UV guesses. Default: reject
+    // out-of-bounds (existing behaviour). With `clamp_initial_uv`
+    // (§12.3 blend-on-blend), silently clamp to the boundary.
     let clamped_uv0 = clamp_uv(request.initial_uv0, request.uv0_range);
     let clamped_uv1 = clamp_uv(request.initial_uv1, request.uv1_range);
-    if clamped_uv0 != request.initial_uv0 {
-        return Err(ContactError::OutOfBounds {
-            surface_index: 0,
-            uv: request.initial_uv0,
-            clamped_uv: clamped_uv0,
-        });
+    if !options.clamp_initial_uv {
+        if clamped_uv0 != request.initial_uv0 {
+            return Err(ContactError::OutOfBounds {
+                surface_index: 0,
+                uv: request.initial_uv0,
+                clamped_uv: clamped_uv0,
+            });
+        }
+        if clamped_uv1 != request.initial_uv1 {
+            return Err(ContactError::OutOfBounds {
+                surface_index: 1,
+                uv: request.initial_uv1,
+                clamped_uv: clamped_uv1,
+            });
+        }
     }
-    if clamped_uv1 != request.initial_uv1 {
-        return Err(ContactError::OutOfBounds {
-            surface_index: 1,
-            uv: request.initial_uv1,
-            clamped_uv: clamped_uv1,
-        });
-    }
-
-    let mut uv0 = request.initial_uv0;
-    let mut uv1 = request.initial_uv1;
+    let mut uv0 = clamped_uv0;
+    let mut uv1 = clamped_uv1;
 
     // Track best-residual state for diagnostics on failure.
     let mut best_residual = f64::INFINITY;

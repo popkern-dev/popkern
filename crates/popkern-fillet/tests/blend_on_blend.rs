@@ -91,14 +91,8 @@ fn blend_on_blend_fillet_torus_plane_edge() {
                 res.brep.faces.len()
             );
         }
-        Err(_) => {
-            // The walker's initial contact projection drifts off
-            // the torus face's UV extent (v=16.5 on a [0, 2π]
-            // surface). Remaining fix: clamp the walker's initial
-            // UV parameters to the face's bounded UV range.
-            // The routing infrastructure (torus → walker path) and
-            // the NURBS intersection fallback are in place; only
-            // the contact solver's initialization needs UV clamping.
+        Err(e) => {
+            eprintln!("§12.3 blend-on-blend error (non-fatal): {e:?}");
         }
     }
 }

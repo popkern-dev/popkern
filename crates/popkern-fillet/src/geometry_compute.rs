@@ -83,19 +83,8 @@ pub(crate) fn compute_fillet_geometry(
         }
     }
 
-    // Walker routing trigger:
-    //   1. Phase 1b — either surface is a Cone (no analytic offset,
-    //      so the offset-intersect path can't run).
-    //   2. Phase 2 step 4 — caller requested G2 cross-sections. The
-    //      walker populates `CenterCurveResult::contact_solutions`,
-    //      which lets `build_fillet_surface` route through the
-    //      degree-5 Bezier G2 sweep on ANY surface pair (not just
-    //      cones).
-    // Route through the walker (Newton contact solver) when at
-    // least one support surface is a Cone or Torus. Cones have no
-    // analytic offset; torus-plane offset intersections are
-    // ill-conditioned in the generic solver (§12.3 blend-on-blend).
-    // The walker handles both robustly via per-sample contact solving.
+    // Route through the walker when a support is Cone/Torus (no
+    // clean analytic offset intersection) or G2 was requested.
     let either_needs_walker = matches!(
         analysis.surface_1,
         popkern_core::geometry::surface::SurfaceGeometry::Cone { .. }

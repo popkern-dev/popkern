@@ -105,6 +105,11 @@ pub struct ContactOptions {
     /// stops early (3 iterations, looser residual) for sub-100ms
     /// slider response in interactive UX.
     pub quality: ContactQuality,
+    /// When true, clamp out-of-bounds initial UV guesses to the
+    /// range boundary instead of rejecting with `OutOfBounds`.
+    /// Used for §12.3 blend-on-blend where torus UV projection
+    /// can produce wrapped parameters.
+    pub clamp_initial_uv: bool,
 }
 
 impl Default for ContactOptions {
@@ -114,6 +119,7 @@ impl Default for ContactOptions {
             residual_tolerance: 1e-6,
             initial_damping: 0.0,
             quality: ContactQuality::Final,
+            clamp_initial_uv: false,
         }
     }
 }

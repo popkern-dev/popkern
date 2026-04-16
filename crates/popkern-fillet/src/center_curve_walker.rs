@@ -75,6 +75,14 @@ pub fn walker_based_center_curve(
         radius_at(t_norm.clamp(0.0, 1.0))
     };
 
+    let either_is_torus = matches!(
+        surface1,
+        popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
+    ) || matches!(
+        surface2,
+        popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
+    );
+
     let request = WalkRequest {
         surface_0: surface1,
         surface_1: surface2,
@@ -85,11 +93,45 @@ pub fn walker_based_center_curve(
         t_range,
         uv0_range: (u1_range, v1_range),
         uv1_range: (u2_range, v2_range),
-        initial_seed: None,
+        // For torus/blend faces, surface.closest_point can return
+        // a wrapped UV outside the face's strip. Provide a seed
+        // clamped to the face UV midpoint — the walker's Newton
+        // solver refines from there.
+        initial_seed: if either_is_torus {
+            Some((
+                (
+                    0.5 * (u1_range.0 + u1_range.1),
+                    0.5 * (v1_range.0 + v1_range.1),
+                ),
+                (
+                    0.5 * (u2_range.0 + u2_range.1),
+                    0.5 * (v2_range.0 + v2_range.1),
+                ),
+            ))
+        } else {
+            None
+        },
         surface_0_periodicity: surface1.periodicity(),
         surface_1_periodicity: surface2.periodicity(),
     };
-    let walk = walk_spine(&request, &WalkOptions::default(), tolerance)
+    // §12.3 blend-on-blend: torus faces can produce UV-clamped
+    // initial guesses that are far from the solution. Enable
+    // Levenberg-Marquardt damping from the first iteration to
+    // stabilise convergence from imperfect initial points.
+    let mut walk_opts = WalkOptions::default();
+    let either_is_torus = matches!(
+        surface1,
+        popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
+    ) || matches!(
+        surface2,
+        popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
+    );
+    if either_is_torus {
+        walk_opts.contact_options.initial_damping = 0.1;
+        walk_opts.contact_options.max_iterations = 50;
+        walk_opts.contact_options.clamp_initial_uv = true;
+    }
+    let walk = walk_spine(&request, &walk_opts, tolerance)
         .map_err(|e| format!("spine walker failed: {e}"))?;
 
     let mut center_points: Vec<Point3> = Vec::with_capacity(walk.samples.len());
