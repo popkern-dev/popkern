@@ -12,6 +12,15 @@ impl BRep {
     /// with genus G = 0. For solids with through-holes, use
     /// [`validate_euler_poincare_any_genus`] instead.
     pub fn validate_euler_poincare(&self) -> Result<(), ValidationError> {
+        // Open shells (boundary edges present) break the closed-
+        // manifold Euler formula. Skip the check entirely — the
+        // genus-aware variant below also can't handle open shells
+        // without computing the number of boundary loops, which
+        // is expensive and not yet implemented.
+        if self.has_boundary_edges() {
+            return Ok(());
+        }
+
         let v = self.vertices.len() as i64;
         let e = self.edges.len() as i64;
         let f = self.faces.len() as i64;

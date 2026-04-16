@@ -7,6 +7,10 @@ impl BRep {
     /// Check 2: Every half-edge's twin must exist and the twin's twin must point back.
     pub fn validate_half_edge_pairing(&self) -> Result<(), ValidationError> {
         for (he_handle, he_data) in &self.half_edges {
+            // Boundary half-edges have twin = default (null) — skip.
+            if self.boundary_edges.contains(&he_data.edge) {
+                continue;
+            }
             let twin = self
                 .half_edges
                 .get(he_data.twin)

@@ -8,6 +8,11 @@ impl BRep {
     /// reference the same edge.
     pub fn validate_manifold_edges(&self) -> Result<(), ValidationError> {
         for (edge_handle, edge_data) in &self.edges {
+            // Boundary edges have a null twin — skip the twin
+            // check for those.
+            if self.boundary_edges.contains(&edge_handle) {
+                continue;
+            }
             let he = self
                 .half_edges
                 .get(edge_data.half_edge)
@@ -34,6 +39,13 @@ impl BRep {
     /// have valence 1 when the single incident edge is a *seam edge* — i.e.
     /// both of its half-edges belong to the same face.
     pub fn validate_vertex_valence(&self) -> Result<(), ValidationError> {
+        // Open shells have vertices on the boundary where the
+        // twin-walk fan is broken (null twin stops the walk
+        // early, under-counting incident edges). Skip the valence
+        // check entirely for open-shell BReps.
+        if self.has_boundary_edges() {
+            return Ok(());
+        }
         for (v_handle, v_data) in &self.vertices {
             // Skip vertices without any outgoing half-edge (mvfs-only vertices).
             if !self.half_edges.contains_key(v_data.outgoing) {

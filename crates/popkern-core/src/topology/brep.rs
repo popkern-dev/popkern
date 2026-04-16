@@ -40,16 +40,12 @@ pub struct BRep {
     /// Maximum imprecision allowed before the model is considered invalid.
     #[serde(default = "BRep::default_max_imprecision")]
     pub max_imprecision: f64,
-    /// Non-manifold radial cycle for half-edges whose parent edge is
-    /// shared by more than two half-edges (N > 2 case, e.g. the
-    /// crossing line of a transversal sheet-sheet union).
-    ///
-    /// For 2-manifold edges the cycle is the pair `(he, he.twin)` and
-    /// this map is empty — [`BRep::radial_next`] falls back to
-    /// `he.twin` when a half-edge is absent from the map. For
-    /// non-manifold edges with N > 2 half-edges, the map contains
-    /// every half-edge of the group and forms a full cyclic chain
-    /// `h1 → h2 → h3 → ... → hN → h1`.
+    /// Edges with a null-sentinel twin (one face only). When
+    /// non-empty, manifold / Euler validation is relaxed.
+    #[serde(default)]
+    pub boundary_edges: std::collections::HashSet<EdgeHandle>,
+    /// Radial cycle for N>2 non-manifold edges. Empty for manifold
+    /// BReps; [`BRep::radial_next`] falls back to `he.twin`.
     #[serde(default)]
     pub nonmanifold_radial: std::collections::HashMap<HalfEdgeHandle, HalfEdgeHandle>,
     /// Tracks precision degradation across operations.
@@ -58,11 +54,7 @@ pub struct BRep {
 }
 
 impl BRep {
-    /// Default max imprecision sentinel used during deserialization.
     fn default_max_imprecision() -> f64 {
-        // Deserialization path — tolerance is not yet known, use a safe
-        // fallback.  The caller should set this after deserialization if
-        // the BRep's tolerance differs from the default.
         Tolerance::default().linear() * 100.0
     }
 
@@ -81,6 +73,7 @@ impl BRep {
             name_pool: NamePool::new(),
             operation_labels: OperationLabels::default(),
             max_imprecision,
+            boundary_edges: std::collections::HashSet::new(),
             nonmanifold_radial: std::collections::HashMap::new(),
             degradation_tracker: None,
         }
@@ -90,6 +83,11 @@ impl BRep {
 use crate::geometry::transform::Transform3;
 
 impl BRep {
+    /// True when boundary edges exist (open shell / partial solid).
+    pub fn has_boundary_edges(&self) -> bool {
+        !self.boundary_edges.is_empty()
+    }
+
     /// Collect vertex positions from the outer loop of a face by walking half-edges.
     ///
     /// Returns an empty `Vec` if the face handle is invalid, the loop is missing,
