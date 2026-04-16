@@ -335,7 +335,7 @@ fn compute_fillet_geometry_on_cone_base_produces_analytic_torus() {
         &FilletRadius::Constant(0.05),
         &brep,
         &unit_tol(),
-        false, // g2_cross_section off — we want to verify the analytic Torus path
+        crate::types::ContinuityLevel::G1, // g2_cross_section off — we want to verify the analytic Torus path
         crate::types::CapKind::Open,
     );
     let eg = match result {
@@ -408,7 +408,7 @@ fn fillet_edge_on_cone_with_g2_cross_section_routes_through_g2_sweep() {
         radius: FilletRadius::Constant(0.005),
     }];
     let opts = crate::FilletOptions {
-        g2_cross_section: true,
+        continuity: crate::ContinuityLevel::G2,
         ..crate::FilletOptions::default()
     };
     let result = fillet_edges(&brep, &specs, &opts, unit_tol(), None);

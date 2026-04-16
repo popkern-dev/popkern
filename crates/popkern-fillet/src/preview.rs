@@ -108,15 +108,14 @@ pub fn preview_fillet(
         if i >= analyses.len() {
             continue;
         }
-        // Preview always uses the legacy G1 cross-section (g2 = false)
-        // — preview is for cheap UI feedback and the G2 path is for
-        // commit-quality output.
+        // Preview always uses G1 — preview is for cheap UI feedback
+        // and the G2 path is for commit-quality output.
         match compute_fillet_geometry(
             &analyses[i],
             &spec.radius,
             brep,
             &tolerance,
-            false,
+            crate::types::ContinuityLevel::G1,
             crate::types::CapKind::Open,
         ) {
             Ok(geom) => per_edge.push(edge_geometry_to_preview(spec.edge, geom)),

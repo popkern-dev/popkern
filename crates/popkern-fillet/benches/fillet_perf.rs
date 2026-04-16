@@ -77,10 +77,36 @@ fn bench_plane_plane_analytic_vs_nurbs(c: &mut Criterion) {
     let (s1, s2, cr) = plane_plane_fixture();
     let mut group = c.benchmark_group("§11.1 plane-plane fillet surface");
     group.bench_function("analytic torus (is_constant=true)", |b| {
-        b.iter(|| build_fillet_surface(&s1, &s2, &cr, 0.1, 8, true, false, false, false).unwrap())
+        b.iter(|| {
+            build_fillet_surface(
+                &s1,
+                &s2,
+                &cr,
+                0.1,
+                8,
+                true,
+                popkern_fillet::ContinuityLevel::G1,
+                false,
+                false,
+            )
+            .unwrap()
+        })
     });
     group.bench_function("generic NURBS sweep (is_constant=false)", |b| {
-        b.iter(|| build_fillet_surface(&s1, &s2, &cr, 0.1, 8, false, false, false, false).unwrap())
+        b.iter(|| {
+            build_fillet_surface(
+                &s1,
+                &s2,
+                &cr,
+                0.1,
+                8,
+                false,
+                popkern_fillet::ContinuityLevel::G1,
+                false,
+                false,
+            )
+            .unwrap()
+        })
     });
     group.finish();
 }

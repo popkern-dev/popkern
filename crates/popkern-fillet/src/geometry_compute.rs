@@ -16,7 +16,7 @@ use crate::geometry_compute_feasibility::{
     largest_requested_radius, self_intersection_safe_radius,
 };
 use crate::trim;
-use crate::types::{CapKind, ChamferKind, FilletRadius};
+use crate::types::{CapKind, ChamferKind, ContinuityLevel, FilletRadius};
 
 /// Trim curve triplet used by the overlap detector: (face_index, trim_on_face, other_trim).
 pub(crate) type OverlapTrimEntry = (
@@ -35,9 +35,10 @@ pub(crate) fn compute_fillet_geometry(
     radius: &FilletRadius,
     brep: &BRep,
     tolerance: &Tolerance,
-    g2_cross_section: bool,
+    continuity: ContinuityLevel,
     cap_kind: CapKind,
 ) -> Result<EdgeGeometry, BlendFailure> {
+    let wants_g2 = continuity == ContinuityLevel::G2;
     let edge_midpoint = get_edge_midpoint(brep, analysis)?;
 
     // §13.1 degeneracy pre-flight: collapsed edge, endpoint cusp,
@@ -95,7 +96,7 @@ pub(crate) fn compute_fillet_geometry(
             | SurfaceGeometry::Torus { .. }
             | SurfaceGeometry::Cylinder { .. }
     );
-    let use_walker = either_needs_walker || g2_cross_section;
+    let use_walker = either_needs_walker || wants_g2;
 
     let center_result = if use_walker {
         let walker_outcome = crate::geometry_compute_cone::compute_center_via_walker(
@@ -111,7 +112,7 @@ pub(crate) fn compute_fillet_geometry(
         );
         match walker_outcome {
             Ok(r) => r,
-            Err(_walker_err) if !either_needs_walker && g2_cross_section => {
+            Err(_walker_err) if !either_needs_walker && wants_g2 => {
                 // G2 opt-in walker failed on a non-cone pair. Silently
                 // degrade to the legacy G1 analytic path instead of
                 // propagating a walker-specific error — a commercial
@@ -190,7 +191,7 @@ pub(crate) fn compute_fillet_geometry(
         effective_radius,
         8, // arc samples
         is_constant_radius,
-        g2_cross_section,
+        continuity,
         analysis.orientation_1,
         analysis.orientation_2,
     )

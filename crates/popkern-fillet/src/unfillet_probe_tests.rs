@@ -285,7 +285,7 @@ fn probe_5c3_geometry_works_on_closed_fillet() {
         &FilletRadius::Constant(0.05),
         &subtracted,
         &tol(),
-        false,
+        crate::types::ContinuityLevel::G1,
         crate::types::CapKind::Open,
     ) {
         Ok(g) => g,

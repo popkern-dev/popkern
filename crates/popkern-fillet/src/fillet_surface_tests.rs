@@ -35,7 +35,17 @@ fn fillet_surface_plane_plane() {
     };
     let cr = simple_center_result();
 
-    let result = build_fillet_surface(&s1, &s2, &cr, 1.0, 5, true, false, false, false);
+    let result = build_fillet_surface(
+        &s1,
+        &s2,
+        &cr,
+        1.0,
+        5,
+        true,
+        crate::types::ContinuityLevel::G1,
+        false,
+        false,
+    );
     assert!(result.is_ok(), "fillet surface failed: {:?}", result.err());
     let fs = result.unwrap();
     // Plane-plane (constant, straight center curve) produces a cylinder.
@@ -65,7 +75,17 @@ fn fillet_surface_plane_plane_variable_uses_nurbs_sweep() {
         v_axis: Vec3::new(0.0, 0.0, 1.0),
     };
     let cr = simple_center_result();
-    let result = build_fillet_surface(&s1, &s2, &cr, 1.0, 5, false, false, false, false);
+    let result = build_fillet_surface(
+        &s1,
+        &s2,
+        &cr,
+        1.0,
+        5,
+        false,
+        crate::types::ContinuityLevel::G1,
+        false,
+        false,
+    );
     assert!(result.is_ok(), "fillet surface failed: {:?}", result.err());
     let fs = result.unwrap();
     assert!(
@@ -94,7 +114,17 @@ fn fillet_surface_general() {
     };
     let cr = simple_center_result();
 
-    let result = build_fillet_surface(&sphere, &plane, &cr, 1.0, 5, true, false, false, false);
+    let result = build_fillet_surface(
+        &sphere,
+        &plane,
+        &cr,
+        1.0,
+        5,
+        true,
+        crate::types::ContinuityLevel::G1,
+        false,
+        false,
+    );
     assert!(result.is_ok(), "fillet surface failed: {:?}", result.err());
     let fs = result.unwrap();
     // Non-plane-plane should produce NURBS.

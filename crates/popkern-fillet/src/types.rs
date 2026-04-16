@@ -55,40 +55,41 @@ pub struct FilletOptions {
     pub propagate_tangent: bool,
     /// How to handle vertex blends where three or more fillets meet.
     pub vertex_mode: VertexMode,
-    /// Build the blend surface with **G2** (curvature-matching)
-    /// cross-sections rather than the default G1 (circular-arc)
-    /// sweep. Eliminates highlight-line breaks at the blend
-    /// boundaries — required for §15 Class-A surfaces.
+    /// Requested blend-boundary continuity level. The fillet engine
+    /// tries to build a surface that meets this continuity with the
+    /// two support faces at every contact point; falls back to a
+    /// lower level and emits [`BlendWarning::ContinuityDowngraded`]
+    /// if the requested level isn't achievable for the surface pair.
     ///
-    /// **Default `false`.** Setting `true` routes the blend through
-    /// the spine-walker contact solver and skins per-sample
-    /// [`contact::ContactSolution`](crate::contact::ContactSolution)s
-    /// into a degree-5 Bezier sweep via
-    /// [`g2_cross_section::g2_sweep_from_contact_solutions`](crate::g2_cross_section::g2_sweep_from_contact_solutions).
-    /// The G2 path applies to **any supported surface pair**
-    /// (plane-plane, plane-cylinder, sphere-plane, cone-plane, …),
-    /// not just cones.
-    ///
-    /// **Graceful degradation.** If the spine walker fails on a
-    /// non-cone pair (e.g. degenerate normals, periodicity edge
-    /// case), the routing silently falls back to the legacy G1
-    /// arc sweep rather than failing the whole fillet operation.
-    /// Callers who want G2 to be strict should audit the returned
-    /// surface type (a Torus/analytic result for plane-plane
-    /// indicates the fallback fired).
+    /// - [`ContinuityLevel::G0`] — positional only. Debug / special
+    ///   cases. Currently produces the same output as `G1` since the
+    ///   pipeline has no strict-G0 fast path.
+    /// - [`ContinuityLevel::G1`] (default) — tangent continuity. The
+    ///   legacy circular-arc rolling-ball sweep; sufficient for
+    ///   machining and visual smoothness on non-Class-A surfaces.
+    /// - [`ContinuityLevel::G2`] — curvature continuity. Routes
+    ///   through the spine walker and skins degree-5 Bezier
+    ///   cross-sections. Required for §15 Class-A surfaces (no
+    ///   highlight-line break at the blend boundary).
     ///
     /// **Cost.** G2 is materially more expensive than G1 — the
     /// walker performs ~20 contact-solver iterations per spine
-    /// sample, where G1 does a single analytic offset intersect.
-    /// Leave this `false` for interactive preview and enable it
-    /// only for final / Class-A output.
+    /// sample where G1 does a single analytic offset intersect.
+    /// Leave this `G1` for interactive preview; enable `G2` for
+    /// final / Class-A output.
+    ///
+    /// **Fallback.** If the walker fails or the G2 sweep errors,
+    /// the pipeline emits a [`BlendWarning::ContinuityDowngraded`]
+    /// with the reason and produces the G1 result. Consult
+    /// [`BlendQuality::achieved_continuity`](crate::quality::BlendQuality::achieved_continuity)
+    /// to see what was actually delivered.
     ///
     /// See §2.4 / §7 G2 in `docs/requirements/fillets_blends.md`.
     ///
     /// # Example
     ///
     /// ```no_run
-    /// use popkern_fillet::{FilletOptions, FilletSpec, FilletRadius, fillet_edges};
+    /// use popkern_fillet::{ContinuityLevel, FilletOptions, FilletSpec, FilletRadius, fillet_edges};
     /// # use popkern_core::topology::BRep;
     /// # use popkern_core::tolerance::Tolerance;
     /// # let brep: BRep = unimplemented!();
@@ -98,12 +99,12 @@ pub struct FilletOptions {
     ///     radius: FilletRadius::Constant(0.1),
     /// }];
     /// let opts = FilletOptions {
-    ///     g2_cross_section: true,
+    ///     continuity: ContinuityLevel::G2,
     ///     ..FilletOptions::default()
     /// };
     /// let result = fillet_edges(&brep, &specs, &opts, Tolerance::default(), None);
     /// ```
-    pub g2_cross_section: bool,
+    pub continuity: ContinuityLevel,
     /// **§13.4 soft-supports mode** for low-precision input
     /// geometry (e.g. lossy STEP imports with vertex drift).
     /// When `true`, the fillet pipeline runs against a relaxed
@@ -179,11 +180,57 @@ impl Default for FilletOptions {
         Self {
             propagate_tangent: true,
             vertex_mode: VertexMode::Smooth,
-            g2_cross_section: false,
+            continuity: ContinuityLevel::G1,
             soft_supports: false,
             soft_support_factor: 10.0,
             cap_kind: CapKind::Open,
         }
+    }
+}
+
+/// §7 blend-boundary continuity level.
+///
+/// Each level subsumes the lower ones. See `docs/requirements/fillets_blends.md`
+/// §7 for the mathematical conditions and acceptance thresholds.
+///
+/// - **G0**: positional. `||P_blend - P_face|| < tol_geom` at the boundary.
+///   For debugging / special cases.
+/// - **G1**: tangent. `|N_blend × N_face| = 0` at the boundary;
+///   angular tolerance validates. Default; sufficient for machining
+///   and visual smoothness on non-Class-A surfaces.
+/// - **G2**: curvature. Second fundamental forms match at the
+///   boundary; `kappa_n` continuous in all tangent directions.
+///   Required for §15 Class-A surfaces — eliminates highlight-line
+///   discontinuities. Acceptance: `|Δκ_n| / max(|κ_n|, 1/r) < 0.01`.
+///
+/// `G3` (curvature-derivative continuity) is reserved as [BEYOND]
+/// and not currently representable here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ContinuityLevel {
+    /// Positional continuity only. Debug / special cases.
+    G0,
+    /// Tangent continuity — the historical rolling-ball arc sweep.
+    G1,
+    /// Curvature continuity — degree-5 Bezier sweep with Weingarten-
+    /// map normal curvature matching at both contact points.
+    G2,
+}
+
+impl ContinuityLevel {
+    /// commercial-style display string (`"G0"`, `"G1"`, `"G2"`).
+    /// Useful for diagnostic messages and UI display.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ContinuityLevel::G0 => "G0",
+            ContinuityLevel::G1 => "G1",
+            ContinuityLevel::G2 => "G2",
+        }
+    }
+}
+
+impl std::fmt::Display for ContinuityLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

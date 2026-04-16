@@ -104,8 +104,18 @@ fn fillet_surface_plane_sphere_produces_analytic_torus() {
 
     let r = 0.5;
     for (s1, s2) in [(&sphere, &plane), (&plane, &sphere)] {
-        let result = build_fillet_surface(s1, s2, &cr, r, 5, true, false, false, false)
-            .expect("plane-sphere fillet should build");
+        let result = build_fillet_surface(
+            s1,
+            s2,
+            &cr,
+            r,
+            5,
+            true,
+            crate::types::ContinuityLevel::G1,
+            false,
+            false,
+        )
+        .expect("plane-sphere fillet should build");
         match result.surface {
             SurfaceGeometry::Torus {
                 axis,
@@ -203,8 +213,18 @@ fn fillet_surface_plane_cylinder_perpendicular_produces_analytic_torus() {
     };
 
     for (s1, s2) in [(&cyl, &plane), (&plane, &cyl)] {
-        let result = build_fillet_surface(s1, s2, &cr, r, 5, true, false, false, false)
-            .expect("plane-cylinder (perp) fillet should build");
+        let result = build_fillet_surface(
+            s1,
+            s2,
+            &cr,
+            r,
+            5,
+            true,
+            crate::types::ContinuityLevel::G1,
+            false,
+            false,
+        )
+        .expect("plane-cylinder (perp) fillet should build");
         match result.surface {
             SurfaceGeometry::Torus {
                 axis, minor_radius, ..
@@ -294,8 +314,18 @@ fn fillet_surface_plane_cone_perpendicular_produces_analytic_torus() {
 
     let r = 0.1;
     for (s1, s2) in [(&cone, &plane), (&plane, &cone)] {
-        let result = build_fillet_surface(s1, s2, &cr, r, 5, true, false, false, false)
-            .expect("plane-cone (perp) fillet should build");
+        let result = build_fillet_surface(
+            s1,
+            s2,
+            &cr,
+            r,
+            5,
+            true,
+            crate::types::ContinuityLevel::G1,
+            false,
+            false,
+        )
+        .expect("plane-cone (perp) fillet should build");
         match result.surface {
             SurfaceGeometry::Torus {
                 axis, minor_radius, ..
@@ -340,8 +370,18 @@ fn fillet_surface_plane_cone_oblique_skips_analytic_torus() {
         v_axis: Vec3::new(0.0, c30, -s30),
     };
     let cr = linear_center_result();
-    let result = build_fillet_surface(&cone, &plane, &cr, 0.1, 5, true, false, false, false)
-        .expect("oblique plane-cone fillet should still build (NURBS sweep)");
+    let result = build_fillet_surface(
+        &cone,
+        &plane,
+        &cr,
+        0.1,
+        5,
+        true,
+        crate::types::ContinuityLevel::G1,
+        false,
+        false,
+    )
+    .expect("oblique plane-cone fillet should still build (NURBS sweep)");
     assert!(
         matches!(result.surface, SurfaceGeometry::Nurbs(_)),
         "oblique plane-cone should fall through to the NURBS sweep, got {:?}",
@@ -407,8 +447,18 @@ fn fillet_surface_parallel_cylinder_cylinder_produces_analytic_cylinder() {
     };
 
     for (s1, s2) in [(&cyl_a, &cyl_b), (&cyl_b, &cyl_a)] {
-        let result = build_fillet_surface(s1, s2, &cr, r, 5, true, false, false, false)
-            .expect("parallel cylinder-cylinder fillet should build");
+        let result = build_fillet_surface(
+            s1,
+            s2,
+            &cr,
+            r,
+            5,
+            true,
+            crate::types::ContinuityLevel::G1,
+            false,
+            false,
+        )
+        .expect("parallel cylinder-cylinder fillet should build");
         match result.surface {
             SurfaceGeometry::Cylinder {
                 axis,
@@ -455,8 +505,18 @@ fn fillet_surface_non_parallel_cylinder_cylinder_skips_analytic_path() {
         radius: 1.0,
     };
     let cr = linear_center_result();
-    let result = build_fillet_surface(&cyl_a, &cyl_b, &cr, 0.3, 5, true, false, false, false)
-        .expect("non-parallel cylinder-cylinder fillet should still build (NURBS sweep)");
+    let result = build_fillet_surface(
+        &cyl_a,
+        &cyl_b,
+        &cr,
+        0.3,
+        5,
+        true,
+        crate::types::ContinuityLevel::G1,
+        false,
+        false,
+    )
+    .expect("non-parallel cylinder-cylinder fillet should still build (NURBS sweep)");
     assert!(
         matches!(result.surface, SurfaceGeometry::Nurbs(_)),
         "non-parallel cylinder-cylinder should fall through to the NURBS sweep, \
@@ -485,8 +545,18 @@ fn fillet_surface_plane_cylinder_oblique_skips_analytic_torus() {
         v_axis: Vec3::new(0.0, c, -c),
     };
     let cr = linear_center_result();
-    let result = build_fillet_surface(&cyl, &plane, &cr, 0.5, 5, true, false, false, false)
-        .expect("oblique plane-cylinder fillet should still build (NURBS sweep)");
+    let result = build_fillet_surface(
+        &cyl,
+        &plane,
+        &cr,
+        0.5,
+        5,
+        true,
+        crate::types::ContinuityLevel::G1,
+        false,
+        false,
+    )
+    .expect("oblique plane-cylinder fillet should still build (NURBS sweep)");
     assert!(
         matches!(result.surface, SurfaceGeometry::Nurbs(_)),
         "oblique plane-cylinder should fall through to the NURBS sweep, \

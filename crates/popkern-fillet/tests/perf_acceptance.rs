@@ -85,8 +85,17 @@ fn time_builds(
 ) -> std::time::Duration {
     let t0 = Instant::now();
     for _ in 0..n {
-        let result =
-            build_fillet_surface(s1, s2, cr, 0.1, 8, is_constant_radius, false, false, false);
+        let result = build_fillet_surface(
+            s1,
+            s2,
+            cr,
+            0.1,
+            8,
+            is_constant_radius,
+            popkern_fillet::ContinuityLevel::G1,
+            false,
+            false,
+        );
         let fs = result.expect("build_fillet_surface should succeed");
         // Read the surface discriminant to prevent the optimizer
         // from eliding the call.
@@ -119,8 +128,18 @@ fn analytic_plane_plane_is_at_least_5x_faster_than_nurbs_sweep() {
     // Verify each mode produced the expected surface type on a
     // single call (cheap sanity check that the toggle actually
     // switched paths).
-    let analytic_result =
-        build_fillet_surface(&s1, &s2, &cr, 0.1, 8, true, false, false, false).unwrap();
+    let analytic_result = build_fillet_surface(
+        &s1,
+        &s2,
+        &cr,
+        0.1,
+        8,
+        true,
+        popkern_fillet::ContinuityLevel::G1,
+        false,
+        false,
+    )
+    .unwrap();
     assert!(
         matches!(
             analytic_result.surface,
@@ -129,8 +148,18 @@ fn analytic_plane_plane_is_at_least_5x_faster_than_nurbs_sweep() {
         "is_constant_radius=true on plane-plane should produce Cylinder or Torus, got {:?}",
         std::mem::discriminant(&analytic_result.surface)
     );
-    let nurbs_result =
-        build_fillet_surface(&s1, &s2, &cr, 0.1, 8, false, false, false, false).unwrap();
+    let nurbs_result = build_fillet_surface(
+        &s1,
+        &s2,
+        &cr,
+        0.1,
+        8,
+        false,
+        popkern_fillet::ContinuityLevel::G1,
+        false,
+        false,
+    )
+    .unwrap();
     assert!(
         matches!(nurbs_result.surface, SurfaceGeometry::Nurbs(_)),
         "is_constant_radius=false on plane-plane should produce a Nurbs sweep, got {:?}",

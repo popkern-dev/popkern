@@ -226,7 +226,7 @@ fn fillet_edges_internal(
             &spec.radius,
             brep,
             &tolerance,
-            options.g2_cross_section,
+            options.continuity,
             options.cap_kind,
         );
         if let Some(r) = reporter.as_deref_mut() {

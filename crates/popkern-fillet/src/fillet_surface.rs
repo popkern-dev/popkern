@@ -11,6 +11,7 @@ use crate::center_curve::CenterCurveResult;
 use crate::fillet_surface_analytic::{
     try_circular_center_torus, try_parallel_cylinder_cylinder, try_plane_plane_analytic,
 };
+use crate::types::ContinuityLevel;
 
 /// Result of a fillet surface construction.
 #[derive(Debug, Clone)]
@@ -32,7 +33,7 @@ pub struct FilletSurfaceResult {
 /// passing `false` for a variable-radius spec forces the NURBS sweep path,
 /// which honours the per-sample radii baked into `center_result.footprint_*`.
 ///
-/// When `g2_cross_section` is `true` AND `center_result.contact_solutions`
+/// When `continuity` is `G2` AND `center_result.contact_solutions`
 /// is `Some` (i.e., the spine walker produced per-sample contact solutions),
 /// the sweep is built via [`crate::g2_cross_section::g2_sweep_from_contact_solutions`]
 /// — a degree-5 Bezier cross-section sweep that matches the surface
@@ -48,14 +49,14 @@ pub fn build_fillet_surface(
     radius: f64,
     arc_samples: usize,
     is_constant_radius: bool,
-    g2_cross_section: bool,
+    continuity: ContinuityLevel,
     orientation_1: bool,
     orientation_2: bool,
 ) -> Result<FilletSurfaceResult, String> {
     // G2 path: route through the degree-5 Bezier sweep when the
     // caller asked for it AND the center-curve producer (the spine
     // walker) gave us per-sample contact solutions.
-    if g2_cross_section
+    if continuity == ContinuityLevel::G2
         && let Some(solutions) = center_result.contact_solutions.as_deref()
         && solutions.len() >= 2
     {
