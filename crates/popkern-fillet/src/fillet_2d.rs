@@ -50,13 +50,11 @@
 //! never mutated).
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
-use popkern_core::geometry::{Point3, Vec3};
-use popkern_core::topology::{BRep, Edge, HalfEdge, HalfEdgeHandle, VertexHandle};
+use popkern_core::topology::{BRep, Edge, HalfEdge, VertexHandle};
 
-use crate::corner_2d_helpers::{
-    circle_basis_like_core, rebuild_line_curve, require_line, topology_failure,
-};
+use crate::corner_2d_helpers::{rebuild_edge_curve_clipped, topology_failure};
 use crate::error::BlendError;
+use crate::fillet_2d_plan::{CornerPlan, corner_plan};
 
 /// Fillet a single sharp corner of a sheet body.
 ///
@@ -140,151 +138,6 @@ pub fn fillet_corners_2d(brep: &BRep, specs: &[(VertexHandle, f64)]) -> Result<B
     Ok(current)
 }
 
-/// Pre-surgery analysis captured before we touch the mutable BRep.
-/// Collecting everything up front lets us bail out cleanly on any
-/// input validation failure without having to roll back partial
-/// state.
-#[derive(Debug, Clone, Copy)]
-struct CornerPlan {
-    /// Outgoing half-edge at the corner whose edge will carry the
-    /// first tangent point `t1`. Walked out of the corner vertex
-    /// toward the far end of `edge_a`.
-    he_out_a: HalfEdgeHandle,
-    /// Outgoing half-edge at the corner toward the far end of
-    /// `edge_b`.
-    he_out_b: HalfEdgeHandle,
-    /// Tangent point on `edge_a` (distance `r / tan(θ/2)` from
-    /// the corner along `dir_a`).
-    t1: Point3,
-    /// Tangent point on `edge_b`.
-    t2: Point3,
-    /// Arc centre, on the interior bisector at distance
-    /// `r / sin(θ/2)` from the corner.
-    arc_center: Point3,
-    /// Unit arc-plane normal, `dir_a × dir_b`.
-    arc_normal: Vec3,
-    /// Arc start angle at `t1` relative to `arc_center`.
-    start_angle: f64,
-    /// Arc end angle at `t2`.
-    end_angle: f64,
-    /// Fillet radius (copied in for convenience).
-    radius: f64,
-}
-
-fn corner_plan(brep: &BRep, vertex: VertexHandle, radius: f64) -> Result<CornerPlan, String> {
-    // Collect all outgoing half-edges at the corner. A sheet-body
-    // corner has two: one on the front face's outer loop, one on
-    // the backside face's loop. Each points to a different edge.
-    let mut outgoing: Vec<HalfEdgeHandle> = brep
-        .half_edges
-        .iter()
-        .filter(|(_, he)| he.origin == vertex)
-        .map(|(h, _)| h)
-        .collect();
-    outgoing.sort();
-
-    if outgoing.len() != 2 {
-        return Err(format!(
-            "corner vertex must have exactly 2 outgoing half-edges, got {}",
-            outgoing.len()
-        ));
-    }
-
-    let corner_pos = brep.vertices[vertex].position;
-
-    // Both outgoing half-edges should belong to distinct edges.
-    let edge_a = brep.half_edges[outgoing[0]].edge;
-    let edge_b = brep.half_edges[outgoing[1]].edge;
-    if edge_a == edge_b {
-        return Err("both outgoing half-edges belong to the same edge (degenerate loop)".into());
-    }
-
-    // Both edges must carry straight-line curves.
-    require_line(brep, edge_a)?;
-    require_line(brep, edge_b)?;
-
-    // Destination vertex (the "far end") of each edge: walk the
-    // half-edge's twin → origin.
-    let v_a_far = brep.half_edges[brep.half_edges[outgoing[0]].twin].origin;
-    let v_b_far = brep.half_edges[brep.half_edges[outgoing[1]].twin].origin;
-    let p_a = brep.vertices[v_a_far].position;
-    let p_b = brep.vertices[v_b_far].position;
-
-    let dir_a_vec = p_a - corner_pos;
-    let dir_b_vec = p_b - corner_pos;
-    let len_a = dir_a_vec.length();
-    let len_b = dir_b_vec.length();
-    if len_a < 1e-12 || len_b < 1e-12 {
-        return Err("adjacent edge has near-zero length".into());
-    }
-    let dir_a = dir_a_vec * (1.0 / len_a);
-    let dir_b = dir_b_vec * (1.0 / len_b);
-
-    let cos_angle = dir_a.dot(&dir_b).clamp(-1.0, 1.0);
-    let angle = cos_angle.acos();
-    if angle < 1.0e-4 {
-        return Err("edges are nearly colinear (no meaningful corner)".into());
-    }
-    if (std::f64::consts::PI - angle).abs() < 1.0e-4 {
-        return Err("edges form a near-180° corner (degenerate)".into());
-    }
-
-    let half_angle = angle * 0.5;
-    let tan_half = half_angle.tan();
-    let sin_half = half_angle.sin();
-    let setback = radius / tan_half;
-    let offset = radius / sin_half;
-
-    if setback >= len_a || setback >= len_b {
-        return Err(format!(
-            "radius {radius:.6} too large: setback {setback:.6} ≥ adjacent edge length ({len_a:.6} / {len_b:.6})"
-        ));
-    }
-
-    let t1 = corner_pos + dir_a * setback;
-    let t2 = corner_pos + dir_b * setback;
-
-    // Interior bisector: halfway between dir_a and dir_b. If
-    // |dir_a + dir_b| is near zero (edges are anti-parallel) the
-    // angle check above would already have caught it.
-    let bisector = (dir_a + dir_b)
-        .normalized()
-        .ok_or_else(|| "bisector degenerates — edges near-parallel".to_string())?;
-    let arc_center = corner_pos + bisector * offset;
-
-    // Arc plane normal: `dir_a × dir_b` — perpendicular to the
-    // corner's plane.
-    let raw_normal = dir_a.cross(&dir_b);
-    let arc_normal = raw_normal
-        .normalized()
-        .ok_or_else(|| "arc normal degenerate".to_string())?;
-
-    // `CurveGeometry::Arc::point_at` internally uses the
-    // `circle_basis(normal)` frame, which picks `u` by crossing
-    // the normal with +x or +y (whichever isn't parallel) and
-    // derives `v = normal × u`. We must compute our start and end
-    // angles IN THAT FRAME so the evaluated arc endpoints actually
-    // land on `t1` and `t2`. Replicating `circle_basis` locally
-    // here avoids coupling to a private helper.
-    let (u_basis, v_basis) = circle_basis_like_core(arc_normal);
-    let t1_rel = t1 - arc_center;
-    let t2_rel = t2 - arc_center;
-    let start_angle = t1_rel.dot(&v_basis).atan2(t1_rel.dot(&u_basis));
-    let end_angle = t2_rel.dot(&v_basis).atan2(t2_rel.dot(&u_basis));
-
-    Ok(CornerPlan {
-        he_out_a: outgoing[0],
-        he_out_b: outgoing[1],
-        t1,
-        t2,
-        arc_center,
-        arc_normal,
-        start_angle,
-        end_angle,
-        radius,
-    })
-}
-
 fn apply_corner_plan(
     brep: &mut BRep,
     corner: VertexHandle,
@@ -311,16 +164,15 @@ fn apply_corner_plan(
     brep.half_edges[plan.he_out_a].origin = v_t1;
     brep.half_edges[plan.he_out_b].origin = v_t2;
 
-    // Rebuild the two support edges' curves with the shorter
-    // Line geometry. The curve must run from the canonical
-    // half-edge's origin to its twin's origin — which may or may
-    // not be the direction we just updated, depending on which of
-    // the edge's two half-edges was selected as canonical when
-    // the edge was first created.
+    // Rebuild the two support edges' curves after their endpoints
+    // moved onto the tangent points. For `Line` edges this writes
+    // a fresh straight-line curve; for `Arc` edges it clips the
+    // arc's start/end angles to match the new endpoint on the
+    // same circle, preserving the original sweep direction.
     let edge_a_h = brep.half_edges[plan.he_out_a].edge;
     let edge_b_h = brep.half_edges[plan.he_out_b].edge;
-    rebuild_line_curve(brep, edge_a_h);
-    rebuild_line_curve(brep, edge_b_h);
+    rebuild_edge_curve_clipped(brep, edge_a_h)?;
+    rebuild_edge_curve_clipped(brep, edge_b_h)?;
 
     // 3. Create the arc edge and its two half-edges (one per face
     //    loop). `new_front` splices into the loop containing
@@ -411,3 +263,11 @@ fn apply_corner_plan(
 #[cfg(test)]
 #[path = "fillet_2d_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "fillet_2d_curved_tests.rs"]
+mod curved_tests;
+
+#[cfg(test)]
+#[path = "fillet_2d_nurbs_tests.rs"]
+mod nurbs_tests;

@@ -1,4 +1,5 @@
 use super::*;
+use crate::chamfer_2d_by_angle::chamfer_corner_2d_by_angle;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;

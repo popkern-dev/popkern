@@ -7,7 +7,9 @@ mod cone;
 mod cube;
 mod cylinder;
 mod prism;
+mod pyramid;
 mod sheet;
+mod sheet_helpers;
 mod sphere;
 mod torus;
 

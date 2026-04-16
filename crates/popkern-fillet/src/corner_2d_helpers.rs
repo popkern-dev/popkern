@@ -7,32 +7,87 @@
 //! and the curved-edge support (Arc adjacent edges in the
 //! chamfer path) is easy to extend with other curve kinds later.
 
-use popkern_core::geometry::Vec3;
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+use popkern_core::geometry::nurbs_curve::NurbsCurve;
+use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
 
 use crate::error::{BlendError, BlendFailure};
 
-/// Rebuild `edge`'s curve as a straight `Line` whose direction
-/// runs from the canonical half-edge's origin vertex to its
-/// twin's origin. The origin-vertex positions are read from the
-/// current BRep, so this picks up any vertex moves that happened
-/// earlier in the surgery.
-pub(crate) fn rebuild_line_curve(brep: &mut BRep, edge: popkern_core::topology::EdgeHandle) {
-    let canonical = brep.edges[edge].half_edge;
-    let twin = brep.half_edges[canonical].twin;
-    let v_from = brep.half_edges[canonical].origin;
-    let v_to = brep.half_edges[twin].origin;
-    let p_from = brep.vertices[v_from].position;
-    let p_to = brep.vertices[v_to].position;
-    brep.edges[edge].curve = Some(CurveOnEdge {
-        geometry: CurveGeometry::Line {
-            origin: p_from,
-            direction: p_to - p_from,
-        },
-        t_start: 0.0,
-        t_end: 1.0,
-    });
+/// Find the parameter `t` on a NURBS curve such that the arc
+/// length from `t_start_walk` to `t` equals `target_dist`,
+/// walking monotonically toward `t_far_walk`. Uses Newton's
+/// method with a bisection fallback — the derivative of arc
+/// length w.r.t. the parameter is the tangent's magnitude
+/// (speed), which we have via `CurveEval::tangent_at`.
+///
+/// `t_far_walk` may be less than `t_start_walk` (the walk runs
+/// in the negative parameter direction); the helper normalises
+/// via a `[0, 1]` walk-progress `s`.
+pub(crate) fn invert_nurbs_arc_length(
+    nurbs: &NurbsCurve,
+    t_start_walk: f64,
+    t_far_walk: f64,
+    target_dist: f64,
+) -> Result<f64, String> {
+    use popkern_core::geometry::curve::CurveEval;
+
+    if target_dist < 0.0 {
+        return Err(format!(
+            "invert_nurbs_arc_length: target_dist {target_dist} must be non-negative"
+        ));
+    }
+    // `length_between(a, b)` is a signed definite integral; the
+    // Gauss-Legendre quadrature returns `-|length|` when a > b.
+    // We want absolute arc-length here.
+    let total_dist = nurbs.length_between(t_start_walk, t_far_walk).abs();
+    if target_dist > total_dist + 1.0e-9 {
+        return Err(format!(
+            "target_dist {target_dist:.9} exceeds walk length {total_dist:.9}"
+        ));
+    }
+    if target_dist <= 1.0e-12 {
+        return Ok(t_start_walk);
+    }
+    if (t_far_walk - t_start_walk).abs() < 1.0e-14 {
+        return Err("invert_nurbs_arc_length: walk span is degenerate".into());
+    }
+
+    let span = t_far_walk - t_start_walk;
+    let mut lo_s = 0.0_f64;
+    let mut hi_s = 1.0_f64;
+    let mut s = target_dist / total_dist;
+
+    for _ in 0..50 {
+        let t = t_start_walk + s * span;
+        let acc = nurbs.length_between(t_start_walk, t).abs();
+        let error = acc - target_dist;
+        if error.abs() < 1.0e-10 {
+            return Ok(t);
+        }
+        if error < 0.0 {
+            lo_s = s;
+        } else {
+            hi_s = s;
+        }
+        let speed = nurbs.tangent_at(t).length();
+        let s_newton = if speed > 1.0e-12 {
+            s - error / (speed * span.abs())
+        } else {
+            f64::NAN
+        };
+        s = if s_newton.is_finite() && s_newton > lo_s && s_newton < hi_s {
+            s_newton
+        } else {
+            0.5 * (lo_s + hi_s)
+        };
+        if hi_s - lo_s < 1.0e-14 {
+            return Ok(t_start_walk + s * span);
+        }
+    }
+    Err(format!(
+        "invert_nurbs_arc_length failed to converge for target={target_dist:.6}"
+    ))
 }
 
 /// Unit tangent direction at the corner vertex, walking outward
@@ -69,7 +124,7 @@ pub(crate) fn tangent_at_corner_outgoing(
     };
 
     match &curve.geometry {
-        CurveGeometry::Line { .. } | CurveGeometry::Arc { .. } => {}
+        CurveGeometry::Line { .. } | CurveGeometry::Arc { .. } | CurveGeometry::Nurbs(_) => {}
         other => {
             return Err(format!(
                 "unsupported curve type for 2D corner tangent: {other:?}"
@@ -107,10 +162,10 @@ pub(crate) fn point_at_arc_length_from_corner(
     let p_end = curve.geometry.point_at(curve.t_end);
     let d_start = corner_pos.distance_to(&p_start);
     let d_end = corner_pos.distance_to(&p_end);
-    let (t_at_corner, sign) = if d_start <= d_end {
-        (curve.t_start, 1.0)
+    let (t_at_corner, t_far, sign) = if d_start <= d_end {
+        (curve.t_start, curve.t_end, 1.0)
     } else {
-        (curve.t_end, -1.0)
+        (curve.t_end, curve.t_start, -1.0)
     };
 
     match &curve.geometry {
@@ -121,6 +176,10 @@ pub(crate) fn point_at_arc_length_from_corner(
         CurveGeometry::Arc { radius, .. } => {
             let dtheta = dist / *radius;
             let new_t = t_at_corner + sign * dtheta;
+            Ok(curve.geometry.point_at(new_t))
+        }
+        CurveGeometry::Nurbs(nurbs) => {
+            let new_t = invert_nurbs_arc_length(nurbs, t_at_corner, t_far, dist)?;
             Ok(curve.geometry.point_at(new_t))
         }
         other => Err(format!(
@@ -149,8 +208,104 @@ pub(crate) fn edge_arc_length(
             let dtheta = (curve.t_end - curve.t_start).abs();
             Ok(radius * dtheta)
         }
+        CurveGeometry::Nurbs(nurbs) => {
+            use popkern_core::geometry::curve::CurveEval;
+            Ok(nurbs.length_between(curve.t_start, curve.t_end).abs())
+        }
         other => Err(format!(
             "unsupported curve type for arc-length query: {other:?}"
+        )),
+    }
+}
+
+/// Signed arc-length distance from the corner (origin of `he_out`)
+/// to `target`, measured along the edge's forward direction.
+///
+/// - **Line edge** — `(target − corner_pos) · tangent`. Positive
+///   means `target` lies ahead of the corner along the edge;
+///   negative means behind.
+/// - **Arc edge** — the angular difference between the corner's
+///   parameter and `target`'s angle on the same circle (wrapped
+///   into `±π` via [`wrap_nearest_to`]) scaled by the radius,
+///   with the sign flipped so that "toward the far end of the
+///   edge" is always positive regardless of whether the corner
+///   sits at `t_start` or `t_end` in the curve parameterisation.
+///
+/// Used by `fillet_corner_2d` to validate that a computed
+/// tangent point falls within the supporting edge's arc-length
+/// budget. The caller compares the return value against
+/// [`edge_arc_length`] for the same edge.
+pub(crate) fn setback_from_corner(
+    brep: &BRep,
+    he_out: HalfEdgeHandle,
+    target: Point3,
+) -> Result<f64, String> {
+    use popkern_core::geometry::curve::CurveEval;
+    let edge_h = brep.half_edges[he_out].edge;
+    let curve = brep.edges[edge_h]
+        .curve
+        .as_ref()
+        .ok_or_else(|| format!("edge {edge_h:?} has no curve geometry"))?;
+    let corner_vh = brep.half_edges[he_out].origin;
+    let corner_pos = brep.vertices[corner_vh].position;
+
+    match &curve.geometry {
+        CurveGeometry::Line { .. } => {
+            let tangent = tangent_at_corner_outgoing(brep, he_out)?;
+            Ok((target - corner_pos).dot(&tangent))
+        }
+        CurveGeometry::Arc {
+            center,
+            normal,
+            radius,
+            ..
+        } => {
+            let p_start = curve.geometry.point_at(curve.t_start);
+            let p_end = curve.geometry.point_at(curve.t_end);
+            let d_start = corner_pos.distance_to(&p_start);
+            let d_end = corner_pos.distance_to(&p_end);
+            let (t_corner, t_far) = if d_start <= d_end {
+                (curve.t_start, curve.t_end)
+            } else {
+                (curve.t_end, curve.t_start)
+            };
+
+            let (u, v) = circle_basis_like_core(*normal);
+            let target_rel = target - *center;
+            let target_angle_raw = target_rel.dot(&v).atan2(target_rel.dot(&u));
+            let target_angle = wrap_nearest_to(t_corner, target_angle_raw);
+
+            let sweep_sign = (t_far - t_corner).signum();
+            let progress = (target_angle - t_corner) * sweep_sign;
+            Ok(progress * radius)
+        }
+        CurveGeometry::Nurbs(nurbs) => {
+            let p_start = curve.geometry.point_at(curve.t_start);
+            let p_end = curve.geometry.point_at(curve.t_end);
+            let d_start = corner_pos.distance_to(&p_start);
+            let d_end = corner_pos.distance_to(&p_end);
+            let (t_corner, t_far) = if d_start <= d_end {
+                (curve.t_start, curve.t_end)
+            } else {
+                (curve.t_end, curve.t_start)
+            };
+            // Locate the target's parameter via projection.
+            let target_t = nurbs
+                .closest_point(&target)
+                .ok_or_else(|| "closest_point on NURBS returned None".to_string())?;
+            let abs_dist = nurbs.length_between(t_corner, target_t).abs();
+            // Sign = +1 if target_t lies on the "toward t_far" side of t_corner.
+            let walk_dir = (t_far - t_corner).signum();
+            let target_dir = (target_t - t_corner).signum();
+            let signed = if walk_dir * target_dir >= 0.0 {
+                abs_dist
+            } else {
+                -abs_dist
+            };
+            Ok(signed)
+        }
+        other => Err(format!(
+            "unsupported curve type for setback query: {other:?}"
         )),
     }
 }
@@ -225,6 +380,61 @@ pub(crate) fn rebuild_edge_curve_clipped(
             });
             Ok(())
         }
+        CurveGeometry::Nurbs(nurbs) => {
+            use popkern_core::geometry::curve::CurveEval;
+            // Parameters of the new canonical endpoints on the
+            // original NURBS, located via projection.
+            let t_from_new = nurbs
+                .closest_point(&p_from)
+                .ok_or_else(|| "closest_point failed for p_from".to_string())?;
+            let t_to_new = nurbs
+                .closest_point(&p_to)
+                .ok_or_else(|| "closest_point failed for p_to".to_string())?;
+            let (tmin, tmax) = if t_from_new < t_to_new {
+                (t_from_new, t_to_new)
+            } else {
+                (t_to_new, t_from_new)
+            };
+            if (tmax - tmin) < 1.0e-12 {
+                return Err(format!(
+                    "rebuild_edge_curve_clipped: degenerate NURBS trim range [{tmin}, {tmax}]"
+                ));
+            }
+            // `split_at` rejects splits at the curve's existing
+            // parameter boundaries, so we skip redundant splits
+            // when a new endpoint coincides with an original one
+            // (common when only ONE of the two canonical
+            // endpoints was moved by the corner op).
+            let (nurbs_start, nurbs_end) = nurbs.parameter_range();
+            let tol = 1.0e-12_f64;
+            let trimmed = if (tmin - nurbs_start).abs() < tol && (tmax - nurbs_end).abs() < tol {
+                nurbs.clone()
+            } else if (tmin - nurbs_start).abs() < tol {
+                let (left, _) = nurbs
+                    .split_at(tmax)
+                    .map_err(|e| format!("NURBS split_at({tmax}): {e:?}"))?;
+                left
+            } else if (tmax - nurbs_end).abs() < tol {
+                let (_, right) = nurbs
+                    .split_at(tmin)
+                    .map_err(|e| format!("NURBS split_at({tmin}): {e:?}"))?;
+                right
+            } else {
+                let (_, right) = nurbs
+                    .split_at(tmin)
+                    .map_err(|e| format!("NURBS split_at({tmin}): {e:?}"))?;
+                let (trimmed, _) = right
+                    .split_at(tmax)
+                    .map_err(|e| format!("NURBS split_at({tmax}): {e:?}"))?;
+                trimmed
+            };
+            brep.edges[edge].curve = Some(CurveOnEdge {
+                geometry: CurveGeometry::Nurbs(trimmed),
+                t_start: t_from_new,
+                t_end: t_to_new,
+            });
+            Ok(())
+        }
         other => Err(format!(
             "cannot rebuild curve after 2D corner surgery: unsupported type {other:?}"
         )),
@@ -262,32 +472,6 @@ pub(crate) fn circle_basis_like_core(normal: Vec3) -> (Vec3, Vec3) {
         .normalized()
         .unwrap_or(Vec3::new(0.0, 1.0, 0.0));
     (u, v)
-}
-
-/// Validate that the given edge's curve is a straight `Line`.
-/// Used by `fillet_corner_2d` and `chamfer_corner_2d_by_angle`
-/// which don't yet support curved adjacent edges (the curved-
-/// edge path for basic chamfer goes through
-/// [`tangent_at_corner_outgoing`] / [`point_at_arc_length_from_corner`]
-/// instead).
-pub(crate) fn require_line(
-    brep: &BRep,
-    edge_h: popkern_core::topology::EdgeHandle,
-) -> Result<(), String> {
-    let edge = brep
-        .edges
-        .get(edge_h)
-        .ok_or_else(|| format!("edge {edge_h:?} not found"))?;
-    let curve = edge
-        .curve
-        .as_ref()
-        .ok_or_else(|| format!("edge {edge_h:?} has no curve geometry"))?;
-    match &curve.geometry {
-        CurveGeometry::Line { .. } => Ok(()),
-        other => Err(format!(
-            "edge {edge_h:?} curve must be a Line, got {other:?}"
-        )),
-    }
 }
 
 /// Build a uniform `PartialFailure` wrapping an `InvalidTopology`

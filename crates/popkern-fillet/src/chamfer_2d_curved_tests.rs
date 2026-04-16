@@ -127,3 +127,73 @@ fn chamfer_corner_2d_rejects_oversize_arc_distance() {
     let err = chamfer_corner_2d(&sheet, corner, 2.0, 0.1).unwrap_err();
     assert!(matches!(err, BlendError::PartialFailure { .. }));
 }
+
+// ---------------------------------------------------------------------------
+// Arc-Arc corner (apex of sheet_biased_arched_triangle)
+// ---------------------------------------------------------------------------
+
+/// Chamfer the arc-arc apex of a `sheet_biased_arched_triangle`
+/// with distinct radii (so the apex is a real corner). The
+/// chamfer path is already curve-type-agnostic via
+/// `tangent_at_corner_outgoing` / `point_at_arc_length_from_corner`,
+/// so this primarily regression-guards that the Arc-Arc combo
+/// flows through without Line-only assertions or panics.
+#[test]
+fn chamfer_corner_2d_on_arc_arc_apex_of_biased() {
+    let sheet = BRep::sheet_biased_arched_triangle(1.5, 1.0, 0.0, tol()).unwrap();
+    let corner = sheet
+        .vertices
+        .iter()
+        .find(|(_, v)| v.position.x.abs() < 1e-9 && (v.position.y - 1.5).abs() < 1e-9)
+        .map(|(h, _)| h)
+        .unwrap();
+
+    let result = chamfer_corner_2d(&sheet, corner, 0.1, 0.1)
+        .expect("arc-arc chamfer should succeed on biased apex");
+
+    assert_eq!(result.vertices.len(), 4);
+    assert_eq!(result.edges.len(), 4);
+    assert_eq!(result.faces.len(), 2);
+    let euler =
+        result.vertices.len() as i64 - result.edges.len() as i64 + result.faces.len() as i64;
+    assert_eq!(euler, 2);
+    result.validate().unwrap();
+}
+
+/// After arc-arc chamfer, the new edge is a straight `Line`,
+/// the two support arcs are still `Arc`s (with clipped angles),
+/// and the diameter stays a `Line` — total 2 `Arc`s + 2 `Line`s.
+#[test]
+fn chamfer_corner_2d_arc_arc_curve_census() {
+    let sheet = BRep::sheet_biased_arched_triangle(1.5, 1.0, 0.0, tol()).unwrap();
+    let corner = sheet
+        .vertices
+        .iter()
+        .find(|(_, v)| v.position.x.abs() < 1e-9 && (v.position.y - 1.5).abs() < 1e-9)
+        .map(|(h, _)| h)
+        .unwrap();
+    let result = chamfer_corner_2d(&sheet, corner, 0.15, 0.15).unwrap();
+
+    let arc_count = result
+        .edges
+        .values()
+        .filter(|e| {
+            matches!(
+                e.curve.as_ref().map(|c| &c.geometry),
+                Some(CurveGeometry::Arc { .. })
+            )
+        })
+        .count();
+    let line_count = result
+        .edges
+        .values()
+        .filter(|e| {
+            matches!(
+                e.curve.as_ref().map(|c| &c.geometry),
+                Some(CurveGeometry::Line { .. })
+            )
+        })
+        .count();
+    assert_eq!(arc_count, 2, "expected 2 arc edges, got {arc_count}");
+    assert_eq!(line_count, 2, "expected 2 line edges, got {line_count}");
+}

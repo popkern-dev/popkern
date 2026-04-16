@@ -1,8 +1,6 @@
 #![warn(missing_docs)]
 //! popkern-fillet: Fillets and chamfers for the popkern BRep kernel.
-//!
-//! Public entry points: [`fillet_edges`]/[`fillet_edge`] and [`chamfer_edges`]/[`chamfer_edge`].
-
+//! Public entry points: [`fillet_edges`] and [`chamfer_edges`] plus §5.5 [`vertex_blend_3d`].
 pub mod analysis;
 pub mod blend;
 pub mod cancellation;
@@ -11,6 +9,8 @@ pub mod center_curve;
 pub mod center_curve_helpers;
 pub mod center_curve_walker;
 pub mod chamfer_2d;
+pub mod chamfer_2d_by_angle;
+pub(crate) mod chamfer_2d_ray;
 pub mod chamfer_curve;
 pub(crate) mod collapsed_skip;
 pub mod construct;
@@ -20,8 +20,11 @@ pub mod curvature_comb;
 pub(crate) mod cusp_subdivide;
 pub(crate) mod degeneracy;
 pub(crate) mod degeneracy_surface;
+pub mod edges_2d;
 pub mod error;
 pub mod fillet_2d;
+pub(crate) mod fillet_2d_plan;
+pub(crate) mod fillet_2d_solvers;
 pub mod fillet_surface;
 pub mod fillet_surface_analytic;
 pub mod g2_cross_section;
@@ -56,10 +59,12 @@ pub(crate) mod unfillet_closed_helpers;
 pub(crate) mod unfillet_helpers;
 pub(crate) mod unfillet_surgery;
 pub mod validate;
+pub mod vertex_blend;
 pub mod walker;
 pub(crate) mod walker_adaptive;
 pub use cancellation::CancellationToken;
 pub use chamfer_2d::{chamfer_corner_2d, chamfer_corner_2d_by_angle, chamfer_corners_2d};
+pub use edges_2d::*;
 pub use error::{
     BlendError, BlendFailure, BlendWarning, Remediation, RemediationAction, RemediationContext,
 };
@@ -80,6 +85,7 @@ pub use preview::{PreviewEdgeGeometry, PreviewGeometry, preview_chamfer, preview
 pub use progress::*;
 pub use types::*;
 pub use unfillet::{UnfilletPlan, compute_unfillet_plan, unfillet_face, unfillet_via_record};
+pub use vertex_blend::{vertex_blend_3d, vertex_blend_3d_variable};
 
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;

@@ -41,10 +41,17 @@ use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::topology::{BRep, Edge, HalfEdge, HalfEdgeHandle, VertexHandle};
 
 use crate::corner_2d_helpers::{
-    edge_arc_length, point_at_arc_length_from_corner, rebuild_edge_curve_clipped, require_line,
+    edge_arc_length, point_at_arc_length_from_corner, rebuild_edge_curve_clipped,
     tangent_at_corner_outgoing, topology_failure,
 };
 use crate::error::BlendError;
+
+/// Re-export of [`crate::chamfer_2d_by_angle::chamfer_corner_2d_by_angle`]
+/// — the distance+angle chamfer mode lives in a sibling module
+/// to keep `chamfer_2d.rs` under the 500-line cap, but we expose
+/// it through this module so the `popkern_fillet::chamfer_2d`
+/// namespace remains the single entry point for 2D chamfer ops.
+pub use crate::chamfer_2d_by_angle::chamfer_corner_2d_by_angle;
 
 /// Chamfer a single sharp corner of a sheet body by distances
 /// `dist_a` along the first adjacent edge and `dist_b` along the
@@ -135,170 +142,12 @@ pub fn chamfer_corners_2d(
     Ok(current)
 }
 
-/// §2.3 / §5.7 **distance + angle** chamfer mode.
-///
-/// Specifies `dist_a` along the first adjacent edge plus
-/// `angle_rad` — the interior angle at the tangent point between
-/// the *remaining* edge (pointing from the tangent point away
-/// from the corner) and the chamfer line (pointing toward the
-/// second tangent point). Mirrors [`crate::types::ChamferKind::DistanceAngle`]
-/// for the 2D sheet-body case.
-///
-/// For a 45-45 symmetric chamfer on a 90° corner, `angle_rad =
-/// 3π/4` (135°). The second tangent point's distance follows
-/// from the law of sines in the corner triangle:
-/// `dist_b = dist_a · sin(angle_rad) / sin(angle_rad − θ)`,
-/// where `θ` is the interior corner angle. Valid range:
-/// `θ < angle_rad < π`.
-pub fn chamfer_corner_2d_by_angle(
-    brep: &BRep,
-    vertex: VertexHandle,
-    dist_a: f64,
-    angle_rad: f64,
-) -> Result<BRep, BlendError> {
-    if !dist_a.is_finite() || dist_a <= 0.0 {
-        return Err(BlendError::InvalidParameter {
-            parameter: "dist_a".into(),
-            value: format!("{dist_a}"),
-            reason: "chamfer distance must be a positive finite value".into(),
-        });
-    }
-    if !angle_rad.is_finite() || angle_rad <= 0.0 {
-        return Err(BlendError::InvalidParameter {
-            parameter: "angle_rad".into(),
-            value: format!("{angle_rad}"),
-            reason: "chamfer angle must be a positive finite value in radians".into(),
-        });
-    }
-    if brep.vertices.get(vertex).is_none() {
-        return Err(BlendError::InvalidParameter {
-            parameter: "vertex".into(),
-            value: format!("{vertex:?}"),
-            reason: "vertex handle is not present in the BRep".into(),
-        });
-    }
-
-    let plan = chamfer_plan_by_angle(brep, vertex, dist_a, angle_rad)
-        .map_err(|reason| topology_failure(vertex, reason))?;
-
-    let mut out = brep.clone();
-    apply_chamfer_plan(&mut out, vertex, &plan)
-        .map_err(|reason| topology_failure(vertex, reason))?;
-
-    out.attach_planar_pcurves()
-        .map_err(|e| topology_failure(vertex, format!("pcurve refresh failed: {e:?}")))?;
-
-    out.validate()
-        .map_err(|e| topology_failure(vertex, format!("validation failed: {e:?}")))?;
-
-    Ok(out)
-}
-
-fn chamfer_plan_by_angle(
-    brep: &BRep,
-    vertex: VertexHandle,
-    dist_a: f64,
-    angle_rad: f64,
-) -> Result<ChamferPlan, String> {
-    let mut outgoing: Vec<HalfEdgeHandle> = brep
-        .half_edges
-        .iter()
-        .filter(|(_, he)| he.origin == vertex)
-        .map(|(h, _)| h)
-        .collect();
-    outgoing.sort();
-
-    if outgoing.len() != 2 {
-        return Err(format!(
-            "corner vertex must have exactly 2 outgoing half-edges, got {}",
-            outgoing.len()
-        ));
-    }
-
-    let corner_pos = brep.vertices[vertex].position;
-
-    let edge_a = brep.half_edges[outgoing[0]].edge;
-    let edge_b = brep.half_edges[outgoing[1]].edge;
-    if edge_a == edge_b {
-        return Err("both outgoing half-edges belong to the same edge (degenerate loop)".into());
-    }
-
-    require_line(brep, edge_a)?;
-    require_line(brep, edge_b)?;
-
-    let v_a_far = brep.half_edges[brep.half_edges[outgoing[0]].twin].origin;
-    let v_b_far = brep.half_edges[brep.half_edges[outgoing[1]].twin].origin;
-    let p_a = brep.vertices[v_a_far].position;
-    let p_b = brep.vertices[v_b_far].position;
-
-    let dir_a_vec = p_a - corner_pos;
-    let dir_b_vec = p_b - corner_pos;
-    let len_a = dir_a_vec.length();
-    let len_b = dir_b_vec.length();
-    if len_a < 1e-12 || len_b < 1e-12 {
-        return Err("adjacent edge has near-zero length".into());
-    }
-    let dir_a = dir_a_vec * (1.0 / len_a);
-    let dir_b = dir_b_vec * (1.0 / len_b);
-
-    let cos_corner = dir_a.dot(&dir_b).clamp(-1.0, 1.0);
-    let corner_angle = cos_corner.acos();
-    if corner_angle < 1.0e-4 {
-        return Err("edges are nearly colinear (no meaningful corner)".into());
-    }
-
-    // Valid range: corner_angle < angle_rad < π. An angle at or
-    // below the corner angle would place the chamfer line
-    // parallel to (or past) the second edge, with no valid
-    // intersection; an angle ≥ π is degenerate.
-    if angle_rad <= corner_angle + 1.0e-6 {
-        return Err(format!(
-            "angle_rad {angle_rad:.6} must exceed corner angle {corner_angle:.6}"
-        ));
-    }
-    if angle_rad >= std::f64::consts::PI - 1.0e-6 {
-        return Err(format!("angle_rad {angle_rad:.6} must be < π"));
-    }
-
-    // Law of sines in the triangle (corner, t1, t2):
-    // - Internal angles: corner = θ, t1 = π − angle_rad, t2 = angle_rad − θ
-    // - dist_a / sin(t2) = dist_b / sin(t1)
-    // - dist_b = dist_a · sin(π − angle_rad) / sin(angle_rad − θ)
-    //          = dist_a · sin(angle_rad)     / sin(angle_rad − θ)
-    let sin_t2 = (angle_rad - corner_angle).sin();
-    if sin_t2.abs() < 1.0e-12 {
-        return Err("degenerate law-of-sines denominator".into());
-    }
-    let dist_b = dist_a * angle_rad.sin() / sin_t2;
-
-    if dist_a >= len_a {
-        return Err(format!(
-            "dist_a {dist_a:.6} ≥ adjacent edge length {len_a:.6}"
-        ));
-    }
-    if dist_b >= len_b {
-        return Err(format!(
-            "derived dist_b {dist_b:.6} ≥ adjacent edge length {len_b:.6}"
-        ));
-    }
-
-    let t1 = corner_pos + dir_a * dist_a;
-    let t2 = corner_pos + dir_b * dist_b;
-
-    Ok(ChamferPlan {
-        he_out_a: outgoing[0],
-        he_out_b: outgoing[1],
-        t1,
-        t2,
-    })
-}
-
 #[derive(Debug, Clone, Copy)]
-struct ChamferPlan {
-    he_out_a: HalfEdgeHandle,
-    he_out_b: HalfEdgeHandle,
-    t1: Point3,
-    t2: Point3,
+pub(crate) struct ChamferPlan {
+    pub(crate) he_out_a: HalfEdgeHandle,
+    pub(crate) he_out_b: HalfEdgeHandle,
+    pub(crate) t1: Point3,
+    pub(crate) t2: Point3,
 }
 
 fn chamfer_plan(
@@ -374,7 +223,7 @@ fn chamfer_plan(
     })
 }
 
-fn apply_chamfer_plan(
+pub(crate) fn apply_chamfer_plan(
     brep: &mut BRep,
     corner: VertexHandle,
     plan: &ChamferPlan,
@@ -477,3 +326,7 @@ mod tests;
 #[cfg(test)]
 #[path = "chamfer_2d_curved_tests.rs"]
 mod curved_tests;
+
+#[cfg(test)]
+#[path = "chamfer_2d_nurbs_tests.rs"]
+mod nurbs_tests;

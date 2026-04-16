@@ -38,6 +38,7 @@
 //! half-edge on the front face gets a 2D pcurve via
 //! `attach_planar_pcurves`.
 
+use crate::constructors::sheet_helpers::rewrite_edge_as_arc;
 use crate::error::CoreError;
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
@@ -265,125 +266,122 @@ impl BRep {
 
         Ok(brep)
     }
-}
 
-/// Locate the edge whose canonical half-edge runs from `p_from`
-/// to `p_to` (within linear tolerance) and replace its `Line`
-/// curve with an `Arc` on the specified circle.
-///
-/// Preserves the canonical half-edge's direction: the arc
-/// parameterisation `(t_start, t_end)` matches the canonical
-/// endpoint order.
-fn rewrite_edge_as_arc(
-    brep: &mut BRep,
-    p_from: Point3,
-    p_to: Point3,
-    center: Point3,
-    normal: crate::geometry::Vec3,
-    radius: f64,
-) -> Result<(), CoreError> {
-    let edge_h = find_edge_between_points(brep, p_from, p_to, 1.0e-9).ok_or_else(|| {
-        CoreError::PreconditionFailed(format!(
-            "arched_triangle: cannot find edge between {p_from:?} and {p_to:?}"
-        ))
-    })?;
+    /// Construct a **biased** arched triangle — like
+    /// [`Self::sheet_arched_triangle`] but with two *different* arc
+    /// radii so the apex is a genuine non-tangent-matched arc-arc
+    /// corner.
+    ///
+    /// Fixed vertex layout:
+    /// - `v0 = (−1, 0, z_plane)`
+    /// - `v1 = (0, 1.5, z_plane)` (apex)
+    /// - `v2 = (1, 0, z_plane)`
+    ///
+    /// Edges:
+    /// - `v0 → v1` — arc of radius `radius_left`, bulging upper-left
+    ///   (centre on the chord's right-hand side)
+    /// - `v1 → v2` — arc of radius `radius_right`, bulging upper-right
+    /// - `v2 → v0` — straight diameter-like line at `y = 0`
+    ///
+    /// **Corner at `v1`** is the arc-arc test vehicle for §5.7
+    /// 2D corner ops on curved supports: when `radius_left ==
+    /// radius_right` the two arcs share a tangent at `v1` and the
+    /// corner is degenerate; any non-equal pair yields a real
+    /// (non-colinear) corner that fillet/chamfer can attack.
+    ///
+    /// Chord length from either `v0 → v1` or `v1 → v2` is
+    /// `sqrt(1 + 1.5²) = sqrt(3.25) ≈ 1.803`, so both radii must
+    /// be strictly greater than half that (`≈ 0.901`) for the
+    /// geometry to be feasible.
+    ///
+    /// # Errors
+    ///
+    /// - [`CoreError::PreconditionFailed`] if either radius is
+    ///   non-finite, non-positive, or smaller than half the chord
+    ///   length.
+    /// - [`CoreError::Validation`] on any downstream Euler /
+    ///   validate failure.
+    pub fn sheet_biased_arched_triangle(
+        radius_left: f64,
+        radius_right: f64,
+        z_plane: f64,
+        tolerance: Tolerance,
+    ) -> Result<Self, CoreError> {
+        const APEX_Y: f64 = 1.5;
+        let chord_half = (1.0_f64 + APEX_Y * APEX_Y).sqrt() * 0.5;
 
-    // The canonical half-edge's origin gives the "first" vertex
-    // of the edge in parameter-range order. We use that to
-    // compute the angle at t_start.
-    let canonical_he = brep.edges[edge_h].half_edge;
-    let canonical_origin_vh = brep.half_edges[canonical_he].origin;
-    let canonical_twin_h = brep.half_edges[canonical_he].twin;
-    let canonical_twin_origin_vh = brep.half_edges[canonical_twin_h].origin;
-    let canonical_origin_pos = brep.vertices[canonical_origin_vh].position;
-    let canonical_twin_origin_pos = brep.vertices[canonical_twin_origin_vh].position;
-
-    let (u_basis, v_basis) = circle_basis_local(normal);
-    let t_start = angle_in_basis(canonical_origin_pos - center, u_basis, v_basis);
-    let t_end_raw = angle_in_basis(canonical_twin_origin_pos - center, u_basis, v_basis);
-    // Choose the "short" arc by ensuring `t_end` is within `π`
-    // of `t_start` (add or subtract `2π` as needed). For our
-    // arched-triangle case both endpoints are adjacent on the
-    // circle so the natural difference is already `< π`.
-    let t_end = wrap_nearest(t_start, t_end_raw);
-
-    let arc = crate::geometry::curve::CurveGeometry::Arc {
-        center,
-        normal,
-        radius,
-        start_angle: t_start,
-        end_angle: t_end,
-    };
-    brep.edges[edge_h].curve = Some(crate::geometry::curve::CurveOnEdge {
-        geometry: arc,
-        t_start,
-        t_end,
-    });
-    Ok(())
-}
-
-fn find_edge_between_points(
-    brep: &BRep,
-    p_from: Point3,
-    p_to: Point3,
-    tol_eps: f64,
-) -> Option<crate::topology::EdgeHandle> {
-    for (eh, edge) in &brep.edges {
-        let he_h = edge.half_edge;
-        let twin_h = brep.half_edges[he_h].twin;
-        let a = brep.vertices[brep.half_edges[he_h].origin].position;
-        let b = brep.vertices[brep.half_edges[twin_h].origin].position;
-        let matches = (a.distance_to(&p_from) < tol_eps && b.distance_to(&p_to) < tol_eps)
-            || (a.distance_to(&p_to) < tol_eps && b.distance_to(&p_from) < tol_eps);
-        if matches {
-            return Some(eh);
+        for (name, r) in [("radius_left", radius_left), ("radius_right", radius_right)] {
+            if !r.is_finite() || r <= 0.0 {
+                return Err(CoreError::PreconditionFailed(format!(
+                    "sheet_biased_arched_triangle: {name} must be positive and finite, got {r}"
+                )));
+            }
+            if r <= chord_half + 1.0e-12 {
+                return Err(CoreError::PreconditionFailed(format!(
+                    "sheet_biased_arched_triangle: {name} {r} must exceed chord/2 = {chord_half}"
+                )));
+            }
         }
+
+        let v0 = Point3::new(-1.0, 0.0, z_plane);
+        let v1 = Point3::new(0.0, APEX_Y, z_plane);
+        let v2 = Point3::new(1.0, 0.0, z_plane);
+        let mut brep = Self::sheet_polygon(&[v0, v1, v2], tolerance)?;
+
+        // Compute arc centres. The perpendicular bisector of each
+        // chord carries the centre at distance
+        // `sqrt(r² − (chord/2)²)` from the chord midpoint. We
+        // offset toward the **exterior** of the straight-triangle
+        // walk so the arcs bulge **outward** away from the third
+        // vertex — the shape is still sphere-topology and the
+        // bottom "line" stays the diameter.
+        let arc_normal = crate::geometry::Vec3::new(0.0, 0.0, -1.0);
+
+        let (center_a, center_b) = biased_arch_centers(APEX_Y, radius_left, radius_right, z_plane);
+
+        rewrite_edge_as_arc(&mut brep, v0, v1, center_a, arc_normal, radius_left)?;
+        rewrite_edge_as_arc(&mut brep, v1, v2, center_b, arc_normal, radius_right)?;
+
+        brep.validate().map_err(CoreError::Validation)?;
+
+        Ok(brep)
     }
-    None
 }
 
-fn angle_in_basis(
-    rel: crate::geometry::Vec3,
-    u: crate::geometry::Vec3,
-    v: crate::geometry::Vec3,
-) -> f64 {
-    rel.dot(&v).atan2(rel.dot(&u))
-}
+/// Compute the arc centres for
+/// [`BRep::sheet_biased_arched_triangle`]. Shared with
+/// [`BRep::sheet_biased_arched_triangle`] so the test-file
+/// constants can be kept in one place.
+fn biased_arch_centers(
+    apex_y: f64,
+    radius_left: f64,
+    radius_right: f64,
+    z_plane: f64,
+) -> (Point3, Point3) {
+    let chord_half_sq = 0.25 * (1.0 + apex_y * apex_y);
 
-/// Wrap `t` so it's within `±π` of `anchor`. Used to pick the
-/// short-arc parameter for an otherwise-ambiguous endpoint angle.
-fn wrap_nearest(anchor: f64, t: f64) -> f64 {
-    use std::f64::consts::{PI, TAU};
-    let mut result = t;
-    while result - anchor > PI {
-        result -= TAU;
-    }
-    while result - anchor < -PI {
-        result += TAU;
-    }
-    result
-}
+    // Arc a: chord (-1, 0) → (0, apex_y). Midpoint (-0.5, apex_y/2).
+    // Chord direction normalised (1, apex_y) / chord_len. Perpendicular
+    // rotated 90° clockwise (that's the **right** side of the walk
+    // from v0 to v1, which coincides with the exterior of the
+    // counter-clockwise triangle walk v0 → v1 → v2). We place the
+    // centre on that side to make the arc bulge outward on the
+    // opposite side.
+    let chord_len = (1.0_f64 + apex_y * apex_y).sqrt();
+    let mid_a = Point3::new(-0.5, apex_y * 0.5, z_plane);
+    let perp_a = crate::geometry::Vec3::new(apex_y / chord_len, -1.0 / chord_len, 0.0);
+    let offset_a = (radius_left * radius_left - chord_half_sq).sqrt();
+    let center_a = mid_a + perp_a * offset_a;
 
-/// Local replica of the (private) `circle_basis` helper in
-/// `analytic_curves`, used here so the arc parameterisation we
-/// compute matches the frame `CurveGeometry::Arc::point_at`
-/// evaluates in at runtime.
-fn circle_basis_local(
-    normal: crate::geometry::Vec3,
-) -> (crate::geometry::Vec3, crate::geometry::Vec3) {
-    use crate::geometry::Vec3;
-    let axis = if normal.x.abs() < 0.9 {
-        Vec3::new(1.0, 0.0, 0.0)
-    } else {
-        Vec3::new(0.0, 1.0, 0.0)
-    };
-    let perp = normal.cross(&axis);
-    let u = perp.normalized().unwrap_or(Vec3::new(1.0, 0.0, 0.0));
-    let v = normal
-        .cross(&u)
-        .normalized()
-        .unwrap_or(Vec3::new(0.0, 1.0, 0.0));
-    (u, v)
+    let mid_b = Point3::new(0.5, apex_y * 0.5, z_plane);
+    // Arc b: chord (0, apex_y) → (1, 0). Chord direction (1, -apex_y)/chord_len.
+    // The exterior perpendicular (90° CW of the chord direction)
+    // points to `(-apex_y, -1)/chord_len` — down-left.
+    let perp_b = crate::geometry::Vec3::new(-apex_y / chord_len, -1.0 / chord_len, 0.0);
+    let offset_b = (radius_right * radius_right - chord_half_sq).sqrt();
+    let center_b = mid_b + perp_b * offset_b;
+
+    (center_a, center_b)
 }
 
 #[cfg(test)]
