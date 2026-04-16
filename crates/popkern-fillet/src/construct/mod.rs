@@ -472,7 +472,7 @@ pub fn apply_blend_geometry(
     sliver_absorb::run_and_route_warnings(&mut result, tolerance, edge_geometries, &mut warnings);
 
     // §8.3 caps — see `cap_insert` module docs.
-    cap_insert::insert_caps(&result, edge_geometries, &mut warnings);
+    cap_insert::insert_caps(&mut result, edge_geometries, &mut warnings);
 
     Ok(ApplyBlendResult {
         brep: result,

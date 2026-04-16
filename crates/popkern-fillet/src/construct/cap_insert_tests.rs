@@ -241,6 +241,91 @@ fn user_defined_cap_kind_emits_no_cap_applied_warnings() {
     assert_eq!(cap_count, 0, "UserDefined should not emit CapApplied");
 }
 
+// ---------------------------------------------------------------------------
+// Direct topology surgery unit tests
+// ---------------------------------------------------------------------------
+
+/// Test `insert_cap_face` directly on a sheet_quad. Use
+/// vertices v1 = (1, 0, 0) and v3 = (0, 1, 0) as the "contact
+/// vertices" of a synthetic cap at the v0 = (0, 0, 0) corner.
+/// `mef` splits the front face along the v1-v3 diagonal,
+/// creating a new triangular face that gets the cap surface.
+#[test]
+fn insert_cap_face_creates_new_face_on_sheet_quad() {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let mut sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let v0 = sheet
+        .vertices
+        .iter()
+        .find(|(_, v)| v.position.x == 0.0 && v.position.y == 0.0)
+        .map(|(h, _)| h)
+        .unwrap();
+    let contact_1_pos = popkern_core::geometry::Point3::new(1.0, 0.0, 0.0);
+    let contact_2_pos = popkern_core::geometry::Point3::new(0.0, 1.0, 0.0);
+    let cap = crate::cap::CapGeometry {
+        kind: CapKind::Flat,
+        surface: Some(SurfaceGeometry::Plane {
+            origin: popkern_core::geometry::Point3::new(0.0, 0.0, 0.0),
+            normal: popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0),
+            u_axis: popkern_core::geometry::Vec3::new(1.0, 0.0, 0.0),
+            v_axis: popkern_core::geometry::Vec3::new(0.0, 1.0, 0.0),
+        }),
+        boundary_points: vec![contact_1_pos, contact_2_pos],
+    };
+    let faces_before = sheet.faces.len();
+    let edges_before = sheet.edges.len();
+    let inserted = super::insert_cap_face(&mut sheet, v0, &cap);
+    assert!(inserted, "cap face should be inserted");
+    assert_eq!(
+        sheet.faces.len(),
+        faces_before + 1,
+        "one new face should be created by mef"
+    );
+    assert_eq!(
+        sheet.edges.len(),
+        edges_before + 1,
+        "one new edge (the diagonal) should be created"
+    );
+    // The new face has the cap surface assigned.
+    let has_cap_surface = sheet.faces.values().any(|f| {
+        f.surface
+            .as_ref()
+            .is_some_and(|sof| matches!(sof.geometry, SurfaceGeometry::Plane { .. }))
+    });
+    assert!(
+        has_cap_surface,
+        "at least one face should have the cap's plane surface"
+    );
+}
+
+/// `insert_cap_face` returns false (no-op) when the boundary
+/// points don't map to real vertices near the endpoint.
+#[test]
+fn insert_cap_face_returns_false_for_distant_contacts() {
+    let mut sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
+    let v0 = sheet.vertices.keys().next().unwrap();
+    let cap = crate::cap::CapGeometry {
+        kind: CapKind::Flat,
+        surface: Some(popkern_core::geometry::surface::SurfaceGeometry::Plane {
+            origin: popkern_core::geometry::Point3::new(0.0, 0.0, 0.0),
+            normal: popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0),
+            u_axis: popkern_core::geometry::Vec3::new(1.0, 0.0, 0.0),
+            v_axis: popkern_core::geometry::Vec3::new(0.0, 1.0, 0.0),
+        }),
+        boundary_points: vec![
+            popkern_core::geometry::Point3::new(99.0, 99.0, 99.0),
+            popkern_core::geometry::Point3::new(100.0, 100.0, 100.0),
+        ],
+    };
+    let faces_before = sheet.faces.len();
+    let inserted = super::insert_cap_face(&mut sheet, v0, &cap);
+    assert!(
+        !inserted,
+        "cap insertion should fail when contacts are far from BRep vertices"
+    );
+    assert_eq!(sheet.faces.len(), faces_before);
+}
+
 /// Cap insertion is a pure post-construct pass — enabling it does
 /// not change the BRep's face or edge count on closed solids. This
 /// is the "no regression" guard: every existing closed-body fillet

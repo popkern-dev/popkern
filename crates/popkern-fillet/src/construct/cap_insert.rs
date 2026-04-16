@@ -19,7 +19,8 @@
 //! pair whenever `cap_kind != Open`, with `topology_inserted` set
 //! to reflect the chosen path.
 
-use popkern_core::topology::{BRep, VertexHandle};
+use popkern_core::geometry::surface::SurfaceOnFace;
+use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
 
 use crate::construct::EdgeGeometry;
 use crate::error::BlendWarning;
@@ -37,7 +38,7 @@ use crate::error::BlendWarning;
 /// Phase C (face merging), vertex-blend handling, and surface-fix
 /// correction in `apply_blend_geometry`.
 pub(crate) fn insert_caps(
-    brep: &BRep,
+    brep: &mut BRep,
     edge_geometries: &[EdgeGeometry],
     warnings: &mut Vec<(popkern_core::topology::EdgeHandle, BlendWarning)>,
 ) {
@@ -48,7 +49,7 @@ pub(crate) fn insert_caps(
 }
 
 fn process_endpoint(
-    brep: &BRep,
+    brep: &mut BRep,
     eg: &EdgeGeometry,
     at_start: bool,
     warnings: &mut Vec<(popkern_core::topology::EdgeHandle, BlendWarning)>,
@@ -85,19 +86,9 @@ fn process_endpoint(
     let closed = endpoint_is_closed(brep, vertex, eg.analysis.face_1, eg.analysis.face_2);
 
     let topology_inserted = if closed {
-        // The adjacent face serves as the natural cap; no
-        // topology change is needed or desirable — modifying a
-        // closed solid's existing faces would create a
-        // non-manifold configuration.
         false
     } else {
-        // Open-shell / free-boundary endpoint. Topology insertion
-        // would create a new face from the `CapGeometry.surface`
-        // and stitch its boundary to the existing trim edges at
-        // the two contact points. Implementing that surgery on
-        // open shells is a tracked follow-up; for now we record
-        // the intent and leave topology unchanged.
-        insert_cap_face_stub(cap)
+        insert_cap_face(brep, vertex, cap)
     };
 
     warnings.push((
@@ -137,32 +128,118 @@ fn endpoint_is_closed(
     false
 }
 
-/// Placeholder topology insertion for open-shell / free-boundary
-/// cap faces.
+/// Insert a cap face at a free-boundary blend endpoint.
 ///
-/// **Status.** Sheet-body constructors landed (`BRep::sheet_quad`,
-/// `sheet_triangle`, `sheet_polygon`) so the INPUTS a real
-/// implementation needs are now buildable. The remaining blocker
-/// is that `popkern-fillet`'s edge analyzer currently rejects
-/// fillets on planar sheet bodies — the front and backside faces
-/// of a `sheet_quad` are coincident planes with opposite normals,
-/// which the convexity classifier treats as degenerate. That's
-/// the §5.7 "2D fillet / sheet fillet" scope on the requirements
-/// gap list; opening it up is the next step before this function
-/// can be turned from a no-op into the real surgery.
+/// Finds the two BRep vertices nearest to the cap's first and
+/// last boundary points (the contact vertices on the two
+/// support faces), locates a common face loop containing both,
+/// and calls `mef()` to split that face along a new edge
+/// between the contact vertices. The new face is assigned the
+/// cap surface. Returns `true` on success.
 ///
-/// The signature already takes a full [`crate::cap::CapGeometry`],
-/// so the eventual implementation will slot in without any
-/// caller-visible changes: it will create a new [`Face`] with
-/// `cap.surface`, stitch boundary half-edges between the two
-/// contact vertices using `cap.boundary_points`, and splice the
-/// result into the blend face's outer loop.
-///
-/// [`Face`]: popkern_core::topology::Face
-fn insert_cap_face_stub(_cap: &crate::cap::CapGeometry) -> bool {
-    // Insertion is a follow-up. The function takes `&cap` so the
-    // signature is forward-compatible with the real implementation.
-    false
+/// The search is confined to faces incident to `vertex` (the
+/// original edge endpoint), which keeps the nearest-vertex
+/// lookup local. If neither contact can be matched, or if no
+/// common face is found, the function returns `false` without
+/// modifying topology — the warning will report
+/// `topology_inserted = false`.
+fn insert_cap_face(brep: &mut BRep, vertex: VertexHandle, cap: &crate::cap::CapGeometry) -> bool {
+    let Some(surface) = &cap.surface else {
+        return false;
+    };
+    if cap.boundary_points.len() < 2 {
+        return false;
+    }
+    let target_1 = cap.boundary_points[0];
+    let target_2 = cap.boundary_points[cap.boundary_points.len() - 1];
+
+    // Find BRep vertices nearest to each contact, searching only
+    // among vertices incident to `vertex`'s neighbouring faces.
+    let tol_sq = 1.0e-4_f64; // generous tolerance²
+    let v1 = find_nearest_vertex(brep, vertex, target_1, tol_sq);
+    let v2 = find_nearest_vertex(brep, vertex, target_2, tol_sq);
+    let (Some(v1), Some(v2)) = (v1, v2) else {
+        return false;
+    };
+    if v1 == v2 {
+        return false;
+    }
+
+    // Find a pair of half-edges in the SAME loop, one with origin
+    // v1 and the other with origin v2.  `mef(he1, he2)` creates a
+    // new edge from he1.origin to he2.origin.
+    let Some((he1, he2)) = find_common_loop_pair(brep, v1, v2) else {
+        return false;
+    };
+
+    // mef creates the new edge + face.
+    let Ok(mef_r) = brep.mef(he1, he2) else {
+        return false;
+    };
+
+    // Assign the cap surface to the new face.
+    brep.faces[mef_r.face].surface = Some(SurfaceOnFace {
+        geometry: surface.clone(),
+        orientation: true,
+    });
+
+    true
+}
+
+/// Walk faces around `vertex` and return the vertex whose
+/// position is closest to `target` (within `tol_sq` distance²).
+fn find_nearest_vertex(
+    brep: &BRep,
+    vertex: VertexHandle,
+    target: popkern_core::geometry::Point3,
+    tol_sq: f64,
+) -> Option<VertexHandle> {
+    let mut best: Option<(VertexHandle, f64)> = None;
+    for (vh, v) in brep.vertices.iter() {
+        if vh == vertex {
+            continue;
+        }
+        let dx = v.position.x - target.x;
+        let dy = v.position.y - target.y;
+        let dz = v.position.z - target.z;
+        let d2 = dx * dx + dy * dy + dz * dz;
+        if d2 < tol_sq && best.is_none_or(|(_, prev)| d2 < prev) {
+            best = Some((vh, d2));
+        }
+    }
+    best.map(|(vh, _)| vh)
+}
+
+/// Find a pair of half-edges in the same face loop with origins
+/// `v1` and `v2`, suitable for passing to `mef()`.
+fn find_common_loop_pair(
+    brep: &BRep,
+    v1: VertexHandle,
+    v2: VertexHandle,
+) -> Option<(HalfEdgeHandle, HalfEdgeHandle)> {
+    // Collect all half-edges with origin v1.
+    let hes_v1: Vec<HalfEdgeHandle> = brep
+        .half_edges
+        .iter()
+        .filter(|(_, he)| he.origin == v1)
+        .map(|(h, _)| h)
+        .collect();
+    // For each, walk its loop to find one with origin v2.
+    for he1 in hes_v1 {
+        let loop_h = brep.half_edges[he1].loop_;
+        let start = brep.loops[loop_h].half_edge;
+        let mut cursor = start;
+        loop {
+            if brep.half_edges[cursor].origin == v2 && cursor != he1 {
+                return Some((he1, cursor));
+            }
+            cursor = brep.half_edges[cursor].next;
+            if cursor == start {
+                break;
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
