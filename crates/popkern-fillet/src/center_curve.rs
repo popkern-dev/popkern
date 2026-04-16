@@ -86,8 +86,32 @@ pub fn constant_radius_center_curve(
     )
     .map_err(|e| format!("offset intersection failed: {e}"))?;
 
+    // §12.3 blend-on-blend fallback: if the analytic offset
+    // surfaces don't intersect (common when one surface is a
+    // Torus whose analytic intersection isn't supported by the
+    // solver), retry by converting both to NURBS first. The
+    // NURBS-NURBS intersection path handles arbitrary pairs via
+    // Bezier decomposition + clipping.
+    let result = if result.intersections.is_empty() {
+        let nurbs1 = offset1.to_nurbs_in_range(off1_u, off1_v);
+        let nurbs2 = offset2.to_nurbs_in_range(off2_u, off2_v);
+        let n1_geo = popkern_core::geometry::surface::SurfaceGeometry::Nurbs(nurbs1.clone());
+        let n2_geo = popkern_core::geometry::surface::SurfaceGeometry::Nurbs(nurbs2.clone());
+        let n1_range = nurbs1.parameter_range();
+        let n2_range = nurbs2.parameter_range();
+        intersect_surfaces(
+            &n1_geo, n1_range.0, n1_range.1, &n2_geo, n2_range.0, n2_range.1, tolerance,
+        )
+        .map_err(|e| format!("NURBS fallback offset intersection failed: {e}"))?
+    } else {
+        result
+    };
+
     if result.intersections.is_empty() {
-        return Err("no intersection found between offset surfaces".into());
+        return Err(
+            "no intersection found between offset surfaces (analytic + NURBS fallback both empty)"
+                .into(),
+        );
     }
 
     // 4. Extract the curve nearest to the edge midpoint.

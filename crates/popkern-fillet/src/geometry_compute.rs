@@ -91,14 +91,21 @@ pub(crate) fn compute_fillet_geometry(
     //      which lets `build_fillet_surface` route through the
     //      degree-5 Bezier G2 sweep on ANY surface pair (not just
     //      cones).
-    let either_is_cone = matches!(
+    // Route through the walker (Newton contact solver) when at
+    // least one support surface is a Cone or Torus. Cones have no
+    // analytic offset; torus-plane offset intersections are
+    // ill-conditioned in the generic solver (§12.3 blend-on-blend).
+    // The walker handles both robustly via per-sample contact solving.
+    let either_needs_walker = matches!(
         analysis.surface_1,
         popkern_core::geometry::surface::SurfaceGeometry::Cone { .. }
+            | popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
     ) || matches!(
         analysis.surface_2,
         popkern_core::geometry::surface::SurfaceGeometry::Cone { .. }
+            | popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
     );
-    let use_walker = either_is_cone || g2_cross_section;
+    let use_walker = either_needs_walker || g2_cross_section;
 
     let center_result = if use_walker {
         let walker_outcome = crate::geometry_compute_cone::compute_center_via_walker(
@@ -114,7 +121,7 @@ pub(crate) fn compute_fillet_geometry(
         );
         match walker_outcome {
             Ok(r) => r,
-            Err(_walker_err) if !either_is_cone && g2_cross_section => {
+            Err(_walker_err) if !either_needs_walker && g2_cross_section => {
                 // G2 opt-in walker failed on a non-cone pair. Silently
                 // degrade to the legacy G1 analytic path instead of
                 // propagating a walker-specific error — a commercial
