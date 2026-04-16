@@ -191,6 +191,39 @@ fn fillet_edges_with_quality_returns_populated_metrics() {
     assert!(quality.composite_score <= 1.0);
 }
 
+/// Default (G1) fillet on a cube reports `achieved_continuity = G1`
+/// — the output face is a Cylinder (analytic fast path) or a
+/// degree-1 NURBS sweep, both classified as G1.
+#[test]
+fn fillet_edges_with_quality_reports_g1_for_default_options() {
+    let (brep, edge) = cube_and_edge();
+    let specs = vec![FilletSpec {
+        edge,
+        radius: FilletRadius::Constant(0.1),
+    }];
+    let (_r, quality) =
+        fillet_edges_with_quality(&brep, &specs, &FilletOptions::default(), tol(), None).unwrap();
+    assert_eq!(quality.achieved_continuity, crate::ContinuityLevel::G1);
+}
+
+/// G2 fillet on a cube routes through the spine walker + degree-5
+/// Bezier sweep, producing a NURBS surface with `degree_v = 5` that
+/// the quality classifier recognises as G2.
+#[test]
+fn fillet_edges_with_quality_reports_g2_when_requested() {
+    let (brep, edge) = cube_and_edge();
+    let specs = vec![FilletSpec {
+        edge,
+        radius: FilletRadius::Constant(0.1),
+    }];
+    let opts = FilletOptions {
+        continuity: crate::ContinuityLevel::G2,
+        ..FilletOptions::default()
+    };
+    let (_r, quality) = fillet_edges_with_quality(&brep, &specs, &opts, tol(), None).unwrap();
+    assert_eq!(quality.achieved_continuity, crate::ContinuityLevel::G2);
+}
+
 #[test]
 fn fillet_edges_with_quality_propagates_validation_error() {
     let (brep, edge) = cube_and_edge();

@@ -273,3 +273,7 @@ mod tests;
 #[cfg(test)]
 #[path = "fillet_surface_analytic_tests.rs"]
 mod analytic_tests;
+
+#[cfg(test)]
+#[path = "fillet_surface_analytic_cylinder_tests.rs"]
+mod analytic_cylinder_tests;

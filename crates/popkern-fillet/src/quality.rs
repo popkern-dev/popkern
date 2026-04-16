@@ -12,6 +12,7 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::BRep;
 
 use crate::offset::self_intersect::check_offset_self_intersection;
+use crate::types::ContinuityLevel;
 
 /// Post-operation quality metrics for a successful blend (§10.5).
 ///
@@ -37,6 +38,31 @@ pub struct BlendQuality {
     /// with geometric difficulty. See [`ComputeQualityInput`] for
     /// the scoring formula.
     pub composite_score: f64,
+    /// The highest [`ContinuityLevel`] delivered by any new blend
+    /// face, inferred from the output surface geometry.
+    ///
+    /// A degree-5 v-direction NURBS sweep is the fingerprint of
+    /// the G2 path (`g2_sweep_from_contact_solutions` produces
+    /// exactly that shape); any other surface — analytic Torus /
+    /// Cylinder / Sphere or the legacy degree-1 arc sweep — is
+    /// classified as G1 (the rolling ball gives G1 by construction).
+    ///
+    /// **Why max, not min.** A fillet on a cube edge routed through
+    /// G2 produces a degree-5 NURBS strip (G2) flanked by small
+    /// corner cleanup planes (G1) from the multi-chord pipeline.
+    /// The user asked "did G2 work?" — the answer is yes, on the
+    /// primary surface. The small corner planes are expected and
+    /// unrelated to the spine's continuity. Max across faces
+    /// captures that intent; inspect individual `face.surface`
+    /// entries if a stricter per-face report is needed.
+    ///
+    /// UI surfaces should display this alongside a "requested"
+    /// badge from [`crate::types::FilletOptions::continuity`] so
+    /// callers can see at a glance when the engine fell back. The
+    /// fallback also emits a
+    /// [`crate::error::BlendWarning::ContinuityDowngraded`]
+    /// warning on the [`crate::BlendResult::edge_warnings`] list.
+    pub achieved_continuity: ContinuityLevel,
 }
 
 /// Inputs to [`fillet_quality`]. The function walks the BRep delta
@@ -61,12 +87,23 @@ pub fn fillet_quality(input: &ComputeQualityInput) -> BlendQuality {
     let mut patch_count = 0usize;
     let mut surface_area = 0.0f64;
     let mut r_min = f64::INFINITY;
+    // Achieved continuity is the MAX across all new faces — see the
+    // BlendQuality::achieved_continuity docs for the rationale.
+    let mut achieved_continuity = ContinuityLevel::G1;
 
     for (fh, face) in input.post_brep.faces.iter() {
         if input.pre_faces.contains(&fh) {
             continue;
         }
         patch_count += 1;
+        let face_continuity = face
+            .surface
+            .as_ref()
+            .map(|s| classify_face_continuity(&s.geometry))
+            .unwrap_or(ContinuityLevel::G1);
+        if face_continuity > achieved_continuity {
+            achieved_continuity = face_continuity;
+        }
 
         let area = face_area_estimate(input.post_brep, fh);
         surface_area += area;
@@ -111,7 +148,26 @@ pub fn fillet_quality(input: &ComputeQualityInput) -> BlendQuality {
         patch_count,
         surface_area,
         composite_score,
+        achieved_continuity,
     }
+}
+
+/// Classify a blend face's surface geometry into the continuity
+/// level it delivers at the blend boundaries.
+///
+/// - Degree-5 v-direction NURBS (the fingerprint of
+///   [`crate::g2_cross_section::g2_sweep_from_contact_solutions`]) → G2
+/// - Any other surface (Torus / Cylinder / Sphere / Plane / lower-
+///   degree NURBS sweep) → G1 (rolling ball gives G1 by
+///   construction; analytic fast paths represent rolling-ball
+///   geometry exactly).
+fn classify_face_continuity(surface: &SurfaceGeometry) -> ContinuityLevel {
+    if let SurfaceGeometry::Nurbs(ns) = surface
+        && ns.degree_v == 5
+    {
+        return ContinuityLevel::G2;
+    }
+    ContinuityLevel::G1
 }
 
 fn face_area_estimate(brep: &BRep, face: popkern_core::topology::FaceHandle) -> f64 {

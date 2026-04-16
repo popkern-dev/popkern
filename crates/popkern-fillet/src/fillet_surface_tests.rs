@@ -1,5 +1,6 @@
 use super::*;
 use crate::center_curve::CenterCurveResult;
+use crate::types::ContinuityLevel;
 use popkern_core::geometry::{Point3, Vec3};
 
 fn simple_center_result() -> CenterCurveResult {
@@ -42,7 +43,7 @@ fn fillet_surface_plane_plane() {
         1.0,
         5,
         true,
-        crate::types::ContinuityLevel::G1,
+        ContinuityLevel::G1,
         false,
         false,
     );
@@ -82,7 +83,7 @@ fn fillet_surface_plane_plane_variable_uses_nurbs_sweep() {
         1.0,
         5,
         false,
-        crate::types::ContinuityLevel::G1,
+        ContinuityLevel::G1,
         false,
         false,
     );
@@ -121,7 +122,7 @@ fn fillet_surface_general() {
         1.0,
         5,
         true,
-        crate::types::ContinuityLevel::G1,
+        ContinuityLevel::G1,
         false,
         false,
     );
