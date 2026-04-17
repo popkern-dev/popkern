@@ -161,10 +161,15 @@ fn build_smooth_blend(
         return Ok(result);
     }
 
-    // §5.3 Gregory G1: the polar NURBS works for any N ≥ 2 — the
-    // prior `n_fillets == 2` gate was conservative. Reports as
-    // `CornerMethod::Gregory` on `CornerPatchInfo` so UI callers
-    // see the generalised N-sided path fire.
+    // §5.3 Round 5 polar NURBS: works for any N ≥ 2. See
+    // [`super::gregory::try_rational_gregory_blend`] for the
+    // rational-Gregory upgrade path landed alongside this commit
+    // but intentionally not yet wired at dispatch — the builder
+    // needs per-corner twist-vector extraction from incident
+    // fillet-strip surface normals before it improves on the
+    // polar-NURBS fallback. Without that step a no-twist Gregory
+    // degenerates to sphere on uniform-radius corners (redundant)
+    // or produces G0 at corners on mixed-radius ones (worse).
     let _ = n_fillets;
     if let Some(result) =
         build_gregory_g1_blend(boundary, fillet_surfaces, brep, boundary_curves.clone())

@@ -6,6 +6,7 @@
 //! edge tapers to zero radius at an unfilleted endpoint.
 
 pub mod boundary;
+mod gregory;
 pub mod runout;
 pub mod surface;
 mod surface_math;
