@@ -22,6 +22,7 @@ mod phase_split;
 pub(crate) mod poke_hex;
 mod sliver_absorb;
 pub(crate) mod surface_fix;
+pub(crate) mod three_quad_apply;
 
 use std::collections::HashMap;
 
