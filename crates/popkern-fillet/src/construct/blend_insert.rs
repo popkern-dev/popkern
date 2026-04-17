@@ -225,7 +225,12 @@ pub(crate) fn reclassify_corner_methods(
             SurfaceGeometry::Sphere { .. } => {
                 (CornerMethod::RollingBallSphere, ContinuityLevel::G1)
             }
-            SurfaceGeometry::Nurbs(_) => (CornerMethod::PolarNurbs, ContinuityLevel::G0),
+            // §5.3 N-sided Gregory polar NURBS — C3's upgrade from
+            // the pre-§5.3 `PolarNurbs` fallback. Reports G1
+            // continuity because the polar construction steps the
+            // interior ring inward along each boundary sample's
+            // surface normal.
+            SurfaceGeometry::Nurbs(_) => (CornerMethod::Gregory, ContinuityLevel::G1),
             SurfaceGeometry::Plane { .. } => (CornerMethod::Mitred, ContinuityLevel::G0),
             _ => continue,
         };

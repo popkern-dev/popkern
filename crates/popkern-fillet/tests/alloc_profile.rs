@@ -312,23 +312,25 @@ fn baseline_12_edge_cube_fillet_allocation_profile() {
         let _ = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None);
     });
 
-    // Upper bound set ~50% above the current ~41k alloc baseline
-    // to absorb normal variance while catching unbounded regressions
-    // (e.g. an accidental O(n²) push slipping into a hot loop). If
-    // this trips, first check the per-phase breakdown to see which
-    // phase regressed rather than assuming the fix is "bump the
-    // threshold".
+    // Upper bound set ~25% above the current ~195k baseline post-
+    // §5.3 Round 5 C3 (Gregory polar NURBS now runs on every N≥2
+    // vertex-blend corner instead of just N=2). Pre-§5.3 baseline
+    // was ~41k — the 4× rise is the documented Gregory cost,
+    // justified by shipping real G1 N-sided corners in place of
+    // the prior Mitred-plane fallback. If this trips, first check
+    // the per-phase breakdown to see which phase regressed rather
+    // than bumping blindly.
     assert!(
-        delta.count < 60_000,
+        delta.count < 250_000,
         "§18 regression: 12-edge cube fillet made {} allocations \
-         (threshold 60,000; baseline ~41k) — run the per-phase \
-         profiler to locate the regression",
+         (threshold 250,000; post-§5.3 baseline ~195k) — run the \
+         per-phase profiler to locate the regression",
         delta.count
     );
     assert!(
-        delta.bytes < 10 * 1024 * 1024,
+        delta.bytes < 40 * 1024 * 1024,
         "§18 regression: 12-edge cube fillet allocated {} bytes \
-         (threshold 10 MiB; baseline ~6.5 MB) — check for \
+         (threshold 40 MiB; post-§5.3 baseline ~25 MB) — check for \
          unbounded buffer growth",
         delta.bytes
     );

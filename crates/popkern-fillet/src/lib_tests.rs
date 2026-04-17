@@ -279,6 +279,49 @@ fn full_cube_fillet_populates_corner_patches() {
     }
 }
 
+/// §5.3 Gregory G1 path: mixed-radius cube corners can't fit a
+/// single rolling-ball sphere (the three fillet strips have
+/// different minor radii), so the corner patch falls through to
+/// the §5.3 Gregory polar NURBS. `CornerMethod::Gregory` + G1.
+#[test]
+fn mixed_radius_cube_corner_produces_gregory_patch() {
+    let cube = BRep::unit_cube(tol()).unwrap();
+    // Pick a specific vertex and build a per-edge radius list
+    // where the 3 incident edges get distinct radii.
+    let vertex = cube.vertices.keys().next().unwrap();
+    let incident: Vec<_> = cube
+        .half_edges
+        .values()
+        .filter(|he| he.origin == vertex)
+        .map(|he| he.edge)
+        .collect();
+    assert_eq!(incident.len(), 3, "cube corner is trihedral");
+    let radii = [0.08_f64, 0.10, 0.12];
+    let specs: Vec<FilletSpec> = incident
+        .iter()
+        .zip(radii.iter())
+        .map(|(&e, &r)| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(r),
+        })
+        .collect();
+    let result = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None).unwrap();
+    // The target vertex's corner should be Gregory (sphere won't
+    // fit with three different radii). Find it.
+    let patch = result
+        .corner_patches
+        .iter()
+        .find(|p| p.vertex == vertex)
+        .expect("target vertex should have a corner patch");
+    assert_eq!(
+        patch.method,
+        crate::CornerMethod::Gregory,
+        "mixed-radius trihedral corner should produce Gregory, got {:?}",
+        patch.method
+    );
+    assert_eq!(patch.n_sides, 3);
+}
+
 /// Negative control: a single-edge fillet produces no corner
 /// patches (no vertex has multiple filleted incident edges).
 #[test]

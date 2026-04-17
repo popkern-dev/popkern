@@ -122,14 +122,19 @@ pub(crate) fn correct_face_surfaces(
             && let Some(sphere_sof) = try_sphere_for_corner(&positions, original, fillet_surfaces)
         {
             let sd = max_fit_score(&sphere_sof.geometry, &positions);
-            if sd < current_score {
+            // Prefer a sphere for small corner faces whenever one
+            // fits cleanly. The exact-analytic sphere beats any
+            // NURBS approximation (including the §5.3 Gregory
+            // polar patch) for representation clarity, even when
+            // the NURBS passes through every boundary sample by
+            // construction. The `try_sphere_for_corner` helper's
+            // own centroid-near-cube-corner filter prunes faces
+            // where a sphere is semantically wrong.
+            if sd < 0.5 {
                 let prefer_sphere = match &best {
                     Some((existing, bd)) => {
                         let existing_is_non_sphere =
                             !matches!(existing.geometry, SurfaceGeometry::Sphere { .. });
-                        // Prefer the sphere over planes and fillet
-                        // surfaces (Cylinder/Torus) when the sphere
-                        // score is within 50% of the candidate score.
                         sd < *bd || (existing_is_non_sphere && sd <= *bd * 1.5)
                     }
                     None => true,
@@ -194,18 +199,30 @@ fn try_sphere_for_corner(
 ) -> Option<popkern_core::geometry::surface::SurfaceOnFace> {
     use popkern_core::geometry::surface::SurfaceOnFace;
 
-    // Average fillet radius from torus minor radii or cylinder radii.
-    // Straight-edge plane-plane fillets produce Cylinder surfaces;
-    // curved-edge fillets produce Torus surfaces.
-    let avg_radius = fillet_surfaces
+    // Fillet radii from torus minor / cylinder radii. For the
+    // sphere to be semantically correct as a corner patch, all
+    // incident fillet strips must share one radius — otherwise
+    // the rolling ball isn't the same at each contact and a
+    // Gregory patch (or analogous N-sided construction) is the
+    // right answer. Bail out on mixed radii so `build_smooth_blend`
+    // keeps whatever N-sided NURBS it produced.
+    let radii: Vec<f64> = fillet_surfaces
         .iter()
         .filter_map(|s| match s {
             SurfaceGeometry::Torus { minor_radius, .. } => Some(*minor_radius),
             SurfaceGeometry::Cylinder { radius, .. } => Some(*radius),
             _ => None,
         })
-        .next()
-        .unwrap_or(0.1);
+        .collect();
+    if radii.len() >= 2 {
+        let (min_r, max_r) = radii.iter().fold((f64::INFINITY, 0.0_f64), |(lo, hi), &r| {
+            (lo.min(r), hi.max(r))
+        });
+        if max_r - min_r > 1e-6 {
+            return None;
+        }
+    }
+    let avg_radius = radii.first().copied().unwrap_or(0.1);
 
     // Use the per-coordinate **median** position rather than the
     // mean centroid. The boundary of a multi-fillet vertex blend
