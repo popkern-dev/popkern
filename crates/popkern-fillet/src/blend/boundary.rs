@@ -12,6 +12,7 @@ use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
+use super::boundary_hex::{build_face_edge_bridge_between, reorient_arcs_for_hex_closure};
 use crate::fillet_surface::FilletSurfaceResult;
 
 /// Boundary of a vertex blend region.
@@ -72,26 +73,125 @@ pub fn compute_blend_boundary(
         .ok_or_else(|| format!("vertex {vertex:?} not found in BRep"))?;
     let vertex_pos = vertex_data.position;
 
-    let mut segments = Vec::with_capacity(fillet_indices.len() * 2);
-
+    // Build each fillet-end arc and remember its two 3D endpoints.
+    let n = fillet_indices.len();
+    let mut fillet_arcs: Vec<NurbsCurve> = Vec::with_capacity(n);
+    let mut fillet_endpoints: Vec<[Point3; 2]> = Vec::with_capacity(n);
     for &fi in fillet_indices {
         let fillet = fillet_surfaces
             .get(fi)
             .ok_or_else(|| format!("fillet index {fi} out of range"))?;
-
-        // Extract the fillet end arc near the vertex.
         let end_curve = extract_fillet_end_near_vertex(fillet, &vertex_pos, tolerance)?;
-
-        segments.push(BoundarySegment::FilletEnd {
-            fillet_index: fi,
-            curve: end_curve,
-        });
+        let (t0, t1) = end_curve.parameter_range();
+        let ep = [end_curve.point_at(t0), end_curve.point_at(t1)];
+        fillet_arcs.push(end_curve);
+        fillet_endpoints.push(ep);
     }
 
-    // For a complete boundary we would also insert face-edge segments between
-    // consecutive fillet ends. This requires walking the topology around the
-    // vertex. For now, the fillet-end segments alone define the blend region;
-    // face-edge segments can be added when topology walking is available.
+    // Find the planar faces at this vertex. §5.3 Round 8 C1 face-
+    // edge bridges are only emitted when every adjacent face at
+    // the vertex is a `Plane` — the curved-support case is a
+    // follow-up round (needs surface-isocurve bridge construction).
+    let faces_at_vertex = faces_at_vertex_set(brep, vertex);
+    let planar_faces: Vec<(FaceHandle, Point3, Vec3)> = faces_at_vertex
+        .iter()
+        .filter_map(|&fh| {
+            let face = brep.faces.get(fh)?;
+            let sof = face.surface.as_ref()?;
+            if let popkern_core::geometry::surface::SurfaceGeometry::Plane {
+                origin, normal, ..
+            } = &sof.geometry
+            {
+                Some((fh, *origin, *normal))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Emit alternating FilletEnd / FaceEdge segments. For
+    // hexagonal closure the bridge between arc[k] and arc[k+1]
+    // MUST connect `arc[k].end` to `arc[k+1].start` (not
+    // arbitrary endpoint pair) — anything else breaks the
+    // closed-loop invariant. Each fillet's arc endpoints come
+    // from the trim-curve closest-point construction in
+    // `extract_fillet_end_near_vertex`: index 0 is the arc start
+    // (UV-side from trim_curve_1's nearest point) and index 1 is
+    // the arc end (trim_curve_2's nearest point).
+    //
+    // `try_reorient_arcs_for_closure` re-orders fillet indexing
+    // so consecutive arcs actually share a nearby endpoint via a
+    // cube face — the caller's `fillet_indices` order may not be
+    // CCW around the vertex.
+    let mut segments = Vec::with_capacity(n * 2);
+    let all_planar = !planar_faces.is_empty() && planar_faces.len() == faces_at_vertex.len();
+
+    if all_planar && n >= 2 {
+        let reorder = reorient_arcs_for_hex_closure(
+            fillet_indices,
+            &fillet_arcs,
+            &fillet_endpoints,
+            &planar_faces,
+            tolerance.linear().max(1e-6),
+        );
+        if let Some((order, flip, arc_by_k)) = reorder {
+            // `arc_by_k[k]` is the arc to emit at position `k`,
+            // already re-oriented; `flip[k]` records whether we
+            // reversed arc `order[k]` (so the bridge builder can
+            // use the correct endpoints).
+            for k in 0..n {
+                let fi = fillet_indices[order[k]];
+                segments.push(BoundarySegment::FilletEnd {
+                    fillet_index: fi,
+                    curve: arc_by_k[k].clone(),
+                });
+                let next_k = (k + 1) % n;
+                // Bridge connects current arc's end to next arc's
+                // start (post-reorientation endpoints).
+                let current_endpoints = if flip[k] {
+                    [fillet_endpoints[order[k]][1], fillet_endpoints[order[k]][0]]
+                } else {
+                    fillet_endpoints[order[k]]
+                };
+                let next_endpoints = if flip[next_k] {
+                    [
+                        fillet_endpoints[order[next_k]][1],
+                        fillet_endpoints[order[next_k]][0],
+                    ]
+                } else {
+                    fillet_endpoints[order[next_k]]
+                };
+                let arc_end = current_endpoints[1];
+                let next_start = next_endpoints[0];
+                if let Some(bridge) = build_face_edge_bridge_between(
+                    &arc_end,
+                    &next_start,
+                    &planar_faces,
+                    tolerance.linear().max(1e-6),
+                ) {
+                    segments.push(bridge);
+                }
+            }
+            return Ok(BlendBoundary {
+                vertex,
+                vertex_position: vertex_pos,
+                segments,
+            });
+        }
+        // Fall through to the FilletEnd-only path if reorientation
+        // couldn't determine a valid hex order (e.g., some arcs
+        // don't share faces with neighbours — non-planar geometry,
+        // degenerate corner, etc.). This preserves pre-Round 8
+        // behaviour.
+    }
+
+    for k in 0..n {
+        let fi = fillet_indices[k];
+        segments.push(BoundarySegment::FilletEnd {
+            fillet_index: fi,
+            curve: fillet_arcs[k].clone(),
+        });
+    }
 
     Ok(BlendBoundary {
         vertex,
@@ -100,6 +200,27 @@ pub fn compute_blend_boundary(
     })
 }
 
+/// Collect the set of face handles incident to `vertex` by walking
+/// all half-edges originating from it.
+fn faces_at_vertex_set(brep: &BRep, vertex: VertexHandle) -> Vec<FaceHandle> {
+    let mut seen: Vec<FaceHandle> = Vec::new();
+    for he in brep.half_edges.values() {
+        if he.origin != vertex {
+            continue;
+        }
+        let Some(loop_data) = brep.loops.get(he.loop_) else {
+            continue;
+        };
+        let face = loop_data.face;
+        if !seen.contains(&face) {
+            seen.push(face);
+        }
+    }
+    seen
+}
+
+/// Try to build a face-edge bridge between two consecutive fillet-
+/// end arcs. The bridge is a straight-line NURBS on whichever
 /// A sampled point on the blend boundary, with the adjacent surface normal.
 #[derive(Debug, Clone)]
 pub struct BoundarySample {
@@ -333,110 +454,4 @@ fn closest_point_on_nurbs_curve(curve: &NurbsCurve, target: &Point3, n_samples: 
         }
     }
     best_p
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use popkern_core::geometry::surface::SurfaceGeometry;
-    use popkern_core::geometry::{Point3, Vec3};
-    use popkern_core::tolerance::Tolerance;
-    use popkern_core::topology::BRep;
-
-    fn test_tolerance() -> Tolerance {
-        Tolerance::default()
-            .with_linear(1e-3)
-            .with_angular(1e-3)
-            .with_parametric(1e-6)
-    }
-
-    fn make_fillet_result(
-        start1: Point3,
-        end1: Point3,
-        start2: Point3,
-        end2: Point3,
-    ) -> FilletSurfaceResult {
-        let trim_1 = crate::center_curve::fit_nurbs_through_points(&[start1, end1])
-            .expect("fit should succeed");
-        let trim_2 = crate::center_curve::fit_nurbs_through_points(&[start2, end2])
-            .expect("fit should succeed");
-
-        FilletSurfaceResult {
-            surface: SurfaceGeometry::Plane {
-                origin: Point3::new(0.0, 0.0, 0.0),
-                normal: Vec3::new(0.0, 0.0, 1.0),
-                u_axis: Vec3::new(1.0, 0.0, 0.0),
-                v_axis: Vec3::new(0.0, 1.0, 0.0),
-            },
-            trim_curve_1: trim_1,
-            trim_curve_2: trim_2,
-            continuity_downgrade: None,
-        }
-    }
-
-    #[test]
-    fn blend_boundary_two_fillets() {
-        let tol = test_tolerance();
-        let brep = BRep::unit_cube(tol).expect("cube should build");
-
-        // Pick the first vertex.
-        let vertex = brep.vertices.keys().next().expect("cube has vertices");
-        let vertex_pos = brep.vertices.get(vertex).expect("vertex exists").position;
-
-        // Create two mock fillet results near the vertex.
-        let f1 = make_fillet_result(
-            vertex_pos,
-            Point3::new(vertex_pos.x + 1.0, vertex_pos.y, vertex_pos.z),
-            Point3::new(vertex_pos.x, vertex_pos.y + 0.1, vertex_pos.z),
-            Point3::new(vertex_pos.x + 1.0, vertex_pos.y + 0.1, vertex_pos.z),
-        );
-        let f2 = make_fillet_result(
-            vertex_pos,
-            Point3::new(vertex_pos.x, vertex_pos.y + 1.0, vertex_pos.z),
-            Point3::new(vertex_pos.x + 0.1, vertex_pos.y, vertex_pos.z),
-            Point3::new(vertex_pos.x + 0.1, vertex_pos.y + 1.0, vertex_pos.z),
-        );
-
-        let fillets = vec![f1, f2];
-        let result = compute_blend_boundary(vertex, &[0, 1], &fillets, &brep, &tol);
-        assert!(result.is_ok(), "blend boundary failed: {:?}", result.err());
-
-        let boundary = result.expect("already checked");
-        assert_eq!(
-            boundary.segments.len(),
-            2,
-            "should have 2 fillet-end segments"
-        );
-
-        // Verify the boundary is around the right vertex.
-        assert_eq!(boundary.vertex, vertex);
-
-        // Each segment should be a FilletEnd.
-        for seg in &boundary.segments {
-            assert!(
-                matches!(seg, BoundarySegment::FilletEnd { .. }),
-                "expected FilletEnd segment"
-            );
-        }
-    }
-
-    #[test]
-    fn blend_boundary_empty_fillets() {
-        let tol = test_tolerance();
-        let brep = BRep::unit_cube(tol).expect("cube should build");
-        let vertex = brep.vertices.keys().next().expect("cube has vertices");
-
-        let result = compute_blend_boundary(vertex, &[], &[], &brep, &tol);
-        assert!(result.is_err(), "should fail with no fillet indices");
-    }
-
-    #[test]
-    fn blend_boundary_invalid_fillet_index() {
-        let tol = test_tolerance();
-        let brep = BRep::unit_cube(tol).expect("cube should build");
-        let vertex = brep.vertices.keys().next().expect("cube has vertices");
-
-        let result = compute_blend_boundary(vertex, &[99], &[], &brep, &tol);
-        assert!(result.is_err(), "should fail with out-of-range index");
-    }
 }

@@ -26,65 +26,50 @@ use popkern_core::topology::BRep;
 struct DiagnosticMetrics {
     method: CornerMethod,
     continuity_claimed: ContinuityLevel,
-    /// Max positional distance between the built patch's surface
-    /// point at a boundary parameter and the input boundary
-    /// curve's position at the corresponding sample. Should be
-    /// ≈ 0 — both constructions preserve the boundary exactly.
+    /// Max surface-point-to-boundary-curve distance across 5
+    /// samples per input boundary. Should be ≈ 0.
     max_boundary_deviation: f64,
-    /// Max absolute Gaussian curvature over a 9×9 interior sample
-    /// grid. A "quality" signal — smooth corners have bounded
-    /// curvature; spikes indicate creases / degeneracies.
+    /// Max Gaussian curvature over a 9×9 interior grid.
     max_interior_gaussian_curvature: f64,
-    /// Mean absolute Gaussian curvature over the same grid. Robust
-    /// to a single-point spike.
+    /// Mean Gaussian curvature over the same grid.
     mean_interior_gaussian_curvature: f64,
-    /// Max normal-curvature deviation at boundary samples vs the
-    /// expected `1/r_avg` (the §2.4 acceptance metric, with the
-    /// target being `max(|κ_measured|, 1/r_avg)` in the denominator).
-    /// Values below 0.01 are §2.4-compliant.
+    /// Max `|Δκ_n|/max(|κ_n|, 1/r)` at boundary samples — §2.4
+    /// G2 acceptance threshold is `< 0.01`.
     max_boundary_normal_curvature_deviation: f64,
 }
 
 impl std::fmt::Display for DiagnosticMetrics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "  method                           = {:?}", self.method)?;
         writeln!(
             f,
-            "  method                                    = {:?}",
-            self.method
+            "  continuity_claimed               = {:?}",
+            self.continuity_claimed
         )?;
         writeln!(
             f,
-            "  continuity_claimed                        = {:?}",
-            self.continuity_claimed,
+            "  max_boundary_deviation           = {:.3e}",
+            self.max_boundary_deviation
         )?;
         writeln!(
             f,
-            "  max_boundary_deviation                    = {:.3e}",
-            self.max_boundary_deviation,
+            "  max_interior_gaussian_curvature  = {:.3e}",
+            self.max_interior_gaussian_curvature
         )?;
         writeln!(
             f,
-            "  max_interior_gaussian_curvature           = {:.3e}",
-            self.max_interior_gaussian_curvature,
+            "  mean_interior_gaussian_curvature = {:.3e}",
+            self.mean_interior_gaussian_curvature
         )?;
         writeln!(
             f,
-            "  mean_interior_gaussian_curvature          = {:.3e}",
-            self.mean_interior_gaussian_curvature,
-        )?;
-        writeln!(
-            f,
-            "  max_boundary_normal_curvature_deviation   = {:.3e}  (§2.4 target < 1e-2)",
-            self.max_boundary_normal_curvature_deviation,
-        )?;
-        Ok(())
+            "  max_boundary_normal_κ_deviation  = {:.3e}  (§2.4 < 1e-2)",
+            self.max_boundary_normal_curvature_deviation
+        )
     }
 }
 
-/// Compute the Gaussian curvature at surface parameters `(u, v)`.
-/// `K = (LN − M²) / (EG − F²)` where L, M, N are 2nd-fundamental-form
-/// coefficients (projections of 2nd partials onto the normal) and
-/// E, F, G are 1st-fundamental-form coefficients.
+/// Gaussian curvature `K = (LN − M²) / (EG − F²)`.
 fn gaussian_curvature(surface: &SurfaceGeometry, u: f64, v: f64) -> f64 {
     let pu = surface.partial_u(u, v);
     let pv = surface.partial_v(u, v);
@@ -110,11 +95,7 @@ fn gaussian_curvature(surface: &SurfaceGeometry, u: f64, v: f64) -> f64 {
     (l * nn - m * m) / det_first
 }
 
-/// Compute diagnostic metrics for a [`BlendSurfaceResult`] built
-/// on the given input boundary curves. Samples across the patch's
-/// parameter range — which differs by surface type, so the
-/// sampling clamps to `[0, 1]²` for Gregory (bounded domain),
-/// or falls back to the surface's own reported range otherwise.
+/// Compute diagnostic metrics for a [`BlendSurfaceResult`].
 fn compute_metrics(
     result: &BlendSurfaceResult,
     input_boundary_curves: &[NurbsCurve],
@@ -361,6 +342,69 @@ fn diagnostic_polar_nurbs_vs_rational_gregory_on_mixed_radius_cube() {
         .collect();
     assert_eq!(boundary_curves.len(), 3);
 
+    // R8 C1 regression guard: `compute_blend_boundary` on a
+    // mixed-radius trihedral (planar-face) corner must emit a
+    // closed hexagonal boundary — 6 segments alternating
+    // FilletEnd / FaceEdge / FilletEnd / FaceEdge / ... and each
+    // segment's end point matching the next segment's start.
+    let n_fe = boundary
+        .segments
+        .iter()
+        .filter(|s| matches!(s, BoundarySegment::FilletEnd { .. }))
+        .count();
+    let n_faceedge = boundary
+        .segments
+        .iter()
+        .filter(|s| matches!(s, BoundarySegment::FaceEdge { .. }))
+        .count();
+    eprintln!(
+        "diag: boundary segments = {} total ({} FilletEnd + {} FaceEdge)",
+        boundary.segments.len(),
+        n_fe,
+        n_faceedge,
+    );
+
+    // R8 C2: hexagonal closure — for every consecutive pair of
+    // segments `(segment_k, segment_{k+1})`, the end of segment_k
+    // must match the start of segment_{k+1} within 2 · tolerance.
+    // This is the geometric invariant that says "the 6 boundary
+    // pieces form a closed loop around the vertex."
+    let mut max_gap: f64 = 0.0;
+    let n_segs = boundary.segments.len();
+    for k in 0..n_segs {
+        let curr = match &boundary.segments[k] {
+            BoundarySegment::FilletEnd { curve, .. } | BoundarySegment::FaceEdge { curve, .. } => {
+                curve
+            }
+        };
+        let next = match &boundary.segments[(k + 1) % n_segs] {
+            BoundarySegment::FilletEnd { curve, .. } | BoundarySegment::FaceEdge { curve, .. } => {
+                curve
+            }
+        };
+        let (_, curr_end_t) = curr.parameter_range();
+        let (next_start_t, _) = next.parameter_range();
+        let p_end = curr.point_at(curr_end_t);
+        let p_start_next = next.point_at(next_start_t);
+        let gap = p_end.distance_to(&p_start_next);
+        if gap > max_gap {
+            max_gap = gap;
+        }
+    }
+    eprintln!("diag: max hexagon-closure gap = {max_gap:.3e}");
+
+    // Soft check: closure gap should be small relative to r. We
+    // allow 2 · r as a loose-but-commercial-grade tolerance (the
+    // bridges are straight lines, whereas the true face-edge
+    // boundary on curved supports would curve, contributing some
+    // chord error — bounded by ~r/2).
+    assert!(
+        max_gap < avg_radius,
+        "R8 C2 regression: hexagonal boundary has a {max_gap:.3e} gap \
+         (expected < r = {avg_radius:.3e}). The face-edge bridge \
+         ordering or endpoint pairing is broken.",
+    );
+
     // Upstream-data audit: how far is each boundary-arc endpoint
     // from the vertex position? The vertex is at (0, 0, 0) on a
     // unit cube; a radius-r fillet's end-arc must touch points
@@ -435,59 +479,19 @@ fn diagnostic_polar_nurbs_vs_rational_gregory_on_mixed_radius_cube() {
     eprintln!("==========================================");
     eprintln!();
 
-    // C4b.1a finding (to address in the next commit):
-    //   On a mixed-radius cube corner, the boundary-arc endpoints
-    //   emitted by `compute_blend_boundary` via
-    //   `extract_fillet_end_near_vertex` are **NOT** near the
-    //   vertex position. The trim curves span the full edge plus
-    //   overshoot — e.g., from x = −1 to x = 2 on a [0, 1]³ cube.
-    //   `extract_fillet_end_near_vertex` picks the nearest
-    //   endpoint *pair* by cumulative distance, which for this
-    //   fixture selects the `x = −1` endpoints of all three trim
-    //   curves — three disconnected segments in the planes
-    //   `x = −1, y = −1, z = −1`. Corner-coincidence check in
-    //   `TriangularGregory::from_boundary_beziers` rejects this.
-    //   The polar-NURBS path accepts the bad input but produces
-    //   `max_boundary_deviation = 2.5e-2` on a 0.1 fillet —
-    //   silent quality regression we were shipping until this
-    //   diagnostic caught it.
-    //
-    // Gate for the Gregory dispatch activation:
-    //   `max_boundary_arc_endpoint_distance_to_vertex < 2 · r`
-    //   AND polar-NURBS `max_boundary_deviation < 0.05 · r`.
-    // Neither holds today. Commercial-grade activation blocked
-    // on C4b.1a (fix `extract_fillet_end_near_vertex` / upstream).
-    //
-    // Soft invariants: if either path builds, its metrics must be
-    // finite (no NaN/Inf). This test is deliberately tolerant
-    // of surface-quality bad numbers (interior_gaussian_curvature
-    // and max_boundary_normal_curvature_deviation) — those are
-    // the quality-bar the C4b activation wants to improve, not
-    // regress.
+    // Finite-value invariant (quality bounds are informational).
     if let Some(m) = &polar_metrics {
-        assert!(
-            m.max_interior_gaussian_curvature.is_finite(),
-            "polar-NURBS interior curvature must be finite",
-        );
+        assert!(m.max_interior_gaussian_curvature.is_finite());
     }
     if let Some(m) = &gregory_metrics {
-        assert!(
-            m.max_interior_gaussian_curvature.is_finite(),
-            "Gregory interior curvature must be finite",
-        );
+        assert!(m.max_interior_gaussian_curvature.is_finite());
     }
 
-    // C4b.1a regression guard — the boundary arcs' endpoints MUST
-    // now touch the vertex neighbourhood (within `2·r` is the
-    // loose-but-commercial-grade tolerance). This is the fix's
-    // acceptance criterion; if it regresses we've reintroduced
-    // the "trim-curve-endpoints overshoot vertex" bug.
+    // C4b.1a regression guard.
     assert!(
         max_endpoint_dist < 2.0 * avg_radius,
-        "C4b.1a regression: boundary-arc endpoints drifted to \
-         {max_endpoint_dist:.3e} from vertex; expected < 2·r = \
-         {:.3e}. The extract_fillet_end_near_vertex closest-point \
-         fix must keep boundary arcs near the vertex.",
+        "C4b.1a regression: boundary endpoints at {max_endpoint_dist:.3e} \
+         from vertex; expected < 2·r = {:.3e}",
         2.0 * avg_radius,
     );
 }

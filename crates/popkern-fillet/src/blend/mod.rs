@@ -6,6 +6,10 @@
 //! edge tapers to zero radius at an unfilleted endpoint.
 
 pub mod boundary;
+pub(crate) mod boundary_hex;
+#[cfg(test)]
+#[path = "boundary_tests.rs"]
+mod boundary_tests;
 pub(crate) mod gregory;
 pub mod runout;
 pub mod surface;
