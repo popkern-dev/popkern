@@ -201,6 +201,51 @@ fn blend_support_pair(brep: &BRep, blend_face: FaceHandle) -> Option<(FaceHandle
     }
 }
 
+/// §5.3 C7 — per-angle radial curvature combs for an N-sided
+/// corner patch face. Returns one [`CurvatureComb`] per angular
+/// sample, each walking the surface's `v` parameter from pole to
+/// boundary at a fixed `u`. A UI renders these as a bundle of
+/// combs radiating from the corner's degenerate pole — the quickest
+/// visual read on whether all N sides of the corner meet the
+/// incident blend strips with matching curvature.
+///
+/// `n_angular` is the number of angular samples around the
+/// boundary (how many combs to compute); `n_radial` is the number
+/// of samples along each comb.
+///
+/// For analytic corner surfaces (e.g. rolling-ball [`Sphere`]),
+/// every comb reads κ = 1/r identically — the G1 / equal-radius
+/// guarantee. For Gregory polar NURBS corners the combs can diverge
+/// at high N, giving the UI a direct tell on patch quality.
+///
+/// Returns `None` if `face` has no surface geometry.
+pub fn blend_curvature_comb_for_corner(
+    brep: &BRep,
+    face: FaceHandle,
+    n_angular: usize,
+    n_radial: usize,
+) -> Option<Vec<CurvatureComb>> {
+    let surface_on_face = brep.faces.get(face)?.surface.as_ref()?;
+    let (u_range, v_range) =
+        crate::geometry_compute::face_param_range(brep, face, &surface_on_face.geometry);
+    if n_angular == 0 || n_radial < 2 {
+        return Some(Vec::new());
+    }
+    let mut out = Vec::with_capacity(n_angular);
+    for i in 0..n_angular {
+        let t = (i as f64 + 0.5) / n_angular as f64;
+        let u = u_range.0 + t * (u_range.1 - u_range.0);
+        out.push(surface_isoline_curvature_comb(
+            &surface_on_face.geometry,
+            CombAlong::V,
+            u,
+            v_range,
+            n_radial,
+        ));
+    }
+    Some(out)
+}
+
 /// Silence unused-NurbsCurve import warning — `curvature_comb` re-
 /// exports it transitively for surface isolines.
 #[allow(dead_code)]

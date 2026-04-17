@@ -24,14 +24,15 @@
 use popkern_core::geometry::NurbsCurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::BRep;
+use popkern_core::topology::{BRep, VertexHandle};
 
 use crate::analysis;
 use crate::construct::EdgeGeometry;
 use crate::error::BlendError;
 use crate::geometry_compute::{compute_chamfer_geometry, compute_fillet_geometry};
-use crate::types::{ChamferSpec, FilletSpec};
+use crate::types::{ChamferSpec, ContinuityLevel, CornerMethod, FilletSpec};
 use crate::validate;
+use crate::vertex_classifier::VertexBlendClassification;
 
 /// Per-edge preview geometry — the surfaces and trim curves the
 /// full pipeline would assemble into a finished blend, without the
@@ -165,6 +166,146 @@ fn edge_geometry_to_preview(
         trim_curve_2: geom.trim_3d_2,
         effective_radius: geom.effective_radius,
     }
+}
+
+/// §5.3 C7 — per-vertex preview of the corner patch the pipeline
+/// **would** produce for a given fillet spec list, without running
+/// topology surgery.
+///
+/// Built alongside [`preview_fillet`] so a UI can show corner
+/// annotations (method badge, classification, predicted continuity)
+/// on a radius-slider drag before the user commits the operation.
+#[derive(Debug, Clone)]
+pub struct CornerPatchPreview {
+    /// The vertex the corner would be resolved at.
+    pub vertex: VertexHandle,
+    /// Number of incident filleted edges.
+    pub n_sides: usize,
+    /// §5.3 vertex-blend classification that would drive method
+    /// dispatch.
+    pub classification: VertexBlendClassification,
+    /// Predicted construction method.
+    pub predicted_method: CornerMethod,
+    /// Predicted continuity with the incident fillet strips.
+    pub predicted_continuity: ContinuityLevel,
+    /// The corner surface geometry the pipeline would assign.
+    pub surface: SurfaceGeometry,
+    /// Boundary curves tracing the corner perimeter.
+    pub boundary_curves: Vec<NurbsCurve>,
+}
+
+/// Non-destructive preview of the N-sided corner patches that would
+/// be inserted at each multi-fillet vertex if [`crate::fillet_edges`]
+/// were called with the same specs.
+///
+/// For each vertex touched by two or more specs in `specs`, runs
+/// the §5.3 classifier and the corner blend-surface construction
+/// (same path as the committed pipeline) but **does not** mutate
+/// topology.
+///
+/// # Errors
+///
+/// Returns the same validation / analysis errors as
+/// [`preview_fillet`]. Per-vertex failures (e.g. degenerate
+/// corner geometry) are silently skipped — the return vec holds
+/// one entry per successful preview.
+pub fn preview_corner_patches(
+    brep: &BRep,
+    specs: &[FilletSpec],
+    tolerance: Tolerance,
+) -> Result<Vec<CornerPatchPreview>, BlendError> {
+    validate::validate_fillet_specs(brep, specs)?;
+
+    let edges: Vec<_> = specs.iter().map(|s| s.edge).collect();
+    let analyses =
+        analysis::analyze_edges(brep, &edges, false).map_err(BlendError::NoValidEdges)?;
+
+    let mut edge_geometries: Vec<EdgeGeometry> = Vec::with_capacity(analyses.len());
+    for (i, spec) in specs.iter().enumerate() {
+        if i >= analyses.len() {
+            continue;
+        }
+        if let Ok(geom) = compute_fillet_geometry(
+            &analyses[i],
+            &spec.radius,
+            brep,
+            &tolerance,
+            ContinuityLevel::G1,
+            crate::types::CapKind::Open,
+        ) {
+            edge_geometries.push(geom);
+        }
+    }
+
+    let mut vertex_edges: std::collections::HashMap<VertexHandle, Vec<usize>> =
+        std::collections::HashMap::new();
+    for (idx, eg) in edge_geometries.iter().enumerate() {
+        vertex_edges
+            .entry(eg.analysis.vertex_start)
+            .or_default()
+            .push(idx);
+        vertex_edges
+            .entry(eg.analysis.vertex_end)
+            .or_default()
+            .push(idx);
+    }
+
+    let mut out: Vec<CornerPatchPreview> = Vec::new();
+    for (vertex, edge_indices) in &vertex_edges {
+        if edge_indices.len() < 2 {
+            continue;
+        }
+        let filleted: Vec<_> = edge_indices
+            .iter()
+            .filter_map(|&i| edge_geometries.get(i).map(|g| g.analysis.edge))
+            .collect();
+        let classification =
+            crate::vertex_classifier::classify_vertex_blend(brep, *vertex, &filleted, &tolerance)
+                .classification;
+
+        let fillet_surfaces: Vec<_> = edge_geometries
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| edge_indices.contains(i))
+            .map(|(_, eg)| crate::fillet_surface::FilletSurfaceResult {
+                surface: eg.surface.clone(),
+                trim_curve_1: eg.trim_3d_1.clone(),
+                trim_curve_2: eg.trim_3d_2.clone(),
+                continuity_downgrade: None,
+            })
+            .collect();
+        let local_indices: Vec<usize> = (0..fillet_surfaces.len()).collect();
+        let Ok(boundary) = crate::blend::compute_blend_boundary(
+            *vertex,
+            &local_indices,
+            &fillet_surfaces,
+            brep,
+            &tolerance,
+        ) else {
+            continue;
+        };
+        let Ok(result) = crate::blend::build_blend_surface(
+            &boundary,
+            &fillet_surfaces,
+            brep,
+            crate::types::VertexMode::Smooth,
+            classification,
+            &tolerance,
+        ) else {
+            continue;
+        };
+
+        out.push(CornerPatchPreview {
+            vertex: *vertex,
+            n_sides: edge_indices.len(),
+            classification,
+            predicted_method: result.method,
+            predicted_continuity: result.continuity,
+            surface: result.surface,
+            boundary_curves: result.boundary_curves,
+        });
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

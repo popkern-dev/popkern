@@ -113,6 +113,48 @@ fn preview_is_pure_and_does_not_mutate_input_brep() {
     assert_eq!(brep.vertices.len(), snapshot_vertices);
 }
 
+/// §5.3 C7 — full-cube preview reports one corner patch per
+/// vertex with ≥2 filleted edges (8 on a unit cube) and populates
+/// classification + method + continuity without mutating the BRep.
+#[test]
+fn preview_corner_patches_on_full_cube_reports_one_per_corner() {
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let pre_face_count = cube.faces.len();
+    let specs: Vec<FilletSpec> = cube
+        .edges
+        .keys()
+        .map(|e| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(0.1),
+        })
+        .collect();
+
+    let previews = preview_corner_patches(&cube, &specs, tol()).unwrap();
+    assert_eq!(previews.len(), 8, "cube has 8 multi-fillet vertices");
+    for p in &previews {
+        assert_eq!(p.n_sides, 3, "cube corner is trihedral");
+        assert_eq!(
+            p.classification,
+            crate::vertex_classifier::VertexBlendClassification::SameSideConvex,
+        );
+    }
+    // Non-destructive.
+    assert_eq!(cube.faces.len(), pre_face_count);
+}
+
+/// §5.3 C7 — a single-edge fillet spec produces no corner
+/// patches (no vertex has ≥2 filleted edges).
+#[test]
+fn preview_corner_patches_empty_for_single_edge_spec() {
+    let (brep, edge) = cube_and_edge();
+    let specs = vec![FilletSpec {
+        edge,
+        radius: FilletRadius::Constant(0.1),
+    }];
+    let previews = preview_corner_patches(&brep, &specs, tol()).unwrap();
+    assert!(previews.is_empty());
+}
+
 #[test]
 fn preview_all_succeeded_false_when_spec_fails() {
     // Craft a spec that would fail at the per-edge geometry phase:

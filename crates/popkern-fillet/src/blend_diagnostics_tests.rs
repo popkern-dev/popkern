@@ -126,6 +126,51 @@ fn highlight_kink_max_returns_finite_on_cube_fillet() {
     }
 }
 
+/// §5.3 C7 — `blend_curvature_comb_for_corner` returns one comb
+/// per angular sample on a cube corner patch face (sphere or
+/// Gregory NURBS). All combs have non-negative curvature samples.
+#[test]
+fn corner_curvature_comb_on_cube_corner_populates_bundle() {
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let pre: std::collections::HashSet<_> = cube.faces.keys().collect();
+    let specs: Vec<FilletSpec> = cube
+        .edges
+        .keys()
+        .map(|e| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(0.1),
+        })
+        .collect();
+    let result = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None).unwrap();
+    assert_eq!(result.corner_patches.len(), 8);
+    let corner_face = result.corner_patches[0].face;
+    // Skip if surface_fix assigned an analytic sphere — sphere
+    // is a perfectly uniform-curvature surface, so the bundle
+    // still has 6 entries but every sample reads the same κ.
+    let bundle = blend_curvature_comb_for_corner(&result.brep, corner_face, 6, 8)
+        .expect("corner face has surface");
+    assert_eq!(bundle.len(), 6);
+    for comb in &bundle {
+        assert_eq!(comb.samples.len(), 8);
+        for s in &comb.samples {
+            assert!(s.curvature.is_finite());
+            assert!(s.curvature >= 0.0);
+        }
+    }
+    let _ = pre; // keep the `pre_faces` idiom consistent with other tests
+}
+
+/// §5.3 C7 — `blend_curvature_comb_for_corner` returns `None` for
+/// a face without surface geometry, matching the behaviour of the
+/// edge-facing comb helpers.
+#[test]
+fn corner_curvature_comb_returns_none_for_surfaceless_face() {
+    let mut cube = BRep::unit_cube(tol()).unwrap();
+    let face = cube.faces.keys().next().unwrap();
+    cube.faces[face].surface = None;
+    assert!(blend_curvature_comb_for_corner(&cube, face, 6, 8).is_none());
+}
+
 /// `blend_curvature_comb_v` returns `None` for a face with no
 /// surface geometry.
 #[test]

@@ -87,7 +87,10 @@ pub use precheck::{
     BlendQuality, ComputeQualityInput, FilletFeasibility, FilletIssue, FilletRadiusBounds,
     feasible_radius_bounds, fillet_quality, precheck_fillet,
 };
-pub use preview::{PreviewEdgeGeometry, PreviewGeometry, preview_chamfer, preview_fillet};
+pub use preview::{
+    CornerPatchPreview, PreviewEdgeGeometry, PreviewGeometry, preview_chamfer,
+    preview_corner_patches, preview_fillet,
+};
 pub use progress::*;
 pub use types::*;
 pub use unfillet::{UnfilletPlan, compute_unfillet_plan, unfillet_face, unfillet_via_record};
