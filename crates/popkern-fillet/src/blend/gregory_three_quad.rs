@@ -122,6 +122,16 @@ pub(crate) fn build_three_quad_decomposition(
         let b2 = fit_cubic_bezier_through(&spoke_v_end_to_c);
         let b3 = fit_cubic_bezier_through(&spoke_c_to_v_start);
 
+        // R8 C8c status: `from_boundary_beziers_no_twist` stays
+        // as the sub-patch builder until proper Chiyokura–Kimura
+        // twist extraction lands. Empirical naive offsets (along
+        // either ±(C−corner) at magnitude r_twist) regressed the
+        // §2.4 boundary-κ metric from 0.998 to 1.000 — the
+        // twist pair `(P_u, P_v)` is NOT a simple corner offset
+        // but must encode the cross-derivative `∂²S/∂u∂v` that
+        // matches the incident fillet strip's surface normal
+        // AND the adjacent sub-patch's cross-boundary tangent.
+        // See ADR §13+§14 for the full geometric spec.
         let patch =
             RectangularGregory::from_boundary_beziers_no_twist([b0, b1, b2, b3], 1e-3).ok()?;
         sub_patches.push(patch);

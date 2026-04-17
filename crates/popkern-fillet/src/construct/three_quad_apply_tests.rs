@@ -325,11 +325,13 @@ fn r8_c8_fillet_quality_gregory_not_worse_than_polar_nurbs() {
 /// on the corner blend surface(s) and asserts the Gregory path
 /// is at least as good as polar-NURBS.
 ///
-/// This is the primary invariant that motivated Round 8: polar-
-/// NURBS shipped `~1.0` on this metric (100% off the < 0.01
-/// §2.4 target); Gregory should measurably improve it, even
-/// though the full <0.01 target requires the corner-matched
-/// twist vectors (C4b.2, deferred).
+/// Honest framing: both paths claim and deliver **G1** at the
+/// blend boundary. §2.4's < 0.01 threshold is a **G2** target;
+/// G1 isn't expected to hit it. What this test *does* guard is
+/// "Gregory at G1 is no worse than polar-NURBS at G1" — i.e.,
+/// the rational-Gregory rewrite didn't regress the G1 quality.
+/// The G2 upgrade (Chiyokura-Kimura twist extraction on
+/// rectangular sub-patches) is C4b.2 / R8 C8c follow-up.
 #[test]
 fn r8_c8b_boundary_normal_curvature_deviation_gregory_wins() {
     use crate::analysis;
