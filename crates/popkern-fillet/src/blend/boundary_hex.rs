@@ -117,6 +117,37 @@ fn reverse_nurbs_curve(curve: &NurbsCurve) -> NurbsCurve {
     }
 }
 
+/// Fit a cubic NURBS curve through four sample points at
+/// `t ∈ {0, 1/3, 2/3, 1}`. Closed-form two-equation solve for
+/// interior Bezier CPs given boundary samples — same math as
+/// `blend::gregory::fit_cubic_bezier_through` but starting from
+/// Point3 samples rather than a NurbsCurve.
+pub(super) fn fit_cubic_nurbs_through_4_points(pts: [Point3; 4]) -> Result<NurbsCurve, String> {
+    let p0 = pts[0];
+    let p3 = pts[3];
+    let q1 = pts[1];
+    let q2 = pts[2];
+    let solve = |q1c: f64, q2c: f64, p0c: f64, p3c: f64| -> (f64, f64) {
+        let a = 27.0 * q1c - 8.0 * p0c - p3c;
+        let b = 27.0 * q2c - p0c - 8.0 * p3c;
+        ((2.0 * a - b) / 18.0, (2.0 * b - a) / 18.0)
+    };
+    let (p1x, p2x) = solve(q1.x, q2.x, p0.x, p3.x);
+    let (p1y, p2y) = solve(q1.y, q2.y, p0.y, p3.y);
+    let (p1z, p2z) = solve(q1.z, q2.z, p0.z, p3.z);
+    Ok(NurbsCurve {
+        degree: 3,
+        knots: vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+        control_points: vec![
+            p0,
+            Point3::new(p1x, p1y, p1z),
+            Point3::new(p2x, p2y, p2z),
+            p3,
+        ],
+        weights: vec![1.0; 4],
+    })
+}
+
 /// Build a face-edge bridge curve between two 3D points, picking
 /// whichever planar face contains both within `tol_linear`. The
 /// bridge is a straight line sampled through a midpoint and fitted

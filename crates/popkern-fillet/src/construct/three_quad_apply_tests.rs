@@ -465,8 +465,11 @@ fn r8_c8b_boundary_normal_curvature_deviation_gregory_wins() {
     eprintln!(
         "R8 C8b §2.4 boundary-normal κ deviation scorecard (mixed radii 0.08/0.10/0.12):\n\
          polar-NURBS   max |Δκ|/max(κ,1/r) = {:.4e}  (target < 1e-2)\n\
-         gregory (3Q)  max |Δκ|/max(κ,1/r) = {:.4e}  (target < 1e-2)",
-        polar_m.max_boundary_normal_curvature_deviation, gregory_max_kappa_dev,
+         gregory (3Q)  max |Δκ|/max(κ,1/r) = {:.4e}  (target < 1e-2)\n\
+         delta         = {:+.4e}",
+        polar_m.max_boundary_normal_curvature_deviation,
+        gregory_max_kappa_dev,
+        gregory_max_kappa_dev - polar_m.max_boundary_normal_curvature_deviation,
     );
 
     // The core R8 invariant: Gregory must not regress polar-

@@ -178,6 +178,7 @@ pub(crate) fn insert_vertex_blend(
             brep,
             blend_face,
             boundary,
+            &fillet_surfaces_pre,
             vertex,
             edge_indices.len(),
             classification,

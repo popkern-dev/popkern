@@ -243,7 +243,7 @@ fn diagnostic_polar_nurbs_vs_rational_gregory_on_mixed_radius_cube() {
     // dispatch; the decomposition is a geometric building block
     // for the eventual N=3 mixed-radius corner.
     use crate::blend::gregory_three_quad::build_three_quad_decomposition;
-    match build_three_quad_decomposition(&boundary) {
+    match build_three_quad_decomposition(&boundary, &fillet_surfaces) {
         Some(decomp) => {
             assert_eq!(decomp.sub_patches.len(), 3);
             eprintln!("--- R8 C3 three-quad decomposition ---");

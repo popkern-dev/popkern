@@ -23,6 +23,7 @@ use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 use super::poke_hex::poke_hex_face_into_three_quads;
 use crate::blend::boundary::BlendBoundary;
 use crate::blend::gregory_three_quad::build_three_quad_decomposition;
+use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo};
 use crate::vertex_classifier::VertexBlendClassification;
 
@@ -41,11 +42,12 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     brep: &mut BRep,
     blend_face: FaceHandle,
     boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
     vertex: VertexHandle,
     n_sides: usize,
     classification: VertexBlendClassification,
 ) -> Result<Vec<CornerPatchInfo>, String> {
-    let decomp = build_three_quad_decomposition(boundary)
+    let decomp = build_three_quad_decomposition(boundary, fillet_surfaces)
         .ok_or_else(|| "boundary not decomposable into three quads".to_string())?;
 
     let poke = poke_hex_face_into_three_quads(brep, blend_face, decomp.central_point)
