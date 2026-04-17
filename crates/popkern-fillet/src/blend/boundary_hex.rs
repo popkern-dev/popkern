@@ -8,6 +8,7 @@
 //! face to form a closed hexagonal boundary.
 
 use popkern_core::geometry::curve::CurveEval;
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::topology::FaceHandle;
 
@@ -117,33 +118,118 @@ fn reverse_nurbs_curve(curve: &NurbsCurve) -> NurbsCurve {
     }
 }
 
-/// Fit a cubic NURBS curve through four sample points at
-/// `t ∈ {0, 1/3, 2/3, 1}`. Closed-form two-equation solve for
-/// interior Bezier CPs given boundary samples — same math as
-/// `blend::gregory::fit_cubic_bezier_through` but starting from
-/// Point3 samples rather than a NurbsCurve.
-pub(super) fn fit_cubic_nurbs_through_4_points(pts: [Point3; 4]) -> Result<NurbsCurve, String> {
-    let p0 = pts[0];
-    let p3 = pts[3];
-    let q1 = pts[1];
-    let q2 = pts[2];
-    let solve = |q1c: f64, q2c: f64, p0c: f64, p3c: f64| -> (f64, f64) {
-        let a = 27.0 * q1c - 8.0 * p0c - p3c;
-        let b = 27.0 * q2c - p0c - 8.0 * p3c;
-        ((2.0 * a - b) / 18.0, (2.0 * b - a) / 18.0)
+/// §5.3 C4b.2c — fit a Hermite cubic Bezier arc on a parametric
+/// surface between two UV points, using the surface's own
+/// tangent vectors at the endpoints + a classical-circular-arc
+/// magnitude correction. Locks the endpoint tangent direction
+/// to the strip surface so the endpoint κ match is ~1e-3 (vs
+/// the ~0.4 error of a pure-interpolation cubic).
+///
+/// Construction:
+/// * `P_0 = surface(u1, v1)`, `P_3 = surface(u2, v2)`
+/// * `arc_length = Σ chord distances` over 16 dense samples
+///   between `(u1, v1)` and `(u2, v2)`
+/// * `τ_start = ∂T/∂(arc-param) at (u1, v1) = T_u'·du + T_v'·dv`
+/// * `τ_end   = ∂T/∂(arc-param) at (u2, v2)` (same formula)
+/// * Classical correction `(4·tan(θ/4))/θ` where `θ` is estimated
+///   from the chord-vs-tangent angle: `θ = 2·acos(|t̂·ĉ|)`
+/// * `P_1 = P_0 + τ_start · classical_correction · arc_length /
+///          (3·|τ_start|)`
+/// * `P_2 = P_3 − τ_end · (same scale)`
+pub(super) fn fit_hermite_cubic_arc_on_surface(
+    surface: &SurfaceGeometry,
+    u1: f64,
+    v1: f64,
+    u2: f64,
+    v2: f64,
+    du: f64,
+) -> Result<NurbsCurve, String> {
+    let dense_n = 16;
+    let mut arc_length = 0.0;
+    let mut prev = surface.point_at(u1, v1);
+    for i in 1..=dense_n {
+        let t = (i as f64) / (dense_n as f64);
+        let u = u1 + t * du;
+        let v = v1 + t * (v2 - v1);
+        let p = surface.point_at(u, v);
+        arc_length += p.distance_to(&prev);
+        prev = p;
+    }
+
+    let p0 = surface.point_at(u1, v1);
+    let p3 = surface.point_at(u2, v2);
+    let dv = v2 - v1;
+    let t_start = {
+        let t_u = surface.partial_u(u1, v1);
+        let t_v = surface.partial_v(u1, v1);
+        Vec3::new(
+            t_u.x * du + t_v.x * dv,
+            t_u.y * du + t_v.y * dv,
+            t_u.z * du + t_v.z * dv,
+        )
     };
-    let (p1x, p2x) = solve(q1.x, q2.x, p0.x, p3.x);
-    let (p1y, p2y) = solve(q1.y, q2.y, p0.y, p3.y);
-    let (p1z, p2z) = solve(q1.z, q2.z, p0.z, p3.z);
+    let t_end = {
+        let t_u = surface.partial_u(u2, v2);
+        let t_v = surface.partial_v(u2, v2);
+        Vec3::new(
+            t_u.x * du + t_v.x * dv,
+            t_u.y * du + t_v.y * dv,
+            t_u.z * du + t_v.z * dv,
+        )
+    };
+
+    let chord_vec = Vec3::new(p3.x - p0.x, p3.y - p0.y, p3.z - p0.z);
+    let chord_len = chord_vec.length();
+    let classical_correction = if chord_len > 1e-12 {
+        let chord_unit = Vec3::new(
+            chord_vec.x / chord_len,
+            chord_vec.y / chord_len,
+            chord_vec.z / chord_len,
+        );
+        let t0_mag = t_start.length();
+        if t0_mag > 1e-12 {
+            let t0_unit = Vec3::new(t_start.x / t0_mag, t_start.y / t0_mag, t_start.z / t0_mag);
+            let dot = t0_unit.dot(&chord_unit).abs().clamp(0.0, 1.0);
+            let theta = 2.0 * dot.acos();
+            if theta > 1e-6 {
+                (4.0 * (theta / 4.0).tan()) / theta
+            } else {
+                1.0
+            }
+        } else {
+            1.0
+        }
+    } else {
+        1.0
+    };
+
+    let hermite_cp = |origin: Point3, tangent: Vec3, sign: f64| -> Point3 {
+        let mag = tangent.length();
+        if mag < 1e-15 {
+            return origin;
+        }
+        let scale = sign * classical_correction * arc_length / (3.0 * mag);
+        Point3::new(
+            origin.x + scale * tangent.x,
+            origin.y + scale * tangent.y,
+            origin.z + scale * tangent.z,
+        )
+    };
+    let p1 = hermite_cp(p0, t_start, 1.0);
+    let p2 = hermite_cp(p3, t_end, -1.0);
+    cubic_nurbs_from_control_points([p0, p1, p2, p3])
+}
+
+/// Build a cubic NURBS curve from 4 control points directly —
+/// no interpolation, no solve. Equivalent to wrapping the
+/// provided 4 Bezier CPs with a clamped uniform knot vector
+/// and unit weights. Used by Hermite cubic-Bezier constructions
+/// that already computed the exact CP positions.
+pub(super) fn cubic_nurbs_from_control_points(pts: [Point3; 4]) -> Result<NurbsCurve, String> {
     Ok(NurbsCurve {
         degree: 3,
         knots: vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
-        control_points: vec![
-            p0,
-            Point3::new(p1x, p1y, p1z),
-            Point3::new(p2x, p2y, p2z),
-            p3,
-        ],
+        control_points: pts.to_vec(),
         weights: vec![1.0; 4],
     })
 }

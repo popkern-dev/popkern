@@ -116,24 +116,59 @@ fn r8_c8b_boundary_normal_curvature_deviation_gregory_wins() {
         "R8 C7 dispatch should yield 3 sub-patches at the corner"
     );
 
+    // C4b.2c — for each boundary arc, find the Gregory sub-
+    // patch whose surface is CLOSEST to that arc (by midpoint
+    // distance) and measure κ_n only against THAT sub-patch.
+    // Prevents closest_point-on-NURBS-sample-fit mis-landing
+    // on the wrong sub-patch (which reports huge κ_n because
+    // the evaluator sees the Gregory's degenerate
+    // extrapolation region, not the boundary).
     let mut gregory_max_kappa_dev = 0.0_f64;
-    for &face_h in &gregory_corner_faces {
-        let face = gregory_pipeline.brep.faces.get(face_h).expect("sub-face");
-        let sof = face.surface.as_ref().expect("sub-face surface");
+    let sub_sofs: Vec<_> = gregory_corner_faces
+        .iter()
+        .map(|&h| {
+            gregory_pipeline.brep.faces[h]
+                .surface
+                .as_ref()
+                .unwrap()
+                .clone()
+        })
+        .collect();
+    for arc in &fillet_arc_curves {
+        use popkern_core::geometry::curve::CurveEval;
+        use popkern_core::geometry::surface::SurfaceEval;
+        let (t0, t1) = arc.parameter_range();
+        let mid = arc.point_at(0.5 * (t0 + t1));
+        let best_sub = sub_sofs
+            .iter()
+            .min_by(|a, b| {
+                let da = a
+                    .geometry
+                    .closest_point(&mid)
+                    .map(|(u, v)| a.geometry.point_at(u, v).distance_to(&mid))
+                    .unwrap_or(f64::INFINITY);
+                let db = b
+                    .geometry
+                    .closest_point(&mid)
+                    .map(|(u, v)| b.geometry.point_at(u, v).distance_to(&mid))
+                    .unwrap_or(f64::INFINITY);
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .expect("≥1 sub-patch");
         assert!(
             matches!(
-                &sof.geometry,
+                &best_sub.geometry,
                 SurfaceGeometry::Gregory(GregoryPatch::Rectangular(_))
             ),
             "sub-face should hold a RectangularGregory surface"
         );
         let sub_result = BlendSurfaceResult {
-            surface: sof.geometry.clone(),
-            boundary_curves: fillet_arc_curves.clone(),
+            surface: best_sub.geometry.clone(),
+            boundary_curves: vec![arc.clone()],
             method: crate::types::CornerMethod::Gregory,
             continuity: ContinuityLevel::G1,
         };
-        let sub_m = compute_metrics(&sub_result, &fillet_arc_curves, avg_radius);
+        let sub_m = compute_metrics(&sub_result, std::slice::from_ref(arc), avg_radius);
         gregory_max_kappa_dev =
             gregory_max_kappa_dev.max(sub_m.max_boundary_normal_curvature_deviation);
     }

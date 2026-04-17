@@ -414,28 +414,7 @@ fn extract_fillet_end_near_vertex(
         du -= period * du.signum();
     }
 
-    // §5.3 R8 C8b+/C4b.2 — fit a **cubic** Bezier through four
-    // surface samples at `t ∈ {0, 1/3, 2/3, 1}`. Replaces the
-    // previous degree-1 polyline fit, which was the root cause
-    // of the §2.4 `|Δκ|/max(κ,1/r) ≈ 1.0` signal on
-    // mixed-radius corners: the polyline has zero normal
-    // curvature by construction, so ANY downstream Gregory /
-    // polar-NURBS construction inherits a κ=0 arc boundary and
-    // measures as G0-in-curvature regardless of the fill math.
-    //
-    // Cubic Bezier through four surface samples approximates a
-    // circular arc to ~1e-5 max position error for a 90° arc.
-    // Good enough for G2 purposes on r ≈ 0.1 unit-scale
-    // fillets.
-    let n_samples = 4;
-    let mut samples = [Point3::new(0.0, 0.0, 0.0); 4];
-    for (i, slot) in samples.iter_mut().enumerate() {
-        let t = (i as f64) / (n_samples - 1) as f64;
-        let u = u1 + t * du;
-        let v = v1 + t * (v2 - v1);
-        *slot = fillet.surface.point_at(u, v);
-    }
-    super::boundary_hex::fit_cubic_nurbs_through_4_points(samples)
+    super::boundary_hex::fit_hermite_cubic_arc_on_surface(&fillet.surface, u1, v1, u2, v2, du)
 }
 
 /// Find the closest point on `curve` to `target` by sampling at
