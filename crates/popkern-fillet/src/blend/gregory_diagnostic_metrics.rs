@@ -15,7 +15,7 @@ use crate::types::{ContinuityLevel, CornerMethod};
 use popkern_core::geometry::gregory::TriangularGregory;
 
 #[derive(Debug)]
-pub(super) struct DiagnosticMetrics {
+pub(crate) struct DiagnosticMetrics {
     pub method: CornerMethod,
     pub continuity_claimed: ContinuityLevel,
     pub max_boundary_deviation: f64,
@@ -81,7 +81,7 @@ fn gaussian_curvature(surface: &SurfaceGeometry, u: f64, v: f64) -> f64 {
     (l * nn - m * m) / det_first
 }
 
-pub(super) fn compute_metrics(
+pub(crate) fn compute_metrics(
     result: &BlendSurfaceResult,
     input_boundary_curves: &[NurbsCurve],
     avg_radius: f64,

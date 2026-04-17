@@ -22,7 +22,7 @@ mod gregory_tests;
 
 #[cfg(test)]
 #[path = "gregory_diagnostic_metrics.rs"]
-mod gregory_diagnostic_metrics;
+pub(crate) mod gregory_diagnostic_metrics;
 
 #[cfg(test)]
 #[path = "gregory_diagnostic_tests.rs"]
