@@ -66,7 +66,11 @@ pub(crate) fn insert_vertex_blend(
     remove_orphaned_vertex(brep, vertex);
 
     // Phase 4: Assign blend surface geometry to the merged face.
-    let method = assign_blend_surface(
+    // The blend surface construction reports both the method and
+    // the achieved continuity directly (see §5.3 C4 — the Gregory
+    // polar NURBS reports G2 when all incident fillets share a
+    // radius, G1 otherwise).
+    let (method, achieved_continuity) = assign_blend_surface(
         brep,
         blend_face,
         vertex,
@@ -74,18 +78,6 @@ pub(crate) fn insert_vertex_blend(
         edge_geometries,
         tolerance,
     )?;
-
-    // Achieved continuity is inferred from the method: the
-    // rolling-ball sphere is G1 with its incident blend strips by
-    // construction; the NURBS / Mitred fallbacks are G0 at the
-    // corner-to-blend boundaries (§5.3 Coons/Gregory upgrades
-    // deliver G1/G2, pending C3/C4).
-    let achieved_continuity = match method {
-        CornerMethod::RollingBallSphere => ContinuityLevel::G1,
-        CornerMethod::PolarNurbs | CornerMethod::Mitred => ContinuityLevel::G0,
-        CornerMethod::Coons | CornerMethod::Gregory => ContinuityLevel::G1,
-        CornerMethod::PlateMin => ContinuityLevel::G0,
-    };
 
     Ok(CornerPatchInfo {
         vertex,
@@ -175,7 +167,7 @@ fn remove_orphaned_vertex(brep: &mut BRep, vertex: VertexHandle) {
 }
 
 /// Phase 4: Compute and assign the blend surface to the merged face.
-/// Returns the [`CornerMethod`] that the fallback chain settled on.
+/// Returns `(method, achieved_continuity)` from the construction.
 fn assign_blend_surface(
     brep: &mut BRep,
     blend_face: FaceHandle,
@@ -183,7 +175,7 @@ fn assign_blend_surface(
     edge_indices: &[usize],
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
-) -> Result<CornerMethod, String> {
+) -> Result<(CornerMethod, ContinuityLevel), String> {
     let fillet_surfaces = build_fillet_surface_list(edge_indices, edge_geometries);
     let local_indices: Vec<usize> = (0..fillet_surfaces.len()).collect();
     let blend_boundary =
@@ -200,12 +192,13 @@ fn assign_blend_surface(
     .map_err(|e| format!("blend surface computation failed: {e}"))?;
 
     let method = blend_result.method;
+    let continuity = blend_result.continuity;
     brep.faces[blend_face].surface = Some(SurfaceOnFace {
         geometry: blend_result.surface,
         orientation: true,
     });
 
-    Ok(method)
+    Ok((method, continuity))
 }
 
 /// Reclassify `CornerPatchInfo::method` from each patch's final
@@ -221,21 +214,28 @@ pub(crate) fn reclassify_corner_methods(
         let Some(sof) = brep.faces.get(info.face).and_then(|f| f.surface.as_ref()) else {
             continue;
         };
-        let (method, continuity) = match &sof.geometry {
+        // Infer the method from the final face surface. Only
+        // overwrite the method/continuity fields if the surface
+        // type mismatches the original construction — that means
+        // `surface_fix` promoted/demoted the surface post-hoc
+        // (e.g. Mitred plane → RollingBallSphere). If the surface
+        // type matches, keep the construction-reported values —
+        // the §5.3 C4 Gregory path reports G1 or G2 per-case based
+        // on radius uniformity, and we must not flatten that to G1.
+        let inferred = match &sof.geometry {
             SurfaceGeometry::Sphere { .. } => {
-                (CornerMethod::RollingBallSphere, ContinuityLevel::G1)
+                Some((CornerMethod::RollingBallSphere, ContinuityLevel::G1))
             }
-            // §5.3 N-sided Gregory polar NURBS — C3's upgrade from
-            // the pre-§5.3 `PolarNurbs` fallback. Reports G1
-            // continuity because the polar construction steps the
-            // interior ring inward along each boundary sample's
-            // surface normal.
-            SurfaceGeometry::Nurbs(_) => (CornerMethod::Gregory, ContinuityLevel::G1),
-            SurfaceGeometry::Plane { .. } => (CornerMethod::Mitred, ContinuityLevel::G0),
-            _ => continue,
+            SurfaceGeometry::Nurbs(_) => Some((CornerMethod::Gregory, ContinuityLevel::G1)),
+            SurfaceGeometry::Plane { .. } => Some((CornerMethod::Mitred, ContinuityLevel::G0)),
+            _ => None,
         };
-        info.method = method;
-        info.achieved_continuity = continuity;
+        if let Some((inferred_method, inferred_cont)) = inferred
+            && info.method != inferred_method
+        {
+            info.method = inferred_method;
+            info.achieved_continuity = inferred_cont;
+        }
     }
 }
 

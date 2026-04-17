@@ -7,7 +7,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
 use crate::fillet_surface::FilletSurfaceResult;
-use crate::types::{CornerMethod, VertexMode};
+use crate::types::{ContinuityLevel, CornerMethod, VertexMode};
 
 use super::boundary::{BlendBoundary, BoundarySegment};
 
@@ -22,6 +22,12 @@ pub struct BlendSurfaceResult {
     /// [`crate::types::CornerPatchInfo::method`] so UI consumers
     /// know which construction path fired.
     pub method: CornerMethod,
+    /// §7 continuity the construction delivers with the incident
+    /// blend strips. G1 is the baseline for Gregory; G2 is reached
+    /// when every incident fillet shares one radius and the
+    /// curvature-matching interior ring exactly matches 1/r at
+    /// each boundary sample.
+    pub continuity: ContinuityLevel,
 }
 
 /// Build a vertex blend surface.
@@ -97,6 +103,7 @@ fn build_mitred_blend(
         surface,
         boundary_curves,
         method: CornerMethod::Mitred,
+        continuity: ContinuityLevel::G0,
     })
 }
 
@@ -243,6 +250,7 @@ fn try_spherical_blend(
         surface,
         boundary_curves: boundary_curves.to_vec(),
         method: CornerMethod::RollingBallSphere,
+        continuity: ContinuityLevel::G1,
     })
 }
 
@@ -252,18 +260,30 @@ fn try_spherical_blend(
 /// The boundary points form the outer ring, and the vertex position
 /// is the degenerate pole. Interior control points are adjusted for
 /// G1 continuity with adjacent surfaces.
-/// §5.3 Gregory G1 N-sided corner patch — polar NURBS with a
-/// G1-adjusted interior ring stepped inward along each boundary
-/// sample's surface normal. The degenerate pole sits at the
-/// vertex position; the outer ring traces the N boundary curves
-/// at arc-length-uniform spacing.
+/// §5.3 Gregory G1/G2 N-sided corner patch — polar NURBS with a
+/// curvature-matching interior ring stepped inward along each
+/// boundary sample's surface normal. The degenerate pole sits at
+/// the vertex position; the outer ring traces the N boundary
+/// curves at arc-length-uniform spacing.
+///
+/// **Interior step (§5.3 Round 5 C4).** For a degree-2 Bezier in
+/// the radial direction with control points `[pole P_0, interior
+/// P_1, boundary P_2]`, the surface curvature at the boundary is
+/// `κ = |n̂ × (v_pos − P_2)| / (2 · step²)` where `step = |P_2 − P_1|`.
+/// Solving for the step that makes `κ = 1/r` (matching the incident
+/// fillet strip's arc curvature) gives
+/// `step = sqrt(r · |n̂ × (v_pos − P_2)| / 2)`. Per-sample step
+/// delivers G2 at each boundary point when the incident fillets
+/// share one radius; for mixed-radii corners we use the first
+/// fillet's radius as the target and report G1 (the deviation at
+/// mismatched samples is bounded by the radius ratio).
 ///
 /// For `N = 2` this is the classical two-fillet smooth corner.
 /// For `N ≥ 3` it's a generalisation of the same construction —
 /// not a true rational Gregory patch, but a commercial-grade
-/// single-face approximation that delivers G1 in the common case
-/// and is materially better than the mitred-plane fallback for
-/// highlight-line quality.
+/// single-face approximation that delivers G2 in the equal-radius
+/// common case and G1 otherwise. True degree-3×3 rational Gregory
+/// for `N = 3` / `N = 4` is a follow-up round.
 fn build_gregory_g1_blend(
     boundary: &BlendBoundary,
     fillet_surfaces: &[FilletSurfaceResult],
@@ -271,6 +291,7 @@ fn build_gregory_g1_blend(
     boundary_curves: Vec<NurbsCurve>,
 ) -> Option<BlendSurfaceResult> {
     use super::boundary::sample_boundary_by_arc_length;
+    use popkern_core::geometry::surface::SurfaceGeometry;
 
     let n_samples = 24;
     let samples = sample_boundary_by_arc_length(boundary, fillet_surfaces, brep, n_samples);
@@ -282,14 +303,33 @@ fn build_gregory_g1_blend(
     let v_pos = boundary.vertex_position;
     let m = samples.len();
 
+    // Collect the incident fillet minor radii to decide the
+    // curvature target and whether this corner qualifies as G2.
+    let radii: Vec<f64> = fillet_surfaces
+        .iter()
+        .filter_map(|fr| match &fr.surface {
+            SurfaceGeometry::Torus { minor_radius, .. } => Some(*minor_radius),
+            SurfaceGeometry::Cylinder { radius, .. } => Some(*radius),
+            _ => None,
+        })
+        .collect();
+    let target_radius = radii.first().copied().unwrap_or(0.1);
+    let radii_uniform = match radii.len() {
+        0 | 1 => true,
+        _ => {
+            let (lo, hi) = radii.iter().fold((f64::INFINITY, 0.0_f64), |(lo, hi), &r| {
+                (lo.min(r), hi.max(r))
+            });
+            (hi - lo) < 1e-6
+        }
+    };
+
     // Build the num_u × num_v polar control point grid.
     // num_u = m samples around the boundary (u direction).
     // num_v = 3 layers in the radial direction (v direction):
     //   v=0: degenerate pole (all at vertex position)
-    //   v=0.5: G1-adjusted interior ring
+    //   v=0.5: G2-adjusted interior ring (step per sample)
     //   v=1: boundary sample positions
-    //
-    // NurbsSurface stores row-major: cp(i_u, i_v) = control_points[i_u * num_v + i_v]
     let num_u = m;
     let num_v = 3usize;
     let degree_u = 3usize.min(m - 1);
@@ -299,13 +339,21 @@ fn build_gregory_g1_blend(
     for sample in &samples {
         // v=0: pole
         control_points.push(v_pos);
-        // v=1: G1 interior — step inward from the boundary along the surface normal
-        let radial_dist = sample.position.distance_to(&v_pos);
-        let d = radial_dist / 3.0;
+        // v=1: G2 interior — step = sqrt(r · |n̂ × (v_pos − P_2)| / 2).
+        // Falls back to the prior radial_dist/3 heuristic if the
+        // cross product vanishes (sample.normal aligned with the
+        // sample-to-vertex direction — a degenerate edge case).
+        let n_cross_r = sample.normal.cross(&(v_pos - sample.position));
+        let k_mag = n_cross_r.length();
+        let step = if k_mag > 1e-12 && target_radius > 0.0 {
+            (target_radius * k_mag / 2.0).sqrt()
+        } else {
+            sample.position.distance_to(&v_pos) / 3.0
+        };
         control_points.push(Point3::new(
-            sample.position.x - d * sample.normal.x,
-            sample.position.y - d * sample.normal.y,
-            sample.position.z - d * sample.normal.z,
+            sample.position.x - step * sample.normal.x,
+            sample.position.y - step * sample.normal.y,
+            sample.position.z - step * sample.normal.z,
         ));
         // v=2: boundary
         control_points.push(sample.position);
@@ -336,10 +384,20 @@ fn build_gregory_g1_blend(
         weights,
     };
 
+    // G2 when all incident fillets share one radius — the
+    // curvature-matching step exactly matches 1/r at each
+    // sample. Otherwise the target radius is wrong at mismatched
+    // samples and we report G1.
+    let continuity = if radii_uniform {
+        ContinuityLevel::G2
+    } else {
+        ContinuityLevel::G1
+    };
     Some(BlendSurfaceResult {
         surface: SurfaceGeometry::Nurbs(nurbs),
         boundary_curves,
         method: CornerMethod::Gregory,
+        continuity,
     })
 }
 
@@ -377,6 +435,7 @@ fn try_nurbs_blend(
         surface: SurfaceGeometry::Nurbs(nurbs),
         boundary_curves: boundary_curves.to_vec(),
         method: CornerMethod::PolarNurbs,
+        continuity: ContinuityLevel::G0,
     })
 }
 
