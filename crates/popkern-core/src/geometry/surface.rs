@@ -395,16 +395,26 @@ impl SurfaceGeometry {
                 }
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.clone(),
-            // Gregory patches have no exact tensor-product NURBS
-            // representation in general: the rectangular form is
-            // equivalent to a degree-7×7 rational NURBS (Chiyokura-
-            // Kimura 1983) — exact conversion will land in a later
-            // commit. The triangular form is fundamentally non-
-            // tensor-product. For now, sample the surface on a
-            // dense grid and fit a degree-3 interpolating NURBS —
-            // lossy but adequate for STEP export, tessellation,
-            // and boolean fallback. Gregory→NURBS fidelity is the
-            // primary quality caveat of this commit.
+            // Rectangular rational Gregory has an exact bidegree-(7,7)
+            // rational-Bezier representation obtained by clearing the
+            // four corner denominators. Used when the requested range
+            // is the natural `[0,1]²` parameter domain; otherwise fall
+            // through to the sample-fit path.
+            //
+            // Triangular Gregory is fundamentally non-tensor-product
+            // and still routes through the sample-fit path.
+            SurfaceGeometry::Gregory(gp)
+                if matches!(gp, crate::geometry::gregory::GregoryPatch::Rectangular(_))
+                    && u_range.0 == 0.0
+                    && u_range.1 == 1.0
+                    && v_range.0 == 0.0
+                    && v_range.1 == 1.0 =>
+            {
+                match gp {
+                    crate::geometry::gregory::GregoryPatch::Rectangular(r) => r.to_nurbs_exact(),
+                    _ => unreachable!(),
+                }
+            }
             SurfaceGeometry::Gregory(_) => sample_to_nurbs(self, u_range, v_range),
             _ => sample_to_nurbs(self, u_range, v_range),
         }

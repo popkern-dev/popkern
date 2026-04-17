@@ -49,6 +49,7 @@ use serde::{Deserialize, Serialize};
 mod build;
 mod rectangular;
 mod rectangular_deg5;
+mod rectangular_to_nurbs;
 mod triangular;
 
 pub use build::GregoryBuildError;
@@ -119,3 +120,7 @@ mod build_tests;
 #[cfg(test)]
 #[path = "rectangular_deg5_tests.rs"]
 mod rectangular_deg5_tests;
+
+#[cfg(test)]
+#[path = "rectangular_to_nurbs_tests.rs"]
+mod rectangular_to_nurbs_tests;
