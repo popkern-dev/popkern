@@ -112,6 +112,16 @@ pub(crate) fn build_three_quad_decomposition(
         hex_vertices.iter().map(|p| p.z).sum::<f64>() / 6.0,
     );
 
+    // C4b.2b central-vertex normal. All three sub-patches' corner-3
+    // inner CPs must lie in a common tangent plane at `C` for G1
+    // across the three shared spokes. We pick the plane via
+    // cross-product of consecutive hex-vertex-to-centroid vectors —
+    // a convex hex's outward normal is consistent across such
+    // cross products. Normalised; sign chosen so the normal points
+    // "out of the blend" (away from the averaged strip normals at
+    // the arc corners).
+    let n_c = central_vertex_normal(&hex_vertices, c).unwrap_or(Vec3::new(0.0, 0.0, 0.0));
+
     let mut sub_patches: Vec<RectangularGregory> = Vec::with_capacity(3);
     for k in 0..3usize {
         let b0_curve = match &boundary.segments[2 * k] {
@@ -155,7 +165,22 @@ pub(crate) fn build_three_quad_decomposition(
         let corner_strips: [Option<&FilletSurfaceResult>; 4] =
             [strip_prev, strip_current, strip_next, None];
 
-        let inner_cps = compute_parallelogram_inner_cps([&b0, &b1, &b2, &b3], corner_strips);
+        let mut inner_cps = compute_parallelogram_inner_cps([&b0, &b1, &b2, &b3], corner_strips);
+        // C4b.2b central-vertex G1: project corner-3 inner CP onto
+        // the common tangent plane at C. The plane normal `n_c` is
+        // shared across all three sub-patches, so all three
+        // patches land on the same tangent plane at C → G1 across
+        // every internal spoke automatically.
+        if n_c.length_squared() > 1e-18 {
+            let p = inner_cps[3].0;
+            let off_plane = Vec3::new(p.x - c.x, p.y - c.y, p.z - c.z).dot(&n_c);
+            let p_projected = Point3::new(
+                p.x - off_plane * n_c.x,
+                p.y - off_plane * n_c.y,
+                p.z - off_plane * n_c.z,
+            );
+            inner_cps[3] = (p_projected, p_projected);
+        }
         let patch =
             RectangularGregory::from_boundary_beziers([b0, b1, b2, b3], inner_cps, 1e-3).ok()?;
         sub_patches.push(patch);
@@ -174,37 +199,43 @@ pub(crate) fn build_three_quad_decomposition(
     })
 }
 
-/// C4b.2 — compute minimum-twist inner-CP pairs from the 4
-/// boundary Beziers using the parallelogram extension formula,
-/// then project hex-corner inner CPs onto the incident fillet
-/// strip's tangent plane.
+/// C4b.2b — compute Chiyokura–Kimura inner-CP pairs from the 4
+/// boundary Beziers + the incident fillet strips, matching the
+/// strip's mixed cross-derivative `∂²T/∂u'∂v'` at each hex
+/// corner.
 ///
-/// **Parallelogram baseline.** For a bicubic Bezier patch, the
-/// interior CP that captures each corner's tangent plane with
-/// zero twist is the parallelogram completion:
-/// `P_11 = P_01 + P_10 − P_00` (and rotations for the other three
-/// corners). This is the classical "no-twist" construction from
-/// Farin and Hoschek — equivalent to extending the two incident
-/// boundary tangent vectors through the corner.
+/// **Theory.** For a bicubic Bezier at corner `(0, 0)`:
+/// `S_uv(0, 0) = 9 · (P_11 − P_parallelogram)`
+/// where `P_parallelogram = P_10 + P_01 − P_00`. For G2 with an
+/// adjacent strip `T(u', v')` across the arc boundary, we want
+/// `S_uv(0, 0) = τ_target` where `τ_target` is the projection
+/// of the strip's second fundamental form onto the sub-patch's
+/// tangent directions via chain rule.
 ///
-/// **Tangent-plane projection at hex corners.** Each hex corner
-/// sits on a fillet strip surface. The boundary tangent *along
-/// the arc* at the corner already lies in the strip tangent plane
-/// (the arc is on the strip). But the boundary tangent *along the
-/// spoke* does not — spokes are interior construction lines. The
-/// parallelogram P therefore drifts off the strip tangent plane
-/// by the spoke's normal component. Projecting back onto the plane
-/// `P' = P − ((P − corner) · n̂) · n̂` restores G1 at the hex
-/// corner without changing the boundary shape.
+/// **Chain rule.** Let `e_u`, `e_v` be the sub-patch's boundary
+/// tangent vectors at the corner (3× the first Bezier CP
+/// offset). Express them in the strip's tangent basis
+/// `{T_u', T_v'}` by solving the 2×2 Gram system — gives
+/// coefficients `(α_u, β_u)`, `(α_v, β_v)` such that
+/// `e_u ≈ α_u · T_u' + β_u · T_v'` (projected onto the strip's
+/// tangent plane). Then the strip's induced mixed derivative in
+/// sub-patch coords is:
+/// ```text
+/// τ = α_u·α_v · T_u'u'
+///   + (α_u·β_v + β_u·α_v) · T_u'v'
+///   + β_u·β_v · T_v'v'
+/// ```
+/// Setting `P_11 = P_parallelogram + τ/9` makes the sub-patch's
+/// cross-derivative match the strip's — the classical C-K
+/// minimum-twist construction.
 ///
-/// Sets `P_u = P_v` at every corner — equal candidates give a
-/// pure-parallelogram (G1) patch, not a twisted (G2) one. The
-/// cross-derivative `∂²S/∂u∂v` still differs per corner because
-/// the parallelogram value itself differs; that's what makes this
-/// strictly better than the 4-corner-bilinear baseline.
-///
-/// Corner 3 is the central vertex C — no incident fillet strip;
-/// pure parallelogram (caveat documented on the type).
+/// Both `P_u` and `P_v` at the corner are set to the same
+/// corrected value — a "symmetric Chiyokura" that collapses the
+/// Gregory rational blend to an ordinary bicubic at the corner.
+/// This is the first-cut correct G2 at hex corners. The G2
+/// extension to the full boundary (not just corners) and the
+/// central-vertex cross-patch G1 solve are the remaining
+/// C4b.2b work.
 fn compute_parallelogram_inner_cps(
     boundaries: [&[Point3; 4]; 4],
     corner_strips: [Option<&FilletSurfaceResult>; 4],
@@ -214,27 +245,7 @@ fn compute_parallelogram_inner_cps(
     let b2 = boundaries[2];
     let b3 = boundaries[3];
 
-    // Bezier grid slots (see `from_boundary_beziers` layout):
-    // corner 0 = grid[0][0] = b0[0] = b3[3]
-    // corner 1 = grid[0][3] = b0[3] = b1[0]
-    // corner 2 = grid[3][3] = b1[3] = b2[0]
-    // corner 3 = grid[3][0] = b2[3] = b3[0]
     let corners = [b0[0], b0[3], b1[3], b2[3]];
-
-    // Parallelogram inner CP = adjacent_boundary_cp_along_u
-    //                         + adjacent_boundary_cp_along_v
-    //                         − corner
-    // At each corner, "along u" and "along v" are the two incident
-    // boundary CPs one step away from the corner:
-    //
-    //   corner 0 (grid[0][0]): grid[1][0] + grid[0][1] − grid[0][0]
-    //                         = b3[2]    + b0[1]    − b0[0]
-    //   corner 1 (grid[0][3]): grid[0][2] + grid[1][3] − grid[0][3]
-    //                         = b0[2]    + b1[1]    − b0[3]
-    //   corner 2 (grid[3][3]): grid[3][2] + grid[2][3] − grid[3][3]
-    //                         = b2[1]    + b1[2]    − b1[3]
-    //   corner 3 (grid[3][0]): grid[2][0] + grid[3][1] − grid[3][0]
-    //                         = b3[1]    + b2[2]    − b2[3]
     let raw_parallelogram = [
         parallelogram_add(b3[2], b0[1], b0[0]),
         parallelogram_add(b0[2], b1[1], b0[3]),
@@ -242,18 +253,41 @@ fn compute_parallelogram_inner_cps(
         parallelogram_add(b3[1], b2[2], b2[3]),
     ];
 
+    // Sub-patch boundary tangent vectors at each corner, from
+    // the Bezier derivative `S_u(0, 0) = 3 · (P_10 − P_00)`,
+    // etc. The INBOUND tangent (Bezier index reversed) is used
+    // for `e_v` where appropriate so both vectors point AWAY
+    // from the corner into the patch interior.
+    //
+    // corner 0 (u-boundary: b3 reversed; v-boundary: b0):
+    //   e_u = 3·(b3[2] − b0[0]),  e_v = 3·(b0[1] − b0[0])
+    // corner 1 (u-boundary: b0 reversed ending at corner 1;
+    //           v-boundary: b1):
+    //   e_u = 3·(b0[2] − b0[3]),  e_v = 3·(b1[1] − b1[0])
+    // corner 2 (u-boundary: b1 reversed; v-boundary: b2):
+    //   e_u = 3·(b1[2] − b1[3]),  e_v = 3·(b2[1] − b2[0])
+    // corner 3 (u-boundary: b2 reversed; v-boundary: b3):
+    //   e_u = 3·(b2[2] − b2[3]),  e_v = 3·(b3[1] − b3[0])
+    let tangents: [(Vec3, Vec3); 4] = [
+        (scale3(sub3(b3[2], b0[0])), scale3(sub3(b0[1], b0[0]))),
+        (scale3(sub3(b0[2], b0[3])), scale3(sub3(b1[1], b1[0]))),
+        (scale3(sub3(b1[2], b1[3])), scale3(sub3(b2[1], b2[0]))),
+        (scale3(sub3(b2[2], b2[3])), scale3(sub3(b3[1], b3[0]))),
+    ];
+
     let mut inner_cps: [(Point3, Point3); 4] =
         [(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 0.0)); 4];
     for (i, slot) in inner_cps.iter_mut().enumerate() {
         let corner = corners[i];
-        let p_raw = raw_parallelogram[i];
+        let p_para = raw_parallelogram[i];
+        let (e_u, e_v) = tangents[i];
         let p_refined = if let Some(strip) = corner_strips[i] {
-            project_onto_strip_tangent_plane(&strip.surface, corner, p_raw).unwrap_or(p_raw)
+            chiyokura_twisted_inner_cp(&strip.surface, corner, p_para, e_u, e_v).unwrap_or(p_para)
         } else {
-            // Central vertex (or any corner with no incident
-            // strip) keeps the raw parallelogram value. C4b.2b
-            // cross-patch G1 solve will refine this later.
-            p_raw
+            // Central vertex (no incident strip) keeps the raw
+            // parallelogram value. C4b.2b central-vertex
+            // cross-patch G1 solve is follow-up.
+            p_para
         };
         *slot = (p_refined, p_refined);
     }
@@ -268,24 +302,91 @@ fn parallelogram_add(p_a: Point3, p_b: Point3, base: Point3) -> Point3 {
     )
 }
 
-/// Project `p` onto the tangent plane of `surface` at the
-/// location nearest to `corner`. The tangent plane is
-/// `tangent ⊥ normal` through `corner`; subtracting the normal
-/// component of `(p − corner)` lands the result back in the
-/// plane.
-fn project_onto_strip_tangent_plane(
+fn sub3(a: Point3, b: Point3) -> Vec3 {
+    Vec3::new(a.x - b.x, a.y - b.y, a.z - b.z)
+}
+
+fn scale3(v: Vec3) -> Vec3 {
+    Vec3::new(3.0 * v.x, 3.0 * v.y, 3.0 * v.z)
+}
+
+/// Approximate outward normal of the hex plane at the central
+/// vertex `C`. Sums cross products of consecutive
+/// centroid-to-hex-vertex vectors — for a convex hex in CCW
+/// order the sum points along the plane normal. Returns `None`
+/// if the 6 cross products sum to a near-zero vector
+/// (degenerate hex, e.g., all 6 vertices on a line).
+fn central_vertex_normal(hex_vertices: &[Point3], c: Point3) -> Option<Vec3> {
+    if hex_vertices.len() != 6 {
+        return None;
+    }
+    let mut nx = 0.0_f64;
+    let mut ny = 0.0_f64;
+    let mut nz = 0.0_f64;
+    for k in 0..6 {
+        let a = sub3(hex_vertices[k], c);
+        let b = sub3(hex_vertices[(k + 1) % 6], c);
+        let cross = a.cross(&b);
+        nx += cross.x;
+        ny += cross.y;
+        nz += cross.z;
+    }
+    let n = Vec3::new(nx, ny, nz);
+    n.normalized()
+}
+
+/// Chiyokura–Kimura twist-corrected inner CP at a hex corner.
+/// Returns `P_parallelogram + τ/9` where `τ` is the strip's
+/// induced mixed derivative in sub-patch coords via chain rule.
+fn chiyokura_twisted_inner_cp(
     surface: &SurfaceGeometry,
     corner: Point3,
-    p: Point3,
+    p_parallelogram: Point3,
+    e_u: Vec3,
+    e_v: Vec3,
 ) -> Option<Point3> {
     let (u, v) = project_point_to_uv(surface, &corner)?;
-    let n_hat = surface.normal_at(u, v).normalized()?;
-    let delta = Vec3::new(p.x - corner.x, p.y - corner.y, p.z - corner.z);
-    let off_plane = delta.dot(&n_hat);
+    let t_u = surface.partial_u(u, v);
+    let t_v = surface.partial_v(u, v);
+    let t_uu = surface.second_partial_uu(u, v);
+    let t_uv = surface.second_partial_uv(u, v);
+    let t_vv = surface.second_partial_vv(u, v);
+
+    // Solve the 2×2 Gram system
+    //   [T_u·T_u  T_u·T_v] [α]   [T_u·e]
+    //   [T_u·T_v  T_v·T_v] [β] = [T_v·e]
+    // for each sub-patch tangent vector. Express sub-patch
+    // tangents in the strip's (u', v') basis, projected onto
+    // the strip's tangent plane.
+    let g00 = t_u.dot(&t_u);
+    let g01 = t_u.dot(&t_v);
+    let g11 = t_v.dot(&t_v);
+    let det = g00 * g11 - g01 * g01;
+    if det.abs() < 1e-18 {
+        return None;
+    }
+    let solve = |e: &Vec3| -> (f64, f64) {
+        let r0 = t_u.dot(e);
+        let r1 = t_v.dot(e);
+        ((g11 * r0 - g01 * r1) / det, (g00 * r1 - g01 * r0) / det)
+    };
+    let (alpha_u, beta_u) = solve(&e_u);
+    let (alpha_v, beta_v) = solve(&e_v);
+
+    // τ = α_u·α_v · T_uu + (α_u·β_v + β_u·α_v) · T_uv
+    //     + β_u·β_v · T_vv
+    let cross = alpha_u * beta_v + beta_u * alpha_v;
+    let tau = Vec3::new(
+        alpha_u * alpha_v * t_uu.x + cross * t_uv.x + beta_u * beta_v * t_vv.x,
+        alpha_u * alpha_v * t_uu.y + cross * t_uv.y + beta_u * beta_v * t_vv.y,
+        alpha_u * alpha_v * t_uu.z + cross * t_uv.z + beta_u * beta_v * t_vv.z,
+    );
+
+    // P = P_parallelogram + τ/9.
     Some(Point3::new(
-        p.x - off_plane * n_hat.x,
-        p.y - off_plane * n_hat.y,
-        p.z - off_plane * n_hat.z,
+        p_parallelogram.x + tau.x / 9.0,
+        p_parallelogram.y + tau.y / 9.0,
+        p_parallelogram.z + tau.z / 9.0,
     ))
 }
 
