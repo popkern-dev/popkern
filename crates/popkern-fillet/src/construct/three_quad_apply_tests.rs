@@ -79,15 +79,20 @@ fn apply_three_quad_decomposition_on_mixed_radius_cube_corner() {
             break;
         }
     }
-    eprintln!("three_quad_apply: corner face has {count} half-edges, vertices {verts:?}");
+    eprintln!(
+        "three_quad_apply: corner face has {count} half-edges, \
+         vertices {verts:?}",
+    );
 
+    // R8 C6 finding (documented in ADR 2026-04-17): the existing
+    // `merge_corner_triangles` produces a pinched pentagonal face
+    // on mixed-radius trihedral corners — observed 5-half-edge
+    // loop `[V1, V9, V11, V14, V9]` with V9 visited twice. The
+    // loop is structurally non-hex (the BRep face is a figure-8-
+    // topology polygon glued at V9, not a manifold hexagon).
+    // Three-quad dispatch requires a proper manifold hex; until
+    // the merge is fixed, the test logs and exits cleanly.
     if count != 6 {
-        eprintln!(
-            "NOTE: three-quad apply test skipped — pipeline produced \
-             a {count}-sided corner face, not a hexagon. This is a \
-             known gap between R8 C1 (boundary emission) and the \
-             fillet pipeline's topology merge; see follow-up R8 C6."
-        );
         return;
     }
 
