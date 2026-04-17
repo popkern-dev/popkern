@@ -6,10 +6,14 @@
 //! edge tapers to zero radius at an unfilleted endpoint.
 
 pub mod boundary;
-mod gregory;
+pub(crate) mod gregory;
 pub mod runout;
 pub mod surface;
 mod surface_math;
+
+#[cfg(test)]
+#[path = "gregory_tests.rs"]
+mod gregory_tests;
 
 pub use boundary::{BlendBoundary, BoundarySegment, compute_blend_boundary};
 pub use runout::{RunoutEnd, runout_radius_fn};
