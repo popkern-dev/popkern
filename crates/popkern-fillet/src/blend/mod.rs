@@ -15,6 +15,10 @@ mod surface_math;
 #[path = "gregory_tests.rs"]
 mod gregory_tests;
 
+#[cfg(test)]
+#[path = "gregory_diagnostic_tests.rs"]
+mod gregory_diagnostic_tests;
+
 pub use boundary::{BlendBoundary, BoundarySegment, compute_blend_boundary};
 pub use runout::{RunoutEnd, runout_radius_fn};
 pub use surface::{BlendSurfaceResult, build_blend_surface};

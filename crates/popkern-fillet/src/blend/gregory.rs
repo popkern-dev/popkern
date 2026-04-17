@@ -55,7 +55,7 @@ use crate::types::{ContinuityLevel, CornerMethod};
 /// function — see the module-level docs for the twist-vector
 /// prerequisite.
 #[allow(dead_code)]
-pub(super) fn try_rational_gregory_blend(
+pub(crate) fn try_rational_gregory_blend(
     boundary: &BlendBoundary,
     fillet_surfaces: &[FilletSurfaceResult],
     boundary_curves: &[NurbsCurve],
@@ -135,7 +135,7 @@ pub(super) fn try_rational_gregory_blend(
 /// with determinant `108`, yielding `P_1 = (2A - B) / 18` and
 /// `P_2 = (2B - A) / 18` where `A` and `B` are the right-hand sides.
 #[allow(dead_code)]
-pub(super) fn fit_cubic_bezier_through(curve: &NurbsCurve) -> [Point3; 4] {
+pub(crate) fn fit_cubic_bezier_through(curve: &NurbsCurve) -> [Point3; 4] {
     let (t0, t1) = curve.parameter_range();
     let span = t1 - t0;
     let p0 = curve.point_at(t0);
@@ -187,7 +187,7 @@ pub(super) fn fit_cubic_bezier_through(curve: &NurbsCurve) -> [Point3; 4] {
 ///
 /// Returns `None` if UV projection fails on any incident strip —
 /// the caller falls through to the polar-NURBS approximation.
-pub(super) fn extract_triangular_inner_cps(
+pub(crate) fn extract_triangular_inner_cps(
     boundary_curves: &[NurbsCurve],
     fillet_surfaces: &[FilletSurfaceResult],
     avg_radius: f64,
