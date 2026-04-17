@@ -109,6 +109,12 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
             Some((u, v))
         }
         SurfaceGeometry::Nurbs(nurbs) => nurbs_gauss_newton_project(surface, nurbs, point),
+        // Gregory patches are non-analytic-inverse; fall through
+        // to the generic Gauss-Newton projection. The default
+        // [`SurfaceEval::closest_point`] dispatches via
+        // `closest_point_gauss_newton` for any surface variant
+        // without a closed-form inverse.
+        SurfaceGeometry::Gregory(_) => surface.closest_point(point),
     }
 }
 

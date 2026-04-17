@@ -90,6 +90,9 @@ pub fn offset_analytic(
         SurfaceGeometry::Nurbs(_) => {
             Err("analytic offset not supported for NURBS surfaces".to_string())
         }
+        SurfaceGeometry::Gregory(_) => {
+            Err("analytic offset not supported for Gregory patches".to_string())
+        }
     }
 }
 

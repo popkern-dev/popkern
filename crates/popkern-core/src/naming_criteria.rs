@@ -30,6 +30,8 @@ pub enum SurfaceType {
     Torus,
     /// NURBS / B-spline surface.
     Nurbs,
+    /// Rational Gregory patch (§5.3 N-sided corner resolution).
+    Gregory,
 }
 
 /// The kind of parametric curve backing an edge.
@@ -119,6 +121,7 @@ pub fn capture_face(brep: &BRep, face: FaceHandle) -> Option<FaceCriteria> {
         SurfaceGeometry::Sphere { .. } => SurfaceType::Sphere,
         SurfaceGeometry::Torus { .. } => SurfaceType::Torus,
         SurfaceGeometry::Nurbs(_) => SurfaceType::Nurbs,
+        SurfaceGeometry::Gregory(_) => SurfaceType::Gregory,
     };
 
     // Boundary vertex positions.

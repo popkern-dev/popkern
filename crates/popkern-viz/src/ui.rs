@@ -140,6 +140,7 @@ fn model_info_section(ui: &mut Ui, scene: &VizServer) {
     let mut cones = 0u32;
     let mut tori = 0u32;
     let mut nurbs = 0u32;
+    let mut gregory = 0u32;
     let mut none_count = 0u32;
 
     for (_, face) in &brep.faces {
@@ -151,6 +152,7 @@ fn model_info_section(ui: &mut Ui, scene: &VizServer) {
                 SurfaceGeometry::Cone { .. } => cones += 1,
                 SurfaceGeometry::Torus { .. } => tori += 1,
                 SurfaceGeometry::Nurbs(_) => nurbs += 1,
+                SurfaceGeometry::Gregory(_) => gregory += 1,
             },
             None => none_count += 1,
         }
@@ -174,6 +176,9 @@ fn model_info_section(ui: &mut Ui, scene: &VizServer) {
         }
         if nurbs > 0 {
             ui.label(format!("  NURBS: {nurbs}"));
+        }
+        if gregory > 0 {
+            ui.label(format!("  Gregory: {gregory}"));
         }
         if none_count > 0 {
             ui.label(format!("  (none): {none_count}"));
@@ -235,6 +240,7 @@ fn surface_type_name(surface: &SurfaceGeometry) -> &'static str {
         SurfaceGeometry::Cone { .. } => "Cone",
         SurfaceGeometry::Torus { .. } => "Torus",
         SurfaceGeometry::Nurbs(_) => "NURBS",
+        SurfaceGeometry::Gregory(_) => "Gregory",
     }
 }
 

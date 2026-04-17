@@ -305,6 +305,21 @@ pub fn identify_blend(brep: &BRep, face: FaceHandle) -> Option<BlendInfo> {
             let _ = perp_count;
             None
         }
+        SurfaceGeometry::Gregory(_) => {
+            // A Gregory patch at a face implies a §5.3 N-sided
+            // vertex blend — the corner patch constructed when
+            // multiple fillets meet. High confidence because the
+            // Gregory surface type itself is the signal.
+            Some(BlendInfo {
+                face,
+                kind: BlendKind::VertexBlend,
+                radius: None,
+                support_faces: tangent_support_pair(&boundary, tangent_tol)
+                    .or_else(|| chamfer_support_pair(&boundary, &distinct_neighbours)),
+                source: IdentificationSource::CurvatureAnalysis,
+                confidence: 0.95,
+            })
+        }
     }
 }
 

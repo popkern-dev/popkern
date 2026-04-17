@@ -93,6 +93,7 @@ impl SurfaceEval for SurfaceGeometry {
                 *center + tube_center_offset + tube_radial + tube_axial
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.point_at(u, v),
+            SurfaceGeometry::Gregory(g) => g.point_at(u, v),
         }
     }
 
@@ -127,6 +128,7 @@ impl SurfaceEval for SurfaceGeometry {
                 d_center + d_radial
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.partial_u(u, v),
+            SurfaceGeometry::Gregory(g) => g.partial_u(u, v),
         }
     }
 
@@ -159,6 +161,7 @@ impl SurfaceEval for SurfaceGeometry {
                 d_radial + d_axial
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.partial_v(u, v),
+            SurfaceGeometry::Gregory(g) => g.partial_v(u, v),
         }
     }
 
@@ -184,6 +187,14 @@ impl SurfaceEval for SurfaceGeometry {
             SurfaceGeometry::Sphere { .. } => ((0.0, TAU), (0.0, std::f64::consts::PI)),
             SurfaceGeometry::Torus { .. } => ((0.0, TAU), (0.0, TAU)),
             SurfaceGeometry::Nurbs(nurbs) => nurbs.parameter_range(),
+            // Gregory: both variants evaluate on the unit square
+            // `[0, 1] × [0, 1]`. The triangular form restricts to
+            // the simplex `u + v ≤ 1`; callers that need to clip
+            // outside-domain samples should check the domain
+            // directly. The bounding box in parameter space is
+            // the full unit square for uniformity with tensor-
+            // product surfaces.
+            SurfaceGeometry::Gregory(_) => ((0.0, 1.0), (0.0, 1.0)),
         }
     }
 
@@ -220,6 +231,19 @@ impl SurfaceEval for SurfaceGeometry {
                 d2_center + d2_radial
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.second_partial_uu(u, v),
+            // Gregory: finite-difference on the closed-form
+            // first partial. The rational inner-CP blend has a
+            // closed-form 2nd derivative (a ratio with `D^3` in
+            // the denominator) but we defer the analytic form to
+            // a later commit; FD here is already 1e-7-accurate
+            // on unit-scale patches and matches the trait's
+            // default implementation exactly.
+            SurfaceGeometry::Gregory(_) => {
+                let h = 1e-7;
+                let fwd = self.partial_u(u + h, v);
+                let bwd = self.partial_u(u - h, v);
+                (fwd - bwd) * (1.0 / (2.0 * h))
+            }
         }
     }
 
@@ -244,6 +268,12 @@ impl SurfaceEval for SurfaceGeometry {
                 (perp1 * (-u.sin()) + perp2 * u.cos()) * (-minor_radius * v.sin())
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.second_partial_uv(u, v),
+            SurfaceGeometry::Gregory(_) => {
+                let h = 1e-7;
+                let fwd = self.partial_u(u, v + h);
+                let bwd = self.partial_u(u, v - h);
+                (fwd - bwd) * (1.0 / (2.0 * h))
+            }
         }
     }
 
@@ -266,6 +296,12 @@ impl SurfaceEval for SurfaceGeometry {
                 d2_radial + d2_axial
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.second_partial_vv(u, v),
+            SurfaceGeometry::Gregory(_) => {
+                let h = 1e-7;
+                let fwd = self.partial_v(u, v + h);
+                let bwd = self.partial_v(u, v - h);
+                (fwd - bwd) * (1.0 / (2.0 * h))
+            }
         }
     }
 

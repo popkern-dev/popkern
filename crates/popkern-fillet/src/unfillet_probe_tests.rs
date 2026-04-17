@@ -303,6 +303,7 @@ fn probe_5c3_geometry_works_on_closed_fillet() {
             SurfaceGeometry::Torus { .. } => "Torus",
             SurfaceGeometry::Cone { .. } => "Cone",
             SurfaceGeometry::Nurbs(_) => "Nurbs",
+            SurfaceGeometry::Gregory(_) => "Gregory",
         },
         geom.effective_radius
     );

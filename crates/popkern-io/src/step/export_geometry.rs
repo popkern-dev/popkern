@@ -167,6 +167,15 @@ impl ExportContext {
                 )
             }
             SurfaceGeometry::Nurbs(nurbs) => self.export_nurbs_surface(nurbs),
+            // STEP AP203/242 has no direct Gregory entity. Convert
+            // to a NURBS fit (via `to_nurbs()`) and export as
+            // B_SPLINE_SURFACE. Loses the rational-inner-CP exact
+            // form but preserves the geometry to tessellation
+            // fidelity — the standard interchange strategy.
+            SurfaceGeometry::Gregory(_) => {
+                let nurbs = surface.geometry.to_nurbs();
+                self.export_nurbs_surface(&nurbs)
+            }
         }
     }
 }

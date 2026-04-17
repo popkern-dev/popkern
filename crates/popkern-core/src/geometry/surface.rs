@@ -1,5 +1,6 @@
 //! Surface geometry types, evaluation trait, and topology binding.
 
+use crate::geometry::gregory::GregoryPatch;
 use crate::geometry::intersection::surface_subdivision::Aabb;
 use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::{Point3, Vec3};
@@ -229,6 +230,14 @@ pub enum SurfaceGeometry {
     },
     /// A NURBS surface.
     Nurbs(NurbsSurface),
+    /// A rational Gregory patch (N=3 triangular or N=4 rectangular).
+    ///
+    /// Used for §5.3 corner patches where a tensor-product NURBS
+    /// can't represent the twist-compatibility-resolving rational
+    /// inner control-point blend. See [`GregoryPatch`] for the
+    /// Chiyokura-Kimura rectangular form and the Longhi triangular
+    /// form.
+    Gregory(GregoryPatch),
 }
 
 /// Binding between a face and its geometric surface.
@@ -333,6 +342,9 @@ impl SurfaceGeometry {
             SurfaceGeometry::Sphere { .. } => (true, false),
             SurfaceGeometry::Torus { .. } => (true, true),
             SurfaceGeometry::Nurbs(_) => (false, false),
+            // Gregory patches are bounded (unit square / simplex)
+            // with no parameter wrap-around in either direction.
+            SurfaceGeometry::Gregory(_) => (false, false),
         }
     }
 
@@ -351,6 +363,7 @@ impl SurfaceGeometry {
             SurfaceGeometry::Sphere { .. } => (Some(TAU), None),
             SurfaceGeometry::Torus { .. } => (Some(TAU), Some(TAU)),
             SurfaceGeometry::Nurbs(_) => (None, None),
+            SurfaceGeometry::Gregory(_) => (None, None),
         }
     }
 
@@ -382,6 +395,17 @@ impl SurfaceGeometry {
                 }
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.clone(),
+            // Gregory patches have no exact tensor-product NURBS
+            // representation in general: the rectangular form is
+            // equivalent to a degree-7×7 rational NURBS (Chiyokura-
+            // Kimura 1983) — exact conversion will land in a later
+            // commit. The triangular form is fundamentally non-
+            // tensor-product. For now, sample the surface on a
+            // dense grid and fit a degree-3 interpolating NURBS —
+            // lossy but adequate for STEP export, tessellation,
+            // and boolean fallback. Gregory→NURBS fidelity is the
+            // primary quality caveat of this commit.
+            SurfaceGeometry::Gregory(_) => sample_to_nurbs(self, u_range, v_range),
             _ => sample_to_nurbs(self, u_range, v_range),
         }
     }

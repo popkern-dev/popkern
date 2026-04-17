@@ -131,6 +131,10 @@ pub fn validate_fillet_surface(
         | SurfaceGeometry::Sphere { .. }
         | SurfaceGeometry::Cone { .. } => Ok(()),
         SurfaceGeometry::Nurbs(_) => check_nurbs_surface(surface, u_range, v_range, tolerance),
+        // Gregory patches route through the same grid-sampling
+        // self-intersection check as NURBS — the generic
+        // `SurfaceEval` path walks via point_at.
+        SurfaceGeometry::Gregory(_) => check_nurbs_surface(surface, u_range, v_range, tolerance),
     }
 }
 
