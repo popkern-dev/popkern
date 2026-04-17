@@ -38,7 +38,15 @@ fn r8_c6_mixed_radius_cube_corner_lands_manifold_hex() {
         })
         .collect();
     let tol = Tolerance::default();
-    let result = fillet_edges(&cube, &specs, &FilletOptions::default(), tol, None).unwrap();
+    // R8 C6 guard predates three-quad dispatch — explicitly
+    // disable it here so we measure the MERGED (pre-poke) hex
+    // topology. With the R8 C9 default-on, we'd see 3 sub-quads
+    // instead.
+    let opts = FilletOptions {
+        use_rational_gregory: false,
+        ..FilletOptions::default()
+    };
+    let result = fillet_edges(&cube, &specs, &opts, tol, None).unwrap();
 
     // Locate the corner patch for our target vertex.
     let target_info = result
@@ -128,15 +136,13 @@ fn r8_c7_dispatch_produces_three_rectangular_gregory_subpatches() {
         })
         .collect();
 
-    // Baseline (dispatch off): single corner patch, NURBS surface.
-    let baseline = fillet_edges(
-        &cube,
-        &specs,
-        &FilletOptions::default(),
-        Tolerance::default(),
-        None,
-    )
-    .unwrap();
+    // Baseline (dispatch explicitly off, overriding R8 C9's
+    // default-on): single corner patch, NURBS surface.
+    let baseline_opts = FilletOptions {
+        use_rational_gregory: false,
+        ..FilletOptions::default()
+    };
+    let baseline = fillet_edges(&cube, &specs, &baseline_opts, Tolerance::default(), None).unwrap();
     let baseline_corners: Vec<_> = baseline
         .corner_patches
         .iter()
@@ -243,14 +249,14 @@ fn r8_c8_fillet_quality_gregory_not_worse_than_polar_nurbs() {
         })
         .collect();
 
-    let (_, baseline_q) = fillet_edges_with_quality(
-        &cube,
-        &specs,
-        &FilletOptions::default(),
-        Tolerance::default(),
-        None,
-    )
-    .expect("baseline quality path should succeed");
+    // Explicit flag-off baseline (R8 C9 made default-on).
+    let baseline_opts = FilletOptions {
+        use_rational_gregory: false,
+        ..FilletOptions::default()
+    };
+    let (_, baseline_q) =
+        fillet_edges_with_quality(&cube, &specs, &baseline_opts, Tolerance::default(), None)
+            .expect("baseline quality path should succeed");
     let (_, gregory_q) = fillet_edges_with_quality(
         &cube,
         &specs,

@@ -282,7 +282,14 @@ impl Default for FilletOptions {
             soft_supports: false,
             soft_support_factor: 10.0,
             cap_kind: CapKind::Open,
-            use_rational_gregory: false,
+            // §5.3 R8 C9 — default-ON after the C4b.2c cross-fixture
+            // scorecard confirmed Gregory wins by 30-70pp on the
+            // §2.4 metric across uniform, slight-asymmetry, 4×-ratio,
+            // larger-radii, and fine-geometry configurations. Uniform-
+            // radii corners still fall through to the analytic sphere
+            // path (Gregory dispatch correctly doesn't engage when
+            // the sphere fit succeeds first).
+            use_rational_gregory: true,
         }
     }
 }
