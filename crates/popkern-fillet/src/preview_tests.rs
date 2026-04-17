@@ -155,6 +155,80 @@ fn preview_corner_patches_empty_for_single_edge_spec() {
     assert!(previews.is_empty());
 }
 
+/// C4b.3 — `CornerPatchPreview::rational_gregory_eligible` must
+/// be `true` on a trihedral cube-corner spec (planar supports,
+/// N=3, SameSideConvex classification) so UI layers can render
+/// a "Gregory eligible" badge on exactly those corners that
+/// would change behaviour when `use_rational_gregory=true`.
+#[test]
+fn preview_corner_patches_flags_trihedral_cube_corners_as_gregory_eligible() {
+    let brep = BRep::unit_cube(tol()).unwrap();
+    // Fillet all 3 edges incident to a single vertex.
+    let vertex = brep.vertices.keys().next().unwrap();
+    let incident_edges: Vec<_> = brep
+        .half_edges
+        .values()
+        .filter(|he| he.origin == vertex)
+        .map(|he| he.edge)
+        .collect();
+    assert_eq!(incident_edges.len(), 3);
+
+    let specs: Vec<FilletSpec> = incident_edges
+        .iter()
+        .map(|&edge| FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(0.1),
+        })
+        .collect();
+    let previews = preview_corner_patches(&brep, &specs, tol()).unwrap();
+    let target = previews
+        .iter()
+        .find(|p| p.vertex == vertex)
+        .expect("corner preview must exist for the target vertex");
+
+    assert_eq!(target.n_sides, 3);
+    assert!(
+        target.rational_gregory_eligible,
+        "C4b.3: trihedral planar-supports cube corner should be flagged \
+         Gregory-eligible; classification={:?}",
+        target.classification,
+    );
+}
+
+/// C4b.3 — corners that DON'T satisfy the R8 C7 dispatch gates
+/// must NOT be flagged `rational_gregory_eligible`. A single-
+/// edge fillet produces zero corner patches, so the negative
+/// case here is a two-edge-at-one-vertex fillet — N=2, so
+/// ineligible even though planar.
+#[test]
+fn preview_corner_patches_does_not_flag_two_edge_corner_as_gregory_eligible() {
+    let brep = BRep::unit_cube(tol()).unwrap();
+    let vertex = brep.vertices.keys().next().unwrap();
+    let incident_edges: Vec<_> = brep
+        .half_edges
+        .values()
+        .filter(|he| he.origin == vertex)
+        .map(|he| he.edge)
+        .collect();
+    // Only 2 of the 3 incident edges.
+    let specs: Vec<FilletSpec> = incident_edges
+        .iter()
+        .take(2)
+        .map(|&edge| FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(0.1),
+        })
+        .collect();
+    let previews = preview_corner_patches(&brep, &specs, tol()).unwrap();
+    if let Some(p) = previews.iter().find(|p| p.vertex == vertex) {
+        assert_eq!(p.n_sides, 2);
+        assert!(
+            !p.rational_gregory_eligible,
+            "C4b.3: N=2 corner should NOT be Gregory-eligible (three-quad needs N=3)"
+        );
+    }
+}
+
 #[test]
 fn preview_all_succeeded_false_when_spec_fails() {
     // Craft a spec that would fail at the per-edge geometry phase:

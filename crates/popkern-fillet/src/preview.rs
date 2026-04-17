@@ -192,6 +192,26 @@ pub struct CornerPatchPreview {
     pub surface: SurfaceGeometry,
     /// Boundary curves tracing the corner perimeter.
     pub boundary_curves: Vec<NurbsCurve>,
+    /// **§5.3 R8 C7 dispatch eligibility.** `true` when this
+    /// corner would be routed through the rational-Gregory
+    /// three-quad path if
+    /// [`FilletOptions::use_rational_gregory`] were `true`.
+    /// Gates:
+    /// * `n_sides == 3` — the three-quad decomposition is
+    ///   N=3-specific.
+    /// * `classification` is a `SameSide*` case — saddle
+    ///   (`OppositeSide`), mixed, tangent, and free-boundary
+    ///   corners don't currently qualify.
+    /// * Boundary emits a 6-segment hex
+    ///   (3 `FilletEnd` + 3 `FaceEdge`) — requires all adjacent
+    ///   supports to be planar.
+    ///
+    /// UI layers render a "Gregory-eligible" badge on eligible
+    /// corners so users know the opt-in
+    /// flag would affect those specifically. When `false`, the
+    /// corner sticks with the legacy
+    /// polar-NURBS / sphere path regardless of the flag.
+    pub rational_gregory_eligible: bool,
 }
 
 /// Non-destructive preview of the N-sided corner patches that would
@@ -295,6 +315,30 @@ pub fn preview_corner_patches(
             continue;
         };
 
+        // R8 C7 dispatch eligibility — mirrors the in-pipeline
+        // gate in `insert_vertex_blend`:
+        //   * N == 3
+        //   * planar-supports hex boundary (6 segments, 3
+        //     `FilletEnd` + 3 `FaceEdge` alternating)
+        //   * `SameSide*` classification (saddle/mixed/tangent/
+        //     free-boundary don't qualify at present — R8 C7
+        //     builder only handles the same-side convex/concave
+        //     N=3 case).
+        let rational_gregory_eligible = edge_indices.len() == 3
+            && matches!(
+                classification,
+                VertexBlendClassification::SameSideConvex
+                    | VertexBlendClassification::SameSideConcave
+            )
+            && boundary.segments.len() == 6
+            && boundary.segments.iter().enumerate().all(|(i, s)| {
+                matches!(
+                    (i % 2, s),
+                    (0, crate::blend::BoundarySegment::FilletEnd { .. })
+                        | (1, crate::blend::BoundarySegment::FaceEdge { .. })
+                )
+            });
+
         out.push(CornerPatchPreview {
             vertex: *vertex,
             n_sides: edge_indices.len(),
@@ -303,6 +347,7 @@ pub fn preview_corner_patches(
             predicted_continuity: result.continuity,
             surface: result.surface,
             boundary_curves: result.boundary_curves,
+            rational_gregory_eligible,
         });
     }
     Ok(out)
