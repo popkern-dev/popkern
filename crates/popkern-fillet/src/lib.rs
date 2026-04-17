@@ -329,6 +329,12 @@ fn fillet_edges_internal(
     }
 
     continuity::emit_downgrade_warnings(&edge_geometries, options, &mut all_warnings);
+    continuity::emit_corner_downgrade_warnings(
+        &apply_result.corner_patches,
+        options,
+        fallback_edge,
+        &mut all_warnings,
+    );
 
     // Assign stable names when tracking is active.
     if let Some(ctx) = tracking {
@@ -436,12 +442,7 @@ pub fn fillet_edges_with_quality(
 }
 
 /// Convenience: fillet a single edge with a constant radius.
-///
-/// Equivalent to calling [`fillet_edges`] with a single [`FilletSpec`] and
-/// default options.
-///
-/// # Errors
-///
+/// Equivalent to [`fillet_edges`] with one [`FilletSpec`] + default options.
 /// Returns a [`BlendError`] if the edge cannot be filleted.
 pub fn fillet_edge(
     brep: &BRep,
@@ -463,12 +464,7 @@ pub fn fillet_edge(
 }
 
 /// Convenience: chamfer a single edge with equal distances.
-///
-/// Equivalent to calling [`chamfer_edges`] with a single [`ChamferSpec`] and
-/// default options.
-///
-/// # Errors
-///
+/// Equivalent to [`chamfer_edges`] with one [`ChamferSpec`] + default options.
 /// Returns a [`BlendError`] if the edge cannot be chamfered.
 pub fn chamfer_edge(
     brep: &BRep,
@@ -491,6 +487,9 @@ pub fn chamfer_edge(
 
 use geometry_compute::{build_overlap_inputs, compute_chamfer_geometry, compute_fillet_geometry};
 use naming::assign_fillet_names;
+#[cfg(test)]
+#[path = "corner_warning_tests.rs"]
+mod corner_warning_tests;
 #[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;

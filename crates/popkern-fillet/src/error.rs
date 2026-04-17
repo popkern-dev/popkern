@@ -349,6 +349,45 @@ pub enum BlendWarning {
         /// the fallback.
         reason: String,
     },
+    /// §5.3 corner-patch continuity fallback at a high-valence
+    /// vertex. Fires when either (a) the construction reported an
+    /// achieved continuity lower than `requested`, or (b) the
+    /// corner has five or more incident fillet strips
+    /// (`n_sides >= 5`), where even the curvature-matched polar
+    /// NURBS patch degrades in interior quality because a single
+    /// degree-2 radial cross-section can't capture the full
+    /// curvature variation around N boundaries.
+    ///
+    /// **UI guidance.** Display alongside the
+    /// [`crate::CornerPatchInfo`] for the same vertex so the caller
+    /// sees `(method = Gregory, n_sides = 6, achieved = G1)`
+    /// paired with "corner continuity downgraded because N ≥ 5."
+    /// Consumer code that requires strict Class-A at N≥5 should
+    /// treat this warning as a failure and reject the corner
+    /// (Plate-minimisation / true rational Gregory for N≥5 is
+    /// planned for §5.3 C6+).
+    ///
+    /// Keyed on a representative incident edge on the outer
+    /// `Vec<(EdgeHandle, BlendWarning)>` to keep the warning
+    /// plumbing uniform with other vertex-scoped warnings
+    /// (`VertexModeFallback`); `vertex` inside the body carries
+    /// the authoritative handle.
+    CornerContinuityDowngraded {
+        /// The vertex whose corner patch was downgraded.
+        vertex: VertexHandle,
+        /// Valence of the corner — number of incident filleted
+        /// edges meeting at this vertex.
+        n_sides: usize,
+        /// The continuity level the caller asked for (from
+        /// [`crate::types::FilletOptions::continuity`]).
+        requested: crate::types::ContinuityLevel,
+        /// The continuity level the corner construction actually
+        /// delivered.
+        achieved: crate::types::ContinuityLevel,
+        /// Human-readable reason (e.g. "N >= 5, polar NURBS
+        /// interior may degrade").
+        reason: String,
+    },
 }
 
 // The Remediation types and the per-variant remediation-hint

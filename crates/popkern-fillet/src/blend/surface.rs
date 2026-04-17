@@ -314,14 +314,21 @@ fn build_gregory_g1_blend(
         })
         .collect();
     let target_radius = radii.first().copied().unwrap_or(0.1);
-    let radii_uniform = match radii.len() {
-        0 | 1 => true,
-        _ => {
-            let (lo, hi) = radii.iter().fold((f64::INFINITY, 0.0_f64), |(lo, hi), &r| {
-                (lo.min(r), hi.max(r))
-            });
-            (hi - lo) < 1e-6
-        }
+    // G2 upgrade requires a confirmed uniform curvature target
+    // from the incident analytic fillet surfaces. If the strips
+    // are NURBS (G2 edge fillets produce NURBS, not Torus /
+    // Cylinder), we cannot verify the target radius matches the
+    // strip's actual boundary curvature at each sample — honest
+    // answer is G1 at these corners. Likewise if N > radii.len()
+    // (some incident strips are analytic, some NURBS): we don't
+    // have a full set of radii to verify, so stay at G1.
+    let radii_uniform = if radii.len() >= fillet_surfaces.len() && !radii.is_empty() {
+        let (lo, hi) = radii.iter().fold((f64::INFINITY, 0.0_f64), |(lo, hi), &r| {
+            (lo.min(r), hi.max(r))
+        });
+        (hi - lo) < 1e-6
+    } else {
+        false
     };
 
     // Build the num_u × num_v polar control point grid.
