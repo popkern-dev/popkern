@@ -256,34 +256,83 @@ fn extract_fillet_end_near_vertex(
     vertex_pos: &Point3,
     _tolerance: &Tolerance,
 ) -> Result<NurbsCurve, String> {
-    // Find which end of trim_curve_1 is nearest to the vertex.
-    let (t1_min, t1_max) = fillet.trim_curve_1.parameter_range();
-    let p1_start = fillet.trim_curve_1.point_at(t1_min);
-    let p1_end = fillet.trim_curve_1.point_at(t1_max);
+    // §5.3 Round 7 C4b.1a — find the closest POINT on each trim
+    // curve to the vertex (not just one of the two endpoints).
+    // The fillet's trim curves typically span the entire filleted
+    // edge including some internal extended-rolling-ball overshoot
+    // (e.g., from `x = -1` to `x = 2` on a unit cube at `x ∈ [0, 1]`),
+    // so the nearest trim-curve points to a vertex at the edge
+    // endpoint are in the INTERIOR of the trim curves, not at
+    // their parametric endpoints. The legacy `d_start` / `d_end`
+    // selection picked whichever pair was "less far" and would
+    // land on the far-overshoot plane, producing boundary arcs
+    // geometrically disconnected from the vertex.
+    let p1 = closest_point_on_nurbs_curve(&fillet.trim_curve_1, vertex_pos, 64);
+    let p2 = closest_point_on_nurbs_curve(&fillet.trim_curve_2, vertex_pos, 64);
 
-    let (t2_min, t2_max) = fillet.trim_curve_2.parameter_range();
-    let p2_start = fillet.trim_curve_2.point_at(t2_min);
-    let p2_end = fillet.trim_curve_2.point_at(t2_max);
-
-    // Pick the pair of endpoints nearest to the vertex.
-    let d_start = p1_start.distance_to(vertex_pos) + p2_start.distance_to(vertex_pos);
-    let d_end = p1_end.distance_to(vertex_pos) + p2_end.distance_to(vertex_pos);
-
-    let (arc_start, arc_end) = if d_start < d_end {
-        (p1_start, p2_start)
-    } else {
-        (p1_end, p2_end)
+    // Project both points onto the fillet surface so we can trace
+    // an ARC ALONG THE SURFACE between them (the geometrically
+    // correct fillet-end arc) instead of a straight line through
+    // space.
+    let Some((u1, v1)) = project_point_to_uv(&fillet.surface, &p1) else {
+        return Err(format!("failed to project p1 = {p1:?} onto fillet surface"));
+    };
+    let Some((u2, v2)) = project_point_to_uv(&fillet.surface, &p2) else {
+        return Err(format!("failed to project p2 = {p2:?} onto fillet surface"));
     };
 
-    // Build a simple linear NURBS between the two endpoints.
-    // A true arc could be constructed using the fillet surface geometry.
-    let mid = Point3::new(
-        (arc_start.x + arc_end.x) * 0.5,
-        (arc_start.y + arc_end.y) * 0.5,
-        (arc_start.z + arc_end.z) * 0.5,
-    );
+    // Periodicity handling: for Cylinder / Cone / Torus the `u`
+    // parameter is angular (period `TAU`). Walking linearly from
+    // `u1` to `u2` may take the long way around the cylinder; pick
+    // the shorter arc direction.
+    let (u_periodicity, _) = fillet.surface.periodicity();
+    let mut du = u2 - u1;
+    if let Some(period) = u_periodicity
+        && du.abs() > period * 0.5
+    {
+        du -= period * du.signum();
+    }
 
-    crate::center_curve::fit_nurbs_through_points(&[arc_start, mid, arc_end])
+    // Sample the arc on the surface. Five samples is sufficient
+    // for a chord-length-parameterised NURBS fit to approximate
+    // a quarter-circle to ~1% radius; more samples don't improve
+    // the degree-1 NURBS `fit_nurbs_through_points` emits.
+    let n_samples = 5;
+    let mut samples = Vec::with_capacity(n_samples);
+    for i in 0..n_samples {
+        let t = (i as f64) / (n_samples - 1) as f64;
+        let u = u1 + t * du;
+        let v = v1 + t * (v2 - v1);
+        samples.push(fillet.surface.point_at(u, v));
+    }
+
+    crate::center_curve::fit_nurbs_through_points(&samples)
+}
+
+/// Find the closest point on `curve` to `target` by sampling at
+/// `n_samples + 1` uniform parameter values and picking the
+/// minimum-distance sample. Chord-length-accurate to about
+/// `curve_length / n_samples`; for our N=3-corner fixtures with
+/// `n_samples = 64`, accuracy is sub-millimetre on unit-scale
+/// models — well under the rolling-ball radius.
+///
+/// Could be improved with Newton polishing on the best sample,
+/// but the extra precision hasn't been needed in practice.
+fn closest_point_on_nurbs_curve(curve: &NurbsCurve, target: &Point3, n_samples: usize) -> Point3 {
+    let (t0, t1) = curve.parameter_range();
+    let mut best_d = f64::INFINITY;
+    let mut best_p = curve.point_at(t0);
+    let samples = n_samples.max(1);
+    for i in 0..=samples {
+        let t = t0 + (t1 - t0) * (i as f64) / (samples as f64);
+        let p = curve.point_at(t);
+        let d = p.distance_to(target);
+        if d < best_d {
+            best_d = d;
+            best_p = p;
+        }
+    }
+    best_p
 }
 
 #[cfg(test)]

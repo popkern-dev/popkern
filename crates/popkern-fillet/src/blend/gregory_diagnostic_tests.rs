@@ -1,32 +1,10 @@
 //! §5.3 Round 7 C4b.1 — comparative diagnostic for rational
 //! Gregory vs polar-NURBS corner construction.
 //!
-//! **Purpose.** Before we activate the rational-Gregory dispatch
-//! path in `build_smooth_blend` (C4b.4), we need **evidence** that
-//! the new construction matches or beats the existing polar-NURBS
-//! fallback on the metrics that matter:
-//!
-//! 1. **Boundary positional match** — does the built patch hit
-//!    the input boundary curves? (Both paths should; this is a
-//!    sanity check.)
-//! 2. **Surface curvature profile** — does the patch interior
-//!    flow smoothly? Measured via a grid sample of Gaussian
-//!    curvature magnitudes.
-//! 3. **|Δκ| at boundary samples** — how close does the patch's
-//!    normal curvature come to the incident strip's `1/r` at the
-//!    boundary? (The §2.4 G2 acceptance criterion is
-//!    `|Δκ|/max(|κ|, 1/r) < 0.01`.)
-//!
-//! The test runs on a **mixed-radius** (0.08, 0.10, 0.12)
-//! cube-corner fixture — the case where the sphere path fails
-//! and polar NURBS currently fires. Gregory has to earn its
-//! place here or we stick with polar NURBS.
-//!
-//! Output is emitted via `eprintln!` (visible with `--nocapture`)
-//! so the side-by-side numbers drive the C4b.2+ decisions. Hard
-//! asserts only check the invariants that MUST hold regardless
-//! of construction method (both paths hit the boundary
-//! corners exactly, no NaN / Inf in curvature samples).
+//! Runs both constructions on a mixed-radius cube-corner fixture
+//! and reports boundary deviation, Gaussian curvature stats, and
+//! |Δκ| at boundary samples. Evidence base for C4b dispatch
+//! activation. See module code for the full metric definitions.
 
 use crate::analysis;
 use crate::blend::boundary::{BoundarySegment, compute_blend_boundary};
@@ -482,7 +460,10 @@ fn diagnostic_polar_nurbs_vs_rational_gregory_on_mixed_radius_cube() {
     //
     // Soft invariants: if either path builds, its metrics must be
     // finite (no NaN/Inf). This test is deliberately tolerant
-    // of bad quality — it EXISTS to document the bad quality.
+    // of surface-quality bad numbers (interior_gaussian_curvature
+    // and max_boundary_normal_curvature_deviation) — those are
+    // the quality-bar the C4b activation wants to improve, not
+    // regress.
     if let Some(m) = &polar_metrics {
         assert!(
             m.max_interior_gaussian_curvature.is_finite(),
@@ -495,4 +476,18 @@ fn diagnostic_polar_nurbs_vs_rational_gregory_on_mixed_radius_cube() {
             "Gregory interior curvature must be finite",
         );
     }
+
+    // C4b.1a regression guard — the boundary arcs' endpoints MUST
+    // now touch the vertex neighbourhood (within `2·r` is the
+    // loose-but-commercial-grade tolerance). This is the fix's
+    // acceptance criterion; if it regresses we've reintroduced
+    // the "trim-curve-endpoints overshoot vertex" bug.
+    assert!(
+        max_endpoint_dist < 2.0 * avg_radius,
+        "C4b.1a regression: boundary-arc endpoints drifted to \
+         {max_endpoint_dist:.3e} from vertex; expected < 2·r = \
+         {:.3e}. The extract_fillet_end_near_vertex closest-point \
+         fix must keep boundary arcs near the vertex.",
+        2.0 * avg_radius,
+    );
 }
