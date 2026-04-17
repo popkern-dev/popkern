@@ -7,6 +7,7 @@ pub mod analytic_surfaces;
 pub mod curve;
 pub mod curve_on_surface;
 pub mod fitting;
+pub mod gregory;
 pub mod intersection;
 pub mod nurbs_curve;
 pub mod nurbs_ops;
