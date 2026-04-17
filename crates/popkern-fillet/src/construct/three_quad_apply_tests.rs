@@ -437,3 +437,7 @@ fn r8_c8c_central_vertex_g1_shared_tangent_plane() {
 #[path = "three_quad_apply_g2_tests.rs"]
 #[cfg(test)]
 mod g2_tests;
+
+#[path = "three_quad_apply_ss_tests.rs"]
+#[cfg(test)]
+mod ss_tests;

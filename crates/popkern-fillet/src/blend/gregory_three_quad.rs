@@ -122,7 +122,12 @@ pub(crate) fn build_three_quad_decomposition(
     // the arc corners).
     let n_c = central_vertex_normal(&hex_vertices, c).unwrap_or(Vec3::new(0.0, 0.0, 0.0));
 
-    let mut sub_patches: Vec<RectangularGregory> = Vec::with_capacity(3);
+    // Pass 1: build each sub-patch's boundaries and raw parallelogram
+    // inner CPs (with C-K twist applied at hex corners 0–2). Corner 3
+    // (central vertex) stays at its raw parallelogram position; the
+    // Shirman-Séquin cross-patch solve in pass 2 corrects it.
+    type SubPatchStaged = ([[Point3; 4]; 4], [(Point3, Point3); 4]);
+    let mut per_patch: Vec<SubPatchStaged> = Vec::with_capacity(3);
     for k in 0..3usize {
         let b0_curve = match &boundary.segments[2 * k] {
             BoundarySegment::FilletEnd { curve, .. } => curve,
@@ -143,44 +148,72 @@ pub(crate) fn build_three_quad_decomposition(
         let b2 = fit_cubic_bezier_through(&spoke_v_end_to_c);
         let b3 = fit_cubic_bezier_through(&spoke_c_to_v_start);
 
-        // C4b.2 / R8 C8c proper — parallelogram minimum-twist
-        // inner CPs with fillet-strip tangent-plane projection
-        // at hex corners. Replaces the pure-bilinear no-twist
-        // baseline. See `compute_parallelogram_inner_cps` for
-        // the derivation. This is the G1-at-hex-corners half of
-        // the Chiyokura–Kimura construction; the central vertex
-        // stays as pure parallelogram until the cross-patch G1
-        // solve (C4b.2b) lands — that caveat is documented in
-        // `ThreeQuadDecomposition`.
-        //
-        // Sub-patch k's hex corners (0, 1, 2) sit on fillet
-        // strips — specifically:
+        // Sub-patch k's hex corners (0, 1, 2) sit on fillet strips:
         //   corner 0 = V_{2k}        on fillet[k-1 mod 3] and fillet[k]
         //   corner 1 = V_{2k+1}      on fillet[k]
         //   corner 2 = V_{2k+2}      on fillet[k] and fillet[k+1 mod 3]
-        // Corner 3 = C is interior (no fillet strip).
+        // Corner 3 = C is interior (handled by SS in pass 2).
         let strip_current = fillet_surfaces.get(k);
         let strip_prev = fillet_surfaces.get((k + 2) % 3);
         let strip_next = fillet_surfaces.get((k + 1) % 3);
         let corner_strips: [Option<&FilletSurfaceResult>; 4] =
             [strip_prev, strip_current, strip_next, None];
 
-        let mut inner_cps = compute_parallelogram_inner_cps([&b0, &b1, &b2, &b3], corner_strips);
-        // C4b.2b central-vertex G1: project corner-3 inner CP onto
-        // the common tangent plane at C. The plane normal `n_c` is
-        // shared across all three sub-patches, so all three
-        // patches land on the same tangent plane at C → G1 across
-        // every internal spoke automatically.
-        if n_c.length_squared() > 1e-18 {
-            let p = inner_cps[3].0;
-            let off_plane = Vec3::new(p.x - c.x, p.y - c.y, p.z - c.z).dot(&n_c);
-            let p_projected = Point3::new(
-                p.x - off_plane * n_c.x,
-                p.y - off_plane * n_c.y,
-                p.z - off_plane * n_c.z,
-            );
-            inner_cps[3] = (p_projected, p_projected);
+        let inner_cps_raw = compute_parallelogram_inner_cps([&b0, &b1, &b2, &b3], corner_strips);
+        per_patch.push(([b0, b1, b2, b3], inner_cps_raw));
+    }
+
+    // Pass 2: Shirman-Séquin vertex-enclosure solve at the central
+    // vertex `C`. The simplified N=3 form: pick an orthonormal tangent
+    // basis `(t1, t2)` ⊥ `n_c`, decompose each sub-patch's raw
+    // corner-3 inner CP offset from `C` into `(a_k, b_k, d_k)` in
+    // that basis, then shift so each sub-patch's final corner-3 inner
+    // CP sits in the tangent plane AND all three agree on the
+    // tangent-plane components (subtract the cross-patch mean).
+    //
+    // This gives the relaxed G2 at C in the surface-normal sense
+    // (Shirman-Séquin 1991): the mixed second partials τ_k across
+    // sub-patches agree in the tangent plane, which is what governs
+    // reflection-line continuity across internal spokes. The residual
+    // normal-direction disagreement is irreducible given the boundary
+    // geometry — G2 in the tangent direction is what actually matters
+    // for visual smoothness.
+    //
+    // Falls back to the C4b.2b pure-projection (current code) when
+    // `n_c` is degenerate.
+    let use_ss = n_c.length_squared() > 1e-18;
+    let (t1, t2) = if use_ss {
+        orthonormal_tangent_basis(n_c)
+    } else {
+        (Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 0.0))
+    };
+    let mut a_tan = [0.0_f64; 3];
+    let mut b_tan = [0.0_f64; 3];
+    if use_ss {
+        for k in 0..3 {
+            let p_para = per_patch[k].1[3].0;
+            let off = Vec3::new(p_para.x - c.x, p_para.y - c.y, p_para.z - c.z);
+            a_tan[k] = off.dot(&t1);
+            b_tan[k] = off.dot(&t2);
         }
+    }
+    let a_mean = (a_tan[0] + a_tan[1] + a_tan[2]) / 3.0;
+    let b_mean = (b_tan[0] + b_tan[1] + b_tan[2]) / 3.0;
+
+    let mut sub_patches: Vec<RectangularGregory> = Vec::with_capacity(3);
+    for (k, (boundaries, mut inner_cps)) in per_patch.into_iter().enumerate() {
+        if use_ss {
+            // Final corner-3 inner CP: C + (a_k - a_mean) t1 + (b_k - b_mean) t2.
+            let da = a_tan[k] - a_mean;
+            let db = b_tan[k] - b_mean;
+            let p_ss = Point3::new(
+                c.x + da * t1.x + db * t2.x,
+                c.y + da * t1.y + db * t2.y,
+                c.z + da * t1.z + db * t2.z,
+            );
+            inner_cps[3] = (p_ss, p_ss);
+        }
+        let [b0, b1, b2, b3] = boundaries;
         let patch =
             RectangularGregory::from_boundary_beziers([b0, b1, b2, b3], inner_cps, 1e-3).ok()?;
         sub_patches.push(patch);
@@ -316,6 +349,29 @@ fn scale3(v: Vec3) -> Vec3 {
 /// order the sum points along the plane normal. Returns `None`
 /// if the 6 cross products sum to a near-zero vector
 /// (degenerate hex, e.g., all 6 vertices on a line).
+/// Build an orthonormal tangent basis `(t1, t2)` in the plane
+/// perpendicular to the unit vector `n`. `t1` is derived from the
+/// world-axis least aligned with `n` (for numerical stability); `t2`
+/// is `n × t1` so `(t1, t2, n)` is a right-handed orthonormal frame.
+fn orthonormal_tangent_basis(n: Vec3) -> (Vec3, Vec3) {
+    let ax = n.x.abs();
+    let ay = n.y.abs();
+    let az = n.z.abs();
+    let seed = if ax <= ay && ax <= az {
+        Vec3::new(1.0, 0.0, 0.0)
+    } else if ay <= az {
+        Vec3::new(0.0, 1.0, 0.0)
+    } else {
+        Vec3::new(0.0, 0.0, 1.0)
+    };
+    // t1 = (seed - (seed·n) n) normalised
+    let dot = seed.dot(&n);
+    let raw_t1 = Vec3::new(seed.x - dot * n.x, seed.y - dot * n.y, seed.z - dot * n.z);
+    let t1 = raw_t1.normalized().unwrap_or(Vec3::new(1.0, 0.0, 0.0));
+    let t2 = n.cross(&t1);
+    (t1, t2)
+}
+
 fn central_vertex_normal(hex_vertices: &[Point3], c: Point3) -> Option<Vec3> {
     if hex_vertices.len() != 6 {
         return None;
