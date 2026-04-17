@@ -1,27 +1,23 @@
 //! Integration test for the three-quad apply helper. Runs the
 //! full `fillet_edges` pipeline on a mixed-radius cube corner,
-//! locates the corner-blend face in the result, builds a hex
-//! boundary, and applies the three-quad decomposition —
-//! verifying the resulting topology + surface assignments.
+//! locates the corner-blend face in the result, and verifies the
+//! R8 C6 hex topology invariants.
+//!
+//! The three-quad *apply* wiring (poke + Gregory assignment) is
+//! R8 C7 follow-up — it needs the blend boundary cached at insert
+//! time so it survives the R8 C6 `kev` that removes V.
 
-use super::apply_three_quad_decomposition_to_blend;
-use crate::blend::boundary::compute_blend_boundary;
-use crate::construct::blend_topo::build_fillet_surface_list;
-use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{FilletOptions, FilletRadius, FilletSpec};
-use crate::vertex_classifier::classify_vertex_blend;
 use crate::{CornerMethod, fillet_edges};
 
-use popkern_core::geometry::gregory::GregoryPatch;
-use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
 #[test]
-fn apply_three_quad_decomposition_on_mixed_radius_cube_corner() {
-    // Fixture: mixed-radius cube corner with 3 fillets. Run the
-    // full `fillet_edges` pipeline so the corner blend face
-    // lands with all its trim-endpoint topology intact.
+fn r8_c6_mixed_radius_cube_corner_lands_manifold_hex() {
+    // Fixture: mixed-radius cube corner with 3 fillets. The R8 C6
+    // fix (per-face trim anchors + kev-for-bridge) must produce a
+    // 6-half-edge blend face with 6 distinct boundary vertices.
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let incident_edges: Vec<_> = cube
@@ -54,21 +50,21 @@ fn apply_three_quad_decomposition_on_mixed_radius_cube_corner() {
     assert_eq!(
         target_info.method,
         CornerMethod::Gregory,
-        "mixed-radius corner should route to Gregory before three-quad",
+        "mixed-radius corner should route to Gregory (polar-NURBS) in R8 C6",
     );
 
-    // The existing pipeline lands the corner as a single face.
-    // Count its boundary half-edges — for mixed-radius N=3 it is
-    // not guaranteed to be hexagonal (post-`surface_fix` and
-    // downstream adjustments can add or remove edges). Capture
-    // whatever count the pipeline actually produced.
-    let mut brep = result.brep.clone();
-    if !brep.faces.contains_key(hex_face) {
-        eprintln!(
-            "three_quad_apply: corner face {hex_face:?} removed by post-insert pipeline (sliver-absorb / cap-insert); test exits cleanly"
-        );
-        return;
-    }
+    // Regression guard: the blend face must survive the post-insert
+    // pipeline. Before R8 C6 this face (a pinched pentagon) was
+    // getting absorbed by `sliver_absorb::find_redundant_edge_target`
+    // because `surface_fix` reassigned its NURBS to a Cylinder
+    // matching an adjacent fillet strip.
+    let brep = &result.brep;
+    assert!(
+        brep.faces.contains_key(hex_face),
+        "R8 C6 regression: corner blend face must not be absorbed by sliver_absorb"
+    );
+
+    // Walk the face's outer loop, collect vertex handles.
     let loop_handle = brep.faces[hex_face].outer_loop;
     let start_he = brep.loops[loop_handle].half_edge;
     let mut count = 0usize;
@@ -85,70 +81,23 @@ fn apply_three_quad_decomposition_on_mixed_radius_cube_corner() {
             break;
         }
     }
-    eprintln!(
-        "three_quad_apply: corner face has {count} half-edges, \
-         vertices {verts:?}",
+
+    assert_eq!(
+        count, 6,
+        "R8 C6: mixed-radius corner blend face must be a hexagon; \
+         got {count} half-edges, vertices {verts:?}"
     );
 
-    // R8 C6 finding (documented in ADR 2026-04-17): the existing
-    // `merge_corner_triangles` produces a pinched pentagonal face
-    // on mixed-radius trihedral corners — observed 5-half-edge
-    // loop `[V1, V9, V11, V14, V9]` with V9 visited twice. The
-    // loop is structurally non-hex (the BRep face is a figure-8-
-    // topology polygon glued at V9, not a manifold hexagon).
-    // Three-quad dispatch requires a proper manifold hex; until
-    // the merge is fixed, the test logs and exits cleanly.
-    if count != 6 {
-        return;
-    }
-
-    // Build the boundary (R8 C1 hex path).
-    let fillet_surfaces: Vec<FilletSurfaceResult> = build_fillet_surface_list(&[0, 1, 2], &[]);
-    let _ = fillet_surfaces; // unused in the hex-branch fallback test
-    let boundary_result = compute_blend_boundary(vertex, &[0, 1, 2], &[], &brep, &tol);
-    let Ok(boundary) = boundary_result else {
-        eprintln!(
-            "three_quad_apply: compute_blend_boundary unavailable on post-pipeline BRep — skipping"
-        );
-        return;
-    };
-    if boundary.segments.len() != 6 {
-        eprintln!(
-            "three_quad_apply: post-pipeline boundary has {} segments, not 6 — skipping",
-            boundary.segments.len()
-        );
-        return;
-    }
-
-    let classification = classify_vertex_blend(&brep, vertex, &incident_edges, &tol).classification;
-
-    let v_before = brep.vertices.len();
-    let e_before = brep.edges.len();
-    let f_before = brep.faces.len();
-
-    let patches = apply_three_quad_decomposition_to_blend(
-        &mut brep,
-        hex_face,
-        &boundary,
-        vertex,
-        3,
-        classification,
-    )
-    .expect("three-quad apply should succeed");
-
-    assert_eq!(patches.len(), 3);
-    assert_eq!(brep.vertices.len(), v_before + 1);
-    assert_eq!(brep.edges.len(), e_before + 3);
-    assert_eq!(brep.faces.len(), f_before + 2);
-
-    for info in &patches {
-        let sof = brep.faces[info.face]
-            .surface
-            .as_ref()
-            .expect("sub-face should have a surface assigned");
-        match &sof.geometry {
-            SurfaceGeometry::Gregory(GregoryPatch::Rectangular(_)) => {}
-            other => panic!("sub-face surface should be Rectangular Gregory; got {other:?}"),
-        }
-    }
+    // Distinctness: no vertex appears twice (no pinch). Before
+    // R8 C6 the pinched pentagon had one vertex visited twice.
+    let mut unique = verts.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(
+        unique.len(),
+        6,
+        "R8 C6: hex should have 6 distinct boundary vertices; \
+         got {} unique from {verts:?}",
+        unique.len()
+    );
 }

@@ -12,8 +12,8 @@ use crate::blend;
 use crate::construct::EdgeGeometry;
 use crate::construct::blend_topo::{
     build_fillet_surface_list, collect_edges_through_vertex, collect_faces_around_vertex,
-    collect_fillet_radii, find_face_trim_anchors, find_halfedge_from_vertex_in_face,
-    identify_corner_face, repair_vertex_outgoing,
+    find_face_trim_anchors, find_halfedge_from_vertex_in_face, identify_corner_face,
+    repair_vertex_outgoing,
 };
 use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo, VertexMode};
 
@@ -57,12 +57,10 @@ pub(crate) fn insert_vertex_blend(
     // anchor set cut the wrong chord on mixed-radius faces (picking
     // an intermediate cube-sub vertex instead of the face's own
     // fillet trim endpoint). For each adjacent face we now look up
-    // the face-loop vertices at distance-from-V matching one of
-    // the incident fillet radii — those are the real fillet
-    // boundary anchors on that face.
-    let radii = collect_fillet_radii(edge_geometries);
-    if radii.is_empty() {
-        return Err(format!("vertex {vertex:?} has no fillet radii to match"));
+    // the fillet trim curve that lies on that face's supporting
+    // plane and pick its V-side endpoint vertex.
+    if edge_geometries.is_empty() {
+        return Err(format!("vertex {vertex:?} has no fillet geometries"));
     }
 
     // Collect faces touching V (via half-edges originating from V).
@@ -77,7 +75,8 @@ pub(crate) fn insert_vertex_blend(
     // the "corner region" (may be a triangle, quad, or pentagon
     // depending on how many intermediate cube-sub-split vertices
     // sit between V and the anchors).
-    let _corner_faces = split_corner_triangles(brep, vertex, &face_info, &radii, tolerance)?;
+    let _corner_faces =
+        split_corner_triangles(brep, vertex, &face_info, edge_geometries, tolerance)?;
 
     // Phase 2a: kef every V-edge that currently separates two
     // distinct faces. On trihedral corners this merges all but the
@@ -141,13 +140,13 @@ fn split_corner_triangles(
     brep: &mut BRep,
     vertex: VertexHandle,
     face_info: &[(FaceHandle, HalfEdgeHandle)],
-    radii: &[f64],
+    edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
 ) -> Result<Vec<FaceHandle>, String> {
     let mut corner_faces: Vec<FaceHandle> = Vec::new();
 
     for (face, _he_arriving_at_v) in face_info {
-        let anchors = find_face_trim_anchors(brep, *face, vertex, radii, tolerance)?;
+        let anchors = find_face_trim_anchors(brep, *face, vertex, edge_geometries, tolerance)?;
         if anchors.len() < 2 {
             // Falling back to the legacy nearest-to-V anchors keeps
             // low-N or atypical configurations working during the R8

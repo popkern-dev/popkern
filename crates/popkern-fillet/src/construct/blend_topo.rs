@@ -92,39 +92,102 @@ pub(crate) fn collect_faces_around_vertex(
     Ok(faces)
 }
 
-/// Collect the fillet radii from `edge_geometries` — one per
-/// edge, used by [`find_face_trim_anchors`] to match face vertices
-/// at those distances from V.
-pub(crate) fn collect_fillet_radii(edge_geometries: &[EdgeGeometry]) -> Vec<f64> {
-    edge_geometries
-        .iter()
-        .map(|eg| eg.effective_radius)
-        .collect()
+/// Compute the V-side trim-endpoint positions that lie on `face`'s
+/// supporting plane. Each incident fillet contributes exactly one
+/// such point (its trim curve that's co-planar with `face`, closest
+/// point to V). For a trihedral corner's planar adjacent face this
+/// yields 2 target positions — the 2 fillets bounding that face.
+///
+/// **Why not distance-based matching?** A vertex on a cube edge
+/// at distance `r` from V matches *some* fillet's radius but is
+/// not necessarily a trim endpoint of any fillet incident to the
+/// current face. Example: on the mixed-radius cube's `y=0` corner
+/// region, `V14 = (0.10, 0, 0)` sits at distance 0.10 (matching
+/// fillet-1's radius) but fillet-1 bounds `z=0` and `x=0`, not
+/// `y=0`. Distance-based matching picked V14 as a y=0 anchor and
+/// cut the wrong chord. The plane-containment test filters on the
+/// actual face the trim lies on.
+/// Radii of fillets whose trim curves lie on `face`'s plane — i.e.
+/// the fillets actually bordering this face at `vertex`.
+///
+/// A trim curve is *on* `face` iff all its sample points lie on
+/// `face`'s plane (mean plane-distance < `tol_plane`). This is far
+/// more robust than checking a single closest-to-V point whose
+/// sampling error bleeds into the face normal direction. Mean-of-8
+/// averages out sampling noise, while a trim curve that truly does
+/// NOT lie on this plane shows a mean distance ≥ the dihedral
+/// angle's offset (much larger than sampling noise).
+pub(crate) fn collect_radii_for_face(
+    brep: &BRep,
+    face: FaceHandle,
+    edge_geometries: &[EdgeGeometry],
+    tolerance: &Tolerance,
+) -> Vec<f64> {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    let Some(face_data) = brep.faces.get(face) else {
+        return Vec::new();
+    };
+    let Some(sof) = face_data.surface.as_ref() else {
+        return Vec::new();
+    };
+    let (plane_origin, plane_normal) = match &sof.geometry {
+        SurfaceGeometry::Plane { origin, normal, .. } => (*origin, *normal),
+        _ => return Vec::new(),
+    };
+
+    let tol_plane = (tolerance.linear() * 100.0).max(1e-4);
+
+    let mut radii = Vec::with_capacity(edge_geometries.len());
+    for eg in edge_geometries {
+        for trim in [&eg.trim_3d_1, &eg.trim_3d_2] {
+            let (t0, t1) = trim.parameter_range();
+            let n_samples = 8usize;
+            let mut mean_dist = 0.0_f64;
+            for i in 0..n_samples {
+                let t = t0 + (t1 - t0) * (i as f64 + 0.5) / (n_samples as f64);
+                let p = trim.point_at(t);
+                let delta = p - plane_origin;
+                mean_dist += delta.dot(&plane_normal).abs();
+            }
+            mean_dist /= n_samples as f64;
+
+            if mean_dist < tol_plane {
+                radii.push(eg.effective_radius);
+                break; // At most one of eg's two trims lies on `face`.
+            }
+        }
+    }
+    radii
 }
 
 /// Find the per-face fillet-trim-endpoint anchors for a face
-/// incident to `vertex`. Scans the face's outer loop and returns
-/// vertices whose distance-from-V matches any of the supplied
-/// `radii` within `tolerance.linear() * 10` (the factor covers
-/// the mef-chord intersection point `IP` at `r·√2` distance
-/// staying outside the match band: IP's distance is `≥
-/// r·√(n-1)/n` while a trim vertex is at exactly `r`).
+/// incident to `vertex`. For every fillet whose trim curves lie on
+/// `face`'s plane (identified by [`collect_radii_for_face`]), picks
+/// the face-loop vertex at distance `r` from V. Matching by
+/// (plane-filtered radius, face-loop membership) together is what
+/// makes this robust: a vertex at distance `r` from V that's *on*
+/// `face` but NOT actually the trim endpoint of a fillet on
+/// `face` (e.g. a cube-sub perp-split from a different fillet's
+/// radius match) is excluded because the matching radius only
+/// lists fillets bordering `face`.
 ///
-/// **Uniqueness by distance** — a fillet trim endpoint on a cube
-/// edge sits exactly at `r` from V; chord-crossing points like
-/// `IP_A` at `(r_a, r_b, 0)` sit at `√(r_a² + r_b²) ≥ r · √2`
-/// which the loose band excludes.
-///
-/// For a trihedral vertex blend the return is exactly two
-/// vertices: the two trim endpoints of the two fillets that
-/// bound this face.
+/// For a trihedral corner's planar adjacent face the return is
+/// exactly two vertices — the two trim endpoints of the two
+/// fillets that bound this face.
 pub(crate) fn find_face_trim_anchors(
     brep: &BRep,
     face: FaceHandle,
     vertex: VertexHandle,
-    radii: &[f64],
+    edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
 ) -> Result<Vec<VertexHandle>, String> {
+    let radii = collect_radii_for_face(brep, face, edge_geometries, tolerance);
+    if radii.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let face_data = brep
         .faces
         .get(face)
@@ -141,10 +204,11 @@ pub(crate) fn find_face_trim_anchors(
         .ok_or_else(|| format!("vertex {vertex:?} not found"))?
         .position;
 
-    // Match band: wide enough to absorb BRep tolerance jitter, but
-    // tight enough to exclude IP-crossing points at `r·√(n-1)/n`.
-    // Scale with the smallest radius so absolute tolerance tracks
-    // the geometry.
+    // Match band: absolute BRep tolerance + 0.1%-of-radius
+    // padding. Tight enough to exclude chord-crossing points at
+    // `√(r_a² + r_b²) ≥ r·√2` — the gap between a true perp-split
+    // vertex at `r` and the nearest crossing point is O(r),
+    // orders of magnitude larger than this band.
     let min_r = radii
         .iter()
         .copied()
@@ -313,128 +377,5 @@ pub(crate) fn build_fillet_surface_list(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use popkern_core::tolerance::Tolerance;
-    use popkern_core::topology::BRep;
-
-    fn default_tol() -> Tolerance {
-        Tolerance::default()
-    }
-
-    #[test]
-    fn collect_faces_around_cube_vertex() {
-        let brep = BRep::unit_cube(default_tol()).expect("cube should build");
-        let vertex = brep.vertices.keys().next().expect("cube has vertices");
-        let faces = collect_faces_around_vertex(&brep, vertex);
-        assert!(faces.is_ok(), "should succeed: {:?}", faces.err());
-        let faces = faces.expect("already checked");
-        assert_eq!(faces.len(), 3, "cube vertex touches 3 faces");
-    }
-
-    #[test]
-    fn collect_edges_through_cube_vertex() {
-        let brep = BRep::unit_cube(default_tol()).expect("cube should build");
-        let vertex = brep.vertices.keys().next().expect("cube has vertices");
-        let edges = collect_edges_through_vertex(&brep, vertex);
-        assert!(edges.is_ok(), "should succeed: {:?}", edges.err());
-        let edges = edges.expect("already checked");
-        assert_eq!(edges.len(), 3, "cube vertex has 3 incident edges");
-    }
-
-    #[test]
-    fn collect_faces_invalid_vertex() {
-        let brep = BRep::unit_cube(default_tol()).expect("cube should build");
-        let bogus = VertexHandle::default();
-        let result = collect_faces_around_vertex(&brep, bogus);
-        assert!(result.is_err(), "should fail for invalid vertex");
-    }
-
-    /// Helper to collect vertices of a face's outer loop.
-    fn face_vertex_set(brep: &BRep, face: FaceHandle) -> HashSet<VertexHandle> {
-        let start_he = brep.loops[brep.faces[face].outer_loop].half_edge;
-        let mut verts = HashSet::new();
-        let mut cursor = start_he;
-        loop {
-            verts.insert(brep.half_edges[cursor].origin);
-            cursor = brep.half_edges[cursor].next;
-            if cursor == start_he {
-                break;
-            }
-        }
-        verts
-    }
-
-    /// Find a vertex NOT in the given face's outer loop.
-    fn vertex_not_in_face(brep: &BRep, face: FaceHandle) -> Option<VertexHandle> {
-        let fv = face_vertex_set(brep, face);
-        brep.vertices.keys().find(|v| !fv.contains(v))
-    }
-
-    #[test]
-    fn find_face_trim_anchors_vertex_not_in_face() {
-        let brep = BRep::unit_cube(default_tol()).unwrap();
-        let face = brep.faces.keys().next().unwrap();
-        if let Some(v) = vertex_not_in_face(&brep, face) {
-            // Vertex not in face: `find_face_trim_anchors` walks the
-            // face loop against the given `radii` and returns an
-            // empty vec (no error path for missing V — that's the
-            // caller's responsibility).
-            let result = find_face_trim_anchors(&brep, face, v, &[0.1], &default_tol());
-            assert!(result.is_ok(), "should return Ok for valid face handle");
-            assert!(
-                result.unwrap().is_empty(),
-                "should return no anchors when V isn't on the face loop"
-            );
-        }
-    }
-
-    #[test]
-    fn invalid_vertex_error_paths() {
-        let brep = BRep::unit_cube(default_tol()).unwrap();
-        let bogus = VertexHandle::default();
-        assert!(collect_faces_around_vertex(&brep, bogus).is_err());
-        assert!(collect_edges_through_vertex(&brep, bogus).is_err());
-    }
-
-    #[test]
-    fn find_halfedge_from_vertex_in_face_not_found() {
-        let brep = BRep::unit_cube(default_tol()).unwrap();
-        let face = brep.faces.keys().next().unwrap();
-        if let Some(v) = vertex_not_in_face(&brep, face) {
-            assert!(find_halfedge_from_vertex_in_face(&brep, face, v).is_err());
-        }
-    }
-
-    #[test]
-    fn identify_corner_face_neither_contains() {
-        let brep = BRep::unit_cube(default_tol()).unwrap();
-        let faces: Vec<FaceHandle> = brep.faces.keys().collect();
-        let (fa, fb) = (faces[0], faces[1]);
-        let va = face_vertex_set(&brep, fa);
-        let vb = face_vertex_set(&brep, fb);
-        if let Some(v) = brep
-            .vertices
-            .keys()
-            .find(|v| !va.contains(v) && !vb.contains(v))
-        {
-            assert!(identify_corner_face(&brep, fa, fb, v).is_err());
-        }
-    }
-
-    #[test]
-    fn face_loop_contains_vertex_positive() {
-        let brep = BRep::unit_cube(default_tol()).unwrap();
-        let face = brep.faces.keys().next().unwrap();
-        let start_he = brep.loops[brep.faces[face].outer_loop].half_edge;
-        let v = brep.half_edges[start_he].origin;
-        assert!(face_loop_contains_vertex(&brep, face, v).unwrap());
-    }
-
-    #[test]
-    fn repair_vertex_outgoing_already_valid() {
-        let mut brep = BRep::unit_cube(default_tol()).unwrap();
-        let vertex = brep.vertices.keys().next().unwrap();
-        assert!(repair_vertex_outgoing(&mut brep, vertex).is_ok());
-    }
-}
+#[path = "blend_topo_tests.rs"]
+mod tests;
