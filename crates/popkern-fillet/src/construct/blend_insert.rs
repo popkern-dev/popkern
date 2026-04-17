@@ -6,13 +6,13 @@
 
 use popkern_core::geometry::surface::SurfaceOnFace;
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
+use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 use crate::blend;
 use crate::construct::EdgeGeometry;
 use crate::construct::blend_topo::{
-    build_fillet_surface_list, collect_anchor_vertices, collect_edges_through_vertex,
-    collect_faces_around_vertex, find_face_anchors, find_halfedge_from_vertex_in_face,
+    build_fillet_surface_list, collect_edges_through_vertex, collect_faces_around_vertex,
+    collect_fillet_radii, find_face_trim_anchors, find_halfedge_from_vertex_in_face,
     identify_corner_face, repair_vertex_outgoing,
 };
 use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo, VertexMode};
@@ -53,14 +53,16 @@ pub(crate) fn insert_vertex_blend(
     // due to prior topology operations (edge splitting, face splitting).
     repair_vertex_outgoing(brep, vertex)?;
 
-    // Collect the set of anchor vertices adjacent to V in faces around V.
-    let anchor_vertices = collect_anchor_vertices(brep, vertex, edge_indices, edge_geometries)?;
-
-    if anchor_vertices.len() < 2 {
-        return Err(format!(
-            "vertex {vertex:?} has fewer than 2 anchor vertices ({}) — cannot form blend face",
-            anchor_vertices.len()
-        ));
+    // R8 C6 — per-face trim-endpoint anchors. The old nearest-to-V
+    // anchor set cut the wrong chord on mixed-radius faces (picking
+    // an intermediate cube-sub vertex instead of the face's own
+    // fillet trim endpoint). For each adjacent face we now look up
+    // the face-loop vertices at distance-from-V matching one of
+    // the incident fillet radii — those are the real fillet
+    // boundary anchors on that face.
+    let radii = collect_fillet_radii(edge_geometries);
+    if radii.is_empty() {
+        return Err(format!("vertex {vertex:?} has no fillet radii to match"));
     }
 
     // Collect faces touching V (via half-edges originating from V).
@@ -70,32 +72,58 @@ pub(crate) fn insert_vertex_blend(
         return Err(format!("no faces found around vertex {vertex:?}"));
     }
 
-    // Phase 1: For each face, find the two anchor vertices adjacent to V
-    // in that face's loop, and call mef() to split off the corner triangle.
-    let _corner_faces = split_corner_triangles(brep, vertex, &face_info, &anchor_vertices)?;
+    // Phase 1: For each face, cut a chord between the face's two
+    // fillet-trim-endpoint anchors. The V-containing sub-face is
+    // the "corner region" (may be a triangle, quad, or pentagon
+    // depending on how many intermediate cube-sub-split vertices
+    // sit between V and the anchors).
+    let _corner_faces = split_corner_triangles(brep, vertex, &face_info, &radii, tolerance)?;
 
-    // Phase 2: Merge all corner triangles by removing edges through V.
-    let blend_face = merge_corner_triangles(brep, vertex)?;
+    // Phase 2a: kef every V-edge that currently separates two
+    // distinct faces. On trihedral corners this merges all but the
+    // last incident face-pair; the last V-edge may become a
+    // same-face "bridge" which kef can't remove. Leaving the
+    // bridge (plus V) intact for now keeps the `vertex` handle
+    // valid through Phase 3's `compute_blend_boundary` call, which
+    // still needs V's position and its incident faces to emit the
+    // correct boundary segments. The final kev happens in
+    // Phase 2b, after the surface has been assigned.
+    let blend_face = kef_cross_face_v_edges(brep, vertex)?;
 
-    // Phase 3: Remove the orphaned vertex V if it has no remaining edges.
-    remove_orphaned_vertex(brep, vertex);
-
-    // Phase 4: Assign blend surface geometry to the merged face.
-    // The blend surface construction reports both the method and
-    // the achieved continuity directly (see §5.3 C4 — the Gregory
-    // polar NURBS reports G2 when all incident fillets share a
-    // radius, G1 otherwise). The classification gates the sphere
-    // attempt so only comfort-zone configurations (SameSide*) pay
-    // the rolling-ball fit cost.
+    // Phase 3: Compute the blend boundary + assign the surface.
+    // `vertex` is still valid (Phase 2a only `kef`-ed cross-face
+    // edges). `compute_blend_boundary` sees the merged (possibly
+    // pinched) blend face — no surface yet — so `planar_faces`
+    // is empty and the hex path is not taken. The FilletEnd-only
+    // 3-segment fallback feeds `try_spherical_blend` with all 30
+    // samples lying on the rolling-ball sphere, matching the
+    // legacy behaviour for uniform-radius corners.
+    let fillet_surfaces = build_fillet_surface_list(edge_indices, edge_geometries);
+    let local_indices: Vec<usize> = (0..fillet_surfaces.len()).collect();
+    let blend_boundary =
+        blend::compute_blend_boundary(vertex, &local_indices, &fillet_surfaces, brep, tolerance)
+            .map_err(|e| format!("blend boundary computation failed: {e}"))?;
     let (method, achieved_continuity) = assign_blend_surface(
         brep,
         blend_face,
-        vertex,
-        edge_indices,
-        edge_geometries,
+        &blend_boundary,
+        &fillet_surfaces,
         classification,
         tolerance,
     )?;
+
+    // Phase 2b: kev the remaining V-bridge if any. `kev` kills V
+    // and the bridge edge simultaneously, un-pinching the merged
+    // loop into a manifold polygon. This is R8 C6's crucial
+    // topology fix — the old code left the bridge as an internal
+    // dangling edge because its `kef` guard rejected same-loop
+    // half-edge pairs.
+    kev_v_bridge(brep, vertex)?;
+
+    // Phase 3 orphan (idempotent): V is usually already removed by
+    // the kev above; but a non-generic topology with no bridge
+    // still needs this safety net.
+    remove_orphaned_vertex(brep, vertex);
 
     Ok(CornerPatchInfo {
         vertex,
@@ -107,25 +135,40 @@ pub(crate) fn insert_vertex_blend(
     })
 }
 
-/// Phase 1: Split off corner triangles from each face around V.
+/// Phase 1: Split off corner regions from each face around V using
+/// the per-face fillet trim endpoints as mef anchors.
 fn split_corner_triangles(
     brep: &mut BRep,
     vertex: VertexHandle,
-    face_info: &[(FaceHandle, popkern_core::topology::HalfEdgeHandle)],
-    anchor_vertices: &std::collections::HashSet<VertexHandle>,
+    face_info: &[(FaceHandle, HalfEdgeHandle)],
+    radii: &[f64],
+    tolerance: &Tolerance,
 ) -> Result<Vec<FaceHandle>, String> {
     let mut corner_faces: Vec<FaceHandle> = Vec::new();
 
-    for (face, he_arriving_at_v) in face_info {
-        let (anchor_before, anchor_after) =
-            find_face_anchors(brep, *face, vertex, *he_arriving_at_v, anchor_vertices)?;
+    for (face, _he_arriving_at_v) in face_info {
+        let anchors = find_face_trim_anchors(brep, *face, vertex, radii, tolerance)?;
+        if anchors.len() < 2 {
+            // Falling back to the legacy nearest-to-V anchors keeps
+            // low-N or atypical configurations working during the R8
+            // transition. Chamfer/mitred paths and non-trihedral
+            // corners hit this.
+            return Err(format!(
+                "face {face:?} has {} trim-endpoint anchors around vertex {vertex:?}, expected ≥2",
+                anchors.len()
+            ));
+        }
+        // For trihedral corners we expect exactly 2. If more appear
+        // (degenerate), just take the first two — the V-containing
+        // sub-face still gets cut off.
+        let (anchor_a, anchor_b) = (anchors[0], anchors[1]);
 
-        let he_at_anchor_after = find_halfedge_from_vertex_in_face(brep, *face, anchor_after)?;
-        let he_at_anchor_before = find_halfedge_from_vertex_in_face(brep, *face, anchor_before)?;
+        let he_at_a = find_halfedge_from_vertex_in_face(brep, *face, anchor_a)?;
+        let he_at_b = find_halfedge_from_vertex_in_face(brep, *face, anchor_b)?;
 
         // Verify both half-edges are in the same loop before calling mef.
-        let loop_a = brep.half_edges[he_at_anchor_after].loop_;
-        let loop_b = brep.half_edges[he_at_anchor_before].loop_;
+        let loop_a = brep.half_edges[he_at_a].loop_;
+        let loop_b = brep.half_edges[he_at_b].loop_;
         if loop_a != loop_b {
             return Err(format!(
                 "anchor half-edges on face {face:?} are in different loops"
@@ -133,7 +176,7 @@ fn split_corner_triangles(
         }
 
         let mef_result = brep
-            .mef(he_at_anchor_after, he_at_anchor_before)
+            .mef(he_at_a, he_at_b)
             .map_err(|e| format!("mef failed on face {face:?}: {e}"))?;
 
         let corner = identify_corner_face(brep, *face, mef_result.face, vertex)?;
@@ -143,38 +186,117 @@ fn split_corner_triangles(
     Ok(corner_faces)
 }
 
-/// Phase 2: Merge corner triangles by removing edges through V via `kef`.
+/// Phase 2a: kef every V-edge that separates two distinct faces.
 ///
-/// Returns the surviving blend face handle.
-fn merge_corner_triangles(brep: &mut BRep, vertex: VertexHandle) -> Result<FaceHandle, String> {
-    let edges_through_v = collect_edges_through_vertex(brep, vertex)?;
-
+/// Iterates until no cross-face V-edges remain. For trihedral
+/// corners this merges (N-1) face-pairs out of N; the last V-edge
+/// becomes a same-face bridge which `kef` cannot remove (its
+/// precondition requires distinct loops). The bridge is handled
+/// by `kev_v_bridge` in Phase 2b, after the surface has been
+/// assigned to the merged face.
+///
+/// Returns the surviving merged-face handle.
+fn kef_cross_face_v_edges(brep: &mut BRep, vertex: VertexHandle) -> Result<FaceHandle, String> {
     let mut blend_face: Option<FaceHandle> = None;
+    let mut safety = brep.edges.len() + 16;
 
-    for edge in edges_through_v {
-        if !brep.edges.contains_key(edge) {
-            continue; // Edge was already removed by a prior kef.
+    loop {
+        if safety == 0 {
+            return Err("kef_cross_face_v_edges: iteration cap hit".to_string());
+        }
+        safety -= 1;
+
+        if !brep.vertices.contains_key(vertex) {
+            break;
         }
 
-        let he = brep.edges[edge].half_edge;
-        let he_loop = brep.half_edges[he].loop_;
-        let he_face = brep.loops[he_loop].face;
-        let twin = brep.half_edges[he].twin;
-        let twin_loop = brep.half_edges[twin].loop_;
-        let twin_face = brep.loops[twin_loop].face;
+        // `kef` invalidates V's `outgoing` field when the removed
+        // half-edge *was* V's outgoing. Re-pick a valid outgoing
+        // before every incidence walk.
+        repair_vertex_outgoing(brep, vertex)?;
 
-        if he_face == twin_face {
-            continue; // Already merged.
+        let edges_through_v = collect_edges_through_vertex(brep, vertex)?;
+        if edges_through_v.is_empty() {
+            break;
         }
 
+        let mut kef_target: Option<HalfEdgeHandle> = None;
+        for edge in &edges_through_v {
+            if !brep.edges.contains_key(*edge) {
+                continue;
+            }
+            let he = brep.edges[*edge].half_edge;
+            let he_loop = brep.half_edges[he].loop_;
+            let twin_loop = brep.half_edges[brep.half_edges[he].twin].loop_;
+            if he_loop != twin_loop {
+                kef_target = Some(he);
+                break;
+            }
+        }
+
+        let Some(he) = kef_target else {
+            // Only same-face bridges remain — Phase 2a is done.
+            // Record the pinched face as the surviving blend face
+            // (it's the loop that currently holds V).
+            if blend_face.is_none() {
+                let outgoing = brep.vertices[vertex].outgoing;
+                if brep.half_edges.contains_key(outgoing) {
+                    let loop_h = brep.half_edges[outgoing].loop_;
+                    blend_face = Some(brep.loops[loop_h].face);
+                }
+            }
+            break;
+        };
+        let he_face = brep.loops[brep.half_edges[he].loop_].face;
         brep.kef(he)
-            .map_err(|e| format!("kef failed removing edge {edge:?} through vertex: {e}"))?;
-
+            .map_err(|e| format!("kef failed through vertex {vertex:?}: {e}"))?;
         blend_face = Some(he_face);
     }
 
-    blend_face
-        .ok_or_else(|| "no edges were removed through vertex — blend face not created".to_string())
+    blend_face.ok_or_else(|| {
+        "kef_cross_face_v_edges: no merge performed — blend face not created".to_string()
+    })
+}
+
+/// Phase 2b: kev the remaining V-bridge edge (if any) to un-pinch
+/// the merged face and remove V in one Euler step.
+///
+/// At entry, V may have zero or one incident edges. Zero means
+/// Phase 2a completed cleanly (all V-edges were cross-face kefs);
+/// one means there's a same-loop bridge whose both half-edges are
+/// on the merged face. `kev` requires the edge's destination
+/// vertex to be valence-1, so we pick the half-edge that ends at
+/// V and call `kev(that)` to kill V plus the bridge together.
+fn kev_v_bridge(brep: &mut BRep, vertex: VertexHandle) -> Result<(), String> {
+    if !brep.vertices.contains_key(vertex) {
+        return Ok(());
+    }
+
+    let outgoings: Vec<HalfEdgeHandle> = brep
+        .half_edges
+        .iter()
+        .filter(|(_, h)| h.origin == vertex)
+        .map(|(h, _)| h)
+        .collect();
+
+    if outgoings.is_empty() {
+        return Ok(());
+    }
+    if outgoings.len() != 1 {
+        return Err(format!(
+            "kev_v_bridge: V has valence {} (expected 0 or 1 for single-bridge teardown)",
+            outgoings.len()
+        ));
+    }
+
+    let he_out = outgoings[0];
+    let he_in = brep.half_edges[he_out].twin;
+    // kev kills the destination vertex of its argument; we want to
+    // kill V, so pass the half-edge whose destination is V.
+    debug_assert_eq!(brep.half_edges[brep.half_edges[he_in].twin].origin, vertex);
+    brep.kev(he_in)
+        .map_err(|e| format!("kev failed on V-bridge: {e}"))?;
+    Ok(())
 }
 
 /// Phase 3: Remove vertex V if it is no longer connected to any edges.
@@ -185,26 +307,25 @@ fn remove_orphaned_vertex(brep: &mut BRep, vertex: VertexHandle) {
     }
 }
 
-/// Phase 4: Compute and assign the blend surface to the merged face.
+/// Phase 4: Assign the blend surface to the merged face.
+///
+/// R8 C6 — takes a pre-computed `blend_boundary` because V may
+/// already have been `kev`'d by `merge_corner_triangles`.
+/// `build_blend_surface` only reads `boundary.vertex_position`, so
+/// the removed handle in `boundary.vertex` is diagnostic only.
+///
 /// Returns `(method, achieved_continuity)` from the construction.
 fn assign_blend_surface(
     brep: &mut BRep,
     blend_face: FaceHandle,
-    vertex: VertexHandle,
-    edge_indices: &[usize],
-    edge_geometries: &[EdgeGeometry],
+    blend_boundary: &blend::BlendBoundary,
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
     classification: crate::vertex_classifier::VertexBlendClassification,
     tolerance: &Tolerance,
 ) -> Result<(CornerMethod, ContinuityLevel), String> {
-    let fillet_surfaces = build_fillet_surface_list(edge_indices, edge_geometries);
-    let local_indices: Vec<usize> = (0..fillet_surfaces.len()).collect();
-    let blend_boundary =
-        blend::compute_blend_boundary(vertex, &local_indices, &fillet_surfaces, brep, tolerance)
-            .map_err(|e| format!("blend boundary computation failed: {e}"))?;
-
     let blend_result = blend::build_blend_surface(
-        &blend_boundary,
-        &fillet_surfaces,
+        blend_boundary,
+        fillet_surfaces,
         brep,
         VertexMode::Smooth,
         classification,

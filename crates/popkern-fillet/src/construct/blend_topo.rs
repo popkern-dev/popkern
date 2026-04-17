@@ -6,6 +6,7 @@
 
 use std::collections::HashSet;
 
+use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 use crate::construct::EdgeGeometry;
@@ -45,55 +46,6 @@ pub(crate) fn repair_vertex_outgoing(brep: &mut BRep, vertex: VertexHandle) -> R
     })?;
     brep.vertices[vertex].outgoing = new_outgoing;
     Ok(())
-}
-
-/// Collect anchor vertices around a vertex V.
-///
-/// The anchor vertices are the non-V endpoints of edges that connect
-/// directly to V in the current BRep topology.
-pub(crate) fn collect_anchor_vertices(
-    brep: &BRep,
-    vertex: VertexHandle,
-    _edge_indices: &[usize],
-    _edge_geometries: &[EdgeGeometry],
-) -> Result<HashSet<VertexHandle>, String> {
-    let mut anchors = HashSet::new();
-
-    let outgoing = brep
-        .vertices
-        .get(vertex)
-        .ok_or_else(|| format!("vertex {vertex:?} not found"))?
-        .outgoing;
-
-    if !brep.half_edges.contains_key(outgoing) {
-        return Err(format!("vertex {vertex:?} has no valid outgoing half-edge"));
-    }
-
-    // Walk around V using twin.next to visit all outgoing half-edges.
-    let mut cursor = outgoing;
-    let max_iters = brep.half_edges.len() + 1;
-    let mut iters = 0;
-    loop {
-        let he = brep
-            .half_edges
-            .get(cursor)
-            .ok_or_else(|| format!("half-edge {cursor:?} not found during anchor walk"))?;
-
-        let twin = brep
-            .half_edges
-            .get(he.twin)
-            .ok_or_else(|| format!("twin {0:?} not found", he.twin))?;
-        anchors.insert(twin.origin);
-
-        cursor = brep.half_edges[he.twin].next;
-
-        iters += 1;
-        if cursor == outgoing || iters >= max_iters {
-            break;
-        }
-    }
-
-    Ok(anchors)
 }
 
 /// Collect faces around a vertex with the half-edge arriving at V.
@@ -140,61 +92,85 @@ pub(crate) fn collect_faces_around_vertex(
     Ok(faces)
 }
 
-/// Find the two anchor vertices adjacent to V in a face's loop.
+/// Collect the fillet radii from `edge_geometries` — one per
+/// edge, used by [`find_face_trim_anchors`] to match face vertices
+/// at those distances from V.
+pub(crate) fn collect_fillet_radii(edge_geometries: &[EdgeGeometry]) -> Vec<f64> {
+    edge_geometries
+        .iter()
+        .map(|eg| eg.effective_radius)
+        .collect()
+}
+
+/// Find the per-face fillet-trim-endpoint anchors for a face
+/// incident to `vertex`. Scans the face's outer loop and returns
+/// vertices whose distance-from-V matches any of the supplied
+/// `radii` within `tolerance.linear() * 10` (the factor covers
+/// the mef-chord intersection point `IP` at `r·√2` distance
+/// staying outside the match band: IP's distance is `≥
+/// r·√(n-1)/n` while a trim vertex is at exactly `r`).
 ///
-/// Returns `(anchor_before_V, anchor_after_V)`.
-pub(crate) fn find_face_anchors(
+/// **Uniqueness by distance** — a fillet trim endpoint on a cube
+/// edge sits exactly at `r` from V; chord-crossing points like
+/// `IP_A` at `(r_a, r_b, 0)` sit at `√(r_a² + r_b²) ≥ r · √2`
+/// which the loose band excludes.
+///
+/// For a trihedral vertex blend the return is exactly two
+/// vertices: the two trim endpoints of the two fillets that
+/// bound this face.
+pub(crate) fn find_face_trim_anchors(
     brep: &BRep,
     face: FaceHandle,
     vertex: VertexHandle,
-    _he_arriving_at_v: HalfEdgeHandle,
-    anchor_set: &HashSet<VertexHandle>,
-) -> Result<(VertexHandle, VertexHandle), String> {
+    radii: &[f64],
+    tolerance: &Tolerance,
+) -> Result<Vec<VertexHandle>, String> {
     let face_data = brep
         .faces
         .get(face)
         .ok_or_else(|| format!("face {face:?} not found"))?;
     let outer_loop = face_data.outer_loop;
-    let start_he = brep.loops[outer_loop].half_edge;
+    let start_he = brep
+        .loops
+        .get(outer_loop)
+        .ok_or_else(|| format!("loop {outer_loop:?} not found"))?
+        .half_edge;
+    let v_pos = brep
+        .vertices
+        .get(vertex)
+        .ok_or_else(|| format!("vertex {vertex:?} not found"))?
+        .position;
 
-    // Walk the loop to find the half-edge originating from V.
-    let mut he_from_v = None;
+    // Match band: wide enough to absorb BRep tolerance jitter, but
+    // tight enough to exclude IP-crossing points at `r·√(n-1)/n`.
+    // Scale with the smallest radius so absolute tolerance tracks
+    // the geometry.
+    let min_r = radii
+        .iter()
+        .copied()
+        .filter(|r| r.is_finite() && *r > 0.0)
+        .fold(f64::INFINITY, f64::min);
+    let band = (tolerance.linear() * 100.0).max(min_r * 1e-3);
+
+    let mut anchors: Vec<VertexHandle> = Vec::new();
     let mut cursor = start_he;
     let max_iters = brep.half_edges.len() + 1;
-    let mut iters = 0;
-    loop {
-        if brep.half_edges[cursor].origin == vertex {
-            he_from_v = Some(cursor);
-            break;
+    for _ in 0..max_iters {
+        let vh = brep.half_edges[cursor].origin;
+        if vh != vertex {
+            let vpos = brep.vertices[vh].position;
+            let d = v_pos.distance_to(&vpos);
+            if radii.iter().any(|&r| (d - r).abs() < band) && !anchors.contains(&vh) {
+                anchors.push(vh);
+            }
         }
         cursor = brep.half_edges[cursor].next;
-        iters += 1;
-        if cursor == start_he || iters >= max_iters {
+        if cursor == start_he {
             break;
         }
     }
 
-    let he_from_v = he_from_v
-        .ok_or_else(|| format!("vertex {vertex:?} not found in face {face:?}'s outer loop"))?;
-
-    let he_arriving = brep.half_edges[he_from_v].prev;
-    let anchor_before = brep.half_edges[he_arriving].origin;
-
-    let he_leaving_next = brep.half_edges[he_from_v].next;
-    let anchor_after = brep.half_edges[he_leaving_next].origin;
-
-    if !anchor_set.contains(&anchor_before) {
-        return Err(format!(
-            "vertex before V ({anchor_before:?}) on face {face:?} is not an anchor vertex"
-        ));
-    }
-    if !anchor_set.contains(&anchor_after) {
-        return Err(format!(
-            "vertex after V ({anchor_after:?}) on face {face:?} is not an anchor vertex"
-        ));
-    }
-
-    Ok((anchor_before, anchor_after))
+    Ok(anchors)
 }
 
 /// Find a half-edge originating from the given vertex in a face's loop.
@@ -357,16 +333,6 @@ mod tests {
     }
 
     #[test]
-    fn collect_anchors_around_cube_vertex() {
-        let brep = BRep::unit_cube(default_tol()).expect("cube should build");
-        let vertex = brep.vertices.keys().next().expect("cube has vertices");
-        let anchors = collect_anchor_vertices(&brep, vertex, &[], &[]);
-        assert!(anchors.is_ok(), "should succeed: {:?}", anchors.err());
-        let anchors = anchors.expect("already checked");
-        assert_eq!(anchors.len(), 3, "cube vertex has 3 neighbors");
-    }
-
-    #[test]
     fn collect_edges_through_cube_vertex() {
         let brep = BRep::unit_cube(default_tol()).expect("cube should build");
         let vertex = brep.vertices.keys().next().expect("cube has vertices");
@@ -406,14 +372,20 @@ mod tests {
     }
 
     #[test]
-    fn find_face_anchors_vertex_not_in_face() {
+    fn find_face_trim_anchors_vertex_not_in_face() {
         let brep = BRep::unit_cube(default_tol()).unwrap();
         let face = brep.faces.keys().next().unwrap();
         if let Some(v) = vertex_not_in_face(&brep, face) {
-            let he = brep.half_edges.keys().next().unwrap();
-            let anchors: HashSet<VertexHandle> = brep.vertices.keys().collect();
-            let result = find_face_anchors(&brep, face, v, he, &anchors);
-            assert!(result.is_err(), "should fail when vertex not in face loop");
+            // Vertex not in face: `find_face_trim_anchors` walks the
+            // face loop against the given `radii` and returns an
+            // empty vec (no error path for missing V — that's the
+            // caller's responsibility).
+            let result = find_face_trim_anchors(&brep, face, v, &[0.1], &default_tol());
+            assert!(result.is_ok(), "should return Ok for valid face handle");
+            assert!(
+                result.unwrap().is_empty(),
+                "should return no anchors when V isn't on the face loop"
+            );
         }
     }
 
@@ -422,7 +394,6 @@ mod tests {
         let brep = BRep::unit_cube(default_tol()).unwrap();
         let bogus = VertexHandle::default();
         assert!(collect_faces_around_vertex(&brep, bogus).is_err());
-        assert!(collect_anchor_vertices(&brep, bogus, &[], &[]).is_err());
         assert!(collect_edges_through_vertex(&brep, bogus).is_err());
     }
 

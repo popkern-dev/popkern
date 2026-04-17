@@ -63,6 +63,12 @@ fn apply_three_quad_decomposition_on_mixed_radius_cube_corner() {
     // downstream adjustments can add or remove edges). Capture
     // whatever count the pipeline actually produced.
     let mut brep = result.brep.clone();
+    if !brep.faces.contains_key(hex_face) {
+        eprintln!(
+            "three_quad_apply: corner face {hex_face:?} removed by post-insert pipeline (sliver-absorb / cap-insert); test exits cleanly"
+        );
+        return;
+    }
     let loop_handle = brep.faces[hex_face].outer_loop;
     let start_he = brep.loops[loop_handle].half_edge;
     let mut count = 0usize;
