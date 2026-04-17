@@ -48,10 +48,12 @@ use serde::{Deserialize, Serialize};
 
 mod build;
 mod rectangular;
+mod rectangular_deg5;
 mod triangular;
 
 pub use build::GregoryBuildError;
 pub use rectangular::RectangularGregory;
+pub use rectangular_deg5::RectangularGregoryDeg5;
 pub use triangular::TriangularGregory;
 
 /// A Gregory patch of either rectangular (N=4) or triangular
@@ -113,3 +115,7 @@ mod tests;
 #[cfg(test)]
 #[path = "build_tests.rs"]
 mod build_tests;
+
+#[cfg(test)]
+#[path = "rectangular_deg5_tests.rs"]
+mod rectangular_deg5_tests;

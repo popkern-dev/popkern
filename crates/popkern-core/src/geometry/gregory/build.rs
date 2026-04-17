@@ -39,6 +39,7 @@
 //! etc. — the constructor enforces this within `tolerance.linear()`.
 
 use super::rectangular::RectangularGregory;
+use super::rectangular_deg5::RectangularGregoryDeg5;
 use super::triangular::TriangularGregory;
 use crate::geometry::Point3;
 
@@ -216,6 +217,116 @@ impl RectangularGregory {
         Ok(RectangularGregory {
             boundary_cps: tmp.boundary_cps,
             inner_cps: [(p11, p11), (p12, p12), (p22, p22), (p21, p21)],
+        })
+    }
+}
+
+impl RectangularGregoryDeg5 {
+    /// Build a degree-5 rectangular Gregory patch from 4 quintic-
+    /// Bezier boundary curves (6 CPs each, CCW) and 4 inner CP
+    /// pairs (one per corner, CCW). Shared corners are enforced
+    /// to within `tol_linear`.
+    ///
+    /// Same CCW corner numbering as the degree-3 variant:
+    /// corner 0 = `(u=0, v=0)`, 1 = `(0, 5)`, 2 = `(5, 5)`,
+    /// 3 = `(5, 0)`.
+    pub fn from_boundary_beziers(
+        boundaries: [[Point3; 6]; 4],
+        inner_cps: [(Point3, Point3); 4],
+        tol_linear: f64,
+    ) -> Result<RectangularGregoryDeg5, GregoryBuildError> {
+        for k in 0..4 {
+            let end = boundaries[k][5];
+            let start = boundaries[(k + 1) % 4][0];
+            let dx = end.x - start.x;
+            let dy = end.y - start.y;
+            let dz = end.z - start.z;
+            let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+            if dist > tol_linear {
+                return Err(GregoryBuildError::CornerMismatch {
+                    corner: (k + 1) % 4,
+                    distance: dist,
+                });
+            }
+        }
+
+        // Assemble 6×6 grid, same orientation as degree-3 variant:
+        //   boundary 0 → grid[0][0..6]
+        //   boundary 1 → grid[0..6][5]
+        //   boundary 2 → grid[5][5-j] = boundaries[2][j]
+        //   boundary 3 → grid[5-i][0] = boundaries[3][i]
+        let mut grid = [[Point3::new(0.0, 0.0, 0.0); 6]; 6];
+        for j in 0..6 {
+            grid[0][j] = boundaries[0][j];
+        }
+        for i in 0..6 {
+            grid[i][5] = boundaries[1][i];
+        }
+        for j in 0..6 {
+            grid[5][5 - j] = boundaries[2][j];
+        }
+        for i in 0..6 {
+            grid[5 - i][0] = boundaries[3][i];
+        }
+
+        Ok(RectangularGregoryDeg5 {
+            boundary_cps: grid,
+            inner_cps,
+        })
+    }
+
+    /// Build from boundaries using a plain bicubic-style bilinear
+    /// interior — both candidates in each pair equal. Each of the
+    /// 16 interior positions is set to the bilinear interpolation
+    /// of the 4 corner points at the position's `(i/5, j/5)`
+    /// parameter. Useful as a no-twist baseline / regression
+    /// reference before the full Chiyokura–Kimura twist
+    /// extraction lands.
+    pub fn from_boundary_beziers_no_twist(
+        boundaries: [[Point3; 6]; 4],
+        tol_linear: f64,
+    ) -> Result<RectangularGregoryDeg5, GregoryBuildError> {
+        let placeholder = (Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 0.0));
+        let tmp = RectangularGregoryDeg5::from_boundary_beziers(
+            boundaries,
+            [placeholder; 4],
+            tol_linear,
+        )?;
+        let c00 = tmp.boundary_cps[0][0];
+        let c05 = tmp.boundary_cps[0][5];
+        let c55 = tmp.boundary_cps[5][5];
+        let c50 = tmp.boundary_cps[5][0];
+        let lerp = |s: f64, t: f64| -> Point3 {
+            Point3::new(
+                (1.0 - s) * (1.0 - t) * c00.x
+                    + s * (1.0 - t) * c50.x
+                    + s * t * c55.x
+                    + (1.0 - s) * t * c05.x,
+                (1.0 - s) * (1.0 - t) * c00.y
+                    + s * (1.0 - t) * c50.y
+                    + s * t * c55.y
+                    + (1.0 - s) * t * c05.y,
+                (1.0 - s) * (1.0 - t) * c00.z
+                    + s * (1.0 - t) * c50.z
+                    + s * t * c55.z
+                    + (1.0 - s) * t * c05.z,
+            )
+        };
+        // Per the quadrant map in rectangular_deg5.rs:
+        //   corner 0 governs interior (1..3, 1..3)
+        //   corner 1 governs interior (1..3, 3..5)
+        //   corner 2 governs interior (3..5, 3..5)
+        //   corner 3 governs interior (3..5, 1..3)
+        // Choose a representative inner CP position per quadrant
+        // (the interior centroid of each quadrant) for the
+        // "both candidates equal" fallback.
+        let p0 = lerp(0.3, 0.3);
+        let p1 = lerp(0.3, 0.7);
+        let p2 = lerp(0.7, 0.7);
+        let p3 = lerp(0.7, 0.3);
+        Ok(RectangularGregoryDeg5 {
+            boundary_cps: tmp.boundary_cps,
+            inner_cps: [(p0, p0), (p1, p1), (p2, p2), (p3, p3)],
         })
     }
 }

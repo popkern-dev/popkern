@@ -221,9 +221,7 @@ fn r8_c8b_cross_fixture_gregory_equal_or_better() {
     for radii in fixtures {
         let (polar, gregory) = measure_scorecard(radii);
         let delta = gregory - polar;
-        eprintln!(
-            "  radii {radii:?}: polar={polar:.4e} gregory={gregory:.4e} Δ={delta:+.4e}",
-        );
+        eprintln!("  radii {radii:?}: polar={polar:.4e} gregory={gregory:.4e} Δ={delta:+.4e}",);
         assert!(
             gregory <= polar + 1e-6,
             "R8 C8b cross-fixture regression at radii {radii:?}: \
