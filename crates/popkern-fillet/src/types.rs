@@ -261,6 +261,16 @@ pub struct FilletOptions {
     /// vertex), the `vertex_mode` field drives the join instead
     /// and this field is ignored.
     pub cap_kind: CapKind,
+    /// **§5.3 R8 C7 opt-in** — route N=3 trihedral vertex blends
+    /// through the rational-Gregory three-quad decomposition
+    /// (Chiyokura–Kimura). When `true`, a qualifying corner
+    /// (planar supports + manifold hex output) is split into 3
+    /// rectangular Gregory sub-patches meeting at a central point;
+    /// otherwise the legacy polar-NURBS fallback runs unchanged.
+    /// Default `false` — ships wired-but-dormant pending the R8
+    /// C8 downstream scorecard. See ADR
+    /// `2026-04-17-fillet-rational-gregory-rounds-6-7-8.md`.
+    pub use_rational_gregory: bool,
 }
 
 impl Default for FilletOptions {
@@ -272,6 +282,7 @@ impl Default for FilletOptions {
             soft_supports: false,
             soft_support_factor: 10.0,
             cap_kind: CapKind::Open,
+            use_rational_gregory: false,
         }
     }
 }

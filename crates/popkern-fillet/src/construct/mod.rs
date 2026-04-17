@@ -99,6 +99,7 @@ pub fn apply_blend_geometry(
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
     vertex_mode: &VertexMode,
+    use_rational_gregory: bool,
 ) -> Result<ApplyBlendResult, Vec<(EdgeHandle, BlendFailure)>> {
     let mut result = brep.clone();
     let mut failures: Vec<(EdgeHandle, BlendFailure)> = Vec::new();
@@ -452,8 +453,9 @@ pub fn apply_blend_geometry(
                     edge_indices,
                     edge_geometries,
                     tolerance,
+                    use_rational_gregory,
                 ) {
-                    Ok(info) => corner_patches.push(info),
+                    Ok(infos) => corner_patches.extend(infos),
                     Err(_) => {
                         let edge_idx = edge_indices[0];
                         if edge_idx < edge_geometries.len() {

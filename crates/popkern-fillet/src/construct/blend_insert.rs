@@ -9,12 +9,14 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 use crate::blend;
+use crate::blend::BlendBoundary;
 use crate::construct::EdgeGeometry;
 use crate::construct::blend_topo::{
     build_fillet_surface_list, collect_edges_through_vertex, collect_faces_around_vertex,
     find_face_trim_anchors, find_halfedge_from_vertex_in_face, identify_corner_face,
     repair_vertex_outgoing,
 };
+use crate::construct::three_quad_apply::apply_three_quad_decomposition_to_blend;
 use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo, VertexMode};
 
 /// Insert a smooth G1 vertex blend face at a multi-fillet vertex.
@@ -33,7 +35,8 @@ pub(crate) fn insert_vertex_blend(
     edge_indices: &[usize],
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
-) -> Result<CornerPatchInfo, String> {
+    use_rational_gregory: bool,
+) -> Result<Vec<CornerPatchInfo>, String> {
     // §5.3 C6 — classify the vertex-blend configuration *before*
     // topology modifications begin, while the pre-blend BRep is
     // still intact (the classifier reads face surface normals
@@ -69,6 +72,30 @@ pub(crate) fn insert_vertex_blend(
     if face_info.is_empty() {
         return Err(format!("no faces found around vertex {vertex:?}"));
     }
+
+    // R8 C7 — if rational-Gregory dispatch is enabled, capture the
+    // pre-merge hex boundary now. `compute_blend_boundary` at this
+    // point sees V on three separate planar cube-face sub-faces,
+    // so its `reorient_arcs_for_hex_closure` path fires and emits
+    // the 6-segment (arc/bridge) hex boundary. Post-merge V is on
+    // a single merged face (no surface), so the hex path won't
+    // fire there — hence the early capture.
+    let fillet_surfaces_pre = build_fillet_surface_list(edge_indices, edge_geometries);
+    let local_indices_pre: Vec<usize> = (0..fillet_surfaces_pre.len()).collect();
+    let hex_boundary: Option<BlendBoundary> = if use_rational_gregory && edge_indices.len() == 3 {
+        match blend::compute_blend_boundary(
+            vertex,
+            &local_indices_pre,
+            &fillet_surfaces_pre,
+            brep,
+            tolerance,
+        ) {
+            Ok(b) if b.segments.len() == 6 => Some(b),
+            _ => None,
+        }
+    } else {
+        None
+    };
 
     // Phase 1: For each face, cut a chord between the face's two
     // fillet-trim-endpoint anchors. The V-containing sub-face is
@@ -124,14 +151,67 @@ pub(crate) fn insert_vertex_blend(
     // still needs this safety net.
     remove_orphaned_vertex(brep, vertex);
 
-    Ok(CornerPatchInfo {
+    let base_patch = CornerPatchInfo {
         vertex,
         n_sides: edge_indices.len(),
         method,
         achieved_continuity,
         classification,
         face: blend_face,
-    })
+    };
+
+    // R8 C7 — if rational-Gregory dispatch is on AND the merged
+    // face is a clean hex (R8 C6's manifold output) AND we have
+    // a pre-merge hex boundary, poke the hex into three
+    // rectangular-Gregory sub-patches. The helper overwrites
+    // `blend_face`'s NURBS surface and adds two new sub-faces; it
+    // returns three `CornerPatchInfo`s — one per sub-patch.
+    //
+    // If any condition fails, we return the single-blend result
+    // from the legacy path unchanged.
+    if use_rational_gregory
+        && let Some(boundary) = hex_boundary.as_ref()
+        && boundary.segments.len() == 6
+        && face_is_hex(brep, blend_face)
+    {
+        match apply_three_quad_decomposition_to_blend(
+            brep,
+            blend_face,
+            boundary,
+            vertex,
+            edge_indices.len(),
+            classification,
+        ) {
+            Ok(patches) if patches.len() == 3 => return Ok(patches),
+            _ => {} // Fall through with base patch on failure.
+        }
+    }
+
+    Ok(vec![base_patch])
+}
+
+/// Check whether a face's outer loop has exactly 6 half-edges —
+/// the precondition for `poke_hex_face_into_three_quads`. Walks
+/// the loop, caps at 12 to guard against unterminated loops.
+fn face_is_hex(brep: &BRep, face: FaceHandle) -> bool {
+    let Some(face_data) = brep.faces.get(face) else {
+        return false;
+    };
+    let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
+        return false;
+    };
+    let start = loop_data.half_edge;
+    if !brep.half_edges.contains_key(start) {
+        return false;
+    }
+    let mut cursor = start;
+    for n in 1..=12 {
+        cursor = brep.half_edges[cursor].next;
+        if cursor == start {
+            return n == 6;
+        }
+    }
+    false
 }
 
 /// Phase 1: Split off corner regions from each face around V using
@@ -392,7 +472,7 @@ mod tests {
         // Instead, test with a default (non-existent) vertex handle.
         let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
         let bogus = popkern_core::topology::VertexHandle::default();
-        let result = insert_vertex_blend(&mut brep, bogus, &[], &[], &Tolerance::default());
+        let result = insert_vertex_blend(&mut brep, bogus, &[], &[], &Tolerance::default(), false);
         assert!(result.is_err(), "should fail for invalid vertex");
     }
 
@@ -404,7 +484,7 @@ mod tests {
         // get past the anchor check (3 anchors >= 2).
         let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
         let vertex = brep.vertices.keys().next().unwrap();
-        let result = insert_vertex_blend(&mut brep, vertex, &[], &[], &Tolerance::default());
+        let result = insert_vertex_blend(&mut brep, vertex, &[], &[], &Tolerance::default(), false);
         // This should fail (no edge geometries -> empty fillet surfaces
         // -> blend boundary computation fails), but NOT at the anchor check.
         assert!(result.is_err());

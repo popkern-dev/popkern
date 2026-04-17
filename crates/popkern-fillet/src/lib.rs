@@ -288,14 +288,20 @@ fn fillet_edges_internal(
 
     // PHASE 4: Apply topology.
     let t4 = Instant::now();
-    let mut apply_result =
-        construct::apply_blend_geometry(brep, &edge_geometries, &tolerance, &options.vertex_mode)
-            .map_err(|edge_failures| BlendError::PartialFailure {
-            failed: edge_failures.len(),
-            total: specs.len(),
-            partial_result: Box::new(brep.clone()),
-            failures: edge_failures,
-        })?;
+    let apply_args = (&edge_geometries, &tolerance, &options.vertex_mode);
+    let mut apply_result = construct::apply_blend_geometry(
+        brep,
+        apply_args.0,
+        apply_args.1,
+        apply_args.2,
+        options.use_rational_gregory,
+    )
+    .map_err(|edge_failures| BlendError::PartialFailure {
+        failed: edge_failures.len(),
+        total: specs.len(),
+        partial_result: Box::new(brep.clone()),
+        failures: edge_failures,
+    })?;
     emit!(
         progress::FilletPhase::ApplyTopology,
         t4,
@@ -393,15 +399,20 @@ pub fn chamfer_edges(
         });
     }
 
-    // 3. Apply topology. Chamfers always use mitred vertex mode.
-    let mut apply_result =
-        construct::apply_blend_geometry(brep, &edge_geometries, &tolerance, &VertexMode::Mitred)
-            .map_err(|edge_failures| BlendError::PartialFailure {
-                failed: edge_failures.len(),
-                total: specs.len(),
-                partial_result: Box::new(brep.clone()),
-                failures: edge_failures,
-            })?;
+    // 3. Apply topology. Chamfers always use mitred vertex mode + no rational-Gregory.
+    let mut apply_result = construct::apply_blend_geometry(
+        brep,
+        &edge_geometries,
+        &tolerance,
+        &VertexMode::Mitred,
+        false,
+    )
+    .map_err(|edge_failures| BlendError::PartialFailure {
+        failed: edge_failures.len(),
+        total: specs.len(),
+        partial_result: Box::new(brep.clone()),
+        failures: edge_failures,
+    })?;
 
     // Assign stable names when tracking is active.
     if let Some(ctx) = tracking {
@@ -420,73 +431,9 @@ pub fn chamfer_edges(
 /// composite score). Same parameter validation and error taxonomy
 /// as [`fillet_edges`]; quality is computed from the new-face delta
 /// via [`precheck::fillet_quality`].
-pub fn fillet_edges_with_quality(
-    brep: &BRep,
-    specs: &[FilletSpec],
-    options: &FilletOptions,
-    tolerance: Tolerance,
-    tracking: Option<&mut TrackingContext>,
-) -> Result<(BlendResult, BlendQuality), BlendError> {
-    let pre_faces: std::collections::HashSet<FaceHandle> = brep.faces.keys().collect();
-    let result = fillet_edges(brep, specs, options, tolerance, tracking)?;
-    // Use the spec's largest requested radius as the scoring
-    // denominator — for constant radius this is the request, for
-    // variable specs it's the peak.
-    let requested_radius = specs
-        .iter()
-        .map(|s| geometry_compute_feasibility::largest_requested_radius(&s.radius))
-        .fold(0.0_f64, f64::max);
-    let quality = precheck::fillet_quality(&precheck::ComputeQualityInput {
-        post_brep: &result.brep,
-        pre_faces: &pre_faces,
-        requested_radius,
-    });
-    Ok((result, quality))
-}
-
-/// Convenience: fillet a single edge with a constant radius.
-/// Equivalent to [`fillet_edges`] with one [`FilletSpec`] + default options.
-/// Returns a [`BlendError`] if the edge cannot be filleted.
-pub fn fillet_edge(
-    brep: &BRep,
-    edge: EdgeHandle,
-    radius: f64,
-    tolerance: Tolerance,
-    tracking: Option<&mut TrackingContext>,
-) -> Result<BlendResult, BlendError> {
-    fillet_edges(
-        brep,
-        &[FilletSpec {
-            edge,
-            radius: FilletRadius::Constant(radius),
-        }],
-        &FilletOptions::default(),
-        tolerance,
-        tracking,
-    )
-}
-
-/// Convenience: chamfer a single edge with equal distances.
-/// Equivalent to [`chamfer_edges`] with one [`ChamferSpec`] + default options.
-/// Returns a [`BlendError`] if the edge cannot be chamfered.
-pub fn chamfer_edge(
-    brep: &BRep,
-    edge: EdgeHandle,
-    distance: f64,
-    tolerance: Tolerance,
-    tracking: Option<&mut TrackingContext>,
-) -> Result<BlendResult, BlendError> {
-    chamfer_edges(
-        brep,
-        &[ChamferSpec {
-            edge,
-            kind: ChamferKind::Equal(distance),
-        }],
-        &ChamferOptions::default(),
-        tolerance,
-        tracking,
-    )
-}
+#[path = "lib_convenience.rs"]
+mod lib_convenience;
+pub use lib_convenience::{chamfer_edge, fillet_edge, fillet_edges_with_quality};
 
 use geometry_compute::{build_overlap_inputs, compute_chamfer_geometry, compute_fillet_geometry};
 use naming::assign_fillet_names;
