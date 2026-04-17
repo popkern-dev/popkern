@@ -11,6 +11,7 @@ pub(crate) mod boundary_hex;
 #[path = "boundary_tests.rs"]
 mod boundary_tests;
 pub(crate) mod gregory;
+pub(crate) mod gregory_three_quad;
 pub mod runout;
 pub mod surface;
 mod surface_math;
@@ -18,6 +19,10 @@ mod surface_math;
 #[cfg(test)]
 #[path = "gregory_tests.rs"]
 mod gregory_tests;
+
+#[cfg(test)]
+#[path = "gregory_diagnostic_metrics.rs"]
+mod gregory_diagnostic_metrics;
 
 #[cfg(test)]
 #[path = "gregory_diagnostic_tests.rs"]

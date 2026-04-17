@@ -8,275 +8,17 @@
 
 use crate::analysis;
 use crate::blend::boundary::{BoundarySegment, compute_blend_boundary};
-use crate::blend::gregory::{extract_triangular_inner_cps, fit_cubic_bezier_through};
-use crate::blend::surface::{BlendSurfaceResult, build_blend_surface};
+use crate::blend::gregory_diagnostic_metrics::{build_unchecked_rational_gregory, compute_metrics};
+use crate::blend::surface::build_blend_surface;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::geometry_compute::compute_fillet_geometry;
-use crate::types::{CapKind, ContinuityLevel, CornerMethod, FilletRadius, FilletSpec, VertexMode};
+use crate::types::{CapKind, ContinuityLevel, FilletRadius, FilletSpec, VertexMode};
 use crate::vertex_classifier::classify_vertex_blend;
 
+use popkern_core::geometry::NurbsCurve;
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::gregory::{GregoryPatch, TriangularGregory};
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-
-#[derive(Debug)]
-struct DiagnosticMetrics {
-    method: CornerMethod,
-    continuity_claimed: ContinuityLevel,
-    /// Max surface-point-to-boundary-curve distance across 5
-    /// samples per input boundary. Should be ≈ 0.
-    max_boundary_deviation: f64,
-    /// Max Gaussian curvature over a 9×9 interior grid.
-    max_interior_gaussian_curvature: f64,
-    /// Mean Gaussian curvature over the same grid.
-    mean_interior_gaussian_curvature: f64,
-    /// Max `|Δκ_n|/max(|κ_n|, 1/r)` at boundary samples — §2.4
-    /// G2 acceptance threshold is `< 0.01`.
-    max_boundary_normal_curvature_deviation: f64,
-}
-
-impl std::fmt::Display for DiagnosticMetrics {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "  method                           = {:?}", self.method)?;
-        writeln!(
-            f,
-            "  continuity_claimed               = {:?}",
-            self.continuity_claimed
-        )?;
-        writeln!(
-            f,
-            "  max_boundary_deviation           = {:.3e}",
-            self.max_boundary_deviation
-        )?;
-        writeln!(
-            f,
-            "  max_interior_gaussian_curvature  = {:.3e}",
-            self.max_interior_gaussian_curvature
-        )?;
-        writeln!(
-            f,
-            "  mean_interior_gaussian_curvature = {:.3e}",
-            self.mean_interior_gaussian_curvature
-        )?;
-        writeln!(
-            f,
-            "  max_boundary_normal_κ_deviation  = {:.3e}  (§2.4 < 1e-2)",
-            self.max_boundary_normal_curvature_deviation
-        )
-    }
-}
-
-/// Gaussian curvature `K = (LN − M²) / (EG − F²)`.
-fn gaussian_curvature(surface: &SurfaceGeometry, u: f64, v: f64) -> f64 {
-    let pu = surface.partial_u(u, v);
-    let pv = surface.partial_v(u, v);
-    let e = pu.dot(&pu);
-    let f = pu.dot(&pv);
-    let g = pv.dot(&pv);
-    let det_first = e * g - f * f;
-    if det_first.abs() < 1e-15 {
-        return 0.0;
-    }
-    let normal = pu.cross(&pv);
-    let n_len = normal.length();
-    if n_len < 1e-15 {
-        return 0.0;
-    }
-    let n_hat = normal * (1.0 / n_len);
-    let puu = surface.second_partial_uu(u, v);
-    let puv = surface.second_partial_uv(u, v);
-    let pvv = surface.second_partial_vv(u, v);
-    let l = puu.dot(&n_hat);
-    let m = puv.dot(&n_hat);
-    let nn = pvv.dot(&n_hat);
-    (l * nn - m * m) / det_first
-}
-
-/// Compute diagnostic metrics for a [`BlendSurfaceResult`].
-fn compute_metrics(
-    result: &BlendSurfaceResult,
-    input_boundary_curves: &[NurbsCurve],
-    avg_radius: f64,
-) -> DiagnosticMetrics {
-    let surface = &result.surface;
-    let ((u0, u1), (v0, v1)) = surface.parameter_range();
-    let (u0, u1) = if u0.is_finite() && u1.is_finite() {
-        (u0, u1)
-    } else {
-        (0.0, 1.0)
-    };
-    let (v0, v1) = if v0.is_finite() && v1.is_finite() {
-        (v0, v1)
-    } else {
-        (0.0, 1.0)
-    };
-
-    // 1. Boundary deviation. For each input boundary curve,
-    // sample 5 parameter values and find the nearest point on
-    // the built surface via `closest_point`. Measure distance.
-    let mut max_boundary_dev: f64 = 0.0;
-    for curve in input_boundary_curves {
-        let (t0, t1) = curve.parameter_range();
-        for k in 0..=4 {
-            let t = t0 + (t1 - t0) * (k as f64) / 4.0;
-            let p_curve = curve.point_at(t);
-            if let Some((u, v)) = surface.closest_point(&p_curve) {
-                let p_surf = surface.point_at(u, v);
-                let d = p_curve.distance_to(&p_surf);
-                max_boundary_dev = max_boundary_dev.max(d);
-            }
-        }
-    }
-
-    // 2. Interior curvature grid (9×9 sample, skipping boundary
-    // to avoid parameter-range edge artifacts).
-    let grid_n = 9;
-    let mut max_k: f64 = 0.0;
-    let mut sum_k = 0.0;
-    let mut n_samples = 0usize;
-    for i in 1..(grid_n - 1) {
-        let u = u0 + (u1 - u0) * (i as f64) / (grid_n - 1) as f64;
-        for j in 1..(grid_n - 1) {
-            let v = v0 + (v1 - v0) * (j as f64) / (grid_n - 1) as f64;
-            // For triangular Gregory, only sample inside the simplex.
-            if matches!(
-                surface,
-                SurfaceGeometry::Gregory(GregoryPatch::Triangular(_))
-            ) && u + v > 1.0
-            {
-                continue;
-            }
-            let k = gaussian_curvature(surface, u, v).abs();
-            if !k.is_finite() {
-                continue;
-            }
-            max_k = max_k.max(k);
-            sum_k += k;
-            n_samples += 1;
-        }
-    }
-    let mean_k = if n_samples > 0 {
-        sum_k / (n_samples as f64)
-    } else {
-        0.0
-    };
-
-    // 3. Boundary normal-curvature deviation vs 1/r_avg. Sample
-    // 5 points on each boundary curve, project to surface UV,
-    // compute the normal curvature along the surface tangent
-    // that matches the boundary tangent direction.
-    let target_kappa = 1.0 / avg_radius;
-    let mut max_kappa_dev: f64 = 0.0;
-    for curve in input_boundary_curves {
-        let (t0, t1) = curve.parameter_range();
-        for k in 0..=4 {
-            let t = t0 + (t1 - t0) * (k as f64) / 4.0;
-            let p = curve.point_at(t);
-            let Some((u, v)) = surface.closest_point(&p) else {
-                continue;
-            };
-            // Normal-curvature along curve tangent.
-            let pu = surface.partial_u(u, v);
-            let pv = surface.partial_v(u, v);
-            let Some(t_dir) = curve.derivative_at(t, 1).normalized() else {
-                continue;
-            };
-            // Solve for (a, b) s.t. a·pu + b·pv ≈ t_dir in tangent
-            // plane. Least-squares via 2×2 normal equations.
-            let e = pu.dot(&pu);
-            let f = pu.dot(&pv);
-            let g = pv.dot(&pv);
-            let du = pu.dot(&t_dir);
-            let dv = pv.dot(&t_dir);
-            let det = e * g - f * f;
-            if det.abs() < 1e-15 {
-                continue;
-            }
-            let a = (g * du - f * dv) / det;
-            let b = (e * dv - f * du) / det;
-            // Normal curvature κ_n = II(a, b) / I(a, b) where II
-            // and I are 2nd and 1st fundamental forms at (u, v)
-            // along direction (a, b).
-            let normal = pu.cross(&pv);
-            let n_len = normal.length();
-            if n_len < 1e-15 {
-                continue;
-            }
-            let n_hat = normal * (1.0 / n_len);
-            let puu = surface.second_partial_uu(u, v);
-            let puv = surface.second_partial_uv(u, v);
-            let pvv = surface.second_partial_vv(u, v);
-            let ii =
-                a * a * puu.dot(&n_hat) + 2.0 * a * b * puv.dot(&n_hat) + b * b * pvv.dot(&n_hat);
-            let i_first = a * a * e + 2.0 * a * b * f + b * b * g;
-            if i_first.abs() < 1e-15 {
-                continue;
-            }
-            let kappa_n = (ii / i_first).abs();
-            let denom = kappa_n.max(target_kappa);
-            let dev = (kappa_n - target_kappa).abs() / denom;
-            if dev.is_finite() {
-                max_kappa_dev = max_kappa_dev.max(dev);
-            }
-        }
-    }
-
-    DiagnosticMetrics {
-        method: result.method,
-        continuity_claimed: result.continuity,
-        max_boundary_deviation: max_boundary_dev,
-        max_interior_gaussian_curvature: max_k,
-        mean_interior_gaussian_curvature: mean_k,
-        max_boundary_normal_curvature_deviation: max_kappa_dev,
-    }
-}
-
-/// Build a rational Gregory patch **unconditionally** — bypasses
-/// the production path's `uniform radii` gate so the diagnostic
-/// can compare both construction paths on mixed-radius fixtures
-/// where Gregory's current implementation is known-imperfect.
-fn build_unchecked_rational_gregory(
-    boundary_curves: &[NurbsCurve],
-    fillet_surfaces: &[FilletSurfaceResult],
-    vertex_position: Point3,
-) -> Option<BlendSurfaceResult> {
-    if boundary_curves.len() != 3 || fillet_surfaces.len() != 3 {
-        return None;
-    }
-    let radii: Vec<f64> = fillet_surfaces
-        .iter()
-        .filter_map(|fr| match &fr.surface {
-            SurfaceGeometry::Torus { minor_radius, .. } => Some(*minor_radius),
-            SurfaceGeometry::Cylinder { radius, .. } => Some(*radius),
-            _ => None,
-        })
-        .collect();
-    if radii.len() != 3 {
-        return None;
-    }
-    let avg_radius = radii.iter().sum::<f64>() / 3.0;
-    let beziers: Vec<[Point3; 4]> = boundary_curves
-        .iter()
-        .map(fit_cubic_bezier_through)
-        .collect();
-    let inner_cps = extract_triangular_inner_cps(
-        boundary_curves,
-        fillet_surfaces,
-        avg_radius,
-        vertex_position,
-    )?;
-    let bez_array: [[Point3; 4]; 3] = [beziers[0], beziers[1], beziers[2]];
-    let patch = TriangularGregory::from_boundary_beziers(bez_array, inner_cps, 1e-3).ok()?;
-    Some(BlendSurfaceResult {
-        surface: SurfaceGeometry::Gregory(GregoryPatch::Triangular(Box::new(patch))),
-        boundary_curves: boundary_curves.to_vec(),
-        method: CornerMethod::Gregory,
-        continuity: ContinuityLevel::G1,
-    })
-}
 
 #[test]
 fn diagnostic_polar_nurbs_vs_rational_gregory_on_mixed_radius_cube() {
@@ -494,4 +236,32 @@ fn diagnostic_polar_nurbs_vs_rational_gregory_on_mixed_radius_cube() {
          from vertex; expected < 2·r = {:.3e}",
         2.0 * avg_radius,
     );
+
+    // R8 C3 — three-quad decomposition. Build 3 rectangular
+    // Gregory sub-patches from the hexagonal boundary, verify they
+    // construct and evaluate cleanly. This is NOT yet wired into
+    // dispatch; the decomposition is a geometric building block
+    // for the eventual N=3 mixed-radius corner.
+    use crate::blend::gregory_three_quad::build_three_quad_decomposition;
+    match build_three_quad_decomposition(&boundary) {
+        Some(decomp) => {
+            assert_eq!(decomp.sub_patches.len(), 3);
+            eprintln!("--- R8 C3 three-quad decomposition ---");
+            eprintln!("  central_point = {:?}", decomp.central_point);
+            for (k, patch) in decomp.sub_patches.iter().enumerate() {
+                // Every sub-patch should evaluate to finite values
+                // at the centroid of its parameter domain.
+                let p = patch.point_at(0.5, 0.5);
+                assert!(
+                    p.x.is_finite() && p.y.is_finite() && p.z.is_finite(),
+                    "sub-patch {k} produced non-finite mid-point: {p:?}",
+                );
+                eprintln!("  sub-patch[{k}] mid = {p:?}");
+            }
+            eprintln!("======================================");
+        }
+        None => {
+            eprintln!("--- R8 C3 three-quad decomposition: FAILED ---");
+        }
+    }
 }
