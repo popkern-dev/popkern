@@ -46,9 +46,11 @@
 use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
 
+mod build;
 mod rectangular;
 mod triangular;
 
+pub use build::GregoryBuildError;
 pub use rectangular::RectangularGregory;
 pub use triangular::TriangularGregory;
 
@@ -107,3 +109,7 @@ impl GregoryPatch {
 #[cfg(test)]
 #[path = "../gregory_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "build_tests.rs"]
+mod build_tests;
