@@ -34,6 +34,21 @@ pub(crate) fn insert_vertex_blend(
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
 ) -> Result<CornerPatchInfo, String> {
+    // §5.3 C6 — classify the vertex-blend configuration *before*
+    // topology modifications begin, while the pre-blend BRep is
+    // still intact (the classifier reads face surface normals
+    // along incident edges). The classification drives method
+    // dispatch and is stored on the returned `CornerPatchInfo`
+    // for UI consumers.
+    let classification = {
+        let filleted_edges: Vec<_> = edge_indices
+            .iter()
+            .filter_map(|&i| edge_geometries.get(i).map(|g| g.analysis.edge))
+            .collect();
+        crate::vertex_classifier::classify_vertex_blend(brep, vertex, &filleted_edges, tolerance)
+            .classification
+    };
+
     // Repair the vertex's outgoing half-edge if it has become stale
     // due to prior topology operations (edge splitting, face splitting).
     repair_vertex_outgoing(brep, vertex)?;
@@ -69,13 +84,16 @@ pub(crate) fn insert_vertex_blend(
     // The blend surface construction reports both the method and
     // the achieved continuity directly (see §5.3 C4 — the Gregory
     // polar NURBS reports G2 when all incident fillets share a
-    // radius, G1 otherwise).
+    // radius, G1 otherwise). The classification gates the sphere
+    // attempt so only comfort-zone configurations (SameSide*) pay
+    // the rolling-ball fit cost.
     let (method, achieved_continuity) = assign_blend_surface(
         brep,
         blend_face,
         vertex,
         edge_indices,
         edge_geometries,
+        classification,
         tolerance,
     )?;
 
@@ -84,6 +102,7 @@ pub(crate) fn insert_vertex_blend(
         n_sides: edge_indices.len(),
         method,
         achieved_continuity,
+        classification,
         face: blend_face,
     })
 }
@@ -174,6 +193,7 @@ fn assign_blend_surface(
     vertex: VertexHandle,
     edge_indices: &[usize],
     edge_geometries: &[EdgeGeometry],
+    classification: crate::vertex_classifier::VertexBlendClassification,
     tolerance: &Tolerance,
 ) -> Result<(CornerMethod, ContinuityLevel), String> {
     let fillet_surfaces = build_fillet_surface_list(edge_indices, edge_geometries);
@@ -187,6 +207,7 @@ fn assign_blend_surface(
         &fillet_surfaces,
         brep,
         VertexMode::Smooth,
+        classification,
         tolerance,
     )
     .map_err(|e| format!("blend surface computation failed: {e}"))?;

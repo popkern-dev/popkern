@@ -36,6 +36,32 @@ fn full_cube_g1_emits_no_corner_continuity_downgraded_warning() {
     );
 }
 
+/// §5.3 C6 — trihedral cube corners with all-convex edges classify
+/// as `SameSideConvex` on `CornerPatchInfo::classification`. UI
+/// consumers use this to colour corners by configuration-hardness.
+#[test]
+fn full_cube_corner_patches_classify_as_same_side_convex() {
+    use crate::vertex_classifier::VertexBlendClassification;
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let specs: Vec<FilletSpec> = cube
+        .edges
+        .keys()
+        .map(|e| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(0.1),
+        })
+        .collect();
+    let r = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None).unwrap();
+    assert_eq!(r.corner_patches.len(), 8, "cube has 8 corners");
+    for p in &r.corner_patches {
+        assert_eq!(
+            p.classification,
+            VertexBlendClassification::SameSideConvex,
+            "all cube corner edges are convex (outward-rounded)"
+        );
+    }
+}
+
 /// At G2 request every trihedral cube corner promotes to
 /// RollingBallSphere (G1) post-surface-fix. That's a genuine
 /// G1 < G2 downgrade, so we expect one warning per corner (8).

@@ -8,6 +8,7 @@ use popkern_core::topology::BRep;
 
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{ContinuityLevel, CornerMethod, VertexMode};
+use crate::vertex_classifier::VertexBlendClassification;
 
 use super::boundary::{BlendBoundary, BoundarySegment};
 
@@ -49,6 +50,7 @@ pub fn build_blend_surface(
     fillet_surfaces: &[FilletSurfaceResult],
     brep: &BRep,
     vertex_mode: VertexMode,
+    classification: VertexBlendClassification,
     tolerance: &Tolerance,
 ) -> Result<BlendSurfaceResult, String> {
     if boundary.segments.is_empty() {
@@ -70,6 +72,7 @@ pub fn build_blend_surface(
             fillet_surfaces,
             &points,
             boundary_curves,
+            classification,
             tolerance,
             brep,
         ),
@@ -123,6 +126,7 @@ fn build_smooth_blend(
     fillet_surfaces: &[FilletSurfaceResult],
     points: &[Point3],
     boundary_curves: Vec<NurbsCurve>,
+    classification: VertexBlendClassification,
     tolerance: &Tolerance,
     brep: &BRep,
 ) -> Result<BlendSurfaceResult, String> {
@@ -133,18 +137,27 @@ fn build_smooth_blend(
         .count();
 
     // Fallback chain for smooth corner blends:
-    //   1. rolling-ball sphere (analytic, G1 natural)
+    //   1. rolling-ball sphere (analytic, G1 natural) — gated
+    //      on `SameSideConvex` / `SameSideConcave`; saddle-type
+    //      (`OppositeSide`) and hybrid (`Mixed`) vertices can't
+    //      fit a single rolling ball and skip this step. §5.3 C6.
     //   2. Gregory G1 (polar NURBS with G1-adjusted interior ring;
     //      generalised to any N ≥ 2 in this commit — §5.3)
     //   3. mitred plane (G0 final fallback)
 
-    if let Some(result) = try_spherical_blend(
-        boundary,
-        fillet_surfaces,
-        points,
-        &boundary_curves,
-        tolerance,
-    ) {
+    let sphere_allowed = matches!(
+        classification,
+        VertexBlendClassification::SameSideConvex | VertexBlendClassification::SameSideConcave,
+    );
+    if sphere_allowed
+        && let Some(result) = try_spherical_blend(
+            boundary,
+            fillet_surfaces,
+            points,
+            &boundary_curves,
+            tolerance,
+        )
+    {
         return Ok(result);
     }
 

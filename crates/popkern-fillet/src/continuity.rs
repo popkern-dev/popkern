@@ -114,6 +114,7 @@ mod tests {
         brep: &BRep,
         recipes: &[(usize, ContinuityLevel, CornerMethod)],
     ) -> Vec<CornerPatchInfo> {
+        use crate::vertex_classifier::VertexBlendClassification;
         let vertex = brep.vertices.keys().next().unwrap();
         let face = brep.faces.keys().next().unwrap();
         recipes
@@ -123,6 +124,7 @@ mod tests {
                 n_sides: *n,
                 method: *method,
                 achieved_continuity: *cont,
+                classification: VertexBlendClassification::SameSideConvex,
                 face,
             })
             .collect()

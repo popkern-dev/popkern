@@ -44,7 +44,14 @@ fn mitred_blend_two_fillets() {
     let boundary = make_blend_boundary(vertex);
     let fillets: Vec<FilletSurfaceResult> = Vec::new();
 
-    let result = build_blend_surface(&boundary, &fillets, &brep, VertexMode::Mitred, &tol);
+    let result = build_blend_surface(
+        &boundary,
+        &fillets,
+        &brep,
+        VertexMode::Mitred,
+        crate::vertex_classifier::VertexBlendClassification::SameSideConvex,
+        &tol,
+    );
     assert!(result.is_ok(), "mitred blend failed: {:?}", result.err());
 
     let blend = result.expect("already checked");
@@ -84,7 +91,14 @@ fn smooth_blend_two_fillets() {
 
     let fillets: Vec<FilletSurfaceResult> = Vec::new();
 
-    let result = build_blend_surface(&boundary, &fillets, &brep, VertexMode::Smooth, &tol);
+    let result = build_blend_surface(
+        &boundary,
+        &fillets,
+        &brep,
+        VertexMode::Smooth,
+        crate::vertex_classifier::VertexBlendClassification::SameSideConvex,
+        &tol,
+    );
     assert!(result.is_ok(), "smooth blend failed: {:?}", result.err());
 
     let blend = result.expect("already checked");
@@ -108,7 +122,14 @@ fn blend_surface_empty_boundary() {
         segments: vec![],
     };
 
-    let result = build_blend_surface(&boundary, &[], &brep, VertexMode::Mitred, &tol);
+    let result = build_blend_surface(
+        &boundary,
+        &[],
+        &brep,
+        VertexMode::Mitred,
+        crate::vertex_classifier::VertexBlendClassification::SameSideConvex,
+        &tol,
+    );
     assert!(result.is_err(), "should fail with empty boundary");
 }
 

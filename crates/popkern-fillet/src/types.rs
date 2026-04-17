@@ -89,6 +89,14 @@ pub struct CornerPatchInfo {
     /// [`FilletOptions::continuity`] when the method couldn't
     /// deliver — see [`crate::error::BlendWarning::CornerContinuityDowngraded`].
     pub achieved_continuity: ContinuityLevel,
+    /// §5.3 C6 — the vertex-blend classification that drove
+    /// method dispatch. `SameSideConvex` / `SameSideConcave` are
+    /// the comfort-zone cases where a rolling-ball sphere is
+    /// tried first; `OppositeSide` / `Mixed` skip the sphere and
+    /// fall straight to Gregory (rolling ball can't fit a saddle);
+    /// `Tangent` / `FreeBoundary` flag quality caveats a UI
+    /// should surface alongside the corner annotation.
+    pub classification: crate::vertex_classifier::VertexBlendClassification,
     /// The corner face handle in the output BRep.
     pub face: FaceHandle,
 }
