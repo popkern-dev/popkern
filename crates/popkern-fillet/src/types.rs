@@ -86,10 +86,7 @@ pub struct CornerPatchInfo {
     /// [`FilletOptions::continuity`] when the method couldn't
     /// deliver — see [`crate::error::BlendWarning::CornerContinuityDowngraded`].
     pub achieved_continuity: ContinuityLevel,
-    /// §5.3 C6 — the vertex-blend classification that drove
-    /// method dispatch. `SameSideConvex` / `SameSideConcave` try
-    /// rolling-ball sphere first; `OppositeSide` / `Mixed` skip
-    /// to Gregory; `Tangent` / `FreeBoundary` flag UI caveats.
+    /// §5.3 C6 — the vertex-blend classification that drove dispatch.
     pub classification: crate::vertex_classifier::VertexBlendClassification,
     /// The corner face handle in the output BRep.
     pub face: FaceHandle,
@@ -97,6 +94,11 @@ pub struct CornerPatchInfo {
     /// for any curved face whose blend bridge fell back to a
     /// straight-line Bezier. Empty in the all-planar case.
     pub bridge_fallbacks: Vec<&'static str>,
+    /// §5.3 item #10 — `true` when the Gregory three-quad
+    /// output self-intersected and the corner was remediated by
+    /// falling back to a single polar-NURBS patch. Paired with
+    /// [`BlendWarning::CornerRemediationOverlap`](crate::error::BlendWarning::CornerRemediationOverlap).
+    pub overlap_remediated: bool,
 }
 
 /// Specification for a single fillet edge.

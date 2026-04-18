@@ -78,3 +78,34 @@ pub(crate) fn emit_tangent_corner_warning(
         ));
     }
 }
+
+/// §5.3 item #10 — emit one [`BlendWarning::CornerRemediationOverlap`]
+/// when any sub-patch reports `overlap_remediated = true`. One
+/// warning per vertex regardless of sub-patch count (a single
+/// overlap remediation collapses the corner to one polar patch
+/// so this only fires once anyway, but the dedup is defensive).
+pub(crate) fn emit_overlap_remediation_warning(
+    infos: &[CornerPatchInfo],
+    vertex: VertexHandle,
+    edge_indices: &[usize],
+    edge_geometries: &[EdgeGeometry],
+    warnings: &mut Vec<(EdgeHandle, BlendWarning)>,
+) {
+    let remediated = infos.iter().any(|info| info.overlap_remediated);
+    if !remediated {
+        return;
+    }
+    let Some(first) = infos.first() else {
+        return;
+    };
+    let edge_idx = edge_indices[0];
+    if edge_idx < edge_geometries.len() {
+        warnings.push((
+            edge_geometries[edge_idx].analysis.edge,
+            BlendWarning::CornerRemediationOverlap {
+                vertex,
+                n_sides: first.n_sides,
+            },
+        ));
+    }
+}

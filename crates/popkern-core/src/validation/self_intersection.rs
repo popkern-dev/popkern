@@ -269,6 +269,28 @@ impl BRep {
 
         Ok(())
     }
+
+    /// §5.3 item #10 — check every Gregory-surface face for
+    /// within-face self-intersection (fold-over or curl-around).
+    /// Delegates per-face to
+    /// [`GregoryPatch::self_intersects_with_tolerance`].
+    pub fn validate_gregory_self_intersection(&self) -> Result<(), ValidationError> {
+        use crate::geometry::surface::SurfaceGeometry;
+
+        let tol_linear = self.tolerance.linear().max(1e-6);
+        for (fh, face) in &self.faces {
+            let Some(sof) = face.surface.as_ref() else {
+                continue;
+            };
+            let SurfaceGeometry::Gregory(ref patch) = sof.geometry else {
+                continue;
+            };
+            if patch.self_intersects_with_tolerance(tol_linear) {
+                return Err(ValidationError::TwistedSurface { face: fh });
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

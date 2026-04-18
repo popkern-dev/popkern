@@ -104,25 +104,12 @@ pub(crate) fn insert_vertex_blend(
     let _corner_faces =
         split_corner_triangles(brep, vertex, &face_info, edge_geometries, tolerance)?;
 
-    // Phase 2a: kef every V-edge that currently separates two
-    // distinct faces. On trihedral corners this merges all but the
-    // last incident face-pair; the last V-edge may become a
-    // same-face "bridge" which kef can't remove. Leaving the
-    // bridge (plus V) intact for now keeps the `vertex` handle
-    // valid through Phase 3's `compute_blend_boundary` call, which
-    // still needs V's position and its incident faces to emit the
-    // correct boundary segments. The final kev happens in
-    // Phase 2b, after the surface has been assigned.
+    // Phase 2a: kef every V-edge separating two distinct faces;
+    // last V-edge may become a same-face "bridge" handled by
+    // Phase 2b's `kev` after surface assignment.
     let blend_face = kef_cross_face_v_edges(brep, vertex)?;
 
     // Phase 3: Compute the blend boundary + assign the surface.
-    // `vertex` is still valid (Phase 2a only `kef`-ed cross-face
-    // edges). `compute_blend_boundary` sees the merged (possibly
-    // pinched) blend face — no surface yet — so `planar_faces`
-    // is empty and the hex path is not taken. The FilletEnd-only
-    // 3-segment fallback feeds `try_spherical_blend` with all 30
-    // samples lying on the rolling-ball sphere, matching the
-    // legacy behaviour for uniform-radius corners.
     let fillet_surfaces = build_fillet_surface_list(edge_indices, edge_geometries);
     let local_indices: Vec<usize> = (0..fillet_surfaces.len()).collect();
     let blend_boundary =
@@ -161,16 +148,21 @@ pub(crate) fn insert_vertex_blend(
         classification,
         face: blend_face,
         bridge_fallbacks: bridge_fallbacks.clone(),
+        overlap_remediated: false,
     };
 
     // §5.3 item #4 — N ≥ 3 rational-Gregory dispatch. Falls
-    // through to the polar-NURBS single-blend on any gate failure.
+    // through to polar-NURBS on any gate failure. §5.3 item #10:
+    // `ThreeQuadFailure::Overlap` signals self-intersection;
+    // caller sets `overlap_remediated` so the
+    // `CornerRemediationOverlap` warning fires downstream.
     if use_rational_gregory
         && rational_gregory_compatible
         && let Some(boundary) = n_gon_boundary.as_ref()
         && boundary.segments.len() == 2 * n_sides
         && face_has_2n_outer_half_edges(brep, blend_face, n_sides)
     {
+        use crate::construct::three_quad_apply::ThreeQuadFailure;
         match apply_three_quad_decomposition_to_blend(
             brep,
             blend_face,
@@ -182,7 +174,12 @@ pub(crate) fn insert_vertex_blend(
             use_deg5_gregory,
         ) {
             Ok(patches) if patches.len() == n_sides => return Ok(patches),
-            _ => {} // Fall through with base patch on failure.
+            Err(ThreeQuadFailure::Overlap) => {
+                let mut r = base_patch.clone();
+                r.overlap_remediated = true;
+                return Ok(vec![r]);
+            }
+            _ => {}
         }
     }
 

@@ -26,6 +26,26 @@ use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo};
 use crate::vertex_classifier::VertexBlendClassification;
 
+/// §5.3 item #10 — why the three-quad dispatch failed. Callers
+/// use this to distinguish an honest topology / geometry failure
+/// (caller should record the reason + fall through to polar) from
+/// a self-intersection remediation (caller must ALSO emit the
+/// `CornerRemediationOverlap` warning).
+#[derive(Debug)]
+pub(crate) enum ThreeQuadFailure {
+    /// The Gregory sub-patches self-intersect; remediate to polar.
+    Overlap,
+    /// Anything else — boundary shape, decomposition rejection,
+    /// poke topology failure. Error string included for logging.
+    Other(#[allow(dead_code)] String),
+}
+
+impl From<String> for ThreeQuadFailure {
+    fn from(s: String) -> Self {
+        ThreeQuadFailure::Other(s)
+    }
+}
+
 /// Apply a three-quad decomposition to an existing hexagonal blend
 /// face: build the decomposition, poke the face, assign Gregory
 /// surfaces, return one [`CornerPatchInfo`] per sub-face.
@@ -47,24 +67,37 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     n_sides: usize,
     classification: VertexBlendClassification,
     use_deg5: bool,
-) -> Result<Vec<CornerPatchInfo>, String> {
+) -> Result<Vec<CornerPatchInfo>, ThreeQuadFailure> {
     let decomp = build_n_quad_decomposition_with_options(
         boundary,
         fillet_surfaces,
         use_deg5,
         classification,
     )
-    .ok_or_else(|| "boundary not decomposable into N quads".to_string())?;
+    .ok_or_else(|| ThreeQuadFailure::Other("boundary not decomposable into N quads".to_string()))?;
+
+    // §5.3 item #10 — self-intersection screen before committing
+    // the sub-patches to the BRep. If any sub-patch folds or
+    // curls, abort so the caller falls through to polar-NURBS
+    // (which is single-patch and can't produce the same overlap
+    // mode). Signalled as `ThreeQuadFailure::Overlap` so the
+    // caller knows to emit the `CornerRemediationOverlap` warning.
+    const SELF_INT_TOL: f64 = 1e-6;
+    for patch in &decomp.sub_patches {
+        if patch.self_intersects_with_tolerance(SELF_INT_TOL) {
+            return Err(ThreeQuadFailure::Overlap);
+        }
+    }
 
     let poke = poke_n_gon_face_into_n_quads(brep, blend_face, decomp.central_point)
-        .map_err(|e| format!("poke failed: {e}"))?;
+        .map_err(|e| ThreeQuadFailure::Other(format!("poke failed: {e}")))?;
     if poke.sub_faces.len() != decomp.sub_patches.len() {
-        return Err(format!(
+        return Err(ThreeQuadFailure::Other(format!(
             "poke/decomposition size mismatch: poke produced {} sub-faces, \
              decomposition has {} sub-patches",
             poke.sub_faces.len(),
             decomp.sub_patches.len()
-        ));
+        )));
     }
 
     let mut patches = Vec::with_capacity(decomp.sub_patches.len());
@@ -81,6 +114,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             classification,
             face: *sub_face,
             bridge_fallbacks: boundary.bridge_fallbacks.clone(),
+            overlap_remediated: false,
         });
     }
     Ok(patches)

@@ -442,20 +442,19 @@ pub fn apply_blend_geometry(
                     Some(pre),
                 ) {
                     Ok(infos) => {
-                        bridge_warnings::emit_bridge_fallback_warnings(
-                            &infos,
-                            *vertex,
-                            edge_indices,
-                            edge_geometries,
-                            &mut warnings,
-                        );
-                        bridge_warnings::emit_tangent_corner_warning(
-                            &infos,
-                            *vertex,
-                            edge_indices,
-                            edge_geometries,
-                            &mut warnings,
-                        );
+                        for emit in [
+                            bridge_warnings::emit_bridge_fallback_warnings,
+                            bridge_warnings::emit_tangent_corner_warning,
+                            bridge_warnings::emit_overlap_remediation_warning,
+                        ] {
+                            emit(
+                                &infos,
+                                *vertex,
+                                edge_indices,
+                                edge_geometries,
+                                &mut warnings,
+                            );
+                        }
                         corner_patches.extend(infos);
                     }
                     Err(_) => {

@@ -326,3 +326,67 @@ fn non_adjacent_pair_with_one_missing_surface_passes() {
         "pair with one missing surface should not be reported as self-intersecting"
     );
 }
+
+/// §5.3 item #10 — `validate_all` must flag a BRep face carrying
+/// a folded Gregory surface as `TwistedSurface`, using the new
+/// [`BRep::validate_gregory_self_intersection`] check.
+#[test]
+fn validate_all_catches_folded_gregory_face() {
+    use crate::geometry::gregory::{GregoryPatch, RectangularGregory};
+
+    // Start from a plain cube; replace one face's surface with a
+    // hand-crafted self-intersecting Gregory patch (corner-swap
+    // fold — same construction as the unit test in the
+    // gregory::self_intersection module).
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let lin = |u: f64, v: f64| Point3::new(u, v, 0.0);
+    let mut boundary_cps = [[Point3::new(0.0, 0.0, 0.0); 4]; 4];
+    for (i, row) in boundary_cps.iter_mut().enumerate() {
+        for (j, cp) in row.iter_mut().enumerate() {
+            *cp = lin(i as f64 / 3.0, j as f64 / 3.0);
+        }
+    }
+    // Swap opposite corners → classical fold signature.
+    boundary_cps[0][0] = Point3::new(1.0, 1.0, 0.0);
+    boundary_cps[3][3] = Point3::new(0.0, 0.0, 0.0);
+    let inner_cps = [
+        (
+            Point3::new(2.0 / 3.0, 2.0 / 3.0, 0.0),
+            Point3::new(2.0 / 3.0, 2.0 / 3.0, 0.0),
+        ),
+        (
+            Point3::new(1.0 / 3.0, 2.0 / 3.0, 0.0),
+            Point3::new(1.0 / 3.0, 2.0 / 3.0, 0.0),
+        ),
+        (
+            Point3::new(1.0 / 3.0, 1.0 / 3.0, 0.0),
+            Point3::new(1.0 / 3.0, 1.0 / 3.0, 0.0),
+        ),
+        (
+            Point3::new(2.0 / 3.0, 1.0 / 3.0, 0.0),
+            Point3::new(2.0 / 3.0, 1.0 / 3.0, 0.0),
+        ),
+    ];
+    let folded = RectangularGregory {
+        boundary_cps,
+        inner_cps,
+    };
+    let face_handle = brep.faces.keys().next().unwrap();
+    brep.faces[face_handle].surface = Some(SurfaceOnFace {
+        geometry: SurfaceGeometry::Gregory(GregoryPatch::Rectangular(Box::new(folded))),
+        orientation: true,
+    });
+
+    let errors = brep.validate_all();
+    let caught = errors.iter().any(|e| {
+        matches!(
+            e,
+            ValidationError::TwistedSurface { face } if *face == face_handle
+        )
+    });
+    assert!(
+        caught,
+        "§5.3 item #10: validate_all must report TwistedSurface \
+         on folded Gregory face; got errors={errors:?}"
+    );
+}

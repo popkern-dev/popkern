@@ -428,6 +428,23 @@ pub enum BlendWarning {
         /// Valence of the corner — number of incident filleted edges.
         n_sides: usize,
     },
+    /// §5.3 item #10 — the rational-Gregory three-quad dispatch
+    /// produced a sub-patch that self-intersects (fold-over or
+    /// curl-around detected by
+    /// [`GregoryPatch::self_intersects_with_tolerance`](popkern_core::geometry::gregory::GregoryPatch::self_intersects_with_tolerance)).
+    /// The corner was remediated by falling back to the single-
+    /// patch polar-NURBS construction, which always produces a
+    /// manifold (but lower-quality) blend. UIs can surface this as
+    /// an "overlap remediation" badge so the user knows the corner
+    /// used the safe fallback instead of the preferred Gregory
+    /// geometry.
+    CornerRemediationOverlap {
+        /// The vertex where the Gregory construction self-
+        /// intersected and the remediation was applied.
+        vertex: VertexHandle,
+        /// Valence of the corner.
+        n_sides: usize,
+    },
 }
 
 // The Remediation types and the per-variant remediation-hint

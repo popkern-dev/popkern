@@ -119,7 +119,27 @@ impl GregoryPatch {
             GregoryPatch::Triangular(t) => t.partial_v_uv(u, v),
         }
     }
+
+    /// §5.3 item #10 — detect self-intersection of the patch to
+    /// within `tolerance`. A patch self-intersects when (a) its
+    /// Jacobian `|∂u × ∂v|` changes sign on the domain (the
+    /// surface folds over itself), or (b) two non-adjacent
+    /// sub-quadrant AABBs overlap deeper than `tolerance` after
+    /// binary subdivision (the surface curls without folding).
+    ///
+    /// Cost: O(1) Jacobian grid + O(K²) subdivision-AABB check
+    /// where K is the sub-quadrant count (16 at depth 2). Cheap
+    /// enough for per-face runtime validation; see the
+    /// [`validate_all`](crate::topology::BRep::validate_all)
+    /// extension for the BRep-wide check.
+    ///
+    /// Returns `true` when a self-intersection is detected.
+    pub fn self_intersects_with_tolerance(&self, tolerance: f64) -> bool {
+        self_intersection::gregory_self_intersects(self, tolerance)
+    }
 }
+
+mod self_intersection;
 
 #[cfg(test)]
 #[path = "../gregory_tests.rs"]

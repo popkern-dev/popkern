@@ -84,6 +84,14 @@ impl BRep {
         {
             errors.push(e);
         }
+        // §5.3 item #10 — within-face Gregory self-intersection check.
+        // Fast (O(face count) with bounded per-face work); run
+        // unconditionally on Gregory-carrying BReps even when other
+        // errors are present, because a folded Gregory sub-patch often
+        // CAUSES the downstream manifold / intersection errors.
+        if let Err(e) = self.validate_gregory_self_intersection() {
+            errors.push(e);
+        }
 
         errors
     }

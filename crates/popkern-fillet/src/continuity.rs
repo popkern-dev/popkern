@@ -163,6 +163,7 @@ mod tests {
                 classification: VertexBlendClassification::SameSideConvex,
                 face,
                 bridge_fallbacks: Vec::new(),
+                overlap_remediated: false,
             })
             .collect()
     }
