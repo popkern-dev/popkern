@@ -158,9 +158,11 @@ fn r8_c8b_boundary_normal_curvature_deviation_gregory_wins() {
         assert!(
             matches!(
                 &best_sub.geometry,
-                SurfaceGeometry::Gregory(GregoryPatch::Rectangular(_))
+                SurfaceGeometry::Gregory(
+                    GregoryPatch::Rectangular(_) | GregoryPatch::RectangularDeg5(_)
+                )
             ),
-            "sub-face should hold a RectangularGregory surface"
+            "sub-face should hold a rectangular Gregory (cubic or deg5) surface"
         );
         let sub_result = BlendSurfaceResult {
             surface: best_sub.geometry.clone(),

@@ -266,9 +266,12 @@ pub struct FilletOptions {
     /// C8 downstream scorecard. See ADR
     /// `2026-04-17-fillet-rational-gregory-rounds-6-7-8.md`.
     pub use_rational_gregory: bool,
-    /// §5.3 item #1 opt-in — use quintic (bidegree-5) rectangular
-    /// Gregory sub-patches instead of cubic. Requires
-    /// `use_rational_gregory: true`. Default `false`.
+    /// §5.3 item #1 — use quintic (bidegree-5) rectangular Gregory
+    /// sub-patches instead of cubic. Default `true` after the
+    /// cubic-vs-quintic cross-fixture scorecard showed quintic
+    /// reduces §2.4 by 12-17pp across all non-uniform radii
+    /// configurations with no regressions. Requires
+    /// `use_rational_gregory: true`.
     pub use_deg5_gregory: bool,
 }
 
@@ -289,7 +292,7 @@ impl Default for FilletOptions {
             // path (Gregory dispatch correctly doesn't engage when
             // the sphere fit succeeds first).
             use_rational_gregory: true,
-            use_deg5_gregory: false,
+            use_deg5_gregory: true,
         }
     }
 }

@@ -184,10 +184,12 @@ fn r8_c7_dispatch_produces_three_rectangular_gregory_subpatches() {
             .as_ref()
             .expect("R8 C7: sub-face must have a surface");
         match &sof.geometry {
-            SurfaceGeometry::Gregory(GregoryPatch::Rectangular(_)) => {}
+            SurfaceGeometry::Gregory(
+                GregoryPatch::Rectangular(_) | GregoryPatch::RectangularDeg5(_),
+            ) => {}
             other => panic!(
-                "R8 C7: sub-face surface must be a rectangular Gregory; \
-                 got {other:?}"
+                "R8 C7: sub-face surface must be a rectangular Gregory \
+                 (cubic or deg5); got {other:?}"
             ),
         }
     }
@@ -386,18 +388,19 @@ fn r8_c8c_central_vertex_g1_shared_tangent_plane() {
                 .as_ref()
                 .expect("sub-patch has surface");
             match &sof.geometry {
-                SurfaceGeometry::Gregory(GregoryPatch::Rectangular(rect)) => {
+                SurfaceGeometry::Gregory(
+                    gp @ (GregoryPatch::Rectangular(_) | GregoryPatch::RectangularDeg5(_)),
+                ) => {
                     // At (u, v) = (1, 0) the rational blend's
-                    // singular limit is resolved by `point_at` /
-                    // partial_u/v; reuse those to compute the
-                    // normal directly.
-                    let pu = rect.partial_u(1.0, 0.0);
-                    let pv = rect.partial_v(1.0, 0.0);
+                    // singular limit is resolved by `partial_u/v`;
+                    // enum dispatch handles cubic and deg5 uniformly.
+                    let pu = gp.partial_u(1.0, 0.0);
+                    let pv = gp.partial_v(1.0, 0.0);
                     pu.cross(&pv)
                         .normalized()
                         .expect("non-degenerate partials at central vertex")
                 }
-                other => panic!("expected RectangularGregory, got {other:?}"),
+                other => panic!("expected rectangular Gregory, got {other:?}"),
             }
         })
         .collect();
@@ -441,3 +444,7 @@ mod g2_tests;
 #[path = "three_quad_apply_ss_tests.rs"]
 #[cfg(test)]
 mod ss_tests;
+
+#[path = "three_quad_apply_deg5_tests.rs"]
+#[cfg(test)]
+mod deg5_tests;

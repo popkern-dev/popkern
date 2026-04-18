@@ -43,8 +43,15 @@ fn r8_c8e_central_vertex_shirman_sequin_tangent_agreement() {
         })
         .collect();
     let tol = Tolerance::default();
+    // Pin this test to cubic Gregory: the SS τ formula uses
+    // `τ = 9·(P_para − P_21)` (degree² = 9) and reads `boundary_cps[2][0]`
+    // / `boundary_cps[3][1]` at the cubic 4×4 grid layout. The deg5
+    // equivalent uses `τ = 25·(…)` and `boundary_cps[4][0]` /
+    // `boundary_cps[5][1]` — tracked as a follow-up deg5-specific
+    // SS test.
     let opts = FilletOptions {
         use_rational_gregory: true,
+        use_deg5_gregory: false,
         ..FilletOptions::default()
     };
     let pipeline = crate::fillet_edges(&cube, &specs, &opts, tol, None)
