@@ -460,3 +460,7 @@ mod saddle_tests;
 #[path = "curved_support_tests.rs"]
 #[cfg(test)]
 mod curved_support_tests;
+
+#[path = "tangent_corner_integration_tests.rs"]
+#[cfg(test)]
+mod tangent_corner_integration_tests;
