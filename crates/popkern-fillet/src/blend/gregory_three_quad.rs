@@ -269,12 +269,21 @@ pub(crate) fn build_n_quad_decomposition_with_options(
         }
     }
 
-    // Pass 2: Shirman-Séquin vertex-enclosure solve at the central
-    // vertex. Delegates to `gregory_vertex_enclosure` which returns
-    // `None` in the rank-deficient case (`n_c` degenerate) — we
-    // then leave the raw parallelogram values in place.
+    // Pass 2: Shirman-Séquin spoke-wise G1 solve at the central
+    // vertex. Spoke `k` is shared between sub-patches `k` and
+    // `(k+1) mod N`; its 3-D direction at `C` points toward hex
+    // vertex `V_{2(k+1) mod 2N}` (sub-patch `k`'s `v_end` /
+    // sub-patch `(k+1)`'s `v_start`). Returns `None` for
+    // degenerate normals or when all spokes project to zero in
+    // the tangent plane; caller leaves raw parallelogram values.
     let raw_p21: Vec<Point3> = per_patch.iter().map(|(_, cps)| cps[3].0).collect();
-    let ss = shirman_sequin_vertex_enclosure_solve(c, n_c, &raw_p21);
+    let spoke_dirs: Vec<Vec3> = (0..n)
+        .map(|k| {
+            let v_shared = hex_vertices[(2 * k + 2) % two_n];
+            sub3(v_shared, c)
+        })
+        .collect();
+    let ss = shirman_sequin_vertex_enclosure_solve(c, n_c, &raw_p21, &spoke_dirs);
 
     let mut sub_patches: Vec<GregoryPatch> = Vec::with_capacity(n);
     for (k, (boundaries, mut inner_cps)) in per_patch.into_iter().enumerate() {

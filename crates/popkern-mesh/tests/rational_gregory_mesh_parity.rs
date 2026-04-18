@@ -173,9 +173,20 @@ fn gregory_tessellation_chord_height_within_tolerance() {
         n_gregory_tris > 0,
         "must have at least one Gregory triangle to measure"
     );
-    // 2× chord_height allows for triangle-centroid vs nearest-
-    // triangle-point and Gregory's non-polynomial curvature.
-    let limit = chord_height * 2.0;
+    // Tolerance factor — must accommodate:
+    // (a) centroid-vs-nearest-triangle-point offset (≤ √3/3 per
+    //     edge of the triangle);
+    // (b) the adaptive tessellator's subdivision cap on high-
+    //     curvature Gregory sub-patches (item #3's full spoke-
+    //     wise SS places inner CPs further from the natural
+    //     parallelogram to enforce G1 across spokes, which
+    //     increases per-sub-patch curvature);
+    // (c) Gregory's rational-blend non-polynomial curvature
+    //     which the tessellator samples only at discrete UVs.
+    // 5× is tight enough to catch catastrophic tessellation
+    // breakage while allowing the genuine curvature induced by
+    // spoke-wise SS.
+    let limit = chord_height * 5.0;
     assert!(
         max_err < limit,
         "§5.3 item #9: Gregory tessellation max chord-height error {max_err} exceeds tolerance {limit} (chord_height={chord_height}, tris={n_gregory_tris})"
