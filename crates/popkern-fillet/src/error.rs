@@ -414,6 +414,20 @@ pub enum BlendWarning {
         /// logging / UI display.
         surface_kind: &'static str,
     },
+    /// §5.3 item #7 — a tangent corner (dihedral ≈ π at one or
+    /// more incident edges) was resolved by a planar cap with
+    /// G1-tangent-match to the fillet arcs, rather than a curved
+    /// blend. Informational, not a failure: at a tangent
+    /// configuration the rolling-ball contact degenerates so the
+    /// planar cap is the geometrically-correct choice. A UI can
+    /// surface this as a neutral "tangent join" badge on the
+    /// affected corner.
+    TangentCornerCap {
+        /// The tangent-classified corner vertex.
+        vertex: VertexHandle,
+        /// Valence of the corner — number of incident filleted edges.
+        n_sides: usize,
+    },
 }
 
 // The Remediation types and the per-variant remediation-hint

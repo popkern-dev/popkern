@@ -18,6 +18,7 @@ pub mod runout;
 pub mod surface;
 pub(crate) mod surface_bridge;
 mod surface_math;
+pub(crate) mod tangent_corner;
 
 #[cfg(test)]
 #[path = "gregory_tests.rs"]

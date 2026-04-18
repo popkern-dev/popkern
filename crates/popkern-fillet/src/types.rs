@@ -24,25 +24,21 @@ pub struct BlendResult {
 /// corners accordingly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CornerMethod {
-    /// Rolling-ball sphere. Used when the incident blend strips
-    /// all share one radius and the convexity is uniform (e.g. a
-    /// cube corner with equal-radius fillets). G1 by construction.
+    /// Rolling-ball sphere — equal-radius cube-corner case. G1.
     RollingBallSphere,
-    /// Polar NURBS surface fit through the boundary curves —
-    /// fallback when no sphere fits cleanly. Currently G0 with
-    /// the incoming blends.
+    /// Polar NURBS surface fit through the boundary curves. G0.
     PolarNurbs,
-    /// Flat (mitred) plane fit through the boundary points. Final
-    /// legacy fallback; G0, not suitable for Class-A surfaces.
+    /// Flat (mitred) plane fit — legacy G0 fallback.
     Mitred,
-    /// §5.3 Coons patch for N=4 corners. Bilinear boundary
-    /// interpolation with G1 at each boundary. [Pending — C3.]
+    /// §5.3 Coons patch for N=4 corners. G1. [Pending — C3.]
     Coons,
-    /// §5.3 Gregory rational patch for general N. G1 reliable,
-    /// G2 implemented for N=3 and N=4 only. [Pending — C3/C4.]
+    /// §5.3 Gregory rational patch for general N. G1; G2 for N=3, 4.
     Gregory,
-    /// §5.3 Plate-minimisation (thin-plate energy). [BEYOND, not
-    /// currently implemented.]
+    /// §5.3 item #7 — planar cap at a tangent corner (dihedral ≈
+    /// π); plane normal = averaged fillet-surface normal at the
+    /// arcs. G1 with incident fillets (tangent-approximation).
+    TangentPlane,
+    /// §5.3 Plate-minimisation (thin-plate energy). [BEYOND.]
     PlateMin,
 }
 
@@ -55,6 +51,7 @@ impl CornerMethod {
             CornerMethod::Mitred => "Mitred",
             CornerMethod::Coons => "Coons",
             CornerMethod::Gregory => "Gregory",
+            CornerMethod::TangentPlane => "TangentPlane",
             CornerMethod::PlateMin => "PlateMin",
         }
     }

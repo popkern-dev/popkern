@@ -136,14 +136,20 @@ fn build_smooth_blend(
         .filter(|s| matches!(s, BoundarySegment::FilletEnd { .. }))
         .count();
 
-    // Fallback chain for smooth corner blends:
-    //   1. rolling-ball sphere (analytic, G1 natural) — gated
-    //      on `SameSideConvex` / `SameSideConcave`; saddle-type
-    //      (`OppositeSide`) and hybrid (`Mixed`) vertices can't
-    //      fit a single rolling ball and skip this step. §5.3 C6.
-    //   2. Gregory G1 (polar NURBS with G1-adjusted interior ring;
-    //      generalised to any N ≥ 2 in this commit — §5.3)
-    //   3. mitred plane (G0 final fallback)
+    // Fallback chain: (0) tangent-plane cap for Tangent classification
+    // [§5.3 item #7]; (1) rolling-ball sphere for SameSide* [§5.3 C6];
+    // (2) Gregory G1 polar-NURBS; (3) mitred plane G0.
+
+    if matches!(classification, VertexBlendClassification::Tangent)
+        && let Some(result) = super::tangent_corner::try_tangent_plane_blend(
+            boundary,
+            fillet_surfaces,
+            points,
+            &boundary_curves,
+        )
+    {
+        return Ok(result);
+    }
 
     let sphere_allowed = matches!(
         classification,
@@ -161,15 +167,9 @@ fn build_smooth_blend(
         return Ok(result);
     }
 
-    // §5.3 Round 5 polar NURBS: works for any N ≥ 2. See
-    // [`super::gregory::try_rational_gregory_blend`] for the
-    // rational-Gregory upgrade path landed alongside this commit
-    // but intentionally not yet wired at dispatch — the builder
-    // needs per-corner twist-vector extraction from incident
-    // fillet-strip surface normals before it improves on the
-    // polar-NURBS fallback. Without that step a no-twist Gregory
-    // degenerates to sphere on uniform-radius corners (redundant)
-    // or produces G0 at corners on mixed-radius ones (worse).
+    // §5.3 Round 5 polar-NURBS fallback — works for any N ≥ 2.
+    // Rational-Gregory dispatch happens upstream in
+    // `blend_insert::insert_vertex_blend` before this function.
     let _ = n_fillets;
     if let Some(result) =
         build_gregory_g1_blend(boundary, fillet_surfaces, brep, boundary_curves.clone())

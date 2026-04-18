@@ -1,19 +1,18 @@
-//! §5.3 item #6 — emit deduped surface-bridge-fallback warnings.
+//! §5.3 item #6 & #7 — per-vertex UX warnings emitted by
+//! `apply_blend_geometry` after `insert_vertex_blend` returns.
 //!
-//! Extracted from `construct/mod.rs` to keep that file under the
-//! 500-line structural cap. A corner with multiple sub-patches
-//! (e.g. three-quad Gregory dispatch at a trihedral vertex) can
-//! have the same surface-fallback name replicated across every
-//! sub-patch's `CornerPatchInfo::bridge_fallbacks`; we emit one
-//! warning per UNIQUE surface kind so UI consumers see each
-//! distinct issue exactly once.
+//! * Item #6: [`emit_bridge_fallback_warnings`] dedups
+//!   [`BlendWarning::SurfaceBridgeFallback`] across sub-patches.
+//! * Item #7: [`emit_tangent_corner_warning`] fires a single
+//!   [`BlendWarning::TangentCornerCap`] when the tangent-plane
+//!   corner method was used.
 
 use popkern_core::topology::{EdgeHandle, VertexHandle};
 
 use crate::analysis::EdgeAnalysis;
 use crate::construct::EdgeGeometry;
 use crate::error::BlendWarning;
-use crate::types::CornerPatchInfo;
+use crate::types::{CornerMethod, CornerPatchInfo};
 
 /// Push one deduped
 /// [`BlendWarning::SurfaceBridgeFallback`] per unique surface
@@ -27,7 +26,7 @@ pub(crate) fn emit_bridge_fallback_warnings(
     edge_geometries: &[EdgeGeometry],
     warnings: &mut Vec<(EdgeHandle, BlendWarning)>,
 ) {
-    let _ = std::marker::PhantomData::<EdgeAnalysis>; // doc link
+    let _ = std::marker::PhantomData::<EdgeAnalysis>;
     let mut seen: std::collections::BTreeSet<&'static str> = std::collections::BTreeSet::new();
     for info in infos {
         for kind in &info.bridge_fallbacks {
@@ -45,5 +44,37 @@ pub(crate) fn emit_bridge_fallback_warnings(
                 ));
             }
         }
+    }
+}
+
+/// Push a single
+/// [`BlendWarning::TangentCornerCap`] when any of the corner's
+/// sub-patches used [`CornerMethod::TangentPlane`]. One warning
+/// per vertex regardless of sub-patch count.
+pub(crate) fn emit_tangent_corner_warning(
+    infos: &[CornerPatchInfo],
+    vertex: VertexHandle,
+    edge_indices: &[usize],
+    edge_geometries: &[EdgeGeometry],
+    warnings: &mut Vec<(EdgeHandle, BlendWarning)>,
+) {
+    let used_tangent_plane = infos
+        .iter()
+        .any(|info| info.method == CornerMethod::TangentPlane);
+    if !used_tangent_plane {
+        return;
+    }
+    let Some(first) = infos.first() else {
+        return;
+    };
+    let edge_idx = edge_indices[0];
+    if edge_idx < edge_geometries.len() {
+        warnings.push((
+            edge_geometries[edge_idx].analysis.edge,
+            BlendWarning::TangentCornerCap {
+                vertex,
+                n_sides: first.n_sides,
+            },
+        ));
     }
 }

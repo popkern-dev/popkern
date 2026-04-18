@@ -28,6 +28,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 use crate::analysis::EdgeAnalysis;
 use crate::error::{BlendFailure, BlendWarning};
 use crate::types::VertexMode;
+
 use phase_split::{FaceTrim, TrimSplitResult};
 
 /// Geometry computed for one fillet/chamfer edge.
@@ -47,25 +48,22 @@ pub struct EdgeGeometry {
     pub pcurve_2: NurbsCurve,
     /// Average fillet/chamfer radius (kept for legacy callers).
     pub effective_radius: f64,
-    /// Radius at the edge's start vertex. Constant spec ⇒ `effective_radius`;
-    /// `Variable { start, end }` ⇒ `start`. Drives the perpendicular split.
+    /// Radius at the edge's start vertex (constant ⇒
+    /// `effective_radius`; variable ⇒ `start`).
     pub radius_at_start: f64,
-    /// Radius at the edge's end vertex. `Variable { end }` analogue.
+    /// Radius at the edge's end vertex.
     pub radius_at_end: f64,
-    /// §18 telemetry: walker-path Newton iterations (legacy path = None).
+    /// §18 telemetry: walker-path Newton iterations.
     pub iterations_used: Option<usize>,
-    /// §18 telemetry: walker-path line-search rejections (legacy = None).
-    /// A high value vs `iterations_used` flags ill-conditioned contact.
+    /// §18 telemetry: line-search rejections.
     pub step_rejections_used: Option<usize>,
     /// §8.3 start-endpoint cap (`None` when `cap_kind == Open`).
     pub start_cap: Option<crate::cap::CapGeometry>,
     /// §8.3 end-endpoint cap (`None` when `cap_kind == Open`).
     pub end_cap: Option<crate::cap::CapGeometry>,
-    /// §7 continuity downgrade record: `Some((achieved_level, reason))`
-    /// when the engine fell back from the requested continuity. The
-    /// caller picks this up after `compute_fillet_geometry` returns
-    /// and emits a [`crate::error::BlendWarning::ContinuityDowngraded`]
-    /// on the result's `edge_warnings` list.
+    /// §7 continuity downgrade record — `Some((achieved, reason))`
+    /// when the engine fell back; caller emits
+    /// [`BlendWarning::ContinuityDowngraded`](crate::error::BlendWarning::ContinuityDowngraded).
     pub continuity_downgrade: Option<(crate::types::ContinuityLevel, String)>,
 }
 
@@ -105,23 +103,15 @@ pub fn apply_blend_geometry(
     }
     let mut perp_data: Vec<Option<PerpSplitData>> = Vec::new();
 
-    // Track which edges took the closed-fillet path (and so are
-    // already finalised); they skip Phase B and Phase C entirely.
+    // Closed-fillet-handled edges skip Phase B/C.
     let mut closed_handled: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
-    // Round 5r+: capture an immutable snapshot *before* any perp
-    // splits mutate `result`. Each fillet edge's anchor positions
-    // are computed from this snapshot (the un-fragmented original
-    // geometry), while the vertex inserts go into the mutable
-    // `result` via position-based sub-edge lookup.
+    // Round 5r+: immutable snapshot before Phase A mutates `result`;
+    // anchor positions come from here, vertex inserts go into `result`.
     let phase_a_snapshot = result.clone();
 
-    // Round 5r+: descendants map — for each original fillet edge,
-    // the set of current sub-edge handles descended from it via
-    // Phase A's perp splits. Phase C uses this to locate the
-    // consumed face by matching *any* descendant half-edge on the
-    // face's outer loop, rather than only the now-possibly-shortened
-    // canonical handle.
+    // Round 5r+: per-original-edge descendants after Phase A splits,
+    // used in Phase C to locate consumed faces by any descendant HE.
     let mut descendants: HashMap<EdgeHandle, Vec<EdgeHandle>> = HashMap::new();
     for eg in edge_geometries {
         descendants.insert(eg.analysis.edge, vec![eg.analysis.edge]);
@@ -448,6 +438,13 @@ pub fn apply_blend_geometry(
                 ) {
                     Ok(infos) => {
                         bridge_warnings::emit_bridge_fallback_warnings(
+                            &infos,
+                            *vertex,
+                            edge_indices,
+                            edge_geometries,
+                            &mut warnings,
+                        );
+                        bridge_warnings::emit_tangent_corner_warning(
                             &infos,
                             *vertex,
                             edge_indices,
