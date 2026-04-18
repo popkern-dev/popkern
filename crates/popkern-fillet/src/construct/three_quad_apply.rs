@@ -19,7 +19,7 @@
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
-use super::poke_hex::poke_hex_face_into_three_quads;
+use super::poke_hex::poke_n_gon_face_into_n_quads;
 use crate::blend::boundary::BlendBoundary;
 use crate::blend::gregory_three_quad::build_n_quad_decomposition_with_degree;
 use crate::fillet_surface::FilletSurfaceResult;
@@ -51,8 +51,16 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     let decomp = build_n_quad_decomposition_with_degree(boundary, fillet_surfaces, use_deg5)
         .ok_or_else(|| "boundary not decomposable into N quads".to_string())?;
 
-    let poke = poke_hex_face_into_three_quads(brep, blend_face, decomp.central_point)
-        .map_err(|e| format!("poke_hex failed: {e}"))?;
+    let poke = poke_n_gon_face_into_n_quads(brep, blend_face, decomp.central_point)
+        .map_err(|e| format!("poke failed: {e}"))?;
+    if poke.sub_faces.len() != decomp.sub_patches.len() {
+        return Err(format!(
+            "poke/decomposition size mismatch: poke produced {} sub-faces, \
+             decomposition has {} sub-patches",
+            poke.sub_faces.len(),
+            decomp.sub_patches.len()
+        ));
+    }
 
     let mut patches = Vec::with_capacity(decomp.sub_patches.len());
     for (sub_face, sub_patch) in poke.sub_faces.iter().zip(decomp.sub_patches.iter()) {

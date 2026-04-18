@@ -448,3 +448,11 @@ mod ss_tests;
 #[path = "three_quad_apply_deg5_tests.rs"]
 #[cfg(test)]
 mod deg5_tests;
+
+#[path = "three_quad_apply_n_quad_tests.rs"]
+#[cfg(test)]
+mod n_quad_tests;
+
+#[path = "saddle_dispatch_tests.rs"]
+#[cfg(test)]
+mod saddle_tests;
