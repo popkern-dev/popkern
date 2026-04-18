@@ -19,6 +19,7 @@ use crate::construct::blend_topo::{
 use crate::construct::poke_hex::face_has_2n_outer_half_edges;
 use crate::construct::three_quad_apply::apply_three_quad_decomposition_to_blend;
 use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo, VertexMode};
+use crate::vertex_classifier::VertexBlendClassification;
 
 /// Insert a smooth G1 vertex blend face at a multi-fillet vertex.
 ///
@@ -83,25 +84,32 @@ pub(crate) fn insert_vertex_blend(
     // fire there — hence the early capture.
     let fillet_surfaces_pre = build_fillet_surface_list(edge_indices, edge_geometries);
     let local_indices_pre: Vec<usize> = (0..fillet_surfaces_pre.len()).collect();
-    // §5.3 item #4 — N ≥ 3 dispatch. Previously gated at N == 3
-    // (hexagonal boundary, 3 Gregory sub-patches); the N-quad
-    // decomposition now handles any N ≥ 3 with a `2N`-segment
-    // alternating boundary.
+    // §5.3 item #4 — N ≥ 3 dispatch.
+    // §5.3 item #5 — saddle gate: `OppositeSide`/`Mixed`
+    // classifications need a ridge-centered central point and
+    // signed-normal twist extraction that the current three-quad
+    // geometry doesn't provide; route them to polar-NURBS until
+    // a saddle fixture lets us validate the alternate geometry.
     let n_sides = edge_indices.len();
-    let n_gon_boundary: Option<BlendBoundary> = if use_rational_gregory && n_sides >= 3 {
-        match blend::compute_blend_boundary(
-            vertex,
-            &local_indices_pre,
-            &fillet_surfaces_pre,
-            brep,
-            tolerance,
-        ) {
-            Ok(b) if b.segments.len() == 2 * n_sides => Some(b),
-            _ => None,
-        }
-    } else {
-        None
-    };
+    let rational_gregory_compatible = matches!(
+        classification,
+        VertexBlendClassification::SameSideConvex | VertexBlendClassification::SameSideConcave,
+    );
+    let n_gon_boundary: Option<BlendBoundary> =
+        if use_rational_gregory && n_sides >= 3 && rational_gregory_compatible {
+            match blend::compute_blend_boundary(
+                vertex,
+                &local_indices_pre,
+                &fillet_surfaces_pre,
+                brep,
+                tolerance,
+            ) {
+                Ok(b) if b.segments.len() == 2 * n_sides => Some(b),
+                _ => None,
+            }
+        } else {
+            None
+        };
 
     // Phase 1: For each face, cut a chord between the face's two
     // fillet-trim-endpoint anchors. The V-containing sub-face is
@@ -176,6 +184,7 @@ pub(crate) fn insert_vertex_blend(
     // If any condition fails, we return the single-blend result
     // from the legacy path unchanged.
     if use_rational_gregory
+        && rational_gregory_compatible
         && let Some(boundary) = n_gon_boundary.as_ref()
         && boundary.segments.len() == 2 * n_sides
         && face_has_2n_outer_half_edges(brep, blend_face, n_sides)
