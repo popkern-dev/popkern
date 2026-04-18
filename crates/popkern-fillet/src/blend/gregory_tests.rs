@@ -120,6 +120,7 @@ fn try_rational_gregory_on_synthetic_cube_corner() {
                 curve: arc_zx,
             },
         ],
+        bridge_fallbacks: Vec::new(),
     };
     let fillet_surfaces = vec![
         FilletSurfaceResult {
@@ -256,6 +257,7 @@ fn try_rational_gregory_rejects_mixed_radii() {
                 curve: curve.clone(),
             },
         ],
+        bridge_fallbacks: Vec::new(),
     };
     let fillet_surfaces: Vec<_> = [0.08, 0.10, 0.12]
         .iter()

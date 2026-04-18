@@ -75,6 +75,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             achieved_continuity: ContinuityLevel::G1,
             classification,
             face: *sub_face,
+            bridge_fallbacks: boundary.bridge_fallbacks.clone(),
         });
     }
     Ok(patches)

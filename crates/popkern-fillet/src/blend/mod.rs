@@ -16,6 +16,7 @@ pub(crate) mod gregory_three_quad;
 pub(crate) mod gregory_vertex_enclosure;
 pub mod runout;
 pub mod surface;
+pub(crate) mod surface_bridge;
 mod surface_math;
 
 #[cfg(test)]

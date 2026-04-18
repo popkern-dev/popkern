@@ -456,3 +456,7 @@ mod n_quad_tests;
 #[path = "saddle_dispatch_tests.rs"]
 #[cfg(test)]
 mod saddle_tests;
+
+#[path = "curved_support_tests.rs"]
+#[cfg(test)]
+mod curved_support_tests;

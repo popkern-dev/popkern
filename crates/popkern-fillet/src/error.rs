@@ -388,6 +388,32 @@ pub enum BlendWarning {
         /// interior may degrade").
         reason: String,
     },
+    /// §5.3 item #6 — a face-edge bridge in the vertex-blend
+    /// boundary construction fell back to a straight-line cubic
+    /// Bezier because the generalised surface-hugging bridge
+    /// couldn't be built on the face's supporting surface (e.g.,
+    /// degenerate UV projection at a singular NURBS point).
+    ///
+    /// The straight-line bridge still interpolates the arc
+    /// endpoints correctly and the downstream Gregory fit
+    /// re-samples the bridge — so the blend surface is valid
+    /// but may sit slightly *off* the supporting face near the
+    /// bridge, rather than hugging it. Surfaces downstream of
+    /// the blend (mesh tessellation, boolean consumers) may
+    /// show a visible seam where the bridge leaves the face.
+    ///
+    /// Callers can surface this warning in a UI as "curved-
+    /// support blend fell back to planar approximation" — in
+    /// the common case (planar supports), this variant is never
+    /// emitted.
+    SurfaceBridgeFallback {
+        /// The vertex whose blend boundary triggered the fallback.
+        vertex: VertexHandle,
+        /// Short description of which surface type the fallback
+        /// occurred on (e.g., `"Cylinder"`, `"NURBS"`) — for
+        /// logging / UI display.
+        surface_kind: &'static str,
+    },
 }
 
 // The Remediation types and the per-variant remediation-hint

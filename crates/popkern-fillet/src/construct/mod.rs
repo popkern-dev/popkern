@@ -1,17 +1,11 @@
 //! Topology construction — apply fillet/chamfer geometry to the BRep.
-//!
-//! Three-phase single-pass approach, followed by surface-fix,
-//! sliver absorb (§13.1(2)), and §8.3 cap insertion post-passes:
-//!
-//! - **Phase A**: split ALL perpendicular edges (no face changes)
-//! - **Phase B**: multi-chord face splits honouring chord-chord
-//!   intersections (see `multi_chord.rs`); tracks per-fillet-edge
-//!   descendants so Phase C finds the right sub-edges
-//! - **Phase C**: merge consumed pairs via kef and assign fillet
-//!   surfaces using the descendants-aware `_any` helpers
+//! 3-phase single-pass (A: perp splits, B: multi-chord face splits,
+//! C: kef merge + surface assign) then surface-fix, sliver-absorb
+//! (§13.1(2)), and §8.3 cap insertion post-passes.
 
 pub(crate) mod blend_insert;
 pub(crate) mod blend_topo;
+mod bridge_warnings;
 pub(crate) mod cap_insert;
 pub(crate) mod closed_fillet;
 pub(crate) mod helpers;
@@ -86,14 +80,9 @@ pub struct ApplyBlendResult {
     pub corner_patches: Vec<crate::types::CornerPatchInfo>,
 }
 
-/// Apply computed fillet/chamfer geometry to a BRep.
-///
-/// Three-phase topology construction:
-///   Phase A: split ALL perpendicular edges (no face changes)
-///   Phase B: split ALL faces by trim curves (tracking sub-faces)
-///   Phase C: merge ALL consumed pairs via kef (assign fillet surfaces)
-///
-/// Returns the modified BRep or a list of per-edge failures.
+/// Apply computed fillet/chamfer geometry to a BRep. Three-phase:
+/// A = perp splits, B = multi-chord face splits, C = kef merge +
+/// surface assign. Returns the modified BRep or per-edge failures.
 pub fn apply_blend_geometry(
     brep: &BRep,
     edge_geometries: &[EdgeGeometry],
@@ -457,7 +446,16 @@ pub fn apply_blend_geometry(
                     use_rational_gregory,
                     use_deg5_gregory,
                 ) {
-                    Ok(infos) => corner_patches.extend(infos),
+                    Ok(infos) => {
+                        bridge_warnings::emit_bridge_fallback_warnings(
+                            &infos,
+                            *vertex,
+                            edge_indices,
+                            edge_geometries,
+                            &mut warnings,
+                        );
+                        corner_patches.extend(infos);
+                    }
                     Err(_) => {
                         let edge_idx = edge_indices[0];
                         if edge_idx < edge_geometries.len() {

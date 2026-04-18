@@ -155,11 +155,14 @@ pub(crate) fn insert_vertex_blend(
     // half-edge pairs.
     kev_v_bridge(brep, vertex)?;
 
-    // Phase 3 orphan (idempotent): V is usually already removed by
-    // the kev above; but a non-generic topology with no bridge
-    // still needs this safety net.
+    // Phase 3 orphan (idempotent safety net for no-bridge cases).
     remove_orphaned_vertex(brep, vertex);
 
+    // §5.3 item #6 — propagate pre-merge bridge-fallback names.
+    let bridge_fallbacks = n_gon_boundary
+        .as_ref()
+        .map(|b| b.bridge_fallbacks.clone())
+        .unwrap_or_default();
     let base_patch = CornerPatchInfo {
         vertex,
         n_sides: edge_indices.len(),
@@ -167,6 +170,7 @@ pub(crate) fn insert_vertex_blend(
         achieved_continuity,
         classification,
         face: blend_face,
+        bridge_fallbacks: bridge_fallbacks.clone(),
     };
 
     // §5.3 item #4 — N ≥ 3 rational-Gregory dispatch. Falls

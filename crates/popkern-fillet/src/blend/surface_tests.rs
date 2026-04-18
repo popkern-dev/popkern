@@ -32,6 +32,7 @@ fn make_blend_boundary(vertex: VertexHandle) -> BlendBoundary {
         vertex,
         vertex_position: Point3::new(0.0, 0.0, 0.0),
         segments: vec![seg1, seg2],
+        bridge_fallbacks: Vec::new(),
     }
 }
 
@@ -87,6 +88,7 @@ fn smooth_blend_two_fillets() {
         vertex,
         vertex_position: Point3::new(0.0, 0.0, 0.0),
         segments: vec![seg1, seg2],
+        bridge_fallbacks: Vec::new(),
     };
 
     let fillets: Vec<FilletSurfaceResult> = Vec::new();
@@ -120,6 +122,7 @@ fn blend_surface_empty_boundary() {
         vertex,
         vertex_position: Point3::new(0.0, 0.0, 0.0),
         segments: vec![],
+        bridge_fallbacks: Vec::new(),
     };
 
     let result = build_blend_surface(

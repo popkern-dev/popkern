@@ -24,6 +24,13 @@ pub struct BlendBoundary {
     pub vertex_position: Point3,
     /// Boundary curve segments (alternating fillet-end arcs and face edge segments).
     pub segments: Vec<BoundarySegment>,
+    /// §5.3 item #6 — names of support surfaces where the
+    /// surface-hugging bridge construction failed and the code
+    /// fell back to a straight-line Bezier. Used by
+    /// `insert_vertex_blend` to emit
+    /// [`BlendWarning::SurfaceBridgeFallback`](crate::error::BlendWarning::SurfaceBridgeFallback).
+    /// Empty in the common all-planar case.
+    pub bridge_fallbacks: Vec<&'static str>,
 }
 
 /// A single segment of a blend boundary.
@@ -88,24 +95,18 @@ pub fn compute_blend_boundary(
         fillet_endpoints.push(ep);
     }
 
-    // Find the planar faces at this vertex. §5.3 Round 8 C1 face-
-    // edge bridges are only emitted when every adjacent face at
-    // the vertex is a `Plane` — the curved-support case is a
-    // follow-up round (needs surface-isocurve bridge construction).
+    // Collect the supporting surface of every face incident to the
+    // vertex. §5.3 item #6 lifts the prior planes-only restriction
+    // — the face-edge-bridge builder now handles any C² surface
+    // (Plane, Cylinder, Sphere, Cone, Torus, NURBS, Gregory) via
+    // [`build_surface_bridge`](super::surface_bridge::build_surface_bridge).
     let faces_at_vertex = faces_at_vertex_set(brep, vertex);
-    let planar_faces: Vec<(FaceHandle, Point3, Vec3)> = faces_at_vertex
+    let face_supports: Vec<(FaceHandle, popkern_core::geometry::SurfaceGeometry)> = faces_at_vertex
         .iter()
         .filter_map(|&fh| {
             let face = brep.faces.get(fh)?;
             let sof = face.surface.as_ref()?;
-            if let popkern_core::geometry::surface::SurfaceGeometry::Plane {
-                origin, normal, ..
-            } = &sof.geometry
-            {
-                Some((fh, *origin, *normal))
-            } else {
-                None
-            }
+            Some((fh, sof.geometry.clone()))
         })
         .collect();
 
@@ -124,14 +125,19 @@ pub fn compute_blend_boundary(
     // cube face — the caller's `fillet_indices` order may not be
     // CCW around the vertex.
     let mut segments = Vec::with_capacity(n * 2);
-    let all_planar = !planar_faces.is_empty() && planar_faces.len() == faces_at_vertex.len();
+    let mut bridge_fallbacks: Vec<&'static str> = Vec::new();
+    // §5.3 item #6 — previously the hex-closure path required
+    // `all_planar`. Now it runs whenever every face at the vertex
+    // has a defined supporting surface (any variant).
+    let has_face_supports =
+        !face_supports.is_empty() && face_supports.len() == faces_at_vertex.len();
 
-    if all_planar && n >= 2 {
+    if has_face_supports && n >= 2 {
         let reorder = reorient_arcs_for_hex_closure(
             fillet_indices,
             &fillet_arcs,
             &fillet_endpoints,
-            &planar_faces,
+            &face_supports,
             tolerance.linear().max(1e-6),
         );
         if let Some((order, flip, arc_by_k)) = reorder {
@@ -163,19 +169,23 @@ pub fn compute_blend_boundary(
                 };
                 let arc_end = current_endpoints[1];
                 let next_start = next_endpoints[0];
-                if let Some(bridge) = build_face_edge_bridge_between(
+                if let Some((bridge, fallback_kind)) = build_face_edge_bridge_between(
                     &arc_end,
                     &next_start,
-                    &planar_faces,
+                    &face_supports,
                     tolerance.linear().max(1e-6),
                 ) {
                     segments.push(bridge);
+                    if let Some(kind) = fallback_kind {
+                        bridge_fallbacks.push(kind);
+                    }
                 }
             }
             return Ok(BlendBoundary {
                 vertex,
                 vertex_position: vertex_pos,
                 segments,
+                bridge_fallbacks,
             });
         }
         // Fall through to the FilletEnd-only path if reorientation
@@ -197,6 +207,7 @@ pub fn compute_blend_boundary(
         vertex,
         vertex_position: vertex_pos,
         segments,
+        bridge_fallbacks,
     })
 }
 

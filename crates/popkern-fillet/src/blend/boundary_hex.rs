@@ -1,11 +1,19 @@
-//! §5.3 Round 8 C1 hexagonal-boundary helpers.
+//! §5.3 Round 8 C1 hexagonal-boundary helpers + §5.3 item #6
+//! curved-support generalization.
 //!
 //! Extracted from `boundary.rs` to stay under the 500-line cap.
 //! These functions drive the face-edge-bridge emission path in
-//! `compute_blend_boundary` — they walk the incident planar faces
-//! at a multi-fillet vertex, pair consecutive arc endpoints, and
-//! construct straight-line bridge segments on the shared cube
-//! face to form a closed hexagonal boundary.
+//! `compute_blend_boundary` — they walk the incident faces at a
+//! multi-fillet vertex, pair consecutive arc endpoints, and
+//! construct bridge segments on the shared face (via
+//! [`surface_bridge`](super::surface_bridge)) to form a closed
+//! hexagonal / N-gon boundary.
+//!
+//! **Item #6 upgrade:** the planar-only restriction is lifted —
+//! any face whose surface is well-defined (Plane, Cylinder,
+//! Sphere, Cone, Torus, NURBS, Gregory) can host a bridge. The
+//! point-on-face distance check generalises from plane-normal
+//! projection to `point_on_surface_distance`.
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -13,6 +21,9 @@ use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::topology::FaceHandle;
 
 use super::boundary::BoundarySegment;
+use super::surface_bridge::{
+    build_straight_line_bridge, build_surface_bridge, point_on_surface_distance, surface_kind_name,
+};
 
 /// Reorient fillet arcs so consecutive arcs share a cube face via
 /// a connecting endpoint pair, and the bridge from `arc[k].end`
@@ -33,7 +44,7 @@ pub(super) fn reorient_arcs_for_hex_closure(
     fillet_indices: &[usize],
     fillet_arcs: &[NurbsCurve],
     fillet_endpoints: &[[Point3; 2]],
-    planar_faces: &[(FaceHandle, Point3, Vec3)],
+    face_supports: &[(FaceHandle, SurfaceGeometry)],
     tol_linear: f64,
 ) -> Option<(Vec<usize>, Vec<bool>, Vec<NurbsCurve>)> {
     let n = fillet_indices.len();
@@ -62,9 +73,9 @@ pub(super) fn reorient_arcs_for_hex_closure(
             }
             for cand_flip in [false, true] {
                 let cand_start = if cand_flip { ep[1] } else { ep[0] };
-                for (_, origin, normal) in planar_faces {
-                    let d1 = point_plane_distance(&prev_end, origin, normal);
-                    let d2 = point_plane_distance(&cand_start, origin, normal);
+                for (_, surface) in face_supports {
+                    let d1 = point_on_surface_distance(&prev_end, surface);
+                    let d2 = point_on_surface_distance(&cand_start, surface);
                     if d1 <= tol_linear && d2 <= tol_linear {
                         best = Some((cand_idx, cand_flip));
                         break 'search;
@@ -90,13 +101,6 @@ pub(super) fn reorient_arcs_for_hex_closure(
         .collect();
 
     Some((order, flip, oriented_arcs))
-}
-
-/// Unsigned distance from `p` to the plane with `origin` and
-/// unit-length `normal`.
-pub(super) fn point_plane_distance(p: &Point3, origin: &Point3, normal: &Vec3) -> f64 {
-    let d = Vec3::new(p.x - origin.x, p.y - origin.y, p.z - origin.z);
-    d.dot(normal).abs()
 }
 
 /// Reverse a NURBS curve's parameter direction by reversing the
@@ -235,33 +239,53 @@ pub(super) fn cubic_nurbs_from_control_points(pts: [Point3; 4]) -> Result<NurbsC
 }
 
 /// Build a face-edge bridge curve between two 3D points, picking
-/// whichever planar face contains both within `tol_linear`. The
-/// bridge is a straight line sampled through a midpoint and fitted
-/// as a degree-1 NURBS.
+/// whichever supporting face contains both within `tol_linear`.
+/// The bridge follows the face's underlying
+/// [`SurfaceGeometry`] — straight line on a plane, surface arc on
+/// a cylinder / sphere / cone / torus, UV-linear on a NURBS /
+/// Gregory. Falls back to a straight-line cubic Bezier if the
+/// surface bridge construction fails (e.g., degenerate surface
+/// parameterisation).
+///
+/// **§5.3 item #6:** generalised from planes-only (where bridges
+/// were straight-line degree-1 NURBS) to every supported surface
+/// variant. The downstream `build_n_quad_decomposition` path
+/// re-samples the bridge via `fit_cubic_bezier_through`, so the
+/// key requirement is that the bridge (a) lies on the face
+/// surface and (b) interpolates `pa` / `pb`.
 pub(super) fn build_face_edge_bridge_between(
     pa: &Point3,
     pb: &Point3,
-    planar_faces: &[(FaceHandle, Point3, Vec3)],
+    face_supports: &[(FaceHandle, SurfaceGeometry)],
     tol_linear: f64,
-) -> Option<BoundarySegment> {
-    let mut best: Option<(FaceHandle, f64)> = None;
-    for (face, origin, normal) in planar_faces {
-        let da = point_plane_distance(pa, origin, normal);
-        let db = point_plane_distance(pb, origin, normal);
+) -> Option<(BoundarySegment, Option<&'static str>)> {
+    // Pick the face whose surface contains BOTH endpoints within
+    // tolerance, breaking ties by the smaller max-distance metric.
+    let mut best: Option<(FaceHandle, &SurfaceGeometry, f64)> = None;
+    for (face, surface) in face_supports {
+        let da = point_on_surface_distance(pa, surface);
+        let db = point_on_surface_distance(pb, surface);
         let worst = da.max(db);
         if worst <= tol_linear {
             match &best {
-                Some((_, cur)) if *cur <= worst => {}
-                _ => best = Some((*face, worst)),
+                Some((_, _, cur)) if *cur <= worst => {}
+                _ => best = Some((*face, surface, worst)),
             }
         }
     }
-    let (face, _) = best?;
-    let mid = Point3::new(
-        (pa.x + pb.x) * 0.5,
-        (pa.y + pb.y) * 0.5,
-        (pa.z + pb.z) * 0.5,
-    );
-    let curve = crate::center_curve::fit_nurbs_through_points(&[*pa, mid, *pb]).ok()?;
-    Some(BoundarySegment::FaceEdge { face, curve })
+    let (face, surface, _) = best?;
+    // Primary path: surface-hugging cubic Bezier. No fallback flag.
+    if let Some(curve) = build_surface_bridge(pa, pb, surface, tol_linear) {
+        return Some((BoundarySegment::FaceEdge { face, curve }, None));
+    }
+    // Fallback: straight-line Bezier (interpolates endpoints but
+    // may leave the surface slightly on curved faces — still a
+    // usable bridge for the downstream Gregory fit, which samples
+    // the curve and re-fits cubic anyway). Return the surface kind
+    // so the caller can emit a `SurfaceBridgeFallback` warning.
+    let curve = build_straight_line_bridge(pa, pb)?;
+    Some((
+        BoundarySegment::FaceEdge { face, curve },
+        Some(surface_kind_name(surface)),
+    ))
 }

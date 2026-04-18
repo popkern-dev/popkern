@@ -162,6 +162,7 @@ mod tests {
                 achieved_continuity: *cont,
                 classification: VertexBlendClassification::SameSideConvex,
                 face,
+                bridge_fallbacks: Vec::new(),
             })
             .collect()
     }
