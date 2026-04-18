@@ -16,6 +16,7 @@ use crate::construct::blend_topo::{
     find_face_trim_anchors, find_halfedge_from_vertex_in_face, identify_corner_face,
     repair_vertex_outgoing,
 };
+use crate::construct::poke_hex::face_has_2n_outer_half_edges;
 use crate::construct::three_quad_apply::apply_three_quad_decomposition_to_blend;
 use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo, VertexMode};
 
@@ -82,7 +83,12 @@ pub(crate) fn insert_vertex_blend(
     // fire there — hence the early capture.
     let fillet_surfaces_pre = build_fillet_surface_list(edge_indices, edge_geometries);
     let local_indices_pre: Vec<usize> = (0..fillet_surfaces_pre.len()).collect();
-    let hex_boundary: Option<BlendBoundary> = if use_rational_gregory && edge_indices.len() == 3 {
+    // §5.3 item #4 — N ≥ 3 dispatch. Previously gated at N == 3
+    // (hexagonal boundary, 3 Gregory sub-patches); the N-quad
+    // decomposition now handles any N ≥ 3 with a `2N`-segment
+    // alternating boundary.
+    let n_sides = edge_indices.len();
+    let n_gon_boundary: Option<BlendBoundary> = if use_rational_gregory && n_sides >= 3 {
         match blend::compute_blend_boundary(
             vertex,
             &local_indices_pre,
@@ -90,7 +96,7 @@ pub(crate) fn insert_vertex_blend(
             brep,
             tolerance,
         ) {
-            Ok(b) if b.segments.len() == 6 => Some(b),
+            Ok(b) if b.segments.len() == 2 * n_sides => Some(b),
             _ => None,
         }
     } else {
@@ -160,19 +166,19 @@ pub(crate) fn insert_vertex_blend(
         face: blend_face,
     };
 
-    // R8 C7 — if rational-Gregory dispatch is on AND the merged
-    // face is a clean hex (R8 C6's manifold output) AND we have
-    // a pre-merge hex boundary, poke the hex into three
+    // §5.3 item #4 — if rational-Gregory dispatch is on AND we
+    // have a `2N`-segment pre-merge boundary AND the merged face
+    // has `2N` outer half-edges, poke the polygon into N
     // rectangular-Gregory sub-patches. The helper overwrites
-    // `blend_face`'s NURBS surface and adds two new sub-faces; it
-    // returns three `CornerPatchInfo`s — one per sub-patch.
+    // `blend_face`'s NURBS surface and adds `N−1` new sub-faces;
+    // it returns `N` `CornerPatchInfo`s — one per sub-patch.
     //
     // If any condition fails, we return the single-blend result
     // from the legacy path unchanged.
     if use_rational_gregory
-        && let Some(boundary) = hex_boundary.as_ref()
-        && boundary.segments.len() == 6
-        && face_is_hex(brep, blend_face)
+        && let Some(boundary) = n_gon_boundary.as_ref()
+        && boundary.segments.len() == 2 * n_sides
+        && face_has_2n_outer_half_edges(brep, blend_face, n_sides)
     {
         match apply_three_quad_decomposition_to_blend(
             brep,
@@ -183,36 +189,12 @@ pub(crate) fn insert_vertex_blend(
             edge_indices.len(),
             classification,
         ) {
-            Ok(patches) if patches.len() == 3 => return Ok(patches),
+            Ok(patches) if patches.len() == n_sides => return Ok(patches),
             _ => {} // Fall through with base patch on failure.
         }
     }
 
     Ok(vec![base_patch])
-}
-
-/// Check whether a face's outer loop has exactly 6 half-edges —
-/// the precondition for `poke_hex_face_into_three_quads`. Walks
-/// the loop, caps at 12 to guard against unterminated loops.
-fn face_is_hex(brep: &BRep, face: FaceHandle) -> bool {
-    let Some(face_data) = brep.faces.get(face) else {
-        return false;
-    };
-    let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
-        return false;
-    };
-    let start = loop_data.half_edge;
-    if !brep.half_edges.contains_key(start) {
-        return false;
-    }
-    let mut cursor = start;
-    for n in 1..=12 {
-        cursor = brep.half_edges[cursor].next;
-        if cursor == start {
-            return n == 6;
-        }
-    }
-    false
 }
 
 /// Phase 1: Split off corner regions from each face around V using

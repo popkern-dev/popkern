@@ -47,38 +47,47 @@ use super::boundary::{BlendBoundary, BoundarySegment};
 use super::gregory::fit_cubic_bezier_through;
 use crate::fillet_surface::FilletSurfaceResult;
 
-/// Three rectangular Gregory sub-patches meeting at a central
-/// point, decomposing a hexagonal vertex-blend boundary.
-#[allow(dead_code)] // diagnostic / follow-up: wired in R8 C4+
+/// `N` rectangular Gregory sub-patches meeting at a central point,
+/// decomposing a `2N`-segment vertex-blend boundary (alternating
+/// FilletEnd / FaceEdge). `N = 3` is the trihedral hex case; `N ≥
+/// 4` covers pyramid apex, hub-and-spoke fittings, etc.
+#[allow(dead_code)] // diagnostic / follow-up
 #[derive(Debug)]
-pub(crate) struct ThreeQuadDecomposition {
-    /// The central point shared by all three sub-patches.
+pub(crate) struct NQuadDecomposition {
+    /// The central point shared by all `N` sub-patches.
     pub central_point: Point3,
-    /// Sub-patches in hex-CCW order starting from arc 0.
-    pub sub_patches: [RectangularGregory; 3],
+    /// Sub-patches in CCW order starting from arc 0. Length `N`.
+    pub sub_patches: Vec<RectangularGregory>,
 }
 
-/// Build a three-quad decomposition of a hexagonal boundary.
+/// Back-compat alias for the N=3 trihedral case.
+#[allow(dead_code)]
+pub(crate) type ThreeQuadDecomposition = NQuadDecomposition;
+
+/// Build an N-quad decomposition of a `2N`-segment boundary.
 ///
-/// The boundary must have exactly 6 segments alternating
-/// `FilletEnd` (even indices) / `FaceEdge` (odd indices). Returns
-/// `None` if the structure doesn't match or any sub-patch's
-/// cubic-Bezier boundary fit fails the corner-coincidence check.
+/// The boundary must have an even number `2N ≥ 6` of segments
+/// alternating `FilletEnd` (even indices) / `FaceEdge` (odd
+/// indices). Returns `None` if the structure doesn't match or any
+/// sub-patch's cubic-Bezier boundary fit fails the corner-
+/// coincidence check.
 ///
 /// `fillet_surfaces` are the incident fillet strips (one per
-/// `FilletEnd` segment), passed through so hex-corner inner CPs
-/// can be projected onto the strip tangent plane for G1 parity
-/// with the adjacent fillet surfaces (§5.3 C4b.2 twist
-/// extraction). Pass an empty slice to skip that refinement and
-/// fall back to the pure-parallelogram minimum-twist baseline.
-#[allow(dead_code)] // wired in R8 C4+
-pub(crate) fn build_three_quad_decomposition(
+/// `FilletEnd` segment), passed through so corner inner CPs can be
+/// projected onto the strip tangent plane for G1 parity with the
+/// adjacent fillet surfaces (§5.3 C4b.2 twist extraction). Pass an
+/// empty slice to skip that refinement and fall back to the pure-
+/// parallelogram minimum-twist baseline.
+#[allow(dead_code)]
+pub(crate) fn build_n_quad_decomposition(
     boundary: &BlendBoundary,
     fillet_surfaces: &[FilletSurfaceResult],
-) -> Option<ThreeQuadDecomposition> {
-    if boundary.segments.len() != 6 {
+) -> Option<NQuadDecomposition> {
+    let two_n = boundary.segments.len();
+    if two_n < 6 || !two_n.is_multiple_of(2) {
         return None;
     }
+    let n = two_n / 2;
     // Verify alternation.
     for (i, seg) in boundary.segments.iter().enumerate() {
         match (i % 2, seg) {
@@ -87,8 +96,8 @@ pub(crate) fn build_three_quad_decomposition(
         }
     }
 
-    // Extract 6 hex vertices (one per segment start).
-    let mut hex_vertices: Vec<Point3> = Vec::with_capacity(6);
+    // Extract the `2N` polygon vertices (one per segment start).
+    let mut hex_vertices: Vec<Point3> = Vec::with_capacity(two_n);
     for seg in &boundary.segments {
         let curve = match seg {
             BoundarySegment::FilletEnd { curve, .. } | BoundarySegment::FaceEdge { curve, .. } => {
@@ -98,18 +107,19 @@ pub(crate) fn build_three_quad_decomposition(
         let (t0, _) = curve.parameter_range();
         hex_vertices.push(curve.point_at(t0));
     }
-    if hex_vertices.len() != 6 {
+    if hex_vertices.len() != two_n {
         return None;
     }
 
-    // Central point = centroid of the 6 hex vertices. Inside the
-    // hex for convex boundaries (always true for N=3 trihedral
-    // corners where the bridge-arc-bridge chains form a ~convex
-    // hexagon in the offset-direction plane).
+    // Central point = centroid of the `2N` boundary vertices. Inside
+    // the polygon for convex boundaries (always true for trihedral
+    // corners; for N ≥ 4 relies on the bridge-arc chain remaining
+    // convex — true for standard pyramidal / hub geometry).
+    let denom = two_n as f64;
     let c = Point3::new(
-        hex_vertices.iter().map(|p| p.x).sum::<f64>() / 6.0,
-        hex_vertices.iter().map(|p| p.y).sum::<f64>() / 6.0,
-        hex_vertices.iter().map(|p| p.z).sum::<f64>() / 6.0,
+        hex_vertices.iter().map(|p| p.x).sum::<f64>() / denom,
+        hex_vertices.iter().map(|p| p.y).sum::<f64>() / denom,
+        hex_vertices.iter().map(|p| p.z).sum::<f64>() / denom,
     );
 
     // C4b.2b central-vertex normal. All three sub-patches' corner-3
@@ -123,12 +133,12 @@ pub(crate) fn build_three_quad_decomposition(
     let n_c = central_vertex_normal(&hex_vertices, c).unwrap_or(Vec3::new(0.0, 0.0, 0.0));
 
     // Pass 1: build each sub-patch's boundaries and raw parallelogram
-    // inner CPs (with C-K twist applied at hex corners 0–2). Corner 3
+    // inner CPs (with C-K twist applied at corners 0–2). Corner 3
     // (central vertex) stays at its raw parallelogram position; the
     // Shirman-Séquin cross-patch solve in pass 2 corrects it.
     type SubPatchStaged = ([[Point3; 4]; 4], [(Point3, Point3); 4]);
-    let mut per_patch: Vec<SubPatchStaged> = Vec::with_capacity(3);
-    for k in 0..3usize {
+    let mut per_patch: Vec<SubPatchStaged> = Vec::with_capacity(n);
+    for k in 0..n {
         let b0_curve = match &boundary.segments[2 * k] {
             BoundarySegment::FilletEnd { curve, .. } => curve,
             _ => return None,
@@ -138,7 +148,7 @@ pub(crate) fn build_three_quad_decomposition(
             _ => return None,
         };
         let v_start = hex_vertices[2 * k];
-        let v_end = hex_vertices[(2 * k + 2) % 6];
+        let v_end = hex_vertices[(2 * k + 2) % two_n];
 
         let spoke_v_end_to_c = build_spoke(v_end, c)?;
         let spoke_c_to_v_start = build_spoke(c, v_start)?;
@@ -148,14 +158,14 @@ pub(crate) fn build_three_quad_decomposition(
         let b2 = fit_cubic_bezier_through(&spoke_v_end_to_c);
         let b3 = fit_cubic_bezier_through(&spoke_c_to_v_start);
 
-        // Sub-patch k's hex corners (0, 1, 2) sit on fillet strips:
-        //   corner 0 = V_{2k}        on fillet[k-1 mod 3] and fillet[k]
+        // Sub-patch k's outer corners (0, 1, 2) sit on fillet strips:
+        //   corner 0 = V_{2k}        on fillet[k-1 mod N] and fillet[k]
         //   corner 1 = V_{2k+1}      on fillet[k]
-        //   corner 2 = V_{2k+2}      on fillet[k] and fillet[k+1 mod 3]
+        //   corner 2 = V_{2k+2}      on fillet[k] and fillet[k+1 mod N]
         // Corner 3 = C is interior (handled by SS in pass 2).
         let strip_current = fillet_surfaces.get(k);
-        let strip_prev = fillet_surfaces.get((k + 2) % 3);
-        let strip_next = fillet_surfaces.get((k + 1) % 3);
+        let strip_prev = fillet_surfaces.get((k + n - 1) % n);
+        let strip_next = fillet_surfaces.get((k + 1) % n);
         let corner_strips: [Option<&FilletSurfaceResult>; 4] =
             [strip_prev, strip_current, strip_next, None];
 
@@ -187,20 +197,20 @@ pub(crate) fn build_three_quad_decomposition(
     } else {
         (Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 0.0))
     };
-    let mut a_tan = [0.0_f64; 3];
-    let mut b_tan = [0.0_f64; 3];
+    let mut a_tan = vec![0.0_f64; n];
+    let mut b_tan = vec![0.0_f64; n];
     if use_ss {
-        for k in 0..3 {
+        for k in 0..n {
             let p_para = per_patch[k].1[3].0;
             let off = Vec3::new(p_para.x - c.x, p_para.y - c.y, p_para.z - c.z);
             a_tan[k] = off.dot(&t1);
             b_tan[k] = off.dot(&t2);
         }
     }
-    let a_mean = (a_tan[0] + a_tan[1] + a_tan[2]) / 3.0;
-    let b_mean = (b_tan[0] + b_tan[1] + b_tan[2]) / 3.0;
+    let a_mean = a_tan.iter().sum::<f64>() / n as f64;
+    let b_mean = b_tan.iter().sum::<f64>() / n as f64;
 
-    let mut sub_patches: Vec<RectangularGregory> = Vec::with_capacity(3);
+    let mut sub_patches: Vec<RectangularGregory> = Vec::with_capacity(n);
     for (k, (boundaries, mut inner_cps)) in per_patch.into_iter().enumerate() {
         if use_ss {
             // Final corner-3 inner CP: C + (a_k - a_mean) t1 + (b_k - b_mean) t2.
@@ -219,17 +229,29 @@ pub(crate) fn build_three_quad_decomposition(
         sub_patches.push(patch);
     }
 
-    if sub_patches.len() != 3 {
+    if sub_patches.len() != n {
         return None;
     }
-    let mut it = sub_patches.into_iter();
-    let p0 = it.next()?;
-    let p1 = it.next()?;
-    let p2 = it.next()?;
-    Some(ThreeQuadDecomposition {
+    Some(NQuadDecomposition {
         central_point: c,
-        sub_patches: [p0, p1, p2],
+        sub_patches,
     })
+}
+
+/// Back-compat helper: `build_three_quad_decomposition` is just the
+/// N = 3 case of [`build_n_quad_decomposition`]. Kept as a named
+/// entry point so callers that only handle the trihedral case keep
+/// compiling while the N ≥ 4 dispatch is wired in.
+#[allow(dead_code)]
+pub(crate) fn build_three_quad_decomposition(
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+) -> Option<NQuadDecomposition> {
+    let d = build_n_quad_decomposition(boundary, fillet_surfaces)?;
+    if d.sub_patches.len() != 3 {
+        return None;
+    }
+    Some(d)
 }
 
 /// C4b.2b — compute Chiyokura–Kimura inner-CP pairs from the 4
