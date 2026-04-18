@@ -107,13 +107,12 @@ fn item5_notched_cube_boundary_vertex_is_opposite_side() {
 
 /// §5.3 item #5 — fillet the 3 edges incident to an `OppositeSide`
 /// saddle vertex on a notched cube. With saddle-specific
-/// central-point + normal computation now landed, the saddle
-/// configuration flows through the rational-Gregory path. The
-/// test accepts EITHER three Gregory sub-patches (saddle
-/// construction succeeded) OR a single polar-NURBS patch
-/// (construction fell through — e.g. decomposition rejected or
-/// poke failed). A count of 2 would indicate a regression where
-/// dispatch partially succeeded.
+/// central-point + normal computation + saddle-aware bridge
+/// builder all landed, the saddle configuration now produces 3
+/// Gregory sub-patches end-to-end. The test also accepts ≤ 1
+/// corner patches (polar-NURBS fallback) as a safety net for
+/// pipeline regressions unrelated to the saddle path — a count
+/// of 2 still indicates a partial-dispatch regression.
 #[test]
 fn item5_saddle_fillet_dispatches_through_gregory_or_polar() {
     let Some((brep, vertex)) = build_notched_cube() else {

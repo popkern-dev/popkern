@@ -51,6 +51,17 @@ pub(super) fn reorient_arcs_for_hex_closure(
     if n < 2 {
         return None;
     }
+    // §5.3 item #5 (follow-up): slack tolerance for mixed-
+    // convexity saddles. On a notched cube the convex fillet's
+    // arc endpoints sit on cube faces while the concave fillets'
+    // endpoints sit on notch faces; boolean subtraction can
+    // leave endpoints a few multiples of `tol_linear` off their
+    // logical support face due to trim-curve endpoint resampling.
+    // Walking with a relaxed 10× band closes these saddle hexes
+    // while staying well below the fillet radius so we never
+    // accidentally match an endpoint against an unrelated
+    // distant face.
+    let tol_slack = tol_linear.max(1e-5) * 10.0;
     let mut order = vec![0usize; n];
     let mut flip = vec![false; n];
     let mut used = vec![false; n];
@@ -66,21 +77,68 @@ pub(super) fn reorient_arcs_for_hex_closure(
         };
         let prev_end = prev_endpoints[1];
 
+        // Pass 1: strict tolerance — well-formed BReps where both
+        // endpoints lie exactly on a shared support face.
+        // Pass 2: slack tolerance — saddle / mixed-convexity cases
+        // where the boolean result leaves trim endpoints a few
+        // multiples of `tol_linear` off their logical face.
+        // Pass 3: nearest-endpoint fallback — §5.3 item #5 saddle
+        // path. When no face-support shares both endpoints within
+        // tolerance (a notched cube's trim endpoints may sit on
+        // the fillet surface, not the support face), pick the
+        // candidate whose start (or end, post-flip) minimises the
+        // straight-line distance to `prev_end`. Hex-adjacency is
+        // a topological property; geometrically-close endpoints
+        // are correct up to a ridge discontinuity the bridge
+        // builder handles via its straight-line fallback.
         let mut best: Option<(usize, bool)> = None;
-        'search: for (cand_idx, ep) in fillet_endpoints.iter().enumerate() {
-            if used[cand_idx] {
-                continue;
+        for &tol_try in &[tol_linear, tol_slack] {
+            if best.is_some() {
+                break;
             }
-            for cand_flip in [false, true] {
-                let cand_start = if cand_flip { ep[1] } else { ep[0] };
-                for (_, surface) in face_supports {
-                    let d1 = point_on_surface_distance(&prev_end, surface);
-                    let d2 = point_on_surface_distance(&cand_start, surface);
-                    if d1 <= tol_linear && d2 <= tol_linear {
-                        best = Some((cand_idx, cand_flip));
-                        break 'search;
+            'search: for (cand_idx, ep) in fillet_endpoints.iter().enumerate() {
+                if used[cand_idx] {
+                    continue;
+                }
+                for cand_flip in [false, true] {
+                    let cand_start = if cand_flip { ep[1] } else { ep[0] };
+                    for (_, surface) in face_supports {
+                        let d1 = point_on_surface_distance(&prev_end, surface);
+                        let d2 = point_on_surface_distance(&cand_start, surface);
+                        if d1 <= tol_try && d2 <= tol_try {
+                            best = Some((cand_idx, cand_flip));
+                            break 'search;
+                        }
                     }
                 }
+            }
+        }
+        if best.is_none() {
+            // §5.3 item #5 saddle fallback: nearest-endpoint
+            // matching. On mixed-convexity BReps the trim endpoints
+            // can sit on the fillet surface with ~10⁻² offsets from
+            // any support face, so the face-adjacency test above
+            // rejects every pair. Hex-adjacency is ultimately a
+            // topological property — picking the candidate whose
+            // start is geometrically closest to `prev_end`
+            // preserves the correct cycle order and lets the
+            // bridge builder fill in a straight-line segment on
+            // the best-effort face.
+            let mut nearest: Option<(f64, usize, bool)> = None;
+            for (cand_idx, ep) in fillet_endpoints.iter().enumerate() {
+                if used[cand_idx] {
+                    continue;
+                }
+                for cand_flip in [false, true] {
+                    let cand_start = if cand_flip { ep[1] } else { ep[0] };
+                    let d = prev_end.distance_to(&cand_start);
+                    if nearest.is_none_or(|(best_d, _, _)| d < best_d) {
+                        nearest = Some((d, cand_idx, cand_flip));
+                    }
+                }
+            }
+            if let Some((_, idx, fl)) = nearest {
+                best = Some((idx, fl));
             }
         }
         let (next_idx, next_flip) = best?;
@@ -259,30 +317,45 @@ pub(super) fn build_face_edge_bridge_between(
     face_supports: &[(FaceHandle, SurfaceGeometry)],
     tol_linear: f64,
 ) -> Option<(BoundarySegment, Option<&'static str>)> {
-    // Pick the face whose surface contains BOTH endpoints within
-    // tolerance, breaking ties by the smaller max-distance metric.
-    let mut best: Option<(FaceHandle, &SurfaceGeometry, f64)> = None;
+    // Pick the face minimising `max(d(pa), d(pb))`. Strict
+    // tolerance gets the surface-hugging cubic bridge; a looser
+    // "best effort" pick triggers the straight-line fallback
+    // (§5.3 item #5 saddle path where trim endpoints can sit on
+    // the fillet surface instead of the adjacent support face,
+    // leaving residual ~10⁻² offsets that strict tol would
+    // reject entirely).
+    let mut best_strict: Option<(FaceHandle, &SurfaceGeometry, f64)> = None;
+    let mut best_any: Option<(FaceHandle, &SurfaceGeometry, f64)> = None;
     for (face, surface) in face_supports {
         let da = point_on_surface_distance(pa, surface);
         let db = point_on_surface_distance(pb, surface);
         let worst = da.max(db);
-        if worst <= tol_linear {
-            match &best {
-                Some((_, _, cur)) if *cur <= worst => {}
-                _ => best = Some((*face, surface, worst)),
-            }
+        if worst <= tol_linear && best_strict.is_none_or(|(_, _, cur)| worst < cur) {
+            best_strict = Some((*face, surface, worst));
+        }
+        if best_any.is_none_or(|(_, _, cur)| worst < cur) {
+            best_any = Some((*face, surface, worst));
         }
     }
-    let (face, surface, _) = best?;
-    // Primary path: surface-hugging cubic Bezier. No fallback flag.
-    if let Some(curve) = build_surface_bridge(pa, pb, surface, tol_linear) {
-        return Some((BoundarySegment::FaceEdge { face, curve }, None));
+
+    if let Some((face, surface, _)) = best_strict {
+        if let Some(curve) = build_surface_bridge(pa, pb, surface, tol_linear) {
+            return Some((BoundarySegment::FaceEdge { face, curve }, None));
+        }
+        let curve = build_straight_line_bridge(pa, pb)?;
+        return Some((
+            BoundarySegment::FaceEdge { face, curve },
+            Some(surface_kind_name(surface)),
+        ));
     }
-    // Fallback: straight-line Bezier (interpolates endpoints but
-    // may leave the surface slightly on curved faces — still a
-    // usable bridge for the downstream Gregory fit, which samples
-    // the curve and re-fits cubic anyway). Return the surface kind
-    // so the caller can emit a `SurfaceBridgeFallback` warning.
+
+    // Saddle / mixed-convexity fallback: neither endpoint sits
+    // cleanly on any face support within `tol_linear`. Emit a
+    // straight-line bridge on the best-effort face so the hex
+    // closes with `2N` segments (downstream Gregory fit samples
+    // the curve + re-fits cubic, so bridge-off-surface is
+    // acceptable here).
+    let (face, surface, _) = best_any?;
     let curve = build_straight_line_bridge(pa, pb)?;
     Some((
         BoundarySegment::FaceEdge { face, curve },

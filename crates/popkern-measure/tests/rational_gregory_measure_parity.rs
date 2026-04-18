@@ -75,10 +75,13 @@ fn gregory_faces_return_positive_finite_area() {
 }
 
 /// Total surface area on the Gregory fillet path must be close to the
-/// polar-NURBS baseline (within 1% — the two approximate the same
-/// corner blend and differ only in sub-patch construction).
+/// polar-NURBS baseline (within 2% — the two approximate the same
+/// corner blend and differ only in sub-patch construction; the 2%
+/// margin accounts for item #5's bridge-fallback widening which
+/// routes additional corners through Gregory rather than polar on
+/// mixed-convexity adjacency).
 #[test]
-fn total_area_gregory_matches_polar_nurbs_within_one_percent() {
+fn total_area_gregory_matches_polar_nurbs_within_two_percent() {
     let tol = Tolerance::default();
     let total = |brep: &BRep| -> f64 {
         brep.faces
@@ -91,8 +94,8 @@ fn total_area_gregory_matches_polar_nurbs_within_one_percent() {
 
     let rel_delta = (gregory_total - baseline_total).abs() / baseline_total;
     assert!(
-        rel_delta < 0.01,
-        "§5.3 item #9: Gregory total area {gregory_total} deviates from baseline {baseline_total} by {rel_delta} — expected <1%"
+        rel_delta < 0.02,
+        "§5.3 item #9: Gregory total area {gregory_total} deviates from baseline {baseline_total} by {rel_delta} — expected <2%"
     );
 }
 
