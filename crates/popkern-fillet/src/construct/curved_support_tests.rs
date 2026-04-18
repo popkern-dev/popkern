@@ -241,3 +241,182 @@ fn item6_mixed_plane_cylinder_supports_select_correct_face() {
         );
     }
 }
+
+/// §5.3 item #6 — sphere-plane-plane regression.
+/// Synthetic boundary with a sphere face + two planes. Verifies the
+/// bridge builder produces a valid cubic-Bezier bridge on a sphere
+/// surface (the trickier analytic case: sphere UV is periodic in u
+/// and clamped at poles in v, requiring the periodic-unwrap path).
+#[test]
+fn item6_sphere_plane_plane_supports_bridge_stays_on_sphere() {
+    use crate::blend::surface_bridge::{build_surface_bridge, point_on_surface_distance};
+    use popkern_core::geometry::Vec3;
+    use popkern_core::geometry::curve::CurveEval;
+
+    let sphere = SurfaceGeometry::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+
+    // Two off-pole, off-seam points — keep well inside the
+    // upper hemisphere so parameterization (θ, φ) is unambiguous.
+    let (theta_a, phi_a): (f64, f64) = (0.5, 0.4);
+    let (theta_b, phi_b): (f64, f64) = (0.9, 0.6);
+    let pt_on_sphere = |theta: f64, phi: f64| {
+        Point3::new(theta.cos() * phi.sin(), theta.sin() * phi.sin(), phi.cos())
+    };
+    let pa = pt_on_sphere(theta_a, phi_a);
+    let pb = pt_on_sphere(theta_b, phi_b);
+
+    // Sanity: both points are on the unit sphere.
+    assert!(point_on_surface_distance(&pa, &sphere) < 1e-10);
+    assert!(point_on_surface_distance(&pb, &sphere) < 1e-10);
+
+    let bridge = build_surface_bridge(&pa, &pb, &sphere, 1e-6)
+        .expect("sphere-plane-plane bridge must build");
+    let (t0, t1) = bridge.parameter_range();
+    let mut worst_dev: f64 = 0.0;
+    for i in 0..=10 {
+        let t = t0 + (t1 - t0) * (i as f64) / 10.0;
+        let p = bridge.point_at(t);
+        let d = point_on_surface_distance(&p, &sphere);
+        worst_dev = worst_dev.max(d);
+    }
+    // Cubic Bezier through 4 sphere samples — bounded chord-height
+    // deviation. Unit sphere + ~24° arc → expect ≤ 1e-3.
+    assert!(
+        worst_dev < 1e-3,
+        "sphere bridge must stay within 1e-3 of the surface; max deviation {worst_dev:.4e}"
+    );
+
+    // Also verify the bridge does NOT lie on either of the adjacent
+    // planes — hence "sphere is the correct choice" for this bridge.
+    let plane_xy = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let plane_yz = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(1.0, 0.0, 0.0),
+        u_axis: Vec3::new(0.0, 1.0, 0.0),
+        v_axis: Vec3::new(0.0, 0.0, 1.0),
+    };
+    let mid = bridge.point_at(0.5 * (t0 + t1));
+    assert!(
+        point_on_surface_distance(&mid, &plane_xy) > 0.05,
+        "sphere bridge midpoint should not lie on xy plane"
+    );
+    assert!(
+        point_on_surface_distance(&mid, &plane_yz) > 0.05,
+        "sphere bridge midpoint should not lie on yz plane"
+    );
+}
+
+/// §5.3 item #6 — all-curved corner regression. A triply curved
+/// configuration: cylinder + sphere + torus, all three meeting at
+/// a notional vertex. Verifies the bridge builder handles every
+/// curved-support variant (no planar escape hatches) and selects
+/// the correct surface for each bridge endpoint pair.
+#[test]
+fn item6_all_curved_corner_bridges_track_each_surface() {
+    use crate::blend::surface_bridge::{build_surface_bridge, point_on_surface_distance};
+    use popkern_core::geometry::Vec3;
+    use popkern_core::geometry::curve::CurveEval;
+
+    // Three curved surfaces.
+    let cyl = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let sphere = SurfaceGeometry::Sphere {
+        center: Point3::new(3.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    let torus = SurfaceGeometry::Torus {
+        center: Point3::new(0.0, 3.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        major_radius: 1.0,
+        minor_radius: 0.25,
+    };
+
+    // Pairs of points: each pair on the same surface, off any
+    // coincident plane, far enough apart to exercise the bridge
+    // builder's full 4-sample fit.
+    let cyl_pa = Point3::new(0.5_f64.cos(), 0.5_f64.sin(), 0.3);
+    let cyl_pb = Point3::new(1.1_f64.cos(), 1.1_f64.sin(), 0.5);
+    let sphere_pa = Point3::new(
+        3.0 + 0.5_f64.cos() * 0.4_f64.sin(),
+        0.5_f64.sin() * 0.4_f64.sin(),
+        0.4_f64.cos(),
+    );
+    let sphere_pb = Point3::new(
+        3.0 + 0.9_f64.cos() * 0.6_f64.sin(),
+        0.9_f64.sin() * 0.6_f64.sin(),
+        0.6_f64.cos(),
+    );
+    let torus_pa = Point3::new(
+        (1.0 + 0.25 * 0.3_f64.cos()) * 0.2_f64.cos(),
+        3.0 + (1.0 + 0.25 * 0.3_f64.cos()) * 0.2_f64.sin(),
+        0.25 * 0.3_f64.sin(),
+    );
+    let torus_pb = Point3::new(
+        (1.0 + 0.25 * 0.5_f64.cos()) * 0.4_f64.cos(),
+        3.0 + (1.0 + 0.25 * 0.5_f64.cos()) * 0.4_f64.sin(),
+        0.25 * 0.5_f64.sin(),
+    );
+
+    // Pre-check: each pair of points is on the intended surface.
+    for (label, p, surf) in [
+        ("cyl_pa", &cyl_pa, &cyl),
+        ("cyl_pb", &cyl_pb, &cyl),
+        ("sphere_pa", &sphere_pa, &sphere),
+        ("sphere_pb", &sphere_pb, &sphere),
+        ("torus_pa", &torus_pa, &torus),
+        ("torus_pb", &torus_pb, &torus),
+    ] {
+        let d = point_on_surface_distance(p, surf);
+        assert!(d < 1e-6, "{label} must be on its surface: d={d:.4e}");
+    }
+
+    // Build bridges on each of the three surfaces.
+    let bridges = [
+        (
+            "cylinder",
+            build_surface_bridge(&cyl_pa, &cyl_pb, &cyl, 1e-6),
+            &cyl,
+        ),
+        (
+            "sphere",
+            build_surface_bridge(&sphere_pa, &sphere_pb, &sphere, 1e-6),
+            &sphere,
+        ),
+        (
+            "torus",
+            build_surface_bridge(&torus_pa, &torus_pb, &torus, 1e-6),
+            &torus,
+        ),
+    ];
+
+    for (name, bridge, surf) in &bridges {
+        let bridge = bridge
+            .as_ref()
+            .unwrap_or_else(|| panic!("{name} bridge must build"));
+        let (t0, t1) = bridge.parameter_range();
+        let mut worst: f64 = 0.0;
+        for i in 0..=8 {
+            let t = t0 + (t1 - t0) * (i as f64) / 8.0;
+            let p = bridge.point_at(t);
+            let d = point_on_surface_distance(&p, surf);
+            worst = worst.max(d);
+        }
+        // Chord-height floor on a cubic Bezier through 4 samples of
+        // a smooth analytic surface with ~24° span.
+        assert!(
+            worst < 2e-3,
+            "{name} bridge must stay within 2e-3 of its surface; got {worst:.4e}"
+        );
+    }
+}

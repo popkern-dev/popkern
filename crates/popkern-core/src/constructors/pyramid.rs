@@ -235,6 +235,159 @@ impl BRep {
 
         Ok(brep)
     }
+
+    /// Build an axis-aligned `n`-gonal pyramid with a regular-polygon
+    /// base inscribed in a circle of the given `base_radius` (z = 0)
+    /// and an apex at `(0, 0, height)`.
+    ///
+    /// Generalises [`BRep::square_pyramid`] to N ≥ 3 base sides —
+    /// primarily a test vehicle for §5.3 N-valence vertex blending
+    /// where N > 4 (e.g., pentagonal / hexagonal hub-and-spoke
+    /// geometries). Built via public Euler operators (`mvfs` / `mev`
+    /// / `mef`) then decorated with analytic plane surfaces + line
+    /// curves via the shared constructor plumbing.
+    ///
+    /// # Errors
+    ///
+    /// - [`CoreError::PreconditionFailed`] if `n < 3`, or if
+    ///   `base_radius` / `height` is non-positive or non-finite.
+    /// - [`CoreError::Validation`] if the downstream validate
+    ///   pass fails.
+    pub fn n_gonal_pyramid(
+        n: usize,
+        base_radius: f64,
+        height: f64,
+        tolerance: Tolerance,
+    ) -> Result<Self, CoreError> {
+        if n < 3 {
+            return Err(CoreError::PreconditionFailed(format!(
+                "n_gonal_pyramid: n must be ≥ 3, got {n}"
+            )));
+        }
+        if !base_radius.is_finite() || base_radius <= 0.0 {
+            return Err(CoreError::PreconditionFailed(format!(
+                "n_gonal_pyramid: base_radius must be positive and finite, got {base_radius}"
+            )));
+        }
+        if !height.is_finite() || height <= 0.0 {
+            return Err(CoreError::PreconditionFailed(format!(
+                "n_gonal_pyramid: height must be positive and finite, got {height}"
+            )));
+        }
+
+        // Base vertices on a circle of `base_radius` at z=0.
+        let base_pts: Vec<Point3> = (0..n)
+            .map(|i| {
+                let theta = 2.0 * std::f64::consts::PI * i as f64 / n as f64;
+                Point3::new(base_radius * theta.cos(), base_radius * theta.sin(), 0.0)
+            })
+            .collect();
+        let apex_pt = Point3::new(0.0, 0.0, height);
+
+        let mut brep = BRep::new(tolerance);
+
+        // Euler ops: build the base polygon first.
+        let mvfs = brep.mvfs(base_pts[0])?;
+        let first_mev = brep.mev_at_vertex(mvfs.vertex, mvfs.loop_, base_pts[1])?;
+        let mut last_twin = first_mev.half_edge_twin;
+        let mut base_vertices: Vec<VertexHandle> = Vec::with_capacity(n);
+        base_vertices.push(mvfs.vertex);
+        base_vertices.push(first_mev.vertex);
+        for pt in &base_pts[2..] {
+            let m = brep.mev(last_twin, *pt)?;
+            last_twin = m.half_edge_twin;
+            base_vertices.push(m.vertex);
+        }
+        // Close the base polygon: now we have 2 faces (base + pent "top").
+        let mef_close = brep.mef(last_twin, first_mev.half_edge)?;
+
+        // The apex is added inside the "top" face (created by mef_close).
+        // Find a half-edge in the top face's loop whose origin is base[0].
+        let top_loop = brep.faces[mef_close.face].outer_loop;
+        let he_b0_in_top = {
+            let start = brep.loops[top_loop].half_edge;
+            let mut cursor = start;
+            loop {
+                if brep.half_edges[cursor].origin == base_vertices[0] {
+                    break cursor;
+                }
+                cursor = brep.half_edges[cursor].next;
+                if cursor == start {
+                    return Err(CoreError::PreconditionFailed(
+                        "n_gonal_pyramid: base[0] not in top loop".into(),
+                    ));
+                }
+            }
+        };
+        // mev inserts the apex spur before he_b0_in_top.
+        let apex_mev = brep.mev(he_b0_in_top, apex_pt)?;
+        let apex_vh = apex_mev.vertex;
+
+        // Triangulate the top face by connecting apex to each base[i]
+        // for i ∈ 1..n. After each mef the "remaining large face"
+        // shrinks; we always locate the apex half-edge in the loop
+        // with size ≥ 4 (the large face), then find the target base
+        // half-edge in that same loop.
+        for target_base in base_vertices.iter().copied().skip(1) {
+            // Locate the apex half-edge in the large top-face loop.
+            let he_at_apex = {
+                let mut found = None;
+                for (heh, he) in &brep.half_edges {
+                    if he.origin != apex_vh {
+                        continue;
+                    }
+                    let loop_h = he.loop_;
+                    let start = brep.loops[loop_h].half_edge;
+                    let mut size = 0usize;
+                    let mut cursor = start;
+                    loop {
+                        size += 1;
+                        cursor = brep.half_edges[cursor].next;
+                        if cursor == start || size > 1 + 2 * n {
+                            break;
+                        }
+                    }
+                    if size >= 4 {
+                        found = Some(heh);
+                        break;
+                    }
+                }
+                found.ok_or_else(|| {
+                    CoreError::PreconditionFailed(
+                        "n_gonal_pyramid: no apex half-edge in large loop".into(),
+                    )
+                })?
+            };
+            let he_at_target = {
+                let loop_h = brep.half_edges[he_at_apex].loop_;
+                let start = brep.loops[loop_h].half_edge;
+                let mut cursor = start;
+                let mut found = None;
+                loop {
+                    if brep.half_edges[cursor].origin == target_base {
+                        found = Some(cursor);
+                        break;
+                    }
+                    cursor = brep.half_edges[cursor].next;
+                    if cursor == start {
+                        break;
+                    }
+                }
+                found.ok_or_else(|| {
+                    CoreError::PreconditionFailed(
+                        "n_gonal_pyramid: target base vertex not in loop".into(),
+                    )
+                })?
+            };
+            brep.mef(he_at_apex, he_at_target)?;
+        }
+
+        brep.attach_geometry()?;
+        brep.attach_planar_pcurves()?;
+        brep.validate().map_err(CoreError::Validation)?;
+
+        Ok(brep)
+    }
 }
 
 #[cfg(test)]
