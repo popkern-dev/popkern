@@ -395,30 +395,23 @@ impl SurfaceGeometry {
                 }
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.clone(),
-            // Rectangular rational Gregory has an exact bidegree-(7,7)
-            // rational-Bezier representation obtained by clearing the
-            // four corner denominators. Used when the requested range
-            // is the natural `[0,1]²` parameter domain; otherwise fall
-            // through to the sample-fit path.
-            //
-            // Triangular Gregory is fundamentally non-tensor-product
-            // and still routes through the sample-fit path.
+            // Exact rational-Bezier conversions for all Gregory
+            // variants when the requested range is the natural
+            // `[0,1]²`:
+            //   - Rectangular cubic → bidegree-(7,7) (§5.3 item #2).
+            //   - Rectangular deg5 → bidegree-(9,9) (§5.3 item #1).
+            //   - Triangular cubic → bidegree-(5,5) on (s, t) via
+            //     the degenerate-edge parameter map (§5.3 item #2).
+            // Sub-range requests fall through to `sample_to_nurbs`.
             SurfaceGeometry::Gregory(gp)
-                if matches!(
-                    gp,
-                    crate::geometry::gregory::GregoryPatch::Rectangular(_)
-                        | crate::geometry::gregory::GregoryPatch::RectangularDeg5(_)
-                ) && u_range.0 == 0.0
-                    && u_range.1 == 1.0
-                    && v_range.0 == 0.0
-                    && v_range.1 == 1.0 =>
+                if u_range.0 == 0.0 && u_range.1 == 1.0 && v_range.0 == 0.0 && v_range.1 == 1.0 =>
             {
                 match gp {
                     crate::geometry::gregory::GregoryPatch::Rectangular(r) => r.to_nurbs_exact(),
                     crate::geometry::gregory::GregoryPatch::RectangularDeg5(r) => {
                         r.to_nurbs_exact()
                     }
-                    _ => unreachable!(),
+                    crate::geometry::gregory::GregoryPatch::Triangular(t) => t.to_nurbs_exact(),
                 }
             }
             SurfaceGeometry::Gregory(_) => sample_to_nurbs(self, u_range, v_range),

@@ -52,6 +52,7 @@ mod rectangular_deg5;
 mod rectangular_deg5_to_nurbs;
 mod rectangular_to_nurbs;
 mod triangular;
+mod triangular_to_nurbs;
 
 pub use build::GregoryBuildError;
 pub use rectangular::RectangularGregory;
@@ -135,3 +136,7 @@ mod rectangular_deg5_tests;
 #[cfg(test)]
 #[path = "rectangular_to_nurbs_tests.rs"]
 mod rectangular_to_nurbs_tests;
+
+#[cfg(test)]
+#[path = "triangular_to_nurbs_tests.rs"]
+mod triangular_to_nurbs_tests;
