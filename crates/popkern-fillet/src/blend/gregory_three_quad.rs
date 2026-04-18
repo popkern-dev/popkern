@@ -38,26 +38,31 @@
 //! perform the topology surgery separately (R8 C4+ follow-up).
 
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::gregory::RectangularGregory;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use popkern_core::geometry::uv_projection::project_point_to_uv;
+use popkern_core::geometry::gregory::{GregoryPatch, RectangularGregory, RectangularGregoryDeg5};
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 
 use super::boundary::{BlendBoundary, BoundarySegment};
-use super::gregory::fit_cubic_bezier_through;
+use super::gregory::{fit_cubic_bezier_through, fit_quintic_bezier_through};
+use super::gregory_parallelogram::{
+    compute_parallelogram_inner_cps, compute_parallelogram_inner_cps_deg5, sub3,
+};
 use crate::fillet_surface::FilletSurfaceResult;
 
 /// `N` rectangular Gregory sub-patches meeting at a central point,
 /// decomposing a `2N`-segment vertex-blend boundary (alternating
 /// FilletEnd / FaceEdge). `N = 3` is the trihedral hex case; `N ≥
 /// 4` covers pyramid apex, hub-and-spoke fittings, etc.
+///
+/// Each sub-patch is wrapped in [`GregoryPatch`] so cubic
+/// (bidegree 3) and quintic (bidegree 5) sub-patches can flow
+/// through the same dispatch pipeline.
 #[allow(dead_code)] // diagnostic / follow-up
 #[derive(Debug)]
 pub(crate) struct NQuadDecomposition {
     /// The central point shared by all `N` sub-patches.
     pub central_point: Point3,
     /// Sub-patches in CCW order starting from arc 0. Length `N`.
-    pub sub_patches: Vec<RectangularGregory>,
+    pub sub_patches: Vec<GregoryPatch>,
 }
 
 /// Back-compat alias for the N=3 trihedral case.
@@ -82,6 +87,20 @@ pub(crate) type ThreeQuadDecomposition = NQuadDecomposition;
 pub(crate) fn build_n_quad_decomposition(
     boundary: &BlendBoundary,
     fillet_surfaces: &[FilletSurfaceResult],
+) -> Option<NQuadDecomposition> {
+    build_n_quad_decomposition_with_degree(boundary, fillet_surfaces, false)
+}
+
+/// Same as [`build_n_quad_decomposition`] but with explicit control
+/// over the Bezier degree of the sub-patches. `use_deg5 = true`
+/// emits [`RectangularGregoryDeg5`] quintic sub-patches; `false`
+/// emits cubic [`RectangularGregory`]. Quintic closes the ~2%
+/// cubic-Bezier arc approximation error that caps §2.4.
+#[allow(dead_code)]
+pub(crate) fn build_n_quad_decomposition_with_degree(
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+    use_deg5: bool,
 ) -> Option<NQuadDecomposition> {
     let two_n = boundary.segments.len();
     if two_n < 6 || !two_n.is_multiple_of(2) {
@@ -136,7 +155,14 @@ pub(crate) fn build_n_quad_decomposition(
     // inner CPs (with C-K twist applied at corners 0–2). Corner 3
     // (central vertex) stays at its raw parallelogram position; the
     // Shirman-Séquin cross-patch solve in pass 2 corrects it.
-    type SubPatchStaged = ([[Point3; 4]; 4], [(Point3, Point3); 4]);
+    //
+    // `use_deg5` selects between cubic (bidegree 3, 4 boundary CPs)
+    // and quintic (bidegree 5, 6 boundary CPs) sub-patch construction.
+    enum StagedBoundaries {
+        Cubic([[Point3; 4]; 4]),
+        Deg5([[Point3; 6]; 4]),
+    }
+    type SubPatchStaged = (StagedBoundaries, [(Point3, Point3); 4]);
     let mut per_patch: Vec<SubPatchStaged> = Vec::with_capacity(n);
     for k in 0..n {
         let b0_curve = match &boundary.segments[2 * k] {
@@ -153,11 +179,6 @@ pub(crate) fn build_n_quad_decomposition(
         let spoke_v_end_to_c = build_spoke(v_end, c)?;
         let spoke_c_to_v_start = build_spoke(c, v_start)?;
 
-        let b0 = fit_cubic_bezier_through(b0_curve);
-        let b1 = fit_cubic_bezier_through(b1_curve);
-        let b2 = fit_cubic_bezier_through(&spoke_v_end_to_c);
-        let b3 = fit_cubic_bezier_through(&spoke_c_to_v_start);
-
         // Sub-patch k's outer corners (0, 1, 2) sit on fillet strips:
         //   corner 0 = V_{2k}        on fillet[k-1 mod N] and fillet[k]
         //   corner 1 = V_{2k+1}      on fillet[k]
@@ -169,8 +190,23 @@ pub(crate) fn build_n_quad_decomposition(
         let corner_strips: [Option<&FilletSurfaceResult>; 4] =
             [strip_prev, strip_current, strip_next, None];
 
-        let inner_cps_raw = compute_parallelogram_inner_cps([&b0, &b1, &b2, &b3], corner_strips);
-        per_patch.push(([b0, b1, b2, b3], inner_cps_raw));
+        if use_deg5 {
+            let b0 = fit_quintic_bezier_through(b0_curve);
+            let b1 = fit_quintic_bezier_through(b1_curve);
+            let b2 = fit_quintic_bezier_through(&spoke_v_end_to_c);
+            let b3 = fit_quintic_bezier_through(&spoke_c_to_v_start);
+            let inner_cps_raw =
+                compute_parallelogram_inner_cps_deg5([&b0, &b1, &b2, &b3], corner_strips);
+            per_patch.push((StagedBoundaries::Deg5([b0, b1, b2, b3]), inner_cps_raw));
+        } else {
+            let b0 = fit_cubic_bezier_through(b0_curve);
+            let b1 = fit_cubic_bezier_through(b1_curve);
+            let b2 = fit_cubic_bezier_through(&spoke_v_end_to_c);
+            let b3 = fit_cubic_bezier_through(&spoke_c_to_v_start);
+            let inner_cps_raw =
+                compute_parallelogram_inner_cps([&b0, &b1, &b2, &b3], corner_strips);
+            per_patch.push((StagedBoundaries::Cubic([b0, b1, b2, b3]), inner_cps_raw));
+        }
     }
 
     // Pass 2: Shirman-Séquin vertex-enclosure solve at the central
@@ -210,7 +246,7 @@ pub(crate) fn build_n_quad_decomposition(
     let a_mean = a_tan.iter().sum::<f64>() / n as f64;
     let b_mean = b_tan.iter().sum::<f64>() / n as f64;
 
-    let mut sub_patches: Vec<RectangularGregory> = Vec::with_capacity(n);
+    let mut sub_patches: Vec<GregoryPatch> = Vec::with_capacity(n);
     for (k, (boundaries, mut inner_cps)) in per_patch.into_iter().enumerate() {
         if use_ss {
             // Final corner-3 inner CP: C + (a_k - a_mean) t1 + (b_k - b_mean) t2.
@@ -223,10 +259,23 @@ pub(crate) fn build_n_quad_decomposition(
             );
             inner_cps[3] = (p_ss, p_ss);
         }
-        let [b0, b1, b2, b3] = boundaries;
-        let patch =
-            RectangularGregory::from_boundary_beziers([b0, b1, b2, b3], inner_cps, 1e-3).ok()?;
-        sub_patches.push(patch);
+        match boundaries {
+            StagedBoundaries::Cubic([b0, b1, b2, b3]) => {
+                let patch =
+                    RectangularGregory::from_boundary_beziers([b0, b1, b2, b3], inner_cps, 1e-3)
+                        .ok()?;
+                sub_patches.push(GregoryPatch::Rectangular(Box::new(patch)));
+            }
+            StagedBoundaries::Deg5([b0, b1, b2, b3]) => {
+                let patch = RectangularGregoryDeg5::from_boundary_beziers(
+                    [b0, b1, b2, b3],
+                    inner_cps,
+                    1e-3,
+                )
+                .ok()?;
+                sub_patches.push(GregoryPatch::RectangularDeg5(Box::new(patch)));
+            }
+        }
     }
 
     if sub_patches.len() != n {
@@ -252,117 +301,6 @@ pub(crate) fn build_three_quad_decomposition(
         return None;
     }
     Some(d)
-}
-
-/// C4b.2b — compute Chiyokura–Kimura inner-CP pairs from the 4
-/// boundary Beziers + the incident fillet strips, matching the
-/// strip's mixed cross-derivative `∂²T/∂u'∂v'` at each hex
-/// corner.
-///
-/// **Theory.** For a bicubic Bezier at corner `(0, 0)`:
-/// `S_uv(0, 0) = 9 · (P_11 − P_parallelogram)`
-/// where `P_parallelogram = P_10 + P_01 − P_00`. For G2 with an
-/// adjacent strip `T(u', v')` across the arc boundary, we want
-/// `S_uv(0, 0) = τ_target` where `τ_target` is the projection
-/// of the strip's second fundamental form onto the sub-patch's
-/// tangent directions via chain rule.
-///
-/// **Chain rule.** Let `e_u`, `e_v` be the sub-patch's boundary
-/// tangent vectors at the corner (3× the first Bezier CP
-/// offset). Express them in the strip's tangent basis
-/// `{T_u', T_v'}` by solving the 2×2 Gram system — gives
-/// coefficients `(α_u, β_u)`, `(α_v, β_v)` such that
-/// `e_u ≈ α_u · T_u' + β_u · T_v'` (projected onto the strip's
-/// tangent plane). Then the strip's induced mixed derivative in
-/// sub-patch coords is:
-/// ```text
-/// τ = α_u·α_v · T_u'u'
-///   + (α_u·β_v + β_u·α_v) · T_u'v'
-///   + β_u·β_v · T_v'v'
-/// ```
-/// Setting `P_11 = P_parallelogram + τ/9` makes the sub-patch's
-/// cross-derivative match the strip's — the classical C-K
-/// minimum-twist construction.
-///
-/// Both `P_u` and `P_v` at the corner are set to the same
-/// corrected value — a "symmetric Chiyokura" that collapses the
-/// Gregory rational blend to an ordinary bicubic at the corner.
-/// This is the first-cut correct G2 at hex corners. The G2
-/// extension to the full boundary (not just corners) and the
-/// central-vertex cross-patch G1 solve are the remaining
-/// C4b.2b work.
-fn compute_parallelogram_inner_cps(
-    boundaries: [&[Point3; 4]; 4],
-    corner_strips: [Option<&FilletSurfaceResult>; 4],
-) -> [(Point3, Point3); 4] {
-    let b0 = boundaries[0];
-    let b1 = boundaries[1];
-    let b2 = boundaries[2];
-    let b3 = boundaries[3];
-
-    let corners = [b0[0], b0[3], b1[3], b2[3]];
-    let raw_parallelogram = [
-        parallelogram_add(b3[2], b0[1], b0[0]),
-        parallelogram_add(b0[2], b1[1], b0[3]),
-        parallelogram_add(b2[1], b1[2], b1[3]),
-        parallelogram_add(b3[1], b2[2], b2[3]),
-    ];
-
-    // Sub-patch boundary tangent vectors at each corner, from
-    // the Bezier derivative `S_u(0, 0) = 3 · (P_10 − P_00)`,
-    // etc. The INBOUND tangent (Bezier index reversed) is used
-    // for `e_v` where appropriate so both vectors point AWAY
-    // from the corner into the patch interior.
-    //
-    // corner 0 (u-boundary: b3 reversed; v-boundary: b0):
-    //   e_u = 3·(b3[2] − b0[0]),  e_v = 3·(b0[1] − b0[0])
-    // corner 1 (u-boundary: b0 reversed ending at corner 1;
-    //           v-boundary: b1):
-    //   e_u = 3·(b0[2] − b0[3]),  e_v = 3·(b1[1] − b1[0])
-    // corner 2 (u-boundary: b1 reversed; v-boundary: b2):
-    //   e_u = 3·(b1[2] − b1[3]),  e_v = 3·(b2[1] − b2[0])
-    // corner 3 (u-boundary: b2 reversed; v-boundary: b3):
-    //   e_u = 3·(b2[2] − b2[3]),  e_v = 3·(b3[1] − b3[0])
-    let tangents: [(Vec3, Vec3); 4] = [
-        (scale3(sub3(b3[2], b0[0])), scale3(sub3(b0[1], b0[0]))),
-        (scale3(sub3(b0[2], b0[3])), scale3(sub3(b1[1], b1[0]))),
-        (scale3(sub3(b1[2], b1[3])), scale3(sub3(b2[1], b2[0]))),
-        (scale3(sub3(b2[2], b2[3])), scale3(sub3(b3[1], b3[0]))),
-    ];
-
-    let mut inner_cps: [(Point3, Point3); 4] =
-        [(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 0.0)); 4];
-    for (i, slot) in inner_cps.iter_mut().enumerate() {
-        let corner = corners[i];
-        let p_para = raw_parallelogram[i];
-        let (e_u, e_v) = tangents[i];
-        let p_refined = if let Some(strip) = corner_strips[i] {
-            chiyokura_twisted_inner_cp(&strip.surface, corner, p_para, e_u, e_v).unwrap_or(p_para)
-        } else {
-            // Central vertex (no incident strip) keeps the raw
-            // parallelogram value. C4b.2b central-vertex
-            // cross-patch G1 solve is follow-up.
-            p_para
-        };
-        *slot = (p_refined, p_refined);
-    }
-    inner_cps
-}
-
-fn parallelogram_add(p_a: Point3, p_b: Point3, base: Point3) -> Point3 {
-    Point3::new(
-        p_a.x + p_b.x - base.x,
-        p_a.y + p_b.y - base.y,
-        p_a.z + p_b.z - base.z,
-    )
-}
-
-fn sub3(a: Point3, b: Point3) -> Vec3 {
-    Vec3::new(a.x - b.x, a.y - b.y, a.z - b.z)
-}
-
-fn scale3(v: Vec3) -> Vec3 {
-    Vec3::new(3.0 * v.x, 3.0 * v.y, 3.0 * v.z)
 }
 
 /// Approximate outward normal of the hex plane at the central
@@ -411,61 +349,6 @@ fn central_vertex_normal(hex_vertices: &[Point3], c: Point3) -> Option<Vec3> {
     }
     let n = Vec3::new(nx, ny, nz);
     n.normalized()
-}
-
-/// Chiyokura–Kimura twist-corrected inner CP at a hex corner.
-/// Returns `P_parallelogram + τ/9` where `τ` is the strip's
-/// induced mixed derivative in sub-patch coords via chain rule.
-fn chiyokura_twisted_inner_cp(
-    surface: &SurfaceGeometry,
-    corner: Point3,
-    p_parallelogram: Point3,
-    e_u: Vec3,
-    e_v: Vec3,
-) -> Option<Point3> {
-    let (u, v) = project_point_to_uv(surface, &corner)?;
-    let t_u = surface.partial_u(u, v);
-    let t_v = surface.partial_v(u, v);
-    let t_uu = surface.second_partial_uu(u, v);
-    let t_uv = surface.second_partial_uv(u, v);
-    let t_vv = surface.second_partial_vv(u, v);
-
-    // Solve the 2×2 Gram system
-    //   [T_u·T_u  T_u·T_v] [α]   [T_u·e]
-    //   [T_u·T_v  T_v·T_v] [β] = [T_v·e]
-    // for each sub-patch tangent vector. Express sub-patch
-    // tangents in the strip's (u', v') basis, projected onto
-    // the strip's tangent plane.
-    let g00 = t_u.dot(&t_u);
-    let g01 = t_u.dot(&t_v);
-    let g11 = t_v.dot(&t_v);
-    let det = g00 * g11 - g01 * g01;
-    if det.abs() < 1e-18 {
-        return None;
-    }
-    let solve = |e: &Vec3| -> (f64, f64) {
-        let r0 = t_u.dot(e);
-        let r1 = t_v.dot(e);
-        ((g11 * r0 - g01 * r1) / det, (g00 * r1 - g01 * r0) / det)
-    };
-    let (alpha_u, beta_u) = solve(&e_u);
-    let (alpha_v, beta_v) = solve(&e_v);
-
-    // τ = α_u·α_v · T_uu + (α_u·β_v + β_u·α_v) · T_uv
-    //     + β_u·β_v · T_vv
-    let cross = alpha_u * beta_v + beta_u * alpha_v;
-    let tau = Vec3::new(
-        alpha_u * alpha_v * t_uu.x + cross * t_uv.x + beta_u * beta_v * t_vv.x,
-        alpha_u * alpha_v * t_uu.y + cross * t_uv.y + beta_u * beta_v * t_vv.y,
-        alpha_u * alpha_v * t_uu.z + cross * t_uv.z + beta_u * beta_v * t_vv.z,
-    );
-
-    // P = P_parallelogram + τ/9.
-    Some(Point3::new(
-        p_parallelogram.x + tau.x / 9.0,
-        p_parallelogram.y + tau.y / 9.0,
-        p_parallelogram.z + tau.z / 9.0,
-    ))
 }
 
 /// Build a straight-line spoke as a degree-1 NURBS from `a` to `b`

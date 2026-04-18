@@ -214,16 +214,11 @@ pub struct FilletOptions {
     /// sub-tolerance drift. Leave disabled for authored geometry
     /// that is known to be tight.
     ///
-    /// **Always produces a warning.** When this flag causes the
-    /// tolerance to be relaxed, the result's `edge_warnings`
-    /// vector contains exactly one
+    /// **Always produces a warning** — every relaxed result
+    /// carries one
     /// [`crate::error::BlendWarning::SoftSupportTolerancesApplied`]
-    /// entry with the actual factor used, so downstream
-    /// consumers can distinguish soft-mode results from strict
-    /// ones for logging or auditing.
-    ///
-    /// See §13.4 "Soft Support Faces" in
-    /// `docs/requirements/fillets_blends.md`.
+    /// entry so downstream consumers can distinguish soft-mode
+    /// from strict. See §13.4 in `docs/requirements/fillets_blends.md`.
     pub soft_supports: bool,
     /// Linear tolerance multiplication factor applied when
     /// [`Self::soft_supports`] is `true`. Default `10.0` — matches
@@ -271,6 +266,10 @@ pub struct FilletOptions {
     /// C8 downstream scorecard. See ADR
     /// `2026-04-17-fillet-rational-gregory-rounds-6-7-8.md`.
     pub use_rational_gregory: bool,
+    /// §5.3 item #1 opt-in — use quintic (bidegree-5) rectangular
+    /// Gregory sub-patches instead of cubic. Requires
+    /// `use_rational_gregory: true`. Default `false`.
+    pub use_deg5_gregory: bool,
 }
 
 impl Default for FilletOptions {
@@ -290,6 +289,7 @@ impl Default for FilletOptions {
             // path (Gregory dispatch correctly doesn't engage when
             // the sphere fit succeeds first).
             use_rational_gregory: true,
+            use_deg5_gregory: false,
         }
     }
 }

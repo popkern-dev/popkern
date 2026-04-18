@@ -160,6 +160,94 @@ pub(crate) fn fit_cubic_bezier_through(curve: &NurbsCurve) -> [Point3; 4] {
     ]
 }
 
+/// Degree-5 analogue of [`fit_cubic_bezier_through`]: build a quintic
+/// Bezier (6 control points) that **interpolates** the curve at 6
+/// equally-spaced parameter values `t = t0, t0 + span/5, …, t1`.
+///
+/// Solves a 4×4 linear system for the interior CPs `P_1..P_4` via
+/// Gauss elimination. The Bernstein matrix (rows = sample points
+/// `k/5` for `k = 1..4`, columns = inner CP indices `1..4`) has all-
+/// positive entries of order `100..10^3` (scaled by `1/3125`) and is
+/// well-conditioned — no pivoting needed in practice, but we include
+/// partial pivoting for safety.
+///
+/// Used to build quintic-boundary sub-patches for
+/// [`RectangularGregoryDeg5`] in the three-quad decomposition when
+/// the `use_deg5_gregory` flag is active.
+#[allow(dead_code)]
+pub(crate) fn fit_quintic_bezier_through(curve: &NurbsCurve) -> [Point3; 6] {
+    let (t0, t1) = curve.parameter_range();
+    let span = t1 - t0;
+    let samples: [Point3; 6] =
+        core::array::from_fn(|i| curve.point_at(t0 + span * (i as f64) / 5.0));
+    let p0 = samples[0];
+    let p5 = samples[5];
+
+    // Bernstein values at sample points t = 1/5, 2/5, 3/5, 4/5,
+    // scaled by 3125 = 5^5. Row j (j = 0..3 for t = (j+1)/5), column
+    // i (i = 0..3 for inner CP P_{i+1}).
+    let m: [[f64; 4]; 4] = [
+        [1280.0, 640.0, 160.0, 20.0],
+        [810.0, 1080.0, 720.0, 240.0],
+        [240.0, 720.0, 1080.0, 810.0],
+        [20.0, 160.0, 640.0, 1280.0],
+    ];
+    let endp0 = [1024.0, 243.0, 32.0, 1.0]; // B_0^5 at (1/5, 2/5, 3/5, 4/5) · 3125
+    let endp5 = [1.0, 32.0, 243.0, 1024.0]; // B_5^5 at same
+
+    let solve = |coord: fn(&Point3) -> f64| -> [f64; 4] {
+        let b: [f64; 4] = core::array::from_fn(|j| {
+            3125.0 * coord(&samples[j + 1]) - endp0[j] * coord(&p0) - endp5[j] * coord(&p5)
+        });
+        gauss_eliminate_4x4(m, b)
+    };
+    let ps_x = solve(|p| p.x);
+    let ps_y = solve(|p| p.y);
+    let ps_z = solve(|p| p.z);
+    [
+        p0,
+        Point3::new(ps_x[0], ps_y[0], ps_z[0]),
+        Point3::new(ps_x[1], ps_y[1], ps_z[1]),
+        Point3::new(ps_x[2], ps_y[2], ps_z[2]),
+        Point3::new(ps_x[3], ps_y[3], ps_z[3]),
+        p5,
+    ]
+}
+
+/// Gauss elimination with partial pivoting for a 4×4 system `M·x = b`.
+#[allow(clippy::needless_range_loop)]
+fn gauss_eliminate_4x4(mut m: [[f64; 4]; 4], mut b: [f64; 4]) -> [f64; 4] {
+    for col in 0..4 {
+        let mut piv = col;
+        for r in col + 1..4 {
+            if m[r][col].abs() > m[piv][col].abs() {
+                piv = r;
+            }
+        }
+        if piv != col {
+            m.swap(col, piv);
+            b.swap(col, piv);
+        }
+        let pivot_val = m[col][col];
+        for r in col + 1..4 {
+            let factor = m[r][col] / pivot_val;
+            for c in col..4 {
+                m[r][c] -= factor * m[col][c];
+            }
+            b[r] -= factor * b[col];
+        }
+    }
+    let mut x = [0.0_f64; 4];
+    for i in (0..4).rev() {
+        let mut sum = b[i];
+        for j in i + 1..4 {
+            sum -= m[i][j] * x[j];
+        }
+        x[i] = sum / m[i][i];
+    }
+    x
+}
+
 /// Compute the 3 Longhi inner-CP candidates for a triangular
 /// Gregory vertex blend from the 3 boundary Bezier arcs and the
 /// incident fillet-strip data.

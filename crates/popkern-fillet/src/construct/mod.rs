@@ -100,6 +100,7 @@ pub fn apply_blend_geometry(
     tolerance: &Tolerance,
     vertex_mode: &VertexMode,
     use_rational_gregory: bool,
+    use_deg5_gregory: bool,
 ) -> Result<ApplyBlendResult, Vec<(EdgeHandle, BlendFailure)>> {
     let mut result = brep.clone();
     let mut failures: Vec<(EdgeHandle, BlendFailure)> = Vec::new();
@@ -454,6 +455,7 @@ pub fn apply_blend_geometry(
                     edge_geometries,
                     tolerance,
                     use_rational_gregory,
+                    use_deg5_gregory,
                 ) {
                     Ok(infos) => corner_patches.extend(infos),
                     Err(_) => {

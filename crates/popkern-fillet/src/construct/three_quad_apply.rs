@@ -16,13 +16,12 @@
 //! doesn't know about `FilletOptions` flags or dispatch — the
 //! caller decides when to invoke it. R8 C6 wires the dispatch.
 
-use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 use super::poke_hex::poke_hex_face_into_three_quads;
 use crate::blend::boundary::BlendBoundary;
-use crate::blend::gregory_three_quad::build_three_quad_decomposition;
+use crate::blend::gregory_three_quad::build_n_quad_decomposition_with_degree;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo};
 use crate::vertex_classifier::VertexBlendClassification;
@@ -38,6 +37,7 @@ use crate::vertex_classifier::VertexBlendClassification;
 /// * The decomposition builder rejects the input.
 /// * The poke topology surgery fails.
 #[allow(dead_code)] // wired into dispatch in R8 C6
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_three_quad_decomposition_to_blend(
     brep: &mut BRep,
     blend_face: FaceHandle,
@@ -46,19 +46,18 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     vertex: VertexHandle,
     n_sides: usize,
     classification: VertexBlendClassification,
+    use_deg5: bool,
 ) -> Result<Vec<CornerPatchInfo>, String> {
-    let decomp = build_three_quad_decomposition(boundary, fillet_surfaces)
-        .ok_or_else(|| "boundary not decomposable into three quads".to_string())?;
+    let decomp = build_n_quad_decomposition_with_degree(boundary, fillet_surfaces, use_deg5)
+        .ok_or_else(|| "boundary not decomposable into N quads".to_string())?;
 
     let poke = poke_hex_face_into_three_quads(brep, blend_face, decomp.central_point)
         .map_err(|e| format!("poke_hex failed: {e}"))?;
 
-    let mut patches = Vec::with_capacity(3);
+    let mut patches = Vec::with_capacity(decomp.sub_patches.len());
     for (sub_face, sub_patch) in poke.sub_faces.iter().zip(decomp.sub_patches.iter()) {
         brep.faces[*sub_face].surface = Some(SurfaceOnFace {
-            geometry: SurfaceGeometry::Gregory(GregoryPatch::Rectangular(Box::new(
-                sub_patch.clone(),
-            ))),
+            geometry: SurfaceGeometry::Gregory(sub_patch.clone()),
             orientation: true,
         });
         patches.push(CornerPatchInfo {

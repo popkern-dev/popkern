@@ -170,3 +170,58 @@ fn r8_c8e_central_vertex_shirman_sequin_tangent_agreement() {
          (max pairwise diff {max_diff:.4e}, τ_tan scale {tau_scale:.4e})"
     );
 }
+
+/// §5.3 item #1 — end-to-end deg5 Gregory dispatch. With
+/// `use_deg5_gregory = true`, the fillet pipeline must produce
+/// 3 sub-patches and they must be [`GregoryPatch::RectangularDeg5`]
+/// (not `Rectangular`). Validates that the flag correctly routes
+/// the three-quad decomposition through the quintic path.
+#[test]
+fn item1_deg5_dispatch_produces_quintic_sub_patches() {
+    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+    let vertex = cube.vertices.keys().next().unwrap();
+    let incident_edges: Vec<_> = cube
+        .half_edges
+        .values()
+        .filter(|he| he.origin == vertex)
+        .map(|he| he.edge)
+        .collect();
+    let radii = [0.08_f64, 0.10, 0.12];
+    let specs: Vec<FilletSpec> = incident_edges
+        .iter()
+        .zip(radii.iter())
+        .map(|(&e, &r)| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(r),
+        })
+        .collect();
+    let tol = Tolerance::default();
+    let opts = FilletOptions {
+        use_rational_gregory: true,
+        use_deg5_gregory: true,
+        ..FilletOptions::default()
+    };
+    let pipeline = crate::fillet_edges(&cube, &specs, &opts, tol, None)
+        .expect("deg5 Gregory dispatch must succeed on mixed-radii cube corner");
+    let corner_faces: Vec<_> = pipeline
+        .corner_patches
+        .iter()
+        .filter(|p| p.vertex == vertex)
+        .map(|p| p.face)
+        .collect();
+    assert_eq!(corner_faces.len(), 3, "expected 3 Gregory sub-patches");
+
+    for (idx, &fh) in corner_faces.iter().enumerate() {
+        let face = pipeline.brep.faces.get(fh).unwrap();
+        let sof = face.surface.as_ref().unwrap();
+        let is_deg5 = matches!(
+            &sof.geometry,
+            SurfaceGeometry::Gregory(GregoryPatch::RectangularDeg5(_))
+        );
+        assert!(
+            is_deg5,
+            "sub-patch {idx} must be RectangularDeg5 when use_deg5_gregory is true; got {:?}",
+            std::mem::discriminant(&sof.geometry)
+        );
+    }
+}

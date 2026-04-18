@@ -48,14 +48,14 @@ use crate::geometry::nurbs_surface::NurbsSurface;
 /// Bidegree-(m, n) bivariate Bernstein polynomial with scalar coefficients,
 /// indexed `coefs[i * (n + 1) + j]` for term `B_i^m(u) B_j^n(v)`.
 #[derive(Clone)]
-struct Bivar {
-    m: usize,
-    n: usize,
-    coefs: Vec<f64>,
+pub(super) struct Bivar {
+    pub m: usize,
+    pub n: usize,
+    pub coefs: Vec<f64>,
 }
 
 impl Bivar {
-    fn zeros(m: usize, n: usize) -> Self {
+    pub(super) fn zeros(m: usize, n: usize) -> Self {
         Self {
             m,
             n,
@@ -64,7 +64,7 @@ impl Bivar {
     }
 
     #[inline]
-    fn get(&self, i: usize, j: usize) -> f64 {
+    pub(super) fn get(&self, i: usize, j: usize) -> f64 {
         self.coefs[i * (self.n + 1) + j]
     }
 
@@ -82,7 +82,7 @@ impl Bivar {
     ///
     /// Uses the identity `B_i^m(t) · B_j^n(t) = [C(m,i) C(n,j) / C(m+n,i+j)] ·
     /// B_{i+j}^{m+n}(t)` in each variable; bivariate product factors.
-    fn multiply(&self, other: &Self) -> Self {
+    pub(super) fn multiply(&self, other: &Self) -> Self {
         let m_out = self.m + other.m;
         let n_out = self.n + other.n;
         let mut out = Bivar::zeros(m_out, n_out);
@@ -112,7 +112,7 @@ impl Bivar {
 
     /// Raise the bidegree of `self` to `(m_target, n_target)` via Bernstein
     /// degree elevation in each direction separately.
-    fn elevate_to(&self, m_target: usize, n_target: usize) -> Self {
+    pub(super) fn elevate_to(&self, m_target: usize, n_target: usize) -> Self {
         assert!(m_target >= self.m && n_target >= self.n);
         let mut cur = self.clone();
         while cur.m < m_target {
@@ -190,7 +190,7 @@ fn elevate_v(src: &Bivar) -> Bivar {
 /// Recall that a bidegree-(1,1) polynomial `p(u,v)` has Bernstein
 /// coefficients equal to its vertex values: `c_{ij} = p(i, j)` for
 /// `i, j ∈ {0, 1}`.
-fn denom_bernstein() -> [Bivar; 4] {
+pub(super) fn denom_bernstein() -> [Bivar; 4] {
     // D_0 = u + v      → vertex values (0, 1, 1, 2)
     // D_1 = u + 1 - v  → vertex values (1, 0, 2, 1)  (remember j=0 is v=0)
     // D_2 = 2 - u - v  → vertex values (2, 1, 1, 0)
@@ -219,9 +219,17 @@ fn bernstein_basis_33(i: usize, j: usize) -> Bivar {
     b
 }
 
+/// Build a bidegree-(5,5) Bernstein polynomial from a single `B_i^5(u) B_j^5(v)`
+/// term with unit coefficient.
+pub(super) fn bernstein_basis_55(i: usize, j: usize) -> Bivar {
+    let mut b = Bivar::zeros(5, 5);
+    b.set(i, j, 1.0);
+    b
+}
+
 /// Linear-coefficient helper: build a bidegree-(1,1) Bernstein polynomial
 /// from its four vertex values.
-fn linear_bernstein(v00: f64, v01: f64, v10: f64, v11: f64) -> Bivar {
+pub(super) fn linear_bernstein(v00: f64, v01: f64, v10: f64, v11: f64) -> Bivar {
     let mut b = Bivar::zeros(1, 1);
     b.set(0, 0, v00);
     b.set(0, 1, v01);
@@ -404,7 +412,7 @@ impl RectangularGregory {
 }
 
 /// `out += scale · src`. Bidegrees must match.
-fn accumulate_scaled(out: &mut Bivar, src: &Bivar, scale: f64) {
+pub(super) fn accumulate_scaled(out: &mut Bivar, src: &Bivar, scale: f64) {
     assert_eq!(out.m, src.m);
     assert_eq!(out.n, src.n);
     for k in 0..out.coefs.len() {

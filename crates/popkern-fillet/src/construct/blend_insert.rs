@@ -31,6 +31,7 @@ use crate::vertex_classifier::VertexBlendClassification;
 /// # Errors
 ///
 /// Returns a descriptive string if any topology operation fails.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn insert_vertex_blend(
     brep: &mut BRep,
     vertex: VertexHandle,
@@ -38,6 +39,7 @@ pub(crate) fn insert_vertex_blend(
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
     use_rational_gregory: bool,
+    use_deg5_gregory: bool,
 ) -> Result<Vec<CornerPatchInfo>, String> {
     // §5.3 C6 — classify the vertex-blend configuration *before*
     // topology modifications begin, while the pre-blend BRep is
@@ -75,21 +77,14 @@ pub(crate) fn insert_vertex_blend(
         return Err(format!("no faces found around vertex {vertex:?}"));
     }
 
-    // R8 C7 — if rational-Gregory dispatch is enabled, capture the
-    // pre-merge hex boundary now. `compute_blend_boundary` at this
-    // point sees V on three separate planar cube-face sub-faces,
-    // so its `reorient_arcs_for_hex_closure` path fires and emits
-    // the 6-segment (arc/bridge) hex boundary. Post-merge V is on
-    // a single merged face (no surface), so the hex path won't
-    // fire there — hence the early capture.
+    // R8 C7 — capture the pre-merge N-gon boundary here before
+    // `merge_corner_triangles` collapses V's 1-ring. Post-merge, V
+    // sits on a single face with no surface, so the boundary
+    // reorientation path can't fire.
+    // §5.3 item #5 — saddle classification gate (`OppositeSide` /
+    // `Mixed` routed to polar-NURBS pending saddle-specific geometry).
     let fillet_surfaces_pre = build_fillet_surface_list(edge_indices, edge_geometries);
     let local_indices_pre: Vec<usize> = (0..fillet_surfaces_pre.len()).collect();
-    // §5.3 item #4 — N ≥ 3 dispatch.
-    // §5.3 item #5 — saddle gate: `OppositeSide`/`Mixed`
-    // classifications need a ridge-centered central point and
-    // signed-normal twist extraction that the current three-quad
-    // geometry doesn't provide; route them to polar-NURBS until
-    // a saddle fixture lets us validate the alternate geometry.
     let n_sides = edge_indices.len();
     let rational_gregory_compatible = matches!(
         classification,
@@ -174,15 +169,8 @@ pub(crate) fn insert_vertex_blend(
         face: blend_face,
     };
 
-    // §5.3 item #4 — if rational-Gregory dispatch is on AND we
-    // have a `2N`-segment pre-merge boundary AND the merged face
-    // has `2N` outer half-edges, poke the polygon into N
-    // rectangular-Gregory sub-patches. The helper overwrites
-    // `blend_face`'s NURBS surface and adds `N−1` new sub-faces;
-    // it returns `N` `CornerPatchInfo`s — one per sub-patch.
-    //
-    // If any condition fails, we return the single-blend result
-    // from the legacy path unchanged.
+    // §5.3 item #4 — N ≥ 3 rational-Gregory dispatch. Falls
+    // through to the polar-NURBS single-blend on any gate failure.
     if use_rational_gregory
         && rational_gregory_compatible
         && let Some(boundary) = n_gon_boundary.as_ref()
@@ -197,6 +185,7 @@ pub(crate) fn insert_vertex_blend(
             vertex,
             edge_indices.len(),
             classification,
+            use_deg5_gregory,
         ) {
             Ok(patches) if patches.len() == n_sides => return Ok(patches),
             _ => {} // Fall through with base patch on failure.
@@ -464,7 +453,15 @@ mod tests {
         // Instead, test with a default (non-existent) vertex handle.
         let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
         let bogus = popkern_core::topology::VertexHandle::default();
-        let result = insert_vertex_blend(&mut brep, bogus, &[], &[], &Tolerance::default(), false);
+        let result = insert_vertex_blend(
+            &mut brep,
+            bogus,
+            &[],
+            &[],
+            &Tolerance::default(),
+            false,
+            false,
+        );
         assert!(result.is_err(), "should fail for invalid vertex");
     }
 
@@ -476,7 +473,15 @@ mod tests {
         // get past the anchor check (3 anchors >= 2).
         let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
         let vertex = brep.vertices.keys().next().unwrap();
-        let result = insert_vertex_blend(&mut brep, vertex, &[], &[], &Tolerance::default(), false);
+        let result = insert_vertex_blend(
+            &mut brep,
+            vertex,
+            &[],
+            &[],
+            &Tolerance::default(),
+            false,
+            false,
+        );
         // This should fail (no edge geometries -> empty fillet surfaces
         // -> blend boundary computation fails), but NOT at the anchor check.
         assert!(result.is_err());

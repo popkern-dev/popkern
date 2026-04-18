@@ -49,6 +49,7 @@ use serde::{Deserialize, Serialize};
 mod build;
 mod rectangular;
 mod rectangular_deg5;
+mod rectangular_deg5_to_nurbs;
 mod rectangular_to_nurbs;
 mod triangular;
 
@@ -71,21 +72,29 @@ pub use triangular::TriangularGregory;
 /// to attach to a face.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GregoryPatch {
-    /// N=4 rectangular patch.
+    /// N=4 rectangular cubic patch (bidegree 3×3).
     Rectangular(Box<RectangularGregory>),
+    /// N=4 rectangular quintic patch (bidegree 5×5). Same
+    /// Chiyokura-Kimura 4-inner-CP-pair structure as
+    /// [`Rectangular`](GregoryPatch::Rectangular); higher
+    /// boundary degree closes the 2% cubic-Bezier arc
+    /// approximation error inherent at the lower degree.
+    RectangularDeg5(Box<RectangularGregoryDeg5>),
     /// N=3 triangular patch.
     Triangular(Box<TriangularGregory>),
 }
 
 impl GregoryPatch {
     /// Evaluate at the given parameters. `(u, v)` is the Cartesian
-    /// parameter for [`Rectangular`](GregoryPatch::Rectangular); for
+    /// parameter for [`Rectangular`](GregoryPatch::Rectangular) and
+    /// [`RectangularDeg5`](GregoryPatch::RectangularDeg5); for
     /// [`Triangular`](GregoryPatch::Triangular), `(u, v)` map into
     /// barycentric coords via `(u, v, 1 − u − v)` and must satisfy
     /// `u ≥ 0`, `v ≥ 0`, `u + v ≤ 1`.
     pub fn point_at(&self, u: f64, v: f64) -> Point3 {
         match self {
             GregoryPatch::Rectangular(r) => r.point_at(u, v),
+            GregoryPatch::RectangularDeg5(r) => r.point_at(u, v),
             GregoryPatch::Triangular(t) => t.point_at_uv(u, v),
         }
     }
@@ -95,6 +104,7 @@ impl GregoryPatch {
     pub fn partial_u(&self, u: f64, v: f64) -> Vec3 {
         match self {
             GregoryPatch::Rectangular(r) => r.partial_u(u, v),
+            GregoryPatch::RectangularDeg5(r) => r.partial_u(u, v),
             GregoryPatch::Triangular(t) => t.partial_u_uv(u, v),
         }
     }
@@ -104,6 +114,7 @@ impl GregoryPatch {
     pub fn partial_v(&self, u: f64, v: f64) -> Vec3 {
         match self {
             GregoryPatch::Rectangular(r) => r.partial_v(u, v),
+            GregoryPatch::RectangularDeg5(r) => r.partial_v(u, v),
             GregoryPatch::Triangular(t) => t.partial_v_uv(u, v),
         }
     }

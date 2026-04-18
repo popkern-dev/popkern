@@ -404,14 +404,20 @@ impl SurfaceGeometry {
             // Triangular Gregory is fundamentally non-tensor-product
             // and still routes through the sample-fit path.
             SurfaceGeometry::Gregory(gp)
-                if matches!(gp, crate::geometry::gregory::GregoryPatch::Rectangular(_))
-                    && u_range.0 == 0.0
+                if matches!(
+                    gp,
+                    crate::geometry::gregory::GregoryPatch::Rectangular(_)
+                        | crate::geometry::gregory::GregoryPatch::RectangularDeg5(_)
+                ) && u_range.0 == 0.0
                     && u_range.1 == 1.0
                     && v_range.0 == 0.0
                     && v_range.1 == 1.0 =>
             {
                 match gp {
                     crate::geometry::gregory::GregoryPatch::Rectangular(r) => r.to_nurbs_exact(),
+                    crate::geometry::gregory::GregoryPatch::RectangularDeg5(r) => {
+                        r.to_nurbs_exact()
+                    }
                     _ => unreachable!(),
                 }
             }

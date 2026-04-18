@@ -6,7 +6,9 @@
 
 use crate::geometry::Transform3;
 use crate::geometry::curve::CurveGeometry;
-use crate::geometry::gregory::{GregoryPatch, RectangularGregory, TriangularGregory};
+use crate::geometry::gregory::{
+    GregoryPatch, RectangularGregory, RectangularGregoryDeg5, TriangularGregory,
+};
 use crate::geometry::surface::SurfaceGeometry;
 
 /// Transform a `SurfaceGeometry` by a rigid transform.
@@ -92,6 +94,21 @@ fn transform_gregory(g: &GregoryPatch, t: &Transform3) -> GregoryPatch {
                 .inner_cps
                 .map(|(p_u, p_v)| (t.apply_point(&p_u), t.apply_point(&p_v)));
             GregoryPatch::Rectangular(Box::new(RectangularGregory {
+                boundary_cps: boundary,
+                inner_cps,
+            }))
+        }
+        GregoryPatch::RectangularDeg5(r) => {
+            let mut boundary = r.boundary_cps;
+            for row in boundary.iter_mut() {
+                for cell in row.iter_mut() {
+                    *cell = t.apply_point(cell);
+                }
+            }
+            let inner_cps = r
+                .inner_cps
+                .map(|(p_u, p_v)| (t.apply_point(&p_u), t.apply_point(&p_v)));
+            GregoryPatch::RectangularDeg5(Box::new(RectangularGregoryDeg5 {
                 boundary_cps: boundary,
                 inner_cps,
             }))
