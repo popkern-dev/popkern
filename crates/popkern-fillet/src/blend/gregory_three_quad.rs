@@ -46,6 +46,7 @@ use super::gregory::{fit_cubic_bezier_through, fit_quintic_bezier_through};
 use super::gregory_parallelogram::{
     compute_parallelogram_inner_cps, compute_parallelogram_inner_cps_deg5, sub3,
 };
+use super::gregory_vertex_enclosure::shirman_sequin_vertex_enclosure_solve;
 use crate::fillet_surface::FilletSurfaceResult;
 
 /// `N` rectangular Gregory sub-patches meeting at a central point,
@@ -210,54 +211,16 @@ pub(crate) fn build_n_quad_decomposition_with_degree(
     }
 
     // Pass 2: Shirman-Séquin vertex-enclosure solve at the central
-    // vertex `C`. The simplified N=3 form: pick an orthonormal tangent
-    // basis `(t1, t2)` ⊥ `n_c`, decompose each sub-patch's raw
-    // corner-3 inner CP offset from `C` into `(a_k, b_k, d_k)` in
-    // that basis, then shift so each sub-patch's final corner-3 inner
-    // CP sits in the tangent plane AND all three agree on the
-    // tangent-plane components (subtract the cross-patch mean).
-    //
-    // This gives the relaxed G2 at C in the surface-normal sense
-    // (Shirman-Séquin 1991): the mixed second partials τ_k across
-    // sub-patches agree in the tangent plane, which is what governs
-    // reflection-line continuity across internal spokes. The residual
-    // normal-direction disagreement is irreducible given the boundary
-    // geometry — G2 in the tangent direction is what actually matters
-    // for visual smoothness.
-    //
-    // Falls back to the C4b.2b pure-projection (current code) when
-    // `n_c` is degenerate.
-    let use_ss = n_c.length_squared() > 1e-18;
-    let (t1, t2) = if use_ss {
-        orthonormal_tangent_basis(n_c)
-    } else {
-        (Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 0.0))
-    };
-    let mut a_tan = vec![0.0_f64; n];
-    let mut b_tan = vec![0.0_f64; n];
-    if use_ss {
-        for k in 0..n {
-            let p_para = per_patch[k].1[3].0;
-            let off = Vec3::new(p_para.x - c.x, p_para.y - c.y, p_para.z - c.z);
-            a_tan[k] = off.dot(&t1);
-            b_tan[k] = off.dot(&t2);
-        }
-    }
-    let a_mean = a_tan.iter().sum::<f64>() / n as f64;
-    let b_mean = b_tan.iter().sum::<f64>() / n as f64;
+    // vertex. Delegates to `gregory_vertex_enclosure` which returns
+    // `None` in the rank-deficient case (`n_c` degenerate) — we
+    // then leave the raw parallelogram values in place.
+    let raw_p21: Vec<Point3> = per_patch.iter().map(|(_, cps)| cps[3].0).collect();
+    let ss = shirman_sequin_vertex_enclosure_solve(c, n_c, &raw_p21);
 
     let mut sub_patches: Vec<GregoryPatch> = Vec::with_capacity(n);
     for (k, (boundaries, mut inner_cps)) in per_patch.into_iter().enumerate() {
-        if use_ss {
-            // Final corner-3 inner CP: C + (a_k - a_mean) t1 + (b_k - b_mean) t2.
-            let da = a_tan[k] - a_mean;
-            let db = b_tan[k] - b_mean;
-            let p_ss = Point3::new(
-                c.x + da * t1.x + db * t2.x,
-                c.y + da * t1.y + db * t2.y,
-                c.z + da * t1.z + db * t2.z,
-            );
-            inner_cps[3] = (p_ss, p_ss);
+        if let Some(ref shifted) = ss {
+            inner_cps[3] = (shifted[k], shifted[k]);
         }
         match boundaries {
             StagedBoundaries::Cubic([b0, b1, b2, b3]) => {
@@ -309,29 +272,6 @@ pub(crate) fn build_three_quad_decomposition(
 /// order the sum points along the plane normal. Returns `None`
 /// if the 6 cross products sum to a near-zero vector
 /// (degenerate hex, e.g., all 6 vertices on a line).
-/// Build an orthonormal tangent basis `(t1, t2)` in the plane
-/// perpendicular to the unit vector `n`. `t1` is derived from the
-/// world-axis least aligned with `n` (for numerical stability); `t2`
-/// is `n × t1` so `(t1, t2, n)` is a right-handed orthonormal frame.
-fn orthonormal_tangent_basis(n: Vec3) -> (Vec3, Vec3) {
-    let ax = n.x.abs();
-    let ay = n.y.abs();
-    let az = n.z.abs();
-    let seed = if ax <= ay && ax <= az {
-        Vec3::new(1.0, 0.0, 0.0)
-    } else if ay <= az {
-        Vec3::new(0.0, 1.0, 0.0)
-    } else {
-        Vec3::new(0.0, 0.0, 1.0)
-    };
-    // t1 = (seed - (seed·n) n) normalised
-    let dot = seed.dot(&n);
-    let raw_t1 = Vec3::new(seed.x - dot * n.x, seed.y - dot * n.y, seed.z - dot * n.z);
-    let t1 = raw_t1.normalized().unwrap_or(Vec3::new(1.0, 0.0, 0.0));
-    let t2 = n.cross(&t1);
-    (t1, t2)
-}
-
 fn central_vertex_normal(hex_vertices: &[Point3], c: Point3) -> Option<Vec3> {
     if hex_vertices.len() != 6 {
         return None;

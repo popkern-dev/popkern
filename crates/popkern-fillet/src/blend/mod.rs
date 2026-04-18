@@ -13,6 +13,7 @@ mod boundary_tests;
 pub(crate) mod gregory;
 pub(crate) mod gregory_parallelogram;
 pub(crate) mod gregory_three_quad;
+pub(crate) mod gregory_vertex_enclosure;
 pub mod runout;
 pub mod surface;
 mod surface_math;

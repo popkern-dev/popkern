@@ -4,6 +4,7 @@
 //! scorecard). Split out to keep the G2 test file under the 500-line
 //! structural cap.
 
+use crate::highlight_line::highlight_boundary_kink;
 use crate::types::{FilletOptions, FilletRadius, FilletSpec};
 
 use popkern_core::geometry::gregory::GregoryPatch;
@@ -231,4 +232,101 @@ fn item1_deg5_dispatch_produces_quintic_sub_patches() {
             std::mem::discriminant(&sof.geometry)
         );
     }
+}
+
+/// §5.3 item #3 — reflection-line regression canary across
+/// internal spokes. Runs the three-quad Gregory dispatch on a
+/// mixed-radii cube corner, then uses `highlight_boundary_kink`
+/// to measure the max tangent-angle discontinuity between
+/// isophotes on adjacent sub-patches.
+///
+/// **Scope note.** Shirman-Séquin as shipped gives relaxed G2
+/// *at the central vertex* (τ-tangent-plane agreement) but
+/// **not G2 along the entire internal spoke** — the cross-
+/// boundary curvature isn't controlled away from `C`. Isophote
+/// tangents are governed by surface curvature, so an observer
+/// should expect a measurable kink along the spoke even with
+/// SS enabled; fully eliminating that kink is the scope of a
+/// separate "G2 along spokes" solve tracked as item #3
+/// follow-up. This test is therefore a **regression canary**,
+/// not a tight G2 gate — it establishes an upper bound on the
+/// current SS pipeline's reflection-line behavior, so any
+/// future change that makes it materially worse trips the test.
+///
+/// **Threshold:** 2.5 rad (~143°) — the observed max kink on
+/// the `[0.08, 0.10, 0.12]` cube-corner fixture is ~2.0 rad; the
+/// 25% slack accommodates solver noise and minor geometry
+/// drift. A regression that breaks SS entirely would produce
+/// kinks closer to π (fully-uncorrelated tangents), which trips
+/// this gate.
+#[test]
+fn item3_reflection_line_continuity_canary() {
+    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+    let vertex = cube.vertices.keys().next().unwrap();
+    let incident_edges: Vec<_> = cube
+        .half_edges
+        .values()
+        .filter(|he| he.origin == vertex)
+        .map(|he| he.edge)
+        .collect();
+    let radii = [0.08_f64, 0.10, 0.12];
+    let specs: Vec<FilletSpec> = incident_edges
+        .iter()
+        .zip(radii.iter())
+        .map(|(&e, &r)| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(r),
+        })
+        .collect();
+    let opts = FilletOptions {
+        use_rational_gregory: true,
+        ..FilletOptions::default()
+    };
+    let pipeline = crate::fillet_edges(&cube, &specs, &opts, Tolerance::default(), None)
+        .expect("fillet pipeline must succeed");
+    let corner_faces: Vec<_> = pipeline
+        .corner_patches
+        .iter()
+        .filter(|p| p.vertex == vertex)
+        .map(|p| p.face)
+        .collect();
+    assert_eq!(corner_faces.len(), 3);
+
+    let light = Vec3::new(1.0, 1.0, 1.0).normalized().unwrap();
+    let view = Vec3::new(0.0, 0.0, 1.0);
+    let boundary_tol = 1e-3;
+    let grid = 25;
+
+    let mut max_kink_overall = 0.0_f64;
+    for i in 0..3 {
+        for j in (i + 1)..3 {
+            if let Some(kink) = highlight_boundary_kink(
+                &pipeline.brep,
+                corner_faces[i],
+                corner_faces[j],
+                light,
+                view,
+                grid,
+                boundary_tol,
+            ) {
+                eprintln!(
+                    "  sub-patch pair ({i}, {j}): max isophote kink = {kink:.4} rad ({:.2}°)",
+                    kink.to_degrees()
+                );
+                max_kink_overall = max_kink_overall.max(kink);
+            }
+        }
+    }
+
+    eprintln!(
+        "item #3 reflection-line canary: max kink across all \
+         internal spokes = {max_kink_overall:.4} rad ({:.2}°)",
+        max_kink_overall.to_degrees()
+    );
+    assert!(
+        max_kink_overall < 2.5,
+        "item #3 canary: max reflection-line kink {max_kink_overall:.4} rad \
+         ({:.2}°) exceeded the 2.5 rad regression bound",
+        max_kink_overall.to_degrees()
+    );
 }
