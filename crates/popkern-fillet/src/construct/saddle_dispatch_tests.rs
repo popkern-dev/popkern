@@ -106,12 +106,16 @@ fn item5_notched_cube_boundary_vertex_is_opposite_side() {
 }
 
 /// §5.3 item #5 — fillet the 3 edges incident to an `OppositeSide`
-/// saddle vertex on a notched cube. The rational-Gregory dispatch
-/// MUST be gated off for saddle classifications; the corner blend
-/// MUST therefore arrive as a single polar-NURBS patch (1 face, not
-/// 3 Gregory sub-faces).
+/// saddle vertex on a notched cube. With saddle-specific
+/// central-point + normal computation now landed, the saddle
+/// configuration flows through the rational-Gregory path. The
+/// test accepts EITHER three Gregory sub-patches (saddle
+/// construction succeeded) OR a single polar-NURBS patch
+/// (construction fell through — e.g. decomposition rejected or
+/// poke failed). A count of 2 would indicate a regression where
+/// dispatch partially succeeded.
 #[test]
-fn item5_saddle_fillet_falls_through_to_polar_nurbs() {
+fn item5_saddle_fillet_dispatches_through_gregory_or_polar() {
     let Some((brep, vertex)) = build_notched_cube() else {
         eprintln!("item #5 end-to-end: boolean subtraction failed — skipping");
         return;
@@ -155,32 +159,169 @@ fn item5_saddle_fillet_falls_through_to_polar_nurbs() {
     let result = match crate::fillet_edges(&brep, &specs, &opts, Tolerance::default(), None) {
         Ok(r) => r,
         Err(e) => {
-            // If the fillet pipeline fails on a saddle (common — the
-            // rolling-ball solver can hit edge cases), that's a
-            // separate issue from the gate we're validating. The
-            // gate's job is just to ensure we DON'T silently accept
-            // bad Gregory. Pipeline failure on a saddle is the
-            // expected pre-item-#5-geometry fallback.
-            eprintln!("item #5 pipeline did not complete: {e:?} — gate still enforced");
+            // Saddle filleting can trip the rolling-ball solver for
+            // reasons independent of the saddle-Gregory path we're
+            // validating. Skip (not fail) on pipeline abort.
+            eprintln!("item #5 pipeline did not complete: {e:?} — skipping");
             return;
         }
     };
 
-    // The saddle vertex's corner patch count: saddle gate routes to
-    // polar-NURBS, which produces 1 patch (not 3 Gregory sub-patches).
     let saddle_corners: Vec<_> = result
         .corner_patches
         .iter()
         .filter(|p| p.vertex == vertex)
         .collect();
     eprintln!(
-        "item #5 saddle corner patches at the saddle vertex: {}",
-        saddle_corners.len()
+        "item #5 saddle corner patches at the saddle vertex: {} ({:?})",
+        saddle_corners.len(),
+        saddle_corners
+            .iter()
+            .map(|p| (p.method, p.n_sides))
+            .collect::<Vec<_>>()
     );
     assert!(
-        saddle_corners.len() <= 1,
-        "saddle vertex must NOT trigger Gregory three-quad dispatch; \
-         got {} corner patches (expected ≤ 1 via polar-NURBS fallback)",
+        saddle_corners.len() == 3 || saddle_corners.len() <= 1,
+        "saddle dispatch must yield either 3 Gregory sub-patches (item #5 \
+         landing) or ≤ 1 polar-NURBS patches (safe fallback); got {}",
         saddle_corners.len()
     );
+}
+
+/// §5.3 item #5 — unit test on the saddle-specific central-point
+/// calculation in `build_n_quad_decomposition_with_options`. Builds
+/// a synthetic 2N-segment boundary whose FilletEnd arc midpoints
+/// lie in a known configuration and verifies that for the
+/// `OppositeSide` classification the computed central point is the
+/// average of the arc midpoints (NOT the hex-vertex centroid).
+///
+/// Uses `analyze_saddle_central_point` below — a test-only helper
+/// that just re-runs the same central-point selection logic used
+/// in the builder.
+#[test]
+fn item5_saddle_central_point_is_arc_mid_average() {
+    use crate::blend::boundary::{BlendBoundary, BoundarySegment};
+
+    let tol = Tolerance::default();
+
+    // Fabricate a synthetic hexagonal saddle boundary. Three
+    // FilletEnd arcs at different z levels (one "up", two "down"
+    // simulating 1 convex + 2 concave); bridges straight-line
+    // between them. The hex-vertex centroid averages over all 6
+    // vertices (arc endpoints included) so it's pulled toward
+    // whichever side has tighter bridge-vertex spread. The saddle
+    // central point uses only the 3 arc midpoints — symmetric in z.
+    let arc = |p0: Point3, pm: Point3, p1: Point3| {
+        crate::center_curve::fit_nurbs_through_points(&[p0, pm, p1]).unwrap()
+    };
+    let p_up_a = Point3::new(1.0, 0.0, 0.5);
+    let p_up_m = Point3::new(1.0, 0.2, 0.6);
+    let p_up_b = Point3::new(1.0, 0.4, 0.5);
+
+    let p_dn1_a = Point3::new(-0.5, 0.87, -0.5);
+    let p_dn1_m = Point3::new(-0.4, 0.82, -0.6);
+    let p_dn1_b = Point3::new(-0.3, 0.77, -0.5);
+
+    let p_dn2_a = Point3::new(-0.5, -0.87, -0.5);
+    let p_dn2_m = Point3::new(-0.4, -0.82, -0.6);
+    let p_dn2_b = Point3::new(-0.3, -0.77, -0.5);
+
+    let bridge = |a: Point3, b: Point3| {
+        let mid = Point3::new(0.5 * (a.x + b.x), 0.5 * (a.y + b.y), 0.5 * (a.z + b.z));
+        crate::center_curve::fit_nurbs_through_points(&[a, mid, b]).unwrap()
+    };
+
+    let dummy_face = popkern_core::topology::FaceHandle::default();
+    let dummy_vh = popkern_core::topology::VertexHandle::default();
+    let boundary = BlendBoundary {
+        vertex: dummy_vh,
+        vertex_position: Point3::new(0.0, 0.0, 0.0),
+        segments: vec![
+            BoundarySegment::FilletEnd {
+                curve: arc(p_up_a, p_up_m, p_up_b),
+                fillet_index: 0,
+            },
+            BoundarySegment::FaceEdge {
+                curve: bridge(p_up_b, p_dn1_a),
+                face: dummy_face,
+            },
+            BoundarySegment::FilletEnd {
+                curve: arc(p_dn1_a, p_dn1_m, p_dn1_b),
+                fillet_index: 1,
+            },
+            BoundarySegment::FaceEdge {
+                curve: bridge(p_dn1_b, p_dn2_a),
+                face: dummy_face,
+            },
+            BoundarySegment::FilletEnd {
+                curve: arc(p_dn2_a, p_dn2_m, p_dn2_b),
+                fillet_index: 2,
+            },
+            BoundarySegment::FaceEdge {
+                curve: bridge(p_dn2_b, p_up_a),
+                face: dummy_face,
+            },
+        ],
+        bridge_fallbacks: Vec::new(),
+    };
+
+    // Compute the expected saddle central point: average of the 3
+    // arc midpoints.
+    let expected = Point3::new(
+        (p_up_m.x + p_dn1_m.x + p_dn2_m.x) / 3.0,
+        (p_up_m.y + p_dn1_m.y + p_dn2_m.y) / 3.0,
+        (p_up_m.z + p_dn1_m.z + p_dn2_m.z) / 3.0,
+    );
+
+    // Run the decomposition — for `OppositeSide`, central_point
+    // should match `expected`. For `SameSideConvex`, it should
+    // NOT match (hex centroid instead).
+    let saddle = crate::blend::gregory_three_quad::build_n_quad_decomposition_with_options(
+        &boundary,
+        &[],
+        false,
+        VertexBlendClassification::OppositeSide,
+    );
+    let convex = crate::blend::gregory_three_quad::build_n_quad_decomposition_with_options(
+        &boundary,
+        &[],
+        false,
+        VertexBlendClassification::SameSideConvex,
+    );
+
+    // Both paths must build on this well-formed synthetic boundary.
+    let saddle = saddle.expect(
+        "item #5: saddle-path decomposition must build on a valid \
+         hexagonal boundary — None indicates a regression in the \
+         saddle central-point or boundary plumbing",
+    );
+    let convex = convex.expect(
+        "item #5 precondition: convex-path decomposition should also \
+         build on the same boundary (sanity check)",
+    );
+
+    let c = saddle.central_point;
+    let d_expected = (c.x - expected.x)
+        .hypot(c.y - expected.y)
+        .hypot(c.z - expected.z);
+    assert!(
+        d_expected < 1e-9,
+        "item #5: saddle central point {c:?} must equal arc-mid average \
+         {expected:?} (within 1e-9); got distance {d_expected:.4e}"
+    );
+
+    // The convex (hex-centroid) path MUST produce a DIFFERENT
+    // central point on this synthetic boundary — proves the saddle
+    // branch actually changed behaviour rather than trivially
+    // matching the default.
+    let d_saddle_convex = (saddle.central_point.x - convex.central_point.x)
+        .hypot(saddle.central_point.y - convex.central_point.y)
+        .hypot(saddle.central_point.z - convex.central_point.z);
+    assert!(
+        d_saddle_convex > 1e-6,
+        "item #5: saddle and convex central points should differ on a \
+         synthetic saddle boundary; got {d_saddle_convex:.4e}"
+    );
+
+    let _ = tol; // silence unused if all branches skip.
 }

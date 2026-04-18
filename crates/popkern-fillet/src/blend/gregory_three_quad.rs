@@ -48,6 +48,7 @@ use super::gregory_parallelogram::{
 };
 use super::gregory_vertex_enclosure::shirman_sequin_vertex_enclosure_solve;
 use crate::fillet_surface::FilletSurfaceResult;
+use crate::vertex_classifier::VertexBlendClassification;
 
 /// `N` rectangular Gregory sub-patches meeting at a central point,
 /// decomposing a `2N`-segment vertex-blend boundary (alternating
@@ -103,6 +104,27 @@ pub(crate) fn build_n_quad_decomposition_with_degree(
     fillet_surfaces: &[FilletSurfaceResult],
     use_deg5: bool,
 ) -> Option<NQuadDecomposition> {
+    build_n_quad_decomposition_with_options(
+        boundary,
+        fillet_surfaces,
+        use_deg5,
+        VertexBlendClassification::SameSideConvex,
+    )
+}
+
+/// `build_n_quad_decomposition_with_degree` + classification hint so
+/// the builder can route saddle (`OppositeSide`) configurations
+/// through a saddle-specific central-point computation (midpoint of
+/// the N fillet-end arc midpoints rather than the 2N hex-vertex
+/// centroid, which sits incorrectly inside the convex side for
+/// saddles).
+#[allow(dead_code)]
+pub(crate) fn build_n_quad_decomposition_with_options(
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+    use_deg5: bool,
+    classification: VertexBlendClassification,
+) -> Option<NQuadDecomposition> {
     let two_n = boundary.segments.len();
     if two_n < 6 || !two_n.is_multiple_of(2) {
         return None;
@@ -131,26 +153,63 @@ pub(crate) fn build_n_quad_decomposition_with_degree(
         return None;
     }
 
-    // Central point = centroid of the `2N` boundary vertices. Inside
-    // the polygon for convex boundaries (always true for trihedral
-    // corners; for N ≥ 4 relies on the bridge-arc chain remaining
-    // convex — true for standard pyramidal / hub geometry).
-    let denom = two_n as f64;
-    let c = Point3::new(
-        hex_vertices.iter().map(|p| p.x).sum::<f64>() / denom,
-        hex_vertices.iter().map(|p| p.y).sum::<f64>() / denom,
-        hex_vertices.iter().map(|p| p.z).sum::<f64>() / denom,
+    // Central point selection — classification-dependent.
+    //
+    // **SameSideConvex / SameSideConcave:** hex centroid (average
+    // of the 2N hex vertices). The hex is convex so the centroid
+    // is inside the blend — the sub-patches fan out from here.
+    //
+    // **OppositeSide (saddle):** §5.3 item #5. A saddle has 1+
+    // convex fillet(s) + 1+ concave fillet(s) meeting at the
+    // vertex. The convex arc midpoints sit on one side of the
+    // saddle ridge; concave arc midpoints on the other. The
+    // 2N-hex centroid is pulled off-ridge toward the convex side
+    // (more positive-curvature contributions). Averaging only
+    // the N **arc midpoints** (the FilletEnd segments — not the
+    // bridge corners) is symmetric across the ridge because each
+    // arc midpoint lies on the spine of its fillet, equidistant
+    // from the saddle ridge regardless of sign.
+    let denom_hex = two_n as f64;
+    let hex_centroid = Point3::new(
+        hex_vertices.iter().map(|p| p.x).sum::<f64>() / denom_hex,
+        hex_vertices.iter().map(|p| p.y).sum::<f64>() / denom_hex,
+        hex_vertices.iter().map(|p| p.z).sum::<f64>() / denom_hex,
     );
+    let c = if matches!(classification, VertexBlendClassification::OppositeSide) {
+        let arc_mids: Vec<Point3> = boundary
+            .segments
+            .iter()
+            .filter_map(|s| match s {
+                BoundarySegment::FilletEnd { curve, .. } => {
+                    let (t0, t1) = curve.parameter_range();
+                    Some(curve.point_at(0.5 * (t0 + t1)))
+                }
+                _ => None,
+            })
+            .collect();
+        if arc_mids.len() == n {
+            let denom_arc = n as f64;
+            Point3::new(
+                arc_mids.iter().map(|p| p.x).sum::<f64>() / denom_arc,
+                arc_mids.iter().map(|p| p.y).sum::<f64>() / denom_arc,
+                arc_mids.iter().map(|p| p.z).sum::<f64>() / denom_arc,
+            )
+        } else {
+            hex_centroid
+        }
+    } else {
+        hex_centroid
+    };
 
-    // C4b.2b central-vertex normal. All three sub-patches' corner-3
-    // inner CPs must lie in a common tangent plane at `C` for G1
-    // across the three shared spokes. We pick the plane via
-    // cross-product of consecutive hex-vertex-to-centroid vectors —
-    // a convex hex's outward normal is consistent across such
-    // cross products. Normalised; sign chosen so the normal points
-    // "out of the blend" (away from the averaged strip normals at
-    // the arc corners).
-    let n_c = central_vertex_normal(&hex_vertices, c).unwrap_or(Vec3::new(0.0, 0.0, 0.0));
+    // Central-vertex normal. For convex configurations, the sum
+    // of cross products of consecutive hex-vertex-to-centroid
+    // vectors gives a consistent outward normal. For saddles the
+    // sum can cancel to near-zero; in that case we fall back to
+    // averaging the fillet-surface normals at the arc midpoints
+    // (a robust choice that respects the saddle ridge direction).
+    let n_c = central_vertex_normal(&hex_vertices, c)
+        .or_else(|| saddle_normal_fallback(boundary, fillet_surfaces))
+        .unwrap_or(Vec3::new(0.0, 0.0, 0.0));
 
     // Pass 1: build each sub-patch's boundaries and raw parallelogram
     // inner CPs (with C-K twist applied at corners 0–2). Corner 3
@@ -271,7 +330,8 @@ pub(crate) fn build_three_quad_decomposition(
 /// centroid-to-hex-vertex vectors — for a convex hex in CCW
 /// order the sum points along the plane normal. Returns `None`
 /// if the 6 cross products sum to a near-zero vector
-/// (degenerate hex, e.g., all 6 vertices on a line).
+/// (degenerate hex, e.g., all 6 vertices on a line, or a saddle
+/// where the positive + negative curvature contributions cancel).
 fn central_vertex_normal(hex_vertices: &[Point3], c: Point3) -> Option<Vec3> {
     if hex_vertices.len() != 6 {
         return None;
@@ -289,6 +349,68 @@ fn central_vertex_normal(hex_vertices: &[Point3], c: Point3) -> Option<Vec3> {
     }
     let n = Vec3::new(nx, ny, nz);
     n.normalized()
+}
+
+/// §5.3 item #5 — saddle central-vertex normal fallback.
+///
+/// When [`central_vertex_normal`] returns `None` (saddle-case
+/// cancellation of the cross-product sum), pick the normal
+/// direction from the fillet-surface normals at each fillet-end
+/// arc midpoint. Averaging the absolute-valued normals (to avoid
+/// sign cancellation across the ridge) gives a direction
+/// perpendicular to the saddle ridge — the correct common
+/// tangent-plane normal at C.
+fn saddle_normal_fallback(
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+) -> Option<Vec3> {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::SurfaceEval;
+    let mut sum = Vec3::new(0.0, 0.0, 0.0);
+    let mut n = 0usize;
+    let mut seed: Option<Vec3> = None;
+    for (i, seg) in boundary.segments.iter().enumerate() {
+        let BoundarySegment::FilletEnd { curve, .. } = seg else {
+            continue;
+        };
+        // Pair each FilletEnd arc (even index 2k) with the fillet
+        // strip at the same index.
+        let strip_idx = i / 2;
+        let Some(strip) = fillet_surfaces.get(strip_idx) else {
+            continue;
+        };
+        let (t0, t1) = curve.parameter_range();
+        let mid = curve.point_at(0.5 * (t0 + t1));
+        let Some((u, v)) = strip.surface.closest_point(&mid) else {
+            continue;
+        };
+        let normal = strip.surface.normal_at(u, v);
+        let Some(unit) = normal.normalized() else {
+            continue;
+        };
+        // Flip the contribution if it's anti-aligned with the
+        // first sampled normal — this ensures the average is in
+        // one consistent half-space across the saddle ridge.
+        let aligned = match seed {
+            None => {
+                seed = Some(unit);
+                unit
+            }
+            Some(ref s) => {
+                if unit.dot(s) >= 0.0 {
+                    unit
+                } else {
+                    Vec3::new(-unit.x, -unit.y, -unit.z)
+                }
+            }
+        };
+        sum = Vec3::new(sum.x + aligned.x, sum.y + aligned.y, sum.z + aligned.z);
+        n += 1;
+    }
+    if n == 0 {
+        return None;
+    }
+    sum.normalized()
 }
 
 /// Build a straight-line spoke as a degree-1 NURBS from `a` to `b`

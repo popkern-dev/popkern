@@ -212,14 +212,7 @@ pub fn apply_blend_geometry(
         trims.sort_by_key(|t| (t.edge_idx, t.side));
     }
 
-    // ── Phase B: Split ALL faces by their trim curves ─────────────
-    //
-    // Delegates to `multi_chord::apply_multi_chord_for_face`, which
-    // precomputes pairwise chord-chord intersections on each face
-    // and inserts intermediate vertices where chords cross so each
-    // sub-chord's endpoints live on the same sub-face. For faces
-    // with a single trim (or parallel non-intersecting trims) this
-    // degenerates to the historical per-trim split.
+    // ── Phase B: split faces by trim curves via `multi_chord`. ───
     let mut trim_results: Vec<TrimSplitResult> = Vec::new();
 
     for (original_face, trims) in &face_trims {
@@ -251,12 +244,7 @@ pub fn apply_blend_geometry(
         failures.extend(outcome.failures);
     }
 
-    // ── Re-identify consumed faces from descendants ────────────────
-    // For each trim, replace the stored `consumed` with the face
-    // incident to the LONGEST descendant sub-edge (the middle
-    // portion of the fillet edge after all Phase A + Phase B
-    // splits). Choose the side that matches the original trim's
-    // face (via `find_original_face_for_sub_face`).
+    // ── Re-identify consumed faces from descendants (longest-sub-edge). ──
     for tr in &mut trim_results {
         let original_edge = edge_geometries[tr.edge_idx].analysis.edge;
         let fillet_descendants: &[EdgeHandle] = descendants
@@ -298,26 +286,18 @@ pub fn apply_blend_geometry(
             }
         }
         if let Some((_, f_a, f_b)) = longest {
-            // Prefer whichever of f_a, f_b descends from
-            // `desired_parent`. "Descends" here is checked by
-            // whether the face equals `desired_parent` (not yet
-            // split) or was created from its chain; absent an
-            // explicit chain, we fall back to whichever lies on
-            // the surface of `desired_parent`'s original face.
+            // Prefer whichever of f_a, f_b descends from `desired_parent`.
             let pick = multi_chord::choose_side_face(&result, brep, desired_parent, f_a, f_b);
             tr.consumed = pick;
         }
     }
 
-    // ── Phase C: Merge consumed face pairs via kef ────────────────
-    // Group by edge index: need side 1 + side 2 to merge.
+    // ── Phase C: merge consumed face pairs via kef ────────────────
     let mut edge_trims: std::collections::BTreeMap<usize, Vec<&TrimSplitResult>> =
         std::collections::BTreeMap::new();
     for tr in &trim_results {
         edge_trims.entry(tr.edge_idx).or_default().push(tr);
     }
-
-    // Track which consumed faces were successfully merged for cleanup.
     let mut merged_consumed: std::collections::HashSet<FaceHandle> =
         std::collections::HashSet::new();
 
@@ -425,8 +405,32 @@ pub fn apply_blend_geometry(
                 .or_default()
                 .push(idx);
         }
+        // §5.3 item #5 — classify on the ORIGINAL `brep` (pre-Phase
+        // A-through-C). Post-modification, original edge handles are
+        // stale and `classify_vertex_blend` silently defaults to
+        // `SameSideConvex`, masking `OppositeSide` saddles.
+        let precomputed: HashMap<
+            VertexHandle,
+            crate::vertex_classifier::VertexBlendClassification,
+        > = vertex_edges
+            .iter()
+            .map(|(v, eis)| {
+                let edges: Vec<_> = eis
+                    .iter()
+                    .filter_map(|&i| edge_geometries.get(i).map(|g| g.analysis.edge))
+                    .collect();
+                let c =
+                    crate::vertex_classifier::classify_vertex_blend(brep, *v, &edges, tolerance)
+                        .classification;
+                (*v, c)
+            })
+            .collect();
         for (vertex, edge_indices) in &vertex_edges {
             if edge_indices.len() >= 2 {
+                let pre = precomputed
+                    .get(vertex)
+                    .copied()
+                    .unwrap_or(crate::vertex_classifier::VertexBlendClassification::SameSideConvex);
                 match blend_insert::insert_vertex_blend(
                     &mut result,
                     *vertex,
@@ -435,6 +439,7 @@ pub fn apply_blend_geometry(
                     tolerance,
                     use_rational_gregory,
                     use_deg5_gregory,
+                    Some(pre),
                 ) {
                     Ok(infos) => {
                         bridge_warnings::emit_bridge_fallback_warnings(

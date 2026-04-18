@@ -40,55 +40,45 @@ pub(crate) fn insert_vertex_blend(
     tolerance: &Tolerance,
     use_rational_gregory: bool,
     use_deg5_gregory: bool,
+    precomputed_classification: Option<VertexBlendClassification>,
 ) -> Result<Vec<CornerPatchInfo>, String> {
-    // §5.3 C6 — classify the vertex-blend configuration *before*
-    // topology modifications begin, while the pre-blend BRep is
-    // still intact (the classifier reads face surface normals
-    // along incident edges). The classification drives method
-    // dispatch and is stored on the returned `CornerPatchInfo`
-    // for UI consumers.
-    let classification = {
+    // §5.3 item #5 — callers pre-compute classification against
+    // the pre-modification BRep; post-Phase-C original edge handles
+    // are stale. Fallback for tests that call us on an untouched BRep.
+    let classification = precomputed_classification.unwrap_or_else(|| {
         let filleted_edges: Vec<_> = edge_indices
             .iter()
             .filter_map(|&i| edge_geometries.get(i).map(|g| g.analysis.edge))
             .collect();
         crate::vertex_classifier::classify_vertex_blend(brep, vertex, &filleted_edges, tolerance)
             .classification
-    };
+    });
 
     // Repair the vertex's outgoing half-edge if it has become stale
     // due to prior topology operations (edge splitting, face splitting).
     repair_vertex_outgoing(brep, vertex)?;
 
-    // R8 C6 — per-face trim-endpoint anchors. The old nearest-to-V
-    // anchor set cut the wrong chord on mixed-radius faces (picking
-    // an intermediate cube-sub vertex instead of the face's own
-    // fillet trim endpoint). For each adjacent face we now look up
-    // the fillet trim curve that lies on that face's supporting
-    // plane and pick its V-side endpoint vertex.
     if edge_geometries.is_empty() {
         return Err(format!("vertex {vertex:?} has no fillet geometries"));
     }
-
-    // Collect faces touching V (via half-edges originating from V).
     let face_info = collect_faces_around_vertex(brep, vertex)?;
-
     if face_info.is_empty() {
         return Err(format!("no faces found around vertex {vertex:?}"));
     }
 
-    // R8 C7 — capture the pre-merge N-gon boundary here before
-    // `merge_corner_triangles` collapses V's 1-ring. Post-merge, V
-    // sits on a single face with no surface, so the boundary
-    // reorientation path can't fire.
-    // §5.3 item #5 — saddle classification gate (`OppositeSide` /
-    // `Mixed` routed to polar-NURBS pending saddle-specific geometry).
+    // §5.3 item #5 — `OppositeSide` (saddle) flows through Gregory
+    // with a saddle-specific central point + normal
+    // (`build_n_quad_decomposition_with_options`). `Mixed` stays on
+    // polar-NURBS because mixed-convexity edges lack a consistent
+    // saddle ridge direction.
     let fillet_surfaces_pre = build_fillet_surface_list(edge_indices, edge_geometries);
     let local_indices_pre: Vec<usize> = (0..fillet_surfaces_pre.len()).collect();
     let n_sides = edge_indices.len();
     let rational_gregory_compatible = matches!(
         classification,
-        VertexBlendClassification::SameSideConvex | VertexBlendClassification::SameSideConcave,
+        VertexBlendClassification::SameSideConvex
+            | VertexBlendClassification::SameSideConcave
+            | VertexBlendClassification::OppositeSide,
     );
     let n_gon_boundary: Option<BlendBoundary> =
         if use_rational_gregory && n_sides >= 3 && rational_gregory_compatible {
@@ -465,6 +455,7 @@ mod tests {
             &Tolerance::default(),
             false,
             false,
+            None,
         );
         assert!(result.is_err(), "should fail for invalid vertex");
     }
@@ -485,6 +476,7 @@ mod tests {
             &Tolerance::default(),
             false,
             false,
+            None,
         );
         // This should fail (no edge geometries -> empty fillet surfaces
         // -> blend boundary computation fails), but NOT at the anchor check.
