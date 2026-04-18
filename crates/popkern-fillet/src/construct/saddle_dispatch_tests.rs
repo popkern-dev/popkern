@@ -185,6 +185,71 @@ fn item5_saddle_fillet_dispatches_through_gregory_or_polar() {
          landing) or ≤ 1 polar-NURBS patches (safe fallback); got {}",
         saddle_corners.len()
     );
+
+    // When the Gregory path fires, assert the sub-patches are
+    // geometrically valid: (a) the resulting BRep passes
+    // structural validation (no broken cycles / twins /
+    // non-manifold edges), (b) each sub-patch face carries a
+    // Gregory surface, (c) each Gregory sub-patch has non-trivial
+    // UV-bounding-box area (a proxy for positive surface area —
+    // avoids pulling in popkern-measure as a fillet-side dep).
+    if saddle_corners.len() == 3 {
+        use popkern_core::error::ValidationError;
+        use popkern_core::geometry::surface::SurfaceEval;
+
+        let validation_errors = result.brep.validate_all();
+        let structural: Vec<_> = validation_errors
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    ValidationError::BrokenCycle { .. }
+                        | ValidationError::BrokenTwin { .. }
+                        | ValidationError::NonManifoldEdge { .. }
+                )
+            })
+            .collect();
+        assert!(
+            structural.is_empty(),
+            "saddle Gregory result must have no structural errors; got {structural:?}"
+        );
+
+        for patch in &saddle_corners {
+            let face = result
+                .brep
+                .faces
+                .get(patch.face)
+                .expect("sub-patch face must exist in result");
+            let sof = face
+                .surface
+                .as_ref()
+                .expect("sub-patch face must have a surface assigned");
+            assert!(
+                matches!(
+                    sof.geometry,
+                    popkern_core::geometry::surface::SurfaceGeometry::Gregory(_)
+                ),
+                "sub-patch face must carry a Gregory surface; got {:?}",
+                std::mem::discriminant(&sof.geometry)
+            );
+            // Positive-area proxy: sample at the 4 UV corners
+            // and require max pairwise distance > 1e-6 (the
+            // patch isn't degenerate to a point).
+            let pts = [
+                sof.geometry.point_at(0.0, 0.0),
+                sof.geometry.point_at(1.0, 0.0),
+                sof.geometry.point_at(0.0, 1.0),
+                sof.geometry.point_at(1.0, 1.0),
+            ];
+            let max_dist = (0..4)
+                .flat_map(|i| (i + 1..4).map(move |j| pts[i].distance_to(&pts[j])))
+                .fold(0.0_f64, f64::max);
+            assert!(
+                max_dist > 1e-6,
+                "Gregory sub-patch must be non-degenerate; max corner-pair distance = {max_dist}"
+            );
+        }
+    }
 }
 
 /// §5.3 item #5 — unit test on the saddle-specific central-point
