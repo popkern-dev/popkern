@@ -283,6 +283,50 @@ fn uniform_clamped_knots(
     knots
 }
 
+/// Crop a full-range NURBS surface to the `(u_range, v_range)`
+/// sub-rectangle by splitting along each boundary and keeping the
+/// middle piece. Used by Gregory `to_nurbs_in_range` sub-range
+/// handling (§5.3 item #9) so the rational-exact form survives
+/// region restriction instead of degrading to `sample_to_nurbs`.
+/// Falls back to the input if any split fails (e.g., a range
+/// endpoint equals the existing boundary — no slice needed on
+/// that side).
+fn crop_nurbs_surface_to_range(
+    surface: NurbsSurface,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+) -> NurbsSurface {
+    let mut s = surface;
+    // u_lo: split at u_range.0, keep right.
+    if u_range.0 > 0.0 {
+        match s.split_at_u(u_range.0) {
+            Ok((_left, right)) => s = right,
+            Err(_) => return s,
+        }
+    }
+    // u_hi: split at u_range.1, keep left. Guard: only split if
+    // u_range.1 is strictly inside the current surface's u span.
+    if u_range.1 < 1.0 {
+        match s.split_at_u(u_range.1) {
+            Ok((left, _right)) => s = left,
+            Err(_) => return s,
+        }
+    }
+    if v_range.0 > 0.0 {
+        match s.split_at_v(v_range.0) {
+            Ok((_bottom, top)) => s = top,
+            Err(_) => return s,
+        }
+    }
+    if v_range.1 < 1.0 {
+        match s.split_at_v(v_range.1) {
+            Ok((bottom, _top)) => s = bottom,
+            Err(_) => return s,
+        }
+    }
+    s
+}
+
 /// Sample the surface on an n_u × n_v grid and use the sampled points as NURBS
 /// control points (degree-3 interpolating approximation).
 fn sample_to_nurbs(
@@ -396,25 +440,25 @@ impl SurfaceGeometry {
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.clone(),
             // Exact rational-Bezier conversions for all Gregory
-            // variants when the requested range is the natural
-            // `[0,1]²`:
-            //   - Rectangular cubic → bidegree-(7,7) (§5.3 item #2).
-            //   - Rectangular deg5 → bidegree-(9,9) (§5.3 item #1).
-            //   - Triangular cubic → bidegree-(5,5) on (s, t) via
-            //     the degenerate-edge parameter map (§5.3 item #2).
-            // Sub-range requests fall through to `sample_to_nurbs`.
-            SurfaceGeometry::Gregory(gp)
-                if u_range.0 == 0.0 && u_range.1 == 1.0 && v_range.0 == 0.0 && v_range.1 == 1.0 =>
-            {
-                match gp {
+            // variants. The natural `[0,1]²` case calls the
+            // type-specific exact converter. Sub-ranges go
+            // exact → split 4× to extract the requested rectangle;
+            // this preserves the rational form exactly, unlike the
+            // `sample_to_nurbs` fallback which is degree-3 lossy.
+            // §5.3 item #9 — Gregory sub-range exactness.
+            SurfaceGeometry::Gregory(gp) => {
+                let full: NurbsSurface = match gp {
                     crate::geometry::gregory::GregoryPatch::Rectangular(r) => r.to_nurbs_exact(),
                     crate::geometry::gregory::GregoryPatch::RectangularDeg5(r) => {
                         r.to_nurbs_exact()
                     }
                     crate::geometry::gregory::GregoryPatch::Triangular(t) => t.to_nurbs_exact(),
+                };
+                if u_range.0 == 0.0 && u_range.1 == 1.0 && v_range.0 == 0.0 && v_range.1 == 1.0 {
+                    return full;
                 }
+                crop_nurbs_surface_to_range(full, u_range, v_range)
             }
-            SurfaceGeometry::Gregory(_) => sample_to_nurbs(self, u_range, v_range),
             _ => sample_to_nurbs(self, u_range, v_range),
         }
     }

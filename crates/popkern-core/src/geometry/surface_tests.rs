@@ -186,3 +186,82 @@ fn cylinder_to_nurbs_in_range() {
     let r = (p.x * p.x + p.y * p.y).sqrt();
     assert!((r - 1.0).abs() < 0.15, "Point not on cylinder: r={r}");
 }
+
+/// §5.3 item #9 — Gregory sub-range `to_nurbs_in_range` must
+/// preserve the exact rational form (cropped from the full-range
+/// exact NURBS via `split_at_u` / `split_at_v`). Previously the
+/// sub-range path fell through to `sample_to_nurbs`, a lossy
+/// degree-3 interpolation. The cropped NURBS's point evaluations
+/// must match the Gregory point evaluations to near-f64 precision
+/// within the cropped domain.
+#[test]
+fn gregory_to_nurbs_sub_range_preserves_exact_form() {
+    use crate::geometry::gregory::{GregoryPatch, RectangularGregory};
+
+    // Build a twisted Gregory patch (non-planar, non-trivial inner CPs).
+    let lin = |u: f64, v: f64| Point3::new(u, v, 0.0);
+    let mut boundary_cps = [[Point3::new(0.0, 0.0, 0.0); 4]; 4];
+    for (i, row) in boundary_cps.iter_mut().enumerate() {
+        for (j, cp) in row.iter_mut().enumerate() {
+            *cp = lin(i as f64 / 3.0, j as f64 / 3.0);
+        }
+    }
+    // Lift the top-right corner to create a twist.
+    boundary_cps[3][3] = Point3::new(1.0, 1.0, 0.3);
+    boundary_cps[2][3] = Point3::new(2.0 / 3.0, 1.0, 0.2);
+    boundary_cps[3][2] = Point3::new(1.0, 2.0 / 3.0, 0.2);
+    let inner_cps = [
+        (
+            Point3::new(1.0 / 3.0, 1.0 / 3.0, 0.05),
+            Point3::new(1.0 / 3.0, 1.0 / 3.0, 0.02),
+        ),
+        (
+            Point3::new(1.0 / 3.0, 2.0 / 3.0, 0.08),
+            Point3::new(1.0 / 3.0, 2.0 / 3.0, 0.10),
+        ),
+        (
+            Point3::new(2.0 / 3.0, 2.0 / 3.0, 0.15),
+            Point3::new(2.0 / 3.0, 2.0 / 3.0, 0.12),
+        ),
+        (
+            Point3::new(2.0 / 3.0, 1.0 / 3.0, 0.07),
+            Point3::new(2.0 / 3.0, 1.0 / 3.0, 0.04),
+        ),
+    ];
+    let rg = RectangularGregory {
+        boundary_cps,
+        inner_cps,
+    };
+    let geom = SurfaceGeometry::Gregory(GregoryPatch::Rectangular(Box::new(rg.clone())));
+
+    // Sub-range request: interior rectangle [0.2, 0.8] × [0.3, 0.7].
+    let (u_lo, u_hi) = (0.2, 0.8);
+    let (v_lo, v_hi) = (0.3, 0.7);
+    let cropped = geom.to_nurbs_in_range((u_lo, u_hi), (v_lo, v_hi));
+
+    // The cropped NURBS's parameter domain is [u_lo, u_hi] × [v_lo, v_hi].
+    // Evaluate at a 5×5 grid inside that domain and compare against the
+    // Gregory patch's native evaluation at the same (u, v).
+    let n = 5;
+    let mut max_dev: f64 = 0.0;
+    for i in 0..=n {
+        for j in 0..=n {
+            let u = u_lo + (u_hi - u_lo) * (i as f64) / (n as f64);
+            let v = v_lo + (v_hi - v_lo) * (j as f64) / (n as f64);
+            let p_gregory = rg.point_at(u, v);
+            let p_nurbs = cropped.point_at(u, v);
+            let d = (p_gregory.x - p_nurbs.x)
+                .abs()
+                .max((p_gregory.y - p_nurbs.y).abs())
+                .max((p_gregory.z - p_nurbs.z).abs());
+            max_dev = max_dev.max(d);
+        }
+    }
+    // Exact NURBS + split is lossless modulo float noise; sampling
+    // was ~1e-3 accurate at best. 1e-6 cleanly separates the two.
+    assert!(
+        max_dev < 1e-6,
+        "§5.3 item #9 sub-range exact crop: max deviation {max_dev} between Gregory \
+         eval and cropped NURBS eval must be < 1e-6 (old sample-fit path was ~1e-3)"
+    );
+}

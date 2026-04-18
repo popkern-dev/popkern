@@ -152,8 +152,74 @@ pub fn face_area(
                 tessellate_area(brep, face, tolerance)
             }
         }
+        // §5.3 item #9 — Gregory-native surface-integral quadrature.
+        // 8×8 Gauss-Legendre on the pcurve UV rectangle integrates
+        // `|∂u × ∂v|` to ~1e-6 relative on smooth Gregory patches —
+        // orders of magnitude tighter than tessellation. Falls back
+        // to tessellation when the face has inner loops (trim-aware
+        // integration is a separate rabbit hole) or the pcurve UV
+        // range can't be determined.
+        SurfaceGeometry::Gregory(_) if face_data.inner_loops.is_empty() => {
+            if let Some(((u0, u1), (v0, v1))) = pcurve_uv_range(brep, face) {
+                Ok(gauss_legendre_surface_area(
+                    &surface_on_face.geometry,
+                    (u0, u1),
+                    (v0, v1),
+                ))
+            } else {
+                tessellate_area(brep, face, tolerance)
+            }
+        }
         _ => tessellate_area(brep, face, tolerance),
     }
+}
+
+/// 8-point tensor-product Gauss-Legendre quadrature of
+/// `∫∫ |∂u × ∂v| du dv` over a UV rectangle. Polynomial-exact to
+/// degree 15 per axis; on the Gregory sqrt integrand the 8×8 grid
+/// gives ~1e-6 relative accuracy — far tighter than tessellation-
+/// based area.
+fn gauss_legendre_surface_area(
+    geom: &SurfaceGeometry,
+    (u0, u1): (f64, f64),
+    (v0, v1): (f64, f64),
+) -> f64 {
+    // 8-point Gauss-Legendre nodes + weights on [-1, 1].
+    const GL_X: [f64; 8] = [
+        -0.960_289_856_497_536_2,
+        -0.796_666_477_413_626_7,
+        -0.525_532_409_916_329,
+        -0.183_434_642_495_649_8,
+        0.183_434_642_495_649_8,
+        0.525_532_409_916_329,
+        0.796_666_477_413_626_7,
+        0.960_289_856_497_536_2,
+    ];
+    const GL_W: [f64; 8] = [
+        0.101_228_536_290_376_26,
+        0.222_381_034_453_374_4,
+        0.313_706_645_877_887_3,
+        0.362_683_783_378_362,
+        0.362_683_783_378_362,
+        0.313_706_645_877_887_3,
+        0.222_381_034_453_374_4,
+        0.101_228_536_290_376_26,
+    ];
+    let du = 0.5 * (u1 - u0);
+    let dv = 0.5 * (v1 - v0);
+    let mu = 0.5 * (u1 + u0);
+    let mv = 0.5 * (v1 + v0);
+    let mut sum = 0.0_f64;
+    for i in 0..8 {
+        let u = mu + du * GL_X[i];
+        for j in 0..8 {
+            let v = mv + dv * GL_X[j];
+            let su = geom.partial_u(u, v);
+            let sv = geom.partial_v(u, v);
+            sum += GL_W[i] * GL_W[j] * su.cross(&sv).length();
+        }
+    }
+    du.abs() * dv.abs() * sum
 }
 
 /// Compute the perimeter of a face's outer boundary loop.

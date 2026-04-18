@@ -101,6 +101,87 @@ fn r8_c8_mesh_produces_output_on_both_flag_states() {
     );
 }
 
+/// §5.3 item #9 — tessellation chord-height error on Gregory
+/// sub-patches must stay within the requested tolerance. For each
+/// Gregory face mesh, evaluate the surface at every triangle's UV
+/// centroid and compare to the triangle's 3D centroid: the
+/// distance is the triangle's chord-height error. Max error must
+/// not exceed `chord_height * 2` (2× slack for centroid-vs-
+/// nearest-point approximation + sampling noise).
+#[test]
+fn gregory_tessellation_chord_height_within_tolerance() {
+    use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+
+    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+    let vertex = cube.vertices.keys().next().unwrap();
+    let incident_edges: Vec<_> = cube
+        .half_edges
+        .values()
+        .filter(|he| he.origin == vertex)
+        .map(|he| he.edge)
+        .collect();
+    let radii = [0.08, 0.10, 0.12];
+    let specs: Vec<FilletSpec> = incident_edges
+        .iter()
+        .zip(radii.iter())
+        .map(|(&e, &r)| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(r),
+        })
+        .collect();
+    let opts = FilletOptions {
+        use_rational_gregory: true,
+        ..FilletOptions::default()
+    };
+    let result = fillet_edges(&cube, &specs, &opts, Tolerance::default(), None).unwrap();
+
+    let chord_height = 0.01_f64;
+    let mesh_opts = TessellationOptions {
+        chord_height,
+        ..TessellationOptions::default()
+    };
+    let mesh = tessellate(&result.brep, &mesh_opts).unwrap();
+
+    let mut max_err: f64 = 0.0;
+    let mut n_gregory_tris = 0usize;
+    for fm in &mesh.face_meshes {
+        let Some(sof) = result.brep.faces[fm.face].surface.as_ref() else {
+            continue;
+        };
+        if !matches!(sof.geometry, SurfaceGeometry::Gregory(_)) {
+            continue;
+        }
+        for tri in &fm.triangles {
+            let p0 = fm.vertices[tri[0]].position;
+            let p1 = fm.vertices[tri[1]].position;
+            let p2 = fm.vertices[tri[2]].position;
+            let uv0 = fm.vertices[tri[0]].uv;
+            let uv1 = fm.vertices[tri[1]].uv;
+            let uv2 = fm.vertices[tri[2]].uv;
+            let cx = (p0.x + p1.x + p2.x) / 3.0;
+            let cy = (p0.y + p1.y + p2.y) / 3.0;
+            let cz = (p0.z + p1.z + p2.z) / 3.0;
+            let uc = (uv0.0 + uv1.0 + uv2.0) / 3.0;
+            let vc = (uv0.1 + uv1.1 + uv2.1) / 3.0;
+            let s = sof.geometry.point_at(uc, vc);
+            let err = ((s.x - cx).powi(2) + (s.y - cy).powi(2) + (s.z - cz).powi(2)).sqrt();
+            max_err = max_err.max(err);
+            n_gregory_tris += 1;
+        }
+    }
+    assert!(
+        n_gregory_tris > 0,
+        "must have at least one Gregory triangle to measure"
+    );
+    // 2× chord_height allows for triangle-centroid vs nearest-
+    // triangle-point and Gregory's non-polynomial curvature.
+    let limit = chord_height * 2.0;
+    assert!(
+        max_err < limit,
+        "§5.3 item #9: Gregory tessellation max chord-height error {max_err} exceeds tolerance {limit} (chord_height={chord_height}, tris={n_gregory_tris})"
+    );
+}
+
 /// R8 C8: every sub-patch face must receive at least one triangle
 /// from the tessellator. Empty face meshes would mean Gregory →
 /// NURBS sample-fit degenerated on that sub-face.

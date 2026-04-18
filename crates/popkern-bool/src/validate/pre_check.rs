@@ -204,6 +204,8 @@ fn detect_unsupported_geometry(a: &BRep, b: &BRep, report: &mut PreCheckReport) 
     let b_nurbs = count(b, |s| matches!(s, SurfaceGeometry::Nurbs(_)));
     let a_torus = count(a, |s| matches!(s, SurfaceGeometry::Torus { .. }));
     let b_torus = count(b, |s| matches!(s, SurfaceGeometry::Torus { .. }));
+    let a_gregory = count(a, |s| matches!(s, SurfaceGeometry::Gregory(_)));
+    let b_gregory = count(b, |s| matches!(s, SurfaceGeometry::Gregory(_)));
 
     if a_nurbs > 0 && b_nurbs > 0 {
         report.findings.push(PreCheckFinding {
@@ -221,6 +223,19 @@ fn detect_unsupported_geometry(a: &BRep, b: &BRep, report: &mut PreCheckReport) 
             operand: 0,
             message: format!(
                 "Torus surfaces present (A: {a_torus}, B: {b_torus}). Torus intersections are tested but less stable than other analytic surfaces."
+            ),
+            error: None,
+        });
+    }
+    // §5.3 item #9 — Gregory faces intersect through the generic
+    // SurfaceEval marching path (native via trait dispatch); warn so
+    // callers are aware the path is less exercised than analytic pairs.
+    if a_gregory > 0 || b_gregory > 0 {
+        report.findings.push(PreCheckFinding {
+            severity: Severity::Warning,
+            operand: 0,
+            message: format!(
+                "Gregory faces present (A: {a_gregory}, B: {b_gregory}). Gregory intersections route through the generic marching solver (native evaluators) and are less exercised than analytic-pair intersections."
             ),
             error: None,
         });
