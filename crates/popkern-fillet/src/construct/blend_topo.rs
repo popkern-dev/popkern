@@ -120,6 +120,7 @@ pub(crate) fn collect_faces_around_vertex(
 pub(crate) fn collect_radii_for_face(
     brep: &BRep,
     face: FaceHandle,
+    vertex: VertexHandle,
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
 ) -> Vec<f64> {
@@ -154,7 +155,19 @@ pub(crate) fn collect_radii_for_face(
             mean_dist /= n_samples as f64;
 
             if mean_dist < tol_plane {
-                radii.push(eg.effective_radius);
+                // §5.3 item #8 — for variable-radius fillets the
+                // trim-endpoint distance from V equals the per-vertex
+                // radius, not the edge-wide average. Select the
+                // endpoint radius that matches `vertex`; fall back to
+                // `effective_radius` when V is interior to the chain.
+                let r = if vertex == eg.analysis.vertex_start {
+                    eg.radius_at_start
+                } else if vertex == eg.analysis.vertex_end {
+                    eg.radius_at_end
+                } else {
+                    eg.effective_radius
+                };
+                radii.push(r);
                 break; // At most one of eg's two trims lies on `face`.
             }
         }
@@ -183,7 +196,7 @@ pub(crate) fn find_face_trim_anchors(
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
 ) -> Result<Vec<VertexHandle>, String> {
-    let radii = collect_radii_for_face(brep, face, edge_geometries, tolerance);
+    let radii = collect_radii_for_face(brep, face, vertex, edge_geometries, tolerance);
     if radii.is_empty() {
         return Ok(Vec::new());
     }

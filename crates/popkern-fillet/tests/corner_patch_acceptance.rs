@@ -196,3 +196,56 @@ fn same_side_convex_cube_corner_gets_rolling_ball_sphere() {
         assert_eq!(patch.method, CornerMethod::RollingBallSphere);
     }
 }
+
+/// §5.3 item #8 — tapered (variable-radius) fillet meeting two
+/// constant-radius fillets at a cube vertex. The trim-endpoint
+/// anchor for the tapered fillet on each adjacent face sits at
+/// distance `radius_at_start` (or `radius_at_end`) from the
+/// vertex, NOT at the edge-wide average. A corner patch must be
+/// produced at the shared vertex, proving that the per-face
+/// anchor match used the per-vertex radius.
+#[test]
+fn variable_radius_fillet_trihedral_corner_produces_patch() {
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let vertex = cube.vertices.keys().next().unwrap();
+    let incident: Vec<_> = cube
+        .half_edges
+        .values()
+        .filter(|he| he.origin == vertex)
+        .map(|he| he.edge)
+        .collect();
+    assert_eq!(incident.len(), 3);
+
+    // First edge is tapered; the other two are constant at
+    // different radii so the sphere-fit path doesn't fire.
+    let specs = vec![
+        FilletSpec {
+            edge: incident[0],
+            radius: FilletRadius::Variable {
+                start: 0.07,
+                end: 0.13,
+            },
+        },
+        FilletSpec {
+            edge: incident[1],
+            radius: FilletRadius::Constant(0.09),
+        },
+        FilletSpec {
+            edge: incident[2],
+            radius: FilletRadius::Constant(0.11),
+        },
+    ];
+
+    let r = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None)
+        .expect("variable-radius vertex blend should succeed");
+    let patch = r
+        .corner_patches
+        .iter()
+        .find(|p| p.vertex == vertex)
+        .expect("tapered corner must produce a corner patch");
+    assert_eq!(patch.n_sides, 3);
+    assert_eq!(
+        patch.classification,
+        VertexBlendClassification::SameSideConvex
+    );
+}
