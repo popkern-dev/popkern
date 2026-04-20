@@ -66,7 +66,24 @@ pub fn build_binonic_ring(
     options: &DirectConstructionOptions,
 ) -> Result<Vec<RectangularGregoryBiNonic>, DirectConstructionError> {
     let guides = build_guide_ring_with_twist(input, options)?;
+    build_binonic_ring_from_guides(&guides, input)
+}
+
+/// Build a bidegree-9 ring from a pre-built set of guides plus the
+/// input boundary data. Exposed so the iterative K-P guide-twist
+/// optimizer (Phase H.7 gap #2) can rebuild the ring after each
+/// twist update without re-running the initial Shirman-Séquin
+/// guide-ring construction.
+pub fn build_binonic_ring_from_guides(
+    guides: &[KpGuidePatch],
+    input: &DirectBoundaryInput,
+) -> Result<Vec<RectangularGregoryBiNonic>, DirectConstructionError> {
     let n = guides.len();
+    if input.n() != n {
+        return Err(DirectConstructionError::DecompositionFailed {
+            detail: format!("guide count {} ≠ input.n() {}", n, input.n()),
+        });
+    }
 
     // Build shared-spoke boundaries ONCE per spoke from the
     // input spoke data (degree-elevated from 7 to 9). This

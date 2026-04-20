@@ -95,16 +95,19 @@ fn binonic_passes_commercial_gates_on_cube_mixed() {
     assert_commercial_gates("cube_mixed", &m);
 }
 
-/// **Known gap.** K-P construction does not deliver commercial-
-/// grade G1 under 1:10 radius asymmetry: G1 coplanarity lands
-/// near 3.9e-1 (≈ 22°) vs two-stripe's 2.5e-1. The promotion
-/// ladder's quality guard now catches this and reverts to
-/// two-stripe silently, so the ring stays at two-stripe quality
-/// (no regression) — but binonic itself doesn't improve here.
-/// Closing this gap requires (a) a bi-quintic guide surface
-/// with more flexibility near C, or (b) a post-K-P spoke-G1
-/// QP pass to tune the row-1 frame. Both are substantive
-/// follow-ups tracked as task #93.
+/// **Remaining gap.** Under 1:10 radius asymmetry, the K-P
+/// construction still doesn't reach commercial-grade G1: binonic
+/// lands near 2.6e-1 coplanarity (≈ 15°) after the twist
+/// optimizer converges. This is competitive with two-stripe
+/// (2.5e-1) — the regression is gone — but the bicubic guide's
+/// 16-CP substrate has reached its quality ceiling for this
+/// asymmetry level.
+///
+/// Closing this gap (getting binonic below the 5e-2 commercial
+/// gate on cube_extreme) requires a richer guide substrate:
+/// Option C, a bi-quintic (5×5) guide, which gives degree-4
+/// cross-derivatives along boundaries instead of degree-2.
+/// Tracked as follow-up to task #93.
 #[ignore]
 #[test]
 fn binonic_passes_commercial_gates_on_cube_extreme() {
@@ -127,16 +130,13 @@ fn binonic_matches_or_beats_two_stripe_on_cube_mixed() {
     assert_no_regression("cube_mixed", &mt, &mb);
 }
 
-/// Active regression monitor. Without the quality guard in
-/// `promote_decomp_to_kp_binonic`, binonic worst-case G1
-/// coplanarity on cube_extreme would land at 3.9e-1 vs
-/// two-stripe's 2.5e-1 (1.6× regression). With the guard,
-/// the K-P promotion reverts to two-stripe on this fixture,
-/// so binonic and two-stripe end up identical — the test
-/// passes because there's no regression (binonic patches
-/// ARE the two-stripe patches). If this test fails, it means
-/// either (a) the guard stopped engaging, or (b) two-stripe's
-/// own quality on this fixture regressed.
+/// Active regression monitor. With the K-P 2004 §4 iterative
+/// twist optimizer, binonic on cube_extreme now achieves G1 ≈
+/// 2.6e-1 — competitive with two-stripe's 2.5e-1. The 2× tolerance
+/// comfortably absorbs the small remaining gap. Fail means either
+/// (a) the optimizer stopped converging, or (b) the guard's
+/// 1.2× threshold started firing again (which would indicate a
+/// real regression the optimizer can't compensate for).
 #[test]
 fn binonic_matches_or_beats_two_stripe_on_cube_extreme() {
     let mt = run_cube(&[0.02, 0.10, 0.20], false);
@@ -144,15 +144,19 @@ fn binonic_matches_or_beats_two_stripe_on_cube_extreme() {
     assert_no_regression("cube_extreme", &mt, &mb);
 }
 
-/// Document that the quality guard engages on cube_extreme:
-/// with `use_kp_binonic_gregory = true`, the resulting
-/// sub-patches are still `RectangularTwoStripe` — proof that
-/// the guard is doing its job. If this flips, either binonic
-/// quality on this fixture improved (good — update the test
-/// to assert binonic variant) or the guard threshold got
-/// loosened (concerning).
+/// Document that cube_extreme now engages the binonic rung
+/// (after the K-P 2004 §4 iterative twist optimizer closed the
+/// regression under 1:10 asymmetry). Before the optimizer, the
+/// promotion quality guard reverted to two-stripe because
+/// binonic G1 coplanarity was 3.9e-1 vs two-stripe's 2.5e-1
+/// (1.6× worse); with the optimizer, binonic lands at 2.6e-1
+/// — competitive with two-stripe, guard does not revert.
+///
+/// This still isn't commercial-grade (2.6e-1 > 5e-2 gate), but
+/// the fixture is no longer a regression. Full closure requires
+/// Option C (bi-quintic guide substrate — more DoFs than bicubic).
 #[test]
-fn cube_extreme_guard_reverts_to_two_stripe() {
+fn cube_extreme_engages_binonic_after_twist_optimizer() {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let edges = incident_edges(&cube, vertex);
@@ -162,10 +166,10 @@ fn cube_extreme_guard_reverts_to_two_stripe() {
         assert!(
             matches!(
                 p,
-                popkern_core::geometry::gregory::GregoryPatch::RectangularTwoStripe(_)
+                popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonic(_)
             ),
-            "cube_extreme: quality guard should have reverted to two-stripe, \
-             but we have {p:?}"
+            "cube_extreme: K-P twist optimizer should have lifted binonic to \
+             competitive-with-two-stripe G1, but we have {p:?}"
         );
     }
 }

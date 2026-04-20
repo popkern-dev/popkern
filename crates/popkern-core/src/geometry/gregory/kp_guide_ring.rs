@@ -113,6 +113,33 @@ pub fn build_guide_ring_with_twist(
     Ok(guides)
 }
 
+/// Build the guide ring with a caller-supplied central-vertex
+/// Hermite per sub-patch — the iterative K-P 2004 §4 entry point.
+///
+/// Unlike [`build_guide_ring_with_twist`], this skips the
+/// Shirman-Séquin solve and uses the provided `central` array
+/// directly. The caller is responsible for ensuring `central[k]`
+/// has the right position / tangent_u / tangent_v / twist for
+/// sub-patch `k` at `C`. Used by the gap-#2 iterative twist
+/// optimizer in `popkern-fillet` — after the first call,
+/// subsequent iterations only tweak `central[k].twist` and re-
+/// invoke this builder.
+pub fn build_guide_ring_from_centrals(
+    input: &DirectBoundaryInput,
+    central: &[GuideCornerData],
+) -> Vec<KpGuidePatch> {
+    let hex = extract_hex_corners_with_twist(input);
+    let n = input.n();
+    debug_assert_eq!(central.len(), n);
+    debug_assert_eq!(hex.len(), n);
+    let mut guides = Vec::with_capacity(n);
+    for k in 0..n {
+        let corners: [GuideCornerData; 4] = [hex[k].c0, central[k], hex[k].c2, hex[k].c3];
+        guides.push(build_guide_from_hermite(corners));
+    }
+    guides
+}
+
 #[cfg(test)]
 #[path = "kp_guide_ring_tests.rs"]
 mod tests;

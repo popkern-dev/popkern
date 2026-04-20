@@ -9,6 +9,7 @@ mod bridge_warnings;
 pub(crate) mod cap_insert;
 pub(crate) mod closed_fillet;
 pub(crate) mod helpers;
+mod kp_twist_optimizer;
 pub(crate) mod merge;
 mod multi_chord;
 pub(crate) mod pcurve_attach;
@@ -484,8 +485,7 @@ pub fn apply_blend_geometry(
         .collect();
     surface_fix::correct_face_surfaces(&mut result, brep, &fillet_surfaces);
 
-    // §13.1(2) sliver absorption: Classes A/B/C/D. 12-edge cube
-    // test is the Class D regression guard (26 faces preserved).
+    // §13.1(2) sliver absorption: Classes A/B/C/D. 12-edge cube test is Class D regression guard (26 faces preserved).
     sliver_absorb::run_and_route_warnings(&mut result, tolerance, edge_geometries, &mut warnings);
 
     // §8.3 caps — see `cap_insert` module docs.

@@ -16,11 +16,11 @@
 //! doesn't know about `FilletOptions` flags or dispatch — the
 //! caller decides when to invoke it. R8 C6 wires the dispatch.
 
+use super::kp_twist_optimizer::optimize_c_twists_and_build_binonic;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
     DirectBoundaryInput, DirectConstructionOptions, GregoryPatch, OuterCornerData,
     RectangularGregoryTwoStripe, Side, Spoke, SpokeBoundaryData, SpokeEnd, TangentPlane,
-    build_binonic_ring,
 };
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
@@ -222,13 +222,19 @@ fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) {
     };
     let char_len = estimate_characteristic_length(&two_stripe);
     let options = DirectConstructionOptions::with_characteristic_length(char_len);
-    let binonic = match build_binonic_ring(&input, &options) {
-        Ok(b) => b,
-        Err(e) => {
-            trace_kp("build_binonic_ring → Err", n, Some(format!("{e:?}")));
-            return;
-        }
+    // Phase H.7 gap #2 closure — K-P 2004 §4 iterative twist
+    // optimization. The one-shot Shirman-Séquin twist is under-
+    // conditioned for extreme radius asymmetry (e.g. cube_extreme
+    // 1:10); this loop refines the N central-vertex twists by
+    // Gauss-Newton-style gradient descent against the ring-wide
+    // G1 coplanarity residual. Converges in 3-5 iterations
+    // typically; always monotonically improves the baseline
+    // (the iterate tracks the best-seen residual).
+    let Some(result) = optimize_c_twists_and_build_binonic(&input, &options) else {
+        trace_kp("optimize_c_twists_and_build_binonic → None", n, None);
+        return;
     };
+    let binonic = result.binonic;
 
     // Self-intersection gate — never commit a fold.
     let binonic_gp: Vec<GregoryPatch> = binonic
