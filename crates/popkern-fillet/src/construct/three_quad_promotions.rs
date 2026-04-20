@@ -183,22 +183,39 @@ pub(super) fn promote_decomp_to_biseptic_with_spoke_g1(sub_patches: &mut [Gregor
         })
         .collect();
     let biquintic_residual = spoke_g1_misalignment(&biquintic_pre, &spokes, 5);
-    let mut biseptic: Vec<RectangularGregoryBiseptic> = biquintic_pre
+
+    // Degree-elevate biquintic → biseptic (pointwise-identical,
+    // same residual as biquintic). This is the unsolved baseline
+    // we commit if the solver either folds or regresses — keeping
+    // the ladder monotonic in quality while still making the
+    // biseptic-typed grid available to downstream rungs. Without
+    // this, a single rung's solver-regression short-circuits the
+    // entire binonic/K-P path (observed on cube_extreme_20).
+    let biseptic_pre: Vec<RectangularGregoryBiseptic> = biquintic_pre
         .iter()
         .map(RectangularGregoryBiseptic::from_biquintic_full)
         .collect();
+
+    let mut biseptic = biseptic_pre.clone();
     let _ = spoke_g1_solve(&mut biseptic, &spokes, 5);
     let any_folded = biseptic.iter().any(|p| {
         GregoryPatch::RectangularBiseptic(Box::new(p.clone())).self_intersects_with_tolerance(1e-6)
     });
-    if any_folded {
-        return false;
-    }
-    let biseptic_residual = spoke_g1_misalignment(&biseptic, &spokes, 5);
-    if biseptic_residual > biquintic_residual {
-        return false;
-    }
-    for (idx, patch) in biseptic.into_iter().enumerate() {
+    let biseptic_post_residual = if any_folded {
+        f64::INFINITY
+    } else {
+        spoke_g1_misalignment(&biseptic, &spokes, 5)
+    };
+    // Commit whichever biseptic has lower residual: pre-solve
+    // (== biquintic) or post-solve. Both start from the degree-
+    // elevated biquintic, so the pre-solve option is always at
+    // least as good as biquintic, never worse.
+    let committed = if biseptic_post_residual <= biquintic_residual {
+        biseptic
+    } else {
+        biseptic_pre
+    };
+    for (idx, patch) in committed.into_iter().enumerate() {
         sub_patches[idx] = GregoryPatch::RectangularBiseptic(Box::new(patch));
     }
     true
@@ -307,10 +324,14 @@ pub(super) fn promote_decomp_to_two_stripe_with_spoke_g1(sub_patches: &mut [Greg
         damping = (damping * 1.25).min(1.0);
     }
     two_stripe = best;
-    let biseptic_residual = spoke_g1_misalignment_ext(&biseptic_pre, &spokes, samples, true);
-    if best_residual >= biseptic_residual {
-        return false;
-    }
+    // Previously this short-circuited with `return false` when the
+    // post-solve two-stripe didn't improve on the biseptic input —
+    // which blocked the downstream K-P binonic rung entirely even
+    // though binonic+L-M is strong enough to recover from a
+    // slightly-worse boundary. Commit unconditionally instead; the
+    // binonic rung's own quality guard (`post_worst > 1.2 *
+    // pre_worst`, `three_quad_apply.rs`) still catches genuine
+    // regressions and reverts to the predecessor.
     for (idx, patch) in two_stripe.into_iter().enumerate() {
         sub_patches[idx] = GregoryPatch::RectangularTwoStripe(Box::new(patch));
     }

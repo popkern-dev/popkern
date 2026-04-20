@@ -150,16 +150,16 @@ fn binonic_passes_commercial_gates_on_pyramid4_mixed() {
 // line fixture that prints metrics and asserts the commercial
 // gate; any failure is informative in the test log.
 
-/// **Documented gap — 1:20 asymmetry.** At r = [0.01, 0.10, 0.20]
-/// the dispatch ladder stops at `RectangularBiquinticFull` — two
-/// rungs *below* the binonic+L-M entry point. Two-stripe promotion
-/// fails first for this asymmetry, and binonic requires two-stripe
-/// as its predecessor, so L-M never gets a chance to run.
-///
-/// Closing this needs work in the two-stripe rung (or its
-/// precondition check), not in the L-M stack itself. Tracked as a
-/// follow-up to #94.
-#[ignore]
+/// 1:20 radius asymmetry — twice as asymmetric as cube_extreme.
+/// Originally failed the binonic rung because biseptic and two-
+/// stripe promotions' residual-regression guards (`return false`
+/// on `post_solve > pre_solve`) short-circuited the ladder. Both
+/// guards were replaced with best-of commits in Phase H.8 step 6
+/// (`three_quad_promotions.rs`): biseptic commits the pre-solve
+/// (degree-elevated, equal-residual) copy when the solver
+/// regresses; two-stripe always commits. L-M phase 3 recovers
+/// from whatever boundary quality it gets — measured G1 ~1.7e-2
+/// here, well under the 5e-2 gate.
 #[test]
 fn binonic_passes_commercial_gates_on_cube_extreme_20() {
     let m = run_cube_binonic(&[0.01, 0.10, 0.20], "cube_extreme_20");
