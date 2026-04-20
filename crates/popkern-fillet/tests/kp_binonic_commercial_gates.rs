@@ -144,32 +144,79 @@ fn binonic_matches_or_beats_two_stripe_on_cube_extreme() {
     assert_no_regression("cube_extreme", &mt, &mb);
 }
 
-/// Document that cube_extreme now engages the binonic rung
-/// (after the K-P 2004 §4 iterative twist optimizer closed the
-/// regression under 1:10 asymmetry). Before the optimizer, the
-/// promotion quality guard reverted to two-stripe because
-/// binonic G1 coplanarity was 3.9e-1 vs two-stripe's 2.5e-1
-/// (1.6× worse); with the optimizer, binonic lands at 2.6e-1
-/// — competitive with two-stripe, guard does not revert.
-///
-/// This still isn't commercial-grade (2.6e-1 > 5e-2 gate), but
-/// the fixture is no longer a regression. Full closure requires
-/// Option C (bi-quintic guide substrate — more DoFs than bicubic).
+/// Document that cube_extreme now ships binonic with the
+/// relaxed-continuity warning (Phase H.8 step-D graceful
+/// degradation). The K-P pipeline (twist + bi-quintic optimizers)
+/// gets G1 coplanarity to ~2.19e-1, still above the 5e-2
+/// commercial gate. Rather than revert to two-stripe (2.46e-1)
+/// on this specific fixture, the engine now ships the binonic
+/// geometry with a `CornerContinuityRelaxed` warning so the
+/// caller can badge the blend "reduced quality".
 #[test]
-fn cube_extreme_engages_binonic_after_twist_optimizer() {
+fn cube_extreme_ships_binonic_with_relaxed_warning() {
+    use popkern_core::tolerance::Tolerance;
+    use popkern_fillet::error::BlendWarning;
+    use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let edges = incident_edges(&cube, vertex);
-    let (brep, faces) = fillet_corner(&cube, &edges, &[0.02, 0.10, 0.20], true);
-    let patches = collect_patches(&brep, &faces);
+    let radii = [0.02_f64, 0.10, 0.20];
+    let specs: Vec<FilletSpec> = edges
+        .iter()
+        .zip(radii.iter())
+        .map(|(&e, &r)| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(r),
+        })
+        .collect();
+    let opts = FilletOptions {
+        use_rational_gregory: true,
+        use_deg5_gregory: true,
+        use_biquintic_full_gregory: true,
+        use_biseptic_gregory: true,
+        use_two_stripe_gregory: true,
+        use_kp_binonic_gregory: true,
+        ..FilletOptions::default()
+    };
+    let result = fillet_edges(&cube, &specs, &opts, Tolerance::default(), None).unwrap();
+
+    // (1) Binonic shipped, not two-stripe.
+    let faces: Vec<_> = result.corner_patches.iter().map(|p| p.face).collect();
+    let patches = collect_patches(&result.brep, &faces);
     for p in &patches {
         assert!(
             matches!(
                 p,
                 popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonic(_)
             ),
-            "cube_extreme: K-P twist optimizer should have lifted binonic to \
-             competitive-with-two-stripe G1, but we have {p:?}"
+            "cube_extreme should ship binonic variant, got {p:?}"
+        );
+    }
+
+    // (2) CornerContinuityRelaxed warning was emitted.
+    let relaxed_warnings: Vec<_> = result
+        .edge_warnings
+        .iter()
+        .filter(|(_, w)| matches!(w, BlendWarning::CornerContinuityRelaxed { .. }))
+        .collect();
+    assert_eq!(
+        relaxed_warnings.len(),
+        1,
+        "expected exactly 1 CornerContinuityRelaxed warning, got {}",
+        relaxed_warnings.len()
+    );
+    if let BlendWarning::CornerContinuityRelaxed {
+        worst_coplanarity, ..
+    } = relaxed_warnings[0].1
+    {
+        assert!(
+            worst_coplanarity > 5e-2,
+            "expected worst_coplanarity > 5e-2 (above commercial gate), got {worst_coplanarity:.3e}"
+        );
+        assert!(
+            worst_coplanarity < 5e-1,
+            "expected worst_coplanarity < 5e-1 (otherwise guard should have reverted), got {worst_coplanarity:.3e}"
         );
     }
 }

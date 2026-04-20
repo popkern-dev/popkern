@@ -445,6 +445,29 @@ pub enum BlendWarning {
         /// Valence of the corner.
         n_sides: usize,
     },
+    /// Phase H.8 step-D — the K-P bidegree-9 construction shipped
+    /// the corner but could not reach the commercial-grade G1
+    /// tolerance on at least one shared spoke. This is commercial-
+    /// style *graceful degradation* — the engine returns a
+    /// best-effort patch rather than reverting or failing. Common
+    /// under extreme radius asymmetry (e.g. 1:10 ratios on a
+    /// trihedral corner); the patch is G1 where feasible and
+    /// visually smooth, but dense sampling reveals tangent-plane
+    /// discontinuities exceeding the 5e-2 coplanarity gate. UIs
+    /// should surface this as a "reduced quality" badge so users
+    /// can decide whether to accept or re-parameterise.
+    CornerContinuityRelaxed {
+        /// The vertex where the K-P construction shipped a
+        /// below-commercial-grade patch.
+        vertex: VertexHandle,
+        /// Valence of the corner.
+        n_sides: usize,
+        /// Measured worst-case G1 coplanarity across the corner's
+        /// shared spokes (on the interior `t ∈ [0.05, 0.95]` dense
+        /// sampling). Callers can gate their own accept/reject on
+        /// this value.
+        worst_coplanarity: f64,
+    },
 }
 
 // The Remediation types and the per-variant remediation-hint

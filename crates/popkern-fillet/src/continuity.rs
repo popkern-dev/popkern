@@ -164,6 +164,7 @@ mod tests {
                 face,
                 bridge_fallbacks: Vec::new(),
                 overlap_remediated: false,
+                relaxed_continuity_coplanarity: None,
             })
             .collect()
     }

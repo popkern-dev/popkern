@@ -91,6 +91,11 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     )
     .ok_or_else(|| ThreeQuadFailure::Other("boundary not decomposable into N quads".to_string()))?;
 
+    // Phase H.8 step-D — relaxed-continuity carry-through. `Some(c)`
+    // after K-P promotion means the binonic shipped but worst-case
+    // coplanarity `c` exceeded the 5e-2 commercial gate.
+    let mut relaxed_coplanarity: Option<f64> = None;
+
     // §5.3 item #3 extended — promote deg5 sub-patches to the
     // biquintic-full form and run the Karciauskas-Peters spoke-
     // G1 joint solver over the N-quad ring. Biseptic (degree-7)
@@ -111,15 +116,10 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             && use_two_stripe
         {
             promote_decomp_to_two_stripe_with_spoke_g1(&mut decomp.sub_patches);
-            // Phase H — K-P bidegree-9 guided-surface construction.
-            // Top rung: extract the DirectBoundaryInput from the
-            // two-stripe-promoted decomp, build the bicubic guide
-            // ring, derive the row-1 / row-2 frames + interior fit,
-            // and replace each sub-patch with a binonic variant.
-            // Failure reverts to two-stripe silently (the ladder's
-            // gate contract — never regress).
+            // Phase H top rung: K-P bidegree-9 guided construction. Failure reverts silently.
+            // `Some(worst)` signals Phase H.8 step-D relaxed continuity (above commercial gate).
             if use_kp_binonic {
-                promote_decomp_to_kp_binonic(&mut decomp.sub_patches);
+                relaxed_coplanarity = promote_decomp_to_kp_binonic(&mut decomp.sub_patches);
             }
         }
     }
@@ -163,30 +163,22 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             face: *sub_face,
             bridge_fallbacks: boundary.bridge_fallbacks.clone(),
             overlap_remediated: false,
+            relaxed_continuity_coplanarity: relaxed_coplanarity,
         });
     }
     Ok(patches)
 }
 
-/// Phase H — attempt to promote every sub-patch from
-/// `RectangularTwoStripe` to `RectangularBiNonic` via the
-/// Karciauskas-Peters guided-surface construction. No-op unless
-/// every sub-patch is already a two-stripe (the upstream ladder
-/// is required; the K-P extraction reads the two-stripe grid).
-///
-/// Failure modes revert to two-stripe silently:
-///   - Non-two-stripe patches present (caller out of order).
-///   - `extract_direct_boundary_input` returns `None`
-///     (normalise failure on a boundary-tangent — happens on
-///     degenerate inputs).
-///   - `build_binonic_ring` returns `Err` (e.g. guide-ring
-///     build rejected the input; upstream ladder remains the
-///     best available result).
-///   - Any resulting binonic patch self-intersects.
-fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) {
+/// Promote sub-patches from `RectangularTwoStripe` to
+/// `RectangularBiNonic` via the Karciauskas-Peters guided-surface
+/// construction. Returns `Some(worst_coplanarity)` when the
+/// binonic ships with relaxed continuity (worst > 5e-2 commercial
+/// gate — Phase H.8 step-D graceful degradation), `None` when the
+/// promotion is accepted at commercial grade or reverted.
+fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) -> Option<f64> {
     let n = sub_patches.len();
     if n == 0 {
-        return;
+        return None;
     }
     // Every sub-patch must already be two-stripe — we read the
     // grid as the source of the K-P DirectBoundaryInput.
@@ -194,7 +186,7 @@ fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) {
     for patch in sub_patches.iter() {
         let GregoryPatch::RectangularTwoStripe(ts) = patch else {
             trace_kp("non-two-stripe input", n, None);
-            return;
+            return None;
         };
         two_stripe.push((**ts).clone());
     }
@@ -219,7 +211,7 @@ fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) {
 
     let Some(input) = extract_direct_boundary_input(&two_stripe, &spokes) else {
         trace_kp("extract_direct_boundary_input → None", n, None);
-        return;
+        return None;
     };
     let char_len = estimate_characteristic_length(&two_stripe);
     let options = DirectConstructionOptions::with_characteristic_length(char_len);
@@ -239,7 +231,7 @@ fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) {
         None => {
             let Some(result) = optimize_c_twists_and_build_binonic(&input, &options) else {
                 trace_kp("optimize_biquintic_and_build_binonic → None", n, None);
-                return;
+                return None;
             };
             result.binonic
         }
@@ -258,22 +250,14 @@ fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) {
                 n,
                 Some(format!("sub-patch {i}")),
             );
-            return;
+            return None;
         }
     }
 
-    // Quality gate — never regress G1 continuity below the
-    // predecessor rung. Under extreme radius asymmetry (e.g.
-    // cube_extreme r=[0.02, 0.10, 0.20]) the K-P bicubic guide's
-    // cross-derivative at the central vertex doesn't match what
-    // optimal spoke-G1 would produce; binonic lands worse than
-    // two-stripe there. The conservative-ladder contract says
-    // "never regress" — so if binonic's worst-case ring-wide
-    // coplanarity exceeds 1.2× two-stripe's, stay at two-stripe.
-    // Threshold 1.2× absorbs floating-point wobble without
-    // masking a real regression. Gap #2 diagnostic work is
-    // tracked as a separate follow-up; this guard keeps the
-    // ladder safe in the meantime.
+    // Quality guard — revert to two-stripe when binonic is
+    // catastrophically worse than the predecessor rung. Threshold
+    // 1.2× absorbs floating-point wobble while catching real
+    // regressions.
     let pre_worst = worst_ring_coplanarity(sub_patches);
     let post_worst = worst_ring_coplanarity(&binonic_gp);
     if pre_worst > 1e-12 && post_worst > 1.2 * pre_worst {
@@ -282,11 +266,19 @@ fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) {
             n,
             Some(format!("pre={pre_worst:.3e} post={post_worst:.3e}")),
         );
-        return;
+        return None;
     }
 
     for (idx, patch) in binonic.into_iter().enumerate() {
         sub_patches[idx] = GregoryPatch::RectangularBiNonic(Box::new(patch));
+    }
+
+    // Phase H.8 step-D — `Some(worst)` signals relaxed continuity.
+    const COMMERCIAL_GATE: f64 = 5e-2;
+    if post_worst > COMMERCIAL_GATE {
+        Some(post_worst)
+    } else {
+        None
     }
 }
 

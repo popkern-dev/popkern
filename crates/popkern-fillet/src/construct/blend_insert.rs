@@ -46,9 +46,7 @@ pub(crate) fn insert_vertex_blend(
     use_kp_binonic_gregory: bool,
     precomputed_classification: Option<VertexBlendClassification>,
 ) -> Result<Vec<CornerPatchInfo>, String> {
-    // §5.3 item #5 — callers pre-compute classification against
-    // the pre-modification BRep; post-Phase-C original edge handles
-    // are stale. Fallback for tests that call us on an untouched BRep.
+    // §5.3 item #5 — callers pre-compute classification against the pre-modification BRep; post-Phase-C original edge handles are stale. Fallback for tests that call us on an untouched BRep.
     let classification = precomputed_classification.unwrap_or_else(|| {
         let filleted_edges: Vec<_> = edge_indices
             .iter()
@@ -153,6 +151,7 @@ pub(crate) fn insert_vertex_blend(
         face: blend_face,
         bridge_fallbacks: bridge_fallbacks.clone(),
         overlap_remediated: false,
+        relaxed_continuity_coplanarity: None,
     };
 
     // §5.3 item #4 — N ≥ 3 rational-Gregory dispatch.

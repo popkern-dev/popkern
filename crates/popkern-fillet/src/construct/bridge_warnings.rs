@@ -109,3 +109,37 @@ pub(crate) fn emit_overlap_remediation_warning(
         ));
     }
 }
+
+/// Phase H.8 step-D — emit one
+/// [`BlendWarning::CornerContinuityRelaxed`] when any sub-patch's
+/// `relaxed_continuity_coplanarity` is `Some`. One warning per
+/// vertex; the worst coplanarity across sub-patches is reported.
+pub(crate) fn emit_corner_continuity_relaxed_warning(
+    infos: &[CornerPatchInfo],
+    vertex: VertexHandle,
+    edge_indices: &[usize],
+    edge_geometries: &[EdgeGeometry],
+    warnings: &mut Vec<(EdgeHandle, BlendWarning)>,
+) {
+    let worst = infos
+        .iter()
+        .filter_map(|info| info.relaxed_continuity_coplanarity)
+        .fold(f64::NEG_INFINITY, f64::max);
+    if !worst.is_finite() {
+        return;
+    }
+    let Some(first) = infos.first() else {
+        return;
+    };
+    let edge_idx = edge_indices[0];
+    if edge_idx < edge_geometries.len() {
+        warnings.push((
+            edge_geometries[edge_idx].analysis.edge,
+            BlendWarning::CornerContinuityRelaxed {
+                vertex,
+                n_sides: first.n_sides,
+                worst_coplanarity: worst,
+            },
+        ));
+    }
+}

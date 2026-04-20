@@ -449,6 +449,7 @@ pub fn apply_blend_geometry(
                             bridge_warnings::emit_bridge_fallback_warnings,
                             bridge_warnings::emit_tangent_corner_warning,
                             bridge_warnings::emit_overlap_remediation_warning,
+                            bridge_warnings::emit_corner_continuity_relaxed_warning,
                         ] {
                             emit(
                                 &infos,
@@ -488,8 +489,7 @@ pub fn apply_blend_geometry(
     // §13.1(2) sliver absorption: Classes A/B/C/D. 12-edge cube test is Class D regression guard (26 faces preserved).
     sliver_absorb::run_and_route_warnings(&mut result, tolerance, edge_geometries, &mut warnings);
 
-    // §8.3 caps — see `cap_insert` module docs.
-    cap_insert::insert_caps(&mut result, brep, edge_geometries, &mut warnings);
+    cap_insert::insert_caps(&mut result, brep, edge_geometries, &mut warnings); // §8.3 caps
     blend_insert::reclassify_corner_methods(&result, &mut corner_patches);
 
     Ok(ApplyBlendResult {

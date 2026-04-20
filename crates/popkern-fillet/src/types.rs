@@ -99,6 +99,8 @@ pub struct CornerPatchInfo {
     /// falling back to a single polar-NURBS patch. Paired with
     /// [`BlendWarning::CornerRemediationOverlap`](crate::error::BlendWarning::CornerRemediationOverlap).
     pub overlap_remediated: bool,
+    /// Phase H.8 step-D — `Some(worst_coplanarity)` when the K-P binonic shipped above the 5e-2 commercial gate. Paired with [`CornerContinuityRelaxed`](crate::error::BlendWarning::CornerContinuityRelaxed).
+    pub relaxed_continuity_coplanarity: Option<f64>,
 }
 
 /// Specification for a single fillet edge.
