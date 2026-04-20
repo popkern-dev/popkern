@@ -387,6 +387,48 @@ fn bidegree9_patch_approximates_guide_on_planar_input() {
     }
 }
 
+/// Option C Axis-1 ceiling parity: a bi-nonic guide elevated
+/// from the bicubic guide must produce the same bidegree-9
+/// output as the bicubic path. At equal degree the row-1/row-2
+/// construction collapses to identity on the guide-derived
+/// boundaries, so we need to check the full pipeline round-trip.
+#[test]
+fn binonic_path_is_identical_to_bicubic_when_degree_elevated() {
+    let input = planar_ring(3, 1.0);
+    let options = DirectConstructionOptions::with_characteristic_length(1.0);
+
+    let bicubic_guides = crate::geometry::gregory::build_guide_ring_with_twist(&input, &options)
+        .expect("build_guide_ring_with_twist");
+    let bn_guides: Vec<crate::geometry::gregory::KpGuidePatchBiNonic> = bicubic_guides
+        .iter()
+        .map(crate::geometry::gregory::KpGuidePatchBiNonic::from_bicubic_elevated)
+        .collect();
+
+    let bi_ring = crate::geometry::gregory::build_binonic_ring_from_guides(&bicubic_guides, &input)
+        .expect("bicubic ring build");
+    let bn_ring =
+        crate::geometry::gregory::build_binonic_ring_from_binonic_guides(&bn_guides, &input)
+            .expect("bi-nonic ring build");
+
+    assert_eq!(bi_ring.len(), bn_ring.len());
+    for (k, (a, b)) in bi_ring.iter().zip(bn_ring.iter()).enumerate() {
+        for i in 0..10 {
+            for j in 0..10 {
+                let pa = a.grid[i][j];
+                let pb = b.grid[i][j];
+                let dx = (pa.x - pb.x).abs();
+                let dy = (pa.y - pb.y).abs();
+                let dz = (pa.z - pb.z).abs();
+                let maxd = dx.max(dy).max(dz);
+                assert!(
+                    maxd < 1e-9,
+                    "patch {k} cp[{i}][{j}]: bicubic={pa:?} vs bi-nonic={pb:?} (Δ={maxd:.3e})"
+                );
+            }
+        }
+    }
+}
+
 /// Option C MVP parity: building the ring via a bi-quintic guide
 /// degree-elevated from the bicubic guide must produce the same
 /// bidegree-9 output as the bicubic path. Elevation is pointwise-

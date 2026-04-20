@@ -46,6 +46,7 @@
 
 use super::direct_linalg::solve_dense;
 use super::kp_guide_patch::KpGuidePatch;
+use super::kp_guide_patch_binonic::KpGuidePatchBiNonic;
 use super::kp_guide_patch_biquintic::KpGuidePatchBiQuintic;
 use super::rectangular_binonic::RectangularGregoryBiNonic;
 
@@ -244,6 +245,128 @@ pub fn fit_interior_cps_to_biquintic_guide(
                 for k in 0..6 {
                     for l in 0..6 {
                         sum += g_coord[k][l] * h[k][i_star] * h[l][j_star];
+                    }
+                }
+                rhs[a][b] = sum;
+            }
+        }
+
+        let mut k_mat = [[0.0_f64; 4]; 4];
+        for a in 0..4 {
+            for b in 0..4 {
+                let i_star = U_INDICES[a];
+                let j_star = U_INDICES[b];
+                let mut sum = 0.0_f64;
+                for i in 0..10 {
+                    for j in 0..10 {
+                        if U_INDICES.contains(&i) && U_INDICES.contains(&j) {
+                            continue;
+                        }
+                        sum += p_coord[i][j] * m[i][i_star] * m[j][j_star];
+                    }
+                }
+                k_mat[a][b] = sum;
+            }
+        }
+
+        let mut eff_rhs = [[0.0_f64; 4]; 4];
+        for a in 0..4 {
+            for b in 0..4 {
+                eff_rhs[a][b] = rhs[a][b] - k_mat[a][b];
+            }
+        }
+
+        let mut y = [[0.0_f64; 4]; 4];
+        for col in 0..4 {
+            let matrix: Vec<Vec<f64>> = m_uu.iter().map(|row| row.to_vec()).collect();
+            let b_vec: Vec<f64> = (0..4).map(|r| eff_rhs[r][col]).collect();
+            let Some(x) = solve_dense(matrix, b_vec) else {
+                unreachable!("Bernstein Gram M_UU is constant and SPD")
+            };
+            for r in 0..4 {
+                y[r][col] = x[r];
+            }
+        }
+        let mut x_final = [[0.0_f64; 4]; 4];
+        for row in 0..4 {
+            let matrix: Vec<Vec<f64>> = m_uu.iter().map(|r| r.to_vec()).collect();
+            let b_vec: Vec<f64> = (0..4).map(|c| y[row][c]).collect();
+            let Some(x) = solve_dense(matrix, b_vec) else {
+                unreachable!("Bernstein Gram M_UU is constant and SPD")
+            };
+            x_final[row].copy_from_slice(&x[..4]);
+        }
+
+        for a in 0..4 {
+            for b in 0..4 {
+                let i = U_INDICES[a];
+                let j = U_INDICES[b];
+                let val = x_final[a][b];
+                match coord {
+                    0 => patch.grid[i][j].x = val,
+                    1 => patch.grid[i][j].y = val,
+                    _ => patch.grid[i][j].z = val,
+                }
+            }
+        }
+    }
+}
+
+/// Fit the 36 interior CPs of `patch` to a **bi-nonic** guide.
+///
+/// Note: even though guide and output are at the same degree, the
+/// LSQ is **non-trivial** — the boundary rows/cols of the output
+/// come from input data (shared-spoke curves) rather than from the
+/// guide, so the interior CPs must compensate for any boundary
+/// mismatch. Algorithm is identical to the bicubic/bi-quintic
+/// paths; the cross-Gram is just the regular degree-9 Bernstein
+/// Gram (degree-9 vs degree-9 is the trivial cross-Gram = gram_9).
+pub fn fit_interior_cps_to_binonic_guide(
+    patch: &mut RectangularGregoryBiNonic,
+    guide: &KpGuidePatchBiNonic,
+) {
+    let m = bernstein_gram_9();
+    let mut m_uu = [[0.0_f64; 4]; 4];
+    for a in 0..4 {
+        for b in 0..4 {
+            m_uu[a][b] = m[U_INDICES[a]][U_INDICES[b]];
+        }
+    }
+    for coord in 0..3 {
+        // Guide CPs for this coordinate (10×10 f64).
+        let mut g_coord = [[0.0_f64; 10]; 10];
+        for k in 0..10 {
+            for l in 0..10 {
+                let p = guide.grid[k][l];
+                g_coord[k][l] = match coord {
+                    0 => p.x,
+                    1 => p.y,
+                    _ => p.z,
+                };
+            }
+        }
+        let mut p_coord = [[0.0_f64; 10]; 10];
+        for i in 0..10 {
+            for j in 0..10 {
+                let p = patch.grid[i][j];
+                p_coord[i][j] = match coord {
+                    0 => p.x,
+                    1 => p.y,
+                    _ => p.z,
+                };
+            }
+        }
+
+        // RHS[i*][j*] = Σ_{k, l ∈ 0..=9} G[k][l] · M[k][i*] · M[l][j*].
+        let mut rhs = [[0.0_f64; 4]; 4];
+        for a in 0..4 {
+            for b in 0..4 {
+                let i_star = U_INDICES[a];
+                let j_star = U_INDICES[b];
+                let mut sum = 0.0_f64;
+                for k in 0..10 {
+                    for l in 0..10 {
+                        sum += g_coord[k][l] * m[k][i_star] * m[l][j_star];
                     }
                 }
                 rhs[a][b] = sum;

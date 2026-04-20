@@ -157,9 +157,13 @@ pub use kp_guide_ring::{
     build_guide_ring_with_twist,
 };
 pub use kp_guide_trait::KpGuide;
-pub use kp_interior_fit::{fit_interior_cps_to_biquintic_guide, fit_interior_cps_to_guide};
+pub use kp_interior_fit::{
+    fit_interior_cps_to_binonic_guide, fit_interior_cps_to_biquintic_guide,
+    fit_interior_cps_to_guide,
+};
 pub use kp_ring_build::{
-    build_binonic_ring, build_binonic_ring_from_biquintic_guides, build_binonic_ring_from_guides,
+    build_binonic_ring, build_binonic_ring_from_binonic_guides,
+    build_binonic_ring_from_biquintic_guides, build_binonic_ring_from_guides,
 };
 pub use kp_row1::{Row1Frame, derive_row1_frame};
 pub use kp_row2::{Row2Frame, derive_row2_frame};

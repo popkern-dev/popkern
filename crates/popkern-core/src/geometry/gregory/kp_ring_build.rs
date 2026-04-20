@@ -44,10 +44,14 @@ use super::direct_input::DirectBoundaryInput;
 use super::direct_options::DirectConstructionOptions;
 use super::kp_degree_elevate::elevate_point_curve_to_nine;
 use super::kp_guide_patch::KpGuidePatch;
+use super::kp_guide_patch_binonic::KpGuidePatchBiNonic;
 use super::kp_guide_patch_biquintic::KpGuidePatchBiQuintic;
 use super::kp_guide_ring::build_guide_ring_with_twist;
 use super::kp_guide_trait::KpGuide;
-use super::kp_interior_fit::{fit_interior_cps_to_biquintic_guide, fit_interior_cps_to_guide};
+use super::kp_interior_fit::{
+    fit_interior_cps_to_binonic_guide, fit_interior_cps_to_biquintic_guide,
+    fit_interior_cps_to_guide,
+};
 use super::kp_row1::{Row1Frame, derive_row1_frame};
 use super::kp_row2::{Row2Frame, derive_row2_frame};
 use super::rectangular_binonic::RectangularGregoryBiNonic;
@@ -257,6 +261,85 @@ pub fn build_binonic_ring_from_biquintic_guides(
             &r2_frames[k],
         );
         fit_interior_cps_to_biquintic_guide(&mut patch, &guides[k]);
+        patches.push(patch);
+    }
+    Ok(patches)
+}
+
+/// Option C Axis-1 ceiling — build a bidegree-9 ring from a
+/// pre-built bi-nonic guide ring. Same pipeline as the bi-quintic
+/// path but the row-1/row-2 formulas and interior-fit collapse to
+/// near-identity operations (the guide IS the output at matching
+/// degree). Still runs through the same ring builder so G4 shared-
+/// spoke averaging and boundary consistency invariants are
+/// preserved.
+pub fn build_binonic_ring_from_binonic_guides(
+    guides: &[KpGuidePatchBiNonic],
+    input: &DirectBoundaryInput,
+) -> Result<Vec<RectangularGregoryBiNonic>, DirectConstructionError> {
+    let n = guides.len();
+    if input.n() != n {
+        return Err(DirectConstructionError::DecompositionFailed {
+            detail: format!("guide count {} ≠ input.n() {}", n, input.n()),
+        });
+    }
+    let mut shared_spokes: Vec<[Point3; 10]> = Vec::with_capacity(input.n());
+    for s in &input.spokes {
+        let Some(elevated) = elevate_point_curve_to_nine(&s.boundary_cps) else {
+            return Err(DirectConstructionError::DecompositionFailed {
+                detail: format!("spoke {} degree-elevation from 7 to 9 failed", s.edge_id),
+            });
+        };
+        shared_spokes.push(elevated);
+    }
+    let mut boundaries: Vec<[[Point3; 10]; 4]> = Vec::with_capacity(n);
+    for k in 0..n {
+        let k_prev = (k + n - 1) % n;
+        let row0 = k_p_boundary(&guides[k], true, false);
+        let row9 = shared_spokes[k];
+        let col0 = reverse_boundary(&shared_spokes[k_prev]);
+        let col9 = k_p_boundary(&guides[k], false, true);
+        boundaries.push([row0, row9, col0, col9]);
+    }
+    let mut r1_frames: Vec<Row1Frame> = guides
+        .iter()
+        .zip(boundaries.iter())
+        .map(|(g, b)| derive_row1_frame(g, &b[0], &b[1], &b[2], &b[3]))
+        .collect();
+    let mut r2_frames: Vec<Row2Frame> = guides
+        .iter()
+        .zip(boundaries.iter())
+        .zip(r1_frames.iter())
+        .map(|((g, b), r1)| derive_row2_frame(g, &b[0], &b[1], &b[2], &b[3], r1))
+        .collect();
+    for k in 0..n {
+        let k_next = (k + 1) % n;
+        for j in 1..=8 {
+            let a = r1_frames[k].row8[j];
+            let b = r1_frames[k_next].col1[9 - j];
+            let avg = Point3::new(0.5 * (a.x + b.x), 0.5 * (a.y + b.y), 0.5 * (a.z + b.z));
+            r1_frames[k].row8[j] = avg;
+            r1_frames[k_next].col1[9 - j] = avg;
+        }
+        for j in 1..=8 {
+            let a = r2_frames[k].row7[j];
+            let b = r2_frames[k_next].col2[9 - j];
+            let avg = Point3::new(0.5 * (a.x + b.x), 0.5 * (a.y + b.y), 0.5 * (a.z + b.z));
+            r2_frames[k].row7[j] = avg;
+            r2_frames[k_next].col2[9 - j] = avg;
+        }
+    }
+    let mut patches: Vec<RectangularGregoryBiNonic> = Vec::with_capacity(n);
+    for k in 0..n {
+        let mut patch = assemble_patch(
+            &boundaries[k][0],
+            &boundaries[k][1],
+            &boundaries[k][2],
+            &boundaries[k][3],
+            &r1_frames[k],
+            &r2_frames[k],
+        );
+        fit_interior_cps_to_binonic_guide(&mut patch, &guides[k]);
         patches.push(patch);
     }
     Ok(patches)
