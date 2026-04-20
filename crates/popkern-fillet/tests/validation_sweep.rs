@@ -22,6 +22,7 @@ enum Variant {
     BiquinticFull,
     Biseptic,
     TwoStripe,
+    BinonicKp,
 }
 
 impl Variant {
@@ -31,14 +32,18 @@ impl Variant {
             Variant::BiquinticFull => "biquintic ",
             Variant::Biseptic => "biseptic  ",
             Variant::TwoStripe => "two-stripe",
+            Variant::BinonicKp => "binonic-kp",
         }
     }
-    fn flags(self) -> (bool, bool, bool) {
+    /// `(biquintic_full, biseptic, two_stripe, kp_binonic)` — all
+    /// cumulative flags to enable for this rung.
+    fn flags(self) -> (bool, bool, bool, bool) {
         match self {
-            Variant::Deg5 => (false, false, false),
-            Variant::BiquinticFull => (true, false, false),
-            Variant::Biseptic => (true, true, false),
-            Variant::TwoStripe => (true, true, true),
+            Variant::Deg5 => (false, false, false, false),
+            Variant::BiquinticFull => (true, false, false, false),
+            Variant::Biseptic => (true, true, false, false),
+            Variant::TwoStripe => (true, true, true, false),
+            Variant::BinonicKp => (true, true, true, true),
         }
     }
 }
@@ -135,13 +140,14 @@ fn run_fillet(
             radius: FilletRadius::Constant(r),
         })
         .collect();
-    let (full, bsep, tsp) = variant.flags();
+    let (full, bsep, tsp, kpbn) = variant.flags();
     let opts = FilletOptions {
         use_rational_gregory: true,
         use_deg5_gregory: true,
         use_biquintic_full_gregory: full,
         use_biseptic_gregory: bsep,
         use_two_stripe_gregory: tsp,
+        use_kp_binonic_gregory: kpbn,
         ..FilletOptions::default()
     };
     let result = fillet_edges(&prep.brep, &specs, &opts, Tolerance::default(), None)
@@ -215,6 +221,7 @@ fn print_rung(fixture_name: &str, variant: Variant, outcome: &Outcome) {
                 Variant::BiquinticFull => format!("{} biq", variant_counts.biquintic),
                 Variant::Biseptic => format!("{} bsep", variant_counts.biseptic),
                 Variant::TwoStripe => format!("{} 2str", variant_counts.two_stripe),
+                Variant::BinonicKp => format!("{} binkp", variant_counts.binonic),
             };
             let valid = if *brep_valid { "ok " } else { "BAD" };
             println!(
@@ -243,6 +250,7 @@ fn run_fixture_all_rungs(
         run_rung(name, fixture_fn, radii, Variant::BiquinticFull, N_SAMPLES),
         run_rung(name, fixture_fn, radii, Variant::Biseptic, N_SAMPLES),
         run_rung(name, fixture_fn, radii, Variant::TwoStripe, N_SAMPLES),
+        run_rung(name, fixture_fn, radii, Variant::BinonicKp, N_SAMPLES),
     ]
 }
 
@@ -307,8 +315,10 @@ fn assert_end_to_end_improvement(fixture: &str, rungs: &[RungResult]) {
                 scorecard,
                 ..
             } => {
-                let non_deg5 =
-                    variant_counts.biquintic + variant_counts.biseptic + variant_counts.two_stripe;
+                let non_deg5 = variant_counts.biquintic
+                    + variant_counts.biseptic
+                    + variant_counts.two_stripe
+                    + variant_counts.binonic;
                 if non_deg5 > 0 {
                     Some(scorecard.mean_cos)
                 } else {
@@ -327,8 +337,8 @@ fn assert_end_to_end_improvement(fixture: &str, rungs: &[RungResult]) {
 }
 
 /// Main discovery test. Each fixture's results print to stdout;
-/// invariants asserted via `assert_rung_invariants`. Runs all 8
-/// fixtures × 4 variants = 32 fillet operations.
+/// invariants asserted via `assert_rung_invariants`. Runs all 9
+/// fixtures × 5 variants = 45 fillet operations.
 #[test]
 fn validation_sweep_all_fixtures() {
     #[allow(clippy::type_complexity)]
@@ -386,8 +396,8 @@ fn print_summary(all: &[(String, Vec<RungResult>)]) {
     println!();
     println!("═══════════ VALIDATION SWEEP SUMMARY (min / mean cos) ═══════════");
     println!(
-        "{:<22} {:<18} {:<18} {:<18} {:<18}",
-        "Fixture", "Deg5", "Biquintic", "Biseptic", "Two-Stripe"
+        "{:<22} {:<18} {:<18} {:<18} {:<18} {:<18}",
+        "Fixture", "Deg5", "Biquintic", "Biseptic", "Two-Stripe", "Binonic-KP"
     );
     for (name, rungs) in all {
         let cells: Vec<String> = rungs
@@ -401,8 +411,8 @@ fn print_summary(all: &[(String, Vec<RungResult>)]) {
             })
             .collect();
         println!(
-            "{:<22} {:<18} {:<18} {:<18} {:<18}",
-            name, cells[0], cells[1], cells[2], cells[3]
+            "{:<22} {:<18} {:<18} {:<18} {:<18} {:<18}",
+            name, cells[0], cells[1], cells[2], cells[3], cells[4]
         );
     }
     println!();
