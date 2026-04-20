@@ -12,21 +12,22 @@
 //!
 //! # Approach
 //!
-//! Third FD descent phase layered on top of phase 2's converged
-//! bi-quintic guides:
+//! Third optimization phase layered on top of phase 2's converged
+//! bi-quintic guides, run as Levenberg-Marquardt nonlinear
+//! least-squares over the per-sample G1 coplanarity residuals:
 //!
 //! 1. Run phase 1 (bicubic C-twist) and phase 2 (bi-quintic
 //!    interior) via `optimize_biquintic_and_build_binonic`.
 //! 2. If phase-2 residual is already below the target, return.
 //! 3. Degree-elevate each bi-quintic guide to bi-nonic (pointwise-
 //!    identical, so no regression baseline).
-//! 4. FD gradient-descent on the **64 interior CPs** of each bi-
-//!    nonic guide (`grid[i][j]` for `i, j ∈ 1..=8`). 64 × 3 × N =
-//!    192N DoF — 4× the phase-2 cost but only invoked when phase 2
-//!    fails to converge.
+//! 4. Run L-M on the **64 interior CPs** of each bi-nonic guide
+//!    (`grid[i][j]` for `i, j ∈ 1..=8`). 64 × 3 × N = 192N DoF.
+//!    FD Jacobian, adaptive λ, fold-safe rejection.
 //! 5. Return the final bi-nonic ring.
 
 use super::kp_biquintic_optimizer::optimize_biquintic_and_build_binonic;
+use super::kp_lm_solver::{LmConfig, LmEval, run_lm};
 use popkern_core::geometry::gregory::{
     DirectBoundaryInput, DirectConstructionOptions, GregoryPatch, KpGuidePatchBiNonic,
     RectangularGregoryBiNonic, build_binonic_ring_from_binonic_guides,
@@ -39,21 +40,30 @@ pub(super) struct KpBiNonicOptimizerResult {
 }
 
 /// Three-phase optimizer: delegates phases 1–2 to the bi-quintic
-/// optimizer, then runs phase 3 (bi-nonic interior CPs) if residual
-/// is still above target.
+/// optimizer, then runs phase 3 (bi-nonic interior CPs via L-M)
+/// if residual is still above target.
 pub(super) fn optimize_binonic_and_build_binonic(
     input: &DirectBoundaryInput,
     options: &DirectConstructionOptions,
 ) -> Option<KpBiNonicOptimizerResult> {
-    const TARGET_RESIDUAL: f64 = 1e-4;
-    const MAX_ITER: usize = 100;
-    const ALPHA_INIT: f64 = 1e-2;
-    const ALPHA_MIN: f64 = 1e-8;
-    const FD_EPS: f64 = 1e-4;
+    // Phase-2 residual above this triggers phase-3 L-M. Below it,
+    // phase 2 is already in or near the commercial-gate basin (per-
+    // sample coplanarity sum ≤ 1e-2 roughly corresponds to worst-
+    // case G1 ≤ ~1e-2); skip the expensive L-M to keep common-case
+    // test wall-time manageable.
+    const PHASE3_ENGAGE_RESIDUAL: f64 = 1e-2;
+    const LM_TARGET_RESIDUAL: f64 = 1e-6;
 
-    // Phase 1 + 2: delegate to existing bi-quintic optimizer.
     let bq_result = optimize_biquintic_and_build_binonic(input, options)?;
-    if bq_result.final_residual < TARGET_RESIDUAL {
+    if bq_result.final_residual < PHASE3_ENGAGE_RESIDUAL {
+        return Some(KpBiNonicOptimizerResult {
+            binonic: bq_result.binonic,
+            final_residual: bq_result.final_residual,
+        });
+    }
+
+    let n = bq_result.bq_guides.len();
+    if n == 0 {
         return Some(KpBiNonicOptimizerResult {
             binonic: bq_result.binonic,
             final_residual: bq_result.final_residual,
@@ -62,14 +72,7 @@ pub(super) fn optimize_binonic_and_build_binonic(
 
     // Elevate phase-2 converged bi-quintic guides to bi-nonic
     // (pointwise-identical at start, so no regression baseline).
-    let n = bq_result.bq_guides.len();
-    if n == 0 {
-        return Some(KpBiNonicOptimizerResult {
-            binonic: bq_result.binonic,
-            final_residual: bq_result.final_residual,
-        });
-    }
-    let mut bn_guides: Vec<KpGuidePatchBiNonic> = bq_result
+    let bn_guides: Vec<KpGuidePatchBiNonic> = bq_result
         .bq_guides
         .iter()
         .map(KpGuidePatchBiNonic::from_biquintic_elevated)
@@ -77,130 +80,117 @@ pub(super) fn optimize_binonic_and_build_binonic(
 
     let initial = build_binonic_ring_from_binonic_guides(&bn_guides, input).ok()?;
     if any_self_intersects(&initial) {
-        // Initial bi-nonic build self-intersects — fall back to the
-        // phase-2 result (which was not folded).
         return Some(KpBiNonicOptimizerResult {
             binonic: bq_result.binonic,
             final_residual: bq_result.final_residual,
         });
     }
-    let mut best_residual = measure_ring_residual(&initial);
-    let mut best_binonic = initial;
-    let mut alpha = ALPHA_INIT;
 
-    if std::env::var_os("POPKERN_KP_TRACE").is_some() {
-        eprintln!("[kp_binonic N={n}] phase3 init: residual={best_residual:.3e}");
-    }
+    // Pack the 64 interior CPs × 3 axes × N patches into a flat
+    // parameter vector. Order: sub-patch k, slot s ∈ 0..64, axis a.
+    let x0 = pack_guides(&bn_guides);
 
-    let mut iter_count = 0usize;
-    let mut accepted_count = 0usize;
-    for _iter in 0..MAX_ITER {
-        iter_count += 1;
-        if best_residual < TARGET_RESIDUAL {
-            break;
+    let eval = BinonicEval {
+        base: bn_guides.clone(),
+        input,
+    };
+    let lm_result = run_lm(
+        eval,
+        x0,
+        &LmConfig {
+            fd_eps: 1e-4,
+            lambda_init: 1e-3,
+            lambda_max: 1e6,
+            max_iter: 15,
+            target_residual: LM_TARGET_RESIDUAL,
+        },
+        "binonic-phase3",
+    );
+
+    // Unpack optimal parameter back into guides; rebuild ring.
+    let mut best_guides = bn_guides;
+    unpack_guides(&lm_result.x, &mut best_guides);
+    let best_binonic = match build_binonic_ring_from_binonic_guides(&best_guides, input) {
+        Ok(ring) if !any_self_intersects(&ring) => ring,
+        _ => {
+            return Some(KpBiNonicOptimizerResult {
+                binonic: bq_result.binonic,
+                final_residual: bq_result.final_residual,
+            });
         }
+    };
 
-        // FD gradient: perturb each interior guide CP along each
-        // axis, rebuild, measure. N × 64 × 3 = 192N partials.
-        let mut grad: Vec<Vec<[f64; 3]>> = (0..n).map(|_| vec![[0.0; 3]; 64]).collect();
-        #[allow(clippy::needless_range_loop)]
-        for k in 0..n {
-            for slot in 0..64 {
-                let (i, j) = cp_index(slot);
-                for (axis, out) in grad[k][slot].iter_mut().enumerate() {
-                    let mut bn_perturbed = bn_guides.clone();
-                    let p = &mut bn_perturbed[k].grid[i][j];
-                    match axis {
-                        0 => p.x += FD_EPS,
-                        1 => p.y += FD_EPS,
-                        _ => p.z += FD_EPS,
-                    }
-                    let Ok(binonic) = build_binonic_ring_from_binonic_guides(&bn_perturbed, input)
-                    else {
-                        continue;
-                    };
-                    let r = measure_ring_residual(&binonic);
-                    *out = (r - best_residual) / FD_EPS;
-                }
-            }
-        }
-
-        let grad_norm: f64 = grad
-            .iter()
-            .flatten()
-            .flatten()
-            .map(|g| g * g)
-            .sum::<f64>()
-            .sqrt();
-        if grad_norm < 1e-10 {
-            break;
-        }
-
-        // Normalize gradient to unit direction; `alpha` controls
-        // absolute step size in guide-CP units. Without normalization
-        // step magnitude scales with gradient norm, which can blow
-        // the candidate out of the fold-safe neighbourhood in a
-        // single iteration.
-        let inv_norm = 1.0 / grad_norm;
-        let mut cand = bn_guides.clone();
-        #[allow(clippy::needless_range_loop)]
-        for k in 0..n {
-            for slot in 0..64 {
-                let (i, j) = cp_index(slot);
-                let p = &mut cand[k].grid[i][j];
-                p.x -= alpha * grad[k][slot][0] * inv_norm;
-                p.y -= alpha * grad[k][slot][1] * inv_norm;
-                p.z -= alpha * grad[k][slot][2] * inv_norm;
-            }
-        }
-        let Ok(cand_binonic) = build_binonic_ring_from_binonic_guides(&cand, input) else {
-            alpha *= 0.5;
-            if alpha < ALPHA_MIN {
-                break;
-            }
-            continue;
-        };
-        if any_self_intersects(&cand_binonic) {
-            alpha *= 0.5;
-            if alpha < ALPHA_MIN {
-                break;
-            }
-            continue;
-        }
-        let cand_residual = measure_ring_residual(&cand_binonic);
-        if cand_residual < best_residual {
-            best_residual = cand_residual;
-            best_binonic = cand_binonic;
-            bn_guides = cand;
-            alpha = (alpha * 1.25).min(ALPHA_INIT);
-            accepted_count += 1;
-        } else {
-            alpha *= 0.5;
-            if alpha < ALPHA_MIN {
-                break;
-            }
-        }
-    }
-
-    if std::env::var_os("POPKERN_KP_TRACE").is_some() {
-        eprintln!(
-            "[kp_binonic N={n}] phase3 done: residual={best_residual:.3e} iters={iter_count} accepted={accepted_count}"
-        );
-    }
-
-    // If phase 3 couldn't improve on phase 2 (fold-locked or
-    // gradient vanished without progress), return whichever is
-    // better.
-    if best_residual < bq_result.final_residual {
+    // Guard against regression: if L-M ended worse than phase 2
+    // (shouldn't happen with a well-behaved Gauss-Newton, but
+    // defensive in case the sample-vector sum_sq doesn't exactly
+    // match the legacy `measure_ring_residual` on the phase-2
+    // output), return phase-2 result.
+    let post = measure_ring_residual(&best_binonic);
+    if post < bq_result.final_residual {
         Some(KpBiNonicOptimizerResult {
             binonic: best_binonic,
-            final_residual: best_residual,
+            final_residual: post,
         })
     } else {
         Some(KpBiNonicOptimizerResult {
             binonic: bq_result.binonic,
             final_residual: bq_result.final_residual,
         })
+    }
+}
+
+/// L-M residual callback for phase 3. Keeps a base copy of the
+/// guide ring and a reference to the input; each `eval` clones
+/// the base, overwrites interior CPs from the parameter vector,
+/// rebuilds the binonic ring, and returns a per-sample coplanarity
+/// vector.
+struct BinonicEval<'a> {
+    base: Vec<KpGuidePatchBiNonic>,
+    input: &'a DirectBoundaryInput,
+}
+
+impl<'a> LmEval for BinonicEval<'a> {
+    fn residual(&mut self, x: &[f64]) -> Option<Vec<f64>> {
+        let mut guides = self.base.clone();
+        unpack_guides(x, &mut guides);
+        let binonic = build_binonic_ring_from_binonic_guides(&guides, self.input).ok()?;
+        Some(residual_vector(&binonic))
+    }
+
+    fn fold_safe(&mut self, x: &[f64]) -> bool {
+        let mut guides = self.base.clone();
+        unpack_guides(x, &mut guides);
+        match build_binonic_ring_from_binonic_guides(&guides, self.input) {
+            Ok(binonic) => !any_self_intersects(&binonic),
+            Err(_) => false,
+        }
+    }
+}
+
+fn pack_guides(guides: &[KpGuidePatchBiNonic]) -> Vec<f64> {
+    let n = guides.len();
+    let mut x = Vec::with_capacity(n * 64 * 3);
+    for guide in guides {
+        for slot in 0..64 {
+            let (i, j) = cp_index(slot);
+            x.push(guide.grid[i][j].x);
+            x.push(guide.grid[i][j].y);
+            x.push(guide.grid[i][j].z);
+        }
+    }
+    x
+}
+
+fn unpack_guides(x: &[f64], guides: &mut [KpGuidePatchBiNonic]) {
+    let mut idx = 0;
+    for guide in guides.iter_mut() {
+        for slot in 0..64 {
+            let (i, j) = cp_index(slot);
+            guide.grid[i][j].x = x[idx];
+            guide.grid[i][j].y = x[idx + 1];
+            guide.grid[i][j].z = x[idx + 2];
+            idx += 3;
+        }
     }
 }
 
@@ -221,9 +211,13 @@ fn any_self_intersects(binonic: &[RectangularGregoryBiNonic]) -> bool {
     false
 }
 
-fn measure_ring_residual(patches: &[RectangularGregoryBiNonic]) -> f64 {
+/// Residual *vector*: per-sample coplanarity (not summed). Sample
+/// count matches `measure_ring_residual`: 50 samples × N spokes.
+/// Returns 0 for ill-conditioned normals so the vector length stays
+/// predictable.
+fn residual_vector(patches: &[RectangularGregoryBiNonic]) -> Vec<f64> {
     let n = patches.len();
-    let mut acc = 0.0_f64;
+    let mut out = Vec::with_capacity(n * 50);
     for k in 0..n {
         let a = &patches[k];
         let b = &patches[(k + 1) % n];
@@ -240,10 +234,15 @@ fn measure_ring_residual(patches: &[RectangularGregoryBiNonic]) -> f64 {
             let ns = (t_spoke.x * t_spoke.x + t_spoke.y * t_spoke.y + t_spoke.z * t_spoke.z).sqrt();
             let denom = na * nb * ns;
             if denom > 1e-300 {
-                let coplan = numer / denom;
-                acc += coplan * coplan;
+                out.push(numer / denom);
+            } else {
+                out.push(0.0);
             }
         }
     }
-    acc
+    out
+}
+
+fn measure_ring_residual(patches: &[RectangularGregoryBiNonic]) -> f64 {
+    residual_vector(patches).iter().map(|v| v * v).sum()
 }

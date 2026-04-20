@@ -95,20 +95,21 @@ fn binonic_passes_commercial_gates_on_cube_mixed() {
     assert_commercial_gates("cube_mixed", &m);
 }
 
-/// **Remaining gap.** Under 1:10 radius asymmetry, the K-P
-/// construction still doesn't reach commercial-grade G1: binonic
-/// lands near 2.6e-1 coplanarity (≈ 15°) after the twist
-/// optimizer converges. This is competitive with two-stripe
-/// (2.5e-1) — the regression is gone — but the bicubic guide's
-/// 16-CP substrate has reached its quality ceiling for this
-/// asymmetry level.
+/// **Gap closed** (Phase H.8 Option C step 4 — L-M phase 3).
+/// Under 1:10 radius asymmetry, the three-phase K-P stack now
+/// drives G1 coplanarity to ~1.1e-2 (≈ 0.63°), well below the
+/// 5e-2 commercial gate. Earlier progression:
 ///
-/// Closing this gap (getting binonic below the 5e-2 commercial
-/// gate on cube_extreme) requires a richer guide substrate:
-/// Option C, a bi-quintic (5×5) guide, which gives degree-4
-/// cross-derivatives along boundaries instead of degree-2.
-/// Tracked as follow-up to task #93.
-#[ignore]
+///   3.85e-1 one-shot
+///   → 2.56e-1 bicubic C-twist (Option B)
+///   → 2.19e-1 bi-quintic FD gradient descent (Option C phase 2)
+///   → 1.06e-1 bi-nonic FD gradient descent (Option C phase 3 GD floor)
+///   → **1.12e-2 bi-nonic Levenberg-Marquardt (Option C phase 3 LM)**
+///
+/// The L-M gain came from switching the phase-3 optimizer from
+/// naive gradient descent to Gauss-Newton damping on the per-
+/// sample G1 coplanarity Jacobian: far better conditioning in
+/// the over-parameterised 192N-dim search space.
 #[test]
 fn binonic_passes_commercial_gates_on_cube_extreme() {
     let m = run_cube_binonic(&[0.02, 0.10, 0.20], "cube_extreme");
@@ -144,16 +145,14 @@ fn binonic_matches_or_beats_two_stripe_on_cube_extreme() {
     assert_no_regression("cube_extreme", &mt, &mb);
 }
 
-/// Document that cube_extreme now ships binonic with the
-/// relaxed-continuity warning (Phase H.8 step-D graceful
-/// degradation). The K-P pipeline (twist + bi-quintic optimizers)
-/// gets G1 coplanarity to ~2.19e-1, still above the 5e-2
-/// commercial gate. Rather than revert to two-stripe (2.46e-1)
-/// on this specific fixture, the engine now ships the binonic
-/// geometry with a `CornerContinuityRelaxed` warning so the
-/// caller can badge the blend "reduced quality".
+/// cube_extreme now hits the commercial G1 gate (≤ 5e-2) after
+/// the Phase H.8 Option C L-M phase-3 optimizer landed, so no
+/// relaxed-continuity warning is expected. Kept as a regression
+/// monitor: if the L-M stack ever fails to converge on this
+/// fixture the binonic variant must still ship (no fallback to
+/// two-stripe).
 #[test]
-fn cube_extreme_ships_binonic_with_relaxed_warning() {
+fn cube_extreme_ships_binonic_no_warning() {
     use popkern_core::tolerance::Tolerance;
     use popkern_fillet::error::BlendWarning;
     use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
@@ -194,29 +193,16 @@ fn cube_extreme_ships_binonic_with_relaxed_warning() {
         );
     }
 
-    // (2) CornerContinuityRelaxed warning was emitted.
+    // (2) No CornerContinuityRelaxed warning — L-M brought G1 under
+    // the commercial gate, so graceful-degradation shouldn't fire.
     let relaxed_warnings: Vec<_> = result
         .edge_warnings
         .iter()
         .filter(|(_, w)| matches!(w, BlendWarning::CornerContinuityRelaxed { .. }))
         .collect();
-    assert_eq!(
-        relaxed_warnings.len(),
-        1,
-        "expected exactly 1 CornerContinuityRelaxed warning, got {}",
+    assert!(
+        relaxed_warnings.is_empty(),
+        "expected no CornerContinuityRelaxed warnings, got {}",
         relaxed_warnings.len()
     );
-    if let BlendWarning::CornerContinuityRelaxed {
-        worst_coplanarity, ..
-    } = relaxed_warnings[0].1
-    {
-        assert!(
-            worst_coplanarity > 5e-2,
-            "expected worst_coplanarity > 5e-2 (above commercial gate), got {worst_coplanarity:.3e}"
-        );
-        assert!(
-            worst_coplanarity < 5e-1,
-            "expected worst_coplanarity < 5e-1 (otherwise guard should have reverted), got {worst_coplanarity:.3e}"
-        );
-    }
 }
