@@ -66,6 +66,16 @@ pub(super) trait LmEval {
     /// Slow path: has the fold-safety property? Only called on
     /// candidate step vectors.
     fn fold_safe(&mut self, x: &[f64]) -> bool;
+
+    /// Optional: analytic Jacobian. Returns an `m × n` matrix
+    /// where `m = residual(x).len()` and `n = x.len()`. Return
+    /// `None` to use FD fallback. Implementations that can
+    /// exploit linear structure in the residual chain (as in the
+    /// K-P ring builder, where ring CPs are linear in guide CPs)
+    /// get order-of-magnitude speedup over FD.
+    fn jacobian(&mut self, _x: &[f64]) -> Option<Vec<Vec<f64>>> {
+        None
+    }
 }
 
 /// Run the L-M loop. Returns the best (lowest-residual) fold-
@@ -116,22 +126,27 @@ pub(super) fn run_lm<E: LmEval>(
             break;
         }
 
-        // FD Jacobian: one column per DoF.
-        // J[i][j] = ∂f_i / ∂x_j ≈ (f_i(x + eps·e_j) - f_i(x)) / eps
+        // Analytic Jacobian if the trait provides one, else FD.
         let m = f.len();
-        let mut jac: Vec<Vec<f64>> = vec![vec![0.0; n_dof]; m];
-        for j in 0..n_dof {
-            let saved = x[j];
-            x[j] = saved + config.fd_eps;
-            if let Some(f_pert) = eval.residual(&x)
-                && f_pert.len() == m
-            {
-                for (i, row) in jac.iter_mut().enumerate() {
-                    row[j] = (f_pert[i] - f[i]) / config.fd_eps;
+        let jac: Vec<Vec<f64>> = match eval.jacobian(&x) {
+            Some(j) if j.len() == m && j.iter().all(|row| row.len() == n_dof) => j,
+            _ => {
+                let mut jac: Vec<Vec<f64>> = vec![vec![0.0; n_dof]; m];
+                for j in 0..n_dof {
+                    let saved = x[j];
+                    x[j] = saved + config.fd_eps;
+                    if let Some(f_pert) = eval.residual(&x)
+                        && f_pert.len() == m
+                    {
+                        for (i, row) in jac.iter_mut().enumerate() {
+                            row[j] = (f_pert[i] - f[i]) / config.fd_eps;
+                        }
+                    }
+                    x[j] = saved;
                 }
+                jac
             }
-            x[j] = saved;
-        }
+        };
 
         // g = Jᵀ f  (size n_dof)
         let mut g = vec![0.0; n_dof];
