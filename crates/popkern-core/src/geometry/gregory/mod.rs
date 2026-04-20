@@ -68,6 +68,7 @@ mod direct_self_check;
 mod direct_types;
 mod kp15_bi6_mu;
 mod kp15_bi6_reparam;
+mod kp15_bi6_rules;
 mod kp_boundary_consistency;
 mod kp_degree_elevate;
 mod kp_guide_build;
@@ -83,6 +84,7 @@ mod kp_guide_ring;
 mod kp_guide_trait;
 mod kp_interior_fit;
 mod kp_polar_boundary_input;
+mod kp_polar_shared;
 mod kp_ring_build;
 mod kp_row1;
 mod kp_row2;
@@ -187,6 +189,7 @@ pub use kp_interior_fit::{
 pub use kp_polar_boundary_input::{
     PolarBoundaryInput, TensorBorder, TensorBorderBi3, TensorBorderBi5, TensorBorderKind,
 };
+pub use kp_polar_shared::catmull_clark_star_point;
 pub use kp_ring_build::{
     build_binonic_ring, build_binonic_ring_from_binonic_guides,
     build_binonic_ring_from_biquintic_guides, build_binonic_ring_from_guides,
@@ -195,6 +198,10 @@ pub use kp_row1::{Row1Frame, derive_row1_frame};
 pub use kp_row2::{Row2Frame, derive_row2_frame};
 pub use kp15_bi6_mu::{mu_bar, mu_ddot, mu_dot, mu_tdot, mu_tilde, w_scalars};
 pub use kp15_bi6_reparam::{Bi6Reparams, gamma as bi6_gamma, tau_for_valence};
+pub use kp15_bi6_rules::{
+    S1Outputs, S4Inputs, S4Outputs, rule_5_reduce_edge, rule_s1_star_propagation, rule_s2_p12,
+    rule_s2_p21, rule_s3_p22, rule_s4,
+};
 pub use triangular::TriangularGregory;
 
 /// A Gregory patch of either rectangular (N=4) or triangular
