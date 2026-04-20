@@ -231,8 +231,12 @@ fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) {
     };
 
     // Self-intersection gate — never commit a fold.
-    for (i, patch) in binonic.iter().enumerate() {
-        let gp = GregoryPatch::RectangularBiNonic(Box::new(patch.clone()));
+    let binonic_gp: Vec<GregoryPatch> = binonic
+        .iter()
+        .cloned()
+        .map(|p| GregoryPatch::RectangularBiNonic(Box::new(p)))
+        .collect();
+    for (i, gp) in binonic_gp.iter().enumerate() {
         if gp.self_intersects_with_tolerance(1e-6) {
             trace_kp(
                 "self_intersects_with_tolerance",
@@ -243,9 +247,68 @@ fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) {
         }
     }
 
+    // Quality gate — never regress G1 continuity below the
+    // predecessor rung. Under extreme radius asymmetry (e.g.
+    // cube_extreme r=[0.02, 0.10, 0.20]) the K-P bicubic guide's
+    // cross-derivative at the central vertex doesn't match what
+    // optimal spoke-G1 would produce; binonic lands worse than
+    // two-stripe there. The conservative-ladder contract says
+    // "never regress" — so if binonic's worst-case ring-wide
+    // coplanarity exceeds 1.2× two-stripe's, stay at two-stripe.
+    // Threshold 1.2× absorbs floating-point wobble without
+    // masking a real regression. Gap #2 diagnostic work is
+    // tracked as a separate follow-up; this guard keeps the
+    // ladder safe in the meantime.
+    let pre_worst = worst_ring_coplanarity(sub_patches);
+    let post_worst = worst_ring_coplanarity(&binonic_gp);
+    if pre_worst > 1e-12 && post_worst > 1.2 * pre_worst {
+        trace_kp(
+            "quality regression",
+            n,
+            Some(format!("pre={pre_worst:.3e} post={post_worst:.3e}")),
+        );
+        return;
+    }
+
     for (idx, patch) in binonic.into_iter().enumerate() {
         sub_patches[idx] = GregoryPatch::RectangularBiNonic(Box::new(patch));
     }
+}
+
+/// Worst-case G1 coplanarity across the full ring's shared spokes,
+/// using 50 uniform samples on `t ∈ [0.05, 0.95]` per spoke. The
+/// endpoint margin matches the commercial-gate test's convention
+/// (avoids the rational-Gregory corner-singularity finite-angle
+/// transition zone). Returns 0 if normals are ill-conditioned at
+/// every sample (can't happen on a real ring, but guards against
+/// log-scale division).
+fn worst_ring_coplanarity(patches: &[GregoryPatch]) -> f64 {
+    let n = patches.len();
+    let mut worst = 0.0_f64;
+    for k in 0..n {
+        let a = &patches[k];
+        let b = &patches[(k + 1) % n];
+        for sample in 0..50 {
+            let t = 0.05 + 0.90 * (sample as f64) / 49.0;
+            let t_b = 1.0 - t;
+            let xtan_a = a.partial_u(1.0, t);
+            let xtan_b = b.partial_v(t_b, 0.0);
+            let t_spoke = a.partial_v(1.0, t);
+            let cross = xtan_a.cross(&xtan_b);
+            let numer = (cross.x * t_spoke.x + cross.y * t_spoke.y + cross.z * t_spoke.z).abs();
+            let na = (xtan_a.x * xtan_a.x + xtan_a.y * xtan_a.y + xtan_a.z * xtan_a.z).sqrt();
+            let nb = (xtan_b.x * xtan_b.x + xtan_b.y * xtan_b.y + xtan_b.z * xtan_b.z).sqrt();
+            let ns = (t_spoke.x * t_spoke.x + t_spoke.y * t_spoke.y + t_spoke.z * t_spoke.z).sqrt();
+            let denom = na * nb * ns;
+            if denom > 1e-300 {
+                let coplan = numer / denom;
+                if coplan > worst {
+                    worst = coplan;
+                }
+            }
+        }
+    }
+    worst
 }
 
 /// Emit a diagnostic trace when the K-P promotion silently
