@@ -31,14 +31,29 @@
 //!
 //! # Fixture matrix
 //!
-//! | Fixture          | Valence | Radii                                | Status            |
-//! |------------------|---------|--------------------------------------|-------------------|
-//! | cube_mixed       | 3       | [0.08, 0.10, 0.12]                   | passes (1.0e-2)   |
-//! | cube_extreme     | 3       | [0.02, 0.10, 0.20]  (1:10 ratio)     | passes (1.1e-2)   |
-//! | pyramid4_mixed   | 4       | [0.04, 0.06, 0.05, 0.07]             | passes (1.9e-13)  |
-//! | cube_extreme_20  | 3       | [0.01, 0.10, 0.20]  (1:20 ratio)     | #[ignore] gap     |
-//! | pentagon5_mixed  | 5       | [0.04, 0.06, 0.05, 0.07, 0.05]       | #[ignore] gap     |
-//! | hexagon6_mixed   | 6       | [0.04, 0.06, 0.05, 0.07, 0.05, 0.06] | #[ignore] gap     |
+//! | Fixture          | Valence | Radii                                | Status                    |
+//! |------------------|---------|--------------------------------------|---------------------------|
+//! | cube_mixed       | 3       | [0.08, 0.10, 0.12]                   | passes (4.1e-3)           |
+//! | cube_extreme     | 3       | [0.02, 0.10, 0.20]  (1:10 ratio)     | passes (9.1e-3)           |
+//! | cube_extreme_20  | 3       | [0.01, 0.10, 0.20]  (1:20 ratio)     | passes (4.8e-3)           |
+//! | cube_extreme_30  | 3       | [0.0067, 0.10, 0.20]  (1:30 ratio)   | passes (5.2e-3)           |
+//! | pyramid4_mixed   | 4       | [0.04, 0.06, 0.05, 0.07]             | passes (1.9e-13)          |
+//! | cube_extreme_40  | 3       | [0.005, 0.10, 0.20]  (1:40 ratio)    | `#[ignore]` upstream gap  |
+//! | cube_extreme_50  | 3       | [0.004, 0.10, 0.20]  (1:50 ratio)    | `#[ignore]` upstream gap  |
+//! | cube_extreme_100 | 3       | [0.002, 0.10, 0.20]  (1:100 ratio)   | `#[ignore]` upstream gap  |
+//! | cube_tiny_radii  | 3       | [0.001, 0.002, 0.003] (all tiny)     | `#[ignore]` upstream gap  |
+//! | pentagon5_mixed  | 5       | [0.04, 0.06, 0.05, 0.07, 0.05]       | `#[ignore]` polar gap     |
+//! | hexagon6_mixed   | 6       | [0.04, 0.06, 0.05, 0.07, 0.05, 0.06] | `#[ignore]` polar gap     |
+//!
+//! **Known limits** (Phase H.8 step 8):
+//! * Asymmetry: pipeline handles up to 1:30; fails between 1:30 and
+//!   1:40 with an upstream "no Gregory corner patches produced"
+//!   failure. Not an L-M issue — the fillet analysis, three-quad
+//!   decomposition, or blend-face insertion bails first.
+//! * Absolute radii: r ≥ 0.0067 (1:30 of unit cube) works; r ≤ 0.003
+//!   doesn't. Numerical-tolerance issue upstream.
+//! * Valence: N ∈ {3, 4} works; N ≥ 5 needs the K-P polar variant
+//!   (Phase H.5b).
 //!
 //! Uniform-radii fixtures are out-of-scope here — the analytic
 //! sphere-fit short-circuits Gregory dispatch upstream, so the
@@ -164,6 +179,73 @@ fn binonic_passes_commercial_gates_on_pyramid4_mixed() {
 fn binonic_passes_commercial_gates_on_cube_extreme_20() {
     let m = run_cube_binonic(&[0.01, 0.10, 0.20], "cube_extreme_20");
     assert_commercial_gates("cube_extreme_20", &m);
+}
+
+/// 1:30 radius asymmetry. Passes with G1 ~5.2e-3. L-M phase 3
+/// recovers from a starting residual of ~1.0 — strong evidence
+/// that the optimizer itself is not the bottleneck at hard
+/// asymmetries.
+#[test]
+fn binonic_passes_commercial_gates_on_cube_extreme_30() {
+    let m = run_cube_binonic(&[0.0067, 0.10, 0.20], "cube_extreme_30");
+    assert_commercial_gates("cube_extreme_30", &m);
+}
+
+/// **Documented gap — 1:40 asymmetry.** Same upstream failure as
+/// 1:50+ (zero Gregory corner patches). Boundary between the
+/// pipeline "handles" and "gives up" is between 1:30 (passes)
+/// and 1:40 (fails). Earlier diagnostic observed a follow-on
+/// SlotMap panic from stale face handles in `result.corner_patches`
+/// — the sliver-absorb or cap-insert pass deletes the corner face
+/// after recording it. `patch_of` now uses `.get()` to drop stale
+/// handles silently so the real (upstream empty-patches) gap
+/// surfaces cleanly.
+#[ignore]
+#[test]
+fn binonic_passes_commercial_gates_on_cube_extreme_40() {
+    let m = run_cube_binonic(&[0.005, 0.10, 0.20], "cube_extreme_40");
+    assert_commercial_gates("cube_extreme_40", &m);
+}
+
+/// **Documented gap — 1:50 asymmetry, upstream of K-P.** At
+/// r=[0.004, 0.10, 0.20] the fillet pipeline produces zero
+/// Gregory corner patches (confirmed: no K-P trace output fires).
+/// The failure is upstream of the binonic dispatch — probably in
+/// the fillet analysis, three-quad decomposition, or blend face
+/// insertion, not in the L-M stack. The fact that cube_extreme_20
+/// (1:20) reaches the ladder but cube_extreme_50 doesn't localises
+/// the boundary between "fillet pipeline handles the geometry" and
+/// "fillet pipeline gives up" somewhere between 1:20 and 1:50
+/// asymmetry. Closing needs diagnosis at the upstream stage.
+#[ignore]
+#[test]
+fn binonic_passes_commercial_gates_on_cube_extreme_50() {
+    let m = run_cube_binonic(&[0.004, 0.10, 0.20], "cube_extreme_50");
+    assert_commercial_gates("cube_extreme_50", &m);
+}
+
+/// **Documented gap — 1:100 asymmetry.** Same failure mode as
+/// cube_extreme_50: zero Gregory corner patches produced.
+#[ignore]
+#[test]
+fn binonic_passes_commercial_gates_on_cube_extreme_100() {
+    let m = run_cube_binonic(&[0.002, 0.10, 0.20], "cube_extreme_100");
+    assert_commercial_gates("cube_extreme_100", &m);
+}
+
+/// **Documented gap — tiny absolute radii.** At r=[0.001, 0.002,
+/// 0.003] (1/1000th of the unit-cube edge length) the fillet
+/// pipeline produces zero Gregory corner patches. Same upstream-
+/// failure signature as the extreme-asymmetry fixtures. Probably
+/// a numerical-tolerance issue in the fillet analysis or blend-
+/// face insertion — not an L-M convergence issue. Worth fixing
+/// eventually for commercial CAD robustness (radii of a few μm
+/// on a metre-scale part are common), but distinct workstream.
+#[ignore]
+#[test]
+fn binonic_passes_commercial_gates_on_cube_tiny_radii() {
+    let m = run_cube_binonic(&[0.001, 0.002, 0.003], "cube_tiny_radii");
+    assert_commercial_gates("cube_tiny_radii", &m);
 }
 
 /// **Documented gap — N=5 apex.** The K-P binonic dispatch path

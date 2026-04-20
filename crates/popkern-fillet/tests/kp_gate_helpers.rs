@@ -77,7 +77,15 @@ pub fn fillet_corner(
 }
 
 pub fn patch_of(brep: &BRep, face: FaceHandle) -> Option<GregoryPatch> {
-    brep.faces[face].surface.as_ref().and_then(|sof| {
+    // Use `.get()` not index: at certain extreme-asymmetry fixtures
+    // (cube_extreme_40 observed) the sliver-absorb or cap-insertion
+    // passes in the fillet pipeline delete the corner face after
+    // it's already been recorded in `result.corner_patches`, leaving
+    // a stale handle. Panicking in the test helper obscures the
+    // real (upstream) failure — silently skipping stale faces lets
+    // the empty-corner-patches gate in `assert_all_binonic` fire
+    // with its documented diagnostic.
+    brep.faces.get(face)?.surface.as_ref().and_then(|sof| {
         if let SurfaceGeometry::Gregory(gp) = &sof.geometry {
             Some(gp.clone())
         } else {
