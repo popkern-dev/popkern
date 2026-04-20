@@ -66,6 +66,7 @@ mod direct_row1_g1;
 mod direct_row1_ring;
 mod direct_self_check;
 mod direct_types;
+mod kp15_bi6_reparam;
 mod kp_boundary_consistency;
 mod kp_degree_elevate;
 mod kp_guide_build;
@@ -191,6 +192,7 @@ pub use kp_ring_build::{
 };
 pub use kp_row1::{Row1Frame, derive_row1_frame};
 pub use kp_row2::{Row2Frame, derive_row2_frame};
+pub use kp15_bi6_reparam::{Bi6Reparams, gamma as bi6_gamma, tau_for_valence};
 pub use triangular::TriangularGregory;
 
 /// A Gregory patch of either rectangular (N=4) or triangular
