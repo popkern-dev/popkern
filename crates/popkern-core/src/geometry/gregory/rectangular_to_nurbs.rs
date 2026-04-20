@@ -227,6 +227,15 @@ pub(super) fn bernstein_basis_55(i: usize, j: usize) -> Bivar {
     b
 }
 
+/// Build a bidegree-(7,7) Bernstein polynomial from a single `B_i^7(u) B_j^7(v)`
+/// term with unit coefficient. Used by the biseptic Gregory → NURBS
+/// conversion.
+pub(super) fn bernstein_basis_77(i: usize, j: usize) -> Bivar {
+    let mut b = Bivar::zeros(7, 7);
+    b.set(i, j, 1.0);
+    b
+}
+
 /// Linear-coefficient helper: build a bidegree-(1,1) Bernstein polynomial
 /// from its four vertex values.
 pub(super) fn linear_bernstein(v00: f64, v01: f64, v10: f64, v11: f64) -> Bivar {

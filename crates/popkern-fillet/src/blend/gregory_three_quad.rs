@@ -43,6 +43,9 @@ use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 
 use super::boundary::{BlendBoundary, BoundarySegment};
 use super::gregory::{fit_cubic_bezier_through, fit_quintic_bezier_through};
+use super::gregory_inner_cp_shrink::{
+    shrink_inner_cps_if_folded_cubic, shrink_inner_cps_if_folded_deg5,
+};
 use super::gregory_parallelogram::{
     compute_parallelogram_inner_cps, compute_parallelogram_inner_cps_deg5, sub3,
 };
@@ -292,18 +295,18 @@ pub(crate) fn build_n_quad_decomposition_with_options(
         }
         match boundaries {
             StagedBoundaries::Cubic([b0, b1, b2, b3]) => {
+                let corners = [b0[0], b0[3], b1[3], b2[3]];
+                let cps = shrink_inner_cps_if_folded_cubic(&[b0, b1, b2, b3], &corners, inner_cps);
                 let patch =
-                    RectangularGregory::from_boundary_beziers([b0, b1, b2, b3], inner_cps, 1e-3)
-                        .ok()?;
+                    RectangularGregory::from_boundary_beziers([b0, b1, b2, b3], cps, 1e-3).ok()?;
                 sub_patches.push(GregoryPatch::Rectangular(Box::new(patch)));
             }
             StagedBoundaries::Deg5([b0, b1, b2, b3]) => {
-                let patch = RectangularGregoryDeg5::from_boundary_beziers(
-                    [b0, b1, b2, b3],
-                    inner_cps,
-                    1e-3,
-                )
-                .ok()?;
+                let corners = [b0[0], b0[5], b1[5], b2[5]];
+                let cps = shrink_inner_cps_if_folded_deg5(&[b0, b1, b2, b3], &corners, inner_cps);
+                let patch =
+                    RectangularGregoryDeg5::from_boundary_beziers([b0, b1, b2, b3], cps, 1e-3)
+                        .ok()?;
                 sub_patches.push(GregoryPatch::RectangularDeg5(Box::new(patch)));
             }
         }

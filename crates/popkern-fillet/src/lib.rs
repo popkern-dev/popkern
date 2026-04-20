@@ -59,6 +59,10 @@ pub mod sensitivity;
 pub mod surface_validate;
 pub mod trim;
 pub mod types;
+
+#[cfg(test)]
+#[path = "types_tests.rs"]
+mod types_tests;
 pub mod unfillet;
 pub mod unfillet_closed;
 pub(crate) mod unfillet_closed_helpers;
@@ -298,6 +302,9 @@ fn fillet_edges_internal(
         apply_args.2,
         options.use_rational_gregory,
         options.use_deg5_gregory,
+        options.use_biquintic_full_gregory,
+        options.use_biseptic_gregory,
+        options.use_two_stripe_gregory,
     )
     .map_err(|edge_failures| BlendError::PartialFailure {
         failed: edge_failures.len(),
@@ -408,6 +415,9 @@ pub fn chamfer_edges(
         &edge_geometries,
         &tolerance,
         &VertexMode::Mitred,
+        false,
+        false,
+        false,
         false,
         false,
     )

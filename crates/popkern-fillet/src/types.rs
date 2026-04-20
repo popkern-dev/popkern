@@ -273,6 +273,22 @@ pub struct FilletOptions {
     /// configurations with no regressions. Requires
     /// `use_rational_gregory: true`.
     pub use_deg5_gregory: bool,
+    /// §5.3 item #3 extended — Karciauskas-Peters biquintic-full
+    /// with spoke-G1 solver. Default `false`; requires
+    /// `use_rational_gregory` and `use_deg5_gregory`.
+    pub use_biquintic_full_gregory: bool,
+    /// §5.3 item #3 Phase-9 — biseptic (degree-7) Gregory with
+    /// spoke-G1 solver; 4 free CPs per spoke vs biquintic-full's
+    /// 2 gives 4–6× residual reduction on the downstream
+    /// scorecard. Default `false`; requires
+    /// `use_biquintic_full_gregory`.
+    pub use_biseptic_gregory: bool,
+    /// §5.3 item #3 Phase-10a — Peters two-stripe construction.
+    /// Drops the rational blend at corner-adjacent positions
+    /// giving 6 DOF per spoke side (full `{B_1^7..B_6^7}`
+    /// coverage) — closes the structural G1 gap. Default
+    /// `false`; requires `use_biseptic_gregory`.
+    pub use_two_stripe_gregory: bool,
 }
 
 impl Default for FilletOptions {
@@ -293,6 +309,9 @@ impl Default for FilletOptions {
             // the sphere fit succeeds first).
             use_rational_gregory: true,
             use_deg5_gregory: true,
+            use_biquintic_full_gregory: false,
+            use_biseptic_gregory: false,
+            use_two_stripe_gregory: false,
         }
     }
 }
@@ -467,33 +486,6 @@ impl Default for ChamferOptions {
     fn default() -> Self {
         Self {
             propagate_tangent: true,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fillet_options_default() {
-        let opts = FilletOptions::default();
-        assert!(opts.propagate_tangent);
-        assert_eq!(opts.vertex_mode, VertexMode::Smooth);
-    }
-
-    #[test]
-    fn chamfer_options_default() {
-        let opts = ChamferOptions::default();
-        assert!(opts.propagate_tangent);
-    }
-
-    #[test]
-    fn fillet_radius_constant() {
-        let r = FilletRadius::Constant(2.5);
-        match r {
-            FilletRadius::Constant(v) => assert!((v - 2.5).abs() < f64::EPSILON),
-            _ => panic!("expected Constant"),
         }
     }
 }

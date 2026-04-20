@@ -1,7 +1,7 @@
-//! Topology construction — apply fillet/chamfer geometry to the BRep.
-//! 3-phase single-pass (A: perp splits, B: multi-chord face splits,
-//! C: kef merge + surface assign) then surface-fix, sliver-absorb
-//! (§13.1(2)), and §8.3 cap insertion post-passes.
+//! Topology construction — apply fillet/chamfer geometry to the
+//! BRep. 3-phase single-pass (A: perp splits, B: multi-chord face
+//! splits, C: kef merge + surface assign) then surface-fix,
+//! sliver-absorb (§13.1(2)), and §8.3 cap insertion post-passes.
 
 pub(crate) mod blend_insert;
 pub(crate) mod blend_topo;
@@ -17,13 +17,13 @@ pub(crate) mod poke_hex;
 mod sliver_absorb;
 pub(crate) mod surface_fix;
 pub(crate) mod three_quad_apply;
-
-use std::collections::HashMap;
+pub(crate) mod three_quad_promotions;
 
 use popkern_core::geometry::NurbsCurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
+use std::collections::HashMap;
 
 use crate::analysis::EdgeAnalysis;
 use crate::error::{BlendFailure, BlendWarning};
@@ -48,8 +48,7 @@ pub struct EdgeGeometry {
     pub pcurve_2: NurbsCurve,
     /// Average fillet/chamfer radius (kept for legacy callers).
     pub effective_radius: f64,
-    /// Radius at the edge's start vertex (constant ⇒
-    /// `effective_radius`; variable ⇒ `start`).
+    /// Radius at the edge's start vertex (constant ⇒ `effective_radius`; variable ⇒ `start`).
     pub radius_at_start: f64,
     /// Radius at the edge's end vertex.
     pub radius_at_end: f64,
@@ -61,9 +60,8 @@ pub struct EdgeGeometry {
     pub start_cap: Option<crate::cap::CapGeometry>,
     /// §8.3 end-endpoint cap (`None` when `cap_kind == Open`).
     pub end_cap: Option<crate::cap::CapGeometry>,
-    /// §7 continuity downgrade record — `Some((achieved, reason))`
-    /// when the engine fell back; caller emits
-    /// [`BlendWarning::ContinuityDowngraded`](crate::error::BlendWarning::ContinuityDowngraded).
+    /// §7 continuity downgrade record — `Some((achieved, reason))` when the engine fell
+    /// back; caller emits [`BlendWarning::ContinuityDowngraded`](crate::error::BlendWarning::ContinuityDowngraded).
     pub continuity_downgrade: Option<(crate::types::ContinuityLevel, String)>,
 }
 
@@ -78,9 +76,9 @@ pub struct ApplyBlendResult {
     pub corner_patches: Vec<crate::types::CornerPatchInfo>,
 }
 
-/// Apply computed fillet/chamfer geometry to a BRep. Three-phase:
-/// A = perp splits, B = multi-chord face splits, C = kef merge +
-/// surface assign. Returns the modified BRep or per-edge failures.
+/// Apply computed fillet/chamfer geometry to a BRep. Three-phase (A: perp splits,
+/// B: multi-chord face splits, C: kef merge + surface assign).
+#[allow(clippy::too_many_arguments)]
 pub fn apply_blend_geometry(
     brep: &BRep,
     edge_geometries: &[EdgeGeometry],
@@ -88,15 +86,16 @@ pub fn apply_blend_geometry(
     vertex_mode: &VertexMode,
     use_rational_gregory: bool,
     use_deg5_gregory: bool,
+    use_biquintic_full_gregory: bool,
+    use_biseptic_gregory: bool,
+    use_two_stripe_gregory: bool,
 ) -> Result<ApplyBlendResult, Vec<(EdgeHandle, BlendFailure)>> {
     let mut result = brep.clone();
     let mut failures: Vec<(EdgeHandle, BlendFailure)> = Vec::new();
     let mut warnings: Vec<(EdgeHandle, BlendWarning)> = Vec::new();
     let mut corner_patches: Vec<crate::types::CornerPatchInfo> = Vec::new();
 
-    // ── Phase A: ALL perpendicular edge splits ─────────────────────
-    // Perp splits only modify edges (inserting vertices), not faces.
-    // All can be done on the original face handles.
+    // ── Phase A: ALL perpendicular edge splits ─ only modifies edges (inserts vertices), not faces.
     struct PerpSplitData {
         face_1_anchors: (VertexHandle, VertexHandle),
         face_2_anchors: (VertexHandle, VertexHandle),
@@ -105,7 +104,6 @@ pub fn apply_blend_geometry(
 
     // Closed-fillet-handled edges skip Phase B/C.
     let mut closed_handled: std::collections::HashSet<usize> = std::collections::HashSet::new();
-
     // Round 5r+: immutable snapshot before Phase A mutates `result`;
     // anchor positions come from here, vertex inserts go into `result`.
     let phase_a_snapshot = result.clone();
@@ -214,7 +212,6 @@ pub fn apply_blend_geometry(
 
     // ── Phase B: split faces by trim curves via `multi_chord`. ───
     let mut trim_results: Vec<TrimSplitResult> = Vec::new();
-
     for (original_face, trims) in &face_trims {
         let fillet_edges_by_trim: Vec<EdgeHandle> = trims
             .iter()
@@ -392,9 +389,11 @@ pub fn apply_blend_geometry(
         return Err(failures);
     }
 
-    // Vertex blend handling.
+    // Vertex blend handling. `BTreeMap` keyed on VertexHandle for
+    // deterministic insertion order across runs.
     if *vertex_mode == VertexMode::Smooth && edge_geometries.len() > 1 {
-        let mut vertex_edges: HashMap<VertexHandle, Vec<usize>> = HashMap::new();
+        let mut vertex_edges: std::collections::BTreeMap<VertexHandle, Vec<usize>> =
+            std::collections::BTreeMap::new();
         for (idx, eg) in edge_geometries.iter().enumerate() {
             vertex_edges
                 .entry(eg.analysis.vertex_start)
@@ -409,7 +408,7 @@ pub fn apply_blend_geometry(
         // A-through-C). Post-modification, original edge handles are
         // stale and `classify_vertex_blend` silently defaults to
         // `SameSideConvex`, masking `OppositeSide` saddles.
-        let precomputed: HashMap<
+        let precomputed: std::collections::BTreeMap<
             VertexHandle,
             crate::vertex_classifier::VertexBlendClassification,
         > = vertex_edges
@@ -439,6 +438,9 @@ pub fn apply_blend_geometry(
                     tolerance,
                     use_rational_gregory,
                     use_deg5_gregory,
+                    use_biquintic_full_gregory,
+                    use_biseptic_gregory,
+                    use_two_stripe_gregory,
                     Some(pre),
                 ) {
                     Ok(infos) => {
@@ -488,7 +490,6 @@ pub fn apply_blend_geometry(
 
     // §8.3 caps — see `cap_insert` module docs.
     cap_insert::insert_caps(&mut result, brep, edge_geometries, &mut warnings);
-
     blend_insert::reclassify_corner_methods(&result, &mut corner_patches);
 
     Ok(ApplyBlendResult {

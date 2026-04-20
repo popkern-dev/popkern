@@ -11,6 +11,7 @@ pub(crate) mod boundary_hex;
 #[path = "boundary_tests.rs"]
 mod boundary_tests;
 pub(crate) mod gregory;
+pub(crate) mod gregory_inner_cp_shrink;
 pub(crate) mod gregory_parallelogram;
 pub(crate) mod gregory_three_quad;
 pub(crate) mod gregory_vertex_enclosure;

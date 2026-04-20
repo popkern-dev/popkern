@@ -257,8 +257,8 @@ pub fn preview_corner_patches(
         }
     }
 
-    let mut vertex_edges: std::collections::HashMap<VertexHandle, Vec<usize>> =
-        std::collections::HashMap::new();
+    let mut vertex_edges: std::collections::BTreeMap<VertexHandle, Vec<usize>> =
+        std::collections::BTreeMap::new();
     for (idx, eg) in edge_geometries.iter().enumerate() {
         vertex_edges
             .entry(eg.analysis.vertex_start)

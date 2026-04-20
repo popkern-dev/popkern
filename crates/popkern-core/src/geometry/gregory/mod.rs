@@ -46,17 +46,111 @@
 use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
 
+mod bernstein_binonic;
 mod build;
+mod build_biquintic_full;
+mod build_biseptic;
+mod build_two_stripe;
+mod direct_blend_coeffs;
+mod direct_build;
+mod direct_corner_c;
+mod direct_corner_outer;
+mod direct_errors;
+mod direct_input;
+mod direct_linalg;
+mod direct_options;
+mod direct_row1_g1;
+mod direct_row1_ring;
+mod direct_self_check;
+mod direct_types;
+mod kp_boundary_consistency;
+mod kp_degree_elevate;
+mod kp_guide_build;
+mod kp_guide_central_hermite;
+mod kp_guide_central_twist;
+mod kp_guide_hex_hermite;
+mod kp_guide_outer_hermite;
+mod kp_guide_outer_twist;
+mod kp_guide_patch;
+mod kp_guide_ring;
+mod kp_interior_fit;
+mod kp_ring_build;
+mod kp_row1;
+mod kp_row2;
 mod rectangular;
+mod rectangular_binonic;
+mod rectangular_binonic_to_nurbs;
+mod rectangular_biquintic_full;
+mod rectangular_biquintic_full_to_nurbs;
+mod rectangular_biseptic;
+mod rectangular_biseptic_to_nurbs;
 mod rectangular_deg5;
 mod rectangular_deg5_to_nurbs;
+mod rectangular_gregory_two_stripe;
+mod rectangular_gregory_two_stripe_to_nurbs;
 mod rectangular_to_nurbs;
+mod spoke_g1_solver;
+mod spoke_g1_solver_impls;
+mod spoke_poly_g1_linalg;
+mod spoke_poly_g1_ring;
+mod spoke_poly_g1_solver;
 mod triangular;
 mod triangular_to_nurbs;
 
 pub use build::GregoryBuildError;
 pub use rectangular::RectangularGregory;
+pub use rectangular_binonic::RectangularGregoryBiNonic;
+pub use rectangular_biquintic_full::RectangularGregoryBiquinticFull;
+pub use rectangular_biseptic::RectangularGregoryBiseptic;
 pub use rectangular_deg5::RectangularGregoryDeg5;
+pub use rectangular_gregory_two_stripe::RectangularGregoryTwoStripe;
+pub use spoke_g1_solver::{
+    Side, Spoke, SpokeEnd, SpokeG1Patch, spoke_g1_solve, spoke_g1_solve_with_corner_samples,
+    spoke_g1_solve_with_corner_samples_damped,
+};
+pub use spoke_poly_g1_ring::{RingPolyG1Result, solve_ring_poly_g1};
+
+pub use bernstein_binonic::{
+    bernstein_binonic, bernstein_binonic_all, bernstein_binonic_deriv, bernstein_binonic_deriv_all,
+    bernstein_binonic_second_deriv, bernstein_binonic_second_deriv_all,
+};
+pub use direct_blend_coeffs::{SpokeBlendCoeffs, compute_ring_blend_coeffs};
+pub use direct_build::{build, can_build};
+pub use direct_corner_c::{
+    CentralCornerInnerCps, central_plane_from_input, solve_central_vertex_corner,
+};
+pub use direct_corner_outer::{OuterCornerOutput, OuterCornerTwistCps, solve_outer_corners};
+pub use direct_errors::DirectConstructionError;
+pub use direct_input::{DirectBoundaryInput, OuterCornerData, SpokeBoundaryData, TangentPlane};
+pub use direct_options::DirectConstructionOptions;
+pub use direct_row1_g1::{SingleSpokeRow1Input, SingleSpokeRow1Output, solve_single_spoke_row1_g1};
+pub use direct_row1_ring::{RingRow1Result, solve_ring_row1_g1};
+pub use direct_self_check::{
+    PerSpokeQuality, RingQualityMeasurement, SelfCheckOptions, measure_ring_quality,
+    measure_ring_quality_per_spoke,
+};
+pub use direct_types::{
+    CornerDiagnostic, CornerKind, DirectConstructionResult, FeasibilityReport, FeasibilityWarning,
+    FormulaFamily, SpokeDiagnostic, ValidationLevel,
+};
+pub use kp_boundary_consistency::{
+    BoundaryConsistency, CornerConsistency, check_boundary_consistency,
+};
+pub use kp_degree_elevate::{
+    elevate_cubic_point_to_nine, elevate_cubic_vec_to_nine, elevate_point_curve_to_nine,
+};
+pub use kp_guide_build::{GuideCornerData, build_guide_from_hermite};
+pub use kp_guide_central_hermite::extract_central_vertex_hermite;
+pub use kp_guide_central_twist::extract_central_vertex_hermite_with_twist;
+pub use kp_guide_hex_hermite::{SubPatchHexCorners, extract_hex_corners};
+pub use kp_guide_outer_hermite::{OuterVertexHermite, extract_outer_corner_hermite};
+pub use kp_guide_outer_twist::extract_hex_corners_with_twist;
+pub use kp_guide_patch::KpGuidePatch;
+pub use kp_guide_ring::{build_guide_ring, build_guide_ring_with_twist};
+pub use kp_interior_fit::fit_interior_cps_to_guide;
+pub use kp_ring_build::build_binonic_ring;
+pub use kp_row1::{Row1Frame, derive_row1_frame};
+pub use kp_row2::{Row2Frame, derive_row2_frame};
 pub use triangular::TriangularGregory;
 
 /// A Gregory patch of either rectangular (N=4) or triangular
@@ -81,6 +175,35 @@ pub enum GregoryPatch {
     /// boundary degree closes the 2% cubic-Bezier arc
     /// approximation error inherent at the lower degree.
     RectangularDeg5(Box<RectangularGregoryDeg5>),
+    /// Karciauskas-Peters biquintic patch with 12 free-curvature
+    /// interior CPs in addition to the 4 corner inner-CP pairs.
+    /// Extends
+    /// [`RectangularDeg5`](GregoryPatch::RectangularDeg5) with
+    /// the degrees of freedom required for **geometric G1 along
+    /// the entire shared spoke** between adjacent sub-patches
+    /// (not just at the central vertex).
+    RectangularBiquinticFull(Box<RectangularGregoryBiquinticFull>),
+    /// Biseptic (degree 7) Karciauskas-Peters patch with 32
+    /// free-curvature interior CPs. 4 free DOF per shared
+    /// spoke (up from 2 at biquintic-full) gives the
+    /// spoke-G1 solver full Bernstein-basis coverage for
+    /// row `i = 1`, eliminating the structural out-of-span
+    /// mismatch visible in biquintic-full's scorecard.
+    /// Phase 10 extends this variant's solver with G2
+    /// (curvature) continuity by leveraging row `i = 2`'s
+    /// 6 free interior CPs per spoke.
+    RectangularBiseptic(Box<RectangularGregoryBiseptic>),
+    /// Peters two-stripe bidegree-7 Bezier patch. Drops the
+    /// rational blend at the 4 corner-adjacent positions
+    /// `(1,1), (1,6), (6,1), (6,6)` — they become plain-
+    /// Bezier free CPs. The spoke-G1 solver now has 6 DOF
+    /// per spoke side (row `i = 1` j ∈ {1..=6}), giving full
+    /// Bernstein-basis coverage `{B_1^7..B_6^7}`. Corner
+    /// tangent-plane compatibility that was previously
+    /// enforced by the rational blend is handled by explicit
+    /// solver constraints. This is the structural fix for
+    /// the biseptic scorecard's 84° worst-case.
+    RectangularTwoStripe(Box<RectangularGregoryTwoStripe>),
     /// N=3 triangular patch.
     Triangular(Box<TriangularGregory>),
 }
@@ -96,6 +219,9 @@ impl GregoryPatch {
         match self {
             GregoryPatch::Rectangular(r) => r.point_at(u, v),
             GregoryPatch::RectangularDeg5(r) => r.point_at(u, v),
+            GregoryPatch::RectangularBiquinticFull(r) => r.point_at(u, v),
+            GregoryPatch::RectangularBiseptic(r) => r.point_at(u, v),
+            GregoryPatch::RectangularTwoStripe(r) => r.point_at(u, v),
             GregoryPatch::Triangular(t) => t.point_at_uv(u, v),
         }
     }
@@ -106,6 +232,9 @@ impl GregoryPatch {
         match self {
             GregoryPatch::Rectangular(r) => r.partial_u(u, v),
             GregoryPatch::RectangularDeg5(r) => r.partial_u(u, v),
+            GregoryPatch::RectangularBiquinticFull(r) => r.partial_u(u, v),
+            GregoryPatch::RectangularBiseptic(r) => r.partial_u(u, v),
+            GregoryPatch::RectangularTwoStripe(r) => r.partial_u(u, v),
             GregoryPatch::Triangular(t) => t.partial_u_uv(u, v),
         }
     }
@@ -116,6 +245,9 @@ impl GregoryPatch {
         match self {
             GregoryPatch::Rectangular(r) => r.partial_v(u, v),
             GregoryPatch::RectangularDeg5(r) => r.partial_v(u, v),
+            GregoryPatch::RectangularBiquinticFull(r) => r.partial_v(u, v),
+            GregoryPatch::RectangularBiseptic(r) => r.partial_v(u, v),
+            GregoryPatch::RectangularTwoStripe(r) => r.partial_v(u, v),
             GregoryPatch::Triangular(t) => t.partial_v_uv(u, v),
         }
     }
@@ -152,6 +284,26 @@ mod build_tests;
 #[cfg(test)]
 #[path = "rectangular_deg5_tests.rs"]
 mod rectangular_deg5_tests;
+
+#[cfg(test)]
+#[path = "rectangular_biquintic_full_tests.rs"]
+mod rectangular_biquintic_full_tests;
+
+#[cfg(test)]
+#[path = "rectangular_biseptic_tests.rs"]
+mod rectangular_biseptic_tests;
+
+#[cfg(test)]
+#[path = "rectangular_gregory_two_stripe_tests.rs"]
+mod rectangular_gregory_two_stripe_tests;
+
+#[cfg(test)]
+#[path = "spoke_g1_solver_tests.rs"]
+mod spoke_g1_solver_tests;
+
+#[cfg(test)]
+#[path = "spoke_g1_solver_higher_degree_tests.rs"]
+mod spoke_g1_solver_higher_degree_tests;
 
 #[cfg(test)]
 #[path = "rectangular_to_nurbs_tests.rs"]

@@ -4,6 +4,7 @@ pub mod analytic_curves;
 pub mod transform;
 pub use transform::Transform3;
 pub mod analytic_surfaces;
+pub mod bernstein_poly;
 pub mod curve;
 pub mod curve_on_surface;
 pub mod fitting;

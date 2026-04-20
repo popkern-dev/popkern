@@ -40,6 +40,9 @@ pub(crate) fn insert_vertex_blend(
     tolerance: &Tolerance,
     use_rational_gregory: bool,
     use_deg5_gregory: bool,
+    use_biquintic_full_gregory: bool,
+    use_biseptic_gregory: bool,
+    use_two_stripe_gregory: bool,
     precomputed_classification: Option<VertexBlendClassification>,
 ) -> Result<Vec<CornerPatchInfo>, String> {
     // §5.3 item #5 — callers pre-compute classification against
@@ -151,11 +154,7 @@ pub(crate) fn insert_vertex_blend(
         overlap_remediated: false,
     };
 
-    // §5.3 item #4 — N ≥ 3 rational-Gregory dispatch. Falls
-    // through to polar-NURBS on any gate failure. §5.3 item #10:
-    // `ThreeQuadFailure::Overlap` signals self-intersection;
-    // caller sets `overlap_remediated` so the
-    // `CornerRemediationOverlap` warning fires downstream.
+    // §5.3 item #4 — N ≥ 3 rational-Gregory dispatch.
     if use_rational_gregory
         && rational_gregory_compatible
         && let Some(boundary) = n_gon_boundary.as_ref()
@@ -172,6 +171,9 @@ pub(crate) fn insert_vertex_blend(
             edge_indices.len(),
             classification,
             use_deg5_gregory,
+            use_biquintic_full_gregory,
+            use_biseptic_gregory,
+            use_two_stripe_gregory,
         ) {
             Ok(patches) if patches.len() == n_sides => return Ok(patches),
             Err(ThreeQuadFailure::Overlap) => {
@@ -452,6 +454,9 @@ mod tests {
             &Tolerance::default(),
             false,
             false,
+            false,
+            false,
+            false,
             None,
         );
         assert!(result.is_err(), "should fail for invalid vertex");
@@ -471,6 +476,9 @@ mod tests {
             &[],
             &[],
             &Tolerance::default(),
+            false,
+            false,
+            false,
             false,
             false,
             None,

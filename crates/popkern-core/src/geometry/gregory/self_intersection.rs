@@ -60,6 +60,9 @@ fn subdivision_surface_intersection(patch: &GregoryPatch, tolerance: f64) -> boo
     let full = match patch {
         GregoryPatch::Rectangular(r) => r.to_nurbs_exact(),
         GregoryPatch::RectangularDeg5(r) => r.to_nurbs_exact(),
+        GregoryPatch::RectangularBiquinticFull(r) => r.to_nurbs_exact(),
+        GregoryPatch::RectangularBiseptic(r) => r.to_nurbs_exact(),
+        GregoryPatch::RectangularTwoStripe(r) => r.to_nurbs_exact(),
         GregoryPatch::Triangular(t) => t.to_nurbs_exact(),
     };
     let Ok((left, right)) = full.split_at_u(0.5) else {
@@ -95,10 +98,10 @@ fn subdivision_surface_intersection(patch: &GregoryPatch, tolerance: f64) -> boo
             let SurfaceSurfaceIntersection::Curve(cos) = hit else {
                 continue;
             };
-            // Coarse arc-length estimate: chord through the
-            // 3D curve's endpoints and midpoint. A real
-            // intersection curve > `10·tolerance` in 3-space;
-            // a shared-corner contact produces length ≈ 0.
+            // Coarse arc-length estimate: chord through the 3D
+            // curve's endpoints and midpoint. A real intersection
+            // curve > `10·tolerance` in 3-space; a shared-corner
+            // contact produces length ≈ 0.
             let c3d = &cos.curve_3d;
             let (t0, t1) = c3d.parameter_range();
             let p0 = c3d.point_at(t0);

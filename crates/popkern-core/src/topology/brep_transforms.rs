@@ -7,7 +7,8 @@
 use crate::geometry::Transform3;
 use crate::geometry::curve::CurveGeometry;
 use crate::geometry::gregory::{
-    GregoryPatch, RectangularGregory, RectangularGregoryDeg5, TriangularGregory,
+    GregoryPatch, RectangularGregory, RectangularGregoryBiquinticFull, RectangularGregoryBiseptic,
+    RectangularGregoryDeg5, RectangularGregoryTwoStripe, TriangularGregory,
 };
 use crate::geometry::surface::SurfaceGeometry;
 
@@ -112,6 +113,45 @@ fn transform_gregory(g: &GregoryPatch, t: &Transform3) -> GregoryPatch {
                 boundary_cps: boundary,
                 inner_cps,
             }))
+        }
+        GregoryPatch::RectangularBiquinticFull(r) => {
+            let mut grid = r.grid;
+            for row in grid.iter_mut() {
+                for cell in row.iter_mut() {
+                    *cell = t.apply_point(cell);
+                }
+            }
+            let corner_inner_cps = r
+                .corner_inner_cps
+                .map(|(p_u, p_v)| (t.apply_point(&p_u), t.apply_point(&p_v)));
+            GregoryPatch::RectangularBiquinticFull(Box::new(RectangularGregoryBiquinticFull {
+                grid,
+                corner_inner_cps,
+            }))
+        }
+        GregoryPatch::RectangularBiseptic(r) => {
+            let mut grid = r.grid;
+            for row in grid.iter_mut() {
+                for cell in row.iter_mut() {
+                    *cell = t.apply_point(cell);
+                }
+            }
+            let corner_inner_cps = r
+                .corner_inner_cps
+                .map(|(p_u, p_v)| (t.apply_point(&p_u), t.apply_point(&p_v)));
+            GregoryPatch::RectangularBiseptic(Box::new(RectangularGregoryBiseptic {
+                grid,
+                corner_inner_cps,
+            }))
+        }
+        GregoryPatch::RectangularTwoStripe(r) => {
+            let mut grid = r.grid;
+            for row in grid.iter_mut() {
+                for cell in row.iter_mut() {
+                    *cell = t.apply_point(cell);
+                }
+            }
+            GregoryPatch::RectangularTwoStripe(Box::new(RectangularGregoryTwoStripe { grid }))
         }
         GregoryPatch::Triangular(tr) => {
             let boundary_cps = tr.boundary_cps.map(|p| t.apply_point(&p));
