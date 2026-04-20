@@ -80,6 +80,7 @@ mod kp_guide_patch_biquintic;
 mod kp_guide_ring;
 mod kp_guide_trait;
 mod kp_interior_fit;
+mod kp_polar_boundary_input;
 mod kp_ring_build;
 mod kp_row1;
 mod kp_row2;
@@ -180,6 +181,9 @@ pub use kp_guide_trait::KpGuide;
 pub use kp_interior_fit::{
     fit_interior_cps_to_binonic_guide, fit_interior_cps_to_biquintic_guide,
     fit_interior_cps_to_guide,
+};
+pub use kp_polar_boundary_input::{
+    PolarBoundaryInput, TensorBorder, TensorBorderBi3, TensorBorderBi5, TensorBorderKind,
 };
 pub use kp_ring_build::{
     build_binonic_ring, build_binonic_ring_from_binonic_guides,
