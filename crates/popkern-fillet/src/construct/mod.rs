@@ -1,7 +1,4 @@
-//! Topology construction — apply fillet/chamfer geometry to the
-//! BRep. 3-phase single-pass (A: perp splits, B: multi-chord face
-//! splits, C: kef merge + surface assign) then surface-fix,
-//! sliver-absorb (§13.1(2)), and §8.3 cap insertion post-passes.
+//! Topology construction — apply fillet/chamfer geometry to the BRep. 3-phase single-pass (A: perp splits, B: multi-chord face splits, C: kef merge + surface assign) then surface-fix, sliver-absorb (§13.1(2)), and §8.3 cap insertion post-passes.
 
 pub(crate) mod blend_insert;
 pub(crate) mod blend_topo;
