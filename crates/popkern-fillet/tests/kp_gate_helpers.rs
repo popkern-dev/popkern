@@ -218,8 +218,16 @@ pub fn collect_patches(brep: &BRep, faces: &[FaceHandle]) -> Vec<GregoryPatch> {
 }
 
 /// Assert every patch is the `RectangularBiNonic` variant —
-/// proving the K-P promotion fired on this fixture.
+/// proving the K-P promotion fired on this fixture. Also requires
+/// at least one patch so an empty corner-patch list (dispatch
+/// didn't produce any Gregory geometry — a common failure mode
+/// on unsupported valences) is caught instead of passing the
+/// `for` loop vacuously.
 pub fn assert_all_binonic(patches: &[GregoryPatch], fixture: &str) {
+    assert!(
+        !patches.is_empty(),
+        "[{fixture}] expected at least one Gregory corner patch, got none (dispatch likely bailed out of the binonic rung)"
+    );
     for (i, p) in patches.iter().enumerate() {
         assert!(
             matches!(p, GregoryPatch::RectangularBiNonic(_)),

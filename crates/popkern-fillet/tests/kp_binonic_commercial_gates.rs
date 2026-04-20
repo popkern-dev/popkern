@@ -31,20 +31,20 @@
 //!
 //! # Fixture matrix
 //!
-//! | Fixture          | Valence | Radii                         | Status         |
-//! |------------------|---------|-------------------------------|----------------|
-//! | cube_mixed       | 3       | [0.08, 0.10, 0.12]            | passes (1.9e-2)|
-//! | cube_extreme     | 3       | [0.02, 0.10, 0.20]            | #[ignore] gap  |
-//! | pyramid4_mixed   | 4       | [0.04, 0.06, 0.05, 0.07]      | #[ignore] gap  |
+//! | Fixture          | Valence | Radii                                | Status            |
+//! |------------------|---------|--------------------------------------|-------------------|
+//! | cube_mixed       | 3       | [0.08, 0.10, 0.12]                   | passes (1.0e-2)   |
+//! | cube_extreme     | 3       | [0.02, 0.10, 0.20]  (1:10 ratio)     | passes (1.1e-2)   |
+//! | pyramid4_mixed   | 4       | [0.04, 0.06, 0.05, 0.07]             | passes (1.9e-13)  |
+//! | cube_extreme_20  | 3       | [0.01, 0.10, 0.20]  (1:20 ratio)     | #[ignore] gap     |
+//! | pentagon5_mixed  | 5       | [0.04, 0.06, 0.05, 0.07, 0.05]       | #[ignore] gap     |
+//! | hexagon6_mixed   | 6       | [0.04, 0.06, 0.05, 0.07, 0.05, 0.06] | #[ignore] gap     |
 //!
 //! Uniform-radii fixtures are out-of-scope here — the analytic
 //! sphere-fit short-circuits Gregory dispatch upstream, so the
 //! binonic rung never engages and the gate is tautologically
 //! satisfied. Those are a different code-path; testing them
 //! belongs in a sphere-shortcut suite.
-//!
-//! Higher-valence (N=5, N=6) polar cases are out-of-scope until
-//! the K-P polar variant lands (Phase H.5b).
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -87,6 +87,27 @@ fn run_square_pyramid_binonic(radii: &[f64], fixture: &str) -> helpers::RingMetr
     measure_ring(&patches, N_SAMPLES)
 }
 
+/// N-gonal pyramid (apex valence = n). Used for the N=5, N=6
+/// stress-test fixtures probing the L-M stack at higher corner
+/// valences than the N=3 cube / N=4 square-pyramid commercial
+/// matrix.
+fn run_n_gonal_pyramid_binonic(
+    n: usize,
+    base_radius: f64,
+    height: f64,
+    radii: &[f64],
+    fixture: &str,
+) -> helpers::RingMetrics {
+    assert_eq!(radii.len(), n);
+    let pyr = BRep::n_gonal_pyramid(n, base_radius, height, Tolerance::default()).unwrap();
+    let vertex = pick_vertex_with_valence(&pyr, n).expect("n_gonal_pyramid apex");
+    let edges = incident_edges(&pyr, vertex);
+    let (brep, faces) = fillet_corner(&pyr, &edges, radii, true);
+    let patches = collect_patches(&brep, &faces);
+    assert_all_binonic(&patches, fixture);
+    measure_ring(&patches, N_SAMPLES)
+}
+
 // ── Commercial-gate tests ────────────────────────────────────
 
 #[test]
@@ -120,6 +141,62 @@ fn binonic_passes_commercial_gates_on_cube_extreme() {
 fn binonic_passes_commercial_gates_on_pyramid4_mixed() {
     let m = run_square_pyramid_binonic(&[0.04, 0.06, 0.05, 0.07], "pyramid4_mixed");
     assert_commercial_gates("pyramid4_mixed", &m);
+}
+
+// ── L-M stress-test fixtures (Phase H.8 step 5) ──────────────
+//
+// Probes whether the L-M phase-3 stack generalises beyond the
+// cube_extreme fixture where it was tuned. Each test is a one-
+// line fixture that prints metrics and asserts the commercial
+// gate; any failure is informative in the test log.
+
+/// **Documented gap — 1:20 asymmetry.** At r = [0.01, 0.10, 0.20]
+/// the dispatch ladder stops at `RectangularBiquinticFull` — two
+/// rungs *below* the binonic+L-M entry point. Two-stripe promotion
+/// fails first for this asymmetry, and binonic requires two-stripe
+/// as its predecessor, so L-M never gets a chance to run.
+///
+/// Closing this needs work in the two-stripe rung (or its
+/// precondition check), not in the L-M stack itself. Tracked as a
+/// follow-up to #94.
+#[ignore]
+#[test]
+fn binonic_passes_commercial_gates_on_cube_extreme_20() {
+    let m = run_cube_binonic(&[0.01, 0.10, 0.20], "cube_extreme_20");
+    assert_commercial_gates("cube_extreme_20", &m);
+}
+
+/// **Documented gap — N=5 apex.** The K-P binonic dispatch path
+/// is currently written for N ∈ {3, 4}; pentagonal apex produces
+/// zero Gregory corner patches. Needs the K-P polar variant
+/// (Phase H.5b per the module header) before binonic can engage
+/// at all.
+#[ignore]
+#[test]
+fn binonic_passes_commercial_gates_on_pentagon5_mixed() {
+    let m = run_n_gonal_pyramid_binonic(
+        5,
+        1.0,
+        0.8,
+        &[0.04, 0.06, 0.05, 0.07, 0.05],
+        "pentagon5_mixed",
+    );
+    assert_commercial_gates("pentagon5_mixed", &m);
+}
+
+/// **Documented gap — N=6 apex.** Same dispatch ceiling as
+/// pentagon5 — K-P polar variant required.
+#[ignore]
+#[test]
+fn binonic_passes_commercial_gates_on_hexagon6_mixed() {
+    let m = run_n_gonal_pyramid_binonic(
+        6,
+        1.0,
+        0.8,
+        &[0.04, 0.06, 0.05, 0.07, 0.05, 0.06],
+        "hexagon6_mixed",
+    );
+    assert_commercial_gates("hexagon6_mixed", &m);
 }
 
 // ── Non-regression vs two-stripe ─────────────────────────────
