@@ -9,10 +9,9 @@
 //! vector into a direction dominated by floating-point noise,
 //! and the dot-product metric then spans the full [−1, +1]
 //! even though the underlying surfaces share the same tangent
-//! plane. The diagnostic pass in `kp_binonic_g1_diagnostic.rs`
-//! (deleted) confirmed this on cube_mixed: worst unit-normal
-//! deficit of 9.7e-1 at t ≈ 0.74 sits on top of a perfectly
-//! G1-coplanar triple-product of 1.3e-3.
+//! plane. Diagnosed on cube_mixed: worst unit-normal deficit
+//! of 9.7e-1 at t ≈ 0.74 sits on top of a perfectly G1-coplanar
+//! triple-product of 1.3e-3.
 //!
 //! So the gate uses the *geometric* G1 definition directly —
 //! the coplanarity of `xtan_A`, `xtan_B`, and the along-boundary
@@ -22,290 +21,130 @@
 //!
 //! # Gates (per the Phase H plan § 1-3)
 //!
-//! * **G0**: position gap ≤ 1e-10 (machine-ε, degree-elevation
-//!   preserves boundary exactly).
-//! * **G1**: coplanarity ≤ 5e-2 on the interior `t ∈ [0.05, 0.95]`.
-//!   The `0.05` endpoint margin excludes the Gregory central-
-//!   vertex and outer-corner singularities which are known
-//!   finite-angle transition zones (`/ip-check`'d in H.0 as
-//!   inherent to the rational blend — NOT a Phase H concern).
-//! * **G2**: normal-curvature match residual ≤ 5e-2 on the same
-//!   interior range (surrogate for full ‖II_A − II_B‖_F
-//!   equality).
+//! * **G0**: position gap ≤ 1e-10 on interior `t ∈ [0.05, 0.95]`.
+//! * **G1**: coplanarity ≤ 5e-2 (≈ 2.9° normal mismatch).
+//! * **G2**: normal-curvature match residual ≤ 5e-2.
+//!
+//! The 0.05 endpoint margin excludes the Gregory central-vertex
+//! and outer-corner singularities — finite-angle transition
+//! zones inherent to the rational blend (not Phase H work).
 //!
 //! # Fixture matrix
 //!
-//! Starts with cube_mixed (N=3, asymmetric radii). Follow-ups
-//! add cube_extreme, pyramid4_mixed, saddle_vertex_4, etc.
+//! | Fixture          | Valence | Radii                         | Status         |
+//! |------------------|---------|-------------------------------|----------------|
+//! | cube_mixed       | 3       | [0.08, 0.10, 0.12]            | passes (1.9e-2)|
+//! | cube_extreme     | 3       | [0.02, 0.10, 0.20]            | #[ignore] gap  |
+//! | pyramid4_mixed   | 4       | [0.04, 0.06, 0.05, 0.07]      | #[ignore] gap  |
+//!
+//! Uniform-radii fixtures are out-of-scope here — the analytic
+//! sphere-fit short-circuits Gregory dispatch upstream, so the
+//! binonic rung never engages and the gate is tautologically
+//! satisfied. Those are a different code-path; testing them
+//! belongs in a sphere-shortcut suite.
+//!
+//! Higher-valence (N=5, N=6) polar cases are out-of-scope until
+//! the K-P polar variant lands (Phase H.5b).
 
-use popkern_core::geometry::Vec3;
-use popkern_core::geometry::gregory::GregoryPatch;
-use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
-fn cube_mixed(use_kp_binonic: bool) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
+#[path = "kp_gate_helpers.rs"]
+mod helpers;
+use helpers::{
+    N_SAMPLES, assert_all_binonic, assert_commercial_gates, assert_no_regression, collect_patches,
+    fillet_corner, incident_edges, measure_ring, pick_vertex_with_valence,
+};
+
+fn run_cube(radii: &[f64], use_kp_binonic: bool) -> helpers::RingMetrics {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
-    let incident_edges: Vec<_> = cube
-        .half_edges
-        .values()
-        .filter(|he| he.origin == vertex)
-        .map(|he| he.edge)
-        .collect();
-    let radii = [0.08, 0.10, 0.12];
-    let specs: Vec<FilletSpec> = incident_edges
-        .iter()
-        .zip(radii.iter())
-        .map(|(&e, &r)| FilletSpec {
-            edge: e,
-            radius: FilletRadius::Constant(r),
-        })
-        .collect();
-    let opts = FilletOptions {
-        use_rational_gregory: true,
-        use_deg5_gregory: true,
-        use_biquintic_full_gregory: true,
-        use_biseptic_gregory: true,
-        use_two_stripe_gregory: true,
-        use_kp_binonic_gregory: use_kp_binonic,
-        ..FilletOptions::default()
-    };
-    let result = fillet_edges(&cube, &specs, &opts, Tolerance::default(), None).unwrap();
-    let faces: Vec<_> = result.corner_patches.iter().map(|p| p.face).collect();
-    (result.brep, faces)
+    let edges = incident_edges(&cube, vertex);
+    assert_eq!(edges.len(), 3);
+    let (brep, faces) = fillet_corner(&cube, &edges, radii, use_kp_binonic);
+    let patches = collect_patches(&brep, &faces);
+    assert_eq!(patches.len(), 3, "expected 3 Gregory sub-patches on cube");
+    measure_ring(&patches, N_SAMPLES)
 }
 
-fn patch_of(brep: &BRep, face: popkern_core::topology::FaceHandle) -> Option<GregoryPatch> {
-    brep.faces[face].surface.as_ref().and_then(|sof| {
-        if let SurfaceGeometry::Gregory(gp) = &sof.geometry {
-            Some(gp.clone())
-        } else {
-            None
-        }
-    })
+fn run_cube_binonic(radii: &[f64], fixture: &str) -> helpers::RingMetrics {
+    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+    let vertex = cube.vertices.keys().next().unwrap();
+    let edges = incident_edges(&cube, vertex);
+    let (brep, faces) = fillet_corner(&cube, &edges, radii, true);
+    let patches = collect_patches(&brep, &faces);
+    assert_all_binonic(&patches, fixture);
+    measure_ring(&patches, N_SAMPLES)
 }
 
-fn vec_norm(v: Vec3) -> f64 {
-    (v.x * v.x + v.y * v.y + v.z * v.z).sqrt()
+fn run_square_pyramid_binonic(radii: &[f64], fixture: &str) -> helpers::RingMetrics {
+    let pyr = BRep::square_pyramid(1.0, 0.8, Tolerance::default()).unwrap();
+    let vertex = pick_vertex_with_valence(&pyr, 4).expect("square_pyramid apex");
+    let edges = incident_edges(&pyr, vertex);
+    let (brep, faces) = fillet_corner(&pyr, &edges, radii, true);
+    let patches = collect_patches(&brep, &faces);
+    assert_all_binonic(&patches, fixture);
+    measure_ring(&patches, N_SAMPLES)
 }
 
-fn dot(a: Vec3, b: Vec3) -> f64 {
-    a.x * b.x + a.y * b.y + a.z * b.z
-}
-
-/// Normal curvature along an ambient unit tangent, via the second
-/// fundamental form evaluated in the parametric basis. Returns
-/// `None` if the first fundamental form is singular.
-fn normal_curvature_along(gp: &GregoryPatch, u: f64, v: f64, t_ambient: Vec3) -> Option<f64> {
-    let su = gp.partial_u(u, v);
-    let sv = gp.partial_v(u, v);
-    let n = su.cross(&sv).normalized()?;
-    let e = dot(su, su);
-    let f = dot(su, sv);
-    let g = dot(sv, sv);
-    let det = e * g - f * f;
-    if det.abs() < 1e-14 {
-        return None;
-    }
-    let su_dot_t = dot(su, t_ambient);
-    let sv_dot_t = dot(sv, t_ambient);
-    let a = (g * su_dot_t - f * sv_dot_t) / det;
-    let b = (e * sv_dot_t - f * su_dot_t) / det;
-    let norm_sq = e * a * a + 2.0 * f * a * b + g * b * b;
-    if norm_sq < 1e-14 {
-        return None;
-    }
-    let a = a / norm_sq.sqrt();
-    let b = b / norm_sq.sqrt();
-    let (suu, suv, svv) = match gp {
-        GregoryPatch::RectangularBiNonic(r) => (
-            r.second_partial_uu(u, v),
-            r.second_partial_uv(u, v),
-            r.second_partial_vv(u, v),
-        ),
-        GregoryPatch::RectangularTwoStripe(r) => (
-            r.second_partial_uu(u, v),
-            r.second_partial_uv(u, v),
-            r.second_partial_vv(u, v),
-        ),
-        GregoryPatch::RectangularBiseptic(r) => (
-            r.second_partial_uu(u, v),
-            r.second_partial_uv(u, v),
-            r.second_partial_vv(u, v),
-        ),
-        GregoryPatch::RectangularBiquinticFull(r) => (
-            r.second_partial_uu(u, v),
-            r.second_partial_uv(u, v),
-            r.second_partial_vv(u, v),
-        ),
-        _ => return None,
-    };
-    let l = dot(n, suu);
-    let m = dot(n, suv);
-    let nn = dot(n, svv);
-    Some(l * a * a + 2.0 * m * a * b + nn * b * b)
-}
-
-struct RingMetrics {
-    worst_g0_gap: f64,
-    /// Coplanarity triple product (`0` = perfect G1, stable under
-    /// parametric near-degeneracies).
-    worst_g1_coplanarity: f64,
-    /// Normal-curvature mismatch, normalised so `0` = perfect G2.
-    worst_g2_residual: f64,
-}
-
-/// Sample the ring on `t ∈ [0.05, 0.95]` at `n_samples` points.
-/// Endpoint margins exclude the Gregory corner-singularity
-/// transition zones — not a Phase H construction concern.
-fn measure_ring(patches: &[GregoryPatch], n_samples: usize) -> RingMetrics {
-    let n = patches.len();
-    let mut worst_g0 = 0.0_f64;
-    let mut worst_g1 = 0.0_f64;
-    let mut worst_g2 = 0.0_f64;
-
-    // Uniform samples on [0.05, 0.95] — 90% of the spoke's
-    // interior. Avoids the rational-Gregory corner transitions.
-    let ts: Vec<f64> = (0..n_samples)
-        .map(|k| 0.05 + 0.90 * (k as f64) / ((n_samples - 1) as f64))
-        .collect();
-
-    for k in 0..n {
-        let a = &patches[k];
-        let b = &patches[(k + 1) % n];
-        for &t in &ts {
-            let t_b = 1.0 - t;
-
-            // G0 gap.
-            let pa = a.point_at(1.0, t);
-            let pb = b.point_at(t_b, 0.0);
-            let gap =
-                ((pa.x - pb.x).powi(2) + (pa.y - pb.y).powi(2) + (pa.z - pb.z).powi(2)).sqrt();
-            if gap > worst_g0 {
-                worst_g0 = gap;
-            }
-
-            // G1: triple product of xtan_A, xtan_B, spoke tangent.
-            let xtan_a = a.partial_u(1.0, t);
-            let xtan_b = b.partial_v(t_b, 0.0);
-            let t_spoke = a.partial_v(1.0, t);
-            let numer = dot(xtan_a.cross(&xtan_b), t_spoke).abs();
-            let denom = vec_norm(xtan_a) * vec_norm(xtan_b) * vec_norm(t_spoke);
-            if denom > 1e-300 {
-                let coplan = numer / denom;
-                if coplan > worst_g1 {
-                    worst_g1 = coplan;
-                }
-            }
-
-            // G2: normal curvature along the spoke tangent.
-            let Some(t_unit) = t_spoke.normalized() else {
-                continue;
-            };
-            let Some(ka) = normal_curvature_along(a, 1.0, t, t_unit) else {
-                continue;
-            };
-            let Some(kb) = normal_curvature_along(b, t_b, 0.0, t_unit) else {
-                continue;
-            };
-            let kmax = ka.abs().max(kb.abs());
-            let resid = (ka - kb).abs() / (1.0 + kmax);
-            if resid > worst_g2 {
-                worst_g2 = resid;
-            }
-        }
-    }
-    RingMetrics {
-        worst_g0_gap: worst_g0,
-        worst_g1_coplanarity: worst_g1,
-        worst_g2_residual: worst_g2,
-    }
-}
-
-const N_SAMPLES: usize = 100;
-const G0_GATE: f64 = 1e-10;
-const G1_GATE: f64 = 5e-2;
-const G2_GATE: f64 = 5e-2;
+// ── Commercial-gate tests ────────────────────────────────────
 
 #[test]
-fn binonic_passes_commercial_g0_g1_g2_gates_on_cube_mixed() {
-    let (brep, faces) = cube_mixed(true);
-    let patches: Vec<_> = faces.iter().filter_map(|&f| patch_of(&brep, f)).collect();
-    assert_eq!(patches.len(), 3);
-    for p in &patches {
-        assert!(
-            matches!(p, GregoryPatch::RectangularBiNonic(_)),
-            "expected binonic variant on cube_mixed, dispatch not firing"
-        );
-    }
-    let m = measure_ring(&patches, N_SAMPLES);
-    println!(
-        "binonic cube_mixed: g0={:.3e} g1_coplan={:.3e} g2={:.3e}",
-        m.worst_g0_gap, m.worst_g1_coplanarity, m.worst_g2_residual
-    );
-    assert!(
-        m.worst_g0_gap < G0_GATE,
-        "binonic G0 gap {:.3e} exceeds {:.1e} gate",
-        m.worst_g0_gap,
-        G0_GATE
-    );
-    assert!(
-        m.worst_g1_coplanarity < G1_GATE,
-        "binonic G1 coplanarity {:.3e} exceeds {:.1e} gate (commercial)",
-        m.worst_g1_coplanarity,
-        G1_GATE
-    );
-    assert!(
-        m.worst_g2_residual < G2_GATE,
-        "binonic G2 residual {:.3e} exceeds {:.1e} gate (commercial)",
-        m.worst_g2_residual,
-        G2_GATE
-    );
+fn binonic_passes_commercial_gates_on_cube_mixed() {
+    let m = run_cube_binonic(&[0.08, 0.10, 0.12], "cube_mixed");
+    assert_commercial_gates("cube_mixed", &m);
 }
+
+/// **Known gap.** K-P construction does not hold up under 1:10
+/// radius asymmetry; G1 coplanarity lands around 3.9e-1 worst-
+/// case (≈ 22° normal mismatch) and regresses below two-stripe
+/// (~2.5e-1). Hypotheses: (a) the bicubic guide's curvature
+/// field saturates under extreme asymmetry, over-twisting the
+/// row-2 frame; (b) the Shirman-Séquin central-vertex QP
+/// converges to a saddle under the narrow spoke angle. Needs
+/// investigation — guide-surface diagnostic sampling at
+/// `ValidationLevel::Full` should expose which.
+#[ignore]
+#[test]
+fn binonic_passes_commercial_gates_on_cube_extreme() {
+    let m = run_cube_binonic(&[0.02, 0.10, 0.20], "cube_extreme");
+    assert_commercial_gates("cube_extreme", &m);
+}
+
+/// **Known gap.** The K-P binonic promotion does not engage on
+/// the square-pyramid apex (N=4). Likely cause: the K-P
+/// guide-ring builder has N=3-specific assumptions in the
+/// outer-corner hex-midpoint construction (G5/G6 work was
+/// validated on N=3 only). Until closed, the ladder silently
+/// falls back to two-stripe — worst-case 2.0e-1 coplanarity
+/// (≈ 11° mismatch).
+#[ignore]
+#[test]
+fn binonic_passes_commercial_gates_on_pyramid4_mixed() {
+    let m = run_square_pyramid_binonic(&[0.04, 0.06, 0.05, 0.07], "pyramid4_mixed");
+    assert_commercial_gates("pyramid4_mixed", &m);
+}
+
+// ── Non-regression vs two-stripe ─────────────────────────────
 
 #[test]
 fn binonic_matches_or_beats_two_stripe_on_cube_mixed() {
-    let (brep_t, faces_t) = cube_mixed(false);
-    let (brep_b, faces_b) = cube_mixed(true);
-    let t: Vec<_> = faces_t
-        .iter()
-        .filter_map(|&f| patch_of(&brep_t, f))
-        .collect();
-    let b: Vec<_> = faces_b
-        .iter()
-        .filter_map(|&f| patch_of(&brep_b, f))
-        .collect();
-    let mt = measure_ring(&t, N_SAMPLES);
-    let mb = measure_ring(&b, N_SAMPLES);
-    println!(
-        "two_stripe cube_mixed: g0={:.3e} g1={:.3e} g2={:.3e}",
-        mt.worst_g0_gap, mt.worst_g1_coplanarity, mt.worst_g2_residual
-    );
-    println!(
-        "binonic    cube_mixed: g0={:.3e} g1={:.3e} g2={:.3e}",
-        mb.worst_g0_gap, mb.worst_g1_coplanarity, mb.worst_g2_residual
-    );
-    // Non-regression: binonic must not be materially worse than
-    // two-stripe on any metric. 2× tolerance absorbs floating-
-    // point noise without masking a real regression.
-    assert!(
-        mb.worst_g0_gap <= 2.0 * mt.worst_g0_gap.max(1e-12),
-        "binonic G0 regression: {:.3e} vs two_stripe {:.3e}",
-        mb.worst_g0_gap,
-        mt.worst_g0_gap
-    );
-    assert!(
-        mb.worst_g1_coplanarity <= 2.0 * mt.worst_g1_coplanarity.max(1e-8),
-        "binonic G1 regression: {:.3e} vs two_stripe {:.3e}",
-        mb.worst_g1_coplanarity,
-        mt.worst_g1_coplanarity
-    );
-    assert!(
-        mb.worst_g2_residual <= 2.0 * mt.worst_g2_residual.max(1e-8),
-        "binonic G2 regression: {:.3e} vs two_stripe {:.3e}",
-        mb.worst_g2_residual,
-        mt.worst_g2_residual
-    );
+    let mt = run_cube(&[0.08, 0.10, 0.12], false);
+    let mb = run_cube(&[0.08, 0.10, 0.12], true);
+    assert_no_regression("cube_mixed", &mt, &mb);
+}
+
+/// **Known regression.** Binonic worst-case G1 coplanarity on
+/// the 1:10 extreme-asymmetry cube is 3.9e-1 vs two-stripe's
+/// 2.5e-1 — binonic is 1.6× worse. The 2× no-regression
+/// tolerance absorbs this today, but the regression is real
+/// and the test is ignored rather than weakened further. Same
+/// K-P-guide-fails-under-extreme-asymmetry root cause as the
+/// commercial-gate test above.
+#[ignore]
+#[test]
+fn binonic_matches_or_beats_two_stripe_on_cube_extreme() {
+    let mt = run_cube(&[0.02, 0.10, 0.20], false);
+    let mb = run_cube(&[0.02, 0.10, 0.20], true);
+    assert_no_regression("cube_extreme", &mt, &mb);
 }
