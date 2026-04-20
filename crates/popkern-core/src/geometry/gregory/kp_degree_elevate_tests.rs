@@ -267,3 +267,167 @@ fn elevate_point_curve_degree_2_quadratic_matches_pointwise() {
         assert!(point_max(orig_eval, elev_eval) < EPS);
     }
 }
+
+// ---- Phase I: bi-6 and bi-5 Vec3/Point3 elevators ----
+
+#[test]
+fn elevate_sextic_vec_preserves_curve_pointwise() {
+    let sextic = [
+        Vec3::new(0.0, 0.0, 0.0),
+        Vec3::new(1.0, 2.0, -1.0),
+        Vec3::new(2.0, -1.0, 3.0),
+        Vec3::new(3.0, 2.0, 1.5),
+        Vec3::new(1.5, 0.5, 2.0),
+        Vec3::new(2.5, 1.0, 0.5),
+        Vec3::new(4.0, 0.0, -1.0),
+    ];
+    let elevated = elevate_sextic_vec_to_nine(sextic);
+    for k in 0..=20 {
+        let t = (k as f64) / 20.0;
+        let orig = eval_bezier_vec(&sextic, t);
+        let ele = eval_bezier_vec(&elevated, t);
+        assert!(vec3_max(orig, ele) < EPS);
+    }
+    assert!(vec3_max(elevated[0], sextic[0]) < EPS);
+    assert!(vec3_max(elevated[9], sextic[6]) < EPS);
+}
+
+#[test]
+fn elevate_sextic_point_preserves_curve_pointwise() {
+    let sextic = [
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(1.0, 1.0, 0.5),
+        Point3::new(2.0, 0.5, 1.0),
+        Point3::new(3.0, 2.0, 0.0),
+        Point3::new(4.0, 1.5, 1.5),
+        Point3::new(5.0, 0.0, 0.5),
+        Point3::new(6.0, 1.0, 0.0),
+    ];
+    let elevated = elevate_sextic_point_to_nine(sextic);
+    for k in 0..=20 {
+        let t = (k as f64) / 20.0;
+        let orig = eval_bezier_point(&sextic, t);
+        let ele = eval_bezier_point(&elevated, t);
+        assert!(point_max(orig, ele) < EPS);
+    }
+    assert!(point_max(elevated[0], sextic[0]) < EPS);
+    assert!(point_max(elevated[9], sextic[6]) < EPS);
+}
+
+#[test]
+fn elevate_quintic_point_preserves_curve_pointwise() {
+    let quintic = [
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(1.0, 1.0, 0.5),
+        Point3::new(2.0, 0.5, 1.0),
+        Point3::new(3.0, 2.0, 0.0),
+        Point3::new(4.0, 1.5, 1.5),
+        Point3::new(5.0, 0.0, 0.5),
+    ];
+    let elevated = elevate_quintic_point_to_nine(quintic);
+    for k in 0..=20 {
+        let t = (k as f64) / 20.0;
+        let orig = eval_bezier_point(&quintic, t);
+        let ele = eval_bezier_point(&elevated, t);
+        assert!(point_max(orig, ele) < EPS);
+    }
+    assert!(point_max(elevated[0], quintic[0]) < EPS);
+    assert!(point_max(elevated[9], quintic[5]) < EPS);
+}
+
+/// Evaluate a bi-degree tensor-product Bezier patch in Point3.
+fn eval_tensor_point(grid: &[Vec<Point3>], u: f64, v: f64) -> Point3 {
+    let m = grid.len() - 1;
+    let n = grid[0].len() - 1;
+    let omu = 1.0 - u;
+    let omv = 1.0 - v;
+    let mut bu = vec![0.0; m + 1];
+    let mut bv = vec![0.0; n + 1];
+    bu[0] = 1.0;
+    for k in 1..=m {
+        bu[k] = bu[k - 1] * ((m - k + 1) as f64) / (k as f64);
+    }
+    for i in 0..=m {
+        bu[i] *= u.powi(i as i32) * omu.powi((m - i) as i32);
+    }
+    bv[0] = 1.0;
+    for k in 1..=n {
+        bv[k] = bv[k - 1] * ((n - k + 1) as f64) / (k as f64);
+    }
+    for j in 0..=n {
+        bv[j] *= v.powi(j as i32) * omv.powi((n - j) as i32);
+    }
+    let mut out = Point3::new(0.0, 0.0, 0.0);
+    for i in 0..=m {
+        for j in 0..=n {
+            let w = bu[i] * bv[j];
+            out.x += grid[i][j].x * w;
+            out.y += grid[i][j].y * w;
+            out.z += grid[i][j].z * w;
+        }
+    }
+    out
+}
+
+#[test]
+fn elevate_bi5_grid_preserves_surface_pointwise() {
+    // Smooth deterministic 6×6 bi-5 grid.
+    let mut grid = [[Point3::new(0.0, 0.0, 0.0); 6]; 6];
+    for i in 0..6 {
+        for j in 0..6 {
+            let x = i as f64;
+            let y = j as f64;
+            let z = (x * 0.3).sin() + (y * 0.4).cos();
+            grid[i][j] = Point3::new(x, y, z);
+        }
+    }
+    let elevated = elevate_bi5_grid_to_bi9(grid);
+    let grid_vec: Vec<Vec<Point3>> = grid.iter().map(|row| row.to_vec()).collect();
+    let ele_vec: Vec<Vec<Point3>> = elevated.iter().map(|row| row.to_vec()).collect();
+    for ku in 0..=16 {
+        for kv in 0..=16 {
+            let u = (ku as f64) / 16.0;
+            let v = (kv as f64) / 16.0;
+            let orig = eval_tensor_point(&grid_vec, u, v);
+            let ele = eval_tensor_point(&ele_vec, u, v);
+            assert!(
+                point_max(orig, ele) < 1e-10,
+                "(u,v)=({u},{v}): orig {orig:?} vs ele {ele:?}"
+            );
+        }
+    }
+    // Corner CPs preserved.
+    assert!(point_max(elevated[0][0], grid[0][0]) < EPS);
+    assert!(point_max(elevated[0][9], grid[0][5]) < EPS);
+    assert!(point_max(elevated[9][0], grid[5][0]) < EPS);
+    assert!(point_max(elevated[9][9], grid[5][5]) < EPS);
+}
+
+#[test]
+fn elevate_bi6_grid_preserves_surface_pointwise() {
+    let mut grid = [[Point3::new(0.0, 0.0, 0.0); 7]; 7];
+    for i in 0..7 {
+        for j in 0..7 {
+            let x = i as f64;
+            let y = j as f64;
+            let z = (x * 0.2 + y * 0.3).sin();
+            grid[i][j] = Point3::new(x, y, z);
+        }
+    }
+    let elevated = elevate_bi6_grid_to_bi9(grid);
+    let grid_vec: Vec<Vec<Point3>> = grid.iter().map(|row| row.to_vec()).collect();
+    let ele_vec: Vec<Vec<Point3>> = elevated.iter().map(|row| row.to_vec()).collect();
+    for ku in 0..=12 {
+        for kv in 0..=12 {
+            let u = (ku as f64) / 12.0;
+            let v = (kv as f64) / 12.0;
+            let orig = eval_tensor_point(&grid_vec, u, v);
+            let ele = eval_tensor_point(&ele_vec, u, v);
+            assert!(point_max(orig, ele) < 1e-10);
+        }
+    }
+    assert!(point_max(elevated[0][0], grid[0][0]) < EPS);
+    assert!(point_max(elevated[0][9], grid[0][6]) < EPS);
+    assert!(point_max(elevated[9][0], grid[6][0]) < EPS);
+    assert!(point_max(elevated[9][9], grid[6][6]) < EPS);
+}

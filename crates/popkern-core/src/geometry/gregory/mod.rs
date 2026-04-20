@@ -46,7 +46,10 @@
 use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
 
+mod bernstein_bi5;
+mod bernstein_bi6;
 mod bernstein_binonic;
+mod bernstein_tri5;
 mod build;
 mod build_biquintic_full;
 mod build_biseptic;
@@ -113,9 +116,25 @@ pub use spoke_g1_solver::{
 };
 pub use spoke_poly_g1_ring::{RingPolyG1Result, solve_ring_poly_g1};
 
+pub use bernstein_bi5::{
+    bernstein_bi2_all, bernstein_bi3_all, bernstein_bi4_all, bernstein_bi5, bernstein_bi5_all,
+    bernstein_bi5_deriv, bernstein_bi5_deriv_all, bernstein_bi5_second_deriv,
+    bernstein_bi5_second_deriv_all, bernstein_bi5_third_deriv, bernstein_bi5_third_deriv_all,
+};
+pub use bernstein_bi6::{
+    bernstein_bi6, bernstein_bi6_all, bernstein_bi6_deriv, bernstein_bi6_deriv_all,
+    bernstein_bi6_second_deriv, bernstein_bi6_second_deriv_all, bernstein_bi6_third_deriv,
+    bernstein_bi6_third_deriv_all,
+};
 pub use bernstein_binonic::{
     bernstein_binonic, bernstein_binonic_all, bernstein_binonic_deriv, bernstein_binonic_deriv_all,
     bernstein_binonic_second_deriv, bernstein_binonic_second_deriv_all,
+};
+pub use bernstein_tri5::{
+    TRI3_CP_COUNT, TRI4_CP_COUNT, TRI5_CP_COUNT, bernstein_tri3_all, bernstein_tri4_all,
+    bernstein_tri5_all, bernstein_tri5_partial_u, bernstein_tri5_partial_v,
+    bernstein_tri5_second_partial_uu, bernstein_tri5_second_partial_uv,
+    bernstein_tri5_second_partial_vv, flat_index, tri_cp_count,
 };
 pub use direct_blend_coeffs::{SpokeBlendCoeffs, compute_ring_blend_coeffs};
 pub use direct_build::{build, can_build};
@@ -140,8 +159,9 @@ pub use kp_boundary_consistency::{
     BoundaryConsistency, CornerConsistency, check_boundary_consistency,
 };
 pub use kp_degree_elevate::{
-    elevate_cubic_point_to_nine, elevate_cubic_vec_to_nine, elevate_point_curve_to_nine,
-    elevate_quintic_vec_to_nine,
+    elevate_bi5_grid_to_bi9, elevate_bi6_grid_to_bi9, elevate_cubic_point_to_nine,
+    elevate_cubic_vec_to_nine, elevate_point_curve_to_nine, elevate_quintic_point_to_nine,
+    elevate_quintic_vec_to_nine, elevate_sextic_point_to_nine, elevate_sextic_vec_to_nine,
 };
 pub use kp_guide_build::{GuideCornerData, build_guide_from_hermite};
 pub use kp_guide_central_hermite::extract_central_vertex_hermite;

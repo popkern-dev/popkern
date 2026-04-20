@@ -117,6 +117,139 @@ fn elevate_cubic_f64_to_nine(cubic: [f64; 4]) -> [f64; 10] {
     core::array::from_fn(|i| coeffs[i])
 }
 
+/// Phase I — degree-elevate a degree-6 Bezier curve (7 [`Vec3`]
+/// CPs) to a degree-9 Bezier curve (10 CPs). Used by the K-P 2015
+/// bi-6 polar construction to produce bi-9 output uniform with the
+/// Phase H rectangular path.
+pub fn elevate_sextic_vec_to_nine(sextic: [Vec3; 7]) -> [Vec3; 10] {
+    let poly = BernsteinPoly::new(sextic.to_vec()).degree_elevate(3);
+    let coeffs = poly.coeffs();
+    core::array::from_fn(|i| coeffs[i])
+}
+
+/// Phase I — degree-elevate a degree-6 Bezier curve (7 [`Point3`]
+/// CPs) to a degree-9 Bezier curve (10 CPs), coordinate-wise.
+pub fn elevate_sextic_point_to_nine(sextic: [Point3; 7]) -> [Point3; 10] {
+    let xs = elevate_sextic_f64_to_nine([
+        sextic[0].x,
+        sextic[1].x,
+        sextic[2].x,
+        sextic[3].x,
+        sextic[4].x,
+        sextic[5].x,
+        sextic[6].x,
+    ]);
+    let ys = elevate_sextic_f64_to_nine([
+        sextic[0].y,
+        sextic[1].y,
+        sextic[2].y,
+        sextic[3].y,
+        sextic[4].y,
+        sextic[5].y,
+        sextic[6].y,
+    ]);
+    let zs = elevate_sextic_f64_to_nine([
+        sextic[0].z,
+        sextic[1].z,
+        sextic[2].z,
+        sextic[3].z,
+        sextic[4].z,
+        sextic[5].z,
+        sextic[6].z,
+    ]);
+    core::array::from_fn(|i| Point3::new(xs[i], ys[i], zs[i]))
+}
+
+fn elevate_sextic_f64_to_nine(sextic: [f64; 7]) -> [f64; 10] {
+    let poly = BernsteinPoly::new(sextic.to_vec()).degree_elevate(3);
+    let coeffs = poly.coeffs();
+    core::array::from_fn(|i| coeffs[i])
+}
+
+/// Phase I — degree-elevate a degree-5 Bezier curve (6 [`Point3`]
+/// CPs) to a degree-9 Bezier curve (10 CPs), coordinate-wise.
+/// Counterpart to the [`Vec3`] version
+/// [`elevate_quintic_vec_to_nine`].
+pub fn elevate_quintic_point_to_nine(quintic: [Point3; 6]) -> [Point3; 10] {
+    let xs = elevate_quintic_f64_to_nine([
+        quintic[0].x,
+        quintic[1].x,
+        quintic[2].x,
+        quintic[3].x,
+        quintic[4].x,
+        quintic[5].x,
+    ]);
+    let ys = elevate_quintic_f64_to_nine([
+        quintic[0].y,
+        quintic[1].y,
+        quintic[2].y,
+        quintic[3].y,
+        quintic[4].y,
+        quintic[5].y,
+    ]);
+    let zs = elevate_quintic_f64_to_nine([
+        quintic[0].z,
+        quintic[1].z,
+        quintic[2].z,
+        quintic[3].z,
+        quintic[4].z,
+        quintic[5].z,
+    ]);
+    core::array::from_fn(|i| Point3::new(xs[i], ys[i], zs[i]))
+}
+
+fn elevate_quintic_f64_to_nine(quintic: [f64; 6]) -> [f64; 10] {
+    let poly = BernsteinPoly::new(quintic.to_vec()).degree_elevate(4);
+    let coeffs = poly.coeffs();
+    core::array::from_fn(|i| coeffs[i])
+}
+
+/// Phase I — degree-elevate a 6×6 [`Point3`] grid (bi-5 tensor-
+/// product) to a 10×10 grid (bi-9) by applying the univariate
+/// elevation to every row, then every column of the intermediate
+/// result.
+///
+/// Used by the K-P 2013 biquintic polar construction after the per-
+/// sector macro-patches are assembled, to bring them onto the
+/// rectangular-bi-9 patch type shared with the Phase H output.
+pub fn elevate_bi5_grid_to_bi9(grid: [[Point3; 6]; 6]) -> [[Point3; 10]; 10] {
+    // Pass 1: elevate each row (varying j, fixed i) from 6 CPs to 10.
+    let mut intermediate: [[Point3; 10]; 6] = [[Point3::new(0.0, 0.0, 0.0); 10]; 6];
+    for i in 0..6 {
+        intermediate[i] = elevate_quintic_point_to_nine(grid[i]);
+    }
+    // Pass 2: for each j ∈ 0..10, elevate the column (varying i)
+    // from 6 to 10 CPs.
+    let mut out: [[Point3; 10]; 10] = [[Point3::new(0.0, 0.0, 0.0); 10]; 10];
+    for j in 0..10 {
+        let col: [Point3; 6] = core::array::from_fn(|i| intermediate[i][j]);
+        let col9 = elevate_quintic_point_to_nine(col);
+        for i in 0..10 {
+            out[i][j] = col9[i];
+        }
+    }
+    out
+}
+
+/// Phase I — degree-elevate a 7×7 [`Point3`] grid (bi-6 tensor-
+/// product) to a 10×10 grid (bi-9). Row-then-column pass, same
+/// pattern as [`elevate_bi5_grid_to_bi9`].
+pub fn elevate_bi6_grid_to_bi9(grid: [[Point3; 7]; 7]) -> [[Point3; 10]; 10] {
+    let mut intermediate: [[Point3; 10]; 7] = [[Point3::new(0.0, 0.0, 0.0); 10]; 7];
+    for i in 0..7 {
+        intermediate[i] = elevate_sextic_point_to_nine(grid[i]);
+    }
+    let mut out: [[Point3; 10]; 10] = [[Point3::new(0.0, 0.0, 0.0); 10]; 10];
+    for j in 0..10 {
+        let col: [Point3; 7] = core::array::from_fn(|i| intermediate[i][j]);
+        let col9 = elevate_sextic_point_to_nine(col);
+        for i in 0..10 {
+            out[i][j] = col9[i];
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 #[path = "kp_degree_elevate_tests.rs"]
 mod tests;
