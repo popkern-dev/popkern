@@ -1,32 +1,23 @@
-//! Phase H.8 (Option C step 6) — bi-quintic guide interior-CP
-//! optimizer.
-//!
-//! # Problem
-//!
-//! The existing `kp_twist_optimizer` converges to the bicubic
-//! guide's quality ceiling — on cube_extreme (1:10 asymmetry) it
-//! lands near 2.5e-1 worst-case G1 coplanarity, well above the
-//! 5e-2 commercial gate. Confirmed diagnostic: the bicubic's 16
-//! CPs per sub-patch cap the row-1 frame's cross-derivative
-//! flexibility at degree-3 in v; asymmetric cross-curvature needs
-//! degree-4+ representation along each boundary.
+//! Phase H.8 (Option C step 6 + step 7) — bi-quintic guide
+//! interior-CP optimizer.
 //!
 //! # Approach
 //!
-//! 1. Run the existing bicubic twist optimizer to convergence.
-//! 2. Degree-elevate each bicubic guide to bi-quintic (initial
-//!    state is pointwise-identical — no regression baseline).
-//! 3. FD gradient-descent on the **4 center interior CPs** of
-//!    each sub-patch's bi-quintic guide (grid[2][2], [2][3],
-//!    [3][2], [3][3]). 4 × 3 × N = 12N DoF — manageable for FD.
-//! 4. Return the final binonic ring.
-//!
-//! The 4-CP inner block is a compromise between expressiveness
-//! (all 16 non-boundary interior CPs) and convergence cost
-//! (16 × 3 × N = 48N would be 4× more FD evals per iteration).
-//! If it doesn't close cube_extreme, widening the DoF set is
-//! the next natural step.
+//! 1. Phase 1: FD gradient descent on the N central-vertex twists
+//!    (3N DoF — small, converges fast; keeps existing GD).
+//! 2. Phase 2: Degree-elevate each bicubic guide to bi-quintic
+//!    (initial state is pointwise-identical). Then run
+//!    Levenberg-Marquardt on the 16 interior bi-quintic CPs per
+//!    sub-patch (48N DoF). The phase-3 L-M work validated that
+//!    Gauss-Newton-damped steps recover from regressed starts where
+//!    naive FD-GD stalls; the same reasoning applies here at a
+//!    smaller DoF scale.
+//! 3. Return the bi-nonic ring (reached via the bi-quintic guide
+//!    path) plus the converged bi-quintic guides, so the caller's
+//!    phase 3 can continue from the phase-2 optimum without
+//!    re-solving.
 
+use super::kp_lm_solver::{LmConfig, LmEval, run_lm};
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
     DirectBoundaryInput, DirectConstructionOptions, GregoryPatch, GuideCornerData,
@@ -67,20 +58,27 @@ pub(super) struct KpBiQuinticOptimizerResult {
     pub binonic: Vec<RectangularGregoryBiNonic>,
     #[allow(dead_code)]
     pub final_residual: f64,
-    /// Phase-2 converged bi-quintic guides, so a caller can
-    /// continue gradient descent at a higher degree without
-    /// re-paying phases 1 and 2.
+    /// Bi-quintic guides to use as phase-3's starting point when
+    /// the caller escalates. Deliberately the *unoptimized*
+    /// degree-elevated bicubic (not the phase-2 L-M output): phase
+    /// 2's tighter local minimum in the 48-DoF sub-manifold can
+    /// trap phase 3 at a worse G1 than starting neutral (observed
+    /// on cube_extreme — phase 2 L-M residual 9.1e-2 made phase 3
+    /// stall at G1 2.0e-1, while a 1.4e-1 neutral start let phase
+    /// 3 reach G1 1.1e-2). The `binonic` + `final_residual` fields
+    /// still reflect phase 2's optimized result — used when phase
+    /// 3 is skipped.
     pub bq_guides: Vec<KpGuidePatchBiQuintic>,
 }
 
 /// Two-phase optimizer: first converges bicubic C-twists (cheap,
-/// ~9N DoF), then converges bi-quintic interior CPs (12N DoF).
+/// 3N DoF, FD-GD), then converges bi-quintic interior CPs (48N DoF,
+/// Levenberg-Marquardt).
 pub(super) fn optimize_biquintic_and_build_binonic(
     input: &DirectBoundaryInput,
     options: &DirectConstructionOptions,
 ) -> Option<KpBiQuinticOptimizerResult> {
     const MAX_ITER_TWIST: usize = 10;
-    const MAX_ITER_BQ: usize = 20;
     const ALPHA_INIT: f64 = 1.0;
     const ALPHA_MIN: f64 = 1e-5;
     const FD_EPS: f64 = 1e-4;
@@ -158,14 +156,15 @@ pub(super) fn optimize_biquintic_and_build_binonic(
     }
 
     // Phase 2: build bicubic guides from converged twists, elevate
-    // to bi-quintic, optimize interior CPs.
+    // to bi-quintic, then run Levenberg-Marquardt on the 48N interior
+    // CPs.
     let bicubic_guides = build_guide_ring_from_centrals(input, &central);
-    let mut bq_guides: Vec<KpGuidePatchBiQuintic> = bicubic_guides
+    let bq_guides_init: Vec<KpGuidePatchBiQuintic> = bicubic_guides
         .iter()
         .map(KpGuidePatchBiQuintic::from_bicubic_elevated)
         .collect();
 
-    let initial = build_binonic_ring_from_biquintic_guides(&bq_guides, input).ok()?;
+    let initial = build_binonic_ring_from_biquintic_guides(&bq_guides_init, input).ok()?;
     if any_self_intersects(&initial) {
         // Initial bi-quintic build self-intersects — can't optimize
         // from a folded starting point. Return it anyway; the
@@ -174,102 +173,121 @@ pub(super) fn optimize_biquintic_and_build_binonic(
         return Some(KpBiQuinticOptimizerResult {
             binonic: initial,
             final_residual: r,
-            bq_guides,
+            bq_guides: bq_guides_init,
         });
     }
-    let mut best_residual = measure_ring_residual(&initial);
-    let mut best_binonic = initial;
-    let mut alpha = ALPHA_INIT;
 
-    for _iter in 0..MAX_ITER_BQ {
-        if best_residual < TARGET_RESIDUAL {
-            break;
-        }
+    let x0 = pack_bq_guides(&bq_guides_init);
+    let eval = BiQuinticEval {
+        base: bq_guides_init.clone(),
+        input,
+    };
+    // Phase-2 L-M can converge aggressively — its output is only
+    // used when phase 3 is skipped (caller returns `binonic`
+    // directly). When phase 3 engages, it starts from the neutral
+    // `bq_guides_neutral` set below, so phase 2's local-minimum
+    // choice doesn't leak into phase 3's basin.
+    let lm_result = run_lm(
+        eval,
+        x0,
+        &LmConfig {
+            fd_eps: FD_EPS,
+            lambda_init: 1e-3,
+            lambda_max: 1e6,
+            max_iter: 15,
+            target_residual: TARGET_RESIDUAL,
+        },
+        "biquintic-phase2",
+    );
 
-        // FD gradient: N sub-patches × 16 CPs × 3 axes = 48N partials.
-        let mut grad: Vec<[[f64; 3]; 16]> = vec![[[0.0; 3]; 16]; n];
-        #[allow(clippy::needless_range_loop)]
-        for k in 0..n {
-            for (slot, &(i, j)) in OPT_INDICES.iter().enumerate() {
-                for (axis, out) in grad[k][slot].iter_mut().enumerate() {
-                    let mut bq_perturbed = bq_guides.clone();
-                    let p = &mut bq_perturbed[k].grid[i][j];
-                    match axis {
-                        0 => p.x += FD_EPS,
-                        1 => p.y += FD_EPS,
-                        _ => p.z += FD_EPS,
-                    }
-                    let Ok(binonic) =
-                        build_binonic_ring_from_biquintic_guides(&bq_perturbed, input)
-                    else {
-                        continue;
-                    };
-                    let r = measure_ring_residual(&binonic);
-                    *out = (r - best_residual) / FD_EPS;
-                }
-            }
+    let mut best_bq_guides = bq_guides_init;
+    unpack_bq_guides(&lm_result.x, &mut best_bq_guides);
+    let best_binonic = match build_binonic_ring_from_biquintic_guides(&best_bq_guides, input) {
+        Ok(ring) if !any_self_intersects(&ring) => ring,
+        _ => {
+            // L-M iterate landed in a folded or unbuildable region.
+            // Fall back to the initial (degree-elevated) bi-quintic.
+            best_bq_guides = bicubic_guides
+                .iter()
+                .map(KpGuidePatchBiQuintic::from_bicubic_elevated)
+                .collect();
+            build_binonic_ring_from_biquintic_guides(&best_bq_guides, input).ok()?
         }
-
-        let grad_norm: f64 = grad
-            .iter()
-            .flatten()
-            .flatten()
-            .map(|g| g * g)
-            .sum::<f64>()
-            .sqrt();
-        if grad_norm < 1e-10 {
-            break;
-        }
-
-        // Candidate step.
-        let mut cand = bq_guides.clone();
-        for k in 0..n {
-            for (slot, &(i, j)) in OPT_INDICES.iter().enumerate() {
-                let p = &mut cand[k].grid[i][j];
-                p.x -= alpha * grad[k][slot][0];
-                p.y -= alpha * grad[k][slot][1];
-                p.z -= alpha * grad[k][slot][2];
-            }
-        }
-        let Ok(cand_binonic) = build_binonic_ring_from_biquintic_guides(&cand, input) else {
-            alpha *= 0.5;
-            if alpha < ALPHA_MIN {
-                break;
-            }
-            continue;
-        };
-        if any_self_intersects(&cand_binonic) {
-            alpha *= 0.5;
-            if alpha < ALPHA_MIN {
-                break;
-            }
-            continue;
-        }
-        let cand_residual = measure_ring_residual(&cand_binonic);
-        if cand_residual < best_residual {
-            best_residual = cand_residual;
-            best_binonic = cand_binonic;
-            bq_guides = cand;
-            alpha = (alpha * 1.25).min(ALPHA_INIT);
-        } else {
-            alpha *= 0.5;
-            if alpha < ALPHA_MIN {
-                break;
-            }
-        }
-    }
+    };
+    let best_residual = measure_ring_residual(&best_binonic);
 
     if std::env::var_os("POPKERN_KP_TRACE").is_some() {
         eprintln!(
-            "[kp_biquintic N={n}] phase2 (bi-quintic interior) done: residual={best_residual:.3e}"
+            "[kp_biquintic N={n}] phase2 (L-M bi-quintic interior) done: residual={best_residual:.3e}"
         );
     }
+
+    // Return the phase-2 L-M optimized result as the shippable
+    // bi-nonic ring, but hand phase 3 the *initial* (degree-
+    // elevated bicubic) bq_guides so phase 3 can pick its own
+    // basin — see the `bq_guides` field doc on
+    // `KpBiQuinticOptimizerResult`.
+    let bq_guides_neutral = bicubic_guides
+        .iter()
+        .map(KpGuidePatchBiQuintic::from_bicubic_elevated)
+        .collect();
 
     Some(KpBiQuinticOptimizerResult {
         binonic: best_binonic,
         final_residual: best_residual,
-        bq_guides,
+        bq_guides: bq_guides_neutral,
     })
+}
+
+/// L-M residual callback for phase 2. Mirrors `BinonicEval` in
+/// `kp_binonic_optimizer.rs` — cheap `residual` for FD columns,
+/// expensive `fold_safe` only on candidate steps.
+struct BiQuinticEval<'a> {
+    base: Vec<KpGuidePatchBiQuintic>,
+    input: &'a DirectBoundaryInput,
+}
+
+impl<'a> LmEval for BiQuinticEval<'a> {
+    fn residual(&mut self, x: &[f64]) -> Option<Vec<f64>> {
+        let mut guides = self.base.clone();
+        unpack_bq_guides(x, &mut guides);
+        let binonic = build_binonic_ring_from_biquintic_guides(&guides, self.input).ok()?;
+        Some(residual_vector(&binonic))
+    }
+
+    fn fold_safe(&mut self, x: &[f64]) -> bool {
+        let mut guides = self.base.clone();
+        unpack_bq_guides(x, &mut guides);
+        match build_binonic_ring_from_biquintic_guides(&guides, self.input) {
+            Ok(binonic) => !any_self_intersects(&binonic),
+            Err(_) => false,
+        }
+    }
+}
+
+fn pack_bq_guides(guides: &[KpGuidePatchBiQuintic]) -> Vec<f64> {
+    let n = guides.len();
+    let mut x = Vec::with_capacity(n * OPT_INDICES.len() * 3);
+    for guide in guides {
+        for &(i, j) in OPT_INDICES.iter() {
+            x.push(guide.grid[i][j].x);
+            x.push(guide.grid[i][j].y);
+            x.push(guide.grid[i][j].z);
+        }
+    }
+    x
+}
+
+fn unpack_bq_guides(x: &[f64], guides: &mut [KpGuidePatchBiQuintic]) {
+    let mut idx = 0;
+    for guide in guides.iter_mut() {
+        for &(i, j) in OPT_INDICES.iter() {
+            guide.grid[i][j].x = x[idx];
+            guide.grid[i][j].y = x[idx + 1];
+            guide.grid[i][j].z = x[idx + 2];
+            idx += 3;
+        }
+    }
 }
 
 /// Helper for the bicubic twist phase: builds guides from centrals
@@ -295,9 +313,12 @@ fn any_self_intersects(binonic: &[RectangularGregoryBiNonic]) -> bool {
     false
 }
 
-fn measure_ring_residual(patches: &[RectangularGregoryBiNonic]) -> f64 {
+/// Residual *vector* — per-sample coplanarity. Matches the shape
+/// used by `kp_binonic_optimizer::residual_vector` so both phases
+/// share the same metric definition.
+fn residual_vector(patches: &[RectangularGregoryBiNonic]) -> Vec<f64> {
     let n = patches.len();
-    let mut acc = 0.0_f64;
+    let mut out = Vec::with_capacity(n * 50);
     for k in 0..n {
         let a = &patches[k];
         let b = &patches[(k + 1) % n];
@@ -314,10 +335,15 @@ fn measure_ring_residual(patches: &[RectangularGregoryBiNonic]) -> f64 {
             let ns = (t_spoke.x * t_spoke.x + t_spoke.y * t_spoke.y + t_spoke.z * t_spoke.z).sqrt();
             let denom = na * nb * ns;
             if denom > 1e-300 {
-                let coplan = numer / denom;
-                acc += coplan * coplan;
+                out.push(numer / denom);
+            } else {
+                out.push(0.0);
             }
         }
     }
-    acc
+    out
+}
+
+fn measure_ring_residual(patches: &[RectangularGregoryBiNonic]) -> f64 {
+    residual_vector(patches).iter().map(|v| v * v).sum()
 }
