@@ -17,6 +17,7 @@
 
 use super::kp_degree_elevate::{elevate_cubic_vec_to_nine, elevate_quintic_vec_to_nine};
 use super::kp_guide_patch::KpGuidePatch;
+use super::kp_guide_patch_binonic::KpGuidePatchBiNonic;
 use super::kp_guide_patch_biquintic::KpGuidePatchBiQuintic;
 use crate::geometry::{Point3, Vec3};
 
@@ -106,6 +107,54 @@ impl KpGuide for KpGuidePatch {
     }
     fn cross_second_deriv_cps_vv_v1_degree9(&self) -> [Vec3; 10] {
         elevate_cubic_vec_to_nine(self.cross_second_deriv_cps_vv_v1())
+    }
+}
+
+impl KpGuide for KpGuidePatchBiNonic {
+    fn point_at(&self, u: f64, v: f64) -> Point3 {
+        KpGuidePatchBiNonic::point_at(self, u, v)
+    }
+    fn partial_u(&self, u: f64, v: f64) -> Vec3 {
+        KpGuidePatchBiNonic::partial_u(self, u, v)
+    }
+    fn partial_v(&self, u: f64, v: f64) -> Vec3 {
+        KpGuidePatchBiNonic::partial_v(self, u, v)
+    }
+    fn second_partial_uu(&self, u: f64, v: f64) -> Vec3 {
+        KpGuidePatchBiNonic::second_partial_uu(self, u, v)
+    }
+    fn second_partial_uv(&self, u: f64, v: f64) -> Vec3 {
+        KpGuidePatchBiNonic::second_partial_uv(self, u, v)
+    }
+    fn second_partial_vv(&self, u: f64, v: f64) -> Vec3 {
+        KpGuidePatchBiNonic::second_partial_vv(self, u, v)
+    }
+    // Native degree 9 — no elevation needed. The cross-derivative
+    // CPs returned by the patch are already in the target degree-9
+    // representation. Directly usable by row-1 / row-2 formulas.
+    fn cross_deriv_cps_u0_degree9(&self) -> [Vec3; 10] {
+        self.cross_deriv_cps_u0()
+    }
+    fn cross_deriv_cps_u1_degree9(&self) -> [Vec3; 10] {
+        self.cross_deriv_cps_u1()
+    }
+    fn cross_deriv_cps_v0_degree9(&self) -> [Vec3; 10] {
+        self.cross_deriv_cps_v0()
+    }
+    fn cross_deriv_cps_v1_degree9(&self) -> [Vec3; 10] {
+        self.cross_deriv_cps_v1()
+    }
+    fn cross_second_deriv_cps_uu_u0_degree9(&self) -> [Vec3; 10] {
+        self.cross_second_deriv_cps_uu_u0()
+    }
+    fn cross_second_deriv_cps_uu_u1_degree9(&self) -> [Vec3; 10] {
+        self.cross_second_deriv_cps_uu_u1()
+    }
+    fn cross_second_deriv_cps_vv_v0_degree9(&self) -> [Vec3; 10] {
+        self.cross_second_deriv_cps_vv_v0()
+    }
+    fn cross_second_deriv_cps_vv_v1_degree9(&self) -> [Vec3; 10] {
+        self.cross_second_deriv_cps_vv_v1()
     }
 }
 
