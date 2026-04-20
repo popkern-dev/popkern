@@ -192,6 +192,7 @@ fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) {
     let mut two_stripe: Vec<RectangularGregoryTwoStripe> = Vec::with_capacity(n);
     for patch in sub_patches.iter() {
         let GregoryPatch::RectangularTwoStripe(ts) = patch else {
+            trace_kp("non-two-stripe input", n, None);
             return;
         };
         two_stripe.push((**ts).clone());
@@ -216,24 +217,47 @@ fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) {
         .collect();
 
     let Some(input) = extract_direct_boundary_input(&two_stripe, &spokes) else {
+        trace_kp("extract_direct_boundary_input → None", n, None);
         return;
     };
     let char_len = estimate_characteristic_length(&two_stripe);
     let options = DirectConstructionOptions::with_characteristic_length(char_len);
-    let Ok(binonic) = build_binonic_ring(&input, &options) else {
-        return;
+    let binonic = match build_binonic_ring(&input, &options) {
+        Ok(b) => b,
+        Err(e) => {
+            trace_kp("build_binonic_ring → Err", n, Some(format!("{e:?}")));
+            return;
+        }
     };
 
     // Self-intersection gate — never commit a fold.
-    for patch in &binonic {
+    for (i, patch) in binonic.iter().enumerate() {
         let gp = GregoryPatch::RectangularBiNonic(Box::new(patch.clone()));
         if gp.self_intersects_with_tolerance(1e-6) {
+            trace_kp(
+                "self_intersects_with_tolerance",
+                n,
+                Some(format!("sub-patch {i}")),
+            );
             return;
         }
     }
 
     for (idx, patch) in binonic.into_iter().enumerate() {
         sub_patches[idx] = GregoryPatch::RectangularBiNonic(Box::new(patch));
+    }
+}
+
+/// Emit a diagnostic trace when the K-P promotion silently
+/// falls back to two-stripe. Gated on the `POPKERN_KP_TRACE`
+/// env var so production builds stay silent; set `=1` before
+/// running a fillet test to see which stage rejected the input.
+fn trace_kp(stage: &str, n: usize, detail: Option<String>) {
+    if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+        match detail {
+            Some(d) => eprintln!("[kp_binonic N={n}] fallback @ {stage}: {d}"),
+            None => eprintln!("[kp_binonic N={n}] fallback @ {stage}"),
+        }
     }
 }
 

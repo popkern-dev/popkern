@@ -210,29 +210,34 @@ fn jacobian_sign_flips(patch: &GregoryPatch) -> bool {
         }
     }
     let reversed = min_cos < -0.98;
-    // EITHER condition fires independently.
-    //
-    //
-    // * `collapse` triggers on fold-overs where the Jacobian
-    //   magnitude collapses through a near-zero band — the
-    //   surface pinches before reversing direction.
     // * `reversed` triggers on curl-arounds where the Jacobian
-    //   direction fully reverses without necessarily passing
-    //   through zero magnitude (rarer on Gregory sub-patches but
-    //   theoretically possible at extreme inner-CP placements).
+    //   direction fully reverses — unambiguous self-intersection
+    //   regardless of magnitude behaviour.
+    // * `collapse` by itself is NOT sufficient: a patch can
+    //   parametrically stretch (large `|∂u × ∂v|` range) without
+    //   folding. The K-P bidegree-9 N=4 sub-patches do exactly
+    //   this — the 10×10 grid's corner-dense CP placement
+    //   produces ratio as low as 4.3e-4 on smooth pyramid-apex
+    //   surfaces with min_cos = 1.000 (all normals aligned).
+    //   Flagging these as folds causes the promotion ladder to
+    //   silently revert to two-stripe. To distinguish a true
+    //   fold-over from mere parametric stretch, require the
+    //   magnitude collapse to coincide with SOME direction
+    //   variation (min_cos < 0 ⇒ at least 90° spread) — a real
+    //   fold always produces direction change around the fold
+    //   line, whereas stretch leaves all normals aligned.
     //
     // Empirically calibrated on §5.3 test fixtures:
     //
-    // | Fixture        | ratio   | min_cos | collapse | reversed |
-    // |----------------|---------|---------|----------|----------|
-    // | Valid flat     | ~1.0    |  1.00   | no       | no       |
-    // | Valid bumped   | 0.98    |  0.93   | no       | no       |
-    // | Pyramid sub-patch (sharp curve) | 0.04–0.07 | −0.79..−0.90 | no | no |
-    // | Corner-swap fold | 0.0016 | −1.00 | yes      | yes      |
-    //
-    // The pyramid's sharp curvature is < 0.95 in `min_cos` and
-    // ratio stays > 0.04 — comfortably above both thresholds.
-    collapse || reversed
+    // | Fixture                            | ratio     | min_cos | verdict |
+    // |------------------------------------|-----------|---------|---------|
+    // | Valid flat                         | ~1.0      |  1.00   | pass    |
+    // | Valid bumped                       | 0.98      |  0.93   | pass    |
+    // | Pyramid sub-patch (sharp curve)    | 0.04-0.07 | -0.79.. | pass    |
+    // | N=4 K-P bidegree-9 sub-patch       | 4.3e-4    |  1.00   | **pass**|
+    // | Corner-swap fold                   | 0.0016    | -1.00   | flag    |
+    let fold = collapse && min_cos < 0.0;
+    fold || reversed
 }
 
 #[cfg(test)]

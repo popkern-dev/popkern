@@ -111,14 +111,6 @@ fn binonic_passes_commercial_gates_on_cube_extreme() {
     assert_commercial_gates("cube_extreme", &m);
 }
 
-/// **Known gap.** The K-P binonic promotion does not engage on
-/// the square-pyramid apex (N=4). Likely cause: the K-P
-/// guide-ring builder has N=3-specific assumptions in the
-/// outer-corner hex-midpoint construction (G5/G6 work was
-/// validated on N=3 only). Until closed, the ladder silently
-/// falls back to two-stripe — worst-case 2.0e-1 coplanarity
-/// (≈ 11° mismatch).
-#[ignore]
 #[test]
 fn binonic_passes_commercial_gates_on_pyramid4_mixed() {
     let m = run_square_pyramid_binonic(&[0.04, 0.06, 0.05, 0.07], "pyramid4_mixed");
