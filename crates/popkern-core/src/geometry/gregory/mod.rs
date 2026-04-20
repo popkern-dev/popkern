@@ -204,6 +204,15 @@ pub enum GregoryPatch {
     /// solver constraints. This is the structural fix for
     /// the biseptic scorecard's 84° worst-case.
     RectangularTwoStripe(Box<RectangularGregoryTwoStripe>),
+    /// Phase H — Karciauskas-Peters bidegree-(9, 9)
+    /// guided-surface construction. 100 plain-Bezier CPs
+    /// (no rational blend) with row-1 / row-2 frames derived
+    /// from a bicubic guide that enforces G1 and G2 across
+    /// every shared spoke by construction. Interior CPs
+    /// (rows 3..=6, cols 3..=6) are least-squares-fit to
+    /// the guide. See
+    /// `docs/decisions/2026-04-19-phase-h-kp-binonic-formula-choice.md`.
+    RectangularBiNonic(Box<RectangularGregoryBiNonic>),
     /// N=3 triangular patch.
     Triangular(Box<TriangularGregory>),
 }
@@ -222,6 +231,7 @@ impl GregoryPatch {
             GregoryPatch::RectangularBiquinticFull(r) => r.point_at(u, v),
             GregoryPatch::RectangularBiseptic(r) => r.point_at(u, v),
             GregoryPatch::RectangularTwoStripe(r) => r.point_at(u, v),
+            GregoryPatch::RectangularBiNonic(r) => r.point_at(u, v),
             GregoryPatch::Triangular(t) => t.point_at_uv(u, v),
         }
     }
@@ -235,6 +245,7 @@ impl GregoryPatch {
             GregoryPatch::RectangularBiquinticFull(r) => r.partial_u(u, v),
             GregoryPatch::RectangularBiseptic(r) => r.partial_u(u, v),
             GregoryPatch::RectangularTwoStripe(r) => r.partial_u(u, v),
+            GregoryPatch::RectangularBiNonic(r) => r.partial_u(u, v),
             GregoryPatch::Triangular(t) => t.partial_u_uv(u, v),
         }
     }
@@ -248,6 +259,7 @@ impl GregoryPatch {
             GregoryPatch::RectangularBiquinticFull(r) => r.partial_v(u, v),
             GregoryPatch::RectangularBiseptic(r) => r.partial_v(u, v),
             GregoryPatch::RectangularTwoStripe(r) => r.partial_v(u, v),
+            GregoryPatch::RectangularBiNonic(r) => r.partial_v(u, v),
             GregoryPatch::Triangular(t) => t.partial_v_uv(u, v),
         }
     }

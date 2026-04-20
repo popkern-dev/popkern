@@ -7,8 +7,9 @@
 use crate::geometry::Transform3;
 use crate::geometry::curve::CurveGeometry;
 use crate::geometry::gregory::{
-    GregoryPatch, RectangularGregory, RectangularGregoryBiquinticFull, RectangularGregoryBiseptic,
-    RectangularGregoryDeg5, RectangularGregoryTwoStripe, TriangularGregory,
+    GregoryPatch, RectangularGregory, RectangularGregoryBiNonic, RectangularGregoryBiquinticFull,
+    RectangularGregoryBiseptic, RectangularGregoryDeg5, RectangularGregoryTwoStripe,
+    TriangularGregory,
 };
 use crate::geometry::surface::SurfaceGeometry;
 
@@ -152,6 +153,15 @@ fn transform_gregory(g: &GregoryPatch, t: &Transform3) -> GregoryPatch {
                 }
             }
             GregoryPatch::RectangularTwoStripe(Box::new(RectangularGregoryTwoStripe { grid }))
+        }
+        GregoryPatch::RectangularBiNonic(r) => {
+            let mut grid = r.grid;
+            for row in grid.iter_mut() {
+                for cell in row.iter_mut() {
+                    *cell = t.apply_point(cell);
+                }
+            }
+            GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid }))
         }
         GregoryPatch::Triangular(tr) => {
             let boundary_cps = tr.boundary_cps.map(|p| t.apply_point(&p));

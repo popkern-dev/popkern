@@ -43,6 +43,7 @@ pub(crate) fn insert_vertex_blend(
     use_biquintic_full_gregory: bool,
     use_biseptic_gregory: bool,
     use_two_stripe_gregory: bool,
+    use_kp_binonic_gregory: bool,
     precomputed_classification: Option<VertexBlendClassification>,
 ) -> Result<Vec<CornerPatchInfo>, String> {
     // §5.3 item #5 — callers pre-compute classification against
@@ -174,6 +175,7 @@ pub(crate) fn insert_vertex_blend(
             use_biquintic_full_gregory,
             use_biseptic_gregory,
             use_two_stripe_gregory,
+            use_kp_binonic_gregory,
         ) {
             Ok(patches) if patches.len() == n_sides => return Ok(patches),
             Err(ThreeQuadFailure::Overlap) => {
@@ -457,6 +459,7 @@ mod tests {
             false,
             false,
             false,
+            false,
             None,
         );
         assert!(result.is_err(), "should fail for invalid vertex");
@@ -476,6 +479,7 @@ mod tests {
             &[],
             &[],
             &Tolerance::default(),
+            false,
             false,
             false,
             false,

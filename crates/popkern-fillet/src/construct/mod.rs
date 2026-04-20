@@ -71,13 +71,11 @@ pub struct ApplyBlendResult {
     pub brep: BRep,
     /// Warnings generated during vertex mode handling.
     pub warnings: Vec<(EdgeHandle, BlendWarning)>,
-    /// §5.3 per-corner patch reports — one entry per vertex where
-    /// a blend patch was inserted.
+    /// §5.3 per-corner patch reports — one entry per vertex where a blend patch was inserted.
     pub corner_patches: Vec<crate::types::CornerPatchInfo>,
 }
 
-/// Apply computed fillet/chamfer geometry to a BRep. Three-phase (A: perp splits,
-/// B: multi-chord face splits, C: kef merge + surface assign).
+/// Apply computed fillet/chamfer geometry to a BRep. Three-phase (A: perp splits, B: multi-chord face splits, C: kef merge + surface assign).
 #[allow(clippy::too_many_arguments)]
 pub fn apply_blend_geometry(
     brep: &BRep,
@@ -89,6 +87,7 @@ pub fn apply_blend_geometry(
     use_biquintic_full_gregory: bool,
     use_biseptic_gregory: bool,
     use_two_stripe_gregory: bool,
+    use_kp_binonic_gregory: bool,
 ) -> Result<ApplyBlendResult, Vec<(EdgeHandle, BlendFailure)>> {
     let mut result = brep.clone();
     let mut failures: Vec<(EdgeHandle, BlendFailure)> = Vec::new();
@@ -441,6 +440,7 @@ pub fn apply_blend_geometry(
                     use_biquintic_full_gregory,
                     use_biseptic_gregory,
                     use_two_stripe_gregory,
+                    use_kp_binonic_gregory,
                     Some(pre),
                 ) {
                     Ok(infos) => {

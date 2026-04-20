@@ -289,6 +289,12 @@ pub struct FilletOptions {
     /// coverage) — closes the structural G1 gap. Default
     /// `false`; requires `use_biseptic_gregory`.
     pub use_two_stripe_gregory: bool,
+    /// Phase H — Karciauskas-Peters bidegree-(9, 9) guided
+    /// construction replacing two-stripe sub-patches; G1 and
+    /// G2 across every shared spoke by construction. Default
+    /// `false`; requires `use_two_stripe_gregory`. ADR
+    /// `docs/decisions/2026-04-19-phase-h-kp-binonic-formula-choice.md`.
+    pub use_kp_binonic_gregory: bool,
 }
 
 impl Default for FilletOptions {
@@ -312,6 +318,7 @@ impl Default for FilletOptions {
             use_biquintic_full_gregory: false,
             use_biseptic_gregory: false,
             use_two_stripe_gregory: false,
+            use_kp_binonic_gregory: false,
         }
     }
 }

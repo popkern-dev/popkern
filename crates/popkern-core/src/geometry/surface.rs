@@ -461,6 +461,9 @@ impl SurfaceGeometry {
                     crate::geometry::gregory::GregoryPatch::RectangularTwoStripe(r) => {
                         r.to_nurbs_exact()
                     }
+                    crate::geometry::gregory::GregoryPatch::RectangularBiNonic(r) => {
+                        r.to_nurbs_exact()
+                    }
                     crate::geometry::gregory::GregoryPatch::Triangular(t) => t.to_nurbs_exact(),
                 };
                 if u_range.0 == 0.0 && u_range.1 == 1.0 && v_range.0 == 0.0 && v_range.1 == 1.0 {

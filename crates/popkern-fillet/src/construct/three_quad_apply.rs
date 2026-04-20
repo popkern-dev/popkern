@@ -18,8 +18,9 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
-    DirectBoundaryInput, OuterCornerData, RectangularGregoryTwoStripe, Side, Spoke,
-    SpokeBoundaryData, TangentPlane,
+    DirectBoundaryInput, DirectConstructionOptions, GregoryPatch, OuterCornerData,
+    RectangularGregoryTwoStripe, Side, Spoke, SpokeBoundaryData, SpokeEnd, TangentPlane,
+    build_binonic_ring,
 };
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
@@ -79,6 +80,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     use_biquintic_full: bool,
     use_biseptic: bool,
     use_two_stripe: bool,
+    use_kp_binonic: bool,
 ) -> Result<Vec<CornerPatchInfo>, ThreeQuadFailure> {
     let mut decomp = build_n_quad_decomposition_with_options(
         boundary,
@@ -108,6 +110,16 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             && use_two_stripe
         {
             promote_decomp_to_two_stripe_with_spoke_g1(&mut decomp.sub_patches);
+            // Phase H — K-P bidegree-9 guided-surface construction.
+            // Top rung: extract the DirectBoundaryInput from the
+            // two-stripe-promoted decomp, build the bicubic guide
+            // ring, derive the row-1 / row-2 frames + interior fit,
+            // and replace each sub-patch with a binonic variant.
+            // Failure reverts to two-stripe silently (the ladder's
+            // gate contract — never regress).
+            if use_kp_binonic {
+                promote_decomp_to_kp_binonic(&mut decomp.sub_patches);
+            }
         }
     }
 
@@ -155,6 +167,76 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     Ok(patches)
 }
 
+/// Phase H — attempt to promote every sub-patch from
+/// `RectangularTwoStripe` to `RectangularBiNonic` via the
+/// Karciauskas-Peters guided-surface construction. No-op unless
+/// every sub-patch is already a two-stripe (the upstream ladder
+/// is required; the K-P extraction reads the two-stripe grid).
+///
+/// Failure modes revert to two-stripe silently:
+///   - Non-two-stripe patches present (caller out of order).
+///   - `extract_direct_boundary_input` returns `None`
+///     (normalise failure on a boundary-tangent — happens on
+///     degenerate inputs).
+///   - `build_binonic_ring` returns `Err` (e.g. guide-ring
+///     build rejected the input; upstream ladder remains the
+///     best available result).
+///   - Any resulting binonic patch self-intersects.
+fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) {
+    let n = sub_patches.len();
+    if n == 0 {
+        return;
+    }
+    // Every sub-patch must already be two-stripe — we read the
+    // grid as the source of the K-P DirectBoundaryInput.
+    let mut two_stripe: Vec<RectangularGregoryTwoStripe> = Vec::with_capacity(n);
+    for patch in sub_patches.iter() {
+        let GregoryPatch::RectangularTwoStripe(ts) = patch else {
+            return;
+        };
+        two_stripe.push((**ts).clone());
+    }
+
+    // Ring-topology spokes: consistent with the other promotion
+    // rungs — spoke `k` shares sub-patch `k`'s UOne with sub-patch
+    // `(k+1) % n`'s VZero (reversed).
+    let spokes: Vec<Spoke> = (0..n)
+        .map(|k| Spoke {
+            a: SpokeEnd {
+                patch_idx: k,
+                side: Side::UOne,
+                reversed: false,
+            },
+            b: SpokeEnd {
+                patch_idx: (k + 1) % n,
+                side: Side::VZero,
+                reversed: true,
+            },
+        })
+        .collect();
+
+    let Some(input) = extract_direct_boundary_input(&two_stripe, &spokes) else {
+        return;
+    };
+    let char_len = estimate_characteristic_length(&two_stripe);
+    let options = DirectConstructionOptions::with_characteristic_length(char_len);
+    let Ok(binonic) = build_binonic_ring(&input, &options) else {
+        return;
+    };
+
+    // Self-intersection gate — never commit a fold.
+    for patch in &binonic {
+        let gp = GregoryPatch::RectangularBiNonic(Box::new(patch.clone()));
+        if gp.self_intersects_with_tolerance(1e-6) {
+            return;
+        }
+    }
+
+    for (idx, patch) in binonic.into_iter().enumerate() {
+        sub_patches[idx] = GregoryPatch::RectangularBiNonic(Box::new(patch));
+    }
+}
+
 /// Build a [`DirectBoundaryInput`] from the biseptic-promoted
 /// two-stripe seed patches + ring topology. Extracts the per-
 /// spoke boundary CPs, corner xtan values, and input-face
@@ -162,13 +244,6 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
 /// and V — upstream biseptic promotion already wrote these
 /// consistent with the true input face planes, so using the
 /// patch's computed normal is equivalent).
-///
-/// Currently unused — Phase G direct construction integration
-/// is deferred until the `α = linear` limitation is addressed
-/// (see the `Phase G status` block above). Kept alongside the
-/// other helpers so the eventual higher-`α`-degree extension
-/// can plug in without re-building the extraction logic.
-#[allow(dead_code)]
 fn extract_direct_boundary_input(
     patches: &[RectangularGregoryTwoStripe],
     spokes: &[Spoke],
@@ -264,7 +339,6 @@ fn extract_direct_boundary_input(
 /// side-indexed patch boundary, honouring the `reversed` flag
 /// that three-quad uses for its VZero B-ends (spoke-t = 0 ↔
 /// patch-u = 1 when reversed).
-#[allow(dead_code)]
 fn uv_at_spoke_t(side: Side, t: f64, reversed: bool) -> (f64, f64) {
     let t_local = if reversed { 1.0 - t } else { t };
     match side {
@@ -277,7 +351,6 @@ fn uv_at_spoke_t(side: Side, t: f64, reversed: bool) -> (f64, f64) {
 
 /// Partial derivative in the cross-boundary direction at the
 /// given side. For U-sides that's `∂S/∂u`; for V-sides `∂S/∂v`.
-#[allow(dead_code)]
 fn cross_tangent_on_side(
     patch: &RectangularGregoryTwoStripe,
     side: Side,
@@ -295,7 +368,6 @@ fn cross_tangent_on_side(
 /// `DirectConstructionOptions::characteristic_length` so all
 /// ratio-based tolerances scale with the geometry's natural
 /// size.
-#[allow(dead_code)]
 fn estimate_characteristic_length(patches: &[RectangularGregoryTwoStripe]) -> f64 {
     let mut min = [f64::INFINITY; 3];
     let mut max = [f64::NEG_INFINITY; 3];

@@ -63,6 +63,7 @@ fn subdivision_surface_intersection(patch: &GregoryPatch, tolerance: f64) -> boo
         GregoryPatch::RectangularBiquinticFull(r) => r.to_nurbs_exact(),
         GregoryPatch::RectangularBiseptic(r) => r.to_nurbs_exact(),
         GregoryPatch::RectangularTwoStripe(r) => r.to_nurbs_exact(),
+        GregoryPatch::RectangularBiNonic(r) => r.to_nurbs_exact(),
         GregoryPatch::Triangular(t) => t.to_nurbs_exact(),
     };
     let Ok((left, right)) = full.split_at_u(0.5) else {
