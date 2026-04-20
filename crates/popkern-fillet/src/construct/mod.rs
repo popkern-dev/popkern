@@ -9,6 +9,7 @@ mod bridge_warnings;
 pub(crate) mod cap_insert;
 pub(crate) mod closed_fillet;
 pub(crate) mod helpers;
+mod kp_biquintic_optimizer;
 mod kp_twist_optimizer;
 pub(crate) mod merge;
 mod multi_chord;
@@ -104,8 +105,7 @@ pub fn apply_blend_geometry(
 
     // Closed-fillet-handled edges skip Phase B/C.
     let mut closed_handled: std::collections::HashSet<usize> = std::collections::HashSet::new();
-    // Round 5r+: immutable snapshot before Phase A mutates `result`;
-    // anchor positions come from here, vertex inserts go into `result`.
+    // Round 5r+: immutable snapshot before Phase A mutates `result`; anchor positions come from here, vertex inserts go into `result`.
     let phase_a_snapshot = result.clone();
 
     // Round 5r+: per-original-edge descendants after Phase A splits,

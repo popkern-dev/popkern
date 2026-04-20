@@ -16,6 +16,7 @@
 //! doesn't know about `FilletOptions` flags or dispatch — the
 //! caller decides when to invoke it. R8 C6 wires the dispatch.
 
+use super::kp_biquintic_optimizer::optimize_biquintic_and_build_binonic;
 use super::kp_twist_optimizer::optimize_c_twists_and_build_binonic;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
@@ -230,11 +231,19 @@ fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) {
     // G1 coplanarity residual. Converges in 3-5 iterations
     // typically; always monotonically improves the baseline
     // (the iterate tracks the best-seen residual).
-    let Some(result) = optimize_c_twists_and_build_binonic(&input, &options) else {
-        trace_kp("optimize_c_twists_and_build_binonic → None", n, None);
-        return;
+    // Option C: try the bi-quintic optimizer first (more DoFs,
+    // better on extreme asymmetry). Falls through to the bicubic
+    // C-twist optimizer (Option B) if bi-quintic fails.
+    let binonic = match optimize_biquintic_and_build_binonic(&input, &options) {
+        Some(r) => r.binonic,
+        None => {
+            let Some(result) = optimize_c_twists_and_build_binonic(&input, &options) else {
+                trace_kp("optimize_biquintic_and_build_binonic → None", n, None);
+                return;
+            };
+            result.binonic
+        }
     };
-    let binonic = result.binonic;
 
     // Self-intersection gate — never commit a fold.
     let binonic_gp: Vec<GregoryPatch> = binonic
