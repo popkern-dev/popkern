@@ -140,6 +140,19 @@ pub fn build_guide_ring_from_centrals(
     guides
 }
 
+/// Build the guide ring from caller-supplied Hermite data for ALL
+/// four corners of every sub-patch. The full 4-corner form used
+/// by the extended iterative twist optimizer — same return type
+/// as [`build_guide_ring_from_centrals`] but with hex corners
+/// (c0, c2, c3) also exposed as variables rather than read from
+/// `extract_hex_corners_with_twist`.
+pub fn build_guide_ring_from_hermite(corners: &[[GuideCornerData; 4]]) -> Vec<KpGuidePatch> {
+    corners
+        .iter()
+        .map(|c| build_guide_from_hermite(*c))
+        .collect()
+}
+
 #[cfg(test)]
 #[path = "kp_guide_ring_tests.rs"]
 mod tests;

@@ -72,6 +72,7 @@ mod kp_guide_hex_hermite;
 mod kp_guide_outer_hermite;
 mod kp_guide_outer_twist;
 mod kp_guide_patch;
+mod kp_guide_patch_biquintic;
 mod kp_guide_ring;
 mod kp_interior_fit;
 mod kp_ring_build;
@@ -146,8 +147,10 @@ pub use kp_guide_hex_hermite::{SubPatchHexCorners, extract_hex_corners};
 pub use kp_guide_outer_hermite::{OuterVertexHermite, extract_outer_corner_hermite};
 pub use kp_guide_outer_twist::extract_hex_corners_with_twist;
 pub use kp_guide_patch::KpGuidePatch;
+pub use kp_guide_patch_biquintic::KpGuidePatchBiQuintic;
 pub use kp_guide_ring::{
-    build_guide_ring, build_guide_ring_from_centrals, build_guide_ring_with_twist,
+    build_guide_ring, build_guide_ring_from_centrals, build_guide_ring_from_hermite,
+    build_guide_ring_with_twist,
 };
 pub use kp_interior_fit::fit_interior_cps_to_guide;
 pub use kp_ring_build::{build_binonic_ring, build_binonic_ring_from_guides};
