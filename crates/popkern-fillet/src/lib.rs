@@ -4,6 +4,7 @@
 pub mod analysis;
 pub mod blend;
 pub mod blend_diagnostics;
+pub(crate) mod blend_warnings;
 pub mod cancellation;
 pub mod cap;
 pub mod center_curve;
