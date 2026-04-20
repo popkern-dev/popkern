@@ -67,6 +67,10 @@ pub(super) struct KpBiQuinticOptimizerResult {
     pub binonic: Vec<RectangularGregoryBiNonic>,
     #[allow(dead_code)]
     pub final_residual: f64,
+    /// Phase-2 converged bi-quintic guides, so a caller can
+    /// continue gradient descent at a higher degree without
+    /// re-paying phases 1 and 2.
+    pub bq_guides: Vec<KpGuidePatchBiQuintic>,
 }
 
 /// Two-phase optimizer: first converges bicubic C-twists (cheap,
@@ -170,6 +174,7 @@ pub(super) fn optimize_biquintic_and_build_binonic(
         return Some(KpBiQuinticOptimizerResult {
             binonic: initial,
             final_residual: r,
+            bq_guides,
         });
     }
     let mut best_residual = measure_ring_residual(&initial);
@@ -263,6 +268,7 @@ pub(super) fn optimize_biquintic_and_build_binonic(
     Some(KpBiQuinticOptimizerResult {
         binonic: best_binonic,
         final_residual: best_residual,
+        bq_guides,
     })
 }
 

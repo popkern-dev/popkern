@@ -9,6 +9,7 @@ mod bridge_warnings;
 pub(crate) mod cap_insert;
 pub(crate) mod closed_fillet;
 pub(crate) mod helpers;
+mod kp_binonic_optimizer;
 mod kp_biquintic_optimizer;
 mod kp_twist_optimizer;
 pub(crate) mod merge;
