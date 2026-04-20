@@ -60,8 +60,7 @@
 //! corners. Upstream code is responsible for constructing
 //! boundaries that match the guide.
 
-use super::kp_degree_elevate::elevate_cubic_vec_to_nine;
-use super::kp_guide_patch::KpGuidePatch;
+use super::kp_guide_trait::KpGuide;
 use crate::geometry::{Point3, Vec3};
 
 /// The four frame rows of a bidegree-9 patch, derived by the K-P
@@ -101,19 +100,20 @@ pub struct Row1Frame {
 ///
 /// See the module doc for the formulas and boundary-consistency
 /// requirement.
-pub fn derive_row1_frame(
-    guide: &KpGuidePatch,
+pub fn derive_row1_frame<G: KpGuide>(
+    guide: &G,
     row0: &[Point3; 10],
     row9: &[Point3; 10],
     col0: &[Point3; 10],
     col9: &[Point3; 10],
 ) -> Row1Frame {
     // Degree-9 representations of the guide's cross-derivative
-    // cubics on each boundary.
-    let g_u_u0 = elevate_cubic_vec_to_nine(guide.cross_deriv_cps_u0());
-    let g_u_u1 = elevate_cubic_vec_to_nine(guide.cross_deriv_cps_u1());
-    let g_v_v0 = elevate_cubic_vec_to_nine(guide.cross_deriv_cps_v0());
-    let g_v_v1 = elevate_cubic_vec_to_nine(guide.cross_deriv_cps_v1());
+    // curves on each boundary. The trait hides the native guide
+    // degree (cubic → elevate by 6; bi-quintic → elevate by 4).
+    let g_u_u0 = guide.cross_deriv_cps_u0_degree9();
+    let g_u_u1 = guide.cross_deriv_cps_u1_degree9();
+    let g_v_v0 = guide.cross_deriv_cps_v0_degree9();
+    let g_v_v1 = guide.cross_deriv_cps_v1_degree9();
 
     // Per-corner data for the 2 × 2 blocks.
     let corner_00 = corner_2x2(

@@ -74,6 +74,7 @@ mod kp_guide_outer_twist;
 mod kp_guide_patch;
 mod kp_guide_patch_biquintic;
 mod kp_guide_ring;
+mod kp_guide_trait;
 mod kp_interior_fit;
 mod kp_ring_build;
 mod kp_row1;
@@ -139,6 +140,7 @@ pub use kp_boundary_consistency::{
 };
 pub use kp_degree_elevate::{
     elevate_cubic_point_to_nine, elevate_cubic_vec_to_nine, elevate_point_curve_to_nine,
+    elevate_quintic_vec_to_nine,
 };
 pub use kp_guide_build::{GuideCornerData, build_guide_from_hermite};
 pub use kp_guide_central_hermite::extract_central_vertex_hermite;
@@ -152,7 +154,8 @@ pub use kp_guide_ring::{
     build_guide_ring, build_guide_ring_from_centrals, build_guide_ring_from_hermite,
     build_guide_ring_with_twist,
 };
-pub use kp_interior_fit::fit_interior_cps_to_guide;
+pub use kp_guide_trait::KpGuide;
+pub use kp_interior_fit::{fit_interior_cps_to_biquintic_guide, fit_interior_cps_to_guide};
 pub use kp_ring_build::{build_binonic_ring, build_binonic_ring_from_guides};
 pub use kp_row1::{Row1Frame, derive_row1_frame};
 pub use kp_row2::{Row2Frame, derive_row2_frame};

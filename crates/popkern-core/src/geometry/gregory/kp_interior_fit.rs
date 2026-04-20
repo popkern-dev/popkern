@@ -46,6 +46,7 @@
 
 use super::direct_linalg::solve_dense;
 use super::kp_guide_patch::KpGuidePatch;
+use super::kp_guide_patch_biquintic::KpGuidePatchBiQuintic;
 use super::rectangular_binonic::RectangularGregoryBiNonic;
 
 /// Indices of the unknown interior block along each axis.
@@ -190,6 +191,126 @@ pub fn fit_interior_cps_to_guide(patch: &mut RectangularGregoryBiNonic, guide: &
     }
 }
 
+/// Fit the 36 interior CPs of `patch` to a **bi-quintic** guide
+/// via least-squares. Same algorithm as [`fit_interior_cps_to_guide`]
+/// but with a 6×6 source grid and a degree-5 vs degree-9
+/// cross-Gram matrix. Mutates only the 36 interior entries of
+/// `patch.grid`.
+pub fn fit_interior_cps_to_biquintic_guide(
+    patch: &mut RectangularGregoryBiNonic,
+    guide: &KpGuidePatchBiQuintic,
+) {
+    let m = bernstein_gram_9();
+    let h = bernstein_cross_gram_5_9();
+    let mut m_uu = [[0.0_f64; 4]; 4];
+    for a in 0..4 {
+        for b in 0..4 {
+            m_uu[a][b] = m[U_INDICES[a]][U_INDICES[b]];
+        }
+    }
+
+    for coord in 0..3 {
+        // Guide CPs for this coordinate (6×6 f64).
+        let mut g_coord = [[0.0_f64; 6]; 6];
+        for k in 0..6 {
+            for l in 0..6 {
+                let p = guide.grid[k][l];
+                g_coord[k][l] = match coord {
+                    0 => p.x,
+                    1 => p.y,
+                    _ => p.z,
+                };
+            }
+        }
+        let mut p_coord = [[0.0_f64; 10]; 10];
+        for i in 0..10 {
+            for j in 0..10 {
+                let p = patch.grid[i][j];
+                p_coord[i][j] = match coord {
+                    0 => p.x,
+                    1 => p.y,
+                    _ => p.z,
+                };
+            }
+        }
+
+        // RHS[i*][j*] = Σ_{k, l in 0..=5} G[k][l] · H[k][i*] · H[l][j*].
+        let mut rhs = [[0.0_f64; 4]; 4];
+        for a in 0..4 {
+            for b in 0..4 {
+                let i_star = U_INDICES[a];
+                let j_star = U_INDICES[b];
+                let mut sum = 0.0_f64;
+                for k in 0..6 {
+                    for l in 0..6 {
+                        sum += g_coord[k][l] * h[k][i_star] * h[l][j_star];
+                    }
+                }
+                rhs[a][b] = sum;
+            }
+        }
+
+        let mut k_mat = [[0.0_f64; 4]; 4];
+        for a in 0..4 {
+            for b in 0..4 {
+                let i_star = U_INDICES[a];
+                let j_star = U_INDICES[b];
+                let mut sum = 0.0_f64;
+                for i in 0..10 {
+                    for j in 0..10 {
+                        if U_INDICES.contains(&i) && U_INDICES.contains(&j) {
+                            continue;
+                        }
+                        sum += p_coord[i][j] * m[i][i_star] * m[j][j_star];
+                    }
+                }
+                k_mat[a][b] = sum;
+            }
+        }
+
+        let mut eff_rhs = [[0.0_f64; 4]; 4];
+        for a in 0..4 {
+            for b in 0..4 {
+                eff_rhs[a][b] = rhs[a][b] - k_mat[a][b];
+            }
+        }
+
+        let mut y = [[0.0_f64; 4]; 4];
+        for col in 0..4 {
+            let matrix: Vec<Vec<f64>> = m_uu.iter().map(|row| row.to_vec()).collect();
+            let b_vec: Vec<f64> = (0..4).map(|r| eff_rhs[r][col]).collect();
+            let Some(x) = solve_dense(matrix, b_vec) else {
+                unreachable!("Bernstein Gram M_UU is constant and SPD")
+            };
+            for r in 0..4 {
+                y[r][col] = x[r];
+            }
+        }
+        let mut x_final = [[0.0_f64; 4]; 4];
+        for row in 0..4 {
+            let matrix: Vec<Vec<f64>> = m_uu.iter().map(|r| r.to_vec()).collect();
+            let b_vec: Vec<f64> = (0..4).map(|c| y[row][c]).collect();
+            let Some(x) = solve_dense(matrix, b_vec) else {
+                unreachable!("Bernstein Gram M_UU is constant and SPD")
+            };
+            x_final[row].copy_from_slice(&x[..4]);
+        }
+
+        for a in 0..4 {
+            for b in 0..4 {
+                let i = U_INDICES[a];
+                let j = U_INDICES[b];
+                let val = x_final[a][b];
+                match coord {
+                    0 => patch.grid[i][j].x = val,
+                    1 => patch.grid[i][j].y = val,
+                    _ => patch.grid[i][j].z = val,
+                }
+            }
+        }
+    }
+}
+
 /// 10×10 degree-9 Bernstein Gram matrix.
 /// `M[a][b] = C(9, a) · C(9, b) / (19 · C(18, a + b))`.
 fn bernstein_gram_9() -> [[f64; 10]; 10] {
@@ -219,6 +340,24 @@ fn bernstein_cross_gram_3_9() -> [[f64; 10]; 4] {
     for k in 0..4 {
         for i in 0..10 {
             h[k][i] = c3[k] * c9[i] / (13.0 * c12[k + i]);
+        }
+    }
+    h
+}
+
+/// 6×10 cross-Gram matrix for degree 5 against degree 9.
+/// `H[k][i] = ∫₀¹ B_k^5(t) · B_i^9(t) dt = C(5, k) · C(9, i) / (15 · C(14, k + i))`.
+fn bernstein_cross_gram_5_9() -> [[f64; 10]; 6] {
+    let c5: [f64; 6] = [1.0, 5.0, 10.0, 10.0, 5.0, 1.0];
+    let c9: [f64; 10] = [1.0, 9.0, 36.0, 84.0, 126.0, 126.0, 84.0, 36.0, 9.0, 1.0];
+    let c14: [f64; 15] = [
+        1.0, 14.0, 91.0, 364.0, 1001.0, 2002.0, 3003.0, 3432.0, 3003.0, 2002.0, 1001.0, 364.0,
+        91.0, 14.0, 1.0,
+    ];
+    let mut h = [[0.0_f64; 10]; 6];
+    for k in 0..6 {
+        for i in 0..10 {
+            h[k][i] = c5[k] * c9[i] / (15.0 * c14[k + i]);
         }
     }
     h

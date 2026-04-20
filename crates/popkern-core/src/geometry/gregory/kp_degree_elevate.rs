@@ -53,10 +53,23 @@ use crate::geometry::{Point3, Vec3};
 /// degree-9 Bezier curve (10 [`Vec3`] CPs).
 ///
 /// This is the canonical helper for the K-P row-1 and row-2
-/// formulas, which consume the guide's cross-derivative /
-/// cross-second-derivative CPs at degree 9.
+/// formulas when the guide is bicubic, which consume the guide's
+/// cross-derivative / cross-second-derivative CPs at degree 9.
 pub fn elevate_cubic_vec_to_nine(cubic: [Vec3; 4]) -> [Vec3; 10] {
     let poly = BernsteinPoly::new(cubic.to_vec()).degree_elevate(6);
+    let coeffs = poly.coeffs();
+    core::array::from_fn(|i| coeffs[i])
+}
+
+/// Degree-elevate a quintic Bezier curve (6 [`Vec3`] CPs) to a
+/// degree-9 Bezier curve (10 [`Vec3`] CPs).
+///
+/// Used for the row-1 / row-2 formulas when the guide is
+/// bi-quintic (Phase H.8 Option C). The bi-quintic guide's
+/// boundary cross-derivative is a degree-5 Bezier (6 CPs),
+/// so it only needs to be elevated by 4 degrees to reach 9.
+pub fn elevate_quintic_vec_to_nine(quintic: [Vec3; 6]) -> [Vec3; 10] {
+    let poly = BernsteinPoly::new(quintic.to_vec()).degree_elevate(4);
     let coeffs = poly.coeffs();
     core::array::from_fn(|i| coeffs[i])
 }

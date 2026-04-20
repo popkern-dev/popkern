@@ -60,8 +60,7 @@
 //! to fourth order at each of the 4 corners matches the guide
 //! to `< 1e-8`. G2 at corners is **automatic, not deferred**.
 
-use super::kp_degree_elevate::elevate_cubic_vec_to_nine;
-use super::kp_guide_patch::KpGuidePatch;
+use super::kp_guide_trait::KpGuide;
 use super::kp_row1::Row1Frame;
 use crate::geometry::{Point3, Vec3};
 
@@ -96,8 +95,8 @@ pub struct Row2Frame {
 ///
 /// See the module doc for the formulas and the corner 3 × 3
 /// block limitation.
-pub fn derive_row2_frame(
-    guide: &KpGuidePatch,
+pub fn derive_row2_frame<G: KpGuide>(
+    guide: &G,
     row0: &[Point3; 10],
     row9: &[Point3; 10],
     col0: &[Point3; 10],
@@ -105,16 +104,16 @@ pub fn derive_row2_frame(
     row1_frame: &Row1Frame,
 ) -> Row2Frame {
     // Degree-9 representations of the guide's cross-derivative
-    // cubics (first partial) and cross-second-derivative cubics
-    // (second partial) on each boundary.
-    let g_u_u0 = elevate_cubic_vec_to_nine(guide.cross_deriv_cps_u0());
-    let g_u_u1 = elevate_cubic_vec_to_nine(guide.cross_deriv_cps_u1());
-    let g_v_v0 = elevate_cubic_vec_to_nine(guide.cross_deriv_cps_v0());
-    let g_v_v1 = elevate_cubic_vec_to_nine(guide.cross_deriv_cps_v1());
-    let g_uu_u0 = elevate_cubic_vec_to_nine(guide.cross_second_deriv_cps_uu_u0());
-    let g_uu_u1 = elevate_cubic_vec_to_nine(guide.cross_second_deriv_cps_uu_u1());
-    let g_vv_v0 = elevate_cubic_vec_to_nine(guide.cross_second_deriv_cps_vv_v0());
-    let g_vv_v1 = elevate_cubic_vec_to_nine(guide.cross_second_deriv_cps_vv_v1());
+    // (first partial) and cross-second-derivative (second partial)
+    // curves on each boundary. Trait hides native guide degree.
+    let g_u_u0 = guide.cross_deriv_cps_u0_degree9();
+    let g_u_u1 = guide.cross_deriv_cps_u1_degree9();
+    let g_v_v0 = guide.cross_deriv_cps_v0_degree9();
+    let g_v_v1 = guide.cross_deriv_cps_v1_degree9();
+    let g_uu_u0 = guide.cross_second_deriv_cps_uu_u0_degree9();
+    let g_uu_u1 = guide.cross_second_deriv_cps_uu_u1_degree9();
+    let g_vv_v0 = guide.cross_second_deriv_cps_vv_v0_degree9();
+    let g_vv_v1 = guide.cross_second_deriv_cps_vv_v1_degree9();
 
     // Row 2: P[2][j] = P[1][j] + (1/9) · G_u + (1/72) · G_uu
     //   j = 0, 9 → boundary (col 0, col 9).
