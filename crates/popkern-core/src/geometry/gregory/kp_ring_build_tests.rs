@@ -386,3 +386,44 @@ fn bidegree9_patch_approximates_guide_on_planar_input() {
         }
     }
 }
+
+/// Option C MVP parity: building the ring via a bi-quintic guide
+/// degree-elevated from the bicubic guide must produce the same
+/// bidegree-9 output as the bicubic path. Elevation is pointwise-
+/// identical, so the downstream construction should be too.
+#[test]
+fn biquintic_path_is_identical_to_bicubic_when_degree_elevated() {
+    let input = planar_ring(3, 1.0);
+    let options = DirectConstructionOptions::with_characteristic_length(1.0);
+
+    let bicubic_guides = crate::geometry::gregory::build_guide_ring_with_twist(&input, &options)
+        .expect("build_guide_ring_with_twist");
+    let bq_guides: Vec<crate::geometry::gregory::KpGuidePatchBiQuintic> = bicubic_guides
+        .iter()
+        .map(crate::geometry::gregory::KpGuidePatchBiQuintic::from_bicubic_elevated)
+        .collect();
+
+    let bi_ring = crate::geometry::gregory::build_binonic_ring_from_guides(&bicubic_guides, &input)
+        .expect("bicubic ring build");
+    let bq_ring =
+        crate::geometry::gregory::build_binonic_ring_from_biquintic_guides(&bq_guides, &input)
+            .expect("bi-quintic ring build");
+
+    assert_eq!(bi_ring.len(), bq_ring.len());
+    for (k, (a, b)) in bi_ring.iter().zip(bq_ring.iter()).enumerate() {
+        for i in 0..10 {
+            for j in 0..10 {
+                let pa = a.grid[i][j];
+                let pb = b.grid[i][j];
+                let dx = (pa.x - pb.x).abs();
+                let dy = (pa.y - pb.y).abs();
+                let dz = (pa.z - pb.z).abs();
+                let maxd = dx.max(dy).max(dz);
+                assert!(
+                    maxd < 1e-9,
+                    "patch {k} cp[{i}][{j}]: bicubic={pa:?} vs bi-quintic={pb:?} (Δ={maxd:.3e})"
+                );
+            }
+        }
+    }
+}
