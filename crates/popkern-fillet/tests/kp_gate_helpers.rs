@@ -4,9 +4,14 @@
 //! the per-test files small enough to pass the 500-LoC structural
 //! gate while centralising the metric definitions.
 //!
+//! Each test binary uses a subset of these helpers; the rest are
+//! dead-code from the per-binary perspective. Top-level allow is
+//! cleaner than per-item.
+//!
 //! See `kp_binonic_commercial_gates.rs` for the discussion of why
 //! the triple-product coplanarity metric replaces the naive
 //! unit-normal dot product.
+#![allow(dead_code)]
 
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::gregory::GregoryPatch;
