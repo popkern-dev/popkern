@@ -17,6 +17,7 @@
 //!    phase 3 can continue from the phase-2 optimum without
 //!    re-solving.
 
+use super::kp_binonic_optimizer::{analytic_ring_jacobian, flatten_ring};
 use super::kp_lm_solver::{LmConfig, LmEval, run_lm};
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
@@ -181,6 +182,7 @@ pub(super) fn optimize_biquintic_and_build_binonic(
     let eval = BiQuinticEval {
         base: bq_guides_init.clone(),
         input,
+        m_matrix: None,
     };
     // Phase-2 L-M can converge aggressively — its output is only
     // used when phase 3 is skipped (caller returns `binonic`
@@ -239,29 +241,83 @@ pub(super) fn optimize_biquintic_and_build_binonic(
     })
 }
 
-/// L-M residual callback for phase 2. Mirrors `BinonicEval` in
-/// `kp_binonic_optimizer.rs` — cheap `residual` for FD columns,
-/// expensive `fold_safe` only on candidate steps.
+/// L-M residual callback for phase 2. Same analytic-Jacobian
+/// pattern as `BinonicEval` in `kp_binonic_optimizer.rs`: M =
+/// `∂ring_CP/∂guide_CP` is precomputed once (ring build is linear
+/// in guide CPs), then `G = ∂f/∂ring_CP` is computed analytically
+/// per iteration and `J = G · M` via the shared
+/// `analytic_ring_jacobian` helper.
 struct BiQuinticEval<'a> {
     base: Vec<KpGuidePatchBiQuintic>,
     input: &'a DirectBoundaryInput,
+    /// Cached `D_ring × D_guide` linearization; see `BinonicEval`
+    /// for the full argument. Shape here is `(N · 300) × (N · 48)`
+    /// because bi-quintic guides have 16 interior CPs × 3 axes
+    /// per sub-patch vs bi-nonic's 64 × 3.
+    m_matrix: Option<Vec<Vec<f64>>>,
+}
+
+impl<'a> BiQuinticEval<'a> {
+    fn guide_cp_count(&self) -> usize {
+        self.base.len() * OPT_INDICES.len() * 3
+    }
+
+    fn build_ring(&self, x: &[f64]) -> Option<Vec<RectangularGregoryBiNonic>> {
+        let mut guides = self.base.clone();
+        unpack_bq_guides(x, &mut guides);
+        build_binonic_ring_from_biquintic_guides(&guides, self.input).ok()
+    }
+
+    fn precompute_m_matrix(&mut self) -> Option<()> {
+        let n = self.base.len();
+        let d_ring = n * 300;
+        let d_guide = self.guide_cp_count();
+
+        let x0 = pack_bq_guides(&self.base);
+        let baseline_ring = self.build_ring(&x0)?;
+        let baseline_flat = flatten_ring(&baseline_ring);
+
+        let eps = 1e-4;
+        let mut m = vec![vec![0.0; d_guide]; d_ring];
+        let mut x_pert = x0;
+        for k in 0..d_guide {
+            x_pert[k] += eps;
+            let ring_pert = self.build_ring(&x_pert)?;
+            let flat_pert = flatten_ring(&ring_pert);
+            for i in 0..d_ring {
+                m[i][k] = (flat_pert[i] - baseline_flat[i]) / eps;
+            }
+            x_pert[k] -= eps;
+        }
+        self.m_matrix = Some(m);
+        Some(())
+    }
 }
 
 impl<'a> LmEval for BiQuinticEval<'a> {
     fn residual(&mut self, x: &[f64]) -> Option<Vec<f64>> {
-        let mut guides = self.base.clone();
-        unpack_bq_guides(x, &mut guides);
-        let binonic = build_binonic_ring_from_biquintic_guides(&guides, self.input).ok()?;
+        let binonic = self.build_ring(x)?;
         Some(residual_vector(&binonic))
     }
 
     fn fold_safe(&mut self, x: &[f64]) -> bool {
-        let mut guides = self.base.clone();
-        unpack_bq_guides(x, &mut guides);
-        match build_binonic_ring_from_biquintic_guides(&guides, self.input) {
-            Ok(binonic) => !any_self_intersects(&binonic),
-            Err(_) => false,
+        match self.build_ring(x) {
+            Some(binonic) => !any_self_intersects(&binonic),
+            None => false,
         }
+    }
+
+    fn jacobian(&mut self, x: &[f64]) -> Option<Vec<Vec<f64>>> {
+        if self.m_matrix.is_none() {
+            self.precompute_m_matrix()?;
+        }
+        let ring = self.build_ring(x)?;
+        let d_guide = self.guide_cp_count();
+        Some(analytic_ring_jacobian(
+            &ring,
+            self.m_matrix.as_ref()?,
+            d_guide,
+        ))
     }
 }
 

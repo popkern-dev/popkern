@@ -155,10 +155,6 @@ struct BinonicEval<'a> {
 }
 
 impl<'a> BinonicEval<'a> {
-    fn ring_cp_count(&self) -> usize {
-        self.base.len() * 300
-    }
-
     fn guide_cp_count(&self) -> usize {
         self.base.len() * 192
     }
@@ -167,23 +163,6 @@ impl<'a> BinonicEval<'a> {
         let mut guides = self.base.clone();
         unpack_guides(x, &mut guides);
         build_binonic_ring_from_binonic_guides(&guides, self.input).ok()
-    }
-
-    /// Flatten a ring's CPs to a row-major D_ring vector
-    /// `[patch_0_grid(row-major), patch_1_grid, ...]` with each CP
-    /// stored as `(x, y, z)`.
-    fn flatten_ring(&self, ring: &[RectangularGregoryBiNonic]) -> Vec<f64> {
-        let mut out = Vec::with_capacity(self.ring_cp_count());
-        for patch in ring {
-            for i in 0..10 {
-                for j in 0..10 {
-                    out.push(patch.grid[i][j].x);
-                    out.push(patch.grid[i][j].y);
-                    out.push(patch.grid[i][j].z);
-                }
-            }
-        }
-        out
     }
 
     /// One-time FD pre-computation of `∂ring_CP/∂guide_CP`. Since
@@ -197,21 +176,19 @@ impl<'a> BinonicEval<'a> {
 
         let x0 = pack_guides(&self.base);
         let baseline_ring = self.build_ring(&x0)?;
-        let baseline_flat = self.flatten_ring(&baseline_ring);
+        let baseline_flat = flatten_ring(&baseline_ring);
 
         // FD step scaled for numerical stability. The ring builder's
         // linear operations mean any nonzero eps produces the same
-        // gradient up to roundoff; 1e-4 is a good trade-off between
-        // truncation (quadratic terms vanish since the map is
-        // linear, but subtraction cancellation matters) and
-        // amplification (1/eps factor in the divide).
+        // gradient up to roundoff; 1e-4 trades truncation against
+        // subtraction cancellation.
         let eps = 1e-4;
         let mut m = vec![vec![0.0; d_guide]; d_ring];
         let mut x_pert = x0;
         for k in 0..d_guide {
             x_pert[k] += eps;
             let ring_pert = self.build_ring(&x_pert)?;
-            let flat_pert = self.flatten_ring(&ring_pert);
+            let flat_pert = flatten_ring(&ring_pert);
             for i in 0..d_ring {
                 m[i][k] = (flat_pert[i] - baseline_flat[i]) / eps;
             }
@@ -223,10 +200,173 @@ impl<'a> BinonicEval<'a> {
 }
 
 /// Flat index into the ring-CP vector: patch `p`, cell `(i, j)`,
-/// axis `a ∈ {0=x, 1=y, 2=z}`.
+/// axis `a ∈ {0=x, 1=y, 2=z}`. `pub(super)` because the
+/// analytic-Jacobian helper is shared with `kp_biquintic_optimizer`.
 #[inline]
-fn ring_idx(p: usize, i: usize, j: usize, a: usize) -> usize {
+pub(super) fn ring_idx(p: usize, i: usize, j: usize, a: usize) -> usize {
     p * 300 + (i * 10 + j) * 3 + a
+}
+
+/// Flatten a bi-nonic ring's CPs to a row-major `D_ring` vector
+/// `[patch_0_grid (row-major), patch_1_grid, ...]` with each CP
+/// stored as `(x, y, z)`. Shared with `kp_biquintic_optimizer`
+/// for the phase-2 analytic-Jacobian precompute.
+pub(super) fn flatten_ring(ring: &[RectangularGregoryBiNonic]) -> Vec<f64> {
+    let mut out = Vec::with_capacity(ring.len() * 300);
+    for patch in ring {
+        for i in 0..10 {
+            for j in 0..10 {
+                out.push(patch.grid[i][j].x);
+                out.push(patch.grid[i][j].y);
+                out.push(patch.grid[i][j].z);
+            }
+        }
+    }
+    out
+}
+
+/// Analytic Jacobian `J[sample, k] = ∂f[sample]/∂guide_CP_k`.
+///
+/// Both phase 2 (bi-quintic guides) and phase 3 (bi-nonic guides)
+/// produce bi-nonic rings; this function takes the ring and the
+/// pre-computed `M = ∂ring_CP/∂guide_CP` matrix and produces the
+/// residual-vector Jacobian via the chain rule. It does NOT care
+/// about the guide degree — all that matters is that `m.len() ==
+/// ring.len() * 300` and each row of `m` has exactly `d_guide`
+/// columns.
+///
+/// Cost: `O(samples · D_ring_relevant · D_guide)`. For the bi-nonic
+/// output that's `50N · 30 · D_guide` per iteration.
+pub(super) fn analytic_ring_jacobian(
+    ring: &[RectangularGregoryBiNonic],
+    m: &[Vec<f64>],
+    d_guide: usize,
+) -> Vec<Vec<f64>> {
+    let n = ring.len();
+    let total_samples = n * 50;
+    let mut jac = vec![vec![0.0; d_guide]; total_samples];
+
+    for spoke in 0..n {
+        let a_idx = spoke;
+        let b_idx = (spoke + 1) % n;
+        let a = &ring[a_idx];
+        let b = &ring[b_idx];
+
+        for s in 0..50 {
+            let t = 0.05 + 0.90 * (s as f64) / 49.0;
+            let t_b = 1.0 - t;
+
+            // Bernstein bases at this sample — constants the
+            // chain-rule inner loop needs.
+            let b_u = bernstein_binonic_all(t);
+            let b_prime = bernstein_binonic_deriv_all(t);
+            let b_v = bernstein_binonic_all(t_b);
+
+            // Reference vectors at current iterate.
+            let u = a.partial_u(1.0, t);
+            let v = b.partial_v(t_b, 0.0);
+            let w = a.partial_v(1.0, t);
+
+            let cross_uv = u.cross(&v);
+            let triple = cross_uv.x * w.x + cross_uv.y * w.y + cross_uv.z * w.z;
+            let sign_t = if triple >= 0.0 { 1.0 } else { -1.0 };
+
+            let nu_sq = u.x * u.x + u.y * u.y + u.z * u.z;
+            let nv_sq = v.x * v.x + v.y * v.y + v.z * v.z;
+            let nw_sq = w.x * w.x + w.y * w.y + w.z * w.z;
+            let denom = nu_sq.sqrt() * nv_sq.sqrt() * nw_sq.sqrt();
+
+            let row = spoke * 50 + s;
+            if denom < 1e-300 {
+                continue; // matches residual_vector's ill-conditioned zero
+            }
+
+            let f_val = triple.abs() / denom;
+
+            // ∂f/∂u = sign_t · (v × w) / denom − f · u / |u|²  (similarly for v, w)
+            let v_cross_w = v.cross(&w);
+            let w_cross_u = w.cross(&u);
+            let df_du = Vec3::new(
+                sign_t * v_cross_w.x / denom - f_val * u.x / nu_sq,
+                sign_t * v_cross_w.y / denom - f_val * u.y / nu_sq,
+                sign_t * v_cross_w.z / denom - f_val * u.z / nu_sq,
+            );
+            let df_dv = Vec3::new(
+                sign_t * w_cross_u.x / denom - f_val * v.x / nv_sq,
+                sign_t * w_cross_u.y / denom - f_val * v.y / nv_sq,
+                sign_t * w_cross_u.z / denom - f_val * v.z / nv_sq,
+            );
+            let df_dw = Vec3::new(
+                sign_t * cross_uv.x / denom - f_val * w.x / nw_sq,
+                sign_t * cross_uv.y / denom - f_val * w.y / nw_sq,
+                sign_t * cross_uv.z / denom - f_val * w.z / nw_sq,
+            );
+
+            // Row via chain rule.
+            // ∂u_α/∂g_k = 9 · Σ_j B_j(t) · (M[a,9,j,α; k] − M[a,8,j,α; k])
+            // ∂v_α/∂g_k = 9 · Σ_i B_i(t_b) · (M[b,i,1,α; k] − M[b,i,0,α; k])
+            // ∂w_α/∂g_k =      Σ_j B'_j(t) · M[a,9,j,α; k]
+            let row_slice = &mut jac[row];
+            for k in 0..d_guide {
+                let mut du_x = 0.0_f64;
+                let mut du_y = 0.0_f64;
+                let mut du_z = 0.0_f64;
+                let mut dv_x = 0.0_f64;
+                let mut dv_y = 0.0_f64;
+                let mut dv_z = 0.0_f64;
+                let mut dw_x = 0.0_f64;
+                let mut dw_y = 0.0_f64;
+                let mut dw_z = 0.0_f64;
+                for jj in 0..10 {
+                    let bj = b_u[jj];
+                    let r9x = m[ring_idx(a_idx, 9, jj, 0)][k];
+                    let r9y = m[ring_idx(a_idx, 9, jj, 1)][k];
+                    let r9z = m[ring_idx(a_idx, 9, jj, 2)][k];
+                    let r8x = m[ring_idx(a_idx, 8, jj, 0)][k];
+                    let r8y = m[ring_idx(a_idx, 8, jj, 1)][k];
+                    let r8z = m[ring_idx(a_idx, 8, jj, 2)][k];
+                    du_x += bj * (r9x - r8x);
+                    du_y += bj * (r9y - r8y);
+                    du_z += bj * (r9z - r8z);
+
+                    let bp = b_prime[jj];
+                    dw_x += bp * r9x;
+                    dw_y += bp * r9y;
+                    dw_z += bp * r9z;
+                }
+                for ii in 0..10 {
+                    let bi = b_v[ii];
+                    let rb1x = m[ring_idx(b_idx, ii, 1, 0)][k];
+                    let rb1y = m[ring_idx(b_idx, ii, 1, 1)][k];
+                    let rb1z = m[ring_idx(b_idx, ii, 1, 2)][k];
+                    let rb0x = m[ring_idx(b_idx, ii, 0, 0)][k];
+                    let rb0y = m[ring_idx(b_idx, ii, 0, 1)][k];
+                    let rb0z = m[ring_idx(b_idx, ii, 0, 2)][k];
+                    dv_x += bi * (rb1x - rb0x);
+                    dv_y += bi * (rb1y - rb0y);
+                    dv_z += bi * (rb1z - rb0z);
+                }
+                du_x *= 9.0;
+                du_y *= 9.0;
+                du_z *= 9.0;
+                dv_x *= 9.0;
+                dv_y *= 9.0;
+                dv_z *= 9.0;
+
+                row_slice[k] = df_du.x * du_x
+                    + df_du.y * du_y
+                    + df_du.z * du_z
+                    + df_dv.x * dv_x
+                    + df_dv.y * dv_y
+                    + df_dv.z * dv_z
+                    + df_dw.x * dw_x
+                    + df_dw.y * dw_y
+                    + df_dw.z * dw_z;
+            }
+        }
+    }
+
+    jac
 }
 
 impl<'a> LmEval for BinonicEval<'a> {
@@ -243,142 +383,16 @@ impl<'a> LmEval for BinonicEval<'a> {
     }
 
     fn jacobian(&mut self, x: &[f64]) -> Option<Vec<Vec<f64>>> {
-        // Lazily populate the M matrix (one-time cost — ring build
-        // is linear in guide CPs so M is constant).
         if self.m_matrix.is_none() {
             self.precompute_m_matrix()?;
         }
-        let m = self.m_matrix.as_ref()?;
-
         let ring = self.build_ring(x)?;
-        let n = ring.len();
         let d_guide = self.guide_cp_count();
-        let total_samples = n * 50;
-
-        let mut jac = vec![vec![0.0; d_guide]; total_samples];
-
-        for spoke in 0..n {
-            let a_idx = spoke;
-            let b_idx = (spoke + 1) % n;
-            let a = &ring[a_idx];
-            let b = &ring[b_idx];
-
-            for s in 0..50 {
-                let t = 0.05 + 0.90 * (s as f64) / 49.0;
-                let t_b = 1.0 - t;
-
-                // Bernstein bases at this sample — constants the
-                // chain-rule inner loop needs.
-                let b_u = bernstein_binonic_all(t);
-                let b_prime = bernstein_binonic_deriv_all(t);
-                let b_v = bernstein_binonic_all(t_b);
-
-                // Reference vectors at current iterate.
-                let u = a.partial_u(1.0, t);
-                let v = b.partial_v(t_b, 0.0);
-                let w = a.partial_v(1.0, t);
-
-                let cross_uv = u.cross(&v);
-                let triple = cross_uv.x * w.x + cross_uv.y * w.y + cross_uv.z * w.z;
-                let sign_t = if triple >= 0.0 { 1.0 } else { -1.0 };
-
-                let nu_sq = u.x * u.x + u.y * u.y + u.z * u.z;
-                let nv_sq = v.x * v.x + v.y * v.y + v.z * v.z;
-                let nw_sq = w.x * w.x + w.y * w.y + w.z * w.z;
-                let denom = nu_sq.sqrt() * nv_sq.sqrt() * nw_sq.sqrt();
-
-                let row = spoke * 50 + s;
-                if denom < 1e-300 {
-                    // Matches residual_vector's "ill-conditioned" case.
-                    continue;
-                }
-
-                let f_val = triple.abs() / denom;
-
-                // ∂f/∂u = sign_t · (v × w) / denom − f · u / |u|²
-                let v_cross_w = v.cross(&w);
-                let w_cross_u = w.cross(&u);
-                let df_du = Vec3::new(
-                    sign_t * v_cross_w.x / denom - f_val * u.x / nu_sq,
-                    sign_t * v_cross_w.y / denom - f_val * u.y / nu_sq,
-                    sign_t * v_cross_w.z / denom - f_val * u.z / nu_sq,
-                );
-                let df_dv = Vec3::new(
-                    sign_t * w_cross_u.x / denom - f_val * v.x / nv_sq,
-                    sign_t * w_cross_u.y / denom - f_val * v.y / nv_sq,
-                    sign_t * w_cross_u.z / denom - f_val * v.z / nv_sq,
-                );
-                let df_dw = Vec3::new(
-                    sign_t * cross_uv.x / denom - f_val * w.x / nw_sq,
-                    sign_t * cross_uv.y / denom - f_val * w.y / nw_sq,
-                    sign_t * cross_uv.z / denom - f_val * w.z / nw_sq,
-                );
-
-                // Assemble row of the Jacobian via chain rule.
-                // ∂u_α/∂g_k = 9 · Σ_j B_j(t) · (M[a,9,j,α; k] − M[a,8,j,α; k])
-                // ∂v_α/∂g_k = 9 · Σ_i B_i(t_b) · (M[b,i,1,α; k] − M[b,i,0,α; k])
-                // ∂w_α/∂g_k =      Σ_j B'_j(t) · M[a,9,j,α; k]
-                let row_slice = &mut jac[row];
-                for k in 0..d_guide {
-                    let mut du_x = 0.0_f64;
-                    let mut du_y = 0.0_f64;
-                    let mut du_z = 0.0_f64;
-                    let mut dv_x = 0.0_f64;
-                    let mut dv_y = 0.0_f64;
-                    let mut dv_z = 0.0_f64;
-                    let mut dw_x = 0.0_f64;
-                    let mut dw_y = 0.0_f64;
-                    let mut dw_z = 0.0_f64;
-                    for jj in 0..10 {
-                        let bj = b_u[jj];
-                        let r9x = m[ring_idx(a_idx, 9, jj, 0)][k];
-                        let r9y = m[ring_idx(a_idx, 9, jj, 1)][k];
-                        let r9z = m[ring_idx(a_idx, 9, jj, 2)][k];
-                        let r8x = m[ring_idx(a_idx, 8, jj, 0)][k];
-                        let r8y = m[ring_idx(a_idx, 8, jj, 1)][k];
-                        let r8z = m[ring_idx(a_idx, 8, jj, 2)][k];
-                        du_x += bj * (r9x - r8x);
-                        du_y += bj * (r9y - r8y);
-                        du_z += bj * (r9z - r8z);
-
-                        let bp = b_prime[jj];
-                        dw_x += bp * r9x;
-                        dw_y += bp * r9y;
-                        dw_z += bp * r9z;
-                    }
-                    for ii in 0..10 {
-                        let bi = b_v[ii];
-                        let rb1x = m[ring_idx(b_idx, ii, 1, 0)][k];
-                        let rb1y = m[ring_idx(b_idx, ii, 1, 1)][k];
-                        let rb1z = m[ring_idx(b_idx, ii, 1, 2)][k];
-                        let rb0x = m[ring_idx(b_idx, ii, 0, 0)][k];
-                        let rb0y = m[ring_idx(b_idx, ii, 0, 1)][k];
-                        let rb0z = m[ring_idx(b_idx, ii, 0, 2)][k];
-                        dv_x += bi * (rb1x - rb0x);
-                        dv_y += bi * (rb1y - rb0y);
-                        dv_z += bi * (rb1z - rb0z);
-                    }
-                    du_x *= 9.0;
-                    du_y *= 9.0;
-                    du_z *= 9.0;
-                    dv_x *= 9.0;
-                    dv_y *= 9.0;
-                    dv_z *= 9.0;
-
-                    row_slice[k] = df_du.x * du_x
-                        + df_du.y * du_y
-                        + df_du.z * du_z
-                        + df_dv.x * dv_x
-                        + df_dv.y * dv_y
-                        + df_dv.z * dv_z
-                        + df_dw.x * dw_x
-                        + df_dw.y * dw_y
-                        + df_dw.z * dw_z;
-                }
-            }
-        }
-
-        Some(jac)
+        Some(analytic_ring_jacobian(
+            &ring,
+            self.m_matrix.as_ref()?,
+            d_guide,
+        ))
     }
 }
 
