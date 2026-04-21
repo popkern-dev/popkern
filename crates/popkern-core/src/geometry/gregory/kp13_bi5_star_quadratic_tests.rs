@@ -252,6 +252,63 @@ fn quadratic_near_star_satisfies_c2_join_at_j0() {
     }
 }
 
+// ---- star/Q consistency (gap #1) ----
+
+#[test]
+fn apply_to_all_sectors_pinned_enforces_star_equals_pinned() {
+    let q = StarQuadratic {
+        alpha: Point3::new(0.3, 0.0, 0.0),
+        beta: Point3::new(-0.2, 0.0, 0.0),
+        gamma: Point3::new(0.1, 0.0, 0.0),
+        delta: Point3::new(0.5, 0.0, 0.0),
+        epsilon: Point3::new(-0.3, 0.0, 0.0),
+        // Deliberately non-zero ζ so we can verify pinning
+        // overrides it.
+        zeta: Point3::new(999.0, 999.0, 999.0),
+    };
+    let pinned = Point3::new(1.0, -0.5, 0.25);
+    for n in [5, 6, 7, 8] {
+        let mut g = Gtri5::new(n);
+        q.apply_to_all_sectors_pinned(&mut g, pinned);
+        // Every sector's star slot must equal the pinned value.
+        for k in 0..n {
+            assert!(
+                approx_point(g.sector(k).cps[IDX_500], pinned),
+                "n = {n}, sector {k}: star != pinned"
+            );
+        }
+        g.validate().unwrap();
+    }
+}
+
+#[test]
+fn apply_pinned_preserves_higher_order_coefs() {
+    // Pinning should only change ζ — α..ε behavior in near-star
+    // should match Q's originals modulo the ζ overwrite.
+    let q_unpinned = StarQuadratic {
+        alpha: Point3::new(1.0, 0.0, 0.0),
+        beta: Point3::new(0.0, 0.0, 0.0),
+        gamma: Point3::new(0.0, 0.0, 0.0),
+        delta: Point3::new(0.0, 0.0, 0.0),
+        epsilon: Point3::new(0.0, 0.0, 0.0),
+        zeta: Point3::new(0.0, 0.0, 0.0),
+    };
+    let pinned = Point3::new(0.0, 0.0, 0.0); // same as ζ → equivalent
+    let n = 6;
+    let mut g_direct = Gtri5::new(n);
+    q_unpinned.apply_to_all_sectors(&mut g_direct);
+    let mut g_pinned = Gtri5::new(n);
+    q_unpinned.apply_to_all_sectors_pinned(&mut g_pinned, pinned);
+    for k in 0..n {
+        for &flat in &NEAR_STAR_FLAT {
+            assert!(
+                approx_point(g_direct.sector(k).cps[flat], g_pinned.sector(k).cps[flat]),
+                "n = {n}, sector {k}, flat {flat}: direct vs pinned diverged"
+            );
+        }
+    }
+}
+
 // ---- sanity ----
 
 #[test]

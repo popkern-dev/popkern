@@ -123,9 +123,21 @@ fn debug_assert_simplex(u: f64, v: f64) {
 /// # Panics (debug)
 /// Panics in debug builds if `(u, v)` lies outside the barycentric
 /// simplex (with a small epsilon for FD samples). Release builds
-/// silently compute `w^k` with negative `w`, which is meaningless.
+/// silently compute `w^k` with negative `w`, which is meaningless
+/// for most users — see [`bernstein_tri5_all_extended`] for the
+/// variant that skips the check.
 pub fn bernstein_tri5_all(u: f64, v: f64) -> [f64; TRI5_CP_COUNT] {
     debug_assert_simplex(u, v);
+    let w = 1.0 - u - v;
+    eval_monomial_scaled::<TRI5_CP_COUNT>(5, u, v, w, &M5)
+}
+
+/// Same as [`bernstein_tri5_all`] but **without** the simplex
+/// check — suitable for evaluating the tri-5 polynomial at points
+/// *outside* the natural wedge (KP13 §3 "v_k domain extension").
+/// The polynomial identity `B^5_{i,j,k} = (5!/(i!j!k!)) u^i v^j w^k`
+/// is well-defined for any real `(u, v, w)`.
+pub fn bernstein_tri5_all_extended(u: f64, v: f64) -> [f64; TRI5_CP_COUNT] {
     let w = 1.0 - u - v;
     eval_monomial_scaled::<TRI5_CP_COUNT>(5, u, v, w, &M5)
 }

@@ -202,6 +202,12 @@ impl StarQuadratic {
 
     /// Populate sector `k`'s 6 near-star tri-5 coefs from this
     /// quadratic. Uses sector `k`'s wedge `(o, v_k, v_{k+1})`.
+    ///
+    /// **Note**: writes `Q(o) = ζ` into the sector's star slot
+    /// (flat 0). If the caller pinned the star to the Catmull-Clark
+    /// limit via [`Gtri5::set_star_point`], that value is silently
+    /// overwritten — prefer [`Self::apply_to_all_sectors_pinned`]
+    /// which enforces `Q.ζ = star`.
     pub fn apply_to_sector(&self, gtri5: &mut Gtri5, k: usize) {
         let v_a = sector_corner(gtri5.n, k);
         let v_b = sector_corner(gtri5.n, k + 1);
@@ -214,10 +220,28 @@ impl StarQuadratic {
 
     /// Populate every sector's 6 near-star tri-5 coefs from this
     /// quadratic.
+    ///
+    /// See the caveat on [`Self::apply_to_sector`] — if the star
+    /// was pre-pinned, prefer [`Self::apply_to_all_sectors_pinned`].
     pub fn apply_to_all_sectors(&self, gtri5: &mut Gtri5) {
         for k in 0..gtri5.n {
             self.apply_to_sector(gtri5, k);
         }
+    }
+
+    /// Populate every sector's 6 near-star tri-5 coefs, forcing
+    /// `Q.ζ = pinned_star`.
+    ///
+    /// Under this path the star coef written is guaranteed to
+    /// equal the pinned star — KP13 §3 "star = Catmull-Clark
+    /// limit" and KP09a §2.3(a) "same quadratic Q across sectors"
+    /// both hold simultaneously.
+    pub fn apply_to_all_sectors_pinned(&self, gtri5: &mut Gtri5, pinned_star: Point3) {
+        let q = Self {
+            zeta: pinned_star,
+            ..*self
+        };
+        q.apply_to_all_sectors(gtri5);
     }
 
     /// Recover the unique `StarQuadratic` whose sector-0 near-star
@@ -249,10 +273,7 @@ pub fn tri2_to_tri5_near_star(q: &[Point3; 6]) -> [Point3; 6] {
     let b0_1_4 = lin2(6.0, q002, 4.0, q011, 10.0);
     let b0_2_3 = lin3(3.0, q002, 6.0, q011, 1.0, q020, 10.0);
     let b1_0_4 = lin2(6.0, q002, 4.0, q101, 10.0);
-    let b1_1_3 = lin_n(
-        &[(3.0, q002), (3.0, q101), (3.0, q011), (1.0, q110)],
-        10.0,
-    );
+    let b1_1_3 = lin_n(&[(3.0, q002), (3.0, q101), (3.0, q011), (1.0, q110)], 10.0);
     let b2_0_3 = lin3(3.0, q002, 6.0, q101, 1.0, q200, 10.0);
     [b0_0_5, b0_1_4, b0_2_3, b1_0_4, b1_1_3, b2_0_3]
 }

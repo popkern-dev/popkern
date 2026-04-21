@@ -153,6 +153,39 @@ fn set_star_point_propagates() {
     }
 }
 
+// ---- Catmull-Clark limit convenience ----
+
+#[test]
+fn new_from_cap_net_pins_star_to_cc_limit() {
+    // For a trivial cap-net where the center and all outer nodes
+    // equal the same point, the CC limit is that point.
+    let c = Point3::new(1.5, -0.5, 2.0);
+    for n in [5, 6, 7, 8] {
+        let c5s = vec![c; n];
+        let c6s = vec![c; n];
+        let g = Gtri5::new_from_cap_net(n, c, &c5s, &c6s);
+        for k in 0..n {
+            assert!(
+                approx_point(g.sector(k).cps[IDX_500], c),
+                "n = {n}, sector {k}: star != {c:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn new_from_cap_net_matches_standalone_formula() {
+    // CC limit = (1 - n·ν₅ - n·ν₆)·c7 + Σ(ν₅·c5 + ν₆·c6). Verify
+    // new_from_cap_net reproduces the standalone helper's output.
+    let n = 6;
+    let c7 = Point3::new(0.0, 0.0, 1.0);
+    let c5s: Vec<Point3> = (0..n).map(|k| Point3::new(k as f64, 0.0, 0.0)).collect();
+    let c6s: Vec<Point3> = (0..n).map(|k| Point3::new(0.0, k as f64, 0.0)).collect();
+    let g = Gtri5::new_from_cap_net(n, c7, &c5s, &c6s);
+    let expected = super::super::kp_polar_shared::catmull_clark_star_point(n, c7, &c5s, &c6s);
+    assert!(approx_point(g.star_point(), expected));
+}
+
 // ---- Mid-edge invariant ----
 
 #[test]
@@ -217,6 +250,62 @@ fn validate_detects_mid_edge_mismatch() {
     // Sector 0's IDX_005 is still zero → should be equal.
     let err = g.validate().unwrap_err();
     assert!(err.contains("mid-edge"));
+}
+
+// ---- evaluate_extended (v_k domain extension) ----
+
+#[test]
+fn evaluate_extended_agrees_with_evaluate_inside_simplex() {
+    // Inside the simplex, extended should match the checked variant.
+    let mut s = Gtri5Sector::zero();
+    for i in 0..=5 {
+        for j in 0..=(5 - i) {
+            let k = 5 - i - j;
+            s.set_cp(i, j, Point3::new(i as f64, j as f64, k as f64));
+        }
+    }
+    for (u, v) in &[(0.1, 0.1), (0.3, 0.5), (0.5, 0.3), (0.0, 0.0), (1.0, 0.0)] {
+        let a = s.evaluate(*u, *v);
+        let b = s.evaluate_extended(*u, *v);
+        assert!(
+            approx_point(a, b),
+            "disagreement at ({u}, {v}): {a:?} vs {b:?}"
+        );
+    }
+}
+
+#[test]
+fn evaluate_extended_linear_matches_analytic_outside_simplex() {
+    // Linear polynomial f(u, v) = 2u + 3v + 1 on the simplex — all
+    // BB-coefs are f(i/5, j/5). Then evaluate_extended at (u, v)
+    // outside the simplex (e.g. u + v > 1 or u < 0) should yield
+    // the analytic value.
+    let mut s = Gtri5Sector::zero();
+    for i in 0..=5 {
+        for j in 0..=(5 - i) {
+            let u = i as f64 / 5.0;
+            let v = j as f64 / 5.0;
+            s.set_cp(i, j, Point3::new(2.0 * u + 3.0 * v + 1.0, 0.0, 0.0));
+        }
+    }
+    // Outside simplex: (1.5, 0.3) → u + v = 1.8 > 1.
+    let out = s.evaluate_extended(1.5, 0.3);
+    let expected = 2.0 * 1.5 + 3.0 * 0.3 + 1.0;
+    assert!(
+        (out.x - expected).abs() < 1e-10,
+        "extended eval at (1.5, 0.3): got {}, expected {}",
+        out.x,
+        expected
+    );
+    // Negative barycentric: (-0.2, 0.5).
+    let out = s.evaluate_extended(-0.2, 0.5);
+    let expected = 2.0 * (-0.2) + 3.0 * 0.5 + 1.0;
+    assert!(
+        (out.x - expected).abs() < 1e-10,
+        "extended eval at (-0.2, 0.5): got {}, expected {}",
+        out.x,
+        expected
+    );
 }
 
 // ---- Partial-derivative FD check ----

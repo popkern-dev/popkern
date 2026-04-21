@@ -230,13 +230,57 @@ pub fn fill_g12_from_g21(gtri5: &mut Gtri5) {
 /// Uses sector `i+1`'s `(3, 0)` as authoritative (the "free
 /// parameter" of the paper lives on each sector as `g^i_{30}`).
 pub fn sync_edge_layer_03_and_30(gtri5: &mut Gtri5) {
+    sync_shared_edge_pair(gtri5, (0, 3), (3, 0));
+}
+
+/// Synchronise **every** depth-0 shared-edge CP pair across
+/// adjacent sectors. The boundary between sector `i` and sector
+/// `i+1` is the ray from the star to `m_{i+1}`. Along this edge,
+/// sector `i`'s paper `(0, j)` coincides with sector `i+1`'s
+/// paper `(j, 0)` for `j = 0..=5`.
+///
+/// Pairs:
+///
+/// | j | sector i flat | sector i+1 flat | in-module status |
+/// |--:|---------------|-----------------|------------------|
+/// | 0 | 0 (star)      | 0 (star)        | `set_star_point` |
+/// | 1 | 1 (Q)         | 6 (Q)           | star-quadratic   |
+/// | 2 | 2 (Q)         | 11 (Q)          | star-quadratic   |
+/// | 3 | 3             | 15 (`g^i_{30}`) | `g^{i+1}_{30}` free |
+/// | 4 | 4             | 18              | free outer-edge CP |
+/// | 5 | 5 (m_{k+1})   | 20 (m_k)        | `set_mid_edge`   |
+///
+/// For `j ∈ {3, 4}`, this function copies sector `i+1`'s CP to
+/// sector `i`'s matching slot (sector `i+1` is authoritative —
+/// it treats that CP as a "free parameter on its own edge").
+///
+/// The star (`j = 0`) and the mid-edge (`j = 5`) are already
+/// maintained by their dedicated invariants.
+///
+/// For `j ∈ {1, 2}` — near-star — both sides are pinned by the
+/// globally-consistent star quadratic (assumed already applied).
+/// This function does **not** overwrite them.
+pub fn sync_shared_edge_all_depths(gtri5: &mut Gtri5) {
+    // j = 3: sector i's (0, 3) ← sector i+1's (3, 0)
+    sync_shared_edge_pair(gtri5, (0, 3), (3, 0));
+    // j = 4: sector i's (0, 4) ← sector i+1's (4, 0)
+    sync_shared_edge_pair(gtri5, (0, 4), (4, 0));
+}
+
+/// Copy sector `i+1`'s CP at paper position `authoritative` to
+/// sector `i`'s slot at `derived`, for all `i`.
+fn sync_shared_edge_pair(
+    gtri5: &mut Gtri5,
+    derived: (usize, usize),
+    authoritative: (usize, usize),
+) {
     let n = gtri5.n;
-    let idx_03 = paper_flat(0, 3);
-    let idx_30 = paper_flat(3, 0);
+    let idx_derived = paper_flat(derived.0, derived.1);
+    let idx_auth = paper_flat(authoritative.0, authoritative.1);
     for i in 0..n {
         let next = (i + 1) % n;
-        let authoritative = gtri5.sector(next).cps[idx_30];
-        gtri5.sector_mut(i).cps[idx_03] = authoritative;
+        let auth_cp = gtri5.sector(next).cps[idx_auth];
+        gtri5.sector_mut(i).cps[idx_derived] = auth_cp;
     }
 }
 
@@ -247,7 +291,7 @@ pub fn sync_edge_layer_03_and_30(gtri5: &mut Gtri5) {
 /// Calls [`sync_edge_layer_03_and_30`] before solving so the RHS
 /// uses consistent shared-edge values.
 pub fn complete_second_derivative_layer(gtri5: &mut Gtri5) -> Result<(), CirculantError> {
-    sync_edge_layer_03_and_30(gtri5);
+    sync_shared_edge_all_depths(gtri5);
     solve_g21_circulant(gtri5)?;
     fill_g12_from_g21(gtri5);
     Ok(())

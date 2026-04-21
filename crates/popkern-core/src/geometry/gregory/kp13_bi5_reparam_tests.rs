@@ -195,9 +195,6 @@ fn validate_accepts_constructor_output() {
 
 #[test]
 fn validate_rejects_nonfinite_c() {
-    let p = Bi5Reparams {
-        n: 5,
-        c: f64::NAN,
-    };
+    let p = Bi5Reparams { n: 5, c: f64::NAN };
     assert!(p.validate().is_err());
 }

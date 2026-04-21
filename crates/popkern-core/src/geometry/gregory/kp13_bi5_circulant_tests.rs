@@ -202,6 +202,33 @@ fn sync_edge_03_30_makes_shared_consistent() {
     }
 }
 
+#[test]
+fn sync_shared_edge_all_depths_covers_j3_and_j4() {
+    let n = 6;
+    let mut g = Gtri5::new(n);
+    let idx_30 = paper_flat(3, 0);
+    let idx_40 = paper_flat(4, 0);
+    let idx_03 = paper_flat(0, 3);
+    let idx_04 = paper_flat(0, 4);
+    // Unique values per sector on (3, 0) and (4, 0).
+    for k in 0..n {
+        g.sector_mut(k).cps[idx_30] = Point3::new(10.0 + k as f64, 0.0, 0.0);
+        g.sector_mut(k).cps[idx_40] = Point3::new(20.0 + k as f64, 0.0, 0.0);
+    }
+    sync_shared_edge_all_depths(&mut g);
+    for i in 0..n {
+        let next = (i + 1) % n;
+        assert!(
+            approx_point(g.sector(i).cps[idx_03], g.sector(next).cps[idx_30]),
+            "j=3 mismatch at sector {i}"
+        );
+        assert!(
+            approx_point(g.sector(i).cps[idx_04], g.sector(next).cps[idx_40]),
+            "j=4 mismatch at sector {i}"
+        );
+    }
+}
+
 // ---- g^i_{12} back-fill ----
 
 #[test]

@@ -55,8 +55,8 @@ use crate::geometry::Point3;
 use std::f64::consts::PI;
 
 use super::bernstein_tri5::{
-    TRI5_CP_COUNT, bernstein_tri5_all, bernstein_tri5_partial_u, bernstein_tri5_partial_v,
-    bernstein_tri5_second_partial_uu, bernstein_tri5_second_partial_uv,
+    TRI5_CP_COUNT, bernstein_tri5_all, bernstein_tri5_all_extended, bernstein_tri5_partial_u,
+    bernstein_tri5_partial_v, bernstein_tri5_second_partial_uu, bernstein_tri5_second_partial_uv,
     bernstein_tri5_second_partial_vv, flat_index,
 };
 
@@ -169,6 +169,15 @@ impl Gtri5Sector {
         combine(&basis, &self.cps)
     }
 
+    /// Evaluate at `(u, v)` **without** the simplex-containment
+    /// check — required for the KP13 §3 "v_k domain extension"
+    /// where the evaluation point lies outside the natural wedge.
+    /// The tri-5 polynomial extends uniquely to all of R².
+    pub fn evaluate_extended(&self, u: f64, v: f64) -> Point3 {
+        let basis = bernstein_tri5_all_extended(u, v);
+        combine(&basis, &self.cps)
+    }
+
     /// First partial ∂/∂u at `(u, v)`.
     pub fn partial_u(&self, u: f64, v: f64) -> Point3 {
         let b = bernstein_tri5_partial_u(u, v);
@@ -215,6 +224,20 @@ impl Gtri5 {
         let mut g = Self::new(n);
         g.set_star_point(star);
         g
+    }
+
+    /// New `g△` with the star point pinned to the Catmull-Clark
+    /// limit of the input cap-net — the standard KP13 §3 choice
+    /// for `g△_{500}`.
+    ///
+    /// `c7` is the cap-net's extraordinary-vertex position;
+    /// `c5s[k]` and `c6s[k]` are sector `k`'s two outer-ring
+    /// cap-net nodes (lengths must equal `n`).
+    ///
+    /// Panics if `c5s.len() != n` or `c6s.len() != n`.
+    pub fn new_from_cap_net(n: usize, c7: Point3, c5s: &[Point3], c6s: &[Point3]) -> Self {
+        let star = super::kp_polar_shared::catmull_clark_star_point(n, c7, c5s, c6s);
+        Self::new_with_star_point(n, star)
     }
 
     /// Set the shared star-point coefficient across every sector.
