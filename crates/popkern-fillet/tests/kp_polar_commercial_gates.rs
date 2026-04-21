@@ -19,6 +19,26 @@
 //! | hexagon6_variable   | 6       | [0.02, 0.04, 0.06, 0.06, 0.04, 0.02] (1:3)     | `#[ignore]` I.22 |
 //! | octagon8_mixed      | 8       | [0.04, 0.06, 0.05, 0.07, 0.05, 0.06, 0.04, 0.06] | `#[ignore]` |
 //!
+//! # Apex-angle regimes (important for fixture selection)
+//!
+//! The polar path is **not** the commercial-grade answer for every
+//! N-valent corner — it's the answer specifically for corners where
+//! the simpler paths (sphere-fit, polar-NURBS) fail. Empirical probe
+//! (`kp_polar_pipeline_probe.rs`) shows three distinct regimes by
+//! apex half-angle `θ = atan(base_radius / height)`:
+//!
+//! | θ     | Polar reachable? | Pipeline choice                  |
+//! |-------|------------------|----------------------------------|
+//! | ≤ 27° | No               | Sphere-fit / single-surface path |
+//! | 27°–45° | Sometimes (depends on r) | Polar when polar-NURBS insufficient |
+//! | > 45° | Yes (sharp apex) | Polar attempted; folds likely    |
+//!
+//! Blunt-apex fixtures (θ ≤ 27° — commercial-CAD typical) bypass
+//! polar entirely and take sphere-fit. They're positive controls
+//! for the sphere-fit path, not tests of polar. Tests below mark
+//! this explicitly in their names (`_blunt` = expected sphere-fit;
+//! `_sharp` or unqualified = polar-engaged).
+//!
 //! All fixtures are `#[ignore]` at commit time for **two separate
 //! reasons**:
 //!
@@ -72,6 +92,27 @@ fn run_n_gonal_pyramid_polar(
     let patches = collect_patches(&brep, &faces);
     assert_all_binonic(&patches, fixture);
     measure_ring(&patches, N_SAMPLES)
+}
+
+/// Blunt-apex positive control (apex half-angle 18°, typical CAD).
+/// Expected to take sphere-fit path and bypass polar entirely.
+/// The `assert_all_binonic` assertion in `run_n_gonal_pyramid_polar`
+/// will fail at the moment because the sphere-fit path produces a
+/// single non-Gregory face, not N Gregory sub-patches. This is the
+/// intended commercial behaviour for gentle corners — the test is
+/// `#[ignore]` until the probe is refactored to assert "valid
+/// commercial output" (sphere-fit OR polar-bi9) rather than
+/// specifically "N Gregory bi-nonic patches."
+///
+/// Documented here as a reminder: pentagon5 at h=3.0 (18° apex) is
+/// the REAL commercial-CAD test case; the `_uniform` / `_mixed` /
+/// `_variable` sharp-apex tests below stress the polar path
+/// specifically.
+#[ignore]
+#[test]
+fn pentagon5_blunt_takes_sphere_fit_path() {
+    let m = run_n_gonal_pyramid_polar(5, 1.0, 3.0, &[0.05; 5], "pentagon5_blunt");
+    assert_commercial_gates("pentagon5_blunt", &m);
 }
 
 #[ignore]

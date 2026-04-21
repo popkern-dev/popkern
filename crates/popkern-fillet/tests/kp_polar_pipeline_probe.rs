@@ -83,6 +83,7 @@ fn probe_pyramid(n: usize, base_r: f64, height: f64, radii: &[f64], tag: &str) -
         eprintln!("[{tag}] no N={n} apex");
         return (0, 0);
     };
+    let half_angle_deg = (base_r / height).atan().to_degrees();
     let edges = incident_edges(&pyr, vertex);
     let specs: Vec<FilletSpec> = edges
         .iter()
@@ -107,7 +108,7 @@ fn probe_pyramid(n: usize, base_r: f64, height: f64, radii: &[f64], tag: &str) -
                 })
                 .count();
             eprintln!(
-                "[{tag}] corner_patches={} gregory_surface={} warnings={}",
+                "[{tag} apex={half_angle_deg:.0}°] corner_patches={} gregory_surface={} warnings={}",
                 result.corner_patches.len(),
                 gregory_patches,
                 result.edge_warnings.len(),
@@ -115,7 +116,7 @@ fn probe_pyramid(n: usize, base_r: f64, height: f64, radii: &[f64], tag: &str) -
             (result.corner_patches.len(), gregory_patches)
         }
         Err(e) => {
-            eprintln!("[{tag}] ERR {e:?}");
+            eprintln!("[{tag} apex={half_angle_deg:.0}°] ERR {e:?}");
             (0, 0)
         }
     }
@@ -142,12 +143,19 @@ fn probe_pentagon5_geometry_sweep() {
 
     let mut fully_passing = false;
     let mut any_five_subfaces = false;
+    // Full sweep: from pathologically-sharp (h=0.5, apex half-angle
+    // 63°) through commercial-grade CAD (h=3.0, 18°) to near-flat
+    // (h=10.0, 6°). Apex half-angle is what actually stresses the
+    // fillet pipeline — sharper = more fillet overlap near C,
+    // blunter = gentler cross-derivative magnitudes.
     for (base_r, height, tag) in [
-        (1.0, 0.8, "tall=0.8×base — pinched"),
-        (1.0, 1.5, "tall=1.5×base"),
-        (1.0, 2.5, "tall=2.5×base"),
-        (1.0, 4.0, "tall=4.0×base — blunt"),
-        (2.0, 2.0, "big base=2, h=2"),
+        (1.0, 0.5, "pinched"),
+        (1.0, 0.8, "tall=0.8×base"),
+        (1.0, 1.5, "moderate"),
+        (1.0, 2.0, "moderate-blunt"),
+        (1.0, 3.0, "commercial-gentle"),
+        (1.0, 5.0, "blunt"),
+        (1.0, 10.0, "very blunt"),
     ] {
         eprintln!("\n--- geom: base_r={base_r} height={height} [{tag}] ---");
         for (radii, rtag) in [
