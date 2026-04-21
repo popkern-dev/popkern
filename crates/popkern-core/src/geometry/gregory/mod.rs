@@ -71,6 +71,7 @@ mod kp15_bi6_cap_f5_solve;
 mod kp15_bi6_circulant;
 mod kp15_bi6_f5;
 mod kp15_bi6_mu;
+mod kp15_bi6_polar_bridge;
 mod kp15_bi6_reparam;
 mod kp15_bi6_rule_s3;
 mod kp15_bi6_rules;
@@ -208,6 +209,7 @@ pub use kp15_bi6_circulant::{
 };
 pub use kp15_bi6_f5::{BI6_CP_COUNT, f5_evaluate, f5_quadratic_form};
 pub use kp15_bi6_mu::{mu_bar, mu_ddot, mu_dot, mu_tdot, mu_tilde, w_scalars};
+pub use kp15_bi6_polar_bridge::convert_polar_to_bi6_cap_input;
 pub use kp15_bi6_reparam::{Bi6Reparams, gamma as bi6_gamma, tau_for_valence};
 pub use kp15_bi6_rule_s3::{S3Inputs, S3Outputs, rule_s3};
 pub use kp15_bi6_rules::{
