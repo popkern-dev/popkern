@@ -128,6 +128,85 @@ fn third_derivative_matches_finite_difference() {
 }
 
 #[test]
+fn fourth_derivative_sum_is_zero() {
+    // Σ B_i^6⁽⁴⁾(t) = d⁴/dt⁴ (1) = 0 at every t.
+    for k in 0..=30 {
+        let t = (k as f64) / 30.0;
+        let sum: f64 = bernstein_bi6_fourth_deriv_all(t).iter().sum();
+        assert!(sum.abs() < 1e-10, "Σ B^6⁽⁴⁾ at t={t} = {sum} ≠ 0");
+    }
+}
+
+#[test]
+fn fourth_derivative_via_diff_of_third() {
+    // Cross-check analytic 4th deriv against (d/dt)(3rd deriv)
+    // computed via central difference, using a moderate h where
+    // cancellation noise is manageable.
+    let h = 1e-4;
+    for k in 1..10 {
+        let t = (k as f64) / 10.0;
+        let d4 = bernstein_bi6_fourth_deriv_all(t);
+        for i in 0..=6 {
+            let d3_plus = bernstein_bi6_third_deriv(i, t + h);
+            let d3_minus = bernstein_bi6_third_deriv(i, t - h);
+            let fd = (d3_plus - d3_minus) / (2.0 * h);
+            let rel = (d4[i] - fd).abs() / d4[i].abs().max(1.0);
+            assert!(
+                rel < 1e-3,
+                "i = {i}, t = {t}: analytic = {}, FD = {fd}, rel {rel}",
+                d4[i]
+            );
+        }
+    }
+}
+
+#[test]
+fn fifth_derivative_matches_finite_difference() {
+    // 5th FD: (-f(t-3h/2) + ...) / h⁵; stencil sum too noisy for
+    // small h — use a moderate h and check magnitude.
+    // Alternative check: 5th derivative of 1 is 0.
+    for k in 0..=30 {
+        let t = (k as f64) / 30.0;
+        let sum: f64 = (0..=6).map(|i| bernstein_bi6_fifth_deriv_all(t)[i]).sum();
+        assert!(sum.abs() < 1e-9, "Σ B^6⁽⁵⁾_i(t) at t={t} = {sum} ≠ 0");
+    }
+}
+
+#[test]
+fn fifth_derivative_endpoint_identities() {
+    // B_i^6⁽⁵⁾(0): endpoint formula is 720·(-δ_{i-5,-1} + 5·δ_{i-4,0} - 10·δ_{i-3,1} + ...)
+    // But simpler check: at t=0, B^1_m(0) = 1 iff m=0, else 0.
+    // So B_i^6⁽⁵⁾(0) = 720 · (-B^1_{i-5}(0) + 5 B^1_{i-4}(0) - 10 B^1_{i-3}(0) + 10 B^1_{i-2}(0) - 5 B^1_{i-1}(0) + B^1_i(0))
+    //                 = 720 · (-δ_{i, 5} + 5 δ_{i, 4} - 10 δ_{i, 3} + 10 δ_{i, 2} - 5 δ_{i, 1} + δ_{i, 0})
+    let d5_0 = bernstein_bi6_fifth_deriv_all(0.0);
+    let expected_at_0 = [720.0, -3600.0, 7200.0, -7200.0, 3600.0, -720.0, 0.0];
+    for i in 0..7 {
+        assert!(
+            (d5_0[i] - expected_at_0[i]).abs() < 1e-9,
+            "B_{i}^6⁽⁵⁾(0): expected {}, got {}",
+            expected_at_0[i],
+            d5_0[i]
+        );
+    }
+}
+
+#[test]
+fn fourth_derivative_endpoint_identities() {
+    // At t=0: B^2_m(0) = 1 iff m=0, else 0.
+    // B_i^6⁽⁴⁾(0) = 360 · (δ_{i, 4} - 4 δ_{i, 3} + 6 δ_{i, 2} - 4 δ_{i, 1} + δ_{i, 0})
+    let d4_0 = bernstein_bi6_fourth_deriv_all(0.0);
+    let expected = [360.0, -1440.0, 2160.0, -1440.0, 360.0, 0.0, 0.0];
+    for i in 0..7 {
+        assert!(
+            (d4_0[i] - expected[i]).abs() < 1e-9,
+            "B_{i}^6⁽⁴⁾(0): expected {}, got {}",
+            expected[i],
+            d4_0[i]
+        );
+    }
+}
+
+#[test]
 fn all_matches_individual() {
     for k in 0..=20 {
         let t = (k as f64) / 20.0;

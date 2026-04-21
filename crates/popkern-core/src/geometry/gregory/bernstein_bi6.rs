@@ -122,6 +122,53 @@ pub fn bernstein_bi6_second_deriv_all(t: f64) -> [f64; 7] {
     out
 }
 
+/// All 7 4th-derivative values at once.
+/// `B_i^6⁽⁴⁾(t) = 360 · (B_{i-4}^2 − 4·B_{i-3}^2 + 6·B_{i-2}^2 − 4·B_{i-1}^2 + B_i^2)(t)`.
+/// `6·5·4·3 = 360`. Out-of-range `B^2` values treated as 0.
+#[inline]
+pub fn bernstein_bi6_fourth_deriv_all(t: f64) -> [f64; 7] {
+    let b = {
+        let omt = 1.0 - t;
+        [omt * omt, 2.0 * t * omt, t * t]
+    };
+    let bm = |i: i32| -> f64 {
+        if (0..=2).contains(&i) {
+            b[i as usize]
+        } else {
+            0.0
+        }
+    };
+    let mut out = [0.0_f64; 7];
+    for i in 0..7_i32 {
+        out[i as usize] =
+            360.0 * (bm(i - 4) - 4.0 * bm(i - 3) + 6.0 * bm(i - 2) - 4.0 * bm(i - 1) + bm(i));
+    }
+    out
+}
+
+/// All 7 5th-derivative values at once.
+/// `B_i^6⁽⁵⁾(t) = 720 · Σ_{j=0..5} (−1)^{5-j}·C(5, j)·B_{i-5+j}^1(t)`.
+/// `6! / 1! = 720`. `B_i^1(t) = 1-t` for i=0, `t` for i=1, else 0.
+#[inline]
+pub fn bernstein_bi6_fifth_deriv_all(t: f64) -> [f64; 7] {
+    let bm = |i: i32| -> f64 {
+        match i {
+            0 => 1.0 - t,
+            1 => t,
+            _ => 0.0,
+        }
+    };
+    let mut out = [0.0_f64; 7];
+    for i in 0..7_i32 {
+        // Expansion: -B_{i-5} + 5·B_{i-4} - 10·B_{i-3} + 10·B_{i-2} - 5·B_{i-1} + B_i
+        out[i as usize] = 720.0
+            * (-bm(i - 5) + 5.0 * bm(i - 4) - 10.0 * bm(i - 3) + 10.0 * bm(i - 2)
+                - 5.0 * bm(i - 1)
+                + bm(i));
+    }
+    out
+}
+
 /// All 7 third-derivative values at once.
 #[inline]
 pub fn bernstein_bi6_third_deriv_all(t: f64) -> [f64; 7] {
