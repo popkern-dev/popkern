@@ -132,19 +132,51 @@ impl Bi6CapFreeParams {
 }
 
 /// Apply a free-parameter vector to a base input: overwrites
-/// `p0_22` + sector-0 near-star CPs and builds `interior_filler`
-/// for the per-sector interior CPs at `(2, 3)` and `(3, 3)`.
+/// `p0_22` + sector-0 near-star CPs, propagates sector 0's values
+/// forward through sectors 1..n-1 via rule (S1), and builds
+/// `interior_filler` for per-sector interior CPs at `(2, 3)` and
+/// `(3, 3)`.
+///
+/// **Option B — (S1) propagation** (KP15 eq (6)): sector k > 0's
+/// `(p_01, p_11, p_02)` are derived from sector (k-1)'s values
+/// via `rule_s1_star_propagation`. This replaces the previous
+/// behaviour where each sector's near-star CPs came from its own
+/// tensor-border scaffold and were independently computed — a
+/// pattern that broke the paper's cross-sector consistency
+/// because the formulas for (S2) et al. use `p̀_{0j}` (previous
+/// sector) to compute `ṕ_{ij}` (current sector).
+///
+/// The shared-edge CPs `(p_00, p_10, p_20, p_40, p_50, p_60)` are
+/// left at their tensor-border values (not paper-strictly shared
+/// across sectors because our scaffold has them per-sector; the
+/// paper assumes all sectors' `p_i0` are identical). Closing that
+/// gap is option B' — a separate refinement.
 fn apply_free_params(base: &Bi6CapInput, free: &Bi6CapFreeParams) -> Bi6CapInput {
     let mut out = base.clone();
     out.p0_22 = free.p0_22;
-    // Sector-0 near-star CPs (option A): overwrite
-    // sectors[0].p_01/02/11 with the F_5-chosen values. Sectors
-    // k > 0 retain caller-supplied scaffold values (option B
-    // will replace those with (S1)-propagated values).
+    // Sector-0 near-star CPs (option A): overwrite with F_5 free
+    // values.
     if !out.sectors.is_empty() {
         out.sectors[0].p_01 = free.p0_01;
         out.sectors[0].p_02 = free.p0_02;
         out.sectors[0].p_11 = free.p0_11;
+    }
+    // (S1) forward propagation for k = 1..n (option B).
+    let n = out.sectors.len();
+    for k in 1..n {
+        let prev = out.sectors[k - 1];
+        let s1 = super::kp15_bi6_rules::rule_s1_star_propagation(
+            &out.params,
+            prev.p_00,
+            prev.p_01,
+            prev.p_02,
+            prev.p_10,
+            prev.p_11,
+            prev.p_20,
+        );
+        out.sectors[k].p_01 = s1.p01;
+        out.sectors[k].p_11 = s1.p11;
+        out.sectors[k].p_02 = s1.p02;
     }
     let mut filler: Vec<[[Option<Point3>; 7]; 7]> = vec![[[None; 7]; 7]; out.n];
     for k in 0..out.n {

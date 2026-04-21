@@ -180,7 +180,8 @@ fn add_pts(a: Point3, b: Point3) -> Point3 {
     Point3::new(a.x + b.x, a.y + b.y, a.z + b.z)
 }
 
-/// Replicate the private `apply_free_params` logic for tests.
+/// Replicate the private `apply_free_params` logic for tests,
+/// including option B (S1) propagation.
 fn apply_free_params_for_test(base: &Bi6CapInput, free: &Bi6CapFreeParams) -> Bi6CapInput {
     let mut out = base.clone();
     out.p0_22 = free.p0_22;
@@ -188,6 +189,22 @@ fn apply_free_params_for_test(base: &Bi6CapInput, free: &Bi6CapFreeParams) -> Bi
         out.sectors[0].p_01 = free.p0_01;
         out.sectors[0].p_02 = free.p0_02;
         out.sectors[0].p_11 = free.p0_11;
+    }
+    let n = out.sectors.len();
+    for k in 1..n {
+        let prev = out.sectors[k - 1];
+        let s1 = crate::geometry::gregory::kp15_bi6_rules::rule_s1_star_propagation(
+            &out.params,
+            prev.p_00,
+            prev.p_01,
+            prev.p_02,
+            prev.p_10,
+            prev.p_11,
+            prev.p_20,
+        );
+        out.sectors[k].p_01 = s1.p01;
+        out.sectors[k].p_11 = s1.p11;
+        out.sectors[k].p_02 = s1.p02;
     }
     let mut filler: Vec<[[Option<Point3>; 7]; 7]> = vec![[[None; 7]; 7]; out.n];
     for k in 0..out.n {
