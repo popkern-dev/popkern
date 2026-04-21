@@ -24,20 +24,66 @@
 //!   NURBS corner patch interior quality may be degraded; true
 //!   rational Gregory for N >= 5 is pending."
 //!
-//! # Implication
+//! # Root cause (localised 2026-04-21)
 //!
-//! Phase I's bi-6 polar engine is proven on synthetic
-//! `PolarBoundaryInput` (see `kp_polar_bi6_apply_tests` in
-//! `popkern-core`), but in the fillet pipeline it's behind an
-//! upstream N ≥ 5 gap: the blend-boundary extraction / three-quad
-//! poke / self-intersection path bails out before invoking it.
-//! Phase II must either (a) fix the upstream pipeline to produce
-//! a valid N-gon blend face at N ≥ 5 apex vertices, or (b) wire
-//! a direct polar-only bypass that constructs the blend boundary
-//! from the fillet ring without going through the three-quad
-//! scaffold. Same gap afflicts the binonic path on N ≥ 5 — this
-//! is a pre-Phase-I upstream limitation, surfaced but not caused
-//! by Phase I.
+//! Temporary tracing at the `blend_insert::insert_vertex_blend`
+//! three-quad gate showed every other prerequisite passing, with
+//! one hard failure:
+//!
+//! ```text
+//! [insert_vertex_blend] n_sides=5 bound_some=true blend_face_he_count=5 (need 2n=10)
+//! ```
+//!
+//! `compute_blend_boundary` succeeds and returns the expected
+//! `segments.len() == 2 * n_sides` (10 alternating
+//! `FilletEnd`/`FaceEdge`), but the BRep **blend face's outer
+//! loop only has N half-edges**, not 2N. The
+//! `face_has_2n_outer_half_edges` precondition on
+//! `poke_n_gon_face_into_n_quads` rejects, so the three-quad
+//! dispatch (and transitively the polar dispatch) never fires.
+//!
+//! Why: at N=3 (cube corner) adjacent-fillet bridges on the cube
+//! faces are separate BRep edges that survive the kef / kev Euler
+//! ops — the merged blend face has 2N = 6 half-edges (3 arcs +
+//! 3 bridges). At N=5 pyramidal apex the slant-face geometry is
+//! sharper; the fillet trim-curves converge tightly enough that
+//! the "bridge" region is absorbed into the fillet-arc edges
+//! during kef merging — the merged blend face has only N = 5
+//! half-edges (all fillet arcs, no topologically-distinct
+//! bridges). The abstract `BlendBoundary` still carries 10
+//! segments (5 arcs + 5 bridge curves on the supporting slant
+//! faces) because those are geometric curves, not topological
+//! edges — but the BRep face loop has lost the distinction.
+//!
+//! # Phase II fix paths
+//!
+//! a. **Topology surgery** — after kef / kev, detect N-half-edge
+//!    blend faces (N ≥ 5) and insert N synthetic midpoint
+//!    vertices on each fillet arc via a mid-edge vertex Euler
+//!    op. Gives 2N half-edges, lets `poke_n_gon_face_into_n_quads`
+//!    run as-is. Midpoint placement should be the parameter
+//!    corresponding to the arc's midpoint in the
+//!    `BlendBoundary`'s `FilletEnd` curve.
+//!
+//! b. **Native N-gon poke** — generalise
+//!    `poke_n_gon_face_into_n_quads` to handle N-half-edge outer
+//!    loops. Each half-edge is a fillet-arc to be split at its
+//!    midpoint parameter; the poke inserts N midpoint vertices
+//!    plus N spokes to the central point, producing N quads.
+//!    More invasive but avoids the synthetic-vertex coupling to
+//!    specific Euler ops.
+//!
+//! c. **Polar-only bypass** — sidestep the three-quad scaffold
+//!    entirely for N ≥ 5. Build `PolarBoundaryInput` directly
+//!    from the fillet-strip surfaces + the
+//!    `compute_blend_boundary` output (which is correctly 2N);
+//!    construct the sub-faces via a dedicated N-fan Euler op
+//!    sequence; assign the N bi-9 grids. Bypasses the 2N-HE
+//!    precondition entirely.
+//!
+//! Same gap afflicts the binonic path on N ≥ 5 — this is a
+//! pre-Phase-I upstream limitation, surfaced but not caused by
+//! Phase I.
 //!
 //! All tests `#[ignore]` — run manually with
 //! `cargo test --test kp_polar_pipeline_probe -- --ignored --nocapture`.
