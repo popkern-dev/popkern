@@ -69,6 +69,7 @@ mod direct_types;
 mod kp13_bi5_connect;
 mod kp13_bi5_gtri5;
 mod kp13_bi5_reparam;
+mod kp13_bi5_star_quadratic;
 mod kp15_bi6_cap;
 mod kp15_bi6_cap_f5_solve;
 mod kp15_bi6_circulant;
