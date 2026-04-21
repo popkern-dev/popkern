@@ -207,6 +207,64 @@ fn from_direct_boundary_input_copies_fields() {
 }
 
 #[test]
+fn from_direct_central_plane_is_shirman_sequin_normal_averaged() {
+    // For a symmetric input where all per-sector face planes
+    // have the same normal direction (e.g., all xy-planes with
+    // normal = +z), the averaged normal is +z and the central
+    // tangent plane's normal must match.
+    let polar = make_regular_polar(5);
+    let direct = DirectBoundaryInput {
+        central_vertex: polar.central_vertex,
+        spokes: polar.spokes.clone(),
+        outer_corners: polar.outer_corners.clone(),
+        central_vertex_tps: polar.face_tangent_planes.clone(),
+        seed_patches: None,
+    };
+    // All central_vertex_tps in `make_regular_polar` are `tp_xy`
+    // with normal = (0, 0, 1). Averaged normal = (0, 0, 1).
+    let polar_out = PolarBoundaryInput::from_direct_boundary_input(&direct).unwrap();
+    let n = polar_out.central_tangent_plane.normal();
+    assert!(
+        (n.x.abs() < 1e-12) && (n.y.abs() < 1e-12) && ((n.z - 1.0).abs() < 1e-12),
+        "expected central normal = (0, 0, 1), got {n:?}"
+    );
+    // Basis vectors must be orthogonal unit vectors.
+    let u = polar_out.central_tangent_plane.u;
+    let v = polar_out.central_tangent_plane.v;
+    assert!((u.dot(&u) - 1.0).abs() < 1e-12);
+    assert!((v.dot(&v) - 1.0).abs() < 1e-12);
+    assert!(u.dot(&v).abs() < 1e-12);
+}
+
+#[test]
+fn from_direct_central_plane_handles_asymmetric_normals() {
+    // Three sectors with normals at (1, 0, 0.5), (-1, 0, 0.5),
+    // (0, 1, 0.5). Averaged normal ≈ (0, 1/3, 1.5/3) after norm.
+    // Non-zero; the converter should produce a valid plane.
+    let mut direct = DirectBoundaryInput {
+        central_vertex: make_regular_polar(3).central_vertex,
+        spokes: make_regular_polar(3).spokes,
+        outer_corners: make_regular_polar(3).outer_corners,
+        central_vertex_tps: vec![tp_xy(); 3],
+        seed_patches: None,
+    };
+    // Replace per-sector tangent planes with explicit different
+    // normals.
+    direct.central_vertex_tps = vec![
+        TangentPlane::from_normal(Vec3::new(1.0, 0.0, 0.5)).unwrap(),
+        TangentPlane::from_normal(Vec3::new(-1.0, 0.0, 0.5)).unwrap(),
+        TangentPlane::from_normal(Vec3::new(0.0, 1.0, 0.5)).unwrap(),
+    ];
+    let polar = PolarBoundaryInput::from_direct_boundary_input(&direct)
+        .expect("non-degenerate averaged normal");
+    // Averaged unit-normal should be roughly (0, 0.33, 1.5)/|·|.
+    // Verify normalisation: plane's normal is a unit vector.
+    let n = polar.central_tangent_plane.normal();
+    let len = (n.x * n.x + n.y * n.y + n.z * n.z).sqrt();
+    assert!((len - 1.0).abs() < 1e-10);
+}
+
+#[test]
 fn from_direct_rejects_mismatched_central_vertex_tps() {
     use crate::geometry::gregory::DirectBoundaryInput;
     let polar = make_regular_polar(5);
@@ -263,4 +321,83 @@ fn tensor_border_bi5_accessors() {
     assert_eq!(tb.second_cross_row(0).len(), 6);
     let p = tb.position_row(4)[5];
     assert!((p.x - 4.0).abs() < 1e-12 && (p.y - 5.0).abs() < 1e-12);
+}
+
+#[test]
+fn from_direct_spiked_star_handled() {
+    // Spiked star: one sector's normal points dramatically off-axis
+    // (say, (5, 0, 1)) while four others share (0, 0, 1). Averaged
+    // normal is non-degenerate but the plane skews toward +x; the
+    // converter must still produce a valid unit normal.
+    let mut direct = DirectBoundaryInput {
+        central_vertex: make_regular_polar(5).central_vertex,
+        spokes: make_regular_polar(5).spokes,
+        outer_corners: make_regular_polar(5).outer_corners,
+        central_vertex_tps: vec![tp_xy(); 5],
+        seed_patches: None,
+    };
+    direct.central_vertex_tps[0] = TangentPlane::from_normal(Vec3::new(5.0, 0.0, 1.0)).unwrap();
+    let polar = PolarBoundaryInput::from_direct_boundary_input(&direct)
+        .expect("spiked-star still produces a non-degenerate averaged normal");
+    let n = polar.central_tangent_plane.normal();
+    let len = (n.x * n.x + n.y * n.y + n.z * n.z).sqrt();
+    assert!((len - 1.0).abs() < 1e-10, "averaged normal must be unit");
+    // Skew toward +x (spiked normal has large x component); z still
+    // dominates since 4/5 sectors contribute +z.
+    assert!(n.z > 0.5, "z component must remain dominant, got {n:?}");
+    assert!(n.x > 0.0, "x component must pick up the spike, got {n:?}");
+}
+
+#[test]
+fn from_direct_antipodal_normals_rejected() {
+    // Pathological: two antipodal sectors cancel the sum, leaving
+    // only the remaining contributors. If all pairs cancel (even N
+    // with fully opposite normals), the averaged normal is zero
+    // and the converter must reject cleanly rather than panic.
+    let mut direct = DirectBoundaryInput {
+        central_vertex: make_regular_polar(4).central_vertex,
+        spokes: make_regular_polar(4).spokes,
+        outer_corners: make_regular_polar(4).outer_corners,
+        central_vertex_tps: vec![tp_xy(); 4],
+        seed_patches: None,
+    };
+    direct.central_vertex_tps = vec![
+        TangentPlane::from_normal(Vec3::new(0.0, 0.0, 1.0)).unwrap(),
+        TangentPlane::from_normal(Vec3::new(0.0, 0.0, -1.0)).unwrap(),
+        TangentPlane::from_normal(Vec3::new(1.0, 0.0, 0.0)).unwrap(),
+        TangentPlane::from_normal(Vec3::new(-1.0, 0.0, 0.0)).unwrap(),
+    ];
+    let err = PolarBoundaryInput::from_direct_boundary_input(&direct)
+        .expect_err("antipodal-cancelling normals must yield degenerate sum");
+    assert!(
+        err.contains("degenerate"),
+        "error should mention degeneracy, got {err:?}"
+    );
+}
+
+#[test]
+fn from_direct_preserves_per_spoke_radii_from_mean() {
+    // Round-trip: the per_spoke_radii in the converted polar input
+    // must equal the midpoint of each spoke's radius_at_c and
+    // radius_at_v, as documented on `from_direct_boundary_input`.
+    let mut direct = DirectBoundaryInput {
+        central_vertex: make_regular_polar(5).central_vertex,
+        spokes: make_regular_polar(5).spokes,
+        outer_corners: make_regular_polar(5).outer_corners,
+        central_vertex_tps: vec![tp_xy(); 5],
+        seed_patches: None,
+    };
+    // Give each spoke a distinct pair of radii.
+    for (k, spoke) in direct.spokes.iter_mut().enumerate() {
+        spoke.radius_at_c = 0.10 + 0.01 * (k as f64);
+        spoke.radius_at_v = 0.20 + 0.01 * (k as f64);
+    }
+    let polar = PolarBoundaryInput::from_direct_boundary_input(&direct).unwrap();
+    for (k, r) in polar.per_spoke_radii.iter().enumerate() {
+        let expected = 0.5 * (0.10 + 0.20) + 0.01 * (k as f64);
+        assert!(
+            (r - expected).abs() < 1e-12,
+            "spoke {k}: got {r}, expected {expected}"
+        );
+    }
 }

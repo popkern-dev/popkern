@@ -164,17 +164,18 @@ impl PolarBoundaryInput {
     ///   (both are per-sector face tangent planes).
     /// - `per_spoke_radii[k]` := midpoint of
     ///   `(spokes[k].radius_at_c, spokes[k].radius_at_v)`.
-    /// - `central_tangent_plane` := arithmetic average of the N
-    ///   per-sector tangent planes' `u` and `v` basis vectors,
-    ///   renormalised via `TangentPlane::from_basis`. This is a
-    ///   heuristic seed for the Shirman-Séquin enclosure; the
-    ///   F_5 minimisation compensates for any residual.
+    /// - `central_tangent_plane` — Shirman-Séquin-style common
+    ///   enclosure: average the N unit normals of the per-sector
+    ///   planes, renormalise, and build a plane via
+    ///   [`TangentPlane::from_normal`]. Normal-averaging (not
+    ///   basis-averaging) produces a true orthogonal tangent
+    ///   plane even for asymmetric configurations.
     ///
     /// # Errors
     /// - Input `DirectBoundaryInput` has `central_vertex_tps`
     ///   with a different length than `spokes`.
-    /// - The average tangent-plane basis vectors are degenerate
-    ///   (shouldn't happen for well-formed inputs).
+    /// - The averaged normal is zero-length (degenerate
+    ///   flat-star configuration — normals sum to 0).
     pub fn from_direct_boundary_input(direct: &DirectBoundaryInput) -> Result<Self, String> {
         let n = direct.n();
         if direct.central_vertex_tps.len() != n {
@@ -184,19 +185,17 @@ impl PolarBoundaryInput {
                 n
             ));
         }
-        // Average the u and v basis vectors across all sectors.
-        // Each contribution is normalised (unit-length); the sum
-        // is then renormalised via `from_basis` (which handles
-        // both normalisation and orthogonalisation).
+        // Shirman-Séquin: sum per-sector unit normals, renormalise,
+        // derive the common tangent plane from the averaged normal.
+        // Gives a true orthogonal plane regardless of configuration.
         use crate::geometry::Vec3;
-        let mut sum_u = Vec3::new(0.0, 0.0, 0.0);
-        let mut sum_v = Vec3::new(0.0, 0.0, 0.0);
+        let mut sum_n = Vec3::new(0.0, 0.0, 0.0);
         for tp in &direct.central_vertex_tps {
-            sum_u = Vec3::new(sum_u.x + tp.u.x, sum_u.y + tp.u.y, sum_u.z + tp.u.z);
-            sum_v = Vec3::new(sum_v.x + tp.v.x, sum_v.y + tp.v.y, sum_v.z + tp.v.z);
+            let n_k = tp.normal();
+            sum_n = Vec3::new(sum_n.x + n_k.x, sum_n.y + n_k.y, sum_n.z + n_k.z);
         }
-        let central_tangent_plane = TangentPlane::from_basis(sum_u, sum_v)
-            .ok_or_else(|| "averaged central tangent basis is degenerate".to_string())?;
+        let central_tangent_plane = TangentPlane::from_normal(sum_n)
+            .ok_or_else(|| "averaged central normal is degenerate".to_string())?;
         let per_spoke_radii: Vec<f64> = direct
             .spokes
             .iter()

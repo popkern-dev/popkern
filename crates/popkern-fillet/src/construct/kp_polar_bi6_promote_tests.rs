@@ -15,7 +15,8 @@
 //! quality. Commercial-gate acceptance tests for real fillets
 //! are in Stage 6 (I.25–I.28) of the plan.
 
-use super::promote_decomp_to_kp_polar_bi6;
+use super::{extract_fillet_radius, promote_decomp_to_kp_polar_bi6};
+use crate::fillet_surface::FilletSurfaceResult;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{GregoryPatch, RectangularGregoryTwoStripe};
 
@@ -50,13 +51,19 @@ fn synthetic_ring(n: usize) -> Vec<GregoryPatch> {
 #[test]
 fn rejects_n_less_than_5() {
     let mut ring = synthetic_ring(4);
-    assert!(promote_decomp_to_kp_polar_bi6(&mut ring).is_none());
+    assert!(matches!(
+        promote_decomp_to_kp_polar_bi6(&mut ring, &[]),
+        super::PolarPromoteOutcome::Rejected
+    ));
 }
 
 #[test]
 fn rejects_empty_ring() {
     let mut ring: Vec<GregoryPatch> = vec![];
-    assert!(promote_decomp_to_kp_polar_bi6(&mut ring).is_none());
+    assert!(matches!(
+        promote_decomp_to_kp_polar_bi6(&mut ring, &[]),
+        super::PolarPromoteOutcome::Rejected
+    ));
 }
 
 #[test]
@@ -73,7 +80,10 @@ fn rejects_non_two_stripe_input() {
         grid: [[pt(0.0, 0.0, 0.0); 10]; 10],
     };
     ring[0] = GregoryPatch::RectangularBiNonic(Box::new(bi9));
-    assert!(promote_decomp_to_kp_polar_bi6(&mut ring).is_none());
+    assert!(matches!(
+        promote_decomp_to_kp_polar_bi6(&mut ring, &[]),
+        super::PolarPromoteOutcome::Rejected
+    ));
 }
 
 // The positive-path test (`ring → bi-nonic patches`) requires a
@@ -88,3 +98,62 @@ fn rejects_non_two_stripe_input() {
 // `kp_polar_bi6_apply_tests.rs`), which use synthetic
 // `PolarBoundaryInput` directly and exercise the full flow at
 // n ∈ {5, 6, 7, 8, 10, 12}.
+
+fn placeholder_trim() -> popkern_core::geometry::NurbsCurve {
+    popkern_core::geometry::NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![pt(0.0, 0.0, 0.0), pt(1.0, 0.0, 0.0)],
+        weights: vec![1.0, 1.0],
+    }
+}
+
+fn fs_with(surface: popkern_core::geometry::surface::SurfaceGeometry) -> FilletSurfaceResult {
+    FilletSurfaceResult {
+        surface,
+        trim_curve_1: placeholder_trim(),
+        trim_curve_2: placeholder_trim(),
+        continuity_downgrade: None,
+    }
+}
+
+#[test]
+fn extract_radius_matches_cylinder_torus_sphere() {
+    use popkern_core::geometry::Vec3;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    let cyl = fs_with(SurfaceGeometry::Cylinder {
+        origin: pt(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 0.25,
+    });
+    assert!((extract_fillet_radius(&cyl).unwrap() - 0.25).abs() < 1e-15);
+
+    let tor = fs_with(SurfaceGeometry::Torus {
+        center: pt(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        major_radius: 1.0,
+        minor_radius: 0.1,
+    });
+    assert!((extract_fillet_radius(&tor).unwrap() - 0.1).abs() < 1e-15);
+
+    let sph = fs_with(SurfaceGeometry::Sphere {
+        center: pt(0.0, 0.0, 0.0),
+        radius: 0.7,
+    });
+    assert!((extract_fillet_radius(&sph).unwrap() - 0.7).abs() < 1e-15);
+}
+
+#[test]
+fn extract_radius_returns_none_for_non_analytic() {
+    use popkern_core::geometry::Vec3;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    let plane = fs_with(SurfaceGeometry::Plane {
+        origin: pt(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    });
+    assert!(extract_fillet_radius(&plane).is_none());
+}

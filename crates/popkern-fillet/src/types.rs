@@ -296,9 +296,9 @@ pub struct FilletOptions {
     /// `false`; requires `use_two_stripe_gregory`. ADR
     /// `docs/decisions/2026-04-19-phase-h-kp-binonic-formula-choice.md`.
     pub use_kp_binonic_gregory: bool,
-    /// Phase I — K-P 2015 bi-6 polar construction for N ≥ 5
-    /// (bi-9 output; F_5 SPD min; default `false`). See ADR
-    /// `2026-04-20-phase-i-polar-kp-formula-choice.md`.
+    /// Phase I — K-P 2015 bi-6 polar construction for N ≥ 5-valent
+    /// vertex blends. Default `false`. See the `kp_polar_bi6_promote`
+    /// module for usage, scope, diagnostics, and G1 gate plumbing.
     pub use_kp_polar_gregory: bool,
 }
 

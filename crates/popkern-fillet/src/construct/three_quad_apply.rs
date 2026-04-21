@@ -114,11 +114,11 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             if use_kp_binonic {
                 relaxed_coplanarity = promote_decomp_to_kp_binonic(&mut decomp.sub_patches);
             }
-            // Phase I.10f — bi-6 polar promotion for N ≥ 5.
-            // Silent revert on failure.
             if use_kp_polar && decomp.sub_patches.len() >= 5 {
-                let _ = super::kp_polar_bi6_promote::promote_decomp_to_kp_polar_bi6(
+                super::kp_polar_bi6_promote::promote_and_update_relaxed(
                     &mut decomp.sub_patches,
+                    fillet_surfaces,
+                    &mut relaxed_coplanarity,
                 );
             }
         }
@@ -295,7 +295,7 @@ fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) -> Option<f64>
 /// transition zone). Returns 0 if normals are ill-conditioned at
 /// every sample (can't happen on a real ring, but guards against
 /// log-scale division).
-fn worst_ring_coplanarity(patches: &[GregoryPatch]) -> f64 {
+pub(super) fn worst_ring_coplanarity(patches: &[GregoryPatch]) -> f64 {
     let n = patches.len();
     let mut worst = 0.0_f64;
     for k in 0..n {

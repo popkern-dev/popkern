@@ -53,6 +53,19 @@ pub fn fillet_corner(
     radii: &[f64],
     use_kp_binonic: bool,
 ) -> (BRep, Vec<FaceHandle>) {
+    fillet_corner_full(brep, edges, radii, use_kp_binonic, false)
+}
+
+/// Same as [`fillet_corner`], with an extra flag to enable the
+/// Phase I polar K-P rung. `use_kp_polar = true` turns on the N ≥ 5
+/// bi-6 → bi-9 promotion behind the `use_kp_polar_gregory` option.
+pub fn fillet_corner_full(
+    brep: &BRep,
+    edges: &[EdgeHandle],
+    radii: &[f64],
+    use_kp_binonic: bool,
+    use_kp_polar: bool,
+) -> (BRep, Vec<FaceHandle>) {
     assert_eq!(edges.len(), radii.len());
     let specs: Vec<FilletSpec> = edges
         .iter()
@@ -69,6 +82,7 @@ pub fn fillet_corner(
         use_biseptic_gregory: true,
         use_two_stripe_gregory: true,
         use_kp_binonic_gregory: use_kp_binonic,
+        use_kp_polar_gregory: use_kp_polar,
         ..FilletOptions::default()
     };
     let result = fillet_edges(brep, &specs, &opts, Tolerance::default(), None).unwrap();
