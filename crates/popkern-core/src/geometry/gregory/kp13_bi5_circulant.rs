@@ -139,22 +139,41 @@ pub fn compute_r_i(sector: &super::kp13_bi5_gtri5::Gtri5Sector, n: usize) -> Poi
 ///
 /// Writes `g^i_{21}` (paper `(2, 1)` = flat 12) for each sector.
 ///
-/// Errors with [`CirculantError::UnsupportedValence`] for `n ∈ {3, 4, 6}`.
+/// # Valence support
+///
+/// * `n ∈ {5, 7, 8, 9, 10, ...}` — regular Lemma 1 closed form.
+/// * `n = 6` — the DFT mode at `j = n/2 = 3` has denominator
+///   `2c + cos(jα) = 2(1/2) − 1 = 0`. The circulant is rank-
+///   deficient by 1. We use the **minimum-norm pseudo-inverse**
+///   solution, obtained by skipping the singular mode in Lemma 1's
+///   sum. This matches what an LSQ-based solver would produce for
+///   an arbitrary RHS; if the RHS happens to be orthogonal to the
+///   null-space mode `(1, −1, 1, −1, 1, −1)`, the result is the
+///   exact solution.
+/// * `n ∈ {3, 4}` — entirely different constructions per KP09a §6.
+///   Returns [`CirculantError::UnsupportedValence`].
 pub fn solve_g21_circulant(gtri5: &mut Gtri5) -> Result<(), CirculantError> {
     let n = gtri5.n;
-    if n == 3 || n == 4 || n == 6 {
+    if n == 3 || n == 4 {
         return Err(CirculantError::UnsupportedValence(n));
     }
 
     let c = (2.0 * PI / n as f64).cos();
     let alpha = 2.0 * PI / n as f64;
+    // Threshold below which we treat `2c + cos(jα)` as a zero
+    // (null-mode) eigenvalue. At n = 6 the zero is exact; other
+    // valences give strictly nonzero denominators, so this only
+    // kicks in for the true pseudo-inverse case.
+    let zero_tol = 1e-12;
 
     // Compute R^i per sector up front.
     let r: Vec<Point3> = (0..n).map(|i| compute_r_i(gtri5.sector(i), n)).collect();
 
     // Apply Lemma 1 per-output to compute g^i_{21}. Because the
     // formula is linear and coordinate-wise, we compute each axis
-    // independently.
+    // independently. For singular modes (n = 6 at j = n/2), we
+    // skip the term — the remaining partial sum is the min-norm
+    // pseudo-inverse solution.
     let g21: Vec<Point3> = (0..n)
         .map(|i| {
             let mut x = 0.0;
@@ -163,7 +182,9 @@ pub fn solve_g21_circulant(gtri5: &mut Gtri5) -> Result<(), CirculantError> {
             for (l, r_l) in r.iter().enumerate() {
                 for j in 0..n {
                     let denom = 2.0 * c + (j as f64 * alpha).cos();
-                    // denom != 0 for n ∉ {3, 4, 6}; we gated above.
+                    if denom.abs() < zero_tol {
+                        continue;
+                    }
                     let coef = ((i as f64 - l as f64) * j as f64 * alpha).cos() / denom;
                     x += r_l.x * coef;
                     y += r_l.y * coef;
@@ -180,6 +201,36 @@ pub fn solve_g21_circulant(gtri5: &mut Gtri5) -> Result<(), CirculantError> {
     }
 
     Ok(())
+}
+
+/// Residual of the circulant three-term recurrence at sector `i`:
+///
+/// ```text
+///   residual^i := (g^{i-1}_{21} + 4c · g^i_{21} + g^{i+1}_{21}) − 2R^i
+/// ```
+///
+/// For `n ∈ {5, 7, 8, 9, ...}` this is zero after [`solve_g21_circulant`].
+///
+/// For `n = 6` the min-norm pseudo-inverse leaves a residual of
+/// `(−1)^i · λ` where `λ = (1/6) Σ (−1)^l R^l` is the null-space
+/// component of R — that is, the residual is a pure j = 3 DFT mode.
+/// Interpret a non-zero residual as "input data isn't compatible
+/// with the n = 6 circulant" rather than a solver bug.
+pub fn circulant_residual(gtri5: &Gtri5, i: usize) -> Point3 {
+    let n = gtri5.n;
+    let c = (2.0 * PI / n as f64).cos();
+    let idx_21 = paper_flat(2, 1);
+    let prev = (i + n - 1) % n;
+    let next = (i + 1) % n;
+    let gm = gtri5.sector(prev).cps[idx_21];
+    let gi = gtri5.sector(i).cps[idx_21];
+    let gp = gtri5.sector(next).cps[idx_21];
+    let r = compute_r_i(gtri5.sector(i), n);
+    Point3::new(
+        gm.x + 4.0 * c * gi.x + gp.x - 2.0 * r.x,
+        gm.y + 4.0 * c * gi.y + gp.y - 2.0 * r.y,
+        gm.z + 4.0 * c * gi.z + gp.z - 2.0 * r.z,
+    )
 }
 
 /// After `g^i_{21}` is solved, back-fill `g^i_{12}` (paper `(1, 2)`,

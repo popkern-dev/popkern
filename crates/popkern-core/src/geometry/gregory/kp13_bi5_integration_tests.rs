@@ -252,6 +252,32 @@ fn end_to_end_valence_5() {
 }
 
 #[test]
+fn end_to_end_valence_6_min_norm() {
+    // n=6 is the regular-valence case with a rank-deficient
+    // circulant. Our pseudo-inverse solve produces the min-norm
+    // solution; the circulant residual may carry a j = 3 DFT-mode
+    // component if the RHS isn't null-mode-orthogonal, so we only
+    // check the non-residual invariants here.
+    let g = build_gtri5_full(6);
+    // Star / mid-edge / shared-edge invariants must still hold.
+    g.validate().unwrap();
+    // Near-star (Q) consistency must still hold.
+    let sector0_near = recover_near_star(&g, 0);
+    let q_rec = StarQuadratic::from_sector0_near_star(&sector0_near, 6);
+    for k in 0..6 {
+        let v_a = super::kp13_bi5_gtri5::sector_corner(6, k);
+        let v_b = super::kp13_bi5_gtri5::sector_corner(6, k + 1);
+        let expected = q_rec.tri5_near_star_on_wedge(v_a, v_b);
+        for (slot, &flat) in NEAR_STAR_FLAT.iter().enumerate() {
+            assert!(
+                approx_point(g.sector(k).cps[flat], expected[slot]),
+                "n=6 sector {k} near-star slot {slot} disagrees with Q"
+            );
+        }
+    }
+}
+
+#[test]
 fn end_to_end_valence_7() {
     let g = build_gtri5_full(7);
     all_invariants_hold(&g).unwrap();

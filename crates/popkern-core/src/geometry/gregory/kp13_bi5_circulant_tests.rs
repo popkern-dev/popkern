@@ -75,12 +75,57 @@ fn solve_rejects_n4() {
 }
 
 #[test]
-fn solve_rejects_n6() {
+fn solve_accepts_n6_min_norm() {
+    // n = 6 is rank-deficient but solvable as min-norm pseudo-inverse.
     let mut g = Gtri5::new(6);
-    assert_eq!(
-        solve_g21_circulant(&mut g),
-        Err(CirculantError::UnsupportedValence(6))
-    );
+    // Constant CPs → R is constant across sectors → RHS lies in the
+    // j = 0 DFT mode, orthogonal to the null mode (j = n/2 = 3), so
+    // the pseudo-inverse gives an exact solution.
+    let p = Point3::new(1.0, 2.0, 3.0);
+    for k in 0..6 {
+        g.sector_mut(k).cps = [p; 21];
+    }
+    solve_g21_circulant(&mut g).unwrap();
+    // All residuals zero since RHS has no null-mode component.
+    for i in 0..6 {
+        let r = circulant_residual(&g, i);
+        assert!(
+            r.x.abs() < 1e-10 && r.y.abs() < 1e-10 && r.z.abs() < 1e-10,
+            "n=6 constant case residual at sector {i}: {r:?}"
+        );
+    }
+}
+
+#[test]
+fn solve_n6_leaves_null_mode_residual_when_rhs_has_component() {
+    // Construct an RHS with deliberate j = 3 DFT mode content:
+    // R^i = (−1)^i · v. The pseudo-inverse skips that mode, so the
+    // circulant residual will be the leftover (−1)^i · v pattern.
+    let mut g = Gtri5::new(6);
+    let idx_30 = paper_flat(3, 0);
+    for k in 0..6 {
+        let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
+        g.sector_mut(k).cps[idx_30] = Point3::new(sign, 0.0, 0.0);
+    }
+    sync_edge_layer_03_and_30(&mut g);
+    solve_g21_circulant(&mut g).unwrap();
+    // Each sector's residual should be proportional to (−1)^i.
+    // Check the sign pattern and that the magnitude is consistent.
+    let mut residual_mag = None;
+    for i in 0..6 {
+        let r = circulant_residual(&g, i);
+        let expected_sign = if i % 2 == 0 { 1.0 } else { -1.0 };
+        let signed_x = r.x * expected_sign;
+        match residual_mag {
+            None => residual_mag = Some(signed_x),
+            Some(m) => {
+                assert!(
+                    (signed_x - m).abs() < 1e-10,
+                    "n=6 residual at sector {i} doesn't match null-mode pattern: {r:?}"
+                );
+            }
+        }
+    }
 }
 
 // ---- Circulant identity holds after solve ----
