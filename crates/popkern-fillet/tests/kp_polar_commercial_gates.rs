@@ -17,12 +17,27 @@
 //! | hexagon6_mixed      | 6       | [0.04, 0.06, 0.05, 0.07, 0.05, 0.06]       | `#[ignore]` — awaiting bi-6 polar stabilisation |
 //! | octagon8_mixed      | 8       | [0.04, 0.06, 0.05, 0.07, 0.05, 0.06, 0.04, 0.06] | `#[ignore]` — awaiting bi-6 polar stabilisation |
 //!
-//! All fixtures are `#[ignore]` at commit time: Phase I ships the
-//! bi-6 polar **path** but the commercial gate itself is work to
-//! come. Each test compiles, exercises the dispatch, and prints
-//! the measured metrics — flipping `#[ignore]` off is how we'll
-//! track progression as the path stabilises. This is the polar
-//! analogue of the existing binonic fixture file.
+//! All fixtures are `#[ignore]` at commit time for **two separate
+//! reasons**:
+//!
+//! 1. **Upstream N ≥ 5 gap (blocking).** The fillet pipeline's
+//!    three-quad vertex-blend path does not currently reach any
+//!    polar rung for N ≥ 5 apex vertices — the `compute_blend_
+//!    boundary` / kef / three-quad dispatch bails out before
+//!    `apply_three_quad_decomposition_to_blend` is invoked.
+//!    Confirmed empirically in `kp_polar_pipeline_probe.rs` — on
+//!    every tested pyramid geometry the pipeline returns a single
+//!    polar-NURBS corner patch, not an N-sector Gregory ring.
+//!    Fixing this is Phase II scope.
+//! 2. **Bi-6 output stabilisation (gate threshold).** Even once
+//!    the upstream gap closes, the bi-6 output may need tuning
+//!    to land under the 5e-2 commercial gates on adversarial
+//!    fixtures. That's the normal progression we expect to track
+//!    by flipping `#[ignore]` off per fixture as it passes.
+//!
+//! When (1) closes, `probe_pentagon5_geometry_sweep` in the probe
+//! file will report `gregory_surface=5` on at least one row —
+//! that's the green-light to start flipping these gates on.
 //!
 //! The uniform-radii fixtures are deliberately included to catch
 //! regressions where a sphere-fit shortcut or upstream dispatch
@@ -110,29 +125,23 @@ fn polar_passes_commercial_gates_on_octagon8_mixed() {
     assert_commercial_gates("octagon8_mixed", &m);
 }
 
-// ── Dispatch smoke test (not gated by commercial thresholds) ──
+// ── Dispatch smoke test (flag flip must not crash the pipeline) ──
 //
-// Flipping `use_kp_polar_gregory = true` must not crash the fillet
-// pipeline. Runs the dispatch end-to-end on an N=5 pyramid and
-// verifies the result is shape-correct (pipeline returns Ok and
-// zero or more corner patches). This is the minimum-viable proof
-// that the polar flag is wired through — a real commercial gate
-// will follow once bi-6 output stabilises.
+// Flipping `use_kp_polar_gregory = true` must not panic `fillet_edges`
+// end-to-end. This proves the flag's plumbing is wired, NOT that the
+// polar engine actually runs on the fixture — with the upstream
+// N ≥ 5 gap (see module header) the polar promote function is never
+// invoked, so this test is compatible with that gap. When the gap
+// closes, this test will still pass and the commercial-gate fixtures
+// above will start being flip-able.
 
 #[test]
-fn polar_dispatch_smoke_pentagon5_mixed() {
+fn polar_flag_flip_does_not_crash_pipeline_at_n5() {
     let pyr = BRep::n_gonal_pyramid(5, 1.0, 0.8, Tolerance::default()).unwrap();
     let Some(vertex) = pick_vertex_with_valence(&pyr, 5) else {
-        // No N=5 vertex → pyramid topology variant. Not a polar
-        // failure; skip so the smoke test stays valid as fixtures
-        // evolve.
         return;
     };
     let edges = incident_edges(&pyr, vertex);
     let (_brep, _faces) =
         fillet_corner_full(&pyr, &edges, &[0.04, 0.06, 0.05, 0.07, 0.05], true, true);
-    // `fillet_corner_full` unwraps on pipeline error; reaching here
-    // means the polar-enabled run didn't panic. No metric assertion —
-    // commercial-grade verification is the per-fixture gated tests
-    // above.
 }
