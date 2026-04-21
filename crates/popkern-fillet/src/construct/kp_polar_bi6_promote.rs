@@ -36,9 +36,10 @@
 //! stream the reason on every fallback. Silent by default.
 
 use popkern_core::geometry::gregory::{
-    GregoryPatch, PolarBoundaryInput, RectangularGregoryBiNonic, RectangularGregoryTwoStripe, Side,
-    Spoke, SpokeEnd, convert_polar_to_bi6_cap_input,
+    Bi6CapInput, GregoryPatch, PolarBoundaryInput, RectangularGregoryBiNonic,
+    RectangularGregoryTwoStripe, Side, Spoke, SpokeEnd, convert_polar_to_bi6_cap_input,
     extract_bi3_tensor_border_from_polar_input, f_kappa_solve_optimal_bi6_cap,
+    f_kappa_solve_with_weights_optimal_bi6_cap,
 };
 use popkern_core::geometry::surface::SurfaceGeometry;
 
@@ -268,12 +269,23 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
         break;
     }
 
-    // F_κ ladder exhausted — fall through to L-M (option F).
+    // F_κ ladder exhausted — try option E (per-valence weight
+    // tuning) before falling through to L-M (option F).
     if committed_patches.is_none() {
         trace_polar(
             "ladder exhausted",
             n,
-            Some("F_κ all folded; attempting L-M refinement".into()),
+            Some("F_κ all folded; trying weighted F_5 profiles (option E)".into()),
+        );
+        committed_patches = try_weighted_f5_profiles(&cap_input, n, &mut last_free_params);
+    }
+
+    // Still nothing — fall through to L-M (option F).
+    if committed_patches.is_none() {
+        trace_polar(
+            "weighted F_5 exhausted",
+            n,
+            Some("attempting L-M refinement (option F)".into()),
         );
         if let Some(warm_start) = last_free_params.as_ref()
             && let Some(lm_patches) = try_polar_lm(&cap_input, warm_start)
@@ -334,6 +346,66 @@ pub(super) fn promote_and_update_relaxed(
         }
         PolarPromoteOutcome::Rejected => false,
     }
+}
+
+/// Option E — per-valence weight-tuning profiles. Try several
+/// empirical re-weightings of F_5's `κ!/(i!·j!)` defaults and
+/// commit the first non-folding cap.
+///
+/// F_5 term order: [(5,0), (4,1), (3,2), (2,3), (1,4), (0,5)].
+/// Default weights `[1, 5, 10, 10, 5, 1]`. Alternate profiles:
+/// - Relax pure radial/angular: halve (5,0) and (0,5) weights.
+/// - Amplify mixed: double (3,2) and (2,3) weights.
+/// - Relax all mixed: halve the four middle terms.
+fn try_weighted_f5_profiles(
+    cap_input: &Bi6CapInput,
+    n: usize,
+    last_free_params: &mut Option<popkern_core::geometry::gregory::Bi6CapFreeParams>,
+) -> Option<Vec<GregoryPatch>> {
+    let profiles: [(&str, [f64; 6]); 3] = [
+        ("relax-pure", [0.5, 1.0, 1.0, 1.0, 1.0, 0.5]),
+        ("amplify-mixed", [1.0, 1.0, 2.0, 2.0, 1.0, 1.0]),
+        ("relax-mixed", [1.0, 0.5, 0.5, 0.5, 0.5, 1.0]),
+    ];
+    for (name, weights) in profiles.iter() {
+        let (free_params, cap_out) =
+            match f_kappa_solve_with_weights_optimal_bi6_cap(cap_input, 5, weights) {
+                Ok(r) => r,
+                Err(e) => {
+                    trace_polar(&format!("F_5[{name}] solve error"), n, Some(e));
+                    continue;
+                }
+            };
+        *last_free_params = Some(free_params);
+        let bi9_grids = cap_out.patches_bi9;
+        if bi9_grids.len() != n {
+            continue;
+        }
+        let candidate: Vec<GregoryPatch> = bi9_grids
+            .into_iter()
+            .map(|grid| {
+                GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid }))
+            })
+            .collect();
+        let mut folded = false;
+        for gp in candidate.iter() {
+            if gp.self_intersects_with_tolerance(SELF_INT_TOL) {
+                folded = true;
+                break;
+            }
+        }
+        if folded {
+            trace_polar(&format!("F_5[{name}] self-intersection"), n, None);
+            continue;
+        }
+        trace_polar(
+            &format!("F_5[{name}] accepted"),
+            n,
+            Some("option E saved the ladder".into()),
+        );
+        return Some(candidate);
+    }
+    None
 }
 
 /// Name of a `GregoryPatch` variant for diagnostic traces.

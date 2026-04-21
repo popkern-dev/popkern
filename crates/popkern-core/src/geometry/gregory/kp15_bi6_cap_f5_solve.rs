@@ -57,7 +57,7 @@
 
 use super::direct_linalg::solve_dense;
 use super::kp15_bi6_cap::{Bi6CapInput, Bi6CapOutput, assemble_bi6_polar_cap};
-use super::kp15_bi6_f5::f_kappa_quadratic_form;
+use super::kp15_bi6_f5::{f_kappa_quadratic_form, f_kappa_quadratic_form_weighted};
 use crate::geometry::Point3;
 
 /// Free parameter vector. Covers the paper's interior-free set
@@ -196,6 +196,20 @@ pub fn f5_solve_optimal_bi6_cap(
     f_kappa_solve_optimal_bi6_cap(base, 5)
 }
 
+/// Minimise F_κ with caller-supplied per-term weight multipliers
+/// (option E of the F_5 tuning plan — per-valence tuning). Lets
+/// the caller re-weight individual `(i, j)` terms away from the
+/// paper's `κ!/(i!·j!)` defaults. See
+/// [`f_kappa_quadratic_form_weighted`] for the weight layout.
+pub fn f_kappa_solve_with_weights_optimal_bi6_cap(
+    base: &Bi6CapInput,
+    kappa: usize,
+    weight_multipliers: &[f64],
+) -> Result<(Bi6CapFreeParams, Bi6CapOutput), String> {
+    let q = f_kappa_quadratic_form_weighted(kappa, weight_multipliers);
+    f_kappa_solve_with_q(base, q)
+}
+
 /// Minimise F_κ for κ ∈ {1, 3, 4, 5} over the free parameter set.
 /// Same as [`f5_solve_optimal_bi6_cap`] but parameterised on the
 /// functional order.
@@ -209,6 +223,16 @@ pub fn f5_solve_optimal_bi6_cap(
 pub fn f_kappa_solve_optimal_bi6_cap(
     base: &Bi6CapInput,
     kappa: usize,
+) -> Result<(Bi6CapFreeParams, Bi6CapOutput), String> {
+    let q = f_kappa_quadratic_form(kappa);
+    f_kappa_solve_with_q(base, q)
+}
+
+/// Internal: F_κ SPD solve given a precomputed 49×49 quadratic-
+/// form matrix `q`. Shared by the default and weighted variants.
+fn f_kappa_solve_with_q(
+    base: &Bi6CapInput,
+    q: [[f64; 49]; 49],
 ) -> Result<(Bi6CapFreeParams, Bi6CapOutput), String> {
     let n = base.n;
     let p_len = Bi6CapFreeParams::flat_len(n);
@@ -255,7 +279,6 @@ pub fn f_kappa_solve_optimal_bi6_cap(
 
     // Step 3: build H = Σ_k M_k^T · Q · M_k. Iterate per sector
     // because Q is per-patch.
-    let q = f_kappa_quadratic_form(kappa);
     let mut h = vec![vec![0.0_f64; p_len]; p_len];
     // Per sector, extract the 49 × p_len sub-block of M and
     // accumulate M_k^T · Q · M_k into H.

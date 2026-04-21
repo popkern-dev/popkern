@@ -30,9 +30,7 @@
 
 use super::kp_lm_solver::{LmConfig, LmEval, run_lm};
 use popkern_core::geometry::Point3;
-use popkern_core::geometry::gregory::{
-    Bi6CapFreeParams, Bi6CapInput, assemble_bi6_polar_cap,
-};
+use popkern_core::geometry::gregory::{Bi6CapFreeParams, Bi6CapInput, assemble_bi6_polar_cap};
 
 const FD_EPS: f64 = 1e-5;
 const LAMBDA_INIT: f64 = 1e-3;
@@ -41,6 +39,26 @@ const MAX_ITER: usize = 40;
 const TARGET_RESIDUAL: f64 = 1e-8;
 const N_SAMPLES_PER_SPOKE: usize = 10;
 const SELF_INT_TOL: f64 = 1e-6;
+
+/// Option D — fold-penalty threshold. Each sub-patch samples
+/// `|∂u × ∂v|` at a grid of interior parameters; if any sample
+/// falls below this threshold, an additional quadratic penalty
+/// residual is emitted (shape `(threshold − sample)²`) to push
+/// L-M away from near-fold regions. A non-zero penalty doesn't
+/// forbid the configuration (the hard fold-safety check still
+/// governs accept/reject), but it shapes the L-M descent
+/// direction.
+const FOLD_PENALTY_THRESHOLD: f64 = 0.01;
+
+/// Weight multiplier for the fold-penalty residual relative to
+/// the G¹ coplanarity residual. Chosen large enough to dominate
+/// when fold-proximity is severe but small enough that L-M
+/// doesn't trade G¹ quality for "fold-distance" once well clear
+/// of the fold boundary.
+const FOLD_PENALTY_WEIGHT: f64 = 10.0;
+
+/// Sample count per patch for fold-proximity evaluation.
+const FOLD_PENALTY_SAMPLES: usize = 5;
 
 /// L-M evaluator wrapping a `Bi6CapInput`. Each residual is the
 /// coplanarity of the surface normals at one sample on one shared
@@ -122,25 +140,38 @@ impl PolarLmEval<'_> {
             slot[3][3] = Some(params.p_33[k]);
         }
         input.interior_filler = Some(filler);
-        assemble_bi6_polar_cap(&input).ok().map(|out| out.patches_bi9)
+        assemble_bi6_polar_cap(&input)
+            .ok()
+            .map(|out| out.patches_bi9)
     }
 
-    /// Per-sample G¹ coplanarity residuals for the ring. For each
-    /// pair (sector k, sector k+1 mod n) shared along the spoke
-    /// boundary, sample `N_SAMPLES_PER_SPOKE` points and compute
-    /// `|(xtan_a × xtan_b) · t_spoke| / (|xtan_a||xtan_b||t_spoke|)`
-    /// — the unitless coplanarity at each sample. Zero = G¹.
+    /// Per-sample G¹ coplanarity residuals for the ring, plus
+    /// option D fold-penalty residuals. Layout:
+    /// `[coplan_0, ..., coplan_{10n-1}, fold_0, ..., fold_{5n-1}]`.
+    ///
+    /// Each coplanarity term is `|(xtan_a × xtan_b) · t_spoke| /
+    /// (|xtan_a||xtan_b||t_spoke|)` at one spoke sample. Zero = G¹.
+    ///
+    /// Each fold-penalty term is `max(0, threshold - |∂u × ∂v|)`
+    /// at one patch interior sample, scaled by
+    /// `FOLD_PENALTY_WEIGHT`. Non-zero when a sample approaches
+    /// a fold boundary; L-M pushes away from such configurations.
     fn compute_residuals(&self, patches: &[[[Point3; 10]; 10]]) -> Vec<f64> {
         use popkern_core::geometry::gregory::{GregoryPatch, RectangularGregoryBiNonic};
         let n = patches.len();
         let ts: Vec<f64> = (0..N_SAMPLES_PER_SPOKE)
             .map(|k| 0.05 + 0.90 * (k as f64) / ((N_SAMPLES_PER_SPOKE - 1) as f64))
             .collect();
-        let mut out = Vec::with_capacity(n * N_SAMPLES_PER_SPOKE);
+        let mut out = Vec::with_capacity(
+            n * N_SAMPLES_PER_SPOKE + n * FOLD_PENALTY_SAMPLES * FOLD_PENALTY_SAMPLES,
+        );
         let wrapped: Vec<GregoryPatch> = patches
             .iter()
-            .map(|g| GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid: *g })))
+            .map(|g| {
+                GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid: *g }))
+            })
             .collect();
+        // G¹ coplanarity residuals.
         for k in 0..n {
             let a = &wrapped[k];
             let b = &wrapped[(k + 1) % n];
@@ -150,17 +181,32 @@ impl PolarLmEval<'_> {
                 let xtan_b = b.partial_v(t_b, 0.0);
                 let t_spoke = a.partial_v(1.0, t);
                 let cross = xtan_a.cross(&xtan_b);
-                let numer =
-                    (cross.x * t_spoke.x + cross.y * t_spoke.y + cross.z * t_spoke.z).abs();
+                let numer = (cross.x * t_spoke.x + cross.y * t_spoke.y + cross.z * t_spoke.z).abs();
                 let na = (xtan_a.x * xtan_a.x + xtan_a.y * xtan_a.y + xtan_a.z * xtan_a.z).sqrt();
                 let nb = (xtan_b.x * xtan_b.x + xtan_b.y * xtan_b.y + xtan_b.z * xtan_b.z).sqrt();
-                let ns = (t_spoke.x * t_spoke.x
-                    + t_spoke.y * t_spoke.y
-                    + t_spoke.z * t_spoke.z)
-                    .sqrt();
+                let ns =
+                    (t_spoke.x * t_spoke.x + t_spoke.y * t_spoke.y + t_spoke.z * t_spoke.z).sqrt();
                 let denom = na * nb * ns;
                 let coplan = if denom > 1e-300 { numer / denom } else { 0.0 };
                 out.push(coplan);
+            }
+        }
+        // Option D: fold-penalty residuals. Sample |∂u × ∂v| at
+        // an interior grid per patch; emit `max(0, threshold - v)`
+        // scaled by FOLD_PENALTY_WEIGHT per sample.
+        let grid_ts: Vec<f64> = (0..FOLD_PENALTY_SAMPLES)
+            .map(|k| 0.1 + 0.8 * (k as f64) / ((FOLD_PENALTY_SAMPLES - 1) as f64))
+            .collect();
+        for patch in &wrapped {
+            for &u in &grid_ts {
+                for &v in &grid_ts {
+                    let du = patch.partial_u(u, v);
+                    let dv = patch.partial_v(u, v);
+                    let cross = du.cross(&dv);
+                    let mag = (cross.x * cross.x + cross.y * cross.y + cross.z * cross.z).sqrt();
+                    let penalty = (FOLD_PENALTY_THRESHOLD - mag).max(0.0);
+                    out.push(FOLD_PENALTY_WEIGHT * penalty);
+                }
             }
         }
         out
@@ -183,9 +229,8 @@ impl LmEval for PolarLmEval<'_> {
             return false;
         };
         for g in &patches {
-            let gp = GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic {
-                grid: *g,
-            }));
+            let gp =
+                GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid: *g }));
             if gp.self_intersects_with_tolerance(SELF_INT_TOL) {
                 return false;
             }
@@ -250,9 +295,7 @@ pub(super) fn try_polar_lm(
     for (idx, candidate) in candidates.iter().enumerate() {
         if let Some(patches) = try_single_lm(base, candidate) {
             if std::env::var_os("POPKERN_KP_POLAR_TRACE").is_some() {
-                eprintln!(
-                    "[kp_polar_bi6 lm] warm-start #{idx} produced fold-safe iterate"
-                );
+                eprintln!("[kp_polar_bi6 lm] warm-start #{idx} produced fold-safe iterate");
             }
             return Some(patches);
         }
@@ -290,8 +333,7 @@ fn try_single_lm(
     let patches = eval_check.build(&params)?;
     use popkern_core::geometry::gregory::{GregoryPatch, RectangularGregoryBiNonic};
     for g in &patches {
-        let gp =
-            GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid: *g }));
+        let gp = GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid: *g }));
         if gp.self_intersects_with_tolerance(SELF_INT_TOL) {
             return None;
         }

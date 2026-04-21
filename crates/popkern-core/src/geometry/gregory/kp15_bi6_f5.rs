@@ -102,13 +102,68 @@ pub fn f5_quadratic_form() -> [[f64; BI6_CP_COUNT]; BI6_CP_COUNT] {
 /// oscillations; see math spec §1.4).
 pub fn f_kappa_quadratic_form(kappa: usize) -> [[f64; BI6_CP_COUNT]; BI6_CP_COUNT] {
     let (partials, coeffs) = f_kappa_partials_and_coeffs(kappa);
-    let mut q = [[0.0_f64; BI6_CP_COUNT]; BI6_CP_COUNT];
+    assemble_f_kappa_q(&partials, &coeffs)
+}
 
-    // Precompute all six 1D derivative basis vectors at each GL
-    // node; indices: [gl_node_idx][deriv_order] → [f64; 7].
+/// Return the `(i, j)` partial indices and `κ!/(i!·j!)` coefficients
+/// for F_κ, κ ∈ {1, 3, 4, 5}. Panics otherwise.
+fn f_kappa_partials_and_coeffs(kappa: usize) -> (Vec<(usize, usize)>, Vec<f64>) {
+    match kappa {
+        1 => (vec![(1, 0), (0, 1)], vec![1.0, 1.0]),
+        3 => (
+            vec![(3, 0), (2, 1), (1, 2), (0, 3)],
+            vec![1.0, 3.0, 3.0, 1.0],
+        ),
+        4 => (
+            vec![(4, 0), (3, 1), (2, 2), (1, 3), (0, 4)],
+            vec![1.0, 4.0, 6.0, 4.0, 1.0],
+        ),
+        5 => (F5_PARTIALS.to_vec(), F5_COEFFS.to_vec()),
+        _ => panic!("f_kappa: unsupported κ = {kappa} (expected 1, 3, 4, or 5)"),
+    }
+}
+
+/// Build an F_κ quadratic form with **caller-supplied weight
+/// overrides** — the option-E (per-valence tuning) path.
+///
+/// Starts from the paper's `κ!/(i!·j!)` defaults, then multiplies
+/// each term by `weight_multipliers[t]`. Length must equal κ + 1
+/// (the number of (i, j) pairs with `i + j = κ`). Panics if the
+/// length mismatches or κ ∉ {1, 3, 4, 5}.
+///
+/// # Example
+/// For κ = 5 the partials are ordered [(5,0), (4,1), (3,2), (2,3),
+/// (1,4), (0,5)]; a profile like `[0.5, 1.0, 1.0, 1.0, 1.0, 0.5]`
+/// halves the pure radial/angular penalty while keeping the mixed
+/// terms at paper defaults.
+pub fn f_kappa_quadratic_form_weighted(
+    kappa: usize,
+    weight_multipliers: &[f64],
+) -> [[f64; BI6_CP_COUNT]; BI6_CP_COUNT] {
+    let (partials, mut coeffs) = f_kappa_partials_and_coeffs(kappa);
+    assert_eq!(
+        weight_multipliers.len(),
+        coeffs.len(),
+        "f_kappa_quadratic_form_weighted: expected {} weight multipliers for κ={kappa}, got {}",
+        coeffs.len(),
+        weight_multipliers.len()
+    );
+    for (c, &m) in coeffs.iter_mut().zip(weight_multipliers.iter()) {
+        *c *= m;
+    }
+    assemble_f_kappa_q(&partials, &coeffs)
+}
+
+/// Internal: assemble the 49×49 F_κ matrix from an explicit set
+/// of partial indices + weights. Shared by `f_kappa_quadratic_form`
+/// and `f_kappa_quadratic_form_weighted`.
+fn assemble_f_kappa_q(
+    partials: &[(usize, usize)],
+    coeffs: &[f64],
+) -> [[f64; BI6_CP_COUNT]; BI6_CP_COUNT] {
+    let mut q = [[0.0_f64; BI6_CP_COUNT]; BI6_CP_COUNT];
     let u_basis: Vec<[[f64; 7]; 6]> = GL7_NODES.iter().map(|&u| basis_all_derivs(u)).collect();
     let v_basis: Vec<[[f64; 7]; 6]> = GL7_NODES.iter().map(|&v| basis_all_derivs(v)).collect();
-
     for (term_idx, &(ip, jp)) in partials.iter().enumerate() {
         let c = coeffs[term_idx];
         for (pu, &wu) in GL7_WEIGHTS.iter().enumerate() {
@@ -136,24 +191,6 @@ pub fn f_kappa_quadratic_form(kappa: usize) -> [[f64; BI6_CP_COUNT]; BI6_CP_COUN
         }
     }
     q
-}
-
-/// Return the `(i, j)` partial indices and `κ!/(i!·j!)` coefficients
-/// for F_κ, κ ∈ {1, 3, 4, 5}. Panics otherwise.
-fn f_kappa_partials_and_coeffs(kappa: usize) -> (Vec<(usize, usize)>, Vec<f64>) {
-    match kappa {
-        1 => (vec![(1, 0), (0, 1)], vec![1.0, 1.0]),
-        3 => (
-            vec![(3, 0), (2, 1), (1, 2), (0, 3)],
-            vec![1.0, 3.0, 3.0, 1.0],
-        ),
-        4 => (
-            vec![(4, 0), (3, 1), (2, 2), (1, 3), (0, 4)],
-            vec![1.0, 4.0, 6.0, 4.0, 1.0],
-        ),
-        5 => (F5_PARTIALS.to_vec(), F5_COEFFS.to_vec()),
-        _ => panic!("f_kappa: unsupported κ = {kappa} (expected 1, 3, 4, or 5)"),
-    }
 }
 
 /// The six `(i_partial, j_partial)` pairs with `i + j = 5`, in

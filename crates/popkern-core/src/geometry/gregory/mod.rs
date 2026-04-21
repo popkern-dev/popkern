@@ -205,12 +205,16 @@ pub use kp_row1::{Row1Frame, derive_row1_frame};
 pub use kp_row2::{Row2Frame, derive_row2_frame};
 pub use kp15_bi6_cap::{Bi6CapInput, Bi6CapOutput, assemble_bi6_polar_cap};
 pub use kp15_bi6_cap_f5_solve::{
-    Bi6CapFreeParams, f_kappa_solve_optimal_bi6_cap, f5_solve_optimal_bi6_cap,
+    Bi6CapFreeParams, f_kappa_solve_optimal_bi6_cap, f_kappa_solve_with_weights_optimal_bi6_cap,
+    f5_solve_optimal_bi6_cap,
 };
 pub use kp15_bi6_circulant::{
     CirculantSectorRhs, S2Eq7Result, solve_bi6_circulant_s2_eq7, solve_bi6_circulant_s2_eq8,
 };
-pub use kp15_bi6_f5::{BI6_CP_COUNT, f_kappa_quadratic_form, f5_evaluate, f5_quadratic_form};
+pub use kp15_bi6_f5::{
+    BI6_CP_COUNT, f_kappa_quadratic_form, f_kappa_quadratic_form_weighted, f5_evaluate,
+    f5_quadratic_form,
+};
 pub use kp15_bi6_mu::{mu_bar, mu_ddot, mu_dot, mu_tdot, mu_tilde, w_scalars};
 pub use kp15_bi6_polar_bridge::convert_polar_to_bi6_cap_input;
 pub use kp15_bi6_reparam::{Bi6Reparams, gamma as bi6_gamma, tau_for_valence};
