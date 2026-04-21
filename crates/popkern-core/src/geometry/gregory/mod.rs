@@ -66,6 +66,7 @@ mod direct_row1_g1;
 mod direct_row1_ring;
 mod direct_self_check;
 mod direct_types;
+mod kp15_bi6_circulant;
 mod kp15_bi6_mu;
 mod kp15_bi6_reparam;
 mod kp15_bi6_rule_s3;
@@ -197,6 +198,9 @@ pub use kp_ring_build::{
 };
 pub use kp_row1::{Row1Frame, derive_row1_frame};
 pub use kp_row2::{Row2Frame, derive_row2_frame};
+pub use kp15_bi6_circulant::{
+    CirculantSectorRhs, S2Eq7Result, solve_bi6_circulant_s2_eq7, solve_bi6_circulant_s2_eq8,
+};
 pub use kp15_bi6_mu::{mu_bar, mu_ddot, mu_dot, mu_tdot, mu_tilde, w_scalars};
 pub use kp15_bi6_reparam::{Bi6Reparams, gamma as bi6_gamma, tau_for_valence};
 pub use kp15_bi6_rule_s3::{S3Inputs, S3Outputs, rule_s3};
