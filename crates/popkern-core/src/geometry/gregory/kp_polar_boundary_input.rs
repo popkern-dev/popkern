@@ -33,7 +33,9 @@
 //! input. Only the aggregate struct differs.
 
 use crate::geometry::Point3;
-use crate::geometry::gregory::{OuterCornerData, SpokeBoundaryData, TangentPlane};
+use crate::geometry::gregory::{
+    DirectBoundaryInput, OuterCornerData, SpokeBoundaryData, TangentPlane,
+};
 
 /// Geometric input for the polar K-P construction at one vertex
 /// blend of valence `N ≥ 3` (Phase I currently targets `N ≥ 5`;
@@ -150,6 +152,64 @@ impl PolarBoundaryInput {
         self.per_spoke_radii
             .iter()
             .all(|&r| (r - r0).abs() < 1e-12 * r0.abs().max(1.0))
+    }
+
+    /// Phase I.10f — construct a [`PolarBoundaryInput`] from an
+    /// existing [`DirectBoundaryInput`]. Most fields map 1:1:
+    ///
+    /// - `central_vertex` → `central_vertex`
+    /// - `spokes` → `spokes`
+    /// - `outer_corners` → `outer_corners`
+    /// - `central_vertex_tps[k]` → `face_tangent_planes[k]`
+    ///   (both are per-sector face tangent planes).
+    /// - `per_spoke_radii[k]` := midpoint of
+    ///   `(spokes[k].radius_at_c, spokes[k].radius_at_v)`.
+    /// - `central_tangent_plane` := arithmetic average of the N
+    ///   per-sector tangent planes' `u` and `v` basis vectors,
+    ///   renormalised via `TangentPlane::from_basis`. This is a
+    ///   heuristic seed for the Shirman-Séquin enclosure; the
+    ///   F_5 minimisation compensates for any residual.
+    ///
+    /// # Errors
+    /// - Input `DirectBoundaryInput` has `central_vertex_tps`
+    ///   with a different length than `spokes`.
+    /// - The average tangent-plane basis vectors are degenerate
+    ///   (shouldn't happen for well-formed inputs).
+    pub fn from_direct_boundary_input(direct: &DirectBoundaryInput) -> Result<Self, String> {
+        let n = direct.n();
+        if direct.central_vertex_tps.len() != n {
+            return Err(format!(
+                "DirectBoundaryInput has {} central_vertex_tps but {} spokes",
+                direct.central_vertex_tps.len(),
+                n
+            ));
+        }
+        // Average the u and v basis vectors across all sectors.
+        // Each contribution is normalised (unit-length); the sum
+        // is then renormalised via `from_basis` (which handles
+        // both normalisation and orthogonalisation).
+        use crate::geometry::Vec3;
+        let mut sum_u = Vec3::new(0.0, 0.0, 0.0);
+        let mut sum_v = Vec3::new(0.0, 0.0, 0.0);
+        for tp in &direct.central_vertex_tps {
+            sum_u = Vec3::new(sum_u.x + tp.u.x, sum_u.y + tp.u.y, sum_u.z + tp.u.z);
+            sum_v = Vec3::new(sum_v.x + tp.v.x, sum_v.y + tp.v.y, sum_v.z + tp.v.z);
+        }
+        let central_tangent_plane = TangentPlane::from_basis(sum_u, sum_v)
+            .ok_or_else(|| "averaged central tangent basis is degenerate".to_string())?;
+        let per_spoke_radii: Vec<f64> = direct
+            .spokes
+            .iter()
+            .map(|s| 0.5 * (s.radius_at_c + s.radius_at_v))
+            .collect();
+        Ok(PolarBoundaryInput {
+            central_vertex: direct.central_vertex,
+            central_tangent_plane,
+            spokes: direct.spokes.clone(),
+            outer_corners: direct.outer_corners.clone(),
+            face_tangent_planes: direct.central_vertex_tps.clone(),
+            per_spoke_radii,
+        })
     }
 }
 

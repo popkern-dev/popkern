@@ -307,6 +307,7 @@ fn fillet_edges_internal(
         options.use_biseptic_gregory,
         options.use_two_stripe_gregory,
         options.use_kp_binonic_gregory,
+        options.use_kp_polar_gregory,
     )
     .map_err(|edge_failures| BlendError::PartialFailure {
         failed: edge_failures.len(),
@@ -417,6 +418,7 @@ pub fn chamfer_edges(
         &edge_geometries,
         &tolerance,
         &VertexMode::Mitred,
+        false,
         false,
         false,
         false,

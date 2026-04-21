@@ -10,6 +10,7 @@ mod kp_binonic_optimizer;
 mod kp_biquintic_optimizer;
 mod kp_lm_solver;
 pub(crate) mod kp_polar_bi6_apply;
+pub(crate) mod kp_polar_bi6_promote;
 mod kp_twist_optimizer;
 pub(crate) mod merge;
 mod multi_chord;
@@ -77,7 +78,7 @@ pub struct ApplyBlendResult {
     pub corner_patches: Vec<crate::types::CornerPatchInfo>,
 }
 
-/// Apply computed fillet/chamfer geometry to a BRep. Three-phase (A: perp splits, B: multi-chord face splits, C: kef merge + surface assign).
+/// Apply computed fillet/chamfer geometry to a BRep. 3-phase: A perp splits, B multi-chord face splits, C kef merge + surface assign.
 #[allow(clippy::too_many_arguments)]
 pub fn apply_blend_geometry(
     brep: &BRep,
@@ -90,6 +91,7 @@ pub fn apply_blend_geometry(
     use_biseptic_gregory: bool,
     use_two_stripe_gregory: bool,
     use_kp_binonic_gregory: bool,
+    use_kp_polar_gregory: bool,
 ) -> Result<ApplyBlendResult, Vec<(EdgeHandle, BlendFailure)>> {
     let mut result = brep.clone();
     let mut failures: Vec<(EdgeHandle, BlendFailure)> = Vec::new();
@@ -103,13 +105,11 @@ pub fn apply_blend_geometry(
     }
     let mut perp_data: Vec<Option<PerpSplitData>> = Vec::new();
 
-    // Closed-fillet-handled edges skip Phase B/C.
     let mut closed_handled: std::collections::HashSet<usize> = std::collections::HashSet::new();
-    // Round 5r+: immutable snapshot before Phase A mutates `result`; anchor positions come from here, vertex inserts go into `result`.
+    // Round 5r+: immutable snapshot before Phase A mutates result; anchor positions come from here.
     let phase_a_snapshot = result.clone();
 
-    // Round 5r+: per-original-edge descendants after Phase A splits,
-    // used in Phase C to locate consumed faces by any descendant HE.
+    // Per-original-edge descendants after Phase A, for Phase C consumed-face lookup.
     let mut descendants: HashMap<EdgeHandle, Vec<EdgeHandle>> = HashMap::new();
     for eg in edge_geometries {
         descendants.insert(eg.analysis.edge, vec![eg.analysis.edge]);
@@ -177,8 +177,7 @@ pub fn apply_blend_geometry(
         }
     }
 
-    // ── Collect trim data from Phase A results ────────────────────
-    // Use BTreeMap for deterministic face iteration order.
+    // Collect trim data from Phase A results (BTreeMap for deterministic iteration).
     let mut face_trims: std::collections::BTreeMap<FaceHandle, Vec<FaceTrim>> =
         std::collections::BTreeMap::new();
 
@@ -442,6 +441,7 @@ pub fn apply_blend_geometry(
                     use_biseptic_gregory,
                     use_two_stripe_gregory,
                     use_kp_binonic_gregory,
+                    use_kp_polar_gregory,
                     Some(pre),
                 ) {
                     Ok(infos) => {

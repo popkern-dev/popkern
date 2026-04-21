@@ -44,6 +44,7 @@ pub(crate) fn insert_vertex_blend(
     use_biseptic_gregory: bool,
     use_two_stripe_gregory: bool,
     use_kp_binonic_gregory: bool,
+    use_kp_polar_gregory: bool,
     precomputed_classification: Option<VertexBlendClassification>,
 ) -> Result<Vec<CornerPatchInfo>, String> {
     // §5.3 item #5 — callers pre-compute classification against the pre-modification BRep; post-Phase-C original edge handles are stale. Fallback for tests that call us on an untouched BRep.
@@ -68,11 +69,8 @@ pub(crate) fn insert_vertex_blend(
         return Err(format!("no faces found around vertex {vertex:?}"));
     }
 
-    // §5.3 item #5 — `OppositeSide` (saddle) flows through Gregory
-    // with a saddle-specific central point + normal
-    // (`build_n_quad_decomposition_with_options`). `Mixed` stays on
-    // polar-NURBS because mixed-convexity edges lack a consistent
-    // saddle ridge direction.
+    // §5.3 item #5 — `OppositeSide` flows through Gregory with a
+    // saddle-specific central point. `Mixed` stays on polar-NURBS.
     let fillet_surfaces_pre = build_fillet_surface_list(edge_indices, edge_geometries);
     let local_indices_pre: Vec<usize> = (0..fillet_surfaces_pre.len()).collect();
     let n_sides = edge_indices.len();
@@ -175,6 +173,7 @@ pub(crate) fn insert_vertex_blend(
             use_biseptic_gregory,
             use_two_stripe_gregory,
             use_kp_binonic_gregory,
+            use_kp_polar_gregory,
         ) {
             Ok(patches) if patches.len() == n_sides => return Ok(patches),
             Err(ThreeQuadFailure::Overlap) => {
@@ -459,6 +458,7 @@ mod tests {
             false,
             false,
             false,
+            false,
             None,
         );
         assert!(result.is_err(), "should fail for invalid vertex");
@@ -478,6 +478,7 @@ mod tests {
             &[],
             &[],
             &Tolerance::default(),
+            false,
             false,
             false,
             false,

@@ -10,7 +10,9 @@
 
 use super::*;
 use crate::geometry::Vec3;
-use crate::geometry::gregory::{OuterCornerData, SpokeBoundaryData, TangentPlane};
+use crate::geometry::gregory::{
+    DirectBoundaryInput, OuterCornerData, SpokeBoundaryData, TangentPlane,
+};
 
 fn tp_xy() -> TangentPlane {
     TangentPlane::from_basis(Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0)).unwrap()
@@ -173,6 +175,52 @@ fn tensor_border_validate_rejects_non_finite_cps() {
     let err = tb.validate(5).expect_err("NaN CP should fail validation");
     assert!(err.contains("sector 2"));
     assert!(err.contains("row 1"));
+}
+
+#[test]
+fn from_direct_boundary_input_copies_fields() {
+    let polar = make_regular_polar(5);
+    // Build a DirectBoundaryInput that mirrors the polar one
+    // (same spokes + outer corners + per-sector tangent planes).
+    let direct = DirectBoundaryInput {
+        central_vertex: polar.central_vertex,
+        spokes: polar.spokes.clone(),
+        outer_corners: polar.outer_corners.clone(),
+        central_vertex_tps: polar.face_tangent_planes.clone(),
+        seed_patches: None,
+    };
+    let polar_from_direct = PolarBoundaryInput::from_direct_boundary_input(&direct)
+        .expect("converter succeeds for well-formed input");
+    assert_eq!(polar_from_direct.n(), 5);
+    assert_eq!(polar_from_direct.spokes.len(), 5);
+    assert_eq!(polar_from_direct.outer_corners.len(), 5);
+    assert_eq!(polar_from_direct.face_tangent_planes.len(), 5);
+    assert_eq!(polar_from_direct.per_spoke_radii.len(), 5);
+    // per_spoke_radii[k] = midpoint of spoke's c/v radii.
+    for (k, r) in polar_from_direct.per_spoke_radii.iter().enumerate() {
+        let expected = 0.5 * (polar.spokes[k].radius_at_c + polar.spokes[k].radius_at_v);
+        assert!((r - expected).abs() < 1e-15);
+    }
+    polar_from_direct
+        .validate()
+        .expect("converted input validates");
+}
+
+#[test]
+fn from_direct_rejects_mismatched_central_vertex_tps() {
+    use crate::geometry::gregory::DirectBoundaryInput;
+    let polar = make_regular_polar(5);
+    let mut tps_short = polar.face_tangent_planes.clone();
+    tps_short.pop();
+    let direct = DirectBoundaryInput {
+        central_vertex: polar.central_vertex,
+        spokes: polar.spokes.clone(),
+        outer_corners: polar.outer_corners.clone(),
+        central_vertex_tps: tps_short,
+        seed_patches: None,
+    };
+    let err = PolarBoundaryInput::from_direct_boundary_input(&direct).unwrap_err();
+    assert!(err.contains("central_vertex_tps"));
 }
 
 #[test]

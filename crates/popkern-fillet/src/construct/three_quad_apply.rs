@@ -64,10 +64,9 @@ impl From<String> for ThreeQuadFailure {
 ///
 /// # Errors
 ///
-/// Returns an error string if:
-/// * The boundary isn't a valid hexagon (6 alternating segments).
-/// * The decomposition builder rejects the input.
-/// * The poke topology surgery fails.
+/// Returns an error string if the boundary isn't a valid hexagon
+/// (6 alternating segments), the decomposition builder rejects
+/// the input, or the poke topology surgery fails.
 #[allow(dead_code)] // wired into dispatch in R8 C6
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_three_quad_decomposition_to_blend(
@@ -83,6 +82,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     use_biseptic: bool,
     use_two_stripe: bool,
     use_kp_binonic: bool,
+    use_kp_polar: bool,
 ) -> Result<Vec<CornerPatchInfo>, ThreeQuadFailure> {
     let mut decomp = build_n_quad_decomposition_with_options(
         boundary,
@@ -97,21 +97,13 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     // coplanarity `c` exceeded the 5e-2 commercial gate.
     let mut relaxed_coplanarity: Option<f64> = None;
 
-    // §5.3 item #3 extended — promote deg5 sub-patches to the
-    // biquintic-full form and run the Karciauskas-Peters spoke-
-    // G1 joint solver over the N-quad ring. Biseptic (degree-7)
-    // opt-in runs a second pass: degree-elevate each biquintic-
-    // full sub-patch to biseptic and re-solve on the wider
-    // 4-DOF-per-spoke space, yielding 4–6× further residual
-    // reduction (limited by the corner-adjacent `B_1^n + B_{n-1}^n`
-    // out-of-span structure — Phase 10 two-stripe / Peters work
-    // closes this fully).
+    // §5.3 item #3 extended — promotion ladder:
+    // deg5 → biquintic-full → biseptic → two-stripe → kp_binonic.
+    // Each rung runs the K-P spoke-G1 joint solver. Conservative:
+    // a rung only attempts if the prior one's promotion succeeded
+    // AND its solver didn't trigger a fold-revert.
     if use_biquintic_full && use_deg5 {
         promote_decomp_to_biquintic_full_with_spoke_g1(&mut decomp.sub_patches);
-        // Conservative ladder: only attempt the next rung if the
-        // prior one's promotion succeeded AND its solver didn't
-        // trigger a fold-revert. This guarantees the scorecard
-        // never regresses across rungs.
         if use_biseptic
             && promote_decomp_to_biseptic_with_spoke_g1(&mut decomp.sub_patches)
             && use_two_stripe
@@ -121,6 +113,13 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             // `Some(worst)` signals Phase H.8 step-D relaxed continuity (above commercial gate).
             if use_kp_binonic {
                 relaxed_coplanarity = promote_decomp_to_kp_binonic(&mut decomp.sub_patches);
+            }
+            // Phase I.10f — bi-6 polar promotion for N ≥ 5.
+            // Silent revert on failure.
+            if use_kp_polar && decomp.sub_patches.len() >= 5 {
+                let _ = super::kp_polar_bi6_promote::promote_decomp_to_kp_polar_bi6(
+                    &mut decomp.sub_patches,
+                );
             }
         }
     }
@@ -345,7 +344,10 @@ fn trace_kp(stage: &str, n: usize, detail: Option<String>) {
 /// and V — upstream biseptic promotion already wrote these
 /// consistent with the true input face planes, so using the
 /// patch's computed normal is equivalent).
-fn extract_direct_boundary_input(
+///
+/// `pub(super)` so the sibling `kp_polar_bi6_promote` module
+/// can share the same extraction (I.10f).
+pub(super) fn extract_direct_boundary_input(
     patches: &[RectangularGregoryTwoStripe],
     spokes: &[Spoke],
 ) -> Option<DirectBoundaryInput> {
