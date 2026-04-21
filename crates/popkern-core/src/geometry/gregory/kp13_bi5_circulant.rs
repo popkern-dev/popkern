@@ -348,6 +348,63 @@ pub fn complete_second_derivative_layer(gtri5: &mut Gtri5) -> Result<(), Circula
     Ok(())
 }
 
+/// Apply KP09a eq (3) at `j = 3` to derive sector `(i+1)`'s
+/// `g^{i+1}_{31}` (paper `(3, 1)`, flat 16) from sector `i`'s
+/// `g^i_{03}` (flat 3), `g^i_{04}` (flat 4), `g^i_{13}` (flat 9).
+///
+/// The paper formula `p^{i+1}_{j, 1} = ν₀·p^i_{0, j} +
+/// ν₁·p^i_{0, j+1} + ν₂·p^i_{1, j}` at `j = 3` gives the depth-1
+/// coefficient two layers inward from the star on the shared-edge
+/// side of sector `(i+1)`. Flat 9 of sector `i` is a free parameter
+/// under KP13 Fig 4's labelling (no marker), so this equation
+/// **derives** flat 16 rather than constrains flat 9.
+pub fn fill_g31_via_c1(gtri5: &mut Gtri5) {
+    use super::kp13_bi5_connect::{ConnectWeights, c1_join};
+    let n = gtri5.n;
+    let w = ConnectWeights::for_valence(n);
+    let idx_31 = super::kp13_bi5_connect::paper_flat(3, 1);
+    let derived: Vec<Point3> = (0..n).map(|i| c1_join(&w, gtri5.sector(i), 3)).collect();
+    for (i, p) in derived.into_iter().enumerate() {
+        let next = (i + 1) % n;
+        gtri5.sector_mut(next).cps[idx_31] = p;
+    }
+}
+
+/// Apply KP09a eq (3) at `j = 4` to derive sector `(i+1)`'s
+/// `g^{i+1}_{41}` (paper `(4, 1)`, flat 19) from sector `i`'s
+/// `g^i_{04}` (flat 4), `g^i_{05}` (flat 5 = `m_{i+1}`),
+/// `g^i_{14}` (flat 10).
+///
+/// Analogous to [`fill_g31_via_c1`], but at the m_k end of the
+/// shared edge.
+pub fn fill_g41_via_c1(gtri5: &mut Gtri5) {
+    use super::kp13_bi5_connect::{ConnectWeights, c1_join};
+    let n = gtri5.n;
+    let w = ConnectWeights::for_valence(n);
+    let idx_41 = super::kp13_bi5_connect::paper_flat(4, 1);
+    let derived: Vec<Point3> = (0..n).map(|i| c1_join(&w, gtri5.sector(i), 4)).collect();
+    for (i, p) in derived.into_iter().enumerate() {
+        let next = (i + 1) % n;
+        gtri5.sector_mut(next).cps[idx_41] = p;
+    }
+}
+
+/// Fuller pipeline that also applies the higher-j C¹ derivations
+/// (`g^i_{31}` and `g^i_{41}`) after [`complete_second_derivative_layer`].
+///
+/// This brings g△ to full C¹ along every shared edge (not just near
+/// the star). C² along the whole shared edge would additionally
+/// require eq (4) at `j ∈ {2, 3}`, which constrains flat 13 / flat
+/// 14 coefs — these are marked as **free** in KP13 Fig 4, so we do
+/// not enforce them here. Callers seeking the stricter "full-C²"
+/// reading can apply eq (4) derivations explicitly via [`super::kp13_bi5_connect::c2_join`].
+pub fn complete_derivative_layers_with_higher_j(gtri5: &mut Gtri5) -> Result<(), CirculantError> {
+    complete_second_derivative_layer(gtri5)?;
+    fill_g31_via_c1(gtri5);
+    fill_g41_via_c1(gtri5);
+    Ok(())
+}
+
 #[inline]
 fn weighted_sum(pairs: &[(f64, Point3)]) -> Point3 {
     let mut x = 0.0;

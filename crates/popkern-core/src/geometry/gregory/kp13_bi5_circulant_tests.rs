@@ -274,6 +274,120 @@ fn sync_shared_edge_all_depths_covers_j3_and_j4() {
     }
 }
 
+// ---- Higher-j C¹ derivations ----
+
+#[test]
+fn fill_g31_matches_eq3_at_j3() {
+    let q = StarQuadratic {
+        alpha: Point3::new(0.3, 0.0, 0.0),
+        beta: Point3::new(-0.2, 0.0, 0.0),
+        gamma: Point3::new(0.1, 0.0, 0.0),
+        delta: Point3::new(0.5, 0.0, 0.0),
+        epsilon: Point3::new(-0.3, 0.0, 0.0),
+        zeta: Point3::new(0.7, 0.0, 0.0),
+    };
+    let n = 7;
+    let mut g = Gtri5::new(n);
+    q.apply_to_all_sectors(&mut g);
+    // Populate each sector's flat-3 (shared), flat-4 (shared), flat-9
+    // (interior free) with distinctive values.
+    let idx_30 = paper_flat(3, 0);
+    let idx_40 = paper_flat(4, 0);
+    let idx_13 = paper_flat(1, 3);
+    for k in 0..n {
+        g.sector_mut(k).cps[idx_30] = Point3::new(1.0 + 0.1 * k as f64, 0.0, 0.0);
+        g.sector_mut(k).cps[idx_40] = Point3::new(2.0 + 0.1 * k as f64, 0.0, 0.0);
+        g.sector_mut(k).cps[idx_13] = Point3::new(3.0 + 0.1 * k as f64, 0.0, 0.0);
+    }
+    sync_shared_edge_all_depths(&mut g);
+    fill_g31_via_c1(&mut g);
+
+    use super::super::kp13_bi5_connect::{ConnectWeights, c1_join};
+    let w = ConnectWeights::for_valence(n);
+    let idx_31 = paper_flat(3, 1);
+    for i in 0..n {
+        let next = (i + 1) % n;
+        let expected = c1_join(&w, g.sector(i), 3);
+        assert!(
+            approx_point(g.sector(next).cps[idx_31], expected),
+            "sector {next} flat 16 doesn't match eq (3) at j=3 from sector {i}"
+        );
+    }
+}
+
+#[test]
+fn fill_g41_matches_eq3_at_j4() {
+    let n = 8;
+    let mut g = Gtri5::new(n);
+    // Populate depth-0 shared-edge coefs + depth-1 flat-10 distinctly.
+    let idx_40 = paper_flat(4, 0);
+    let idx_14 = paper_flat(1, 4);
+    for k in 0..n {
+        g.sector_mut(k).cps[idx_40] = Point3::new(1.0 + k as f64, 0.0, 0.0);
+        g.set_mid_edge(k, Point3::new(10.0 + k as f64, 0.0, 0.0));
+        g.sector_mut(k).cps[idx_14] = Point3::new(20.0 + k as f64, 0.0, 0.0);
+    }
+    sync_shared_edge_all_depths(&mut g);
+    fill_g41_via_c1(&mut g);
+
+    use super::super::kp13_bi5_connect::{ConnectWeights, c1_join};
+    let w = ConnectWeights::for_valence(n);
+    let idx_41 = paper_flat(4, 1);
+    for i in 0..n {
+        let next = (i + 1) % n;
+        let expected = c1_join(&w, g.sector(i), 4);
+        assert!(
+            approx_point(g.sector(next).cps[idx_41], expected),
+            "sector {next} flat 19 doesn't match eq (3) at j=4 from sector {i}"
+        );
+    }
+}
+
+#[test]
+fn complete_with_higher_j_enforces_all_c1() {
+    use super::super::kp13_bi5_connect::{ConnectWeights, c1_join};
+    let q = StarQuadratic {
+        alpha: Point3::new(0.2, 0.0, 0.0),
+        beta: Point3::new(0.1, 0.0, 0.0),
+        gamma: Point3::new(-0.3, 0.0, 0.0),
+        delta: Point3::new(0.4, 0.0, 0.0),
+        epsilon: Point3::new(-0.1, 0.0, 0.0),
+        zeta: Point3::new(1.5, 0.0, 0.0),
+    };
+    let n = 7;
+    let mut g = Gtri5::new(n);
+    q.apply_to_all_sectors(&mut g);
+    // Populate per-sector free edge-0 depth-0/1 and free interiors.
+    let idx_30 = paper_flat(3, 0);
+    let idx_40 = paper_flat(4, 0);
+    let idx_13 = paper_flat(1, 3);
+    let idx_14 = paper_flat(1, 4);
+    for k in 0..n {
+        let a = 2.0 * std::f64::consts::PI * k as f64 / n as f64;
+        g.sector_mut(k).cps[idx_30] = Point3::new(a.cos() * 0.5, 0.0, 0.0);
+        g.sector_mut(k).cps[idx_40] = Point3::new(a.sin() * 0.5, 0.0, 0.0);
+        g.sector_mut(k).cps[idx_13] = Point3::new(0.1 * k as f64, 0.0, 0.0);
+        g.sector_mut(k).cps[idx_14] = Point3::new(0.2 * k as f64, 0.0, 0.0);
+        g.set_mid_edge(k, Point3::new(a.cos(), a.sin(), 0.0));
+    }
+    complete_derivative_layers_with_higher_j(&mut g).unwrap();
+
+    // After this, C¹ eq (3) should hold at every j ∈ 0..=4 for
+    // every adjacent-sector pair.
+    let w = ConnectWeights::for_valence(n);
+    for i in 0..n {
+        let next = (i + 1) % n;
+        for j in 0..=4 {
+            let predicted = c1_join(&w, g.sector(i), j);
+            let actual = g.sector(next).cp(j, 1);
+            assert!(
+                approx_point(predicted, actual),
+                "C¹ fails at sector {i} → {next}, j={j}: predicted {predicted:?}, actual {actual:?}"
+            );
+        }
+    }
+}
+
 // ---- g^i_{12} back-fill ----
 
 #[test]
