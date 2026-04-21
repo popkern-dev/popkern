@@ -67,6 +67,7 @@ mod direct_row1_ring;
 mod direct_self_check;
 mod direct_types;
 mod kp15_bi6_cap;
+mod kp15_bi6_cap_f5_solve;
 mod kp15_bi6_circulant;
 mod kp15_bi6_f5;
 mod kp15_bi6_mu;
@@ -201,6 +202,7 @@ pub use kp_ring_build::{
 pub use kp_row1::{Row1Frame, derive_row1_frame};
 pub use kp_row2::{Row2Frame, derive_row2_frame};
 pub use kp15_bi6_cap::{Bi6CapInput, Bi6CapOutput, assemble_bi6_polar_cap};
+pub use kp15_bi6_cap_f5_solve::{Bi6CapFreeParams, f5_solve_optimal_bi6_cap};
 pub use kp15_bi6_circulant::{
     CirculantSectorRhs, S2Eq7Result, solve_bi6_circulant_s2_eq7, solve_bi6_circulant_s2_eq8,
 };
