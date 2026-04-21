@@ -119,7 +119,11 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
     let mut two_stripe: Vec<RectangularGregoryTwoStripe> = Vec::with_capacity(n);
     for (idx, patch) in sub_patches.iter().enumerate() {
         let GregoryPatch::RectangularTwoStripe(ts) = patch else {
-            trace_polar("non-two-stripe input", n, Some(format!("sub-patch {idx}")));
+            trace_polar(
+                "non-two-stripe input",
+                n,
+                Some(format!("sub-patch {idx} is {}", variant_name(patch))),
+            );
             return PolarPromoteOutcome::Rejected;
         };
         two_stripe.push((**ts).clone());
@@ -209,19 +213,25 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
 }
 
 /// Dispatch wrapper used by `apply_three_quad_decomposition_to_blend`.
-/// Runs the polar promotion and, on success, updates
+/// Runs the polar promotion and, on commit, updates
 /// `relaxed_coplanarity` according to the commercial-grade gate:
 ///
 /// - commercial-grade (`worst ≤ COMMERCIAL_GATE`) → `relaxed = None`
 /// - relaxed continuity (`worst > COMMERCIAL_GATE`) → `relaxed = Some(worst)`
-/// - rejected → caller's `relaxed_coplanarity` preserved (e.g.,
-///   binonic's value remains if it set one)
+/// - rejected → caller's `relaxed_coplanarity` preserved
+///
+/// Returns `true` if the polar path committed bi-9 patches
+/// (sub_patches now contain `RectangularBiNonic`), `false` if
+/// polar rejected (sub_patches unchanged). The caller uses this
+/// to decide whether to run the binonic fallback — at N ≥ 5
+/// polar is the primary rung, binonic only fires when polar
+/// rejects.
 #[allow(dead_code)]
 pub(super) fn promote_and_update_relaxed(
     sub_patches: &mut [GregoryPatch],
     fillet_surfaces: &[FilletSurfaceResult],
     relaxed_coplanarity: &mut Option<f64>,
-) {
+) -> bool {
     match promote_decomp_to_kp_polar_bi6(sub_patches, fillet_surfaces) {
         PolarPromoteOutcome::Committed { worst_coplanarity } => {
             *relaxed_coplanarity = if worst_coplanarity > COMMERCIAL_GATE {
@@ -229,8 +239,22 @@ pub(super) fn promote_and_update_relaxed(
             } else {
                 None
             };
+            true
         }
-        PolarPromoteOutcome::Rejected => {}
+        PolarPromoteOutcome::Rejected => false,
+    }
+}
+
+/// Name of a `GregoryPatch` variant for diagnostic traces.
+fn variant_name(p: &GregoryPatch) -> &'static str {
+    match p {
+        GregoryPatch::Rectangular(_) => "Rectangular",
+        GregoryPatch::RectangularDeg5(_) => "RectangularDeg5",
+        GregoryPatch::RectangularBiquinticFull(_) => "RectangularBiquinticFull",
+        GregoryPatch::RectangularBiseptic(_) => "RectangularBiseptic",
+        GregoryPatch::RectangularTwoStripe(_) => "RectangularTwoStripe",
+        GregoryPatch::RectangularBiNonic(_) => "RectangularBiNonic",
+        GregoryPatch::Triangular(_) => "Triangular",
     }
 }
 

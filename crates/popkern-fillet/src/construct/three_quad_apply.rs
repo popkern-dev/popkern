@@ -109,17 +109,17 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             && use_two_stripe
         {
             promote_decomp_to_two_stripe_with_spoke_g1(&mut decomp.sub_patches);
-            // Phase H top rung: K-P bidegree-9 guided construction. Failure reverts silently.
-            // `Some(worst)` signals Phase H.8 step-D relaxed continuity (above commercial gate).
-            if use_kp_binonic {
-                relaxed_coplanarity = promote_decomp_to_kp_binonic(&mut decomp.sub_patches);
-            }
-            if use_kp_polar && decomp.sub_patches.len() >= 5 {
-                super::kp_polar_bi6_promote::promote_and_update_relaxed(
+            // Top rung: polar bi-6 primary at N ≥ 5 (per ADR);
+            // binonic fallback / only rung at N ≤ 4.
+            let polar_committed = use_kp_polar
+                && decomp.sub_patches.len() >= 5
+                && super::kp_polar_bi6_promote::promote_and_update_relaxed(
                     &mut decomp.sub_patches,
                     fillet_surfaces,
                     &mut relaxed_coplanarity,
                 );
+            if use_kp_binonic && !polar_committed {
+                relaxed_coplanarity = promote_decomp_to_kp_binonic(&mut decomp.sub_patches);
             }
         }
     }
