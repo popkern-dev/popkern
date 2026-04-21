@@ -57,7 +57,7 @@
 
 use super::direct_linalg::solve_dense;
 use super::kp15_bi6_cap::{Bi6CapInput, Bi6CapOutput, assemble_bi6_polar_cap};
-use super::kp15_bi6_f5::f5_quadratic_form;
+use super::kp15_bi6_f5::f_kappa_quadratic_form;
 use crate::geometry::Point3;
 
 /// Free parameter vector. Covers the paper's interior-free set
@@ -187,11 +187,28 @@ fn apply_free_params(base: &Bi6CapInput, free: &Bi6CapFreeParams) -> Bi6CapInput
     out
 }
 
-/// Minimise F_5 over the scaffold's free parameter subset. Returns
-/// the optimal free-param values and the corresponding fully-
-/// assembled cap.
+/// Minimise F_5 over the free parameter set (see module docs).
+/// Thin wrapper over [`f_kappa_solve_optimal_bi6_cap`]`(base, 5)`
+/// kept for API compatibility.
 pub fn f5_solve_optimal_bi6_cap(
     base: &Bi6CapInput,
+) -> Result<(Bi6CapFreeParams, Bi6CapOutput), String> {
+    f_kappa_solve_optimal_bi6_cap(base, 5)
+}
+
+/// Minimise F_κ for κ ∈ {1, 3, 4, 5} over the free parameter set.
+/// Same as [`f5_solve_optimal_bi6_cap`] but parameterised on the
+/// functional order.
+///
+/// Used by the F_κ fallback ladder (option C of the F_5 tuning
+/// plan): when κ = 5 output self-intersects, retry with κ ∈
+/// {4, 3, 1} to accept localised oscillation in exchange for
+/// less aggressive smoothness penalisation. Lower κ → less
+/// smoothness constraint → more flexibility for the solver to
+/// avoid folds.
+pub fn f_kappa_solve_optimal_bi6_cap(
+    base: &Bi6CapInput,
+    kappa: usize,
 ) -> Result<(Bi6CapFreeParams, Bi6CapOutput), String> {
     let n = base.n;
     let p_len = Bi6CapFreeParams::flat_len(n);
@@ -238,7 +255,7 @@ pub fn f5_solve_optimal_bi6_cap(
 
     // Step 3: build H = Σ_k M_k^T · Q · M_k. Iterate per sector
     // because Q is per-patch.
-    let q = f5_quadratic_form();
+    let q = f_kappa_quadratic_form(kappa);
     let mut h = vec![vec![0.0_f64; p_len]; p_len];
     // Per sector, extract the 49 × p_len sub-block of M and
     // accumulate M_k^T · Q · M_k into H.

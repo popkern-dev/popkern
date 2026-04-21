@@ -80,47 +80,48 @@ const GL7_WEIGHTS: [f64; 7] = [
 /// `(i, j) ∈ {(5,0), (4,1), (3,2), (2,3), (1,4), (0,5)}`.
 const F5_COEFFS: [f64; 6] = [1.0, 5.0, 10.0, 10.0, 5.0, 1.0];
 
-/// Build the 49 × 49 `F_5` quadratic-form matrix.
-/// Symmetric, positive semi-definite; invariant across all bi-6
-/// patches (depends only on Bernstein basis structure).
-///
-/// # Usage
-/// ```ignore
-/// let q = f5_quadratic_form();
-/// let flat = flatten_patch(&grid);  // 49-long per coord
-/// let f5 = flat.iter().zip(/* Q × flat */).map(|(f, qf)| f * qf).sum();
-/// ```
-///
-/// Prefer [`f5_evaluate`] for the scalar case.
+/// Build the 49 × 49 `F_5` quadratic-form matrix. Thin wrapper
+/// over [`f_kappa_quadratic_form`]`(5)` kept for API compatibility.
 pub fn f5_quadratic_form() -> [[f64; BI6_CP_COUNT]; BI6_CP_COUNT] {
+    f_kappa_quadratic_form(5)
+}
+
+/// Build the 49 × 49 `F_κ` quadratic-form matrix for κ ∈ {1, 3,
+/// 4, 5}. F_κ(f) := Σ_{i+j=κ} (κ! / (i!·j!)) · ∫∫ (∂ⁱ_s ∂ʲ_t f)²
+/// du dv (KP15 eq 14 / math spec §1.4).
+///
+/// F_5 is the paper's primary choice (KP15 §3.6 step 4). F_4 is
+/// used in KP13 n=3; F_3 is KP13's general choice for p; F_1 is
+/// Dirichlet energy (KP13 p refinement). See `f5-tuning-plan.md`
+/// option C — the F_κ fallback ladder for fold-avoidance on
+/// sharp apex geometries.
+///
+/// # Panics
+/// Panics if `kappa` isn't in `{1, 3, 4, 5}`. F_2 is intentionally
+/// unsupported (paper notes F*_2 produces visible highlight-line
+/// oscillations; see math spec §1.4).
+pub fn f_kappa_quadratic_form(kappa: usize) -> [[f64; BI6_CP_COUNT]; BI6_CP_COUNT] {
+    let (partials, coeffs) = f_kappa_partials_and_coeffs(kappa);
     let mut q = [[0.0_f64; BI6_CP_COUNT]; BI6_CP_COUNT];
 
     // Precompute all six 1D derivative basis vectors at each GL
-    // node (for both u and v axes); 7 × 6 × 7 = 294 f64 each.
-    // Indices: [gl_node_idx][deriv_order] → [f64; 7]
+    // node; indices: [gl_node_idx][deriv_order] → [f64; 7].
     let u_basis: Vec<[[f64; 7]; 6]> = GL7_NODES.iter().map(|&u| basis_all_derivs(u)).collect();
     let v_basis: Vec<[[f64; 7]; 6]> = GL7_NODES.iter().map(|&v| basis_all_derivs(v)).collect();
 
-    // For each (i_partial, j_partial) with i+j = 5, accumulate
-    // Σ_{quad} w_u · w_v · c_{ij} · outer(phi, phi) where
-    // phi_{ab} = B_a^{(i_partial)}(u) · B_b^{(j_partial)}(v).
-    for (term_idx, &(ip, jp)) in F5_PARTIALS.iter().enumerate() {
-        let c = F5_COEFFS[term_idx];
+    for (term_idx, &(ip, jp)) in partials.iter().enumerate() {
+        let c = coeffs[term_idx];
         for (pu, &wu) in GL7_WEIGHTS.iter().enumerate() {
             let bu_ip = &u_basis[pu][ip];
             for (pv, &wv) in GL7_WEIGHTS.iter().enumerate() {
                 let bv_jp = &v_basis[pv][jp];
                 let weight = wu * wv * c;
-
-                // Build the basis-derivative vector phi ∈ ℝ⁴⁹
-                // and accumulate weight · phi · phiᵀ into q.
                 let mut phi = [0.0_f64; BI6_CP_COUNT];
                 for a in 0..7 {
                     for b in 0..7 {
                         phi[a * 7 + b] = bu_ip[a] * bv_jp[b];
                     }
                 }
-                // Symmetric rank-1 update: q += weight · phi · phiᵀ.
                 for r in 0..BI6_CP_COUNT {
                     let pr = phi[r];
                     if pr == 0.0 {
@@ -135,6 +136,24 @@ pub fn f5_quadratic_form() -> [[f64; BI6_CP_COUNT]; BI6_CP_COUNT] {
         }
     }
     q
+}
+
+/// Return the `(i, j)` partial indices and `κ!/(i!·j!)` coefficients
+/// for F_κ, κ ∈ {1, 3, 4, 5}. Panics otherwise.
+fn f_kappa_partials_and_coeffs(kappa: usize) -> (Vec<(usize, usize)>, Vec<f64>) {
+    match kappa {
+        1 => (vec![(1, 0), (0, 1)], vec![1.0, 1.0]),
+        3 => (
+            vec![(3, 0), (2, 1), (1, 2), (0, 3)],
+            vec![1.0, 3.0, 3.0, 1.0],
+        ),
+        4 => (
+            vec![(4, 0), (3, 1), (2, 2), (1, 3), (0, 4)],
+            vec![1.0, 4.0, 6.0, 4.0, 1.0],
+        ),
+        5 => (F5_PARTIALS.to_vec(), F5_COEFFS.to_vec()),
+        _ => panic!("f_kappa: unsupported κ = {kappa} (expected 1, 3, 4, or 5)"),
+    }
 }
 
 /// The six `(i_partial, j_partial)` pairs with `i + j = 5`, in

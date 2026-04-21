@@ -41,7 +41,7 @@ use popkern_core::geometry::gregory::{
 };
 use popkern_core::geometry::surface::SurfaceGeometry;
 
-use super::kp_polar_bi6_apply::try_kp_polar_bi6_cap;
+use super::kp_polar_bi6_apply::try_kp_polar_bi6_cap_with_kappa;
 use super::three_quad_apply::{extract_direct_boundary_input, worst_ring_coplanarity};
 use crate::fillet_surface::FilletSurfaceResult;
 
@@ -185,32 +185,80 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
             return PolarPromoteOutcome::Rejected;
         }
     };
-    let bi9_grids = match try_kp_polar_bi6_cap(&polar) {
-        Ok(g) => g,
-        Err(e) => {
-            trace_polar("try_kp_polar_bi6_cap", n, Some(e));
-            return PolarPromoteOutcome::Rejected;
+
+    // F_κ fallback ladder (f5-tuning-plan.md option C). Try
+    // κ = 5 first (paper's primary choice, best smoothness). On
+    // self-intersection (fold), retry with κ ∈ {4, 3, 1} — each
+    // lower order is less aggressive about penalising high-
+    // frequency oscillation, giving the solver more flexibility
+    // to route around folds at the cost of accepting localised
+    // oscillation (which shape-quality tuning never minds when
+    // the alternative is a folded cap).
+    let kappas_to_try = [5usize, 4, 3, 1];
+    let mut committed_patches: Option<Vec<GregoryPatch>> = None;
+    for (attempt_idx, &kappa) in kappas_to_try.iter().enumerate() {
+        let bi9_grids = match try_kp_polar_bi6_cap_with_kappa(&polar, kappa) {
+            Ok(g) => g,
+            Err(e) => {
+                trace_polar(
+                    &format!("F_{kappa} solve error"),
+                    n,
+                    Some(format!("attempt {attempt_idx}: {e}")),
+                );
+                continue;
+            }
+        };
+        if bi9_grids.len() != n {
+            trace_polar(
+                "grid count mismatch",
+                n,
+                Some(format!("κ={kappa} got {}", bi9_grids.len())),
+            );
+            continue;
         }
-    };
-    if bi9_grids.len() != n {
-        trace_polar(
-            "grid count mismatch",
-            n,
-            Some(format!("got {}", bi9_grids.len())),
-        );
-        return PolarPromoteOutcome::Rejected;
+        let candidate: Vec<GregoryPatch> = bi9_grids
+            .into_iter()
+            .map(|grid| {
+                GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid }))
+            })
+            .collect();
+        let mut folded = false;
+        let mut fold_idx = 0usize;
+        for (i, gp) in candidate.iter().enumerate() {
+            if gp.self_intersects_with_tolerance(SELF_INT_TOL) {
+                folded = true;
+                fold_idx = i;
+                break;
+            }
+        }
+        if folded {
+            trace_polar(
+                &format!("F_{kappa} self-intersection"),
+                n,
+                Some(format!("sub-patch {fold_idx}")),
+            );
+            continue;
+        }
+        // Accepted.
+        if kappa != 5 {
+            trace_polar(
+                &format!("F_{kappa} accepted"),
+                n,
+                Some(format!("κ=5 folded; ladder fell to κ={kappa}")),
+            );
+        }
+        committed_patches = Some(candidate);
+        break;
     }
 
-    let new_patches: Vec<GregoryPatch> = bi9_grids
-        .into_iter()
-        .map(|grid| GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid })))
-        .collect();
-    for (i, gp) in new_patches.iter().enumerate() {
-        if gp.self_intersects_with_tolerance(SELF_INT_TOL) {
-            trace_polar("self-intersection", n, Some(format!("sub-patch {i}")));
-            return PolarPromoteOutcome::Rejected;
-        }
-    }
+    let Some(new_patches) = committed_patches else {
+        trace_polar(
+            "ladder exhausted",
+            n,
+            Some("no κ produced a non-folding cap".into()),
+        );
+        return PolarPromoteOutcome::Rejected;
+    };
 
     let worst_coplanarity = worst_ring_coplanarity(&new_patches);
 

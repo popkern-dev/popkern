@@ -33,7 +33,7 @@
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
     PolarBoundaryInput, convert_polar_to_bi6_cap_input, extract_bi3_tensor_border_from_polar_input,
-    f5_solve_optimal_bi6_cap,
+    f_kappa_solve_optimal_bi6_cap, f5_solve_optimal_bi6_cap,
 };
 
 /// Run the K-P 2015 bi-6 polar construction end-to-end on a
@@ -68,6 +68,27 @@ pub fn try_kp_polar_bi6_cap(
     let tensor_border = extract_bi3_tensor_border_from_polar_input(polar_input)?;
     let cap_input = convert_polar_to_bi6_cap_input(polar_input, &tensor_border)?;
     let (_optimal, out) = f5_solve_optimal_bi6_cap(&cap_input)?;
+    Ok(out.patches_bi9)
+}
+
+/// Variant of [`try_kp_polar_bi6_cap`] parameterised on the
+/// functional order κ ∈ {1, 3, 4, 5}. Same pipeline otherwise
+/// (tensor-border → bi-6 cap input → SPD solve → bi-9). Used by
+/// the F_κ fallback ladder (f5-tuning-plan.md option C): the
+/// caller retries with κ ∈ {4, 3, 1} when κ = 5 produces self-
+/// intersecting output.
+#[allow(dead_code)]
+pub fn try_kp_polar_bi6_cap_with_kappa(
+    polar_input: &PolarBoundaryInput,
+    kappa: usize,
+) -> Result<Vec<[[Point3; 10]; 10]>, String> {
+    let n = polar_input.n();
+    if n < 3 {
+        return Err(format!("polar bi-6 cap needs n ≥ 3, got {n}"));
+    }
+    let tensor_border = extract_bi3_tensor_border_from_polar_input(polar_input)?;
+    let cap_input = convert_polar_to_bi6_cap_input(polar_input, &tensor_border)?;
+    let (_optimal, out) = f_kappa_solve_optimal_bi6_cap(&cap_input, kappa)?;
     Ok(out.patches_bi9)
 }
 
