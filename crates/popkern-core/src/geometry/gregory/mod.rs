@@ -69,6 +69,9 @@ mod direct_types;
 mod kp13_bi5_circulant;
 mod kp13_bi5_connect;
 mod kp13_bi5_gtri5;
+#[cfg(test)]
+#[path = "kp13_bi5_integration_tests.rs"]
+mod kp13_bi5_integration_tests;
 mod kp13_bi5_reparam;
 mod kp13_bi5_star_quadratic;
 mod kp15_bi6_cap;
