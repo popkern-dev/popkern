@@ -11,6 +11,7 @@ mod kp_biquintic_optimizer;
 mod kp_lm_solver;
 pub(crate) mod kp_polar_bi6_apply;
 pub(crate) mod kp_polar_bi6_promote;
+mod kp_polar_deep_trace;
 mod kp_polar_lm_optimizer;
 mod kp_twist_optimizer;
 pub(crate) mod merge;
@@ -105,7 +106,6 @@ pub fn apply_blend_geometry(
         face_2_anchors: (VertexHandle, VertexHandle),
     }
     let mut perp_data: Vec<Option<PerpSplitData>> = Vec::new();
-
     let mut closed_handled: std::collections::HashSet<usize> = std::collections::HashSet::new();
     // Round 5r+: snapshot before Phase A mutates result; anchor positions come from here.
     let phase_a_snapshot = result.clone();

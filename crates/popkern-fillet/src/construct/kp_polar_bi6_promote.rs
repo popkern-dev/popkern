@@ -43,6 +43,7 @@ use popkern_core::geometry::gregory::{
 };
 use popkern_core::geometry::surface::SurfaceGeometry;
 
+use super::kp_polar_deep_trace::deep_trace_bi6_output;
 use super::kp_polar_lm_optimizer::try_polar_lm;
 use super::three_quad_apply::{extract_direct_boundary_input, worst_ring_coplanarity};
 use crate::fillet_surface::FilletSurfaceResult;
@@ -204,6 +205,14 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
             return PolarPromoteOutcome::Rejected;
         }
     };
+
+    // Deep-trace diagnostic: dump bi-6 CP grids of first K=5
+    // attempt for detailed fold inspection. Gated on env var.
+    if std::env::var_os("POPKERN_KP_POLAR_DEEP_TRACE").is_some()
+        && let Ok((_, cap_out)) = f_kappa_solve_optimal_bi6_cap(&cap_input, 5)
+    {
+        deep_trace_bi6_output(&cap_out.patches_bi6, n);
+    }
 
     // F_κ fallback ladder (f5-tuning-plan.md option C). On
     // self-intersection, retry with κ ∈ {4, 3, 1}. Track the
