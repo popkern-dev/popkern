@@ -221,6 +221,83 @@ fn poke_octagon_produces_four_quadrilateral_subfaces() {
     assert_eq!(outgoing, 4, "central vertex should have 4 outgoing he's");
 }
 
+/// Phase II first-lap — pentagonal (N-HE) input: the blend face
+/// at a sharp N=5 apex has only N=5 half-edges (pure fillet arcs,
+/// no topological bridges). `poke_n_gon_face_into_n_quads` must
+/// split each arc at `t=0.5` to reach 2N=10, then proceed with
+/// the standard algorithm, producing 5 quadrilateral sub-faces.
+#[test]
+fn poke_pentagon_n_he_produces_five_quadrilateral_subfaces() {
+    let mut brep = BRep::new(Tolerance::default());
+    // Build a 5-sided pentagon (N=5 half-edges on outer loop).
+    let n: usize = 5;
+    let pts: Vec<Point3> = (0..n)
+        .map(|k| {
+            let theta = 2.0 * std::f64::consts::PI * (k as f64) / (n as f64);
+            Point3::new(theta.cos(), theta.sin(), 0.0)
+        })
+        .collect();
+    let mvfs = brep.mvfs(pts[0]).expect("mvfs");
+    let mut prev = brep
+        .mev_at_vertex(mvfs.vertex, mvfs.loop_, pts[1])
+        .expect("mev1");
+    let first_he = prev.half_edge;
+    for p in pts.iter().take(n).skip(2) {
+        prev = brep.mev(prev.half_edge_twin, *p).expect("mev");
+    }
+    let mef = brep.mef(prev.half_edge_twin, first_he).expect("close mef");
+    let face = mef.face;
+
+    // Pre-poke topology invariants.
+    let v_before = brep.vertices.len();
+    let e_before = brep.edges.len();
+    let f_before = brep.faces.len();
+
+    // Verify the input really has N=5 HEs on the outer loop.
+    let outer_loop = brep.faces[face].outer_loop;
+    let start = brep.loops[outer_loop].half_edge;
+    let mut he_count = 1usize;
+    let mut cur = start;
+    loop {
+        cur = brep.half_edges[cur].next;
+        if cur == start {
+            break;
+        }
+        he_count += 1;
+    }
+    assert_eq!(he_count, 5, "input pentagon must have 5 outer HEs");
+
+    let center = Point3::new(0.0, 0.0, 0.0);
+    let result = poke_n_gon_face_into_n_quads(&mut brep, face, center)
+        .expect("N-HE pentagon poke should succeed");
+
+    assert_eq!(result.sub_faces.len(), n, "expected 5 sub-faces");
+
+    // Euler accounting: the N-HE path splits each arc (+N vertices,
+    // +N edges, +0 faces), then runs the standard poke (+1 vertex,
+    // +N edges, +(N-1) faces). Net: +(N+1) vertices, +2N edges,
+    // +(N-1) faces vs the pre-poke state.
+    assert_eq!(brep.vertices.len(), v_before + n + 1, "+N+1 vertices");
+    assert_eq!(brep.edges.len(), e_before + 2 * n, "+2N edges");
+    assert_eq!(brep.faces.len(), f_before + (n - 1), "+(N-1) faces");
+
+    // Every sub-face is a quadrilateral.
+    for (i, &sub_face) in result.sub_faces.iter().enumerate() {
+        let outer = brep.faces[sub_face].outer_loop;
+        let start = brep.loops[outer].half_edge;
+        let mut count = 1usize;
+        let mut cur = start;
+        for _ in 0..16 {
+            cur = brep.half_edges[cur].next;
+            if cur == start {
+                break;
+            }
+            count += 1;
+        }
+        assert_eq!(count, 4, "sub-face {i} should be a quadrilateral");
+    }
+}
+
 /// §5.3 item #4 — N=5 poke (decagon → 5 quads).
 #[test]
 fn poke_decagon_produces_five_quadrilateral_subfaces() {

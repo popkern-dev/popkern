@@ -38,7 +38,7 @@
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
-use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 /// Result of [`poke_n_gon_face_into_n_quads`]: the `N` sub-face
 /// handles in CCW order matching the input polygon's arc/bridge
@@ -53,17 +53,33 @@ pub(crate) struct HexPokeResult {
     pub central_vertex: VertexHandle,
 }
 
-/// Split a `2N`-sided blend face into `N` quadrilateral sub-faces
+/// Split an N-gonal blend face into `N` quadrilateral sub-faces
 /// sharing a new central vertex at `central_point`.
 ///
-/// The face must have an outer loop with exactly `2N` half-edges
-/// in alternating arc/bridge order (the R8 C1 N-gon boundary
-/// output). The returned sub-faces inherit the input face's
-/// surface geometry — the caller is expected to overwrite each
-/// sub-face's `surface` with the corresponding `RectangularGregory`
-/// from the decomposition.
+/// Accepts two input shapes on the outer loop:
 ///
-/// Algorithm (`N` Euler operators):
+/// 1. **`2N` half-edges** — alternating arc/bridge order, the
+///    `R8 C1` N-gon boundary output produced when adjacent-fillet
+///    bridges survive the kef/kev Euler ops as topologically-
+///    distinct edges. Typical at `N ∈ {3, 4}` on cube / square-
+///    pyramid corners.
+///
+/// 2. **`N` half-edges** — pure fillet-arc loop, no topological
+///    bridges. Typical at `N ≥ 5` sharp-apex geometry where the
+///    bridge region collapses into the arc edges during kef
+///    merging (the `BlendBoundary` still carries 2N geometric
+///    segments — arcs + bridge curves on the supporting faces —
+///    but the BRep loop itself is N-gonal). Each arc is split at
+///    its midpoint parameter (`t=0.5`) to synthesize the missing
+///    bridge-endpoint vertices, producing an equivalent `2N`
+///    loop before the main algorithm runs.
+///
+/// The returned sub-faces inherit the input face's surface
+/// geometry — the caller is expected to overwrite each sub-face's
+/// `surface` with the corresponding `RectangularGregory` from the
+/// decomposition.
+///
+/// Algorithm (`N` Euler operators, after normalising to `2N`):
 /// 1. `mev(he[0], C)` — create central vertex with tab edge `V0↔C`.
 /// 2. For `i ∈ 1..N`: `mef(he_C_to_V_{2(i-1)}, he[2i])` — split off
 ///    the `i`-th quad. The `N-1`-th call leaves the final quad
@@ -71,46 +87,72 @@ pub(crate) struct HexPokeResult {
 ///
 /// Euler invariant: adds 1 vertex, `N` edges, `N-1` faces →
 /// `ΔV − ΔE + ΔF = 0`, preserving the shell's Euler characteristic.
+/// When the N-HE preprocessing runs, it additionally adds
+/// `N` vertices and `N` edges via `split_edge` (each split:
+/// +1 vertex, +1 edge, 0 faces → also Euler-neutral).
 ///
 /// # Errors
 ///
-/// Returns [`CoreError::PreconditionFailed`] if the face does not
-/// have a `2N`-half-edge outer loop (with `N ≥ 3`), or any
-/// underlying Euler operator fails.
+/// Returns [`CoreError::PreconditionFailed`] if the face's outer
+/// loop doesn't have either `N ∈ [3, 16]` half-edges or `2N` half-
+/// edges (even, `N ≥ 3`), or any underlying Euler operator fails.
 #[allow(dead_code)]
 pub(crate) fn poke_n_gon_face_into_n_quads(
     brep: &mut BRep,
     face: FaceHandle,
     central_point: Point3,
 ) -> Result<HexPokeResult, CoreError> {
-    let face_data = brep.faces.get(face).ok_or_else(|| {
-        CoreError::InvalidHandle("face handle is invalid in poke_n_gon_face_into_n_quads".into())
-    })?;
-    let outer_loop = face_data.outer_loop;
-    let loop_data = brep
-        .loops
-        .get(outer_loop)
-        .ok_or_else(|| CoreError::InvalidHandle("outer loop handle is invalid".into()))?;
-    let start_he = loop_data.half_edge;
+    let outer_loop = brep
+        .faces
+        .get(face)
+        .ok_or_else(|| {
+            CoreError::InvalidHandle(
+                "face handle is invalid in poke_n_gon_face_into_n_quads".into(),
+            )
+        })?
+        .outer_loop;
 
-    // Walk the outer loop, capping at 32 half-edges for safety.
-    let mut loop_hes: Vec<_> = Vec::with_capacity(8);
-    let mut cursor = start_he;
-    for _ in 0..32 {
-        loop_hes.push(cursor);
-        cursor = brep.half_edges[cursor].next;
-        if cursor == start_he {
-            break;
+    // Initial walk to classify the input shape.
+    let mut loop_hes = walk_outer_loop(brep, outer_loop)?;
+    let initial_count = loop_hes.len();
+
+    // Classify: 2N (existing path) vs N (normalise via split_edge).
+    //
+    // The N-HE path is gated on `N ≥ 5`: at N ∈ {3, 4} the blend
+    // face reliably carries 2N half-edges (bridges survive kef/kev
+    // on cube / square-pyramid corners), and cases with fewer HEs
+    // at those valences must fall through to sphere-fit / single-
+    // surface handling upstream — not be force-poked.
+    let n = if initial_count >= 6 && initial_count.is_multiple_of(2) {
+        initial_count / 2
+    } else if (5..=16).contains(&initial_count) {
+        // N-HE input at N ≥ 5 — sharp-apex case. Split each arc at
+        // `t=0.5` to reach 2N; the synthetic midpoint vertices
+        // become the "corner" vertices where the bridges would
+        // have ended in the 2N shape.
+        let edges: Vec<EdgeHandle> = loop_hes
+            .iter()
+            .map(|he| brep.half_edges[*he].edge)
+            .collect();
+        for edge in edges {
+            brep.split_edge(edge, 0.5)?;
         }
-    }
-    if cursor != start_he || loop_hes.len() < 6 || !loop_hes.len().is_multiple_of(2) {
+        // Re-walk the loop: `split_edge` re-splices half-edges,
+        // so prior handles may no longer be adjacent.
+        loop_hes = walk_outer_loop(brep, outer_loop)?;
+        if loop_hes.len() != 2 * initial_count {
+            return Err(CoreError::PreconditionFailed(format!(
+                "N-HE → 2N split expected {} half-edges, got {}",
+                2 * initial_count,
+                loop_hes.len()
+            )));
+        }
+        initial_count
+    } else {
         return Err(CoreError::PreconditionFailed(format!(
-            "expected 2N-half-edge loop with N ≥ 3, got {}",
-            loop_hes.len(),
+            "expected 2N half-edges (even, N ≥ 3) or N half-edges (N ∈ [5, 16]), got {initial_count}"
         )));
-    }
-    let two_n = loop_hes.len();
-    let n = two_n / 2;
+    };
 
     // Euler-op 1: `mev(he[0], central_point)` — adds vertex C with
     // tab edge V_0 ↔ C spliced before `he[0]` in the loop.
@@ -167,10 +209,15 @@ pub(crate) fn poke_hex_face_into_three_quads(
     Ok(res)
 }
 
-/// Check whether a face's outer loop has exactly `2 * n_sides`
-/// half-edges — the precondition for
-/// [`poke_n_gon_face_into_n_quads`]. Walks the loop, capped to guard
-/// against unterminated loops.
+/// Check whether a face's outer loop has a half-edge count
+/// compatible with [`poke_n_gon_face_into_n_quads`].
+///
+/// Accepts `2 * n_sides` (classical arc/bridge alternating loop)
+/// at all valences; additionally accepts `n_sides` (pure-arc loop,
+/// sharp-apex case — `split_edge` normalises to 2N internally)
+/// when `n_sides ≥ 5`. At `N ∈ {3, 4}` only the 2N form is
+/// accepted — bridges are expected to survive on those simpler
+/// geometries, and lower counts should fall through to sphere-fit.
 #[allow(dead_code)]
 pub(crate) fn face_has_2n_outer_half_edges(brep: &BRep, face: FaceHandle, n_sides: usize) -> bool {
     let Some(face_data) = brep.faces.get(face) else {
@@ -183,16 +230,41 @@ pub(crate) fn face_has_2n_outer_half_edges(brep: &BRep, face: FaceHandle, n_side
     if !brep.half_edges.contains_key(start) {
         return false;
     }
-    let target = 2 * n_sides;
     let cap = (4 * n_sides + 4).max(12);
     let mut cursor = start;
     for n in 1..=cap {
         cursor = brep.half_edges[cursor].next;
         if cursor == start {
-            return n == target;
+            let accepts_n_he = n_sides >= 5 && n == n_sides;
+            return n == 2 * n_sides || accepts_n_he;
         }
     }
     false
+}
+
+/// Walk a face's outer loop and collect its half-edges.
+/// Capped at 64 entries to guard against malformed loops.
+fn walk_outer_loop(
+    brep: &BRep,
+    outer_loop: popkern_core::topology::LoopHandle,
+) -> Result<Vec<HalfEdgeHandle>, CoreError> {
+    let loop_data = brep
+        .loops
+        .get(outer_loop)
+        .ok_or_else(|| CoreError::InvalidHandle("outer loop handle is invalid".into()))?;
+    let start_he = loop_data.half_edge;
+    let mut hes = Vec::with_capacity(12);
+    let mut cursor = start_he;
+    for _ in 0..64 {
+        hes.push(cursor);
+        cursor = brep.half_edges[cursor].next;
+        if cursor == start_he {
+            return Ok(hes);
+        }
+    }
+    Err(CoreError::PreconditionFailed(
+        "outer loop did not terminate within 64 steps".into(),
+    ))
 }
 
 #[cfg(test)]
