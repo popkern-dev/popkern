@@ -112,14 +112,19 @@ fn optimal_is_first_order_stationary() {
                 1 => pt(0.0, eps, 0.0),
                 _ => pt(0.0, 0.0, eps),
             };
-            if i == 0 {
-                perturbed.p0_22 = add_pts(perturbed.p0_22, bump);
-            } else {
-                let k = (i - 1) / 2;
-                if (i - 1).is_multiple_of(2) {
-                    perturbed.p_23[k] = add_pts(perturbed.p_23[k], bump);
-                } else {
-                    perturbed.p_33[k] = add_pts(perturbed.p_33[k], bump);
+            match i {
+                0 => perturbed.p0_01 = add_pts(perturbed.p0_01, bump),
+                1 => perturbed.p0_02 = add_pts(perturbed.p0_02, bump),
+                2 => perturbed.p0_11 = add_pts(perturbed.p0_11, bump),
+                3 => perturbed.p0_22 = add_pts(perturbed.p0_22, bump),
+                _ => {
+                    let offset = i - 4;
+                    let k = offset / 2;
+                    if offset.is_multiple_of(2) {
+                        perturbed.p_23[k] = add_pts(perturbed.p_23[k], bump);
+                    } else {
+                        perturbed.p_33[k] = add_pts(perturbed.p_33[k], bump);
+                    }
                 }
             }
             let pert_input = apply_free_params_for_test(&base, &perturbed);
@@ -179,6 +184,11 @@ fn add_pts(a: Point3, b: Point3) -> Point3 {
 fn apply_free_params_for_test(base: &Bi6CapInput, free: &Bi6CapFreeParams) -> Bi6CapInput {
     let mut out = base.clone();
     out.p0_22 = free.p0_22;
+    if !out.sectors.is_empty() {
+        out.sectors[0].p_01 = free.p0_01;
+        out.sectors[0].p_02 = free.p0_02;
+        out.sectors[0].p_11 = free.p0_11;
+    }
     let mut filler: Vec<[[Option<Point3>; 7]; 7]> = vec![[[None; 7]; 7]; out.n];
     for k in 0..out.n {
         filler[k][2][3] = Some(free.p_23[k]);

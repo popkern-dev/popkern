@@ -1,5 +1,5 @@
-//! Phase I.10b — F_5 minimisation over the bi-6 cap's free
-//! parameter set.
+//! Phase I.10b + II.A — F_5 minimisation over the bi-6 cap's
+//! free parameter set.
 //!
 //! Given a `Bi6CapInput` with **placeholder** free parameters
 //! (the scaffold sets them to caller values or zeros), find the
@@ -8,22 +8,39 @@
 //!
 //! # Free parameter set
 //!
-//! Per [KP15 §3.6 step 4], the free parameter set `P` contains:
-//! - `p⁰_{ij}` for `0 ≤ i + j ≤ 2` (excluding `(0, 0)` which is
-//!   Catmull-Clark-fixed)
-//! - `p⁰_{22}`
-//! - `p^k_{23}`, `p^k_{33}` for k = 0..n − 1
-//! - `p⁰_{21}` at `n ∈ {3, 6}`
+//! Per [KP15 §3.6 step 4], the paper's free parameter set `P`
+//! contains `p⁰_{22}`, `p^k_{23}`, `p^k_{33}` for k = 0..n − 1,
+//! plus `p⁰_{21}` at `n ∈ {3, 6}`. The near-star CPs `p⁰_{01}`,
+//! `p⁰_{02}`, `p⁰_{11}` and their (S1) propagates to k > 0 are
+//! *derived* in step 3 from tangent-plane projection of Catmull-
+//! Clark offsets — not free parameters in the paper.
 //!
-//! This scaffold-compatible solver covers the **interior subset**:
-//! `p⁰_{22}`, `p^k_{23}`, `p^k_{33}`. The near-star `p⁰_{ij}` for
-//! `i + j ≤ 2` are treated as caller-supplied `sectors[k].p_01`,
-//! `p_02`, `p_11` for each sector (no (S1) propagation in the
-//! scaffold). Full paper-compliant (S1) propagation is deferred
-//! to I.10c when we wire into the fillet crate.
+//! **This implementation extends the paper's free set** by
+//! promoting the sector-0 near-star CPs to F_5-optimised free
+//! parameters:
+//! - Paper's set: `p⁰_{22}`, `p^k_{23}`, `p^k_{33}`
+//! - **This code's set**: paper's set + `p⁰_{01}`, `p⁰_{02}`,
+//!   `p⁰_{11}`
 //!
-//! Solver cardinality `|P|_scaffold = 2n + 1` (per coordinate;
-//! 3 independent SPD systems of this size).
+//! Rationale (f5-tuning-plan.md option A): the step-3 / (S1)
+//! propagation isn't implemented in this scaffold — callers
+//! supply scaffold values via `sectors[k].p_01 / p_02 / p_11`
+//! (typically from a tensor-border offset heuristic). Those
+//! scaffold values can push the cap into a self-intersecting
+//! configuration on sharp apex geometries. Promoting the
+//! sector-0 near-star CPs to free lets the F_5 solver pick
+//! values that avoid folds, at the cost of potentially breaking
+//! paper's G² guarantee at the sector 0 / sector 1 boundary
+//! (since sectors k > 0 still use scaffold values). When Phase
+//! II option (B) lands, this extension can be revisited.
+//!
+//! Solver cardinality: `|P| = 2n + 4` per coordinate (3
+//! independent SPD systems). Layout in the flat vector:
+//!
+//! ```text
+//! [p0_01, p0_02, p0_11, p0_22, p_23[0], p_33[0], ..., p_23[n-1], p_33[n-1]]
+//!    0       1       2      3     4        5               4+2(n-1)  5+2(n-1)
+//! ```
 //!
 //! # Algorithm
 //!
@@ -43,10 +60,21 @@ use super::kp15_bi6_cap::{Bi6CapInput, Bi6CapOutput, assemble_bi6_polar_cap};
 use super::kp15_bi6_f5::f5_quadratic_form;
 use crate::geometry::Point3;
 
-/// Scaffold-compatible free parameter vector. Covers the interior
-/// subset of the KP15 §3.6 step 4 set (see module docs).
+/// Free parameter vector. Covers the paper's interior-free set
+/// (`p⁰_{22}`, `p^k_{23}`, `p^k_{33}`) plus the Phase II option-A
+/// extension (sector-0 near-star CPs). See module docs for the
+/// rationale.
 #[derive(Debug, Clone)]
 pub struct Bi6CapFreeParams {
+    /// `p⁰_{01}` — sector 0 near-star CP, paper-derived in
+    /// step 3. Promoted to free in option A to give F_5 the
+    /// flexibility to avoid folds when scaffold tensor-border
+    /// values push the cap into self-intersection.
+    pub p0_01: Point3,
+    /// `p⁰_{02}` — sector 0 near-star CP. See `p0_01`.
+    pub p0_02: Point3,
+    /// `p⁰_{11}` — sector 0 near-star CP. See `p0_01`.
+    pub p0_11: Point3,
     /// `p⁰_{22}` — center-diagonal CP at sector 0.
     pub p0_22: Point3,
     /// `p^k_{23}` for k = 0..n − 1 — row-2 column-3 interior CP.
@@ -58,16 +86,22 @@ pub struct Bi6CapFreeParams {
 impl Bi6CapFreeParams {
     /// All zero, for use as bias in linear-map extraction.
     pub fn zero(n: usize) -> Self {
+        let z = Point3::new(0.0, 0.0, 0.0);
         Self {
-            p0_22: Point3::new(0.0, 0.0, 0.0),
-            p_23: vec![Point3::new(0.0, 0.0, 0.0); n],
-            p_33: vec![Point3::new(0.0, 0.0, 0.0); n],
+            p0_01: z,
+            p0_02: z,
+            p0_11: z,
+            p0_22: z,
+            p_23: vec![z; n],
+            p_33: vec![z; n],
         }
     }
 
     /// Length of the flat vector representation (per coordinate).
+    /// Layout: `[p0_01, p0_02, p0_11, p0_22, p_23[0], p_33[0],
+    /// p_23[1], p_33[1], ..., p_23[n-1], p_33[n-1]]`.
     pub fn flat_len(n: usize) -> usize {
-        1 + 2 * n
+        4 + 2 * n
     }
 
     /// Probe direction: flat-index `i` is `(1, 0, 0)`, others
@@ -75,20 +109,22 @@ impl Bi6CapFreeParams {
     /// coordinates by F_5's per-coord independence, so we only
     /// probe with the x-axis unit vector and reuse the resulting
     /// `M` for y and z.
-    ///
-    /// Layout: `[p0_22, p_23[0], p_33[0], p_23[1], p_33[1], ...,
-    /// p_23[n-1], p_33[n-1]]`.
     fn probe(n: usize, i: usize) -> Self {
         let mut out = Self::zero(n);
         let unit = Point3::new(1.0, 0.0, 0.0);
-        if i == 0 {
-            out.p0_22 = unit;
-        } else {
-            let k = (i - 1) / 2;
-            if (i - 1).is_multiple_of(2) {
-                out.p_23[k] = unit;
-            } else {
-                out.p_33[k] = unit;
+        match i {
+            0 => out.p0_01 = unit,
+            1 => out.p0_02 = unit,
+            2 => out.p0_11 = unit,
+            3 => out.p0_22 = unit,
+            _ => {
+                let offset = i - 4;
+                let k = offset / 2;
+                if offset.is_multiple_of(2) {
+                    out.p_23[k] = unit;
+                } else {
+                    out.p_33[k] = unit;
+                }
             }
         }
         out
@@ -96,11 +132,20 @@ impl Bi6CapFreeParams {
 }
 
 /// Apply a free-parameter vector to a base input: overwrites
-/// `p0_22` and builds `interior_filler` so `p^k_{23} =
-/// free.p_23[k]` and `p^k_{33} = free.p_33[k]`.
+/// `p0_22` + sector-0 near-star CPs and builds `interior_filler`
+/// for the per-sector interior CPs at `(2, 3)` and `(3, 3)`.
 fn apply_free_params(base: &Bi6CapInput, free: &Bi6CapFreeParams) -> Bi6CapInput {
     let mut out = base.clone();
     out.p0_22 = free.p0_22;
+    // Sector-0 near-star CPs (option A): overwrite
+    // sectors[0].p_01/02/11 with the F_5-chosen values. Sectors
+    // k > 0 retain caller-supplied scaffold values (option B
+    // will replace those with (S1)-propagated values).
+    if !out.sectors.is_empty() {
+        out.sectors[0].p_01 = free.p0_01;
+        out.sectors[0].p_02 = free.p0_02;
+        out.sectors[0].p_11 = free.p0_11;
+    }
     let mut filler: Vec<[[Option<Point3>; 7]; 7]> = vec![[[None; 7]; 7]; out.n];
     for k in 0..out.n {
         filler[k][2][3] = Some(free.p_23[k]);
@@ -248,19 +293,27 @@ pub fn f5_solve_optimal_bi6_cap(
 }
 
 /// Pack three per-coord flat solutions into a `Bi6CapFreeParams`.
+/// Layout mirrors `Bi6CapFreeParams::probe`.
 fn assemble_free_params(n: usize, sx: &[f64], sy: &[f64], sz: &[f64]) -> Bi6CapFreeParams {
-    let p0_22 = Point3::new(sx[0], sy[0], sz[0]);
+    let pt = |i: usize| Point3::new(sx[i], sy[i], sz[i]);
+    let p0_01 = pt(0);
+    let p0_02 = pt(1);
+    let p0_11 = pt(2);
+    let p0_22 = pt(3);
     let mut p_23 = Vec::with_capacity(n);
     let mut p_33 = Vec::with_capacity(n);
     for k in 0..n {
-        p_23.push(Point3::new(sx[1 + 2 * k], sy[1 + 2 * k], sz[1 + 2 * k]));
-        p_33.push(Point3::new(
-            sx[1 + 2 * k + 1],
-            sy[1 + 2 * k + 1],
-            sz[1 + 2 * k + 1],
-        ));
+        p_23.push(pt(4 + 2 * k));
+        p_33.push(pt(4 + 2 * k + 1));
     }
-    Bi6CapFreeParams { p0_22, p_23, p_33 }
+    Bi6CapFreeParams {
+        p0_01,
+        p0_02,
+        p0_11,
+        p0_22,
+        p_23,
+        p_33,
+    }
 }
 
 #[cfg(test)]
