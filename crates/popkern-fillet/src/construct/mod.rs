@@ -9,6 +9,7 @@ pub(crate) mod helpers;
 mod kp_binonic_optimizer;
 mod kp_biquintic_optimizer;
 mod kp_lm_solver;
+pub(crate) mod kp_polar_bi6_apply;
 mod kp_twist_optimizer;
 pub(crate) mod merge;
 mod multi_chord;

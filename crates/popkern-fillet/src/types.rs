@@ -279,11 +279,10 @@ pub struct FilletOptions {
     /// with spoke-G1 solver. Default `false`; requires
     /// `use_rational_gregory` and `use_deg5_gregory`.
     pub use_biquintic_full_gregory: bool,
-    /// §5.3 item #3 Phase-9 — biseptic (degree-7) Gregory with
-    /// spoke-G1 solver; 4 free CPs per spoke vs biquintic-full's
-    /// 2 gives 4–6× residual reduction on the downstream
-    /// scorecard. Default `false`; requires
-    /// `use_biquintic_full_gregory`.
+    /// §5.3 Phase-9 — biseptic (degree-7) Gregory with spoke-G1
+    /// solver; 4 free CPs per spoke (vs 2 at biquintic-full)
+    /// gives 4–6× residual reduction. Requires
+    /// `use_biquintic_full_gregory`. Default `false`.
     pub use_biseptic_gregory: bool,
     /// §5.3 item #3 Phase-10a — Peters two-stripe construction.
     /// Drops the rational blend at corner-adjacent positions
@@ -297,6 +296,10 @@ pub struct FilletOptions {
     /// `false`; requires `use_two_stripe_gregory`. ADR
     /// `docs/decisions/2026-04-19-phase-h-kp-binonic-formula-choice.md`.
     pub use_kp_binonic_gregory: bool,
+    /// Phase I — K-P 2015 bi-6 polar construction for N ≥ 5
+    /// (bi-9 output; F_5 SPD min; default `false`). See ADR
+    /// `2026-04-20-phase-i-polar-kp-formula-choice.md`.
+    pub use_kp_polar_gregory: bool,
 }
 
 impl Default for FilletOptions {
@@ -308,19 +311,16 @@ impl Default for FilletOptions {
             soft_supports: false,
             soft_support_factor: 10.0,
             cap_kind: CapKind::Open,
-            // §5.3 R8 C9 — default-ON after the C4b.2c cross-fixture
-            // scorecard confirmed Gregory wins by 30-70pp on the
-            // §2.4 metric across uniform, slight-asymmetry, 4×-ratio,
-            // larger-radii, and fine-geometry configurations. Uniform-
-            // radii corners still fall through to the analytic sphere
-            // path (Gregory dispatch correctly doesn't engage when
-            // the sphere fit succeeds first).
+            // §5.3 R8 C9 — default-ON per the C4b.2c scorecard
+            // (Gregory wins 30-70pp vs polar-NURBS on the §2.4
+            // metric; uniform-radii falls through to sphere).
             use_rational_gregory: true,
             use_deg5_gregory: true,
             use_biquintic_full_gregory: false,
             use_biseptic_gregory: false,
             use_two_stripe_gregory: false,
             use_kp_binonic_gregory: false,
+            use_kp_polar_gregory: false,
         }
     }
 }
