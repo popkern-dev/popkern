@@ -37,11 +37,12 @@
 
 use popkern_core::geometry::gregory::{
     GregoryPatch, PolarBoundaryInput, RectangularGregoryBiNonic, RectangularGregoryTwoStripe, Side,
-    Spoke, SpokeEnd,
+    Spoke, SpokeEnd, convert_polar_to_bi6_cap_input,
+    extract_bi3_tensor_border_from_polar_input, f_kappa_solve_optimal_bi6_cap,
 };
 use popkern_core::geometry::surface::SurfaceGeometry;
 
-use super::kp_polar_bi6_apply::try_kp_polar_bi6_cap_with_kappa;
+use super::kp_polar_lm_optimizer::try_polar_lm;
 use super::three_quad_apply::{extract_direct_boundary_input, worst_ring_coplanarity};
 use crate::fillet_surface::FilletSurfaceResult;
 
@@ -186,19 +187,34 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
         }
     };
 
-    // F_κ fallback ladder (f5-tuning-plan.md option C). Try
-    // κ = 5 first (paper's primary choice, best smoothness). On
-    // self-intersection (fold), retry with κ ∈ {4, 3, 1} — each
-    // lower order is less aggressive about penalising high-
-    // frequency oscillation, giving the solver more flexibility
-    // to route around folds at the cost of accepting localised
-    // oscillation (which shape-quality tuning never minds when
-    // the alternative is a folded cap).
+    // Build the `Bi6CapInput` once so we can feed the same state
+    // into the F_κ ladder and (on exhaustion) L-M warm-start.
+    let tensor_border = match extract_bi3_tensor_border_from_polar_input(&polar) {
+        Ok(tb) => tb,
+        Err(e) => {
+            trace_polar("tensor-border extract", n, Some(e));
+            return PolarPromoteOutcome::Rejected;
+        }
+    };
+    let cap_input = match convert_polar_to_bi6_cap_input(&polar, &tensor_border) {
+        Ok(ci) => ci,
+        Err(e) => {
+            trace_polar("convert_polar_to_bi6_cap_input", n, Some(e));
+            return PolarPromoteOutcome::Rejected;
+        }
+    };
+
+    // F_κ fallback ladder (f5-tuning-plan.md option C). On
+    // self-intersection, retry with κ ∈ {4, 3, 1}. Track the
+    // last F_κ solve's free params (even if folded) as L-M warm-
+    // start candidate — L-M can refine from a folded seed toward
+    // a nearby fold-safe configuration if one exists.
     let kappas_to_try = [5usize, 4, 3, 1];
     let mut committed_patches: Option<Vec<GregoryPatch>> = None;
+    let mut last_free_params = None;
     for (attempt_idx, &kappa) in kappas_to_try.iter().enumerate() {
-        let bi9_grids = match try_kp_polar_bi6_cap_with_kappa(&polar, kappa) {
-            Ok(g) => g,
+        let (free_params, cap_out) = match f_kappa_solve_optimal_bi6_cap(&cap_input, kappa) {
+            Ok(result) => result,
             Err(e) => {
                 trace_polar(
                     &format!("F_{kappa} solve error"),
@@ -208,6 +224,8 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
                 continue;
             }
         };
+        last_free_params = Some(free_params);
+        let bi9_grids = cap_out.patches_bi9;
         if bi9_grids.len() != n {
             trace_polar(
                 "grid count mismatch",
@@ -239,7 +257,6 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
             );
             continue;
         }
-        // Accepted.
         if kappa != 5 {
             trace_polar(
                 &format!("F_{kappa} accepted"),
@@ -251,12 +268,30 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
         break;
     }
 
-    let Some(new_patches) = committed_patches else {
+    // F_κ ladder exhausted — fall through to L-M (option F).
+    if committed_patches.is_none() {
         trace_polar(
             "ladder exhausted",
             n,
-            Some("no κ produced a non-folding cap".into()),
+            Some("F_κ all folded; attempting L-M refinement".into()),
         );
+        if let Some(warm_start) = last_free_params.as_ref()
+            && let Some(lm_patches) = try_polar_lm(&cap_input, warm_start)
+        {
+            trace_polar("L-M accepted", n, Some("escape via option F".into()));
+            let lm_wrapped: Vec<GregoryPatch> = lm_patches
+                .into_iter()
+                .map(|grid| {
+                    GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid }))
+                })
+                .collect();
+            committed_patches = Some(lm_wrapped);
+        } else {
+            trace_polar("L-M rejected", n, Some("no fold-safe iterate found".into()));
+        }
+    }
+
+    let Some(new_patches) = committed_patches else {
         return PolarPromoteOutcome::Rejected;
     };
 
