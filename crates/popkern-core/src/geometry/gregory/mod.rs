@@ -66,6 +66,7 @@ mod direct_row1_g1;
 mod direct_row1_ring;
 mod direct_self_check;
 mod direct_types;
+mod kp13_bi5_gtri5;
 mod kp13_bi5_reparam;
 mod kp15_bi6_cap;
 mod kp15_bi6_cap_f5_solve;

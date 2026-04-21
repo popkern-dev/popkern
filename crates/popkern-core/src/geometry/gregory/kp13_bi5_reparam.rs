@@ -48,6 +48,12 @@
 //! ```
 //!
 //! These are data-independent and can be tabulated per-n.
+//!
+//! Several accessors below are not yet consumed — they land for
+//! I.14 (cap assembly) which will call the eq (11)-(13) inter-
+//! sector join machinery.
+
+#![allow(dead_code)]
 
 use std::f64::consts::PI;
 
