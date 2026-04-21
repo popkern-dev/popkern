@@ -152,20 +152,28 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
         return PolarPromoteOutcome::Rejected;
     };
 
-    // I.10 polish: override the two-stripe-seed placeholder radii
-    // with real values pulled from the analytic fillet surfaces.
-    // Spoke `k` straddles fillets `k` and `(k+1) % n`; the spoke
-    // radius is their mean. NURBS / Gregory fillets return `None`
-    // from the extractor — in that case retain the upstream
-    // placeholder (no information loss vs. prior behaviour).
+    // I.22 — per-sector radius threading. Math spec §6 (polar-kp-
+    // math.md) treats each sector as having its own characteristic
+    // radius `r_k`; the only place radii enter the K-P 2015
+    // construction is through cross-derivative scaling in the
+    // tensor-border of sector k, driven by `r_k`. The ρ/β/σ/τ/µ
+    // tables are all radius-independent (valence-only).
+    //
+    // In the data structure, `polar.spokes[k]` feeds sector k's
+    // tensor-border (1:1 indexing in
+    // `extract_bi3_tensor_border_from_polar_input`). So spoke k's
+    // radius fields semantically hold sector k's radius — which
+    // for our fillet ring is `fillet[k].radius` (the analytic
+    // radius of the fillet strip sector k adjoins).
+    //
+    // NURBS / Gregory fillets return `None` from the extractor —
+    // in that case retain the upstream two-stripe-seed placeholder
+    // (no information loss vs. prior behaviour).
     if fillet_surfaces.len() >= n {
         for (k, spoke) in direct.spokes.iter_mut().enumerate() {
-            let r_k = extract_fillet_radius(&fillet_surfaces[k]);
-            let r_kp1 = extract_fillet_radius(&fillet_surfaces[(k + 1) % n]);
-            if let (Some(a), Some(b)) = (r_k, r_kp1) {
-                let mean = 0.5 * (a + b);
-                spoke.radius_at_c = mean;
-                spoke.radius_at_v = mean;
+            if let Some(r) = extract_fillet_radius(&fillet_surfaces[k]) {
+                spoke.radius_at_c = r;
+                spoke.radius_at_v = r;
             }
         }
     }
