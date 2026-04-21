@@ -75,6 +75,7 @@ mod kp15_bi6_polar_bridge;
 mod kp15_bi6_reparam;
 mod kp15_bi6_rule_s3;
 mod kp15_bi6_rules;
+mod kp15_bi6_tensor_border_extract;
 mod kp_boundary_consistency;
 mod kp_degree_elevate;
 mod kp_guide_build;
@@ -216,6 +217,7 @@ pub use kp15_bi6_rules::{
     S1Outputs, S4Inputs, S4Outputs, rule_5_reduce_edge, rule_s1_star_propagation, rule_s2_p12,
     rule_s2_p21, rule_s2_p22, rule_s4,
 };
+pub use kp15_bi6_tensor_border_extract::extract_bi3_tensor_border_from_polar_input;
 pub use triangular::TriangularGregory;
 
 /// A Gregory patch of either rectangular (N=4) or triangular
