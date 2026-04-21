@@ -250,6 +250,34 @@ impl TensorBorder {
             TensorBorder::Bi5(t) => &t.sectors[k][2],
         }
     }
+
+    /// Structural check — verify `sectors.len() == n` and that
+    /// no row contains NaN coordinates. Returns an error string
+    /// describing the first violation; `Ok(())` on success.
+    pub fn validate(&self, n: usize) -> Result<(), String> {
+        if self.n_sectors() != n {
+            return Err(format!(
+                "tensor-border has {} sectors, expected {n}",
+                self.n_sectors()
+            ));
+        }
+        let check_row = |sector: usize, row: usize, cps: &[Point3]| -> Result<(), String> {
+            for (i, cp) in cps.iter().enumerate() {
+                if !cp.x.is_finite() || !cp.y.is_finite() || !cp.z.is_finite() {
+                    return Err(format!(
+                        "tensor-border sector {sector} row {row} CP {i} has non-finite coord"
+                    ));
+                }
+            }
+            Ok(())
+        };
+        for k in 0..n {
+            check_row(k, 0, self.position_row(k))?;
+            check_row(k, 1, self.first_cross_row(k))?;
+            check_row(k, 2, self.second_cross_row(k))?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

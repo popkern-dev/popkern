@@ -148,6 +148,34 @@ fn is_constant_radius_variable_case() {
 }
 
 #[test]
+fn tensor_border_validate_matches_expected_n() {
+    let mut sectors = Vec::with_capacity(5);
+    for _ in 0..5 {
+        let row: [Point3; 4] = core::array::from_fn(|_| Point3::new(0.0, 0.0, 0.0));
+        sectors.push([row, row, row]);
+    }
+    let tb = TensorBorder::Bi3(TensorBorderBi3 { sectors });
+    tb.validate(5)
+        .expect("5-sector tensor-border should validate against n=5");
+    assert!(tb.validate(6).is_err());
+    assert!(tb.validate(4).is_err());
+}
+
+#[test]
+fn tensor_border_validate_rejects_non_finite_cps() {
+    let mut sectors = Vec::with_capacity(5);
+    for _ in 0..5 {
+        let row: [Point3; 4] = core::array::from_fn(|_| Point3::new(0.0, 0.0, 0.0));
+        sectors.push([row, row, row]);
+    }
+    sectors[2][1][2] = Point3::new(f64::NAN, 0.0, 0.0);
+    let tb = TensorBorder::Bi3(TensorBorderBi3 { sectors });
+    let err = tb.validate(5).expect_err("NaN CP should fail validation");
+    assert!(err.contains("sector 2"));
+    assert!(err.contains("row 1"));
+}
+
+#[test]
 fn tensor_border_bi3_accessors() {
     let mut sectors = Vec::with_capacity(5);
     for k in 0..5 {

@@ -68,6 +68,7 @@ mod direct_self_check;
 mod direct_types;
 mod kp15_bi6_mu;
 mod kp15_bi6_reparam;
+mod kp15_bi6_rule_s3;
 mod kp15_bi6_rules;
 mod kp_boundary_consistency;
 mod kp_degree_elevate;
@@ -198,9 +199,10 @@ pub use kp_row1::{Row1Frame, derive_row1_frame};
 pub use kp_row2::{Row2Frame, derive_row2_frame};
 pub use kp15_bi6_mu::{mu_bar, mu_ddot, mu_dot, mu_tdot, mu_tilde, w_scalars};
 pub use kp15_bi6_reparam::{Bi6Reparams, gamma as bi6_gamma, tau_for_valence};
+pub use kp15_bi6_rule_s3::{S3Inputs, S3Outputs, rule_s3};
 pub use kp15_bi6_rules::{
     S1Outputs, S4Inputs, S4Outputs, rule_5_reduce_edge, rule_s1_star_propagation, rule_s2_p12,
-    rule_s2_p21, rule_s3_p22, rule_s4,
+    rule_s2_p21, rule_s2_p22, rule_s4,
 };
 pub use triangular::TriangularGregory;
 

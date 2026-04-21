@@ -150,6 +150,26 @@ impl Bi6Reparams {
         let e3 = (4.0 * self.c * (1.0 - self.tau) + self.tau * self.d2) / (4.0 * self.tau);
         [0.0, 0.0, self.d2 / 2.0, e3, 0.0]
     }
+
+    /// Structural sanity check — verify fields are finite and
+    /// `τ > 0`, `n ≥ 3`. Intended for callers that construct
+    /// `Bi6Reparams` with custom (non-table) values.
+    /// [`for_valence`](Self::for_valence) output always passes.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.n < 3 {
+            return Err(format!("bi-6 valence n = {} < 3", self.n));
+        }
+        if !self.c.is_finite() {
+            return Err(format!("bi-6 c = {} is not finite", self.c));
+        }
+        if !self.tau.is_finite() || self.tau <= 0.0 {
+            return Err(format!("bi-6 τ = {} must be finite and positive", self.tau));
+        }
+        if !self.d2.is_finite() {
+            return Err(format!("bi-6 d₂ = {} is not finite", self.d2));
+        }
+        Ok(())
+    }
 }
 
 /// `τ` value for valence `n` per [KP15 §3.6 step 2]'s table.

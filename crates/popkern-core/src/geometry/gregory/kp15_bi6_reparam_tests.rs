@@ -280,6 +280,42 @@ fn all_valence_params_finite() {
 }
 
 #[test]
+fn validate_for_valence_output_always_passes() {
+    for n in [3usize, 5, 6, 7, 8, 12, 20] {
+        let p = Bi6Reparams::for_valence(n);
+        p.validate().expect("for_valence output should validate");
+    }
+}
+
+#[test]
+fn validate_rejects_n_below_three() {
+    let mut p = Bi6Reparams::for_valence(5);
+    p.n = 2;
+    assert!(p.validate().is_err());
+}
+
+#[test]
+fn validate_rejects_non_positive_tau() {
+    let mut p = Bi6Reparams::for_valence(5);
+    p.tau = 0.0;
+    assert!(p.validate().is_err());
+    p.tau = -0.1;
+    assert!(p.validate().is_err());
+    p.tau = f64::NAN;
+    assert!(p.validate().is_err());
+}
+
+#[test]
+fn validate_rejects_non_finite_c_or_d2() {
+    let mut p = Bi6Reparams::for_valence(5);
+    p.c = f64::INFINITY;
+    assert!(p.validate().is_err());
+    let mut p = Bi6Reparams::for_valence(5);
+    p.d2 = f64::NAN;
+    assert!(p.validate().is_err());
+}
+
+#[test]
 fn gamma_all_entries_finite_for_standard_valences() {
     for n in [3usize, 5, 6, 7, 8, 9, 10, 11, 12] {
         let p = Bi6Reparams::for_valence(n);

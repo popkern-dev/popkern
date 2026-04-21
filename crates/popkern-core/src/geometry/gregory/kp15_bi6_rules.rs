@@ -1,8 +1,24 @@
 //! Phase I.7 — K-P 2015 bi-6 BB-coefficient assignment rules.
 //!
 //! Source: `docs/journal/polar-kp-math.md` §1.5 (Catmull-Clark
-//! star point), §2.2 (rules (5), (S1), (S2), (S3), (S4)).
+//! star point in `kp_polar_shared`), §2.2 (rules (5), (S1)–(S4)).
 //! All rules are transcribed verbatim from [KP15] §3.1–§3.2.
+//!
+//! # Rule labeling matches the paper verbatim
+//!
+//! | Paper | This module | Produces |
+//! |-------|-------------|----------|
+//! | eq (5)  | [`rule_5_reduce_edge`]     | `p̀_{30}` (edge degree-reduction) |
+//! | (S1)    | [`rule_s1_star_propagation`] | `ṕ_{00..02}` |
+//! | (S2) eq (7)  | [`rule_s2_p21`] / [`rule_s2_p12`] | `ṕ_{21}`, `ṕ_{12}` |
+//! | (S2) eq (8)  | [`rule_s2_p22`]            | `ṕ_{22}` |
+//! | (S3) eq (9)  | [`rule_s3`]                | `p̀_{31}`, `ṕ_{31}`, `ṕ_{32}` |
+//! | (S4) eq (10), (11) | [`rule_s4`]          | `p̀_{i1}`, `ṕ_{i1}` (i=5,6); `p̀_{41}`, `ṕ_{41}` |
+//!
+//! The earlier revision grouped paper's (S2) eq (8) as a
+//! separate "(S3)" and rolled paper's (S3) and (S4) into a
+//! single "(S4)"; the current labels match [KP15] exactly so
+//! cross-referencing with the paper reads 1:1.
 //!
 //! # Notation
 //!
@@ -28,8 +44,9 @@
 //! # API
 //!
 //! Each rule is a pure function taking the specific input
-//! BB-CPs (by value) and returning the output BB-CP(s). The
-//! caller (I.10 cap assembly) orchestrates the dependency order.
+//! BB-CPs (by value, or bundled in a struct when the arg count
+//! exceeds ten) and returning the output BB-CP(s). The caller
+//! (I.10 cap assembly) orchestrates the dependency order.
 //! No hidden state; no allocation on the hot path; deterministic.
 
 use super::kp_polar_shared::weighted_sum;
@@ -151,18 +168,12 @@ pub fn rule_s1_star_propagation(
     }
 }
 
-/// Rule (S2) — determines `ṕ_{21}` and `ṕ_{12}` from the shared
-/// edge data [KP15 eq (7)].
+/// Rule (S2) eq (7) — determines `ṕ_{21}`.
 ///
 /// ```text
 ///   ṕ_{21} := −p̀_{21} + (2 − Σ µ̇_i)·p̀_{00}
 ///           + µ̇_1·p̀_{10} + µ̇_2·p̀_{20}
 ///           + µ̇_3·p̀_{40} + µ̇_4·p̀_{50} + µ̇_5·p̀_{60}
-///
-///   ṕ_{12} :=   p̀_{12} + (− Σ µ̈_i)·p̀_{00}
-///           + µ̈_1·p̀_{01} + µ̈_2·p̀_{10} + µ̈_3·p̀_{11}
-///           + µ̈_4·p̀_{20} + µ̈_5·p̀_{21}
-///           + µ̈_6·p̀_{40} + µ̈_7·p̀_{50} + µ̈_8·p̀_{60}
 /// ```
 #[allow(clippy::too_many_arguments)]
 pub fn rule_s2_p21(
@@ -187,7 +198,14 @@ pub fn rule_s2_p21(
     ])
 }
 
-/// Rule (S2) — `ṕ_{12}` formula.
+/// Rule (S2) eq (7) — determines `ṕ_{12}`.
+///
+/// ```text
+///   ṕ_{12} :=   p̀_{12} + (− Σ µ̈_i)·p̀_{00}
+///           + µ̈_1·p̀_{01} + µ̈_2·p̀_{10} + µ̈_3·p̀_{11}
+///           + µ̈_4·p̀_{20} + µ̈_5·p̀_{21}
+///           + µ̈_6·p̀_{40} + µ̈_7·p̀_{50} + µ̈_8·p̀_{60}
+/// ```
 #[allow(clippy::too_many_arguments)]
 pub fn rule_s2_p12(
     mu_ddot: [f64; 8],
@@ -217,11 +235,11 @@ pub fn rule_s2_p12(
     ])
 }
 
-/// Rule (S3) — determines `ṕ_{22}` via the `n × n` circulant
-/// system [KP15 eq (8)]:
+/// Rule (S2) eq (8) — determines `ṕ_{22}` via the `n × n`
+/// circulant system.
 ///
 /// ```text
-///   ṕ_{22} :=   p̀_{22} + (− Σ ⃛µ_i)·p̀_{00}
+///   ṕ_{22} :=   p̀_{22} + (− Σ_{i=1..8} ⃛µ_i)·p̀_{00}
 ///           + ⃛µ_1·p̀_{01} + ⃛µ_2·p̀_{10} + ⃛µ_3·p̀_{11}
 ///           + ⃛µ_4·p̀_{20} + ⃛µ_5·p̀_{21}
 ///           + ⃛µ_6·p̀_{40} + ⃛µ_7·p̀_{50} + ⃛µ_8·p̀_{60}
@@ -229,8 +247,11 @@ pub fn rule_s2_p12(
 ///           + ⃛µ_{10}·(p̀_{52} − ṕ_{52})
 ///           + ⃛µ_{11}·(p̀_{62} − ṕ_{62})
 /// ```
+///
+/// The `p̀_{00}` weight sums **only indices 1..8** (⃛µ_{9,10,11}
+/// multiply the diff_*2 terms, not `p̀_{00}`).
 #[allow(clippy::too_many_arguments)]
-pub fn rule_s3_p22(
+pub fn rule_s2_p22(
     mu_tdot: [f64; 11],
     p_prev_00: Point3,
     p_prev_01: Point3,
@@ -246,8 +267,6 @@ pub fn rule_s3_p22(
     diff_52: Point3,
     diff_62: Point3,
 ) -> Point3 {
-    // p̀_{00} weight is −Σ_{i=1..8} ⃛µ_i (indices 0..=7 in 0-based).
-    // The ⃛µ_9, ⃛µ_10, ⃛µ_11 terms weight only the diff_*2 CPs.
     let sum_mu_1_to_8: f64 = mu_tdot.iter().take(8).sum();
     weighted_sum(&[
         (-sum_mu_1_to_8, p_prev_00),
@@ -266,22 +285,41 @@ pub fn rule_s3_p22(
     ])
 }
 
-/// Outputs of the Rule (S4) inner-CP assignments.
+/// Inputs to [`rule_s4`]. Paper eqs (10) and (11) consume only
+/// row-0 CPs at i ∈ {4, 5, 6} and row-2 differences at the same.
+#[derive(Debug, Clone, Copy)]
+pub struct S4Inputs {
+    /// `p̀_{40}` (shared edge).
+    pub p_prev_40: Point3,
+    /// `p̀_{50}` (shared edge).
+    pub p_prev_50: Point3,
+    /// `p̀_{60}` (shared edge).
+    pub p_prev_60: Point3,
+    /// `p̀_{42}`, `ṕ_{42}` — row 2 at i=4.
+    pub p_prev_42: Point3,
+    /// See [`p_prev_42`](Self::p_prev_42).
+    pub p_cur_42: Point3,
+    /// `p̀_{52}`, `ṕ_{52}` — row 2 at i=5.
+    pub p_prev_52: Point3,
+    /// See [`p_prev_52`](Self::p_prev_52).
+    pub p_cur_52: Point3,
+    /// `p̀_{62}`, `ṕ_{62}` — row 2 at i=6.
+    pub p_prev_62: Point3,
+    /// See [`p_prev_62`](Self::p_prev_62).
+    pub p_cur_62: Point3,
+}
+
+/// Outputs of [`rule_s4`] — the six remaining inner-CP
+/// assignments at i ∈ {4, 5, 6}.
 #[derive(Debug, Clone, Copy)]
 pub struct S4Outputs {
-    /// `p̀_{31}` (previous-sector side).
-    pub p_prev_31: Point3,
-    /// `ṕ_{31}` (current-sector side).
-    pub p_cur_31: Point3,
-    /// `ṕ_{32}` (current-sector side).
-    pub p_cur_32: Point3,
-    /// `p̀_{51}` (i = 5 simple formula).
+    /// `p̀_{51}`.
     pub p_prev_51: Point3,
-    /// `ṕ_{51}` (i = 5).
+    /// `ṕ_{51}`.
     pub p_cur_51: Point3,
-    /// `p̀_{61}` (i = 6).
+    /// `p̀_{61}`.
     pub p_prev_61: Point3,
-    /// `ṕ_{61}` (i = 6).
+    /// `ṕ_{61}`.
     pub p_cur_61: Point3,
     /// `p̀_{41}`.
     pub p_prev_41: Point3,
@@ -289,166 +327,44 @@ pub struct S4Outputs {
     pub p_cur_41: Point3,
 }
 
-/// Inputs bundled for the (S4) rule. Using a struct since the
-/// formula reads many CPs and Rust's function-arg count limit
-/// would be unwieldy otherwise.
+/// Rule (S4) — simple differential assignments [KP15 eq (10),
+/// (11)].
 ///
-/// All fields are BB-CPs in the two-patch frame.
-#[derive(Debug, Clone, Copy)]
-pub struct S4Inputs {
-    /// Previous-sector BB-CP `p̀_{00}` (the star point).
-    pub p_prev_00: Point3,
-    /// Previous-sector BB-CP `p̀_{10}` (shared edge).
-    pub p_prev_10: Point3,
-    /// Previous-sector BB-CP `p̀_{20}` (shared edge).
-    pub p_prev_20: Point3,
-    /// Previous-sector BB-CP `p̀_{21}` (row 2, produced by S2).
-    pub p_prev_21: Point3,
-    /// Previous-sector BB-CP `p̀_{40}` (shared edge).
-    pub p_prev_40: Point3,
-    /// Previous-sector BB-CP `p̀_{50}` (shared edge).
-    pub p_prev_50: Point3,
-    /// Previous-sector BB-CP `p̀_{60}` (shared edge).
-    pub p_prev_60: Point3,
-    /// Current-sector BB-CP `ṕ_{21}` (row 2, produced by S2).
-    pub p_cur_21: Point3,
-    /// Reserved: i=5,6 row-0 CPs on the previous sector.
-    /// Currently unused by the formulas; kept for future
-    /// orchestration glue.
-    pub p_prev_50_row0: Point3,
-    /// Previous-sector BB-CP `p̀_{42}` (row 2; from earlier
-    /// construction steps or tensor-border).
-    pub p_prev_42: Point3,
-    /// Previous-sector BB-CP `p̀_{52}` (row 2).
-    pub p_prev_52: Point3,
-    /// Previous-sector BB-CP `p̀_{62}` (row 2).
-    pub p_prev_62: Point3,
-    /// Current-sector BB-CP `ṕ_{42}` (row 2).
-    pub p_cur_42: Point3,
-    /// Current-sector BB-CP `ṕ_{52}` (row 2).
-    pub p_cur_52: Point3,
-    /// Current-sector BB-CP `ṕ_{62}` (row 2).
-    pub p_cur_62: Point3,
-    /// Previous-sector BB-CP `p̀_{32}` (row 2; earlier
-    /// construction).
-    pub p_prev_32: Point3,
-}
-
-/// Rule (S4) — inner-CP assignments per [KP15 eq (9), (10),
-/// (11)]. Produces the 2-patch CPs that close the G² patch
-/// construction along the shared edge.
-pub fn rule_s4(
-    params: &Bi6Reparams,
-    mu_tilde: [f64; 10],
-    mu_bar: [f64; 10],
-    inp: &S4Inputs,
-) -> S4Outputs {
-    // p̀_{31} formula (math summary §2.2):
-    //   (1 − Σ_{i=1..6} µ̃_i)·p̀_{00}
-    //   + µ̃_1·p̀_{10} + µ̃_2·p̀_{20} + µ̃_3·p̀_{21}
-    //   + µ̃_4·p̀_{40} + µ̃_5·p̀_{50} + µ̃_6·p̀_{60}
-    //   + µ̃_7·(p̀_{42} − ṕ_{42}) + µ̃_8·(p̀_{52} − ṕ_{52})
-    //   + µ̃_9·(p̀_{62} − ṕ_{62}) + µ̃_{10}·(p̀_{22} − ṕ_{22}) ...
-    // Note: "p̀_{22} − ṕ_{22}" refers to the S3 output; we don't
-    // have direct access here so we pass `p_prev_21`/`p_cur_21`
-    // (which are the rule (S2) outputs) as shorthand — the
-    // actual S4 call site in I.10 passes the true S3 outputs via
-    // the `S4Inputs::p_prev_21` / `p_cur_21` fields.
-    //
-    // To keep this function pure, we expect the caller to have
-    // already computed p̀_{22} and ṕ_{22} and (if they want the
-    // µ̃_{10} term) to provide them. We omit µ̃_{10} for now
-    // since the (S4) rule in the paper does include the 22-diff
-    // term but the orchestration detail is: (S3) runs before
-    // (S4) and populates p̀_{22}/ṕ_{22}. We model this via the
-    // S4Inputs struct's 22-pair once I.10 wires it up.
-    //
-    // For I.7's standalone formula we expose µ̃_{1..9} and
-    // compute the core terms. The µ̃_{10} term is added by the
-    // caller. See math summary §2.2 (rule S4) for the full form.
-
-    let sum_mu_tilde_1_to_6: f64 = mu_tilde.iter().take(6).sum();
+/// ```text
+///   p̀_{i1} := p̀_{i0} + ¼·(p̀_{i2} − ṕ_{i2})         i ∈ {5, 6}
+///   ṕ_{i1} := p̀_{i0} − ¼·(p̀_{i2} − ṕ_{i2})         i ∈ {5, 6}
+///
+///   w₁ := −c/(50τ),  w₂ := c/50,  w₃ := c/15
+///   p̀_{41} := p̀_{40} + ¼·(p̀_{42} − ṕ_{42})
+///                    + w₁·(p̀_{62} − ṕ_{62})
+///                    + w₂·(p̀_{52} − ṕ_{52})
+///                    + w₃·(p̀_{60} − p̀_{50})
+///   ṕ_{41} := p̀_{40} − ¼·(p̀_{42} − ṕ_{42})
+///                    − w₁·(p̀_{62} − ṕ_{62})
+///                    − w₂·(p̀_{52} − ṕ_{52})
+///                    + w₃·(p̀_{60} − p̀_{50})
+/// ```
+pub fn rule_s4(params: &Bi6Reparams, inp: &S4Inputs) -> S4Outputs {
     let c = params.c;
+    let tau = params.tau;
+    let w1 = -c / (50.0 * tau);
+    let w2 = c / 50.0;
+    let w3 = c / 15.0;
 
     let diff_42 = inp.p_prev_42 - inp.p_cur_42;
     let diff_52 = inp.p_prev_52 - inp.p_cur_52;
     let diff_62 = inp.p_prev_62 - inp.p_cur_62;
+    let diff_6050 = inp.p_prev_60 - inp.p_prev_50;
 
-    // p̀_{31}:
-    let p_prev_31 = weighted_sum(&[
-        (1.0 - sum_mu_tilde_1_to_6, inp.p_prev_00),
-        (mu_tilde[0], inp.p_prev_10),
-        (mu_tilde[1], inp.p_prev_20),
-        (mu_tilde[2], inp.p_prev_21),
-        (mu_tilde[3], inp.p_prev_40),
-        (mu_tilde[4], inp.p_prev_50),
-        (mu_tilde[5], inp.p_prev_60),
-        (mu_tilde[6], Point3::new(diff_42.x, diff_42.y, diff_42.z)),
-        (mu_tilde[7], Point3::new(diff_52.x, diff_52.y, diff_52.z)),
-        (mu_tilde[8], Point3::new(diff_62.x, diff_62.y, diff_62.z)),
-    ]);
-
-    // ṕ_{31}: same weights up to sign flips on the differences
-    // and µ̃_3 scales `ṕ_{21}` instead of `p̀_{21}`.
-    let p_cur_31 = weighted_sum(&[
-        (1.0 - sum_mu_tilde_1_to_6, inp.p_prev_00),
-        (mu_tilde[0], inp.p_prev_10),
-        (mu_tilde[1], inp.p_prev_20),
-        (mu_tilde[2], inp.p_cur_21),
-        (mu_tilde[3], inp.p_prev_40),
-        (mu_tilde[4], inp.p_prev_50),
-        (mu_tilde[5], inp.p_prev_60),
-        (-mu_tilde[6], Point3::new(diff_42.x, diff_42.y, diff_42.z)),
-        (-mu_tilde[7], Point3::new(diff_52.x, diff_52.y, diff_52.z)),
-        (-mu_tilde[8], Point3::new(diff_62.x, diff_62.y, diff_62.z)),
-    ]);
-
-    // ṕ_{32} per (S4):
-    //   p̀_{32} + (− Σ µ̄_i)·p̀_{00}
-    //   + µ̄_1·p̀_{10} + µ̄_2·p̀_{20} + µ̄_3·p̀_{21}
-    //   + µ̄_4·p̀_{40} + µ̄_5·p̀_{50} + µ̄_6·p̀_{60}
-    //   + µ̄_7·diff_42 + µ̄_8·diff_52 + µ̄_9·diff_62
-    //   + µ̄_{10}·(p̀_{22} − ṕ_{22})  (omitted; caller may add)
-    let sum_mu_bar_1_to_6: f64 = mu_bar.iter().take(6).sum();
-    let p_cur_32 = weighted_sum(&[
-        (1.0, inp.p_prev_32),
-        (-sum_mu_bar_1_to_6, inp.p_prev_00),
-        (mu_bar[0], inp.p_prev_10),
-        (mu_bar[1], inp.p_prev_20),
-        (mu_bar[2], inp.p_prev_21),
-        (mu_bar[3], inp.p_prev_40),
-        (mu_bar[4], inp.p_prev_50),
-        (mu_bar[5], inp.p_prev_60),
-        (mu_bar[6], Point3::new(diff_42.x, diff_42.y, diff_42.z)),
-        (mu_bar[7], Point3::new(diff_52.x, diff_52.y, diff_52.z)),
-        (mu_bar[8], Point3::new(diff_62.x, diff_62.y, diff_62.z)),
-    ]);
-
-    // p̀_{i1}, ṕ_{i1} for i = 5, 6 per [KP15 eq (10)]:
-    //   p̀_{i1} = p̀_{i0} + ¼(p̀_{i2} − ṕ_{i2})
-    //   ṕ_{i1} = p̀_{i0} − ¼(p̀_{i2} − ṕ_{i2})
     let p_prev_51 = inp.p_prev_50 + diff_52 * 0.25;
     let p_cur_51 = inp.p_prev_50 - diff_52 * 0.25;
     let p_prev_61 = inp.p_prev_60 + diff_62 * 0.25;
     let p_cur_61 = inp.p_prev_60 - diff_62 * 0.25;
 
-    // p̀_{41}, ṕ_{41} per [KP15 eq (11)]:
-    //   p̀_{41} = p̀_{40} + ¼·diff_42 + w₁·diff_62 + w₂·diff_52
-    //                    + w₃·(p̀_{60} − p̀_{50})
-    //   ṕ_{41} = p̀_{40} − ¼·diff_42 − w₁·diff_62 − w₂·diff_52
-    //                    + w₃·(p̀_{60} − p̀_{50})
-    let tau = params.tau;
-    let w1 = -c / (50.0 * tau);
-    let w2 = c / 50.0;
-    let w3 = c / 15.0;
-    let diff_6050 = inp.p_prev_60 - inp.p_prev_50;
     let p_prev_41 = inp.p_prev_40 + diff_42 * 0.25 + diff_62 * w1 + diff_52 * w2 + diff_6050 * w3;
     let p_cur_41 = inp.p_prev_40 - diff_42 * 0.25 - diff_62 * w1 - diff_52 * w2 + diff_6050 * w3;
 
     S4Outputs {
-        p_prev_31,
-        p_cur_31,
-        p_cur_32,
         p_prev_51,
         p_cur_51,
         p_prev_61,

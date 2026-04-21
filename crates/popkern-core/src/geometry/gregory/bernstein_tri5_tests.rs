@@ -212,6 +212,22 @@ fn partial_sums_are_zero() {
     }
 }
 
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "triangular basis eval requires")]
+fn debug_assert_panics_outside_simplex_negative_u() {
+    // Expect panic in debug builds; in release the basis returns
+    // meaningless values silently.
+    let _ = bernstein_tri5_all(-0.1, 0.1);
+}
+
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "triangular basis eval requires")]
+fn debug_assert_panics_outside_simplex_sum_gt_one() {
+    let _ = bernstein_tri5_all(0.7, 0.6);
+}
+
 #[test]
 fn degree_4_and_3_partition_of_unity() {
     for &(u, v) in &interior_samples() {

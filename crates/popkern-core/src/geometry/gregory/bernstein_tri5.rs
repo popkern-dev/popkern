@@ -99,21 +99,49 @@ pub const fn flat_index(n: usize, i: usize, j: usize) -> usize {
     i * (2 * n + 3 - i) / 2 + j
 }
 
+/// Small slack above `1.0` for the `u + v ≤ 1` simplex guard —
+/// accommodates FD-difference samples that step slightly past the
+/// edge (`u + h + v` with h ≈ 1e-6).
+const SIMPLEX_EPSILON: f64 = 1e-6;
+
+/// Asserts `(u, v)` lies in (or within `SIMPLEX_EPSILON` of) the
+/// barycentric simplex `u ≥ 0, v ≥ 0, u + v ≤ 1`. Debug-only;
+/// `w = 1 − u − v` silently goes negative outside the simplex
+/// and `w^k` produces meaningless values that callers will
+/// rarely want.
+#[inline]
+fn debug_assert_simplex(u: f64, v: f64) {
+    debug_assert!(
+        u >= -SIMPLEX_EPSILON && v >= -SIMPLEX_EPSILON && u + v <= 1.0 + SIMPLEX_EPSILON,
+        "triangular basis eval requires u ≥ 0, v ≥ 0, u + v ≤ 1; got (u, v) = ({u}, {v})"
+    );
+}
+
 /// Evaluate all 21 degree-5 triangular basis functions at
 /// `(u, v, w = 1 − u − v)`. Output ordering matches [`flat_index`].
+///
+/// # Panics (debug)
+/// Panics in debug builds if `(u, v)` lies outside the barycentric
+/// simplex (with a small epsilon for FD samples). Release builds
+/// silently compute `w^k` with negative `w`, which is meaningless.
 pub fn bernstein_tri5_all(u: f64, v: f64) -> [f64; TRI5_CP_COUNT] {
+    debug_assert_simplex(u, v);
     let w = 1.0 - u - v;
     eval_monomial_scaled::<TRI5_CP_COUNT>(5, u, v, w, &M5)
 }
 
-/// Evaluate all 15 degree-4 basis functions.
+/// Evaluate all 15 degree-4 basis functions. See
+/// [`bernstein_tri5_all`] for simplex-domain caveat.
 pub fn bernstein_tri4_all(u: f64, v: f64) -> [f64; TRI4_CP_COUNT] {
+    debug_assert_simplex(u, v);
     let w = 1.0 - u - v;
     eval_monomial_scaled::<TRI4_CP_COUNT>(4, u, v, w, &M4)
 }
 
-/// Evaluate all 10 degree-3 basis functions.
+/// Evaluate all 10 degree-3 basis functions. See
+/// [`bernstein_tri5_all`] for simplex-domain caveat.
 pub fn bernstein_tri3_all(u: f64, v: f64) -> [f64; TRI3_CP_COUNT] {
+    debug_assert_simplex(u, v);
     let w = 1.0 - u - v;
     eval_monomial_scaled::<TRI3_CP_COUNT>(3, u, v, w, &M3)
 }
