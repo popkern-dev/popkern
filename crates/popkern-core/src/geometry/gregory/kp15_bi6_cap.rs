@@ -225,11 +225,24 @@ pub fn assemble_bi6_polar_cap(input: &Bi6CapInput) -> Result<Bi6CapOutput, Strin
     }
 
     // 6. Populate each per-sector bi-6 grid.
+    //
+    // Unpopulated CPs (in particular, deep interior at rows 3..7
+    // × cols 3..7 not touched by interior_filler or the S3/S4
+    // rules) default to the **star point** rather than origin.
+    // Origin is a geometrically-unrelated 3D location; putting
+    // unset CPs there causes the bi-6 surface to bend through
+    // origin and produces folds at (u=1, v=1) on every sub-patch.
+    // Star-point default at least keeps the surface near the cap's
+    // natural centre. Fixes the fold diagnosed via
+    // `POPKERN_KP_POLAR_DEEP_TRACE=1` (see
+    // `f5-tuning-plan.md` finding 2026-04-21). Option B' of the
+    // plan (explicit deep-interior derivation / Coons fill) can
+    // later replace this pragmatic default with a paper-correct
+    // construction.
     let mut patches_bi6: Vec<[[Point3; 7]; 7]> = Vec::with_capacity(n);
     for k in 0..n {
         let s = &input.sectors[k];
-        let mut grid = [[Point3::new(0.0, 0.0, 0.0); 7]; 7];
-        grid[0][0] = star;
+        let mut grid = [[star; 7]; 7];
         // Row 0 (shared edge, from caller).
         grid[1][0] = s.p_10;
         grid[2][0] = s.p_20;
