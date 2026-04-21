@@ -9,18 +9,31 @@ fn approx_point(a: Point3, b: Point3) -> bool {
     (a.x - b.x).abs() < EPS && (a.y - b.y).abs() < EPS && (a.z - b.z).abs() < EPS
 }
 
-// ---- flat-index convention ----
+// ---- paper label → flat-index convention ----
+//
+// Paper triple `(a, b, c)` with `a` in the `o`-slot, `b` in the
+// `m_k`-slot, `c` in the `m_{k+1}`-slot. Our basis uses
+// `B^5_{i, j, k}(u, v, w = 1-u-v)`: at `(u, v) = (0, 0)` (w = 1),
+// only `B^5_{0, 0, 5}` is non-zero → CP flat-index 0 is `o`.
+// Hence paper `(a, b, c)` → our `(i, j, k) = (b, c, a)` →
+// `flat_index(5, b, c)`.
 
 #[test]
 fn fig4_label_flat_indices_match() {
-    // (i, j, k) with i+j+k = 5
-    assert_eq!(flat_index(5, 0, 0), IDX_005); // (0, 0, 5)
-    assert_eq!(flat_index(5, 0, 5), IDX_050); // (0, 5, 0)
-    assert_eq!(flat_index(5, 5, 0), IDX_500); // (5, 0, 0)
-    assert_eq!(flat_index(5, 2, 3), IDX_230); // (2, 3, 0)
-    assert_eq!(flat_index(5, 1, 2), IDX_122); // (1, 2, 2)
-    assert_eq!(flat_index(5, 0, 3), IDX_032); // (0, 3, 2)
-    assert_eq!(flat_index(5, 0, 2), IDX_023); // (0, 2, 3)
+    // Paper 500 = star at o. → flat_index(5, 0, 0) = 0
+    assert_eq!(flat_index(5, 0, 0), IDX_500);
+    // Paper 050 = m_k. → flat_index(5, 5, 0) = 20
+    assert_eq!(flat_index(5, 5, 0), IDX_050);
+    // Paper 005 = m_{k+1}. → flat_index(5, 0, 5) = 5
+    assert_eq!(flat_index(5, 0, 5), IDX_005);
+    // Paper 230. → flat_index(5, 3, 0) = 15
+    assert_eq!(flat_index(5, 3, 0), IDX_230);
+    // Paper 122. → flat_index(5, 2, 2) = 13
+    assert_eq!(flat_index(5, 2, 2), IDX_122);
+    // Paper 032. → flat_index(5, 3, 2) = 17
+    assert_eq!(flat_index(5, 3, 2), IDX_032);
+    // Paper 023. → flat_index(5, 2, 3) = 14
+    assert_eq!(flat_index(5, 2, 3), IDX_023);
 }
 
 #[test]
@@ -68,26 +81,28 @@ fn zero_sector_evaluates_to_origin() {
 #[test]
 fn sector_evaluates_corners_to_bb_coefs() {
     let mut s = Gtri5Sector::zero();
-    let p_w = Point3::new(1.0, 2.0, 3.0); // at (0,0) → w = 1, so (0, 0, 5)
-    let p_u = Point3::new(4.0, 5.0, 6.0); // at (1, 0) → u = 1, so (5, 0, 0)
-    let p_v = Point3::new(7.0, 8.0, 9.0); // at (0, 1) → v = 1, so (0, 5, 0)
-    s.cps[IDX_005] = p_w;
-    s.cps[IDX_500] = p_u;
-    s.cps[IDX_050] = p_v;
-    // Corner at (u, v) = (0, 0) → w = 1 → should equal IDX_005.
-    assert!(approx_point(s.evaluate(0.0, 0.0), p_w));
-    // Corner at (u, v) = (1, 0) → should equal IDX_500.
-    assert!(approx_point(s.evaluate(1.0, 0.0), p_u));
-    // Corner at (u, v) = (0, 1) → should equal IDX_050.
-    assert!(approx_point(s.evaluate(0.0, 1.0), p_v));
+    // At (u, v) = (0, 0) → w = 1 → wedge vertex `o` → paper 500.
+    let p_star = Point3::new(1.0, 2.0, 3.0);
+    // At (u, v) = (1, 0) → wedge vertex `m_k` → paper 050.
+    let p_mk = Point3::new(4.0, 5.0, 6.0);
+    // At (u, v) = (0, 1) → wedge vertex `m_{k+1}` → paper 005.
+    let p_mk1 = Point3::new(7.0, 8.0, 9.0);
+    s.cps[IDX_500] = p_star;
+    s.cps[IDX_050] = p_mk;
+    s.cps[IDX_005] = p_mk1;
+    assert!(approx_point(s.evaluate(0.0, 0.0), p_star));
+    assert!(approx_point(s.evaluate(1.0, 0.0), p_mk));
+    assert!(approx_point(s.evaluate(0.0, 1.0), p_mk1));
 }
 
 #[test]
 fn sector_set_cp_roundtrip() {
+    // Paper "230" = paper triple (2, 3, 0) = our (i, j, k) = (3, 0, 2)
+    // → set_cp(3, 0, _).
     let mut s = Gtri5Sector::zero();
     let p = Point3::new(0.1, 0.2, 0.3);
-    s.set_cp(2, 3, p);
-    assert!(approx_point(s.cp(2, 3), p));
+    s.set_cp(3, 0, p);
+    assert!(approx_point(s.cp(3, 0), p));
     assert_eq!(s.cps[IDX_230], p);
 }
 

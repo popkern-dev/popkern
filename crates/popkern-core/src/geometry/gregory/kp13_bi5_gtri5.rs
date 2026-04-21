@@ -9,19 +9,24 @@
 //!
 //! # Barycentric labelling
 //!
-//! Per-sector BB-coefficients use barycentric indices `(i, j, k)`
-//! with `i + j + k = 5`. In our convention the three corners of
-//! `Δ_k` map to:
+//! Per-sector BB-coefficients are indexed by flat index into the
+//! standard BB basis `B^5_{i, j, k}(u, v, w)` with `w = 1 - u - v`
+//! (`bernstein_tri5`). In this basis the three wedge vertices map
+//! to:
 //!
-//! ```text
-//!   (5, 0, 0) := star point `o = (0, 0)`
-//!   (0, 5, 0) := `m_k    = (c_k,     s_k)`        [edge mid-point]
-//!   (0, 0, 5) := `m_{k+1} = (c_{k+1}, s_{k+1})`   [shared with sector k+1]
-//! ```
+//! | paper label | (i, j, k) | flat idx | wedge vertex     |
+//! |-------------|-----------|---------:|------------------|
+//! | `500`       | `(0, 0, 5)` |        0 | star `o = (0, 0)` |
+//! | `050`       | `(5, 0, 0)` |       20 | `m_k`             |
+//! | `005`       | `(0, 5, 0)` |        5 | `m_{k+1}`         |
 //!
-//! So `g△^k_{050}` is the mid-edge vertex that the paper labels
-//! `m_k`, and `g△^k_{005}` is the mid-edge vertex of the *next*
-//! sector boundary (shared with `g△^{k+1}_{050}`).
+//! KP13 labels BB-coefs by the barycentric triple in the order
+//! `(o-index, m_k-index, m_{k+1}-index)`, so the star is "500" and
+//! `m_k` is "050". Under our basis convention (where `B^5_{i,j,k}`
+//! uses `u`, `v`, `w = 1-u-v`), the first vertex — star at `(u, v) =
+//! (0, 0), w = 1` — lives at flat index `0`. Hence constants below
+//! are named after the paper label but their values map to the
+//! geometrically correct flat slot.
 //!
 //! Free BB-coefficients per-sector from [KP13 Fig. 4] are marked
 //! with disks / circles — in this module, see [`free_bb_indices`].
@@ -55,20 +60,30 @@ use super::bernstein_tri5::{
     bernstein_tri5_second_partial_vv, flat_index,
 };
 
-/// Flat index of the star-point BB-coef `(5, 0, 0)` ↔ `b(500)`.
-pub const IDX_500: usize = 20;
-/// Flat index of `m_k` BB-coef `(0, 5, 0)`.
-pub const IDX_050: usize = 5;
-/// Flat index of `m_{k+1}` BB-coef `(0, 0, 5)`.
-pub const IDX_005: usize = 0;
-/// Flat index of `(2, 3, 0)` — interior free coef per Fig. 4.
-pub const IDX_230: usize = 14;
-/// Flat index of `(1, 2, 2)` — interior free coef per Fig. 4.
-pub const IDX_122: usize = 8;
-/// Flat index of `(0, 3, 2)` — interior free coef per Fig. 4.
-pub const IDX_032: usize = 3;
-/// Flat index of `(0, 2, 3)` — interior free coef per Fig. 4.
-pub const IDX_023: usize = 2;
+/// Paper label `500` — star-point BB-coef `g△^k_{500}`. Wedge
+/// vertex `o = (0, 0)`; in our basis at `(u, v, w) = (0, 0, 1)`.
+pub const IDX_500: usize = 0;
+/// Paper label `050` — mid-edge vertex `g△^k_{050} = m_k =
+/// (c_k, s_k)`; in our basis at `(u, v, w) = (1, 0, 0)`.
+pub const IDX_050: usize = 20;
+/// Paper label `005` — mid-edge vertex `g△^k_{005} = m_{k+1} =
+/// (c_{k+1}, s_{k+1})`; in our basis at `(u, v, w) = (0, 1, 0)`.
+/// Same geometric point as sector `k+1`'s `IDX_050`.
+pub const IDX_005: usize = 5;
+/// Paper label `230` — depth-2 coef on the `o → m_k` edge, one
+/// layer in from `050`. Paper triple `(2, 3, 0)` → our
+/// `(i, j, k) = (3, 0, 2)` → flat index 15.
+pub const IDX_230: usize = 15;
+/// Paper label `122` — interior coef. Paper triple `(1, 2, 2)` →
+/// our `(i, j, k) = (2, 2, 1)` → flat index 13.
+pub const IDX_122: usize = 13;
+/// Paper label `032` — depth-2 coef off the `o → m_{k+1}` edge.
+/// Paper triple `(0, 3, 2)` → our `(i, j, k) = (3, 2, 0)` →
+/// flat index 17.
+pub const IDX_032: usize = 17;
+/// Paper label `023` — depth-3 coef. Paper triple `(0, 2, 3)` →
+/// our `(i, j, k) = (2, 3, 0)` → flat index 14.
+pub const IDX_023: usize = 14;
 
 /// Free BB-coef flat-indices per sector per [KP13 Fig. 4].
 /// Seven positions: `{005, 023, 032, 050, 122, 230, 500}`.
