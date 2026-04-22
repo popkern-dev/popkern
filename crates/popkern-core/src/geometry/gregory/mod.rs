@@ -80,6 +80,7 @@ mod kp13_bi5_jet;
 mod kp13_bi5_lsq;
 mod kp13_bi5_reparam;
 mod kp13_bi5_sigma;
+mod kp13_bi5_sigma_solve;
 mod kp13_bi5_star_quadratic;
 mod kp15_bi6_cap;
 mod kp15_bi6_cap_f5_solve;
