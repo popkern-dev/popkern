@@ -73,6 +73,7 @@ mod kp13_bi5_connect;
 mod kp13_bi5_eq6;
 mod kp13_bi5_free_params;
 mod kp13_bi5_gtri5;
+mod kp13_bi5_guide;
 #[cfg(test)]
 #[path = "kp13_bi5_integration_tests.rs"]
 mod kp13_bi5_integration_tests;

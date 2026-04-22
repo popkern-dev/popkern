@@ -1,0 +1,292 @@
+//! Tests for the bi-5 guide construction (KP13 § 3).
+
+#![allow(clippy::needless_range_loop)]
+
+use super::super::bernstein_tri5::{
+    TRI5_CP_COUNT, bernstein_tri5_all, bernstein_tri5_all_extended,
+};
+use super::super::kp13_bi5_free_params::{Bi5FreeParams, apply_free_params};
+use super::super::kp13_bi5_gtri5::{IDX_005, IDX_050, IDX_500};
+use super::*;
+
+const EPS: f64 = 1e-9;
+
+fn approx_p(a: Point3, b: Point3, eps: f64) -> bool {
+    (a.x - b.x).abs() < eps && (a.y - b.y).abs() < eps && (a.z - b.z).abs() < eps
+}
+
+// Evaluate a tri-5 polynomial at (u, v) using the codebase's
+// extended basis (no simplex restriction — needed because bi-5 eval
+// probes u + v > 1).
+fn eval_tri5_extended(cps: &[Point3; TRI5_CP_COUNT], u: f64, v: f64) -> Point3 {
+    let b = bernstein_tri5_all_extended(u, v);
+    let mut out = Point3::new(0.0, 0.0, 0.0);
+    for i in 0..TRI5_CP_COUNT {
+        out.x += b[i] * cps[i].x;
+        out.y += b[i] * cps[i].y;
+        out.z += b[i] * cps[i].z;
+    }
+    out
+}
+
+// ---- tri5_to_bi5_degree_raise: polynomial equivalence ----
+
+#[test]
+fn degree_raise_preserves_polynomial_inside_simplex() {
+    // Build a deterministic tri-5 CP vector and verify that the
+    // degree-raised bi-5 patch evaluates to the same value as the
+    // tri-5 patch, at interior points of the simplex.
+    let mut cps = [Point3::new(0.0, 0.0, 0.0); TRI5_CP_COUNT];
+    for i in 0..TRI5_CP_COUNT {
+        let t = i as f64 * 0.37;
+        cps[i] = Point3::new(t.sin(), t.cos(), 0.5 * t.sin() * t.cos());
+    }
+    let bi5 = tri5_to_bi5_degree_raise(&cps);
+    let sector = Bi5GuideSector { cps: bi5 };
+
+    for &(u, v) in &[(0.1, 0.1), (0.25, 0.5), (0.3, 0.3), (0.5, 0.25), (0.7, 0.2)] {
+        let tri_val = {
+            let b = bernstein_tri5_all(u, v);
+            let mut out = Point3::new(0.0, 0.0, 0.0);
+            for i in 0..TRI5_CP_COUNT {
+                out.x += b[i] * cps[i].x;
+                out.y += b[i] * cps[i].y;
+                out.z += b[i] * cps[i].z;
+            }
+            out
+        };
+        let bi_val = sector.eval(u, v);
+        assert!(
+            approx_p(tri_val, bi_val, 1e-10),
+            "(u, v) = ({u}, {v}): tri={tri_val:?}, bi={bi_val:?}"
+        );
+    }
+}
+
+#[test]
+fn degree_raise_preserves_polynomial_outside_simplex() {
+    // Key observation: g△ is polynomial, so the identity
+    //   tri5_polynomial(u, v) = bi5_polynomial(u, v)
+    // holds for ALL (u, v) ∈ R², including (u, v) ∈ [0, 1]² where
+    // u + v > 1 (the v_k region).
+    let mut cps = [Point3::new(0.0, 0.0, 0.0); TRI5_CP_COUNT];
+    for i in 0..TRI5_CP_COUNT {
+        let t = i as f64 * 0.123;
+        cps[i] = Point3::new(t.cos(), -t.sin(), t.sin() + 0.2);
+    }
+    let bi5 = tri5_to_bi5_degree_raise(&cps);
+    let sector = Bi5GuideSector { cps: bi5 };
+
+    for &(u, v) in &[(0.8, 0.7), (1.0, 1.0), (0.5, 0.9), (0.95, 0.6)] {
+        let tri_val = eval_tri5_extended(&cps, u, v);
+        let bi_val = sector.eval(u, v);
+        assert!(
+            approx_p(tri_val, bi_val, 1e-9),
+            "(u, v) = ({u}, {v}) in v_k region: tri={tri_val:?}, bi={bi_val:?}"
+        );
+    }
+}
+
+#[test]
+fn degree_raise_linearity() {
+    // The degree-raise is linear in the tri-5 CPs.
+    let mut cps_a = [Point3::new(0.0, 0.0, 0.0); TRI5_CP_COUNT];
+    let mut cps_b = [Point3::new(0.0, 0.0, 0.0); TRI5_CP_COUNT];
+    for i in 0..TRI5_CP_COUNT {
+        cps_a[i] = Point3::new(i as f64, 0.0, 0.0);
+        cps_b[i] = Point3::new(0.0, i as f64, (-1.0_f64).powi(i as i32) * 0.5);
+    }
+    let bi_a = tri5_to_bi5_degree_raise(&cps_a);
+    let bi_b = tri5_to_bi5_degree_raise(&cps_b);
+    // Sum:
+    let mut cps_sum = cps_a;
+    for i in 0..TRI5_CP_COUNT {
+        cps_sum[i].x += cps_b[i].x;
+        cps_sum[i].y += cps_b[i].y;
+        cps_sum[i].z += cps_b[i].z;
+    }
+    let bi_sum = tri5_to_bi5_degree_raise(&cps_sum);
+    for p in 0..6 {
+        for q in 0..6 {
+            let expected_x = bi_a[p][q].x + bi_b[p][q].x;
+            let expected_y = bi_a[p][q].y + bi_b[p][q].y;
+            let expected_z = bi_a[p][q].z + bi_b[p][q].z;
+            assert!(
+                (bi_sum[p][q].x - expected_x).abs() < 1e-9
+                    && (bi_sum[p][q].y - expected_y).abs() < 1e-9
+                    && (bi_sum[p][q].z - expected_z).abs() < 1e-9,
+                "linearity fails at ({p}, {q})"
+            );
+        }
+    }
+}
+
+// ---- Corner CP identities ----
+
+#[test]
+fn bi5_star_corner_equals_tri5_star() {
+    // At bi-5 CP (0, 0) the value is the patch value at (0, 0),
+    // which in simplex coords is the star vertex (u_s = 0, v_s = 0,
+    // w_s = 1). So bi5[0][0] = cps[IDX_500].
+    let mut cps = [Point3::new(0.0, 0.0, 0.0); TRI5_CP_COUNT];
+    for i in 0..TRI5_CP_COUNT {
+        cps[i] = Point3::new(i as f64 + 1.0, i as f64 * 2.0, -(i as f64));
+    }
+    let bi5 = tri5_to_bi5_degree_raise(&cps);
+    assert!(approx_p(bi5[0][0], cps[IDX_500], 1e-12));
+}
+
+#[test]
+fn bi5_mk_corner_equals_tri5_mk() {
+    // At bi-5 CP (5, 0): u = 1, v = 0 → simplex coords (1, 0, 0) = m_k.
+    let mut cps = [Point3::new(0.0, 0.0, 0.0); TRI5_CP_COUNT];
+    for i in 0..TRI5_CP_COUNT {
+        cps[i] = Point3::new(i as f64, -(i as f64), i as f64 / 2.0);
+    }
+    let bi5 = tri5_to_bi5_degree_raise(&cps);
+    // IDX_050 = (i = 5, j = 0) is the m_k corner in this codebase's
+    // convention (paper label "050" = barycentric (0, 5, 0)).
+    assert!(approx_p(bi5[5][0], cps[IDX_050], 1e-12));
+}
+
+#[test]
+fn bi5_mk1_corner_equals_tri5_mk1() {
+    // At bi-5 CP (0, 5): u = 0, v = 1 → simplex (0, 1, 0) = m_{k+1}.
+    let mut cps = [Point3::new(0.0, 0.0, 0.0); TRI5_CP_COUNT];
+    for i in 0..TRI5_CP_COUNT {
+        cps[i] = Point3::new(-(i as f64), i as f64, i as f64 + 1.0);
+    }
+    let bi5 = tri5_to_bi5_degree_raise(&cps);
+    // IDX_005 = (i = 0, j = 5) is the m_{k+1} corner.
+    assert!(approx_p(bi5[0][5], cps[IDX_005], 1e-12));
+}
+
+// ---- Bi5Guide::from_gtri5: end-to-end ----
+
+#[test]
+fn from_gtri5_preserves_star_per_sector() {
+    // All sectors share the same star point (I.11 invariant). After
+    // degree-raise, each sector's bi-5 CP (0, 0) should equal the
+    // shared star.
+    let params = Bi5FreeParams::zero(6);
+    let star = Point3::new(0.5, -0.2, 1.3);
+    let g_tri = apply_free_params(&params, star).unwrap();
+    let g_bi = Bi5Guide::from_gtri5(&g_tri);
+    for k in 0..6 {
+        let bi_star = g_bi.sector(k).cps[0][0];
+        assert!(
+            approx_p(bi_star, star, 1e-10),
+            "sector {k} bi-5 star {bi_star:?} ≠ tri-5 star {star:?}"
+        );
+    }
+}
+
+#[test]
+fn from_gtri5_c0_junction_between_sectors() {
+    // Adjacent sectors share a boundary edge. Sector k's (0, 5)
+    // corner = m_{k+1} = sector (k+1)'s (5, 0) corner = m_{k+1}.
+    // The degree-raised guide inherits this shared edge.
+    let params = Bi5FreeParams::zero(7);
+    let g_tri = apply_free_params(&params, Point3::new(0.0, 0.0, 0.0)).unwrap();
+    let g_bi = Bi5Guide::from_gtri5(&g_tri);
+    for k in 0..7 {
+        let k_next = (k + 1) % 7;
+        let mk1_via_k = g_bi.sector(k).cps[0][5];
+        let mk1_via_next = g_bi.sector(k_next).cps[5][0];
+        assert!(
+            approx_p(mk1_via_k, mk1_via_next, 1e-10),
+            "sector {k}→{k_next} mid-edge mismatch: {mk1_via_k:?} vs {mk1_via_next:?}"
+        );
+    }
+}
+
+#[test]
+fn from_gtri5_works_for_all_valences() {
+    // Including low-valence n ∈ {3, 4} (via KP09a § 6 pseudo-inverse
+    // in the circulant upstream).
+    for n in [3, 4, 5, 6, 7, 8] {
+        let params = Bi5FreeParams::zero(n);
+        let g_tri = apply_free_params(&params, Point3::new(0.1, 0.2, 0.3)).unwrap();
+        let g_bi = Bi5Guide::from_gtri5(&g_tri);
+        g_bi.validate().unwrap_or_else(|e| panic!("n={n}: {e}"));
+        assert_eq!(g_bi.n, n);
+        assert_eq!(g_bi.sectors.len(), n);
+    }
+}
+
+// ---- Validation ----
+
+#[test]
+fn zero_guide_validates() {
+    for n in [3, 4, 5, 6, 10] {
+        let g = Bi5Guide::zero(n);
+        g.validate().unwrap();
+    }
+}
+
+#[test]
+#[should_panic]
+fn zero_guide_below_three_panics() {
+    let _ = Bi5Guide::zero(2);
+}
+
+#[test]
+fn validate_detects_sector_count_mismatch() {
+    let mut g = Bi5Guide::zero(5);
+    g.sectors.pop();
+    assert!(g.validate().is_err());
+}
+
+#[test]
+fn validate_detects_non_finite_cp() {
+    let mut g = Bi5Guide::zero(5);
+    g.sectors[2].cps[3][4].x = f64::NAN;
+    assert!(g.validate().is_err());
+}
+
+// ---- Evaluation ----
+
+#[test]
+fn sector_eval_at_corners_equals_corner_cps() {
+    let mut sector = Bi5GuideSector::zero();
+    sector.cps[0][0] = Point3::new(1.0, 2.0, 3.0);
+    sector.cps[5][0] = Point3::new(4.0, 5.0, 6.0);
+    sector.cps[0][5] = Point3::new(7.0, 8.0, 9.0);
+    sector.cps[5][5] = Point3::new(10.0, 11.0, 12.0);
+    assert!(approx_p(sector.eval(0.0, 0.0), sector.cps[0][0], 1e-12));
+    assert!(approx_p(sector.eval(1.0, 0.0), sector.cps[5][0], 1e-12));
+    assert!(approx_p(sector.eval(0.0, 1.0), sector.cps[0][5], 1e-12));
+    assert!(approx_p(sector.eval(1.0, 1.0), sector.cps[5][5], 1e-12));
+}
+
+#[test]
+fn eval_is_continuous_across_sector_boundary() {
+    // Sample the shared edge at v = 0 for sector k+1 vs u = 1 for
+    // sector k (both trace out the m_{k+1}-side of the boundary).
+    let params = Bi5FreeParams::zero(6);
+    let g_tri = apply_free_params(&params, Point3::new(0.0, 0.0, 0.0)).unwrap();
+    let g_bi = Bi5Guide::from_gtri5(&g_tri);
+    // Sector k's v = 1 edge vs sector (k + 1)'s u = 0 edge (both =
+    // the shared m_{k+1} edge; note different parameter directions
+    // along the edge in the two sectors, so we compare endpoints).
+    for k in 0..6 {
+        let k_next = (k + 1) % 6;
+        let a = g_bi.sector(k).eval(0.0, 1.0); // m_{k+1} via sector k
+        let b = g_bi.sector(k_next).eval(1.0, 0.0); // m_{k+1} via sector k+1
+        assert!(
+            approx_p(a, b, 1e-10),
+            "C⁰ junction at k={k}, k_next={k_next}: {a:?} vs {b:?}"
+        );
+    }
+}
+
+// ---- Determinism ----
+
+#[test]
+fn from_gtri5_deterministic() {
+    let params = Bi5FreeParams::zero(5);
+    let g_tri = apply_free_params(&params, Point3::new(1.0, 2.0, 3.0)).unwrap();
+    let a = Bi5Guide::from_gtri5(&g_tri);
+    let b = Bi5Guide::from_gtri5(&g_tri);
+    assert_eq!(a, b);
+}
