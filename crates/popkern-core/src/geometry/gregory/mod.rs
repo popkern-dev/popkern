@@ -76,6 +76,7 @@ mod kp13_bi5_gtri5;
 #[path = "kp13_bi5_integration_tests.rs"]
 mod kp13_bi5_integration_tests;
 mod kp13_bi5_jet;
+mod kp13_bi5_lsq;
 mod kp13_bi5_reparam;
 mod kp13_bi5_star_quadratic;
 mod kp15_bi6_cap;
