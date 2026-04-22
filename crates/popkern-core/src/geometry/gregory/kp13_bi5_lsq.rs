@@ -336,6 +336,114 @@ fn unit_params(slot: ParamSlot, axis: usize, n: usize) -> Bi5FreeParams {
     p
 }
 
+/// Error from the full LSQ pipeline.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LsqError {
+    /// Free-params / apply_free_params failure (typically n ∈ {3, 4}).
+    Apply(ApplyError),
+    /// Normal equations are singular at the given axis (0 / 1 / 2).
+    SingularNormalSystem(usize),
+}
+
+impl std::fmt::Display for LsqError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LsqError::Apply(e) => write!(f, "LSQ apply: {e}"),
+            LsqError::SingularNormalSystem(a) => {
+                write!(f, "LSQ normal system singular on axis {a}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for LsqError {}
+
+impl From<ApplyError> for LsqError {
+    fn from(e: ApplyError) -> Self {
+        LsqError::Apply(e)
+    }
+}
+
+/// Solve the normal equations `AᵀA · x_axis = Aᵀb_axis` per axis and
+/// decode back into a `Bi5FreeParams`.
+///
+/// Returns the three per-axis flat solutions `(x0, x1, x2)` of
+/// length `6n + 5` each, along with the packed `Bi5FreeParams`.
+pub fn solve_normal_equations(sys: &LsqSystem) -> Result<Bi5FreeParams, LsqError> {
+    let n = sys.n;
+    let cols = num_free_params(n);
+
+    // AᵀA (cols × cols, symmetric). Computed once — shared across axes.
+    let mut ata = vec![vec![0.0_f64; cols]; cols];
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..cols {
+        for j in 0..cols {
+            let mut s = 0.0;
+            for row in 0..num_rows(n) {
+                s += sys.a[row][i] * sys.a[row][j];
+            }
+            ata[i][j] = s;
+        }
+    }
+
+    // Solve per axis: AᵀA · x_axis = Aᵀb_axis.
+    let mut per_axis_solutions: [Vec<f64>; 3] = [vec![0.0; cols], vec![0.0; cols], vec![0.0; cols]];
+    for (axis, b_axis) in sys.b.iter().enumerate() {
+        let mut atb = vec![0.0_f64; cols];
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..cols {
+            let mut s = 0.0;
+            for row in 0..num_rows(n) {
+                s += sys.a[row][i] * b_axis[row];
+            }
+            atb[i] = s;
+        }
+        let x = super::direct_linalg::solve_dense(ata.clone(), atb)
+            .ok_or(LsqError::SingularNormalSystem(axis))?;
+        per_axis_solutions[axis] = x;
+    }
+
+    // Decode: pack three per-axis flat vectors into Bi5FreeParams.
+    Ok(pack_from_per_axis(&per_axis_solutions, n))
+}
+
+/// Decode three per-axis flat vectors of length `6n + 5` into a
+/// `Bi5FreeParams` by interpreting each flat index as the x / y / z
+/// component of the corresponding slot.
+fn pack_from_per_axis(per_axis: &[Vec<f64>; 3], n: usize) -> Bi5FreeParams {
+    let mut p = Bi5FreeParams::zero(n);
+    let cols = num_free_params(n);
+    #[allow(clippy::needless_range_loop)]
+    for col in 0..cols {
+        let slot = ParamSlot::from_flat(col, n);
+        let v = Point3::new(per_axis[0][col], per_axis[1][col], per_axis[2][col]);
+        match slot {
+            ParamSlot::QAlpha => p.q.alpha = v,
+            ParamSlot::QBeta => p.q.beta = v,
+            ParamSlot::QGamma => p.q.gamma = v,
+            ParamSlot::QDelta => p.q.delta = v,
+            ParamSlot::QEpsilon => p.q.epsilon = v,
+            ParamSlot::MidEdge(k) => p.m_k[k] = v,
+            ParamSlot::G30(k) => p.g_30[k] = v,
+            ParamSlot::G40(k) => p.g_40[k] = v,
+            ParamSlot::G122(k) => p.g_122[k] = v,
+            ParamSlot::G023(k) => p.g_023[k] = v,
+            ParamSlot::G032(k) => p.g_032[k] = v,
+        }
+    }
+    p
+}
+
+/// End-to-end: build the LSQ system from the tensor-border target,
+/// solve the normal equations, and inverse-apply to produce the
+/// fully-populated `Gtri5`.
+pub fn solve_g_tri_lsq(target: &TensorBorder, cc_limit: Point3) -> Result<Gtri5, LsqError> {
+    let sys = build_lsq_system(target, cc_limit)?;
+    let params = solve_normal_equations(&sys)?;
+    let g = apply_free_params(&params, cc_limit)?;
+    Ok(g)
+}
+
 // Keep BilinearChi referenced so rust-analyzer notes it as intentional.
 #[cfg(test)]
 #[path = "kp13_bi5_lsq_tests.rs"]
@@ -343,7 +451,7 @@ mod tests;
 
 // Suppress the unused import warning on `BilinearChi` in release
 // builds — we document it in the module docs but don't need it
-// until I.11e.4 wires the CC variant.
+// until the CC variant is wired.
 #[allow(unused)]
 fn _bilinear_chi_ref() -> BilinearChi {
     BilinearChi::new(5)
