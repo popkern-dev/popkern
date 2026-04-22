@@ -39,7 +39,7 @@
 //! re-expressed on the unit square. This satisfies eqs (5), (7)
 //! **identically at all orders**, not just up to order 2.
 //!
-//! # Eq (8) — v_k corner (deferred, see below)
+//! # Eq (8) — v_k corner override
 //!
 //! The fourth paper-prescribed constraint overrides `g^k`'s jet at
 //! the `(1, 1)` corner (= `v_k`) by solving
@@ -48,18 +48,21 @@
 //!   H_{v_k}(g^k ∘ L⁻¹ ∘ χ) = H_{v_k} b^k
 //! ```
 //!
-//! against the tensor-border jet `b^k`. Under bilinear χ this
-//! reduces to `H_{v_k} g^k = H_{v_k} b^k` (trivial 6-equation
-//! solve); under full Catmull-Clark χ it involves the CC χ's
-//! non-trivial Jacobian and Hessian at `v_k`.
+//! against the tensor-border jet `b^k`.
 //!
-//! This module currently implements **only the degree-raise** —
-//! eqs (5) and (7) — and documents eq (8) as follow-up work. Since
-//! the I.11 LSQ has already fit `g△`'s jet at `v_k` to `b^k`
-//! (eq (4) of the paper), the degree-raised `g^k` already carries
-//! an LSQ-level approximation of the eq (8) jet. Overriding it with
-//! eq (8) is a local refinement that is well-posed but not strictly
-//! necessary for the downstream I.14 pipeline to succeed.
+//! - **Bilinear χ** — `L⁻¹ ∘ χ` is the identity, so the constraint
+//!   reduces to `H_{v_k} g^k = H_{v_k} b^k`. Inverted analytically
+//!   onto the six bi-5 CPs controlling the 2nd-order jet at corner
+//!   `(1, 1)`; implemented in
+//!   [`Bi5Guide::from_gtri5_with_eq8_bilinear`].
+//!
+//! - **CC χ** — `L⁻¹ ∘ χ` has non-trivial Jacobian (at `v_k`:
+//!   `∂χ = λ · m_k, λ · m_{k+1}`) and non-zero Hessian, so the
+//!   6 × 6 linear solve includes chain-rule terms. Deferred — the
+//!   bilinear path plus the LSQ-fit `g△` is already commercial-
+//!   grade for regular valence; CC χ is the paper's final polish
+//!   and is a mechanical extension following the pattern in
+//!   [`super::kp13_bi5_lsq_cc`].
 //!
 //! # Tri-5 → bi-5 degree raise — closed form
 //!
@@ -98,7 +101,10 @@
 
 use super::bernstein_bi5::bernstein_bi5_all;
 use super::bernstein_tri5::{TRI5_CP_COUNT, flat_index};
+use super::kp13_bi5_boundary::TensorBorder;
+use super::kp13_bi5_chi::ChiCorner;
 use super::kp13_bi5_gtri5::Gtri5;
+use super::kp13_bi5_jet::TaylorJet2;
 use crate::geometry::Point3;
 
 /// Number of tensor-product BB CPs in one bi-5 guide sector (6 × 6).
@@ -184,6 +190,60 @@ impl Bi5Guide {
             })
             .collect();
         Self { n, sectors }
+    }
+
+    /// Build the bi-5 guide per eqs (5) + (7) from `g△`, then apply
+    /// the eq (8) `v_k`-corner override to directly match the
+    /// tensor-border jet at `(u, v) = (1, 1)` in each sector.
+    ///
+    /// # Eq (8) — bilinear χ variant
+    ///
+    /// Under bilinear `χ(u, v) := u · m_k + v · m_{k+1}`, the
+    /// composition `L⁻¹ ∘ χ` is the identity on `[0, 1]²` (both
+    /// are the same linear shear). Paper eq (8) therefore reduces
+    /// to a direct jet match
+    ///
+    /// ```text
+    ///   H_{v_k} g^k = H_{v_k} b^k
+    /// ```
+    ///
+    /// which is inverted analytically onto the six bi-5 CPs
+    /// controlling the 2nd-order jet at corner `(1, 1)`:
+    ///
+    /// ```text
+    ///   P_{5,5} = J.value
+    ///   P_{4,5} = P_{5,5} − J.d_u / 5
+    ///   P_{5,4} = P_{5,5} − J.d_v / 5
+    ///   P_{3,5} = 2 P_{4,5} − P_{5,5} + J.d_uu / 20
+    ///   P_{5,3} = 2 P_{5,4} − P_{5,5} + J.d_vv / 20
+    ///   P_{4,4} = P_{4,5} + P_{5,4} − P_{5,5} + J.d_uv / 25
+    /// ```
+    ///
+    /// The remaining three CPs of the `(1, 1)` 3 × 3 block
+    /// (`P_{3,3}`, `P_{3,4}`, `P_{4,3}`) are **not** determined by
+    /// the 2nd-order jet — they keep their degree-raised values
+    /// from `g△` and carry 3rd-order-and-higher information.
+    ///
+    /// # Full CC χ variant
+    ///
+    /// Deferred: for full Catmull-Clark χ, the composition
+    /// `L⁻¹ ∘ χ` is no longer the identity, and the six equations
+    /// involve a chain-rule expansion (analogous to the CC-χ path
+    /// in [`super::kp13_bi5_lsq_cc`]). The 6 × 6 linear solve on
+    /// the `(5, 5)`-corner CPs still applies, just with non-
+    /// diagonal structure from the χ Jacobian + Hessian at `v_k`.
+    pub fn from_gtri5_with_eq8_bilinear(gtri5: &Gtri5, target: &TensorBorder) -> Self {
+        assert_eq!(
+            gtri5.n,
+            target.n(),
+            "from_gtri5_with_eq8_bilinear: g△ and target n mismatch"
+        );
+        let mut g = Self::from_gtri5(gtri5);
+        for k in 0..g.n {
+            let jet = target.jet(k, ChiCorner::Vk);
+            apply_eq8_bilinear_override(&mut g.sectors[k], &jet);
+        }
+        g
     }
 
     /// Structural sanity check: `n ≥ 3`, sector count matches `n`,
@@ -289,6 +349,55 @@ pub fn tri5_to_bi5_degree_raise(cps_tri: &[Point3; TRI5_CP_COUNT]) -> [[Point3; 
         }
     }
     bi5
+}
+
+/// Apply the bilinear-χ eq (8) override to one sector's bi-5 CPs.
+///
+/// Writes `P_{5,5}, P_{4,5}, P_{5,4}, P_{3,5}, P_{5,3}, P_{4,4}` so
+/// that the 2nd-order bi-5 jet at corner `(1, 1)` equals `jet`.
+/// The other 30 CPs (including `P_{3,3}, P_{3,4}, P_{4,3}`) are
+/// untouched.
+fn apply_eq8_bilinear_override(sector: &mut Bi5GuideSector, jet: &TaylorJet2) {
+    let value = jet.value;
+    let d_u = jet.d_u;
+    let d_v = jet.d_v;
+    let d_uu = jet.d_uu;
+    let d_uv = jet.d_uv;
+    let d_vv = jet.d_vv;
+
+    let p55 = value;
+    let p45 = Point3::new(
+        p55.x - d_u.x / 5.0,
+        p55.y - d_u.y / 5.0,
+        p55.z - d_u.z / 5.0,
+    );
+    let p54 = Point3::new(
+        p55.x - d_v.x / 5.0,
+        p55.y - d_v.y / 5.0,
+        p55.z - d_v.z / 5.0,
+    );
+    let p35 = Point3::new(
+        2.0 * p45.x - p55.x + d_uu.x / 20.0,
+        2.0 * p45.y - p55.y + d_uu.y / 20.0,
+        2.0 * p45.z - p55.z + d_uu.z / 20.0,
+    );
+    let p53 = Point3::new(
+        2.0 * p54.x - p55.x + d_vv.x / 20.0,
+        2.0 * p54.y - p55.y + d_vv.y / 20.0,
+        2.0 * p54.z - p55.z + d_vv.z / 20.0,
+    );
+    let p44 = Point3::new(
+        p45.x + p54.x - p55.x + d_uv.x / 25.0,
+        p45.y + p54.y - p55.y + d_uv.y / 25.0,
+        p45.z + p54.z - p55.z + d_uv.z / 25.0,
+    );
+
+    sector.cps[5][5] = p55;
+    sector.cps[4][5] = p45;
+    sector.cps[5][4] = p54;
+    sector.cps[3][5] = p35;
+    sector.cps[5][3] = p53;
+    sector.cps[4][4] = p44;
 }
 
 // ---- small-integer helpers ----
