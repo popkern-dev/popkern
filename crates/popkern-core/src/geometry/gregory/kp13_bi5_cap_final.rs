@@ -63,6 +63,13 @@
 //!   [`super::kp13_bi5_guide::from_gtri5_with_eq8_cc`]).
 //! - Normal-equation solve per axis.
 //!
+//! - **`F_1` as the minimisation target (paper-exact eq 21)**:
+//!   the normal equations are built on the weighted-derivatives
+//!   flattening from
+//!   [`super::kp13_bi5_cap_f1::flatten_weighted_derivatives_diff`],
+//!   so `‖Ax − b‖² = F_1(p − a)`. CP-space `‖·‖²` was an earlier
+//!   simplification; now removed.
+//!
 //! **Deferred (documented as additive paper-fidelity follow-ups)**:
 //! - Eq (13) § 4.1 substitutions: the paper substitutes `p^{s,k}`
 //!   CPs for `s ∈ {ℓ, r}` in terms of `p^{o,k}` star jet + `p^{o,k}
@@ -235,40 +242,29 @@ pub fn solve_f1_min(a: &Bi5Cap) -> Result<Bi5Cap, CapMinError> {
     let n = a.n;
     let dofs = 5 * n + 6;
 
-    // Flatten `cap - a` into a scalar vector per axis. Each sector
-    // has 4 pieces × 36 CPs = 144 scalars × 3 axes. Full cap = 144n.
-    let flat_len = 144 * n;
-
+    // Use F_1 on derivatives as the LSQ target (paper eq 21).
+    // Under the Gauss-Legendre-weighted-derivatives flattening,
+    // ‖flatten_weighted_derivatives_diff(p, a)‖² = F_1(p − a),
+    // so standard CP-less-squares on that vector IS F_1 min.
     let zero_params = Bi5CapFreeParams::zero(n);
     let p_base = apply_free_params_p(&zero_params, a);
-
-    let base_diff = flatten_diff(&p_base, a); // shape: [flat_len][3]
+    let base_diff = super::kp13_bi5_cap_f1::flatten_weighted_derivatives_diff(&p_base, a);
+    let flat_len = base_diff.len();
 
     // Per-axis design matrix A: [flat_len][dofs].
-    // A[row][col] = contribution to (p - a)[row].axis_0 from
-    // setting free-param slot `col` to (1, 0, 0).
+    // A[row][col] = contribution to (weighted-derivative-diff)[row]
+    //              .axis_0 from setting free-param slot `col` to
+    //              (1, 0, 0).
     let mut a_mat: Vec<Vec<f64>> = vec![vec![0.0; dofs]; flat_len];
     for col in 0..dofs {
         let mut params = Bi5CapFreeParams::zero(n);
         set_free_param_unit_axis0(&mut params, col);
         let p_col = apply_free_params_p(&params, a);
-        let diff_col = flatten_diff(&p_col, a);
+        let diff_col = super::kp13_bi5_cap_f1::flatten_weighted_derivatives_diff(&p_col, a);
         for row in 0..flat_len {
-            // Contribution of this unit perturbation on axis 0
-            // = (diff_col[row].0 - base_diff[row].0).
             a_mat[row][col] = diff_col[row].0 - base_diff[row].0;
         }
     }
-
-    // F_1 is a weighted inner product: F_1(f) = Σ_row w(row) · f(row)²
-    // where f(row) enumerates derivative samples. But in our CP-flat
-    // formulation, F_1 is actually quadratic in ∂f evaluated at
-    // quadrature points, not in f's CPs directly. To keep the MVP
-    // tractable, we use a POINT-WEIGHTED LSQ in CP space:
-    //   minimise Σ_row (diff[row])² = ‖diff‖²
-    // which is related but not identical to F_1. This is a
-    // documented simplification; paper-correct F_1 min would
-    // build the quadratic form on derivatives.
 
     // Normal equations: AᵀA · x = Aᵀ · (-base_diff) per axis.
     let mut ata = vec![vec![0.0_f64; dofs]; dofs];
@@ -350,33 +346,8 @@ fn set_free_param_unit_axis0(params: &mut Bi5CapFreeParams, col: usize) {
     }
 }
 
-// ---- Cap flattening for LSQ ----
-
-/// Flatten `(p - a)` into a per-row `(x, y, z)` vector of length
-/// `144n`. Row order is `(sector, piece, i, j)` lexicographic.
-fn flatten_diff(p: &Bi5Cap, a: &Bi5Cap) -> Vec<(f64, f64, f64)> {
-    let n = p.n;
-    let mut out = Vec::with_capacity(144 * n);
-    for k in 0..n {
-        for id in CapPieceId::all() {
-            let p_piece = p.sector(k).piece(id);
-            let a_piece = a.sector(k).piece(id);
-            for i in 0..6 {
-                for j in 0..6 {
-                    let cp_p = p_piece.cps[i][j];
-                    let cp_a = a_piece.cps[i][j];
-                    out.push((cp_p.x - cp_a.x, cp_p.y - cp_a.y, cp_p.z - cp_a.z));
-                }
-            }
-        }
-    }
-    out
-}
-
-/// Convenience: compute `F_1(p − a)` after the minimisation.
-/// Should be `≤ F_1(a_baseline − a)` (the CP-LSQ residual; not
-/// strictly F_1-minimal because we use ‖·‖² instead of F_1 as
-/// the minimisation target — see module header).
+/// Convenience: compute `F_1(p − a)` after the minimisation —
+/// the actual minimisation target per paper eq (21).
 pub fn f1_residual(p: &Bi5Cap, a: &Bi5Cap) -> f64 {
     super::kp13_bi5_cap_f1::f1_difference(p, a)
 }

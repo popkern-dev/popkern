@@ -127,6 +127,81 @@ pub fn f1_cap(cap: &Bi5Cap) -> f64 {
     total
 }
 
+/// Flatten a piece's derivative samples at the 7 × 7 Gauss-
+/// Legendre grid, weighted by `√(w_u · w_v)` so that
+/// `‖output‖² = f1_piece(piece)`.
+///
+/// Layout: for each of the 49 grid nodes, two entries
+/// (`∂u`, `∂v`) each a 3-tuple. Total `7 · 7 · 2 = 98` entries
+/// per piece.
+pub fn flatten_weighted_derivatives_piece(piece: &Bi5CapPiece) -> Vec<(f64, f64, f64)> {
+    let mut sqrt_weights = [0.0_f64; 7];
+    for i in 0..7 {
+        sqrt_weights[i] = GL7_WEIGHTS[i].sqrt();
+    }
+
+    let mut out = Vec::with_capacity(98);
+    for (ui, &u) in GL7_NODES.iter().enumerate() {
+        let bu = bernstein_bi5_all(u);
+        let bu_d = bernstein_bi5_deriv_all(u);
+        let sw_u = sqrt_weights[ui];
+        for (vi, &v) in GL7_NODES.iter().enumerate() {
+            let bv = bernstein_bi5_all(v);
+            let bv_d = bernstein_bi5_deriv_all(v);
+            let w_scale = sw_u * sqrt_weights[vi];
+
+            let mut du_x = 0.0_f64;
+            let mut du_y = 0.0_f64;
+            let mut du_z = 0.0_f64;
+            let mut dv_x = 0.0_f64;
+            let mut dv_y = 0.0_f64;
+            let mut dv_z = 0.0_f64;
+            for p in 0..6 {
+                for q in 0..6 {
+                    let cp = piece.cps[p][q];
+                    let du_w = bu_d[p] * bv[q];
+                    let dv_w = bu[p] * bv_d[q];
+                    du_x += du_w * cp.x;
+                    du_y += du_w * cp.y;
+                    du_z += du_w * cp.z;
+                    dv_x += dv_w * cp.x;
+                    dv_y += dv_w * cp.y;
+                    dv_z += dv_w * cp.z;
+                }
+            }
+            out.push((w_scale * du_x, w_scale * du_y, w_scale * du_z));
+            out.push((w_scale * dv_x, w_scale * dv_y, w_scale * dv_z));
+        }
+    }
+    out
+}
+
+/// Flatten weighted derivatives over the whole cap, such that
+/// `‖output‖² = f1_cap(cap)`. Layout: concatenation of each
+/// sector × piece's [`flatten_weighted_derivatives_piece`].
+pub fn flatten_weighted_derivatives(cap: &Bi5Cap) -> Vec<(f64, f64, f64)> {
+    let mut out = Vec::with_capacity(cap.n * CapPieceId::all().len() * 98);
+    for k in 0..cap.n {
+        for id in CapPieceId::all() {
+            out.extend(flatten_weighted_derivatives_piece(cap.sector(k).piece(id)));
+        }
+    }
+    out
+}
+
+/// `flatten_weighted_derivatives(p) − flatten_weighted_derivatives(a)`
+/// computed directly (avoids an intermediate `Bi5Cap::zero`
+/// allocation).
+pub fn flatten_weighted_derivatives_diff(p: &Bi5Cap, a: &Bi5Cap) -> Vec<(f64, f64, f64)> {
+    let p_d = flatten_weighted_derivatives(p);
+    let a_d = flatten_weighted_derivatives(a);
+    assert_eq!(p_d.len(), a_d.len());
+    p_d.into_iter()
+        .zip(a_d)
+        .map(|((px, py, pz), (ax, ay, az))| (px - ax, py - ay, pz - az))
+        .collect()
+}
+
 /// `F_1(p − a)`: the paper's minimisation target. Computes the
 /// CP-wise difference `p − a` as a `Bi5Cap` and then applies
 /// [`f1_cap`].

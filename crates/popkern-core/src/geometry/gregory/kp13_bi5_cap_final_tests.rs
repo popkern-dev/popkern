@@ -304,6 +304,37 @@ fn solve_f1_min_works_for_all_valences() {
 }
 
 #[test]
+fn solve_f1_min_reduces_f1_residual_vs_baseline() {
+    // The solve should produce a p with F_1(p − a) no larger
+    // than F_1(build_p_baseline(a) − a). (Strictly less when
+    // a has non-zero gradient energy in the free-param subspace.)
+    use super::super::kp13_bi5_cap_f1::f1_difference;
+
+    let n = 5;
+    let mut a = Bi5Cap::zero(n);
+    // Give a some non-trivial structure: set every O piece's
+    // CPs to a linear function plus a quadratic bump.
+    for k in 0..n {
+        let o = a.sector_mut(k).piece_mut(CapPieceId::O);
+        for i in 0..6 {
+            for j in 0..6 {
+                let u = i as f64 / 5.0;
+                let v = j as f64 / 5.0;
+                o.cps[i][j] = Point3::new(u + 0.3 * v, 0.5 * v - 0.2 * u, u * v * 0.4);
+            }
+        }
+    }
+    let baseline = build_p_baseline(&a);
+    let f1_baseline = f1_difference(&baseline, &a);
+    let p_solved = solve_f1_min(&a).unwrap();
+    let f1_solved = f1_difference(&p_solved, &a);
+    assert!(
+        f1_solved <= f1_baseline + 1e-9,
+        "F_1(solved - a) = {f1_solved} should be ≤ baseline {f1_baseline}"
+    );
+}
+
+#[test]
 fn f1_cap_finite_on_all_valences() {
     for n in [3, 4, 5, 6, 7, 8] {
         let mut cap = Bi5Cap::zero(n);
