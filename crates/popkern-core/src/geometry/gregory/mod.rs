@@ -69,6 +69,7 @@ mod direct_types;
 mod kp13_bi5_bi3_bi5_ops;
 mod kp13_bi5_boundary;
 mod kp13_bi5_cap;
+mod kp13_bi5_cap_inner;
 mod kp13_bi5_cap_outer;
 mod kp13_bi5_chi;
 mod kp13_bi5_circulant;

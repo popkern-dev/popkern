@@ -153,6 +153,35 @@ pub fn populate_outer_corner_jets_identity(cap: &mut Bi5Cap, target: &TensorBord
 }
 
 /// Write the six bi-5 CPs that determine the 2nd-order BB-jet at
+/// piece-local corner `(u, v) = (0, 0)`.
+///
+/// Used by I.14.c to populate the `O` piece from the guide via
+/// eq (17). Analogous to the other three corner setters.
+pub fn set_corner_jet_00(piece: &mut Bi5CapPiece, jet: &TaylorJet2) {
+    // Bi-5 at piece corner (0, 0):
+    //   value = P[0][0]
+    //   ∂u   = 5 (P[1][0] − P[0][0])
+    //   ∂v   = 5 (P[0][1] − P[0][0])
+    //   ∂²u  = 20 (P[0][0] − 2 P[1][0] + P[2][0])
+    //   ∂²v  = 20 (P[0][0] − 2 P[0][1] + P[0][2])
+    //   ∂u∂v = 25 (P[0][0] − P[1][0] − P[0][1] + P[1][1])
+    let p00 = jet.value;
+    let p10 = add(p00, scale(jet.d_u, 1.0 / 5.0));
+    let p01 = add(p00, scale(jet.d_v, 1.0 / 5.0));
+    let p20 = sub_add(p10, p10, p00, scale(jet.d_uu, 1.0 / 20.0));
+    let p02 = sub_add(p01, p01, p00, scale(jet.d_vv, 1.0 / 20.0));
+    // P[1][1] = P[1][0] + P[0][1] − P[0][0] + d_uv / 25
+    let p11 = add(sub(add(p10, p01), p00), scale(jet.d_uv, 1.0 / 25.0));
+
+    piece.cps[0][0] = p00;
+    piece.cps[1][0] = p10;
+    piece.cps[0][1] = p01;
+    piece.cps[2][0] = p20;
+    piece.cps[0][2] = p02;
+    piece.cps[1][1] = p11;
+}
+
+/// Write the six bi-5 CPs that determine the 2nd-order BB-jet at
 /// piece-local corner `(u, v) = (1, 0)`.
 ///
 /// Uses the analytical bi-5 corner-jet → CP inversion (standard
