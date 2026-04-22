@@ -78,6 +78,7 @@ mod kp13_bi5_gtri5;
 mod kp13_bi5_integration_tests;
 mod kp13_bi5_jet;
 mod kp13_bi5_lsq;
+mod kp13_bi5_lsq_cc;
 mod kp13_bi5_reparam;
 mod kp13_bi5_sigma;
 mod kp13_bi5_sigma_solve;
