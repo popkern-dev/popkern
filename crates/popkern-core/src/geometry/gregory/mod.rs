@@ -69,6 +69,7 @@ mod direct_types;
 mod kp13_bi5_chi;
 mod kp13_bi5_circulant;
 mod kp13_bi5_connect;
+mod kp13_bi5_free_params;
 mod kp13_bi5_gtri5;
 #[cfg(test)]
 #[path = "kp13_bi5_integration_tests.rs"]
