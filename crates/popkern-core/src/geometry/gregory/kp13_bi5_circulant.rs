@@ -83,18 +83,19 @@ use super::kp13_bi5_connect::paper_flat;
 /// Error from attempting to solve the circulant system.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CirculantError {
-    /// Valence `n` is in the excluded set `{3, 4, 6}`. The paper
-    /// uses special-case constructions for these.
+    /// Valence `n` is invalid (below 3) — the KP13 pipeline requires
+    /// at least a valence-3 extraordinary vertex. Paper § 6 covers
+    /// `n ∈ {3, 4}` via min-norm pseudo-inverse; this variant fires
+    /// only for truly degenerate `n < 3`.
     UnsupportedValence(usize),
 }
 
 impl std::fmt::Display for CirculantError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CirculantError::UnsupportedValence(n) => write!(
-                f,
-                "circulant: valence n = {n} ∈ {{3, 4, 6}} not supported — needs special case"
-            ),
+            CirculantError::UnsupportedValence(n) => {
+                write!(f, "circulant: valence n = {n} < 3 is not a valid EV")
+            }
         }
     }
 }
@@ -142,19 +143,38 @@ pub fn compute_r_i(sector: &super::kp13_bi5_gtri5::Gtri5Sector, n: usize) -> Poi
 /// # Valence support
 ///
 /// * `n ∈ {5, 7, 8, 9, 10, ...}` — regular Lemma 1 closed form.
-/// * `n = 6` — the DFT mode at `j = n/2 = 3` has denominator
-///   `2c + cos(jα) = 2(1/2) − 1 = 0`. The circulant is rank-
-///   deficient by 1. We use the **minimum-norm pseudo-inverse**
-///   solution, obtained by skipping the singular mode in Lemma 1's
-///   sum. This matches what an LSQ-based solver would produce for
-///   an arbitrary RHS; if the RHS happens to be orthogonal to the
-///   null-space mode `(1, −1, 1, −1, 1, −1)`, the result is the
-///   exact solution.
-/// * `n ∈ {3, 4}` — entirely different constructions per KP09a §6.
-///   Returns [`CirculantError::UnsupportedValence`].
+///   All DFT denominators `2c + cos(jα)` are non-zero so the
+///   recurrence is uniquely solvable.
+/// * `n ∈ {3, 4, 6}` — rank-deficient cases. Each has one or more
+///   DFT modes where `2c + cos(jα) = 0`, making the circulant
+///   matrix singular. We use the **minimum-norm pseudo-inverse**
+///   solution, obtained by skipping the singular modes in
+///   Lemma 1's sum. Specifically:
+///   - `n = 3`: `c = −1/2`, singular mode `j = 0` (kernel =
+///     constant sector).
+///   - `n = 4`: `c = 0`, singular modes `j ∈ {1, 3}` (kernel =
+///     the two alternating `(1, 0, −1, 0)` / `(0, 1, 0, −1)`
+///     patterns).
+///   - `n = 6`: `c = 1/2`, singular mode `j = 3` (kernel =
+///     `(1, −1, 1, −1, 1, −1)`).
+///
+///   The pseudo-inverse gives the LSQ-equivalent minimum-norm
+///   solution over the free DoFs. Paper KP09a § 6 prescribes
+///   guided-surfacing / `F_5` minimisation for these free DoFs
+///   (see `kp15_bi6_cap_f5_solve` for the bi-6 polar variant of
+///   the same machinery); we default to min-norm here because it
+///   is invariant, deterministic, and consistent with the LSQ
+///   residual treatment at regular valences. If the RHS is
+///   orthogonal to all null modes, the pseudo-inverse result is
+///   the exact solution.
+///
+/// # Errors
+///
+/// Returns [`CirculantError::UnsupportedValence`] only for `n < 3`
+/// — those are not valid extraordinary vertices.
 pub fn solve_g21_circulant(gtri5: &mut Gtri5) -> Result<(), CirculantError> {
     let n = gtri5.n;
-    if n == 3 || n == 4 {
+    if n < 3 {
         return Err(CirculantError::UnsupportedValence(n));
     }
 

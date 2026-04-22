@@ -51,10 +51,16 @@ fn system_shape_matches_6n_plus_5() {
 }
 
 #[test]
-fn rejects_n3_n4() {
-    for bad in [3, 4] {
-        let target = TensorBorder::zero(bad);
-        assert!(build_lsq_system(&target, Point3::new(0.0, 0.0, 0.0)).is_err());
+fn accepts_n3_n4_via_pseudo_inverse() {
+    // KP09a § 6 special-case valences: the circulant solver returns
+    // a min-norm pseudo-inverse. LSQ builder succeeds end-to-end.
+    for n in [3, 4] {
+        let target = TensorBorder::zero(n);
+        let sys = build_lsq_system(&target, Point3::new(0.0, 0.0, 0.0))
+            .expect("n ∈ {3, 4} now supported via pseudo-inverse");
+        assert_eq!(sys.n, n);
+        assert_eq!(sys.a.len(), num_rows(n));
+        assert_eq!(sys.a[0].len(), num_free_params(n));
     }
 }
 
@@ -234,11 +240,21 @@ fn solve_end_to_end_zero_target_gives_valid_gtri5() {
 }
 
 #[test]
-fn solve_e2e_n3_n4_rejected() {
-    for bad in [3, 4] {
-        let target = TensorBorder::zero(bad);
-        let err = solve_g_tri_lsq(&target, Point3::new(0.0, 0.0, 0.0)).unwrap_err();
-        assert!(matches!(err, LsqError::Apply(_)));
+fn solve_e2e_n3_n4_via_pseudo_inverse() {
+    // End-to-end bilinear-χ solve succeeds at KP09a § 6 valences.
+    for n in [3, 4] {
+        let target = TensorBorder::zero(n);
+        let g = solve_g_tri_lsq(&target, Point3::new(0.0, 0.0, 0.0))
+            .expect("n ∈ {3, 4} LSQ succeeds via pseudo-inverse");
+        // Zero target + zero cc_limit → zero patch by linearity.
+        for k in 0..n {
+            for cp in &g.sector(k).cps {
+                assert!(
+                    cp.x.abs() < 1e-9 && cp.y.abs() < 1e-9 && cp.z.abs() < 1e-9,
+                    "n={n}, k={k}: non-zero CP {cp:?}"
+                );
+            }
+        }
     }
 }
 

@@ -54,25 +54,56 @@ fn rhs_constant_matches_expected_sum() {
     }
 }
 
-// ---- Excluded valences ----
+// ---- Low-valence pseudo-inverse (KP09a § 6) ----
 
 #[test]
-fn solve_rejects_n3() {
+fn solve_accepts_n3_min_norm() {
+    // n = 3: c = −1/2, singular mode j = 0 (kernel = constant).
+    // Constant CPs give RHS orthogonal to the kernel — pseudo-
+    // inverse returns the exact solution.
     let mut g = Gtri5::new(3);
-    assert_eq!(
-        solve_g21_circulant(&mut g),
-        Err(CirculantError::UnsupportedValence(3))
-    );
+    // Setting all CPs to a constant would make R^i = constant
+    // (in the kernel). Instead use a non-constant pattern so the
+    // RHS has components in the non-null modes.
+    let idx_30 = paper_flat(3, 0);
+    for k in 0..3 {
+        let theta = k as f64 * 2.0 * std::f64::consts::PI / 3.0;
+        g.sector_mut(k).cps[idx_30] = Point3::new(theta.cos(), theta.sin(), 0.0);
+    }
+    sync_edge_layer_03_and_30(&mut g);
+    // Solve succeeds (does not return UnsupportedValence).
+    solve_g21_circulant(&mut g).unwrap();
+    // Solution should be finite.
+    for i in 0..3 {
+        let g21 = g.sector(i).cps[paper_flat(2, 1)];
+        assert!(g21.x.is_finite() && g21.y.is_finite() && g21.z.is_finite());
+    }
 }
 
 #[test]
-fn solve_rejects_n4() {
+fn solve_accepts_n4_min_norm() {
+    // n = 4: c = 0, singular modes j ∈ {1, 3} (kernel = the two
+    // alternating patterns). A constant non-zero RHS has only
+    // the j = 0 and j = 2 components (orthogonal to null), so
+    // the pseudo-inverse is exact.
     let mut g = Gtri5::new(4);
-    assert_eq!(
-        solve_g21_circulant(&mut g),
-        Err(CirculantError::UnsupportedValence(4))
-    );
+    let p = Point3::new(1.0, 2.0, 3.0);
+    for k in 0..4 {
+        g.sector_mut(k).cps = [p; 21];
+    }
+    solve_g21_circulant(&mut g).unwrap();
+    for i in 0..4 {
+        let r = circulant_residual(&g, i);
+        assert!(
+            r.x.abs() < 1e-9 && r.y.abs() < 1e-9 && r.z.abs() < 1e-9,
+            "n=4 constant case residual at sector {i}: {r:?}"
+        );
+    }
 }
+
+// Note: `Gtri5::new(n)` panics for n < 3, so the `UnsupportedValence`
+// variant in `solve_g21_circulant` is unreachable via the public
+// builder. The check remains as defensive depth-in-depth.
 
 #[test]
 fn solve_accepts_n6_min_norm() {

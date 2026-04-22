@@ -50,12 +50,14 @@ fn apply_zero_params_with_zero_star_gives_valid_gtri5() {
 }
 
 #[test]
-fn apply_zero_params_rejects_n3_n4() {
+fn apply_zero_params_handles_n3_n4_via_pseudo_inverse() {
+    // KP09a § 6: n ∈ {3, 4} now resolve via min-norm pseudo-inverse
+    // in the circulant solver. apply_free_params succeeds.
     for n in [3, 4] {
         let params = Bi5FreeParams::zero(n);
         let star = Point3::new(0.0, 0.0, 0.0);
-        let err = apply_free_params(&params, star).unwrap_err();
-        assert!(matches!(err, ApplyError::Circulant(_)));
+        let g = apply_free_params(&params, star).expect("n ∈ {3, 4} supported via pseudo-inverse");
+        g.validate().unwrap();
     }
 }
 

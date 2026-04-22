@@ -131,10 +131,14 @@ fn system_shape_matches_bilinear() {
 }
 
 #[test]
-fn cc_rejects_n3_n4() {
-    for bad in [3, 4] {
-        let target = TensorBorder::zero(bad);
-        assert!(build_lsq_system_cc(&target, Point3::new(0.0, 0.0, 0.0)).is_err());
+fn cc_accepts_n3_n4_via_pseudo_inverse() {
+    // KP09a § 6 low-valence support via pseudo-inverse: CC variant
+    // inherits from the underlying circulant solver.
+    for n in [3, 4] {
+        let target = TensorBorder::zero(n);
+        let sys = build_lsq_system_cc(&target, Point3::new(0.0, 0.0, 0.0))
+            .expect("n ∈ {3, 4} now supported via CC-χ LSQ");
+        assert_eq!(sys.n, n);
     }
 }
 
