@@ -142,6 +142,18 @@ pub fn bernstein_tri5_all_extended(u: f64, v: f64) -> [f64; TRI5_CP_COUNT] {
     eval_monomial_scaled::<TRI5_CP_COUNT>(5, u, v, w, &M5)
 }
 
+/// Same as [`bernstein_tri4_all`] but without the simplex check.
+pub fn bernstein_tri4_all_extended(u: f64, v: f64) -> [f64; TRI4_CP_COUNT] {
+    let w = 1.0 - u - v;
+    eval_monomial_scaled::<TRI4_CP_COUNT>(4, u, v, w, &M4)
+}
+
+/// Same as [`bernstein_tri3_all`] but without the simplex check.
+pub fn bernstein_tri3_all_extended(u: f64, v: f64) -> [f64; TRI3_CP_COUNT] {
+    let w = 1.0 - u - v;
+    eval_monomial_scaled::<TRI3_CP_COUNT>(3, u, v, w, &M3)
+}
+
 /// Evaluate all 15 degree-4 basis functions. See
 /// [`bernstein_tri5_all`] for simplex-domain caveat.
 pub fn bernstein_tri4_all(u: f64, v: f64) -> [f64; TRI4_CP_COUNT] {
@@ -156,6 +168,52 @@ pub fn bernstein_tri3_all(u: f64, v: f64) -> [f64; TRI3_CP_COUNT] {
     debug_assert_simplex(u, v);
     let w = 1.0 - u - v;
     eval_monomial_scaled::<TRI3_CP_COUNT>(3, u, v, w, &M3)
+}
+
+/// Internal: ∂/∂u lift from a degree-4 basis sample.
+fn partial_u_from_b4(b4: [f64; TRI4_CP_COUNT]) -> [f64; TRI5_CP_COUNT] {
+    let mut out = [0.0_f64; TRI5_CP_COUNT];
+    for i in 0..=5 {
+        for j in 0..=(5 - i) {
+            let k = 5 - i - j;
+            let term_i = if i >= 1 {
+                b4[flat_index(4, i - 1, j)]
+            } else {
+                0.0
+            };
+            let term_k = if k >= 1 { b4[flat_index(4, i, j)] } else { 0.0 };
+            out[flat_index(5, i, j)] = 5.0 * (term_i - term_k);
+        }
+    }
+    out
+}
+
+/// Internal: ∂/∂v lift from a degree-4 basis sample.
+fn partial_v_from_b4(b4: [f64; TRI4_CP_COUNT]) -> [f64; TRI5_CP_COUNT] {
+    let mut out = [0.0_f64; TRI5_CP_COUNT];
+    for i in 0..=5 {
+        for j in 0..=(5 - i) {
+            let k = 5 - i - j;
+            let term_j = if j >= 1 {
+                b4[flat_index(4, i, j - 1)]
+            } else {
+                0.0
+            };
+            let term_k = if k >= 1 { b4[flat_index(4, i, j)] } else { 0.0 };
+            out[flat_index(5, i, j)] = 5.0 * (term_j - term_k);
+        }
+    }
+    out
+}
+
+/// `∂/∂u` extended variant — no simplex check.
+pub fn bernstein_tri5_partial_u_extended(u: f64, v: f64) -> [f64; TRI5_CP_COUNT] {
+    partial_u_from_b4(bernstein_tri4_all_extended(u, v))
+}
+
+/// `∂/∂v` extended variant — no simplex check.
+pub fn bernstein_tri5_partial_v_extended(u: f64, v: f64) -> [f64; TRI5_CP_COUNT] {
+    partial_v_from_b4(bernstein_tri4_all_extended(u, v))
 }
 
 /// `∂/∂u` of all 21 degree-5 basis functions, per the formula
@@ -196,6 +254,95 @@ pub fn bernstein_tri5_partial_v(u: f64, v: f64) -> [f64; TRI5_CP_COUNT] {
         }
     }
     out
+}
+
+/// Internal: ∂²/∂u² lift from a degree-3 basis sample.
+fn second_partial_uu_from_b3(b3: [f64; TRI3_CP_COUNT]) -> [f64; TRI5_CP_COUNT] {
+    let mut out = [0.0_f64; TRI5_CP_COUNT];
+    for i in 0..=5 {
+        for j in 0..=(5 - i) {
+            let k = 5 - i - j;
+            let t_ii = if i >= 2 {
+                b3[flat_index(3, i - 2, j)]
+            } else {
+                0.0
+            };
+            let t_ik = if i >= 1 && k >= 1 {
+                b3[flat_index(3, i - 1, j)]
+            } else {
+                0.0
+            };
+            let t_kk = if k >= 2 { b3[flat_index(3, i, j)] } else { 0.0 };
+            out[flat_index(5, i, j)] = 20.0 * (t_ii - 2.0 * t_ik + t_kk);
+        }
+    }
+    out
+}
+
+/// Internal: ∂²/∂v² lift from a degree-3 basis sample.
+fn second_partial_vv_from_b3(b3: [f64; TRI3_CP_COUNT]) -> [f64; TRI5_CP_COUNT] {
+    let mut out = [0.0_f64; TRI5_CP_COUNT];
+    for i in 0..=5 {
+        for j in 0..=(5 - i) {
+            let k = 5 - i - j;
+            let t_jj = if j >= 2 {
+                b3[flat_index(3, i, j - 2)]
+            } else {
+                0.0
+            };
+            let t_jk = if j >= 1 && k >= 1 {
+                b3[flat_index(3, i, j - 1)]
+            } else {
+                0.0
+            };
+            let t_kk = if k >= 2 { b3[flat_index(3, i, j)] } else { 0.0 };
+            out[flat_index(5, i, j)] = 20.0 * (t_jj - 2.0 * t_jk + t_kk);
+        }
+    }
+    out
+}
+
+/// Internal: ∂²/∂u∂v lift from a degree-3 basis sample.
+fn second_partial_uv_from_b3(b3: [f64; TRI3_CP_COUNT]) -> [f64; TRI5_CP_COUNT] {
+    let mut out = [0.0_f64; TRI5_CP_COUNT];
+    for i in 0..=5 {
+        for j in 0..=(5 - i) {
+            let k = 5 - i - j;
+            let t_ij = if i >= 1 && j >= 1 {
+                b3[flat_index(3, i - 1, j - 1)]
+            } else {
+                0.0
+            };
+            let t_ik = if i >= 1 && k >= 1 {
+                b3[flat_index(3, i - 1, j)]
+            } else {
+                0.0
+            };
+            let t_jk = if j >= 1 && k >= 1 {
+                b3[flat_index(3, i, j - 1)]
+            } else {
+                0.0
+            };
+            let t_kk = if k >= 2 { b3[flat_index(3, i, j)] } else { 0.0 };
+            out[flat_index(5, i, j)] = 20.0 * (t_ij - t_ik - t_jk + t_kk);
+        }
+    }
+    out
+}
+
+/// `∂²/∂u²` extended variant — no simplex check.
+pub fn bernstein_tri5_second_partial_uu_extended(u: f64, v: f64) -> [f64; TRI5_CP_COUNT] {
+    second_partial_uu_from_b3(bernstein_tri3_all_extended(u, v))
+}
+
+/// `∂²/∂v²` extended variant — no simplex check.
+pub fn bernstein_tri5_second_partial_vv_extended(u: f64, v: f64) -> [f64; TRI5_CP_COUNT] {
+    second_partial_vv_from_b3(bernstein_tri3_all_extended(u, v))
+}
+
+/// `∂²/∂u∂v` extended variant — no simplex check.
+pub fn bernstein_tri5_second_partial_uv_extended(u: f64, v: f64) -> [f64; TRI5_CP_COUNT] {
+    second_partial_uv_from_b3(bernstein_tri3_all_extended(u, v))
 }
 
 /// `∂²/∂u²` of all 21 degree-5 basis functions, via
