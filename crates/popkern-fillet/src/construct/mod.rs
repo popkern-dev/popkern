@@ -6,6 +6,7 @@ mod bridge_warnings;
 pub(crate) mod cap_insert;
 pub(crate) mod closed_fillet;
 pub(crate) mod helpers;
+mod kp_bi5_macro_apply;
 mod kp_binonic_optimizer;
 mod kp_biquintic_optimizer;
 mod kp_lm_solver;
