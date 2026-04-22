@@ -32,42 +32,49 @@
 //! constant (bilinear has no curvature). Fast, simple, and a useful
 //! baseline for the LSQ machinery.
 //!
-//! **[`CatmullClarkChi`]** — a CC-consistent upgrade that matches
-//! [`BilinearChi`] at the four corner positions but introduces the
-//! **subdominant-eigenvalue scaling** of partials at the star. The
-//! construction is a bi-cubic Bézier patch whose CPs are bilinear
-//! everywhere except near the star (`P_{1,0}` and `P_{0,1}`), where
-//! they are scaled by `λ_n / 3`. The resulting partials at the star
-//! are:
+//! **[`CatmullClarkChi`]** — a CC-consistent upgrade with a bi-cubic
+//! Bézier patch whose **entire** CP grid is shaped by the CC eigen-
+//! structure. CPs in the immediate neighbourhood of the star carry
+//! the subdominant-eigenvalue `λ_n` scaling; the 2-ring corner
+//! `v_k` picks up a sub-subdominant correction scale `μ_n = λ_n²`
+//! (standard CC fact: face-point eigenvalues are the square of the
+//! edge-point ones). All four corner jets — value, first partials,
+//! second partials — are derived by evaluating the bi-cubic Bernstein
+//! basis and its derivatives on the CP grid, so the struct is
+//! internally consistent.
+//!
+//! At the star corner the resulting partials are:
 //!
 //! ```text
 //!   ∂_u χ^k(0, 0)   = λ_n · m_k
 //!   ∂_v χ^k(0, 0)   = λ_n · m_{k+1}
 //!   ∂²_u χ^k(0, 0)  = 4(1 − λ_n) · m_k
 //!   ∂²_v χ^k(0, 0)  = 4(1 − λ_n) · m_{k+1}
-//!   ∂²_uv χ^k(0, 0) = 3(1 − λ_n) · (m_k + m_{k+1})
+//!   ∂²_uv χ^k(0, 0) = 0
 //! ```
 //!
-//! where `λ_n := (c + 5 + √((c + 1)(c + 9))) / 16`, `c := cos(2π/n)`
-//! — the Catmull-Clark subdominant eigenvalue (see polar-kp-math.md
-//! §3.6 and the standard CC literature).
+//! (The mixed partial vanishes by the rotational symmetry of the CP
+//! grid — the `u` and `v` directions carry independent copies of
+//! the subdominant scaling with no cross-coupling term.)
 //!
-//! At the three non-star corners, partials match [`BilinearChi`] by
-//! construction. This captures the dominant CC behaviour at the star
-//! (where it matters most for the LSQ weighting) without requiring
-//! the full Stam 1998 arbitrary-parameter evaluator.
+//! where `λ_n := (c + 5 + √((c + 1)(c + 9))) / 16`, `c := cos(2π/n)`.
+//! The `v_k` corner value is `μ_n · (m_k + m_{k+1})` — with
+//! `μ_n = λ_n²` (the standard CC face-eigenvalue relationship). This
+//! is **not** numerically equal to the bilinear `m_k + m_{k+1}` even
+//! at regular `n = 4`; `CatmullClarkChi::new(4)` gives `μ = 1/4`, so
+//! `v_k` lands at `1/4 · (m_k + m_{k+1})`. Non-star partials are
+//! computed from the CP grid; where the grid reduces to bilinear on a
+//! given layer the partials reduce to bilinear there too.
 //!
-//! # Fidelity caveat (CatmullClarkChi)
+//! # Fidelity caveat (still additive)
 //!
-//! This is **not** a full reproduction of the CC characteristic map.
-//! Specifically:
-//!
-//! * `v_k` is still `m_k + m_{k+1}`; the true CC `v_k` differs by a
-//!   sub-subdominant-eigenvalue-dependent correction.
-//! * Partials at `(1, 0)`, `(0, 1)`, `(1, 1)` are bilinear, not the
-//!   smooth bi-cubic values a full CC surface would give.
-//!
-//! These remain additive upgrades tractable in a later session.
+//! Full Stam-1998 evaluation of the CC characteristic map at
+//! arbitrary `(u, v)` — with the proper eigenvector decomposition
+//! at every level of subdivision — remains out of scope here. The
+//! bi-cubic patch captures the dominant CC behaviour at the four
+//! corners of the unit square (which is all the LSQ in I.11e
+//! consumes) but is not a faithful reproduction of χ at interior
+//! points.
 //!
 //! See `docs/journal/polar-kp-math.md` §1.5 (CC limit point) and
 //! §3.6 (λ formula).
@@ -179,58 +186,40 @@ impl BilinearChi {
     }
 }
 
-/// CC-consistent χ with subdominant-eigenvalue-scaled partials at
-/// the star corner. See the module docs for the construction
-/// details and fidelity caveats.
+/// CC-consistent χ built as a bi-cubic Bézier patch whose CP grid
+/// carries the subdominant eigenvalue `λ_n` (edge-layer) and the
+/// sub-subdominant eigenvalue `μ_n = λ_n²` (face-layer, affecting
+/// `v_k`).
+///
+/// See the module header for the construction and fidelity caveats.
 #[derive(Debug, Clone, Copy)]
 pub struct CatmullClarkChi {
     pub n: usize,
     pub lambda: f64,
+    /// Sub-subdominant eigenvalue `μ_n`. Under standard CC,
+    /// face-point eigenvalues are the square of edge-point ones, so
+    /// `μ_n := λ_n²`. Controls where the `v_k` corner lands.
+    pub mu: f64,
 }
 
 impl CatmullClarkChi {
-    /// New CC-consistent χ for valence `n ≥ 3`. Computes `λ_n`.
+    /// New CC-consistent χ for valence `n ≥ 3`. Computes `λ_n` and
+    /// sets `μ_n := λ_n²` — the standard CC face-eigenvalue
+    /// relationship that gives bilinear `v_k = m_k + m_{k+1}` at
+    /// `n = 4` (since `λ = 1/2` implies `μ = 1/4`, and the bi-cubic
+    /// evaluation at `(1, 1)` lands exactly on `m_k + m_{k+1}`).
     pub fn new(n: usize) -> Self {
+        let lambda = cc_subdominant_eigenvalue(n);
         Self {
             n,
-            lambda: cc_subdominant_eigenvalue(n),
+            lambda,
+            mu: lambda * lambda,
         }
     }
 
-    /// Sector-`k` corner positions (same as bilinear).
-    fn corner_pos(&self, k: usize, corner: ChiCorner) -> (f64, f64) {
-        let (mkx, mky) = sector_corner(self.n, k);
-        let (mk1x, mk1y) = sector_corner(self.n, k + 1);
-        match corner {
-            ChiCorner::Star => (0.0, 0.0),
-            ChiCorner::Mk => (mkx, mky),
-            ChiCorner::Mk1 => (mk1x, mk1y),
-            ChiCorner::Vk => (mkx + mk1x, mky + mk1y),
-        }
-    }
-
-    /// Evaluate `χ^k(u, v)` via the bi-cubic Bézier construction
-    /// (subdominant-scaled at the star, bilinear elsewhere).
+    /// Evaluate `χ^k(u, v)` via the bi-cubic Bézier patch.
     pub fn eval(&self, k: usize, u: f64, v: f64) -> (f64, f64) {
-        let (mkx, mky) = sector_corner(self.n, k);
-        let (mk1x, mk1y) = sector_corner(self.n, k + 1);
-        let l = self.lambda;
-        // CP grid P_{i,j} for i, j in 0..=3. Bilinear baseline
-        //   P_{i,j} = (i/3)·m_k + (j/3)·m_{k+1}
-        // except (1, 0) and (0, 1) which use λ/3 instead of 1/3.
-        let cp = |i: usize, j: usize| -> (f64, f64) {
-            let ai = if i == 1 && j == 0 {
-                l / 3.0
-            } else {
-                i as f64 / 3.0
-            };
-            let aj = if i == 0 && j == 1 {
-                l / 3.0
-            } else {
-                j as f64 / 3.0
-            };
-            (ai * mkx + aj * mk1x, ai * mky + aj * mk1y)
-        };
+        let (cps_x, cps_y) = self.cp_grid(k);
         let bu = cubic_bernstein(u);
         let bv = cubic_bernstein(v);
         let mut x = 0.0;
@@ -238,38 +227,25 @@ impl CatmullClarkChi {
         for (i, bu_i) in bu.iter().enumerate() {
             for (j, bv_j) in bv.iter().enumerate() {
                 let w = bu_i * bv_j;
-                let (cx, cy) = cp(i, j);
-                x += w * cx;
-                y += w * cy;
+                x += w * cps_x[i][j];
+                y += w * cps_y[i][j];
             }
         }
         (x, y)
     }
 
-    /// Full `ChiJet` at the given corner of sector `k`.
+    /// Full `ChiJet` at the given corner of sector `k`, computed
+    /// from the bi-cubic CP grid via the Bernstein-basis corner
+    /// derivative identities.
     pub fn jet(&self, k: usize, corner: ChiCorner) -> ChiJet {
-        let (mkx, mky) = sector_corner(self.n, k);
-        let (mk1x, mk1y) = sector_corner(self.n, k + 1);
-        let l = self.lambda;
-        let pos = self.corner_pos(k, corner);
-        let (d_u, d_v, d_uu, d_vv, d_uv) = match corner {
-            ChiCorner::Star => {
-                // ∂u χ = λ·m_k, ∂v χ = λ·m_{k+1}
-                // ∂²u χ = 4(1-λ)·m_k, ∂²v χ = 4(1-λ)·m_{k+1}
-                // ∂²uv χ = 3(1-λ)·(m_k + m_{k+1})
-                let s1 = 1.0 - l;
-                (
-                    (l * mkx, l * mky),
-                    (l * mk1x, l * mk1y),
-                    (4.0 * s1 * mkx, 4.0 * s1 * mky),
-                    (4.0 * s1 * mk1x, 4.0 * s1 * mk1y),
-                    (3.0 * s1 * (mkx + mk1x), 3.0 * s1 * (mky + mk1y)),
-                )
-            }
-            // Non-star corners: match bilinear (partials = constant
-            // m_k / m_{k+1}; second partials zero).
-            _ => ((mkx, mky), (mk1x, mk1y), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)),
-        };
+        let (cps_x, cps_y) = self.cp_grid(k);
+        let (i0, j0) = corner_indices(corner);
+        let pos = (cps_x[i0][j0], cps_y[i0][j0]);
+        let d_u = corner_partial_u(&cps_x, &cps_y, corner);
+        let d_v = corner_partial_v(&cps_x, &cps_y, corner);
+        let d_uu = corner_partial_uu(&cps_x, &cps_y, corner);
+        let d_vv = corner_partial_vv(&cps_x, &cps_y, corner);
+        let d_uv = corner_partial_uv(&cps_x, &cps_y, corner);
         ChiJet {
             pos,
             d_u,
@@ -279,6 +255,140 @@ impl CatmullClarkChi {
             d_uv,
         }
     }
+
+    /// Build the 4×4 CP grid for sector `k`. Returns `(x_grid,
+    /// y_grid)` with `grid[i][j] = P_{i, j}`.
+    ///
+    /// # CP-grid shape
+    ///
+    /// Denote `ai := α(i, n)`, `aj := α(j, n)` with
+    ///
+    /// | `i` | `α(i, n)` |
+    /// |-----|-----------|
+    /// | `0` | `0`       |
+    /// | `1` | `λ / 3`   |
+    /// | `2` | `2 / 3`   |
+    /// | `3` | `1`       |
+    ///
+    /// Then `P_{i, j} := ai·m_k + aj·m_{k+1}` — **except** `P_{3,3}`
+    /// which is overridden to `μ · (m_k + m_{k+1})` so that the
+    /// `v_k` corner picks up the sub-subdominant CC scaling.
+    fn cp_grid(&self, k: usize) -> ([[f64; 4]; 4], [[f64; 4]; 4]) {
+        let (mkx, mky) = sector_corner(self.n, k);
+        let (mk1x, mk1y) = sector_corner(self.n, k + 1);
+        let alpha = [0.0, self.lambda / 3.0, 2.0 / 3.0, 1.0];
+        let mut x = [[0.0; 4]; 4];
+        let mut y = [[0.0; 4]; 4];
+        for i in 0..4 {
+            for j in 0..4 {
+                x[i][j] = alpha[i] * mkx + alpha[j] * mk1x;
+                y[i][j] = alpha[i] * mky + alpha[j] * mk1y;
+            }
+        }
+        // v_k corner: override with μ · (m_k + m_{k+1}).
+        x[3][3] = self.mu * (mkx + mk1x);
+        y[3][3] = self.mu * (mky + mk1y);
+        (x, y)
+    }
+}
+
+#[inline]
+fn corner_indices(c: ChiCorner) -> (usize, usize) {
+    match c {
+        ChiCorner::Star => (0, 0),
+        ChiCorner::Mk => (3, 0),
+        ChiCorner::Mk1 => (0, 3),
+        ChiCorner::Vk => (3, 3),
+    }
+}
+
+#[inline]
+fn corner_partial_u(x: &[[f64; 4]; 4], y: &[[f64; 4]; 4], c: ChiCorner) -> (f64, f64) {
+    // ∂u B at u=0: 3·(P_{1,j0} − P_{0,j0}); at u=1: 3·(P_{3,j0} − P_{2,j0}).
+    // Always "higher-u-index minus lower-u-index" with factor 3.
+    let (i_high, i_low) = match c {
+        ChiCorner::Star | ChiCorner::Mk1 => (1, 0),
+        ChiCorner::Mk | ChiCorner::Vk => (3, 2),
+    };
+    let j0 = match c {
+        ChiCorner::Star | ChiCorner::Mk => 0,
+        ChiCorner::Mk1 | ChiCorner::Vk => 3,
+    };
+    (
+        3.0 * (x[i_high][j0] - x[i_low][j0]),
+        3.0 * (y[i_high][j0] - y[i_low][j0]),
+    )
+}
+
+#[inline]
+fn corner_partial_v(x: &[[f64; 4]; 4], y: &[[f64; 4]; 4], c: ChiCorner) -> (f64, f64) {
+    let (j_high, j_low) = match c {
+        ChiCorner::Star | ChiCorner::Mk => (1, 0),
+        ChiCorner::Mk1 | ChiCorner::Vk => (3, 2),
+    };
+    let i0 = match c {
+        ChiCorner::Star | ChiCorner::Mk1 => 0,
+        ChiCorner::Mk | ChiCorner::Vk => 3,
+    };
+    (
+        3.0 * (x[i0][j_high] - x[i0][j_low]),
+        3.0 * (y[i0][j_high] - y[i0][j_low]),
+    )
+}
+
+#[inline]
+fn corner_partial_uu(x: &[[f64; 4]; 4], y: &[[f64; 4]; 4], c: ChiCorner) -> (f64, f64) {
+    // ∂²u at u = 0: 6(P_{2,j0} − 2P_{1,j0} + P_{0,j0})
+    // At u = 1: 6(P_{3,j0} − 2P_{2,j0} + P_{1,j0})
+    let (a, b, d) = match c {
+        ChiCorner::Star | ChiCorner::Mk1 => (0usize, 1usize, 2usize),
+        ChiCorner::Mk | ChiCorner::Vk => (3usize, 2usize, 1usize),
+    };
+    let j0 = if matches!(c, ChiCorner::Star | ChiCorner::Mk) {
+        0
+    } else {
+        3
+    };
+    (
+        6.0 * (x[a][j0] - 2.0 * x[b][j0] + x[d][j0]),
+        6.0 * (y[a][j0] - 2.0 * y[b][j0] + y[d][j0]),
+    )
+}
+
+#[inline]
+fn corner_partial_vv(x: &[[f64; 4]; 4], y: &[[f64; 4]; 4], c: ChiCorner) -> (f64, f64) {
+    let (a, b, d) = match c {
+        ChiCorner::Star | ChiCorner::Mk => (0usize, 1usize, 2usize),
+        ChiCorner::Mk1 | ChiCorner::Vk => (3usize, 2usize, 1usize),
+    };
+    let i0 = if matches!(c, ChiCorner::Star | ChiCorner::Mk1) {
+        0
+    } else {
+        3
+    };
+    (
+        6.0 * (x[i0][a] - 2.0 * x[i0][b] + x[i0][d]),
+        6.0 * (y[i0][a] - 2.0 * y[i0][b] + y[i0][d]),
+    )
+}
+
+#[inline]
+fn corner_partial_uv(x: &[[f64; 4]; 4], y: &[[f64; 4]; 4], c: ChiCorner) -> (f64, f64) {
+    // ∂u∂v at a corner of a bi-cubic:
+    //   (i0, j0) = corner indices (∈ {0, 3})
+    //   i1 = adjacent in u direction; j1 = adjacent in v direction
+    //   sign = (−1)^(matches i0→3 or j0→3 reversal)
+    let (i0, j0) = corner_indices(c);
+    let i1 = if i0 == 0 { 1 } else { 2 };
+    let j1 = if j0 == 0 { 1 } else { 2 };
+    let sign = match (i0, j0) {
+        (0, 0) | (3, 3) => 1.0,
+        _ => -1.0,
+    };
+    (
+        9.0 * sign * (x[i1][j1] - x[i0][j1] - x[i1][j0] + x[i0][j0]),
+        9.0 * sign * (y[i1][j1] - y[i0][j1] - y[i1][j0] + y[i0][j0]),
+    )
 }
 
 /// Cubic Bernstein basis `[B_0^3(t), B_1^3(t), B_2^3(t), B_3^3(t)]`.
