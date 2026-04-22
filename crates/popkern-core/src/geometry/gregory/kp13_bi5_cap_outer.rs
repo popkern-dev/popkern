@@ -48,11 +48,85 @@
 #![allow(dead_code)]
 #![allow(clippy::needless_range_loop)]
 
+use super::kp13_bi5_bi3_bi5_ops::{bi3_to_bi5_grid, subdivide_bi5_2x2};
 use super::kp13_bi5_boundary::TensorBorder;
 use super::kp13_bi5_cap::{Bi5Cap, Bi5CapPiece, CapPieceId};
 use super::kp13_bi5_chi::ChiCorner;
 use super::kp13_bi5_jet::TaylorJet2;
 use crate::geometry::Point3;
+
+/// Populate the **full depth-2 outer layers** of the cap's
+/// `ℓ, m, r` pieces from the tensor-border `b^k` (β = identity).
+///
+/// For each sector `k`:
+/// 1. Degree-raise `b^k` (bi-3 4 × 4) to bi-5 (6 × 6). Because a
+///    bi-3 polynomial IS a bi-5 polynomial (coincidentally of
+///    lower degree), this conversion is exact.
+/// 2. Subdivide the bi-5 `b^k` at the midpoints `(u, v) = (1/2,
+///    1/2)` into four sub-patches — each a bi-5 6 × 6 grid covering
+///    one quadrant of the sector.
+/// 3. Copy the **outer two layers** of each non-`O` sub-patch to
+///    the corresponding cap piece:
+///    - **R piece** (`u ∈ [1/2, 1] × v ∈ [0, 1/2]`): outer boundary
+///      at piece-local `u = 1`, so layers `i ∈ {4, 5}`.
+///    - **L piece** (`u ∈ [0, 1/2] × v ∈ [1/2, 1]`): outer boundary
+///      at piece-local `v = 1`, layers `j ∈ {4, 5}`.
+///    - **M piece** (`u ∈ [1/2, 1]²`): outer on both edges; layers
+///      `i ∈ {4, 5}` AND `j ∈ {4, 5}` (union — the `(i, j) ∈
+///      {4, 5}²` overlap is covered by both writes and agrees).
+///
+/// The inner CPs of each non-`O` piece (adjacent to the `O`
+/// piece) stay at their pre-call values — they are populated
+/// later by I.14.c (eq 17) + I.14.d (C² internal connection).
+///
+/// # Deferred: β ≠ identity
+///
+/// Full paper-fidelity uses β (paper § 4.2 eq (15)) instead of
+/// identity to guarantee `G²` across sector boundaries via eqs
+/// (11)/(12). This function is the **β = identity** variant; the
+/// β composition is a follow-up in a separate module.
+pub fn populate_outer_layers_full_identity(cap: &mut Bi5Cap, target: &TensorBorder) {
+    assert_eq!(
+        cap.n,
+        target.n(),
+        "populate_outer_layers_full_identity: cap and target n mismatch"
+    );
+    for k in 0..cap.n {
+        // 1. Degree-raise b^k to bi-5 (exact — b is a polynomial
+        //    of total degree ≤ 6 in (u, v), fits in bi-5 trivially).
+        let b_bi5 = bi3_to_bi5_grid(&target.patches[k].cps);
+        // 2. Subdivide at (1/2, 1/2) — four 6 × 6 sub-patches.
+        let subs = subdivide_bi5_2x2(&b_bi5);
+        // subs[iu][jv] with iu = u-half, jv = v-half:
+        //   [0][0] = O region, [0][1] = L region,
+        //   [1][0] = R region, [1][1] = M region.
+        let sector = cap.sector_mut(k);
+        copy_outer_u1(sector.piece_mut(CapPieceId::R), &subs[1][0]);
+        copy_outer_v1(sector.piece_mut(CapPieceId::L), &subs[0][1]);
+        copy_outer_u1(sector.piece_mut(CapPieceId::M), &subs[1][1]);
+        copy_outer_v1(sector.piece_mut(CapPieceId::M), &subs[1][1]);
+    }
+}
+
+/// Copy the outer two layers at piece-local `u = 1` (BB columns
+/// `i ∈ {4, 5}`) from `src` into `piece.cps`.
+fn copy_outer_u1(piece: &mut Bi5CapPiece, src: &[[Point3; 6]; 6]) {
+    for i in 4..=5 {
+        for j in 0..6 {
+            piece.cps[i][j] = src[i][j];
+        }
+    }
+}
+
+/// Copy the outer two layers at piece-local `v = 1` (BB rows
+/// `j ∈ {4, 5}`) from `src` into `piece.cps`.
+fn copy_outer_v1(piece: &mut Bi5CapPiece, src: &[[Point3; 6]; 6]) {
+    for i in 0..6 {
+        for j in 4..=5 {
+            piece.cps[i][j] = src[i][j];
+        }
+    }
+}
 
 /// Populate the outer corner jets of a cap's `ℓ, m, r` pieces from
 /// the tensor-border's jets at `m_k`, `m_{k+1}`, `v_k` respectively.
