@@ -88,6 +88,10 @@
 
 use super::direct_linalg::solve_dense;
 use super::kp13_bi5_cap::{Bi5Cap, CapPieceId};
+use super::kp13_bi5_cap_outer::set_corner_jet_00;
+use super::kp13_bi5_gtri3::{
+    Gtri3SixCps, rotate_star_jet_to_sector, scale_jet_for_piece_local, tri3_star_jet,
+};
 use crate::geometry::Point3;
 
 /// Free-parameter set for the `F_1` minimisation at eq (21).
@@ -179,16 +183,37 @@ pub fn apply_free_params_p(params: &Bi5CapFreeParams, a: &Bi5Cap) -> Bi5Cap {
     let n = params.n;
     let mut p = build_p_baseline(a);
 
-    // Star-region G_3 coefs (first 6) → sector 0 O piece star-
-    // adjacent block.
-    let star_targets: [(usize, usize); 6] = [(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (0, 2)];
-    let o0 = p.sector_mut(0).piece_mut(CapPieceId::O);
-    for idx in 0..6 {
-        let (i, j) = star_targets[idx];
-        o0.cps[i][j] = params.g3[idx];
+    // Star-region G_3 coefs (first 6) → sector 0's tri-3 near-
+    // star coefs → star jet of g̃^△^0 → via eq (20) + σ^o = id →
+    // piece-local star jet of p^{o,0} → set corner (0, 0) block.
+    //
+    // For k > 0, use eq (20) + inter-sector C²: rotate sector 0's
+    // star jet by θ_k = 2π k / n to get sector k's star jet.
+    let sector0_cps = Gtri3SixCps {
+        cps: [
+            params.g3[0],
+            params.g3[1],
+            params.g3[2],
+            params.g3[3],
+            params.g3[4],
+            params.g3[5],
+        ],
+    };
+    let sector0_jet = tri3_star_jet(&sector0_cps);
+
+    for k in 0..n {
+        let jet_k_sector_local = rotate_star_jet_to_sector(&sector0_jet, k, n);
+        // Piece-local star jet: the O piece covers sector's `[0,
+        // 1/2]²` quadrant; piece-local partials are half the
+        // sector-local for 1st-order and quarter for 2nd-order.
+        let jet_k_piece_local = scale_jet_for_piece_local(&jet_k_sector_local, 0.5);
+        let o = p.sector_mut(k).piece_mut(CapPieceId::O);
+        set_corner_jet_00(o, &jet_k_piece_local);
     }
 
-    // Per-sector G_3[6 + k] → p^{o,k}_{3,0} (MVP analog of g̃^k_{030}).
+    // Per-sector G_3[6 + k] → p^{o,k}_{3,0} (analog of paper's
+    // `g̃^k_{030}` mid-edge CP; direct CP write — paper's chain-
+    // rule composition for mid-edge would go here).
     for k in 0..n {
         let o = p.sector_mut(k).piece_mut(CapPieceId::O);
         o.cps[3][0] = params.g3[6 + k];

@@ -79,6 +79,7 @@ mod kp13_bi5_circulant;
 mod kp13_bi5_connect;
 mod kp13_bi5_eq6;
 mod kp13_bi5_free_params;
+mod kp13_bi5_gtri3;
 mod kp13_bi5_gtri5;
 mod kp13_bi5_guide;
 #[cfg(test)]

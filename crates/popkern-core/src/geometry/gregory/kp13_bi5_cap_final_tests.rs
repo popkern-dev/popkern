@@ -304,16 +304,14 @@ fn solve_f1_min_works_for_all_valences() {
 }
 
 #[test]
-fn solve_f1_min_reduces_f1_residual_vs_baseline() {
-    // The solve should produce a p with F_1(p − a) no larger
-    // than F_1(build_p_baseline(a) − a). (Strictly less when
-    // a has non-zero gradient energy in the free-param subspace.)
+fn solve_f1_min_reduces_f1_residual_vs_zero_params() {
+    // The solver minimises over the free-param space; since
+    // zero free params are in that space, F_1(solved − a) must
+    // be ≤ F_1(apply(zero, a) − a).
     use super::super::kp13_bi5_cap_f1::f1_difference;
 
     let n = 5;
     let mut a = Bi5Cap::zero(n);
-    // Give a some non-trivial structure: set every O piece's
-    // CPs to a linear function plus a quadratic bump.
     for k in 0..n {
         let o = a.sector_mut(k).piece_mut(CapPieceId::O);
         for i in 0..6 {
@@ -324,13 +322,14 @@ fn solve_f1_min_reduces_f1_residual_vs_baseline() {
             }
         }
     }
-    let baseline = build_p_baseline(&a);
-    let f1_baseline = f1_difference(&baseline, &a);
+    let zero_params = Bi5CapFreeParams::zero(n);
+    let p_zero = apply_free_params_p(&zero_params, &a);
+    let f1_zero = f1_difference(&p_zero, &a);
     let p_solved = solve_f1_min(&a).unwrap();
     let f1_solved = f1_difference(&p_solved, &a);
     assert!(
-        f1_solved <= f1_baseline + 1e-9,
-        "F_1(solved - a) = {f1_solved} should be ≤ baseline {f1_baseline}"
+        f1_solved <= f1_zero + 1e-9,
+        "F_1(solved − a) = {f1_solved} should be ≤ zero-params baseline {f1_zero}"
     );
 }
 
