@@ -42,6 +42,7 @@ use crate::geometry::Point3;
 /// `cps[i][j]` is the BB-coef at `(i, j)` ∈ `{0, 1, 2, 3}²`.
 #[derive(Debug, Clone, Copy)]
 pub struct Bi3TensorBorder {
+    /// `cps[i][j]` is the BB coefficient at `(i, j) ∈ {0, 1, 2, 3}²`.
     pub cps: [[Point3; 4]; 4],
 }
 
@@ -160,6 +161,7 @@ fn four_point(pairs: [(f64, Point3); 4]) -> Point3 {
 /// target side of KP13 eq (4)'s residual.
 #[derive(Debug, Clone)]
 pub struct TensorBorder {
+    /// One `Bi3TensorBorder` per sector; `patches.len() == n`.
     pub patches: Vec<Bi3TensorBorder>,
 }
 
