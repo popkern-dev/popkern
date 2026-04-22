@@ -66,6 +66,7 @@ mod direct_row1_g1;
 mod direct_row1_ring;
 mod direct_self_check;
 mod direct_types;
+mod kp13_bi5_assemble;
 mod kp13_bi5_bi3_bi5_ops;
 mod kp13_bi5_boundary;
 mod kp13_bi5_cap;
@@ -231,6 +232,7 @@ pub use kp_ring_build::{
 };
 pub use kp_row1::{Row1Frame, derive_row1_frame};
 pub use kp_row2::{Row2Frame, derive_row2_frame};
+pub use kp13_bi5_assemble::{Bi5AssembleError, Bi5CapInput, Bi5CapOutput, assemble_bi5_macro_cap};
 pub use kp15_bi6_cap::{Bi6CapInput, Bi6CapOutput, assemble_bi6_polar_cap};
 pub use kp15_bi6_cap_f5_solve::{
     Bi6CapFreeParams, f_kappa_solve_optimal_bi6_cap, f_kappa_solve_with_weights_optimal_bi6_cap,
