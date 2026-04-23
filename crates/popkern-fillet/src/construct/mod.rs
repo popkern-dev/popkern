@@ -22,22 +22,21 @@ pub(crate) mod pcurve_attach;
 mod phase_split;
 pub(crate) mod poke_4n;
 pub(crate) mod poke_hex;
+mod promotion_ladder;
 mod sliver_absorb;
 pub(crate) mod surface_fix;
 pub(crate) mod three_quad_apply;
 pub(crate) mod three_quad_promotions;
 
+use crate::analysis::EdgeAnalysis;
+use crate::error::{BlendFailure, BlendWarning};
+use crate::types::VertexMode;
+use phase_split::{FaceTrim, TrimSplitResult};
 use popkern_core::geometry::NurbsCurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 use std::collections::HashMap;
-
-use crate::analysis::EdgeAnalysis;
-use crate::error::{BlendFailure, BlendWarning};
-use crate::types::VertexMode;
-
-use phase_split::{FaceTrim, TrimSplitResult};
 
 /// Geometry computed for one fillet/chamfer edge.
 #[derive(Debug)]
@@ -410,10 +409,8 @@ pub fn apply_blend_geometry(
         // A-through-C). Post-modification, original edge handles are
         // stale and `classify_vertex_blend` silently defaults to
         // `SameSideConvex`, masking `OppositeSide` saddles.
-        let precomputed: std::collections::BTreeMap<
-            VertexHandle,
-            crate::vertex_classifier::VertexBlendClassification,
-        > = vertex_edges
+        type VC = crate::vertex_classifier::VertexBlendClassification;
+        let precomputed: std::collections::BTreeMap<VertexHandle, VC> = vertex_edges
             .iter()
             .map(|(v, eis)| {
                 let edges: Vec<_> = eis

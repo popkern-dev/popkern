@@ -15,7 +15,12 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{BRep, FaceHandle};
 
 pub(crate) fn gregory_patch_of(brep: &BRep, face: FaceHandle) -> Option<GregoryPatch> {
-    brep.faces[face].surface.as_ref().and_then(|sof| {
+    // `.get()` not indexing: sliver-absorb and cap-insert passes
+    // occasionally delete a corner face after the pipeline has
+    // recorded it in `corner_patches` (cube_extreme_40 + N ≥ 5
+    // folded-sub-patch cases). Matches the pattern in
+    // `kp_gate_helpers.rs::patch_of`.
+    brep.faces.get(face)?.surface.as_ref().and_then(|sof| {
         if let SurfaceGeometry::Gregory(gp) = &sof.geometry {
             Some(gp.clone())
         } else {

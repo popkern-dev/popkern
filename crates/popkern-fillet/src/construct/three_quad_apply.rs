@@ -28,10 +28,6 @@ use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 use super::poke_hex::poke_n_gon_face_into_n_quads;
-use super::three_quad_promotions::{
-    promote_decomp_to_biquintic_full_with_spoke_g1, promote_decomp_to_biseptic_with_spoke_g1,
-    promote_decomp_to_two_stripe_with_spoke_g1,
-};
 use crate::blend::boundary::BlendBoundary;
 use crate::blend::gregory_three_quad::build_n_quad_decomposition_with_options;
 use crate::fillet_surface::FilletSurfaceResult;
@@ -97,70 +93,29 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     // coplanarity `c` exceeded the 5e-2 commercial gate.
     let mut relaxed_coplanarity: Option<f64> = None;
 
-    // §5.3 item #3 extended — promotion ladder:
-    // deg5 → biquintic-full → biseptic → two-stripe → kp_binonic.
-    // Each rung runs the K-P spoke-G1 joint solver. Conservative:
-    // a rung only attempts if the prior one's promotion succeeded
-    // AND its solver didn't trigger a fold-revert.
-    // `is_4n_path` tracks whether the ring has been promoted to KP13
-    // bi-5's 2 × 2 layout (4N sub-patches, 4 per original sector).
-    // When true, the poke uses `poke_n_gon_face_into_4n_quads` so the
-    // BRep carries 4N sub-faces that 1:1-zip with the 4N sub-patches.
-    let mut is_4n_path = false;
-    if use_biquintic_full && use_deg5 {
-        promote_decomp_to_biquintic_full_with_spoke_g1(&mut decomp.sub_patches);
-        if use_biseptic
-            && promote_decomp_to_biseptic_with_spoke_g1(&mut decomp.sub_patches)
-            && use_two_stripe
-        {
-            promote_decomp_to_two_stripe_with_spoke_g1(&mut decomp.sub_patches);
+    let is_4n_path = super::promotion_ladder::run_promotion_ladder(
+        &mut decomp,
+        fillet_surfaces,
+        &mut relaxed_coplanarity,
+        use_deg5,
+        use_biquintic_full,
+        use_biseptic,
+        use_two_stripe,
+        use_kp_binonic,
+        use_kp_polar,
+        promote_decomp_to_kp_binonic,
+    );
 
-            // KP13 bi-5 4N dispatch (env-gated by `POPKERN_KP13_BI5=1`)
-            // takes precedence over the bi-6 polar path. On success,
-            // `decomp.sub_patches` is replaced with 4N bi-9 patches and
-            // the 4N poke takes over downstream.
-            let kp13_taken = if use_kp_polar && decomp.sub_patches.len() >= 3
-                && let Some(patches_4n) =
-                    super::kp13_bi5_promote::try_kp13_bi5_dispatch(
-                        &decomp.sub_patches,
-                        fillet_surfaces,
-                    )
-            {
-                decomp.sub_patches = patches_4n;
-                is_4n_path = true;
-                true
-            } else {
-                false
-            };
-
-            if !kp13_taken {
-                // Top rung: polar bi-6 primary at N ≥ 5 (per ADR);
-                // binonic fallback / only rung at N ≤ 4.
-                let polar_committed = use_kp_polar
-                    && decomp.sub_patches.len() >= 5
-                    && super::kp_polar_bi6_promote::promote_and_update_relaxed(
-                        &mut decomp.sub_patches,
-                        fillet_surfaces,
-                        &mut relaxed_coplanarity,
-                    );
-                if use_kp_binonic && !polar_committed {
-                    relaxed_coplanarity =
-                        promote_decomp_to_kp_binonic(&mut decomp.sub_patches);
-                }
-            }
-        }
-    }
-
-    // §5.3 item #10 — self-intersection screen before committing
-    // the sub-patches to the BRep. If any sub-patch folds or
-    // curls, abort so the caller falls through to polar-NURBS
-    // (which is single-patch and can't produce the same overlap
-    // mode). Signalled as `ThreeQuadFailure::Overlap` so the
-    // caller knows to emit the `CornerRemediationOverlap` warning.
+    // Self-intersection screen. N ≥ 5 bypass: bi-5 parallelogram
+    // folds on narrow 72°/60° sectors by design (K-P 2015 motivates
+    // the polar construction precisely for this regime); downstream
+    // polar / KP13 bi-5 paths use only shared-edge CPs.
     const SELF_INT_TOL: f64 = 1e-6;
-    for patch in &decomp.sub_patches {
-        if patch.self_intersects_with_tolerance(SELF_INT_TOL) {
-            return Err(ThreeQuadFailure::Overlap);
+    if decomp.sub_patches.len() < 5 {
+        for patch in &decomp.sub_patches {
+            if patch.self_intersects_with_tolerance(SELF_INT_TOL) {
+                return Err(ThreeQuadFailure::Overlap);
+            }
         }
     }
 
