@@ -125,6 +125,7 @@ mod kp_polar_shared;
 mod kp_ring_build;
 mod kp_row1;
 mod kp_row2;
+mod pns_beta;
 mod rectangular;
 mod rectangular_binonic;
 mod rectangular_binonic_to_nurbs;
