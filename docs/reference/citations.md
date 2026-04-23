@@ -153,11 +153,32 @@ All paper-derived implementations in this codebase are **clean-room from papers 
 - Bi-3 vertex-enclosure twist solver (eq 7) — closed-form pair-sum circulant for n ∈ {3, 5}
 - Bi-2 tensor-border type + b∘β composition producing cap's outer two layers
 
-**Modules:** `crates/popkern-core/src/geometry/gregory/bernstein_bi3.rs`, `pns_beta.rs`, `pns_g1_constraints.rs`, `pns_center.rs`, `pns_sigma.rs`, `pns_bi3_twists.rs`, `pns_boundary.rs`
+**Modules:** `crates/popkern-core/src/geometry/gregory/bernstein_bi3.rs`, `pns_beta.rs`, `pns_g1_constraints.rs`, `pns_center.rs`, `pns_sigma.rs`, `pns_bi3_twists.rs`, `pns_boundary.rs`, `pns_f_kappa.rs`, `pns_gram.rs`, `pns_central_quad.rs`
 
-**Key commits:** `f224e9b..b8d1deb` (7 commits, 48 tests)
+**Key commits:** `f224e9b..545f8c1` (12 commits, 67 tests)
 
-**Research gap:** Full cap assembly (integrating central quadratic expansion + F_κ SPD solver over free BB-coefs) pending. See WIP Phase IV for remaining-work enumeration.
+**Paper coverage (14bi234.pdf):**
+- ✅ Eq 1 (G¹ formal identity)
+- ✅ Eq 2 / Eq 2³ (G¹ cap-cap constraints, with polynomial-identity verification)
+- ✅ Eq 3 / Eq 3³ (β reparameterisation, bi-4 + bi-3 variants)
+- ✅ Eq 4 (p_22 symmetric average)
+- ✅ Eq 5 (central point eop) + all 3 `e_def` variants
+- ✅ Eq 6 (F_κ minimisation framework — Gram matrix + `(n+5)×(n+5)` solver)
+- ✅ Eq 7 (bi-3 vertex-enclosure twist solver, closed-form circulant)
+- ✅ Appendix B (σ center jet + `d_1^def`, `d_2^def`)
+- ✅ b ∘ β tensor-border composition
+- ✅ `a ∘ σ` chain-rule central quadratic expansion
+- ✅ F_κ functional evaluator (F_1 through F_4) via Gauss-Legendre quadrature
+
+**Research gap:** The derived `σ_{01}, σ_{02}` BB coefs (from flip-symmetry-about-bisector) are a geometric interpretation of "flip-symmetry of each sector about its diagonal" rather than a direct paper transcription. Verified internally consistent by the σ rotational-symmetry tests (|ds_u|=|ds_v|, ds_uv along bisector), but paper doesn't explicitly state the image-space rotation. First thing to revisit if output shape looks off on a concrete fixture.
+
+**Scope-explicit limitations (WIP-tracked future work):**
+- Full cap assembly (integrates the primitives into `Vec<[[Point3; 5]; 5]>`).
+- Bi-3 variant for n ∈ {3, 5} (parallel assembly using `pns_bi3_twists`).
+- 2×2 bi-3 Appendix C variant for n > 5.
+- BlendBoundary → Bi2TensorBorderRing CAD adapter.
+- Dispatch wiring.
+- σ's full BB-net beyond order-≤2 jet (only needed if F_κ optimisation over σ's free params is added later).
 
 ### TOMS algorithm paper — Pointer to the three primary PnS papers
 
