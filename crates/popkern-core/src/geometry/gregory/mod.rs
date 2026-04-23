@@ -46,6 +46,7 @@
 use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
 
+mod bernstein_bi3;
 mod bernstein_bi5;
 mod bernstein_bi6;
 mod bernstein_binonic;
@@ -157,10 +158,14 @@ pub use spoke_g1_solver::{
 };
 pub use spoke_poly_g1_ring::{RingPolyG1Result, solve_ring_poly_g1};
 
+pub use bernstein_bi3::{
+    bernstein_bi3, bernstein_bi3_all, bernstein_bi3_deriv, bernstein_bi3_deriv_all,
+    bernstein_bi3_second_deriv, bernstein_bi3_second_deriv_all, bernstein_bi3_third_deriv,
+};
 pub use bernstein_bi5::{
-    bernstein_bi2_all, bernstein_bi3_all, bernstein_bi4_all, bernstein_bi5, bernstein_bi5_all,
-    bernstein_bi5_deriv, bernstein_bi5_deriv_all, bernstein_bi5_second_deriv,
-    bernstein_bi5_second_deriv_all, bernstein_bi5_third_deriv, bernstein_bi5_third_deriv_all,
+    bernstein_bi2_all, bernstein_bi4_all, bernstein_bi5, bernstein_bi5_all, bernstein_bi5_deriv,
+    bernstein_bi5_deriv_all, bernstein_bi5_second_deriv, bernstein_bi5_second_deriv_all,
+    bernstein_bi5_third_deriv, bernstein_bi5_third_deriv_all,
 };
 pub use bernstein_bi6::{
     bernstein_bi6, bernstein_bi6_all, bernstein_bi6_deriv, bernstein_bi6_deriv_all,

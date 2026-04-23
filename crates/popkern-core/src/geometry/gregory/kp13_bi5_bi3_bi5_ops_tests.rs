@@ -2,7 +2,8 @@
 
 #![allow(clippy::needless_range_loop)]
 
-use super::super::bernstein_bi5::{bernstein_bi3_all, bernstein_bi5_all};
+use super::super::bernstein_bi3::bernstein_bi3_all;
+use super::super::bernstein_bi5::bernstein_bi5_all;
 use super::*;
 
 const EPS: f64 = 1e-10;

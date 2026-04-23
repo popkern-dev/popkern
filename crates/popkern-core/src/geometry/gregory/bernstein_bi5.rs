@@ -103,7 +103,7 @@ pub fn bernstein_bi5_deriv_all(t: f64) -> [f64; 6] {
 /// All 6 second-derivative values at once.
 #[inline]
 pub fn bernstein_bi5_second_deriv_all(t: f64) -> [f64; 6] {
-    let b = bernstein_bi3_all(t);
+    let b = super::bernstein_bi3::bernstein_bi3_all(t);
     let bm = |i: i32| -> f64 {
         if (0..=3).contains(&i) {
             b[i as usize]
@@ -153,22 +153,8 @@ pub fn bernstein_bi4_all(t: f64) -> [f64; 5] {
     out
 }
 
-/// All 4 basis values `B_0^3(t)..B_3^3(t)` at once.
-#[inline]
-pub fn bernstein_bi3_all(t: f64) -> [f64; 4] {
-    let omt = 1.0 - t;
-    let mut t_pow = [1.0_f64; 4];
-    let mut omt_pow = [1.0_f64; 4];
-    for i in 1..4 {
-        t_pow[i] = t_pow[i - 1] * t;
-        omt_pow[i] = omt_pow[i - 1] * omt;
-    }
-    let mut out = [0.0_f64; 4];
-    for i in 0..4 {
-        out[i] = C3[i] * t_pow[i] * omt_pow[3 - i];
-    }
-    out
-}
+// `bernstein_bi3_all` now lives in the dedicated `bernstein_bi3`
+// module (Phase IV PnS support); imported below as needed.
 
 /// All 3 basis values `B_0^2(t)..B_2^2(t)` at once.
 #[inline]
