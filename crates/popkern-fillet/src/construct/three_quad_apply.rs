@@ -102,6 +102,11 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     // Each rung runs the K-P spoke-G1 joint solver. Conservative:
     // a rung only attempts if the prior one's promotion succeeded
     // AND its solver didn't trigger a fold-revert.
+    // `is_4n_path` tracks whether the ring has been promoted to KP13
+    // bi-5's 2 × 2 layout (4N sub-patches, 4 per original sector).
+    // When true, the poke uses `poke_n_gon_face_into_4n_quads` so the
+    // BRep carries 4N sub-faces that 1:1-zip with the 4N sub-patches.
+    let mut is_4n_path = false;
     if use_biquintic_full && use_deg5 {
         promote_decomp_to_biquintic_full_with_spoke_g1(&mut decomp.sub_patches);
         if use_biseptic
@@ -109,17 +114,39 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             && use_two_stripe
         {
             promote_decomp_to_two_stripe_with_spoke_g1(&mut decomp.sub_patches);
-            // Top rung: polar bi-6 primary at N ≥ 5 (per ADR);
-            // binonic fallback / only rung at N ≤ 4.
-            let polar_committed = use_kp_polar
-                && decomp.sub_patches.len() >= 5
-                && super::kp_polar_bi6_promote::promote_and_update_relaxed(
-                    &mut decomp.sub_patches,
-                    fillet_surfaces,
-                    &mut relaxed_coplanarity,
-                );
-            if use_kp_binonic && !polar_committed {
-                relaxed_coplanarity = promote_decomp_to_kp_binonic(&mut decomp.sub_patches);
+
+            // KP13 bi-5 4N dispatch (env-gated by `POPKERN_KP13_BI5=1`)
+            // takes precedence over the bi-6 polar path. On success,
+            // `decomp.sub_patches` is replaced with 4N bi-9 patches and
+            // the 4N poke takes over downstream.
+            let kp13_taken = if use_kp_polar && decomp.sub_patches.len() >= 3
+                && let Some(patches_4n) =
+                    super::kp13_bi5_promote::try_kp13_bi5_dispatch(
+                        &decomp.sub_patches,
+                        fillet_surfaces,
+                    )
+            {
+                decomp.sub_patches = patches_4n;
+                is_4n_path = true;
+                true
+            } else {
+                false
+            };
+
+            if !kp13_taken {
+                // Top rung: polar bi-6 primary at N ≥ 5 (per ADR);
+                // binonic fallback / only rung at N ≤ 4.
+                let polar_committed = use_kp_polar
+                    && decomp.sub_patches.len() >= 5
+                    && super::kp_polar_bi6_promote::promote_and_update_relaxed(
+                        &mut decomp.sub_patches,
+                        fillet_surfaces,
+                        &mut relaxed_coplanarity,
+                    );
+                if use_kp_binonic && !polar_committed {
+                    relaxed_coplanarity =
+                        promote_decomp_to_kp_binonic(&mut decomp.sub_patches);
+                }
             }
         }
     }
@@ -137,19 +164,26 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         }
     }
 
-    let poke = poke_n_gon_face_into_n_quads(brep, blend_face, decomp.central_point)
-        .map_err(|e| ThreeQuadFailure::Other(format!("poke failed: {e}")))?;
-    if poke.sub_faces.len() != decomp.sub_patches.len() {
+    let sub_faces: Vec<FaceHandle> = if is_4n_path {
+        super::poke_4n::poke_n_gon_face_into_4n_quads(brep, blend_face, decomp.central_point)
+            .map_err(|e| ThreeQuadFailure::Other(format!("4n poke failed: {e}")))?
+            .sub_faces
+    } else {
+        poke_n_gon_face_into_n_quads(brep, blend_face, decomp.central_point)
+            .map_err(|e| ThreeQuadFailure::Other(format!("poke failed: {e}")))?
+            .sub_faces
+    };
+    if sub_faces.len() != decomp.sub_patches.len() {
         return Err(ThreeQuadFailure::Other(format!(
             "poke/decomposition size mismatch: poke produced {} sub-faces, \
              decomposition has {} sub-patches",
-            poke.sub_faces.len(),
+            sub_faces.len(),
             decomp.sub_patches.len()
         )));
     }
 
     let mut patches = Vec::with_capacity(decomp.sub_patches.len());
-    for (sub_face, sub_patch) in poke.sub_faces.iter().zip(decomp.sub_patches.iter()) {
+    for (sub_face, sub_patch) in sub_faces.iter().zip(decomp.sub_patches.iter()) {
         brep.faces[*sub_face].surface = Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Gregory(sub_patch.clone()),
             orientation: true,
