@@ -126,6 +126,7 @@ mod kp_ring_build;
 mod kp_row1;
 mod kp_row2;
 mod pns_beta;
+mod pns_center;
 mod pns_g1_constraints;
 mod rectangular;
 mod rectangular_binonic;
