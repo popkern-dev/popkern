@@ -131,6 +131,7 @@ mod pns_boundary;
 mod pns_center;
 mod pns_f_kappa;
 mod pns_g1_constraints;
+mod pns_gram;
 mod pns_sigma;
 mod rectangular;
 mod rectangular_binonic;
