@@ -25,6 +25,34 @@
 //!
 //! Accordingly, [`SigmaCenterJet`] packages the 6 jet values and
 //! [`sigma_center_jet`] builds it from the paper defaults.
+//!
+//! # ⚠ Known bug: σ_{01} / σ_{02} derivation
+//!
+//! The paper gives σ_{00}, σ_{10}, σ_{11}, σ_{20} explicitly but
+//! only says "Symmetry defines the remaining BB-coefficients of
+//! σ in terms of d_1, d_2, d_3". We derive σ_{01}, σ_{02} from
+//! image-space reflection about the sector bisector line — the
+//! natural interpretation of "flip-symmetry of each sector about
+//! its diagonal".
+//!
+//! **This interpretation is incorrect.** The cross-validation
+//! test `central_expansion_satisfies_eq2_g1_constraint` in
+//! `pns_central_quad_tests.rs` (currently `#[ignore]`) shows the
+//! derived `ds_v^0` doesn't satisfy the G¹ identity
+//!   `2c · ds_u^0  =  ds_v^0 + R_{2π/n} · ds_v^0`
+//! that the paper implicitly requires (it's the condition for
+//! eq (2)'s cur_{10} to match the central chain rule).
+//!
+//! Algebraically, the correct `σ_{01}` has the form
+//!   `σ_{01} = (c·d_1, ±c·d_1·tan(α/2))`
+//! — the x-coord matches our reflection-based derivation but the
+//! y-coord differs (~4× magnitude at n=5 and possibly opposite
+//! sign). A correct fix requires either re-reading Appendix B
+//! more carefully or direct inspection of a reference PnS output
+//! on a trivial test case.
+//!
+//! **Impact**: the cap assembly built on `a ∘ σ` can't be trusted
+//! to produce G¹-continuous output until this is resolved.
 
 #![allow(dead_code)]
 
