@@ -19,6 +19,7 @@ pub(crate) mod merge;
 mod multi_chord;
 pub(crate) mod pcurve_attach;
 mod phase_split;
+pub(crate) mod poke_4n;
 pub(crate) mod poke_hex;
 mod sliver_absorb;
 pub(crate) mod surface_fix;
