@@ -9,32 +9,36 @@
 //! # Representation adapter
 //!
 //! The KP15 bi-6 path consumes `kp_polar_boundary_input::TensorBorder`
-//! (3 rows × 4 CPs per sector: position + 1st cross + 2nd cross
-//! derivatives). The KP13 bi-5 path consumes
+//! (**bi-2 in v**: 3 rows × 4 CPs per sector = position + 1st
+//! cross + 2nd cross derivatives as BB coefs at `v_polar ∈ {0,
+//! 1/2, 1}`). The KP13 bi-5 path consumes
 //! `kp13_bi5_boundary::TensorBorder` (4 × 4 BB CPs per sector —
 //! a **full bi-3 tensor-product grid**).
 //!
-//! The adapter [`tensor_border_kp_polar_to_kp13`] maps the 3-row
-//! depth-2 strip to the 4-row full bi-3 grid via:
+//! Coordinate reconciliation: polar's `v_polar = 0` is the outer
+//! fillet mouth (furthest from the star); KP13's `v = 0` is the
+//! star edge (corner `(0, 0)`). The two v-axes run in **opposite
+//! directions**: `v_kp13 = 1 − v_polar`.
+//!
+//! The adapter is therefore a (v-reversal + bi-2 → bi-3 degree
+//! elevation) acting on the CPs per sector:
 //!
 //! ```text
-//!   row 0 (toward star)     = second_cross_row
-//!   row 1                   = first_cross_row
-//!   row 2                   = position_row
-//!   row 3 (outer boundary)  = 2·position_row − first_cross_row
-//!                             (linear extrapolation outward)
+//!   D_0 (KP13 v = 0, star edge)   = C_2 = second_cross_row
+//!   D_1 (KP13 v = 1/3)            = (1/3) · C_2 + (2/3) · C_1
+//!   D_2 (KP13 v = 2/3)            = (2/3) · C_1 + (1/3) · C_0
+//!   D_3 (KP13 v = 1, outer edge)  = C_0 = position_row
 //! ```
 //!
-//! This reading treats the polar input's "position" row as the
-//! outermost visible boundary (matching the paper's Fig. 2 which
-//! shows the tensor-border as a depth-2 ring abutting the cap).
-//! Row 3 is a linear continuation of the depth gradient — a
-//! deliberate MVP simplification.
+//! where `C_i = polar row i` (C_0 = position, C_1 = first cross,
+//! C_2 = second cross). The middle two CPs are the standard
+//! bi-2 → bi-3 degree-elevation formulas (after accounting for
+//! the v-reversal).
 //!
-//! **Caveat**: paper-faithful tensor-border extraction for the
-//! KP13 pipeline would re-derive all 4 rows from the underlying
-//! bi-3 boundary curve + face tangent planes without the
-//! extrapolation. This is additive paper-fidelity work.
+//! This conversion is **exact** up to the bi-2 expressiveness of
+//! the polar input — the returned bi-3 grid represents the same
+//! polynomial in v, now in 4-CP form. No extrapolation or
+//! information loss.
 //!
 //! # Usage
 //!
@@ -56,8 +60,9 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
-    Bi5CapBi3Patch, Bi5CapInput, Bi5CapTensorBorder, PolarBoundaryInput, TensorBorder,
-    assemble_bi5_macro_cap, catmull_clark_star_point, extract_bi3_tensor_border_from_polar_input,
+    Bi5CapBi3Patch, Bi5CapInput, Bi5CapTensorBorder, PolarBoundaryInput, RectangularGregoryBiNonic,
+    TensorBorder, assemble_bi5_macro_cap, catmull_clark_star_point,
+    extract_bi3_tensor_border_from_polar_input,
 };
 
 /// Degree-7 Bezier evaluation on a spoke's 8-CP boundary. Used to
@@ -97,22 +102,32 @@ fn tensor_border_kp_polar_to_kp13(polar_tb: &TensorBorder) -> Option<Bi5CapTenso
     let n = polar_tb.n_sectors();
     let mut patches = Vec::with_capacity(n);
     for k in 0..n {
-        let r0 = polar_tb.position_row(k);
-        let r1 = polar_tb.first_cross_row(k);
-        let r2 = polar_tb.second_cross_row(k);
-        // Row layout: row 0 (star side) = r2, row 1 = r1, row 2 =
-        // r0 (outermost position), row 3 = 2·r0 − r1 (linear
-        // outward extrapolation).
+        let r0 = polar_tb.position_row(k); // C_0 — polar v = 0 (outer mouth).
+        let r1 = polar_tb.first_cross_row(k); // C_1 — polar v = 1/2.
+        let r2 = polar_tb.second_cross_row(k); // C_2 — polar v = 1 (deepest inward).
+        // Convert bi-2 (polar) → bi-3 (KP13) in v with v_kp13 =
+        // 1 − v_polar, per module-header derivation.
+        //   D_0 = C_2 (star side)
+        //   D_1 = (1/3) C_2 + (2/3) C_1
+        //   D_2 = (2/3) C_1 + (1/3) C_0
+        //   D_3 = C_0 (outer boundary)
         let mut cps = [[Point3::new(0.0, 0.0, 0.0); 4]; 4];
         for i in 0..4 {
-            cps[i][0] = r2[i];
-            cps[i][1] = r1[i];
-            cps[i][2] = r0[i];
-            cps[i][3] = Point3::new(
-                2.0 * r0[i].x - r1[i].x,
-                2.0 * r0[i].y - r1[i].y,
-                2.0 * r0[i].z - r1[i].z,
+            let c0 = r0[i];
+            let c1 = r1[i];
+            let c2 = r2[i];
+            cps[i][0] = c2;
+            cps[i][1] = Point3::new(
+                c2.x / 3.0 + 2.0 * c1.x / 3.0,
+                c2.y / 3.0 + 2.0 * c1.y / 3.0,
+                c2.z / 3.0 + 2.0 * c1.z / 3.0,
             );
+            cps[i][2] = Point3::new(
+                2.0 * c1.x / 3.0 + c0.x / 3.0,
+                2.0 * c1.y / 3.0 + c0.y / 3.0,
+                2.0 * c1.z / 3.0 + c0.z / 3.0,
+            );
+            cps[i][3] = c0;
         }
         patches.push(Bi5CapBi3Patch { cps });
     }
@@ -163,6 +178,37 @@ pub fn try_kp_bi5_macro_cap(
     let input = Bi5CapInput { target, cc_limit };
     let out = assemble_bi5_macro_cap(&input).map_err(|e| format!("KP13 bi-5 assembly: {e}"))?;
     Ok(out.patches_bi9)
+}
+
+/// Variant of [`try_kp_bi5_macro_cap`] that wraps each of the
+/// `4n` bi-9 CP grids as a [`RectangularGregoryBiNonic`] — the
+/// same BRep-insertable wrapper type used by the Phase H bi-9
+/// direct and KP15 bi-6 polar paths.
+///
+/// # Output shape
+///
+/// Returns a flat `Vec<RectangularGregoryBiNonic>` of length
+/// `4n`, in canonical `(sector, piece)` row-major order — i.e.,
+/// `output[4k + piece_index]` for `piece_index ∈ 0..=3`
+/// (`O, L, R, M`).
+///
+/// # Design choice
+///
+/// We treat each of the 4 sub-patches per sector as an
+/// independent bi-9 Gregory patch rather than introducing a new
+/// `RectangularGregoryBiNonicQuadPatchwork` wrapper type. The
+/// sub-patches live on their own `[0, 1]²` piece-local domains
+/// and are `C²`-connected internally (via I.14.d) and `G²`-
+/// connected across sectors (via I.14.e eq (18)); the BRep
+/// doesn't need to know about the 2 × 2 grouping.
+pub fn try_kp_bi5_macro_cap_as_gregory(
+    polar_input: &PolarBoundaryInput,
+) -> Result<Vec<RectangularGregoryBiNonic>, String> {
+    let grids = try_kp_bi5_macro_cap(polar_input)?;
+    Ok(grids
+        .into_iter()
+        .map(|grid| RectangularGregoryBiNonic { grid })
+        .collect())
 }
 
 #[cfg(test)]
