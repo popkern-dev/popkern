@@ -128,6 +128,7 @@ mod kp_row2;
 mod pns_beta;
 mod pns_center;
 mod pns_g1_constraints;
+mod pns_sigma;
 mod rectangular;
 mod rectangular_binonic;
 mod rectangular_binonic_to_nurbs;
