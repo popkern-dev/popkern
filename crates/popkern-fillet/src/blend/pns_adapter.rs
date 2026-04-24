@@ -30,10 +30,12 @@
 //!
 //! # Valence
 //!
-//! If the blend has `N_fillets` fillets, `BlendBoundary` has
-//! `2 · N_fillets` segments → the PnS cap has valence
-//! `2·N_fillets`. Supported valences: `2·N_fillets ∈ {6, 8, 10, 12}`
-//! (i.e., `N_fillets ∈ {3, 4, 5, 6}`).
+//! The adapter pairs each `(FilletEnd arc, FaceEdge bridge)` pair
+//! into ONE PnS sector, so the PnS cap has valence `N_fillets`
+//! (not `2·N_fillets`). This matches the `N`-sub-face output of
+//! `poke_n_gon_face_into_n_quads` on a `2N`-HE blend face.
+//! Supported valences: `N_fillets ∈ {3, 5, 6, 7, 8, 9, 10, 11, 12}`
+//! (same as PnS's: `N = 4` rejected due to σ singularity).
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::gregory::{Bi2BorderStrip, Bi2TensorBorderRing};
@@ -79,37 +81,44 @@ const DERIV_MAG_FRAC: f64 = 0.5;
 
 /// Placeholder-derivative adapter. Faster (no surface queries) but
 /// produces only a G⁰-matching cap. See module docs.
+///
+/// Pairs consecutive segments `(2k, 2k+1)` into one PnS sector.
 pub fn blend_boundary_to_pns_ring(
     boundary: &BlendBoundary,
 ) -> Result<Bi2TensorBorderRing, PnsAdapterError> {
-    let n_seg = validate_segment_count(boundary.segments.len())?;
+    let n = validate_and_compute_valence(boundary.segments.len())?;
     let vertex = boundary.vertex_position;
-    let mut sectors = Vec::with_capacity(n_seg);
-    for segment in &boundary.segments {
-        sectors.push(segment_to_strip_placeholder(segment, vertex));
+    let mut sectors = Vec::with_capacity(n);
+    for k in 0..n {
+        let seg_a = &boundary.segments[2 * k];
+        let seg_b = &boundary.segments[2 * k + 1];
+        sectors.push(pair_to_strip_placeholder(seg_a, seg_b, vertex));
     }
     Ok(Bi2TensorBorderRing { sectors })
 }
 
 /// Surface-aware adapter. Produces derivatives that encode the
-/// supporting surface's tangent plane at each CP location → G¹
-/// target when composed with the PnS cap assembly.
+/// supporting surface's tangent plane → G¹ target.
 ///
-/// `fillet_surfaces` must be indexable by each FilletEnd segment's
-/// `fillet_index`; `brep` must contain each FaceEdge segment's
-/// `face` handle with a defined surface geometry.
+/// Pairs consecutive segments `(2k, 2k+1)` into one PnS sector:
+/// `pos[0]` at arc start, `pos[1]` at arc/bridge join, `pos[2]` at
+/// bridge end. Derivatives `deriv[0]`, `deriv[1]` from the arc's
+/// surface; `deriv[2]` from the bridge's surface.
 pub fn blend_boundary_to_pns_ring_with_surfaces(
     boundary: &BlendBoundary,
     fillet_surfaces: &[FilletSurfaceResult],
     brep: &BRep,
 ) -> Result<Bi2TensorBorderRing, PnsAdapterError> {
-    let n_seg = validate_segment_count(boundary.segments.len())?;
+    let n = validate_and_compute_valence(boundary.segments.len())?;
     let vertex = boundary.vertex_position;
-    let mut sectors = Vec::with_capacity(n_seg);
-    for (idx, segment) in boundary.segments.iter().enumerate() {
-        sectors.push(segment_to_strip_surface_aware(
-            segment,
-            idx,
+    let mut sectors = Vec::with_capacity(n);
+    for k in 0..n {
+        let seg_a = &boundary.segments[2 * k];
+        let seg_b = &boundary.segments[2 * k + 1];
+        sectors.push(pair_to_strip_surface_aware(
+            seg_a,
+            seg_b,
+            2 * k,
             fillet_surfaces,
             brep,
             vertex,
@@ -118,51 +127,68 @@ pub fn blend_boundary_to_pns_ring_with_surfaces(
     Ok(Bi2TensorBorderRing { sectors })
 }
 
-fn validate_segment_count(n_seg: usize) -> Result<usize, PnsAdapterError> {
+/// Validate segment count and return the PnS valence
+/// `n = n_seg / 2`.
+fn validate_and_compute_valence(n_seg: usize) -> Result<usize, PnsAdapterError> {
     if n_seg < 6 {
         return Err(PnsAdapterError::TooFewSegments(n_seg));
     }
-    if n_seg > 12 {
+    if n_seg > 24 {
         return Err(PnsAdapterError::TooManySegments(n_seg));
     }
     if !n_seg.is_multiple_of(2) {
         return Err(PnsAdapterError::OddSegmentCount(n_seg));
     }
-    Ok(n_seg)
+    Ok(n_seg / 2)
 }
 
-/// Sample each segment's curve at `t ∈ {t_min, t_mid, t_max}` and
-/// return `(pos_bb, samples, curve_len)` where `pos_bb` is the bi-2
-/// BB-coef row interpolating the 3 samples and `samples` is the
-/// raw 3 sample points for downstream deriv computation.
-fn pos_row_from_curve(segment: &BoundarySegment) -> ([Point3; 3], [Point3; 3], [f64; 3], f64) {
-    let curve = match segment {
+/// Build a bi-2 position row `[p_start_a, p_join, p_end_b]` that
+/// interpolates the two segments' endpoints AND the arc/bridge
+/// join point at parameter `u = 0.5`.
+fn paired_pos_row(seg_a: &BoundarySegment, seg_b: &BoundarySegment) -> [Point3; 3] {
+    let curve_a = curve_of(seg_a);
+    let curve_b = curve_of(seg_b);
+    let (a_min, a_max) = curve_a.parameter_range();
+    let (_, b_max) = curve_b.parameter_range();
+    let p_start = curve_a.point_at(a_min);
+    let p_join = curve_a.point_at(a_max); // = curve_b.point_at(b_min) by cyclic consistency
+    let p_end = curve_b.point_at(b_max);
+    // Bi-2 interpolating coef at u=0.5:
+    //   p_join = 0.25·p_start + 0.5·p_mid_bb + 0.25·p_end
+    // → p_mid_bb = 2·p_join − 0.5·(p_start + p_end)
+    let p_mid_bb = Point3::new(
+        2.0 * p_join.x - 0.5 * (p_start.x + p_end.x),
+        2.0 * p_join.y - 0.5 * (p_start.y + p_end.y),
+        2.0 * p_join.z - 0.5 * (p_start.z + p_end.z),
+    );
+    [p_start, p_mid_bb, p_end]
+}
+
+fn curve_of(segment: &BoundarySegment) -> &popkern_core::geometry::NurbsCurve {
+    match segment {
         BoundarySegment::FilletEnd { curve, .. } => curve,
         BoundarySegment::FaceEdge { curve, .. } => curve,
-    };
-    let (t_min, t_max) = curve.parameter_range();
-    let t_mid = 0.5 * (t_min + t_max);
-    let p_start = curve.point_at(t_min);
-    let p_mid_sampled = curve.point_at(t_mid);
-    let p_end = curve.point_at(t_max);
-    // Bi-2 interpolating coef:  p_1 = 2·p(0.5) - 0.5·(p_0 + p_2)
-    let p_mid_bb = Point3::new(
-        2.0 * p_mid_sampled.x - 0.5 * (p_start.x + p_end.x),
-        2.0 * p_mid_sampled.y - 0.5 * (p_start.y + p_end.y),
-        2.0 * p_mid_sampled.z - 0.5 * (p_start.z + p_end.z),
-    );
-    let pos_bb = [p_start, p_mid_bb, p_end];
-    let samples = [p_start, p_mid_sampled, p_end];
-    let ts = [t_min, t_mid, t_max];
-    let len = (p_end.x - p_start.x)
-        .hypot(p_end.y - p_start.y)
-        .hypot((p_end.z - p_start.z).abs());
-    (pos_bb, samples, ts, len)
+    }
 }
 
-fn segment_to_strip_placeholder(segment: &BoundarySegment, vertex: Point3) -> Bi2BorderStrip {
-    let (pos_bb, _samples, _ts, seg_len) = pos_row_from_curve(segment);
-    let mag = seg_len * DERIV_MAG_FRAC;
+fn pair_to_strip_placeholder(
+    seg_a: &BoundarySegment,
+    seg_b: &BoundarySegment,
+    vertex: Point3,
+) -> Bi2BorderStrip {
+    let pos_bb = paired_pos_row(seg_a, seg_b);
+    // Rough magnitude: combined arc+bridge length × fraction.
+    let curve_a = curve_of(seg_a);
+    let curve_b = curve_of(seg_b);
+    let (a_min, a_max) = curve_a.parameter_range();
+    let (b_min, b_max) = curve_b.parameter_range();
+    let len_a = curve_a
+        .point_at(a_min)
+        .distance_to(&curve_a.point_at(a_max));
+    let len_b = curve_b
+        .point_at(b_min)
+        .distance_to(&curve_b.point_at(b_max));
+    let mag = (len_a + len_b) * DERIV_MAG_FRAC;
     let deriv = [
         inward_deriv(pos_bb[0], vertex, mag),
         inward_deriv(pos_bb[1], vertex, mag),
@@ -171,26 +197,48 @@ fn segment_to_strip_placeholder(segment: &BoundarySegment, vertex: Point3) -> Bi
     Bi2BorderStrip { pos: pos_bb, deriv }
 }
 
-fn segment_to_strip_surface_aware(
-    segment: &BoundarySegment,
-    segment_idx: usize,
+fn pair_to_strip_surface_aware(
+    seg_a: &BoundarySegment,
+    seg_b: &BoundarySegment,
+    base_idx: usize,
     fillet_surfaces: &[FilletSurfaceResult],
     brep: &BRep,
     vertex: Point3,
 ) -> Result<Bi2BorderStrip, PnsAdapterError> {
-    let surface = lookup_surface(segment, segment_idx, fillet_surfaces, brep)?;
-    let curve = match segment {
-        BoundarySegment::FilletEnd { curve, .. } => curve,
-        BoundarySegment::FaceEdge { curve, .. } => curve,
-    };
-    let (pos_bb, samples, ts, seg_len) = pos_row_from_curve(segment);
-    let mag = seg_len * DERIV_MAG_FRAC;
+    let surface_a = lookup_surface(seg_a, base_idx, fillet_surfaces, brep)?;
+    let surface_b = lookup_surface(seg_b, base_idx + 1, fillet_surfaces, brep)?;
+    let curve_a = curve_of(seg_a);
+    let curve_b = curve_of(seg_b);
+    let (a_min, a_max) = curve_a.parameter_range();
+    let (b_min, b_max) = curve_b.parameter_range();
+
+    let pos_bb = paired_pos_row(seg_a, seg_b);
+    let len_a = curve_a
+        .point_at(a_min)
+        .distance_to(&curve_a.point_at(a_max));
+    let len_b = curve_b
+        .point_at(b_min)
+        .distance_to(&curve_b.point_at(b_max));
+    let mag = (len_a + len_b) * DERIV_MAG_FRAC;
+
+    // Per-position surface + sample-t + associated curve.
+    // [0] = arc's surface at arc start (t = a_min, on curve_a)
+    // [1] = arc's surface at arc end / bridge start (t = a_max, on curve_a)
+    // [2] = bridge's surface at bridge end (t = b_max, on curve_b)
+    let sample_data: [(
+        &popkern_core::geometry::surface::SurfaceGeometry,
+        &popkern_core::geometry::NurbsCurve,
+        f64,
+        Point3,
+    ); 3] = [
+        (surface_a, curve_a, a_min, pos_bb[0]),
+        (surface_a, curve_a, a_max, pos_bb[1]),
+        (surface_b, curve_b, b_max, pos_bb[2]),
+    ];
 
     let mut deriv = [Point3::new(0.0, 0.0, 0.0); 3];
-    for i in 0..3 {
-        let sample = samples[i];
-        let Some((u, v)) = surface.closest_point(&sample) else {
-            // Fallback: placeholder inward-pointing deriv.
+    for (i, (surface, curve, t, sample_pt)) in sample_data.iter().enumerate() {
+        let Some((u, v)) = surface.closest_point(sample_pt) else {
             deriv[i] = inward_deriv(pos_bb[i], vertex, mag);
             continue;
         };
@@ -201,8 +249,7 @@ fn segment_to_strip_surface_aware(
             deriv[i] = inward_deriv(pos_bb[i], vertex, mag);
             continue;
         }
-        let curve_tangent = curve_tangent_at(curve, ts[i]);
-        // In-surface perpendicular to curve tangent.
+        let curve_tangent = curve_tangent_at(curve, *t);
         let in_surf_perp = n.cross(&curve_tangent);
         let perp_len = in_surf_perp.length();
         if perp_len < 1e-12 {
@@ -210,13 +257,10 @@ fn segment_to_strip_surface_aware(
             continue;
         }
         let unit_perp = in_surf_perp * (1.0 / perp_len);
-        // Orient to point AWAY from the blend vertex (into the
-        // surrounding surface). If `unit_perp` currently points
-        // toward the vertex, flip.
         let to_vertex = Vec3::new(
-            vertex.x - sample.x,
-            vertex.y - sample.y,
-            vertex.z - sample.z,
+            vertex.x - sample_pt.x,
+            vertex.y - sample_pt.y,
+            vertex.z - sample_pt.z,
         );
         let sign = if unit_perp.dot(&to_vertex) > 0.0 {
             -1.0

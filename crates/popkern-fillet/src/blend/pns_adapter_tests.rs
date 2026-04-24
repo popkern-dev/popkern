@@ -60,11 +60,11 @@ fn synth_blend_boundary(n_fillets: usize, radius: f64) -> BlendBoundary {
 }
 
 #[test]
-fn three_fillet_blend_produces_n6_ring() {
-    // 3 fillets → 6 segments → valence-6 PnS cap.
+fn three_fillet_blend_produces_n3_ring() {
+    // 3 fillets → 6 segments → paired into 3 PnS sectors.
     let bb = synth_blend_boundary(3, 1.0);
     let ring = blend_boundary_to_pns_ring(&bb).expect("3-fillet blend should convert");
-    assert_eq!(ring.n(), 6);
+    assert_eq!(ring.n(), 3);
     // Each strip has 3 position CPs.
     for strip in &ring.sectors {
         assert_eq!(strip.pos.len(), 3);
@@ -73,15 +73,15 @@ fn three_fillet_blend_produces_n6_ring() {
 }
 
 #[test]
-fn four_fillet_blend_produces_n8_ring() {
-    let bb = synth_blend_boundary(4, 1.0);
-    let ring = blend_boundary_to_pns_ring(&bb).expect("4-fillet blend should convert");
-    assert_eq!(ring.n(), 8);
+fn five_fillet_blend_produces_n5_ring() {
+    let bb = synth_blend_boundary(5, 1.0);
+    let ring = blend_boundary_to_pns_ring(&bb).expect("5-fillet blend should convert");
+    assert_eq!(ring.n(), 5);
 }
 
 #[test]
 fn too_few_segments_rejected() {
-    // 2 fillets → 4 segments → below minimum.
+    // 2 fillets → 4 segments → below minimum (PnS needs n ≥ 3).
     let bb = synth_blend_boundary(2, 1.0);
     let result = blend_boundary_to_pns_ring(&bb);
     assert!(matches!(result, Err(PnsAdapterError::TooFewSegments(4))));
@@ -89,27 +89,33 @@ fn too_few_segments_rejected() {
 
 #[test]
 fn too_many_segments_rejected() {
-    // 7 fillets → 14 segments → above max.
-    let bb = synth_blend_boundary(7, 1.0);
+    // 13 fillets → 26 segments → above max (n ≤ 12).
+    let bb = synth_blend_boundary(13, 1.0);
     let result = blend_boundary_to_pns_ring(&bb);
-    assert!(matches!(result, Err(PnsAdapterError::TooManySegments(14))));
+    assert!(matches!(result, Err(PnsAdapterError::TooManySegments(26))));
 }
 
 #[test]
-fn position_endpoints_interpolate_segment_curve() {
-    // Verify pos[0] and pos[2] match the segment curve's endpoints.
+fn paired_position_endpoints_match_arc_start_and_bridge_end() {
+    // Verify pos[0] = arc (seg 2k) start, pos[2] = bridge (seg 2k+1) end.
     let bb = synth_blend_boundary(3, 1.5);
     let ring = blend_boundary_to_pns_ring(&bb).expect("conversion should succeed");
     for (k, strip) in ring.sectors.iter().enumerate() {
-        let segment = &bb.segments[k];
-        let curve = match segment {
+        let seg_a = &bb.segments[2 * k];
+        let seg_b = &bb.segments[2 * k + 1];
+        let curve_a = match seg_a {
+            BoundarySegment::FilletEnd { curve, .. } => curve,
+            BoundarySegment::FaceEdge { curve, .. } => curve,
+        };
+        let curve_b = match seg_b {
             BoundarySegment::FilletEnd { curve, .. } => curve,
             BoundarySegment::FaceEdge { curve, .. } => curve,
         };
         use popkern_core::geometry::curve::CurveEval;
-        let (t0, t1) = curve.parameter_range();
-        let expected_start = curve.point_at(t0);
-        let expected_end = curve.point_at(t1);
+        let (ta0, _) = curve_a.parameter_range();
+        let (_, tb1) = curve_b.parameter_range();
+        let expected_start = curve_a.point_at(ta0);
+        let expected_end = curve_b.point_at(tb1);
         assert!(
             (strip.pos[0].x - expected_start.x).abs() < 1e-12
                 && (strip.pos[0].y - expected_start.y).abs() < 1e-12
@@ -198,7 +204,7 @@ fn surface_aware_derivs_are_perpendicular_to_curve_tangents() {
 
     let ring = super::pns_adapter::blend_boundary_to_pns_ring_with_surfaces(&bb, &fillets, &brep)
         .expect("surface-aware adapter should succeed with planar surfaces");
-    assert_eq!(ring.n(), 2 * n_fillets);
+    assert_eq!(ring.n(), n_fillets);
 
     // For the plane z=0, every deriv should have z ≈ 0 (in-plane)
     // and be perpendicular to the curve tangent at its sample
