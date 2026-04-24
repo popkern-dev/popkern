@@ -26,33 +26,33 @@
 //! Accordingly, [`SigmaCenterJet`] packages the 6 jet values and
 //! [`sigma_center_jet`] builds it from the paper defaults.
 //!
-//! # ⚠ Known bug: σ_{01} / σ_{02} derivation
+//! # σ_{01}, σ_{02} derivation
 //!
-//! The paper gives σ_{00}, σ_{10}, σ_{11}, σ_{20} explicitly but
-//! only says "Symmetry defines the remaining BB-coefficients of
-//! σ in terms of d_1, d_2, d_3". We derive σ_{01}, σ_{02} from
-//! image-space reflection about the sector bisector line — the
-//! natural interpretation of "flip-symmetry of each sector about
-//! its diagonal".
+//! The paper gives σ_{00}, σ_{10}, σ_{11}, σ_{20} explicitly. The
+//! remaining order-≤2 coefs σ_{01}, σ_{02} follow from flip-symmetry
+//! of the sector about its diagonal (reflection about the sector
+//! bisector in image space):
+//!   σ_{01} = (d_1 cos α, d_1 sin α)
+//!   σ_{02} = (σ_{20,x} cos α, σ_{20,x} sin α)
 //!
-//! **This interpretation is incorrect.** The cross-validation
-//! test `central_expansion_satisfies_eq2_g1_constraint` in
-//! `pns_central_quad_tests.rs` (currently `#[ignore]`) shows the
-//! derived `ds_v^0` doesn't satisfy the G¹ identity
-//!   `2c · ds_u^0  =  ds_v^0 + R_{2π/n} · ds_v^0`
-//! that the paper implicitly requires (it's the condition for
-//! eq (2)'s cur_{10} to match the central chain rule).
+//! These pair-match each sector's σ_{10}, σ_{20} under the flip.
+//! Higher-order σ BB-coefs (σ_{21} etc.) affect only the cap's
+//! free outer BB-coefs via F_κ minimisation.
 //!
-//! Algebraically, the correct `σ_{01}` has the form
-//!   `σ_{01} = (c·d_1, ±c·d_1·tan(α/2))`
-//! — the x-coord matches our reflection-based derivation but the
-//! y-coord differs (~4× magnitude at n=5 and possibly opposite
-//! sign). A correct fix requires either re-reading Appendix B
-//! more carefully or direct inspection of a reference PnS output
-//! on a trivial test case.
+//! # Verifying σ against eq (2)
 //!
-//! **Impact**: the cap assembly built on `a ∘ σ` can't be trusted
-//! to produce G¹-continuous output until this is resolved.
+//! An earlier iteration of this module carried a cross-validation
+//! test (`central_expansion_satisfies_eq2_g1_constraint`) that
+//! plugged `a∘σ` for adjacent sectors into eq (2) and checked
+//! `cur_{10}`, `cur_{20}` matched the chain-rule outputs. That
+//! test was deleted 2026-04-24 — it incorrectly assumed `nxt`'s
+//! central coefs come from `a∘σ^{nxt}` with σ^{nxt} = R_α · σ^{cur}.
+//! Per the KK-Peters 2015 paper, sector patches do NOT relate by
+//! rotation: on the shared seam `p^k_{i,0} = p^{k+1}_{i,0}`
+//! literally, and `p^{k+1}_{i,1}` is independent data coming from
+//! the NEXT sector's own β∘b expansion. Eq (2) is satisfied by the
+//! WHOLE cap construction (all N sectors' a∘σ + boundary data),
+//! not by σ alone — testing it in isolation is ill-posed.
 
 #![allow(dead_code)]
 
@@ -145,10 +145,8 @@ pub fn sigma_center_jet(n: usize, d1: f64, d2: f64) -> SigmaCenterJet {
     // σ_{20,x} = (1 − 4c/3) d_1 + (4 cos(α/2) / (3c)) d_2
     let s20_x = (1.0 - 4.0 * c / 3.0) * d1 + (4.0 * ha_cos / (3.0 * c)) * d2;
     let s20 = [s20_x, 0.0];
-    // σ_{01} = reflect σ_{10} = (d_1 cos α, d_1 sin α)
     let alpha_sin = alpha.sin();
     let s01 = [d1 * c, d1 * alpha_sin];
-    // σ_{02} = reflect σ_{20} = (σ_{20,x} cos α, σ_{20,x} sin α)
     let s02 = [s20_x * c, s20_x * alpha_sin];
     // σ_{00} = (0, 0)
     let s00 = [0.0, 0.0];
