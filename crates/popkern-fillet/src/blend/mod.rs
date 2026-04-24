@@ -15,6 +15,10 @@ pub(crate) mod gregory_inner_cp_shrink;
 pub(crate) mod gregory_parallelogram;
 pub(crate) mod gregory_three_quad;
 pub(crate) mod gregory_vertex_enclosure;
+pub mod pns_adapter;
+#[cfg(test)]
+#[path = "pns_adapter_tests.rs"]
+mod pns_adapter_tests;
 pub mod runout;
 pub mod surface;
 pub(crate) mod surface_bridge;

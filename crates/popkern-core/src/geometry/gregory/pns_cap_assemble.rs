@@ -124,14 +124,20 @@ pub struct CapAssembleResult {
 /// Cap assembly error cases.
 #[derive(Debug, thiserror::Error)]
 pub enum CapAssembleError {
+    /// Valence is out of the supported range `[3, 12]`.
     #[error("PnS cap assemble: n must be in [3, 12], got {0}")]
     InvalidValence(usize),
+    /// Valence `n = 4` is not supported — σ has a `1/c` singularity
+    /// with `c = cos(π/2) = 0`.
     #[error(
         "PnS cap assemble: n=4 is not supported by the bi-4 construction (σ_{{20,x}} has a 1/c singularity with c=cos(π/2)=0). Use the bi-3 variant or a different cap."
     )]
     N4NotSupported,
+    /// `κ` is out of the supported range `1..=4`.
     #[error("PnS cap assemble: kappa must be 1..=4, got {0}")]
     InvalidKappa(usize),
+    /// The F_κ linear system was singular (shouldn't happen in
+    /// practice for well-posed input).
     #[error("PnS cap assemble: F_κ linear system is singular")]
     SingularSystem,
 }

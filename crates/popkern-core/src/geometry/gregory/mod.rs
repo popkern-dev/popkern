@@ -272,6 +272,13 @@ pub use kp15_bi6_rules::{
     rule_s2_p21, rule_s2_p22, rule_s4,
 };
 pub use kp15_bi6_tensor_border_extract::extract_bi3_tensor_border_from_polar_input;
+pub use pns_beta::BetaReparam;
+pub use pns_boundary::{Bi2BorderStrip, Bi2TensorBorderRing};
+pub use pns_cap_assemble::{
+    CapAssembleError, CapAssembleInput, CapAssembleResult, assemble_pns_bi4_cap, pole_from_boundary,
+};
+pub use pns_central_quad::QuadMapJet;
+pub use pns_sigma::{SigmaCenterJet, sigma_center_jet, sigma_center_jet_default};
 pub use triangular::TriangularGregory;
 
 /// A Gregory patch of either rectangular (N=4) or triangular
