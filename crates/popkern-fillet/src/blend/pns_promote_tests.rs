@@ -22,7 +22,7 @@ fn line_curve(p0: Point3, p1: Point3) -> NurbsCurve {
     }
 }
 
-/// Synthesize a 6-segment BlendBoundary (n_fillets=3) with all
+/// Synthesize a `2·n_fillets`-segment BlendBoundary with all
 /// segments as FilletEnd on a z=0 plane fillet surface.
 fn synth_planar_blend_for_promote(
     radius: f64,
@@ -31,7 +31,17 @@ fn synth_planar_blend_for_promote(
     Vec<crate::fillet_surface::FilletSurfaceResult>,
     BRep,
 ) {
-    let n_fillets = 3;
+    synth_planar_blend_for_promote_n(radius, 3)
+}
+
+fn synth_planar_blend_for_promote_n(
+    radius: f64,
+    n_fillets: usize,
+) -> (
+    BlendBoundary,
+    Vec<crate::fillet_surface::FilletSurfaceResult>,
+    BRep,
+) {
     let mut segments = Vec::with_capacity(2 * n_fillets);
     let vertex = VertexHandle::default();
 
@@ -171,27 +181,33 @@ fn promoted_surfaces_boundary_matches_paired_segment_endpoints() {
 /// Build a hexagonal BRep face with 6 half-edges — mimics the
 /// shape of a 3-fillet blend boundary on a unit-circle outline.
 fn build_flat_hex() -> (BRep, FaceHandle, [Point3; 6]) {
-    let mut brep = BRep::new(Tolerance::default());
-    let h = 0.8660254038;
-    let hex_points: [Point3; 6] = [
-        pt(1.0, 0.0, 0.0),
-        pt(0.5, h, 0.0),
-        pt(-0.5, h, 0.0),
-        pt(-1.0, 0.0, 0.0),
-        pt(-0.5, -h, 0.0),
-        pt(0.5, -h, 0.0),
-    ];
-    let mvfs = brep.mvfs(hex_points[0]).expect("mvfs");
-    let m1 = brep
-        .mev_at_vertex(mvfs.vertex, mvfs.loop_, hex_points[1])
-        .expect("mev1");
-    let m2 = brep.mev(m1.half_edge_twin, hex_points[2]).expect("mev2");
-    let m3 = brep.mev(m2.half_edge_twin, hex_points[3]).expect("mev3");
-    let m4 = brep.mev(m3.half_edge_twin, hex_points[4]).expect("mev4");
-    let m5 = brep.mev(m4.half_edge_twin, hex_points[5]).expect("mev5");
-    let mef = brep.mef(m5.half_edge_twin, m1.half_edge).expect("mef");
-    let face = mef.face;
+    let (brep, face, pts) = build_flat_ngon(6);
+    let hex_points: [Point3; 6] = pts.try_into().expect("6 points");
     (brep, face, hex_points)
+}
+
+/// Build a flat regular `n_he`-sided BRep face on a unit circle
+/// in z=0. Used to exercise the PnS poke path at valences
+/// `N = n_he / 2 ∈ {3, 5, 6, …}`.
+fn build_flat_ngon(n_he: usize) -> (BRep, FaceHandle, Vec<Point3>) {
+    assert!(n_he >= 3, "need at least a triangle");
+    let mut brep = BRep::new(Tolerance::default());
+    let points: Vec<Point3> = (0..n_he)
+        .map(|k| {
+            let a = 2.0 * std::f64::consts::PI * (k as f64) / (n_he as f64);
+            pt(a.cos(), a.sin(), 0.0)
+        })
+        .collect();
+    let mvfs = brep.mvfs(points[0]).expect("mvfs");
+    let first = brep
+        .mev_at_vertex(mvfs.vertex, mvfs.loop_, points[1])
+        .expect("mev first");
+    let mut prev_twin = first.half_edge_twin;
+    for p in points.iter().skip(2) {
+        prev_twin = brep.mev(prev_twin, *p).expect("mev").half_edge_twin;
+    }
+    let mef = brep.mef(prev_twin, first.half_edge).expect("mef");
+    (brep, mef.face, points)
 }
 
 #[test]
@@ -347,6 +363,77 @@ fn try_pns_dispatch_succeeds_on_hex_blend() {
 }
 
 #[test]
+fn try_pns_dispatch_succeeds_at_higher_valences() {
+    // N=5 and N=6 exercise the paper's general eq-(2) path (N=3
+    // is a special-case branch inside `assemble_pns_bi4_cap`).
+    // This confirms the full BRep topology pipeline — poke into
+    // N sub-faces + per-sub-face NURBS assignment — works at
+    // valences beyond the cube-corner trio.
+    use super::pns_promote::try_pns_dispatch;
+    use crate::types::CornerMethod;
+    use crate::vertex_classifier::VertexBlendClassification;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    for &n_fillets in &[5usize, 6] {
+        let n_he = 2 * n_fillets;
+        let (mut brep, face, ring_points) = build_flat_ngon(n_he);
+        let vertex = VertexHandle::default();
+
+        let plane = SurfaceGeometry::Plane {
+            origin: pt(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            u_axis: Vec3::new(1.0, 0.0, 0.0),
+            v_axis: Vec3::new(0.0, 1.0, 0.0),
+        };
+        let mut segments = Vec::with_capacity(n_he);
+        let mut fillets = Vec::new();
+        for k in 0..n_he {
+            let p0 = ring_points[k];
+            let p1 = ring_points[(k + 1) % n_he];
+            let curve = line_curve(p0, p1);
+            segments.push(BoundarySegment::FilletEnd {
+                fillet_index: k,
+                curve: curve.clone(),
+            });
+            fillets.push(crate::fillet_surface::FilletSurfaceResult {
+                surface: plane.clone(),
+                trim_curve_1: curve.clone(),
+                trim_curve_2: curve,
+                continuity_downgrade: None,
+            });
+        }
+        let boundary = BlendBoundary {
+            vertex,
+            vertex_position: pt(0.0, 0.0, 0.3),
+            segments,
+            bridge_fallbacks: Vec::new(),
+        };
+
+        let patches = try_pns_dispatch(
+            &mut brep,
+            face,
+            &boundary,
+            &fillets,
+            vertex,
+            VertexBlendClassification::SameSideConvex,
+            Vec::new(),
+        )
+        .unwrap_or_else(|| panic!("N={n_fillets}: PnS dispatch should succeed"));
+
+        assert_eq!(
+            patches.len(),
+            n_fillets,
+            "N={n_fillets}: expected {n_fillets} sub-faces from poke, got {}",
+            patches.len()
+        );
+        for (k, patch) in patches.iter().enumerate() {
+            assert_eq!(patch.method, CornerMethod::Gregory, "N={n_fillets} k={k}");
+            assert_eq!(patch.n_sides, n_fillets, "N={n_fillets} k={k}");
+        }
+    }
+}
+
+#[test]
 fn cap_boundary_g1_with_planar_support() {
     // When every sector's supporting surface is the same z=0 plane
     // (the synth_planar setup), the bi-4 cap is expected to be
@@ -354,35 +441,46 @@ fn cap_boundary_g1_with_planar_support() {
     // the plane and its surface normal there must be ±z. This
     // verifies the paper's eq (2) G¹ construction produces a cap
     // whose tangent plane matches the support at the boundary.
-    let (bb, fillets, brep) = synth_planar_blend_for_promote(1.5);
-    let surfaces = promote_blend_boundary_to_pns_surfaces(&bb, &fillets, &brep).unwrap();
-
-    let sample_us = [0.0_f64, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0];
-    for (k, surf) in surfaces.iter().enumerate() {
-        let SurfaceGeometry::Nurbs(ns) = surf else {
-            panic!("expected NurbsSurface");
-        };
-        for &u in &sample_us {
-            let p = ns.point_at(u, 1.0);
-            assert!(
-                p.z.abs() < 1e-9,
-                "sector {k} u={u}: boundary point z={} should be 0 (coplanar)",
-                p.z
-            );
-            let n = ns.normal_at(u, 1.0);
-            let nl = n.length();
-            assert!(
-                nl > 1e-9,
-                "sector {k} u={u}: normal is degenerate (|n| = {nl})"
-            );
-            let nz = (n.z / nl).abs();
-            assert!(
-                (nz - 1.0).abs() < 1e-6,
-                "sector {k} u={u}: normal z-component {nz} should be ±1 (plane normal); n=({}, {}, {})",
-                n.x,
-                n.y,
-                n.z
-            );
+    //
+    // Tested for N ∈ {3, 5, 6, 7}. N=4 is rejected by the cap
+    // assembler (σ singularity); N≥5 exercises the general eq-(2)
+    // path.
+    for n_fillets in [3usize, 5, 6, 7] {
+        let (bb, fillets, brep) = synth_planar_blend_for_promote_n(1.5, n_fillets);
+        let surfaces = promote_blend_boundary_to_pns_surfaces(&bb, &fillets, &brep).unwrap();
+        assert_eq!(
+            surfaces.len(),
+            n_fillets,
+            "N={n_fillets}: expected {n_fillets} sub-face surfaces"
+        );
+        let sample_us = [0.0_f64, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0];
+        for (k, surf) in surfaces.iter().enumerate() {
+            let SurfaceGeometry::Nurbs(ns) = surf else {
+                panic!("N={n_fillets} sector {k}: expected NurbsSurface");
+            };
+            for &u in &sample_us {
+                let p = ns.point_at(u, 1.0);
+                assert!(
+                    p.z.abs() < 1e-9,
+                    "N={n_fillets} sector {k} u={u}: boundary point z={} should be 0",
+                    p.z
+                );
+                let n = ns.normal_at(u, 1.0);
+                let nl = n.length();
+                assert!(
+                    nl > 1e-9,
+                    "N={n_fillets} sector {k} u={u}: degenerate normal"
+                );
+                let nz = (n.z / nl).abs();
+                assert!(
+                    (nz - 1.0).abs() < 1e-6,
+                    "N={n_fillets} sector {k} u={u}: normal z-component {nz} should be ±1; \
+                     n=({}, {}, {})",
+                    n.x,
+                    n.y,
+                    n.z
+                );
+            }
         }
     }
 }
