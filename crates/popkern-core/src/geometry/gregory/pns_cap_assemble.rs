@@ -73,7 +73,7 @@
 use super::direct_linalg::solve_dense;
 use super::pns_beta::BetaReparam;
 use super::pns_boundary::{Bi2TensorBorderRing, compose_bi4_outer_layers};
-use super::pns_central_quad::{QuadMapJet, central_bb_from_a_and_sigma, rotate_sigma_jet};
+use super::pns_central_quad::{QuadMapJet, central_bb_from_a_and_sigma};
 use super::pns_gram::{bi4_flat_index, gram_bi4_f_kappa};
 use super::pns_sigma::SigmaCenterJet;
 use crate::geometry::Point3;
@@ -159,12 +159,18 @@ pub fn assemble_pns_bi4_cap(
     }
 
     // Precompute per-sector σ^k and boundary (row0, row1).
+    //
+    // σ convention: per the clean-room clarification (KK-Peters
+    // reference implementation author), adjacent sector patches do
+    // NOT relate by rotation — the "common recipe" applies the
+    // SAME σ formulas in each sector. So σ^k = σ^0 for all k here.
+    // The earlier image-space `rotate_sigma_jet` per sector was
+    // removed once the paper's construction was clarified.
     let mut sigma_k = Vec::with_capacity(n);
     let mut row0 = Vec::with_capacity(n);
     let mut row1 = Vec::with_capacity(n);
     for k in 0..n {
-        let theta = 2.0 * std::f64::consts::PI * (k as f64) / (n as f64);
-        sigma_k.push(rotate_sigma_jet(&input.sigma, theta));
+        sigma_k.push(input.sigma);
         let (r0, r1) = compose_bi4_outer_layers(&input.boundary.sectors[k], &input.beta);
         row0.push(r0);
         row1.push(r1);
