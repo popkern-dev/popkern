@@ -198,15 +198,22 @@ fn a_0_pinned_to_pole() {
     );
 }
 
-/// Diagnostic probe: report the L¹ residual between `cur_{10}`
-/// from eq (2) and our construction's `P[k][1, 0]`. Ideally the
-/// paper's construction should satisfy eq (2) automatically, but
-/// the current σ BB-coef interpretation leaves a residual. Ignored
-/// by default; run with `--ignored --nocapture` for the report.
+/// Diagnostic probe: report the L¹ residual between paper's
+/// `cur_{10}` from eq (2) and our construction's `p^k` canonical
+/// value at the matching location, given the axis swap.
 ///
-/// See `project_pns_sigma_bug.md` memory for context.
+/// Per the KK-Peters reference implementation author's
+/// clarification (2026-04-24):
+/// - σ^{k+1}_{ij} = R_α · σ^k_{ij} between adjacent sectors
+///   (coefficient-by-coefficient image-space rotation)
+/// - Paper's ``p_{ij}` (cur side) = canonical `p^k_{j, i}` (swapped)
+/// - Paper's `´p_{ij}` (nxt side) = canonical `p^{k+1}_{i, j}` (no swap)
+///
+/// Under these two corrections and the paper's σ_{10} = (d_1, 0)
+/// and σ_{01} = (d_1·cos α, d_1·sin α), eq (2)'s cur_{10} matches
+/// `p^k_{0, 1}` canonical (paper (1, 0) = canonical (0, 1)).
 #[test]
-#[ignore = "diagnostic probe — current σ leaves eq (2) cur_{10} residual"]
+#[ignore = "diagnostic probe — verifies eq (2) cur_{10} ≈ 0 residual"]
 fn probe_eq2_cur10_residual() {
     use super::super::pns_g1_constraints::bi4_g1_row_from_row1;
     let n = 5;
@@ -220,13 +227,18 @@ fn probe_eq2_cur10_residual() {
     let result = assemble_pns_bi4_cap(&input).expect("n=5 should succeed");
     for k in 0..n {
         let nxt = (k + 1) % n;
+        // Paper's cur's j=1 row = canonical `p^k_{j, i}` for paper
+        // i=0..4 → canonical (1, 0..4), i.e., fixed u_c=1 with
+        // v_c varying.
         let cur_row1 = [
-            result.patches[k][0][1],
-            result.patches[k][1][1],
-            result.patches[k][2][1],
-            result.patches[k][3][1],
-            result.patches[k][4][1],
+            result.patches[k][1][0], // paper cur_{0, 1} = canonical (1, 0)
+            result.patches[k][1][1], // paper cur_{1, 1} = canonical (1, 1)
+            result.patches[k][1][2], // paper cur_{2, 1} = canonical (1, 2)
+            result.patches[k][1][3], // paper cur_{3, 1} = canonical (1, 3)
+            result.patches[k][1][4], // paper cur_{4, 1} = canonical (1, 4)
         ];
+        // Paper's nxt's j=1 row = canonical (i, 1) for paper i=0..4
+        // (no swap).
         let nxt_row1 = [
             result.patches[nxt][0][1],
             result.patches[nxt][1][1],
@@ -235,10 +247,12 @@ fn probe_eq2_cur10_residual() {
             result.patches[nxt][4][1],
         ];
         let g1 = bi4_g1_row_from_row1(result.patches[k][0][0], cur_row1, nxt_row1, n);
-        let diff = (g1.cur10.x - result.patches[k][1][0].x).abs()
-            + (g1.cur10.y - result.patches[k][1][0].y).abs()
-            + (g1.cur10.z - result.patches[k][1][0].z).abs();
-        println!("sector {k}: eq2 cur_{{10}} - P[{k}][1, 0] L¹ = {diff:.3e}");
+        // Paper's cur_{1, 0} = canonical p^k_{0, 1}.
+        let expected = result.patches[k][0][1];
+        let diff = (g1.cur10.x - expected.x).abs()
+            + (g1.cur10.y - expected.y).abs()
+            + (g1.cur10.z - expected.z).abs();
+        println!("sector {k}: eq2 cur_{{10}} - P[{k}][0, 1] L¹ = {diff:.3e}");
     }
 }
 
