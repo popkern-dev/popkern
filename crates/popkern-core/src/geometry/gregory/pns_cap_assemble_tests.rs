@@ -109,7 +109,9 @@ fn scaffold_pole_pinned_at_all_sector_origins() {
 }
 
 #[test]
-fn scaffold_boundary_row_i4_matches_b_o_beta_row0() {
+fn canonical_v4_edge_matches_b_o_beta_row0() {
+    // Cap's outer boundary = canonical v_c=4 edge (per paper's
+    // axis-swap convention). Check patches[k][i][4] == row0[i].
     use super::super::pns_boundary::compose_bi4_outer_layers;
     let n = 5;
     let pole = pt(0.0, 0.0, 1.0);
@@ -124,16 +126,14 @@ fn scaffold_boundary_row_i4_matches_b_o_beta_row0() {
     };
     let result = assemble_pns_bi4_cap(&input).expect("n=5 should succeed");
 
-    // Independently compute the expected row0 for each sector and
-    // compare.
     for k in 0..n {
         let (row0, _row1) = compose_bi4_outer_layers(&boundary.sectors[k], &beta);
-        for j in 0..5 {
+        for i in 0..5 {
             assert!(
-                approx_pt(result.patches[k][4][j], row0[j], 1e-12),
-                "sector {k} patch[4][{j}] = {:?}, expected row0 {:?}",
-                result.patches[k][4][j],
-                row0[j]
+                approx_pt(result.patches[k][i][4], row0[i], 1e-12),
+                "sector {k} patch[{i}][4] = {:?}, expected row0 {:?}",
+                result.patches[k][i][4],
+                row0[i]
             );
         }
     }
@@ -155,8 +155,10 @@ fn scaffold_returns_n_patches() {
 }
 
 #[test]
-fn j4_row_equals_next_sector_j0_row() {
-    // Cap topology: P[k][i, 4] = P[(k+1) mod N][i, 0] for i=0..4.
+fn cur_nxt_seam_sharing_holds() {
+    // Cap topology (canonical): cur's (0, v) = nxt's (v, 0) for
+    // v=0..4. This encodes the shared seam between sectors k and
+    // k+1 along their respective canonical u_c=0 / v_c=0 edges.
     let n = 5;
     let input = CapAssembleInput {
         boundary: planar_ring(n, 1.0),
@@ -168,12 +170,12 @@ fn j4_row_equals_next_sector_j0_row() {
     let result = assemble_pns_bi4_cap(&input).expect("n=5 should succeed");
     for k in 0..n {
         let nxt = (k + 1) % n;
-        for i in 0..5 {
+        for v in 0..5 {
             assert!(
-                approx_pt(result.patches[k][i][4], result.patches[nxt][i][0], 1e-10),
-                "P[{k}][{i}, 4] = {:?}, P[{nxt}][{i}, 0] = {:?}",
-                result.patches[k][i][4],
-                result.patches[nxt][i][0]
+                approx_pt(result.patches[k][0][v], result.patches[nxt][v][0], 1e-10),
+                "P[{k}][0, {v}] = {:?}, P[{nxt}][{v}, 0] = {:?}",
+                result.patches[k][0][v],
+                result.patches[nxt][v][0]
             );
         }
     }
