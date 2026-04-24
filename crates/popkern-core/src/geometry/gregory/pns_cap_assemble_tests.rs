@@ -153,3 +153,144 @@ fn scaffold_returns_n_patches() {
         assert_eq!(result.patches.len(), n, "expected {n} patches");
     }
 }
+
+#[test]
+fn j4_row_equals_next_sector_j0_row() {
+    // Cap topology: P[k][i, 4] = P[(k+1) mod N][i, 0] for i=0..4.
+    let n = 5;
+    let input = CapAssembleInput {
+        boundary: planar_ring(n, 1.0),
+        beta: BetaReparam::bi4(n),
+        sigma: sigma_center_jet_default(n),
+        pole: pt(0.0, 0.0, 0.0),
+        kappa: 3,
+    };
+    let result = assemble_pns_bi4_cap(&input).expect("n=5 should succeed");
+    for k in 0..n {
+        let nxt = (k + 1) % n;
+        for i in 0..5 {
+            assert!(
+                approx_pt(result.patches[k][i][4], result.patches[nxt][i][0], 1e-10),
+                "P[{k}][{i}, 4] = {:?}, P[{nxt}][{i}, 0] = {:?}",
+                result.patches[k][i][4],
+                result.patches[nxt][i][0]
+            );
+        }
+    }
+}
+
+#[test]
+fn a_0_pinned_to_pole() {
+    let pole = pt(0.3, -0.7, 0.2);
+    let n = 5;
+    let input = CapAssembleInput {
+        boundary: planar_ring(n, 1.0),
+        beta: BetaReparam::bi4(n),
+        sigma: sigma_center_jet_default(n),
+        pole,
+        kappa: 3,
+    };
+    let result = assemble_pns_bi4_cap(&input).expect("n=5 should succeed");
+    assert!(
+        approx_pt(result.a.a_0, pole, 1e-12),
+        "a.a_0 = {:?}, expected {pole:?}",
+        result.a.a_0
+    );
+}
+
+/// Diagnostic probe: report the L¹ residual between `cur_{10}`
+/// from eq (2) and our construction's `P[k][1, 0]`. Ideally the
+/// paper's construction should satisfy eq (2) automatically, but
+/// the current σ BB-coef interpretation leaves a residual. Ignored
+/// by default; run with `--ignored --nocapture` for the report.
+///
+/// See `project_pns_sigma_bug.md` memory for context.
+#[test]
+#[ignore = "diagnostic probe — current σ leaves eq (2) cur_{10} residual"]
+fn probe_eq2_cur10_residual() {
+    use super::super::pns_g1_constraints::bi4_g1_row_from_row1;
+    let n = 5;
+    let input = CapAssembleInput {
+        boundary: planar_ring(n, 1.5),
+        beta: BetaReparam::bi4(n),
+        sigma: sigma_center_jet_default(n),
+        pole: pt(0.0, 0.0, 0.3),
+        kappa: 3,
+    };
+    let result = assemble_pns_bi4_cap(&input).expect("n=5 should succeed");
+    for k in 0..n {
+        let nxt = (k + 1) % n;
+        let cur_row1 = [
+            result.patches[k][0][1],
+            result.patches[k][1][1],
+            result.patches[k][2][1],
+            result.patches[k][3][1],
+            result.patches[k][4][1],
+        ];
+        let nxt_row1 = [
+            result.patches[nxt][0][1],
+            result.patches[nxt][1][1],
+            result.patches[nxt][2][1],
+            result.patches[nxt][3][1],
+            result.patches[nxt][4][1],
+        ];
+        let g1 = bi4_g1_row_from_row1(result.patches[k][0][0], cur_row1, nxt_row1, n);
+        let diff = (g1.cur10.x - result.patches[k][1][0].x).abs()
+            + (g1.cur10.y - result.patches[k][1][0].y).abs()
+            + (g1.cur10.z - result.patches[k][1][0].z).abs();
+        println!("sector {k}: eq2 cur_{{10}} - P[{k}][1, 0] L¹ = {diff:.3e}");
+    }
+}
+
+#[test]
+fn f_kappa_reduced_relative_to_zero_fill() {
+    // Verify the F_κ solve actually REDUCES the functional relative
+    // to a trivial baseline (free CPs set to zero, a=0). If the
+    // joint-solve routine is broken, F_κ would be >= baseline.
+    use super::super::pns_f_kappa::f_kappa_bi4;
+
+    let n = 5;
+    let pole = pt(0.0, 0.0, 0.3);
+    let kappa = 3;
+    let input = CapAssembleInput {
+        boundary: planar_ring(n, 1.5),
+        beta: BetaReparam::bi4(n),
+        sigma: sigma_center_jet_default(n),
+        pole,
+        kappa,
+    };
+    let result = assemble_pns_bi4_cap(&input).expect("n=5 should succeed");
+
+    // F_κ sum over all sectors' patches.
+    let f_solved: f64 = (0..n).map(|k| f_kappa_bi4(&result.patches[k], kappa)).sum();
+
+    // Baseline: place free CPs at zero, a=0 — reconstruct by
+    // calling assemble with a proxy via scaffold-style. Instead,
+    // just use a patch with pole + boundary + zeros elsewhere.
+    // Compute baseline F_κ by reconstructing the cap WITHOUT the
+    // joint solve (free CPs = 0, a = 0).
+    use super::super::pns_boundary::compose_bi4_outer_layers;
+    let zero = pt(0.0, 0.0, 0.0);
+    let mut baseline_patches = vec![[[zero; 5]; 5]; n];
+    for k in 0..n {
+        let (row0, row1) = compose_bi4_outer_layers(&input.boundary.sectors[k], &input.beta);
+        for j in 0..5 {
+            baseline_patches[k][4][j] = row0[j];
+            baseline_patches[k][3][j] = pt(
+                row0[j].x + 0.25 * row1[j].x,
+                row0[j].y + 0.25 * row1[j].y,
+                row0[j].z + 0.25 * row1[j].z,
+            );
+        }
+        baseline_patches[k][0][0] = pole;
+    }
+    let f_baseline: f64 = (0..n)
+        .map(|k| f_kappa_bi4(&baseline_patches[k], kappa))
+        .sum();
+
+    println!("F_κ solved = {f_solved:.6e}, baseline = {f_baseline:.6e}");
+    assert!(
+        f_solved < f_baseline,
+        "F_κ solve did not reduce objective (solved = {f_solved:.3e}, baseline = {f_baseline:.3e})"
+    );
+}
