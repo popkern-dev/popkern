@@ -347,6 +347,136 @@ fn try_pns_dispatch_succeeds_on_hex_blend() {
 }
 
 #[test]
+fn cap_boundary_g1_with_planar_support() {
+    // When every sector's supporting surface is the same z=0 plane
+    // (the synth_planar setup), the bi-4 cap is expected to be
+    // coplanar with z=0 — its outer boundary (v=1) must lie in
+    // the plane and its surface normal there must be ±z. This
+    // verifies the paper's eq (2) G¹ construction produces a cap
+    // whose tangent plane matches the support at the boundary.
+    let (bb, fillets, brep) = synth_planar_blend_for_promote(1.5);
+    let surfaces = promote_blend_boundary_to_pns_surfaces(&bb, &fillets, &brep).unwrap();
+
+    let sample_us = [0.0_f64, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0];
+    for (k, surf) in surfaces.iter().enumerate() {
+        let SurfaceGeometry::Nurbs(ns) = surf else {
+            panic!("expected NurbsSurface");
+        };
+        for &u in &sample_us {
+            let p = ns.point_at(u, 1.0);
+            assert!(
+                p.z.abs() < 1e-9,
+                "sector {k} u={u}: boundary point z={} should be 0 (coplanar)",
+                p.z
+            );
+            let n = ns.normal_at(u, 1.0);
+            let nl = n.length();
+            assert!(
+                nl > 1e-9,
+                "sector {k} u={u}: normal is degenerate (|n| = {nl})"
+            );
+            let nz = (n.z / nl).abs();
+            assert!(
+                (nz - 1.0).abs() < 1e-6,
+                "sector {k} u={u}: normal z-component {nz} should be ±1 (plane normal); n=({}, {}, {})",
+                n.x,
+                n.y,
+                n.z
+            );
+        }
+    }
+}
+
+#[test]
+fn cap_boundary_g1_with_tilted_planar_support() {
+    // Same shape as the planar test, but rotate the supporting
+    // plane + boundary curves so the support normal is NOT aligned
+    // with any axis. This catches regressions where the adapter
+    // silently emits a z-axis normal regardless of the actual
+    // supporting surface.
+    let (bb_flat, fillets_flat, brep) = synth_planar_blend_for_promote(1.5);
+
+    // Rotate everything about the x-axis by 30° (unit vectors):
+    //   y' = cos θ · y − sin θ · z
+    //   z' = sin θ · y + cos θ · z
+    let theta = 30_f64.to_radians();
+    let (c, s) = (theta.cos(), theta.sin());
+    let rot = |p: Point3| Point3::new(p.x, c * p.y - s * p.z, s * p.y + c * p.z);
+    let rot_v = |v: Vec3| Vec3::new(v.x, c * v.y - s * v.z, s * v.y + c * v.z);
+    let rotate_curve = |curve: &NurbsCurve| NurbsCurve {
+        degree: curve.degree,
+        knots: curve.knots.clone(),
+        control_points: curve.control_points.iter().copied().map(rot).collect(),
+        weights: curve.weights.clone(),
+    };
+
+    let expected_normal = rot_v(Vec3::new(0.0, 0.0, 1.0));
+
+    let tilted_plane = SurfaceGeometry::Plane {
+        origin: rot(pt(0.0, 0.0, 0.0)),
+        normal: expected_normal,
+        u_axis: rot_v(Vec3::new(1.0, 0.0, 0.0)),
+        v_axis: rot_v(Vec3::new(0.0, 1.0, 0.0)),
+    };
+
+    let segments: Vec<_> = bb_flat
+        .segments
+        .iter()
+        .map(|s| match s {
+            BoundarySegment::FilletEnd {
+                fillet_index,
+                curve,
+            } => BoundarySegment::FilletEnd {
+                fillet_index: *fillet_index,
+                curve: rotate_curve(curve),
+            },
+            BoundarySegment::FaceEdge { face, curve } => BoundarySegment::FaceEdge {
+                face: *face,
+                curve: rotate_curve(curve),
+            },
+        })
+        .collect();
+    let bb = BlendBoundary {
+        vertex: bb_flat.vertex,
+        vertex_position: rot(bb_flat.vertex_position),
+        segments,
+        bridge_fallbacks: bb_flat.bridge_fallbacks.clone(),
+    };
+    let fillets: Vec<_> = fillets_flat
+        .iter()
+        .map(|f| crate::fillet_surface::FilletSurfaceResult {
+            surface: tilted_plane.clone(),
+            trim_curve_1: rotate_curve(&f.trim_curve_1),
+            trim_curve_2: rotate_curve(&f.trim_curve_2),
+            continuity_downgrade: f.continuity_downgrade.clone(),
+        })
+        .collect();
+
+    let surfaces = promote_blend_boundary_to_pns_surfaces(&bb, &fillets, &brep).unwrap();
+
+    let sample_us = [0.1_f64, 0.3, 0.5, 0.7, 0.9];
+    for (k, surf) in surfaces.iter().enumerate() {
+        let SurfaceGeometry::Nurbs(ns) = surf else {
+            panic!("expected NurbsSurface");
+        };
+        for &u in &sample_us {
+            let n = ns.normal_at(u, 1.0);
+            let nl = n.length();
+            assert!(nl > 1e-9, "sector {k} u={u}: degenerate normal |n|={nl}");
+            let unit = Vec3::new(n.x / nl, n.y / nl, n.z / nl);
+            let dot = unit.x * expected_normal.x
+                + unit.y * expected_normal.y
+                + unit.z * expected_normal.z;
+            assert!(
+                dot.abs() > 1.0 - 1e-6,
+                "sector {k} u={u}: cap normal {unit:?} not aligned with plane normal {expected_normal:?} (|dot|={})",
+                dot.abs()
+            );
+        }
+    }
+}
+
+#[test]
 fn pns_env_enabled_reads_env_var() {
     use super::pns_promote::pns_env_enabled;
     // Sanity — depends on test-run env. Just check the function
