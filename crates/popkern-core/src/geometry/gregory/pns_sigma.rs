@@ -142,8 +142,14 @@ pub fn sigma_center_jet(n: usize, d1: f64, d2: f64) -> SigmaCenterJet {
     let s10 = [d1, 0.0];
     // σ_{11} = (d_2 · cos(α/2), d_2 · sin(α/2))
     let s11 = [d2 * ha_cos, d2 * ha_sin];
-    // σ_{20,x} = (1 − 4c/3) d_1 + (4 cos(α/2) / (3c)) d_2
-    let s20_x = (1.0 - 4.0 * c / 3.0) * d1 + (4.0 * ha_cos / (3.0 * c)) * d2;
+    // σ_{20,x} = (1 − 4/(3c)) d_1 + (4 cos(α/2) / (3c)) d_2
+    //
+    // NOTE: our original transcription had (1 − 4c/3)·d_1 here;
+    // derived algebraically (2026-04-24) that eq (2) cur_{20}
+    // auto-holds iff the d_1 coef is (1 − 4/(3c)). With this form,
+    // eq (2) residuals drop to ~1e-16 across all 5 outputs. The
+    // typo likely arose from a LaTeX ambiguity `4c/3` vs `4/(3c)`.
+    let s20_x = (1.0 - 4.0 / (3.0 * c)) * d1 + (4.0 * ha_cos / (3.0 * c)) * d2;
     let s20 = [s20_x, 0.0];
     let alpha_sin = alpha.sin();
     let s01 = [d1 * c, d1 * alpha_sin];

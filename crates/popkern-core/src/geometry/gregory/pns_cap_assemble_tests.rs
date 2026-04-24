@@ -200,23 +200,18 @@ fn a_0_pinned_to_pole() {
     );
 }
 
-/// Diagnostic probe: report the L¹ residual between paper's
-/// `cur_{10}` from eq (2) and our construction's `p^k` canonical
-/// value at the matching location, given the axis swap.
+/// Verify eq (2) G¹ identities hold across every seam of the
+/// assembled cap. Paper's eq (2) pins 5 outputs
+/// (cur_{10}, cur_{20}, cur_{30}, cur_{40}, nxt_{21}); under the
+/// correct σ convention + axis swap, the assembled cap should
+/// satisfy all 5 to floating-point precision.
 ///
-/// Per the KK-Peters reference implementation author's
-/// clarification (2026-04-24):
-/// - σ^{k+1}_{ij} = R_α · σ^k_{ij} between adjacent sectors
-///   (coefficient-by-coefficient image-space rotation)
-/// - Paper's ``p_{ij}` (cur side) = canonical `p^k_{j, i}` (swapped)
-/// - Paper's `´p_{ij}` (nxt side) = canonical `p^{k+1}_{i, j}` (no swap)
-///
-/// Under these two corrections and the paper's σ_{10} = (d_1, 0)
-/// and σ_{01} = (d_1·cos α, d_1·sin α), eq (2)'s cur_{10} matches
-/// `p^k_{0, 1}` canonical (paper (1, 0) = canonical (0, 1)).
+/// Paper-to-canonical mapping (cur side has swap, nxt doesn't):
+/// - paper cur_{i, 0} = canonical p^k_{0, i}
+/// - paper cur_{i, 1} = canonical p^k_{1, i}
+/// - paper nxt_{i, 1} = canonical p^{k+1}_{i, 1}
 #[test]
-#[ignore = "diagnostic probe — verifies eq (2) cur_{10} ≈ 0 residual"]
-fn probe_eq2_cur10_residual() {
+fn eq2_g1_all_outputs_hold_after_solve() {
     use super::super::pns_g1_constraints::bi4_g1_row_from_row1;
     let n = 5;
     let input = CapAssembleInput {
@@ -227,20 +222,18 @@ fn probe_eq2_cur10_residual() {
         kappa: 3,
     };
     let result = assemble_pns_bi4_cap(&input).expect("n=5 should succeed");
+    let tol = 1e-10;
     for k in 0..n {
         let nxt = (k + 1) % n;
-        // Paper's cur's j=1 row = canonical `p^k_{j, i}` for paper
-        // i=0..4 → canonical (1, 0..4), i.e., fixed u_c=1 with
-        // v_c varying.
+        // Paper's cur_{i, 1} = canonical (1, i) — swap on cur.
         let cur_row1 = [
-            result.patches[k][1][0], // paper cur_{0, 1} = canonical (1, 0)
-            result.patches[k][1][1], // paper cur_{1, 1} = canonical (1, 1)
-            result.patches[k][1][2], // paper cur_{2, 1} = canonical (1, 2)
-            result.patches[k][1][3], // paper cur_{3, 1} = canonical (1, 3)
-            result.patches[k][1][4], // paper cur_{4, 1} = canonical (1, 4)
+            result.patches[k][1][0],
+            result.patches[k][1][1],
+            result.patches[k][1][2],
+            result.patches[k][1][3],
+            result.patches[k][1][4],
         ];
-        // Paper's nxt's j=1 row = canonical (i, 1) for paper i=0..4
-        // (no swap).
+        // Paper's nxt_{i, 1} = canonical (i, 1) — no swap on nxt.
         let nxt_row1 = [
             result.patches[nxt][0][1],
             result.patches[nxt][1][1],
@@ -249,12 +242,43 @@ fn probe_eq2_cur10_residual() {
             result.patches[nxt][4][1],
         ];
         let g1 = bi4_g1_row_from_row1(result.patches[k][0][0], cur_row1, nxt_row1, n);
-        // Paper's cur_{1, 0} = canonical p^k_{0, 1}.
-        let expected = result.patches[k][0][1];
-        let diff = (g1.cur10.x - expected.x).abs()
-            + (g1.cur10.y - expected.y).abs()
-            + (g1.cur10.z - expected.z).abs();
-        println!("sector {k}: eq2 cur_{{10}} - P[{k}][0, 1] L¹ = {diff:.3e}");
+        // Check all 5 eq (2) outputs against the assembled cap's
+        // canonical values (with paper→canonical swap on cur side).
+        let expected_cur10 = result.patches[k][0][1]; // paper (1, 0) = canonical (0, 1)
+        let expected_cur20 = result.patches[k][0][2]; // paper (2, 0) = canonical (0, 2)
+        let expected_cur30 = result.patches[k][0][3]; // paper (3, 0) = canonical (0, 3)
+        let expected_cur40 = result.patches[k][0][4]; // paper (4, 0) = canonical (0, 4)
+        let expected_nxt21 = result.patches[nxt][2][1]; // paper (2, 1) no swap
+        assert!(
+            approx_pt(g1.cur10, expected_cur10, tol),
+            "sector {k} cur_{{10}}: eq2={:?} vs canonical={:?}",
+            g1.cur10,
+            expected_cur10
+        );
+        assert!(
+            approx_pt(g1.cur20, expected_cur20, tol),
+            "sector {k} cur_{{20}}: eq2={:?} vs canonical={:?}",
+            g1.cur20,
+            expected_cur20
+        );
+        assert!(
+            approx_pt(g1.cur30, expected_cur30, tol),
+            "sector {k} cur_{{30}}: eq2={:?} vs canonical={:?}",
+            g1.cur30,
+            expected_cur30
+        );
+        assert!(
+            approx_pt(g1.cur40, expected_cur40, tol),
+            "sector {k} cur_{{40}}: eq2={:?} vs canonical={:?}",
+            g1.cur40,
+            expected_cur40
+        );
+        assert!(
+            approx_pt(g1.nxt21, expected_nxt21, tol),
+            "sector {k} nxt_{{21}}: eq2={:?} vs canonical={:?}",
+            g1.nxt21,
+            expected_nxt21
+        );
     }
 }
 

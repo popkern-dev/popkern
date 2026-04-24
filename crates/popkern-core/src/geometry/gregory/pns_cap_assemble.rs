@@ -21,8 +21,8 @@
 //! | Boundary `b∘β` (v_c=3)          | `(0..4, 3)`                        | 5     |
 //! | Boundary `b∘β` (v_c=4)          | `(0..4, 4)`                        | 5     |
 //! | Prev-sharing (cur-prev seam)    | `(1..4, 0)`                        | 4     |
-//! | Eq (2) closed-form              | `(2, 1)`                           | 1     |
-//! | Free (F_κ min)                  | `(1, 2), (2, 2), (3, 1..2), (4, 1..2)` | 6 |
+//! | Eq (2) closed-forms             | `(2, 1), (3, 1), (4, 1)`           | 3     |
+//! | Free (F_κ min)                  | `(1, 2), (2, 2), (3, 2), (4, 2)`   | 4     |
 //!
 //! Sector-sharing relations (in canonical coords):
 //! - cur-nxt seam: `cur[0][v_c] = nxt[v_c][0]` for `v_c ∈ 0..4`
@@ -32,9 +32,17 @@
 //! - paper `p_{ij}` (cur) = canonical `p^k_{j, i}` (swapped)
 //! - paper `´p_{ij}` (nxt) = canonical `p^{k+1}_{i, j}` (no swap)
 //!
-//! Eq (2) closed-form in canonical (derived from paper's pair-sum
-//! P[k+1]_{2,1} + P[k]_{2,1} = (2−c)·P[k]_{2,0} + c·P[k]_{3,0}):
-//!   `p^k_{2, 1} = −p^{k-1}_{1, 2} + (2−c)·p^{k-1}_{0, 2} + c·p^{k-1}_{0, 3}`
+//! Eq (2) closed-forms (derived from paper's 5 outputs):
+//! - paper cur_{10}, cur_{20}: automatic via central chain rule +
+//!   paper's σ_{20,x} = (1 − 4/(3c))·d_1 + (4·cos(α/2)/(3c))·d_2
+//!   (transcription fix 2026-04-24: was (1 − 4c/3), should be
+//!   (1 − 4/(3c)))
+//! - paper cur_{40} → canonical (4, 1) for sector k:
+//!   `p^k_{4, 1} = 2·p^{k-1}_{0, 4} − p^{k-1}_{1, 4}`
+//! - paper cur_{30} → canonical (3, 1) for sector k:
+//!   `p^k_{3, 1} = [2·(4-c)·p^{k-1}_{0, 3} + c·(p^{k-1}_{1, 4} + p^k_{4, 1}) − 4·p^{k-1}_{1, 3}] / 4`
+//! - paper nxt_{21} → canonical (2, 1) for sector k:
+//!   `p^k_{2, 1} = −p^{k-1}_{1, 2} + (2-c)·p^{k-1}_{0, 2} + c·p^{k-1}_{0, 3}`
 //!
 //! # DOFs and the F_κ solve
 //!
@@ -43,10 +51,10 @@
 //!
 //! - `a`'s 5 Point3 components `(a_x, a_y, a_xx, a_xy, a_yy)` — 15
 //!   scalars (shared across sectors; `a_0` pinned to pole)
-//! - `6 × N` free interior CPs per sector — `18·N` scalars
+//! - `4 × N` free interior CPs per sector — `12·N` scalars
 //!
-//! Total: `15 + 18·N` scalars. Problem is separable per coordinate
-//! (x, y, z), so we solve three `(5 + 6·N)`-dimensional symmetric
+//! Total: `15 + 12·N` scalars. Problem is separable per coordinate
+//! (x, y, z), so we solve three `(5 + 4·N)`-dimensional symmetric
 //! PSD systems.
 //!
 //! # Even n still deferred
@@ -111,15 +119,17 @@ pub enum CapAssembleError {
     SingularSystem,
 }
 
-/// The 6 "free" CPs per sector, in fixed order for DOF indexing.
+/// The 4 "free" CPs per sector, in fixed order for DOF indexing.
 /// **Canonical** `(u_c, v_c)` indexing. These are the deep-interior
 /// CPs not pinned by:
 /// - pole `(0, 0)`
 /// - central `u_c + v_c ≤ 2` (via a∘σ^k)
 /// - prev-sharing on `v_c = 0` (cur's seam with prev)
 /// - boundary `v_c ∈ {3, 4}` (via b∘β)
-/// - eq (2) closed-form for canonical `(2, 1)`
-const FREE_CPS: [(usize, usize); 6] = [(1, 2), (2, 2), (3, 1), (3, 2), (4, 1), (4, 2)];
+/// - eq (2) closed-forms for canonical `(2, 1), (3, 1), (4, 1)` —
+///   pinned by prev sector's `(1, 2)` + prev's boundary (see
+///   [`build_coef_map`] Pass 3).
+const FREE_CPS: [(usize, usize); 4] = [(1, 2), (2, 2), (3, 2), (4, 2)];
 
 /// Index within [`FREE_CPS`] for a given `(i, j)`. Returns `None`
 /// if the CP is not free.
@@ -127,10 +137,10 @@ fn free_cp_index(i: usize, j: usize) -> Option<usize> {
     FREE_CPS.iter().position(|&(a, b)| a == i && b == j)
 }
 
-/// Total scalar DOFs per coordinate: 5 (a's 5 Point3 coefs) + 6·n
+/// Total scalar DOFs per coordinate: 5 (a's 5 Point3 coefs) + 4·n
 /// (free CPs per sector, per [`FREE_CPS`]).
 fn dof_count(n: usize) -> usize {
-    5 + 6 * n
+    5 + 4 * n
 }
 
 /// DOF index for a's `a_x` (0), `a_y` (1), `a_xx` (2), `a_xy` (3),
@@ -139,9 +149,9 @@ fn dof_a(a_idx: usize) -> usize {
     a_idx
 }
 
-/// DOF index for sector `k`'s free CP #`f` (0..6 per `FREE_CPS`).
+/// DOF index for sector `k`'s free CP #`f` (0..4 per `FREE_CPS`).
 fn dof_free(k: usize, f: usize) -> usize {
-    5 + 6 * k + f
+    5 + 4 * k + f
 }
 
 /// Assemble a PnS bi-4 cap from boundary + pole + σ jet.
@@ -273,28 +283,74 @@ fn build_coef_map(
     //     = (2-c)·p^{k-1}_{0, 2} + c·p^{k-1}_{0, 3}
     // Solve for canonical p^k_{2, 1}:
     //   p^k_{2, 1} = -p^{k-1}_{1, 2} + (2-c)·p^{k-1}_{0, 2} + c·p^{k-1}_{0, 3}
+    // Additional closed-forms for canonical (3, 1) and (4, 1):
+    //   cur_{40} (paper) = (cur_{41} + nxt_{41}) / 2
+    //     → p^k_{4, 1} = 2·p^{k-1}_{0, 4} - p^{k-1}_{1, 4}
+    //   cur_{30} (paper) = [4·(cur_{31} + nxt_{31})
+    //                       - c·(cur_{41} + nxt_{41})] / (2·(4-c))
+    //     → 2·(4-c)·p^{k-1}_{0, 3}
+    //         = 4·(p^{k-1}_{1, 3} + p^k_{3, 1})
+    //           - c·(p^{k-1}_{1, 4} + p^k_{4, 1})
+    //     → p^k_{3, 1} = [2·(4-c)·p^{k-1}_{0, 3}
+    //                    + c·(p^{k-1}_{1, 4} + p^k_{4, 1})
+    //                    - 4·p^{k-1}_{1, 3}] / 4
     let c = (2.0 * std::f64::consts::PI / (n as f64)).cos();
     let two_minus_c = 2.0 - c;
+    let four_minus_c = 4.0 - c;
     for k in 0..n {
         let prev = (k + n - 1) % n;
-        // prev's canonical (1, 2) — this is a free DOF for sector prev.
-        let prev_12 = &sector_cps[prev][bi4_flat_index(1, 2)];
-        // prev's canonical (0, 2) — central, linear in a.
-        let prev_02 = &sector_cps[prev][bi4_flat_index(0, 2)];
-        // prev's canonical (0, 3) — boundary, constant.
-        let prev_03 = &sector_cps[prev][bi4_flat_index(0, 3)];
-
-        let mut combined = CpRepr::zeros(n);
-        for d in 0..combined.coef.len() {
-            combined.coef[d] =
-                -prev_12.coef[d] + two_minus_c * prev_02.coef[d] + c * prev_03.coef[d];
+        // (4, 1): from prev's (0, 4), (1, 4) — pure boundary.
+        let prev_04 = sector_cps[prev][bi4_flat_index(0, 4)].clone();
+        let prev_14 = sector_cps[prev][bi4_flat_index(1, 4)].clone();
+        let mut p_41 = CpRepr::zeros(n);
+        for d in 0..p_41.coef.len() {
+            p_41.coef[d] = 2.0 * prev_04.coef[d] - prev_14.coef[d];
         }
-        combined.constant = Point3::new(
+        p_41.constant = Point3::new(
+            2.0 * prev_04.constant.x - prev_14.constant.x,
+            2.0 * prev_04.constant.y - prev_14.constant.y,
+            2.0 * prev_04.constant.z - prev_14.constant.z,
+        );
+        sector_cps[k][bi4_flat_index(4, 1)] = p_41.clone();
+
+        // (3, 1): from prev's (0, 3), (1, 3), (1, 4) + just-
+        // computed (4, 1).
+        let prev_03 = sector_cps[prev][bi4_flat_index(0, 3)].clone();
+        let prev_13 = sector_cps[prev][bi4_flat_index(1, 3)].clone();
+        let mut p_31 = CpRepr::zeros(n);
+        for d in 0..p_31.coef.len() {
+            p_31.coef[d] = (2.0 * four_minus_c * prev_03.coef[d]
+                + c * (prev_14.coef[d] + p_41.coef[d])
+                - 4.0 * prev_13.coef[d])
+                / 4.0;
+        }
+        p_31.constant = Point3::new(
+            (2.0 * four_minus_c * prev_03.constant.x + c * (prev_14.constant.x + p_41.constant.x)
+                - 4.0 * prev_13.constant.x)
+                / 4.0,
+            (2.0 * four_minus_c * prev_03.constant.y + c * (prev_14.constant.y + p_41.constant.y)
+                - 4.0 * prev_13.constant.y)
+                / 4.0,
+            (2.0 * four_minus_c * prev_03.constant.z + c * (prev_14.constant.z + p_41.constant.z)
+                - 4.0 * prev_13.constant.z)
+                / 4.0,
+        );
+        sector_cps[k][bi4_flat_index(3, 1)] = p_31;
+
+        // (2, 1): from prev's (1, 2) [free DOF], (0, 2) [central],
+        // (0, 3) [boundary].
+        let prev_12 = &sector_cps[prev][bi4_flat_index(1, 2)];
+        let prev_02 = &sector_cps[prev][bi4_flat_index(0, 2)];
+        let mut p_21 = CpRepr::zeros(n);
+        for d in 0..p_21.coef.len() {
+            p_21.coef[d] = -prev_12.coef[d] + two_minus_c * prev_02.coef[d] + c * prev_03.coef[d];
+        }
+        p_21.constant = Point3::new(
             -prev_12.constant.x + two_minus_c * prev_02.constant.x + c * prev_03.constant.x,
             -prev_12.constant.y + two_minus_c * prev_02.constant.y + c * prev_03.constant.y,
             -prev_12.constant.z + two_minus_c * prev_02.constant.z + c * prev_03.constant.z,
         );
-        sector_cps[k][bi4_flat_index(2, 1)] = combined;
+        sector_cps[k][bi4_flat_index(2, 1)] = p_21;
     }
 
     CoefMap { n, sector_cps }
@@ -315,11 +371,11 @@ fn compute_non_shared_cp(
     let n = input.boundary.n();
 
     // Deferred: prev-sharing on v_c=0 (pass 2, except pole at (0,0)),
-    // closed-form (2, 1) (pass 3).
+    // eq (2) closed-forms for (2, 1), (3, 1), (4, 1) (pass 3).
     if v == 0 && u >= 1 {
         return None;
     }
-    if (u, v) == (2, 1) {
+    if matches!((u, v), (2, 1) | (3, 1) | (4, 1)) {
         return None;
     }
 
