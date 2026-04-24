@@ -39,3 +39,7 @@ path = "src/drafted_mold.rs"
 [[bin]]
 name = "boolean_stress"
 path = "src/boolean_stress.rs"
+
+[[bin]]
+name = "pns_pentagon_apex"
+path = "src/pns_pentagon_apex.rs"
