@@ -127,6 +127,7 @@ mod kp_row1;
 mod kp_row2;
 mod pns_beta;
 mod pns_bi3_twists;
+mod pns_bi4_to_nurbs;
 mod pns_boundary;
 mod pns_cap_assemble;
 mod pns_center;
@@ -273,6 +274,7 @@ pub use kp15_bi6_rules::{
 };
 pub use kp15_bi6_tensor_border_extract::extract_bi3_tensor_border_from_polar_input;
 pub use pns_beta::BetaReparam;
+pub use pns_bi4_to_nurbs::pns_bi4_to_nurbs;
 pub use pns_boundary::{Bi2BorderStrip, Bi2TensorBorderRing};
 pub use pns_cap_assemble::{
     CapAssembleError, CapAssembleInput, CapAssembleResult, assemble_pns_bi4_cap, pole_from_boundary,

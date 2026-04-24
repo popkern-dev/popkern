@@ -19,6 +19,10 @@ pub mod pns_adapter;
 #[cfg(test)]
 #[path = "pns_adapter_tests.rs"]
 mod pns_adapter_tests;
+pub mod pns_promote;
+#[cfg(test)]
+#[path = "pns_promote_tests.rs"]
+mod pns_promote_tests;
 pub mod runout;
 pub mod surface;
 pub(crate) mod surface_bridge;
