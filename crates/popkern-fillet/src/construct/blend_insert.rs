@@ -80,21 +80,27 @@ pub(crate) fn insert_vertex_blend(
             | VertexBlendClassification::SameSideConcave
             | VertexBlendClassification::OppositeSide,
     );
-    let n_gon_boundary: Option<BlendBoundary> =
-        if use_rational_gregory && n_sides >= 3 && rational_gregory_compatible {
-            match blend::compute_blend_boundary(
-                vertex,
-                &local_indices_pre,
-                &fillet_surfaces_pre,
-                brep,
-                tolerance,
-            ) {
-                Ok(b) if b.segments.len() == 2 * n_sides => Some(b),
-                _ => None,
-            }
-        } else {
-            None
-        };
+    // Compute the n-gon BlendBoundary when either the rational-
+    // Gregory dispatch OR the env-gated PnS path is enabled — both
+    // consume the same boundary structure downstream.
+    let pns_wants_boundary = crate::blend::pns_promote::pns_env_enabled();
+    let n_gon_boundary: Option<BlendBoundary> = if (use_rational_gregory || pns_wants_boundary)
+        && n_sides >= 3
+        && rational_gregory_compatible
+    {
+        match blend::compute_blend_boundary(
+            vertex,
+            &local_indices_pre,
+            &fillet_surfaces_pre,
+            brep,
+            tolerance,
+        ) {
+            Ok(b) if b.segments.len() == 2 * n_sides => Some(b),
+            _ => None,
+        }
+    } else {
+        None
+    };
 
     // Phase 1: For each face, cut a chord between the face's two
     // fillet-trim-endpoint anchors. The V-containing sub-face is
@@ -152,6 +158,25 @@ pub(crate) fn insert_vertex_blend(
         relaxed_continuity_coplanarity: None,
     };
 
+    // PnS rung (env-gated, independent of rational_gregory). The
+    // poke op inside `try_pns_dispatch` tolerates both 2N and N HE
+    // layouts, so we don't pre-gate on half-edge count here.
+    if crate::blend::pns_promote::pns_env_enabled()
+        && let Some(boundary) = n_gon_boundary.as_ref()
+        && boundary.segments.len() == 2 * n_sides
+        && let Some(patches) = crate::blend::pns_promote::try_pns_dispatch(
+            brep,
+            blend_face,
+            boundary,
+            &fillet_surfaces_pre,
+            vertex,
+            classification,
+            boundary.bridge_fallbacks.clone(),
+        )
+    {
+        return Ok(patches);
+    }
+
     // §5.3 item #4 — N ≥ 3 rational-Gregory dispatch.
     if use_rational_gregory
         && rational_gregory_compatible
@@ -159,21 +184,6 @@ pub(crate) fn insert_vertex_blend(
         && boundary.segments.len() == 2 * n_sides
         && face_has_2n_outer_half_edges(brep, blend_face, n_sides)
     {
-        // PnS rung (env-gated): try before the three-quad path so
-        // `POPKERN_PNS=1` takes priority. Falls through on rejection.
-        if crate::blend::pns_promote::pns_env_enabled()
-            && let Some(patches) = crate::blend::pns_promote::try_pns_dispatch(
-                brep,
-                blend_face,
-                boundary,
-                &fillet_surfaces_pre,
-                vertex,
-                classification,
-                boundary.bridge_fallbacks.clone(),
-            )
-        {
-            return Ok(patches);
-        }
         use crate::construct::three_quad_apply::ThreeQuadFailure;
         match apply_three_quad_decomposition_to_blend(
             brep,

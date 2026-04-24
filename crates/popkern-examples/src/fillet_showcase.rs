@@ -28,7 +28,7 @@ fn main() {
         .iter()
         .map(|&edge| FilletSpec {
             edge,
-            radius: FilletRadius::Constant(0.1),
+            radius: FilletRadius::Constant(0.05),
         })
         .collect();
 

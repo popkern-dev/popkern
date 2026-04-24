@@ -205,8 +205,12 @@ fn pair_to_strip_surface_aware(
     brep: &BRep,
     vertex: Point3,
 ) -> Result<Bi2BorderStrip, PnsAdapterError> {
-    let surface_a = lookup_surface(seg_a, base_idx, fillet_surfaces, brep)?;
-    let surface_b = lookup_surface(seg_b, base_idx + 1, fillet_surfaces, brep)?;
+    // Soft lookup: if either segment's supporting surface isn't
+    // accessible (common in mid-pipeline BReps where internal
+    // faces don't yet have surface geometry attached), fall back
+    // to placeholder derivatives for that segment's samples.
+    let surface_a = lookup_surface(seg_a, base_idx, fillet_surfaces, brep).ok();
+    let surface_b = lookup_surface(seg_b, base_idx + 1, fillet_surfaces, brep).ok();
     let curve_a = curve_of(seg_a);
     let curve_b = curve_of(seg_b);
     let (a_min, a_max) = curve_a.parameter_range();
@@ -221,12 +225,9 @@ fn pair_to_strip_surface_aware(
         .distance_to(&curve_b.point_at(b_max));
     let mag = (len_a + len_b) * DERIV_MAG_FRAC;
 
-    // Per-position surface + sample-t + associated curve.
-    // [0] = arc's surface at arc start (t = a_min, on curve_a)
-    // [1] = arc's surface at arc end / bridge start (t = a_max, on curve_a)
-    // [2] = bridge's surface at bridge end (t = b_max, on curve_b)
+    // Per-position optional surface + sample-t + associated curve.
     let sample_data: [(
-        &popkern_core::geometry::surface::SurfaceGeometry,
+        Option<&popkern_core::geometry::surface::SurfaceGeometry>,
         &popkern_core::geometry::NurbsCurve,
         f64,
         Point3,
@@ -237,7 +238,11 @@ fn pair_to_strip_surface_aware(
     ];
 
     let mut deriv = [Point3::new(0.0, 0.0, 0.0); 3];
-    for (i, (surface, curve, t, sample_pt)) in sample_data.iter().enumerate() {
+    for (i, (surface_opt, curve, t, sample_pt)) in sample_data.iter().enumerate() {
+        let Some(surface) = surface_opt else {
+            deriv[i] = inward_deriv(pos_bb[i], vertex, mag);
+            continue;
+        };
         let Some((u, v)) = surface.closest_point(sample_pt) else {
             deriv[i] = inward_deriv(pos_bb[i], vertex, mag);
             continue;

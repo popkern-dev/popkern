@@ -132,24 +132,20 @@ fn paired_position_endpoints_match_arc_start_and_bridge_end() {
 }
 
 #[test]
-fn surface_aware_adapter_fails_gracefully_on_empty_brep() {
+fn surface_aware_adapter_falls_back_gracefully_on_empty_brep() {
     use popkern_core::tolerance::Tolerance;
     use popkern_core::topology::BRep;
-    // With a fake vertex/face and an empty BRep, surface-aware
-    // adapter should return SurfaceAccessFailed rather than panic.
+    // Surface lookups are soft: when a segment's surface can't be
+    // resolved the adapter falls back to placeholder derivatives
+    // (rather than hard-failing). With an empty BRep / empty fillet
+    // list this means every sector uses the fallback path.
     let bb = synth_blend_boundary(3, 1.0);
     let tol = Tolerance::default();
     let brep = BRep::new(tol);
     let fillets: Vec<crate::fillet_surface::FilletSurfaceResult> = vec![];
     let result = super::pns_adapter::blend_boundary_to_pns_ring_with_surfaces(&bb, &fillets, &brep);
-    assert!(
-        matches!(
-            result,
-            Err(super::pns_adapter::PnsAdapterError::SurfaceAccessFailed { .. })
-        ),
-        "expected SurfaceAccessFailed, got {:?}",
-        result.err()
-    );
+    let ring = result.expect("soft fallback should produce a ring");
+    assert_eq!(ring.n(), 3);
 }
 
 #[test]

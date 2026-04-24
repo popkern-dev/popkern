@@ -127,6 +127,16 @@ pub fn insert_pns_cap_into_blend_face(
     let ring = blend_boundary_to_pns_ring_with_surfaces(boundary, fillet_surfaces, brep)?;
     let pole = pole_from_boundary(&ring);
 
+    // The poke op expects either 2N half-edges (even, N ≥ 3) OR N
+    // half-edges (N ∈ [5, 16]). Cube corners at N=3, 4 where the
+    // bridge edges were consumed by a prior kef end up with N HEs
+    // outside that range. Each such HE carries a curve that spans
+    // (arc_k + bridge_k); we split it at the arc/bridge junction so
+    // the resulting 2N HEs correspond to BlendBoundary segments
+    // 1-to-1 (poke then pairs them into sectors aligned with the
+    // cap's bi-2 strip midpoint).
+    normalize_low_valence_face_for_poke(brep, blend_face, surfaces.len(), boundary)?;
+
     let poke = poke_n_gon_face_into_n_quads(brep, blend_face, pole)?;
     if poke.sub_faces.len() != surfaces.len() {
         return Err(PnsPromoteError::SubFaceCountMismatch {
@@ -146,6 +156,88 @@ pub fn insert_pns_cap_into_blend_face(
         sub_faces: poke.sub_faces,
         central_vertex: poke.central_vertex,
     })
+}
+
+/// If the face has exactly `n` half-edges and `n ∈ {3, 4}` (too
+/// few for the poke's normal `N ∈ [5, 16]` split path), split each
+/// HE at the arc/bridge junction (from `boundary`) to reach `2n`
+/// half-edges. Splitting at the junction — rather than a naive
+/// `t = 0.5` — keeps the sub-face loop aligned with the cap's
+/// bi-2 strip midpoint (strip[1] = arc/bridge junction point),
+/// so the cap's `uv = (0.5, 1)` boundary midpoint matches the
+/// sub-face's mid-split vertex position.
+fn normalize_low_valence_face_for_poke(
+    brep: &mut BRep,
+    face: FaceHandle,
+    expected_n: usize,
+    boundary: &BlendBoundary,
+) -> Result<(), CoreError> {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::topology::EdgeHandle;
+    let outer_loop = brep
+        .faces
+        .get(face)
+        .ok_or_else(|| CoreError::InvalidHandle("face not in BRep".into()))?
+        .outer_loop;
+    let loop_start = brep
+        .loops
+        .get(outer_loop)
+        .ok_or_else(|| CoreError::InvalidHandle("loop not in BRep".into()))?
+        .half_edge;
+    let mut count = 0usize;
+    let mut he_edges: Vec<EdgeHandle> = Vec::new();
+    let mut cursor = loop_start;
+    loop {
+        count += 1;
+        he_edges.push(brep.half_edges[cursor].edge);
+        cursor = brep.half_edges[cursor].next;
+        if cursor == loop_start {
+            break;
+        }
+        if count > 32 {
+            return Err(CoreError::PreconditionFailed(
+                "face loop exceeds 32 half-edges — likely unterminated".into(),
+            ));
+        }
+    }
+    if count != expected_n || !(3..=4).contains(&expected_n) {
+        return Ok(());
+    }
+    let junctions: Vec<popkern_core::geometry::Point3> = (0..expected_n)
+        .map(|k| {
+            let arc = match &boundary.segments[2 * k] {
+                super::boundary::BoundarySegment::FilletEnd { curve, .. } => curve,
+                super::boundary::BoundarySegment::FaceEdge { curve, .. } => curve,
+            };
+            let (_, t_max) = arc.parameter_range();
+            arc.point_at(t_max)
+        })
+        .collect();
+    for edge in he_edges {
+        let curve_on_edge = brep
+            .edges
+            .get(edge)
+            .and_then(|e| e.curve.as_ref())
+            .ok_or_else(|| CoreError::InvalidHandle("edge has no curve".into()))?
+            .clone();
+        let he_curve = &curve_on_edge.geometry;
+        let (t_min, t_max) = he_curve.parameter_range();
+        let mut best: Option<(f64, f64)> = None;
+        for jp in &junctions {
+            if let Some(t) = he_curve.closest_point(jp) {
+                if t <= t_min + 1e-9 || t >= t_max - 1e-9 {
+                    continue;
+                }
+                let d = he_curve.point_at(t).distance_to(jp);
+                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                    best = Some((t, d));
+                }
+            }
+        }
+        let t_split = best.map(|(t, _)| t).unwrap_or(0.5 * (t_min + t_max));
+        brep.split_edge(edge, t_split)?;
+    }
+    Ok(())
 }
 
 /// Check if PnS dispatch is enabled via `POPKERN_PNS=1`.
@@ -175,10 +267,27 @@ pub fn try_pns_dispatch(
 ) -> Option<Vec<crate::types::CornerPatchInfo>> {
     use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo};
 
+    let trace = std::env::var("POPKERN_PNS_TRACE").is_ok();
+    if trace {
+        eprintln!(
+            "try_pns_dispatch: entering (n_segments={}, vertex={:?})",
+            boundary.segments.len(),
+            vertex
+        );
+    }
+
     let result = match insert_pns_cap_into_blend_face(brep, blend_face, boundary, fillet_surfaces) {
-        Ok(r) => r,
+        Ok(r) => {
+            if trace {
+                eprintln!(
+                    "try_pns_dispatch: SUCCESS — {} sub-faces",
+                    r.sub_faces.len()
+                );
+            }
+            r
+        }
         Err(e) => {
-            if std::env::var("POPKERN_PNS_TRACE").is_ok() {
+            if trace {
                 eprintln!("try_pns_dispatch: insert failed: {e}");
             }
             return None;
