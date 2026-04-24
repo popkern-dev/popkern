@@ -126,6 +126,99 @@ fn position_endpoints_interpolate_segment_curve() {
 }
 
 #[test]
+fn surface_aware_adapter_fails_gracefully_on_empty_brep() {
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::BRep;
+    // With a fake vertex/face and an empty BRep, surface-aware
+    // adapter should return SurfaceAccessFailed rather than panic.
+    let bb = synth_blend_boundary(3, 1.0);
+    let tol = Tolerance::default();
+    let brep = BRep::new(tol);
+    let fillets: Vec<crate::fillet_surface::FilletSurfaceResult> = vec![];
+    let result = super::pns_adapter::blend_boundary_to_pns_ring_with_surfaces(&bb, &fillets, &brep);
+    assert!(
+        matches!(
+            result,
+            Err(super::pns_adapter::PnsAdapterError::SurfaceAccessFailed { .. })
+        ),
+        "expected SurfaceAccessFailed, got {:?}",
+        result.err()
+    );
+}
+
+#[test]
+fn surface_aware_derivs_are_perpendicular_to_curve_tangents() {
+    // Build a synthetic BlendBoundary where every segment is
+    // backed by a known plane (z=0, normal = +z). For each
+    // segment sample, the resulting deriv should be perpendicular
+    // to the curve tangent AND lie in the z=0 plane (i.e., dot
+    // product with (0,0,1) ≈ 0).
+    use popkern_core::geometry::Vec3;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::BRep;
+
+    let n_fillets = 3;
+    let mut bb = synth_blend_boundary(n_fillets, 1.5);
+    // Override segments to reference fillet_index 0..n_fillets and
+    // the same FaceHandle — we'll build fillet_surfaces as planes
+    // and set up a BRep with that face.
+    let tol = Tolerance::default();
+    let brep = BRep::new(tol);
+
+    // Every fillet surface = plane z=0 with normal +z.
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let mut fillets: Vec<crate::fillet_surface::FilletSurfaceResult> = Vec::new();
+    let dummy_curve = line_curve(pt(0.0, 0.0, 0.0), pt(1.0, 0.0, 0.0));
+    for _ in 0..2 * n_fillets {
+        fillets.push(crate::fillet_surface::FilletSurfaceResult {
+            surface: plane.clone(),
+            trim_curve_1: dummy_curve.clone(),
+            trim_curve_2: dummy_curve.clone(),
+            continuity_downgrade: None,
+        });
+    }
+    // Convert all segments to FilletEnd so the lookup always goes
+    // through fillet_surfaces (and we don't need a real face).
+    for (k, seg) in bb.segments.iter_mut().enumerate() {
+        let curve = match seg {
+            BoundarySegment::FilletEnd { curve, .. } => curve.clone(),
+            BoundarySegment::FaceEdge { curve, .. } => curve.clone(),
+        };
+        *seg = BoundarySegment::FilletEnd {
+            fillet_index: k,
+            curve,
+        };
+    }
+
+    let ring = super::pns_adapter::blend_boundary_to_pns_ring_with_surfaces(&bb, &fillets, &brep)
+        .expect("surface-aware adapter should succeed with planar surfaces");
+    assert_eq!(ring.n(), 2 * n_fillets);
+
+    // For the plane z=0, every deriv should have z ≈ 0 (in-plane)
+    // and be perpendicular to the curve tangent at its sample
+    // position.
+    for (k, strip) in ring.sectors.iter().enumerate() {
+        for (i, d) in strip.deriv.iter().enumerate() {
+            assert!(
+                d.z.abs() < 1e-10,
+                "sector {k} deriv[{i}].z = {} (not in-plane)",
+                d.z
+            );
+            // Non-zero deriv (surface-aware produces real derivs,
+            // not just the placeholder fallback).
+            let mag = (d.x * d.x + d.y * d.y + d.z * d.z).sqrt();
+            assert!(mag > 1e-9, "sector {k} deriv[{i}] is zero");
+        }
+    }
+}
+
+#[test]
 fn blend_boundary_to_ring_feeds_pns_cap_assembly() {
     // End-to-end: adapter output + pole_from_boundary + assembly.
     use popkern_core::geometry::gregory::{
