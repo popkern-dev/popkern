@@ -57,12 +57,26 @@
 //! (x, y, z), so we solve three `(5 + 4·N)`-dimensional symmetric
 //! PSD systems.
 //!
-//! # Even n still deferred
+//! # Valence support
 //!
-//! All pair-sum-style solvers in this module assume **odd `n`**.
-//! For even `n` the circulant pair-sum system for p_{2,1} and
-//! similar are rank-`n−1` and need one extra free scalar from the
-//! null space; that's a future extension.
+//! Supported: `n ∈ [3, 12] \ {4}`. The bi-4 construction is
+//! numerically singular at `n=4` (σ_{20,x} has a `1/c` factor
+//! with `c=cos(π/2)=0`); for that case callers should use the
+//! bi-3 variant or a different cap construction.
+//!
+//! Even `n ∈ {6, 8, 10, 12}` is supported through the asymmetric
+//! closed-form treatment: instead of symmetrically solving
+//! p_{2,1} via a circulant pair-sum (rank `n−1` for even n), we
+//! treat canonical `(1, 2)` as a free DOF and derive canonical
+//! `(2, 1)` one-way from the previous sector's data. No rank
+//! deficiency to resolve.
+//!
+//! # Auto-compute pole
+//!
+//! [`pole_from_boundary`] derives the central pole from the
+//! boundary ring via paper's eq (5) (see [`super::pns_center`]).
+//! Useful for callers who don't want to compute the pole
+//! manually. Assumes bi-4 e_def weight.
 //!
 //! # Paper reference
 //!
@@ -77,6 +91,7 @@
 use super::direct_linalg::solve_dense;
 use super::pns_beta::BetaReparam;
 use super::pns_boundary::{Bi2TensorBorderRing, compose_bi4_outer_layers};
+use super::pns_center::{central_point, e_def_bi4};
 use super::pns_central_quad::{QuadMapJet, central_bb_from_a_and_sigma, rotate_sigma_jet};
 use super::pns_gram::{bi4_flat_index, gram_bi4_f_kappa};
 use super::pns_sigma::SigmaCenterJet;
@@ -111,8 +126,10 @@ pub struct CapAssembleResult {
 pub enum CapAssembleError {
     #[error("PnS cap assemble: n must be in [3, 12], got {0}")]
     InvalidValence(usize),
-    #[error("PnS cap assemble: even n not yet supported (got {0})")]
-    EvenValenceUnsupported(usize),
+    #[error(
+        "PnS cap assemble: n=4 is not supported by the bi-4 construction (σ_{{20,x}} has a 1/c singularity with c=cos(π/2)=0). Use the bi-3 variant or a different cap."
+    )]
+    N4NotSupported,
     #[error("PnS cap assemble: kappa must be 1..=4, got {0}")]
     InvalidKappa(usize),
     #[error("PnS cap assemble: F_κ linear system is singular")]
@@ -154,6 +171,52 @@ fn dof_free(k: usize, f: usize) -> usize {
     5 + 4 * k + f
 }
 
+/// Compute the central pole via paper's eq (5) from the boundary
+/// ring alone. The DS-net points `d^k_1, d^k_2, d^k_4` are
+/// interpreted from the bi-2 tensor-border's inner row:
+///
+/// ```text
+///   b^k_{i, 1} = strip.pos[i] + strip.deriv[i] / 2    (standard bi-2 derivative form)
+///
+///   d^k_1 = b^k_{1, 1}    (inner-row middle)
+///   d^k_2 = b^k_{2, 1}    (inner-row right)
+///   d^k_4 = b^k_{0, 1}    (inner-row left)
+/// ```
+///
+/// Returns `pole = e·avg_k(d^k_1) + (1−e)·avg_k((d^k_2+d^k_4)/2)`
+/// with `e = e_def_bi4(n)`.
+pub fn pole_from_boundary(boundary: &Bi2TensorBorderRing) -> Point3 {
+    let n = boundary.n();
+    let e = e_def_bi4(n);
+    let mut d1 = Vec::with_capacity(n);
+    let mut d24_half = Vec::with_capacity(n);
+    for strip in &boundary.sectors {
+        // b^k_{i, 1} = pos[i] + deriv[i] / 2 (bi-2 derivative: row 1 = row 0 + deriv/2).
+        let b01 = Point3::new(
+            strip.pos[0].x + 0.5 * strip.deriv[0].x,
+            strip.pos[0].y + 0.5 * strip.deriv[0].y,
+            strip.pos[0].z + 0.5 * strip.deriv[0].z,
+        );
+        let b11 = Point3::new(
+            strip.pos[1].x + 0.5 * strip.deriv[1].x,
+            strip.pos[1].y + 0.5 * strip.deriv[1].y,
+            strip.pos[1].z + 0.5 * strip.deriv[1].z,
+        );
+        let b21 = Point3::new(
+            strip.pos[2].x + 0.5 * strip.deriv[2].x,
+            strip.pos[2].y + 0.5 * strip.deriv[2].y,
+            strip.pos[2].z + 0.5 * strip.deriv[2].z,
+        );
+        d1.push(b11);
+        d24_half.push(Point3::new(
+            0.5 * (b01.x + b21.x),
+            0.5 * (b01.y + b21.y),
+            0.5 * (b01.z + b21.z),
+        ));
+    }
+    central_point(&d1, &d24_half, e)
+}
+
 /// Assemble a PnS bi-4 cap from boundary + pole + σ jet.
 pub fn assemble_pns_bi4_cap(
     input: &CapAssembleInput,
@@ -162,9 +225,18 @@ pub fn assemble_pns_bi4_cap(
     if !(3..=12).contains(&n) {
         return Err(CapAssembleError::InvalidValence(n));
     }
-    if n.is_multiple_of(2) {
-        return Err(CapAssembleError::EvenValenceUnsupported(n));
+    // n=4 is numerically singular: c = cos(2π/4) = 0 appears in
+    // σ_{20,x}'s `1/(3c)` factor. The paper's bi-4 construction
+    // doesn't apply to n=4; callers should use the bi-3 variant
+    // (`pns_bi3_twists`) or a different cap entirely.
+    if n == 4 {
+        return Err(CapAssembleError::N4NotSupported);
     }
+    // Other even n (6, 8, 10, 12) work fine — my asymmetric
+    // closed-form treatment (treating canonical (1, 2) as the
+    // free DOF and (2, 1), (3, 1), (4, 1) as one-way derivations
+    // from prev's data) avoids the rank-deficient symmetric
+    // pair-sum issue that would otherwise plague even n.
     if !(1..=4).contains(&input.kappa) {
         return Err(CapAssembleError::InvalidKappa(input.kappa));
     }

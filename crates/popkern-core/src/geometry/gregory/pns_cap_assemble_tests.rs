@@ -38,8 +38,9 @@ fn planar_ring(n: usize, radius: f64) -> Bi2TensorBorderRing {
 }
 
 #[test]
-fn scaffold_even_valence_is_unsupported() {
-    for n in [4_usize, 6, 8] {
+fn even_valence_assembles_successfully() {
+    // n=4 is rejected (c=0 σ singularity); n ∈ {6, 8, 10, 12} succeed.
+    for n in [6_usize, 8, 10, 12] {
         let input = CapAssembleInput {
             boundary: planar_ring(n, 1.0),
             beta: BetaReparam::bi4(n),
@@ -49,10 +50,124 @@ fn scaffold_even_valence_is_unsupported() {
         };
         let result = assemble_pns_bi4_cap(&input);
         assert!(
-            matches!(result, Err(CapAssembleError::EvenValenceUnsupported(_))),
-            "n={n}: expected EvenValenceUnsupported, got {:?}",
+            result.is_ok(),
+            "n={n} should succeed, got {:?}",
             result.err()
         );
+        let cap = result.unwrap();
+        assert_eq!(cap.patches.len(), n);
+    }
+}
+
+#[test]
+fn pole_from_boundary_gives_centroid_for_symmetric_ring() {
+    // For the planar_ring test fixture with deriv = (0, 0, -1),
+    // b^k_{i, 1} = pos[i] + (0, 0, -0.5). Symmetric around the
+    // z-axis, so the x, y components average to 0 and the z
+    // component averages to -0.5 for both d_1 and (d_2+d_4)/2.
+    // Therefore pole ≈ (0, 0, -0.5) for any e.
+    let n = 5;
+    let ring = planar_ring(n, 1.0);
+    let pole = pole_from_boundary(&ring);
+    assert!(pole.x.abs() < 1e-12, "pole.x = {}", pole.x);
+    assert!(pole.y.abs() < 1e-12, "pole.y = {}", pole.y);
+    assert!(
+        (pole.z - (-0.5)).abs() < 1e-12,
+        "pole.z = {} (expected -0.5)",
+        pole.z
+    );
+}
+
+#[test]
+fn pole_from_boundary_feeds_assembly() {
+    // End-to-end: auto-pole + assembly produces a cap consistent
+    // with the derived pole.
+    let n = 5;
+    let ring = planar_ring(n, 1.5);
+    let pole = pole_from_boundary(&ring);
+    let input = CapAssembleInput {
+        boundary: ring,
+        beta: BetaReparam::bi4(n),
+        sigma: sigma_center_jet_default(n),
+        pole,
+        kappa: 3,
+    };
+    let result = assemble_pns_bi4_cap(&input).expect("auto-pole assembly should succeed");
+    for k in 0..n {
+        assert!(approx_pt(result.patches[k][0][0], pole, 1e-12));
+    }
+}
+
+#[test]
+fn n4_rejected_with_informative_error() {
+    let input = CapAssembleInput {
+        boundary: planar_ring(4, 1.0),
+        beta: BetaReparam::bi4(4),
+        sigma: sigma_center_jet_default(4),
+        pole: pt(0.0, 0.0, 0.5),
+        kappa: 3,
+    };
+    let result = assemble_pns_bi4_cap(&input);
+    assert!(
+        matches!(result, Err(CapAssembleError::N4NotSupported)),
+        "n=4 should return N4NotSupported, got {:?}",
+        result.err()
+    );
+}
+
+#[test]
+fn eq2_g1_holds_for_even_n() {
+    // Verify all 5 eq (2) outputs hold to floating-point precision
+    // for even n ∈ {6, 8} (n=4 is singular; other even n work).
+    use super::super::pns_g1_constraints::bi4_g1_row_from_row1;
+    for n in [6_usize, 8] {
+        let input = CapAssembleInput {
+            boundary: planar_ring(n, 1.3),
+            beta: BetaReparam::bi4(n),
+            sigma: sigma_center_jet_default(n),
+            pole: pt(0.0, 0.0, 0.2),
+            kappa: 3,
+        };
+        let result = assemble_pns_bi4_cap(&input).expect("even n should succeed");
+        let tol = 1e-10;
+        for k in 0..n {
+            let nxt = (k + 1) % n;
+            let cur_row1 = [
+                result.patches[k][1][0],
+                result.patches[k][1][1],
+                result.patches[k][1][2],
+                result.patches[k][1][3],
+                result.patches[k][1][4],
+            ];
+            let nxt_row1 = [
+                result.patches[nxt][0][1],
+                result.patches[nxt][1][1],
+                result.patches[nxt][2][1],
+                result.patches[nxt][3][1],
+                result.patches[nxt][4][1],
+            ];
+            let g1 = bi4_g1_row_from_row1(result.patches[k][0][0], cur_row1, nxt_row1, n);
+            assert!(
+                approx_pt(g1.cur10, result.patches[k][0][1], tol),
+                "n={n} sector {k} cur_{{10}} mismatch"
+            );
+            assert!(
+                approx_pt(g1.cur20, result.patches[k][0][2], tol),
+                "n={n} sector {k} cur_{{20}} mismatch"
+            );
+            assert!(
+                approx_pt(g1.cur30, result.patches[k][0][3], tol),
+                "n={n} sector {k} cur_{{30}} mismatch"
+            );
+            assert!(
+                approx_pt(g1.cur40, result.patches[k][0][4], tol),
+                "n={n} sector {k} cur_{{40}} mismatch"
+            );
+            assert!(
+                approx_pt(g1.nxt21, result.patches[nxt][2][1], tol),
+                "n={n} sector {k} nxt_{{21}} mismatch"
+            );
+        }
     }
 }
 
