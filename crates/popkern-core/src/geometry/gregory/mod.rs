@@ -128,6 +128,7 @@ mod kp_row2;
 mod pns_beta;
 mod pns_bi3_twists;
 mod pns_boundary;
+mod pns_cap_assemble;
 mod pns_center;
 mod pns_central_quad;
 mod pns_f_kappa;
