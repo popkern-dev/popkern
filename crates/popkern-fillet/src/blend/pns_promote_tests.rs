@@ -289,6 +289,72 @@ fn insert_pns_cap_creates_n_subfaces_with_nurbs_surfaces() {
 }
 
 #[test]
+fn try_pns_dispatch_succeeds_on_hex_blend() {
+    use super::pns_promote::try_pns_dispatch;
+    use crate::types::CornerMethod;
+    use crate::vertex_classifier::VertexBlendClassification;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    let (mut brep, hex_face, hex_points) = build_flat_hex();
+    let vertex = VertexHandle::default();
+
+    let plane = SurfaceGeometry::Plane {
+        origin: pt(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let mut segments = Vec::with_capacity(6);
+    let mut fillets = Vec::new();
+    for k in 0..6 {
+        let p0 = hex_points[k];
+        let p1 = hex_points[(k + 1) % 6];
+        let curve = line_curve(p0, p1);
+        segments.push(BoundarySegment::FilletEnd {
+            fillet_index: k,
+            curve: curve.clone(),
+        });
+        fillets.push(crate::fillet_surface::FilletSurfaceResult {
+            surface: plane.clone(),
+            trim_curve_1: curve.clone(),
+            trim_curve_2: curve,
+            continuity_downgrade: None,
+        });
+    }
+    let boundary = BlendBoundary {
+        vertex,
+        vertex_position: pt(0.0, 0.0, 0.3),
+        segments,
+        bridge_fallbacks: Vec::new(),
+    };
+
+    let patches = try_pns_dispatch(
+        &mut brep,
+        hex_face,
+        &boundary,
+        &fillets,
+        vertex,
+        VertexBlendClassification::SameSideConvex,
+        Vec::new(),
+    )
+    .expect("PnS dispatch should succeed on hex blend");
+
+    assert_eq!(patches.len(), 3, "3 sub-faces for a 6-HE hex");
+    for patch in &patches {
+        assert_eq!(patch.method, CornerMethod::Gregory);
+        assert_eq!(patch.n_sides, 3);
+    }
+}
+
+#[test]
+fn pns_env_enabled_reads_env_var() {
+    use super::pns_promote::pns_env_enabled;
+    // Sanity — depends on test-run env. Just check the function
+    // doesn't panic and returns a bool.
+    let _ = pns_env_enabled();
+}
+
+#[test]
 fn _unused_faces_stub() {
     let _ = FaceHandle::default();
 }

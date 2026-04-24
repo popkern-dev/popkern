@@ -147,3 +147,59 @@ pub fn insert_pns_cap_into_blend_face(
         central_vertex: poke.central_vertex,
     })
 }
+
+/// Check if PnS dispatch is enabled via `POPKERN_PNS=1`.
+pub fn pns_env_enabled() -> bool {
+    std::env::var("POPKERN_PNS")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+}
+
+/// Dispatch entry point: try PnS promotion on a blend face, fall
+/// through to the caller's next rung on failure. Returns
+/// `Some(corner_patches)` on success; `None` if any step rejected
+/// the input (invalid valence, segment count, assembly failure,
+/// etc.).
+///
+/// This is gated by `pns_env_enabled()` at the caller's discretion.
+/// When invoked and PnS succeeds, it bypasses the three-quad
+/// decomposition / K-P promotion ladder entirely.
+pub fn try_pns_dispatch(
+    brep: &mut BRep,
+    blend_face: FaceHandle,
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+    vertex: VertexHandle,
+    classification: crate::vertex_classifier::VertexBlendClassification,
+    bridge_fallbacks: Vec<&'static str>,
+) -> Option<Vec<crate::types::CornerPatchInfo>> {
+    use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo};
+
+    let result = match insert_pns_cap_into_blend_face(brep, blend_face, boundary, fillet_surfaces) {
+        Ok(r) => r,
+        Err(e) => {
+            if std::env::var("POPKERN_PNS_TRACE").is_ok() {
+                eprintln!("try_pns_dispatch: insert failed: {e}");
+            }
+            return None;
+        }
+    };
+
+    let n_sides = result.sub_faces.len();
+    let patches = result
+        .sub_faces
+        .into_iter()
+        .map(|face| CornerPatchInfo {
+            vertex,
+            n_sides,
+            method: CornerMethod::Gregory,
+            achieved_continuity: ContinuityLevel::G1,
+            classification,
+            face,
+            bridge_fallbacks: bridge_fallbacks.clone(),
+            overlap_remediated: false,
+            relaxed_continuity_coplanarity: None,
+        })
+        .collect();
+    Some(patches)
+}

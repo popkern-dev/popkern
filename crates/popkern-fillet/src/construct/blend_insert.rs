@@ -159,6 +159,21 @@ pub(crate) fn insert_vertex_blend(
         && boundary.segments.len() == 2 * n_sides
         && face_has_2n_outer_half_edges(brep, blend_face, n_sides)
     {
+        // PnS rung (env-gated): try before the three-quad path so
+        // `POPKERN_PNS=1` takes priority. Falls through on rejection.
+        if crate::blend::pns_promote::pns_env_enabled()
+            && let Some(patches) = crate::blend::pns_promote::try_pns_dispatch(
+                brep,
+                blend_face,
+                boundary,
+                &fillet_surfaces_pre,
+                vertex,
+                classification,
+                boundary.bridge_fallbacks.clone(),
+            )
+        {
+            return Ok(patches);
+        }
         use crate::construct::three_quad_apply::ThreeQuadFailure;
         match apply_three_quad_decomposition_to_blend(
             brep,
