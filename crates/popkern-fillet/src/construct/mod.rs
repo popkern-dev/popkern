@@ -5,6 +5,7 @@ pub(crate) mod blend_topo;
 mod bridge_warnings;
 pub(crate) mod cap_insert;
 pub(crate) mod closed_fillet;
+pub(crate) mod edge_reconcile;
 pub(crate) mod helpers;
 mod kp13_bi5_promote;
 mod kp_bi5_macro_apply;
@@ -485,6 +486,14 @@ pub fn apply_blend_geometry(
         .map(|eg| eg.surface.clone())
         .collect();
     surface_fix::correct_face_surfaces(&mut result, brep, &fillet_surfaces);
+
+    // Reconcile edge curves with their adjacent face surfaces.
+    // multi_chord and corner-blend mef calls write straight-line
+    // edge curves that were correct against the original planar
+    // face but stale once surface_fix replaced the surface with a
+    // cylinder. Replace each cylinder × plane edge curve with the
+    // analytic intersection, trimmed to the existing endpoints.
+    edge_reconcile::reconcile_edge_curves(&mut result);
 
     // §13.1(2) sliver absorption: Classes A/B/C/D. 12-edge cube test is Class D regression guard (26 faces preserved).
     sliver_absorb::run_and_route_warnings(&mut result, tolerance, edge_geometries, &mut warnings);
