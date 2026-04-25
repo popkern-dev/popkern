@@ -301,7 +301,7 @@ pub fn try_pns_dispatch(
         .map(|face| CornerPatchInfo {
             vertex,
             n_sides,
-            method: CornerMethod::Gregory,
+            method: CornerMethod::PolyhedralNetSpline,
             achieved_continuity: ContinuityLevel::G1,
             classification,
             face,

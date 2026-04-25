@@ -431,6 +431,12 @@ pub(crate) fn reclassify_corner_methods(
 ) {
     use popkern_core::geometry::surface::SurfaceGeometry;
     for info in corner_patches.iter_mut() {
+        // PnS bi-4 caps produce NURBS surfaces too, but they're
+        // a distinct construction with verified G¹ — don't let the
+        // generic Nurbs → Gregory inference downgrade the label.
+        if info.method == CornerMethod::PolyhedralNetSpline {
+            continue;
+        }
         let Some(sof) = brep.faces.get(info.face).and_then(|f| f.surface.as_ref()) else {
             continue;
         };

@@ -357,7 +357,7 @@ fn try_pns_dispatch_succeeds_on_hex_blend() {
 
     assert_eq!(patches.len(), 3, "3 sub-faces for a 6-HE hex");
     for patch in &patches {
-        assert_eq!(patch.method, CornerMethod::Gregory);
+        assert_eq!(patch.method, CornerMethod::PolyhedralNetSpline);
         assert_eq!(patch.n_sides, 3);
     }
 }
@@ -427,7 +427,11 @@ fn try_pns_dispatch_succeeds_at_higher_valences() {
             patches.len()
         );
         for (k, patch) in patches.iter().enumerate() {
-            assert_eq!(patch.method, CornerMethod::Gregory, "N={n_fillets} k={k}");
+            assert_eq!(
+                patch.method,
+                CornerMethod::PolyhedralNetSpline,
+                "N={n_fillets} k={k}"
+            );
             assert_eq!(patch.n_sides, n_fillets, "N={n_fillets} k={k}");
         }
     }

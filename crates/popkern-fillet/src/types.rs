@@ -34,6 +34,11 @@ pub enum CornerMethod {
     Coons,
     /// §5.3 Gregory rational patch for general N. G1; G2 for N=3, 4.
     Gregory,
+    /// Polyhedral-Net Splines (KK-Peters 2015) bi-4 cap. G1 with
+    /// the supporting fillet/face surfaces at the boundary; valid
+    /// for N ∈ {3, 5, 6, 7, 8, 9, 10, 11, 12} (N=4 rejected — σ
+    /// singularity).
+    PolyhedralNetSpline,
     /// §5.3 item #7 — planar cap at a tangent corner (dihedral ≈
     /// π); plane normal = averaged fillet-surface normal at the
     /// arcs. G1 with incident fillets (tangent-approximation).
@@ -51,6 +56,7 @@ impl CornerMethod {
             CornerMethod::Mitred => "Mitred",
             CornerMethod::Coons => "Coons",
             CornerMethod::Gregory => "Gregory",
+            CornerMethod::PolyhedralNetSpline => "PolyhedralNetSpline",
             CornerMethod::TangentPlane => "TangentPlane",
             CornerMethod::PlateMin => "PlateMin",
         }

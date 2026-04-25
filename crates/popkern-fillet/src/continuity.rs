@@ -105,7 +105,13 @@ pub(crate) fn emit_corner_downgrade_warnings(
 
     for agg in by_vertex.into_values() {
         let info = agg.first;
-        if info.n_sides >= 5 {
+        // The blanket N ≥ 5 warning is a hedge for the polar-NURBS
+        // ladder, which can deliver only G⁰-ish quality at the
+        // corner interior. PnS bi-4 caps deliver verified G¹ at the
+        // boundary (see `cap_boundary_g1_with_*` tests), so don't
+        // fire the hedge when the corner was actually handled by
+        // PnS — only when it fell through to a less-capable rung.
+        if info.n_sides >= 5 && info.method != crate::types::CornerMethod::PolyhedralNetSpline {
             warnings.push((
                 fallback_edge,
                 BlendWarning::CornerContinuityDowngraded {
