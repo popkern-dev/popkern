@@ -125,20 +125,36 @@ fn write_wrapped(out: &mut Vec<u8>, text: &str, line_width: usize) -> Result<(),
             remaining.min(line_width.saturating_sub(2))
         };
 
-        // Try to break at a comma or space
+        // Try to break at a comma or space — never mid-token. With
+        // complex entities like `( TYPE_A(...) TYPE_B(...) )`, the
+        // only safe break inside a single line is after a comma
+        // (between params) or after a space (between complex parts).
+        // If we can find neither, scan forward past `chunk` until we
+        // hit one — STEP allows long lines, so we'd rather emit a
+        // long line than corrupt mid-token.
         let break_at = if pos + chunk >= bytes.len() {
             bytes.len() - pos
         } else {
             let search_end = pos + chunk;
-            let mut best = chunk;
-            // Search backwards for a comma
+            let mut best: Option<usize> = None;
+            // Search backwards for a comma OR a space
             for i in (pos..search_end).rev() {
-                if bytes[i] == b',' {
-                    best = i - pos + 1;
+                if bytes[i] == b',' || bytes[i] == b' ' {
+                    best = Some(i - pos + 1);
                     break;
                 }
             }
-            best
+            // If no break point in [pos..search_end], scan forward to
+            // the next one to avoid breaking mid-token.
+            if best.is_none() {
+                for (i, &b) in bytes.iter().enumerate().skip(search_end) {
+                    if b == b',' || b == b' ' {
+                        best = Some(i - pos + 1);
+                        break;
+                    }
+                }
+            }
+            best.unwrap_or(remaining)
         };
 
         if !first_line {

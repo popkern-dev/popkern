@@ -5,6 +5,15 @@ use std::sync::Arc;
 
 use popkern_core::topology::BRep;
 
+/// Print a one-shot health card: topology counts, geometry stats,
+/// defect categories. Complements `report_non_manifold`. Set
+/// `POPKERN_DIAG_VERBOSE=1` for the full per-defect listing.
+#[allow(dead_code)]
+pub fn report_diagnostics(brep: &BRep) {
+    let report = popkern_core::diagnostics::Diagnostics::run(brep);
+    print!("{report}");
+}
+
 /// Print a count + breakdown of edges where surface_a(pcurve_a) and
 /// surface_b(pcurve_b) disagree at interior points — i.e. the edges
 /// that OCCT-strict slicers (Bambu Studio, FreeCAD) flag as

@@ -9,6 +9,7 @@
 pub mod adaptive_precision;
 pub mod check_finite;
 pub mod constructors;
+pub mod diagnostics;
 pub mod error;
 pub mod euler;
 pub mod geometry;
