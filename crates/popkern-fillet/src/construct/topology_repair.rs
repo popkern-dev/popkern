@@ -975,10 +975,10 @@ fn rewrite_edge_to_arc(
         reverse_nurbs(&plane_uv)
     };
     if let Some(he_mut) = brep.half_edges.get_mut(cyl_he) {
-        he_mut.pcurve = Some(cyl_pcurve);
+        he_mut.pcurve = Some(cyl_pcurve.into());
     }
     if let Some(twin_mut) = brep.half_edges.get_mut(plane_he) {
-        twin_mut.pcurve = Some(plane_pcurve);
+        twin_mut.pcurve = Some(plane_pcurve.into());
     }
     true
 }
@@ -1045,7 +1045,7 @@ fn reproject_loop_pcurves_into_plane(brep: &mut BRep, face: FaceHandle) {
         } else {
             reverse_nurbs(&new_pcurve)
         };
-        brep.half_edges[he].pcurve = Some(pcurve);
+        brep.half_edges[he].pcurve = Some(pcurve.into());
     }
 }
 

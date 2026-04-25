@@ -238,10 +238,10 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
         return false;
     }
     if let Some(he_mut) = brep.half_edges.get_mut(he) {
-        he_mut.pcurve = Some(trimmed_uv1);
+        he_mut.pcurve = Some(trimmed_uv1.into());
     }
     if let Some(twin_mut) = brep.half_edges.get_mut(twin) {
-        twin_mut.pcurve = Some(trimmed_uv2);
+        twin_mut.pcurve = Some(trimmed_uv2.into());
     }
     true
 }

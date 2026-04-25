@@ -177,8 +177,8 @@ impl BRep {
             }
         };
 
-        brep.half_edges[he_seam_up].pcurve = Some(line_pcurve(TAU, PI, TAU, 0.0));
-        brep.half_edges[he_seam_down].pcurve = Some(line_pcurve(0.0, 0.0, 0.0, PI));
+        brep.half_edges[he_seam_up].pcurve = Some(line_pcurve(TAU, PI, TAU, 0.0).into());
+        brep.half_edges[he_seam_down].pcurve = Some(line_pcurve(0.0, 0.0, 0.0, PI).into());
 
         // =====================================================================
         // Validate

@@ -360,7 +360,7 @@ fn sphere_all_half_edges_have_pcurves() {
 fn sphere_pcurves_are_degree_1() {
     let sph = BRep::sphere(1.0, Tolerance::default()).unwrap();
     for (_, he) in &sph.half_edges {
-        let pcurve = he.pcurve.as_ref().unwrap();
+        let pcurve = he.pcurve.as_ref().unwrap().to_nurbs();
         assert_eq!(pcurve.degree, 1, "Sphere pcurves should be degree 1");
         assert_eq!(pcurve.control_points.len(), 2);
         assert_eq!(pcurve.weights.len(), 2);
@@ -372,7 +372,7 @@ fn sphere_pcurves_have_valid_v_range() {
     // Sphere v ranges from 0 (north) to PI (south).
     let sph = BRep::sphere(1.0, Tolerance::default()).unwrap();
     for (_, he) in &sph.half_edges {
-        let pcurve = he.pcurve.as_ref().unwrap();
+        let pcurve = he.pcurve.as_ref().unwrap().to_nurbs();
         for cp in &pcurve.control_points {
             assert!(
                 cp.y >= -1e-10 && cp.y <= std::f64::consts::PI + 1e-10,
@@ -401,7 +401,7 @@ fn cylinder_lateral_pcurves_are_degree_1() {
     let mut deg1_count = 0;
     let mut deg2_count = 0;
     for (_, he) in &cyl.half_edges {
-        let pcurve = he.pcurve.as_ref().unwrap();
+        let pcurve = he.pcurve.as_ref().unwrap().to_nurbs();
         if pcurve.degree == 1 {
             deg1_count += 1;
         } else if pcurve.degree == 2 {
@@ -431,7 +431,7 @@ fn cone_lateral_pcurves_are_degree_1() {
     let mut deg1_count = 0;
     let mut deg2_count = 0;
     for (_, he) in &cone.half_edges {
-        let pcurve = he.pcurve.as_ref().unwrap();
+        let pcurve = he.pcurve.as_ref().unwrap().to_nurbs();
         if pcurve.degree == 1 {
             deg1_count += 1;
         } else if pcurve.degree == 2 {
@@ -449,7 +449,7 @@ fn cone_pcurves_have_valid_v_range() {
     let cone = BRep::cone(1.0, height, Tolerance::default()).unwrap();
     // Check only the degree-1 (lateral) pcurves for v-range.
     for (_, he) in &cone.half_edges {
-        let pcurve = he.pcurve.as_ref().unwrap();
+        let pcurve = he.pcurve.as_ref().unwrap().to_nurbs();
         if pcurve.degree == 1 {
             for cp in &pcurve.control_points {
                 assert!(

@@ -17,8 +17,12 @@ pub struct HalfEdge {
     /// Parent loop.
     pub loop_: LoopHandle,
     /// UV parameter curve on the parent face's surface.
-    /// Uses Point3(u, v, 0) convention. `None` for edges without surface geometry.
-    pub pcurve: Option<crate::geometry::nurbs_curve::NurbsCurve>,
+    /// Encoded as `Point3 { x: u, y: v, z: 0 }`. `None` for edges
+    /// without surface geometry. Stored as a [`Pcurve`] so analytic
+    /// variants (linear, etc.) can be carried exactly.
+    ///
+    /// [`Pcurve`]: crate::geometry::pcurve::Pcurve
+    pub pcurve: Option<crate::geometry::pcurve::Pcurve>,
 }
 
 #[cfg(test)]

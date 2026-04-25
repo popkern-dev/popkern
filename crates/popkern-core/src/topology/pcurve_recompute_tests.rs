@@ -1,5 +1,4 @@
 use crate::geometry::Point3;
-use crate::geometry::curve::CurveEval;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
 use crate::topology::BRep;
@@ -97,8 +96,8 @@ fn cylinder_seam_pcurve_is_degree_1() {
         loop {
             let he = &brep.half_edges[cursor];
             if let Some(ref pcurve) = he.pcurve
-                && pcurve.degree == 1
-                && pcurve.control_points.len() == 2
+                && pcurve.to_nurbs().degree == 1
+                && pcurve.to_nurbs().control_points.len() == 2
             {
                 found_degree_1 = true;
             }
@@ -176,9 +175,13 @@ fn cube_recomputed_pcurves_are_linear() {
             .pcurve
             .as_ref()
             .expect("pcurve should exist after recompute");
-        assert_eq!(pcurve.degree, 1, "cube pcurve should be degree-1 (linear)");
         assert_eq!(
-            pcurve.control_points.len(),
+            pcurve.to_nurbs().degree,
+            1,
+            "cube pcurve should be degree-1 (linear)"
+        );
+        assert_eq!(
+            pcurve.to_nurbs().control_points.len(),
             2,
             "degree-1 pcurve should have exactly 2 control points"
         );
@@ -258,16 +261,17 @@ fn fix_stale_pcurves_after_corrupted_uv() {
     let mut cursor = loop_.half_edge;
     loop {
         if let Some(ref pc) = brep.half_edges[cursor].pcurve {
+            let pc_n = pc.to_nurbs();
             let bad_pcurve = NurbsCurve {
                 degree: 1,
                 knots: vec![0.0, 0.0, 1.0, 1.0],
                 control_points: vec![
-                    Point3::new(pc.control_points[0].x + 100.0, 100.0, 0.0),
-                    Point3::new(100.0, pc.control_points[1].y + 100.0, 0.0),
+                    Point3::new(pc_n.control_points[0].x + 100.0, 100.0, 0.0),
+                    Point3::new(100.0, pc_n.control_points[1].y + 100.0, 0.0),
                 ],
                 weights: vec![1.0, 1.0],
             };
-            brep.half_edges[cursor].pcurve = Some(bad_pcurve);
+            brep.half_edges[cursor].pcurve = Some(bad_pcurve.into());
         }
         cursor = brep.half_edges[cursor].next;
         if cursor == loop_.half_edge {
@@ -347,13 +351,21 @@ fn fix_stale_pcurves_noop_on_clean_brep() {
     let before: Vec<_> = brep
         .half_edges
         .values()
-        .filter_map(|he| he.pcurve.as_ref().map(|pc| pc.control_points.clone()))
+        .filter_map(|he| {
+            he.pcurve
+                .as_ref()
+                .map(|pc| pc.to_nurbs().control_points.clone())
+        })
         .collect();
     brep.fix_stale_pcurves();
     let after: Vec<_> = brep
         .half_edges
         .values()
-        .filter_map(|he| he.pcurve.as_ref().map(|pc| pc.control_points.clone()))
+        .filter_map(|he| {
+            he.pcurve
+                .as_ref()
+                .map(|pc| pc.to_nurbs().control_points.clone())
+        })
         .collect();
     assert_eq!(before.len(), after.len(), "no pcurves should be lost");
 }

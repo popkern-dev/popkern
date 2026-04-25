@@ -91,7 +91,7 @@ pub(crate) fn face_vertex_positions(brep: &BRep, face_handle: FaceHandle) -> Vec
 pub(crate) fn face_uv_boundary(
     brep: &BRep,
     face: FaceHandle,
-) -> Option<Vec<(HalfEdgeHandle, NurbsCurve)>> {
+) -> Option<Vec<(HalfEdgeHandle, popkern_core::geometry::pcurve::Pcurve)>> {
     let face_data = brep.faces.get(face)?;
     let loop_data = brep.loops.get(face_data.outer_loop)?;
     let start = loop_data.half_edge;
@@ -152,8 +152,14 @@ pub(crate) fn find_uv_crossings(
             .iter()
             .any(|p| p.x > std::f64::consts::PI)
     };
-    let needs_shift = (is_near_seam(curve_uv) || boundary.iter().any(|(_, pc)| is_near_seam(pc)))
-        && (in_periodic_range(curve_uv) || boundary.iter().any(|(_, pc)| in_periodic_range(pc)));
+    // Convert any analytic Pcurve variants to their NURBS form for
+    // the seam-detection / shift logic, which operates on CPs.
+    let boundary_nurbs: Vec<(popkern_core::topology::HalfEdgeHandle, NurbsCurve)> =
+        boundary.iter().map(|(h, pc)| (*h, pc.to_nurbs())).collect();
+    let needs_shift = (is_near_seam(curve_uv)
+        || boundary_nurbs.iter().any(|(_, pc)| is_near_seam(pc)))
+        && (in_periodic_range(curve_uv)
+            || boundary_nurbs.iter().any(|(_, pc)| in_periodic_range(pc)));
     let shift = std::f64::consts::PI;
 
     let working_curve = if needs_shift {
@@ -162,7 +168,7 @@ pub(crate) fn find_uv_crossings(
         curve_uv.clone()
     };
 
-    for (he_handle, boundary_pcurve) in &boundary {
+    for (he_handle, boundary_pcurve) in &boundary_nurbs {
         let boundary_range = boundary_pcurve.parameter_range();
         if (boundary_range.1 - boundary_range.0).abs() < tolerance.numerical_floor() {
             continue;

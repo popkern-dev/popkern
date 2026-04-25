@@ -140,7 +140,7 @@ impl BRep {
                 prev: Default::default(), // patched below
                 edge: edge_h,
                 loop_: inner_loop,
-                pcurve: Some(pcurve),
+                pcurve: Some(pcurve.into()),
             });
             inner_hes.push(inner_he);
 

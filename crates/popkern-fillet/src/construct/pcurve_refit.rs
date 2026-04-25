@@ -71,8 +71,9 @@ pub(crate) fn refit_all_pcurves(brep: &mut BRep) {
             // Compare new vs old pcurve roundtrip error against the
             // 3-D curve. Keep whichever is closer.
             let old_pcurve = brep.half_edges[half].pcurve.clone();
+            let new_pcurve_pc: popkern_core::geometry::pcurve::Pcurve = new_pcurve.clone().into();
             let new_err =
-                pcurve_roundtrip_error(&curve_on_edge.geometry, &surface, &new_pcurve, forward);
+                pcurve_roundtrip_error(&curve_on_edge.geometry, &surface, &new_pcurve_pc, forward);
             let old_err = match &old_pcurve {
                 Some(pc) => pcurve_roundtrip_error(&curve_on_edge.geometry, &surface, pc, forward),
                 None => f64::INFINITY,
@@ -81,7 +82,7 @@ pub(crate) fn refit_all_pcurves(brep: &mut BRep) {
             // better (≥10% reduction) — avoids churn from random
             // numerical jitter.
             if new_err < old_err * 0.9 {
-                brep.half_edges[half].pcurve = Some(new_pcurve);
+                brep.half_edges[half].pcurve = Some(new_pcurve.into());
             }
         }
         let _ = twin;
@@ -132,7 +133,7 @@ fn fit_pcurve_for_half_edge(
 fn pcurve_roundtrip_error(
     curve_3d: &popkern_core::geometry::curve::CurveGeometry,
     surface: &SurfaceGeometry,
-    pcurve: &NurbsCurve,
+    pcurve: &popkern_core::geometry::pcurve::Pcurve,
     forward: bool,
 ) -> f64 {
     let (pa_lo, pa_hi) = pcurve.parameter_range();

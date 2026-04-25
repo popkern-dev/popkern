@@ -68,7 +68,14 @@ pub(crate) fn clamp_bounded_pcurves(brep: &mut BRep) -> usize {
         // last CPs are exact endpoints). Sampling could miss
         // narrow excursions between samples, but CPs are the
         // ground truth.
-        let cps_outside = pcurve.control_points.iter().any(|p| {
+        // Analytic pcurve variants (Linear) live in their parent
+        // surface's UV box by construction (G4) — no clamping needed
+        // and no CPs to inspect. Only NURBS pcurves require this
+        // band-aid pass.
+        let Some(nurbs_view) = pcurve.as_nurbs() else {
+            continue;
+        };
+        let cps_outside = nurbs_view.control_points.iter().any(|p| {
             p.x < u_lo - 1e-9 || p.x > u_hi + 1e-9 || p.y < v_lo - 1e-9 || p.y > v_hi + 1e-9
         });
         if std::env::var("POPKERN_CLAMP_TRACE").is_ok() {
@@ -77,7 +84,7 @@ pub(crate) fn clamp_bounded_pcurves(brep: &mut BRep) -> usize {
                 SurfaceGeometry::Nurbs(_) => "Nurbs",
                 _ => "other",
             };
-            let cp_summary: Vec<String> = pcurve
+            let cp_summary: Vec<String> = nurbs_view
                 .control_points
                 .iter()
                 .map(|p| format!("({:.2},{:.2})", p.x, p.y))
@@ -96,8 +103,10 @@ pub(crate) fn clamp_bounded_pcurves(brep: &mut BRep) -> usize {
         let Some(he_mut) = brep.half_edges.get_mut(heh) else {
             continue;
         };
-        if let Some(pc) = he_mut.pcurve.as_mut() {
-            for cp in &mut pc.control_points {
+        if let Some(pc) = he_mut.pcurve.as_mut()
+            && let Some(n) = pc.as_nurbs_mut()
+        {
+            for cp in &mut n.control_points {
                 cp.x = cp.x.clamp(u_lo, u_hi);
                 cp.y = cp.y.clamp(v_lo, v_hi);
             }

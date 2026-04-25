@@ -343,7 +343,7 @@ fn build_face_with_pcurves(
             control_points: vec![*p0, *p1],
             weights: vec![1.0, 1.0],
         };
-        brep.half_edges[cursor].pcurve = Some(pcurve);
+        brep.half_edges[cursor].pcurve = Some(pcurve.into());
         cursor = brep.half_edges[cursor].next;
         if cursor == start && i < 3 {
             break;

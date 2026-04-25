@@ -183,7 +183,7 @@ fn attach_torus_pcurves(brep: &mut BRep) -> Result<(), CoreError> {
             weights: vec![1.0, 1.0],
         };
 
-        brep.half_edges[heh].pcurve = Some(pcurve);
+        brep.half_edges[heh].pcurve = Some(pcurve.into());
     }
     Ok(())
 }

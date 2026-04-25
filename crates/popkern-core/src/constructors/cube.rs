@@ -47,7 +47,6 @@ impl BRep {
 
 #[cfg(test)]
 mod tests {
-    use crate::geometry::curve::CurveEval;
     use crate::geometry::surface::SurfaceGeometry;
     use crate::tolerance::Tolerance;
     use crate::topology::BRep;

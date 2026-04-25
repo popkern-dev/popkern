@@ -390,8 +390,6 @@ fn split_edge_preserves_pcurves() {
 /// Test that split_edge pcurve endpoints are geometrically consistent.
 #[test]
 fn split_edge_pcurve_endpoints_consistent() {
-    use crate::geometry::curve::CurveEval;
-
     let mut cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let edge = cube.edges.keys().next().unwrap();
     let he = cube.edges[edge].half_edge;

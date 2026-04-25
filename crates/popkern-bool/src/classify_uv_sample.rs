@@ -19,8 +19,6 @@ use super::face_vertex_positions;
 /// the face lacks surface geometry, pcurves, or the UV centroid falls outside
 /// the face boundary.
 pub(super) fn uv_centroid_sample(brep: &BRep, face_handle: FaceHandle) -> Option<Point3> {
-    use popkern_core::geometry::curve::CurveEval;
-
     let face = &brep.faces[face_handle];
     let surface_on_face = face.surface.as_ref()?;
     let boundary = crate::clip::face_uv_boundary(brep, face_handle)?;
@@ -97,8 +95,6 @@ fn inner_loop_uv_contains(
     u: f64,
     v: f64,
 ) -> bool {
-    use popkern_core::geometry::curve::CurveEval;
-
     let loop_data = match brep.loops.get(loop_handle) {
         Some(l) => l,
         None => return false,

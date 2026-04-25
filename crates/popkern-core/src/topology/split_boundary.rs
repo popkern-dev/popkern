@@ -4,7 +4,7 @@
 use crate::error::CoreError;
 use crate::geometry::Point3;
 use crate::geometry::curve::CurveOnEdge;
-use crate::geometry::nurbs_curve::NurbsCurve;
+use crate::geometry::pcurve::Pcurve;
 use crate::topology::*;
 
 use super::split::SplitEdgeResult;
@@ -23,7 +23,7 @@ impl BRep {
         vertex_a: VertexHandle,
         he_ab_next: HalfEdgeHandle,
         he_ab_loop: LoopHandle,
-        pcurve_ab: &Option<NurbsCurve>,
+        pcurve_ab: &Option<Pcurve>,
         curve_on_edge: &Option<CurveOnEdge>,
     ) -> Result<SplitEdgeResult, CoreError> {
         let vertex_b = self.half_edges[he_ab_next].origin;

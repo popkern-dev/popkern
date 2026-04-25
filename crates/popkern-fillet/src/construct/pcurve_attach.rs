@@ -125,7 +125,7 @@ fn wire_trim_edge_pcurves(
 
         // Wire the EdgeGeometry pcurve onto the kept-face half-edge.
         if let Some(kh) = kept_he {
-            brep.half_edges[kh].pcurve = Some(eg_pcurve.clone());
+            brep.half_edges[kh].pcurve = Some(eg_pcurve.clone().into());
         }
 
         // Compute and wire a pcurve on the fillet surface for the fillet-face half-edge.
@@ -134,7 +134,7 @@ fn wire_trim_edge_pcurves(
         {
             // Orient the pcurve to match the half-edge traversal direction.
             let pcurve = orient_pcurve_to_halfedge(brep, fh, trim_3d, &pcurve);
-            brep.half_edges[fh].pcurve = Some(pcurve);
+            brep.half_edges[fh].pcurve = Some(pcurve.into());
         }
     }
 }
@@ -245,7 +245,7 @@ fn attach_remaining_fillet_pcurves(
     // Compute pcurves for the collected half-edges.
     for heh in he_handles {
         if let Some(pcurve) = compute_halfedge_pcurve(brep, heh, fillet_surface) {
-            brep.half_edges[heh].pcurve = Some(pcurve);
+            brep.half_edges[heh].pcurve = Some(pcurve.into());
         }
     }
 }

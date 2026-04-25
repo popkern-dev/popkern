@@ -320,7 +320,12 @@ impl ExportContext {
         let pcurve = he.pcurve.as_ref()?;
         let loop_ = brep.loops.get(he.loop_)?;
         let surface_id = surface_map.get(&loop_.face)?;
-        Some(self.export_pcurve(pcurve, *surface_id))
+        // STEP doesn't have a native analytic-pcurve type — convert
+        // any analytic Pcurve variant (Linear, etc.) to its NURBS
+        // form via Pcurve::to_nurbs() before export. NURBS variants
+        // are zero-cost.
+        let nurbs = pcurve.to_nurbs();
+        Some(self.export_pcurve(&nurbs, *surface_id))
     }
 }
 

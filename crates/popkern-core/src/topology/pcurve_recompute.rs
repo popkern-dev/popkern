@@ -5,6 +5,7 @@
 
 use super::FaceHandle;
 use super::brep::BRep;
+use crate::geometry::curve::CurveEval;
 
 impl BRep {
     /// Recompute pcurves for all half-edges on a face by projecting
@@ -17,7 +18,6 @@ impl BRep {
         &mut self,
         face_handle: FaceHandle,
     ) -> Result<(), crate::error::CoreError> {
-        use crate::geometry::curve::CurveEval;
         use crate::geometry::surface::SurfaceEval;
         use crate::geometry::uv_projection::{project_point_to_uv, project_point_to_uv_near};
         use crate::geometry::{NurbsCurve, Point3};
@@ -72,7 +72,6 @@ impl BRep {
                 if !is_periodic {
                     continue;
                 }
-                use crate::geometry::curve::CurveEval;
                 let (t0, t1) = existing.parameter_range();
                 let s = existing.point_at(t0);
                 let e = existing.point_at(t1);
@@ -301,7 +300,7 @@ impl BRep {
                 }
             };
 
-            self.half_edges[heh].pcurve = Some(pcurve);
+            self.half_edges[heh].pcurve = Some(pcurve.into());
         }
 
         self.fix_pcurve_endpoints(face_handle);
@@ -321,7 +320,6 @@ impl BRep {
     /// for edges that span the seam (e.g., self-loop circles), so the fix
     /// is skipped when the error is close to a multiple of the period.
     fn fix_pcurve_endpoints(&mut self, face_handle: FaceHandle) {
-        use crate::geometry::curve::CurveEval;
         use crate::geometry::uv_projection::project_point_to_uv;
 
         let surface = match self.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
@@ -406,7 +404,10 @@ impl BRep {
                 continue;
             }
 
-            let mut fixed = pcurve;
+            // Materialise the pcurve as NURBS for endpoint surgery;
+            // analytic variants (Linear) round-trip through `to_nurbs`
+            // so the same code path serves both.
+            let mut fixed = pcurve.to_nurbs();
             let n_cp = fixed.control_points.len();
 
             if fixed.degree == 1 && n_cp == 2 {
@@ -433,7 +434,7 @@ impl BRep {
                 }
             }
 
-            self.half_edges[heh].pcurve = Some(fixed);
+            self.half_edges[heh].pcurve = Some(fixed.into());
         }
     }
 
@@ -455,7 +456,6 @@ impl BRep {
     /// position within tolerance.  This happens when the fillet or other
     /// operations move edge positions without updating existing pcurves.
     pub fn fix_stale_pcurves(&mut self) {
-        use crate::geometry::curve::CurveEval;
         use crate::geometry::surface::SurfaceEval;
 
         let he_keys: Vec<_> = self.half_edges.keys().collect();

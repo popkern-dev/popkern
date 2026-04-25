@@ -193,7 +193,7 @@ pub(crate) fn sample_loop(
 /// Chord-height error is the perpendicular distance from the curve midpoint
 /// to the chord line: `|cross(p1-p0, p_mid-p0)| / |p1-p0|`.
 pub(crate) fn adaptive_sample_pcurve(
-    pcurve: &popkern_core::geometry::nurbs_curve::NurbsCurve,
+    pcurve: &popkern_core::geometry::pcurve::Pcurve,
     chord_height: f64,
     output: &mut Vec<(f64, f64)>,
 ) {
@@ -209,7 +209,7 @@ pub(crate) fn adaptive_sample_pcurve(
 
 /// Recursive subdivision helper for [`adaptive_sample_pcurve`].
 fn subdivide_pcurve(
-    pcurve: &popkern_core::geometry::nurbs_curve::NurbsCurve,
+    pcurve: &popkern_core::geometry::pcurve::Pcurve,
     t0: f64,
     t1: f64,
     chord_height: f64,

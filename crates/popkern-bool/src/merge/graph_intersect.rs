@@ -57,8 +57,10 @@ pub(crate) fn insert_intersection_curves(
 
         // Attach UV curves as pcurves: curve_uv1 belongs to face A (fwd),
         // curve_uv2 belongs to face B (twin).
-        let pcurve_a = Some(record.curve.curve_uv1.clone());
-        let pcurve_b = Some(record.curve.curve_uv2.clone());
+        let pcurve_a: Option<popkern_core::geometry::pcurve::Pcurve> =
+            Some(record.curve.curve_uv1.clone().into());
+        let pcurve_b: Option<popkern_core::geometry::pcurve::Pcurve> =
+            Some(record.curve.curve_uv2.clone().into());
 
         let (fwd, twin) = graph.add_half_edge_pair_with_pcurves(
             start_node,

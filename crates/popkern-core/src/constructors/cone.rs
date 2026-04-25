@@ -315,12 +315,12 @@ impl BRep {
             }
         };
 
-        brep.half_edges[he_base_arc].pcurve = Some(line_pcurve(0.0, h, TAU, h));
-        brep.half_edges[he_seam_up].pcurve = Some(line_pcurve(TAU, h, TAU, 0.0));
-        brep.half_edges[he_seam_down].pcurve = Some(line_pcurve(0.0, 0.0, 0.0, h));
+        brep.half_edges[he_base_arc].pcurve = Some(line_pcurve(0.0, h, TAU, h).into());
+        brep.half_edges[he_seam_up].pcurve = Some(line_pcurve(TAU, h, TAU, 0.0).into());
+        brep.half_edges[he_seam_down].pcurve = Some(line_pcurve(0.0, 0.0, 0.0, h).into());
 
         // Cap face pcurve: degree-2 rational NURBS circle.
-        brep.half_edges[he_base_cap].pcurve = Some(cap_circle_pcurve(radius));
+        brep.half_edges[he_base_cap].pcurve = Some(cap_circle_pcurve(radius).into());
 
         // =====================================================================
         // Validate

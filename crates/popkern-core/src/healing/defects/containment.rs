@@ -284,15 +284,18 @@ mod tests {
         // Corrupt a pcurve so it maps to a wildly wrong 3D point.
         let he_h = brep.half_edges.keys().next().unwrap();
         // Replace pcurve with one that maps to (100, 100, 0) in UV space.
-        brep.half_edges[he_h].pcurve = Some(NurbsCurve {
-            degree: 1,
-            knots: vec![0.0, 0.0, 1.0, 1.0],
-            control_points: vec![
-                Point3::new(100.0, 100.0, 0.0),
-                Point3::new(200.0, 200.0, 0.0),
-            ],
-            weights: vec![1.0, 1.0],
-        });
+        brep.half_edges[he_h].pcurve = Some(
+            NurbsCurve {
+                degree: 1,
+                knots: vec![0.0, 0.0, 1.0, 1.0],
+                control_points: vec![
+                    Point3::new(100.0, 100.0, 0.0),
+                    Point3::new(200.0, 200.0, 0.0),
+                ],
+                weights: vec![1.0, 1.0],
+            }
+            .into(),
+        );
         let tol = Tolerance::default();
         let density = SampleDensity::Standard;
         let mut report = HealingReport::new();
@@ -325,12 +328,15 @@ mod tests {
         let face_data = &brep.faces[fh];
         let loop_data = &brep.loops[face_data.outer_loop];
         let he_h = loop_data.half_edge;
-        brep.half_edges[he_h].pcurve = Some(NurbsCurve {
-            degree: 1,
-            knots: vec![0.0, 0.0, 1.0, 1.0],
-            control_points: vec![Point3::new(50.0, 50.0, 0.0), Point3::new(60.0, 60.0, 0.0)],
-            weights: vec![1.0, 1.0],
-        });
+        brep.half_edges[he_h].pcurve = Some(
+            NurbsCurve {
+                degree: 1,
+                knots: vec![0.0, 0.0, 1.0, 1.0],
+                control_points: vec![Point3::new(50.0, 50.0, 0.0), Point3::new(60.0, 60.0, 0.0)],
+                weights: vec![1.0, 1.0],
+            }
+            .into(),
+        );
         let mut report = HealingReport::new();
         check_surface_containment(&brep, &mut report);
         assert!(

@@ -423,9 +423,9 @@ impl BRep {
         // forward UV trim curve.
         // mef_result.half_edge_twin: exit->entry (on the new face side) gets the
         // reversed UV trim curve.
-        self.half_edges[mef_result.half_edge].pcurve = Some(trim_curve_uv.clone());
+        self.half_edges[mef_result.half_edge].pcurve = Some(trim_curve_uv.clone().into());
         self.half_edges[mef_result.half_edge_twin].pcurve =
-            Some(reverse_nurbs_curve(trim_curve_uv));
+            Some(reverse_nurbs_curve(trim_curve_uv).into());
 
         // Both faces should keep the original surface geometry.
         // The original face (containing he_entry's side) already has it.
@@ -446,54 +446,7 @@ impl BRep {
     }
 }
 
-/// Split a pcurve at parameter `t` (in [0,1] of the edge).
-///
-/// Returns `(left, right)` where `left` covers the first portion and `right`
-/// covers the second. If the pcurve is `None` or splitting fails, returns
-/// `(None, None)`.
-pub(crate) fn split_pcurve_at(
-    pcurve: &Option<NurbsCurve>,
-    t: f64,
-) -> (Option<NurbsCurve>, Option<NurbsCurve>) {
-    let Some(curve) = pcurve else {
-        return (None, None);
-    };
-    let (p_start, p_end) = curve.parameter_range();
-    let split_param = p_start + t * (p_end - p_start);
-    match curve.split_at(split_param) {
-        Ok((left, right)) => (Some(left), Some(right)),
-        Err(_) => (None, None),
-    }
-}
-
-/// Reverse a NURBS curve (swap direction of traversal).
-///
-/// The reversed curve evaluates the same geometry but in the opposite
-/// direction: `reversed.point_at(t_start)` equals `original.point_at(t_end)`.
-fn reverse_nurbs_curve(curve: &NurbsCurve) -> NurbsCurve {
-    let (t_start, t_end) = curve.parameter_range();
-    let mut reversed_knots: Vec<f64> = curve
-        .knots
-        .iter()
-        .rev()
-        .map(|&k| t_start + t_end - k)
-        .collect();
-    // Knots must be non-decreasing after reversal.
-    reversed_knots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-    let mut reversed_cp = curve.control_points.clone();
-    reversed_cp.reverse();
-
-    let mut reversed_weights = curve.weights.clone();
-    reversed_weights.reverse();
-
-    NurbsCurve {
-        degree: curve.degree,
-        knots: reversed_knots,
-        control_points: reversed_cp,
-        weights: reversed_weights,
-    }
-}
+pub(crate) use super::split_helpers::{reverse_nurbs_curve, split_pcurve_at};
 
 #[cfg(test)]
 #[path = "split_tests.rs"]

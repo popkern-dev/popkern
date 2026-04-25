@@ -305,10 +305,14 @@ fn detect_nurbs_defects(brep: &BRep) -> Vec<NurbsDefect> {
             }
         }
     }
-    // Half-edge pcurves
+    // Half-edge pcurves — analytic variants (Linear) are inherently
+    // valid (no CPs to check); only the NURBS form goes through the
+    // NURBS defect checker.
     for (heh, he) in &brep.half_edges {
-        if let Some(pc) = he.pcurve.as_ref() {
-            for kind in check_nurbs_curve(pc) {
+        if let Some(pc) = he.pcurve.as_ref()
+            && let Some(nurbs) = pc.as_nurbs()
+        {
+            for kind in check_nurbs_curve(nurbs) {
                 out.push(NurbsDefect {
                     scope: NurbsScope::HalfEdgePcurve(heh),
                     kind,

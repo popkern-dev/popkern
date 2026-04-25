@@ -23,7 +23,6 @@ fn fillet_result_100_percent_pcurve_coverage() {
 
 #[test]
 fn fillet_pcurves_have_uv_within_surface_range() {
-    use popkern_core::geometry::curve::CurveEval;
     use popkern_core::geometry::surface::SurfaceEval;
 
     let brep = BRep::unit_cube(default_tol()).unwrap();

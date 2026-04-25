@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 
 use popkern_core::{
-    geometry::{CurveOnEdge, Point3, nurbs_curve::NurbsCurve},
+    geometry::{CurveOnEdge, Point3},
     topology::{EdgeHandle, FaceHandle, VertexHandle},
 };
 
@@ -94,7 +94,7 @@ pub(crate) struct GraphHalfEdge {
     /// Geometric curve along this half-edge, if any.
     pub curve: Option<CurveOnEdge>,
     /// UV parameter-space curve (pcurve) for the face this half-edge borders.
-    pub pcurve: Option<NurbsCurve>,
+    pub pcurve: Option<popkern_core::geometry::pcurve::Pcurve>,
     /// Where this edge came from.
     pub source: EdgeSource,
 }
@@ -161,8 +161,8 @@ impl IntersectionGraph {
         end: usize,
         source: EdgeSource,
         curve: Option<CurveOnEdge>,
-        pcurve_fwd: Option<NurbsCurve>,
-        pcurve_twin: Option<NurbsCurve>,
+        pcurve_fwd: Option<popkern_core::geometry::pcurve::Pcurve>,
+        pcurve_twin: Option<popkern_core::geometry::pcurve::Pcurve>,
     ) -> (usize, usize) {
         let fwd_idx = self.half_edges.len();
         let twin_idx = fwd_idx + 1;

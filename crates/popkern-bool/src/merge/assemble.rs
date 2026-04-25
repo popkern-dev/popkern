@@ -190,27 +190,26 @@ pub(crate) fn assemble_result(
         // `ghe` given the fragment's `face_ref`: if the graph half-edge's
         // face matches, use its pcurve; otherwise use the twin's pcurve
         // (which belongs to the other face and hence the correct UV space).
-        let correct_pcurve_for_face =
-            |ghe: usize,
-             face_ref: &super::graph::FaceRef|
-             -> Option<popkern_core::geometry::nurbs_curve::NurbsCurve> {
-                let ghe_face = &graph.half_edges[ghe].face;
-                let twin = graph.half_edges[ghe].twin;
-                let twin_face = &graph.half_edges[twin].face;
+        let correct_pcurve_for_face = |ghe: usize,
+                                       face_ref: &super::graph::FaceRef|
+         -> Option<popkern_core::geometry::pcurve::Pcurve> {
+            let ghe_face = &graph.half_edges[ghe].face;
+            let twin = graph.half_edges[ghe].twin;
+            let twin_face = &graph.half_edges[twin].face;
 
-                // If this graph half-edge's face matches the fragment's
-                // face, its pcurve is in the correct UV space.
-                if ghe_face.as_ref() == Some(face_ref) {
-                    return graph.half_edges[ghe].pcurve.clone();
-                }
-                // If the twin's face matches, the twin's pcurve is correct.
-                if twin_face.as_ref() == Some(face_ref) {
-                    return graph.half_edges[twin].pcurve.clone();
-                }
-                // Neither matches (original edges, not shared) — use the
-                // graph half-edge's own pcurve as-is.
-                graph.half_edges[ghe].pcurve.clone()
-            };
+            // If this graph half-edge's face matches the fragment's
+            // face, its pcurve is in the correct UV space.
+            if ghe_face.as_ref() == Some(face_ref) {
+                return graph.half_edges[ghe].pcurve.clone();
+            }
+            // If the twin's face matches, the twin's pcurve is correct.
+            if twin_face.as_ref() == Some(face_ref) {
+                return graph.half_edges[twin].pcurve.clone();
+            }
+            // Neither matches (original edges, not shared) — use the
+            // graph half-edge's own pcurve as-is.
+            graph.half_edges[ghe].pcurve.clone()
+        };
 
         // Resolve graph half-edges to BRep half-edges for a loop.
         // When both directions of an edge are already wired, creates a

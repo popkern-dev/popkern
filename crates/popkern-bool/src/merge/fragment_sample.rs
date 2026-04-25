@@ -4,7 +4,7 @@
 //! used by the point-in-solid classifier to determine fragment membership.
 
 use popkern_core::{
-    geometry::{CurveEval, Point3, surface::SurfaceEval},
+    geometry::{Point3, surface::SurfaceEval},
     topology::BRep,
 };
 
@@ -105,11 +105,10 @@ pub(crate) fn sample_point_uv(
             }
         };
         if let Some(pc) = pcurve {
-            let t = if use_t_end {
-                pc.knots[pc.knots.len() - pc.degree - 1]
-            } else {
-                pc.knots[pc.degree]
-            };
+            // Endpoint parameters live at the pcurve's intrinsic
+            // range; uniform across all variants (Linear/Nurbs).
+            let (t_start, t_end) = pc.parameter_range();
+            let t = if use_t_end { t_end } else { t_start };
             let uv_pt = pc.point_at(t);
             uv_verts.push((uv_pt.x, uv_pt.y));
         }

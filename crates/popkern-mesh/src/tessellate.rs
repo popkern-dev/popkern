@@ -186,8 +186,6 @@ fn pcurve_parameter_range(
     brep: &BRep,
     face_handle: FaceHandle,
 ) -> Option<((f64, f64), (f64, f64))> {
-    use popkern_core::geometry::curve::CurveEval;
-
     let face = brep.faces.get(face_handle)?;
     let surface = face.surface.as_ref()?;
     let (period_u, period_v) = surface.geometry.periodicity();

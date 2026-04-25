@@ -211,7 +211,7 @@ fn attach_loop_geometry(
 
             // Attach pcurve.
             let pcurve = curve_convert::convert_to_pcurve(directed, ctx.sketch)?;
-            brep.half_edges[cursor].pcurve = Some(pcurve);
+            brep.half_edges[cursor].pcurve = Some(pcurve.into());
         }
 
         cursor = brep.half_edges[cursor].next;
@@ -244,7 +244,7 @@ fn attach_twin_pcurves(
             if let Some(idx) = find_matching_edge(traced, origin_2d, n) {
                 let directed = &traced.edges[idx];
                 let pcurve = curve_convert::convert_to_pcurve(directed, ctx.sketch)?;
-                brep.half_edges[cursor].pcurve = Some(pcurve);
+                brep.half_edges[cursor].pcurve = Some(pcurve.into());
             }
         }
 
@@ -351,10 +351,10 @@ fn build_hole_loop(
 
         // Attach pcurves.
         let pcurve = curve_convert::convert_to_pcurve(&traced.edges[i], ctx.sketch)?;
-        brep.half_edges[he_fwd].pcurve = Some(pcurve);
+        brep.half_edges[he_fwd].pcurve = Some(pcurve.into());
 
         let back_pcurve = curve_convert::convert_to_pcurve(&traced.edges[i], ctx.sketch)?;
-        brep.half_edges[he_rev].pcurve = Some(back_pcurve);
+        brep.half_edges[he_rev].pcurve = Some(back_pcurve.into());
 
         front_hes.push(he_fwd);
         back_hes.push(he_rev);

@@ -212,7 +212,7 @@ impl BRep {
                     weights: vec![1.0, 1.0],
                 };
 
-                self.half_edges[heh].pcurve = Some(pcurve);
+                self.half_edges[heh].pcurve = Some(pcurve.into());
             }
         }
         Ok(())

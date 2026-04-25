@@ -6,7 +6,6 @@
 
 use popkern_core::{
     geometry::Point3,
-    geometry::curve::CurveEval,
     tolerance::Tolerance,
     topology::{BRep, FaceHandle},
 };

@@ -1,6 +1,6 @@
 //! Private helpers for face measurement.
 
-use popkern_core::geometry::{CurveEval, Point3};
+use popkern_core::geometry::Point3;
 use popkern_core::topology::{BRep, FaceHandle};
 
 /// Compute the UV extent of a face's outer loop from its pcurves.

@@ -239,7 +239,7 @@ fn reproject_loop_pcurves_onto_gregory(
         let old_pcurve = brep.half_edges[he].pcurve.clone();
         enum Source {
             Curve3D(popkern_core::geometry::curve::CurveOnEdge, bool),
-            OldSurfPcurve(SurfaceGeometry, NurbsCurve),
+            OldSurfPcurve(SurfaceGeometry, popkern_core::geometry::pcurve::Pcurve),
         }
         let source = if let Some(c) = curve_on_edge {
             // Determine direction — does the half-edge run with the
@@ -323,7 +323,7 @@ fn reproject_loop_pcurves_onto_gregory(
             }
         }
         let _: &NurbsCurve = &fitted;
-        brep.half_edges[he].pcurve = Some(fitted);
+        brep.half_edges[he].pcurve = Some(fitted.into());
     }
 }
 

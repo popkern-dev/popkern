@@ -43,6 +43,7 @@ mod brep_measurement;
 /// Edge and face splitting operations.
 pub mod split;
 mod split_boundary;
+pub(crate) mod split_helpers;
 pub use split::{SplitEdgeResult, SplitFaceResult};
 
 /// Inner loop (hole) creation for face trimming.

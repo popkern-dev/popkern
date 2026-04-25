@@ -377,14 +377,14 @@ impl BRep {
             }
         };
 
-        brep.half_edges[he_bot_arc].pcurve = Some(line_pcurve(0.0, 0.0, TAU, 0.0));
-        brep.half_edges[he_seam_up].pcurve = Some(line_pcurve(TAU, 0.0, TAU, h));
-        brep.half_edges[he_top_arc].pcurve = Some(line_pcurve(TAU, h, 0.0, h));
-        brep.half_edges[he_seam_down].pcurve = Some(line_pcurve(0.0, h, 0.0, 0.0));
+        brep.half_edges[he_bot_arc].pcurve = Some(line_pcurve(0.0, 0.0, TAU, 0.0).into());
+        brep.half_edges[he_seam_up].pcurve = Some(line_pcurve(TAU, 0.0, TAU, h).into());
+        brep.half_edges[he_top_arc].pcurve = Some(line_pcurve(TAU, h, 0.0, h).into());
+        brep.half_edges[he_seam_down].pcurve = Some(line_pcurve(0.0, h, 0.0, 0.0).into());
 
         // Cap face pcurves: degree-2 rational NURBS circles.
-        brep.half_edges[he_bot_cap].pcurve = Some(cap_circle_pcurve(radius));
-        brep.half_edges[he_top_cap].pcurve = Some(cap_circle_pcurve(radius));
+        brep.half_edges[he_bot_cap].pcurve = Some(cap_circle_pcurve(radius).into());
+        brep.half_edges[he_top_cap].pcurve = Some(cap_circle_pcurve(radius).into());
 
         // =====================================================================
         // Validate
