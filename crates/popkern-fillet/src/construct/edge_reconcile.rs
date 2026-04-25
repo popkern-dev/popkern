@@ -186,15 +186,18 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
         return false;
     };
 
-    // The vertex positions in the BRep can drift up to several
-    // percent of cylinder radius from the analytic cylinder
-    // surface (a known kernel issue with corner-blend vertex
-    // placement). Reject the rewrite if the chord between the
-    // existing line endpoints would beat the analytic intersection
-    // — that means the intersection is very far from the actual
-    // edge geometry and we'd produce worse output.
-    let chord_len = p1.distance_to(&p2);
-    if best_score > (chord_len * 0.25).max(1e-6) {
+    // The new analytic intersection arc must hit both vertex
+    // positions to within the BRep's linear tolerance. Anything
+    // looser opens a loop gap (validate() OpenLoop) — chord_len-
+    // proportional slack is the wrong axis here: the off-vertex
+    // distance from cylinder surface is what blocks reconciliation,
+    // and that gets enforced downstream by validate(). If the
+    // intersection arc misses the vertices, leave the original
+    // chord-line edge in place; topology repair will handle the
+    // off-cyl-vertex case separately.
+    let _chord_len = p1.distance_to(&p2);
+    let strict_tol = tolerance.linear().max(1e-9);
+    if best_score > strict_tol {
         return false;
     }
 
@@ -218,7 +221,7 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
     let trim_start = trimmed_3d.point_at(et_start);
     let trim_end = trimmed_3d.point_at(et_end);
     let trim_err = trim_start.distance_to(&p1).max(trim_end.distance_to(&p2));
-    if trim_err > (chord_len * 0.25).max(1e-6) {
+    if trim_err > strict_tol {
         return false;
     }
 

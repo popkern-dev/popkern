@@ -494,6 +494,10 @@ pub fn apply_blend_geometry(
     // face but stale once surface_fix replaced the surface with a
     // cylinder. Replace each cylinder × plane edge curve with the
     // analytic intersection, trimmed to the existing endpoints.
+    // Strict tolerance — only rewrites that hit existing vertex
+    // positions to within `tolerance.linear()`. Off-cylinder
+    // vertices (apex-only filleting case) keep their chord-line
+    // edges; topology_repair handles those separately.
     edge_reconcile::reconcile_edge_curves(&mut result);
 
     // Topology repair for off-cylinder vertices in cylinder face

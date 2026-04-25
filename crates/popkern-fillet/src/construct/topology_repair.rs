@@ -41,6 +41,7 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
+use popkern_core::geometry::curve::CurveGeometry;
 use popkern_core::geometry::intersection::surface_surface::{
     SurfaceSurfaceIntersection, intersect_surfaces,
 };
@@ -60,33 +61,54 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, Verte
 /// fails) the snapshot is restored and we move on. This keeps a
 /// single bad attempt from poisoning the rest of the build.
 pub(crate) fn repair_cylinder_face_off_surface_vertices(brep: &mut BRep) -> usize {
+    let trace = std::env::var("POPKERN_TOPO_REPAIR_TRACE").is_ok();
+    let dump = std::env::var("POPKERN_TOPO_REPAIR_DUMP").is_ok();
     let face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
     let mut repaired = 0;
     for fh in face_handles {
         if !is_cylinder_face(brep, fh) {
             continue;
         }
-        // Re-collect candidates each iteration — earlier repairs
-        // mutate the topology, invalidating handles cached from a
-        // prior pass. Cap at 8 attempts per face as a safety
-        // (would only matter for fillet faces with many
-        // off-cylinder vertices, which we don't expect).
+        if dump {
+            dump_cylinder_face(brep, fh);
+        }
         for _attempt in 0..8 {
             if !brep.faces.contains_key(fh) {
                 break;
             }
             let candidates = find_chord_pair_candidates(brep, fh);
+            let n_cand = candidates.len();
             let Some(cand) = candidates.into_iter().next() else {
                 break;
             };
+            if trace {
+                eprintln!(
+                    "[topo_repair] face {fh:?}: trying repair (n_cand={n_cand}, off_cyl_v={:?})",
+                    cand.off_cyl_vertex
+                );
+            }
             let snapshot = brep.clone();
-            if try_repair_chord_pair(brep, fh, cand) && brep.validate().is_ok() {
+            let surgery_ok = try_repair_chord_pair(brep, fh, cand);
+            let validate_result = brep.validate();
+            if trace {
+                eprintln!(
+                    "[topo_repair]   surgery_ok={surgery_ok}, validate={:?}",
+                    validate_result.as_ref().err()
+                );
+            }
+            if surgery_ok && validate_result.is_ok() {
                 repaired += 1;
+                if trace {
+                    eprintln!("[topo_repair]   SUCCESS — repair count {repaired}");
+                }
             } else {
                 *brep = snapshot;
                 break;
             }
         }
+    }
+    if trace {
+        eprintln!("[topo_repair] total repairs: {repaired}");
     }
     repaired
 }
@@ -225,6 +247,7 @@ fn vertex_on_cylinder(
 }
 
 fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairCandidate) -> bool {
+    let trace = std::env::var("POPKERN_TOPO_REPAIR_TRACE").is_ok();
     // The two chord edges (he_in and he_out) sit on a planar
     // adjacent face on their twin side. Confirm both twins lead to
     // the *same* planar face — that's the sliver-merge target.
@@ -233,15 +256,27 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
     let plane_face_in = brep.loops[brep.half_edges[twin_in].loop_].face;
     let plane_face_out = brep.loops[brep.half_edges[twin_out].loop_].face;
     if plane_face_in != plane_face_out {
-        // Different adjacent faces on the two chord edges — out of
-        // scope (would need to handle a more complex topology).
+        if trace {
+            eprintln!(
+                "[topo_repair]   reject: different adjacent faces ({plane_face_in:?} vs {plane_face_out:?})"
+            );
+        }
         return false;
     }
     let plane_face = plane_face_in;
     let Some(plane_sof) = brep.faces.get(plane_face).and_then(|f| f.surface.as_ref()) else {
+        if trace {
+            eprintln!("[topo_repair]   reject: plane face has no surface");
+        }
         return false;
     };
     if !matches!(plane_sof.geometry, SurfaceGeometry::Plane { .. }) {
+        if trace {
+            eprintln!(
+                "[topo_repair]   reject: adjacent face surface is {:?}, not a plane",
+                std::mem::discriminant(&plane_sof.geometry)
+            );
+        }
         return false;
     }
 
@@ -251,6 +286,9 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
     let p_anchor_out = brep.vertices[cand.anchor_out].position;
     let chord_len = p_anchor_in.distance_to(&p_anchor_out);
     if chord_len < 1e-9 {
+        if trace {
+            eprintln!("[topo_repair]   reject: chord_len < 1e-9");
+        }
         return false;
     }
 
@@ -258,6 +296,9 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
     let positions_1 = brep.face_outer_loop_positions(cyl_face);
     let positions_2 = brep.face_outer_loop_positions(plane_face);
     if positions_1.is_empty() || positions_2.is_empty() {
+        if trace {
+            eprintln!("[topo_repair]   reject: empty positions");
+        }
         return false;
     }
     let (u1_range, v1_range) = tight_bounded_parameter_range(&positions_1, &cyl_sof.geometry);
@@ -274,7 +315,12 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
         &tolerance,
     ) {
         Ok(r) => r,
-        Err(_) => return false,
+        Err(e) => {
+            if trace {
+                eprintln!("[topo_repair]   reject: intersect_surfaces failed: {e:?}");
+            }
+            return false;
+        }
     };
 
     // Pick the intersection curve passing closest to both anchors.
@@ -311,13 +357,29 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
         }
     }
     let Some((curve_3d, curve_uv1, curve_uv2, t1, t2)) = best else {
+        if trace {
+            eprintln!("[topo_repair]   reject: no intersection curve passes near anchors");
+        }
         return false;
     };
-    if best_score > (chord_len * 0.1).max(1e-6) {
+    // Relaxed score tolerance based on anchor drift.
+    let off_anchor_in = anchor_off_cyl_distance(&p_anchor_in, &cyl_sof.geometry);
+    let off_anchor_out = anchor_off_cyl_distance(&p_anchor_out, &cyl_sof.geometry);
+    let max_anchor_drift = off_anchor_in.max(off_anchor_out);
+    let score_tol = (3.0 * max_anchor_drift).max(1e-6).min(chord_len * 0.5);
+    if best_score > score_tol {
+        if trace {
+            eprintln!(
+                "[topo_repair]   reject: best_score {best_score:.5} > tol {score_tol:.5} (drifts in={:.5}, out={:.5})",
+                off_anchor_in, off_anchor_out
+            );
+        }
         return false;
     }
     if t1 > t2 {
-        // Reversed direction — would need to flip; skip for simplicity.
+        if trace {
+            eprintln!("[topo_repair]   reject: t1 ({t1}) > t2 ({t2})");
+        }
         return false;
     }
     let (sliced_3d, sliced_uv1, sliced_uv2) = match (
@@ -326,30 +388,45 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
         slice_curve(&curve_uv2, t1, t2),
     ) {
         (Some(a), Some(b), Some(c)) => (a, b, c),
-        _ => return false,
+        _ => {
+            if trace {
+                eprintln!("[topo_repair]   reject: slice_curve failed");
+            }
+            return false;
+        }
     };
 
-    // Verify endpoints align with anchors (within slack — vertices
-    // can drift by a few percent of radius, the analytic intersection
-    // sits exactly on the cylinder).
+    // Snap the anchor *vertex positions* to the analytic intersection
+    // curve's endpoints. The anchors drift a few mm off the analytic
+    // cylinder/plane intersection due to numerics in corner blend
+    // insertion; correcting them onto the analytic curve makes the
+    // arc lie exactly on both surfaces (no ShellGap) without
+    // distorting the curve geometry. Also update any incident edge
+    // curves that end at the moved vertices (chord lines being the
+    // typical case) so the loops stay closed.
     let (et_start, et_end) = sliced_3d.parameter_range();
-    let arc_start = sliced_3d.point_at(et_start);
-    let arc_end = sliced_3d.point_at(et_end);
-    if arc_start.distance_to(&p_anchor_in) > (chord_len * 0.1).max(1e-6)
-        || arc_end.distance_to(&p_anchor_out) > (chord_len * 0.1).max(1e-6)
-    {
-        return false;
+    let analytic_start = sliced_3d.point_at(et_start);
+    let analytic_end = sliced_3d.point_at(et_end);
+    let old_anchor_in = brep.vertices[cand.anchor_in].position;
+    let old_anchor_out = brep.vertices[cand.anchor_out].position;
+    if let Some(v_in) = brep.vertices.get_mut(cand.anchor_in) {
+        v_in.position = analytic_start;
     }
+    if let Some(v_out) = brep.vertices.get_mut(cand.anchor_out) {
+        v_out.position = analytic_end;
+    }
+    snap_incident_edge_curve_endpoints(brep, cand.anchor_in, old_anchor_in, analytic_start);
+    snap_incident_edge_curve_endpoints(brep, cand.anchor_out, old_anchor_out, analytic_end);
 
-    // Insert the new arc edge with `split_face`. This splits the
-    // cylinder face into:
-    //   * Main cylinder ribbon (the larger region, retains the
-    //     cylinder surface).
-    //   * Sliver fragment (bounded by the new arc + the two old
-    //     chord edges through `off_cyl_vertex`).
+    // Insert the new arc edge with `split_face`.
     let split_result = match brep.split_face(cyl_face, &sliced_uv1, &sliced_3d, &tolerance) {
         Ok(s) => s,
-        Err(_) => return false,
+        Err(e) => {
+            if trace {
+                eprintln!("[topo_repair]   reject: split_face failed: {e}");
+            }
+            return false;
+        }
     };
 
     // Identify which sub-face is the sliver (the one whose loop
@@ -366,29 +443,164 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
         };
 
     // Set the sliver's surface to the plane (it's geometrically on
-    // the plane, not the cylinder).
+    // the plane, not the cylinder). Re-project the sliver's outer
+    // loop pcurves into the plane's UV space.
+    //
+    // We deliberately DO NOT kef the sliver into the adjacent
+    // plane face. The sliver is bounded by two chord edges (both
+    // shared with `plane_face`) plus the new arc; merging would
+    // require two kefs but the second one runs against an interior
+    // edge (both half-edges in the merged face), which is not a
+    // valid Euler-op input. Leaving the sliver as a separate co-
+    // planar face is BRep-valid: multiple faces may share a planar
+    // surface, and OCCT-strict slicers accept this. The cylinder
+    // face's outer loop now ends at the analytic arc instead of
+    // the chord pair through the off-cylinder vertex.
     if let Some(plane_geom) = brep.faces[plane_face].surface.clone() {
         brep.faces[sliver_face].surface = Some(plane_geom);
     }
 
-    // Merge the sliver with the plane face by kef-ing one of the
-    // shared chord edges (use `cand.he_in`'s twin, which is on the
-    // plane face's loop).
-    let twin_in_now = brep.half_edges[cand.he_in].twin;
-    if brep.kef(twin_in_now).is_err() {
-        // kef failed — leave things as-is rather than panicking
-        // mid-surgery. The split did happen, but the merge didn't,
-        // so the sliver remains as a tiny separate face. Better than
-        // an outright crash but caller should treat as best-effort.
-        return false;
-    }
+    // Re-project every pcurve on the sliver's outer loop (the new
+    // arc + the two chord half-edges bordering the sliver) into
+    // plane UV space. The arc pcurve assigned by `split_face` was
+    // in cylinder UV, which would interpret as plane parameters and
+    // produce a ShellGap on the order of cylinder radius.
+    reproject_loop_pcurves_into_plane(brep, sliver_face);
 
-    // Now `cand.he_out`'s edge is interior to the merged face — kev it.
-    // (Need to re-find the edge handle for `he_out` since kef may
-    // have shuffled half-edges.)
     let _ = curve_uv2;
     let _ = sliced_uv2;
     true
+}
+
+/// Re-project every half-edge pcurve on `face`'s outer loop into
+/// the face's surface UV space. Used after retargeting a face's
+/// surface (cylinder → plane, etc.) so the pcurves stay consistent.
+fn reproject_loop_pcurves_into_plane(brep: &mut BRep, face: FaceHandle) {
+    let Some(face_data) = brep.faces.get(face) else {
+        return;
+    };
+    let outer_loop = face_data.outer_loop;
+    let plane_geom = match face_data.surface.as_ref().map(|s| &s.geometry) {
+        Some(SurfaceGeometry::Plane {
+            origin,
+            u_axis,
+            v_axis,
+            ..
+        }) => (*origin, *u_axis, *v_axis),
+        _ => return,
+    };
+    let (plane_origin, plane_u, plane_v) = plane_geom;
+
+    let Some(loop_data) = brep.loops.get(outer_loop) else {
+        return;
+    };
+    let start_he = loop_data.half_edge;
+    let mut hes: Vec<HalfEdgeHandle> = Vec::new();
+    let mut cursor = start_he;
+    let mut safety = 64;
+    loop {
+        if safety == 0 {
+            break;
+        }
+        safety -= 1;
+        hes.push(cursor);
+        let Some(he) = brep.half_edges.get(cursor) else {
+            break;
+        };
+        cursor = he.next;
+        if cursor == start_he {
+            break;
+        }
+    }
+
+    for he in hes {
+        // Project the underlying edge's 3D curve into plane UV.
+        let edge = brep.half_edges[he].edge;
+        let curve_3d = match brep.edges.get(edge).and_then(|e| e.curve.as_ref()) {
+            Some(c) => c.geometry.clone(),
+            None => continue,
+        };
+        let new_pcurve =
+            match project_curve_into_plane_uv(&curve_3d, plane_origin, plane_u, plane_v) {
+                Some(p) => p,
+                None => continue,
+            };
+        // Half-edge orientation: if this half-edge runs the same
+        // way as the underlying edge, use the projected pcurve as-is;
+        // otherwise reverse.
+        let edge_he = brep.edges[edge].half_edge;
+        let pcurve = if he == edge_he {
+            new_pcurve
+        } else {
+            reverse_nurbs(&new_pcurve)
+        };
+        brep.half_edges[he].pcurve = Some(pcurve);
+    }
+}
+
+/// Project a 3D curve into a plane's (u, v) parameter space.
+/// Plane parameterised as `origin + u·u_axis + v·v_axis`. Returns
+/// the pcurve as a NURBS where each control point is `(u, v, 0)`.
+fn project_curve_into_plane_uv(
+    curve: &CurveGeometry,
+    plane_origin: Point3,
+    plane_u: popkern_core::geometry::Vec3,
+    plane_v: popkern_core::geometry::Vec3,
+) -> Option<NurbsCurve> {
+    let nurbs = match curve {
+        CurveGeometry::Nurbs(n) => n.clone(),
+        // For non-NURBS curves, sample and fit. Skip for the first
+        // pass — analytic projection is what we need.
+        _ => return None,
+    };
+    let projected_cps: Vec<Point3> = nurbs
+        .control_points
+        .iter()
+        .map(|p| {
+            let rel = popkern_core::geometry::Vec3::new(
+                p.x - plane_origin.x,
+                p.y - plane_origin.y,
+                p.z - plane_origin.z,
+            );
+            let u = rel.dot(&plane_u) / plane_u.length().max(1e-12).powi(2) * plane_u.length();
+            let v = rel.dot(&plane_v) / plane_v.length().max(1e-12).powi(2) * plane_v.length();
+            // The plane is parameterised by point = origin + u·u_axis + v·v_axis,
+            // so (u, v) = (rel · û, rel · v̂) only when u_axis, v_axis are unit.
+            // For the general case, dot products give projection lengths and we
+            // need to divide by axis-length squared to get the parameter.
+            let _ = (u, v);
+            let u_param = rel.dot(&plane_u) / plane_u.dot(&plane_u);
+            let v_param = rel.dot(&plane_v) / plane_v.dot(&plane_v);
+            Point3::new(u_param, v_param, 0.0)
+        })
+        .collect();
+    Some(NurbsCurve {
+        degree: nurbs.degree,
+        knots: nurbs.knots,
+        control_points: projected_cps,
+        weights: nurbs.weights,
+    })
+}
+
+fn reverse_nurbs(curve: &NurbsCurve) -> NurbsCurve {
+    let (t_min, t_max) = curve.parameter_range();
+    let mut reversed_knots: Vec<f64> = curve
+        .knots
+        .iter()
+        .rev()
+        .map(|&k| t_min + t_max - k)
+        .collect();
+    reversed_knots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mut reversed_cps = curve.control_points.clone();
+    reversed_cps.reverse();
+    let mut reversed_weights = curve.weights.clone();
+    reversed_weights.reverse();
+    NurbsCurve {
+        degree: curve.degree,
+        knots: reversed_knots,
+        control_points: reversed_cps,
+        weights: reversed_weights,
+    }
 }
 
 fn face_loop_contains_vertex(brep: &BRep, face: FaceHandle, vertex: VertexHandle) -> bool {
@@ -436,3 +648,171 @@ fn slice_curve(curve: &NurbsCurve, lo: f64, hi: f64) -> Option<NurbsCurve> {
 
 #[allow(dead_code)]
 fn _force_use(_e: EdgeHandle) {}
+
+fn dump_cylinder_face(brep: &BRep, fh: FaceHandle) {
+    let Some(face) = brep.faces.get(fh) else {
+        return;
+    };
+    let cyl = face.surface.as_ref().map(|sof| &sof.geometry);
+    let Some(SurfaceGeometry::Cylinder {
+        origin,
+        axis,
+        radius,
+    }) = cyl
+    else {
+        return;
+    };
+    let outer_loop = face.outer_loop;
+    let Some(loop_data) = brep.loops.get(outer_loop) else {
+        return;
+    };
+    let start_he = loop_data.half_edge;
+    eprintln!(
+        "[topo_dump] cyl face {fh:?} cyl(origin=({:.3},{:.3},{:.3}) axis=({:.3},{:.3},{:.3}) r={:.4}):",
+        origin.x, origin.y, origin.z, axis.x, axis.y, axis.z, radius
+    );
+    let mut cursor = start_he;
+    let mut safety = 64;
+    loop {
+        if safety == 0 {
+            break;
+        }
+        safety -= 1;
+        let Some(he) = brep.half_edges.get(cursor) else {
+            break;
+        };
+        let v = he.origin;
+        let p = brep.vertices[v].position;
+        let twin_face = brep.loops[brep.half_edges[he.twin].loop_].face;
+        let twin_surf = brep
+            .faces
+            .get(twin_face)
+            .and_then(|f| f.surface.as_ref())
+            .map(|s| match &s.geometry {
+                SurfaceGeometry::Plane { .. } => "Plane",
+                SurfaceGeometry::Cylinder { .. } => "Cyl",
+                SurfaceGeometry::Sphere { .. } => "Sph",
+                SurfaceGeometry::Cone { .. } => "Cone",
+                SurfaceGeometry::Torus { .. } => "Torus",
+                SurfaceGeometry::Nurbs(_) => "Nurbs",
+                SurfaceGeometry::Gregory(_) => "Gregory",
+            })
+            .unwrap_or("?");
+        let off = off_cyl_distance(&p, *origin, *axis, *radius);
+        let on = off.abs() <= radius * 0.05;
+        eprintln!(
+            "[topo_dump]   v{:?} p=({:+.4},{:+.4},{:+.4}) off_cyl={:+.5} {} twin_face={twin_face:?}({twin_surf})",
+            v,
+            p.x,
+            p.y,
+            p.z,
+            off,
+            if on { "ON" } else { "OFF" }
+        );
+        cursor = he.next;
+        if cursor == start_he {
+            break;
+        }
+    }
+}
+
+fn off_cyl_distance(
+    p: &Point3,
+    origin: Point3,
+    axis: popkern_core::geometry::Vec3,
+    radius: f64,
+) -> f64 {
+    let len = axis.length().max(1e-12);
+    let axis_unit = popkern_core::geometry::Vec3::new(axis.x / len, axis.y / len, axis.z / len);
+    let rel = popkern_core::geometry::Vec3::new(p.x - origin.x, p.y - origin.y, p.z - origin.z);
+    let axial = rel.dot(&axis_unit);
+    let radial = popkern_core::geometry::Vec3::new(
+        rel.x - axial * axis_unit.x,
+        rel.y - axial * axis_unit.y,
+        rel.z - axial * axis_unit.z,
+    );
+    radial.length() - radius
+}
+
+fn anchor_off_cyl_distance(p: &Point3, surf: &SurfaceGeometry) -> f64 {
+    if let SurfaceGeometry::Cylinder {
+        origin,
+        axis,
+        radius,
+    } = surf
+    {
+        off_cyl_distance(p, *origin, *axis, *radius).abs()
+    } else {
+        0.0
+    }
+}
+
+/// For every edge with an endpoint vertex `vh`, replace the
+/// matching control point of the edge's 3D curve so the curve
+/// terminates at the new vertex position. Identifies the matching
+/// control point by proximity to `old_position`.
+fn snap_incident_edge_curve_endpoints(
+    brep: &mut BRep,
+    vh: VertexHandle,
+    old_position: Point3,
+    new_position: Point3,
+) {
+    let edge_handles: Vec<EdgeHandle> = brep.edges.keys().collect();
+    for edge in edge_handles {
+        let Some(edge_data) = brep.edges.get(edge) else {
+            continue;
+        };
+        let he = edge_data.half_edge;
+        let Some(he_data) = brep.half_edges.get(he) else {
+            continue;
+        };
+        let twin = he_data.twin;
+        let Some(twin_data) = brep.half_edges.get(twin) else {
+            continue;
+        };
+        let v_origin = he_data.origin;
+        let v_target = twin_data.origin;
+        if v_origin != vh && v_target != vh {
+            continue;
+        }
+        let Some(curve_on_edge) = brep.edges.get(edge).and_then(|e| e.curve.clone()) else {
+            continue;
+        };
+        let CurveGeometry::Nurbs(nurbs) = curve_on_edge.geometry else {
+            continue;
+        };
+        let mut cps = nurbs.control_points.clone();
+        let first_d = cps
+            .first()
+            .map(|p| p.distance_to(&old_position))
+            .unwrap_or(f64::INFINITY);
+        let last_d = cps
+            .last()
+            .map(|p| p.distance_to(&old_position))
+            .unwrap_or(f64::INFINITY);
+        if first_d < last_d && first_d < 1e-3 {
+            if let Some(first) = cps.first_mut() {
+                *first = new_position;
+            }
+        } else if last_d < 1e-3 {
+            if let Some(last) = cps.last_mut() {
+                *last = new_position;
+            }
+        } else {
+            continue;
+        }
+        let new_curve = NurbsCurve {
+            degree: nurbs.degree,
+            knots: nurbs.knots,
+            control_points: cps,
+            weights: nurbs.weights,
+        };
+        if let Some(edge_mut) = brep.edges.get_mut(edge) {
+            edge_mut.curve = Some(popkern_core::geometry::curve::CurveOnEdge {
+                geometry: CurveGeometry::Nurbs(new_curve),
+                t_start: curve_on_edge.t_start,
+                t_end: curve_on_edge.t_end,
+            });
+        }
+    }
+}
