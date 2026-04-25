@@ -257,12 +257,29 @@ fn reproject_loop_pcurves_onto_gregory(brep: &mut BRep, face: FaceHandle) {
         }
         let degree = 3usize;
         let n_cps = (degree + 2).min(points.len());
-        let fitted =
+        let mut fitted =
             match popkern_core::geometry::fitting::fit_curve(&points, &params, degree, n_cps) {
                 Ok(c) => c,
                 Err(_) => continue,
             };
-        // Cast to NurbsCurve (fit_curve returns it directly).
+        // Least-squares fit can produce control points *outside* the
+        // surface's UV range (the curve stays inside the convex hull
+        // of its CPs, but the CPs themselves can extend beyond the
+        // sampled data). Clamp every CP to the surface UV box so
+        // pcurve evaluations always land inside the valid Gregory
+        // domain. May distort the curve slightly near the boundary
+        // but eliminates the "uv = -1.5" runaway we saw on
+        // pyramid_n04 (Cyl×Gregory edge with div=0.25 residual).
+        use popkern_core::geometry::surface::SurfaceEval;
+        let ((u_lo, u_hi), (v_lo, v_hi)) = surface.parameter_range();
+        for cp in &mut fitted.control_points {
+            if u_lo.is_finite() && u_hi.is_finite() {
+                cp.x = cp.x.clamp(u_lo, u_hi);
+            }
+            if v_lo.is_finite() && v_hi.is_finite() {
+                cp.y = cp.y.clamp(v_lo, v_hi);
+            }
+        }
         let _: &NurbsCurve = &fitted;
         brep.half_edges[he].pcurve = Some(fitted);
     }

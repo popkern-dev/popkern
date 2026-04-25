@@ -269,11 +269,27 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
     //    to the cyl ∩ plane_A ∩ plane_B point, then rewrite each
     //    chord's 3D curve to the analytic arc on its respective
     //    plane. Handled by `try_repair_chord_pair_different_planes`.
+    //
+    // The different-planes surgery is currently regressing N≥8
+    // pyramids (max tess-nm divergence 0.12 → 1.06) — likely the
+    // vertex-snap leaves shared neighbours (other cyls, slants)
+    // inconsistent. Gate it behind `POPKERN_TOPO_REPAIR_DIFF=1` so
+    // the same-plane case can land safely while we work the diff
+    // case separately. The same-plane case is what fixed the base-
+    // corner chord pairs on N=3..7 in the first place.
     let twin_in = brep.half_edges[cand.he_in].twin;
     let twin_out = brep.half_edges[cand.he_out].twin;
     let plane_face_in = brep.loops[brep.half_edges[twin_in].loop_].face;
     let plane_face_out = brep.loops[brep.half_edges[twin_out].loop_].face;
     if plane_face_in != plane_face_out {
+        if std::env::var("POPKERN_TOPO_REPAIR_DIFF").is_err() {
+            if trace {
+                eprintln!(
+                    "[topo_repair]   skip diff-planes case ({plane_face_in:?} vs {plane_face_out:?}) — gated"
+                );
+            }
+            return false;
+        }
         return try_repair_chord_pair_different_planes(
             brep,
             cyl_face,
