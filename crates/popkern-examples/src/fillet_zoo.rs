@@ -56,17 +56,22 @@ fn showcase_pyramid(n: usize, tol: Tolerance) {
     let apex_edges = collect_incident_edges(&pyramid, apex);
     println!("  Apex valence: {}", apex_edges.len());
 
-    // Mixed radii ensure the rolling-ball sphere fit doesn't snap
-    // and the dispatch lands on the Gregory / PnS rung. Walks
-    // through 0.07–0.13 across the apex spokes so each pyramid is
-    // a real test of the high-valence cap path.
-    let specs: Vec<FilletSpec> = apex_edges
+    // Fillet ALL edges (apex + base). Apex-only filletting leaves
+    // the base vertices as sharp transitions where the cylinder
+    // ribbon ends meet the original pyramid corners — which
+    // produces non-manifold topology that OCCT-strict slicers
+    // reject. Filleting every edge gives a closed manifold solid.
+    // Mixed radii (0.07–0.13 across spokes) keep the rolling-ball
+    // sphere fit from snapping at the apex.
+    let _ = apex_edges;
+    let all_edges: Vec<_> = pyramid.edges.keys().collect();
+    let specs: Vec<FilletSpec> = all_edges
         .iter()
         .enumerate()
         .map(|(i, &edge)| FilletSpec {
             edge,
             radius: FilletRadius::Constant(
-                0.07 + 0.06 * (i as f64) / ((apex_edges.len() - 1).max(1) as f64),
+                0.07 + 0.06 * (i as f64) / ((all_edges.len() - 1).max(1) as f64),
             ),
         })
         .collect();
