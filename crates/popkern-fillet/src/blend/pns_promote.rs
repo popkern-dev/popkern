@@ -240,11 +240,15 @@ fn normalize_low_valence_face_for_poke(
     Ok(())
 }
 
-/// Check if PnS dispatch is enabled via `POPKERN_PNS=1`.
+/// PnS dispatch is on by default. The `POPKERN_PNS` env var is an
+/// *off* switch — set to `0` to disable PnS and force every corner
+/// onto the legacy rungs (rational-Gregory ladder, polar-NURBS
+/// fallback, etc.). Useful for A/B comparisons or for dodging a
+/// suspected PnS regression in the field without a recompile.
 pub fn pns_env_enabled() -> bool {
     std::env::var("POPKERN_PNS")
-        .map(|v| v == "1")
-        .unwrap_or(false)
+        .map(|v| v != "0")
+        .unwrap_or(true)
 }
 
 /// Dispatch entry point: try PnS promotion on a blend face, fall
