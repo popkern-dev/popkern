@@ -20,6 +20,7 @@ mod kp_twist_optimizer;
 pub(crate) mod merge;
 mod multi_chord;
 pub(crate) mod pcurve_attach;
+mod pcurve_refit;
 mod phase_split;
 pub(crate) mod poke_4n;
 pub(crate) mod poke_hex;
@@ -499,6 +500,17 @@ pub fn apply_blend_geometry(
     // vertices (apex-only filleting case) keep their chord-line
     // edges; topology_repair handles those separately.
     edge_reconcile::reconcile_edge_curves(&mut result);
+
+    // Optional global pcurve re-fit (`POPKERN_PCURVE_REFIT=1`):
+    // re-project every half-edge's pcurve onto its current face
+    // surface. Currently regresses tess-nm in `fillet_zoo`
+    // (likely because the closest-point + degree-3 fit produces
+    // noisier curves than the carefully-authored analytic pcurves
+    // on plane / cylinder pairs); keep the pass for investigation
+    // and selective use, but don't run it by default.
+    if std::env::var("POPKERN_PCURVE_REFIT").is_ok() {
+        pcurve_refit::refit_all_pcurves(&mut result);
+    }
 
     // Topology repair for off-cylinder vertices in cylinder face
     // outer loops (apex-only filleting case where the cylinder
