@@ -78,31 +78,42 @@ pub(crate) fn repair_cylinder_face_off_surface_vertices(brep: &mut BRep) -> usiz
             }
             let candidates = find_chord_pair_candidates(brep, fh);
             let n_cand = candidates.len();
-            let Some(cand) = candidates.into_iter().next() else {
+            if candidates.is_empty() {
                 break;
-            };
-            if trace {
-                eprintln!(
-                    "[topo_repair] face {fh:?}: trying repair (n_cand={n_cand}, off_cyl_v={:?})",
-                    cand.off_cyl_vertex
-                );
             }
-            let snapshot = brep.clone();
-            let surgery_ok = try_repair_chord_pair(brep, fh, cand);
-            let validate_result = brep.validate();
-            if trace {
-                eprintln!(
-                    "[topo_repair]   surgery_ok={surgery_ok}, validate={:?}",
-                    validate_result.as_ref().err()
-                );
-            }
-            if surgery_ok && validate_result.is_ok() {
-                repaired += 1;
+            // Try every candidate in turn — some "off" vertices are
+            // unrepairable (apex-side different-adjacent-face case)
+            // and we don't want to bail on the whole face just
+            // because the first one failed.
+            let mut any_success = false;
+            for cand in candidates {
                 if trace {
-                    eprintln!("[topo_repair]   SUCCESS — repair count {repaired}");
+                    eprintln!(
+                        "[topo_repair] face {fh:?}: trying repair (n_cand={n_cand}, off_cyl_v={:?})",
+                        cand.off_cyl_vertex
+                    );
                 }
-            } else {
-                *brep = snapshot;
+                let snapshot = brep.clone();
+                let surgery_ok = try_repair_chord_pair(brep, fh, cand);
+                let validate_result = brep.validate();
+                if trace {
+                    eprintln!(
+                        "[topo_repair]   surgery_ok={surgery_ok}, validate={:?}",
+                        validate_result.as_ref().err()
+                    );
+                }
+                if surgery_ok && validate_result.is_ok() {
+                    repaired += 1;
+                    if trace {
+                        eprintln!("[topo_repair]   SUCCESS — repair count {repaired}");
+                    }
+                    any_success = true;
+                    break;
+                } else {
+                    *brep = snapshot;
+                }
+            }
+            if !any_success {
                 break;
             }
         }
@@ -376,16 +387,18 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
         }
         return false;
     }
-    if t1 > t2 {
-        if trace {
-            eprintln!("[topo_repair]   reject: t1 ({t1}) > t2 ({t2})");
-        }
-        return false;
-    }
-    let (sliced_3d, sliced_uv1, sliced_uv2) = match (
-        slice_curve(&curve_3d, t1, t2),
-        slice_curve(&curve_uv1, t1, t2),
-        slice_curve(&curve_uv2, t1, t2),
+    // If the chord pair traverses the intersection curve in the
+    // reversed parameter direction, slice [t2, t1] and reverse so
+    // the resulting arc still runs anchor_in → anchor_out.
+    let (lo, hi, reversed) = if t1 <= t2 {
+        (t1, t2, false)
+    } else {
+        (t2, t1, true)
+    };
+    let (sliced_3d_raw, sliced_uv1_raw, sliced_uv2_raw) = match (
+        slice_curve(&curve_3d, lo, hi).map(|c| if reversed { reverse_nurbs(&c) } else { c }),
+        slice_curve(&curve_uv1, lo, hi).map(|c| if reversed { reverse_nurbs(&c) } else { c }),
+        slice_curve(&curve_uv2, lo, hi).map(|c| if reversed { reverse_nurbs(&c) } else { c }),
     ) {
         (Some(a), Some(b), Some(c)) => (a, b, c),
         _ => {
@@ -395,6 +408,16 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
             return false;
         }
     };
+
+    // `split_face` hardcodes `t_start: 0.0, t_end: 1.0` on the
+    // resulting `CurveOnEdge` regardless of the input curve's actual
+    // parameter range. If the curve doesn't *actually* run [0, 1],
+    // validate's `point_at(0.0)` will read out-of-range and produce
+    // garbage — a 0.06+ ShellGap on the new arc edge. Remap each
+    // sliced curve's knots to [0, 1] to keep things consistent.
+    let sliced_3d = remap_to_unit_range(&sliced_3d_raw);
+    let sliced_uv1 = remap_to_unit_range(&sliced_uv1_raw);
+    let sliced_uv2 = remap_to_unit_range(&sliced_uv2_raw);
 
     // Snap the anchor *vertex positions* to the analytic intersection
     // curve's endpoints. The anchors drift a few mm off the analytic
@@ -418,8 +441,26 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
     snap_incident_edge_curve_endpoints(brep, cand.anchor_in, old_anchor_in, analytic_start);
     snap_incident_edge_curve_endpoints(brep, cand.anchor_out, old_anchor_out, analytic_end);
 
+    // Replace `sliced_uv1` (cyl UV from intersect_surfaces) with a
+    // fresh degree-3 NURBS fit through dense samples projected onto
+    // the cylinder. The intersect_surfaces output reuses the 3D
+    // curve's degree-2 rational structure for the cyl UV pcurve,
+    // which is only an approximation — the cylinder's nonlinear
+    // (cos, sin) mapping doesn't commute with NURBS evaluation, so
+    // a degree-2 cyl UV with the same knots/weights as the 3D
+    // ellipse misses by up to O(radius) on the oblique case.
+    let fitted_cyl_uv = match fit_cylinder_uv_pcurve(&sliced_3d, &cyl_sof.geometry) {
+        Some(c) => c,
+        None => {
+            if trace {
+                eprintln!("[topo_repair]   reject: failed to fit cyl UV pcurve");
+            }
+            return false;
+        }
+    };
+
     // Insert the new arc edge with `split_face`.
-    let split_result = match brep.split_face(cyl_face, &sliced_uv1, &sliced_3d, &tolerance) {
+    let split_result = match brep.split_face(cyl_face, &fitted_cyl_uv, &sliced_3d, &tolerance) {
         Ok(s) => s,
         Err(e) => {
             if trace {
@@ -428,6 +469,7 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
             return false;
         }
     };
+    let _ = sliced_uv1;
 
     // Identify which sub-face is the sliver (the one whose loop
     // contains `off_cyl_vertex`).
@@ -745,6 +787,74 @@ fn anchor_off_cyl_distance(p: &Point3, surf: &SurfaceGeometry) -> f64 {
     } else {
         0.0
     }
+}
+
+/// Linearly rescale a NURBS curve's knot vector so its parameter
+/// range becomes [0, 1]. The curve geometry is unchanged — only
+/// the parameterisation. Required because `split_face` hardcodes
+/// `CurveOnEdge { t_start: 0.0, t_end: 1.0, .. }` for the new
+/// arc edge, regardless of the input curve's actual range.
+fn remap_to_unit_range(curve: &NurbsCurve) -> NurbsCurve {
+    let (t_min, t_max) = curve.parameter_range();
+    if (t_max - t_min).abs() < 1e-15 {
+        return curve.clone();
+    }
+    let new_knots: Vec<f64> = curve
+        .knots
+        .iter()
+        .map(|&k| (k - t_min) / (t_max - t_min))
+        .collect();
+    NurbsCurve {
+        degree: curve.degree,
+        knots: new_knots,
+        control_points: curve.control_points.clone(),
+        weights: curve.weights.clone(),
+    }
+}
+
+/// Sample `curve_3d` at N parameter values, project each sample
+/// onto the cylinder's (u, v) space using `closest_point`, then
+/// fit a degree-3 NURBS interpolant. This produces a pcurve that —
+/// unlike `cylinder_uv_curve` from `plane_cylinder.rs` — preserves
+/// the cylinder mapping at every interior point of the arc, not
+/// just at the control points. Required for ShellGap-clean output.
+fn fit_cylinder_uv_pcurve(curve_3d: &NurbsCurve, cyl: &SurfaceGeometry) -> Option<NurbsCurve> {
+    use popkern_core::geometry::fitting::fit_curve;
+    use popkern_core::geometry::surface::SurfaceEval;
+
+    let SurfaceGeometry::Cylinder { .. } = cyl else {
+        return None;
+    };
+
+    let n_samples = 17;
+    let (t_min, t_max) = curve_3d.parameter_range();
+    let mut uv_points: Vec<Point3> = Vec::with_capacity(n_samples);
+    let mut params: Vec<f64> = Vec::with_capacity(n_samples);
+
+    let mut prev_u: Option<f64> = None;
+    for i in 0..n_samples {
+        let s = i as f64 / (n_samples - 1) as f64;
+        let t = t_min + s * (t_max - t_min);
+        let p = curve_3d.point_at(t);
+        let (mut u, v) = cyl.closest_point(&p)?;
+        // Unwrap u so the sample sequence is continuous (no TAU jumps).
+        if let Some(prev) = prev_u {
+            let tau = std::f64::consts::TAU;
+            while u - prev > tau * 0.5 {
+                u -= tau;
+            }
+            while u - prev < -tau * 0.5 {
+                u += tau;
+            }
+        }
+        prev_u = Some(u);
+        uv_points.push(Point3::new(u, v, 0.0));
+        params.push(s);
+    }
+
+    let degree = 3;
+    let num_cps = degree + 2;
+    fit_curve(&uv_points, &params, degree, num_cps).ok()
 }
 
 /// For every edge with an endpoint vertex `vh`, replace the

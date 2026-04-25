@@ -506,7 +506,16 @@ pub fn apply_blend_geometry(
     // a chord pair). Each repair attempt runs in a snapshot —
     // failed attempts roll back without affecting downstream
     // operations.
-    let _ = topology_repair::repair_cylinder_face_off_surface_vertices(&mut result);
+    //
+    // Currently OPT-IN via `POPKERN_TOPO_REPAIR=1` because the
+    // surgery splits the cylinder face into a (cylinder, sliver)
+    // pair and the sliver face co-resides with the adjacent base
+    // plane — valid topology for OCCT-strict slicers, but the
+    // `unfillet` path doesn't yet know how to recognise sliver
+    // faces and would fail to round-trip.
+    if std::env::var("POPKERN_TOPO_REPAIR").is_ok() {
+        let _ = topology_repair::repair_cylinder_face_off_surface_vertices(&mut result);
+    }
 
     // §13.1(2) sliver absorption: Classes A/B/C/D. 12-edge cube test is Class D regression guard (26 faces preserved).
     sliver_absorb::run_and_route_warnings(&mut result, tolerance, edge_geometries, &mut warnings);
