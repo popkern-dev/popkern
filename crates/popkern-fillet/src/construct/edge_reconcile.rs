@@ -83,11 +83,11 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
 
     // Whitelist of analytic surface-pair combos that
     // `intersect_surfaces` resolves without falling back to the
-    // marching solver. NURBS-involving combos (cylinder × Nurbs,
-    // sphere × Nurbs, Nurbs × Nurbs) hit the marching path which
-    // can hang on small fillet faces — those are out of scope
-    // until someone wires a faster fit. Plane × plane is left
-    // alone; line geometry is already correct.
+    // marching solver. Plane × plane is left alone; the line is
+    // already correct. NURBS-involving combos go through a
+    // separate alternating-projection fit (`approximate_curved_intersection`)
+    // — `intersect_surfaces` would hit the marching path which can
+    // loop indefinitely on small fillet face inputs.
     let analytic_combo = matches!(
         (&sof_1.geometry, &sof_2.geometry),
         (
@@ -110,8 +110,22 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
             SurfaceGeometry::Sphere { .. }
         )
     );
-    if !analytic_combo {
+    let nurbs_combo = matches!(
+        (&sof_1.geometry, &sof_2.geometry),
+        (SurfaceGeometry::Cylinder { .. }, SurfaceGeometry::Nurbs(_))
+            | (SurfaceGeometry::Nurbs(_), SurfaceGeometry::Cylinder { .. })
+            | (SurfaceGeometry::Sphere { .. }, SurfaceGeometry::Nurbs(_))
+            | (SurfaceGeometry::Nurbs(_), SurfaceGeometry::Sphere { .. })
+            | (SurfaceGeometry::Plane { .. }, SurfaceGeometry::Nurbs(_))
+            | (SurfaceGeometry::Nurbs(_), SurfaceGeometry::Plane { .. })
+    );
+    if !analytic_combo && !nurbs_combo {
         return false;
+    }
+    if nurbs_combo {
+        // Skip `intersect_surfaces` for NURBS combos and try the
+        // bounded alternating-projection fit instead.
+        return try_curved_fit(brep, edge, he, twin);
     }
 
     let v1 = he_data.origin;
@@ -227,6 +241,123 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
         twin_mut.pcurve = Some(trimmed_uv2);
     }
     true
+}
+
+/// Approximate a NURBS-involving surface intersection by sampling
+/// the chord between `p1` and `p2`, alternately projecting each
+/// sample onto both surfaces until convergence, and fitting a
+/// degree-3 NURBS through the refined points. Avoids the marching
+/// solver in `intersect_surfaces` (which loops on small fillet
+/// face inputs).
+fn try_curved_fit(
+    brep: &mut BRep,
+    edge: EdgeHandle,
+    he: popkern_core::topology::HalfEdgeHandle,
+    twin: popkern_core::topology::HalfEdgeHandle,
+) -> bool {
+    use popkern_core::geometry::fitting::fit_curve;
+    use popkern_core::geometry::surface::SurfaceEval;
+
+    let Some(he_data) = brep.half_edges.get(he) else {
+        return false;
+    };
+    let Some(twin_data) = brep.half_edges.get(twin) else {
+        return false;
+    };
+    let face_1 = brep.loops[he_data.loop_].face;
+    let face_2 = brep.loops[twin_data.loop_].face;
+    let v1 = he_data.origin;
+    let v2 = twin_data.origin;
+    let p1 = brep.vertices[v1].position;
+    let p2 = brep.vertices[v2].position;
+    let chord_len = p1.distance_to(&p2);
+    if chord_len < 1e-9 {
+        return false;
+    }
+
+    let surf_1 = brep.faces.get(face_1).and_then(|f| f.surface.as_ref());
+    let surf_2 = brep.faces.get(face_2).and_then(|f| f.surface.as_ref());
+    let (Some(sof_1), Some(sof_2)) = (surf_1, surf_2) else {
+        return false;
+    };
+
+    // Sample chord, project alternately. 7 interior samples gives
+    // a degree-3 fit room while staying cheap.
+    let n_segments = 8;
+    let mut points: Vec<Point3> = Vec::with_capacity(n_segments + 1);
+    let mut params: Vec<f64> = Vec::with_capacity(n_segments + 1);
+    points.push(p1);
+    params.push(0.0);
+    for i in 1..n_segments {
+        let t = i as f64 / n_segments as f64;
+        let mut p = Point3::new(
+            p1.x + t * (p2.x - p1.x),
+            p1.y + t * (p2.y - p1.y),
+            p1.z + t * (p2.z - p1.z),
+        );
+        let max_iters = 8;
+        let mut prev = p;
+        let mut converged = false;
+        for _ in 0..max_iters {
+            let Some((u1, v1u)) = sof_1.geometry.closest_point(&p) else {
+                return false;
+            };
+            p = sof_1.geometry.point_at(u1, v1u);
+            let Some((u2, v2u)) = sof_2.geometry.closest_point(&p) else {
+                return false;
+            };
+            p = sof_2.geometry.point_at(u2, v2u);
+            if p.distance_to(&prev) < chord_len * 1e-5 {
+                converged = true;
+                break;
+            }
+            prev = p;
+        }
+        if !converged {
+            return false;
+        }
+        // Reject samples that drift far from the chord — likely
+        // landed on a different intersection branch.
+        let chord_pt = Point3::new(
+            p1.x + t * (p2.x - p1.x),
+            p1.y + t * (p2.y - p1.y),
+            p1.z + t * (p2.z - p1.z),
+        );
+        if p.distance_to(&chord_pt) > chord_len * 0.5 {
+            return false;
+        }
+        points.push(p);
+        params.push(t);
+    }
+    points.push(p2);
+    params.push(1.0);
+
+    // Fit a degree-3 NURBS through the projected points.
+    let degree = 3;
+    let num_cps = (points.len()).clamp(degree + 1, points.len());
+    let fitted = match fit_curve(&points, &params, degree, num_cps) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    // Verify endpoints land at p1 and p2.
+    let (et_start, et_end) = fitted.parameter_range();
+    let trim_start = fitted.point_at(et_start);
+    let trim_end = fitted.point_at(et_end);
+    let endpoint_err = trim_start.distance_to(&p1).max(trim_end.distance_to(&p2));
+    if endpoint_err > (chord_len * 0.05).max(1e-6) {
+        return false;
+    }
+
+    if let Some(edge_mut) = brep.edges.get_mut(edge) {
+        edge_mut.curve = Some(CurveOnEdge {
+            geometry: CurveGeometry::Nurbs(fitted),
+            t_start: et_start,
+            t_end: et_end,
+        });
+        return true;
+    }
+    false
 }
 
 /// Slice `curve` to the parameter range `[lo, hi]` using
