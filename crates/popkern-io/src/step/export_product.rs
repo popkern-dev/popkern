@@ -180,18 +180,38 @@ impl ExportContext {
             ],
         );
 
-        // GEOMETRIC_REPRESENTATION_CONTEXT
-        self.emit(
-            "GEOMETRIC_REPRESENTATION_CONTEXT",
-            vec![
-                str_param(""),
-                str_param("3D"),
-                int(ctx.dimension as i64),
-                ref_(lu_id),
-                ref_(au_id),
-                ref_(unc_id),
-            ],
-        )
+        // STEP AP203/214/242 mandates that the representation context
+        // for shape data be a *complex* entity that multiply-inherits
+        // from GEOMETRIC_REPRESENTATION_CONTEXT, GLOBAL_UNIT_ASSIGNED_-
+        // CONTEXT, GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT, and
+        // REPRESENTATION_CONTEXT. The simple-entity form
+        //   GEOMETRIC_REPRESENTATION_CONTEXT('','3D',3,#u,#a,#unc)
+        // is non-standard — OCCT-strict importers (Bambu Studio,
+        // FreeCAD) ignore the unit assignment and prompt the user to
+        // pick units, then often pick the wrong scale. Emit the
+        // complex form so units (millimetres) round-trip cleanly.
+        let id = self.alloc_id();
+        self.entities
+            .push(crate::step::parser::types::EntityInstance {
+                id,
+                type_name: "GEOMETRIC_REPRESENTATION_CONTEXT".into(),
+                params: vec![int(ctx.dimension as i64)],
+                complex_parts: vec![
+                    (
+                        "GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT".into(),
+                        vec![crate::step::export::list(vec![ref_(unc_id)])],
+                    ),
+                    (
+                        "GLOBAL_UNIT_ASSIGNED_CONTEXT".into(),
+                        vec![crate::step::export::list(vec![ref_(lu_id), ref_(au_id)])],
+                    ),
+                    (
+                        "REPRESENTATION_CONTEXT".into(),
+                        vec![str_param(""), str_param("3D")],
+                    ),
+                ],
+            });
+        id
     }
 
     /// Emit entities for an assembly child placement transform.

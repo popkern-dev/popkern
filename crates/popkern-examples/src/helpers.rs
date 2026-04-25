@@ -4,6 +4,48 @@ use std::path::Path;
 use std::sync::Arc;
 
 use popkern_core::topology::BRep;
+
+/// Print a count + breakdown of edges where surface_a(pcurve_a) and
+/// surface_b(pcurve_b) disagree at interior points — i.e. the edges
+/// that OCCT-strict slicers (Bambu Studio, FreeCAD) flag as
+/// non-manifold when they tessellate the imported STEP.
+#[allow(dead_code)]
+pub fn report_non_manifold(brep: &BRep) {
+    let threshold = 5.0 * brep.tolerance.linear().max(1e-9);
+    let reports = brep.find_tessellation_non_manifold_edges(16, threshold);
+    if reports.is_empty() {
+        println!("  Non-manifold (tess.): 0");
+        return;
+    }
+    let mut buckets: [usize; 4] = [0; 4];
+    for r in &reports {
+        let div = r.max_divergence;
+        if div > 1e-1 {
+            buckets[3] += 1;
+        } else if div > 1e-2 {
+            buckets[2] += 1;
+        } else if div > 1e-3 {
+            buckets[1] += 1;
+        } else {
+            buckets[0] += 1;
+        }
+    }
+    println!(
+        "  Non-manifold (tess.): {} edges (>1e-1: {}, >1e-2: {}, >1e-3: {}, ≤1e-3: {})",
+        reports.len(),
+        buckets[3],
+        buckets[2],
+        buckets[1],
+        buckets[0],
+    );
+    let n_show = reports.len().min(3);
+    for r in &reports[..n_show] {
+        println!(
+            "    worst: {:?} at ({:+.3},{:+.3},{:+.3}) div={:.4}",
+            r.edge, r.location.x, r.location.y, r.location.z, r.max_divergence
+        );
+    }
+}
 use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
     StepExportOptions, StepProductNode, UnitContext, export_step_file,

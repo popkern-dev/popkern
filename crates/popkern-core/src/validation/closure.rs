@@ -164,6 +164,145 @@ impl BRep {
         }
         Ok(())
     }
+
+    /// Find edges whose surface evaluations on either side disagree at
+    /// interior points along the curve. `validate_watertight` only
+    /// checks the two endpoints; OCCT-strict mesh slicers (Bambu
+    /// Studio, FreeCAD) tessellate each pcurve to a polyline and
+    /// require the resulting 3-D points to coincide between adjacent
+    /// faces — interior disagreement appears in the imported mesh as
+    /// "non-manifold edges."
+    ///
+    /// For each edge, samples `samples` points along the parameter
+    /// range, evaluates `surface_a(pcurve_a(t))` and
+    /// `surface_b(pcurve_b(t))`, and reports the edge with the max
+    /// divergence if it exceeds `threshold`. The returned vector lists
+    /// `(edge, max_divergence, midpoint_3d)` in descending order of
+    /// divergence — useful for surfacing the worst offenders first.
+    ///
+    /// Edges without curve geometry, or with one or both half-edges
+    /// missing pcurves, are skipped (we can't compute the divergence
+    /// without both pcurves). Edges where both faces share the same
+    /// surface (e.g. seam edges on cylinders) are also skipped.
+    pub fn find_tessellation_non_manifold_edges(
+        &self,
+        samples: usize,
+        threshold: f64,
+    ) -> Vec<NonManifoldEdgeReport> {
+        use crate::geometry::surface::SurfaceEval;
+        let n_samples = samples.max(2);
+        let mut reports: Vec<NonManifoldEdgeReport> = Vec::new();
+        for (edge_handle, edge_data) in &self.edges {
+            let Some(curve_on_edge) = edge_data.curve.as_ref() else {
+                continue;
+            };
+            let Some(he) = self.half_edges.get(edge_data.half_edge) else {
+                continue;
+            };
+            let Some(twin) = self.half_edges.get(he.twin) else {
+                continue;
+            };
+            let face_a = self.loops[he.loop_].face;
+            let face_b = self.loops[twin.loop_].face;
+            if face_a == face_b {
+                continue; // self-loop / seam edge
+            }
+            let Some(pcurve_a) = he.pcurve.as_ref() else {
+                continue;
+            };
+            let Some(pcurve_b) = twin.pcurve.as_ref() else {
+                continue;
+            };
+            let Some(surf_a) = self.faces.get(face_a).and_then(|f| f.surface.as_ref()) else {
+                continue;
+            };
+            let Some(surf_b) = self.faces.get(face_b).and_then(|f| f.surface.as_ref()) else {
+                continue;
+            };
+
+            let (curve_t_min, curve_t_max) = (curve_on_edge.t_start, curve_on_edge.t_end);
+            let (pa_min, pa_max) = pcurve_a.parameter_range();
+            let (pb_min, pb_max) = pcurve_b.parameter_range();
+            // The cyl-side and sliver-side pcurves run in opposite
+            // parameter directions: one goes pcurve_a(t_min)→pcurve_a(t_max)
+            // matching curve(t_min)→curve(t_max), the other reversed.
+            // Detect direction by comparing 3-D positions at both ends.
+            let curve_p_min = curve_on_edge.geometry.point_at(curve_t_min);
+            let curve_p_max = curve_on_edge.geometry.point_at(curve_t_max);
+            let p_a_at_min = surf_a
+                .geometry
+                .point_at(pcurve_a.point_at(pa_min).x, pcurve_a.point_at(pa_min).y);
+            let p_a_at_max = surf_a
+                .geometry
+                .point_at(pcurve_a.point_at(pa_max).x, pcurve_a.point_at(pa_max).y);
+            let pcurve_a_forward = curve_p_min.distance_to(&p_a_at_min)
+                + curve_p_max.distance_to(&p_a_at_max)
+                <= curve_p_min.distance_to(&p_a_at_max) + curve_p_max.distance_to(&p_a_at_min);
+            let p_b_at_min = surf_b
+                .geometry
+                .point_at(pcurve_b.point_at(pb_min).x, pcurve_b.point_at(pb_min).y);
+            let p_b_at_max = surf_b
+                .geometry
+                .point_at(pcurve_b.point_at(pb_max).x, pcurve_b.point_at(pb_max).y);
+            let pcurve_b_forward = curve_p_min.distance_to(&p_b_at_min)
+                + curve_p_max.distance_to(&p_b_at_max)
+                <= curve_p_min.distance_to(&p_b_at_max) + curve_p_max.distance_to(&p_b_at_min);
+
+            let mut max_div = 0.0_f64;
+            let mut max_at = curve_p_min;
+            for i in 0..n_samples {
+                let s = i as f64 / (n_samples - 1) as f64;
+                let t_curve = curve_t_min + s * (curve_t_max - curve_t_min);
+                let s_a = if pcurve_a_forward { s } else { 1.0 - s };
+                let s_b = if pcurve_b_forward { s } else { 1.0 - s };
+                let t_a = pa_min + s_a * (pa_max - pa_min);
+                let t_b = pb_min + s_b * (pb_max - pb_min);
+                let uv_a = pcurve_a.point_at(t_a);
+                let uv_b = pcurve_b.point_at(t_b);
+                let p_a = surf_a.geometry.point_at(uv_a.x, uv_a.y);
+                let p_b = surf_b.geometry.point_at(uv_b.x, uv_b.y);
+                let div = p_a.distance_to(&p_b);
+                if div > max_div {
+                    max_div = div;
+                    max_at = curve_on_edge.geometry.point_at(t_curve);
+                }
+            }
+            if max_div > threshold {
+                reports.push(NonManifoldEdgeReport {
+                    edge: edge_handle,
+                    face_a,
+                    face_b,
+                    max_divergence: max_div,
+                    location: max_at,
+                });
+            }
+        }
+        reports.sort_by(|a, b| {
+            b.max_divergence
+                .partial_cmp(&a.max_divergence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        reports
+    }
+}
+
+/// One entry in `BRep::find_tessellation_non_manifold_edges`. The
+/// `max_divergence` is the largest 3-D distance, sampled along the
+/// edge curve, between `surface_a(pcurve_a(t))` and `surface_b(pcurve_b(t))`.
+#[derive(Debug, Clone)]
+pub struct NonManifoldEdgeReport {
+    /// The edge being reported.
+    pub edge: crate::topology::EdgeHandle,
+    /// Face on the edge's primary half-edge side.
+    pub face_a: crate::topology::FaceHandle,
+    /// Face on the twin half-edge side.
+    pub face_b: crate::topology::FaceHandle,
+    /// The maximum 3-D distance between the two surface evaluations,
+    /// sampled along the edge's parameter range.
+    pub max_divergence: f64,
+    /// 3-D location (on the edge's curve) where the maximum
+    /// divergence was observed — useful for visualisation.
+    pub location: crate::geometry::Point3,
 }
 
 #[cfg(test)]
