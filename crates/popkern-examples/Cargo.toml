@@ -43,3 +43,7 @@ path = "src/boolean_stress.rs"
 [[bin]]
 name = "pns_pentagon_apex"
 path = "src/pns_pentagon_apex.rs"
+
+[[bin]]
+name = "fillet_zoo"
+path = "src/fillet_zoo.rs"
