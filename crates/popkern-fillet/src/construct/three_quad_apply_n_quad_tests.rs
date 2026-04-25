@@ -394,7 +394,16 @@ fn item4_pentagonal_hub_n5_dispatch() {
     );
     if apex_patches.len() == 5 {
         for p in &apex_patches {
-            assert_eq!(p.method, CornerMethod::Gregory);
+            // Either rung is acceptable for N=5: rational-Gregory
+            // (default) or PnS (POPKERN_PNS=1).
+            assert!(
+                matches!(
+                    p.method,
+                    CornerMethod::Gregory | CornerMethod::PolyhedralNetSpline
+                ),
+                "N=5 dispatch should land on Gregory or PnS, got {:?}",
+                p.method
+            );
             assert_eq!(p.n_sides, 5);
         }
     }

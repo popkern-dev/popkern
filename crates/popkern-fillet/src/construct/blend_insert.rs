@@ -158,10 +158,13 @@ pub(crate) fn insert_vertex_blend(
         relaxed_continuity_coplanarity: None,
     };
 
-    // PnS rung (env-gated, independent of rational_gregory). The
-    // poke op inside `try_pns_dispatch` tolerates both 2N and N HE
-    // layouts, so we don't pre-gate on half-edge count here.
+    // PnS rung (env-gated). At N=3 the rational-Gregory ladder
+    // delivers 40–85% lower boundary-κ deviation than PnS bi-4 on
+    // asymmetric-radius fixtures (R8 C8b cross-fixture sweep), so
+    // PnS only fires for N ≥ 5 where the Gregory ladder isn't
+    // competitive. N=4 is rejected internally (σ singularity).
     if crate::blend::pns_promote::pns_env_enabled()
+        && n_sides >= 5
         && let Some(boundary) = n_gon_boundary.as_ref()
         && boundary.segments.len() == 2 * n_sides
         && let Some(patches) = crate::blend::pns_promote::try_pns_dispatch(
