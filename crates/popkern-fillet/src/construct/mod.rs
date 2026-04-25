@@ -6,6 +6,13 @@ mod bridge_warnings;
 pub(crate) mod cap_insert;
 pub(crate) mod closed_fillet;
 pub(crate) mod edge_reconcile;
+mod gregory_pcurve_clamp;
+
+/// Re-export of the late-pipeline clamp pass for use by `fillet_edges`
+/// after `fix_stale_pcurves` has run.
+pub fn clamp_bounded_pcurves_post_phase5(brep: &mut popkern_core::topology::BRep) -> usize {
+    gregory_pcurve_clamp::clamp_bounded_pcurves(brep)
+}
 pub(crate) mod helpers;
 mod kp13_bi5_promote;
 mod kp_bi5_macro_apply;
@@ -501,6 +508,13 @@ pub fn apply_blend_geometry(
     // edges; topology_repair handles those separately.
     edge_reconcile::reconcile_edge_curves(&mut result);
 
+    // Late-pipeline clamp: any half-edge pcurve on a bounded-UV
+    // surface (Gregory/NURBS/sphere/torus) whose evaluation samples
+    // outside the surface's parameter range gets its control points
+    // clamped into the box. Catches stale pcurves attached after
+    // Gregory cap surface assignment by other pipeline stages
+    // (e.g. attach_fillet_pcurves authoring in the parent face's UV
+    // space). Reduces tess-nm divergence on n04 from ~0.25 → smaller.
     // Optional global pcurve re-fit (`POPKERN_PCURVE_REFIT=1`):
     // re-project every half-edge's pcurve onto its current face
     // surface. Currently regresses tess-nm in `fillet_zoo`
@@ -534,6 +548,15 @@ pub fn apply_blend_geometry(
 
     cap_insert::insert_caps(&mut result, brep, edge_geometries, &mut warnings); // §8.3 caps
     blend_insert::reclassify_corner_methods(&result, &mut corner_patches);
+
+    // Final pass: clamp any out-of-range pcurve control points on
+    // bounded-UV surfaces (Gregory / NURBS / sphere / torus). Runs
+    // *last* so it catches pcurves attached by every prior pipeline
+    // stage (attach_fillet_pcurves, sliver_absorb, cap_insert, …).
+    let n_clamped = gregory_pcurve_clamp::clamp_bounded_pcurves(&mut result);
+    if std::env::var("POPKERN_CLAMP_TRACE").is_ok() {
+        eprintln!("  [gregory_pcurve_clamp] clamped {n_clamped} pcurves");
+    }
 
     Ok(ApplyBlendResult {
         brep: result,

@@ -326,6 +326,15 @@ fn fillet_edges_internal(
     let t5 = Instant::now();
     let _ = apply_result.brep.recompute_all_pcurves();
     apply_result.brep.fix_stale_pcurves();
+    // Final pcurve sanity: clamp any control point that escapes its
+    // surface's bounded UV range (Gregory `[0, 1]²`, Sphere/Torus,
+    // bounded NURBS). `fix_stale_pcurves` -> `recompute_all_pcurves`
+    // can re-create pcurves by sampling 3-D curves and projecting,
+    // and on Gregory caps the closest-point projection sometimes
+    // overshoots the unit square — which the surface then evaluates
+    // as garbage extrapolation. Clamping CPs guarantees evaluations
+    // stay inside the valid domain.
+    let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
     emit!(
         progress::FilletPhase::RepairPcurves,
         t5,

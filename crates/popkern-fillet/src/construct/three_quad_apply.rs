@@ -139,19 +139,26 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
 
     let mut patches = Vec::with_capacity(decomp.sub_patches.len());
     for (sub_face, sub_patch) in sub_faces.iter().zip(decomp.sub_patches.iter()) {
+        // CAPTURE THE OLD SURFACE BEFORE REPLACING. Internal cap-to-
+        // cap edges (created by `mev`/`mef` during the poke) have
+        // `edge.curve = None`; we can't re-project from a 3-D curve
+        // that doesn't exist. Instead, we sample
+        // `old_surface(old_pcurve(t))` to reconstruct the 3-D path
+        // of the edge, then project those points onto the new Gregory.
+        let old_surface = brep
+            .faces
+            .get(*sub_face)
+            .and_then(|f| f.surface.as_ref())
+            .map(|sof| sof.geometry.clone());
         brep.faces[*sub_face].surface = Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Gregory(sub_patch.clone()),
             orientation: true,
         });
-        // The sub-face's outer-loop half-edges still carry pcurves in
-        // the *parent face's* UV space (typically the planar slant
-        // face that got poked). Gregory uses `[0, 1]²` while planes
-        // use any-real (u, v); leaving stale pcurves means OCCT-strict
-        // slicers evaluate the Gregory at out-of-domain UV and get
-        // garbage (the ~10× tessellation divergence on pyramid_n04
-        // is exactly this). Re-fit each boundary pcurve into the
-        // Gregory's UV space using closest-point projection.
-        reproject_loop_pcurves_onto_gregory(brep, *sub_face);
+        // Re-fit each boundary pcurve into the Gregory's UV space.
+        // Uses the edge's 3-D curve when present; falls back to
+        // `old_surface(old_pcurve)` when not (internal cap-to-cap
+        // edges created by `mev`/`mef`).
+        reproject_loop_pcurves_onto_gregory(brep, *sub_face, old_surface.as_ref());
         patches.push(CornerPatchInfo {
             vertex,
             n_sides,
@@ -172,7 +179,16 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
 /// swapping a face's surface to a Gregory patch — the half-edges'
 /// inherited pcurves are still in the *parent face's* UV space, and
 /// re-projecting onto the new surface keeps tessellation consistent.
-fn reproject_loop_pcurves_onto_gregory(brep: &mut BRep, face: FaceHandle) {
+///
+/// `old_surface` is the surface the face had *before* the swap. Used
+/// as a fallback for half-edges whose underlying edge has no 3-D
+/// curve (internal cap-to-cap edges created by `mev`/`mef`); we
+/// reconstruct the 3-D path via `old_surface(old_pcurve(t))`.
+fn reproject_loop_pcurves_onto_gregory(
+    brep: &mut BRep,
+    face: FaceHandle,
+    old_surface: Option<&SurfaceGeometry>,
+) {
     use popkern_core::geometry::curve::CurveEval;
     use popkern_core::geometry::nurbs_curve::NurbsCurve;
 
@@ -210,31 +226,57 @@ fn reproject_loop_pcurves_onto_gregory(brep: &mut BRep, face: FaceHandle) {
     }
 
     let n_samples = 12;
-    for he in hes {
+    for he in &hes {
+        let he = *he;
         let edge = brep.half_edges[he].edge;
-        // Pull the edge's 3-D curve.
-        let Some(curve_on_edge) = brep.edges.get(edge).and_then(|e| e.curve.clone()) else {
+        // Decide our 3-D-source strategy for this half-edge:
+        //   1. Edge has a 3-D curve → sample that.
+        //   2. Edge has no 3-D curve but `old_surface` exists and
+        //      the half-edge has an old pcurve → reconstruct
+        //      `old_surface(old_pcurve(t))` as the 3-D path.
+        //   3. Otherwise skip.
+        let curve_on_edge = brep.edges.get(edge).and_then(|e| e.curve.clone());
+        let old_pcurve = brep.half_edges[he].pcurve.clone();
+        enum Source {
+            Curve3D(popkern_core::geometry::curve::CurveOnEdge, bool),
+            OldSurfPcurve(SurfaceGeometry, NurbsCurve),
+        }
+        let source = if let Some(c) = curve_on_edge {
+            // Determine direction — does the half-edge run with the
+            // 3-D curve or against it?
+            let v_origin = brep.half_edges[he].origin;
+            let p_origin = brep.vertices[v_origin].position;
+            let p_t_start = c.geometry.point_at(c.t_start);
+            let p_t_end = c.geometry.point_at(c.t_end);
+            let forward = p_origin.distance_to(&p_t_start) <= p_origin.distance_to(&p_t_end);
+            Source::Curve3D(c, forward)
+        } else if let (Some(os), Some(opc)) = (old_surface, old_pcurve) {
+            Source::OldSurfPcurve(os.clone(), opc)
+        } else {
             continue;
         };
-        // Determine direction — does the half-edge run with the
-        // 3-D curve or against it? Compare half-edge origin to
-        // curve.point_at(t_start) and t_end.
-        let v_origin = brep.half_edges[he].origin;
-        let p_origin = brep.vertices[v_origin].position;
-        let p_t_start = curve_on_edge.geometry.point_at(curve_on_edge.t_start);
-        let p_t_end = curve_on_edge.geometry.point_at(curve_on_edge.t_end);
-        let forward = p_origin.distance_to(&p_t_start) <= p_origin.distance_to(&p_t_end);
 
-        // Sample the 3-D curve, project each sample onto the new
+        // Sample the 3-D path, project each sample onto the new
         // surface, build a degree-3 NURBS through the (u, v, 0)
         // samples.
         let mut points: Vec<popkern_core::geometry::Point3> = Vec::with_capacity(n_samples);
         let mut params: Vec<f64> = Vec::with_capacity(n_samples);
         for i in 0..n_samples {
             let s = i as f64 / (n_samples - 1) as f64;
-            let t_s = if forward { s } else { 1.0 - s };
-            let t = curve_on_edge.t_start + t_s * (curve_on_edge.t_end - curve_on_edge.t_start);
-            let p_3d = curve_on_edge.geometry.point_at(t);
+            let p_3d = match &source {
+                Source::Curve3D(coe, forward) => {
+                    let t_s = if *forward { s } else { 1.0 - s };
+                    let t = coe.t_start + t_s * (coe.t_end - coe.t_start);
+                    coe.geometry.point_at(t)
+                }
+                Source::OldSurfPcurve(old_surf, old_pc) => {
+                    use popkern_core::geometry::surface::SurfaceEval;
+                    let (pc_lo, pc_hi) = old_pc.parameter_range();
+                    let t = pc_lo + s * (pc_hi - pc_lo);
+                    let uv = old_pc.point_at(t);
+                    old_surf.point_at(uv.x, uv.y)
+                }
+            };
             let (u, v) = super::helpers::project_to_uv(&surface, &p_3d);
             // Clamp to the surface's parameter range so we don't fly
             // outside. Gregory: [0, 1] × [0, 1].
