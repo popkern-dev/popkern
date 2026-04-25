@@ -1,0 +1,254 @@
+//! Parametric curves in surface UV space.
+//!
+//! `Pcurve` is the analogue of [`crate::geometry::curve::CurveOnEdge`]
+//! for parametric (UV) curves on a surface. Stored either as an
+//! analytic primitive (for trig surfaces where the canonical pcurve
+//! is exact — e.g. a linear segment in cyl UV traces a circle on
+//! the cylinder) or as a general NURBS for non-analytic
+//! intersections. UV coordinates are encoded as `Point3 { x: u, y:
+//! v, z: 0.0 }` by convention, matching popkern's existing pcurve
+//! storage.
+//!
+//! See ADR `docs/decisions/2026-04-25-edge-triple-factory.md` for
+//! the design rationale (B1: analytic pcurve types, commercial-style).
+
+use serde::{Deserialize, Serialize};
+
+use crate::geometry::nurbs_curve::NurbsCurve;
+use crate::geometry::{Point3, Vec3};
+
+/// A parametric curve binding to one side of an edge.
+///
+/// Holds the geometric form plus the parameter range
+/// `[t_start, t_end]` over which the curve is defined.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Pcurve {
+    /// The geometric form (analytic or NURBS).
+    pub geometry: PcurveGeometry,
+    /// Parameter at the start vertex.
+    pub t_start: f64,
+    /// Parameter at the end vertex.
+    pub t_end: f64,
+}
+
+/// Geometric form of a pcurve. Mirrors
+/// [`crate::geometry::curve::CurveGeometry`] but with 2D-native
+/// analytic variants.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PcurveGeometry {
+    /// Linear segment in UV space: the canonical pcurve for
+    /// horizontal circles on cylinders, isoparametric edges on any
+    /// surface, and any constant-rate `(u, v)` traversal. Exact by
+    /// construction.
+    ///
+    /// `point_at(t) = start + s · (end - start)` where
+    /// `s = (t - t_start) / (t_end - t_start)`.
+    Linear {
+        /// Start `(u, v)`.
+        start: (f64, f64),
+        /// End `(u, v)`.
+        end: (f64, f64),
+    },
+    /// General NURBS pcurve. Control points stored as
+    /// `Point3 { x: u, y: v, z: 0 }`.
+    Nurbs(NurbsCurve),
+}
+
+impl Pcurve {
+    /// Wrap a `NurbsCurve` as a NURBS-form pcurve. Inherits the
+    /// curve's intrinsic parameter range.
+    pub fn from_nurbs(curve: NurbsCurve) -> Self {
+        let (t_start, t_end) = nurbs_param_range(&curve);
+        Self {
+            geometry: PcurveGeometry::Nurbs(curve),
+            t_start,
+            t_end,
+        }
+    }
+
+    /// Build a linear pcurve from `start` to `end` over the given
+    /// parameter range `[t_start, t_end]`.
+    pub fn linear(start: (f64, f64), end: (f64, f64), t_start: f64, t_end: f64) -> Self {
+        Self {
+            geometry: PcurveGeometry::Linear { start, end },
+            t_start,
+            t_end,
+        }
+    }
+
+    /// Evaluate the pcurve at parameter `t`. Returns
+    /// `Point3 { x: u, y: v, z: 0 }`.
+    pub fn point_at(&self, t: f64) -> Point3 {
+        match &self.geometry {
+            PcurveGeometry::Linear { start, end } => {
+                let span = self.t_end - self.t_start;
+                let s = if span.abs() > 0.0 {
+                    (t - self.t_start) / span
+                } else {
+                    0.0
+                };
+                let u = start.0 + s * (end.0 - start.0);
+                let v = start.1 + s * (end.1 - start.1);
+                Point3::new(u, v, 0.0)
+            }
+            PcurveGeometry::Nurbs(n) => {
+                use crate::geometry::curve::CurveEval;
+                n.point_at(t)
+            }
+        }
+    }
+
+    /// First-order tangent at parameter `t`. Returns the analytic
+    /// derivative for `Linear`; defers to NURBS de Boor otherwise.
+    pub fn tangent_at(&self, t: f64) -> Vec3 {
+        match &self.geometry {
+            PcurveGeometry::Linear { start, end } => {
+                let span = self.t_end - self.t_start;
+                let scale = if span.abs() > 0.0 { 1.0 / span } else { 0.0 };
+                Vec3::new((end.0 - start.0) * scale, (end.1 - start.1) * scale, 0.0)
+            }
+            PcurveGeometry::Nurbs(n) => {
+                use crate::geometry::curve::CurveEval;
+                n.tangent_at(t)
+            }
+        }
+    }
+
+    /// Parameter range `[t_start, t_end]`.
+    pub fn parameter_range(&self) -> (f64, f64) {
+        (self.t_start, self.t_end)
+    }
+
+    /// Borrow the inner `NurbsCurve` if the pcurve is in NURBS
+    /// form. Returns `None` for analytic variants — callers wanting
+    /// uniform NURBS access should call [`Pcurve::to_nurbs`].
+    pub fn as_nurbs(&self) -> Option<&NurbsCurve> {
+        match &self.geometry {
+            PcurveGeometry::Nurbs(n) => Some(n),
+            _ => None,
+        }
+    }
+
+    /// Mutable borrow of the inner `NurbsCurve` if the pcurve is
+    /// in NURBS form. Used by band-aid passes
+    /// (`gregory_pcurve_clamp`, `pcurve_refit`) that operate on CPs
+    /// directly. Analytic variants return `None` because they're
+    /// inherently within the surface UV box (G4) and don't need
+    /// post-hoc clamping.
+    pub fn as_nurbs_mut(&mut self) -> Option<&mut NurbsCurve> {
+        match &mut self.geometry {
+            PcurveGeometry::Nurbs(n) => Some(n),
+            _ => None,
+        }
+    }
+
+    /// Convert to a `NurbsCurve` in all cases. For analytic
+    /// variants, builds the equivalent NURBS representation. Used
+    /// by STEP export and any consumer that requires uniform NURBS
+    /// data.
+    pub fn to_nurbs(&self) -> NurbsCurve {
+        match &self.geometry {
+            PcurveGeometry::Nurbs(n) => n.clone(),
+            PcurveGeometry::Linear { start, end } => NurbsCurve {
+                degree: 1,
+                knots: vec![self.t_start, self.t_start, self.t_end, self.t_end],
+                control_points: vec![
+                    Point3::new(start.0, start.1, 0.0),
+                    Point3::new(end.0, end.1, 0.0),
+                ],
+                weights: vec![1.0, 1.0],
+            },
+        }
+    }
+
+    /// True if the pcurve has an analytic form (not a NURBS
+    /// fallback). Diagnostics and provenance reporting read this.
+    pub fn is_analytic(&self) -> bool {
+        !matches!(&self.geometry, PcurveGeometry::Nurbs(_))
+    }
+}
+
+impl From<NurbsCurve> for Pcurve {
+    fn from(c: NurbsCurve) -> Self {
+        Self::from_nurbs(c)
+    }
+}
+
+fn nurbs_param_range(curve: &NurbsCurve) -> (f64, f64) {
+    use crate::geometry::curve::CurveEval;
+    curve.parameter_range()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn linear_endpoint_evaluation_is_exact() {
+        let p = Pcurve::linear((0.0, 0.5), (std::f64::consts::PI, 0.5), 0.0, 1.0);
+        let p0 = p.point_at(0.0);
+        let p1 = p.point_at(1.0);
+        assert_eq!(p0.x, 0.0);
+        assert_eq!(p0.y, 0.5);
+        assert_eq!(p1.x, std::f64::consts::PI);
+        assert_eq!(p1.y, 0.5);
+    }
+
+    #[test]
+    fn linear_midpoint_is_average() {
+        let p = Pcurve::linear((0.0, 0.0), (2.0, 4.0), 0.0, 1.0);
+        let mid = p.point_at(0.5);
+        assert_eq!(mid.x, 1.0);
+        assert_eq!(mid.y, 2.0);
+    }
+
+    #[test]
+    fn linear_tangent_is_constant_direction() {
+        let p = Pcurve::linear((1.0, 2.0), (5.0, 4.0), 0.0, 1.0);
+        let t0 = p.tangent_at(0.25);
+        let t1 = p.tangent_at(0.75);
+        assert_eq!(t0.x, 4.0);
+        assert_eq!(t0.y, 2.0);
+        assert_eq!(t1.x, 4.0);
+        assert_eq!(t1.y, 2.0);
+    }
+
+    #[test]
+    fn from_nurbs_round_trip() {
+        let n = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(1.0, 2.0, 0.0), Point3::new(3.0, 4.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        let p: Pcurve = n.clone().into();
+        assert!(p.as_nurbs().is_some());
+        let back = p.to_nurbs();
+        assert_eq!(back.control_points, n.control_points);
+    }
+
+    #[test]
+    fn linear_to_nurbs_preserves_endpoints() {
+        let p = Pcurve::linear((0.0, 1.0), (4.0, 1.0), 0.0, 1.0);
+        let n = p.to_nurbs();
+        assert_eq!(n.degree, 1);
+        assert_eq!(n.control_points.len(), 2);
+        assert_eq!(n.control_points[0], Point3::new(0.0, 1.0, 0.0));
+        assert_eq!(n.control_points[1], Point3::new(4.0, 1.0, 0.0));
+    }
+
+    #[test]
+    fn is_analytic_distinguishes_variants() {
+        let lin = Pcurve::linear((0.0, 0.0), (1.0, 1.0), 0.0, 1.0);
+        assert!(lin.is_analytic());
+
+        let n = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 1.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        let p: Pcurve = n.into();
+        assert!(!p.is_analytic());
+    }
+}
