@@ -18,6 +18,8 @@
 //! [`EdgeTripleError::Unimplemented`]. Subsequent stages fill in
 //! analytic, Gregory-boundary, and marching specialisations.
 
+mod analytic;
+mod analytic_helpers;
 mod dispatch;
 mod error;
 mod inputs;

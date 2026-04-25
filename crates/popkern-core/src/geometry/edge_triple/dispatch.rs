@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::geometry::edge_triple::analytic::try_dispatch_analytic;
 use crate::geometry::edge_triple::error::EdgeTripleError;
 use crate::geometry::edge_triple::inputs::{EdgeAnchors, EdgeHint};
 use crate::geometry::edge_triple::options::EdgeTripleOptions;
@@ -27,7 +28,10 @@ pub fn compute_edge_geometry(
     tol: &Tolerance,
     opts: &EdgeTripleOptions,
 ) -> Result<EdgeTriple, EdgeTripleError> {
-    let _ = (surf_a, surf_b, anchors, hint, tol, opts);
+    if let Some(result) = try_dispatch_analytic(surf_a, surf_b, &anchors, hint.as_ref(), tol, opts)
+    {
+        return result;
+    }
     Err(EdgeTripleError::Unimplemented)
 }
 
