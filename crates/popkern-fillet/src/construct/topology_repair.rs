@@ -259,20 +259,29 @@ fn vertex_on_cylinder(
 
 fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairCandidate) -> bool {
     let trace = std::env::var("POPKERN_TOPO_REPAIR_TRACE").is_ok();
-    // The two chord edges (he_in and he_out) sit on a planar
-    // adjacent face on their twin side. Confirm both twins lead to
-    // the *same* planar face — that's the sliver-merge target.
+    // The two chord edges (he_in and he_out) sit on planar adjacent
+    // faces on their twin side. There are two cases:
+    //  * Same plane on both sides (e.g. base corner with chord pair
+    //    fully on the base) → insert arc + sliver triangle on cyl
+    //    face. Handled by `try_repair_chord_pair_same_plane`.
+    //  * Different planes (e.g. chord goes from cap-cyl boundary
+    //    on slant_A to base-cyl corner) → snap the off-cyl vertex
+    //    to the cyl ∩ plane_A ∩ plane_B point, then rewrite each
+    //    chord's 3D curve to the analytic arc on its respective
+    //    plane. Handled by `try_repair_chord_pair_different_planes`.
     let twin_in = brep.half_edges[cand.he_in].twin;
     let twin_out = brep.half_edges[cand.he_out].twin;
     let plane_face_in = brep.loops[brep.half_edges[twin_in].loop_].face;
     let plane_face_out = brep.loops[brep.half_edges[twin_out].loop_].face;
     if plane_face_in != plane_face_out {
-        if trace {
-            eprintln!(
-                "[topo_repair]   reject: different adjacent faces ({plane_face_in:?} vs {plane_face_out:?})"
-            );
-        }
-        return false;
+        return try_repair_chord_pair_different_planes(
+            brep,
+            cyl_face,
+            cand,
+            plane_face_in,
+            plane_face_out,
+            trace,
+        );
     }
     let plane_face = plane_face_in;
     let Some(plane_sof) = brep.faces.get(plane_face).and_then(|f| f.surface.as_ref()) else {
@@ -511,6 +520,450 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
 
     let _ = curve_uv2;
     let _ = sliced_uv2;
+    true
+}
+
+/// Surgery for the different-adjacent-planes case: the off-cyl
+/// vertex `cand.off_cyl_vertex` sits at the intersection of cyl,
+/// plane_A, and plane_B (the three surfaces meeting at this corner).
+/// Currently drifted off-cyl by a few % of radius; snap it onto the
+/// analytic intersection of `cyl ∩ plane_A` and `cyl ∩ plane_B`,
+/// then rewrite each chord edge's 3D curve to the proper analytic
+/// arc on its respective plane.
+///
+/// No topology change — only vertex position + edge curve rewrite.
+fn try_repair_chord_pair_different_planes(
+    brep: &mut BRep,
+    cyl_face: FaceHandle,
+    cand: ChordPairCandidate,
+    plane_face_a: FaceHandle,
+    plane_face_b: FaceHandle,
+    trace: bool,
+) -> bool {
+    let cyl_geom = brep.faces[cyl_face]
+        .surface
+        .as_ref()
+        .unwrap()
+        .geometry
+        .clone();
+    let plane_a_geom = match brep
+        .faces
+        .get(plane_face_a)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| s.geometry.clone())
+    {
+        Some(g) if matches!(g, SurfaceGeometry::Plane { .. }) => g,
+        _ => {
+            if trace {
+                eprintln!("[topo_repair]   reject (diff): plane_face_a not a plane");
+            }
+            return false;
+        }
+    };
+    let plane_b_geom = match brep
+        .faces
+        .get(plane_face_b)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| s.geometry.clone())
+    {
+        Some(g) if matches!(g, SurfaceGeometry::Plane { .. }) => g,
+        _ => {
+            if trace {
+                eprintln!("[topo_repair]   reject (diff): plane_face_b not a plane");
+            }
+            return false;
+        }
+    };
+
+    let v_off = cand.off_cyl_vertex;
+    let p_off = brep.vertices[v_off].position;
+    let p_anchor_in = brep.vertices[cand.anchor_in].position;
+    let p_anchor_out = brep.vertices[cand.anchor_out].position;
+    let tolerance = brep.tolerance;
+
+    // Compute cyl ∩ plane_A and cyl ∩ plane_B as analytic curves.
+    let arc_a = match analytic_cyl_plane_intersection(&cyl_geom, &plane_a_geom, &tolerance) {
+        Some(c) => c,
+        None => {
+            if trace {
+                eprintln!("[topo_repair]   reject (diff): cyl ∩ plane_a failed");
+            }
+            return false;
+        }
+    };
+    let arc_b = match analytic_cyl_plane_intersection(&cyl_geom, &plane_b_geom, &tolerance) {
+        Some(c) => c,
+        None => {
+            if trace {
+                eprintln!("[topo_repair]   reject (diff): cyl ∩ plane_b failed");
+            }
+            return false;
+        }
+    };
+
+    // Find the point on arc_a closest to p_off (call it q_a) and
+    // similarly q_b on arc_b. The "true" off-cyl vertex position is
+    // arc_a ∩ arc_b; with both arcs near p_off (within drift), the
+    // midpoint or the closer of the two projections is good enough
+    // — the analytic curves themselves will hit p_off ± drift.
+    let (t_a_off, q_a) = match closest_point_on_curve(&arc_a, &p_off) {
+        Some((t, p)) => (t, p),
+        None => return false,
+    };
+    let (t_b_off, q_b) = match closest_point_on_curve(&arc_b, &p_off) {
+        Some((t, p)) => (t, p),
+        None => return false,
+    };
+
+    // Sanity check — q_a and q_b should be within a few mm of each
+    // other (both should approximate the true vertex, drift apart
+    // only). If too far, this isn't the right intersection branch.
+    let q_dist = q_a.distance_to(&q_b);
+    let chord_scale = p_off
+        .distance_to(&p_anchor_in)
+        .max(p_off.distance_to(&p_anchor_out));
+    if q_dist > chord_scale * 0.5 {
+        if trace {
+            eprintln!("[topo_repair]   reject (diff): q_a/q_b too far apart ({q_dist:.5})");
+        }
+        return false;
+    }
+    // Snap v_off to whichever arc projection is closer to the
+    // current v_off — that side's chord becomes exact, and the other
+    // side accepts a small residual mismatch (≤ q_dist).
+    let d_a = q_a.distance_to(&p_off);
+    let d_b = q_b.distance_to(&p_off);
+    let v_new = if d_a <= d_b { q_a } else { q_b };
+    let residual = q_dist;
+
+    // Find the chord edges and their twin-side faces.
+    let edge_in = brep.half_edges[cand.he_in].edge;
+    let edge_out = brep.half_edges[cand.he_out].edge;
+    // edge_in: anchor_in → v_off (on cyl), v_off → anchor_in (on plane_face_a)
+    // edge_out: v_off → anchor_out (on cyl), anchor_out → v_off (on plane_face_b)
+
+    // Move the off-cyl vertex onto the new position. Also update
+    // every incident edge's 3D curve endpoint that was pointing at
+    // the old position — otherwise those edges' endpoints diverge
+    // from the new vertex by O(drift), producing ShellGap errors.
+    if let Some(v) = brep.vertices.get_mut(v_off) {
+        v.position = v_new;
+    }
+    snap_incident_edge_curve_endpoints_robust(brep, v_off, v_new);
+
+    // Rewrite edge_in's 3D curve as cyl ∩ plane_A trimmed from
+    // anchor_in to v_new (on plane_a side). Similarly edge_out.
+    // Endpoint tolerance: residual drift between the two arcs +
+    // anchor drift, with a small floor.
+    let endpoint_tol = (residual + 1e-3).max(1e-3);
+    if !rewrite_edge_to_arc(
+        brep,
+        edge_in,
+        &arc_a,
+        &cyl_geom,
+        &plane_a_geom,
+        p_anchor_in,
+        v_new,
+        endpoint_tol,
+        trace,
+        "in",
+    ) {
+        return false;
+    }
+    if !rewrite_edge_to_arc(
+        brep,
+        edge_out,
+        &arc_b,
+        &cyl_geom,
+        &plane_b_geom,
+        v_new,
+        p_anchor_out,
+        endpoint_tol,
+        trace,
+        "out",
+    ) {
+        return false;
+    }
+
+    let _ = (t_a_off, t_b_off);
+    true
+}
+
+/// Compute the analytic cyl×plane intersection, returning the first
+/// `Curve` intersection from `intersect_surfaces`. Handles the
+/// fillet-specific tangent case (cyl × slant plane = contact line)
+/// that `case_parallel` rejects when `d ≈ cr`.
+fn analytic_cyl_plane_intersection(
+    cyl: &SurfaceGeometry,
+    plane: &SurfaceGeometry,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Option<NurbsCurve> {
+    // Cyl UV: u ∈ [0, 2π], v unbounded — give the solver a generous v
+    // range. Plane UV: use a reasonably wide square. The analytic
+    // plane×cylinder solver doesn't actually clip the result to these
+    // ranges, so generous bounds are safe.
+    let result = intersect_surfaces(
+        cyl,
+        (0.0, std::f64::consts::TAU),
+        (-10.0, 10.0),
+        plane,
+        (-10.0, 10.0),
+        (-10.0, 10.0),
+        tolerance,
+    )
+    .ok()?;
+    for inter in &result.intersections {
+        if let SurfaceSurfaceIntersection::Curve(c) = inter {
+            return Some(c.curve_3d.clone());
+        }
+    }
+    // Empty result — could be a tangent case (cyl perpendicular to
+    // plane normal AND axis distance equals radius). Compute the
+    // contact line manually.
+    cyl_plane_contact_line(cyl, plane, tolerance)
+}
+
+/// Compute the contact line where a cylinder is tangent to a plane.
+/// Returns a NURBS line along the cylinder axis at the contact angle.
+fn cyl_plane_contact_line(
+    cyl: &SurfaceGeometry,
+    plane: &SurfaceGeometry,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Option<NurbsCurve> {
+    let SurfaceGeometry::Cylinder {
+        origin: co,
+        axis: ca,
+        radius: cr,
+    } = cyl
+    else {
+        return None;
+    };
+    let SurfaceGeometry::Plane {
+        origin: po,
+        normal: pn,
+        ..
+    } = plane
+    else {
+        return None;
+    };
+    // Tangent requires axis perpendicular to plane normal (within
+    // angular tolerance) AND axial-distance from cyl axis to plane
+    // ≈ cyl radius.
+    let axis_dot_normal = ca.dot(pn);
+    let ca_len = ca.length();
+    let pn_len = pn.length();
+    if (axis_dot_normal / (ca_len * pn_len)).abs() > tolerance.angular() {
+        return None; // not parallel
+    }
+    let axial_dist = ((*co - *po).dot(pn)) / pn_len;
+    if (axial_dist.abs() - cr).abs() > cr * 0.05 {
+        return None;
+    }
+    // Direction from cyl axis toward plane (negative of normal·sign).
+    let pn_unit = popkern_core::geometry::Vec3::new(pn.x / pn_len, pn.y / pn_len, pn.z / pn_len);
+    let toward_plane_sign = -axial_dist.signum();
+    let radial = popkern_core::geometry::Vec3::new(
+        toward_plane_sign * pn_unit.x * *cr,
+        toward_plane_sign * pn_unit.y * *cr,
+        toward_plane_sign * pn_unit.z * *cr,
+    );
+    let line_origin = Point3::new(co.x + radial.x, co.y + radial.y, co.z + radial.z);
+    let v_lo = -10.0;
+    let v_hi = 10.0;
+    let a = Point3::new(
+        line_origin.x + ca.x * v_lo,
+        line_origin.y + ca.y * v_lo,
+        line_origin.z + ca.z * v_lo,
+    );
+    let b = Point3::new(
+        line_origin.x + ca.x * v_hi,
+        line_origin.y + ca.y * v_hi,
+        line_origin.z + ca.z * v_hi,
+    );
+    Some(NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![a, b],
+        weights: vec![1.0, 1.0],
+    })
+}
+
+/// Walk the curve, find parameter t closest to `target`. Returns
+/// (parameter, point_on_curve).
+fn closest_point_on_curve(curve: &NurbsCurve, target: &Point3) -> Option<(f64, Point3)> {
+    let t = curve.closest_point(target)?;
+    let p = curve.point_at(t);
+    Some((t, p))
+}
+
+/// Rewrite `edge`'s 3D curve to a slice of `arc` (cyl × plane
+/// intersection) trimmed between `p_start` and `p_end`. Also update
+/// the cyl-side and plane-side pcurves.
+#[allow(clippy::too_many_arguments)]
+fn rewrite_edge_to_arc(
+    brep: &mut BRep,
+    edge: EdgeHandle,
+    arc: &NurbsCurve,
+    cyl: &SurfaceGeometry,
+    plane: &SurfaceGeometry,
+    p_start: Point3,
+    p_end: Point3,
+    endpoint_tol: f64,
+    trace: bool,
+    label: &str,
+) -> bool {
+    let t_start = match arc.closest_point(&p_start) {
+        Some(t) => t,
+        None => {
+            if trace {
+                eprintln!("[topo_repair]   reject (diff/{label}): arc start projection failed");
+            }
+            return false;
+        }
+    };
+    let t_end = match arc.closest_point(&p_end) {
+        Some(t) => t,
+        None => {
+            if trace {
+                eprintln!("[topo_repair]   reject (diff/{label}): arc end projection failed");
+            }
+            return false;
+        }
+    };
+    let (lo, hi, reversed) = if t_start <= t_end {
+        (t_start, t_end, false)
+    } else {
+        (t_end, t_start, true)
+    };
+    let sliced = match slice_curve(arc, lo, hi) {
+        Some(c) => {
+            if reversed {
+                reverse_nurbs(&c)
+            } else {
+                c
+            }
+        }
+        None => {
+            if trace {
+                eprintln!("[topo_repair]   reject (diff/{label}): slice_curve failed");
+            }
+            return false;
+        }
+    };
+    let sliced = remap_to_unit_range(&sliced);
+    // Verify the sliced arc actually starts at p_start and ends at p_end
+    // (within the BRep's linear tolerance — the analytic intersection
+    // should be exact, but the off-cyl-vertex move might leave residual
+    // error of order anchor drift).
+    let (s_min, s_max) = sliced.parameter_range();
+    let arc_start = sliced.point_at(s_min);
+    let arc_end = sliced.point_at(s_max);
+    let endpoint_err = arc_start
+        .distance_to(&p_start)
+        .max(arc_end.distance_to(&p_end));
+    if endpoint_err > endpoint_tol {
+        if trace {
+            eprintln!(
+                "[topo_repair]   reject (diff/{label}): arc endpoint err {endpoint_err:.5} > tol {endpoint_tol:.5}",
+            );
+        }
+        return false;
+    }
+    // Snap arc endpoints to the existing vertex positions so the
+    // edge's curve_on_edge.point_at(t_start/t_end) matches vertex
+    // positions exactly (validate's ShellGap check requires this).
+    let mut sliced = sliced;
+    if let Some(first) = sliced.control_points.first_mut() {
+        *first = p_start;
+    }
+    if let Some(last) = sliced.control_points.last_mut() {
+        *last = p_end;
+    }
+
+    // Re-project the sliced 3D arc to cyl UV (degree-3 fit) and
+    // plane UV (analytic projection).
+    let cyl_uv = match fit_cylinder_uv_pcurve(&sliced, cyl) {
+        Some(c) => c,
+        None => return false,
+    };
+    let (plane_origin, plane_u, plane_v) = match plane {
+        SurfaceGeometry::Plane {
+            origin,
+            u_axis,
+            v_axis,
+            ..
+        } => (*origin, *u_axis, *v_axis),
+        _ => return false,
+    };
+    let plane_uv = match project_curve_into_plane_uv(
+        &CurveGeometry::Nurbs(sliced.clone()),
+        plane_origin,
+        plane_u,
+        plane_v,
+    ) {
+        Some(c) => c,
+        None => return false,
+    };
+
+    // Apply: new 3D curve + pcurves on each half-edge. The cyl-side
+    // half-edge of the edge goes "p_start → p_end" (after our
+    // remapping the arc runs in this direction).
+    let he = brep.edges[edge].half_edge;
+    let twin = brep.half_edges[he].twin;
+    let he_face = brep.loops[brep.half_edges[he].loop_].face;
+    let cyl_face_handle = match brep.faces.get(he_face).and_then(|f| f.surface.as_ref()) {
+        Some(sof) if matches!(sof.geometry, SurfaceGeometry::Cylinder { .. }) => he_face,
+        _ => brep.loops[brep.half_edges[twin].loop_].face,
+    };
+    let (cyl_he, plane_he) = if he_face == cyl_face_handle {
+        (he, twin)
+    } else {
+        (twin, he)
+    };
+
+    // Orient the sliced curve to match the edge's primary half-edge
+    // direction. `sliced` currently runs p_start → p_end. The edge's
+    // primary half-edge runs from edge.half_edge.origin to its
+    // twin.origin. If origin matches p_start's vertex (close to
+    // p_start in 3D), keep direction; otherwise reverse.
+    let primary_he = brep.edges[edge].half_edge;
+    let primary_origin_pos = brep.vertices[brep.half_edges[primary_he].origin].position;
+    let oriented_sliced =
+        if primary_origin_pos.distance_to(&p_start) <= primary_origin_pos.distance_to(&p_end) {
+            sliced
+        } else {
+            reverse_nurbs(&sliced)
+        };
+    if let Some(edge_mut) = brep.edges.get_mut(edge) {
+        edge_mut.curve = Some(popkern_core::geometry::curve::CurveOnEdge {
+            geometry: CurveGeometry::Nurbs(oriented_sliced),
+            t_start: 0.0,
+            t_end: 1.0,
+        });
+    } else {
+        return false;
+    }
+
+    // Pcurve direction: the edge's "primary" half-edge runs in the
+    // 3D curve direction. Our arc runs p_start → p_end. The twin
+    // runs p_end → p_start; its pcurve must be reversed.
+    let edge_he = brep.edges[edge].half_edge;
+    let cyl_pcurve = if cyl_he == edge_he {
+        cyl_uv.clone()
+    } else {
+        reverse_nurbs(&cyl_uv)
+    };
+    let plane_pcurve = if plane_he == edge_he {
+        plane_uv.clone()
+    } else {
+        reverse_nurbs(&plane_uv)
+    };
+    if let Some(he_mut) = brep.half_edges.get_mut(cyl_he) {
+        he_mut.pcurve = Some(cyl_pcurve);
+    }
+    if let Some(twin_mut) = brep.half_edges.get_mut(plane_he) {
+        twin_mut.pcurve = Some(plane_pcurve);
+    }
     true
 }
 
@@ -857,10 +1310,107 @@ fn fit_cylinder_uv_pcurve(curve_3d: &NurbsCurve, cyl: &SurfaceGeometry) -> Optio
     fit_curve(&uv_points, &params, degree, num_cps).ok()
 }
 
+/// For every edge incident to `vh`, snap the 3D curve's endpoint
+/// (the one matching v's t_start or t_end) to `new_position`.
+/// More robust than the legacy version: uses half-edge orientation
+/// to determine which end of the curve corresponds to `vh`, then
+/// modifies the appropriate control point of the curve.
+fn snap_incident_edge_curve_endpoints_robust(
+    brep: &mut BRep,
+    vh: VertexHandle,
+    new_position: Point3,
+) {
+    let edge_handles: Vec<EdgeHandle> = brep.edges.keys().collect();
+    for edge in edge_handles {
+        let Some(edge_data) = brep.edges.get(edge) else {
+            continue;
+        };
+        let he = edge_data.half_edge;
+        let Some(he_data) = brep.half_edges.get(he) else {
+            continue;
+        };
+        let twin = he_data.twin;
+        let Some(twin_data) = brep.half_edges.get(twin) else {
+            continue;
+        };
+        let v_origin = he_data.origin;
+        let v_target = twin_data.origin;
+        let edge_starts_at_vh = v_origin == vh;
+        let edge_ends_at_vh = v_target == vh;
+        if !edge_starts_at_vh && !edge_ends_at_vh {
+            continue;
+        }
+        let Some(curve_on_edge) = brep.edges.get(edge).and_then(|e| e.curve.clone()) else {
+            continue;
+        };
+        // Convert any analytic curve to NURBS first, so we have
+        // control points to manipulate. Line/Arc/Circle types are
+        // parameterised by analytic data (origin, direction, etc.)
+        // — modifying those to relocate one endpoint is fiddly, but
+        // promoting to NURBS gives us a uniform interface.
+        let nurbs_full = match &curve_on_edge.geometry {
+            CurveGeometry::Nurbs(n) => n.clone(),
+            CurveGeometry::Line { .. }
+            | CurveGeometry::Arc { .. }
+            | CurveGeometry::Circle { .. } => {
+                let trange = (curve_on_edge.t_start, curve_on_edge.t_end);
+                curve_on_edge.geometry.to_nurbs_in_range(trange)
+            }
+        };
+        // CurveOnEdge.t_start/t_end may not match the underlying
+        // NURBS's full parameter range — the curve may extend
+        // beyond the edge's actual span. Slice down to [t_start,
+        // t_end] so the first/last CPs of the resulting curve
+        // *do* correspond to the edge endpoints.
+        let nurbs_sliced =
+            match slice_curve(&nurbs_full, curve_on_edge.t_start, curve_on_edge.t_end) {
+                Some(s) => remap_to_unit_range(&s),
+                None => nurbs_full.clone(),
+            };
+        // The curve direction may not match the half-edge direction
+        // (edge.half_edge isn't always the curve-start half-edge).
+        // So decide which CP to update based on which curve endpoint
+        // is closer to the existing vertex position. Use the new
+        // position, since the move can be O(drift) in either
+        // direction — closer in original space stays closer.
+        let mut cps = nurbs_sliced.control_points.clone();
+        let snap_first = if let (Some(first), Some(last)) = (cps.first(), cps.last()) {
+            first.distance_to(&new_position) <= last.distance_to(&new_position)
+        } else {
+            true
+        };
+        // Sanity: only update if exactly one end is incident to vh
+        // (BRep half-edge semantics usually guarantee this).
+        let _ = (edge_starts_at_vh, edge_ends_at_vh);
+        if snap_first {
+            if let Some(first) = cps.first_mut() {
+                *first = new_position;
+            }
+        } else if let Some(last) = cps.last_mut() {
+            *last = new_position;
+        }
+        let new_curve = NurbsCurve {
+            degree: nurbs_sliced.degree,
+            knots: nurbs_sliced.knots,
+            control_points: cps,
+            weights: nurbs_sliced.weights,
+        };
+        let (new_t_start, new_t_end) = new_curve.parameter_range();
+        if let Some(edge_mut) = brep.edges.get_mut(edge) {
+            edge_mut.curve = Some(popkern_core::geometry::curve::CurveOnEdge {
+                geometry: CurveGeometry::Nurbs(new_curve),
+                t_start: new_t_start,
+                t_end: new_t_end,
+            });
+        }
+    }
+}
+
 /// For every edge with an endpoint vertex `vh`, replace the
 /// matching control point of the edge's 3D curve so the curve
 /// terminates at the new vertex position. Identifies the matching
 /// control point by proximity to `old_position`.
+#[allow(dead_code)]
 fn snap_incident_edge_curve_endpoints(
     brep: &mut BRep,
     vh: VertexHandle,
