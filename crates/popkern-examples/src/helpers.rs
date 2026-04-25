@@ -9,14 +9,51 @@ use popkern_core::topology::BRep;
 /// surface_b(pcurve_b) disagree at interior points — i.e. the edges
 /// that OCCT-strict slicers (Bambu Studio, FreeCAD) flag as
 /// non-manifold when they tessellate the imported STEP.
+///
+/// Set `POPKERN_NM_VERBOSE=1` to also dump every offending edge
+/// (handle, surface-pair kind, both faces, location, divergence).
 #[allow(dead_code)]
 pub fn report_non_manifold(brep: &BRep) {
+    use popkern_core::geometry::surface::SurfaceGeometry;
     let threshold = 5.0 * brep.tolerance.linear().max(1e-9);
     let reports = brep.find_tessellation_non_manifold_edges(16, threshold);
     if reports.is_empty() {
         println!("  Non-manifold (tess.): 0");
         return;
     }
+    let surf_kind = |sg: &SurfaceGeometry| -> &'static str {
+        match sg {
+            SurfaceGeometry::Plane { .. } => "Plane",
+            SurfaceGeometry::Cylinder { .. } => "Cyl",
+            SurfaceGeometry::Sphere { .. } => "Sph",
+            SurfaceGeometry::Cone { .. } => "Cone",
+            SurfaceGeometry::Torus { .. } => "Torus",
+            SurfaceGeometry::Nurbs(_) => "Nurbs",
+            SurfaceGeometry::Gregory(_) => "Gregory",
+        }
+    };
+    let pair_label = |r: &popkern_core::validation::NonManifoldEdgeReport| -> String {
+        let a = brep
+            .faces
+            .get(r.face_a)
+            .and_then(|f| f.surface.as_ref())
+            .map(|s| surf_kind(&s.geometry))
+            .unwrap_or("?");
+        let b = brep
+            .faces
+            .get(r.face_b)
+            .and_then(|f| f.surface.as_ref())
+            .map(|s| surf_kind(&s.geometry))
+            .unwrap_or("?");
+        // Symmetrise (Plane×Cyl == Cyl×Plane)
+        if a <= b {
+            format!("{a}×{b}")
+        } else {
+            format!("{b}×{a}")
+        }
+    };
+
+    // Magnitude buckets.
     let mut buckets: [usize; 4] = [0; 4];
     for r in &reports {
         let div = r.max_divergence;
@@ -38,12 +75,64 @@ pub fn report_non_manifold(brep: &BRep) {
         buckets[1],
         buckets[0],
     );
+
+    // Surface-pair breakdown — the most actionable view: tells you
+    // *which* class of edges is misbehaving (Plane×Cyl drift vs
+    // Nurbs×Cyl cap, etc.).
+    let mut by_pair: std::collections::BTreeMap<String, (usize, f64)> =
+        std::collections::BTreeMap::new();
+    for r in &reports {
+        let key = pair_label(r);
+        let entry = by_pair.entry(key).or_insert((0, 0.0));
+        entry.0 += 1;
+        if r.max_divergence > entry.1 {
+            entry.1 = r.max_divergence;
+        }
+    }
+    let mut pairs: Vec<_> = by_pair.into_iter().collect();
+    pairs.sort_by_key(|p| std::cmp::Reverse(p.1.0));
+    print!("    by pair: ");
+    let mut first = true;
+    for (k, (n, max_div)) in &pairs {
+        if !first {
+            print!(", ");
+        }
+        first = false;
+        print!("{k}={n} (max {:.3})", max_div);
+    }
+    println!();
+
+    // Top offenders — handle + faces + location for hand-investigation.
     let n_show = reports.len().min(3);
     for r in &reports[..n_show] {
         println!(
-            "    worst: {:?} at ({:+.3},{:+.3},{:+.3}) div={:.4}",
-            r.edge, r.location.x, r.location.y, r.location.z, r.max_divergence
+            "    worst: {:?} ({}) {:?}|{:?} at ({:+.3},{:+.3},{:+.3}) div={:.4}",
+            r.edge,
+            pair_label(r),
+            r.face_a,
+            r.face_b,
+            r.location.x,
+            r.location.y,
+            r.location.z,
+            r.max_divergence
         );
+    }
+
+    if std::env::var("POPKERN_NM_VERBOSE").is_ok() {
+        println!("    -- all non-manifold edges --");
+        for r in &reports {
+            println!(
+                "      {:?} ({}) {:?}|{:?} at ({:+.3},{:+.3},{:+.3}) div={:.5}",
+                r.edge,
+                pair_label(r),
+                r.face_a,
+                r.face_b,
+                r.location.x,
+                r.location.y,
+                r.location.z,
+                r.max_divergence
+            );
+        }
     }
 }
 use popkern_io::{

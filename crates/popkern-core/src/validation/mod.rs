@@ -2,6 +2,8 @@
 
 pub mod bvh;
 mod closure;
+
+pub use closure::NonManifoldEdgeReport;
 mod curve_surface;
 mod euler_poincare;
 mod half_edge_checks;
