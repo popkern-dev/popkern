@@ -14,6 +14,84 @@ pub fn report_diagnostics(brep: &BRep) {
     print!("{report}");
 }
 
+/// For every edge whose tessellation divergence exceeds 1.0 (i.e.
+/// the surface evaluations on the two sides are wildly inconsistent),
+/// print a 9-point sample comparison: 3-D curve point, surface_a
+/// evaluation via pcurve_a, surface_b evaluation via pcurve_b. Lets
+/// us see exactly where things diverge along the curve and on which
+/// side the geometry is broken.
+#[allow(dead_code)]
+pub fn debug_extreme_non_manifold(brep: &BRep) {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::SurfaceEval;
+    let threshold = 5.0 * brep.tolerance.linear().max(1e-9);
+    let reports = brep.find_tessellation_non_manifold_edges(16, threshold);
+    let extreme: Vec<_> = reports.iter().filter(|r| r.max_divergence > 1.0).collect();
+    if extreme.is_empty() {
+        return;
+    }
+    println!("  -- extreme non-manifold edges (div > 1.0) --");
+    for r in &extreme {
+        let Some(edge) = brep.edges.get(r.edge) else {
+            continue;
+        };
+        let Some(coe) = edge.curve.as_ref() else {
+            continue;
+        };
+        let Some(he) = brep.half_edges.get(edge.half_edge) else {
+            continue;
+        };
+        let twin = he.twin;
+        let Some(twin_he) = brep.half_edges.get(twin) else {
+            continue;
+        };
+        let pa = he.pcurve.as_ref();
+        let pb = twin_he.pcurve.as_ref();
+        let face_a = brep.loops[he.loop_].face;
+        let face_b = brep.loops[twin_he.loop_].face;
+        let surf_a = brep.faces.get(face_a).and_then(|f| f.surface.as_ref());
+        let surf_b = brep.faces.get(face_b).and_then(|f| f.surface.as_ref());
+        let (Some(pa), Some(pb), Some(sa), Some(sb)) = (pa, pb, surf_a, surf_b) else {
+            continue;
+        };
+        println!(
+            "  Edge {:?} (max div={:.3} at param-of-curve)",
+            r.edge, r.max_divergence
+        );
+        let (t0, t1) = (coe.t_start, coe.t_end);
+        let (pa_lo, pa_hi) = pa.parameter_range();
+        let (pb_lo, pb_hi) = pb.parameter_range();
+        for i in 0..9 {
+            let s = i as f64 / 8.0;
+            let t = t0 + s * (t1 - t0);
+            let p_3d = coe.geometry.point_at(t);
+            let ta = pa_lo + s * (pa_hi - pa_lo);
+            let tb = pb_lo + s * (pb_hi - pb_lo);
+            let uva = pa.point_at(ta);
+            let uvb = pb.point_at(tb);
+            let p_a = sa.geometry.point_at(uva.x, uva.y);
+            let p_b = sb.geometry.point_at(uvb.x, uvb.y);
+            println!(
+                "    s={:.2}: 3D=({:+.3},{:+.3},{:+.3})  A=({:+.3},{:+.3},{:+.3}) uv=({:+.3},{:+.3})  B=({:+.3},{:+.3},{:+.3}) uv=({:+.3},{:+.3})",
+                s,
+                p_3d.x,
+                p_3d.y,
+                p_3d.z,
+                p_a.x,
+                p_a.y,
+                p_a.z,
+                uva.x,
+                uva.y,
+                p_b.x,
+                p_b.y,
+                p_b.z,
+                uvb.x,
+                uvb.y,
+            );
+        }
+    }
+}
+
 /// Print a count + breakdown of edges where surface_a(pcurve_a) and
 /// surface_b(pcurve_b) disagree at interior points — i.e. the edges
 /// that OCCT-strict slicers (Bambu Studio, FreeCAD) flag as

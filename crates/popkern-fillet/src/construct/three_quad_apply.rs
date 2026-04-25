@@ -143,6 +143,15 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             geometry: SurfaceGeometry::Gregory(sub_patch.clone()),
             orientation: true,
         });
+        // The sub-face's outer-loop half-edges still carry pcurves in
+        // the *parent face's* UV space (typically the planar slant
+        // face that got poked). Gregory uses `[0, 1]²` while planes
+        // use any-real (u, v); leaving stale pcurves means OCCT-strict
+        // slicers evaluate the Gregory at out-of-domain UV and get
+        // garbage (the ~10× tessellation divergence on pyramid_n04
+        // is exactly this). Re-fit each boundary pcurve into the
+        // Gregory's UV space using closest-point projection.
+        reproject_loop_pcurves_onto_gregory(brep, *sub_face);
         patches.push(CornerPatchInfo {
             vertex,
             n_sides,
@@ -156,6 +165,107 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         });
     }
     Ok(patches)
+}
+
+/// Re-fit each half-edge pcurve on `face`'s outer loop into the
+/// face's surface UV space by closest-point projection. Used after
+/// swapping a face's surface to a Gregory patch — the half-edges'
+/// inherited pcurves are still in the *parent face's* UV space, and
+/// re-projecting onto the new surface keeps tessellation consistent.
+fn reproject_loop_pcurves_onto_gregory(brep: &mut BRep, face: FaceHandle) {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::nurbs_curve::NurbsCurve;
+
+    let Some(face_data) = brep.faces.get(face) else {
+        return;
+    };
+    let outer_loop = face_data.outer_loop;
+    let surface = match face_data.surface.as_ref() {
+        Some(sof) => sof.geometry.clone(),
+        None => return,
+    };
+    let Some(loop_data) = brep.loops.get(outer_loop) else {
+        return;
+    };
+    let start_he = loop_data.half_edge;
+
+    // Walk the loop and collect half-edges first (avoids borrow
+    // overlap when we mutate brep.half_edges).
+    let mut hes: Vec<popkern_core::topology::HalfEdgeHandle> = Vec::new();
+    let mut cursor = start_he;
+    let mut safety = 64;
+    loop {
+        if safety == 0 {
+            break;
+        }
+        safety -= 1;
+        hes.push(cursor);
+        let Some(he) = brep.half_edges.get(cursor) else {
+            break;
+        };
+        cursor = he.next;
+        if cursor == start_he {
+            break;
+        }
+    }
+
+    let n_samples = 12;
+    for he in hes {
+        let edge = brep.half_edges[he].edge;
+        // Pull the edge's 3-D curve.
+        let Some(curve_on_edge) = brep.edges.get(edge).and_then(|e| e.curve.clone()) else {
+            continue;
+        };
+        // Determine direction — does the half-edge run with the
+        // 3-D curve or against it? Compare half-edge origin to
+        // curve.point_at(t_start) and t_end.
+        let v_origin = brep.half_edges[he].origin;
+        let p_origin = brep.vertices[v_origin].position;
+        let p_t_start = curve_on_edge.geometry.point_at(curve_on_edge.t_start);
+        let p_t_end = curve_on_edge.geometry.point_at(curve_on_edge.t_end);
+        let forward = p_origin.distance_to(&p_t_start) <= p_origin.distance_to(&p_t_end);
+
+        // Sample the 3-D curve, project each sample onto the new
+        // surface, build a degree-3 NURBS through the (u, v, 0)
+        // samples.
+        let mut points: Vec<popkern_core::geometry::Point3> = Vec::with_capacity(n_samples);
+        let mut params: Vec<f64> = Vec::with_capacity(n_samples);
+        for i in 0..n_samples {
+            let s = i as f64 / (n_samples - 1) as f64;
+            let t_s = if forward { s } else { 1.0 - s };
+            let t = curve_on_edge.t_start + t_s * (curve_on_edge.t_end - curve_on_edge.t_start);
+            let p_3d = curve_on_edge.geometry.point_at(t);
+            let (u, v) = super::helpers::project_to_uv(&surface, &p_3d);
+            // Clamp to the surface's parameter range so we don't fly
+            // outside. Gregory: [0, 1] × [0, 1].
+            let ((u_lo, u_hi), (v_lo, v_hi)) = {
+                use popkern_core::geometry::surface::SurfaceEval;
+                surface.parameter_range()
+            };
+            let u = if u_lo.is_finite() && u_hi.is_finite() {
+                u.clamp(u_lo, u_hi)
+            } else {
+                u
+            };
+            let v = if v_lo.is_finite() && v_hi.is_finite() {
+                v.clamp(v_lo, v_hi)
+            } else {
+                v
+            };
+            points.push(popkern_core::geometry::Point3::new(u, v, 0.0));
+            params.push(s);
+        }
+        let degree = 3usize;
+        let n_cps = (degree + 2).min(points.len());
+        let fitted =
+            match popkern_core::geometry::fitting::fit_curve(&points, &params, degree, n_cps) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+        // Cast to NurbsCurve (fit_curve returns it directly).
+        let _: &NurbsCurve = &fitted;
+        brep.half_edges[he].pcurve = Some(fitted);
+    }
 }
 
 /// Promote sub-patches from `RectangularTwoStripe` to

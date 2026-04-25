@@ -105,6 +105,7 @@ fn showcase_pyramid(n: usize, tol: Tolerance) {
             }
             helpers::report_diagnostics(brep);
             helpers::report_non_manifold(brep);
+            helpers::debug_extreme_non_manifold(brep);
             let step_path = format!("fillet_zoo/{name}.step");
             let png_path = format!("fillet_zoo/{name}.png");
             helpers::export(brep, &name, &step_path);
@@ -165,6 +166,7 @@ fn showcase_hex_prism(tol: Tolerance) {
             }
             helpers::report_diagnostics(brep);
             helpers::report_non_manifold(brep);
+            helpers::debug_extreme_non_manifold(brep);
             helpers::export(brep, name, &format!("fillet_zoo/{name}.step"));
             helpers::try_render(brep, &format!("fillet_zoo/{name}.png"));
             helpers::render_multi_angle(brep, &format!("fillet_zoo/{name}"));
@@ -227,6 +229,7 @@ fn showcase_oct_prism(tol: Tolerance) {
             }
             helpers::report_diagnostics(brep);
             helpers::report_non_manifold(brep);
+            helpers::debug_extreme_non_manifold(brep);
             helpers::export(brep, name, &format!("fillet_zoo/{name}.step"));
             helpers::try_render(brep, &format!("fillet_zoo/{name}.png"));
             helpers::render_multi_angle(brep, &format!("fillet_zoo/{name}"));

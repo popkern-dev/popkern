@@ -396,6 +396,7 @@ fn detect_pcurve_escapes(brep: &BRep) -> Vec<PcurveEscape> {
             SurfaceGeometry::Nurbs(_)
                 | SurfaceGeometry::Sphere { .. }
                 | SurfaceGeometry::Torus { .. }
+                | SurfaceGeometry::Gregory(_)
         );
         if !bounded {
             continue;
