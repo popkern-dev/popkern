@@ -81,13 +81,38 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
         return false;
     };
 
-    // Only run for cylinder × plane. Plane × plane is correctly a
-    // line. Other curved combinations are out of scope.
-    let cyl_plane_orient = match (&sof_1.geometry, &sof_2.geometry) {
-        (SurfaceGeometry::Cylinder { .. }, SurfaceGeometry::Plane { .. }) => 1,
-        (SurfaceGeometry::Plane { .. }, SurfaceGeometry::Cylinder { .. }) => 2,
-        _ => return false,
-    };
+    // Whitelist of analytic surface-pair combos that
+    // `intersect_surfaces` resolves without falling back to the
+    // marching solver. NURBS-involving combos (cylinder × Nurbs,
+    // sphere × Nurbs, Nurbs × Nurbs) hit the marching path which
+    // can hang on small fillet faces — those are out of scope
+    // until someone wires a faster fit. Plane × plane is left
+    // alone; line geometry is already correct.
+    let analytic_combo = matches!(
+        (&sof_1.geometry, &sof_2.geometry),
+        (
+            SurfaceGeometry::Cylinder { .. },
+            SurfaceGeometry::Plane { .. }
+        ) | (
+            SurfaceGeometry::Plane { .. },
+            SurfaceGeometry::Cylinder { .. }
+        ) | (
+            SurfaceGeometry::Sphere { .. },
+            SurfaceGeometry::Plane { .. }
+        ) | (
+            SurfaceGeometry::Plane { .. },
+            SurfaceGeometry::Sphere { .. }
+        ) | (
+            SurfaceGeometry::Sphere { .. },
+            SurfaceGeometry::Cylinder { .. }
+        ) | (
+            SurfaceGeometry::Cylinder { .. },
+            SurfaceGeometry::Sphere { .. }
+        )
+    );
+    if !analytic_combo {
+        return false;
+    }
 
     let v1 = he_data.origin;
     let v2 = twin_data.origin;
@@ -143,8 +168,6 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
             ));
         }
     }
-    let _ = cyl_plane_orient; // surface 1/2 ordering preserved by intersect_surfaces
-
     let Some((curve_3d, curve_uv1, curve_uv2, t1, t2)) = best else {
         return false;
     };
