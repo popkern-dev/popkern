@@ -8,20 +8,20 @@ use std::collections::BTreeMap;
 
 use crate::geometry::Point3;
 use crate::geometry::curve::CurveEval;
-use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use crate::topology::{BRep, VertexHandle};
+use crate::topology::{BRep, FaceHandle, VertexHandle};
 
 #[path = "diagnostics_helpers.rs"]
 mod helpers;
 use helpers::{
-    edge_length, edge_midpoint, face_area, face_centroid, face_edge_aspect_ratio, min_median_max,
-    surface_kind_label,
+    aabb_overlap, check_nurbs_curve, check_nurbs_surface, edge_length, edge_midpoint, face_area,
+    face_bbox, face_centroid, face_edge_aspect_ratio, min_median_max, surface_kind_label,
+    surfaces_match,
 };
 
 use super::{
-    CoincidentPair, Defects, DegenerateEdge, GeometryStats, NakedEdge, NurbsDefect, NurbsKind,
-    NurbsScope, PcurveEscape, SliverFace, TJunction, TopologyStats,
+    CoincidentPair, Defects, DegenerateEdge, FaceOverlap, GeometryStats, NakedEdge, NurbsDefect,
+    NurbsKind, NurbsScope, PcurveEscape, SliverFace, TJunction, TopologyStats,
 };
 
 // ---------------------------------------------------------------------------
@@ -57,6 +57,10 @@ pub(super) fn geometry_stats(brep: &BRep) -> GeometryStats {
     let face_areas: Vec<f64> = brep.faces.keys().map(|fh| face_area(brep, fh)).collect();
     let (e_min, e_med, e_max) = min_median_max(&edge_lengths);
     let (f_min, f_med, f_max) = min_median_max(&face_areas);
+    let (bbox_min, bbox_max) = vertex_bbox(brep);
+    let dx = bbox_max.x - bbox_min.x;
+    let dy = bbox_max.y - bbox_min.y;
+    let dz = bbox_max.z - bbox_min.z;
     GeometryStats {
         edge_length_min: e_min,
         edge_length_median: e_med,
@@ -64,10 +68,46 @@ pub(super) fn geometry_stats(brep: &BRep) -> GeometryStats {
         face_area_min: f_min,
         face_area_median: f_med,
         face_area_max: f_max,
+        bbox_min,
+        bbox_max,
+        bbox_diagonal: (dx * dx + dy * dy + dz * dz).sqrt(),
     }
 }
 
+fn vertex_bbox(brep: &BRep) -> (Point3, Point3) {
+    let mut min = Point3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
+    let mut max = Point3::new(f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    let mut any = false;
+    for (_, v) in &brep.vertices {
+        any = true;
+        let p = v.position;
+        if p.x < min.x {
+            min.x = p.x;
+        }
+        if p.y < min.y {
+            min.y = p.y;
+        }
+        if p.z < min.z {
+            min.z = p.z;
+        }
+        if p.x > max.x {
+            max.x = p.x;
+        }
+        if p.y > max.y {
+            max.y = p.y;
+        }
+        if p.z > max.z {
+            max.z = p.z;
+        }
+    }
+    if !any {
+        return (Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 0.0));
+    }
+    (min, max)
+}
+
 pub(super) fn detect_defects(brep: &BRep) -> Defects {
+    let (count, max_div) = tess_non_manifold_summary(brep);
     Defects {
         naked_edges: detect_naked_edges(brep),
         degenerate_edges: detect_degenerate_edges(brep),
@@ -76,7 +116,20 @@ pub(super) fn detect_defects(brep: &BRep) -> Defects {
         t_junctions: detect_t_junctions(brep),
         nurbs_defects: detect_nurbs_defects(brep),
         pcurve_escapes: detect_pcurve_escapes(brep),
+        face_overlaps: detect_face_overlaps(brep),
+        tess_non_manifold_count: count,
+        tess_non_manifold_max: max_div,
     }
+}
+
+fn tess_non_manifold_summary(brep: &BRep) -> (usize, f64) {
+    let threshold = 5.0 * brep.tolerance.linear().max(1e-9);
+    let reports = brep.find_tessellation_non_manifold_edges(16, threshold);
+    let max_div = reports
+        .iter()
+        .map(|r| r.max_divergence)
+        .fold(0.0_f64, f64::max);
+    (reports.len(), max_div)
 }
 
 // ---------------------------------------------------------------------------
@@ -263,76 +316,59 @@ fn detect_nurbs_defects(brep: &BRep) -> Vec<NurbsDefect> {
             }
         }
     }
-    // Face surfaces (NURBS only — analytic surfaces don't have control
-    // structure to validate at this level).
+    // Face surfaces — Round 3 extends NURBS validation to surfaces.
     for (fh, face) in &brep.faces {
         if let Some(sof) = face.surface.as_ref()
-            && let SurfaceGeometry::Nurbs(_n) = &sof.geometry
+            && let SurfaceGeometry::Nurbs(n) = &sof.geometry
         {
-            // The NURBS surface CP/knot/weight grid lives on a different
-            // structure — for Round 2 we only validate curve NURBS.
-            // Surface NURBS validation can land in Round 3.
-            let _ = fh;
+            for kind in check_nurbs_surface(n) {
+                out.push(NurbsDefect {
+                    scope: NurbsScope::FaceSurface(fh),
+                    kind,
+                });
+            }
         }
     }
     out
 }
 
-fn check_nurbs_curve(nurbs: &NurbsCurve) -> Vec<NurbsKind> {
+/// Detect pairs of faces that look like duplicates: same surface
+/// kind with matching parameters AND overlapping vertex AABBs.
+/// O(F²) brute force — fine for tens of faces. Two faces with the
+/// same plane equation and overlapping bounding boxes is a strong
+/// signal of an un-merged face left behind by sliver_absorb or a
+/// boolean op.
+fn detect_face_overlaps(brep: &BRep) -> Vec<FaceOverlap> {
+    let tol = brep.tolerance.linear().max(1e-12);
+    let handles: Vec<FaceHandle> = brep.faces.keys().collect();
+    let mut bboxes: Vec<((Point3, Point3), Point3)> = Vec::with_capacity(handles.len());
+    for &fh in &handles {
+        bboxes.push((face_bbox(brep, fh), face_centroid(brep, fh)));
+    }
     let mut out = Vec::new();
-    let n = nurbs.control_points.len();
-    let degree = nurbs.degree;
-    if nurbs.weights.len() != n {
-        out.push(NurbsKind::CpWeightMismatch {
-            cps: n,
-            weights: nurbs.weights.len(),
-        });
-    }
-    if nurbs.knots.len() != n + degree + 1 {
-        out.push(NurbsKind::CpKnotMismatch {
-            cps: n,
-            degree,
-            knots: nurbs.knots.len(),
-        });
-    }
-    // Non-monotonic knots
-    let mut prev = f64::NEG_INFINITY;
-    for (i, &k) in nurbs.knots.iter().enumerate() {
-        if !k.is_finite() {
-            out.push(NurbsKind::NonFiniteKnot { index: i });
-            continue;
-        }
-        if k < prev - 1e-12 {
-            out.push(NurbsKind::NonMonotonicKnots { index: i });
-            break;
-        }
-        prev = k;
-    }
-    // Knot multiplicity > degree + 1 (excluding clamped endpoints)
-    let mut run = 1;
-    for w in nurbs.knots.windows(2) {
-        if (w[1] - w[0]).abs() < 1e-12 {
-            run += 1;
-            if run > degree + 1 {
-                out.push(NurbsKind::HighKnotMultiplicity { degree, run });
-                break;
+    for i in 0..handles.len() {
+        for j in (i + 1)..handles.len() {
+            let fa = handles[i];
+            let fb = handles[j];
+            if !aabb_overlap(&bboxes[i].0, &bboxes[j].0, tol * 2.0) {
+                continue;
             }
-        } else {
-            run = 1;
-        }
-    }
-    // Weights and CPs finite, weights positive
-    for (i, &w) in nurbs.weights.iter().enumerate() {
-        if !w.is_finite() || w <= 0.0 {
-            out.push(NurbsKind::InvalidWeight {
-                index: i,
-                weight: w,
+            let surf_a = brep.faces.get(fa).and_then(|f| f.surface.as_ref());
+            let surf_b = brep.faces.get(fb).and_then(|f| f.surface.as_ref());
+            let (Some(sa), Some(sb)) = (surf_a, surf_b) else {
+                continue;
+            };
+            if !surfaces_match(&sa.geometry, &sb.geometry, tol * 100.0) {
+                continue;
+            }
+            let cdist = bboxes[i].1.distance_to(&bboxes[j].1);
+            out.push(FaceOverlap {
+                face_a: fa,
+                face_b: fb,
+                same_surface: true,
+                centroid_distance: cdist,
+                surface_kind: surface_kind_label(&sa.geometry),
             });
-        }
-    }
-    for (i, p) in nurbs.control_points.iter().enumerate() {
-        if !p.x.is_finite() || !p.y.is_finite() || !p.z.is_finite() {
-            out.push(NurbsKind::NonFiniteControlPoint { index: i });
         }
     }
     out
@@ -409,4 +445,3 @@ fn detect_pcurve_escapes(brep: &BRep) -> Vec<PcurveEscape> {
     }
     out
 }
-

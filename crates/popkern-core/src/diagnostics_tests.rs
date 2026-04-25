@@ -19,6 +19,10 @@ fn unit_cube_has_no_defects() {
     assert!(report.defects.t_junctions.is_empty());
     assert!(report.defects.nurbs_defects.is_empty());
     assert!(report.defects.pcurve_escapes.is_empty());
+    assert!(report.defects.face_overlaps.is_empty());
+    assert_eq!(report.defects.tess_non_manifold_count, 0);
+    // Cube AABB is [0,0,0] → [1,1,1] with diagonal √3.
+    assert!((report.geometry.bbox_diagonal - 3.0_f64.sqrt()).abs() < 1e-9);
 }
 
 #[test]

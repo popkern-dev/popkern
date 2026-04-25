@@ -28,6 +28,22 @@ use crate::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle
 #[path = "diagnostics_detectors.rs"]
 mod detectors;
 
+impl Default for GeometryStats {
+    fn default() -> Self {
+        Self {
+            edge_length_min: 0.0,
+            edge_length_median: 0.0,
+            edge_length_max: 0.0,
+            face_area_min: 0.0,
+            face_area_median: 0.0,
+            face_area_max: 0.0,
+            bbox_min: Point3::new(0.0, 0.0, 0.0),
+            bbox_max: Point3::new(0.0, 0.0, 0.0),
+            bbox_diagonal: 0.0,
+        }
+    }
+}
+
 /// Top-level diagnostic report. Build with [`Diagnostics::run`].
 #[derive(Debug, Clone, Default)]
 pub struct Diagnostics {
@@ -62,8 +78,10 @@ pub struct TopologyStats {
 
 /// Edge-length and face-area distribution statistics. All values are
 /// in unit-of-length (typically millimetres after the recent STEP
-/// unit fix).
-#[derive(Debug, Clone, Default)]
+/// unit fix). Bounding-box info is the corner-and-extent of all
+/// vertex positions — a sanity-check against the wrong-scale-on-import
+/// failure mode.
+#[derive(Debug, Clone)]
 pub struct GeometryStats {
     /// Smallest edge length observed.
     pub edge_length_min: f64,
@@ -77,6 +95,12 @@ pub struct GeometryStats {
     pub face_area_median: f64,
     /// Largest face area.
     pub face_area_max: f64,
+    /// Min corner of the vertex-position AABB.
+    pub bbox_min: Point3,
+    /// Max corner of the vertex-position AABB.
+    pub bbox_max: Point3,
+    /// AABB diagonal length.
+    pub bbox_diagonal: f64,
 }
 
 /// Aggregate of all defect categories. Empty vectors mean no defects
@@ -98,6 +122,17 @@ pub struct Defects {
     /// Pcurves whose evaluations fall outside their face surface's
     /// parameter range (Round 2).
     pub pcurve_escapes: Vec<PcurveEscape>,
+    /// Pairs of faces with the same analytic surface and overlapping
+    /// AABBs — strong indicator of a duplicate / un-merged face left
+    /// behind by a boolean / fillet operation (Round 3).
+    pub face_overlaps: Vec<FaceOverlap>,
+    /// Count of edges flagged by `find_tessellation_non_manifold_edges`
+    /// using a 5×tolerance threshold. Round 3 fold-in: the full
+    /// per-edge listing is available via `report_non_manifold`; this
+    /// is just the headline number for the diagnostic block.
+    pub tess_non_manifold_count: usize,
+    /// Largest interior-divergence value observed across all edges.
+    pub tess_non_manifold_max: f64,
 }
 
 /// A naked edge.
@@ -178,6 +213,8 @@ pub enum NurbsScope {
     EdgeCurve(EdgeHandle),
     /// On a half-edge's pcurve.
     HalfEdgePcurve(HalfEdgeHandle),
+    /// On a face's NURBS surface.
+    FaceSurface(FaceHandle),
 }
 
 /// Class of NURBS irregularity.
@@ -259,6 +296,24 @@ pub struct PcurveEscape {
     pub max_overshoot: f64,
 }
 
+/// A pair of faces with the same surface (within tolerance) and
+/// overlapping bounding boxes — strong indicator of a duplicate or
+/// un-merged face left behind by a boolean / fillet operation.
+#[derive(Debug, Clone, Copy)]
+pub struct FaceOverlap {
+    /// First face.
+    pub face_a: FaceHandle,
+    /// Second face.
+    pub face_b: FaceHandle,
+    /// Whether the two faces share the same analytic surface
+    /// definition (within tolerance).
+    pub same_surface: bool,
+    /// Distance between the two centroids.
+    pub centroid_distance: f64,
+    /// Surface kind label ("Plane", "Cyl", …).
+    pub surface_kind: &'static str,
+}
+
 impl Diagnostics {
     /// Run all detectors and return the aggregate report.
     pub fn run(brep: &BRep) -> Self {
@@ -300,6 +355,17 @@ impl fmt::Display for Diagnostics {
             g.face_area_median,
             g.face_area_max
         )?;
+        writeln!(
+            f,
+            "  BBox:     [{:+.3},{:+.3},{:+.3}] → [{:+.3},{:+.3},{:+.3}] diag={:.4}",
+            g.bbox_min.x,
+            g.bbox_min.y,
+            g.bbox_min.z,
+            g.bbox_max.x,
+            g.bbox_max.y,
+            g.bbox_max.z,
+            g.bbox_diagonal
+        )?;
         let n_naked = d.naked_edges.len();
         let n_degen = d.degenerate_edges.len();
         let n_sliver = d.sliver_faces.len();
@@ -307,14 +373,18 @@ impl fmt::Display for Diagnostics {
         let n_tj = d.t_junctions.len();
         let n_nurbs = d.nurbs_defects.len();
         let n_esc = d.pcurve_escapes.len();
-        let total = n_naked + n_degen + n_sliver + n_coinc + n_tj + n_nurbs + n_esc;
+        let n_overlap = d.face_overlaps.len();
+        let n_tess = d.tess_non_manifold_count;
+        let total =
+            n_naked + n_degen + n_sliver + n_coinc + n_tj + n_nurbs + n_esc + n_overlap + n_tess;
         if total == 0 {
             writeln!(f, "  Defects:  none ✓")?;
             return Ok(());
         }
         writeln!(
             f,
-            "  Defects:  {n_naked} naked, {n_degen} degen-edges, {n_sliver} slivers, {n_coinc} coincidents, {n_tj} T-junctions, {n_nurbs} nurbs, {n_esc} pcurve-escape"
+            "  Defects:  {n_naked} naked, {n_degen} degen-edges, {n_sliver} slivers, {n_coinc} coincidents, {n_tj} T-junctions, {n_nurbs} nurbs, {n_esc} pcurve-escape, {n_overlap} face-overlaps, {n_tess} tess-nm (max {:.3e})",
+            d.tess_non_manifold_max
         )?;
         for n in d.naked_edges.iter().take(2) {
             writeln!(
@@ -380,6 +450,13 @@ impl fmt::Display for Diagnostics {
                 pe.uv_range.1.0,
                 pe.uv_range.1.1,
                 pe.max_overshoot
+            )?;
+        }
+        for fo in d.face_overlaps.iter().take(2) {
+            writeln!(
+                f,
+                "    face-overlap: {:?}~{:?} ({}) cdist={:.4}",
+                fo.face_a, fo.face_b, fo.surface_kind, fo.centroid_distance
             )?;
         }
         Ok(())
