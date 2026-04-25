@@ -14,23 +14,31 @@ pub fn report_diagnostics(brep: &BRep) {
     print!("{report}");
 }
 
-/// For every edge whose tessellation divergence exceeds 1.0 (i.e.
-/// the surface evaluations on the two sides are wildly inconsistent),
-/// print a 9-point sample comparison: 3-D curve point, surface_a
-/// evaluation via pcurve_a, surface_b evaluation via pcurve_b. Lets
-/// us see exactly where things diverge along the curve and on which
-/// side the geometry is broken.
+/// For every edge whose tessellation divergence exceeds the env-
+/// var-controlled threshold (default 1.0), print a 9-point sample
+/// comparison: 3-D curve point, surface_a evaluation via pcurve_a,
+/// surface_b evaluation via pcurve_b. Lets us see exactly where
+/// things diverge along the curve and on which side the geometry
+/// is broken. Set `POPKERN_NM_DEBUG_THRESHOLD=0.05` to investigate
+/// smaller-magnitude offenders (e.g. systematic Cyl×Plane drift).
 #[allow(dead_code)]
 pub fn debug_extreme_non_manifold(brep: &BRep) {
     use popkern_core::geometry::curve::CurveEval;
     use popkern_core::geometry::surface::SurfaceEval;
     let threshold = 5.0 * brep.tolerance.linear().max(1e-9);
     let reports = brep.find_tessellation_non_manifold_edges(16, threshold);
-    let extreme: Vec<_> = reports.iter().filter(|r| r.max_divergence > 1.0).collect();
+    let cutoff = std::env::var("POPKERN_NM_DEBUG_THRESHOLD")
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(1.0);
+    let extreme: Vec<_> = reports
+        .iter()
+        .filter(|r| r.max_divergence > cutoff)
+        .collect();
     if extreme.is_empty() {
         return;
     }
-    println!("  -- extreme non-manifold edges (div > 1.0) --");
+    println!("  -- extreme non-manifold edges (div > {cutoff}) --");
     for r in &extreme {
         let Some(edge) = brep.edges.get(r.edge) else {
             continue;

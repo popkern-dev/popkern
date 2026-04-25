@@ -333,17 +333,23 @@ fn detect_nurbs_defects(brep: &BRep) -> Vec<NurbsDefect> {
 }
 
 /// Detect pairs of faces that look like duplicates: same surface
-/// kind with matching parameters AND overlapping vertex AABBs.
-/// O(F²) brute force — fine for tens of faces. Two faces with the
-/// same plane equation and overlapping bounding boxes is a strong
-/// signal of an un-merged face left behind by sliver_absorb or a
-/// boolean op.
+/// kind with matching parameters AND overlapping vertex AABBs AND
+/// no shared edge. O(F²) brute force — fine for tens of faces.
+///
+/// Adjacent faces (e.g. corner-blend caps at a pyramid apex)
+/// trivially have overlapping AABBs because they share an edge —
+/// those are *not* duplicates. Real duplicate / un-merged faces
+/// from sliver_absorb or boolean ops cover the same 3-D region
+/// without sharing edge topology.
 fn detect_face_overlaps(brep: &BRep) -> Vec<FaceOverlap> {
     let tol = brep.tolerance.linear().max(1e-12);
     let handles: Vec<FaceHandle> = brep.faces.keys().collect();
     let mut bboxes: Vec<((Point3, Point3), Point3)> = Vec::with_capacity(handles.len());
+    let mut face_edges: Vec<std::collections::BTreeSet<crate::topology::EdgeHandle>> =
+        Vec::with_capacity(handles.len());
     for &fh in &handles {
         bboxes.push((face_bbox(brep, fh), face_centroid(brep, fh)));
+        face_edges.push(face_edge_set(brep, fh));
     }
     let mut out = Vec::new();
     for i in 0..handles.len() {
@@ -351,6 +357,11 @@ fn detect_face_overlaps(brep: &BRep) -> Vec<FaceOverlap> {
             let fa = handles[i];
             let fb = handles[j];
             if !aabb_overlap(&bboxes[i].0, &bboxes[j].0, tol * 2.0) {
+                continue;
+            }
+            // Skip pairs sharing any edge — they're adjacent, not
+            // duplicates.
+            if face_edges[i].intersection(&face_edges[j]).next().is_some() {
                 continue;
             }
             let surf_a = brep.faces.get(fa).and_then(|f| f.surface.as_ref());
@@ -369,6 +380,38 @@ fn detect_face_overlaps(brep: &BRep) -> Vec<FaceOverlap> {
                 centroid_distance: cdist,
                 surface_kind: surface_kind_label(&sa.geometry),
             });
+        }
+    }
+    out
+}
+
+/// Collect the set of edges referenced by a face's outer loop.
+fn face_edge_set(
+    brep: &BRep,
+    fh: FaceHandle,
+) -> std::collections::BTreeSet<crate::topology::EdgeHandle> {
+    let mut out = std::collections::BTreeSet::new();
+    let Some(face) = brep.faces.get(fh) else {
+        return out;
+    };
+    let Some(loop_data) = brep.loops.get(face.outer_loop) else {
+        return out;
+    };
+    let start = loop_data.half_edge;
+    let mut cursor = start;
+    let mut safety = 256;
+    loop {
+        if safety == 0 {
+            break;
+        }
+        safety -= 1;
+        let Some(he) = brep.half_edges.get(cursor) else {
+            break;
+        };
+        out.insert(he.edge);
+        cursor = he.next;
+        if cursor == start {
+            break;
         }
     }
     out
