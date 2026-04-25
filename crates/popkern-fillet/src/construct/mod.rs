@@ -499,15 +499,10 @@ pub fn apply_blend_geometry(
     // Topology repair for off-cylinder vertices in cylinder face
     // outer loops (apex-only filleting case where the cylinder
     // ribbon's base-side ends at an unfilleted original vertex via
-    // a chord pair). Surgery is gated on round-trip validation —
-    // if the resulting BRep doesn't validate cleanly, revert to
-    // the pre-repair state. Without the gate, kef/kev sequences
-    // can leave shell gaps that break downstream operations.
-    let pre_repair = result.clone();
-    let repaired = topology_repair::repair_cylinder_face_off_surface_vertices(&mut result);
-    if repaired > 0 && result.validate().is_err() {
-        result = pre_repair;
-    }
+    // a chord pair). Each repair attempt runs in a snapshot —
+    // failed attempts roll back without affecting downstream
+    // operations.
+    let _ = topology_repair::repair_cylinder_face_off_surface_vertices(&mut result);
 
     // §13.1(2) sliver absorption: Classes A/B/C/D. 12-edge cube test is Class D regression guard (26 faces preserved).
     sliver_absorb::run_and_route_warnings(&mut result, tolerance, edge_geometries, &mut warnings);

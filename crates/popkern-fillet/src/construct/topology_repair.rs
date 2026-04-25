@@ -54,6 +54,11 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, Verte
 /// bypasses the vertex, and merge the resulting sliver with the
 /// adjacent planar face. Returns the number of off-cyl vertices
 /// successfully repaired.
+///
+/// Each repair attempt runs against a *snapshot* of the BRep —
+/// if the attempt produces an invalid topology (`brep.validate()`
+/// fails) the snapshot is restored and we move on. This keeps a
+/// single bad attempt from poisoning the rest of the build.
 pub(crate) fn repair_cylinder_face_off_surface_vertices(brep: &mut BRep) -> usize {
     let face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
     let mut repaired = 0;
@@ -61,13 +66,25 @@ pub(crate) fn repair_cylinder_face_off_surface_vertices(brep: &mut BRep) -> usiz
         if !is_cylinder_face(brep, fh) {
             continue;
         }
-        // Collect every off-cyl vertex (with the two flanking
-        // chord edges) before mutating, to avoid invalidated
-        // iterators inside the loop.
-        let candidates = find_chord_pair_candidates(brep, fh);
-        for cand in candidates {
-            if try_repair_chord_pair(brep, fh, cand) {
+        // Re-collect candidates each iteration — earlier repairs
+        // mutate the topology, invalidating handles cached from a
+        // prior pass. Cap at 8 attempts per face as a safety
+        // (would only matter for fillet faces with many
+        // off-cylinder vertices, which we don't expect).
+        for _attempt in 0..8 {
+            if !brep.faces.contains_key(fh) {
+                break;
+            }
+            let candidates = find_chord_pair_candidates(brep, fh);
+            let Some(cand) = candidates.into_iter().next() else {
+                break;
+            };
+            let snapshot = brep.clone();
+            if try_repair_chord_pair(brep, fh, cand) && brep.validate().is_ok() {
                 repaired += 1;
+            } else {
+                *brep = snapshot;
+                break;
             }
         }
     }
