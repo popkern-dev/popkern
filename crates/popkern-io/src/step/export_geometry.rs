@@ -94,11 +94,15 @@ impl ExportContext {
                     vec![str_param(""), ref_(placement), real(*radius)],
                 )
             }
-            CurveGeometry::Ellipse { .. } | CurveGeometry::Parabola { .. } => {
-                // STEP has native ELLIPSE / PARABOLA entities but our
-                // exporter currently routes both through the NURBS
-                // path. Parabolas are exactly representable as a
-                // degree-2 Bézier, so the NURBS conversion is exact.
+            CurveGeometry::Ellipse { .. }
+            | CurveGeometry::Parabola { .. }
+            | CurveGeometry::Hyperbola { .. } => {
+                // STEP has native ELLIPSE / PARABOLA / HYPERBOLA
+                // entities but our exporter currently routes all
+                // through the NURBS path. Parabolas are exactly
+                // representable as a degree-2 Bézier; ellipses and
+                // hyperbolas use a sample-and-fit / standard
+                // 9-CP rational approximation.
                 use popkern_core::geometry::CurveEval;
                 let range = curve.geometry.parameter_range();
                 let nurbs = curve.geometry.to_nurbs_in_range(range);

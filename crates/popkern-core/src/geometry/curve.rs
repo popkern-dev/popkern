@@ -173,12 +173,40 @@ pub enum CurveGeometry {
         /// Sweep end parameter.
         t_end: f64,
     },
+    /// A hyperbolic arc (one branch) parameterised as
+    /// `center + cosh(t) · semi_major + sinh(t) · semi_minor`.
+    ///
+    /// Canonical form for plane-cone intersections where the cutting
+    /// plane is steeper than the cone's generator angle. The
+    /// `semi_major` vector points from the centre toward the branch's
+    /// vertex (nearest-approach point at `t = 0`); `semi_minor` is
+    /// perpendicular within the hyperbola plane and scales the
+    /// `sinh` arm. To select the opposite branch, negate `semi_major`.
+    /// Both vectors must be linearly independent.
+    Hyperbola {
+        /// Centre point — lies on the line of symmetry between the
+        /// two branches.
+        center: Point3,
+        /// Real semi-axis vector. `cosh(t)·semi_major` is the
+        /// "horizontal" component. `|semi_major|` = real semi-axis
+        /// `a`; the curve approaches `center + cosh(t)·semi_major`
+        /// asymptotically as `|t|→∞`.
+        semi_major: Vec3,
+        /// Imaginary semi-axis vector. `sinh(t)·semi_minor` is the
+        /// "vertical" component. `|semi_minor|` = imaginary semi-axis
+        /// `b`.
+        semi_minor: Vec3,
+        /// Sweep start parameter.
+        t_start: f64,
+        /// Sweep end parameter.
+        t_end: f64,
+    },
     /// A NURBS (Non-Uniform Rational B-Spline) curve.
     Nurbs(NurbsCurve),
 }
 
 use crate::geometry::curve_to_nurbs::{
-    arc_to_nurbs, circle_to_nurbs, ellipse_to_nurbs, parabola_to_nurbs,
+    arc_to_nurbs, circle_to_nurbs, ellipse_to_nurbs, hyperbola_to_nurbs, parabola_to_nurbs,
 };
 
 impl CurveGeometry {
@@ -222,6 +250,13 @@ impl CurveGeometry {
                 t_start,
                 t_end,
             } => parabola_to_nurbs(*vertex, *linear, *quadratic, *t_start, *t_end),
+            CurveGeometry::Hyperbola {
+                center,
+                semi_major,
+                semi_minor,
+                t_start,
+                t_end,
+            } => hyperbola_to_nurbs(*center, *semi_major, *semi_minor, *t_start, *t_end),
             CurveGeometry::Nurbs(nurbs) => nurbs.clone(),
         }
     }

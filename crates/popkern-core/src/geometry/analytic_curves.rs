@@ -363,6 +363,81 @@ impl CurveEval for Parabola {
 }
 
 // ---------------------------------------------------------------------------
+// Hyperbola — `center + cosh(t) · semi_major + sinh(t) · semi_minor`.
+// ---------------------------------------------------------------------------
+
+struct Hyperbola {
+    center: Point3,
+    semi_major: Vec3,
+    semi_minor: Vec3,
+    t_start: f64,
+    t_end: f64,
+}
+
+impl Hyperbola {
+    fn new(center: Point3, semi_major: Vec3, semi_minor: Vec3, t_start: f64, t_end: f64) -> Self {
+        Self {
+            center,
+            semi_major,
+            semi_minor,
+            t_start,
+            t_end,
+        }
+    }
+}
+
+impl CurveEval for Hyperbola {
+    fn point_at(&self, t: f64) -> Point3 {
+        self.center + self.semi_major * t.cosh() + self.semi_minor * t.sinh()
+    }
+
+    fn derivative_at(&self, t: f64, order: usize) -> Vec3 {
+        // Both `cosh` and `sinh` are their own second derivatives;
+        // derivatives cycle with period 2: even orders give back the
+        // (cosh, sinh) pair, odd orders swap them.
+        if order == 0 {
+            return self.semi_major * t.cosh() + self.semi_minor * t.sinh();
+        }
+        if order % 2 == 1 {
+            self.semi_major * t.sinh() + self.semi_minor * t.cosh()
+        } else {
+            self.semi_major * t.cosh() + self.semi_minor * t.sinh()
+        }
+    }
+
+    fn tangent_at(&self, t: f64) -> Vec3 {
+        self.derivative_at(t, 1)
+            .normalized()
+            .unwrap_or(Vec3::zero())
+    }
+
+    fn parameter_range(&self) -> (f64, f64) {
+        (self.t_start, self.t_end)
+    }
+
+    fn length_between(&self, t0: f64, t1: f64) -> f64 {
+        let n = 32;
+        let mut sum = 0.0;
+        let mut prev = self.point_at(t0);
+        for i in 1..=n {
+            let t = t0 + (t1 - t0) * (i as f64) / (n as f64);
+            let p = self.point_at(t);
+            sum += prev.distance_to(&p);
+            prev = p;
+        }
+        sum
+    }
+
+    fn closest_point(&self, point: &Point3) -> Option<f64> {
+        closest_point_on_curve(self, point)
+    }
+
+    fn curve_bounding_box(&self, t_range: (f64, f64)) -> Aabb {
+        curve_bounding_box_by_sampling(self, t_range)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // CurveGeometry dispatch
 // ---------------------------------------------------------------------------
 
@@ -400,6 +475,13 @@ impl CurveEval for CurveGeometry {
                 t_start,
                 t_end,
             } => Parabola::new(*vertex, *linear, *quadratic, *t_start, *t_end).point_at(t),
+            CurveGeometry::Hyperbola {
+                center,
+                semi_major,
+                semi_minor,
+                t_start,
+                t_end,
+            } => Hyperbola::new(*center, *semi_major, *semi_minor, *t_start, *t_end).point_at(t),
             CurveGeometry::Nurbs(nurbs) => nurbs.point_at(t),
         }
     }
@@ -440,6 +522,14 @@ impl CurveEval for CurveGeometry {
                 t_end,
             } => Parabola::new(*vertex, *linear, *quadratic, *t_start, *t_end)
                 .derivative_at(t, order),
+            CurveGeometry::Hyperbola {
+                center,
+                semi_major,
+                semi_minor,
+                t_start,
+                t_end,
+            } => Hyperbola::new(*center, *semi_major, *semi_minor, *t_start, *t_end)
+                .derivative_at(t, order),
             CurveGeometry::Nurbs(nurbs) => nurbs.derivative_at(t, order),
         }
     }
@@ -477,6 +567,13 @@ impl CurveEval for CurveGeometry {
                 t_start,
                 t_end,
             } => Parabola::new(*vertex, *linear, *quadratic, *t_start, *t_end).tangent_at(t),
+            CurveGeometry::Hyperbola {
+                center,
+                semi_major,
+                semi_minor,
+                t_start,
+                t_end,
+            } => Hyperbola::new(*center, *semi_major, *semi_minor, *t_start, *t_end).tangent_at(t),
             CurveGeometry::Nurbs(nurbs) => nurbs.tangent_at(t),
         }
     }
@@ -515,6 +612,14 @@ impl CurveEval for CurveGeometry {
                 t_start,
                 t_end,
             } => Parabola::new(*vertex, *linear, *quadratic, *t_start, *t_end).parameter_range(),
+            CurveGeometry::Hyperbola {
+                center,
+                semi_major,
+                semi_minor,
+                t_start,
+                t_end,
+            } => Hyperbola::new(*center, *semi_major, *semi_minor, *t_start, *t_end)
+                .parameter_range(),
             CurveGeometry::Nurbs(nurbs) => nurbs.parameter_range(),
         }
     }
@@ -557,6 +662,14 @@ impl CurveEval for CurveGeometry {
             } => {
                 Parabola::new(*vertex, *linear, *quadratic, *t_start, *t_end).length_between(t0, t1)
             }
+            CurveGeometry::Hyperbola {
+                center,
+                semi_major,
+                semi_minor,
+                t_start,
+                t_end,
+            } => Hyperbola::new(*center, *semi_major, *semi_minor, *t_start, *t_end)
+                .length_between(t0, t1),
             CurveGeometry::Nurbs(nurbs) => nurbs.length_between(t0, t1),
         }
     }
@@ -595,6 +708,14 @@ impl CurveEval for CurveGeometry {
                 t_start,
                 t_end,
             } => Parabola::new(*vertex, *linear, *quadratic, *t_start, *t_end).closest_point(point),
+            CurveGeometry::Hyperbola {
+                center,
+                semi_major,
+                semi_minor,
+                t_start,
+                t_end,
+            } => Hyperbola::new(*center, *semi_major, *semi_minor, *t_start, *t_end)
+                .closest_point(point),
             CurveGeometry::Nurbs(nurbs) => nurbs.closest_point(point),
         }
     }
@@ -634,6 +755,14 @@ impl CurveEval for CurveGeometry {
                 t_start,
                 t_end,
             } => Parabola::new(*vertex, *linear, *quadratic, *t_start, *t_end)
+                .curve_bounding_box(t_range),
+            CurveGeometry::Hyperbola {
+                center,
+                semi_major,
+                semi_minor,
+                t_start,
+                t_end,
+            } => Hyperbola::new(*center, *semi_major, *semi_minor, *t_start, *t_end)
                 .curve_bounding_box(t_range),
             CurveGeometry::Nurbs(nurbs) => nurbs.curve_bounding_box(t_range),
         }

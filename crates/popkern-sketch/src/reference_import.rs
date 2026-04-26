@@ -120,6 +120,7 @@ impl SketchOnPlane {
                     }
                     CurveGeometry::Ellipse { .. }
                     | CurveGeometry::Parabola { .. }
+                    | CurveGeometry::Hyperbola { .. }
                     | CurveGeometry::Nurbs(_) => {
                         // Fall back to a line between the projected endpoints.
                         // Sketches don't have a native ellipse element today.

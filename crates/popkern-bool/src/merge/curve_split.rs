@@ -60,6 +60,7 @@ pub(crate) fn split_curve(
         ),
         CurveGeometry::Ellipse { .. }
         | CurveGeometry::Parabola { .. }
+        | CurveGeometry::Hyperbola { .. }
         | CurveGeometry::Nurbs(_) => split_nurbs(curve, t_split),
     }
 }

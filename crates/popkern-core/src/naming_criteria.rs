@@ -47,6 +47,8 @@ pub enum CurveType {
     Ellipse,
     /// Parabolic arc.
     Parabola,
+    /// Hyperbolic arc (one branch).
+    Hyperbola,
     /// NURBS / B-spline curve.
     Nurbs,
 }
@@ -190,6 +192,7 @@ pub fn capture_edge(brep: &BRep, edge: EdgeHandle) -> Option<EdgeCriteria> {
         CurveGeometry::Arc { .. } => CurveType::Arc,
         CurveGeometry::Ellipse { .. } => CurveType::Ellipse,
         CurveGeometry::Parabola { .. } => CurveType::Parabola,
+        CurveGeometry::Hyperbola { .. } => CurveType::Hyperbola,
         CurveGeometry::Nurbs(_) => CurveType::Nurbs,
     };
 

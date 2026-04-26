@@ -229,6 +229,19 @@ pub(super) fn transform_curve(curve: &CurveGeometry, t: &Transform3) -> CurveGeo
             t_start: *t_start,
             t_end: *t_end,
         },
+        CurveGeometry::Hyperbola {
+            center,
+            semi_major,
+            semi_minor,
+            t_start,
+            t_end,
+        } => CurveGeometry::Hyperbola {
+            center: t.apply_point(center),
+            semi_major: t.apply_direction(semi_major),
+            semi_minor: t.apply_direction(semi_minor),
+            t_start: *t_start,
+            t_end: *t_end,
+        },
         CurveGeometry::Nurbs(nurbs) => {
             let control_points = nurbs
                 .control_points
