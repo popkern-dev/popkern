@@ -50,6 +50,7 @@ mod analytic_trig_torus_torus_coaxial;
 mod dispatch;
 mod error;
 mod inputs;
+mod levin;
 mod options;
 mod types;
 mod verify;
