@@ -710,6 +710,61 @@ fn cyl_cone_coaxial_analytic_circle() {
 }
 
 #[test]
+fn plane_torus_villarceau_analytic_circle() {
+    // Stage 2b.22: Villarceau plane bitangent to a torus, factoring
+    // the quartic into 2 circles of major radius. Torus R=5, r=1.
+    // Villarceau angle α = arcsin(1/5) ≈ 0.2014 rad.
+    // Plane normal: (sin α, 0, cos α) = (1/5, 0, √24/5).
+    let torus = nurbs_torus_dummy(); // R=5, r=1
+    let s_a = 0.2_f64; // sin α = 1/5
+    let c_a = (1.0_f64 - s_a * s_a).sqrt(); // cos α = √24/5
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(s_a, 0.0, c_a),
+        u_axis: Vec3::new(c_a, 0.0, -s_a),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    // Anchors on the +y Villarceau circle (centre (0, 1, 0), R=5).
+    // At θ=0 in arc-basis frame: (R, 0, 0) projected — but the arc
+    // basis depends on plane normal. Just pick two known points on
+    // the +y circle: outer-equator point (0, 6, 0) (= (0, 1, 0) +
+    // 5·(0, 1, 0))? Wait, circle centre is (0, 1, 0) and radius 5,
+    // lies in the Villarceau plane. So circle points satisfy
+    // x·sin α + z·cos α = 0. At (0, 6, 0): 0+0=0 ✓ and distance
+    // from centre = (0, 5, 0) magnitude 5 ✓.
+    let start = Point3::new(0.0, 6.0, 0.0);
+    // Other known point: where x·s_a + z·c_a = 0, distance 5 from
+    // (0, 1, 0). Try x = 5·c_a, z = -5·s_a, y = 1: distance from
+    // centre = (5·c_a, 0, -5·s_a), magnitude = 5·sqrt(c_a²+s_a²) = 5 ✓.
+    let end = Point3::new(5.0 * c_a, 1.0, -5.0 * s_a);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&plane, &torus, anchors, None, &tol, &opts)
+        .expect("plane×torus Villarceau analytic dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneTorus,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Arc { .. }
+    ));
+    // Major radius circle.
+    if let crate::geometry::curve::CurveGeometry::Arc { radius, .. } = triple.curve_3d {
+        assert!(
+            (radius - 5.0).abs() < 1e-9,
+            "Villarceau circle should have radius = R = 5, got {radius}"
+        );
+    }
+    assert_guarantees(&triple, &plane, &torus, start, end, &tol);
+}
+
+#[test]
 fn cyl_cyl_parallel_analytic_line() {
     // Two unit cylinders along z-axis, centres at (0,0,0) and (1,0,0)
     // (axis offset 1.0 < r1+r2 = 2.0). Two intersection lines at
