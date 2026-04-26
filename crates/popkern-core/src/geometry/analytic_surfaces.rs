@@ -176,6 +176,18 @@ impl SurfaceEval for SurfaceGeometry {
         }
     }
 
+    fn parameter_periodicity(&self) -> (Option<f64>, Option<f64>) {
+        match self {
+            SurfaceGeometry::Plane { .. } => (None, None),
+            SurfaceGeometry::Cylinder { .. } => (Some(TAU), None),
+            SurfaceGeometry::Cone { .. } => (Some(TAU), None),
+            SurfaceGeometry::Sphere { .. } => (Some(TAU), None),
+            SurfaceGeometry::Torus { .. } => (Some(TAU), Some(TAU)),
+            SurfaceGeometry::Nurbs(_) => (None, None),
+            SurfaceGeometry::Gregory(_) => (None, None),
+        }
+    }
+
     fn parameter_range(&self) -> ((f64, f64), (f64, f64)) {
         match self {
             SurfaceGeometry::Plane { .. } => (

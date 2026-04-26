@@ -19,6 +19,16 @@ pub trait SurfaceEval {
     /// Valid parameter range ((u_min, u_max), (v_min, v_max)).
     fn parameter_range(&self) -> ((f64, f64), (f64, f64));
 
+    /// Periodicity of each parameter, as `(u_period, v_period)`.
+    /// `Some(p)` means the parameter is `p`-periodic — evaluating
+    /// the surface at `u` and `u + k·p` gives the same point for
+    /// any integer `k`. `None` means non-periodic. Default is
+    /// non-periodic for both; analytic surfaces with rotational
+    /// symmetry (cylinder, cone, sphere, torus) override this.
+    fn parameter_periodicity(&self) -> (Option<f64>, Option<f64>) {
+        (None, None)
+    }
+
     /// Second partial derivative d²S/du² at (u, v).
     fn second_partial_uu(&self, u: f64, v: f64) -> Vec3 {
         let h = 1e-7;

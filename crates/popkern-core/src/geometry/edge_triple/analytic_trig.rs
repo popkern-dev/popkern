@@ -19,6 +19,7 @@ use crate::geometry::edge_triple::analytic_trig_plane_sphere_general::try_plane_
 use crate::geometry::edge_triple::analytic_trig_plane_torus::try_plane_torus_perpendicular;
 use crate::geometry::edge_triple::analytic_trig_sphere_cone::try_sphere_cone_axial;
 use crate::geometry::edge_triple::analytic_trig_sphere_sphere::try_sphere_sphere_polar;
+use crate::geometry::edge_triple::analytic_trig_sphere_sphere_general::try_sphere_sphere_general;
 use crate::geometry::edge_triple::error::EdgeTripleError;
 use crate::geometry::edge_triple::inputs::{EdgeAnchors, EdgeHint};
 use crate::geometry::edge_triple::types::EdgeTriple;
@@ -245,7 +246,8 @@ pub(super) fn try_dispatch_trig(
                 center: cb,
                 radius: rb,
             },
-        ) => try_sphere_sphere_polar(*ca, *ra, *cb, *rb, anchors, tol),
+        ) => try_sphere_sphere_polar(*ca, *ra, *cb, *rb, anchors, tol)
+            .or_else(|| try_sphere_sphere_general(*ca, *ra, *cb, *rb, anchors, tol)),
         (
             Cylinder {
                 origin: co,

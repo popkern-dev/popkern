@@ -515,6 +515,39 @@ fn plane_sphere_oblique_analytic_circle() {
 }
 
 #[test]
+fn sphere_sphere_oblique_analytic_circle() {
+    // Stage 2b.20: two unit spheres with centres NOT aligned on the
+    // polar axis. Polar dispatcher returns None, general dispatcher
+    // produces an exact analytic Arc with NURBS pcurves on both
+    // spheres. Periodicity-aware check_uv_box (added to the surface
+    // API in this stage) absorbs minor LSQ-fit overshoots in the
+    // longitude coord.
+    let sphere_a = unit_sphere_at(Point3::new(0.0, 0.0, 0.0));
+    let sphere_b = unit_sphere_at(Point3::new(1.0, 1.0, 0.0));
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let inv_root2 = 1.0 / 2.0_f64.sqrt();
+    let start = Point3::new(0.5, 0.5, inv_root2);
+    let end = Point3::new(0.5, 0.5, -inv_root2);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&sphere_a, &sphere_b, anchors, None, &tol, &opts)
+        .expect("sphere×sphere general analytic dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::SphereSphere,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Arc { .. }
+    ));
+    assert_guarantees(&triple, &sphere_a, &sphere_b, start, end, &tol);
+}
+
+#[test]
 fn plane_sphere_polar_analytic_circle() {
     // Stage 2b.4: equator slice of a unit sphere by the XY plane.
     // Expected: analytic Arc 3D + Linear sphere pcurve at v=π/2 +

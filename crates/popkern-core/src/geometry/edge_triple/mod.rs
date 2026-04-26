@@ -37,6 +37,7 @@ mod analytic_trig_plane_sphere_general;
 mod analytic_trig_plane_torus;
 mod analytic_trig_sphere_cone;
 mod analytic_trig_sphere_sphere;
+mod analytic_trig_sphere_sphere_general;
 mod dispatch;
 mod error;
 mod inputs;

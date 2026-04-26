@@ -85,13 +85,32 @@ fn check_uv_box(pcurve: &Pcurve, surf: &SurfaceGeometry, tol: &Tolerance) -> Res
         return Ok(());
     }
     let pad = tol.parametric_base();
-    // Analytic variants (Linear / Elliptical) are inside their own
-    // UV box by construction. NURBS variants check CPs explicitly.
+    let (u_period, v_period) = surf.parameter_periodicity();
+    // Reduce a CP coordinate to its canonical-range representative
+    // when the parameter is periodic. The surface evaluation is
+    // identical at any `c + k·period`, so a CP at `−ε` is equivalent
+    // to a CP at `period − ε` and should pass the box check.
+    let canonical = |c: f64, lo: f64, hi: f64, period: Option<f64>| -> f64 {
+        match period {
+            Some(p) if p > 0.0 => {
+                let span = hi - lo;
+                if (span - p).abs() > 1.0e-9 {
+                    return c; // box doesn't span a full period — treat strict
+                }
+                lo + (c - lo).rem_euclid(p)
+            }
+            _ => c,
+        }
+    };
+    // Analytic variants (Linear / Elliptical / Sinusoidal) are
+    // inside their own UV box by construction. NURBS variants check
+    // CPs explicitly, with periodicity-aware reduction.
     match &pcurve.geometry {
         PcurveGeometry::Nurbs(n) => {
             for cp in &n.control_points {
-                if cp.x < u_lo - pad || cp.x > u_hi + pad || cp.y < v_lo - pad || cp.y > v_hi + pad
-                {
+                let cu = canonical(cp.x, u_lo, u_hi, u_period);
+                let cv = canonical(cp.y, v_lo, v_hi, v_period);
+                if cu < u_lo - pad || cu > u_hi + pad || cv < v_lo - pad || cv > v_hi + pad {
                     return Err(*cp);
                 }
             }
