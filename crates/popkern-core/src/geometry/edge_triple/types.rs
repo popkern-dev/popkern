@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::geometry::nurbs_curve::NurbsCurve;
+use crate::geometry::curve::CurveGeometry;
 use crate::geometry::{Point3, Vec3};
 
 /// Whether the edge is open (start ≠ end) or closed (loop).
@@ -136,25 +136,74 @@ pub struct EdgeTripleQuality {
 /// [`crate::geometry::edge_triple::compute_edge_geometry`].
 ///
 /// Hard guarantees on every successful return are listed in the
-/// module-level docstring and in the ADR §1 (G1–G6).
+/// module-level docstring and in the ADR §1 (G1–G6) with §13's
+/// revised G3 (parameter-map correspondence rather than literal
+/// shared knots).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EdgeTriple {
-    /// 3-D curve on the edge.
-    pub curve_3d: NurbsCurve,
-    /// Pcurve on `surf_a` — UV stored as `Point3(u, v, 0.0)`.
-    pub pcurve_a: NurbsCurve,
+    /// 3-D curve on the edge. Stored as a `CurveGeometry` enum so
+    /// analytic primitives (Line, Circle, Arc) can be carried
+    /// exactly — matching commercial-kernel and OpenCASCADE practice.
+    pub curve_3d: CurveGeometry,
+    /// Pcurve on `surf_a`.
+    pub pcurve_a: crate::geometry::pcurve::Pcurve,
     /// Pcurve on `surf_b`.
-    pub pcurve_b: NurbsCurve,
-    /// Shared parameter range start (G3).
+    pub pcurve_b: crate::geometry::pcurve::Pcurve,
+    /// 3-D curve parameter range start.
     pub t_start: f64,
-    /// Shared parameter range end (G3); `t_start ≤ t_end` (G5).
+    /// 3-D curve parameter range end; `t_start ≤ t_end` (G5).
     pub t_end: f64,
     /// Open or closed-loop topology.
     pub topology: EdgeTopology,
+    /// Bijective map from `curve_3d`'s parameter to each pcurve's
+    /// parameter (ADR §13 G3). For analytic dispatches this is
+    /// `Identity`; for NURBS marching it's `SharedKnots`.
+    pub parameter_map: ParameterMap,
     /// How the factory built this triple — read by diagnostics.
     pub provenance: EdgeTripleProvenance,
     /// Achieved residual / endpoint error from construction.
     pub quality: EdgeTripleQuality,
+}
+
+/// Bijective correspondence between the 3-D curve's parameter and
+/// each pcurve's parameter. Used by G2 verification and by
+/// downstream consumers that need to evaluate `surf(pcurve(t))` at
+/// the same point as `curve_3d(t)`.
+///
+/// See ADR §13.
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ParameterMap {
+    /// `Φ_a(t) = Φ_b(t) = t`. The 3-D curve and both pcurves share
+    /// the natural parameter (e.g. circle on cylinder where the
+    /// cyl's u-axis IS the circle's angle).
+    Identity,
+    /// `Φ_x(t) = a_x + b_x · t` for each side. Linear
+    /// reparameterisation per side.
+    LinearAffine {
+        /// `Φ_a(t) = a_a + b_a · t`.
+        a_a: f64,
+        /// `Φ_a(t) = a_a + b_a · t`.
+        b_a: f64,
+        /// `Φ_b(t) = a_b + b_b · t`.
+        a_b: f64,
+        /// `Φ_b(t) = a_b + b_b · t`.
+        b_b: f64,
+    },
+    /// All three curves share knot vector and parameter range —
+    /// the legacy stage-1 invariant. Used for NURBS×NURBS marching
+    /// where there's no analytic correspondence.
+    SharedKnots,
+}
+
+impl ParameterMap {
+    /// Apply the map to obtain `(t_pcurve_a, t_pcurve_b)` from a
+    /// 3-D parameter `t`.
+    pub fn apply(&self, t: f64) -> (f64, f64) {
+        match self {
+            ParameterMap::Identity | ParameterMap::SharedKnots => (t, t),
+            ParameterMap::LinearAffine { a_a, b_a, a_b, b_b } => (a_a + b_a * t, a_b + b_b * t),
+        }
+    }
 }
 
 /// One sample on the curvature comb of a 3-D edge curve. UI renders

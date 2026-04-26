@@ -99,10 +99,15 @@ fn assert_guarantees(
         anchors_end
     );
 
-    // G1: endpoint CP equality.
-    let cps = &triple.curve_3d.control_points;
-    assert_eq!(*cps.first().unwrap(), anchors_start, "G1 first CP");
-    assert_eq!(*cps.last().unwrap(), anchors_end, "G1 last CP");
+    // G1: endpoint CP equality. For NURBS variants, check first/last
+    // CPs explicitly. For analytic primitives the endpoint comes from
+    // the surface evaluation and is exact-by-construction; the
+    // distance check above already covers it.
+    if let crate::geometry::curve::CurveGeometry::Nurbs(n) = &triple.curve_3d {
+        let cps = &n.control_points;
+        assert_eq!(*cps.first().unwrap(), anchors_start, "G1 first CP");
+        assert_eq!(*cps.last().unwrap(), anchors_end, "G1 last CP");
+    }
 
     // G2: per-sample positional invariant. Verify already runs 32
     // samples — call again to assert the achieved residual fits.
@@ -220,11 +225,10 @@ fn plane_plane_intersection_line() {
 }
 
 #[test]
-fn plane_cylinder_returns_unimplemented_until_stage_2b() {
-    // Trig pairs need a non-NURBS / high-degree pcurve handling
-    // that stage 2b will introduce. Stage 2a leaves them
-    // Unimplemented so callers see a typed error rather than a
-    // silently-bad triple.
+fn plane_cylinder_perpendicular_analytic_circle() {
+    // Stage 2b.3: plane perpendicular to cyl axis returns an
+    // analytic Circle 3D + Linear cyl pcurve + Elliptical plane
+    // pcurve, with `ParameterMap::Identity`.
     let plane = SurfaceGeometry::Plane {
         origin: Point3::new(0.0, 0.0, 0.5),
         normal: Vec3::new(0.0, 0.0, 1.0),
@@ -234,12 +238,25 @@ fn plane_cylinder_returns_unimplemented_until_stage_2b() {
     let cyl = z_axis_cyl(1.0);
     let tol = Tolerance::default();
     let opts = EdgeTripleOptions::default();
-    let anchors = EdgeAnchors::Open {
-        start: Point3::new(1.0, 0.0, 0.5),
-        end: Point3::new(-1.0, 0.0, 0.5),
-    };
-    let result = compute_edge_geometry(&plane, &cyl, anchors, None, &tol, &opts);
-    assert!(matches!(result, Err(EdgeTripleError::Unimplemented)));
+    let start = Point3::new(1.0, 0.0, 0.5);
+    let end = Point3::new(-1.0, 0.0, 0.5);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&plane, &cyl, anchors, None, &tol, &opts)
+        .expect("plane×cyl analytic dispatch");
+
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneCylinder,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Arc { .. }
+    ));
+    assert_guarantees(&triple, &plane, &cyl, start, end, &tol);
 }
 
 #[test]

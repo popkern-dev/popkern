@@ -20,6 +20,7 @@
 
 mod analytic;
 mod analytic_helpers;
+mod analytic_trig;
 mod dispatch;
 mod error;
 mod inputs;
@@ -37,7 +38,7 @@ pub use inputs::{BoundarySide, EdgeAnchors, EdgeHint, SeamAxis, SurfaceSide};
 pub use options::{BranchPolicy, CancellationToken, EdgeTripleOptions};
 pub use types::{
     AnalyticPair, BranchSelector, CurvatureSample, EdgeTopology, EdgeTriple, EdgeTripleProvenance,
-    EdgeTripleQuality, GregorySide,
+    EdgeTripleQuality, GregorySide, ParameterMap,
 };
 
 #[cfg(test)]

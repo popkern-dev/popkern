@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::geometry::edge_triple::analytic::try_dispatch_analytic;
+use crate::geometry::edge_triple::analytic_trig::try_dispatch_trig;
 use crate::geometry::edge_triple::error::EdgeTripleError;
 use crate::geometry::edge_triple::inputs::{EdgeAnchors, EdgeHint};
 use crate::geometry::edge_triple::options::EdgeTripleOptions;
@@ -28,6 +29,14 @@ pub fn compute_edge_geometry(
     tol: &Tolerance,
     opts: &EdgeTripleOptions,
 ) -> Result<EdgeTriple, EdgeTripleError> {
+    // Try the analytic-trig dispatch first (commercial-style:
+    // analytic Circle 3D + Linear cyl pcurve + Elliptical plane
+    // pcurve, parameter map = Identity).
+    if let Some(result) = try_dispatch_trig(surf_a, surf_b, &anchors, tol) {
+        return result;
+    }
+    // Fall through to the legacy NURBS-via-intersect_surfaces path
+    // (currently only plane×plane).
     if let Some(result) = try_dispatch_analytic(surf_a, surf_b, &anchors, hint.as_ref(), tol, opts)
     {
         return result;

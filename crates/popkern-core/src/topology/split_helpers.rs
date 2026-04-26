@@ -30,6 +30,38 @@ pub(crate) fn split_pcurve_at(pcurve: &Option<Pcurve>, t: f64) -> (Option<Pcurve
                 Some(Pcurve::linear(mid, *end, split_param, p_end)),
             )
         }
+        PcurveGeometry::Elliptical {
+            center,
+            u_radius,
+            v_radius,
+            rotation,
+            start_angle,
+            end_angle,
+        } => {
+            // Angle interpolates linearly with normalised parameter.
+            let mid_angle = start_angle + t * (end_angle - start_angle);
+            let left = Pcurve::elliptical(
+                *center,
+                *u_radius,
+                *v_radius,
+                *rotation,
+                *start_angle,
+                mid_angle,
+                p_start,
+                split_param,
+            );
+            let right = Pcurve::elliptical(
+                *center,
+                *u_radius,
+                *v_radius,
+                *rotation,
+                mid_angle,
+                *end_angle,
+                split_param,
+                p_end,
+            );
+            (Some(left), Some(right))
+        }
         PcurveGeometry::Nurbs(curve) => match curve.split_at(split_param) {
             Ok((left, right)) => (
                 Some(Pcurve::from_nurbs(left)),

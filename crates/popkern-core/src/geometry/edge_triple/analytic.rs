@@ -223,13 +223,20 @@ fn cos_to_triple(
 
     let (t_start_new, t_end_new) = curve_3d.parameter_range();
 
+    use crate::geometry::curve::CurveGeometry;
+    use crate::geometry::edge_triple::types::ParameterMap;
     let triple = EdgeTriple {
-        curve_3d,
-        pcurve_a,
-        pcurve_b,
+        curve_3d: CurveGeometry::Nurbs(curve_3d),
+        pcurve_a: pcurve_a.into(),
+        pcurve_b: pcurve_b.into(),
         t_start: t_start_new,
         t_end: t_end_new,
         topology: EdgeTopology::Open,
+        // Stage 2a's plane×plane and other intersect_surfaces-based
+        // dispatches share knots across the three NURBS — the
+        // legacy invariant. Stage 2b.3+ trig dispatches use Identity
+        // with analytic curves directly.
+        parameter_map: ParameterMap::SharedKnots,
         provenance,
         quality: EdgeTripleQuality::default(),
     };
@@ -242,19 +249,33 @@ fn closed_loop_triple(
     _sample: Point3,
     provenance: EdgeTripleProvenance,
 ) -> EdgeTriple {
+    use crate::geometry::curve::CurveGeometry;
+    use crate::geometry::edge_triple::types::ParameterMap;
     let (t_start, t_end) = cos.curve_3d.parameter_range();
     EdgeTriple {
-        curve_3d: cos.curve_3d.clone(),
-        pcurve_a: cos.curve_uv1.clone(),
-        pcurve_b: cos.curve_uv2.clone(),
+        curve_3d: CurveGeometry::Nurbs(cos.curve_3d.clone()),
+        pcurve_a: cos.curve_uv1.clone().into(),
+        pcurve_b: cos.curve_uv2.clone().into(),
         t_start,
         t_end,
         topology: EdgeTopology::Closed {
             period: t_end - t_start,
         },
+        parameter_map: ParameterMap::SharedKnots,
         provenance,
         quality: EdgeTripleQuality::default(),
     }
+}
+
+/// Crate-internal alias used by `analytic_trig.rs` so it can run
+/// the same finalize-and-verify pass without duplicating logic.
+pub(super) fn finalize_quality_pub(
+    triple: EdgeTriple,
+    surf_a: &SurfaceGeometry,
+    surf_b: &SurfaceGeometry,
+    tol: &Tolerance,
+) -> Result<EdgeTriple, EdgeTripleError> {
+    finalize_quality(triple, surf_a, surf_b, tol)
 }
 
 fn finalize_quality(
@@ -277,14 +298,21 @@ fn finalize_quality(
 }
 
 fn endpoint_err_3d(triple: &EdgeTriple) -> f64 {
+    use crate::geometry::curve::CurveGeometry;
     let p_start = triple.curve_3d.point_at(triple.t_start);
     let p_end = triple.curve_3d.point_at(triple.t_end);
-    let cps = &triple.curve_3d.control_points;
-    if let (Some(first), Some(last)) = (cps.first(), cps.last()) {
-        let d_start = first.distance_to(&p_start);
-        let d_end = last.distance_to(&p_end);
-        d_start.max(d_end)
-    } else {
-        f64::INFINITY
+    // For analytic curve_3d (Line, Circle, Arc) the endpoint is
+    // exact-by-construction; for NURBS we check first/last CPs.
+    match &triple.curve_3d {
+        CurveGeometry::Nurbs(n) => {
+            if let (Some(first), Some(last)) = (n.control_points.first(), n.control_points.last()) {
+                let d_start = first.distance_to(&p_start);
+                let d_end = last.distance_to(&p_end);
+                d_start.max(d_end)
+            } else {
+                f64::INFINITY
+            }
+        }
+        _ => 0.0,
     }
 }
