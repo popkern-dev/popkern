@@ -23,16 +23,23 @@ pub(super) fn decompose_2x2(a: f64, b: f64, c: f64, d: f64) -> (f64, f64, f64) {
     let s1 = s1_sq.sqrt();
     let s2 = s2_sq.sqrt();
 
-    // Right singular vector for s1: (M - s1²I) v = 0.
-    let v1 = if (m11 - s1_sq).abs() > 1.0e-30 || m12.abs() > 1.0e-30 {
-        let vx = -m12;
-        let vy = m11 - s1_sq;
-        let n = (vx * vx + vy * vy).sqrt();
-        if n > 1.0e-30 {
-            (vx / n, vy / n)
-        } else {
-            (1.0, 0.0)
-        }
+    // Right singular vector for s1: (M^T M - s1²I) v = 0. Using
+    // row 1 yields v ∝ (-m12, m11 - s1²); using row 2 yields v ∝
+    // (s1² - m22, m12). Both are mathematically equivalent, but
+    // they suffer different FP cancellation depending on which of
+    // m11/m22 is closer to s1². When m12 ≈ 0 and m11 ≈ s1², row 1
+    // collapses to (0, ε) with ε purely numerical noise — that
+    // would steer the eigenvector toward the WRONG axis (the s2
+    // eigenvector instead of the s1). Pick whichever row produces
+    // the larger pre-normalisation magnitude.
+    let v1_a = (-m12, m11 - s1_sq);
+    let v1_b = (s1_sq - m22, m12);
+    let n_a = (v1_a.0 * v1_a.0 + v1_a.1 * v1_a.1).sqrt();
+    let n_b = (v1_b.0 * v1_b.0 + v1_b.1 * v1_b.1).sqrt();
+    let v1 = if n_a >= n_b && n_a > 1.0e-30 {
+        (v1_a.0 / n_a, v1_a.1 / n_a)
+    } else if n_b > 1.0e-30 {
+        (v1_b.0 / n_b, v1_b.1 / n_b)
     } else {
         (1.0, 0.0)
     };

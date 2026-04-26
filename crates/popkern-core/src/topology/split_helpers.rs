@@ -62,6 +62,20 @@ pub(crate) fn split_pcurve_at(pcurve: &Option<Pcurve>, t: f64) -> (Option<Pcurve
             );
             (Some(left), Some(right))
         }
+        PcurveGeometry::Sinusoidal {
+            u_offset,
+            v_const,
+            v_cos,
+            v_sin,
+        } => {
+            // Sinusoidal form is closed-form on any sub-range —
+            // restrict the parameter window without changing the
+            // analytic formula.
+            let left =
+                Pcurve::sinusoidal(*u_offset, *v_const, *v_cos, *v_sin, p_start, split_param);
+            let right = Pcurve::sinusoidal(*u_offset, *v_const, *v_cos, *v_sin, split_param, p_end);
+            (Some(left), Some(right))
+        }
         PcurveGeometry::Nurbs(curve) => match curve.split_at(split_param) {
             Ok((left, right)) => (
                 Some(Pcurve::from_nurbs(left)),

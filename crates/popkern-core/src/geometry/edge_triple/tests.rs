@@ -260,6 +260,65 @@ fn plane_cylinder_perpendicular_analytic_circle() {
 }
 
 #[test]
+fn plane_cylinder_oblique_analytic_ellipse() {
+    // Stage 2b.11: tilt the cutting plane 30° off horizontal. The
+    // intersection is a 3-D ellipse; the dispatcher must return
+    // `CurveGeometry::Ellipse` with the cyl side as a Sinusoidal
+    // pcurve and the plane side as an Elliptical pcurve.
+    let cyl = z_axis_cyl(1.0);
+    // Plane normal tilted 30° from +Z toward +X: passes through the
+    // origin, normal = (sin 30°, 0, cos 30°) = (0.5, 0, √3/2).
+    let n = Vec3::new(0.5, 0.0, 3.0_f64.sqrt() / 2.0);
+    // Choose plane u in the cutting plane, perpendicular to the
+    // global Y axis projection. We pick u = (cos 30°, 0, -sin 30°)
+    // and v = (0, 1, 0). Both are perpendicular to n.
+    let pu = Vec3::new(3.0_f64.sqrt() / 2.0, 0.0, -0.5);
+    let pv = Vec3::new(0.0, 1.0, 0.0);
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: n,
+        u_axis: pu,
+        v_axis: pv,
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+
+    // Anchor at θ = 0 on the cylinder: x = 1, y = 0; the cutting
+    // plane through origin with normal n places z so that
+    // (x, y, z)·n = 0  ⇒  z = -x · (sin30°/cos30°) = -1/√3.
+    let z_for = |x: f64, y: f64| -(x * n.x + y * n.y) / n.z;
+    let start = Point3::new(1.0, 0.0, z_for(1.0, 0.0));
+    let end = Point3::new(-1.0, 0.0, z_for(-1.0, 0.0));
+    let anchors = EdgeAnchors::Open { start, end };
+
+    let triple = compute_edge_geometry(&plane, &cyl, anchors, None, &tol, &opts)
+        .expect("plane×cyl oblique analytic dispatch");
+
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneCylinder,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Ellipse { .. }
+    ));
+    // The cyl-side pcurve must be Sinusoidal (analytic, not NURBS).
+    assert!(
+        triple.pcurve_b.is_analytic(),
+        "cyl pcurve should be analytic"
+    );
+    assert!(matches!(
+        triple.pcurve_b.geometry,
+        crate::geometry::pcurve::PcurveGeometry::Sinusoidal { .. }
+    ));
+    assert_guarantees(&triple, &plane, &cyl, start, end, &tol);
+}
+
+#[test]
 fn plane_sphere_polar_analytic_circle() {
     // Stage 2b.4: equator slice of a unit sphere by the XY plane.
     // Expected: analytic Arc 3D + Linear sphere pcurve at v=π/2 +

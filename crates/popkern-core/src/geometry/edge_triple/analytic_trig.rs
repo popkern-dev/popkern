@@ -8,6 +8,7 @@ use crate::geometry::edge_triple::analytic_trig_cone::try_plane_cone_perpendicul
 use crate::geometry::edge_triple::analytic_trig_cyl_cyl::try_cyl_cyl_parallel;
 use crate::geometry::edge_triple::analytic_trig_cyl_sphere::try_cyl_sphere_axial;
 use crate::geometry::edge_triple::analytic_trig_plane_cyl::try_plane_cylinder_perpendicular;
+use crate::geometry::edge_triple::analytic_trig_plane_cyl_oblique::try_plane_cylinder_oblique;
 use crate::geometry::edge_triple::analytic_trig_plane_sphere::try_plane_sphere_polar;
 use crate::geometry::edge_triple::analytic_trig_sphere_sphere::try_sphere_sphere_polar;
 use crate::geometry::edge_triple::error::EdgeTripleError;
@@ -45,6 +46,11 @@ pub(super) fn try_dispatch_trig(
             },
         ) => {
             try_plane_cylinder_perpendicular(*po, *pn, *pu, *pv, false, *co, *ca, *cr, anchors, tol)
+                .or_else(|| {
+                    try_plane_cylinder_oblique(
+                        *po, *pn, *pu, *pv, false, *co, *ca, *cr, anchors, tol,
+                    )
+                })
         }
         (
             Cylinder {
@@ -60,6 +66,11 @@ pub(super) fn try_dispatch_trig(
             },
         ) => {
             try_plane_cylinder_perpendicular(*po, *pn, *pu, *pv, true, *co, *ca, *cr, anchors, tol)
+                .or_else(|| {
+                    try_plane_cylinder_oblique(
+                        *po, *pn, *pu, *pv, true, *co, *ca, *cr, anchors, tol,
+                    )
+                })
         }
         (
             Plane {

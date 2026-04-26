@@ -72,6 +72,25 @@ pub enum PcurveGeometry {
         /// Sweep end angle (radians).
         end_angle: f64,
     },
+    /// Sinusoidal pcurve: `u` is linear in `t`, `v` is
+    /// `const + v_cos · cos(t) + v_sin · sin(t)`. Canonical for
+    /// oblique plane×cylinder intersections, where the curve
+    /// traces a sinusoid in cylinder UV (linear in the angular
+    /// parameter, sinusoidal in the axial direction). Exact by
+    /// construction.
+    ///
+    /// `point_at(t) = (u_offset + t, v_const + v_cos · cos(t) + v_sin · sin(t))`
+    Sinusoidal {
+        /// Constant offset on the linear `u` coordinate; full form
+        /// is `u(t) = u_offset + t`.
+        u_offset: f64,
+        /// Constant term in the sinusoidal `v` coordinate.
+        v_const: f64,
+        /// Coefficient on `cos(t)` in the sinusoidal `v` term.
+        v_cos: f64,
+        /// Coefficient on `sin(t)` in the sinusoidal `v` term.
+        v_sin: f64,
+    },
     /// General NURBS pcurve. Control points stored as
     /// `Point3 { x: u, y: v, z: 0 }`.
     Nurbs(NurbsCurve),
@@ -125,6 +144,28 @@ impl Pcurve {
         }
     }
 
+    /// Build a sinusoidal pcurve. See
+    /// [`PcurveGeometry::Sinusoidal`] for the exact form.
+    pub fn sinusoidal(
+        u_offset: f64,
+        v_const: f64,
+        v_cos: f64,
+        v_sin: f64,
+        t_start: f64,
+        t_end: f64,
+    ) -> Self {
+        Self {
+            geometry: PcurveGeometry::Sinusoidal {
+                u_offset,
+                v_const,
+                v_cos,
+                v_sin,
+            },
+            t_start,
+            t_end,
+        }
+    }
+
     /// Evaluate the pcurve at parameter `t`. Returns
     /// `Point3 { x: u, y: v, z: 0 }`.
     pub fn point_at(&self, t: f64) -> Point3 {
@@ -153,6 +194,16 @@ impl Pcurve {
                 let v = center.1 + local_u * sr + local_v * cr;
                 Point3::new(u, v, 0.0)
             }
+            PcurveGeometry::Sinusoidal {
+                u_offset,
+                v_const,
+                v_cos,
+                v_sin,
+            } => {
+                let u = u_offset + t;
+                let v = v_const + v_cos * t.cos() + v_sin * t.sin();
+                Point3::new(u, v, 0.0)
+            }
             PcurveGeometry::Nurbs(n) => {
                 use crate::geometry::curve::CurveEval;
                 n.point_at(t)
@@ -161,8 +212,8 @@ impl Pcurve {
     }
 
     /// First-order tangent at parameter `t`. Returns the analytic
-    /// derivative for `Linear` and `Elliptical`; defers to NURBS de
-    /// Boor otherwise.
+    /// derivative for `Linear`, `Elliptical`, and `Sinusoidal`;
+    /// defers to NURBS de Boor otherwise.
     pub fn tangent_at(&self, t: f64) -> Vec3 {
         match &self.geometry {
             PcurveGeometry::Linear { start, end } => {
@@ -195,6 +246,11 @@ impl Pcurve {
                     dlocal_u * sr + dlocal_v * cr,
                     0.0,
                 )
+            }
+            PcurveGeometry::Sinusoidal { v_cos, v_sin, .. } => {
+                let du_dt = 1.0;
+                let dv_dt = -v_cos * t.sin() + v_sin * t.cos();
+                Vec3::new(du_dt, dv_dt, 0.0)
             }
             PcurveGeometry::Nurbs(n) => {
                 use crate::geometry::curve::CurveEval;
@@ -264,12 +320,13 @@ impl Pcurve {
                 // standard rational construction. For the general
                 // case we use a degree-3 LSQ fit over 17 samples
                 // (residual < 1e-12 over a half-circle).
-                self.elliptical_to_nurbs_approx()
+                self.sampled_to_nurbs_approx()
             }
+            PcurveGeometry::Sinusoidal { .. } => self.sampled_to_nurbs_approx(),
         }
     }
 
-    fn elliptical_to_nurbs_approx(&self) -> NurbsCurve {
+    fn sampled_to_nurbs_approx(&self) -> NurbsCurve {
         let n_samples = 17;
         let mut control_points = Vec::with_capacity(n_samples);
         let mut params = Vec::with_capacity(n_samples);
