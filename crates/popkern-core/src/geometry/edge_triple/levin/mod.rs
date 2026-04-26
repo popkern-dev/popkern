@@ -44,7 +44,13 @@
 //! and parameterisation. Surd-bearing endpoints emit as f64 only at
 //! the final pcurve / curve-3D layer.
 
+mod pencil;
+mod polynomial;
 mod quadric;
 
+#[cfg(test)]
+mod pencil_tests;
+#[cfg(test)]
+mod polynomial_tests;
 #[cfg(test)]
 mod quadric_tests;
