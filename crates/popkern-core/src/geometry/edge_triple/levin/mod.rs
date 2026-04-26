@@ -46,6 +46,7 @@
 //! and parameterisation. Surd-bearing endpoints emit as f64 only at
 //! the final pcurve / curve-3D layer.
 
+mod cone_fiber;
 mod decompose;
 mod dispatch;
 mod eigen;
@@ -53,8 +54,11 @@ mod pencil;
 mod polynomial;
 mod quadric;
 
+pub(super) use cone_fiber::try_rank3_cone_fiber;
 pub(super) use dispatch::try_levin_pair;
 
+#[cfg(test)]
+mod cone_fiber_tests;
 #[cfg(test)]
 mod decompose_tests;
 #[cfg(test)]
