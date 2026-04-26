@@ -540,6 +540,45 @@ fn plane_sphere_polar_analytic_circle() {
 }
 
 #[test]
+fn plane_torus_perpendicular_analytic_circle() {
+    // Stage 2b.16: cutting plane perpendicular to the torus axis at
+    // height h = 0.5·minor_radius. Two intersection circles appear;
+    // the dispatcher selects whichever branch the anchors lie on.
+    let torus = nurbs_torus_dummy(); // R = 5, r = 1
+    // Plane at z = 0.5 (h = 0.5 · r), perpendicular to axis (0,0,1).
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.5),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    // sin v = 0.5 ⇒ v_outer = π/6 (cos v = √3/2). Outer circle radius
+    // = R + r·cos v = 5 + √3/2 ≈ 5.866.
+    let r_circ = 5.0 + 3.0_f64.sqrt() / 2.0;
+    // Anchors at u = 0 and u = π/2 on the outer circle.
+    let start = Point3::new(r_circ, 0.0, 0.5);
+    let end = Point3::new(0.0, r_circ, 0.5);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&plane, &torus, anchors, None, &tol, &opts)
+        .expect("plane×torus axis-perpendicular analytic dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneTorus,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Arc { .. }
+    ));
+    assert_guarantees(&triple, &plane, &torus, start, end, &tol);
+}
+
+#[test]
 fn cyl_cyl_parallel_analytic_line() {
     // Two unit cylinders along z-axis, centres at (0,0,0) and (1,0,0)
     // (axis offset 1.0 < r1+r2 = 2.0). Two intersection lines at

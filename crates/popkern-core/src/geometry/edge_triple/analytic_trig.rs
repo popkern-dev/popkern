@@ -14,6 +14,7 @@ use crate::geometry::edge_triple::analytic_trig_plane_cyl::try_plane_cylinder_pe
 use crate::geometry::edge_triple::analytic_trig_plane_cyl_oblique::try_plane_cylinder_oblique;
 use crate::geometry::edge_triple::analytic_trig_plane_sphere::try_plane_sphere_polar;
 use crate::geometry::edge_triple::analytic_trig_plane_sphere_general::try_plane_sphere_general;
+use crate::geometry::edge_triple::analytic_trig_plane_torus::try_plane_torus_perpendicular;
 use crate::geometry::edge_triple::analytic_trig_sphere_sphere::try_sphere_sphere_polar;
 use crate::geometry::edge_triple::error::EdgeTripleError;
 use crate::geometry::edge_triple::inputs::{EdgeAnchors, EdgeHint};
@@ -270,6 +271,38 @@ pub(super) fn try_dispatch_trig(
                 radius: rb,
             },
         ) => try_cyl_cyl_parallel(*oa, *aa, *ra, *ob, *ab, *rb, anchors, hint, tol),
+        (
+            Plane {
+                origin: po,
+                normal: pn,
+                u_axis: pu,
+                v_axis: pv,
+            },
+            Torus {
+                center: tc,
+                axis: ta,
+                major_radius: t_big,
+                minor_radius: t_small,
+            },
+        ) => try_plane_torus_perpendicular(
+            *po, *pn, *pu, *pv, false, *tc, *ta, *t_big, *t_small, anchors, tol,
+        ),
+        (
+            Torus {
+                center: tc,
+                axis: ta,
+                major_radius: t_big,
+                minor_radius: t_small,
+            },
+            Plane {
+                origin: po,
+                normal: pn,
+                u_axis: pu,
+                v_axis: pv,
+            },
+        ) => try_plane_torus_perpendicular(
+            *po, *pn, *pu, *pv, true, *tc, *ta, *t_big, *t_small, anchors, tol,
+        ),
         _ => None,
     }
 }
