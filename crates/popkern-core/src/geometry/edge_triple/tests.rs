@@ -765,6 +765,55 @@ fn plane_torus_villarceau_analytic_circle() {
 }
 
 #[test]
+fn sphere_cone_non_axial_quartic_curve() {
+    // Stage 2b.24: sphere centred OFF the cone axis. The intersection
+    // is a genuine 4th-degree curve. The dispatcher samples via the
+    // closed-form quadratic in v at each cone-u angle and emits a
+    // NURBS curve_3d.
+    //
+    // Cone: apex (0,0,0), axis (0,0,1), half-angle 30°.
+    // Sphere: centre (1, 0, 0), radius √2. Solving:
+    //   |(v/√3·cos u − 1, v/√3·sin u, v) − (0,0,0)|² = 2
+    //   ⇒ 4v²/3 − (2v/√3)·cos u − 1 = 0
+    //   ⇒ v = (√3/4)·(cos u + √(cos²u + 4))     (positive branch)
+    let cone = z_axis_cone(std::f64::consts::FRAC_PI_6);
+    let sphere = SurfaceGeometry::Sphere {
+        center: Point3::new(1.0, 0.0, 0.0),
+        radius: 2.0_f64.sqrt(),
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let v_at = |u: f64| -> f64 {
+        let cu = u.cos();
+        (3.0_f64.sqrt() / 4.0) * (cu + (cu * cu + 4.0).sqrt())
+    };
+    let pt_at = |u: f64| -> Point3 {
+        let v = v_at(u);
+        let r = v / 3.0_f64.sqrt();
+        Point3::new(r * u.cos(), r * u.sin(), v)
+    };
+    let start = pt_at(0.0);
+    let end = pt_at(std::f64::consts::FRAC_PI_3);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&sphere, &cone, anchors, None, &tol, &opts)
+        .expect("sphere×cone non-axial dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::SphereCone,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    // Genuinely quartic ⇒ NURBS curve_3d.
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Nurbs(_)
+    ));
+    assert_guarantees(&triple, &sphere, &cone, start, end, &tol);
+}
+
+#[test]
 fn cyl_cyl_perpendicular_viviani_curve() {
     // Stage 2b.23: two unit cylinders with perpendicular intersecting
     // axes — the classical Viviani's curve. The intersection is

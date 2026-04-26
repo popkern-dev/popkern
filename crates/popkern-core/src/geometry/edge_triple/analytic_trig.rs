@@ -20,6 +20,7 @@ use crate::geometry::edge_triple::analytic_trig_plane_sphere_general::try_plane_
 use crate::geometry::edge_triple::analytic_trig_plane_torus::try_plane_torus_perpendicular;
 use crate::geometry::edge_triple::analytic_trig_plane_torus_villarceau::try_plane_torus_villarceau;
 use crate::geometry::edge_triple::analytic_trig_sphere_cone::try_sphere_cone_axial;
+use crate::geometry::edge_triple::analytic_trig_sphere_cone_general::try_sphere_cone_general;
 use crate::geometry::edge_triple::analytic_trig_sphere_sphere::try_sphere_sphere_polar;
 use crate::geometry::edge_triple::analytic_trig_sphere_sphere_general::try_sphere_sphere_general;
 use crate::geometry::edge_triple::error::EdgeTripleError;
@@ -371,7 +372,19 @@ pub(super) fn try_dispatch_trig(
             *half_angle,
             anchors,
             tol,
-        ),
+        )
+        .or_else(|| {
+            try_sphere_cone_general(
+                *center,
+                *radius,
+                false,
+                *apex,
+                *axis,
+                *half_angle,
+                anchors,
+                tol,
+            )
+        }),
         (
             Cone {
                 apex,
@@ -388,7 +401,19 @@ pub(super) fn try_dispatch_trig(
             *half_angle,
             anchors,
             tol,
-        ),
+        )
+        .or_else(|| {
+            try_sphere_cone_general(
+                *center,
+                *radius,
+                true,
+                *apex,
+                *axis,
+                *half_angle,
+                anchors,
+                tol,
+            )
+        }),
         (
             Cone {
                 apex: aa,
