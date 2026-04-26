@@ -21,6 +21,8 @@
 mod analytic;
 mod analytic_helpers;
 mod analytic_trig;
+mod analytic_trig_cone;
+mod analytic_trig_helpers;
 mod dispatch;
 mod error;
 mod inputs;

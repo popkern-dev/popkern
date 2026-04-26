@@ -285,7 +285,9 @@ fn plane_sphere_polar_analytic_circle() {
 }
 
 #[test]
-fn plane_cone_returns_unimplemented_until_stage_2b() {
+fn plane_cone_perpendicular_analytic_circle() {
+    // Stage 2b.5: 45° cone, plane perpendicular to axis at z=1.
+    // Circle radius = h * tan(half_angle) = 1.0 * 1.0 = 1.0.
     let plane = SurfaceGeometry::Plane {
         origin: Point3::new(0.0, 0.0, 1.0),
         normal: Vec3::new(0.0, 0.0, 1.0),
@@ -295,12 +297,20 @@ fn plane_cone_returns_unimplemented_until_stage_2b() {
     let cone = z_axis_cone(std::f64::consts::FRAC_PI_4);
     let tol = Tolerance::default();
     let opts = EdgeTripleOptions::default();
-    let anchors = EdgeAnchors::Open {
-        start: Point3::new(1.0, 0.0, 1.0),
-        end: Point3::new(-1.0, 0.0, 1.0),
-    };
-    let result = compute_edge_geometry(&plane, &cone, anchors, None, &tol, &opts);
-    assert!(matches!(result, Err(EdgeTripleError::Unimplemented)));
+    let start = Point3::new(1.0, 0.0, 1.0);
+    let end = Point3::new(-1.0, 0.0, 1.0);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&plane, &cone, anchors, None, &tol, &opts)
+        .expect("plane×cone analytic dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneCone,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert_guarantees(&triple, &plane, &cone, start, end, &tol);
 }
 
 #[test]
