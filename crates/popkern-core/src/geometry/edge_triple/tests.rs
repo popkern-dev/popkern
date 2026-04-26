@@ -285,6 +285,31 @@ fn plane_sphere_polar_analytic_circle() {
 }
 
 #[test]
+fn sphere_sphere_polar_analytic_circle() {
+    // Two unit spheres at z=0 and z=1, centres along the polar axis.
+    // Intersection: a circle at z=0.5 with radius √(1 - 0.25) ≈ 0.866.
+    let a = unit_sphere_at(Point3::new(0.0, 0.0, 0.0));
+    let b = unit_sphere_at(Point3::new(0.0, 0.0, 1.0));
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let r = (1.0_f64 - 0.25).sqrt();
+    let start = Point3::new(r, 0.0, 0.5);
+    let end = Point3::new(-r, 0.0, 0.5);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&a, &b, anchors, None, &tol, &opts)
+        .expect("sphere×sphere analytic dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::SphereSphere,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert_guarantees(&triple, &a, &b, start, end, &tol);
+}
+
+#[test]
 fn plane_cone_perpendicular_analytic_circle() {
     // Stage 2b.5: 45° cone, plane perpendicular to axis at z=1.
     // Circle radius = h * tan(half_angle) = 1.0 * 1.0 = 1.0.

@@ -7,6 +7,7 @@
 use crate::geometry::curve::CurveGeometry;
 use crate::geometry::edge_triple::analytic_trig_cone::try_plane_cone_perpendicular;
 use crate::geometry::edge_triple::analytic_trig_helpers::decompose_2x2;
+use crate::geometry::edge_triple::analytic_trig_sphere_sphere::try_sphere_sphere_polar;
 use crate::geometry::edge_triple::error::EdgeTripleError;
 use crate::geometry::edge_triple::inputs::{EdgeAnchors, SurfaceSide};
 use crate::geometry::edge_triple::types::{
@@ -128,6 +129,16 @@ pub(super) fn try_dispatch_trig(
             anchors,
             tol,
         ),
+        (
+            Sphere {
+                center: ca,
+                radius: ra,
+            },
+            Sphere {
+                center: cb,
+                radius: rb,
+            },
+        ) => try_sphere_sphere_polar(*ca, *ra, *cb, *rb, anchors, tol),
         _ => None,
     }
 }
