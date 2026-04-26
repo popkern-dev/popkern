@@ -579,6 +579,74 @@ fn plane_torus_perpendicular_analytic_circle() {
 }
 
 #[test]
+fn sphere_cone_axial_analytic_circle() {
+    // Stage 2b.18: unit sphere centred at apex of cone (axis (0,0,1),
+    // half-angle 30°). Solving v²·sec²θ − 2dv + (d² − 1) = 0 with
+    // d = 0 gives v = cos(30°) = √3/2; intersection circle radius
+    // = v·tan(30°) = 1/2.
+    let sphere = unit_sphere_at(Point3::new(0.0, 0.0, 0.0));
+    let cone = z_axis_cone(std::f64::consts::FRAC_PI_6);
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let v = 3.0_f64.sqrt() / 2.0;
+    let r_circ = 0.5;
+    let start = Point3::new(r_circ, 0.0, v);
+    let end = Point3::new(0.0, r_circ, v);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&sphere, &cone, anchors, None, &tol, &opts)
+        .expect("sphere×cone axial analytic dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::SphereCone,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Arc { .. }
+    ));
+    assert_guarantees(&triple, &sphere, &cone, start, end, &tol);
+}
+
+#[test]
+fn cone_cone_coaxial_analytic_circle() {
+    // Stage 2b.19: cone A apex at origin, half-angle 30°; cone B
+    // apex at (0, 0, 1), half-angle 60°. Solving v_a·tan30 =
+    // (v_a−1)·tan60 gives v_a · (1/√3 − √3) = -√3, so
+    // v_a = √3/(√3 − 1/√3) = √3/(2/√3) = 3/2. circle_radius =
+    // (3/2)·tan(30°) = √3/2. Centre at (0, 0, 1.5).
+    let cone_a = z_axis_cone(std::f64::consts::FRAC_PI_6); // apex (0,0,0), 30°
+    let cone_b = SurfaceGeometry::Cone {
+        apex: Point3::new(0.0, 0.0, 1.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        half_angle: std::f64::consts::FRAC_PI_3, // 60°
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let r_circ = 3.0_f64.sqrt() / 2.0;
+    let start = Point3::new(r_circ, 0.0, 1.5);
+    let end = Point3::new(0.0, r_circ, 1.5);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&cone_a, &cone_b, anchors, None, &tol, &opts)
+        .expect("cone×cone coaxial analytic dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::ConeCone,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Arc { .. }
+    ));
+    assert_guarantees(&triple, &cone_a, &cone_b, start, end, &tol);
+}
+
+#[test]
 fn cyl_cone_coaxial_analytic_circle() {
     // Stage 2b.17: cylinder of radius 1 along z-axis, cone with apex
     // at origin, axis (0,0,1), half-angle 30°. The intersection is a

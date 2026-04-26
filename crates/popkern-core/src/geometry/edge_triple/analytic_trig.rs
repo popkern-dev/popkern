@@ -5,6 +5,7 @@
 //! cases. See ADR §13.
 
 use crate::geometry::edge_triple::analytic_trig_cone::try_plane_cone_perpendicular;
+use crate::geometry::edge_triple::analytic_trig_cone_cone::try_cone_cone_coaxial;
 use crate::geometry::edge_triple::analytic_trig_cyl_cone::try_cyl_cone_coaxial;
 use crate::geometry::edge_triple::analytic_trig_cyl_cyl::try_cyl_cyl_parallel;
 use crate::geometry::edge_triple::analytic_trig_cyl_sphere::try_cyl_sphere_axial;
@@ -16,6 +17,7 @@ use crate::geometry::edge_triple::analytic_trig_plane_cyl_oblique::try_plane_cyl
 use crate::geometry::edge_triple::analytic_trig_plane_sphere::try_plane_sphere_polar;
 use crate::geometry::edge_triple::analytic_trig_plane_sphere_general::try_plane_sphere_general;
 use crate::geometry::edge_triple::analytic_trig_plane_torus::try_plane_torus_perpendicular;
+use crate::geometry::edge_triple::analytic_trig_sphere_cone::try_sphere_cone_axial;
 use crate::geometry::edge_triple::analytic_trig_sphere_sphere::try_sphere_sphere_polar;
 use crate::geometry::edge_triple::error::EdgeTripleError;
 use crate::geometry::edge_triple::inputs::{EdgeAnchors, EdgeHint};
@@ -338,6 +340,52 @@ pub(super) fn try_dispatch_trig(
                 radius: cr,
             },
         ) => try_cyl_cone_coaxial(*co, *ca, *cr, true, *apex, *axis, *half_angle, anchors, tol),
+        (
+            Sphere { center, radius },
+            Cone {
+                apex,
+                axis,
+                half_angle,
+            },
+        ) => try_sphere_cone_axial(
+            *center,
+            *radius,
+            false,
+            *apex,
+            *axis,
+            *half_angle,
+            anchors,
+            tol,
+        ),
+        (
+            Cone {
+                apex,
+                axis,
+                half_angle,
+            },
+            Sphere { center, radius },
+        ) => try_sphere_cone_axial(
+            *center,
+            *radius,
+            true,
+            *apex,
+            *axis,
+            *half_angle,
+            anchors,
+            tol,
+        ),
+        (
+            Cone {
+                apex: aa,
+                axis: axa,
+                half_angle: ha,
+            },
+            Cone {
+                apex: ab,
+                axis: axb,
+                half_angle: hb,
+            },
+        ) => try_cone_cone_coaxial(*aa, *axa, *ha, *ab, *axb, *hb, anchors, tol),
         _ => None,
     }
 }
