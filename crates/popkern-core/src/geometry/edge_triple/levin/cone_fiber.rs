@@ -41,9 +41,8 @@ use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 
-const N_SAMPLES: usize = 33;
+const N_SAMPLES: usize = 129;
 const FIT_DEGREE: usize = 5;
-const FIT_CPS: usize = 33;
 
 /// Try to compute `surf_a ∩ surf_b` via the rank-3 cone fibre of the
 /// pencil. Returns `None` when the fibre is rank ≤ 2 (handled by
@@ -165,7 +164,6 @@ pub(crate) fn try_rank3_cone_fiber(
     // the start anchor's σ.
     let mut sigma_prev = sigma_start;
     let mut points: Vec<Point3> = Vec::with_capacity(N_SAMPLES);
-    let mut params: Vec<f64> = Vec::with_capacity(N_SAMPLES);
     for i in 0..N_SAMPLES {
         let frac = i as f64 / (N_SAMPLES as f64 - 1.0);
         let tau = tau_start + frac * delta_tau;
@@ -194,21 +192,24 @@ pub(crate) fn try_rank3_cone_fiber(
         };
         let p = v_affine + u * sigma;
         points.push(p);
-        params.push(frac);
         sigma_prev = sigma;
     }
+    // Chord-length parameterisation — gives substantially lower
+    // interpolation error than uniform parameterisation for curves
+    // with non-uniform curvature (which spatial quartics generally
+    // have). Used identically for curve_3d and pcurve fits so the
+    // verify-sample correspondence holds.
+    let params = chord_length_params(&points);
 
-    // Fit NURBS curve through the 3-D points.
+    // True NURBS *interpolation* (not LSQ approximation) through the
+    // analytic Levin samples. Direct LU solve avoids the
+    // condition-number squaring of `fit_curve`'s normal equations,
+    // which kept the residual at ~10⁻⁵ even with `num_cps == n`.
+    // With degree-5 and 65 samples, inter-sample interpolation error
+    // scales as O(h^6) ≈ 10⁻¹¹.
     let curve_nurbs =
-        match crate::geometry::fitting::fit_curve(&points, &params, FIT_DEGREE, FIT_CPS) {
-            Ok(c) => c,
-            Err(_) => return None,
-        };
+        crate::geometry::fitting::interpolate_curve(&points, &params, FIT_DEGREE).ok()?;
     let curve_nurbs = reknot_to(curve_nurbs, 0.0, 1.0);
-    // Don't snap endpoints — that breaks the parameterisation match
-    // between curve_3d and the pcurves (which aren't snapped). With
-    // 65 samples and a degree-5 / 17-CP fit, endpoint residual is
-    // well within tolerance via the fit's natural endpoint anchoring.
     let curve_3d = crate::geometry::curve::CurveGeometry::Nurbs(curve_nurbs);
 
     // Build pcurves by inverting UV at each sampled point.
@@ -233,6 +234,26 @@ pub(crate) fn try_rank3_cone_fiber(
     Some(super::super::analytic::finalize_quality_pub(
         triple, surf_a, surf_b, tol,
     ))
+}
+
+/// Chord-length parameterisation: params[i] = (∑_{k<i} |P_k − P_{k−1}|)
+/// / total_length. Gives substantially better NURBS interpolation
+/// quality than uniform parameterisation when the data has
+/// non-uniform spatial spacing.
+fn chord_length_params(points: &[Point3]) -> Vec<f64> {
+    let n = points.len();
+    if n < 2 {
+        return vec![0.0; n];
+    }
+    let mut cum = vec![0.0_f64; n];
+    for i in 1..n {
+        cum[i] = cum[i - 1] + points[i].distance_to(&points[i - 1]);
+    }
+    let total = cum[n - 1];
+    if total < 1e-15 {
+        return (0..n).map(|i| i as f64 / (n - 1) as f64).collect();
+    }
+    cum.iter().map(|&c| c / total).collect()
 }
 
 /// Cyclic Jacobi eigendecomposition for a 3×3 symmetric matrix.
@@ -354,7 +375,7 @@ fn pcurve_via_uv_inversion(
     // Unwrap u-jumps so the NURBS fit doesn't smooth over a 2π
     // discontinuity at the seam (cyl/cone/sphere/torus all wrap in u).
     unwrap_periodic_u(&mut uv_pts);
-    let nurbs = crate::geometry::fitting::fit_curve(&uv_pts, params, FIT_DEGREE, FIT_CPS).ok()?;
+    let nurbs = crate::geometry::fitting::interpolate_curve(&uv_pts, params, FIT_DEGREE).ok()?;
     let nurbs = reknot_to(nurbs, 0.0, 1.0);
     Some(Pcurve::from_nurbs(nurbs))
 }

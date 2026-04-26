@@ -49,15 +49,39 @@ fn cyl_cone_skew_rank3_cone_fiber_produces_nurbs() {
     // For now, we accept the `DegenerateSurfacePair` error path and
     // verify the algorithmic correctness directly: sampling the fibre
     // produces points that lie on both surfaces' quadric forms.
-    let result = try_rank3_cone_fiber(&cyl, &cone, &anchors, &tol);
+    let triple = try_rank3_cone_fiber(&cyl, &cone, &anchors, &tol)
+        .expect("rank-3 cone fibre returned None")
+        .expect("rank-3 cone fibre returned Err");
+
+    // Endpoint G5 holds (the underlying NURBS interpolation passes
+    // through the start and end Levin samples to ~ULP).
+    use crate::geometry::curve::CurveEval;
+    let p0 = triple.curve_3d.point_at(triple.t_start);
+    let p1 = triple.curve_3d.point_at(triple.t_end);
     assert!(
-        result.is_some(),
-        "rank-3 cone fibre returned None for a known rank-3 case"
+        p0.distance_to(&start) < tol.linear(),
+        "start endpoint: {p0:?} vs {start:?}"
     );
-    // The result is currently `Err(DegenerateSurfacePair)` due to the
-    // verify-tolerance limitation noted above — but the dispatcher
-    // itself reaches the construction step (vs. earlier rejection).
-    // When fit quality is tightened in a follow-up, the inner result
-    // becomes Ok and we can assert on the EdgeTriple shape.
-    let _ = result;
+    assert!(
+        p1.distance_to(&end) < tol.linear(),
+        "end endpoint: {p1:?} vs {end:?}"
+    );
+    // Mid-curve sanity: the curve point lies on both surfaces' quadric
+    // forms within tolerance — confirms the analytic Levin sampling
+    // produced geometrically valid intersection points.
+    let p_mid = triple
+        .curve_3d
+        .point_at((triple.t_start + triple.t_end) * 0.5);
+    let cyl_q = super::quadric::surface_to_quadric(&cyl).unwrap();
+    let cone_q = super::quadric::surface_to_quadric(&cone).unwrap();
+    let on_cyl = cyl_q.eval_affine(p_mid.x, p_mid.y, p_mid.z);
+    let on_cone = cone_q.eval_affine(p_mid.x, p_mid.y, p_mid.z);
+    assert!(
+        on_cyl.abs() < tol.linear(),
+        "midpoint not on cyl: pᵀAp = {on_cyl}"
+    );
+    assert!(
+        on_cone.abs() < tol.linear(),
+        "midpoint not on cone: pᵀBp = {on_cone}"
+    );
 }

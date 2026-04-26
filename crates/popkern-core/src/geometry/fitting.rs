@@ -111,6 +111,89 @@ fn solve_linear_system(a: &[Vec<f64>], b: &[f64]) -> Result<Vec<f64>, CoreError>
     Ok(x)
 }
 
+/// **Interpolate** (not approximate) a non-rational B-spline curve
+/// through every data point exactly.
+///
+/// Solves the square N×N basis system `N · CP = data` directly via
+/// Gaussian elimination — no normal equations, so no condition-number
+/// squaring. With well-spaced data and a moderate degree, mid-curve
+/// interpolation error scales as O(h^(d+1)) and is typically far
+/// below ULP in 3-D for d=5 with h ~ 1/64.
+///
+/// Knot vector: clamped, with interior knots placed by the de Boor
+/// averaging formula (Piegl & Tiller §9.2.1).
+///
+/// # Arguments
+/// * `points` - Data points to interpolate (at least `degree + 1`).
+/// * `params` - Strictly increasing parameter values, one per point.
+/// * `degree` - B-spline degree (typically 3 or 5).
+///
+/// # Errors
+/// Returns `CoreError::PreconditionFailed` for invalid inputs or a
+/// singular interpolation matrix.
+pub fn interpolate_curve(
+    points: &[Point3],
+    params: &[f64],
+    degree: usize,
+) -> Result<NurbsCurve, CoreError> {
+    let m = points.len();
+    if m < degree + 1 {
+        return Err(CoreError::PreconditionFailed(format!(
+            "interpolate_curve: need at least {} points for degree {}",
+            degree + 1,
+            degree
+        )));
+    }
+    if params.len() != m {
+        return Err(CoreError::PreconditionFailed(
+            "params length must match points length".to_string(),
+        ));
+    }
+    let n = m; // num control points = num data points (interpolation)
+
+    // Knot vector: clamped at endpoints, interior by de Boor averaging.
+    let num_knots = n + degree + 1;
+    let mut knots = vec![0.0; num_knots];
+    for k in &mut knots[..=degree] {
+        *k = params[0];
+    }
+    for k in &mut knots[n..] {
+        *k = params[m - 1];
+    }
+    if n > degree + 1 {
+        let num_interior = n - degree - 1;
+        for j in 1..=num_interior {
+            let sum: f64 = params[j..(j + degree)].iter().sum();
+            knots[j + degree] = sum / degree as f64;
+        }
+    }
+
+    // Build the n×n basis matrix N where N[i][j] = B_j(params[i]).
+    let mut a: Vec<Vec<f64>> = vec![vec![0.0; n]; n];
+    for (i, &t) in params.iter().enumerate() {
+        for (j, slot) in a[i].iter_mut().enumerate() {
+            *slot = basis_function(j, degree, t, &knots);
+        }
+    }
+
+    // Solve A · CP = points, separately per (x, y, z) coordinate.
+    let bx: Vec<f64> = points.iter().map(|p| p.x).collect();
+    let by: Vec<f64> = points.iter().map(|p| p.y).collect();
+    let bz: Vec<f64> = points.iter().map(|p| p.z).collect();
+    let cx = solve_linear_system(&a, &bx)?;
+    let cy = solve_linear_system(&a, &by)?;
+    let cz = solve_linear_system(&a, &bz)?;
+    let control_points: Vec<Point3> = (0..n).map(|i| Point3::new(cx[i], cy[i], cz[i])).collect();
+    let weights = vec![1.0; n];
+
+    Ok(NurbsCurve {
+        degree,
+        knots,
+        control_points,
+        weights,
+    })
+}
+
 /// Fit a non-rational B-spline curve through a sequence of points.
 ///
 /// Endpoints are interpolated exactly. Interior points are approximated
