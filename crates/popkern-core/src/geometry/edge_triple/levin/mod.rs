@@ -1,7 +1,9 @@
-// Stages 2b.31–2b.34 build infrastructure that's consumed when 2b.35
-// wires the dispatcher into `try_dispatch_trig`. Until then, the
-// inner functions look unused to the lib build. Remove this allow
-// once 2b.35 lands.
+// Stage 2b.34 wires `try_levin_pair` into `try_dispatch_trig`, so
+// the helpers it depends on are reachable from non-test code. The
+// supporting modules below (`pencil`, `polynomial`, `eigen`,
+// `decompose`, `quadric`) expose only what `dispatch` needs; cargo
+// would otherwise flag the deeper helpers as dead. We keep the
+// module-level allow until 2b.35 lands the cone-rank parameteriser.
 #![allow(dead_code)]
 
 //! Levin's algorithm for quadric × quadric intersection.
@@ -45,10 +47,13 @@
 //! the final pcurve / curve-3D layer.
 
 mod decompose;
+mod dispatch;
 mod eigen;
 mod pencil;
 mod polynomial;
 mod quadric;
+
+pub(super) use dispatch::try_levin_pair;
 
 #[cfg(test)]
 mod decompose_tests;
