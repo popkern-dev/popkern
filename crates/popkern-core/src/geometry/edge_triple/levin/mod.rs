@@ -52,6 +52,7 @@ mod dispatch;
 mod eigen;
 mod pencil;
 mod polynomial;
+mod qsqrtd;
 mod quadric;
 mod rational;
 
@@ -68,6 +69,8 @@ mod eigen_tests;
 mod pencil_tests;
 #[cfg(test)]
 mod polynomial_tests;
+#[cfg(test)]
+mod qsqrtd_tests;
 #[cfg(test)]
 mod quadric_tests;
 #[cfg(test)]
