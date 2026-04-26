@@ -251,6 +251,7 @@ pub(super) fn try_sphere_torus_axial(
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: AnalyticPair::SphereTorus,
             branch: BranchSelector::OnlyBranch,
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };

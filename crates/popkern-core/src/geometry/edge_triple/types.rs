@@ -31,6 +31,14 @@ pub enum EdgeTripleProvenance {
         kind: AnalyticPair,
         /// Which intersection branch was picked.
         branch: BranchSelector,
+        /// Cardinality report: total branches in the analytic pair
+        /// and the conic kind of each. `None` when the dispatcher
+        /// doesn't compute this (most specialised paths produce a
+        /// single branch and leave it implicit). Levin's quadric-pair
+        /// dispatcher fills it with `Some` so UI / boolean ops can
+        /// see the structure of the intersection.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cardinality: Option<BranchCardinality>,
     },
     /// Built from a known canonical surface boundary (Gregory cap
     /// boundary line in `[0,1]²`).
@@ -55,6 +63,61 @@ pub enum EdgeTripleProvenance {
         /// for a cylinder seam in `(u, v)` coordinates).
         seam_param: f64,
     },
+}
+
+/// Conic / curve type of one branch of an analytic intersection.
+/// Aligned with `CurveGeometry`'s analytic variants.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BranchKind {
+    /// Straight line (e.g., plane × plane).
+    Line,
+    /// Full circle (e.g., plane × sphere, plane × cyl perpendicular).
+    Circle,
+    /// Circular arc (closed-form circle that's a sub-range of `[0, 2π)`).
+    Arc,
+    /// Ellipse (plane × cyl oblique, plane × cone elliptic section).
+    Ellipse,
+    /// Parabola (plane × cone parallel-to-slant).
+    Parabola,
+    /// Hyperbola (plane × cone oblique past the slant, e.g., cone × cone
+    /// non-coaxial Levin).
+    Hyperbola,
+    /// Generic NURBS curve (sample-and-fit fallback).
+    Nurbs,
+}
+
+impl BranchKind {
+    /// Classify a `CurveGeometry` into a `BranchKind`. The mapping
+    /// is fixed per analytic curve variant.
+    pub fn from_curve(c: &crate::geometry::curve::CurveGeometry) -> Self {
+        use crate::geometry::curve::CurveGeometry::*;
+        match c {
+            Line { .. } => BranchKind::Line,
+            Circle { .. } => BranchKind::Circle,
+            Arc { .. } => BranchKind::Arc,
+            Ellipse { .. } => BranchKind::Ellipse,
+            Parabola { .. } => BranchKind::Parabola,
+            Hyperbola { .. } => BranchKind::Hyperbola,
+            Nurbs(_) => BranchKind::Nurbs,
+        }
+    }
+}
+
+/// Cardinality report for an analytic intersection: how many real
+/// branches the surface pair admits, and the conic kind of each.
+///
+/// Levin's algorithm computes this from the rank-decomposition of
+/// the pencil's degenerate fibre (rank-1 ⇒ 1 plane, rank-2 mixed-sign
+/// ⇒ 2 planes); each plane × surface gives a known conic kind.
+/// Specialised single-branch dispatchers leave `cardinality = None`
+/// on the provenance — `total = 1, kinds = [the_branch_kind]` is
+/// implicit.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BranchCardinality {
+    /// Total number of real intersection branches.
+    pub total: u8,
+    /// Conic kind per branch, in canonical (dispatch) order.
+    pub kinds: Vec<BranchKind>,
 }
 
 /// Discrete tag for analytic surface-pair classes. Members are

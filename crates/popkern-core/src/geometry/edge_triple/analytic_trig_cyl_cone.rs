@@ -171,6 +171,7 @@ pub(super) fn try_cyl_cone_coaxial(
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: AnalyticPair::CylinderCone,
             branch: BranchSelector::OnlyBranch,
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };

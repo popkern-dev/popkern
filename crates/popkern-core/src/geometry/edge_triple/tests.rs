@@ -193,6 +193,7 @@ fn provenance_serialises_round_trip() {
     let p = EdgeTripleProvenance::AnalyticIntersection {
         kind: AnalyticPair::CylinderTorus,
         branch: BranchSelector::Indexed(2),
+        cardinality: None,
     };
     let s = serde_json::to_string(&p).unwrap();
     let p2: EdgeTripleProvenance = serde_json::from_str(&s).unwrap();
@@ -1246,13 +1247,23 @@ fn cyl_cyl_skew_levin_analytic_ellipse() {
     let anchors = EdgeAnchors::Open { start, end };
     let triple = compute_edge_geometry(&cyl_z, &cyl_45, anchors, None, &tol, &opts)
         .expect("cyl × cyl skew via Levin");
-    assert!(matches!(
-        triple.provenance,
-        EdgeTripleProvenance::AnalyticIntersection {
-            kind: AnalyticPair::CylinderCylinder,
-            ..
-        }
-    ));
+    let EdgeTripleProvenance::AnalyticIntersection {
+        kind, cardinality, ..
+    } = &triple.provenance
+    else {
+        panic!("expected AnalyticIntersection, got {:?}", triple.provenance);
+    };
+    assert_eq!(*kind, AnalyticPair::CylinderCylinder);
+    // Stage 2b.37: Levin populates the cardinality report — 2 plane
+    // fibres in the pencil, both yielding ellipses.
+    let card = cardinality
+        .as_ref()
+        .expect("Levin should populate cardinality");
+    assert_eq!(card.total, 2);
+    use crate::geometry::edge_triple::types::BranchKind;
+    for k in &card.kinds {
+        assert_eq!(*k, BranchKind::Ellipse);
+    }
     assert!(matches!(
         triple.curve_3d,
         crate::geometry::curve::CurveGeometry::Ellipse { .. }

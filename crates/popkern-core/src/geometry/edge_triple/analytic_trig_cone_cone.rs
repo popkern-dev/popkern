@@ -159,6 +159,7 @@ pub(super) fn try_cone_cone_coaxial(
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: AnalyticPair::ConeCone,
             branch: BranchSelector::OnlyBranch,
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };

@@ -230,6 +230,7 @@ pub(super) fn try_cyl_cyl_perpendicular(
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: AnalyticPair::CylinderCylinder,
             branch: BranchSelector::OnlyBranch,
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };

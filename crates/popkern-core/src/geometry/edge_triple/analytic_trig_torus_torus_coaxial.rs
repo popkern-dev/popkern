@@ -222,6 +222,7 @@ pub(super) fn try_torus_torus_coaxial(
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: AnalyticPair::TorusTorus,
             branch: BranchSelector::OnlyBranch,
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };

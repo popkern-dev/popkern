@@ -211,6 +211,7 @@ pub(super) fn try_cone_torus_axial(
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: AnalyticPair::ConeTorus,
             branch: BranchSelector::OnlyBranch,
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };

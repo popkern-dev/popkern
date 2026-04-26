@@ -267,6 +267,7 @@ pub(super) fn try_plane_cone_oblique_parabola(
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: AnalyticPair::PlaneCone,
             branch: BranchSelector::OnlyBranch,
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };

@@ -269,6 +269,7 @@ pub(super) fn try_plane_torus_oblique(
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: AnalyticPair::PlaneTorus,
             branch: BranchSelector::OnlyBranch,
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };

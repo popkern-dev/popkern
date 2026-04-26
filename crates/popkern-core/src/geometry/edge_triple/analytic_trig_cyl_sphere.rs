@@ -181,6 +181,7 @@ pub(super) fn try_cyl_sphere_axial(
             } else {
                 BranchSelector::Indexed(1)
             },
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };

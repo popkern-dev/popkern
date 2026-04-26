@@ -200,6 +200,7 @@ pub(super) fn try_plane_sphere_general(
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: AnalyticPair::PlaneSphere,
             branch: BranchSelector::OnlyBranch,
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };

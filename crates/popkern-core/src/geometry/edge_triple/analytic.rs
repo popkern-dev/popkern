@@ -128,7 +128,11 @@ fn dispatch_analytic_inner(
     cos_to_triple(
         &chosen_repaired,
         anchors,
-        EdgeTripleProvenance::AnalyticIntersection { kind: pair, branch },
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: pair,
+            branch,
+            cardinality: None,
+        },
         surf_a,
         surf_b,
         tol,

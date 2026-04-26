@@ -186,6 +186,7 @@ pub(super) fn try_sphere_cone_axial(
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: AnalyticPair::SphereCone,
             branch: BranchSelector::OnlyBranch,
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };

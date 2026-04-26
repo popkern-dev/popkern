@@ -75,6 +75,22 @@ pub(crate) fn try_levin_pair(
     let triple_a = intersect_plane_with_target(&plane_surf, surf_a, anchors, tol)?.ok()?;
     let triple_b = intersect_plane_with_target(&plane_surf, surf_b, anchors, tol)?.ok()?;
 
+    // Cardinality: total branches = #planes the pencil decomposed
+    // into. We classify each branch's conic type by sampling the
+    // branch curve via plane × surf_a (just for type identification —
+    // a single sample is enough).
+    let total_branches = planes.len() as u8;
+    let mut branch_kinds = Vec::with_capacity(planes.len());
+    for p in &planes {
+        if let Some(kind) = classify_branch_kind(p, surf_a, anchors, tol) {
+            branch_kinds.push(kind);
+        }
+    }
+    let cardinality = Some(crate::geometry::edge_triple::types::BranchCardinality {
+        total: total_branches,
+        kinds: branch_kinds,
+    });
+
     // The composed triple uses triple_a's curve_3d as the canonical
     // parameterisation. triple_a's pcurve_a is parameterised
     // consistently with that; triple_b's is parameterised by triple_b's
@@ -99,6 +115,7 @@ pub(crate) fn try_levin_pair(
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: provenance_kind(surf_a, surf_b),
             branch: BranchSelector::OnlyBranch,
+            cardinality,
         },
         quality: EdgeTripleQuality::default(),
     };
@@ -329,6 +346,34 @@ fn solve_2basis(
     let alpha = (vv * ud - uv * vd) / det;
     let beta = (uu * vd - uv * ud) / det;
     Some((alpha, beta))
+}
+
+/// Identify the conic kind of one Levin branch (plane × surf_a)
+/// without relying on anchors lying on this specific branch — we
+/// just need the curve type. We probe each plane×{cyl,sphere,cone}
+/// dispatcher with a tolerance-permissive call and read the
+/// resulting `curve_3d` variant. Returns `None` if no dispatcher
+/// applies to this plane × surface combination (e.g., the plane
+/// doesn't actually intersect the surface for this branch — likely
+/// the "plane at infinity" stub from rank-2 mixed-sign decomposition).
+fn classify_branch_kind(
+    plane: &[f64; 4],
+    target: &SurfaceGeometry,
+    anchors: &EdgeAnchors,
+    tol: &Tolerance,
+) -> Option<crate::geometry::edge_triple::types::BranchKind> {
+    let plane_surf = plane_to_surface(*plane);
+    // Skip the "plane at infinity" stub (zero spatial normal).
+    let SurfaceGeometry::Plane { normal, .. } = &plane_surf else {
+        return None;
+    };
+    if normal.length() < 1e-10 {
+        return None;
+    }
+    let triple = intersect_plane_with_target(&plane_surf, target, anchors, tol)?.ok()?;
+    Some(crate::geometry::edge_triple::types::BranchKind::from_curve(
+        &triple.curve_3d,
+    ))
 }
 
 fn matrix_max_abs(m: &[[f64; 4]; 4]) -> f64 {

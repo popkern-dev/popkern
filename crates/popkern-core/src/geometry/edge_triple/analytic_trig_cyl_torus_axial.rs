@@ -181,6 +181,7 @@ pub(super) fn try_cyl_torus_axial(
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: AnalyticPair::CylinderTorus,
             branch: BranchSelector::OnlyBranch,
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };

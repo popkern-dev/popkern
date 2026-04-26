@@ -248,6 +248,7 @@ pub(super) fn try_cyl_cone_general(
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: AnalyticPair::CylinderCone,
             branch: BranchSelector::OnlyBranch,
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };

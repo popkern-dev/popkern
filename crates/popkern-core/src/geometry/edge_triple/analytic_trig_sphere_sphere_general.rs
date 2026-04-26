@@ -162,6 +162,7 @@ pub(super) fn try_sphere_sphere_general(
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: AnalyticPair::SphereSphere,
             branch: BranchSelector::OnlyBranch,
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };

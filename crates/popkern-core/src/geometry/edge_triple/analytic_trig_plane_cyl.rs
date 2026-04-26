@@ -162,6 +162,7 @@ pub(super) fn try_plane_cylinder_perpendicular(
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: AnalyticPair::PlaneCylinder,
             branch: BranchSelector::OnlyBranch,
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };

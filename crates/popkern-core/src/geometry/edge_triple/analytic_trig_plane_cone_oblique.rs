@@ -289,6 +289,7 @@ pub(super) fn try_plane_cone_oblique_ellipse(
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: AnalyticPair::PlaneCone,
             branch: BranchSelector::OnlyBranch,
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };

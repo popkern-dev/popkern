@@ -192,6 +192,7 @@ pub(super) fn try_cyl_cyl_parallel(
             } else {
                 BranchSelector::Indexed(1)
             },
+            cardinality: None,
         },
         quality: EdgeTripleQuality::default(),
     };
