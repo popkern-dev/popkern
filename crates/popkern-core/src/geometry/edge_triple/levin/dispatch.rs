@@ -38,6 +38,80 @@ use crate::geometry::edge_triple::types::{
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
 
+/// Symbolic-first tangent-intersection path. When the pencil
+/// `λA + B` contains a rank-1 fibre `D = c · n · nᵀ`, the surfaces
+/// touch tangentially along the plane `nᵀp = 0`; the intersection
+/// is the conic `surf_a ∩ plane = surf_b ∩ plane`. We recover `n`
+/// exactly in `Q` (no FP fudge) via `tangent::surfaces_are_tangent`,
+/// build a `Plane` from it, and reuse the plane×surf dispatchers
+/// to produce one `EdgeTriple` whose recorded `surf_a`/`surf_b`
+/// remain the original quadrics.
+///
+/// Stage 2b.41: closes the cyl-with-inscribed-sphere class
+/// (canonical CAD tangent case) which the f64 Levin path didn't
+/// exercise because the pair has no `try_cyl_sphere_*` analytic
+/// fallback. Returns `None` for non-rational input, no rational
+/// rank-1 fibre, or anchors not on the recovered plane.
+pub(crate) fn try_tangent_pair(
+    surf_a: &SurfaceGeometry,
+    surf_b: &SurfaceGeometry,
+    anchors: &EdgeAnchors,
+    tol: &Tolerance,
+) -> Option<Result<EdgeTriple, EdgeTripleError>> {
+    use num_traits::ToPrimitive;
+    let plane_rat = super::tangent::surfaces_are_tangent(surf_a, surf_b)?;
+    let mut plane: [f64; 4] = [
+        plane_rat[0].to_f64()?,
+        plane_rat[1].to_f64()?,
+        plane_rat[2].to_f64()?,
+        plane_rat[3].to_f64()?,
+    ];
+    let n_len2 = plane[0] * plane[0] + plane[1] * plane[1] + plane[2] * plane[2];
+    if n_len2 < 1e-30 {
+        return None;
+    }
+    let n_len = n_len2.sqrt();
+    for v in plane.iter_mut() {
+        *v /= n_len;
+    }
+    let plane_surf = super::decompose::plane_to_surface(plane);
+
+    let triple_a = intersect_plane_with_target(&plane_surf, surf_a, anchors, tol)?.ok()?;
+    let triple_b = intersect_plane_with_target(&plane_surf, surf_b, anchors, tol)?.ok()?;
+
+    let cardinality = Some(crate::geometry::edge_triple::types::BranchCardinality {
+        total: 1,
+        kinds: vec![crate::geometry::edge_triple::types::BranchKind::from_curve(
+            &triple_a.curve_3d,
+        )],
+    });
+    let (a_b_coef, b_b_coef) = derive_linear_affine_b(&triple_a, &triple_b)?;
+
+    let triple = EdgeTriple {
+        curve_3d: triple_a.curve_3d.clone(),
+        pcurve_a: triple_a.pcurve_a.clone(),
+        pcurve_b: triple_b.pcurve_a.clone(),
+        t_start: triple_a.t_start,
+        t_end: triple_a.t_end,
+        topology: triple_a.topology,
+        parameter_map: ParameterMap::LinearAffine {
+            a_a: 0.0,
+            b_a: 1.0,
+            a_b: a_b_coef,
+            b_b: b_b_coef,
+        },
+        provenance: EdgeTripleProvenance::AnalyticIntersection {
+            kind: provenance_kind(surf_a, surf_b),
+            branch: BranchSelector::OnlyBranch,
+            cardinality,
+        },
+        quality: EdgeTripleQuality::default(),
+    };
+    Some(super::super::analytic::finalize_quality_pub(
+        triple, surf_a, surf_b, tol,
+    ))
+}
+
 /// Try to compute the intersection of two analytic quadric surfaces
 /// via Levin's algorithm. Returns `None` if Levin doesn't apply
 /// (non-quadric surfaces, no real degenerate fibre, rank ≥ 3 fibre,

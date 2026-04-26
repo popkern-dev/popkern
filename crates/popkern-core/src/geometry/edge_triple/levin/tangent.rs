@@ -34,9 +34,10 @@
 
 #![allow(dead_code)] // helper module; dispatch wiring lands in 2b.41+.
 
+use num_bigint::BigInt;
 use num_traits::{One, Signed, Zero};
 
-use super::rational::{Mat4SymRat, Rat, char_poly_rat, linear_comb_rat, rational_roots};
+use super::rational::{Mat4SymRat, Rat, linear_comb_rat};
 
 /// True iff every 2×2 minor of `d` vanishes — equivalently, `rank(d) ≤ 1`.
 /// Symbolic, exact: no tolerance, no FP noise.
@@ -92,22 +93,51 @@ pub(crate) fn extract_plane_from_rank1(d: &Mat4SymRat) -> Option<[Rat; 4]> {
 
 /// Find a tangent plane in the pencil `λA + B`, if one exists.
 ///
-/// Walks every rational root `λ*` of `det(λA + B) = 0`, builds the
-/// fibre `M = λ*·A + B`, and returns the plane normal of the first
-/// `M` with `rank(M) ≤ 1`. Falls back to `A` and `B` themselves
-/// (covers the degenerate input case where one surface is already
-/// rank-1, e.g., a `Plane` quadric).
+/// **Bounded-cost variant** for the dispatch hot path: instead of
+/// running the full rational-root theorem on `det(λA + B)` (which
+/// trial-divides numerators / denominators that grow huge once any
+/// surface parameter is an irrational like `1/√2` round-tripped to a
+/// `BigRational`), we test a small set of small-rational `λ`
+/// candidates and check each fibre for rank-1.
 ///
-/// Returns `None` if no rank-1 fibre with rational `λ` exists. (A
-/// rank-1 fibre at irrational `λ` would need the `Q[√d]` extension —
-/// out of scope for this stage; in practice CAD inputs round-trip to
-/// rational quadrics so the rational-root search catches the
-/// engineering-relevant cases.)
+/// The candidate set covers integers and simple half / third / fourth
+/// fractions in `[-3, 3]` — sufficient for every CAD-relevant tangent
+/// case we've identified (cyl-with-inscribed-sphere has rank-1 at
+/// `λ = -1`; sphere-tangent-cone classes are similarly small).
+///
+/// Returns the rational plane normal `n` such that `nᵀp = 0` is the
+/// tangent plane. Falls back to `A` and `B` themselves (covers
+/// rank-1 input, e.g., a `Plane` quadric). Returns `None` when no
+/// rank-1 fibre lies at a candidate `λ` — that includes both
+/// non-tangent pairs and tangent pairs whose `λ*` falls outside the
+/// candidate set. This is acceptable: the dispatch falls through to
+/// `try_levin_pair` next, which still catches many tangent cases via
+/// its f64 `SinglePlane` branch in `classify_degenerate`.
 pub(crate) fn find_tangent_plane(a: &Mat4SymRat, b: &Mat4SymRat) -> Option<[Rat; 4]> {
-    let coefs = char_poly_rat(a, b);
-    let roots = rational_roots(&coefs);
     let one = Rat::one();
-    for lam in roots {
+    let candidates: [(BigInt, BigInt); 19] = [
+        (BigInt::from(-3), BigInt::from(1)),
+        (BigInt::from(-2), BigInt::from(1)),
+        (BigInt::from(-1), BigInt::from(1)),
+        (BigInt::from(0), BigInt::from(1)),
+        (BigInt::from(1), BigInt::from(1)),
+        (BigInt::from(2), BigInt::from(1)),
+        (BigInt::from(3), BigInt::from(1)),
+        (BigInt::from(-1), BigInt::from(2)),
+        (BigInt::from(1), BigInt::from(2)),
+        (BigInt::from(-3), BigInt::from(2)),
+        (BigInt::from(3), BigInt::from(2)),
+        (BigInt::from(-1), BigInt::from(3)),
+        (BigInt::from(1), BigInt::from(3)),
+        (BigInt::from(-2), BigInt::from(3)),
+        (BigInt::from(2), BigInt::from(3)),
+        (BigInt::from(-1), BigInt::from(4)),
+        (BigInt::from(1), BigInt::from(4)),
+        (BigInt::from(-3), BigInt::from(4)),
+        (BigInt::from(3), BigInt::from(4)),
+    ];
+    for (p, q) in candidates {
+        let lam = Rat::new(p, q);
         let m = linear_comb_rat(a, b, &lam, &one);
         if is_rank1_or_less(&m)
             && let Some(n) = extract_plane_from_rank1(&m)

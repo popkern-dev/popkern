@@ -31,7 +31,7 @@ use crate::geometry::edge_triple::analytic_trig_sphere_torus_axial::try_sphere_t
 use crate::geometry::edge_triple::analytic_trig_torus_torus_coaxial::try_torus_torus_coaxial;
 use crate::geometry::edge_triple::error::EdgeTripleError;
 use crate::geometry::edge_triple::inputs::{EdgeAnchors, EdgeHint};
-use crate::geometry::edge_triple::levin::{try_levin_pair, try_rank3_cone_fiber};
+use crate::geometry::edge_triple::levin::{try_levin_pair, try_rank3_cone_fiber, try_tangent_pair};
 use crate::geometry::edge_triple::types::EdgeTriple;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
@@ -265,7 +265,8 @@ pub(super) fn try_dispatch_trig(
                 radius: cr,
             },
             Sphere { center, radius },
-        ) => try_cyl_sphere_axial(*co, *ca, *cr, false, *center, *radius, anchors, hint, tol),
+        ) => try_cyl_sphere_axial(*co, *ca, *cr, false, *center, *radius, anchors, hint, tol)
+            .or_else(|| try_tangent_pair(surf_a, surf_b, anchors, tol)),
         (
             Sphere { center, radius },
             Cylinder {
@@ -273,7 +274,8 @@ pub(super) fn try_dispatch_trig(
                 axis: ca,
                 radius: cr,
             },
-        ) => try_cyl_sphere_axial(*co, *ca, *cr, true, *center, *radius, anchors, hint, tol),
+        ) => try_cyl_sphere_axial(*co, *ca, *cr, true, *center, *radius, anchors, hint, tol)
+            .or_else(|| try_tangent_pair(surf_a, surf_b, anchors, tol)),
         (
             Cylinder {
                 origin: oa,
@@ -287,6 +289,7 @@ pub(super) fn try_dispatch_trig(
             },
         ) => try_cyl_cyl_parallel(*oa, *aa, *ra, *ob, *ab, *rb, anchors, hint, tol)
             .or_else(|| try_cyl_cyl_perpendicular(*oa, *aa, *ra, *ob, *ab, *rb, anchors, tol))
+            .or_else(|| try_tangent_pair(surf_a, surf_b, anchors, tol))
             .or_else(|| try_levin_pair(surf_a, surf_b, anchors, tol))
             .or_else(|| try_rank3_cone_fiber(surf_a, surf_b, anchors, tol)),
         (
@@ -376,6 +379,7 @@ pub(super) fn try_dispatch_trig(
                 tol,
             )
         })
+        .or_else(|| try_tangent_pair(surf_a, surf_b, anchors, tol))
         .or_else(|| try_levin_pair(surf_a, surf_b, anchors, tol))
         .or_else(|| try_rank3_cone_fiber(surf_a, surf_b, anchors, tol)),
         (
@@ -393,6 +397,7 @@ pub(super) fn try_dispatch_trig(
             .or_else(|| {
                 try_cyl_cone_general(*co, *ca, *cr, true, *apex, *axis, *half_angle, anchors, tol)
             })
+            .or_else(|| try_tangent_pair(surf_a, surf_b, anchors, tol))
             .or_else(|| try_levin_pair(surf_a, surf_b, anchors, tol))
             .or_else(|| try_rank3_cone_fiber(surf_a, surf_b, anchors, tol)),
         (
@@ -465,6 +470,7 @@ pub(super) fn try_dispatch_trig(
                 half_angle: hb,
             },
         ) => try_cone_cone_coaxial(*aa, *axa, *ha, *ab, *axb, *hb, anchors, tol)
+            .or_else(|| try_tangent_pair(surf_a, surf_b, anchors, tol))
             .or_else(|| try_levin_pair(surf_a, surf_b, anchors, tol))
             .or_else(|| try_rank3_cone_fiber(surf_a, surf_b, anchors, tol)),
         (

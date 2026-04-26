@@ -195,6 +195,7 @@ pub fn revalidate_edge_triple(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geometry::curve::CurveEval;
     use crate::geometry::{Point3, Vec3};
 
     fn z_axis_cyl(radius: f64) -> SurfaceGeometry {
@@ -256,6 +257,52 @@ mod tests {
     // must not fire. Either the analytic dispatch handles the pair or
     // it falls through to `Unimplemented`; the only thing we assert
     // here is the absence of `CoincidentSurfaces`.
+    // Stage 2b.41: cyl-with-inscribed-sphere is the canonical
+    // tangent-along-curve case. The pencil contains the rank-1 fibre
+    // `D = diag(0,0,1,0)` at λ=−1 (recovered exactly in Q), giving
+    // the tangent plane z=0. The intersection is the unit circle in
+    // that plane. Before 2b.41 this returned `Unimplemented`; the
+    // symbolic tangent path now wires plane×cyl + plane×sphere
+    // dispatchers via `try_tangent_pair`.
+    #[test]
+    fn cyl_inscribed_sphere_returns_unit_equator_circle() {
+        let cyl = z_axis_cyl(1.0);
+        let sphere = SurfaceGeometry::Sphere {
+            center: Point3::new(0.0, 0.0, 0.0),
+            radius: 1.0,
+        };
+        let anchors = EdgeAnchors::Open {
+            start: Point3::new(1.0, 0.0, 0.0),
+            end: Point3::new(0.0, 1.0, 0.0),
+        };
+        let tol = Tolerance::default();
+        let opts = EdgeTripleOptions::default();
+        let triple = compute_edge_geometry(&cyl, &sphere, anchors, None, &tol, &opts)
+            .expect("tangent path produces a triple");
+        // G5 (endpoint accuracy): start anchor is hit.
+        let p_start = triple.curve_3d.point_at(triple.t_start);
+        let p_end = triple.curve_3d.point_at(triple.t_end);
+        assert!(
+            p_start.distance_to(&Point3::new(1.0, 0.0, 0.0)) <= tol.linear(),
+            "start anchor mismatch: {:?}",
+            p_start
+        );
+        assert!(
+            p_end.distance_to(&Point3::new(0.0, 1.0, 0.0)) <= tol.linear(),
+            "end anchor mismatch: {:?}",
+            p_end
+        );
+        // G2: the recorded triple verifies on both surfaces.
+        let q = triple
+            .verify(&cyl, &sphere, &tol, 32)
+            .expect("verify on tangent intersection");
+        assert!(
+            q.max_positional_residual <= tol.linear(),
+            "G2 residual {}",
+            q.max_positional_residual
+        );
+    }
+
     #[test]
     fn coaxial_cylinders_with_different_radii_do_not_short_circuit() {
         let cyl_a = z_axis_cyl(1.0);
