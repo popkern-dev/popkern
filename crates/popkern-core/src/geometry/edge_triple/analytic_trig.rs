@@ -5,6 +5,7 @@
 //! cases. See ADR §13.
 
 use crate::geometry::edge_triple::analytic_trig_cone::try_plane_cone_perpendicular;
+use crate::geometry::edge_triple::analytic_trig_cyl_cone::try_cyl_cone_coaxial;
 use crate::geometry::edge_triple::analytic_trig_cyl_cyl::try_cyl_cyl_parallel;
 use crate::geometry::edge_triple::analytic_trig_cyl_sphere::try_cyl_sphere_axial;
 use crate::geometry::edge_triple::analytic_trig_plane_cone_hyperbola::try_plane_cone_oblique_hyperbola;
@@ -303,6 +304,40 @@ pub(super) fn try_dispatch_trig(
         ) => try_plane_torus_perpendicular(
             *po, *pn, *pu, *pv, true, *tc, *ta, *t_big, *t_small, anchors, tol,
         ),
+        (
+            Cylinder {
+                origin: co,
+                axis: ca,
+                radius: cr,
+            },
+            Cone {
+                apex,
+                axis,
+                half_angle,
+            },
+        ) => try_cyl_cone_coaxial(
+            *co,
+            *ca,
+            *cr,
+            false,
+            *apex,
+            *axis,
+            *half_angle,
+            anchors,
+            tol,
+        ),
+        (
+            Cone {
+                apex,
+                axis,
+                half_angle,
+            },
+            Cylinder {
+                origin: co,
+                axis: ca,
+                radius: cr,
+            },
+        ) => try_cyl_cone_coaxial(*co, *ca, *cr, true, *apex, *axis, *half_angle, anchors, tol),
         _ => None,
     }
 }

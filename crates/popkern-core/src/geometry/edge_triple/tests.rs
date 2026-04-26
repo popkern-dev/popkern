@@ -579,6 +579,36 @@ fn plane_torus_perpendicular_analytic_circle() {
 }
 
 #[test]
+fn cyl_cone_coaxial_analytic_circle() {
+    // Stage 2b.17: cylinder of radius 1 along z-axis, cone with apex
+    // at origin, axis (0,0,1), half-angle 30°. The intersection is a
+    // single circle at height v_cone = 1 / tan(30°) = √3, radius 1.
+    let cyl = z_axis_cyl(1.0);
+    let cone = z_axis_cone(std::f64::consts::FRAC_PI_6);
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let h = 3.0_f64.sqrt();
+    let start = Point3::new(1.0, 0.0, h);
+    let end = Point3::new(0.0, 1.0, h);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&cyl, &cone, anchors, None, &tol, &opts)
+        .expect("cyl×cone coaxial analytic dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::CylinderCone,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Arc { .. }
+    ));
+    assert_guarantees(&triple, &cyl, &cone, start, end, &tol);
+}
+
+#[test]
 fn cyl_cyl_parallel_analytic_line() {
     // Two unit cylinders along z-axis, centres at (0,0,0) and (1,0,0)
     // (axis offset 1.0 < r1+r2 = 2.0). Two intersection lines at
