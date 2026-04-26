@@ -7,6 +7,7 @@ pub mod analytic_surfaces;
 pub mod bernstein_poly;
 pub mod curve;
 pub mod curve_on_surface;
+mod curve_to_nurbs;
 pub mod edge_triple;
 pub mod fitting;
 pub mod gregory;
