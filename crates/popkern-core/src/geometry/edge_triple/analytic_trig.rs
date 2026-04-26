@@ -25,6 +25,7 @@ use crate::geometry::edge_triple::analytic_trig_sphere_cone::try_sphere_cone_axi
 use crate::geometry::edge_triple::analytic_trig_sphere_cone_general::try_sphere_cone_general;
 use crate::geometry::edge_triple::analytic_trig_sphere_sphere::try_sphere_sphere_polar;
 use crate::geometry::edge_triple::analytic_trig_sphere_sphere_general::try_sphere_sphere_general;
+use crate::geometry::edge_triple::analytic_trig_sphere_torus_axial::try_sphere_torus_axial;
 use crate::geometry::edge_triple::error::EdgeTripleError;
 use crate::geometry::edge_triple::inputs::{EdgeAnchors, EdgeHint};
 use crate::geometry::edge_triple::types::EdgeTriple;
@@ -454,6 +455,28 @@ pub(super) fn try_dispatch_trig(
                 half_angle: hb,
             },
         ) => try_cone_cone_coaxial(*aa, *axa, *ha, *ab, *axb, *hb, anchors, tol),
+        (
+            Sphere { center, radius },
+            Torus {
+                center: tc,
+                axis: ta,
+                major_radius: tor_big,
+                minor_radius: tor_small,
+            },
+        ) => try_sphere_torus_axial(
+            *center, *radius, false, *tc, *ta, *tor_big, *tor_small, anchors, tol,
+        ),
+        (
+            Torus {
+                center: tc,
+                axis: ta,
+                major_radius: tor_big,
+                minor_radius: tor_small,
+            },
+            Sphere { center, radius },
+        ) => try_sphere_torus_axial(
+            *center, *radius, true, *tc, *ta, *tor_big, *tor_small, anchors, tol,
+        ),
         _ => None,
     }
 }

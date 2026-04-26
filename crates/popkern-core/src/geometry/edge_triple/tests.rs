@@ -515,6 +515,52 @@ fn plane_sphere_oblique_analytic_circle() {
 }
 
 #[test]
+fn sphere_torus_axial_analytic_circle() {
+    // Stage 2b.27: sphere centred on torus axis. The octic
+    // intersection factors into ≤ 2 horizontal circles. With torus
+    // R=5, r=1, sphere centre (0,0,0) (= torus centre), radius
+    // ρ = √26: the constraint
+    //   R cos v − h sin v = (ρ² − R² − r² − h²) / (2r)
+    // with h=0 reduces to cos v = (26 − 25 − 1)/2 = 0, so v = ±π/2.
+    // At v = π/2: axial height = sin(π/2) = 1, circle radius
+    // = R + r·cos(π/2) = 5. Sphere check: distance from origin to
+    // (5, 0, 1) = √26 ✓.
+    let torus = nurbs_torus_dummy(); // R=5, r=1
+    let sphere = SurfaceGeometry::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 26.0_f64.sqrt(),
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    // Anchors on the +z circle (centre (0, 0, 1), radius 5, in
+    // xy-plane translated up by 1).
+    let start = Point3::new(5.0, 0.0, 1.0);
+    let end = Point3::new(0.0, 5.0, 1.0);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&sphere, &torus, anchors, None, &tol, &opts)
+        .expect("sphere×torus axial dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::SphereTorus,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Arc { .. }
+    ));
+    if let crate::geometry::curve::CurveGeometry::Arc { radius, .. } = triple.curve_3d {
+        assert!(
+            (radius - 5.0).abs() < 1e-9,
+            "sphere×torus circle radius should be R = 5, got {radius}"
+        );
+    }
+    assert_guarantees(&triple, &sphere, &torus, start, end, &tol);
+}
+
+#[test]
 fn sphere_sphere_oblique_analytic_circle() {
     // Stage 2b.20: two unit spheres with centres NOT aligned on the
     // polar axis. Polar dispatcher returns None, general dispatcher
