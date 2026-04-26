@@ -87,6 +87,9 @@ pub enum AnalyticPair {
     SphereTorus,
     /// Cone × cone — closed-form when axes coplanar.
     ConeCone,
+    /// Cone × torus — closed-form when cone apex on torus axis and
+    /// axes parallel.
+    ConeTorus,
 }
 
 /// Which intersection branch the disambiguation logic picked. The

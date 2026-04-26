@@ -515,6 +515,68 @@ fn plane_sphere_oblique_analytic_circle() {
 }
 
 #[test]
+fn cone_torus_axial_analytic_circle() {
+    // Stage 2b.28: cone apex on torus axis, axes coincident. Octic
+    // intersection factors into ≤ 2 horizontal circles via the
+    // axisymmetric collapse argument.
+    //
+    // Torus R=5, r=1. Cone apex (0,0,0), axis (0,0,1), half-angle
+    // arctan(1/2) ≈ 0.4636 (so tan θ = 0.5). With h_axis = 0
+    // (apex at torus centre):
+    //   cos(v + θ) = (sin θ · 0 − R · cos θ) / r
+    //              = -5 · cos(arctan(1/2)) = -5 · (2/√5) = -2√5 ≈ -4.47
+    // |rhs| > 1 ⇒ no intersection. So shift apex.
+    //
+    // Take h_axis = 8 (apex below torus): cone apex (0, 0, -8). Then
+    //   sin θ · 8 − R · cos θ = (8/√5) − 5·(2/√5) = (8 − 10)/√5
+    //                         = -2/√5
+    //   rhs = -2/√5 / 1 ≈ -0.894 — within [-1, 1] ✓
+    //
+    //   v_± = -θ ± acos(-2/√5)
+    //   acos(-2/√5) ≈ 2.678.
+    //   θ ≈ 0.4636.
+    //   v_+ ≈ -0.4636 + 2.678 ≈ 2.215.
+    //   v_- ≈ -0.4636 - 2.678 ≈ -3.142 (= -π).
+    //
+    // At v = -π (= π): cos = -1, sin = 0. Circle: radius R + r·(-1) = 4
+    // at axial height 0 from torus centre. Cone v = h_axis + 0 = 8.
+    // Cone radius at v=8 = 8·tan θ = 4 ✓.
+    let torus = nurbs_torus_dummy(); // R=5, r=1
+    let cone = SurfaceGeometry::Cone {
+        apex: Point3::new(0.0, 0.0, -8.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        half_angle: (1.0_f64 / 2.0).atan(),
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    // Inner-tube (v=π) circle: radius 4 at z=0.
+    let start = Point3::new(4.0, 0.0, 0.0);
+    let end = Point3::new(0.0, 4.0, 0.0);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&cone, &torus, anchors, None, &tol, &opts)
+        .expect("cone×torus axial dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::ConeTorus,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Arc { .. }
+    ));
+    if let crate::geometry::curve::CurveGeometry::Arc { radius, .. } = triple.curve_3d {
+        assert!(
+            (radius - 4.0).abs() < 1e-9,
+            "cone×torus circle radius should be 4, got {radius}"
+        );
+    }
+    assert_guarantees(&triple, &cone, &torus, start, end, &tol);
+}
+
+#[test]
 fn sphere_torus_axial_analytic_circle() {
     // Stage 2b.27: sphere centred on torus axis. The octic
     // intersection factors into ≤ 2 horizontal circles. With torus
