@@ -8,6 +8,7 @@ use crate::geometry::edge_triple::analytic_trig_cone::try_plane_cone_perpendicul
 use crate::geometry::edge_triple::analytic_trig_cone_cone::try_cone_cone_coaxial;
 use crate::geometry::edge_triple::analytic_trig_cyl_cone::try_cyl_cone_coaxial;
 use crate::geometry::edge_triple::analytic_trig_cyl_cyl::try_cyl_cyl_parallel;
+use crate::geometry::edge_triple::analytic_trig_cyl_cyl_perp::try_cyl_cyl_perpendicular;
 use crate::geometry::edge_triple::analytic_trig_cyl_sphere::try_cyl_sphere_axial;
 use crate::geometry::edge_triple::analytic_trig_plane_cone_hyperbola::try_plane_cone_oblique_hyperbola;
 use crate::geometry::edge_triple::analytic_trig_plane_cone_oblique::try_plane_cone_oblique_ellipse;
@@ -276,7 +277,8 @@ pub(super) fn try_dispatch_trig(
                 axis: ab,
                 radius: rb,
             },
-        ) => try_cyl_cyl_parallel(*oa, *aa, *ra, *ob, *ab, *rb, anchors, hint, tol),
+        ) => try_cyl_cyl_parallel(*oa, *aa, *ra, *ob, *ab, *rb, anchors, hint, tol)
+            .or_else(|| try_cyl_cyl_perpendicular(*oa, *aa, *ra, *ob, *ab, *rb, anchors, tol)),
         (
             Plane {
                 origin: po,

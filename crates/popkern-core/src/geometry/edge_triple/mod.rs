@@ -25,6 +25,7 @@ mod analytic_trig_cone;
 mod analytic_trig_cone_cone;
 mod analytic_trig_cyl_cone;
 mod analytic_trig_cyl_cyl;
+mod analytic_trig_cyl_cyl_perp;
 mod analytic_trig_cyl_sphere;
 mod analytic_trig_helpers;
 mod analytic_trig_plane_cone_hyperbola;

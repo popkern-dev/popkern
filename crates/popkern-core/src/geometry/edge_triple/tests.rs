@@ -765,6 +765,47 @@ fn plane_torus_villarceau_analytic_circle() {
 }
 
 #[test]
+fn cyl_cyl_perpendicular_viviani_curve() {
+    // Stage 2b.23: two unit cylinders with perpendicular intersecting
+    // axes — the classical Viviani's curve. The intersection is
+    // genuinely 4th-order and has no analytic Line/Arc/Ellipse/Para/
+    // Hyper representation; the dispatcher emits a NURBS curve_3d
+    // sampled along the implicit-pair solution.
+    let cyl_a = z_axis_cyl(1.0);
+    let cyl_b = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(1.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    // Anchors on the upper-z branch: at u_cyl_a = 0 and u_cyl_a = π/4.
+    // x = cos u, y = sin u, z = +sqrt(1 − sin²u) = +cos u (Viviani:
+    // z = ±x for equal radii). At u=0: (1, 0, 1). At u=π/4:
+    // (√2/2, √2/2, +sqrt(1 − 1/2)) = (√2/2, √2/2, √2/2).
+    let r2 = 2.0_f64.sqrt() / 2.0;
+    let start = Point3::new(1.0, 0.0, 1.0);
+    let end = Point3::new(r2, r2, r2);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&cyl_a, &cyl_b, anchors, None, &tol, &opts)
+        .expect("cyl×cyl perpendicular dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::CylinderCylinder,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    // 4th-order quartic ⇒ NURBS curve_3d (no analytic primitive).
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Nurbs(_)
+    ));
+    assert_guarantees(&triple, &cyl_a, &cyl_b, start, end, &tol);
+}
+
+#[test]
 fn cyl_cyl_parallel_analytic_line() {
     // Two unit cylinders along z-axis, centres at (0,0,0) and (1,0,0)
     // (axis offset 1.0 < r1+r2 = 2.0). Two intersection lines at
