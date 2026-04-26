@@ -77,13 +77,10 @@ pub(crate) fn try_levin_pair(
 
     // The composed triple uses triple_a's curve_3d as the canonical
     // parameterisation. triple_a's pcurve_a is parameterised
-    // consistently with that. triple_b's pcurve_a is parameterised
-    // by triple_b's *own* curve_3d (which traces the same physical
-    // ellipse but with a different basis), so we need a parameter
-    // map t_a → t_b. Both ellipses lie in the shared plane and
-    // trace the same point set; the map is `α_b = a + b · α_a`
-    // with `b ∈ {+1, −1}`. We recover (a, b) from the start anchor
-    // and one mid-curve sample.
+    // consistently with that; triple_b's is parameterised by triple_b's
+    // own curve_3d. Both trace the same physical curve in the shared
+    // plane, so the parameter relation is `t_b = a + b · t_a` with
+    // `b ∈ {+1, −1}`. derive_linear_affine_b recovers (a, b).
     let (a_b_coef, b_b_coef) = derive_linear_affine_b(&triple_a, &triple_b)?;
 
     let triple = EdgeTriple {
@@ -213,70 +210,113 @@ fn intersect_plane_with_target(
 /// `triple_a.curve_3d(t_a)` for all `t_a` in `[triple_a.t_start,
 /// triple_a.t_end]`.
 ///
-/// Both `triple_a.curve_3d` and `triple_b.curve_3d` are ellipses in
-/// the same plane tracing the same point set. The map `α_b = α_b(α_a)`
-/// is linear with slope `±1`: rotation when `b = +1`, reflection when
-/// `b = -1`. We recover `(a, b)` from the start anchor (which both
-/// ellipses pass through at their respective `t_start`) plus a
+/// Both `triple_a.curve_3d` and `triple_b.curve_3d` trace the same
+/// physical curve in the shared plane (Arc / Ellipse / Parabola /
+/// Hyperbola depending on the surface pair). When the two curves use
+/// the *same* parameterisation type, the relation is `t_b = a + b·t_a`
+/// with `b ∈ {+1, −1}`. We recover `(a, b)` from the start anchor
+/// (where both `t_start`s map to the same physical point) plus a
 /// mid-curve sample to disambiguate the slope sign.
-fn derive_linear_affine_b(
-    triple_a: &EdgeTriple,
-    triple_b: &EdgeTriple,
-) -> Option<(f64, f64)> {
-    use crate::geometry::curve::CurveGeometry;
-    let CurveGeometry::Ellipse {
-        center: cb,
-        u_basis: ub,
-        v_basis: vb,
-        ..
-    } = &triple_b.curve_3d
-    else {
-        return None;
-    };
-    // Sample triple_a's curve at start and midpoint.
+fn derive_linear_affine_b(triple_a: &EdgeTriple, triple_b: &EdgeTriple) -> Option<(f64, f64)> {
     let alpha_a_start = triple_a.t_start;
     let alpha_a_mid = (triple_a.t_start + triple_a.t_end) * 0.5;
     let p_start = triple_a.curve_3d.point_at(alpha_a_start);
     let p_mid = triple_a.curve_3d.point_at(alpha_a_mid);
 
-    // Invert each onto the curve_3d_b parameterisation by solving
-    // `p − cb = cos β · u_b + sin β · v_b` for `β`. This is a 2×2
-    // linear system in (cos β, sin β).
-    let beta_start = invert_ellipse_param(*cb, *ub, *vb, p_start)?;
-    let beta_mid = invert_ellipse_param(*cb, *ub, *vb, p_mid)?;
+    let beta_start = invert_curve_param(&triple_b.curve_3d, p_start)?;
+    let beta_mid = invert_curve_param(&triple_b.curve_3d, p_mid)?;
 
-    // Wrap delta_b into (-π, π].
-    let mut delta_b = beta_mid - beta_start;
-    while delta_b > std::f64::consts::PI {
-        delta_b -= std::f64::consts::TAU;
-    }
-    while delta_b < -std::f64::consts::PI {
-        delta_b += std::f64::consts::TAU;
-    }
     let delta_a = alpha_a_mid - alpha_a_start;
     if delta_a.abs() < 1e-15 {
         return None;
     }
+    // For Ellipse / Arc, the parameter is angular: wrap delta_b into
+    // (-π, π]. Hyperbola / Parabola use signed real parameters and
+    // don't need wrapping.
+    let needs_angle_wrap = matches!(
+        triple_b.curve_3d,
+        crate::geometry::curve::CurveGeometry::Ellipse { .. }
+            | crate::geometry::curve::CurveGeometry::Arc { .. }
+    );
+    let mut delta_b = beta_mid - beta_start;
+    if needs_angle_wrap {
+        while delta_b > std::f64::consts::PI {
+            delta_b -= std::f64::consts::TAU;
+        }
+        while delta_b < -std::f64::consts::PI {
+            delta_b += std::f64::consts::TAU;
+        }
+    }
     let b_b = delta_b / delta_a;
     // Snap to ±1 (the only true values for parameterisation-preserving
-    // change of basis on a planar ellipse).
+    // change of basis on the same shared curve).
     let b_b_snap = if b_b > 0.0 { 1.0 } else { -1.0 };
     let a_b = beta_start - b_b_snap * alpha_a_start;
     Some((a_b, b_b_snap))
 }
 
-/// Invert `p − center = cos β · u + sin β · v` for `β`, where `u`
-/// and `v` are the ellipse's (possibly non-orthogonal) basis vectors
-/// spanning the plane in which the ellipse lies. Returns `None` if
-/// `(u, v)` are degenerate.
-fn invert_ellipse_param(
-    center: crate::geometry::Point3,
+/// Invert a 3-D curve parameterisation: given a point `p` on the
+/// curve, find the parameter value `t` such that `curve.point_at(t) =
+/// p`. Supports Arc (circle), Ellipse, Hyperbola, and Parabola.
+fn invert_curve_param(
+    curve: &crate::geometry::curve::CurveGeometry,
+    p: crate::geometry::Point3,
+) -> Option<f64> {
+    use crate::geometry::curve::CurveGeometry;
+    match curve {
+        CurveGeometry::Arc { center, normal, .. } => {
+            let d = p - *center;
+            let (u_dir, v_dir) = crate::geometry::analytic_curves::circle_basis(*normal);
+            Some(d.dot(&v_dir).atan2(d.dot(&u_dir)))
+        }
+        CurveGeometry::Ellipse {
+            center,
+            u_basis,
+            v_basis,
+            ..
+        } => {
+            // Solve d = α·u + β·v with α=cos t, β=sin t.
+            let (alpha, beta) = solve_2basis(*center, *u_basis, *v_basis, p)?;
+            Some(beta.atan2(alpha))
+        }
+        CurveGeometry::Hyperbola {
+            center,
+            semi_major,
+            semi_minor,
+            ..
+        } => {
+            // Solve d = α·u + β·v with α=cosh t, β=sinh t.
+            let (alpha, beta) = solve_2basis(*center, *semi_major, *semi_minor, p)?;
+            // t = asinh(β) (sign carries the branch); cosh(asinh β) = √(1+β²)
+            // matches α up to sign, indicating which nappe.
+            Some(beta.asinh().copysign(alpha))
+        }
+        CurveGeometry::Parabola {
+            vertex,
+            linear,
+            quadratic,
+            ..
+        } => {
+            // Solve d = t·linear + t²·quadratic. The 2-basis solve
+            // gives (a, b) = (t, t²). We use a as t (the linear part
+            // is more numerically stable when t is small).
+            let (a, _b) = solve_2basis(*vertex, *linear, *quadratic, p)?;
+            Some(a)
+        }
+        _ => None,
+    }
+}
+
+/// Decompose `p − origin` against the (possibly non-orthogonal)
+/// basis `(u, v)` spanning the curve's plane. Returns `(α, β)` such
+/// that `p − origin ≈ α·u + β·v`, assuming `p` lies in the plane.
+fn solve_2basis(
+    origin: crate::geometry::Point3,
     u: crate::geometry::Vec3,
     v: crate::geometry::Vec3,
     p: crate::geometry::Point3,
-) -> Option<f64> {
-    // Solve [[u·u, u·v], [u·v, v·v]] · (cos β, sin β) = (u·d, v·d).
-    let d = p - center;
+) -> Option<(f64, f64)> {
+    let d = p - origin;
     let uu = u.dot(&u);
     let uv = u.dot(&v);
     let vv = v.dot(&v);
@@ -286,9 +326,9 @@ fn invert_ellipse_param(
     }
     let ud = u.dot(&d);
     let vd = v.dot(&d);
-    let cos_b = (vv * ud - uv * vd) / det;
-    let sin_b = (uu * vd - uv * ud) / det;
-    Some(sin_b.atan2(cos_b))
+    let alpha = (vv * ud - uv * vd) / det;
+    let beta = (uu * vd - uv * ud) / det;
+    Some((alpha, beta))
 }
 
 fn matrix_max_abs(m: &[[f64; 4]; 4]) -> f64 {

@@ -1178,6 +1178,46 @@ fn cyl_torus_axial_analytic_circle() {
 }
 
 #[test]
+fn cone_cone_parallel_offset_levin_analytic_hyperbola() {
+    // Stage 2b.34b: cone × cone with parallel-but-offset axes.
+    //
+    // cone_a: apex (0, 0, 0), axis (0, 0, 1), half-angle 45° → x² + y² = z²
+    // cone_b: apex (1, 0, 0), axis (0, 0, 1), half-angle 45° → (x-1)² + y² = z²
+    // Subtracting: 2x − 1 = 0 → x = 1/2 (single plane).
+    // Plane x = 1/2 cuts each cone in z² − y² = 1/4 — a hyperbola.
+    let cone_a = SurfaceGeometry::Cone {
+        apex: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        half_angle: std::f64::consts::FRAC_PI_4,
+    };
+    let cone_b = SurfaceGeometry::Cone {
+        apex: Point3::new(1.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        half_angle: std::f64::consts::FRAC_PI_4,
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    // Anchors on the upper-nappe branch of the hyperbola in x = 1/2.
+    let start = Point3::new(0.5, 0.0, 0.5);
+    let end = Point3::new(0.5, 1.0, 1.25_f64.sqrt());
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&cone_a, &cone_b, anchors, None, &tol, &opts)
+        .expect("cone × cone parallel-offset via Levin");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::ConeCone,
+            ..
+        }
+    ));
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Hyperbola { .. }
+    ));
+    assert_guarantees(&triple, &cone_a, &cone_b, start, end, &tol);
+}
+
+#[test]
 fn cyl_cyl_skew_levin_analytic_ellipse() {
     // Stage 2b.34a: Levin's algorithm wired in, decompose_2x2 fixed
     // to return parameterisation-preserving phase.
