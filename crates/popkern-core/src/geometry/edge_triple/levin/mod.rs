@@ -53,6 +53,7 @@ mod eigen;
 mod pencil;
 mod polynomial;
 mod qsqrtd;
+mod qsqrtd_decompose;
 mod quadric;
 mod rational;
 
@@ -69,6 +70,8 @@ mod eigen_tests;
 mod pencil_tests;
 #[cfg(test)]
 mod polynomial_tests;
+#[cfg(test)]
+mod qsqrtd_decompose_tests;
 #[cfg(test)]
 mod qsqrtd_tests;
 #[cfg(test)]

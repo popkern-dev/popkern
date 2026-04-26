@@ -34,12 +34,15 @@ fn zero_radicand_collapses_to_rational() {
 }
 
 #[test]
-fn perfect_square_d_pulled_into_b() {
-    // 1 + 1·√4 → 1 + 2·√1 → after canonicalisation, d = 1, b = 2.
-    // (We don't further reduce √1 = 1; that's a separate simplification.)
+fn perfect_square_d_collapses_to_pure_rational() {
+    // 1 + 1·√4. Square-free reduction extracts √4 = 2·√1, so the
+    // intermediate form is (1, 2, 1). Then d = 1 collapses (√1 = 1)
+    // to pure rational 1 + 2·1 = 3.
     let v = QSqrtD::new(rat_int(1), rat_int(1), rat_int(4));
-    assert_eq!(v.b, rat_int(2));
-    assert_eq!(v.d, rat_int(1));
+    assert!(v.is_rational());
+    assert_eq!(v.a, rat_int(3));
+    assert!(v.b.is_zero());
+    assert!(v.d.is_zero());
 }
 
 #[test]
@@ -138,21 +141,20 @@ fn div_general() {
 
 #[test]
 fn equality_canonical() {
-    // 1 + 1·√4 should equal 3 (since √4 = 2, 1 + 2 = 3).
-    // After canonicalisation, the first becomes (1, 2, 1).
-    // The pure 3 is (3, 0, 0).
-    // These are NOT equal under our representation — `√1` is still
-    // carried as a surd. (Future work: reduce d=1 to pure rational
-    // a + b. We don't do that here to keep canonicalisation simple.)
+    // 1 + 1·√4 == 1 + 2·1 == 3 — perfect-square radicand collapses
+    // through canonicalisation, so two values that *should* be equal
+    // (one written symbolically, one written as pure rational) DO
+    // compare equal.
     let v1 = QSqrtD::new(rat_int(1), rat_int(1), rat_int(4));
     let v2 = QSqrtD::from_rat(rat_int(3));
-    // v1 has d=1, b=2 after canonicalisation; v2 has b=0.
-    assert_ne!(v1, v2);
+    assert_eq!(v1, v2);
 
-    // But two `(1, 1, 4)` values DO compare equal (canonicalised
-    // identically).
-    let v3 = QSqrtD::new(rat_int(1), rat_int(1), rat_int(4));
-    assert_eq!(v1, v3);
+    // Surds with non-collapsing d compare equal iff (a, b, d) match.
+    let v3 = QSqrtD::new(rat_int(1), rat_int(2), rat_int(3));
+    let v4 = QSqrtD::new(rat_int(1), rat_int(2), rat_int(3));
+    assert_eq!(v3, v4);
+    let v5 = QSqrtD::new(rat_int(1), rat_int(2), rat_int(5));
+    assert_ne!(v3, v5);
 }
 
 #[test]
@@ -186,12 +188,12 @@ fn ring_axiom_associativity() {
 #[test]
 fn discriminant_for_known_2x2_rank2() {
     // For Steinmetz: cyl_z and cyl_x give D at λ=−1 = diag(−1, 0, 1, 0).
-    // The non-zero 2×2 block has eigenvalues ±1.
     // tr = 0, det of 2×2 sub-block = (−1)·(1) = −1.
-    // disc = tr² − 4·det = 0 − 4·(−1) = 4 → √4 = 2.
-    // μ_± = (0 ± 2) / 2 = ±1. Q[√4] = Q (perfect square).
+    // disc = tr² − 4·det = 0 − 4·(−1) = 4 → √4 = 2 (perfect square).
+    // μ_± = (0 ± 2) / 2 = ±1. The Q[√4] adjunction collapses through
+    // the d=1 reduction: Q[√4] = Q. So a value `0 + 1·√4` in the
+    // raw form becomes `2 + 0·√0` in canonical form.
     let disc = QSqrtD::new(rat_int(0), rat_int(1), rat_int(4));
-    // After canonicalisation: 0 + 2·√1 = (0, 2, 1).
-    assert_eq!(disc.b, rat_int(2));
-    assert_eq!(disc.d, rat_int(1));
+    assert!(disc.is_rational());
+    assert_eq!(disc.a, rat_int(2));
 }

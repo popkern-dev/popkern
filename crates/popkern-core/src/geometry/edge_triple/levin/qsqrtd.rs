@@ -133,6 +133,13 @@ impl QSqrtD {
         let extracted = Rat::new(num_extracted, den_extracted);
         self.b = &self.b * &extracted;
         self.d = new_d;
+        // If d collapses to 1 (e.g., the input was a perfect square),
+        // √1 = 1 is rational — fold the surd part back into `a` so
+        // `is_zero` and field arithmetic don't carry a phantom surd.
+        if self.d == Rat::one() {
+            self.a += std::mem::replace(&mut self.b, Rat::zero());
+            self.d = Rat::zero();
+        }
     }
 }
 
