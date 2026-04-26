@@ -4,7 +4,8 @@
 
 use super::rational::{
     Mat4SymRat, char_poly_rat, det4_rat, find_rational_degenerate_fiber, linear_comb_rat,
-    rational_roots, surface_to_quadric_rat,
+    pencil_is_identically_degenerate, rational_roots, surface_to_quadric_rat,
+    surfaces_are_coincident,
 };
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
@@ -185,6 +186,123 @@ fn linear_comb_is_linear() {
     assert_eq!(m.0[0][0], rat(7, 2));
     // (2·4 + 3·7/2) = 8 + 21/2 = 37/2
     assert_eq!(m.0[3][3], rat(37, 2));
+}
+
+#[test]
+fn coincident_unit_spheres_detected_exactly() {
+    // Two literally-identical unit spheres at origin: A = B exactly.
+    let s1 = SurfaceGeometry::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    let s2 = SurfaceGeometry::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    // The strict CAD-coincidence relation A = c·B holds (c = 1).
+    assert_eq!(surfaces_are_coincident(&s1, &s2), Some(true));
+    // Note: `pencil_is_identically_degenerate` is NOT triggered here.
+    // Both spheres are full-rank quadrics, so `det(λA + B) = (λ+1)^4·det(A)`
+    // is *not* identically zero — it has a quadruple root at λ=−1.
+    // The "pencil identically degenerate" relation is the *weak*
+    // shared-kernel detector; for full-rank surfaces, coincidence is
+    // detected via `matrices_are_proportional` directly.
+    let a = surface_to_quadric_rat(&s1).unwrap();
+    let b = surface_to_quadric_rat(&s2).unwrap();
+    let coefs = char_poly_rat(&a, &b);
+    // char poly = -(λ+1)^4 = -λ⁴ - 4λ³ - 6λ² - 4λ - 1.
+    // Coefficients are all non-zero — confirming the pencil is *not*
+    // identically degenerate, even though the surfaces ARE coincident.
+    assert!(!coefs.iter().all(|c| c.is_zero()));
+    assert!(!pencil_is_identically_degenerate(&a, &b));
+}
+
+#[test]
+fn coaxial_cylinders_with_different_radii_share_kernel_but_not_coincident() {
+    // Two cylinders along the same z-axis but different radii: the
+    // pencil IS identically degenerate (both have the z-axis as a
+    // shared kernel direction), but the surfaces are NOT coincident.
+    // This is exactly the case that distinguishes the *weak* and
+    // *strict* relations — and the case where the f64 dispatch's
+    // characteristic-polynomial-based detection would be confused.
+    let c1 = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let c2 = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 2.0,
+    };
+    let a = surface_to_quadric_rat(&c1).unwrap();
+    let b = surface_to_quadric_rat(&c2).unwrap();
+    // Weak relation: shared kernel ⇒ pencil is identically degenerate.
+    assert!(pencil_is_identically_degenerate(&a, &b));
+    // Strict relation: surfaces are *not* coincident — radii differ.
+    assert_eq!(surfaces_are_coincident(&c1, &c2), Some(false));
+}
+
+#[test]
+fn distinct_concentric_spheres_not_coincident() {
+    // Same centre, different radii — distinct surfaces.
+    let s1 = SurfaceGeometry::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    let s2 = SurfaceGeometry::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 2.0,
+    };
+    assert_eq!(surfaces_are_coincident(&s1, &s2), Some(false));
+}
+
+#[test]
+fn coincident_cylinders_detected() {
+    // Two identical cylinders — common BRep duplication artifact.
+    let c1 = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let c2 = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    assert_eq!(surfaces_are_coincident(&c1, &c2), Some(true));
+}
+
+#[test]
+fn cylinders_at_different_radii_not_coincident() {
+    let c1 = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let c2 = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 2.0,
+    };
+    assert_eq!(surfaces_are_coincident(&c1, &c2), Some(false));
+}
+
+#[test]
+fn steinmetz_pair_not_coincident() {
+    // The Steinmetz cyl × cyl input — perpendicular axes, NOT
+    // coincident. Pencil is far from identically zero.
+    let cyl_z = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let cyl_x = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(1.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    assert_eq!(surfaces_are_coincident(&cyl_z, &cyl_x), Some(false));
 }
 
 #[test]

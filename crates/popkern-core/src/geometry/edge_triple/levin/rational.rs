@@ -469,6 +469,73 @@ fn divisors_bigint(n: &num_bigint::BigInt) -> Vec<num_bigint::BigInt> {
     out
 }
 
+/// True iff the pencil `λA + μB` is *identically* rank-deficient —
+/// i.e., `det(λA + μB) ≡ 0` as a polynomial in `λ`. This happens
+/// exactly when `A` and `B` are scalar multiples of each other (so
+/// the surfaces they encode are *coincident*, modulo scaling), or
+/// when both `A` and `B` are themselves rank-deficient and their
+/// pencil shares a common kernel.
+///
+/// CAD-relevant case: two duplicated surfaces in a BRep model. The
+/// f64 dispatch chokes on this (every λ is "almost" a degenerate
+/// root, with FP noise making it impossible to pick one). The
+/// symbolic test is exact: every coefficient of the characteristic
+/// polynomial is rational zero.
+pub(crate) fn pencil_is_identically_degenerate(a: &Mat4SymRat, b: &Mat4SymRat) -> bool {
+    let coefs = char_poly_rat(a, b);
+    coefs.iter().all(|c| c.is_zero())
+}
+
+/// True iff the two quadric matrices are *scalar multiples* of each
+/// other — i.e., `A = c · B` for some non-zero rational `c`. This is
+/// the strict "coincident surface" relation: same algebraic surface,
+/// possibly with different homogeneous-coordinate scaling. Note
+/// that `pencil_is_identically_degenerate` is *weaker* — coaxial
+/// cylinders with different radii have a degenerate pencil (shared
+/// kernel along the axis) but are NOT coincident.
+pub(crate) fn matrices_are_proportional(a: &Mat4SymRat, b: &Mat4SymRat) -> bool {
+    // Find the first non-zero entry of B; use it to derive the ratio
+    // c = a_ij / b_ij. Then verify A = c·B everywhere.
+    let mut ratio: Option<Rat> = None;
+    for i in 0..4 {
+        for j in 0..4 {
+            if !b.0[i][j].is_zero() {
+                ratio = Some(&a.0[i][j] / &b.0[i][j]);
+                break;
+            }
+        }
+        if ratio.is_some() {
+            break;
+        }
+    }
+    let c = match ratio {
+        Some(c) => c,
+        // B is the zero matrix; A coincides with B iff A is also zero.
+        None => return a.0.iter().flat_map(|r| r.iter()).all(|x| x.is_zero()),
+    };
+    for i in 0..4 {
+        for j in 0..4 {
+            if a.0[i][j] != &c * &b.0[i][j] {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// True iff `surf_a` and `surf_b` describe the same algebraic
+/// surface (modulo scaling) — exactly. This is the user-facing
+/// CAD "duplicated surface" query. Symbolic answer for any pair
+/// of analytic surfaces with rational parameters.
+pub(crate) fn surfaces_are_coincident(
+    surf_a: &SurfaceGeometry,
+    surf_b: &SurfaceGeometry,
+) -> Option<bool> {
+    let a = surface_to_quadric_rat(surf_a)?;
+    let b = surface_to_quadric_rat(surf_b)?;
+    Some(matrices_are_proportional(&a, &b))
+}
+
 /// Search the pencil for an exact rational degenerate fibre. Returns
 /// the (λ, μ=1) parameter and the resulting rank-deficient matrix.
 /// Returns `None` if the characteristic polynomial has no rational
