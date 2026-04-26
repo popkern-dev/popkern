@@ -56,6 +56,7 @@ mod qsqrtd;
 mod qsqrtd_decompose;
 mod quadric;
 mod rational;
+mod tangent;
 
 pub(super) use cone_fiber::try_rank3_cone_fiber;
 pub(super) use dispatch::try_levin_pair;
@@ -79,3 +80,5 @@ mod qsqrtd_tests;
 mod quadric_tests;
 #[cfg(test)]
 mod rational_tests;
+#[cfg(test)]
+mod tangent_tests;
