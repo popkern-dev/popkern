@@ -10,5 +10,13 @@ thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 slotmap = { version = "1", features = ["serde"] }
+# Stage 2b.36: exact rational arithmetic for the symbolic Levin path
+# (Q[√d] foundation — rational pencil + rational root finding; the
+# √-bearing eigenvectors that define the field extension are layered
+# on top in `levin::rational`).
+num-rational = { version = "0.4", default-features = false, features = ["num-bigint"] }
+num-bigint = { version = "0.4", default-features = false }
+num-traits = { version = "0.2", default-features = false }
+num-integer = { version = "0.1", default-features = false }
 
 [dev-dependencies]

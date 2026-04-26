@@ -53,6 +53,7 @@ mod eigen;
 mod pencil;
 mod polynomial;
 mod quadric;
+mod rational;
 
 pub(super) use cone_fiber::try_rank3_cone_fiber;
 pub(super) use dispatch::try_levin_pair;
@@ -69,3 +70,5 @@ mod pencil_tests;
 mod polynomial_tests;
 #[cfg(test)]
 mod quadric_tests;
+#[cfg(test)]
+mod rational_tests;
