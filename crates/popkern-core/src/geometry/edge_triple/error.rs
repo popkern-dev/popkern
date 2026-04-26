@@ -49,6 +49,16 @@ pub enum EdgeTripleError {
         /// Static-string reason for downstream diagnostic display.
         reason: &'static str,
     },
+    /// The two surfaces are *identical* (coincident — same algebraic
+    /// surface modulo scaling). The "intersection" is the entire
+    /// surface, which is not a 1-D edge. Detected exactly via the
+    /// symbolic Q[√d] path (`A = c·B` for some non-zero rational
+    /// `c`). CAD scenario: duplicated surface in a BRep model.
+    #[error("surfaces are coincident: {reason}")]
+    CoincidentSurfaces {
+        /// Static-string reason for downstream diagnostic display.
+        reason: &'static str,
+    },
     /// Stage 1 placeholder. Removed once dispatch stages land.
     #[error("dispatch path not yet implemented for this surface pair")]
     Unimplemented,

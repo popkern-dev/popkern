@@ -59,6 +59,7 @@ mod rational;
 
 pub(super) use cone_fiber::try_rank3_cone_fiber;
 pub(super) use dispatch::try_levin_pair;
+pub(super) use rational::surfaces_are_coincident;
 
 #[cfg(test)]
 mod cone_fiber_tests;

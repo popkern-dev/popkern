@@ -29,6 +29,16 @@ pub fn compute_edge_geometry(
     tol: &Tolerance,
     opts: &EdgeTripleOptions,
 ) -> Result<EdgeTriple, EdgeTripleError> {
+    // Stage 2b.39: symbolic short-circuit for coincident surfaces.
+    // `A = c·B` for some non-zero rational `c` means the "intersection"
+    // is the entire surface — not a 1-D edge. Detected exactly via
+    // the Q rational path (no FP tolerance fudge); only fires when
+    // both surfaces have rational parameters.
+    if let Some(true) = super::levin::surfaces_are_coincident(surf_a, surf_b) {
+        return Err(EdgeTripleError::CoincidentSurfaces {
+            reason: "surfaces are scalar multiples of one another (A = c · B)",
+        });
+    }
     // Try the analytic-trig dispatch first (commercial-style:
     // analytic Circle 3D + Linear cyl pcurve + Elliptical plane
     // pcurve, parameter map = Identity).
@@ -180,4 +190,86 @@ pub fn revalidate_edge_triple(
             samples: 32,
             tolerance_used: tol.linear(),
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::geometry::{Point3, Vec3};
+
+    fn z_axis_cyl(radius: f64) -> SurfaceGeometry {
+        SurfaceGeometry::Cylinder {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            radius,
+        }
+    }
+
+    // Stage 2b.39: identical cylinders short-circuit before any
+    // analytic dispatch, returning `CoincidentSurfaces`. Detected
+    // exactly via the symbolic Q rational path (A = c·B).
+    #[test]
+    fn identical_cylinders_short_circuit_to_coincident() {
+        let cyl = z_axis_cyl(1.0);
+        let anchors = EdgeAnchors::Open {
+            start: Point3::new(1.0, 0.0, 0.0),
+            end: Point3::new(1.0, 0.0, 1.0),
+        };
+        let tol = Tolerance::default();
+        let opts = EdgeTripleOptions::default();
+        let result = compute_edge_geometry(&cyl, &cyl, anchors, None, &tol, &opts);
+        match result {
+            Err(EdgeTripleError::CoincidentSurfaces { reason }) => {
+                assert!(!reason.is_empty(), "reason must be populated");
+            }
+            other => panic!("expected CoincidentSurfaces, got {other:?}"),
+        }
+    }
+
+    // Stage 2b.39: scalar-multiple sphere matrices share the same
+    // zero locus. The `A = c·B` rational test catches this exactly,
+    // even though the surface struct fields are not bit-identical
+    // (here both are unit spheres so the check is trivial; the
+    // important point is that the dispatch returns the dedicated
+    // `CoincidentSurfaces` error rather than diving into a solver).
+    #[test]
+    fn coincident_unit_spheres_short_circuit() {
+        let sphere = SurfaceGeometry::Sphere {
+            center: Point3::new(0.0, 0.0, 0.0),
+            radius: 1.0,
+        };
+        let anchors = EdgeAnchors::Open {
+            start: Point3::new(1.0, 0.0, 0.0),
+            end: Point3::new(0.0, 1.0, 0.0),
+        };
+        let tol = Tolerance::default();
+        let opts = EdgeTripleOptions::default();
+        let result = compute_edge_geometry(&sphere, &sphere, anchors, None, &tol, &opts);
+        assert!(
+            matches!(result, Err(EdgeTripleError::CoincidentSurfaces { .. })),
+            "expected CoincidentSurfaces, got {result:?}"
+        );
+    }
+
+    // Stage 2b.39: distinct cylinder radii are NOT coincident — the
+    // pencil shares the axis kernel but A != c·B, so the short-circuit
+    // must not fire. Either the analytic dispatch handles the pair or
+    // it falls through to `Unimplemented`; the only thing we assert
+    // here is the absence of `CoincidentSurfaces`.
+    #[test]
+    fn coaxial_cylinders_with_different_radii_do_not_short_circuit() {
+        let cyl_a = z_axis_cyl(1.0);
+        let cyl_b = z_axis_cyl(2.0);
+        let anchors = EdgeAnchors::Open {
+            start: Point3::new(1.0, 0.0, 0.0),
+            end: Point3::new(1.0, 0.0, 1.0),
+        };
+        let tol = Tolerance::default();
+        let opts = EdgeTripleOptions::default();
+        let result = compute_edge_geometry(&cyl_a, &cyl_b, anchors, None, &tol, &opts);
+        assert!(
+            !matches!(result, Err(EdgeTripleError::CoincidentSurfaces { .. })),
+            "must not classify distinct radii as coincident: {result:?}"
+        );
+    }
 }
