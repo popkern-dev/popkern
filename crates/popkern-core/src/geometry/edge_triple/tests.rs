@@ -285,6 +285,34 @@ fn plane_sphere_polar_analytic_circle() {
 }
 
 #[test]
+fn cyl_sphere_axial_analytic_circle() {
+    // Z-axis cylinder of radius 1; sphere at origin, radius √2.
+    // Intersection: two circles at z = ±1, each of radius 1.
+    let cyl = z_axis_cyl(1.0);
+    let sphere = SurfaceGeometry::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 2.0_f64.sqrt(),
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    // Anchors on the z=+1 circle.
+    let start = Point3::new(1.0, 0.0, 1.0);
+    let end = Point3::new(-1.0, 0.0, 1.0);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&cyl, &sphere, anchors, None, &tol, &opts)
+        .expect("cyl×sphere axial analytic dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::CylinderSphere,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert_guarantees(&triple, &cyl, &sphere, start, end, &tol);
+}
+
+#[test]
 fn sphere_sphere_polar_analytic_circle() {
     // Two unit spheres at z=0 and z=1, centres along the polar axis.
     // Intersection: a circle at z=0.5 with radius √(1 - 0.25) ≈ 0.866.

@@ -22,6 +22,7 @@ mod analytic;
 mod analytic_helpers;
 mod analytic_trig;
 mod analytic_trig_cone;
+mod analytic_trig_cyl_sphere;
 mod analytic_trig_helpers;
 mod analytic_trig_sphere_sphere;
 mod dispatch;

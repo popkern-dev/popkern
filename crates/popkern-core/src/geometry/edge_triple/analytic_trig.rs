@@ -6,10 +6,11 @@
 
 use crate::geometry::curve::CurveGeometry;
 use crate::geometry::edge_triple::analytic_trig_cone::try_plane_cone_perpendicular;
+use crate::geometry::edge_triple::analytic_trig_cyl_sphere::try_cyl_sphere_axial;
 use crate::geometry::edge_triple::analytic_trig_helpers::decompose_2x2;
 use crate::geometry::edge_triple::analytic_trig_sphere_sphere::try_sphere_sphere_polar;
 use crate::geometry::edge_triple::error::EdgeTripleError;
-use crate::geometry::edge_triple::inputs::{EdgeAnchors, SurfaceSide};
+use crate::geometry::edge_triple::inputs::{EdgeAnchors, EdgeHint, SurfaceSide};
 use crate::geometry::edge_triple::types::{
     AnalyticPair, BranchSelector, EdgeTopology, EdgeTriple, EdgeTripleProvenance,
     EdgeTripleQuality, ParameterMap,
@@ -29,6 +30,7 @@ pub(super) fn try_dispatch_trig(
     surf_a: &SurfaceGeometry,
     surf_b: &SurfaceGeometry,
     anchors: &EdgeAnchors,
+    hint: Option<&EdgeHint>,
     tol: &Tolerance,
 ) -> Option<Result<EdgeTriple, EdgeTripleError>> {
     use SurfaceGeometry::*;
@@ -139,6 +141,22 @@ pub(super) fn try_dispatch_trig(
                 radius: rb,
             },
         ) => try_sphere_sphere_polar(*ca, *ra, *cb, *rb, anchors, tol),
+        (
+            Cylinder {
+                origin: co,
+                axis: ca,
+                radius: cr,
+            },
+            Sphere { center, radius },
+        ) => try_cyl_sphere_axial(*co, *ca, *cr, false, *center, *radius, anchors, hint, tol),
+        (
+            Sphere { center, radius },
+            Cylinder {
+                origin: co,
+                axis: ca,
+                radius: cr,
+            },
+        ) => try_cyl_sphere_axial(*co, *ca, *cr, true, *center, *radius, anchors, hint, tol),
         _ => None,
     }
 }

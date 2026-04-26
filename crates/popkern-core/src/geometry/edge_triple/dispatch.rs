@@ -32,7 +32,7 @@ pub fn compute_edge_geometry(
     // Try the analytic-trig dispatch first (commercial-style:
     // analytic Circle 3D + Linear cyl pcurve + Elliptical plane
     // pcurve, parameter map = Identity).
-    if let Some(result) = try_dispatch_trig(surf_a, surf_b, &anchors, tol) {
+    if let Some(result) = try_dispatch_trig(surf_a, surf_b, &anchors, hint.as_ref(), tol) {
         return result;
     }
     // Fall through to the legacy NURBS-via-intersect_surfaces path
