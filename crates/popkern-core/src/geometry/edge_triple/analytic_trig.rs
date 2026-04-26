@@ -12,6 +12,7 @@ use crate::geometry::edge_triple::analytic_trig_cyl_cone_general::try_cyl_cone_g
 use crate::geometry::edge_triple::analytic_trig_cyl_cyl::try_cyl_cyl_parallel;
 use crate::geometry::edge_triple::analytic_trig_cyl_cyl_perp::try_cyl_cyl_perpendicular;
 use crate::geometry::edge_triple::analytic_trig_cyl_sphere::try_cyl_sphere_axial;
+use crate::geometry::edge_triple::analytic_trig_cyl_torus_axial::try_cyl_torus_axial;
 use crate::geometry::edge_triple::analytic_trig_plane_cone_hyperbola::try_plane_cone_oblique_hyperbola;
 use crate::geometry::edge_triple::analytic_trig_plane_cone_oblique::try_plane_cone_oblique_ellipse;
 use crate::geometry::edge_triple::analytic_trig_plane_cone_parabola::try_plane_cone_oblique_parabola;
@@ -27,6 +28,7 @@ use crate::geometry::edge_triple::analytic_trig_sphere_cone_general::try_sphere_
 use crate::geometry::edge_triple::analytic_trig_sphere_sphere::try_sphere_sphere_polar;
 use crate::geometry::edge_triple::analytic_trig_sphere_sphere_general::try_sphere_sphere_general;
 use crate::geometry::edge_triple::analytic_trig_sphere_torus_axial::try_sphere_torus_axial;
+use crate::geometry::edge_triple::analytic_trig_torus_torus_coaxial::try_torus_torus_coaxial;
 use crate::geometry::edge_triple::error::EdgeTripleError;
 use crate::geometry::edge_triple::inputs::{EdgeAnchors, EdgeHint};
 use crate::geometry::edge_triple::types::EdgeTriple;
@@ -525,6 +527,52 @@ pub(super) fn try_dispatch_trig(
             *tor_small,
             anchors,
             tol,
+        ),
+        (
+            Cylinder {
+                origin: co,
+                axis: ca,
+                radius: cr,
+            },
+            Torus {
+                center: tc,
+                axis: ta,
+                major_radius: tor_big,
+                minor_radius: tor_small,
+            },
+        ) => try_cyl_torus_axial(
+            *co, *ca, *cr, false, *tc, *ta, *tor_big, *tor_small, anchors, tol,
+        ),
+        (
+            Torus {
+                center: tc,
+                axis: ta,
+                major_radius: tor_big,
+                minor_radius: tor_small,
+            },
+            Cylinder {
+                origin: co,
+                axis: ca,
+                radius: cr,
+            },
+        ) => try_cyl_torus_axial(
+            *co, *ca, *cr, true, *tc, *ta, *tor_big, *tor_small, anchors, tol,
+        ),
+        (
+            Torus {
+                center: ca_t,
+                axis: aa_t,
+                major_radius: big_a,
+                minor_radius: small_a,
+            },
+            Torus {
+                center: cb_t,
+                axis: ab_t,
+                major_radius: big_b,
+                minor_radius: small_b,
+            },
+        ) => try_torus_torus_coaxial(
+            *ca_t, *aa_t, *big_a, *small_a, *cb_t, *ab_t, *big_b, *small_b, anchors, tol,
         ),
         _ => None,
     }

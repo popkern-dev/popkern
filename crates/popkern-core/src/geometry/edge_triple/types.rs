@@ -90,6 +90,8 @@ pub enum AnalyticPair {
     /// Cone × torus — closed-form when cone apex on torus axis and
     /// axes parallel.
     ConeTorus,
+    /// Torus × torus — closed-form when axes coincident.
+    TorusTorus,
 }
 
 /// Which intersection branch the disambiguation logic picked. The

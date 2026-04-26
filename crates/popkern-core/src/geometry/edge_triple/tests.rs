@@ -1138,6 +1138,99 @@ fn cyl_sphere_axial_analytic_circle() {
 }
 
 #[test]
+fn cyl_torus_axial_analytic_circle() {
+    // Stage 2b.29: cyl axis ∥ torus axis, cyl origin on torus axis.
+    // Octic intersection factors into ≤ 2 horizontal circles.
+    //
+    // Torus R=5, r=1. Cylinder origin (0,0,0) (= torus centre),
+    // axis (0,0,1), radius 5 (= R, mid-tube). Then radial_diff = 0,
+    // sqrt_radical = 1, h_offset = 0, so v_cyl_± = ±1: two circles
+    // at z = ±1, each radius 5. v_torus = ±π/2.
+    let torus = nurbs_torus_dummy(); // R=5, r=1
+    let cyl = z_axis_cyl(5.0);
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    // Anchors on the +z circle (centre (0, 0, 1), radius 5).
+    let start = Point3::new(5.0, 0.0, 1.0);
+    let end = Point3::new(0.0, 5.0, 1.0);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&cyl, &torus, anchors, None, &tol, &opts)
+        .expect("cyl×torus axial dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::CylinderTorus,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Arc { .. }
+    ));
+    if let crate::geometry::curve::CurveGeometry::Arc { radius, .. } = triple.curve_3d {
+        assert!(
+            (radius - 5.0).abs() < 1e-9,
+            "cyl×torus circle radius should be 5, got {radius}"
+        );
+    }
+    assert_guarantees(&triple, &cyl, &torus, start, end, &tol);
+}
+
+#[test]
+fn torus_torus_coaxial_analytic_circle() {
+    // Stage 2b.30: two coaxial tori, axes coincident, centres offset
+    // axially. The octic intersection collapses to ≤ 2 horizontal
+    // circles via the axisymmetric collapse argument.
+    //
+    // Two unit tubes at R=5, vertical separation h=√3:
+    //   C1 = (5, 0), r1 = 1; C2 = (5, √3), r2 = 1
+    //   a = √3/2, h_off = 1/2 (in (X, Y) two-circle intersection)
+    //   solutions: (X, Y) = (5 ± 1/2, √3/2)
+    // → two horizontal circles at z = √3/2, radii 4.5 and 5.5.
+    let torus_a = SurfaceGeometry::Torus {
+        center: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        major_radius: 5.0,
+        minor_radius: 1.0,
+    };
+    let torus_b = SurfaceGeometry::Torus {
+        center: Point3::new(0.0, 0.0, 3.0_f64.sqrt()),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        major_radius: 5.0,
+        minor_radius: 1.0,
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let z = 3.0_f64.sqrt() / 2.0;
+    // Anchor on the outer (X = 5.5) circle.
+    let start = Point3::new(5.5, 0.0, z);
+    let end = Point3::new(0.0, 5.5, z);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&torus_a, &torus_b, anchors, None, &tol, &opts)
+        .expect("torus×torus coaxial dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::TorusTorus,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Arc { .. }
+    ));
+    if let crate::geometry::curve::CurveGeometry::Arc { radius, .. } = triple.curve_3d {
+        assert!(
+            (radius - 5.5).abs() < 1e-9,
+            "torus×torus outer circle radius should be 5.5, got {radius}"
+        );
+    }
+    assert_guarantees(&triple, &torus_a, &torus_b, start, end, &tol);
+}
+
+#[test]
 fn sphere_sphere_polar_analytic_circle() {
     // Two unit spheres at z=0 and z=1, centres along the polar axis.
     // Intersection: a circle at z=0.5 with radius √(1 - 0.25) ≈ 0.866.
