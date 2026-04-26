@@ -1178,6 +1178,49 @@ fn cyl_torus_axial_analytic_circle() {
 }
 
 #[test]
+fn cyl_cyl_skew_levin_analytic_ellipse() {
+    // Stage 2b.34a: Levin's algorithm wired in, decompose_2x2 fixed
+    // to return parameterisation-preserving phase.
+    //
+    // Two unit cylinders through the origin with axes at 45° (skew —
+    // not parallel, not perpendicular):
+    //   cyl A: axis (0, 0, 1), radius 1 → x² + y² = 1
+    //   cyl B: axis (1, 0, 1)/√2, radius 1 → (x−z)²/2 + y² = 1
+    //
+    // Subtracting: x² + 2xz − z² = 0 → x = (√2 − 1)·z OR x = −(√2 + 1)·z.
+    // Two real plane fibres in the pencil; Levin picks the one
+    // through the anchors (z=±1 on plane 1).
+    let cyl_z = z_axis_cyl(1.0);
+    let inv_root2 = 1.0 / 2.0_f64.sqrt();
+    let cyl_45 = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(inv_root2, 0.0, inv_root2),
+        radius: 1.0,
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let s2m1 = 2.0_f64.sqrt() - 1.0;
+    let y_at = (2.0 * 2.0_f64.sqrt() - 2.0).sqrt();
+    let start = Point3::new(s2m1, y_at, 1.0);
+    let end = Point3::new(-s2m1, y_at, -1.0);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&cyl_z, &cyl_45, anchors, None, &tol, &opts)
+        .expect("cyl × cyl skew via Levin");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::CylinderCylinder,
+            ..
+        }
+    ));
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Ellipse { .. }
+    ));
+    assert_guarantees(&triple, &cyl_z, &cyl_45, start, end, &tol);
+}
+
+#[test]
 fn torus_torus_coaxial_analytic_circle() {
     // Stage 2b.30: two coaxial tori, axes coincident, centres offset
     // axially. The octic intersection collapses to ≤ 2 horizontal

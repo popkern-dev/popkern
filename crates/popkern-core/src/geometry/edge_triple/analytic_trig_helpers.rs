@@ -1,15 +1,36 @@
 //! Shared helpers for the trig-pair analytic dispatch.
 
-/// Decompose a 2×2 matrix `A = [[a,b],[c,d]]` into
-/// `R(rotation) · diag(u_radius, v_radius)` where `R` is a rotation.
-/// Returns `(u_radius, v_radius, rotation)` such that the ellipse
-/// traced by `A · (cos α, sin α)` equals
-/// `R · (u_r cos α, v_r sin α)`.
+/// Decompose a 2×2 matrix `M = [[a, b], [c, d]]` such that
 ///
-/// Uses a closed-form 2×2 SVD; rotation is the angle of the left
-/// singular vector matching the larger singular value. Robust to
-/// rank-1 / zero matrices through guarded normalisation.
-pub(super) fn decompose_2x2(a: f64, b: f64, c: f64, d: f64) -> (f64, f64, f64) {
+/// ```text
+/// M · (cos α, sin α) = R(rotation) · (u_radius · cos β, v_radius · sin β)
+/// ```
+///
+/// for **all** `α`, where `β = α − phase` is a phase-shifted
+/// parameter. Returns `(u_radius, v_radius, rotation, phase)`.
+///
+/// This is the parameterisation-preserving form of the 2×2 SVD
+/// `M = U · Σ · Vᵀ`:
+/// - `R(rotation) = U` is the left singular vector frame,
+/// - `R(phase)ᵀ = Vᵀ` is the right singular vector frame,
+/// - `(u_radius, v_radius)` are the singular values, signed if `det M < 0`
+///   (the reflection part of `U` is absorbed into a negative
+///   `v_radius` so callers can still treat `R(rotation)` as a
+///   proper rotation).
+///
+/// Consumers building a `Pcurve::elliptical(center, u_r, v_r, rot,
+/// start_angle, end_angle, t_start, t_end)` from this output should
+/// pass `start_angle = α_start − phase` and `end_angle = α_end − phase`
+/// so that the pcurve evaluates to `M · (cos α, sin α)` at
+/// parameter `α`. If a caller assumed `phase = 0` (legacy code
+/// path), they got correct output only when the matrix's columns
+/// were already perpendicular and `m11 ≥ m22` with positive
+/// determinant — the fix surfaces the bug for all other inputs.
+///
+/// Robust to rank-1 / zero matrices through guarded normalisation;
+/// near-degenerate cases default to `phase = rotation = 0` and
+/// `u_r = v_r = trace/2`-style equal singular values.
+pub(super) fn decompose_2x2(a: f64, b: f64, c: f64, d: f64) -> (f64, f64, f64, f64) {
     // M^T M is symmetric 2×2; its eigenvalues are the squared
     // singular values of M.
     let m11 = a * a + c * c;
@@ -55,7 +76,7 @@ pub(super) fn decompose_2x2(a: f64, b: f64, c: f64, d: f64) -> (f64, f64, f64) {
         (v1_b.0 / n_b, v1_b.1 / n_b)
     };
 
-    // Left singular vector u1 = (1/s1) · A · v1.
+    // Left singular vector u1 = (1/s1) · M · v1.
     let u1 = if s1 > 1.0e-30 {
         let ux = (a * v1.0 + b * v1.1) / s1;
         let uy = (c * v1.0 + d * v1.1) / s1;
@@ -64,6 +85,15 @@ pub(super) fn decompose_2x2(a: f64, b: f64, c: f64, d: f64) -> (f64, f64, f64) {
         (1.0, 0.0)
     };
     let rotation = u1.1.atan2(u1.0);
+    let phase = v1.1.atan2(v1.0);
 
-    (s1, s2, rotation)
+    // Determinant sign of M: positive ⇒ proper rotation U; negative
+    // ⇒ U is a reflection. Since `Pcurve::elliptical` only takes a
+    // single `rotation` angle, we encode the reflection by negating
+    // `v_radius`. Pcurve then evaluates `(u_r·cos β, −|v_r|·sin β)`
+    // which traces the same ellipse with the orientation needed.
+    let det_m = a * d - b * c;
+    let v_radius = if det_m < 0.0 { -s2 } else { s2 };
+
+    (s1, v_radius, rotation, phase)
 }

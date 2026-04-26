@@ -21,6 +21,7 @@ use super::decompose::{DegenerateShape, classify_degenerate, plane_to_surface};
 use super::pencil::find_degenerate_fiber;
 use super::quadric::surface_to_quadric;
 use crate::geometry::Point3;
+use crate::geometry::curve::CurveEval;
 use crate::geometry::edge_triple::analytic_trig_cone::try_plane_cone_perpendicular;
 use crate::geometry::edge_triple::analytic_trig_plane_cone_hyperbola::try_plane_cone_oblique_hyperbola;
 use crate::geometry::edge_triple::analytic_trig_plane_cone_oblique::try_plane_cone_oblique_ellipse;
@@ -71,12 +72,19 @@ pub(crate) fn try_levin_pair(
     let plane_surf = plane_to_surface(plane);
 
     // Reuse plane × {cyl, sphere, cone} dispatchers for both surfaces.
-    // Note: these go through `decompose_2x2` for the elliptical pcurve
-    // construction, which has a known bug when the projection matrix
-    // has m22 > m11 or negative determinant. End-to-end Levin tests
-    // are gated on a `decompose_2x2` fix (see stage 2b.34a/35 plan).
     let triple_a = intersect_plane_with_target(&plane_surf, surf_a, anchors, tol)?.ok()?;
     let triple_b = intersect_plane_with_target(&plane_surf, surf_b, anchors, tol)?.ok()?;
+
+    // The composed triple uses triple_a's curve_3d as the canonical
+    // parameterisation. triple_a's pcurve_a is parameterised
+    // consistently with that. triple_b's pcurve_a is parameterised
+    // by triple_b's *own* curve_3d (which traces the same physical
+    // ellipse but with a different basis), so we need a parameter
+    // map t_a → t_b. Both ellipses lie in the shared plane and
+    // trace the same point set; the map is `α_b = a + b · α_a`
+    // with `b ∈ {+1, −1}`. We recover (a, b) from the start anchor
+    // and one mid-curve sample.
+    let (a_b_coef, b_b_coef) = derive_linear_affine_b(&triple_a, &triple_b)?;
 
     let triple = EdgeTriple {
         curve_3d: triple_a.curve_3d.clone(),
@@ -85,7 +93,12 @@ pub(crate) fn try_levin_pair(
         t_start: triple_a.t_start,
         t_end: triple_a.t_end,
         topology: triple_a.topology,
-        parameter_map: ParameterMap::Identity,
+        parameter_map: ParameterMap::LinearAffine {
+            a_a: 0.0,
+            b_a: 1.0,
+            a_b: a_b_coef,
+            b_b: b_b_coef,
+        },
         provenance: EdgeTripleProvenance::AnalyticIntersection {
             kind: provenance_kind(surf_a, surf_b),
             branch: BranchSelector::OnlyBranch,
@@ -193,6 +206,89 @@ fn intersect_plane_with_target(
         }),
         _ => None,
     }
+}
+
+/// Find `(a_b, b_b)` such that `t_b = a_b + b_b · t_a` makes
+/// `triple_b.pcurve_a(t_b)` evaluate to the same physical point as
+/// `triple_a.curve_3d(t_a)` for all `t_a` in `[triple_a.t_start,
+/// triple_a.t_end]`.
+///
+/// Both `triple_a.curve_3d` and `triple_b.curve_3d` are ellipses in
+/// the same plane tracing the same point set. The map `α_b = α_b(α_a)`
+/// is linear with slope `±1`: rotation when `b = +1`, reflection when
+/// `b = -1`. We recover `(a, b)` from the start anchor (which both
+/// ellipses pass through at their respective `t_start`) plus a
+/// mid-curve sample to disambiguate the slope sign.
+fn derive_linear_affine_b(
+    triple_a: &EdgeTriple,
+    triple_b: &EdgeTriple,
+) -> Option<(f64, f64)> {
+    use crate::geometry::curve::CurveGeometry;
+    let CurveGeometry::Ellipse {
+        center: cb,
+        u_basis: ub,
+        v_basis: vb,
+        ..
+    } = &triple_b.curve_3d
+    else {
+        return None;
+    };
+    // Sample triple_a's curve at start and midpoint.
+    let alpha_a_start = triple_a.t_start;
+    let alpha_a_mid = (triple_a.t_start + triple_a.t_end) * 0.5;
+    let p_start = triple_a.curve_3d.point_at(alpha_a_start);
+    let p_mid = triple_a.curve_3d.point_at(alpha_a_mid);
+
+    // Invert each onto the curve_3d_b parameterisation by solving
+    // `p − cb = cos β · u_b + sin β · v_b` for `β`. This is a 2×2
+    // linear system in (cos β, sin β).
+    let beta_start = invert_ellipse_param(*cb, *ub, *vb, p_start)?;
+    let beta_mid = invert_ellipse_param(*cb, *ub, *vb, p_mid)?;
+
+    // Wrap delta_b into (-π, π].
+    let mut delta_b = beta_mid - beta_start;
+    while delta_b > std::f64::consts::PI {
+        delta_b -= std::f64::consts::TAU;
+    }
+    while delta_b < -std::f64::consts::PI {
+        delta_b += std::f64::consts::TAU;
+    }
+    let delta_a = alpha_a_mid - alpha_a_start;
+    if delta_a.abs() < 1e-15 {
+        return None;
+    }
+    let b_b = delta_b / delta_a;
+    // Snap to ±1 (the only true values for parameterisation-preserving
+    // change of basis on a planar ellipse).
+    let b_b_snap = if b_b > 0.0 { 1.0 } else { -1.0 };
+    let a_b = beta_start - b_b_snap * alpha_a_start;
+    Some((a_b, b_b_snap))
+}
+
+/// Invert `p − center = cos β · u + sin β · v` for `β`, where `u`
+/// and `v` are the ellipse's (possibly non-orthogonal) basis vectors
+/// spanning the plane in which the ellipse lies. Returns `None` if
+/// `(u, v)` are degenerate.
+fn invert_ellipse_param(
+    center: crate::geometry::Point3,
+    u: crate::geometry::Vec3,
+    v: crate::geometry::Vec3,
+    p: crate::geometry::Point3,
+) -> Option<f64> {
+    // Solve [[u·u, u·v], [u·v, v·v]] · (cos β, sin β) = (u·d, v·d).
+    let d = p - center;
+    let uu = u.dot(&u);
+    let uv = u.dot(&v);
+    let vv = v.dot(&v);
+    let det = uu * vv - uv * uv;
+    if det.abs() < 1e-15 {
+        return None;
+    }
+    let ud = u.dot(&d);
+    let vd = v.dot(&d);
+    let cos_b = (vv * ud - uv * vd) / det;
+    let sin_b = (uu * vd - uv * ud) / det;
+    Some(sin_b.atan2(cos_b))
 }
 
 fn matrix_max_abs(m: &[[f64; 4]; 4]) -> f64 {

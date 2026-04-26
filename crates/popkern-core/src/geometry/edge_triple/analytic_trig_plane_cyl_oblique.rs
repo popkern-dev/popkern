@@ -154,14 +154,14 @@ pub(super) fn try_plane_cylinder_oblique(
     let a_vu = u_basis.dot(&plane_v) / plane_v_len_sq;
     let a_uv = v_basis.dot(&plane_u) / plane_u_len_sq;
     let a_vv = v_basis.dot(&plane_v) / plane_v_len_sq;
-    let (u_radius, v_radius, rotation) = decompose_2x2(a_uu, a_uv, a_vu, a_vv);
+    let (u_radius, v_radius, rotation, phase) = decompose_2x2(a_uu, a_uv, a_vu, a_vv);
     let pcurve_plane = Pcurve::elliptical(
         (center_u, center_v),
         u_radius,
         v_radius,
         rotation,
-        s_start,
-        s_end,
+        s_start - phase,
+        s_end - phase,
         s_start,
         s_end,
     );

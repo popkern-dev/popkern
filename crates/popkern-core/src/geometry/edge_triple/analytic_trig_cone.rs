@@ -112,14 +112,14 @@ pub(super) fn try_plane_cone_perpendicular(
     let a_vu = circle_radius * arc_basis_u.dot(&plane_v) / plane_v_len_sq;
     let a_uv = circle_radius * arc_basis_v.dot(&plane_u) / plane_u_len_sq;
     let a_vv = circle_radius * arc_basis_v.dot(&plane_v) / plane_v_len_sq;
-    let (u_radius, v_radius, rotation) = decompose_2x2(a_uu, a_uv, a_vu, a_vv);
+    let (u_radius, v_radius, rotation, phase) = decompose_2x2(a_uu, a_uv, a_vu, a_vv);
     let pcurve_plane = Pcurve::elliptical(
         (center_u, center_v),
         u_radius,
         v_radius,
         rotation,
-        theta_start,
-        theta_end,
+        theta_start - phase,
+        theta_end - phase,
         theta_start,
         theta_end,
     );
