@@ -285,6 +285,40 @@ fn plane_sphere_polar_analytic_circle() {
 }
 
 #[test]
+fn cyl_cyl_parallel_analytic_line() {
+    // Two unit cylinders along z-axis, centres at (0,0,0) and (1,0,0)
+    // (axis offset 1.0 < r1+r2 = 2.0). Two intersection lines at
+    // x = 0.5, y = ±√(1 - 0.25) = ±√0.75.
+    let cyl_a = z_axis_cyl(1.0);
+    let cyl_b = SurfaceGeometry::Cylinder {
+        origin: Point3::new(1.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let h = (1.0_f64 - 0.25).sqrt();
+    let start = Point3::new(0.5, h, 0.0);
+    let end = Point3::new(0.5, h, 2.0);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&cyl_a, &cyl_b, anchors, None, &tol, &opts)
+        .expect("cyl×cyl parallel analytic dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::CylinderCylinder,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Line { .. }
+    ));
+    assert_guarantees(&triple, &cyl_a, &cyl_b, start, end, &tol);
+}
+
+#[test]
 fn cyl_sphere_axial_analytic_circle() {
     // Z-axis cylinder of radius 1; sphere at origin, radius √2.
     // Intersection: two circles at z = ±1, each of radius 1.

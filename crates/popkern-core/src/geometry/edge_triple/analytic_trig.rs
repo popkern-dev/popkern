@@ -6,6 +6,7 @@
 
 use crate::geometry::curve::CurveGeometry;
 use crate::geometry::edge_triple::analytic_trig_cone::try_plane_cone_perpendicular;
+use crate::geometry::edge_triple::analytic_trig_cyl_cyl::try_cyl_cyl_parallel;
 use crate::geometry::edge_triple::analytic_trig_cyl_sphere::try_cyl_sphere_axial;
 use crate::geometry::edge_triple::analytic_trig_helpers::decompose_2x2;
 use crate::geometry::edge_triple::analytic_trig_sphere_sphere::try_sphere_sphere_polar;
@@ -157,6 +158,18 @@ pub(super) fn try_dispatch_trig(
                 radius: cr,
             },
         ) => try_cyl_sphere_axial(*co, *ca, *cr, true, *center, *radius, anchors, hint, tol),
+        (
+            Cylinder {
+                origin: oa,
+                axis: aa,
+                radius: ra,
+            },
+            Cylinder {
+                origin: ob,
+                axis: ab,
+                radius: rb,
+            },
+        ) => try_cyl_cyl_parallel(*oa, *aa, *ra, *ob, *ab, *rb, anchors, hint, tol),
         _ => None,
     }
 }
