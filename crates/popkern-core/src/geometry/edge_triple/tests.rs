@@ -365,6 +365,54 @@ fn plane_cone_oblique_analytic_ellipse() {
 }
 
 #[test]
+fn plane_cone_oblique_analytic_parabola() {
+    // Stage 2b.13: cone half-angle 30°, plane normal at exactly
+    // 60° from the axis — the case-boundary between ellipse and
+    // hyperbola. Result: an analytic parabola.
+    let cone = z_axis_cone(std::f64::consts::FRAC_PI_6);
+    // n = (sin 60°, 0, cos 60°) = (√3/2, 0, 1/2). pu = (cos 60°, 0,
+    // -sin 60°) = (1/2, 0, -√3/2). pv = (0, 1, 0). Plane through
+    // (1, 0, 0): cuts the cone along a parabola whose vertex is at
+    // (1/2, 0, √3/2) — the cone point at u = 0.
+    let n = Vec3::new(3.0_f64.sqrt() / 2.0, 0.0, 0.5);
+    let pu = Vec3::new(0.5, 0.0, -3.0_f64.sqrt() / 2.0);
+    let pv = Vec3::new(0.0, 1.0, 0.0);
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(1.0, 0.0, 0.0),
+        normal: n,
+        u_axis: pu,
+        v_axis: pv,
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+
+    // Anchors at cone u = ±π/3, derived analytically from the plane
+    // equation v(u) = √3 / (1 + cos u). At u = π/3, v = 2√3/3, so
+    // the cone point is (1/3, √3/3, 2√3/3).
+    let v_at_third = 2.0 * 3.0_f64.sqrt() / 3.0;
+    let start = Point3::new(1.0 / 3.0, -3.0_f64.sqrt() / 3.0, v_at_third);
+    let end = Point3::new(1.0 / 3.0, 3.0_f64.sqrt() / 3.0, v_at_third);
+    let anchors = EdgeAnchors::Open { start, end };
+
+    let triple = compute_edge_geometry(&plane, &cone, anchors, None, &tol, &opts)
+        .expect("plane×cone parabola analytic dispatch");
+
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneCone,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Parabola { .. }
+    ));
+    assert_guarantees(&triple, &plane, &cone, start, end, &tol);
+}
+
+#[test]
 fn plane_sphere_polar_analytic_circle() {
     // Stage 2b.4: equator slice of a unit sphere by the XY plane.
     // Expected: analytic Arc 3D + Linear sphere pcurve at v=π/2 +

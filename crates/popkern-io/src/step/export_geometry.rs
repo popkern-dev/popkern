@@ -94,11 +94,11 @@ impl ExportContext {
                     vec![str_param(""), ref_(placement), real(*radius)],
                 )
             }
-            CurveGeometry::Ellipse { .. } => {
-                // STEP has a native ELLIPSE entity but our exporter
-                // currently routes ellipses through the NURBS path.
-                // Convert via to_nurbs_in_range over the curve's
-                // intrinsic parameter range.
+            CurveGeometry::Ellipse { .. } | CurveGeometry::Parabola { .. } => {
+                // STEP has native ELLIPSE / PARABOLA entities but our
+                // exporter currently routes both through the NURBS
+                // path. Parabolas are exactly representable as a
+                // degree-2 Bézier, so the NURBS conversion is exact.
                 use popkern_core::geometry::CurveEval;
                 let range = curve.geometry.parameter_range();
                 let nurbs = curve.geometry.to_nurbs_in_range(range);

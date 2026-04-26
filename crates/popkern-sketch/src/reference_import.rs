@@ -118,7 +118,9 @@ impl SketchOnPlane {
                         self.sketch.set_construction(ElementHandle::Arc(ah), true);
                         imported.push(ElementHandle::Arc(ah));
                     }
-                    CurveGeometry::Ellipse { .. } | CurveGeometry::Nurbs(_) => {
+                    CurveGeometry::Ellipse { .. }
+                    | CurveGeometry::Parabola { .. }
+                    | CurveGeometry::Nurbs(_) => {
                         // Fall back to a line between the projected endpoints.
                         // Sketches don't have a native ellipse element today.
                         let lh = self.sketch.add_line(start_pt, end_pt);

@@ -120,6 +120,34 @@ pub(super) fn ellipse_to_nurbs(
     }
 }
 
+/// Build an exact degree-2 Bézier-equivalent NURBS for a parabolic
+/// arc `vertex + t·linear + t²·quadratic` over `[t_start, t_end]`.
+///
+/// A parabola is exactly representable as a non-rational degree-2
+/// Bézier curve. Endpoints are evaluations at `t_start` and `t_end`;
+/// the middle control point sits at the intersection of the two
+/// endpoint tangent lines. Equivalently, `b1 = b0 + tangent(t_start)
+/// · (t_end − t_start) / 2`.
+pub(super) fn parabola_to_nurbs(
+    vertex: Point3,
+    linear: Vec3,
+    quadratic: Vec3,
+    t_start: f64,
+    t_end: f64,
+) -> NurbsCurve {
+    let span = t_end - t_start;
+    let b0 = vertex + linear * t_start + quadratic * (t_start * t_start);
+    let b2 = vertex + linear * t_end + quadratic * (t_end * t_end);
+    let tangent_at_start = linear + quadratic * (2.0 * t_start);
+    let b1 = b0 + tangent_at_start * (span * 0.5);
+    NurbsCurve {
+        degree: 2,
+        knots: vec![t_start, t_start, t_start, t_end, t_end, t_end],
+        control_points: vec![b0, b1, b2],
+        weights: vec![1.0, 1.0, 1.0],
+    }
+}
+
 /// Build a NURBS arc by constructing the full circle and splitting to the arc range.
 pub(super) fn arc_to_nurbs(
     center: Point3,

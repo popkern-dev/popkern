@@ -8,6 +8,7 @@ use crate::geometry::edge_triple::analytic_trig_cone::try_plane_cone_perpendicul
 use crate::geometry::edge_triple::analytic_trig_cyl_cyl::try_cyl_cyl_parallel;
 use crate::geometry::edge_triple::analytic_trig_cyl_sphere::try_cyl_sphere_axial;
 use crate::geometry::edge_triple::analytic_trig_plane_cone_oblique::try_plane_cone_oblique_ellipse;
+use crate::geometry::edge_triple::analytic_trig_plane_cone_parabola::try_plane_cone_oblique_parabola;
 use crate::geometry::edge_triple::analytic_trig_plane_cyl::try_plane_cylinder_perpendicular;
 use crate::geometry::edge_triple::analytic_trig_plane_cyl_oblique::try_plane_cylinder_oblique;
 use crate::geometry::edge_triple::analytic_trig_plane_sphere::try_plane_sphere_polar;
@@ -128,6 +129,20 @@ pub(super) fn try_dispatch_trig(
                 anchors,
                 tol,
             )
+        })
+        .or_else(|| {
+            try_plane_cone_oblique_parabola(
+                *po,
+                *pn,
+                *pu,
+                *pv,
+                false,
+                *apex,
+                *axis,
+                *half_angle,
+                anchors,
+                tol,
+            )
         }),
         (
             Cone {
@@ -155,6 +170,20 @@ pub(super) fn try_dispatch_trig(
         )
         .or_else(|| {
             try_plane_cone_oblique_ellipse(
+                *po,
+                *pn,
+                *pu,
+                *pv,
+                true,
+                *apex,
+                *axis,
+                *half_angle,
+                anchors,
+                tol,
+            )
+        })
+        .or_else(|| {
+            try_plane_cone_oblique_parabola(
                 *po,
                 *pn,
                 *pu,

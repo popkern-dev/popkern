@@ -149,11 +149,37 @@ pub enum CurveGeometry {
         /// Sweep end angle (radians).
         end_angle: f64,
     },
+    /// A parabolic arc parameterised as
+    /// `vertex + t · linear + t² · quadratic`.
+    ///
+    /// Canonical form for plane-cone intersections where the cutting
+    /// plane is parallel to exactly one cone generator. The `linear`
+    /// vector is the tangent at `t = 0`; the `quadratic` vector is
+    /// half the second derivative and points along the parabola's
+    /// axis of symmetry. Both vectors lie in the parabola's plane;
+    /// they need not be orthogonal but must be linearly independent.
+    Parabola {
+        /// Vertex / base point: `point_at(0)`.
+        vertex: Point3,
+        /// Coefficient of `t`: tangent vector at `t = 0`. Length
+        /// determines parameterisation speed.
+        linear: Vec3,
+        /// Coefficient of `t²`: defines the axis of symmetry direction
+        /// and the curvature (related to focal parameter `p` by
+        /// `|quadratic| = 1 / (4·p)` for the canonical form).
+        quadratic: Vec3,
+        /// Sweep start parameter.
+        t_start: f64,
+        /// Sweep end parameter.
+        t_end: f64,
+    },
     /// A NURBS (Non-Uniform Rational B-Spline) curve.
     Nurbs(NurbsCurve),
 }
 
-use crate::geometry::curve_to_nurbs::{arc_to_nurbs, circle_to_nurbs, ellipse_to_nurbs};
+use crate::geometry::curve_to_nurbs::{
+    arc_to_nurbs, circle_to_nurbs, ellipse_to_nurbs, parabola_to_nurbs,
+};
 
 impl CurveGeometry {
     /// Convert to a [`NurbsCurve`] covering the given parameter range.
@@ -189,6 +215,13 @@ impl CurveGeometry {
                 start_angle,
                 end_angle,
             } => ellipse_to_nurbs(*center, *u_basis, *v_basis, *start_angle, *end_angle),
+            CurveGeometry::Parabola {
+                vertex,
+                linear,
+                quadratic,
+                t_start,
+                t_end,
+            } => parabola_to_nurbs(*vertex, *linear, *quadratic, *t_start, *t_end),
             CurveGeometry::Nurbs(nurbs) => nurbs.clone(),
         }
     }

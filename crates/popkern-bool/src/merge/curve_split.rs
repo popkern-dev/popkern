@@ -58,7 +58,9 @@ pub(crate) fn split_curve(
             curve.t_end,
             split_point,
         ),
-        CurveGeometry::Ellipse { .. } | CurveGeometry::Nurbs(_) => split_nurbs(curve, t_split),
+        CurveGeometry::Ellipse { .. }
+        | CurveGeometry::Parabola { .. }
+        | CurveGeometry::Nurbs(_) => split_nurbs(curve, t_split),
     }
 }
 

@@ -216,6 +216,19 @@ pub(super) fn transform_curve(curve: &CurveGeometry, t: &Transform3) -> CurveGeo
             start_angle: *start_angle,
             end_angle: *end_angle,
         },
+        CurveGeometry::Parabola {
+            vertex,
+            linear,
+            quadratic,
+            t_start,
+            t_end,
+        } => CurveGeometry::Parabola {
+            vertex: t.apply_point(vertex),
+            linear: t.apply_direction(linear),
+            quadratic: t.apply_direction(quadratic),
+            t_start: *t_start,
+            t_end: *t_end,
+        },
         CurveGeometry::Nurbs(nurbs) => {
             let control_points = nurbs
                 .control_points

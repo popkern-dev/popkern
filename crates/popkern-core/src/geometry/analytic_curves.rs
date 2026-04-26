@@ -288,6 +288,81 @@ impl CurveEval for Ellipse {
 }
 
 // ---------------------------------------------------------------------------
+// Parabola — `vertex + t · linear + t² · quadratic`.
+// ---------------------------------------------------------------------------
+
+struct Parabola {
+    vertex: Point3,
+    linear: Vec3,
+    quadratic: Vec3,
+    t_start: f64,
+    t_end: f64,
+}
+
+impl Parabola {
+    fn new(vertex: Point3, linear: Vec3, quadratic: Vec3, t_start: f64, t_end: f64) -> Self {
+        Self {
+            vertex,
+            linear,
+            quadratic,
+            t_start,
+            t_end,
+        }
+    }
+}
+
+impl CurveEval for Parabola {
+    fn point_at(&self, t: f64) -> Point3 {
+        self.vertex + self.linear * t + self.quadratic * (t * t)
+    }
+
+    fn derivative_at(&self, t: f64, order: usize) -> Vec3 {
+        // Convention here matches `Ellipse::derivative_at`: order 0 is
+        // the curve offset from its base point (i.e. excluding `vertex`).
+        match order {
+            0 => self.linear * t + self.quadratic * (t * t),
+            1 => self.linear + self.quadratic * (2.0 * t),
+            2 => self.quadratic * 2.0,
+            _ => Vec3::zero(),
+        }
+    }
+
+    fn tangent_at(&self, t: f64) -> Vec3 {
+        self.derivative_at(t, 1)
+            .normalized()
+            .unwrap_or(Vec3::zero())
+    }
+
+    fn parameter_range(&self) -> (f64, f64) {
+        (self.t_start, self.t_end)
+    }
+
+    fn length_between(&self, t0: f64, t1: f64) -> f64 {
+        // Closed-form arc length involves an arctangent, but the
+        // 32-sample Riemann sum used elsewhere is sufficient for
+        // tessellation-grade accuracy here too.
+        let n = 32;
+        let mut sum = 0.0;
+        let mut prev = self.point_at(t0);
+        for i in 1..=n {
+            let t = t0 + (t1 - t0) * (i as f64) / (n as f64);
+            let p = self.point_at(t);
+            sum += prev.distance_to(&p);
+            prev = p;
+        }
+        sum
+    }
+
+    fn closest_point(&self, point: &Point3) -> Option<f64> {
+        closest_point_on_curve(self, point)
+    }
+
+    fn curve_bounding_box(&self, t_range: (f64, f64)) -> Aabb {
+        curve_bounding_box_by_sampling(self, t_range)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // CurveGeometry dispatch
 // ---------------------------------------------------------------------------
 
@@ -318,6 +393,13 @@ impl CurveEval for CurveGeometry {
                 start_angle,
                 end_angle,
             } => Ellipse::new(*center, *u_basis, *v_basis, *start_angle, *end_angle).point_at(t),
+            CurveGeometry::Parabola {
+                vertex,
+                linear,
+                quadratic,
+                t_start,
+                t_end,
+            } => Parabola::new(*vertex, *linear, *quadratic, *t_start, *t_end).point_at(t),
             CurveGeometry::Nurbs(nurbs) => nurbs.point_at(t),
         }
     }
@@ -350,6 +432,14 @@ impl CurveEval for CurveGeometry {
                 end_angle,
             } => Ellipse::new(*center, *u_basis, *v_basis, *start_angle, *end_angle)
                 .derivative_at(t, order),
+            CurveGeometry::Parabola {
+                vertex,
+                linear,
+                quadratic,
+                t_start,
+                t_end,
+            } => Parabola::new(*vertex, *linear, *quadratic, *t_start, *t_end)
+                .derivative_at(t, order),
             CurveGeometry::Nurbs(nurbs) => nurbs.derivative_at(t, order),
         }
     }
@@ -380,6 +470,13 @@ impl CurveEval for CurveGeometry {
                 start_angle,
                 end_angle,
             } => Ellipse::new(*center, *u_basis, *v_basis, *start_angle, *end_angle).tangent_at(t),
+            CurveGeometry::Parabola {
+                vertex,
+                linear,
+                quadratic,
+                t_start,
+                t_end,
+            } => Parabola::new(*vertex, *linear, *quadratic, *t_start, *t_end).tangent_at(t),
             CurveGeometry::Nurbs(nurbs) => nurbs.tangent_at(t),
         }
     }
@@ -411,6 +508,13 @@ impl CurveEval for CurveGeometry {
                 end_angle,
             } => Ellipse::new(*center, *u_basis, *v_basis, *start_angle, *end_angle)
                 .parameter_range(),
+            CurveGeometry::Parabola {
+                vertex,
+                linear,
+                quadratic,
+                t_start,
+                t_end,
+            } => Parabola::new(*vertex, *linear, *quadratic, *t_start, *t_end).parameter_range(),
             CurveGeometry::Nurbs(nurbs) => nurbs.parameter_range(),
         }
     }
@@ -444,6 +548,15 @@ impl CurveEval for CurveGeometry {
                 end_angle,
             } => Ellipse::new(*center, *u_basis, *v_basis, *start_angle, *end_angle)
                 .length_between(t0, t1),
+            CurveGeometry::Parabola {
+                vertex,
+                linear,
+                quadratic,
+                t_start,
+                t_end,
+            } => {
+                Parabola::new(*vertex, *linear, *quadratic, *t_start, *t_end).length_between(t0, t1)
+            }
             CurveGeometry::Nurbs(nurbs) => nurbs.length_between(t0, t1),
         }
     }
@@ -475,6 +588,13 @@ impl CurveEval for CurveGeometry {
                 end_angle,
             } => Ellipse::new(*center, *u_basis, *v_basis, *start_angle, *end_angle)
                 .closest_point(point),
+            CurveGeometry::Parabola {
+                vertex,
+                linear,
+                quadratic,
+                t_start,
+                t_end,
+            } => Parabola::new(*vertex, *linear, *quadratic, *t_start, *t_end).closest_point(point),
             CurveGeometry::Nurbs(nurbs) => nurbs.closest_point(point),
         }
     }
@@ -506,6 +626,14 @@ impl CurveEval for CurveGeometry {
                 start_angle,
                 end_angle,
             } => Ellipse::new(*center, *u_basis, *v_basis, *start_angle, *end_angle)
+                .curve_bounding_box(t_range),
+            CurveGeometry::Parabola {
+                vertex,
+                linear,
+                quadratic,
+                t_start,
+                t_end,
+            } => Parabola::new(*vertex, *linear, *quadratic, *t_start, *t_end)
                 .curve_bounding_box(t_range),
             CurveGeometry::Nurbs(nurbs) => nurbs.curve_bounding_box(t_range),
         }
