@@ -7,6 +7,7 @@
 use crate::geometry::edge_triple::analytic_trig_cone::try_plane_cone_perpendicular;
 use crate::geometry::edge_triple::analytic_trig_cone_cone::try_cone_cone_coaxial;
 use crate::geometry::edge_triple::analytic_trig_cyl_cone::try_cyl_cone_coaxial;
+use crate::geometry::edge_triple::analytic_trig_cyl_cone_general::try_cyl_cone_general;
 use crate::geometry::edge_triple::analytic_trig_cyl_cyl::try_cyl_cyl_parallel;
 use crate::geometry::edge_triple::analytic_trig_cyl_cyl_perp::try_cyl_cyl_perpendicular;
 use crate::geometry::edge_triple::analytic_trig_cyl_sphere::try_cyl_sphere_axial;
@@ -343,7 +344,20 @@ pub(super) fn try_dispatch_trig(
             *half_angle,
             anchors,
             tol,
-        ),
+        )
+        .or_else(|| {
+            try_cyl_cone_general(
+                *co,
+                *ca,
+                *cr,
+                false,
+                *apex,
+                *axis,
+                *half_angle,
+                anchors,
+                tol,
+            )
+        }),
         (
             Cone {
                 apex,
@@ -355,7 +369,10 @@ pub(super) fn try_dispatch_trig(
                 axis: ca,
                 radius: cr,
             },
-        ) => try_cyl_cone_coaxial(*co, *ca, *cr, true, *apex, *axis, *half_angle, anchors, tol),
+        ) => try_cyl_cone_coaxial(*co, *ca, *cr, true, *apex, *axis, *half_angle, anchors, tol)
+            .or_else(|| {
+                try_cyl_cone_general(*co, *ca, *cr, true, *apex, *axis, *half_angle, anchors, tol)
+            }),
         (
             Sphere { center, radius },
             Cone {

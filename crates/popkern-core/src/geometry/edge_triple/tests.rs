@@ -680,6 +680,57 @@ fn cone_cone_coaxial_analytic_circle() {
 }
 
 #[test]
+fn cyl_cone_offset_apex_quartic_curve() {
+    // Stage 2b.25: cylinder along z-axis, cone with parallel axis
+    // but apex offset off the cyl axis. Coaxial dispatcher returns
+    // None; general dispatcher samples the closed-form quadratic in
+    // v at each cone-u angle.
+    //
+    // Cyl: origin (0,0,0), axis (0,0,1), radius 1.
+    // Cone: apex (0.5, 0, 0), axis (0,0,1), half-angle 30°.
+    //
+    // Cylinder constraint at cone point (0.5 + v/√3·cos u, v/√3·sin u, v):
+    //   (0.5 + v/√3·cos u)² + (v/√3·sin u)² = 1
+    //   ⇒ v² + v·√3·cos u − 2.25 = 0
+    //   ⇒ v = (−√3·cos u + √(3·cos²u + 9)) / 2  (positive root)
+    let cyl = z_axis_cyl(1.0);
+    let cone = SurfaceGeometry::Cone {
+        apex: Point3::new(0.5, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        half_angle: std::f64::consts::FRAC_PI_6,
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let v_at = |u: f64| -> f64 {
+        let cu = u.cos();
+        (-3.0_f64.sqrt() * cu + (3.0 * cu * cu + 9.0).sqrt()) / 2.0
+    };
+    let pt_at = |u: f64| -> Point3 {
+        let v = v_at(u);
+        let r = v / 3.0_f64.sqrt();
+        Point3::new(0.5 + r * u.cos(), r * u.sin(), v)
+    };
+    let start = pt_at(0.0);
+    let end = pt_at(std::f64::consts::FRAC_PI_2);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&cyl, &cone, anchors, None, &tol, &opts)
+        .expect("cyl×cone non-coaxial dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::CylinderCone,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Nurbs(_)
+    ));
+    assert_guarantees(&triple, &cyl, &cone, start, end, &tol);
+}
+
+#[test]
 fn cyl_cone_coaxial_analytic_circle() {
     // Stage 2b.17: cylinder of radius 1 along z-axis, cone with apex
     // at origin, axis (0,0,1), half-angle 30°. The intersection is a
