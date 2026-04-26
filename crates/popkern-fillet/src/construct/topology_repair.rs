@@ -1368,7 +1368,8 @@ fn snap_incident_edge_curve_endpoints_robust(
             CurveGeometry::Nurbs(n) => n.clone(),
             CurveGeometry::Line { .. }
             | CurveGeometry::Arc { .. }
-            | CurveGeometry::Circle { .. } => {
+            | CurveGeometry::Circle { .. }
+            | CurveGeometry::Ellipse { .. } => {
                 let trange = (curve_on_edge.t_start, curve_on_edge.t_end);
                 curve_on_edge.geometry.to_nurbs_in_range(trange)
             }

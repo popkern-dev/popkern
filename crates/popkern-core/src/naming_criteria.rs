@@ -43,6 +43,8 @@ pub enum CurveType {
     Circle,
     /// Circular arc.
     Arc,
+    /// Elliptical arc.
+    Ellipse,
     /// NURBS / B-spline curve.
     Nurbs,
 }
@@ -184,6 +186,7 @@ pub fn capture_edge(brep: &BRep, edge: EdgeHandle) -> Option<EdgeCriteria> {
         CurveGeometry::Line { .. } => CurveType::Line,
         CurveGeometry::Circle { .. } => CurveType::Circle,
         CurveGeometry::Arc { .. } => CurveType::Arc,
+        CurveGeometry::Ellipse { .. } => CurveType::Ellipse,
         CurveGeometry::Nurbs(_) => CurveType::Nurbs,
     };
 

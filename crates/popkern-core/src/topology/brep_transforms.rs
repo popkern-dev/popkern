@@ -203,6 +203,19 @@ pub(super) fn transform_curve(curve: &CurveGeometry, t: &Transform3) -> CurveGeo
             start_angle: *start_angle,
             end_angle: *end_angle,
         },
+        CurveGeometry::Ellipse {
+            center,
+            u_basis,
+            v_basis,
+            start_angle,
+            end_angle,
+        } => CurveGeometry::Ellipse {
+            center: t.apply_point(center),
+            u_basis: t.apply_direction(u_basis),
+            v_basis: t.apply_direction(v_basis),
+            start_angle: *start_angle,
+            end_angle: *end_angle,
+        },
         CurveGeometry::Nurbs(nurbs) => {
             let control_points = nurbs
                 .control_points

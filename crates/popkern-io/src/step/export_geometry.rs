@@ -94,6 +94,16 @@ impl ExportContext {
                     vec![str_param(""), ref_(placement), real(*radius)],
                 )
             }
+            CurveGeometry::Ellipse { .. } => {
+                // STEP has a native ELLIPSE entity but our exporter
+                // currently routes ellipses through the NURBS path.
+                // Convert via to_nurbs_in_range over the curve's
+                // intrinsic parameter range.
+                use popkern_core::geometry::CurveEval;
+                let range = curve.geometry.parameter_range();
+                let nurbs = curve.geometry.to_nurbs_in_range(range);
+                self.export_nurbs_curve(&nurbs)
+            }
             CurveGeometry::Nurbs(nurbs) => self.export_nurbs_curve(nurbs),
         }
     }

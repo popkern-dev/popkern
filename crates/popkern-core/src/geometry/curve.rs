@@ -130,6 +130,25 @@ pub enum CurveGeometry {
         /// End angle in radians.
         end_angle: f64,
     },
+    /// An elliptical arc. Evaluates as
+    /// `center + cos(t) · u_basis + sin(t) · v_basis`. The two
+    /// basis vectors carry both the major/minor axis directions
+    /// and their lengths (the semi-radii). They must be coplanar
+    /// (i.e. their cross product points along the ellipse's
+    /// normal) but need not be orthogonal — the parameterisation
+    /// still produces an ellipse for any non-degenerate basis pair.
+    Ellipse {
+        /// Centre point.
+        center: Point3,
+        /// First semi-axis vector (length = first semi-radius).
+        u_basis: Vec3,
+        /// Second semi-axis vector (length = second semi-radius).
+        v_basis: Vec3,
+        /// Sweep start angle (radians).
+        start_angle: f64,
+        /// Sweep end angle (radians).
+        end_angle: f64,
+    },
     /// A NURBS (Non-Uniform Rational B-Spline) curve.
     Nurbs(NurbsCurve),
 }
@@ -180,6 +199,73 @@ fn circle_to_nurbs(center: Point3, normal: Vec3, radius: f64) -> NurbsCurve {
         knots,
         control_points: pts.to_vec(),
         weights,
+    }
+}
+
+/// Build a degree-2 rational NURBS for a full ellipse using
+/// `(u_basis, v_basis)` as the two semi-axis vectors. Same 9-CP /
+/// w=1/√2 structure as the circle, just with `radius·u_axis` and
+/// `radius·v_axis` replaced by `u_basis` and `v_basis` directly.
+fn ellipse_full_to_nurbs(center: Point3, u_basis: Vec3, v_basis: Vec3) -> NurbsCurve {
+    use std::f64::consts::{FRAC_PI_2, PI, TAU};
+    let w = 1.0_f64 / 2.0_f64.sqrt();
+    let pts = [
+        center + u_basis,           // angle 0
+        center + u_basis + v_basis, // tangent intersection at 0
+        center + v_basis,           // angle π/2
+        center + v_basis - u_basis, // tangent intersection
+        center - u_basis,           // angle π
+        center - u_basis - v_basis,
+        center - v_basis, // angle 3π/2
+        center + u_basis - v_basis,
+        center + u_basis, // angle 2π
+    ];
+    NurbsCurve {
+        degree: 2,
+        knots: vec![
+            0.0,
+            0.0,
+            0.0,
+            FRAC_PI_2,
+            FRAC_PI_2,
+            PI,
+            PI,
+            PI + FRAC_PI_2,
+            PI + FRAC_PI_2,
+            TAU,
+            TAU,
+            TAU,
+        ],
+        control_points: pts.to_vec(),
+        weights: vec![1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0],
+    }
+}
+
+/// Build a NURBS elliptical arc by constructing the full ellipse
+/// and splitting to the arc range.
+fn ellipse_to_nurbs(
+    center: Point3,
+    u_basis: Vec3,
+    v_basis: Vec3,
+    start_angle: f64,
+    end_angle: f64,
+) -> NurbsCurve {
+    let full = ellipse_full_to_nurbs(center, u_basis, v_basis);
+    let right = if start_angle > 0.0 {
+        match full.split_at(start_angle) {
+            Ok((_l, r)) => r,
+            Err(_) => full,
+        }
+    } else {
+        full
+    };
+    if end_angle < std::f64::consts::TAU {
+        match right.split_at(end_angle) {
+            Ok((l, _r)) => l,
+            Err(_) => right,
+        }
+    } else {
+        right
     }
 }
 
@@ -242,6 +328,13 @@ impl CurveGeometry {
                 start_angle,
                 end_angle,
             } => arc_to_nurbs(*center, *normal, *radius, *start_angle, *end_angle),
+            CurveGeometry::Ellipse {
+                center,
+                u_basis,
+                v_basis,
+                start_angle,
+                end_angle,
+            } => ellipse_to_nurbs(*center, *u_basis, *v_basis, *start_angle, *end_angle),
             CurveGeometry::Nurbs(nurbs) => nurbs.clone(),
         }
     }

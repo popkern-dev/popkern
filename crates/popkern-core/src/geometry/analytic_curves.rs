@@ -211,6 +211,83 @@ impl CurveEval for Arc {
 }
 
 // ---------------------------------------------------------------------------
+// Ellipse — `center + cos(t) · u_basis + sin(t) · v_basis`.
+// Used directly by `CurveGeometry::Ellipse` dispatch; the (u_basis,
+// v_basis) form keeps both the axis directions and the semi-radii
+// in one struct, so non-orthogonal bases work too (the trace is
+// still an ellipse for any non-degenerate basis pair).
+// ---------------------------------------------------------------------------
+
+struct Ellipse {
+    center: Point3,
+    u_basis: Vec3,
+    v_basis: Vec3,
+    start_angle: f64,
+    end_angle: f64,
+}
+
+impl Ellipse {
+    fn new(center: Point3, u_basis: Vec3, v_basis: Vec3, start_angle: f64, end_angle: f64) -> Self {
+        Self {
+            center,
+            u_basis,
+            v_basis,
+            start_angle,
+            end_angle,
+        }
+    }
+}
+
+impl CurveEval for Ellipse {
+    fn point_at(&self, t: f64) -> Point3 {
+        self.center + self.u_basis * t.cos() + self.v_basis * t.sin()
+    }
+
+    fn derivative_at(&self, t: f64, order: usize) -> Vec3 {
+        match order % 4 {
+            0 => self.u_basis * t.cos() + self.v_basis * t.sin(),
+            1 => self.u_basis * (-t.sin()) + self.v_basis * t.cos(),
+            2 => self.u_basis * (-t.cos()) + self.v_basis * (-t.sin()),
+            3 => self.u_basis * t.sin() + self.v_basis * (-t.cos()),
+            _ => unreachable!(),
+        }
+    }
+
+    fn tangent_at(&self, t: f64) -> Vec3 {
+        self.derivative_at(t, 1)
+            .normalized()
+            .unwrap_or(Vec3::zero())
+    }
+
+    fn parameter_range(&self) -> (f64, f64) {
+        (self.start_angle, self.end_angle)
+    }
+
+    fn length_between(&self, t0: f64, t1: f64) -> f64 {
+        // No closed form — sample-and-sum. 32 samples are enough
+        // for tessellation-grade length to ~1e-9 over a half-arc.
+        let n = 32;
+        let mut sum = 0.0;
+        let mut prev = self.point_at(t0);
+        for i in 1..=n {
+            let t = t0 + (t1 - t0) * (i as f64) / (n as f64);
+            let p = self.point_at(t);
+            sum += prev.distance_to(&p);
+            prev = p;
+        }
+        sum
+    }
+
+    fn closest_point(&self, point: &Point3) -> Option<f64> {
+        closest_point_on_curve(self, point)
+    }
+
+    fn curve_bounding_box(&self, t_range: (f64, f64)) -> Aabb {
+        curve_bounding_box_by_sampling(self, t_range)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // CurveGeometry dispatch
 // ---------------------------------------------------------------------------
 
@@ -234,6 +311,13 @@ impl CurveEval for CurveGeometry {
                 start_angle,
                 end_angle,
             } => Arc::new(*center, *normal, *radius, *start_angle, *end_angle).point_at(t),
+            CurveGeometry::Ellipse {
+                center,
+                u_basis,
+                v_basis,
+                start_angle,
+                end_angle,
+            } => Ellipse::new(*center, *u_basis, *v_basis, *start_angle, *end_angle).point_at(t),
             CurveGeometry::Nurbs(nurbs) => nurbs.point_at(t),
         }
     }
@@ -258,6 +342,14 @@ impl CurveEval for CurveGeometry {
                 end_angle,
             } => Arc::new(*center, *normal, *radius, *start_angle, *end_angle)
                 .derivative_at(t, order),
+            CurveGeometry::Ellipse {
+                center,
+                u_basis,
+                v_basis,
+                start_angle,
+                end_angle,
+            } => Ellipse::new(*center, *u_basis, *v_basis, *start_angle, *end_angle)
+                .derivative_at(t, order),
             CurveGeometry::Nurbs(nurbs) => nurbs.derivative_at(t, order),
         }
     }
@@ -281,6 +373,13 @@ impl CurveEval for CurveGeometry {
                 start_angle,
                 end_angle,
             } => Arc::new(*center, *normal, *radius, *start_angle, *end_angle).tangent_at(t),
+            CurveGeometry::Ellipse {
+                center,
+                u_basis,
+                v_basis,
+                start_angle,
+                end_angle,
+            } => Ellipse::new(*center, *u_basis, *v_basis, *start_angle, *end_angle).tangent_at(t),
             CurveGeometry::Nurbs(nurbs) => nurbs.tangent_at(t),
         }
     }
@@ -304,6 +403,14 @@ impl CurveEval for CurveGeometry {
                 start_angle,
                 end_angle,
             } => Arc::new(*center, *normal, *radius, *start_angle, *end_angle).parameter_range(),
+            CurveGeometry::Ellipse {
+                center,
+                u_basis,
+                v_basis,
+                start_angle,
+                end_angle,
+            } => Ellipse::new(*center, *u_basis, *v_basis, *start_angle, *end_angle)
+                .parameter_range(),
             CurveGeometry::Nurbs(nurbs) => nurbs.parameter_range(),
         }
     }
@@ -329,6 +436,14 @@ impl CurveEval for CurveGeometry {
             } => {
                 Arc::new(*center, *normal, *radius, *start_angle, *end_angle).length_between(t0, t1)
             }
+            CurveGeometry::Ellipse {
+                center,
+                u_basis,
+                v_basis,
+                start_angle,
+                end_angle,
+            } => Ellipse::new(*center, *u_basis, *v_basis, *start_angle, *end_angle)
+                .length_between(t0, t1),
             CurveGeometry::Nurbs(nurbs) => nurbs.length_between(t0, t1),
         }
     }
@@ -352,6 +467,14 @@ impl CurveEval for CurveGeometry {
                 start_angle,
                 end_angle,
             } => Arc::new(*center, *normal, *radius, *start_angle, *end_angle).closest_point(point),
+            CurveGeometry::Ellipse {
+                center,
+                u_basis,
+                v_basis,
+                start_angle,
+                end_angle,
+            } => Ellipse::new(*center, *u_basis, *v_basis, *start_angle, *end_angle)
+                .closest_point(point),
             CurveGeometry::Nurbs(nurbs) => nurbs.closest_point(point),
         }
     }
@@ -375,6 +498,14 @@ impl CurveEval for CurveGeometry {
                 start_angle,
                 end_angle,
             } => Arc::new(*center, *normal, *radius, *start_angle, *end_angle)
+                .curve_bounding_box(t_range),
+            CurveGeometry::Ellipse {
+                center,
+                u_basis,
+                v_basis,
+                start_angle,
+                end_angle,
+            } => Ellipse::new(*center, *u_basis, *v_basis, *start_angle, *end_angle)
                 .curve_bounding_box(t_range),
             CurveGeometry::Nurbs(nurbs) => nurbs.curve_bounding_box(t_range),
         }

@@ -166,6 +166,11 @@ fn curve_3d_param_range(curve: &popkern_core::geometry::curve::CurveGeometry) ->
             end_angle,
             ..
         } => (*start_angle, *end_angle),
+        CG::Ellipse {
+            start_angle,
+            end_angle,
+            ..
+        } => (*start_angle, *end_angle),
         CG::Nurbs(n) => n.parameter_range(),
     }
 }
