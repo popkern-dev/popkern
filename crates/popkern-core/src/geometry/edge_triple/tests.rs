@@ -260,17 +260,28 @@ fn plane_cylinder_perpendicular_analytic_circle() {
 }
 
 #[test]
-fn plane_sphere_returns_unimplemented_until_stage_2b() {
+fn plane_sphere_polar_analytic_circle() {
+    // Stage 2b.4: equator slice of a unit sphere by the XY plane.
+    // Expected: analytic Arc 3D + Linear sphere pcurve at v=π/2 +
+    // Elliptical plane pcurve, ParameterMap::Identity.
     let plane = xy_plane();
     let sphere = unit_sphere_at(Point3::new(0.0, 0.0, 0.0));
     let tol = Tolerance::default();
     let opts = EdgeTripleOptions::default();
-    let anchors = EdgeAnchors::Open {
-        start: Point3::new(1.0, 0.0, 0.0),
-        end: Point3::new(-1.0, 0.0, 0.0),
-    };
-    let result = compute_edge_geometry(&plane, &sphere, anchors, None, &tol, &opts);
-    assert!(matches!(result, Err(EdgeTripleError::Unimplemented)));
+    let start = Point3::new(1.0, 0.0, 0.0);
+    let end = Point3::new(-1.0, 0.0, 0.0);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&plane, &sphere, anchors, None, &tol, &opts)
+        .expect("plane×sphere analytic dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneSphere,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert_guarantees(&triple, &plane, &sphere, start, end, &tol);
 }
 
 #[test]
