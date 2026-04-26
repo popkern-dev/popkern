@@ -160,6 +160,111 @@ fn extract_planes_steinmetz_pencil() {
 }
 
 #[test]
+fn extract_planes_golden_ratio_disc_5() {
+    // Construct a rank-2 mixed-sign matrix with a *non-perfect-square*
+    // discriminant — the simplest "genuine" Q[√d] case.
+    //
+    // D = [[1, 1, 0, 0],
+    //      [1, 0, 0, 0],
+    //      [0, 0, 0, 0],
+    //      [0, 0, 0, 0]]
+    //
+    // tr = 1.
+    // S₂ (sum of 2×2 principal minors): only (0, 1) is non-zero —
+    //   det([[1, 1], [1, 0]]) = −1. Other minors involve a zero
+    //   diagonal pair → zero contribution.
+    // disc = 1² − 4·(−1) = 5. Not a perfect square; √5 is irrational.
+    // μ_± = (1 ± √5) / 2 — the golden ratio φ and its conjugate.
+    //
+    // Eigenvectors live in the (x, y) plane:
+    //   (1 − μ)·x + y = 0  ⇒  y = (μ − 1)·x.
+    // For μ_+ = φ:  y = (√5 − 1)/2 · x.
+    // For μ_- = 1−φ:  y = −(√5 + 1)/2 · x.
+    let z = rat_int(0);
+    let one = rat_int(1);
+    let d = Mat4SymRat([
+        [one.clone(), one.clone(), z.clone(), z.clone()],
+        [one, z.clone(), z.clone(), z.clone()],
+        [z.clone(), z.clone(), z.clone(), z.clone()],
+        [z.clone(), z.clone(), z.clone(), z],
+    ]);
+
+    let (mu_plus, mu_minus, disc) = rank2_eigenvalues(&d).unwrap();
+    assert_eq!(disc, rat_int(5), "discriminant should be 5");
+    // φ ≈ 1.618, 1 − φ ≈ −0.618.
+    let phi = (1.0 + 5.0_f64.sqrt()) / 2.0;
+    assert!(
+        (to_f64(&mu_plus) - phi).abs() < 1e-15,
+        "μ_+ should be φ ≈ {phi}, got {}",
+        to_f64(&mu_plus)
+    );
+    assert!(
+        (to_f64(&mu_minus) - (1.0 - phi)).abs() < 1e-15,
+        "μ_− should be 1−φ ≈ {}, got {}",
+        1.0 - phi,
+        to_f64(&mu_minus)
+    );
+
+    let planes = extract_planes_qsqrtd(&d).expect("rank-2 extraction with d=5");
+    // Verify each plane's surd entries genuinely live in Q[√5] —
+    // i.e., have non-zero `b` components with d = 5 — for at least
+    // one entry. This proves the field extension is *real* here, not
+    // a Q-collapse like Steinmetz.
+    let mut has_genuine_surd = false;
+    for plane in &planes {
+        for entry in plane {
+            if !entry.is_rational() && !entry.is_zero() {
+                has_genuine_surd = true;
+                assert_eq!(
+                    entry.d,
+                    rat_int(5),
+                    "surd radicand must be 5, got {}",
+                    entry.d
+                );
+            }
+        }
+    }
+    assert!(
+        has_genuine_surd,
+        "expected genuine Q[√5] entries — Steinmetz collapse not applicable here"
+    );
+
+    // Sanity: each plane (in f64) should satisfy D·v ∝ μ·v at the
+    // f64 embedding (since v is the eigenvector for μ).
+    for (plane, mu) in planes.iter().zip([&mu_plus, &mu_minus].iter()) {
+        let v: [f64; 4] = [
+            to_f64(&plane[0]),
+            to_f64(&plane[1]),
+            to_f64(&plane[2]),
+            to_f64(&plane[3]),
+        ];
+        // Compute D·v (treating D as f64 for verification).
+        let d_f64 = [
+            [1.0, 1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0; 4],
+            [0.0; 4],
+        ];
+        let mut dv = [0.0_f64; 4];
+        for (i, dvi) in dv.iter_mut().enumerate() {
+            for (j, vj) in v.iter().enumerate() {
+                *dvi += d_f64[i][j] * vj;
+            }
+        }
+        let mu_f = to_f64(mu);
+        // D·v − μ·v should be zero (within ULP). Check max |residual|.
+        let mut max_r = 0.0_f64;
+        for i in 0..4 {
+            max_r = max_r.max((dv[i] - mu_f * v[i]).abs());
+        }
+        assert!(
+            max_r < 1e-14,
+            "(D − μI)·v ≠ 0 at f64 embedding: max |residual| = {max_r:.3e}, μ = {mu_f}, v = {v:?}"
+        );
+    }
+}
+
+#[test]
 fn extract_planes_complex_disc_returns_none() {
     // Construct a matrix where the 2×2 reduction has disc < 0
     // (eigenvalues are complex — D is rank-2 with same-sign
