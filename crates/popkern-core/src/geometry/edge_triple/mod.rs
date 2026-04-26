@@ -31,6 +31,7 @@ mod analytic_trig_plane_cone_parabola;
 mod analytic_trig_plane_cyl;
 mod analytic_trig_plane_cyl_oblique;
 mod analytic_trig_plane_sphere;
+mod analytic_trig_plane_sphere_general;
 mod analytic_trig_sphere_sphere;
 mod dispatch;
 mod error;

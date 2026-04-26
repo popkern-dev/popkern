@@ -13,6 +13,7 @@ use crate::geometry::edge_triple::analytic_trig_plane_cone_parabola::try_plane_c
 use crate::geometry::edge_triple::analytic_trig_plane_cyl::try_plane_cylinder_perpendicular;
 use crate::geometry::edge_triple::analytic_trig_plane_cyl_oblique::try_plane_cylinder_oblique;
 use crate::geometry::edge_triple::analytic_trig_plane_sphere::try_plane_sphere_polar;
+use crate::geometry::edge_triple::analytic_trig_plane_sphere_general::try_plane_sphere_general;
 use crate::geometry::edge_triple::analytic_trig_sphere_sphere::try_sphere_sphere_polar;
 use crate::geometry::edge_triple::error::EdgeTripleError;
 use crate::geometry::edge_triple::inputs::{EdgeAnchors, EdgeHint};
@@ -83,7 +84,10 @@ pub(super) fn try_dispatch_trig(
                 v_axis: pv,
             },
             Sphere { center, radius },
-        ) => try_plane_sphere_polar(*po, *pn, *pu, *pv, false, *center, *radius, anchors, tol),
+        ) => try_plane_sphere_polar(*po, *pn, *pu, *pv, false, *center, *radius, anchors, tol)
+            .or_else(|| {
+                try_plane_sphere_general(*po, *pn, *pu, *pv, false, *center, *radius, anchors, tol)
+            }),
         (
             Sphere { center, radius },
             Plane {
@@ -92,7 +96,10 @@ pub(super) fn try_dispatch_trig(
                 u_axis: pu,
                 v_axis: pv,
             },
-        ) => try_plane_sphere_polar(*po, *pn, *pu, *pv, true, *center, *radius, anchors, tol),
+        ) => try_plane_sphere_polar(*po, *pn, *pu, *pv, true, *center, *radius, anchors, tol)
+            .or_else(|| {
+                try_plane_sphere_general(*po, *pn, *pu, *pv, true, *center, *radius, anchors, tol)
+            }),
         (
             Plane {
                 origin: po,

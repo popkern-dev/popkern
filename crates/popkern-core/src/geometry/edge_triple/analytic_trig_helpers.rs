@@ -32,16 +32,27 @@ pub(super) fn decompose_2x2(a: f64, b: f64, c: f64, d: f64) -> (f64, f64, f64) {
     // would steer the eigenvector toward the WRONG axis (the s2
     // eigenvector instead of the s1). Pick whichever row produces
     // the larger pre-normalisation magnitude.
+    //
+    // Threshold note: the eigenvector formula coefficients have
+    // magnitudes ≲ |M| (the spectral norm). When `disc` (the SVD
+    // discriminant) is within FP noise of 0 — the near-degenerate
+    // case where M is essentially a scaled rotation — both formulas
+    // give zero-norm vectors and any rotation is valid. We default
+    // to identity in that case so callers building pcurves anchored
+    // at α = 0 get a consistent (cos α, sin α) parameterisation.
+    let scale = m11.max(m22).max(m12.abs()).max(1.0);
+    let degeneracy_threshold = scale * 1.0e-12;
     let v1_a = (-m12, m11 - s1_sq);
     let v1_b = (s1_sq - m22, m12);
     let n_a = (v1_a.0 * v1_a.0 + v1_a.1 * v1_a.1).sqrt();
     let n_b = (v1_b.0 * v1_b.0 + v1_b.1 * v1_b.1).sqrt();
-    let v1 = if n_a >= n_b && n_a > 1.0e-30 {
-        (v1_a.0 / n_a, v1_a.1 / n_a)
-    } else if n_b > 1.0e-30 {
-        (v1_b.0 / n_b, v1_b.1 / n_b)
-    } else {
+    let v1 = if n_a < degeneracy_threshold && n_b < degeneracy_threshold {
+        // Near-degenerate (eigenvalues coincident) — pick identity.
         (1.0, 0.0)
+    } else if n_a >= n_b {
+        (v1_a.0 / n_a, v1_a.1 / n_a)
+    } else {
+        (v1_b.0 / n_b, v1_b.1 / n_b)
     };
 
     // Left singular vector u1 = (1/s1) · A · v1.

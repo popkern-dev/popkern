@@ -472,6 +472,49 @@ fn plane_cone_oblique_analytic_hyperbola() {
 }
 
 #[test]
+fn plane_sphere_oblique_analytic_circle() {
+    // Stage 2b.15: plane normal NOT aligned with the sphere's polar
+    // axis. The polar dispatcher returns None and we fall through
+    // to the general dispatcher, which still produces an exact
+    // analytic Arc (every plane-sphere intersection is a circle).
+    let sphere = unit_sphere_at(Point3::new(0.0, 0.0, 0.0));
+    // Plane through origin with normal (1, 0, 1)/√2 — a non-axis-
+    // aligned great-circle slice that doesn't pass through either
+    // sphere pole, so the (longitude, colatitude) NURBS fit on the
+    // sphere stays well-conditioned.
+    let inv_root2 = 1.0 / 2.0_f64.sqrt();
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(inv_root2, 0.0, inv_root2),
+        u_axis: Vec3::new(0.0, 1.0, 0.0),
+        v_axis: Vec3::new(-inv_root2, 0.0, inv_root2),
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    // Two points on the great circle (orthogonal to plane normal,
+    // unit distance from sphere centre); both stay in the equatorial
+    // band on the sphere, away from poles.
+    let start = Point3::new(0.0, 1.0, 0.0);
+    let end = Point3::new(-inv_root2, 0.0, inv_root2);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&plane, &sphere, anchors, None, &tol, &opts)
+        .expect("plane×sphere general analytic dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneSphere,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Arc { .. }
+    ));
+    assert_guarantees(&triple, &plane, &sphere, start, end, &tol);
+}
+
+#[test]
 fn plane_sphere_polar_analytic_circle() {
     // Stage 2b.4: equator slice of a unit sphere by the XY plane.
     // Expected: analytic Arc 3D + Linear sphere pcurve at v=π/2 +
