@@ -174,15 +174,97 @@ pub(crate) fn null_vector_qsqrtd(m: &Mat4SymQSqrtD) -> Option<[QSqrtD; 4]> {
     Some(v)
 }
 
-/// Symbolically extract the two plane normals (as 4-vectors of
-/// `Q[√d]` values) from a rank-2 mixed-sign quadric matrix `D`.
+/// Try to compute `√v` exactly in `Q[√d]`. Succeeds for:
+///   - pure rational `v.a ≥ 0` whose numerator and denominator are
+///     perfect-square integers (then `√v.a` is rational),
+///   - pure rational `v.a ≥ 0` whose `v.a / d` is a rational square
+///     (then `√v.a = b·√d` for some `b ∈ Q`).
+///
+/// Returns `None` for genuinely irrational square roots (e.g.,
+/// `√(1 + √5)/2` — would need a nested-radical extension).
+fn try_sqrt(v: &QSqrtD) -> Option<QSqrtD> {
+    if !v.is_rational() {
+        // a + b√d with both non-zero: square root is generally
+        // a nested radical — out of scope for this Q[√d] path.
+        return None;
+    }
+    if v.a.is_negative() {
+        return None; // imaginary
+    }
+    if v.a.is_zero() {
+        return Some(QSqrtD::zero());
+    }
+    let n = v.a.numer();
+    let de = v.a.denom();
+    let n_sqrt = isqrt_exact(n)?;
+    let d_sqrt = isqrt_exact(de)?;
+    Some(QSqrtD::from_rat(Rat::new(n_sqrt, d_sqrt)))
+}
+
+/// Exact integer square root: returns `Some(s)` iff `n = s²` for
+/// some non-negative integer `s`; `None` otherwise.
+fn isqrt_exact(n: &num_bigint::BigInt) -> Option<num_bigint::BigInt> {
+    use num_traits::Zero;
+    if n.is_zero() {
+        return Some(num_bigint::BigInt::from(0));
+    }
+    if num_traits::Signed::is_negative(n) {
+        return None;
+    }
+    // Newton's method for integer sqrt.
+    let mut x = n.clone();
+    let mut y = (&x + num_bigint::BigInt::from(1)) >> 1;
+    while y < x {
+        x = y;
+        y = (&x + n / &x) >> 1;
+    }
+    if &x * &x == *n { Some(x) } else { None }
+}
+
+/// Symbolically extract the two **eigenvectors** `v_+, v_-` (as
+/// 4-vectors of `Q[√d]` values) from a rank-2 mixed-sign quadric
+/// matrix `D`. Always works when `D` has a non-zero rational
+/// discriminant; the eigenvectors live in `Q[√d]` regardless of
+/// whether the eigenvalues are perfect squares.
+///
+/// Returns `None` if `disc < 0` (complex) or `disc = 0` (rank-1).
+pub(crate) fn extract_eigenvectors_qsqrtd(d: &Mat4SymRat) -> Option<[[QSqrtD; 4]; 2]> {
+    let (mu_plus, mu_minus, disc) = rank2_eigenvalues(d)?;
+    if disc.is_zero() {
+        return None;
+    }
+    let lifted = lift_to_qsqrtd(d);
+    let m_plus = subtract_mu_diag(&lifted, &mu_plus);
+    let v_plus = null_vector_qsqrtd(&m_plus)?;
+    let m_minus = subtract_mu_diag(&lifted, &mu_minus);
+    let v_minus = null_vector_qsqrtd(&m_minus)?;
+    Some([v_plus, v_minus])
+}
+
+/// Symbolically extract the two **plane normals** (as 4-vectors of
+/// `Q[√d]` values) from a rank-2 mixed-sign quadric matrix `D`, in
+/// the canonical Levin factorisation form
+///
+/// ```text
+/// D = ½·((a + b)(a − b)ᵀ + (a − b)(a + b)ᵀ)
+///   where a = √λ_+ · v_+,  b = √(−λ_-) · v_-
+/// ```
+///
+/// `(a + b)` and `(a − b)` are the *plane normals* — i.e., the same
+/// quantities the f64 path's `decompose::TwoPlanes` returns (modulo
+/// overall scaling).
 ///
 /// Returns `None` if:
-///   - `disc = tr² − 4·S₂ < 0` (eigenvalues complex),
-///   - `disc = 0` (rank-1 case — single doubled plane; caller can
-///     handle separately),
-///   - or the eigenvalue arithmetic exits Q[√d] (incompatible
-///     radicand panics caught upstream).
+///   - `disc < 0` (eigenvalues complex), or
+///   - `disc = 0` (rank-1 case — doubled plane), or
+///   - `√λ_+` or `√(−λ_-)` doesn't exist in Q[√d]. The latter
+///     happens when the eigenvalues are non-perfect-square in
+///     Q[√d] (e.g., the golden-ratio case `(1 + √5)/2`); a true
+///     nested-radical extension Q[√d, √λ_+] would be needed,
+///     which is out of scope for this single-surd module. For the
+///     canonical Steinmetz-style cases (axis-aligned quadrics with
+///     unit / integer parameters), `λ_±` are typically perfect
+///     squares in Q and this returns the planes exactly.
 pub(crate) fn extract_planes_qsqrtd(d: &Mat4SymRat) -> Option<[[QSqrtD; 4]; 2]> {
     let (mu_plus, mu_minus, disc) = rank2_eigenvalues(d)?;
     if disc.is_zero() {
@@ -193,10 +275,29 @@ pub(crate) fn extract_planes_qsqrtd(d: &Mat4SymRat) -> Option<[[QSqrtD; 4]; 2]> 
     let v_plus = null_vector_qsqrtd(&m_plus)?;
     let m_minus = subtract_mu_diag(&lifted, &mu_minus);
     let v_minus = null_vector_qsqrtd(&m_minus)?;
-    // The plane normals are (proportional to) v_+ and v_- when both
-    // λ_+ and −λ_- are perfect squares in Q[√d] — then a = √λ_+·v_+
-    // collapses to v_+ up to a scalar. For the general case we'd
-    // need Q[√d, √λ_+]. We return v_+ and v_- as "candidate planes"
-    // — caller verifies via norm / f64 evaluation.
-    Some([v_plus, v_minus])
+    let sqrt_lp = try_sqrt(&mu_plus)?;
+    let sqrt_lm = try_sqrt(&(-mu_minus.clone()))?;
+    let scale_v = |s: &QSqrtD, v: &[QSqrtD; 4]| -> [QSqrtD; 4] {
+        [
+            s.clone() * v[0].clone(),
+            s.clone() * v[1].clone(),
+            s.clone() * v[2].clone(),
+            s.clone() * v[3].clone(),
+        ]
+    };
+    let a = scale_v(&sqrt_lp, &v_plus);
+    let b = scale_v(&sqrt_lm, &v_minus);
+    let p1: [QSqrtD; 4] = [
+        a[0].clone() + b[0].clone(),
+        a[1].clone() + b[1].clone(),
+        a[2].clone() + b[2].clone(),
+        a[3].clone() + b[3].clone(),
+    ];
+    let p2: [QSqrtD; 4] = [
+        a[0].clone() - b[0].clone(),
+        a[1].clone() - b[1].clone(),
+        a[2].clone() - b[2].clone(),
+        a[3].clone() - b[3].clone(),
+    ];
+    Some([p1, p2])
 }

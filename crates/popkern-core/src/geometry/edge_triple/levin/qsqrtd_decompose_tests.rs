@@ -2,8 +2,8 @@
 
 use super::qsqrtd::{QSqrtD, to_f64};
 use super::qsqrtd_decompose::{
-    extract_planes_qsqrtd, lift_to_qsqrtd, null_vector_qsqrtd, rank2_eigenvalues, subtract_mu_diag,
-    trace_and_s2,
+    extract_eigenvectors_qsqrtd, extract_planes_qsqrtd, lift_to_qsqrtd, null_vector_qsqrtd,
+    rank2_eigenvalues, subtract_mu_diag, trace_and_s2,
 };
 use super::rational::{Mat4SymRat, surface_to_quadric_rat};
 use crate::geometry::surface::SurfaceGeometry;
@@ -120,10 +120,15 @@ fn extract_planes_steinmetz_pencil() {
     let lam = rat_int(-1);
     let d = linear_comb_rat(&a, &b, &lam, &one);
     let planes = extract_planes_qsqrtd(&d).expect("rank-2 mixed-sign extraction");
-    // Each plane should evaluate to ~(0, ±1) along the (x, z) axes
-    // when projected to f64. Specifically: v_+ = (0, 0, 1, 0) [or
-    // scalar multiple] from the +1 eigenvalue (z-direction);
-    // v_− = (1, 0, 0, 0) from the −1 eigenvalue (x-direction).
+    // Plane normals in the canonical (a + b) / (a − b) form, where
+    // a = √λ_+·v_+ and b = √(−λ_-)·v_-. For Steinmetz both λ are
+    // perfect squares (= ±1), so √λ = 1 and the planes are simply
+    // v_+ + v_- and v_+ − v_-. With v_+ = e_z = (0, 0, 1, 0) and
+    // v_- = e_x = (1, 0, 0, 0), we get (1, 0, 1, 0) and (−1, 0, 1, 0)
+    // — i.e., the planes x + z = 0 and x − z = 0 (the canonical
+    // Steinmetz factorisation). Norm √2 (the f64 path normalises;
+    // the symbolic path doesn't, since dividing by √2 would land us
+    // in Q[√2] — a different field).
     let f_plus: [f64; 4] = [
         to_f64(&planes[0][0]),
         to_f64(&planes[0][1]),
@@ -136,26 +141,34 @@ fn extract_planes_steinmetz_pencil() {
         to_f64(&planes[1][2]),
         to_f64(&planes[1][3]),
     ];
-    // The vectors are proportional to e_z (for v_+) and e_x (for v_-).
-    // After RREF normalisation (pivot = 1), they SHOULD be exactly
-    // (0, 0, 1, 0) and (1, 0, 0, 0) — but RREF order depends on which
-    // pivot is found first, so accept either.
-    let p_norm =
-        (f_plus[0].powi(2) + f_plus[1].powi(2) + f_plus[2].powi(2) + f_plus[3].powi(2)).sqrt();
-    let m_norm =
-        (f_minus[0].powi(2) + f_minus[1].powi(2) + f_minus[2].powi(2) + f_minus[3].powi(2)).sqrt();
-    // Plane normals are along x or z — the y and w components must be zero.
+    // y and w components are exactly zero (no surd noise).
     assert!(f_plus[1].abs() < 1e-15, "f_plus.y = {}", f_plus[1]);
     assert!(f_plus[3].abs() < 1e-15, "f_plus.w = {}", f_plus[3]);
     assert!(f_minus[1].abs() < 1e-15, "f_minus.y = {}", f_minus[1]);
     assert!(f_minus[3].abs() < 1e-15, "f_minus.w = {}", f_minus[3]);
+    // Norm √2 (since plane = e_z ± e_x, magnitude = √2).
+    let p_norm =
+        (f_plus[0].powi(2) + f_plus[1].powi(2) + f_plus[2].powi(2) + f_plus[3].powi(2)).sqrt();
+    let m_norm =
+        (f_minus[0].powi(2) + f_minus[1].powi(2) + f_minus[2].powi(2) + f_minus[3].powi(2)).sqrt();
+    let root2 = 2.0_f64.sqrt();
     assert!(
-        (p_norm - 1.0).abs() < 1e-15,
-        "v_+ should be unit, |v| = {p_norm}"
+        (p_norm - root2).abs() < 1e-15,
+        "(a + b) norm should be √2, got {p_norm}"
     );
     assert!(
-        (m_norm - 1.0).abs() < 1e-15,
-        "v_- should be unit, |v| = {m_norm}"
+        (m_norm - root2).abs() < 1e-15,
+        "(a − b) norm should be √2, got {m_norm}"
+    );
+    // The two planes' x-components should be opposite signs (a + b
+    // vs a − b along x), z-components equal (along the v_+ direction).
+    assert!(
+        (f_plus[0] + f_minus[0]).abs() < 1e-15,
+        "x-components should be opposite signs"
+    );
+    assert!(
+        (f_plus[2] - f_minus[2]).abs() < 1e-15,
+        "z-components should match"
     );
 }
 
@@ -205,7 +218,16 @@ fn extract_planes_golden_ratio_disc_5() {
         to_f64(&mu_minus)
     );
 
-    let planes = extract_planes_qsqrtd(&d).expect("rank-2 extraction with d=5");
+    // For the golden-ratio case, λ_+ = (1 + √5)/2 is *not* a perfect
+    // square in Q[√5] (its square root involves a nested radical),
+    // so `extract_planes_qsqrtd` returns None. We use the always-works
+    // path `extract_eigenvectors_qsqrtd` instead — eigenvectors live
+    // in Q[√d] regardless of whether the eigenvalues are squares.
+    assert!(
+        extract_planes_qsqrtd(&d).is_none(),
+        "Q[√5] doesn't admit √φ — plane factorisation should bail out"
+    );
+    let planes = extract_eigenvectors_qsqrtd(&d).expect("rank-2 extraction with d=5");
     // Verify each plane's surd entries genuinely live in Q[√5] —
     // i.e., have non-zero `b` components with d = 5 — for at least
     // one entry. This proves the field extension is *real* here, not
@@ -262,6 +284,102 @@ fn extract_planes_golden_ratio_disc_5() {
             "(D − μI)·v ≠ 0 at f64 embedding: max |residual| = {max_r:.3e}, μ = {mu_f}, v = {v:?}"
         );
     }
+}
+
+#[test]
+fn symbolic_and_f64_paths_agree_on_steinmetz() {
+    // Closing-loop test: run BOTH the production f64 dispatch's
+    // `classify_degenerate` and the symbolic Q[√d] `extract_planes_qsqrtd`
+    // on the *same* Steinmetz input, and prove they agree to machine
+    // precision (modulo plane-scaling sign / order).
+    //
+    // This is the regression baseline that catches f64 numerical drift:
+    // the symbolic path is the algebraic ground truth.
+    use super::decompose::{DegenerateShape, classify_degenerate};
+    use super::pencil::{find_degenerate_fiber as find_fiber_f64, linear_comb};
+    use super::quadric::{Mat4Sym, surface_to_quadric};
+    use super::rational::linear_comb_rat;
+
+    let cyl_z = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let cyl_x = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(1.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+
+    // f64 path: surface → quadric → pencil → degenerate fibre at
+    // λ=−1 → classify into TwoPlanes.
+    let a_f64 = surface_to_quadric(&cyl_z).unwrap();
+    let b_f64 = surface_to_quadric(&cyl_x).unwrap();
+    // Pick the λ=−1 fibre directly (the rank-2 mixed-sign one); the
+    // pencil also has rank-3 fibres at λ=0 that we *don't* want.
+    let d_f64: Mat4Sym = linear_comb(&a_f64, &b_f64, -1.0, 1.0);
+    let _ = find_fiber_f64; // kept in scope for sanity
+    let shape_f64 = classify_degenerate(&d_f64, 1.0);
+    let (p1_f64, p2_f64) = match shape_f64 {
+        DegenerateShape::TwoPlanes(p1, p2) => (p1, p2),
+        other => panic!("f64 path didn't return TwoPlanes: {other:?}"),
+    };
+
+    // Symbolic path: rational quadric pair, λ=−1 fibre, exact extraction.
+    let a_rat = surface_to_quadric_rat(&cyl_z).unwrap();
+    let b_rat = surface_to_quadric_rat(&cyl_x).unwrap();
+    let lam_rat = rat_int(-1);
+    let one_rat = rat_int(1);
+    let d_rat = linear_comb_rat(&a_rat, &b_rat, &lam_rat, &one_rat);
+    let planes_qsqrtd = extract_planes_qsqrtd(&d_rat).unwrap();
+
+    // Convert symbolic planes to f64 4-vectors.
+    let symb_to_f64 = |p: &[QSqrtD; 4]| -> [f64; 4] {
+        [to_f64(&p[0]), to_f64(&p[1]), to_f64(&p[2]), to_f64(&p[3])]
+    };
+    let p_sym_a = symb_to_f64(&planes_qsqrtd[0]);
+    let p_sym_b = symb_to_f64(&planes_qsqrtd[1]);
+
+    // Plane normals are equal up to scalar (positive or negative).
+    // The f64 path normalises to unit length; the symbolic path
+    // doesn't. So `parallel_up_to_scaling` accepts any non-zero
+    // ratio.
+    let parallel_up_to_scaling = |a: &[f64; 4], b: &[f64; 4]| -> bool {
+        // Find a non-zero coordinate of `a` to use as the scale ratio.
+        let mut scale: Option<f64> = None;
+        for i in 0..4 {
+            if a[i].abs() > 1e-12 {
+                scale = Some(b[i] / a[i]);
+                break;
+            }
+        }
+        let s = match scale {
+            Some(s) => s,
+            None => return b.iter().all(|x| x.abs() < 1e-12),
+        };
+        // Verify b ≈ s · a everywhere.
+        for i in 0..4 {
+            if (b[i] - s * a[i]).abs() > 1e-12 {
+                return false;
+            }
+        }
+        true
+    };
+    // Match each f64 plane to one of the symbolic planes.
+    let match_a =
+        parallel_up_to_scaling(&p1_f64, &p_sym_a) || parallel_up_to_scaling(&p1_f64, &p_sym_b);
+    let match_b =
+        parallel_up_to_scaling(&p2_f64, &p_sym_a) || parallel_up_to_scaling(&p2_f64, &p_sym_b);
+    assert!(
+        match_a,
+        "f64 plane 1 = {p1_f64:?} doesn't match either symbolic plane: \
+         sym_a = {p_sym_a:?}, sym_b = {p_sym_b:?}"
+    );
+    assert!(
+        match_b,
+        "f64 plane 2 = {p2_f64:?} doesn't match either symbolic plane: \
+         sym_a = {p_sym_a:?}, sym_b = {p_sym_b:?}"
+    );
 }
 
 #[test]
