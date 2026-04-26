@@ -761,6 +761,68 @@ fn cyl_cone_coaxial_analytic_circle() {
 }
 
 #[test]
+fn plane_torus_oblique_quartic_curve() {
+    // Stage 2b.26: torus R=5, r=1; plane through torus centre tilted
+    // by α with sin α = 0.1 (TIGHTER than the Villarceau angle of
+    // arcsin(r/R) = arcsin(0.2) ≈ 0.2014). The intersection is a
+    // 4th-order curve covering all u ∈ [0, TAU] (no u-range
+    // restrictions since R·sin α / r = 0.5 < 1).
+    //
+    // Closed form: cos(v − φ(u)) = −R·sin α·cos u / M(u) where
+    // M(u) = √(sin²α·cos²u + cos²α). At u = 0: cos(v − φ) = −0.5,
+    // so v = φ(0) + acos(−0.5).
+    let torus = nurbs_torus_dummy(); // R=5, r=1
+    let sin_a = 0.1_f64;
+    let cos_a = (1.0 - sin_a * sin_a).sqrt();
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(sin_a, 0.0, cos_a),
+        u_axis: Vec3::new(cos_a, 0.0, -sin_a),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let big_r = 5.0;
+    let r = 1.0;
+    let v_at = |u: f64, branch_sign: f64| -> f64 {
+        let cu = u.cos();
+        let x = sin_a * cu;
+        let m = (x * x + cos_a * cos_a).sqrt();
+        let phi = cos_a.atan2(x);
+        let arg = (-big_r * x) / (r * m);
+        phi + branch_sign * arg.acos()
+    };
+    let pt_at = |u: f64| -> Point3 {
+        let v = v_at(u, 1.0);
+        let cv = v.cos();
+        let sv = v.sin();
+        Point3::new(
+            (big_r + r * cv) * u.cos(),
+            (big_r + r * cv) * u.sin(),
+            r * sv,
+        )
+    };
+    let start = pt_at(0.0);
+    let end = pt_at(std::f64::consts::FRAC_PI_3);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&plane, &torus, anchors, None, &tol, &opts)
+        .expect("plane×torus oblique non-Villarceau dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneTorus,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Nurbs(_)
+    ));
+    assert_guarantees(&triple, &plane, &torus, start, end, &tol);
+}
+
+#[test]
 fn plane_torus_villarceau_analytic_circle() {
     // Stage 2b.22: Villarceau plane bitangent to a torus, factoring
     // the quartic into 2 circles of major radius. Torus R=5, r=1.

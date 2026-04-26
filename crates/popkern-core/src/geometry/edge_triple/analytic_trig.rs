@@ -19,6 +19,7 @@ use crate::geometry::edge_triple::analytic_trig_plane_cyl_oblique::try_plane_cyl
 use crate::geometry::edge_triple::analytic_trig_plane_sphere::try_plane_sphere_polar;
 use crate::geometry::edge_triple::analytic_trig_plane_sphere_general::try_plane_sphere_general;
 use crate::geometry::edge_triple::analytic_trig_plane_torus::try_plane_torus_perpendicular;
+use crate::geometry::edge_triple::analytic_trig_plane_torus_oblique::try_plane_torus_oblique;
 use crate::geometry::edge_triple::analytic_trig_plane_torus_villarceau::try_plane_torus_villarceau;
 use crate::geometry::edge_triple::analytic_trig_sphere_cone::try_sphere_cone_axial;
 use crate::geometry::edge_triple::analytic_trig_sphere_cone_general::try_sphere_cone_general;
@@ -301,6 +302,11 @@ pub(super) fn try_dispatch_trig(
             try_plane_torus_villarceau(
                 *po, *pn, *pu, *pv, false, *tc, *ta, *t_big, *t_small, anchors, tol,
             )
+        })
+        .or_else(|| {
+            try_plane_torus_oblique(
+                *po, *pn, *pu, *pv, false, *tc, *ta, *t_big, *t_small, anchors, tol,
+            )
         }),
         (
             Torus {
@@ -320,6 +326,11 @@ pub(super) fn try_dispatch_trig(
         )
         .or_else(|| {
             try_plane_torus_villarceau(
+                *po, *pn, *pu, *pv, true, *tc, *ta, *t_big, *t_small, anchors, tol,
+            )
+        })
+        .or_else(|| {
+            try_plane_torus_oblique(
                 *po, *pn, *pu, *pv, true, *tc, *ta, *t_big, *t_small, anchors, tol,
             )
         }),
