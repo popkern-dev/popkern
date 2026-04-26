@@ -319,6 +319,52 @@ fn plane_cylinder_oblique_analytic_ellipse() {
 }
 
 #[test]
+fn plane_cone_oblique_analytic_ellipse() {
+    // Stage 2b.12: cone half-angle 30°, plane tilted 30° from
+    // perpendicular. With angle α = 30° from axis and cone θ = 30°,
+    // |cos α| = √3/2 > tan(30°)·sin(30°) = 1/(2√3) — ellipse case.
+    let cone = z_axis_cone(std::f64::consts::FRAC_PI_6); // 30°
+    // Plane passes through (0, 0, 1) with normal tilted 30° from
+    // +Z toward +X: (sin 30°, 0, cos 30°) = (0.5, 0, √3/2).
+    let n = Vec3::new(0.5, 0.0, 3.0_f64.sqrt() / 2.0);
+    let pu = Vec3::new(3.0_f64.sqrt() / 2.0, 0.0, -0.5);
+    let pv = Vec3::new(0.0, 1.0, 0.0);
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 1.0),
+        normal: n,
+        u_axis: pu,
+        v_axis: pv,
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+
+    // Anchors at cone u=0 and u=π. Solve cone v from plane equation:
+    //   point = (±v/√3, 0, v); plane: 0.5·x + √3/2·(z-1) = 0
+    //   ⇒ v(0)   = 3/4         (u=0):  (√3/4, 0, 3/4)
+    //   ⇒ v(π)   = 3/2         (u=π):  (−√3/2, 0, 3/2)
+    let start = Point3::new(3.0_f64.sqrt() / 4.0, 0.0, 0.75);
+    let end = Point3::new(-3.0_f64.sqrt() / 2.0, 0.0, 1.5);
+    let anchors = EdgeAnchors::Open { start, end };
+
+    let triple = compute_edge_geometry(&plane, &cone, anchors, None, &tol, &opts)
+        .expect("plane×cone oblique analytic dispatch");
+
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneCone,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Ellipse { .. }
+    ));
+    assert_guarantees(&triple, &plane, &cone, start, end, &tol);
+}
+
+#[test]
 fn plane_sphere_polar_analytic_circle() {
     // Stage 2b.4: equator slice of a unit sphere by the XY plane.
     // Expected: analytic Arc 3D + Linear sphere pcurve at v=π/2 +
