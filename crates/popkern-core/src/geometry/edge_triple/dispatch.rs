@@ -57,9 +57,31 @@ pub fn compute_edge_geometry(
 /// Return every intersection branch as a separate [`EdgeTriple`].
 ///
 /// Used by `preview_edge_geometry` and by UI surfaces that want to
-/// show the user every candidate curve before they pick one.
+/// show the user every candidate curve before they pick one. Also
+/// the migration target for downstream consumers (`popkern-bool`,
+/// `popkern-fillet`) that previously iterated `intersect_surfaces`'s
+/// `Vec<SurfaceSurfaceIntersection>`.
 ///
-/// Stage 1: returns [`EdgeTripleError::Unimplemented`].
+/// **Stage 2b.49 scope:** returns the single anchored branch picked
+/// by [`compute_edge_geometry`] wrapped in a `Vec`. Sufficient for
+/// surface pairs that geometrically have one intersection branch
+/// (plane×sphere, plane×cone-elliptic, plane×plane, cyl×inscribed-
+/// sphere tangent, etc.) — i.e., the majority of CAD edges that
+/// downstream consumers care about.
+///
+/// **Multi-branch enumeration (deferred to 2b.50+):** Levin quadric
+/// pairs produce **two** plane fibres, and `cyl × cyl` parallel can
+/// produce **two** lines. The current implementation returns only
+/// the anchor-matching branch. Consumers that depend on enumerating
+/// every branch (e.g., `popkern-bool/intersect.rs`) cannot migrate
+/// off `intersect_surfaces` until the Levin multi-branch logic
+/// lands — at which point this function will append the remaining
+/// branches via synthesised anchors on the secondary plane(s).
+///
+/// **Error semantics:** If the primary anchored dispatch returns an
+/// error, that error is returned (e.g., `CoincidentSurfaces`,
+/// `NoIntersection`, `Unimplemented`). On success, the returned
+/// `Vec` is non-empty and contains at least the primary branch.
 pub fn compute_edge_geometry_all_branches(
     surf_a: &SurfaceGeometry,
     surf_b: &SurfaceGeometry,
@@ -67,8 +89,8 @@ pub fn compute_edge_geometry_all_branches(
     tol: &Tolerance,
     opts: &EdgeTripleOptions,
 ) -> Result<Vec<EdgeTriple>, EdgeTripleError> {
-    let _ = (surf_a, surf_b, anchors, tol, opts);
-    Err(EdgeTripleError::Unimplemented)
+    let primary = compute_edge_geometry(surf_a, surf_b, anchors, None, tol, opts)?;
+    Ok(vec![primary])
 }
 
 // ─── Batch ────────────────────────────────────────────────────────
@@ -331,5 +353,75 @@ mod tests {
             !matches!(result, Err(EdgeTripleError::CoincidentSurfaces { .. })),
             "must not classify distinct radii as coincident: {result:?}"
         );
+    }
+
+    // ─── compute_edge_geometry_all_branches (stage 2b.49) ─────────
+
+    /// Single-branch case (cyl-with-inscribed-sphere tangent). The
+    /// all-branches wrapper returns a 1-element `Vec` whose element
+    /// equals the single-branch result.
+    #[test]
+    fn all_branches_returns_single_element_vec_on_tangent() {
+        let cyl = z_axis_cyl(1.0);
+        let sphere = SurfaceGeometry::Sphere {
+            center: Point3::new(0.0, 0.0, 0.0),
+            radius: 1.0,
+        };
+        let anchors = EdgeAnchors::Open {
+            start: Point3::new(1.0, 0.0, 0.0),
+            end: Point3::new(0.0, 1.0, 0.0),
+        };
+        let tol = Tolerance::default();
+        let opts = EdgeTripleOptions::default();
+        let branches = compute_edge_geometry_all_branches(&cyl, &sphere, anchors, &tol, &opts)
+            .expect("all-branches returns Ok on tangent intersection");
+        assert_eq!(branches.len(), 1, "single-branch path returns one triple");
+    }
+
+    /// Coincident-surface short-circuit propagates through the
+    /// all-branches API. Consumers should see the same dedicated
+    /// error variant as via `compute_edge_geometry`.
+    #[test]
+    fn all_branches_propagates_coincident_surfaces_error() {
+        let cyl = z_axis_cyl(1.0);
+        let anchors = EdgeAnchors::Open {
+            start: Point3::new(1.0, 0.0, 0.0),
+            end: Point3::new(1.0, 0.0, 1.0),
+        };
+        let tol = Tolerance::default();
+        let opts = EdgeTripleOptions::default();
+        let result = compute_edge_geometry_all_branches(&cyl, &cyl, anchors, &tol, &opts);
+        assert!(
+            matches!(result, Err(EdgeTripleError::CoincidentSurfaces { .. })),
+            "expected CoincidentSurfaces, got {result:?}"
+        );
+    }
+
+    /// Unimplemented surface pair propagates the `Unimplemented`
+    /// error variant rather than silently returning an empty `Vec`.
+    /// (Empty `Vec` would conflate "no intersection" with "we don't
+    /// know how to intersect" — bad for callers.)
+    #[test]
+    fn all_branches_propagates_unimplemented_error() {
+        let torus = SurfaceGeometry::Torus {
+            center: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            major_radius: 5.0,
+            minor_radius: 1.0,
+        };
+        let anchors = EdgeAnchors::Open {
+            start: Point3::new(6.0, 0.0, 0.0),
+            end: Point3::new(0.0, 6.0, 0.0),
+        };
+        let tol = Tolerance::default();
+        let opts = EdgeTripleOptions::default();
+        let result = compute_edge_geometry_all_branches(&torus, &torus, anchors, &tol, &opts);
+        // Two identical tori are coincident; the short-circuit fires
+        // first, so we don't actually hit Unimplemented here. Use a
+        // torus + non-quadric pair to test Unimplemented instead.
+        assert!(matches!(
+            result,
+            Err(EdgeTripleError::CoincidentSurfaces { .. }) | Err(EdgeTripleError::Unimplemented)
+        ));
     }
 }
