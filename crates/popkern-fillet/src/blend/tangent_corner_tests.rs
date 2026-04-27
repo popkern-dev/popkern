@@ -50,6 +50,7 @@ fn tangent_cap_cylinder_plane_tangent_produces_xz_plane() {
             curve: fillet_arc.clone(),
         }],
         bridge_fallbacks: Vec::new(),
+        sphere_fit_substituted: false,
     };
     let points = vec![fillet_arc.point_at(0.0), fillet_arc.point_at(1.0)];
 
@@ -78,6 +79,7 @@ fn tangent_cap_empty_boundary_returns_none() {
         vertex_position: Point3::new(0.0, 0.0, 0.0),
         segments: vec![],
         bridge_fallbacks: Vec::new(),
+        sphere_fit_substituted: false,
     };
     let result = try_tangent_plane_blend(&boundary, &[], &[], &[]);
     assert!(result.is_none(), "empty boundary should return None");
@@ -118,6 +120,7 @@ fn build_blend_surface_dispatches_tangent_to_planar_cap() {
             curve: arc.clone(),
         }],
         bridge_fallbacks: Vec::new(),
+        sphere_fit_substituted: false,
     };
 
     let result = build_blend_surface(
@@ -166,6 +169,7 @@ fn tangent_cap_averages_multiple_fillet_normals() {
             },
         ],
         bridge_fallbacks: Vec::new(),
+        sphere_fit_substituted: false,
     };
     let points = vec![
         Point3::new(0.0, 0.0, 0.0),

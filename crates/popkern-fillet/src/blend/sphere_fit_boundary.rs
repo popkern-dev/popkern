@@ -29,7 +29,7 @@ use crate::fillet_surface::FilletSurfaceResult;
 /// shape unsupported, sphere-fit math errors, missing face data),
 /// returns an `Err` with a static reason and leaves the boundary
 /// unchanged.
-pub(super) fn apply_sphere_fit_substitution(
+pub(crate) fn apply_sphere_fit_substitution(
     boundary: &mut BlendBoundary,
     fillet_surfaces: &[FilletSurfaceResult],
     brep: &BRep,

@@ -16,7 +16,7 @@ use super::boundary_hex::{build_face_edge_bridge_between, reorient_arcs_for_hex_
 use crate::fillet_surface::FilletSurfaceResult;
 
 /// Boundary of a vertex blend region.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlendBoundary {
     /// The vertex being blended.
     pub vertex: VertexHandle,
@@ -31,6 +31,15 @@ pub struct BlendBoundary {
     /// [`BlendWarning::SurfaceBridgeFallback`](crate::error::BlendWarning::SurfaceBridgeFallback).
     /// Empty in the common all-planar case.
     pub bridge_fallbacks: Vec<&'static str>,
+    /// Phase 6c-A: `true` when sphere-fit substitution succeeded
+    /// for this boundary. Phase 6c-D's edge-wiring helper reads
+    /// this flag to decide whether to overwrite `edge.curve` —
+    /// without it, the helper would propagate the original
+    /// hermite-cubic synthesis (stored in `segments` when
+    /// substitution wasn't performed) into BRep edges, *worsening*
+    /// the cap-outer-boundary metric on fixtures where Phase 6c-A
+    /// declined to run.
+    pub sphere_fit_substituted: bool,
 }
 
 /// A single segment of a blend boundary.
@@ -190,14 +199,17 @@ pub fn compute_blend_boundary(
                 vertex_position: vertex_pos,
                 segments,
                 bridge_fallbacks,
+                sphere_fit_substituted: false,
             };
             if sphere_fit_enabled {
-                let _ = super::sphere_fit_boundary::apply_sphere_fit_substitution(
-                    &mut boundary,
-                    fillet_surfaces,
-                    brep,
-                    tolerance,
-                );
+                boundary.sphere_fit_substituted =
+                    super::sphere_fit_boundary::apply_sphere_fit_substitution(
+                        &mut boundary,
+                        fillet_surfaces,
+                        brep,
+                        tolerance,
+                    )
+                    .is_ok();
             }
             return Ok(boundary);
         }
@@ -221,6 +233,7 @@ pub fn compute_blend_boundary(
         vertex_position: vertex_pos,
         segments,
         bridge_fallbacks,
+        sphere_fit_substituted: false,
     })
 }
 

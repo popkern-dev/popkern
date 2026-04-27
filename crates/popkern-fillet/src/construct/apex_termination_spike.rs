@@ -201,6 +201,7 @@ fn substitute_sphere_fit_terminations(
         vertex_position: boundary.vertex_position,
         segments: new_segments,
         bridge_fallbacks: boundary.bridge_fallbacks,
+        sphere_fit_substituted: false,
     })
 }
 

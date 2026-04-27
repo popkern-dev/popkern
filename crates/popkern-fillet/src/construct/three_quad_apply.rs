@@ -136,6 +136,30 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         )));
     }
 
+    // Phase 6c-D: write Phase-6c-A-substituted boundary curves
+    // into BRep edges so the pcurve refit
+    // (`reproject_loop_pcurves_onto_gregory`) propagates them to
+    // the cap-vs-fillet seam pcurves. Gated on the boundary's
+    // success flag set in `compute_blend_boundary` — when
+    // substitution declined, edges are untouched and the legacy
+    // hermite-cubic synthesis path runs unchanged.
+    //
+    // **Known limitation (Phase 6c-D blocker):** the rational-
+    // Gregory dispatch this branch sits in fires from the *second*
+    // `blend_insert` invocation per vertex, where the substitution
+    // typically declines (the BRep face state has been mutated
+    // between calls). The substituted boundary from the *first*
+    // invocation never reaches us because the first invocation's
+    // `face_has_2n_outer_half_edges` check returns `false`. Net:
+    // `boundary.sphere_fit_substituted` is `false` here today even
+    // for fixtures where Phase 6c-A's math fully applies (e.g.,
+    // `cube_uniform`). Remediation = Phase 6c-C (apex-region
+    // topology rebuild) so face handles in the boundary stay valid
+    // through the surgery.
+    if boundary.sphere_fit_substituted {
+        super::sphere_fit_edge_wire::wire_substituted_boundary_to_edges(brep, boundary, &sub_faces);
+    }
+
     let mut patches = Vec::with_capacity(decomp.sub_patches.len());
     for (sub_face, sub_patch) in sub_faces.iter().zip(decomp.sub_patches.iter()) {
         // CAPTURE THE OLD SURFACE BEFORE REPLACING. Internal cap-to-

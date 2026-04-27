@@ -35,6 +35,7 @@ pub(crate) mod poke_4n;
 pub(crate) mod poke_hex;
 mod promotion_ladder;
 mod sliver_absorb;
+mod sphere_fit_edge_wire;
 pub(crate) mod surface_fix;
 pub(crate) mod three_quad_apply;
 mod three_quad_apply_edge_triple;
