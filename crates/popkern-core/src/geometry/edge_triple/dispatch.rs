@@ -39,6 +39,21 @@ pub fn compute_edge_geometry(
             reason: "surfaces are scalar multiples of one another (A = c · B)",
         });
     }
+    // Stage 5: Gregory-boundary dispatch. Runs first when the
+    // caller has signalled via `EdgeHint::SurfaceBoundary` that
+    // the edge corresponds to one of the Gregory's UV boundaries.
+    // Closes the cap-to-fillet seam drift (Task #144) by
+    // constructing all three pieces from one source — the
+    // Gregory's symbolic boundary curve.
+    if let Some(result) = super::gregory_boundary::try_dispatch_gregory_boundary(
+        surf_a,
+        surf_b,
+        &anchors,
+        hint.as_ref(),
+        tol,
+    ) {
+        return result;
+    }
     // Try the analytic-trig dispatch first (commercial-style:
     // analytic Circle 3D + Linear cyl pcurve + Elliptical plane
     // pcurve, parameter map = Identity).

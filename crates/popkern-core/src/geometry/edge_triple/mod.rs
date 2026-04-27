@@ -49,6 +49,7 @@ mod analytic_trig_sphere_torus_axial;
 mod analytic_trig_torus_torus_coaxial;
 mod dispatch;
 mod error;
+mod gregory_boundary;
 mod inputs;
 mod levin;
 mod options;
