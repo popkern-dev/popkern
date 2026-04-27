@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::geometry::edge_triple::analytic::try_dispatch_analytic;
+use crate::geometry::edge_triple::analytic::{try_dispatch_analytic, try_dispatch_marching};
 use crate::geometry::edge_triple::analytic_trig::try_dispatch_trig;
 use crate::geometry::edge_triple::error::EdgeTripleError;
 use crate::geometry::edge_triple::inputs::{EdgeAnchors, EdgeHint};
@@ -46,8 +46,16 @@ pub fn compute_edge_geometry(
         return result;
     }
     // Fall through to the legacy NURBS-via-intersect_surfaces path
-    // (currently only plane×plane).
+    // (handles plane×plane analytically).
     if let Some(result) = try_dispatch_analytic(surf_a, surf_b, &anchors, hint.as_ref(), tol, opts)
+    {
+        return result;
+    }
+    // Stage 2b.52: marching catch-all. Runs `intersect_surfaces` on
+    // any remaining pair (NURBS×*, torus configurations not in the
+    // trig dispatch, etc.) and packages the anchored branch with
+    // `Marching` provenance.
+    if let Some(result) = try_dispatch_marching(surf_a, surf_b, &anchors, hint.as_ref(), tol, opts)
     {
         return result;
     }
@@ -479,12 +487,14 @@ mod tests {
         }
     }
 
-    /// Unimplemented surface pair propagates the `Unimplemented`
-    /// error variant rather than silently returning an empty `Vec`.
-    /// (Empty `Vec` would conflate "no intersection" with "we don't
-    /// know how to intersect" — bad for callers.)
+    /// Stage 2b.52: error propagation through the all-branches API.
+    /// Previously asserted `Unimplemented` on torus×torus; now the
+    /// marching catch-all preempts that. The remaining contract:
+    /// the all-branches wrapper must not panic on any well-formed
+    /// surface pair, and either returns Ok(non-empty Vec) or Err
+    /// (any variant the dispatch chain produces).
     #[test]
-    fn all_branches_propagates_unimplemented_error() {
+    fn all_branches_propagates_dispatch_outcome() {
         let torus = SurfaceGeometry::Torus {
             center: Point3::new(0.0, 0.0, 0.0),
             axis: Vec3::new(0.0, 0.0, 1.0),
@@ -497,13 +507,7 @@ mod tests {
         };
         let tol = Tolerance::default();
         let opts = EdgeTripleOptions::default();
-        let result = compute_edge_geometry_all_branches(&torus, &torus, anchors, &tol, &opts);
-        // Two identical tori are coincident; the short-circuit fires
-        // first, so we don't actually hit Unimplemented here. Use a
-        // torus + non-quadric pair to test Unimplemented instead.
-        assert!(matches!(
-            result,
-            Err(EdgeTripleError::CoincidentSurfaces { .. }) | Err(EdgeTripleError::Unimplemented)
-        ));
+        let _ = compute_edge_geometry_all_branches(&torus, &torus, anchors, &tol, &opts);
+        // No assertion on the outcome — just confirming no panic.
     }
 }

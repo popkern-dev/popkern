@@ -52,6 +52,105 @@ pub(super) fn try_dispatch_analytic(
     ))
 }
 
+/// Stage 2b.52: marching fallback. Hand the surface pair to
+/// `intersect_surfaces` (which uses analytic fast paths internally
+/// and falls through to a NURBS-marching solver for NURBS or
+/// otherwise-unsupported pairs), then package the anchor-matching
+/// branch as an `EdgeTriple` with `Marching` provenance.
+///
+/// This is the catch-all that closes the NURBS coverage gap:
+/// previously `compute_edge_geometry` returned `Unimplemented`
+/// for any pair involving a NURBS surface or torus configuration
+/// not already in the trig dispatch. Now the intersection runs and
+/// — when `intersect_surfaces` produces curves through both anchors
+/// — we get an `EdgeTriple` back.
+///
+/// **Performance note:** marching is significantly slower than the
+/// analytic paths. This dispatcher should fire ONLY when the trig
+/// and analytic dispatchers have already returned `None`. The wiring
+/// in `compute_edge_geometry` enforces that order.
+///
+/// Returns `None` only when both surfaces are the same `Plane` (in
+/// which case `try_dispatch_analytic` runs first and produces a
+/// `PlanePlane` analytic triple, so we shouldn't reach here for
+/// that pair anyway — the `None` return is a safety measure).
+pub(super) fn try_dispatch_marching(
+    surf_a: &SurfaceGeometry,
+    surf_b: &SurfaceGeometry,
+    anchors: &EdgeAnchors,
+    hint: Option<&EdgeHint>,
+    tol: &Tolerance,
+    opts: &EdgeTripleOptions,
+) -> Option<Result<EdgeTriple, EdgeTripleError>> {
+    // Plane × plane is handled by `try_dispatch_analytic` upstream;
+    // skip here to avoid duplicate work.
+    if matches!(
+        (surf_a, surf_b),
+        (SurfaceGeometry::Plane { .. }, SurfaceGeometry::Plane { .. })
+    ) {
+        return None;
+    }
+    Some(dispatch_marching_inner(
+        surf_a, surf_b, anchors, hint, tol, opts,
+    ))
+}
+
+fn dispatch_marching_inner(
+    surf_a: &SurfaceGeometry,
+    surf_b: &SurfaceGeometry,
+    anchors: &EdgeAnchors,
+    hint: Option<&EdgeHint>,
+    tol: &Tolerance,
+    opts: &EdgeTripleOptions,
+) -> Result<EdgeTriple, EdgeTripleError> {
+    if opts.cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
+        return Err(EdgeTripleError::Cancelled);
+    }
+
+    let (u1, v1) = derive_search_box(surf_a, anchors);
+    let (u2, v2) = derive_search_box(surf_b, anchors);
+
+    let result = intersect_surfaces(surf_a, u1, v1, surf_b, u2, v2, tol).map_err(|_| {
+        EdgeTripleError::DegenerateSurfacePair {
+            reason: "intersect_surfaces (marching) returned an internal error",
+        }
+    })?;
+
+    let curves: Vec<&CurveOnSurface> = result
+        .intersections
+        .iter()
+        .filter_map(|i| match i {
+            SurfaceSurfaceIntersection::Curve(c) => Some(c),
+            _ => None,
+        })
+        .collect();
+
+    if curves.is_empty() {
+        return Err(EdgeTripleError::NoIntersection);
+    }
+
+    let picked = pick_branch(&curves, anchors, hint, opts)?;
+    let chosen = curves[picked];
+    let chosen_repaired = rebuild_consistent_cos(chosen, surf_a, surf_b);
+
+    // `intersect_surfaces` doesn't expose its solver's residual /
+    // iteration count, so we tag with placeholder values. The
+    // returned triple's `quality.max_positional_residual` (set in
+    // `finalize_quality`) is the truthful tolerance metric.
+    cos_to_triple(
+        &chosen_repaired,
+        anchors,
+        EdgeTripleProvenance::Marching {
+            residual: 0.0,
+            iterations: 0,
+            converged: true,
+        },
+        surf_a,
+        surf_b,
+        tol,
+    )
+}
+
 /// Identify the surface pair if it has an analytic specialisation
 /// available at the current stage.
 ///

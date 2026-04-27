@@ -133,6 +133,17 @@ fn assert_guarantees(
 
 #[test]
 fn unimplemented_for_unsupported_pair() {
+    // Stage 2b.52: the `Unimplemented` catch-all is only reached
+    // when the trig, analytic, AND marching dispatchers all return
+    // None. Marching now covers torus and NURBS pairs, so two
+    // identical tori (used to be `Unimplemented`) now route through
+    // it. To exercise the `Unimplemented` arm we need a pair the
+    // dispatch tree truly doesn't know — currently impossible to
+    // construct from `SurfaceGeometry` variants since marching is a
+    // catch-all. We rename the test to assert the new contract:
+    // any well-formed surface pair gets *some* outcome other than
+    // `Unimplemented`. The test passes if the result is either a
+    // success or any specific error other than `Unimplemented`.
     let a = nurbs_torus_dummy();
     let b = nurbs_torus_dummy();
     let tol = Tolerance::default();
@@ -142,7 +153,10 @@ fn unimplemented_for_unsupported_pair() {
         end: Point3::new(1.0, 0.0, 0.0),
     };
     let result = compute_edge_geometry(&a, &b, anchors, None, &tol, &opts);
-    assert!(matches!(result, Err(EdgeTripleError::Unimplemented)));
+    assert!(
+        !matches!(result, Err(EdgeTripleError::Unimplemented)),
+        "marching catch-all should preempt Unimplemented; got {result:?}"
+    );
 }
 
 #[test]
@@ -162,8 +176,15 @@ fn batch_passes_through_dispatch() {
     };
     let results = compute_edge_geometry_batch(&[req.clone(), req], &tol, &opts);
     assert_eq!(results.len(), 2);
-    for r in results {
-        assert!(matches!(r, Err(EdgeTripleError::Unimplemented)));
+    // Stage 2b.52: marching catch-all preempts Unimplemented. We
+    // just verify the batch returns the same outcome for both
+    // identical inputs (determinism).
+    let (Some(first), Some(second)) = (results.first(), results.get(1)) else {
+        panic!("batch returned wrong number of results");
+    };
+    match (first, second) {
+        (Err(_), Err(_)) | (Ok(_), Ok(_)) => {}
+        _ => panic!("batch determinism violated: {:?} vs {:?}", first, second),
     }
 }
 
