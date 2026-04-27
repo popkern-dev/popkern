@@ -19,6 +19,11 @@ use crate::fillet_surface::FilletSurfaceResult;
 /// Run the full promotion ladder. Returns `true` if the KP13
 /// bi-5 4N path committed (caller uses 4N poke downstream),
 /// `false` otherwise.
+///
+/// Phase 6c-B: `promote_binonic` callback takes both `sub_patches`
+/// and `fillet_surfaces` so the binonic optimiser can use outer-
+/// fillet G1 residuals (cap-vs-fillet tangent-plane match along
+/// each cap's outer boundary).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_promotion_ladder(
     decomp: &mut NQuadDecomposition,
@@ -30,7 +35,7 @@ pub(super) fn run_promotion_ladder(
     use_two_stripe: bool,
     use_kp_binonic: bool,
     use_kp_polar: bool,
-    promote_binonic: impl FnOnce(&mut [GregoryPatch]) -> Option<f64>,
+    promote_binonic: impl FnOnce(&mut [GregoryPatch], &[FilletSurfaceResult]) -> Option<f64>,
 ) -> bool {
     if !(use_biquintic_full && use_deg5) {
         return false;
@@ -59,7 +64,7 @@ pub(super) fn run_promotion_ladder(
             relaxed_coplanarity,
         );
     if use_kp_binonic && !polar_committed {
-        *relaxed_coplanarity = promote_binonic(&mut decomp.sub_patches);
+        *relaxed_coplanarity = promote_binonic(&mut decomp.sub_patches, fillet_surfaces);
     }
     false
 }

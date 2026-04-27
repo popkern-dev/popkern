@@ -34,6 +34,8 @@ use popkern_core::geometry::gregory::{
     RectangularGregoryBiNonic, bernstein_binonic_all, bernstein_binonic_deriv_all,
     build_binonic_ring_from_binonic_guides,
 };
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::uv_projection::project_point_to_uv;
 
 pub(super) struct KpBiNonicOptimizerResult {
     pub binonic: Vec<RectangularGregoryBiNonic>,
@@ -44,9 +46,22 @@ pub(super) struct KpBiNonicOptimizerResult {
 /// Three-phase optimizer: delegates phases 1–2 to the bi-quintic
 /// optimizer, then runs phase 3 (bi-nonic interior CPs via L-M)
 /// if residual is still above target.
-pub(super) fn optimize_binonic_and_build_binonic(
+///
+/// **`outer_fillets` (Phase 6c-B addition):** when `Some`, each
+/// entry `outer_fillets[k]` is the surface the k-th cap sub-patch's
+/// `u=0` boundary sits on (typically a cylinder fillet). Phase 3's
+/// L-M residual is extended with per-sample cap-vs-fillet
+/// G1 residuals along each cap's outer boundary, in addition to
+/// the existing inner-spoke G1 residuals. Closes the user-visible
+/// "messy top" defect (Task #144) when fed sphere-fit boundaries
+/// that lie on the fillet surface.
+///
+/// When `None`, behaviour is identical to the pre-Phase-6c
+/// optimizer (inner-spoke G1 only).
+pub(super) fn optimize_binonic_with_outer_fillets(
     input: &DirectBoundaryInput,
     options: &DirectConstructionOptions,
+    outer_fillets: Option<&[SurfaceGeometry]>,
 ) -> Option<KpBiNonicOptimizerResult> {
     // Phase-2 residual above this triggers phase-3 L-M. Below it,
     // phase 2 is already in or near the commercial-gate basin (per-
@@ -57,7 +72,12 @@ pub(super) fn optimize_binonic_and_build_binonic(
     const LM_TARGET_RESIDUAL: f64 = 1e-6;
 
     let bq_result = optimize_biquintic_and_build_binonic(input, options)?;
-    if bq_result.final_residual < PHASE3_ENGAGE_RESIDUAL {
+    // Phase 6c-B: when outer_fillets is set, ALWAYS engage phase 3
+    // even if inner-spoke residual is already below threshold —
+    // the outer-fillet residual is independent and may still be
+    // large.
+    let force_engage = outer_fillets.is_some();
+    if bq_result.final_residual < PHASE3_ENGAGE_RESIDUAL && !force_engage {
         return Some(KpBiNonicOptimizerResult {
             binonic: bq_result.binonic,
             final_residual: bq_result.final_residual,
@@ -96,6 +116,7 @@ pub(super) fn optimize_binonic_and_build_binonic(
         base: bn_guides.clone(),
         input,
         m_matrix: None,
+        outer_fillets: outer_fillets.map(|f| f.to_vec()),
     };
     let lm_result = run_lm(
         eval,
@@ -124,12 +145,26 @@ pub(super) fn optimize_binonic_and_build_binonic(
     };
 
     // Guard against regression: if L-M ended worse than phase 2
-    // (shouldn't happen with a well-behaved Gauss-Newton, but
-    // defensive in case the sample-vector sum_sq doesn't exactly
-    // match the legacy `measure_ring_residual` on the phase-2
-    // output), return phase-2 result.
-    let post = measure_ring_residual(&best_binonic);
-    if post < bq_result.final_residual {
+    // on the metric we're optimising for, return phase-2 result.
+    // Phase 6c-B: when outer_fillets is set, the optimisation
+    // metric is inner-spoke + outer-fillet residual squared sum.
+    // Check on the same combined metric.
+    let post_inner = measure_ring_residual(&best_binonic);
+    let bq_post_inner = bq_result.final_residual;
+    let (post, bq_post) = if let Some(fillets) = outer_fillets {
+        let post_outer: f64 = outer_fillet_residual_vector(&best_binonic, fillets)
+            .iter()
+            .map(|v| v * v)
+            .sum();
+        let bq_post_outer: f64 = outer_fillet_residual_vector(&bq_result.binonic, fillets)
+            .iter()
+            .map(|v| v * v)
+            .sum();
+        (post_inner + post_outer, bq_post_inner + bq_post_outer)
+    } else {
+        (post_inner, bq_post_inner)
+    };
+    if post < bq_post {
         Some(KpBiNonicOptimizerResult {
             binonic: best_binonic,
             final_residual: post,
@@ -137,7 +172,7 @@ pub(super) fn optimize_binonic_and_build_binonic(
     } else {
         Some(KpBiNonicOptimizerResult {
             binonic: bq_result.binonic,
-            final_residual: bq_result.final_residual,
+            final_residual: bq_post,
         })
     }
 }
@@ -152,6 +187,11 @@ struct BinonicEval<'a> {
     input: &'a DirectBoundaryInput,
     /// Cached `∂ring_CP / ∂guide_CP` linearization, shape `D_ring × D_guide`. The ring builder is linear in guide CPs (row-1/row-2 derivations + interior Bernstein-Gram LSQ + fixed boundary data), so this matrix is constant across optimization iterates — populated lazily on first `jacobian()` call and reused.
     m_matrix: Option<Vec<Vec<f64>>>,
+    /// Phase 6c-B addition: when `Some`, each entry is the
+    /// surface that sub-patch k's `u=0` boundary sits on. The
+    /// residual vector is extended with per-sample cap-vs-fillet
+    /// G1 residuals along each cap's outer boundary.
+    outer_fillets: Option<Vec<SurfaceGeometry>>,
 }
 
 impl<'a> BinonicEval<'a> {
@@ -372,7 +412,11 @@ pub(super) fn analytic_ring_jacobian(
 impl<'a> LmEval for BinonicEval<'a> {
     fn residual(&mut self, x: &[f64]) -> Option<Vec<f64>> {
         let binonic = self.build_ring(x)?;
-        Some(residual_vector(&binonic))
+        let mut r = residual_vector(&binonic);
+        if let Some(fillets) = &self.outer_fillets {
+            r.extend(outer_fillet_residual_vector(&binonic, fillets));
+        }
+        Some(r)
     }
 
     fn fold_safe(&mut self, x: &[f64]) -> bool {
@@ -383,6 +427,14 @@ impl<'a> LmEval for BinonicEval<'a> {
     }
 
     fn jacobian(&mut self, x: &[f64]) -> Option<Vec<Vec<f64>>> {
+        // Phase 6c-B: when outer_fillets is set, the residual vector
+        // includes outer-fillet samples that the analytic Jacobian
+        // doesn't cover. Fall back to the L-M solver's FD Jacobian
+        // (slower but correct). Future optimisation: extend the
+        // analytic Jacobian to handle the outer-fillet block.
+        if self.outer_fillets.is_some() {
+            return None;
+        }
         if self.m_matrix.is_none() {
             self.precompute_m_matrix()?;
         }
@@ -394,6 +446,60 @@ impl<'a> LmEval for BinonicEval<'a> {
             d_guide,
         ))
     }
+}
+
+/// Phase 6c-B: per-sample cap-vs-fillet G1 residual along each
+/// sub-patch's `u=0` boundary. Sample count: 50 per sub-patch.
+///
+/// G1 condition: at every boundary point, the cap and fillet
+/// share a tangent plane (their normals are parallel).
+///
+/// Residual = `|n_cap × n_fillet| / (|n_cap| · |n_fillet|)`,
+/// the sine of the angle between the two normals. Range [0, 1];
+/// 0 = perfect tangent-plane match, 1 = orthogonal normals.
+fn outer_fillet_residual_vector(
+    patches: &[RectangularGregoryBiNonic],
+    outer_fillets: &[SurfaceGeometry],
+) -> Vec<f64> {
+    let n = patches.len();
+    let mut out = Vec::with_capacity(n * 50);
+    for (k, cap) in patches.iter().enumerate() {
+        let Some(fillet) = outer_fillets.get(k) else {
+            // Pad with zeros so the residual-vector length stays
+            // predictable across `n` and across iterations.
+            out.extend(std::iter::repeat_n(0.0, 50));
+            continue;
+        };
+        for sample in 0..50 {
+            let t = 0.05 + 0.90 * (sample as f64) / 49.0;
+            // Cap's tangent plane at u=0, v=t:
+            //   spanned by ∂cap/∂u and ∂cap/∂v.
+            let su_cap = cap.partial_u(0.0, t);
+            let sv_cap = cap.partial_v(0.0, t);
+            let n_cap = su_cap.cross(&sv_cap);
+            // Cap surface point at this UV — also the 3-D location
+            // we project onto the fillet to get the fillet normal.
+            let p_3d = cap.point_at(0.0, t);
+            let Some((u_f, v_f)) = project_point_to_uv(fillet, &p_3d) else {
+                out.push(0.0);
+                continue;
+            };
+            let su_f = fillet.partial_u(u_f, v_f);
+            let sv_f = fillet.partial_v(u_f, v_f);
+            let n_f = su_f.cross(&sv_f);
+            let cross = n_cap.cross(&n_f);
+            let nc_len = (n_cap.x.powi(2) + n_cap.y.powi(2) + n_cap.z.powi(2)).sqrt();
+            let nf_len = (n_f.x.powi(2) + n_f.y.powi(2) + n_f.z.powi(2)).sqrt();
+            let cross_len = (cross.x.powi(2) + cross.y.powi(2) + cross.z.powi(2)).sqrt();
+            let denom = nc_len * nf_len;
+            if denom > 1e-300 {
+                out.push(cross_len / denom);
+            } else {
+                out.push(0.0);
+            }
+        }
+    }
+    out
 }
 
 fn pack_guides(guides: &[KpGuidePatchBiNonic]) -> Vec<f64> {

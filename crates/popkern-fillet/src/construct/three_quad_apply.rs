@@ -16,7 +16,6 @@
 //! doesn't know about `FilletOptions` flags or dispatch — the
 //! caller decides when to invoke it. R8 C6 wires the dispatch.
 
-use super::kp_binonic_optimizer::optimize_binonic_and_build_binonic;
 use super::kp_biquintic_optimizer::optimize_biquintic_and_build_binonic;
 use super::kp_twist_optimizer::optimize_c_twists_and_build_binonic;
 use popkern_core::geometry::Point3;
@@ -367,7 +366,21 @@ fn reproject_loop_pcurves_onto_gregory(
 /// binonic ships with relaxed continuity (worst > 5e-2 commercial
 /// gate — Phase H.8 step-D graceful degradation), `None` when the
 /// promotion is accepted at commercial grade or reverted.
-fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) -> Option<f64> {
+///
+/// Phase 6c-B: `fillet_surfaces` (one entry per sub-patch, ordered
+/// by ring index) are forwarded to `optimize_binonic_with_outer_fillets`
+/// so the bi-9 L-M solver includes per-sample cap-vs-fillet G1
+/// residuals along each cap's outer boundary, in addition to the
+/// inner-spoke G1 residuals. Closes the cap-fillet seam tangent-
+/// plane mismatch documented in Task #144.
+///
+/// `POPKERN_OUTER_FILLET_G1=1` env var gates the new path during
+/// the spike. Without it, behaviour matches the pre-Phase-6c-B
+/// optimizer (inner-spoke G1 only).
+fn promote_decomp_to_kp_binonic(
+    sub_patches: &mut [GregoryPatch],
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+) -> Option<f64> {
     let n = sub_patches.len();
     if n == 0 {
         return None;
@@ -421,7 +434,22 @@ fn promote_decomp_to_kp_binonic(sub_patches: &mut [GregoryPatch]) -> Option<f64>
     // identical to the bi-quintic path. Falls through to the bi-
     // quintic-only optimizer, then to the bicubic C-twist
     // optimizer (Option B) if both fail.
-    let binonic = match optimize_binonic_and_build_binonic(&input, &options) {
+    // Phase 6c-B: env-gate on POPKERN_OUTER_FILLET_G1=1. When set,
+    // pass the fillet surfaces to the binonic optimiser so its
+    // L-M residual includes per-sample cap-vs-fillet G1 along
+    // each cap's outer boundary.
+    let outer_fillets: Option<Vec<popkern_core::geometry::surface::SurfaceGeometry>> =
+        if std::env::var("POPKERN_OUTER_FILLET_G1").is_ok_and(|v| v == "1") {
+            Some(fillet_surfaces.iter().map(|f| f.surface.clone()).collect())
+        } else {
+            None
+        };
+
+    let binonic = match super::kp_binonic_optimizer::optimize_binonic_with_outer_fillets(
+        &input,
+        &options,
+        outer_fillets.as_deref(),
+    ) {
         Some(r) => r.binonic,
         None => match optimize_biquintic_and_build_binonic(&input, &options) {
             Some(r) => r.binonic,
