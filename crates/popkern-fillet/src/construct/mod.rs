@@ -13,6 +13,8 @@ mod gregory_pcurve_clamp;
 pub fn clamp_bounded_pcurves_post_phase5(brep: &mut popkern_core::topology::BRep) -> usize {
     gregory_pcurve_clamp::clamp_bounded_pcurves(brep)
 }
+#[cfg(test)]
+mod apex_termination_spike;
 pub(crate) mod helpers;
 mod kp13_bi5_promote;
 mod kp_bi5_macro_apply;
