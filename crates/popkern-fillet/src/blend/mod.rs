@@ -24,6 +24,7 @@ pub mod pns_promote;
 #[path = "pns_promote_tests.rs"]
 mod pns_promote_tests;
 pub mod runout;
+pub(crate) mod sphere_fit_boundary;
 pub mod surface;
 pub(crate) mod surface_bridge;
 mod surface_math;

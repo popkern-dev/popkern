@@ -132,6 +132,10 @@ pub fn compute_blend_boundary(
     let has_face_supports =
         !face_supports.is_empty() && face_supports.len() == faces_at_vertex.len();
 
+    let sphere_fit_enabled = std::env::var("POPKERN_SPHERE_FIT_BOUNDARY")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+
     if has_face_supports && n >= 2 {
         let reorder = reorient_arcs_for_hex_closure(
             fillet_indices,
@@ -181,12 +185,21 @@ pub fn compute_blend_boundary(
                     }
                 }
             }
-            return Ok(BlendBoundary {
+            let mut boundary = BlendBoundary {
                 vertex,
                 vertex_position: vertex_pos,
                 segments,
                 bridge_fallbacks,
-            });
+            };
+            if sphere_fit_enabled {
+                let _ = super::sphere_fit_boundary::apply_sphere_fit_substitution(
+                    &mut boundary,
+                    fillet_surfaces,
+                    brep,
+                    tolerance,
+                );
+            }
+            return Ok(boundary);
         }
         // Fall through to the FilletEnd-only path if reorientation
         // couldn't determine a valid hex order (e.g., some arcs

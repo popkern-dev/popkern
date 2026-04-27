@@ -127,8 +127,17 @@ fn cap_outer_boundary_pyramid5_mixed_path_check() {
 fn print_cap_outer_boundary_baseline() {
     eprintln!("\n=== cap-outer-boundary baseline (no assertions) ===");
     for (name, m) in [
+        ("cube_uniform", run_cube(&[0.10, 0.10, 0.10])),
         ("cube_mixed", run_cube(&[0.08, 0.10, 0.12])),
         ("cube_extreme", run_cube(&[0.02, 0.10, 0.20])),
+        (
+            "pyramid3_uniform",
+            run_n_pyramid(3, 1.2, &[0.10, 0.10, 0.10]),
+        ),
+        (
+            "pyramid4_uniform",
+            run_n_pyramid(4, 1.2, &[0.10, 0.10, 0.10, 0.10]),
+        ),
         (
             "pyramid4_mixed",
             run_n_pyramid(4, 0.8, &[0.04, 0.06, 0.05, 0.07]),
