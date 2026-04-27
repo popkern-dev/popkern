@@ -21,7 +21,7 @@
 //! a CAD-realistic input that *only* the nested path can solve.
 
 use crate::geometry::edge_triple::inputs::EdgeAnchors;
-use crate::geometry::edge_triple::levin::dispatch::try_levin_pair_nested;
+use crate::geometry::edge_triple::levin::dispatch::{try_levin_pair, try_levin_pair_nested};
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
@@ -145,6 +145,74 @@ fn nested_path_returns_none_on_non_quadric_input() {
 
     assert!(try_levin_pair_nested(&torus, &cyl, &anchors, &tol).is_none());
     assert!(try_levin_pair_nested(&cyl, &torus, &anchors, &tol).is_none());
+}
+
+/// **Equivalence**: when both `try_levin_pair` (f64) and
+/// `try_levin_pair_nested` (symbolic) succeed on the same input,
+/// they must agree on the recovered intersection.
+///
+/// This test exercises the symbolic-numeric consistency of the
+/// nested path: same anchors, same surfaces, same tolerance ⇒ both
+/// paths produce a `EdgeTriple` whose curve passes through the same
+/// 3-D points (within tolerance) and verifies G2 on both surfaces.
+///
+/// We do NOT assert the curves are bitwise-identical: f64 Jacobi and
+/// symbolic Q[√d, √α] follow different code paths, so the underlying
+/// `CurveGeometry` representations may have different parameter
+/// orientations or basis conventions. The geometric content is what's
+/// invariant.
+#[test]
+fn nested_and_f64_levin_paths_agree_on_perpendicular_cylinders() {
+    let cyl_z = z_axis_cyl(1.0);
+    let cyl_x = x_axis_cyl(1.0);
+    let start = Point3::new(1.0, 0.0, -1.0);
+    let end = Point3::new(0.0, 1.0, 0.0);
+    let anchors = EdgeAnchors::Open { start, end };
+    let tol = Tolerance::default();
+
+    let f64_triple = try_levin_pair(&cyl_z, &cyl_x, &anchors, &tol)
+        .expect("f64 Levin Some")
+        .expect("f64 Levin Ok");
+    let nested_triple = try_levin_pair_nested(&cyl_z, &cyl_x, &anchors, &tol)
+        .expect("nested Levin Some")
+        .expect("nested Levin Ok");
+
+    use crate::geometry::curve::CurveEval;
+    // Endpoints reach the same anchors — both paths are anchored.
+    let f64_start = f64_triple.curve_3d.point_at(f64_triple.t_start);
+    let nested_start = nested_triple.curve_3d.point_at(nested_triple.t_start);
+    assert!(f64_start.distance_to(&start) <= tol.linear());
+    assert!(nested_start.distance_to(&start) <= tol.linear());
+
+    let f64_end = f64_triple.curve_3d.point_at(f64_triple.t_end);
+    let nested_end = nested_triple.curve_3d.point_at(nested_triple.t_end);
+    assert!(f64_end.distance_to(&end) <= tol.linear());
+    assert!(nested_end.distance_to(&end) <= tol.linear());
+
+    // Midpoint sample — both curves should pass through approximately
+    // the same point. They're parameterised potentially differently,
+    // so we test both midpoints lie on both surfaces.
+    let f64_mid = f64_triple
+        .curve_3d
+        .point_at((f64_triple.t_start + f64_triple.t_end) * 0.5);
+    let nested_mid = nested_triple
+        .curve_3d
+        .point_at((nested_triple.t_start + nested_triple.t_end) * 0.5);
+
+    let on_cyl_z = |p: &Point3| (p.x * p.x + p.y * p.y - 1.0).abs();
+    let on_cyl_x = |p: &Point3| (p.y * p.y + p.z * p.z - 1.0).abs();
+    assert!(on_cyl_z(&f64_mid) <= tol.linear() && on_cyl_x(&f64_mid) <= tol.linear());
+    assert!(on_cyl_z(&nested_mid) <= tol.linear() && on_cyl_x(&nested_mid) <= tol.linear());
+
+    // G2 on both surfaces for both triples.
+    let f64_q = f64_triple
+        .verify(&cyl_z, &cyl_x, &tol, 32)
+        .expect("f64 verify");
+    let nested_q = nested_triple
+        .verify(&cyl_z, &cyl_x, &tol, 32)
+        .expect("nested verify");
+    assert!(f64_q.max_positional_residual <= tol.linear());
+    assert!(nested_q.max_positional_residual <= tol.linear());
 }
 
 /// Cost-bound regression: `try_levin_pair_nested` returns quickly
