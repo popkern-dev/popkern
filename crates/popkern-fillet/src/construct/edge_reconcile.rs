@@ -119,25 +119,25 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
     if !analytic_combo && !nurbs_combo {
         return false;
     }
-    if nurbs_combo {
-        // Skip `intersect_surfaces` for NURBS combos and try the
-        // bounded alternating-projection fit instead.
-        return try_curved_fit(brep, edge, he, twin);
-    }
 
     let v1 = he_data.origin;
     let v2 = twin_data.origin;
     let p1 = brep.vertices[v1].position;
     let p2 = brep.vertices[v2].position;
 
-    // Stage 2b.51: migrated from `intersect_surfaces` to the new
-    // EdgeTriple factory. The vertex positions act as anchors —
-    // `compute_edge_geometry` picks the right branch (the curve
-    // through both endpoints) without us iterating, and returns an
-    // analytic primitive (Arc, Ellipse, …) when one applies, or a
-    // NURBS otherwise. Pcurves come from the same call.
+    // Stage 2b.51 + 2b.54: vertex positions act as anchors;
+    // `compute_edge_geometry` picks the right branch via the trig
+    // dispatcher (analytic combos) or the marching fallback (NURBS
+    // combos). For NURBS combos we set a 500 ms wall-clock budget
+    // on the marching call: `intersect_surfaces` is bounded but
+    // empirically slow on small NURBS fillet face inputs. On
+    // timeout (or any error) we fall back to the chord-projection
+    // fit `try_curved_fit`.
     let anchors = EdgeAnchors::Open { start: p1, end: p2 };
-    let opts = EdgeTripleOptions::default();
+    let mut opts = EdgeTripleOptions::default();
+    if nurbs_combo {
+        opts.marching_timeout_ms = Some(500);
+    }
     let triple = match compute_edge_geometry(
         &sof_1.geometry,
         &sof_2.geometry,
@@ -147,7 +147,12 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
         &opts,
     ) {
         Ok(t) => t,
-        Err(_) => return false,
+        Err(_) => {
+            if nurbs_combo {
+                return try_curved_fit(brep, edge, he, twin);
+            }
+            return false;
+        }
     };
 
     // Defensive G5 verification: EdgeTriple guarantees endpoint
@@ -157,6 +162,9 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
     let trim_start = triple.curve_3d.point_at(triple.t_start);
     let trim_end = triple.curve_3d.point_at(triple.t_end);
     if trim_start.distance_to(&p1).max(trim_end.distance_to(&p2)) > strict_tol {
+        if nurbs_combo {
+            return try_curved_fit(brep, edge, he, twin);
+        }
         return false;
     }
 

@@ -90,9 +90,43 @@ pub(super) fn try_dispatch_marching(
     ) {
         return None;
     }
-    Some(dispatch_marching_inner(
-        surf_a, surf_b, anchors, hint, tol, opts,
-    ))
+
+    match opts.marching_timeout_ms {
+        None => Some(dispatch_marching_inner(
+            surf_a, surf_b, anchors, hint, tol, opts,
+        )),
+        Some(deadline_ms) => {
+            // Stage 2b.54: opt-in wall-clock budget. Run marching on
+            // a worker thread; if it doesn't finish in time, return
+            // None so the caller can fall through to Unimplemented.
+            // Detached thread continues until intersect_surfaces
+            // finishes — caveat documented on `marching_timeout_ms`.
+            let surf_a_owned = surf_a.clone();
+            let surf_b_owned = surf_b.clone();
+            let anchors_owned = anchors.clone();
+            let hint_owned = hint.cloned();
+            let tol_owned = *tol;
+            let opts_owned = opts.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            let _handle = std::thread::spawn(move || {
+                let result = dispatch_marching_inner(
+                    &surf_a_owned,
+                    &surf_b_owned,
+                    &anchors_owned,
+                    hint_owned.as_ref(),
+                    &tol_owned,
+                    &opts_owned,
+                );
+                let _ = tx.send(result);
+            });
+            // Timeout (Err) → return None so the caller falls
+            // through to Unimplemented; the detached worker thread
+            // continues until intersect_surfaces finishes and
+            // discards its result.
+            rx.recv_timeout(std::time::Duration::from_millis(deadline_ms))
+                .ok()
+        }
+    }
 }
 
 fn dispatch_marching_inner(

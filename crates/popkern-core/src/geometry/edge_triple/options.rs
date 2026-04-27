@@ -22,6 +22,22 @@ pub struct EdgeTripleOptions {
     pub max_marching_iterations: u32,
     /// Disambiguation policy when more than one branch matches.
     pub prefer_branches: BranchPolicy,
+    /// Stage 2b.54: opt-in wall-clock budget for the marching
+    /// catch-all (`try_dispatch_marching`). When `Some(ms)`, the
+    /// marching call runs on a worker thread; if it doesn't return
+    /// within `ms` milliseconds the dispatcher returns `None` (so
+    /// `compute_edge_geometry` reports `Unimplemented` rather than
+    /// hanging). When `None` (default), no timeout — current
+    /// behaviour, may take many minutes on small NURBS fillet face
+    /// inputs.
+    ///
+    /// **Caveats:** the worker thread is detached on timeout and
+    /// continues to consume CPU until the underlying
+    /// `intersect_surfaces` finishes. Many short timeouts in
+    /// sequence can leak threads. This is a coarse safety net while
+    /// the underlying slowness in `intersect_surfaces` is being
+    /// diagnosed (stage 2b.55).
+    pub marching_timeout_ms: Option<u64>,
 }
 
 impl Default for EdgeTripleOptions {
@@ -32,6 +48,7 @@ impl Default for EdgeTripleOptions {
             verify_in_release: false,
             max_marching_iterations: 250,
             prefer_branches: BranchPolicy::ClosestToAnchors,
+            marching_timeout_ms: None,
         }
     }
 }
@@ -44,6 +61,7 @@ impl std::fmt::Debug for EdgeTripleOptions {
             .field("verify_in_release", &self.verify_in_release)
             .field("max_marching_iterations", &self.max_marching_iterations)
             .field("prefer_branches", &self.prefer_branches)
+            .field("marching_timeout_ms", &self.marching_timeout_ms)
             .finish()
     }
 }
