@@ -60,7 +60,7 @@ mod rational;
 mod tangent;
 
 pub(super) use cone_fiber::try_rank3_cone_fiber;
-pub(super) use dispatch::{try_levin_pair, try_tangent_pair};
+pub(super) use dispatch::{try_levin_pair, try_levin_pair_nested, try_tangent_pair};
 pub(super) use rational::surfaces_are_coincident;
 
 #[cfg(test)]

@@ -116,6 +116,108 @@ pub(crate) fn try_tangent_pair(
     ))
 }
 
+/// Stage 2b.46: nested-radical fallback for Levin's algorithm.
+///
+/// Mirrors `try_levin_pair`'s flow but builds the rank-2 fibre
+/// **symbolically** in `Q` (via `find_small_rational_fiber`) and
+/// extracts plane normals through `Q[√d, √μ_+]` (via
+/// `extract_planes_qsqrtd_nested`). This adds a path that exists
+/// even when the f64 Jacobi-based `classify_degenerate` misclassifies
+/// the rank-2 fibre — e.g., near-singular eigenvalues that the f64
+/// path lumps into `Rank2SemiDefinite` rather than `TwoPlanes`.
+///
+/// The symbolic planes are converted to f64 at the boundary so the
+/// existing `intersect_plane_with_target` reuse works unchanged.
+///
+/// Returns `None` for non-rational-quadric inputs, when the rank-2
+/// fibre's `−S₂` doesn't lie in `Q[√d]`, or when no plane passes
+/// through both anchors.
+pub(crate) fn try_levin_pair_nested(
+    surf_a: &SurfaceGeometry,
+    surf_b: &SurfaceGeometry,
+    anchors: &EdgeAnchors,
+    tol: &Tolerance,
+) -> Option<Result<EdgeTriple, EdgeTripleError>> {
+    let a_rat = super::rational::surface_to_quadric_rat(surf_a)?;
+    let b_rat = super::rational::surface_to_quadric_rat(surf_b)?;
+    let fiber = super::qsqrtd_nested::find_small_rational_fiber(&a_rat, &b_rat)?;
+    let planes_qsqrtd = super::qsqrtd_nested::extract_planes_qsqrtd_nested(&fiber)?;
+    let p_a = super::qsqrtd_nested::qsqrtd_sqrt_l_array_to_f64(&planes_qsqrtd[0])?;
+    let p_b = super::qsqrtd_nested::qsqrtd_sqrt_l_array_to_f64(&planes_qsqrtd[1])?;
+
+    // Normalise both plane vectors so `plane_to_surface` produces a
+    // unit-normal `Plane`; Levin's symbolic planes carry arbitrary
+    // overall scaling.
+    let normalise = |p: [f64; 4]| -> Option<[f64; 4]> {
+        let n_len2 = p[0] * p[0] + p[1] * p[1] + p[2] * p[2];
+        if n_len2 < 1e-30 {
+            return None;
+        }
+        let inv = 1.0 / n_len2.sqrt();
+        Some([p[0] * inv, p[1] * inv, p[2] * inv, p[3] * inv])
+    };
+    let p_a = normalise(p_a)?;
+    let p_b = normalise(p_b)?;
+    let planes: Vec<[f64; 4]> = vec![p_a, p_b];
+
+    let (start, end) = match anchors {
+        EdgeAnchors::Open { start, end } => (*start, *end),
+        _ => return None,
+    };
+    let plane_distance =
+        |p: &[f64; 4], q: Point3| -> f64 { (p[0] * q.x + p[1] * q.y + p[2] * q.z + p[3]).abs() };
+    let anchor_tol = 100.0 * tol.linear();
+    let plane = *planes
+        .iter()
+        .find(|p| plane_distance(p, start) <= anchor_tol && plane_distance(p, end) <= anchor_tol)?;
+    let plane_surf = super::decompose::plane_to_surface(plane);
+
+    let triple_a = intersect_plane_with_target(&plane_surf, surf_a, anchors, tol)?.ok()?;
+    let triple_b = intersect_plane_with_target(&plane_surf, surf_b, anchors, tol)?.ok()?;
+
+    let total_branches = planes.len() as u8;
+    let mut branch_kinds = Vec::with_capacity(planes.len());
+    for p in &planes {
+        if let Some(kind) = classify_branch_kind(p, surf_a, anchors, tol) {
+            branch_kinds.push(kind);
+        }
+    }
+    let cardinality = Some(crate::geometry::edge_triple::types::BranchCardinality {
+        total: total_branches,
+        kinds: branch_kinds,
+        // The nested path emerges from Levin's rank-2 mixed-sign
+        // decomposition (two real planes), so it's a transverse case
+        // by construction. Tangent pairs are handled upstream via
+        // `try_tangent_pair`.
+        tangent: false,
+    });
+
+    let (a_b_coef, b_b_coef) = derive_linear_affine_b(&triple_a, &triple_b)?;
+    let triple = EdgeTriple {
+        curve_3d: triple_a.curve_3d.clone(),
+        pcurve_a: triple_a.pcurve_a.clone(),
+        pcurve_b: triple_b.pcurve_a.clone(),
+        t_start: triple_a.t_start,
+        t_end: triple_a.t_end,
+        topology: triple_a.topology,
+        parameter_map: ParameterMap::LinearAffine {
+            a_a: 0.0,
+            b_a: 1.0,
+            a_b: a_b_coef,
+            b_b: b_b_coef,
+        },
+        provenance: EdgeTripleProvenance::AnalyticIntersection {
+            kind: provenance_kind(surf_a, surf_b),
+            branch: BranchSelector::OnlyBranch,
+            cardinality,
+        },
+        quality: EdgeTripleQuality::default(),
+    };
+    Some(super::super::analytic::finalize_quality_pub(
+        triple, surf_a, surf_b, tol,
+    ))
+}
+
 /// Try to compute the intersection of two analytic quadric surfaces
 /// via Levin's algorithm. Returns `None` if Levin doesn't apply
 /// (non-quadric surfaces, no real degenerate fibre, rank ≥ 3 fibre,

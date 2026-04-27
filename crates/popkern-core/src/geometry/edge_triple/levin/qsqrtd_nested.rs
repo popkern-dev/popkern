@@ -54,19 +54,31 @@
 //!   so the second eigenvalue's sqrt embeds in the same nested field
 //!   as `√μ_+`; otherwise a triple tower would be needed (out of
 //!   scope).
+//!
+//! ## Dispatch wiring (stage 2b.46)
+//!
+//! - `find_small_rational_fiber(A, B) -> Option<Mat4SymRat>` —
+//!   bounded sweep over small-rational `λ` candidates, returning the
+//!   first rank-deficient `λA + B`. Mirrors `tangent::find_tangent_plane`'s
+//!   cost-bound trick to avoid the `rational_roots` pathology on
+//!   f64-roundtripped irrational input.
+//! - `qsqrtd_to_f64`, `qsqrtd_sqrt_l_to_f64`, `qsqrtd_sqrt_l_array_to_f64`
+//!   — converters at the symbolic-to-numeric boundary. Used by
+//!   `levin::dispatch::try_levin_pair_nested` to hand symbolic plane
+//!   normals to the f64-based plane×surf dispatchers.
 
 #![allow(dead_code)]
 
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 use num_bigint::BigInt;
-use num_traits::{One, Signed, Zero};
+use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::qsqrtd::QSqrtD;
 use super::qsqrtd_decompose::{
     Mat4SymQSqrtD, lift_to_qsqrtd, null_vector_qsqrtd, rank2_eigenvalues, subtract_mu_diag,
 };
-use super::rational::{Mat4SymRat, Rat};
+use super::rational::{Mat4SymRat, Rat, det4_rat, linear_comb_rat};
 
 /// A value `p₀ + p₁·√α` with `p₀, p₁, α ∈ Q[√d]`.
 #[derive(Clone, Debug)]
@@ -435,4 +447,88 @@ pub(crate) fn extract_planes_qsqrtd_nested(d: &Mat4SymRat) -> Option<[[QSqrtDSqr
         a[3].clone() - b[3].clone(),
     ];
     Some([p1, p2])
+}
+
+// ─── Stage 2b.46: bounded fiber search + symbolic→f64 converters ──
+
+/// Walk a small set of rational `λ` candidates and return the first
+/// fibre `λA + B` that's rank-deficient (`det = 0`). Bounded cost:
+/// no `rational_roots` call (which would trial-divide huge bigints
+/// on f64-roundtripped irrational inputs). Sufficient for CAD pairs
+/// where the degenerate fibre lies at small rational `λ`; broader
+/// algebraic cases (large rational or irrational `λ`) are routed
+/// through the f64 `find_degenerate_fiber` upstream.
+pub(crate) fn find_small_rational_fiber(a: &Mat4SymRat, b: &Mat4SymRat) -> Option<Mat4SymRat> {
+    let one = Rat::one();
+    let candidates: [(BigInt, BigInt); 19] = [
+        (BigInt::from(-3), BigInt::from(1)),
+        (BigInt::from(-2), BigInt::from(1)),
+        (BigInt::from(-1), BigInt::from(1)),
+        (BigInt::from(0), BigInt::from(1)),
+        (BigInt::from(1), BigInt::from(1)),
+        (BigInt::from(2), BigInt::from(1)),
+        (BigInt::from(3), BigInt::from(1)),
+        (BigInt::from(-1), BigInt::from(2)),
+        (BigInt::from(1), BigInt::from(2)),
+        (BigInt::from(-3), BigInt::from(2)),
+        (BigInt::from(3), BigInt::from(2)),
+        (BigInt::from(-1), BigInt::from(3)),
+        (BigInt::from(1), BigInt::from(3)),
+        (BigInt::from(-2), BigInt::from(3)),
+        (BigInt::from(2), BigInt::from(3)),
+        (BigInt::from(-1), BigInt::from(4)),
+        (BigInt::from(1), BigInt::from(4)),
+        (BigInt::from(-3), BigInt::from(4)),
+        (BigInt::from(3), BigInt::from(4)),
+    ];
+    for (p, q) in candidates {
+        let lam = Rat::new(p, q);
+        let m = linear_comb_rat(a, b, &lam, &one);
+        if det4_rat(&m.0).is_zero() {
+            return Some(m);
+        }
+    }
+    None
+}
+
+/// Convert a `QSqrtD` value `a + b·√d` to its real numeric value.
+/// Returns `None` if any component fails to round-trip to f64 (very
+/// large bigints), or if `d < 0` (imaginary part).
+pub(crate) fn qsqrtd_to_f64(v: &QSqrtD) -> Option<f64> {
+    let a_f = v.a.to_f64()?;
+    if v.b.is_zero() {
+        return Some(a_f);
+    }
+    let b_f = v.b.to_f64()?;
+    let d_f = v.d.to_f64()?;
+    if d_f < 0.0 {
+        return None;
+    }
+    Some(a_f + b_f * d_f.sqrt())
+}
+
+/// Convert a `QSqrtDSqrtL` value `p₀ + p₁·√α` to f64. Requires
+/// `α ≥ 0` (the second extension is real-valued).
+pub(crate) fn qsqrtd_sqrt_l_to_f64(v: &QSqrtDSqrtL) -> Option<f64> {
+    let p0_f = qsqrtd_to_f64(&v.p0)?;
+    if v.p1.is_zero() {
+        return Some(p0_f);
+    }
+    let p1_f = qsqrtd_to_f64(&v.p1)?;
+    let alpha_f = qsqrtd_to_f64(&v.alpha)?;
+    if alpha_f < 0.0 {
+        return None;
+    }
+    Some(p0_f + p1_f * alpha_f.sqrt())
+}
+
+/// Convert a 4-vector of `QSqrtDSqrtL` (e.g. a plane normal from
+/// `extract_planes_qsqrtd_nested`) to f64.
+pub(crate) fn qsqrtd_sqrt_l_array_to_f64(v: &[QSqrtDSqrtL; 4]) -> Option<[f64; 4]> {
+    Some([
+        qsqrtd_sqrt_l_to_f64(&v[0])?,
+        qsqrtd_sqrt_l_to_f64(&v[1])?,
+        qsqrtd_sqrt_l_to_f64(&v[2])?,
+        qsqrtd_sqrt_l_to_f64(&v[3])?,
+    ])
 }
