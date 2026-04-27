@@ -118,6 +118,15 @@ pub(super) fn optimize_binonic_with_outer_fillets(
         m_matrix: None,
         outer_fillets: outer_fillets.map(|f| f.to_vec()),
     };
+    // Phase 6c-B: outer-fillet-G1 makes the L-M problem harder
+    // (more constraints), so bump max_iter substantially when the
+    // outer block is active. Also tighter target since we want
+    // commercial-grade G1.
+    let (max_iter, target_residual) = if outer_fillets.is_some() {
+        (60, 1e-9)
+    } else {
+        (15, LM_TARGET_RESIDUAL)
+    };
     let lm_result = run_lm(
         eval,
         x0,
@@ -125,8 +134,8 @@ pub(super) fn optimize_binonic_with_outer_fillets(
             fd_eps: 1e-4,
             lambda_init: 1e-3,
             lambda_max: 1e6,
-            max_iter: 15,
-            target_residual: LM_TARGET_RESIDUAL,
+            max_iter,
+            target_residual,
         },
         "binonic-phase3",
     );
