@@ -329,7 +329,7 @@ fn spike_kp_binonic_sphere_fit_boundary_symmetric_cube() {
 
 // Suppress unused-import warnings for types only referenced via
 // the cap construction's return type.
-#[allow(dead_code)]
+#[allow(dead_code, clippy::diverging_sub_expression)]
 fn _unused_imports_marker() -> Option<NurbsCurve> {
     let _: GregoryPatch = unimplemented!();
 }

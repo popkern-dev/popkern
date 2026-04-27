@@ -55,10 +55,10 @@ fn probe_seam_n04() {
             .as_ref()
             .map(|s| variant(&s.geometry))
             .unwrap_or("?");
-        if (kind_a == "Cyl" && kind_b == "Gregory") || (kind_a == "Gregory" && kind_b == "Cyl") {
-            if worst.is_none() || r.max_divergence > worst.unwrap().max_divergence {
-                worst = Some(r);
-            }
+        if ((kind_a == "Cyl" && kind_b == "Gregory") || (kind_a == "Gregory" && kind_b == "Cyl"))
+            && (worst.is_none() || r.max_divergence > worst.unwrap().max_divergence)
+        {
+            worst = Some(r);
         }
     }
     let worst = worst.expect("at least one Cyl×Gregory edge");
