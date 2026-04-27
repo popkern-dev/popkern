@@ -56,10 +56,17 @@ pub(super) fn deep_trace_bi6_output(patches_bi6: &[[[Point3; 7]; 7]], n: usize) 
         eprintln!(
             "  sub-patch {k}: folded={folded}, min|du×dv|={min_mag:.3e} at ({:.2},{:.2}) \
              star=({:.3},{:.3},{:.3}) mid=({:.3},{:.3},{:.3}) outer=({:.3},{:.3},{:.3})",
-            min_at.0, min_at.1,
-            star.x, star.y, star.z,
-            mid.x, mid.y, mid.z,
-            outer.x, outer.y, outer.z,
+            min_at.0,
+            min_at.1,
+            star.x,
+            star.y,
+            star.z,
+            mid.x,
+            mid.y,
+            mid.z,
+            outer.x,
+            outer.y,
+            outer.z,
         );
     }
 }

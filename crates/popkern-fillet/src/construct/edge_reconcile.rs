@@ -32,11 +32,8 @@
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
-use popkern_core::geometry::intersection::surface_surface::{
-    SurfaceSurfaceIntersection, intersect_surfaces,
-};
+use popkern_core::geometry::edge_triple::{EdgeAnchors, EdgeTripleOptions, compute_edge_geometry};
 use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::geometry::uv_projection::tight_bounded_parameter_range;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle};
 
@@ -133,104 +130,42 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
     let p1 = brep.vertices[v1].position;
     let p2 = brep.vertices[v2].position;
 
-    let positions_1 = brep.face_outer_loop_positions(face_1);
-    let positions_2 = brep.face_outer_loop_positions(face_2);
-    if positions_1.is_empty() || positions_2.is_empty() {
-        return false;
-    }
-    let (u1_range, v1_range) = tight_bounded_parameter_range(&positions_1, &sof_1.geometry);
-    let (u2_range, v2_range) = tight_bounded_parameter_range(&positions_2, &sof_2.geometry);
-
-    let result = match intersect_surfaces(
+    // Stage 2b.51: migrated from `intersect_surfaces` to the new
+    // EdgeTriple factory. The vertex positions act as anchors —
+    // `compute_edge_geometry` picks the right branch (the curve
+    // through both endpoints) without us iterating, and returns an
+    // analytic primitive (Arc, Ellipse, …) when one applies, or a
+    // NURBS otherwise. Pcurves come from the same call.
+    let anchors = EdgeAnchors::Open { start: p1, end: p2 };
+    let opts = EdgeTripleOptions::default();
+    let triple = match compute_edge_geometry(
         &sof_1.geometry,
-        u1_range,
-        v1_range,
         &sof_2.geometry,
-        u2_range,
-        v2_range,
+        anchors,
+        None,
         tolerance,
+        &opts,
     ) {
-        Ok(r) => r,
+        Ok(t) => t,
         Err(_) => return false,
     };
 
-    // Score each intersection curve by how close it passes to both
-    // vertex positions. Pick the best.
-    let mut best = None;
-    let mut best_score = f64::INFINITY;
-    for inter in &result.intersections {
-        let SurfaceSurfaceIntersection::Curve(curve_on_surf) = inter else {
-            continue;
-        };
-        let Some(t1) = curve_on_surf.curve_3d.closest_point(&p1) else {
-            continue;
-        };
-        let Some(t2) = curve_on_surf.curve_3d.closest_point(&p2) else {
-            continue;
-        };
-        let d1 = curve_on_surf.curve_3d.point_at(t1).distance_to(&p1);
-        let d2 = curve_on_surf.curve_3d.point_at(t2).distance_to(&p2);
-        let score = d1.max(d2);
-        if score < best_score {
-            best_score = score;
-            best = Some((
-                curve_on_surf.curve_3d.clone(),
-                curve_on_surf.curve_uv1.clone(),
-                curve_on_surf.curve_uv2.clone(),
-                t1,
-                t2,
-            ));
-        }
-    }
-    let Some((curve_3d, curve_uv1, curve_uv2, t1, t2)) = best else {
-        return false;
-    };
-
-    // The new analytic intersection arc must hit both vertex
-    // positions to within the BRep's linear tolerance. Anything
-    // looser opens a loop gap (validate() OpenLoop) — chord_len-
-    // proportional slack is the wrong axis here: the off-vertex
-    // distance from cylinder surface is what blocks reconciliation,
-    // and that gets enforced downstream by validate(). If the
-    // intersection arc misses the vertices, leave the original
-    // chord-line edge in place; topology repair will handle the
-    // off-cyl-vertex case separately.
-    let _chord_len = p1.distance_to(&p2);
+    // Defensive G5 verification: EdgeTriple guarantees endpoint
+    // accuracy by construction, but we double-check at the strict
+    // BRep tolerance (anything looser opens a validate() OpenLoop).
     let strict_tol = tolerance.linear().max(1e-9);
-    if best_score > strict_tol {
+    let trim_start = triple.curve_3d.point_at(triple.t_start);
+    let trim_end = triple.curve_3d.point_at(triple.t_end);
+    if trim_start.distance_to(&p1).max(trim_end.distance_to(&p2)) > strict_tol {
         return false;
     }
 
-    // Trim the 3D curve and both pcurves to the parameter range
-    // [t1, t2] (assumed t1 <= t2; if reversed, abort — we'd have
-    // to flip the curve, which the existing helpers don't do).
-    if t1 > t2 {
-        return false;
-    }
-    let (trimmed_3d, trimmed_uv1, trimmed_uv2) = match (
-        slice_curve(&curve_3d, t1, t2),
-        slice_curve(&curve_uv1, t1, t2),
-        slice_curve(&curve_uv2, t1, t2),
-    ) {
-        (Some(a), Some(b), Some(c)) => (a, b, c),
-        _ => return false,
-    };
-
-    // Verify the trimmed 3D curve endpoints land at p1 and p2.
-    let (et_start, et_end) = trimmed_3d.parameter_range();
-    let trim_start = trimmed_3d.point_at(et_start);
-    let trim_end = trimmed_3d.point_at(et_end);
-    let trim_err = trim_start.distance_to(&p1).max(trim_end.distance_to(&p2));
-    if trim_err > strict_tol {
-        return false;
-    }
-
-    // Apply: 3D curve on edge, pcurve_1 on the half-edge whose face
-    // is face_1, pcurve_2 on the twin (face_2's half-edge).
+    // Apply: 3D curve on edge, pcurve_a on the half-edge whose face
+    // is face_1, pcurve_b on the twin (face_2's half-edge).
     let new_curve = CurveOnEdge {
-        geometry: CurveGeometry::Nurbs(trimmed_3d),
-        t_start: et_start,
-        t_end: et_end,
+        geometry: triple.curve_3d.clone(),
+        t_start: triple.t_start,
+        t_end: triple.t_end,
     };
     if let Some(edge_mut) = brep.edges.get_mut(edge) {
         edge_mut.curve = Some(new_curve);
@@ -238,10 +173,10 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
         return false;
     }
     if let Some(he_mut) = brep.half_edges.get_mut(he) {
-        he_mut.pcurve = Some(trimmed_uv1.into());
+        he_mut.pcurve = Some(triple.pcurve_a.clone());
     }
     if let Some(twin_mut) = brep.half_edges.get_mut(twin) {
-        twin_mut.pcurve = Some(trimmed_uv2.into());
+        twin_mut.pcurve = Some(triple.pcurve_b.clone());
     }
     true
 }
@@ -361,28 +296,6 @@ fn try_curved_fit(
         return true;
     }
     false
-}
-
-/// Slice `curve` to the parameter range `[lo, hi]` using
-/// `split_at` twice. Returns the middle segment, or `None` if the
-/// splits fail (e.g. range is degenerate or out of bounds).
-fn slice_curve(
-    curve: &popkern_core::geometry::nurbs_curve::NurbsCurve,
-    lo: f64,
-    hi: f64,
-) -> Option<popkern_core::geometry::nurbs_curve::NurbsCurve> {
-    let (full_min, full_max) = curve.parameter_range();
-    if !(full_min..=full_max).contains(&lo) || !(full_min..=full_max).contains(&hi) {
-        return None;
-    }
-    if hi <= lo + 1e-12 {
-        return None;
-    }
-    let (_, right) = curve.split_at(lo).ok()?;
-    let (rem_min, _rem_max) = right.parameter_range();
-    let cut = rem_min + (hi - lo);
-    let (left, _) = right.split_at(cut).ok()?;
-    Some(left)
 }
 
 #[allow(dead_code)]
