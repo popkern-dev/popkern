@@ -1,6 +1,7 @@
 //! Geometric primitives: points, vectors, curves, and surfaces.
 
 pub mod analytic_curves;
+pub mod apex_blend;
 pub mod transform;
 pub use transform::Transform3;
 pub mod analytic_surfaces;
