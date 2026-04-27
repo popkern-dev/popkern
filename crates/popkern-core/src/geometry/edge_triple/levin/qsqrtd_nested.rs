@@ -32,13 +32,24 @@
 //! should be represented as a `QSqrtD` instead; structural equality
 //! would otherwise miss algebraically-equal pairs.
 //!
-//! Out of scope for this stage: integration with `qsqrtd_decompose`'s
-//! plane extraction (will land in 2b.44 once the field foundation is
-//! verified by the unit tests in `qsqrtd_nested_tests.rs`).
+//! ## Helpers (stage 2b.44)
+//!
+//! - `is_non_negative(λ)` — sign of `a + b·√d` with `√d` taken on the
+//!   positive branch (the standard convention).
+//! - `sqrt_qsqrtd(λ) -> Option<QSqrtDSqrtL>` — symbolic square root.
+//!   Always succeeds for non-negative `λ`, embedding `√λ` as the
+//!   canonical `0 + 1·√λ` in `Q[√d, √λ]`. `(√λ)² = λ` by the
+//!   defining identity. Returns `None` for negative inputs.
+//!
+//! Plumbing into plane extraction (`extract_planes_qsqrtd_nested`)
+//! lands in a follow-up stage so the helpers above can be exercised
+//! standalone first.
 
 #![allow(dead_code)]
 
 use std::ops::{Add, Div, Mul, Neg, Sub};
+
+use num_traits::{One, Signed, Zero};
 
 use super::qsqrtd::QSqrtD;
 use super::rational::Rat;
@@ -109,8 +120,7 @@ impl QSqrtDSqrtL {
     /// and is the denominator that `Div` factors out via
     /// rationalisation.
     pub(crate) fn norm(&self) -> QSqrtD {
-        self.p0.clone() * self.p0.clone()
-            - self.alpha.clone() * self.p1.clone() * self.p1.clone()
+        self.p0.clone() * self.p0.clone() - self.alpha.clone() * self.p1.clone() * self.p1.clone()
     }
 }
 
@@ -186,6 +196,55 @@ impl Mul for QSqrtDSqrtL {
             alpha: self.alpha,
         }
     }
+}
+
+/// True iff `λ ≥ 0` as a real number, taking `√d` to be the positive
+/// branch (the standard convention; `Q[√d]` carries no orientation
+/// otherwise). Used by `sqrt_qsqrtd` to reject negative inputs before
+/// embedding them as a real-valued nested radical.
+///
+/// Decision logic for `λ = a + b·√d` with `d ≥ 0`:
+/// - `b = 0`: sign matches `a`'s sign.
+/// - `b > 0`: non-negative iff `a ≥ 0`, or (when `a < 0`) `a² ≤ b²·d`.
+/// - `b < 0`: non-negative iff `a ≥ 0` AND `a² ≥ b²·d`.
+pub(crate) fn is_non_negative(lambda: &QSqrtD) -> bool {
+    if lambda.b.is_zero() {
+        return !lambda.a.is_negative();
+    }
+    let a_sq = &lambda.a * &lambda.a;
+    let b_sq_d = &lambda.b * &lambda.b * &lambda.d;
+    if lambda.b.is_positive() {
+        !lambda.a.is_negative() || a_sq <= b_sq_d
+    } else {
+        !lambda.a.is_negative() && a_sq >= b_sq_d
+    }
+}
+
+/// Compute `√λ` symbolically as a `QSqrtDSqrtL`.
+///
+/// Always succeeds for non-negative `λ`. Returns `None` only when
+/// `λ` is negative (real square root undefined).
+///
+/// Stage 2b.43 keeps the implementation minimal: the result embeds
+/// `λ` as the second radicand and writes `√λ = 0 + 1·√λ`. By the
+/// nested field's defining identity `(√α)² = α`, squaring the result
+/// recovers `λ` exactly. Denesting (returning a value in `Q[√d]`
+/// when one exists) is a separate optimisation deferred to the stage
+/// that wires this into plane extraction.
+pub(crate) fn sqrt_qsqrtd(lambda: &QSqrtD) -> Option<QSqrtDSqrtL> {
+    if !is_non_negative(lambda) {
+        return None;
+    }
+    if lambda.is_zero() {
+        // √0 = 0; the result has no algebraic dependency on a
+        // particular `α`, so we use the trivial radicand.
+        return Some(QSqrtDSqrtL::zero(QSqrtD::zero()));
+    }
+    Some(QSqrtDSqrtL::new(
+        QSqrtD::zero(),
+        QSqrtD::from_rat(Rat::one()),
+        lambda.clone(),
+    ))
 }
 
 impl Div for QSqrtDSqrtL {

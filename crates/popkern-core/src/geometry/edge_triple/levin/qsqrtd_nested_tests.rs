@@ -4,7 +4,7 @@ use num_rational::BigRational;
 use num_traits::One;
 
 use super::qsqrtd::QSqrtD;
-use super::qsqrtd_nested::QSqrtDSqrtL;
+use super::qsqrtd_nested::{QSqrtDSqrtL, is_non_negative, sqrt_qsqrtd};
 use super::rational::Rat;
 
 fn rat(n: i64) -> Rat {
@@ -174,4 +174,103 @@ fn zero_is_zero() {
     let alpha = qsqrtd_rat(7);
     let z = QSqrtDSqrtL::zero(alpha);
     assert!(z.is_zero());
+}
+
+// ─── is_non_negative ──────────────────────────────────────────────
+
+/// Pure-rational sign matches the rational's own sign.
+#[test]
+fn is_non_negative_pure_rationals() {
+    assert!(is_non_negative(&qsqrtd_rat(5)));
+    assert!(is_non_negative(&qsqrtd_rat(0)));
+    assert!(!is_non_negative(&qsqrtd_rat(-3)));
+}
+
+/// `√d` itself (`a=0, b=1, d>0`) is positive.
+#[test]
+fn is_non_negative_pure_surd() {
+    let s = QSqrtD::new(rat(0), rat(1), rat(7));
+    assert!(is_non_negative(&s));
+}
+
+/// `−√d` is negative.
+#[test]
+fn is_non_negative_negative_pure_surd() {
+    let s = QSqrtD::new(rat(0), rat(-1), rat(7));
+    assert!(!is_non_negative(&s));
+}
+
+/// `3 − √7 ≈ 0.354` is positive (a ≥ 0, a² = 9 ≥ 7 = b²·d).
+#[test]
+fn is_non_negative_three_minus_sqrt_seven() {
+    let v = QSqrtD::new(rat(3), rat(-1), rat(7));
+    assert!(is_non_negative(&v));
+}
+
+/// `2 − √7 ≈ −0.646` is negative (a² = 4 < 7 = b²·d when b<0).
+#[test]
+fn is_non_negative_two_minus_sqrt_seven() {
+    let v = QSqrtD::new(rat(2), rat(-1), rat(7));
+    assert!(!is_non_negative(&v));
+}
+
+/// `−1 + √7 ≈ 1.646` is positive (b > 0, a < 0 but a² = 1 ≤ 7 = b²·d).
+#[test]
+fn is_non_negative_minus_one_plus_sqrt_seven() {
+    let v = QSqrtD::new(rat(-1), rat(1), rat(7));
+    assert!(is_non_negative(&v));
+}
+
+/// `−3 + √7 ≈ −0.354` is negative (a < 0 and a² = 9 > 7 = b²·d).
+#[test]
+fn is_non_negative_minus_three_plus_sqrt_seven() {
+    let v = QSqrtD::new(rat(-3), rat(1), rat(7));
+    assert!(!is_non_negative(&v));
+}
+
+// ─── sqrt_qsqrtd ──────────────────────────────────────────────────
+
+/// `√4 = 2` — but the simplified denesting is deferred; for now
+/// `sqrt_qsqrtd` always embeds, so squaring gives back `4`.
+#[test]
+fn sqrt_qsqrtd_pure_rational_roundtrip() {
+    let lambda = qsqrtd_rat(4);
+    let s = sqrt_qsqrtd(&lambda).expect("4 has a real sqrt");
+    let s_sq = s.clone() * s;
+    assert_eq!(s_sq.p0, lambda);
+    assert_eq!(s_sq.p1, QSqrtD::zero());
+}
+
+/// `√(golden) · √(golden) = golden` over the nested field.
+#[test]
+fn sqrt_qsqrtd_golden_ratio_roundtrip() {
+    let d = rat(5);
+    let half = Rat::one() / rat(2);
+    let lambda = QSqrtD::new(half.clone(), half, d);
+    let s = sqrt_qsqrtd(&lambda).expect("golden ratio is positive");
+    let s_sq = s.clone() * s;
+    assert_eq!(s_sq.p0, lambda);
+    assert_eq!(s_sq.p1, QSqrtD::zero());
+}
+
+/// `√(−1)` is undefined over the reals — the helper returns `None`.
+#[test]
+fn sqrt_qsqrtd_negative_returns_none() {
+    let lambda = qsqrtd_rat(-1);
+    assert!(sqrt_qsqrtd(&lambda).is_none());
+}
+
+/// `√0 = 0`.
+#[test]
+fn sqrt_qsqrtd_zero() {
+    let lambda = qsqrtd_rat(0);
+    let s = sqrt_qsqrtd(&lambda).expect("zero has a real sqrt");
+    assert!(s.is_zero());
+}
+
+/// `√(2 − √7)` is undefined: the input is negative.
+#[test]
+fn sqrt_qsqrtd_negative_surd_value_returns_none() {
+    let lambda = QSqrtD::new(rat(2), rat(-1), rat(7));
+    assert!(sqrt_qsqrtd(&lambda).is_none());
 }
