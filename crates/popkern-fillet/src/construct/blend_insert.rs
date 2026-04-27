@@ -141,6 +141,26 @@ pub(crate) fn insert_vertex_blend(
     // Phase 3 orphan (idempotent safety net for no-bridge cases).
     remove_orphaned_vertex(brep, vertex);
 
+    // Phase 6c-D (N-path arm): when sphere-fit substitution
+    // succeeded for `n_gon_boundary` and we're about to take the
+    // simpler N-edge bridge construction (faces_2n=false — the
+    // uniform-radius collapse case), write the substituted
+    // boundary curves into blend_face's N outer-loop edges.
+    // Without this, cube_uniform / pyramid_uniform never see the
+    // substituted curves: the rational-Gregory branch below where
+    // the previously-shipped 6c-D wiring lives is unreachable for
+    // them.
+    if let Some(boundary) = n_gon_boundary.as_ref()
+        && boundary.sphere_fit_substituted
+        && !face_has_2n_outer_half_edges(brep, blend_face, n_sides)
+    {
+        crate::construct::sphere_fit_edge_wire::wire_substituted_boundary_to_edges(
+            brep,
+            boundary,
+            &[blend_face],
+        );
+    }
+
     // §5.3 item #6 — propagate pre-merge bridge-fallback names.
     let bridge_fallbacks = n_gon_boundary
         .as_ref()

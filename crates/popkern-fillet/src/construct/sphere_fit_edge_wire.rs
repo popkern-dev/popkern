@@ -27,6 +27,9 @@
 
 use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
+use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::uv_projection::project_point_to_uv;
+use popkern_core::geometry::{Point3, fitting};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 use crate::blend::boundary::{BlendBoundary, BoundarySegment};
@@ -35,7 +38,7 @@ use crate::blend::boundary::{BlendBoundary, BoundarySegment};
 /// loop edge that matches a `BlendBoundary` segment with that
 /// segment's curve. Returns the number of edges rewritten — useful
 /// for diagnostic logging and tests.
-pub(super) fn wire_substituted_boundary_to_edges(
+pub(crate) fn wire_substituted_boundary_to_edges(
     brep: &mut BRep,
     boundary: &BlendBoundary,
     sub_faces: &[FaceHandle],
@@ -118,18 +121,84 @@ pub(super) fn wire_substituted_boundary_to_edges(
 
             let curve = segment_curves[seg_idx].clone();
             let (t0, t1) = curve.parameter_range();
+
+            // Capture face surfaces for pcurve refit (this side
+            // and twin) before we mutate the edge.
+            let twin_he = brep.half_edges[he_handle].twin;
+            let cap_face = brep
+                .loops
+                .get(brep.half_edges[he_handle].loop_)
+                .map(|l| l.face);
+            let other_face = brep
+                .loops
+                .get(brep.half_edges[twin_he].loop_)
+                .map(|l| l.face);
+            let cap_surf = cap_face.and_then(|f| {
+                brep.faces
+                    .get(f)
+                    .and_then(|fd| fd.surface.as_ref())
+                    .map(|s| s.geometry.clone())
+            });
+            let other_surf = other_face.and_then(|f| {
+                brep.faces
+                    .get(f)
+                    .and_then(|fd| fd.surface.as_ref())
+                    .map(|s| s.geometry.clone())
+            });
+
             if let Some(edge_data) = brep.edges.get_mut(edge_h) {
                 edge_data.curve = Some(CurveOnEdge {
-                    geometry: popkern_core::geometry::CurveGeometry::Nurbs(curve),
+                    geometry: popkern_core::geometry::CurveGeometry::Nurbs(curve.clone()),
                     t_start: t0,
                     t_end: t1,
                 });
                 consumed[seg_idx] = true;
                 wired += 1;
             }
+
+            // Re-fit both half-edge pcurves from the new 3-D curve.
+            // Without this, the cap-outer-boundary metric (which
+            // reads pcurves directly) would still see the stale
+            // pcurves on each side and report the original drift.
+            if let Some(cap_surf) = cap_surf.as_ref()
+                && let Some(pc) = refit_pcurve_on_surface(&curve, cap_surf, t0, t1)
+            {
+                brep.half_edges[he_handle].pcurve = Some(pc.into());
+            }
+            if let Some(other_surf) = other_surf.as_ref()
+                && let Some(pc) = refit_pcurve_on_surface(&curve, other_surf, t0, t1)
+            {
+                brep.half_edges[twin_he].pcurve = Some(pc.into());
+            }
         }
     }
     wired
+}
+
+/// Sample `curve_3d` at uniform parameter values, project each
+/// sample to `surface`'s UV, and fit a degree-3 NURBS pcurve
+/// through those (u, v, 0) points. Returns `None` if any
+/// projection fails or the fit raises an error.
+fn refit_pcurve_on_surface(
+    curve_3d: &NurbsCurve,
+    surface: &SurfaceGeometry,
+    t0: f64,
+    t1: f64,
+) -> Option<NurbsCurve> {
+    const N: usize = 12;
+    let mut points: Vec<Point3> = Vec::with_capacity(N);
+    let mut params: Vec<f64> = Vec::with_capacity(N);
+    for i in 0..N {
+        let s = i as f64 / (N - 1) as f64;
+        let t = t0 + s * (t1 - t0);
+        let p3 = curve_3d.point_at(t);
+        let (u, v) = project_point_to_uv(surface, &p3)?;
+        points.push(Point3::new(u, v, 0.0));
+        params.push(s);
+    }
+    let degree = 3usize;
+    let n_cps = (degree + 2).min(points.len());
+    fitting::fit_curve(&points, &params, degree, n_cps).ok()
 }
 
 fn collect_loop_half_edges(brep: &BRep, start: HalfEdgeHandle) -> Vec<HalfEdgeHandle> {
