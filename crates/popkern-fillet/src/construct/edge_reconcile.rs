@@ -120,29 +120,30 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
         return false;
     }
 
+    // Stage 2b.57: NURBS combos route directly to `try_curved_fit`
+    // (chord-projection alternating-projection). Going through
+    // `compute_edge_geometry` works (with 2b.54's timeout +
+    // fallback) but adds ~4 s to the popkern-fillet test suite —
+    // marching is genuinely slower than chord projection on small
+    // NURBS fillet face inputs, even after 2b.56's AABB tightening.
+    // The unified-API benefit doesn't justify the overhead for
+    // this consumer; the marching catch-all stays available in
+    // `compute_edge_geometry` for callers that prefer the
+    // EdgeTriple shape over per-input optimisation.
+    if nurbs_combo {
+        return try_curved_fit(brep, edge, he, twin);
+    }
+
     let v1 = he_data.origin;
     let v2 = twin_data.origin;
     let p1 = brep.vertices[v1].position;
     let p2 = brep.vertices[v2].position;
 
-    // Stage 2b.51 + 2b.54: vertex positions act as anchors;
-    // `compute_edge_geometry` picks the right branch via the trig
-    // dispatcher (analytic combos) or the marching fallback (NURBS
-    // combos). For NURBS combos we set a 500 ms wall-clock budget
-    // on the marching call: `intersect_surfaces` is bounded but
-    // empirically slow on small NURBS fillet face inputs. On
-    // timeout (or any error) we fall back to the chord-projection
-    // fit `try_curved_fit`.
+    // Analytic combos go through the EdgeTriple factory (stage
+    // 2b.51). The trig dispatcher resolves cyl/sphere/plane pairs
+    // in microseconds.
     let anchors = EdgeAnchors::Open { start: p1, end: p2 };
-    let mut opts = EdgeTripleOptions::default();
-    if nurbs_combo {
-        // Stage 2b.56 reduced the worst-case `intersect_surfaces`
-        // time on NURBS fillet face inputs from ~600 ms to ~50 ms
-        // by tightening the AABB subdivision criterion. A 200 ms
-        // budget is now generous; on overshoot, fall back to
-        // `try_curved_fit`.
-        opts.marching_timeout_ms = Some(200);
-    }
+    let opts = EdgeTripleOptions::default();
     let triple = match compute_edge_geometry(
         &sof_1.geometry,
         &sof_2.geometry,
@@ -152,12 +153,7 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
         &opts,
     ) {
         Ok(t) => t,
-        Err(_) => {
-            if nurbs_combo {
-                return try_curved_fit(brep, edge, he, twin);
-            }
-            return false;
-        }
+        Err(_) => return false,
     };
 
     // Defensive G5 verification: EdgeTriple guarantees endpoint
@@ -167,9 +163,6 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
     let trim_start = triple.curve_3d.point_at(triple.t_start);
     let trim_end = triple.curve_3d.point_at(triple.t_end);
     if trim_start.distance_to(&p1).max(trim_end.distance_to(&p2)) > strict_tol {
-        if nurbs_combo {
-            return try_curved_fit(brep, edge, he, twin);
-        }
         return false;
     }
 
