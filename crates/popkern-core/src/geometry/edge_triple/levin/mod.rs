@@ -54,6 +54,7 @@ mod pencil;
 mod polynomial;
 mod qsqrtd;
 mod qsqrtd_decompose;
+mod qsqrtd_nested;
 mod quadric;
 mod rational;
 mod tangent;
@@ -74,6 +75,8 @@ mod pencil_tests;
 mod polynomial_tests;
 #[cfg(test)]
 mod qsqrtd_decompose_tests;
+#[cfg(test)]
+mod qsqrtd_nested_tests;
 #[cfg(test)]
 mod qsqrtd_tests;
 #[cfg(test)]
