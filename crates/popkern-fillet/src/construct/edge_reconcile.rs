@@ -136,7 +136,12 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
     let anchors = EdgeAnchors::Open { start: p1, end: p2 };
     let mut opts = EdgeTripleOptions::default();
     if nurbs_combo {
-        opts.marching_timeout_ms = Some(500);
+        // Stage 2b.56 reduced the worst-case `intersect_surfaces`
+        // time on NURBS fillet face inputs from ~600 ms to ~50 ms
+        // by tightening the AABB subdivision criterion. A 200 ms
+        // budget is now generous; on overshoot, fall back to
+        // `try_curved_fit`.
+        opts.marching_timeout_ms = Some(200);
     }
     let triple = match compute_edge_geometry(
         &sof_1.geometry,

@@ -61,13 +61,21 @@ pub(crate) fn find_starting_points(
 
     let mut queue = initial_pairs;
 
+    // Stage 2b.56: depth cap reduced from 6 → 4 and diag threshold
+    // raised from 100·tol to 1000·tol. The previous values produced
+    // ~1000 candidate pairs on small NURBS fillet face inputs (each
+    // requiring a Newton iteration via `march_project`), pushing
+    // total `intersect_surfaces` time into the 600+ ms regime —
+    // diagnosed in stage 2b.55. The new values keep enough
+    // candidate density to find every CAD intersection branch
+    // while putting slow calls in the ~50 ms regime.
     while let Some((patch1, patch2, depth)) = queue.pop() {
         // Defense-in-depth: cap total candidates to prevent OOM.
         if candidate_pairs.len() >= MAX_CANDIDATE_PAIRS {
             break;
         }
         let diag = patch1.bbox.diagonal().max(patch2.bbox.diagonal());
-        if depth < 6 && diag > 100.0 * tolerance.linear() {
+        if depth < 4 && diag > 1000.0 * tolerance.linear() {
             // Refine both patches and re-cull sub-pairs.
             let sub1 = refine_patch(&patch1);
             let sub2 = refine_patch(&patch2);
