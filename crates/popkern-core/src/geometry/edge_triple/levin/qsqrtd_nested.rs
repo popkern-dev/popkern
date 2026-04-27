@@ -451,6 +451,27 @@ pub(crate) fn extract_planes_qsqrtd_nested(d: &Mat4SymRat) -> Option<[[QSqrtDSqr
 
 // ─── Stage 2b.46: bounded fiber search + symbolic→f64 converters ──
 
+/// True iff every entry of `m` has numerator and denominator below
+/// `max_bits`. Used to gate the symbolic path on inputs that
+/// round-tripped from f64 irrationals (axes like `(1/√2, 0, 1/√2)`),
+/// whose quadric entries have ~50-bit numerators and so push
+/// downstream QSqrtD Gaussian elimination into entries that grow
+/// into the hundreds of bits — fast in theory, but slow enough in
+/// practice to dwarf the f64 fallback. CAD inputs that round-trip
+/// to small rationals (axis-aligned cylinders, integer radii, etc.)
+/// pass this gate easily; messy-irrational inputs fail it and route
+/// through the f64 path instead.
+pub(crate) fn matrix_entries_within_bit_budget(m: &Mat4SymRat, max_bits: u64) -> bool {
+    for row in &m.0 {
+        for entry in row {
+            if entry.numer().bits() > max_bits || entry.denom().bits() > max_bits {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// Walk a small set of rational `λ` candidates and return the first
 /// fibre `λA + B` that's rank-deficient (`det = 0`). Bounded cost:
 /// no `rational_roots` call (which would trial-divide huge bigints

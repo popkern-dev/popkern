@@ -68,6 +68,8 @@ mod cone_fiber_tests;
 #[cfg(test)]
 mod decompose_tests;
 #[cfg(test)]
+mod dispatch_tests;
+#[cfg(test)]
 mod eigen_tests;
 #[cfg(test)]
 mod pencil_tests;

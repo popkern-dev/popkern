@@ -140,6 +140,17 @@ pub(crate) fn try_levin_pair_nested(
 ) -> Option<Result<EdgeTriple, EdgeTripleError>> {
     let a_rat = super::rational::surface_to_quadric_rat(surf_a)?;
     let b_rat = super::rational::surface_to_quadric_rat(surf_b)?;
+    // Gate on input bit-budget: irrational-axis CAD inputs round-trip
+    // to ~50-bit BigRationals, and downstream `null_vector_qsqrtd`
+    // Gaussian elimination explodes those into hundreds of bits.
+    // Generous cap — still admits all clean integer / small-fraction
+    // CAD cases the symbolic path can actually serve.
+    const MAX_INPUT_BITS: u64 = 32;
+    if !super::qsqrtd_nested::matrix_entries_within_bit_budget(&a_rat, MAX_INPUT_BITS)
+        || !super::qsqrtd_nested::matrix_entries_within_bit_budget(&b_rat, MAX_INPUT_BITS)
+    {
+        return None;
+    }
     let fiber = super::qsqrtd_nested::find_small_rational_fiber(&a_rat, &b_rat)?;
     let planes_qsqrtd = super::qsqrtd_nested::extract_planes_qsqrtd_nested(&fiber)?;
     let p_a = super::qsqrtd_nested::qsqrtd_sqrt_l_array_to_f64(&planes_qsqrtd[0])?;
