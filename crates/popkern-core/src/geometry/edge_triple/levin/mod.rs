@@ -46,10 +46,12 @@
 //! and parameterisation. Surd-bearing endpoints emit as f64 only at
 //! the final pcurve / curve-3D layer.
 
+mod branch_points;
 mod cone_fiber;
 mod decompose;
 mod dispatch;
 mod eigen;
+mod multi_branch;
 mod pencil;
 mod polynomial;
 mod qsqrtd;
@@ -61,6 +63,7 @@ mod tangent;
 
 pub(super) use cone_fiber::try_rank3_cone_fiber;
 pub(super) use dispatch::{try_levin_pair, try_levin_pair_nested, try_tangent_pair};
+pub(super) use multi_branch::try_levin_pair_all_branches;
 pub(super) use rational::surfaces_are_coincident;
 
 #[cfg(test)]

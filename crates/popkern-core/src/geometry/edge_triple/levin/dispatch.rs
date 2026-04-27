@@ -320,7 +320,7 @@ pub(crate) fn try_levin_pair(
     ))
 }
 
-fn intersect_plane_with_target(
+pub(super) fn intersect_plane_with_target(
     plane_surf: &SurfaceGeometry,
     target: &SurfaceGeometry,
     anchors: &EdgeAnchors,
@@ -430,7 +430,10 @@ fn intersect_plane_with_target(
 /// with `b ∈ {+1, −1}`. We recover `(a, b)` from the start anchor
 /// (where both `t_start`s map to the same physical point) plus a
 /// mid-curve sample to disambiguate the slope sign.
-fn derive_linear_affine_b(triple_a: &EdgeTriple, triple_b: &EdgeTriple) -> Option<(f64, f64)> {
+pub(super) fn derive_linear_affine_b(
+    triple_a: &EdgeTriple,
+    triple_b: &EdgeTriple,
+) -> Option<(f64, f64)> {
     let alpha_a_start = triple_a.t_start;
     let alpha_a_mid = (triple_a.t_start + triple_a.t_end) * 0.5;
     let p_start = triple_a.curve_3d.point_at(alpha_a_start);
@@ -552,7 +555,7 @@ fn solve_2basis(
 /// applies to this plane × surface combination (e.g., the plane
 /// doesn't actually intersect the surface for this branch — likely
 /// the "plane at infinity" stub from rank-2 mixed-sign decomposition).
-fn classify_branch_kind(
+pub(super) fn classify_branch_kind(
     plane: &[f64; 4],
     target: &SurfaceGeometry,
     anchors: &EdgeAnchors,
@@ -572,7 +575,7 @@ fn classify_branch_kind(
     ))
 }
 
-fn matrix_max_abs(m: &[[f64; 4]; 4]) -> f64 {
+pub(super) fn matrix_max_abs(m: &[[f64; 4]; 4]) -> f64 {
     let mut max = 0.0_f64;
     for row in m.iter() {
         for &v in row {
@@ -582,7 +585,7 @@ fn matrix_max_abs(m: &[[f64; 4]; 4]) -> f64 {
     max
 }
 
-fn provenance_kind(a: &SurfaceGeometry, b: &SurfaceGeometry) -> AnalyticPair {
+pub(super) fn provenance_kind(a: &SurfaceGeometry, b: &SurfaceGeometry) -> AnalyticPair {
     use SurfaceGeometry::*;
     match (a, b) {
         (Cylinder { .. }, Cylinder { .. }) => AnalyticPair::CylinderCylinder,

@@ -62,26 +62,29 @@ pub fn compute_edge_geometry(
 /// `popkern-fillet`) that previously iterated `intersect_surfaces`'s
 /// `Vec<SurfaceSurfaceIntersection>`.
 ///
-/// **Stage 2b.49 scope:** returns the single anchored branch picked
-/// by [`compute_edge_geometry`] wrapped in a `Vec`. Sufficient for
-/// surface pairs that geometrically have one intersection branch
-/// (plane×sphere, plane×cone-elliptic, plane×plane, cyl×inscribed-
-/// sphere tangent, etc.) — i.e., the majority of CAD edges that
-/// downstream consumers care about.
+/// **Multi-branch handling (stage 2b.50):** for **Levin quadric
+/// pairs** (cyl×cyl skew, cyl×cone non-coaxial, cone×cone non-coaxial
+/// — and the Steinmetz cyl×cyl perpendicular case), the rank-2
+/// fibre decomposes into two real planes and this function returns
+/// **two** triples, one per plane. Anchors for the plane that doesn't
+/// match the user's anchors are synthesised at the **branch points**
+/// (intersections of the kernel line with `surf_a`).
 ///
-/// **Multi-branch enumeration (deferred to 2b.50+):** Levin quadric
-/// pairs produce **two** plane fibres, and `cyl × cyl` parallel can
-/// produce **two** lines. The current implementation returns only
-/// the anchor-matching branch. Consumers that depend on enumerating
-/// every branch (e.g., `popkern-bool/intersect.rs`) cannot migrate
-/// off `intersect_surfaces` until the Levin multi-branch logic
-/// lands — at which point this function will append the remaining
-/// branches via synthesised anchors on the secondary plane(s).
+/// **Single-branch fallback:** for surface pairs without a Levin
+/// rank-2 fibre (plane×sphere, sphere×sphere, the various tangent
+/// cases, etc.), this function returns a 1-element `Vec` containing
+/// the result of [`compute_edge_geometry`].
 ///
-/// **Error semantics:** If the primary anchored dispatch returns an
-/// error, that error is returned (e.g., `CoincidentSurfaces`,
-/// `NoIntersection`, `Unimplemented`). On success, the returned
-/// `Vec` is non-empty and contains at least the primary branch.
+/// **Coverage gaps:**
+/// - `cyl × cyl` parallel can have 0/1/2 line branches; the
+///   single-branch dispatcher's behaviour is preserved here.
+/// - Plane × cylinder oblique with axis-in-plane (2 lines) is
+///   not yet enumerated.
+///
+/// **Error semantics:** If both Levin multi-branch and the
+/// single-branch path fail, the single-branch error is returned
+/// (e.g., `CoincidentSurfaces`, `NoIntersection`, `Unimplemented`).
+/// On success, the returned `Vec` is non-empty.
 pub fn compute_edge_geometry_all_branches(
     surf_a: &SurfaceGeometry,
     surf_b: &SurfaceGeometry,
@@ -89,6 +92,26 @@ pub fn compute_edge_geometry_all_branches(
     tol: &Tolerance,
     opts: &EdgeTripleOptions,
 ) -> Result<Vec<EdgeTriple>, EdgeTripleError> {
+    // Coincident-surface short-circuit: same exact-symbolic check
+    // as `compute_edge_geometry`.
+    if let Some(true) = super::levin::surfaces_are_coincident(surf_a, surf_b) {
+        return Err(EdgeTripleError::CoincidentSurfaces {
+            reason: "surfaces are scalar multiples of one another (A = c · B)",
+        });
+    }
+
+    // Levin multi-branch enumeration: returns Some(vec) for quadric
+    // pairs whose pencil has a rank-≤ 2 degenerate fibre. The vec
+    // contains one triple per plane (typically 2 for rank-2
+    // mixed-sign).
+    if let Some(triples) = super::levin::try_levin_pair_all_branches(surf_a, surf_b, &anchors, tol)
+    {
+        return Ok(triples);
+    }
+
+    // Fall back to single-branch dispatch — pair classes where the
+    // intersection has one geometric branch (plane×sphere, etc.) or
+    // where Levin doesn't apply.
     let primary = compute_edge_geometry(surf_a, surf_b, anchors, None, tol, opts)?;
     Ok(vec![primary])
 }
@@ -395,6 +418,65 @@ mod tests {
             matches!(result, Err(EdgeTripleError::CoincidentSurfaces { .. })),
             "expected CoincidentSurfaces, got {result:?}"
         );
+    }
+
+    /// Stage 2b.50: Steinmetz cyl×cyl perpendicular returns **two**
+    /// branches — one ellipse per plane fibre. The pencil's rank-2
+    /// fibre at `λ = -1` decomposes into planes `x + z = 0` and
+    /// `x − z = 0`. Each plane's intersection with cyl_z is one
+    /// ellipse (4 ellipse segments make up the Steinmetz boundary
+    /// when topologically clipped, but as analytic curves there are
+    /// 2 full ellipses).
+    ///
+    /// Anchor `(1, 0, -1)` and `(0, 1, 0)` lie on plane `x + z = 0`.
+    /// Branch points on the kernel line (y-axis) are `(0, ±1, 0)`,
+    /// used as synthesised anchors for the secondary plane.
+    #[test]
+    fn all_branches_returns_two_branches_for_steinmetz_cyl_cyl() {
+        let cyl_z = z_axis_cyl(1.0);
+        let cyl_x = SurfaceGeometry::Cylinder {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(1.0, 0.0, 0.0),
+            radius: 1.0,
+        };
+        let anchors = EdgeAnchors::Open {
+            start: Point3::new(1.0, 0.0, -1.0),
+            end: Point3::new(0.0, 1.0, 0.0),
+        };
+        let tol = Tolerance::default();
+        let opts = EdgeTripleOptions::default();
+        let branches = compute_edge_geometry_all_branches(&cyl_z, &cyl_x, anchors, &tol, &opts)
+            .expect("Steinmetz produces branches");
+        assert_eq!(
+            branches.len(),
+            2,
+            "Steinmetz has 2 ellipse branches (one per plane fibre)"
+        );
+        // Both triples must verify on both surfaces at tol.linear().
+        for (i, t) in branches.iter().enumerate() {
+            let q = t.verify(&cyl_z, &cyl_x, &tol, 32).unwrap_or_else(|e| {
+                panic!("branch {} failed verify: {:?}", i, e);
+            });
+            assert!(
+                q.max_positional_residual <= tol.linear(),
+                "branch {} G2 residual {} > tol {}",
+                i,
+                q.max_positional_residual,
+                tol.linear()
+            );
+        }
+        // Each triple's cardinality reports `total = 2`.
+        for (i, t) in branches.iter().enumerate() {
+            let crate::geometry::edge_triple::types::EdgeTripleProvenance::AnalyticIntersection {
+                cardinality: Some(c),
+                ..
+            } = &t.provenance
+            else {
+                panic!("branch {} missing AnalyticIntersection cardinality", i);
+            };
+            assert_eq!(c.total, 2, "branch {} cardinality.total", i);
+            assert!(!c.tangent, "Steinmetz is transverse, not tangent");
+        }
     }
 
     /// Unimplemented surface pair propagates the `Unimplemented`
