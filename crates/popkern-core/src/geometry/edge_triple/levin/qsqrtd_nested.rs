@@ -41,18 +41,32 @@
 //!   canonical `0 + 1·√λ` in `Q[√d, √λ]`. `(√λ)² = λ` by the
 //!   defining identity. Returns `None` for negative inputs.
 //!
-//! Plumbing into plane extraction (`extract_planes_qsqrtd_nested`)
-//! lands in a follow-up stage so the helpers above can be exercised
-//! standalone first.
+//! ## Plane extraction (stage 2b.45)
+//!
+//! - `try_sqrt_rat_in_qsqrtd(r, d) -> Option<QSqrtD>` — try to
+//!   express `√r` as a value in `Q[√d]` (success cases: `r` a
+//!   rational square, or `r/d` a rational square ⇒ `√r = c·√d`).
+//! - `extract_planes_qsqrtd_nested(D) -> Option<[[QSqrtDSqrtL; 4]; 2]>`
+//!   — companion to `qsqrtd_decompose::extract_planes_qsqrtd` that
+//!   uses the nested field. Closes the golden-ratio class where the
+//!   single-surd path returns `None` because the eigenvalues aren't
+//!   perfect squares in `Q[√d]`. Limitation: requires `√(−S₂) ∈ Q[√d]`
+//!   so the second eigenvalue's sqrt embeds in the same nested field
+//!   as `√μ_+`; otherwise a triple tower would be needed (out of
+//!   scope).
 
 #![allow(dead_code)]
 
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
+use num_bigint::BigInt;
 use num_traits::{One, Signed, Zero};
 
 use super::qsqrtd::QSqrtD;
-use super::rational::Rat;
+use super::qsqrtd_decompose::{
+    Mat4SymQSqrtD, lift_to_qsqrtd, null_vector_qsqrtd, rank2_eigenvalues, subtract_mu_diag,
+};
+use super::rational::{Mat4SymRat, Rat};
 
 /// A value `p₀ + p₁·√α` with `p₀, p₁, α ∈ Q[√d]`.
 #[derive(Clone, Debug)]
@@ -268,4 +282,157 @@ impl Div for QSqrtDSqrtL {
             alpha: prod.alpha,
         }
     }
+}
+
+// ─── Stage 2b.45: nested-radical plane extraction ─────────────────
+
+/// Exact integer square root: returns `Some(s)` iff `n = s²` for some
+/// non-negative integer `s`; `None` otherwise. Newton's method.
+fn isqrt_exact(n: &BigInt) -> Option<BigInt> {
+    if n.is_zero() {
+        return Some(BigInt::zero());
+    }
+    if n.is_negative() {
+        return None;
+    }
+    let mut x = n.clone();
+    let mut y = (&x + BigInt::one()) >> 1;
+    while y < x {
+        x = y;
+        y = (&x + n / &x) >> 1;
+    }
+    if &x * &x == *n { Some(x) } else { None }
+}
+
+/// Exact rational square root: returns `Some(s)` iff `r = s²` for
+/// some non-negative rational `s`; `None` otherwise. Requires both
+/// numerator and denominator of `r` (in lowest terms) to be perfect
+/// squares.
+fn isqrt_rat(r: &Rat) -> Option<Rat> {
+    if r.is_negative() {
+        return None;
+    }
+    if r.is_zero() {
+        return Some(Rat::zero());
+    }
+    let n_sqrt = isqrt_exact(r.numer())?;
+    let d_sqrt = isqrt_exact(r.denom())?;
+    Some(Rat::new(n_sqrt, d_sqrt))
+}
+
+/// Try to express `√r` as a value in `Q[√d]` for rational `r ≥ 0`
+/// and rational `d > 0`. Two cases succeed:
+/// 1. `r` is a perfect rational square ⇒ `√r ∈ Q ⊂ Q[√d]`.
+/// 2. `r/d` is a perfect rational square ⇒ `√r = c·√d` for `c ∈ Q`.
+///
+/// Returns `None` when `√r` requires a fresh radical extension
+/// distinct from `√d` (e.g., `r = 2`, `d = 3` — `√2` and `√3` are
+/// independent surds, both irrational and unrelated).
+pub(crate) fn try_sqrt_rat_in_qsqrtd(r: &Rat, d: &Rat) -> Option<QSqrtD> {
+    if r.is_negative() {
+        return None;
+    }
+    // Case 1: √r ∈ Q.
+    if let Some(s) = isqrt_rat(r) {
+        return Some(QSqrtD::from_rat(s));
+    }
+    // Case 2: √r = c·√d.
+    if d.is_zero() {
+        return None;
+    }
+    let r_div_d = r / d;
+    if let Some(c) = isqrt_rat(&r_div_d) {
+        return Some(QSqrtD::new(Rat::zero(), c, d.clone()));
+    }
+    None
+}
+
+/// Symbolically extract the two **plane normals** from a rank-2
+/// mixed-sign quadric matrix `D`, using the nested-radical extension
+/// `Q[√d, √μ_+]` to handle eigenvalues that are *not* perfect squares
+/// in `Q[√d]`. Companion to `qsqrtd_decompose::extract_planes_qsqrtd`,
+/// which only succeeds when `√μ_+` and `√(−μ_-)` already live in
+/// `Q[√d]`.
+///
+/// ## When this succeeds
+///
+/// The returned planes live in `Q[√d, √μ_+]` (with `α = μ_+` the
+/// second radicand). Both square roots embed in this single field
+/// iff `√(−S₂) ∈ Q[√d]`, where `S₂ = μ_+ · μ_- ∈ Q` is the product
+/// of the non-zero eigenvalues. Then:
+/// - `√μ_+ = 0 + 1·√α`,
+/// - `√(−μ_-) = √(−S₂) / √μ_+ = (√(−S₂) / α)·√α` (one component, in `Q[√d]`).
+///
+/// ## When this returns `None`
+///
+/// - `disc < 0`: complex eigenvalues (no real plane decomposition).
+/// - `disc = 0`: rank-1 (doubled plane — use `tangent::extract_plane_from_rank1`).
+/// - `μ_+ = 0`: degenerate.
+/// - Null vectors not extractable (matrix not rank-2 mixed-sign).
+/// - `√(−S₂)` is genuinely irrational over `Q[√d]` (would need a
+///   triple tower `Q[√d, √μ_+, √(−μ_-)]` — out of scope).
+///
+/// The "golden-ratio" class — eigenvalues `(1 ± √5)/2` from an
+/// integer-trace, integer-determinant 2×2 reduction — has
+/// `S₂ = −1` and so `−S₂ = 1` is trivially a square in `Q ⊂ Q[√d]`,
+/// so this function succeeds where the single-surd path fails.
+pub(crate) fn extract_planes_qsqrtd_nested(d: &Mat4SymRat) -> Option<[[QSqrtDSqrtL; 4]; 2]> {
+    let (mu_plus, mu_minus, disc) = rank2_eigenvalues(d)?;
+    if disc.is_zero() {
+        return None;
+    }
+    if mu_plus.is_zero() {
+        return None;
+    }
+
+    let alpha = mu_plus.clone();
+    let lifted: Mat4SymQSqrtD = lift_to_qsqrtd(d);
+    let m_plus = subtract_mu_diag(&lifted, &mu_plus);
+    let v_plus = null_vector_qsqrtd(&m_plus)?;
+    let m_minus = subtract_mu_diag(&lifted, &mu_minus);
+    let v_minus = null_vector_qsqrtd(&m_minus)?;
+
+    // S₂ = μ_+·μ_-; the cross-terms in (a + b√d)(a' + b'√d) with
+    // mu_minus = (tr/2) − (1/2)√disc cancel, so the product is pure-
+    // rational by Vieta. Verify before extracting.
+    let s2_qsqrtd = mu_plus.clone() * mu_minus.clone();
+    if !s2_qsqrtd.b.is_zero() {
+        // Shouldn't happen for the well-formed rank-2 case, but guard
+        // anyway against numeric surprises in degenerate inputs.
+        return None;
+    }
+    let neg_s2: Rat = -s2_qsqrtd.a.clone();
+
+    // sqrt_neg_s2 must live in Q[√d] — i.e., either √(−S₂) ∈ Q
+    // (case 1) or √(−S₂) = c·√d (case 2). Reject otherwise.
+    let sqrt_neg_s2 = try_sqrt_rat_in_qsqrtd(&neg_s2, &alpha.d)?;
+
+    // √μ_+ = 0 + 1·√α (canonical embedding of the second radicand).
+    let sqrt_lp = QSqrtDSqrtL::new(QSqrtD::zero(), QSqrtD::from_rat(Rat::one()), alpha.clone());
+    // √(−μ_-) = √(−S₂)/√α = (√(−S₂)/α)·√α.
+    let sqrt_lm = QSqrtDSqrtL::new(QSqrtD::zero(), sqrt_neg_s2 / alpha.clone(), alpha.clone());
+
+    let scale_v = |s: &QSqrtDSqrtL, v: &[QSqrtD; 4]| -> [QSqrtDSqrtL; 4] {
+        [
+            s.clone() * QSqrtDSqrtL::from_qsqrtd(v[0].clone(), alpha.clone()),
+            s.clone() * QSqrtDSqrtL::from_qsqrtd(v[1].clone(), alpha.clone()),
+            s.clone() * QSqrtDSqrtL::from_qsqrtd(v[2].clone(), alpha.clone()),
+            s.clone() * QSqrtDSqrtL::from_qsqrtd(v[3].clone(), alpha.clone()),
+        ]
+    };
+    let a = scale_v(&sqrt_lp, &v_plus);
+    let b = scale_v(&sqrt_lm, &v_minus);
+    let p1: [QSqrtDSqrtL; 4] = [
+        a[0].clone() + b[0].clone(),
+        a[1].clone() + b[1].clone(),
+        a[2].clone() + b[2].clone(),
+        a[3].clone() + b[3].clone(),
+    ];
+    let p2: [QSqrtDSqrtL; 4] = [
+        a[0].clone() - b[0].clone(),
+        a[1].clone() - b[1].clone(),
+        a[2].clone() - b[2].clone(),
+        a[3].clone() - b[3].clone(),
+    ];
+    Some([p1, p2])
 }
