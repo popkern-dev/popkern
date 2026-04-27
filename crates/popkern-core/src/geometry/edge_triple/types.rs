@@ -118,6 +118,15 @@ pub struct BranchCardinality {
     pub total: u8,
     /// Conic kind per branch, in canonical (dispatch) order.
     pub kinds: Vec<BranchKind>,
+    /// True iff the surfaces meet *tangentially* along this curve —
+    /// i.e., the two surfaces share a tangent plane at every point of
+    /// the intersection (multiplicity-2 contact). Detected exactly via
+    /// the symbolic Q rational-pencil rank-1 fibre; downstream
+    /// boolean / mesh / IO consumers branch on this when handling
+    /// kissing edges, double-curves, or G1 stitching across the join.
+    /// Defaults to `false` for transverse intersections.
+    #[serde(default)]
+    pub tangent: bool,
 }
 
 /// Discrete tag for analytic surface-pair classes. Members are

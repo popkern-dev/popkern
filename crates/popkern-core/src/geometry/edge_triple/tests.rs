@@ -1264,6 +1264,9 @@ fn cyl_cyl_skew_levin_analytic_ellipse() {
     for k in &card.kinds {
         assert_eq!(*k, BranchKind::Ellipse);
     }
+    // Stage 2b.42: skew cylinders cross transversely, so the Levin
+    // path must NOT tag this as tangent.
+    assert!(!card.tangent, "skew cyl×cyl is a transverse intersection");
     assert!(matches!(
         triple.curve_3d,
         crate::geometry::curve::CurveGeometry::Ellipse { .. }

@@ -301,6 +301,19 @@ mod tests {
             "G2 residual {}",
             q.max_positional_residual
         );
+        // Stage 2b.42: the symbolic tangent path tags its provenance
+        // so downstream consumers (boolean / mesh / IO) can branch on
+        // tangent vs transverse intersections.
+        match &triple.provenance {
+            crate::geometry::edge_triple::types::EdgeTripleProvenance::AnalyticIntersection {
+                cardinality: Some(c),
+                ..
+            } => {
+                assert!(c.tangent, "expected tangent: true on cyl-inscribed-sphere");
+                assert_eq!(c.total, 1, "tangent intersection has a single branch");
+            }
+            other => panic!("expected AnalyticIntersection w/ cardinality, got {other:?}"),
+        }
     }
 
     #[test]

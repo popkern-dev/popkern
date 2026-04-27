@@ -84,6 +84,10 @@ pub(crate) fn try_tangent_pair(
         kinds: vec![crate::geometry::edge_triple::types::BranchKind::from_curve(
             &triple_a.curve_3d,
         )],
+        // Stage 2b.42: this path is reached only via the symbolic
+        // rank-1 fibre detection in `tangent::find_tangent_plane`,
+        // so the intersection is tangent by construction.
+        tangent: true,
     });
     let (a_b_coef, b_b_coef) = derive_linear_affine_b(&triple_a, &triple_b)?;
 
@@ -163,6 +167,11 @@ pub(crate) fn try_levin_pair(
     let cardinality = Some(crate::geometry::edge_triple::types::BranchCardinality {
         total: total_branches,
         kinds: branch_kinds,
+        // Levin's rank-2 plane decomposition handles transverse
+        // intersections (two distinct real planes); rank-1 tangent
+        // fibres are routed to `try_tangent_pair` upstream of this
+        // function, so reaching here implies a transverse pair.
+        tangent: false,
     });
 
     // The composed triple uses triple_a's curve_3d as the canonical
