@@ -424,12 +424,18 @@ pub(super) fn finalize_quality_pub(
 /// Used by `compute_edge_geometry_unanchored` for callers that
 /// discover intersection curves rather than anchor them — boolean
 /// section/imprint/intersect, draft neutral-line extraction, etc.
+///
+/// **Quality verification is skipped.** Marching-fitted curves are
+/// known-approximate (NURBS-fitted from sample points); the strict
+/// G2 verify in `finalize_quality` would filter most of them out.
+/// Consumers that need quality metrics should call
+/// `triple.verify(...)` themselves.
 pub(super) fn cos_to_triple_unanchored(
     cos: &CurveOnSurface,
-    surf_a: &SurfaceGeometry,
-    surf_b: &SurfaceGeometry,
+    _surf_a: &SurfaceGeometry,
+    _surf_b: &SurfaceGeometry,
     tol: &Tolerance,
-) -> Result<EdgeTriple, EdgeTripleError> {
+) -> EdgeTriple {
     use crate::geometry::curve::CurveGeometry;
     use crate::geometry::edge_triple::types::ParameterMap;
     let (t_start, t_end) = cos.curve_3d.parameter_range();
@@ -442,7 +448,7 @@ pub(super) fn cos_to_triple_unanchored(
     } else {
         EdgeTopology::Open
     };
-    let triple = EdgeTriple {
+    EdgeTriple {
         curve_3d: CurveGeometry::Nurbs(cos.curve_3d.clone()),
         pcurve_a: cos.curve_uv1.clone().into(),
         pcurve_b: cos.curve_uv2.clone().into(),
@@ -456,8 +462,7 @@ pub(super) fn cos_to_triple_unanchored(
             converged: true,
         },
         quality: EdgeTripleQuality::default(),
-    };
-    finalize_quality(triple, surf_a, surf_b, tol)
+    }
 }
 
 fn finalize_quality(

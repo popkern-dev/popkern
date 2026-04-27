@@ -5,45 +5,14 @@
 //! coincident regions) embedded in 3D. Used for interference analysis,
 //! cross-section visualization, and as a building block for full booleans.
 
-use popkern_core::geometry::curve::CurveGeometry;
 use popkern_core::geometry::curve_on_surface::CurveOnSurface;
-use popkern_core::geometry::edge_triple::{
-    EdgeTriple, EdgeTripleOptions, compute_edge_geometry_unanchored,
-};
-use popkern_core::geometry::pcurve::PcurveGeometry;
+use popkern_core::geometry::edge_triple::{EdgeTripleOptions, compute_edge_geometry_unanchored};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use crate::clip::{clip_curve_to_faces, face_vertex_positions};
+use crate::clip::{clip_curve_to_faces, edge_triple_to_curve_on_surface, face_vertex_positions};
 use crate::error::BoolError;
 use crate::intersect::compute_face_aabbs;
-
-/// Extract the underlying `CurveOnSurface` (NURBS triple) from an
-/// `EdgeTriple` produced by `compute_edge_geometry_unanchored`.
-/// Returns `None` if the triple's curves aren't NURBS-backed —
-/// shouldn't happen for the marching path the unanchored API uses,
-/// but we guard against future analytic-curve paths defensively.
-fn edge_triple_to_curve_on_surface(triple: &EdgeTriple) -> Option<CurveOnSurface> {
-    let CurveGeometry::Nurbs(curve_3d) = &triple.curve_3d else {
-        return None;
-    };
-    let PcurveGeometry::Nurbs(curve_uv1) = &triple.pcurve_a.geometry else {
-        return None;
-    };
-    let PcurveGeometry::Nurbs(curve_uv2) = &triple.pcurve_b.geometry else {
-        return None;
-    };
-    let is_closed = matches!(
-        triple.topology,
-        popkern_core::geometry::edge_triple::EdgeTopology::Closed { .. }
-    );
-    Some(CurveOnSurface {
-        curve_3d: curve_3d.clone(),
-        curve_uv1: curve_uv1.clone(),
-        curve_uv2: curve_uv2.clone(),
-        is_closed,
-    })
-}
 
 /// Result of a section operation.
 #[derive(Debug)]

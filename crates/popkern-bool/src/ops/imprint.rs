@@ -6,11 +6,11 @@
 //! and staged boolean workflows.
 
 use popkern_core::geometry::curve_on_surface::CurveOnSurface;
-use popkern_core::geometry::intersection::intersect_surfaces;
+use popkern_core::geometry::edge_triple::{EdgeTripleOptions, compute_edge_geometry_unanchored};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use crate::clip::{clip_curve_to_faces, face_vertex_positions};
+use crate::clip::{clip_curve_to_faces, edge_triple_to_curve_on_surface, face_vertex_positions};
 use crate::error::BoolError;
 use crate::intersect::{IntersectionRecord, compute_face_aabbs};
 use crate::split::split_along_curves;
@@ -92,7 +92,13 @@ pub fn imprint(
                     surf_tool,
                 );
 
-            if let Ok(result) = intersect_surfaces(
+            // Stage 2b.59: migrated from `intersect_surfaces` to the
+            // anchorless EdgeTriple API. Same pattern as section.rs
+            // (stage 2b.58): face-pair discovery → unanchored
+            // `Vec<EdgeTriple>` → unwrap each to `CurveOnSurface`
+            // → clip → record.
+            let opts = EdgeTripleOptions::default();
+            let triples = match compute_edge_geometry_unanchored(
                 surf_t,
                 (u1_min, u1_max),
                 (v1_min, v1_max),
@@ -100,29 +106,30 @@ pub fn imprint(
                 (u2_min, u2_max),
                 (v2_min, v2_max),
                 tolerance,
+                &opts,
             ) {
-                for isect in result.intersections {
-                    if let popkern_core::geometry::intersection::SurfaceSurfaceIntersection::Curve(
-                        curve,
-                    ) = isect
-                        && let Some(clipped) =
-                            clip_curve_to_faces(target, *face_t, tool, *face_tool, &curve)
-                    {
-                        curves.push(ImprintCurve {
-                            curve: clipped.clone(),
-                            target_face: *face_t,
-                            tool_face: *face_tool,
-                        });
-                        records.push(IntersectionRecord {
-                            face_a: *face_t,
-                            face_b: *face_tool,
-                            curve: clipped,
-                            is_tangent: false,
-                            is_coincident: false,
-                            start_boundary: Default::default(),
-                            end_boundary: Default::default(),
-                        });
-                    }
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            for triple in triples {
+                if let Some(curve) = edge_triple_to_curve_on_surface(&triple)
+                    && let Some(clipped) =
+                        clip_curve_to_faces(target, *face_t, tool, *face_tool, &curve)
+                {
+                    curves.push(ImprintCurve {
+                        curve: clipped.clone(),
+                        target_face: *face_t,
+                        tool_face: *face_tool,
+                    });
+                    records.push(IntersectionRecord {
+                        face_a: *face_t,
+                        face_b: *face_tool,
+                        curve: clipped,
+                        is_tangent: false,
+                        is_coincident: false,
+                        start_boundary: Default::default(),
+                        end_boundary: Default::default(),
+                    });
                 }
             }
         }

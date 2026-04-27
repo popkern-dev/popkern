@@ -23,6 +23,41 @@ pub(crate) use clip_line::{clip_curve_to_single_face, clip_line_to_face};
 /// Two-pi constant for periodic seam handling.
 const TWO_PI: f64 = std::f64::consts::TAU;
 
+/// Stage 2b.58: extract the underlying `CurveOnSurface` (NURBS
+/// triple) from an `EdgeTriple` produced by
+/// `compute_edge_geometry_unanchored`. Returns `None` if the
+/// triple's curves aren't NURBS-backed — shouldn't happen for the
+/// marching path the unanchored API uses, but we guard against
+/// future analytic-curve paths defensively.
+///
+/// Bridges the EdgeTriple-shape returned by the new factory with
+/// the `CurveOnSurface`-shape that `clip_curve_to_faces` and the
+/// rest of `popkern-bool`'s pipeline still consume.
+pub(crate) fn edge_triple_to_curve_on_surface(
+    triple: &popkern_core::geometry::edge_triple::EdgeTriple,
+) -> Option<CurveOnSurface> {
+    use popkern_core::geometry::pcurve::PcurveGeometry;
+    let CurveGeometry::Nurbs(curve_3d) = &triple.curve_3d else {
+        return None;
+    };
+    let PcurveGeometry::Nurbs(curve_uv1) = &triple.pcurve_a.geometry else {
+        return None;
+    };
+    let PcurveGeometry::Nurbs(curve_uv2) = &triple.pcurve_b.geometry else {
+        return None;
+    };
+    let is_closed = matches!(
+        triple.topology,
+        popkern_core::geometry::edge_triple::EdgeTopology::Closed { .. }
+    );
+    Some(CurveOnSurface {
+        curve_3d: curve_3d.clone(),
+        curve_uv1: curve_uv1.clone(),
+        curve_uv2: curve_uv2.clone(),
+        is_closed,
+    })
+}
+
 /// Returns true if any control point of a UV curve has a u-coordinate
 /// near the periodic seam (u < pi/4 or u > 7*pi/4).
 pub(crate) fn is_near_seam(curve: &NurbsCurve) -> bool {

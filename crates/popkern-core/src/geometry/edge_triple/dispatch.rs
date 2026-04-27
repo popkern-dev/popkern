@@ -178,9 +178,10 @@ pub fn compute_edge_geometry_unanchored(
         if let crate::geometry::intersection::surface_surface::SurfaceSurfaceIntersection::Curve(
             cos,
         ) = inter
-            && let Ok(triple) = super::analytic::cos_to_triple_unanchored(&cos, surf_a, surf_b, tol)
         {
-            triples.push(triple);
+            triples.push(super::analytic::cos_to_triple_unanchored(
+                &cos, surf_a, surf_b, tol,
+            ));
         }
     }
     Ok(triples)
