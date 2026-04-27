@@ -149,6 +149,11 @@ fn compute_general_neutral(
     neutral_normal: &Vec3,
     tolerance: &Tolerance,
 ) -> Result<NeutralLine, DraftError> {
+    use popkern_core::geometry::curve::CurveGeometry;
+    use popkern_core::geometry::edge_triple::{
+        EdgeTripleOptions, compute_edge_geometry_unanchored,
+    };
+
     let neutral_plane = SurfaceGeometry::Plane {
         origin: *neutral_origin,
         normal: *neutral_normal,
@@ -162,7 +167,12 @@ fn compute_general_neutral(
     let ((u1_min, u1_max), (v1_min, v1_max)) = surface.geometry.parameter_range();
     let range = compute_face_extent(brep, face);
 
-    let result = popkern_core::geometry::intersection::intersect_surfaces(
+    // Stage 2b.60: migrated from `intersect_surfaces` to the
+    // anchorless EdgeTriple API. Neutral-line discovery has no
+    // natural anchors (the curve is being discovered from a
+    // constructed plane), so the unanchored API is the right shape.
+    let opts = EdgeTripleOptions::default();
+    let triples = compute_edge_geometry_unanchored(
         &surface.geometry,
         (u1_min, u1_max),
         (v1_min, v1_max),
@@ -170,26 +180,28 @@ fn compute_general_neutral(
         (-range, range),
         (-range, range),
         tolerance,
-    )?;
+        &opts,
+    )
+    .map_err(|_| {
+        DraftError::InvalidNeutral("intersect_surfaces returned an internal error".into())
+    })?;
 
-    for isect in &result.intersections {
-        if let popkern_core::geometry::intersection::SurfaceSurfaceIntersection::Curve(cos) = isect
-        {
-            let (t0, t1) = cos.curve_3d.parameter_range();
-            let mid_t = (t0 + t1) * 0.5;
-            let origin = cos.curve_3d.point_at(mid_t);
-            let direction = cos
-                .curve_3d
-                .tangent_at(mid_t)
-                .normalized()
-                .unwrap_or(Vec3::new(1.0, 0.0, 0.0));
+    for triple in &triples {
+        let CurveGeometry::Nurbs(curve_3d) = &triple.curve_3d else {
+            continue;
+        };
+        let mid_t = (triple.t_start + triple.t_end) * 0.5;
+        let origin = curve_3d.point_at(mid_t);
+        let direction = curve_3d
+            .tangent_at(mid_t)
+            .normalized()
+            .unwrap_or(Vec3::new(1.0, 0.0, 0.0));
 
-            return Ok(NeutralLine {
-                curve: cos.curve_3d.clone(),
-                direction,
-                origin,
-            });
-        }
+        return Ok(NeutralLine {
+            curve: curve_3d.clone(),
+            direction,
+            origin,
+        });
     }
 
     Err(DraftError::InvalidNeutral(
