@@ -138,6 +138,17 @@ fn print_cube_uniform_only() {
 
 #[ignore]
 #[test]
+fn print_pyramid3_uniform_only() {
+    eprintln!("\n=== pyramid3_uniform single-fixture probe ===");
+    let m = run_n_pyramid(3, 1.2, &[0.10, 0.10, 0.10]);
+    eprintln!(
+        "pyramid3_uniform: g0={:.3e} g1={:.3e} edges={}",
+        m.worst_g0_gap, m.worst_g1_coplanarity, m.edges_measured
+    );
+}
+
+#[ignore]
+#[test]
 fn print_cap_outer_boundary_baseline() {
     eprintln!("\n=== cap-outer-boundary baseline (no assertions) ===");
     for (name, m) in [
