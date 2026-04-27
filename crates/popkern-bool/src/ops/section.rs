@@ -5,14 +5,45 @@
 //! coincident regions) embedded in 3D. Used for interference analysis,
 //! cross-section visualization, and as a building block for full booleans.
 
+use popkern_core::geometry::curve::CurveGeometry;
 use popkern_core::geometry::curve_on_surface::CurveOnSurface;
-use popkern_core::geometry::intersection::intersect_surfaces;
+use popkern_core::geometry::edge_triple::{
+    EdgeTriple, EdgeTripleOptions, compute_edge_geometry_unanchored,
+};
+use popkern_core::geometry::pcurve::PcurveGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::clip::{clip_curve_to_faces, face_vertex_positions};
 use crate::error::BoolError;
 use crate::intersect::compute_face_aabbs;
+
+/// Extract the underlying `CurveOnSurface` (NURBS triple) from an
+/// `EdgeTriple` produced by `compute_edge_geometry_unanchored`.
+/// Returns `None` if the triple's curves aren't NURBS-backed —
+/// shouldn't happen for the marching path the unanchored API uses,
+/// but we guard against future analytic-curve paths defensively.
+fn edge_triple_to_curve_on_surface(triple: &EdgeTriple) -> Option<CurveOnSurface> {
+    let CurveGeometry::Nurbs(curve_3d) = &triple.curve_3d else {
+        return None;
+    };
+    let PcurveGeometry::Nurbs(curve_uv1) = &triple.pcurve_a.geometry else {
+        return None;
+    };
+    let PcurveGeometry::Nurbs(curve_uv2) = &triple.pcurve_b.geometry else {
+        return None;
+    };
+    let is_closed = matches!(
+        triple.topology,
+        popkern_core::geometry::edge_triple::EdgeTopology::Closed { .. }
+    );
+    Some(CurveOnSurface {
+        curve_3d: curve_3d.clone(),
+        curve_uv1: curve_uv1.clone(),
+        curve_uv2: curve_uv2.clone(),
+        is_closed,
+    })
+}
 
 /// Result of a section operation.
 #[derive(Debug)]
@@ -74,7 +105,14 @@ pub fn section(a: &BRep, b: &BRep, tolerance: &Tolerance) -> Result<SectionResul
                     surf_b,
                 );
 
-            if let Ok(result) = intersect_surfaces(
+            // Stage 2b.58: migrated from `intersect_surfaces` to the
+            // anchorless EdgeTriple API. Section discovery has no
+            // natural anchors (the curve is being computed from
+            // scratch), so we use `compute_edge_geometry_unanchored`
+            // which mirrors `intersect_surfaces`'s UV-range form
+            // and returns one `EdgeTriple` per intersection branch.
+            let opts = EdgeTripleOptions::default();
+            let triples = match compute_edge_geometry_unanchored(
                 surf_a,
                 (u1_min, u1_max),
                 (v1_min, v1_max),
@@ -82,19 +120,20 @@ pub fn section(a: &BRep, b: &BRep, tolerance: &Tolerance) -> Result<SectionResul
                 (u2_min, u2_max),
                 (v2_min, v2_max),
                 tolerance,
+                &opts,
             ) {
-                for isect in result.intersections {
-                    if let popkern_core::geometry::intersection::SurfaceSurfaceIntersection::Curve(
-                        curve,
-                    ) = isect
-                        && let Some(clipped) = clip_curve_to_faces(a, *face_a, b, *face_b, &curve)
-                    {
-                        curves.push(SectionCurve {
-                            curve: clipped,
-                            face_a: *face_a,
-                            face_b: *face_b,
-                        });
-                    }
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            for triple in triples {
+                if let Some(cos) = edge_triple_to_curve_on_surface(&triple)
+                    && let Some(clipped) = clip_curve_to_faces(a, *face_a, b, *face_b, &cos)
+                {
+                    curves.push(SectionCurve {
+                        curve: clipped,
+                        face_a: *face_a,
+                        face_b: *face_b,
+                    });
                 }
             }
         }

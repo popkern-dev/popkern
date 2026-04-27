@@ -124,6 +124,68 @@ pub fn compute_edge_geometry_all_branches(
     Ok(vec![primary])
 }
 
+// ─── Anchorless entry point (stage 2b.58) ────────────────────────
+
+/// Discover every intersection branch between two surfaces and
+/// package each as an [`EdgeTriple`], **without** caller-supplied
+/// anchors. Use case: face-pair edge discovery in boolean
+/// operations / section / imprint, where the curve is being
+/// computed from scratch and no endpoints are known *a priori*.
+///
+/// **API parity:** the UV-range arguments mirror `intersect_surfaces`
+/// in `popkern_core::geometry::intersection`. Consumers compute
+/// bounded ranges via `uv_projection::bounded_parameter_range`
+/// (or similar) from face vertex positions.
+///
+/// **Implementation:** delegates to `intersect_surfaces` and converts
+/// each `CurveOnSurface` branch through `cos_to_triple_unanchored`,
+/// using the curve's natural parameter endpoints. Provenance is
+/// tagged `Marching` because that's what `intersect_surfaces`
+/// reports.
+///
+/// **Trade-off:** even on analytic pairs (cyl×plane, sphere×plane,
+/// etc.), this returns NURBS-fitted curves rather than the analytic
+/// primitives the trig dispatcher would produce. Callers that want
+/// analytic curves and have anchors should call
+/// [`compute_edge_geometry_all_branches`] instead.
+///
+/// **Coincident-surface short-circuit:** identical to
+/// [`compute_edge_geometry`].
+#[allow(clippy::too_many_arguments)]
+pub fn compute_edge_geometry_unanchored(
+    surf_a: &SurfaceGeometry,
+    u1_range: (f64, f64),
+    v1_range: (f64, f64),
+    surf_b: &SurfaceGeometry,
+    u2_range: (f64, f64),
+    v2_range: (f64, f64),
+    tol: &Tolerance,
+    _opts: &EdgeTripleOptions,
+) -> Result<Vec<EdgeTriple>, EdgeTripleError> {
+    if let Some(true) = super::levin::surfaces_are_coincident(surf_a, surf_b) {
+        return Err(EdgeTripleError::CoincidentSurfaces {
+            reason: "surfaces are scalar multiples of one another (A = c · B)",
+        });
+    }
+    let result = crate::geometry::intersection::surface_surface::intersect_surfaces(
+        surf_a, u1_range, v1_range, surf_b, u2_range, v2_range, tol,
+    )
+    .map_err(|_| EdgeTripleError::DegenerateSurfacePair {
+        reason: "intersect_surfaces returned an internal error",
+    })?;
+    let mut triples = Vec::new();
+    for inter in result.intersections {
+        if let crate::geometry::intersection::surface_surface::SurfaceSurfaceIntersection::Curve(
+            cos,
+        ) = inter
+            && let Ok(triple) = super::analytic::cos_to_triple_unanchored(&cos, surf_a, surf_b, tol)
+        {
+            triples.push(triple);
+        }
+    }
+    Ok(triples)
+}
+
 // ─── Batch ────────────────────────────────────────────────────────
 
 /// One element of a batch request to [`compute_edge_geometry_batch`].

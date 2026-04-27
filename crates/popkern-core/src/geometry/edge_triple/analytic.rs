@@ -415,6 +415,51 @@ pub(super) fn finalize_quality_pub(
     finalize_quality(triple, surf_a, surf_b, tol)
 }
 
+/// Stage 2b.58: convert a `CurveOnSurface` from `intersect_surfaces`
+/// directly into an `EdgeTriple` without anchor matching or trim.
+/// The full curve becomes the triple's `curve_3d`; topology is
+/// `Closed` when the curve's endpoints coincide within tolerance,
+/// `Open` otherwise.
+///
+/// Used by `compute_edge_geometry_unanchored` for callers that
+/// discover intersection curves rather than anchor them — boolean
+/// section/imprint/intersect, draft neutral-line extraction, etc.
+pub(super) fn cos_to_triple_unanchored(
+    cos: &CurveOnSurface,
+    surf_a: &SurfaceGeometry,
+    surf_b: &SurfaceGeometry,
+    tol: &Tolerance,
+) -> Result<EdgeTriple, EdgeTripleError> {
+    use crate::geometry::curve::CurveGeometry;
+    use crate::geometry::edge_triple::types::ParameterMap;
+    let (t_start, t_end) = cos.curve_3d.parameter_range();
+    let start = cos.curve_3d.point_at(t_start);
+    let end = cos.curve_3d.point_at(t_end);
+    let topology = if start.distance_to(&end) < tol.linear() {
+        EdgeTopology::Closed {
+            period: t_end - t_start,
+        }
+    } else {
+        EdgeTopology::Open
+    };
+    let triple = EdgeTriple {
+        curve_3d: CurveGeometry::Nurbs(cos.curve_3d.clone()),
+        pcurve_a: cos.curve_uv1.clone().into(),
+        pcurve_b: cos.curve_uv2.clone().into(),
+        t_start,
+        t_end,
+        topology,
+        parameter_map: ParameterMap::SharedKnots,
+        provenance: EdgeTripleProvenance::Marching {
+            residual: 0.0,
+            iterations: 0,
+            converged: true,
+        },
+        quality: EdgeTripleQuality::default(),
+    };
+    finalize_quality(triple, surf_a, surf_b, tol)
+}
+
 fn finalize_quality(
     mut triple: EdgeTriple,
     surf_a: &SurfaceGeometry,

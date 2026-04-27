@@ -57,8 +57,9 @@ mod verify;
 
 pub use dispatch::{
     EdgeRequest, EdgeTripleBatchOptions, EdgeTriplePreview, compute_edge_geometry,
-    compute_edge_geometry_all_branches, compute_edge_geometry_batch, edge_triple_curvature_comb,
-    preview_edge_geometry, revalidate_edge_triple,
+    compute_edge_geometry_all_branches, compute_edge_geometry_batch,
+    compute_edge_geometry_unanchored, edge_triple_curvature_comb, preview_edge_geometry,
+    revalidate_edge_triple,
 };
 pub use error::{EdgeTripleError, EdgeTripleVerifyError};
 pub use inputs::{BoundarySide, EdgeAnchors, EdgeHint, SeamAxis, SurfaceSide};
