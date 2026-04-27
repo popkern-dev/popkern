@@ -232,3 +232,83 @@ fn replace_col(m: &[[f64; 3]; 3], col: usize, b: [f64; 3]) -> [[f64; 3]; 3] {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use popkern_core::geometry::Vec3;
+
+    /// Cube corner cap centre: apex (0,0,0), three faces with
+    /// outward normals -x, -y, -z. Cap centre at distance r=0.1
+    /// from each face (inside solid) is (0.1, 0.1, 0.1).
+    #[test]
+    fn cap_centre_cube_corner_uniform() {
+        let apex = Point3::new(0.0, 0.0, 0.0);
+        let normals = [
+            Vec3::new(-1.0, 0.0, 0.0),
+            Vec3::new(0.0, -1.0, 0.0),
+            Vec3::new(0.0, 0.0, -1.0),
+        ];
+        let cap = compute_cap_centre(apex, &normals, 0.1).unwrap();
+        assert!((cap.x - 0.1).abs() < 1e-12);
+        assert!((cap.y - 0.1).abs() < 1e-12);
+        assert!((cap.z - 0.1).abs() < 1e-12);
+    }
+
+    /// Cube apex translated off origin: cap centre still moves the
+    /// cap radius along the inward direction (sum of -outward
+    /// normals scaled).
+    #[test]
+    fn cap_centre_translated_apex() {
+        let apex = Point3::new(2.0, -3.0, 5.0);
+        let normals = [
+            Vec3::new(-1.0, 0.0, 0.0),
+            Vec3::new(0.0, -1.0, 0.0),
+            Vec3::new(0.0, 0.0, -1.0),
+        ];
+        let cap = compute_cap_centre(apex, &normals, 0.1).unwrap();
+        assert!((cap.x - 2.1).abs() < 1e-12);
+        assert!((cap.y - (-2.9)).abs() < 1e-12);
+        assert!((cap.z - 5.1).abs() < 1e-12);
+    }
+
+    /// Singular case: three colinear normals → no unique cap.
+    #[test]
+    fn cap_centre_singular_returns_none() {
+        let apex = Point3::new(0.0, 0.0, 0.0);
+        let normals = [
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(2.0, 0.0, 0.0),
+            Vec3::new(-1.0, 0.0, 0.0),
+        ];
+        assert!(compute_cap_centre(apex, &normals, 0.1).is_none());
+    }
+
+    /// `fillet_nominal_radius` must accept Cylinder + Torus and
+    /// reject other variants (sphere-fit only handles those two
+    /// today).
+    #[test]
+    fn fillet_radius_extraction() {
+        use popkern_core::geometry::surface::SurfaceGeometry;
+        let cyl = SurfaceGeometry::Cylinder {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(1.0, 0.0, 0.0),
+            radius: 0.07,
+        };
+        assert_eq!(fillet_nominal_radius(&cyl), Some(0.07));
+
+        let tor = SurfaceGeometry::Torus {
+            center: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            major_radius: 1.0,
+            minor_radius: 0.05,
+        };
+        assert_eq!(fillet_nominal_radius(&tor), Some(0.05));
+
+        let sph = SurfaceGeometry::Sphere {
+            center: Point3::new(0.0, 0.0, 0.0),
+            radius: 0.1,
+        };
+        assert_eq!(fillet_nominal_radius(&sph), None);
+    }
+}
