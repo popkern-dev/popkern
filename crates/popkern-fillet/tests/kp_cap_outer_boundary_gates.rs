@@ -122,6 +122,20 @@ fn cap_outer_boundary_pyramid5_mixed_path_check() {
 /// we're sampling each side's surface at 3-D points that are
 /// 5-20cm apart, so the normals are essentially uncorrelated.
 /// Once G0 drops below ~1e-3, G1 becomes informative.
+/// Single-fixture probe for the cube_uniform path — used to trace
+/// the per-vertex insert_vertex_blend invocation count without the
+/// noise of the full 8-fixture matrix.
+#[ignore]
+#[test]
+fn print_cube_uniform_only() {
+    eprintln!("\n=== cube_uniform single-fixture probe ===");
+    let m = run_cube(&[0.10, 0.10, 0.10]);
+    eprintln!(
+        "cube_uniform: g0={:.3e} g1={:.3e} edges={}",
+        m.worst_g0_gap, m.worst_g1_coplanarity, m.edges_measured
+    );
+}
+
 #[ignore]
 #[test]
 fn print_cap_outer_boundary_baseline() {
