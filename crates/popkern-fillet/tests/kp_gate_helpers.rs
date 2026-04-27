@@ -316,3 +316,146 @@ pub fn assert_no_regression(fixture: &str, mt: &RingMetrics, mb: &RingMetrics) {
         mt.worst_g2_residual
     );
 }
+
+/// Worst-case continuity at the *outer* boundary of the corner-cap
+/// ring — where each cap sub-face meets the cylinder fillet roll
+/// (or other non-cap neighbour) it sits on top of. Complements
+/// [`RingMetrics`] (which measures continuity *between* adjacent
+/// sub-patches at their shared spokes).
+///
+/// Per Task #144 / 2026-04-27 failed-approaches entry: the ring
+/// metric historically passed the gates while the cap-outer
+/// boundary silently drifted up to 15% bbox in 3-D. The user-
+/// visible "messy top" defect lives at this boundary.
+pub struct CapOuterMetrics {
+    /// Max 3-D gap `||cyl(cyl_pc(t)) − greg(greg_pc(t))||` over
+    /// every cap-vs-non-cap edge sample.
+    pub worst_g0_gap: f64,
+    /// Max unit-normal parallelism deficit `1 − |n̂_a · n̂_b|` at
+    /// edge samples. `0` = surfaces share a tangent plane;
+    /// `1` = orthogonal normals (totally non-G1).
+    pub worst_g1_coplanarity: f64,
+    /// Number of cap-vs-non-cap edges measured.
+    pub edges_measured: usize,
+}
+
+/// Measure G0/G1 at every edge between a Gregory cap face (in
+/// `cap_faces`) and a non-cap neighbour. Samples each edge at
+/// `n_samples` interior points (margin 0.05). Returns the max
+/// over all samples on all such edges.
+pub fn measure_cap_outer_boundary(
+    brep: &BRep,
+    cap_faces: &[FaceHandle],
+    n_samples: usize,
+) -> CapOuterMetrics {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::SurfaceEval;
+
+    let cap_set: std::collections::BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
+    let mut worst_g0 = 0.0_f64;
+    let mut worst_g1 = 0.0_f64;
+    let mut edges_measured = 0usize;
+    let n_samples = n_samples.max(2);
+
+    for (_eh, edge) in brep.edges.iter() {
+        let Some(coe) = edge.curve.as_ref() else {
+            continue;
+        };
+        let he_a = edge.half_edge;
+        let Some(ha) = brep.half_edges.get(he_a) else {
+            continue;
+        };
+        let Some(hb) = brep.half_edges.get(ha.twin) else {
+            continue;
+        };
+        let face_a = brep.loops[ha.loop_].face;
+        let face_b = brep.loops[hb.loop_].face;
+        if face_a == face_b {
+            continue;
+        }
+        let a_is_cap = cap_set.contains(&face_a);
+        let b_is_cap = cap_set.contains(&face_b);
+        // Only measure edges where exactly one side is a cap. Cap-
+        // to-cap edges are the inner spokes already covered by
+        // RingMetrics; non-cap-to-non-cap edges aren't of interest.
+        if a_is_cap == b_is_cap {
+            continue;
+        }
+        let Some(pa) = ha.pcurve.as_ref() else {
+            continue;
+        };
+        let Some(pb) = hb.pcurve.as_ref() else {
+            continue;
+        };
+        let Some(sa) = brep.faces.get(face_a).and_then(|f| f.surface.as_ref()) else {
+            continue;
+        };
+        let Some(sb) = brep.faces.get(face_b).and_then(|f| f.surface.as_ref()) else {
+            continue;
+        };
+
+        let (t_lo, t_hi) = (coe.t_start, coe.t_end);
+        let (pa_lo, pa_hi) = pa.parameter_range();
+        let (pb_lo, pb_hi) = pb.parameter_range();
+        // Direction detection (mirrors find_tessellation_non_manifold_edges).
+        let p3_lo = coe.geometry.point_at(t_lo);
+        let p3_hi = coe.geometry.point_at(t_hi);
+        let pa_at = |t: f64| {
+            let uv = pa.point_at(t);
+            sa.geometry.point_at(uv.x, uv.y)
+        };
+        let pb_at = |t: f64| {
+            let uv = pb.point_at(t);
+            sb.geometry.point_at(uv.x, uv.y)
+        };
+        let pa_forward = p3_lo.distance_to(&pa_at(pa_lo)) + p3_hi.distance_to(&pa_at(pa_hi))
+            <= p3_lo.distance_to(&pa_at(pa_hi)) + p3_hi.distance_to(&pa_at(pa_lo));
+        let pb_forward = p3_lo.distance_to(&pb_at(pb_lo)) + p3_hi.distance_to(&pb_at(pb_hi))
+            <= p3_lo.distance_to(&pb_at(pb_hi)) + p3_hi.distance_to(&pb_at(pb_lo));
+
+        edges_measured += 1;
+        for i in 0..n_samples {
+            // Margin 0.05/0.95 to stay clear of the corner singularities
+            // that the ring metrics also exclude.
+            let s = 0.05 + 0.90 * (i as f64) / ((n_samples - 1) as f64);
+            let s_a = if pa_forward { s } else { 1.0 - s };
+            let s_b = if pb_forward { s } else { 1.0 - s };
+            let t_a = pa_lo + s_a * (pa_hi - pa_lo);
+            let t_b = pb_lo + s_b * (pb_hi - pb_lo);
+            let uv_a = pa.point_at(t_a);
+            let uv_b = pb.point_at(t_b);
+            let p_a = sa.geometry.point_at(uv_a.x, uv_a.y);
+            let p_b = sb.geometry.point_at(uv_b.x, uv_b.y);
+            let g0 = p_a.distance_to(&p_b);
+            if g0 > worst_g0 {
+                worst_g0 = g0;
+            }
+
+            // G1 — unit-normal parallelism deficit. `0` = perfect
+            // tangent-plane match, `1` = orthogonal normals. The
+            // ring-metric's triple-product variant is not appropriate
+            // here because we don't have an a-priori cross-tangent
+            // direction (cap UV parameterization is implicit).
+            let su_a = sa.geometry.partial_u(uv_a.x, uv_a.y);
+            let sv_a = sa.geometry.partial_v(uv_a.x, uv_a.y);
+            let su_b = sb.geometry.partial_u(uv_b.x, uv_b.y);
+            let sv_b = sb.geometry.partial_v(uv_b.x, uv_b.y);
+            let n_a = su_a.cross(&sv_a);
+            let n_b = su_b.cross(&sv_b);
+            let nn_a = vec_norm(n_a);
+            let nn_b = vec_norm(n_b);
+            if nn_a > 1e-300 && nn_b > 1e-300 {
+                let deficit = 1.0 - (dot(n_a, n_b) / (nn_a * nn_b)).abs();
+                if deficit > worst_g1 {
+                    worst_g1 = deficit;
+                }
+            }
+        }
+    }
+
+    CapOuterMetrics {
+        worst_g0_gap: worst_g0,
+        worst_g1_coplanarity: worst_g1,
+        edges_measured,
+    }
+}
