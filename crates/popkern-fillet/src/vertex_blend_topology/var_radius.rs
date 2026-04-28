@@ -91,16 +91,23 @@ pub(crate) fn reroute_neighbour_cylinder_edges(
 
     // Step 2: iteratively classify + apply.  Each surgery
     // mutates the BRep, so we re-classify after each iteration
-    // to find the next NeighbourCylinder edge.
+    // to find the next NeighbourCylinder edge. If a surgery
+    // fails (rolled back via snapshot inside apply_path_b_plan),
+    // we mark its target as tried-and-failed and skip in
+    // subsequent iterations to avoid infinite loops.
     let mut succeeded = 0usize;
     let trace = std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1");
+    let mut tried_failed: std::collections::BTreeSet<HalfEdgeHandle> =
+        std::collections::BTreeSet::new();
     for iter in 0..16 {
-        // Find one NeighbourCylinder target.
+        // Find one NeighbourCylinder target not previously tried.
         let classification = classify_cap_loops(brep, cap_faces, per_fillet_caps);
         let mut target: Option<HalfEdgeHandle> = None;
         for c in &classification {
             for entry in &c.entries {
-                if entry.twin_kind == TwinKind::NeighbourCylinder {
+                if entry.twin_kind == TwinKind::NeighbourCylinder
+                    && !tried_failed.contains(&entry.half_edge)
+                {
                     target = Some(entry.half_edge);
                     break;
                 }
@@ -121,7 +128,8 @@ pub(crate) fn reroute_neighbour_cylinder_edges(
             if trace {
                 eprintln!("[reroute] iter {iter}: plan_path_b None for he={he_cap:?}");
             }
-            break;
+            tried_failed.insert(he_cap);
+            continue;
         };
         match apply_path_b_plan(brep, &plan) {
             Ok(()) => {
@@ -134,7 +142,7 @@ pub(crate) fn reroute_neighbour_cylinder_edges(
                 if trace {
                     eprintln!("[reroute] iter {iter}: apply failed for he={he_cap:?}: {e:?}");
                 }
-                break;
+                tried_failed.insert(he_cap);
             }
         }
     }
@@ -521,13 +529,18 @@ pub(crate) fn split_apex_footprint_vertex(
         }
     };
 
-    // 1. Create v_new.
+    // 1. Create v_new at V's CURRENT position (zero-length bridge
+    //    initially). After topology surgery + validate passes, the
+    //    caller can move v_new to v_new_pos via a separate vertex-
+    //    move step that updates v_new's incident edge curves.
+    let v_starting_pos = brep.vertices[v].position;
     let v_new = brep.vertices.insert(Vertex {
-        position: v_new_pos,
+        position: v_starting_pos,
         outgoing: Default::default(),
         name: None,
         tolerance: None,
     });
+    let _ = v_new_pos; // applied later via vertex move
 
     // 2. Re-point cyl_split's outgoing he origin to v_new.
     brep.half_edges[he_v_split].origin = v_new;
@@ -582,15 +595,13 @@ pub(crate) fn split_apex_footprint_vertex(
     //    at v (cube face continues from v).
     brep.half_edges[he_v_cap].origin = v_new;
 
-    // 6. Build a degenerate (zero-length) bridge curve so validate
-    //    sees consistent geometry. The bridge is at v's position
-    //    initially (v_new is at v_new_pos but the curve is from
-    //    v's pos to v_new_pos as a chord). Update incident edges'
-    //    curve endpoints.
+    // 6. Bridge curve: degenerate (zero-length) initially, both
+    //    endpoints at V's position. Vertex-move step (separate)
+    //    will update CP[1] to v_new_pos.
     let v_pos = brep.vertices[v].position;
     let bridge_curve = popkern_core::geometry::nurbs_curve::NurbsCurve {
         degree: 1,
-        control_points: vec![v_pos, v_new_pos],
+        control_points: vec![v_pos, v_pos],
         weights: vec![1.0, 1.0],
         knots: vec![0.0, 0.0, 1.0, 1.0],
     };
@@ -604,17 +615,10 @@ pub(crate) fn split_apex_footprint_vertex(
     brep.vertices[v].outgoing = bridge_cap;
     brep.vertices[v_new].outgoing = he_v_split;
 
-    // 7b. Snap the V-side endpoint of the 2 specific edges whose
-    //     half-edges we re-pointed (he_v_cap and he_v_split).
-    //     These edges' curves had endpoints at V's old position;
-    //     now they should end at V_new's position. We must NOT
-    //     touch the bridge edge (whose V-side legitimately stays
-    //     at V's position).
-    let v_old_pos = brep.vertices[v].position;
-    let he_v_cap_edge = brep.half_edges[he_v_cap].edge;
-    let he_v_split_edge = brep.half_edges[he_v_split].edge;
-    snap_edge_curve_endpoint(brep, he_v_cap_edge, v_old_pos, v_new_pos);
-    snap_edge_curve_endpoint(brep, he_v_split_edge, v_old_pos, v_new_pos);
+    // 7b. (No-op for snap step — V_new is at V's old position
+    //     initially, so all incident-edge curves are still valid.
+    //     Vertex-move step happens externally.)
+    let _ = (he_v_cap, he_v_split);
 
     // 8. Set bridge edge pcurves (degree-1 chord on cube_face's
     //    plane and cap_face's surface). Skip if either projection
@@ -912,6 +916,20 @@ pub(crate) fn plan_path_b(
         cyl_axis_origin,
         cyl_axis,
     )?;
+    if std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1") {
+        eprintln!(
+            "[plan] cap_k={cap_k:?} cyl_m={cyl_m:?} (axis=({:.3},{:.3},{:.3}) r={cyl_radius:.3}) cap_n={cap_n:?} sphere=({:.3},{:.3},{:.3})",
+            cyl_axis.x, cyl_axis.y, cyl_axis.z, sphere_centre.x, sphere_centre.y, sphere_centre.z
+        );
+        eprintln!(
+            "  V_x={v_x:?}=({:.3},{:.3},{:.3}) → ({:.3},{:.3},{:.3})",
+            v_x_pos.x, v_x_pos.y, v_x_pos.z, v_x_new_pos.x, v_x_new_pos.y, v_x_new_pos.z
+        );
+        eprintln!(
+            "  V_a={v_a:?}=({:.3},{:.3},{:.3}) → ({:.3},{:.3},{:.3})",
+            v_a_pos.x, v_a_pos.y, v_a_pos.z, v_a_new_pos.x, v_a_new_pos.y, v_a_new_pos.z
+        );
+    }
 
     Some(PathBPlan {
         cap_k_he,
@@ -1121,12 +1139,12 @@ pub(crate) fn apply_path_b_plan(brep: &mut BRep, plan: &PathBPlan) -> Result<(),
     brep.loops.remove(chip_loop);
     brep.faces.remove(chip_face);
 
-    // Step 5b: move V_x and V_a to their cap-tangent-circle
-    // positions, updating incident-edge curve endpoints so each
-    // incident edge's 3D curve still terminates at the moved
-    // vertex (loop closure would fail otherwise).
-    update_incident_edges_for_vertex_move(brep, plan.v_x, v_x_old_pos, plan.v_x_new_pos);
-    update_incident_edges_for_vertex_move(brep, v_a_handle, v_a_old_pos, plan.v_a_new_pos);
+    // Step 5b: move v_x_new and v_a_new to their cap-tangent
+    // circle positions (they were created at V's old position
+    // for zero-length bridge geometry). This snaps their incident
+    // edge curves' V_new-side endpoints to the new positions.
+    update_incident_edges_for_vertex_move(brep, v_x_new, v_x_old_pos, plan.v_x_new_pos);
+    update_incident_edges_for_vertex_move(brep, v_a_new, v_a_old_pos, plan.v_a_new_pos);
 
     // Step 5c: set the cut edge's 3D curve and pcurves to a
     // cap-tangent arc on cyl_m's surface, from V_x_new to V_a_new.
@@ -1188,37 +1206,42 @@ pub(crate) fn apply_path_b_plan(brep: &mut BRep, plan: &PathBPlan) -> Result<(),
 fn update_incident_edges_for_vertex_move(
     brep: &mut BRep,
     v: VertexHandle,
-    old_pos: popkern_core::geometry::Point3,
+    _old_pos: popkern_core::geometry::Point3,
     new_pos: popkern_core::geometry::Point3,
 ) {
     use popkern_core::geometry::CurveGeometry;
-    let tol = 1e-6;
 
-    // Collect incident edge handles via half-edges with origin = v.
-    let edges: std::collections::BTreeSet<EdgeHandle> = brep
+    // Snapshot half-edges with origin = v.  For each, identify
+    // whether it is the edge's "primary" half-edge (= edge.half_edge):
+    // primary's origin matches CP[0] (curve start);
+    // twin's origin matches CP[last] (curve end).
+    //
+    // This is more precise than position-based matching: it can
+    // disambiguate the V vs V_new ends of a zero-length bridge
+    // (where both CPs are at V_pos initially).
+    let halves: Vec<HalfEdgeHandle> = brep
         .half_edges
-        .values()
-        .filter(|he| he.origin == v)
-        .map(|he| he.edge)
+        .iter()
+        .filter_map(|(h, he)| (he.origin == v).then_some(h))
         .collect();
 
-    for edge_h in edges {
+    for he_h in halves {
+        let edge_h = brep.half_edges[he_h].edge;
+        let primary = brep.edges.get(edge_h).map(|e| e.half_edge);
+        let is_primary = primary == Some(he_h);
         let Some(edge) = brep.edges.get_mut(edge_h) else {
             continue;
         };
         let Some(coe) = edge.curve.as_mut() else {
             continue;
         };
-        if let CurveGeometry::Nurbs(nc) = &mut coe.geometry {
-            if nc.control_points.is_empty() {
-                continue;
-            }
+        if let CurveGeometry::Nurbs(nc) = &mut coe.geometry
+            && !nc.control_points.is_empty()
+        {
             let n = nc.control_points.len();
-            let first = nc.control_points[0];
-            let last = nc.control_points[n - 1];
-            if first.distance_to(&old_pos) < tol {
+            if is_primary {
                 nc.control_points[0] = new_pos;
-            } else if last.distance_to(&old_pos) < tol {
+            } else {
                 nc.control_points[n - 1] = new_pos;
             }
         }
