@@ -255,7 +255,7 @@ fn he_after_origin_in_loop(brep: &BRep, he: HalfEdgeHandle) -> Option<VertexHand
 /// where possible.
 fn build_cap_tangent_half_circle(
     brep: &BRep,
-    cap_centre: Point3,
+    _cap_centre: Point3,
     _cap_radius: f64,
     cyl_surf: &SurfaceGeometry,
     v_a: VertexHandle,
@@ -271,16 +271,21 @@ fn build_cap_tangent_half_circle(
     };
     let cyl_axis_unit = cyl_axis.normalized().expect("cylinder axis non-zero");
 
-    // The cap-tangent circle sits in the plane perpendicular to
-    // cyl_axis, passing through cap_centre.  Its centre on the
-    // axis is the projection of cap_centre onto the cylinder
+    // The cap-tangent circle is the per-fillet sphere ∩ cylinder
+    // intersection — a circle in a plane perpendicular to
+    // cyl_axis.  Both v_a and v_b lie on this circle, so its
+    // centre is the projection of either vertex onto the
+    // cylinder axis.  Deriving it from v_a (rather than the
+    // shared cap_centre) handles variable-radius corners where
+    // each fillet's sphere lives at its own offset along the
     // axis.
-    let v = Vec3::new(
-        cap_centre.x - cyl_origin.x,
-        cap_centre.y - cyl_origin.y,
-        cap_centre.z - cyl_origin.z,
-    );
-    let along = v.dot(&cyl_axis_unit);
+    let p_a = brep.vertices[v_a].position;
+    let along = Vec3::new(
+        p_a.x - cyl_origin.x,
+        p_a.y - cyl_origin.y,
+        p_a.z - cyl_origin.z,
+    )
+    .dot(&cyl_axis_unit);
     let circle_centre = Point3::new(
         cyl_origin.x + cyl_axis_unit.x * along,
         cyl_origin.y + cyl_axis_unit.y * along,

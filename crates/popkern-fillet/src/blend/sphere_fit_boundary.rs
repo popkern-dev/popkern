@@ -84,25 +84,30 @@ pub(crate) fn apply_sphere_fit_substitution(
         }
     }
 
-    // Cap radius from the first fillet's nominal radius.
-    let first_fi = match &boundary.segments[0] {
-        BoundarySegment::FilletEnd { fillet_index, .. } => *fillet_index,
-        _ => unreachable!(),
-    };
-    let cap_radius = fillet_nominal_radius(&fillet_surfaces[first_fi].surface)
-        .ok_or("could not extract fillet radius")?;
-
     // Sphere-fit needs at least three independent face planes
     // through the apex to pin down the cap centre.
     let face_normals: Vec<Vec3> = unique_face_normals.iter().map(|(_, n)| *n).collect();
     if face_normals.len() < 3 {
         return Err("sphere-fit needs >= 3 unique adjacent faces");
     }
-    let cap_centre = compute_cap_centre(apex, &face_normals, cap_radius)
-        .ok_or("cap-centre system is singular")?;
 
-    // Compute sphere-fit terminations for every fillet first; if any
-    // fail, we abort without mutating the boundary.
+    // **Per-fillet sphere-fit (Phase 6c-A continuation §4.2).**
+    // Each fillet uses *its own* cap radius (= the fillet's
+    // nominal radius) and *its own* cap centre, computed by
+    // solving the same `compute_cap_centre` system but with
+    // r = r_k.  For uniform-radius corners (all r_k equal),
+    // the per-fillet centres coincide with the single shared
+    // centre.  For variable-radius corners (cube_mixed,
+    // cube_extreme, …), each fillet's tangent circle is on
+    // its own sphere — the resulting boundary's `FaceEdge`
+    // bridges connect *different* sphere-fit endpoints on
+    // each shared face (non-degenerate, unlike the uniform
+    // case where bridges collapse to single points).
+    //
+    // The downstream cap construction (Gregory-cap promotion
+    // ladder, §4.2) absorbs the boundary as-is and fits the
+    // cap interior to satisfy G1 against each fillet via
+    // Phase 6c-B's outer-fillet-G1 L-M solver.
     let mut new_curves: Vec<popkern_core::geometry::NurbsCurve> = Vec::with_capacity(n_fil);
     let mut new_endpoints: Vec<[Point3; 2]> = Vec::with_capacity(n_fil);
     for k in 0..n_fil {
@@ -111,10 +116,14 @@ pub(crate) fn apply_sphere_fit_substitution(
             _ => unreachable!(),
         };
         let fillet = &fillet_surfaces[fi];
+        let r_k =
+            fillet_nominal_radius(&fillet.surface).ok_or("could not extract fillet radius")?;
+        let cap_centre_k =
+            compute_cap_centre(apex, &face_normals, r_k).ok_or("cap-centre system is singular")?;
         let result = sphere_fit_termination(
             apex,
-            cap_centre,
-            cap_radius,
+            cap_centre_k,
+            r_k,
             &fillet.surface,
             face_a_normals[k],
             face_b_normals[k],
