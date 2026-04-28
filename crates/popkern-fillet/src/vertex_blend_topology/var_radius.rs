@@ -697,6 +697,7 @@ fn find_incident_plane_face(brep: &BRep, v: VertexHandle) -> Option<FaceHandle> 
 
 /// Snap whichever of `edge`'s curve's first/last CP is at
 /// `from_pos` to `to_pos`.  No-op if neither endpoint matches.
+#[allow(dead_code)]
 fn snap_edge_curve_endpoint(
     brep: &mut BRep,
     edge: EdgeHandle,
