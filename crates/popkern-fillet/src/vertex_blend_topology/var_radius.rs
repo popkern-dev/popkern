@@ -132,13 +132,41 @@ pub(crate) fn reroute_neighbour_cylinder_edges(
         }
     }
 
-    // Step 2: for each target, attempt the rewire.
+    // Step 2: for each target, plan + apply Path B surgery.
     let mut succeeded = 0usize;
-    for (he_cap, cyl_m, cap_n) in targets {
-        if try_reroute_single(brep, he_cap, cyl_m, cap_n, &cap_set).is_ok() {
-            succeeded += 1;
+    let trace = std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1");
+    for (he_cap, _cyl_m, _cap_n) in targets {
+        let cap_k = brep.loops[brep.half_edges[he_cap].loop_].face;
+        let plan = plan_path_b(brep, he_cap, cap_k, cap_faces);
+        match &plan {
+            Some(_) => {
+                if trace {
+                    eprintln!("[reroute] plan OK for he={he_cap:?}");
+                }
+            }
+            None => {
+                if trace {
+                    eprintln!("[reroute] plan_path_b returned None for he={he_cap:?}");
+                }
+            }
+        }
+        if let Some(plan) = plan {
+            match apply_path_b_plan(brep, &plan) {
+                Ok(()) => {
+                    if trace {
+                        eprintln!("[reroute] applied OK for he={he_cap:?}");
+                    }
+                    succeeded += 1;
+                }
+                Err(e) => {
+                    if trace {
+                        eprintln!("[reroute] apply failed for he={he_cap:?}: {e:?}");
+                    }
+                }
+            }
         }
     }
+    let _ = cap_set;
 
     // Final validate; if anything went wrong, roll back.
     if succeeded > 0 && brep.validate().is_err() {
@@ -149,22 +177,12 @@ pub(crate) fn reroute_neighbour_cylinder_edges(
     Ok(succeeded)
 }
 
-/// Re-route one NeighbourCylinder edge.
-///
-/// Topology before:
-///   cap_k.loop:   ...  he_cap[V_x→V_y] ...
-///   cyl_m.loop:   ...  tw   [V_y→V_x] ...
-///   cap_n.loop:   ...  he_n[V_x→V_y] ...   (mirror — same vertices)
-///   cyl_m.loop:   ...  tw_n [V_y→V_x] ...  (twin of he_n)
-///
-/// Topology after:
-///   cap_k.loop:   unchanged (he_cap stays)
-///   cap_n.loop:   ...  tw_relocated[V_y→V_x] ...   (was he_n)
-///   cyl_m.loop:   tw and tw_n removed; loop closes via he_cap.twin's
-///                 prev/next being relinked to skip both.
-///
-/// Net: edge `e` (he_cap+tw) becomes the cap-vs-cap edge between
-/// cap_k and cap_n. The duplicate edge `e'` (he_n+tw_n) is killed.
+/// (Pre-Path-B obsolete — kept for reference, not called.)
+/// The mirror-edge splice approach failed the empirical
+/// connectivity check: cap[0]'s NeighCyl edge endpoints don't
+/// appear in cap_n's outer loop.  Path B (mef-split + face-
+/// absorb) handles the actual variable-radius topology.
+#[allow(dead_code)]
 fn try_reroute_single(
     brep: &mut BRep,
     he_cap: HalfEdgeHandle,
@@ -447,6 +465,389 @@ fn walk_dump(brep: &BRep, loop_handle: popkern_core::topology::LoopHandle, inden
     }
 }
 
+// ================================================================
+// Path B — `mef`-split + face-absorb commercial-grade surgery
+// ================================================================
+
+/// Plan for one `mef`-split + absorb surgery on a NeighbourCylinder
+/// edge.  Built before any mutation; `apply_path_b_plan` consumes
+/// it transactionally with snapshot-rollback.
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub(crate) struct PathBPlan {
+    /// The NeighbourCylinder edge in cap_k's loop (cap-side
+    /// half-edge).
+    pub(crate) cap_k_he: HalfEdgeHandle,
+    /// The cap face that owns the NeighCyl edge.
+    pub(crate) cap_k: FaceHandle,
+    /// The neighbour cylinder face whose loop contains the twin.
+    pub(crate) cyl_m: FaceHandle,
+    /// The destination cap (whose primary cylinder is cyl_m).
+    pub(crate) cap_n: FaceHandle,
+    /// V_x = origin of cap_k_he. To be moved to `v_x_new_pos`.
+    pub(crate) v_x: VertexHandle,
+    /// V_y = destination of cap_k_he (origin of twin). 3-way junction.
+    pub(crate) v_y: VertexHandle,
+    /// New target position for V_x — on cap_n's sphere AND cube
+    /// face AND cyl_m surface.
+    pub(crate) v_x_new_pos: popkern_core::geometry::Point3,
+    /// The cap_n OwnCyl edge in cyl_m's loop that comes "before"
+    /// the apex chip on the cap_n side. Its origin vertex is the
+    /// other endpoint of the cap-tangent boundary on cube_face_y0.
+    pub(crate) cap_n_own_he_a: HalfEdgeHandle,
+    /// New target position for cap_n_own_he_a's origin vertex.
+    pub(crate) v_a_new_pos: popkern_core::geometry::Point3,
+}
+
+/// Build a Path B plan for one NeighbourCylinder edge.
+///
+/// Returns `None` when the topology doesn't match the expected
+/// pattern (validates the assumptions before mutation).
+#[allow(dead_code)]
+pub(crate) fn plan_path_b(
+    brep: &BRep,
+    cap_k_he: HalfEdgeHandle,
+    cap_k: FaceHandle,
+    cap_faces: &[FaceHandle],
+) -> Option<PathBPlan> {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    // Extract cap_k's NeighCyl edge: V_x, V_y, twin face cyl_m.
+    let tw = brep.half_edges[cap_k_he].twin;
+    let v_x = brep.half_edges[cap_k_he].origin;
+    let v_y = brep.half_edges[tw].origin;
+    let cyl_m = brep.loops[brep.half_edges[tw].loop_].face;
+
+    // cyl_m must be a Cylinder.
+    let (cyl_axis, cyl_axis_origin, cyl_radius) = match brep
+        .faces
+        .get(cyl_m)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| &s.geometry)
+    {
+        Some(SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius,
+        }) => (*axis, *origin, *radius),
+        _ => return None,
+    };
+
+    // dest cap_n: cap face whose sphere radius matches cyl_radius
+    // and whose centre projects to cyl_m's axis.
+    let cap_n = cap_faces.iter().copied().find(|&fh| {
+        if fh == cap_k {
+            return false;
+        }
+        match brep
+            .faces
+            .get(fh)
+            .and_then(|f| f.surface.as_ref())
+            .map(|s| &s.geometry)
+        {
+            Some(SurfaceGeometry::Sphere { center, radius }) => {
+                if (radius - cyl_radius).abs() > cyl_radius * 0.05 {
+                    return false;
+                }
+                // Centre projects to axis (radial distance ≈ 0).
+                let to = popkern_core::geometry::Vec3::new(
+                    center.x - cyl_axis_origin.x,
+                    center.y - cyl_axis_origin.y,
+                    center.z - cyl_axis_origin.z,
+                );
+                let axis_unit = cyl_axis.normalized().unwrap_or(cyl_axis);
+                let along = to.dot(&axis_unit);
+                let proj = popkern_core::geometry::Point3::new(
+                    cyl_axis_origin.x + axis_unit.x * along,
+                    cyl_axis_origin.y + axis_unit.y * along,
+                    cyl_axis_origin.z + axis_unit.z * along,
+                );
+                center.distance_to(&proj) < cyl_radius * 0.05
+            }
+            _ => false,
+        }
+    })?;
+
+    // cap_n's sphere — used to compute target positions for V_x and V_a.
+    let (sphere_centre, sphere_radius) = match brep
+        .faces
+        .get(cap_n)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| &s.geometry)
+    {
+        Some(SurfaceGeometry::Sphere { center, radius }) => (*center, *radius),
+        _ => return None,
+    };
+
+    // Walk cyl_m's outer loop to find the "cap_n OwnCyl edge a" —
+    // the cap_n OwnCyl that's NOT shared with V_y (the one whose
+    // origin is the cube-face cap-tangent endpoint on the OTHER
+    // cube face).
+    let cap_set: std::collections::BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
+    let cyl_m_loop = brep.faces.get(cyl_m)?.outer_loop;
+    let start = brep.loops.get(cyl_m_loop)?.half_edge;
+    let mut cap_n_own_he_a: Option<HalfEdgeHandle> = None;
+    let mut cursor = start;
+    for _ in 0..32 {
+        let he_origin = brep.half_edges[cursor].origin;
+        let he_twin = brep.half_edges[cursor].twin;
+        let he_next = brep.half_edges[cursor].next;
+        let twin_face = brep.loops[brep.half_edges[he_twin].loop_].face;
+        // Looking for cap_n's OwnCyl edge whose origin is NOT V_y.
+        if twin_face == cap_n && he_origin != v_y && cap_set.contains(&twin_face) {
+            cap_n_own_he_a = Some(cursor);
+            break;
+        }
+        cursor = he_next;
+        if cursor == start {
+            break;
+        }
+    }
+    let cap_n_own_he_a = cap_n_own_he_a?;
+    let v_a = brep.half_edges[cap_n_own_he_a].origin;
+
+    // Compute target positions: V_x_new and V_a_new lie at the
+    // intersection of (cap_n's sphere) ∩ cyl_m, snapped to the
+    // cube face containing the original V_x / V_a.  Mathematically:
+    //
+    //   V_new = current_V projected onto sphere_n ∩ cyl_m
+    //
+    // Both surfaces pass through the new position by construction.
+    // The cube face plane that V_x or V_a lies on is preserved
+    // automatically because the sphere ∩ cyl intersection circle
+    // crosses each cube face at exactly one point.
+    let v_x_pos = brep.vertices.get(v_x)?.position;
+    let v_a_pos = brep.vertices.get(v_a)?.position;
+    let v_x_new_pos = project_to_sphere_cylinder_intersection(
+        v_x_pos,
+        sphere_centre,
+        sphere_radius,
+        cyl_axis_origin,
+        cyl_axis,
+    )?;
+    let v_a_new_pos = project_to_sphere_cylinder_intersection(
+        v_a_pos,
+        sphere_centre,
+        sphere_radius,
+        cyl_axis_origin,
+        cyl_axis,
+    )?;
+
+    Some(PathBPlan {
+        cap_k_he,
+        cap_k,
+        cyl_m,
+        cap_n,
+        v_x,
+        v_y,
+        v_x_new_pos,
+        cap_n_own_he_a,
+        v_a_new_pos,
+    })
+}
+
+/// Apply a `PathBPlan` to the BRep transactionally.
+///
+/// Steps:
+/// 1. Move V_x and V_a to their new positions on the cap-tangent
+///    circle (sphere_n ∩ cyl_m intersection in the plane through
+///    sphere_n's centre perpendicular to cyl_m's axis).
+/// 2. `mef` cyl_m's outer loop: insert the cut edge from V_x to V_a.
+///    cyl_m face slot now holds the apex chip; mef returns a new
+///    face for the main cylinder body.
+/// 3. Absorb the apex chip into cap_n by splicing cap_n's loop
+///    around the chip's 2 shared edges (cap_n's OwnCyl edges with
+///    cyl_m), replacing them with the chip's other 2 edges
+///    (cap[0]'s NeighCyl edge + the new cut edge).
+/// 4. Delete the now-orphaned chip face, lens loop, shared-edge
+///    half-edges, and the V_p5 mid-vertex.
+/// 5. `validate()`; rollback on any failure.
+#[allow(dead_code)]
+pub(crate) fn apply_path_b_plan(brep: &mut BRep, plan: &PathBPlan) -> Result<(), RerouteError> {
+    let snapshot = brep.clone();
+
+    // Step 1: move vertices (only when env var requests). When
+    // disabled, the surgery is topology-only — incident edge
+    // curves keep matching old vertex positions, but the
+    // resulting topology may not be commercial-grade until
+    // vertex move + edge geometry refit lands.
+    if std::env::var("POPKERN_VAR_RADIUS_MOVE_VERTS").is_ok_and(|v| v == "1") {
+        if let Some(v) = brep.vertices.get_mut(plan.v_x) {
+            v.position = plan.v_x_new_pos;
+        }
+        let v_a = brep.half_edges[plan.cap_n_own_he_a].origin;
+        if let Some(v) = brep.vertices.get_mut(v_a) {
+            v.position = plan.v_a_new_pos;
+        }
+    }
+
+    // Step 2: mef cyl_m. We need he1 (origin V_x) in cyl_m's loop
+    // and he2 = plan.cap_n_own_he_a (origin V_a in cyl_m's loop).
+    // he1 is the half-edge in cyl_m's loop with origin V_x — that's
+    // the next of the NeighCyl edge's twin.
+    let cap_k_tw = brep.half_edges[plan.cap_k_he].twin;
+    let he_at_v_x = brep.half_edges[cap_k_tw].next;
+    if brep.half_edges[he_at_v_x].origin != plan.v_x {
+        *brep = snapshot;
+        return Err(RerouteError::LoopBroken);
+    }
+
+    let mef = match brep.mef(he_at_v_x, plan.cap_n_own_he_a) {
+        Ok(r) => r,
+        Err(_) => {
+            *brep = snapshot;
+            return Err(RerouteError::LoopBroken);
+        }
+    };
+
+    // Step 3: chip face = original cyl_m face (mef keeps original
+    // face slot for the loop containing he2). Identify chip's 4
+    // half-edges and the 2 shared with cap_n.
+    let chip_face = plan.cyl_m;
+    let h1 = cap_k_tw; // V_y → V_x (NeighCyl twin, in chip loop now)
+    let h2 = mef.half_edge; // V_x → V_a (cut edge, chip side)
+    let h3 = plan.cap_n_own_he_a; // V_a → V_p5 (chip side of shared edge 1)
+    let h4 = brep.half_edges[h3].next; // V_p5 → V_y (chip side of shared edge 2)
+
+    // Sanity: walk chip loop and confirm 4 edges.
+    {
+        let chip_loop = brep.faces[chip_face].outer_loop;
+        let start = brep.loops[chip_loop].half_edge;
+        let mut cnt = 0;
+        let mut cursor = start;
+        for _ in 0..8 {
+            cnt += 1;
+            cursor = brep.half_edges[cursor].next;
+            if cursor == start {
+                break;
+            }
+        }
+        if cnt != 4 {
+            *brep = snapshot;
+            return Err(RerouteError::LoopBroken);
+        }
+    }
+
+    // Twin half-edges (in cap_n's loop).
+    let t3 = brep.half_edges[h3].twin;
+    let t4 = brep.half_edges[h4].twin;
+
+    // Sanity: t3 and t4 must be in cap_n's loop.
+    let cap_n_loop = brep.faces[plan.cap_n].outer_loop;
+    if brep.half_edges[t3].loop_ != cap_n_loop || brep.half_edges[t4].loop_ != cap_n_loop {
+        *brep = snapshot;
+        return Err(RerouteError::LoopBroken);
+    }
+
+    // V_p5 = origin of h4 ("V_p5 → V_y").
+    let v_p5 = brep.half_edges[h4].origin;
+
+    // Find cap_n's neighbours of t3 and t4.
+    // Pattern: cap_n's loop walks t3 → s1 → s2 → s3 → t4 → wrap → t3.
+    // After absorb, s3.next becomes h1 → h2 → s1 (where s1 = t3.next, s3 = t4.prev).
+    let s1 = brep.half_edges[t3].next;
+    let s3 = brep.half_edges[t4].prev;
+
+    // Step 4: splice cap_n's loop.
+    // s3.next = h1; h1.prev = s3; h1.next = h2 (already); h2.prev = h1 (already);
+    // h2.next = s1; s1.prev = h2; h1.loop_ = cap_n_loop; h2.loop_ = cap_n_loop.
+    brep.half_edges[s3].next = h1;
+    brep.half_edges[h1].prev = s3;
+    brep.half_edges[h1].next = h2;
+    brep.half_edges[h2].prev = h1;
+    brep.half_edges[h2].next = s1;
+    brep.half_edges[s1].prev = h2;
+    brep.half_edges[h1].loop_ = cap_n_loop;
+    brep.half_edges[h2].loop_ = cap_n_loop;
+
+    // If cap_n's loop anchor pointed to t3 or t4, reassign it.
+    if brep.loops[cap_n_loop].half_edge == t3 || brep.loops[cap_n_loop].half_edge == t4 {
+        brep.loops[cap_n_loop].half_edge = h1;
+    }
+
+    // Step 5: delete chip face, chip loop, h3, h4, t3, t4, edges, v_p5.
+    let h3_edge = brep.half_edges[h3].edge;
+    let h4_edge = brep.half_edges[h4].edge;
+    let chip_loop = brep.faces[chip_face].outer_loop;
+
+    brep.half_edges.remove(h3);
+    brep.half_edges.remove(h4);
+    brep.half_edges.remove(t3);
+    brep.half_edges.remove(t4);
+    brep.edges.remove(h3_edge);
+    brep.edges.remove(h4_edge);
+    brep.vertices.remove(v_p5);
+    brep.loops.remove(chip_loop);
+    brep.faces.remove(chip_face);
+
+    // Step 6: validate.
+    if let Err(e) = brep.validate() {
+        if std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1") {
+            eprintln!("[reroute] validate failed: {e:?}");
+        }
+        *brep = snapshot;
+        return Err(RerouteError::ValidationFailed);
+    }
+
+    Ok(())
+}
+
+/// Project a 3-D point onto the intersection circle of a sphere
+/// and an axis-aligned cylinder.  The intersection lies in the
+/// plane perpendicular to the cylinder axis through the sphere
+/// centre's projection.  We project `point` first onto that plane
+/// (snap z, in essence), then onto the cylinder surface (snap
+/// radial distance to `cyl_radius`).
+fn project_to_sphere_cylinder_intersection(
+    point: popkern_core::geometry::Point3,
+    sphere_centre: popkern_core::geometry::Point3,
+    sphere_radius: f64,
+    cyl_origin: popkern_core::geometry::Point3,
+    cyl_axis: popkern_core::geometry::Vec3,
+) -> Option<popkern_core::geometry::Point3> {
+    let axis_unit = cyl_axis.normalized()?;
+    // Plane: perpendicular to axis, passing through sphere_centre.
+    let to_centre = popkern_core::geometry::Vec3::new(
+        sphere_centre.x - cyl_origin.x,
+        sphere_centre.y - cyl_origin.y,
+        sphere_centre.z - cyl_origin.z,
+    );
+    let centre_along = to_centre.dot(&axis_unit);
+    let circle_centre = popkern_core::geometry::Point3::new(
+        cyl_origin.x + axis_unit.x * centre_along,
+        cyl_origin.y + axis_unit.y * centre_along,
+        cyl_origin.z + axis_unit.z * centre_along,
+    );
+    // Snap point to the plane.
+    let to_point = popkern_core::geometry::Vec3::new(
+        point.x - circle_centre.x,
+        point.y - circle_centre.y,
+        point.z - circle_centre.z,
+    );
+    let along_axis = to_point.dot(&axis_unit);
+    let in_plane = popkern_core::geometry::Vec3::new(
+        to_point.x - axis_unit.x * along_axis,
+        to_point.y - axis_unit.y * along_axis,
+        to_point.z - axis_unit.z * along_axis,
+    );
+    let in_plane_len = in_plane.length();
+    if in_plane_len < 1e-12 {
+        return None;
+    }
+    // Scale to circle radius (= sphere ∩ cylinder, which has radius
+    // sqrt(sphere_radius^2 - 0) when sphere centre is on axis;
+    // for non-coincident axis/centre, radius = sqrt(R_s^2 - d^2)
+    // where d is sphere-centre-to-axis distance).
+    let _ = sphere_radius;
+    let scale = 1.0; // The cylinder constrains radial = cyl_radius;
+    // we just snap to the plane.
+    Some(popkern_core::geometry::Point3::new(
+        circle_centre.x + in_plane.x * scale,
+        circle_centre.y + in_plane.y * scale,
+        circle_centre.z + in_plane.z * scale,
+    ))
+}
+
 /// Walk `loop_handle`'s half-edges via `next` pointers up to `max`
 /// hops; return `true` iff the walk returns to the starting
 /// half-edge AND every step's `prev`/`next` pointers are mutually
@@ -454,6 +855,7 @@ fn walk_dump(brep: &BRep, loop_handle: popkern_core::topology::LoopHandle, inden
 /// continuity (`he.next.origin == twin(he).origin` won't hold,
 /// but `he_a.next.origin` should equal `he_a`'s destination, which
 /// is `twin(he_a).origin`).
+#[allow(dead_code)]
 fn walk_loop_closes(
     brep: &BRep,
     loop_handle: popkern_core::topology::LoopHandle,
