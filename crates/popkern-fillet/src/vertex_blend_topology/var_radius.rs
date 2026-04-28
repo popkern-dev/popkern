@@ -545,6 +545,43 @@ pub(crate) fn split_apex_footprint_vertex(
     // 2. Re-point cyl_split's outgoing he origin to v_new.
     brep.half_edges[he_v_split].origin = v_new;
 
+    // Detect which face's outgoing-from-V edge is the cyl_seam
+    // (twin in cyl_split). Exactly one of {cap, cube} should be the
+    // cyl_seam side for the bridge twin pair to work correctly.
+    //
+    // Case A — `cap_outgoing_seam == true`, `cube_outgoing_seam == false`:
+    //   cap's loop walks ..., cap_v_prev (cap-tangent_in V_pre→V),
+    //     bridge_cap (V→V_new), he_v_cap (V_new→cyl_split-side), ...
+    //   cube's loop walks ..., cube_v_prev (cyl_seam V_pre→V_new),
+    //     bridge_cube (V_new→V), he_v_cube (V→cap-tangent_out), ...
+    //
+    // Case B — swapped: `cap_outgoing_seam == false`, `cube_outgoing_seam == true`:
+    //   cap's loop walks ..., cap_v_prev (cyl_seam-cap_n V_pre→V_new),
+    //     bridge_cap (V_new→V), he_v_cap (V→cap-tangent_out), ...
+    //   cube's loop walks ..., cube_v_prev (cap-tangent_in V_pre→V),
+    //     bridge_cube (V→V_new), he_v_cube (V_new→cyl_seam_out), ...
+    let cap_outgoing_seam =
+        brep.loops[brep.half_edges[brep.half_edges[he_v_cap].twin].loop_].face == cyl_split;
+    let cube_outgoing_seam =
+        brep.loops[brep.half_edges[brep.half_edges[he_v_cube].twin].loop_].face == cyl_split;
+    let trace_split = std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1");
+    if trace_split {
+        eprintln!(
+            "[split] cap_outgoing_seam={cap_outgoing_seam} cube_outgoing_seam={cube_outgoing_seam}"
+        );
+    }
+    // Case A: cap_outgoing_seam=true, cube_outgoing_seam=false (original design).
+    // Case B: cap_outgoing_seam=false, cube_outgoing_seam=true (swapped).
+    // Anything else: configuration not handled by current surgery.
+    let case_b = match (cap_outgoing_seam, cube_outgoing_seam) {
+        (true, false) => false,
+        (false, true) => true,
+        _ => {
+            *brep = snap;
+            return Err(RerouteError::LoopBroken);
+        }
+    };
+
     // 3. Create the bridge edge.
     let bridge_edge = brep.edges.insert(Edge {
         half_edge: Default::default(),
@@ -559,12 +596,12 @@ pub(crate) fn split_apex_footprint_vertex(
     let cap_v_prev = brep.half_edges[he_v_cap].prev;
     let cube_v_prev = brep.half_edges[he_v_cube].prev;
 
-    // bridge_cap: V → V_new in cap face's loop, inserted between
-    //             cap_v_prev and he_v_cap.
-    // bridge_cube: V_new → V in cube face's loop, inserted between
-    //              cube_v_prev and he_v_cube.
+    // Case A: bridge_cap (V→V_new) in cap_loop; bridge_cube (V_new→V) in cube_loop.
+    // Case B: bridge_cap (V_new→V) in cap_loop; bridge_cube (V→V_new) in cube_loop.
+    let bridge_cap_origin = if case_b { v_new } else { v };
+    let bridge_cube_origin = if case_b { v } else { v_new };
     let bridge_cap = brep.half_edges.insert(HalfEdge {
-        origin: v,
+        origin: bridge_cap_origin,
         twin: Default::default(),
         next: he_v_cap,
         prev: cap_v_prev,
@@ -573,7 +610,7 @@ pub(crate) fn split_apex_footprint_vertex(
         pcurve: None,
     });
     let bridge_cube = brep.half_edges.insert(HalfEdge {
-        origin: v_new,
+        origin: bridge_cube_origin,
         twin: bridge_cap,
         next: he_v_cube,
         prev: cube_v_prev,
@@ -590,10 +627,14 @@ pub(crate) fn split_apex_footprint_vertex(
     brep.half_edges[cube_v_prev].next = bridge_cube;
     brep.half_edges[he_v_cube].prev = bridge_cube;
 
-    // 5. Re-point he_v_cap.origin: cap face continues from v_new
-    //    (toward cyl_split's region). cube face retains he_v_cube
-    //    at v (cube face continues from v).
-    brep.half_edges[he_v_cap].origin = v_new;
+    // 5. Re-point the outgoing-from-V HE that is on the cyl_seam side.
+    //    Case A: he_v_cap is the cyl_seam (cap-cyl_split edge) → re-point.
+    //    Case B: he_v_cube is the cyl_seam (cube-cyl_split edge) → re-point.
+    if case_b {
+        brep.half_edges[he_v_cube].origin = v_new;
+    } else {
+        brep.half_edges[he_v_cap].origin = v_new;
+    }
 
     // 6. Bridge curve: degenerate (zero-length) initially, both
     //    endpoints at V's position. Vertex-move step (separate)
@@ -611,52 +652,73 @@ pub(crate) fn split_apex_footprint_vertex(
         t_end: 1.0,
     });
 
-    // 7. Update vertex outgoing pointers.
-    brep.vertices[v].outgoing = bridge_cap;
-    brep.vertices[v_new].outgoing = he_v_split;
+    // 7. Update vertex outgoing pointers.  v's outgoing must be a
+    //    half-edge with origin == v; same for v_new.  In Case A,
+    //    bridge_cap.origin = v and bridge_cube.origin = v_new.
+    //    In Case B, the roles are swapped.
+    let v_outgoing = if bridge_cap_origin == v {
+        bridge_cap
+    } else {
+        bridge_cube
+    };
+    let v_new_outgoing = if bridge_cap_origin == v_new {
+        bridge_cap
+    } else {
+        bridge_cube
+    };
+    brep.vertices[v].outgoing = v_outgoing;
+    brep.vertices[v_new].outgoing = v_new_outgoing;
+    let _ = he_v_split; // also valid as v_new outgoing; bridge variant chosen for consistency
 
-    // 7b. Re-point twin origins from V to V_new for the 2 edges
-    //     whose loop semantics now point to V_new instead of V
-    //     (besides the directly-re-pointed he_v_cap and he_v_split):
+    // 7b. Re-point twin origins on the cyl_seam edge between
+    //     cyl_split and the "incoming-V" face. The incoming-V face
+    //     is whichever of {cap, cube} has its INCOMING-V edge as the
+    //     cyl_seam (twin in cyl_split):
     //
-    //     * cube face's incoming edge (cube_v_prev): its twin had
-    //       origin = V, but the cube face's loop walk now ends
-    //       at V_new (because bridge_cube.origin = V_new comes
-    //       between cube_v_prev and he_v_cube).  Re-point twin
-    //       origin to V_new.
+    //     * Case A (cap outgoing IS cyl_seam → cube_v_prev IS cyl_seam):
+    //       cube_v_prev_twin lives in cyl_split (= he_v_split.prev or
+    //       he_v_split itself depending on direction). Its origin
+    //       is V → re-point to V_new.
     //
-    //     * cyl_split's incoming edge (he_v_split.prev): its twin
-    //       had origin = V, but cyl_split's loop walk now ends at
-    //       V_new.  Re-point twin origin.
+    //     * Case B (cube outgoing IS cyl_seam → cap_v_prev IS cyl_seam):
+    //       cap_v_prev_twin lives in cyl_split. Its origin is V →
+    //       re-point to V_new.
     //
-    //     This makes the BRep edges' endpoints consistent with the
-    //     loop walks (each edge has V_new as one endpoint).  When
-    //     the caller subsequently runs update_incident_edges_for_vertex_move
-    //     with origin=V_new iteration, these edges are picked up
-    //     and their curves' V_new-side CPs snap to V_new_pos.
-    let trace_split = std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1");
+    //     The "incoming-V" face's V-prev twin in cyl_split is
+    //     he_v_split.prev — already covered if its origin is V (the
+    //     classic step 7b second re-point). After step 5, he_v_split
+    //     itself has been re-pointed; he_v_split.prev wasn't, so its
+    //     twin still has origin V (= correct to re-point now).
     let cube_v_prev_twin = brep.half_edges[cube_v_prev].twin;
     let cube_v_prev_twin_face = brep.loops[brep.half_edges[cube_v_prev_twin].loop_].face;
+    let cap_v_prev_twin = brep.half_edges[cap_v_prev].twin;
+    let cap_v_prev_twin_face = brep.loops[brep.half_edges[cap_v_prev_twin].loop_].face;
     if trace_split {
         eprintln!(
-            "[split] he_v_cap={he_v_cap:?} he_v_cube={he_v_cube:?} he_v_split={he_v_split:?} cube_v_prev={cube_v_prev:?} (twin {cube_v_prev_twin:?} face {cube_v_prev_twin_face:?}) (cap={cap_face:?} cube={cube_face:?} cyl_split={cyl_split:?})"
+            "[split] case_b={case_b} he_v_cap={he_v_cap:?} he_v_cube={he_v_cube:?} he_v_split={he_v_split:?} cap_v_prev={cap_v_prev:?} (twin {cap_v_prev_twin:?} face {cap_v_prev_twin_face:?}) cube_v_prev={cube_v_prev:?} (twin {cube_v_prev_twin:?} face {cube_v_prev_twin_face:?}) (cap={cap_face:?} cube={cube_face:?} cyl_split={cyl_split:?})"
         );
     }
-    if brep.half_edges[cube_v_prev_twin].origin == v {
-        brep.half_edges[cube_v_prev_twin].origin = v_new;
+    // Case A: cube_v_prev IS the cyl_seam (twin in cyl_split). Re-point.
+    // Case B: cap_v_prev IS the cyl_seam. Re-point.
+    let prev_seam_twin = if case_b {
+        cap_v_prev_twin
+    } else {
+        cube_v_prev_twin
+    };
+    if brep.half_edges[prev_seam_twin].origin == v {
+        brep.half_edges[prev_seam_twin].origin = v_new;
     }
     let he_v_split_in = brep.half_edges[he_v_split].prev;
     let he_v_split_in_twin = brep.half_edges[he_v_split_in].twin;
     let he_v_split_in_twin_face = brep.loops[brep.half_edges[he_v_split_in_twin].loop_].face;
     if trace_split {
         eprintln!(
-            "[split] he_v_split_in={he_v_split_in:?} he_v_split_in_twin={he_v_split_in_twin:?} (face {he_v_split_in_twin_face:?}) // he_v_cube={he_v_cube:?} cube_v_prev={cube_v_prev:?}"
+            "[split] he_v_split_in={he_v_split_in:?} he_v_split_in_twin={he_v_split_in_twin:?} (face {he_v_split_in_twin_face:?})"
         );
     }
     if brep.half_edges[he_v_split_in_twin].origin == v {
         brep.half_edges[he_v_split_in_twin].origin = v_new;
     }
-    let _ = he_v_cap;
 
     // 8. Set bridge edge pcurves (degree-1 chord on cube_face's
     //    plane and cap_face's surface). Skip if either projection
@@ -2360,28 +2422,25 @@ mod tests {
         assert_eq!(brep.faces.len(), pre_face_count);
     }
 
-    /// Same pyramid but assign cap = tri0 and cube = tri1 (cap and
-    /// cube cyclically adjacent — opposite pattern to cube_mixed).
-    /// `cyl_split = tri2`. Note tri0..3 are cyclically ordered so
-    /// tri0 and tri1 are adjacent (share V-B edge); tri1 and tri2
-    /// share V-C; tri2 and tri3 share V-D; tri3 and tri0 share V-A.
+    /// Configuration where cap and cube are cyclically adjacent
+    /// (cyl_split is "across" from the cap-cube boundary). The
+    /// surgery design relies on cap and cube each having one
+    /// cyl_seam edge incident to V — but in this layout neither
+    /// does.  The function detects the unsupported configuration
+    /// and returns `LoopBroken` rather than producing a corrupt
+    /// BRep.
     #[test]
-    fn split_synthetic_4_face_cap_cube_adjacent() {
+    fn split_synthetic_4_face_cap_cube_adjacent_unsupported() {
         use popkern_core::geometry::Point3;
 
         let (mut brep, v_apex, [tri0, tri1, tri2, tri3]) = build_pyramid_4();
         let _ = tri3;
         let v_new_pos = Point3::new(0.5, 0.4, 0.0);
 
-        match split_apex_footprint_vertex(&mut brep, v_apex, tri0, tri1, tri2, v_new_pos) {
-            Ok(v_new) => {
-                eprintln!("split OK: v_new={v_new:?}");
-                if let Err(e) = brep.validate() {
-                    panic!("validate after split failed (cap-cube adjacent): {e:?}");
-                }
-            }
-            Err(e) => panic!("split failed (cap-cube adjacent): {e:?}"),
-        }
+        let result = split_apex_footprint_vertex(&mut brep, v_apex, tri0, tri1, tri2, v_new_pos);
+        assert!(matches!(result, Err(RerouteError::LoopBroken)));
+        // Snapshot rollback: BRep should be unchanged.
+        brep.validate().expect("BRep unchanged after rollback");
     }
 
     /// Run the full Path B reroute on cube_mixed and report which
