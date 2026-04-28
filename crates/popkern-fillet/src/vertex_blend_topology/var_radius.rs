@@ -634,12 +634,25 @@ pub(crate) fn split_apex_footprint_vertex(
     //     the caller subsequently runs update_incident_edges_for_vertex_move
     //     with origin=V_new iteration, these edges are picked up
     //     and their curves' V_new-side CPs snap to V_new_pos.
+    let trace_split = std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1");
     let cube_v_prev_twin = brep.half_edges[cube_v_prev].twin;
+    let cube_v_prev_twin_face = brep.loops[brep.half_edges[cube_v_prev_twin].loop_].face;
+    if trace_split {
+        eprintln!(
+            "[split] he_v_cap={he_v_cap:?} he_v_cube={he_v_cube:?} he_v_split={he_v_split:?} cube_v_prev={cube_v_prev:?} (twin {cube_v_prev_twin:?} face {cube_v_prev_twin_face:?}) (cap={cap_face:?} cube={cube_face:?} cyl_split={cyl_split:?})"
+        );
+    }
     if brep.half_edges[cube_v_prev_twin].origin == v {
         brep.half_edges[cube_v_prev_twin].origin = v_new;
     }
     let he_v_split_in = brep.half_edges[he_v_split].prev;
     let he_v_split_in_twin = brep.half_edges[he_v_split_in].twin;
+    let he_v_split_in_twin_face = brep.loops[brep.half_edges[he_v_split_in_twin].loop_].face;
+    if trace_split {
+        eprintln!(
+            "[split] he_v_split_in={he_v_split_in:?} he_v_split_in_twin={he_v_split_in_twin:?} (face {he_v_split_in_twin_face:?}) // he_v_cube={he_v_cube:?} cube_v_prev={cube_v_prev:?}"
+        );
+    }
     if brep.half_edges[he_v_split_in_twin].origin == v {
         brep.half_edges[he_v_split_in_twin].origin = v_new;
     }
