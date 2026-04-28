@@ -1595,16 +1595,45 @@ fn set_cut_edge_geometry(
                 center: *sphere_centre,
                 radius: *sphere_radius,
             };
-            let pole_eps = 1e-9_f64;
+            // Pole detection via radial distance in the sphere's local
+            // x/y plane (not via `v ≈ 0/π`, since `acos` near ±1 picks
+            // up ~1e-8 rad of float noise — too tight for a v-based
+            // threshold).  At a pole the radial component vanishes
+            // and the projected `u` is undefined.
+            let pole_radial_eps = sphere_radius * 1e-6;
+            let radial_a = ((v_start.x - sphere_centre.x).powi(2)
+                + (v_start.y - sphere_centre.y).powi(2))
+            .sqrt();
+            let radial_b =
+                ((v_end.x - sphere_centre.x).powi(2) + (v_end.y - sphere_centre.y).powi(2)).sqrt();
+            let pole_a = radial_a < pole_radial_eps;
+            let pole_b = radial_b < pole_radial_eps;
             let pcurve_sphere = match (
                 project_point_to_uv(&cap_geom, &v_start),
                 project_point_to_uv(&cap_geom, &v_end),
             ) {
                 (Some((u_a_raw, v_a)), Some((u_b_raw, v_b))) => {
-                    let pole_a =
-                        v_a.abs() < pole_eps || (v_a - std::f64::consts::PI).abs() < pole_eps;
-                    let pole_b =
-                        v_b.abs() < pole_eps || (v_b - std::f64::consts::PI).abs() < pole_eps;
+                    // Snap `v` to exact 0 or π at the pole (acos noise),
+                    // and inherit `u` from the non-pole endpoint so the
+                    // Linear pcurve traces a true meridian.
+                    let v_a = if pole_a {
+                        if v_a < std::f64::consts::FRAC_PI_2 {
+                            0.0
+                        } else {
+                            std::f64::consts::PI
+                        }
+                    } else {
+                        v_a
+                    };
+                    let v_b = if pole_b {
+                        if v_b < std::f64::consts::FRAC_PI_2 {
+                            0.0
+                        } else {
+                            std::f64::consts::PI
+                        }
+                    } else {
+                        v_b
+                    };
                     let u_a = if pole_a { u_b_raw } else { u_a_raw };
                     let u_b = if pole_b { u_a_raw } else { u_b_raw };
                     Some(Pcurve::linear((u_a, v_a), (u_b, v_b), theta_a, theta_end))
@@ -2845,6 +2874,9 @@ mod tests {
                     )
                 }
                 popkern_core::geometry::CurveGeometry::Line { .. } => "Line".to_string(),
+                popkern_core::geometry::CurveGeometry::Arc { .. } => "Arc".to_string(),
+                popkern_core::geometry::CurveGeometry::Circle { .. } => "Circle".to_string(),
+                popkern_core::geometry::CurveGeometry::Ellipse { .. } => "Ellipse".to_string(),
                 _ => "<other>".to_string(),
             };
             eprintln!("edge={eh:?} ({la} on {fa:?} <-> {lb} on {fb:?}) g1={g1:.3e} g0={g0:.3e}");
@@ -2895,15 +2927,23 @@ mod tests {
                 "  curve t∈[{t_lo:.3},{t_hi:.3}] pa_param∈[{pa_lo:.3},{pa_hi:.3}] pb_param∈[{pb_lo:.3},{pb_hi:.3}]"
             );
             // Dump pa/pb pcurve type.
-            if let popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(nc) = &pa.geometry {
-                eprintln!(
-                    "  pa Nurbs deg={} n_cps={} cps={:?}",
-                    nc.degree,
-                    nc.control_points.len(),
-                    nc.control_points
-                );
-            } else {
-                eprintln!("  pa <non-nurbs pcurve geometry>");
+            eprintln!("  ha={he_a:?} hb={:?}", ha.twin);
+            match &pa.geometry {
+                popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(nc) => {
+                    eprintln!(
+                        "  pa Nurbs deg={} n_cps={} cps={:?}",
+                        nc.degree,
+                        nc.control_points.len(),
+                        nc.control_points
+                    );
+                }
+                popkern_core::geometry::pcurve::PcurveGeometry::Linear { start, end } => {
+                    eprintln!(
+                        "  pa Linear ({:.4},{:.4})→({:.4},{:.4}) t∈[{:.4},{:.4}]",
+                        start.0, start.1, end.0, end.1, pa.t_start, pa.t_end
+                    );
+                }
+                _ => eprintln!("  pa <other pcurve geometry>"),
             }
             if let popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(nc) = &pb.geometry {
                 eprintln!(

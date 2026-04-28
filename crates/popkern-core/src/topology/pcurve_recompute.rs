@@ -404,6 +404,24 @@ impl BRep {
                 continue;
             }
 
+            // Pole-aware bypass: at a sphere pole, `project_point_to_uv`
+            // returns a `u` from `atan2(0,0)` (effectively undefined),
+            // so `start_err`/`end_err` can be huge even when the
+            // existing pcurve is geometrically correct.  Verify in
+            // 3-D: if `surface.point_at(eval_start)` matches
+            // `origin_pos` within tolerance, the pcurve is fine and
+            // converting it to NURBS just to overwrite the CP with a
+            // noisy `u` would *introduce* error.
+            use crate::geometry::surface::SurfaceEval;
+            let eval_start_3d = surface.point_at(eval_start.x, eval_start.y);
+            let eval_end_3d = surface.point_at(eval_end.x, eval_end.y);
+            let pos_tol = 1e-9_f64;
+            let start_3d_ok = eval_start_3d.distance_to(&origin_pos) < pos_tol;
+            let end_3d_ok = eval_end_3d.distance_to(&dest_pos) < pos_tol;
+            if start_3d_ok && end_3d_ok {
+                continue;
+            }
+
             // Materialise the pcurve as NURBS for endpoint surgery;
             // analytic variants (Linear) round-trip through `to_nurbs`
             // so the same code path serves both.
