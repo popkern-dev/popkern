@@ -476,114 +476,273 @@ fn walk_dump(brep: &BRep, loop_handle: popkern_core::topology::LoopHandle, inden
 ///    half_edge pointers if they pointed to a re-routed he.
 /// 6. Update vertex `outgoing` pointers for v and v_new.
 ///
-/// # Status: stub (returns `Err(NotImplemented)`)
+/// Split a shared apex-region vertex `v` so that `v_keep` retains
+/// incidence to `cap_face`, `cube_face`, and `cyl_keep`, while
+/// a new vertex `v_new` (at `v_new_pos`) inherits the half-edges
+/// incident to `cyl_split`.
 ///
-/// The algorithm is well-defined but the half-edge surgery is
-/// invasive: 6+ half-edges need their next/prev pointers
-/// reorganized, and 2+ edges + 4 half-edges + 1 vertex are
-/// created. Without solid testing this risks silent BRep
-/// corruption. Recommended next step: write a focused unit test
-/// that constructs a hand-made BRep with the exact 4-face
-/// incidence pattern, runs the split, and validates against an
-/// expected post-split state.
+/// A new edge connects `v` and `v_new`, with `cap_face` on one
+/// side and `cube_face` on the other (the FaceEdge bridge from
+/// Phase 6c-A's substituted boundary).
+///
+/// On any sub-step failure, snapshot-rollback restores `brep`.
 #[allow(dead_code)]
 pub(crate) fn split_apex_footprint_vertex(
-    _brep: &mut BRep,
-    _v: VertexHandle,
-    _cap_face: FaceHandle,
-    _cube_face: FaceHandle,
-    _cyl_keep: FaceHandle,
-    _cyl_split: FaceHandle,
-    _v_new_pos: popkern_core::geometry::Point3,
+    brep: &mut BRep,
+    v: VertexHandle,
+    cap_face: FaceHandle,
+    cube_face: FaceHandle,
+    cyl_split: FaceHandle,
+    v_new_pos: popkern_core::geometry::Point3,
 ) -> Result<VertexHandle, RerouteError> {
-    // See doc comment for algorithm. The implementation:
-    //
-    //   1. Walk the 4 face outer loops to find the half-edges
-    //      with origin == v in each.  Validate that v has
-    //      exactly 1 incident he per face (manifold assumption).
-    //   2. mev / direct-insert v_new with handle.
-    //   3. For he_cyl_split_out: set origin = v_new.  For
-    //      he_cyl_split_in (= he_cyl_split_out.prev): no origin
-    //      change, but its .next.origin is now v_new (automatic
-    //      via slot indirection).
-    //   4. Insert he_bridge_cap into cap_face's loop:
-    //        let he_cap_v = ... (origin = v in cap_face);
-    //        let he_cap_v_prev = he_cap_v.prev;
-    //        let he_bridge_cap = HalfEdge { origin: v, next: he_cap_v, prev: he_cap_v_prev,
-    //                                       loop_: cap_face_loop, twin: ?, edge: bridge_edge };
-    //        // Wire the loop:
-    //        he_cap_v.prev = he_bridge_cap;
-    //        he_cap_v_prev.next = he_bridge_cap;
-    //
-    //      But this puts V → V_new → V in the loop traversal, which is
-    //      a self-crossing.  Actually we want V → V_new → ... → V (i.e.,
-    //      V_new is also visited later before returning to V).
-    //
-    //      The cleaner construction: V_new doesn't appear in cap face's
-    //      loop at all (cap face's boundary still passes through V only).
-    //      Instead, V_new is in cyl_split's loop AND cube_face's loop.
-    //      The bridge edge is between cube_face (one side) and... cap
-    //      face? But cap face shouldn't have a chord on the cube face.
-    //
-    //      Actually I realize the cube face's loop needs to NOT pass
-    //      through both V and V_new — the cube face's boundary follows
-    //      the chord from V to V_new directly, with NO intermediate
-    //      cap-side detour.  So the cube face's loop walks V_new → V
-    //      via the bridge edge, instead of via the original V → V_new
-    //      detour.
-    //
-    //      Pre-split cube face loop: ... → V → ...
-    //      Post-split cube face loop: ... → V_new → V → ...
-    //
-    //      So V_new is INSERTED into cube_face's loop, with a new edge
-    //      V_new → V (the bridge half-edge).
-    //
-    //      The bridge's other half-edge (V → V_new) goes... where?
-    //      Probably into cap face's loop (since cap face also borders
-    //      the bridge geometrically — the bridge lies on the cube
-    //      face plane, and the cap face's boundary now follows
-    //      V → V_new along this chord).
-    //
-    //      BUT: cap face's boundary is supposed to be cap-tangent
-    //      arcs + inner spokes, NOT chords on cube faces.  So cap
-    //      face shouldn't touch the bridge edge.
-    //
-    //   What's actually happening: the rolling-ball cap face had
-    //   a degenerate "vertex V" boundary stop; after split, the
-    //   cap face's boundary STILL stops at V — but V is now on
-    //   only one cylinder.  V_new is purely a cube_face/cyl_split
-    //   incidence.  The bridge edge is internal to cube_face
-    //   (not bordered by cap face on either side).
-    //
-    //   So the bridge edge has:
-    //   * he_bridge_in_cube_face: V_new → V, in cube_face's loop.
-    //   * he_bridge_twin: V → V_new, in... cube_face again (a
-    //     "ring" hole loop)?  Or in some non-cube face?
-    //
-    //   For a BRep where the bridge edge separates 2 different
-    //   faces, both halves go into different loops.  But here the
-    //   bridge is INTERIOR to a single cube face — the two sides
-    //   of the bridge are both the cube face plane.  This is a
-    //   "fin" edge — both half-edges in the cube face's loop.
-    //
-    //   The kemr/mekr Euler ops handle this case (edge whose
-    //   halves are in the same loop becomes an inner-loop hole,
-    //   or vice versa).
-    //
-    //   For our case: post-split, cube face has the original
-    //   outer loop EXTENDED with a fin: ... V_new → V → ... fin
-    //   inwards via bridge → V_new → ... back.  This requires
-    //   the kemr-inverse: mekr(V→V_new) where V_new is a free
-    //   vertex inside the cube face.
-    //
-    //   Hmm, this is really intricate.  The split is doable but
-    //   needs careful handling.
-    //
-    //   Recommendation: implement split as a focused experiment
-    //   on a hand-constructed BRep test fixture, validating each
-    //   step.  Then integrate.
+    use popkern_core::topology::{Edge, HalfEdge, Vertex};
 
-    Err(RerouteError::NotImplemented)
+    let snap = brep.clone();
+
+    let he_v_cap = match find_outgoing_he_in_face(brep, v, cap_face) {
+        Some(h) => h,
+        None => {
+            *brep = snap;
+            return Err(RerouteError::LoopBroken);
+        }
+    };
+    let he_v_cube = match find_outgoing_he_in_face(brep, v, cube_face) {
+        Some(h) => h,
+        None => {
+            *brep = snap;
+            return Err(RerouteError::LoopBroken);
+        }
+    };
+    let he_v_split = match find_outgoing_he_in_face(brep, v, cyl_split) {
+        Some(h) => h,
+        None => {
+            *brep = snap;
+            return Err(RerouteError::LoopBroken);
+        }
+    };
+
+    // 1. Create v_new.
+    let v_new = brep.vertices.insert(Vertex {
+        position: v_new_pos,
+        outgoing: Default::default(),
+        name: None,
+        tolerance: None,
+    });
+
+    // 2. Re-point cyl_split's outgoing he origin to v_new.
+    brep.half_edges[he_v_split].origin = v_new;
+
+    // 3. Create the bridge edge.
+    let bridge_edge = brep.edges.insert(Edge {
+        half_edge: Default::default(),
+        curve: None,
+        name: None,
+        tolerance: None,
+        canonical: Default::default(),
+    });
+
+    let cap_loop = brep.half_edges[he_v_cap].loop_;
+    let cube_loop = brep.half_edges[he_v_cube].loop_;
+    let cap_v_prev = brep.half_edges[he_v_cap].prev;
+    let cube_v_prev = brep.half_edges[he_v_cube].prev;
+
+    // bridge_cap: V → V_new in cap face's loop, inserted between
+    //             cap_v_prev and he_v_cap.
+    // bridge_cube: V_new → V in cube face's loop, inserted between
+    //              cube_v_prev and he_v_cube.
+    let bridge_cap = brep.half_edges.insert(HalfEdge {
+        origin: v,
+        twin: Default::default(),
+        next: he_v_cap,
+        prev: cap_v_prev,
+        edge: bridge_edge,
+        loop_: cap_loop,
+        pcurve: None,
+    });
+    let bridge_cube = brep.half_edges.insert(HalfEdge {
+        origin: v_new,
+        twin: bridge_cap,
+        next: he_v_cube,
+        prev: cube_v_prev,
+        edge: bridge_edge,
+        loop_: cube_loop,
+        pcurve: None,
+    });
+    brep.half_edges[bridge_cap].twin = bridge_cube;
+    brep.edges[bridge_edge].half_edge = bridge_cap;
+
+    // 4. Splice into loops.
+    brep.half_edges[cap_v_prev].next = bridge_cap;
+    brep.half_edges[he_v_cap].prev = bridge_cap;
+    brep.half_edges[cube_v_prev].next = bridge_cube;
+    brep.half_edges[he_v_cube].prev = bridge_cube;
+
+    // 5. Re-point he_v_cap.origin: cap face continues from v_new
+    //    (toward cyl_split's region). cube face retains he_v_cube
+    //    at v (cube face continues from v).
+    brep.half_edges[he_v_cap].origin = v_new;
+
+    // 6. Build a degenerate (zero-length) bridge curve so validate
+    //    sees consistent geometry. The bridge is at v's position
+    //    initially (v_new is at v_new_pos but the curve is from
+    //    v's pos to v_new_pos as a chord). Update incident edges'
+    //    curve endpoints.
+    let v_pos = brep.vertices[v].position;
+    let bridge_curve = popkern_core::geometry::nurbs_curve::NurbsCurve {
+        degree: 1,
+        control_points: vec![v_pos, v_new_pos],
+        weights: vec![1.0, 1.0],
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+    };
+    brep.edges[bridge_edge].curve = Some(popkern_core::geometry::curve::CurveOnEdge {
+        geometry: popkern_core::geometry::CurveGeometry::Nurbs(bridge_curve),
+        t_start: 0.0,
+        t_end: 1.0,
+    });
+
+    // 7. Update vertex outgoing pointers.
+    brep.vertices[v].outgoing = bridge_cap;
+    brep.vertices[v_new].outgoing = he_v_split;
+
+    // 7b. Snap the V-side endpoint of the 2 specific edges whose
+    //     half-edges we re-pointed (he_v_cap and he_v_split).
+    //     These edges' curves had endpoints at V's old position;
+    //     now they should end at V_new's position. We must NOT
+    //     touch the bridge edge (whose V-side legitimately stays
+    //     at V's position).
+    let v_old_pos = brep.vertices[v].position;
+    let he_v_cap_edge = brep.half_edges[he_v_cap].edge;
+    let he_v_split_edge = brep.half_edges[he_v_split].edge;
+    snap_edge_curve_endpoint(brep, he_v_cap_edge, v_old_pos, v_new_pos);
+    snap_edge_curve_endpoint(brep, he_v_split_edge, v_old_pos, v_new_pos);
+
+    // 8. Set bridge edge pcurves (degree-1 chord on cube_face's
+    //    plane and cap_face's surface). Skip if either projection
+    //    fails — validate will catch issues.
+    let cap_surf = brep
+        .faces
+        .get(cap_face)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| s.geometry.clone());
+    let cube_surf = brep
+        .faces
+        .get(cube_face)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| s.geometry.clone());
+    if let Some(surf) = cap_surf {
+        let bc = brep.edges[bridge_edge].curve.as_ref().unwrap().clone();
+        let curve_3d = match &bc.geometry {
+            popkern_core::geometry::CurveGeometry::Nurbs(nc) => nc.clone(),
+            _ => unreachable!(),
+        };
+        if let Some(pc) = sample_pcurve_on_surface(&curve_3d, &surf) {
+            brep.half_edges[bridge_cap].pcurve = Some(pc.into());
+        }
+    }
+    if let Some(surf) = cube_surf {
+        let bc = brep.edges[bridge_edge].curve.as_ref().unwrap().clone();
+        let curve_3d = match &bc.geometry {
+            popkern_core::geometry::CurveGeometry::Nurbs(nc) => nc.clone(),
+            _ => unreachable!(),
+        };
+        if let Some(pc) = sample_pcurve_on_surface(&curve_3d, &surf) {
+            // Bridge_cube goes V_new → V — invert direction.
+            let mut inv = pc.clone();
+            inv.control_points.reverse();
+            inv.weights.reverse();
+            brep.half_edges[bridge_cube].pcurve = Some(inv.into());
+        }
+    }
+
+    // 9. Validate.
+    if let Err(e) = brep.validate() {
+        if std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1") {
+            eprintln!("[split] validate failed: {e:?}");
+        }
+        *brep = snap;
+        return Err(RerouteError::ValidationFailed);
+    }
+
+    Ok(v_new)
+}
+
+/// Find the (unique) Plane-surface face incident to `v`. Returns
+/// `None` if zero or multiple plane faces are incident.
+fn find_incident_plane_face(brep: &BRep, v: VertexHandle) -> Option<FaceHandle> {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let mut found: Option<FaceHandle> = None;
+    for he in brep.half_edges.values() {
+        if he.origin != v {
+            continue;
+        }
+        let f = brep.loops.get(he.loop_)?.face;
+        let surf = brep
+            .faces
+            .get(f)
+            .and_then(|fd| fd.surface.as_ref())
+            .map(|s| &s.geometry);
+        if matches!(surf, Some(SurfaceGeometry::Plane { .. })) {
+            if found.is_some() && found != Some(f) {
+                return None;
+            }
+            found = Some(f);
+        }
+    }
+    found
+}
+
+/// Snap whichever of `edge`'s curve's first/last CP is at
+/// `from_pos` to `to_pos`.  No-op if neither endpoint matches.
+fn snap_edge_curve_endpoint(
+    brep: &mut BRep,
+    edge: EdgeHandle,
+    from_pos: popkern_core::geometry::Point3,
+    to_pos: popkern_core::geometry::Point3,
+) {
+    use popkern_core::geometry::CurveGeometry;
+    let tol = 1e-6;
+    if let Some(coe) = brep.edges.get_mut(edge).and_then(|e| e.curve.as_mut())
+        && let CurveGeometry::Nurbs(nc) = &mut coe.geometry
+        && !nc.control_points.is_empty()
+    {
+        let n = nc.control_points.len();
+        let first = nc.control_points[0];
+        let last = nc.control_points[n - 1];
+        if first.distance_to(&from_pos) < tol {
+            nc.control_points[0] = to_pos;
+        } else if last.distance_to(&from_pos) < tol {
+            nc.control_points[n - 1] = to_pos;
+        }
+    }
+}
+
+/// Find the unique outgoing half-edge from `v` that lies in
+/// `face`'s outer loop. Returns `None` if not found or if `v`
+/// is multiply incident to `face`'s loop (non-manifold).
+fn find_outgoing_he_in_face(
+    brep: &BRep,
+    v: VertexHandle,
+    face: FaceHandle,
+) -> Option<HalfEdgeHandle> {
+    let face_data = brep.faces.get(face)?;
+    let outer_loop = face_data.outer_loop;
+    let start = brep.loops.get(outer_loop)?.half_edge;
+    let mut cursor = start;
+    let mut result = None;
+    for _ in 0..32 {
+        let he = brep.half_edges.get(cursor)?;
+        if he.origin == v {
+            if result.is_some() {
+                return None; // ambiguous
+            }
+            result = Some(cursor);
+        }
+        cursor = he.next;
+        if cursor == start {
+            break;
+        }
+    }
+    result
 }
 
 // ================================================================
@@ -790,13 +949,86 @@ pub(crate) fn apply_path_b_plan(brep: &mut BRep, plan: &PathBPlan) -> Result<(),
     let v_x_old_pos = brep.vertices[plan.v_x].position;
     let v_a_old_pos = brep.vertices[v_a_handle].position;
 
-    // Step 2: mef cyl_m. We need he1 (origin V_x) in cyl_m's loop
-    // and he2 = plan.cap_n_own_he_a (origin V_a in cyl_m's loop).
-    // he1 is the half-edge in cyl_m's loop with origin V_x — that's
-    // the next of the NeighCyl edge's twin.
+    // Step 0: split V_x and V_a so each new vertex is incident
+    // to ONLY cyl_m (not cyl_keep). This avoids conflicts when
+    // multiple surgeries share these footprint vertices.
+    let trace = std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1");
+    let cube_face_x = match find_incident_plane_face(brep, plan.v_x) {
+        Some(f) => f,
+        None => {
+            if trace {
+                eprintln!("[apply] no plane face incident to V_x {:?}", plan.v_x);
+            }
+            *brep = snapshot;
+            return Err(RerouteError::LoopBroken);
+        }
+    };
+    let cube_face_a = match find_incident_plane_face(brep, v_a_handle) {
+        Some(f) => f,
+        None => {
+            if trace {
+                eprintln!("[apply] no plane face incident to V_a {v_a_handle:?}");
+            }
+            *brep = snapshot;
+            return Err(RerouteError::LoopBroken);
+        }
+    };
+    if trace {
+        eprintln!(
+            "[apply] split V_x={:?} (cube={cube_face_x:?}) V_a={v_a_handle:?} (cube={cube_face_a:?})",
+            plan.v_x
+        );
+    }
+    let _ = (v_x_old_pos, v_a_old_pos);
+    let v_x_new = match split_apex_footprint_vertex(
+        brep,
+        plan.v_x,
+        plan.cap_k,
+        cube_face_x,
+        plan.cyl_m,
+        plan.v_x_new_pos,
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            if trace {
+                eprintln!("[apply] split V_x failed: {e:?}");
+            }
+            *brep = snapshot;
+            return Err(e);
+        }
+    };
+    let v_a_new = match split_apex_footprint_vertex(
+        brep,
+        v_a_handle,
+        plan.cap_n,
+        cube_face_a,
+        plan.cyl_m,
+        plan.v_a_new_pos,
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            if trace {
+                eprintln!("[apply] split V_a failed: {e:?}");
+            }
+            *brep = snapshot;
+            return Err(e);
+        }
+    };
+    let _ = (v_x_new, v_a_new);
+
+    // Step 2: mef cyl_m. After splits, cyl_m's loop has v_x_new
+    // (where v_x used to be) and v_a_new (where v_a used to be).
+    // he_at_v_x is the half-edge in cyl_m's loop whose origin
+    // is now v_x_new — found via `cap_k_tw.next`.
     let cap_k_tw = brep.half_edges[plan.cap_k_he].twin;
     let he_at_v_x = brep.half_edges[cap_k_tw].next;
-    if brep.half_edges[he_at_v_x].origin != plan.v_x {
+    if brep.half_edges[he_at_v_x].origin != v_x_new {
+        if trace {
+            eprintln!(
+                "[apply] he_at_v_x origin {:?} != v_x_new {v_x_new:?}",
+                brep.half_edges[he_at_v_x].origin
+            );
+        }
         *brep = snapshot;
         return Err(RerouteError::LoopBroken);
     }
@@ -1164,7 +1396,6 @@ fn sample_pcurve_on_surface(
     fitting::fit_curve(&points, &params, degree, n_cps).ok()
 }
 
-
 /// Project a 3-D point onto the intersection circle of a sphere
 /// and an axis-aligned cylinder.  The intersection lies in the
 /// plane perpendicular to the cylinder axis through the sphere
@@ -1462,6 +1693,167 @@ mod tests {
         let brep = BRep::new(Tolerance::default());
         let result = classify_cap_loops(&brep, &[], &[(Point3::new(0.0, 0.0, 0.0), 0.1)]);
         assert!(result.is_empty());
+    }
+
+    /// End-to-end: run cube_mixed pipeline, find a shared
+    /// rolling-ball vertex, split it, validate. Used as the
+    /// first empirical test of `split_apex_footprint_vertex`.
+    #[test]
+    #[ignore]
+    fn split_one_cube_mixed_vertex() {
+        unsafe {
+            std::env::set_var("POPKERN_SPHERE_FIT_BOUNDARY", "1");
+            std::env::set_var("POPKERN_SPHERE_CAP_RUNG", "1");
+        }
+        let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+        let apex = cube
+            .vertices
+            .keys()
+            .find(|&v| cube.half_edges.values().filter(|he| he.origin == v).count() == 3)
+            .unwrap();
+        let edges: Vec<_> = {
+            use std::collections::BTreeSet;
+            let s: BTreeSet<_> = cube
+                .half_edges
+                .values()
+                .filter(|he| he.origin == apex)
+                .map(|he| he.edge)
+                .collect();
+            s.into_iter().collect()
+        };
+        let radii = [0.08_f64, 0.10, 0.12];
+        let specs: Vec<crate::types::FilletSpec> = edges
+            .iter()
+            .zip(radii.iter())
+            .map(|(&e, &r)| crate::types::FilletSpec {
+                edge: e,
+                radius: crate::types::FilletRadius::Constant(r),
+            })
+            .collect();
+        let result = crate::fillet_edges(
+            &cube,
+            &specs,
+            &crate::FilletOptions::default(),
+            Tolerance::default(),
+            None,
+        );
+        let Ok(filleted) = result else {
+            return;
+        };
+        let mut brep = filleted.brep;
+
+        // Pick the first NeighCyl edge to find V_x and its cap_face / cube_face.
+        use popkern_core::geometry::surface::SurfaceGeometry;
+        let cap_faces: Vec<_> = brep
+            .faces
+            .iter()
+            .filter_map(|(fh, f)| match f.surface.as_ref().map(|s| &s.geometry) {
+                Some(SurfaceGeometry::Sphere { .. }) => Some(fh),
+                _ => None,
+            })
+            .collect();
+        let per_fillet_caps: Vec<(Point3, f64)> = cap_faces
+            .iter()
+            .filter_map(|&fh| {
+                brep.faces
+                    .get(fh)
+                    .and_then(|f| match &f.surface.as_ref()?.geometry {
+                        SurfaceGeometry::Sphere { center, radius } => Some((*center, *radius)),
+                        _ => None,
+                    })
+            })
+            .collect();
+        if cap_faces.len() != 3 {
+            return;
+        }
+
+        let classification = classify_cap_loops(&brep, &cap_faces, &per_fillet_caps);
+        let (cap_k, neigh_he) = classification
+            .iter()
+            .find_map(|c| {
+                c.entries
+                    .iter()
+                    .find(|e| e.twin_kind == TwinKind::NeighbourCylinder)
+                    .map(|e| (c.cap_face, e.half_edge))
+            })
+            .unwrap();
+        let v_x = brep.half_edges[neigh_he].origin;
+        let cyl_m = brep
+            .loops
+            .get(brep.half_edges[brep.half_edges[neigh_he].twin].loop_)
+            .unwrap()
+            .face;
+
+        // Find the cube face V_x is incident to (the Plane face).
+        let cube_face = brep
+            .half_edges
+            .values()
+            .find_map(|he| {
+                if he.origin != v_x {
+                    return None;
+                }
+                let f = brep.loops[he.loop_].face;
+                let surf = brep.faces.get(f).and_then(|fd| fd.surface.as_ref())?;
+                if matches!(surf.geometry, SurfaceGeometry::Plane { .. }) {
+                    Some(f)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+
+        // Compute target position for v_new on cyl_m's cap-tangent
+        // circle for the cap_n's sphere (the cap whose primary is cyl_m).
+        let cyl_m_data = match brep
+            .faces
+            .get(cyl_m)
+            .and_then(|f| f.surface.as_ref())
+            .map(|s| &s.geometry)
+        {
+            Some(SurfaceGeometry::Cylinder {
+                origin,
+                axis,
+                radius,
+            }) => Some((*origin, *axis, *radius)),
+            _ => None,
+        }
+        .unwrap();
+        let (cyl_origin, cyl_axis, _cyl_radius) = cyl_m_data;
+        let cap_n_sphere = cap_faces.iter().find_map(|&fh| {
+            if fh == cap_k {
+                return None;
+            }
+            match brep
+                .faces
+                .get(fh)
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| &s.geometry)
+            {
+                Some(SurfaceGeometry::Sphere { center, .. }) => Some(*center),
+                _ => None,
+            }
+        });
+        let cap_n_centre = cap_n_sphere.unwrap();
+        let v_x_pos = brep.vertices[v_x].position;
+        // Hardcode: V_x is at (0, 0.12, 0.10). v_new at (0, 0.12, 0.12)
+        // is the cap-tangent endpoint of cap_n (sphere r=0.12) on
+        // cyl_m on cube face x=0.
+        let v_new_pos = Point3::new(0.0, 0.12, 0.12);
+        let _ = (cap_n_centre, cyl_origin, cyl_axis, v_x_pos);
+
+        eprintln!(
+            "Splitting V_x={v_x:?} pos=({:.3},{:.3},{:.3}) → ({:.3},{:.3},{:.3})",
+            v_x_pos.x, v_x_pos.y, v_x_pos.z, v_new_pos.x, v_new_pos.y, v_new_pos.z
+        );
+        eprintln!("  cap_face={cap_k:?} cube_face={cube_face:?} cyl_split={cyl_m:?}");
+
+        match split_apex_footprint_vertex(&mut brep, v_x, cap_k, cube_face, cyl_m, v_new_pos) {
+            Ok(v_new) => {
+                eprintln!("Split OK; v_new={v_new:?}");
+                brep.validate().expect("validate after split");
+            }
+            Err(e) => panic!("split failed: {e:?}"),
+        }
     }
 
     /// Run the full pipeline on cube_mixed and dump full
