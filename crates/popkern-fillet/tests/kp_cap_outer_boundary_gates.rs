@@ -173,6 +173,57 @@ fn print_pyramid3_uniform_only() {
     );
 }
 
+/// Diagnostic: dump the cap face's surface variant + boundary
+/// vertex count for cube_uniform vs cube_mixed vs cube_extreme.
+/// Used to verify which surface type lands on the cap face after
+/// the full pipeline (Phase 6c-A continuation §4.2 work).
+#[ignore]
+#[test]
+fn dump_cap_surface_types() {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let cases: &[(&str, &[f64])] = &[
+        ("cube_uniform", &[0.10, 0.10, 0.10]),
+        ("cube_mixed", &[0.08, 0.10, 0.12]),
+        ("cube_extreme", &[0.02, 0.10, 0.20]),
+    ];
+    eprintln!("\n=== cap surface-type dump ===");
+    for (name, radii) in cases {
+        let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+        let vertex = cube.vertices.keys().next().unwrap();
+        let edges = incident_edges(&cube, vertex);
+        let (brep, faces) = fillet_corner(&cube, &edges, radii, true);
+        for (i, &fh) in faces.iter().enumerate() {
+            let n_verts = brep.face_outer_loop_positions(fh).len();
+            let kind = match brep
+                .faces
+                .get(fh)
+                .and_then(|f| f.surface.as_ref())
+                .map(|sof| &sof.geometry)
+            {
+                Some(SurfaceGeometry::Plane { .. }) => "Plane",
+                Some(SurfaceGeometry::Cylinder { .. }) => "Cylinder",
+                Some(SurfaceGeometry::Sphere { .. }) => "Sphere",
+                Some(SurfaceGeometry::Torus { .. }) => "Torus",
+                Some(SurfaceGeometry::Cone { .. }) => "Cone",
+                Some(SurfaceGeometry::Nurbs(_)) => "Nurbs",
+                Some(SurfaceGeometry::Gregory(g)) => {
+                    use popkern_core::geometry::gregory::GregoryPatch;
+                    match g {
+                        GregoryPatch::Triangular(_) => "Gregory:Triangular",
+                        GregoryPatch::Rectangular(_) => "Gregory:Rectangular",
+                        GregoryPatch::RectangularDeg5(_) => "Gregory:Deg5",
+                        GregoryPatch::RectangularTwoStripe(_) => "Gregory:TwoStripe",
+                        GregoryPatch::RectangularBiNonic(_) => "Gregory:BiNonic",
+                        _ => "Gregory:?",
+                    }
+                }
+                None => "<none>",
+            };
+            eprintln!("  {name:14} cap[{i}]: surface={kind} n_verts={n_verts}");
+        }
+    }
+}
+
 #[ignore]
 #[test]
 fn print_cap_outer_boundary_baseline() {
