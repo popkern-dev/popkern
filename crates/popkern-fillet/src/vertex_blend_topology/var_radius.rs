@@ -307,6 +307,146 @@ fn try_reroute_single(
     Ok(())
 }
 
+/// Diagnostic: for each NeighbourCylinder edge in `cap_faces`,
+/// dump the full vertex-edge-face connectivity around it.
+/// Used to design the correct surgery on the cube_mixed apex.
+///
+/// Output:
+/// * For each NeighCyl edge:
+///   - V_x, V_y vertex handles + positions
+///   - All incident half-edges of V_x and V_y with their loop's face
+///   - cyl_m's full outer-loop walk (vertex sequence + twin face per edge)
+///   - cap_n's full outer-loop walk
+#[allow(dead_code)]
+pub(crate) fn dump_neighcyl_connectivity(
+    brep: &BRep,
+    cap_faces: &[FaceHandle],
+    per_fillet_caps: &[(popkern_core::geometry::Point3, f64)],
+) {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    let classification = classify_cap_loops(brep, cap_faces, per_fillet_caps);
+    eprintln!("\n=== NeighCyl connectivity dump ===");
+
+    for (k, c) in classification.iter().enumerate() {
+        for (entry_i, entry) in c.entries.iter().enumerate() {
+            if entry.twin_kind != TwinKind::NeighbourCylinder {
+                continue;
+            }
+            let he_cap = entry.half_edge;
+            let tw = brep.half_edges[he_cap].twin;
+            let v_x = brep.half_edges[he_cap].origin;
+            let v_y = brep.half_edges[tw].origin;
+            let p_x = brep.vertices[v_x].position;
+            let p_y = brep.vertices[v_y].position;
+            eprintln!(
+                "\ncap[{k}] entry[{entry_i}] NeighCyl edge {:?}",
+                brep.half_edges[he_cap].edge
+            );
+            eprintln!("  V_x={v_x:?} pos=({:.3},{:.3},{:.3})", p_x.x, p_x.y, p_x.z);
+            eprintln!("  V_y={v_y:?} pos=({:.3},{:.3},{:.3})", p_y.x, p_y.y, p_y.z);
+
+            // Incident half-edges of V_x and V_y.
+            for (label, v) in [("V_x", v_x), ("V_y", v_y)] {
+                let mut faces_at_v: std::collections::BTreeMap<FaceHandle, Vec<&'static str>> =
+                    std::collections::BTreeMap::new();
+                for (he_h, he) in brep.half_edges.iter() {
+                    if he.origin != v {
+                        continue;
+                    }
+                    let face = brep.loops[he.loop_].face;
+                    let surf_kind = match brep
+                        .faces
+                        .get(face)
+                        .and_then(|f| f.surface.as_ref())
+                        .map(|s| &s.geometry)
+                    {
+                        Some(SurfaceGeometry::Plane { .. }) => "Plane",
+                        Some(SurfaceGeometry::Cylinder { .. }) => "Cylinder",
+                        Some(SurfaceGeometry::Sphere { .. }) => "Sphere",
+                        Some(SurfaceGeometry::Gregory(_)) => "Gregory",
+                        _ => "?",
+                    };
+                    faces_at_v.entry(face).or_default().push(surf_kind);
+                    let _ = he_h;
+                }
+                eprintln!("  {label} incident faces:");
+                for (fh, kinds) in &faces_at_v {
+                    eprintln!("    face {fh:?} = {} (×{})", kinds[0], kinds.len());
+                }
+            }
+
+            // cyl_m full loop walk.
+            let cyl_m = entry.twin_face;
+            let cyl_loop = brep.faces[cyl_m].outer_loop;
+            eprintln!("  cyl_m {cyl_m:?} outer-loop walk:");
+            walk_dump(brep, cyl_loop, "    ");
+
+            // cap_n's loop walk — dest cap.
+            let twin_radius = match brep
+                .faces
+                .get(cyl_m)
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| &s.geometry)
+            {
+                Some(SurfaceGeometry::Cylinder { radius, .. }) => *radius,
+                _ => continue,
+            };
+            let cap_n = cap_faces.iter().find(|&&fh| {
+                fh != c.cap_face
+                    && match brep
+                        .faces
+                        .get(fh)
+                        .and_then(|f| f.surface.as_ref())
+                        .map(|s| &s.geometry)
+                    {
+                        Some(SurfaceGeometry::Sphere { radius, .. }) => {
+                            (*radius - twin_radius).abs() < twin_radius * 0.05
+                        }
+                        _ => false,
+                    }
+            });
+            if let Some(&cap_n) = cap_n {
+                let cap_n_loop = brep.faces[cap_n].outer_loop;
+                eprintln!("  cap_n {cap_n:?} outer-loop walk:");
+                walk_dump(brep, cap_n_loop, "    ");
+            }
+        }
+    }
+}
+
+fn walk_dump(brep: &BRep, loop_handle: popkern_core::topology::LoopHandle, indent: &str) {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let start = brep.loops[loop_handle].half_edge;
+    let mut cursor = start;
+    for step in 0..32 {
+        let he_origin = brep.half_edges[cursor].origin;
+        let he_twin = brep.half_edges[cursor].twin;
+        let he_next = brep.half_edges[cursor].next;
+        let v = brep.vertices[he_origin].position;
+        let twin_face = brep.loops[brep.half_edges[he_twin].loop_].face;
+        let twin_kind = match brep
+            .faces
+            .get(twin_face)
+            .and_then(|f| f.surface.as_ref())
+            .map(|s| &s.geometry)
+        {
+            Some(SurfaceGeometry::Plane { .. }) => "Plane",
+            Some(SurfaceGeometry::Cylinder { .. }) => "Cylinder",
+            Some(SurfaceGeometry::Sphere { .. }) => "Sphere",
+            _ => "?",
+        };
+        eprintln!(
+            "{indent}step{step:2}: V{he_origin:?}=({:.3},{:.3},{:.3}) → twin face {twin_face:?} ({twin_kind})",
+            v.x, v.y, v.z
+        );
+        cursor = he_next;
+        if cursor == start {
+            break;
+        }
+    }
+}
+
 /// Walk `loop_handle`'s half-edges via `next` pointers up to `max`
 /// hops; return `true` iff the walk returns to the starting
 /// half-edge AND every step's `prev`/`next` pointers are mutually
@@ -547,6 +687,78 @@ mod tests {
         let brep = BRep::new(Tolerance::default());
         let result = classify_cap_loops(&brep, &[], &[(Point3::new(0.0, 0.0, 0.0), 0.1)]);
         assert!(result.is_empty());
+    }
+
+    /// Run the full pipeline on cube_mixed and dump full
+    /// connectivity for each NeighbourCylinder edge. Used to
+    /// design the correct surgery.
+    #[test]
+    #[ignore]
+    fn dump_neighcyl_connectivity_cube_mixed() {
+        unsafe {
+            std::env::set_var("POPKERN_SPHERE_FIT_BOUNDARY", "1");
+            std::env::set_var("POPKERN_SPHERE_CAP_RUNG", "1");
+        }
+        let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+        let apex = cube
+            .vertices
+            .keys()
+            .find(|&v| cube.half_edges.values().filter(|he| he.origin == v).count() == 3)
+            .unwrap();
+        let edges: Vec<_> = {
+            use std::collections::BTreeSet;
+            let s: BTreeSet<_> = cube
+                .half_edges
+                .values()
+                .filter(|he| he.origin == apex)
+                .map(|he| he.edge)
+                .collect();
+            s.into_iter().collect()
+        };
+        let radii = [0.08_f64, 0.10, 0.12];
+        let specs: Vec<crate::types::FilletSpec> = edges
+            .iter()
+            .zip(radii.iter())
+            .map(|(&e, &r)| crate::types::FilletSpec {
+                edge: e,
+                radius: crate::types::FilletRadius::Constant(r),
+            })
+            .collect();
+        let result = crate::fillet_edges(
+            &cube,
+            &specs,
+            &crate::FilletOptions::default(),
+            Tolerance::default(),
+            None,
+        );
+        let Ok(filleted) = result else {
+            return;
+        };
+        let brep = filleted.brep;
+        use popkern_core::geometry::surface::SurfaceGeometry;
+        let cap_faces: Vec<_> = brep
+            .faces
+            .iter()
+            .filter_map(|(fh, f)| match f.surface.as_ref().map(|s| &s.geometry) {
+                Some(SurfaceGeometry::Sphere { .. }) => Some(fh),
+                _ => None,
+            })
+            .collect();
+        let per_fillet_caps: Vec<(Point3, f64)> = cap_faces
+            .iter()
+            .filter_map(|&fh| {
+                brep.faces
+                    .get(fh)
+                    .and_then(|f| match &f.surface.as_ref()?.geometry {
+                        SurfaceGeometry::Sphere { center, radius } => Some((*center, *radius)),
+                        _ => None,
+                    })
+            })
+            .collect();
+        if cap_faces.len() != 3 {
+            return;
+        }
+        dump_neighcyl_connectivity(&brep, &cap_faces, &per_fillet_caps);
     }
 
     /// End-to-end: build cube_mixed, run the fillet pipeline with
