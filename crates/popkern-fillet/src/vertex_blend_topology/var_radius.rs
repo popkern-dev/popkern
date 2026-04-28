@@ -39,6 +39,98 @@
 
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 
+/// Errors from `reroute_neighbour_cylinder_edges`.
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum RerouteError {
+    /// No `OwnCylinder` edge found for some cap — surgery can't
+    /// anchor to identify which radius this cap "owns".
+    NoOwnCylinder { cap_idx: usize },
+    /// Couldn't find the destination cap for a NeighbourCylinder
+    /// edge — the twin cylinder doesn't match any other cap's
+    /// primary radius.
+    NoDestinationCap { cap_idx: usize },
+    /// Loop linkage check failed after the move — would corrupt
+    /// the BRep. Snapshot-rolled back.
+    LoopBroken,
+    /// `validate()` failed after the surgery. Snapshot-rolled back.
+    ValidationFailed,
+    /// Not yet implemented — the design is documented in the
+    /// function body but the actual mutation primitives need
+    /// careful BRep-state testing.
+    NotImplemented,
+}
+
+/// Attempt the variable-radius cap-region surgery: re-route each
+/// cap face's `NeighbourCylinder` edges into cap-vs-cap edges
+/// between the cap and its appropriate neighbour cap.
+///
+/// # Status: design + stub (returns `NotImplemented`)
+///
+/// The classification + destination-cap lookup logic is complete,
+/// but the actual half-edge re-parenting requires a multi-step
+/// Euler-op chain that isn't yet safe to run end-to-end. The
+/// design (paraphrased here for the next implementer) is:
+///
+/// For each `(cap_k, NeighbourCylinder_edge)`:
+///
+/// 1. Identify the twin cylinder face `cyl_m` and the destination
+///    cap `cap_n` whose primary cylinder is `cyl_m`. (Implemented
+///    below — see the `prepare_moves` helper.)
+///
+/// 2. The twin half-edge `tw` lives in `cyl_m.outer_loop` between
+///    some prev `p` and next `q`. Removing `tw` leaves a "gap":
+///    `p.dest = V_x ≠ V_y = q.origin`.  To preserve loop closure
+///    on `cyl_m`, ONE of the following must happen:
+///
+///    a. **Bridge with a new edge.** Construct a curve from `V_x`
+///    to `V_y` lying on the cylinder, `mef` it across the loop.
+///    The cap-tangent arc connecting the two `OwnCylinder`
+///    endpoints would be the natural choice (since the cap face's
+///    two `OwnCylinder` edges meet at this gap once the neighbour
+///    edge is removed).
+///
+///    b. **Collapse endpoint vertices** with `kev`. Works only if
+///    no other incident edges keep the vertices distinct.
+///    Variable-radius footprints are typically incident to
+///    multiple faces (cap, cylinder, cube), so this option is
+///    unlikely to apply directly.
+///
+///    Option (a) is the right path — it produces the canonical
+///    3-edge cap loop (1 cap-tangent arc + 2 inner spokes), with
+///    `cyl_m`'s outer loop also gaining a new boundary segment
+///    where it previously had the cap intrusion.
+///
+/// 3. After bridging, re-parent `tw` from `cyl_m.outer_loop` to
+///    `cap_n.outer_loop`. Insert `tw` at the boundary between
+///    `cap_n`'s two existing `OwnCylinder` edges (where they
+///    currently meet at a single vertex on `cap_n`). The
+///    cap-vs-cap inner-spoke topology is now consistent.
+///
+/// 4. Re-fit pcurves on all 4 affected face boundaries (cap_k,
+///    cap_n, cyl_m old-side, cyl_m new-side).
+///
+/// # Snapshot-rollback
+///
+/// The function clones `brep` before any mutation and restores
+/// on any sub-step failure. Net effect: no partial-state
+/// corruption escapes.
+#[allow(dead_code)]
+pub(crate) fn reroute_neighbour_cylinder_edges(
+    brep: &mut BRep,
+    _cap_faces: &[FaceHandle],
+    _per_fillet_caps: &[(popkern_core::geometry::Point3, f64)],
+) -> Result<usize, RerouteError> {
+    let _snapshot = brep.clone();
+    // The actual mutation needs the bridge-with-new-edge step
+    // (option 2a above) which requires constructing a cap-tangent
+    // arc on `cyl_m` between V_x and V_y. Geometrically tractable
+    // (it's another sphere ∩ cylinder intersection — same family
+    // as the existing FilletEnd seam) but the BRep-level Euler-op
+    // chain is non-trivial.
+    Err(RerouteError::NotImplemented)
+}
+
 /// One cap face's outer-loop classification, used to identify
 /// which edges need to be re-routed into cap-vs-cap form.
 #[allow(dead_code)]
