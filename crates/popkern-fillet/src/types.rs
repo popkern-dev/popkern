@@ -107,6 +107,15 @@ pub struct CornerPatchInfo {
     pub overlap_remediated: bool,
     /// Phase H.8 step-D — `Some(worst_coplanarity)` when the K-P binonic shipped above the 5e-2 commercial gate. Paired with [`CornerContinuityRelaxed`](crate::error::BlendWarning::CornerContinuityRelaxed).
     pub relaxed_continuity_coplanarity: Option<f64>,
+    /// Phase 6c-A continuation §4.2 — per-fillet sphere fit `(centre, radius)`
+    /// for this sub-face, when sphere-fit substitution succeeded for the
+    /// containing blend boundary.  Populated from
+    /// [`BlendBoundary::per_fillet_caps`] regardless of whether the
+    /// sphere-cap rung was applied to the surface — so downstream
+    /// consumers (Phase 6c-A reroute, Phase 6c-D Gregory cap rung)
+    /// can identify cap faces and their nominal sphere parameters
+    /// even when the surface itself is a Gregory patch.
+    pub cap_sphere: Option<(popkern_core::geometry::Point3, f64)>,
 }
 
 /// Specification for a single fillet edge.

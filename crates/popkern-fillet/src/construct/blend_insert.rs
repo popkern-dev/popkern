@@ -176,6 +176,7 @@ pub(crate) fn insert_vertex_blend(
         bridge_fallbacks: bridge_fallbacks.clone(),
         overlap_remediated: false,
         relaxed_continuity_coplanarity: None,
+        cap_sphere: None,
     };
 
     // PnS rung (env-gated). At N=3 the rational-Gregory ladder

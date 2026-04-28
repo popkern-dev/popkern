@@ -571,33 +571,24 @@ pub fn apply_blend_geometry(
 
     // Phase 6c-A continuation §4.2 surgery — variable-radius cap-
     // region re-routing. Default off until validated.
+    //
+    // Source the cap-face list and the per-fillet sphere parameters
+    // from `corner_patches` (populated during apply_blend) rather
+    // than from the BRep's `Sphere` faces — this lets the surgery
+    // run on Gregory cap faces too (Phase 6c-D Gregory cap rung)
+    // without requiring the sphere-cap rung to be applied first.
     if std::env::var("POPKERN_VAR_RADIUS_REROUTE")
         .map(|v| v == "1")
         .unwrap_or(false)
     {
-        // Collect Sphere-cap faces and their (centre, radius).
-        let cap_faces: Vec<popkern_core::topology::FaceHandle> = result
-            .faces
-            .iter()
-            .filter_map(|(fh, f)| match f.surface.as_ref().map(|s| &s.geometry) {
-                Some(popkern_core::geometry::SurfaceGeometry::Sphere { .. }) => Some(fh),
-                _ => None,
-            })
-            .collect();
-        let per_fillet_caps: Vec<(popkern_core::geometry::Point3, f64)> = cap_faces
-            .iter()
-            .filter_map(|&fh| {
-                result
-                    .faces
-                    .get(fh)
-                    .and_then(|f| match &f.surface.as_ref()?.geometry {
-                        popkern_core::geometry::SurfaceGeometry::Sphere { center, radius } => {
-                            Some((*center, *radius))
-                        }
-                        _ => None,
-                    })
-            })
-            .collect();
+        let mut cap_faces: Vec<popkern_core::topology::FaceHandle> = Vec::new();
+        let mut per_fillet_caps: Vec<(popkern_core::geometry::Point3, f64)> = Vec::new();
+        for cp in corner_patches.iter() {
+            if let Some(sphere) = cp.cap_sphere {
+                cap_faces.push(cp.face);
+                per_fillet_caps.push(sphere);
+            }
+        }
         if cap_faces.len() == per_fillet_caps.len() && !cap_faces.is_empty() {
             let r = crate::vertex_blend_topology::var_radius::reroute_neighbour_cylinder_edges(
                 &mut result,

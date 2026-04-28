@@ -171,6 +171,7 @@ mod tests {
                 bridge_fallbacks: Vec::new(),
                 overlap_remediated: false,
                 relaxed_continuity_coplanarity: None,
+                cap_sphere: None,
             })
             .collect()
     }

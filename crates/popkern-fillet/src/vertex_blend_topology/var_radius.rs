@@ -123,7 +123,7 @@ pub(crate) fn reroute_neighbour_cylinder_edges(
             break;
         };
         let cap_k = brep.loops[brep.half_edges[he_cap].loop_].face;
-        let plan = plan_path_b(brep, he_cap, cap_k, cap_faces);
+        let plan = plan_path_b(brep, he_cap, cap_k, cap_faces, per_fillet_caps);
         let Some(plan) = plan else {
             if trace {
                 eprintln!("[reroute] iter {iter}: plan_path_b None for he={he_cap:?}");
@@ -888,12 +888,22 @@ pub(crate) struct PathBPlan {
 ///
 /// Returns `None` when the topology doesn't match the expected
 /// pattern (validates the assumptions before mutation).
+///
+/// `per_fillet_caps` is parallel to `cap_faces` — entry `i`
+/// gives the per-fillet sphere `(centre, radius)` for cap face
+/// `cap_faces[i]`.  This is read from `BlendBoundary` rather than
+/// from the cap face's surface so the surgery works for both the
+/// sphere-cap rung (cap surface IS the per-fillet sphere) and the
+/// Phase 6c-D Gregory cap rung (cap surface is a Gregory patch
+/// but its nominal per-fillet sphere is still meaningful for
+/// finding cap-n by primary cylinder match).
 #[allow(dead_code)]
 pub(crate) fn plan_path_b(
     brep: &BRep,
     cap_k_he: HalfEdgeHandle,
     cap_k: FaceHandle,
     cap_faces: &[FaceHandle],
+    per_fillet_caps: &[(popkern_core::geometry::Point3, f64)],
 ) -> Option<PathBPlan> {
     use popkern_core::geometry::surface::SurfaceGeometry;
 
@@ -918,51 +928,41 @@ pub(crate) fn plan_path_b(
         _ => return None,
     };
 
-    // dest cap_n: cap face whose sphere radius matches cyl_radius
-    // and whose centre projects to cyl_m's axis.
-    let cap_n = cap_faces.iter().copied().find(|&fh| {
+    // dest cap_n: cap whose per-fillet sphere matches `cyl_m` —
+    // radius matches `cyl_radius` and centre projects to `cyl_m`'s
+    // axis.  Look up via the parallel `per_fillet_caps` array
+    // (works for any cap surface type, not just Sphere).
+    if cap_faces.len() != per_fillet_caps.len() {
+        return None;
+    }
+    let cap_n_idx = cap_faces.iter().enumerate().find_map(|(i, &fh)| {
         if fh == cap_k {
-            return false;
+            return None;
         }
-        match brep
-            .faces
-            .get(fh)
-            .and_then(|f| f.surface.as_ref())
-            .map(|s| &s.geometry)
-        {
-            Some(SurfaceGeometry::Sphere { center, radius }) => {
-                if (radius - cyl_radius).abs() > cyl_radius * 0.05 {
-                    return false;
-                }
-                // Centre projects to axis (radial distance ≈ 0).
-                let to = popkern_core::geometry::Vec3::new(
-                    center.x - cyl_axis_origin.x,
-                    center.y - cyl_axis_origin.y,
-                    center.z - cyl_axis_origin.z,
-                );
-                let axis_unit = cyl_axis.normalized().unwrap_or(cyl_axis);
-                let along = to.dot(&axis_unit);
-                let proj = popkern_core::geometry::Point3::new(
-                    cyl_axis_origin.x + axis_unit.x * along,
-                    cyl_axis_origin.y + axis_unit.y * along,
-                    cyl_axis_origin.z + axis_unit.z * along,
-                );
-                center.distance_to(&proj) < cyl_radius * 0.05
-            }
-            _ => false,
+        let (center, radius) = per_fillet_caps[i];
+        if (radius - cyl_radius).abs() > cyl_radius * 0.05 {
+            return None;
+        }
+        let to = popkern_core::geometry::Vec3::new(
+            center.x - cyl_axis_origin.x,
+            center.y - cyl_axis_origin.y,
+            center.z - cyl_axis_origin.z,
+        );
+        let axis_unit = cyl_axis.normalized().unwrap_or(cyl_axis);
+        let along = to.dot(&axis_unit);
+        let proj = popkern_core::geometry::Point3::new(
+            cyl_axis_origin.x + axis_unit.x * along,
+            cyl_axis_origin.y + axis_unit.y * along,
+            cyl_axis_origin.z + axis_unit.z * along,
+        );
+        if center.distance_to(&proj) < cyl_radius * 0.05 {
+            Some(i)
+        } else {
+            None
         }
     })?;
-
-    // cap_n's sphere — used to compute target positions for V_x and V_a.
-    let (sphere_centre, sphere_radius) = match brep
-        .faces
-        .get(cap_n)
-        .and_then(|f| f.surface.as_ref())
-        .map(|s| &s.geometry)
-    {
-        Some(SurfaceGeometry::Sphere { center, radius }) => (*center, *radius),
-        _ => return None,
-    };
+    let cap_n = cap_faces[cap_n_idx];
+    let (sphere_centre, sphere_radius) = per_fillet_caps[cap_n_idx];
 
     // Walk cyl_m's outer loop to find the "cap_n OwnCyl edge a" —
     // the cap_n OwnCyl that's NOT shared with V_y (the one whose

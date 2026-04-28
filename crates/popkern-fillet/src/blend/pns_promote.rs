@@ -312,6 +312,7 @@ pub fn try_pns_dispatch(
             bridge_fallbacks: bridge_fallbacks.clone(),
             overlap_remediated: false,
             relaxed_continuity_coplanarity: None,
+            cap_sphere: None,
         })
         .collect();
     Some(patches)

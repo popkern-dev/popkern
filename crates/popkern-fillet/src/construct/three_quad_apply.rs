@@ -191,6 +191,38 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         vec![None; sub_faces.len()]
     };
 
+    // Always compute the per-fillet sphere `(centre, radius)` for each
+    // sub-face when sphere-fit substitution succeeded — independent of
+    // whether the sphere-cap rung will be applied.  Stashed on
+    // `CornerPatchInfo.cap_sphere` so downstream Phase 6c-A reroute
+    // and Phase 6c-D Gregory cap rung can identify cap faces and
+    // their nominal sphere parameters even when the surface is a
+    // Gregory patch.
+    let cap_sphere_per_subface: Vec<Option<(Point3, f64)>> = if boundary.sphere_fit_substituted
+        && !boundary.per_fillet_caps.is_empty()
+        && boundary.per_fillet_caps.len() == sub_faces.len()
+    {
+        sub_faces
+            .iter()
+            .enumerate()
+            .map(|(k, &fh)| {
+                let primary_r = primary_cylinder_radius_of_face(brep, fh);
+                let chosen = primary_r
+                    .and_then(|pr| {
+                        boundary
+                            .per_fillet_caps
+                            .iter()
+                            .find(|(_, r)| (r - pr).abs() < pr * 0.01)
+                            .copied()
+                    })
+                    .unwrap_or(boundary.per_fillet_caps[k]);
+                Some(chosen)
+            })
+            .collect()
+    } else {
+        vec![None; sub_faces.len()]
+    };
+
     let mut patches = Vec::with_capacity(decomp.sub_patches.len());
     for (k, (sub_face, sub_patch)) in sub_faces.iter().zip(decomp.sub_patches.iter()).enumerate() {
         // CAPTURE THE OLD SURFACE BEFORE REPLACING. Internal cap-to-
@@ -245,6 +277,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             bridge_fallbacks: boundary.bridge_fallbacks.clone(),
             overlap_remediated: false,
             relaxed_continuity_coplanarity: relaxed_coplanarity,
+            cap_sphere: cap_sphere_per_subface[k],
         });
     }
     Ok(patches)
