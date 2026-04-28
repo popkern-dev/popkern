@@ -71,6 +71,7 @@ pub(crate) mod unfillet_helpers;
 pub(crate) mod unfillet_surgery;
 pub mod validate;
 pub mod vertex_blend;
+pub(crate) mod vertex_blend_topology;
 pub mod vertex_classifier;
 pub mod walker;
 pub(crate) mod walker_adaptive;
