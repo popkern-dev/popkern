@@ -615,10 +615,35 @@ pub(crate) fn split_apex_footprint_vertex(
     brep.vertices[v].outgoing = bridge_cap;
     brep.vertices[v_new].outgoing = he_v_split;
 
-    // 7b. (No-op for snap step — V_new is at V's old position
-    //     initially, so all incident-edge curves are still valid.
-    //     Vertex-move step happens externally.)
-    let _ = (he_v_cap, he_v_split);
+    // 7b. Re-point twin origins from V to V_new for the 2 edges
+    //     whose loop semantics now point to V_new instead of V
+    //     (besides the directly-re-pointed he_v_cap and he_v_split):
+    //
+    //     * cube face's incoming edge (cube_v_prev): its twin had
+    //       origin = V, but the cube face's loop walk now ends
+    //       at V_new (because bridge_cube.origin = V_new comes
+    //       between cube_v_prev and he_v_cube).  Re-point twin
+    //       origin to V_new.
+    //
+    //     * cyl_split's incoming edge (he_v_split.prev): its twin
+    //       had origin = V, but cyl_split's loop walk now ends at
+    //       V_new.  Re-point twin origin.
+    //
+    //     This makes the BRep edges' endpoints consistent with the
+    //     loop walks (each edge has V_new as one endpoint).  When
+    //     the caller subsequently runs update_incident_edges_for_vertex_move
+    //     with origin=V_new iteration, these edges are picked up
+    //     and their curves' V_new-side CPs snap to V_new_pos.
+    let cube_v_prev_twin = brep.half_edges[cube_v_prev].twin;
+    if brep.half_edges[cube_v_prev_twin].origin == v {
+        brep.half_edges[cube_v_prev_twin].origin = v_new;
+    }
+    let he_v_split_in = brep.half_edges[he_v_split].prev;
+    let he_v_split_in_twin = brep.half_edges[he_v_split_in].twin;
+    if brep.half_edges[he_v_split_in_twin].origin == v {
+        brep.half_edges[he_v_split_in_twin].origin = v_new;
+    }
+    let _ = he_v_cap;
 
     // 8. Set bridge edge pcurves (degree-1 chord on cube_face's
     //    plane and cap_face's surface). Skip if either projection
@@ -1169,6 +1194,43 @@ pub(crate) fn apply_path_b_plan(brep: &mut BRep, plan: &PathBPlan) -> Result<(),
     if let Err(e) = brep.validate() {
         if std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1") {
             eprintln!("[reroute] validate failed: {e:?}");
+            if let popkern_core::error::ValidationError::OpenLoop { loop_, gap: _ } = &e
+                && let Some(loop_data) = brep.loops.get(*loop_)
+            {
+                let face = loop_data.face;
+                let kind = match brep
+                    .faces
+                    .get(face)
+                    .and_then(|f| f.surface.as_ref())
+                    .map(|s| &s.geometry)
+                {
+                    Some(popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }) => "Plane",
+                    Some(popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. }) => {
+                        "Cylinder"
+                    }
+                    Some(popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. }) => {
+                        "Sphere"
+                    }
+                    _ => "?",
+                };
+                eprintln!("  loop {loop_:?} → face {face:?} ({kind})");
+                let start = loop_data.half_edge;
+                let mut cursor = start;
+                for step in 0..16 {
+                    let he_origin = brep.half_edges[cursor].origin;
+                    let he_edge = brep.half_edges[cursor].edge;
+                    let he_next = brep.half_edges[cursor].next;
+                    let p = brep.vertices[he_origin].position;
+                    eprintln!(
+                        "    step {step}: he={cursor:?} origin={he_origin:?} pos=({:.3},{:.3},{:.3}) edge={he_edge:?}",
+                        p.x, p.y, p.z
+                    );
+                    cursor = he_next;
+                    if cursor == start {
+                        break;
+                    }
+                }
+            }
             if let popkern_core::error::ValidationError::ShellGap { edge, gap: _ } = &e
                 && let Some(ed) = brep.edges.get(*edge)
             {
