@@ -438,6 +438,155 @@ fn walk_dump(brep: &BRep, loop_handle: popkern_core::topology::LoopHandle, inden
 }
 
 // ================================================================
+// Vertex-split primitive — un-merges a shared rolling-ball
+// footprint vertex into N new vertices, one per incident
+// cylinder fillet.
+// ================================================================
+
+/// Split a shared apex-region vertex `v` so that `v_keep` retains
+/// incidence to `cyl_keep`, and a new vertex `v_new` (at
+/// `v_new_pos`) inherits the half-edges incident to `cyl_split`.
+///
+/// Topology before:
+///   v is incident to: cap (1 he-pair), cube_face (1 he-pair),
+///   cyl_keep (1 he-pair), cyl_split (1 he-pair).
+///
+/// Topology after:
+///   v continues to be incident to: cap, cube_face, cyl_keep.
+///   v_new is incident to: cap, cube_face, cyl_split.
+///   A new edge connects v and v_new, with cap on one side and
+///   cube_face on the other (this is the "FaceEdge bridge"
+///   from Phase 6c-A's substituted boundary).
+///
+/// Algorithm (raw half-edge surgery, snapshot-rollback):
+/// 1. Identify the 4 outgoing half-edges from v (one per incident
+///    face) and their incoming counterparts (`he.prev` in each
+///    face's loop).
+/// 2. Create new vertex `v_new` at `v_new_pos`.
+/// 3. Re-route cyl_split's outgoing+incoming half-edges' origin
+///    pointer to `v_new` (the half-edges stay in cyl_split's
+///    loop; only the origin vertex changes).
+/// 4. Create the FaceEdge bridge edge:
+///    * he_bridge_cap: cap-side, V → V_new, inserted in cap face's
+///      loop after the cap-side half-edge currently from v
+///      towards cyl_split.
+///    * he_bridge_cube: cube-side, V_new → V, twin of he_bridge_cap,
+///      inserted in cube face's loop.
+/// 5. Update `cap_face.outer_loop` and `cube_face.outer_loop`
+///    half_edge pointers if they pointed to a re-routed he.
+/// 6. Update vertex `outgoing` pointers for v and v_new.
+///
+/// # Status: stub (returns `Err(NotImplemented)`)
+///
+/// The algorithm is well-defined but the half-edge surgery is
+/// invasive: 6+ half-edges need their next/prev pointers
+/// reorganized, and 2+ edges + 4 half-edges + 1 vertex are
+/// created. Without solid testing this risks silent BRep
+/// corruption. Recommended next step: write a focused unit test
+/// that constructs a hand-made BRep with the exact 4-face
+/// incidence pattern, runs the split, and validates against an
+/// expected post-split state.
+#[allow(dead_code)]
+pub(crate) fn split_apex_footprint_vertex(
+    _brep: &mut BRep,
+    _v: VertexHandle,
+    _cap_face: FaceHandle,
+    _cube_face: FaceHandle,
+    _cyl_keep: FaceHandle,
+    _cyl_split: FaceHandle,
+    _v_new_pos: popkern_core::geometry::Point3,
+) -> Result<VertexHandle, RerouteError> {
+    // See doc comment for algorithm. The implementation:
+    //
+    //   1. Walk the 4 face outer loops to find the half-edges
+    //      with origin == v in each.  Validate that v has
+    //      exactly 1 incident he per face (manifold assumption).
+    //   2. mev / direct-insert v_new with handle.
+    //   3. For he_cyl_split_out: set origin = v_new.  For
+    //      he_cyl_split_in (= he_cyl_split_out.prev): no origin
+    //      change, but its .next.origin is now v_new (automatic
+    //      via slot indirection).
+    //   4. Insert he_bridge_cap into cap_face's loop:
+    //        let he_cap_v = ... (origin = v in cap_face);
+    //        let he_cap_v_prev = he_cap_v.prev;
+    //        let he_bridge_cap = HalfEdge { origin: v, next: he_cap_v, prev: he_cap_v_prev,
+    //                                       loop_: cap_face_loop, twin: ?, edge: bridge_edge };
+    //        // Wire the loop:
+    //        he_cap_v.prev = he_bridge_cap;
+    //        he_cap_v_prev.next = he_bridge_cap;
+    //
+    //      But this puts V → V_new → V in the loop traversal, which is
+    //      a self-crossing.  Actually we want V → V_new → ... → V (i.e.,
+    //      V_new is also visited later before returning to V).
+    //
+    //      The cleaner construction: V_new doesn't appear in cap face's
+    //      loop at all (cap face's boundary still passes through V only).
+    //      Instead, V_new is in cyl_split's loop AND cube_face's loop.
+    //      The bridge edge is between cube_face (one side) and... cap
+    //      face? But cap face shouldn't have a chord on the cube face.
+    //
+    //      Actually I realize the cube face's loop needs to NOT pass
+    //      through both V and V_new — the cube face's boundary follows
+    //      the chord from V to V_new directly, with NO intermediate
+    //      cap-side detour.  So the cube face's loop walks V_new → V
+    //      via the bridge edge, instead of via the original V → V_new
+    //      detour.
+    //
+    //      Pre-split cube face loop: ... → V → ...
+    //      Post-split cube face loop: ... → V_new → V → ...
+    //
+    //      So V_new is INSERTED into cube_face's loop, with a new edge
+    //      V_new → V (the bridge half-edge).
+    //
+    //      The bridge's other half-edge (V → V_new) goes... where?
+    //      Probably into cap face's loop (since cap face also borders
+    //      the bridge geometrically — the bridge lies on the cube
+    //      face plane, and the cap face's boundary now follows
+    //      V → V_new along this chord).
+    //
+    //      BUT: cap face's boundary is supposed to be cap-tangent
+    //      arcs + inner spokes, NOT chords on cube faces.  So cap
+    //      face shouldn't touch the bridge edge.
+    //
+    //   What's actually happening: the rolling-ball cap face had
+    //   a degenerate "vertex V" boundary stop; after split, the
+    //   cap face's boundary STILL stops at V — but V is now on
+    //   only one cylinder.  V_new is purely a cube_face/cyl_split
+    //   incidence.  The bridge edge is internal to cube_face
+    //   (not bordered by cap face on either side).
+    //
+    //   So the bridge edge has:
+    //   * he_bridge_in_cube_face: V_new → V, in cube_face's loop.
+    //   * he_bridge_twin: V → V_new, in... cube_face again (a
+    //     "ring" hole loop)?  Or in some non-cube face?
+    //
+    //   For a BRep where the bridge edge separates 2 different
+    //   faces, both halves go into different loops.  But here the
+    //   bridge is INTERIOR to a single cube face — the two sides
+    //   of the bridge are both the cube face plane.  This is a
+    //   "fin" edge — both half-edges in the cube face's loop.
+    //
+    //   The kemr/mekr Euler ops handle this case (edge whose
+    //   halves are in the same loop becomes an inner-loop hole,
+    //   or vice versa).
+    //
+    //   For our case: post-split, cube face has the original
+    //   outer loop EXTENDED with a fin: ... V_new → V → ... fin
+    //   inwards via bridge → V_new → ... back.  This requires
+    //   the kemr-inverse: mekr(V→V_new) where V_new is a free
+    //   vertex inside the cube face.
+    //
+    //   Hmm, this is really intricate.  The split is doable but
+    //   needs careful handling.
+    //
+    //   Recommendation: implement split as a focused experiment
+    //   on a hand-constructed BRep test fixture, validating each
+    //   step.  Then integrate.
+
+    Err(RerouteError::NotImplemented)
+}
+
+// ================================================================
 // Path B — `mef`-split + face-absorb commercial-grade surgery
 // ================================================================
 
