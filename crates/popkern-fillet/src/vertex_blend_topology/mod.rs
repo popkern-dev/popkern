@@ -20,6 +20,7 @@ pub(crate) mod detect;
 pub(crate) mod execute;
 pub(crate) mod plan;
 pub(crate) mod rebuild;
+pub(crate) mod var_radius;
 
 #[cfg(test)]
 #[path = "detect_tests.rs"]

@@ -175,6 +175,22 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         && boundary.per_fillet_caps.len() == sub_faces.len()
         && std::env::var("POPKERN_SPHERE_CAP_RUNG").is_ok_and(|v| v == "1");
 
+    // For each sub-face, find which per-fillet sphere best matches
+    // its boundary topology. Empirical (cube_mixed): the sub-face's
+    // outer loop visits each fillet's cylinder N times, with a
+    // "primary" cylinder shared by 2 outer-loop edges. Match the
+    // sub-face to whichever per_fillet_caps entry has radius equal
+    // to that primary cylinder's radius — then the assigned sphere
+    // is tangent to (at least) those 2 outer-loop edges.
+    let primary_radius_per_subface: Vec<Option<f64>> = if sphere_cap_rung {
+        sub_faces
+            .iter()
+            .map(|&fh| primary_cylinder_radius_of_face(brep, fh))
+            .collect()
+    } else {
+        vec![None; sub_faces.len()]
+    };
+
     let mut patches = Vec::with_capacity(decomp.sub_patches.len());
     for (k, (sub_face, sub_patch)) in sub_faces.iter().zip(decomp.sub_patches.iter()).enumerate() {
         // CAPTURE THE OLD SURFACE BEFORE REPLACING. Internal cap-to-
@@ -189,10 +205,23 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             .and_then(|f| f.surface.as_ref())
             .map(|sof| sof.geometry.clone());
         let new_geometry = if sphere_cap_rung {
-            let (centre, radius) = boundary.per_fillet_caps[k];
+            // Pick the per_fillet_caps entry whose radius matches
+            // this sub-face's primary cylinder radius. Falls back
+            // to per_fillet_caps[k] if topology can't disambiguate
+            // (preserves the prior behaviour).
+            let primary_r = primary_radius_per_subface[k];
+            let chosen = primary_r
+                .and_then(|pr| {
+                    boundary
+                        .per_fillet_caps
+                        .iter()
+                        .find(|(_, r)| (r - pr).abs() < pr * 0.01)
+                        .copied()
+                })
+                .unwrap_or(boundary.per_fillet_caps[k]);
             SurfaceGeometry::Sphere {
-                center: centre,
-                radius,
+                center: chosen.0,
+                radius: chosen.1,
             }
         } else {
             SurfaceGeometry::Gregory(sub_patch.clone())
@@ -219,6 +248,60 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         });
     }
     Ok(patches)
+}
+
+/// Pick the cylinder radius that the given face's outer-loop
+/// edges share with the most twin faces. Used by the Phase 6c-A
+/// continuation §4.2 (c) sphere-cap rung to match each sub-face
+/// to its tangent per-fillet sphere via the sub-face's primary
+/// cylinder neighbour. Returns `None` if no twin face is a
+/// cylinder, or if multiple radii are tied.
+fn primary_cylinder_radius_of_face(brep: &BRep, face: FaceHandle) -> Option<f64> {
+    let face_data = brep.faces.get(face)?;
+    let outer_loop = face_data.outer_loop;
+    let loop_data = brep.loops.get(outer_loop)?;
+    let start = loop_data.half_edge;
+
+    let mut counts: std::collections::BTreeMap<u64, (f64, usize)> =
+        std::collections::BTreeMap::new();
+    let mut cursor = start;
+    let mut safety = 16usize;
+    loop {
+        if safety == 0 {
+            break;
+        }
+        safety -= 1;
+        let he = brep.half_edges.get(cursor)?;
+        let twin = he.twin;
+        let next = he.next;
+        let twin_loop = brep.half_edges.get(twin)?.loop_;
+        let twin_face = brep.loops.get(twin_loop)?.face;
+        if let Some(SurfaceGeometry::Cylinder { radius, .. }) = brep
+            .faces
+            .get(twin_face)
+            .and_then(|f| f.surface.as_ref())
+            .map(|s| &s.geometry)
+        {
+            // Bucket by radius (rounded to 6 decimal places to
+            // tolerate floating-point noise).
+            let key = (radius * 1e6).round() as u64;
+            counts.entry(key).or_insert((*radius, 0)).1 += 1;
+        }
+        cursor = next;
+        if cursor == start {
+            break;
+        }
+    }
+
+    // Pick the radius with the highest count.
+    let mut best: Option<(f64, usize)> = None;
+    for &(r, c) in counts.values() {
+        match best {
+            Some((_, bc)) if c <= bc => {}
+            _ => best = Some((r, c)),
+        }
+    }
+    best.map(|(r, _)| r)
 }
 
 /// Re-fit each half-edge pcurve on `face`'s outer loop into the
