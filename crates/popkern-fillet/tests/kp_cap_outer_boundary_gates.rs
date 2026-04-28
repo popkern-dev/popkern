@@ -186,7 +186,23 @@ fn dump_cap_loop_structure() {
     let vertex = cube.vertices.keys().next().unwrap();
     let edges = incident_edges(&cube, vertex);
     let (brep, faces) = fillet_corner(&cube, &edges, radii, true);
+    // Collect all per-fillet sphere candidates from cap-face surfaces.
+    let candidates: Vec<(popkern_core::geometry::Point3, f64)> = faces
+        .iter()
+        .filter_map(|&fh| {
+            brep.faces
+                .get(fh)
+                .and_then(|f| match &f.surface.as_ref()?.geometry {
+                    SurfaceGeometry::Sphere { center, radius } => Some((*center, *radius)),
+                    _ => None,
+                })
+        })
+        .collect();
     eprintln!("\n=== cube_mixed cap-loop structure ===");
+    eprintln!("{} candidate per-fillet spheres:", candidates.len());
+    for (i, (c, r)) in candidates.iter().enumerate() {
+        eprintln!("  S{i}: ({:.3},{:.3},{:.3}) r={:.3}", c.x, c.y, c.z, r);
+    }
     for (i, &fh) in faces.iter().enumerate() {
         let face = &brep.faces[fh];
         let (centre, radius) = match face.surface.as_ref().map(|s| &s.geometry) {
@@ -213,6 +229,15 @@ fn dump_cap_loop_structure() {
                 ((v.x - centre.x).powi(2) + (v.y - centre.y).powi(2) + (v.z - centre.z).powi(2))
                     .sqrt()
                     - radius;
+            // Find best-matching sphere among all candidates.
+            let mut best = (usize::MAX, f64::INFINITY);
+            for (si, (sc, sr)) in candidates.iter().enumerate() {
+                let d = ((v.x - sc.x).powi(2) + (v.y - sc.y).powi(2) + (v.z - sc.z).powi(2)).sqrt()
+                    - *sr;
+                if d.abs() < best.1.abs() {
+                    best = (si, d);
+                }
+            }
             let twin_face = brep.loops[brep.half_edges[he_twin].loop_].face;
             let twin_kind = match brep
                 .faces
@@ -227,8 +252,8 @@ fn dump_cap_loop_structure() {
                 _ => "?",
             };
             eprintln!(
-                "  step{step:2}: V({:.3},{:.3},{:.3}) Δsphere={:+.3e} → twin face {twin_kind}",
-                v.x, v.y, v.z, on_sphere
+                "  step{step:2}: V({:.3},{:.3},{:.3}) Δown={:+.3e} bestS{}={:+.3e} → twin {twin_kind}",
+                v.x, v.y, v.z, on_sphere, best.0, best.1
             );
             cursor = he_next;
             step += 1;
