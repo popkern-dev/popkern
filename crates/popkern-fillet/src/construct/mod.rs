@@ -569,6 +569,47 @@ pub fn apply_blend_geometry(
             crate::vertex_blend_topology::rebuild::rebuild_all_apex_caps(&mut result, &cap_faces);
     }
 
+    // Phase 6c-A continuation §4.2 surgery — variable-radius cap-
+    // region re-routing. Default off until validated.
+    if std::env::var("POPKERN_VAR_RADIUS_REROUTE")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+    {
+        // Collect Sphere-cap faces and their (centre, radius).
+        let cap_faces: Vec<popkern_core::topology::FaceHandle> = result
+            .faces
+            .iter()
+            .filter_map(|(fh, f)| match f.surface.as_ref().map(|s| &s.geometry) {
+                Some(popkern_core::geometry::SurfaceGeometry::Sphere { .. }) => Some(fh),
+                _ => None,
+            })
+            .collect();
+        let per_fillet_caps: Vec<(popkern_core::geometry::Point3, f64)> = cap_faces
+            .iter()
+            .filter_map(|&fh| {
+                result
+                    .faces
+                    .get(fh)
+                    .and_then(|f| match &f.surface.as_ref()?.geometry {
+                        popkern_core::geometry::SurfaceGeometry::Sphere { center, radius } => {
+                            Some((*center, *radius))
+                        }
+                        _ => None,
+                    })
+            })
+            .collect();
+        if cap_faces.len() == per_fillet_caps.len() && !cap_faces.is_empty() {
+            let r = crate::vertex_blend_topology::var_radius::reroute_neighbour_cylinder_edges(
+                &mut result,
+                &cap_faces,
+                &per_fillet_caps,
+            );
+            if std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1") {
+                eprintln!("[var-radius-reroute] caps={} result={r:?}", cap_faces.len());
+            }
+        }
+    }
+
     blend_insert::reclassify_corner_methods(&result, &mut corner_patches);
 
     // Final pass: clamp any out-of-range pcurve control points on
