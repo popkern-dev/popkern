@@ -551,6 +551,24 @@ pub fn apply_blend_geometry(
     sliver_absorb::run_and_route_warnings(&mut result, tolerance, edge_geometries, &mut warnings);
 
     cap_insert::insert_caps(&mut result, brep, edge_geometries, &mut warnings); // §8.3 caps
+
+    // Phase 6c-C.2d — apex-region topology rebuild for sphere-fit
+    // caps (env-gated).  Replaces the 6-vertex cap loop with a
+    // 3-edge loop of cap-tangent arcs by running
+    // plan → mef-execute → lens-collapse on each corner patch's
+    // cap face.  Default off; opt-in via `POPKERN_APEX_TOPOLOGY_REBUILD=1`
+    // until the validation matrix flips it on by default
+    // (Phase 6c-F).
+    if std::env::var("POPKERN_APEX_TOPOLOGY_REBUILD")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+    {
+        let cap_faces: Vec<popkern_core::topology::FaceHandle> =
+            corner_patches.iter().map(|p| p.face).collect();
+        let _n =
+            crate::vertex_blend_topology::rebuild::rebuild_all_apex_caps(&mut result, &cap_faces);
+    }
+
     blend_insert::reclassify_corner_methods(&result, &mut corner_patches);
 
     // Final pass: clamp any out-of-range pcurve control points on

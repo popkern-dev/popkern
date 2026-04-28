@@ -19,6 +19,7 @@ pub(crate) mod collapse;
 pub(crate) mod detect;
 pub(crate) mod execute;
 pub(crate) mod plan;
+pub(crate) mod rebuild;
 
 #[cfg(test)]
 #[path = "detect_tests.rs"]
