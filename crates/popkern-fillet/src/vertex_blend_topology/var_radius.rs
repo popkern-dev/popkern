@@ -1395,6 +1395,7 @@ fn update_incident_edges_for_vertex_move(
 /// endpoints must lie on the circle (caller's responsibility);
 /// we reconstruct the circle from the cylinder's axis and the
 /// sphere's centre.
+#[allow(dead_code)]
 fn build_cap_tangent_arc_curve(
     start: popkern_core::geometry::Point3,
     end: popkern_core::geometry::Point3,
@@ -1495,10 +1496,13 @@ fn set_cut_edge_geometry(
     main_cyl_face: FaceHandle,
 ) {
     use popkern_core::geometry::CurveGeometry;
+    use popkern_core::geometry::Vec3;
+    use popkern_core::geometry::analytic_surfaces::orthonormal_basis;
     use popkern_core::geometry::curve::CurveOnEdge;
+    use popkern_core::geometry::pcurve::Pcurve;
     use popkern_core::geometry::surface::SurfaceGeometry;
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
 
-    // Pull cap_n's sphere centre and main_cyl's cylinder params.
     let cap_surf = brep
         .faces
         .get(cap_n)
@@ -1510,43 +1514,148 @@ fn set_cut_edge_geometry(
         .and_then(|f| f.surface.as_ref())
         .map(|s| s.geometry.clone());
 
-    let arc = match (&cap_surf, &main_surf) {
-        (
-            Some(SurfaceGeometry::Sphere { center, .. }),
-            Some(SurfaceGeometry::Cylinder {
-                origin,
-                axis,
-                radius,
-            }),
-        ) => build_cap_tangent_arc_curve(v_start, v_end, *center, *origin, *axis, *radius),
-        _ => None,
+    let twin = brep.half_edges[cap_side_he].twin;
+
+    // Try the analytic path first: cap_n is Sphere, main_cyl_face is
+    // Cylinder, and the cap-tangent arc lies exactly on both. We
+    // build an `Ellipse` 3D curve parameterised by angle in the
+    // cylinder's orthonormal basis — that way the cylinder's UV `u`
+    // equals the curve parameter `t` directly, and Linear pcurves
+    // are exact for both the cylinder and (for axis-aligned
+    // sphere/cylinder pairs) the sphere.
+    let analytic = if let (
+        Some(SurfaceGeometry::Sphere {
+            center: sphere_centre,
+            radius: sphere_radius,
+        }),
+        Some(SurfaceGeometry::Cylinder {
+            origin: cyl_origin,
+            axis: cyl_axis,
+            radius: cyl_radius,
+        }),
+    ) = (&cap_surf, &main_surf)
+    {
+        if let Some(axis_unit) = cyl_axis.normalized() {
+            let (perp1, perp2) = orthonormal_basis(axis_unit);
+            // Circle centre = projection of sphere centre on cyl axis.
+            let to_centre = Vec3::new(
+                sphere_centre.x - cyl_origin.x,
+                sphere_centre.y - cyl_origin.y,
+                sphere_centre.z - cyl_origin.z,
+            );
+            let centre_along = to_centre.dot(&axis_unit);
+            let circle_centre = popkern_core::geometry::Point3::new(
+                cyl_origin.x + axis_unit.x * centre_along,
+                cyl_origin.y + axis_unit.y * centre_along,
+                cyl_origin.z + axis_unit.z * centre_along,
+            );
+
+            // Compute angles in cyl basis: t such that
+            // point = circle_centre + R · (perp1 · cos(t) + perp2 · sin(t)).
+            let theta = |p: popkern_core::geometry::Point3| -> f64 {
+                let d = Vec3::new(
+                    p.x - circle_centre.x,
+                    p.y - circle_centre.y,
+                    p.z - circle_centre.z,
+                );
+                d.dot(&perp2).atan2(d.dot(&perp1))
+            };
+            let theta_a = theta(v_start);
+            let theta_b = theta(v_end);
+            // Pick the shorter arc direction (delta in [-π, π]).
+            let mut delta = theta_b - theta_a;
+            while delta > std::f64::consts::PI {
+                delta -= std::f64::consts::TAU;
+            }
+            while delta < -std::f64::consts::PI {
+                delta += std::f64::consts::TAU;
+            }
+            let theta_end = theta_a + delta;
+
+            // 3D curve: Ellipse — parameterised linearly by angle.
+            // u_basis = R · perp1, v_basis = R · perp2 with the SAME
+            // basis as the cylinder UV, so cylinder's `u` equals `t`.
+            let curve = CurveGeometry::Ellipse {
+                center: circle_centre,
+                u_basis: perp1 * *cyl_radius,
+                v_basis: perp2 * *cyl_radius,
+                start_angle: theta_a,
+                end_angle: theta_end,
+            };
+            // Cylinder pcurve: Linear (theta_a, v_cyl) → (theta_end, v_cyl).
+            let v_cyl = (v_start - *cyl_origin).dot(&axis_unit);
+            let pcurve_cyl =
+                Pcurve::linear((theta_a, v_cyl), (theta_end, v_cyl), theta_a, theta_end);
+            // Sphere pcurve: Linear from sphere_uv(v_start) → sphere_uv(v_end).
+            // For arcs whose plane coincides with a sphere meridian (one
+            // endpoint at the pole) `project_point_to_uv` returns u=0
+            // at the pole — fix that to the non-pole endpoint's u so
+            // the Linear pcurve is a true meridian.
+            let cap_geom = SurfaceGeometry::Sphere {
+                center: *sphere_centre,
+                radius: *sphere_radius,
+            };
+            let pole_eps = 1e-9_f64;
+            let pcurve_sphere = match (
+                project_point_to_uv(&cap_geom, &v_start),
+                project_point_to_uv(&cap_geom, &v_end),
+            ) {
+                (Some((u_a_raw, v_a)), Some((u_b_raw, v_b))) => {
+                    let pole_a =
+                        v_a.abs() < pole_eps || (v_a - std::f64::consts::PI).abs() < pole_eps;
+                    let pole_b =
+                        v_b.abs() < pole_eps || (v_b - std::f64::consts::PI).abs() < pole_eps;
+                    let u_a = if pole_a { u_b_raw } else { u_a_raw };
+                    let u_b = if pole_b { u_a_raw } else { u_b_raw };
+                    Some(Pcurve::linear((u_a, v_a), (u_b, v_b), theta_a, theta_end))
+                }
+                _ => None,
+            };
+            Some((curve, theta_a, theta_end, pcurve_cyl, pcurve_sphere))
+        } else {
+            None
+        }
+    } else {
+        None
     };
 
-    let curve_3d = arc.unwrap_or_else(|| popkern_core::geometry::nurbs_curve::NurbsCurve {
+    if let Some((curve, t_start, t_end, pcurve_cyl, pcurve_sphere)) = analytic {
+        if let Some(edge_data) = brep.edges.get_mut(edge) {
+            edge_data.curve = Some(CurveOnEdge {
+                geometry: curve,
+                t_start,
+                t_end,
+            });
+        }
+        if let Some(pc) = pcurve_sphere {
+            brep.half_edges[cap_side_he].pcurve = Some(pc);
+        }
+        brep.half_edges[twin].pcurve = Some(pcurve_cyl);
+        return;
+    }
+
+    // Fallback: surfaces aren't sphere/cylinder.  Build a degree-1
+    // straight line (best we can do) and fit pcurves by sampling.
+    let curve_3d_nurbs = popkern_core::geometry::nurbs_curve::NurbsCurve {
         degree: 1,
         control_points: vec![v_start, v_end],
         weights: vec![1.0, 1.0],
         knots: vec![0.0, 0.0, 1.0, 1.0],
-    });
-
+    };
     if let Some(edge_data) = brep.edges.get_mut(edge) {
         edge_data.curve = Some(CurveOnEdge {
-            geometry: CurveGeometry::Nurbs(curve_3d.clone()),
+            geometry: CurveGeometry::Nurbs(curve_3d_nurbs.clone()),
             t_start: 0.0,
             t_end: 1.0,
         });
     }
-
-    // Refit pcurves on both half-edges by sampling the arc and
-    // projecting samples to each surface's UV.
-    let twin = brep.half_edges[cap_side_he].twin;
     if let Some(surf) = cap_surf
-        && let Some(pc) = sample_pcurve_on_surface(&curve_3d, &surf)
+        && let Some(pc) = sample_pcurve_on_surface(&curve_3d_nurbs, &surf)
     {
         brep.half_edges[cap_side_he].pcurve = Some(pc.into());
     }
     if let Some(surf) = main_surf
-        && let Some(pc) = sample_pcurve_on_surface(&curve_3d, &surf)
+        && let Some(pc) = sample_pcurve_on_surface(&curve_3d_nurbs, &surf)
     {
         brep.half_edges[twin].pcurve = Some(pc.into());
     }
@@ -1567,16 +1676,64 @@ fn sample_pcurve_on_surface(
     const N: usize = 12;
     let mut points: Vec<Point3> = Vec::with_capacity(N);
     let mut params: Vec<f64> = Vec::with_capacity(N);
+    let trace = std::env::var("POPKERN_VAR_RADIUS_TRACE_PCURVE").is_ok_and(|v| v == "1");
+    if trace {
+        let surf_kind = match surface {
+            popkern_core::geometry::surface::SurfaceGeometry::Sphere { center, radius } => {
+                format!(
+                    "Sphere centre=({:.4},{:.4},{:.4}) r={radius:.4}",
+                    center.x, center.y, center.z
+                )
+            }
+            popkern_core::geometry::surface::SurfaceGeometry::Cylinder {
+                origin,
+                axis,
+                radius,
+            } => {
+                format!(
+                    "Cyl origin=({:.4},{:.4},{:.4}) axis=({:.4},{:.4},{:.4}) r={radius:.4}",
+                    origin.x, origin.y, origin.z, axis.x, axis.y, axis.z
+                )
+            }
+            popkern_core::geometry::surface::SurfaceGeometry::Plane { origin, .. } => {
+                format!(
+                    "Plane origin=({:.4},{:.4},{:.4})",
+                    origin.x, origin.y, origin.z
+                )
+            }
+            _ => "<other>".to_string(),
+        };
+        let curve_endpoints = (curve_3d.point_at(0.0), curve_3d.point_at(1.0));
+        eprintln!(
+            "  [pcurve_fit] surface: {surf_kind} curve: ({:.4},{:.4},{:.4}) → ({:.4},{:.4},{:.4})",
+            curve_endpoints.0.x,
+            curve_endpoints.0.y,
+            curve_endpoints.0.z,
+            curve_endpoints.1.x,
+            curve_endpoints.1.y,
+            curve_endpoints.1.z
+        );
+    }
     for i in 0..N {
         let s = i as f64 / (N - 1) as f64;
         let p3 = curve_3d.point_at(s);
         let (u, v) = project_point_to_uv(surface, &p3)?;
+        if trace {
+            eprintln!(
+                "    sample[{i}] s={s:.3} p3=({:.4},{:.4},{:.4}) uv=({u:.4},{v:.4})",
+                p3.x, p3.y, p3.z
+            );
+        }
         points.push(Point3::new(u, v, 0.0));
         params.push(s);
     }
     let degree = 3usize;
     let n_cps = (degree + 2).min(points.len());
-    fitting::fit_curve(&points, &params, degree, n_cps).ok()
+    let fit = fitting::fit_curve(&points, &params, degree, n_cps).ok()?;
+    if trace {
+        eprintln!("    fit cps: {:?}", fit.control_points);
+    }
+    Some(fit)
 }
 
 /// Project a 3-D point onto the intersection circle of a sphere
@@ -2441,6 +2598,361 @@ mod tests {
         assert!(matches!(result, Err(RerouteError::LoopBroken)));
         // Snapshot rollback: BRep should be unchanged.
         brep.validate().expect("BRep unchanged after rollback");
+    }
+
+    /// Diagnostic: for each cap-vs-non-cap edge in cube_mixed
+    /// post-pipeline (with surgery), dump G1 coplanarity deficit
+    /// at sample points so we can identify which edges drag the
+    /// worst-g1 number up.  `#[ignore]`d because it sets
+    /// process-level env vars; run isolated.
+    #[test]
+    #[ignore]
+    fn dump_per_edge_g1_cube_mixed() {
+        unsafe {
+            std::env::set_var("POPKERN_SPHERE_FIT_BOUNDARY", "1");
+            std::env::set_var("POPKERN_SPHERE_CAP_RUNG", "1");
+            std::env::set_var("POPKERN_VAR_RADIUS_REROUTE", "1");
+        }
+        let cube =
+            popkern_core::topology::BRep::unit_cube(popkern_core::tolerance::Tolerance::default())
+                .unwrap();
+        let apex = cube
+            .vertices
+            .keys()
+            .find(|&v| cube.half_edges.values().filter(|he| he.origin == v).count() == 3)
+            .unwrap();
+        let edges: Vec<_> = {
+            use std::collections::BTreeSet;
+            let s: BTreeSet<_> = cube
+                .half_edges
+                .values()
+                .filter(|he| he.origin == apex)
+                .map(|he| he.edge)
+                .collect();
+            s.into_iter().collect()
+        };
+        let radii = [0.08_f64, 0.10, 0.12];
+        let specs: Vec<crate::types::FilletSpec> = edges
+            .iter()
+            .zip(radii.iter())
+            .map(|(&e, &r)| crate::types::FilletSpec {
+                edge: e,
+                radius: crate::types::FilletRadius::Constant(r),
+            })
+            .collect();
+        let result = crate::fillet_edges(
+            &cube,
+            &specs,
+            &crate::FilletOptions::default(),
+            popkern_core::tolerance::Tolerance::default(),
+            None,
+        );
+        let Ok(filleted) = result else {
+            eprintln!("fillet_edges failed");
+            return;
+        };
+        let brep = filleted.brep;
+
+        use popkern_core::geometry::curve::CurveEval;
+        use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+        let cap_set: std::collections::BTreeSet<_> = brep
+            .faces
+            .iter()
+            .filter_map(|(fh, f)| match f.surface.as_ref().map(|s| &s.geometry) {
+                Some(SurfaceGeometry::Sphere { .. }) => Some(fh),
+                _ => None,
+            })
+            .collect();
+
+        eprintln!(
+            "BRep: {} faces, {} edges; {} sphere-cap faces",
+            brep.faces.len(),
+            brep.edges.len(),
+            cap_set.len()
+        );
+        let mut entries: Vec<(
+            f64,
+            f64,
+            popkern_core::topology::EdgeHandle,
+            popkern_core::topology::FaceHandle,
+            popkern_core::topology::FaceHandle,
+            &str,
+            &str,
+        )> = Vec::new();
+        for (eh, edge) in brep.edges.iter() {
+            let Some(coe) = edge.curve.as_ref() else {
+                continue;
+            };
+            let he_a = edge.half_edge;
+            let Some(ha) = brep.half_edges.get(he_a) else {
+                continue;
+            };
+            let Some(hb) = brep.half_edges.get(ha.twin) else {
+                continue;
+            };
+            let face_a = brep.loops[ha.loop_].face;
+            let face_b = brep.loops[hb.loop_].face;
+            if face_a == face_b {
+                continue;
+            }
+            let a_is_cap = cap_set.contains(&face_a);
+            let b_is_cap = cap_set.contains(&face_b);
+            // Measure ALL distinct-face edges, label cap vs non-cap.
+            let Some(pa) = ha.pcurve.as_ref() else {
+                continue;
+            };
+            let Some(pb) = hb.pcurve.as_ref() else {
+                continue;
+            };
+            let Some(sa) = brep.faces.get(face_a).and_then(|f| f.surface.as_ref()) else {
+                continue;
+            };
+            let Some(sb) = brep.faces.get(face_b).and_then(|f| f.surface.as_ref()) else {
+                continue;
+            };
+
+            let kind = |face: popkern_core::topology::FaceHandle| -> &'static str {
+                match brep
+                    .faces
+                    .get(face)
+                    .and_then(|f| f.surface.as_ref())
+                    .map(|s| &s.geometry)
+                {
+                    Some(SurfaceGeometry::Plane { .. }) => "Plane",
+                    Some(SurfaceGeometry::Cylinder { .. }) => "Cyl",
+                    Some(SurfaceGeometry::Sphere { .. }) => "Sphere",
+                    Some(SurfaceGeometry::Torus { .. }) => "Torus",
+                    Some(SurfaceGeometry::Cone { .. }) => "Cone",
+                    Some(SurfaceGeometry::Nurbs(_)) => "Nurbs",
+                    Some(SurfaceGeometry::Gregory(_)) => "Greg",
+                    None => "?",
+                }
+            };
+            let a_label = kind(face_a);
+            let b_label = kind(face_b);
+
+            let (t_lo, t_hi) = (coe.t_start, coe.t_end);
+            let (pa_lo, pa_hi) = pa.parameter_range();
+            let (pb_lo, pb_hi) = pb.parameter_range();
+            let p3_lo = coe.geometry.point_at(t_lo);
+            let p3_hi = coe.geometry.point_at(t_hi);
+            let pa_at = |t: f64| {
+                let uv = pa.point_at(t);
+                sa.geometry.point_at(uv.x, uv.y)
+            };
+            let pb_at = |t: f64| {
+                let uv = pb.point_at(t);
+                sb.geometry.point_at(uv.x, uv.y)
+            };
+            let pa_forward = p3_lo.distance_to(&pa_at(pa_lo)) + p3_hi.distance_to(&pa_at(pa_hi))
+                <= p3_lo.distance_to(&pa_at(pa_hi)) + p3_hi.distance_to(&pa_at(pa_lo));
+            let pb_forward = p3_lo.distance_to(&pb_at(pb_lo)) + p3_hi.distance_to(&pb_at(pb_hi))
+                <= p3_lo.distance_to(&pb_at(pb_hi)) + p3_hi.distance_to(&pb_at(pb_lo));
+
+            let n_samples = 7usize;
+            let mut max_g0 = 0.0_f64;
+            let mut max_g1 = 0.0_f64;
+            for i in 0..n_samples {
+                let s = 0.05 + 0.90 * (i as f64) / ((n_samples - 1) as f64);
+                let s_a = if pa_forward { s } else { 1.0 - s };
+                let s_b = if pb_forward { s } else { 1.0 - s };
+                let t_a = pa_lo + s_a * (pa_hi - pa_lo);
+                let t_b = pb_lo + s_b * (pb_hi - pb_lo);
+                let uv_a = pa.point_at(t_a);
+                let uv_b = pb.point_at(t_b);
+                let p_a = sa.geometry.point_at(uv_a.x, uv_a.y);
+                let p_b = sb.geometry.point_at(uv_b.x, uv_b.y);
+                let g0 = p_a.distance_to(&p_b);
+                if g0 > max_g0 {
+                    max_g0 = g0;
+                }
+                let su_a = sa.geometry.partial_u(uv_a.x, uv_a.y);
+                let sv_a = sa.geometry.partial_v(uv_a.x, uv_a.y);
+                let su_b = sb.geometry.partial_u(uv_b.x, uv_b.y);
+                let sv_b = sb.geometry.partial_v(uv_b.x, uv_b.y);
+                let n_a = su_a.cross(&sv_a);
+                let n_b = su_b.cross(&sv_b);
+                let nn_a = (n_a.dot(&n_a)).sqrt();
+                let nn_b = (n_b.dot(&n_b)).sqrt();
+                if nn_a > 1e-300 && nn_b > 1e-300 {
+                    let dot_unit = (n_a.dot(&n_b) / (nn_a * nn_b)).abs();
+                    let deficit = 1.0 - dot_unit;
+                    if deficit > max_g1 {
+                        max_g1 = deficit;
+                    }
+                }
+            }
+            let _ = (a_is_cap, b_is_cap);
+            entries.push((max_g1, max_g0, eh, face_a, face_b, a_label, b_label));
+        }
+        // Sort by max_g1 descending.
+        entries.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        eprintln!("\n--- per-edge G1/G0 sorted by G1 (top 20) ---");
+        for (i, (g1, g0, eh, fa, fb, la, lb)) in entries.iter().take(20).enumerate() {
+            let cap_a = cap_set.contains(fa);
+            let cap_b = cap_set.contains(fb);
+            eprintln!(
+                "  [{i:2}] edge={eh:?} g1={g1:.3e} g0={g0:.3e} {fa:?}({la}{}) <-> {fb:?}({lb}{})",
+                if cap_a { "*" } else { "" },
+                if cap_b { "*" } else { "" }
+            );
+        }
+
+        // For the top-3 cap-vs-Cyl edges (the cut edges), dump the
+        // 3D curve point vs each pcurve-evaluated surface point at
+        // a few sample params.  This isolates whether the gap is
+        // pcurve-fit error, surface-curve mismatch, or both.
+        eprintln!("\n--- top-3 cap-vs-Cyl edges: curve vs pcurve-on-surface ---");
+        let mut shown = 0usize;
+        for (g1, g0, eh, fa, fb, la, lb) in entries.iter() {
+            let cap_a = cap_set.contains(fa);
+            let cap_b = cap_set.contains(fb);
+            if !(cap_a ^ cap_b) {
+                continue;
+            }
+            if !(la.starts_with("Cyl") || lb.starts_with("Cyl")) {
+                continue;
+            }
+            if shown >= 3 {
+                break;
+            }
+            shown += 1;
+            let edge = brep.edges.get(*eh).unwrap();
+            let coe = edge.curve.as_ref().unwrap();
+            let he_a = edge.half_edge;
+            let ha = brep.half_edges.get(he_a).unwrap();
+            let hb = brep.half_edges.get(ha.twin).unwrap();
+            let pa = ha.pcurve.as_ref().unwrap();
+            let pb = hb.pcurve.as_ref().unwrap();
+            let face_a = brep.loops[ha.loop_].face;
+            let face_b = brep.loops[hb.loop_].face;
+            let sa = brep.faces[face_a].surface.as_ref().unwrap();
+            let sb = brep.faces[face_b].surface.as_ref().unwrap();
+            let (pa_lo, pa_hi) = pa.parameter_range();
+            let (pb_lo, pb_hi) = pb.parameter_range();
+            let (t_lo, t_hi) = (coe.t_start, coe.t_end);
+
+            // Endpoint vertex positions and curve degree.
+            let v_origin = brep.vertices[ha.origin].position;
+            let v_dest = brep.vertices[hb.origin].position;
+            let curve_info = match &coe.geometry {
+                popkern_core::geometry::CurveGeometry::Nurbs(nc) => {
+                    format!(
+                        "Nurbs deg={} cps={} weights={:?}",
+                        nc.degree,
+                        nc.control_points.len(),
+                        nc.weights
+                    )
+                }
+                popkern_core::geometry::CurveGeometry::Line { .. } => "Line".to_string(),
+                _ => "<other>".to_string(),
+            };
+            eprintln!("edge={eh:?} ({la} on {fa:?} <-> {lb} on {fb:?}) g1={g1:.3e} g0={g0:.3e}");
+            eprintln!(
+                "  endpoints: ({:.4},{:.4},{:.4}) → ({:.4},{:.4},{:.4})  curve: {curve_info}",
+                v_origin.x, v_origin.y, v_origin.z, v_dest.x, v_dest.y, v_dest.z
+            );
+            // Surface params for context.
+            match &sa.geometry {
+                popkern_core::geometry::surface::SurfaceGeometry::Sphere { center, radius } => {
+                    eprintln!(
+                        "  surface_a Sphere centre=({:.4},{:.4},{:.4}) r={radius:.4}",
+                        center.x, center.y, center.z
+                    );
+                }
+                popkern_core::geometry::surface::SurfaceGeometry::Cylinder {
+                    origin,
+                    axis,
+                    radius,
+                } => {
+                    eprintln!(
+                        "  surface_a Cylinder origin=({:.4},{:.4},{:.4}) axis=({:.4},{:.4},{:.4}) r={radius:.4}",
+                        origin.x, origin.y, origin.z, axis.x, axis.y, axis.z
+                    );
+                }
+                _ => {}
+            }
+            match &sb.geometry {
+                popkern_core::geometry::surface::SurfaceGeometry::Sphere { center, radius } => {
+                    eprintln!(
+                        "  surface_b Sphere centre=({:.4},{:.4},{:.4}) r={radius:.4}",
+                        center.x, center.y, center.z
+                    );
+                }
+                popkern_core::geometry::surface::SurfaceGeometry::Cylinder {
+                    origin,
+                    axis,
+                    radius,
+                } => {
+                    eprintln!(
+                        "  surface_b Cylinder origin=({:.4},{:.4},{:.4}) axis=({:.4},{:.4},{:.4}) r={radius:.4}",
+                        origin.x, origin.y, origin.z, axis.x, axis.y, axis.z
+                    );
+                }
+                _ => {}
+            }
+            eprintln!(
+                "  curve t∈[{t_lo:.3},{t_hi:.3}] pa_param∈[{pa_lo:.3},{pa_hi:.3}] pb_param∈[{pb_lo:.3},{pb_hi:.3}]"
+            );
+            // Dump pa/pb pcurve type.
+            if let popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(nc) = &pa.geometry {
+                eprintln!(
+                    "  pa Nurbs deg={} n_cps={} cps={:?}",
+                    nc.degree,
+                    nc.control_points.len(),
+                    nc.control_points
+                );
+            } else {
+                eprintln!("  pa <non-nurbs pcurve geometry>");
+            }
+            if let popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(nc) = &pb.geometry {
+                eprintln!(
+                    "  pb Nurbs deg={} n_cps={} cps={:?}",
+                    nc.degree,
+                    nc.control_points.len(),
+                    nc.control_points
+                );
+            } else {
+                eprintln!("  pb <non-nurbs pcurve geometry>");
+            }
+            // Detect direction.
+            let p3_lo = coe.geometry.point_at(t_lo);
+            let p3_hi = coe.geometry.point_at(t_hi);
+            let pa_at_param = |t: f64| {
+                let uv = pa.point_at(t);
+                sa.geometry.point_at(uv.x, uv.y)
+            };
+            let pb_at_param = |t: f64| {
+                let uv = pb.point_at(t);
+                sb.geometry.point_at(uv.x, uv.y)
+            };
+            let pa_forward = p3_lo.distance_to(&pa_at_param(pa_lo))
+                + p3_hi.distance_to(&pa_at_param(pa_hi))
+                <= p3_lo.distance_to(&pa_at_param(pa_hi)) + p3_hi.distance_to(&pa_at_param(pa_lo));
+            let pb_forward = p3_lo.distance_to(&pb_at_param(pb_lo))
+                + p3_hi.distance_to(&pb_at_param(pb_hi))
+                <= p3_lo.distance_to(&pb_at_param(pb_hi)) + p3_hi.distance_to(&pb_at_param(pb_lo));
+
+            for s in [0.0_f64, 0.25, 0.5, 0.75, 1.0] {
+                let t = t_lo + s * (t_hi - t_lo);
+                let p3 = coe.geometry.point_at(t);
+                let s_a = if pa_forward { s } else { 1.0 - s };
+                let s_b = if pb_forward { s } else { 1.0 - s };
+                let t_a = pa_lo + s_a * (pa_hi - pa_lo);
+                let t_b = pb_lo + s_b * (pb_hi - pb_lo);
+                let uv_a = pa.point_at(t_a);
+                let uv_b = pb.point_at(t_b);
+                let p_a = sa.geometry.point_at(uv_a.x, uv_a.y);
+                let p_b = sb.geometry.point_at(uv_b.x, uv_b.y);
+                let d_curve_a = p3.distance_to(&p_a);
+                let d_curve_b = p3.distance_to(&p_b);
+                let d_a_b = p_a.distance_to(&p_b);
+                eprintln!(
+                    "    s={s:.2}  curve=({:.4},{:.4},{:.4}) |curve→a|={d_curve_a:.3e} |curve→b|={d_curve_b:.3e} |a→b|={d_a_b:.3e}",
+                    p3.x, p3.y, p3.z
+                );
+            }
+        }
     }
 
     /// Run the full Path B reroute on cube_mixed and report which
