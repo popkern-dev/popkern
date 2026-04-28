@@ -86,83 +86,55 @@ pub(crate) fn reroute_neighbour_cylinder_edges(
     cap_faces: &[FaceHandle],
     per_fillet_caps: &[(popkern_core::geometry::Point3, f64)],
 ) -> Result<usize, RerouteError> {
-    use popkern_core::geometry::surface::SurfaceGeometry;
-
     let snapshot = brep.clone();
     let cap_set: std::collections::BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
 
-    // Step 1: classify and collect surgery targets.
-    let classification = classify_cap_loops(brep, cap_faces, per_fillet_caps);
-
-    // Each surgery target: (cap_k_he, twin_cylinder_face, dest_cap).
-    let mut targets: Vec<(HalfEdgeHandle, FaceHandle, FaceHandle)> = Vec::new();
-    for c in &classification {
-        for entry in &c.entries {
-            if entry.twin_kind != TwinKind::NeighbourCylinder {
-                continue;
-            }
-            // Find dest cap: the cap whose Sphere radius matches the
-            // twin cylinder's radius (= the cap that "owns" cyl_m).
-            let twin_radius = match brep
-                .faces
-                .get(entry.twin_face)
-                .and_then(|f| f.surface.as_ref())
-                .map(|s| &s.geometry)
-            {
-                Some(SurfaceGeometry::Cylinder { radius, .. }) => *radius,
-                _ => continue,
-            };
-            let dest = cap_faces.iter().find(|&&fh| {
-                fh != c.cap_face
-                    && match brep
-                        .faces
-                        .get(fh)
-                        .and_then(|f| f.surface.as_ref())
-                        .map(|s| &s.geometry)
-                    {
-                        Some(SurfaceGeometry::Sphere { radius, .. }) => {
-                            (*radius - twin_radius).abs() < twin_radius * 0.05
-                        }
-                        _ => false,
-                    }
-            });
-            if let Some(&dest_cap) = dest {
-                targets.push((entry.half_edge, entry.twin_face, dest_cap));
-            }
-        }
-    }
-
-    // Step 2: for each target, plan + apply Path B surgery.
+    // Step 2: iteratively classify + apply.  Each surgery
+    // mutates the BRep, so we re-classify after each iteration
+    // to find the next NeighbourCylinder edge.
     let mut succeeded = 0usize;
     let trace = std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1");
-    for (he_cap, _cyl_m, _cap_n) in targets {
-        let cap_k = brep.loops[brep.half_edges[he_cap].loop_].face;
-        let plan = plan_path_b(brep, he_cap, cap_k, cap_faces);
-        match &plan {
-            Some(_) => {
-                if trace {
-                    eprintln!("[reroute] plan OK for he={he_cap:?}");
+    for iter in 0..16 {
+        // Find one NeighbourCylinder target.
+        let classification = classify_cap_loops(brep, cap_faces, per_fillet_caps);
+        let mut target: Option<HalfEdgeHandle> = None;
+        for c in &classification {
+            for entry in &c.entries {
+                if entry.twin_kind == TwinKind::NeighbourCylinder {
+                    target = Some(entry.half_edge);
+                    break;
                 }
             }
-            None => {
-                if trace {
-                    eprintln!("[reroute] plan_path_b returned None for he={he_cap:?}");
-                }
+            if target.is_some() {
+                break;
             }
         }
-        if let Some(plan) = plan {
-            match apply_path_b_plan(brep, &plan) {
-                Ok(()) => {
-                    if trace {
-                        eprintln!("[reroute] applied OK for he={he_cap:?}");
-                    }
-                    succeeded += 1;
+        let Some(he_cap) = target else {
+            if trace {
+                eprintln!("[reroute] iter {iter}: no more NeighCyl targets");
+            }
+            break;
+        };
+        let cap_k = brep.loops[brep.half_edges[he_cap].loop_].face;
+        let plan = plan_path_b(brep, he_cap, cap_k, cap_faces);
+        let Some(plan) = plan else {
+            if trace {
+                eprintln!("[reroute] iter {iter}: plan_path_b None for he={he_cap:?}");
+            }
+            break;
+        };
+        match apply_path_b_plan(brep, &plan) {
+            Ok(()) => {
+                if trace {
+                    eprintln!("[reroute] iter {iter}: applied OK for he={he_cap:?}");
                 }
-                Err(e) => {
-                    if trace {
-                        eprintln!("[reroute] apply failed for he={he_cap:?}: {e:?}");
-                    }
+                succeeded += 1;
+            }
+            Err(e) => {
+                if trace {
+                    eprintln!("[reroute] iter {iter}: apply failed for he={he_cap:?}: {e:?}");
                 }
+                break;
             }
         }
     }
@@ -665,21 +637,9 @@ pub(crate) fn plan_path_b(
 #[allow(dead_code)]
 pub(crate) fn apply_path_b_plan(brep: &mut BRep, plan: &PathBPlan) -> Result<(), RerouteError> {
     let snapshot = brep.clone();
-
-    // Step 1: move vertices (only when env var requests). When
-    // disabled, the surgery is topology-only — incident edge
-    // curves keep matching old vertex positions, but the
-    // resulting topology may not be commercial-grade until
-    // vertex move + edge geometry refit lands.
-    if std::env::var("POPKERN_VAR_RADIUS_MOVE_VERTS").is_ok_and(|v| v == "1") {
-        if let Some(v) = brep.vertices.get_mut(plan.v_x) {
-            v.position = plan.v_x_new_pos;
-        }
-        let v_a = brep.half_edges[plan.cap_n_own_he_a].origin;
-        if let Some(v) = brep.vertices.get_mut(v_a) {
-            v.position = plan.v_a_new_pos;
-        }
-    }
+    let v_a_handle = brep.half_edges[plan.cap_n_own_he_a].origin;
+    let v_x_old_pos = brep.vertices[plan.v_x].position;
+    let v_a_old_pos = brep.vertices[v_a_handle].position;
 
     // Step 2: mef cyl_m. We need he1 (origin V_x) in cyl_m's loop
     // and he2 = plan.cap_n_own_he_a (origin V_a in cyl_m's loop).
@@ -780,6 +740,31 @@ pub(crate) fn apply_path_b_plan(brep: &mut BRep, plan: &PathBPlan) -> Result<(),
     brep.loops.remove(chip_loop);
     brep.faces.remove(chip_face);
 
+    // Step 5b: move V_x and V_a to their cap-tangent-circle
+    // positions, updating incident-edge curve endpoints so each
+    // incident edge's 3D curve still terminates at the moved
+    // vertex (loop closure would fail otherwise).
+    update_incident_edges_for_vertex_move(brep, plan.v_x, v_x_old_pos, plan.v_x_new_pos);
+    update_incident_edges_for_vertex_move(brep, v_a_handle, v_a_old_pos, plan.v_a_new_pos);
+
+    // Step 5c: set the cut edge's 3D curve and pcurves to a
+    // cap-tangent arc on cyl_m's surface, from V_x_new to V_a_new.
+    // Both endpoints lie on sphere_n ∩ cyl_m by construction;
+    // sphere_n is tangent to cyl_m along this circle, so G1
+    // between cap_n and main cyl body is perfect along the
+    // cut edge.
+    let cut_edge = brep.half_edges[h2].edge;
+    let main_cyl_face = mef.face;
+    set_cut_edge_geometry(
+        brep,
+        cut_edge,
+        h2,
+        plan.v_x_new_pos,
+        plan.v_a_new_pos,
+        plan.cap_n,
+        main_cyl_face,
+    );
+
     // Step 6: validate.
     if let Err(e) = brep.validate() {
         if std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1") {
@@ -791,6 +776,245 @@ pub(crate) fn apply_path_b_plan(brep: &mut BRep, plan: &PathBPlan) -> Result<(),
 
     Ok(())
 }
+
+/// Move a vertex and update the endpoint of any incident edge's
+/// 3D curve that previously matched the old vertex position.
+/// Preserves loop closure: each `he`'s origin is at the moved
+/// vertex, and the corresponding curve endpoint is updated to
+/// match.
+fn update_incident_edges_for_vertex_move(
+    brep: &mut BRep,
+    v: VertexHandle,
+    old_pos: popkern_core::geometry::Point3,
+    new_pos: popkern_core::geometry::Point3,
+) {
+    use popkern_core::geometry::CurveGeometry;
+    let tol = 1e-6;
+
+    // Collect incident edge handles via half-edges with origin = v.
+    let edges: std::collections::BTreeSet<EdgeHandle> = brep
+        .half_edges
+        .values()
+        .filter(|he| he.origin == v)
+        .map(|he| he.edge)
+        .collect();
+
+    for edge_h in edges {
+        let Some(edge) = brep.edges.get_mut(edge_h) else {
+            continue;
+        };
+        let Some(coe) = edge.curve.as_mut() else {
+            continue;
+        };
+        if let CurveGeometry::Nurbs(nc) = &mut coe.geometry {
+            if nc.control_points.is_empty() {
+                continue;
+            }
+            let n = nc.control_points.len();
+            let first = nc.control_points[0];
+            let last = nc.control_points[n - 1];
+            if first.distance_to(&old_pos) < tol {
+                nc.control_points[0] = new_pos;
+            } else if last.distance_to(&old_pos) < tol {
+                nc.control_points[n - 1] = new_pos;
+            }
+        }
+    }
+
+    if let Some(vd) = brep.vertices.get_mut(v) {
+        vd.position = new_pos;
+    }
+}
+
+/// Build a rational quadratic NURBS arc on the cap-tangent
+/// circle (sphere_n ∩ cyl_m) from `start` to `end`.  Both
+/// endpoints must lie on the circle (caller's responsibility);
+/// we reconstruct the circle from the cylinder's axis and the
+/// sphere's centre.
+fn build_cap_tangent_arc_curve(
+    start: popkern_core::geometry::Point3,
+    end: popkern_core::geometry::Point3,
+    sphere_centre: popkern_core::geometry::Point3,
+    cyl_origin: popkern_core::geometry::Point3,
+    cyl_axis: popkern_core::geometry::Vec3,
+    cyl_radius: f64,
+) -> Option<popkern_core::geometry::nurbs_curve::NurbsCurve> {
+    use popkern_core::geometry::Vec3;
+    use popkern_core::geometry::nurbs_curve::NurbsCurve;
+    use std::f64::consts::TAU;
+
+    let axis_unit = cyl_axis.normalized()?;
+    let to_centre = Vec3::new(
+        sphere_centre.x - cyl_origin.x,
+        sphere_centre.y - cyl_origin.y,
+        sphere_centre.z - cyl_origin.z,
+    );
+    let along = to_centre.dot(&axis_unit);
+    let circle_centre = popkern_core::geometry::Point3::new(
+        cyl_origin.x + axis_unit.x * along,
+        cyl_origin.y + axis_unit.y * along,
+        cyl_origin.z + axis_unit.z * along,
+    );
+
+    // Build orthonormal in-plane basis (u_axis, v_axis) perp to cyl_axis.
+    let helper = if axis_unit.x.abs() < 0.9 {
+        Vec3::new(1.0, 0.0, 0.0)
+    } else {
+        Vec3::new(0.0, 1.0, 0.0)
+    };
+    let u_axis = axis_unit.cross(&helper).normalized()?;
+    let v_axis = axis_unit.cross(&u_axis);
+
+    let theta = |p: popkern_core::geometry::Point3| -> f64 {
+        let d = Vec3::new(
+            p.x - circle_centre.x,
+            p.y - circle_centre.y,
+            p.z - circle_centre.z,
+        );
+        d.dot(&v_axis).atan2(d.dot(&u_axis))
+    };
+    let theta_a = theta(start);
+    let theta_b = theta(end);
+
+    // Pick the SHORTER arc direction.
+    let mut delta = theta_b - theta_a;
+    while delta > std::f64::consts::PI {
+        delta -= TAU;
+    }
+    while delta < -std::f64::consts::PI {
+        delta += TAU;
+    }
+    let theta_end = theta_a + delta;
+
+    // Rational quadratic arc: 3 CPs (p0, shoulder, p2), weights (1, cos(α), 1).
+    let half_span = (theta_end - theta_a) * 0.5;
+    let cos_half = half_span.cos();
+    let theta_mid = theta_a + half_span;
+    let circle_eval = |th: f64| -> popkern_core::geometry::Point3 {
+        popkern_core::geometry::Point3::new(
+            circle_centre.x + cyl_radius * (th.cos() * u_axis.x + th.sin() * v_axis.x),
+            circle_centre.y + cyl_radius * (th.cos() * u_axis.y + th.sin() * v_axis.y),
+            circle_centre.z + cyl_radius * (th.cos() * u_axis.z + th.sin() * v_axis.z),
+        )
+    };
+    let p0 = circle_eval(theta_a);
+    let p_mid = circle_eval(theta_mid);
+    let p2 = circle_eval(theta_end);
+    let shoulder = if cos_half.abs() > 1e-12 {
+        popkern_core::geometry::Point3::new(
+            circle_centre.x + (p_mid.x - circle_centre.x) / cos_half,
+            circle_centre.y + (p_mid.y - circle_centre.y) / cos_half,
+            circle_centre.z + (p_mid.z - circle_centre.z) / cos_half,
+        )
+    } else {
+        p_mid
+    };
+
+    Some(NurbsCurve {
+        degree: 2,
+        control_points: vec![p0, shoulder, p2],
+        weights: vec![1.0, cos_half.abs(), 1.0],
+        knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+    })
+}
+
+/// Set the cut edge's 3D curve (cap-tangent arc on cyl_m, going
+/// through the cap-tangent circle of sphere_n on cyl_m) and refit
+/// pcurves on both half-edges.
+fn set_cut_edge_geometry(
+    brep: &mut BRep,
+    edge: EdgeHandle,
+    cap_side_he: HalfEdgeHandle,
+    v_start: popkern_core::geometry::Point3,
+    v_end: popkern_core::geometry::Point3,
+    cap_n: FaceHandle,
+    main_cyl_face: FaceHandle,
+) {
+    use popkern_core::geometry::CurveGeometry;
+    use popkern_core::geometry::curve::CurveOnEdge;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    // Pull cap_n's sphere centre and main_cyl's cylinder params.
+    let cap_surf = brep
+        .faces
+        .get(cap_n)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| s.geometry.clone());
+    let main_surf = brep
+        .faces
+        .get(main_cyl_face)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| s.geometry.clone());
+
+    let arc = match (&cap_surf, &main_surf) {
+        (
+            Some(SurfaceGeometry::Sphere { center, .. }),
+            Some(SurfaceGeometry::Cylinder {
+                origin,
+                axis,
+                radius,
+            }),
+        ) => build_cap_tangent_arc_curve(v_start, v_end, *center, *origin, *axis, *radius),
+        _ => None,
+    };
+
+    let curve_3d = arc.unwrap_or_else(|| popkern_core::geometry::nurbs_curve::NurbsCurve {
+        degree: 1,
+        control_points: vec![v_start, v_end],
+        weights: vec![1.0, 1.0],
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+    });
+
+    if let Some(edge_data) = brep.edges.get_mut(edge) {
+        edge_data.curve = Some(CurveOnEdge {
+            geometry: CurveGeometry::Nurbs(curve_3d.clone()),
+            t_start: 0.0,
+            t_end: 1.0,
+        });
+    }
+
+    // Refit pcurves on both half-edges by sampling the arc and
+    // projecting samples to each surface's UV.
+    let twin = brep.half_edges[cap_side_he].twin;
+    if let Some(surf) = cap_surf
+        && let Some(pc) = sample_pcurve_on_surface(&curve_3d, &surf)
+    {
+        brep.half_edges[cap_side_he].pcurve = Some(pc.into());
+    }
+    if let Some(surf) = main_surf
+        && let Some(pc) = sample_pcurve_on_surface(&curve_3d, &surf)
+    {
+        brep.half_edges[twin].pcurve = Some(pc.into());
+    }
+}
+
+/// Sample a 3D NURBS curve and fit a degree-3 NURBS pcurve in
+/// the surface's UV space.  Returns None if any sample fails to
+/// project.
+fn sample_pcurve_on_surface(
+    curve_3d: &popkern_core::geometry::nurbs_curve::NurbsCurve,
+    surface: &popkern_core::geometry::surface::SurfaceGeometry,
+) -> Option<popkern_core::geometry::nurbs_curve::NurbsCurve> {
+    use popkern_core::geometry::Point3;
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::fitting;
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
+
+    const N: usize = 12;
+    let mut points: Vec<Point3> = Vec::with_capacity(N);
+    let mut params: Vec<f64> = Vec::with_capacity(N);
+    for i in 0..N {
+        let s = i as f64 / (N - 1) as f64;
+        let p3 = curve_3d.point_at(s);
+        let (u, v) = project_point_to_uv(surface, &p3)?;
+        points.push(Point3::new(u, v, 0.0));
+        params.push(s);
+    }
+    let degree = 3usize;
+    let n_cps = (degree + 2).min(points.len());
+    fitting::fit_curve(&points, &params, degree, n_cps).ok()
+}
+
 
 /// Project a 3-D point onto the intersection circle of a sphere
 /// and an axis-aligned cylinder.  The intersection lies in the
