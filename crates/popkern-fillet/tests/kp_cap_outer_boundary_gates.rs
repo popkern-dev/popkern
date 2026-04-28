@@ -75,6 +75,32 @@ fn run_n_pyramid(n: usize, h: f64, radii: &[f64]) -> helpers::CapOuterMetrics {
     measure_cap_outer_boundary(&brep, &faces, N_SAMPLES)
 }
 
+/// Phase 6c-C.1 win: cube_uniform G1 commercial-grade, locked
+/// in as a regression guard. The 5e-2 gate is the
+/// `kp_gate_helpers::G1_GATE` constant. Passed since commit
+/// `016a780` (centroid-based interior-direction tie-break).
+///
+/// G0 still exceeds `G0_GATE` (1e-10) because the cap face's
+/// 3 rolling-ball-footprint vertices aren't on the sphere; full
+/// Phase 6c-C topology rebuild is needed to remove them. This
+/// test gates only on G1 — graduates to the full
+/// `assert_cap_outer_gates` once 6c-C.2/.3 land.
+#[test]
+fn cap_outer_boundary_g1_passes_on_cube_uniform() {
+    let m = run_cube(&[0.10, 0.10, 0.10]);
+    println!(
+        "cap_outer cube_uniform: g0={:.3e} g1={:.3e} edges={}",
+        m.worst_g0_gap, m.worst_g1_coplanarity, m.edges_measured
+    );
+    assert!(m.edges_measured >= 1);
+    assert!(
+        m.worst_g1_coplanarity < helpers::G1_GATE,
+        "cube_uniform G1 {:.3e} exceeds {:.1e} commercial gate",
+        m.worst_g1_coplanarity,
+        helpers::G1_GATE,
+    );
+}
+
 #[ignore]
 #[test]
 fn cap_outer_boundary_passes_on_cube_mixed() {
