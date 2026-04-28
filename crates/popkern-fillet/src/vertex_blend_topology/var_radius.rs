@@ -2180,4 +2180,282 @@ mod tests {
             }
         }
     }
+
+    // ================================================================
+    // Synthetic 4-face apex BRep — vertex-split primitive coverage
+    // ================================================================
+    //
+    // Build a planar pyramid topology with apex `V` valence-4
+    // incident to 4 triangle faces, then exercise
+    // `split_apex_footprint_vertex` directly.  No surfaces or curves
+    // — purely topology + vertex positions.  Tests the structural
+    // logic in isolation from the cube_mixed pipeline.
+
+    /// Build the planar pyramid: square ABCD with central V_apex,
+    /// split into 4 inside triangles meeting at V_apex, plus one
+    /// outside square face F_back.  Returns:
+    /// `(brep, v_apex, [tri0, tri1, tri2, tri3])` where the four
+    /// triangles are listed in cyclic order around V_apex going
+    /// around the +Z axis (CCW).
+    ///
+    /// Vertex layout (z=0 plane):
+    /// ```text
+    ///   D(0,1) -- C(1,1)
+    ///     | \  /  |
+    ///     |  V    |
+    ///     | /  \  |
+    ///   A(0,0) -- B(1,0)
+    /// ```
+    /// V_apex at (0.5, 0.5, 0).  Triangles in cyclic order:
+    /// `tri0 = (V,A,B)`, `tri1 = (V,B,C)`, `tri2 = (V,C,D)`,
+    /// `tri3 = (V,D,A)`.
+    fn build_pyramid_4() -> (
+        popkern_core::topology::BRep,
+        popkern_core::topology::VertexHandle,
+        [popkern_core::topology::FaceHandle; 4],
+    ) {
+        use popkern_core::geometry::Point3;
+        use popkern_core::tolerance::Tolerance;
+        use popkern_core::topology::BRep;
+
+        let mut brep = BRep::new(Tolerance::default());
+
+        // Build square A(0,0) → B(1,0) → C(1,1) → D(0,1) in F_orig.
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap(); // A
+        let mev_b = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap(); // B
+        let mev_c = brep
+            .mev(mev_b.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
+            .unwrap(); // C
+        let mev_d = brep
+            .mev(mev_c.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
+            .unwrap(); // D
+        // mef D→A: closes the square. The "old face" (F_orig from
+        // mvfs) keeps half-edges from new_he onward — i.e., the
+        // interior square loop {DA, AB, BC, CD}.  The new face
+        // (mef_da.face) gets the loop walking the opposite way
+        // {AD, DC, CB, BA} — that's F_back.
+        let mef_da = brep.mef(mev_d.half_edge_twin, mev_b.half_edge).unwrap();
+        let f_inside = mvfs.face; // contains interior square loop
+        let _f_back = mef_da.face; // back/outside face
+
+        // Insert V_apex at (0.5, 0.5, 0) via mev from A's outgoing
+        // (= mev_b.half_edge, A→B in F_inside).  The spur lives in
+        // F_inside.
+        let mev_v = brep
+            .mev(mev_b.half_edge, Point3::new(0.5, 0.5, 0.0))
+            .unwrap();
+        let v_apex = mev_v.vertex;
+        // mev_v.half_edge_twin is V→A (in F_inside)
+
+        // mef V_apex → B: split F_inside into triangle {A,B,V} and pentagon {V,B,C,D,A}.
+        // mev_v.half_edge_twin originates at V (V→A), and mev_c.half_edge originates at B (B→C).
+        // Both in F_inside's loop after the spur insertion.
+        let mef_apex_b = brep.mef(mev_v.half_edge_twin, mev_c.half_edge).unwrap();
+        // mef_apex_b.half_edge is V→B (in F_inside, now pentagon)
+        // mef_apex_b.face is the new triangle face (A,B,V).
+
+        // mef V_apex → C: split pentagon into triangle {B,C,V} and quad {V,C,D,A}.
+        // mef_apex_b.half_edge originates at V (V→B in pentagon).
+        // mev_d.half_edge originates at C (C→D in pentagon).
+        let mef_apex_c = brep.mef(mef_apex_b.half_edge, mev_d.half_edge).unwrap();
+        // mef_apex_c.half_edge is V→C (in F_inside, now quad).
+        // mef_apex_c.face is the new triangle face (B,C,V).
+
+        // mef V_apex → D: split quad into triangle {C,D,V} and triangle {D,A,V}.
+        // mef_apex_c.half_edge originates at V (V→C in quad).
+        // mef_da.half_edge originates at D (D→A in quad).
+        let mef_apex_d = brep.mef(mef_apex_c.half_edge, mef_da.half_edge).unwrap();
+        // mef_apex_d.half_edge is V→D (in F_inside, now last triangle (D,A,V)).
+        // mef_apex_d.face is the new triangle face (C,D,V).
+
+        // Faces in cyclic order around V_apex going CCW (V→A is at
+        // angle 225°, V→B at 315°, V→C at 45°, V→D at 135°):
+        //   tri0 = (V,A,B) face  (angles 225°→315°)
+        //   tri1 = (V,B,C) face  (angles 315°→45°)
+        //   tri2 = (V,C,D) face  (angles 45°→135°)
+        //   tri3 = (V,D,A) face  (angles 135°→225°)
+        //
+        //   tri0 = mef_apex_b.face (the (A,B,V) triangle face)
+        //   tri1 = mef_apex_c.face (the (B,C,V) triangle face)
+        //   tri2 = mef_apex_d.face (the (C,D,V) triangle face)
+        //   tri3 = f_inside        (the leftover (D,A,V) triangle face)
+        let tri0 = mef_apex_b.face;
+        let tri1 = mef_apex_c.face;
+        let tri2 = mef_apex_d.face;
+        let tri3 = f_inside;
+        (brep, v_apex, [tri0, tri1, tri2, tri3])
+    }
+
+    /// Sanity check: build_pyramid_4 produces validate-able topology.
+    #[test]
+    fn synthetic_pyramid_4_valid() {
+        let (brep, v_apex, tris) = build_pyramid_4();
+        brep.validate().expect("pyramid_4 should be valid");
+        assert_eq!(brep.vertices.len(), 5);
+        assert_eq!(brep.faces.len(), 5); // 4 inner + 1 back
+        assert_eq!(brep.edges.len(), 8); // 4 perimeter + 4 spokes
+        // V_apex valence 4
+        let valence = brep
+            .half_edges
+            .values()
+            .filter(|he| he.origin == v_apex)
+            .count();
+        assert_eq!(valence, 4, "V_apex should have valence 4");
+        // V_apex incident to all 4 inner triangles (and not f_back).
+        for &tri in &tris {
+            let outer = brep.faces[tri].outer_loop;
+            let mut found = false;
+            let start = brep.loops[outer].half_edge;
+            let mut cursor = start;
+            for _ in 0..16 {
+                if brep.half_edges[cursor].origin == v_apex {
+                    found = true;
+                    break;
+                }
+                cursor = brep.half_edges[cursor].next;
+                if cursor == start {
+                    break;
+                }
+            }
+            assert!(found, "V_apex must be in tri {tri:?} loop");
+        }
+    }
+
+    /// First empirical exercise of `split_apex_footprint_vertex` on
+    /// the synthetic 4-face apex.  Cyclic order matches cube_mixed:
+    /// `cap=tri0`, `cyl_split=tri1`, `cube=tri2`, `extra=tri3`.
+    /// This is the cyclic order [cap, cyl_split, cube, extra] —
+    /// where cap and cyl_split are adjacent at one V_apex edge,
+    /// cyl_split and cube at the next, and so on.
+    #[test]
+    fn split_synthetic_4_face_cyclic() {
+        use popkern_core::geometry::Point3;
+
+        let (mut brep, v_apex, [tri0, tri1, tri2, tri3]) = build_pyramid_4();
+        let _ = tri3;
+        let v_new_pos = Point3::new(0.4, 0.5, 0.0);
+        let pre_face_count = brep.faces.len();
+        let pre_vertex_count = brep.vertices.len();
+
+        let v_new = split_apex_footprint_vertex(&mut brep, v_apex, tri0, tri2, tri1, v_new_pos)
+            .expect("split should succeed");
+        eprintln!("split OK: v_new={v_new:?}");
+        brep.validate().expect("validate after split");
+        assert_eq!(brep.vertices.len(), pre_vertex_count + 1);
+        assert_eq!(brep.faces.len(), pre_face_count);
+    }
+
+    /// Same pyramid but assign cap = tri0 and cube = tri1 (cap and
+    /// cube cyclically adjacent — opposite pattern to cube_mixed).
+    /// `cyl_split = tri2`. Note tri0..3 are cyclically ordered so
+    /// tri0 and tri1 are adjacent (share V-B edge); tri1 and tri2
+    /// share V-C; tri2 and tri3 share V-D; tri3 and tri0 share V-A.
+    #[test]
+    fn split_synthetic_4_face_cap_cube_adjacent() {
+        use popkern_core::geometry::Point3;
+
+        let (mut brep, v_apex, [tri0, tri1, tri2, tri3]) = build_pyramid_4();
+        let _ = tri3;
+        let v_new_pos = Point3::new(0.5, 0.4, 0.0);
+
+        match split_apex_footprint_vertex(&mut brep, v_apex, tri0, tri1, tri2, v_new_pos) {
+            Ok(v_new) => {
+                eprintln!("split OK: v_new={v_new:?}");
+                if let Err(e) = brep.validate() {
+                    panic!("validate after split failed (cap-cube adjacent): {e:?}");
+                }
+            }
+            Err(e) => panic!("split failed (cap-cube adjacent): {e:?}"),
+        }
+    }
+
+    /// Run the full Path B reroute on cube_mixed and report which
+    /// surgeries fail.  Uses the ignore-attribute so it's only run
+    /// when explicitly requested (sets process-level env vars).
+    #[test]
+    #[ignore]
+    fn reroute_full_cube_mixed() {
+        unsafe {
+            std::env::set_var("POPKERN_SPHERE_FIT_BOUNDARY", "1");
+            std::env::set_var("POPKERN_SPHERE_CAP_RUNG", "1");
+            std::env::set_var("POPKERN_VAR_RADIUS_REROUTE", "1");
+            std::env::set_var("POPKERN_VAR_RADIUS_TRACE", "1");
+        }
+        let cube =
+            popkern_core::topology::BRep::unit_cube(popkern_core::tolerance::Tolerance::default())
+                .unwrap();
+        let apex = cube
+            .vertices
+            .keys()
+            .find(|&v| cube.half_edges.values().filter(|he| he.origin == v).count() == 3)
+            .unwrap();
+        let edges: Vec<_> = {
+            use std::collections::BTreeSet;
+            let s: BTreeSet<_> = cube
+                .half_edges
+                .values()
+                .filter(|he| he.origin == apex)
+                .map(|he| he.edge)
+                .collect();
+            s.into_iter().collect()
+        };
+        let radii = [0.08_f64, 0.10, 0.12];
+        let specs: Vec<crate::types::FilletSpec> = edges
+            .iter()
+            .zip(radii.iter())
+            .map(|(&e, &r)| crate::types::FilletSpec {
+                edge: e,
+                radius: crate::types::FilletRadius::Constant(r),
+            })
+            .collect();
+        let result = crate::fillet_edges(
+            &cube,
+            &specs,
+            &crate::FilletOptions::default(),
+            popkern_core::tolerance::Tolerance::default(),
+            None,
+        );
+        match result {
+            Ok(filleted) => {
+                eprintln!(
+                    "OK — final BRep: {} faces, {} edges, {} vertices",
+                    filleted.brep.faces.len(),
+                    filleted.brep.edges.len(),
+                    filleted.brep.vertices.len()
+                );
+                if let Err(e) = filleted.brep.validate() {
+                    eprintln!("post-pipeline validate FAILED: {e:?}");
+                } else {
+                    eprintln!("post-pipeline validate OK");
+                }
+            }
+            Err(e) => {
+                eprintln!("fillet_edges failed: {e:?}");
+            }
+        }
+    }
+
+    /// Cap and cyl_split NOT adjacent: cap=tri0, cyl_split=tri2,
+    /// cube=tri1.  This puts the bridge between two
+    /// non-cyclically-adjacent faces — possibly invalid topology.
+    #[test]
+    fn split_synthetic_4_face_cap_cyl_split_opposite() {
+        use popkern_core::geometry::Point3;
+
+        let (mut brep, v_apex, [tri0, tri1, tri2, tri3]) = build_pyramid_4();
+        let _ = tri3;
+        let v_new_pos = Point3::new(0.5, 0.5, 0.0);
+
+        match split_apex_footprint_vertex(&mut brep, v_apex, tri0, tri1, tri2, v_new_pos) {
+            Ok(v_new) => {
+                eprintln!("split OK: v_new={v_new:?}");
+                if let Err(e) = brep.validate() {
+                    panic!("validate after split failed (cap-cyl opposite): {e:?}");
+                }
+            }
+            Err(e) => eprintln!("split returned error (cap-cyl opposite): {e:?}"),
+        }
+    }
 }
