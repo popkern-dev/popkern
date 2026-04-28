@@ -16,7 +16,12 @@
 //! and the existing `fillet_edges` pipeline (Phase 6c-C.4).
 
 pub(crate) mod detect;
+pub(crate) mod plan;
 
 #[cfg(test)]
 #[path = "detect_tests.rs"]
 mod detect_tests;
+
+#[cfg(test)]
+#[path = "plan_tests.rs"]
+mod plan_tests;

@@ -239,6 +239,87 @@ fn probe_cube_uniform_cap_surface_kind() {
 }
 
 #[test]
+fn probe_cube_uniform_rolling_ball_footprint_topology() {
+    // Diagnostic — for each cap-loop vertex, dump its incident
+    // edges and the faces those edges bound. Tells us whether
+    // the rolling-ball-footprint vertices (A=(r,0,0)/B/C) are
+    // 3-valent (just kev-able to merge cap loop) or 4-valent
+    // (more incidences to handle).
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+    let apex_pre = cube_apex(&cube);
+    let edges = corner_edges(&cube, apex_pre);
+    let specs: Vec<FilletSpec> = edges
+        .iter()
+        .map(|&e| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(0.10),
+        })
+        .collect();
+    let result = crate::fillet_edges(
+        &cube,
+        &specs,
+        &FilletOptions::default(),
+        Tolerance::default(),
+        None,
+    )
+    .expect("fillet uniform cube");
+    let cap_face = result.corner_patches[0].face;
+    let cap_loop = result.brep.loops[result.brep.faces[cap_face].outer_loop].half_edge;
+
+    let mut cursor = cap_loop;
+    for k in 0..6 {
+        let v = result.brep.half_edges[cursor].origin;
+        let v_pos = result.brep.vertices[v].position;
+        let mut incident_edges: Vec<_> = result
+            .brep
+            .half_edges
+            .values()
+            .filter(|he| he.origin == v)
+            .map(|he| he.edge)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        incident_edges.sort();
+        eprintln!(
+            "cap_v{k}: pos=({:.3},{:.3},{:.3}) valence={}",
+            v_pos.x,
+            v_pos.y,
+            v_pos.z,
+            incident_edges.len()
+        );
+        for e in &incident_edges {
+            // Find a half-edge of this edge to identify its faces
+            let hes: Vec<_> = result
+                .brep
+                .half_edges
+                .iter()
+                .filter(|(_, he)| he.edge == *e)
+                .collect();
+            let face_kinds: Vec<&'static str> = hes
+                .iter()
+                .map(|(_, he)| {
+                    let f = result.brep.loops[he.loop_].face;
+                    result.brep.faces[f]
+                        .surface
+                        .as_ref()
+                        .map(|s| match &s.geometry {
+                            SurfaceGeometry::Plane { .. } => "Plane",
+                            SurfaceGeometry::Cylinder { .. } => "Cyl",
+                            SurfaceGeometry::Sphere { .. } => "Sph",
+                            SurfaceGeometry::Torus { .. } => "Torus",
+                            _ => "Other",
+                        })
+                        .unwrap_or("?")
+                })
+                .collect();
+            eprintln!("    edge {e:?} → faces: {face_kinds:?}");
+        }
+        cursor = result.brep.half_edges[cursor].next;
+    }
+}
+
+#[test]
 fn detect_post_fillet_cap_face_in_region_faces() {
     // From any vertex on the post-fillet cap face's outer loop,
     // `detect_apex_region` includes the cap face among
