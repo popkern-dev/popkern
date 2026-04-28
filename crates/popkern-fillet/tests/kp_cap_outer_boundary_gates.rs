@@ -173,6 +173,72 @@ fn print_pyramid3_uniform_only() {
     );
 }
 
+/// Diagnostic: dump each cap face's outer-loop structure —
+/// vertex positions, on-sphere classification, and adjacent
+/// (twin-side) face surface type. Used to design Phase 6c-C
+/// variable-radius topology surgery.
+#[ignore]
+#[test]
+fn dump_cap_loop_structure() {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let radii: &[f64] = &[0.08, 0.10, 0.12]; // cube_mixed
+    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+    let vertex = cube.vertices.keys().next().unwrap();
+    let edges = incident_edges(&cube, vertex);
+    let (brep, faces) = fillet_corner(&cube, &edges, radii, true);
+    eprintln!("\n=== cube_mixed cap-loop structure ===");
+    for (i, &fh) in faces.iter().enumerate() {
+        let face = &brep.faces[fh];
+        let (centre, radius) = match face.surface.as_ref().map(|s| &s.geometry) {
+            Some(SurfaceGeometry::Sphere { center, radius }) => (*center, *radius),
+            other => {
+                eprintln!("cap[{i}]: not a sphere ({other:?})");
+                continue;
+            }
+        };
+        eprintln!(
+            "cap[{i}] sphere=({:.3},{:.3},{:.3}) r={:.3}",
+            centre.x, centre.y, centre.z, radius
+        );
+        let outer_loop = face.outer_loop;
+        let start_he = brep.loops[outer_loop].half_edge;
+        let mut cursor = start_he;
+        let mut step = 0;
+        loop {
+            let he_origin = brep.half_edges[cursor].origin;
+            let he_twin = brep.half_edges[cursor].twin;
+            let he_next = brep.half_edges[cursor].next;
+            let v = brep.vertices[he_origin].position;
+            let on_sphere =
+                ((v.x - centre.x).powi(2) + (v.y - centre.y).powi(2) + (v.z - centre.z).powi(2))
+                    .sqrt()
+                    - radius;
+            let twin_face = brep.loops[brep.half_edges[he_twin].loop_].face;
+            let twin_kind = match brep
+                .faces
+                .get(twin_face)
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| &s.geometry)
+            {
+                Some(SurfaceGeometry::Plane { .. }) => "Plane",
+                Some(SurfaceGeometry::Cylinder { .. }) => "Cylinder",
+                Some(SurfaceGeometry::Sphere { .. }) => "Sphere",
+                Some(SurfaceGeometry::Gregory(_)) => "Gregory",
+                _ => "?",
+            };
+            eprintln!(
+                "  step{step:2}: V({:.3},{:.3},{:.3}) Δsphere={:+.3e} → twin face {twin_kind}",
+                v.x, v.y, v.z, on_sphere
+            );
+            cursor = he_next;
+            step += 1;
+            if cursor == start_he || step > 16 {
+                break;
+            }
+        }
+    }
+}
+
 /// Diagnostic: dump the cap face's surface variant + boundary
 /// vertex count for cube_uniform vs cube_mixed vs cube_extreme.
 /// Used to verify which surface type lands on the cap face after
