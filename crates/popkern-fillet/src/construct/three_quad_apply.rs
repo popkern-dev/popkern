@@ -160,8 +160,23 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         super::sphere_fit_edge_wire::wire_substituted_boundary_to_edges(brep, boundary, &sub_faces);
     }
 
+    // Phase 6c-A continuation §4.2 option (c) — per-fillet
+    // sphere-cap rung. When the boundary was sphere-fit-substituted
+    // and the env var is set, *replace* each sub-face's Gregory
+    // surface with the per-fillet `Sphere(cap_centre_k, r_k)`.
+    // This is perfect cap-cylinder G1 by construction (each sphere
+    // is tangent to its own cylinder along the cap-tangent circle),
+    // sidestepping the L-M solver stall on variable-radius corners.
+    // Trade-off: caps meet adjacent caps at G0 only along the
+    // inner spokes — acceptable for variable-radius corners and
+    // matches commercial-style sub-cap dissection.
+    let sphere_cap_rung = boundary.sphere_fit_substituted
+        && !boundary.per_fillet_caps.is_empty()
+        && boundary.per_fillet_caps.len() == sub_faces.len()
+        && std::env::var("POPKERN_SPHERE_CAP_RUNG").is_ok_and(|v| v == "1");
+
     let mut patches = Vec::with_capacity(decomp.sub_patches.len());
-    for (sub_face, sub_patch) in sub_faces.iter().zip(decomp.sub_patches.iter()) {
+    for (k, (sub_face, sub_patch)) in sub_faces.iter().zip(decomp.sub_patches.iter()).enumerate() {
         // CAPTURE THE OLD SURFACE BEFORE REPLACING. Internal cap-to-
         // cap edges (created by `mev`/`mef` during the poke) have
         // `edge.curve = None`; we can't re-project from a 3-D curve
@@ -173,11 +188,20 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             .get(*sub_face)
             .and_then(|f| f.surface.as_ref())
             .map(|sof| sof.geometry.clone());
+        let new_geometry = if sphere_cap_rung {
+            let (centre, radius) = boundary.per_fillet_caps[k];
+            SurfaceGeometry::Sphere {
+                center: centre,
+                radius,
+            }
+        } else {
+            SurfaceGeometry::Gregory(sub_patch.clone())
+        };
         brep.faces[*sub_face].surface = Some(SurfaceOnFace {
-            geometry: SurfaceGeometry::Gregory(sub_patch.clone()),
+            geometry: new_geometry,
             orientation: true,
         });
-        // Re-fit each boundary pcurve into the Gregory's UV space.
+        // Re-fit each boundary pcurve into the new surface's UV space.
         // Uses the edge's 3-D curve when present; falls back to
         // `old_surface(old_pcurve)` when not (internal cap-to-cap
         // edges created by `mev`/`mef`).

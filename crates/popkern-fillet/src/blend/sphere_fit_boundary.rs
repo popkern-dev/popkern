@@ -110,6 +110,7 @@ pub(crate) fn apply_sphere_fit_substitution(
     // Phase 6c-B's outer-fillet-G1 L-M solver.
     let mut new_curves: Vec<popkern_core::geometry::NurbsCurve> = Vec::with_capacity(n_fil);
     let mut new_endpoints: Vec<[Point3; 2]> = Vec::with_capacity(n_fil);
+    let mut per_fillet_caps: Vec<(Point3, f64)> = Vec::with_capacity(n_fil);
     for k in 0..n_fil {
         let fi = match &boundary.segments[2 * k] {
             BoundarySegment::FilletEnd { fillet_index, .. } => *fillet_index,
@@ -132,6 +133,7 @@ pub(crate) fn apply_sphere_fit_substitution(
         .map_err(|_| "sphere-fit termination failed")?;
         new_endpoints.push([result.endpoint_a, result.endpoint_b]);
         new_curves.push(result.curve_3d);
+        per_fillet_caps.push((cap_centre_k, r_k));
     }
 
     // Substitute FilletEnd curves.
@@ -154,6 +156,12 @@ pub(crate) fn apply_sphere_fit_substitution(
             *curve = bridge;
         }
     }
+
+    // Phase 6c-A continuation §4.2: expose per-fillet (centre,
+    // radius) so downstream cap construction can assign each
+    // sub-face a `Sphere(cap_centre_k, r_k)` surface (perfect
+    // cap-cylinder G1 by construction).
+    boundary.per_fillet_caps = per_fillet_caps;
 
     Ok(())
 }

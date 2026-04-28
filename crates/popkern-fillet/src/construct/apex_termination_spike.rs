@@ -202,6 +202,7 @@ fn substitute_sphere_fit_terminations(
         segments: new_segments,
         bridge_fallbacks: boundary.bridge_fallbacks,
         sphere_fit_substituted: false,
+        per_fillet_caps: Vec::new(),
     })
 }
 

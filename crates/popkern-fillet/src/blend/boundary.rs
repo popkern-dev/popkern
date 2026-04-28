@@ -40,6 +40,16 @@ pub struct BlendBoundary {
     /// the cap-outer-boundary metric on fixtures where Phase 6c-A
     /// declined to run.
     pub sphere_fit_substituted: bool,
+    /// Phase 6c-A continuation §4.2: per-fillet `(cap_centre_k,
+    /// r_k)` pairs in the same order as `FilletEnd` segments
+    /// (i.e., index `k` matches `segments[2*k]`'s
+    /// `fillet_index`). Populated when sphere-fit substitution
+    /// succeeds; empty otherwise. Downstream cap construction
+    /// can use these to assign each sub-face a per-fillet
+    /// `Sphere` surface — perfectly G1-tangent to that fillet's
+    /// cylinder by construction, sidestepping the L-M solver
+    /// stall on variable-radius corners.
+    pub per_fillet_caps: Vec<(Point3, f64)>,
 }
 
 /// A single segment of a blend boundary.
@@ -200,6 +210,7 @@ pub fn compute_blend_boundary(
                 segments,
                 bridge_fallbacks,
                 sphere_fit_substituted: false,
+                per_fillet_caps: Vec::new(),
             };
             if sphere_fit_enabled {
                 boundary.sphere_fit_substituted =
@@ -234,6 +245,7 @@ pub fn compute_blend_boundary(
         segments,
         bridge_fallbacks,
         sphere_fit_substituted: false,
+        per_fillet_caps: Vec::new(),
     })
 }
 

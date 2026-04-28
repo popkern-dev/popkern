@@ -82,6 +82,7 @@ fn synth_planar_blend_for_promote_n(
         segments,
         bridge_fallbacks: Vec::new(),
         sphere_fit_substituted: false,
+        per_fillet_caps: Vec::new(),
     };
     let brep = BRep::new(Tolerance::default());
     (boundary, fillets, brep)
@@ -252,6 +253,7 @@ fn insert_pns_cap_creates_n_subfaces_with_nurbs_surfaces() {
         segments,
         bridge_fallbacks: Vec::new(),
         sphere_fit_substituted: false,
+        per_fillet_caps: Vec::new(),
     };
 
     let f_before = brep.faces.len();
@@ -345,6 +347,7 @@ fn try_pns_dispatch_succeeds_on_hex_blend() {
         segments,
         bridge_fallbacks: Vec::new(),
         sphere_fit_substituted: false,
+        per_fillet_caps: Vec::new(),
     };
 
     let patches = try_pns_dispatch(
@@ -411,6 +414,7 @@ fn try_pns_dispatch_succeeds_at_higher_valences() {
             segments,
             bridge_fallbacks: Vec::new(),
             sphere_fit_substituted: false,
+            per_fillet_caps: Vec::new(),
         };
 
         let patches = try_pns_dispatch(
@@ -548,6 +552,7 @@ fn cap_boundary_g1_with_tilted_planar_support() {
         segments,
         bridge_fallbacks: bb_flat.bridge_fallbacks.clone(),
         sphere_fit_substituted: false,
+        per_fillet_caps: Vec::new(),
     };
     let fillets: Vec<_> = fillets_flat
         .iter()
@@ -719,6 +724,7 @@ fn cap_boundary_g1_with_cube_corner_cylinder_supports() {
         segments,
         bridge_fallbacks: Vec::new(),
         sphere_fit_substituted: false,
+        per_fillet_caps: Vec::new(),
     };
     let brep = BRep::new(Tolerance::default());
     let surfaces = promote_blend_boundary_to_pns_surfaces(&boundary, &fillets, &brep)

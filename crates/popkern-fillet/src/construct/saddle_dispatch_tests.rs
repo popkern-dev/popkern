@@ -328,6 +328,7 @@ fn item5_saddle_central_point_is_arc_mid_average() {
         ],
         bridge_fallbacks: Vec::new(),
         sphere_fit_substituted: false,
+        per_fillet_caps: Vec::new(),
     };
 
     // Compute the expected saddle central point: average of the 3
