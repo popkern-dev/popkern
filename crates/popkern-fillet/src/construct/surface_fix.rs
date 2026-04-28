@@ -262,17 +262,36 @@ fn try_sphere_for_corner(
     // Sphere center: offset from corner toward the solid interior.
     // For each axis, move by R in the direction away from the nearest
     // face (toward the interior).
-    let sx = if cx > corner.x {
+    //
+    // **Direction-check via centroid, not median.** The median sits
+    // inside the dominant cluster (robust to outliers) but on a
+    // symmetric N-vertex cap (e.g. cube_uniform's 3 rolling-ball
+    // footprints at distance r along each cube axis), the median
+    // equals the corner position exactly — defeating the
+    // `>`-comparison and forcing the wrong (`else`) branch, which
+    // produced sphere centres OUTSIDE the solid (cube_uniform
+    // shipped with centre = (-r, -r, -r) instead of (+r, +r, +r),
+    // explaining the long-standing 5-15 cm cap-vs-cube drift).
+    //
+    // The centroid (mean) breaks the symmetric tie consistently:
+    // for the same 3 footprints, centroid = (r/3, r/3, r/3),
+    // strictly greater than the corner on every axis. We use the
+    // median for `cx/cy/cz` (it's the right choice for *position*),
+    // but the centroid for the *direction* of the offset.
+    let mean_x = positions.iter().map(|p| p.x).sum::<f64>() / positions.len() as f64;
+    let mean_y = positions.iter().map(|p| p.y).sum::<f64>() / positions.len() as f64;
+    let mean_z = positions.iter().map(|p| p.z).sum::<f64>() / positions.len() as f64;
+    let sx = if mean_x > corner.x {
         corner.x + avg_radius
     } else {
         corner.x - avg_radius
     };
-    let sy = if cy > corner.y {
+    let sy = if mean_y > corner.y {
         corner.y + avg_radius
     } else {
         corner.y - avg_radius
     };
-    let sz = if cz > corner.z {
+    let sz = if mean_z > corner.z {
         corner.z + avg_radius
     } else {
         corner.z - avg_radius

@@ -225,9 +225,16 @@ fn probe_cube_uniform_cap_surface_kind() {
         SurfaceGeometry::Nurbs(_) => "Nurbs",
         SurfaceGeometry::Gregory(_) => "Gregory",
     };
-    eprintln!("cube_uniform cap surface = {kind}");
+    assert_eq!(kind, "Sphere", "cube_uniform cap should be a Sphere");
     if let SurfaceGeometry::Sphere { center, radius } = &surf {
-        eprintln!("  Sphere centre={center:?} r={radius}");
+        // Post-fix: cap centre should be at (+r, +r, +r) inside
+        // the cube body for apex (0,0,0) with r=0.1. Pre-fix it
+        // was at (-r, -r, -r) (outside the solid) due to the
+        // median-equals-corner tie-breaker bug in surface_fix.
+        assert!((center.x - 0.1).abs() < 1e-9);
+        assert!((center.y - 0.1).abs() < 1e-9);
+        assert!((center.z - 0.1).abs() < 1e-9);
+        assert!((radius - 0.1).abs() < 1e-9);
     }
 }
 
