@@ -1150,6 +1150,28 @@ pub(crate) fn apply_path_b_plan(brep: &mut BRep, plan: &PathBPlan) -> Result<(),
     if let Err(e) = brep.validate() {
         if std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1") {
             eprintln!("[reroute] validate failed: {e:?}");
+            if let popkern_core::error::ValidationError::ShellGap { edge, gap: _ } = &e
+                && let Some(ed) = brep.edges.get(*edge)
+            {
+                if let Some(coe) = &ed.curve
+                    && let popkern_core::geometry::CurveGeometry::Nurbs(nc) = &coe.geometry
+                {
+                    eprintln!(
+                        "  edge {edge:?}: degree={} cps={:?}",
+                        nc.degree, nc.control_points
+                    );
+                }
+                let he = ed.half_edge;
+                let twin = brep.half_edges[he].twin;
+                let v_he = brep.half_edges[he].origin;
+                let v_tw = brep.half_edges[twin].origin;
+                let p_he = brep.vertices[v_he].position;
+                let p_tw = brep.vertices[v_tw].position;
+                eprintln!(
+                    "  edge {edge:?} he origin={v_he:?} pos=({:.3},{:.3},{:.3}); twin origin={v_tw:?} pos=({:.3},{:.3},{:.3})",
+                    p_he.x, p_he.y, p_he.z, p_tw.x, p_tw.y, p_tw.z
+                );
+            }
         }
         *brep = snapshot;
         return Err(RerouteError::ValidationFailed);
