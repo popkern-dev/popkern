@@ -15,6 +15,7 @@
 //! through `popkern_fillet::vertex_blend::compute_vertex_blend_terminations`
 //! and the existing `fillet_edges` pipeline (Phase 6c-C.4).
 
+pub(crate) mod collapse;
 pub(crate) mod detect;
 pub(crate) mod execute;
 pub(crate) mod plan;
@@ -30,3 +31,7 @@ mod plan_tests;
 #[cfg(test)]
 #[path = "execute_tests.rs"]
 mod execute_tests;
+
+#[cfg(test)]
+#[path = "collapse_tests.rs"]
+mod collapse_tests;
