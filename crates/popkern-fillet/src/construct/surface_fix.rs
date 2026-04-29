@@ -138,7 +138,18 @@ pub(crate) fn correct_face_surfaces(
         // small face (≤6 verts) and let `try_sphere_for_corner`'s
         // own "centroid near a cube corner" filter prune real
         // plane faces.
+        //
+        // Phase 6c-D Stage 2: when the small Plane face is adjacent
+        // to a Sphere or Gregory cap, skip the sphere fallback.
+        // Class D sliver_absorb is the right path — it merges the
+        // Plane fragment INTO the cap. Without this guard,
+        // pyramid_uniform's apex Plane corner fragments get
+        // prematurely converted to cube-style inscribed Spheres
+        // (geometrically wrong for pyramid) before sliver_absorb
+        // can run.
+        let face_adjacent_to_cap_surface = is_adjacent_to_sphere_or_gregory(brep, fh);
         if positions.len() <= 6
+            && !face_adjacent_to_cap_surface
             && let Some(sphere_sof) = try_sphere_for_corner(&positions, original, fillet_surfaces)
         {
             let sd = max_fit_score(&sphere_sof.geometry, &positions);
@@ -205,6 +216,51 @@ pub(crate) fn correct_face_surfaces(
             }
         }
     }
+}
+
+/// Phase 6c-D: returns `true` if any half-edge in `face`'s outer
+/// loop has its twin face's surface set to Sphere or Gregory.
+/// Used as a guard against the small-Plane → Sphere fallback in
+/// `correct_face_surfaces`: when a Plane corner fragment is
+/// adjacent to an upstream cap surface, Class D sliver_absorb
+/// merges it into the cap, which is the canonical path. The
+/// `try_sphere_for_corner` fallback would prematurely convert it
+/// to a (geometrically wrong) Sphere on pyramid_uniform.
+fn is_adjacent_to_sphere_or_gregory(brep: &BRep, face: FaceHandle) -> bool {
+    let Some(face_data) = brep.faces.get(face) else {
+        return false;
+    };
+    let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
+        return false;
+    };
+    let start = loop_data.half_edge;
+    let mut cursor = start;
+    let mut safety = 16usize;
+    loop {
+        if safety == 0 {
+            break;
+        }
+        safety -= 1;
+        let Some(he) = brep.half_edges.get(cursor) else {
+            break;
+        };
+        if let Some(twin_loop) = brep.half_edges.get(he.twin).map(|t| t.loop_)
+            && let Some(twin_face) = brep.loops.get(twin_loop).map(|l| l.face)
+            && twin_face != face
+            && let Some(twin_sof) = brep.faces.get(twin_face).and_then(|f| f.surface.as_ref())
+            && matches!(
+                twin_sof.geometry,
+                SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Gregory(_)
+            )
+        {
+            return true;
+        }
+        cursor = he.next;
+        if cursor == start {
+            break;
+        }
+    }
+    false
 }
 
 /// Try to construct a sphere surface for a vertex blend corner.

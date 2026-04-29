@@ -946,9 +946,9 @@ fn cube_mixed_apex_gregory_caps_diagnostic() {
 fn pyramid_uniform_apex_gregory_caps_diagnostic() {
     unsafe {
         std::env::set_var("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-        std::env::set_var("POPKERN_GREGORY_CAP_REBUILD", "1");
+        std::env::set_var("POPKERN_VAR_RADIUS_REROUTE", "1");
+        std::env::remove_var("POPKERN_GREGORY_CAP_REBUILD");
         std::env::remove_var("POPKERN_SPHERE_CAP_RUNG");
-        std::env::remove_var("POPKERN_VAR_RADIUS_REROUTE");
         std::env::remove_var("POPKERN_APEX_TOPOLOGY_REBUILD");
     }
     let pyr = BRep::square_pyramid(1.0, 0.8, Tolerance::default()).unwrap();

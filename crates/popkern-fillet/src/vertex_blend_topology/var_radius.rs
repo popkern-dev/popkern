@@ -148,6 +148,32 @@ pub(crate) fn reroute_neighbour_cylinder_edges(
     }
     let _ = cap_set;
 
+    // Phase 6c-D Stage 2 fallback: if Path B made zero successful
+    // surgeries (typical pyramid case — `plan_path_b` returns None
+    // because per-fillet sphere centres don't lie on neighbour
+    // cylinder axes), run vertex-snap-only as a generalised
+    // surrogate. Snap projects each cap-loop vertex onto its
+    // incident sphere∩cylinder / sphere∩plane circle, restoring
+    // analytic alignment between cap surface and adjacent fillet
+    // cylinder.
+    if succeeded == 0 {
+        let snap_result =
+            super::var_radius_snap::apply_vertex_snap_for_caps(brep, cap_faces, per_fillet_caps);
+        if std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1") {
+            eprintln!(
+                "[reroute] Path B → 0 surgeries; vertex-snap fallback moved {} verts, updated {} edge curves",
+                snap_result.vertices_moved, snap_result.edges_with_curves_updated
+            );
+        }
+        if snap_result.vertices_moved > 0 {
+            if brep.validate().is_err() {
+                *brep = snapshot;
+                return Err(RerouteError::ValidationFailed);
+            }
+            return Ok(snap_result.vertices_moved);
+        }
+    }
+
     // Final validate; if anything went wrong, roll back.
     if succeeded > 0 && brep.validate().is_err() {
         *brep = snapshot;

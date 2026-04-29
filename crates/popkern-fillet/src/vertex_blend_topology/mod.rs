@@ -21,6 +21,7 @@ pub(crate) mod execute;
 pub(crate) mod plan;
 pub(crate) mod rebuild;
 pub(crate) mod var_radius;
+pub(crate) mod var_radius_snap;
 
 #[cfg(test)]
 #[path = "detect_tests.rs"]
