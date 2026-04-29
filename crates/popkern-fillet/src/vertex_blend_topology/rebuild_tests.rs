@@ -719,11 +719,59 @@ fn pyramid_uniform_planner_diagnostic() {
         plan.insert_cap_tangent_arcs.len(),
         plan.is_actionable(),
     );
-    // Deliberately not asserted — the planner returns
-    // non-actionable today (0 keep, 8 delete) because no boundary
-    // vertex lies on the (broken) cap sphere. Documents the gap;
-    // the rebuild correctly bails when given an actionable=false
-    // plan.
+    // Phase 6c-C planner generalisation diagnostic — dump the cap
+    // face's outer loop structure so we can see what the planner
+    // is working against. For pyramid_uniform with sphere-cap-rung:
+    // each cap face is a per-fillet Sphere; the outer loop has
+    // 6 vertices (5 outer + 1 central) and 6 edges. Some neighbours
+    // are cylinders (cap-tangent edges), some are spheres (cap-cap
+    // spokes), some are planes (slant-bridge fragments). The
+    // planner needs to identify which are cap-vs-cylinder and
+    // construct fresh sphere∩cylinder tangent points there.
+    if let Some(face) = brep.faces.get(cap_face) {
+        let outer = face.outer_loop;
+        let start = brep.loops[outer].half_edge;
+        eprintln!(
+            "  cap face outer loop (cap surface = {:?}):",
+            face.surface.as_ref().map(|s| match &s.geometry {
+                SurfaceGeometry::Sphere { center, radius } => format!("Sphere(c={center:?}, r={radius:.3})"),
+                SurfaceGeometry::Gregory(_) => "Gregory".to_string(),
+                _ => "Other".to_string(),
+            })
+        );
+        let mut cur = start;
+        for step in 0..16 {
+            let he = &brep.half_edges[cur];
+            let v_origin = brep.vertices[he.origin].position;
+            let twin_face = brep.loops[brep.half_edges[he.twin].loop_].face;
+            let twin_kind = brep
+                .faces
+                .get(twin_face)
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| match &s.geometry {
+                    SurfaceGeometry::Sphere { .. } => "Sphere",
+                    SurfaceGeometry::Cylinder { .. } => "Cyl",
+                    SurfaceGeometry::Plane { .. } => "Plane",
+                    SurfaceGeometry::Gregory(_) => "Gregory",
+                    _ => "?",
+                })
+                .unwrap_or("none");
+            // Distance from vertex to cap sphere (signed).
+            let on_sphere_signed = if let Some((c, r)) = plan.cap_sphere {
+                v_origin.distance_to(&c) - r
+            } else {
+                f64::NAN
+            };
+            eprintln!(
+                "    step{step}: V({:.4},{:.4},{:.4})  twin={twin_kind} (face {twin_face:?})  dist_to_sphere={on_sphere_signed:+.3e}",
+                v_origin.x, v_origin.y, v_origin.z
+            );
+            cur = he.next;
+            if cur == start {
+                break;
+            }
+        }
+    }
 }
 
 /// Pre-rebuild baseline diagnostic for pyramid_uniform.
