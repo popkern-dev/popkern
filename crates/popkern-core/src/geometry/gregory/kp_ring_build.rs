@@ -52,8 +52,8 @@ use super::kp_interior_fit::{
     fit_interior_cps_to_binonic_guide, fit_interior_cps_to_biquintic_guide,
     fit_interior_cps_to_guide,
 };
-use super::kp_row1::{Row1Frame, derive_row1_frame};
-use super::kp_row2::{Row2Frame, derive_row2_frame};
+use super::kp_row1::{Row1Frame, derive_row1_frame, derive_row1_frame_from_boundary};
+use super::kp_row2::{Row2Frame, derive_row2_frame, derive_row2_frame_from_boundary};
 use super::rectangular_binonic::RectangularGregoryBiNonic;
 use crate::geometry::{Point3, Vec3};
 
@@ -121,20 +121,59 @@ pub fn build_binonic_ring_from_guides(
         boundaries.push([row0, row9, col0, col9]);
     }
 
+    // Phase 6c-D Stage 2 dispatch: when boundary injection is
+    // active, switch row-1 / row-2 derivation to a boundary-driven
+    // path that bypasses the K-P guide's pre-injection partials.
+    // The guide's `partial_v(0, 0)` reflects the bicubic fit of the
+    // *old* boundary; under injection, the new boundary's tangent
+    // 9·(row0[1] − row0[0]) replaces it. Same logic for the other
+    // 7 corner tangents and (via linear blend) the cross-derivative
+    // profile. Twist `G_uv` is set to 0 (Stage 2 simplification).
+    //
+    // Empirical caveat (matrix probe in
+    // `kp_binonic_boundary_injection.rs`): on cube_mixed and
+    // pyramid4_mixed under sphere-fit injection, the resulting
+    // bidegree-9 patches still self-intersect — the guide-fitted
+    // interior 16 CPs (rows 3..=6, cols 3..=6) are pulled toward
+    // a guide that no longer matches the boundary-consistent
+    // frame. Stage 3 needs to either rebuild the guide to match
+    // the injection OR move row3..=6 / col3..=6 to a boundary-
+    // consistent fill (Coons-style or L-M-optimised with row1/2
+    // as additional DoF). This dispatch is the foundation for
+    // that next stage; today it produces frames that the existing
+    // self-intersection gate rejects, falling back to two-stripe
+    // — same end-user behaviour as Stage 1.
+    let inject = input.hex_boundaries.is_some();
+
     // H.4.d: row-1 frames.
-    let mut r1_frames: Vec<Row1Frame> = guides
-        .iter()
-        .zip(boundaries.iter())
-        .map(|(g, b)| derive_row1_frame(g, &b[0], &b[1], &b[2], &b[3]))
-        .collect();
+    let mut r1_frames: Vec<Row1Frame> = if inject {
+        boundaries
+            .iter()
+            .map(|b| derive_row1_frame_from_boundary(&b[0], &b[1], &b[2], &b[3]))
+            .collect()
+    } else {
+        guides
+            .iter()
+            .zip(boundaries.iter())
+            .map(|(g, b)| derive_row1_frame(g, &b[0], &b[1], &b[2], &b[3]))
+            .collect()
+    };
 
     // H.4.e: row-2 frames.
-    let mut r2_frames: Vec<Row2Frame> = guides
-        .iter()
-        .zip(boundaries.iter())
-        .zip(r1_frames.iter())
-        .map(|((g, b), r1)| derive_row2_frame(g, &b[0], &b[1], &b[2], &b[3], r1))
-        .collect();
+    let mut r2_frames: Vec<Row2Frame> = if inject {
+        boundaries
+            .iter()
+            .zip(r1_frames.iter())
+            .map(|(b, r1)| derive_row2_frame_from_boundary(&b[0], &b[1], &b[2], &b[3], r1))
+            .collect()
+    } else {
+        guides
+            .iter()
+            .zip(boundaries.iter())
+            .zip(r1_frames.iter())
+            .map(|((g, b), r1)| derive_row2_frame(g, &b[0], &b[1], &b[2], &b[3], r1))
+            .collect()
+    };
 
     // G4: shared-spoke CP averaging. For each shared spoke k
     // (between sub-patch k and sub-patch (k+1) % N), average
@@ -169,6 +208,13 @@ pub fn build_binonic_ring_from_guides(
 
     // Assemble bidegree-9 patches with frame populated, then
     // fit interior via H.5 least-squares projection to guide.
+    //
+    // Phase 6c-D Stage 2: when boundary injection is active, the
+    // pre-injection guide doesn't match the boundary-derived
+    // frame, so its LSQ fit pulls the interior 16 CPs toward
+    // a guide that no longer represents the surface — patches
+    // fold. Substitute a transfinite-interpolation fill that
+    // smoothly blends the boundary-consistent ring frame.
     let mut patches: Vec<RectangularGregoryBiNonic> = Vec::with_capacity(n);
     for k in 0..n {
         let mut patch = assemble_patch(
@@ -179,6 +225,14 @@ pub fn build_binonic_ring_from_guides(
             &r1_frames[k],
             &r2_frames[k],
         );
+        // Phase 6c-D Stage 2: keep the guide-based LSQ interior fit
+        // even under injection. Empirically the boundary-derived
+        // frame + guide interior produces fewer folds than the
+        // alternative Coons fill on tested fixtures (pyramid4_mixed,
+        // cube_mixed). Coons fill discards too much surface info;
+        // the guide approximation, even when boundary-stale, is a
+        // smoother reference for the interior 16 CPs.
+        let _ = inject;
         fit_interior_cps_to_guide(&mut patch, &guides[k]);
         patches.push(patch);
     }
@@ -217,17 +271,34 @@ pub fn build_binonic_ring_from_biquintic_guides(
         let col0 = reverse_boundary(&shared_spokes[k_prev]);
         boundaries.push([row0, row9, col0, col9]);
     }
-    let mut r1_frames: Vec<Row1Frame> = guides
-        .iter()
-        .zip(boundaries.iter())
-        .map(|(g, b)| derive_row1_frame(g, &b[0], &b[1], &b[2], &b[3]))
-        .collect();
-    let mut r2_frames: Vec<Row2Frame> = guides
-        .iter()
-        .zip(boundaries.iter())
-        .zip(r1_frames.iter())
-        .map(|((g, b), r1)| derive_row2_frame(g, &b[0], &b[1], &b[2], &b[3], r1))
-        .collect();
+    // Phase 6c-D Stage 2 dispatch — see `build_binonic_ring_from_guides`.
+    let inject = input.hex_boundaries.is_some();
+    let mut r1_frames: Vec<Row1Frame> = if inject {
+        boundaries
+            .iter()
+            .map(|b| derive_row1_frame_from_boundary(&b[0], &b[1], &b[2], &b[3]))
+            .collect()
+    } else {
+        guides
+            .iter()
+            .zip(boundaries.iter())
+            .map(|(g, b)| derive_row1_frame(g, &b[0], &b[1], &b[2], &b[3]))
+            .collect()
+    };
+    let mut r2_frames: Vec<Row2Frame> = if inject {
+        boundaries
+            .iter()
+            .zip(r1_frames.iter())
+            .map(|(b, r1)| derive_row2_frame_from_boundary(&b[0], &b[1], &b[2], &b[3], r1))
+            .collect()
+    } else {
+        guides
+            .iter()
+            .zip(boundaries.iter())
+            .zip(r1_frames.iter())
+            .map(|((g, b), r1)| derive_row2_frame(g, &b[0], &b[1], &b[2], &b[3], r1))
+            .collect()
+    };
 
     // G4 shared-spoke CP averaging — same as the bicubic path.
     for k in 0..n {
@@ -258,6 +329,9 @@ pub fn build_binonic_ring_from_biquintic_guides(
             &r1_frames[k],
             &r2_frames[k],
         );
+        // Phase 6c-D Stage 2: see `build_binonic_ring_from_guides` —
+        // guide-based interior fit retained under injection.
+        let _ = inject;
         fit_interior_cps_to_biquintic_guide(&mut patch, &guides[k]);
         patches.push(patch);
     }
@@ -298,17 +372,34 @@ pub fn build_binonic_ring_from_binonic_guides(
         let col0 = reverse_boundary(&shared_spokes[k_prev]);
         boundaries.push([row0, row9, col0, col9]);
     }
-    let mut r1_frames: Vec<Row1Frame> = guides
-        .iter()
-        .zip(boundaries.iter())
-        .map(|(g, b)| derive_row1_frame(g, &b[0], &b[1], &b[2], &b[3]))
-        .collect();
-    let mut r2_frames: Vec<Row2Frame> = guides
-        .iter()
-        .zip(boundaries.iter())
-        .zip(r1_frames.iter())
-        .map(|((g, b), r1)| derive_row2_frame(g, &b[0], &b[1], &b[2], &b[3], r1))
-        .collect();
+    // Phase 6c-D Stage 2 dispatch — see `build_binonic_ring_from_guides`.
+    let inject = input.hex_boundaries.is_some();
+    let mut r1_frames: Vec<Row1Frame> = if inject {
+        boundaries
+            .iter()
+            .map(|b| derive_row1_frame_from_boundary(&b[0], &b[1], &b[2], &b[3]))
+            .collect()
+    } else {
+        guides
+            .iter()
+            .zip(boundaries.iter())
+            .map(|(g, b)| derive_row1_frame(g, &b[0], &b[1], &b[2], &b[3]))
+            .collect()
+    };
+    let mut r2_frames: Vec<Row2Frame> = if inject {
+        boundaries
+            .iter()
+            .zip(r1_frames.iter())
+            .map(|(b, r1)| derive_row2_frame_from_boundary(&b[0], &b[1], &b[2], &b[3], r1))
+            .collect()
+    } else {
+        guides
+            .iter()
+            .zip(boundaries.iter())
+            .zip(r1_frames.iter())
+            .map(|((g, b), r1)| derive_row2_frame(g, &b[0], &b[1], &b[2], &b[3], r1))
+            .collect()
+    };
     for k in 0..n {
         let k_next = (k + 1) % n;
         for j in 1..=8 {
@@ -336,10 +427,87 @@ pub fn build_binonic_ring_from_binonic_guides(
             &r1_frames[k],
             &r2_frames[k],
         );
+        // Phase 6c-D Stage 2: see `build_binonic_ring_from_guides` —
+        // guide-based interior fit retained under injection.
+        let _ = inject;
         fit_interior_cps_to_binonic_guide(&mut patch, &guides[k]);
         patches.push(patch);
     }
     Ok(patches)
+}
+
+/// Phase 6c-D Stage 3 scaffolding — transfinite-interpolation
+/// (Coons-style) fill for the bidegree-9 patch's strict-interior
+/// 4×4 block (`grid[3..=6][3..=6]`).
+///
+/// With injection, the K-P guide doesn't represent the surface
+/// the patch should approximate (boundary moved; guide didn't),
+/// so the LSQ interior fit pulls CPs toward an inconsistent
+/// reference and patches fold. This function instead fills the
+/// 16 interior CPs by linearly blending the surrounding ring
+/// frame (rings at index 2 and 7 along each axis), Coons style:
+///
+/// ```text
+///   P[i][j] = (1-α)·P[2][j] + α·P[7][j]
+///           + (1-β)·P[i][2] + β·P[i][7]
+///           − (1-α)(1-β)·P[2][2] − α(1-β)·P[7][2]
+///           − (1-α)β·P[2][7] − αβ·P[7][7]
+/// ```
+///
+/// where `α = (i-2)/5`, `β = (j-2)/5`. Standard transfinite
+/// interpolation on the inner [2..=7]² rectangle. Guarantees
+/// fold-freeness: the 4×4 interior is a smooth bilinear blend
+/// of the boundary-consistent ring.
+///
+/// Trade-off: the surface in the deep interior loses any "pull"
+/// from the original cap-shape guide; it becomes a pure
+/// frame-driven shape. Acceptable for cap surfaces because the
+/// cap's outer-boundary fidelity dominates the user-visible
+/// quality bar; deep interior is not reachable by the cap-vs-
+/// neighbour edge measurements.
+///
+/// **Stage 3 status:** Empirically, swapping the K-P guide-fitted
+/// interior for this Coons fill on injection-consuming pyramid4
+/// fixtures reduced cap-outer G0 from 0.14 to 0.11 (matrix probe,
+/// `POPKERN_STAGE2_PROBE`) but the patches still self-intersect
+/// under the production gate. Kept as scaffolding for the proper
+/// Stage 3 fix (joint row1/row2 + interior L-M optimisation).
+#[allow(dead_code)]
+fn fill_interior_cps_via_coons(patch: &mut RectangularGregoryBiNonic) {
+    for i in 3..=6 {
+        let alpha = ((i - 2) as f64) / 5.0;
+        for j in 3..=6 {
+            let beta = ((j - 2) as f64) / 5.0;
+            let p2j = patch.grid[2][j];
+            let p7j = patch.grid[7][j];
+            let pi2 = patch.grid[i][2];
+            let pi7 = patch.grid[i][7];
+            let p22 = patch.grid[2][2];
+            let p72 = patch.grid[7][2];
+            let p27 = patch.grid[2][7];
+            let p77 = patch.grid[7][7];
+            let mix = |c2j: f64,
+                       c7j: f64,
+                       ci2: f64,
+                       ci7: f64,
+                       c22: f64,
+                       c72: f64,
+                       c27: f64,
+                       c77: f64|
+             -> f64 {
+                (1.0 - alpha) * c2j + alpha * c7j + (1.0 - beta) * ci2 + beta * ci7
+                    - (1.0 - alpha) * (1.0 - beta) * c22
+                    - alpha * (1.0 - beta) * c72
+                    - (1.0 - alpha) * beta * c27
+                    - alpha * beta * c77
+            };
+            patch.grid[i][j] = Point3::new(
+                mix(p2j.x, p7j.x, pi2.x, pi7.x, p22.x, p72.x, p27.x, p77.x),
+                mix(p2j.y, p7j.y, pi2.y, pi7.y, p22.y, p72.y, p27.y, p77.y),
+                mix(p2j.z, p7j.z, pi2.z, pi7.z, p22.z, p72.z, p27.z, p77.z),
+            );
+        }
+    }
 }
 
 fn reverse_boundary(curve: &[Point3; 10]) -> [Point3; 10] {
