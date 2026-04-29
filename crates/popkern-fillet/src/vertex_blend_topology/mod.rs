@@ -37,3 +37,7 @@ mod execute_tests;
 #[cfg(test)]
 #[path = "collapse_tests.rs"]
 mod collapse_tests;
+
+#[cfg(test)]
+#[path = "rebuild_tests.rs"]
+mod rebuild_tests;

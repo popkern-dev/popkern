@@ -140,12 +140,43 @@ pub(crate) fn execute_deletion_plan(
             .mef(he_a, he_b)
             .map_err(|e| ExecuteError::MefFailed(format!("{e:?}")))?;
         let (t_start, t_end) = arc_curve.parameter_range();
+        // Capture cap surface for pcurve fitting before mutating
+        // the edge.
+        let cap_surf_clone = brep
+            .faces
+            .get(cap_face)
+            .and_then(|f| f.surface.as_ref())
+            .map(|s| s.geometry.clone());
         if let Some(edge_data) = brep.edges.get_mut(mef.edge) {
             edge_data.curve = Some(CurveOnEdge {
-                geometry: popkern_core::geometry::CurveGeometry::Nurbs(arc_curve),
+                geometry: popkern_core::geometry::CurveGeometry::Nurbs(arc_curve.clone()),
                 t_start,
                 t_end,
             });
+        }
+        // Phase 6c-C.2b/2d: fit pcurves on both half-edges of the
+        // new arc.  Without these, downstream consumers (mesh,
+        // bool, the G0/G1 metric) read `pcurve = None` and either
+        // skip the edge or fall back to a stale value.  Both pcurves
+        // are NURBS fits of `project_to_uv(arc_3d_sample)` against
+        // the respective surface.
+        // mef.half_edge is on the OLD face (cap), mef.half_edge_twin
+        // is on the NEW face (lens).  Per `MefResult` docs.
+        let cap_he = mef.half_edge;
+        let lens_he = mef.half_edge_twin;
+        if let Some(cap_surf) = cap_surf_clone {
+            let cap_pcurve = fit_pcurve_along_arc(&cap_surf, &arc_curve);
+            let cyl_pcurve = fit_pcurve_along_arc(&cyl_surf, &arc_curve);
+            if let Some(pc) = cap_pcurve {
+                brep.half_edges[cap_he].pcurve = Some(pc.into());
+            }
+            if let Some(pc) = cyl_pcurve {
+                // The lens-side half-edge is on the cylinder once
+                // collapse runs (collapse re-parents it to the
+                // cylinder's loop).  Pre-set its pcurve so the
+                // collapse doesn't have to re-derive it.
+                brep.half_edges[lens_he].pcurve = Some(pc.into());
+            }
         }
         inserted_arcs.push(mef.edge);
         lens_faces.push(mef.face);
@@ -247,6 +278,50 @@ fn find_loop_he_pair(
 fn he_after_origin_in_loop(brep: &BRep, he: HalfEdgeHandle) -> Option<VertexHandle> {
     let next = brep.half_edges.get(he)?.next;
     Some(brep.half_edges.get(next)?.origin)
+}
+
+/// Sample the 3-D arc at `n_samples=12` points, project each
+/// to UV on `surface`, and fit a degree-3 NURBS pcurve through
+/// the samples.  Returns `None` if the fit fails.
+///
+/// Phase 6c-C.2b/2d: used to wire the inserted cap-tangent arc's
+/// pcurves on both the cap and cylinder sides immediately after
+/// `mef`, so downstream consumers (mesh, bool, G0/G1 metric) see
+/// consistent UV → 3-D evaluations.
+fn fit_pcurve_along_arc(surface: &SurfaceGeometry, arc: &NurbsCurve) -> Option<NurbsCurve> {
+    use popkern_core::geometry::fitting::fit_curve;
+    use popkern_core::geometry::surface::SurfaceEval;
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
+    let (t0, t1) = arc.parameter_range();
+    // 24 samples + degree 5 — half-circles need higher fidelity
+    // than the typical degree-3 / 12-sample fit; the arc is a
+    // rational quadratic and its projection to a non-trivial UV
+    // chart (sphere) is non-polynomial, so a richer fit reduces
+    // mid-arc residuals.
+    let n_samples = 24;
+    let mut points: Vec<Point3> = Vec::with_capacity(n_samples);
+    let mut params: Vec<f64> = Vec::with_capacity(n_samples);
+    for i in 0..n_samples {
+        let s = i as f64 / (n_samples - 1) as f64;
+        let t = t0 + s * (t1 - t0);
+        let p = arc.point_at(t);
+        let (u, v) = project_point_to_uv(surface, &p)?;
+        points.push(Point3::new(u, v, 0.0));
+        params.push(s);
+    }
+    let degree = 5usize;
+    let n_cps = (degree + 2).min(points.len());
+    let mut fitted = fit_curve(&points, &params, degree, n_cps).ok()?;
+    let ((u_lo, u_hi), (v_lo, v_hi)) = surface.parameter_range();
+    for cp in &mut fitted.control_points {
+        if u_lo.is_finite() && u_hi.is_finite() {
+            cp.x = cp.x.clamp(u_lo, u_hi);
+        }
+        if v_lo.is_finite() && v_hi.is_finite() {
+            cp.y = cp.y.clamp(v_lo, v_hi);
+        }
+    }
+    Some(fitted)
 }
 
 /// Build a degree-2 rational NURBS half-circle on the cap
