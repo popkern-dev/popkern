@@ -260,11 +260,41 @@ pub(crate) fn wire_substituted_boundary_to_edges(
                 .map(|s| s.geometry.clone())
         });
 
+        // Phase 6c-D Stage 4.1: project the sub-edge's vertex
+        // endpoints onto the segment to find the sub-range
+        // `[edge_t0, edge_t1]` on the segment that this sub-edge
+        // covers. Without this, every sub-edge sharing a segment
+        // would claim the full segment range, leaving cap-outer
+        // measurement to evaluate the same midpoint regardless of
+        // sub-edge — wrong for multi-sub-edge cases.
+        let v_origin_pos = brep.vertices[v_origin].position;
+        let v_dest_pos = brep.vertices[v_dest].position;
+        let edge_t_origin = project_point_on_curve(&curve, v_origin_pos);
+        let edge_t_dest = project_point_on_curve(&curve, v_dest_pos);
+        // Order based on the edge's primary half-edge direction.
+        let (edge_t_start, edge_t_end) = if our_is_primary {
+            (edge_t_origin, edge_t_dest)
+        } else {
+            (edge_t_dest, edge_t_origin)
+        };
+        // Boundary fractional positions for the analytic Linear pcurve
+        // (cap-side). Map [t0, t1] of the segment to [0, 1].
+        let span = (t1 - t0).abs();
+        let frac = |t: f64| -> f64 {
+            if span < 1e-15 {
+                0.0
+            } else {
+                ((t - t0) / span).clamp(0.0, 1.0)
+            }
+        };
+        let boundary_lo = frac(edge_t_start);
+        let boundary_hi = frac(edge_t_end);
+
         if let Some(edge_data) = brep.edges.get_mut(edge_h) {
             edge_data.curve = Some(CurveOnEdge {
                 geometry: CurveGeometry::Nurbs(curve.clone()),
-                t_start: t0,
-                t_end: t1,
+                t_start: edge_t_start,
+                t_end: edge_t_end,
             });
             wired += 1;
         }
@@ -294,19 +324,26 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         // analytic surface where `project_point_to_uv` is reliable,
         // so the existing pcurve refit produces valid UVs there.
         let analytic_cap_pcurve = if stage4_wide_tol {
-            cap_pcurve_for_segment(seg_idx, reversed, t0, t1)
+            cap_pcurve_for_segment(
+                seg_idx,
+                reversed,
+                edge_t_start,
+                edge_t_end,
+                boundary_lo,
+                boundary_hi,
+            )
         } else {
             None
         };
         if let Some(pc) = analytic_cap_pcurve {
             brep.half_edges[he_handle].pcurve = Some(pc);
         } else if let Some(cap_surf) = cap_surf.as_ref()
-            && let Some(pc) = refit_pcurve_on_surface(&curve, cap_surf, t0, t1)
+            && let Some(pc) = refit_pcurve_on_surface(&curve, cap_surf, edge_t_start, edge_t_end)
         {
             brep.half_edges[he_handle].pcurve = Some(pc.into());
         }
         if let Some(other_surf) = other_surf.as_ref()
-            && let Some(pc) = refit_pcurve_on_surface(&curve, other_surf, t0, t1)
+            && let Some(pc) = refit_pcurve_on_surface(&curve, other_surf, edge_t_start, edge_t_end)
         {
             brep.half_edges[twin_he].pcurve = Some(pc.into());
         }
@@ -402,30 +439,81 @@ fn snap_vertex_to(brep: &mut BRep, v: VertexHandle, new_pos: Point3) {
 /// `segments[2k+1] = FaceEdge[k]`):
 ///
 /// * `seg_idx % 2 == 0` (FilletEnd) → cap **row 0** (`u = 0`):
-///   pcurve traces `(0, v)` from `v = 0` to `v = 1`.
+///   pcurve traces `(0, v)` over `v ∈ [v_lo, v_hi]`.
 /// * `seg_idx % 2 == 1` (FaceEdge) → cap **col 9** (`v = 1`):
-///   pcurve traces `(u, 1)` from `u = 0` to `u = 1`.
+///   pcurve traces `(u, 1)` over `u ∈ [u_lo, u_hi]`.
 ///
 /// `reversed` flips the start/end UVs so the pcurve advances in
 /// the same direction as the underlying 3D curve. Parameter
-/// range `[t_start, t_end]` matches the edge curve so downstream
-/// pcurve evaluation at any `t` in that range maps to a valid
-/// Gregory `[0, 1]² UV.
+/// range `[t_start, t_end]` matches the edge curve.
+///
+/// Phase 6c-D Stage 4.1 — `(boundary_lo, boundary_hi)` is the
+/// sub-edge's sub-range on the parent segment, normalised to
+/// `[0, 1]`. For a full-edge match (single sub-edge spans whole
+/// segment), `(boundary_lo, boundary_hi) = (0, 1)`. For multi-
+/// sub-edge cases, each sub-edge gets a sub-range computed by
+/// projecting its endpoint vertices onto the parent segment.
 fn cap_pcurve_for_segment(
     seg_idx: usize,
     reversed: bool,
     t_start: f64,
     t_end: f64,
+    boundary_lo: f64,
+    boundary_hi: f64,
 ) -> Option<Pcurve> {
     let (start, end) = if seg_idx.is_multiple_of(2) {
-        // Row 0: u = 0, v varies 0 → 1.
-        ((0.0, 0.0), (0.0, 1.0))
+        // Row 0: u = 0, v varies over the sub-range.
+        ((0.0, boundary_lo), (0.0, boundary_hi))
     } else {
-        // Col 9: v = 1, u varies 0 → 1.
-        ((0.0, 1.0), (1.0, 1.0))
+        // Col 9: v = 1, u varies over the sub-range.
+        ((boundary_lo, 1.0), (boundary_hi, 1.0))
     };
     let (start, end) = if reversed { (end, start) } else { (start, end) };
     Some(Pcurve::linear(start, end, t_start, t_end))
+}
+
+/// Phase 6c-D Stage 4.1 — closest-point projection of `point`
+/// onto `curve`. Returns the parameter `t ∈ [t_lo, t_hi]` such
+/// that `curve.point_at(t)` is closest to `point`.
+///
+/// Sampling-based: 100 uniform parameter samples, take the one
+/// with minimum distance, refine with 5 bisection iterations.
+/// Sufficient accuracy for sub-edge t-range computation in the
+/// wire step (we don't need machine precision — micrometre-level
+/// is plenty for cap-outer-G0 on a 0.1m cap).
+fn project_point_on_curve(curve: &NurbsCurve, point: Point3) -> f64 {
+    let (t_lo, t_hi) = curve.parameter_range();
+    if (t_hi - t_lo).abs() < 1e-15 {
+        return t_lo;
+    }
+    let mut best_t = t_lo;
+    let mut best_d = f64::INFINITY;
+    const N: usize = 100;
+    for i in 0..=N {
+        let s = (i as f64) / (N as f64);
+        let t = t_lo + s * (t_hi - t_lo);
+        let p = curve.point_at(t);
+        let d = p.distance_to(&point);
+        if d < best_d {
+            best_d = d;
+            best_t = t;
+        }
+    }
+    // Refine via 5 bisection iterations around best_t.
+    let mut lo = (best_t - (t_hi - t_lo) / (N as f64)).max(t_lo);
+    let mut hi = (best_t + (t_hi - t_lo) / (N as f64)).min(t_hi);
+    for _ in 0..5 {
+        let mid_lo = lo + (hi - lo) * 0.25;
+        let mid_hi = lo + (hi - lo) * 0.75;
+        let d_lo = curve.point_at(mid_lo).distance_to(&point);
+        let d_hi = curve.point_at(mid_hi).distance_to(&point);
+        if d_lo < d_hi {
+            hi = (lo + hi) * 0.5;
+        } else {
+            lo = (lo + hi) * 0.5;
+        }
+    }
+    (lo + hi) * 0.5
 }
 
 fn refit_pcurve_on_surface(
