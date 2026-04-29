@@ -38,3 +38,9 @@ flowcharts/json/
 
 # Combined/generated spec files
 docs/requirements/boolean_engine_spec_combined.md
+
+# Papers
+docs/papers/
+docs/books/
+docs/code/
+docs/images/input
