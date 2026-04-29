@@ -74,7 +74,6 @@ pub(crate) fn apply_vertex_snap_for_caps(
     let snap_tol = 1e-9_f64;
     let mut moved = 0usize;
     let mut edges_updated = 0usize;
-    let trace = std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1");
 
     // Phase A — collect per-vertex snap targets across all caps.
     // A vertex may be in multiple cap loops; we record one target
@@ -85,8 +84,18 @@ pub(crate) fn apply_vertex_snap_for_caps(
     use std::collections::BTreeMap;
     let mut targets: BTreeMap<VertexHandle, (Point3, usize)> = BTreeMap::new();
 
-    for (cap_idx, &cap_face) in cap_faces.iter().enumerate() {
-        let (sphere_centre, sphere_radius) = per_fillet_caps[cap_idx];
+    for &cap_face in cap_faces.iter() {
+        // Re-derive the right per-fillet sphere for THIS cap face by
+        // finding which per_fillet_caps[i] has a centre on one of
+        // the cap loop's cylinder-twin axes. This is robust against
+        // sub_face/per_fillet_caps index misalignment introduced
+        // by upstream pick logic that silently falls back to the
+        // index-based default when matching fails.
+        let Some((sphere_centre, sphere_radius)) =
+            re_derive_cap_sphere(brep, cap_face, per_fillet_caps)
+        else {
+            continue;
+        };
         let Some(face_data) = brep.faces.get(cap_face) else {
             continue;
         };
@@ -101,6 +110,8 @@ pub(crate) fn apply_vertex_snap_for_caps(
                 continue;
             };
             let v_origin = he.origin;
+            let next_he = he.next;
+            let v_dest = brep.half_edges.get(next_he).map(|n| n.origin);
             let twin_face = brep
                 .half_edges
                 .get(he.twin)
@@ -110,52 +121,64 @@ pub(crate) fn apply_vertex_snap_for_caps(
                 .and_then(|f| brep.faces.get(f).and_then(|fd| fd.surface.as_ref()))
                 .map(|s| s.geometry.clone());
 
-            let p = brep.vertices[v_origin].position;
-            let target = match &twin_surf {
-                Some(SurfaceGeometry::Cylinder {
-                    origin: cyl_origin,
-                    axis: cyl_axis,
-                    radius: cyl_radius,
-                }) => project_onto_sphere_cylinder(
-                    p,
-                    sphere_centre,
-                    sphere_radius,
-                    *cyl_origin,
-                    *cyl_axis,
-                    *cyl_radius,
-                ),
-                Some(SurfaceGeometry::Plane {
-                    origin: plane_origin,
-                    normal: plane_normal,
-                    ..
-                }) => project_onto_sphere_plane(
-                    p,
-                    sphere_centre,
-                    sphere_radius,
-                    *plane_origin,
-                    *plane_normal,
-                ),
-                _ => None,
+            // Project BOTH endpoints (origin + destination) of each
+            // cap-tangent arc edge so the entire arc lies on
+            // sphere ∩ cylinder. The destination vertex would also
+            // be processed when iteration reaches it as an origin,
+            // but its OWN-side incident edge may have a different
+            // (non-Cylinder) twin (e.g., cap-cap inner spoke), so
+            // explicitly include it here when we know the cylinder.
+            let p_origin = brep.vertices[v_origin].position;
+            let p_dest = v_dest.map(|v| brep.vertices[v].position);
+            let endpoints: Vec<(VertexHandle, Point3)> = match v_dest {
+                Some(vd) if matches!(twin_surf, Some(SurfaceGeometry::Cylinder { .. })) => {
+                    vec![(v_origin, p_origin), (vd, p_dest.unwrap())]
+                }
+                _ => vec![(v_origin, p_origin)],
             };
-            let Some(target_pos) = target else {
-                continue;
-            };
-            // Sanity: don't snap a vertex by more than 2*r —
-            // protects against bad projections in degenerate
-            // configurations.
-            let move_dist = p.distance_to(&target_pos);
-            if move_dist > 2.0 * sphere_radius {
-                continue;
+
+            for (v, p) in endpoints {
+                let target = match &twin_surf {
+                    Some(SurfaceGeometry::Cylinder {
+                        origin: cyl_origin,
+                        axis: cyl_axis,
+                        radius: cyl_radius,
+                    }) => project_onto_sphere_cylinder(
+                        p,
+                        sphere_centre,
+                        sphere_radius,
+                        *cyl_origin,
+                        *cyl_axis,
+                        *cyl_radius,
+                    ),
+                    Some(SurfaceGeometry::Plane {
+                        origin: plane_origin,
+                        normal: plane_normal,
+                        ..
+                    }) => project_onto_sphere_plane(
+                        p,
+                        sphere_centre,
+                        sphere_radius,
+                        *plane_origin,
+                        *plane_normal,
+                    ),
+                    _ => None,
+                };
+                let Some(target_pos) = target else {
+                    continue;
+                };
+                let move_dist = p.distance_to(&target_pos);
+                if move_dist > 2.0 * sphere_radius {
+                    continue;
+                }
+                let entry = targets.entry(v).or_insert((Point3::new(0.0, 0.0, 0.0), 0));
+                entry.0 = Point3::new(
+                    entry.0.x + target_pos.x,
+                    entry.0.y + target_pos.y,
+                    entry.0.z + target_pos.z,
+                );
+                entry.1 += 1;
             }
-            let entry = targets
-                .entry(v_origin)
-                .or_insert((Point3::new(0.0, 0.0, 0.0), 0));
-            entry.0 = Point3::new(
-                entry.0.x + target_pos.x,
-                entry.0.y + target_pos.y,
-                entry.0.z + target_pos.z,
-            );
-            entry.1 += 1;
         }
     }
 
@@ -175,12 +198,6 @@ pub(crate) fn apply_vertex_snap_for_caps(
         if delta < snap_tol {
             continue;
         }
-        if trace {
-            eprintln!(
-                "[snap] v={v:?} pos=({:.4},{:.4},{:.4}) → ({:.4},{:.4},{:.4}) Δ={delta:.3e}",
-                vd.position.x, vd.position.y, vd.position.z, avg.x, avg.y, avg.z
-            );
-        }
         let edge_count = update_incident_edges_for_vertex_move(brep, v, avg);
         edges_updated += edge_count;
         moved += 1;
@@ -190,6 +207,75 @@ pub(crate) fn apply_vertex_snap_for_caps(
         vertices_moved: moved,
         edges_with_curves_updated: edges_updated,
     }
+}
+
+/// Re-derive the per-fillet sphere for `cap_face` by walking its
+/// outer loop, collecting the (origin, axis, radius) of every
+/// cylinder twin face, and finding the `per_fillet_caps[i]` whose
+/// centre lies on at least one of those axes (within tolerance).
+///
+/// Robust against sub_face ↔ per_fillet_caps index misalignment
+/// (the upstream `pick_per_fillet_cap_for_face` can silently fall
+/// back to its index-based default when its primary-cylinder
+/// matching fails). Returns `None` if no cylinder edge in the loop
+/// has any per_fillet_caps centre on its axis — typical when the
+/// cap's outer loop has been re-routed away from cylinder edges.
+fn re_derive_cap_sphere(
+    brep: &BRep,
+    cap_face: FaceHandle,
+    per_fillet_caps: &[(Point3, f64)],
+) -> Option<(Point3, f64)> {
+    let face_data = brep.faces.get(cap_face)?;
+    let loop_data = brep.loops.get(face_data.outer_loop)?;
+    let start = loop_data.half_edge;
+    let hes = collect_loop_half_edges(brep, start);
+
+    for &he_h in &hes {
+        let Some(he) = brep.half_edges.get(he_h) else {
+            continue;
+        };
+        let twin_face = brep
+            .half_edges
+            .get(he.twin)
+            .and_then(|t| brep.loops.get(t.loop_))
+            .map(|l| l.face);
+        let Some(twin_face) = twin_face else { continue };
+        let Some(SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius,
+        }) = brep
+            .faces
+            .get(twin_face)
+            .and_then(|f| f.surface.as_ref())
+            .map(|s| s.geometry.clone())
+        else {
+            continue;
+        };
+        let Some(axis_unit) = axis.normalized() else {
+            continue;
+        };
+        for &(centre, sphere_radius) in per_fillet_caps {
+            if (sphere_radius - radius).abs() > radius * 0.05 {
+                continue;
+            }
+            let v = Vec3::new(
+                centre.x - origin.x,
+                centre.y - origin.y,
+                centre.z - origin.z,
+            );
+            let along = v.dot(&axis_unit);
+            let proj = Point3::new(
+                origin.x + axis_unit.x * along,
+                origin.y + axis_unit.y * along,
+                origin.z + axis_unit.z * along,
+            );
+            if centre.distance_to(&proj) < radius * 0.05 {
+                return Some((centre, sphere_radius));
+            }
+        }
+    }
+    None
 }
 
 /// Project `p` onto `sphere(c, r) ∩ cylinder(origin, axis, cyl_r)`.
