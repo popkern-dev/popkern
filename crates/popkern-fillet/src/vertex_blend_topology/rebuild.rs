@@ -46,7 +46,18 @@ pub(crate) fn rebuild_all_apex_caps(brep: &mut BRep, cap_faces: &[FaceHandle]) -
 /// keeps the BRep clean on partial failure.
 #[allow(dead_code)]
 pub(crate) fn rebuild_one_apex_cap(brep: &mut BRep, cap_face: FaceHandle) -> bool {
+    let trace = std::env::var_os("POPKERN_APEX_REBUILD_TRACE").is_some();
     let plan = plan_apex_region_deletion(brep, cap_face);
+    if trace {
+        eprintln!(
+            "[rebuild] cap={cap_face:?} keep={} delete={} gens={} arcs={} actionable={}",
+            plan.keep_vertices.len(),
+            plan.delete_vertices.len(),
+            plan.delete_cap_cylinder_generators.len(),
+            plan.insert_cap_tangent_arcs.len(),
+            plan.is_actionable(),
+        );
+    }
     if !plan.is_actionable() {
         return false;
     }
@@ -60,11 +71,21 @@ pub(crate) fn rebuild_one_apex_cap(brep: &mut BRep, cap_face: FaceHandle) -> boo
 
     let exec = match execute_deletion_plan(brep, &plan) {
         Ok(r) => r,
-        Err(_) => {
+        Err(e) => {
+            if trace {
+                eprintln!("[rebuild] execute_deletion_plan FAILED: {e:?}");
+            }
             *brep = snapshot;
             return false;
         }
     };
+    if trace {
+        eprintln!(
+            "[rebuild] execute OK: lens_faces={} inserted_arcs={}",
+            exec.lens_faces.len(),
+            exec.inserted_arcs.len()
+        );
+    }
 
     // Each lens face's outer loop has 3 edges.  Two of them are
     // the obsolete generators; one is the cap-tangent arc (just
@@ -96,11 +117,17 @@ pub(crate) fn rebuild_one_apex_cap(brep: &mut BRep, cap_face: FaceHandle) -> boo
             *brep = snapshot;
             return false;
         }
-        if collapse_apex_lens(brep, lens_face, gen_pair[0], gen_pair[1]).is_err() {
+        if let Err(e) = collapse_apex_lens(brep, lens_face, gen_pair[0], gen_pair[1]) {
+            if trace {
+                eprintln!("[rebuild] collapse_apex_lens FAILED on {lens_face:?}: {e:?}");
+            }
             *brep = snapshot;
             return false;
         }
     }
 
+    if trace {
+        eprintln!("[rebuild] success");
+    }
     true
 }
