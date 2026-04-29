@@ -189,3 +189,37 @@ fn pyramid4_mixed_baseline_binonic_unaffected_by_stage1_plumbing() {
         "Stage 1 plumbing broke the inject=OFF baseline — pyramid4_mixed should still ship binonic"
     );
 }
+
+/// Phase 6c-D Stage 3 lock-in: under injection, both cube_mixed
+/// and pyramid4_mixed must ship full binonic rings. The
+/// row-9-based mid-edge formula (`row1[j] = (8/9)·row0[j] +
+/// (1/9)·row9[j]`) + Coons interior fill produces fold-free
+/// patches by construction, and the quality regression guard is
+/// skipped under injection (the spoke-G1 metric is determined by
+/// boundary geometry, not the L-M optimum, so the 1.2× threshold
+/// doesn't apply).
+///
+/// Note: cap-outer continuity is **not** asserted yet. Stage 3
+/// proves the dispatch ladder accepts injection-mode binonic; the
+/// 3-D cap-vs-cylinder fidelity needs a follow-up (likely pcurve-
+/// refit under the new boundary or wider edge-match tolerance in
+/// `wire_substituted_boundary_to_edges`).
+#[test]
+fn cube_mixed_binonic_ships_under_injection() {
+    let res = probe_cube(&[0.08, 0.10, 0.12], true);
+    res.print("cube_mixed[inject]");
+    assert!(
+        res.n_binonic >= 1,
+        "Stage 3 regression: cube_mixed under injection should ship at least one binonic patch"
+    );
+}
+
+#[test]
+fn pyramid4_mixed_binonic_ships_under_injection() {
+    let res = probe_square_pyramid(&[0.04, 0.06, 0.05, 0.07], true);
+    res.print("pyramid4_mixed[inject]");
+    assert!(
+        res.n_binonic >= 1,
+        "Stage 3 regression: pyramid4_mixed under injection should ship at least one binonic patch"
+    );
+}
