@@ -118,14 +118,16 @@ pub(crate) fn poke_n_gon_face_into_n_quads(
 
     // Classify: 2N (existing path) vs N (normalise via split_edge).
     //
-    // The N-HE path is gated on `N ≥ 5`: at N ∈ {3, 4} the blend
-    // face reliably carries 2N half-edges (bridges survive kef/kev
-    // on cube / square-pyramid corners), and cases with fewer HEs
-    // at those valences must fall through to sphere-fit / single-
-    // surface handling upstream — not be force-poked.
+    // Phase 6c-E: N-HE path now accepts `N ≥ 4` (was `≥ 5`).
+    // Pyramid_uniform produces 4 outer half-edges (one per
+    // slant-face apex-corner) because Phase 2a's
+    // `kef_cross_face_v_edges` collapses arc + bridge pairs on
+    // each slant face into a single edge.  For N=3 (cube) the
+    // bridges still survive so the count is 6; the 2N branch
+    // catches that.
     let n = if initial_count >= 6 && initial_count.is_multiple_of(2) {
         initial_count / 2
-    } else if (5..=16).contains(&initial_count) {
+    } else if (4..=16).contains(&initial_count) {
         // N-HE input at N ≥ 5 — sharp-apex case. Split each arc at
         // `t=0.5` to reach 2N; the synthetic midpoint vertices
         // become the "corner" vertices where the bridges would
@@ -150,7 +152,7 @@ pub(crate) fn poke_n_gon_face_into_n_quads(
         initial_count
     } else {
         return Err(CoreError::PreconditionFailed(format!(
-            "expected 2N half-edges (even, N ≥ 3) or N half-edges (N ∈ [5, 16]), got {initial_count}"
+            "expected 2N half-edges (even, N ≥ 3) or N half-edges (N ∈ [4, 16]), got {initial_count}"
         )));
     };
 
@@ -215,11 +217,17 @@ pub(crate) fn poke_hex_face_into_three_quads(
 /// Accepts `2 * n_sides` (classical arc/bridge alternating loop)
 /// at all valences; additionally accepts `n_sides` (pure-arc loop,
 /// sharp-apex case — `split_edge` normalises to 2N internally)
-/// when `n_sides ≥ 5`. At `N ∈ {3, 4}` only the 2N form is
-/// accepted — bridges are expected to survive on those simpler
-/// geometries, and lower counts should fall through to sphere-fit.
+/// when `n_sides ≥ 5`, or when `n_sides == 4` and `accept_n4_he`
+/// is true (Phase 6c-E pyramid_uniform path under sphere-fit
+/// substitution). At `N == 3` only the 2N form is accepted —
+/// bridges are expected to survive on cube-like geometries.
 #[allow(dead_code)]
-pub(crate) fn face_has_2n_outer_half_edges(brep: &BRep, face: FaceHandle, n_sides: usize) -> bool {
+pub(crate) fn face_has_2n_outer_half_edges_with(
+    brep: &BRep,
+    face: FaceHandle,
+    n_sides: usize,
+    accept_n4_he: bool,
+) -> bool {
     let Some(face_data) = brep.faces.get(face) else {
         return false;
     };
@@ -235,11 +243,25 @@ pub(crate) fn face_has_2n_outer_half_edges(brep: &BRep, face: FaceHandle, n_side
     for n in 1..=cap {
         cursor = brep.half_edges[cursor].next;
         if cursor == start {
-            let accepts_n_he = n_sides >= 5 && n == n_sides;
+            // N-HE acceptance: `n_sides >= 5` always, plus N=4 only
+            // when the caller opts in (sphere-fit substitution
+            // succeeded — pyramid_uniform's commercial-grade path).
+            // Without `accept_n4_he`, N=4 stays on the legacy 2N-only
+            // path so pyramid4 validation-sweep fixtures keep their
+            // pre-Phase-6c-E behavior.
+            let accepts_n_he = (n_sides >= 5 || (n_sides == 4 && accept_n4_he)) && n == n_sides;
             return n == 2 * n_sides || accepts_n_he;
         }
     }
     false
+}
+
+/// Backwards-compatible wrapper: legacy callers (validation sweep,
+/// non-sphere-fit paths) get the pre-Phase-6c-E gate where N=4 is
+/// only accepted in the 2N form.
+#[allow(dead_code)]
+pub(crate) fn face_has_2n_outer_half_edges(brep: &BRep, face: FaceHandle, n_sides: usize) -> bool {
+    face_has_2n_outer_half_edges_with(brep, face, n_sides, false)
 }
 
 /// Walk a face's outer loop and collect its half-edges.

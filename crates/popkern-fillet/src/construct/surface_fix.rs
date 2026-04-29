@@ -70,6 +70,23 @@ pub(crate) fn correct_face_surfaces(
             continue;
         }
 
+        // Phase 6c-E: trust upstream Sphere assignments. Per-fillet
+        // sphere caps (cube_mixed, cube_extreme, pyramid_uniform) are
+        // assigned with intent in `three_quad_apply`; their boundary
+        // includes inner-spoke vertices that lie on *other* sub-face
+        // spheres, so `current_max` against this sub-face's sphere can
+        // be ~r (inner-spoke offset between distinct per-fillet
+        // centres). The cube-corner-inscribed-sphere fallback in
+        // `try_sphere_for_corner` would clobber the carefully assigned
+        // per-fillet centre with the wrong cube-style centre.
+        let current_is_sphere = brep.faces[fh]
+            .surface
+            .as_ref()
+            .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Sphere { .. }));
+        if current_is_sphere {
+            continue;
+        }
+
         let current_score = current_max;
 
         // Find the best matching surface that improves on current.

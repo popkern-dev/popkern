@@ -119,8 +119,20 @@ pub(crate) fn apply_sphere_fit_substitution(
         let fillet = &fillet_surfaces[fi];
         let r_k =
             fillet_nominal_radius(&fillet.surface).ok_or("could not extract fillet radius")?;
-        let cap_centre_k =
-            compute_cap_centre(apex, &face_normals, r_k).ok_or("cap-centre system is singular")?;
+        // Phase 6c-E: pick centre via the cylinder-axis-tangent
+        // dispatcher — falls back to per-fillet apex-projection
+        // when the inscribed-sphere solution is off-axis (pyramid
+        // and other N ≥ 4 apices).  For trihedral cube-like apices
+        // the dispatcher uses the inscribed-sphere solution
+        // unchanged.
+        let cap_centre_k = select_per_fillet_centre(apex, &face_normals, r_k, &fillet.surface)
+            .ok_or("cap-centre system is singular")?;
+        if std::env::var("POPKERN_CAPCENTRE_TRACE").is_ok_and(|v| v == "1") {
+            eprintln!(
+                "[cap-centre] fillet[{k}] r={r_k:.3} centre=({:.4},{:.4},{:.4})",
+                cap_centre_k.x, cap_centre_k.y, cap_centre_k.z
+            );
+        }
         let result = sphere_fit_termination(
             apex,
             cap_centre_k,
@@ -248,6 +260,115 @@ fn replace_col(m: &[[f64; 3]; 3], col: usize, b: [f64; 3]) -> [[f64; 3]; 3] {
         out[r][col] = b[r];
     }
     out
+}
+
+/// Phase 6c-E: per-fillet rolling-ball cap centre — the point
+/// on the fillet's cylinder axis closest to the apex.  When the
+/// fillet's sphere centre lies on its cylinder axis, sphere ∩
+/// cylinder is a clean great circle, giving exact analytic
+/// G1 between cap and cylinder.
+///
+/// `compute_cap_centre` solves a different problem (sphere
+/// tangent to ALL adjacent face planes — the inscribed sphere).
+/// For trihedral cube-like apices the inscribed sphere happens
+/// to land on every cylinder axis simultaneously — they coincide.
+/// For pyramid-like apices (N ≥ 4) the inscribed sphere is NOT
+/// on the cylinder axes, and using it as cap centre breaks the
+/// cap-cylinder tangency.  In those cases use this per-fillet
+/// formula, which guarantees axis-tangency for THIS fillet (and
+/// each per-fillet sub-cap will have its own centre).
+pub(crate) fn per_fillet_rolling_ball_centre(
+    apex: Point3,
+    fillet_cylinder: &SurfaceGeometry,
+) -> Option<Point3> {
+    let SurfaceGeometry::Cylinder { origin, axis, .. } = fillet_cylinder else {
+        return None;
+    };
+    let d = axis.normalized()?;
+    let v = Vec3::new(apex.x - origin.x, apex.y - origin.y, apex.z - origin.z);
+    let t = v.dot(&d);
+    Some(Point3::new(
+        origin.x + d.x * t,
+        origin.y + d.y * t,
+        origin.z + d.z * t,
+    ))
+}
+
+/// Phase 6c-E: pick the per-fillet sphere centre that
+/// guarantees clean axis-tangency.  Tries the inscribed-sphere
+/// solution from `compute_cap_centre` first — if it lies on the
+/// fillet's cylinder axis (within tolerance), use it.  Otherwise
+/// fall back to `per_fillet_rolling_ball_centre`.
+///
+/// The inscribed-sphere solution is preferred when valid
+/// because it agrees across all per-fillet caps in a
+/// trihedral apex (cube), so the `FaceEdge` bridges between
+/// adjacent fillets' endpoints collapse to single points (clean
+/// shared topology).  For pyramid-like N ≥ 4 apices the
+/// inscribed sphere is off-axis, so we accept distinct per-fillet
+/// centres at the cost of non-degenerate face-edge bridges.
+pub(crate) fn select_per_fillet_centre(
+    apex: Point3,
+    face_normals: &[Vec3],
+    r: f64,
+    fillet_cylinder: &SurfaceGeometry,
+) -> Option<Point3> {
+    let inscribed = compute_cap_centre(apex, face_normals, r);
+    if std::env::var("POPKERN_CAPCENTRE_TRACE").is_ok_and(|v| v == "1") {
+        eprintln!(
+            "[cap-centre] apex=({:.4},{:.4},{:.4}) r={r:.3} normals.len()={} inscribed={:?}",
+            apex.x,
+            apex.y,
+            apex.z,
+            face_normals.len(),
+            inscribed,
+        );
+        for (i, n) in face_normals.iter().enumerate() {
+            eprintln!(
+                "[cap-centre]   normal[{i}] = ({:.4},{:.4},{:.4})",
+                n.x, n.y, n.z
+            );
+        }
+    }
+    if let (Some(c), SurfaceGeometry::Cylinder { origin, axis, .. }) = (inscribed, fillet_cylinder)
+    {
+        // Two acceptance conditions for the inscribed-sphere
+        // solution:
+        //   (1) inscribed centre lies on the fillet's cylinder
+        //       axis (within tolerance) — required for clean
+        //       sphere-cylinder tangency along a great circle, AND
+        //   (2) inscribed centre is on the SAME SIDE of the apex
+        //       as the cylinder body (uses cylinder.origin as a
+        //       sample point on the body). For pyramid-like N≥4
+        //       apices the inscribed solution lands on every
+        //       cylinder axis at their convergence point, but on
+        //       the OPPOSITE side of the apex from the cylinder
+        //       body — a phantom sphere not rounding off any
+        //       solid material.
+        let Some(d) = axis.normalized() else {
+            return Some(c);
+        };
+        let v = Vec3::new(c.x - origin.x, c.y - origin.y, c.z - origin.z);
+        let along = v.dot(&d);
+        let perp = Vec3::new(v.x - d.x * along, v.y - d.y * along, v.z - d.z * along);
+        let dist_to_axis = perp.length();
+        // Side check: dot(apex_to_inscribed, apex_to_origin) > 0
+        // means inscribed is on the same side of apex as the
+        // cylinder body. For cube the origin is in the cylinder
+        // body direction from apex; for pyramid the origin is at
+        // the base end of the slant edge while inscribed is past
+        // the apex (opposite direction).
+        let apex_to_c = Vec3::new(c.x - apex.x, c.y - apex.y, c.z - apex.z);
+        let apex_to_origin = Vec3::new(origin.x - apex.x, origin.y - apex.y, origin.z - apex.z);
+        let side_dot = apex_to_c.dot(&apex_to_origin);
+        if std::env::var("POPKERN_CAPCENTRE_TRACE").is_ok_and(|v| v == "1") {
+            eprintln!("[cap-centre]   dist_to_axis={dist_to_axis:.4e} side_dot={side_dot:.4e}");
+        }
+        if dist_to_axis < (r * 1e-6).max(1e-9) && side_dot > 0.0 {
+            return Some(c);
+        }
+    }
+    per_fillet_rolling_ball_centre(apex, fillet_cylinder)
 }
 
 #[cfg(test)]

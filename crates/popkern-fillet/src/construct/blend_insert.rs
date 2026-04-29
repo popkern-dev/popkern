@@ -206,7 +206,12 @@ pub(crate) fn insert_vertex_blend(
         && rational_gregory_compatible
         && let Some(boundary) = n_gon_boundary.as_ref()
         && boundary.segments.len() == 2 * n_sides
-        && face_has_2n_outer_half_edges(brep, blend_face, n_sides)
+        && crate::construct::poke_hex::face_has_2n_outer_half_edges_with(
+            brep,
+            blend_face,
+            n_sides,
+            boundary.sphere_fit_substituted,
+        )
     {
         use crate::construct::three_quad_apply::ThreeQuadFailure;
         match apply_three_quad_decomposition_to_blend(

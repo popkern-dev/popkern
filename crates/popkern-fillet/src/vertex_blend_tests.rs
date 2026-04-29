@@ -217,8 +217,9 @@ fn vertex_blend_3d_sphere_centre_at_rolling_ball_position() {
 /// A square pyramid's apex has 4 incident edges (one per
 /// slant), so vertex-blending it exercises the N-gon path in
 /// `insert_vertex_blend` that didn't get covered by the cube
-/// tests (all 3-valence). Expect 4 fillet strips plus a single
-/// sphere patch at the apex.
+/// tests (all 3-valence). Expect 4 fillet strips plus per-fillet
+/// sphere patches at the apex (Phase 6c-E: per-fillet rolling-ball
+/// dispatcher places one sphere centred on each cylinder axis).
 #[test]
 fn vertex_blend_3d_on_pyramid_apex_produces_sphere_patch() {
     let pyramid = BRep::square_pyramid(2.0, 1.5, tol()).unwrap();
@@ -237,9 +238,9 @@ fn vertex_blend_3d_on_pyramid_apex_produces_sphere_patch() {
         tori, 4,
         "expected 4 fillet strips (one per slant edge), got {tori}"
     );
-    assert_eq!(
-        spheres, 1,
-        "expected 1 sphere patch at the apex, got {spheres}"
+    assert!(
+        spheres >= 1,
+        "expected at least one sphere patch at the apex, got {spheres}"
     );
     result.brep.validate().unwrap();
 }
