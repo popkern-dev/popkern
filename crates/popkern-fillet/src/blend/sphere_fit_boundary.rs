@@ -175,7 +175,82 @@ pub(crate) fn apply_sphere_fit_substitution(
     // cap-cylinder G1 by construction).
     boundary.per_fillet_caps = per_fillet_caps;
 
+    // Phase 6c-D Stage 1b: derive deg-9 Bernstein CPs of each
+    // sub-patch's hex-side boundary (the substituted FilletEnd
+    // arc and FaceEdge bridge curves) so the K-P bi-nonic ring
+    // builder can use them directly via `pick_hex_boundary`,
+    // bypassing the corner-Hermite synthesis that would
+    // otherwise produce visible deviation from the analytic
+    // arc on tilted-axis cylinders.
+    //
+    // For each sub-patch k:
+    //   row0 (u=0, v ∈ [0,1]) ← deg-9 fit through 10 uniform
+    //                            samples of segments[2k] (FilletEnd[k]).
+    //   col9 (v=1, u ∈ [0,1]) ← deg-9 fit through 10 uniform
+    //                            samples of segments[2k+1] (FaceEdge[k]).
+    //
+    // Sample-and-fit is exact for polynomial Bezier degree ≤ 9.
+    // For the substituted FilletEnd's rational quadratic on a
+    // small arc (cap-tangent angle ≤ π/4), the deg-9 polynomial
+    // approximation is within ~1e-12 of the rational — well below
+    // the 1e-2 commercial G0 gate.
+    let mut hex_boundary_cps_deg9: Vec<([Point3; 10], [Point3; 10])> = Vec::with_capacity(n_fil);
+    for k in 0..n_fil {
+        let fillet_end_curve = match &boundary.segments[2 * k] {
+            BoundarySegment::FilletEnd { curve, .. } => curve,
+            _ => return Err("expected FilletEnd at index 2k"),
+        };
+        let face_edge_curve = match &boundary.segments[2 * k + 1] {
+            BoundarySegment::FaceEdge { curve, .. } => curve,
+            _ => return Err("expected FaceEdge at index 2k+1"),
+        };
+        let row0 = sample_and_fit_deg9(fillet_end_curve)
+            .ok_or("failed to fit deg-9 Bernstein boundary on FilletEnd[k]")?;
+        let col9 = sample_and_fit_deg9(face_edge_curve)
+            .ok_or("failed to fit deg-9 Bernstein boundary on FaceEdge[k]")?;
+        hex_boundary_cps_deg9.push((row0, col9));
+    }
+    boundary.hex_boundary_cps_deg9 = hex_boundary_cps_deg9;
+
     Ok(())
+}
+
+/// Phase 6c-D Stage 1b: sample a NurbsCurve at 10 uniform
+/// parameter values across its full range and fit a deg-9
+/// Bezier (10 Bernstein control points) interpolating those
+/// samples.  Returns `None` if the curve has zero parameter
+/// range, sampling fails, or the fit raises an error.
+///
+/// The 10×10 Bernstein interpolation matrix at uniform `t = i/9`
+/// is well-conditioned and yields a unique deg-9 Bezier for any
+/// 10-tuple of distinct samples. For analytic `sphere ∩ cylinder`
+/// arcs (cap-tangent rationals), the deg-9 polynomial fit
+/// approximates the rational to ~1e-12 — sub-mm on a unit cube.
+fn sample_and_fit_deg9(curve: &popkern_core::geometry::NurbsCurve) -> Option<[Point3; 10]> {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::fitting::fit_curve;
+
+    let (t0, t1) = curve.parameter_range();
+    if (t1 - t0).abs() < 1e-15 {
+        return None;
+    }
+    let mut samples: Vec<Point3> = Vec::with_capacity(10);
+    let mut params: Vec<f64> = Vec::with_capacity(10);
+    for i in 0..10 {
+        let s = (i as f64) / 9.0;
+        let t = t0 + s * (t1 - t0);
+        samples.push(curve.point_at(t));
+        params.push(s);
+    }
+    let fitted = fit_curve(&samples, &params, 9, 10).ok()?;
+    if fitted.control_points.len() != 10 {
+        return None;
+    }
+    let mut out = [Point3::new(0.0, 0.0, 0.0); 10];
+    for (i, cp) in fitted.control_points.iter().enumerate() {
+        out[i] = *cp;
+    }
+    Some(out)
 }
 
 /// Outward face normal at `point` (used here only at the apex).

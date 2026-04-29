@@ -150,7 +150,10 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
         })
         .collect();
 
-    let Some(mut direct) = extract_direct_boundary_input(&two_stripe, &spokes) else {
+    // Phase 6c-D Stage 1d: polar bi-6 path doesn't go through
+    // the bi-nonic K-P guide pipeline, so hex_boundaries
+    // injection isn't needed. Pass `None` for the existing path.
+    let Some(mut direct) = extract_direct_boundary_input(&two_stripe, &spokes, None) else {
         trace_polar("extract_direct_boundary_input → None", n, None);
         return PolarPromoteOutcome::Rejected;
     };

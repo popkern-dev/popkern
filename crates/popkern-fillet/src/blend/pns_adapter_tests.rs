@@ -58,6 +58,7 @@ fn synth_blend_boundary(n_fillets: usize, radius: f64) -> BlendBoundary {
         bridge_fallbacks: Vec::new(),
         sphere_fit_substituted: false,
         per_fillet_caps: Vec::new(),
+        hex_boundary_cps_deg9: Vec::new(),
     }
 }
 

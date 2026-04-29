@@ -200,7 +200,9 @@ pub use direct_corner_c::{
 };
 pub use direct_corner_outer::{OuterCornerOutput, OuterCornerTwistCps, solve_outer_corners};
 pub use direct_errors::DirectConstructionError;
-pub use direct_input::{DirectBoundaryInput, OuterCornerData, SpokeBoundaryData, TangentPlane};
+pub use direct_input::{
+    DirectBoundaryInput, HexBoundaryData, OuterCornerData, SpokeBoundaryData, TangentPlane,
+};
 pub use direct_options::DirectConstructionOptions;
 pub use direct_row1_g1::{SingleSpokeRow1Input, SingleSpokeRow1Output, solve_single_spoke_row1_g1};
 pub use direct_row1_ring::{RingRow1Result, solve_ring_row1_g1};

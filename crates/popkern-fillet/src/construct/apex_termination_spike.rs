@@ -203,6 +203,7 @@ fn substitute_sphere_fit_terminations(
         bridge_fallbacks: boundary.bridge_fallbacks,
         sphere_fit_substituted: false,
         per_fillet_caps: Vec::new(),
+        hex_boundary_cps_deg9: Vec::new(),
     })
 }
 

@@ -108,7 +108,11 @@ pub(super) fn promote_decomp_to_kp13_bi5(
         })
         .collect();
 
-    let Some(mut direct) = extract_direct_boundary_input(&two_stripe, &spokes) else {
+    // Phase 6c-D Stage 1d: the kp13_bi5 polar path doesn't go
+    // through the bi-nonic K-P guide pipeline, so it doesn't need
+    // hex_boundaries injection. Pass `None` to fall through to
+    // the existing path (the new field is bi-nonic-only).
+    let Some(mut direct) = extract_direct_boundary_input(&two_stripe, &spokes, None) else {
         trace("extract_direct_boundary_input → None", n, None);
         return Bi5PromoteOutcome::Rejected;
     };

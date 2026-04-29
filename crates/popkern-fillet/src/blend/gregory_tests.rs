@@ -123,6 +123,7 @@ fn try_rational_gregory_on_synthetic_cube_corner() {
         bridge_fallbacks: Vec::new(),
         sphere_fit_substituted: false,
         per_fillet_caps: Vec::new(),
+        hex_boundary_cps_deg9: Vec::new(),
     };
     let fillet_surfaces = vec![
         FilletSurfaceResult {
@@ -262,6 +263,7 @@ fn try_rational_gregory_rejects_mixed_radii() {
         bridge_fallbacks: Vec::new(),
         sphere_fit_substituted: false,
         per_fillet_caps: Vec::new(),
+        hex_boundary_cps_deg9: Vec::new(),
     };
     let fillet_surfaces: Vec<_> = [0.08, 0.10, 0.12]
         .iter()

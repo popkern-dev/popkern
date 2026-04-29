@@ -50,6 +50,29 @@ pub struct BlendBoundary {
     /// cylinder by construction, sidestepping the L-M solver
     /// stall on variable-radius corners.
     pub per_fillet_caps: Vec<(Point3, f64)>,
+    /// Phase 6c-D Stage 1b: per-sub-patch hex-side outer boundary
+    /// CPs, derived from the substituted `FilletEnd` (cap-tangent
+    /// arc on `sphere ∩ cylinder`) and `FaceEdge` (bridge across
+    /// slant face) curves and degree-elevated to 9.
+    ///
+    /// `hex_boundary_cps_deg9[k] = (row0, col9)` where:
+    /// * `row0` — deg-9 Bernstein CPs of the sub-patch k's left
+    ///   hex edge (`u=0`, `v ∈ [0, 1]`), sourced from
+    ///   `segments[2*k]` (FilletEnd[k]).
+    /// * `col9` — deg-9 Bernstein CPs of sub-patch k's top hex
+    ///   edge (`v=1`, `u ∈ [0, 1]`), sourced from
+    ///   `segments[2*k + 1]` (FaceEdge[k]).
+    ///
+    /// Length = N (one entry per fillet / sub-patch). Populated
+    /// when sphere-fit substitution succeeds; empty otherwise.
+    /// Downstream cap construction reads this when promoting to
+    /// the K-P bi-nonic ring builder, where it bypasses the
+    /// `k_p_boundary` Hermite synthesis that would otherwise
+    /// produce a corner-Hermite blend instead of the analytic
+    /// `sphere ∩ cylinder` arc.
+    ///
+    /// See `docs/decisions/2026-04-29-phase-6c-d-stage-1-boundary-injection.md`.
+    pub hex_boundary_cps_deg9: Vec<([Point3; 10], [Point3; 10])>,
 }
 
 /// A single segment of a blend boundary.
@@ -211,6 +234,7 @@ pub fn compute_blend_boundary(
                 bridge_fallbacks,
                 sphere_fit_substituted: false,
                 per_fillet_caps: Vec::new(),
+                hex_boundary_cps_deg9: Vec::new(),
             };
             if sphere_fit_enabled {
                 boundary.sphere_fit_substituted =
@@ -246,6 +270,7 @@ pub fn compute_blend_boundary(
         bridge_fallbacks,
         sphere_fit_substituted: false,
         per_fillet_caps: Vec::new(),
+        hex_boundary_cps_deg9: Vec::new(),
     })
 }
 

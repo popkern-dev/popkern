@@ -92,6 +92,19 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     // coplanarity `c` exceeded the 5e-2 commercial gate.
     let mut relaxed_coplanarity: Option<f64> = None;
 
+    // Phase 6c-D Stage 1d: capture the substituted hex-side
+    // boundary CPs from `boundary` so the K-P bi-nonic ring
+    // builder can use them via `pick_hex_boundary` instead of
+    // `k_p_boundary` Hermite synthesis. When the boundary's
+    // `hex_boundary_cps_deg9` is empty (sphere-fit substitution
+    // didn't run / declined), the closure passes `None` and
+    // existing Hermite-blend behaviour is preserved.
+    let hex_boundary_data: Option<&[([Point3; 10], [Point3; 10])]> =
+        if boundary.hex_boundary_cps_deg9.is_empty() {
+            None
+        } else {
+            Some(&boundary.hex_boundary_cps_deg9)
+        };
     let is_4n_path = super::promotion_ladder::run_promotion_ladder(
         &mut decomp,
         fillet_surfaces,
@@ -102,7 +115,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         use_two_stripe,
         use_kp_binonic,
         use_kp_polar,
-        promote_decomp_to_kp_binonic,
+        |patches, fillets| promote_decomp_to_kp_binonic(patches, fillets, hex_boundary_data),
     );
 
     // Self-intersection screen. N ≥ 5 bypass: bi-5 parallelogram
@@ -580,6 +593,7 @@ fn reproject_loop_pcurves_onto_gregory(
 fn promote_decomp_to_kp_binonic(
     sub_patches: &mut [GregoryPatch],
     fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+    hex_boundaries: Option<&[([Point3; 10], [Point3; 10])]>,
 ) -> Option<f64> {
     let n = sub_patches.len();
     if n == 0 {
@@ -614,7 +628,7 @@ fn promote_decomp_to_kp_binonic(
         })
         .collect();
 
-    let Some(input) = extract_direct_boundary_input(&two_stripe, &spokes) else {
+    let Some(input) = extract_direct_boundary_input(&two_stripe, &spokes, hex_boundaries) else {
         trace_kp("extract_direct_boundary_input → None", n, None);
         return None;
     };
@@ -770,6 +784,7 @@ fn trace_kp(stage: &str, n: usize, detail: Option<String>) {
 pub(super) fn extract_direct_boundary_input(
     patches: &[RectangularGregoryTwoStripe],
     spokes: &[Spoke],
+    hex_boundaries: Option<&[([Point3; 10], [Point3; 10])]>,
 ) -> Option<DirectBoundaryInput> {
     let n = patches.len();
     if n == 0 || spokes.len() != n {
@@ -849,13 +864,31 @@ pub(super) fn extract_direct_boundary_input(
         central_vertex_tps.push(tps_c);
     }
 
+    // Phase 6c-D Stage 1d: when the caller provides
+    // hex_boundaries (deg-9 Bernstein CPs of the substituted
+    // FilletEnd / FaceEdge curves per sub-patch), thread them
+    // into the new `HexBoundaryData` field. The K-P bi-nonic
+    // ring builder uses these to bypass `k_p_boundary` Hermite
+    // synthesis and trace the analytic `sphere ∩ cylinder` arc
+    // exactly. `None` falls through to existing behaviour.
+    let hex_boundaries_data = hex_boundaries.map(|src| {
+        src.iter()
+            .map(
+                |(row0, col9)| popkern_core::geometry::gregory::HexBoundaryData {
+                    row0: *row0,
+                    col9: *col9,
+                },
+            )
+            .collect::<Vec<_>>()
+    });
+
     Some(DirectBoundaryInput {
         central_vertex,
         spokes: spoke_data,
         outer_corners,
         central_vertex_tps,
         seed_patches: Some(patches.to_vec()),
-        hex_boundaries: None,
+        hex_boundaries: hex_boundaries_data,
     })
 }
 
