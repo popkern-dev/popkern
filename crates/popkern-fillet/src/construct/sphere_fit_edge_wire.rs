@@ -114,6 +114,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // refit) operate on the curve geometry, not the vertex-to-
     // curve-endpoint identity.
     let allow_multi_sub_edge = stage4_wide_tol;
+    let trace_match = std::env::var_os("POPKERN_WIRE_MATCH_TRACE").is_some();
     let mut consumed = vec![false; segment_curves.len()];
     type Job = (HalfEdgeHandle, usize, bool, Point3, Point3);
     let mut worklist: Vec<Job> = Vec::new();
@@ -141,30 +142,130 @@ pub(crate) fn wire_substituted_boundary_to_edges(
             };
             let v_dest = next_he_data.origin;
 
+            // Phase 6c-D Stage 4.2: skip cap-vs-cap edges (twin
+            // face is Sphere or Gregory). They aren't FilletEnd or
+            // FaceEdge boundaries — they're inner spokes / shared
+            // cap edges between adjacent per-fillet caps. Wiring
+            // them would write the wrong analytic curve and could
+            // corrupt cap-cap continuity. Only wire cap-vs-cylinder
+            // and cap-vs-plane edges (the actual substituted
+            // boundary segments).
+            let twin_he = he.twin;
+            let twin_face = brep
+                .loops
+                .get(brep.half_edges[twin_he].loop_)
+                .map(|l| l.face);
+            let twin_is_cap_like = twin_face
+                .and_then(|f| brep.faces.get(f))
+                .and_then(|f| f.surface.as_ref())
+                .map(|sof| {
+                    matches!(
+                        &sof.geometry,
+                        SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Gregory(_)
+                    )
+                })
+                .unwrap_or(false);
+            if twin_is_cap_like {
+                continue;
+            }
+
             let p_origin = brep.vertices[v_origin].position;
             let p_dest = brep.vertices[v_dest].position;
 
+            // Phase 6c-D Stage 4.2 — matching strategy:
+            //
+            // * Default (`allow_multi_sub_edge = false`): endpoint-sum
+            //   matching. Each segment matches at most one sub-edge,
+            //   chosen by minimum sum of endpoint distances. Works
+            //   well when each cap face's outer loop has exactly one
+            //   sub-edge per segment (cube_uniform).
+            //
+            // * `allow_multi_sub_edge = true` (Stage 4.2):
+            //   midpoint-projection matching. For each sub-edge,
+            //   compute its midpoint and project onto each segment;
+            //   match to the segment with minimum projection distance.
+            //   Robust against multi-sub-edge topologies where a
+            //   single FilletEnd/FaceEdge has been split into 3+
+            //   sub-edges by sliver-absorb. Endpoint-sum fails for
+            //   short sub-edges in segment interior (both endpoints
+            //   far from segment endpoints) — projection works
+            //   because sub-edges geometrically lie on (or near) the
+            //   parent fillet cylinder, whose tangent circle = the
+            //   FilletEnd segment.
             let mut best: Option<(usize, f64, bool)> = None;
-            for (i, eps) in segment_endpoints.iter().enumerate() {
-                if consumed[i] && !allow_multi_sub_edge {
-                    continue;
+            if allow_multi_sub_edge {
+                let p_mid = Point3::new(
+                    (p_origin.x + p_dest.x) * 0.5,
+                    (p_origin.y + p_dest.y) * 0.5,
+                    (p_origin.z + p_dest.z) * 0.5,
+                );
+                for (i, segment) in segment_curves.iter().enumerate() {
+                    let t_mid = project_point_on_curve(segment, p_mid);
+                    let proj_mid = segment.point_at(t_mid);
+                    let d = proj_mid.distance_to(&p_mid);
+                    // Determine direction by projecting both endpoints.
+                    let t_origin = project_point_on_curve(segment, p_origin);
+                    let t_dest = project_point_on_curve(segment, p_dest);
+                    let reversed = t_origin > t_dest;
+                    if best.map(|(_, bd, _)| d < bd).unwrap_or(true) {
+                        best = Some((i, d, reversed));
+                    }
                 }
-                let d_fwd = p_origin.distance_to(&eps[0]) + p_dest.distance_to(&eps[1]);
-                let d_rev = p_origin.distance_to(&eps[1]) + p_dest.distance_to(&eps[0]);
-                let (d, reversed) = if d_fwd <= d_rev {
-                    (d_fwd, false)
-                } else {
-                    (d_rev, true)
-                };
-                if best.map(|(_, bd, _)| d < bd).unwrap_or(true) {
-                    best = Some((i, d, reversed));
+            } else {
+                for (i, eps) in segment_endpoints.iter().enumerate() {
+                    if consumed[i] {
+                        continue;
+                    }
+                    let d_fwd = p_origin.distance_to(&eps[0]) + p_dest.distance_to(&eps[1]);
+                    let d_rev = p_origin.distance_to(&eps[1]) + p_dest.distance_to(&eps[0]);
+                    let (d, reversed) = if d_fwd <= d_rev {
+                        (d_fwd, false)
+                    } else {
+                        (d_rev, true)
+                    };
+                    if best.map(|(_, bd, _)| d < bd).unwrap_or(true) {
+                        best = Some((i, d, reversed));
+                    }
                 }
+            }
+            if trace_match {
+                let chord = p_origin.distance_to(&p_dest);
+                let twin_kind = brep
+                    .faces
+                    .get(twin_face.unwrap_or(brep.loops[brep.half_edges[twin_he].loop_].face))
+                    .and_then(|f| f.surface.as_ref())
+                    .map(|sof| match &sof.geometry {
+                        SurfaceGeometry::Cylinder { .. } => "Cyl",
+                        SurfaceGeometry::Plane { .. } => "Plane",
+                        SurfaceGeometry::Sphere { .. } => "Sphere",
+                        SurfaceGeometry::Gregory(_) => "Gregory",
+                        _ => "Other",
+                    })
+                    .unwrap_or("none");
+                eprintln!(
+                    "[wire-match] he={he_handle:?} edge={:?} twin={twin_kind} chord={chord:.3e} v_origin=({:.3},{:.3},{:.3}) v_dest=({:.3},{:.3},{:.3}) best_seg={:?} best_d={:?}",
+                    he.edge,
+                    p_origin.x,
+                    p_origin.y,
+                    p_origin.z,
+                    p_dest.x,
+                    p_dest.y,
+                    p_dest.z,
+                    best.map(|(i, _, _)| i),
+                    best.map(|(_, d, _)| d),
+                );
             }
             let Some((seg_idx, d, reversed)) = best else {
                 continue;
             };
             if d > tol {
+                if trace_match {
+                    eprintln!("[wire-match]   REJECTED seg={seg_idx} d={d:.3e} > tol={tol:.3e}");
+                }
                 continue;
+            }
+            if trace_match {
+                eprintln!("[wire-match]   ACCEPTED seg={seg_idx} d={d:.3e} reversed={reversed}");
             }
             if !allow_multi_sub_edge {
                 consumed[seg_idx] = true;
