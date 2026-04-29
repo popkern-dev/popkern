@@ -774,6 +774,116 @@ fn pyramid_uniform_planner_diagnostic() {
     }
 }
 
+/// Phase 6c-C #172 — dump the per-fillet sphere cap loop
+/// structure under `POPKERN_SPHERE_CAP_RUNG=1`, which splits
+/// the apex into 4 separate cap faces (one per fillet).
+/// Each cap is a Sphere primitive; this diagnostic walks each
+/// cap's outer loop and prints vertex positions, twin surface
+/// kinds, and dist-to-this-cap-sphere signed values.
+///
+/// Used to design the planner generalisation that constructs
+/// fresh on-sphere vertices for pyramid (where no existing
+/// vertex lies on the per-fillet sphere).
+#[test]
+#[ignore]
+fn pyramid_uniform_per_fillet_cap_loop_dump() {
+    use super::plan::plan_apex_region_deletion;
+    unsafe {
+        std::env::set_var("POPKERN_SPHERE_FIT_BOUNDARY", "1");
+        std::env::set_var("POPKERN_SPHERE_CAP_RUNG", "1");
+        std::env::set_var("POPKERN_VAR_RADIUS_REROUTE", "1");
+        std::env::remove_var("POPKERN_APEX_TOPOLOGY_REBUILD");
+    }
+    let pyr = BRep::square_pyramid(1.0, 0.8, Tolerance::default()).unwrap();
+    let apex = pyr
+        .vertices
+        .keys()
+        .find(|&v| pyr.half_edges.values().filter(|he| he.origin == v).count() == 4)
+        .expect("pyramid has a valence-4 apex");
+    let edges = corner_edges(&pyr, apex);
+    let radii = [0.10_f64; 4];
+    let specs: Vec<FilletSpec> = edges
+        .iter()
+        .zip(radii.iter())
+        .map(|(&e, &r)| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(r),
+        })
+        .collect();
+    let result = crate::fillet_edges(
+        &pyr,
+        &specs,
+        &FilletOptions::default(),
+        Tolerance::default(),
+        None,
+    )
+    .expect("pyramid_uniform fillet should succeed");
+    let brep = result.brep;
+    let metrics = per_sphere_cap_metrics(&brep);
+    eprintln!(
+        "\n=== Per-fillet sphere cap loop dump (rung ON) ===\n{} cap faces total",
+        metrics.len()
+    );
+    for (cap_face_idx, (fh, n_edges, g0, g1)) in metrics.iter().enumerate() {
+        eprintln!(
+            "\nCap face #{cap_face_idx} ({fh:?}): n_loop_edges={n_edges} g0={g0:.3e} g1={g1:.3e}"
+        );
+        let plan = plan_apex_region_deletion(&brep, *fh);
+        eprintln!(
+            "  plan: cap_sphere={:?}  keep={} delete={} arcs={} actionable={}",
+            plan.cap_sphere,
+            plan.keep_vertices.len(),
+            plan.delete_vertices.len(),
+            plan.insert_cap_tangent_arcs.len(),
+            plan.is_actionable(),
+        );
+        let face = &brep.faces[*fh];
+        let outer = face.outer_loop;
+        let start = brep.loops[outer].half_edge;
+        let mut cur = start;
+        for step in 0..16 {
+            let he = &brep.half_edges[cur];
+            let v_origin = brep.vertices[he.origin].position;
+            let twin_face = brep.loops[brep.half_edges[he.twin].loop_].face;
+            let twin_surf = brep.faces.get(twin_face).and_then(|f| f.surface.as_ref());
+            let twin_kind = twin_surf
+                .map(|s| match &s.geometry {
+                    SurfaceGeometry::Sphere { .. } => "Sphere",
+                    SurfaceGeometry::Cylinder { .. } => "Cyl",
+                    SurfaceGeometry::Plane { .. } => "Plane",
+                    SurfaceGeometry::Gregory(_) => "Gregory",
+                    _ => "?",
+                })
+                .unwrap_or("none");
+            let on_sphere_signed = if let Some((c, r)) = plan.cap_sphere {
+                v_origin.distance_to(&c) - r
+            } else {
+                f64::NAN
+            };
+            // Also: distance from edge midpoint to cap sphere.
+            let edge = &brep.edges[he.edge];
+            let edge_mid_dist = if let (Some(coe), Some((c, r))) =
+                (edge.curve.as_ref(), plan.cap_sphere)
+            {
+                use popkern_core::geometry::CurveEval;
+                let t_mid = 0.5 * (coe.t_start + coe.t_end);
+                let p_mid = coe.geometry.point_at(t_mid);
+                p_mid.distance_to(&c) - r
+            } else {
+                f64::NAN
+            };
+            eprintln!(
+                "    step{step}: V({:.4},{:.4},{:.4})  twin={twin_kind:7} (face {twin_face:?})  v_to_sphere={on_sphere_signed:+.3e}  edge_mid_to_sphere={edge_mid_dist:+.3e}",
+                v_origin.x, v_origin.y, v_origin.z
+            );
+            cur = he.next;
+            if cur == start {
+                break;
+            }
+        }
+    }
+}
+
 /// Pre-rebuild baseline diagnostic for pyramid_uniform.
 /// Phase 6c-D commercial-grade gate for cube_extreme — 1:10
 /// radius ratio fillets `[0.05, 0.10, 0.50]`.  Extends the
