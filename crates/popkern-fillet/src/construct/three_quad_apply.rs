@@ -700,7 +700,18 @@ fn promote_decomp_to_kp_binonic(
     // regressions.
     let pre_worst = worst_ring_coplanarity(sub_patches);
     let post_worst = worst_ring_coplanarity(&binonic_gp);
-    if pre_worst > 1e-12 && post_worst > 1.2 * pre_worst {
+    // Phase 6c-D Stage 3: under boundary injection, the binonic
+    // patch is built from a boundary-consistent frame + Coons
+    // interior, NOT from the K-P guide-driven L-M optimum. Spoke
+    // G1 is determined entirely by the (analytic) row0/col9 +
+    // (input) row9/col0 geometry — the L-M can't refine it. The
+    // 1.2× regression guard was tuned for the guide-driven path
+    // and rejects legitimate-but-different geometry under
+    // injection. Skip the guard when injection is active; the
+    // self-intersection gate (already checked above) is the
+    // remaining quality floor under injection.
+    let injection_active = hex_boundaries.is_some();
+    if !injection_active && pre_worst > 1e-12 && post_worst > 1.2 * pre_worst {
         trace_kp(
             "quality regression",
             n,

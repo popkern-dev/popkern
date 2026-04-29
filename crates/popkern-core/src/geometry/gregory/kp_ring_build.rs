@@ -225,15 +225,21 @@ pub fn build_binonic_ring_from_guides(
             &r1_frames[k],
             &r2_frames[k],
         );
-        // Phase 6c-D Stage 2: keep the guide-based LSQ interior fit
-        // even under injection. Empirically the boundary-derived
-        // frame + guide interior produces fewer folds than the
-        // alternative Coons fill on tested fixtures (pyramid4_mixed,
-        // cube_mixed). Coons fill discards too much surface info;
-        // the guide approximation, even when boundary-stale, is a
-        // smoother reference for the interior 16 CPs.
-        let _ = inject;
-        fit_interior_cps_to_guide(&mut patch, &guides[k]);
+        // Phase 6c-D Stage 3a: under injection, the K-P guide's
+        // boundaries reflect the *pre-injection* deg-5 fit, which
+        // disagrees with the post-injection deg-9 boundary by O(mm)
+        // on curved arcs. The LSQ fit-to-guide pulls interior CPs
+        // toward this stale reference, fighting the boundary-
+        // consistent row-1/row-2 frame and producing folded patches.
+        // Substitute a Coons transfinite interpolation that fills
+        // the 16 strict-interior CPs from the boundary-consistent
+        // ring directly — no guide reference, no stale-boundary
+        // pull, fold-free by construction.
+        if inject {
+            fill_interior_cps_via_coons(&mut patch);
+        } else {
+            fit_interior_cps_to_guide(&mut patch, &guides[k]);
+        }
         patches.push(patch);
     }
     Ok(patches)
@@ -329,10 +335,12 @@ pub fn build_binonic_ring_from_biquintic_guides(
             &r1_frames[k],
             &r2_frames[k],
         );
-        // Phase 6c-D Stage 2: see `build_binonic_ring_from_guides` —
-        // guide-based interior fit retained under injection.
-        let _ = inject;
-        fit_interior_cps_to_biquintic_guide(&mut patch, &guides[k]);
+        // Phase 6c-D Stage 3a — see `build_binonic_ring_from_guides`.
+        if inject {
+            fill_interior_cps_via_coons(&mut patch);
+        } else {
+            fit_interior_cps_to_biquintic_guide(&mut patch, &guides[k]);
+        }
         patches.push(patch);
     }
     Ok(patches)
@@ -427,10 +435,12 @@ pub fn build_binonic_ring_from_binonic_guides(
             &r1_frames[k],
             &r2_frames[k],
         );
-        // Phase 6c-D Stage 2: see `build_binonic_ring_from_guides` —
-        // guide-based interior fit retained under injection.
-        let _ = inject;
-        fit_interior_cps_to_binonic_guide(&mut patch, &guides[k]);
+        // Phase 6c-D Stage 3a — see `build_binonic_ring_from_guides`.
+        if inject {
+            fill_interior_cps_via_coons(&mut patch);
+        } else {
+            fit_interior_cps_to_binonic_guide(&mut patch, &guides[k]);
+        }
         patches.push(patch);
     }
     Ok(patches)
@@ -466,13 +476,13 @@ pub fn build_binonic_ring_from_binonic_guides(
 /// quality bar; deep interior is not reachable by the cap-vs-
 /// neighbour edge measurements.
 ///
-/// **Stage 3 status:** Empirically, swapping the K-P guide-fitted
-/// interior for this Coons fill on injection-consuming pyramid4
-/// fixtures reduced cap-outer G0 from 0.14 to 0.11 (matrix probe,
-/// `POPKERN_STAGE2_PROBE`) but the patches still self-intersect
-/// under the production gate. Kept as scaffolding for the proper
-/// Stage 3 fix (joint row1/row2 + interior L-M optimisation).
-#[allow(dead_code)]
+/// **Stage 3a status:** Default interior-fill under injection.
+/// Eliminates the LSQ-against-stale-guide pull and produces
+/// patches that the existing `self_intersects_with_tolerance(1e-6)`
+/// gate accepts on pyramid4_mixed (4 binonic ship). cube_mixed
+/// remains rejected by the quality regression guard
+/// (`worst_ring_coplanarity` ratio > 1.2× pre-rung); Stage 3b will
+/// address that.
 fn fill_interior_cps_via_coons(patch: &mut RectangularGregoryBiNonic) {
     for i in 3..=6 {
         let alpha = ((i - 2) as f64) / 5.0;

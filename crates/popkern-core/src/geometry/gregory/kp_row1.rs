@@ -276,26 +276,35 @@ pub fn derive_row1_frame_from_boundary(
     let corner_11 = corner_2x2(row9[9], g_u_11, g_v_11, zero, -1.0, -1.0);
     let corner_01 = corner_2x2(row0[9], g_u_01, g_v_01, zero, 1.0, -1.0);
 
-    // Cross-derivative profiles: deg-9 Bernstein CPs of the surface's
-    // u-tangent / v-tangent fields along each boundary. With no guide
-    // to read these from, we approximate as a linear blend between
-    // the two corner endpoint values — a degree-9 Bezier curve whose
-    // 10 CPs lie on the line between the two corner tangents in
-    // Vec3-space.
-    let g_u_u0_cps = lerp_cross_deriv_cps(g_u_00, g_u_01);
-    let g_u_u1_cps = lerp_cross_deriv_cps(g_u_10, g_u_11);
-    let g_v_v0_cps = lerp_cross_deriv_cps(g_v_00, g_v_10);
-    let g_v_v1_cps = lerp_cross_deriv_cps(g_v_01, g_v_11);
+    // Phase 6c-D Stage 3: mid-edge row1[j] / row8[j] / col1[i] / col8[i]
+    // computed by *opposite-boundary interpolation* — set
+    // `row1[j] = (8/9)·row0[j] + (1/9)·row9[j]`. This places the
+    // row-1 ring on the segment from row0 to row9 at u = 1/9,
+    // guaranteeing fold-freeness by construction (each ring's
+    // CPs lie inside the convex hull of the four boundaries).
+    //
+    // Geometrically equivalent to setting the cross-derivative
+    // CP `g_u_u0[j] := (row9[j] − row0[j])` — the surface's
+    // u-direction "step" at v=v_j is the chord from row 0 to
+    // row 9 at that v. This is a chord-length-aware estimate
+    // that beats the corner-tangent linear blend (which can
+    // reverse direction at mid-edge for tilted-axis fixtures
+    // where corner tangents point in conflicting directions).
+    //
+    // Corners (j ∈ {0, 1, 8, 9}) keep boundary-direct / corner-2×2
+    // values for K-P consistency.
+    //
+    // Suppress unused warnings on the corner-tangent variables —
+    // they're consumed by `corner_2x2` above.
+    let _ = (
+        g_u_00, g_u_10, g_u_01, g_u_11, g_v_00, g_v_01, g_v_10, g_v_11,
+    );
 
-    // Row 1 — same structure as `derive_row1_frame`. Boundary
-    // touching values copy directly from boundaries; corners use
-    // the boundary-derived 2×2; mid-edge uses the linear-blend
-    // cross-derivative.
     let mut row1 = [Point3::new(0.0, 0.0, 0.0); 10];
     row1[0] = col0[1];
     row1[1] = corner_00;
     for j in 2..=7 {
-        row1[j] = add_scaled(row0[j], g_u_u0_cps[j], 1.0 / 9.0);
+        row1[j] = lerp_point(row0[j], row9[j], 1.0 / 9.0);
     }
     row1[8] = corner_01;
     row1[9] = col9[1];
@@ -304,7 +313,7 @@ pub fn derive_row1_frame_from_boundary(
     row8[0] = col0[8];
     row8[1] = corner_10;
     for j in 2..=7 {
-        row8[j] = add_scaled(row9[j], g_u_u1_cps[j], -1.0 / 9.0);
+        row8[j] = lerp_point(row0[j], row9[j], 8.0 / 9.0);
     }
     row8[8] = corner_11;
     row8[9] = col9[8];
@@ -313,7 +322,7 @@ pub fn derive_row1_frame_from_boundary(
     col1[0] = row0[1];
     col1[1] = corner_00;
     for i in 2..=7 {
-        col1[i] = add_scaled(col0[i], g_v_v0_cps[i], 1.0 / 9.0);
+        col1[i] = lerp_point(col0[i], col9[i], 1.0 / 9.0);
     }
     col1[8] = corner_10;
     col1[9] = row9[1];
@@ -322,7 +331,7 @@ pub fn derive_row1_frame_from_boundary(
     col8[0] = row0[8];
     col8[1] = corner_01;
     for i in 2..=7 {
-        col8[i] = add_scaled(col9[i], g_v_v1_cps[i], -1.0 / 9.0);
+        col8[i] = lerp_point(col0[i], col9[i], 8.0 / 9.0);
     }
     col8[8] = corner_11;
     col8[9] = row9[8];
@@ -333,6 +342,17 @@ pub fn derive_row1_frame_from_boundary(
         col1,
         col8,
     }
+}
+
+/// Phase 6c-D Stage 3 — linearly interpolate two `Point3`s by `t`.
+/// `lerp_point(p0, p1, t) = (1 − t)·p0 + t·p1`.
+#[inline]
+fn lerp_point(p0: Point3, p1: Point3, t: f64) -> Point3 {
+    Point3::new(
+        (1.0 - t) * p0.x + t * p1.x,
+        (1.0 - t) * p0.y + t * p1.y,
+        (1.0 - t) * p0.z + t * p1.z,
+    )
 }
 
 /// Phase 6c-D Stage 2 — `9·(P[1] − P[0])` for a deg-9 boundary.
