@@ -194,7 +194,12 @@ fn r8_c7_dispatch_produces_three_rectangular_gregory_subpatches() {
         }
     }
 
-    // Euler invariant: +1V, +3E, +2F compared with the baseline.
+    // Euler-invariant delta vs baseline (polar-NURBS): the
+    // three-quad poke contributes +1V, +3E, +2F; the
+    // `sliver_absorb` Class D pass (matching both Sphere and
+    // Gregory cap twins) removes 3 Plane sliver fragments adjacent
+    // to the Gregory caps via `kef`, contributing 0V, -3E, -3F.
+    // Net: +1V, 0E, -1F. ΔV - ΔE + ΔF = 0 (Euler-consistent).
     assert_eq!(
         result.brep.vertices.len(),
         baseline.brep.vertices.len() + 1,
@@ -202,13 +207,14 @@ fn r8_c7_dispatch_produces_three_rectangular_gregory_subpatches() {
     );
     assert_eq!(
         result.brep.edges.len(),
-        baseline.brep.edges.len() + 3,
-        "R8 C7: three spoke edges added"
+        baseline.brep.edges.len(),
+        "R8 C7: three poke spokes added, three sliver edges absorbed"
     );
     assert_eq!(
-        result.brep.faces.len(),
-        baseline.brep.faces.len() + 2,
-        "R8 C7: hex splits into three sub-faces (+2 faces)"
+        result.brep.faces.len() + 1,
+        baseline.brep.faces.len(),
+        "R8 C7: hex splits into three sub-faces (+2), three sliver \
+         Plane fragments absorbed (-3); net -1 face vs baseline"
     );
 
     // R8 C8 — the post-dispatch BRep must pass `validate()`.
@@ -299,12 +305,16 @@ fn r8_c8_fillet_quality_gregory_not_worse_than_polar_nurbs() {
         gregory_q.surface_area,
     );
 
-    // Three-quad patch count: 3 sub-patches per corner + the
-    // fillet strips. Baseline has 1 corner patch + strips.
+    // Three-quad poke contributes +2 corner sub-patches (1 hex →
+    // 3 sub-patches). The `sliver_absorb` Class D pass then
+    // removes 3 Plane sliver fragments adjacent to the Gregory
+    // caps, contributing -3. Net: gregory.patch_count =
+    // baseline.patch_count - 1.
     assert_eq!(
-        gregory_q.patch_count,
-        baseline_q.patch_count + 2,
-        "R8 C8: Gregory path should add exactly 2 patches vs baseline (three-quad poke)"
+        gregory_q.patch_count + 1,
+        baseline_q.patch_count,
+        "R8 C8: Gregory path nets -1 patch vs baseline \
+         (three-quad poke +2 sub-faces, sliver absorb -3 Planes)"
     );
 
     // Composite score is NOT a reliable parity metric on mixed-

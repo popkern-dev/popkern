@@ -2,7 +2,7 @@
 //!
 //! **Step 2 scope**: infrastructure only. This module subsumes the
 //! previous specific-case `blend_cleanup::merge_corner_fragments_into_blends`
-//! absorber (Class D — "≤4-vert Plane → Sphere vertex blend") under
+//! absorber (Class D — "≤4-vert Plane → Sphere/Gregory vertex blend") under
 //! a general classify-apply-reclassify framework that can be
 //! extended to additional sliver classes in step 3 without further
 //! plumbing changes.
@@ -185,8 +185,8 @@ pub(crate) fn absorb_slivers(brep: &mut BRep, tolerance: &Tolerance) -> Vec<Sliv
 }
 
 /// Class D: ≤4-vert Plane face whose outer loop contains a
-/// half-edge whose twin face is a Sphere. Returns
-/// `(plane_face, sphere_side_half_edge)` so `kef` preserves the
+/// half-edge whose twin face is a Sphere or Gregory cap. Returns
+/// `(plane_face, cap_side_half_edge)` so `kef` preserves the
 /// sphere labelling.
 fn find_corner_fragment_target(
     brep: &BRep,
@@ -220,7 +220,10 @@ fn find_corner_fragment_target(
             let twin_face = brep.loops[twin.loop_].face;
             if twin_face != fh
                 && let Some(twin_sof) = brep.faces[twin_face].surface.as_ref()
-                && matches!(twin_sof.geometry, SurfaceGeometry::Sphere { .. })
+                && matches!(
+                    twin_sof.geometry,
+                    SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Gregory(_)
+                )
             {
                 return Some((fh, twin_h));
             }

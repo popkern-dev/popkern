@@ -117,6 +117,12 @@ fn item4_square_pyramid_apex_produces_four_gregory_subpatches() {
     };
     let baseline = fillet_edges(&pyramid, &specs, &baseline_opts, tol, None)
         .expect("baseline polar-NURBS pipeline must succeed");
+    // Euler-invariant delta vs baseline: the N-quad poke contributes
+    // +1V, +NE, +(N-1)F (one central vertex, N spokes, N-1 new
+    // sub-faces). The `sliver_absorb` Class D pass removes N Plane
+    // sliver fragments adjacent to the Gregory caps via `kef`,
+    // contributing 0V, -NE, -NF. Net: +1V, 0E, -1F.
+    // ΔV - ΔE + ΔF = 0 (Euler-consistent).
     assert_eq!(
         result.brep.vertices.len(),
         baseline.brep.vertices.len() + 1,
@@ -124,13 +130,14 @@ fn item4_square_pyramid_apex_produces_four_gregory_subpatches() {
     );
     assert_eq!(
         result.brep.edges.len(),
-        baseline.brep.edges.len() + 4,
-        "N=4 dispatch: +4 spoke edges"
+        baseline.brep.edges.len(),
+        "N=4 dispatch: 4 poke spokes added, 4 sliver edges absorbed"
     );
     assert_eq!(
-        result.brep.faces.len(),
-        baseline.brep.faces.len() + 3,
-        "N=4 dispatch: +3 sub-faces (1 → 4)"
+        result.brep.faces.len() + 1,
+        baseline.brep.faces.len(),
+        "N=4 dispatch: hex-poke +3 sub-faces, sliver absorb -4 \
+         Plane fragments; net -1 face vs baseline"
     );
 }
 

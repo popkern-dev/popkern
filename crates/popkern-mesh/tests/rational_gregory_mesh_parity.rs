@@ -82,11 +82,14 @@ fn r8_c8_mesh_produces_output_on_both_flag_states() {
     );
     assert!(baseline_tris > 0, "baseline: mesh must be non-empty");
 
-    // Three-quad poke adds 2 faces.
+    // Three-quad poke adds 2 faces (1 hex → 3 sub-patches);
+    // `sliver_absorb` Class D removes 3 Plane sliver fragments
+    // adjacent to the Gregory caps. Net: gregory = baseline - 1.
     assert_eq!(
-        gregory_faces,
-        baseline_faces + 2,
-        "R8 C7: three-quad poke adds 2 faces (+1V +3E +2F Euler)"
+        gregory_faces + 1,
+        baseline_faces,
+        "R8 C7: three-quad poke (+2 faces) minus sliver absorb \
+         (-3 faces) nets -1 face vs baseline"
     );
     assert!(
         gregory_tris > 0,
