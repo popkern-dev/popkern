@@ -573,7 +573,27 @@ pub fn apply_blend_geometry(
     }
 
     // §13.1(2) sliver absorption: Classes A/B/C/D. 12-edge cube test is Class D regression guard (26 faces preserved).
-    sliver_absorb::run_and_route_warnings(&mut result, tolerance, edge_geometries, &mut warnings);
+    //
+    // Phase 6c-D Stage 4.5: protect substituted-boundary cap faces
+    // from absorption.  When sphere-fit injection has fired, each
+    // cap's outer loop is the canonical 3-edge per-fillet topology
+    // that the injected `hex_boundaries[k]` describes; absorbing
+    // adjacent Plane fragments would expand the loop across 2-3
+    // fillets' boundaries and the Gregory cap surface (row 0 = ONE
+    // FilletEnd) cannot represent that.  The protection set is
+    // empty when no vertex took the substitution path (all other
+    // fixtures behave identically to before).
+    let protected_caps: Vec<popkern_core::topology::FaceHandle> = late_wire_jobs
+        .iter()
+        .flat_map(|(_, faces)| faces.iter().copied())
+        .collect();
+    sliver_absorb::run_and_route_warnings_with_protected(
+        &mut result,
+        tolerance,
+        edge_geometries,
+        &protected_caps,
+        &mut warnings,
+    );
 
     cap_insert::insert_caps(&mut result, brep, edge_geometries, &mut warnings); // §8.3 caps
 

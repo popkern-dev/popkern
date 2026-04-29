@@ -46,6 +46,7 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 /// inline in `construct::mod` so the dispatch logic stays colocated
 /// with the classifier and the parent file stays under the 500-line
 /// structural cap.
+#[allow(dead_code)]
 pub(crate) fn run_and_route_warnings(
     brep: &mut BRep,
     tolerance: &Tolerance,
@@ -55,7 +56,33 @@ pub(crate) fn run_and_route_warnings(
         crate::error::BlendWarning,
     )>,
 ) {
-    let sliver_warnings = absorb_slivers(brep, tolerance);
+    run_and_route_warnings_with_protected(brep, tolerance, edge_geometries, &[], warnings)
+}
+
+/// As [`run_and_route_warnings`], plus an opt-in set of cap faces
+/// that the absorber must NOT touch.  Used by Phase 6c-D Stage 4.5:
+/// when sphere-fit boundary substitution + bi-9 K-P injection have
+/// fired, each cap face's outer loop is the canonical 3-edge
+/// per-fillet topology that the injected `hex_boundaries[k]`
+/// describes.  Letting `sliver_absorb` merge adjacent Plane
+/// fragments into those caps expands the cap-face outer loop to
+/// span 2-3 fillets — the Gregory cap surface (row 0 = ONE
+/// FilletEnd) cannot reproduce that boundary, and `cap_outer_g0`
+/// stalls at 1-6 cm regardless of how well the L-M solver fits the
+/// interior.  Skipping absorption for these caps preserves the
+/// per-fillet hex topology.
+pub(crate) fn run_and_route_warnings_with_protected(
+    brep: &mut BRep,
+    tolerance: &Tolerance,
+    edge_geometries: &[crate::construct::EdgeGeometry],
+    protected: &[FaceHandle],
+    warnings: &mut Vec<(
+        popkern_core::topology::EdgeHandle,
+        crate::error::BlendWarning,
+    )>,
+) {
+    let protected_set: std::collections::BTreeSet<FaceHandle> = protected.iter().copied().collect();
+    let sliver_warnings = absorb_slivers_with_protected(brep, tolerance, &protected_set);
     let fallback = edge_geometries
         .first()
         .map(|eg| eg.analysis.edge)
@@ -145,7 +172,20 @@ impl SliverKind {
 /// A (zero-area) → C (redundant edge) → B (short edge, roughest
 /// heuristic, last). Failed kefs mark the face as retained so the
 /// pass moves on rather than spinning.
+#[allow(dead_code)]
 pub(crate) fn absorb_slivers(brep: &mut BRep, tolerance: &Tolerance) -> Vec<SliverAbsorbWarning> {
+    absorb_slivers_with_protected(brep, tolerance, &std::collections::BTreeSet::new())
+}
+
+/// Variant of [`absorb_slivers`] that refuses any kef whose surviving
+/// face is in `protected`.  Used by Phase 6c-D Stage 4.5 to keep
+/// substituted-boundary cap faces from absorbing adjacent Plane
+/// fragments and growing across multiple fillets' boundaries.
+fn absorb_slivers_with_protected(
+    brep: &mut BRep,
+    tolerance: &Tolerance,
+    protected: &std::collections::BTreeSet<FaceHandle>,
+) -> Vec<SliverAbsorbWarning> {
     let mut warnings: Vec<SliverAbsorbWarning> = Vec::new();
     let cap = brep.faces.len() * 2 + 16;
     let mut retained: std::collections::HashSet<FaceHandle> = std::collections::HashSet::new();
@@ -176,6 +216,22 @@ pub(crate) fn absorb_slivers(brep: &mut BRep, tolerance: &Tolerance) -> Vec<Sliv
         let Some((face, kind, he)) = candidate else {
             break;
         };
+        // Phase 6c-D Stage 4.5: if the surviving face (the one
+        // containing `he`) is a substituted-boundary cap, skip the
+        // kef.  The caller has injected hex-boundary CPs that
+        // describe the cap's CURRENT outer loop; absorbing a
+        // neighbour would expand the loop across multiple fillets'
+        // boundaries and the Gregory cap surface (row 0 = one
+        // FilletEnd) can no longer represent it.  Mark the sliver
+        // as retained so the loop moves on rather than retrying.
+        let surviving_face = brep.half_edges.get(he).map(|h| brep.loops[h.loop_].face);
+        if let Some(sf) = surviving_face
+            && protected.contains(&sf)
+        {
+            warnings.push(SliverAbsorbWarning::Retained { face, kind });
+            retained.insert(face);
+            continue;
+        }
         if brep.kef(he).is_err() {
             warnings.push(SliverAbsorbWarning::Retained { face, kind });
             retained.insert(face);
