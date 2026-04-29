@@ -115,10 +115,9 @@ pub fn build_binonic_ring_from_guides(
     let mut boundaries: Vec<[[Point3; 10]; 4]> = Vec::with_capacity(n);
     for k in 0..n {
         let k_prev = (k + n - 1) % n;
-        let row0 = k_p_boundary(&guides[k], true, false);
+        let (row0, col9) = pick_hex_boundary(input, &guides[k], k);
         let row9 = shared_spokes[k];
         let col0 = reverse_boundary(&shared_spokes[k_prev]);
-        let col9 = k_p_boundary(&guides[k], false, true);
         boundaries.push([row0, row9, col0, col9]);
     }
 
@@ -213,10 +212,9 @@ pub fn build_binonic_ring_from_biquintic_guides(
     let mut boundaries: Vec<[[Point3; 10]; 4]> = Vec::with_capacity(n);
     for k in 0..n {
         let k_prev = (k + n - 1) % n;
-        let row0 = k_p_boundary(&guides[k], true, false);
+        let (row0, col9) = pick_hex_boundary(input, &guides[k], k);
         let row9 = shared_spokes[k];
         let col0 = reverse_boundary(&shared_spokes[k_prev]);
-        let col9 = k_p_boundary(&guides[k], false, true);
         boundaries.push([row0, row9, col0, col9]);
     }
     let mut r1_frames: Vec<Row1Frame> = guides
@@ -295,10 +293,9 @@ pub fn build_binonic_ring_from_binonic_guides(
     let mut boundaries: Vec<[[Point3; 10]; 4]> = Vec::with_capacity(n);
     for k in 0..n {
         let k_prev = (k + n - 1) % n;
-        let row0 = k_p_boundary(&guides[k], true, false);
+        let (row0, col9) = pick_hex_boundary(input, &guides[k], k);
         let row9 = shared_spokes[k];
         let col0 = reverse_boundary(&shared_spokes[k_prev]);
-        let col9 = k_p_boundary(&guides[k], false, true);
         boundaries.push([row0, row9, col0, col9]);
     }
     let mut r1_frames: Vec<Row1Frame> = guides
@@ -351,6 +348,36 @@ fn reverse_boundary(curve: &[Point3; 10]) -> [Point3; 10] {
         out[i] = curve[9 - i];
     }
     out
+}
+
+/// Phase 6c-D Stage 1c: pick the row0 / col9 boundary CPs for
+/// sub-patch `k` — either from `input.hex_boundaries[k]` (when
+/// the caller has injected substituted analytic boundary CPs) or
+/// synthesised from the guide's corner Hermite data via
+/// [`k_p_boundary`].
+///
+/// When `input.hex_boundaries` is `Some` and indexable at `k`, the
+/// injected `row0` / `col9` arrays are returned verbatim — exact
+/// `sphere ∩ cylinder` great-circle CPs (deg-9 from
+/// `BlendBoundary.hex_boundary_cps_deg9`). When `None`, the
+/// generic `k_p_boundary` fallback synthesises from corner
+/// position + tangent + curvature, the original Phase H behaviour.
+///
+/// See `docs/decisions/2026-04-29-phase-6c-d-stage-1-boundary-injection.md`.
+fn pick_hex_boundary<G: KpGuide>(
+    input: &DirectBoundaryInput,
+    guide: &G,
+    k: usize,
+) -> ([Point3; 10], [Point3; 10]) {
+    if let Some(ref hex) = input.hex_boundaries
+        && let Some(entry) = hex.get(k)
+    {
+        return (entry.row0, entry.col9);
+    }
+    (
+        k_p_boundary(guide, true, false),
+        k_p_boundary(guide, false, true),
+    )
 }
 
 fn k_p_boundary<G: KpGuide>(guide: &G, is_u: bool, at_end: bool) -> [Point3; 10] {
