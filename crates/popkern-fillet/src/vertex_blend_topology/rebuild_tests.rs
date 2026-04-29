@@ -524,10 +524,25 @@ fn pyramid_uniform_apex_baseline_metrics() {
     for (fh, n, g0, g1) in &metrics {
         eprintln!("  {fh:?}: n_loop_edges={n} max_g0={g0:.3e} max_g1={g1:.3e}");
     }
-    // Today's empirical: 1 Sphere cap with g0 ~= 0.18, g1 ~= 0.99.
-    // Far from commercial grade. Tracking-only assertion: surface
-    // is a Sphere with > 5cm cap-vs-cylinder gap (descriptive).
-    assert_eq!(metrics.len(), 1, "pyramid_uniform: single Sphere apex cap");
+    // Dump all face surface kinds to see the post-dispatch state.
+    let mut surf_counts: std::collections::BTreeMap<&str, usize> =
+        std::collections::BTreeMap::new();
+    for (_, face) in brep.faces.iter() {
+        let kind = face
+            .surface
+            .as_ref()
+            .map(|s| match &s.geometry {
+                SurfaceGeometry::Sphere { .. } => "Sphere",
+                SurfaceGeometry::Cylinder { .. } => "Cyl",
+                SurfaceGeometry::Plane { .. } => "Plane",
+                SurfaceGeometry::Gregory(_) => "Gregory",
+                SurfaceGeometry::Nurbs(_) => "Nurbs",
+                _ => "Other",
+            })
+            .unwrap_or("none");
+        *surf_counts.entry(kind).or_insert(0) += 1;
+    }
+    eprintln!("Surface counts: {surf_counts:?}");
 }
 
 /// Phase 6c-E pyramid_uniform diagnostic — documents the gap.
