@@ -346,6 +346,119 @@ fn cap_surface_at_row0_tracks_analytic_boundary() {
     }
 }
 
+/// Phase 6c-D Stage 4.3 diagnostic — for each cap face, dump its
+/// outer-loop edges (handle, vertex positions, curve3d midpoint)
+/// alongside cap_outer's view of the same BRep. Reveals which
+/// edges the wire step misses vs which edges cap_outer measures.
+#[ignore]
+#[test]
+fn cap_loop_vs_cap_outer_edge_coverage() {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    let _guard = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
+    let _guard2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
+    let pyr = BRep::square_pyramid(1.0, 0.8, Tolerance::default()).unwrap();
+    let vertex = pick_vertex_with_valence(&pyr, 4).unwrap();
+    let edges = incident_edges(&pyr, vertex);
+    let radii: Vec<f64> = vec![0.04, 0.06, 0.05, 0.07];
+    let (brep, faces) = fillet_corner(&pyr, &edges, &radii, true);
+    let cap_set: std::collections::BTreeSet<_> = faces.iter().copied().collect();
+
+    eprintln!(
+        "\n=== cap face outer-loop edges (from wire's perspective) ===\n{} cap faces",
+        faces.len()
+    );
+    let mut wire_edges: std::collections::BTreeSet<popkern_core::topology::EdgeHandle> =
+        std::collections::BTreeSet::new();
+    for (face_idx, &fh) in faces.iter().enumerate() {
+        let face = &brep.faces[fh];
+        let outer = face.outer_loop;
+        let start = brep.loops[outer].half_edge;
+        eprintln!("\nCap face #{face_idx} ({fh:?}):");
+        let mut cur = start;
+        for step in 0..16 {
+            let he = &brep.half_edges[cur];
+            let edge = he.edge;
+            wire_edges.insert(edge);
+            let twin_face = brep.loops[brep.half_edges[he.twin].loop_].face;
+            let twin_kind = brep
+                .faces
+                .get(twin_face)
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| match &s.geometry {
+                    SurfaceGeometry::Plane { .. } => "Plane",
+                    SurfaceGeometry::Cylinder { .. } => "Cyl",
+                    SurfaceGeometry::Sphere { .. } => "Sphere",
+                    SurfaceGeometry::Gregory(_) => "Gregory",
+                    SurfaceGeometry::Nurbs(_) => "Nurbs",
+                    _ => "Other",
+                })
+                .unwrap_or("none");
+            let v_origin = brep.vertices[he.origin].position;
+            let curve_mid = brep.edges[edge].curve.as_ref().map(|coe| {
+                let t_mid = 0.5 * (coe.t_start + coe.t_end);
+                coe.geometry.point_at(t_mid)
+            });
+            eprintln!(
+                "  step{step}: he={cur:?} edge={edge:?} twin={twin_kind:7} (face {twin_face:?}) v_origin=({:.3},{:.3},{:.3}) curve_mid={:?}",
+                v_origin.x, v_origin.y, v_origin.z,
+                curve_mid.map(|p| (p.x, p.y, p.z))
+            );
+            cur = he.next;
+            if cur == start {
+                break;
+            }
+        }
+    }
+
+    eprintln!(
+        "\n=== cap_outer's view (BRep edge iteration) ===\nwire visited {} unique edges",
+        wire_edges.len()
+    );
+    let mut cap_outer_edges: std::collections::BTreeSet<popkern_core::topology::EdgeHandle> =
+        std::collections::BTreeSet::new();
+    for (eh, edge) in brep.edges.iter() {
+        let Some(_coe) = edge.curve.as_ref() else {
+            continue;
+        };
+        let he_a = edge.half_edge;
+        let Some(ha) = brep.half_edges.get(he_a) else {
+            continue;
+        };
+        let Some(hb) = brep.half_edges.get(ha.twin) else {
+            continue;
+        };
+        let face_a = brep.loops[ha.loop_].face;
+        let face_b = brep.loops[hb.loop_].face;
+        if face_a == face_b {
+            continue;
+        }
+        let a_is_cap = cap_set.contains(&face_a);
+        let b_is_cap = cap_set.contains(&face_b);
+        if a_is_cap == b_is_cap {
+            continue;
+        }
+        if ha.pcurve.is_none() || hb.pcurve.is_none() {
+            continue;
+        }
+        cap_outer_edges.insert(eh);
+    }
+    eprintln!("cap_outer measures {} unique edges", cap_outer_edges.len());
+    let in_wire_not_outer: Vec<_> = wire_edges.difference(&cap_outer_edges).collect();
+    let in_outer_not_wire: Vec<_> = cap_outer_edges.difference(&wire_edges).collect();
+    eprintln!(
+        "wire-only edges (not measured by cap_outer): {} = {:?}",
+        in_wire_not_outer.len(),
+        in_wire_not_outer
+    );
+    eprintln!(
+        "cap_outer-only edges (not visited by wire): {} = {:?}",
+        in_outer_not_wire.len(),
+        in_outer_not_wire
+    );
+}
+
 /// Phase 6c-D Stage 4 diagnostic: break down `cap_outer_g0` by
 /// per-edge contribution. Reports for each cap-vs-non-cap edge:
 /// the twin-face surface type, mid-edge G0 gap, and (for cap-side

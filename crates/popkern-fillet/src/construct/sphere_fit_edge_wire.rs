@@ -118,6 +118,13 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     let mut consumed = vec![false; segment_curves.len()];
     type Job = (HalfEdgeHandle, usize, bool, Point3, Point3);
     let mut worklist: Vec<Job> = Vec::new();
+    // Phase 6c-D Stage 4.3: cap-face set for cap-vs-cap edge
+    // detection. The cap face's surface at wire time is NurbsSurface
+    // (Gregory assignment happens AFTER wire in the pipeline), so
+    // we can't filter by surface kind. Identify cap faces by
+    // membership in `sub_faces` instead.
+    let cap_face_set: std::collections::BTreeSet<FaceHandle> =
+        sub_faces.iter().copied().collect();
 
     for &sub_face in sub_faces {
         let Some(face_data) = brep.faces.get(sub_face) else {
@@ -142,30 +149,34 @@ pub(crate) fn wire_substituted_boundary_to_edges(
             };
             let v_dest = next_he_data.origin;
 
-            // Phase 6c-D Stage 4.2: skip cap-vs-cap edges (twin
-            // face is Sphere or Gregory). They aren't FilletEnd or
-            // FaceEdge boundaries — they're inner spokes / shared
-            // cap edges between adjacent per-fillet caps. Wiring
-            // them would write the wrong analytic curve and could
-            // corrupt cap-cap continuity. Only wire cap-vs-cylinder
-            // and cap-vs-plane edges (the actual substituted
-            // boundary segments).
+            // Phase 6c-D Stage 4.3: skip cap-vs-cap edges (twin
+            // face is in `sub_faces`, i.e., another cap face).
+            // They aren't FilletEnd or FaceEdge boundaries —
+            // they're inner spokes / shared cap edges between
+            // adjacent per-fillet caps. Wiring them would write
+            // the wrong analytic curve and could corrupt cap-cap
+            // continuity. Only wire cap-vs-non-cap edges.
+            //
+            // Earlier surface-based filter (Sphere | Gregory) was
+            // ineffective because the cap face's surface at wire
+            // time is still NurbsSurface (Gregory replaces it
+            // *after* the wire step in the pipeline). Membership
+            // in `sub_faces` is the topology-stable signal.
             let twin_he = he.twin;
             let twin_face = brep
                 .loops
                 .get(brep.half_edges[twin_he].loop_)
                 .map(|l| l.face);
-            let twin_is_cap_like = twin_face
-                .and_then(|f| brep.faces.get(f))
-                .and_then(|f| f.surface.as_ref())
-                .map(|sof| {
-                    matches!(
-                        &sof.geometry,
-                        SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Gregory(_)
-                    )
-                })
+            let twin_is_cap = twin_face
+                .map(|f| cap_face_set.contains(&f))
                 .unwrap_or(false);
-            if twin_is_cap_like {
+            if twin_is_cap {
+                if trace_match {
+                    eprintln!(
+                        "[wire-match] he={he_handle:?} edge={:?} SKIPPED (twin is cap face)",
+                        he.edge
+                    );
+                }
                 continue;
             }
 
