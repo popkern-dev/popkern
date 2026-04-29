@@ -734,7 +734,8 @@ fn pyramid_uniform_planner_diagnostic() {
         eprintln!(
             "  cap face outer loop (cap surface = {:?}):",
             face.surface.as_ref().map(|s| match &s.geometry {
-                SurfaceGeometry::Sphere { center, radius } => format!("Sphere(c={center:?}, r={radius:.3})"),
+                SurfaceGeometry::Sphere { center, radius } =>
+                    format!("Sphere(c={center:?}, r={radius:.3})"),
                 SurfaceGeometry::Gregory(_) => "Gregory".to_string(),
                 _ => "Other".to_string(),
             })
@@ -862,16 +863,15 @@ fn pyramid_uniform_per_fillet_cap_loop_dump() {
             };
             // Also: distance from edge midpoint to cap sphere.
             let edge = &brep.edges[he.edge];
-            let edge_mid_dist = if let (Some(coe), Some((c, r))) =
-                (edge.curve.as_ref(), plan.cap_sphere)
-            {
-                use popkern_core::geometry::CurveEval;
-                let t_mid = 0.5 * (coe.t_start + coe.t_end);
-                let p_mid = coe.geometry.point_at(t_mid);
-                p_mid.distance_to(&c) - r
-            } else {
-                f64::NAN
-            };
+            let edge_mid_dist =
+                if let (Some(coe), Some((c, r))) = (edge.curve.as_ref(), plan.cap_sphere) {
+                    use popkern_core::geometry::CurveEval;
+                    let t_mid = 0.5 * (coe.t_start + coe.t_end);
+                    let p_mid = coe.geometry.point_at(t_mid);
+                    p_mid.distance_to(&c) - r
+                } else {
+                    f64::NAN
+                };
             eprintln!(
                 "    step{step}: V({:.4},{:.4},{:.4})  twin={twin_kind:7} (face {twin_face:?})  v_to_sphere={on_sphere_signed:+.3e}  edge_mid_to_sphere={edge_mid_dist:+.3e}",
                 v_origin.x, v_origin.y, v_origin.z

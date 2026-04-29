@@ -115,6 +115,13 @@ pub fn apply_blend_geometry(
     let mut failures: Vec<(EdgeHandle, BlendFailure)> = Vec::new();
     let mut warnings: Vec<(EdgeHandle, BlendWarning)> = Vec::new();
     let mut corner_patches: Vec<crate::types::CornerPatchInfo> = Vec::new();
+    // Phase 6c-D Stage 4.4: per-vertex (boundary, sub_faces) for
+    // a post-`sliver_absorb` wire pass. Populated by
+    // `insert_vertex_blend` when sphere-fit substitution fired.
+    let mut late_wire_jobs: Vec<(
+        crate::blend::BlendBoundary,
+        Vec<popkern_core::topology::FaceHandle>,
+    )> = Vec::new();
 
     // ── Phase A: ALL perpendicular edge splits ─ only modifies edges (inserts vertices), not faces.
     struct PerpSplitData {
@@ -458,7 +465,7 @@ pub fn apply_blend_geometry(
                     use_kp_polar_gregory,
                     Some(pre),
                 ) {
-                    Ok(infos) => {
+                    Ok((infos, boundary_opt)) => {
                         for emit in [
                             bridge_warnings::emit_bridge_fallback_warnings,
                             bridge_warnings::emit_tangent_corner_warning,
@@ -472,6 +479,24 @@ pub fn apply_blend_geometry(
                                 edge_geometries,
                                 &mut warnings,
                             );
+                        }
+                        // Phase 6c-D Stage 4.4: capture the blend
+                        // boundary + per-vertex sub-face handles so a
+                        // post-`sliver_absorb` wire pass can
+                        // re-write substituted boundary curves to
+                        // any cap-loop edges that were *added* by
+                        // the absorb step. The wire originally runs
+                        // mid-pipeline (inside three_quad_apply)
+                        // when the cap face's outer loop is the
+                        // raw poke output; sliver_absorb expands
+                        // that loop with absorbed Plane fragments,
+                        // leaving 8/12 cap-vs-cylinder edges on
+                        // pyramid4_mixed unwired.
+                        if let Some(b) = boundary_opt
+                            && b.sphere_fit_substituted
+                        {
+                            let face_handles: Vec<_> = infos.iter().map(|cp| cp.face).collect();
+                            late_wire_jobs.push((b, face_handles));
                         }
                         corner_patches.extend(infos);
                     }
@@ -551,6 +576,38 @@ pub fn apply_blend_geometry(
     sliver_absorb::run_and_route_warnings(&mut result, tolerance, edge_geometries, &mut warnings);
 
     cap_insert::insert_caps(&mut result, brep, edge_geometries, &mut warnings); // §8.3 caps
+
+    // Phase 6c-D Stage 4.4: re-run the substituted-boundary wire
+    // step now that sliver_absorb and cap_insert have settled the
+    // cap-face outer-loop topology. The wire originally runs
+    // mid-pipeline (inside `three_quad_apply`) and only sees the
+    // raw poke output's outer loop. After sliver_absorb merges
+    // adjacent Plane fragments INTO each cap face, the cap face's
+    // outer loop expands with the merged fragments' boundaries —
+    // including new cap-vs-cylinder edges that the wire never
+    // visited. Without this second pass, those edges retain their
+    // original (rolling-ball footprint) curves and `cap_outer_g0`
+    // stays at ~0.12 m on pyramid4_mixed under injection.
+    //
+    // The second wire pass uses the same `BlendBoundary` (saved by
+    // `insert_vertex_blend`) and the same per-vertex sub-face
+    // handles. Stage 4.3's cap-face-membership filter naturally
+    // excludes cap-vs-cap edges, so only newly-absorbed cap-vs-non-
+    // cap edges get re-wired; previously-wired edges get their
+    // analytic curves re-written (idempotent).
+    for (boundary, sub_faces) in &late_wire_jobs {
+        let wired = sphere_fit_edge_wire::wire_substituted_boundary_to_edges(
+            &mut result,
+            boundary,
+            sub_faces,
+        );
+        if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+            eprintln!(
+                "[late-wire] re-ran on {} sub_faces, wrote {wired} edges",
+                sub_faces.len()
+            );
+        }
+    }
 
     // Phase 6c-C.2d — apex-region topology rebuild for sphere-fit
     // caps (env-gated).  Replaces the 6-vertex cap loop with a

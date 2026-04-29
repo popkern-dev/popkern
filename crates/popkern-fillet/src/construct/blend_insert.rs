@@ -46,7 +46,7 @@ pub(crate) fn insert_vertex_blend(
     use_kp_binonic_gregory: bool,
     use_kp_polar_gregory: bool,
     precomputed_classification: Option<VertexBlendClassification>,
-) -> Result<Vec<CornerPatchInfo>, String> {
+) -> Result<(Vec<CornerPatchInfo>, Option<BlendBoundary>), String> {
     // §5.3 item #5 — callers pre-compute classification against the pre-modification BRep; post-Phase-C original edge handles are stale. Fallback for tests that call us on an untouched BRep.
     let classification = precomputed_classification.unwrap_or_else(|| {
         let filleted_edges: Vec<_> = edge_indices
@@ -198,7 +198,7 @@ pub(crate) fn insert_vertex_blend(
             boundary.bridge_fallbacks.clone(),
         )
     {
-        return Ok(patches);
+        return Ok((patches, n_gon_boundary));
     }
 
     // §5.3 item #4 — N ≥ 3 rational-Gregory dispatch.
@@ -229,17 +229,17 @@ pub(crate) fn insert_vertex_blend(
             use_kp_binonic_gregory,
             use_kp_polar_gregory,
         ) {
-            Ok(patches) if patches.len() == n_sides => return Ok(patches),
+            Ok(patches) if patches.len() == n_sides => return Ok((patches, n_gon_boundary)),
             Err(ThreeQuadFailure::Overlap) => {
                 let mut r = base_patch.clone();
                 r.overlap_remediated = true;
-                return Ok(vec![r]);
+                return Ok((vec![r], n_gon_boundary));
             }
             _ => {}
         }
     }
 
-    Ok(vec![base_patch])
+    Ok((vec![base_patch], n_gon_boundary))
 }
 
 /// Phase 1: Split off corner regions from each face around V using
