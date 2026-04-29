@@ -476,6 +476,139 @@ fn cube_mixed_apex_post_reroute_commercial_gate() {
     }
 }
 
+/// Phase 6c-E pyramid baseline measurement — documents the gap
+/// metrics for pyramid_uniform without commercial-grade
+/// guarantees.  See `pyramid_uniform_planner_diagnostic` for
+/// the upstream root cause.
+#[test]
+#[ignore]
+fn pyramid_uniform_apex_baseline_metrics() {
+    unsafe {
+        std::env::remove_var("POPKERN_APEX_TOPOLOGY_REBUILD");
+        std::env::remove_var("POPKERN_SPHERE_FIT_BOUNDARY");
+        std::env::remove_var("POPKERN_SPHERE_CAP_RUNG");
+        std::env::remove_var("POPKERN_VAR_RADIUS_REROUTE");
+    }
+    let pyr = BRep::square_pyramid(1.0, 0.8, Tolerance::default()).unwrap();
+    let apex = pyr
+        .vertices
+        .keys()
+        .find(|&v| pyr.half_edges.values().filter(|he| he.origin == v).count() == 4)
+        .expect("pyramid has a valence-4 apex");
+    let edges = corner_edges(&pyr, apex);
+    let radii = [0.10_f64; 4];
+    let specs: Vec<FilletSpec> = edges
+        .iter()
+        .zip(radii.iter())
+        .map(|(&e, &r)| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(r),
+        })
+        .collect();
+    let result = crate::fillet_edges(
+        &pyr,
+        &specs,
+        &FilletOptions::default(),
+        Tolerance::default(),
+        None,
+    )
+    .expect("pyramid_uniform fillet should succeed");
+    let brep = result.brep;
+    brep.validate().expect("baseline validates");
+    let metrics = per_sphere_cap_metrics(&brep);
+    eprintln!(
+        "BASELINE pyramid_uniform (r={:.2}): {} Sphere cap faces",
+        radii[0],
+        metrics.len()
+    );
+    for (fh, n, g0, g1) in &metrics {
+        eprintln!("  {fh:?}: n_loop_edges={n} max_g0={g0:.3e} max_g1={g1:.3e}");
+    }
+    // Today's empirical: 1 Sphere cap with g0 ~= 0.18, g1 ~= 0.99.
+    // Far from commercial grade. Tracking-only assertion: surface
+    // is a Sphere with > 5cm cap-vs-cylinder gap (descriptive).
+    assert_eq!(metrics.len(), 1, "pyramid_uniform: single Sphere apex cap");
+}
+
+/// Phase 6c-E pyramid_uniform diagnostic — documents the gap.
+///
+/// **Status: known-broken upstream.** Pyramid_uniform's cap face
+/// is assigned a single `Sphere` surface, but:
+///
+/// * The Sphere centre computed by `try_sphere_for_corner` uses
+///   a `corner ± r` heuristic that's correct only for
+///   axis-aligned trihedral apices (cube). For pyramid the
+///   symmetric mean defeats the directional tiebreak and the
+///   centre lands at `(-r, -r, h-r)` instead of on the symmetry
+///   axis.
+/// * Even with a correct symmetric-axis sphere centre `(0, 0,
+///   z*)`, the cap-tangent geometry doesn't admit a single
+///   sphere — the four slant cylinders have axes that don't
+///   meet at one point with sphere centre (sphere centre would
+///   be at `(0, 0, h+r)` outside the solid). The cap is
+///   geometrically over-constrained for a single Sphere
+///   primitive.
+/// * Boundary vertices on the cap face aren't on the assigned
+///   sphere AND aren't on the adjacent fillet cylinders — the
+///   pre-cap pipeline placed them at intermediate positions.
+///
+/// **Path forward (deferred):** route pyramid_uniform through
+/// the rational-Gregory N=4 sub-face split with sphere-cap rung,
+/// analogous to cube_mixed.  Today the rational-Gregory dispatch
+/// doesn't fire for pyramid_uniform (root cause TBD).
+#[test]
+#[ignore]
+fn pyramid_uniform_planner_diagnostic() {
+    use super::plan::plan_apex_region_deletion;
+    unsafe {
+        std::env::remove_var("POPKERN_APEX_TOPOLOGY_REBUILD");
+        std::env::remove_var("POPKERN_SPHERE_FIT_BOUNDARY");
+        std::env::remove_var("POPKERN_SPHERE_CAP_RUNG");
+        std::env::remove_var("POPKERN_VAR_RADIUS_REROUTE");
+    }
+    let pyr = BRep::square_pyramid(1.0, 0.8, Tolerance::default()).unwrap();
+    let apex = pyr
+        .vertices
+        .keys()
+        .find(|&v| pyr.half_edges.values().filter(|he| he.origin == v).count() == 4)
+        .expect("pyramid has a valence-4 apex");
+    let edges = corner_edges(&pyr, apex);
+    let radii = [0.10_f64; 4];
+    let specs: Vec<FilletSpec> = edges
+        .iter()
+        .zip(radii.iter())
+        .map(|(&e, &r)| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(r),
+        })
+        .collect();
+    let result = crate::fillet_edges(
+        &pyr,
+        &specs,
+        &FilletOptions::default(),
+        Tolerance::default(),
+        None,
+    )
+    .expect("pyramid_uniform fillet should succeed");
+    let brep = result.brep;
+    let cap_face = result.corner_patches[0].face;
+    let plan = plan_apex_region_deletion(&brep, cap_face);
+    eprintln!(
+        "pyramid_uniform plan: cap_sphere={:?} keep={} delete={} arcs={} actionable={}",
+        plan.cap_sphere,
+        plan.keep_vertices.len(),
+        plan.delete_vertices.len(),
+        plan.insert_cap_tangent_arcs.len(),
+        plan.is_actionable(),
+    );
+    // Deliberately not asserted — the planner returns
+    // non-actionable today (0 keep, 8 delete) because no boundary
+    // vertex lies on the (broken) cap sphere. Documents the gap;
+    // the rebuild correctly bails when given an actionable=false
+    // plan.
+}
+
+/// Pre-rebuild baseline diagnostic for pyramid_uniform.
 /// Phase 6c-D commercial-grade gate for cube_extreme — 1:10
 /// radius ratio fillets `[0.05, 0.10, 0.50]`.  Extends the
 /// commercial-grade guarantee to extreme asymmetry.
