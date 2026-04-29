@@ -70,6 +70,7 @@ fn symmetric_flat_input_yields_alpha_minus_one_beta_zero() {
         ],
         central_vertex_tps: vec![tps_xy(); 3],
         seed_patches: None,
+        hex_boundaries: None,
     };
     let options = DirectConstructionOptions::with_characteristic_length(1.0);
     let coeffs = compute_ring_blend_coeffs(&input, &options).expect("solved");
@@ -116,6 +117,7 @@ fn asymmetric_xtans_yield_finite_coeffs() {
         ],
         central_vertex_tps: vec![tps_xy(); 3],
         seed_patches: None,
+        hex_boundaries: None,
     };
     let options = DirectConstructionOptions::with_characteristic_length(1.0);
     let coeffs = compute_ring_blend_coeffs(&input, &options).expect("solved");
@@ -154,6 +156,7 @@ fn degenerate_xtan_b_colinear_with_t_rejects() {
         ],
         central_vertex_tps: vec![tps_xy(); 3],
         seed_patches: None,
+        hex_boundaries: None,
     };
     let options = DirectConstructionOptions::with_characteristic_length(1.0);
     assert!(matches!(
@@ -198,6 +201,7 @@ fn condition_number_reflects_geometry() {
         ],
         central_vertex_tps: vec![tps_xy(); 3],
         seed_patches: None,
+        hex_boundaries: None,
     };
     let input_bad = DirectBoundaryInput {
         central_vertex: c,
@@ -211,6 +215,7 @@ fn condition_number_reflects_geometry() {
         ],
         central_vertex_tps: vec![tps_xy(); 3],
         seed_patches: None,
+        hex_boundaries: None,
     };
     let cg = compute_ring_blend_coeffs(&input_good, &options).expect("good solved");
     let cb = compute_ring_blend_coeffs(&input_bad, &options).expect("bad solved");

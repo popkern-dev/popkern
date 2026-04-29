@@ -109,6 +109,7 @@ fn build_synthetic_3_patch_input(
             .collect(),
         central_vertex_tps: vec![tps_xy; 3],
         seed_patches: Some(vec![patch0, patch1, patch2]),
+        hex_boundaries: None,
     };
     (input, spokes)
 }

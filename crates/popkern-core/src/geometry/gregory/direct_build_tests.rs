@@ -89,6 +89,7 @@ fn synthetic_3_patch_input() -> DirectBoundaryInput {
             .collect(),
         central_vertex_tps: vec![tps_xy; 3],
         seed_patches: Some(patches),
+        hex_boundaries: None,
     }
 }
 

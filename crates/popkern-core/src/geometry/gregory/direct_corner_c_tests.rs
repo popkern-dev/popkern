@@ -73,6 +73,7 @@ fn symmetric_n3_input() -> DirectBoundaryInput {
             .collect(),
         central_vertex_tps: vec![tps_xy(); 3],
         seed_patches: None,
+        hex_boundaries: None,
     }
 }
 
@@ -192,6 +193,7 @@ fn rejects_zero_normal_sum() {
             .collect(),
         central_vertex_tps: tps.to_vec(),
         seed_patches: None,
+        hex_boundaries: None,
     };
     let options = DirectConstructionOptions::with_characteristic_length(1.0);
     let result = solve_central_vertex_corner(&input, &options);
@@ -226,6 +228,7 @@ fn asymmetric_n3_returns_finite_cps() {
             .collect(),
         central_vertex_tps: vec![tps_xy(); 3],
         seed_patches: None,
+        hex_boundaries: None,
     };
     let options = DirectConstructionOptions::with_characteristic_length(1.0);
     let result = solve_central_vertex_corner(&input, &options).expect("solved");

@@ -855,6 +855,7 @@ pub(super) fn extract_direct_boundary_input(
         outer_corners,
         central_vertex_tps,
         seed_patches: Some(patches.to_vec()),
+        hex_boundaries: None,
     })
 }
 

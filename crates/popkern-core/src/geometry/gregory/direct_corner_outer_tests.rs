@@ -75,6 +75,7 @@ fn missing_seed_patches_returns_error() {
         ],
         central_vertex_tps: vec![TangentPlane::from_normal(Vec3::new(0.0, 0.0, 1.0)).unwrap(); 3],
         seed_patches: None,
+        hex_boundaries: None,
     };
     let options = DirectConstructionOptions::with_characteristic_length(1.0);
     assert!(solve_outer_corners(&input, &options).is_err());
@@ -118,6 +119,7 @@ fn flat_coplanar_ring_produces_parallelogram_twists() {
             .collect(),
         central_vertex_tps: vec![tps_xy; 3],
         seed_patches: Some(patches),
+        hex_boundaries: None,
     };
     let options = DirectConstructionOptions::with_characteristic_length(1.0);
 

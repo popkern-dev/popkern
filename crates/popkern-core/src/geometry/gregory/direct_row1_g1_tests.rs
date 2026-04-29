@@ -100,6 +100,7 @@ fn flat_spoke_setup(
         ],
         central_vertex_tps: vec![tps_xy; 3],
         seed_patches: None,
+        hex_boundaries: None,
     };
     let options = DirectConstructionOptions::with_characteristic_length(1.0);
     let coeffs = compute_ring_blend_coeffs(&input_for_blend, &options).expect("blend coeffs")[0];

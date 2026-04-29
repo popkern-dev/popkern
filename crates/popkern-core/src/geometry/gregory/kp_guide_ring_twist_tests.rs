@@ -57,6 +57,7 @@ fn planar_ring(n: usize, radius: f64) -> DirectBoundaryInput {
         outer_corners,
         central_vertex_tps: vec![tps_xy; n],
         seed_patches: None,
+        hex_boundaries: None,
     }
 }
 
@@ -101,6 +102,7 @@ fn truly_3d_ring(n: usize, radius: f64, z_amplitude: f64) -> DirectBoundaryInput
         outer_corners,
         central_vertex_tps: vec![tps_xy; n],
         seed_patches: None,
+        hex_boundaries: None,
     }
 }
 
@@ -155,6 +157,7 @@ fn tilted_plane_consistent_ring(n: usize, radius: f64, z_amplitude: f64) -> Dire
         outer_corners,
         central_vertex_tps: vec![tps_c; n],
         seed_patches: None,
+        hex_boundaries: None,
     }
 }
 

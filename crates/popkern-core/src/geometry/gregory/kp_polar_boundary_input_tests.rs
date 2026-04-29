@@ -188,6 +188,7 @@ fn from_direct_boundary_input_copies_fields() {
         outer_corners: polar.outer_corners.clone(),
         central_vertex_tps: polar.face_tangent_planes.clone(),
         seed_patches: None,
+        hex_boundaries: None,
     };
     let polar_from_direct = PolarBoundaryInput::from_direct_boundary_input(&direct)
         .expect("converter succeeds for well-formed input");
@@ -219,6 +220,7 @@ fn from_direct_central_plane_is_shirman_sequin_normal_averaged() {
         outer_corners: polar.outer_corners.clone(),
         central_vertex_tps: polar.face_tangent_planes.clone(),
         seed_patches: None,
+        hex_boundaries: None,
     };
     // All central_vertex_tps in `make_regular_polar` are `tp_xy`
     // with normal = (0, 0, 1). Averaged normal = (0, 0, 1).
@@ -247,6 +249,7 @@ fn from_direct_central_plane_handles_asymmetric_normals() {
         outer_corners: make_regular_polar(3).outer_corners,
         central_vertex_tps: vec![tp_xy(); 3],
         seed_patches: None,
+        hex_boundaries: None,
     };
     // Replace per-sector tangent planes with explicit different
     // normals.
@@ -276,6 +279,7 @@ fn from_direct_rejects_mismatched_central_vertex_tps() {
         outer_corners: polar.outer_corners.clone(),
         central_vertex_tps: tps_short,
         seed_patches: None,
+        hex_boundaries: None,
     };
     let err = PolarBoundaryInput::from_direct_boundary_input(&direct).unwrap_err();
     assert!(err.contains("central_vertex_tps"));
@@ -335,6 +339,7 @@ fn from_direct_spiked_star_handled() {
         outer_corners: make_regular_polar(5).outer_corners,
         central_vertex_tps: vec![tp_xy(); 5],
         seed_patches: None,
+        hex_boundaries: None,
     };
     direct.central_vertex_tps[0] = TangentPlane::from_normal(Vec3::new(5.0, 0.0, 1.0)).unwrap();
     let polar = PolarBoundaryInput::from_direct_boundary_input(&direct)
@@ -360,6 +365,7 @@ fn from_direct_antipodal_normals_rejected() {
         outer_corners: make_regular_polar(4).outer_corners,
         central_vertex_tps: vec![tp_xy(); 4],
         seed_patches: None,
+        hex_boundaries: None,
     };
     direct.central_vertex_tps = vec![
         TangentPlane::from_normal(Vec3::new(0.0, 0.0, 1.0)).unwrap(),
@@ -386,6 +392,7 @@ fn from_direct_preserves_per_spoke_radii_from_mean() {
         outer_corners: make_regular_polar(5).outer_corners,
         central_vertex_tps: vec![tp_xy(); 5],
         seed_patches: None,
+        hex_boundaries: None,
     };
     // Give each spoke a distinct pair of radii.
     for (k, spoke) in direct.spokes.iter_mut().enumerate() {

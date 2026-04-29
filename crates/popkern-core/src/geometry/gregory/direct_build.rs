@@ -154,6 +154,7 @@ pub fn build(
     //    pre-row1 patches as the solver's seed.
     let input_for_ring = DirectBoundaryInput {
         seed_patches: Some(pre_row1_patches),
+        hex_boundaries: None,
         ..input.clone()
     };
     let ring_result = solve_ring_row1_g1(&input_for_ring, &blend_coeffs, options)?;

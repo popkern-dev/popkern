@@ -65,6 +65,66 @@ pub struct DirectBoundaryInput {
     /// fall back to the parallelogram-rule seed, which is
     /// sufficient for symmetric / regular inputs.
     pub seed_patches: Option<Vec<RectangularGregoryTwoStripe>>,
+
+    /// Phase 6c-D Stage 1: **optional** per-sub-patch hex-side
+    /// outer boundary CPs (the `row0` left-hex-edge and `col9`
+    /// top-hex-edge of the bi-nonic patch grid) sourced directly
+    /// from the substituted analytic `sphere ∩ cylinder` arc
+    /// (FilletEnd) and FaceEdge bridge curves of the
+    /// [`BlendBoundary`](crate::geometry::gregory::DirectBoundaryInput)
+    /// — split at each hex midpoint `M_k` and degree-elevated to
+    /// 9.
+    ///
+    /// When present, the K-P bi-nonic ring builders
+    /// (`build_binonic_ring_from_*_guides` in `kp_ring_build`)
+    /// use these CPs directly for `row0` / `col9` instead of the
+    /// `k_p_boundary` Hermite synthesis from corner tangent /
+    /// curvature data. The Hermite synthesis is geometrically
+    /// equivalent only when the boundary curve happens to be a
+    /// linear blend of corner derivatives; for analytic
+    /// `sphere ∩ cylinder` great circles on tilted-axis cylinders
+    /// (pyramid, hex apex, NURBS-supported corners), the Hermite
+    /// blend deviates from the analytic arc by O(1 cm), driving
+    /// the documented Gregory-cap G0 gap.
+    ///
+    /// `None` falls through to the existing Hermite synthesis —
+    /// no behaviour change for callers that don't populate this
+    /// field.
+    ///
+    /// Length must equal `spokes.len()` (= `N`, the valence)
+    /// when `Some`. Validated in [`Self::validate`].
+    ///
+    /// See `docs/decisions/2026-04-29-phase-6c-d-stage-1-boundary-injection.md`.
+    pub hex_boundaries: Option<Vec<HexBoundaryData>>,
+}
+
+/// Phase 6c-D Stage 1: per-sub-patch hex-side outer boundary CPs,
+/// the `row0` and `col9` of the bi-nonic patch grid sourced from
+/// the substituted boundary curves rather than synthesised from
+/// guide-derived corner Hermite data.
+///
+/// Convention (matches `kp_ring_build::build_binonic_ring_from_guides`):
+/// * `row0` — the `u=0`, `v ∈ [0, 1]` boundary; the half of the
+///   hex outer perimeter nearer the **previous** spoke
+///   (`V_{2k+1} → M_k`).
+/// * `col9` — the `v=1`, `u ∈ [0, 1]` boundary; the half nearer
+///   the **next** spoke (`M_k → V_{2k+2}`).
+///
+/// Both arrays are deg-9 Bernstein control points (10 points
+/// each). `row0[0]` and `col9[0]` are the corner shared with the
+/// hex midpoint `M_k`; `row0[9]` and `col9[9]` are the outer hex
+/// vertices `V_{2k+1}` and `V_{2k+2}` respectively. All four
+/// corners must coincide with the patch's evaluated corners
+/// (within a small tolerance) — checked in
+/// [`DirectBoundaryInput::validate`].
+#[derive(Debug, Clone)]
+pub struct HexBoundaryData {
+    /// Deg-9 control points of the `row0` boundary (left hex
+    /// edge, `u=0`, `v ∈ [0, 1]`).
+    pub row0: [Point3; 10],
+    /// Deg-9 control points of the `col9` boundary (top hex
+    /// edge, `v=1`, `u ∈ [0, 1]`).
+    pub col9: [Point3; 10],
 }
 
 /// Data for a single shared spoke between adjacent sub-patches.
@@ -219,6 +279,15 @@ impl DirectBoundaryInput {
             return Err(format!(
                 "seed_patches length {} ≠ spokes length {}",
                 seeds.len(),
+                n
+            ));
+        }
+        if let Some(ref hb) = self.hex_boundaries
+            && hb.len() != n
+        {
+            return Err(format!(
+                "hex_boundaries length {} ≠ spokes length {}",
+                hb.len(),
                 n
             ));
         }

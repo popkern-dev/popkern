@@ -44,6 +44,7 @@ fn validate_rejects_fewer_than_three_spokes() {
         }],
         central_vertex_tps: vec![demo_tps()],
         seed_patches: None,
+        hex_boundaries: None,
     };
     assert!(input.validate().is_err());
 }
@@ -64,6 +65,7 @@ fn validate_rejects_mismatched_outer_corner_count() {
         }],
         central_vertex_tps: vec![demo_tps(); 3],
         seed_patches: None,
+        hex_boundaries: None,
     };
     assert!(input.validate().is_err());
 }
@@ -90,6 +92,7 @@ fn validate_accepts_well_formed_three_sided() {
             .collect(),
         central_vertex_tps: vec![demo_tps(); 3],
         seed_patches: None,
+        hex_boundaries: None,
     };
     assert!(input.validate().is_ok());
     assert_eq!(input.n(), 3);

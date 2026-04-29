@@ -59,6 +59,7 @@ fn planar_ring(n: usize, radius: f64) -> DirectBoundaryInput {
         outer_corners,
         central_vertex_tps: vec![tps_xy; n],
         seed_patches: None,
+        hex_boundaries: None,
     }
 }
 

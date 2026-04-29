@@ -71,6 +71,7 @@ fn ring_with_spoke_bump(n: usize, radius: f64, bump: f64) -> DirectBoundaryInput
         outer_corners,
         central_vertex_tps: vec![tps_xy; n],
         seed_patches: None,
+        hex_boundaries: None,
     }
 }
 
@@ -117,6 +118,7 @@ fn truly_3d_ring(n: usize, radius: f64, z_amp: f64) -> DirectBoundaryInput {
         outer_corners,
         central_vertex_tps: vec![tps_xy; n],
         seed_patches: None,
+        hex_boundaries: None,
     }
 }
 
