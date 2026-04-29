@@ -170,7 +170,15 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     // topology rebuild) so face handles in the boundary stay valid
     // through the surgery.
     if boundary.sphere_fit_substituted {
-        super::sphere_fit_edge_wire::wire_substituted_boundary_to_edges(brep, boundary, &sub_faces);
+        let wired = super::sphere_fit_edge_wire::wire_substituted_boundary_to_edges(
+            brep, boundary, &sub_faces,
+        );
+        if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+            eprintln!(
+                "[wire_substituted_boundary_to_edges] wrote {wired} of {} segments to BRep edges",
+                boundary.segments.len()
+            );
+        }
     }
 
     // Phase 6c-A continuation §4.2 option (c) — per-fillet

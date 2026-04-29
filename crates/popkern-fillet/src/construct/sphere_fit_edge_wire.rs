@@ -27,6 +27,7 @@
 
 use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
+use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::geometry::{CurveGeometry, Point3, fitting};
@@ -55,8 +56,27 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // Path B reroute can't run (pyramid topology — neighbour
     // cylinder axes don't pass through per-fillet sphere centres).
     // Default off so cube_mixed/extreme's Path B path is undisturbed.
+    //
+    // Phase 6c-D Stage 4: empirical finding — variable-radius
+    // pyramid fixtures need the wider tolerance to match ANY
+    // boundary segment to a cap sub-edge (`wire_substituted… wrote
+    // 0 of 8` at 5cm tolerance on pyramid4_mixed). The wider
+    // tolerance + relocation `do_relocate` couples two effects:
+    // wider matching AND vertex snap. The vertex snap breaks
+    // cube_mixed by collapsing the apex topology. Decouple so we
+    // can match-without-snap on injection-active fixtures by
+    // default — analytic boundary curve gets written to BRep
+    // edges, vertices stay at their existing positions. Edge
+    // endpoints may not exactly equal curve(t_start)/curve(t_end),
+    // but downstream pcurve refit / measurement tolerates this.
     let do_relocate = std::env::var("POPKERN_GREGORY_CAP_REBUILD").is_ok_and(|v| v == "1");
-    let tol = if do_relocate { 0.30 } else { 0.05 };
+    let stage4_wide_tol = boundary.sphere_fit_substituted
+        && std::env::var("POPKERN_STAGE4_WIDE_WIRE_TOL").is_ok_and(|v| v != "0");
+    let tol = if do_relocate || stage4_wide_tol {
+        0.30
+    } else {
+        0.05
+    };
 
     let segment_curves: Vec<&NurbsCurve> = boundary
         .segments
@@ -80,6 +100,20 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // `(he, seg_idx, reversed, target_p_origin, target_p_dest)`.
     // We do NOT mutate during the scan so the matching sees
     // pre-relocation positions consistently.
+    //
+    // Phase 6c-D Stage 4: when injection is active, allow multiple
+    // sub-edges to share a single segment (`stage4_wide_tol`). The
+    // cap face's outer loop after sliver-absorb topology surgery
+    // can have 5+ sub-edges along a single logical boundary
+    // (FilletEnd[k] / FaceEdge[k]); the original "consume each
+    // segment once" policy left short sub-edges unwired, holding
+    // worst-case `cap_outer_g0` at ~10 cm. Letting multiple
+    // sub-edges share a segment as their 3D curve writes the
+    // analytic boundary to ALL of them — endpoint mismatch
+    // tolerated since downstream consumers (validation, pcurve
+    // refit) operate on the curve geometry, not the vertex-to-
+    // curve-endpoint identity.
+    let allow_multi_sub_edge = stage4_wide_tol;
     let mut consumed = vec![false; segment_curves.len()];
     type Job = (HalfEdgeHandle, usize, bool, Point3, Point3);
     let mut worklist: Vec<Job> = Vec::new();
@@ -112,7 +146,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
 
             let mut best: Option<(usize, f64, bool)> = None;
             for (i, eps) in segment_endpoints.iter().enumerate() {
-                if consumed[i] {
+                if consumed[i] && !allow_multi_sub_edge {
                     continue;
                 }
                 let d_fwd = p_origin.distance_to(&eps[0]) + p_dest.distance_to(&eps[1]);
@@ -132,7 +166,9 @@ pub(crate) fn wire_substituted_boundary_to_edges(
             if d > tol {
                 continue;
             }
-            consumed[seg_idx] = true;
+            if !allow_multi_sub_edge {
+                consumed[seg_idx] = true;
+            }
 
             let eps = segment_endpoints[seg_idx];
             let (target_p_origin, target_p_dest) = if reversed {
@@ -149,7 +185,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // write the curve to the edge (oriented to match the edge's
     // primary half-edge direction), and refit pcurves on both sides.
     let mut wired = 0usize;
-    for (he_handle, seg_idx, _reversed, target_p_origin, target_p_dest) in worklist {
+    for (he_handle, seg_idx, reversed, target_p_origin, target_p_dest) in worklist {
         let Some(he) = brep.half_edges.get(he_handle) else {
             continue;
         };
@@ -234,7 +270,37 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         }
 
         // Re-fit both half-edge pcurves from the new 3-D curve.
-        if let Some(cap_surf) = cap_surf.as_ref()
+        //
+        // Phase 6c-D Stage 4: under injection, the cap-side pcurve
+        // refit (`refit_pcurve_on_surface` → `project_point_to_uv` →
+        // `fit_curve`) produces UVs OUTSIDE the Gregory patch's
+        // [0, 1]² parameter domain (e.g. (2.25, 2.22)). The Gregory
+        // surface evaluated at these invalid UVs extrapolates the
+        // bidegree-9 polynomial, returning points far from the
+        // analytic boundary — `cap_outer_g0` stays high.
+        //
+        // Bypass: write an analytic `Linear` pcurve on the cap side,
+        // determined by the segment index (parity tells us whether
+        // we're on the row 0 or col 9 boundary):
+        //
+        // * Even seg_idx (FilletEnd[k]) → cap row 0 (u=0): pcurve
+        //   `Linear (0,0) → (0,1)` with parameter range matching
+        //   the edge curve's `[t0, t1]`. Reverse if the edge orient-
+        //   ation flipped.
+        // * Odd seg_idx (FaceEdge[k]) → cap col 9 (v=1): pcurve
+        //   `Linear (0,1) → (1,1)`.
+        //
+        // The cylinder/plane side keeps the NURBS refit — it's an
+        // analytic surface where `project_point_to_uv` is reliable,
+        // so the existing pcurve refit produces valid UVs there.
+        let analytic_cap_pcurve = if stage4_wide_tol {
+            cap_pcurve_for_segment(seg_idx, reversed, t0, t1)
+        } else {
+            None
+        };
+        if let Some(pc) = analytic_cap_pcurve {
+            brep.half_edges[he_handle].pcurve = Some(pc);
+        } else if let Some(cap_surf) = cap_surf.as_ref()
             && let Some(pc) = refit_pcurve_on_surface(&curve, cap_surf, t0, t1)
         {
             brep.half_edges[he_handle].pcurve = Some(pc.into());
@@ -327,6 +393,41 @@ fn snap_vertex_to(brep: &mut BRep, v: VertexHandle, new_pos: Point3) {
 /// sample to `surface`'s UV, and fit a degree-3 NURBS pcurve
 /// through those (u, v, 0) points. Returns `None` if any
 /// projection fails or the fit raises an error.
+/// Phase 6c-D Stage 4 — analytic `Linear` cap-side pcurve for an
+/// edge wired with a sphere-fit-substituted boundary segment.
+///
+/// Segment index parity tells us which cap boundary the edge is
+/// on (per the layout `sphere_fit_boundary::apply_sphere_fit_substitution`
+/// emits — `segments[2k] = FilletEnd[k]`,
+/// `segments[2k+1] = FaceEdge[k]`):
+///
+/// * `seg_idx % 2 == 0` (FilletEnd) → cap **row 0** (`u = 0`):
+///   pcurve traces `(0, v)` from `v = 0` to `v = 1`.
+/// * `seg_idx % 2 == 1` (FaceEdge) → cap **col 9** (`v = 1`):
+///   pcurve traces `(u, 1)` from `u = 0` to `u = 1`.
+///
+/// `reversed` flips the start/end UVs so the pcurve advances in
+/// the same direction as the underlying 3D curve. Parameter
+/// range `[t_start, t_end]` matches the edge curve so downstream
+/// pcurve evaluation at any `t` in that range maps to a valid
+/// Gregory `[0, 1]² UV.
+fn cap_pcurve_for_segment(
+    seg_idx: usize,
+    reversed: bool,
+    t_start: f64,
+    t_end: f64,
+) -> Option<Pcurve> {
+    let (start, end) = if seg_idx.is_multiple_of(2) {
+        // Row 0: u = 0, v varies 0 → 1.
+        ((0.0, 0.0), (0.0, 1.0))
+    } else {
+        // Col 9: v = 1, u varies 0 → 1.
+        ((0.0, 1.0), (1.0, 1.0))
+    };
+    let (start, end) = if reversed { (end, start) } else { (start, end) };
+    Some(Pcurve::linear(start, end, t_start, t_end))
+}
+
 fn refit_pcurve_on_surface(
     curve_3d: &NurbsCurve,
     surface: &SurfaceGeometry,

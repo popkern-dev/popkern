@@ -223,3 +223,268 @@ fn pyramid4_mixed_binonic_ships_under_injection() {
         "Stage 3 regression: pyramid4_mixed under injection should ship at least one binonic patch"
     );
 }
+
+/// Phase 6c-D Stage 4 diagnostic — evaluate the Gregory cap
+/// surface DIRECTLY at u=0 / v=1 boundaries (its row 0 / col 9)
+/// and check whether those match the analytic FilletEnd /
+/// FaceEdge curves the injection wrote into the BRep edges.
+///
+/// This bypasses the pcurve refit (which was producing UVs
+/// outside [0, 1]² in the per-edge breakdown). If Gregory(0, v)
+/// matches the analytic curve on the row 0 boundary, the cap
+/// surface IS tracking the analytic geometry — the cap-outer
+/// metric failure must be in the pcurve refit, not the surface.
+#[ignore]
+#[test]
+fn cap_surface_at_row0_tracks_analytic_boundary() {
+    use popkern_core::geometry::gregory::GregoryPatch as GP;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    let _guard = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
+    let pyr = BRep::square_pyramid(1.0, 0.8, Tolerance::default()).unwrap();
+    let vertex = pick_vertex_with_valence(&pyr, 4).unwrap();
+    let edges = incident_edges(&pyr, vertex);
+    let radii: Vec<f64> = vec![0.04, 0.06, 0.05, 0.07];
+    let (brep, faces) = fillet_corner(&pyr, &edges, &radii, true);
+
+    eprintln!("\n=== pyramid4_mixed cap-surface direct eval at row 0 ===");
+    for (i, &fh) in faces.iter().enumerate() {
+        let face = &brep.faces[fh];
+        let Some(sof) = face.surface.as_ref() else {
+            eprintln!("  cap[{i}]: no surface");
+            continue;
+        };
+        let SurfaceGeometry::Gregory(GP::RectangularBiNonic(g)) = &sof.geometry else {
+            eprintln!("  cap[{i}]: not RectangularBiNonic");
+            continue;
+        };
+        // Sample row 0 (u=0, v varies) at v = 0.0, 0.5, 1.0.
+        let p_v0 = g.point_at(0.0, 0.0);
+        let p_mid = g.point_at(0.0, 0.5);
+        let p_v1 = g.point_at(0.0, 1.0);
+        eprintln!(
+            "  cap[{i}] row0:  v=0 ({:.4},{:.4},{:.4})  v=.5 ({:.4},{:.4},{:.4})  v=1 ({:.4},{:.4},{:.4})",
+            p_v0.x, p_v0.y, p_v0.z, p_mid.x, p_mid.y, p_mid.z, p_v1.x, p_v1.y, p_v1.z,
+        );
+        // Sample col 9 (v=1, u varies) at u = 0.0, 0.5, 1.0.
+        let p_u0 = g.point_at(0.0, 1.0);
+        let p_mid2 = g.point_at(0.5, 1.0);
+        let p_u1 = g.point_at(1.0, 1.0);
+        eprintln!(
+            "  cap[{i}] col9:  u=0 ({:.4},{:.4},{:.4})  u=.5 ({:.4},{:.4},{:.4})  u=1 ({:.4},{:.4},{:.4})",
+            p_u0.x, p_u0.y, p_u0.z, p_mid2.x, p_mid2.y, p_mid2.z, p_u1.x, p_u1.y, p_u1.z,
+        );
+    }
+
+    // For each cap face, find its outer-loop edges that border a
+    // Cylinder twin. Check whether the cap's row-0-or-col-9
+    // surface evaluation tracks the edge's 3D curve.
+    eprintln!("\n=== checking each cap-vs-cylinder edge ===");
+    use popkern_core::geometry::curve::CurveEval;
+    for &fh in &faces {
+        let face = &brep.faces[fh];
+        let Some(sof) = face.surface.as_ref() else {
+            continue;
+        };
+        let SurfaceGeometry::Gregory(GP::RectangularBiNonic(g)) = &sof.geometry else {
+            continue;
+        };
+        let outer = face.outer_loop;
+        let start = brep.loops[outer].half_edge;
+        let mut cur = start;
+        let mut step = 0;
+        loop {
+            let he = &brep.half_edges[cur];
+            let twin_face = brep.loops[brep.half_edges[he.twin].loop_].face;
+            let twin = brep.faces.get(twin_face).and_then(|f| f.surface.as_ref());
+            let is_cyl = matches!(
+                twin.map(|s| &s.geometry),
+                Some(SurfaceGeometry::Cylinder { .. })
+            );
+            if is_cyl {
+                let edge = &brep.edges[he.edge];
+                if let Some(coe) = edge.curve.as_ref() {
+                    let t_lo = coe.t_start;
+                    let t_hi = coe.t_end;
+                    let t_mid = 0.5 * (t_lo + t_hi);
+                    let p3 = coe.geometry.point_at(t_mid);
+                    // Find closest u, v on the Gregory cap by sampling
+                    // boundary (u=0 with v∈[0,1] or v=1 with u∈[0,1]).
+                    let mut best = (f64::INFINITY, 0.0_f64, 0u8);
+                    for k in 0..=20 {
+                        let s = (k as f64) / 20.0;
+                        // u=0 row
+                        let p = g.point_at(0.0, s);
+                        let d = p3.distance_to(&p);
+                        if d < best.0 {
+                            best = (d, s, 0);
+                        }
+                        // v=1 col
+                        let p = g.point_at(s, 1.0);
+                        let d = p3.distance_to(&p);
+                        if d < best.0 {
+                            best = (d, s, 1);
+                        }
+                    }
+                    let bnd = if best.2 == 0 { "row0" } else { "col9" };
+                    eprintln!(
+                        "  cap face step{step}: edge_chord={:.3e} t_mid={t_mid:.3e}  cap_to_edge_min={:.3e} on {bnd}@{:.2}",
+                        coe.geometry
+                            .point_at(t_lo)
+                            .distance_to(&coe.geometry.point_at(t_hi)),
+                        best.0,
+                        best.1,
+                    );
+                }
+            }
+            cur = he.next;
+            step += 1;
+            if cur == start || step > 16 {
+                break;
+            }
+        }
+    }
+}
+
+/// Phase 6c-D Stage 4 diagnostic: break down `cap_outer_g0` by
+/// per-edge contribution. Reports for each cap-vs-non-cap edge:
+/// the twin-face surface type, mid-edge G0 gap, and (for cap-side
+/// pcurve only) the cap surface UV at midpoint. Helps localise
+/// whether the worst gap is on a row 0 (cap-tangent arc), col 9
+/// (slant bridge), or some other edge.
+#[ignore]
+#[test]
+fn cap_outer_per_edge_breakdown_pyramid4_mixed() {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+
+    let _guard = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
+    let pyr = BRep::square_pyramid(1.0, 0.8, Tolerance::default()).unwrap();
+    let vertex = pick_vertex_with_valence(&pyr, 4).unwrap();
+    let edges = incident_edges(&pyr, vertex);
+    let radii: Vec<f64> = vec![0.04, 0.06, 0.05, 0.07];
+    let (brep, faces) = fillet_corner(&pyr, &edges, &radii, true);
+    let cap_set: std::collections::BTreeSet<_> = faces.iter().copied().collect();
+
+    eprintln!("\n=== pyramid4_mixed cap-outer per-edge breakdown ===");
+    eprintln!(
+        "{} cap faces; {} BRep edges total",
+        faces.len(),
+        brep.edges.len()
+    );
+
+    let mut idx = 0;
+    for (_eh, edge) in brep.edges.iter() {
+        let Some(coe) = edge.curve.as_ref() else {
+            continue;
+        };
+        let he_a = edge.half_edge;
+        let Some(ha) = brep.half_edges.get(he_a) else {
+            continue;
+        };
+        let Some(hb) = brep.half_edges.get(ha.twin) else {
+            continue;
+        };
+        let face_a = brep.loops[ha.loop_].face;
+        let face_b = brep.loops[hb.loop_].face;
+        if face_a == face_b {
+            continue;
+        }
+        let a_is_cap = cap_set.contains(&face_a);
+        let b_is_cap = cap_set.contains(&face_b);
+        if a_is_cap == b_is_cap {
+            continue;
+        }
+        let Some(pa) = ha.pcurve.as_ref() else {
+            continue;
+        };
+        let Some(pb) = hb.pcurve.as_ref() else {
+            continue;
+        };
+        let Some(sa) = brep.faces.get(face_a).and_then(|f| f.surface.as_ref()) else {
+            continue;
+        };
+        let Some(sb) = brep.faces.get(face_b).and_then(|f| f.surface.as_ref()) else {
+            continue;
+        };
+
+        let kind = |g: &SurfaceGeometry| -> &'static str {
+            match g {
+                SurfaceGeometry::Plane { .. } => "Plane",
+                SurfaceGeometry::Cylinder { .. } => "Cyl",
+                SurfaceGeometry::Sphere { .. } => "Sphere",
+                SurfaceGeometry::Torus { .. } => "Torus",
+                SurfaceGeometry::Cone { .. } => "Cone",
+                SurfaceGeometry::Gregory(_) => "Gregory",
+                SurfaceGeometry::Nurbs(_) => "Nurbs",
+            }
+        };
+        let kind_a = kind(&sa.geometry);
+        let kind_b = kind(&sb.geometry);
+        let cap_kind = if a_is_cap { kind_a } else { kind_b };
+        let twin_kind = if a_is_cap { kind_b } else { kind_a };
+
+        // Sample at edge midpoint.
+        let (t_lo, t_hi) = (coe.t_start, coe.t_end);
+        let t_mid = 0.5 * (t_lo + t_hi);
+        let p3_mid = coe.geometry.point_at(t_mid);
+        let p3_lo = coe.geometry.point_at(t_lo);
+        let p3_hi = coe.geometry.point_at(t_hi);
+        let edge_len_chord = p3_lo.distance_to(&p3_hi);
+
+        let (pa_lo, pa_hi) = pa.parameter_range();
+        let (pb_lo, pb_hi) = pb.parameter_range();
+        let pa_at = |t: f64| {
+            let uv = pa.point_at(t);
+            sa.geometry.point_at(uv.x, uv.y)
+        };
+        let pb_at = |t: f64| {
+            let uv = pb.point_at(t);
+            sb.geometry.point_at(uv.x, uv.y)
+        };
+        let _ = (
+            p3_lo.distance_to(&pa_at(pa_lo)) + p3_hi.distance_to(&pa_at(pa_hi))
+                <= p3_lo.distance_to(&pa_at(pa_hi)) + p3_hi.distance_to(&pa_at(pa_lo)),
+            p3_lo.distance_to(&pb_at(pb_lo)) + p3_hi.distance_to(&pb_at(pb_hi))
+                <= p3_lo.distance_to(&pb_at(pb_hi)) + p3_hi.distance_to(&pb_at(pb_lo)),
+        );
+        // Sample at pcurve midpoint (direction is symmetric for s=0.5).
+        let t_a = pa_lo + 0.5 * (pa_hi - pa_lo);
+        let t_b = pb_lo + 0.5 * (pb_hi - pb_lo);
+        let p_a = pa_at(t_a);
+        let p_b = pb_at(t_b);
+        let g0 = p_a.distance_to(&p_b);
+
+        // Distance from edge curve midpoint to each surface
+        // evaluation. Reveals whether the curve drifts from one
+        // or both surfaces.
+        let dev_a = p3_mid.distance_to(&p_a);
+        let dev_b = p3_mid.distance_to(&p_b);
+
+        idx += 1;
+        eprintln!(
+            "  edge#{idx} cap={cap_kind} twin={twin_kind} cap_is_a={a_is_cap}  chord={edge_len_chord:.3e}  \
+             g0={g0:.3e}  dev_cap={dev_a:.3e}  dev_twin={dev_b:.3e}",
+        );
+        let uv_a = pa.point_at(t_a);
+        let uv_b = pb.point_at(t_b);
+        let (cap_uv, twin_uv) = if a_is_cap { (uv_a, uv_b) } else { (uv_b, uv_a) };
+        eprintln!(
+            "         cap_uv=({:.3},{:.3})  twin_uv=({:.3},{:.3})",
+            cap_uv.x, cap_uv.y, twin_uv.x, twin_uv.y
+        );
+        eprintln!(
+            "         pa_range=[{pa_lo:.3},{pa_hi:.3}]  pb_range=[{pb_lo:.3},{pb_hi:.3}]  \
+             coe_range=[{t_lo:.3},{t_hi:.3}]"
+        );
+        // Sample analytic edge curve at lo, mid, hi to compare to surface evals
+        eprintln!(
+            "         curve3d: lo=({:.3},{:.3},{:.3}) mid=({:.3},{:.3},{:.3}) hi=({:.3},{:.3},{:.3})",
+            p3_lo.x, p3_lo.y, p3_lo.z, p3_mid.x, p3_mid.y, p3_mid.z, p3_hi.x, p3_hi.y, p3_hi.z,
+        );
+        eprintln!(
+            "         cap_eval=({:.3},{:.3},{:.3})  twin_eval=({:.3},{:.3},{:.3})",
+            p_a.x, p_a.y, p_a.z, p_b.x, p_b.y, p_b.z,
+        );
+    }
+}
