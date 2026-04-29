@@ -123,8 +123,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // (Gregory assignment happens AFTER wire in the pipeline), so
     // we can't filter by surface kind. Identify cap faces by
     // membership in `sub_faces` instead.
-    let cap_face_set: std::collections::BTreeSet<FaceHandle> =
-        sub_faces.iter().copied().collect();
+    let cap_face_set: std::collections::BTreeSet<FaceHandle> = sub_faces.iter().copied().collect();
 
     for &sub_face in sub_faces {
         let Some(face_data) = brep.faces.get(sub_face) else {
@@ -253,8 +252,12 @@ pub(crate) fn wire_substituted_boundary_to_edges(
                         _ => "Other",
                     })
                     .unwrap_or("none");
+                let cap_idx = sub_faces
+                    .iter()
+                    .position(|f| *f == sub_face)
+                    .unwrap_or(usize::MAX);
                 eprintln!(
-                    "[wire-match] he={he_handle:?} edge={:?} twin={twin_kind} chord={chord:.3e} v_origin=({:.3},{:.3},{:.3}) v_dest=({:.3},{:.3},{:.3}) best_seg={:?} best_d={:?}",
+                    "[wire-match] cap[{cap_idx}]={sub_face:?} he={he_handle:?} edge={:?} twin={twin_kind} chord={chord:.3e} v_origin=({:.3},{:.3},{:.3}) v_dest=({:.3},{:.3},{:.3}) best_seg={:?} best_d={:?}",
                     he.edge,
                     p_origin.x,
                     p_origin.y,

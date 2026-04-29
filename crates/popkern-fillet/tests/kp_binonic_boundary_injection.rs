@@ -402,7 +402,9 @@ fn cap_loop_vs_cap_outer_edge_coverage() {
             });
             eprintln!(
                 "  step{step}: he={cur:?} edge={edge:?} twin={twin_kind:7} (face {twin_face:?}) v_origin=({:.3},{:.3},{:.3}) curve_mid={:?}",
-                v_origin.x, v_origin.y, v_origin.z,
+                v_origin.x,
+                v_origin.y,
+                v_origin.z,
                 curve_mid.map(|p| (p.x, p.y, p.z))
             );
             cur = he.next;
