@@ -61,6 +61,15 @@ pub(crate) fn clamp_bounded_pcurves(brep: &mut BRep) -> usize {
         if !u_lo.is_finite() || !u_hi.is_finite() || !v_lo.is_finite() || !v_hi.is_finite() {
             continue;
         }
+        // Sphere u is 2π-periodic (atan2 wrap): a pcurve crossing
+        // u = 0/2π unwraps to CPs outside [0, 2π], but `point_at`
+        // uses cos(u)/sin(u) which evaluate correctly modulo 2π.
+        // Clamping such CPs destroys the unwrap and produces 3-D
+        // points up to a sphere-diameter away. Only clamp v on
+        // Sphere; treat Cylinder similarly (its u is also 2π-
+        // periodic, but Cylinder isn't bounded so it doesn't reach
+        // here — handled by the `bounded` filter above).
+        let u_periodic = matches!(&surf.geometry, SurfaceGeometry::Sphere { .. });
         // Check CONTROL POINTS directly, not curve evaluations: a
         // NURBS curve stays inside the convex hull of its CPs, so
         // any CP outside the box implies the curve can leave the
@@ -76,7 +85,12 @@ pub(crate) fn clamp_bounded_pcurves(brep: &mut BRep) -> usize {
             continue;
         };
         let cps_outside = nurbs_view.control_points.iter().any(|p| {
-            p.x < u_lo - 1e-9 || p.x > u_hi + 1e-9 || p.y < v_lo - 1e-9 || p.y > v_hi + 1e-9
+            let u_out = if u_periodic {
+                false
+            } else {
+                p.x < u_lo - 1e-9 || p.x > u_hi + 1e-9
+            };
+            u_out || p.y < v_lo - 1e-9 || p.y > v_hi + 1e-9
         });
         if std::env::var("POPKERN_CLAMP_TRACE").is_ok() {
             let kind = match &surf.geometry {
@@ -107,7 +121,9 @@ pub(crate) fn clamp_bounded_pcurves(brep: &mut BRep) -> usize {
             && let Some(n) = pc.as_nurbs_mut()
         {
             for cp in &mut n.control_points {
-                cp.x = cp.x.clamp(u_lo, u_hi);
+                if !u_periodic {
+                    cp.x = cp.x.clamp(u_lo, u_hi);
+                }
                 cp.y = cp.y.clamp(v_lo, v_hi);
             }
         }

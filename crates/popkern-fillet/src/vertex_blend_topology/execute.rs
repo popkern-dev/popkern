@@ -165,16 +165,15 @@ pub(crate) fn execute_deletion_plan(
         let cap_he = mef.half_edge;
         let lens_he = mef.half_edge_twin;
         if let Some(cap_surf) = cap_surf_clone {
-            let cap_pcurve = fit_pcurve_along_arc(&cap_surf, &arc_curve);
-            let cyl_pcurve = fit_pcurve_along_arc(&cyl_surf, &arc_curve);
+            // cap_he runs v_a → v_b (the arc's natural direction);
+            // fit forward.  lens_he is the twin running v_b → v_a;
+            // fit reversed so its pcurve(t_lo) lands on v_b.
+            let cap_pcurve = fit_pcurve_along_arc(&cap_surf, &arc_curve, false);
+            let cyl_pcurve = fit_pcurve_along_arc(&cyl_surf, &arc_curve, true);
             if let Some(pc) = cap_pcurve {
                 brep.half_edges[cap_he].pcurve = Some(pc.into());
             }
             if let Some(pc) = cyl_pcurve {
-                // The lens-side half-edge is on the cylinder once
-                // collapse runs (collapse re-parents it to the
-                // cylinder's loop).  Pre-set its pcurve so the
-                // collapse doesn't have to re-derive it.
                 brep.half_edges[lens_he].pcurve = Some(pc.into());
             }
         }
@@ -288,39 +287,89 @@ fn he_after_origin_in_loop(brep: &BRep, he: HalfEdgeHandle) -> Option<VertexHand
 /// pcurves on both the cap and cylinder sides immediately after
 /// `mef`, so downstream consumers (mesh, bool, G0/G1 metric) see
 /// consistent UV → 3-D evaluations.
-fn fit_pcurve_along_arc(surface: &SurfaceGeometry, arc: &NurbsCurve) -> Option<NurbsCurve> {
+/// Sample the 3-D arc at `n_samples=24` points, project each
+/// to UV on `surface`, and fit a degree-5 NURBS pcurve through
+/// the samples. When `reversed=true`, samples are taken from
+/// arc(t_hi) to arc(t_lo) — used for the twin half-edge whose
+/// natural direction is opposite the arc's parameter direction.
+///
+/// Phase 6c-C.2b/2d/2e: used to wire the inserted cap-tangent
+/// arc's pcurves on both the cap and cylinder sides immediately
+/// after `mef`, so downstream consumers (mesh, bool, G0/G1
+/// metric) see consistent UV → 3-D evaluations.
+fn fit_pcurve_along_arc(
+    surface: &SurfaceGeometry,
+    arc: &NurbsCurve,
+    reversed: bool,
+) -> Option<NurbsCurve> {
     use popkern_core::geometry::fitting::fit_curve;
     use popkern_core::geometry::surface::SurfaceEval;
     use popkern_core::geometry::uv_projection::project_point_to_uv;
+    use std::f64::consts::TAU;
     let (t0, t1) = arc.parameter_range();
-    // 24 samples + degree 5 — half-circles need higher fidelity
+    // 48 samples + degree 9 — half-circles need higher fidelity
     // than the typical degree-3 / 12-sample fit; the arc is a
     // rational quadratic and its projection to a non-trivial UV
-    // chart (sphere) is non-polynomial, so a richer fit reduces
-    // mid-arc residuals.
-    let n_samples = 24;
+    // chart (sphere/cylinder) is non-polynomial, so a richer fit
+    // reduces mid-arc residuals to ~1e-3 on cube_uniform.
+    let n_samples = 48;
     let mut points: Vec<Point3> = Vec::with_capacity(n_samples);
     let mut params: Vec<f64> = Vec::with_capacity(n_samples);
+    // Both Sphere::u and Cylinder::u come from `atan2` clamped to
+    // [0, 2π). When the arc traverses the wrap-point, raw samples
+    // alternate between values near 0 and near 2π; LSQ fit
+    // interpolates these as a curve through (0, 2π) — i.e., the
+    // wrong way around. Unwrap by tracking previous u and adding
+    // ±2π to keep the increment ≤ π.
+    let surf_has_wrapping_u = matches!(
+        surface,
+        SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Cylinder { .. }
+    );
+    let mut prev_u: Option<f64> = None;
     for i in 0..n_samples {
         let s = i as f64 / (n_samples - 1) as f64;
-        let t = t0 + s * (t1 - t0);
+        // When `reversed`, sample arc(t1) at s=0 and arc(t0) at
+        // s=1, so the resulting pcurve's lo end maps to the arc's
+        // far endpoint.  This matches the twin half-edge's natural
+        // direction (origin = arc-far-end).
+        let t = if reversed {
+            t0 + (1.0 - s) * (t1 - t0)
+        } else {
+            t0 + s * (t1 - t0)
+        };
         let p = arc.point_at(t);
-        let (u, v) = project_point_to_uv(surface, &p)?;
+        let (mut u, v) = project_point_to_uv(surface, &p)?;
+        if surf_has_wrapping_u && let Some(u_prev) = prev_u {
+            let mut delta = u - u_prev;
+            while delta > std::f64::consts::PI {
+                u -= TAU;
+                delta -= TAU;
+            }
+            while delta < -std::f64::consts::PI {
+                u += TAU;
+                delta += TAU;
+            }
+        }
+        prev_u = Some(u);
         points.push(Point3::new(u, v, 0.0));
         params.push(s);
     }
-    let degree = 5usize;
+    let degree = 9usize;
     let n_cps = (degree + 2).min(points.len());
     let mut fitted = fit_curve(&points, &params, degree, n_cps).ok()?;
+    // Re-wrap u-coords back into [u_lo, u_hi] only if every CP
+    // fits in that band — otherwise the unwrapped fit was the
+    // intended one and we must not clamp it. For sphere/cylinder
+    // the u domain is [0, 2π], so a CP at e.g. u=2π+ε is the
+    // CCW-half of an arc that crosses the seam; clamping it to
+    // 2π destroys the curve.
     let ((u_lo, u_hi), (v_lo, v_hi)) = surface.parameter_range();
     for cp in &mut fitted.control_points {
-        if u_lo.is_finite() && u_hi.is_finite() {
-            cp.x = cp.x.clamp(u_lo, u_hi);
-        }
         if v_lo.is_finite() && v_hi.is_finite() {
             cp.y = cp.y.clamp(v_lo, v_hi);
         }
     }
+    let _ = (u_lo, u_hi);
     Some(fitted)
 }
 
