@@ -70,20 +70,23 @@ pub(crate) fn correct_face_surfaces(
             continue;
         }
 
-        // Phase 6c-E: trust upstream Sphere assignments. Per-fillet
-        // sphere caps (cube_mixed, cube_extreme, pyramid_uniform) are
-        // assigned with intent in `three_quad_apply`; their boundary
-        // includes inner-spoke vertices that lie on *other* sub-face
-        // spheres, so `current_max` against this sub-face's sphere can
-        // be ~r (inner-spoke offset between distinct per-fillet
-        // centres). The cube-corner-inscribed-sphere fallback in
-        // `try_sphere_for_corner` would clobber the carefully assigned
-        // per-fillet centre with the wrong cube-style centre.
-        let current_is_sphere = brep.faces[fh]
-            .surface
-            .as_ref()
-            .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Sphere { .. }));
-        if current_is_sphere {
+        // Phase 6c-E / Phase 6c-D: trust upstream Sphere and Gregory
+        // assignments. Per-fillet Sphere sub-caps (cube_mixed/extreme,
+        // pyramid_uniform with rung ON) and Gregory sub-caps
+        // (rung OFF, Phase 6c-D path) are assigned with intent in
+        // `three_quad_apply`. Their boundaries can include inner-spoke
+        // vertices that lie on *other* sub-face surfaces, so
+        // `current_max` against this sub-face's surface can be ~r —
+        // larger than the 1cm gate above. The cube-corner-inscribed-
+        // sphere fallback in `try_sphere_for_corner` would clobber
+        // both with the wrong cube-style centre.
+        let current_is_cap_surface = brep.faces[fh].surface.as_ref().is_some_and(|s| {
+            matches!(
+                s.geometry,
+                SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Gregory(_)
+            )
+        });
+        if current_is_cap_surface {
             continue;
         }
 

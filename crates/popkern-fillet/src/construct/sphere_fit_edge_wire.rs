@@ -29,8 +29,8 @@ use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::uv_projection::project_point_to_uv;
-use popkern_core::geometry::{Point3, fitting};
-use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
+use popkern_core::geometry::{CurveGeometry, Point3, fitting};
+use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 use crate::blend::boundary::{BlendBoundary, BoundarySegment};
 
@@ -48,7 +48,15 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // uniform-radius cube. Variable-radius cases either drift
     // beyond 5 cm (substitution wouldn't have fired anyway) or
     // sit within the rolling-ball overshoot region.
-    let tol = 0.05;
+    //
+    // Phase 6c-D Stage 1: optional 30 cm tolerance + vertex
+    // relocation under `POPKERN_GREGORY_CAP_REBUILD=1`. Closes the
+    // BRep ↔ substituted-boundary alignment gap for fixtures where
+    // Path B reroute can't run (pyramid topology — neighbour
+    // cylinder axes don't pass through per-fillet sphere centres).
+    // Default off so cube_mixed/extreme's Path B path is undisturbed.
+    let do_relocate = std::env::var("POPKERN_GREGORY_CAP_REBUILD").is_ok_and(|v| v == "1");
+    let tol = if do_relocate { 0.30 } else { 0.05 };
 
     let segment_curves: Vec<&NurbsCurve> = boundary
         .segments
@@ -66,8 +74,15 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         })
         .collect();
 
-    let mut wired = 0usize;
+    // Phase A — assignment scan: for each cap sub-face's outer-loop
+    // half-edge, find the best matching segment (proximity, with
+    // the wider tolerance). Build a worklist of
+    // `(he, seg_idx, reversed, target_p_origin, target_p_dest)`.
+    // We do NOT mutate during the scan so the matching sees
+    // pre-relocation positions consistently.
     let mut consumed = vec![false; segment_curves.len()];
+    type Job = (HalfEdgeHandle, usize, bool, Point3, Point3);
+    let mut worklist: Vec<Job> = Vec::new();
 
     for &sub_face in sub_faces {
         let Some(face_data) = brep.faces.get(sub_face) else {
@@ -86,7 +101,6 @@ pub(crate) fn wire_substituted_boundary_to_edges(
                 continue;
             };
             let v_origin = he.origin;
-            let edge_h = he.edge;
             let next_he = he.next;
             let Some(next_he_data) = brep.half_edges.get(next_he) else {
                 continue;
@@ -112,67 +126,201 @@ pub(crate) fn wire_substituted_boundary_to_edges(
                     best = Some((i, d, reversed));
                 }
             }
-            let Some((seg_idx, d, _reversed)) = best else {
+            let Some((seg_idx, d, reversed)) = best else {
                 continue;
             };
             if d > tol {
                 continue;
             }
+            consumed[seg_idx] = true;
 
-            let curve = segment_curves[seg_idx].clone();
-            let (t0, t1) = curve.parameter_range();
+            let eps = segment_endpoints[seg_idx];
+            let (target_p_origin, target_p_dest) = if reversed {
+                (eps[1], eps[0])
+            } else {
+                (eps[0], eps[1])
+            };
+            worklist.push((he_handle, seg_idx, reversed, target_p_origin, target_p_dest));
+        }
+    }
 
-            // Capture face surfaces for pcurve refit (this side
-            // and twin) before we mutate the edge.
-            let twin_he = brep.half_edges[he_handle].twin;
-            let cap_face = brep
-                .loops
-                .get(brep.half_edges[he_handle].loop_)
-                .map(|l| l.face);
-            let other_face = brep
-                .loops
-                .get(brep.half_edges[twin_he].loop_)
-                .map(|l| l.face);
-            let cap_surf = cap_face.and_then(|f| {
-                brep.faces
-                    .get(f)
-                    .and_then(|fd| fd.surface.as_ref())
-                    .map(|s| s.geometry.clone())
+    // Phase B — execute. For each job, snap both endpoint vertices
+    // to the segment endpoints (idempotent if already coincident),
+    // write the curve to the edge (oriented to match the edge's
+    // primary half-edge direction), and refit pcurves on both sides.
+    let mut wired = 0usize;
+    for (he_handle, seg_idx, _reversed, target_p_origin, target_p_dest) in worklist {
+        let Some(he) = brep.half_edges.get(he_handle) else {
+            continue;
+        };
+        let v_origin = he.origin;
+        let edge_h = he.edge;
+        let next_he = he.next;
+        let Some(next_he_data) = brep.half_edges.get(next_he) else {
+            continue;
+        };
+        let v_dest = next_he_data.origin;
+
+        // Snap vertices first when relocation is enabled (pyramid
+        // path — no Path B). Keeps loop closure invariants when
+        // the curve below is written. snap_vertex_to syncs *all*
+        // incident half-edges' edge curves CP[0]/CP[last] to the
+        // new vertex position, so sibling edges' curves still join
+        // cleanly at the moved vertex.
+        if do_relocate {
+            snap_vertex_to(brep, v_origin, target_p_origin);
+            if v_dest != v_origin {
+                snap_vertex_to(brep, v_dest, target_p_dest);
+            }
+        }
+
+        // Orient the curve to match the edge's primary half-edge
+        // direction: edge.curve's CP[0] should equal primary
+        // half-edge's origin position. If our `he_handle` IS the
+        // primary, curve.CP[0] := target_p_origin; if it's the twin,
+        // curve.CP[0] := target_p_dest.
+        let edge_primary = brep.edges.get(edge_h).map(|e| e.half_edge);
+        let our_is_primary = edge_primary == Some(he_handle);
+        let primary_origin_target = if our_is_primary {
+            target_p_origin
+        } else {
+            target_p_dest
+        };
+
+        let segment = segment_curves[seg_idx];
+        let (s_t0, s_t1) = segment.parameter_range();
+        let seg_cp0 = segment.point_at(s_t0);
+        let seg_cp_last = segment.point_at(s_t1);
+        let curve = if seg_cp0.distance_to(&primary_origin_target)
+            <= seg_cp_last.distance_to(&primary_origin_target)
+        {
+            segment.clone()
+        } else {
+            reverse_nurbs(segment)
+        };
+        let (t0, t1) = curve.parameter_range();
+
+        // Capture face surfaces for pcurve refit (this side + twin)
+        // before we mutate the edge curve.
+        let twin_he = brep.half_edges[he_handle].twin;
+        let cap_face = brep
+            .loops
+            .get(brep.half_edges[he_handle].loop_)
+            .map(|l| l.face);
+        let other_face = brep
+            .loops
+            .get(brep.half_edges[twin_he].loop_)
+            .map(|l| l.face);
+        let cap_surf = cap_face.and_then(|f| {
+            brep.faces
+                .get(f)
+                .and_then(|fd| fd.surface.as_ref())
+                .map(|s| s.geometry.clone())
+        });
+        let other_surf = other_face.and_then(|f| {
+            brep.faces
+                .get(f)
+                .and_then(|fd| fd.surface.as_ref())
+                .map(|s| s.geometry.clone())
+        });
+
+        if let Some(edge_data) = brep.edges.get_mut(edge_h) {
+            edge_data.curve = Some(CurveOnEdge {
+                geometry: CurveGeometry::Nurbs(curve.clone()),
+                t_start: t0,
+                t_end: t1,
             });
-            let other_surf = other_face.and_then(|f| {
-                brep.faces
-                    .get(f)
-                    .and_then(|fd| fd.surface.as_ref())
-                    .map(|s| s.geometry.clone())
-            });
+            wired += 1;
+        }
 
-            if let Some(edge_data) = brep.edges.get_mut(edge_h) {
-                edge_data.curve = Some(CurveOnEdge {
-                    geometry: popkern_core::geometry::CurveGeometry::Nurbs(curve.clone()),
-                    t_start: t0,
-                    t_end: t1,
-                });
-                consumed[seg_idx] = true;
-                wired += 1;
-            }
-
-            // Re-fit both half-edge pcurves from the new 3-D curve.
-            // Without this, the cap-outer-boundary metric (which
-            // reads pcurves directly) would still see the stale
-            // pcurves on each side and report the original drift.
-            if let Some(cap_surf) = cap_surf.as_ref()
-                && let Some(pc) = refit_pcurve_on_surface(&curve, cap_surf, t0, t1)
-            {
-                brep.half_edges[he_handle].pcurve = Some(pc.into());
-            }
-            if let Some(other_surf) = other_surf.as_ref()
-                && let Some(pc) = refit_pcurve_on_surface(&curve, other_surf, t0, t1)
-            {
-                brep.half_edges[twin_he].pcurve = Some(pc.into());
-            }
+        // Re-fit both half-edge pcurves from the new 3-D curve.
+        if let Some(cap_surf) = cap_surf.as_ref()
+            && let Some(pc) = refit_pcurve_on_surface(&curve, cap_surf, t0, t1)
+        {
+            brep.half_edges[he_handle].pcurve = Some(pc.into());
+        }
+        if let Some(other_surf) = other_surf.as_ref()
+            && let Some(pc) = refit_pcurve_on_surface(&curve, other_surf, t0, t1)
+        {
+            brep.half_edges[twin_he].pcurve = Some(pc.into());
         }
     }
     wired
+}
+
+/// Phase 6c-D: reverse a NurbsCurve by flipping CPs, weights, and
+/// reflecting the knot vector. Equivalent to
+/// `popkern_core::geometry::edge_triple::analytic_helpers::reverse_nurbs`
+/// (kept private there); duplicated locally for cohesion.
+fn reverse_nurbs(curve: &NurbsCurve) -> NurbsCurve {
+    let (t_min, t_max) = curve.parameter_range();
+    let mut reversed_knots: Vec<f64> = curve
+        .knots
+        .iter()
+        .rev()
+        .map(|&k| t_min + t_max - k)
+        .collect();
+    reversed_knots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mut reversed_cps = curve.control_points.clone();
+    reversed_cps.reverse();
+    let mut reversed_weights = curve.weights.clone();
+    reversed_weights.reverse();
+    NurbsCurve {
+        degree: curve.degree,
+        knots: reversed_knots,
+        control_points: reversed_cps,
+        weights: reversed_weights,
+    }
+}
+
+/// Phase 6c-D: snap a vertex to `new_pos`, syncing every incident
+/// half-edge's edge curve CP[0] (primary side) or CP[last] (twin
+/// side) to keep loop closure intact. No-op when already within
+/// 1e-9 of `new_pos`.
+///
+/// This is a drop-in equivalent of
+/// `var_radius::update_incident_edges_for_vertex_move` — kept
+/// local to the wire pass for cohesion. Both functions produce
+/// identical results on identical inputs.
+fn snap_vertex_to(brep: &mut BRep, v: VertexHandle, new_pos: Point3) {
+    let Some(vd) = brep.vertices.get(v) else {
+        return;
+    };
+    if vd.position.distance_to(&new_pos) < 1e-9 {
+        return;
+    }
+
+    let halves: Vec<HalfEdgeHandle> = brep
+        .half_edges
+        .iter()
+        .filter_map(|(h, he)| (he.origin == v).then_some(h))
+        .collect();
+
+    for he_h in halves {
+        let edge_h = brep.half_edges[he_h].edge;
+        let primary = brep.edges.get(edge_h).map(|e| e.half_edge);
+        let is_primary = primary == Some(he_h);
+        let Some(edge) = brep.edges.get_mut(edge_h) else {
+            continue;
+        };
+        let Some(coe) = edge.curve.as_mut() else {
+            continue;
+        };
+        if let CurveGeometry::Nurbs(nc) = &mut coe.geometry
+            && !nc.control_points.is_empty()
+        {
+            let n = nc.control_points.len();
+            if is_primary {
+                nc.control_points[0] = new_pos;
+            } else {
+                nc.control_points[n - 1] = new_pos;
+            }
+        }
+    }
+
+    if let Some(vd) = brep.vertices.get_mut(v) {
+        vd.position = new_pos;
+    }
 }
 
 /// Sample `curve_3d` at uniform parameter values, project each
