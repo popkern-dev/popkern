@@ -166,6 +166,22 @@ pub(crate) fn reroute_neighbour_cylinder_edges(
             );
         }
         if snap_result.vertices_moved > 0 {
+            // Phase 6c-D Stage 3a (arc-rebuild) lives in
+            // `var_radius_arc_rebuild` but is currently disabled —
+            // the analytic Ellipse 3-D curve writes correctly, but
+            // the sphere-side pcurve refit fails to capture the
+            // great-circle UV trajectory on a TILTED-axis cylinder
+            // (sphere u/v are world-aligned, cylinder axis isn't).
+            // The existing `set_cut_edge_geometry` Linear sphere
+            // pcurve relies on axis-aligned cylinders (cube body-
+            // diagonal); pyramid's tilted axes don't satisfy that.
+            // Closing this needs either a non-Linear sphere pcurve
+            // (degree-3 NURBS through dense samples, with proper
+            // endpoint snapping for pole noise — see Phase 6c-A's
+            // `pole_radial_eps` machinery) OR a tilted-axis-aware
+            // sphere reparameterisation. Tracked as Stage 3b.
+            let _arc_rebuild_disabled =
+                super::var_radius_arc_rebuild::rebuild_cap_tangent_arc_curves;
             if brep.validate().is_err() {
                 *brep = snapshot;
                 return Err(RerouteError::ValidationFailed);
