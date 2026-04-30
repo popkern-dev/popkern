@@ -1,5 +1,6 @@
 //! Topology construction — apply fillet/chamfer geometry to the BRep. 3-phase single-pass (A: perp splits, B: multi-chord face splits, C: kef merge + surface assign) then surface-fix, sliver-absorb (§13.1(2)), and §8.3 cap insertion post-passes.
 
+mod apex_face_lift;
 pub(crate) mod blend_insert;
 pub(crate) mod blend_topo;
 mod bridge_warnings;
@@ -626,6 +627,24 @@ pub fn apply_blend_geometry(
                 "[late-wire] re-ran on {} sub_faces, wrote {wired} edges",
                 sub_faces.len()
             );
+        }
+    }
+
+    // Phase 6c-D Stage 4.7: lift each apex-region pyramid Plane
+    // face to a curved NURBS surface that contains the substituted
+    // FaceEdge bridge.  Without this, the bridge sits 2-4 cm off
+    // the original plane, and the plane's pcurve refit can't close
+    // the cap-vs-twin G0 gap (every plane UV maps to a point on
+    // the plane, never to the off-plane bridge).
+    //
+    // Default off until validated on more fixtures — opt-in via
+    // `POPKERN_APEX_FACE_LIFT=1`.
+    if std::env::var("POPKERN_APEX_FACE_LIFT").is_ok_and(|v| v == "1") {
+        for (_boundary, sub_faces) in &late_wire_jobs {
+            let lifted = apex_face_lift::lift_all_apex_plane_faces(&mut result, sub_faces);
+            if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+                eprintln!("[apex-face-lift] lifted {lifted} pyramid plane faces");
+            }
         }
     }
 
