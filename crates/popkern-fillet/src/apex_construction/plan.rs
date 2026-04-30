@@ -89,21 +89,23 @@ impl ApexPlan {
 ///
 /// See [`ApexPlanError`] for the full failure taxonomy.
 ///
-/// # Status (A2.1.e)
+/// # Algorithm (A2.1.a–f complete)
 ///
-/// Successfully returns an [`ApexPlan`] when:
-/// 1. Inputs validate (A2.1.b).
-/// 2. Boundary computes (A2.1.c).
-/// 3. Per-fillet sphere-fit terminations succeed (A2.1.c).
-/// 4. Cap-kind decision finds Sphere or Gregory (A2.1.d).
-/// 5. Target topology assembles (A2.1.e).
+/// 1. Validate inputs (A2.1.b).
+/// 2. Compute boundary (A2.1.c).
+/// 3. Try the rung ladder Direct → Setback → Open (A2.1.f):
+///    * Direct: full per-fillet sphere-fit (A2.1.c) +
+///      Sphere/Gregory cap-kind decision (A2.1.d) + target topology
+///      assembly (A2.1.e).
+///    * Setback: lenient per-fillet sphere-fit (skips individual
+///      failures); proceeds with ≥3 successful fillets.
+///    * Open: empty apex topology — no cap, fillets terminate at
+///      legacy rolling-ball footprints.
+/// 4. Telemetry records the rung used + any fallback reason.
 ///
 /// `face_boundary_updates` is left as `Vec::new()` — the
 /// builder (A2.2) computes face splicing from the apex
 /// topology + existing BRep state per ADR §3.3.
-///
-/// A2.1.f (telemetry rung integration including Setback fallback)
-/// pending.
 pub fn plan_apex_resolution(
     brep: &BRep,
     apex: VertexHandle,
@@ -111,24 +113,320 @@ pub fn plan_apex_resolution(
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Result<ApexPlan, ApexPlanError> {
-    // Step 1: validate inputs (A2.1.b).
+    // Step 1: validate inputs (A2.1.b).  Validation errors don't
+    // benefit from rung fallback — invalid inputs are user errors.
     validate_inputs(brep, apex, fillet_specs)?;
-    // Step 2: compute boundary segments (A2.1.c).
+
+    // Step 2: compute boundary segments (A2.1.c).  Same — boundary
+    // failure is structural, not a sphere-fit failure.
     let boundary = compute_apex_boundary(brep, apex, fillet_surfaces, tolerance)?;
-    // Step 3: compute per-fillet T_a, T_b, FilletEnd curve (A2.1.c).
+
+    // Steps 3-5 with rung fallback: try Direct → Setback → Open.
+    //
+    // Direct: per-fillet sphere-fit succeeds; full cap built.
+    // Setback: one or more fillets fail sphere-fit; produce a plan
+    //   that omits affected fillets' cap edges (degenerate cap, but
+    //   still well-defined topology).  Only the successful fillets
+    //   contribute apex_vertices/edges; failures emit a warning.
+    // Open: fewer than 3 fillets succeed; no cap face possible —
+    //   plan has empty apex_vertices/edges, signalling the caller
+    //   to leave the apex as raw fillet terminations (no cap).
+    //
+    // Per ADR §4.3: each fallback emits a `BlendWarning::ContinuityDowngraded`
+    // (legacy pattern; surfaced when the planner is wired into the
+    // pipeline in A2.3).
+    plan_with_rung_ladder(
+        brep,
+        apex,
+        &boundary,
+        fillet_specs,
+        fillet_surfaces,
+        tolerance,
+    )
+}
+
+/// Try [`ConstructionRung::Direct`] first, then Setback, then Open.
+/// Records the successful rung (and any fallback reason) in
+/// [`PlanTelemetry`].
+fn plan_with_rung_ladder(
+    brep: &BRep,
+    apex: VertexHandle,
+    boundary: &BlendBoundary,
+    fillet_specs: &[FilletSpec],
+    fillet_surfaces: &[FilletSurfaceResult],
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Result<ApexPlan, ApexPlanError> {
+    use super::telemetry::ConstructionRung;
+
+    // --- Rung 1: Direct ---
+    match compute_per_fillet_terminations(brep, apex, boundary, fillet_surfaces, tolerance) {
+        Ok(terminations) => {
+            let mut telemetry = PlanTelemetry::new();
+            let cap_kind = decide_cap_kind(&terminations, fillet_specs, tolerance, &mut telemetry)?;
+            let target_topology = build_target_topology(&cap_kind, &terminations);
+            telemetry.rung = ConstructionRung::Direct;
+            Ok(ApexPlan {
+                apex_vertex: apex,
+                cap_kind,
+                target_topology,
+                telemetry,
+            })
+        }
+        Err(direct_err) => {
+            // Direct failed — try Setback rung next.
+            //
+            // Setback strategy: compute terminations per-fillet,
+            // tolerating individual failures.  Successful fillets
+            // contribute to the cap; failed fillets are skipped
+            // (their corresponding apex region remains as the raw
+            // rolling-ball termination, with a gap).
+            //
+            // For ≥ 3 successful fillets we can still build a Sphere
+            // or Gregory cap (degenerate — fewer than the original N
+            // sub-patches).  For < 3 successful fillets the cap can't
+            // be built at all → fall through to Open rung.
+            if let Ok(plan) = plan_setback_rung(
+                brep,
+                apex,
+                boundary,
+                fillet_specs,
+                fillet_surfaces,
+                tolerance,
+                &direct_err,
+            ) {
+                return Ok(plan);
+            }
+
+            // --- Rung 3: Open ---
+            //
+            // No cap construction.  Returns a plan whose target
+            // topology has no apex_vertices, no apex_edges, and no
+            // cap_face.  When the builder applies this plan, it
+            // performs no apex surgery — fillets remain at their
+            // legacy rolling-ball-footprint termination.  This is
+            // strictly inferior geometry but at least produces a
+            // valid, watertight BRep.
+            Ok(plan_open_rung(apex, fillet_surfaces.len(), &direct_err))
+        }
+    }
+}
+
+/// Attempt the Setback rung: tolerate per-fillet sphere-fit failures
+/// and build a cap from whatever fillets succeeded.  Requires at
+/// least 3 successful fillets to form a cap; otherwise returns
+/// `direct_err` as the originating Direct failure (caller falls
+/// through to Open rung).
+fn plan_setback_rung(
+    brep: &BRep,
+    apex: VertexHandle,
+    boundary: &BlendBoundary,
+    fillet_specs: &[FilletSpec],
+    fillet_surfaces: &[FilletSurfaceResult],
+    tolerance: &popkern_core::tolerance::Tolerance,
+    direct_err: &ApexPlanError,
+) -> Result<ApexPlan, ApexPlanError> {
+    use super::telemetry::ConstructionRung;
     let terminations =
-        compute_per_fillet_terminations(brep, apex, &boundary, fillet_surfaces, tolerance)?;
-    // Step 4: decide cap kind (A2.1.d).
+        compute_per_fillet_terminations_lenient(brep, apex, boundary, fillet_surfaces, tolerance)?;
+    if terminations.len() < 3 {
+        // Not enough successful fillets to build a cap; signal to
+        // caller to fall through to Open rung.
+        return Err(ApexPlanError::SphereCylinderNoIntersection {
+            fillet_idx: 0, // sentinel; real failure recorded in direct_err
+        });
+    }
     let mut telemetry = PlanTelemetry::new();
     let cap_kind = decide_cap_kind(&terminations, fillet_specs, tolerance, &mut telemetry)?;
-    // Step 5: build target topology (A2.1.e).
     let target_topology = build_target_topology(&cap_kind, &terminations);
+    telemetry.rung = ConstructionRung::Setback {
+        // No specific setback distance — Setback here means
+        // "omit failed fillets from the cap".  A future enhancement
+        // can compute a real setback distance per fillet.
+        setback_distance: 0.0,
+    };
+    telemetry.fallback_reason = Some(format!(
+        "Direct rung failed ({direct_err}); Setback rung succeeded by omitting failed fillets"
+    ));
     Ok(ApexPlan {
         apex_vertex: apex,
         cap_kind,
         target_topology,
         telemetry,
     })
+}
+
+/// Like [`compute_per_fillet_terminations`] but skips fillets whose
+/// individual sphere-fit fails instead of returning the first error.
+/// Used by the Setback rung.
+fn compute_per_fillet_terminations_lenient(
+    brep: &BRep,
+    apex: VertexHandle,
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Result<Vec<PerFilletTermination>, ApexPlanError> {
+    use popkern_core::geometry::apex_blend::sphere_fit::sphere_fit_termination;
+
+    let n_seg = boundary.segments.len();
+    if n_seg < 4 || !n_seg.is_multiple_of(2) {
+        return Err(ApexPlanError::InvalidInput {
+            field: "boundary.segments",
+            value: format!("expected n_seg even and ≥4; got n_seg={n_seg}"),
+        });
+    }
+    let n_fil = n_seg / 2;
+    let apex_pos =
+        brep.vertices
+            .get(apex)
+            .map(|v| v.position)
+            .ok_or_else(|| ApexPlanError::InvalidInput {
+                field: "apex",
+                value: format!("vertex {apex:?} disappeared"),
+            })?;
+
+    // Reuse the face-normal collection from the strict pass so
+    // both rungs see the same face-normal data.
+    let mut face_a_normals: Vec<Vec3> = Vec::with_capacity(n_fil);
+    let mut face_b_normals: Vec<Vec3> = Vec::with_capacity(n_fil);
+    let mut face_a_handles: Vec<FaceHandle> = Vec::with_capacity(n_fil);
+    let mut face_b_handles: Vec<FaceHandle> = Vec::with_capacity(n_fil);
+    let mut unique_face_normals: Vec<(FaceHandle, Vec3)> = Vec::new();
+    for k in 0..n_fil {
+        let prev_idx = if k == 0 { n_seg - 1 } else { 2 * k - 1 };
+        let next_idx = 2 * k + 1;
+        let face_a = match &boundary.segments[prev_idx] {
+            BoundarySegment::FaceEdge { face, .. } => *face,
+            _ => {
+                return Err(ApexPlanError::InvalidInput {
+                    field: "boundary.segments",
+                    value: format!("segment {prev_idx} not FaceEdge"),
+                });
+            }
+        };
+        let face_b = match &boundary.segments[next_idx] {
+            BoundarySegment::FaceEdge { face, .. } => *face,
+            _ => {
+                return Err(ApexPlanError::InvalidInput {
+                    field: "boundary.segments",
+                    value: format!("segment {next_idx} not FaceEdge"),
+                });
+            }
+        };
+        let n_a = face_outward_normal_at(brep, face_a, &apex_pos).ok_or_else(|| {
+            ApexPlanError::InvalidInput {
+                field: "boundary.face_a",
+                value: format!("normal eval failed at face {face_a:?}"),
+            }
+        })?;
+        let n_b = face_outward_normal_at(brep, face_b, &apex_pos).ok_or_else(|| {
+            ApexPlanError::InvalidInput {
+                field: "boundary.face_b",
+                value: format!("normal eval failed at face {face_b:?}"),
+            }
+        })?;
+        face_a_normals.push(n_a);
+        face_b_normals.push(n_b);
+        face_a_handles.push(face_a);
+        face_b_handles.push(face_b);
+        for (fh, n) in [(face_a, n_a), (face_b, n_b)] {
+            if !unique_face_normals.iter().any(|(f, _)| *f == fh) {
+                unique_face_normals.push((fh, n));
+            }
+        }
+    }
+    let face_normals: Vec<Vec3> = unique_face_normals.iter().map(|(_, n)| *n).collect();
+    if face_normals.len() < 3 {
+        return Err(ApexPlanError::InsufficientFillets {
+            apex,
+            n: face_normals.len(),
+        });
+    }
+    // Lenient per-fillet pass.
+    let mut out: Vec<PerFilletTermination> = Vec::with_capacity(n_fil);
+    for k in 0..n_fil {
+        let fi = match &boundary.segments[2 * k] {
+            BoundarySegment::FilletEnd { fillet_index, .. } => *fillet_index,
+            _ => unreachable!(),
+        };
+        let Some(fillet) = fillet_surfaces.get(fi) else {
+            continue;
+        };
+        let Some(r_k) = fillet_nominal_radius(&fillet.surface) else {
+            continue;
+        };
+        let Some(cap_centre) =
+            select_per_fillet_centre(apex_pos, &face_normals, r_k, &fillet.surface)
+        else {
+            continue;
+        };
+        let Ok(result) = sphere_fit_termination(
+            apex_pos,
+            cap_centre,
+            r_k,
+            &fillet.surface,
+            face_a_normals[k],
+            face_b_normals[k],
+            tolerance,
+        ) else {
+            continue;
+        };
+        out.push(PerFilletTermination {
+            fillet_idx: fi,
+            endpoint_a: result.endpoint_a,
+            endpoint_b: result.endpoint_b,
+            cap_centre,
+            cap_radius: r_k,
+            curve_3d: result.curve_3d,
+            face_a_normal: face_a_normals[k],
+            face_b_normal: face_b_normals[k],
+            face_a: face_a_handles[k],
+            face_b: face_b_handles[k],
+        });
+    }
+    Ok(out)
+}
+
+/// Build an Open-rung [`ApexPlan`]: empty topology, no cap face.
+/// The fallback when neither Direct nor Setback can produce a
+/// valid cap.  Builder's view of this plan: do nothing — leave
+/// the apex region as the legacy rolling-ball termination.
+fn plan_open_rung(apex: VertexHandle, n_fil: usize, direct_err: &ApexPlanError) -> ApexPlan {
+    use super::target_topology::TargetCapFace;
+    use super::telemetry::ConstructionRung;
+    // Synthesise a Sphere CapKind with empty fields — the Open rung
+    // doesn't construct a cap, so the cap_kind is informational only.
+    // We use Sphere with degenerate fields rather than introducing a
+    // CapKind::Open variant (avoiding scope creep on the public enum;
+    // can be added later via #[non_exhaustive]).
+    let cap_kind = CapKind::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 0.0,
+        tangent_arc_endpoints: Vec::new(),
+    };
+    let target_topology = TargetTopology {
+        apex_vertices: Vec::new(),
+        apex_edges: Vec::new(),
+        cap_face: TargetCapFace::Sphere {
+            center: Point3::new(0.0, 0.0, 0.0),
+            radius: 0.0,
+            outer_loop_edge_indices: Vec::new(),
+        },
+        face_boundary_updates: Vec::new(),
+    };
+    let mut telemetry = PlanTelemetry::new();
+    telemetry.rung = ConstructionRung::Open;
+    telemetry.fallback_reason = Some(format!(
+        "Direct rung failed ({direct_err}); Setback rung also failed; \
+         Open rung produces no apex cap.  {n_fil} fillets terminate at \
+         their legacy rolling-ball footprints."
+    ));
+    telemetry.cap_kind_reason = "Open — no cap construction".to_string();
+    ApexPlan {
+        apex_vertex: apex,
+        cap_kind,
+        target_topology,
+        telemetry,
+    }
 }
 
 /// Build the declarative [`TargetTopology`] from the chosen
