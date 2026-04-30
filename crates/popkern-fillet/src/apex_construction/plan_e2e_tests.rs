@@ -501,3 +501,93 @@ fn preview_affordances_describe_open_rung_plan() {
         "Open rung has no cap to preview",
     );
 }
+
+// ---------------------------------------------------------------
+// Issue 6 — JSON/serde round-trip
+// ---------------------------------------------------------------
+
+#[test]
+fn plan_round_trips_through_json() {
+    let cube = BRep::unit_cube(test_tolerance()).expect("cube builds");
+    let (apex, edges) = pick_apex_and_incident_edges(&cube);
+    let radius = 0.1;
+    let surfaces = build_fillet_surfaces(&cube, &edges, radius);
+    let specs: Vec<FilletSpec> = edges
+        .iter()
+        .map(|&e| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(radius),
+        })
+        .collect();
+    let plan = plan_apex_resolution(&cube, apex, &specs, &surfaces, &test_tolerance(), None)
+        .expect("Direct rung succeeds on uniform cube");
+
+    let json = serde_json::to_string(&plan).expect("ApexPlan serialises to JSON");
+    assert!(
+        json.contains("\"apex_vertex\"") && json.contains("\"telemetry\""),
+        "JSON should contain ApexPlan field names; got prefix: {}",
+        &json[..json.len().min(120)],
+    );
+    let restored: super::plan::ApexPlan =
+        serde_json::from_str(&json).expect("ApexPlan deserialises from JSON");
+    // f64 JSON round-trips can drift by one ULP through ryu's
+    // shortest-round-trip parser interaction (a known
+    // serde_json/ryu issue, not a defect of this plan type).  We
+    // therefore only assert structural-field equality on
+    // integer/string-valued data — the parts that do round-trip
+    // bit-exactly.
+    assert_eq!(plan.apex_vertex, restored.apex_vertex);
+    assert_eq!(plan.n_fillets(), restored.n_fillets());
+    assert_eq!(plan.telemetry.rung, restored.telemetry.rung);
+    assert_eq!(
+        plan.telemetry.cap_kind_reason,
+        restored.telemetry.cap_kind_reason
+    );
+    assert_eq!(
+        plan.target_topology.apex_vertices.len(),
+        restored.target_topology.apex_vertices.len()
+    );
+    assert_eq!(
+        plan.target_topology.apex_edges.len(),
+        restored.target_topology.apex_edges.len()
+    );
+    // Geometric fields are reproduced within 1 ULP — verify by
+    // bounding the per-coordinate drift on apex_vertices.
+    for (a, b) in plan
+        .target_topology
+        .apex_vertices
+        .iter()
+        .zip(restored.target_topology.apex_vertices.iter())
+    {
+        assert!(
+            (a.x - b.x).abs() < 1e-15 && (a.y - b.y).abs() < 1e-15 && (a.z - b.z).abs() < 1e-15,
+            "apex_vertex round-trip drift > 1e-15: {a:?} vs {b:?}",
+        );
+    }
+}
+
+#[test]
+fn open_rung_plan_round_trips_through_json() {
+    let cube = BRep::unit_cube(test_tolerance()).expect("cube builds");
+    let (apex, edges) = pick_apex_and_incident_edges(&cube);
+    let radius = 0.1;
+    let mut surfaces = build_fillet_surfaces(&cube, &edges, radius);
+    force_unsupported_kind(&mut surfaces, 2);
+    let specs: Vec<FilletSpec> = edges
+        .iter()
+        .map(|&e| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(radius),
+        })
+        .collect();
+    let plan = plan_apex_resolution(&cube, apex, &specs, &surfaces, &test_tolerance(), None)
+        .expect("Open rung produces a plan");
+
+    let json = serde_json::to_string(&plan).expect("Open ApexPlan serialises");
+    let restored: super::plan::ApexPlan =
+        serde_json::from_str(&json).expect("Open ApexPlan deserialises");
+    // Open's plan has no f64 geometry to lose precision on, so
+    // structural equality holds bit-exactly.
+    assert_eq!(plan, restored);
+    assert!(restored.cap_kind.is_open());
+}

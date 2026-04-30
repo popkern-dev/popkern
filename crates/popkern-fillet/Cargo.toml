@@ -7,11 +7,13 @@ description = "Fillets and chamfers for the popkern BRep kernel"
 
 [dependencies]
 popkern-core = { path = "../popkern-core" }
+serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 
 [dev-dependencies]
 popkern-bool = { path = "../popkern-bool" }
 criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }
+serde_json = "1"
 
 [[bench]]
 name = "modify_inplace_speedup"

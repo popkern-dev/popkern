@@ -12,6 +12,7 @@
 //! Replaces the legacy 5+ env-flag tracing approach with a
 //! structured query interface.
 
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Construction rung enumeration.  Ordered from preferred (Direct)
@@ -21,7 +22,7 @@ use std::collections::BTreeMap;
 /// Each rung corresponds to a [`BlendWarning::ContinuityDowngraded`]
 /// emission when a more-preferred rung was attempted but failed
 /// (legacy fillet pipeline pattern; preserved here).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ConstructionRung {
     /// Direct sphere-fit apex construction — the A2 default.
@@ -50,7 +51,7 @@ pub enum ConstructionRung {
 /// Every [`ApexPlan`](super::ApexPlan) carries a `PlanTelemetry`
 /// describing the decision process.  UIs render this for users
 /// to understand the fillet result.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanTelemetry {
     /// Human-readable reason for the cap-kind choice.
     /// E.g. "uniform radii within 0.1% — Sphere cap chosen" or

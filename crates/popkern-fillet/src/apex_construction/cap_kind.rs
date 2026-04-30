@@ -6,6 +6,7 @@
 //! Gregory cap is constructed.
 
 use popkern_core::geometry::Point3;
+use serde::{Deserialize, Serialize};
 
 /// Cap face construction strategy decided by [`plan_apex`](super::plan_apex).
 ///
@@ -17,7 +18,7 @@ use popkern_core::geometry::Point3;
 /// with non-degenerate FaceEdge bridges.
 ///
 /// See ADR §3.1 for full type design.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum CapKind {
     /// Single sphere cap, tangent to each fillet's cylinder along a

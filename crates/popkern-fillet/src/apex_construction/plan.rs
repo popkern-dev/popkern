@@ -21,6 +21,7 @@
 //! 4. Telemetry records the rung used + any fallback reason.
 
 use popkern_core::topology::{BRep, VertexHandle};
+use serde::{Deserialize, Serialize};
 
 use crate::cancellation::CancellationToken;
 use crate::fillet_surface::FilletSurfaceResult;
@@ -42,7 +43,7 @@ use super::telemetry::{ConstructionRung, PlanTelemetry};
 /// UI preview.
 ///
 /// See ADR `docs/decisions/2026-04-30-phase-6c-a2-direct-apex-construction.md` §3.1.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ApexPlan {
     /// The apex vertex this plan resolves.
     pub apex_vertex: VertexHandle,

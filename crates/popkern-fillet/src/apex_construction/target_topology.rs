@@ -8,13 +8,14 @@
 
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::topology::{FaceHandle, VertexHandle};
+use serde::{Deserialize, Serialize};
 
 /// Declarative spec of the desired final apex region.
 ///
 /// The planner emits this; the builder consumes it and applies
 /// Euler ops to realise it.  `TargetTopology` is INTROSPECTABLE
 /// (UI can render it as a preview before construction).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TargetTopology {
     /// Vertices that should exist at these positions after
     /// construction.  Existing vertices within tolerance are
@@ -40,7 +41,7 @@ pub struct TargetTopology {
 /// realises this, it creates the edge via `mef` (or finds an
 /// existing edge between the endpoints) and stores the curve
 /// directly (no separate wire step).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TargetEdge {
     /// Index into `TargetTopology::apex_vertices` for the edge's
     /// origin vertex (in BRep direction sense — primary HE origin).
@@ -62,7 +63,7 @@ pub struct TargetEdge {
 ///
 /// The builder uses this to decide which surface(s) the edge
 /// should be associated with (cap face, cylinder face, plane face).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TargetEdgeRole {
     /// Cap-vs-Cyl edge — typically the FilletEnd arc terminating
     /// on the fillet's cylinder.  Identifies which fillet.
@@ -89,7 +90,7 @@ pub enum TargetEdgeRole {
 /// pipeline will subsequently decompose into N sub-patches via
 /// 3-quad poke.  For Open: no cap face is created — fillets
 /// terminate at their legacy rolling-ball footprints.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum TargetCapFace {
     /// Single Sphere cap face.  Outer loop walks the apex_vertices
@@ -123,7 +124,7 @@ pub enum TargetCapFace {
 /// cube face, fillet cylinder face) need their outer-loop chains
 /// updated to connect to the new apex vertices and replace any
 /// stale apex-side curves.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FaceBoundaryUpdate {
     /// The face whose boundary needs updating.
     pub face: FaceHandle,
