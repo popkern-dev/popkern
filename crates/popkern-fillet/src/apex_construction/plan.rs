@@ -22,6 +22,7 @@
 
 use popkern_core::topology::{BRep, VertexHandle};
 
+use crate::cancellation::CancellationToken;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::FilletSpec;
 
@@ -75,6 +76,10 @@ impl ApexPlan {
 ///     pipeline by `geometry_compute`.
 /// * `tolerance` — geometric tolerance for cap-kind dispatch and
 ///   coincidence checks.
+/// * `cancel` — optional cooperative cancellation token.  Polled at
+///   each rung boundary; when cancelled the planner returns
+///   [`ApexPlanError::Cancelled`] without further work.  Pass `None`
+///   for non-cancellable use.
 ///
 /// # Output
 ///
@@ -90,14 +95,17 @@ pub fn plan_apex_resolution(
     fillet_specs: &[FilletSpec],
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &popkern_core::tolerance::Tolerance,
+    cancel: Option<&CancellationToken>,
 ) -> Result<ApexPlan, ApexPlanError> {
     // Step 1: validate inputs (A2.1.b).  Validation errors don't
     // benefit from rung fallback — invalid inputs are user errors.
     validate_inputs(brep, apex, fillet_specs)?;
+    check_cancelled(cancel)?;
 
     // Step 2: compute boundary segments (A2.1.c).  Same — boundary
     // failure is structural, not a sphere-fit failure.
     let boundary = compute_apex_boundary(brep, apex, fillet_surfaces, tolerance)?;
+    check_cancelled(cancel)?;
 
     // Steps 3-5 with rung fallback: try Direct → Setback → Open.
     plan_with_rung_ladder(
@@ -107,12 +115,23 @@ pub fn plan_apex_resolution(
         fillet_specs,
         fillet_surfaces,
         tolerance,
+        cancel,
     )
+}
+
+/// Polls the cancellation token (if any) and returns
+/// [`ApexPlanError::Cancelled`] if it has been signalled.
+fn check_cancelled(cancel: Option<&CancellationToken>) -> Result<(), ApexPlanError> {
+    if cancel.is_some_and(|c| c.is_cancelled()) {
+        Err(ApexPlanError::Cancelled)
+    } else {
+        Ok(())
+    }
 }
 
 /// Try [`ConstructionRung::Direct`] first, then Setback, then Open.
 /// Records the successful rung (and any fallback reason) in
-/// [`PlanTelemetry`].
+/// [`PlanTelemetry`].  Polls `cancel` at each rung boundary.
 fn plan_with_rung_ladder(
     brep: &BRep,
     apex: VertexHandle,
@@ -120,8 +139,10 @@ fn plan_with_rung_ladder(
     fillet_specs: &[FilletSpec],
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &popkern_core::tolerance::Tolerance,
+    cancel: Option<&CancellationToken>,
 ) -> Result<ApexPlan, ApexPlanError> {
     // --- Rung 1: Direct ---
+    check_cancelled(cancel)?;
     match compute_per_fillet_terminations(brep, apex, boundary, fillet_surfaces, tolerance) {
         Ok(terminations) => {
             let mut telemetry = PlanTelemetry::new();
@@ -142,6 +163,7 @@ fn plan_with_rung_ladder(
             // sphere-fit failures.  Successful fillets contribute
             // apex_vertices/edges; failed fillets are skipped.
             // Requires ≥3 successful fillets.
+            check_cancelled(cancel)?;
             if let Ok(plan) = plan_setback_rung(
                 brep,
                 apex,
@@ -158,6 +180,7 @@ fn plan_with_rung_ladder(
             //
             // No cap construction.  Plan has empty apex topology;
             // builder leaves apex as raw rolling-ball terminations.
+            check_cancelled(cancel)?;
             Ok(plan_open_rung(apex, fillet_surfaces.len(), &direct_err))
         }
     }

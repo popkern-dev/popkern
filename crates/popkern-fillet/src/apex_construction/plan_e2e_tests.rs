@@ -128,7 +128,7 @@ fn direct_rung_succeeds_on_uniform_cube() {
         })
         .collect();
 
-    let plan = plan_apex_resolution(&cube, apex, &specs, &surfaces, &test_tolerance())
+    let plan = plan_apex_resolution(&cube, apex, &specs, &surfaces, &test_tolerance(), None)
         .expect("Direct rung should succeed on uniform cube");
 
     assert_eq!(plan.apex_vertex, apex);
@@ -210,7 +210,7 @@ fn direct_rung_succeeds_on_uniform_pyramid() {
         })
         .collect();
 
-    let plan = plan_apex_resolution(&pyramid, apex, &specs, &surfaces, &test_tolerance())
+    let plan = plan_apex_resolution(&pyramid, apex, &specs, &surfaces, &test_tolerance(), None)
         .expect("Direct rung should succeed on uniform pyramid");
 
     assert_eq!(plan.apex_vertex, apex);
@@ -270,7 +270,7 @@ fn setback_rung_succeeds_when_one_pyramid_fillet_unsupported() {
         })
         .collect();
 
-    let plan = plan_apex_resolution(&pyramid, apex, &specs, &surfaces, &test_tolerance())
+    let plan = plan_apex_resolution(&pyramid, apex, &specs, &surfaces, &test_tolerance(), None)
         .expect("Setback rung should succeed with 3 of 4 fillets");
 
     assert_eq!(plan.apex_vertex, apex);
@@ -318,7 +318,7 @@ fn open_rung_when_too_few_fillets_succeed_on_cube() {
         })
         .collect();
 
-    let plan = plan_apex_resolution(&cube, apex, &specs, &surfaces, &test_tolerance())
+    let plan = plan_apex_resolution(&cube, apex, &specs, &surfaces, &test_tolerance(), None)
         .expect("Open rung should produce a (degenerate) plan when both Direct and Setback fail");
 
     assert_eq!(plan.apex_vertex, apex);
@@ -380,10 +380,45 @@ fn input_validation_short_circuits_rung_ladder() {
             radius: FilletRadius::Constant(0.1),
         })
         .collect();
-    let err = plan_apex_resolution(&cube, apex, &specs, &[], &test_tolerance())
+    let err = plan_apex_resolution(&cube, apex, &specs, &[], &test_tolerance(), None)
         .expect_err("should fail InsufficientFillets");
     assert!(
         matches!(err, ApexPlanError::InsufficientFillets { n: 2, .. }),
         "expected InsufficientFillets(n=2), got {err:?}",
+    );
+}
+
+/// Issue 5 — pre-cancelled tokens short-circuit planning at the
+/// rung-ladder boundary (after `validate_inputs` succeeds, before
+/// any sphere-fit math runs).
+#[test]
+fn cancellation_token_short_circuits_planning() {
+    use crate::cancellation::CancellationToken;
+
+    let cube = BRep::unit_cube(test_tolerance()).expect("cube builds");
+    let (apex, edges) = pick_apex_and_incident_edges(&cube);
+    let radius = 0.1;
+    let surfaces = build_fillet_surfaces(&cube, &edges, radius);
+    let specs: Vec<FilletSpec> = edges
+        .iter()
+        .map(|&e| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(radius),
+        })
+        .collect();
+    let token = CancellationToken::new();
+    token.cancel();
+    let err = plan_apex_resolution(
+        &cube,
+        apex,
+        &specs,
+        &surfaces,
+        &test_tolerance(),
+        Some(&token),
+    )
+    .expect_err("pre-cancelled token must surface ApexPlanError::Cancelled");
+    assert!(
+        matches!(err, ApexPlanError::Cancelled),
+        "expected Cancelled, got {err:?}",
     );
 }
