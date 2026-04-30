@@ -422,7 +422,7 @@ fn try_pns_dispatch_succeeds_at_higher_valences() {
             sphere_fit_substituted: false,
             per_fillet_caps: Vec::new(),
             hex_boundary_cps_deg9: Vec::new(),
-        fillet_end_arcs: Vec::new(),
+            fillet_end_arcs: Vec::new(),
         };
 
         let patches = try_pns_dispatch(

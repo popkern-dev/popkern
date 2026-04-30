@@ -271,7 +271,7 @@ pub fn compute_blend_boundary(
                 sphere_fit_substituted: false,
                 per_fillet_caps: Vec::new(),
                 hex_boundary_cps_deg9: Vec::new(),
-        fillet_end_arcs: Vec::new(),
+                fillet_end_arcs: Vec::new(),
             };
             if sphere_fit_enabled {
                 boundary.sphere_fit_substituted =

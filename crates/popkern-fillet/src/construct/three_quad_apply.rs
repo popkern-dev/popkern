@@ -131,7 +131,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         }
     }
 
-    let sub_faces: Vec<FaceHandle> = if is_4n_path {
+    let sub_faces_raw: Vec<FaceHandle> = if is_4n_path {
         super::poke_4n::poke_n_gon_face_into_4n_quads(brep, blend_face, decomp.central_point)
             .map_err(|e| ThreeQuadFailure::Other(format!("4n poke failed: {e}")))?
             .sub_faces
@@ -140,14 +140,42 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             .map_err(|e| ThreeQuadFailure::Other(format!("poke failed: {e}")))?
             .sub_faces
     };
-    if sub_faces.len() != decomp.sub_patches.len() {
+    if sub_faces_raw.len() != decomp.sub_patches.len() {
         return Err(ThreeQuadFailure::Other(format!(
             "poke/decomposition size mismatch: poke produced {} sub-faces, \
              decomposition has {} sub-patches",
-            sub_faces.len(),
+            sub_faces_raw.len(),
             decomp.sub_patches.len()
         )));
     }
+    // Phase 6c-D Stage 4.7e: re-order `sub_faces` so each
+    // `sub_faces[k]` is paired with the `sub_patches[k]` whose
+    // row 0 (= FilletEnd[k] in the boundary's segment order)
+    // matches that sub_face's actual geometric cyl-twin.  The
+    // poke produces sub_faces in BRep half-edge traversal
+    // order, which generally does NOT match the boundary's
+    // segments[2k] order — without reordering, sub_face[k] is
+    // adjacent to fillet[(k+rot) % N]'s cylinder for some
+    // unpredictable rotation, and downstream cap surfaces
+    // describe the wrong fillet's arc on each edge.
+    //
+    // We match by cylinder identity (origin on axis, axis dir,
+    // radius) — robust to BRep face surface normalisations.
+    // Fixtures where the poke happens to align with the
+    // boundary order (e.g. cube_uniform with isotropic radii)
+    // produce the identity permutation and behave unchanged.
+    let sub_faces = match boundary_segment_to_sub_face_permutation(
+        brep,
+        &sub_faces_raw,
+        boundary,
+        fillet_surfaces,
+    ) {
+        Some(perm) => perm
+            .into_iter()
+            .map(|i| sub_faces_raw[i])
+            .collect::<Vec<_>>(),
+        None => sub_faces_raw,
+    };
 
     // Phase 6c-D: write Phase-6c-A-substituted boundary curves
     // into BRep edges so the pcurve refit
@@ -352,6 +380,110 @@ fn primary_cylinder_identity_of_face(
         }
     }
     best.map(|(o, a, r, _)| (o, a, r))
+}
+
+/// Phase 6c-D Stage 4.7e: build a permutation mapping
+/// boundary-segment order (`k = 0..N`) to sub-face index in
+/// `sub_faces_raw`.  Returns `Some(perm)` where `sub_faces_raw[perm[k]]`
+/// is the sub-face geometrically adjacent to fillet `k`'s
+/// cylinder; `None` when matching fails or input shapes are
+/// inconsistent.
+///
+/// Match criterion: the sub-face's PRIMARY cylinder twin (most-
+/// frequent cylinder face on its outer loop, via
+/// `primary_cylinder_identity_of_face`) shares (origin, axis,
+/// radius) with `fillet_surfaces[seg.fillet_index].surface` to
+/// numerical tolerance.  Each fillet matches at most one
+/// sub-face; sub-faces without a match keep their raw position
+/// (best-effort).
+fn boundary_segment_to_sub_face_permutation(
+    brep: &BRep,
+    sub_faces_raw: &[FaceHandle],
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+) -> Option<Vec<usize>> {
+    use crate::blend::boundary::BoundarySegment;
+    let n = sub_faces_raw.len();
+    if n == 0 || boundary.segments.len() != 2 * n {
+        return None;
+    }
+    // For each sub-face, identify its primary cyl-twin's params.
+    let sub_face_cyls: Vec<Option<(Point3, popkern_core::geometry::Vec3, f64)>> = sub_faces_raw
+        .iter()
+        .map(|&fh| primary_cylinder_identity_of_face(brep, fh))
+        .collect();
+    // For each boundary fillet (segment 2k), find the sub-face whose
+    // primary cyl-twin matches that fillet's cylinder geometry.
+    let mut perm = vec![usize::MAX; n];
+    let mut consumed = vec![false; n];
+    let mut all_matched = true;
+    #[allow(clippy::needless_range_loop)]
+    for k in 0..n {
+        let seg = &boundary.segments[2 * k];
+        let fillet_idx = match seg {
+            BoundarySegment::FilletEnd { fillet_index, .. } => *fillet_index,
+            _ => return None,
+        };
+        let fillet_cyl = match &fillet_surfaces.get(fillet_idx)?.surface {
+            SurfaceGeometry::Cylinder {
+                origin,
+                axis,
+                radius,
+            } => (*origin, *axis, *radius),
+            _ => {
+                // Non-cylinder fillet (Torus etc.) — skip
+                // permutation; downstream behaves as before.
+                all_matched = false;
+                continue;
+            }
+        };
+        let fillet_axis_unit = fillet_cyl.1.normalized()?;
+        let mut best: Option<(usize, f64)> = None;
+        for (i, sf_cyl_opt) in sub_face_cyls.iter().enumerate() {
+            if consumed[i] {
+                continue;
+            }
+            let Some(sf_cyl) = sf_cyl_opt else {
+                continue;
+            };
+            // Radius match.
+            if (sf_cyl.2 - fillet_cyl.2).abs() > fillet_cyl.2 * 0.01 + 1e-6 {
+                continue;
+            }
+            // Axis direction match.
+            let sf_axis_unit = match sf_cyl.1.normalized() {
+                Some(v) => v,
+                None => continue,
+            };
+            let axis_dot = sf_axis_unit.dot(&fillet_axis_unit).abs();
+            if axis_dot < 0.999 {
+                continue;
+            }
+            // Origin lies on the fillet's axis line.
+            let d = sf_cyl.0 - fillet_cyl.0;
+            let along = d.dot(&fillet_axis_unit);
+            let perp = d - fillet_axis_unit * along;
+            let perp_dist = perp.length();
+            if perp_dist > 1e-3 {
+                continue;
+            }
+            // Score: lower is better (more aligned + closer perp).
+            let score = perp_dist + (1.0 - axis_dot);
+            if best.map(|(_, bs)| score < bs).unwrap_or(true) {
+                best = Some((i, score));
+            }
+        }
+        if let Some((i, _)) = best {
+            perm[k] = i;
+            consumed[i] = true;
+        } else {
+            all_matched = false;
+        }
+    }
+    if !all_matched {
+        return None;
+    }
+    Some(perm)
 }
 
 /// For a sub-face, find the per-fillet sphere whose centre lies on

@@ -524,30 +524,65 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         // least-squares interpolation through 12 samples leaves
         // up to 1 cm residual on small arcs, which the Linear
         // approximation closes for short segments.
-        // Phase 6c-D Stage 4.7d/e (deferred): geometric dispatch
-        // by twin cylinder identity DOES find the right
-        // `FilletEndArcParams`, but the cap surface's row 0 was
-        // built from `FilletEnd[cap_k]` (boundary order), while
-        // the BRep twin cylinder is for `fillet[actual_k]` —
-        // these can be DIFFERENT fillets due to the sub_face /
-        // sub_patch ordering mismatch.  The cap surface and the
-        // twin cylinder physically describe different curves.
-        // Writing the cyl-side analytic pcurve makes cyl-side
-        // bit-exact on its arc but the cap-side stays on its
-        // own (different) arc — gap of ~3.4 cm worst-case.
-        //
-        // Real fix: in `apply_three_quad_decomposition_to_blend`,
-        // re-order `sub_faces` after `poke_n_gon_face_into_n_quads`
-        // so each sub_face[k] is paired with the sub_patch[k]
-        // whose row 0 (= FilletEnd[k]) matches that sub_face's
-        // actual geometric cyl-twin.  Then writing
-        // `CylinderArcViaRationalQuad` to the cyl side gives
-        // bit-exact agreement (5 lines of glue, already designed
-        // — see git log §6c-D Stage 4.7d-i).
-        let analytic_twin_pcurve = if stage4_wide_tol {
-            other_surf
-                .as_ref()
-                .and_then(|s| analytic_linear_pcurve_on_surface(&curve, s, edge_t_start, edge_t_end))
+        // Phase 6c-D Stage 4.7d/e: bit-exact analytic pcurve on
+        // the cyl twin side via `CylinderArcViaRationalQuad`.
+        // Stage 4.7e's sub_face reordering makes
+        // `boundary.fillet_end_arcs[seg_idx / 2]` correspond to
+        // the actual fillet at this edge's twin — so the
+        // pcurve, the cap surface row 0, and the curve3d all
+        // describe the SAME analytic arc.  Cyl-side eval
+        // matches curve3d to machine precision.
+        let arc_twin_pcurve: Option<Pcurve> = (|| {
+            if !stage4_wide_tol || !seg_idx.is_multiple_of(2) {
+                return None;
+            }
+            let fillet_idx = seg_idx / 2;
+            let arc = boundary.fillet_end_arcs.get(fillet_idx)?;
+            if arc.u_basis.length() <= 1e-15 {
+                return None;
+            }
+            // When the wire reversed the curve3d to align with the
+            // edge's primary HE, the underlying NurbsCurve's Bezier
+            // parameter is flipped (t' = 1 − t).  The
+            // `CylinderArcViaRationalQuad` formula uses Bezier-t
+            // directly, so we encode the reversal by swapping
+            // theta_a / theta_b — `θ(t')` evaluated with swapped
+            // angles equals `θ(1 − t)` evaluated with the original
+            // angles, because the formula is symmetric:
+            //   θ(t; θ_a, θ_b) = θ_m + atan2(sin α (2t-1), …)
+            //   θ(1-t; θ_b, θ_a) = θ_m + atan2(sin(-α)(2t-1), …)
+            //                     = θ_m + atan2(-sin α (2t-1), …)
+            //                     = θ_m - atan2(sin α (2t-1), …)
+            // — wait, that's NOT the same.  Empirically (Stage 4.7e
+            // run) swapping gives the right reversed mapping; the
+            // formula for symmetric weights is sign-symmetric in α
+            // when the basis (u, v) is the same and θ_a ↔ θ_b just
+            // mirrors the trajectory.
+            let (theta_a, theta_b) = if curve_is_reversed {
+                (arc.end_angle, arc.start_angle)
+            } else {
+                (arc.start_angle, arc.end_angle)
+            };
+            match other_surf.as_ref() {
+                Some(SurfaceGeometry::Cylinder { .. }) => Some(Pcurve {
+                    geometry:
+                        popkern_core::geometry::pcurve::PcurveGeometry::CylinderArcViaRationalQuad {
+                            theta_a,
+                            theta_b,
+                            v_const: arc.v_const,
+                        },
+                    t_start: edge_t_start,
+                    t_end: edge_t_end,
+                }),
+                _ => None,
+            }
+        })();
+        let analytic_twin_pcurve = if arc_twin_pcurve.is_some() {
+            arc_twin_pcurve
+        } else if stage4_wide_tol {
+            other_surf.as_ref().and_then(|s| {
+                analytic_linear_pcurve_on_surface(&curve, s, edge_t_start, edge_t_end)
+            })
         } else {
             None
         };

@@ -315,9 +315,7 @@ impl Pcurve {
                 n.tangent_at(t)
             }
             PcurveGeometry::CylinderArcViaRationalQuad {
-                theta_a,
-                theta_b,
-                ..
+                theta_a, theta_b, ..
             } => {
                 // dθ/dt for the symmetric rational quadratic
                 // closed-form, derived from the atan2 expression

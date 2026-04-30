@@ -26,9 +26,9 @@
 //! whose pyramid faces don't fit this construction.  Validation
 //! matrix gate flips it on by default in Phase 6c-F.
 
+use popkern_core::geometry::Point3;
 use popkern_core::geometry::nurbs_surface::NurbsSurface;
 use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::geometry::Point3;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
 /// Replace `face`'s `Plane` surface with a degree-(1, 3) Bezier
@@ -164,12 +164,10 @@ pub(crate) fn lift_apex_face_with_bridge(
 /// outer-loop pcurves onto the new NURBS surface so subsequent
 /// pipeline stages see consistent UV mappings.  Returns the
 /// number of plane faces lifted.
-pub(crate) fn lift_all_apex_plane_faces(
-    brep: &mut BRep,
-    cap_faces: &[FaceHandle],
-) -> usize {
+pub(crate) fn lift_all_apex_plane_faces(brep: &mut BRep, cap_faces: &[FaceHandle]) -> usize {
     let cap_set: std::collections::BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
-    let mut already_lifted: std::collections::BTreeSet<FaceHandle> = std::collections::BTreeSet::new();
+    let mut already_lifted: std::collections::BTreeSet<FaceHandle> =
+        std::collections::BTreeSet::new();
     // Discover (plane_face, bridge_edge) pairs by walking each cap face's outer loop.
     let mut jobs: Vec<(FaceHandle, EdgeHandle)> = Vec::new();
     for &cap_face in cap_faces {
