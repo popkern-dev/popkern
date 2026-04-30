@@ -1,0 +1,45 @@
+//! Phase 6c-A2 — Direct sphere-fit apex construction.
+//!
+//! The fillet pipeline's apex resolution path: plan apex topology
+//! (with sphere-fit terminations) first, then build the BRep apex
+//! region directly via Euler operators.  Replaces the legacy
+//! substitute-then-patch overlay (Phases 6c-A through 6c-X).
+//!
+//! See ADR `docs/decisions/2026-04-30-phase-6c-a2-direct-apex-construction.md`.
+//!
+//! # Public API
+//!
+//! Three entry points (per ADR §5.1):
+//!
+//! * [`plan_apex`] — pure planner, returns an [`ApexPlan`] without
+//!   mutating the BRep.  UI-friendly: callers can preview, inspect
+//!   telemetry, or cancel.
+//! * [`construct_apex`] — applies a precomputed [`ApexPlan`] to a
+//!   BRep via Euler ops.  Snapshot-rollback on failure.
+//! * [`resolve_apex`] — combined `plan_apex` + `construct_apex` for
+//!   callers who don't need to inspect the plan first.
+//!
+//! All three accept a [`Tolerance`](popkern_core::tolerance::Tolerance)
+//! and an optional [`CancelToken`](crate::cancellation::CancelToken).
+//!
+//! # Status
+//!
+//! A2.1 in progress: type API committed; planner under
+//! implementation.  A2.2 (builder), A2.3 (pipeline integration),
+//! A2.4 (cap surface), A2.5 (validation), A2.6 (cleanup) follow.
+
+pub(crate) mod cap_kind;
+pub(crate) mod error;
+pub(crate) mod plan;
+pub(crate) mod target_topology;
+pub(crate) mod telemetry;
+
+#[cfg(test)]
+#[path = "plan_tests.rs"]
+mod plan_tests;
+
+pub use cap_kind::CapKind;
+pub use error::{ApexBuildError, ApexError, ApexPlanError};
+pub use plan::{ApexPlan, plan_apex_resolution};
+pub use target_topology::{TargetCapFace, TargetEdge, TargetEdgeRole, TargetTopology};
+pub use telemetry::{ConstructionRung, PlanTelemetry};

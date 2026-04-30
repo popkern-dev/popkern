@@ -2,6 +2,7 @@
 //! popkern-fillet: Fillets and chamfers for the popkern BRep kernel.
 //! Public entry points: [`fillet_edges`], [`chamfer_edges`], [`vertex_blend_3d`].
 pub mod analysis;
+pub mod apex_construction;
 pub mod blend;
 pub mod blend_diagnostics;
 pub(crate) mod blend_warnings;
