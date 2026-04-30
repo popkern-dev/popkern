@@ -163,6 +163,9 @@ fn direct_rung_succeeds_on_uniform_cube() {
                 );
             }
         }
+        CapKind::Open { .. } => {
+            panic!("Direct rung on uniform cube must produce a real cap, not Open",)
+        }
     }
     // Target topology vertex count depends on cap kind:
     //   * Sphere collapses shared T_a/T_b at the cap centre → 3
@@ -337,6 +340,25 @@ fn open_rung_when_too_few_fillets_succeed_on_cube() {
     // Open's target_topology is empty — no cap, no apex_vertices.
     assert!(plan.target_topology.apex_vertices.is_empty());
     assert!(plan.target_topology.apex_edges.is_empty());
+    // Cap-kind is the typed Open variant carrying the count of
+    // fillets that *would* have been at the apex.
+    assert!(
+        plan.cap_kind.is_open(),
+        "Open rung must produce CapKind::Open, got {:?}",
+        plan.cap_kind,
+    );
+    if let crate::apex_construction::cap_kind::CapKind::Open {
+        n_fillets_attempted,
+    } = &plan.cap_kind
+    {
+        assert_eq!(*n_fillets_attempted, 3, "cube apex has 3 fillets");
+    } else {
+        unreachable!("is_open() asserted above");
+    }
+    assert!(matches!(
+        plan.target_topology.cap_face,
+        super::target_topology::TargetCapFace::Open
+    ));
 }
 
 // ---------------------------------------------------------------

@@ -190,6 +190,10 @@ pub(crate) fn build_target_topology(
                 face_boundary_updates: Vec::new(),
             }
         }
+        CapKind::Open { .. } => unreachable!(
+            "build_target_topology is never called with CapKind::Open — \
+             plan_open_rung constructs the (empty) topology directly",
+        ),
         CapKind::Gregory { .. } => {
             // 2N apex vertices: vertex layout chosen to make the
             // cap loop walk visit them in alternating order:

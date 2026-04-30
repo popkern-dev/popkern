@@ -87,8 +87,10 @@ pub enum TargetEdgeRole {
 /// For Sphere caps: a single face with Sphere surface assigned.
 /// For Gregory caps: an N-sided face that the cap-construction
 /// pipeline will subsequently decompose into N sub-patches via
-/// 3-quad poke.
+/// 3-quad poke.  For Open: no cap face is created — fillets
+/// terminate at their legacy rolling-ball footprints.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum TargetCapFace {
     /// Single Sphere cap face.  Outer loop walks the apex_vertices
     /// in cap-loop order, all edges are CapVsCyl.
@@ -108,6 +110,11 @@ pub enum TargetCapFace {
         /// in cap-loop walking order (2N entries).
         outer_loop_edge_indices: Vec<usize>,
     },
+    /// No cap face — emitted by the [Open
+    /// rung](super::telemetry::ConstructionRung::Open) when
+    /// neither Direct nor Setback could build a cap.  The builder
+    /// treats this as a no-op for the apex region.
+    Open,
 }
 
 /// Boundary update for an existing non-cap face.

@@ -53,10 +53,27 @@ pub enum CapKind {
         /// across fillets.
         per_fillet_caps: Vec<(Point3, f64)>,
     },
+
+    /// No cap is constructed — the planner's [Open
+    /// rung](super::telemetry::ConstructionRung::Open) when both
+    /// Direct and Setback failed.  Fillets terminate at their
+    /// legacy rolling-ball footprints; the apex region is left as
+    /// the pre-A2 substitute-then-patch overlay would have
+    /// produced (or unfilleted, depending on caller).
+    ///
+    /// Carries the count of fillets that *would* have been at the
+    /// apex, for telemetry / UI feedback only.
+    Open {
+        /// Number of fillets that meet at the apex (purely
+        /// informational — no cap geometry exists).
+        n_fillets_attempted: usize,
+    },
 }
 
 impl CapKind {
-    /// Number of fillets meeting at the apex (= N).
+    /// Number of fillets meeting at the apex (= N).  For
+    /// [`CapKind::Open`] this is the count of fillets that *would*
+    /// have been capped.
     pub fn n_fillets(&self) -> usize {
         match self {
             CapKind::Sphere {
@@ -67,6 +84,9 @@ impl CapKind {
                 per_fillet_terminations,
                 ..
             } => per_fillet_terminations.len(),
+            CapKind::Open {
+                n_fillets_attempted,
+            } => *n_fillets_attempted,
         }
     }
 
@@ -78,5 +98,10 @@ impl CapKind {
     /// True if this cap is the N-sided Gregory kind.
     pub fn is_gregory(&self) -> bool {
         matches!(self, CapKind::Gregory { .. })
+    }
+
+    /// True if no cap is constructed (Open rung outcome).
+    pub fn is_open(&self) -> bool {
+        matches!(self, CapKind::Open { .. })
     }
 }

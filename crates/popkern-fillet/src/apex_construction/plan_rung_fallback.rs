@@ -7,7 +7,6 @@
 //!
 //! See ADR §4.3 for rung definitions.
 
-use popkern_core::geometry::Point3;
 use popkern_core::topology::{BRep, VertexHandle};
 
 use crate::blend::boundary::BlendBoundary;
@@ -73,23 +72,13 @@ pub(crate) fn plan_open_rung(
     n_fil: usize,
     direct_err: &ApexPlanError,
 ) -> ApexPlan {
-    // Synthesise a Sphere CapKind with empty fields — the Open rung
-    // doesn't construct a cap, so the cap_kind is informational only.
-    // A future enhancement may add a CapKind::Open variant via
-    // #[non_exhaustive] (already on CapKind).
-    let cap_kind = CapKind::Sphere {
-        center: Point3::new(0.0, 0.0, 0.0),
-        radius: 0.0,
-        tangent_arc_endpoints: Vec::new(),
+    let cap_kind = CapKind::Open {
+        n_fillets_attempted: n_fil,
     };
     let target_topology = TargetTopology {
         apex_vertices: Vec::new(),
         apex_edges: Vec::new(),
-        cap_face: TargetCapFace::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 0.0,
-            outer_loop_edge_indices: Vec::new(),
-        },
+        cap_face: TargetCapFace::Open,
         face_boundary_updates: Vec::new(),
     };
     let mut telemetry = PlanTelemetry::new();
