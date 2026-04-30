@@ -8,8 +8,9 @@
 //! terminations, build the declarative [`TargetTopology`] describing
 //! the desired final apex region.
 
-use popkern_core::geometry::{NurbsCurve, Point3};
+use popkern_core::geometry::Point3;
 
+use crate::center_curve::fit_nurbs_through_points;
 use crate::types::FilletSpec;
 
 use super::cap_kind::CapKind;
@@ -226,8 +227,14 @@ pub(crate) fn build_target_topology(
                 outer_loop_edge_indices.push(2 * k);
                 // FaceEdge[k] — CapVsPlane straight-line bridge from
                 // T_b[k] to T_a[(k+1) % N].
+                // Bridge between adjacent FilletEnd terminations.
+                // For Gregory caps, the two endpoints are non-degenerate
+                // (the dispatch check in decide_cap_kind would have
+                // picked Sphere if they collapsed), so the degenerate
+                // path in fit_nurbs_through_points is unreachable.
                 let bridge =
-                    build_face_edge_bridge(term.endpoint_b, terminations[next_k].endpoint_a);
+                    fit_nurbs_through_points(&[term.endpoint_b, terminations[next_k].endpoint_a])
+                        .expect("Gregory bridges are non-degenerate by dispatch");
                 apex_edges.push(TargetEdge {
                     origin_vertex_idx: v_tb_k,
                     dest_vertex_idx: v_ta_next,
@@ -251,16 +258,5 @@ pub(crate) fn build_target_topology(
                 face_boundary_updates: Vec::new(),
             }
         }
-    }
-}
-
-/// Build a degree-1 NURBS curve representing a straight-line
-/// FaceEdge bridge between two endpoints.
-fn build_face_edge_bridge(start: Point3, end: Point3) -> NurbsCurve {
-    NurbsCurve {
-        degree: 1,
-        knots: vec![0.0, 0.0, 1.0, 1.0],
-        control_points: vec![start, end],
-        weights: vec![1.0, 1.0],
     }
 }
