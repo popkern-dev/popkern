@@ -105,13 +105,131 @@ pub fn plan_apex_resolution(
     // Step 2: compute boundary segments (A2.1.c).
     let boundary = compute_apex_boundary(brep, apex, fillet_surfaces, tolerance)?;
     // Step 3: compute per-fillet T_a, T_b, FilletEnd curve (A2.1.c).
-    let _terminations =
+    let terminations =
         compute_per_fillet_terminations(brep, apex, &boundary, fillet_surfaces, tolerance)?;
-    // A2.1.d through A2.1.f flesh out the rest.
+    // Step 4: decide cap kind (A2.1.d).
+    let mut telemetry = PlanTelemetry::new();
+    let cap_kind = decide_cap_kind(&terminations, fillet_specs, tolerance, &mut telemetry)?;
+    // A2.1.e (target topology) and A2.1.f (telemetry finalisation)
+    // follow.  Stub fall-through preserved for now.
+    let _ = cap_kind;
     Err(ApexPlanError::InvalidInput {
         field: "planner",
-        value: "stub — A2.1.d (cap kind), A2.1.e (target topology), A2.1.f (telemetry) not yet implemented".into(),
+        value: "stub — A2.1.e (target topology) and A2.1.f (telemetry finalisation) pending".into(),
     })
+}
+
+/// Decide whether the apex needs a Sphere cap (uniform/symmetric)
+/// or an N-sided Gregory cap (variable radii / distinct
+/// terminations).  Per ADR §4.1: the decision is tolerance-aware.
+///
+/// Sphere cap criteria (BOTH must hold):
+/// 1. All fillet radii are within `tolerance.linear()` of each other.
+/// 2. All adjacent FaceEdge bridges collapse to within
+///    `tolerance.linear() * 10` (i.e. T_b[k] ≈ T_a[k+1]).
+///
+/// Otherwise → Gregory cap with distinct per-fillet terminations.
+///
+/// Records reasoning + diagnostic numbers in `telemetry`.
+pub(crate) fn decide_cap_kind(
+    terminations: &[PerFilletTermination],
+    fillet_specs: &[FilletSpec],
+    tolerance: &popkern_core::tolerance::Tolerance,
+    telemetry: &mut PlanTelemetry,
+) -> Result<CapKind, ApexPlanError> {
+    let n_fil = terminations.len();
+    let tol = tolerance.linear();
+
+    // Criterion 1: radii uniformity.
+    let radii: Vec<f64> = terminations.iter().map(|t| t.cap_radius).collect();
+    let r_min = radii.iter().copied().fold(f64::INFINITY, f64::min);
+    let r_max = radii.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let r_spread = r_max - r_min;
+    let r_avg = radii.iter().sum::<f64>() / (n_fil as f64);
+    let radii_uniform = r_spread <= tol;
+    telemetry.set_value("radii_min", r_min);
+    telemetry.set_value("radii_max", r_max);
+    telemetry.set_value("radii_spread", r_spread);
+
+    // Criterion 2: bridge-collapse check.
+    //
+    // Adjacent FaceEdge bridge: between T_b[k] (FilletEnd[k] end) and
+    // T_a[(k+1) % n_fil] (FilletEnd[k+1] start).  Bridge collapses
+    // when these two points coincide (within tol * 10).
+    //
+    // Gates an extra factor of 10 because Sphere caps tolerate small
+    // numerical noise that wouldn't disqualify the symmetric pattern;
+    // commercial kernels use a similar relaxed "convergence" tol.
+    let bridge_tol = tol * 10.0;
+    let mut max_bridge_gap = 0.0_f64;
+    for k in 0..n_fil {
+        let next_k = (k + 1) % n_fil;
+        let gap = terminations[k]
+            .endpoint_b
+            .distance_to(&terminations[next_k].endpoint_a);
+        if gap > max_bridge_gap {
+            max_bridge_gap = gap;
+        }
+    }
+    let bridges_collapse = max_bridge_gap < bridge_tol;
+    telemetry.set_value("max_bridge_collapse", max_bridge_gap);
+    telemetry.set_value("bridge_collapse_threshold", bridge_tol);
+
+    // Sphere if BOTH criteria hold; else Gregory.
+    if radii_uniform && bridges_collapse {
+        // Compute average cap centre (per-fillet centres should
+        // coincide for the symmetric case).
+        let mut centre_sum = Point3::new(0.0, 0.0, 0.0);
+        for t in terminations {
+            centre_sum.x += t.cap_centre.x;
+            centre_sum.y += t.cap_centre.y;
+            centre_sum.z += t.cap_centre.z;
+        }
+        let n_f = n_fil as f64;
+        let center = Point3::new(centre_sum.x / n_f, centre_sum.y / n_f, centre_sum.z / n_f);
+        // Tangent arc endpoints: in the collapsed-bridge case, every
+        // T_b[k] equals the adjacent T_a[k+1], so we collect either
+        // and the result has n_fil unique points.  We use T_a[k] for
+        // each k.
+        let tangent_arc_endpoints: Vec<Point3> =
+            terminations.iter().map(|t| t.endpoint_a).collect();
+        telemetry.cap_kind_reason = format!(
+            "uniform radii within {tol:.3e} (spread {r_spread:.3e}) + bridges collapse to \
+             {max_bridge_gap:.3e} < {bridge_tol:.3e} — Sphere cap chosen"
+        );
+        Ok(CapKind::Sphere {
+            center,
+            radius: r_avg,
+            tangent_arc_endpoints,
+        })
+    } else {
+        // Diagnostic: which criterion failed?
+        let reason = match (radii_uniform, bridges_collapse) {
+            (false, false) => format!(
+                "variable radii (spread {r_spread:.3e}) and non-collapsed bridges \
+                 (max gap {max_bridge_gap:.3e}) — Gregory cap chosen"
+            ),
+            (false, true) => format!("variable radii (spread {r_spread:.3e}) — Gregory cap chosen"),
+            (true, false) => format!(
+                "uniform radii but bridges don't collapse (max gap {max_bridge_gap:.3e}) — Gregory cap chosen"
+            ),
+            (true, true) => unreachable!(),
+        };
+        telemetry.cap_kind_reason = reason;
+        let _ = fillet_specs; // currently unused; reserved for variable-radius variants
+        let per_fillet_terminations: Vec<[Point3; 2]> = terminations
+            .iter()
+            .map(|t| [t.endpoint_a, t.endpoint_b])
+            .collect();
+        let per_fillet_caps: Vec<(Point3, f64)> = terminations
+            .iter()
+            .map(|t| (t.cap_centre, t.cap_radius))
+            .collect();
+        Ok(CapKind::Gregory {
+            per_fillet_terminations,
+            per_fillet_caps,
+        })
+    }
 }
 
 /// One fillet's sphere-fit termination data.  Internal to the
