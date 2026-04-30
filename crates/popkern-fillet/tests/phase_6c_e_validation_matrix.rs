@@ -324,6 +324,165 @@ fn phase_6c_e_cube_uniform_per_edge_breakdown() {
     breakdown(&brep, &faces);
 }
 
+/// Phase 6c-X.A.1: apex region detection diagnostic.
+///
+/// For each apex vertex on every fixture, walk ALL incident
+/// half-edges and classify each by edge role:
+/// * **Cap-loop edge** (one HE on a cap face): cap-vs-Cyl or
+///   cap-vs-Plane.  Has substituted curve3d ending at FilletEnd
+///   termination T.
+/// * **Apex generator** (BOTH HEs on non-cap faces, both faces
+///   share the apex region — neither is the cap): cyl-vs-plane
+///   apex generator.  Original (pre-substitution) curve.
+/// * **Base edge** (incident to apex vertex but going AWAY from
+///   the apex region — toward the cube base or another non-apex
+///   region): unchanged geometry, no Path A action needed.
+///
+/// Distinguishes "apex generator" from "base edge" by checking
+/// whether the OTHER endpoint of the edge is also an apex
+/// vertex (both endpoints in the apex set ⇒ apex generator;
+/// only one endpoint ⇒ base edge).
+///
+/// This drives A.2 — the rebuild plan needs to know which edges
+/// to insert/remove/keep.
+#[ignore]
+#[test]
+fn phase_6c_a1_apex_region_detection() {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    use popkern_core::topology::VertexHandle;
+
+    let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
+    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
+    let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
+
+    let cases: &[(&str, &[f64], bool, f64)] = &[
+        ("cube_mixed", &[0.08, 0.10, 0.12], false, 0.0),
+        ("pyramid4_mixed", &[0.04, 0.06, 0.05, 0.07], true, 0.8),
+    ];
+    let kind = |g: &SurfaceGeometry| -> &'static str {
+        match g {
+            SurfaceGeometry::Plane { .. } => "Plane",
+            SurfaceGeometry::Cylinder { .. } => "Cyl",
+            SurfaceGeometry::Sphere { .. } => "Sphere",
+            SurfaceGeometry::Torus { .. } => "Torus",
+            SurfaceGeometry::Cone { .. } => "Cone",
+            SurfaceGeometry::Gregory(_) => "Gregory",
+            SurfaceGeometry::Nurbs(_) => "Nurbs",
+        }
+    };
+
+    eprintln!("\n=== Phase 6c-X.A.1 apex region detection ===");
+    for (name, radii, is_pyramid, h) in cases {
+        let (brep, faces) = if *is_pyramid {
+            let pyr = BRep::n_gonal_pyramid(radii.len(), 1.0, *h, Tolerance::default()).unwrap();
+            let vertex = pick_vertex_with_valence(&pyr, radii.len()).unwrap();
+            let edges = incident_edges(&pyr, vertex);
+            fillet_corner(&pyr, &edges, radii, true)
+        } else {
+            let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+            let vertex = cube.vertices.keys().next().unwrap();
+            let edges = incident_edges(&cube, vertex);
+            fillet_corner(&cube, &edges, radii, true)
+        };
+        let cap_set: std::collections::BTreeSet<_> = faces.iter().copied().collect();
+
+        // Apex set = vertices on any cap face's outer loop.
+        let mut apex_vertices: std::collections::BTreeSet<VertexHandle> =
+            std::collections::BTreeSet::new();
+        for &cap in faces.iter() {
+            let outer = brep.faces[cap].outer_loop;
+            let start = brep.loops[outer].half_edge;
+            let mut cur = start;
+            for _ in 0..32 {
+                let he = &brep.half_edges[cur];
+                apex_vertices.insert(he.origin);
+                cur = he.next;
+                if cur == start {
+                    break;
+                }
+            }
+        }
+
+        eprintln!("\n--- {name}: {} apex vertices ---", apex_vertices.len());
+
+        for &v in &apex_vertices {
+            let v_pos = brep.vertices[v].position;
+            eprintln!(
+                "  {v:?} pos=({:.4},{:.4},{:.4})",
+                v_pos.x, v_pos.y, v_pos.z
+            );
+            // Find every edge incident to v (HE.origin == v OR HE.dest == v).
+            let mut edges_seen: std::collections::BTreeSet<popkern_core::topology::EdgeHandle> =
+                std::collections::BTreeSet::new();
+            for (_he_h, he) in brep.half_edges.iter() {
+                if he.origin != v {
+                    continue;
+                }
+                edges_seen.insert(he.edge);
+            }
+            for edge_h in edges_seen {
+                let edge = &brep.edges[edge_h];
+                let he_a = edge.half_edge;
+                let he_b = brep.half_edges[he_a].twin;
+                let face_a = brep.loops[brep.half_edges[he_a].loop_].face;
+                let face_b = brep.loops[brep.half_edges[he_b].loop_].face;
+                let a_is_cap = cap_set.contains(&face_a);
+                let b_is_cap = cap_set.contains(&face_b);
+                let kind_a = brep
+                    .faces
+                    .get(face_a)
+                    .and_then(|f| f.surface.as_ref())
+                    .map(|s| kind(&s.geometry))
+                    .unwrap_or("?");
+                let kind_b = brep
+                    .faces
+                    .get(face_b)
+                    .and_then(|f| f.surface.as_ref())
+                    .map(|s| kind(&s.geometry))
+                    .unwrap_or("?");
+                // Find the other endpoint of this edge.
+                let other_v = if brep.half_edges[he_a].origin == v {
+                    brep.half_edges[brep.half_edges[he_a].next].origin
+                } else {
+                    brep.half_edges[he_a].origin
+                };
+                let other_in_apex = apex_vertices.contains(&other_v);
+                let role = if a_is_cap || b_is_cap {
+                    "CAP-LOOP "
+                } else if other_in_apex {
+                    "APEX-GEN "
+                } else {
+                    "BASE-EDGE"
+                };
+                let curve_status = if let Some(coe) = edge.curve.as_ref() {
+                    let p_start = coe.geometry.point_at(coe.t_start);
+                    let p_end = coe.geometry.point_at(coe.t_end);
+                    let near = if v_pos.distance_to(&p_start) <= v_pos.distance_to(&p_end) {
+                        p_start
+                    } else {
+                        p_end
+                    };
+                    let gap = v_pos.distance_to(&near);
+                    format!(
+                        "curve span={:.3e} v→curve_near={:.3e} near=({:.4},{:.4},{:.4})",
+                        coe.t_end - coe.t_start,
+                        gap,
+                        near.x,
+                        near.y,
+                        near.z
+                    )
+                } else {
+                    "<no curve>".to_string()
+                };
+                eprintln!(
+                    "    {role} {edge_h:?} {kind_a:6}↔{kind_b:6} other={other_v:?} apex={other_in_apex}  {curve_status}"
+                );
+            }
+        }
+    }
+}
+
 /// Phase 6c-X.1: apex vertex coherence diagnostic.  For each
 /// apex vertex (vertex on a cap face outer loop), enumerate ALL
 /// incident edges and report the curve endpoint each one demands
