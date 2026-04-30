@@ -83,6 +83,36 @@ pub(crate) fn split_pcurve_at(pcurve: &Option<Pcurve>, t: f64) -> (Option<Pcurve
             ),
             Err(_) => (None, None),
         },
+        PcurveGeometry::CylinderArcViaRationalQuad {
+            theta_a,
+            theta_b,
+            v_const,
+        } => {
+            // Splitting the rational quadratic at any sub-range
+            // produces two pieces of the SAME analytic curve with
+            // unchanged angular span — only the parameter sub-
+            // ranges change.  The angular formula already handles
+            // arbitrary sub-ranges via `Pcurve.t_start, t_end`.
+            let left = Pcurve {
+                geometry: PcurveGeometry::CylinderArcViaRationalQuad {
+                    theta_a: *theta_a,
+                    theta_b: *theta_b,
+                    v_const: *v_const,
+                },
+                t_start: p_start,
+                t_end: split_param,
+            };
+            let right = Pcurve {
+                geometry: PcurveGeometry::CylinderArcViaRationalQuad {
+                    theta_a: *theta_a,
+                    theta_b: *theta_b,
+                    v_const: *v_const,
+                },
+                t_start: split_param,
+                t_end: p_end,
+            };
+            (Some(left), Some(right))
+        }
     }
 }
 

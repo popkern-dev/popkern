@@ -94,6 +94,49 @@ pub enum PcurveGeometry {
     /// General NURBS pcurve. Control points stored as
     /// `Point3 { x: u, y: v, z: 0 }`.
     Nurbs(NurbsCurve),
+    /// Symmetric rational-quadratic-Bezier circle arc projected
+    /// onto cylinder UV.  Encodes the EXACT angular trajectory
+    /// `θ(t)` of a `(1, cos α, 1)`-weighted rational quadratic
+    /// circle arc, parameterised by Bezier t ∈ [0, 1] (or any
+    /// sub-range via `Pcurve::t_start, t_end`).
+    ///
+    /// With α = (θ_b − θ_a)/2 and θ_m = (θ_a + θ_b)/2:
+    /// ```text
+    ///   θ(t) = θ_m + atan2( sin α · (2t − 1),
+    ///                       cos α · (1 − 2t(1−t)) + 2t(1−t) )
+    ///   u(t) = θ(t)
+    ///   v(t) = v_const
+    /// ```
+    /// The trajectory matches `cylinder.point_at(θ(t), v_const)`
+    /// to machine precision when paired with a `CurveGeometry::
+    /// Nurbs` curve3d that IS the rational quadratic circle arc
+    /// `arc_as_nurbs(centre, radius, u_axis, v_axis, θ_a, θ_b)`
+    /// (as produced by `sphere_fit_termination` for sphere-fit
+    /// FilletEnd substitutions where the cap centre lies on the
+    /// cylinder axis).
+    ///
+    /// Used by Phase 6c-D Stage 4.7d on the cylinder-twin side
+    /// of cap-vs-Cyl edges.  A `Linear` pcurve over the same
+    /// parameter range straight-line-interpolates `(θ, v_const)`
+    /// in UV — but the rational quad's `θ(t)` is non-linear in
+    /// `t`, so the linear UV-interpolant lands at angles offset
+    /// from the curve3d's actual angle by O(rad²·sin α) per cap-
+    /// tangent angle, giving up to 1 cm 3-D dev on the larger-
+    /// radius pyramid corner fillets.
+    CylinderArcViaRationalQuad {
+        /// Start angle of the full-arc rational quadratic
+        /// (radians, in the cylinder's `orthonormal_basis` frame).
+        theta_a: f64,
+        /// End angle of the full-arc rational quadratic.  Must
+        /// satisfy `|θ_b − θ_a| ≤ π` for the symmetric weights
+        /// `(1, cos((θ_b − θ_a)/2), 1)` representation.
+        theta_b: f64,
+        /// Axial coordinate on the cylinder (constant for this
+        /// arc — sphere-fit termination produces a circle in the
+        /// plane perpendicular to the cylinder axis at this
+        /// `v_const`).
+        v_const: f64,
+    },
 }
 
 impl Pcurve {
@@ -208,6 +251,21 @@ impl Pcurve {
                 use crate::geometry::curve::CurveEval;
                 n.point_at(t)
             }
+            PcurveGeometry::CylinderArcViaRationalQuad {
+                theta_a,
+                theta_b,
+                v_const,
+            } => {
+                let alpha = 0.5 * (theta_b - theta_a);
+                let theta_m = 0.5 * (theta_a + theta_b);
+                let s_alpha = alpha.sin();
+                let c_alpha = alpha.cos();
+                let denom_factor = 2.0 * t * (1.0 - t);
+                let sin_off = s_alpha * (2.0 * t - 1.0);
+                let cos_off = c_alpha * (1.0 - denom_factor) + denom_factor;
+                let u = theta_m + sin_off.atan2(cos_off);
+                Point3::new(u, *v_const, 0.0)
+            }
         }
     }
 
@@ -255,6 +313,37 @@ impl Pcurve {
             PcurveGeometry::Nurbs(n) => {
                 use crate::geometry::curve::CurveEval;
                 n.tangent_at(t)
+            }
+            PcurveGeometry::CylinderArcViaRationalQuad {
+                theta_a,
+                theta_b,
+                ..
+            } => {
+                // dθ/dt for the symmetric rational quadratic
+                // closed-form, derived from the atan2 expression
+                // and `arctan` derivative chain rule.
+                //
+                //   N(t) = sin α · (2t − 1)
+                //   D(t) = cos α · (1 − 2t(1−t)) + 2t(1−t)
+                //   θ(t) = θ_m + atan2(N, D)
+                //   dθ/dt = (D·dN/dt − N·dD/dt) / (N² + D²)
+                let alpha = 0.5 * (theta_b - theta_a);
+                let s_alpha = alpha.sin();
+                let c_alpha = alpha.cos();
+                let n_t = s_alpha * (2.0 * t - 1.0);
+                let denom_factor = 2.0 * t * (1.0 - t);
+                let d_t = c_alpha * (1.0 - denom_factor) + denom_factor;
+                let dn_dt = 2.0 * s_alpha;
+                // d/dt[2t(1−t)] = 2(1−2t)
+                let d_denom_factor_dt = 2.0 * (1.0 - 2.0 * t);
+                let dd_dt = -c_alpha * d_denom_factor_dt + d_denom_factor_dt;
+                let mag_sq = n_t * n_t + d_t * d_t;
+                let dtheta_dt = if mag_sq > 0.0 {
+                    (d_t * dn_dt - n_t * dd_dt) / mag_sq
+                } else {
+                    0.0
+                };
+                Vec3::new(dtheta_dt, 0.0, 0.0)
             }
         }
     }
@@ -323,6 +412,7 @@ impl Pcurve {
                 self.sampled_to_nurbs_approx()
             }
             PcurveGeometry::Sinusoidal { .. } => self.sampled_to_nurbs_approx(),
+            PcurveGeometry::CylinderArcViaRationalQuad { .. } => self.sampled_to_nurbs_approx(),
         }
     }
 

@@ -591,12 +591,18 @@ fn cap_outer_per_edge_breakdown_pyramid4_mixed() {
             popkern_core::geometry::pcurve::PcurveGeometry::Elliptical { .. } => "Elliptical",
             popkern_core::geometry::pcurve::PcurveGeometry::Sinusoidal { .. } => "Sinusoidal",
             popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(_) => "Nurbs",
+            popkern_core::geometry::pcurve::PcurveGeometry::CylinderArcViaRationalQuad {
+                ..
+            } => "CylArcRatQuad",
         };
         let pb_kind = match &pb.geometry {
             popkern_core::geometry::pcurve::PcurveGeometry::Linear { .. } => "Linear",
             popkern_core::geometry::pcurve::PcurveGeometry::Elliptical { .. } => "Elliptical",
             popkern_core::geometry::pcurve::PcurveGeometry::Sinusoidal { .. } => "Sinusoidal",
             popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(_) => "Nurbs",
+            popkern_core::geometry::pcurve::PcurveGeometry::CylinderArcViaRationalQuad {
+                ..
+            } => "CylArcRatQuad",
         };
         eprintln!(
             "  edge#{idx} cap={cap_kind} twin={twin_kind} cap_is_a={a_is_cap}  pa={pa_kind} pb={pb_kind}  chord={edge_len_chord:.3e}  \
