@@ -31,12 +31,20 @@
 pub(crate) mod cap_kind;
 pub(crate) mod error;
 pub(crate) mod plan;
+pub(crate) mod plan_rung_fallback;
+pub(crate) mod plan_terminations;
+pub(crate) mod plan_topology;
+pub(crate) mod plan_validate;
 pub(crate) mod target_topology;
 pub(crate) mod telemetry;
 
 #[cfg(test)]
 #[path = "plan_tests.rs"]
 mod plan_tests;
+
+#[cfg(test)]
+#[path = "plan_topology_tests.rs"]
+mod plan_topology_tests;
 
 pub use cap_kind::CapKind;
 pub use error::{ApexBuildError, ApexError, ApexPlanError};

@@ -1,4 +1,4 @@
-//! Phase 6c-A2 apex planner.
+//! Phase 6c-A2 apex planner — orchestration.
 //!
 //! `plan_apex_resolution` is the **pure** entry point that produces
 //! an [`ApexPlan`] from a BRep + apex vertex + fillet specs.
@@ -6,46 +6,39 @@
 //! telemetry, or cancel.
 //!
 //! Algorithm (per ADR §6.2):
-//! 1. Validate inputs (radii positive/finite, ≥3 fillets at apex).
-//! 2. Compute boundary segments (via `compute_blend_boundary`).
-//! 3. Per fillet: compute T_a[k], T_b[k] via `sphere_fit_termination`.
-//! 4. Decide cap kind: Sphere if all radii equal AND bridges collapse,
-//!    else Gregory.
-//! 5. Build [`TargetTopology`] (apex_vertices, apex_edges, cap_face,
-//!    face_boundary_updates).
-//! 6. Build [`PlanTelemetry`] (cap_kind_reason, diagnostic_values).
-//! 7. Return [`ApexPlan`].
-//!
-//! Failure paths fall back through the [`ConstructionRung`] ladder:
-//! Direct → Setback → Open.  Each fallback emits a
-//! [`BlendWarning::ContinuityDowngraded`] (legacy pattern).
-//!
-//! # Status
-//!
-//! Stub implementation (A2.1.a) — returns
-//! `ApexPlanError::InvalidInput("planner not yet implemented")`.
-//! A2.1.b through A2.1.f flesh out each step.
+//! 1. Validate inputs ([`plan_validate`](super::plan_validate)).
+//! 2. Compute boundary segments
+//!    ([`plan_terminations::compute_apex_boundary`](super::plan_terminations::compute_apex_boundary)).
+//! 3. Try the [`ConstructionRung`] ladder Direct → Setback → Open
+//!    ([`plan_with_rung_ladder`]):
+//!    * Direct: full per-fillet sphere-fit + Sphere/Gregory cap-kind
+//!      decision + target topology assembly.
+//!    * Setback ([`plan_rung_fallback::plan_setback_rung`](super::plan_rung_fallback::plan_setback_rung)):
+//!      lenient per-fillet sphere-fit, ≥3 successful fillets required.
+//!    * Open ([`plan_rung_fallback::plan_open_rung`](super::plan_rung_fallback::plan_open_rung)):
+//!      empty apex topology, fillets terminate at legacy rolling-ball
+//!      footprints.
+//! 4. Telemetry records the rung used + any fallback reason.
 
-use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
-use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
+use popkern_core::topology::{BRep, VertexHandle};
 
-use crate::blend::boundary::{BlendBoundary, BoundarySegment, compute_blend_boundary};
-use crate::blend::sphere_fit_boundary::{
-    face_outward_normal_at, fillet_nominal_radius, select_per_fillet_centre,
-};
 use crate::fillet_surface::FilletSurfaceResult;
-use crate::types::{FilletRadius, FilletSpec};
+use crate::types::FilletSpec;
 
 use super::cap_kind::CapKind;
 use super::error::ApexPlanError;
+use super::plan_rung_fallback::{plan_open_rung, plan_setback_rung};
+use super::plan_terminations::{compute_apex_boundary, compute_per_fillet_terminations};
+use super::plan_topology::{build_target_topology, decide_cap_kind};
+use super::plan_validate::validate_inputs;
 use super::target_topology::TargetTopology;
-use super::telemetry::PlanTelemetry;
+use super::telemetry::{ConstructionRung, PlanTelemetry};
 
 /// A plan for resolving an apex vertex's fillet topology.
 ///
 /// Produced by [`plan_apex_resolution`]; consumed by
-/// [`construct_apex_topology`](super::super::apex_construction::construct_apex_topology)
-/// (when A2.2 lands).  Introspectable for UI preview.
+/// `construct_apex_topology` (when A2.2 lands).  Introspectable for
+/// UI preview.
 ///
 /// See ADR `docs/decisions/2026-04-30-phase-6c-a2-direct-apex-construction.md` §3.1.
 #[derive(Debug, Clone)]
@@ -77,6 +70,9 @@ impl ApexPlan {
 /// * `apex` — the vertex where multiple fillets meet.
 /// * `fillet_specs` — the fillet specs (one per incident fillet edge),
 ///   in the same order as the cap-loop walk would visit them.
+/// * `fillet_surfaces` — fillet surface data (cylinder/torus surfaces
+///   + trim curves), one per fillet, computed earlier in the
+///     pipeline by `geometry_compute`.
 /// * `tolerance` — geometric tolerance for cap-kind dispatch and
 ///   coincidence checks.
 ///
@@ -88,24 +84,6 @@ impl ApexPlan {
 /// # Errors
 ///
 /// See [`ApexPlanError`] for the full failure taxonomy.
-///
-/// # Algorithm (A2.1.a–f complete)
-///
-/// 1. Validate inputs (A2.1.b).
-/// 2. Compute boundary (A2.1.c).
-/// 3. Try the rung ladder Direct → Setback → Open (A2.1.f):
-///    * Direct: full per-fillet sphere-fit (A2.1.c) +
-///      Sphere/Gregory cap-kind decision (A2.1.d) + target topology
-///      assembly (A2.1.e).
-///    * Setback: lenient per-fillet sphere-fit (skips individual
-///      failures); proceeds with ≥3 successful fillets.
-///    * Open: empty apex topology — no cap, fillets terminate at
-///      legacy rolling-ball footprints.
-/// 4. Telemetry records the rung used + any fallback reason.
-///
-/// `face_boundary_updates` is left as `Vec::new()` — the
-/// builder (A2.2) computes face splicing from the apex
-/// topology + existing BRep state per ADR §3.3.
 pub fn plan_apex_resolution(
     brep: &BRep,
     apex: VertexHandle,
@@ -122,19 +100,6 @@ pub fn plan_apex_resolution(
     let boundary = compute_apex_boundary(brep, apex, fillet_surfaces, tolerance)?;
 
     // Steps 3-5 with rung fallback: try Direct → Setback → Open.
-    //
-    // Direct: per-fillet sphere-fit succeeds; full cap built.
-    // Setback: one or more fillets fail sphere-fit; produce a plan
-    //   that omits affected fillets' cap edges (degenerate cap, but
-    //   still well-defined topology).  Only the successful fillets
-    //   contribute apex_vertices/edges; failures emit a warning.
-    // Open: fewer than 3 fillets succeed; no cap face possible —
-    //   plan has empty apex_vertices/edges, signalling the caller
-    //   to leave the apex as raw fillet terminations (no cap).
-    //
-    // Per ADR §4.3: each fallback emits a `BlendWarning::ContinuityDowngraded`
-    // (legacy pattern; surfaced when the planner is wired into the
-    // pipeline in A2.3).
     plan_with_rung_ladder(
         brep,
         apex,
@@ -151,13 +116,11 @@ pub fn plan_apex_resolution(
 fn plan_with_rung_ladder(
     brep: &BRep,
     apex: VertexHandle,
-    boundary: &BlendBoundary,
+    boundary: &BlendBoundaryRef,
     fillet_specs: &[FilletSpec],
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Result<ApexPlan, ApexPlanError> {
-    use super::telemetry::ConstructionRung;
-
     // --- Rung 1: Direct ---
     match compute_per_fillet_terminations(brep, apex, boundary, fillet_surfaces, tolerance) {
         Ok(terminations) => {
@@ -173,18 +136,12 @@ fn plan_with_rung_ladder(
             })
         }
         Err(direct_err) => {
-            // Direct failed — try Setback rung next.
+            // --- Rung 2: Setback ---
             //
-            // Setback strategy: compute terminations per-fillet,
-            // tolerating individual failures.  Successful fillets
-            // contribute to the cap; failed fillets are skipped
-            // (their corresponding apex region remains as the raw
-            // rolling-ball termination, with a gap).
-            //
-            // For ≥ 3 successful fillets we can still build a Sphere
-            // or Gregory cap (degenerate — fewer than the original N
-            // sub-patches).  For < 3 successful fillets the cap can't
-            // be built at all → fall through to Open rung.
+            // Setback strategy: tolerate individual per-fillet
+            // sphere-fit failures.  Successful fillets contribute
+            // apex_vertices/edges; failed fillets are skipped.
+            // Requires ≥3 successful fillets.
             if let Ok(plan) = plan_setback_rung(
                 brep,
                 apex,
@@ -199,826 +156,14 @@ fn plan_with_rung_ladder(
 
             // --- Rung 3: Open ---
             //
-            // No cap construction.  Returns a plan whose target
-            // topology has no apex_vertices, no apex_edges, and no
-            // cap_face.  When the builder applies this plan, it
-            // performs no apex surgery — fillets remain at their
-            // legacy rolling-ball-footprint termination.  This is
-            // strictly inferior geometry but at least produces a
-            // valid, watertight BRep.
+            // No cap construction.  Plan has empty apex topology;
+            // builder leaves apex as raw rolling-ball terminations.
             Ok(plan_open_rung(apex, fillet_surfaces.len(), &direct_err))
         }
     }
 }
 
-/// Attempt the Setback rung: tolerate per-fillet sphere-fit failures
-/// and build a cap from whatever fillets succeeded.  Requires at
-/// least 3 successful fillets to form a cap; otherwise returns
-/// `direct_err` as the originating Direct failure (caller falls
-/// through to Open rung).
-fn plan_setback_rung(
-    brep: &BRep,
-    apex: VertexHandle,
-    boundary: &BlendBoundary,
-    fillet_specs: &[FilletSpec],
-    fillet_surfaces: &[FilletSurfaceResult],
-    tolerance: &popkern_core::tolerance::Tolerance,
-    direct_err: &ApexPlanError,
-) -> Result<ApexPlan, ApexPlanError> {
-    use super::telemetry::ConstructionRung;
-    let terminations =
-        compute_per_fillet_terminations_lenient(brep, apex, boundary, fillet_surfaces, tolerance)?;
-    if terminations.len() < 3 {
-        // Not enough successful fillets to build a cap; signal to
-        // caller to fall through to Open rung.
-        return Err(ApexPlanError::SphereCylinderNoIntersection {
-            fillet_idx: 0, // sentinel; real failure recorded in direct_err
-        });
-    }
-    let mut telemetry = PlanTelemetry::new();
-    let cap_kind = decide_cap_kind(&terminations, fillet_specs, tolerance, &mut telemetry)?;
-    let target_topology = build_target_topology(&cap_kind, &terminations);
-    telemetry.rung = ConstructionRung::Setback {
-        // No specific setback distance — Setback here means
-        // "omit failed fillets from the cap".  A future enhancement
-        // can compute a real setback distance per fillet.
-        setback_distance: 0.0,
-    };
-    telemetry.fallback_reason = Some(format!(
-        "Direct rung failed ({direct_err}); Setback rung succeeded by omitting failed fillets"
-    ));
-    Ok(ApexPlan {
-        apex_vertex: apex,
-        cap_kind,
-        target_topology,
-        telemetry,
-    })
-}
-
-/// Like [`compute_per_fillet_terminations`] but skips fillets whose
-/// individual sphere-fit fails instead of returning the first error.
-/// Used by the Setback rung.
-fn compute_per_fillet_terminations_lenient(
-    brep: &BRep,
-    apex: VertexHandle,
-    boundary: &BlendBoundary,
-    fillet_surfaces: &[FilletSurfaceResult],
-    tolerance: &popkern_core::tolerance::Tolerance,
-) -> Result<Vec<PerFilletTermination>, ApexPlanError> {
-    use popkern_core::geometry::apex_blend::sphere_fit::sphere_fit_termination;
-
-    let n_seg = boundary.segments.len();
-    if n_seg < 4 || !n_seg.is_multiple_of(2) {
-        return Err(ApexPlanError::InvalidInput {
-            field: "boundary.segments",
-            value: format!("expected n_seg even and ≥4; got n_seg={n_seg}"),
-        });
-    }
-    let n_fil = n_seg / 2;
-    let apex_pos =
-        brep.vertices
-            .get(apex)
-            .map(|v| v.position)
-            .ok_or_else(|| ApexPlanError::InvalidInput {
-                field: "apex",
-                value: format!("vertex {apex:?} disappeared"),
-            })?;
-
-    // Reuse the face-normal collection from the strict pass so
-    // both rungs see the same face-normal data.
-    let mut face_a_normals: Vec<Vec3> = Vec::with_capacity(n_fil);
-    let mut face_b_normals: Vec<Vec3> = Vec::with_capacity(n_fil);
-    let mut face_a_handles: Vec<FaceHandle> = Vec::with_capacity(n_fil);
-    let mut face_b_handles: Vec<FaceHandle> = Vec::with_capacity(n_fil);
-    let mut unique_face_normals: Vec<(FaceHandle, Vec3)> = Vec::new();
-    for k in 0..n_fil {
-        let prev_idx = if k == 0 { n_seg - 1 } else { 2 * k - 1 };
-        let next_idx = 2 * k + 1;
-        let face_a = match &boundary.segments[prev_idx] {
-            BoundarySegment::FaceEdge { face, .. } => *face,
-            _ => {
-                return Err(ApexPlanError::InvalidInput {
-                    field: "boundary.segments",
-                    value: format!("segment {prev_idx} not FaceEdge"),
-                });
-            }
-        };
-        let face_b = match &boundary.segments[next_idx] {
-            BoundarySegment::FaceEdge { face, .. } => *face,
-            _ => {
-                return Err(ApexPlanError::InvalidInput {
-                    field: "boundary.segments",
-                    value: format!("segment {next_idx} not FaceEdge"),
-                });
-            }
-        };
-        let n_a = face_outward_normal_at(brep, face_a, &apex_pos).ok_or_else(|| {
-            ApexPlanError::InvalidInput {
-                field: "boundary.face_a",
-                value: format!("normal eval failed at face {face_a:?}"),
-            }
-        })?;
-        let n_b = face_outward_normal_at(brep, face_b, &apex_pos).ok_or_else(|| {
-            ApexPlanError::InvalidInput {
-                field: "boundary.face_b",
-                value: format!("normal eval failed at face {face_b:?}"),
-            }
-        })?;
-        face_a_normals.push(n_a);
-        face_b_normals.push(n_b);
-        face_a_handles.push(face_a);
-        face_b_handles.push(face_b);
-        for (fh, n) in [(face_a, n_a), (face_b, n_b)] {
-            if !unique_face_normals.iter().any(|(f, _)| *f == fh) {
-                unique_face_normals.push((fh, n));
-            }
-        }
-    }
-    let face_normals: Vec<Vec3> = unique_face_normals.iter().map(|(_, n)| *n).collect();
-    if face_normals.len() < 3 {
-        return Err(ApexPlanError::InsufficientFillets {
-            apex,
-            n: face_normals.len(),
-        });
-    }
-    // Lenient per-fillet pass.
-    let mut out: Vec<PerFilletTermination> = Vec::with_capacity(n_fil);
-    for k in 0..n_fil {
-        let fi = match &boundary.segments[2 * k] {
-            BoundarySegment::FilletEnd { fillet_index, .. } => *fillet_index,
-            _ => unreachable!(),
-        };
-        let Some(fillet) = fillet_surfaces.get(fi) else {
-            continue;
-        };
-        let Some(r_k) = fillet_nominal_radius(&fillet.surface) else {
-            continue;
-        };
-        let Some(cap_centre) =
-            select_per_fillet_centre(apex_pos, &face_normals, r_k, &fillet.surface)
-        else {
-            continue;
-        };
-        let Ok(result) = sphere_fit_termination(
-            apex_pos,
-            cap_centre,
-            r_k,
-            &fillet.surface,
-            face_a_normals[k],
-            face_b_normals[k],
-            tolerance,
-        ) else {
-            continue;
-        };
-        out.push(PerFilletTermination {
-            fillet_idx: fi,
-            endpoint_a: result.endpoint_a,
-            endpoint_b: result.endpoint_b,
-            cap_centre,
-            cap_radius: r_k,
-            curve_3d: result.curve_3d,
-            face_a_normal: face_a_normals[k],
-            face_b_normal: face_b_normals[k],
-            face_a: face_a_handles[k],
-            face_b: face_b_handles[k],
-        });
-    }
-    Ok(out)
-}
-
-/// Build an Open-rung [`ApexPlan`]: empty topology, no cap face.
-/// The fallback when neither Direct nor Setback can produce a
-/// valid cap.  Builder's view of this plan: do nothing — leave
-/// the apex region as the legacy rolling-ball termination.
-fn plan_open_rung(apex: VertexHandle, n_fil: usize, direct_err: &ApexPlanError) -> ApexPlan {
-    use super::target_topology::TargetCapFace;
-    use super::telemetry::ConstructionRung;
-    // Synthesise a Sphere CapKind with empty fields — the Open rung
-    // doesn't construct a cap, so the cap_kind is informational only.
-    // We use Sphere with degenerate fields rather than introducing a
-    // CapKind::Open variant (avoiding scope creep on the public enum;
-    // can be added later via #[non_exhaustive]).
-    let cap_kind = CapKind::Sphere {
-        center: Point3::new(0.0, 0.0, 0.0),
-        radius: 0.0,
-        tangent_arc_endpoints: Vec::new(),
-    };
-    let target_topology = TargetTopology {
-        apex_vertices: Vec::new(),
-        apex_edges: Vec::new(),
-        cap_face: TargetCapFace::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 0.0,
-            outer_loop_edge_indices: Vec::new(),
-        },
-        face_boundary_updates: Vec::new(),
-    };
-    let mut telemetry = PlanTelemetry::new();
-    telemetry.rung = ConstructionRung::Open;
-    telemetry.fallback_reason = Some(format!(
-        "Direct rung failed ({direct_err}); Setback rung also failed; \
-         Open rung produces no apex cap.  {n_fil} fillets terminate at \
-         their legacy rolling-ball footprints."
-    ));
-    telemetry.cap_kind_reason = "Open — no cap construction".to_string();
-    ApexPlan {
-        apex_vertex: apex,
-        cap_kind,
-        target_topology,
-        telemetry,
-    }
-}
-
-/// Build the declarative [`TargetTopology`] from the chosen
-/// [`CapKind`] and the per-fillet terminations.
-///
-/// For **Sphere** caps:
-/// * `apex_vertices`: N points, one per fillet's tangent arc endpoint
-///   (T_a[k] for each k; bridges collapse so these equal T_b[k-1]).
-/// * `apex_edges`: N edges, each a FilletEnd arc on a cap-vs-Cyl
-///   boundary.  No FaceEdge bridges (collapsed).
-/// * `cap_face`: `Sphere` with center + radius + outer-loop indices.
-///
-/// For **Gregory** caps:
-/// * `apex_vertices`: 2N points (T_a[k] and T_b[k] per fillet).
-/// * `apex_edges`: 2N edges alternating CapVsCyl (FilletEnd[k]) and
-///   CapVsPlane (FaceEdge[k]).
-/// * `cap_face`: `Gregory` with 2N outer-loop edge indices.
-///
-/// `face_boundary_updates` is left empty here — the builder
-/// (A2.2) computes face splicing from the apex topology +
-/// existing BRep state.  See ADR §3.3.
-fn build_target_topology(
-    cap_kind: &CapKind,
-    terminations: &[PerFilletTermination],
-) -> TargetTopology {
-    use super::target_topology::{TargetCapFace, TargetEdge, TargetEdgeRole};
-    let n_fil = terminations.len();
-    match cap_kind {
-        CapKind::Sphere {
-            center,
-            radius,
-            tangent_arc_endpoints,
-        } => {
-            // N apex vertices, one per tangent arc endpoint.
-            let apex_vertices: Vec<Point3> = tangent_arc_endpoints.clone();
-            // N apex edges, each a FilletEnd arc.  Edge k goes from
-            // tangent_arc_endpoints[k] to tangent_arc_endpoints[(k+1) % N].
-            let mut apex_edges: Vec<TargetEdge> = Vec::with_capacity(n_fil);
-            let mut outer_loop_edge_indices: Vec<usize> = Vec::with_capacity(n_fil);
-            for (k, term) in terminations.iter().enumerate() {
-                let next_k = (k + 1) % n_fil;
-                apex_edges.push(TargetEdge {
-                    origin_vertex_idx: k,
-                    dest_vertex_idx: next_k,
-                    curve: term.curve_3d.clone(),
-                    role: TargetEdgeRole::CapVsCyl {
-                        fillet_idx: term.fillet_idx,
-                    },
-                });
-                outer_loop_edge_indices.push(k);
-            }
-            let cap_face = TargetCapFace::Sphere {
-                center: *center,
-                radius: *radius,
-                outer_loop_edge_indices,
-            };
-            TargetTopology {
-                apex_vertices,
-                apex_edges,
-                cap_face,
-                face_boundary_updates: Vec::new(),
-            }
-        }
-        CapKind::Gregory { .. } => {
-            // 2N apex vertices: vertex layout chosen to make the
-            // cap loop walk visit them in alternating order:
-            //   index 2k   = T_a[k]    (FilletEnd[k] start)
-            //   index 2k+1 = T_b[k]    (FilletEnd[k] end = FaceEdge[k] start)
-            //
-            // Cap-loop walk: T_a[0] → FilletEnd[0] → T_b[0] →
-            //                FaceEdge[0] → T_a[1] → FilletEnd[1] → ...
-            let mut apex_vertices: Vec<Point3> = Vec::with_capacity(2 * n_fil);
-            for t in terminations {
-                apex_vertices.push(t.endpoint_a);
-                apex_vertices.push(t.endpoint_b);
-            }
-            // 2N apex edges alternating FilletEnd (CapVsCyl) and
-            // FaceEdge (CapVsPlane).
-            let mut apex_edges: Vec<TargetEdge> = Vec::with_capacity(2 * n_fil);
-            let mut outer_loop_edge_indices: Vec<usize> = Vec::with_capacity(2 * n_fil);
-            for (k, term) in terminations.iter().enumerate() {
-                let next_k = (k + 1) % n_fil;
-                let v_ta_k = 2 * k;
-                let v_tb_k = 2 * k + 1;
-                let v_ta_next = 2 * next_k;
-                // FilletEnd[k] — CapVsCyl edge from T_a[k] to T_b[k].
-                apex_edges.push(TargetEdge {
-                    origin_vertex_idx: v_ta_k,
-                    dest_vertex_idx: v_tb_k,
-                    curve: term.curve_3d.clone(),
-                    role: TargetEdgeRole::CapVsCyl {
-                        fillet_idx: term.fillet_idx,
-                    },
-                });
-                outer_loop_edge_indices.push(2 * k);
-                // FaceEdge[k] — CapVsPlane straight-line bridge from
-                // T_b[k] to T_a[(k+1) % N].  Built fresh as a degree-1
-                // NURBS line.
-                let bridge =
-                    build_face_edge_bridge(term.endpoint_b, terminations[next_k].endpoint_a);
-                apex_edges.push(TargetEdge {
-                    origin_vertex_idx: v_tb_k,
-                    dest_vertex_idx: v_ta_next,
-                    curve: bridge,
-                    role: TargetEdgeRole::CapVsPlane {
-                        // Shared-face index = which face this bridge
-                        // sits on.  Builder maps to actual FaceHandle
-                        // via `boundary.segments[2k+1].face`.  Use k
-                        // as the shared_face_idx convention.
-                        shared_face_idx: k,
-                    },
-                });
-                outer_loop_edge_indices.push(2 * k + 1);
-            }
-            let cap_face = TargetCapFace::Gregory {
-                outer_loop_edge_indices,
-            };
-            TargetTopology {
-                apex_vertices,
-                apex_edges,
-                cap_face,
-                face_boundary_updates: Vec::new(),
-            }
-        }
-    }
-}
-
-/// Build a degree-1 NURBS curve representing a straight-line
-/// FaceEdge bridge between two endpoints.
-fn build_face_edge_bridge(start: Point3, end: Point3) -> NurbsCurve {
-    NurbsCurve {
-        degree: 1,
-        knots: vec![0.0, 0.0, 1.0, 1.0],
-        control_points: vec![start, end],
-        weights: vec![1.0, 1.0],
-    }
-}
-
-/// Decide whether the apex needs a Sphere cap (uniform/symmetric)
-/// or an N-sided Gregory cap (variable radii / distinct
-/// terminations).  Per ADR §4.1: the decision is tolerance-aware.
-///
-/// Sphere cap criteria (BOTH must hold):
-/// 1. All fillet radii are within `tolerance.linear()` of each other.
-/// 2. All adjacent FaceEdge bridges collapse to within
-///    `tolerance.linear() * 10` (i.e. T_b[k] ≈ T_a[k+1]).
-///
-/// Otherwise → Gregory cap with distinct per-fillet terminations.
-///
-/// Records reasoning + diagnostic numbers in `telemetry`.
-pub(crate) fn decide_cap_kind(
-    terminations: &[PerFilletTermination],
-    fillet_specs: &[FilletSpec],
-    tolerance: &popkern_core::tolerance::Tolerance,
-    telemetry: &mut PlanTelemetry,
-) -> Result<CapKind, ApexPlanError> {
-    let n_fil = terminations.len();
-    let tol = tolerance.linear();
-
-    // Criterion 1: radii uniformity.
-    let radii: Vec<f64> = terminations.iter().map(|t| t.cap_radius).collect();
-    let r_min = radii.iter().copied().fold(f64::INFINITY, f64::min);
-    let r_max = radii.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let r_spread = r_max - r_min;
-    let r_avg = radii.iter().sum::<f64>() / (n_fil as f64);
-    let radii_uniform = r_spread <= tol;
-    telemetry.set_value("radii_min", r_min);
-    telemetry.set_value("radii_max", r_max);
-    telemetry.set_value("radii_spread", r_spread);
-
-    // Criterion 2: bridge-collapse check.
-    //
-    // Adjacent FaceEdge bridge: between T_b[k] (FilletEnd[k] end) and
-    // T_a[(k+1) % n_fil] (FilletEnd[k+1] start).  Bridge collapses
-    // when these two points coincide (within tol * 10).
-    //
-    // Gates an extra factor of 10 because Sphere caps tolerate small
-    // numerical noise that wouldn't disqualify the symmetric pattern;
-    // commercial kernels use a similar relaxed "convergence" tol.
-    let bridge_tol = tol * 10.0;
-    let mut max_bridge_gap = 0.0_f64;
-    for k in 0..n_fil {
-        let next_k = (k + 1) % n_fil;
-        let gap = terminations[k]
-            .endpoint_b
-            .distance_to(&terminations[next_k].endpoint_a);
-        if gap > max_bridge_gap {
-            max_bridge_gap = gap;
-        }
-    }
-    let bridges_collapse = max_bridge_gap < bridge_tol;
-    telemetry.set_value("max_bridge_collapse", max_bridge_gap);
-    telemetry.set_value("bridge_collapse_threshold", bridge_tol);
-
-    // Sphere if BOTH criteria hold; else Gregory.
-    if radii_uniform && bridges_collapse {
-        // Compute average cap centre (per-fillet centres should
-        // coincide for the symmetric case).
-        let mut centre_sum = Point3::new(0.0, 0.0, 0.0);
-        for t in terminations {
-            centre_sum.x += t.cap_centre.x;
-            centre_sum.y += t.cap_centre.y;
-            centre_sum.z += t.cap_centre.z;
-        }
-        let n_f = n_fil as f64;
-        let center = Point3::new(centre_sum.x / n_f, centre_sum.y / n_f, centre_sum.z / n_f);
-        // Tangent arc endpoints: in the collapsed-bridge case, every
-        // T_b[k] equals the adjacent T_a[k+1], so we collect either
-        // and the result has n_fil unique points.  We use T_a[k] for
-        // each k.
-        let tangent_arc_endpoints: Vec<Point3> =
-            terminations.iter().map(|t| t.endpoint_a).collect();
-        telemetry.cap_kind_reason = format!(
-            "uniform radii within {tol:.3e} (spread {r_spread:.3e}) + bridges collapse to \
-             {max_bridge_gap:.3e} < {bridge_tol:.3e} — Sphere cap chosen"
-        );
-        Ok(CapKind::Sphere {
-            center,
-            radius: r_avg,
-            tangent_arc_endpoints,
-        })
-    } else {
-        // Diagnostic: which criterion failed?
-        let reason = match (radii_uniform, bridges_collapse) {
-            (false, false) => format!(
-                "variable radii (spread {r_spread:.3e}) and non-collapsed bridges \
-                 (max gap {max_bridge_gap:.3e}) — Gregory cap chosen"
-            ),
-            (false, true) => format!("variable radii (spread {r_spread:.3e}) — Gregory cap chosen"),
-            (true, false) => format!(
-                "uniform radii but bridges don't collapse (max gap {max_bridge_gap:.3e}) — Gregory cap chosen"
-            ),
-            (true, true) => unreachable!(),
-        };
-        telemetry.cap_kind_reason = reason;
-        let _ = fillet_specs; // currently unused; reserved for variable-radius variants
-        let per_fillet_terminations: Vec<[Point3; 2]> = terminations
-            .iter()
-            .map(|t| [t.endpoint_a, t.endpoint_b])
-            .collect();
-        let per_fillet_caps: Vec<(Point3, f64)> = terminations
-            .iter()
-            .map(|t| (t.cap_centre, t.cap_radius))
-            .collect();
-        Ok(CapKind::Gregory {
-            per_fillet_terminations,
-            per_fillet_caps,
-        })
-    }
-}
-
-/// One fillet's sphere-fit termination data.  Internal to the
-/// planner; aggregated into the [`ApexPlan`] in A2.1.d/e.
-///
-/// Per ADR §3.1: each fillet has its own pair of termination
-/// points (T_a on face_A side, T_b on face_B side) plus the
-/// FilletEnd 3-D arc connecting them.
-#[derive(Debug, Clone)]
-#[allow(dead_code)] // fields consumed by A2.1.d/e (cap kind decision + topology assembly)
-pub(crate) struct PerFilletTermination {
-    /// Index into `fillet_surfaces` (this fillet's surface).
-    pub fillet_idx: usize,
-    /// T_a — termination on the face_A (CCW-previous) side.
-    pub endpoint_a: Point3,
-    /// T_b — termination on the face_B (CCW-next) side.
-    pub endpoint_b: Point3,
-    /// Cap sphere centre for this fillet (per Phase 6c-A's
-    /// per-fillet sphere-fit; uniform for symmetric corners).
-    pub cap_centre: Point3,
-    /// Cap sphere radius (= fillet's nominal radius).
-    pub cap_radius: f64,
-    /// FilletEnd arc 3-D curve, going T_a → T_b along the
-    /// fillet's cylinder.
-    pub curve_3d: NurbsCurve,
-    /// Outward normal of face_A at the apex.
-    pub face_a_normal: Vec3,
-    /// Outward normal of face_B at the apex.
-    pub face_b_normal: Vec3,
-    /// Face_A handle (CCW-previous face shared with fillet k-1).
-    pub face_a: FaceHandle,
-    /// Face_B handle (CCW-next face shared with fillet k+1).
-    pub face_b: FaceHandle,
-}
-
-/// Compute the apex blend boundary using the existing
-/// `compute_blend_boundary` infrastructure.  Translates the
-/// returned `Result<BlendBoundary, String>` into our typed error.
-fn compute_apex_boundary(
-    brep: &BRep,
-    apex: VertexHandle,
-    fillet_surfaces: &[FilletSurfaceResult],
-    tolerance: &popkern_core::tolerance::Tolerance,
-) -> Result<BlendBoundary, ApexPlanError> {
-    let local_indices: Vec<usize> = (0..fillet_surfaces.len()).collect();
-    compute_blend_boundary(apex, &local_indices, fillet_surfaces, brep, tolerance).map_err(|e| {
-        ApexPlanError::InvalidInput {
-            field: "boundary",
-            value: format!("compute_blend_boundary failed at apex {apex:?}: {e}"),
-        }
-    })
-}
-
-/// Compute per-fillet sphere-fit terminations T_a[k], T_b[k] plus
-/// the FilletEnd arc curve3d.  Reuses `select_per_fillet_centre`
-/// and `sphere_fit_termination` from the existing substitution
-/// machinery — the **math** is correct in the legacy path; only
-/// the substitute-then-patch retrofit is being replaced.
-///
-/// Per Phase 6c-A continuation §4.2: each fillet uses its own cap
-/// radius (= nominal radius) and its own cap centre, yielding
-/// distinct termination points for variable-radius corners.
-///
-/// Returns one `PerFilletTermination` per fillet, in cap-loop walk
-/// order (matching `boundary.segments[2k]` — the FilletEnd
-/// segments).
-fn compute_per_fillet_terminations(
-    brep: &BRep,
-    apex: VertexHandle,
-    boundary: &BlendBoundary,
-    fillet_surfaces: &[FilletSurfaceResult],
-    tolerance: &popkern_core::tolerance::Tolerance,
-) -> Result<Vec<PerFilletTermination>, ApexPlanError> {
-    use popkern_core::geometry::apex_blend::sphere_fit::sphere_fit_termination;
-
-    let n_seg = boundary.segments.len();
-    if n_seg < 4 || !n_seg.is_multiple_of(2) {
-        return Err(ApexPlanError::InvalidInput {
-            field: "boundary.segments",
-            value: format!(
-                "expected alternating FilletEnd/FaceEdge segments (n_seg even, ≥4); got n_seg={n_seg}"
-            ),
-        });
-    }
-    let n_fil = n_seg / 2;
-
-    // Validate alternation pattern.  Index 2k is FilletEnd; 2k+1 is FaceEdge.
-    for (i, seg) in boundary.segments.iter().enumerate() {
-        match (i.is_multiple_of(2), seg) {
-            (true, BoundarySegment::FilletEnd { .. }) => {}
-            (false, BoundarySegment::FaceEdge { .. }) => {}
-            _ => {
-                return Err(ApexPlanError::InvalidInput {
-                    field: "boundary.segments",
-                    value: format!("segment {i} doesn't follow FilletEnd/FaceEdge alternation"),
-                });
-            }
-        }
-    }
-
-    // Step A: collect face_A/face_B normals per fillet, plus the
-    // unique adjacent faces (for cap-centre solver).
-    let apex_pos =
-        brep.vertices
-            .get(apex)
-            .map(|v| v.position)
-            .ok_or_else(|| ApexPlanError::InvalidInput {
-                field: "apex",
-                value: format!("vertex {apex:?} disappeared between validation and planning"),
-            })?;
-
-    let mut face_a_normals: Vec<Vec3> = Vec::with_capacity(n_fil);
-    let mut face_b_normals: Vec<Vec3> = Vec::with_capacity(n_fil);
-    let mut face_a_handles: Vec<FaceHandle> = Vec::with_capacity(n_fil);
-    let mut face_b_handles: Vec<FaceHandle> = Vec::with_capacity(n_fil);
-    let mut unique_face_normals: Vec<(FaceHandle, Vec3)> = Vec::new();
-
-    for k in 0..n_fil {
-        // FaceEdge BEFORE FilletEnd[k] is at boundary segment 2k-1
-        // (or n_seg-1 for k=0 — wraparound).
-        let prev_idx = if k == 0 { n_seg - 1 } else { 2 * k - 1 };
-        let next_idx = 2 * k + 1;
-        let face_a = match &boundary.segments[prev_idx] {
-            BoundarySegment::FaceEdge { face, .. } => *face,
-            _ => unreachable!("alternation already validated"),
-        };
-        let face_b = match &boundary.segments[next_idx] {
-            BoundarySegment::FaceEdge { face, .. } => *face,
-            _ => unreachable!("alternation already validated"),
-        };
-        let n_a = face_outward_normal_at(brep, face_a, &apex_pos).ok_or_else(|| {
-            ApexPlanError::InvalidInput {
-                field: "boundary.face_a",
-                value: format!(
-                    "could not evaluate outward normal at apex for face {face_a:?} (fillet {k})"
-                ),
-            }
-        })?;
-        let n_b = face_outward_normal_at(brep, face_b, &apex_pos).ok_or_else(|| {
-            ApexPlanError::InvalidInput {
-                field: "boundary.face_b",
-                value: format!(
-                    "could not evaluate outward normal at apex for face {face_b:?} (fillet {k})"
-                ),
-            }
-        })?;
-        face_a_normals.push(n_a);
-        face_b_normals.push(n_b);
-        face_a_handles.push(face_a);
-        face_b_handles.push(face_b);
-        for (fh, n) in [(face_a, n_a), (face_b, n_b)] {
-            if !unique_face_normals.iter().any(|(f, _)| *f == fh) {
-                unique_face_normals.push((fh, n));
-            }
-        }
-    }
-
-    // Need ≥ 3 unique face planes through the apex to solve the
-    // cap-centre system (degenerate-case enumeration §4.4).
-    if unique_face_normals.len() < 3 {
-        return Err(ApexPlanError::InsufficientFillets {
-            apex,
-            n: unique_face_normals.len(),
-        });
-    }
-    let face_normals: Vec<Vec3> = unique_face_normals.iter().map(|(_, n)| *n).collect();
-
-    // Step B: per-fillet sphere-fit termination.
-    let mut out: Vec<PerFilletTermination> = Vec::with_capacity(n_fil);
-    for k in 0..n_fil {
-        let fi = match &boundary.segments[2 * k] {
-            BoundarySegment::FilletEnd { fillet_index, .. } => *fillet_index,
-            _ => unreachable!(),
-        };
-        let fillet = fillet_surfaces
-            .get(fi)
-            .ok_or_else(|| ApexPlanError::InvalidInput {
-                field: "fillet_surfaces",
-                value: format!("FilletEnd[{k}].fillet_index={fi} out of range"),
-            })?;
-        let r_k = fillet_nominal_radius(&fillet.surface).ok_or_else(|| {
-            // Non-cylinder, non-torus fillet — A2 v1 doesn't support these.
-            let kind = match &fillet.surface {
-                popkern_core::geometry::surface::SurfaceGeometry::Plane { .. } => "Plane",
-                popkern_core::geometry::surface::SurfaceGeometry::Cone { .. } => "Cone",
-                popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. } => "Sphere",
-                popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_) => "Nurbs",
-                popkern_core::geometry::surface::SurfaceGeometry::Gregory(_) => "Gregory",
-                _ => "Unknown",
-            };
-            ApexPlanError::UnsupportedFilletKind {
-                fillet_idx: k,
-                kind,
-            }
-        })?;
-        // Cap-centre system is singular when the face planes are
-        // (nearly) coplanar.  Condition number not yet computed by
-        // select_per_fillet_centre; report large sentinel value.
-        let cap_centre = select_per_fillet_centre(apex_pos, &face_normals, r_k, &fillet.surface)
-            .ok_or(ApexPlanError::SingularCapCentre {
-                apex,
-                condition_number: f64::INFINITY,
-            })?;
-        let result = sphere_fit_termination(
-            apex_pos,
-            cap_centre,
-            r_k,
-            &fillet.surface,
-            face_a_normals[k],
-            face_b_normals[k],
-            tolerance,
-        )
-        .map_err(|_| ApexPlanError::SphereCylinderNoIntersection { fillet_idx: k })?;
-        out.push(PerFilletTermination {
-            fillet_idx: fi,
-            endpoint_a: result.endpoint_a,
-            endpoint_b: result.endpoint_b,
-            cap_centre,
-            cap_radius: r_k,
-            curve_3d: result.curve_3d,
-            face_a_normal: face_a_normals[k],
-            face_b_normal: face_b_normals[k],
-            face_a: face_a_handles[k],
-            face_b: face_b_handles[k],
-        });
-    }
-    Ok(out)
-}
-
-/// Validate planner inputs.  Returns `Ok(())` when every input is
-/// well-formed; otherwise the most specific [`ApexPlanError`].
-///
-/// Checks:
-/// 1. ≥ 3 fillet specs (sphere-fit cap centre needs ≥ 3 face planes).
-/// 2. Apex vertex exists in the BRep.
-/// 3. Each fillet's edge exists in the BRep.
-/// 4. Each fillet's edge is incident to the apex vertex.
-/// 5. Each fillet's radius is positive, finite, and well-formed.
-fn validate_inputs(
-    brep: &BRep,
-    apex: VertexHandle,
-    fillet_specs: &[FilletSpec],
-) -> Result<(), ApexPlanError> {
-    // 1. Enough fillets.
-    if fillet_specs.len() < 3 {
-        return Err(ApexPlanError::InsufficientFillets {
-            apex,
-            n: fillet_specs.len(),
-        });
-    }
-    // 2. Apex vertex exists.
-    if brep.vertices.get(apex).is_none() {
-        return Err(ApexPlanError::InvalidInput {
-            field: "apex",
-            value: format!("vertex {apex:?} not present in BRep"),
-        });
-    }
-    // 3, 4, 5. Per-fillet checks.
-    for (idx, spec) in fillet_specs.iter().enumerate() {
-        // 3. Edge exists.
-        let Some(edge) = brep.edges.get(spec.edge) else {
-            return Err(ApexPlanError::InvalidInput {
-                field: "fillet_specs[].edge",
-                value: format!("fillet {idx}: edge {:?} not present in BRep", spec.edge),
-            });
-        };
-        // 4. Edge incident to apex.
-        let primary = edge.half_edge;
-        let Some(primary_he) = brep.half_edges.get(primary) else {
-            return Err(ApexPlanError::InvalidInput {
-                field: "fillet_specs[].edge",
-                value: format!(
-                    "fillet {idx}: edge {:?}'s primary half-edge missing",
-                    spec.edge
-                ),
-            });
-        };
-        let twin = primary_he.twin;
-        let Some(twin_he) = brep.half_edges.get(twin) else {
-            return Err(ApexPlanError::InvalidInput {
-                field: "fillet_specs[].edge",
-                value: format!(
-                    "fillet {idx}: edge {:?}'s twin half-edge missing",
-                    spec.edge
-                ),
-            });
-        };
-        if primary_he.origin != apex && twin_he.origin != apex {
-            return Err(ApexPlanError::InvalidInput {
-                field: "fillet_specs[].edge",
-                value: format!(
-                    "fillet {idx}: edge {:?} not incident to apex {apex:?}",
-                    spec.edge
-                ),
-            });
-        }
-        // 5. Radius valid.
-        validate_radius(idx, &spec.radius)?;
-    }
-    Ok(())
-}
-
-/// Validate a single fillet's radius profile.  Returns `Ok(())`
-/// when all radii are positive, finite, non-NaN, non-Inf.
-fn validate_radius(idx: usize, radius: &FilletRadius) -> Result<(), ApexPlanError> {
-    let check = |r: f64, label: &str| -> Result<(), ApexPlanError> {
-        if !r.is_finite() {
-            return Err(ApexPlanError::InvalidInput {
-                field: "fillet_specs[].radius",
-                value: format!("fillet {idx}: {label} radius {r} is not finite (NaN or Inf)"),
-            });
-        }
-        if r <= 0.0 {
-            return Err(ApexPlanError::InvalidInput {
-                field: "fillet_specs[].radius",
-                value: format!("fillet {idx}: {label} radius {r} is not strictly positive"),
-            });
-        }
-        Ok(())
-    };
-    match radius {
-        FilletRadius::Constant(r) => check(*r, "constant")?,
-        FilletRadius::Variable { start, end } => {
-            check(*start, "start")?;
-            check(*end, "end")?;
-        }
-        FilletRadius::ByPoints(points) => {
-            if points.is_empty() {
-                return Err(ApexPlanError::InvalidInput {
-                    field: "fillet_specs[].radius",
-                    value: format!("fillet {idx}: ByPoints profile has no points"),
-                });
-            }
-            for (t, r) in points {
-                if !t.is_finite() || !(0.0..=1.0).contains(t) {
-                    return Err(ApexPlanError::InvalidInput {
-                        field: "fillet_specs[].radius",
-                        value: format!("fillet {idx}: ByPoints t={t} not in [0, 1] or not finite"),
-                    });
-                }
-                check(*r, "ByPoints")?;
-            }
-        }
-    }
-    Ok(())
-}
+// Type alias to keep the rung-ladder signature concise without
+// re-importing BlendBoundary at the top of plan.rs (it's only
+// referenced inside this private fn).
+type BlendBoundaryRef = crate::blend::boundary::BlendBoundary;
