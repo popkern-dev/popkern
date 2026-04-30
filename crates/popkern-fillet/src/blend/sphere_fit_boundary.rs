@@ -169,8 +169,21 @@ pub(crate) fn apply_sphere_fit_substitution(
                     let v = d.dot(&axis_unit);
                     (theta, v)
                 };
-                let (theta_a, _) = project(result.endpoint_a);
-                let (theta_b, _) = project(result.endpoint_b);
+                let (theta_a_raw, _) = project(result.endpoint_a);
+                let (theta_b_raw, _) = project(result.endpoint_b);
+                // Pick the short arc: shift theta_b by ±2π if
+                // needed so |theta_b - theta_a| ≤ π.  Without this,
+                // the angular sampling traces the long way around
+                // the cylinder (>π span) and produces a very
+                // different curve from the actual cap-tangent arc.
+                let theta_a = theta_a_raw;
+                let mut theta_b = theta_b_raw;
+                while theta_b - theta_a > std::f64::consts::PI {
+                    theta_b -= std::f64::consts::TAU;
+                }
+                while theta_a - theta_b > std::f64::consts::PI {
+                    theta_b += std::f64::consts::TAU;
+                }
                 fillet_end_arcs.push(FilletEndArcParams {
                     center: cap_centre_k,
                     u_basis: perp1 * (*cyl_radius),
@@ -265,6 +278,16 @@ pub(crate) fn apply_sphere_fit_substitution(
             BoundarySegment::FaceEdge { curve, .. } => curve,
             _ => return Err("expected FaceEdge at index 2k+1"),
         };
+        // Stage 4.7c-ii (angular sampling for FilletEnd row 0)
+        // reverted — empirical regression to ~9 cm dev_cap in
+        // bi-9 patch evaluation, despite the standalone fit
+        // achieving 5e-14 m error.  Suggests the K-P binonic
+        // optimizer or the bi-quintic guide preprocessing
+        // depends on the boundary's Bezier-t parameterisation in
+        // a way that's incompatible with angular sampling.
+        // Foundation in `BlendBoundary::fillet_end_arcs` retained
+        // for future investigation.
+        let _ = fillet_end_arcs.get(k); // suppress unused warning
         let row0 = sample_and_fit_deg9(fillet_end_curve)
             .ok_or("failed to fit deg-9 Bernstein boundary on FilletEnd[k]")?;
         let col9 = sample_and_fit_deg9(face_edge_curve)
@@ -302,6 +325,43 @@ fn sample_and_fit_deg9(curve: &popkern_core::geometry::NurbsCurve) -> Option<[Po
         let s = (i as f64) / 9.0;
         let t = t0 + s * (t1 - t0);
         samples.push(curve.point_at(t));
+        params.push(s);
+    }
+    let fitted = fit_curve(&samples, &params, 9, 10).ok()?;
+    if fitted.control_points.len() != 10 {
+        return None;
+    }
+    let mut out = [Point3::new(0.0, 0.0, 0.0); 10];
+    for (i, cp) in fitted.control_points.iter().enumerate() {
+        out[i] = *cp;
+    }
+    Some(out)
+}
+
+/// Phase 6c-D Stage 4.7c: sample the analytic ellipse at 10
+/// uniform angular intervals between `start_angle` and
+/// `end_angle`, fit a deg-9 Bezier with parameter `s = (i/9)`
+/// interpolating those angular samples.  When the cap surface's
+/// row 0 uses these CPs and the pcurve is `Linear (0, 0) →
+/// (0, 1)` over angular `t ∈ [start_angle, end_angle]`, surface
+/// evaluation matches the analytic ellipse to ~1e-12 m on small
+/// arcs (the deg-9 polynomial fit error over angular samples).
+#[allow(dead_code)]
+fn sample_arc_at_uniform_angles_and_fit_deg9(
+    arc: &super::boundary::FilletEndArcParams,
+) -> Option<[Point3; 10]> {
+    use popkern_core::geometry::fitting::fit_curve;
+
+    if (arc.end_angle - arc.start_angle).abs() < 1e-15 {
+        return None;
+    }
+    let mut samples: Vec<Point3> = Vec::with_capacity(10);
+    let mut params: Vec<f64> = Vec::with_capacity(10);
+    for i in 0..10 {
+        let s = (i as f64) / 9.0;
+        let theta = arc.start_angle + s * (arc.end_angle - arc.start_angle);
+        let p = arc.center + arc.u_basis * theta.cos() + arc.v_basis * theta.sin();
+        samples.push(p);
         params.push(s);
     }
     let fitted = fit_curve(&samples, &params, 9, 10).ok()?;
