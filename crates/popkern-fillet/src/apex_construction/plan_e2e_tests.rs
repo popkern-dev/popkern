@@ -92,6 +92,45 @@ fn build_fillet_surfaces(
     surfaces
 }
 
+/// Like [`build_fillet_surfaces`] but each edge gets its own
+/// radius (parallel slices over `edges` and `radii`).  Used by
+/// variable-radius end-to-end tests.
+fn build_fillet_surfaces_per_edge(
+    brep: &BRep,
+    edges: &[EdgeHandle],
+    radii: &[f64],
+) -> Vec<FilletSurfaceResult> {
+    assert_eq!(
+        edges.len(),
+        radii.len(),
+        "edges and radii must have equal length"
+    );
+    let tol = test_tolerance();
+    let analyses = analysis::analyze_edges(brep, edges, false)
+        .expect("analyze_edges should succeed on variable-radius corner");
+    let mut surfaces = Vec::with_capacity(edges.len());
+    for ((edge, &r), ana) in edges.iter().zip(radii).zip(analyses.iter()) {
+        let _ = edge;
+        let radius_spec = FilletRadius::Constant(r);
+        let geom = compute_fillet_geometry(
+            ana,
+            &radius_spec,
+            brep,
+            &tol,
+            ContinuityLevel::G1,
+            LegacyCapKind::Open,
+        )
+        .expect("compute_fillet_geometry should succeed on variable-radius corner");
+        surfaces.push(FilletSurfaceResult {
+            surface: geom.surface.clone(),
+            trim_curve_1: geom.trim_3d_1.clone(),
+            trim_curve_2: geom.trim_3d_2.clone(),
+            continuity_downgrade: None,
+        });
+    }
+    surfaces
+}
+
 /// Replace `n` fillet surfaces (starting at index 0) with a
 /// degenerate `Plane` variant that the planner's strict pass
 /// rejects via `UnsupportedFilletKind` and the lenient pass
@@ -142,9 +181,7 @@ fn diagnostic_dump_cube_fillet_cylinders() {
             let (t0, t1) = fs.trim_curve_1.parameter_range();
             let trim1_start = fs.trim_curve_1.point_at(t0);
             let trim1_end = fs.trim_curve_1.point_at(t1);
-            eprintln!(
-                "  trim_curve_1 endpoints: start={trim1_start:?} end={trim1_end:?}",
-            );
+            eprintln!("  trim_curve_1 endpoints: start={trim1_start:?} end={trim1_end:?}",);
         }
     }
 }
@@ -626,4 +663,79 @@ fn open_rung_plan_round_trips_through_json() {
     // structural equality holds bit-exactly.
     assert_eq!(plan, restored);
     assert!(restored.cap_kind.is_open());
+}
+
+// ---------------------------------------------------------------
+// Variable-radius coverage — Gregory dispatch on real fixture
+// ---------------------------------------------------------------
+
+#[test]
+fn variable_radii_on_cube_dispatches_to_gregory() {
+    let cube = BRep::unit_cube(test_tolerance()).expect("cube builds");
+    let (apex, edges) = pick_apex_and_incident_edges(&cube);
+    assert_eq!(edges.len(), 3);
+    // Three distinct radii spanning ~10× — well outside any
+    // tolerance-based "uniform" classification.
+    let radii = [0.05_f64, 0.10, 0.20];
+    let surfaces = build_fillet_surfaces_per_edge(&cube, &edges, &radii);
+    let specs: Vec<FilletSpec> = edges
+        .iter()
+        .zip(radii.iter())
+        .map(|(&e, &r)| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(r),
+        })
+        .collect();
+
+    let plan = plan_apex_resolution(&cube, apex, &specs, &surfaces, &test_tolerance(), None)
+        .expect("Direct rung succeeds on variable-radius cube apex");
+
+    assert_eq!(
+        plan.telemetry.rung,
+        ConstructionRung::Direct,
+        "variable radii still resolve via Direct rung",
+    );
+    // Variable radii must dispatch to Gregory (Sphere requires
+    // uniform radii within tolerance.linear()).
+    assert!(
+        plan.cap_kind.is_gregory(),
+        "variable radii (0.05, 0.10, 0.20) → Gregory cap, got {:?}",
+        plan.cap_kind,
+    );
+    if let CapKind::Gregory {
+        per_fillet_caps, ..
+    } = &plan.cap_kind
+    {
+        assert_eq!(per_fillet_caps.len(), 3);
+        // Each per-fillet cap radius matches its input radius.
+        // Caps are in cap-loop walk order, which may not match
+        // the input edge order — check by radius set.
+        let mut got: Vec<f64> = per_fillet_caps.iter().map(|(_, r)| *r).collect();
+        got.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let mut want = radii.to_vec();
+        want.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        for (g, w) in got.iter().zip(want.iter()) {
+            assert!(
+                (g - w).abs() < 1e-9,
+                "per-fillet radius {g} should match an input radius (sorted: got {got:?}, want {want:?})",
+            );
+        }
+    }
+    // Telemetry should attribute the Gregory dispatch to variable
+    // radii, not bridge-collapse failure.
+    let reason = &plan.telemetry.cap_kind_reason;
+    assert!(
+        reason.contains("variable radii"),
+        "Gregory reason should mention variable radii; got: {reason}",
+    );
+    // Diagnostic numerics: radii_spread should be ≥ 0.15 (max 0.20 - min 0.05).
+    let spread = plan
+        .telemetry
+        .diagnostic_values
+        .get("radii_spread")
+        .copied();
+    assert!(
+        spread.is_some_and(|s| (s - 0.15).abs() < 1e-9),
+        "radii_spread should be 0.15 (= 0.20 - 0.05); got {spread:?}",
+    );
 }
