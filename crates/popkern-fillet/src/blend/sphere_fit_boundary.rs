@@ -297,6 +297,49 @@ pub(crate) fn apply_sphere_fit_substitution(
     boundary.hex_boundary_cps_deg9 = hex_boundary_cps_deg9;
     boundary.fillet_end_arcs = fillet_end_arcs;
 
+    if std::env::var_os("POPKERN_SPHERE_FIT_TRACE").is_some() {
+        use popkern_core::geometry::curve::CurveEval;
+        eprintln!("[sphere-fit] boundary segment endpoint coherence:");
+        for (i, seg) in boundary.segments.iter().enumerate() {
+            let curve = match seg {
+                BoundarySegment::FilletEnd { curve, .. } => curve,
+                BoundarySegment::FaceEdge { curve, .. } => curve,
+            };
+            let (t0, t1) = curve.parameter_range();
+            let p_start = curve.point_at(t0);
+            let p_end = curve.point_at(t1);
+            let kind = match seg {
+                BoundarySegment::FilletEnd { .. } => "FilletEnd",
+                BoundarySegment::FaceEdge { .. } => "FaceEdge ",
+            };
+            eprintln!(
+                "  seg[{i}] {kind} t=[{t0:.4},{t1:.4}] start=({:.6},{:.6},{:.6}) end=({:.6},{:.6},{:.6})",
+                p_start.x, p_start.y, p_start.z, p_end.x, p_end.y, p_end.z
+            );
+        }
+        // Coherence check: seg[2k]'s end should equal seg[2k+1]'s start; seg[2k+1]'s end should equal seg[2k+2]'s start (mod 2N).
+        for k in 0..n_fil {
+            let cur = &boundary.segments[2 * k];
+            let next = &boundary.segments[2 * k + 1];
+            let cur_curve = match cur {
+                BoundarySegment::FilletEnd { curve, .. } => curve,
+                _ => continue,
+            };
+            let next_curve = match next {
+                BoundarySegment::FaceEdge { curve, .. } => curve,
+                _ => continue,
+            };
+            let (_, t1_cur) = cur_curve.parameter_range();
+            let (t0_next, _) = next_curve.parameter_range();
+            let cur_end = cur_curve.point_at(t1_cur);
+            let next_start = next_curve.point_at(t0_next);
+            let gap = cur_end.distance_to(&next_start);
+            eprintln!(
+                "  coherence FilletEnd[{k}].end ↔ FaceEdge[{k}].start: gap={gap:.3e}"
+            );
+        }
+    }
+
     Ok(())
 }
 

@@ -324,6 +324,195 @@ fn phase_6c_e_cube_uniform_per_edge_breakdown() {
     breakdown(&brep, &faces);
 }
 
+/// Phase 6c-X.A.2: candidate T discovery + wire-match verification.
+///
+/// Goal: determine whether apex-vertex disagreement is caused by
+/// (a) wire matching the same vertex's incident edges to mismatched
+/// boundary segments, or (b) genuine geometric disagreement.
+///
+/// Strategy: collect every cap-loop edge's curve endpoints across
+/// the BRep.  Cluster all those 3D points by 1 mm tolerance.  Each
+/// cluster represents one logical "T" (FilletEnd termination).
+/// For each apex vertex V, the nearest cluster is V's "logical T".
+/// Report whether V's cap-loop edges' endpoints agree with this T
+/// or with DIFFERENT clusters (wire mismatch).
+#[ignore]
+#[test]
+fn phase_6c_a2_t_discovery_and_wire_match() {
+    use popkern_core::geometry::Point3;
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::topology::VertexHandle;
+
+    let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
+    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
+    let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
+
+    let cases: &[(&str, &[f64], bool, f64)] = &[
+        ("cube_mixed", &[0.08, 0.10, 0.12], false, 0.0),
+        ("pyramid4_mixed", &[0.04, 0.06, 0.05, 0.07], true, 0.8),
+    ];
+    let cluster_tol = 1e-3_f64; // 1 mm
+
+    eprintln!("\n=== Phase 6c-X.A.2 T discovery + wire match ===");
+    eprintln!("(cluster tolerance: {:.1e} m)", cluster_tol);
+    for (name, radii, is_pyramid, h) in cases {
+        let (brep, faces) = if *is_pyramid {
+            let pyr = BRep::n_gonal_pyramid(radii.len(), 1.0, *h, Tolerance::default()).unwrap();
+            let vertex = pick_vertex_with_valence(&pyr, radii.len()).unwrap();
+            let edges = incident_edges(&pyr, vertex);
+            fillet_corner(&pyr, &edges, radii, true)
+        } else {
+            let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+            let vertex = cube.vertices.keys().next().unwrap();
+            let edges = incident_edges(&cube, vertex);
+            fillet_corner(&cube, &edges, radii, true)
+        };
+        let cap_set: std::collections::BTreeSet<_> = faces.iter().copied().collect();
+
+        // Apex vertices.
+        let mut apex_vertices: std::collections::BTreeSet<VertexHandle> =
+            std::collections::BTreeSet::new();
+        for &cap in faces.iter() {
+            let outer = brep.faces[cap].outer_loop;
+            let start = brep.loops[outer].half_edge;
+            let mut cur = start;
+            for _ in 0..32 {
+                let he = &brep.half_edges[cur];
+                apex_vertices.insert(he.origin);
+                cur = he.next;
+                if cur == start {
+                    break;
+                }
+            }
+        }
+
+        // Collect all cap-loop edge curve endpoints, cluster.
+        let mut all_endpoints: Vec<Point3> = Vec::new();
+        for (_eh, edge) in brep.edges.iter() {
+            let Some(coe) = edge.curve.as_ref() else {
+                continue;
+            };
+            let he_a = edge.half_edge;
+            let he_b = brep.half_edges[he_a].twin;
+            let face_a = brep.loops[brep.half_edges[he_a].loop_].face;
+            let face_b = brep.loops[brep.half_edges[he_b].loop_].face;
+            let a_is_cap = cap_set.contains(&face_a);
+            let b_is_cap = cap_set.contains(&face_b);
+            if !a_is_cap && !b_is_cap {
+                continue;
+            }
+            all_endpoints.push(coe.geometry.point_at(coe.t_start));
+            all_endpoints.push(coe.geometry.point_at(coe.t_end));
+        }
+        // Cluster.
+        let mut clusters: Vec<Vec<Point3>> = Vec::new();
+        for p in &all_endpoints {
+            let mut found = false;
+            for c in clusters.iter_mut() {
+                if p.distance_to(&c[0]) < cluster_tol {
+                    c.push(*p);
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                clusters.push(vec![*p]);
+            }
+        }
+        let cluster_centroids: Vec<Point3> = clusters
+            .iter()
+            .map(|c| {
+                let n = c.len() as f64;
+                let mut sum = Point3::new(0.0, 0.0, 0.0);
+                for p in c {
+                    sum.x += p.x;
+                    sum.y += p.y;
+                    sum.z += p.z;
+                }
+                Point3::new(sum.x / n, sum.y / n, sum.z / n)
+            })
+            .collect();
+        eprintln!(
+            "\n--- {name}: {} apex vertices, {} cap-loop endpoint clusters ---",
+            apex_vertices.len(),
+            clusters.len()
+        );
+        for (ci, (cs, c)) in cluster_centroids.iter().zip(clusters.iter()).enumerate() {
+            eprintln!(
+                "  T[{ci}] centroid=({:.4},{:.4},{:.4}) {} samples",
+                cs.x,
+                cs.y,
+                cs.z,
+                c.len()
+            );
+        }
+
+        // For each apex vertex, find nearest cluster (its "logical T").
+        // Then check whether all incident cap-loop edges' nearest endpoints
+        // map to the SAME cluster.
+        for &v in &apex_vertices {
+            let v_pos = brep.vertices[v].position;
+            // Find nearest cluster to v.
+            let (best_cluster, dist_to_t) = cluster_centroids
+                .iter()
+                .enumerate()
+                .map(|(i, c)| (i, v_pos.distance_to(c)))
+                .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                .unwrap_or((usize::MAX, f64::INFINITY));
+            // Walk incident cap-loop edges' nearest endpoints, map each to its cluster.
+            let mut clusters_seen: std::collections::BTreeSet<usize> =
+                std::collections::BTreeSet::new();
+            let mut edges_with_curve = 0;
+            for (_he_h, he) in brep.half_edges.iter() {
+                if he.origin != v {
+                    continue;
+                }
+                let edge = &brep.edges[he.edge];
+                let Some(coe) = edge.curve.as_ref() else {
+                    continue;
+                };
+                let face_a = brep.loops[brep.half_edges[edge.half_edge].loop_].face;
+                let face_b = brep.loops[brep.half_edges[brep.half_edges[edge.half_edge].twin].loop_]
+                    .face;
+                let a_is_cap = cap_set.contains(&face_a);
+                let b_is_cap = cap_set.contains(&face_b);
+                if !a_is_cap && !b_is_cap {
+                    continue;
+                }
+                edges_with_curve += 1;
+                let p_start = coe.geometry.point_at(coe.t_start);
+                let p_end = coe.geometry.point_at(coe.t_end);
+                let near = if v_pos.distance_to(&p_start) <= v_pos.distance_to(&p_end) {
+                    p_start
+                } else {
+                    p_end
+                };
+                let nearest_cluster = cluster_centroids
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| (i, near.distance_to(c)))
+                    .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                    .map(|x| x.0)
+                    .unwrap_or(usize::MAX);
+                clusters_seen.insert(nearest_cluster);
+            }
+            let agreement = if clusters_seen.len() <= 1 {
+                "AGREE"
+            } else {
+                "DISAGREE"
+            };
+            eprintln!(
+                "  {v:?} pos=({:.4},{:.4},{:.4}) nearest=T[{best_cluster}] dist={dist_to_t:.3e} \
+                 {agreement}: cap-loop edges={edges_with_curve}, clusters_hit={:?}",
+                v_pos.x,
+                v_pos.y,
+                v_pos.z,
+                clusters_seen
+            );
+        }
+    }
+}
+
 /// Phase 6c-X.A.1: apex region detection diagnostic.
 ///
 /// For each apex vertex on every fixture, walk ALL incident
