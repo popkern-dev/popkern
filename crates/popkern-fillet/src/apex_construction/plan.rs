@@ -89,10 +89,21 @@ impl ApexPlan {
 ///
 /// See [`ApexPlanError`] for the full failure taxonomy.
 ///
-/// # Status
+/// # Status (A2.1.e)
 ///
-/// **Stub**: A2.1.a scaffolds the type API.  Actual implementation
-/// lands in A2.1.b through A2.1.f.
+/// Successfully returns an [`ApexPlan`] when:
+/// 1. Inputs validate (A2.1.b).
+/// 2. Boundary computes (A2.1.c).
+/// 3. Per-fillet sphere-fit terminations succeed (A2.1.c).
+/// 4. Cap-kind decision finds Sphere or Gregory (A2.1.d).
+/// 5. Target topology assembles (A2.1.e).
+///
+/// `face_boundary_updates` is left as `Vec::new()` — the
+/// builder (A2.2) computes face splicing from the apex
+/// topology + existing BRep state per ADR §3.3.
+///
+/// A2.1.f (telemetry rung integration including Setback fallback)
+/// pending.
 pub fn plan_apex_resolution(
     brep: &BRep,
     apex: VertexHandle,
@@ -110,13 +121,150 @@ pub fn plan_apex_resolution(
     // Step 4: decide cap kind (A2.1.d).
     let mut telemetry = PlanTelemetry::new();
     let cap_kind = decide_cap_kind(&terminations, fillet_specs, tolerance, &mut telemetry)?;
-    // A2.1.e (target topology) and A2.1.f (telemetry finalisation)
-    // follow.  Stub fall-through preserved for now.
-    let _ = cap_kind;
-    Err(ApexPlanError::InvalidInput {
-        field: "planner",
-        value: "stub — A2.1.e (target topology) and A2.1.f (telemetry finalisation) pending".into(),
+    // Step 5: build target topology (A2.1.e).
+    let target_topology = build_target_topology(&cap_kind, &terminations);
+    Ok(ApexPlan {
+        apex_vertex: apex,
+        cap_kind,
+        target_topology,
+        telemetry,
     })
+}
+
+/// Build the declarative [`TargetTopology`] from the chosen
+/// [`CapKind`] and the per-fillet terminations.
+///
+/// For **Sphere** caps:
+/// * `apex_vertices`: N points, one per fillet's tangent arc endpoint
+///   (T_a[k] for each k; bridges collapse so these equal T_b[k-1]).
+/// * `apex_edges`: N edges, each a FilletEnd arc on a cap-vs-Cyl
+///   boundary.  No FaceEdge bridges (collapsed).
+/// * `cap_face`: `Sphere` with center + radius + outer-loop indices.
+///
+/// For **Gregory** caps:
+/// * `apex_vertices`: 2N points (T_a[k] and T_b[k] per fillet).
+/// * `apex_edges`: 2N edges alternating CapVsCyl (FilletEnd[k]) and
+///   CapVsPlane (FaceEdge[k]).
+/// * `cap_face`: `Gregory` with 2N outer-loop edge indices.
+///
+/// `face_boundary_updates` is left empty here — the builder
+/// (A2.2) computes face splicing from the apex topology +
+/// existing BRep state.  See ADR §3.3.
+fn build_target_topology(
+    cap_kind: &CapKind,
+    terminations: &[PerFilletTermination],
+) -> TargetTopology {
+    use super::target_topology::{TargetCapFace, TargetEdge, TargetEdgeRole};
+    let n_fil = terminations.len();
+    match cap_kind {
+        CapKind::Sphere {
+            center,
+            radius,
+            tangent_arc_endpoints,
+        } => {
+            // N apex vertices, one per tangent arc endpoint.
+            let apex_vertices: Vec<Point3> = tangent_arc_endpoints.clone();
+            // N apex edges, each a FilletEnd arc.  Edge k goes from
+            // tangent_arc_endpoints[k] to tangent_arc_endpoints[(k+1) % N].
+            let mut apex_edges: Vec<TargetEdge> = Vec::with_capacity(n_fil);
+            let mut outer_loop_edge_indices: Vec<usize> = Vec::with_capacity(n_fil);
+            for (k, term) in terminations.iter().enumerate() {
+                let next_k = (k + 1) % n_fil;
+                apex_edges.push(TargetEdge {
+                    origin_vertex_idx: k,
+                    dest_vertex_idx: next_k,
+                    curve: term.curve_3d.clone(),
+                    role: TargetEdgeRole::CapVsCyl {
+                        fillet_idx: term.fillet_idx,
+                    },
+                });
+                outer_loop_edge_indices.push(k);
+            }
+            let cap_face = TargetCapFace::Sphere {
+                center: *center,
+                radius: *radius,
+                outer_loop_edge_indices,
+            };
+            TargetTopology {
+                apex_vertices,
+                apex_edges,
+                cap_face,
+                face_boundary_updates: Vec::new(),
+            }
+        }
+        CapKind::Gregory { .. } => {
+            // 2N apex vertices: vertex layout chosen to make the
+            // cap loop walk visit them in alternating order:
+            //   index 2k   = T_a[k]    (FilletEnd[k] start)
+            //   index 2k+1 = T_b[k]    (FilletEnd[k] end = FaceEdge[k] start)
+            //
+            // Cap-loop walk: T_a[0] → FilletEnd[0] → T_b[0] →
+            //                FaceEdge[0] → T_a[1] → FilletEnd[1] → ...
+            let mut apex_vertices: Vec<Point3> = Vec::with_capacity(2 * n_fil);
+            for t in terminations {
+                apex_vertices.push(t.endpoint_a);
+                apex_vertices.push(t.endpoint_b);
+            }
+            // 2N apex edges alternating FilletEnd (CapVsCyl) and
+            // FaceEdge (CapVsPlane).
+            let mut apex_edges: Vec<TargetEdge> = Vec::with_capacity(2 * n_fil);
+            let mut outer_loop_edge_indices: Vec<usize> = Vec::with_capacity(2 * n_fil);
+            for (k, term) in terminations.iter().enumerate() {
+                let next_k = (k + 1) % n_fil;
+                let v_ta_k = 2 * k;
+                let v_tb_k = 2 * k + 1;
+                let v_ta_next = 2 * next_k;
+                // FilletEnd[k] — CapVsCyl edge from T_a[k] to T_b[k].
+                apex_edges.push(TargetEdge {
+                    origin_vertex_idx: v_ta_k,
+                    dest_vertex_idx: v_tb_k,
+                    curve: term.curve_3d.clone(),
+                    role: TargetEdgeRole::CapVsCyl {
+                        fillet_idx: term.fillet_idx,
+                    },
+                });
+                outer_loop_edge_indices.push(2 * k);
+                // FaceEdge[k] — CapVsPlane straight-line bridge from
+                // T_b[k] to T_a[(k+1) % N].  Built fresh as a degree-1
+                // NURBS line.
+                let bridge =
+                    build_face_edge_bridge(term.endpoint_b, terminations[next_k].endpoint_a);
+                apex_edges.push(TargetEdge {
+                    origin_vertex_idx: v_tb_k,
+                    dest_vertex_idx: v_ta_next,
+                    curve: bridge,
+                    role: TargetEdgeRole::CapVsPlane {
+                        // Shared-face index = which face this bridge
+                        // sits on.  Builder maps to actual FaceHandle
+                        // via `boundary.segments[2k+1].face`.  Use k
+                        // as the shared_face_idx convention.
+                        shared_face_idx: k,
+                    },
+                });
+                outer_loop_edge_indices.push(2 * k + 1);
+            }
+            let cap_face = TargetCapFace::Gregory {
+                outer_loop_edge_indices,
+            };
+            TargetTopology {
+                apex_vertices,
+                apex_edges,
+                cap_face,
+                face_boundary_updates: Vec::new(),
+            }
+        }
+    }
+}
+
+/// Build a degree-1 NURBS curve representing a straight-line
+/// FaceEdge bridge between two endpoints.
+fn build_face_edge_bridge(start: Point3, end: Point3) -> NurbsCurve {
+    NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![start, end],
+        weights: vec![1.0, 1.0],
+    }
 }
 
 /// Decide whether the apex needs a Sphere cap (uniform/symmetric)
