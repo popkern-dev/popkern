@@ -1,6 +1,7 @@
 //! Topology construction — apply fillet/chamfer geometry to the BRep. 3-phase single-pass (A: perp splits, B: multi-chord face splits, C: kef merge + surface assign) then surface-fix, sliver-absorb (§13.1(2)), and §8.3 cap insertion post-passes.
 
 mod apex_face_lift;
+mod apex_vertex_coherence;
 pub(crate) mod blend_insert;
 pub(crate) mod blend_topo;
 mod bridge_warnings;
@@ -644,6 +645,23 @@ pub fn apply_blend_geometry(
             let lifted = apex_face_lift::lift_all_apex_plane_faces(&mut result, sub_faces);
             if std::env::var_os("POPKERN_KP_TRACE").is_some() {
                 eprintln!("[apex-face-lift] lifted {lifted} pyramid plane faces");
+            }
+        }
+    }
+
+    // Phase 6c-X.A.4: relocate apex vertices to match the substituted
+    // boundary's termination points T.  After A.3 (full-range wire),
+    // every cap-loop edge's curve agrees on T at each apex vertex;
+    // this pass moves the BRep vertex to T.  After A.4, the
+    // vertex-to-curve-endpoint coherence on cap-loop edges is exact;
+    // BASE-EDGE curves still terminate at the OLD vertex position
+    // and need A.5's curve-replacement pass.
+    if std::env::var("POPKERN_APEX_PATH_A").is_ok_and(|v| v == "1") {
+        for (_boundary, sub_faces) in &late_wire_jobs {
+            let (n_moved, worst) =
+                apex_vertex_coherence::relocate_apex_vertices(&mut result, sub_faces);
+            if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+                eprintln!("[apex-path-a] relocated {n_moved} vertices, worst V→T = {worst:.3e} m");
             }
         }
     }
