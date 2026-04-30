@@ -46,6 +46,10 @@ mod plan_tests;
 #[path = "plan_topology_tests.rs"]
 mod plan_topology_tests;
 
+#[cfg(test)]
+#[path = "plan_e2e_tests.rs"]
+mod plan_e2e_tests;
+
 pub use cap_kind::CapKind;
 pub use error::{ApexBuildError, ApexError, ApexPlanError};
 pub use plan::{ApexPlan, plan_apex_resolution};
