@@ -757,3 +757,96 @@ fn cap_surface_boundary_and_pcurve_trajectory_pyramid4_mixed() {
         }
     }
 }
+
+/// Phase 6c-D Stage 4.7 probe: for every cap-vs-Plane edge, measure
+/// the orthogonal distance from the analytic FaceEdge bridge's
+/// endpoints + midpoint to the twin Plane face's plane.
+///
+/// Decides Stage 4.7 fix path:
+/// * If distances are ~0 (sub-mm), the bridge IS on the plane and
+///   the only issue is that the twin pcurve was a NURBS refit
+///   instead of an analytic Linear — extend the wire to write
+///   analytic twin pcurves on planes.
+/// * If distances are ~mm-cm, the substituted endpoints don't lie
+///   on the original plane (sphere-fit termination puts them where
+///   the cap sphere intersects the cylinder, not constrained to
+///   the plane).  Then the fix is architectural: change the
+///   substitution to keep endpoints on-plane, or replace the plane
+///   face with a curved surface, or accept off-plane edges and
+///   live with validate's tolerance.
+#[test]
+#[ignore = "diagnostic — run on demand"]
+fn faceedge_bridge_offplane_distance_pyramid4_mixed() {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    let _guard = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
+    let pyr = BRep::square_pyramid(1.0, 0.8, Tolerance::default()).unwrap();
+    let vertex = pick_vertex_with_valence(&pyr, 4).unwrap();
+    let edges = incident_edges(&pyr, vertex);
+    let radii: Vec<f64> = vec![0.04, 0.06, 0.05, 0.07];
+    let (brep, faces) = fillet_corner(&pyr, &edges, &radii, true);
+    let cap_set: std::collections::BTreeSet<_> = faces.iter().copied().collect();
+
+    eprintln!("\n=== pyramid4_mixed FaceEdge bridge off-plane distance ===");
+    let mut idx = 0;
+    let mut max_off = 0.0f64;
+    for (eh, edge) in brep.edges.iter() {
+        let he_a = edge.half_edge;
+        let Some(ha) = brep.half_edges.get(he_a) else {
+            continue;
+        };
+        let Some(hb) = brep.half_edges.get(ha.twin) else {
+            continue;
+        };
+        let face_a = brep.loops[ha.loop_].face;
+        let face_b = brep.loops[hb.loop_].face;
+        if face_a == face_b {
+            continue;
+        }
+        let a_is_cap = cap_set.contains(&face_a);
+        let b_is_cap = cap_set.contains(&face_b);
+        if a_is_cap == b_is_cap {
+            continue;
+        }
+        let Some(coe) = edge.curve.as_ref() else {
+            continue;
+        };
+        let twin_face = if a_is_cap { face_b } else { face_a };
+        let Some(twin_sof) = brep.faces.get(twin_face).and_then(|f| f.surface.as_ref()) else {
+            continue;
+        };
+        let SurfaceGeometry::Plane { origin, normal, .. } = &twin_sof.geometry else {
+            continue;
+        };
+        let n_unit = match normal.normalized() {
+            Some(n) => n,
+            None => continue,
+        };
+        let plane_dist = |p: popkern_core::geometry::Point3| -> f64 {
+            let d = p - *origin;
+            d.dot(&n_unit).abs()
+        };
+        let p_lo = coe.geometry.point_at(coe.t_start);
+        let p_mid = coe.geometry.point_at(0.5 * (coe.t_start + coe.t_end));
+        let p_hi = coe.geometry.point_at(coe.t_end);
+        let d_lo = plane_dist(p_lo);
+        let d_mid = plane_dist(p_mid);
+        let d_hi = plane_dist(p_hi);
+        let worst = d_lo.max(d_mid).max(d_hi);
+        max_off = max_off.max(worst);
+        idx += 1;
+        eprintln!(
+            "  bridge#{idx} edge={eh:?} twin_face={twin_face:?}  d_lo={d_lo:.3e}  d_mid={d_mid:.3e}  d_hi={d_hi:.3e}",
+        );
+        eprintln!(
+            "         curve3d: lo=({:.4},{:.4},{:.4}) mid=({:.4},{:.4},{:.4}) hi=({:.4},{:.4},{:.4})",
+            p_lo.x, p_lo.y, p_lo.z, p_mid.x, p_mid.y, p_mid.z, p_hi.x, p_hi.y, p_hi.z,
+        );
+        eprintln!(
+            "         plane: origin=({:.4},{:.4},{:.4})  normal=({:.4},{:.4},{:.4})",
+            origin.x, origin.y, origin.z, n_unit.x, n_unit.y, n_unit.z,
+        );
+    }
+    eprintln!("\n  max bridge-to-plane orthogonal distance: {max_off:.3e}");
+}
