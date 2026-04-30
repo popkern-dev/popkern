@@ -324,6 +324,62 @@ fn phase_6c_e_cube_uniform_per_edge_breakdown() {
     breakdown(&brep, &faces);
 }
 
+/// Phase 6c-X.A.3 verification: with PATH_A on, every cap-loop edge
+/// should have full-range curve (span = curve.parameter_range()
+/// difference, no projection sub-ranging).  Verify on
+/// pyramid4_mixed where cap-vs-Plane edges previously had span=0.6.
+#[ignore]
+#[test]
+fn phase_6c_a3_full_range_check_pyramid4_mixed() {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
+    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
+    let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
+    let _g4 = EnvGuard::set("POPKERN_APEX_PATH_A", "1");
+    let pyr = BRep::n_gonal_pyramid(4, 1.0, 0.8, Tolerance::default()).unwrap();
+    let vertex = pick_vertex_with_valence(&pyr, 4).unwrap();
+    let edges = incident_edges(&pyr, vertex);
+    let radii = [0.04_f64, 0.06, 0.05, 0.07];
+    let (brep, faces) = fillet_corner(&pyr, &edges, &radii, true);
+    let cap_set: std::collections::BTreeSet<_> = faces.iter().copied().collect();
+    eprintln!("\n=== Phase 6c-X.A.3 full-range check pyramid4_mixed ===");
+    let mut total = 0;
+    let mut full_range = 0;
+    for (eh, edge) in brep.edges.iter() {
+        let Some(coe) = edge.curve.as_ref() else {
+            continue;
+        };
+        let he_a = edge.half_edge;
+        let he_b = brep.half_edges[he_a].twin;
+        let face_a = brep.loops[brep.half_edges[he_a].loop_].face;
+        let face_b = brep.loops[brep.half_edges[he_b].loop_].face;
+        let a_is_cap = cap_set.contains(&face_a);
+        let b_is_cap = cap_set.contains(&face_b);
+        if !a_is_cap && !b_is_cap {
+            continue;
+        }
+        total += 1;
+        let span = coe.t_end - coe.t_start;
+        let kind = brep
+            .faces
+            .get(if a_is_cap { face_b } else { face_a })
+            .and_then(|f| f.surface.as_ref())
+            .map(|s| match &s.geometry {
+                SurfaceGeometry::Plane { .. } => "Plane",
+                SurfaceGeometry::Cylinder { .. } => "Cyl",
+                SurfaceGeometry::Nurbs(_) => "Nurbs",
+                _ => "?",
+            })
+            .unwrap_or("?");
+        let is_full = (span - 1.0).abs() < 1e-9;
+        if is_full {
+            full_range += 1;
+        }
+        eprintln!("  {eh:?} cap-vs-{kind}  span={span:.6} full_range={is_full}");
+    }
+    eprintln!("  {full_range}/{total} cap-loop edges at full segment range");
+}
+
 /// Phase 6c-X.A.2: candidate T discovery + wire-match verification.
 ///
 /// Goal: determine whether apex-vertex disagreement is caused by
@@ -472,8 +528,8 @@ fn phase_6c_a2_t_discovery_and_wire_match() {
                     continue;
                 };
                 let face_a = brep.loops[brep.half_edges[edge.half_edge].loop_].face;
-                let face_b = brep.loops[brep.half_edges[brep.half_edges[edge.half_edge].twin].loop_]
-                    .face;
+                let face_b =
+                    brep.loops[brep.half_edges[brep.half_edges[edge.half_edge].twin].loop_].face;
                 let a_is_cap = cap_set.contains(&face_a);
                 let b_is_cap = cap_set.contains(&face_b);
                 if !a_is_cap && !b_is_cap {
@@ -504,10 +560,7 @@ fn phase_6c_a2_t_discovery_and_wire_match() {
             eprintln!(
                 "  {v:?} pos=({:.4},{:.4},{:.4}) nearest=T[{best_cluster}] dist={dist_to_t:.3e} \
                  {agreement}: cap-loop edges={edges_with_curve}, clusters_hit={:?}",
-                v_pos.x,
-                v_pos.y,
-                v_pos.z,
-                clusters_seen
+                v_pos.x, v_pos.y, v_pos.z, clusters_seen
             );
         }
     }
@@ -597,10 +650,7 @@ fn phase_6c_a1_apex_region_detection() {
 
         for &v in &apex_vertices {
             let v_pos = brep.vertices[v].position;
-            eprintln!(
-                "  {v:?} pos=({:.4},{:.4},{:.4})",
-                v_pos.x, v_pos.y, v_pos.z
-            );
+            eprintln!("  {v:?} pos=({:.4},{:.4},{:.4})", v_pos.x, v_pos.y, v_pos.z);
             // Find every edge incident to v (HE.origin == v OR HE.dest == v).
             let mut edges_seen: std::collections::BTreeSet<popkern_core::topology::EdgeHandle> =
                 std::collections::BTreeSet::new();
@@ -739,10 +789,7 @@ fn phase_6c_x1_apex_vertex_coherence() {
             }
         }
 
-        eprintln!(
-            "\n--- {name}: {} apex vertices ---",
-            apex_vertices.len()
-        );
+        eprintln!("\n--- {name}: {} apex vertices ---", apex_vertices.len());
 
         let mut summary_consensus = 0usize;
         let mut summary_disagree = 0usize;
@@ -780,12 +827,8 @@ fn phase_6c_x1_apex_vertex_coherence() {
                     .and_then(|f| f.surface.as_ref())
                     .map(|s| match &s.geometry {
                         popkern_core::geometry::surface::SurfaceGeometry::Plane { .. } => "Plane",
-                        popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. } => {
-                            "Cyl"
-                        }
-                        popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. } => {
-                            "Sphere"
-                        }
+                        popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. } => "Cyl",
+                        popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. } => "Sphere",
                         popkern_core::geometry::surface::SurfaceGeometry::Gregory(_) => "Gregory",
                         popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_) => "Nurbs",
                         _ => "?",
@@ -988,10 +1031,7 @@ fn phase_6c_e_mode_b_validation_diagnostic() {
         ("pyramid4_uniform", &[0.05, 0.05, 0.05, 0.05], true),
     ];
     eprintln!("\n=== Mode B validation diagnostic ===");
-    eprintln!(
-        "tolerance.linear() = {:.3e}",
-        Tolerance::default().linear()
-    );
+    eprintln!("tolerance.linear() = {:.3e}", Tolerance::default().linear());
     for (name, radii, is_pyramid) in cases {
         let (brep, _faces) = if *is_pyramid {
             let pyr = BRep::n_gonal_pyramid(radii.len(), 1.0, 0.8, Tolerance::default()).unwrap();

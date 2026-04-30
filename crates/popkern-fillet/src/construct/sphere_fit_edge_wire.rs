@@ -72,6 +72,20 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     let do_relocate = std::env::var("POPKERN_GREGORY_CAP_REBUILD").is_ok_and(|v| v == "1");
     let stage4_wide_tol = boundary.sphere_fit_substituted
         && std::env::var("POPKERN_STAGE4_WIDE_WIRE_TOL").is_ok_and(|v| v != "0");
+    // Phase 6c-X.A.3: when active, write the FULL segment range
+    // `[t0, t1]` to every cap-loop edge instead of vertex-projection
+    // sub-ranging.  The substituted boundary (per X.A.2 trace) is
+    // internally coherent — adjacent FilletEnd/FaceEdge segments
+    // share endpoints exactly.  Full-range writes preserve that
+    // coherence in the BRep.  A.4 then mutates apex vertex positions
+    // to match the curve endpoints; A.5 updates BASE-EDGE curves.
+    //
+    // Implies stage4_wide_tol behaviours (analytic pcurves, etc.)
+    // because the apex Path A is meaningful only under sphere-fit
+    // substitution.
+    let path_a_active = boundary.sphere_fit_substituted
+        && std::env::var("POPKERN_APEX_PATH_A").is_ok_and(|v| v == "1");
+    let stage4_wide_tol = stage4_wide_tol || path_a_active;
     let tol = if do_relocate || stage4_wide_tol {
         0.30
     } else {
@@ -429,32 +443,39 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         // would claim the full segment range, leaving cap-outer
         // measurement to evaluate the same midpoint regardless of
         // sub-edge — wrong for multi-sub-edge cases.
-        let v_origin_pos = brep.vertices[v_origin].position;
-        let v_dest_pos = brep.vertices[v_dest].position;
-        let edge_t_origin = project_point_on_curve(&curve, v_origin_pos);
-        let edge_t_dest = project_point_on_curve(&curve, v_dest_pos);
-        // Order based on the edge's primary half-edge direction.
-        let (edge_t_start, edge_t_end) = if our_is_primary {
-            (edge_t_origin, edge_t_dest)
-        } else {
-            (edge_t_dest, edge_t_origin)
-        };
-        // Phase 6c-E Mode B: cube fixtures have BRep cap-loop vertex
-        // endpoints that don't lie on the substituted bridge — both
-        // `project_point_on_curve` calls collapse to the same parameter,
-        // leaving the edge with a zero-span sub-range.  Fall back to
-        // the full segment range so downstream pcurve construction
-        // (Linear (0,0)→(0,1) on cap row 0 / col 9) and apex face-lift
-        // (`bridge edge has zero parameter span`) get a non-degenerate
-        // range.  This is a surface-side workaround; the topological
-        // inconsistency (vertex-position vs curve-endpoint mismatch)
-        // is upstream of the wire and remains a known limitation.
-        let seg_span = (t1 - t0).abs();
-        let edge_span = (edge_t_end - edge_t_start).abs();
-        let (edge_t_start, edge_t_end) = if seg_span > 1e-15 && edge_span < 1e-9 * seg_span {
+        // Phase 6c-X.A.3: when path_a_active, write the FULL segment
+        // range to every cap-loop edge (skip projection sub-ranging).
+        // The substituted boundary is internally coherent (FilletEnd[k]
+        // and FaceEdge[k] share endpoints by construction); full-range
+        // writes preserve that coherence in the BRep.  Apex vertices
+        // get relocated separately by A.4.
+        let (edge_t_start, edge_t_end) = if path_a_active {
             (t0, t1)
         } else {
-            (edge_t_start, edge_t_end)
+            // Phase 6c-D Stage 4.1: project the sub-edge's vertex
+            // endpoints onto the segment to find the sub-range.
+            // Without this (in legacy non-Path-A mode), every sub-edge
+            // sharing a segment would claim the full segment range.
+            let v_origin_pos = brep.vertices[v_origin].position;
+            let v_dest_pos = brep.vertices[v_dest].position;
+            let edge_t_origin = project_point_on_curve(&curve, v_origin_pos);
+            let edge_t_dest = project_point_on_curve(&curve, v_dest_pos);
+            let (s, e) = if our_is_primary {
+                (edge_t_origin, edge_t_dest)
+            } else {
+                (edge_t_dest, edge_t_origin)
+            };
+            // Phase 6c-E Mode B: when projections collapse to the same
+            // parameter (cube fixtures whose BRep vertices don't lie on
+            // the substituted bridge), fall back to full segment range.
+            // Becomes redundant once A.7 removes legacy mode entirely.
+            let seg_span = (t1 - t0).abs();
+            let edge_span = (e - s).abs();
+            if seg_span > 1e-15 && edge_span < 1e-9 * seg_span {
+                (t0, t1)
+            } else {
+                (s, e)
+            }
         };
         // Boundary fractional positions for the analytic Linear pcurve
         // (cap-side). Map [t0, t1] of the segment to [0, 1].
