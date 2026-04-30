@@ -103,6 +103,108 @@ fn sphere_or_gregory_construct_returns_typed_unimplemented() {
     assert_eq!(brep.half_edges.len(), pre_h);
 }
 
+// ---------------------------------------------------------------
+// A2.2.b — apex-vertex resolution
+// ---------------------------------------------------------------
+
+/// Build a synthetic ApexPlan whose target_topology has the
+/// supplied apex vertex positions and a Sphere cap kind.
+/// Used by the A2.2.b find-only tests where we don't need the
+/// geometry of the real sphere-fit pipeline — just a plan whose
+/// apex_vertices match positions we control.
+fn synthetic_sphere_plan(
+    apex_vertices: Vec<popkern_core::geometry::Point3>,
+) -> super::plan::ApexPlan {
+    use popkern_core::geometry::Point3;
+    use popkern_core::topology::VertexHandle;
+
+    use super::cap_kind::CapKind;
+    use super::plan::ApexPlan;
+    use super::target_topology::{TargetCapFace, TargetTopology};
+    use super::telemetry::{ConstructionRung, PlanTelemetry};
+
+    let n = apex_vertices.len();
+    let cap_kind = CapKind::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 0.1,
+        tangent_arc_endpoints: apex_vertices.clone(),
+    };
+    let cap_face = TargetCapFace::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 0.1,
+        outer_loop_edge_indices: (0..n).collect(),
+    };
+    let target_topology = TargetTopology {
+        apex_vertices,
+        apex_edges: Vec::new(),
+        cap_face,
+        face_boundary_updates: Vec::new(),
+    };
+    let mut telemetry = PlanTelemetry::new();
+    telemetry.rung = ConstructionRung::Direct;
+    ApexPlan {
+        apex_vertex: VertexHandle::default(),
+        cap_kind,
+        target_topology,
+        telemetry,
+    }
+}
+
+#[test]
+fn resolve_apex_vertices_finds_existing_within_tolerance() {
+    use popkern_core::geometry::Point3;
+    use popkern_core::topology::BRep;
+
+    // Build a BRep with a known vertex at (0.1, 0.1, 0).
+    let mut brep = BRep::new(test_tolerance());
+    let mvfs = brep.mvfs(Point3::new(0.1, 0.1, 0.0)).unwrap();
+
+    // Plan asks for a vertex at the same position (within tol).
+    let plan = synthetic_sphere_plan(vec![Point3::new(0.1, 0.1, 0.0)]);
+
+    // Driving construct_apex against this plan resolves vertex 0
+    // (the find succeeds), then errors out at A2.2.c+ with a
+    // typed PlanMismatch — but the message tells us we got past
+    // resolve_apex_vertices.
+    let err = construct_apex(&mut brep, &plan, &test_tolerance(), None)
+        .expect_err("post-resolve stages not yet implemented");
+    let reason = match err {
+        ApexBuildError::PlanMismatch { reason } => reason,
+        other => panic!("expected PlanMismatch, got {other:?}"),
+    };
+    assert!(
+        reason.contains("apex-vertex resolution succeeded"),
+        "should have advanced past resolve_apex_vertices; got: {reason}",
+    );
+    // BRep was rolled back to pre-call state (1 vertex, 0 edges).
+    assert_eq!(brep.vertices.len(), 1);
+    assert_eq!(brep.edges.len(), 0);
+    let _ = mvfs;
+}
+
+#[test]
+fn resolve_apex_vertices_fails_when_no_match_exists() {
+    use popkern_core::geometry::Point3;
+    use popkern_core::topology::BRep;
+
+    let mut brep = BRep::new(test_tolerance());
+    brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+
+    // Plan asks for a vertex 1m away — way outside tol.
+    let plan = synthetic_sphere_plan(vec![Point3::new(1.0, 0.0, 0.0)]);
+
+    let err = construct_apex(&mut brep, &plan, &test_tolerance(), None)
+        .expect_err("no nearby vertex exists");
+    let reason = match err {
+        ApexBuildError::PlanMismatch { reason } => reason,
+        other => panic!("expected PlanMismatch, got {other:?}"),
+    };
+    assert!(
+        reason.contains("apex_vertex[0]") && reason.contains("no BRep vertex within"),
+        "should mention which plan vertex couldn't be resolved; got: {reason}",
+    );
+}
+
 #[test]
 fn cancellation_token_short_circuits_construct() {
     use crate::cancellation::CancellationToken;

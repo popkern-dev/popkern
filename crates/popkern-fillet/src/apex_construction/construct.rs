@@ -29,6 +29,7 @@
 //! Open-rung no-op handler.  A2.2.b through A2.2.f flesh out
 //! the per-stage logic.
 
+use popkern_core::geometry::Point3;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 use crate::cancellation::CancellationToken;
@@ -146,10 +147,21 @@ fn construct_apex_inner(
         });
     }
 
-    // Sphere and Gregory paths come in A2.2.b through A2.2.f.
-    // Until those slices land, callers driving non-Open plans
-    // see a typed "unimplemented" error rather than a panic.
-    let _ = (brep, tolerance);
+    // Stage 1 (A2.2.b) — apex vertex resolution.
+    //
+    // For each plan apex vertex point, find or create a BRep
+    // vertex at that position.  This slice implements the
+    // "find" branch only: when no nearby BRep vertex exists,
+    // the build returns a typed PlanMismatch.  A2.2.b+ extends
+    // with edge-subdivision-based "create" once the wiring
+    // context is available.
+    let _apex_vertex_handles = resolve_apex_vertices(brep, plan, tolerance)?;
+    check_cancelled(cancel)?;
+
+    // Stages 2-4 (A2.2.c–A2.2.f) — apex edges, face boundary
+    // updates, cap face surface assignment.  Until those slices
+    // land, callers driving non-Open plans see a typed "in
+    // progress" error rather than a panic.
     let cap_kind_label = match &plan.cap_kind {
         CapKind::Sphere { .. } => "Sphere",
         CapKind::Gregory { .. } => "Gregory",
@@ -157,10 +169,75 @@ fn construct_apex_inner(
     };
     Err(ApexBuildError::PlanMismatch {
         reason: format!(
-            "construct_apex: {cap_kind_label} cap construction is not yet \
-             implemented (A2.2.b–A2.2.f); only Open rung is currently supported"
+            "construct_apex: {cap_kind_label} apex-vertex resolution succeeded; \
+             apex edges (A2.2.c), face boundary updates (A2.2.d/e), and cap \
+             face assembly (A2.2.f) are not yet implemented"
         ),
     })
+}
+
+/// Locate a BRep vertex within `tolerance.linear()` of `point`.
+/// Returns the closest match if any qualifies.  O(N) over the
+/// brep's vertex slotmap — acceptable for the apex use case
+/// where N is small (≤16 in realistic corners).
+fn find_vertex_within(brep: &BRep, point: Point3, tol: f64) -> Option<VertexHandle> {
+    let mut best: Option<(VertexHandle, f64)> = None;
+    for (vh, vertex) in &brep.vertices {
+        let d2 = {
+            let dx = vertex.position.x - point.x;
+            let dy = vertex.position.y - point.y;
+            let dz = vertex.position.z - point.z;
+            dx * dx + dy * dy + dz * dz
+        };
+        if d2 <= tol * tol {
+            match best {
+                Some((_, b)) if b <= d2 => {}
+                _ => best = Some((vh, d2)),
+            }
+        }
+    }
+    best.map(|(vh, _)| vh)
+}
+
+/// Resolve each plan apex vertex to a BRep vertex handle.
+///
+/// **A2.2.b — find-only.**  For each
+/// `plan.target_topology.apex_vertices[i]: Point3`, search the
+/// BRep for an existing vertex within `tolerance.linear()` and
+/// return its handle.  When no nearby vertex exists, return
+/// [`ApexBuildError::PlanMismatch`] identifying which plan
+/// position couldn't be resolved.
+///
+/// Returned vector is index-aligned with
+/// `plan.target_topology.apex_vertices`.
+///
+/// Future extension (A2.2.b's create branch): when no nearby
+/// vertex exists, locate the BRep edge whose curve passes
+/// through `point` and split it via edge subdivision; return
+/// the handle of the newly-created vertex.  That requires a
+/// stable edge-subdivision Euler op that the kernel doesn't
+/// expose yet.
+fn resolve_apex_vertices(
+    brep: &BRep,
+    plan: &ApexPlan,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Result<Vec<VertexHandle>, ApexBuildError> {
+    let tol = tolerance.linear();
+    let mut out: Vec<VertexHandle> = Vec::with_capacity(plan.target_topology.apex_vertices.len());
+    for (i, &point) in plan.target_topology.apex_vertices.iter().enumerate() {
+        match find_vertex_within(brep, point, tol) {
+            Some(vh) => out.push(vh),
+            None => {
+                return Err(ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "apex_vertex[{i}] at {point:?} has no BRep vertex within {tol:.3e} m \
+                         (A2.2.b's find-or-create extension not yet implemented)"
+                    ),
+                });
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Polls the cancellation token (if any) and returns
