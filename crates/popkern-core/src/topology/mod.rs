@@ -33,6 +33,7 @@ mod brep_radial;
 
 /// Pcurve recomputation for BRep faces.
 mod pcurve_recompute;
+mod pcurve_recompute_helpers;
 
 /// Identity queries and recovery operations for precision tracking.
 mod brep_precision_queries;
