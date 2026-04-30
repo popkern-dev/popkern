@@ -29,6 +29,7 @@
 //! A2.4 (cap surface), A2.5 (validation), A2.6 (cleanup) follow.
 
 pub(crate) mod cap_kind;
+pub(crate) mod construct;
 pub(crate) mod error;
 pub(crate) mod plan;
 pub(crate) mod plan_rung_fallback;
@@ -58,7 +59,12 @@ mod plan_e2e_tests;
 #[path = "plan_e2e_extras_tests.rs"]
 mod plan_e2e_extras_tests;
 
+#[cfg(test)]
+#[path = "construct_tests.rs"]
+mod construct_tests;
+
 pub use cap_kind::CapKind;
+pub use construct::{ApexBuildResult, construct_apex};
 pub use error::{ApexBuildError, ApexError, ApexPlanError};
 pub use plan::{ApexPlan, plan_apex_resolution};
 pub use target_topology::{TargetCapFace, TargetEdge, TargetEdgeRole, TargetTopology};
