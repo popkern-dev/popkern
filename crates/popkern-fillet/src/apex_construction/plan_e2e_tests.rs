@@ -422,3 +422,82 @@ fn cancellation_token_short_circuits_planning() {
         "expected Cancelled, got {err:?}",
     );
 }
+
+// ---------------------------------------------------------------
+// Issue 8 — preview affordances on ApexPlan
+// ---------------------------------------------------------------
+
+#[test]
+fn preview_affordances_describe_direct_rung_plan() {
+    let cube = BRep::unit_cube(test_tolerance()).expect("cube builds");
+    let (apex, edges) = pick_apex_and_incident_edges(&cube);
+    let radius = 0.1;
+    let surfaces = build_fillet_surfaces(&cube, &edges, radius);
+    let specs: Vec<FilletSpec> = edges
+        .iter()
+        .map(|&e| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(radius),
+        })
+        .collect();
+    let plan = plan_apex_resolution(&cube, apex, &specs, &surfaces, &test_tolerance(), None)
+        .expect("Direct rung succeeds on uniform cube");
+
+    let summary = plan.plan_summary();
+    assert!(
+        summary.starts_with("Direct:") && summary.contains("3 fillets"),
+        "summary should describe Direct rung + 3 fillets; got: {summary}",
+    );
+
+    let aabb = plan.apex_aabb().expect("Direct rung has apex geometry");
+    let (min, max) = aabb;
+    assert!(
+        min.x <= max.x && min.y <= max.y && min.z <= max.z,
+        "apex_aabb min should be ≤ max componentwise",
+    );
+    // Cube apex at origin, radius 0.1 → AABB is small near origin.
+    let extent = (max.x - min.x).max(max.y - min.y).max(max.z - min.z);
+    assert!(
+        extent < 0.5,
+        "AABB extent {extent} should be small for a 0.1-radius cube apex",
+    );
+
+    let preview = plan.cap_surface_preview();
+    assert!(
+        !preview.is_empty(),
+        "Direct rung preview should yield at least the tangent-arc endpoints",
+    );
+}
+
+#[test]
+fn preview_affordances_describe_open_rung_plan() {
+    let cube = BRep::unit_cube(test_tolerance()).expect("cube builds");
+    let (apex, edges) = pick_apex_and_incident_edges(&cube);
+    let radius = 0.1;
+    let mut surfaces = build_fillet_surfaces(&cube, &edges, radius);
+    force_unsupported_kind(&mut surfaces, 2);
+    let specs: Vec<FilletSpec> = edges
+        .iter()
+        .map(|&e| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(radius),
+        })
+        .collect();
+    let plan = plan_apex_resolution(&cube, apex, &specs, &surfaces, &test_tolerance(), None)
+        .expect("Open rung produces a plan");
+
+    let summary = plan.plan_summary();
+    assert!(
+        summary.contains("Open:") && summary.contains("no cap"),
+        "Open's summary should mention no cap; got: {summary}",
+    );
+
+    assert!(
+        plan.apex_aabb().is_none(),
+        "Open rung has no apex geometry to box",
+    );
+    assert!(
+        plan.cap_surface_preview().is_empty(),
+        "Open rung has no cap to preview",
+    );
+}

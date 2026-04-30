@@ -60,6 +60,113 @@ impl ApexPlan {
     pub fn n_fillets(&self) -> usize {
         self.cap_kind.n_fillets()
     }
+
+    /// One-line, end-user-readable summary of the plan.  Suitable
+    /// for status bars, tooltips, or log lines.  Includes the rung,
+    /// cap-kind dispatch, and fillet count.
+    ///
+    /// Examples:
+    /// * `"Direct: Sphere cap, 3 fillets"`
+    /// * `"Setback: Gregory cap, 4 fillets (1 omitted)"`
+    /// * `"Open: no cap; 4 fillets terminate at rolling-ball footprints"`
+    pub fn plan_summary(&self) -> String {
+        let rung = match &self.telemetry.rung {
+            ConstructionRung::Direct => "Direct".to_string(),
+            ConstructionRung::Setback { setback_distance } => {
+                if *setback_distance > 0.0 {
+                    format!("Setback ({setback_distance:.3e} m)")
+                } else {
+                    "Setback".to_string()
+                }
+            }
+            ConstructionRung::Open => "Open".to_string(),
+        };
+        let n = self.n_fillets();
+        match &self.cap_kind {
+            CapKind::Sphere { .. } => format!("{rung}: Sphere cap, {n} fillets"),
+            CapKind::Gregory { .. } => format!("{rung}: Gregory cap, {n} fillets"),
+            CapKind::Open {
+                n_fillets_attempted,
+            } => format!(
+                "{rung}: no cap; {n_fillets_attempted} fillets terminate at rolling-ball footprints",
+            ),
+        }
+    }
+
+    /// Axis-aligned bounding box of the apex region.
+    ///
+    /// Returns `(min_corner, max_corner)` enclosing every
+    /// `apex_vertex` plus every cap-sphere centre.  Useful for
+    /// camera framing in UI previews.  Returns `None` for the Open
+    /// rung, which has no apex geometry to box.
+    pub fn apex_aabb(
+        &self,
+    ) -> Option<(
+        popkern_core::geometry::Point3,
+        popkern_core::geometry::Point3,
+    )> {
+        use popkern_core::geometry::Point3;
+        let mut points: Vec<Point3> = self.target_topology.apex_vertices.clone();
+        match &self.cap_kind {
+            CapKind::Sphere { center, .. } => points.push(*center),
+            CapKind::Gregory {
+                per_fillet_caps, ..
+            } => {
+                points.extend(per_fillet_caps.iter().map(|(c, _)| *c));
+            }
+            CapKind::Open { .. } => {}
+        }
+        if points.is_empty() {
+            return None;
+        }
+        let mut min = points[0];
+        let mut max = points[0];
+        for p in &points[1..] {
+            min.x = min.x.min(p.x);
+            min.y = min.y.min(p.y);
+            min.z = min.z.min(p.z);
+            max.x = max.x.max(p.x);
+            max.y = max.y.max(p.y);
+            max.z = max.z.max(p.z);
+        }
+        Some((min, max))
+    }
+
+    /// Sample points on (or around) the cap surface for preview
+    /// rendering.  Approximate — purpose is "show the user what the
+    /// cap looks like before committing to construct_apex".
+    ///
+    /// For Sphere caps: returns the tangent-arc endpoints plus the
+    /// cap centre.  Drawing line segments between adjacent endpoints
+    /// approximates the cap's outer loop; the centre helps a UI
+    /// orient a sphere-cap glyph.
+    ///
+    /// For Gregory caps: returns all 2N apex vertices (T_a + T_b
+    /// for each fillet).  Drawing the polyline through these
+    /// approximates the Gregory cap's outer loop.
+    ///
+    /// For Open: returns an empty vector.
+    pub fn cap_surface_preview(&self) -> Vec<popkern_core::geometry::Point3> {
+        match &self.cap_kind {
+            CapKind::Sphere {
+                center,
+                tangent_arc_endpoints,
+                ..
+            } => {
+                let mut out = tangent_arc_endpoints.clone();
+                out.push(*center);
+                out
+            }
+            CapKind::Gregory {
+                per_fillet_terminations,
+                ..
+            } => per_fillet_terminations
+                .iter()
+                .flat_map(|[ta, tb]| [*ta, *tb])
+                .collect(),
+            CapKind::Open { .. } => Vec::new(),
+        }
+    }
 }
 
 /// Compute an [`ApexPlan`] for resolving an apex vertex's fillet
