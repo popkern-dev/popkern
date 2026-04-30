@@ -165,6 +165,7 @@ pub(crate) fn lift_apex_face_with_bridge(
 /// pipeline stages see consistent UV mappings.  Returns the
 /// number of plane faces lifted.
 pub(crate) fn lift_all_apex_plane_faces(brep: &mut BRep, cap_faces: &[FaceHandle]) -> usize {
+    let trace = std::env::var_os("POPKERN_APEX_FACE_LIFT_TRACE").is_some();
     let cap_set: std::collections::BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
     let mut already_lifted: std::collections::BTreeSet<FaceHandle> =
         std::collections::BTreeSet::new();
@@ -196,6 +197,12 @@ pub(crate) fn lift_all_apex_plane_faces(brep: &mut BRep, cap_faces: &[FaceHandle
                 && matches!(twin_sof.geometry, SurfaceGeometry::Plane { .. })
                 && !already_lifted.contains(&tf)
             {
+                if trace {
+                    eprintln!(
+                        "[apex-face-lift] cap={cap_face:?} step={step} plane={tf:?} bridge_edge={:?}",
+                        he.edge
+                    );
+                }
                 jobs.push((tf, he.edge));
                 already_lifted.insert(tf);
             }
@@ -206,22 +213,37 @@ pub(crate) fn lift_all_apex_plane_faces(brep: &mut BRep, cap_faces: &[FaceHandle
             }
         }
     }
+    if trace {
+        eprintln!("[apex-face-lift] {} jobs queued", jobs.len());
+    }
     // Apply each lift, then refit the lifted face's outer-loop pcurves.
     let mut count = 0;
     for (plane_face, bridge_edge) in jobs {
-        if lift_apex_face_with_bridge(brep, plane_face, bridge_edge).is_ok() {
-            refit_face_outer_loop_pcurves(brep, plane_face);
-            // After surface swap, the bridge edge's plane-side
-            // pcurve must be analytic Linear (0, 0) → (0, 1) — the
-            // bridge IS the v-axis boundary of the lifted patch
-            // by construction.  `refit_face_outer_loop_pcurves`
-            // uses Gauss-Newton, which on this degenerate-Jacobian
-            // patch (`partial_u` is constant = plane-minus-bridge,
-            // `partial_v` varies) converges to corner (1, 1) or
-            // (1, 0) instead of (0, s).  Direct analytic pcurve
-            // bypasses the issue.
-            write_analytic_bridge_pcurve_on_plane_side(brep, plane_face, bridge_edge);
-            count += 1;
+        match lift_apex_face_with_bridge(brep, plane_face, bridge_edge) {
+            Ok(()) => {
+                if trace {
+                    eprintln!("[apex-face-lift]   OK plane={plane_face:?} bridge={bridge_edge:?}");
+                }
+                refit_face_outer_loop_pcurves(brep, plane_face);
+                // After surface swap, the bridge edge's plane-side
+                // pcurve must be analytic Linear (0, 0) → (0, 1) —
+                // the bridge IS the v-axis boundary of the lifted
+                // patch by construction.  `refit_face_outer_loop_pcurves`
+                // uses Gauss-Newton, which on this degenerate-Jacobian
+                // patch (`partial_u` is constant = plane-minus-bridge,
+                // `partial_v` varies) converges to corner (1, 1) or
+                // (1, 0) instead of (0, s).  Direct analytic pcurve
+                // bypasses the issue.
+                write_analytic_bridge_pcurve_on_plane_side(brep, plane_face, bridge_edge);
+                count += 1;
+            }
+            Err(msg) => {
+                if trace {
+                    eprintln!(
+                        "[apex-face-lift]   ERR plane={plane_face:?} bridge={bridge_edge:?} : {msg}"
+                    );
+                }
+            }
         }
     }
     count

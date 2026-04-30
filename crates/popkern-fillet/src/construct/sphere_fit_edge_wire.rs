@@ -439,6 +439,23 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         } else {
             (edge_t_dest, edge_t_origin)
         };
+        // Phase 6c-E Mode B: cube fixtures have BRep cap-loop vertex
+        // endpoints that don't lie on the substituted bridge — both
+        // `project_point_on_curve` calls collapse to the same parameter,
+        // leaving the edge with a zero-span sub-range.  Fall back to
+        // the full segment range so downstream pcurve construction
+        // (Linear (0,0)→(0,1) on cap row 0 / col 9) and apex face-lift
+        // (`bridge edge has zero parameter span`) get a non-degenerate
+        // range.  This is a surface-side workaround; the topological
+        // inconsistency (vertex-position vs curve-endpoint mismatch)
+        // is upstream of the wire and remains a known limitation.
+        let seg_span = (t1 - t0).abs();
+        let edge_span = (edge_t_end - edge_t_start).abs();
+        let (edge_t_start, edge_t_end) = if seg_span > 1e-15 && edge_span < 1e-9 * seg_span {
+            (t0, t1)
+        } else {
+            (edge_t_start, edge_t_end)
+        };
         // Boundary fractional positions for the analytic Linear pcurve
         // (cap-side). Map [t0, t1] of the segment to [0, 1].
         let span = (t1 - t0).abs();
