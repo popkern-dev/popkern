@@ -155,13 +155,25 @@ fn construct_apex_inner(
     // the build returns a typed PlanMismatch.  A2.2.b+ extends
     // with edge-subdivision-based "create" once the wiring
     // context is available.
-    let _apex_vertex_handles = resolve_apex_vertices(brep, plan, tolerance)?;
+    let apex_vertex_handles = resolve_apex_vertices(brep, plan, tolerance)?;
     check_cancelled(cancel)?;
 
-    // Stages 2-4 (A2.2.c–A2.2.f) — apex edges, face boundary
-    // updates, cap face surface assignment.  Until those slices
-    // land, callers driving non-Open plans see a typed "in
-    // progress" error rather than a panic.
+    // Stage 2 (A2.2.c) — apex edge resolution.
+    //
+    // For each plan apex edge (origin_idx, dest_idx, curve, role),
+    // find or create a BRep edge between the two resolved
+    // vertices.  This slice implements the "find" branch: an
+    // edge whose endpoints match (in either direction) is
+    // accepted.  The "create via mef" branch needs loop context
+    // (which face boundary the new edge splits) and lands
+    // alongside A2.2.d (face boundary updates).
+    let _apex_edge_handles = resolve_apex_edges(brep, plan, &apex_vertex_handles)?;
+    check_cancelled(cancel)?;
+
+    // Stages 3-4 (A2.2.d–A2.2.f) — face boundary updates and
+    // cap face surface assignment.  Until those slices land,
+    // callers driving non-Open plans see a typed "in progress"
+    // error rather than a panic.
     let cap_kind_label = match &plan.cap_kind {
         CapKind::Sphere { .. } => "Sphere",
         CapKind::Gregory { .. } => "Gregory",
@@ -169,9 +181,9 @@ fn construct_apex_inner(
     };
     Err(ApexBuildError::PlanMismatch {
         reason: format!(
-            "construct_apex: {cap_kind_label} apex-vertex resolution succeeded; \
-             apex edges (A2.2.c), face boundary updates (A2.2.d/e), and cap \
-             face assembly (A2.2.f) are not yet implemented"
+            "construct_apex: {cap_kind_label} apex-vertex + apex-edge resolution \
+             succeeded; face boundary updates (A2.2.d/e) and cap face assembly \
+             (A2.2.f) are not yet implemented"
         ),
     })
 }
@@ -232,6 +244,92 @@ fn resolve_apex_vertices(
                     reason: format!(
                         "apex_vertex[{i}] at {point:?} has no BRep vertex within {tol:.3e} m \
                          (A2.2.b's find-or-create extension not yet implemented)"
+                    ),
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Find an existing BRep edge whose endpoints match the given
+/// vertex pair (in either direction).  Iterates the edge
+/// slotmap; O(M) where M is total edges (small for the apex
+/// use case).
+fn find_edge_between(
+    brep: &BRep,
+    v_origin: VertexHandle,
+    v_dest: VertexHandle,
+) -> Option<EdgeHandle> {
+    for (eh, edge) in &brep.edges {
+        let primary = edge.half_edge;
+        let Some(primary_he) = brep.half_edges.get(primary) else {
+            continue;
+        };
+        let twin = primary_he.twin;
+        let Some(twin_he) = brep.half_edges.get(twin) else {
+            continue;
+        };
+        let endpoints = (primary_he.origin, twin_he.origin);
+        if endpoints == (v_origin, v_dest) || endpoints == (v_dest, v_origin) {
+            return Some(eh);
+        }
+    }
+    None
+}
+
+/// Resolve each plan apex edge to a BRep edge handle.
+///
+/// **A2.2.c — find-only.**  For each
+/// `plan.target_topology.apex_edges[i]`, look up the BRep
+/// vertices at `apex_vertex_handles[origin_idx]` and
+/// `apex_vertex_handles[dest_idx]` and search the BRep for an
+/// existing edge between them (in either direction).  Returns
+/// one edge handle per plan edge.  When no such edge exists,
+/// returns [`ApexBuildError::PlanMismatch`] identifying the
+/// plan edge that couldn't be resolved.
+///
+/// Future extension (A2.2.c+'s create branch): when the edge
+/// doesn't exist, identify the loop both endpoints share and
+/// `mef`-create the edge with the plan's `curve` attached
+/// directly.  This requires the loop context computed by stage
+/// A2.2.d (face boundary updates), so the create branch lands
+/// alongside it.
+fn resolve_apex_edges(
+    brep: &BRep,
+    plan: &ApexPlan,
+    apex_vertex_handles: &[VertexHandle],
+) -> Result<Vec<EdgeHandle>, ApexBuildError> {
+    let mut out: Vec<EdgeHandle> = Vec::with_capacity(plan.target_topology.apex_edges.len());
+    for (i, target_edge) in plan.target_topology.apex_edges.iter().enumerate() {
+        let v_origin = apex_vertex_handles
+            .get(target_edge.origin_vertex_idx)
+            .copied()
+            .ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "apex_edge[{i}] references origin_vertex_idx={} but plan has only {} apex_vertices",
+                    target_edge.origin_vertex_idx,
+                    apex_vertex_handles.len(),
+                ),
+            })?;
+        let v_dest = apex_vertex_handles
+            .get(target_edge.dest_vertex_idx)
+            .copied()
+            .ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "apex_edge[{i}] references dest_vertex_idx={} but plan has only {} apex_vertices",
+                    target_edge.dest_vertex_idx,
+                    apex_vertex_handles.len(),
+                ),
+            })?;
+        match find_edge_between(brep, v_origin, v_dest) {
+            Some(eh) => out.push(eh),
+            None => {
+                return Err(ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "apex_edge[{i}] (vertex_idx {} → {}) has no BRep edge between the resolved endpoints \
+                         (A2.2.c's find-or-create extension not yet implemented)",
+                        target_edge.origin_vertex_idx, target_edge.dest_vertex_idx,
                     ),
                 });
             }

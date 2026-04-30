@@ -173,7 +173,7 @@ fn resolve_apex_vertices_finds_existing_within_tolerance() {
         other => panic!("expected PlanMismatch, got {other:?}"),
     };
     assert!(
-        reason.contains("apex-vertex resolution succeeded"),
+        reason.contains("apex-vertex + apex-edge resolution succeeded"),
         "should have advanced past resolve_apex_vertices; got: {reason}",
     );
     // BRep was rolled back to pre-call state (1 vertex, 0 edges).
@@ -202,6 +202,137 @@ fn resolve_apex_vertices_fails_when_no_match_exists() {
     assert!(
         reason.contains("apex_vertex[0]") && reason.contains("no BRep vertex within"),
         "should mention which plan vertex couldn't be resolved; got: {reason}",
+    );
+}
+
+// ---------------------------------------------------------------
+// A2.2.c — apex-edge resolution
+// ---------------------------------------------------------------
+
+/// Build a synthetic ApexPlan with explicit apex_edges connecting
+/// each pair of consecutive apex_vertices via a degree-1 NURBS.
+/// Used by A2.2.c find-only tests.
+fn synthetic_sphere_plan_with_edges(
+    apex_vertices: Vec<popkern_core::geometry::Point3>,
+    edge_pairs: Vec<(usize, usize)>,
+) -> super::plan::ApexPlan {
+    use popkern_core::geometry::{NurbsCurve, Point3};
+    use popkern_core::topology::VertexHandle;
+
+    use super::cap_kind::CapKind;
+    use super::plan::ApexPlan;
+    use super::target_topology::{TargetCapFace, TargetEdge, TargetEdgeRole, TargetTopology};
+    use super::telemetry::{ConstructionRung, PlanTelemetry};
+
+    let mut apex_edges: Vec<TargetEdge> = Vec::new();
+    for &(origin_idx, dest_idx) in &edge_pairs {
+        let curve = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![apex_vertices[origin_idx], apex_vertices[dest_idx]],
+            weights: vec![1.0, 1.0],
+        };
+        apex_edges.push(TargetEdge {
+            origin_vertex_idx: origin_idx,
+            dest_vertex_idx: dest_idx,
+            curve,
+            role: TargetEdgeRole::CapVsCyl { fillet_idx: 0 },
+        });
+    }
+    let n_v = apex_vertices.len();
+    let cap_kind = CapKind::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 0.1,
+        tangent_arc_endpoints: apex_vertices.clone(),
+    };
+    let cap_face = TargetCapFace::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 0.1,
+        outer_loop_edge_indices: (0..apex_edges.len()).collect(),
+    };
+    let target_topology = TargetTopology {
+        apex_vertices,
+        apex_edges,
+        cap_face,
+        face_boundary_updates: Vec::new(),
+    };
+    let mut telemetry = PlanTelemetry::new();
+    telemetry.rung = ConstructionRung::Direct;
+    let _ = n_v;
+    ApexPlan {
+        apex_vertex: VertexHandle::default(),
+        cap_kind,
+        target_topology,
+        telemetry,
+    }
+}
+
+#[test]
+fn resolve_apex_edges_finds_existing_brep_edge() {
+    use popkern_core::geometry::Point3;
+    use popkern_core::topology::BRep;
+
+    // Build a BRep with two vertices connected by a single edge
+    // (mvfs + mev_at_vertex creates a degenerate-loop face but
+    // that's enough to exercise edge resolution).
+    let mut brep = BRep::new(test_tolerance());
+    let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+    brep.mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+        .unwrap();
+
+    // Plan: 2 apex vertices at the BRep's vertex positions, 1
+    // edge connecting them.
+    let plan = synthetic_sphere_plan_with_edges(
+        vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+        vec![(0, 1)],
+    );
+
+    // construct_apex resolves both vertices (stage 1) and the
+    // edge (stage 2), then errors at stage 3+ — but the message
+    // confirms we got past edge resolution.
+    let err = construct_apex(&mut brep, &plan, &test_tolerance(), None)
+        .expect_err("post-edge-resolution stages not yet implemented");
+    let reason = match err {
+        ApexBuildError::PlanMismatch { reason } => reason,
+        other => panic!("expected PlanMismatch, got {other:?}"),
+    };
+    assert!(
+        reason.contains("apex-vertex + apex-edge resolution succeeded"),
+        "should have advanced past resolve_apex_edges; got: {reason}",
+    );
+}
+
+#[test]
+fn resolve_apex_edges_fails_when_no_edge_between_vertices() {
+    use popkern_core::geometry::Point3;
+    use popkern_core::topology::BRep;
+
+    // BRep with two unconnected vertices (mvfs + insert orphan).
+    let mut brep = BRep::new(test_tolerance());
+    brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+    brep.vertices.insert(popkern_core::topology::Vertex {
+        position: Point3::new(1.0, 0.0, 0.0),
+        outgoing: Default::default(),
+        name: None,
+        tolerance: None,
+    });
+
+    // Plan: 2 apex vertices, 1 edge — but no edge exists in the
+    // BRep between them.
+    let plan = synthetic_sphere_plan_with_edges(
+        vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+        vec![(0, 1)],
+    );
+
+    let err = construct_apex(&mut brep, &plan, &test_tolerance(), None)
+        .expect_err("no edge between resolved vertices");
+    let reason = match err {
+        ApexBuildError::PlanMismatch { reason } => reason,
+        other => panic!("expected PlanMismatch, got {other:?}"),
+    };
+    assert!(
+        reason.contains("apex_edge[0]") && reason.contains("no BRep edge between"),
+        "should mention which plan edge couldn't be resolved; got: {reason}",
     );
 }
 
