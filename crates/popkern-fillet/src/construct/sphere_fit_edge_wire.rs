@@ -524,21 +524,26 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         // least-squares interpolation through 12 samples leaves
         // up to 1 cm residual on small arcs, which the Linear
         // approximation closes for short segments.
-        // Phase 6c-D Stage 4.7d (deferred): planned bit-exact
-        // path via `PcurveGeometry::CylinderArcViaRationalQuad`
-        // can't be enabled here.  The variant itself works (see
-        // `pcurve.rs` + `boundary::FilletEndArcParams` capture),
-        // but the wire's segment-index-to-fillet mapping doesn't
-        // align with the BRep cap face's geometric cyl-twin.
-        // sub_face[k]'s actual cylinder twin is sometimes for
-        // fillet (k+1) mod N, not fillet k — a structural
-        // ordering mismatch between `poke_n_gon_face_into_n_quads`
-        // and `build_n_quad_decomposition`.  Until that's fixed,
-        // writing arc params for fillet[k] to sub_face[k]'s edge
-        // produces curve3d/cyl mismatches of O(cm) on edges where
-        // fillet radii differ.  Stage 4.7b's Linear approximation
-        // is the right level of compromise until the ordering is
-        // resolved.
+        // Phase 6c-D Stage 4.7d/e (deferred): geometric dispatch
+        // by twin cylinder identity DOES find the right
+        // `FilletEndArcParams`, but the cap surface's row 0 was
+        // built from `FilletEnd[cap_k]` (boundary order), while
+        // the BRep twin cylinder is for `fillet[actual_k]` —
+        // these can be DIFFERENT fillets due to the sub_face /
+        // sub_patch ordering mismatch.  The cap surface and the
+        // twin cylinder physically describe different curves.
+        // Writing the cyl-side analytic pcurve makes cyl-side
+        // bit-exact on its arc but the cap-side stays on its
+        // own (different) arc — gap of ~3.4 cm worst-case.
+        //
+        // Real fix: in `apply_three_quad_decomposition_to_blend`,
+        // re-order `sub_faces` after `poke_n_gon_face_into_n_quads`
+        // so each sub_face[k] is paired with the sub_patch[k]
+        // whose row 0 (= FilletEnd[k]) matches that sub_face's
+        // actual geometric cyl-twin.  Then writing
+        // `CylinderArcViaRationalQuad` to the cyl side gives
+        // bit-exact agreement (5 lines of glue, already designed
+        // — see git log §6c-D Stage 4.7d-i).
         let analytic_twin_pcurve = if stage4_wide_tol {
             other_surf
                 .as_ref()
