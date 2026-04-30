@@ -19,7 +19,8 @@ fn stub_returns_insufficient_fillets_for_n_lt_3() {
         .mvfs(popkern_core::geometry::Point3::new(0.0, 0.0, 0.0))
         .unwrap();
     // Empty fillet_specs → InsufficientFillets.
-    let err = plan_apex_resolution(&brep, mvfs.vertex, &[], &Tolerance::default()).unwrap_err();
+    let err =
+        plan_apex_resolution(&brep, mvfs.vertex, &[], &[], &Tolerance::default()).unwrap_err();
     assert!(
         matches!(
             err,
@@ -45,8 +46,8 @@ fn stub_returns_insufficient_fillets_for_n_lt_3() {
             radius: FilletRadius::Constant(0.1),
         },
     ];
-    let err =
-        plan_apex_resolution(&brep, mvfs.vertex, &dummy_specs, &Tolerance::default()).unwrap_err();
+    let err = plan_apex_resolution(&brep, mvfs.vertex, &dummy_specs, &[], &Tolerance::default())
+        .unwrap_err();
     assert!(
         matches!(
             err,
@@ -79,16 +80,21 @@ fn stub_returns_invalid_input_for_n_ge_3() {
         };
         3
     ];
-    let err = plan_apex_resolution(&brep, mvfs.vertex, &specs, &Tolerance::default()).unwrap_err();
+    // 3 fillets passes the InsufficientFillets check, validation
+    // succeeds (all specs reuse the same valid edge), then sphere-
+    // fit math runs into the empty fillet_surfaces and surfaces as
+    // InvalidInput("boundary") (compute_blend_boundary errors).
+    let err =
+        plan_apex_resolution(&brep, mvfs.vertex, &specs, &[], &Tolerance::default()).unwrap_err();
     assert!(
         matches!(
             err,
             super::error::ApexPlanError::InvalidInput {
-                field: "planner",
+                field: "boundary",
                 ..
             }
         ),
-        "expected InvalidInput(planner stub), got {err:?}"
+        "expected InvalidInput(boundary), got {err:?}"
     );
 }
 
@@ -130,7 +136,8 @@ fn rejects_nonexistent_apex_vertex() {
         .collect();
     // Use a vertex handle that doesn't exist (default).
     let bogus_apex = popkern_core::topology::VertexHandle::default();
-    let err = plan_apex_resolution(&brep, bogus_apex, &specs, &Tolerance::default()).unwrap_err();
+    let err =
+        plan_apex_resolution(&brep, bogus_apex, &specs, &[], &Tolerance::default()).unwrap_err();
     assert!(
         matches!(
             err,
@@ -150,7 +157,7 @@ fn rejects_nonexistent_edge() {
         };
         3
     ];
-    let err = plan_apex_resolution(&brep, apex, &specs, &Tolerance::default()).unwrap_err();
+    let err = plan_apex_resolution(&brep, apex, &specs, &[], &Tolerance::default()).unwrap_err();
     assert!(
         matches!(
             err,
@@ -187,7 +194,7 @@ fn rejects_edge_not_incident_to_apex() {
             radius: FilletRadius::Constant(0.1),
         },
     ];
-    let err = plan_apex_resolution(&brep, apex, &specs, &Tolerance::default()).unwrap_err();
+    let err = plan_apex_resolution(&brep, apex, &specs, &[], &Tolerance::default()).unwrap_err();
     assert!(
         matches!(
             err,
@@ -217,7 +224,7 @@ fn rejects_nan_radius() {
             radius: FilletRadius::Constant(0.1),
         },
     ];
-    let err = plan_apex_resolution(&brep, apex, &specs, &Tolerance::default()).unwrap_err();
+    let err = plan_apex_resolution(&brep, apex, &specs, &[], &Tolerance::default()).unwrap_err();
     assert!(
         matches!(
             err,
@@ -247,7 +254,7 @@ fn rejects_zero_radius() {
             radius: FilletRadius::Constant(0.1),
         },
     ];
-    let err = plan_apex_resolution(&brep, apex, &specs, &Tolerance::default()).unwrap_err();
+    let err = plan_apex_resolution(&brep, apex, &specs, &[], &Tolerance::default()).unwrap_err();
     assert!(
         matches!(
             err,
@@ -277,7 +284,7 @@ fn rejects_negative_radius() {
             radius: FilletRadius::Constant(0.1),
         },
     ];
-    let err = plan_apex_resolution(&brep, apex, &specs, &Tolerance::default()).unwrap_err();
+    let err = plan_apex_resolution(&brep, apex, &specs, &[], &Tolerance::default()).unwrap_err();
     assert!(
         matches!(
             err,
@@ -307,7 +314,7 @@ fn rejects_inf_radius() {
             radius: FilletRadius::Constant(0.1),
         },
     ];
-    let err = plan_apex_resolution(&brep, apex, &specs, &Tolerance::default()).unwrap_err();
+    let err = plan_apex_resolution(&brep, apex, &specs, &[], &Tolerance::default()).unwrap_err();
     assert!(
         matches!(
             err,
@@ -340,7 +347,7 @@ fn rejects_variable_radius_with_nan_start() {
             radius: FilletRadius::Constant(0.1),
         },
     ];
-    let err = plan_apex_resolution(&brep, apex, &specs, &Tolerance::default()).unwrap_err();
+    let err = plan_apex_resolution(&brep, apex, &specs, &[], &Tolerance::default()).unwrap_err();
     assert!(
         matches!(
             err,
@@ -370,7 +377,7 @@ fn rejects_bypoints_radius_empty() {
             radius: FilletRadius::Constant(0.1),
         },
     ];
-    let err = plan_apex_resolution(&brep, apex, &specs, &Tolerance::default()).unwrap_err();
+    let err = plan_apex_resolution(&brep, apex, &specs, &[], &Tolerance::default()).unwrap_err();
     assert!(
         matches!(
             err,
@@ -400,7 +407,7 @@ fn rejects_bypoints_t_out_of_range() {
             radius: FilletRadius::Constant(0.1),
         },
     ];
-    let err = plan_apex_resolution(&brep, apex, &specs, &Tolerance::default()).unwrap_err();
+    let err = plan_apex_resolution(&brep, apex, &specs, &[], &Tolerance::default()).unwrap_err();
     assert!(
         matches!(
             err,
@@ -423,16 +430,19 @@ fn passes_validation_for_valid_three_edge_apex() {
             radius: FilletRadius::Constant(0.1),
         })
         .collect();
-    let err = plan_apex_resolution(&brep, apex, &specs, &Tolerance::default()).unwrap_err();
-    // Validation passes; stub falls through to "planner not yet implemented".
+    // No fillet_surfaces provided ⇒ compute_blend_boundary errors,
+    // surfacing as InvalidInput("boundary").  Validation has passed
+    // by this point, so the failure mode confirms we got past
+    // input validation and entered the sphere-fit math (A2.1.c).
+    let err = plan_apex_resolution(&brep, apex, &specs, &[], &Tolerance::default()).unwrap_err();
     assert!(
         matches!(
             err,
             super::error::ApexPlanError::InvalidInput {
-                field: "planner",
+                field: "boundary",
                 ..
             }
         ),
-        "expected stub fallthrough, got {err:?}"
+        "expected InvalidInput(boundary) — validation passed, sphere-fit reached, got {err:?}"
     );
 }

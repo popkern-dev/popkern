@@ -424,7 +424,11 @@ fn sample_arc_at_uniform_angles_and_fit_deg9(
 /// face's natural orientation agrees with that surface normal —
 /// i.e., the face normal is also inward. We invert here to recover
 /// the outward direction the sphere-fit math expects.
-fn face_outward_normal_at(brep: &BRep, face: FaceHandle, point: &Point3) -> Option<Vec3> {
+pub(crate) fn face_outward_normal_at(
+    brep: &BRep,
+    face: FaceHandle,
+    point: &Point3,
+) -> Option<Vec3> {
     let face_data = brep.faces.get(face)?;
     let sof = face_data.surface.as_ref()?;
     let (u, v) = project_point_to_uv(&sof.geometry, point)?;
@@ -434,7 +438,7 @@ fn face_outward_normal_at(brep: &BRep, face: FaceHandle, point: &Point3) -> Opti
 }
 
 /// Extract the nominal fillet radius from a fillet's surface.
-fn fillet_nominal_radius(surface: &SurfaceGeometry) -> Option<f64> {
+pub(crate) fn fillet_nominal_radius(surface: &SurfaceGeometry) -> Option<f64> {
     match surface {
         SurfaceGeometry::Cylinder { radius, .. } => Some(*radius),
         SurfaceGeometry::Torus { minor_radius, .. } => Some(*minor_radius),
