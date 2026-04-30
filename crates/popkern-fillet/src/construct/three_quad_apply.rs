@@ -263,7 +263,12 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         // Uses the edge's 3-D curve when present; falls back to
         // `old_surface(old_pcurve)` when not (internal cap-to-cap
         // edges created by `mev`/`mef`).
-        reproject_loop_pcurves_onto_gregory(brep, *sub_face, old_surface.as_ref());
+        reproject_loop_pcurves_onto_gregory(
+            brep,
+            *sub_face,
+            old_surface.as_ref(),
+            boundary.sphere_fit_substituted,
+        );
         patches.push(CornerPatchInfo {
             vertex,
             n_sides,
@@ -404,10 +409,20 @@ fn pick_per_fillet_cap_for_face(
 /// as a fallback for half-edges whose underlying edge has no 3-D
 /// curve (internal cap-to-cap edges created by `mev`/`mef`); we
 /// reconstruct the 3-D path via `old_surface(old_pcurve(t))`.
+///
+/// `preserve_analytic_pcurves` (Phase 6c-D Stage 4.6): when `true`,
+/// half-edges whose existing pcurve is one of the analytic forms
+/// (`Linear`, `Elliptical`, `Sinusoidal`) are NOT re-fit.  The
+/// `wire_substituted_boundary_to_edges` step writes analytic
+/// `Linear` pcurves on substituted-boundary cap faces; closest-
+/// point projection on the freshly-installed Gregory surface
+/// frequently lands on the wrong boundary (row 0 vs col 9) for
+/// FaceEdge bridges and clobbers the correct analytic pcurve.
 fn reproject_loop_pcurves_onto_gregory(
     brep: &mut BRep,
     face: FaceHandle,
     old_surface: Option<&SurfaceGeometry>,
+    preserve_analytic_pcurves: bool,
 ) {
     use popkern_core::geometry::curve::CurveEval;
     use popkern_core::geometry::nurbs_curve::NurbsCurve;
@@ -452,6 +467,23 @@ fn reproject_loop_pcurves_onto_gregory(
     for he in &hes {
         let he = *he;
         let edge = brep.half_edges[he].edge;
+
+        // Phase 6c-D Stage 4.6: preserve analytic pcurves (Linear /
+        // Elliptical / Sinusoidal) when the cap face was wired by
+        // `sphere_fit_edge_wire`.  Closest-point projection on the
+        // freshly-installed Gregory surface routinely lands FaceEdge
+        // bridge samples on row 0 (FilletEnd boundary) instead of
+        // col 9 — wrong cap-surface UV — and clobbering the wire's
+        // analytic Linear pcurve produces 3-5 cm `dev_cap` residual.
+        if preserve_analytic_pcurves
+            && let Some(existing) = brep.half_edges[he].pcurve.as_ref()
+            && !matches!(
+                existing.geometry,
+                popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(_)
+            )
+        {
+            continue;
+        }
 
         // Stage 6: EdgeTriple path (gated). For each outer-loop edge
         // whose other-side face has an analytic surface (Plane,

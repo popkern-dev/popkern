@@ -577,8 +577,29 @@ fn cap_outer_per_edge_breakdown_pyramid4_mixed() {
         let dev_b = p3_mid.distance_to(&p_b);
 
         idx += 1;
+        let edge_handle = brep
+            .edges
+            .iter()
+            .find(|(_, e)| e.half_edge == he_a)
+            .map(|(h, _)| h);
         eprintln!(
-            "  edge#{idx} cap={cap_kind} twin={twin_kind} cap_is_a={a_is_cap}  chord={edge_len_chord:.3e}  \
+            "  [edge#{:?}: edge={edge_handle:?} ha={he_a:?} hb={:?}  ha_face={face_a:?} hb_face={face_b:?}",
+            idx, ha.twin
+        );
+        let pa_kind = match &pa.geometry {
+            popkern_core::geometry::pcurve::PcurveGeometry::Linear { .. } => "Linear",
+            popkern_core::geometry::pcurve::PcurveGeometry::Elliptical { .. } => "Elliptical",
+            popkern_core::geometry::pcurve::PcurveGeometry::Sinusoidal { .. } => "Sinusoidal",
+            popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(_) => "Nurbs",
+        };
+        let pb_kind = match &pb.geometry {
+            popkern_core::geometry::pcurve::PcurveGeometry::Linear { .. } => "Linear",
+            popkern_core::geometry::pcurve::PcurveGeometry::Elliptical { .. } => "Elliptical",
+            popkern_core::geometry::pcurve::PcurveGeometry::Sinusoidal { .. } => "Sinusoidal",
+            popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(_) => "Nurbs",
+        };
+        eprintln!(
+            "  edge#{idx} cap={cap_kind} twin={twin_kind} cap_is_a={a_is_cap}  pa={pa_kind} pb={pb_kind}  chord={edge_len_chord:.3e}  \
              g0={g0:.3e}  dev_cap={dev_a:.3e}  dev_twin={dev_b:.3e}",
         );
         let uv_a = pa.point_at(t_a);
@@ -601,5 +622,138 @@ fn cap_outer_per_edge_breakdown_pyramid4_mixed() {
             "         cap_eval=({:.3},{:.3},{:.3})  twin_eval=({:.3},{:.3},{:.3})",
             p_a.x, p_a.y, p_a.z, p_b.x, p_b.y, p_b.z,
         );
+    }
+}
+
+/// Phase 6c-D Stage 4.6 probe: dump the cap surface's four
+/// boundaries (row0, row9, col0, col9) at uniformly spaced
+/// parameters, plus the cap-side pcurve trajectory across its
+/// full parameter range for every cap-vs-non-cap edge in cap[0].
+///
+/// Goal: confirm whether
+///   (a) the cap surface's col 9 actually traces the analytic
+///       FaceEdge[k] (i.e., the K-P optimizer left col 9 alone),
+///   (b) the pcurve is degenerate at (0, 0) (refit failure) or
+///   (c) the pcurve correctly evaluates near col 9 but the
+///       diagnostic samples a degenerate parameter range.
+#[test]
+#[ignore = "diagnostic — run on demand"]
+fn cap_surface_boundary_and_pcurve_trajectory_pyramid4_mixed() {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+
+    let _guard = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
+    let pyr = BRep::square_pyramid(1.0, 0.8, Tolerance::default()).unwrap();
+    let vertex = pick_vertex_with_valence(&pyr, 4).unwrap();
+    let edges = incident_edges(&pyr, vertex);
+    let radii: Vec<f64> = vec![0.04, 0.06, 0.05, 0.07];
+    let (brep, faces) = fillet_corner(&pyr, &edges, &radii, true);
+
+    eprintln!("\n=== pyramid4_mixed cap surface boundary + pcurve trajectory ===");
+    for (cap_k, cap_face) in faces.iter().enumerate() {
+        let Some(face_data) = brep.faces.get(*cap_face) else {
+            continue;
+        };
+        let Some(sof) = face_data.surface.as_ref() else {
+            continue;
+        };
+        let SurfaceGeometry::Gregory(_) = &sof.geometry else {
+            continue;
+        };
+
+        // Sample row 0 (u = 0, v varies), col 9 (v = 1, u varies),
+        // row 9 (u = 1, v varies), col 0 (v = 0, u varies).
+        eprintln!("\n  cap[{cap_k}] {cap_face:?}:");
+        eprintln!("    row 0 (u=0, v varies — should be FilletEnd[k]):");
+        for i in 0..=4 {
+            let v = i as f64 / 4.0;
+            let p = sof.geometry.point_at(0.0, v);
+            eprintln!("      v={v:.2}: ({:.4}, {:.4}, {:.4})", p.x, p.y, p.z);
+        }
+        eprintln!("    col 9 (v=1, u varies — should be FaceEdge[k]):");
+        for i in 0..=4 {
+            let u = i as f64 / 4.0;
+            let p = sof.geometry.point_at(u, 1.0);
+            eprintln!("      u={u:.2}: ({:.4}, {:.4}, {:.4})", p.x, p.y, p.z);
+        }
+        eprintln!("    row 9 (u=1, v varies — should be central spoke):");
+        for i in 0..=4 {
+            let v = i as f64 / 4.0;
+            let p = sof.geometry.point_at(1.0, v);
+            eprintln!("      v={v:.2}: ({:.4}, {:.4}, {:.4})", p.x, p.y, p.z);
+        }
+        eprintln!("    col 0 (v=0, u varies — should be central spoke prev):");
+        for i in 0..=4 {
+            let u = i as f64 / 4.0;
+            let p = sof.geometry.point_at(u, 0.0);
+            eprintln!("      u={u:.2}: ({:.4}, {:.4}, {:.4})", p.x, p.y, p.z);
+        }
+
+        // Walk the cap face's outer loop, dump pcurve trajectory
+        // at 5 parameter values across each pcurve's range for
+        // cap-vs-non-cap edges.
+        let outer_loop = face_data.outer_loop;
+        let cap_set: std::collections::BTreeSet<_> = faces.iter().copied().collect();
+        let Some(loop_data) = brep.loops.get(outer_loop) else {
+            continue;
+        };
+        let start_he = loop_data.half_edge;
+        let mut cur = start_he;
+        let mut step = 0;
+        #[allow(clippy::while_let_loop)]
+        loop {
+            let Some(he) = brep.half_edges.get(cur) else {
+                break;
+            };
+            let twin_face = brep.loops[brep.half_edges[he.twin].loop_].face;
+            if !cap_set.contains(&twin_face)
+                && let Some(pa) = he.pcurve.as_ref()
+            {
+                let edge = brep.edges.get(he.edge);
+                let twin_kind = brep
+                    .faces
+                    .get(twin_face)
+                    .and_then(|f| f.surface.as_ref())
+                    .map(|s| match &s.geometry {
+                        SurfaceGeometry::Plane { .. } => "Plane",
+                        SurfaceGeometry::Cylinder { .. } => "Cyl",
+                        _ => "Other",
+                    })
+                    .unwrap_or("none");
+                let (pa_lo, pa_hi) = pa.parameter_range();
+                eprintln!(
+                    "    step{step} edge={:?} twin={twin_kind} pa_range=[{pa_lo:.3},{pa_hi:.3}]",
+                    he.edge
+                );
+                if let Some(coe) = edge.and_then(|e| e.curve.as_ref()) {
+                    eprintln!("      curve3d_range=[{:.3},{:.3}]", coe.t_start, coe.t_end);
+                }
+                for s in 0..=4 {
+                    let f = s as f64 / 4.0;
+                    let t = pa_lo + f * (pa_hi - pa_lo);
+                    let uv = pa.point_at(t);
+                    let p_surf = sof.geometry.point_at(uv.x, uv.y);
+                    let p_curve = edge.and_then(|e| e.curve.as_ref()).map(|c| {
+                        let tt = c.t_start + f * (c.t_end - c.t_start);
+                        c.geometry.point_at(tt)
+                    });
+                    let dev = p_curve.map(|p| p.distance_to(&p_surf));
+                    eprintln!(
+                        "      s={f:.2}: pa(t={t:.3})=({:.3},{:.3})  surf=({:.3},{:.3},{:.3})  curve3d={:?}  dev={dev:?}",
+                        uv.x,
+                        uv.y,
+                        p_surf.x,
+                        p_surf.y,
+                        p_surf.z,
+                        p_curve.map(|p| (p.x, p.y, p.z)),
+                    );
+                }
+            }
+            cur = he.next;
+            step += 1;
+            if cur == start_he || step > 32 {
+                break;
+            }
+        }
     }
 }

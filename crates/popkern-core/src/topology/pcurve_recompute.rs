@@ -363,6 +363,14 @@ impl BRep {
                 None => continue,
             };
 
+            // §6c-D Stage 4.6: analytic pcurves are exact-by-construction;
+            // skip endpoint surgery for them.  Closest-point projection on
+            // Gregory caps frequently lands on the wrong boundary.
+            use crate::geometry::pcurve::PcurveGeometry;
+            if !matches!(pcurve.geometry, PcurveGeometry::Nurbs(_)) {
+                continue;
+            }
+
             let origin_pos = self.vertices[self.half_edges[heh].origin].position;
             let next_heh = self.half_edges[heh].next;
             let dest_pos = self.vertices[self.half_edges[next_heh].origin].position;
@@ -474,6 +482,7 @@ impl BRep {
     /// position within tolerance.  This happens when the fillet or other
     /// operations move edge positions without updating existing pcurves.
     pub fn fix_stale_pcurves(&mut self) {
+        use crate::geometry::pcurve::PcurveGeometry;
         use crate::geometry::surface::SurfaceEval;
 
         let he_keys: Vec<_> = self.half_edges.keys().collect();
@@ -482,6 +491,12 @@ impl BRep {
                 Some(pc) => pc.clone(),
                 None => continue,
             };
+
+            // §6c-D Stage 4.6: analytic pcurves are authoritative;
+            // run the staleness check only on Nurbs pcurves.
+            if !matches!(pcurve.geometry, PcurveGeometry::Nurbs(_)) {
+                continue;
+            }
 
             let loop_handle = self.half_edges[heh].loop_;
             let face_handle = match self.loops.get(loop_handle) {

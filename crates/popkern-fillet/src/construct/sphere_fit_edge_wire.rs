@@ -115,6 +115,23 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // curve-endpoint identity.
     let allow_multi_sub_edge = stage4_wide_tol;
     let trace_match = std::env::var_os("POPKERN_WIRE_MATCH_TRACE").is_some();
+    // Phase 6c-D Stage 4.6: when injection is active, restrict
+    // matching to per-cap-face index — sub_face[k] gets row 0 =
+    // FilletEnd[k] (segment 2k) and col 9 = FaceEdge[k]
+    // (segment 2k+1) by construction.  Twin face surface kind
+    // tells us which boundary the edge sits on; combined with
+    // the cap face index, the segment index is fully determined.
+    //
+    // Without this constraint, geometric-proximity matching
+    // routes cap[1]'s cylinder edge to FilletEnd[2] (the wrong
+    // fillet) when the rolling-ball footprint of cap[1] sits
+    // closer in 3D to FilletEnd[2]'s analytic arc than to
+    // FilletEnd[1]'s — empirically observed on pyramid4_mixed
+    // because the rolling-ball z (0.755) and analytic-arc z
+    // (0.818) gap (~6 cm) is comparable to the inter-fillet XY
+    // separation, so all four FilletEnd arcs are roughly
+    // equidistant.
+    let constrained_by_cap_index = stage4_wide_tol;
     let mut consumed = vec![false; segment_curves.len()];
     type Job = (HalfEdgeHandle, usize, bool, Point3, Point3);
     let mut worklist: Vec<Job> = Vec::new();
@@ -125,7 +142,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // membership in `sub_faces` instead.
     let cap_face_set: std::collections::BTreeSet<FaceHandle> = sub_faces.iter().copied().collect();
 
-    for &sub_face in sub_faces {
+    for (cap_k, &sub_face) in sub_faces.iter().enumerate() {
         let Some(face_data) = brep.faces.get(sub_face) else {
             continue;
         };
@@ -203,7 +220,37 @@ pub(crate) fn wire_substituted_boundary_to_edges(
             //   parent fillet cylinder, whose tangent circle = the
             //   FilletEnd segment.
             let mut best: Option<(usize, f64, bool)> = None;
-            if allow_multi_sub_edge {
+            if constrained_by_cap_index {
+                // Phase 6c-D Stage 4.6: route by cap index + twin
+                // surface kind.  sub_face[k] owns segments
+                // {2k, 2k+1}; twin face kind picks parity.
+                let twin_face_data = twin_face.and_then(|f| brep.faces.get(f));
+                let twin_kind = twin_face_data
+                    .and_then(|f| f.surface.as_ref())
+                    .map(|sof| &sof.geometry);
+                let target_seg = match twin_kind {
+                    Some(SurfaceGeometry::Cylinder { .. }) => Some(2 * cap_k),
+                    Some(SurfaceGeometry::Plane { .. }) => Some(2 * cap_k + 1),
+                    _ => None,
+                };
+                if let Some(seg_i) = target_seg
+                    && seg_i < segment_curves.len()
+                {
+                    let segment = segment_curves[seg_i];
+                    let p_mid = Point3::new(
+                        (p_origin.x + p_dest.x) * 0.5,
+                        (p_origin.y + p_dest.y) * 0.5,
+                        (p_origin.z + p_dest.z) * 0.5,
+                    );
+                    let t_mid = project_point_on_curve(segment, p_mid);
+                    let proj_mid = segment.point_at(t_mid);
+                    let d = proj_mid.distance_to(&p_mid);
+                    let t_origin = project_point_on_curve(segment, p_origin);
+                    let t_dest = project_point_on_curve(segment, p_dest);
+                    let reversed = t_origin > t_dest;
+                    best = Some((seg_i, d, reversed));
+                }
+            } else if allow_multi_sub_edge {
                 let p_mid = Point3::new(
                     (p_origin.x + p_dest.x) * 0.5,
                     (p_origin.y + p_dest.y) * 0.5,
@@ -342,9 +389,9 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         let (s_t0, s_t1) = segment.parameter_range();
         let seg_cp0 = segment.point_at(s_t0);
         let seg_cp_last = segment.point_at(s_t1);
-        let curve = if seg_cp0.distance_to(&primary_origin_target)
-            <= seg_cp_last.distance_to(&primary_origin_target)
-        {
+        let curve_is_reversed = seg_cp0.distance_to(&primary_origin_target)
+            > seg_cp_last.distance_to(&primary_origin_target);
+        let curve = if !curve_is_reversed {
             segment.clone()
         } else {
             reverse_nurbs(segment)
@@ -402,8 +449,19 @@ pub(crate) fn wire_substituted_boundary_to_edges(
                 ((t - t0) / span).clamp(0.0, 1.0)
             }
         };
-        let boundary_lo = frac(edge_t_start);
-        let boundary_hi = frac(edge_t_end);
+        let raw_lo = frac(edge_t_start);
+        let raw_hi = frac(edge_t_end);
+        // Phase 6c-D Stage 4.6: cap surface UV is parameterised in
+        // the ORIGINAL (non-reversed) segment direction.  When the
+        // wire reversed the curve to match the edge's primary HE,
+        // the cap-side pcurve must invert its boundary fractions
+        // back into the original segment's t-direction so it traces
+        // the cap surface's row 0 / col 9 boundary correctly.
+        let (boundary_lo, boundary_hi) = if curve_is_reversed {
+            (1.0 - raw_lo, 1.0 - raw_hi)
+        } else {
+            (raw_lo, raw_hi)
+        };
 
         if let Some(edge_data) = brep.edges.get_mut(edge_h) {
             edge_data.curve = Some(CurveOnEdge {
