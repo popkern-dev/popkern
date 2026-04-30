@@ -587,6 +587,31 @@ pub(crate) fn select_per_fillet_centre(
         //       the OPPOSITE side of the apex from the cylinder
         //       body — a phantom sphere not rounding off any
         //       solid material.
+        //
+        // KNOWN DEFECT (filed as a follow-up to A2.1): this side
+        // check is fragile because:
+        //   * `cylinder.origin` is not canonically placed; for
+        //     some cube edges `compute_fillet_geometry` puts
+        //     `origin` on the opposite side of the apex from the
+        //     cylinder body, so the side_dot comes out negative
+        //     even though the inscribed centre is correct →
+        //     planner falls back to per-fillet rolling-ball,
+        //     forcing Gregory dispatch on uniform cube apices
+        //     (Sphere should win).
+        //   * `face_outward_normal_at` returns INWARD normals on
+        //     `BRep::square_pyramid` surfaces (stored Plane
+        //     `normal` differs in sign convention from
+        //     `BRep::unit_cube`'s).  A naive
+        //     `interior_dir = -sum(face_normals)` works for cube
+        //     but breaks pyramid.
+        // Real fix needs (a) consistent face-normal sign across
+        // BRep constructors, AND (b) a per-fillet body-direction
+        // reference that doesn't depend on cylinder.origin
+        // placement (e.g., bisector of the two adjacent face
+        // normals + cylinder axis).  Deferred so A2.2 can land
+        // first.  Tracked in plan_e2e_tests::
+        // direct_rung_succeeds_on_uniform_cube which currently
+        // accepts either Sphere or Gregory dispatch.
         let Some(d) = axis.normalized() else {
             return Some(c);
         };
@@ -594,12 +619,6 @@ pub(crate) fn select_per_fillet_centre(
         let along = v.dot(&d);
         let perp = Vec3::new(v.x - d.x * along, v.y - d.y * along, v.z - d.z * along);
         let dist_to_axis = perp.length();
-        // Side check: dot(apex_to_inscribed, apex_to_origin) > 0
-        // means inscribed is on the same side of apex as the
-        // cylinder body. For cube the origin is in the cylinder
-        // body direction from apex; for pyramid the origin is at
-        // the base end of the slant edge while inscribed is past
-        // the apex (opposite direction).
         let apex_to_c = Vec3::new(c.x - apex.x, c.y - apex.y, c.z - apex.z);
         let apex_to_origin = Vec3::new(origin.x - apex.x, origin.y - apex.y, origin.z - apex.z);
         let side_dot = apex_to_c.dot(&apex_to_origin);

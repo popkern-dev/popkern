@@ -114,6 +114,42 @@ fn force_unsupported_kind(surfaces: &mut [FilletSurfaceResult], n: usize) {
 // ---------------------------------------------------------------
 
 #[test]
+#[ignore = "diagnostic dump for select_per_fillet_centre defect"]
+fn diagnostic_dump_cube_fillet_cylinders() {
+    let cube = BRep::unit_cube(test_tolerance()).expect("cube builds");
+    let (apex, edges) = pick_apex_and_incident_edges(&cube);
+    let apex_pos = cube.vertices.get(apex).unwrap().position;
+    eprintln!("apex_pos = {apex_pos:?}");
+    let radius = 0.1;
+    let surfaces = build_fillet_surfaces(&cube, &edges, radius);
+    for (i, fs) in surfaces.iter().enumerate() {
+        if let SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius: r,
+        } = &fs.surface
+        {
+            eprintln!("fillet {i}: cylinder origin={origin:?} axis={axis:?} r={r}");
+            let apex_to_origin = (
+                origin.x - apex_pos.x,
+                origin.y - apex_pos.y,
+                origin.z - apex_pos.z,
+            );
+            eprintln!("  apex_to_origin = {apex_to_origin:?}");
+            // Trim curves run along the fillet body — their endpoints
+            // are robust "body-side" references.
+            use popkern_core::geometry::curve::CurveEval;
+            let (t0, t1) = fs.trim_curve_1.parameter_range();
+            let trim1_start = fs.trim_curve_1.point_at(t0);
+            let trim1_end = fs.trim_curve_1.point_at(t1);
+            eprintln!(
+                "  trim_curve_1 endpoints: start={trim1_start:?} end={trim1_end:?}",
+            );
+        }
+    }
+}
+
+#[test]
 fn direct_rung_succeeds_on_uniform_cube() {
     let cube = BRep::unit_cube(test_tolerance()).expect("cube builds");
     let (apex, edges) = pick_apex_and_incident_edges(&cube);
