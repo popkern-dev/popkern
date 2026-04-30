@@ -41,7 +41,7 @@ use super::telemetry::{ConstructionRung, PlanTelemetry};
 /// UI preview.
 ///
 /// See ADR `docs/decisions/2026-04-30-phase-6c-a2-direct-apex-construction.md` §3.1.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ApexPlan {
     /// The apex vertex this plan resolves.
     pub apex_vertex: VertexHandle,

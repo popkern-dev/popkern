@@ -152,3 +152,55 @@ fn telemetry_records_diagnostic_values() {
             .contains_key("bridge_collapse_threshold")
     );
 }
+
+/// Issue 7 — `ApexPlan` (and its components) implement `PartialEq`,
+/// so identical inputs produce equal plans (snapshot diffability).
+#[test]
+fn plan_types_implement_partial_eq() {
+    use super::target_topology::{TargetCapFace, TargetTopology};
+    use super::telemetry::ConstructionRung;
+
+    let cap_a = CapKind::Sphere {
+        center: Point3::new(0.1, 0.1, 0.1),
+        radius: 0.1,
+        tangent_arc_endpoints: vec![Point3::new(0.0, 0.0, 0.1)],
+    };
+    let cap_b = cap_a.clone();
+    assert_eq!(cap_a, cap_b);
+
+    let cap_c = CapKind::Open {
+        n_fillets_attempted: 4,
+    };
+    let cap_d = CapKind::Open {
+        n_fillets_attempted: 4,
+    };
+    assert_eq!(cap_c, cap_d);
+    assert_ne!(cap_a, cap_c);
+
+    let face_a = TargetCapFace::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 1.0,
+        outer_loop_edge_indices: vec![0, 1, 2],
+    };
+    let face_b = face_a.clone();
+    assert_eq!(face_a, face_b);
+
+    let topo_a = TargetTopology {
+        apex_vertices: vec![Point3::new(1.0, 0.0, 0.0)],
+        apex_edges: vec![],
+        cap_face: TargetCapFace::Open,
+        face_boundary_updates: vec![],
+    };
+    let topo_b = topo_a.clone();
+    assert_eq!(topo_a, topo_b);
+
+    let mut tel_a = PlanTelemetry::new();
+    tel_a.rung = ConstructionRung::Setback {
+        setback_distance: 0.5,
+    };
+    let tel_b = tel_a.clone();
+    assert_eq!(tel_a, tel_b);
+    let mut tel_c = tel_a.clone();
+    tel_c.rung = ConstructionRung::Open;
+    assert_ne!(tel_a, tel_c);
+}

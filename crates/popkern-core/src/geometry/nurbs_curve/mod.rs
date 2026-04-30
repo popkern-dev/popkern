@@ -7,7 +7,7 @@ use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
 
 /// A Non-Uniform Rational B-Spline curve.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NurbsCurve {
     /// Polynomial degree.
     pub degree: usize,

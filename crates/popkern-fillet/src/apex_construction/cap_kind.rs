@@ -17,7 +17,7 @@ use popkern_core::geometry::Point3;
 /// with non-degenerate FaceEdge bridges.
 ///
 /// See ADR §3.1 for full type design.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum CapKind {
     /// Single sphere cap, tangent to each fillet's cylinder along a

@@ -14,7 +14,7 @@ use popkern_core::topology::{FaceHandle, VertexHandle};
 /// The planner emits this; the builder consumes it and applies
 /// Euler ops to realise it.  `TargetTopology` is INTROSPECTABLE
 /// (UI can render it as a preview before construction).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TargetTopology {
     /// Vertices that should exist at these positions after
     /// construction.  Existing vertices within tolerance are
@@ -40,7 +40,7 @@ pub struct TargetTopology {
 /// realises this, it creates the edge via `mef` (or finds an
 /// existing edge between the endpoints) and stores the curve
 /// directly (no separate wire step).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TargetEdge {
     /// Index into `TargetTopology::apex_vertices` for the edge's
     /// origin vertex (in BRep direction sense — primary HE origin).
@@ -89,7 +89,7 @@ pub enum TargetEdgeRole {
 /// pipeline will subsequently decompose into N sub-patches via
 /// 3-quad poke.  For Open: no cap face is created — fillets
 /// terminate at their legacy rolling-ball footprints.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum TargetCapFace {
     /// Single Sphere cap face.  Outer loop walks the apex_vertices
@@ -123,7 +123,7 @@ pub enum TargetCapFace {
 /// cube face, fillet cylinder face) need their outer-loop chains
 /// updated to connect to the new apex vertices and replace any
 /// stale apex-side curves.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FaceBoundaryUpdate {
     /// The face whose boundary needs updating.
     pub face: FaceHandle,

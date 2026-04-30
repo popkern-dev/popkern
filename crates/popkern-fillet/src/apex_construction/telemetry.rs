@@ -50,7 +50,7 @@ pub enum ConstructionRung {
 /// Every [`ApexPlan`](super::ApexPlan) carries a `PlanTelemetry`
 /// describing the decision process.  UIs render this for users
 /// to understand the fillet result.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PlanTelemetry {
     /// Human-readable reason for the cap-kind choice.
     /// E.g. "uniform radii within 0.1% — Sphere cap chosen" or
