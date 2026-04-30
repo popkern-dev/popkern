@@ -334,9 +334,7 @@ pub(crate) fn apply_sphere_fit_substitution(
             let cur_end = cur_curve.point_at(t1_cur);
             let next_start = next_curve.point_at(t0_next);
             let gap = cur_end.distance_to(&next_start);
-            eprintln!(
-                "  coherence FilletEnd[{k}].end ↔ FaceEdge[{k}].start: gap={gap:.3e}"
-            );
+            eprintln!("  coherence FilletEnd[{k}].end ↔ FaceEdge[{k}].start: gap={gap:.3e}");
         }
     }
 

@@ -660,8 +660,24 @@ pub fn apply_blend_geometry(
         for (_boundary, sub_faces) in &late_wire_jobs {
             let (n_moved, worst) =
                 apex_vertex_coherence::relocate_apex_vertices(&mut result, sub_faces);
+            // Phase 6c-X.A.5: rebuild BASE-EDGE curves (cyl-vs-Plane
+            // apex generators going AWAY from the apex through V) as
+            // straight lines from the new V→T position to v_other.
+            // Restores vertex↔curve coherence on the BASE-EDGE side.
+            let n_repaired = apex_vertex_coherence::repair_base_edges(&mut result, sub_faces);
+            // Phase 6c-X.A.5b: realign cap-loop edges' curve direction
+            // to match BRep convention (curve(t_start) =
+            // primary_origin's vertex position).  Validate_watertight
+            // demands this strict alignment; the wire's stored
+            // direction was set by an old vertex-position heuristic
+            // that no longer applies after A.4's relocations.
+            let n_realigned =
+                apex_vertex_coherence::realign_cap_loop_curve_directions(&mut result, sub_faces);
             if std::env::var_os("POPKERN_KP_TRACE").is_some() {
-                eprintln!("[apex-path-a] relocated {n_moved} vertices, worst V→T = {worst:.3e} m");
+                eprintln!(
+                    "[apex-path-a] relocated {n_moved} vertices, worst V→T = {worst:.3e} m; \
+                     repaired {n_repaired} base edges; realigned {n_realigned} cap-loop edges"
+                );
             }
         }
     }

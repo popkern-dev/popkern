@@ -105,62 +105,362 @@ pub(crate) fn relocate_apex_vertices(brep: &mut BRep, cap_faces: &[FaceHandle]) 
     (n_moved, worst)
 }
 
-/// Find the target position for an apex vertex by inspecting one
-/// incident cap-loop edge's curve.  Returns the curve's endpoint
-/// nearest the BRep vertex's current position (which, after A.3,
-/// is the boundary's true T at this vertex).
+/// Phase 6c-X.A.5: BASE-EDGE coherence repair.
+///
+/// After A.4 moves each apex vertex V → T, the BASE-EDGE incident
+/// to V (the cyl-vs-Plane apex generator going AWAY from the apex)
+/// still has its old curve3d ending at V's OLD position.  This pass
+/// rebuilds each such edge's curve as a degree-1 line from V's NEW
+/// position to its other endpoint's position, restoring
+/// vertex↔curve coherence on the BASE-EDGE side.
+///
+/// BASE-EDGE = edge incident to apex vertex V where both faces are
+/// non-cap (e.g. cyl-vs-Plane / cyl-vs-Nurbs cube boundary) and
+/// the OTHER endpoint is a non-apex vertex.  Per X.A.1 each apex
+/// vertex has exactly one such edge.
+///
+/// Returns the number of base edges rewritten.
+pub(crate) fn repair_base_edges(brep: &mut BRep, cap_faces: &[FaceHandle]) -> usize {
+    use popkern_core::geometry::curve::CurveOnEdge;
+    use popkern_core::geometry::{CurveGeometry, NurbsCurve};
+    use popkern_core::topology::EdgeHandle;
+
+    let trace = std::env::var_os("POPKERN_APEX_PATH_A_TRACE").is_some();
+    let cap_set: BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
+
+    let mut apex_vertices: BTreeSet<VertexHandle> = BTreeSet::new();
+    for &cap in cap_faces {
+        let Some(face_data) = brep.faces.get(cap) else {
+            continue;
+        };
+        let outer = face_data.outer_loop;
+        let Some(loop_data) = brep.loops.get(outer) else {
+            continue;
+        };
+        let start = loop_data.half_edge;
+        let mut cur = start;
+        let mut step = 0usize;
+        #[allow(clippy::while_let_loop)]
+        loop {
+            let Some(he) = brep.half_edges.get(cur) else {
+                break;
+            };
+            apex_vertices.insert(he.origin);
+            cur = he.next;
+            step += 1;
+            if cur == start || step > 32 {
+                break;
+            }
+        }
+    }
+
+    // Build (edge, primary_origin_pos, primary_dest_pos) tuples for
+    // each BASE-EDGE so we can mutate after the read-only pass.
+    let mut jobs: Vec<(EdgeHandle, Point3, Point3)> = Vec::new();
+    for &v in &apex_vertices {
+        for (_he_h, he) in brep.half_edges.iter() {
+            if he.origin != v {
+                continue;
+            }
+            let Some(edge) = brep.edges.get(he.edge) else {
+                continue;
+            };
+            // Identify face roles.
+            let primary = edge.half_edge;
+            let twin = brep.half_edges[primary].twin;
+            let face_a = brep.loops[brep.half_edges[primary].loop_].face;
+            let face_b = brep.loops[brep.half_edges[twin].loop_].face;
+            if cap_set.contains(&face_a) || cap_set.contains(&face_b) {
+                continue; // skip cap-loop edges
+            }
+            // OTHER endpoint = primary's dest if primary.origin == v, else primary's origin.
+            let primary_origin = brep.half_edges[primary].origin;
+            let primary_dest = brep.half_edges[brep.half_edges[primary].next].origin;
+            let other = if primary_origin == v {
+                primary_dest
+            } else {
+                primary_origin
+            };
+            if apex_vertices.contains(&other) {
+                continue; // not a base edge — both endpoints in apex set
+            }
+            // Found base edge.  Build new curve from primary_origin to primary_dest
+            // (in the BRep edge's stored direction).
+            let p0 = brep.vertices[primary_origin].position;
+            let p1 = brep.vertices[primary_dest].position;
+            jobs.push((he.edge, p0, p1));
+            break; // each apex vertex has at most one base edge per X.A.1
+        }
+    }
+
+    let n_jobs = jobs.len();
+    for (eh, p0, p1) in jobs {
+        // Build a degree-1 NurbsCurve (line) from p0 to p1.
+        let line = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![p0, p1],
+            weights: vec![1.0, 1.0],
+        };
+        if let Some(edge_data) = brep.edges.get_mut(eh) {
+            edge_data.curve = Some(CurveOnEdge {
+                geometry: CurveGeometry::Nurbs(line),
+                t_start: 0.0,
+                t_end: 1.0,
+            });
+        }
+        if trace {
+            eprintln!(
+                "[apex-path-a]   base edge {eh:?}: curve replaced ({:.4},{:.4},{:.4})→({:.4},{:.4},{:.4})",
+                p0.x, p0.y, p0.z, p1.x, p1.y, p1.z,
+            );
+        }
+    }
+    if trace {
+        eprintln!("[apex-path-a] repaired {n_jobs} base edges");
+    }
+    n_jobs
+}
+
+/// Phase 6c-X.A.5b: realign each cap-loop edge's curve direction so
+/// `curve(t_start) ≈ primary_origin.position` (within `cluster_tol`).
+///
+/// After A.4 relocates apex vertices to their shared boundary
+/// endpoints T, the wire's stored curve direction (set by an old
+/// vertex-position heuristic) may now be opposite to BRep
+/// orientation: `curve(t_start)` may actually equal
+/// `primary_dest.position`.  `validate_watertight` requires the
+/// BRep convention, so this pass reverses the underlying curve
+/// when misaligned.
+///
+/// Returns the number of edges reversed.
+pub(crate) fn realign_cap_loop_curve_directions(
+    brep: &mut BRep,
+    cap_faces: &[FaceHandle],
+) -> usize {
+    use popkern_core::geometry::CurveGeometry;
+    use popkern_core::topology::EdgeHandle;
+
+    let trace = std::env::var_os("POPKERN_APEX_PATH_A_TRACE").is_some();
+    let cap_set: BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
+    let cluster_tol = 1e-6_f64;
+    // Discover cap-loop edges: edges where one face is cap.
+    let mut edges_to_check: BTreeSet<EdgeHandle> = BTreeSet::new();
+    for &cap in cap_faces {
+        let Some(face_data) = brep.faces.get(cap) else {
+            continue;
+        };
+        let outer = face_data.outer_loop;
+        let Some(loop_data) = brep.loops.get(outer) else {
+            continue;
+        };
+        let start = loop_data.half_edge;
+        let mut cur = start;
+        let mut step = 0usize;
+        #[allow(clippy::while_let_loop)]
+        loop {
+            let Some(he) = brep.half_edges.get(cur) else {
+                break;
+            };
+            edges_to_check.insert(he.edge);
+            cur = he.next;
+            step += 1;
+            if cur == start || step > 32 {
+                break;
+            }
+        }
+    }
+    let mut count = 0usize;
+    for eh in edges_to_check {
+        let Some(edge) = brep.edges.get(eh) else {
+            continue;
+        };
+        let Some(coe) = edge.curve.as_ref() else {
+            continue;
+        };
+        let primary = edge.half_edge;
+        let twin = brep.half_edges[primary].twin;
+        let face_a = brep.loops[brep.half_edges[primary].loop_].face;
+        let face_b = brep.loops[brep.half_edges[twin].loop_].face;
+        let a_is_cap = cap_set.contains(&face_a);
+        let b_is_cap = cap_set.contains(&face_b);
+        if a_is_cap == b_is_cap {
+            continue;
+        }
+        let primary_origin = brep.half_edges[primary].origin;
+        let twin_origin = brep.half_edges[twin].origin;
+        let v_origin_pos = brep.vertices[primary_origin].position;
+        let v_dest_pos = brep.vertices[twin_origin].position;
+        use popkern_core::geometry::curve::CurveEval;
+        let p_t_start = coe.geometry.point_at(coe.t_start);
+        let p_t_end = coe.geometry.point_at(coe.t_end);
+        let aligned = v_origin_pos.distance_to(&p_t_start) < cluster_tol
+            && v_dest_pos.distance_to(&p_t_end) < cluster_tol;
+        if aligned {
+            continue;
+        }
+        let reversed_alignment = v_origin_pos.distance_to(&p_t_end) < cluster_tol
+            && v_dest_pos.distance_to(&p_t_start) < cluster_tol;
+        if !reversed_alignment {
+            // Neither alignment fits — leave alone.
+            if trace {
+                eprintln!(
+                    "[apex-path-a]   edge {eh:?}: neither aligned nor reversed; v_origin={:.3e}/{:.3e} v_dest={:.3e}/{:.3e}",
+                    v_origin_pos.distance_to(&p_t_start),
+                    v_origin_pos.distance_to(&p_t_end),
+                    v_dest_pos.distance_to(&p_t_start),
+                    v_dest_pos.distance_to(&p_t_end),
+                );
+            }
+            continue;
+        }
+        // Reverse the underlying curve.
+        let CurveGeometry::Nurbs(nurbs) = &coe.geometry else {
+            continue;
+        };
+        let reversed = reverse_nurbs(nurbs);
+        if let Some(edge_mut) = brep.edges.get_mut(eh)
+            && let Some(coe_mut) = edge_mut.curve.as_mut()
+        {
+            coe_mut.geometry = CurveGeometry::Nurbs(reversed);
+        }
+        count += 1;
+        if trace {
+            eprintln!("[apex-path-a]   edge {eh:?}: reversed to align with BRep direction");
+        }
+    }
+    if trace {
+        eprintln!("[apex-path-a] realigned {count} cap-loop edges");
+    }
+    count
+}
+
+/// Reverse a NURBS curve in-place — knot reflection + CP/weight
+/// reversal.  Same direction-flip recipe as
+/// `popkern_core::topology::split_helpers::reverse_nurbs_curve`.
+fn reverse_nurbs(curve: &popkern_core::geometry::NurbsCurve) -> popkern_core::geometry::NurbsCurve {
+    use popkern_core::geometry::curve::CurveEval;
+    let (t_start, t_end) = curve.parameter_range();
+    let mut reversed_knots: Vec<f64> = curve
+        .knots
+        .iter()
+        .rev()
+        .map(|&k| t_start + t_end - k)
+        .collect();
+    reversed_knots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mut reversed_cp = curve.control_points.clone();
+    reversed_cp.reverse();
+    let mut reversed_weights = curve.weights.clone();
+    reversed_weights.reverse();
+    popkern_core::geometry::NurbsCurve {
+        degree: curve.degree,
+        knots: reversed_knots,
+        control_points: reversed_cp,
+        weights: reversed_weights,
+    }
+}
+
+/// Find the target position for apex vertex `v` as the SHARED
+/// curve endpoint between its incident cap-loop edges.
+///
+/// Per X.A.2, the substituted boundary is internally coherent:
+/// adjacent FilletEnd[k] and FaceEdge[k] share a single 3D point
+/// at their junction.  After A.3 (full-range wire), each cap-loop
+/// BRep edge stores its curve preserving that endpoint.  The
+/// wire's "reversed" flag (set by vertex-position heuristic) is
+/// inconsistent with the boundary's natural direction, so the
+/// BRep convention `primary-origin → t_start` does NOT robustly
+/// identify v's target.
+///
+/// Geometric matching does: collect all 4 curve endpoints from
+/// v's 2 incident cap-loop edges (typically 1 cap-vs-Cyl and 1
+/// cap-vs-Plane).  The endpoint that appears in BOTH edges'
+/// curves (within `cluster_tol`) is v's target — by construction
+/// this is the shared boundary T.
 fn find_target_for_vertex(
     brep: &BRep,
     v: VertexHandle,
     cap_set: &BTreeSet<FaceHandle>,
 ) -> Option<Point3> {
+    use popkern_core::topology::EdgeHandle;
+
     let trace = std::env::var_os("POPKERN_APEX_PATH_A_TRACE").is_some();
-    let v_pos = brep.vertices[v].position;
-    let mut n_he_with_origin_v = 0;
-    let mut n_with_curve = 0;
-    let n_cap_loop = 0;
-    for (he_h, he) in brep.half_edges.iter() {
+    let cluster_tol = 1e-6_f64;
+    let mut cap_loop_edges: Vec<(EdgeHandle, Point3, Point3)> = Vec::new();
+    let mut seen_edges: BTreeSet<EdgeHandle> = BTreeSet::new();
+    for (_he_h, he) in brep.half_edges.iter() {
         if he.origin != v {
             continue;
         }
-        n_he_with_origin_v += 1;
+        if seen_edges.contains(&he.edge) {
+            continue;
+        }
         let Some(edge) = brep.edges.get(he.edge) else {
             continue;
         };
         let Some(coe) = edge.curve.as_ref() else {
-            if trace {
-                eprintln!(
-                    "[apex-path-a]     {v:?} HE {he_h:?} edge={:?}: no curve",
-                    he.edge
-                );
-            }
             continue;
         };
-        n_with_curve += 1;
-        // Cap-loop edge: exactly one side is a cap face.
         let face_a = brep.loops[brep.half_edges[edge.half_edge].loop_].face;
         let face_b = brep.loops[brep.half_edges[brep.half_edges[edge.half_edge].twin].loop_].face;
         let a_is_cap = cap_set.contains(&face_a);
         let b_is_cap = cap_set.contains(&face_b);
         if a_is_cap == b_is_cap {
-            continue; // both cap (inner spoke) or both non-cap (base edge)
+            continue;
         }
-        let _ = n_cap_loop;
-        // Pick the endpoint nearest v_pos.  Per A.3 + boundary
-        // coherence, every incident cap-loop edge agrees on this
-        // endpoint to numerical precision.
         let p_start = coe.geometry.point_at(coe.t_start);
         let p_end = coe.geometry.point_at(coe.t_end);
-        let target = if v_pos.distance_to(&p_start) <= v_pos.distance_to(&p_end) {
-            p_start
-        } else {
-            p_end
-        };
-        return Some(target);
+        cap_loop_edges.push((he.edge, p_start, p_end));
+        seen_edges.insert(he.edge);
+    }
+    if cap_loop_edges.len() < 2 {
+        // Single cap-loop edge: use its endpoint nearest v's
+        // current position.  No coherence check possible.
+        if let Some(&(_, p_start, p_end)) = cap_loop_edges.first() {
+            let v_pos = brep.vertices[v].position;
+            let target = if v_pos.distance_to(&p_start) <= v_pos.distance_to(&p_end) {
+                p_start
+            } else {
+                p_end
+            };
+            if trace {
+                eprintln!(
+                    "[apex-path-a]     {v:?}: single-edge fallback → ({:.4},{:.4},{:.4})",
+                    target.x, target.y, target.z
+                );
+            }
+            return Some(target);
+        }
+        return None;
+    }
+    // Find the endpoint shared between any two incident cap-loop
+    // edges.  Each cap-loop edge has 2 endpoints; for the shared
+    // vertex v, exactly one of them appears in both edges.
+    let candidates: Vec<Point3> = cap_loop_edges
+        .iter()
+        .flat_map(|&(_, p_start, p_end)| [p_start, p_end])
+        .collect();
+    for (i, p_i) in candidates.iter().enumerate() {
+        let count = candidates
+            .iter()
+            .filter(|p| p.distance_to(p_i) < cluster_tol)
+            .count();
+        if count >= 2 {
+            if trace {
+                eprintln!(
+                    "[apex-path-a]     {v:?}: shared endpoint ({:.4},{:.4},{:.4}) [count={count}]",
+                    p_i.x, p_i.y, p_i.z
+                );
+            }
+            return Some(*p_i);
+            // (i shadowed but kept for trace)
+        }
+        let _ = i;
     }
     if trace {
         eprintln!(
-            "[apex-path-a]     {v:?}: HEs with origin=V: {n_he_with_origin_v}, with curve: {n_with_curve}, cap-loop: {n_cap_loop}"
+            "[apex-path-a]     {v:?}: no shared endpoint found across {} cap-loop edges",
+            cap_loop_edges.len()
         );
     }
     None
