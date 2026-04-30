@@ -11,6 +11,7 @@
 //! to the standard boundary on any failure (unsupported variant,
 //! geometric degeneracy, missing topology).
 
+use popkern_core::geometry::analytic_surfaces::orthonormal_basis;
 use popkern_core::geometry::apex_blend::sphere_fit::sphere_fit_termination;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::uv_projection::project_point_to_uv;
@@ -18,7 +19,7 @@ use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use super::boundary::{BlendBoundary, BoundarySegment};
+use super::boundary::{BlendBoundary, BoundarySegment, FilletEndArcParams};
 use super::surface_bridge::build_straight_line_bridge;
 use crate::fillet_surface::FilletSurfaceResult;
 
@@ -111,6 +112,7 @@ pub(crate) fn apply_sphere_fit_substitution(
     let mut new_curves: Vec<popkern_core::geometry::NurbsCurve> = Vec::with_capacity(n_fil);
     let mut new_endpoints: Vec<[Point3; 2]> = Vec::with_capacity(n_fil);
     let mut per_fillet_caps: Vec<(Point3, f64)> = Vec::with_capacity(n_fil);
+    let mut fillet_end_arcs: Vec<FilletEndArcParams> = Vec::with_capacity(n_fil);
     for k in 0..n_fil {
         let fi = match &boundary.segments[2 * k] {
             BoundarySegment::FilletEnd { fillet_index, .. } => *fillet_index,
@@ -143,6 +145,65 @@ pub(crate) fn apply_sphere_fit_substitution(
             tolerance,
         )
         .map_err(|_| "sphere-fit termination failed")?;
+        // Phase 6c-D Stage 4.7c: capture analytic arc params so
+        // the wire can write `CurveGeometry::Ellipse` (with the
+        // cylinder's exact `orthonormal_basis`) to BRep edges
+        // instead of a NURBS approximation.  Pcurve becomes
+        // `Linear` over the angular range — bit-exact agreement
+        // between cap-side and twin (Cyl) surface evaluations.
+        if let SurfaceGeometry::Cylinder {
+            origin: cyl_origin,
+            axis: cyl_axis,
+            radius: cyl_radius,
+        } = &fillet.surface
+        {
+            if let Some(axis_unit) = cyl_axis.normalized() {
+                let (perp1, perp2) = orthonormal_basis(axis_unit);
+                let v_const = (cap_centre_k - *cyl_origin).dot(&axis_unit);
+                let project = |p: Point3| -> (f64, f64) {
+                    let d = p - *cyl_origin;
+                    let mut theta = (d.dot(&perp2)).atan2(d.dot(&perp1));
+                    if theta < 0.0 {
+                        theta += std::f64::consts::TAU;
+                    }
+                    let v = d.dot(&axis_unit);
+                    (theta, v)
+                };
+                let (theta_a, _) = project(result.endpoint_a);
+                let (theta_b, _) = project(result.endpoint_b);
+                fillet_end_arcs.push(FilletEndArcParams {
+                    center: cap_centre_k,
+                    u_basis: perp1 * (*cyl_radius),
+                    v_basis: perp2 * (*cyl_radius),
+                    start_angle: theta_a,
+                    end_angle: theta_b,
+                    v_const,
+                });
+            } else {
+                // Cylinder axis was zero — should not happen for valid
+                // fillet geometry. Skip arc capture; downstream wire
+                // falls back to NurbsCurve / refit.
+                fillet_end_arcs.push(FilletEndArcParams {
+                    center: cap_centre_k,
+                    u_basis: Vec3::new(0.0, 0.0, 0.0),
+                    v_basis: Vec3::new(0.0, 0.0, 0.0),
+                    start_angle: 0.0,
+                    end_angle: 0.0,
+                    v_const: 0.0,
+                });
+            }
+        } else {
+            // Non-cylinder fillet (Torus etc.) — analytic arc
+            // representation not yet defined for this case.
+            fillet_end_arcs.push(FilletEndArcParams {
+                center: cap_centre_k,
+                u_basis: Vec3::new(0.0, 0.0, 0.0),
+                v_basis: Vec3::new(0.0, 0.0, 0.0),
+                start_angle: 0.0,
+                end_angle: 0.0,
+                v_const: 0.0,
+            });
+        }
         new_endpoints.push([result.endpoint_a, result.endpoint_b]);
         new_curves.push(result.curve_3d);
         per_fillet_caps.push((cap_centre_k, r_k));
@@ -211,6 +272,7 @@ pub(crate) fn apply_sphere_fit_substitution(
         hex_boundary_cps_deg9.push((row0, col9));
     }
     boundary.hex_boundary_cps_deg9 = hex_boundary_cps_deg9;
+    boundary.fillet_end_arcs = fillet_end_arcs;
 
     Ok(())
 }

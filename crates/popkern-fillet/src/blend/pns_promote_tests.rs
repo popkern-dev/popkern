@@ -84,6 +84,7 @@ fn synth_planar_blend_for_promote_n(
         sphere_fit_substituted: false,
         per_fillet_caps: Vec::new(),
         hex_boundary_cps_deg9: Vec::new(),
+        fillet_end_arcs: Vec::new(),
     };
     let brep = BRep::new(Tolerance::default());
     (boundary, fillets, brep)
@@ -256,6 +257,7 @@ fn insert_pns_cap_creates_n_subfaces_with_nurbs_surfaces() {
         sphere_fit_substituted: false,
         per_fillet_caps: Vec::new(),
         hex_boundary_cps_deg9: Vec::new(),
+        fillet_end_arcs: Vec::new(),
     };
 
     let f_before = brep.faces.len();
@@ -351,6 +353,7 @@ fn try_pns_dispatch_succeeds_on_hex_blend() {
         sphere_fit_substituted: false,
         per_fillet_caps: Vec::new(),
         hex_boundary_cps_deg9: Vec::new(),
+        fillet_end_arcs: Vec::new(),
     };
 
     let patches = try_pns_dispatch(
@@ -419,6 +422,7 @@ fn try_pns_dispatch_succeeds_at_higher_valences() {
             sphere_fit_substituted: false,
             per_fillet_caps: Vec::new(),
             hex_boundary_cps_deg9: Vec::new(),
+        fillet_end_arcs: Vec::new(),
         };
 
         let patches = try_pns_dispatch(
@@ -558,6 +562,7 @@ fn cap_boundary_g1_with_tilted_planar_support() {
         sphere_fit_substituted: false,
         per_fillet_caps: Vec::new(),
         hex_boundary_cps_deg9: Vec::new(),
+        fillet_end_arcs: Vec::new(),
     };
     let fillets: Vec<_> = fillets_flat
         .iter()
@@ -731,6 +736,7 @@ fn cap_boundary_g1_with_cube_corner_cylinder_supports() {
         sphere_fit_substituted: false,
         per_fillet_caps: Vec::new(),
         hex_boundary_cps_deg9: Vec::new(),
+        fillet_end_arcs: Vec::new(),
     };
     let brep = BRep::new(Tolerance::default());
     let surfaces = promote_blend_boundary_to_pns_surfaces(&boundary, &fillets, &brep)

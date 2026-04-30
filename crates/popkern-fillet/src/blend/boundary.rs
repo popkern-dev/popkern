@@ -73,6 +73,42 @@ pub struct BlendBoundary {
     ///
     /// See `docs/decisions/2026-04-29-phase-6c-d-stage-1-boundary-injection.md`.
     pub hex_boundary_cps_deg9: Vec<([Point3; 10], [Point3; 10])>,
+    /// Phase 6c-D Stage 4.7c: per-fillet analytic arc parameters
+    /// for the substituted FilletEnd.  Populated when sphere-fit
+    /// substitution succeeds AND the special case applies (cap
+    /// centre on cylinder axis, cap_radius = cyl_radius — pyramid
+    /// path).  Empty otherwise.
+    ///
+    /// Used by the wire (`sphere_fit_edge_wire`) to write
+    /// `CurveGeometry::Ellipse` (with the cylinder's exact
+    /// orthonormal basis) to BRep edges instead of a NURBS
+    /// approximation, plus `Pcurve::Linear` with parameter range
+    /// matching the analytic angle.  Gives bit-exact agreement
+    /// between cap-side and twin (Cyl) surface evaluations on
+    /// cap-vs-Cyl edges.
+    pub fillet_end_arcs: Vec<FilletEndArcParams>,
+}
+
+/// Per-fillet analytic arc parameters captured during sphere-fit
+/// substitution.  Stores the centre, cylinder basis, radius, and
+/// angular range needed to reconstruct the substituted FilletEnd
+/// as `CurveGeometry::Ellipse` (parameterised by angle directly,
+/// matching the cylinder's UV trajectory).
+#[derive(Debug, Clone)]
+pub struct FilletEndArcParams {
+    /// Arc centre (= cap centre, on the cylinder axis).
+    pub center: Point3,
+    /// First basis vector (length = radius), aligned with the
+    /// cylinder surface's `perp1` from `orthonormal_basis(axis)`.
+    pub u_basis: popkern_core::geometry::Vec3,
+    /// Second basis vector (length = radius), aligned with `perp2`.
+    pub v_basis: popkern_core::geometry::Vec3,
+    /// Start angle of the substituted arc (radians).
+    pub start_angle: f64,
+    /// End angle of the substituted arc (radians).
+    pub end_angle: f64,
+    /// Axial coordinate on the cylinder (constant for this arc).
+    pub v_const: f64,
 }
 
 /// A single segment of a blend boundary.
@@ -235,6 +271,7 @@ pub fn compute_blend_boundary(
                 sphere_fit_substituted: false,
                 per_fillet_caps: Vec::new(),
                 hex_boundary_cps_deg9: Vec::new(),
+        fillet_end_arcs: Vec::new(),
             };
             if sphere_fit_enabled {
                 boundary.sphere_fit_substituted =
@@ -271,6 +308,7 @@ pub fn compute_blend_boundary(
         sphere_fit_substituted: false,
         per_fillet_caps: Vec::new(),
         hex_boundary_cps_deg9: Vec::new(),
+        fillet_end_arcs: Vec::new(),
     })
 }
 

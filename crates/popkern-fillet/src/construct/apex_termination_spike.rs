@@ -204,6 +204,7 @@ fn substitute_sphere_fit_terminations(
         sphere_fit_substituted: false,
         per_fillet_caps: Vec::new(),
         hex_boundary_cps_deg9: Vec::new(),
+        fillet_end_arcs: Vec::new(),
     })
 }
 

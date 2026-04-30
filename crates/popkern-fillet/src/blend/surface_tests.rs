@@ -36,6 +36,7 @@ fn make_blend_boundary(vertex: VertexHandle) -> BlendBoundary {
         sphere_fit_substituted: false,
         per_fillet_caps: Vec::new(),
         hex_boundary_cps_deg9: Vec::new(),
+        fillet_end_arcs: Vec::new(),
     }
 }
 
@@ -95,6 +96,7 @@ fn smooth_blend_two_fillets() {
         sphere_fit_substituted: false,
         per_fillet_caps: Vec::new(),
         hex_boundary_cps_deg9: Vec::new(),
+        fillet_end_arcs: Vec::new(),
     };
 
     let fillets: Vec<FilletSurfaceResult> = Vec::new();
@@ -132,6 +134,7 @@ fn blend_surface_empty_boundary() {
         sphere_fit_substituted: false,
         per_fillet_caps: Vec::new(),
         hex_boundary_cps_deg9: Vec::new(),
+        fillet_end_arcs: Vec::new(),
     };
 
     let result = build_blend_surface(
