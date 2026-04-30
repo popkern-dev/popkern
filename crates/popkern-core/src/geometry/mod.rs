@@ -20,6 +20,7 @@ pub mod pcurve;
 pub mod point;
 pub mod revolution;
 pub mod surface;
+pub mod surface_helpers;
 pub mod uv_projection;
 pub mod vector;
 
