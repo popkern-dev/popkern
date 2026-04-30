@@ -16,7 +16,7 @@ use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 use crate::blend::boundary::{BlendBoundary, BoundarySegment};
-use crate::blend::sphere_fit_boundary::{
+use crate::blend::sphere_fit_centre::{
     face_outward_normal_at, fillet_nominal_radius, select_per_fillet_centre,
 };
 use crate::fillet_surface::FilletSurfaceResult;

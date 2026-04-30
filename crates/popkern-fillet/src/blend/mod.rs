@@ -25,6 +25,7 @@ pub mod pns_promote;
 mod pns_promote_tests;
 pub mod runout;
 pub(crate) mod sphere_fit_boundary;
+pub(crate) mod sphere_fit_centre;
 pub mod surface;
 pub(crate) mod surface_bridge;
 mod surface_math;

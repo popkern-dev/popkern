@@ -1,9 +1,7 @@
-//! End-to-end planner tests for [`plan_apex_resolution`].
-//!
-//! Drives the full Direct → Setback → Open rung ladder against
-//! real BRep fixtures (unit cube + square pyramid) with fillet
-//! surfaces produced by the actual [`compute_fillet_geometry`]
-//! pipeline.
+//! End-to-end planner tests covering the rung-ladder dispatch
+//! against real BRep fixtures (unit cube + square pyramid) with
+//! fillet surfaces produced by the actual
+//! [`compute_fillet_geometry`] pipeline.
 //!
 //! Issues 2 + 3 from the A2.1 review:
 //! * Issue 2 — Direct rung against a real fixture, end-to-end.
@@ -16,151 +14,38 @@
 //!      depends on bridge-collapse tolerance).
 //!   3. Setback (pyramid with 1 unsupported fillet → 3 succeed).
 //!   4. Open (cube with 2 unsupported fillets → 1 succeed).
+//!
+//! Cancellation / preview / serde / variable-radius tests live in
+//! [`super::plan_e2e_extras_tests`].  Shared helpers live in
+//! [`super::plan_e2e_test_helpers`].
 
-use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, VertexHandle};
 
-use crate::analysis;
 use crate::fillet_surface::FilletSurfaceResult;
-use crate::geometry_compute::compute_fillet_geometry;
-use crate::types::{CapKind as LegacyCapKind, ContinuityLevel, FilletRadius, FilletSpec};
+use crate::types::{FilletRadius, FilletSpec};
 
 use super::cap_kind::CapKind;
 use super::error::ApexPlanError;
 use super::plan::plan_apex_resolution;
+use super::plan_e2e_test_helpers::{
+    build_fillet_surfaces, force_unsupported_kind, pick_apex_and_incident_edges, test_tolerance,
+};
 use super::telemetry::ConstructionRung;
-
-fn test_tolerance() -> Tolerance {
-    Tolerance::default()
-        .with_linear(1e-3)
-        .with_angular(1e-3)
-        .with_parametric(1e-6)
-}
-
-/// Collect the (apex, [edge; N]) tuple for the lowest-index
-/// vertex of `brep`.  Picks all incident edges via half-edge
-/// origin scan.
-fn pick_apex_and_incident_edges(brep: &BRep) -> (VertexHandle, Vec<EdgeHandle>) {
-    let apex = brep.vertices.keys().next().expect("brep has vertices");
-    let mut edge_set: std::collections::BTreeSet<EdgeHandle> = std::collections::BTreeSet::new();
-    for he in brep.half_edges.values() {
-        if he.origin == apex {
-            edge_set.insert(he.edge);
-        }
-    }
-    (apex, edge_set.into_iter().collect())
-}
-
-/// Build a list of [`FilletSurfaceResult`]s from a list of
-/// (edge, radius) pairs, using the real
-/// [`compute_fillet_geometry`] pipeline.
-fn build_fillet_surfaces(
-    brep: &BRep,
-    edges: &[EdgeHandle],
-    radius: f64,
-) -> Vec<FilletSurfaceResult> {
-    let specs: Vec<FilletSpec> = edges
-        .iter()
-        .map(|&e| FilletSpec {
-            edge: e,
-            radius: FilletRadius::Constant(radius),
-        })
-        .collect();
-    let tol = test_tolerance();
-    let analyses = analysis::analyze_edges(brep, edges, false)
-        .expect("analyze_edges should succeed on uniform-radius corner");
-    let mut surfaces = Vec::with_capacity(specs.len());
-    for (spec, ana) in specs.iter().zip(analyses.iter()) {
-        let geom = compute_fillet_geometry(
-            ana,
-            &spec.radius,
-            brep,
-            &tol,
-            ContinuityLevel::G1,
-            LegacyCapKind::Open,
-        )
-        .expect("compute_fillet_geometry should succeed on cube/pyramid corner");
-        surfaces.push(FilletSurfaceResult {
-            surface: geom.surface.clone(),
-            trim_curve_1: geom.trim_3d_1.clone(),
-            trim_curve_2: geom.trim_3d_2.clone(),
-            continuity_downgrade: None,
-        });
-    }
-    surfaces
-}
-
-/// Like [`build_fillet_surfaces`] but each edge gets its own
-/// radius (parallel slices over `edges` and `radii`).  Used by
-/// variable-radius end-to-end tests.
-fn build_fillet_surfaces_per_edge(
-    brep: &BRep,
-    edges: &[EdgeHandle],
-    radii: &[f64],
-) -> Vec<FilletSurfaceResult> {
-    assert_eq!(
-        edges.len(),
-        radii.len(),
-        "edges and radii must have equal length"
-    );
-    let tol = test_tolerance();
-    let analyses = analysis::analyze_edges(brep, edges, false)
-        .expect("analyze_edges should succeed on variable-radius corner");
-    let mut surfaces = Vec::with_capacity(edges.len());
-    for ((edge, &r), ana) in edges.iter().zip(radii).zip(analyses.iter()) {
-        let _ = edge;
-        let radius_spec = FilletRadius::Constant(r);
-        let geom = compute_fillet_geometry(
-            ana,
-            &radius_spec,
-            brep,
-            &tol,
-            ContinuityLevel::G1,
-            LegacyCapKind::Open,
-        )
-        .expect("compute_fillet_geometry should succeed on variable-radius corner");
-        surfaces.push(FilletSurfaceResult {
-            surface: geom.surface.clone(),
-            trim_curve_1: geom.trim_3d_1.clone(),
-            trim_curve_2: geom.trim_3d_2.clone(),
-            continuity_downgrade: None,
-        });
-    }
-    surfaces
-}
-
-/// Replace `n` fillet surfaces (starting at index 0) with a
-/// degenerate `Plane` variant that the planner's strict pass
-/// rejects via `UnsupportedFilletKind` and the lenient pass
-/// skips.  Trim curves are preserved so `compute_blend_boundary`
-/// still succeeds.
-fn force_unsupported_kind(surfaces: &mut [FilletSurfaceResult], n: usize) {
-    use popkern_core::geometry::Vec3;
-    for fs in surfaces.iter_mut().take(n) {
-        fs.surface = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-    }
-}
 
 // ---------------------------------------------------------------
 // Issue 2 — Direct rung end-to-end
 // ---------------------------------------------------------------
 
 #[test]
-#[ignore = "diagnostic dump for select_per_fillet_centre defect"]
+#[ignore = "diagnostic dump for select_per_fillet_centre"]
 fn diagnostic_dump_cube_fillet_cylinders() {
     let cube = BRep::unit_cube(test_tolerance()).expect("cube builds");
     let (apex, edges) = pick_apex_and_incident_edges(&cube);
     let apex_pos = cube.vertices.get(apex).unwrap().position;
     eprintln!("apex_pos = {apex_pos:?}");
     let radius = 0.1;
-    let surfaces = build_fillet_surfaces(&cube, &edges, radius);
+    let surfaces: Vec<FilletSurfaceResult> = build_fillet_surfaces(&cube, &edges, radius);
     for (i, fs) in surfaces.iter().enumerate() {
         if let SurfaceGeometry::Cylinder {
             origin,
@@ -175,8 +60,6 @@ fn diagnostic_dump_cube_fillet_cylinders() {
                 origin.z - apex_pos.z,
             );
             eprintln!("  apex_to_origin = {apex_to_origin:?}");
-            // Trim curves run along the fillet body — their endpoints
-            // are robust "body-side" references.
             use popkern_core::geometry::curve::CurveEval;
             let (t0, t1) = fs.trim_curve_1.parameter_range();
             let trim1_start = fs.trim_curve_1.point_at(t0);
@@ -212,43 +95,38 @@ fn direct_rung_succeeds_on_uniform_cube() {
         "uniform cube → Direct rung",
     );
     assert!(plan.telemetry.fallback_reason.is_none());
-    // Cap-kind dispatch is data-dependent: per-fillet sphere
-    // centres at the cube apex come out *not* exactly coincident
-    // even at uniform radii (a quirk of `select_per_fillet_centre`'s
-    // 3-plane projection), so the planner selects Gregory.  Either
-    // Sphere or Gregory is acceptable as long as the chosen radius
-    // matches the input.
-    match &plan.cap_kind {
-        CapKind::Sphere { radius: r, .. } => {
-            assert!(
-                (r - radius).abs() < 1e-9,
-                "Sphere cap radius {r} should match fillet radius {radius}",
-            );
-        }
-        CapKind::Gregory {
-            per_fillet_caps, ..
-        } => {
-            assert_eq!(per_fillet_caps.len(), 3);
-            for (_, r) in per_fillet_caps {
-                assert!(
-                    (r - radius).abs() < 1e-9,
-                    "Gregory per-fillet radius {r} should match fillet radius {radius}",
-                );
-            }
-        }
-        CapKind::Open { .. } => {
-            panic!("Direct rung on uniform cube must produce a real cap, not Open",)
-        }
-    }
-    // Target topology vertex count depends on cap kind:
-    //   * Sphere collapses shared T_a/T_b at the cap centre → 3
-    //   * Gregory keeps T_a + T_b distinct per fillet → 6
-    let n_v = plan.target_topology.apex_vertices.len();
+    // Uniform-radius cube apex: per-fillet sphere centres all
+    // coincide at (r, r, r), bridges collapse, dispatch lands on
+    // Sphere cap.  This is the commercial-grade outcome — the
+    // legacy origin-based side check used to spuriously reject
+    // one of the three inscribed centres and force Gregory.
     assert!(
-        matches!(plan.cap_kind, CapKind::Sphere { .. }) && n_v == 3
-            || matches!(plan.cap_kind, CapKind::Gregory { .. }) && n_v == 6,
-        "apex_vertices.len()={n_v} inconsistent with cap_kind {:?}",
+        plan.cap_kind.is_sphere(),
+        "uniform cube → Sphere cap, got {:?}",
         plan.cap_kind,
+    );
+    if let CapKind::Sphere {
+        radius: r, center, ..
+    } = &plan.cap_kind
+    {
+        assert!(
+            (r - radius).abs() < 1e-9,
+            "Sphere cap radius {r} should match fillet radius {radius}",
+        );
+        // Cap centre at (r, r, r) — the diagonal offset from the apex.
+        assert!(
+            (center.x - radius).abs() < 1e-9
+                && (center.y - radius).abs() < 1e-9
+                && (center.z - radius).abs() < 1e-9,
+            "Sphere cap centre should be at (r,r,r) for cube corner; got {center:?}",
+        );
+    }
+    // Sphere cap has 3 apex vertices (one per fillet's tangent
+    // arc endpoint, shared with the next fillet's start).
+    assert_eq!(
+        plan.target_topology.apex_vertices.len(),
+        3,
+        "Sphere cap on cube apex has 3 apex vertices",
     );
 }
 
@@ -420,7 +298,7 @@ fn open_rung_when_too_few_fillets_succeed_on_cube() {
         "Open rung must produce CapKind::Open, got {:?}",
         plan.cap_kind,
     );
-    if let crate::apex_construction::cap_kind::CapKind::Open {
+    if let CapKind::Open {
         n_fillets_attempted,
     } = &plan.cap_kind
     {
@@ -458,284 +336,5 @@ fn input_validation_short_circuits_rung_ladder() {
     assert!(
         matches!(err, ApexPlanError::InsufficientFillets { n: 2, .. }),
         "expected InsufficientFillets(n=2), got {err:?}",
-    );
-}
-
-/// Issue 5 — pre-cancelled tokens short-circuit planning at the
-/// rung-ladder boundary (after `validate_inputs` succeeds, before
-/// any sphere-fit math runs).
-#[test]
-fn cancellation_token_short_circuits_planning() {
-    use crate::cancellation::CancellationToken;
-
-    let cube = BRep::unit_cube(test_tolerance()).expect("cube builds");
-    let (apex, edges) = pick_apex_and_incident_edges(&cube);
-    let radius = 0.1;
-    let surfaces = build_fillet_surfaces(&cube, &edges, radius);
-    let specs: Vec<FilletSpec> = edges
-        .iter()
-        .map(|&e| FilletSpec {
-            edge: e,
-            radius: FilletRadius::Constant(radius),
-        })
-        .collect();
-    let token = CancellationToken::new();
-    token.cancel();
-    let err = plan_apex_resolution(
-        &cube,
-        apex,
-        &specs,
-        &surfaces,
-        &test_tolerance(),
-        Some(&token),
-    )
-    .expect_err("pre-cancelled token must surface ApexPlanError::Cancelled");
-    assert!(
-        matches!(err, ApexPlanError::Cancelled),
-        "expected Cancelled, got {err:?}",
-    );
-}
-
-// ---------------------------------------------------------------
-// Issue 8 — preview affordances on ApexPlan
-// ---------------------------------------------------------------
-
-#[test]
-fn preview_affordances_describe_direct_rung_plan() {
-    let cube = BRep::unit_cube(test_tolerance()).expect("cube builds");
-    let (apex, edges) = pick_apex_and_incident_edges(&cube);
-    let radius = 0.1;
-    let surfaces = build_fillet_surfaces(&cube, &edges, radius);
-    let specs: Vec<FilletSpec> = edges
-        .iter()
-        .map(|&e| FilletSpec {
-            edge: e,
-            radius: FilletRadius::Constant(radius),
-        })
-        .collect();
-    let plan = plan_apex_resolution(&cube, apex, &specs, &surfaces, &test_tolerance(), None)
-        .expect("Direct rung succeeds on uniform cube");
-
-    let summary = plan.plan_summary();
-    assert!(
-        summary.starts_with("Direct:") && summary.contains("3 fillets"),
-        "summary should describe Direct rung + 3 fillets; got: {summary}",
-    );
-
-    let aabb = plan.apex_aabb().expect("Direct rung has apex geometry");
-    let (min, max) = aabb;
-    assert!(
-        min.x <= max.x && min.y <= max.y && min.z <= max.z,
-        "apex_aabb min should be ≤ max componentwise",
-    );
-    // Cube apex at origin, radius 0.1 → AABB is small near origin.
-    let extent = (max.x - min.x).max(max.y - min.y).max(max.z - min.z);
-    assert!(
-        extent < 0.5,
-        "AABB extent {extent} should be small for a 0.1-radius cube apex",
-    );
-
-    let preview = plan.cap_surface_preview();
-    assert!(
-        !preview.is_empty(),
-        "Direct rung preview should yield at least the tangent-arc endpoints",
-    );
-}
-
-#[test]
-fn preview_affordances_describe_open_rung_plan() {
-    let cube = BRep::unit_cube(test_tolerance()).expect("cube builds");
-    let (apex, edges) = pick_apex_and_incident_edges(&cube);
-    let radius = 0.1;
-    let mut surfaces = build_fillet_surfaces(&cube, &edges, radius);
-    force_unsupported_kind(&mut surfaces, 2);
-    let specs: Vec<FilletSpec> = edges
-        .iter()
-        .map(|&e| FilletSpec {
-            edge: e,
-            radius: FilletRadius::Constant(radius),
-        })
-        .collect();
-    let plan = plan_apex_resolution(&cube, apex, &specs, &surfaces, &test_tolerance(), None)
-        .expect("Open rung produces a plan");
-
-    let summary = plan.plan_summary();
-    assert!(
-        summary.contains("Open:") && summary.contains("no cap"),
-        "Open's summary should mention no cap; got: {summary}",
-    );
-
-    assert!(
-        plan.apex_aabb().is_none(),
-        "Open rung has no apex geometry to box",
-    );
-    assert!(
-        plan.cap_surface_preview().is_empty(),
-        "Open rung has no cap to preview",
-    );
-}
-
-// ---------------------------------------------------------------
-// Issue 6 — JSON/serde round-trip
-// ---------------------------------------------------------------
-
-#[test]
-fn plan_round_trips_through_json() {
-    let cube = BRep::unit_cube(test_tolerance()).expect("cube builds");
-    let (apex, edges) = pick_apex_and_incident_edges(&cube);
-    let radius = 0.1;
-    let surfaces = build_fillet_surfaces(&cube, &edges, radius);
-    let specs: Vec<FilletSpec> = edges
-        .iter()
-        .map(|&e| FilletSpec {
-            edge: e,
-            radius: FilletRadius::Constant(radius),
-        })
-        .collect();
-    let plan = plan_apex_resolution(&cube, apex, &specs, &surfaces, &test_tolerance(), None)
-        .expect("Direct rung succeeds on uniform cube");
-
-    let json = serde_json::to_string(&plan).expect("ApexPlan serialises to JSON");
-    assert!(
-        json.contains("\"apex_vertex\"") && json.contains("\"telemetry\""),
-        "JSON should contain ApexPlan field names; got prefix: {}",
-        &json[..json.len().min(120)],
-    );
-    let restored: super::plan::ApexPlan =
-        serde_json::from_str(&json).expect("ApexPlan deserialises from JSON");
-    // f64 JSON round-trips can drift by one ULP through ryu's
-    // shortest-round-trip parser interaction (a known
-    // serde_json/ryu issue, not a defect of this plan type).  We
-    // therefore only assert structural-field equality on
-    // integer/string-valued data — the parts that do round-trip
-    // bit-exactly.
-    assert_eq!(plan.apex_vertex, restored.apex_vertex);
-    assert_eq!(plan.n_fillets(), restored.n_fillets());
-    assert_eq!(plan.telemetry.rung, restored.telemetry.rung);
-    assert_eq!(
-        plan.telemetry.cap_kind_reason,
-        restored.telemetry.cap_kind_reason
-    );
-    assert_eq!(
-        plan.target_topology.apex_vertices.len(),
-        restored.target_topology.apex_vertices.len()
-    );
-    assert_eq!(
-        plan.target_topology.apex_edges.len(),
-        restored.target_topology.apex_edges.len()
-    );
-    // Geometric fields are reproduced within 1 ULP — verify by
-    // bounding the per-coordinate drift on apex_vertices.
-    for (a, b) in plan
-        .target_topology
-        .apex_vertices
-        .iter()
-        .zip(restored.target_topology.apex_vertices.iter())
-    {
-        assert!(
-            (a.x - b.x).abs() < 1e-15 && (a.y - b.y).abs() < 1e-15 && (a.z - b.z).abs() < 1e-15,
-            "apex_vertex round-trip drift > 1e-15: {a:?} vs {b:?}",
-        );
-    }
-}
-
-#[test]
-fn open_rung_plan_round_trips_through_json() {
-    let cube = BRep::unit_cube(test_tolerance()).expect("cube builds");
-    let (apex, edges) = pick_apex_and_incident_edges(&cube);
-    let radius = 0.1;
-    let mut surfaces = build_fillet_surfaces(&cube, &edges, radius);
-    force_unsupported_kind(&mut surfaces, 2);
-    let specs: Vec<FilletSpec> = edges
-        .iter()
-        .map(|&e| FilletSpec {
-            edge: e,
-            radius: FilletRadius::Constant(radius),
-        })
-        .collect();
-    let plan = plan_apex_resolution(&cube, apex, &specs, &surfaces, &test_tolerance(), None)
-        .expect("Open rung produces a plan");
-
-    let json = serde_json::to_string(&plan).expect("Open ApexPlan serialises");
-    let restored: super::plan::ApexPlan =
-        serde_json::from_str(&json).expect("Open ApexPlan deserialises");
-    // Open's plan has no f64 geometry to lose precision on, so
-    // structural equality holds bit-exactly.
-    assert_eq!(plan, restored);
-    assert!(restored.cap_kind.is_open());
-}
-
-// ---------------------------------------------------------------
-// Variable-radius coverage — Gregory dispatch on real fixture
-// ---------------------------------------------------------------
-
-#[test]
-fn variable_radii_on_cube_dispatches_to_gregory() {
-    let cube = BRep::unit_cube(test_tolerance()).expect("cube builds");
-    let (apex, edges) = pick_apex_and_incident_edges(&cube);
-    assert_eq!(edges.len(), 3);
-    // Three distinct radii spanning ~10× — well outside any
-    // tolerance-based "uniform" classification.
-    let radii = [0.05_f64, 0.10, 0.20];
-    let surfaces = build_fillet_surfaces_per_edge(&cube, &edges, &radii);
-    let specs: Vec<FilletSpec> = edges
-        .iter()
-        .zip(radii.iter())
-        .map(|(&e, &r)| FilletSpec {
-            edge: e,
-            radius: FilletRadius::Constant(r),
-        })
-        .collect();
-
-    let plan = plan_apex_resolution(&cube, apex, &specs, &surfaces, &test_tolerance(), None)
-        .expect("Direct rung succeeds on variable-radius cube apex");
-
-    assert_eq!(
-        plan.telemetry.rung,
-        ConstructionRung::Direct,
-        "variable radii still resolve via Direct rung",
-    );
-    // Variable radii must dispatch to Gregory (Sphere requires
-    // uniform radii within tolerance.linear()).
-    assert!(
-        plan.cap_kind.is_gregory(),
-        "variable radii (0.05, 0.10, 0.20) → Gregory cap, got {:?}",
-        plan.cap_kind,
-    );
-    if let CapKind::Gregory {
-        per_fillet_caps, ..
-    } = &plan.cap_kind
-    {
-        assert_eq!(per_fillet_caps.len(), 3);
-        // Each per-fillet cap radius matches its input radius.
-        // Caps are in cap-loop walk order, which may not match
-        // the input edge order — check by radius set.
-        let mut got: Vec<f64> = per_fillet_caps.iter().map(|(_, r)| *r).collect();
-        got.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let mut want = radii.to_vec();
-        want.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        for (g, w) in got.iter().zip(want.iter()) {
-            assert!(
-                (g - w).abs() < 1e-9,
-                "per-fillet radius {g} should match an input radius (sorted: got {got:?}, want {want:?})",
-            );
-        }
-    }
-    // Telemetry should attribute the Gregory dispatch to variable
-    // radii, not bridge-collapse failure.
-    let reason = &plan.telemetry.cap_kind_reason;
-    assert!(
-        reason.contains("variable radii"),
-        "Gregory reason should mention variable radii; got: {reason}",
-    );
-    // Diagnostic numerics: radii_spread should be ≥ 0.15 (max 0.20 - min 0.05).
-    let spread = plan
-        .telemetry
-        .diagnostic_values
-        .get("radii_spread")
-        .copied();
-    assert!(
-        spread.is_some_and(|s| (s - 0.15).abs() < 1e-9),
-        "radii_spread should be 0.15 (= 0.20 - 0.05); got {spread:?}",
     );
 }
