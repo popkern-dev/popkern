@@ -515,13 +515,53 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         {
             brep.half_edges[he_handle].pcurve = Some(pc.into());
         }
-        if let Some(other_surf) = other_surf.as_ref()
+        // Phase 6c-D Stage 4.7: when the twin face is an analytic
+        // surface (Plane / Cylinder), the sphere-fit substituted
+        // curve lies on it (or near it after Stage 4.7 lift).
+        // Write an analytic Linear pcurve through the projected
+        // endpoints so cap-side and twin-side surface evaluations
+        // agree to machine precision — the deg-3 NURBS refit's
+        // least-squares interpolation through 12 samples leaves
+        // up to 1 cm residual on small arcs, which the Linear
+        // approximation closes for short segments.
+        let analytic_twin_pcurve = if stage4_wide_tol {
+            other_surf
+                .as_ref()
+                .and_then(|s| analytic_linear_pcurve_on_surface(&curve, s, edge_t_start, edge_t_end))
+        } else {
+            None
+        };
+        if let Some(pc) = analytic_twin_pcurve {
+            brep.half_edges[twin_he].pcurve = Some(pc);
+        } else if let Some(other_surf) = other_surf.as_ref()
             && let Some(pc) = refit_pcurve_on_surface(&curve, other_surf, edge_t_start, edge_t_end)
         {
             brep.half_edges[twin_he].pcurve = Some(pc.into());
         }
     }
     wired
+}
+
+/// Build an analytic Linear pcurve on `surface` by projecting the
+/// curve endpoints to surface UV.  Exact when the surface contains
+/// the curve and the curve traces a linear path in the surface's
+/// UV space (cylinder seam-perpendicular arcs, plane edges).
+/// Approximate but small-error for short arcs on cylinders where
+/// the (theta, axial) trajectory is mildly curved.
+///
+/// Returns `None` when projection fails (point off surface, degenerate
+/// UV, etc.) — caller falls through to the deg-3 NURBS refit.
+fn analytic_linear_pcurve_on_surface(
+    curve: &NurbsCurve,
+    surface: &SurfaceGeometry,
+    t_start: f64,
+    t_end: f64,
+) -> Option<Pcurve> {
+    let p_start = curve.point_at(t_start);
+    let p_end = curve.point_at(t_end);
+    let uv_start = project_point_to_uv(surface, &p_start)?;
+    let uv_end = project_point_to_uv(surface, &p_end)?;
+    Some(Pcurve::linear(uv_start, uv_end, t_start, t_end))
 }
 
 /// Phase 6c-D: reverse a NurbsCurve by flipping CPs, weights, and
