@@ -7,6 +7,7 @@
 
 pub mod boundary;
 pub(crate) mod boundary_hex;
+pub(crate) mod boundary_sampling;
 #[cfg(test)]
 #[path = "boundary_tests.rs"]
 mod boundary_tests;
