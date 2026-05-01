@@ -1,24 +1,39 @@
-//! Phase 6c-X.A.6 — validation matrix at full `validate_all`.
+//! Phase 6c-X.A.6 — composite validation gate for Path A.
 //!
 //! Path A (apex topology rebuild) lands as A.3 + A.4 + A.5 behind
-//! the `POPKERN_APEX_PATH_A=1` env flag.  A.6's gate is:
-//! **with Path A enabled, every fixture in the validation matrix
-//! must pass `BRep::validate_all()` cleanly** (zero validation
-//! errors).
+//! the `POPKERN_APEX_PATH_A=1` env flag.  A.7's flag-flip gate
+//! requires **a metric Path A actually moves** — `validate_all`'s
+//! raw error count doesn't (the V↔T coherence Path A closes
+//! doesn't surface there at the kernel's default linear tolerance,
+//! and the remaining `InconsistentOrientation` errors are
+//! degenerate-normal issues unrelated to V↔T).
 //!
-//! `validate_all` is the expensive O(n²) self-intersection check
-//! plus the structural and geometric checks that `validate()`
-//! covers.  Path A claims to close the apex-region
-//! vertex-to-curve-endpoint coherence gap (`validate_watertight` /
-//! `validate_loop_closure`) for variable-radius cube and pyramid4
-//! fixtures.  The diagnostic test below is the lock-in: it dumps
-//! per-fixture error counts so progress can be tracked
-//! incrementally without flipping the gate.
+//! This module defines `MetricBreakdown`: a per-fixture decomposition
+//! of `validate_all` errors into three buckets:
 //!
-//! When every fixture passes cleanly, A.7 flips
-//! `POPKERN_APEX_PATH_A=1` to the default and removes the legacy
-//! workarounds the new path supersedes.
+//! * **Structural** — Euler-Poincaré, half-edge pairing/cycles,
+//!   vertex consistency, manifold edges, vertex valence.  Must be
+//!   zero on any healthy BRep.  Path A doesn't change these.
+//! * **Path-A-relevant** — `OpenLoop` (loop-closure gap from
+//!   curve endpoints disagreeing with vertex positions) and
+//!   `ShellGap` (adjacent half-edges' vertex positions diverging
+//!   across an edge).  These are the gaps Path A's V↔T relocation
+//!   is designed to close.
+//! * **Other geometric** — `InconsistentOrientation` (degenerate
+//!   surface normal at parameter midpoint), `CurveSurfaceDeviation`,
+//!   `TwistedSurface`, `Precision`, `SelfIntersection`.  Path A
+//!   doesn't address these; they need separate work.
+//!
+//! Combined with the existing Phase 6c-E `cap_outer_g0` metric
+//! (≤ 5e-3 m), the A.7 flip gate becomes:
+//!   * structural == 0,
+//!   * path_a_relevant == 0,
+//!   * cap_outer_g0 ≤ 5e-3.
+//!
+//! `Other geometric` count is tracked but not gated — those go
+//! through their own work items.
 
+use popkern_core::error::ValidationError;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
@@ -76,10 +91,55 @@ fn build_with_path_a(
     }
 }
 
-/// A.6 baseline: dump `validate_all` error counts per fixture
-/// under Path A.  Ignored by default — run with
-/// `cargo test phase_6c_a6_validate_all_baseline -- --ignored
-/// --nocapture` to see today's state.
+/// Decomposition of `validate_all` errors into Path A's three
+/// concern buckets.  See module docs for category definitions.
+#[derive(Debug, Default)]
+pub(crate) struct MetricBreakdown {
+    pub structural: usize,
+    pub path_a_relevant: usize,
+    pub other_geometric: usize,
+    /// Worst gap reported by an `OpenLoop` or `ShellGap` error,
+    /// in metres.  0.0 when both are absent.  Useful for ratchets
+    /// that watch for regressions in magnitude even when count
+    /// stays flat.
+    pub worst_path_a_gap: f64,
+}
+
+/// Bucket a `validate_all` error vector by category.
+pub(crate) fn breakdown(errors: &[ValidationError]) -> MetricBreakdown {
+    let mut out = MetricBreakdown::default();
+    for err in errors {
+        match err {
+            ValidationError::EulerPoincare { .. }
+            | ValidationError::BrokenTwin { .. }
+            | ValidationError::BrokenCycle { .. }
+            | ValidationError::InconsistentVertex { .. }
+            | ValidationError::NonManifoldEdge { .. }
+            | ValidationError::LowValence { .. } => out.structural += 1,
+            ValidationError::OpenLoop { gap, .. } => {
+                out.path_a_relevant += 1;
+                if *gap > out.worst_path_a_gap {
+                    out.worst_path_a_gap = *gap;
+                }
+            }
+            ValidationError::ShellGap { gap, .. } => {
+                out.path_a_relevant += 1;
+                if *gap > out.worst_path_a_gap {
+                    out.worst_path_a_gap = *gap;
+                }
+            }
+            ValidationError::InconsistentOrientation { .. }
+            | ValidationError::CurveSurfaceDeviation { .. }
+            | ValidationError::TwistedSurface { .. }
+            | ValidationError::Precision { .. }
+            | ValidationError::SelfIntersection { .. } => out.other_geometric += 1,
+        }
+    }
+    out
+}
+
+/// A.6 baseline: dump per-bucket validate_all decomposition.
+/// Ignored — run with `--ignored --nocapture` for inspection.
 #[ignore]
 #[test]
 fn phase_6c_a6_validate_all_baseline() {
@@ -121,69 +181,115 @@ fn phase_6c_a6_validate_all_baseline() {
         },
     ];
 
-    eprintln!("\n=== A.6 validate_all baseline (POPKERN_APEX_PATH_A=1) ===");
+    eprintln!("\n=== A.6 validate_all categorised baseline (POPKERN_APEX_PATH_A=1) ===");
     eprintln!("tolerance.linear() = {:.3e}", Tolerance::default().linear());
-    let mut totals: Vec<(String, usize)> = Vec::with_capacity(cases.len());
+    eprintln!(
+        "{:<18}  {:>5}  {:>5}  {:>5}  {:>10}",
+        "fixture", "struct", "pathA", "other", "worst gap"
+    );
+    eprintln!("{:-<48}", "");
     for case in cases {
         let (brep, _faces) = build_with_path_a(case.is_pyramid, case.radii);
         let errors = brep.validate_all();
-        eprintln!("  {:18}: {} validation errors", case.name, errors.len());
+        let m = breakdown(&errors);
+        eprintln!(
+            "{:<18}  {:>5}  {:>5}  {:>5}  {:>10}",
+            case.name,
+            m.structural,
+            m.path_a_relevant,
+            m.other_geometric,
+            if m.worst_path_a_gap > 0.0 {
+                format!("{:.3e}", m.worst_path_a_gap)
+            } else {
+                "—".to_string()
+            },
+        );
         for (i, err) in errors.iter().enumerate().take(5) {
             eprintln!("    [{i}] {err:?}");
         }
         if errors.len() > 5 {
             eprintln!("    ... ({} more)", errors.len() - 5);
         }
-        totals.push((case.name.to_string(), errors.len()));
-    }
-    eprintln!("\nSummary:");
-    for (name, n) in &totals {
-        let mark = if *n == 0 { "✓" } else { "✗" };
-        eprintln!("  {mark} {name:18} {n} errors");
     }
 }
 
-/// A.6 ratchet: per-fixture empirical-state regression guard.
-/// As Path A closes more fixtures, the bounds tighten.  When
-/// every count reaches zero, A.7 flips the default.
-///
-/// Today's snapshot (2026-05-01):
-/// * pyramid4_mixed: 1 error (InconsistentOrientation on a face).
-/// * pyramid4_uniform: 3 errors.
-/// * cube_mixed / cube_extreme: 2 errors each.
-/// * cube_uniform / pyramid3_uniform: 3 errors each.
-///
-/// This test asserts the current state of pyramid4_mixed (the
-/// closest-to-clean fixture).  If a regression introduces
-/// MORE errors, this trips; if work brings it to zero, the
-/// assertion can tighten via the `≤ N` form below.
+/// A.6 ratchet: pyramid4_mixed structural and Path-A-relevant
+/// counts are both already zero with Path A enabled — the only
+/// remaining `validate_all` error is `other_geometric`
+/// (`InconsistentOrientation`).  This test pins both Path-A
+/// gates at zero and tracks the other_geometric count as ≤ 1
+/// (today's empirical state).
 #[test]
-fn phase_6c_a6_pyramid4_mixed_ratchet() {
+fn phase_6c_a6_pyramid4_mixed_path_a_gates_clean() {
     let (brep, _faces) = build_with_path_a(true, &[0.04, 0.06, 0.05, 0.07]);
     let errors = brep.validate_all();
-    assert!(
-        errors.len() <= 1,
-        "pyramid4_mixed under Path A regression: {} error(s) (was 1):\n{}",
-        errors.len(),
+    let m = breakdown(&errors);
+    eprintln!(
+        "[A.6] pyramid4_mixed: structural={} pathA={} other={} worst_pathA_gap={:.3e}",
+        m.structural, m.path_a_relevant, m.other_geometric, m.worst_path_a_gap,
+    );
+    assert_eq!(
+        m.structural,
+        0,
+        "structural must be 0 (Path A's prerequisites); errors:\n{}",
         errors
             .iter()
-            .take(8)
+            .map(|e| format!("  - {e:?}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    assert_eq!(
+        m.path_a_relevant,
+        0,
+        "path_a_relevant must be 0 on pyramid4_mixed (Path A's primary deliverable); errors:\n{}",
+        errors
+            .iter()
+            .map(|e| format!("  - {e:?}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    assert!(
+        m.other_geometric <= 1,
+        "other_geometric regression: {} errors (was ≤1):\n{}",
+        m.other_geometric,
+        errors
+            .iter()
             .map(|e| format!("  - {e:?}"))
             .collect::<Vec<_>>()
             .join("\n"),
     );
 }
 
-// Empirical finding (2026-05-01): with or without
-// `POPKERN_APEX_PATH_A=1`, `pyramid4_mixed`'s `validate_all`
-// reports the same error count.  Path A's vertex-relocation +
-// base-edge-repair work IS happening (POPKERN_APEX_PATH_A_TRACE
-// shows 8 vertices moved, worst |V→T| = 5e-2 m), but the
-// remaining `validate_all` error (`InconsistentOrientation` on
-// a single face) is unrelated to the V→T coherence problem
-// Path A targets.  The error reflects a degenerate surface
-// normal at a face's parameter midpoint — distinct from the
-// `validate_watertight` / `validate_loop_closure` checks Path
-// A is designed to close.  A.7's flag-flip gate will need a
-// richer regression metric than `validate_all().len()` —
-// likely `cap_outer_g0` + a sweep of structural checks.
+/// A.6 ratchet for pyramid4_uniform — structural already zero,
+/// path_a_relevant currently ≤ 2.  Tightens to 0 once Path A
+/// closes the remaining V↔T cases on this fixture.
+#[test]
+fn phase_6c_a6_pyramid4_uniform_path_a_ratchet() {
+    let (brep, _faces) = build_with_path_a(true, &[0.05, 0.05, 0.05, 0.05]);
+    let errors = brep.validate_all();
+    let m = breakdown(&errors);
+    eprintln!(
+        "[A.6] pyramid4_uniform: structural={} pathA={} other={} worst_pathA_gap={:.3e}",
+        m.structural, m.path_a_relevant, m.other_geometric, m.worst_path_a_gap,
+    );
+    assert_eq!(
+        m.structural,
+        0,
+        "structural must be 0; errors:\n{}",
+        errors
+            .iter()
+            .map(|e| format!("  - {e:?}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    assert!(
+        m.path_a_relevant <= 2,
+        "pyramid4_uniform path_a_relevant regression: {} (was ≤2):\n{}",
+        m.path_a_relevant,
+        errors
+            .iter()
+            .map(|e| format!("  - {e:?}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+}
