@@ -21,7 +21,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 use super::EdgeGeometry;
 
-use crate::apex_construction::construct_apex;
+use crate::apex_construction::construct::construct_apex_with_surfaces;
 use crate::apex_construction::plan::plan_apex_resolution_lenient;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{FilletRadius, FilletSpec};
@@ -206,7 +206,7 @@ pub(super) fn try_a2_apex_construction(
         }
     }
 
-    let build_result = construct_apex(brep, &plan, tolerance, None)
+    let build_result = construct_apex_with_surfaces(brep, &plan, &surfaces, tolerance, None)
         .map_err(|build_err| format!("construct_apex: {build_err}"))?;
     // TODO(A2.4): when construct_apex returns substantive cap
     // geometry for Gregory plans, bridge `ApexBuildResult` into the

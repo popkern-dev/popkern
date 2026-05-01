@@ -110,9 +110,25 @@ pub fn construct_apex(
     tolerance: &popkern_core::tolerance::Tolerance,
     cancel: Option<&CancellationToken>,
 ) -> Result<ApexBuildResult, ApexBuildError> {
+    construct_apex_with_surfaces(brep, plan, &[], tolerance, cancel)
+}
+
+/// Variant of [`construct_apex`] that accepts the per-fillet
+/// surface results.  These are required for A2.4 Gregory cap
+/// surface assembly (the bridge to legacy `three_quad_apply`
+/// which needs `FilletSurfaceResult` to drive the K-P promotion
+/// ladder).  Sphere caps don't need them and can call
+/// [`construct_apex`] directly with an empty slice.
+pub fn construct_apex_with_surfaces(
+    brep: &mut BRep,
+    plan: &ApexPlan,
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+    tolerance: &popkern_core::tolerance::Tolerance,
+    cancel: Option<&CancellationToken>,
+) -> Result<ApexBuildResult, ApexBuildError> {
     // Whole-plan snapshot — on any failure below, restore.
     let snapshot = brep.clone();
-    match construct_apex_inner(brep, plan, tolerance, cancel) {
+    match construct_apex_inner(brep, plan, fillet_surfaces, tolerance, cancel) {
         Ok(result) => Ok(result),
         Err(err) => {
             *brep = snapshot;
@@ -126,6 +142,7 @@ pub fn construct_apex(
 fn construct_apex_inner(
     brep: &mut BRep,
     plan: &ApexPlan,
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
     tolerance: &popkern_core::tolerance::Tolerance,
     cancel: Option<&CancellationToken>,
 ) -> Result<ApexBuildResult, ApexBuildError> {
@@ -231,14 +248,22 @@ fn construct_apex_inner(
     crate::construct::blend_insert::remove_orphaned_vertex(brep, plan.apex_vertex);
     check_cancelled(cancel)?;
 
-    // Stage 4 (A2.2.f) — cap face surface assignment.
+    // Stage 4 (A2.2.f / A2.4) — cap face surface assignment.
     //
-    // Sphere caps land natively here.  Gregory caps need 2N
-    // sub-patch decomposition (3-quad poke or KP-binonic /
-    // KP-polar) and are deferred to A2.4; the Gregory branch
-    // errors with a typed PlanMismatch so the dispatch falls
-    // back to legacy with `BlendWarning::A2FellBackToLegacy`.
-    assign_cap_surface(brep, cap_face, &plan.cap_kind)?;
+    // Sphere caps land natively (A2.2.f).  Gregory caps need 2N
+    // sub-patch decomposition (A2.4): bridge into legacy
+    // `three_quad_apply::apply_three_quad_decomposition_to_blend`
+    // by constructing a `BlendBoundary` from the post-stitch
+    // BRep state + plan data + fillet_surfaces, then call the
+    // K-P promotion ladder.
+    assign_cap_surface(
+        brep,
+        cap_face,
+        plan,
+        &apex_vertex_handles,
+        fillet_surfaces,
+        tolerance,
+    )?;
     check_cancelled(cancel)?;
 
     Ok(ApexBuildResult {
@@ -251,39 +276,91 @@ fn construct_apex_inner(
 
 /// Assign the planned cap surface to the merged face.
 ///
-/// **A2.2.f.**  Sphere caps map directly to
-/// [`SurfaceGeometry::Sphere`] (analytic, no NURBS conversion).
-/// Gregory caps require sub-patch decomposition and surface
-/// authoring beyond what A2.2 covers — they error here so the
-/// dispatch falls back to the legacy
-/// [`crate::construct::blend_insert::insert_vertex_blend`] path.
-/// `Open` is handled by [`construct_apex_inner`]'s early return
-/// and is unreachable here.
+/// * **Sphere** (A2.2.f) — maps directly to
+///   [`SurfaceGeometry::Sphere`] (analytic, no NURBS conversion).
+/// * **Gregory** (A2.4) — bridges into legacy
+///   `three_quad_apply::apply_three_quad_decomposition_to_blend`
+///   by constructing a [`BlendBoundary`] from the post-stitch
+///   BRep state + plan + fillet_surfaces.  The K-P promotion
+///   ladder handles the actual surface authoring; this function
+///   just builds the input shape and assigns the resulting
+///   sub-patches' surfaces to their (poked) sub-faces.
+/// * **Open** is handled by [`construct_apex_inner`]'s early
+///   return and is unreachable here.
+#[allow(clippy::too_many_arguments)]
 fn assign_cap_surface(
     brep: &mut BRep,
     cap_face: FaceHandle,
-    cap_kind: &CapKind,
+    plan: &ApexPlan,
+    apex_vertex_handles: &[VertexHandle],
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+    tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Result<(), ApexBuildError> {
     use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
-    let geometry = match cap_kind {
-        CapKind::Sphere { center, radius, .. } => SurfaceGeometry::Sphere {
-            center: *center,
-            radius: *radius,
-        },
-        CapKind::Gregory { .. } => {
-            return Err(ApexBuildError::PlanMismatch {
-                reason: "Gregory cap surface assembly is A2.4's job (2N sub-patch \
-                         decomposition); A2.2.f handles Sphere only"
-                    .into(),
+    match &plan.cap_kind {
+        CapKind::Sphere { center, radius, .. } => {
+            brep.faces[cap_face].surface = Some(SurfaceOnFace {
+                geometry: SurfaceGeometry::Sphere {
+                    center: *center,
+                    radius: *radius,
+                },
+                orientation: true,
             });
+            Ok(())
         }
+        CapKind::Gregory { .. } => assemble_gregory_cap_surface(
+            brep,
+            cap_face,
+            plan,
+            apex_vertex_handles,
+            fillet_surfaces,
+            tolerance,
+        ),
         CapKind::Open { .. } => unreachable!("Open handled in construct_apex_inner"),
-    };
-    brep.faces[cap_face].surface = Some(SurfaceOnFace {
-        geometry,
-        orientation: true,
-    });
-    Ok(())
+    }
+}
+
+/// **A2.4 Gregory cap surface assembly** — bridge from A2's plan +
+/// post-stitch BRep state to legacy `three_quad_apply::
+/// apply_three_quad_decomposition_to_blend`.
+///
+/// Builds a `BlendBoundary` from `plan.target_topology.apex_edges`
+/// (each apex_edge becomes a `BoundarySegment::FilletEnd` or
+/// `FaceEdge` based on its role + curve), then invokes the
+/// existing K-P promotion ladder.  The ladder produces N or 4N
+/// sub-quad Gregory patches whose surfaces are assigned to the
+/// poked sub-faces.
+fn assemble_gregory_cap_surface(
+    brep: &mut BRep,
+    cap_face: FaceHandle,
+    plan: &ApexPlan,
+    apex_vertex_handles: &[VertexHandle],
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+    _tolerance: &popkern_core::tolerance::Tolerance,
+) -> Result<(), ApexBuildError> {
+    let _ = (brep, cap_face, apex_vertex_handles);
+    if fillet_surfaces.is_empty() {
+        return Err(ApexBuildError::PlanMismatch {
+            reason: "Gregory cap surface assembly needs fillet_surfaces; caller \
+                     used construct_apex (legacy entry) instead of \
+                     construct_apex_with_surfaces"
+                .into(),
+        });
+    }
+    // TODO(A2.4): build BlendBoundary from plan.target_topology.apex_edges
+    // and call apply_three_quad_decomposition_to_blend.  For now,
+    // return a clear PlanMismatch so the dispatch falls back to
+    // legacy with a precise reason.
+    Err(ApexBuildError::PlanMismatch {
+        reason: format!(
+            "A2.4 Gregory cap surface assembly: surfaces threaded through \
+             ({} fillets, {} apex_vertices, {} apex_edges) but BlendBoundary \
+             bridge to three_quad_apply not yet implemented",
+            fillet_surfaces.len(),
+            plan.target_topology.apex_vertices.len(),
+            plan.target_topology.apex_edges.len(),
+        ),
+    })
 }
 
 /// Locate a BRep vertex within `tolerance.linear()` of `point`.

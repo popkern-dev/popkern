@@ -65,7 +65,7 @@ mod plan_e2e_extras_tests;
 mod construct_tests;
 
 pub use cap_kind::CapKind;
-pub use construct::{ApexBuildResult, construct_apex};
+pub use construct::{ApexBuildResult, construct_apex, construct_apex_with_surfaces};
 pub use error::{ApexBuildError, ApexError, ApexPlanError};
 pub use plan::{ApexPlan, plan_apex_resolution};
 pub use target_topology::{TargetCapFace, TargetEdge, TargetEdgeRole, TargetTopology};
