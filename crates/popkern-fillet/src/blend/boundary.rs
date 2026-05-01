@@ -136,6 +136,25 @@ pub enum BoundarySegment {
     },
 }
 
+/// Per-call options for [`compute_blend_boundary_with_options`].
+///
+/// Today's only field, `disable_sphere_fit_substitution`, lets the
+/// caller override the global `POPKERN_SPHERE_FIT_BOUNDARY` env-var
+/// gate.  Used by §6c-X.A.7's auto-dispatch: at uniform-radius
+/// apices the sphere-fit substitution produces degenerate cap-loop
+/// edges that Path A's vertex relocation can't resolve cleanly
+/// (see ADR / journal entries, 2026-05-01).  The caller suppresses
+/// substitution and the post-loop `POPKERN_APEX_TOPOLOGY_REBUILD`
+/// pass collapses the rolling-ball 6-vertex loop to 3-vertex
+/// directly.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct BlendBoundaryOptions {
+    /// Force-disable sphere-fit substitution for this call,
+    /// regardless of the `POPKERN_SPHERE_FIT_BOUNDARY` env var.
+    /// `None` honours the env var (today's default behaviour).
+    pub disable_sphere_fit_substitution: Option<bool>,
+}
+
 /// Compute the blend boundary at a vertex where multiple fillets meet.
 ///
 /// Collects the end arcs of each fillet surface near the vertex, plus the
@@ -152,6 +171,28 @@ pub fn compute_blend_boundary(
     fillet_surfaces: &[FilletSurfaceResult],
     brep: &BRep,
     tolerance: &Tolerance,
+) -> Result<BlendBoundary, String> {
+    compute_blend_boundary_with_options(
+        vertex,
+        fillet_indices,
+        fillet_surfaces,
+        brep,
+        tolerance,
+        BlendBoundaryOptions::default(),
+    )
+}
+
+/// Variant of [`compute_blend_boundary`] that accepts per-call
+/// [`BlendBoundaryOptions`].  Today's only option lets the caller
+/// override the global `POPKERN_SPHERE_FIT_BOUNDARY` env-var
+/// substitution gate.
+pub fn compute_blend_boundary_with_options(
+    vertex: VertexHandle,
+    fillet_indices: &[usize],
+    fillet_surfaces: &[FilletSurfaceResult],
+    brep: &BRep,
+    tolerance: &Tolerance,
+    options: BlendBoundaryOptions,
 ) -> Result<BlendBoundary, String> {
     if fillet_indices.is_empty() {
         return Err("no fillet indices provided for blend boundary".into());
@@ -216,9 +257,13 @@ pub fn compute_blend_boundary(
     let has_face_supports =
         !face_supports.is_empty() && face_supports.len() == faces_at_vertex.len();
 
-    let sphere_fit_enabled = std::env::var("POPKERN_SPHERE_FIT_BOUNDARY")
-        .map(|v| v == "1")
-        .unwrap_or(false);
+    let sphere_fit_enabled = match options.disable_sphere_fit_substitution {
+        Some(true) => false,
+        Some(false) => true,
+        None => std::env::var("POPKERN_SPHERE_FIT_BOUNDARY")
+            .map(|v| v == "1")
+            .unwrap_or(false),
+    };
 
     if has_face_supports && n >= 2 {
         let reorder = reorient_arcs_for_hex_closure(

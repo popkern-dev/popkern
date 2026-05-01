@@ -44,6 +44,9 @@ pub(crate) mod gregory_diagnostic_metrics;
 #[path = "gregory_diagnostic_tests.rs"]
 mod gregory_diagnostic_tests;
 
-pub use boundary::{BlendBoundary, BoundarySegment, compute_blend_boundary};
+pub use boundary::{
+    BlendBoundary, BlendBoundaryOptions, BoundarySegment, compute_blend_boundary,
+    compute_blend_boundary_with_options,
+};
 pub use runout::{RunoutEnd, runout_radius_fn};
 pub use surface::{BlendSurfaceResult, build_blend_surface};

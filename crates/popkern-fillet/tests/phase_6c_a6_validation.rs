@@ -238,51 +238,165 @@ fn phase_6c_a6_validate_all_baseline() {
     }
 }
 
-/// A.6 ratchet: pyramid4_mixed structural and Path-A-relevant
-/// counts are both already zero with Path A enabled — the only
-/// remaining `validate_all` error is `other_geometric`
-/// (`InconsistentOrientation`).  This test pins both Path-A
-/// gates at zero and tracks the other_geometric count as ≤ 1
-/// (today's empirical state).
+/// A.6 cap-kind dispatch lock-in: every uniform-radius fixture
+/// (and pyramid4_mixed, which already worked) must show
+/// `path_a_relevant == 0` under Path A.  After §6c-X.A.7's
+/// auto-dispatch (suppress sphere-fit substitution on uniform
+/// corners; let the original rolling-ball topology stand),
+/// 4 of 6 matrix fixtures clean.  The two variable-radius cubes
+/// are tracked separately by
+/// `phase_6c_a6_variable_radius_cubes_ratchet`.
 #[test]
-fn phase_6c_a6_pyramid4_mixed_path_a_gates_clean() {
-    let (brep, _faces) = build_with_path_a(true, &[0.04, 0.06, 0.05, 0.07]);
-    let errors = brep.validate_all();
-    let m = breakdown(&errors);
+fn phase_6c_a6_uniform_fixtures_path_a_clean() {
+    struct Case {
+        name: &'static str,
+        radii: &'static [f64],
+        is_pyramid: bool,
+    }
+    let cases: &[Case] = &[
+        Case {
+            name: "cube_uniform",
+            radii: &[0.10, 0.10, 0.10],
+            is_pyramid: false,
+        },
+        Case {
+            name: "pyramid3_uniform",
+            radii: &[0.10, 0.10, 0.10],
+            is_pyramid: true,
+        },
+        Case {
+            name: "pyramid4_uniform",
+            radii: &[0.05, 0.05, 0.05, 0.05],
+            is_pyramid: true,
+        },
+        Case {
+            name: "pyramid4_mixed",
+            radii: &[0.04, 0.06, 0.05, 0.07],
+            is_pyramid: true,
+        },
+    ];
+    for case in cases {
+        let (brep, _faces) = build_with_path_a(case.is_pyramid, case.radii);
+        let errors = brep.validate_all();
+        let m = breakdown(&errors);
+        eprintln!(
+            "[A.6] {}: structural={} pathA={} other={} worst_pathA_gap={:.3e}",
+            case.name, m.structural, m.path_a_relevant, m.other_geometric, m.worst_path_a_gap,
+        );
+        assert_eq!(
+            m.structural,
+            0,
+            "{}: structural must be 0; errors:\n{}",
+            case.name,
+            errors
+                .iter()
+                .map(|e| format!("  - {e:?}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        assert_eq!(
+            m.path_a_relevant,
+            0,
+            "{}: path_a_relevant must be 0 under auto-dispatch; errors:\n{}",
+            case.name,
+            errors
+                .iter()
+                .map(|e| format!("  - {e:?}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        assert!(
+            m.other_geometric <= 1,
+            "{}: other_geometric regression {} (was ≤1):\n{}",
+            case.name,
+            m.other_geometric,
+            errors
+                .iter()
+                .map(|e| format!("  - {e:?}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+    }
+}
+
+/// A.6 probe: measure each fixture under **rebuild only** —
+/// no `POPKERN_SPHERE_FIT_BOUNDARY`, no Path A.  Confirms that
+/// the existing topology rebuild (Phase 6c-C) closes
+/// path_a_relevant gaps when run on the original 6-vertex
+/// rolling-ball topology, not the post-substitution state.
+/// This is the prerequisite check for the cap-kind dispatch
+/// refactor: if rebuild-only on cube_uniform reaches zero
+/// path_a_relevant, the dispatch design is sound.
+#[ignore]
+#[test]
+fn phase_6c_a6_rebuild_only_probe() {
+    fn build_with_rebuild_only(
+        is_pyramid: bool,
+        radii: &[f64],
+    ) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
+        // Crucially: NO POPKERN_SPHERE_FIT_BOUNDARY.  The rebuild
+        // operates on the original rolling-ball 6-vertex cap-loop
+        // topology — that's the pre-state its plan recognises.
+        let _g1 = EnvGuard::set("POPKERN_APEX_TOPOLOGY_REBUILD", "1");
+        if is_pyramid {
+            let pyr = BRep::n_gonal_pyramid(radii.len(), 1.0, 0.8, Tolerance::default()).unwrap();
+            let vertex = pick_vertex_with_valence(&pyr, radii.len()).unwrap();
+            let edges = incident_edges(&pyr, vertex);
+            fillet_corner(&pyr, &edges, radii, true)
+        } else {
+            let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+            let vertex = cube.vertices.keys().next().unwrap();
+            let edges = incident_edges(&cube, vertex);
+            fillet_corner(&cube, &edges, radii, true)
+        }
+    }
+
+    struct Case {
+        name: &'static str,
+        radii: &'static [f64],
+        is_pyramid: bool,
+    }
+    let cases: &[Case] = &[
+        Case {
+            name: "cube_uniform",
+            radii: &[0.10, 0.10, 0.10],
+            is_pyramid: false,
+        },
+        Case {
+            name: "pyramid3_uniform",
+            radii: &[0.10, 0.10, 0.10],
+            is_pyramid: true,
+        },
+        Case {
+            name: "pyramid4_uniform",
+            radii: &[0.05, 0.05, 0.05, 0.05],
+            is_pyramid: true,
+        },
+    ];
+
+    eprintln!("\n=== A.6 rebuild-only probe (no SPHERE_FIT_BOUNDARY, no Path A) ===");
     eprintln!(
-        "[A.6] pyramid4_mixed: structural={} pathA={} other={} worst_pathA_gap={:.3e}",
-        m.structural, m.path_a_relevant, m.other_geometric, m.worst_path_a_gap,
+        "{:<18}  {:>5}  {:>5}  {:>5}  {:>10}",
+        "fixture", "struct", "pathA", "other", "worst gap"
     );
-    assert_eq!(
-        m.structural,
-        0,
-        "structural must be 0 (Path A's prerequisites); errors:\n{}",
-        errors
-            .iter()
-            .map(|e| format!("  - {e:?}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    );
-    assert_eq!(
-        m.path_a_relevant,
-        0,
-        "path_a_relevant must be 0 on pyramid4_mixed (Path A's primary deliverable); errors:\n{}",
-        errors
-            .iter()
-            .map(|e| format!("  - {e:?}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    );
-    assert!(
-        m.other_geometric <= 1,
-        "other_geometric regression: {} errors (was ≤1):\n{}",
-        m.other_geometric,
-        errors
-            .iter()
-            .map(|e| format!("  - {e:?}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    );
+    eprintln!("{:-<48}", "");
+    for case in cases {
+        let (brep, _faces) = build_with_rebuild_only(case.is_pyramid, case.radii);
+        let errors = brep.validate_all();
+        let m = breakdown(&errors);
+        eprintln!(
+            "{:<18}  {:>5}  {:>5}  {:>5}  {:>10}",
+            case.name,
+            m.structural,
+            m.path_a_relevant,
+            m.other_geometric,
+            if m.worst_path_a_gap > 0.0 {
+                format!("{:.3e}", m.worst_path_a_gap)
+            } else {
+                "—".to_string()
+            },
+        );
+    }
 }
 
 /// A.6 probe: measure each fixture's per-bucket counts under
@@ -363,36 +477,47 @@ fn phase_6c_a6_path_a_plus_rebuild_probe() {
     }
 }
 
-/// A.6 ratchet for pyramid4_uniform — structural already zero,
-/// path_a_relevant currently ≤ 2.  Tightens to 0 once Path A
-/// closes the remaining V↔T cases on this fixture.
+/// A.6 ratchet for variable-radius cube fixtures.  These take
+/// the Gregory branch (substitution + Path A vertex relocation),
+/// which today still has 2 path_a_relevant errors per fixture
+/// with 18-25 cm gaps — Path A's relocation can't reach the
+/// off-cyl edges that the substitution writes.  Tracked as a
+/// follow-up; the ratchet locks in today's empirical state so
+/// regressions trip.
 #[test]
-fn phase_6c_a6_pyramid4_uniform_path_a_ratchet() {
-    let (brep, _faces) = build_with_path_a(true, &[0.05, 0.05, 0.05, 0.05]);
-    let errors = brep.validate_all();
-    let m = breakdown(&errors);
-    eprintln!(
-        "[A.6] pyramid4_uniform: structural={} pathA={} other={} worst_pathA_gap={:.3e}",
-        m.structural, m.path_a_relevant, m.other_geometric, m.worst_path_a_gap,
-    );
-    assert_eq!(
-        m.structural,
-        0,
-        "structural must be 0; errors:\n{}",
-        errors
-            .iter()
-            .map(|e| format!("  - {e:?}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    );
-    assert!(
-        m.path_a_relevant <= 2,
-        "pyramid4_uniform path_a_relevant regression: {} (was ≤2):\n{}",
-        m.path_a_relevant,
-        errors
-            .iter()
-            .map(|e| format!("  - {e:?}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    );
+fn phase_6c_a6_variable_radius_cubes_ratchet() {
+    for (name, radii) in &[
+        ("cube_mixed", &[0.08, 0.10, 0.12][..]),
+        ("cube_extreme", &[0.02, 0.10, 0.20][..]),
+    ] {
+        let (brep, _faces) = build_with_path_a(false, radii);
+        let errors = brep.validate_all();
+        let m = breakdown(&errors);
+        eprintln!(
+            "[A.6] {}: structural={} pathA={} other={} worst_pathA_gap={:.3e}",
+            name, m.structural, m.path_a_relevant, m.other_geometric, m.worst_path_a_gap,
+        );
+        assert_eq!(
+            m.structural,
+            0,
+            "{}: structural must be 0; errors:\n{}",
+            name,
+            errors
+                .iter()
+                .map(|e| format!("  - {e:?}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        assert!(
+            m.path_a_relevant <= 2,
+            "{}: path_a_relevant regression {} (was ≤2):\n{}",
+            name,
+            m.path_a_relevant,
+            errors
+                .iter()
+                .map(|e| format!("  - {e:?}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+    }
 }

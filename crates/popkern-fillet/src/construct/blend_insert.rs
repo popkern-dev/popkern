@@ -74,6 +74,25 @@ pub(crate) fn insert_vertex_blend(
     let fillet_surfaces_pre = build_fillet_surface_list(edge_indices, edge_geometries);
     let local_indices_pre: Vec<usize> = (0..fillet_surfaces_pre.len()).collect();
     let n_sides = edge_indices.len();
+
+    // §6c-X.A.7 cap-kind dispatch: when Path A is enabled AND the
+    // apex's incident fillets all share a uniform radius (within
+    // tolerance), suppress sphere-fit substitution for this corner.
+    // The post-loop `POPKERN_APEX_TOPOLOGY_REBUILD` pass then
+    // collapses the rolling-ball 6-vertex cap loop to a 3-vertex
+    // cap-tangent-arc loop directly — the commercial-style topology.
+    // For non-uniform corners, substitution + Path A continue as
+    // today.
+    let path_a_active = std::env::var("POPKERN_APEX_PATH_A").is_ok_and(|v| v == "1");
+    let radii_uniform = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
+    let auto_disable_substitution = path_a_active && radii_uniform;
+    let boundary_options = crate::blend::BlendBoundaryOptions {
+        disable_sphere_fit_substitution: if auto_disable_substitution {
+            Some(true)
+        } else {
+            None
+        },
+    };
     let rational_gregory_compatible = matches!(
         classification,
         VertexBlendClassification::SameSideConvex
@@ -88,12 +107,13 @@ pub(crate) fn insert_vertex_blend(
         && n_sides >= 3
         && rational_gregory_compatible
     {
-        match blend::compute_blend_boundary(
+        match blend::compute_blend_boundary_with_options(
             vertex,
             &local_indices_pre,
             &fillet_surfaces_pre,
             brep,
             tolerance,
+            boundary_options,
         ) {
             Ok(b) if b.segments.len() == 2 * n_sides => Some(b),
             _ => None,
@@ -118,9 +138,15 @@ pub(crate) fn insert_vertex_blend(
     // Phase 3: Compute the blend boundary + assign the surface.
     let fillet_surfaces = build_fillet_surface_list(edge_indices, edge_geometries);
     let local_indices: Vec<usize> = (0..fillet_surfaces.len()).collect();
-    let blend_boundary =
-        blend::compute_blend_boundary(vertex, &local_indices, &fillet_surfaces, brep, tolerance)
-            .map_err(|e| format!("blend boundary computation failed: {e}"))?;
+    let blend_boundary = blend::compute_blend_boundary_with_options(
+        vertex,
+        &local_indices,
+        &fillet_surfaces,
+        brep,
+        tolerance,
+        boundary_options,
+    )
+    .map_err(|e| format!("blend boundary computation failed: {e}"))?;
     let (method, achieved_continuity) = assign_blend_surface(
         brep,
         blend_face,
@@ -461,6 +487,42 @@ fn assign_blend_surface(
     });
 
     Ok((method, continuity))
+}
+
+/// §6c-X.A.7 helper: detect whether all incident fillets at this
+/// apex have the same effective radius within tolerance.
+///
+/// "Uniform" here means **every** edge's `radius_at_start` and
+/// `radius_at_end` are equal to a single value within
+/// `tolerance.linear()`.  Variable-radius fillets (start ≠ end)
+/// or any per-edge mismatch makes the corner non-uniform.
+///
+/// Used by the cap-kind dispatch: uniform → Sphere cap path
+/// (suppress sphere-fit substitution, run topology rebuild post-
+/// loop); non-uniform → Gregory cap path (substitution + Path A
+/// vertex relocation).
+pub(crate) fn corner_radii_uniform(
+    edge_indices: &[usize],
+    edge_geometries: &[crate::construct::EdgeGeometry],
+    tolerance: &Tolerance,
+) -> bool {
+    let tol = tolerance.linear();
+    let mut anchor: Option<f64> = None;
+    for &i in edge_indices {
+        let Some(eg) = edge_geometries.get(i) else {
+            return false;
+        };
+        if (eg.radius_at_start - eg.radius_at_end).abs() > tol {
+            return false;
+        }
+        let r = eg.radius_at_start;
+        match anchor {
+            None => anchor = Some(r),
+            Some(a) if (a - r).abs() > tol => return false,
+            _ => {}
+        }
+    }
+    anchor.is_some()
 }
 
 /// Reclassify `CornerPatchInfo::method` from each patch's final
