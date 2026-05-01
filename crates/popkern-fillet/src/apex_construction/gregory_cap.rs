@@ -242,26 +242,178 @@ pub(super) fn assemble_gregory_cap_surface(
     }
 }
 
-/// Sweep across the BRep and `kef` residual edges that separate
-/// cap-side corner sub-faces left over by stage 3's V-spoke kef
-/// sequence.  Two passes:
+/// **BFS from V to compute the apex-region interior vertex set.**
+/// Traverses edges NOT in the apex_edge perimeter AND whose
+/// destination's distance from V is no greater than the maximum
+/// V-to-apex_vertex distance (a geometric proxy for "inside the
+/// cap perimeter polygon").  Without the geometric guard, BFS
+/// escapes through perp-walk sub-edges that exit the apex region
+/// toward host-face boundaries — the perimeter is topologically a
+/// cycle but the BRep has many out-of-region edges that aren't
+/// apex_edges.
 ///
-/// 1. **Cross-cap-accumulator pass** — kef any edge whose two
-///    adjacent faces both contain ≥2 apex_edges in their outer
-///    loop (cap-side accumulators).  Trivially correct since
-///    multi-apex-edge faces are by construction interior to the
-///    cap region.
-/// 2. **Bisected-spoke pass** — kef any edge that originates from
-///    an apex_vertex (i.e., a vertex appearing on `apex_edge_
-///    handles`'s endpoints) AND whose adjacent faces both
-///    contain ≥1 apex_edge in their outer loop AND whose adjacent
-///    faces are different.  These are the "leftover" V-spoke
-///    halves that `resolve_apex_vertices`'s `split_edge` left
-///    alive (V→apex_vertex was kef'd by stage 3, but apex_vertex→
-///    perp_anchor remains, separating two corner sub-faces).
+/// Captures BEFORE stage 3 removes V so the seed is available; the
+/// returned set is then passed to [`eliminate_interior_edges`]
+/// AFTER stage 3 to drive the cross-loop kef sweep.
 ///
-/// Iterates the combined sweep until no candidate boundary
-/// remains.  Cap at `apex_edges.len() * 2 + 8` iterations.
+/// Returns an empty set when V isn't alive or the apex_edge
+/// endpoints can't be resolved.
+pub(super) fn compute_interior_vertex_set(
+    brep: &BRep,
+    apex_vertex: VertexHandle,
+    apex_edge_handles: &[EdgeHandle],
+) -> std::collections::HashSet<VertexHandle> {
+    use std::collections::{HashSet, VecDeque};
+    let mut out: HashSet<VertexHandle> = HashSet::new();
+    if !brep.vertices.contains_key(apex_vertex) {
+        return out;
+    }
+    let v_pos = brep.vertices[apex_vertex].position;
+
+    // Compute the radius cap: max distance from V to any apex_edge
+    // endpoint.  Interior vertices must be at most this far from V.
+    // Add a small margin (1e-6) for floating-point slack.
+    let perimeter: HashSet<EdgeHandle> = apex_edge_handles.iter().copied().collect();
+    let mut radius_cap = 0.0_f64;
+    for &eh in apex_edge_handles {
+        let Some(edge) = brep.edges.get(eh) else {
+            continue;
+        };
+        let primary = edge.half_edge;
+        let Some(he) = brep.half_edges.get(primary) else {
+            continue;
+        };
+        let v1 = he.origin;
+        let twin = he.twin;
+        let Some(twin_he) = brep.half_edges.get(twin) else {
+            continue;
+        };
+        let v2 = twin_he.origin;
+        let p1 = brep.vertices[v1].position;
+        let p2 = brep.vertices[v2].position;
+        let d1 = v_pos.distance_to(&p1);
+        let d2 = v_pos.distance_to(&p2);
+        if d1 > radius_cap {
+            radius_cap = d1;
+        }
+        if d2 > radius_cap {
+            radius_cap = d2;
+        }
+    }
+    if radius_cap == 0.0 {
+        return out;
+    }
+    let radius_cap = radius_cap + 1e-6;
+
+    out.insert(apex_vertex);
+    let mut queue: VecDeque<VertexHandle> = VecDeque::new();
+    queue.push_back(apex_vertex);
+    while let Some(v) = queue.pop_front() {
+        let outgoing: Vec<VertexHandle> = brep
+            .half_edges
+            .values()
+            .filter(|he| he.origin == v)
+            .filter_map(|he| {
+                if perimeter.contains(&he.edge) {
+                    return None;
+                }
+                let dest = brep.half_edges.get(he.twin)?.origin;
+                Some(dest)
+            })
+            .collect();
+        for dest in outgoing {
+            if out.contains(&dest) {
+                continue;
+            }
+            // Geometric containment: only include vertices within
+            // the cap radius from V.
+            let dest_pos = brep.vertices[dest].position;
+            if v_pos.distance_to(&dest_pos) > radius_cap {
+                continue;
+            }
+            out.insert(dest);
+            queue.push_back(dest);
+        }
+    }
+    out
+}
+
+/// **Interior edge elimination** — kefs every cross-loop edge that
+/// is STRICTLY interior to the cap region.  An edge is strictly
+/// interior iff:
+/// * both endpoints are in the interior vertex set
+/// * its edge handle isn't an apex_edge (perimeter)
+/// * at least one endpoint is NOT an apex_vertex (so we don't kef
+///   "shortcut" edges between two perimeter vertices that might
+///   bridge across the cap face's outer-loop boundary)
+///
+/// Iterates until no such edge remains, or the iteration cap is
+/// hit (safety net).  Same-loop bridge edges can't be kef'd
+/// (would create non-manifold topology); they're left in place.
+pub(super) fn eliminate_interior_edges(
+    brep: &mut BRep,
+    interior_vertices: &std::collections::HashSet<VertexHandle>,
+    apex_edge_handles: &[EdgeHandle],
+) -> Result<(), String> {
+    use std::collections::HashSet;
+    if interior_vertices.is_empty() {
+        return Ok(());
+    }
+    let perimeter: HashSet<EdgeHandle> = apex_edge_handles.iter().copied().collect();
+    let mut apex_vertex_set: HashSet<VertexHandle> = HashSet::new();
+    for &eh in apex_edge_handles {
+        let Some(edge) = brep.edges.get(eh) else {
+            continue;
+        };
+        let primary = edge.half_edge;
+        if let Some(he) = brep.half_edges.get(primary) {
+            apex_vertex_set.insert(he.origin);
+            if let Some(twin) = brep.half_edges.get(he.twin) {
+                apex_vertex_set.insert(twin.origin);
+            }
+        }
+    }
+    let cap_iters = brep.edges.len() + apex_edge_handles.len() * 4 + 32;
+    let mut kef_count = 0usize;
+    for _ in 0..cap_iters {
+        let mut victim: Option<HalfEdgeHandle> = None;
+        for (eh, edge) in brep.edges.iter() {
+            if perimeter.contains(&eh) {
+                continue;
+            }
+            let primary = edge.half_edge;
+            let Some(he) = brep.half_edges.get(primary) else {
+                continue;
+            };
+            let Some(twin_he) = brep.half_edges.get(he.twin) else {
+                continue;
+            };
+            if !interior_vertices.contains(&he.origin)
+                || !interior_vertices.contains(&twin_he.origin)
+            {
+                continue;
+            }
+            if apex_vertex_set.contains(&he.origin) && apex_vertex_set.contains(&twin_he.origin) {
+                continue;
+            }
+            if he.loop_ == twin_he.loop_ {
+                continue;
+            }
+            victim = Some(primary);
+            break;
+        }
+        let Some(he) = victim else {
+            let _ = kef_count;
+            return Ok(());
+        };
+        brep.kef(he)
+            .map_err(|e| format!("kef on interior edge: {e:?}"))?;
+        kef_count += 1;
+    }
+    Err("eliminate_interior_edges: iteration cap hit".to_string())
+}
+
+#[allow(dead_code)] // Retained for diagnostic scripts; superseded by eliminate_interior_edges.
 pub(super) fn merge_unmerged_apex_subfaces(
     brep: &mut BRep,
     apex_edge_handles: &[EdgeHandle],
@@ -352,10 +504,13 @@ fn find_kef_candidate_between(
 
 /// Pass 2 helper: find a bisected-spoke edge.  Walks every face
 /// containing an apex_edge and looks for a non-apex edge whose
-/// origin is an apex_vertex AND whose twin face also contains at
-/// least one apex_edge.  This catches the case where a corner
-/// sub-face has only one apex_edge (so it's not a "cap-side
-/// accumulator") but is still on the cap perimeter and must merge.
+/// origin is an apex_vertex AND whose twin's origin is also an
+/// apex_vertex AND whose twin face also contains apex_edges.
+/// Strict criterion: both endpoints must be apex_vertices.  The
+/// relaxed "one endpoint apex" version over-merges on cube_extreme
+/// (24 sub-faces produced instead of 3) by absorbing host-face
+/// perimeter edges that share apex_edge boundaries on both sides
+/// without actually being interior to the cap region.
 fn find_bisected_spoke_kef_candidate(
     brep: &BRep,
     apex_set: &std::collections::HashSet<EdgeHandle>,

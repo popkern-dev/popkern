@@ -217,6 +217,15 @@ fn construct_apex_inner(
     let apex_edge_handles = resolve_apex_edges(brep, plan, &apex_vertex_handles)?;
     check_cancelled(cancel)?;
 
+    // Capture the apex-region interior vertex set BEFORE stage 3
+    // removes V.  BFS from V follows non-perimeter edges; reached
+    // vertices are interior (V itself, perp-anchors, and any other
+    // sub-perimeter Phase-A artifacts).  Stage 3.5 below will kef
+    // any cross-loop edge whose both endpoints are in this set,
+    // collapsing the apex interior into a single cap face.
+    let interior_vertex_set =
+        super::gregory_cap::compute_interior_vertex_set(brep, plan.apex_vertex, &apex_edge_handles);
+
     // Stage 3 (A2.2.e) — apex teardown.
     //
     // After A2.2.d's mef sequence each plane face is split into a
@@ -257,19 +266,19 @@ fn construct_apex_inner(
     // Robust: find the face whose outer loop contains all 2N
     // apex_edge handles.  This is the actual cap face regardless
     // of which half-side the kef happened to keep.
-    // For Gregory caps with mixed-host mef sites, stage 3's V-spoke
-    // kef may leave multiple corner sub-faces unmerged: each
-    // sub-face contains a non-empty subset of apex_edges, separated
-    // from its neighbours by an edge that *was* a V-spoke before
-    // an apex_vertex split bisected it.  Those edges are no longer
-    // V-incident (the bisecting apex_vertex sits between V and the
-    // perp-anchor) but they still separate two corner sub-faces.
-    // Sweep and kef them to fully merge.
-    super::gregory_cap::merge_unmerged_apex_subfaces(brep, &apex_edge_handles).map_err(|e| {
-        ApexBuildError::PlanMismatch {
-            reason: format!("merge_unmerged_apex_subfaces: {e}"),
-        }
-    })?;
+    // Stage 3.5 — apex-region interior elimination ("carve out the
+    // cap region").  Stage 3's `kef_cross_face_v_edges` only kefs
+    // V's incident edges; Phase A perp-walks may have created perp-
+    // anchor vertices INSIDE the cap perimeter that aren't V-
+    // incident.  This pass kefs every cross-loop edge whose both
+    // endpoints are in the interior set captured before stage 3.
+    //
+    // No-op when the post-stage-3 BRep is already coherent
+    // (cube_uniform Sphere caps with no perp-anchor remnants).
+    super::gregory_cap::eliminate_interior_edges(brep, &interior_vertex_set, &apex_edge_handles)
+        .map_err(|e| ApexBuildError::PlanMismatch {
+            reason: format!("eliminate_interior_edges: {e}"),
+        })?;
     let cap_face =
         super::gregory_cap::find_face_bounded_by_all_apex_edges(brep, &apex_edge_handles)
             .unwrap_or(kef_blend_face);
