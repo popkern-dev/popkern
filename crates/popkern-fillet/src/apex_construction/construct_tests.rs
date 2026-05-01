@@ -172,9 +172,17 @@ fn resolve_apex_vertices_finds_existing_within_tolerance() {
         ApexBuildError::PlanMismatch { reason } => reason,
         other => panic!("expected PlanMismatch, got {other:?}"),
     };
+    // Stage 3 (`kef_cross_face_v_edges`) can't merge anything on
+    // these synthetic fixtures (the plan's `apex_vertex` is a
+    // default handle), so it surfaces "no merge performed".  That
+    // error is *evidence* stages 1 + 2 succeeded — the early
+    // diagnostics ("no BRep vertex within", "no face has both")
+    // would fire before reaching stage 3.
     assert!(
-        reason.contains("apex-vertex resolution + apex-edge resolution"),
-        "should have advanced past resolve_apex_vertices; got: {reason}",
+        reason.contains("kef_cross_face_v_edges")
+            || reason.contains("kev_v_bridge")
+            || reason.contains("Gregory cap surface assembly"),
+        "should have advanced past resolve_apex_vertices/edges; got: {reason}",
     );
     // BRep was rolled back to pre-call state (1 vertex, 0 edges).
     assert_eq!(brep.vertices.len(), 1);
@@ -297,7 +305,9 @@ fn resolve_apex_edges_finds_existing_brep_edge() {
         other => panic!("expected PlanMismatch, got {other:?}"),
     };
     assert!(
-        reason.contains("apex-vertex resolution + apex-edge resolution"),
+        reason.contains("kef_cross_face_v_edges")
+            || reason.contains("kev_v_bridge")
+            || reason.contains("Gregory cap surface assembly"),
         "should have advanced past resolve_apex_edges; got: {reason}",
     );
 }
@@ -391,7 +401,9 @@ fn resolve_apex_edges_creates_missing_edge_via_mef() {
         other => panic!("expected PlanMismatch, got {other:?}"),
     };
     assert!(
-        reason.contains("apex-vertex resolution + apex-edge resolution"),
+        reason.contains("kef_cross_face_v_edges")
+            || reason.contains("kev_v_bridge")
+            || reason.contains("Gregory cap surface assembly"),
         "should advance past edge create; got: {reason}",
     );
     // Snapshot rollback: face/edge counts unchanged.

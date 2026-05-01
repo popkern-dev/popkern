@@ -7,15 +7,14 @@
 //! `insert_vertex_blend` path.  Failure surfaces as
 //! `BlendWarning::A2FellBackToLegacy`.
 //!
-//! In the current A2.2.b/c → A2.2.d/e/f transition window the
-//! A2 builder errors on Sphere/Gregory paths by design, so
-//! every cube/pyramid apex hits the fallback.  The test
-//! asserts:
-//!   * fillet_edges still succeeds (per-apex fallback never
-//!     causes a hard failure);
-//!   * the warning fires;
-//!   * the result is geometrically equivalent to the
-//!     flag=false legacy run (face / vertex / edge counts).
+//! After §6c-A2.2.e/f landed Sphere-cap construction:
+//!   * **Sphere caps (uniform-radius cube apex)** — A2 succeeds
+//!     end-to-end, no fallback fires.  Geometry matches legacy
+//!     (face / vertex / edge counts).
+//!   * **Gregory caps (variable-radius cube apex)** — A2 errors
+//!     at the cap-surface assignment stage (A2.4 territory) and
+//!     the dispatch falls back per-apex with
+//!     `BlendWarning::A2FellBackToLegacy`.
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle};
@@ -24,7 +23,7 @@ use popkern_fillet::error::BlendWarning;
 use popkern_fillet::types::{FilletOptions, FilletRadius, FilletSpec};
 use popkern_fillet::{BlendResult, fillet_edges};
 
-fn cube_with_three_corner_fillets(use_a2: bool) -> BlendResult {
+fn cube_with_corner_fillets(use_a2: bool, radii: [f64; 3]) -> BlendResult {
     let tol = Tolerance::default();
     let cube = BRep::unit_cube(tol).unwrap();
     let apex = cube.vertices.keys().next().unwrap();
@@ -41,9 +40,10 @@ fn cube_with_three_corner_fillets(use_a2: bool) -> BlendResult {
     assert_eq!(edges.len(), 3, "cube apex must have 3 incident edges");
     let specs: Vec<FilletSpec> = edges
         .iter()
-        .map(|&e| FilletSpec {
+        .zip(radii.iter())
+        .map(|(&e, &r)| FilletSpec {
             edge: e,
-            radius: FilletRadius::Constant(0.10),
+            radius: FilletRadius::Constant(r),
         })
         .collect();
     let options = FilletOptions {
@@ -53,15 +53,51 @@ fn cube_with_three_corner_fillets(use_a2: bool) -> BlendResult {
     fillet_edges(&cube, &specs, &options, tol, None).expect("fillet_edges succeeds")
 }
 
+fn cube_with_three_corner_fillets(use_a2: bool) -> BlendResult {
+    cube_with_corner_fillets(use_a2, [0.10, 0.10, 0.10])
+}
+
+fn cube_with_variable_corner_fillets(use_a2: bool) -> BlendResult {
+    cube_with_corner_fillets(use_a2, [0.08, 0.10, 0.12])
+}
+
 #[test]
-fn a2_dispatch_falls_back_to_legacy_with_typed_warning() {
-    // Run the A2 path.  Today A2.2.b/c are landed but A2.2.d/e/f
-    // are not, so construct_apex errors on Sphere/Gregory and
-    // the dispatch falls back per-apex.
+fn a2_dispatch_succeeds_on_uniform_cube_without_fallback() {
+    // After A2.2.e/f, Sphere caps build natively under A2.  The
+    // uniform-radius cube apex dispatches to Sphere — A2 must
+    // complete without firing `A2FellBackToLegacy`.
     let result_a2 = cube_with_three_corner_fillets(true);
 
-    // The fallback warning must fire at least once (the cube's
-    // single trihedral apex).
+    let fallback_warnings: Vec<_> = result_a2
+        .edge_warnings
+        .iter()
+        .filter(|(_, w)| matches!(w, BlendWarning::A2FellBackToLegacy { .. }))
+        .collect();
+    assert!(
+        fallback_warnings.is_empty(),
+        "A2 should succeed end-to-end on uniform-radius cube (Sphere cap); \
+         got {} A2FellBackToLegacy warning(s)",
+        fallback_warnings.len(),
+    );
+}
+
+#[test]
+fn a2_dispatch_falls_back_on_variable_radius_with_typed_warning() {
+    // Variable radii cause A2 to fall back somewhere in the
+    // pipeline.  The exact failure stage depends on plan vs.
+    // post-Phase-C state coherence:
+    //   * Today's variable-radius plan emits per-fillet sphere-fit
+    //     positions for `apex_vertices`, but the post-Phase-C BRep
+    //     has perp-edge-split vertices at each fillet's own radius
+    //     — for non-uniform radii these don't coincide, so
+    //     `resolve_apex_vertices` errors first.
+    //   * Once A2.2.b's create-via-edge-subdivision branch lands,
+    //     this should advance to A2.2.f's Gregory stub.
+    // Either way, the dispatch must fall back per-apex with a
+    // typed `A2FellBackToLegacy` warning carrying a non-empty
+    // reason string.
+    let result_a2 = cube_with_variable_corner_fillets(true);
+
     let fallback_warnings: Vec<_> = result_a2
         .edge_warnings
         .iter()
@@ -69,13 +105,10 @@ fn a2_dispatch_falls_back_to_legacy_with_typed_warning() {
         .collect();
     assert!(
         !fallback_warnings.is_empty(),
-        "A2 dispatch with use_a2_apex_construction=true should fire \
-         A2FellBackToLegacy at least once on a cube apex; got \
-         {} warning(s) total",
+        "Variable-radius cube → A2 must fall back; got {} warning(s) total, \
+         none of which are A2FellBackToLegacy",
         result_a2.edge_warnings.len(),
     );
-    // The reason should mention construct_apex (since plan succeeds
-    // for cube apex; the failure is at the build stage).
     let reasons: Vec<&str> = fallback_warnings
         .iter()
         .filter_map(|(_, w)| match w {
@@ -83,29 +116,49 @@ fn a2_dispatch_falls_back_to_legacy_with_typed_warning() {
             _ => None,
         })
         .collect();
-    // Reason must be non-empty.  The exact stage that fails
-    // (descendant resolution / plan_apex_resolution /
-    // construct_apex) depends on transient state and is not
-    // pinned by this test — the contract is "the fallback
-    // fires AND a reason is recorded."
     assert!(
         !reasons.is_empty() && reasons.iter().all(|r| !r.is_empty()),
         "fallback warnings must carry non-empty reason strings; got: {reasons:?}",
     );
-    // Surface the actual reason for diagnostic visibility — the
-    // string lets future maintainers see at a glance which A2
-    // stage is failing today (plan_apex_resolution vs construct_apex)
-    // without re-running the dispatch under a debugger.
-    eprintln!("[a2_dispatch] fallback reasons observed: {reasons:?}");
+    eprintln!("[a2_dispatch] variable-radius fallback reasons: {reasons:?}");
 }
 
 #[test]
-fn a2_dispatch_geometry_matches_legacy_after_fallback() {
-    // After the per-apex fallback runs, the BRep should match
-    // the pure-legacy run.  This proves the dispatch flag adds
-    // no behavioural change beyond the warning.
+fn a2_dispatch_uniform_geometry_matches_legacy() {
+    // A2 Sphere build on uniform cube must produce the same
+    // topology as the pure-legacy run — vertex/edge/face/half-edge
+    // counts identical.
     let result_legacy = cube_with_three_corner_fillets(false);
     let result_a2 = cube_with_three_corner_fillets(true);
+
+    assert_eq!(
+        result_legacy.brep.vertices.len(),
+        result_a2.brep.vertices.len(),
+        "vertex counts must match between legacy and A2 Sphere runs",
+    );
+    assert_eq!(
+        result_legacy.brep.edges.len(),
+        result_a2.brep.edges.len(),
+        "edge counts must match between legacy and A2 Sphere runs",
+    );
+    assert_eq!(
+        result_legacy.brep.faces.len(),
+        result_a2.brep.faces.len(),
+        "face counts must match between legacy and A2 Sphere runs",
+    );
+    assert_eq!(
+        result_legacy.brep.half_edges.len(),
+        result_a2.brep.half_edges.len(),
+        "half-edge counts must match between legacy and A2 Sphere runs",
+    );
+}
+
+#[test]
+fn a2_dispatch_variable_geometry_matches_legacy_after_fallback() {
+    // Variable-radius cube falls back to legacy per-apex.  After
+    // the fallback runs, the BRep must match the pure-legacy run.
+    let result_legacy = cube_with_variable_corner_fillets(false);
+    let result_a2 = cube_with_variable_corner_fillets(true);
 
     assert_eq!(
         result_legacy.brep.vertices.len(),

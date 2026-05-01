@@ -303,7 +303,14 @@ fn split_corner_triangles(
 /// assigned to the merged face.
 ///
 /// Returns the surviving merged-face handle.
-fn kef_cross_face_v_edges(brep: &mut BRep, vertex: VertexHandle) -> Result<FaceHandle, String> {
+///
+/// `pub(crate)` because the §6c-A2.2.e apex builder
+/// (`crate::apex_construction::construct`) calls this after its
+/// own mef sequence to merge the corner sub-faces.
+pub(crate) fn kef_cross_face_v_edges(
+    brep: &mut BRep,
+    vertex: VertexHandle,
+) -> Result<FaceHandle, String> {
     let mut blend_face: Option<FaceHandle> = None;
     let mut safety = brep.edges.len() + 16;
 
@@ -374,7 +381,10 @@ fn kef_cross_face_v_edges(brep: &mut BRep, vertex: VertexHandle) -> Result<FaceH
 /// on the merged face. `kev` requires the edge's destination
 /// vertex to be valence-1, so we pick the half-edge that ends at
 /// V and call `kev(that)` to kill V plus the bridge together.
-fn kev_v_bridge(brep: &mut BRep, vertex: VertexHandle) -> Result<(), String> {
+///
+/// `pub(crate)` for §6c-A2.2.e — same rationale as
+/// [`kef_cross_face_v_edges`].
+pub(crate) fn kev_v_bridge(brep: &mut BRep, vertex: VertexHandle) -> Result<(), String> {
     if !brep.vertices.contains_key(vertex) {
         return Ok(());
     }
@@ -407,7 +417,10 @@ fn kev_v_bridge(brep: &mut BRep, vertex: VertexHandle) -> Result<(), String> {
 }
 
 /// Phase 3: Remove vertex V if it is no longer connected to any edges.
-fn remove_orphaned_vertex(brep: &mut BRep, vertex: VertexHandle) {
+///
+/// `pub(crate)` for §6c-A2.2.e — same rationale as
+/// [`kef_cross_face_v_edges`].
+pub(crate) fn remove_orphaned_vertex(brep: &mut BRep, vertex: VertexHandle) {
     let v_has_edges = brep.half_edges.values().any(|he| he.origin == vertex);
     if !v_has_edges {
         brep.vertices.remove(vertex);

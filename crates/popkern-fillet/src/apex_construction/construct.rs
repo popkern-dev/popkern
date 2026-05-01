@@ -170,25 +170,93 @@ fn construct_apex_inner(
     // post-Phase-C BRep state where the rolling-ball footprints
     // sit on plane-face loops only), the create attempt errors
     // and the snapshot rolls back.
-    let _apex_edge_handles = resolve_apex_edges(brep, plan, &apex_vertex_handles)?;
+    let apex_edge_handles = resolve_apex_edges(brep, plan, &apex_vertex_handles)?;
     check_cancelled(cancel)?;
 
-    // Stages 3-4 (A2.2.d–A2.2.f) — face boundary updates and
-    // cap face surface assignment.  Until those slices land,
-    // callers driving non-Open plans see a typed "in progress"
-    // error rather than a panic.
-    let cap_kind_label = match &plan.cap_kind {
-        CapKind::Sphere { .. } => "Sphere",
-        CapKind::Gregory { .. } => "Gregory",
-        CapKind::Open { .. } => unreachable!("Open handled above"),
-    };
-    Err(ApexBuildError::PlanMismatch {
-        reason: format!(
-            "construct_apex: {cap_kind_label} apex-vertex resolution + apex-edge \
-             resolution (find/create via mef) succeeded; face boundary updates \
-             (A2.2.e) and cap face surface assignment (A2.2.f) are not yet implemented"
-        ),
+    // Stage 3 (A2.2.e) — apex teardown.
+    //
+    // After A2.2.d's mef sequence each plane face is split into a
+    // V-corner sub-face and a remainder.  V still has its
+    // pre-mef stub edges (perp-edge splits from Phase A) which now
+    // separate adjacent corner sub-faces.  Mirror legacy Phase
+    // 2a/2b/3:
+    //
+    //   * `kef_cross_face_v_edges` walks V's incident edges and
+    //     `kef`s each one separating distinct loops, merging the
+    //     corner sub-faces.  Returns the surviving merged-face
+    //     handle — the cap face.
+    //   * `kev_v_bridge` removes V plus the trailing same-loop
+    //     bridge in one Euler step (legacy Phase 2b).
+    //   * `remove_orphaned_vertex` is the no-bridge safety net.
+    //
+    // The legacy helpers (`pub(crate)` in
+    // `crate::construct::blend_insert`) handle the iterative kef
+    // / outgoing repair / safety cap that A2 needs verbatim.
+    let cap_face = crate::construct::blend_insert::kef_cross_face_v_edges(brep, plan.apex_vertex)
+        .map_err(|e| ApexBuildError::PlanMismatch {
+        reason: format!("kef_cross_face_v_edges: {e}"),
+    })?;
+    crate::construct::blend_insert::kev_v_bridge(brep, plan.apex_vertex).map_err(|e| {
+        ApexBuildError::PlanMismatch {
+            reason: format!("kev_v_bridge: {e}"),
+        }
+    })?;
+    crate::construct::blend_insert::remove_orphaned_vertex(brep, plan.apex_vertex);
+    check_cancelled(cancel)?;
+
+    // Stage 4 (A2.2.f) — cap face surface assignment.
+    //
+    // Sphere caps land natively here.  Gregory caps need 2N
+    // sub-patch decomposition (3-quad poke or KP-binonic /
+    // KP-polar) and are deferred to A2.4; the Gregory branch
+    // errors with a typed PlanMismatch so the dispatch falls
+    // back to legacy with `BlendWarning::A2FellBackToLegacy`.
+    assign_cap_surface(brep, cap_face, &plan.cap_kind)?;
+    check_cancelled(cancel)?;
+
+    Ok(ApexBuildResult {
+        created_faces: vec![cap_face],
+        apex_vertices: apex_vertex_handles,
+        apex_edges: apex_edge_handles,
+        telemetry: plan.telemetry.clone(),
     })
+}
+
+/// Assign the planned cap surface to the merged face.
+///
+/// **A2.2.f.**  Sphere caps map directly to
+/// [`SurfaceGeometry::Sphere`] (analytic, no NURBS conversion).
+/// Gregory caps require sub-patch decomposition and surface
+/// authoring beyond what A2.2 covers — they error here so the
+/// dispatch falls back to the legacy
+/// [`crate::construct::blend_insert::insert_vertex_blend`] path.
+/// `Open` is handled by [`construct_apex_inner`]'s early return
+/// and is unreachable here.
+fn assign_cap_surface(
+    brep: &mut BRep,
+    cap_face: FaceHandle,
+    cap_kind: &CapKind,
+) -> Result<(), ApexBuildError> {
+    use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+    let geometry = match cap_kind {
+        CapKind::Sphere { center, radius, .. } => SurfaceGeometry::Sphere {
+            center: *center,
+            radius: *radius,
+        },
+        CapKind::Gregory { .. } => {
+            return Err(ApexBuildError::PlanMismatch {
+                reason: "Gregory cap surface assembly is A2.4's job (2N sub-patch \
+                         decomposition); A2.2.f handles Sphere only"
+                    .into(),
+            });
+        }
+        CapKind::Open { .. } => unreachable!("Open handled in construct_apex_inner"),
+    };
+    brep.faces[cap_face].surface = Some(SurfaceOnFace {
+        geometry,
+        orientation: true,
+    });
+    Ok(())
 }
 
 /// Locate a BRep vertex within `tolerance.linear()` of `point`.
