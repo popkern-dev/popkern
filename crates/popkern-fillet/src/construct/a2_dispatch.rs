@@ -97,6 +97,31 @@ pub(super) fn try_a2_apex_construction(
         })
         .collect();
 
+    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        eprintln!(
+            "[a2-trace] try_a2_apex_construction: vertex={vertex:?}; \
+             pre-call BRep has {} faces, {} edges, {} vertices",
+            brep.faces.len(),
+            brep.edges.len(),
+            brep.vertices.len(),
+        );
+        for (fh, face) in &brep.faces {
+            let kind = face
+                .surface
+                .as_ref()
+                .map(|s| match &s.geometry {
+                    popkern_core::geometry::surface::SurfaceGeometry::Plane { .. } => "Plane",
+                    popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. } => "Cylinder",
+                    popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. } => "Sphere",
+                    popkern_core::geometry::surface::SurfaceGeometry::Torus { .. } => "Torus",
+                    popkern_core::geometry::surface::SurfaceGeometry::Cone { .. } => "Cone",
+                    popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_) => "Nurbs",
+                    popkern_core::geometry::surface::SurfaceGeometry::Gregory(_) => "Gregory",
+                })
+                .unwrap_or("None");
+            eprintln!("[a2-trace]   {fh:?}: {kind}");
+        }
+    }
     let plan = plan_apex_resolution_lenient(brep, vertex, &specs, &surfaces, tolerance, None)
         .map_err(|plan_err| format!("plan_apex_resolution: {plan_err}"))?;
     let build_result = construct_apex(brep, &plan, tolerance, None)

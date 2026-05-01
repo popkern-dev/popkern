@@ -313,9 +313,16 @@ fn resolve_apex_vertices(
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Result<Vec<VertexHandle>, ApexBuildError> {
     let tol = tolerance.linear();
+    let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
     let mut out: Vec<VertexHandle> = Vec::with_capacity(plan.target_topology.apex_vertices.len());
     for (i, &point) in plan.target_topology.apex_vertices.iter().enumerate() {
         if let Some(vh) = find_vertex_within(brep, point, tol) {
+            if trace {
+                eprintln!(
+                    "[a2-trace] apex_vertex[{i}] at {point:?} → FOUND existing {vh:?} \
+                     (within {tol:.3e})"
+                );
+            }
             out.push(vh);
             continue;
         }
@@ -329,6 +336,14 @@ fn resolve_apex_vertices(
                 ),
             });
         };
+        // Capture the split-edge's adjacent face handles before
+        // mutation so the trace can show which faces inherit the
+        // new vertex.
+        let pre_faces = if trace {
+            edge_adjacent_faces(brep, edge)
+        } else {
+            (None, None)
+        };
         let split = brep
             .split_edge(edge, t)
             .map_err(|e| ApexBuildError::PlanMismatch {
@@ -337,9 +352,56 @@ fn resolve_apex_vertices(
                      t={t:.6e} failed: {e}"
                 ),
             })?;
+        if trace {
+            let loops = vertex_loop_face_handles(brep, split.vertex);
+            eprintln!(
+                "[a2-trace] apex_vertex[{i}] at {point:?} → CREATED {:?} via \
+                 split_edge(edge={edge:?}, t={t:.6e}); pre-split faces=({:?}, {:?}); \
+                 post-split outer-loop face memberships={loops:?}",
+                split.vertex, pre_faces.0, pre_faces.1
+            );
+        }
         out.push(split.vertex);
     }
     Ok(out)
+}
+
+/// Helper for the `POPKERN_A2_TRACE` diagnostic: return the
+/// `(face_a, face_b)` pair adjacent to a manifold edge.  Returns
+/// `(None, None)` when handles are stale.
+fn edge_adjacent_faces(brep: &BRep, edge: EdgeHandle) -> (Option<FaceHandle>, Option<FaceHandle>) {
+    let Some(edata) = brep.edges.get(edge) else {
+        return (None, None);
+    };
+    let primary = edata.half_edge;
+    let Some(primary_he) = brep.half_edges.get(primary) else {
+        return (None, None);
+    };
+    let face_a = brep.loops.get(primary_he.loop_).map(|l| l.face);
+    let face_b = brep
+        .half_edges
+        .get(primary_he.twin)
+        .and_then(|t| brep.loops.get(t.loop_))
+        .map(|l| l.face);
+    (face_a, face_b)
+}
+
+/// Helper for the `POPKERN_A2_TRACE` diagnostic: return every
+/// face whose outer loop contains a half-edge originating from
+/// `vertex`.
+fn vertex_loop_face_handles(brep: &BRep, vertex: VertexHandle) -> Vec<FaceHandle> {
+    let mut out: Vec<FaceHandle> = Vec::new();
+    for he in brep.half_edges.values() {
+        if he.origin != vertex {
+            continue;
+        }
+        if let Some(loop_data) = brep.loops.get(he.loop_)
+            && !out.contains(&loop_data.face)
+        {
+            out.push(loop_data.face);
+        }
+    }
+    out
 }
 
 /// Find an existing BRep edge whose endpoints match the given
@@ -420,8 +482,31 @@ fn resolve_apex_edges(
                 ),
             })?;
         if let Some(eh) = find_edge_between(brep, v_origin, v_dest) {
+            if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+                eprintln!(
+                    "[a2-trace] apex_edge[{i}] (vidx {} → {}) → FOUND existing edge \
+                     {eh:?} between {v_origin:?} and {v_dest:?}",
+                    target_edge.origin_vertex_idx, target_edge.dest_vertex_idx,
+                );
+            }
             out.push(eh);
             continue;
+        }
+        if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+            let origin_faces = vertex_loop_face_handles(brep, v_origin);
+            let dest_faces = vertex_loop_face_handles(brep, v_dest);
+            let shared: Vec<_> = origin_faces
+                .iter()
+                .filter(|f| dest_faces.contains(f))
+                .copied()
+                .collect();
+            eprintln!(
+                "[a2-trace] apex_edge[{i}] (vidx {} → {}) NEED to create; \
+                 v_origin={v_origin:?} on faces {origin_faces:?}; \
+                 v_dest={v_dest:?} on faces {dest_faces:?}; \
+                 SHARED faces = {shared:?}",
+                target_edge.origin_vertex_idx, target_edge.dest_vertex_idx,
+            );
         }
         // Create branch: split a face whose outer loop carries
         // both endpoints.
