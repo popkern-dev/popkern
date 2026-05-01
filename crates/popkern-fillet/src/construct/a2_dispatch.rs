@@ -21,7 +21,8 @@ use popkern_core::topology::{BRep, EdgeHandle, VertexHandle};
 
 use super::EdgeGeometry;
 
-use crate::apex_construction::{construct_apex, plan_apex_resolution};
+use crate::apex_construction::construct_apex;
+use crate::apex_construction::plan::plan_apex_resolution_lenient;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{FilletRadius, FilletSpec};
 
@@ -47,55 +48,35 @@ pub(super) fn try_a2_apex_construction(
     vertex: VertexHandle,
     edge_indices: &[usize],
     edge_geometries: &[EdgeGeometry],
-    descendants: &HashMap<EdgeHandle, Vec<EdgeHandle>>,
+    _descendants: &HashMap<EdgeHandle, Vec<EdgeHandle>>,
     tolerance: &Tolerance,
 ) -> Option<String> {
-    // Phase A's perpendicular-edge splits replaced each
-    // original fillet edge with multiple descendants.  For the
-    // planner's edge-incidence validation to pass we have to
-    // pass a current edge handle that's incident to the apex
-    // vertex.  Walk the descendants map and pick the one
-    // descendant edge whose primary or twin half-edge has
-    // `vertex` as `origin`.
-    let resolve_current_edge = |orig: EdgeHandle| -> Option<EdgeHandle> {
-        let descs = descendants.get(&orig)?;
-        for &d in descs {
-            let edge = brep.edges.get(d)?;
-            let primary = brep.half_edges.get(edge.half_edge)?;
-            let twin = brep.half_edges.get(primary.twin)?;
-            if primary.origin == vertex || twin.origin == vertex {
-                return Some(d);
+    // Edge handles in `edge_geometries` are the ORIGINAL pre-
+    // pipeline handles.  Phase C kef's the fillet edges so
+    // those handles are no longer live in the BRep — but the
+    // planner's lenient entry point (`plan_apex_resolution_
+    // lenient`) skips the edge-existence and edge-incidence
+    // checks that would otherwise fire.  The planner reads
+    // geometry from `fillet_surfaces`, not from `spec.edge`,
+    // so the stale handle is harmless metadata.
+    let specs: Vec<FilletSpec> = edge_indices
+        .iter()
+        .map(|&i| {
+            let eg = &edge_geometries[i];
+            let radius = if (eg.radius_at_start - eg.radius_at_end).abs() < 1e-12 {
+                FilletRadius::Constant(eg.radius_at_start)
+            } else {
+                FilletRadius::Variable {
+                    start: eg.radius_at_start,
+                    end: eg.radius_at_end,
+                }
+            };
+            FilletSpec {
+                edge: eg.analysis.edge,
+                radius,
             }
-        }
-        None
-    };
-
-    let mut specs: Vec<FilletSpec> = Vec::with_capacity(edge_indices.len());
-    for (k, &i) in edge_indices.iter().enumerate() {
-        let eg = &edge_geometries[i];
-        let radius = if (eg.radius_at_start - eg.radius_at_end).abs() < 1e-12 {
-            FilletRadius::Constant(eg.radius_at_start)
-        } else {
-            FilletRadius::Variable {
-                start: eg.radius_at_start,
-                end: eg.radius_at_end,
-            }
-        };
-        let edge_now = match resolve_current_edge(eg.analysis.edge) {
-            Some(e) => e,
-            None => {
-                return Some(format!(
-                    "post-Phase-A descendant of original edge \
-                     {:?} (apex_edges[{k}]) not incident to vertex {vertex:?}",
-                    eg.analysis.edge
-                ));
-            }
-        };
-        specs.push(FilletSpec {
-            edge: edge_now,
-            radius,
-        });
-    }
+        })
+        .collect();
     let surfaces: Vec<FilletSurfaceResult> = edge_indices
         .iter()
         .map(|&i| {
@@ -114,7 +95,8 @@ pub(super) fn try_a2_apex_construction(
         })
         .collect();
 
-    let plan = match plan_apex_resolution(brep, vertex, &specs, &surfaces, tolerance, None) {
+    let plan = match plan_apex_resolution_lenient(brep, vertex, &specs, &surfaces, tolerance, None)
+    {
         Ok(plan) => plan,
         Err(plan_err) => {
             return Some(format!("plan_apex_resolution: {plan_err}"));

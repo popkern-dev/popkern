@@ -92,6 +92,11 @@ fn a2_dispatch_falls_back_to_legacy_with_typed_warning() {
         !reasons.is_empty() && reasons.iter().all(|r| !r.is_empty()),
         "fallback warnings must carry non-empty reason strings; got: {reasons:?}",
     );
+    // Surface the actual reason for diagnostic visibility — the
+    // string lets future maintainers see at a glance which A2
+    // stage is failing today (plan_apex_resolution vs construct_apex)
+    // without re-running the dispatch under a debugger.
+    eprintln!("[a2_dispatch] fallback reasons observed: {reasons:?}");
 }
 
 #[test]

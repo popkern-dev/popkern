@@ -32,7 +32,7 @@ use super::error::ApexPlanError;
 use super::plan_rung_fallback::{plan_open_rung, plan_setback_rung};
 use super::plan_terminations::{compute_apex_boundary, compute_per_fillet_terminations};
 use super::plan_topology::{build_target_topology, decide_cap_kind};
-use super::plan_validate::validate_inputs;
+use super::plan_validate::{validate_inputs, validate_inputs_lenient};
 use super::target_topology::TargetTopology;
 use super::telemetry::{ConstructionRung, PlanTelemetry};
 
@@ -216,6 +216,45 @@ pub fn plan_apex_resolution(
     check_cancelled(cancel)?;
 
     // Steps 3-5 with rung fallback: try Direct → Setback → Open.
+    plan_with_rung_ladder(
+        brep,
+        apex,
+        &boundary,
+        fillet_specs,
+        fillet_surfaces,
+        tolerance,
+        cancel,
+    )
+}
+
+/// Mid-pipeline-friendly variant of [`plan_apex_resolution`].
+///
+/// Identical to the public entry point except it skips the
+/// edge-existence and edge-incidence input checks, which fail
+/// when the legacy `apply_blend_geometry` pipeline calls the
+/// planner mid-flight after Phase C has kef'd the original
+/// fillet edges (their handles are no longer in
+/// `brep.edges`).  Radius / apex-vertex / fillet-count checks
+/// still apply.
+///
+/// `pub(crate)` — only the legacy pipeline's A2 dispatch
+/// (`crate::construct::a2_dispatch`) calls this.  External
+/// callers should use [`plan_apex_resolution`] which validates
+/// the spec strictly.
+pub(crate) fn plan_apex_resolution_lenient(
+    brep: &BRep,
+    apex: VertexHandle,
+    fillet_specs: &[FilletSpec],
+    fillet_surfaces: &[FilletSurfaceResult],
+    tolerance: &popkern_core::tolerance::Tolerance,
+    cancel: Option<&CancellationToken>,
+) -> Result<ApexPlan, ApexPlanError> {
+    validate_inputs_lenient(brep, apex, fillet_specs)?;
+    check_cancelled(cancel)?;
+
+    let boundary = compute_apex_boundary(brep, apex, fillet_surfaces, tolerance)?;
+    check_cancelled(cancel)?;
+
     plan_with_rung_ladder(
         brep,
         apex,
