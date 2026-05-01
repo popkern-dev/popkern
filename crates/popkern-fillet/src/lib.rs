@@ -310,6 +310,7 @@ fn fillet_edges_internal(
         options.use_two_stripe_gregory,
         options.use_kp_binonic_gregory,
         options.use_kp_polar_gregory,
+        options.use_a2_apex_construction,
     )
     .map_err(|edge_failures| BlendError::PartialFailure {
         failed: edge_failures.len(),
@@ -436,6 +437,7 @@ pub fn chamfer_edges(
         false,
         false,
         false,
+        false, // chamfers don't go through the A2 apex builder
     )
     .map_err(|edge_failures| BlendError::PartialFailure {
         failed: edge_failures.len(),

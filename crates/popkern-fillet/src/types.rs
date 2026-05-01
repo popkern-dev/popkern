@@ -317,12 +317,11 @@ pub struct FilletOptions {
     pub use_kp_polar_gregory: bool,
     /// **Phase 6c-A2.3** — route apex-region construction (vertices
     /// with ≥ 2 incident fillet edges in `VertexMode::Smooth`)
-    /// through the A2 planner + builder
-    /// ([`plan_apex_resolution`](crate::apex_construction::plan_apex_resolution)
-    /// + [`construct_apex`](crate::apex_construction::construct_apex))
-    /// instead of the legacy `insert_vertex_blend` path.  Default
-    /// `false` — the legacy path runs unchanged until A2.6 flips
-    /// the default after the validation matrix is green.
+    /// through the A2 planner + builder (`plan_apex_resolution`
+    /// then `construct_apex` in `crate::apex_construction`) instead
+    /// of the legacy `insert_vertex_blend` path.  Default `false`
+    /// — the legacy path runs unchanged until A2.6 flips the
+    /// default after the validation matrix is green.
     ///
     /// On A2 plan or build error, the dispatch falls back per-apex
     /// to `insert_vertex_blend` and emits

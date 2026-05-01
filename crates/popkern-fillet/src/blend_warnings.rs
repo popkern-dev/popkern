@@ -297,4 +297,25 @@ pub enum BlendWarning {
         /// Valence.
         n_sides: usize,
     },
+    /// **Phase 6c-A2.3** — apex-region construction was requested
+    /// to use the A2 builder
+    /// ([`crate::types::FilletOptions::use_a2_apex_construction`]
+    /// = `true`) but the A2 path could not finish for this apex,
+    /// so the dispatch fell back to the legacy
+    /// `insert_vertex_blend` per-vertex.  The output BRep is the
+    /// same as the legacy path would produce; this warning is the
+    /// only signal that A2 was tried first.
+    ///
+    /// Common reasons during the A2.2.b/c → A2.2.d/e/f transition
+    /// (when the A2 builder errors on Sphere/Gregory paths that
+    /// haven't been implemented yet) — the warning's `reason`
+    /// field carries the A2 error message verbatim.
+    A2FellBackToLegacy {
+        /// The apex vertex where A2 was attempted.
+        vertex: VertexHandle,
+        /// The A2 plan or build error that triggered fallback,
+        /// rendered through its `Display` impl for end-user
+        /// consumption.  Non-empty.
+        reason: String,
+    },
 }

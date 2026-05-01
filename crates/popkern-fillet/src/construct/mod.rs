@@ -1,5 +1,6 @@
 //! Topology construction — apply fillet/chamfer geometry to the BRep. 3-phase single-pass (A: perp splits, B: multi-chord face splits, C: kef merge + surface assign) then surface-fix, sliver-absorb (§13.1(2)), and §8.3 cap insertion post-passes.
 
+mod a2_dispatch;
 mod apex_face_lift;
 mod apex_vertex_coherence;
 pub(crate) mod blend_insert;
@@ -113,6 +114,7 @@ pub fn apply_blend_geometry(
     use_two_stripe_gregory: bool,
     use_kp_binonic_gregory: bool,
     use_kp_polar_gregory: bool,
+    use_a2_apex_construction: bool,
 ) -> Result<ApplyBlendResult, Vec<(EdgeHandle, BlendFailure)>> {
     let mut result = brep.clone();
     let mut failures: Vec<(EdgeHandle, BlendFailure)> = Vec::new();
@@ -453,6 +455,56 @@ pub fn apply_blend_geometry(
                     .get(vertex)
                     .copied()
                     .unwrap_or(crate::vertex_classifier::VertexBlendClassification::SameSideConvex);
+
+                // §6c-A2.3.b — when use_a2_apex_construction is set,
+                // try the A2 planner + builder for this apex.  On
+                // success, skip the legacy insert_vertex_blend path
+                // entirely.  On any A2 error (plan or build), fall
+                // back to legacy with a typed
+                // BlendWarning::A2FellBackToLegacy recording the
+                // reason.
+                //
+                // A2's failure modes:
+                //   * plan_apex_resolution returns ApexPlanError
+                //     (e.g. SphereCylinderNoIntersection on extreme
+                //     radii, SingularCapCentre on nearly-coplanar
+                //     faces).
+                //   * construct_apex returns ApexBuildError
+                //     (currently the dominant case during A2.2.b/c →
+                //     A2.2.d/e/f transition: Sphere/Gregory cap
+                //     construction is not yet implemented and the
+                //     builder errors with PlanMismatch by design).
+                //
+                // The result of a successful A2 build is currently
+                // not bridged into corner_patches — that's A2.2.d/e/f
+                // work.  Until then, A2 success on non-Open plans is
+                // unreachable (construct_apex errors on Sphere /
+                // Gregory paths), so this dispatch hits the fallback
+                // path on every cube/pyramid fixture today.
+                let a2_outcome: Option<String> = if use_a2_apex_construction {
+                    a2_dispatch::try_a2_apex_construction(
+                        &mut result,
+                        *vertex,
+                        edge_indices,
+                        edge_geometries,
+                        &descendants,
+                        tolerance,
+                    )
+                } else {
+                    None // flag not set — legacy path runs unchanged
+                };
+                if let Some(reason) = a2_outcome {
+                    let warn_edge = edge_geometries[edge_indices[0]].analysis.edge;
+                    warnings.push((
+                        warn_edge,
+                        BlendWarning::A2FellBackToLegacy {
+                            vertex: *vertex,
+                            reason,
+                        },
+                    ));
+                    // Fall through to legacy below.
+                }
+
                 match blend_insert::insert_vertex_blend(
                     &mut result,
                     *vertex,
