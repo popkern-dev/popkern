@@ -236,16 +236,67 @@ fn construct_apex_inner(
     // The legacy helpers (`pub(crate)` in
     // `crate::construct::blend_insert`) handle the iterative kef
     // / outgoing repair / safety cap that A2 needs verbatim.
-    let cap_face = crate::construct::blend_insert::kef_cross_face_v_edges(brep, plan.apex_vertex)
-        .map_err(|e| ApexBuildError::PlanMismatch {
-        reason: format!("kef_cross_face_v_edges: {e}"),
-    })?;
+    let kef_blend_face =
+        crate::construct::blend_insert::kef_cross_face_v_edges(brep, plan.apex_vertex).map_err(
+            |e| ApexBuildError::PlanMismatch {
+                reason: format!("kef_cross_face_v_edges: {e}"),
+            },
+        )?;
     crate::construct::blend_insert::kev_v_bridge(brep, plan.apex_vertex).map_err(|e| {
         ApexBuildError::PlanMismatch {
             reason: format!("kev_v_bridge: {e}"),
         }
     })?;
     crate::construct::blend_insert::remove_orphaned_vertex(brep, plan.apex_vertex);
+
+    // `kef_cross_face_v_edges` returns whichever face survived the
+    // last kef.  When apex_edges are mef'd on multiple host faces
+    // (Gregory cap = 2N edges on cyl + plane mix), the surviving
+    // face may not be the one bounded by all 2N apex_edges; it may
+    // be one of the host faces whose interior was unrelated to V.
+    // Robust: find the face whose outer loop contains all 2N
+    // apex_edge handles.  This is the actual cap face regardless
+    // of which half-side the kef happened to keep.
+    // For Gregory caps with mixed-host mef sites, stage 3's V-spoke
+    // kef may leave multiple corner sub-faces unmerged: each
+    // sub-face contains a non-empty subset of apex_edges, separated
+    // from its neighbours by an edge that *was* a V-spoke before
+    // an apex_vertex split bisected it.  Those edges are no longer
+    // V-incident (the bisecting apex_vertex sits between V and the
+    // perp-anchor) but they still separate two corner sub-faces.
+    // Sweep and kef them to fully merge.
+    super::gregory_cap::merge_unmerged_apex_subfaces(brep, &apex_edge_handles).map_err(|e| {
+        ApexBuildError::PlanMismatch {
+            reason: format!("merge_unmerged_apex_subfaces: {e}"),
+        }
+    })?;
+    let cap_face =
+        super::gregory_cap::find_face_bounded_by_all_apex_edges(brep, &apex_edge_handles)
+            .unwrap_or(kef_blend_face);
+    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        eprintln!(
+            "[a2-trace] post-stage-3: kef_blend_face={kef_blend_face:?}, cap_face={cap_face:?}"
+        );
+        for (i, &eh) in apex_edge_handles.iter().enumerate() {
+            let alive = brep.edges.contains_key(eh);
+            if !alive {
+                eprintln!("[a2-trace]   apex_edge[{i}] {eh:?}: REMOVED");
+                continue;
+            }
+            let primary = brep.edges[eh].half_edge;
+            let pa = brep
+                .half_edges
+                .get(primary)
+                .and_then(|he| brep.loops.get(he.loop_))
+                .map(|l| l.face);
+            let twin = brep.half_edges.get(primary).map(|he| he.twin);
+            let pb = twin
+                .and_then(|t| brep.half_edges.get(t))
+                .and_then(|he| brep.loops.get(he.loop_))
+                .map(|l| l.face);
+            eprintln!("[a2-trace]   apex_edge[{i}] {eh:?}: primary_face={pa:?}, twin_face={pb:?}");
+        }
+    }
     check_cancelled(cancel)?;
 
     // Stage 4 (A2.2.f / A2.4) — cap face surface assignment.
@@ -261,6 +312,7 @@ fn construct_apex_inner(
         cap_face,
         plan,
         &apex_vertex_handles,
+        &apex_edge_handles,
         fillet_surfaces,
         tolerance,
     )?;
@@ -293,8 +345,9 @@ fn assign_cap_surface(
     cap_face: FaceHandle,
     plan: &ApexPlan,
     apex_vertex_handles: &[VertexHandle],
+    apex_edge_handles: &[EdgeHandle],
     fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
-    tolerance: &popkern_core::tolerance::Tolerance,
+    _tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Result<(), ApexBuildError> {
     use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
     match &plan.cap_kind {
@@ -308,59 +361,16 @@ fn assign_cap_surface(
             });
             Ok(())
         }
-        CapKind::Gregory { .. } => assemble_gregory_cap_surface(
+        CapKind::Gregory { .. } => super::gregory_cap::assemble_gregory_cap_surface(
             brep,
             cap_face,
             plan,
             apex_vertex_handles,
+            apex_edge_handles,
             fillet_surfaces,
-            tolerance,
         ),
         CapKind::Open { .. } => unreachable!("Open handled in construct_apex_inner"),
     }
-}
-
-/// **A2.4 Gregory cap surface assembly** — bridge from A2's plan +
-/// post-stitch BRep state to legacy `three_quad_apply::
-/// apply_three_quad_decomposition_to_blend`.
-///
-/// Builds a `BlendBoundary` from `plan.target_topology.apex_edges`
-/// (each apex_edge becomes a `BoundarySegment::FilletEnd` or
-/// `FaceEdge` based on its role + curve), then invokes the
-/// existing K-P promotion ladder.  The ladder produces N or 4N
-/// sub-quad Gregory patches whose surfaces are assigned to the
-/// poked sub-faces.
-fn assemble_gregory_cap_surface(
-    brep: &mut BRep,
-    cap_face: FaceHandle,
-    plan: &ApexPlan,
-    apex_vertex_handles: &[VertexHandle],
-    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
-    _tolerance: &popkern_core::tolerance::Tolerance,
-) -> Result<(), ApexBuildError> {
-    let _ = (brep, cap_face, apex_vertex_handles);
-    if fillet_surfaces.is_empty() {
-        return Err(ApexBuildError::PlanMismatch {
-            reason: "Gregory cap surface assembly needs fillet_surfaces; caller \
-                     used construct_apex (legacy entry) instead of \
-                     construct_apex_with_surfaces"
-                .into(),
-        });
-    }
-    // TODO(A2.4): build BlendBoundary from plan.target_topology.apex_edges
-    // and call apply_three_quad_decomposition_to_blend.  For now,
-    // return a clear PlanMismatch so the dispatch falls back to
-    // legacy with a precise reason.
-    Err(ApexBuildError::PlanMismatch {
-        reason: format!(
-            "A2.4 Gregory cap surface assembly: surfaces threaded through \
-             ({} fillets, {} apex_vertices, {} apex_edges) but BlendBoundary \
-             bridge to three_quad_apply not yet implemented",
-            fillet_surfaces.len(),
-            plan.target_topology.apex_vertices.len(),
-            plan.target_topology.apex_edges.len(),
-        ),
-    })
 }
 
 /// Locate a BRep vertex within `tolerance.linear()` of `point`.

@@ -31,6 +31,7 @@ use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 use super::plan::ApexPlan;
+use super::target_topology::TargetEdgeRole;
 
 /// One cylinder face that has at least one outer-loop vertex off
 /// its stored cylinder surface.
@@ -211,30 +212,42 @@ pub(crate) fn stitch_apex_edges_into_cyl_loops(
             .copied()
             .ok_or_else(|| format!("apex_edge[{i}] dest_vertex_idx out of range"))?;
 
-        // Already share a face on its outer loop?  Skip surgery.
-        if has_shared_outer_loop_face(brep, v_origin, v_dest) {
-            continue;
-        }
-
-        // Find the cylinder face whose surface contains the curve
-        // midpoint.  The plan's target_edge.curve runs from
-        // v_origin to v_dest; its midpoint is on the geometrically-
-        // natural cylinder when this apex_edge is a cyl-side edge.
-        // Gregory-side apex_edges (the ones where the cap surface
-        // bridges between cylinders) won't match any cyl face;
-        // those are handled by A2.4 cap surface assembly later.
+        // Find the analytic face whose surface contains the curve
+        // midpoint AND matches the planner's role hint (Cylinder
+        // for CapVsCyl, Plane for CapVsPlane).  Without the role
+        // filter, midpoints near a fillet's blend region can lie
+        // within the 5% radial tolerance of two different surfaces
+        // (e.g., on a cube_mixed bridge midpoint sits on both the
+        // shared plane face AND the third fillet's cylinder), and
+        // picking the wrong face produces a downstream `mef` on a
+        // cylinder split when the planner expected a plane bridge.
         let (t_lo, t_hi) = target_edge.curve.parameter_range();
         let t_mid = (t_lo + t_hi) * 0.5;
         let curve_midpoint = target_edge.curve.point_at(t_mid);
-        let target_cyl = match find_cyl_face_containing_position(brep, curve_midpoint) {
-            Some(f) => f,
-            None => continue,
+        let role_filter = match target_edge.role {
+            TargetEdgeRole::CapVsCyl { .. } => SurfaceRoleFilter::CylinderOnly,
+            TargetEdgeRole::CapVsPlane { .. } => SurfaceRoleFilter::PlaneOnly,
+            TargetEdgeRole::InnerSpoke => continue,
         };
+        let target_face =
+            match find_analytic_face_containing_position(brep, curve_midpoint, role_filter) {
+                Some(f) => f,
+                None => continue,
+            };
 
-        // Stitch each endpoint into target_cyl's outer loop.
-        stitch_apex_vertex_into_cyl_loop(brep, target_cyl, v_origin)
+        // Skip if both endpoints are already in target_face's loop —
+        // any other shared face is irrelevant; the natural face for
+        // mef is the one matching the planner's role.
+        if vertex_is_in_face_outer_loop(brep, target_face, v_origin)
+            && vertex_is_in_face_outer_loop(brep, target_face, v_dest)
+        {
+            continue;
+        }
+
+        // Stitch each endpoint into target_face's outer loop.
+        stitch_apex_vertex_into_face_loop(brep, target_face, v_origin)
             .map_err(|e| format!("apex_edge[{i}] stitch v_origin: {e}"))?;
-        stitch_apex_vertex_into_cyl_loop(brep, target_cyl, v_dest)
+        stitch_apex_vertex_into_face_loop(brep, target_face, v_dest)
             .map_err(|e| format!("apex_edge[{i}] stitch v_dest: {e}"))?;
 
         stitched += 1;
@@ -242,29 +255,76 @@ pub(crate) fn stitch_apex_edges_into_cyl_loops(
     Ok(stitched)
 }
 
-/// True iff `v1` and `v2` both appear as half-edge origins on at
-/// least one face's outer loop.
-fn has_shared_outer_loop_face(brep: &BRep, v1: VertexHandle, v2: VertexHandle) -> bool {
-    for (_, face) in brep.faces.iter() {
+/// Surface-kind filter for `find_analytic_face_containing_position`.
+#[derive(Debug, Clone, Copy)]
+enum SurfaceRoleFilter {
+    CylinderOnly,
+    PlaneOnly,
+}
+
+/// Find any analytic face (Cylinder or Plane) whose stored surface
+/// contains `position` AND whose surface kind matches `role`.
+/// Cylinders are matched by radial distance (5% tolerance); planes
+/// by signed-distance to the plane (1e-6 m).  Among multiple
+/// candidates, prefers the face whose outer loop's vertices are
+/// closest to `position` — important when several plane sub-faces
+/// share the same geometric plane (Phase C's
+/// `merge_consumed_faces_any` typically leaves multiple sub-faces
+/// per geometric plane).
+fn find_analytic_face_containing_position(
+    brep: &BRep,
+    position: Point3,
+    role: SurfaceRoleFilter,
+) -> Option<FaceHandle> {
+    let plane_tol = 1e-6_f64;
+    let mut best: Option<(FaceHandle, f64)> = None;
+    for (fh, face) in brep.faces.iter() {
+        let Some(sof) = face.surface.as_ref() else {
+            continue;
+        };
+        let on_surface = match (&sof.geometry, role) {
+            (
+                SurfaceGeometry::Cylinder {
+                    origin,
+                    axis,
+                    radius,
+                },
+                SurfaceRoleFilter::CylinderOnly,
+            ) => {
+                let radial = radial_distance_to_axis(&position, *origin, *axis);
+                let tol = radius * RADIAL_TOL_FRACTION;
+                (radial - radius).abs() <= tol
+            }
+            (SurfaceGeometry::Plane { origin, normal, .. }, SurfaceRoleFilter::PlaneOnly) => {
+                let n_len = normal.length().max(1e-12);
+                let nn = Vec3::new(normal.x / n_len, normal.y / n_len, normal.z / n_len);
+                let d = (position.x - origin.x) * nn.x
+                    + (position.y - origin.y) * nn.y
+                    + (position.z - origin.z) * nn.z;
+                d.abs() <= plane_tol
+            }
+            _ => false,
+        };
+        if !on_surface {
+            continue;
+        }
+        // Score by minimum loop-vertex distance to `position`: when
+        // several faces share a surface, prefer the one whose outer
+        // loop is geometrically closest.
         let outer_loop = face.outer_loop;
         let Some(loop_data) = brep.loops.get(outer_loop) else {
             continue;
         };
         let start = loop_data.half_edge;
+        let mut min_dist = f64::INFINITY;
         let mut cursor = start;
-        let mut found_1 = false;
-        let mut found_2 = false;
         let mut iters = 0;
         let max_iters = brep.half_edges.len() + 1;
         while let Some(he) = brep.half_edges.get(cursor) {
-            if he.origin == v1 {
-                found_1 = true;
-            }
-            if he.origin == v2 {
-                found_2 = true;
-            }
-            if found_1 && found_2 {
-                return true;
+            let p = brep.vertices[he.origin].position;
+            let d = position.distance_to(&p);
+            if d < min_dist {
+                min_dist = d;
             }
             cursor = he.next;
             iters += 1;
@@ -272,34 +332,12 @@ fn has_shared_outer_loop_face(brep: &BRep, v1: VertexHandle, v2: VertexHandle) -
                 break;
             }
         }
-    }
-    false
-}
-
-/// Find the cylinder face whose stored surface contains
-/// `position` (radial distance from axis ≈ radius, within 5%).
-/// Returns the first match.  None if no cylinder contains the
-/// position — typical for Gregory-side apex_edge midpoints.
-fn find_cyl_face_containing_position(brep: &BRep, position: Point3) -> Option<FaceHandle> {
-    for (fh, face) in brep.faces.iter() {
-        let Some(sof) = face.surface.as_ref() else {
-            continue;
-        };
-        let SurfaceGeometry::Cylinder {
-            origin,
-            axis,
-            radius,
-        } = &sof.geometry
-        else {
-            continue;
-        };
-        let radial = radial_distance_to_axis(&position, *origin, *axis);
-        let tol = radius * RADIAL_TOL_FRACTION;
-        if (radial - radius).abs() <= tol {
-            return Some(fh);
+        match best {
+            Some((_, b)) if b <= min_dist => {}
+            _ => best = Some((fh, min_dist)),
         }
     }
-    None
+    best.map(|(fh, _)| fh)
 }
 
 /// True iff `vertex` appears as a half-edge origin on `face`'s
@@ -328,8 +366,8 @@ fn vertex_is_in_face_outer_loop(brep: &BRep, face: FaceHandle, vertex: VertexHan
     false
 }
 
-/// Stitch an existing apex `vertex` into `cyl_face`'s outer loop
-/// via split-and-weld.  After this, the vertex appears as a
+/// Stitch an existing apex `vertex` into `target_face`'s outer
+/// loop via split-and-weld.  After this, the vertex appears as a
 /// half-edge origin in the loop.
 ///
 /// Algorithm:
@@ -343,13 +381,15 @@ fn vertex_is_in_face_outer_loop(brep: &BRep, face: FaceHandle, vertex: VertexHan
 ///    originated from V_temp now originate from `vertex`;
 ///    V_temp is removed.
 ///
-/// No-op when `vertex` is already in the loop.
-fn stitch_apex_vertex_into_cyl_loop(
+/// No-op when `vertex` is already in the loop.  Works for any face
+/// kind (cylinder, plane, etc.) — the algorithm relies only on
+/// loop-edge geometry, not the surface.
+fn stitch_apex_vertex_into_face_loop(
     brep: &mut BRep,
-    cyl_face: FaceHandle,
+    target_face: FaceHandle,
     vertex: VertexHandle,
 ) -> Result<(), String> {
-    if vertex_is_in_face_outer_loop(brep, cyl_face, vertex) {
+    if vertex_is_in_face_outer_loop(brep, target_face, vertex) {
         return Ok(());
     }
     let v_pos = brep
@@ -362,8 +402,8 @@ fn stitch_apex_vertex_into_cyl_loop(
     // perpendicular distance to v_pos.  Track (edge, t).
     let face = brep
         .faces
-        .get(cyl_face)
-        .ok_or_else(|| format!("cyl_face {cyl_face:?} not found"))?;
+        .get(target_face)
+        .ok_or_else(|| format!("target_face {target_face:?} not found"))?;
     let outer_loop = face.outer_loop;
     let loop_data = brep
         .loops
