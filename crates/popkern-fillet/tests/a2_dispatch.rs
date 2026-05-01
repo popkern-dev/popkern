@@ -65,7 +65,9 @@ fn cube_with_variable_corner_fillets(use_a2: bool) -> BlendResult {
 fn a2_dispatch_succeeds_on_uniform_cube_without_fallback() {
     // After A2.2.e/f, Sphere caps build natively under A2.  The
     // uniform-radius cube apex dispatches to Sphere — A2 must
-    // complete without firing `A2FellBackToLegacy`.
+    // complete without firing `A2FellBackToLegacy` AND legacy
+    // `insert_vertex_blend` must NOT run after A2 (else it would
+    // emit `VertexModeFallback` because V is already gone).
     let result_a2 = cube_with_three_corner_fillets(true);
 
     let fallback_warnings: Vec<_> = result_a2
@@ -78,6 +80,22 @@ fn a2_dispatch_succeeds_on_uniform_cube_without_fallback() {
         "A2 should succeed end-to-end on uniform-radius cube (Sphere cap); \
          got {} A2FellBackToLegacy warning(s)",
         fallback_warnings.len(),
+    );
+    // §6c-A2.3.d skip-legacy regression guard: if A2 success
+    // didn't actually skip the legacy `insert_vertex_blend` call,
+    // legacy would re-enter for the now-removed apex vertex,
+    // fail at `repair_vertex_outgoing`, and emit a
+    // `VertexModeFallback` warning.
+    let vertex_mode_fallbacks: Vec<_> = result_a2
+        .edge_warnings
+        .iter()
+        .filter(|(_, w)| matches!(w, BlendWarning::VertexModeFallback { .. }))
+        .collect();
+    assert!(
+        vertex_mode_fallbacks.is_empty(),
+        "A2 success path must skip legacy; got {} VertexModeFallback warning(s) — \
+         indicates legacy `insert_vertex_blend` ran after A2 already removed V",
+        vertex_mode_fallbacks.len(),
     );
 }
 

@@ -127,6 +127,11 @@ pub fn apply_blend_geometry(
         crate::blend::BlendBoundary,
         Vec<popkern_core::topology::FaceHandle>,
     )> = Vec::new();
+    // §6c-A2.3.d — face handles authored by `try_a2_apex_construction`.
+    // These faces are protected from `sliver_absorb` /
+    // `cap_insert` / late re-wiring so the post-loop stages
+    // don't re-author or absorb the A2-built cap.
+    let mut a2_built_faces: Vec<popkern_core::topology::FaceHandle> = Vec::new();
 
     // ── Phase A: ALL perpendicular edge splits ─ only modifies edges (inserts vertices), not faces.
     struct PerpSplitData {
@@ -456,53 +461,63 @@ pub fn apply_blend_geometry(
                     .copied()
                     .unwrap_or(crate::vertex_classifier::VertexBlendClassification::SameSideConvex);
 
-                // §6c-A2.3.b — when use_a2_apex_construction is set,
-                // try the A2 planner + builder for this apex.  On
-                // success, skip the legacy insert_vertex_blend path
-                // entirely.  On any A2 error (plan or build), fall
-                // back to legacy with a typed
-                // BlendWarning::A2FellBackToLegacy recording the
-                // reason.
+                // §6c-A2.3.b/d — when use_a2_apex_construction is set,
+                // try the A2 planner + builder for this apex.
+                //   * On success, the BRep already has the A2-built
+                //     cap.  We collect the cap face handles into
+                //     `a2_built_faces` so the post-loop protected
+                //     set (sliver_absorb / cap_insert /
+                //     late_wire_jobs) leaves them alone, then skip
+                //     the legacy insert_vertex_blend call entirely.
+                //   * On A2 error (plan or build), fall back to
+                //     legacy with a typed
+                //     BlendWarning::A2FellBackToLegacy recording the
+                //     reason.  `construct_apex`'s snapshot has
+                //     already rolled the BRep back to its pre-call
+                //     state, so legacy can run cleanly.
                 //
                 // A2's failure modes:
                 //   * plan_apex_resolution returns ApexPlanError
                 //     (e.g. SphereCylinderNoIntersection on extreme
                 //     radii, SingularCapCentre on nearly-coplanar
                 //     faces).
-                //   * construct_apex returns ApexBuildError
-                //     (currently the dominant case during A2.2.b/c →
-                //     A2.2.d/e/f transition: Sphere/Gregory cap
-                //     construction is not yet implemented and the
-                //     builder errors with PlanMismatch by design).
-                //
-                // The result of a successful A2 build is currently
-                // not bridged into corner_patches — that's A2.2.d/e/f
-                // work.  Until then, A2 success on non-Open plans is
-                // unreachable (construct_apex errors on Sphere /
-                // Gregory paths), so this dispatch hits the fallback
-                // path on every cube/pyramid fixture today.
-                let a2_outcome: Option<String> = if use_a2_apex_construction {
-                    a2_dispatch::try_a2_apex_construction(
+                //   * construct_apex returns ApexBuildError —
+                //     today most commonly Gregory cap surface
+                //     assignment (deferred to A2.4).
+                let a2_outcome = if use_a2_apex_construction {
+                    Some(a2_dispatch::try_a2_apex_construction(
                         &mut result,
                         *vertex,
                         edge_indices,
                         edge_geometries,
                         &descendants,
                         tolerance,
-                    )
+                    ))
                 } else {
                     None // flag not set — legacy path runs unchanged
                 };
-                if let Some(reason) = a2_outcome {
-                    let warn_edge = edge_geometries[edge_indices[0]].analysis.edge;
-                    warnings.push((
-                        warn_edge,
-                        BlendWarning::A2FellBackToLegacy {
-                            vertex: *vertex,
-                            reason,
-                        },
-                    ));
-                    // Fall through to legacy below.
+                let mut a2_succeeded = false;
+                if let Some(outcome) = a2_outcome {
+                    match outcome {
+                        Ok(success) => {
+                            a2_built_faces.extend(success.built_faces);
+                            a2_succeeded = true;
+                        }
+                        Err(reason) => {
+                            let warn_edge = edge_geometries[edge_indices[0]].analysis.edge;
+                            warnings.push((
+                                warn_edge,
+                                BlendWarning::A2FellBackToLegacy {
+                                    vertex: *vertex,
+                                    reason,
+                                },
+                            ));
+                            // Fall through to legacy below.
+                        }
+                    }
+                }
+                if a2_succeeded {
+                    continue;
                 }
 
                 match blend_insert::insert_vertex_blend(
@@ -638,10 +653,15 @@ pub fn apply_blend_geometry(
     // FilletEnd) cannot represent that.  The protection set is
     // empty when no vertex took the substitution path (all other
     // fixtures behave identically to before).
-    let protected_caps: Vec<popkern_core::topology::FaceHandle> = late_wire_jobs
+    let mut protected_caps: Vec<popkern_core::topology::FaceHandle> = late_wire_jobs
         .iter()
         .flat_map(|(_, faces)| faces.iter().copied())
         .collect();
+    // §6c-A2.3.d — merge A2-built cap faces into the protected
+    // set so `sliver_absorb` / `cap_insert` / `late_wire_jobs`
+    // don't re-author them.  When `use_a2_apex_construction` is
+    // off this list is empty.
+    protected_caps.extend(a2_built_faces.iter().copied());
     sliver_absorb::run_and_route_warnings_with_protected(
         &mut result,
         tolerance,
