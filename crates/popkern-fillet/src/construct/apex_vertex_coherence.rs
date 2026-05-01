@@ -11,8 +11,8 @@
 //! footprint position V.  This module relocates each apex vertex
 //! V → T, by reading the target from any incident cap-loop edge.
 //!
-//! Activation: `POPKERN_APEX_PATH_A=1`.  Default off until the
-//! Phase 6c-F flag flip.
+//! Activation: on by default since Phase 6c-F.  Set
+//! `POPKERN_APEX_PATH_A=0` to disable for debugging.
 //!
 //! After A.4, BASE-EDGE curves (cyl-vs-Plane apex generators going
 //! AWAY from the apex) still terminate at the OLD V position.

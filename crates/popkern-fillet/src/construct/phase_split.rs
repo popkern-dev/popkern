@@ -11,6 +11,22 @@ pub(super) struct FaceTrim {
     pub side: u8,
     /// Anchor vertices (start, end) created during Phase A.
     pub anchors: (VertexHandle, VertexHandle),
+    /// Analytic 3D trim curve from `EdgeGeometry::trim_3d_<side>`.
+    /// When the fillet is a cylinder and the adjacent face is a
+    /// plane, this is the analytic cyl×plane intersection.  Plumbed
+    /// through to `multi_chord` for the #136 commercial-grade fix
+    /// (so the cylinder face's outer loop never contains chord-line
+    /// edges through cylinder interior).  Currently populated but
+    /// unused — slice 6 of the #136 plan will switch `multi_chord`
+    /// to use this instead of `helpers::line_nurbs`.
+    #[allow(dead_code)]
+    pub trim_3d: NurbsCurve,
+    /// Pcurve from `EdgeGeometry::pcurve_<side>` — the analytic
+    /// trim curve projected into the planar adjacent face's UV.
+    /// Will be the pcurve argument to `split_face` once slice 6
+    /// of the #136 plan lands.
+    #[allow(dead_code)]
+    pub pcurve: NurbsCurve,
 }
 
 /// Result of Phase B face splitting for one trim.

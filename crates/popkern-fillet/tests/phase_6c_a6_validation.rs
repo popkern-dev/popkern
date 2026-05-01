@@ -93,10 +93,11 @@ fn build_with_flags(
     radii: &[f64],
     topology_rebuild: bool,
 ) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
+    // POPKERN_STAGE4_WIDE_WIRE_TOL, POPKERN_APEX_FACE_LIFT, and
+    // POPKERN_APEX_PATH_A are all default-on since #207 cleanup.
+    // POPKERN_SPHERE_FIT_BOUNDARY remains opt-in (production
+    // divergence on variable-radius corners).
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
-    let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
-    let _g4 = EnvGuard::set("POPKERN_APEX_PATH_A", "1");
     let _g5 = if topology_rebuild {
         Some(EnvGuard::set("POPKERN_APEX_TOPOLOGY_REBUILD", "1"))
     } else {
@@ -497,7 +498,8 @@ fn phase_6c_a6_variable_radius_cubes_path_a_clean() {
             name, m.structural, m.path_a_relevant, m.other_geometric, m.worst_path_a_gap,
         );
         assert_eq!(
-            m.structural, 0,
+            m.structural,
+            0,
             "{}: structural must be 0; errors:\n{}",
             name,
             errors
@@ -507,7 +509,8 @@ fn phase_6c_a6_variable_radius_cubes_path_a_clean() {
                 .join("\n"),
         );
         assert_eq!(
-            m.path_a_relevant, 0,
+            m.path_a_relevant,
+            0,
             "{}: path_a_relevant must be 0 under Path A's full pipeline; errors:\n{}",
             name,
             errors

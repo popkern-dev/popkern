@@ -83,7 +83,9 @@ pub(crate) fn insert_vertex_blend(
     // cap-tangent-arc loop directly — the commercial-style topology.
     // For non-uniform corners, substitution + Path A continue as
     // today.
-    let path_a_active = std::env::var("POPKERN_APEX_PATH_A").is_ok_and(|v| v == "1");
+    let path_a_active = std::env::var("POPKERN_APEX_PATH_A")
+        .map(|v| v != "0")
+        .unwrap_or(true);
     let radii_uniform = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
     let auto_disable_substitution = path_a_active && radii_uniform;
     let boundary_options = crate::blend::BlendBoundaryOptions {

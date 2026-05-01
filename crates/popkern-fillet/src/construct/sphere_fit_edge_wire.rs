@@ -71,7 +71,9 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // but downstream pcurve refit / measurement tolerates this.
     let do_relocate = std::env::var("POPKERN_GREGORY_CAP_REBUILD").is_ok_and(|v| v == "1");
     let stage4_wide_tol = boundary.sphere_fit_substituted
-        && std::env::var("POPKERN_STAGE4_WIDE_WIRE_TOL").is_ok_and(|v| v != "0");
+        && std::env::var("POPKERN_STAGE4_WIDE_WIRE_TOL")
+            .map(|v| v != "0")
+            .unwrap_or(true);
     // Phase 6c-X.A.3: when active, write the FULL segment range
     // `[t0, t1]` to every cap-loop edge instead of vertex-projection
     // sub-ranging.  The substituted boundary (per X.A.2 trace) is
@@ -84,7 +86,9 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // because the apex Path A is meaningful only under sphere-fit
     // substitution.
     let path_a_active = boundary.sphere_fit_substituted
-        && std::env::var("POPKERN_APEX_PATH_A").is_ok_and(|v| v == "1");
+        && std::env::var("POPKERN_APEX_PATH_A")
+            .map(|v| v != "0")
+            .unwrap_or(true);
     let stage4_wide_tol = stage4_wide_tol || path_a_active;
     let tol = if do_relocate || stage4_wide_tol {
         0.30

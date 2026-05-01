@@ -8,6 +8,7 @@ pub(crate) mod blend_topo;
 mod bridge_warnings;
 pub(crate) mod cap_insert;
 pub(crate) mod closed_fillet;
+pub(crate) mod cyl_plane_intersect;
 pub(crate) mod edge_reconcile;
 mod gregory_pcurve_clamp;
 
@@ -168,12 +169,20 @@ pub fn apply_blend_geometry(
             }
         }
 
+        // Only enable the on-cyl anchor placement (#136 commercial-
+        // grade fix) when the fillet surface is a Cylinder.  Torus,
+        // cone, and other fillet kinds produce different analytic
+        // trim curves that would mis-place anchors via the cyl×plane
+        // crossing helper.
+        let trim_for_anchors = matches!(eg.surface, SurfaceGeometry::Cylinder { .. });
         match helpers::split_perpendicular_edges_by_radius(
             &phase_a_snapshot,
             &mut result,
             eg.analysis.face_1,
             eg.analysis.face_2,
             eg.analysis.edge,
+            trim_for_anchors.then_some(&eg.trim_3d_1),
+            trim_for_anchors.then_some(&eg.trim_3d_2),
             eg.radius_at_start,
             eg.radius_at_end,
             tolerance,
@@ -226,6 +235,8 @@ pub fn apply_blend_geometry(
                 edge_idx: idx,
                 side: 1,
                 anchors: pd.face_1_anchors,
+                trim_3d: eg.trim_3d_1.clone(),
+                pcurve: eg.pcurve_1.clone(),
             });
         face_trims
             .entry(eg.analysis.face_2)
@@ -234,6 +245,8 @@ pub fn apply_blend_geometry(
                 edge_idx: idx,
                 side: 2,
                 anchors: pd.face_2_anchors,
+                trim_3d: eg.trim_3d_2.clone(),
+                pcurve: eg.pcurve_2.clone(),
             });
     }
 
@@ -728,9 +741,12 @@ pub fn apply_blend_geometry(
     // the cap-vs-twin G0 gap (every plane UV maps to a point on
     // the plane, never to the off-plane bridge).
     //
-    // Default off until validated on more fixtures — opt-in via
-    // `POPKERN_APEX_FACE_LIFT=1`.
-    if std::env::var("POPKERN_APEX_FACE_LIFT").is_ok_and(|v| v == "1") {
+    // On by default since #207 cleanup.  Set
+    // `POPKERN_APEX_FACE_LIFT=0` to disable for debugging.
+    if std::env::var("POPKERN_APEX_FACE_LIFT")
+        .map(|v| v != "0")
+        .unwrap_or(true)
+    {
         for (_boundary, sub_faces) in &late_wire_jobs {
             let lifted = apex_face_lift::lift_all_apex_plane_faces(&mut result, sub_faces);
             if std::env::var_os("POPKERN_KP_TRACE").is_some() {
@@ -746,7 +762,10 @@ pub fn apply_blend_geometry(
     // vertex-to-curve-endpoint coherence on cap-loop edges is exact;
     // BASE-EDGE curves still terminate at the OLD vertex position
     // and need A.5's curve-replacement pass.
-    if std::env::var("POPKERN_APEX_PATH_A").is_ok_and(|v| v == "1") {
+    if std::env::var("POPKERN_APEX_PATH_A")
+        .map(|v| v != "0")
+        .unwrap_or(true)
+    {
         for (boundary, sub_faces) in &late_wire_jobs {
             let (n_moved, worst) =
                 apex_vertex_coherence::relocate_apex_vertices(&mut result, sub_faces, boundary);

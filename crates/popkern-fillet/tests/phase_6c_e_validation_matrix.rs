@@ -58,8 +58,6 @@ impl Drop for EnvGuard {
 
 fn run_cube_with_stage4(radii: &[f64]) -> CapOuterMetrics {
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
-    let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let edges = incident_edges(&cube, vertex);
@@ -69,7 +67,6 @@ fn run_cube_with_stage4(radii: &[f64]) -> CapOuterMetrics {
 
 fn run_n_pyramid_with_stage4(n: usize, h: f64, radii: &[f64]) -> CapOuterMetrics {
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
     let pyr = BRep::n_gonal_pyramid(n, 1.0, h, Tolerance::default()).unwrap();
     let vertex = pick_vertex_with_valence(&pyr, n).unwrap();
     let edges = incident_edges(&pyr, vertex);
@@ -268,8 +265,6 @@ fn breakdown(brep: &popkern_core::topology::BRep, faces: &[popkern_core::topolog
 #[test]
 fn phase_6c_e_cube_mixed_per_edge_breakdown() {
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
-    let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let edges = incident_edges(&cube, vertex);
@@ -288,8 +283,6 @@ fn phase_6c_e_cube_mixed_per_edge_breakdown() {
 #[test]
 fn phase_6c_e_pyramid4_uniform_per_edge_breakdown() {
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
-    let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
     let pyr = BRep::n_gonal_pyramid(4, 1.0, 0.8, Tolerance::default()).unwrap();
     let vertex = pick_vertex_with_valence(&pyr, 4).unwrap();
     let edges = incident_edges(&pyr, vertex);
@@ -308,8 +301,6 @@ fn phase_6c_e_pyramid4_uniform_per_edge_breakdown() {
 #[test]
 fn phase_6c_e_cube_uniform_per_edge_breakdown() {
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
-    let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let edges = incident_edges(&cube, vertex);
@@ -333,9 +324,6 @@ fn phase_6c_e_cube_uniform_per_edge_breakdown() {
 fn phase_6c_a3_full_range_check_pyramid4_mixed() {
     use popkern_core::geometry::surface::SurfaceGeometry;
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
-    let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
-    let _g4 = EnvGuard::set("POPKERN_APEX_PATH_A", "1");
     let pyr = BRep::n_gonal_pyramid(4, 1.0, 0.8, Tolerance::default()).unwrap();
     let vertex = pick_vertex_with_valence(&pyr, 4).unwrap();
     let edges = incident_edges(&pyr, vertex);
@@ -400,8 +388,6 @@ fn phase_6c_a2_t_discovery_and_wire_match() {
     use popkern_core::topology::VertexHandle;
 
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
-    let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
 
     let cases: &[(&str, &[f64], bool, f64)] = &[
         ("cube_mixed", &[0.08, 0.10, 0.12], false, 0.0),
@@ -595,8 +581,6 @@ fn phase_6c_a1_apex_region_detection() {
     use popkern_core::topology::VertexHandle;
 
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
-    let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
 
     let cases: &[(&str, &[f64], bool, f64)] = &[
         ("cube_mixed", &[0.08, 0.10, 0.12], false, 0.0),
@@ -744,8 +728,6 @@ fn phase_6c_x1_apex_vertex_coherence() {
     use popkern_core::topology::VertexHandle;
 
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
-    let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
 
     let cases: &[(&str, &[f64], bool, f64)] = &[
         ("cube_uniform", &[0.10, 0.10, 0.10], false, 0.0),
@@ -914,8 +896,6 @@ fn phase_6c_x_structural_dump() {
     use popkern_core::geometry::curve::CurveEval;
     use popkern_core::geometry::surface::SurfaceGeometry;
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
-    let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
 
     let cases: &[(&str, &[f64], bool, f64)] = &[
         ("cube_uniform", &[0.10, 0.10, 0.10], false, 0.0),
@@ -1020,8 +1000,6 @@ fn phase_6c_x_structural_dump() {
 #[test]
 fn phase_6c_e_mode_b_validation_diagnostic() {
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
-    let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
 
     let cases: &[(&str, &[f64], bool)] = &[
         ("cube_uniform", &[0.10, 0.10, 0.10], false),
@@ -1065,7 +1043,6 @@ fn phase_6c_e_cube_mixed_bridge_edge_param_ranges() {
     use popkern_core::geometry::curve::CurveEval;
     use popkern_core::geometry::surface::SurfaceGeometry;
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
     // Note: APEX_FACE_LIFT *off* so we observe the pre-lift edge state.
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
@@ -1130,8 +1107,6 @@ fn phase_6c_e_cube_mixed_bridge_edge_param_ranges() {
 fn phase_6c_e_cube_mixed_cap_loop_walk() {
     use popkern_core::geometry::surface::SurfaceGeometry;
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
-    let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let edges = incident_edges(&cube, vertex);
@@ -1185,8 +1160,6 @@ fn phase_6c_e_cube_mixed_cap_loop_walk() {
 #[test]
 fn phase_6c_e_pyramid3_uniform_per_edge_breakdown() {
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
-    let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
     let pyr = BRep::n_gonal_pyramid(3, 1.0, 1.2, Tolerance::default()).unwrap();
     let vertex = pick_vertex_with_valence(&pyr, 3).unwrap();
     let edges = incident_edges(&pyr, vertex);

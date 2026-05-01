@@ -39,6 +39,7 @@
 //! fillet output. Other patterns (cylinder × NURBS-cap, helical end
 //! caps, multi-vertex chord chains) are out of scope.
 
+use super::cyl_plane_intersect::analytic_cyl_plane_intersection;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::curve::CurveGeometry;
@@ -63,6 +64,15 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, Verte
 pub(crate) fn repair_cylinder_face_off_surface_vertices(brep: &mut BRep) -> usize {
     let trace = std::env::var("POPKERN_TOPO_REPAIR_TRACE").is_ok();
     let dump = std::env::var("POPKERN_TOPO_REPAIR_DUMP").is_ok();
+    // Per-face attempt cap.  Each successful repair removes one
+    // off-cyl candidate; an upper bound keeps the loop bounded
+    // even if surgery somehow generates new candidates.  Override
+    // via `POPKERN_TOPO_REPAIR_MAX_ATTEMPTS` for diagnostics
+    // (#136 iteration-compounding hypothesis).
+    let max_attempts = std::env::var("POPKERN_TOPO_REPAIR_MAX_ATTEMPTS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(8);
     let face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
     let mut repaired = 0;
     for fh in face_handles {
@@ -72,7 +82,7 @@ pub(crate) fn repair_cylinder_face_off_surface_vertices(brep: &mut BRep) -> usiz
         if dump {
             dump_cylinder_face(brep, fh);
         }
-        for _attempt in 0..8 {
+        for _attempt in 0..max_attempts {
             if !brep.faces.contains_key(fh) {
                 break;
             }
@@ -597,6 +607,34 @@ fn try_repair_chord_pair_different_planes(
     let p_anchor_out = brep.vertices[cand.anchor_out].position;
     let tolerance = brep.tolerance;
 
+    // #136 precondition: both anchors must lie ON the cylinder.
+    // In pyramid apex-only fillets, cylinder face loops can have
+    // CHAINS of off-cyl vertices that use each other as anchors;
+    // surgery against off-surface anchors rewrites chord edges
+    // between two off-surface points, and cumulative repairs
+    // across the chain compound to ~1 m tess-nm divergence on
+    // N=7/8.  See `tests/topo_repair_diff_planes_repro.rs::t_136_b3`.
+    let (cyl_origin, cyl_axis, cyl_radius) = match &cyl_geom {
+        SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius,
+        } => (*origin, *axis, *radius),
+        _ => return false,
+    };
+    if !vertex_on_cylinder(&p_anchor_in, cyl_origin, cyl_axis, cyl_radius)
+        || !vertex_on_cylinder(&p_anchor_out, cyl_origin, cyl_axis, cyl_radius)
+    {
+        if trace {
+            eprintln!(
+                "[topo_repair]   reject (diff): anchor off-cyl (chord chain) — anchor_in_on={}, anchor_out_on={}",
+                vertex_on_cylinder(&p_anchor_in, cyl_origin, cyl_axis, cyl_radius),
+                vertex_on_cylinder(&p_anchor_out, cyl_origin, cyl_axis, cyl_radius),
+            );
+        }
+        return false;
+    }
+
     // Compute cyl ∩ plane_A and cyl ∩ plane_B as analytic curves.
     let arc_a = match analytic_cyl_plane_intersection(&cyl_geom, &plane_a_geom, &tolerance) {
         Some(c) => c,
@@ -703,105 +741,6 @@ fn try_repair_chord_pair_different_planes(
 
     let _ = (t_a_off, t_b_off);
     true
-}
-
-/// Compute the analytic cyl×plane intersection, returning the first
-/// `Curve` intersection from `intersect_surfaces`. Handles the
-/// fillet-specific tangent case (cyl × slant plane = contact line)
-/// that `case_parallel` rejects when `d ≈ cr`.
-fn analytic_cyl_plane_intersection(
-    cyl: &SurfaceGeometry,
-    plane: &SurfaceGeometry,
-    tolerance: &popkern_core::tolerance::Tolerance,
-) -> Option<NurbsCurve> {
-    // Cyl UV: u ∈ [0, 2π], v unbounded — give the solver a generous v
-    // range. Plane UV: use a reasonably wide square. The analytic
-    // plane×cylinder solver doesn't actually clip the result to these
-    // ranges, so generous bounds are safe.
-    let result = intersect_surfaces(
-        cyl,
-        (0.0, std::f64::consts::TAU),
-        (-10.0, 10.0),
-        plane,
-        (-10.0, 10.0),
-        (-10.0, 10.0),
-        tolerance,
-    )
-    .ok()?;
-    for inter in &result.intersections {
-        if let SurfaceSurfaceIntersection::Curve(c) = inter {
-            return Some(c.curve_3d.clone());
-        }
-    }
-    // Empty result — could be a tangent case (cyl perpendicular to
-    // plane normal AND axis distance equals radius). Compute the
-    // contact line manually.
-    cyl_plane_contact_line(cyl, plane, tolerance)
-}
-
-/// Compute the contact line where a cylinder is tangent to a plane.
-/// Returns a NURBS line along the cylinder axis at the contact angle.
-fn cyl_plane_contact_line(
-    cyl: &SurfaceGeometry,
-    plane: &SurfaceGeometry,
-    tolerance: &popkern_core::tolerance::Tolerance,
-) -> Option<NurbsCurve> {
-    let SurfaceGeometry::Cylinder {
-        origin: co,
-        axis: ca,
-        radius: cr,
-    } = cyl
-    else {
-        return None;
-    };
-    let SurfaceGeometry::Plane {
-        origin: po,
-        normal: pn,
-        ..
-    } = plane
-    else {
-        return None;
-    };
-    // Tangent requires axis perpendicular to plane normal (within
-    // angular tolerance) AND axial-distance from cyl axis to plane
-    // ≈ cyl radius.
-    let axis_dot_normal = ca.dot(pn);
-    let ca_len = ca.length();
-    let pn_len = pn.length();
-    if (axis_dot_normal / (ca_len * pn_len)).abs() > tolerance.angular() {
-        return None; // not parallel
-    }
-    let axial_dist = ((*co - *po).dot(pn)) / pn_len;
-    if (axial_dist.abs() - cr).abs() > cr * 0.05 {
-        return None;
-    }
-    // Direction from cyl axis toward plane (negative of normal·sign).
-    let pn_unit = popkern_core::geometry::Vec3::new(pn.x / pn_len, pn.y / pn_len, pn.z / pn_len);
-    let toward_plane_sign = -axial_dist.signum();
-    let radial = popkern_core::geometry::Vec3::new(
-        toward_plane_sign * pn_unit.x * *cr,
-        toward_plane_sign * pn_unit.y * *cr,
-        toward_plane_sign * pn_unit.z * *cr,
-    );
-    let line_origin = Point3::new(co.x + radial.x, co.y + radial.y, co.z + radial.z);
-    let v_lo = -10.0;
-    let v_hi = 10.0;
-    let a = Point3::new(
-        line_origin.x + ca.x * v_lo,
-        line_origin.y + ca.y * v_lo,
-        line_origin.z + ca.z * v_lo,
-    );
-    let b = Point3::new(
-        line_origin.x + ca.x * v_hi,
-        line_origin.y + ca.y * v_hi,
-        line_origin.z + ca.z * v_hi,
-    );
-    Some(NurbsCurve {
-        degree: 1,
-        knots: vec![0.0, 0.0, 1.0, 1.0],
-        control_points: vec![a, b],
-        weights: vec![1.0, 1.0],
-    })
 }
 
 /// Walk the curve, find parameter t closest to `target`. Returns

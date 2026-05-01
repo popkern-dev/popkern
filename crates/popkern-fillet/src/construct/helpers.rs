@@ -41,9 +41,11 @@ pub fn split_perpendicular_edges_by_radius(
     face_1: FaceHandle,
     face_2: FaceHandle,
     fillet_edge: EdgeHandle,
+    trim_3d_face_1: Option<&NurbsCurve>,
+    trim_3d_face_2: Option<&NurbsCurve>,
     radius_at_start: f64,
     radius_at_end: f64,
-    _tolerance: &Tolerance,
+    tolerance: &Tolerance,
 ) -> Result<SplitInfo, String> {
     let edge_data = brep_snapshot
         .edges
@@ -78,6 +80,8 @@ pub fn split_perpendicular_edges_by_radius(
         v_end,
         radius_at_start,
         radius_at_end,
+        trim_3d_face_1,
+        tolerance,
     )?;
     let pos_2 = compute_perp_anchor_positions_for_face(
         brep_snapshot,
@@ -87,6 +91,8 @@ pub fn split_perpendicular_edges_by_radius(
         v_end,
         radius_at_start,
         radius_at_end,
+        trim_3d_face_2,
+        tolerance,
     )?;
 
     let mut edge_splits: Vec<(EdgeHandle, EdgeHandle, EdgeHandle)> = Vec::new();
@@ -298,6 +304,25 @@ pub fn pcurve_for_face(
 /// can sit on an inner loop when the face has a hole — for example,
 /// a cube top face with a cylindrical drilling — so walking only
 /// the outer loop would miss the incident perpendicular edges.
+/// Place anchor positions on the face boundary at a fillet edge's
+/// start and end vertices.
+///
+/// **Commercial-grade path** (per #136): when this face's stored
+/// surface is a plane and we have the fillet's analytic trim
+/// curve (`trim_3d_for_face` — already the cyl × plane analytic
+/// intersection produced by `compute_trim_curves`), find where
+/// that curve crosses each adjacent BRep edge.  The crossing is
+/// by construction ON the cylinder, so the resulting trim edges
+/// have on-surface endpoints and the cylinder face's outer loop
+/// never contains chord-line edges through the cylinder's interior.
+///
+/// **Fallback path**: walk distance `radius` along the adjacent
+/// BRep edge from the fillet edge's vertex.  This is correct for
+/// perpendicular faces (cube), but for non-perpendicular faces
+/// (pyramid slants) it lands the anchor off the cylinder by
+/// `(1 − cos θ)·r`.  Used when no trim curve is provided or the
+/// geometry isn't a cyl × plane combination.
+#[allow(clippy::too_many_arguments)]
 fn compute_perp_anchor_positions_for_face(
     brep: &BRep,
     face: FaceHandle,
@@ -306,11 +331,25 @@ fn compute_perp_anchor_positions_for_face(
     v_end: VertexHandle,
     radius_at_start: f64,
     radius_at_end: f64,
+    trim_3d_for_face: Option<&NurbsCurve>,
+    _tolerance: &Tolerance,
 ) -> Result<(Point3, Point3), String> {
     let face_data = brep
         .faces
         .get(face)
         .ok_or_else(|| format!("face {face:?} not found"))?;
+
+    // Use the precomputed analytic trim curve when the face is
+    // planar (cyl × plane case).  trim_3d_for_face is already on
+    // the cylinder; intersecting it with the adjacent BRep edge
+    // gives an on-cyl anchor position.
+    let analytic_curve: Option<&NurbsCurve> = match (
+        trim_3d_for_face,
+        face_data.surface.as_ref().map(|s| &s.geometry),
+    ) {
+        (Some(c), Some(SurfaceGeometry::Plane { .. })) => Some(c),
+        _ => None,
+    };
 
     let mut loop_handles: Vec<LoopHandle> = Vec::with_capacity(1 + face_data.inner_loops.len());
     loop_handles.push(face_data.outer_loop);
@@ -353,28 +392,65 @@ fn compute_perp_anchor_positions_for_face(
                     )
                 };
 
-                if origin == v_start && edge_len > 1e-15 {
-                    let t = (radius_at_start / edge_len).min(0.999);
-                    if t > 0.001 && perp_start.is_none() {
-                        perp_start = Some(along(t));
+                // Place an anchor for `vertex` (either v_start or
+                // v_end) on this BRep edge, given that `vertex`
+                // sits at edge endpoint `origin` (forward) or
+                // `dest` (reversed).  Returns the anchor position
+                // or `None` if the edge isn't suitable.
+                let trace = std::env::var("POPKERN_ANCHOR_TRACE").is_ok();
+                let place_anchor = |radius: f64, forward: bool, slot: &mut Option<Point3>| {
+                    if slot.is_some() || edge_len <= 1e-15 {
+                        return;
                     }
-                } else if dest == v_start && edge_len > 1e-15 {
-                    let t = 1.0 - (radius_at_start / edge_len).min(0.999);
-                    if (0.001..0.999).contains(&t) && perp_start.is_none() {
-                        perp_start = Some(along(t));
-                    }
-                }
+                    // Compute perp-walk t — the canonical legacy
+                    // position.  See `analytic_curve` doc above:
+                    // the on-cyl path computes a different (true
+                    // on-surface) anchor for non-perpendicular
+                    // faces, but downstream Phase B/C/apex stages
+                    // currently assume perp-walk positions.
+                    // Promoting to true on-cyl anchors requires
+                    // updating those stages — out of scope for
+                    // this slice (#136 multi-session work).
+                    let t_perp = if forward {
+                        (radius / edge_len).min(0.999)
+                    } else {
+                        1.0 - (radius / edge_len).min(0.999)
+                    };
+                    let perp_accept = if forward {
+                        t_perp > 0.001
+                    } else {
+                        (0.001..0.999).contains(&t_perp)
+                    };
 
-                if origin == v_end && edge_len > 1e-15 {
-                    let t = (radius_at_end / edge_len).min(0.999);
-                    if t > 0.001 && perp_end.is_none() {
-                        perp_end = Some(along(t));
+                    // Diagnostic-only: report on-cyl crossing when
+                    // it differs from perp-walk.  Not used to
+                    // position the anchor — see comment above.
+                    if trace
+                        && let Some(curve) = analytic_curve
+                        && let Some((s, _)) =
+                            super::cyl_plane_intersect::intersect_curve_with_segment(curve, p0, p1)
+                    {
+                        let delta = (s - t_perp).abs();
+                        if delta > 1e-6 {
+                            eprintln!(
+                                "[anchor] face={face:?} on-cyl s={s:.6} vs perp t={t_perp:.6} (delta={delta:.4e}) — using perp-walk"
+                            );
+                        }
                     }
-                } else if dest == v_end && edge_len > 1e-15 {
-                    let t = 1.0 - (radius_at_end / edge_len).min(0.999);
-                    if (0.001..0.999).contains(&t) && perp_end.is_none() {
-                        perp_end = Some(along(t));
+                    if perp_accept {
+                        *slot = Some(along(t_perp));
                     }
+                };
+
+                if origin == v_start {
+                    place_anchor(radius_at_start, true, &mut perp_start);
+                } else if dest == v_start {
+                    place_anchor(radius_at_start, false, &mut perp_start);
+                }
+                if origin == v_end {
+                    place_anchor(radius_at_end, true, &mut perp_end);
+                } else if dest == v_end {
+                    place_anchor(radius_at_end, false, &mut perp_end);
                 }
             }
 

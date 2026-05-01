@@ -357,7 +357,6 @@ fn cap_loop_vs_cap_outer_edge_coverage() {
     use popkern_core::geometry::surface::SurfaceGeometry;
 
     let _guard = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _guard2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
     let pyr = BRep::square_pyramid(1.0, 0.8, Tolerance::default()).unwrap();
     let vertex = pick_vertex_with_valence(&pyr, 4).unwrap();
     let edges = incident_edges(&pyr, vertex);

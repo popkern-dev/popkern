@@ -159,6 +159,33 @@ fn construct_apex_inner(
     let apex_vertex_handles = resolve_apex_vertices(brep, plan, tolerance)?;
     check_cancelled(cancel)?;
 
+    // §A2.4 option 2 surgery (per ADR §25.4): pre-resolve
+    // stitching for variable-radius corners where Phase C's
+    // `merge_consumed_faces_any` heuristic placed apex_vertices
+    // on the wrong cylinder face's loop.  For each plan
+    // apex_edge whose endpoints don't share a face, find the
+    // geometrically-natural cylinder face (the one whose surface
+    // contains the apex_edge curve midpoint) and stitch both
+    // endpoints into its outer loop via split-and-weld.  After
+    // this surgery `find_shared_face_for_mef` succeeds for cyl-
+    // side apex_edges; Gregory-side apex_edges (curve midpoint
+    // not on any cylinder) are left untouched and handled by
+    // A2.4 cap surface assembly downstream.
+    let stitched = super::cylinder_face_coherence::stitch_apex_edges_into_cyl_loops(
+        brep,
+        plan,
+        &apex_vertex_handles,
+    )
+    .map_err(
+        |reason| crate::apex_construction::error::ApexBuildError::PlanMismatch {
+            reason: format!("A2.4 option 2 stitch surgery: {reason}"),
+        },
+    )?;
+    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        eprintln!("[a2-trace] §A2.4 stitched {stitched} apex_edge(s) into cyl loops");
+    }
+    check_cancelled(cancel)?;
+
     // Stage 2 (A2.2.c + A2.2.d) — apex edge resolution.
     //
     // For each plan apex edge (origin_idx, dest_idx, curve, role),

@@ -174,6 +174,38 @@ pub(super) fn try_a2_apex_construction(
     }
     let plan = plan_apex_resolution_lenient(brep, vertex, &specs, &surfaces, tolerance, None)
         .map_err(|plan_err| format!("plan_apex_resolution: {plan_err}"))?;
+
+    // §A2.4 option 2 diagnostic: detect Phase-C cylinder-face
+    // incoherence (loops with off-cyl vertices, per ADR §25).
+    // Today this is purely informational under
+    // `POPKERN_A2_TRACE=1` — it fires on both Sphere fixtures
+    // (where A2 still succeeds because the planner finds shared
+    // faces despite off-cyl loop vertices) and Gregory fixtures
+    // (where A2 will fail downstream).  Future slices will use
+    // this detection to drive the actual `kef`/`split_edge`
+    // surgery that rebuilds coherent cylinder loops.
+    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        let incoherent =
+            crate::apex_construction::cylinder_face_coherence::find_off_cyl_loop_vertices(brep);
+        if !incoherent.is_empty() {
+            eprintln!(
+                "[a2-trace] cylinder-face coherence: {} face(s) with off-cyl vertices — {}",
+                incoherent.len(),
+                crate::apex_construction::cylinder_face_coherence::describe_incoherence(
+                    &incoherent
+                ),
+            );
+            for entry in &incoherent {
+                for (vh, pos, dist) in &entry.off_cyl_vertices {
+                    eprintln!(
+                        "[a2-trace]   {:?} (r={:.4}) v={vh:?} pos=({:.4},{:.4},{:.4}) radial_dist={:.4}",
+                        entry.face, entry.radius, pos.x, pos.y, pos.z, dist,
+                    );
+                }
+            }
+        }
+    }
+
     let build_result = construct_apex(brep, &plan, tolerance, None)
         .map_err(|build_err| format!("construct_apex: {build_err}"))?;
     // TODO(A2.4): when construct_apex returns substantive cap

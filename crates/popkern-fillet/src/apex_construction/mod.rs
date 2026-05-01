@@ -30,6 +30,7 @@
 
 pub(crate) mod cap_kind;
 pub(crate) mod construct;
+pub(crate) mod cylinder_face_coherence;
 pub(crate) mod error;
 pub(crate) mod plan;
 pub(crate) mod plan_rung_fallback;
