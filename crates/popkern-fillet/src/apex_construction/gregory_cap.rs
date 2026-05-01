@@ -242,62 +242,47 @@ pub(super) fn assemble_gregory_cap_surface(
     }
 }
 
-/// Sweep across the BRep and `kef` any edge whose two adjacent
-/// faces are BOTH cap-side accumulators (each containing two or
-/// more apex_edges in its outer loop).  Single-apex-edge faces are
-/// host sub-faces — their identity must be preserved (they sit on
-/// cylinder/plane surfaces that adjacent fillets/cube faces still
-/// reference).  Multi-apex-edge faces are corner sub-faces that
-/// the cap-loop should subsume.
+/// Sweep across the BRep and `kef` residual edges that separate
+/// cap-side corner sub-faces left over by stage 3's V-spoke kef
+/// sequence.  Two passes:
 ///
-/// Iterates until no candidate boundary remains.  Cap at
-/// `apex_edges.len() * 2 + 8` iterations as a safety net.
+/// 1. **Cross-cap-accumulator pass** — kef any edge whose two
+///    adjacent faces both contain ≥2 apex_edges in their outer
+///    loop (cap-side accumulators).  Trivially correct since
+///    multi-apex-edge faces are by construction interior to the
+///    cap region.
+/// 2. **Bisected-spoke pass** — kef any edge that originates from
+///    an apex_vertex (i.e., a vertex appearing on `apex_edge_
+///    handles`'s endpoints) AND whose adjacent faces both
+///    contain ≥1 apex_edge in their outer loop AND whose adjacent
+///    faces are different.  These are the "leftover" V-spoke
+///    halves that `resolve_apex_vertices`'s `split_edge` left
+///    alive (V→apex_vertex was kef'd by stage 3, but apex_vertex→
+///    perp_anchor remains, separating two corner sub-faces).
+///
+/// Iterates the combined sweep until no candidate boundary
+/// remains.  Cap at `apex_edges.len() * 2 + 8` iterations.
 pub(super) fn merge_unmerged_apex_subfaces(
     brep: &mut BRep,
     apex_edge_handles: &[EdgeHandle],
 ) -> Result<(), String> {
     let cap_iters = apex_edge_handles.len() * 2 + 8;
+    let apex_set: std::collections::HashSet<EdgeHandle> =
+        apex_edge_handles.iter().copied().collect();
+    let apex_vertex_set = apex_vertex_set(brep, &apex_set);
     for _ in 0..cap_iters {
-        let apex_set: std::collections::HashSet<EdgeHandle> =
-            apex_edge_handles.iter().copied().collect();
+        // Pass 1: cross-cap-accumulator merge.
         let cap_side_faces = faces_with_multi_apex_edges(brep, &apex_set);
-        if cap_side_faces.len() <= 1 {
-            return Ok(());
-        }
         let mut victim: Option<HalfEdgeHandle> = None;
-        for fh in &cap_side_faces {
-            let Some(face) = brep.faces.get(*fh) else {
-                continue;
-            };
-            let outer_loop = face.outer_loop;
-            let Some(loop_data) = brep.loops.get(outer_loop) else {
-                continue;
-            };
-            let start = loop_data.half_edge;
-            let mut cursor = start;
-            let mut iters = 0;
-            let max_iters = brep.half_edges.len() + 1;
-            while let Some(he) = brep.half_edges.get(cursor) {
-                if !apex_set.contains(&he.edge) {
-                    let twin_loop = brep.half_edges.get(he.twin).map(|t| t.loop_);
-                    let twin_face = twin_loop.and_then(|tl| brep.loops.get(tl).map(|l| l.face));
-                    if let Some(tf) = twin_face
-                        && tf != *fh
-                        && cap_side_faces.contains(&tf)
-                    {
-                        victim = Some(cursor);
-                        break;
-                    }
-                }
-                cursor = he.next;
-                iters += 1;
-                if cursor == start || iters >= max_iters {
-                    break;
-                }
-            }
-            if victim.is_some() {
-                break;
-            }
+        if cap_side_faces.len() >= 2 {
+            victim = find_kef_candidate_between(brep, &cap_side_faces, &apex_set);
+        }
+        // Pass 2: bisected-spoke kef.  Walks every face containing
+        // any apex_edge and looks for an outgoing non-apex edge from
+        // an apex_vertex whose twin face is a different apex-
+        // containing face.
+        if victim.is_none() {
+            victim = find_bisected_spoke_kef_candidate(brep, &apex_set, &apex_vertex_set);
         }
         let Some(he) = victim else {
             return Ok(());
@@ -306,6 +291,127 @@ pub(super) fn merge_unmerged_apex_subfaces(
             .map_err(|e| format!("kef on cap-merging edge: {e:?}"))?;
     }
     Err("merge_unmerged_apex_subfaces: iteration cap hit".to_string())
+}
+
+/// Collect the set of vertices that appear as endpoints of any
+/// apex_edge in `apex_set`.  These are the apex_vertices.
+fn apex_vertex_set(
+    brep: &BRep,
+    apex_set: &std::collections::HashSet<EdgeHandle>,
+) -> std::collections::HashSet<VertexHandle> {
+    let mut out = std::collections::HashSet::new();
+    for &eh in apex_set {
+        let Some(edge) = brep.edges.get(eh) else {
+            continue;
+        };
+        let primary = edge.half_edge;
+        if let Some(he) = brep.half_edges.get(primary) {
+            out.insert(he.origin);
+            if let Some(twin) = brep.half_edges.get(he.twin) {
+                out.insert(twin.origin);
+            }
+        }
+    }
+    out
+}
+
+/// Pass 1 helper: find any non-apex edge between two distinct
+/// cap-side accumulator faces.
+fn find_kef_candidate_between(
+    brep: &BRep,
+    cap_side_faces: &[FaceHandle],
+    apex_set: &std::collections::HashSet<EdgeHandle>,
+) -> Option<HalfEdgeHandle> {
+    for fh in cap_side_faces {
+        let face = brep.faces.get(*fh)?;
+        let loop_data = brep.loops.get(face.outer_loop)?;
+        let start = loop_data.half_edge;
+        let mut cursor = start;
+        let mut iters = 0;
+        let max_iters = brep.half_edges.len() + 1;
+        while let Some(he) = brep.half_edges.get(cursor) {
+            if !apex_set.contains(&he.edge) {
+                let twin_loop = brep.half_edges.get(he.twin).map(|t| t.loop_);
+                let twin_face = twin_loop.and_then(|tl| brep.loops.get(tl).map(|l| l.face));
+                if let Some(tf) = twin_face
+                    && tf != *fh
+                    && cap_side_faces.contains(&tf)
+                {
+                    return Some(cursor);
+                }
+            }
+            cursor = he.next;
+            iters += 1;
+            if cursor == start || iters >= max_iters {
+                break;
+            }
+        }
+    }
+    None
+}
+
+/// Pass 2 helper: find a bisected-spoke edge.  Walks every face
+/// containing an apex_edge and looks for a non-apex edge whose
+/// origin is an apex_vertex AND whose twin face also contains at
+/// least one apex_edge.  This catches the case where a corner
+/// sub-face has only one apex_edge (so it's not a "cap-side
+/// accumulator") but is still on the cap perimeter and must merge.
+fn find_bisected_spoke_kef_candidate(
+    brep: &BRep,
+    apex_set: &std::collections::HashSet<EdgeHandle>,
+    apex_vertex_set: &std::collections::HashSet<VertexHandle>,
+) -> Option<HalfEdgeHandle> {
+    let containing_faces: Vec<FaceHandle> = brep
+        .faces
+        .iter()
+        .filter_map(|(fh, face)| {
+            let loop_data = brep.loops.get(face.outer_loop)?;
+            let start = loop_data.half_edge;
+            let mut cursor = start;
+            let mut iters = 0;
+            let max_iters = brep.half_edges.len() + 1;
+            while let Some(he) = brep.half_edges.get(cursor) {
+                if apex_set.contains(&he.edge) {
+                    return Some(fh);
+                }
+                cursor = he.next;
+                iters += 1;
+                if cursor == start || iters >= max_iters {
+                    return None;
+                }
+            }
+            None
+        })
+        .collect();
+    for fh in &containing_faces {
+        let face = brep.faces.get(*fh)?;
+        let loop_data = brep.loops.get(face.outer_loop)?;
+        let start = loop_data.half_edge;
+        let mut cursor = start;
+        let mut iters = 0;
+        let max_iters = brep.half_edges.len() + 1;
+        while let Some(he) = brep.half_edges.get(cursor) {
+            if !apex_set.contains(&he.edge) && apex_vertex_set.contains(&he.origin) {
+                let twin = he.twin;
+                let twin_origin = brep.half_edges.get(twin).map(|t| t.origin);
+                let twin_loop = brep.half_edges.get(twin).map(|t| t.loop_);
+                let twin_face = twin_loop.and_then(|tl| brep.loops.get(tl).map(|l| l.face));
+                if let (Some(to), Some(tf)) = (twin_origin, twin_face)
+                    && apex_vertex_set.contains(&to)
+                    && tf != *fh
+                    && containing_faces.contains(&tf)
+                {
+                    return Some(cursor);
+                }
+            }
+            cursor = he.next;
+            iters += 1;
+            if cursor == start || iters >= max_iters {
+                break;
+            }
+        }
+    }
+    None
 }
 
 fn faces_with_multi_apex_edges(

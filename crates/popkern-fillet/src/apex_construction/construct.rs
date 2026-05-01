@@ -273,30 +273,6 @@ fn construct_apex_inner(
     let cap_face =
         super::gregory_cap::find_face_bounded_by_all_apex_edges(brep, &apex_edge_handles)
             .unwrap_or(kef_blend_face);
-    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
-        eprintln!(
-            "[a2-trace] post-stage-3: kef_blend_face={kef_blend_face:?}, cap_face={cap_face:?}"
-        );
-        for (i, &eh) in apex_edge_handles.iter().enumerate() {
-            let alive = brep.edges.contains_key(eh);
-            if !alive {
-                eprintln!("[a2-trace]   apex_edge[{i}] {eh:?}: REMOVED");
-                continue;
-            }
-            let primary = brep.edges[eh].half_edge;
-            let pa = brep
-                .half_edges
-                .get(primary)
-                .and_then(|he| brep.loops.get(he.loop_))
-                .map(|l| l.face);
-            let twin = brep.half_edges.get(primary).map(|he| he.twin);
-            let pb = twin
-                .and_then(|t| brep.half_edges.get(t))
-                .and_then(|he| brep.loops.get(he.loop_))
-                .map(|l| l.face);
-            eprintln!("[a2-trace]   apex_edge[{i}] {eh:?}: primary_face={pa:?}, twin_face={pb:?}");
-        }
-    }
     check_cancelled(cancel)?;
 
     // Stage 4 (A2.2.f / A2.4) — cap face surface assignment.
@@ -574,6 +550,20 @@ fn resolve_apex_edges(
     apex_vertex_handles: &[VertexHandle],
 ) -> Result<Vec<EdgeHandle>, ApexBuildError> {
     let mut out: Vec<EdgeHandle> = Vec::with_capacity(plan.target_topology.apex_edges.len());
+    // Track the cap-side accumulator face — the face that
+    // successive mef calls should split, so each new apex_edge
+    // attaches to the previously-mef'd cap-side sub-face.  Without
+    // this preference, `find_shared_face_for_mef` picks any
+    // face containing both endpoints, which on Gregory caps with
+    // mixed cyl/plane host faces scatters apex_edges across
+    // multiple faces and leaves stage 3's V-spoke kef sequence
+    // unable to fully merge them.
+    //
+    // Initialised empty; populated with the new face produced by
+    // each mef.  `find_shared_face_for_mef_preferring` consults
+    // this set when multiple faces qualify.
+    let mut cap_side_faces: std::collections::HashSet<FaceHandle> =
+        std::collections::HashSet::new();
     for (i, target_edge) in plan.target_topology.apex_edges.iter().enumerate() {
         let v_origin = apex_vertex_handles
             .get(target_edge.origin_vertex_idx)
@@ -623,15 +613,24 @@ fn resolve_apex_edges(
             );
         }
         // Create branch: split a face whose outer loop carries
-        // both endpoints.
-        let edge = create_apex_edge(brep, v_origin, v_dest, target_edge).map_err(|reason| {
-            ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "apex_edge[{i}] (vertex_idx {} → {}) create via mef failed: {reason}",
-                    target_edge.origin_vertex_idx, target_edge.dest_vertex_idx,
-                ),
-            }
-        })?;
+        // both endpoints.  Prefer cap-side accumulator faces so
+        // successive apex_edges attach to a single contiguous
+        // cap-side sub-face.
+        let (edge, mef_face_pair) =
+            create_apex_edge_preferring(brep, v_origin, v_dest, target_edge, Some(&cap_side_faces))
+                .map_err(|reason| ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "apex_edge[{i}] (vertex_idx {} → {}) create via mef failed: {reason}",
+                        target_edge.origin_vertex_idx, target_edge.dest_vertex_idx,
+                    ),
+                })?;
+        // Record the new sub-face produced by this mef.  Either
+        // half-edge of `edge` lives on a face: the "old" face
+        // (which already existed pre-mef) and the "new" face
+        // (created by mef).  We track both — preferred-face
+        // matching just needs *any* face the previous mef created.
+        cap_side_faces.insert(mef_face_pair.0);
+        cap_side_faces.insert(mef_face_pair.1);
         out.push(edge);
     }
     Ok(out)
@@ -643,11 +642,21 @@ fn resolve_apex_edges(
 /// vertices on that face's outer loop.  O(F · L) where F is total
 /// faces and L the average loop length — small for the apex use
 /// case.
-fn find_shared_face_for_mef(
+/// Search every face for one whose outer loop contains both
+/// `v_origin` and `v_dest` as half-edge origins.  When `prefer` is
+/// supplied, faces in the preference set are returned over equally
+/// valid alternatives — used by Gregory cap construction to keep
+/// successive `mef`-created apex_edges contiguous on a single
+/// cap-side accumulator face.  Returns `(face, he_origin, he_dest)`
+/// on success; `None` when no face qualifies.
+fn find_shared_face_for_mef_preferring(
     brep: &BRep,
     v_origin: VertexHandle,
     v_dest: VertexHandle,
+    prefer: Option<&std::collections::HashSet<FaceHandle>>,
 ) -> Option<(FaceHandle, HalfEdgeHandle, HalfEdgeHandle)> {
+    let mut preferred: Option<(FaceHandle, HalfEdgeHandle, HalfEdgeHandle)> = None;
+    let mut fallback: Option<(FaceHandle, HalfEdgeHandle, HalfEdgeHandle)> = None;
     for (fh, face) in &brep.faces {
         let outer_loop = face.outer_loop;
         let Some(loop_data) = brep.loops.get(outer_loop) else {
@@ -673,25 +682,34 @@ fn find_shared_face_for_mef(
             }
         }
         if let (Some(ho), Some(hd)) = (he_origin, he_dest) {
-            return Some((fh, ho, hd));
+            if prefer.is_some_and(|s| s.contains(&fh)) {
+                preferred = Some((fh, ho, hd));
+                break;
+            }
+            if fallback.is_none() {
+                fallback = Some((fh, ho, hd));
+            }
         }
     }
-    None
+    preferred.or(fallback)
 }
 
 /// Create one apex edge by splitting a shared face via `mef` and
 /// attaching the plan's curve directly.  Returns the new edge
-/// handle on success; an error string with the failure reason
-/// otherwise.  The caller is responsible for rolling back
-/// (typically via the whole-plan snapshot in [`construct_apex`]).
-fn create_apex_edge(
+/// handle and the `(old_face, new_face)` mef pair so callers can
+/// chain successive mef sites onto a contiguous cap-side
+/// accumulator via the `prefer` argument.  The caller is
+/// responsible for rolling back (typically via the whole-plan
+/// snapshot in [`construct_apex`]).
+fn create_apex_edge_preferring(
     brep: &mut BRep,
     v_origin: VertexHandle,
     v_dest: VertexHandle,
     target_edge: &TargetEdge,
-) -> Result<EdgeHandle, String> {
+    prefer: Option<&std::collections::HashSet<FaceHandle>>,
+) -> Result<(EdgeHandle, (FaceHandle, FaceHandle)), String> {
     let (face, he_origin, he_dest) =
-        find_shared_face_for_mef(brep, v_origin, v_dest).ok_or_else(|| {
+        find_shared_face_for_mef_preferring(brep, v_origin, v_dest, prefer).ok_or_else(|| {
             format!(
                 "no face has both v_origin {v_origin:?} and v_dest {v_dest:?} on its outer loop"
             )
@@ -710,7 +728,7 @@ fn create_apex_edge(
         .mef(he_origin, he_dest)
         .map_err(|e| format!("mef on face {face:?}: {e:?}"))?;
     attach_curve_to_edge(brep, mef_result.edge, &target_edge.curve);
-    Ok(mef_result.edge)
+    Ok((mef_result.edge, (face, mef_result.face)))
 }
 
 /// Wrap the plan's `NurbsCurve` in a [`CurveOnEdge`] and attach
