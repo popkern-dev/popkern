@@ -477,15 +477,14 @@ fn phase_6c_a6_path_a_plus_rebuild_probe() {
     }
 }
 
-/// A.6 ratchet for variable-radius cube fixtures.  These take
-/// the Gregory branch (substitution + Path A vertex relocation),
-/// which today still has 2 path_a_relevant errors per fixture
-/// with 18-25 cm gaps — Path A's relocation can't reach the
-/// off-cyl edges that the substitution writes.  Tracked as a
-/// follow-up; the ratchet locks in today's empirical state so
-/// regressions trip.
+/// A.6 lock-in for variable-radius cube fixtures.  After the
+/// junction-snap fallback in A.4 + the straight-line fallback
+/// in A.5's realign, both `cube_mixed` and `cube_extreme` reach
+/// `path_a_relevant == 0` under Path A — completing the matrix
+/// (every uniform AND variable-radius fixture clean on the
+/// flag-flip gates).
 #[test]
-fn phase_6c_a6_variable_radius_cubes_ratchet() {
+fn phase_6c_a6_variable_radius_cubes_path_a_clean() {
     for (name, radii) in &[
         ("cube_mixed", &[0.08, 0.10, 0.12][..]),
         ("cube_extreme", &[0.02, 0.10, 0.20][..]),
@@ -498,8 +497,7 @@ fn phase_6c_a6_variable_radius_cubes_ratchet() {
             name, m.structural, m.path_a_relevant, m.other_geometric, m.worst_path_a_gap,
         );
         assert_eq!(
-            m.structural,
-            0,
+            m.structural, 0,
             "{}: structural must be 0; errors:\n{}",
             name,
             errors
@@ -508,11 +506,10 @@ fn phase_6c_a6_variable_radius_cubes_ratchet() {
                 .collect::<Vec<_>>()
                 .join("\n"),
         );
-        assert!(
-            m.path_a_relevant <= 2,
-            "{}: path_a_relevant regression {} (was ≤2):\n{}",
+        assert_eq!(
+            m.path_a_relevant, 0,
+            "{}: path_a_relevant must be 0 under Path A's full pipeline; errors:\n{}",
             name,
-            m.path_a_relevant,
             errors
                 .iter()
                 .map(|e| format!("  - {e:?}"))
