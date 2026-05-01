@@ -207,8 +207,13 @@ fn resolve_apex_vertices_fails_when_no_match_exists() {
         ApexBuildError::PlanMismatch { reason } => reason,
         other => panic!("expected PlanMismatch, got {other:?}"),
     };
+    // After A2.2.b's create branch, the resolve fails with a
+    // two-part diagnostic: no existing BRep vertex AND no edge
+    // chord passes through the target.
     assert!(
-        reason.contains("apex_vertex[0]") && reason.contains("no BRep vertex within"),
+        reason.contains("apex_vertex[0]")
+            && reason.contains("no existing BRep vertex within")
+            && reason.contains("no edge whose chord passes through"),
         "should mention which plan vertex couldn't be resolved; got: {reason}",
     );
 }
@@ -346,6 +351,55 @@ fn resolve_apex_edges_fails_when_no_shared_face_for_mef() {
     assert!(
         reason.contains("apex_edge[0]") && reason.contains("no face has both"),
         "should mention apex_edge[0] and the no-shared-face diagnostic; got: {reason}",
+    );
+}
+
+#[test]
+fn resolve_apex_vertices_creates_missing_via_edge_split() {
+    // Build a BRep with a single edge between (0, 0, 0) and
+    // (1, 0, 0).  The planner targets a midpoint position
+    // (0.5, 0, 0) — no existing BRep vertex matches, so the
+    // create branch must fire, split the edge, and return the
+    // newly-inserted vertex.
+    use popkern_core::geometry::Point3;
+    use popkern_core::topology::BRep;
+
+    let mut brep = BRep::new(test_tolerance());
+    let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+    brep.mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+        .unwrap();
+    let pre_vertices = brep.vertices.len();
+    let pre_edges = brep.edges.len();
+
+    let plan = synthetic_sphere_plan(vec![Point3::new(0.5, 0.0, 0.0)]);
+
+    // construct_apex's stage 1 must succeed (via the create
+    // branch); stage 3 then errors against the synthetic plan's
+    // default apex_vertex handle.  Snapshot rolls back, so the
+    // post-call BRep is byte-identical to pre-call — vertex /
+    // edge counts confirm.
+    let err = construct_apex(&mut brep, &plan, &test_tolerance(), None)
+        .expect_err("post-resolve stages fail on synthetic plan");
+    let reason = match err {
+        ApexBuildError::PlanMismatch { reason } => reason,
+        other => panic!("expected PlanMismatch, got {other:?}"),
+    };
+    assert!(
+        reason.contains("kef_cross_face_v_edges")
+            || reason.contains("kev_v_bridge")
+            || reason.contains("Gregory cap surface assembly"),
+        "should advance past stage 1 (create branch); got: {reason}",
+    );
+    // Snapshot rollback: vertex / edge counts unchanged.
+    assert_eq!(
+        brep.vertices.len(),
+        pre_vertices,
+        "snapshot rollback restores vertex count after create branch",
+    );
+    assert_eq!(
+        brep.edges.len(),
+        pre_edges,
+        "snapshot rollback restores edge count after create branch",
     );
 }
 

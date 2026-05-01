@@ -282,43 +282,62 @@ fn find_vertex_within(brep: &BRep, point: Point3, tol: f64) -> Option<VertexHand
     best.map(|(vh, _)| vh)
 }
 
-/// Resolve each plan apex vertex to a BRep vertex handle.
+/// Resolve each plan apex vertex to a BRep vertex handle, finding
+/// or creating as needed.
 ///
-/// **A2.2.b — find-only.**  For each
-/// `plan.target_topology.apex_vertices[i]: Point3`, search the
-/// BRep for an existing vertex within `tolerance.linear()` and
-/// return its handle.  When no nearby vertex exists, return
-/// [`ApexBuildError::PlanMismatch`] identifying which plan
-/// position couldn't be resolved.
+/// **A2.2.b — find + create.**  For each
+/// `plan.target_topology.apex_vertices[i]: Point3`:
+/// 1. Search the BRep for an existing vertex within
+///    `tolerance.linear()`; if found, use it.
+/// 2. Else, scan all BRep edges for one whose chord passes through
+///    the target position and call
+///    [`BRep::split_edge`](popkern_core::topology::BRep::split_edge)
+///    to insert a new vertex at that position.
+/// 3. If no edge passes through the target either, return a typed
+///    [`ApexBuildError::PlanMismatch`] — the snapshot rolls back.
 ///
 /// Returned vector is index-aligned with
 /// `plan.target_topology.apex_vertices`.
 ///
-/// Future extension (A2.2.b's create branch): when no nearby
-/// vertex exists, locate the BRep edge whose curve passes
-/// through `point` and split it via edge subdivision; return
-/// the handle of the newly-created vertex.  That requires a
-/// stable edge-subdivision Euler op that the kernel doesn't
-/// expose yet.
+/// **Chord projection caveat.**
+/// [`crate::construct::helpers::find_edge_and_param_at`] uses
+/// straight-line projection between edge endpoints — accurate for
+/// `CurveGeometry::Line` edges (cube trim curves on planar faces
+/// are Line variants) but approximate for arc / spline edges.  For
+/// the cube fixtures landing today this is sufficient; richer
+/// fixtures (curved supports, tori) may need a curve-aware
+/// `closest_point_on_curve` projection later.
 fn resolve_apex_vertices(
-    brep: &BRep,
+    brep: &mut BRep,
     plan: &ApexPlan,
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Result<Vec<VertexHandle>, ApexBuildError> {
     let tol = tolerance.linear();
     let mut out: Vec<VertexHandle> = Vec::with_capacity(plan.target_topology.apex_vertices.len());
     for (i, &point) in plan.target_topology.apex_vertices.iter().enumerate() {
-        match find_vertex_within(brep, point, tol) {
-            Some(vh) => out.push(vh),
-            None => {
-                return Err(ApexBuildError::PlanMismatch {
-                    reason: format!(
-                        "apex_vertex[{i}] at {point:?} has no BRep vertex within {tol:.3e} m \
-                         (A2.2.b's find-or-create extension not yet implemented)"
-                    ),
-                });
-            }
+        if let Some(vh) = find_vertex_within(brep, point, tol) {
+            out.push(vh);
+            continue;
         }
+        // Create branch: split the edge passing through `point`.
+        let Some((edge, t)) = crate::construct::helpers::find_edge_and_param_at(brep, point) else {
+            return Err(ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "apex_vertex[{i}] at {point:?}: no existing BRep vertex within \
+                     {tol:.3e} m AND no edge whose chord passes through {point:?} \
+                     (A2.2.b's create branch needs an edge to subdivide)"
+                ),
+            });
+        };
+        let split = brep
+            .split_edge(edge, t)
+            .map_err(|e| ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "apex_vertex[{i}] at {point:?}: split_edge on edge {edge:?} at \
+                     t={t:.6e} failed: {e}"
+                ),
+            })?;
+        out.push(split.vertex);
     }
     Ok(out)
 }

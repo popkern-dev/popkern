@@ -115,7 +115,15 @@ pub fn split_perpendicular_edges_by_radius(
 /// Scan all edges in `brep` and find the one whose 3D line segment
 /// contains `point` within a small tolerance, returning the edge
 /// handle and parameter along the edge in `(0.001, 0.999)`.
-fn find_edge_and_param_at(brep: &BRep, point: Point3) -> Option<(EdgeHandle, f64)> {
+///
+/// `pub(crate)` for §6c-A2.2.b — the apex builder calls this from
+/// `resolve_apex_vertices`'s create branch when no existing BRep
+/// vertex matches the planner's target position; the edge passing
+/// through the target is then split via [`BRep::split_edge`] to
+/// insert a new vertex on it.  Production-grade callers in this
+/// crate (Phase A, multi_chord) already exercise this path on
+/// cube fixtures.
+pub(crate) fn find_edge_and_param_at(brep: &BRep, point: Point3) -> Option<(EdgeHandle, f64)> {
     for (eh, edata) in brep.edges.iter() {
         let he_h = edata.half_edge;
         let Some(he) = brep.half_edges.get(he_h) else {
