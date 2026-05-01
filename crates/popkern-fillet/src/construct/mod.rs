@@ -562,11 +562,28 @@ pub fn apply_blend_geometry(
                         // that loop with absorbed Plane fragments,
                         // leaving 8/12 cap-vs-cylinder edges on
                         // pyramid4_mixed unwired.
-                        if let Some(b) = boundary_opt
-                            && b.sphere_fit_substituted
-                        {
-                            let face_handles: Vec<_> = infos.iter().map(|cp| cp.face).collect();
-                            late_wire_jobs.push((b, face_handles));
+                        if let Some(b) = boundary_opt {
+                            if std::env::var_os("POPKERN_APEX_PATH_A_TRACE").is_some() {
+                                eprintln!(
+                                    "[apex-path-a/dispatch] vertex={vertex:?} \
+                                     sphere_fit_substituted={} -> late_wire_jobs {}",
+                                    b.sphere_fit_substituted,
+                                    if b.sphere_fit_substituted {
+                                        "PUSHED"
+                                    } else {
+                                        "skipped"
+                                    },
+                                );
+                            }
+                            if b.sphere_fit_substituted {
+                                let face_handles: Vec<_> = infos.iter().map(|cp| cp.face).collect();
+                                late_wire_jobs.push((b, face_handles));
+                            }
+                        } else if std::env::var_os("POPKERN_APEX_PATH_A_TRACE").is_some() {
+                            eprintln!(
+                                "[apex-path-a/dispatch] vertex={vertex:?} \
+                                 boundary_opt=None -> late_wire_jobs skipped"
+                            );
                         }
                         corner_patches.extend(infos);
                     }
