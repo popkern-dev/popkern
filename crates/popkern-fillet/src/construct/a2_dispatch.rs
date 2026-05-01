@@ -106,20 +106,70 @@ pub(super) fn try_a2_apex_construction(
             brep.vertices.len(),
         );
         for (fh, face) in &brep.faces {
+            use popkern_core::geometry::surface::SurfaceGeometry;
             let kind = face
                 .surface
                 .as_ref()
                 .map(|s| match &s.geometry {
-                    popkern_core::geometry::surface::SurfaceGeometry::Plane { .. } => "Plane",
-                    popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. } => "Cylinder",
-                    popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. } => "Sphere",
-                    popkern_core::geometry::surface::SurfaceGeometry::Torus { .. } => "Torus",
-                    popkern_core::geometry::surface::SurfaceGeometry::Cone { .. } => "Cone",
-                    popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_) => "Nurbs",
-                    popkern_core::geometry::surface::SurfaceGeometry::Gregory(_) => "Gregory",
+                    SurfaceGeometry::Plane { origin, normal, .. } => {
+                        format!("Plane(origin={origin:?}, normal={normal:?})")
+                    }
+                    SurfaceGeometry::Cylinder {
+                        origin,
+                        axis,
+                        radius,
+                        ..
+                    } => format!("Cylinder(origin={origin:?}, axis={axis:?}, r={radius:.3e})"),
+                    SurfaceGeometry::Sphere { center, radius } => {
+                        format!("Sphere(center={center:?}, r={radius:.3e})")
+                    }
+                    SurfaceGeometry::Torus { .. } => "Torus".to_string(),
+                    SurfaceGeometry::Cone { .. } => "Cone".to_string(),
+                    SurfaceGeometry::Nurbs(_) => "Nurbs".to_string(),
+                    SurfaceGeometry::Gregory(_) => "Gregory".to_string(),
                 })
-                .unwrap_or("None");
+                .unwrap_or_else(|| "None".to_string());
             eprintln!("[a2-trace]   {fh:?}: {kind}");
+        }
+        // Dump every cylinder face's outer-loop walk so we can
+        // see which edges bound which cylinder, and whether two
+        // cylinder face handles share a seam edge.
+        for (fh, face) in &brep.faces {
+            let is_cyl = face.surface.as_ref().is_some_and(|s| {
+                matches!(
+                    s.geometry,
+                    popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. }
+                )
+            });
+            if !is_cyl {
+                continue;
+            }
+            let outer_loop = face.outer_loop;
+            let Some(loop_data) = brep.loops.get(outer_loop) else {
+                continue;
+            };
+            let start = loop_data.half_edge;
+            let mut cursor = start;
+            let mut chain: Vec<String> = Vec::new();
+            for _ in 0..(brep.half_edges.len() + 1) {
+                let Some(he) = brep.half_edges.get(cursor) else {
+                    break;
+                };
+                let origin_pos = brep.vertices[he.origin].position;
+                chain.push(format!(
+                    "v={:?}@({:.3},{:.3},{:.3})",
+                    he.origin, origin_pos.x, origin_pos.y, origin_pos.z
+                ));
+                cursor = he.next;
+                if cursor == start {
+                    break;
+                }
+            }
+            eprintln!(
+                "[a2-trace]   {fh:?} outer loop ({} half-edges): {}",
+                chain.len(),
+                chain.join(" -> ")
+            );
         }
     }
     let plan = plan_apex_resolution_lenient(brep, vertex, &specs, &surfaces, tolerance, None)
