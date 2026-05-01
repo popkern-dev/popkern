@@ -73,10 +73,35 @@ fn build_with_path_a(
     is_pyramid: bool,
     radii: &[f64],
 ) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
+    build_with_flags(is_pyramid, radii, /* topology_rebuild */ false)
+}
+
+/// Variant that also enables `POPKERN_APEX_TOPOLOGY_REBUILD=1`
+/// (Phase 6c-C 6→3 collapse for Sphere caps).  Used by the
+/// auto-trigger probe to measure whether the rebuild closes the
+/// path_a_relevant gaps Path A can't reach on collapsed-bridge
+/// fixtures.
+fn build_with_path_a_and_rebuild(
+    is_pyramid: bool,
+    radii: &[f64],
+) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
+    build_with_flags(is_pyramid, radii, /* topology_rebuild */ true)
+}
+
+fn build_with_flags(
+    is_pyramid: bool,
+    radii: &[f64],
+    topology_rebuild: bool,
+) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
     let _g2 = EnvGuard::set("POPKERN_STAGE4_WIDE_WIRE_TOL", "1");
     let _g3 = EnvGuard::set("POPKERN_APEX_FACE_LIFT", "1");
     let _g4 = EnvGuard::set("POPKERN_APEX_PATH_A", "1");
+    let _g5 = if topology_rebuild {
+        Some(EnvGuard::set("POPKERN_APEX_TOPOLOGY_REBUILD", "1"))
+    } else {
+        None
+    };
 
     if is_pyramid {
         let pyr = BRep::n_gonal_pyramid(radii.len(), 1.0, 0.8, Tolerance::default()).unwrap();
@@ -258,6 +283,84 @@ fn phase_6c_a6_pyramid4_mixed_path_a_gates_clean() {
             .collect::<Vec<_>>()
             .join("\n"),
     );
+}
+
+/// A.6 probe: measure each fixture's per-bucket counts under
+/// **both** Path A and the Phase 6c-C apex topology rebuild
+/// (`POPKERN_APEX_TOPOLOGY_REBUILD=1`).  This is the empirical
+/// test of fix 2: does adding the rebuild close the
+/// degenerate-cap-loop-edge gap that A.4's vertex relocation
+/// can't reach on Sphere caps with collapsed bridges?
+///
+/// Ignored — run with `--ignored --nocapture` to compare against
+/// the Path-A-alone baseline.
+#[ignore]
+#[test]
+fn phase_6c_a6_path_a_plus_rebuild_probe() {
+    struct Case {
+        name: &'static str,
+        radii: &'static [f64],
+        is_pyramid: bool,
+    }
+    let cases: &[Case] = &[
+        Case {
+            name: "cube_uniform",
+            radii: &[0.10, 0.10, 0.10],
+            is_pyramid: false,
+        },
+        Case {
+            name: "cube_mixed",
+            radii: &[0.08, 0.10, 0.12],
+            is_pyramid: false,
+        },
+        Case {
+            name: "cube_extreme",
+            radii: &[0.02, 0.10, 0.20],
+            is_pyramid: false,
+        },
+        Case {
+            name: "pyramid3_uniform",
+            radii: &[0.10, 0.10, 0.10],
+            is_pyramid: true,
+        },
+        Case {
+            name: "pyramid4_uniform",
+            radii: &[0.05, 0.05, 0.05, 0.05],
+            is_pyramid: true,
+        },
+        Case {
+            name: "pyramid4_mixed",
+            radii: &[0.04, 0.06, 0.05, 0.07],
+            is_pyramid: true,
+        },
+    ];
+
+    eprintln!(
+        "\n=== A.6 Path-A + apex-topology-rebuild probe ===\n\
+         (POPKERN_APEX_PATH_A=1, POPKERN_APEX_TOPOLOGY_REBUILD=1)"
+    );
+    eprintln!(
+        "{:<18}  {:>5}  {:>5}  {:>5}  {:>10}",
+        "fixture", "struct", "pathA", "other", "worst gap"
+    );
+    eprintln!("{:-<48}", "");
+    for case in cases {
+        let (brep, _faces) = build_with_path_a_and_rebuild(case.is_pyramid, case.radii);
+        let errors = brep.validate_all();
+        let m = breakdown(&errors);
+        eprintln!(
+            "{:<18}  {:>5}  {:>5}  {:>5}  {:>10}",
+            case.name,
+            m.structural,
+            m.path_a_relevant,
+            m.other_geometric,
+            if m.worst_path_a_gap > 0.0 {
+                format!("{:.3e}", m.worst_path_a_gap)
+            } else {
+                "—".to_string()
+            },
+        );
+    }
 }
 
 /// A.6 ratchet for pyramid4_uniform — structural already zero,
