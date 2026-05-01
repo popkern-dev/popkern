@@ -747,9 +747,9 @@ pub fn apply_blend_geometry(
     // BASE-EDGE curves still terminate at the OLD vertex position
     // and need A.5's curve-replacement pass.
     if std::env::var("POPKERN_APEX_PATH_A").is_ok_and(|v| v == "1") {
-        for (_boundary, sub_faces) in &late_wire_jobs {
+        for (boundary, sub_faces) in &late_wire_jobs {
             let (n_moved, worst) =
-                apex_vertex_coherence::relocate_apex_vertices(&mut result, sub_faces);
+                apex_vertex_coherence::relocate_apex_vertices(&mut result, sub_faces, boundary);
             // Phase 6c-X.A.5: rebuild BASE-EDGE curves (cyl-vs-Plane
             // apex generators going AWAY from the apex through V) as
             // straight lines from the new V→T position to v_other.

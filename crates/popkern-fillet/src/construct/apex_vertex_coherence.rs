@@ -35,9 +35,17 @@ use std::collections::BTreeSet;
 /// Returns the count of vertices relocated and the worst |V - T|
 /// distance encountered.  Vertices that were already within 1e-9
 /// of their target are left unchanged.
-pub(crate) fn relocate_apex_vertices(brep: &mut BRep, cap_faces: &[FaceHandle]) -> (usize, f64) {
+pub(crate) fn relocate_apex_vertices(
+    brep: &mut BRep,
+    cap_faces: &[FaceHandle],
+    boundary: &crate::blend::BlendBoundary,
+) -> (usize, f64) {
     let trace = std::env::var_os("POPKERN_APEX_PATH_A_TRACE").is_some();
     let cap_set: BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
+
+    // 1. Collect apex vertices from cap face outer loops (existing
+    //    behaviour for Sphere caps + Gregory caps where sliver_absorb
+    //    didn't expand the loop).
     let mut apex_vertices: BTreeSet<VertexHandle> = BTreeSet::new();
     for &cap in cap_faces {
         let Some(face_data) = brep.faces.get(cap) else {
@@ -63,20 +71,59 @@ pub(crate) fn relocate_apex_vertices(brep: &mut BRep, cap_faces: &[FaceHandle]) 
             }
         }
     }
+
     if trace {
         eprintln!(
-            "[apex-path-a] {} apex vertices to relocate",
+            "[apex-path-a] {} apex vertices on cap-face loops",
             apex_vertices.len()
         );
     }
 
+    // 2. §6c-X.A.7 boundary-junction fallback: for variable-radius
+    //    Gregory corners, A.4's "shared endpoint across incident
+    //    cap-loop edges" heuristic can fail on vertices whose 2
+    //    incident cap-loop edges come from different fillets'
+    //    substitutions (per-fillet T's don't agree).  In that case
+    //    fall back to the closest substituted-boundary junction —
+    //    the boundary is internally vertex-coherent by construction
+    //    (each junction is one Point3, shared by adjacent segments).
+    //    Use a tight search radius to avoid pulling unrelated
+    //    vertices toward unrelated junctions.
+    let max_radius = boundary
+        .per_fillet_caps
+        .iter()
+        .map(|(_, r)| *r)
+        .fold(0.0_f64, f64::max);
+    let snap_radius = if max_radius > 0.0 { max_radius } else { 0.1 };
+
+    // 3. Build the boundary's junction list (substituted curve
+    //    endpoints — coherent per-vertex by construction).
+    let junctions = collect_boundary_junctions(boundary);
+    if trace {
+        eprintln!(
+            "[apex-path-a] {} unique boundary junctions, snap radius {snap_radius:.3e} m",
+            junctions.len()
+        );
+    }
+
+    // For each apex vertex: try the cap-loop-edge cluster
+    // (`find_target_for_vertex`); fall back to the nearest
+    // boundary junction within `snap_radius`.  Multiple BRep
+    // vertices may legitimately snap to the same 3D junction
+    // (e.g. when sliver_absorb expanded the cap face's loop with
+    // duplicate-position vertices that the substitution
+    // collapses to one T).  Those vertex coincidences are
+    // structurally-degenerate edges but pass `validate_loop_closure`
+    // and `validate_watertight` checks because the curves
+    // genuinely terminate at the shared position.
     let mut moves: Vec<(VertexHandle, Point3, f64)> = Vec::new();
     for &v in &apex_vertices {
         let v_pos = brep.vertices[v].position;
-        let target = find_target_for_vertex(brep, v, &cap_set);
+        let target = find_target_for_vertex(brep, v, &cap_set)
+            .or_else(|| nearest_junction(&junctions, v_pos, snap_radius));
         let Some(target) = target else {
             if trace {
-                eprintln!("[apex-path-a]   {v:?}: no cap-loop curve found");
+                eprintln!("[apex-path-a]   {v:?}: no target found");
             }
             continue;
         };
@@ -103,6 +150,46 @@ pub(crate) fn relocate_apex_vertices(brep: &mut BRep, cap_faces: &[FaceHandle]) 
         eprintln!("[apex-path-a] relocated {n_moved} vertices, worst distance {worst:.3e} m");
     }
     (n_moved, worst)
+}
+
+/// Collect substituted-boundary junctions: the unique 3D
+/// positions where adjacent boundary segments meet.  For an
+/// alternating FilletEnd/FaceEdge boundary with 2N segments,
+/// there are 2N junctions (one per segment-to-next-segment
+/// junction).  Duplicates within `1e-6 m` are merged.
+fn collect_boundary_junctions(boundary: &crate::blend::BlendBoundary) -> Vec<Point3> {
+    use popkern_core::geometry::curve::CurveEval;
+    let mut out: Vec<Point3> = Vec::new();
+    for seg in &boundary.segments {
+        let curve = match seg {
+            crate::blend::BoundarySegment::FilletEnd { curve, .. } => curve,
+            crate::blend::BoundarySegment::FaceEdge { curve, .. } => curve,
+        };
+        let (t0, t1) = curve.parameter_range();
+        for p in [curve.point_at(t0), curve.point_at(t1)] {
+            if !out.iter().any(|q| q.distance_to(&p) < 1e-6) {
+                out.push(p);
+            }
+        }
+    }
+    out
+}
+
+/// Find the junction nearest to `pos` within `max_dist`.  Returns
+/// the junction position when one qualifies; `None` otherwise.
+fn nearest_junction(junctions: &[Point3], pos: Point3, max_dist: f64) -> Option<Point3> {
+    let mut best: Option<(Point3, f64)> = None;
+    for &j in junctions {
+        let d = pos.distance_to(&j);
+        if d > max_dist {
+            continue;
+        }
+        match best {
+            Some((_, b)) if b <= d => {}
+            _ => best = Some((j, d)),
+        }
+    }
+    best.map(|(j, _)| j)
 }
 
 /// Phase 6c-X.A.5: BASE-EDGE coherence repair.
