@@ -29,15 +29,16 @@
 //! Open-rung no-op handler.  A2.2.b through A2.2.f flesh out
 //! the per-stage logic.
 
-use popkern_core::geometry::Point3;
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
+use popkern_core::geometry::{CurveGeometry, CurveOnEdge, NurbsCurve, Point3};
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 use crate::cancellation::CancellationToken;
+use crate::construct::blend_topo::find_halfedge_from_vertex_in_face;
 
 use super::cap_kind::CapKind;
 use super::error::ApexBuildError;
 use super::plan::ApexPlan;
-use super::target_topology::TargetCapFace;
+use super::target_topology::{TargetCapFace, TargetEdge};
 use super::telemetry::PlanTelemetry;
 
 /// What `construct_apex` actually built in the BRep.
@@ -158,15 +159,17 @@ fn construct_apex_inner(
     let apex_vertex_handles = resolve_apex_vertices(brep, plan, tolerance)?;
     check_cancelled(cancel)?;
 
-    // Stage 2 (A2.2.c) — apex edge resolution.
+    // Stage 2 (A2.2.c + A2.2.d) — apex edge resolution.
     //
     // For each plan apex edge (origin_idx, dest_idx, curve, role),
     // find or create a BRep edge between the two resolved
-    // vertices.  This slice implements the "find" branch: an
-    // edge whose endpoints match (in either direction) is
-    // accepted.  The "create via mef" branch needs loop context
-    // (which face boundary the new edge splits) and lands
-    // alongside A2.2.d (face boundary updates).
+    // vertices.  Find: matched in either direction.  Create: when
+    // both endpoints lie on the same face's outer loop, `mef`
+    // splits that face and the plan's curve is attached directly
+    // to the new edge.  When no shared face exists (typical for
+    // post-Phase-C BRep state where the rolling-ball footprints
+    // sit on plane-face loops only), the create attempt errors
+    // and the snapshot rolls back.
     let _apex_edge_handles = resolve_apex_edges(brep, plan, &apex_vertex_handles)?;
     check_cancelled(cancel)?;
 
@@ -181,9 +184,9 @@ fn construct_apex_inner(
     };
     Err(ApexBuildError::PlanMismatch {
         reason: format!(
-            "construct_apex: {cap_kind_label} apex-vertex + apex-edge resolution \
-             succeeded; face boundary updates (A2.2.d/e) and cap face assembly \
-             (A2.2.f) are not yet implemented"
+            "construct_apex: {cap_kind_label} apex-vertex resolution + apex-edge \
+             resolution (find/create via mef) succeeded; face boundary updates \
+             (A2.2.e) and cap face surface assignment (A2.2.f) are not yet implemented"
         ),
     })
 }
@@ -278,25 +281,32 @@ fn find_edge_between(
     None
 }
 
-/// Resolve each plan apex edge to a BRep edge handle.
+/// Resolve each plan apex edge to a BRep edge handle, finding or
+/// creating as needed.
 ///
-/// **A2.2.c — find-only.**  For each
-/// `plan.target_topology.apex_edges[i]`, look up the BRep
-/// vertices at `apex_vertex_handles[origin_idx]` and
-/// `apex_vertex_handles[dest_idx]` and search the BRep for an
-/// existing edge between them (in either direction).  Returns
-/// one edge handle per plan edge.  When no such edge exists,
-/// returns [`ApexBuildError::PlanMismatch`] identifying the
-/// plan edge that couldn't be resolved.
+/// **A2.2.c (find) + A2.2.d (create).**  For each
+/// `plan.target_topology.apex_edges[i]`:
+/// 1. Look up the resolved endpoint handles via
+///    `apex_vertex_handles[origin_vertex_idx / dest_vertex_idx]`.
+/// 2. **Find:** scan `brep.edges` for an existing edge between
+///    those handles (in either direction).  If found, return it.
+/// 3. **Create:** locate a face whose outer loop contains both
+///    endpoints, call `mef` to split that face along the new
+///    edge, and store the plan's `curve` directly on the new
+///    edge as a [`CurveGeometry::Nurbs`].
 ///
-/// Future extension (A2.2.c+'s create branch): when the edge
-/// doesn't exist, identify the loop both endpoints share and
-/// `mef`-create the edge with the plan's `curve` attached
-/// directly.  This requires the loop context computed by stage
-/// A2.2.d (face boundary updates), so the create branch lands
-/// alongside it.
+/// The create branch errors out (rolling back via
+/// [`construct_apex`]'s snapshot) when no face has both endpoints
+/// on its outer loop.  This is the typical mid-pipeline state
+/// today: rolling-ball footprint vertices live on plane-face
+/// outer loops, but the planner picks one anchor per
+/// geometrically-coincident pair and the picked anchors for two
+/// adjacent apex vertices may sit on different plane faces — no
+/// shared loop, no `mef` site.  Resolving that requires the
+/// stage A2.2.e/f handoff contract; for now the dispatch falls
+/// back to legacy with a typed warning.
 fn resolve_apex_edges(
-    brep: &BRep,
+    brep: &mut BRep,
     plan: &ApexPlan,
     apex_vertex_handles: &[VertexHandle],
 ) -> Result<Vec<EdgeHandle>, ApexBuildError> {
@@ -322,20 +332,119 @@ fn resolve_apex_edges(
                     apex_vertex_handles.len(),
                 ),
             })?;
-        match find_edge_between(brep, v_origin, v_dest) {
-            Some(eh) => out.push(eh),
-            None => {
-                return Err(ApexBuildError::PlanMismatch {
-                    reason: format!(
-                        "apex_edge[{i}] (vertex_idx {} → {}) has no BRep edge between the resolved endpoints \
-                         (A2.2.c's find-or-create extension not yet implemented)",
-                        target_edge.origin_vertex_idx, target_edge.dest_vertex_idx,
-                    ),
-                });
-            }
+        if let Some(eh) = find_edge_between(brep, v_origin, v_dest) {
+            out.push(eh);
+            continue;
         }
+        // Create branch: split a face whose outer loop carries
+        // both endpoints.
+        let edge = create_apex_edge(brep, v_origin, v_dest, target_edge).map_err(|reason| {
+            ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "apex_edge[{i}] (vertex_idx {} → {}) create via mef failed: {reason}",
+                    target_edge.origin_vertex_idx, target_edge.dest_vertex_idx,
+                ),
+            }
+        })?;
+        out.push(edge);
     }
     Ok(out)
+}
+
+/// Locate a face whose outer loop contains both `v_origin` and
+/// `v_dest` as half-edge origins.  Returns `(face, he_origin,
+/// he_dest)` where the two half-edges originate from the matching
+/// vertices on that face's outer loop.  O(F · L) where F is total
+/// faces and L the average loop length — small for the apex use
+/// case.
+fn find_shared_face_for_mef(
+    brep: &BRep,
+    v_origin: VertexHandle,
+    v_dest: VertexHandle,
+) -> Option<(FaceHandle, HalfEdgeHandle, HalfEdgeHandle)> {
+    for (fh, face) in &brep.faces {
+        let outer_loop = face.outer_loop;
+        let Some(loop_data) = brep.loops.get(outer_loop) else {
+            continue;
+        };
+        let start = loop_data.half_edge;
+        let mut he_origin: Option<HalfEdgeHandle> = None;
+        let mut he_dest: Option<HalfEdgeHandle> = None;
+        let mut cursor = start;
+        let max_iters = brep.half_edges.len() + 1;
+        let mut iters = 0;
+        while let Some(he) = brep.half_edges.get(cursor) {
+            if he.origin == v_origin && he_origin.is_none() {
+                he_origin = Some(cursor);
+            }
+            if he.origin == v_dest && he_dest.is_none() {
+                he_dest = Some(cursor);
+            }
+            cursor = he.next;
+            iters += 1;
+            if cursor == start || iters >= max_iters {
+                break;
+            }
+        }
+        if let (Some(ho), Some(hd)) = (he_origin, he_dest) {
+            return Some((fh, ho, hd));
+        }
+    }
+    None
+}
+
+/// Create one apex edge by splitting a shared face via `mef` and
+/// attaching the plan's curve directly.  Returns the new edge
+/// handle on success; an error string with the failure reason
+/// otherwise.  The caller is responsible for rolling back
+/// (typically via the whole-plan snapshot in [`construct_apex`]).
+fn create_apex_edge(
+    brep: &mut BRep,
+    v_origin: VertexHandle,
+    v_dest: VertexHandle,
+    target_edge: &TargetEdge,
+) -> Result<EdgeHandle, String> {
+    let (face, he_origin, he_dest) =
+        find_shared_face_for_mef(brep, v_origin, v_dest).ok_or_else(|| {
+            format!(
+                "no face has both v_origin {v_origin:?} and v_dest {v_dest:?} on its outer loop"
+            )
+        })?;
+    // Defensive — find_halfedge_from_vertex_in_face guarantees
+    // the same property find_shared_face_for_mef just verified,
+    // but cheap to re-check and surfaces a clearer error if the
+    // BRep is in an unexpected state.
+    let he_origin_chk = find_halfedge_from_vertex_in_face(brep, face, v_origin)
+        .map_err(|e| format!("origin half-edge lookup: {e}"))?;
+    let he_dest_chk = find_halfedge_from_vertex_in_face(brep, face, v_dest)
+        .map_err(|e| format!("dest half-edge lookup: {e}"))?;
+    debug_assert_eq!(he_origin_chk, he_origin);
+    debug_assert_eq!(he_dest_chk, he_dest);
+    let mef_result = brep
+        .mef(he_origin, he_dest)
+        .map_err(|e| format!("mef on face {face:?}: {e:?}"))?;
+    attach_curve_to_edge(brep, mef_result.edge, &target_edge.curve);
+    Ok(mef_result.edge)
+}
+
+/// Wrap the plan's `NurbsCurve` in a [`CurveOnEdge`] and attach
+/// it to the edge.  Parameter range is read from the curve's
+/// own knot vector — the planner builds the curve with endpoints
+/// at the apex vertex positions, so the natural knot range is
+/// the correct `t_start`/`t_end`.
+///
+/// `pub(crate)` for white-box test access; production callers go
+/// through [`create_apex_edge`].
+pub(crate) fn attach_curve_to_edge(brep: &mut BRep, edge: EdgeHandle, curve: &NurbsCurve) {
+    let p = curve.degree;
+    let n = curve.control_points.len() - 1;
+    let t_start = curve.knots[p];
+    let t_end = curve.knots[n + 1];
+    brep.edges[edge].curve = Some(CurveOnEdge {
+        geometry: CurveGeometry::Nurbs(curve.clone()),
+        t_start,
+        t_end,
+    });
 }
 
 /// Polls the cancellation token (if any) and returns

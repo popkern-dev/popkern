@@ -173,7 +173,7 @@ fn resolve_apex_vertices_finds_existing_within_tolerance() {
         other => panic!("expected PlanMismatch, got {other:?}"),
     };
     assert!(
-        reason.contains("apex-vertex + apex-edge resolution succeeded"),
+        reason.contains("apex-vertex resolution + apex-edge resolution"),
         "should have advanced past resolve_apex_vertices; got: {reason}",
     );
     // BRep was rolled back to pre-call state (1 vertex, 0 edges).
@@ -297,17 +297,20 @@ fn resolve_apex_edges_finds_existing_brep_edge() {
         other => panic!("expected PlanMismatch, got {other:?}"),
     };
     assert!(
-        reason.contains("apex-vertex + apex-edge resolution succeeded"),
+        reason.contains("apex-vertex resolution + apex-edge resolution"),
         "should have advanced past resolve_apex_edges; got: {reason}",
     );
 }
 
 #[test]
-fn resolve_apex_edges_fails_when_no_edge_between_vertices() {
+fn resolve_apex_edges_fails_when_no_shared_face_for_mef() {
     use popkern_core::geometry::Point3;
     use popkern_core::topology::BRep;
 
     // BRep with two unconnected vertices (mvfs + insert orphan).
+    // The orphan has no incident half-edges, so it can't be on any
+    // face's outer loop — the create-via-mef branch must fail with
+    // a "no shared face" diagnostic.
     let mut brep = BRep::new(test_tolerance());
     brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
     brep.vertices.insert(popkern_core::topology::Vertex {
@@ -317,22 +320,140 @@ fn resolve_apex_edges_fails_when_no_edge_between_vertices() {
         tolerance: None,
     });
 
-    // Plan: 2 apex vertices, 1 edge — but no edge exists in the
-    // BRep between them.
+    // Plan: 2 apex vertices, 1 edge — find fails (no edge yet) AND
+    // create fails (no shared face for the orphan).
     let plan = synthetic_sphere_plan_with_edges(
         vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
         vec![(0, 1)],
     );
 
     let err = construct_apex(&mut brep, &plan, &test_tolerance(), None)
-        .expect_err("no edge between resolved vertices");
+        .expect_err("create via mef should fail when there's no shared face");
     let reason = match err {
         ApexBuildError::PlanMismatch { reason } => reason,
         other => panic!("expected PlanMismatch, got {other:?}"),
     };
     assert!(
-        reason.contains("apex_edge[0]") && reason.contains("no BRep edge between"),
-        "should mention which plan edge couldn't be resolved; got: {reason}",
+        reason.contains("apex_edge[0]") && reason.contains("no face has both"),
+        "should mention apex_edge[0] and the no-shared-face diagnostic; got: {reason}",
+    );
+}
+
+// ---------------------------------------------------------------
+// A2.2.d — apex-edge create via mef
+// ---------------------------------------------------------------
+
+#[test]
+fn resolve_apex_edges_creates_missing_edge_via_mef() {
+    use popkern_core::geometry::{CurveGeometry, Point3};
+    use popkern_core::topology::BRep;
+
+    // Build a synthetic 4-vertex strip via mvfs + 3 mevs.  This
+    // produces 1 face with 1 (degenerate) outer loop that walks
+    // all 8 half-edges; v0 and v2 (the non-adjacent pair) both
+    // sit on that loop.  Find for an edge between them fails
+    // (none exists), so the A2.2.d create branch must fire,
+    // call mef, attach the plan's curve, and split the face.
+    let mut brep = BRep::new(test_tolerance());
+    let mvfs = brep
+        .mvfs(Point3::new(0.0, 0.0, 0.0))
+        .expect("mvfs builds the 0,0 vertex");
+    let mev1 = brep
+        .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+        .expect("extend to 1,0");
+    let mev2 = brep
+        .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
+        .expect("extend to 1,1");
+    let _mev3 = brep
+        .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
+        .expect("extend to 0,1");
+    let pre_faces = brep.faces.len();
+    let pre_edges = brep.edges.len();
+
+    // Plan: connect v0 (0,0,0) to v2 (1,1,0) — non-adjacent on
+    // the strip's loop.  Vertex order in BRep: insertion order
+    // from mvfs/mev calls, so apex_vertices[0] = (0,0,0),
+    // apex_vertices[1] = (1,1,0) maps to BRep vertices 0 and 2.
+    let plan = synthetic_sphere_plan_with_edges(
+        vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 1.0, 0.0)],
+        vec![(0, 1)],
+    );
+
+    // construct_apex fires the find/create stages, then errors
+    // at the cap-face stub — the snapshot rolls everything back,
+    // so post-call BRep equals pre-call BRep.  We verify the
+    // create branch ran by checking the error message advanced
+    // past edge resolution.
+    let err = construct_apex(&mut brep, &plan, &test_tolerance(), None)
+        .expect_err("cap face assembly stub fires after edge create");
+    let reason = match err {
+        ApexBuildError::PlanMismatch { reason } => reason,
+        other => panic!("expected PlanMismatch, got {other:?}"),
+    };
+    assert!(
+        reason.contains("apex-vertex resolution + apex-edge resolution"),
+        "should advance past edge create; got: {reason}",
+    );
+    // Snapshot rollback: face/edge counts unchanged.
+    assert_eq!(
+        brep.faces.len(),
+        pre_faces,
+        "snapshot rollback restores face count",
+    );
+    assert_eq!(
+        brep.edges.len(),
+        pre_edges,
+        "snapshot rollback restores edge count",
+    );
+
+    // To verify the create branch's curve attachment in
+    // isolation, replay the mef + curve attach against a fresh
+    // BRep and inspect the new edge.  This is a white-box check
+    // that the plan's NurbsCurve actually lands on the BRep edge
+    // (not just that the mef succeeds).
+    let mut brep2 = BRep::new(test_tolerance());
+    let m = brep2.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+    let m1 = brep2
+        .mev_at_vertex(m.vertex, m.loop_, Point3::new(1.0, 0.0, 0.0))
+        .unwrap();
+    let m2 = brep2
+        .mev(m1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
+        .unwrap();
+    let _m3 = brep2
+        .mev(m2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
+        .unwrap();
+    super::construct::construct_apex(&mut brep2, &plan, &test_tolerance(), None).ok();
+    // After the failed call, snapshot has rolled back.  Re-run
+    // just the edge-creation by manually invoking find/mef.
+    use popkern_core::topology::HalfEdgeHandle;
+    let mut he_v0: Option<HalfEdgeHandle> = None;
+    let mut he_v2: Option<HalfEdgeHandle> = None;
+    for (hh, h) in &brep2.half_edges {
+        let p = brep2.vertices[h.origin].position;
+        if (p.x - 0.0).abs() < 1e-12 && (p.y - 0.0).abs() < 1e-12 && he_v0.is_none() {
+            he_v0 = Some(hh);
+        }
+        if (p.x - 1.0).abs() < 1e-12 && (p.y - 1.0).abs() < 1e-12 && he_v2.is_none() {
+            he_v2 = Some(hh);
+        }
+    }
+    let mef_r = brep2
+        .mef(he_v0.unwrap(), he_v2.unwrap())
+        .expect("mef on synthetic strip");
+    assert_eq!(brep2.faces.len(), pre_faces + 1, "mef adds one face");
+    // The TargetEdge.curve from synthetic_sphere_plan_with_edges
+    // is a degree-1 NURBS line; when the create branch attaches
+    // it correctly, the new edge's curve should be Some(Nurbs(_)).
+    // Replicate the attach manually to verify the wrapping logic.
+    let target_curve = &plan.target_topology.apex_edges[0].curve;
+    super::construct::attach_curve_to_edge(&mut brep2, mef_r.edge, target_curve);
+    let edge_curve = brep2.edges[mef_r.edge]
+        .curve
+        .as_ref()
+        .expect("curve attached after mef");
+    assert!(
+        matches!(edge_curve.geometry, CurveGeometry::Nurbs(_)),
+        "attached curve should be a NURBS variant",
     );
 }
 
