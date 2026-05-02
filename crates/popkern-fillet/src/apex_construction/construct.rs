@@ -167,6 +167,32 @@ fn construct_apex_inner(
         });
     }
 
+    // Stage 0 (§28.C) — pre-A2 perp-anchor relocation to plan
+    // targets.  Phase A perp-walks place anchors at perp-walk-math
+    // positions; the planner emits apex_vertices at Gregory-math
+    // positions.  These coincide for uniform radii but diverge for
+    // variable radii — the divergence is what makes Adopt unable
+    // to fire on Gregory caps.
+    //
+    // Move the BRep perp-anchors to the plan's exact target
+    // positions BEFORE stage 1, so that resolve_apex_vertices'
+    // snap finds a zero-distance match and stage 2's Adopt path
+    // fires for CapVsCyl edges.  The relocation also re-fits each
+    // moved vertex's incident edge curves so validate_all stays
+    // coherent post-move.
+    //
+    // Safe to disable for diagnostic via
+    // POPKERN_A2_RELOCATE_DISABLE=1 — A2 falls back to the
+    // pre-§28.C behavior (snap to nearby perp-anchor with
+    // residual distance, or split_edge fallback).
+    if !std::env::var("POPKERN_A2_RELOCATE_DISABLE").is_ok_and(|v| v == "1") {
+        super::perp_anchor_relocate::relocate_perp_anchors_to_plan_targets(brep, plan, tolerance)
+            .map_err(|reason| ApexBuildError::PlanMismatch {
+            reason: format!("§28.C relocate_perp_anchors_to_plan_targets: {reason}"),
+        })?;
+    }
+    check_cancelled(cancel)?;
+
     // Stage 1 (A2.2.b) — apex vertex resolution.
     //
     // For each plan apex vertex point, find or create a BRep
@@ -254,6 +280,45 @@ fn construct_apex_inner(
     // The legacy helpers (`pub(crate)` in
     // `crate::construct::blend_insert`) handle the iterative kef
     // / outgoing repair / safety cap that A2 needs verbatim.
+    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        let v = plan.apex_vertex;
+        let mut incidences: Vec<(EdgeHandle, FaceHandle, FaceHandle, VertexHandle)> = Vec::new();
+        for (eh, edge) in &brep.edges {
+            let primary = edge.half_edge;
+            let Some(he) = brep.half_edges.get(primary) else {
+                continue;
+            };
+            let twin = brep.half_edges.get(he.twin);
+            let touches = he.origin == v || twin.is_some_and(|t| t.origin == v);
+            if !touches {
+                continue;
+            }
+            let other = if he.origin == v {
+                twin.map(|t| t.origin).unwrap_or(v)
+            } else {
+                he.origin
+            };
+            let face_a_h = brep.loops.get(he.loop_).map(|l| l.face);
+            let face_b_h = twin.and_then(|t| brep.loops.get(t.loop_)).map(|l| l.face);
+            let (Some(face_a), Some(face_b)) = (face_a_h, face_b_h) else {
+                continue;
+            };
+            incidences.push((eh, face_a, face_b, other));
+        }
+        let v_pos = brep.vertices.get(v).map(|vv| vv.position);
+        eprintln!(
+            "[a2-trace] pre-stage3 V={v:?}@{:?} has {} incident edge(s):",
+            v_pos,
+            incidences.len()
+        );
+        for (eh, fa, fb, other) in &incidences {
+            let other_pos = brep.vertices.get(*other).map(|vv| vv.position);
+            eprintln!(
+                "[a2-trace]   edge={eh:?} -> {other:?}@{:?} faces=({fa:?}, {fb:?})",
+                other_pos
+            );
+        }
+    }
     let kef_blend_face =
         crate::construct::blend_insert::kef_cross_face_v_edges(brep, plan.apex_vertex).map_err(
             |e| ApexBuildError::PlanMismatch {
@@ -283,6 +348,69 @@ fn construct_apex_inner(
     // (b) `eliminate_interior_edges` (env-gated) — flood-fill
     //     elimination from V's interior vertex set.  Older variant,
     //     re-enable via POPKERN_A2_INTERIOR_ELIMINATION=1.
+    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        eprintln!(
+            "[a2-trace] post-stage3 (kef_cross/kev_v): kef_blend_face={kef_blend_face:?}; \
+             {} faces, {} edges",
+            brep.faces.len(),
+            brep.edges.len()
+        );
+        if let Some(face) = brep.faces.get(kef_blend_face)
+            && let Some(loop_data) = brep.loops.get(face.outer_loop)
+        {
+            let start = loop_data.half_edge;
+            let mut cursor = start;
+            let mut iters = 0;
+            let max_iters = brep.half_edges.len() + 1;
+            eprintln!("[a2-trace] kef_blend_face={kef_blend_face:?} outer_loop:");
+            while let Some(he) = brep.half_edges.get(cursor) {
+                let twin_face = brep
+                    .half_edges
+                    .get(he.twin)
+                    .and_then(|t| brep.loops.get(t.loop_))
+                    .map(|l| l.face);
+                let p = brep.vertices.get(he.origin).map(|v| v.position);
+                eprintln!(
+                    "[a2-trace]   [{iters}] edge={:?} v={:?}@{:?} twin_face={twin_face:?}",
+                    he.edge, he.origin, p
+                );
+                cursor = he.next;
+                iters += 1;
+                if cursor == start || iters >= max_iters {
+                    break;
+                }
+            }
+        }
+        eprintln!("[a2-trace] apex_edge face memberships:");
+        for (i, &eh) in valid_apex_edges.iter().enumerate() {
+            let mut faces: Vec<FaceHandle> = Vec::new();
+            for (fh, face) in &brep.faces {
+                let Some(loop_data) = brep.loops.get(face.outer_loop) else {
+                    continue;
+                };
+                let start = loop_data.half_edge;
+                let mut cursor = start;
+                let mut iters = 0;
+                let max_iters = brep.half_edges.len() + 1;
+                let mut found = false;
+                while let Some(he) = brep.half_edges.get(cursor) {
+                    if he.edge == eh {
+                        found = true;
+                        break;
+                    }
+                    cursor = he.next;
+                    iters += 1;
+                    if cursor == start || iters >= max_iters {
+                        break;
+                    }
+                }
+                if found {
+                    faces.push(fh);
+                }
+            }
+            eprintln!("[a2-trace]   apex_edge[{i}]={eh:?} → faces={faces:?}");
+        }
+    }
     if std::env::var("POPKERN_A2_INTERIOR_ELIMINATION").is_ok_and(|v| v == "1") {
         super::gregory_cap::eliminate_interior_edges(brep, &interior_vertex_set, &valid_apex_edges)
             .map_err(|e| ApexBuildError::PlanMismatch {
@@ -295,8 +423,78 @@ fn construct_apex_inner(
             }
         })?;
     }
+    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        eprintln!(
+            "[a2-trace] post-merge_cap_side_accumulators: {} faces, {} edges; apex_edge face memberships:",
+            brep.faces.len(),
+            brep.edges.len()
+        );
+        for (i, &eh) in valid_apex_edges.iter().enumerate() {
+            let mut faces: Vec<FaceHandle> = Vec::new();
+            for (fh, face) in &brep.faces {
+                let Some(loop_data) = brep.loops.get(face.outer_loop) else {
+                    continue;
+                };
+                let start = loop_data.half_edge;
+                let mut cursor = start;
+                let mut iters = 0;
+                let max_iters = brep.half_edges.len() + 1;
+                let mut found = false;
+                while let Some(he) = brep.half_edges.get(cursor) {
+                    if he.edge == eh {
+                        found = true;
+                        break;
+                    }
+                    cursor = he.next;
+                    iters += 1;
+                    if cursor == start || iters >= max_iters {
+                        break;
+                    }
+                }
+                if found {
+                    faces.push(fh);
+                }
+            }
+            eprintln!("[a2-trace]   apex_edge[{i}]={eh:?} → faces={faces:?}");
+        }
+    }
     let cap_face = super::gregory_cap::find_face_bounded_by_all_apex_edges(brep, &valid_apex_edges)
         .unwrap_or(kef_blend_face);
+    if std::env::var_os("POPKERN_A2_TRACE").is_some()
+        && let Some(face) = brep.faces.get(cap_face)
+        && let Some(loop_data) = brep.loops.get(face.outer_loop)
+    {
+        let start = loop_data.half_edge;
+        let mut cursor = start;
+        let mut edges: Vec<(EdgeHandle, VertexHandle, FaceHandle)> = Vec::new();
+        let mut iters = 0;
+        let max_iters = brep.half_edges.len() + 1;
+        while let Some(he) = brep.half_edges.get(cursor) {
+            let twin_face = brep
+                .half_edges
+                .get(he.twin)
+                .and_then(|t| brep.loops.get(t.loop_))
+                .map(|l| l.face)
+                .unwrap_or(cap_face);
+            edges.push((he.edge, he.origin, twin_face));
+            cursor = he.next;
+            iters += 1;
+            if cursor == start || iters >= max_iters {
+                break;
+            }
+        }
+        eprintln!(
+            "[a2-trace] cap_face={cap_face:?} outer_loop has {} edges:",
+            edges.len()
+        );
+        for (i, (eh, vh, tf)) in edges.iter().enumerate() {
+            let p = brep.vertices[*vh].position;
+            eprintln!(
+                "[a2-trace]   [{i}] edge={eh:?} v={vh:?}@({:.3},{:.3},{:.3}) twin_face={tf:?}",
+                p.x, p.y, p.z
+            );
+        }
+    }
     check_cancelled(cancel)?;
 
     // Stage 4 (A2.2.f / A2.4) — cap face surface assignment.

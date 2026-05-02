@@ -33,6 +33,7 @@ pub(crate) mod construct;
 pub(crate) mod cylinder_face_coherence;
 pub(crate) mod error;
 pub(crate) mod gregory_cap;
+pub(crate) mod perp_anchor_relocate;
 pub(crate) mod plan;
 pub(crate) mod plan_rung_fallback;
 pub(crate) mod plan_terminations;
