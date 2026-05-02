@@ -298,6 +298,50 @@ pub fn apply_blend_geometry(
         trims.sort_by_key(|t| (t.edge_idx, t.side));
     }
 
+    // §28.H Session 3 — interior-anchor topology surgery.  For each
+    // variable-radius apex with planner targets, carve V-corner
+    // triangles via mev/mev/mef per V-incident plane.  Adds
+    // interior BRep vertices at planner sphere-fit positions so
+    // try_a2_apex_construction's resolve_apex_vertices can snap
+    // at zero distance.  Skipped for uniform-radius corners (Phase
+    // A's perp-walk anchors already coincide with planner
+    // targets).  Failures are silently tolerated — the apex blend
+    // loop falls back to legacy if the carve didn't land.
+    if use_a2_apex_construction && !_planner_targets_per_apex.is_empty() {
+        // Build per-apex radii list: for each V, the radii of all
+        // its incident filleted edges.
+        let mut radii_per_apex: HashMap<VertexHandle, Vec<f64>> = HashMap::new();
+        for eg in edge_geometries {
+            let edge = eg.analysis.edge;
+            let Some(edge_data) = phase_a_snapshot.edges.get(edge) else {
+                continue;
+            };
+            let primary = edge_data.half_edge;
+            let Some(he) = phase_a_snapshot.half_edges.get(primary) else {
+                continue;
+            };
+            let Some(twin_he) = phase_a_snapshot.half_edges.get(he.twin) else {
+                continue;
+            };
+            for v in [he.origin, twin_he.origin] {
+                radii_per_apex
+                    .entry(v)
+                    .or_default()
+                    .push(eg.effective_radius);
+            }
+        }
+        for (apex_v, targets) in &_planner_targets_per_apex {
+            let empty: Vec<f64> = Vec::new();
+            let radii = radii_per_apex.get(apex_v).unwrap_or(&empty);
+            let _ = crate::apex_construction::phase_a_native::carve_apex_region_native(
+                &mut result,
+                *apex_v,
+                targets,
+                radii,
+            );
+        }
+    }
+
     // ── Phase B: split faces by trim curves via `multi_chord`. ───
     let mut trim_results: Vec<TrimSplitResult> = Vec::new();
     for (original_face, trims) in &face_trims {
