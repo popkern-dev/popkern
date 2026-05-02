@@ -325,6 +325,20 @@ fn construct_apex_inner(
                 reason: format!("kef_cross_face_v_edges: {e}"),
             },
         )?;
+    // §28.H Session 3.5 — multi-bridge V dissolve.  Lib primitive
+    // `BRep::dissolve_same_loop_bridge` available; helper
+    // `dissolve_v_bridges_until_valence_le_1` provided below.
+    // Currently NOT wired in — when called between
+    // `kef_cross_face_v_edges` and `kev_v_bridge`, the cap face's
+    // outer loop hits invalid half-edge handles in
+    // `poke_hex::walk_outer_loop` because §28.H Session 3's carve
+    // creates T_a/T_b vertices INSIDE V-incident planes that are
+    // never connected to the perp-anchor topology (V14/V11/V9).
+    // After dissolve removes V's bridges, the cap face's loop
+    // tries to traverse from T_a/T_b to the cyl-arc boundary
+    // (which still terminates at perp-anchors) but no edge
+    // exists between them.  Session 3.6 will add the missing
+    // mef chords from perp-anchors to T_a/T_b.
     crate::construct::blend_insert::kev_v_bridge(brep, plan.apex_vertex).map_err(|e| {
         ApexBuildError::PlanMismatch {
             reason: format!("kev_v_bridge: {e}"),
@@ -1403,5 +1417,75 @@ fn check_cancelled(cancel: Option<&CancellationToken>) -> Result<(), ApexBuildEr
         Err(ApexBuildError::Cancelled)
     } else {
         Ok(())
+    }
+}
+
+/// §28.H Session 3.5 — dissolve V's same-loop bridge edges until
+/// valence ≤ 1, so `kev_v_bridge` can finish.
+///
+/// Iterates: (1) collect V's outgoing half-edges; (2) find one
+/// whose edge is a same-loop bridge (its two half-edges are on
+/// the same loop); (3) dissolve via `BRep::dissolve_same_loop_
+/// bridge`; (4) repeat until V has ≤ 1 outgoings or no more
+/// bridges to dissolve.  Capped at `n` iterations as a safety
+/// net.  Failures are silently swallowed — caller's
+/// `kev_v_bridge` will surface any residual valence problem
+/// with a descriptive error.
+///
+/// Currently dead-code — Session 3.6 will integrate this once the
+/// missing perp-anchor-to-T_a/T_b mef chords are added.  Retained
+/// here as the helper the integration will plug in.
+#[allow(dead_code)]
+fn dissolve_v_bridges_until_valence_le_1(
+    brep: &mut popkern_core::topology::BRep,
+    vertex: popkern_core::topology::VertexHandle,
+) {
+    if !brep.vertices.contains_key(vertex) {
+        return;
+    }
+    let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let max_iters = brep.half_edges.len() + 16;
+    for _ in 0..max_iters {
+        if !brep.vertices.contains_key(vertex) {
+            return;
+        }
+        let outgoings: Vec<HalfEdgeHandle> = brep
+            .half_edges
+            .iter()
+            .filter(|(_, h)| h.origin == vertex)
+            .map(|(h, _)| h)
+            .collect();
+        if outgoings.len() <= 1 {
+            return;
+        }
+        // Find a same-loop bridge among V's outgoings.
+        let mut to_dissolve: Option<HalfEdgeHandle> = None;
+        for &he in &outgoings {
+            let Some(he_data) = brep.half_edges.get(he) else {
+                continue;
+            };
+            let twin = he_data.twin;
+            let Some(twin_data) = brep.half_edges.get(twin) else {
+                continue;
+            };
+            if he_data.loop_ == twin_data.loop_ {
+                to_dissolve = Some(he);
+                break;
+            }
+        }
+        let Some(he) = to_dissolve else {
+            // No more same-loop bridges; remaining edges are
+            // cross-face, which kev_v_bridge will reject.
+            return;
+        };
+        if trace {
+            eprintln!(
+                "[a2-trace §28.H/3.5] dissolving same-loop bridge {he:?} at V={vertex:?} (valence={})",
+                outgoings.len()
+            );
+        }
+        if brep.dissolve_same_loop_bridge(he).is_err() {
+            return;
+        }
     }
 }

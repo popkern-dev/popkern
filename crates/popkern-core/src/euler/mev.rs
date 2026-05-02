@@ -272,6 +272,122 @@ impl BRep {
 
         Ok(())
     }
+
+    /// Dissolve a same-loop bridge edge — removes an edge whose
+    /// two half-edges lie on the SAME loop, without merging faces
+    /// (kef requires cross-face) and without removing a vertex
+    /// (kev requires destination valence-1).
+    ///
+    /// Both endpoint vertices remain in the BRep with their valence
+    /// reduced by 1.  The face's loop traversal is patched to skip
+    /// the dissolved edge's two half-edges; the loop remains a
+    /// single closed cycle (one fewer pair of half-edges).
+    ///
+    /// Used by Phase 6c-A2 §28.H Session 3.5 to clean up V's
+    /// same-loop bridges that arise after `kef_cross_face_v_edges`
+    /// merges per-plane V-corner triangles into their parent V-side
+    /// sub-faces.  The first spur kef per plane creates a same-
+    /// loop bridge for the second spur; the cube-edge stub
+    /// becomes same-loop after the V-incident plane sub-faces
+    /// merge.
+    ///
+    /// # Errors
+    ///
+    /// - [`CoreError::InvalidHandle`] if `half_edge` is invalid.
+    /// - [`CoreError::PreconditionFailed`] if the edge's two
+    ///   half-edges are on DIFFERENT loops (use `kef` instead).
+    pub fn dissolve_same_loop_bridge(
+        &mut self,
+        half_edge: HalfEdgeHandle,
+    ) -> Result<(), CoreError> {
+        let he_data = self
+            .half_edges
+            .get(half_edge)
+            .ok_or_else(|| CoreError::InvalidHandle("half_edge handle is invalid".into()))?;
+
+        let twin_handle = he_data.twin;
+        let edge_handle = he_data.edge;
+        let twin_data = self
+            .half_edges
+            .get(twin_handle)
+            .ok_or_else(|| CoreError::InvalidHandle("twin handle is invalid".into()))?;
+
+        // Precondition: same loop (otherwise this is a kef job).
+        if he_data.loop_ != twin_data.loop_ {
+            return Err(CoreError::PreconditionFailed(
+                "edge's half-edges are on different loops; use kef instead".into(),
+            ));
+        }
+
+        let he_origin = he_data.origin;
+        let twin_origin = twin_data.origin;
+        let he_prev = he_data.prev;
+        let he_next = he_data.next;
+        let twin_prev = twin_data.prev;
+        let twin_next = twin_data.next;
+        let the_loop = he_data.loop_;
+
+        // Splice out half_edge: prev.next = next, next.prev = prev.
+        self.half_edges[he_prev].next = he_next;
+        self.half_edges[he_next].prev = he_prev;
+
+        // Splice out twin: same pattern.
+        self.half_edges[twin_prev].next = twin_next;
+        self.half_edges[twin_next].prev = twin_prev;
+
+        // If the loop's anchor half-edge was one of the dissolved
+        // ones, retarget to a still-valid half-edge in the loop.
+        let loop_he = self.loops[the_loop].half_edge;
+        if loop_he == half_edge || loop_he == twin_handle {
+            self.loops[the_loop].half_edge = he_next;
+        }
+
+        // Repair endpoint vertices' outgoing pointers if they
+        // happened to reference the dissolved half-edges.
+        if self.vertices[he_origin].outgoing == half_edge {
+            // Find another outgoing half-edge for he_origin.
+            let mut new_outgoing: Option<HalfEdgeHandle> = None;
+            for (h, h_data) in self.half_edges.iter() {
+                if h == half_edge || h == twin_handle {
+                    continue;
+                }
+                if h_data.origin == he_origin {
+                    new_outgoing = Some(h);
+                    break;
+                }
+            }
+            if let Some(new_out) = new_outgoing {
+                self.vertices[he_origin].outgoing = new_out;
+            } else {
+                self.vertices[he_origin].outgoing = Default::default();
+            }
+        }
+        if self.vertices[twin_origin].outgoing == twin_handle {
+            let mut new_outgoing: Option<HalfEdgeHandle> = None;
+            for (h, h_data) in self.half_edges.iter() {
+                if h == half_edge || h == twin_handle {
+                    continue;
+                }
+                if h_data.origin == twin_origin {
+                    new_outgoing = Some(h);
+                    break;
+                }
+            }
+            if let Some(new_out) = new_outgoing {
+                self.vertices[twin_origin].outgoing = new_out;
+            } else {
+                self.vertices[twin_origin].outgoing = Default::default();
+            }
+        }
+
+        // Remove the dissolved entities.  Vertices stay (their
+        // valence is just reduced by 1).
+        self.half_edges.remove(half_edge);
+        self.half_edges.remove(twin_handle);
+        self.edges.remove(edge_handle);
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -279,6 +395,81 @@ mod tests {
     use crate::geometry::Point3;
     use crate::tolerance::Tolerance;
     use crate::topology::BRep;
+
+    /// §28.H Session 3.5 — verify `dissolve_same_loop_bridge`
+    /// removes a same-loop bridge cleanly: the edge and its 2
+    /// half-edges are gone, the loop traversal is patched, and
+    /// the endpoint vertices' valences each drop by 1.
+    ///
+    /// Construction: build a unit cube, then mev a spur from one
+    /// of its corners.  The spur is a true valence-1 dangling
+    /// edge (its destination has only that one incidence) — a
+    /// well-formed same-loop bridge to dissolve.
+    #[test]
+    fn dissolve_same_loop_bridge_removes_a_spur() {
+        let tol = Tolerance::default();
+        let mut brep = BRep::unit_cube(tol).unwrap();
+        let n_he_before = brep.half_edges.len();
+        let n_edges_before = brep.edges.len();
+        let n_vertices_before = brep.vertices.len();
+
+        // Pick any vertex with at least one outgoing half-edge.
+        let v = brep.vertices.keys().next().unwrap();
+        let v_out = brep.vertices[v].outgoing;
+        // mev a spur from v's outgoing.
+        let mev_result = brep
+            .mev(v_out, Point3::new(0.5, 0.5, 0.5))
+            .expect("mev creates spur");
+        let new_vertex = mev_result.vertex;
+        assert_eq!(brep.half_edges.len(), n_he_before + 2);
+        assert_eq!(brep.edges.len(), n_edges_before + 1);
+        assert_eq!(brep.vertices.len(), n_vertices_before + 1);
+
+        // Sanity: spur is same-loop (both halves on the same loop).
+        let spur_out = mev_result.half_edge;
+        let spur_in = mev_result.half_edge_twin;
+        let l_out = brep.half_edges[spur_out].loop_;
+        let l_in = brep.half_edges[spur_in].loop_;
+        assert_eq!(l_out, l_in, "spur should be same-loop");
+
+        // Dissolve via the new primitive.
+        brep.dissolve_same_loop_bridge(spur_out)
+            .expect("dissolve same-loop spur");
+
+        // Edge + 2 half-edges removed.
+        assert_eq!(brep.half_edges.len(), n_he_before);
+        assert_eq!(brep.edges.len(), n_edges_before);
+        // Both endpoint vertices stay (kev removes the dangling
+        // vertex, dissolve does not).
+        assert_eq!(brep.vertices.len(), n_vertices_before + 1);
+        // The originally-isolated `new_vertex` is now valence 0.
+        let new_v_outgoing_count = brep
+            .half_edges
+            .values()
+            .filter(|h| h.origin == new_vertex)
+            .count();
+        assert_eq!(
+            new_v_outgoing_count, 0,
+            "dissolved spur leaves new_vertex with valence 0"
+        );
+    }
+
+    /// §28.H Session 3.5 — verify dissolve refuses to operate on
+    /// a cross-face edge (returns `PreconditionFailed`).
+    #[test]
+    fn dissolve_same_loop_bridge_rejects_cross_face() {
+        let tol = Tolerance::default();
+        let mut brep = BRep::unit_cube(tol).unwrap();
+        // Pick any cube edge — its two half-edges are on
+        // different faces (cross-face).
+        let edge = brep.edges.keys().next().unwrap();
+        let primary = brep.edges[edge].half_edge;
+        let result = brep.dissolve_same_loop_bridge(primary);
+        assert!(
+            result.is_err(),
+            "dissolve must reject cross-face edges; got {result:?}"
+        );
+    }
 
     #[test]
     fn mev_at_vertex_creates_first_edge() {
