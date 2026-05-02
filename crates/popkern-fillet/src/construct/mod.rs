@@ -195,7 +195,29 @@ pub fn apply_blend_geometry(
         // trim curves that would mis-place anchors via the cyl×plane
         // crossing helper.
         let trim_for_anchors = matches!(eg.surface, SurfaceGeometry::Cylinder { .. });
-        match helpers::split_perpendicular_edges_by_radius(
+
+        // §28.H Session 2 — build per-anchor planner override.  For
+        // each anchor slot (V_start vs V_end on face_1 vs face_2),
+        // pick the planner target closest to the perp-walk-math
+        // position that would otherwise be used.  When the closest
+        // match is far (variable-radius, planner emits sphere-fit
+        // positions interior to faces), the override falls back to
+        // perp-walk-math at insertion time.
+        let override_ = if use_a2_apex_construction && !_planner_targets_per_apex.is_empty() {
+            Some(build_perp_anchor_override(
+                &phase_a_snapshot,
+                eg.analysis.edge,
+                eg.analysis.face_1,
+                eg.analysis.face_2,
+                eg.radius_at_start,
+                eg.radius_at_end,
+                &_planner_targets_per_apex,
+            ))
+        } else {
+            None
+        };
+
+        match helpers::split_perpendicular_edges_by_radius_with_overrides(
             &phase_a_snapshot,
             &mut result,
             eg.analysis.face_1,
@@ -206,6 +228,7 @@ pub fn apply_blend_geometry(
             eg.radius_at_start,
             eg.radius_at_end,
             tolerance,
+            override_.as_ref(),
         ) {
             Ok(info) => {
                 // Propagate every split that happened in this
@@ -876,4 +899,139 @@ pub fn apply_blend_geometry(
         warnings,
         corner_patches,
     })
+}
+
+/// §28.H Session 2 — build per-anchor planner override for one
+/// fillet edge.  For each anchor slot (V_start vs V_end on face_1
+/// vs face_2), pick the planner target nearest the perp-walk-math
+/// reference position by greedy distance.  When a vertex isn't an
+/// apex (no planner targets emitted), the corresponding override
+/// fields stay `None` and Phase A uses perp-walk math.
+///
+/// Tolerance for "near": `radius * 1.5` — generous enough that
+/// uniform-radius targets (which coincide with perp-walk
+/// positions) match cleanly, but tight enough that variable-
+/// radius targets (sphere-fit, far from perp-walk) don't get
+/// forced onto the wrong slot.  When `None` is returned for a
+/// slot due to no near match, Phase A falls back to perp-walk
+/// math.
+fn build_perp_anchor_override(
+    brep: &popkern_core::topology::BRep,
+    fillet_edge: EdgeHandle,
+    face_1: FaceHandle,
+    face_2: FaceHandle,
+    radius_at_start: f64,
+    radius_at_end: f64,
+    planner_targets: &HashMap<VertexHandle, Vec<popkern_core::geometry::Point3>>,
+) -> helpers::PerpAnchorOverride {
+    use popkern_core::geometry::Point3;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    // Identify V_start and V_end of the fillet edge.
+    let Some(edge_data) = brep.edges.get(fillet_edge) else {
+        return helpers::PerpAnchorOverride::default();
+    };
+    let primary = edge_data.half_edge;
+    let Some(he) = brep.half_edges.get(primary) else {
+        return helpers::PerpAnchorOverride::default();
+    };
+    let Some(twin_he) = brep.half_edges.get(he.twin) else {
+        return helpers::PerpAnchorOverride::default();
+    };
+    let v_start = he.origin;
+    let v_end = twin_he.origin;
+
+    // Helper: signed perpendicular distance from `pt` to a Plane
+    // face's plane.  For non-plane host faces, returns None — the
+    // override only fires for plane faces today (the §28.H scope).
+    fn plane_distance(
+        brep: &popkern_core::topology::BRep,
+        fh: FaceHandle,
+        pt: Point3,
+    ) -> Option<f64> {
+        let face = brep.faces.get(fh)?;
+        let SurfaceGeometry::Plane { origin, normal, .. } = face.surface.as_ref()?.geometry else {
+            return None;
+        };
+        let d =
+            popkern_core::geometry::Vec3::new(pt.x - origin.x, pt.y - origin.y, pt.z - origin.z);
+        Some(d.dot(&normal).abs())
+    }
+
+    // For the targets associated with V (start or end of fillet
+    // edge), pick the one closest to face_1's plane and the one
+    // closest to face_2's plane.  Constrain to targets within
+    // `radius * 1.5` of V (so we don't pull from a different
+    // apex's targets).
+    fn split_targets_by_face(
+        brep: &popkern_core::topology::BRep,
+        targets: Option<&Vec<Point3>>,
+        v_pos: Option<Point3>,
+        face_1: FaceHandle,
+        face_2: FaceHandle,
+        radius_band: f64,
+    ) -> (Option<Point3>, Option<Point3>) {
+        let Some(targets) = targets else {
+            return (None, None);
+        };
+        let Some(v_pos) = v_pos else {
+            return (None, None);
+        };
+        // Filter to targets within radius_band of V.
+        let candidates: Vec<Point3> = targets
+            .iter()
+            .copied()
+            .filter(|t| v_pos.distance_to(t) <= radius_band)
+            .collect();
+
+        // For each face, find the candidate with smallest
+        // perpendicular distance to that face's plane.
+        let on_face_1 = candidates
+            .iter()
+            .filter_map(|t| plane_distance(brep, face_1, *t).map(|d| (*t, d)))
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        let on_face_2 = candidates
+            .iter()
+            .filter_map(|t| plane_distance(brep, face_2, *t).map(|d| (*t, d)))
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        // Only accept when the closest is actually ON the plane
+        // (within 1e-6 m).  Targets that don't lie on either face's
+        // plane shouldn't be assigned to a face.
+        let on_face_1 = on_face_1.filter(|&(_, d)| d < 1e-6).map(|(t, _)| t);
+        let on_face_2 = on_face_2.filter(|&(_, d)| d < 1e-6).map(|(t, _)| t);
+        // Avoid double-claiming: if the same target lands on
+        // both faces (shared-edge case), null face_2.
+        let on_face_2 = match (on_face_1, on_face_2) {
+            (Some(t1), Some(t2)) if t1.distance_to(&t2) < 1e-9 => None,
+            _ => on_face_2,
+        };
+        (on_face_1, on_face_2)
+    }
+
+    let v_start_pos = brep.vertices.get(v_start).map(|v| v.position);
+    let v_end_pos = brep.vertices.get(v_end).map(|v| v.position);
+    let r_start_band = radius_at_start * 1.5;
+    let r_end_band = radius_at_end * 1.5;
+    let (v_start_face_1, v_start_face_2) = split_targets_by_face(
+        brep,
+        planner_targets.get(&v_start),
+        v_start_pos,
+        face_1,
+        face_2,
+        r_start_band,
+    );
+    let (v_end_face_1, v_end_face_2) = split_targets_by_face(
+        brep,
+        planner_targets.get(&v_end),
+        v_end_pos,
+        face_1,
+        face_2,
+        r_end_band,
+    );
+    helpers::PerpAnchorOverride {
+        v_start_face_1,
+        v_start_face_2,
+        v_end_face_1,
+        v_end_face_2,
+    }
 }

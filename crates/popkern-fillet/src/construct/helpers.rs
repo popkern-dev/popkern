@@ -34,7 +34,16 @@ pub use super::merge::{identify_consumed_face_any, merge_consumed_faces_any};
 /// per-fillet-edge descendants map — Phase C identifies a consumed
 /// face by matching *any* descendant sub-edge of the canonical
 /// fillet edge handle.
+///
+/// §28.H Session 2 — backwards-compatible wrapper that delegates
+/// to [`split_perpendicular_edges_by_radius_with_overrides`] with
+/// `None` overrides.  Retained as a public no-override entry
+/// point for tests; the production caller in `apply_blend_geometry`
+/// uses the `_with_overrides` variant directly so it can pass
+/// planner-derived overrides when `use_a2_apex_construction` is
+/// set.
 #[allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
 pub fn split_perpendicular_edges_by_radius(
     brep_snapshot: &BRep,
     brep: &mut BRep,
@@ -46,6 +55,64 @@ pub fn split_perpendicular_edges_by_radius(
     radius_at_start: f64,
     radius_at_end: f64,
     tolerance: &Tolerance,
+) -> Result<SplitInfo, String> {
+    split_perpendicular_edges_by_radius_with_overrides(
+        brep_snapshot,
+        brep,
+        face_1,
+        face_2,
+        fillet_edge,
+        trim_3d_face_1,
+        trim_3d_face_2,
+        radius_at_start,
+        radius_at_end,
+        tolerance,
+        None,
+    )
+}
+
+/// §28.H Session 2 — per-anchor-position override.  When the A2
+/// planner pre-pass has emitted `apex_vertex` targets for a fillet
+/// edge's V-end and W-end, the override map carries those targets
+/// down to Phase A's anchor placement.
+///
+/// Each field is the planner's preferred position for the anchor
+/// that perp-walk math would otherwise compute.  When `None`, the
+/// perp-walk-math position is used.  When `Some` but the position
+/// is interior to a face (no existing edge passes through it),
+/// `insert_anchor_at_position` falls back to perp-walk math —
+/// Session 3 will introduce the topology surgery (mev/mef) needed
+/// to land interior anchors.
+#[derive(Debug, Clone, Default)]
+pub struct PerpAnchorOverride {
+    /// Override for the anchor at the fillet edge's V_start side
+    /// on `face_1`.
+    pub v_start_face_1: Option<Point3>,
+    /// Override for the anchor at V_start side on `face_2`.
+    pub v_start_face_2: Option<Point3>,
+    /// Override for V_end side on `face_1`.
+    pub v_end_face_1: Option<Point3>,
+    /// Override for V_end side on `face_2`.
+    pub v_end_face_2: Option<Point3>,
+}
+
+/// §28.H Session 2 — main implementation taking optional planner
+/// overrides per anchor slot.  See [`split_perpendicular_edges_by_
+/// radius`] for the field-by-field doc; this variant differs only
+/// in the `override_` parameter.
+#[allow(clippy::too_many_arguments)]
+pub fn split_perpendicular_edges_by_radius_with_overrides(
+    brep_snapshot: &BRep,
+    brep: &mut BRep,
+    face_1: FaceHandle,
+    face_2: FaceHandle,
+    fillet_edge: EdgeHandle,
+    trim_3d_face_1: Option<&NurbsCurve>,
+    trim_3d_face_2: Option<&NurbsCurve>,
+    radius_at_start: f64,
+    radius_at_end: f64,
+    tolerance: &Tolerance,
+    override_: Option<&PerpAnchorOverride>,
 ) -> Result<SplitInfo, String> {
     let edge_data = brep_snapshot
         .edges
@@ -72,7 +139,7 @@ pub fn split_perpendicular_edges_by_radius(
         ));
     }
 
-    let pos_1 = compute_perp_anchor_positions_for_face(
+    let perp_pos_1 = compute_perp_anchor_positions_for_face(
         brep_snapshot,
         face_1,
         fillet_edge,
@@ -83,7 +150,7 @@ pub fn split_perpendicular_edges_by_radius(
         trim_3d_face_1,
         tolerance,
     )?;
-    let pos_2 = compute_perp_anchor_positions_for_face(
+    let perp_pos_2 = compute_perp_anchor_positions_for_face(
         brep_snapshot,
         face_2,
         fillet_edge,
@@ -95,11 +162,40 @@ pub fn split_perpendicular_edges_by_radius(
         tolerance,
     )?;
 
+    // §28.H Session 2 — apply planner overrides per anchor slot.
+    // Each `Some` override replaces the perp-walk-math position;
+    // `None` keeps the perp-walk-math default.  Caller passes
+    // overrides keyed by V_start vs V_end and face_1 vs face_2.
+    let pos_1: (Point3, Point3) = match override_ {
+        Some(o) => (
+            o.v_start_face_1.unwrap_or(perp_pos_1.0),
+            o.v_end_face_1.unwrap_or(perp_pos_1.1),
+        ),
+        None => perp_pos_1,
+    };
+    let pos_2: (Point3, Point3) = match override_ {
+        Some(o) => (
+            o.v_start_face_2.unwrap_or(perp_pos_2.0),
+            o.v_end_face_2.unwrap_or(perp_pos_2.1),
+        ),
+        None => perp_pos_2,
+    };
+
     let mut edge_splits: Vec<(EdgeHandle, EdgeHandle, EdgeHandle)> = Vec::new();
-    let v1_start = insert_anchor_at_position(brep, pos_1.0, &mut edge_splits)?;
-    let v1_end = insert_anchor_at_position(brep, pos_1.1, &mut edge_splits)?;
-    let v2_start = insert_anchor_at_position(brep, pos_2.0, &mut edge_splits)?;
-    let v2_end = insert_anchor_at_position(brep, pos_2.1, &mut edge_splits)?;
+    // §28.H Session 2 — when override-provided position lands
+    // outside any existing edge (interior to a face),
+    // `insert_anchor_at_position` returns Err.  Fall back to the
+    // perp-walk-math position so legacy/uniform fixtures stay
+    // unbroken.  Session 3 will introduce the topology surgery
+    // (mev/mef) needed to land genuine interior anchors.
+    let v1_start = insert_anchor_at_position(brep, pos_1.0, &mut edge_splits)
+        .or_else(|_| insert_anchor_at_position(brep, perp_pos_1.0, &mut edge_splits))?;
+    let v1_end = insert_anchor_at_position(brep, pos_1.1, &mut edge_splits)
+        .or_else(|_| insert_anchor_at_position(brep, perp_pos_1.1, &mut edge_splits))?;
+    let v2_start = insert_anchor_at_position(brep, pos_2.0, &mut edge_splits)
+        .or_else(|_| insert_anchor_at_position(brep, perp_pos_2.0, &mut edge_splits))?;
+    let v2_end = insert_anchor_at_position(brep, pos_2.1, &mut edge_splits)
+        .or_else(|_| insert_anchor_at_position(brep, perp_pos_2.1, &mut edge_splits))?;
 
     let p1_a = brep.vertices[v1_start].position;
     let p1_b = brep.vertices[v1_end].position;
