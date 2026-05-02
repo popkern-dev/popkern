@@ -325,20 +325,11 @@ fn construct_apex_inner(
                 reason: format!("kef_cross_face_v_edges: {e}"),
             },
         )?;
-    // §28.H Session 3.5 — multi-bridge V dissolve.  Lib primitive
-    // `BRep::dissolve_same_loop_bridge` available; helper
-    // `dissolve_v_bridges_until_valence_le_1` provided below.
-    // Currently NOT wired in — when called between
-    // `kef_cross_face_v_edges` and `kev_v_bridge`, the cap face's
-    // outer loop hits invalid half-edge handles in
-    // `poke_hex::walk_outer_loop` because §28.H Session 3's carve
-    // creates T_a/T_b vertices INSIDE V-incident planes that are
-    // never connected to the perp-anchor topology (V14/V11/V9).
-    // After dissolve removes V's bridges, the cap face's loop
-    // tries to traverse from T_a/T_b to the cyl-arc boundary
-    // (which still terminates at perp-anchors) but no edge
-    // exists between them.  Session 3.6 will add the missing
-    // mef chords from perp-anchors to T_a/T_b.
+    // §28.H Session 3.5 — multi-bridge V dissolve.  After Session
+    // 3.6's stitches connect T_a/T_b to the perp-anchor mesh,
+    // the cap face's outer loop is continuous and the dissolve
+    // can safely remove V's residual same-loop bridges.
+    dissolve_v_bridges_until_valence_le_1(brep, plan.apex_vertex);
     crate::construct::blend_insert::kev_v_bridge(brep, plan.apex_vertex).map_err(|e| {
         ApexBuildError::PlanMismatch {
             reason: format!("kev_v_bridge: {e}"),
@@ -1432,10 +1423,6 @@ fn check_cancelled(cancel: Option<&CancellationToken>) -> Result<(), ApexBuildEr
 /// `kev_v_bridge` will surface any residual valence problem
 /// with a descriptive error.
 ///
-/// Currently dead-code — Session 3.6 will integrate this once the
-/// missing perp-anchor-to-T_a/T_b mef chords are added.  Retained
-/// here as the helper the integration will plug in.
-#[allow(dead_code)]
 fn dissolve_v_bridges_until_valence_le_1(
     brep: &mut popkern_core::topology::BRep,
     vertex: popkern_core::topology::VertexHandle,

@@ -307,7 +307,18 @@ pub fn apply_blend_geometry(
     // A's perp-walk anchors already coincide with planner
     // targets).  Failures are silently tolerated — the apex blend
     // loop falls back to legacy if the carve didn't land.
-    if use_a2_apex_construction && !_planner_targets_per_apex.is_empty() {
+    //
+    // §28.H Session 3.6 currently gated behind
+    // POPKERN_A2_NATIVE_CARVE=1 — the carve+stitch+dissolve
+    // sequence improves cube_mixed/extreme (eliminates one
+    // "other_geometric" warning) but causes pyramid4_mixed to
+    // panic in mef.rs:221 (kef's loop walk hits a stale handle).
+    // Default off so matrix gate stays green; opt-in for further
+    // development.
+    let session_3_active = use_a2_apex_construction
+        && !_planner_targets_per_apex.is_empty()
+        && std::env::var("POPKERN_A2_NATIVE_CARVE").is_ok_and(|v| v == "1");
+    if session_3_active {
         // Build per-apex radii list: for each V, the radii of all
         // its incident filleted edges.
         let mut radii_per_apex: HashMap<VertexHandle, Vec<f64>> = HashMap::new();

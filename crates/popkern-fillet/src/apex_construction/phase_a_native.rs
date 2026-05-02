@@ -209,8 +209,37 @@ fn carve_face(
     // mef T_a→T_b uses the half-edges whose origins are T_a and
     // T_b respectively.  mev_a.half_edge_twin is T_a→V (origin
     // T_a); same for mev_b.
-    brep.mef(mev_a.half_edge_twin, mev_b.half_edge_twin)
+    let mef_chord = brep
+        .mef(mev_a.half_edge_twin, mev_b.half_edge_twin)
         .map_err(|e| format!("mef T_a→T_b chord failed: {e:?}"))?;
+
+    // §28.H Session 3.6 — stitch T_a and T_b to the perp-anchor
+    // mesh.  Without these chords, T_a/T_b are dangling interior
+    // vertices that Session 3.5's dissolve cannot leave in a valid
+    // cap face — the loop traversal hits invalid handles.  Each
+    // chord connects one planner-position vertex to its nearest
+    // perp-anchor on the same V-incident plane (via the rest-of-F
+    // sub-face on the non-V-corner side of the just-mef'd chord).
+    //
+    // mef_chord identifies the new face (V-corner triangle).  The
+    // OTHER side of the chord is the "rest of F" — its outer loop
+    // contains both T_a, T_b, and the V-incident plane's perp-
+    // anchors.  We mef from T to the nearest perp-anchor across
+    // rest_of_F.
+    let _ = mef_chord; // Session 3.6 stitch implementation below.
+    let stitch_a = stitch_t_to_perp_anchor(
+        brep,
+        mev_a.vertex, // T_a vertex handle
+        face,         // original V-incident plane sub-face (now split)
+        apex_v,
+    );
+    let stitch_b = stitch_t_to_perp_anchor(brep, mev_b.vertex, face, apex_v);
+    if std::env::var_os("POPKERN_A2_NATIVE_TRACE").is_some() {
+        eprintln!(
+            "[a2-native]   stitch T_a → perp-anchor: {:?}; T_b → perp-anchor: {:?}",
+            stitch_a, stitch_b
+        );
+    }
 
     Ok(())
 }
@@ -280,4 +309,118 @@ fn is_uniform_radius(radii: &[f64]) -> bool {
     }
     let r0 = radii[0];
     radii.iter().all(|&r| (r - r0).abs() < 1e-6)
+}
+
+/// §28.H Session 3.6 — connect a planner-position vertex `t_v` to
+/// the nearest perp-anchor on the same V-incident plane via a
+/// `mef` chord across the "rest of F" sub-face.
+///
+/// `t_v` is one of T_a/T_b created by `carve_face`'s mev.  After
+/// the mef chord T_a-T_b in `carve_face`, `t_v` is on TWO loops:
+/// the V-corner triangle and "rest of F" (the other half of the
+/// original V-incident plane sub-face).
+///
+/// We pick a half-edge of `t_v` whose loop is NOT the V-corner
+/// triangle (i.e., the "rest of F" loop), then find the nearest
+/// perp-anchor on that loop, and `mef` between them.  Splits
+/// "rest of F" into 2 sub-faces.
+///
+/// Returns the perp-anchor that was connected on success, or a
+/// reason string on failure.  Failures are non-fatal: the caller
+/// continues without this stitch (the topology may still be
+/// usable, or the apex blend loop will fall back to legacy).
+fn stitch_t_to_perp_anchor(
+    brep: &mut BRep,
+    t_v: VertexHandle,
+    _original_face: FaceHandle,
+    apex_v: VertexHandle,
+) -> Result<VertexHandle, String> {
+    // Find a half-edge originating at t_v.  After carve_face,
+    // t_v has multiple outgoings: the spur to V (in V-corner
+    // triangle) and another HE on "rest of F" (the loop reached
+    // by walking around T's incidences).
+    //
+    // Identify which loop is "rest of F": the one that does NOT
+    // contain V's spur half-edges.  Specifically, V-corner
+    // triangle has V's outgoing half-edges (V→T_b for one of
+    // them); rest-of-F doesn't.
+    let outgoings: Vec<HalfEdgeHandle> = brep
+        .half_edges
+        .iter()
+        .filter(|(_, h)| h.origin == t_v)
+        .map(|(h, _)| h)
+        .collect();
+
+    // Both loops containing T_v have V on them (V-corner has
+    // V via spurs; rest-of-F has V via spurs + cube-edge stubs).
+    // Distinguish by loop size: V-corner triangle has 3 half-
+    // edges; rest-of-F has many more.  Pick T_v's outgoing whose
+    // loop has the most half-edges.
+    let _ = apex_v; // unused now but kept for future heuristics
+    let mut t_he_on_rest: Option<HalfEdgeHandle> = None;
+    let mut max_loop_size = 0usize;
+    for &he in &outgoings {
+        let Some(he_data) = brep.half_edges.get(he) else {
+            continue;
+        };
+        let loop_h = he_data.loop_;
+        let Some(loop_data) = brep.loops.get(loop_h) else {
+            continue;
+        };
+        let start = loop_data.half_edge;
+        let mut cursor = start;
+        let mut iters = 0;
+        let max_iters = 64;
+        while brep.half_edges.contains_key(cursor) {
+            cursor = brep.half_edges[cursor].next;
+            iters += 1;
+            if cursor == start || iters >= max_iters {
+                break;
+            }
+        }
+        if iters > max_loop_size {
+            max_loop_size = iters;
+            t_he_on_rest = Some(he);
+        }
+    }
+    let t_he_on_rest = t_he_on_rest.ok_or_else(|| format!("T={t_v:?}: no outgoing half-edges"))?;
+
+    // Walk the loop containing t_he_on_rest, collect candidate
+    // perp-anchors (existing vertices that are NOT V, T_a, T_b).
+    let loop_h = brep.half_edges[t_he_on_rest].loop_;
+    let start = brep.loops[loop_h].half_edge;
+    let mut cursor = start;
+    let mut iters = 0;
+    let max_iters = 64;
+    let mut candidates: Vec<(VertexHandle, HalfEdgeHandle)> = Vec::new();
+    let t_pos = brep.vertices[t_v].position;
+    while let Some(h) = brep.half_edges.get(cursor) {
+        let v = h.origin;
+        if v != t_v && v != apex_v {
+            candidates.push((v, cursor));
+        }
+        cursor = h.next;
+        iters += 1;
+        if cursor == start || iters >= max_iters {
+            break;
+        }
+    }
+
+    // Pick the candidate closest to t_v in 3D.
+    let mut best: Option<(VertexHandle, HalfEdgeHandle, f64)> = None;
+    for (vh, he) in &candidates {
+        let p = brep.vertices[*vh].position;
+        let d = t_pos.distance_to(&p);
+        match best {
+            Some((_, _, b_d)) if b_d <= d => {}
+            _ => best = Some((*vh, *he, d)),
+        }
+    }
+    let (perp_vh, perp_he, _dist) =
+        best.ok_or_else(|| format!("T={t_v:?}: no perp-anchor candidates on rest-of-F loop"))?;
+
+    // mef from T's HE to perp-anchor's HE on the same loop.
+    brep.mef(t_he_on_rest, perp_he)
+        .map_err(|e| format!("mef T→perp-anchor failed: {e:?}"))?;
+    Ok(perp_vh)
 }
