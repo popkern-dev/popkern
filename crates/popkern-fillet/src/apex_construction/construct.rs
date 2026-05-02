@@ -173,7 +173,7 @@ fn construct_apex_inner(
     // the build returns a typed PlanMismatch.  A2.2.b+ extends
     // with edge-subdivision-based "create" once the wiring
     // context is available.
-    let apex_vertex_handles = resolve_apex_vertices(brep, plan, tolerance)?;
+    let apex_vertex_handles = resolve_apex_vertices(brep, plan, fillet_surfaces, tolerance)?;
     check_cancelled(cancel)?;
 
     // §27 commercial-grade design (Adopt + Create): we no longer
@@ -413,20 +413,114 @@ fn find_vertex_within(brep: &BRep, point: Point3, tol: f64) -> Option<VertexHand
 fn resolve_apex_vertices(
     brep: &mut BRep,
     plan: &ApexPlan,
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Result<Vec<VertexHandle>, ApexBuildError> {
     let tol = tolerance.linear();
     let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
-    let mut out: Vec<VertexHandle> = Vec::with_capacity(plan.target_topology.apex_vertices.len());
+    // §28.A wide-tolerance snap: when the planner's target doesn't
+    // match an existing vertex within `tolerance.linear()`, fall
+    // back to a wider search bounded by `max_fillet_radius * 0.7`
+    // (not 1.0 — too generous on extreme fixtures).  This snaps
+    // apex_vertices to existing Phase B perp-anchors rather than
+    // inserting new vertices via `split_edge`.  Stage 2's mef can
+    // then find shared faces because perp-anchors share host faces
+    // by Phase A's perp-walk construction.  Set
+    // `POPKERN_A2_NO_SNAP=1` to disable for diagnostic A/B compare.
+    let wide_snap_enabled = !std::env::var("POPKERN_A2_NO_SNAP").is_ok_and(|v| v == "1");
+    let max_radius = max_fillet_radius(fillet_surfaces).unwrap_or(0.1);
+    let wide_tol = if wide_snap_enabled {
+        max_radius * 0.7
+    } else {
+        tol
+    };
+    let n_targets = plan.target_topology.apex_vertices.len();
+    let mut out: Vec<Option<VertexHandle>> = vec![None; n_targets];
+    let mut used: std::collections::HashSet<VertexHandle> = std::collections::HashSet::new();
+
+    // §28.A snap pre-pass: tight-tolerance matches first (these are
+    // unambiguous — the existing vertex is essentially equal to the
+    // planner's target, no choice involved).
     for (i, &point) in plan.target_topology.apex_vertices.iter().enumerate() {
-        if let Some(vh) = find_vertex_within(brep, point, tol) {
+        if let Some(vh) = find_vertex_within(brep, point, tol)
+            && !used.contains(&vh)
+        {
             if trace {
                 eprintln!(
                     "[a2-trace] apex_vertex[{i}] at {point:?} → FOUND existing {vh:?} \
                      (within {tol:.3e})"
                 );
             }
-            out.push(vh);
+            out[i] = Some(vh);
+            used.insert(vh);
+        }
+    }
+
+    // §28.A bipartite snap pass: for each unmatched target, find
+    // candidates in V's geometric neighborhood within `wide_tol`.
+    // Sort all (target, candidate, distance) triples by distance
+    // ascending, then assign greedily — stable marriage style.
+    // This avoids the early-snap problem where apex_vertex[0]'s
+    // greedy match consumes a perp-anchor that apex_vertex[k>0]
+    // needed.
+    if wide_snap_enabled {
+        type Triple = (usize, VertexHandle, f64);
+        let mut triples: Vec<Triple> = Vec::new();
+        let v_pos = brep
+            .vertices
+            .get(plan.apex_vertex)
+            .map(|v| v.position)
+            .unwrap_or(Point3::new(0.0, 0.0, 0.0));
+        let v_radius_sq = (max_radius * 1.5).powi(2);
+        let wide_tol_sq = wide_tol * wide_tol;
+        for (i, &target) in plan.target_topology.apex_vertices.iter().enumerate() {
+            if out[i].is_some() {
+                continue;
+            }
+            for (vh, vertex) in &brep.vertices {
+                let p = vertex.position;
+                let d_v_sq = {
+                    let dx = p.x - v_pos.x;
+                    let dy = p.y - v_pos.y;
+                    let dz = p.z - v_pos.z;
+                    dx * dx + dy * dy + dz * dz
+                };
+                if d_v_sq > v_radius_sq {
+                    continue;
+                }
+                let d_target_sq = {
+                    let dx = p.x - target.x;
+                    let dy = p.y - target.y;
+                    let dz = p.z - target.z;
+                    dx * dx + dy * dy + dz * dz
+                };
+                if d_target_sq > wide_tol_sq {
+                    continue;
+                }
+                triples.push((i, vh, d_target_sq));
+            }
+        }
+        triples.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+        for (i, vh, dist_sq) in triples {
+            if out[i].is_some() || used.contains(&vh) {
+                continue;
+            }
+            let dist = dist_sq.sqrt();
+            if trace {
+                eprintln!(
+                    "[a2-trace] apex_vertex[{i}] at {:?} → SNAPPED to existing {vh:?} at {:?} \
+                     (dist {dist:.4} m, wide_tol {wide_tol:.4})",
+                    plan.target_topology.apex_vertices[i], brep.vertices[vh].position
+                );
+            }
+            out[i] = Some(vh);
+            used.insert(vh);
+        }
+    }
+
+    // Fallback pass for unmatched targets: split_edge insertion.
+    for (i, &point) in plan.target_topology.apex_vertices.iter().enumerate() {
+        if out[i].is_some() {
             continue;
         }
         // Create branch: split the edge passing through `point`.
@@ -439,9 +533,6 @@ fn resolve_apex_vertices(
                 ),
             });
         };
-        // Capture the split-edge's adjacent face handles before
-        // mutation so the trace can show which faces inherit the
-        // new vertex.
         let pre_faces = if trace {
             edge_adjacent_faces(brep, edge)
         } else {
@@ -464,9 +555,44 @@ fn resolve_apex_vertices(
                 split.vertex, pre_faces.0, pre_faces.1
             );
         }
-        out.push(split.vertex);
+        used.insert(split.vertex);
+        out[i] = Some(split.vertex);
     }
-    Ok(out)
+    let resolved: Vec<VertexHandle> = out
+        .into_iter()
+        .enumerate()
+        .map(|(i, v)| {
+            v.ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: format!("apex_vertex[{i}] unresolved after snap + fallback passes"),
+            })
+        })
+        .collect::<Result<_, _>>()?;
+    Ok(resolved)
+}
+
+/// Maximum nominal radius across `fillet_surfaces`.  Used to
+/// derive the §28.A wide-snap tolerance.  Returns `None` when no
+/// fillet has a defined radius (Plane / Nurbs / Gregory variants).
+fn max_fillet_radius(
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+) -> Option<f64> {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let mut max_r = 0.0_f64;
+    let mut any = false;
+    for fs in fillet_surfaces {
+        let r = match &fs.surface {
+            SurfaceGeometry::Cylinder { radius, .. } => *radius,
+            SurfaceGeometry::Torus { minor_radius, .. } => *minor_radius,
+            _ => continue,
+        };
+        if r.is_finite() && r > 0.0 {
+            any = true;
+            if r > max_r {
+                max_r = r;
+            }
+        }
+    }
+    if any { Some(max_r) } else { None }
 }
 
 /// Helper for the `POPKERN_A2_TRACE` diagnostic: return the
