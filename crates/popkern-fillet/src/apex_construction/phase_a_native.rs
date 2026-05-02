@@ -226,14 +226,17 @@ fn carve_face(
     // contains both T_a, T_b, and the V-incident plane's perp-
     // anchors.  We mef from T to the nearest perp-anchor across
     // rest_of_F.
-    let _ = mef_chord; // Session 3.6 stitch implementation below.
-    let stitch_a = stitch_t_to_perp_anchor(
-        brep,
-        mev_a.vertex, // T_a vertex handle
-        face,         // original V-incident plane sub-face (now split)
-        apex_v,
-    );
-    let stitch_b = stitch_t_to_perp_anchor(brep, mev_b.vertex, face, apex_v);
+    // §28.H Session 3.7 — pass mef_chord's half-edges directly
+    // to stitch.  This is robust across cube/pyramid topologies:
+    // mef_chord.half_edge (T_a→T_b) is on rest-of-F's loop by
+    // mef's contract; mev_b.half_edge_twin (T_b→V) is on rest-of-
+    // F's loop too (it stays with old_loop after mef).  No
+    // heuristic needed — we know exactly which half-edges go with
+    // rest-of-F.
+    let _ = face; // unused under Session 3.7 — kept for future API
+    let _ = apex_v;
+    let stitch_a = stitch_t_via_he(brep, mev_a.vertex, mef_chord.half_edge);
+    let stitch_b = stitch_t_via_he(brep, mev_b.vertex, mev_b.half_edge_twin);
     if std::env::var_os("POPKERN_A2_NATIVE_TRACE").is_some() {
         eprintln!(
             "[a2-native]   stitch T_a → perp-anchor: {:?}; T_b → perp-anchor: {:?}",
@@ -302,6 +305,76 @@ fn point_on_plane_face(brep: &BRep, face: FaceHandle, pt: Point3) -> Option<bool
     Some(d.dot(&normal).abs() < 1e-6)
 }
 
+/// §28.H Session 3.7 — stitch a planner-position vertex to the
+/// nearest perp-anchor via `mef`, using a known-correct outgoing
+/// half-edge on the rest-of-F sub-face.
+///
+/// `t_v` is one of T_a/T_b created by `carve_face`'s mev (origin
+/// of `t_he_on_rest`).  The caller passes the exact half-edge on
+/// rest-of-F (the chord's half-edge for T_a, the spur's twin for
+/// T_b — both definitionally on rest-of-F per `mef`'s splice
+/// contract).  This avoids the heuristic "max loop size" that
+/// failed on pyramid topology in Session 3.6.
+///
+/// Walks the rest-of-F loop, picks the nearest non-T, non-V
+/// vertex to `t_v` in 3D, and `mef`s a chord from `t_v` to that
+/// vertex.  Returns the perp-anchor handle on success, or a
+/// reason string on failure (failures are non-fatal — caller
+/// continues).
+fn stitch_t_via_he(
+    brep: &mut BRep,
+    t_v: VertexHandle,
+    t_he_on_rest: HalfEdgeHandle,
+) -> Result<VertexHandle, String> {
+    if !brep.half_edges.contains_key(t_he_on_rest) {
+        return Err(format!("t_he_on_rest={t_he_on_rest:?} no longer valid"));
+    }
+    if brep.half_edges[t_he_on_rest].origin != t_v {
+        return Err(format!(
+            "t_he_on_rest={t_he_on_rest:?} doesn't originate at t_v={t_v:?}"
+        ));
+    }
+
+    // Walk the loop containing t_he_on_rest, collect ALL non-T_v
+    // candidates with their distance from T_v.  Sort by distance,
+    // then pick the closest non-adjacent one.  Adjacency is via
+    // next/prev pointers — mef requires he1 and he2 to be non-
+    // adjacent in the loop (otherwise it creates a degenerate
+    // duplicate-edge or zero-length triangle).
+    let loop_h = brep.half_edges[t_he_on_rest].loop_;
+    let start = brep.loops[loop_h].half_edge;
+    let t_pos = brep.vertices[t_v].position;
+    let next_of_t = brep.half_edges[t_he_on_rest].next;
+    let prev_of_t = brep.half_edges[t_he_on_rest].prev;
+
+    let mut candidates: Vec<(VertexHandle, HalfEdgeHandle, f64)> = Vec::new();
+    let mut cursor = start;
+    let mut iters = 0;
+    let max_iters = 64;
+    while let Some(h) = brep.half_edges.get(cursor) {
+        let v = h.origin;
+        if v != t_v && cursor != next_of_t && cursor != prev_of_t {
+            let p = brep.vertices[v].position;
+            let d = t_pos.distance_to(&p);
+            candidates.push((v, cursor, d));
+        }
+        cursor = h.next;
+        iters += 1;
+        if cursor == start || iters >= max_iters {
+            break;
+        }
+    }
+    candidates.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+    let (perp_vh, perp_he, _dist) = candidates
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("T={t_v:?}: no non-adjacent candidates on rest-of-F loop"))?;
+
+    brep.mef(t_he_on_rest, perp_he)
+        .map_err(|e| format!("mef T→perp-anchor failed: {e:?}"))?;
+    Ok(perp_vh)
+}
+
 /// True when all radii are within 1e-6 of each other.
 fn is_uniform_radius(radii: &[f64]) -> bool {
     if radii.is_empty() {
@@ -329,6 +402,11 @@ fn is_uniform_radius(radii: &[f64]) -> bool {
 /// reason string on failure.  Failures are non-fatal: the caller
 /// continues without this stitch (the topology may still be
 /// usable, or the apex blend loop will fall back to legacy).
+///
+/// Superseded by `stitch_t_via_he` in Session 3.7 (which takes
+/// known-correct half-edge handles instead of heuristic-picking).
+/// Retained `#[allow(dead_code)]` for diagnostic re-enable.
+#[allow(dead_code)]
 fn stitch_t_to_perp_anchor(
     brep: &mut BRep,
     t_v: VertexHandle,
