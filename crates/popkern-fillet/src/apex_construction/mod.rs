@@ -39,6 +39,7 @@ pub(crate) mod plan_rung_fallback;
 pub(crate) mod plan_terminations;
 pub(crate) mod plan_topology;
 pub(crate) mod plan_validate;
+pub(crate) mod planner_prepass;
 pub(crate) mod target_topology;
 pub(crate) mod telemetry;
 

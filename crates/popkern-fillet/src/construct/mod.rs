@@ -143,6 +143,26 @@ pub fn apply_blend_geometry(
     let mut closed_handled: std::collections::HashSet<usize> = std::collections::HashSet::new();
     // Round 5r+: snapshot before Phase A mutates result; anchor positions come from here.
     let phase_a_snapshot = result.clone();
+
+    // §28.H Session 1 — planner pre-pass.  Run the A2 planner on
+    // the pre-Phase-A BRep state to compute apex_vertex targets per
+    // V.  Subsequent §28.H sessions (2-3) will thread these targets
+    // into Phase A's anchor placement.  Currently the result is
+    // computed and discarded — proves the pre-pass runs without
+    // regression on every fixture.  Gated by `use_a2_apex_
+    // construction` so legacy is unaffected.
+    let _planner_targets_per_apex: std::collections::HashMap<
+        VertexHandle,
+        Vec<popkern_core::geometry::Point3>,
+    > = if use_a2_apex_construction {
+        crate::apex_construction::planner_prepass::plan_apex_targets_pre_phase_a(
+            &phase_a_snapshot,
+            edge_geometries,
+            tolerance,
+        )
+    } else {
+        std::collections::HashMap::new()
+    };
     // Per-original-edge descendants after Phase A, for Phase C consumed-face lookup.
     let mut descendants: HashMap<EdgeHandle, Vec<EdgeHandle>> = HashMap::new();
     for eg in edge_geometries {
