@@ -456,14 +456,18 @@ fn resolve_apex_vertices(
         }
     }
 
-    // §28.A bipartite snap pass: for each unmatched target, find
-    // candidates in V's geometric neighborhood within `wide_tol`.
-    // Sort all (target, candidate, distance) triples by distance
-    // ascending, then assign greedily — stable marriage style.
-    // This avoids the early-snap problem where apex_vertex[0]'s
-    // greedy match consumes a perp-anchor that apex_vertex[k>0]
-    // needed.
+    // §28.A role-aware bipartite snap.  For each apex_vertex_idx,
+    // identify its expected fillet_idx (via the CapVsCyl apex_edge
+    // role that uses it as origin or dest).  Constrain candidates
+    // to vertices on that fillet's cylinder face's outer loop.
+    // This prevents pyramid-style fixtures from snapping
+    // apex_vertex[k] to a perp-anchor on a NEIGHBOURING fillet's
+    // cylinder, which would later block stage 2's mef from finding
+    // the planner-expected shared cylinder.
     if wide_snap_enabled {
+        let apex_vertex_fillets =
+            compute_apex_vertex_fillet_map(&plan.target_topology.apex_edges, n_targets);
+        let fillet_face_map = build_fillet_face_map(brep, fillet_surfaces);
         type Triple = (usize, VertexHandle, f64);
         let mut triples: Vec<Triple> = Vec::new();
         let v_pos = brep
@@ -477,7 +481,23 @@ fn resolve_apex_vertices(
             if out[i].is_some() {
                 continue;
             }
-            for (vh, vertex) in &brep.vertices {
+            // Restrict candidate set to vertices on the expected
+            // fillet's cylinder face outer loop (when known).  When
+            // the role doesn't tell us a specific fillet (e.g.
+            // CapVsPlane-only apex_vertex), fall back to V's
+            // geometric neighborhood.
+            let expected_fillet = apex_vertex_fillets[i];
+            let candidate_set: Box<dyn Iterator<Item = VertexHandle>> = match expected_fillet
+                .and_then(|fi| fillet_face_map.get(&fi).copied())
+                .and_then(|fh| collect_face_outer_loop_vertices(brep, fh))
+            {
+                Some(verts) => Box::new(verts.into_iter()),
+                None => Box::new(brep.vertices.keys()),
+            };
+            for vh in candidate_set {
+                let Some(vertex) = brep.vertices.get(vh) else {
+                    continue;
+                };
                 let p = vertex.position;
                 let d_v_sq = {
                     let dx = p.x - v_pos.x;
@@ -568,6 +588,119 @@ fn resolve_apex_vertices(
         })
         .collect::<Result<_, _>>()?;
     Ok(resolved)
+}
+
+/// §28.A helper: build a map from `fillet_idx` → `FaceHandle` for
+/// the BRep cylinder face matching that fillet's surface (by
+/// origin / axis / radius within tolerance).  Used by the role-
+/// aware snap to constrain candidates.
+fn build_fillet_face_map(
+    brep: &BRep,
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+) -> std::collections::HashMap<usize, FaceHandle> {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let mut out: std::collections::HashMap<usize, FaceHandle> = std::collections::HashMap::new();
+    for (fi, fillet) in fillet_surfaces.iter().enumerate() {
+        let SurfaceGeometry::Cylinder {
+            origin: f_origin,
+            axis: f_axis,
+            radius: f_radius,
+        } = &fillet.surface
+        else {
+            continue;
+        };
+        let Some(f_axis_unit) = f_axis.normalized() else {
+            continue;
+        };
+        for (fh, face) in &brep.faces {
+            let Some(sof) = face.surface.as_ref() else {
+                continue;
+            };
+            let SurfaceGeometry::Cylinder {
+                origin,
+                axis,
+                radius,
+            } = &sof.geometry
+            else {
+                continue;
+            };
+            if (*radius - *f_radius).abs() > f_radius.abs() * 1e-4 + 1e-9 {
+                continue;
+            }
+            let Some(face_axis_unit) = axis.normalized() else {
+                continue;
+            };
+            if face_axis_unit.dot(&f_axis_unit).abs() < 1.0 - 1e-3 {
+                continue;
+            }
+            let d = popkern_core::geometry::Vec3::new(
+                origin.x - f_origin.x,
+                origin.y - f_origin.y,
+                origin.z - f_origin.z,
+            );
+            let along = d.dot(&f_axis_unit);
+            let perp = popkern_core::geometry::Vec3::new(
+                d.x - along * f_axis_unit.x,
+                d.y - along * f_axis_unit.y,
+                d.z - along * f_axis_unit.z,
+            );
+            if perp.length() > 1e-3 {
+                continue;
+            }
+            out.insert(fi, fh);
+            break;
+        }
+    }
+    out
+}
+
+/// §28.A helper: for each apex_vertex_idx in the plan, determine
+/// the fillet_idx of an adjacent CapVsCyl apex_edge.  Both T_a[k]
+/// and T_b[k] participate in `apex_edge[2k] = CapVsCyl{fillet_idx: k}`.
+/// Returns `None` for indices where no adjacent CapVsCyl edge
+/// names a fillet (shouldn't happen on well-formed plans, but
+/// covered for robustness).
+fn compute_apex_vertex_fillet_map(
+    apex_edges: &[TargetEdge],
+    n_targets: usize,
+) -> Vec<Option<usize>> {
+    use super::target_topology::TargetEdgeRole;
+    let mut out: Vec<Option<usize>> = vec![None; n_targets];
+    for edge in apex_edges {
+        if let TargetEdgeRole::CapVsCyl { fillet_idx } = edge.role {
+            if edge.origin_vertex_idx < n_targets {
+                out[edge.origin_vertex_idx] = Some(fillet_idx);
+            }
+            if edge.dest_vertex_idx < n_targets {
+                out[edge.dest_vertex_idx] = Some(fillet_idx);
+            }
+        }
+    }
+    out
+}
+
+/// §28.A helper: collect every vertex appearing as an outer-loop
+/// half-edge origin on `face`.  Returns `None` if face is missing.
+fn collect_face_outer_loop_vertices(
+    brep: &BRep,
+    face: FaceHandle,
+) -> Option<Vec<VertexHandle>> {
+    let face_data = brep.faces.get(face)?;
+    let loop_data = brep.loops.get(face_data.outer_loop)?;
+    let start = loop_data.half_edge;
+    let mut out: Vec<VertexHandle> = Vec::new();
+    let mut cursor = start;
+    let max_iters = brep.half_edges.len() + 1;
+    let mut iters = 0;
+    while let Some(he) = brep.half_edges.get(cursor) {
+        out.push(he.origin);
+        cursor = he.next;
+        iters += 1;
+        if cursor == start || iters >= max_iters {
+            break;
+        }
+    }
+    Some(out)
 }
 
 /// Maximum nominal radius across `fillet_surfaces`.  Used to
