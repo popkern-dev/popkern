@@ -413,6 +413,108 @@ pub(super) fn eliminate_interior_edges(
     Err("eliminate_interior_edges: iteration cap hit".to_string())
 }
 
+/// **Cap-side accumulator merge** — targeted post-stage-3 sweep
+/// that merges fragmented cap-side sub-faces into a single cap
+/// face whose outer loop carries all 2N apex_edges.
+///
+/// Rule: kef any non-apex cross-loop edge where one adjacent
+/// face is a "cap-side accumulator" (≥2 apex_edges in its outer
+/// loop) AND the other adjacent face has ≥1 apex_edge.  This
+/// grows the largest cap-side accumulator iteratively while
+/// preventing over-merge into host faces (which have at most 1
+/// apex_edge per fillet).
+///
+/// Iterates until no candidate boundary remains.  Cap at
+/// `apex_edges.len() * 4 + 32` iterations as a safety net.
+pub(super) fn merge_cap_side_accumulators(
+    brep: &mut BRep,
+    apex_edge_handles: &[EdgeHandle],
+) -> Result<(), String> {
+    use std::collections::HashSet;
+    if apex_edge_handles.is_empty() {
+        return Ok(());
+    }
+    let perimeter: HashSet<EdgeHandle> = apex_edge_handles.iter().copied().collect();
+    let cap_iters = apex_edge_handles.len() * 4 + 32;
+    for _ in 0..cap_iters {
+        let face_apex_count = count_apex_edges_per_face(brep, &perimeter);
+        let mut victim: Option<HalfEdgeHandle> = None;
+        for (eh, edge) in brep.edges.iter() {
+            if perimeter.contains(&eh) {
+                continue;
+            }
+            let primary = edge.half_edge;
+            let Some(he) = brep.half_edges.get(primary) else {
+                continue;
+            };
+            let Some(twin_he) = brep.half_edges.get(he.twin) else {
+                continue;
+            };
+            if he.loop_ == twin_he.loop_ {
+                continue;
+            }
+            let face_a = match brep.loops.get(he.loop_) {
+                Some(l) => l.face,
+                None => continue,
+            };
+            let face_b = match brep.loops.get(twin_he.loop_) {
+                Some(l) => l.face,
+                None => continue,
+            };
+            let count_a = face_apex_count.get(&face_a).copied().unwrap_or(0);
+            let count_b = face_apex_count.get(&face_b).copied().unwrap_or(0);
+            // Both sides must have apex_edges, and at least one
+            // must be a cap-side accumulator (≥2 apex_edges).
+            if count_a == 0 || count_b == 0 {
+                continue;
+            }
+            if count_a < 2 && count_b < 2 {
+                continue;
+            }
+            victim = Some(primary);
+            break;
+        }
+        let Some(he) = victim else {
+            return Ok(());
+        };
+        brep.kef(he)
+            .map_err(|e| format!("kef on cap-side accumulator merge: {e:?}"))?;
+    }
+    Err("merge_cap_side_accumulators: iteration cap hit".to_string())
+}
+
+/// Count how many apex_edges each face has in its outer loop.
+fn count_apex_edges_per_face(
+    brep: &BRep,
+    perimeter: &std::collections::HashSet<EdgeHandle>,
+) -> std::collections::HashMap<FaceHandle, usize> {
+    let mut out: std::collections::HashMap<FaceHandle, usize> = std::collections::HashMap::new();
+    for (fh, face) in &brep.faces {
+        let Some(loop_data) = brep.loops.get(face.outer_loop) else {
+            continue;
+        };
+        let start = loop_data.half_edge;
+        let mut cursor = start;
+        let mut count = 0usize;
+        let mut iters = 0;
+        let max_iters = brep.half_edges.len() + 1;
+        while let Some(he) = brep.half_edges.get(cursor) {
+            if perimeter.contains(&he.edge) {
+                count += 1;
+            }
+            cursor = he.next;
+            iters += 1;
+            if cursor == start || iters >= max_iters {
+                break;
+            }
+        }
+        if count > 0 {
+            out.insert(fh, count);
+        }
+    }
+    out
+}
+
 #[allow(dead_code)] // Retained for diagnostic scripts; superseded by eliminate_interior_edges.
 pub(super) fn merge_unmerged_apex_subfaces(
     brep: &mut BRep,

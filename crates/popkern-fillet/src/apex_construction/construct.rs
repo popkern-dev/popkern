@@ -270,19 +270,30 @@ fn construct_apex_inner(
     // Robust: find the face whose outer loop contains all 2N
     // apex_edge handles.  This is the actual cap face regardless
     // of which half-side the kef happened to keep.
-    // Stage 3.5 — apex-region interior elimination ("carve out the
-    // cap region").  Stage 3's `kef_cross_face_v_edges` only kefs
-    // V's incident edges; Phase A perp-walks may have created perp-
-    // anchor vertices INSIDE the cap perimeter that aren't V-
-    // incident.  This pass kefs every cross-loop edge whose both
-    // endpoints are in the interior set captured before stage 3.
-    //
-    // No-op when the post-stage-3 BRep is already coherent
-    // (cube_uniform Sphere caps with no perp-anchor remnants).
-    super::gregory_cap::eliminate_interior_edges(brep, &interior_vertex_set, &apex_edge_handles)
+    // Stage 3.5 — apex-region interior elimination.  Two strategies:
+    // (a) `merge_cap_side_accumulators` (default) — targeted merge
+    //     that only kefs edges where one face is a cap-side
+    //     accumulator (≥2 apex_edges).  Avoids over-merging into
+    //     host faces.
+    // (b) `eliminate_interior_edges` (env-gated) — flood-fill
+    //     elimination from V's interior vertex set.  Older variant,
+    //     re-enable via POPKERN_A2_INTERIOR_ELIMINATION=1.
+    if std::env::var("POPKERN_A2_INTERIOR_ELIMINATION").is_ok_and(|v| v == "1") {
+        super::gregory_cap::eliminate_interior_edges(
+            brep,
+            &interior_vertex_set,
+            &apex_edge_handles,
+        )
         .map_err(|e| ApexBuildError::PlanMismatch {
             reason: format!("eliminate_interior_edges: {e}"),
         })?;
+    } else {
+        super::gregory_cap::merge_cap_side_accumulators(brep, &apex_edge_handles).map_err(|e| {
+            ApexBuildError::PlanMismatch {
+                reason: format!("merge_cap_side_accumulators: {e}"),
+            }
+        })?;
+    }
     let cap_face =
         super::gregory_cap::find_face_bounded_by_all_apex_edges(brep, &apex_edge_handles)
             .unwrap_or(kef_blend_face);
@@ -681,10 +692,7 @@ fn compute_apex_vertex_fillet_map(
 
 /// §28.A helper: collect every vertex appearing as an outer-loop
 /// half-edge origin on `face`.  Returns `None` if face is missing.
-fn collect_face_outer_loop_vertices(
-    brep: &BRep,
-    face: FaceHandle,
-) -> Option<Vec<VertexHandle>> {
+fn collect_face_outer_loop_vertices(brep: &BRep, face: FaceHandle) -> Option<Vec<VertexHandle>> {
     let face_data = brep.faces.get(face)?;
     let loop_data = brep.loops.get(face_data.outer_loop)?;
     let start = loop_data.half_edge;
