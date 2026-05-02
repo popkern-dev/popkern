@@ -60,9 +60,11 @@ pub struct ApexBuildResult {
     /// tolerance of the plan's target points).
     pub apex_vertices: Vec<VertexHandle>,
     /// New edges in the apex region, indexed parallel to
-    /// `plan.target_topology.apex_edges`.  Carry the curve3d
-    /// from the plan as their stored geometry.
-    pub apex_edges: Vec<EdgeHandle>,
+    /// `plan.target_topology.apex_edges`.  `Some` for CapVsPlane
+    /// (mef'd as new chord) and `None` for CapVsCyl (§28.D —
+    /// not mef'd; cylinder face's existing perp-walks become part
+    /// of the cap face's outer loop after stage 3 V-spoke kef).
+    pub apex_edges: Vec<Option<EdgeHandle>>,
     /// Telemetry passed through from the plan (the builder
     /// doesn't add new diagnostic values; A2.5 may extend this
     /// with construction-side numerics).
@@ -219,12 +221,15 @@ fn construct_apex_inner(
     // V-spoke kef sequence produces a clean 2N-edge cap face when
     // stage 2 used Adopt for CapVsCyl.  Diagnostic re-enable via
     // POPKERN_A2_INTERIOR_ELIMINATION=1.
+    // Filter Some-edges for downstream consumers that index by edge,
+    // not by plan-edge-idx.
+    let valid_apex_edges: Vec<EdgeHandle> = apex_edge_handles.iter().filter_map(|e| *e).collect();
     let interior_vertex_set: std::collections::HashSet<VertexHandle> =
         if std::env::var("POPKERN_A2_INTERIOR_ELIMINATION").is_ok_and(|v| v == "1") {
             super::gregory_cap::compute_interior_vertex_set(
                 brep,
                 plan.apex_vertex,
-                &apex_edge_handles,
+                &valid_apex_edges,
             )
         } else {
             std::collections::HashSet::new()
@@ -279,24 +284,19 @@ fn construct_apex_inner(
     //     elimination from V's interior vertex set.  Older variant,
     //     re-enable via POPKERN_A2_INTERIOR_ELIMINATION=1.
     if std::env::var("POPKERN_A2_INTERIOR_ELIMINATION").is_ok_and(|v| v == "1") {
-        super::gregory_cap::eliminate_interior_edges(
-            brep,
-            &interior_vertex_set,
-            &apex_edge_handles,
-        )
-        .map_err(|e| ApexBuildError::PlanMismatch {
-            reason: format!("eliminate_interior_edges: {e}"),
-        })?;
+        super::gregory_cap::eliminate_interior_edges(brep, &interior_vertex_set, &valid_apex_edges)
+            .map_err(|e| ApexBuildError::PlanMismatch {
+                reason: format!("eliminate_interior_edges: {e}"),
+            })?;
     } else {
-        super::gregory_cap::merge_cap_side_accumulators(brep, &apex_edge_handles).map_err(|e| {
+        super::gregory_cap::merge_cap_side_accumulators(brep, &valid_apex_edges).map_err(|e| {
             ApexBuildError::PlanMismatch {
                 reason: format!("merge_cap_side_accumulators: {e}"),
             }
         })?;
     }
-    let cap_face =
-        super::gregory_cap::find_face_bounded_by_all_apex_edges(brep, &apex_edge_handles)
-            .unwrap_or(kef_blend_face);
+    let cap_face = super::gregory_cap::find_face_bounded_by_all_apex_edges(brep, &valid_apex_edges)
+        .unwrap_or(kef_blend_face);
     check_cancelled(cancel)?;
 
     // Stage 4 (A2.2.f / A2.4) — cap face surface assignment.
@@ -345,7 +345,7 @@ fn assign_cap_surface(
     cap_face: FaceHandle,
     plan: &ApexPlan,
     apex_vertex_handles: &[VertexHandle],
-    apex_edge_handles: &[EdgeHandle],
+    apex_edge_handles: &[Option<EdgeHandle>],
     fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
     _tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Result<(), ApexBuildError> {
@@ -778,6 +778,7 @@ fn vertex_loop_face_handles(brep: &BRep, vertex: VertexHandle) -> Vec<FaceHandle
 /// `fillet_surfaces[fillet_idx]`'s cylinder face that connects
 /// `v_origin` and `v_dest`.  Returns the BRep edge handle if such
 /// an arc exists, `None` otherwise.
+#[allow(dead_code)] // §28.D superseded; retained for diagnostic use.
 ///
 /// Phase B's fillet surface authoring writes each fillet's
 /// transverse termination arc as a discrete BRep edge between
@@ -953,10 +954,19 @@ fn resolve_apex_edges(
     brep: &mut BRep,
     plan: &ApexPlan,
     apex_vertex_handles: &[VertexHandle],
-    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
-) -> Result<Vec<EdgeHandle>, ApexBuildError> {
+    _fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+) -> Result<Vec<Option<EdgeHandle>>, ApexBuildError> {
     use super::target_topology::TargetEdgeRole;
-    let mut out: Vec<EdgeHandle> = Vec::with_capacity(plan.target_topology.apex_edges.len());
+    // §28.D: CapVsCyl edges are NOT mef'd by A2.  Phase B's cylinder
+    // face boundaries already carry their apex-side perp-walks; after
+    // stage 3 V-spoke kef, the cylinder boundary's apex region merges
+    // naturally with the V-corner triangles (created by mef of
+    // CapVsPlane chords).  So `out[k]` is `None` for CapVsCyl and
+    // `Some(edge)` for CapVsPlane.  Downstream consumers
+    // (assemble_gregory_cap_surface, find_face_bounded_by_all_apex_edges,
+    // merge_cap_side_accumulators) handle the Option.
+    let mut out: Vec<Option<EdgeHandle>> =
+        Vec::with_capacity(plan.target_topology.apex_edges.len());
     // Track the cap-side accumulator face — the face that
     // successive mef calls should split, so each new apex_edge
     // attaches to the previously-mef'd cap-side sub-face.  Without
@@ -992,22 +1002,20 @@ fn resolve_apex_edges(
                     apex_vertex_handles.len(),
                 ),
             })?;
-        // §27 Adopt path for CapVsCyl: scan existing BRep edges
-        // between v_origin and v_dest, prefer one whose adjacent face
-        // is the fillet's cylinder.  This re-uses Phase B's already-
-        // authored fillet-end arc rather than mef'ing a new edge.
-        if let TargetEdgeRole::CapVsCyl { fillet_idx } = target_edge.role
-            && let Some(eh) =
-                adopt_fillet_end_arc(brep, fillet_idx, v_origin, v_dest, fillet_surfaces)
-        {
+        // §28.D: CapVsCyl edges are SKIPPED entirely.  No mef, no
+        // adoption — `None` placeholder.  The cylinder face's
+        // existing apex-side perp-walks become part of the cap
+        // face's outer loop after stage 3's V-spoke kef merges
+        // V-corner triangles with cylinder boundaries.
+        if matches!(target_edge.role, TargetEdgeRole::CapVsCyl { .. }) {
             if std::env::var_os("POPKERN_A2_TRACE").is_some() {
                 eprintln!(
-                    "[a2-trace] apex_edge[{i}] (vidx {} → {}) → ADOPTED existing \
-                     fillet-end arc {eh:?} on fillet[{fillet_idx}]",
+                    "[a2-trace] apex_edge[{i}] (vidx {} → {}) → SKIPPED (CapVsCyl, \
+                     §28.D)",
                     target_edge.origin_vertex_idx, target_edge.dest_vertex_idx,
                 );
             }
-            out.push(eh);
+            out.push(None);
             continue;
         }
         if let Some(eh) = find_edge_between(brep, v_origin, v_dest) {
@@ -1018,7 +1026,7 @@ fn resolve_apex_edges(
                     target_edge.origin_vertex_idx, target_edge.dest_vertex_idx,
                 );
             }
-            out.push(eh);
+            out.push(Some(eh));
             continue;
         }
         if std::env::var_os("POPKERN_A2_TRACE").is_some() {
@@ -1070,7 +1078,7 @@ fn resolve_apex_edges(
         // matching just needs *any* face the previous mef created.
         cap_side_faces.insert(mef_face_pair.0);
         cap_side_faces.insert(mef_face_pair.1);
-        out.push(edge);
+        out.push(Some(edge));
     }
     Ok(out)
 }

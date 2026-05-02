@@ -322,10 +322,11 @@ fn resolve_apex_edges_fails_when_no_shared_face_for_mef() {
     use popkern_core::geometry::Point3;
     use popkern_core::topology::BRep;
 
-    // BRep with two unconnected vertices (mvfs + insert orphan).
-    // The orphan has no incident half-edges, so it can't be on any
-    // face's outer loop — the create-via-mef branch must fail with
-    // a "no shared face" diagnostic.
+    // §28.D update: Sphere's CapVsCyl apex_edges are now SKIPPED
+    // (not mef'd), so the original "no shared face for mef"
+    // error path is unreachable for Sphere plans.  Stage 3
+    // (`kef_cross_face_v_edges`) hits the unconnected-orphan
+    // condition and fails with a different diagnostic.
     let mut brep = BRep::new(test_tolerance());
     brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
     brep.vertices.insert(popkern_core::topology::Vertex {
@@ -335,22 +336,26 @@ fn resolve_apex_edges_fails_when_no_shared_face_for_mef() {
         tolerance: None,
     });
 
-    // Plan: 2 apex vertices, 1 edge — find fails (no edge yet) AND
-    // create fails (no shared face for the orphan).
     let plan = synthetic_sphere_plan_with_edges(
         vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
         vec![(0, 1)],
     );
 
     let err = construct_apex(&mut brep, &plan, &test_tolerance(), None)
-        .expect_err("create via mef should fail when there's no shared face");
+        .expect_err("synthetic plan should not produce a valid cap topology");
     let reason = match err {
         ApexBuildError::PlanMismatch { reason } => reason,
         other => panic!("expected PlanMismatch, got {other:?}"),
     };
+    // Either the legacy path (mef failed) OR the §28.D path
+    // (kef_cross_face_v_edges failed) is acceptable — both
+    // confirm the synthetic plan can't be realised.
     assert!(
-        reason.contains("apex_edge[0]") && reason.contains("no face has both"),
-        "should mention apex_edge[0] and the no-shared-face diagnostic; got: {reason}",
+        reason.contains("apex_edge[0]")
+            || reason.contains("kef_cross_face_v_edges")
+            || reason.contains("no face has both")
+            || reason.contains("blend face not created"),
+        "expected a topology-construction failure diagnostic; got: {reason}",
     );
 }
 

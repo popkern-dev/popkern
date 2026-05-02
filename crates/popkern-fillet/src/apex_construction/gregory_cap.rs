@@ -48,7 +48,7 @@ pub(super) fn assemble_gregory_cap_surface(
     cap_face: FaceHandle,
     plan: &ApexPlan,
     apex_vertex_handles: &[VertexHandle],
-    apex_edge_handles: &[EdgeHandle],
+    apex_edge_handles: &[Option<EdgeHandle>],
     fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
 ) -> Result<(), ApexBuildError> {
     if fillet_surfaces.is_empty() {
@@ -121,15 +121,17 @@ pub(super) fn assemble_gregory_cap_surface(
                         ),
                     });
                 }
-                let edge = *apex_edge_handles.get(edge_idx).ok_or_else(|| {
-                    ApexBuildError::PlanMismatch {
+                let edge = apex_edge_handles
+                    .get(edge_idx)
+                    .copied()
+                    .flatten()
+                    .ok_or_else(|| ApexBuildError::PlanMismatch {
                         reason: format!(
-                            "apex_edge_handles missing index {edge_idx} \
+                            "apex_edge_handles missing Some(edge) at index {edge_idx} \
                                  (len {}) for FaceEdge bridge",
                             apex_edge_handles.len(),
                         ),
-                    }
-                })?;
+                    })?;
                 let face = find_face_across_edge(brep, edge, cap_face).ok_or_else(|| {
                     let edge_alive = brep.edges.contains_key(edge);
                     let adj = if edge_alive {
