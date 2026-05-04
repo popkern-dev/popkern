@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use popkern_core::topology::{BRep, FaceHandle, LoopHandle, VertexHandle};
+use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
 use super::repeated_apex_trim_subcomplex::{
     TrimEdgeConstruction, TrimOwnerPair, TrimRewriteSubcomplexPlan,
@@ -69,6 +69,7 @@ pub(super) struct LoopFacts {
     pub(super) face: FaceHandle,
     pub(super) loop_handle: LoopHandle,
     pub(super) kind: LoopKind,
+    pub(super) boundary_half_edges: Vec<HalfEdgeHandle>,
     pub(super) boundary_vertices: Vec<VertexHandle>,
     pub(super) repeated_vertex: bool,
     pub(super) repeated_half_edge: bool,
@@ -91,6 +92,7 @@ pub(super) struct EndpointMembershipFacts {
 pub(super) struct EndpointLoopMembership {
     pub(super) face: FaceHandle,
     pub(super) loop_handle: LoopHandle,
+    pub(super) half_edge: HalfEdgeHandle,
     pub(super) kind: LoopKind,
 }
 
@@ -175,11 +177,17 @@ impl TopologyKnowledgeGraph {
                 containing_loops: loops_by_face
                     .values()
                     .flat_map(|loops| loops.iter())
-                    .filter(|loop_facts| loop_facts.boundary_vertices.contains(&vertex))
-                    .map(|loop_facts| EndpointLoopMembership {
-                        face: loop_facts.face,
-                        loop_handle: loop_facts.loop_handle,
-                        kind: loop_facts.kind,
+                    .filter_map(|loop_facts| {
+                        let position = loop_facts
+                            .boundary_vertices
+                            .iter()
+                            .position(|loop_vertex| *loop_vertex == vertex)?;
+                        Some(EndpointLoopMembership {
+                            face: loop_facts.face,
+                            loop_handle: loop_facts.loop_handle,
+                            half_edge: loop_facts.boundary_half_edges[position],
+                            kind: loop_facts.kind,
+                        })
                     })
                     .collect(),
             })
@@ -282,7 +290,10 @@ impl EndpointMembershipFacts {
 
 impl EndpointLoopMembership {
     fn diagnostic_label(&self) -> String {
-        format!("{:?}/{:?}/{:?}", self.face, self.loop_handle, self.kind)
+        format!(
+            "{:?}/{:?}/{:?}@{:?}",
+            self.face, self.loop_handle, self.kind, self.half_edge
+        )
     }
 }
 
@@ -327,6 +338,7 @@ fn collect_loop_facts(
     vertices_seen: &mut BTreeSet<VertexHandle>,
 ) -> LoopFacts {
     let mut boundary_vertices = Vec::new();
+    let mut boundary_half_edges = Vec::new();
     let mut seen_half_edges = BTreeSet::new();
     let mut repeated_half_edge = false;
     let mut repeated_vertex = false;
@@ -335,6 +347,7 @@ fn collect_loop_facts(
             face,
             loop_handle,
             kind: LoopKind::Unknown,
+            boundary_half_edges,
             boundary_vertices,
             repeated_vertex,
             repeated_half_edge,
@@ -354,6 +367,7 @@ fn collect_loop_facts(
         if boundary_vertices.contains(&half_edge.origin) {
             repeated_vertex = true;
         }
+        boundary_half_edges.push(cursor);
         boundary_vertices.push(half_edge.origin);
         vertices_seen.insert(half_edge.origin);
         cursor = half_edge.next;
@@ -365,6 +379,7 @@ fn collect_loop_facts(
         face,
         loop_handle,
         kind,
+        boundary_half_edges,
         boundary_vertices,
         repeated_vertex,
         repeated_half_edge,

@@ -1,6 +1,6 @@
 //! Candidate enumeration for repeated-apex side-support region planning.
 
-use popkern_core::topology::{FaceHandle, LoopHandle, VertexHandle};
+use popkern_core::topology::{FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
 use super::repeated_apex_region_graph::{RegionGraph, RegionTrimEndpointPair};
 use super::repeated_apex_side_support_facts::EndpointRegionMembership;
@@ -175,8 +175,10 @@ impl CandidateRejection {
 
 pub(super) struct BridgeLoopMembership {
     pub(super) support_loop: LoopHandle,
+    pub(super) support_half_edge: HalfEdgeHandle,
     pub(super) outside_face: FaceHandle,
     pub(super) outside_loop: LoopHandle,
+    pub(super) outside_half_edge: HalfEdgeHandle,
 }
 
 impl RegionCandidateEndpoints {
@@ -196,29 +198,37 @@ impl RegionCandidateEndpoints {
                 EndpointRegionMembership::SameSupportLoop {
                     face: _,
                     loop_handle,
+                    half_edge,
                 },
                 EndpointRegionMembership::OutsideSupportFamily {
                     face: outside_face,
                     loop_handle: outside_loop,
+                    half_edge: outside_half_edge,
                 },
             ) => Some(BridgeLoopMembership {
                 support_loop: *loop_handle,
+                support_half_edge: *half_edge,
                 outside_face: *outside_face,
                 outside_loop: *outside_loop,
+                outside_half_edge: *outside_half_edge,
             }),
             (
                 EndpointRegionMembership::OutsideSupportFamily {
                     face: outside_face,
                     loop_handle: outside_loop,
+                    half_edge: outside_half_edge,
                 },
                 EndpointRegionMembership::SameSupportLoop {
                     face: _,
                     loop_handle,
+                    half_edge,
                 },
             ) => Some(BridgeLoopMembership {
                 support_loop: *loop_handle,
+                support_half_edge: *half_edge,
                 outside_face: *outside_face,
                 outside_loop: *outside_loop,
+                outside_half_edge: *outside_half_edge,
             }),
             _ => None,
         }

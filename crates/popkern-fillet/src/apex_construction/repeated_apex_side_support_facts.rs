@@ -1,6 +1,6 @@
 //! Classified side-support facts derived from the local knowledge graph.
 
-use popkern_core::topology::{FaceHandle, LoopHandle, VertexHandle};
+use popkern_core::topology::{FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
 use super::repeated_apex_topology_knowledge::{LoopKind, TopologyKnowledgeGraph};
 use super::repeated_apex_trim_subcomplex::TrimEdgeConstruction;
@@ -22,6 +22,7 @@ pub(super) struct SideSupportLoopFacts {
     pub(super) face: FaceHandle,
     pub(super) loop_handle: LoopHandle,
     pub(super) kind: LoopKind,
+    pub(super) boundary_half_edges: Vec<HalfEdgeHandle>,
     pub(super) boundary_vertices: Vec<VertexHandle>,
 }
 
@@ -40,10 +41,12 @@ pub(super) enum EndpointRegionMembership {
     SameSupportLoop {
         face: FaceHandle,
         loop_handle: LoopHandle,
+        half_edge: HalfEdgeHandle,
     },
     OutsideSupportFamily {
         face: FaceHandle,
         loop_handle: LoopHandle,
+        half_edge: HalfEdgeHandle,
     },
     Ambiguous {
         containing_loop_count: usize,
@@ -65,6 +68,7 @@ impl SideSupportRegionFacts {
                         face: loop_facts.face,
                         loop_handle: loop_facts.loop_handle,
                         kind: loop_facts.kind,
+                        boundary_half_edges: loop_facts.boundary_half_edges.clone(),
                         boundary_vertices: loop_facts.boundary_vertices.clone(),
                     })
                     .collect(),
@@ -155,11 +159,19 @@ impl SideSupportTrimEndpointFacts {
 impl EndpointRegionMembership {
     pub(super) fn diagnostic_label(&self) -> String {
         match self {
-            EndpointRegionMembership::SameSupportLoop { face, loop_handle } => {
-                format!("support-loop({face:?}/{loop_handle:?})")
+            EndpointRegionMembership::SameSupportLoop {
+                face,
+                loop_handle,
+                half_edge,
+            } => {
+                format!("support-loop({face:?}/{loop_handle:?}@{half_edge:?})")
             }
-            EndpointRegionMembership::OutsideSupportFamily { face, loop_handle } => {
-                format!("outside-support-family({face:?}/{loop_handle:?})")
+            EndpointRegionMembership::OutsideSupportFamily {
+                face,
+                loop_handle,
+                half_edge,
+            } => {
+                format!("outside-support-family({face:?}/{loop_handle:?}@{half_edge:?})")
             }
             EndpointRegionMembership::Ambiguous {
                 containing_loop_count,
@@ -187,6 +199,7 @@ fn endpoint_region_membership(
         return EndpointRegionMembership::SameSupportLoop {
             face: loop_membership.face,
             loop_handle: loop_membership.loop_handle,
+            half_edge: loop_membership.half_edge,
         };
     }
     if membership.containing_loops.is_empty() {
@@ -196,6 +209,7 @@ fn endpoint_region_membership(
         EndpointRegionMembership::OutsideSupportFamily {
             face: loop_membership.face,
             loop_handle: loop_membership.loop_handle,
+            half_edge: loop_membership.half_edge,
         }
     } else {
         EndpointRegionMembership::Ambiguous {

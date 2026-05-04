@@ -1,6 +1,6 @@
 //! Loop-level region graph views for repeated-apex side-support planning.
 
-use popkern_core::topology::{FaceHandle, LoopHandle, VertexHandle};
+use popkern_core::topology::{FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
 use super::repeated_apex_side_support_facts::{EndpointRegionMembership, SideSupportRegionFacts};
 use super::repeated_apex_topology_knowledge::LoopKind;
@@ -16,6 +16,7 @@ pub(super) struct RegionGraphNode {
     pub(super) face: FaceHandle,
     pub(super) loop_handle: LoopHandle,
     pub(super) kind: LoopKind,
+    pub(super) boundary_half_edges: Vec<HalfEdgeHandle>,
     pub(super) boundary_vertices: Vec<VertexHandle>,
 }
 
@@ -39,6 +40,7 @@ impl RegionGraph {
                     face: loop_facts.face,
                     loop_handle: loop_facts.loop_handle,
                     kind: loop_facts.kind,
+                    boundary_half_edges: loop_facts.boundary_half_edges.clone(),
                     boundary_vertices: loop_facts.boundary_vertices.clone(),
                 })
             })
@@ -83,8 +85,12 @@ impl RegionGraph {
 impl RegionGraphNode {
     fn diagnostic_label(&self) -> String {
         format!(
-            "{:?}/{:?}/{:?} vertices={:?}",
-            self.face, self.loop_handle, self.kind, self.boundary_vertices
+            "{:?}/{:?}/{:?} half_edges={:?} vertices={:?}",
+            self.face,
+            self.loop_handle,
+            self.kind,
+            self.boundary_half_edges,
+            self.boundary_vertices
         )
     }
 }
