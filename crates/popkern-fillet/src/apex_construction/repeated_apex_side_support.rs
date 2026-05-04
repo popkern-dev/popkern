@@ -117,10 +117,16 @@ mod tests {
         let cap_face = face_with_vertex_outside_support_loop(&brep, support_face);
         let support_vertices = outer_loop_vertices(&brep, support_face);
         let cap_vertices = outer_loop_vertices(&brep, cap_face);
-        let outside_vertex = cap_vertices
+        let outside_vertices = cap_vertices
             .into_iter()
-            .find(|vertex| !support_vertices.contains(vertex))
-            .expect("fixture has a cap vertex outside support loop");
+            .filter(|vertex| !support_vertices.contains(vertex))
+            .collect::<Vec<_>>();
+        assert!(
+            outside_vertices.len() >= 2,
+            "fixture has at least two cap vertices outside support loop"
+        );
+        let outside_start = outside_vertices[0];
+        let outside_end = outside_vertices[1];
         let plan = trim_plan(vec![
             TrimRewriteEdgePlan {
                 fillet_index: 0,
@@ -129,8 +135,8 @@ mod tests {
                     cap_face,
                 },
                 construction: TrimEdgeConstruction::ExistingSeam,
-                start: outside_vertex,
-                end: outside_vertex,
+                start: outside_start,
+                end: outside_end,
             },
             TrimRewriteEdgePlan {
                 fillet_index: 0,
@@ -140,7 +146,7 @@ mod tests {
                 },
                 construction: TrimEdgeConstruction::NewExactGeneratorTrim,
                 start: support_vertices[0],
-                end: outside_vertex,
+                end: outside_start,
             },
             TrimRewriteEdgePlan {
                 fillet_index: 1,
@@ -149,7 +155,7 @@ mod tests {
                     support_face,
                 },
                 construction: TrimEdgeConstruction::NewExactGeneratorTrim,
-                start: outside_vertex,
+                start: outside_end,
                 end: support_vertices[1],
             },
         ]);

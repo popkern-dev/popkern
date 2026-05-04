@@ -68,6 +68,7 @@ struct FaceFamilyBridgeBoundaryCycle {
 struct FaceFamilyBridgeLoopIntervals {
     first_to_second: Vec<HalfEdgeHandle>,
     second_to_first: Vec<HalfEdgeHandle>,
+    loop_len: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -84,6 +85,8 @@ enum FaceFamilyBridgeOperandGap {
     MixedOutsideLoops,
     MissingSupportPath,
     MissingOutsidePath,
+    NonComplementarySupportIntervals,
+    NonComplementaryOutsideIntervals,
 }
 
 impl FaceFamilyBridgePrimitiveDerivation {
@@ -345,6 +348,12 @@ impl FaceFamilyBridgeRegionDerivation {
                 FaceFamilyBridgeOperandGap::MissingSupportPath,
             );
         };
+        if !support_paths.are_complementary() {
+            return Self::refused(
+                region.support_face,
+                FaceFamilyBridgeOperandGap::NonComplementarySupportIntervals,
+            );
+        }
         let Some(outside_paths) = loop_intervals_between_origins(
             brep,
             first.outside_loop,
@@ -356,6 +365,12 @@ impl FaceFamilyBridgeRegionDerivation {
                 FaceFamilyBridgeOperandGap::MissingOutsidePath,
             );
         };
+        if !outside_paths.are_complementary() {
+            return Self::refused(
+                region.support_face,
+                FaceFamilyBridgeOperandGap::NonComplementaryOutsideIntervals,
+            );
+        }
         let boundary_cycles = [
             FaceFamilyBridgeBoundaryCycle {
                 support_interval: support_paths.first_to_second.clone(),
@@ -446,10 +461,15 @@ impl FaceFamilyBridgeBoundaryCycle {
 impl FaceFamilyBridgeLoopIntervals {
     fn diagnostic_label(&self) -> String {
         format!(
-            "first_to_second={} second_to_first={}",
+            "loop_len={} first_to_second={} second_to_first={}",
+            self.loop_len,
             self.first_to_second.len(),
             self.second_to_first.len()
         )
+    }
+
+    fn are_complementary(&self) -> bool {
+        self.first_to_second.len() + self.second_to_first.len() == self.loop_len + 2
     }
 }
 
@@ -461,6 +481,12 @@ impl FaceFamilyBridgeOperandGap {
             FaceFamilyBridgeOperandGap::MixedOutsideLoops => "mixed-outside-loops",
             FaceFamilyBridgeOperandGap::MissingSupportPath => "missing-support-path",
             FaceFamilyBridgeOperandGap::MissingOutsidePath => "missing-outside-path",
+            FaceFamilyBridgeOperandGap::NonComplementarySupportIntervals => {
+                "non-complementary-support-intervals"
+            }
+            FaceFamilyBridgeOperandGap::NonComplementaryOutsideIntervals => {
+                "non-complementary-outside-intervals"
+            }
         }
     }
 }
@@ -478,10 +504,33 @@ fn loop_intervals_between_origins(
     first: HalfEdgeHandle,
     second: HalfEdgeHandle,
 ) -> Option<FaceFamilyBridgeLoopIntervals> {
+    let loop_len = loop_half_edge_count(brep, loop_handle, first)?;
     Some(FaceFamilyBridgeLoopIntervals {
         first_to_second: loop_path_between_origins(brep, loop_handle, first, second)?,
         second_to_first: loop_path_between_origins(brep, loop_handle, second, first)?,
+        loop_len,
     })
+}
+
+fn loop_half_edge_count(
+    brep: &BRep,
+    loop_handle: LoopHandle,
+    start: HalfEdgeHandle,
+) -> Option<usize> {
+    let mut cursor = start;
+    let mut count = 0;
+    for _ in 0..=brep.half_edges.len() {
+        let half_edge = brep.half_edges.get(cursor)?;
+        if half_edge.loop_ != loop_handle {
+            return None;
+        }
+        count += 1;
+        cursor = half_edge.next;
+        if cursor == start {
+            return Some(count);
+        }
+    }
+    None
 }
 
 fn loop_path_between_origins(
