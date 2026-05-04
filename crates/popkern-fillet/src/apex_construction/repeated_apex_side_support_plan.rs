@@ -210,16 +210,6 @@ impl SideSupportRegionPlanSelection {
             }
         }
     }
-
-    pub(super) fn bridge_support_region_count(&self) -> usize {
-        match self {
-            SideSupportRegionPlanSelection::Selected(plan)
-            | SideSupportRegionPlanSelection::Blocked(plan, _) => {
-                plan.bridge_support_region_count()
-            }
-            SideSupportRegionPlanSelection::Refused(_) => 0,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -254,15 +244,6 @@ impl SelectedSideSupportRegionPlan {
                 .collect::<Vec<_>>()
                 .join("; ")
         )
-    }
-
-    fn bridge_support_region_count(&self) -> usize {
-        self.operations
-            .iter()
-            .filter(|operation| {
-                matches!(operation, PlannedTopologyOperation::BridgeSupportRegion(_))
-            })
-            .count()
     }
 }
 

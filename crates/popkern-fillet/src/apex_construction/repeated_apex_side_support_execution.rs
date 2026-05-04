@@ -2,6 +2,7 @@
 
 use popkern_core::topology::BRep;
 
+use super::repeated_apex_side_support_live_preflight::FaceFamilyBridgeOperandSummary;
 use super::repeated_apex_side_support_plan::{
     SideSupportRegionExecutionReadiness, SideSupportRegionPlanSelection,
     SideSupportRegionRefusalReason,
@@ -62,10 +63,8 @@ impl SideSupportRegionExecutionReport {
                     SideSupportRegionRefusalReason::MissingValidatedFaceFamilyBridgePrimitive => {
                         return Self::refused_with_detail(
                             SideSupportRegionExecutionRefusalReason::MissingValidatedFaceFamilyBridgePrimitive,
-                            format!(
-                                "face-family-bridge-primitive pending bridge_regions={}",
-                                selection.bridge_support_region_count()
-                            ),
+                            FaceFamilyBridgeOperandSummary::build(selection, brep)
+                                .diagnostic_label(),
                         );
                     }
                     SideSupportRegionRefusalReason::UnknownEndpointMembership
