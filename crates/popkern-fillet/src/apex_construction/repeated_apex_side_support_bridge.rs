@@ -29,9 +29,16 @@ struct FaceFamilyBridgeRegionPrimitivePlan {
     trims: [BridgeSupportTrimPlan; 2],
     support_paths: FaceFamilyBridgeLoopIntervals,
     outside_paths: FaceFamilyBridgeLoopIntervals,
+    boundary_cycles: [FaceFamilyBridgeBoundaryCycle; 2],
     expected_edges: usize,
     expected_faces: usize,
     expected_loops: usize,
+}
+
+#[derive(Clone, Debug)]
+struct FaceFamilyBridgeBoundaryCycle {
+    support_interval: Vec<HalfEdgeHandle>,
+    outside_interval: Vec<HalfEdgeHandle>,
 }
 
 #[derive(Clone, Debug)]
@@ -195,6 +202,16 @@ impl FaceFamilyBridgeRegionDerivation {
                 FaceFamilyBridgeOperandGap::MissingOutsidePath,
             );
         };
+        let boundary_cycles = [
+            FaceFamilyBridgeBoundaryCycle {
+                support_interval: support_paths.first_to_second.clone(),
+                outside_interval: outside_paths.second_to_first.clone(),
+            },
+            FaceFamilyBridgeBoundaryCycle {
+                support_interval: support_paths.second_to_first.clone(),
+                outside_interval: outside_paths.first_to_second.clone(),
+            },
+        ];
         let primitive = FaceFamilyBridgeRegionPrimitivePlan {
             support_face: region.support_face,
             support_loop: first.support_loop,
@@ -203,6 +220,7 @@ impl FaceFamilyBridgeRegionDerivation {
             trims: [first.clone(), second.clone()],
             support_paths,
             outside_paths,
+            boundary_cycles,
             expected_edges: 2,
             expected_faces: 2,
             expected_loops: 2,
@@ -241,7 +259,7 @@ impl FaceFamilyBridgeRegionDerivation {
 impl FaceFamilyBridgeRegionPrimitivePlan {
     fn diagnostic_label(&self) -> String {
         format!(
-            "support={:?} support_loop={:?} outside={:?}/{:?} trims={} support_paths={} outside_paths={} delta=dV=0 dE={} dF={} dL={}",
+            "support={:?} support_loop={:?} outside={:?}/{:?} trims={} support_paths={} outside_paths={} cycles=[{}] delta=dV=0 dE={} dF={} dL={}",
             self.support_face,
             self.support_loop,
             self.outside_face,
@@ -249,9 +267,24 @@ impl FaceFamilyBridgeRegionPrimitivePlan {
             self.trims.len(),
             self.support_paths.diagnostic_label(),
             self.outside_paths.diagnostic_label(),
+            self.boundary_cycles
+                .iter()
+                .map(FaceFamilyBridgeBoundaryCycle::diagnostic_label)
+                .collect::<Vec<_>>()
+                .join("; "),
             self.expected_edges,
             self.expected_faces,
             self.expected_loops
+        )
+    }
+}
+
+impl FaceFamilyBridgeBoundaryCycle {
+    fn diagnostic_label(&self) -> String {
+        format!(
+            "support_interval={} outside_interval={}",
+            self.support_interval.len(),
+            self.outside_interval.len()
         )
     }
 }
