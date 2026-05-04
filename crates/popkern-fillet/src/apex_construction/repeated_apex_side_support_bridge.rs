@@ -27,11 +27,17 @@ struct FaceFamilyBridgeRegionPrimitivePlan {
     outside_face: FaceHandle,
     outside_loop: LoopHandle,
     trims: [BridgeSupportTrimPlan; 2],
-    support_path: Vec<HalfEdgeHandle>,
-    outside_path: Vec<HalfEdgeHandle>,
+    support_paths: FaceFamilyBridgeLoopIntervals,
+    outside_paths: FaceFamilyBridgeLoopIntervals,
     expected_edges: usize,
     expected_faces: usize,
     expected_loops: usize,
+}
+
+#[derive(Clone, Debug)]
+struct FaceFamilyBridgeLoopIntervals {
+    first_to_second: Vec<HalfEdgeHandle>,
+    second_to_first: Vec<HalfEdgeHandle>,
 }
 
 #[derive(Clone, Debug)]
@@ -167,7 +173,7 @@ impl FaceFamilyBridgeRegionDerivation {
                 FaceFamilyBridgeOperandGap::MixedOutsideLoops,
             );
         }
-        let Some(support_path) = loop_path_between_origins(
+        let Some(support_paths) = loop_intervals_between_origins(
             brep,
             first.support_loop,
             first.support_half_edge,
@@ -178,7 +184,7 @@ impl FaceFamilyBridgeRegionDerivation {
                 FaceFamilyBridgeOperandGap::MissingSupportPath,
             );
         };
-        let Some(outside_path) = loop_path_between_origins(
+        let Some(outside_paths) = loop_intervals_between_origins(
             brep,
             first.outside_loop,
             first.outside_half_edge,
@@ -195,8 +201,8 @@ impl FaceFamilyBridgeRegionDerivation {
             outside_face: first.outside_face,
             outside_loop: first.outside_loop,
             trims: [first.clone(), second.clone()],
-            support_path,
-            outside_path,
+            support_paths,
+            outside_paths,
             expected_edges: 2,
             expected_faces: 2,
             expected_loops: 2,
@@ -235,17 +241,27 @@ impl FaceFamilyBridgeRegionDerivation {
 impl FaceFamilyBridgeRegionPrimitivePlan {
     fn diagnostic_label(&self) -> String {
         format!(
-            "support={:?} support_loop={:?} outside={:?}/{:?} trims={} support_path_len={} outside_path_len={} delta=dV=0 dE={} dF={} dL={}",
+            "support={:?} support_loop={:?} outside={:?}/{:?} trims={} support_paths={} outside_paths={} delta=dV=0 dE={} dF={} dL={}",
             self.support_face,
             self.support_loop,
             self.outside_face,
             self.outside_loop,
             self.trims.len(),
-            self.support_path.len(),
-            self.outside_path.len(),
+            self.support_paths.diagnostic_label(),
+            self.outside_paths.diagnostic_label(),
             self.expected_edges,
             self.expected_faces,
             self.expected_loops
+        )
+    }
+}
+
+impl FaceFamilyBridgeLoopIntervals {
+    fn diagnostic_label(&self) -> String {
+        format!(
+            "first_to_second={} second_to_first={}",
+            self.first_to_second.len(),
+            self.second_to_first.len()
         )
     }
 }
@@ -267,6 +283,18 @@ fn two_bridge_trims(trims: &[BridgeSupportTrimPlan]) -> Option<[&BridgeSupportTr
         [first, second] => Some([first, second]),
         _ => None,
     }
+}
+
+fn loop_intervals_between_origins(
+    brep: &BRep,
+    loop_handle: LoopHandle,
+    first: HalfEdgeHandle,
+    second: HalfEdgeHandle,
+) -> Option<FaceFamilyBridgeLoopIntervals> {
+    Some(FaceFamilyBridgeLoopIntervals {
+        first_to_second: loop_path_between_origins(brep, loop_handle, first, second)?,
+        second_to_first: loop_path_between_origins(brep, loop_handle, second, first)?,
+    })
 }
 
 fn loop_path_between_origins(
