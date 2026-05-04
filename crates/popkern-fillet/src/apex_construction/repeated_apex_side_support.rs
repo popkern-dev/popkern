@@ -2,7 +2,9 @@
 
 use popkern_core::topology::BRep;
 
-use super::repeated_apex_region_candidates::CandidateSetSnapshot;
+use super::repeated_apex_region_candidates::{
+    CandidateRejection, CandidateSetSnapshot, CandidateStatus, RegionOperationKind,
+};
 use super::repeated_apex_region_graph::RegionGraph;
 use super::repeated_apex_topology_knowledge::TopologyKnowledgeGraph;
 use super::repeated_apex_trim_subcomplex::TrimRewriteSubcomplexPlan;
@@ -12,6 +14,41 @@ pub(super) struct SideSupportRegionDiagnosticSnapshot {
     knowledge: TopologyKnowledgeGraph,
     region_graph: RegionGraph,
     candidates: CandidateSetSnapshot,
+    selection: SideSupportRegionPlanSelection,
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum SideSupportRegionPlanSelection {
+    Selected(SelectedSideSupportRegionPlan),
+    Refused(SideSupportRegionRefusal),
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct SelectedSideSupportRegionPlan {
+    operations: Vec<PlannedTopologyOperation>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum PlannedTopologyOperation {
+    SplitFaceWithEdge { fillet_index: usize },
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct SideSupportRegionRefusal {
+    stage: PlannerStage,
+    reason: SideSupportRegionRefusalReason,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PlannerStage {
+    SelectPlan,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SideSupportRegionRefusalReason {
+    UnknownEndpointMembership,
+    MissingValidatedTopologyPrimitive,
+    NoAcceptedOperationCandidate,
 }
 
 impl SideSupportRegionDiagnosticSnapshot {
@@ -19,10 +56,12 @@ impl SideSupportRegionDiagnosticSnapshot {
         let knowledge = TopologyKnowledgeGraph::build_local(brep, plan);
         let region_graph = RegionGraph::build(&knowledge);
         let candidates = CandidateSetSnapshot::enumerate(&region_graph);
+        let selection = SideSupportRegionPlanSelection::select(&candidates);
         Self {
             knowledge,
             region_graph,
             candidates,
+            selection,
         }
     }
 
@@ -32,11 +71,94 @@ impl SideSupportRegionDiagnosticSnapshot {
 
     pub(super) fn diagnostic_label(&self) -> String {
         format!(
-            "{}; {}; {}",
+            "{}; {}; {}; {}",
             self.knowledge.diagnostic_label(),
             self.region_graph.diagnostic_label(),
-            self.candidates.diagnostic_label()
+            self.candidates.diagnostic_label(),
+            self.selection.diagnostic_label()
         )
+    }
+}
+
+impl SideSupportRegionPlanSelection {
+    fn select(candidates: &CandidateSetSnapshot) -> Self {
+        let mut operations = Vec::new();
+        let mut saw_unknown_endpoint = false;
+        let mut saw_missing_primitive = false;
+        for candidate in &candidates.candidates {
+            match (&candidate.kind, &candidate.status) {
+                (RegionOperationKind::SplitFaceWithEdge, CandidateStatus::Accepted) => {
+                    operations.push(PlannedTopologyOperation::SplitFaceWithEdge {
+                        fillet_index: candidate.fillet_index,
+                    });
+                }
+                (
+                    _,
+                    CandidateStatus::Rejected {
+                        reason: CandidateRejection::EndpointMembershipUnknown,
+                    },
+                ) => saw_unknown_endpoint = true,
+                (
+                    RegionOperationKind::RequiresSupportRegionBridge,
+                    CandidateStatus::Rejected {
+                        reason: CandidateRejection::MissingValidatedBridgePrimitive,
+                    },
+                ) => saw_missing_primitive = true,
+                _ => {}
+            }
+        }
+        if !operations.is_empty() && !saw_unknown_endpoint && !saw_missing_primitive {
+            return SideSupportRegionPlanSelection::Selected(SelectedSideSupportRegionPlan {
+                operations,
+            });
+        }
+        let reason = if saw_unknown_endpoint {
+            SideSupportRegionRefusalReason::UnknownEndpointMembership
+        } else if saw_missing_primitive {
+            SideSupportRegionRefusalReason::MissingValidatedTopologyPrimitive
+        } else {
+            SideSupportRegionRefusalReason::NoAcceptedOperationCandidate
+        };
+        SideSupportRegionPlanSelection::Refused(SideSupportRegionRefusal {
+            stage: PlannerStage::SelectPlan,
+            reason,
+        })
+    }
+
+    fn diagnostic_label(&self) -> String {
+        match self {
+            SideSupportRegionPlanSelection::Selected(plan) => plan.diagnostic_label(),
+            SideSupportRegionPlanSelection::Refused(refusal) => refusal.diagnostic_label(),
+        }
+    }
+}
+
+impl SelectedSideSupportRegionPlan {
+    fn diagnostic_label(&self) -> String {
+        format!(
+            "selected_plan operations=[{}]",
+            self.operations
+                .iter()
+                .map(PlannedTopologyOperation::diagnostic_label)
+                .collect::<Vec<_>>()
+                .join("; ")
+        )
+    }
+}
+
+impl PlannedTopologyOperation {
+    fn diagnostic_label(&self) -> String {
+        match self {
+            PlannedTopologyOperation::SplitFaceWithEdge { fillet_index } => {
+                format!("FilletEnd[{fillet_index}] split-face-with-edge")
+            }
+        }
+    }
+}
+
+impl SideSupportRegionRefusal {
+    fn diagnostic_label(&self) -> String {
+        format!("refusal stage={:?} reason={:?}", self.stage, self.reason)
     }
 }
 
@@ -79,6 +201,11 @@ mod tests {
         let candidate = &snapshot.candidates.candidates[0];
         assert_eq!(candidate.kind, RegionOperationKind::SplitFaceWithEdge);
         assert!(matches!(candidate.status, CandidateStatus::Accepted));
+        assert!(matches!(
+            snapshot.selection,
+            SideSupportRegionPlanSelection::Selected(_)
+        ));
+        assert!(snapshot.diagnostic_label().contains("selected_plan"));
     }
 
     #[test]
@@ -132,6 +259,13 @@ mod tests {
                     }
                 )
         }));
+        assert!(matches!(
+            snapshot.selection,
+            SideSupportRegionPlanSelection::Refused(SideSupportRegionRefusal {
+                reason: SideSupportRegionRefusalReason::MissingValidatedTopologyPrimitive,
+                ..
+            })
+        ));
     }
 
     fn trim_plan(edge_plans: Vec<TrimRewriteEdgePlan>) -> TrimRewriteSubcomplexPlan {
