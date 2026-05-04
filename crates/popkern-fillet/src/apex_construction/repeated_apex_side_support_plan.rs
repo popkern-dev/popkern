@@ -137,6 +137,30 @@ impl SideSupportRegionPlanSelection {
             SideSupportRegionPlanSelection::Refused(refusal) => refusal.diagnostic_label(),
         }
     }
+
+    pub(super) fn execution_readiness(&self) -> SideSupportRegionExecutionReadiness {
+        match self {
+            SideSupportRegionPlanSelection::Selected(_) => {
+                SideSupportRegionExecutionReadiness::Ready
+            }
+            SideSupportRegionPlanSelection::Blocked(_, refusal)
+            | SideSupportRegionPlanSelection::Refused(refusal) => {
+                SideSupportRegionExecutionReadiness::Blocked {
+                    planner_stage: refusal.stage,
+                    planner_reason: refusal.reason,
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SideSupportRegionExecutionReadiness {
+    Ready,
+    Blocked {
+        planner_stage: PlannerStage,
+        planner_reason: SideSupportRegionRefusalReason,
+    },
 }
 
 impl SelectedSideSupportRegionPlan {

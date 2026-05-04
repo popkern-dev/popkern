@@ -64,6 +64,7 @@ pub(crate) mod repeated_apex_region_candidates;
 pub(crate) mod repeated_apex_region_graph;
 pub(crate) mod repeated_apex_serial;
 pub(crate) mod repeated_apex_side_support;
+pub(crate) mod repeated_apex_side_support_execution;
 pub(crate) mod repeated_apex_side_support_plan;
 pub(crate) mod repeated_apex_topology_knowledge;
 pub(crate) mod repeated_apex_trim_subcomplex;

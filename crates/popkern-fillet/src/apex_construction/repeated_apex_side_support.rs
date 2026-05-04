@@ -4,6 +4,7 @@ use popkern_core::topology::BRep;
 
 use super::repeated_apex_region_candidates::CandidateSetSnapshot;
 use super::repeated_apex_region_graph::RegionGraph;
+use super::repeated_apex_side_support_execution::SideSupportRegionExecutionReport;
 use super::repeated_apex_side_support_plan::SideSupportRegionPlanSelection;
 use super::repeated_apex_topology_knowledge::TopologyKnowledgeGraph;
 use super::repeated_apex_trim_subcomplex::TrimRewriteSubcomplexPlan;
@@ -14,6 +15,7 @@ pub(super) struct SideSupportRegionDiagnosticSnapshot {
     region_graph: RegionGraph,
     candidates: CandidateSetSnapshot,
     selection: SideSupportRegionPlanSelection,
+    execution: SideSupportRegionExecutionReport,
 }
 
 impl SideSupportRegionDiagnosticSnapshot {
@@ -22,11 +24,13 @@ impl SideSupportRegionDiagnosticSnapshot {
         let region_graph = RegionGraph::build(&knowledge);
         let candidates = CandidateSetSnapshot::enumerate(&region_graph);
         let selection = SideSupportRegionPlanSelection::select(&candidates);
+        let execution = SideSupportRegionExecutionReport::preflight(&selection, true);
         Self {
             knowledge,
             region_graph,
             candidates,
             selection,
+            execution,
         }
     }
 
@@ -36,11 +40,12 @@ impl SideSupportRegionDiagnosticSnapshot {
 
     pub(super) fn diagnostic_label(&self) -> String {
         format!(
-            "{}; {}; {}; {}",
+            "{}; {}; {}; {}; {}",
             self.knowledge.diagnostic_label(),
             self.region_graph.diagnostic_label(),
             self.candidates.diagnostic_label(),
-            self.selection.diagnostic_label()
+            self.selection.diagnostic_label(),
+            self.execution.diagnostic_label()
         )
     }
 }
@@ -90,6 +95,7 @@ mod tests {
             SideSupportRegionPlanSelection::Selected(_)
         ));
         assert!(snapshot.diagnostic_label().contains("selected_plan"));
+        assert!(snapshot.diagnostic_label().contains("ready_for_executor"));
         assert!(
             snapshot
                 .diagnostic_label()
@@ -142,6 +148,7 @@ mod tests {
         assert!(labels.contains("dV=0 dE=1 dF=1 dL=1"));
         assert!(labels.contains("one_endpoint_on_support_loop=true"));
         assert!(labels.contains("MissingValidatedBridgeExecutor"));
+        assert!(labels.contains("execution refused stage=Preflight"));
         assert_eq!(snapshot.candidates.candidates.len(), 2);
         assert!(snapshot.candidates.candidates.iter().any(|candidate| {
             candidate.kind == RegionOperationKind::BridgeSupportRegion
