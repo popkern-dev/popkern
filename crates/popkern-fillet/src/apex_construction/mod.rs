@@ -61,6 +61,7 @@ pub(crate) mod repeated_apex_loop_plan;
 pub(crate) mod repeated_apex_partition;
 pub(crate) mod repeated_apex_partition_topology;
 pub(crate) mod repeated_apex_serial;
+pub(crate) mod repeated_apex_trim_subcomplex;
 pub(crate) mod target_topology;
 pub(crate) mod telemetry;
 

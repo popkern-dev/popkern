@@ -30,6 +30,11 @@ use super::repeated_apex_partition_topology::{
     insert_face_with_outer_loop, insert_unwired_edge_pair, oriented_edge_half_edges_on_face,
     validate_partition_cap_to_cylinder_seams, wire_existing_loop,
 };
+use super::repeated_apex_trim_subcomplex::{
+    TopologyBalanceRequirement, TopologyCountDelta, TrimEdgeConstruction, TrimOwnerPair,
+    TrimRewriteEdgePlan, TrimRewriteSubcomplexPlan, topology_count_summary,
+    trim_rewrite_support_groups,
+};
 
 pub(super) fn try_build_planned_repeated_apex_partition(
     brep: &mut BRep,
@@ -1137,6 +1142,7 @@ fn apply_materialized_cylinder_loop_replacements(
     topology_plans: &[CylinderTrimRewriteTopologyPlan],
 ) -> Result<(), ApexBuildError> {
     let mut all_support_owned_trim_sides = Vec::new();
+    let mut pending_cylinder_loop_replacements = Vec::new();
     for (rebuild_plan, topology_plan) in rebuild_plans.iter().zip(topology_plans) {
         let allowed_support_faces =
             target_cylinder_support_faces(brep, rebuild_plan.cylinder_face, cap_face, face_edges);
@@ -1172,18 +1178,6 @@ fn apply_materialized_cylinder_loop_replacements(
                 support_owned_trim_sides.extend(trim_sides.iter().cloned());
                 cycle.extend(trim_sides.iter().map(|trim_side| trim_side.half_edge));
             } else {
-                let (edge, half_edge, _twin) =
-                    insert_unwired_edge_pair(brep, segment.start, segment.end);
-                let curve = exact_cylinder_trim_curve_between(
-                    brep,
-                    rebuild_plan.cylinder_face,
-                    segment.start,
-                    segment.end,
-                    segment.label,
-                    rebuild_plan.fillet_index,
-                )?;
-                brep.edges[edge].curve = Some(curve);
-                cycle.push(half_edge);
                 let support_face = support_face_for_generator_trim_side(
                     brep,
                     rebuild_plan.cylinder_face,
@@ -1194,40 +1188,71 @@ fn apply_materialized_cylinder_loop_replacements(
                     rebuild_plan.fillet_index,
                     &allowed_support_faces,
                 )?;
+                let (half_edge, actual_support_face, support_side_owned) =
+                    materialized_generator_trim_side(
+                        brep,
+                        rebuild_plan.cylinder_face,
+                        support_face,
+                        segment.start,
+                        segment.end,
+                        segment.label,
+                        rebuild_plan.fillet_index,
+                    )?;
+                cycle.push(half_edge);
                 support_owned_trim_sides.push(SupportOwnedTrimSide {
                     cylinder_face: topology_plan.cylinder_face,
-                    support_face,
+                    support_face: actual_support_face,
                     fillet_index: topology_plan.fillet_index,
                     half_edge,
+                    support_side_owned,
                 });
             }
         }
-        let loop_handle = brep
-            .faces
-            .get(topology_plan.cylinder_face)
-            .map(|face| face.outer_loop)
-            .ok_or_else(|| ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "planned repeated-apex partition FilletEnd[{}] cannot replace stale target \
-                     cylinder face {:?}",
-                    topology_plan.fillet_index, topology_plan.cylinder_face
-                ),
-            })?;
         validate_half_edge_cycle(
             brep,
             &cycle,
             "materialized target-cylinder replacement loop",
             topology_plan.cylinder_face,
         )?;
-        wire_existing_loop(brep, loop_handle, topology_plan.cylinder_face, &cycle)?;
         all_support_owned_trim_sides.extend(support_owned_trim_sides);
+        pending_cylinder_loop_replacements.push(PendingCylinderLoopReplacement {
+            fillet_index: topology_plan.fillet_index,
+            cylinder_face: topology_plan.cylinder_face,
+            kind: topology_plan.loop_candidate.kind,
+            cycle,
+        });
+    }
+    for replacement in pending_cylinder_loop_replacements {
+        let loop_handle = brep
+            .faces
+            .get(replacement.cylinder_face)
+            .map(|face| face.outer_loop)
+            .ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition FilletEnd[{}] cannot replace stale target \
+                     cylinder face {:?}",
+                    replacement.fillet_index, replacement.cylinder_face
+                ),
+            })?;
+        validate_half_edge_cycle(
+            brep,
+            &replacement.cycle,
+            "materialized target-cylinder replacement loop",
+            replacement.cylinder_face,
+        )?;
+        wire_existing_loop(
+            brep,
+            loop_handle,
+            replacement.cylinder_face,
+            &replacement.cycle,
+        )?;
         if std::env::var_os("POPKERN_A2_TRACE").is_some() {
             eprintln!(
                 "[a2-trace §14.9/cylinder-loop-replace] FilletEnd[{}] {:?}/{:?} -> {:?}",
-                topology_plan.fillet_index,
-                topology_plan.cylinder_face,
-                topology_plan.loop_candidate.kind,
-                cycle
+                replacement.fillet_index,
+                replacement.cylinder_face,
+                replacement.kind,
+                replacement.cycle
             );
         }
     }
@@ -1249,6 +1274,7 @@ struct SupportOwnedTrimSide {
     support_face: FaceHandle,
     fillet_index: usize,
     half_edge: HalfEdgeHandle,
+    support_side_owned: bool,
 }
 
 fn target_cylinder_support_faces(
@@ -1309,6 +1335,7 @@ fn materialize_closed_support_trim_cycles(
     face_edges: &[FaceEdgeOwnership],
     trim_sides: &[SupportOwnedTrimSide],
 ) -> Result<(), ApexBuildError> {
+    trace_topology_counts(brep, "support-loop-entry");
     let mut by_support_face: std::collections::BTreeMap<FaceHandle, Vec<HalfEdgeHandle>> =
         std::collections::BTreeMap::new();
     for trim_side in trim_sides {
@@ -1341,6 +1368,9 @@ fn materialize_closed_support_trim_cycles(
                     cylinder_half_edge = trim_side.half_edge
                 ),
             })?;
+        if trim_side.support_side_owned {
+            continue;
+        }
         by_support_face
             .entry(trim_side.support_face)
             .or_default()
@@ -1355,6 +1385,7 @@ fn materialize_closed_support_trim_cycles(
     }
 
     for (support_face, mut half_edges) in by_support_face {
+        trace_topology_counts(brep, "support-face-before");
         coalesce_degenerate_support_open_vertices(brep, &half_edges)?;
         half_edges.retain(|half_edge| !half_edge_is_degenerate(brep, *half_edge));
         let support_split_plan = materialize_support_split_cycles(brep, support_face, &half_edges)?;
@@ -1372,12 +1403,17 @@ fn materialize_closed_support_trim_cycles(
             });
         }
         if support_split_plan.cycles.len() != 1 {
+            let counts = topology_count_summary(brep);
             return Err(ApexBuildError::PlanMismatch {
                 reason: format!(
                     "planned repeated-apex partition cannot materialize support ownership on \
                      {support_face:?}: got {} closed support cycles. Multi-cycle support \
                      subdivision requires an Euler-balanced residual face/ring operator; direct \
-                     inner-loop wiring or duplicate-face insertion would violate shell topology.",
+                     inner-loop wiring or duplicate-face insertion would violate shell topology. \
+                     Current topology deficit before this support face is {}; one face-loop per \
+                     closed support cycle would add only {}.",
+                    support_split_plan.cycles.len(),
+                    counts.deficit_to_genus_zero(),
                     support_split_plan.cycles.len()
                 ),
             });
@@ -1395,6 +1431,7 @@ fn materialize_closed_support_trim_cycles(
                 ),
             })?;
         wire_existing_loop(brep, loop_handle, support_face, cycle)?;
+        trace_topology_counts(brep, "support-face-after");
         if std::env::var_os("POPKERN_A2_TRACE").is_some() {
             eprintln!(
                 "[a2-trace §14.9/support-loop-replace] support {support_face:?} -> \
@@ -1404,6 +1441,13 @@ fn materialize_closed_support_trim_cycles(
         }
     }
     Ok(())
+}
+
+fn trace_topology_counts(brep: &BRep, label: &'static str) {
+    if std::env::var_os("POPKERN_A2_TRACE").is_none() {
+        return;
+    }
+    eprintln!("{}", topology_count_summary(brep).trace_label(label));
 }
 
 fn coalesce_degenerate_support_open_vertices(
@@ -2087,6 +2131,273 @@ fn existing_shared_fillet_end_half_edge_for_segment(
         })
 }
 
+fn materialized_generator_trim_side(
+    brep: &mut BRep,
+    cylinder_face: FaceHandle,
+    support_face: FaceHandle,
+    start: VertexHandle,
+    end: VertexHandle,
+    label: &'static str,
+    fillet_index: usize,
+) -> Result<(HalfEdgeHandle, FaceHandle, bool), ApexBuildError> {
+    let curve =
+        exact_cylinder_trim_curve_between(brep, cylinder_face, start, end, label, fillet_index)?;
+    match materialize_support_face_mef_trim(
+        brep,
+        support_face,
+        start,
+        end,
+        curve.clone(),
+        label,
+        fillet_index,
+    ) {
+        Ok((half_edge, actual_support_face)) => {
+            return Ok((half_edge, actual_support_face, true));
+        }
+        Err(err) => {
+            if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+                eprintln!(
+                    "[a2-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] cannot author \
+                     {label} {start:?}->{end:?} through support-face mef on {support_face:?}: \
+                     {err}"
+                );
+            }
+        }
+    }
+    let (edge, half_edge, _twin) = insert_unwired_edge_pair(brep, start, end);
+    brep.edges[edge].curve = Some(curve);
+    Ok((half_edge, support_face, false))
+}
+
+fn materialize_support_face_mef_trim(
+    brep: &mut BRep,
+    support_face: FaceHandle,
+    start: VertexHandle,
+    end: VertexHandle,
+    curve: CurveOnEdge,
+    label: &'static str,
+    fillet_index: usize,
+) -> Result<(HalfEdgeHandle, FaceHandle), ApexBuildError> {
+    let rollback = brep.clone();
+    let result = (|| {
+        let (actual_support_face, support_start, support_end) =
+            support_residual_face_split_half_edges(brep, support_face, start, end).ok_or_else(
+                || ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "planned repeated-apex partition FilletEnd[{fillet_index}] cannot author \
+                         {label} {start:?}->{end:?} by support-face mef: no residual support \
+                         face has both endpoints on one outer loop. {}",
+                        support_family_endpoint_diagnostic(brep, support_face, start, end)
+                    ),
+                },
+            )?;
+        let result =
+            brep.mef(support_start, support_end)
+                .map_err(|err| ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "planned repeated-apex partition FilletEnd[{fillet_index}] cannot author \
+                     {label} {start:?}->{end:?} by support-face mef on {actual_support_face:?}: \
+                     {err:?}"
+                    ),
+                })?;
+        brep.edges[result.edge].curve = Some(curve);
+        if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+            eprintln!(
+                "[a2-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] authored {label} \
+                 {start:?}->{end:?} by support-face mef on {actual_support_face:?}; cylinder \
+                 side {:?}, support side {:?}",
+                result.half_edge, result.half_edge_twin
+            );
+        }
+        Ok((result.half_edge, actual_support_face))
+    })();
+    if result.is_err() {
+        *brep = rollback;
+    }
+    result
+}
+
+fn support_family_endpoint_diagnostic(
+    brep: &BRep,
+    support_face: FaceHandle,
+    start: VertexHandle,
+    end: VertexHandle,
+) -> String {
+    let mut candidate_faces = Vec::new();
+    candidate_faces.push(support_face);
+    candidate_faces.extend(coplanar_residual_support_faces(brep, support_face));
+    let reports = candidate_faces
+        .into_iter()
+        .map(|face| {
+            let start_on_loop = vertex_is_on_face_outer_loop(brep, face, start);
+            let end_on_loop = vertex_is_on_face_outer_loop(brep, face, end);
+            let start_edge = brep.vertices.get(start).and_then(|vertex| {
+                containing_outer_loop_edge_by_curve(brep, face, vertex.position)
+            });
+            let end_edge = brep.vertices.get(end).and_then(|vertex| {
+                containing_outer_loop_edge_by_curve(brep, face, vertex.position)
+            });
+            format!(
+                "{face:?}: start_on_loop={start_on_loop} end_on_loop={end_on_loop} \
+                 start_edge={start_edge:?} end_edge={end_edge:?}"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!("support family endpoint status [{reports}]")
+}
+
+fn support_residual_face_split_half_edges(
+    brep: &BRep,
+    support_face: FaceHandle,
+    start: VertexHandle,
+    end: VertexHandle,
+) -> Option<(FaceHandle, HalfEdgeHandle, HalfEdgeHandle)> {
+    let mut candidate_faces = Vec::new();
+    candidate_faces.push(support_face);
+    candidate_faces.extend(coplanar_residual_support_faces(brep, support_face));
+    candidate_faces.into_iter().find_map(|candidate_face| {
+        support_face_split_half_edges(brep, candidate_face, start, end)
+            .map(|(support_start, support_end)| (candidate_face, support_start, support_end))
+    })
+}
+
+fn support_face_split_half_edges(
+    brep: &BRep,
+    support_face: FaceHandle,
+    start: VertexHandle,
+    end: VertexHandle,
+) -> Option<(HalfEdgeHandle, HalfEdgeHandle)> {
+    let face = brep.faces.get(support_face)?;
+    let loop_handle = face.outer_loop;
+    let loop_data = brep.loops.get(loop_handle)?;
+    let mut start_edges = Vec::new();
+    let mut end_edges = Vec::new();
+    let mut cursor = loop_data.half_edge;
+    for _ in 0..=brep.half_edges.len() {
+        let half_edge = brep.half_edges.get(cursor)?;
+        if half_edge.loop_ != loop_handle {
+            return None;
+        }
+        if half_edge.origin == start {
+            start_edges.push(cursor);
+        }
+        if half_edge.origin == end {
+            end_edges.push(cursor);
+        }
+        cursor = half_edge.next;
+        if cursor == loop_data.half_edge {
+            break;
+        }
+    }
+    match (start_edges.as_slice(), end_edges.as_slice()) {
+        ([support_start], [support_end]) if support_start != support_end => {
+            Some((*support_start, *support_end))
+        }
+        _ => None,
+    }
+}
+
+fn coplanar_residual_support_faces(brep: &BRep, support_face: FaceHandle) -> Vec<FaceHandle> {
+    let Some(source_face) = brep.faces.get(support_face) else {
+        return Vec::new();
+    };
+    let Some(SurfaceGeometry::Plane {
+        origin: source_origin,
+        normal: source_normal,
+        ..
+    }) = source_face
+        .surface
+        .as_ref()
+        .map(|surface| &surface.geometry)
+    else {
+        return Vec::new();
+    };
+    let tol = brep.tolerance.linear().max(1.0e-9);
+    brep.faces
+        .iter()
+        .filter_map(|(face, face_data)| {
+            if face == support_face || face_data.shell != source_face.shell {
+                return None;
+            }
+            let SurfaceGeometry::Plane { origin, normal, .. } = face_data
+                .surface
+                .as_ref()
+                .map(|surface| &surface.geometry)?
+            else {
+                return None;
+            };
+            let normals_parallel = source_normal.cross(normal).length() <= tol;
+            let same_plane = (*origin - *source_origin).dot(source_normal).abs() <= tol;
+            (normals_parallel && same_plane).then_some(face)
+        })
+        .collect()
+}
+
+fn unique_support_face_for_trim_endpoints(
+    brep: &BRep,
+    cylinder_face: FaceHandle,
+    start: VertexHandle,
+    end: VertexHandle,
+    label: &'static str,
+    fillet_index: usize,
+    allowed_support_faces: &std::collections::BTreeSet<FaceHandle>,
+) -> Result<FaceHandle, ApexBuildError> {
+    let start_point = brep
+        .vertices
+        .get(start)
+        .map(|vertex| vertex.position)
+        .ok_or_else(|| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition FilletEnd[{fillet_index}] cannot choose support \
+                 owner for {label}: stale start vertex {start:?}"
+            ),
+        })?;
+    let end_point = brep
+        .vertices
+        .get(end)
+        .map(|vertex| vertex.position)
+        .ok_or_else(|| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition FilletEnd[{fillet_index}] cannot choose support \
+                 owner for {label}: stale end vertex {end:?}"
+            ),
+        })?;
+    let tol = brep.tolerance.linear().max(1.0e-9);
+    let mut candidates = brep
+        .faces
+        .iter()
+        .filter_map(|(face, face_data)| {
+            if face == cylinder_face || !allowed_support_faces.contains(&face) {
+                return None;
+            }
+            let SurfaceGeometry::Plane { origin, normal, .. } = face_data
+                .surface
+                .as_ref()
+                .map(|surface| &surface.geometry)?
+            else {
+                return None;
+            };
+            let start_distance = (start_point - *origin).dot(normal).abs();
+            let end_distance = (end_point - *origin).dot(normal).abs();
+            (start_distance <= tol && end_distance <= tol).then_some(face)
+        })
+        .collect::<Vec<_>>();
+    candidates.sort();
+    candidates.dedup();
+    if candidates.len() == 1 {
+        return Ok(candidates[0]);
+    }
+    Err(ApexBuildError::PlanMismatch {
+        reason: format!(
+            "planned repeated-apex partition FilletEnd[{fillet_index}] cannot choose unique \
+             support owner for {label} {start:?}->{end:?}: candidates {:?} from allowed faces \
+             {:?}",
+            candidates, allowed_support_faces
+        ),
+    })
+}
+
 fn exact_cylinder_trim_curve_between(
     brep: &BRep,
     cylinder_face: FaceHandle,
@@ -2149,6 +2460,34 @@ fn materialized_far_side_trim_sides(
     fillet_index: usize,
     allowed_support_faces: &std::collections::BTreeSet<FaceHandle>,
 ) -> Result<Vec<SupportOwnedTrimSide>, ApexBuildError> {
+    if let Ok(support_face) = unique_support_face_for_trim_endpoints(
+        brep,
+        cylinder_face,
+        start,
+        end,
+        label,
+        fillet_index,
+        allowed_support_faces,
+    ) {
+        let (half_edge, actual_support_face, support_side_owned) =
+            materialized_generator_trim_side(
+                brep,
+                cylinder_face,
+                support_face,
+                start,
+                end,
+                label,
+                fillet_index,
+            )?;
+        return Ok(vec![SupportOwnedTrimSide {
+            cylinder_face,
+            support_face: actual_support_face,
+            fillet_index,
+            half_edge,
+            support_side_owned,
+        }]);
+    }
+
     let (edge, half_edge, _twin) = insert_unwired_edge_pair(brep, start, end);
     match exact_cylinder_trim_curve_between(brep, cylinder_face, start, end, label, fillet_index) {
         Ok(curve) => {
@@ -2165,6 +2504,7 @@ fn materialized_far_side_trim_sides(
                         support_face,
                         fillet_index,
                         half_edge,
+                        support_side_owned: false,
                     }]);
                 }
                 Err(_) => {
@@ -2266,12 +2606,14 @@ fn materialized_far_side_trim_sides(
                         support_face: start_support,
                         fillet_index,
                         half_edge: half_edge_a,
+                        support_side_owned: false,
                     },
                     SupportOwnedTrimSide {
                         cylinder_face,
                         support_face: end_support,
                         fillet_index,
                         half_edge: half_edge_b,
+                        support_side_owned: false,
                     },
                 ]);
             }
@@ -2674,6 +3016,13 @@ fn apply_cylinder_trim_rewrites_transactionally(
             .iter()
             .map(|plan| plan.plan_cylinder_trim_rewrite_topology(brep))
             .collect::<Result<Vec<_>, _>>()?;
+        validate_cylinder_trim_rewrite_topology_preflight(
+            brep,
+            cap_face,
+            face_edges,
+            &rebuild_plans,
+            &topology_plans,
+        )?;
         apply_materialized_cylinder_loop_replacements(
             brep,
             cap_face,
@@ -2712,6 +3061,196 @@ fn apply_cylinder_trim_rewrites_transactionally(
         *brep = rollback_snapshot;
     }
     result
+}
+
+fn validate_cylinder_trim_rewrite_topology_preflight(
+    brep: &BRep,
+    cap_face: FaceHandle,
+    face_edges: &[FaceEdgeOwnership],
+    rebuild_plans: &[SemanticCylinderTrimRebuildPlan],
+    topology_plans: &[CylinderTrimRewriteTopologyPlan],
+) -> Result<(), ApexBuildError> {
+    let subcomplex_plan = plan_trim_subcomplex_for_cylinder_rewrite(
+        brep,
+        cap_face,
+        face_edges,
+        rebuild_plans,
+        topology_plans,
+    )?;
+    let before = topology_count_summary(brep);
+    let mut candidate = brep.clone();
+    match apply_materialized_cylinder_loop_replacements(
+        &mut candidate,
+        cap_face,
+        face_edges,
+        rebuild_plans,
+        topology_plans,
+    ) {
+        Ok(()) => {
+            let after = topology_count_summary(&candidate);
+            if after.deficit_to_genus_zero() > before.deficit_to_genus_zero() {
+                return Err(ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "planned repeated-apex partition target-cylinder trim rewrite preflight \
+                         would increase the unresolved closed-shell topology deficit before the \
+                         cap rewrite can complete the subcomplex: before {}; after {}; delta {}. \
+                         Required balance: {}. Planned trim subcomplex: {}. The rewrite must author an Euler-balanced cylinder/support/cap \
+                         subcomplex, not expose a loop set that validation would need to repair.",
+                        before.diagnostic_label(),
+                        after.diagnostic_label(),
+                        TopologyCountDelta::between(before, after).diagnostic_label(),
+                        TopologyBalanceRequirement::from_deficit_increase(
+                            after.deficit_to_genus_zero() - before.deficit_to_genus_zero()
+                        )
+                        .diagnostic_label(),
+                        subcomplex_plan.diagnostic_label()
+                    ),
+                });
+            }
+            if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+                eprintln!(
+                    "[a2-trace §14.9/topology-preflight] accepted before {}; after {}; delta {}; {}",
+                    before.diagnostic_label(),
+                    after.diagnostic_label(),
+                    TopologyCountDelta::between(before, after).diagnostic_label(),
+                    subcomplex_plan.diagnostic_label()
+                );
+            }
+            Ok(())
+        }
+        Err(error) => {
+            let after = topology_count_summary(&candidate);
+            Err(ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition target-cylinder trim rewrite preflight \
+                     refused to commit topology mutation: {error}. Probe counts before {}; after \
+                     {}; delta {}. Required balance: {}. Planned trim subcomplex: {}. This is a construction blocker, not a validation blocker: the \
+                     implementation must plan the Euler-balanced replacement subcomplex before \
+                     changing the live BRep.",
+                    before.diagnostic_label(),
+                    after.diagnostic_label(),
+                    TopologyCountDelta::between(before, after).diagnostic_label(),
+                    TopologyBalanceRequirement::from_deficit_increase(
+                        after.deficit_to_genus_zero() - before.deficit_to_genus_zero()
+                    )
+                    .diagnostic_label(),
+                    subcomplex_plan.diagnostic_label()
+                ),
+            })
+        }
+    }
+}
+
+fn plan_trim_subcomplex_for_cylinder_rewrite(
+    brep: &BRep,
+    cap_face: FaceHandle,
+    face_edges: &[FaceEdgeOwnership],
+    rebuild_plans: &[SemanticCylinderTrimRebuildPlan],
+    topology_plans: &[CylinderTrimRewriteTopologyPlan],
+) -> Result<TrimRewriteSubcomplexPlan, ApexBuildError> {
+    let mut scratch = brep.clone();
+    let mut edge_plans = Vec::new();
+    let mut expected_edge_only_delta = TopologyCountDelta::zero();
+    for (rebuild_plan, topology_plan) in rebuild_plans.iter().zip(topology_plans) {
+        let allowed_support_faces =
+            target_cylinder_support_faces(brep, rebuild_plan.cylinder_face, cap_face, face_edges);
+        let Some(fragment) =
+            rebuild_plan.fragment_for_strategy(topology_plan.loop_candidate.far_side_strategy)
+        else {
+            continue;
+        };
+        if !fragment.materialized_anchor_replacement {
+            continue;
+        }
+        for segment in &topology_plan.loop_candidate.segments {
+            if segment.label.contains("shared FilletEnd") {
+                edge_plans.push(TrimRewriteEdgePlan {
+                    fillet_index: topology_plan.fillet_index,
+                    owner_pair: TrimOwnerPair::CylinderCap {
+                        cylinder_face: topology_plan.cylinder_face,
+                        cap_face,
+                    },
+                    construction: TrimEdgeConstruction::ExistingSeam,
+                    start: segment.start,
+                    end: segment.end,
+                });
+            } else if segment.label.contains("far-side") {
+                let before = topology_count_summary(&scratch);
+                let trim_sides = materialized_far_side_trim_sides(
+                    &mut scratch,
+                    rebuild_plan.cylinder_face,
+                    segment.start,
+                    segment.end,
+                    segment.label,
+                    rebuild_plan.fillet_index,
+                    &allowed_support_faces,
+                )?;
+                let after = topology_count_summary(&scratch);
+                expected_edge_only_delta.add_assign(TopologyCountDelta::between(before, after));
+                for trim_side in trim_sides {
+                    let start = scratch
+                        .half_edges
+                        .get(trim_side.half_edge)
+                        .map(|half_edge| half_edge.origin)
+                        .ok_or_else(|| ApexBuildError::PlanMismatch {
+                            reason: format!(
+                                "planned repeated-apex partition FilletEnd[{}] trim \
+                                     subcomplex planner produced stale far-side half-edge {:?}",
+                                topology_plan.fillet_index, trim_side.half_edge
+                            ),
+                        })?;
+                    let end =
+                        half_edge_end_vertex(&scratch, trim_side.half_edge).ok_or_else(|| {
+                            ApexBuildError::PlanMismatch {
+                                reason: format!(
+                                    "planned repeated-apex partition FilletEnd[{}] trim subcomplex \
+                                 planner produced far-side half-edge {:?} with stale twin",
+                                    topology_plan.fillet_index, trim_side.half_edge
+                                ),
+                            }
+                        })?;
+                    edge_plans.push(TrimRewriteEdgePlan {
+                        fillet_index: topology_plan.fillet_index,
+                        owner_pair: TrimOwnerPair::CylinderSupport {
+                            cylinder_face: trim_side.cylinder_face,
+                            support_face: trim_side.support_face,
+                        },
+                        construction: TrimEdgeConstruction::NewExactSupportCylinderTrim,
+                        start,
+                        end,
+                    });
+                }
+            } else {
+                let support_face = support_face_for_generator_trim_side(
+                    brep,
+                    rebuild_plan.cylinder_face,
+                    cap_face,
+                    segment.start,
+                    segment.end,
+                    segment.label,
+                    rebuild_plan.fillet_index,
+                    &allowed_support_faces,
+                )?;
+                edge_plans.push(TrimRewriteEdgePlan {
+                    fillet_index: topology_plan.fillet_index,
+                    owner_pair: TrimOwnerPair::CylinderSupport {
+                        cylinder_face: topology_plan.cylinder_face,
+                        support_face,
+                    },
+                    construction: TrimEdgeConstruction::NewExactGeneratorTrim,
+                    start: segment.start,
+                    end: segment.end,
+                });
+                expected_edge_only_delta
+                    .add_assign(TopologyCountDelta::from_components(0, 1, 0, 0, 0));
+            }
+        }
+    }
+    Ok(TrimRewriteSubcomplexPlan {
+        support_groups: trim_rewrite_support_groups(&edge_plans),
+        edge_plans,
+        expected_edge_only_delta,
+    })
 }
 
 fn plan_semantic_cylinder_trim_rebuilds(
@@ -3103,6 +3642,13 @@ struct CylinderTrimRewriteTopologyPlan {
     cylinder_face: FaceHandle,
     loop_candidate: CylinderLoopOrientationCandidate,
     seam_rewrite: FilletEndSeamRewrite,
+}
+
+struct PendingCylinderLoopReplacement {
+    fillet_index: usize,
+    cylinder_face: FaceHandle,
+    kind: CylinderLoopOrientationKind,
+    cycle: Vec<HalfEdgeHandle>,
 }
 
 enum FilletEndSeamRewrite {
