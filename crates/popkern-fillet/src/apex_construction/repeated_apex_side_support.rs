@@ -163,6 +163,8 @@ mod tests {
         assert!(labels.contains("dV=0 dE=2 dF=2 dL=2"));
         assert!(labels.contains("one_endpoint_on_support_loop=true"));
         assert!(labels.contains("MissingValidatedFaceFamilyBridgePrimitive"));
+        assert!(labels.contains("face-family-bridge primitive_ready=true"));
+        assert!(labels.contains("MissingFaceFamilyBridgeTopologyOperator"));
         assert!(labels.contains("execution refused stage=Preflight"));
         assert_eq!(snapshot.candidates.candidates.len(), 4);
         assert!(snapshot.candidates.candidates.iter().any(|candidate| {

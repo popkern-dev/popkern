@@ -2,7 +2,7 @@
 
 use popkern_core::topology::BRep;
 
-use super::repeated_apex_side_support_live_preflight::FaceFamilyBridgeOperandSummary;
+use super::repeated_apex_side_support_bridge::FaceFamilyBridgePrimitiveDerivation;
 use super::repeated_apex_side_support_plan::{
     SideSupportRegionExecutionReadiness, SideSupportRegionPlanSelection,
     SideSupportRegionRefusalReason,
@@ -37,6 +37,7 @@ enum SideSupportRegionExecutionRefusalReason {
     PlannerRefused,
     MissingLiveTopologyOperand,
     MissingValidatedFaceFamilyBridgePrimitive,
+    MissingFaceFamilyBridgeTopologyOperator,
 }
 
 impl SideSupportRegionExecutionReport {
@@ -61,10 +62,16 @@ impl SideSupportRegionExecutionReport {
             SideSupportRegionExecutionReadiness::Blocked { planner_reason, .. } => {
                 let reason = match planner_reason {
                     SideSupportRegionRefusalReason::MissingValidatedFaceFamilyBridgePrimitive => {
+                        let bridge_primitive =
+                            FaceFamilyBridgePrimitiveDerivation::build(selection, brep);
+                        let reason = if bridge_primitive.is_complete() {
+                            SideSupportRegionExecutionRefusalReason::MissingFaceFamilyBridgeTopologyOperator
+                        } else {
+                            SideSupportRegionExecutionRefusalReason::MissingValidatedFaceFamilyBridgePrimitive
+                        };
                         return Self::refused_with_detail(
-                            SideSupportRegionExecutionRefusalReason::MissingValidatedFaceFamilyBridgePrimitive,
-                            FaceFamilyBridgeOperandSummary::build(selection, brep)
-                                .diagnostic_label(),
+                            reason,
+                            bridge_primitive.diagnostic_label(),
                         );
                     }
                     SideSupportRegionRefusalReason::UnknownEndpointMembership
