@@ -4,7 +4,7 @@ members = ["crates/popkern-core", "crates/popkern-bool", "crates/popkern-draft",
 
 [workspace.package]
 edition = "2024"
-license = "MIT"
+license = "AGPL-3.0-only"
 
 # Test profile optimisation. Numerical hotspots (Bernstein evaluations,
 # ~32×32 QP solves, dense G1/G2 sampling) run 10-12× faster at

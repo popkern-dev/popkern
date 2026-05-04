@@ -11,6 +11,7 @@ mod manifold;
 mod orientation;
 mod precision;
 mod self_intersection;
+mod self_intersection_trim;
 
 use crate::error::ValidationError;
 use crate::topology::BRep;
@@ -101,6 +102,8 @@ impl BRep {
 
 #[cfg(test)]
 mod tests {
+    use crate::geometry::CurveGeometry;
+    use crate::geometry::curve::CurveEval;
     use crate::geometry::{Point3, Vec3};
     use crate::tolerance::Tolerance;
     use crate::topology::BRep;
@@ -426,5 +429,26 @@ mod tests {
 
         let errors = brep.validate_all();
         assert!(!errors.is_empty());
+    }
+
+    #[test]
+    fn validate_watertight_accepts_reversed_edge_curve_direction() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let edge = brep
+            .edges
+            .keys()
+            .find(|&eh| brep.edges[eh].curve.is_some())
+            .unwrap();
+        let curve = brep.edges[edge].curve.as_mut().unwrap();
+        let p_start = curve.geometry.point_at(curve.t_start);
+        let p_end = curve.geometry.point_at(curve.t_end);
+        curve.geometry = CurveGeometry::Line {
+            origin: p_end,
+            direction: p_start - p_end,
+        };
+        curve.t_start = 0.0;
+        curve.t_end = 1.0;
+
+        assert!(brep.validate_watertight().is_ok());
     }
 }

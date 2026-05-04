@@ -319,6 +319,17 @@ impl BRep {
             ));
         }
 
+        // Precondition: bridge isn't the only edge in the loop —
+        // otherwise dissolving would leave an empty loop.  Detect:
+        // the bridge is degenerate when its half-edge's prev or
+        // next is the twin (and vice versa), i.e., the loop
+        // traversal goes he → twin → he with nothing between.
+        if he_data.next == twin_handle && twin_data.next == half_edge {
+            return Err(CoreError::PreconditionFailed(
+                "dissolve would leave empty loop (bridge is loop's only edge)".into(),
+            ));
+        }
+
         let he_origin = he_data.origin;
         let twin_origin = twin_data.origin;
         let he_prev = he_data.prev;
@@ -327,13 +338,28 @@ impl BRep {
         let twin_next = twin_data.next;
         let the_loop = he_data.loop_;
 
-        // Splice out half_edge: prev.next = next, next.prev = prev.
-        self.half_edges[he_prev].next = he_next;
-        self.half_edges[he_next].prev = he_prev;
-
-        // Splice out twin: same pattern.
-        self.half_edges[twin_prev].next = twin_next;
-        self.half_edges[twin_next].prev = twin_prev;
+        // Splice out both half-edges from the loop.  For
+        // ADJACENT slits (where he.next == twin or vice versa),
+        // the splice has to skip both at once — splicing them
+        // independently would leave one of the prev/next
+        // pointers referring to a half-edge that's about to be
+        // removed.  Handle the two adjacency cases explicitly.
+        if he_next == twin_handle {
+            // Loop: ... → he_prev → he → twin → twin_next → ...
+            // Skip both: he_prev → twin_next.
+            self.half_edges[he_prev].next = twin_next;
+            self.half_edges[twin_next].prev = he_prev;
+        } else if twin_next == half_edge {
+            // Loop: ... → twin_prev → twin → he → he_next → ...
+            self.half_edges[twin_prev].next = he_next;
+            self.half_edges[he_next].prev = twin_prev;
+        } else {
+            // Non-adjacent: splice independently.
+            self.half_edges[he_prev].next = he_next;
+            self.half_edges[he_next].prev = he_prev;
+            self.half_edges[twin_prev].next = twin_next;
+            self.half_edges[twin_next].prev = twin_prev;
+        }
 
         // If the loop's anchor half-edge was one of the dissolved
         // ones, retarget to a still-valid half-edge in the loop.

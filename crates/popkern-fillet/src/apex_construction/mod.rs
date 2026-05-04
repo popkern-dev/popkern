@@ -30,9 +30,25 @@
 
 pub(crate) mod cap_kind;
 pub(crate) mod construct;
+pub(crate) mod construct_cleanup;
+pub(crate) mod construct_edges;
+pub(crate) mod construct_result;
+pub(crate) mod construct_surface;
+pub(crate) mod construct_vertices;
+pub(crate) mod constructive_builder;
+pub(crate) mod constructive_geometry;
+pub(crate) mod constructive_stage_a;
+pub(crate) mod constructive_stage_b;
+pub(crate) mod constructive_stage_c;
+pub(crate) mod constructive_stage_d;
+pub(crate) mod constructive_stage_e;
+pub(crate) mod constructive_topology;
 pub(crate) mod cylinder_face_coherence;
 pub(crate) mod error;
 pub(crate) mod gregory_cap;
+pub(crate) mod gregory_cap_boundary;
+pub(crate) mod gregory_cap_topology;
+pub(crate) mod perp_anchor_curve_refit;
 pub(crate) mod perp_anchor_relocate;
 pub(crate) mod phase_a_native;
 pub(crate) mod plan;
@@ -41,6 +57,10 @@ pub(crate) mod plan_terminations;
 pub(crate) mod plan_topology;
 pub(crate) mod plan_validate;
 pub(crate) mod planner_prepass;
+pub(crate) mod repeated_apex_loop_plan;
+pub(crate) mod repeated_apex_partition;
+pub(crate) mod repeated_apex_partition_topology;
+pub(crate) mod repeated_apex_serial;
 pub(crate) mod target_topology;
 pub(crate) mod telemetry;
 
@@ -68,8 +88,13 @@ mod plan_e2e_extras_tests;
 #[path = "construct_tests.rs"]
 mod construct_tests;
 
+#[cfg(test)]
+#[path = "construct_test_helpers.rs"]
+mod construct_test_helpers;
+
 pub use cap_kind::CapKind;
-pub use construct::{ApexBuildResult, construct_apex, construct_apex_with_surfaces};
+pub use construct::{construct_apex, construct_apex_with_surfaces};
+pub use construct_result::ApexBuildResult;
 pub use error::{ApexBuildError, ApexError, ApexPlanError};
 pub use plan::{ApexPlan, plan_apex_resolution};
 pub use target_topology::{TargetCapFace, TargetEdge, TargetEdgeRole, TargetTopology};

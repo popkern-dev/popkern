@@ -27,7 +27,7 @@ use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 use super::poke_hex::poke_n_gon_face_into_n_quads;
-use crate::blend::boundary::BlendBoundary;
+use crate::blend::boundary::{BlendBoundary, BoundarySegment};
 use crate::blend::gregory_three_quad::build_n_quad_decomposition_with_options;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo};
@@ -148,6 +148,9 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             decomp.sub_patches.len()
         )));
     }
+    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        trace_cap_subface_neighbors(brep, "raw", &sub_faces_raw);
+    }
     // Phase 6c-D Stage 4.7e: re-order `sub_faces` so each
     // `sub_faces[k]` is paired with the `sub_patches[k]` whose
     // row 0 (= FilletEnd[k] in the boundary's segment order)
@@ -176,6 +179,10 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             .collect::<Vec<_>>(),
         None => sub_faces_raw,
     };
+    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        trace_cap_subface_neighbors(brep, "ordered", &sub_faces);
+    }
+    brep.normalize_edge_representatives();
 
     // Phase 6c-D: write Phase-6c-A-substituted boundary curves
     // into BRep edges so the pcurve refit
@@ -208,6 +215,8 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             );
         }
     }
+
+    let support_frames_enabled = hex_boundary_data.is_some();
 
     // Phase 6c-A continuation §4.2 option (c) — per-fillet
     // sphere-cap rung. When the boundary was sphere-fit-substituted
@@ -297,6 +306,27 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             old_surface.as_ref(),
             boundary.sphere_fit_substituted,
         );
+        if support_frames_enabled {
+            author_boundary_owned_seam_pcurves(brep, *sub_face, boundary, fillet_surfaces, k);
+        }
+        if support_frames_enabled {
+            super::boundary_support_frames::apply_face_owned_support_frames(brep, *sub_face);
+            let Some(SurfaceOnFace {
+                geometry: SurfaceGeometry::Gregory(patch),
+                ..
+            }) = brep.faces.get(*sub_face).and_then(|f| f.surface.as_ref())
+            else {
+                return Err(ThreeQuadFailure::Other(
+                    "support-frame rewrite lost Gregory cap surface".to_string(),
+                ));
+            };
+            if patch.self_intersects_with_tolerance(SELF_INT_TOL) {
+                return Err(ThreeQuadFailure::Overlap);
+            }
+        }
+        if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+            trace_cap_subface_neighbors(brep, "post-assign", &[*sub_face]);
+        }
         patches.push(CornerPatchInfo {
             vertex,
             n_sides,
@@ -310,7 +340,349 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             cap_sphere: cap_sphere_per_subface[k],
         });
     }
+    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        trace_cap_subface_neighbors(brep, "final", &sub_faces);
+    }
     Ok(patches)
+}
+
+fn trace_cap_subface_neighbors(brep: &BRep, label: &str, faces: &[FaceHandle]) {
+    let kind = |face: FaceHandle| -> &'static str {
+        use popkern_core::geometry::surface::SurfaceGeometry;
+        match brep
+            .faces
+            .get(face)
+            .and_then(|f| f.surface.as_ref())
+            .map(|s| &s.geometry)
+        {
+            Some(SurfaceGeometry::Plane { .. }) => "Plane",
+            Some(SurfaceGeometry::Cylinder { .. }) => "Cyl",
+            Some(SurfaceGeometry::Sphere { .. }) => "Sphere",
+            Some(SurfaceGeometry::Cone { .. }) => "Cone",
+            Some(SurfaceGeometry::Torus { .. }) => "Torus",
+            Some(SurfaceGeometry::Nurbs(_)) => "Nurbs",
+            Some(SurfaceGeometry::Gregory(_)) => "Gregory",
+            None => "None",
+        }
+    };
+    for (idx, &face) in faces.iter().enumerate() {
+        let Some(face_data) = brep.faces.get(face) else {
+            continue;
+        };
+        let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
+            continue;
+        };
+        let start = loop_data.half_edge;
+        let mut cursor = start;
+        let mut entries = Vec::new();
+        for _ in 0..(brep.half_edges.len() + 1) {
+            let Some(he) = brep.half_edges.get(cursor) else {
+                break;
+            };
+            let twin_face = brep
+                .half_edges
+                .get(he.twin)
+                .and_then(|t| brep.loops.get(t.loop_))
+                .map(|l| l.face);
+            let twin_desc = twin_face
+                .map(|f| format!("{f:?}:{}", kind(f)))
+                .unwrap_or_else(|| "None".to_string());
+            entries.push(format!("{:?}->{twin_desc}", he.edge));
+            cursor = he.next;
+            if cursor == start {
+                break;
+            }
+        }
+        eprintln!(
+            "[a2-trace] K-P poke {label} subface[{idx}] {face:?}: {}",
+            entries.join(", ")
+        );
+    }
+}
+
+fn author_boundary_owned_seam_pcurves(
+    brep: &mut BRep,
+    sub_face: FaceHandle,
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+    subface_index: usize,
+) {
+    if boundary.segments.len() < 2 * (subface_index + 1) {
+        return;
+    }
+    for (segment_offset, segment_index) in [2 * subface_index, 2 * subface_index + 1]
+        .into_iter()
+        .enumerate()
+    {
+        let Some(segment) = boundary.segments.get(segment_index) else {
+            continue;
+        };
+        let Some(he) =
+            find_subface_half_edge_for_boundary_segment(brep, sub_face, segment, fillet_surfaces)
+        else {
+            if std::env::var_os("POPKERN_A2_TRACE_CAP_G0").is_some() {
+                eprintln!(
+                    "[a2-trace cap-g0] boundary-owned pcurve: subface[{subface_index}] \
+                     segment[{segment_index}] no matching half-edge"
+                );
+            }
+            continue;
+        };
+        let twin = brep.half_edges[he].twin;
+        let Some(cap_surface) = brep.faces.get(sub_face).and_then(|f| f.surface.as_ref()) else {
+            continue;
+        };
+        let twin_face = brep.loops[brep.half_edges[twin].loop_].face;
+        let Some(twin_surface) = brep.faces.get(twin_face).and_then(|f| f.surface.as_ref()) else {
+            continue;
+        };
+        let cap_pcurve = best_gregory_boundary_pcurve_for_half_edge(brep, he, cap_surface)
+            .unwrap_or_else(|| {
+                canonical_gregory_boundary_pcurve_for_half_edge(
+                    brep,
+                    he,
+                    cap_surface,
+                    segment_offset,
+                )
+            });
+        let other_pcurve =
+            project_boundary_segment_to_half_edge_pcurve(brep, twin, twin_surface, segment);
+        brep.half_edges[he].pcurve = Some(cap_pcurve);
+        if let Some(pcurve) = other_pcurve {
+            brep.half_edges[twin].pcurve = Some(pcurve);
+        }
+        if std::env::var_os("POPKERN_A2_TRACE_CAP_G0").is_some() {
+            eprintln!(
+                "[a2-trace cap-g0] boundary-owned pcurve: subface[{subface_index}] \
+                 segment[{segment_index}] wrote he={he:?} twin={twin:?} edge={:?}",
+                brep.half_edges[he].edge
+            );
+        }
+    }
+}
+
+fn find_subface_half_edge_for_boundary_segment(
+    brep: &BRep,
+    sub_face: FaceHandle,
+    segment: &BoundarySegment,
+    fillet_surfaces: &[FilletSurfaceResult],
+) -> Option<popkern_core::topology::HalfEdgeHandle> {
+    let face_data = brep.faces.get(sub_face)?;
+    let loop_data = brep.loops.get(face_data.outer_loop)?;
+    let start = loop_data.half_edge;
+    let mut cursor = start;
+    for _ in 0..(brep.half_edges.len() + 1) {
+        let he = brep.half_edges.get(cursor)?;
+        let twin_face = brep.loops.get(brep.half_edges.get(he.twin)?.loop_)?.face;
+        let matches = match segment {
+            BoundarySegment::FaceEdge { face, curve } => {
+                twin_face == *face || half_edge_endpoints_match_curve(brep, cursor, curve, 1.0e-5)
+            }
+            BoundarySegment::FilletEnd {
+                fillet_index,
+                curve,
+            } => {
+                half_edge_endpoints_match_curve(brep, cursor, curve, 1.0e-5)
+                    || fillet_surfaces.get(*fillet_index).is_some_and(|fillet| {
+                        face_surface_matches(brep, twin_face, &fillet.surface)
+                    })
+                    || face_has_cylinder_surface(brep, twin_face)
+            }
+        };
+        if matches {
+            return Some(cursor);
+        }
+        cursor = he.next;
+        if cursor == start {
+            break;
+        }
+    }
+    None
+}
+
+fn face_has_cylinder_surface(brep: &BRep, face: FaceHandle) -> bool {
+    matches!(
+        brep.faces
+            .get(face)
+            .and_then(|f| f.surface.as_ref())
+            .map(|s| &s.geometry),
+        Some(SurfaceGeometry::Cylinder { .. })
+    )
+}
+
+fn half_edge_endpoints_match_curve(
+    brep: &BRep,
+    he: popkern_core::topology::HalfEdgeHandle,
+    curve: &popkern_core::geometry::NurbsCurve,
+    tolerance: f64,
+) -> bool {
+    use popkern_core::geometry::curve::CurveEval;
+
+    let Some(he_data) = brep.half_edges.get(he) else {
+        return false;
+    };
+    let Some(twin_data) = brep.half_edges.get(he_data.twin) else {
+        return false;
+    };
+    let (Some(origin), Some(dest)) = (
+        brep.vertices.get(he_data.origin),
+        brep.vertices.get(twin_data.origin),
+    ) else {
+        return false;
+    };
+    let (t0, t1) = curve.parameter_range();
+    let p0 = curve.point_at(t0);
+    let p1 = curve.point_at(t1);
+    let forward = origin.position.distance_to(&p0) + dest.position.distance_to(&p1);
+    let reversed = origin.position.distance_to(&p1) + dest.position.distance_to(&p0);
+    forward.min(reversed) <= tolerance
+}
+
+fn face_surface_matches(brep: &BRep, face: FaceHandle, expected: &SurfaceGeometry) -> bool {
+    let Some(actual) = brep.faces.get(face).and_then(|f| f.surface.as_ref()) else {
+        return false;
+    };
+    match (&actual.geometry, expected) {
+        (
+            SurfaceGeometry::Cylinder {
+                origin: ao,
+                axis: aa,
+                radius: ar,
+            },
+            SurfaceGeometry::Cylinder {
+                origin: eo,
+                axis: ea,
+                radius: er,
+            },
+        ) => {
+            let Some(aa) = aa.normalized() else {
+                return false;
+            };
+            let Some(ea) = ea.normalized() else {
+                return false;
+            };
+            let d = *ao - *eo;
+            let along = d.dot(&ea);
+            let perp = d - ea * along;
+            (ar - er).abs() <= er.abs() * 0.01 + 1.0e-6
+                && aa.dot(&ea).abs() >= 0.999
+                && perp.length() <= 1.0e-3
+        }
+        _ => false,
+    }
+}
+
+fn canonical_gregory_boundary_pcurve_for_half_edge(
+    brep: &BRep,
+    he: popkern_core::topology::HalfEdgeHandle,
+    cap_surface: &SurfaceOnFace,
+    segment_offset: usize,
+) -> popkern_core::geometry::pcurve::Pcurve {
+    use popkern_core::geometry::surface::SurfaceEval;
+
+    let (start_uv, end_uv) = match segment_offset {
+        // Boundary 0: FilletEnd[k], u = 0, v = 0 -> 1.
+        0 => (Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 1.0, 0.0)),
+        // Boundary 1: FaceEdge[k], v = 1, u = 0 -> 1.
+        _ => (Point3::new(0.0, 1.0, 0.0), Point3::new(1.0, 1.0, 0.0)),
+    };
+    let he_origin = brep.vertices[brep.half_edges[he].origin].position;
+    let p_start = cap_surface.geometry.point_at(start_uv.x, start_uv.y);
+    let p_end = cap_surface.geometry.point_at(end_uv.x, end_uv.y);
+    let (start, end) = if he_origin.distance_to(&p_start) <= he_origin.distance_to(&p_end) {
+        (start_uv, end_uv)
+    } else {
+        (end_uv, start_uv)
+    };
+    popkern_core::geometry::pcurve::Pcurve::linear((start.x, start.y), (end.x, end.y), 0.0, 1.0)
+}
+
+fn best_gregory_boundary_pcurve_for_half_edge(
+    brep: &BRep,
+    he: popkern_core::topology::HalfEdgeHandle,
+    cap_surface: &SurfaceOnFace,
+) -> Option<popkern_core::geometry::pcurve::Pcurve> {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::SurfaceEval;
+
+    let edge = brep.half_edges.get(he)?.edge;
+    let coe = brep.edges.get(edge)?.curve.as_ref()?;
+    let he_origin = brep.vertices.get(brep.half_edges.get(he)?.origin)?.position;
+    let p_t_start = coe.geometry.point_at(coe.t_start);
+    let p_t_end = coe.geometry.point_at(coe.t_end);
+    let edge_forward = he_origin.distance_to(&p_t_start) <= he_origin.distance_to(&p_t_end);
+
+    type BoundaryUv = ((f64, f64), (f64, f64));
+    let candidates = [
+        ((0.0, 0.0), (0.0, 1.0)),
+        ((1.0, 0.0), (1.0, 1.0)),
+        ((0.0, 0.0), (1.0, 0.0)),
+        ((0.0, 1.0), (1.0, 1.0)),
+    ];
+    let mut best: Option<(BoundaryUv, f64)> = None;
+    for (start, end) in candidates {
+        for reverse in [false, true] {
+            let (uv0, uv1) = if reverse { (end, start) } else { (start, end) };
+            let mut worst = 0.0_f64;
+            for i in 0..16 {
+                let s = i as f64 / 15.0;
+                let edge_s = if edge_forward { s } else { 1.0 - s };
+                let edge_t = coe.t_start + edge_s * (coe.t_end - coe.t_start);
+                let p_edge = coe.geometry.point_at(edge_t);
+                let u = uv0.0 + s * (uv1.0 - uv0.0);
+                let v = uv0.1 + s * (uv1.1 - uv0.1);
+                let p_cap = cap_surface.geometry.point_at(u, v);
+                worst = worst.max(p_edge.distance_to(&p_cap));
+            }
+            match best {
+                Some((_, best_worst)) if worst >= best_worst => {}
+                _ => best = Some(((uv0, uv1), worst)),
+            }
+        }
+    }
+    let ((uv0, uv1), worst) = best?;
+    if std::env::var_os("POPKERN_A2_TRACE_CAP_G0").is_some() {
+        eprintln!(
+            "[a2-trace cap-g0] best Gregory side for he={he:?}: ({:.1},{:.1})->({:.1},{:.1}) worst={worst:.6e}",
+            uv0.0, uv0.1, uv1.0, uv1.1
+        );
+    }
+    Some(popkern_core::geometry::pcurve::Pcurve::linear(
+        uv0, uv1, 0.0, 1.0,
+    ))
+}
+
+fn project_boundary_segment_to_half_edge_pcurve(
+    brep: &BRep,
+    he: popkern_core::topology::HalfEdgeHandle,
+    surface: &SurfaceOnFace,
+    segment: &BoundarySegment,
+) -> Option<popkern_core::geometry::pcurve::Pcurve> {
+    use popkern_core::geometry::curve::CurveEval;
+
+    let curve = match segment {
+        BoundarySegment::FilletEnd { curve, .. } | BoundarySegment::FaceEdge { curve, .. } => curve,
+    };
+    let (t0, t1) = curve.parameter_range();
+    let p0 = curve.point_at(t0);
+    let p1 = curve.point_at(t1);
+    let he_origin = brep.vertices[brep.half_edges[he].origin].position;
+    let forward = he_origin.distance_to(&p0) <= he_origin.distance_to(&p1);
+
+    let n_samples = 12usize;
+    let mut uv_points = Vec::with_capacity(n_samples);
+    let mut params = Vec::with_capacity(n_samples);
+    for i in 0..n_samples {
+        let s = i as f64 / (n_samples - 1) as f64;
+        let curve_s = if forward { s } else { 1.0 - s };
+        let p = curve.point_at(t0 + curve_s * (t1 - t0));
+        let (u, v) = super::helpers::project_to_uv(&surface.geometry, &p);
+        uv_points.push(Point3::new(u, v, 0.0));
+        params.push(s);
+    }
+    popkern_core::geometry::fitting::interpolate_curve(&uv_points, &params, 5)
+        .ok()
+        .map(Into::into)
 }
 
 /// Return the (origin, axis, radius) of the cylinder that the given
@@ -402,10 +774,14 @@ fn boundary_segment_to_sub_face_permutation(
     boundary: &BlendBoundary,
     fillet_surfaces: &[FilletSurfaceResult],
 ) -> Option<Vec<usize>> {
-    use crate::blend::boundary::BoundarySegment;
     let n = sub_faces_raw.len();
     if n == 0 || boundary.segments.len() != 2 * n {
         return None;
+    }
+    if !boundary.hex_boundary_cps_deg9.is_empty()
+        && let Some(perm) = boundary_endpoint_to_sub_face_permutation(brep, sub_faces_raw, boundary)
+    {
+        return Some(perm);
     }
     // For each sub-face, identify its primary cyl-twin's params.
     let sub_face_cyls: Vec<Option<(Point3, popkern_core::geometry::Vec3, f64)>> = sub_faces_raw
@@ -484,6 +860,71 @@ fn boundary_segment_to_sub_face_permutation(
         return None;
     }
     Some(perm)
+}
+
+fn boundary_endpoint_to_sub_face_permutation(
+    brep: &BRep,
+    sub_faces_raw: &[FaceHandle],
+    boundary: &BlendBoundary,
+) -> Option<Vec<usize>> {
+    let n = sub_faces_raw.len();
+    let mut perm = vec![usize::MAX; n];
+    let mut consumed = vec![false; n];
+    for (k, slot) in perm.iter_mut().enumerate().take(n) {
+        let fillet_segment = boundary.segments.get(2 * k)?;
+        let face_segment = boundary.segments.get(2 * k + 1)?;
+        let mut best: Option<(usize, usize)> = None;
+        for (face_idx, &face) in sub_faces_raw.iter().enumerate() {
+            if consumed[face_idx] {
+                continue;
+            }
+            let score = usize::from(subface_has_boundary_segment(brep, face, fillet_segment))
+                + usize::from(subface_has_boundary_segment(brep, face, face_segment));
+            if score == 0 {
+                continue;
+            }
+            if best
+                .map(|(_, best_score)| score > best_score)
+                .unwrap_or(true)
+            {
+                best = Some((face_idx, score));
+            }
+        }
+        let (face_idx, score) = best?;
+        if score < 2 {
+            return None;
+        }
+        *slot = face_idx;
+        consumed[face_idx] = true;
+    }
+    Some(perm)
+}
+
+fn subface_has_boundary_segment(brep: &BRep, face: FaceHandle, segment: &BoundarySegment) -> bool {
+    let curve = match segment {
+        BoundarySegment::FilletEnd { curve, .. } | BoundarySegment::FaceEdge { curve, .. } => curve,
+    };
+    let Some(face_data) = brep.faces.get(face) else {
+        return false;
+    };
+    let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
+        return false;
+    };
+    let start = loop_data.half_edge;
+    let mut cursor = start;
+    for _ in 0..(brep.half_edges.len() + 1) {
+        if half_edge_endpoints_match_curve(brep, cursor, curve, 1.0e-5) {
+            return true;
+        }
+        let Some(he) = brep.half_edges.get(cursor) else {
+            return false;
+        };
+        cursor = he.next;
+        if cursor == start {
+            break;
+        }
+    }
+    false
 }
 
 /// For a sub-face, find the per-fillet sphere whose centre lies on

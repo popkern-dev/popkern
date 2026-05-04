@@ -1714,11 +1714,7 @@ fn set_cut_edge_geometry(
         knots: vec![0.0, 0.0, 1.0, 1.0],
     };
     if let Some(edge_data) = brep.edges.get_mut(edge) {
-        edge_data.curve = Some(CurveOnEdge {
-            geometry: CurveGeometry::Nurbs(curve_3d_nurbs.clone()),
-            t_start: 0.0,
-            t_end: 1.0,
-        });
+        edge_data.curve = CurveOnEdge::line_segment(v_start, v_end, 1.0e-9);
     }
     if let Some(surf) = cap_surf
         && let Some(pc) = sample_pcurve_on_surface(&curve_3d_nurbs, &surf)

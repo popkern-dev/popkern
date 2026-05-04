@@ -22,16 +22,35 @@
 //! §A2.4.
 
 use popkern_core::geometry::Point3;
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
+use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 use super::error::ApexBuildError;
+use super::gregory_cap_boundary::{
+    author_support_compatible_face_edge_tangents, find_face_across_edge,
+    inject_physical_hex_boundary_cps, missing_adjacent_face_error, oriented_cap_edge_curve,
+    validate_physical_sector_handles, validate_planned_gregory_loop_roles,
+};
+pub(super) use super::gregory_cap_topology::{
+    compute_interior_vertex_set, eliminate_interior_edges, find_face_bounded_by_all_apex_edges,
+    merge_cap_side_accumulators,
+};
 use super::plan::ApexPlan;
-use super::target_topology::{TargetCapFace, TargetEdgeRole};
+use super::target_topology::TargetCapFace;
 use crate::blend::boundary::{BlendBoundary, BoundarySegment};
 use crate::construct::three_quad_apply::{
     ThreeQuadFailure, apply_three_quad_decomposition_to_blend,
 };
+use crate::types::CornerPatchInfo;
 use crate::vertex_classifier::VertexBlendClassification;
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct GregoryCapSector {
+    pub sector_index: usize,
+    pub fillet_index: usize,
+    pub fillet_end_edge: EdgeHandle,
+    pub face_edge: EdgeHandle,
+}
 
 /// **A2.4 Gregory cap surface assembly** — bridge from A2's plan +
 /// post-stitch BRep state to legacy `three_quad_apply::
@@ -43,14 +62,18 @@ use crate::vertex_classifier::VertexBlendClassification;
 /// existing K-P promotion ladder.  The ladder produces N or 4N
 /// sub-quad Gregory patches whose surfaces are assigned to the
 /// poked sub-faces.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn assemble_gregory_cap_surface(
     brep: &mut BRep,
     cap_face: FaceHandle,
     plan: &ApexPlan,
-    apex_vertex_handles: &[VertexHandle],
+    apex_position: Point3,
+    _apex_vertex_handles: &[VertexHandle],
     apex_edge_handles: &[Option<EdgeHandle>],
+    sectors: &[GregoryCapSector],
     fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
-) -> Result<(), ApexBuildError> {
+    tolerance: &Tolerance,
+) -> Result<Vec<CornerPatchInfo>, ApexBuildError> {
     if fillet_surfaces.is_empty() {
         return Err(ApexBuildError::PlanMismatch {
             reason: "Gregory cap surface assembly needs fillet_surfaces; caller \
@@ -81,121 +104,36 @@ pub(super) fn assemble_gregory_cap_surface(
         });
     }
     let n = outer_indices.len() / 2;
+    validate_physical_sector_handles(sectors, n, apex_edge_handles)?;
 
-    // Walk the planned 2N outer-loop edge indices and emit one
-    // BoundarySegment per edge, alternating FilletEnd / FaceEdge.
+    validate_planned_gregory_loop_roles(plan, outer_indices, n)?;
+
+    // Build boundary segments from physical sector-owned BRep edges, not from
+    // planner curve copies. The cap half-edge determines orientation.
     let mut segments: Vec<BoundarySegment> = Vec::with_capacity(2 * n);
-    for (k, &edge_idx) in outer_indices.iter().enumerate() {
-        let target_edge = plan
-            .target_topology
-            .apex_edges
-            .get(edge_idx)
+    for sector_index in 0..n {
+        let sector = sectors
+            .iter()
+            .find(|sector| sector.sector_index == sector_index)
             .ok_or_else(|| ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "outer_loop_edge_indices[{k}]={edge_idx} out of range for \
-                         apex_edges (len {})",
-                    plan.target_topology.apex_edges.len(),
-                ),
+                reason: format!("Gregory sectors missing sector index {sector_index}"),
             })?;
-        let segment = match target_edge.role {
-            TargetEdgeRole::CapVsCyl { fillet_idx } => {
-                if k % 2 != 0 {
-                    return Err(ApexBuildError::PlanMismatch {
-                        reason: format!(
-                            "Gregory cap loop expects FilletEnd at even index {k}, \
-                                 found CapVsCyl at odd position"
-                        ),
-                    });
-                }
-                BoundarySegment::FilletEnd {
-                    fillet_index: fillet_idx,
-                    curve: target_edge.curve.clone(),
-                }
-            }
-            TargetEdgeRole::CapVsPlane { .. } => {
-                if k % 2 != 1 {
-                    return Err(ApexBuildError::PlanMismatch {
-                        reason: format!(
-                            "Gregory cap loop expects FaceEdge at odd index {k}, \
-                                 found CapVsPlane at even position"
-                        ),
-                    });
-                }
-                let edge = apex_edge_handles
-                    .get(edge_idx)
-                    .copied()
-                    .flatten()
-                    .ok_or_else(|| ApexBuildError::PlanMismatch {
-                        reason: format!(
-                            "apex_edge_handles missing Some(edge) at index {edge_idx} \
-                                 (len {}) for FaceEdge bridge",
-                            apex_edge_handles.len(),
-                        ),
-                    })?;
-                let face = find_face_across_edge(brep, edge, cap_face).ok_or_else(|| {
-                    let edge_alive = brep.edges.contains_key(edge);
-                    let adj = if edge_alive {
-                        let primary = brep.edges[edge].half_edge;
-                        let pa = brep
-                            .half_edges
-                            .get(primary)
-                            .and_then(|he| brep.loops.get(he.loop_))
-                            .map(|l| l.face);
-                        let twin = brep.half_edges.get(primary).map(|he| he.twin);
-                        let pb = twin
-                            .and_then(|t| brep.half_edges.get(t))
-                            .and_then(|he| brep.loops.get(he.loop_))
-                            .map(|l| l.face);
-                        format!("primary_face={pa:?}, twin_face={pb:?}, cap_face={cap_face:?}")
-                    } else {
-                        "edge no longer exists in BRep".to_string()
-                    };
-                    ApexBuildError::PlanMismatch {
-                        reason: format!(
-                            "FaceEdge[{k}] (apex_edge[{edge_idx}], BRep edge {edge:?}) \
-                                 has no twin face on the non-cap side ({adj})"
-                        ),
-                    }
-                })?;
-                BoundarySegment::FaceEdge {
-                    face,
-                    curve: target_edge.curve.clone(),
-                }
-            }
-            TargetEdgeRole::InnerSpoke => {
-                return Err(ApexBuildError::PlanMismatch {
-                    reason: format!(
-                        "Gregory cap outer loop should not contain InnerSpoke at index {k}"
-                    ),
-                });
-            }
-        };
-        segments.push(segment);
+        segments.push(BoundarySegment::FilletEnd {
+            fillet_index: sector.fillet_index,
+            curve: oriented_cap_edge_curve(brep, cap_face, sector.fillet_end_edge, "FilletEnd")?,
+        });
+        let face = find_face_across_edge(brep, sector.face_edge, cap_face).ok_or_else(|| {
+            missing_adjacent_face_error(brep, cap_face, sector.face_edge, "FaceEdge", sector_index)
+        })?;
+        segments.push(BoundarySegment::FaceEdge {
+            face,
+            curve: oriented_cap_edge_curve(brep, cap_face, sector.face_edge, "FaceEdge")?,
+        });
     }
 
-    // Vertex position: centroid of the 2N apex vertices.  Used by
-    // some BlendBoundary consumers (e.g. sphere-fit substitution)
-    // but not by `apply_three_quad_decomposition_to_blend`'s core
-    // path; centroid is a safe geometric default.
-    let denom = apex_vertex_handles.len() as f64;
-    let vertex_position = if denom > 0.0 {
-        let mut sx = 0.0;
-        let mut sy = 0.0;
-        let mut sz = 0.0;
-        for &vh in apex_vertex_handles {
-            let p = brep.vertices[vh].position;
-            sx += p.x;
-            sy += p.y;
-            sz += p.z;
-        }
-        Point3::new(sx / denom, sy / denom, sz / denom)
-    } else {
-        Point3::new(0.0, 0.0, 0.0)
-    };
-
-    let boundary = BlendBoundary {
+    let mut boundary = BlendBoundary {
         vertex: plan.apex_vertex,
-        vertex_position,
+        vertex_position: apex_position,
         segments,
         bridge_fallbacks: Vec::new(),
         sphere_fit_substituted: false,
@@ -203,6 +141,25 @@ pub(super) fn assemble_gregory_cap_surface(
         hex_boundary_cps_deg9: Vec::new(),
         fillet_end_arcs: Vec::new(),
     };
+    match crate::blend::sphere_fit_boundary::apply_sphere_fit_substitution(
+        &mut boundary,
+        fillet_surfaces,
+        brep,
+        tolerance,
+    ) {
+        Ok(()) => {
+            boundary.sphere_fit_substituted = true;
+        }
+        Err(reason) => {
+            if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+                eprintln!("[a2-trace] Gregory sphere-fit boundary substitution skipped: {reason}");
+            }
+        }
+    }
+    inject_physical_hex_boundary_cps(&mut boundary)?;
+    if boundary.sphere_fit_substituted {
+        author_support_compatible_face_edge_tangents(&mut boundary, fillet_surfaces, brep);
+    }
 
     // Classification — A2 fires only at SameSideConvex apices today
     // (cube/pyramid mixed-radius corners).  A2.5 will lift this to
@@ -234,540 +191,12 @@ pub(super) fn assemble_gregory_cap_surface(
     );
 
     match result {
-        Ok(_patches) => Ok(()),
+        Ok(patches) => Ok(patches),
         Err(ThreeQuadFailure::Overlap) => Err(ApexBuildError::PlanMismatch {
             reason: "Gregory three-quad decomposition self-intersects (overlap remediation)".into(),
         }),
         Err(ThreeQuadFailure::Other(s)) => Err(ApexBuildError::PlanMismatch {
             reason: format!("Gregory three-quad decomposition failed: {s}"),
         }),
-    }
-}
-
-/// **BFS from V to compute the apex-region interior vertex set.**
-/// Traverses edges NOT in the apex_edge perimeter AND whose
-/// destination's distance from V is no greater than the maximum
-/// V-to-apex_vertex distance (a geometric proxy for "inside the
-/// cap perimeter polygon").  Without the geometric guard, BFS
-/// escapes through perp-walk sub-edges that exit the apex region
-/// toward host-face boundaries — the perimeter is topologically a
-/// cycle but the BRep has many out-of-region edges that aren't
-/// apex_edges.
-///
-/// Captures BEFORE stage 3 removes V so the seed is available; the
-/// returned set is then passed to [`eliminate_interior_edges`]
-/// AFTER stage 3 to drive the cross-loop kef sweep.
-///
-/// Returns an empty set when V isn't alive or the apex_edge
-/// endpoints can't be resolved.
-pub(super) fn compute_interior_vertex_set(
-    brep: &BRep,
-    apex_vertex: VertexHandle,
-    apex_edge_handles: &[EdgeHandle],
-) -> std::collections::HashSet<VertexHandle> {
-    use std::collections::{HashSet, VecDeque};
-    let mut out: HashSet<VertexHandle> = HashSet::new();
-    if !brep.vertices.contains_key(apex_vertex) {
-        return out;
-    }
-    let v_pos = brep.vertices[apex_vertex].position;
-
-    // Compute the radius cap: max distance from V to any apex_edge
-    // endpoint.  Interior vertices must be at most this far from V.
-    // Add a small margin (1e-6) for floating-point slack.
-    let perimeter: HashSet<EdgeHandle> = apex_edge_handles.iter().copied().collect();
-    let mut radius_cap = 0.0_f64;
-    for &eh in apex_edge_handles {
-        let Some(edge) = brep.edges.get(eh) else {
-            continue;
-        };
-        let primary = edge.half_edge;
-        let Some(he) = brep.half_edges.get(primary) else {
-            continue;
-        };
-        let v1 = he.origin;
-        let twin = he.twin;
-        let Some(twin_he) = brep.half_edges.get(twin) else {
-            continue;
-        };
-        let v2 = twin_he.origin;
-        let p1 = brep.vertices[v1].position;
-        let p2 = brep.vertices[v2].position;
-        let d1 = v_pos.distance_to(&p1);
-        let d2 = v_pos.distance_to(&p2);
-        if d1 > radius_cap {
-            radius_cap = d1;
-        }
-        if d2 > radius_cap {
-            radius_cap = d2;
-        }
-    }
-    if radius_cap == 0.0 {
-        return out;
-    }
-    let radius_cap = radius_cap + 1e-6;
-
-    out.insert(apex_vertex);
-    let mut queue: VecDeque<VertexHandle> = VecDeque::new();
-    queue.push_back(apex_vertex);
-    while let Some(v) = queue.pop_front() {
-        let outgoing: Vec<VertexHandle> = brep
-            .half_edges
-            .values()
-            .filter(|he| he.origin == v)
-            .filter_map(|he| {
-                if perimeter.contains(&he.edge) {
-                    return None;
-                }
-                let dest = brep.half_edges.get(he.twin)?.origin;
-                Some(dest)
-            })
-            .collect();
-        for dest in outgoing {
-            if out.contains(&dest) {
-                continue;
-            }
-            // Geometric containment: only include vertices within
-            // the cap radius from V.
-            let dest_pos = brep.vertices[dest].position;
-            if v_pos.distance_to(&dest_pos) > radius_cap {
-                continue;
-            }
-            out.insert(dest);
-            queue.push_back(dest);
-        }
-    }
-    out
-}
-
-/// **Interior edge elimination** — kefs every cross-loop edge that
-/// is STRICTLY interior to the cap region.  An edge is strictly
-/// interior iff:
-/// * both endpoints are in the interior vertex set
-/// * its edge handle isn't an apex_edge (perimeter)
-/// * at least one endpoint is NOT an apex_vertex (so we don't kef
-///   "shortcut" edges between two perimeter vertices that might
-///   bridge across the cap face's outer-loop boundary)
-///
-/// Iterates until no such edge remains, or the iteration cap is
-/// hit (safety net).  Same-loop bridge edges can't be kef'd
-/// (would create non-manifold topology); they're left in place.
-pub(super) fn eliminate_interior_edges(
-    brep: &mut BRep,
-    interior_vertices: &std::collections::HashSet<VertexHandle>,
-    apex_edge_handles: &[EdgeHandle],
-) -> Result<(), String> {
-    use std::collections::HashSet;
-    if interior_vertices.is_empty() {
-        return Ok(());
-    }
-    let perimeter: HashSet<EdgeHandle> = apex_edge_handles.iter().copied().collect();
-    let mut apex_vertex_set: HashSet<VertexHandle> = HashSet::new();
-    for &eh in apex_edge_handles {
-        let Some(edge) = brep.edges.get(eh) else {
-            continue;
-        };
-        let primary = edge.half_edge;
-        if let Some(he) = brep.half_edges.get(primary) {
-            apex_vertex_set.insert(he.origin);
-            if let Some(twin) = brep.half_edges.get(he.twin) {
-                apex_vertex_set.insert(twin.origin);
-            }
-        }
-    }
-    let cap_iters = brep.edges.len() + apex_edge_handles.len() * 4 + 32;
-    let mut kef_count = 0usize;
-    for _ in 0..cap_iters {
-        let mut victim: Option<HalfEdgeHandle> = None;
-        for (eh, edge) in brep.edges.iter() {
-            if perimeter.contains(&eh) {
-                continue;
-            }
-            let primary = edge.half_edge;
-            let Some(he) = brep.half_edges.get(primary) else {
-                continue;
-            };
-            let Some(twin_he) = brep.half_edges.get(he.twin) else {
-                continue;
-            };
-            if !interior_vertices.contains(&he.origin)
-                || !interior_vertices.contains(&twin_he.origin)
-            {
-                continue;
-            }
-            if apex_vertex_set.contains(&he.origin) && apex_vertex_set.contains(&twin_he.origin) {
-                continue;
-            }
-            if he.loop_ == twin_he.loop_ {
-                continue;
-            }
-            victim = Some(primary);
-            break;
-        }
-        let Some(he) = victim else {
-            let _ = kef_count;
-            return Ok(());
-        };
-        brep.kef(he)
-            .map_err(|e| format!("kef on interior edge: {e:?}"))?;
-        kef_count += 1;
-    }
-    Err("eliminate_interior_edges: iteration cap hit".to_string())
-}
-
-/// **Cap-side accumulator merge** — targeted post-stage-3 sweep
-/// that merges fragmented cap-side sub-faces into a single cap
-/// face whose outer loop carries all 2N apex_edges.
-///
-/// Rule: kef any non-apex cross-loop edge where one adjacent
-/// face is a "cap-side accumulator" (≥2 apex_edges in its outer
-/// loop) AND the other adjacent face has ≥1 apex_edge.  This
-/// grows the largest cap-side accumulator iteratively while
-/// preventing over-merge into host faces (which have at most 1
-/// apex_edge per fillet).
-///
-/// Iterates until no candidate boundary remains.  Cap at
-/// `apex_edges.len() * 4 + 32` iterations as a safety net.
-pub(super) fn merge_cap_side_accumulators(
-    brep: &mut BRep,
-    apex_edge_handles: &[EdgeHandle],
-) -> Result<(), String> {
-    use std::collections::HashSet;
-    if apex_edge_handles.is_empty() {
-        return Ok(());
-    }
-    let perimeter: HashSet<EdgeHandle> = apex_edge_handles.iter().copied().collect();
-    let cap_iters = apex_edge_handles.len() * 4 + 32;
-    for _ in 0..cap_iters {
-        let face_apex_count = count_apex_edges_per_face(brep, &perimeter);
-        let mut victim: Option<HalfEdgeHandle> = None;
-        for (eh, edge) in brep.edges.iter() {
-            if perimeter.contains(&eh) {
-                continue;
-            }
-            let primary = edge.half_edge;
-            let Some(he) = brep.half_edges.get(primary) else {
-                continue;
-            };
-            let Some(twin_he) = brep.half_edges.get(he.twin) else {
-                continue;
-            };
-            if he.loop_ == twin_he.loop_ {
-                continue;
-            }
-            let face_a = match brep.loops.get(he.loop_) {
-                Some(l) => l.face,
-                None => continue,
-            };
-            let face_b = match brep.loops.get(twin_he.loop_) {
-                Some(l) => l.face,
-                None => continue,
-            };
-            let count_a = face_apex_count.get(&face_a).copied().unwrap_or(0);
-            let count_b = face_apex_count.get(&face_b).copied().unwrap_or(0);
-            // Both sides must have apex_edges, and at least one
-            // must be a cap-side accumulator (≥2 apex_edges).
-            if count_a == 0 || count_b == 0 {
-                continue;
-            }
-            if count_a < 2 && count_b < 2 {
-                continue;
-            }
-            victim = Some(primary);
-            break;
-        }
-        let Some(he) = victim else {
-            return Ok(());
-        };
-        brep.kef(he)
-            .map_err(|e| format!("kef on cap-side accumulator merge: {e:?}"))?;
-    }
-    Err("merge_cap_side_accumulators: iteration cap hit".to_string())
-}
-
-/// Count how many apex_edges each face has in its outer loop.
-fn count_apex_edges_per_face(
-    brep: &BRep,
-    perimeter: &std::collections::HashSet<EdgeHandle>,
-) -> std::collections::HashMap<FaceHandle, usize> {
-    let mut out: std::collections::HashMap<FaceHandle, usize> = std::collections::HashMap::new();
-    for (fh, face) in &brep.faces {
-        let Some(loop_data) = brep.loops.get(face.outer_loop) else {
-            continue;
-        };
-        let start = loop_data.half_edge;
-        let mut cursor = start;
-        let mut count = 0usize;
-        let mut iters = 0;
-        let max_iters = brep.half_edges.len() + 1;
-        while let Some(he) = brep.half_edges.get(cursor) {
-            if perimeter.contains(&he.edge) {
-                count += 1;
-            }
-            cursor = he.next;
-            iters += 1;
-            if cursor == start || iters >= max_iters {
-                break;
-            }
-        }
-        if count > 0 {
-            out.insert(fh, count);
-        }
-    }
-    out
-}
-
-#[allow(dead_code)] // Retained for diagnostic scripts; superseded by eliminate_interior_edges.
-pub(super) fn merge_unmerged_apex_subfaces(
-    brep: &mut BRep,
-    apex_edge_handles: &[EdgeHandle],
-) -> Result<(), String> {
-    let cap_iters = apex_edge_handles.len() * 2 + 8;
-    let apex_set: std::collections::HashSet<EdgeHandle> =
-        apex_edge_handles.iter().copied().collect();
-    let apex_vertex_set = apex_vertex_set(brep, &apex_set);
-    for _ in 0..cap_iters {
-        // Pass 1: cross-cap-accumulator merge.
-        let cap_side_faces = faces_with_multi_apex_edges(brep, &apex_set);
-        let mut victim: Option<HalfEdgeHandle> = None;
-        if cap_side_faces.len() >= 2 {
-            victim = find_kef_candidate_between(brep, &cap_side_faces, &apex_set);
-        }
-        // Pass 2: bisected-spoke kef.  Walks every face containing
-        // any apex_edge and looks for an outgoing non-apex edge from
-        // an apex_vertex whose twin face is a different apex-
-        // containing face.
-        if victim.is_none() {
-            victim = find_bisected_spoke_kef_candidate(brep, &apex_set, &apex_vertex_set);
-        }
-        let Some(he) = victim else {
-            return Ok(());
-        };
-        brep.kef(he)
-            .map_err(|e| format!("kef on cap-merging edge: {e:?}"))?;
-    }
-    Err("merge_unmerged_apex_subfaces: iteration cap hit".to_string())
-}
-
-/// Collect the set of vertices that appear as endpoints of any
-/// apex_edge in `apex_set`.  These are the apex_vertices.
-fn apex_vertex_set(
-    brep: &BRep,
-    apex_set: &std::collections::HashSet<EdgeHandle>,
-) -> std::collections::HashSet<VertexHandle> {
-    let mut out = std::collections::HashSet::new();
-    for &eh in apex_set {
-        let Some(edge) = brep.edges.get(eh) else {
-            continue;
-        };
-        let primary = edge.half_edge;
-        if let Some(he) = brep.half_edges.get(primary) {
-            out.insert(he.origin);
-            if let Some(twin) = brep.half_edges.get(he.twin) {
-                out.insert(twin.origin);
-            }
-        }
-    }
-    out
-}
-
-/// Pass 1 helper: find any non-apex edge between two distinct
-/// cap-side accumulator faces.
-fn find_kef_candidate_between(
-    brep: &BRep,
-    cap_side_faces: &[FaceHandle],
-    apex_set: &std::collections::HashSet<EdgeHandle>,
-) -> Option<HalfEdgeHandle> {
-    for fh in cap_side_faces {
-        let face = brep.faces.get(*fh)?;
-        let loop_data = brep.loops.get(face.outer_loop)?;
-        let start = loop_data.half_edge;
-        let mut cursor = start;
-        let mut iters = 0;
-        let max_iters = brep.half_edges.len() + 1;
-        while let Some(he) = brep.half_edges.get(cursor) {
-            if !apex_set.contains(&he.edge) {
-                let twin_loop = brep.half_edges.get(he.twin).map(|t| t.loop_);
-                let twin_face = twin_loop.and_then(|tl| brep.loops.get(tl).map(|l| l.face));
-                if let Some(tf) = twin_face
-                    && tf != *fh
-                    && cap_side_faces.contains(&tf)
-                {
-                    return Some(cursor);
-                }
-            }
-            cursor = he.next;
-            iters += 1;
-            if cursor == start || iters >= max_iters {
-                break;
-            }
-        }
-    }
-    None
-}
-
-/// Pass 2 helper: find a bisected-spoke edge.  Walks every face
-/// containing an apex_edge and looks for a non-apex edge whose
-/// origin is an apex_vertex AND whose twin's origin is also an
-/// apex_vertex AND whose twin face also contains apex_edges.
-/// Strict criterion: both endpoints must be apex_vertices.  The
-/// relaxed "one endpoint apex" version over-merges on cube_extreme
-/// (24 sub-faces produced instead of 3) by absorbing host-face
-/// perimeter edges that share apex_edge boundaries on both sides
-/// without actually being interior to the cap region.
-fn find_bisected_spoke_kef_candidate(
-    brep: &BRep,
-    apex_set: &std::collections::HashSet<EdgeHandle>,
-    apex_vertex_set: &std::collections::HashSet<VertexHandle>,
-) -> Option<HalfEdgeHandle> {
-    let containing_faces: Vec<FaceHandle> = brep
-        .faces
-        .iter()
-        .filter_map(|(fh, face)| {
-            let loop_data = brep.loops.get(face.outer_loop)?;
-            let start = loop_data.half_edge;
-            let mut cursor = start;
-            let mut iters = 0;
-            let max_iters = brep.half_edges.len() + 1;
-            while let Some(he) = brep.half_edges.get(cursor) {
-                if apex_set.contains(&he.edge) {
-                    return Some(fh);
-                }
-                cursor = he.next;
-                iters += 1;
-                if cursor == start || iters >= max_iters {
-                    return None;
-                }
-            }
-            None
-        })
-        .collect();
-    for fh in &containing_faces {
-        let face = brep.faces.get(*fh)?;
-        let loop_data = brep.loops.get(face.outer_loop)?;
-        let start = loop_data.half_edge;
-        let mut cursor = start;
-        let mut iters = 0;
-        let max_iters = brep.half_edges.len() + 1;
-        while let Some(he) = brep.half_edges.get(cursor) {
-            if !apex_set.contains(&he.edge) && apex_vertex_set.contains(&he.origin) {
-                let twin = he.twin;
-                let twin_origin = brep.half_edges.get(twin).map(|t| t.origin);
-                let twin_loop = brep.half_edges.get(twin).map(|t| t.loop_);
-                let twin_face = twin_loop.and_then(|tl| brep.loops.get(tl).map(|l| l.face));
-                if let (Some(to), Some(tf)) = (twin_origin, twin_face)
-                    && apex_vertex_set.contains(&to)
-                    && tf != *fh
-                    && containing_faces.contains(&tf)
-                {
-                    return Some(cursor);
-                }
-            }
-            cursor = he.next;
-            iters += 1;
-            if cursor == start || iters >= max_iters {
-                break;
-            }
-        }
-    }
-    None
-}
-
-fn faces_with_multi_apex_edges(
-    brep: &BRep,
-    apex_set: &std::collections::HashSet<EdgeHandle>,
-) -> Vec<FaceHandle> {
-    let mut out = Vec::new();
-    for (fh, face) in &brep.faces {
-        let Some(loop_data) = brep.loops.get(face.outer_loop) else {
-            continue;
-        };
-        let start = loop_data.half_edge;
-        let mut cursor = start;
-        let mut iters = 0;
-        let max_iters = brep.half_edges.len() + 1;
-        let mut count = 0usize;
-        while let Some(he) = brep.half_edges.get(cursor) {
-            if apex_set.contains(&he.edge) {
-                count += 1;
-                if count >= 2 {
-                    out.push(fh);
-                    break;
-                }
-            }
-            cursor = he.next;
-            iters += 1;
-            if cursor == start || iters >= max_iters {
-                break;
-            }
-        }
-    }
-    out
-}
-
-/// Find the face whose outer loop walks every edge in
-/// `apex_edge_handles`.  Returns `None` when no such face exists.
-///
-/// The cap face is uniquely determined by the property that all
-/// 2N (or N) plan apex_edges are on its outer loop in the planned
-/// cap-loop order.  After stage 3 (kef + kev), exactly one such
-/// face exists in a well-formed BRep.  This helper identifies it
-/// independently of which side `kef_cross_face_v_edges` happened
-/// to keep — the legacy helper's "blend_face" return chases the
-/// last kef's `he_face`, which on Gregory caps with mixed-host
-/// mef sites can be a non-cap remnant (e.g. a far-side plane sub-
-/// face whose interior was unrelated to the apex region).
-pub(super) fn find_face_bounded_by_all_apex_edges(
-    brep: &BRep,
-    apex_edge_handles: &[EdgeHandle],
-) -> Option<FaceHandle> {
-    if apex_edge_handles.is_empty() {
-        return None;
-    }
-    for (fh, face) in &brep.faces {
-        let outer_loop = face.outer_loop;
-        let Some(loop_data) = brep.loops.get(outer_loop) else {
-            continue;
-        };
-        let start = loop_data.half_edge;
-        let mut loop_edges: Vec<EdgeHandle> = Vec::new();
-        let mut cursor = start;
-        let mut iters = 0;
-        let max_iters = brep.half_edges.len() + 1;
-        while let Some(he) = brep.half_edges.get(cursor) {
-            loop_edges.push(he.edge);
-            cursor = he.next;
-            iters += 1;
-            if cursor == start || iters >= max_iters {
-                break;
-            }
-        }
-        if apex_edge_handles.iter().all(|eh| loop_edges.contains(eh)) {
-            return Some(fh);
-        }
-    }
-    None
-}
-
-/// Given an edge handle whose two adjacent faces are `cap_face` and
-/// some other face, return the other face.  Returns `None` when
-/// the edge isn't manifold-2 or `cap_face` doesn't bound it.
-fn find_face_across_edge(
-    brep: &BRep,
-    edge: EdgeHandle,
-    cap_face: FaceHandle,
-) -> Option<FaceHandle> {
-    let edge_data = brep.edges.get(edge)?;
-    let primary = edge_data.half_edge;
-    let primary_he = brep.half_edges.get(primary)?;
-    let twin_he = brep.half_edges.get(primary_he.twin)?;
-    let face_a = brep.loops.get(primary_he.loop_)?.face;
-    let face_b = brep.loops.get(twin_he.loop_)?.face;
-    if face_a == cap_face {
-        Some(face_b)
-    } else if face_b == cap_face {
-        Some(face_a)
-    } else {
-        None
     }
 }

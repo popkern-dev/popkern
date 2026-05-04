@@ -168,8 +168,15 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
 
     // Apply: 3D curve on edge, pcurve_a on the half-edge whose face
     // is face_1, pcurve_b on the twin (face_2's half-edge).
+    let geometry = triple
+        .curve_3d
+        .canonical_line_in_range(
+            (triple.t_start, triple.t_end),
+            tolerance.linear().max(1.0e-8),
+        )
+        .unwrap_or_else(|| triple.curve_3d.clone());
     let new_curve = CurveOnEdge {
-        geometry: triple.curve_3d.clone(),
+        geometry,
         t_start: triple.t_start,
         t_end: triple.t_end,
     };

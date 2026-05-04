@@ -30,6 +30,9 @@ docs/reports/kernel-analysis/
 # Personal prompt log (not committed)
 .prompt-log/
 
+# Local task ledger (schema/tooling is committed; state is intentionally local)
+.popkern/
+
 # Flowchart databases and generated JSON (regenerated from seeds/)
 flowcharts/*.db
 flowcharts/*.db-wal

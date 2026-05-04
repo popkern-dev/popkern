@@ -348,6 +348,23 @@ pub fn measure_cap_outer_boundary(
     cap_faces: &[FaceHandle],
     n_samples: usize,
 ) -> CapOuterMetrics {
+    measure_cap_outer_boundary_inner(brep, cap_faces, n_samples, false)
+}
+
+pub fn measure_cap_outer_boundary_including_pcurve_only(
+    brep: &BRep,
+    cap_faces: &[FaceHandle],
+    n_samples: usize,
+) -> CapOuterMetrics {
+    measure_cap_outer_boundary_inner(brep, cap_faces, n_samples, true)
+}
+
+fn measure_cap_outer_boundary_inner(
+    brep: &BRep,
+    cap_faces: &[FaceHandle],
+    n_samples: usize,
+    include_pcurve_only_edges: bool,
+) -> CapOuterMetrics {
     use popkern_core::geometry::curve::CurveEval;
     use popkern_core::geometry::surface::SurfaceEval;
 
@@ -355,12 +372,11 @@ pub fn measure_cap_outer_boundary(
     let mut worst_g0 = 0.0_f64;
     let mut worst_g1 = 0.0_f64;
     let mut edges_measured = 0usize;
+    let mut worst_g0_trace = String::new();
+    let mut worst_g1_trace = String::new();
     let n_samples = n_samples.max(2);
 
     for (_eh, edge) in brep.edges.iter() {
-        let Some(coe) = edge.curve.as_ref() else {
-            continue;
-        };
         let he_a = edge.half_edge;
         let Some(ha) = brep.half_edges.get(he_a) else {
             continue;
@@ -394,12 +410,8 @@ pub fn measure_cap_outer_boundary(
             continue;
         };
 
-        let (t_lo, t_hi) = (coe.t_start, coe.t_end);
         let (pa_lo, pa_hi) = pa.parameter_range();
         let (pb_lo, pb_hi) = pb.parameter_range();
-        // Direction detection (mirrors find_tessellation_non_manifold_edges).
-        let p3_lo = coe.geometry.point_at(t_lo);
-        let p3_hi = coe.geometry.point_at(t_hi);
         let pa_at = |t: f64| {
             let uv = pa.point_at(t);
             sa.geometry.point_at(uv.x, uv.y)
@@ -408,10 +420,31 @@ pub fn measure_cap_outer_boundary(
             let uv = pb.point_at(t);
             sb.geometry.point_at(uv.x, uv.y)
         };
-        let pa_forward = p3_lo.distance_to(&pa_at(pa_lo)) + p3_hi.distance_to(&pa_at(pa_hi))
-            <= p3_lo.distance_to(&pa_at(pa_hi)) + p3_hi.distance_to(&pa_at(pa_lo));
-        let pb_forward = p3_lo.distance_to(&pb_at(pb_lo)) + p3_hi.distance_to(&pb_at(pb_hi))
-            <= p3_lo.distance_to(&pb_at(pb_hi)) + p3_hi.distance_to(&pb_at(pb_lo));
+        let (pa_forward, pb_forward) = if let Some(coe) = edge.curve.as_ref() {
+            let (t_lo, t_hi) = (coe.t_start, coe.t_end);
+            // Direction detection (mirrors find_tessellation_non_manifold_edges).
+            let p3_lo = coe.geometry.point_at(t_lo);
+            let p3_hi = coe.geometry.point_at(t_hi);
+            (
+                p3_lo.distance_to(&pa_at(pa_lo)) + p3_hi.distance_to(&pa_at(pa_hi))
+                    <= p3_lo.distance_to(&pa_at(pa_hi)) + p3_hi.distance_to(&pa_at(pa_lo)),
+                p3_lo.distance_to(&pb_at(pb_lo)) + p3_hi.distance_to(&pb_at(pb_hi))
+                    <= p3_lo.distance_to(&pb_at(pb_hi)) + p3_hi.distance_to(&pb_at(pb_lo)),
+            )
+        } else if include_pcurve_only_edges {
+            // Some legacy cap builders leave the shared 3D edge curve absent
+            // while retaining both pcurves. Measure the actual surface-to-
+            // surface boundary by aligning the pcurve endpoints directly.
+            let a_lo = pa_at(pa_lo);
+            let a_hi = pa_at(pa_hi);
+            (
+                true,
+                a_lo.distance_to(&pb_at(pb_lo)) + a_hi.distance_to(&pb_at(pb_hi))
+                    <= a_lo.distance_to(&pb_at(pb_hi)) + a_hi.distance_to(&pb_at(pb_lo)),
+            )
+        } else {
+            continue;
+        };
 
         edges_measured += 1;
         for i in 0..n_samples {
@@ -429,6 +462,12 @@ pub fn measure_cap_outer_boundary(
             let g0 = p_a.distance_to(&p_b);
             if g0 > worst_g0 {
                 worst_g0 = g0;
+                if std::env::var_os("POPKERN_TRACE_CAP_OUTER_MEASURE").is_some() {
+                    worst_g0_trace = format!(
+                        "edge={_eh:?} faces=({face_a:?},{face_b:?}) sample={i} uv_a=({:.3},{:.3}) uv_b=({:.3},{:.3}) p_a=({:.4},{:.4},{:.4}) p_b=({:.4},{:.4},{:.4})",
+                        uv_a.x, uv_a.y, uv_b.x, uv_b.y, p_a.x, p_a.y, p_a.z, p_b.x, p_b.y, p_b.z
+                    );
+                }
             }
 
             // G1 — unit-normal parallelism deficit. `0` = perfect
@@ -448,9 +487,36 @@ pub fn measure_cap_outer_boundary(
                 let deficit = 1.0 - (dot(n_a, n_b) / (nn_a * nn_b)).abs();
                 if deficit > worst_g1 {
                     worst_g1 = deficit;
+                    if std::env::var_os("POPKERN_TRACE_CAP_OUTER_MEASURE").is_some() {
+                        worst_g1_trace = format!(
+                            "edge={_eh:?} faces=({face_a:?},{face_b:?}) sample={i} uv_a=({:.3},{:.3}) uv_b=({:.3},{:.3}) n_a=({:.3},{:.3},{:.3}) n_b=({:.3},{:.3},{:.3}) su_a=({:.3},{:.3},{:.3}) sv_a=({:.3},{:.3},{:.3})",
+                            uv_a.x,
+                            uv_a.y,
+                            uv_b.x,
+                            uv_b.y,
+                            n_a.x / nn_a,
+                            n_a.y / nn_a,
+                            n_a.z / nn_a,
+                            n_b.x / nn_b,
+                            n_b.y / nn_b,
+                            n_b.z / nn_b,
+                            su_a.x,
+                            su_a.y,
+                            su_a.z,
+                            sv_a.x,
+                            sv_a.y,
+                            sv_a.z
+                        );
+                    }
                 }
             }
         }
+    }
+    if !worst_g0_trace.is_empty() {
+        eprintln!("[cap_outer measure worst_g0] {worst_g0:.6e} {worst_g0_trace}");
+    }
+    if !worst_g1_trace.is_empty() {
+        eprintln!("[cap_outer measure worst_g1] {worst_g1:.6e} {worst_g1_trace}");
     }
 
     CapOuterMetrics {

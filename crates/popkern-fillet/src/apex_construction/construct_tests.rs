@@ -10,6 +10,7 @@ use popkern_core::topology::BRep;
 use crate::types::{FilletRadius, FilletSpec};
 
 use super::construct::construct_apex;
+use super::construct_test_helpers::{synthetic_sphere_plan, synthetic_sphere_plan_with_edges};
 use super::error::ApexBuildError;
 use super::plan::plan_apex_resolution;
 use super::plan_e2e_test_helpers::{
@@ -107,49 +108,6 @@ fn sphere_or_gregory_construct_returns_typed_unimplemented() {
 // A2.2.b — apex-vertex resolution
 // ---------------------------------------------------------------
 
-/// Build a synthetic ApexPlan whose target_topology has the
-/// supplied apex vertex positions and a Sphere cap kind.
-/// Used by the A2.2.b find-only tests where we don't need the
-/// geometry of the real sphere-fit pipeline — just a plan whose
-/// apex_vertices match positions we control.
-fn synthetic_sphere_plan(
-    apex_vertices: Vec<popkern_core::geometry::Point3>,
-) -> super::plan::ApexPlan {
-    use popkern_core::geometry::Point3;
-    use popkern_core::topology::VertexHandle;
-
-    use super::cap_kind::CapKind;
-    use super::plan::ApexPlan;
-    use super::target_topology::{TargetCapFace, TargetTopology};
-    use super::telemetry::{ConstructionRung, PlanTelemetry};
-
-    let n = apex_vertices.len();
-    let cap_kind = CapKind::Sphere {
-        center: Point3::new(0.0, 0.0, 0.0),
-        radius: 0.1,
-        tangent_arc_endpoints: apex_vertices.clone(),
-    };
-    let cap_face = TargetCapFace::Sphere {
-        center: Point3::new(0.0, 0.0, 0.0),
-        radius: 0.1,
-        outer_loop_edge_indices: (0..n).collect(),
-    };
-    let target_topology = TargetTopology {
-        apex_vertices,
-        apex_edges: Vec::new(),
-        cap_face,
-        face_boundary_updates: Vec::new(),
-    };
-    let mut telemetry = PlanTelemetry::new();
-    telemetry.rung = ConstructionRung::Direct;
-    ApexPlan {
-        apex_vertex: VertexHandle::default(),
-        cap_kind,
-        target_topology,
-        telemetry,
-    }
-}
-
 #[test]
 fn resolve_apex_vertices_finds_existing_within_tolerance() {
     use popkern_core::geometry::Point3;
@@ -160,7 +118,7 @@ fn resolve_apex_vertices_finds_existing_within_tolerance() {
     let mvfs = brep.mvfs(Point3::new(0.1, 0.1, 0.0)).unwrap();
 
     // Plan asks for a vertex at the same position (within tol).
-    let plan = synthetic_sphere_plan(vec![Point3::new(0.1, 0.1, 0.0)]);
+    let plan = synthetic_sphere_plan(mvfs.vertex, vec![Point3::new(0.1, 0.1, 0.0)]);
 
     // Driving construct_apex against this plan resolves vertex 0
     // (the find succeeds), then errors out at A2.2.c+ with a
@@ -173,9 +131,8 @@ fn resolve_apex_vertices_finds_existing_within_tolerance() {
         other => panic!("expected PlanMismatch, got {other:?}"),
     };
     // Stage 3 (`kef_cross_face_v_edges`) can't merge anything on
-    // these synthetic fixtures (the plan's `apex_vertex` is a
-    // default handle), so it surfaces "no merge performed".  That
-    // error is *evidence* stages 1 + 2 succeeded — the early
+    // these synthetic fixtures, so it surfaces "no merge performed".
+    // That error is *evidence* stages 1 + 2 succeeded — the early
     // diagnostics ("no BRep vertex within", "no face has both")
     // would fire before reaching stage 3.
     assert!(
@@ -196,10 +153,10 @@ fn resolve_apex_vertices_fails_when_no_match_exists() {
     use popkern_core::topology::BRep;
 
     let mut brep = BRep::new(test_tolerance());
-    brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+    let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
 
     // Plan asks for a vertex 1m away — way outside tol.
-    let plan = synthetic_sphere_plan(vec![Point3::new(1.0, 0.0, 0.0)]);
+    let plan = synthetic_sphere_plan(mvfs.vertex, vec![Point3::new(1.0, 0.0, 0.0)]);
 
     let err = construct_apex(&mut brep, &plan, &test_tolerance(), None)
         .expect_err("no nearby vertex exists");
@@ -222,64 +179,6 @@ fn resolve_apex_vertices_fails_when_no_match_exists() {
 // A2.2.c — apex-edge resolution
 // ---------------------------------------------------------------
 
-/// Build a synthetic ApexPlan with explicit apex_edges connecting
-/// each pair of consecutive apex_vertices via a degree-1 NURBS.
-/// Used by A2.2.c find-only tests.
-fn synthetic_sphere_plan_with_edges(
-    apex_vertices: Vec<popkern_core::geometry::Point3>,
-    edge_pairs: Vec<(usize, usize)>,
-) -> super::plan::ApexPlan {
-    use popkern_core::geometry::{NurbsCurve, Point3};
-    use popkern_core::topology::VertexHandle;
-
-    use super::cap_kind::CapKind;
-    use super::plan::ApexPlan;
-    use super::target_topology::{TargetCapFace, TargetEdge, TargetEdgeRole, TargetTopology};
-    use super::telemetry::{ConstructionRung, PlanTelemetry};
-
-    let mut apex_edges: Vec<TargetEdge> = Vec::new();
-    for &(origin_idx, dest_idx) in &edge_pairs {
-        let curve = NurbsCurve {
-            degree: 1,
-            knots: vec![0.0, 0.0, 1.0, 1.0],
-            control_points: vec![apex_vertices[origin_idx], apex_vertices[dest_idx]],
-            weights: vec![1.0, 1.0],
-        };
-        apex_edges.push(TargetEdge {
-            origin_vertex_idx: origin_idx,
-            dest_vertex_idx: dest_idx,
-            curve,
-            role: TargetEdgeRole::CapVsCyl { fillet_idx: 0 },
-        });
-    }
-    let n_v = apex_vertices.len();
-    let cap_kind = CapKind::Sphere {
-        center: Point3::new(0.0, 0.0, 0.0),
-        radius: 0.1,
-        tangent_arc_endpoints: apex_vertices.clone(),
-    };
-    let cap_face = TargetCapFace::Sphere {
-        center: Point3::new(0.0, 0.0, 0.0),
-        radius: 0.1,
-        outer_loop_edge_indices: (0..apex_edges.len()).collect(),
-    };
-    let target_topology = TargetTopology {
-        apex_vertices,
-        apex_edges,
-        cap_face,
-        face_boundary_updates: Vec::new(),
-    };
-    let mut telemetry = PlanTelemetry::new();
-    telemetry.rung = ConstructionRung::Direct;
-    let _ = n_v;
-    ApexPlan {
-        apex_vertex: VertexHandle::default(),
-        cap_kind,
-        target_topology,
-        telemetry,
-    }
-}
-
 #[test]
 fn resolve_apex_edges_finds_existing_brep_edge() {
     use popkern_core::geometry::Point3;
@@ -296,24 +195,22 @@ fn resolve_apex_edges_finds_existing_brep_edge() {
     // Plan: 2 apex vertices at the BRep's vertex positions, 1
     // edge connecting them.
     let plan = synthetic_sphere_plan_with_edges(
+        mvfs.vertex,
         vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
         vec![(0, 1)],
     );
 
-    // construct_apex resolves both vertices (stage 1) and the
-    // edge (stage 2), then errors at stage 3+ — but the message
-    // confirms we got past edge resolution.
-    let err = construct_apex(&mut brep, &plan, &test_tolerance(), None)
-        .expect_err("post-edge-resolution stages not yet implemented");
-    let reason = match err {
-        ApexBuildError::PlanMismatch { reason } => reason,
-        other => panic!("expected PlanMismatch, got {other:?}"),
-    };
-    assert!(
-        reason.contains("kef_cross_face_v_edges")
-            || reason.contains("kev_v_bridge")
-            || reason.contains("Gregory cap surface assembly"),
-        "should have advanced past resolve_apex_edges; got: {reason}",
+    let result = construct_apex(&mut brep, &plan, &test_tolerance(), None)
+        .expect("sphere construction should resolve existing edge");
+    assert_eq!(
+        result.apex_vertices.len(),
+        2,
+        "both planned apex vertices should resolve to BRep vertices",
+    );
+    assert_eq!(
+        result.apex_edges.len(),
+        1,
+        "planned apex edge should be represented in result ordering",
     );
 }
 
@@ -328,7 +225,7 @@ fn resolve_apex_edges_fails_when_no_shared_face_for_mef() {
     // (`kef_cross_face_v_edges`) hits the unconnected-orphan
     // condition and fails with a different diagnostic.
     let mut brep = BRep::new(test_tolerance());
-    brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+    let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
     brep.vertices.insert(popkern_core::topology::Vertex {
         position: Point3::new(1.0, 0.0, 0.0),
         outgoing: Default::default(),
@@ -337,6 +234,7 @@ fn resolve_apex_edges_fails_when_no_shared_face_for_mef() {
     });
 
     let plan = synthetic_sphere_plan_with_edges(
+        mvfs.vertex,
         vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
         vec![(0, 1)],
     );
@@ -376,35 +274,26 @@ fn resolve_apex_vertices_creates_missing_via_edge_split() {
     let pre_vertices = brep.vertices.len();
     let pre_edges = brep.edges.len();
 
-    let plan = synthetic_sphere_plan(vec![Point3::new(0.5, 0.0, 0.0)]);
+    let plan = synthetic_sphere_plan(mvfs.vertex, vec![Point3::new(0.5, 0.0, 0.0)]);
 
-    // construct_apex's stage 1 must succeed (via the create
-    // branch); stage 3 then errors against the synthetic plan's
-    // default apex_vertex handle.  Snapshot rolls back, so the
-    // post-call BRep is byte-identical to pre-call — vertex /
-    // edge counts confirm.
-    let err = construct_apex(&mut brep, &plan, &test_tolerance(), None)
-        .expect_err("post-resolve stages fail on synthetic plan");
-    let reason = match err {
-        ApexBuildError::PlanMismatch { reason } => reason,
-        other => panic!("expected PlanMismatch, got {other:?}"),
-    };
+    let result = construct_apex(&mut brep, &plan, &test_tolerance(), None)
+        .expect("sphere construction should create missing apex vertex by edge split");
+    assert_eq!(
+        result.apex_vertices.len(),
+        1,
+        "single planned apex vertex should be created/resolved",
+    );
     assert!(
-        reason.contains("kef_cross_face_v_edges")
-            || reason.contains("kev_v_bridge")
-            || reason.contains("Gregory cap surface assembly"),
-        "should advance past stage 1 (create branch); got: {reason}",
+        !result.created_faces.is_empty(),
+        "successful sphere construction should report created cap topology",
     );
-    // Snapshot rollback: vertex / edge counts unchanged.
-    assert_eq!(
-        brep.vertices.len(),
-        pre_vertices,
-        "snapshot rollback restores vertex count after create branch",
+    assert!(
+        brep.vertices.len() >= pre_vertices,
+        "construction should not lose existing vertices",
     );
-    assert_eq!(
-        brep.edges.len(),
-        pre_edges,
-        "snapshot rollback restores edge count after create branch",
+    assert!(
+        brep.edges.len() >= pre_edges,
+        "edge split should not lose existing edge topology",
     );
 }
 
@@ -437,44 +326,31 @@ fn resolve_apex_edges_creates_missing_edge_via_mef() {
         .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
         .expect("extend to 0,1");
     let pre_faces = brep.faces.len();
-    let pre_edges = brep.edges.len();
 
     // Plan: connect v0 (0,0,0) to v2 (1,1,0) — non-adjacent on
     // the strip's loop.  Vertex order in BRep: insertion order
     // from mvfs/mev calls, so apex_vertices[0] = (0,0,0),
     // apex_vertices[1] = (1,1,0) maps to BRep vertices 0 and 2.
     let plan = synthetic_sphere_plan_with_edges(
+        mvfs.vertex,
         vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 1.0, 0.0)],
         vec![(0, 1)],
     );
 
-    // construct_apex fires the find/create stages, then errors
-    // at the cap-face stub — the snapshot rolls everything back,
-    // so post-call BRep equals pre-call BRep.  We verify the
-    // create branch ran by checking the error message advanced
-    // past edge resolution.
-    let err = construct_apex(&mut brep, &plan, &test_tolerance(), None)
-        .expect_err("cap face assembly stub fires after edge create");
-    let reason = match err {
-        ApexBuildError::PlanMismatch { reason } => reason,
-        other => panic!("expected PlanMismatch, got {other:?}"),
-    };
+    let result = construct_apex(&mut brep, &plan, &test_tolerance(), None)
+        .expect("sphere construction should create missing edge/cap topology");
+    assert_eq!(
+        result.apex_vertices.len(),
+        2,
+        "both planned apex vertices should resolve",
+    );
     assert!(
-        reason.contains("kef_cross_face_v_edges")
-            || reason.contains("kev_v_bridge")
-            || reason.contains("Gregory cap surface assembly"),
-        "should advance past edge create; got: {reason}",
+        !result.created_faces.is_empty(),
+        "successful construction should report created cap topology",
     );
-    // Snapshot rollback: face/edge counts unchanged.
-    assert_eq!(
-        brep.faces.len(),
-        pre_faces,
-        "snapshot rollback restores face count",
-    );
-    assert_eq!(
-        brep.edges.len(),
-        pre_edges,
-        "snapshot rollback restores edge count",
+    assert!(
+        brep.faces.len() >= pre_faces,
+        "successful construction should not lose existing faces",
     );
 
     // To verify the create branch's curve attachment in
@@ -493,9 +369,8 @@ fn resolve_apex_edges_creates_missing_edge_via_mef() {
     let _m3 = brep2
         .mev(m2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
         .unwrap();
-    super::construct::construct_apex(&mut brep2, &plan, &test_tolerance(), None).ok();
-    // After the failed call, snapshot has rolled back.  Re-run
-    // just the edge-creation by manually invoking find/mef.
+    // Verify the edge-creation curve attachment path by manually invoking
+    // mef against the fresh strip.
     use popkern_core::topology::HalfEdgeHandle;
     let mut he_v0: Option<HalfEdgeHandle> = None;
     let mut he_v2: Option<HalfEdgeHandle> = None;
@@ -513,9 +388,8 @@ fn resolve_apex_edges_creates_missing_edge_via_mef() {
         .expect("mef on synthetic strip");
     assert_eq!(brep2.faces.len(), pre_faces + 1, "mef adds one face");
     // The TargetEdge.curve from synthetic_sphere_plan_with_edges
-    // is a degree-1 NURBS line; when the create branch attaches
-    // it correctly, the new edge's curve should be Some(Nurbs(_)).
-    // Replicate the attach manually to verify the wrapping logic.
+    // is a degree-1 NURBS line. The edge-attachment boundary should
+    // canonicalize that into the semantic analytic Line variant.
     let target_curve = &plan.target_topology.apex_edges[0].curve;
     super::construct::attach_curve_to_edge(&mut brep2, mef_r.edge, target_curve);
     let edge_curve = brep2.edges[mef_r.edge]
@@ -523,8 +397,8 @@ fn resolve_apex_edges_creates_missing_edge_via_mef() {
         .as_ref()
         .expect("curve attached after mef");
     assert!(
-        matches!(edge_curve.geometry, CurveGeometry::Nurbs(_)),
-        "attached curve should be a NURBS variant",
+        matches!(edge_curve.geometry, CurveGeometry::Line { .. }),
+        "attached straight edge should be an analytic Line variant",
     );
 }
 

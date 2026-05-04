@@ -17,6 +17,9 @@ impl BRep {
                 .half_edges
                 .get(edge_data.half_edge)
                 .ok_or(ValidationError::NonManifoldEdge { edge: edge_handle })?;
+            if he.edge != edge_handle {
+                return Err(ValidationError::NonManifoldEdge { edge: edge_handle });
+            }
 
             let twin = self
                 .half_edges
@@ -232,6 +235,16 @@ mod tests {
             .unwrap();
         // Corrupt the twin's edge pointer to not match.
         brep.half_edges[mev.half_edge_twin].edge = Default::default();
+        assert!(brep.validate_manifold_edges().is_err());
+    }
+
+    #[test]
+    fn corrupted_primary_half_edge_backref_fails_manifold() {
+        let mut brep = make_cube();
+        let mut edges = brep.edges.keys();
+        let edge_a = edges.next().unwrap();
+        let edge_b = edges.next().unwrap();
+        brep.edges[edge_a].half_edge = brep.edges[edge_b].half_edge;
         assert!(brep.validate_manifold_edges().is_err());
     }
 

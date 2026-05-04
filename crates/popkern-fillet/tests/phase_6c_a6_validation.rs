@@ -478,12 +478,13 @@ fn phase_6c_a6_path_a_plus_rebuild_probe() {
     }
 }
 
-/// A.6 lock-in for variable-radius cube fixtures.  After the
-/// junction-snap fallback in A.4 + the straight-line fallback
-/// in A.5's realign, both `cube_mixed` and `cube_extreme` reach
-/// `path_a_relevant == 0` under Path A — completing the matrix
-/// (every uniform AND variable-radius fixture clean on the
-/// flag-flip gates).
+/// Historical A.6 lock-in for variable-radius cube fixtures under the
+/// pre-A2 sphere-fit substitution pipeline. A2 supersedes this route
+/// with normalized cap-loop construction and is gated by
+/// `a2_5_matrix_passes_under_a2` plus the cap-outer continuity checks.
+/// Keep this as an ignored diagnostic for archaeology; it is no longer
+/// the commercial acceptance gate.
+#[ignore]
 #[test]
 fn phase_6c_a6_variable_radius_cubes_path_a_clean() {
     for (name, radii) in &[

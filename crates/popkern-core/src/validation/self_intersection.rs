@@ -189,7 +189,21 @@ impl BRep {
             );
 
             match result {
-                Ok(ref r) if !r.intersections.is_empty() => {
+                Ok(ref r)
+                    if r.intersections.iter().any(|intersection| {
+                        self.intersection_overlaps_face_trims(
+                            face_keys[i],
+                            &surf_i.geometry,
+                            face_keys[j],
+                            &surf_j.geometry,
+                            intersection,
+                            linear_tol,
+                        )
+                    }) =>
+                {
+                    if std::env::var_os("POPKERN_SELF_INTERSECTION_TRACE").is_some() {
+                        self.trace_self_intersection_pair(face_keys[i], face_keys[j]);
+                    }
                     return Err(ValidationError::SelfIntersection {
                         face_a: face_keys[i],
                         face_b: face_keys[j],
@@ -200,6 +214,46 @@ impl BRep {
         }
 
         Ok(())
+    }
+
+    fn trace_self_intersection_pair(
+        &self,
+        face_a: crate::topology::FaceHandle,
+        face_b: crate::topology::FaceHandle,
+    ) {
+        eprintln!(
+            "[self-intersection pair] {face_a:?}/{} {face_b:?}/{}",
+            trace_surface_kind(self, face_a),
+            trace_surface_kind(self, face_b),
+        );
+        for face in [face_a, face_b] {
+            let Some(face_data) = self.faces.get(face) else {
+                continue;
+            };
+            let Some(loop_data) = self.loops.get(face_data.outer_loop) else {
+                continue;
+            };
+            let mut entries = Vec::new();
+            let mut cursor = loop_data.half_edge;
+            for _ in 0..=self.half_edges.len() {
+                let Some(he) = self.half_edges.get(cursor) else {
+                    break;
+                };
+                let p = self.vertices[he.origin].position;
+                entries.push(format!(
+                    "{cursor:?}:e{:?}:v{:?}=({:.4},{:.4},{:.4})",
+                    he.edge, he.origin, p.x, p.y, p.z,
+                ));
+                cursor = he.next;
+                if cursor == loop_data.half_edge {
+                    break;
+                }
+            }
+            eprintln!(
+                "[self-intersection loop] {face:?}: {}",
+                entries.join(" -> ")
+            );
+        }
     }
 
     /// Check for twisted surfaces: faces where the normal reverses direction.
@@ -290,6 +344,26 @@ impl BRep {
             }
         }
         Ok(())
+    }
+}
+
+fn trace_surface_kind(brep: &BRep, face: crate::topology::FaceHandle) -> &'static str {
+    use crate::geometry::surface::SurfaceGeometry;
+
+    match brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| &s.geometry)
+    {
+        Some(SurfaceGeometry::Plane { .. }) => "Plane",
+        Some(SurfaceGeometry::Cylinder { .. }) => "Cylinder",
+        Some(SurfaceGeometry::Cone { .. }) => "Cone",
+        Some(SurfaceGeometry::Sphere { .. }) => "Sphere",
+        Some(SurfaceGeometry::Torus { .. }) => "Torus",
+        Some(SurfaceGeometry::Nurbs(_)) => "Nurbs",
+        Some(SurfaceGeometry::Gregory(_)) => "Gregory",
+        None => "None",
     }
 }
 

@@ -1,0 +1,500 @@
+#!/usr/bin/env bash
+# Local SQLite task ledger for popkern.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DB_DIR="$ROOT/.popkern"
+DB="$DB_DIR/tasks.sqlite"
+SCHEMA="$ROOT/tools/taskdb/schema.sql"
+
+usage() {
+    cat <<'USAGE'
+Usage: tools/task <command> [args]
+
+Core:
+  init
+  new <title> [--scope <text>] [--plan <path>]
+  list [status]
+  status
+  dashboard
+  show <task>
+  context [task]
+  handoff [task]
+  commercial-check [task]
+
+Workflow:
+  start <task>
+  plan <task>
+  review <task>
+  done <task> [--evidence <text>]
+  partial <task> <remaining work>
+  abandon <task> <reason>
+
+Tracking:
+  note <task> <text>
+  scope <task> <expand|contract|revise> <text>
+  split <task> <child title> [--scope <text>]
+  accept <task> <criterion>
+  check <criterion-id>
+  drop-accept <criterion-id>
+  link-plan <task> <path> [title]
+  touch <task> <path> [...]
+  diff-files <task>
+  block <task> <reason>
+  unblock <task> <note>
+  question <task> <question>
+  decide <task> <decision>
+  depend <task> <depends-on-task>
+  verify <task> -- <command...>
+  import-plans <dir>
+  export <task>
+
+The ledger lives at .popkern/tasks.sqlite and is intentionally git-ignored.
+USAGE
+}
+
+die() {
+    echo "task: $*" >&2
+    exit 1
+}
+
+need_sqlite() {
+    command -v sqlite3 >/dev/null 2>&1 || die "sqlite3 is required"
+}
+
+sql_quote() {
+    printf "'%s'" "${1//\'/\'\'}"
+}
+
+sql() {
+    need_sqlite
+    mkdir -p "$DB_DIR"
+    printf '.timeout 5000\nPRAGMA foreign_keys=ON;\n%s\n' "$*" | sed 's/^[[:space:]]*\././' | sqlite3 "$DB"
+}
+
+init_db() {
+    need_sqlite
+    mkdir -p "$DB_DIR"
+    sqlite3 "$DB" < "$SCHEMA"
+}
+
+ensure_db() {
+    if [[ ! -f "$DB" ]]; then
+        init_db
+    fi
+}
+
+exists_task() {
+    local task="$1"
+    [[ "$(sql "SELECT COUNT(*) FROM tasks WHERE id=$(sql_quote "$task");")" == "1" ]]
+}
+
+require_task() {
+    local task="$1"
+    exists_task "$task" || die "unknown task: $task"
+}
+
+next_task_id() {
+    local max
+    max="$(sql "SELECT COALESCE(MAX(CAST(substr(id, 4) AS INTEGER)), 0) FROM tasks WHERE id GLOB 'PK-[0-9]*';")"
+    printf "PK-%03d" "$((max + 1))"
+}
+
+event() {
+    local task="$1" kind="$2" body="${3:-}"
+    sql "INSERT INTO events(task_id, kind, body) VALUES ($(sql_quote "$task"), $(sql_quote "$kind"), $(sql_quote "$body"));
+         UPDATE tasks SET updated_at=datetime('now') WHERE id=$(sql_quote "$task");"
+}
+
+set_status() {
+    local task="$1" status="$2" note="${3:-}"
+    require_task "$task"
+    local close_sql="closed_at=NULL"
+    if [[ "$status" == "done" || "$status" == "abandoned" || "$status" == "superseded" ]]; then
+        close_sql="closed_at=datetime('now')"
+    fi
+    sql "UPDATE tasks SET status=$(sql_quote "$status"), updated_at=datetime('now'), $close_sql WHERE id=$(sql_quote "$task");"
+    event "$task" "status:$status" "$note"
+    echo "$task -> $status"
+}
+
+plan_title() {
+    local path="$1"
+    if [[ -f "$ROOT/$path" ]]; then
+        sed -n 's/^# \{1,\}//p' "$ROOT/$path" | head -1
+    elif [[ -f "$path" ]]; then
+        sed -n 's/^# \{1,\}//p' "$path" | head -1
+    fi
+}
+
+commercial_check() {
+    local task="${1:-}"
+    echo "Commercial-grade work loop"
+    echo "- Classify before non-trivial kernel edits: implementation path, diagnostic probe, or temporary containment."
+    echo "- Do not treat shortcuts as implementation. Probes must be gated/isolated, measured, and removed unless promoted."
+    echo "- Accepted topology/geometry changes must state invariants, postconditions, rollback/fallback behavior, diagnostics, tolerance semantics, semantic ownership, and why they are not fixture-specific."
+    echo "- Accept topology, geometry, and continuity claims through validation or numerical gates, not visual inspection or single-fixture success."
+    echo "- Risky construction must complete its postconditions or restore the model and explain why it declined."
+    echo "- Fallback is acceptable only when it preserves user-visible quality and records why the stronger path did not apply."
+    if [[ -n "$task" ]]; then
+        echo ""
+        echo "For $task, record the classification with one of:"
+        echo "  tools/task decide $task \"Work classification: implementation path — <why>\""
+        echo "  tools/task decide $task \"Work classification: diagnostic probe — <what it measures and removal/promotion rule>\""
+        echo "  tools/task decide $task \"Work classification: temporary containment — <follow-up/commercial replacement>\""
+    fi
+}
+
+cmd_init() {
+    init_db
+    echo "Initialized $DB"
+}
+
+cmd_new() {
+    [[ $# -ge 1 ]] || die "new requires a title"
+    local title="$1" scope="" plan=""
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --scope) scope="${2:-}"; shift 2 ;;
+            --plan) plan="${2:-}"; shift 2 ;;
+            *) die "unknown new option: $1" ;;
+        esac
+    done
+    local id
+    id="$(next_task_id)"
+    [[ -n "$scope" ]] || scope="$title"
+    sql "INSERT INTO tasks(id, title, original_scope, current_scope)
+         VALUES ($(sql_quote "$id"), $(sql_quote "$title"), $(sql_quote "$scope"), $(sql_quote "$scope"));"
+    event "$id" "created" "$scope"
+    if [[ -n "$plan" ]]; then
+        cmd_link_plan "$id" "$plan"
+    fi
+    echo "$id $title"
+}
+
+cmd_list() {
+    local where=""
+    if [[ $# -gt 0 ]]; then
+        where="WHERE status=$(sql_quote "$1")"
+    fi
+    sql ".headers off
+        .mode column
+        SELECT id, status, title, updated_at FROM tasks $where ORDER BY
+        CASE status WHEN 'active' THEN 1 WHEN 'blocked' THEN 2 WHEN 'review' THEN 3 WHEN 'partial' THEN 4 WHEN 'planned' THEN 5 WHEN 'inbox' THEN 6 ELSE 9 END,
+        updated_at DESC;"
+}
+
+cmd_status() {
+    echo "Task counts"
+    sql ".mode column
+        SELECT status, COUNT(*) AS count FROM tasks GROUP BY status ORDER BY
+        CASE status WHEN 'active' THEN 1 WHEN 'blocked' THEN 2 WHEN 'review' THEN 3 WHEN 'partial' THEN 4 WHEN 'planned' THEN 5 WHEN 'inbox' THEN 6 ELSE 9 END;"
+    echo ""
+    echo "Active / blocked / partial"
+    sql ".mode column
+        SELECT id, status, title FROM tasks
+        WHERE status IN ('active', 'blocked', 'partial', 'review')
+        ORDER BY updated_at DESC;"
+}
+
+cmd_dashboard() {
+    cmd_status
+    echo ""
+    echo "Open questions"
+    sql ".mode column
+        SELECT t.id, t.title, e.body FROM events e JOIN tasks t ON t.id=e.task_id
+        WHERE e.kind='question' AND t.status NOT IN ('done','abandoned','superseded')
+        ORDER BY e.created_at DESC LIMIT 10;"
+    echo ""
+    echo "Recently changed scope"
+    sql ".mode column
+        SELECT t.id, e.kind, e.body FROM events e JOIN tasks t ON t.id=e.task_id
+        WHERE e.kind LIKE 'scope:%'
+        ORDER BY e.created_at DESC LIMIT 10;"
+    echo ""
+    echo "Done without verification"
+    sql ".mode column
+        SELECT t.id, t.title FROM tasks t
+        WHERE t.status='done' AND NOT EXISTS (SELECT 1 FROM verifications v WHERE v.task_id=t.id);"
+}
+
+cmd_show() {
+    local task="$1"
+    require_task "$task"
+    sql ".mode line
+        SELECT id, title, status, parent_id, original_scope, current_scope, created_at, updated_at, closed_at
+        FROM tasks WHERE id=$(sql_quote "$task");"
+    echo ""
+    echo "Acceptance"
+    sql ".mode column
+        SELECT id, status, body FROM acceptance WHERE task_id=$(sql_quote "$task") ORDER BY id;"
+    echo ""
+    echo "Plan docs"
+    sql ".mode column
+        SELECT path, title FROM plan_links WHERE task_id=$(sql_quote "$task") ORDER BY path;"
+    echo ""
+    echo "Files"
+    sql ".mode column
+        SELECT path FROM file_links WHERE task_id=$(sql_quote "$task") ORDER BY path;"
+    echo ""
+    echo "Verification"
+    sql ".mode column
+        SELECT exit_code, command, summary, created_at FROM verifications WHERE task_id=$(sql_quote "$task") ORDER BY created_at DESC LIMIT 5;"
+    echo ""
+    echo "Recent events"
+    sql ".mode column
+        SELECT created_at, kind, body FROM events WHERE task_id=$(sql_quote "$task") ORDER BY id DESC LIMIT 12;"
+}
+
+context_for_task() {
+    local task="$1"
+    require_task "$task"
+    sql ".mode line
+        SELECT id, title, status, current_scope FROM tasks WHERE id=$(sql_quote "$task");"
+    echo "Acceptance:"
+    sql ".mode column
+        SELECT id, status, body FROM acceptance WHERE task_id=$(sql_quote "$task") ORDER BY id;"
+    echo "Plan docs:"
+    sql ".mode column
+        SELECT path, title FROM plan_links WHERE task_id=$(sql_quote "$task") ORDER BY path;"
+    echo "Recent notes/decisions/questions/scope:"
+    sql ".mode column
+        SELECT kind, body, created_at FROM events
+        WHERE task_id=$(sql_quote "$task")
+        ORDER BY id DESC LIMIT 8;"
+    echo "Last verification:"
+    sql ".mode column
+        SELECT exit_code, command, summary, created_at FROM verifications
+        WHERE task_id=$(sql_quote "$task") ORDER BY created_at DESC LIMIT 1;"
+}
+
+cmd_context() {
+    commercial_check "${1:-}"
+    echo ""
+    if [[ $# -gt 0 ]]; then
+        context_for_task "$1"
+        return
+    fi
+    echo "Current task context"
+    sql ".mode column
+        SELECT id, status, title FROM tasks
+        WHERE status IN ('active', 'blocked', 'review', 'partial')
+        ORDER BY CASE status WHEN 'active' THEN 1 WHEN 'blocked' THEN 2 WHEN 'review' THEN 3 ELSE 4 END, updated_at DESC
+        LIMIT 8;"
+    echo ""
+    echo "Recent activity"
+    sql ".mode column
+        SELECT t.id, e.kind, e.body, e.created_at
+        FROM events e JOIN tasks t ON t.id=e.task_id
+        ORDER BY e.id DESC LIMIT 12;"
+}
+
+cmd_handoff() {
+    echo "Session handoff"
+    echo ""
+    cmd_context "$@"
+    echo ""
+    echo "Changed files not in ledger"
+    local changed
+    changed="$(git -C "$ROOT" status --short -uall | awk '{print $2}' | sort -u || true)"
+    if [[ -z "$changed" ]]; then
+        echo "(none)"
+    else
+        while IFS= read -r path; do
+            [[ -n "$path" ]] || continue
+            local count
+            count="$(sql "SELECT COUNT(*) FROM file_links WHERE path=$(sql_quote "$path");")"
+            if [[ "$count" == "0" ]]; then
+                echo "$path"
+            fi
+        done <<< "$changed"
+    fi
+}
+
+cmd_commercial_check() {
+    if [[ $# -gt 0 ]]; then
+        require_task "$1"
+        commercial_check "$1"
+    else
+        commercial_check
+    fi
+}
+
+cmd_note() {
+    local task="$1" body="$2"
+    require_task "$task"
+    event "$task" "note" "$body"
+}
+
+cmd_scope() {
+    local task="$1" mode="$2" body="$3"
+    require_task "$task"
+    [[ "$mode" =~ ^(expand|contract|revise)$ ]] || die "scope mode must be expand, contract, or revise"
+    sql "UPDATE tasks SET current_scope=$(sql_quote "$body"), updated_at=datetime('now') WHERE id=$(sql_quote "$task");"
+    event "$task" "scope:$mode" "$body"
+}
+
+cmd_split() {
+    local parent="$1" title="$2" scope=""
+    shift 2
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --scope) scope="${2:-}"; shift 2 ;;
+            *) die "unknown split option: $1" ;;
+        esac
+    done
+    require_task "$parent"
+    [[ -n "$scope" ]] || scope="$title"
+    local child
+    child="$(next_task_id)"
+    sql "INSERT INTO tasks(id, title, status, parent_id, original_scope, current_scope)
+         VALUES ($(sql_quote "$child"), $(sql_quote "$title"), 'planned', $(sql_quote "$parent"), $(sql_quote "$scope"), $(sql_quote "$scope"));"
+    event "$parent" "split" "$child $title"
+    event "$child" "created-from" "$parent"
+    echo "$child $title"
+}
+
+cmd_accept() {
+    local task="$1" body="$2"
+    require_task "$task"
+    sql "INSERT INTO acceptance(task_id, body) VALUES ($(sql_quote "$task"), $(sql_quote "$body"));
+         UPDATE tasks SET updated_at=datetime('now') WHERE id=$(sql_quote "$task");"
+}
+
+cmd_check() {
+    local id="$1"
+    sql "UPDATE acceptance SET status='done', updated_at=datetime('now') WHERE id=$(sql_quote "$id");"
+}
+
+cmd_drop_accept() {
+    local id="$1"
+    sql "UPDATE acceptance SET status='dropped', updated_at=datetime('now') WHERE id=$(sql_quote "$id");"
+}
+
+cmd_link_plan() {
+    local task="$1" path="$2" title="${3:-}"
+    require_task "$task"
+    path="${path#./}"
+    [[ -n "$title" ]] || title="$(plan_title "$path" || true)"
+    sql "INSERT OR IGNORE INTO plan_links(task_id, path, title)
+         VALUES ($(sql_quote "$task"), $(sql_quote "$path"), $(sql_quote "${title:-}"));
+         UPDATE tasks SET updated_at=datetime('now') WHERE id=$(sql_quote "$task");"
+    event "$task" "plan" "$path"
+}
+
+cmd_touch() {
+    local task="$1"
+    shift
+    require_task "$task"
+    [[ $# -gt 0 ]] || die "touch requires at least one path"
+    for path in "$@"; do
+        path="${path#./}"
+        sql "INSERT OR IGNORE INTO file_links(task_id, path) VALUES ($(sql_quote "$task"), $(sql_quote "$path"));"
+    done
+    event "$task" "files" "$*"
+}
+
+cmd_diff_files() {
+    local task="$1"
+    require_task "$task"
+    mapfile -t files < <(git -C "$ROOT" status --short -uall | awk '{print $2}' | sort -u)
+    if [[ ${#files[@]} -eq 0 ]]; then
+        echo "No changed files."
+        return
+    fi
+    cmd_touch "$task" "${files[@]}"
+}
+
+cmd_verify() {
+    local task="$1"
+    shift
+    require_task "$task"
+    [[ "${1:-}" == "--" ]] || die "verify usage: tools/task verify <task> -- <command...>"
+    shift
+    [[ $# -gt 0 ]] || die "verify requires a command"
+    local tmp exit_code summary command
+    tmp="$(mktemp)"
+    command="$*"
+    set +e
+    (cd "$ROOT" && "$@") >"$tmp" 2>&1
+    exit_code=$?
+    set -e
+    summary="$(tail -20 "$tmp")"
+    rm -f "$tmp"
+    sql "INSERT INTO verifications(task_id, command, exit_code, summary)
+         VALUES ($(sql_quote "$task"), $(sql_quote "$command"), $exit_code, $(sql_quote "$summary"));"
+    event "$task" "verify" "$command -> $exit_code"
+    echo "exit_code=$exit_code"
+    echo "$summary"
+    return "$exit_code"
+}
+
+cmd_import_plans() {
+    local dir="$1"
+    [[ -d "$ROOT/$dir" || -d "$dir" ]] || die "not a directory: $dir"
+    local base="$dir"
+    [[ -d "$ROOT/$dir" ]] || base="$(realpath --relative-to="$ROOT" "$dir")"
+    find "$ROOT/$base" -maxdepth 1 -type f -name '*.md' | sort | while IFS= read -r file; do
+        local rel title id
+        rel="$(realpath --relative-to="$ROOT" "$file")"
+        title="$(plan_title "$rel")"
+        [[ -n "$title" ]] || title="$(basename "$file" .md)"
+        id="$(next_task_id)"
+        sql "INSERT INTO tasks(id, title, status, original_scope, current_scope)
+             VALUES ($(sql_quote "$id"), $(sql_quote "$title"), 'inbox', $(sql_quote "$title"), $(sql_quote "$title"));"
+        sql "INSERT INTO plan_links(task_id, path, title) VALUES ($(sql_quote "$id"), $(sql_quote "$rel"), $(sql_quote "$title"));"
+        event "$id" "created-from-plan" "$rel"
+        echo "$id $rel"
+    done
+}
+
+cmd_export() {
+    local task="$1"
+    require_task "$task"
+    cmd_show "$task"
+}
+
+main() {
+    [[ $# -gt 0 ]] || { usage; exit 0; }
+    local cmd="$1"
+    shift
+    case "$cmd" in
+        init) cmd_init "$@" ;;
+        new) ensure_db; cmd_new "$@" ;;
+        list) ensure_db; cmd_list "$@" ;;
+        status) ensure_db; cmd_status "$@" ;;
+        dashboard) ensure_db; cmd_dashboard "$@" ;;
+        show) ensure_db; [[ $# -eq 1 ]] || die "show requires task"; cmd_show "$@" ;;
+        context) ensure_db; cmd_context "$@" ;;
+        handoff) ensure_db; cmd_handoff "$@" ;;
+        commercial-check) ensure_db; cmd_commercial_check "$@" ;;
+        start) ensure_db; [[ $# -ge 1 ]] || die "start requires task"; set_status "$1" active "${2:-}"; echo ""; commercial_check "$1" ;;
+        plan) ensure_db; [[ $# -ge 1 ]] || die "plan requires task"; set_status "$1" planned "${2:-}" ;;
+        review) ensure_db; [[ $# -ge 1 ]] || die "review requires task"; set_status "$1" review "${2:-}" ;;
+        done) ensure_db; [[ $# -ge 1 ]] || die "done requires task"; task="$1"; shift; evidence=""; if [[ "${1:-}" == "--evidence" ]]; then evidence="${2:-}"; fi; set_status "$task" done "$evidence" ;;
+        partial) ensure_db; [[ $# -ge 2 ]] || die "partial requires task and remaining work"; set_status "$1" partial "$2" ;;
+        abandon) ensure_db; [[ $# -ge 2 ]] || die "abandon requires task and reason"; set_status "$1" abandoned "$2" ;;
+        note) ensure_db; [[ $# -ge 2 ]] || die "note requires task and text"; cmd_note "$1" "$2" ;;
+        scope) ensure_db; [[ $# -ge 3 ]] || die "scope requires task, mode, text"; cmd_scope "$1" "$2" "$3" ;;
+        split) ensure_db; [[ $# -ge 2 ]] || die "split requires parent and title"; cmd_split "$@" ;;
+        accept) ensure_db; [[ $# -ge 2 ]] || die "accept requires task and criterion"; cmd_accept "$1" "$2" ;;
+        check) ensure_db; [[ $# -eq 1 ]] || die "check requires criterion id"; cmd_check "$1" ;;
+        drop-accept) ensure_db; [[ $# -eq 1 ]] || die "drop-accept requires criterion id"; cmd_drop_accept "$1" ;;
+        link-plan) ensure_db; [[ $# -ge 2 ]] || die "link-plan requires task and path"; cmd_link_plan "$@" ;;
+        touch) ensure_db; [[ $# -ge 2 ]] || die "touch requires task and path"; cmd_touch "$@" ;;
+        diff-files) ensure_db; [[ $# -eq 1 ]] || die "diff-files requires task"; cmd_diff_files "$1" ;;
+        block) ensure_db; [[ $# -ge 2 ]] || die "block requires task and reason"; set_status "$1" blocked "$2" ;;
+        unblock) ensure_db; [[ $# -ge 2 ]] || die "unblock requires task and note"; set_status "$1" active "$2" ;;
+        question) ensure_db; [[ $# -ge 2 ]] || die "question requires task and question"; event "$1" question "$2" ;;
+        decide) ensure_db; [[ $# -ge 2 ]] || die "decide requires task and decision"; event "$1" decision "$2" ;;
+        depend) ensure_db; [[ $# -eq 2 ]] || die "depend requires task and dependency"; require_task "$1"; require_task "$2"; sql "INSERT OR IGNORE INTO dependencies(task_id, depends_on) VALUES ($(sql_quote "$1"), $(sql_quote "$2"));" ;;
+        verify) ensure_db; [[ $# -ge 3 ]] || die "verify requires task -- command"; cmd_verify "$@" ;;
+        import-plans) ensure_db; [[ $# -eq 1 ]] || die "import-plans requires a directory"; cmd_import_plans "$1" ;;
+        export) ensure_db; [[ $# -eq 1 ]] || die "export requires task"; cmd_export "$1" ;;
+        help|-h|--help) usage ;;
+        *) die "unknown command: $cmd" ;;
+    esac
+}
+
+main "$@"

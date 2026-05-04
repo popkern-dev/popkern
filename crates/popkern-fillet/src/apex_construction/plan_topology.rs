@@ -119,18 +119,22 @@ pub(crate) fn decide_cap_kind(
         };
         telemetry.cap_kind_reason = reason;
         let _ = fillet_specs; // currently unused; reserved for variable-radius variants
-        let per_fillet_terminations: Vec<[Point3; 2]> = terminations
-            .iter()
-            .map(|t| [t.endpoint_a, t.endpoint_b])
-            .collect();
-        let per_fillet_caps: Vec<(Point3, f64)> = terminations
-            .iter()
-            .map(|t| (t.cap_centre, t.cap_radius))
-            .collect();
-        Ok(CapKind::Gregory {
-            per_fillet_terminations,
-            per_fillet_caps,
-        })
+        Ok(gregory_cap_kind(terminations))
+    }
+}
+
+pub(crate) fn gregory_cap_kind(terminations: &[PerFilletTermination]) -> CapKind {
+    let per_fillet_terminations: Vec<[Point3; 2]> = terminations
+        .iter()
+        .map(|t| [t.endpoint_a, t.endpoint_b])
+        .collect();
+    let per_fillet_caps: Vec<(Point3, f64)> = terminations
+        .iter()
+        .map(|t| (t.cap_centre, t.cap_radius))
+        .collect();
+    CapKind::Gregory {
+        per_fillet_terminations,
+        per_fillet_caps,
     }
 }
 

@@ -188,15 +188,30 @@ pub(super) fn find_short_edge_target(
         if retained.contains(&fh) {
             continue;
         }
-        let face_data = &brep.faces[fh];
-        let start_he = brep.loops[face_data.outer_loop].half_edge;
+        let Some(face_data) = brep.faces.get(fh) else {
+            continue;
+        };
+        let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
+            continue;
+        };
+        let start_he = loop_data.half_edge;
         let mut cursor = start_he;
         let walk_cap = brep.half_edges.len() + 1;
         for _ in 0..walk_cap {
-            let he = &brep.half_edges[cursor];
-            let next_he = &brep.half_edges[he.next];
-            let p_start = brep.vertices[he.origin].position;
-            let p_end = brep.vertices[next_he.origin].position;
+            let Some(he) = brep.half_edges.get(cursor) else {
+                break;
+            };
+            let Some(next_he) = brep.half_edges.get(he.next) else {
+                break;
+            };
+            let Some(start_vertex) = brep.vertices.get(he.origin) else {
+                break;
+            };
+            let Some(end_vertex) = brep.vertices.get(next_he.origin) else {
+                break;
+            };
+            let p_start = start_vertex.position;
+            let p_end = end_vertex.position;
             let length = (p_end - p_start).length();
             if length < tol {
                 // Short edge. Return `cursor` — the half-edge

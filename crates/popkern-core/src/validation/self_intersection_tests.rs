@@ -184,6 +184,58 @@ fn self_intersecting_faces_detected() {
     );
 }
 
+#[test]
+fn surface_intersection_outside_trim_is_not_reported() {
+    let mut brep = BRep::new(Tolerance::default());
+
+    let mvfs_a = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+    let mev_a1 = brep
+        .mev_at_vertex(mvfs_a.vertex, mvfs_a.loop_, Point3::new(1.0, 0.0, 0.0))
+        .unwrap();
+    let mev_a2 = brep
+        .mev(mev_a1.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
+        .unwrap();
+    let mef_a = brep.mef(mev_a2.half_edge_twin, mev_a1.half_edge).unwrap();
+
+    let mvfs_b = brep.mvfs(Point3::new(1.5, 0.0, -0.1)).unwrap();
+    let mev_b1 = brep
+        .mev_at_vertex(mvfs_b.vertex, mvfs_b.loop_, Point3::new(1.5, 0.0, 0.1))
+        .unwrap();
+    let mev_b2 = brep
+        .mev(mev_b1.half_edge_twin, Point3::new(0.5, 1.0, 0.1))
+        .unwrap();
+    let mev_b3 = brep
+        .mev(mev_b2.half_edge_twin, Point3::new(0.5, 1.0, -0.1))
+        .unwrap();
+    let mef_b = brep.mef(mev_b3.half_edge_twin, mev_b1.half_edge).unwrap();
+
+    brep.faces[mef_a.face].surface = Some(SurfaceOnFace {
+        geometry: SurfaceGeometry::Plane {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            u_axis: Vec3::new(1.0, 0.0, 0.0),
+            v_axis: Vec3::new(0.0, 1.0, 0.0),
+        },
+        orientation: true,
+    });
+
+    let inv_sqrt_2 = 1.0 / 2.0_f64.sqrt();
+    brep.faces[mef_b.face].surface = Some(SurfaceOnFace {
+        geometry: SurfaceGeometry::Plane {
+            origin: Point3::new(1.5, 0.0, 0.0),
+            normal: Vec3::new(inv_sqrt_2, inv_sqrt_2, 0.0),
+            u_axis: Vec3::new(-inv_sqrt_2, inv_sqrt_2, 0.0),
+            v_axis: Vec3::new(0.0, 0.0, 1.0),
+        },
+        orientation: true,
+    });
+
+    assert!(
+        brep.validate_self_intersection().is_ok(),
+        "surface intersection outside the triangular face trim must not be reported"
+    );
+}
+
 /// Verify that the tighter 2× tolerance catches a near-intersection that the
 /// old 10× tolerance would have missed.
 ///

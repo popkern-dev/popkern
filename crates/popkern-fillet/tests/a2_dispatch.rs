@@ -7,14 +7,15 @@
 //! `insert_vertex_blend` path.  Failure surfaces as
 //! `BlendWarning::A2FellBackToLegacy`.
 //!
-//! After §6c-A2.2.e/f landed Sphere-cap construction:
+//! After §6c-A2.2.e/f and the constructive Gregory repeated-apex
+//! normalization path:
 //!   * **Sphere caps (uniform-radius cube apex)** — A2 succeeds
 //!     end-to-end, no fallback fires.  Geometry matches legacy
 //!     (face / vertex / edge counts).
-//!   * **Gregory caps (variable-radius cube apex)** — A2 errors
-//!     at the cap-surface assignment stage (A2.4 territory) and
-//!     the dispatch falls back per-apex with
-//!     `BlendWarning::A2FellBackToLegacy`.
+//!   * **Gregory caps (variable-radius cube apex)** — A2 succeeds
+//!     natively when the repeated-apex normalization preconditions
+//!     hold. Legacy fallback remains available for unsupported
+//!     topology classes.
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle};
@@ -100,20 +101,7 @@ fn a2_dispatch_succeeds_on_uniform_cube_without_fallback() {
 }
 
 #[test]
-fn a2_dispatch_falls_back_on_variable_radius_with_typed_warning() {
-    // Variable radii cause A2 to fall back somewhere in the
-    // pipeline.  The exact failure stage depends on plan vs.
-    // post-Phase-C state coherence:
-    //   * Today's variable-radius plan emits per-fillet sphere-fit
-    //     positions for `apex_vertices`, but the post-Phase-C BRep
-    //     has perp-edge-split vertices at each fillet's own radius
-    //     — for non-uniform radii these don't coincide, so
-    //     `resolve_apex_vertices` errors first.
-    //   * Once A2.2.b's create-via-edge-subdivision branch lands,
-    //     this should advance to A2.2.f's Gregory stub.
-    // Either way, the dispatch must fall back per-apex with a
-    // typed `A2FellBackToLegacy` warning carrying a non-empty
-    // reason string.
+fn a2_dispatch_succeeds_on_variable_radius_without_fallback() {
     let result_a2 = cube_with_variable_corner_fillets(true);
 
     let fallback_warnings: Vec<_> = result_a2
@@ -122,23 +110,11 @@ fn a2_dispatch_falls_back_on_variable_radius_with_typed_warning() {
         .filter(|(_, w)| matches!(w, BlendWarning::A2FellBackToLegacy { .. }))
         .collect();
     assert!(
-        !fallback_warnings.is_empty(),
-        "Variable-radius cube → A2 must fall back; got {} warning(s) total, \
-         none of which are A2FellBackToLegacy",
-        result_a2.edge_warnings.len(),
+        fallback_warnings.is_empty(),
+        "Variable-radius cube should now complete through native A2 Gregory construction; \
+         got {} fallback(s)",
+        fallback_warnings.len(),
     );
-    let reasons: Vec<&str> = fallback_warnings
-        .iter()
-        .filter_map(|(_, w)| match w {
-            BlendWarning::A2FellBackToLegacy { reason, .. } => Some(reason.as_str()),
-            _ => None,
-        })
-        .collect();
-    assert!(
-        !reasons.is_empty() && reasons.iter().all(|r| !r.is_empty()),
-        "fallback warnings must carry non-empty reason strings; got: {reasons:?}",
-    );
-    eprintln!("[a2_dispatch] variable-radius fallback reasons: {reasons:?}");
 }
 
 #[test]
@@ -172,31 +148,29 @@ fn a2_dispatch_uniform_geometry_matches_legacy() {
 }
 
 #[test]
-fn a2_dispatch_variable_geometry_matches_legacy_after_fallback() {
-    // Variable-radius cube falls back to legacy per-apex.  After
-    // the fallback runs, the BRep must match the pure-legacy run.
-    let result_legacy = cube_with_variable_corner_fillets(false);
+fn a2_dispatch_variable_geometry_is_valid_natively() {
     let result_a2 = cube_with_variable_corner_fillets(true);
+    let errors = result_a2.brep.validate_all();
+    let structural_errors = errors
+        .iter()
+        .filter(|err| {
+            matches!(
+                err,
+                popkern_core::error::ValidationError::EulerPoincare { .. }
+                    | popkern_core::error::ValidationError::BrokenTwin { .. }
+                    | popkern_core::error::ValidationError::BrokenCycle { .. }
+                    | popkern_core::error::ValidationError::InconsistentVertex { .. }
+                    | popkern_core::error::ValidationError::NonManifoldEdge { .. }
+                    | popkern_core::error::ValidationError::LowValence { .. }
+                    | popkern_core::error::ValidationError::OpenLoop { .. }
+                    | popkern_core::error::ValidationError::ShellGap { .. }
+            )
+        })
+        .collect::<Vec<_>>();
 
-    assert_eq!(
-        result_legacy.brep.vertices.len(),
-        result_a2.brep.vertices.len(),
-        "vertex counts must match between legacy and A2-fallback runs",
-    );
-    assert_eq!(
-        result_legacy.brep.edges.len(),
-        result_a2.brep.edges.len(),
-        "edge counts must match between legacy and A2-fallback runs",
-    );
-    assert_eq!(
-        result_legacy.brep.faces.len(),
-        result_a2.brep.faces.len(),
-        "face counts must match between legacy and A2-fallback runs",
-    );
-    assert_eq!(
-        result_legacy.brep.half_edges.len(),
-        result_a2.brep.half_edges.len(),
-        "half-edge counts must match between legacy and A2-fallback runs",
+    assert!(
+        structural_errors.is_empty(),
+        "native variable-radius A2 must have no structural/open-loop/shell-gap errors; got {structural_errors:#?}",
     );
 }
 

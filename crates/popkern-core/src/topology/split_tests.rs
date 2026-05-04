@@ -88,6 +88,196 @@ fn split_edge_t_out_of_range() {
 }
 
 // ==========================================================================
+// split_edge_at_point tests (per ADR §14.2 / Stage 0b)
+// ==========================================================================
+
+/// Helper: build a one-edge BRep with a circular-arc curve on the edge,
+/// returning the BRep and the edge handle.
+#[cfg(test)]
+fn arc_brep(
+    center: Point3,
+    normal: crate::geometry::Vec3,
+    radius: f64,
+    start_angle: f64,
+    end_angle: f64,
+) -> (BRep, crate::topology::EdgeHandle) {
+    use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
+
+    let arc = CurveGeometry::Arc {
+        center,
+        normal,
+        radius,
+        start_angle,
+        end_angle,
+    };
+    let p_start = arc.point_at(start_angle);
+    let p_end = arc.point_at(end_angle);
+
+    let mut brep = BRep::new(Tolerance::default());
+    let mvfs = brep.mvfs(p_start).unwrap();
+    let mev = brep.mev_at_vertex(mvfs.vertex, mvfs.loop_, p_end).unwrap();
+
+    // Attach the arc curve to the edge so split_edge_at_point can invert.
+    brep.edges[mev.edge].curve = Some(CurveOnEdge {
+        geometry: arc,
+        t_start: start_angle,
+        t_end: end_angle,
+    });
+
+    (brep, mev.edge)
+}
+
+#[test]
+fn split_edge_at_point_on_arc_midpoint() {
+    use crate::geometry::Vec3;
+    use crate::geometry::curve::{CurveEval, CurveGeometry};
+    use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
+
+    let arc_geom = CurveGeometry::Arc {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+        start_angle: 0.0,
+        end_angle: FRAC_PI_2,
+    };
+    let mid = arc_geom.point_at(FRAC_PI_4);
+
+    let (mut brep, edge) = arc_brep(
+        Point3::new(0.0, 0.0, 0.0),
+        Vec3::new(0.0, 0.0, 1.0),
+        1.0,
+        0.0,
+        FRAC_PI_2,
+    );
+
+    let v_before = brep.vertices.len();
+    let e_before = brep.edges.len();
+
+    let result = brep
+        .split_edge_at_point(edge, mid, &Tolerance::default())
+        .expect("split should succeed at arc midpoint");
+
+    assert_eq!(brep.vertices.len(), v_before + 1);
+    assert_eq!(brep.edges.len(), e_before + 1);
+    let v_pos = brep.vertices[result.vertex].position;
+    assert!(
+        v_pos.distance_to(&mid) < 1e-9,
+        "new vertex should sit at the requested point: got {v_pos:?}, want {mid:?}"
+    );
+}
+
+#[test]
+fn split_edge_at_point_on_nurbs_arc() {
+    use crate::geometry::Vec3;
+    use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
+    use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
+
+    // Build a NURBS curve representing a quarter arc, attach it to an edge.
+    let arc_geom = CurveGeometry::Arc {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+        start_angle: 0.0,
+        end_angle: FRAC_PI_2,
+    };
+    let nurbs = arc_geom.to_nurbs();
+    let p_start = arc_geom.point_at(0.0);
+    let p_end = arc_geom.point_at(FRAC_PI_2);
+    let mid = arc_geom.point_at(FRAC_PI_4);
+
+    let mut brep = BRep::new(Tolerance::default());
+    let mvfs = brep.mvfs(p_start).unwrap();
+    let mev = brep.mev_at_vertex(mvfs.vertex, mvfs.loop_, p_end).unwrap();
+    brep.edges[mev.edge].curve = Some(CurveOnEdge {
+        geometry: CurveGeometry::Nurbs(nurbs),
+        t_start: 0.0,
+        t_end: FRAC_PI_2,
+    });
+
+    let result = brep
+        .split_edge_at_point(mev.edge, mid, &Tolerance::default())
+        .expect("split should succeed via NURBS-detected-as-arc tier 1b");
+
+    let v_pos = brep.vertices[result.vertex].position;
+    // NURBS detection involves a fit — accept slightly looser tolerance
+    // (1e-3 m for the quarter-arc fit).
+    assert!(
+        v_pos.distance_to(&mid) < 1e-3,
+        "new vertex on NURBS arc should sit ≈at target: got {v_pos:?}, want {mid:?}"
+    );
+}
+
+#[test]
+fn split_edge_at_point_off_curve_returns_error() {
+    use crate::geometry::Vec3;
+    use std::f64::consts::FRAC_PI_2;
+
+    let (mut brep, edge) = arc_brep(
+        Point3::new(0.0, 0.0, 0.0),
+        Vec3::new(0.0, 0.0, 1.0),
+        1.0,
+        0.0,
+        FRAC_PI_2,
+    );
+
+    // A point well off the unit-radius arc.
+    let off_point = Point3::new(0.5, 0.5, 1.5);
+    let result = brep.split_edge_at_point(edge, off_point, &Tolerance::default());
+    assert!(
+        matches!(result, Err(crate::error::CoreError::PreconditionFailed(_))),
+        "off-curve point should fail: {result:?}"
+    );
+}
+
+#[test]
+fn split_edge_at_point_at_endpoint_returns_error() {
+    use crate::geometry::Vec3;
+    use crate::geometry::curve::CurveEval;
+    use crate::geometry::curve::CurveGeometry;
+    use std::f64::consts::FRAC_PI_2;
+
+    let (mut brep, edge) = arc_brep(
+        Point3::new(0.0, 0.0, 0.0),
+        Vec3::new(0.0, 0.0, 1.0),
+        1.0,
+        0.0,
+        FRAC_PI_2,
+    );
+
+    // Attempt to split at the start endpoint — should be rejected with
+    // a "too close to existing endpoint" precondition error.
+    let arc = CurveGeometry::Arc {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+        start_angle: 0.0,
+        end_angle: FRAC_PI_2,
+    };
+    let endpoint = arc.point_at(0.0);
+    let result = brep.split_edge_at_point(edge, endpoint, &Tolerance::default());
+    assert!(
+        matches!(result, Err(crate::error::CoreError::PreconditionFailed(_))),
+        "splitting at endpoint should fail: {result:?}"
+    );
+}
+
+#[test]
+fn split_edge_at_point_no_curve_returns_error() {
+    let mut brep = BRep::new(Tolerance::default());
+    let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+    let mev = brep
+        .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+        .unwrap();
+    // No curve attached — split_edge_at_point requires one.
+    let result =
+        brep.split_edge_at_point(mev.edge, Point3::new(0.5, 0.0, 0.0), &Tolerance::default());
+    assert!(
+        matches!(result, Err(crate::error::CoreError::PreconditionFailed(_))),
+        "edge without curve should fail: {result:?}"
+    );
+}
+
+// ==========================================================================
 // split_face tests
 // ==========================================================================
 

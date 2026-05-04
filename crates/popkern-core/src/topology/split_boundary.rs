@@ -128,14 +128,22 @@ impl BRep {
                 };
 
                 let lr = old_half.parameter_range();
+                let old_geometry = CurveGeometry::Nurbs(old_half);
+                let old_geometry = old_geometry
+                    .canonical_line_in_range(lr, self.tolerance.linear().max(1.0e-9))
+                    .unwrap_or(old_geometry);
                 self.edges[edge].curve = Some(CurveOnEdge {
-                    geometry: CurveGeometry::Nurbs(old_half),
+                    geometry: old_geometry,
                     t_start: lr.0,
                     t_end: lr.1,
                 });
                 let rr = new_half.parameter_range();
+                let new_geometry = CurveGeometry::Nurbs(new_half);
+                let new_geometry = new_geometry
+                    .canonical_line_in_range(rr, self.tolerance.linear().max(1.0e-9))
+                    .unwrap_or(new_geometry);
                 self.edges[edge_b].curve = Some(CurveOnEdge {
-                    geometry: CurveGeometry::Nurbs(new_half),
+                    geometry: new_geometry,
                     t_start: rr.0,
                     t_end: rr.1,
                 });

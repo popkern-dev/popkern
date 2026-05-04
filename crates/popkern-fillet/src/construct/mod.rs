@@ -5,6 +5,7 @@ mod apex_face_lift;
 mod apex_vertex_coherence;
 pub(crate) mod blend_insert;
 pub(crate) mod blend_topo;
+mod boundary_support_frames;
 mod bridge_warnings;
 pub(crate) mod cap_insert;
 pub(crate) mod closed_fillet;
@@ -612,6 +613,7 @@ pub fn apply_blend_geometry(
                     match outcome {
                         Ok(success) => {
                             a2_built_faces.extend(success.built_faces);
+                            corner_patches.extend(success.corner_patches);
                             a2_succeeded = true;
                         }
                         Err(reason) => {

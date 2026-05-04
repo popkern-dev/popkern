@@ -41,8 +41,7 @@
 
 use super::cyl_plane_intersect::analytic_cyl_plane_intersection;
 use popkern_core::geometry::Point3;
-use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::curve::CurveGeometry;
+use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::intersection::surface_surface::{
     SurfaceSurfaceIntersection, intersect_surfaces,
 };
@@ -890,8 +889,12 @@ fn rewrite_edge_to_arc(
             reverse_nurbs(&sliced)
         };
     if let Some(edge_mut) = brep.edges.get_mut(edge) {
-        edge_mut.curve = Some(popkern_core::geometry::curve::CurveOnEdge {
-            geometry: CurveGeometry::Nurbs(oriented_sliced),
+        let geometry = CurveGeometry::Nurbs(oriented_sliced);
+        let geometry = geometry
+            .canonical_line_in_range((0.0, 1.0), brep.tolerance.linear())
+            .unwrap_or(geometry);
+        edge_mut.curve = Some(CurveOnEdge {
+            geometry,
             t_start: 0.0,
             t_end: 1.0,
         });
@@ -1355,8 +1358,12 @@ fn snap_incident_edge_curve_endpoints_robust(
         };
         let (new_t_start, new_t_end) = new_curve.parameter_range();
         if let Some(edge_mut) = brep.edges.get_mut(edge) {
-            edge_mut.curve = Some(popkern_core::geometry::curve::CurveOnEdge {
-                geometry: CurveGeometry::Nurbs(new_curve),
+            let geometry = CurveGeometry::Nurbs(new_curve);
+            let geometry = geometry
+                .canonical_line_in_range((new_t_start, new_t_end), 1.0e-8)
+                .unwrap_or(geometry);
+            edge_mut.curve = Some(CurveOnEdge {
+                geometry,
                 t_start: new_t_start,
                 t_end: new_t_end,
             });
@@ -1426,8 +1433,12 @@ fn snap_incident_edge_curve_endpoints(
             weights: nurbs.weights,
         };
         if let Some(edge_mut) = brep.edges.get_mut(edge) {
-            edge_mut.curve = Some(popkern_core::geometry::curve::CurveOnEdge {
-                geometry: CurveGeometry::Nurbs(new_curve),
+            let geometry = CurveGeometry::Nurbs(new_curve);
+            let geometry = geometry
+                .canonical_line_in_range((curve_on_edge.t_start, curve_on_edge.t_end), 1.0e-8)
+                .unwrap_or(geometry);
+            edge_mut.curve = Some(CurveOnEdge {
+                geometry,
                 t_start: curve_on_edge.t_start,
                 t_end: curve_on_edge.t_end,
             });

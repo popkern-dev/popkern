@@ -279,6 +279,28 @@ pub struct CurveOnEdge {
     pub t_end: f64,
 }
 
+impl CurveOnEdge {
+    /// Construct an analytic bounded line segment from `start` to `end`.
+    ///
+    /// The stored curve is the infinite analytic line
+    /// `start + (end - start) * t`, with the edge bounded by
+    /// `t_start=0` and `t_end=1`.
+    pub fn line_segment(start: Point3, end: Point3, tolerance: f64) -> Option<Self> {
+        let direction = end - start;
+        if direction.length() <= tolerance.max(1.0e-12) {
+            return None;
+        }
+        Some(Self {
+            geometry: CurveGeometry::Line {
+                origin: start,
+                direction,
+            },
+            t_start: 0.0,
+            t_end: 1.0,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,6 +453,24 @@ mod tests {
         };
         let nurbs = line.to_nurbs();
         assert_eq!(nurbs.degree, 1);
+    }
+
+    #[test]
+    fn curve_on_edge_line_segment_is_bounded_analytic_line() {
+        let coe = CurveOnEdge::line_segment(
+            Point3::new(1.0, 2.0, 3.0),
+            Point3::new(4.0, 6.0, 3.0),
+            1.0e-9,
+        )
+        .expect("non-degenerate line segment");
+        assert!(matches!(coe.geometry, CurveGeometry::Line { .. }));
+        assert_eq!(coe.t_start, 0.0);
+        assert_eq!(coe.t_end, 1.0);
+        assert_eq!(
+            coe.geometry.point_at(coe.t_start),
+            Point3::new(1.0, 2.0, 3.0)
+        );
+        assert_eq!(coe.geometry.point_at(coe.t_end), Point3::new(4.0, 6.0, 3.0));
     }
 
     #[test]

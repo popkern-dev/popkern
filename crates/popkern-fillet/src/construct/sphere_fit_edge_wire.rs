@@ -506,8 +506,12 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         };
 
         if let Some(edge_data) = brep.edges.get_mut(edge_h) {
+            let geometry = CurveGeometry::Nurbs(curve.clone());
+            let geometry = geometry
+                .canonical_line_in_range((edge_t_start, edge_t_end), 1.0e-8)
+                .unwrap_or(geometry);
             edge_data.curve = Some(CurveOnEdge {
-                geometry: CurveGeometry::Nurbs(curve.clone()),
+                geometry,
                 t_start: edge_t_start,
                 t_end: edge_t_end,
             });

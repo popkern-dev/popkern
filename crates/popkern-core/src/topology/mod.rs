@@ -38,6 +38,7 @@ mod pcurve_recompute_helpers;
 /// Identity queries and recovery operations for precision tracking.
 mod brep_precision_queries;
 
+mod brep_edge_representatives;
 /// Geometric deviation measurement for edges and vertices.
 mod brep_measurement;
 

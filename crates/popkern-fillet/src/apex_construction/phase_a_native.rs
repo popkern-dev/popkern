@@ -14,63 +14,9 @@
 //! This module supplies the missing capability via the `mev` +
 //! `mev` + `mef` sequence per V-incident plane sub-face.
 //!
-//! ## Session 3 status (2026-05-02): R1 risk realized
-//!
-//! The mev+mev+mef sequence creates the planner-position vertices
-//! correctly (3 chords on 3 V-incident planes for cube_mixed),
-//! but the resulting topology leaves V with **4 same-loop bridges**
-//! after stage 3's `kef_cross_face_v_edges` runs.  Each per-plane
-//! mef chord splits the V-side sub-face into a V-corner triangle
-//! and a rest piece, with 2 cross-face spurs between them.  When
-//! stage 3 kef's the first spur on a plane, the V-corner triangle
-//! merges into the rest — turning the OTHER spur on that plane
-//! into a same-loop bridge.  Same effect cascades for the cube-
-//! edge stubs.  Net: V has 4 same-loop bridges that
-//! `kev_v_bridge` (which expects valence ≤ 1) cannot remove.
-//!
-//! `kev` itself can't help: the bridge endpoints (T_a, T_b, or
-//! V14/V11/V9 perp-anchors) all have valence ≥ 2 due to the chord
-//! or cube-edge connections, so kev's "destination valence 1"
-//! precondition fails.
-//!
-//! See ADR `docs/decisions/2026-04-30-phase-6c-a2-direct-apex-
-//! construction.md` §36.5 and §36.9 R1.
-//!
-//! ## What this lands as-is
-//!
-//! * Correct topology surgery for the variable-radius case is
-//!   committed (the mev+mev+mef sequence runs, creates 6 new
-//!   BRep vertices at planner sphere-fit positions, and 3 chord
-//!   edges).  When the apex blend loop later runs A2, the
-//!   `resolve_apex_vertices` snap finds zero-distance matches at
-//!   these new vertices.
-//! * Stage 3's `kev_v_bridge` then errors with `V has valence 4`
-//!   on cube_mixed.  `try_a2_apex_construction` catches this as
-//!   `ApexBuildError::PlanMismatch` and falls back to legacy via
-//!   the existing `BlendWarning::A2FellBackToLegacy` mechanism.
-//! * Matrix unchanged at fallbacks=4 (no regression).  The
-//!   foundation for §28.H proper is in place; Session 3.5 will
-//!   resolve the multi-bridge V topology before stage 3 runs.
-//!
-//! ## Session 3.5 (next) — multi-bridge V dissolve
-//!
-//! Add a custom Euler operation that, before stage 3, walks V's
-//! same-loop bridges and removes them by:
-//!
-//! 1. For each chord T_a-T_b: find its two endpoints' valences.
-//!    If both are valence 2 (spur + chord), kef the chord to
-//!    drop one endpoint to valence 1.  No, kef requires cross-
-//!    face — chord is same-loop after spur kef.  Need a different
-//!    primitive.
-//! 2. Custom: "merge same-loop bridge into face's outer loop" —
-//!    removes the bridge's 2 half-edges and patches loop's
-//!    next/prev pointers to skip them.  Reduces bridge endpoints'
-//!    valence by 1.  Repeat until V has valence ≤ 1, then
-//!    `kev_v_bridge` runs cleanly.
-//!
-//! This requires a new `BRep::dissolve_same_loop_bridge` method
-//! in `popkern-core/src/euler/`.  Tracked as Session 3.5 in the
-//! pickup checklist.
+//! Historical R1/multi-bridge notes were promoted into the A2
+//! constructive-apex decision docs; this module now just owns the native Phase
+//! A vertex/chord insertion primitive.
 
 use std::collections::HashMap;
 

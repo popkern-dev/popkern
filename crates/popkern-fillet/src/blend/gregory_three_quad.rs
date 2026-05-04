@@ -228,12 +228,23 @@ pub(crate) fn build_n_quad_decomposition_with_options(
     type SubPatchStaged = (StagedBoundaries, [(Point3, Point3); 4]);
     let mut per_patch: Vec<SubPatchStaged> = Vec::with_capacity(n);
     for k in 0..n {
-        let b0_curve = match &boundary.segments[2 * k] {
-            BoundarySegment::FilletEnd { curve, .. } => curve,
+        let (current_fillet_index, b0_curve) = match &boundary.segments[2 * k] {
+            BoundarySegment::FilletEnd {
+                fillet_index,
+                curve,
+            } => (*fillet_index, curve),
             _ => return None,
         };
         let b1_curve = match &boundary.segments[2 * k + 1] {
             BoundarySegment::FaceEdge { curve, .. } => curve,
+            _ => return None,
+        };
+        let prev_fillet_index = match &boundary.segments[2 * ((k + n - 1) % n)] {
+            BoundarySegment::FilletEnd { fillet_index, .. } => *fillet_index,
+            _ => return None,
+        };
+        let next_fillet_index = match &boundary.segments[2 * ((k + 1) % n)] {
+            BoundarySegment::FilletEnd { fillet_index, .. } => *fillet_index,
             _ => return None,
         };
         let v_start = hex_vertices[2 * k];
@@ -247,9 +258,9 @@ pub(crate) fn build_n_quad_decomposition_with_options(
         //   corner 1 = V_{2k+1}      on fillet[k]
         //   corner 2 = V_{2k+2}      on fillet[k] and fillet[k+1 mod N]
         // Corner 3 = C is interior (handled by SS in pass 2).
-        let strip_current = fillet_surfaces.get(k);
-        let strip_prev = fillet_surfaces.get((k + n - 1) % n);
-        let strip_next = fillet_surfaces.get((k + 1) % n);
+        let strip_current = fillet_surfaces.get(current_fillet_index);
+        let strip_prev = fillet_surfaces.get(prev_fillet_index);
+        let strip_next = fillet_surfaces.get(next_fillet_index);
         let corner_strips: [Option<&FilletSurfaceResult>; 4] =
             [strip_prev, strip_current, strip_next, None];
 

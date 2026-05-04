@@ -7,7 +7,9 @@ pub use transform::Transform3;
 pub mod analytic_surfaces;
 pub mod bernstein_poly;
 pub mod curve;
+pub mod curve_inversion;
 pub mod curve_on_surface;
+pub mod curve_semantics;
 mod curve_to_nurbs;
 pub mod edge_triple;
 pub mod fitting;
@@ -25,6 +27,7 @@ pub mod uv_projection;
 pub mod vector;
 
 pub use curve::{CurveEval, CurveGeometry, CurveOnEdge};
+pub use curve_semantics::LineSegmentParams;
 pub use intersection::{CurveIntersection, CurveIntersectionResult, intersect_curves};
 pub use nurbs_curve::NurbsCurve;
 pub use nurbs_surface::NurbsSurface;

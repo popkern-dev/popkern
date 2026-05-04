@@ -145,20 +145,22 @@ impl BRep {
                 None => continue,
             };
 
-            // Check: edge start ~ he origin AND edge end ~ twin origin.
-            let gap_start = v_he.distance_to(&p_start);
-            let gap_end = v_twin.distance_to(&p_end);
+            // Edge curves are allowed to be authored in either direction.
+            // Watertightness requires the two curve endpoints to match the two
+            // half-edge origin vertices as an unordered pair.
+            let natural_start = v_he.distance_to(&p_start);
+            let natural_end = v_twin.distance_to(&p_end);
+            let swapped_start = v_he.distance_to(&p_end);
+            let swapped_end = v_twin.distance_to(&p_start);
 
-            if gap_start > self.tolerance.linear() {
+            let natural_gap = natural_start.max(natural_end);
+            let swapped_gap = swapped_start.max(swapped_end);
+            let gap = natural_gap.min(swapped_gap);
+
+            if gap > self.tolerance.linear() {
                 return Err(ValidationError::ShellGap {
                     edge: edge_handle,
-                    gap: gap_start,
-                });
-            }
-            if gap_end > self.tolerance.linear() {
-                return Err(ValidationError::ShellGap {
-                    edge: edge_handle,
-                    gap: gap_end,
+                    gap,
                 });
             }
         }
