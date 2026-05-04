@@ -39,6 +39,32 @@ pub struct TwoLoopBridgePlan {
     pub second_forward_interval: Vec<HalfEdgeHandle>,
     /// Second-loop interval from `second_end` to `second_start`, inclusive.
     pub second_reverse_interval: Vec<HalfEdgeHandle>,
+    /// The two complementary boundary cycles implied by the bridge.
+    pub boundary_cycles: [TwoLoopBridgeBoundaryCycle; 2],
+    /// Expected topology delta for the mutating bridge operation.
+    pub expected_delta: TwoLoopBridgeTopologyDelta,
+}
+
+/// One closed boundary cycle implied by pairing opposite intervals.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TwoLoopBridgeBoundaryCycle {
+    /// Interval from the first loop.
+    pub first_interval: Vec<HalfEdgeHandle>,
+    /// Opposite interval from the second loop.
+    pub second_interval: Vec<HalfEdgeHandle>,
+}
+
+/// Expected topology count delta for the future two-loop bridge mutation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TwoLoopBridgeTopologyDelta {
+    /// Vertex count delta.
+    pub vertices: i64,
+    /// Edge count delta.
+    pub edges: i64,
+    /// Face count delta.
+    pub faces: i64,
+    /// Loop count delta.
+    pub loops: i64,
 }
 
 impl BRep {
@@ -107,6 +133,16 @@ impl BRep {
             "second",
         )?;
 
+        let boundary_cycles = [
+            TwoLoopBridgeBoundaryCycle {
+                first_interval: first_forward_interval.clone(),
+                second_interval: second_reverse_interval.clone(),
+            },
+            TwoLoopBridgeBoundaryCycle {
+                first_interval: first_reverse_interval.clone(),
+                second_interval: second_forward_interval.clone(),
+            },
+        ];
         Ok(TwoLoopBridgePlan {
             first_face,
             second_face,
@@ -116,6 +152,13 @@ impl BRep {
             first_reverse_interval,
             second_forward_interval,
             second_reverse_interval,
+            boundary_cycles,
+            expected_delta: TwoLoopBridgeTopologyDelta {
+                vertices: 0,
+                edges: 2,
+                faces: 2,
+                loops: 2,
+            },
         })
     }
 
@@ -242,6 +285,11 @@ mod tests {
             plan.second_forward_interval.len() + plan.second_reverse_interval.len(),
             plan.second_loop_len + 2
         );
+        assert_eq!(plan.boundary_cycles.len(), 2);
+        assert_eq!(plan.expected_delta.vertices, 0);
+        assert_eq!(plan.expected_delta.edges, 2);
+        assert_eq!(plan.expected_delta.faces, 2);
+        assert_eq!(plan.expected_delta.loops, 2);
     }
 
     #[test]
