@@ -16,6 +16,29 @@ pub(super) struct FaceFamilyBridgePrimitiveDerivation {
 }
 
 #[derive(Clone, Debug)]
+pub(super) struct FaceFamilyBridgeTopologyOperatorReport {
+    regions: usize,
+    boundary_cycles: usize,
+    expected_edges: usize,
+    expected_faces: usize,
+    expected_loops: usize,
+    status: FaceFamilyBridgeTopologyOperatorStatus,
+}
+
+#[derive(Clone, Debug)]
+enum FaceFamilyBridgeTopologyOperatorStatus {
+    Refused(FaceFamilyBridgeTopologyOperatorGap),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FaceFamilyBridgeTopologyOperatorGap {
+    MissingPrimitivePlan,
+    EmptyPrimitivePlan,
+    MissingBoundaryCycle,
+    MissingCrossFaceBridgeEulerOperator,
+}
+
+#[derive(Clone, Debug)]
 struct FaceFamilyBridgePrimitivePlan {
     regions: Vec<FaceFamilyBridgeRegionPrimitivePlan>,
 }
@@ -101,6 +124,20 @@ impl FaceFamilyBridgePrimitiveDerivation {
         )
     }
 
+    pub(super) fn topology_operator_report(&self) -> FaceFamilyBridgeTopologyOperatorReport {
+        let Some(primitive) = &self.primitive else {
+            return FaceFamilyBridgeTopologyOperatorReport::refused(
+                0,
+                0,
+                0,
+                0,
+                0,
+                FaceFamilyBridgeTopologyOperatorGap::MissingPrimitivePlan,
+            );
+        };
+        primitive.topology_operator_report()
+    }
+
     fn from_selected_plan(plan: &SelectedSideSupportRegionPlan, brep: &BRep) -> Self {
         let details = plan
             .operations
@@ -157,6 +194,123 @@ impl FaceFamilyBridgePrimitivePlan {
             "regions={} expected_delta=dV=0 dE={edges} dF={faces} dL={loops}",
             self.regions.len()
         )
+    }
+
+    fn topology_operator_report(&self) -> FaceFamilyBridgeTopologyOperatorReport {
+        let regions = self.regions.len();
+        let boundary_cycles = self
+            .regions
+            .iter()
+            .map(|region| region.boundary_cycles.len())
+            .sum::<usize>();
+        let expected_edges = self
+            .regions
+            .iter()
+            .map(|region| region.expected_edges)
+            .sum::<usize>();
+        let expected_faces = self
+            .regions
+            .iter()
+            .map(|region| region.expected_faces)
+            .sum::<usize>();
+        let expected_loops = self
+            .regions
+            .iter()
+            .map(|region| region.expected_loops)
+            .sum::<usize>();
+        if regions == 0 {
+            return FaceFamilyBridgeTopologyOperatorReport::refused(
+                regions,
+                boundary_cycles,
+                expected_edges,
+                expected_faces,
+                expected_loops,
+                FaceFamilyBridgeTopologyOperatorGap::EmptyPrimitivePlan,
+            );
+        }
+        if self.regions.iter().any(|region| {
+            region
+                .boundary_cycles
+                .iter()
+                .any(|cycle| cycle.support_interval.is_empty() || cycle.outside_interval.is_empty())
+        }) {
+            return FaceFamilyBridgeTopologyOperatorReport::refused(
+                regions,
+                boundary_cycles,
+                expected_edges,
+                expected_faces,
+                expected_loops,
+                FaceFamilyBridgeTopologyOperatorGap::MissingBoundaryCycle,
+            );
+        }
+        FaceFamilyBridgeTopologyOperatorReport::refused(
+            regions,
+            boundary_cycles,
+            expected_edges,
+            expected_faces,
+            expected_loops,
+            FaceFamilyBridgeTopologyOperatorGap::MissingCrossFaceBridgeEulerOperator,
+        )
+    }
+}
+
+impl FaceFamilyBridgeTopologyOperatorReport {
+    fn refused(
+        regions: usize,
+        boundary_cycles: usize,
+        expected_edges: usize,
+        expected_faces: usize,
+        expected_loops: usize,
+        reason: FaceFamilyBridgeTopologyOperatorGap,
+    ) -> Self {
+        Self {
+            regions,
+            boundary_cycles,
+            expected_edges,
+            expected_faces,
+            expected_loops,
+            status: FaceFamilyBridgeTopologyOperatorStatus::Refused(reason),
+        }
+    }
+
+    pub(super) fn diagnostic_label(&self) -> String {
+        format!(
+            "topology_operator_ready={} regions={} boundary_cycles={} expected_delta=dV=0 dE={} dF={} dL={} reason={}",
+            self.status.is_ready(),
+            self.regions,
+            self.boundary_cycles,
+            self.expected_edges,
+            self.expected_faces,
+            self.expected_loops,
+            self.status.diagnostic_label()
+        )
+    }
+}
+
+impl FaceFamilyBridgeTopologyOperatorStatus {
+    fn is_ready(&self) -> bool {
+        match self {
+            FaceFamilyBridgeTopologyOperatorStatus::Refused(_) => false,
+        }
+    }
+
+    fn diagnostic_label(&self) -> &'static str {
+        match self {
+            FaceFamilyBridgeTopologyOperatorStatus::Refused(reason) => reason.diagnostic_label(),
+        }
+    }
+}
+
+impl FaceFamilyBridgeTopologyOperatorGap {
+    fn diagnostic_label(&self) -> &'static str {
+        match self {
+            FaceFamilyBridgeTopologyOperatorGap::MissingPrimitivePlan => "missing-primitive-plan",
+            FaceFamilyBridgeTopologyOperatorGap::EmptyPrimitivePlan => "empty-primitive-plan",
+            FaceFamilyBridgeTopologyOperatorGap::MissingBoundaryCycle => "missing-boundary-cycle",
+            FaceFamilyBridgeTopologyOperatorGap::MissingCrossFaceBridgeEulerOperator => {
+                "missing-cross-face-bridge-euler-operator"
+            }
+        }
     }
 }
 

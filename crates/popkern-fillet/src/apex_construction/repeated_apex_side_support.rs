@@ -165,6 +165,9 @@ mod tests {
         assert!(labels.contains("MissingValidatedFaceFamilyBridgePrimitive"));
         assert!(labels.contains("face-family-bridge primitive_ready=true"));
         assert!(labels.contains("MissingFaceFamilyBridgeTopologyOperator"));
+        assert!(labels.contains("topology_operator_ready=false"));
+        assert!(labels.contains("boundary_cycles=2"));
+        assert!(labels.contains("missing-cross-face-bridge-euler-operator"));
         assert!(labels.contains("execution refused stage=Preflight"));
         assert_eq!(snapshot.candidates.candidates.len(), 4);
         assert!(snapshot.candidates.candidates.iter().any(|candidate| {

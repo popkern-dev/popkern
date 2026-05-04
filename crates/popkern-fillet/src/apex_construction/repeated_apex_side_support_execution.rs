@@ -71,7 +71,13 @@ impl SideSupportRegionExecutionReport {
                         };
                         return Self::refused_with_detail(
                             reason,
-                            bridge_primitive.diagnostic_label(),
+                            format!(
+                                "{}; {}",
+                                bridge_primitive.diagnostic_label(),
+                                bridge_primitive
+                                    .topology_operator_report()
+                                    .diagnostic_label()
+                            ),
                         );
                     }
                     SideSupportRegionRefusalReason::UnknownEndpointMembership
