@@ -30,6 +30,7 @@ use super::repeated_apex_partition_topology::{
     insert_face_with_outer_loop, insert_unwired_edge_pair, oriented_edge_half_edges_on_face,
     validate_partition_cap_to_cylinder_seams, wire_existing_loop,
 };
+use super::repeated_apex_side_support::SideSupportRegionDiagnosticSnapshot;
 use super::repeated_apex_trim_subcomplex::{
     TopologyBalanceRequirement, TopologyCountDelta, TrimEdgeConstruction, TrimOwnerPair,
     TrimRewriteEdgePlan, TrimRewriteSubcomplexPlan, topology_count_summary,
@@ -3077,6 +3078,9 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
         rebuild_plans,
         topology_plans,
     )?;
+    let side_support_diagnostics =
+        SideSupportRegionDiagnosticSnapshot::build_read_only(brep, &subcomplex_plan);
+    debug_assert!(side_support_diagnostics.validate_fresh(brep));
     let before = topology_count_summary(brep);
     let mut candidate = brep.clone();
     match apply_materialized_cylinder_loop_replacements(
@@ -3094,7 +3098,7 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
                         "planned repeated-apex partition target-cylinder trim rewrite preflight \
                          would increase the unresolved closed-shell topology deficit before the \
                          cap rewrite can complete the subcomplex: before {}; after {}; delta {}. \
-                         Required balance: {}. Planned trim subcomplex: {}. The rewrite must author an Euler-balanced cylinder/support/cap \
+                         Required balance: {}. Planned trim subcomplex: {}. Side-support diagnostics: {}. The rewrite must author an Euler-balanced cylinder/support/cap \
                          subcomplex, not expose a loop set that validation would need to repair.",
                         before.diagnostic_label(),
                         after.diagnostic_label(),
@@ -3103,17 +3107,19 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
                             after.deficit_to_genus_zero() - before.deficit_to_genus_zero()
                         )
                         .diagnostic_label(),
-                        subcomplex_plan.diagnostic_label()
+                        subcomplex_plan.diagnostic_label(),
+                        side_support_diagnostics.diagnostic_label()
                     ),
                 });
             }
             if std::env::var_os("POPKERN_A2_TRACE").is_some() {
                 eprintln!(
-                    "[a2-trace §14.9/topology-preflight] accepted before {}; after {}; delta {}; {}",
+                    "[a2-trace §14.9/topology-preflight] accepted before {}; after {}; delta {}; {}; {}",
                     before.diagnostic_label(),
                     after.diagnostic_label(),
                     TopologyCountDelta::between(before, after).diagnostic_label(),
-                    subcomplex_plan.diagnostic_label()
+                    subcomplex_plan.diagnostic_label(),
+                    side_support_diagnostics.diagnostic_label()
                 );
             }
             Ok(())
@@ -3124,7 +3130,7 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
                 reason: format!(
                     "planned repeated-apex partition target-cylinder trim rewrite preflight \
                      refused to commit topology mutation: {error}. Probe counts before {}; after \
-                     {}; delta {}. Required balance: {}. Planned trim subcomplex: {}. This is a construction blocker, not a validation blocker: the \
+                     {}; delta {}. Required balance: {}. Planned trim subcomplex: {}. Side-support diagnostics: {}. This is a construction blocker, not a validation blocker: the \
                      implementation must plan the Euler-balanced replacement subcomplex before \
                      changing the live BRep.",
                     before.diagnostic_label(),
@@ -3134,7 +3140,8 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
                         after.deficit_to_genus_zero() - before.deficit_to_genus_zero()
                     )
                     .diagnostic_label(),
-                    subcomplex_plan.diagnostic_label()
+                    subcomplex_plan.diagnostic_label(),
+                    side_support_diagnostics.diagnostic_label()
                 ),
             })
         }

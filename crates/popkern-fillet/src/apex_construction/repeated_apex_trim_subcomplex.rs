@@ -180,7 +180,7 @@ pub(super) struct TrimRewriteSupportGroup {
     cylinder_faces: Vec<FaceHandle>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(super) enum TrimOwnerPair {
     CylinderCap {
         cylinder_face: FaceHandle,
@@ -192,7 +192,7 @@ pub(super) enum TrimOwnerPair {
     },
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum TrimEdgeConstruction {
     ExistingSeam,
     NewExactGeneratorTrim,
@@ -234,6 +234,14 @@ pub(super) fn trim_rewrite_support_groups(
 }
 
 impl TrimRewriteSubcomplexPlan {
+    pub(super) fn edge_plans(&self) -> &[TrimRewriteEdgePlan] {
+        &self.edge_plans
+    }
+
+    pub(super) fn support_groups(&self) -> &[TrimRewriteSupportGroup] {
+        &self.support_groups
+    }
+
     pub(super) fn diagnostic_label(&self) -> String {
         let generated_edges = self
             .edge_plans
@@ -267,6 +275,18 @@ impl TrimRewriteSubcomplexPlan {
 }
 
 impl TrimRewriteSupportGroup {
+    pub(super) fn support_face(&self) -> FaceHandle {
+        self.support_face
+    }
+
+    pub(super) fn generated_trim_count(&self) -> usize {
+        self.generated_trim_count
+    }
+
+    pub(super) fn cylinder_faces(&self) -> &[FaceHandle] {
+        &self.cylinder_faces
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
             "{:?}: {} generated trim(s) from cylinder face(s) {:?}",
@@ -276,6 +296,26 @@ impl TrimRewriteSupportGroup {
 }
 
 impl TrimRewriteEdgePlan {
+    pub(super) fn fillet_index(&self) -> usize {
+        self.fillet_index
+    }
+
+    pub(super) fn owner_pair(&self) -> TrimOwnerPair {
+        self.owner_pair
+    }
+
+    pub(super) fn construction(&self) -> TrimEdgeConstruction {
+        self.construction
+    }
+
+    pub(super) fn start(&self) -> VertexHandle {
+        self.start
+    }
+
+    pub(super) fn end(&self) -> VertexHandle {
+        self.end
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
             "FilletEnd[{}] {} {} {:?}->{:?}",
@@ -289,6 +329,13 @@ impl TrimRewriteEdgePlan {
 }
 
 impl TrimOwnerPair {
+    pub(super) fn support_face(&self) -> Option<FaceHandle> {
+        match *self {
+            TrimOwnerPair::CylinderCap { .. } => None,
+            TrimOwnerPair::CylinderSupport { support_face, .. } => Some(support_face),
+        }
+    }
+
     fn diagnostic_label(&self) -> String {
         match self {
             TrimOwnerPair::CylinderCap {
