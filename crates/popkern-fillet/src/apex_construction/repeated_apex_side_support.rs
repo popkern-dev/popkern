@@ -5,6 +5,7 @@ use popkern_core::topology::BRep;
 use super::repeated_apex_region_candidates::CandidateSetSnapshot;
 use super::repeated_apex_region_graph::RegionGraph;
 use super::repeated_apex_side_support_execution::SideSupportRegionExecutionReport;
+use super::repeated_apex_side_support_facts::SideSupportRegionFacts;
 use super::repeated_apex_side_support_plan::SideSupportRegionPlanSelection;
 use super::repeated_apex_topology_knowledge::TopologyKnowledgeGraph;
 use super::repeated_apex_trim_subcomplex::TrimRewriteSubcomplexPlan;
@@ -12,6 +13,7 @@ use super::repeated_apex_trim_subcomplex::TrimRewriteSubcomplexPlan;
 #[derive(Clone, Debug)]
 pub(super) struct SideSupportRegionDiagnosticSnapshot {
     knowledge: TopologyKnowledgeGraph,
+    facts: SideSupportRegionFacts,
     region_graph: RegionGraph,
     candidates: CandidateSetSnapshot,
     selection: SideSupportRegionPlanSelection,
@@ -21,12 +23,14 @@ pub(super) struct SideSupportRegionDiagnosticSnapshot {
 impl SideSupportRegionDiagnosticSnapshot {
     pub(super) fn build_read_only(brep: &BRep, plan: &TrimRewriteSubcomplexPlan) -> Self {
         let knowledge = TopologyKnowledgeGraph::build_local(brep, plan);
-        let region_graph = RegionGraph::build(&knowledge);
+        let facts = SideSupportRegionFacts::classify(&knowledge);
+        let region_graph = RegionGraph::build(&facts);
         let candidates = CandidateSetSnapshot::enumerate(&region_graph);
         let selection = SideSupportRegionPlanSelection::select(&candidates);
         let execution = SideSupportRegionExecutionReport::preflight(&selection, true);
         Self {
             knowledge,
+            facts,
             region_graph,
             candidates,
             selection,
@@ -40,8 +44,9 @@ impl SideSupportRegionDiagnosticSnapshot {
 
     pub(super) fn diagnostic_label(&self) -> String {
         format!(
-            "{}; {}; {}; {}; {}",
+            "{}; {}; {}; {}; {}; {}",
             self.knowledge.diagnostic_label(),
+            self.facts.diagnostic_label(),
             self.region_graph.diagnostic_label(),
             self.candidates.diagnostic_label(),
             self.selection.diagnostic_label(),

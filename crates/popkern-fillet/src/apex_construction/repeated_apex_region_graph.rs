@@ -2,8 +2,8 @@
 
 use popkern_core::topology::{FaceHandle, LoopHandle, VertexHandle};
 
-use super::repeated_apex_topology_knowledge::{LoopKind, TopologyKnowledgeGraph};
-use super::repeated_apex_trim_subcomplex::TrimEdgeConstruction;
+use super::repeated_apex_side_support_facts::{EndpointRegionMembership, SideSupportRegionFacts};
+use super::repeated_apex_topology_knowledge::LoopKind;
 
 #[derive(Clone, Debug)]
 pub(super) struct RegionGraph {
@@ -29,19 +29,9 @@ pub(super) struct RegionTrimEndpointPair {
     pub(super) end_membership: EndpointRegionMembership,
 }
 
-#[derive(Clone, Debug)]
-pub(super) enum EndpointRegionMembership {
-    SameSupportLoop {
-        face: FaceHandle,
-        loop_handle: LoopHandle,
-    },
-    OutsideSupportFamily,
-    Unknown,
-}
-
 impl RegionGraph {
-    pub(super) fn build(knowledge: &TopologyKnowledgeGraph) -> Self {
-        let nodes = knowledge
+    pub(super) fn build(facts: &SideSupportRegionFacts) -> Self {
+        let nodes = facts
             .support_families
             .iter()
             .flat_map(|family| {
@@ -54,24 +44,16 @@ impl RegionGraph {
             })
             .collect::<Vec<_>>();
 
-        let trim_endpoint_pairs = knowledge
-            .trim_intents
+        let trim_endpoint_pairs = facts
+            .trim_endpoint_pairs
             .iter()
-            .filter(|trim| trim.construction == TrimEdgeConstruction::NewExactGeneratorTrim)
-            .filter_map(|trim| {
-                let support_face = trim.owner_pair.support_face()?;
-                Some(RegionTrimEndpointPair {
-                    fillet_index: trim.fillet_index,
-                    support_face,
-                    start: trim.start,
-                    end: trim.end,
-                    start_membership: endpoint_region_membership(
-                        knowledge,
-                        support_face,
-                        trim.start,
-                    ),
-                    end_membership: endpoint_region_membership(knowledge, support_face, trim.end),
-                })
+            .map(|trim| RegionTrimEndpointPair {
+                fillet_index: trim.fillet_index,
+                support_face: trim.support_face,
+                start: trim.start,
+                end: trim.end,
+                start_membership: trim.start_membership.clone(),
+                end_membership: trim.end_membership.clone(),
             })
             .collect();
 
@@ -118,42 +100,5 @@ impl RegionTrimEndpointPair {
             self.start_membership.diagnostic_label(),
             self.end_membership.diagnostic_label()
         )
-    }
-}
-
-impl EndpointRegionMembership {
-    pub(super) fn diagnostic_label(&self) -> String {
-        match self {
-            EndpointRegionMembership::SameSupportLoop { face, loop_handle } => {
-                format!("support-loop({face:?}/{loop_handle:?})")
-            }
-            EndpointRegionMembership::OutsideSupportFamily => "outside-support-family".to_string(),
-            EndpointRegionMembership::Unknown => "unknown".to_string(),
-        }
-    }
-}
-
-fn endpoint_region_membership(
-    knowledge: &TopologyKnowledgeGraph,
-    support_face: FaceHandle,
-    vertex: VertexHandle,
-) -> EndpointRegionMembership {
-    let Some(membership) = knowledge.endpoint_membership(vertex) else {
-        return EndpointRegionMembership::Unknown;
-    };
-    if let Some(loop_membership) = membership
-        .containing_loops
-        .iter()
-        .find(|loop_membership| loop_membership.face == support_face)
-    {
-        return EndpointRegionMembership::SameSupportLoop {
-            face: loop_membership.face,
-            loop_handle: loop_membership.loop_handle,
-        };
-    }
-    if membership.containing_loops.is_empty() {
-        EndpointRegionMembership::Unknown
-    } else {
-        EndpointRegionMembership::OutsideSupportFamily
     }
 }

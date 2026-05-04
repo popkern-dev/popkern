@@ -2,9 +2,8 @@
 
 use popkern_core::topology::{FaceHandle, LoopHandle, VertexHandle};
 
-use super::repeated_apex_region_graph::{
-    EndpointRegionMembership, RegionGraph, RegionTrimEndpointPair,
-};
+use super::repeated_apex_region_graph::{RegionGraph, RegionTrimEndpointPair};
+use super::repeated_apex_side_support_facts::EndpointRegionMembership;
 
 #[derive(Clone, Debug)]
 pub(super) struct RegionOperationCandidate {
