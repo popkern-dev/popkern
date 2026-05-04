@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
+use popkern_core::topology::{FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
 use super::repeated_apex_region_candidates::{
     CandidateRejection, CandidateSetSnapshot, CandidateStatus, RegionOperationCandidate,
@@ -18,7 +18,7 @@ pub(super) enum SideSupportRegionPlanSelection {
 
 #[derive(Clone, Debug)]
 pub(super) struct SelectedSideSupportRegionPlan {
-    operations: Vec<PlannedTopologyOperation>,
+    pub(super) operations: Vec<PlannedTopologyOperation>,
     expected_delta: ExpectedTopologyDelta,
 }
 
@@ -30,22 +30,22 @@ pub(super) enum PlannedTopologyOperation {
 
 #[derive(Clone, Debug)]
 pub(super) struct BridgeSupportRegionPlan {
-    support_face: FaceHandle,
-    trims: Vec<BridgeSupportTrimPlan>,
+    pub(super) support_face: FaceHandle,
+    pub(super) trims: Vec<BridgeSupportTrimPlan>,
     expected_delta: ExpectedTopologyDelta,
     preconditions: BridgeSupportRegionPreconditions,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct BridgeSupportTrimPlan {
-    fillet_index: usize,
-    support_loop: LoopHandle,
-    support_half_edge: HalfEdgeHandle,
-    outside_face: FaceHandle,
-    outside_loop: LoopHandle,
-    outside_half_edge: HalfEdgeHandle,
-    start: VertexHandle,
-    end: VertexHandle,
+    pub(super) fillet_index: usize,
+    pub(super) support_loop: LoopHandle,
+    pub(super) support_half_edge: HalfEdgeHandle,
+    pub(super) outside_face: FaceHandle,
+    pub(super) outside_loop: LoopHandle,
+    pub(super) outside_half_edge: HalfEdgeHandle,
+    pub(super) start: VertexHandle,
+    pub(super) end: VertexHandle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -231,63 +231,6 @@ pub(super) enum SideSupportRegionExecutionReadiness {
     },
 }
 
-#[derive(Clone, Debug)]
-pub(super) enum SideSupportRegionLivePreconditionFailure {
-    EndpointHalfEdgeMismatch {
-        support_half_edge: HalfEdgeHandle,
-        outside_half_edge: HalfEdgeHandle,
-        start: VertexHandle,
-        end: VertexHandle,
-    },
-    MissingFace(FaceHandle),
-    MissingHalfEdge(HalfEdgeHandle),
-    MissingLoop(LoopHandle),
-    MissingVertex(VertexHandle),
-    HalfEdgeLoopMismatch {
-        half_edge: HalfEdgeHandle,
-        expected_loop: LoopHandle,
-        actual_loop: LoopHandle,
-    },
-}
-
-impl SideSupportRegionLivePreconditionFailure {
-    pub(super) fn diagnostic_label(&self) -> String {
-        match self {
-            SideSupportRegionLivePreconditionFailure::EndpointHalfEdgeMismatch {
-                support_half_edge,
-                outside_half_edge,
-                start,
-                end,
-            } => {
-                format!(
-                    "endpoint-half-edge-mismatch support={support_half_edge:?} outside={outside_half_edge:?} endpoints={start:?}->{end:?}"
-                )
-            }
-            SideSupportRegionLivePreconditionFailure::MissingFace(face) => {
-                format!("missing-face {face:?}")
-            }
-            SideSupportRegionLivePreconditionFailure::MissingHalfEdge(half_edge) => {
-                format!("missing-half-edge {half_edge:?}")
-            }
-            SideSupportRegionLivePreconditionFailure::MissingLoop(loop_handle) => {
-                format!("missing-loop {loop_handle:?}")
-            }
-            SideSupportRegionLivePreconditionFailure::MissingVertex(vertex) => {
-                format!("missing-vertex {vertex:?}")
-            }
-            SideSupportRegionLivePreconditionFailure::HalfEdgeLoopMismatch {
-                half_edge,
-                expected_loop,
-                actual_loop,
-            } => {
-                format!(
-                    "half-edge-loop-mismatch {half_edge:?} expected={expected_loop:?} actual={actual_loop:?}"
-                )
-            }
-        }
-    }
-}
-
 impl SelectedSideSupportRegionPlan {
     fn new(operations: Vec<PlannedTopologyOperation>) -> Self {
         let expected_delta = operations
@@ -323,31 +266,6 @@ impl SelectedSideSupportRegionPlan {
     }
 }
 
-impl SideSupportRegionPlanSelection {
-    pub(super) fn validate_live_operands(
-        &self,
-        brep: &BRep,
-    ) -> Result<(), SideSupportRegionLivePreconditionFailure> {
-        match self {
-            SideSupportRegionPlanSelection::Selected(plan)
-            | SideSupportRegionPlanSelection::Blocked(plan, _) => plan.validate_live_operands(brep),
-            SideSupportRegionPlanSelection::Refused(_) => Ok(()),
-        }
-    }
-}
-
-impl SelectedSideSupportRegionPlan {
-    fn validate_live_operands(
-        &self,
-        brep: &BRep,
-    ) -> Result<(), SideSupportRegionLivePreconditionFailure> {
-        for operation in &self.operations {
-            operation.validate_live_operands(brep)?;
-        }
-        Ok(())
-    }
-}
-
 impl PlannedTopologyOperation {
     fn expected_delta(&self) -> ExpectedTopologyDelta {
         match self {
@@ -367,18 +285,6 @@ impl PlannedTopologyOperation {
                 format!("FilletEnd[{fillet_index}] split-face-with-edge")
             }
             PlannedTopologyOperation::BridgeSupportRegion(plan) => plan.diagnostic_label(),
-        }
-    }
-
-    fn validate_live_operands(
-        &self,
-        brep: &BRep,
-    ) -> Result<(), SideSupportRegionLivePreconditionFailure> {
-        match self {
-            PlannedTopologyOperation::SplitFaceWithEdge { .. } => Ok(()),
-            PlannedTopologyOperation::BridgeSupportRegion(plan) => {
-                plan.validate_live_operands(brep)
-            }
         }
     }
 }
@@ -440,21 +346,6 @@ impl BridgeSupportRegionPlan {
             self.preconditions.diagnostic_label()
         )
     }
-
-    fn validate_live_operands(
-        &self,
-        brep: &BRep,
-    ) -> Result<(), SideSupportRegionLivePreconditionFailure> {
-        if !brep.faces.contains_key(self.support_face) {
-            return Err(SideSupportRegionLivePreconditionFailure::MissingFace(
-                self.support_face,
-            ));
-        }
-        for trim in &self.trims {
-            trim.validate_live_operands(brep)?;
-        }
-        Ok(())
-    }
 }
 
 impl BridgeSupportTrimPlan {
@@ -470,80 +361,6 @@ impl BridgeSupportTrimPlan {
             self.start,
             self.end
         )
-    }
-
-    fn validate_live_operands(
-        &self,
-        brep: &BRep,
-    ) -> Result<(), SideSupportRegionLivePreconditionFailure> {
-        if !brep.loops.contains_key(self.support_loop) {
-            return Err(SideSupportRegionLivePreconditionFailure::MissingLoop(
-                self.support_loop,
-            ));
-        }
-        let Some(support_half_edge) = brep.half_edges.get(self.support_half_edge) else {
-            return Err(SideSupportRegionLivePreconditionFailure::MissingHalfEdge(
-                self.support_half_edge,
-            ));
-        };
-        if support_half_edge.loop_ != self.support_loop {
-            return Err(
-                SideSupportRegionLivePreconditionFailure::HalfEdgeLoopMismatch {
-                    half_edge: self.support_half_edge,
-                    expected_loop: self.support_loop,
-                    actual_loop: support_half_edge.loop_,
-                },
-            );
-        }
-        if !brep.faces.contains_key(self.outside_face) {
-            return Err(SideSupportRegionLivePreconditionFailure::MissingFace(
-                self.outside_face,
-            ));
-        }
-        if !brep.loops.contains_key(self.outside_loop) {
-            return Err(SideSupportRegionLivePreconditionFailure::MissingLoop(
-                self.outside_loop,
-            ));
-        }
-        let Some(outside_half_edge) = brep.half_edges.get(self.outside_half_edge) else {
-            return Err(SideSupportRegionLivePreconditionFailure::MissingHalfEdge(
-                self.outside_half_edge,
-            ));
-        };
-        if outside_half_edge.loop_ != self.outside_loop {
-            return Err(
-                SideSupportRegionLivePreconditionFailure::HalfEdgeLoopMismatch {
-                    half_edge: self.outside_half_edge,
-                    expected_loop: self.outside_loop,
-                    actual_loop: outside_half_edge.loop_,
-                },
-            );
-        }
-        if !brep.vertices.contains_key(self.start) {
-            return Err(SideSupportRegionLivePreconditionFailure::MissingVertex(
-                self.start,
-            ));
-        }
-        if !brep.vertices.contains_key(self.end) {
-            return Err(SideSupportRegionLivePreconditionFailure::MissingVertex(
-                self.end,
-            ));
-        }
-        let support_origin = support_half_edge.origin;
-        let outside_origin = outside_half_edge.origin;
-        if !((support_origin == self.start && outside_origin == self.end)
-            || (support_origin == self.end && outside_origin == self.start))
-        {
-            return Err(
-                SideSupportRegionLivePreconditionFailure::EndpointHalfEdgeMismatch {
-                    support_half_edge: self.support_half_edge,
-                    outside_half_edge: self.outside_half_edge,
-                    start: self.start,
-                    end: self.end,
-                },
-            );
-        }
-        Ok(())
     }
 }
 
