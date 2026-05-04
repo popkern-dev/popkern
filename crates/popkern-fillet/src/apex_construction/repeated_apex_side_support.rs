@@ -137,6 +137,16 @@ mod tests {
                 start: support_vertices[0],
                 end: outside_vertex,
             },
+            TrimRewriteEdgePlan {
+                fillet_index: 1,
+                owner_pair: TrimOwnerPair::CylinderSupport {
+                    cylinder_face,
+                    support_face,
+                },
+                construction: TrimEdgeConstruction::NewExactGeneratorTrim,
+                start: outside_vertex,
+                end: support_vertices[1],
+            },
         ]);
 
         let snapshot = SideSupportRegionDiagnosticSnapshot::build_read_only(&brep, &plan);
@@ -144,12 +154,12 @@ mod tests {
         let labels = snapshot.diagnostic_label();
         assert!(labels.contains("outside-support-family"));
         assert!(labels.contains("bridge-support-region"));
-        assert!(labels.contains("total_delta=dV=0 dE=1 dF=1 dL=1"));
-        assert!(labels.contains("dV=0 dE=1 dF=1 dL=1"));
+        assert!(labels.contains("total_delta=dV=0 dE=2 dF=2 dL=2"));
+        assert!(labels.contains("dV=0 dE=2 dF=2 dL=2"));
         assert!(labels.contains("one_endpoint_on_support_loop=true"));
         assert!(labels.contains("MissingValidatedBridgeExecutor"));
         assert!(labels.contains("execution refused stage=Preflight"));
-        assert_eq!(snapshot.candidates.candidates.len(), 2);
+        assert_eq!(snapshot.candidates.candidates.len(), 4);
         assert!(snapshot.candidates.candidates.iter().any(|candidate| {
             candidate.kind == RegionOperationKind::BridgeSupportRegion
                 && matches!(candidate.status, CandidateStatus::Accepted)
@@ -163,6 +173,45 @@ mod tests {
                     ..
                 }
             )
+        ));
+    }
+
+    #[test]
+    fn read_only_snapshot_refuses_bridge_region_with_one_trim() {
+        let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
+        let faces = brep.faces.keys().collect::<Vec<_>>();
+        let support_face = faces[0];
+        let cylinder_face = faces[1];
+        let cap_face = face_with_vertex_outside_support_loop(&brep, support_face);
+        let support_vertices = outer_loop_vertices(&brep, support_face);
+        let cap_vertices = outer_loop_vertices(&brep, cap_face);
+        let outside_vertex = cap_vertices
+            .into_iter()
+            .find(|vertex| !support_vertices.contains(vertex))
+            .expect("fixture has a cap vertex outside support loop");
+        let plan = trim_plan(vec![TrimRewriteEdgePlan {
+            fillet_index: 0,
+            owner_pair: TrimOwnerPair::CylinderSupport {
+                cylinder_face,
+                support_face,
+            },
+            construction: TrimEdgeConstruction::NewExactGeneratorTrim,
+            start: support_vertices[0],
+            end: outside_vertex,
+        }]);
+
+        let snapshot = SideSupportRegionDiagnosticSnapshot::build_read_only(&brep, &plan);
+
+        let labels = snapshot.diagnostic_label();
+        assert!(labels.contains("UnsupportedBridgeTrimCount"));
+        assert!(!labels.contains("MissingValidatedBridgeExecutor"));
+        assert_eq!(snapshot.candidates.candidates.len(), 2);
+        assert!(matches!(
+            snapshot.selection,
+            SideSupportRegionPlanSelection::Refused(SideSupportRegionRefusal {
+                reason: SideSupportRegionRefusalReason::UnsupportedBridgeTrimCount,
+                ..
+            })
         ));
     }
 

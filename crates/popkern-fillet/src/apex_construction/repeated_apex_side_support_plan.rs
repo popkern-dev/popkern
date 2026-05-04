@@ -73,8 +73,15 @@ pub(super) enum PlannerStage {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SideSupportRegionRefusalReason {
     UnknownEndpointMembership,
+    UnsupportedBridgeTrimCount,
     MissingValidatedBridgeExecutor,
     NoAcceptedOperationCandidate,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BridgeSupportRegionPlanRejection {
+    EndpointMembershipUnknown,
+    UnsupportedTrimCount,
 }
 
 impl SideSupportRegionPlanSelection {
@@ -82,6 +89,7 @@ impl SideSupportRegionPlanSelection {
         let mut operations = Vec::new();
         let mut bridge_candidates_by_support = BTreeMap::<FaceHandle, Vec<_>>::new();
         let mut saw_unknown_endpoint = false;
+        let mut saw_unsupported_bridge_region = false;
         let mut selected_unexecutable_bridge = false;
         for candidate in &candidates.candidates {
             match (&candidate.kind, &candidate.status) {
@@ -111,20 +119,30 @@ impl SideSupportRegionPlanSelection {
             }
         }
         for (support_face, bridge_candidates) in bridge_candidates_by_support {
-            if let Some(plan) =
-                BridgeSupportRegionPlan::from_candidates(support_face, &bridge_candidates)
-            {
-                operations.push(PlannedTopologyOperation::BridgeSupportRegion(plan));
-            } else {
-                saw_unknown_endpoint = true;
+            match BridgeSupportRegionPlan::from_candidates(support_face, &bridge_candidates) {
+                Ok(plan) => operations.push(PlannedTopologyOperation::BridgeSupportRegion(plan)),
+                Err(BridgeSupportRegionPlanRejection::EndpointMembershipUnknown) => {
+                    saw_unknown_endpoint = true;
+                }
+                Err(BridgeSupportRegionPlanRejection::UnsupportedTrimCount) => {
+                    saw_unsupported_bridge_region = true;
+                }
             }
         }
-        if !operations.is_empty() && !saw_unknown_endpoint && !selected_unexecutable_bridge {
+        if !operations.is_empty()
+            && !saw_unknown_endpoint
+            && !saw_unsupported_bridge_region
+            && !selected_unexecutable_bridge
+        {
             return SideSupportRegionPlanSelection::Selected(SelectedSideSupportRegionPlan::new(
                 operations,
             ));
         }
-        if !operations.is_empty() && !saw_unknown_endpoint && selected_unexecutable_bridge {
+        if !operations.is_empty()
+            && !saw_unknown_endpoint
+            && !saw_unsupported_bridge_region
+            && selected_unexecutable_bridge
+        {
             return SideSupportRegionPlanSelection::Blocked(
                 SelectedSideSupportRegionPlan::new(operations),
                 SideSupportRegionRefusal {
@@ -135,6 +153,8 @@ impl SideSupportRegionPlanSelection {
         }
         let reason = if saw_unknown_endpoint {
             SideSupportRegionRefusalReason::UnknownEndpointMembership
+        } else if saw_unsupported_bridge_region {
+            SideSupportRegionRefusalReason::UnsupportedBridgeTrimCount
         } else {
             SideSupportRegionRefusalReason::NoAcceptedOperationCandidate
         };
@@ -236,10 +256,16 @@ impl BridgeSupportRegionPlan {
     fn from_candidates(
         support_face: FaceHandle,
         candidates: &[&RegionOperationCandidate],
-    ) -> Option<Self> {
+    ) -> Result<Self, BridgeSupportRegionPlanRejection> {
+        if candidates.len() != 2 {
+            return Err(BridgeSupportRegionPlanRejection::UnsupportedTrimCount);
+        }
         let mut trims = Vec::new();
         for candidate in candidates {
-            let (_, support_loop) = candidate.endpoints.support_loop_membership()?;
+            let (_, support_loop) = candidate
+                .endpoints
+                .support_loop_membership()
+                .ok_or(BridgeSupportRegionPlanRejection::EndpointMembershipUnknown)?;
             trims.push(BridgeSupportTrimPlan {
                 fillet_index: candidate.fillet_index,
                 support_loop,
@@ -253,7 +279,7 @@ impl BridgeSupportRegionPlan {
             faces: trims.len() as i64,
             loops: trims.len() as i64,
         };
-        Some(Self {
+        Ok(Self {
             support_face,
             trims,
             expected_delta,

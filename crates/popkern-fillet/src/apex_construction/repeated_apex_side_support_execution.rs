@@ -52,6 +52,7 @@ impl SideSupportRegionExecutionReport {
                         SideSupportRegionExecutionRefusalReason::MissingValidatedBridgeExecutor
                     }
                     SideSupportRegionRefusalReason::UnknownEndpointMembership
+                    | SideSupportRegionRefusalReason::UnsupportedBridgeTrimCount
                     | SideSupportRegionRefusalReason::NoAcceptedOperationCandidate => {
                         SideSupportRegionExecutionRefusalReason::PlannerRefused
                     }
