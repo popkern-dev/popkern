@@ -41,7 +41,13 @@ pub(super) enum EndpointRegionMembership {
         face: FaceHandle,
         loop_handle: LoopHandle,
     },
-    OutsideSupportFamily,
+    OutsideSupportFamily {
+        face: FaceHandle,
+        loop_handle: LoopHandle,
+    },
+    Ambiguous {
+        containing_loop_count: usize,
+    },
     Unknown,
 }
 
@@ -152,7 +158,14 @@ impl EndpointRegionMembership {
             EndpointRegionMembership::SameSupportLoop { face, loop_handle } => {
                 format!("support-loop({face:?}/{loop_handle:?})")
             }
-            EndpointRegionMembership::OutsideSupportFamily => "outside-support-family".to_string(),
+            EndpointRegionMembership::OutsideSupportFamily { face, loop_handle } => {
+                format!("outside-support-family({face:?}/{loop_handle:?})")
+            }
+            EndpointRegionMembership::Ambiguous {
+                containing_loop_count,
+            } => {
+                format!("ambiguous({containing_loop_count} loops)")
+            }
             EndpointRegionMembership::Unknown => "unknown".to_string(),
         }
     }
@@ -178,7 +191,15 @@ fn endpoint_region_membership(
     }
     if membership.containing_loops.is_empty() {
         EndpointRegionMembership::Unknown
+    } else if membership.containing_loops.len() == 1 {
+        let loop_membership = &membership.containing_loops[0];
+        EndpointRegionMembership::OutsideSupportFamily {
+            face: loop_membership.face,
+            loop_handle: loop_membership.loop_handle,
+        }
     } else {
-        EndpointRegionMembership::OutsideSupportFamily
+        EndpointRegionMembership::Ambiguous {
+            containing_loop_count: membership.containing_loops.len(),
+        }
     }
 }

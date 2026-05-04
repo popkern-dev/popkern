@@ -38,6 +38,7 @@ pub(super) enum CandidateStatus {
 pub(super) enum CandidateRejection {
     EndpointsNotInOneSupportLoop,
     EndpointMembershipUnknown,
+    EndpointMembershipAmbiguous,
 }
 
 #[derive(Clone, Debug)]
@@ -74,6 +75,17 @@ impl CandidateSetSnapshot {
                         endpoints: RegionCandidateEndpoints::from_pair(pair),
                         status: CandidateStatus::Rejected {
                             reason: CandidateRejection::EndpointMembershipUnknown,
+                        },
+                    });
+                }
+                (EndpointRegionMembership::Ambiguous { .. }, _)
+                | (_, EndpointRegionMembership::Ambiguous { .. }) => {
+                    candidates.push(RegionOperationCandidate {
+                        fillet_index: pair.fillet_index,
+                        kind: RegionOperationKind::SplitFaceWithEdge,
+                        endpoints: RegionCandidateEndpoints::from_pair(pair),
+                        status: CandidateStatus::Rejected {
+                            reason: CandidateRejection::EndpointMembershipAmbiguous,
                         },
                     });
                 }
@@ -154,8 +166,17 @@ impl CandidateRejection {
                 "rejected:endpoints-not-in-one-support-loop"
             }
             CandidateRejection::EndpointMembershipUnknown => "rejected:endpoint-membership-unknown",
+            CandidateRejection::EndpointMembershipAmbiguous => {
+                "rejected:endpoint-membership-ambiguous"
+            }
         }
     }
+}
+
+pub(super) struct BridgeLoopMembership {
+    pub(super) support_loop: LoopHandle,
+    pub(super) outside_face: FaceHandle,
+    pub(super) outside_loop: LoopHandle,
 }
 
 impl RegionCandidateEndpoints {
@@ -169,16 +190,36 @@ impl RegionCandidateEndpoints {
         }
     }
 
-    pub(super) fn support_loop_membership(&self) -> Option<(FaceHandle, LoopHandle)> {
+    pub(super) fn bridge_loop_membership(&self) -> Option<BridgeLoopMembership> {
         match (&self.start_membership, &self.end_membership) {
             (
-                EndpointRegionMembership::SameSupportLoop { face, loop_handle },
-                EndpointRegionMembership::OutsideSupportFamily,
-            )
-            | (
-                EndpointRegionMembership::OutsideSupportFamily,
-                EndpointRegionMembership::SameSupportLoop { face, loop_handle },
-            ) => Some((*face, *loop_handle)),
+                EndpointRegionMembership::SameSupportLoop {
+                    face: _,
+                    loop_handle,
+                },
+                EndpointRegionMembership::OutsideSupportFamily {
+                    face: outside_face,
+                    loop_handle: outside_loop,
+                },
+            ) => Some(BridgeLoopMembership {
+                support_loop: *loop_handle,
+                outside_face: *outside_face,
+                outside_loop: *outside_loop,
+            }),
+            (
+                EndpointRegionMembership::OutsideSupportFamily {
+                    face: outside_face,
+                    loop_handle: outside_loop,
+                },
+                EndpointRegionMembership::SameSupportLoop {
+                    face: _,
+                    loop_handle,
+                },
+            ) => Some(BridgeLoopMembership {
+                support_loop: *loop_handle,
+                outside_face: *outside_face,
+                outside_loop: *outside_loop,
+            }),
             _ => None,
         }
     }

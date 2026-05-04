@@ -40,6 +40,8 @@ pub(super) struct BridgeSupportRegionPlan {
 pub(super) struct BridgeSupportTrimPlan {
     fillet_index: usize,
     support_loop: LoopHandle,
+    outside_face: FaceHandle,
+    outside_loop: LoopHandle,
     start: VertexHandle,
     end: VertexHandle,
 }
@@ -73,6 +75,7 @@ pub(super) enum PlannerStage {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SideSupportRegionRefusalReason {
     UnknownEndpointMembership,
+    AmbiguousEndpointMembership,
     UnsupportedBridgeTrimCount,
     MissingValidatedBridgeExecutor,
     NoAcceptedOperationCandidate,
@@ -89,6 +92,7 @@ impl SideSupportRegionPlanSelection {
         let mut operations = Vec::new();
         let mut bridge_candidates_by_support = BTreeMap::<FaceHandle, Vec<_>>::new();
         let mut saw_unknown_endpoint = false;
+        let mut saw_ambiguous_endpoint = false;
         let mut saw_unsupported_bridge_region = false;
         let mut selected_unexecutable_bridge = false;
         for candidate in &candidates.candidates {
@@ -99,7 +103,7 @@ impl SideSupportRegionPlanSelection {
                     });
                 }
                 (RegionOperationKind::BridgeSupportRegion, CandidateStatus::Accepted) => {
-                    if candidate.endpoints.support_loop_membership().is_some() {
+                    if candidate.endpoints.bridge_loop_membership().is_some() {
                         bridge_candidates_by_support
                             .entry(candidate.endpoints.support_face)
                             .or_default()
@@ -115,6 +119,12 @@ impl SideSupportRegionPlanSelection {
                         reason: CandidateRejection::EndpointMembershipUnknown,
                     },
                 ) => saw_unknown_endpoint = true,
+                (
+                    _,
+                    CandidateStatus::Rejected {
+                        reason: CandidateRejection::EndpointMembershipAmbiguous,
+                    },
+                ) => saw_ambiguous_endpoint = true,
                 _ => {}
             }
         }
@@ -131,6 +141,7 @@ impl SideSupportRegionPlanSelection {
         }
         if !operations.is_empty()
             && !saw_unknown_endpoint
+            && !saw_ambiguous_endpoint
             && !saw_unsupported_bridge_region
             && !selected_unexecutable_bridge
         {
@@ -140,6 +151,7 @@ impl SideSupportRegionPlanSelection {
         }
         if !operations.is_empty()
             && !saw_unknown_endpoint
+            && !saw_ambiguous_endpoint
             && !saw_unsupported_bridge_region
             && selected_unexecutable_bridge
         {
@@ -153,6 +165,8 @@ impl SideSupportRegionPlanSelection {
         }
         let reason = if saw_unknown_endpoint {
             SideSupportRegionRefusalReason::UnknownEndpointMembership
+        } else if saw_ambiguous_endpoint {
+            SideSupportRegionRefusalReason::AmbiguousEndpointMembership
         } else if saw_unsupported_bridge_region {
             SideSupportRegionRefusalReason::UnsupportedBridgeTrimCount
         } else {
@@ -262,13 +276,15 @@ impl BridgeSupportRegionPlan {
         }
         let mut trims = Vec::new();
         for candidate in candidates {
-            let (_, support_loop) = candidate
+            let bridge_membership = candidate
                 .endpoints
-                .support_loop_membership()
+                .bridge_loop_membership()
                 .ok_or(BridgeSupportRegionPlanRejection::EndpointMembershipUnknown)?;
             trims.push(BridgeSupportTrimPlan {
                 fillet_index: candidate.fillet_index,
-                support_loop,
+                support_loop: bridge_membership.support_loop,
+                outside_face: bridge_membership.outside_face,
+                outside_loop: bridge_membership.outside_loop,
                 start: candidate.endpoints.start,
                 end: candidate.endpoints.end,
             });
@@ -309,8 +325,13 @@ impl BridgeSupportRegionPlan {
 impl BridgeSupportTrimPlan {
     fn diagnostic_label(&self) -> String {
         format!(
-            "FilletEnd[{}] loop={:?} {:?}->{:?}",
-            self.fillet_index, self.support_loop, self.start, self.end
+            "FilletEnd[{}] support_loop={:?} outside={:?}/{:?} {:?}->{:?}",
+            self.fillet_index,
+            self.support_loop,
+            self.outside_face,
+            self.outside_loop,
+            self.start,
+            self.end
         )
     }
 }
