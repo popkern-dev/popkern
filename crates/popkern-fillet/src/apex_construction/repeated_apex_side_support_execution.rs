@@ -1,5 +1,7 @@
 //! Execution boundary for selected repeated-apex side-support plans.
 
+use popkern_core::topology::BRep;
+
 use super::repeated_apex_side_support_plan::{
     SideSupportRegionExecutionReadiness, SideSupportRegionPlanSelection,
     SideSupportRegionRefusalReason,
@@ -20,6 +22,7 @@ enum SideSupportRegionExecutionStatus {
 struct SideSupportRegionExecutionRefusal {
     stage: ExecutionStage,
     reason: SideSupportRegionExecutionRefusalReason,
+    detail: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,16 +34,24 @@ enum ExecutionStage {
 enum SideSupportRegionExecutionRefusalReason {
     StaleKnowledgeGraph,
     PlannerRefused,
+    MissingLiveTopologyOperand,
     MissingValidatedBridgeExecutor,
 }
 
 impl SideSupportRegionExecutionReport {
     pub(super) fn preflight(
         selection: &SideSupportRegionPlanSelection,
+        brep: &BRep,
         knowledge_is_fresh: bool,
     ) -> Self {
         if !knowledge_is_fresh {
             return Self::refused(SideSupportRegionExecutionRefusalReason::StaleKnowledgeGraph);
+        }
+        if let Err(failure) = selection.validate_live_operands(brep) {
+            return Self::refused_with_detail(
+                SideSupportRegionExecutionRefusalReason::MissingLiveTopologyOperand,
+                failure.diagnostic_label(),
+            );
         }
         match selection.execution_readiness() {
             SideSupportRegionExecutionReadiness::Ready => Self {
@@ -69,10 +80,14 @@ impl SideSupportRegionExecutionReport {
                 "execution ready_for_executor".to_string()
             }
             SideSupportRegionExecutionStatus::Refused(refusal) => {
-                format!(
+                let mut label = format!(
                     "execution refused stage={:?} reason={:?}",
                     refusal.stage, refusal.reason
-                )
+                );
+                if let Some(detail) = &refusal.detail {
+                    label.push_str(&format!(" detail={detail}"));
+                }
+                label
             }
         }
     }
@@ -82,6 +97,20 @@ impl SideSupportRegionExecutionReport {
             status: SideSupportRegionExecutionStatus::Refused(SideSupportRegionExecutionRefusal {
                 stage: ExecutionStage::Preflight,
                 reason,
+                detail: None,
+            }),
+        }
+    }
+
+    fn refused_with_detail(
+        reason: SideSupportRegionExecutionRefusalReason,
+        detail: String,
+    ) -> Self {
+        Self {
+            status: SideSupportRegionExecutionStatus::Refused(SideSupportRegionExecutionRefusal {
+                stage: ExecutionStage::Preflight,
+                reason,
+                detail: Some(detail),
             }),
         }
     }

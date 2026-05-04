@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use popkern_core::topology::{FaceHandle, LoopHandle, VertexHandle};
+use popkern_core::topology::{BRep, FaceHandle, LoopHandle, VertexHandle};
 
 use super::repeated_apex_region_candidates::{
     CandidateRejection, CandidateSetSnapshot, CandidateStatus, RegionOperationCandidate,
@@ -217,6 +217,29 @@ pub(super) enum SideSupportRegionExecutionReadiness {
     },
 }
 
+#[derive(Clone, Debug)]
+pub(super) enum SideSupportRegionLivePreconditionFailure {
+    MissingFace(FaceHandle),
+    MissingLoop(LoopHandle),
+    MissingVertex(VertexHandle),
+}
+
+impl SideSupportRegionLivePreconditionFailure {
+    pub(super) fn diagnostic_label(&self) -> String {
+        match self {
+            SideSupportRegionLivePreconditionFailure::MissingFace(face) => {
+                format!("missing-face {face:?}")
+            }
+            SideSupportRegionLivePreconditionFailure::MissingLoop(loop_handle) => {
+                format!("missing-loop {loop_handle:?}")
+            }
+            SideSupportRegionLivePreconditionFailure::MissingVertex(vertex) => {
+                format!("missing-vertex {vertex:?}")
+            }
+        }
+    }
+}
+
 impl SelectedSideSupportRegionPlan {
     fn new(operations: Vec<PlannedTopologyOperation>) -> Self {
         let expected_delta = operations
@@ -243,6 +266,31 @@ impl SelectedSideSupportRegionPlan {
     }
 }
 
+impl SideSupportRegionPlanSelection {
+    pub(super) fn validate_live_operands(
+        &self,
+        brep: &BRep,
+    ) -> Result<(), SideSupportRegionLivePreconditionFailure> {
+        match self {
+            SideSupportRegionPlanSelection::Selected(plan)
+            | SideSupportRegionPlanSelection::Blocked(plan, _) => plan.validate_live_operands(brep),
+            SideSupportRegionPlanSelection::Refused(_) => Ok(()),
+        }
+    }
+}
+
+impl SelectedSideSupportRegionPlan {
+    fn validate_live_operands(
+        &self,
+        brep: &BRep,
+    ) -> Result<(), SideSupportRegionLivePreconditionFailure> {
+        for operation in &self.operations {
+            operation.validate_live_operands(brep)?;
+        }
+        Ok(())
+    }
+}
+
 impl PlannedTopologyOperation {
     fn expected_delta(&self) -> ExpectedTopologyDelta {
         match self {
@@ -262,6 +310,18 @@ impl PlannedTopologyOperation {
                 format!("FilletEnd[{fillet_index}] split-face-with-edge")
             }
             PlannedTopologyOperation::BridgeSupportRegion(plan) => plan.diagnostic_label(),
+        }
+    }
+
+    fn validate_live_operands(
+        &self,
+        brep: &BRep,
+    ) -> Result<(), SideSupportRegionLivePreconditionFailure> {
+        match self {
+            PlannedTopologyOperation::SplitFaceWithEdge { .. } => Ok(()),
+            PlannedTopologyOperation::BridgeSupportRegion(plan) => {
+                plan.validate_live_operands(brep)
+            }
         }
     }
 }
@@ -320,6 +380,21 @@ impl BridgeSupportRegionPlan {
             self.preconditions.diagnostic_label()
         )
     }
+
+    fn validate_live_operands(
+        &self,
+        brep: &BRep,
+    ) -> Result<(), SideSupportRegionLivePreconditionFailure> {
+        if !brep.faces.contains_key(self.support_face) {
+            return Err(SideSupportRegionLivePreconditionFailure::MissingFace(
+                self.support_face,
+            ));
+        }
+        for trim in &self.trims {
+            trim.validate_live_operands(brep)?;
+        }
+        Ok(())
+    }
 }
 
 impl BridgeSupportTrimPlan {
@@ -333,6 +408,38 @@ impl BridgeSupportTrimPlan {
             self.start,
             self.end
         )
+    }
+
+    fn validate_live_operands(
+        &self,
+        brep: &BRep,
+    ) -> Result<(), SideSupportRegionLivePreconditionFailure> {
+        if !brep.loops.contains_key(self.support_loop) {
+            return Err(SideSupportRegionLivePreconditionFailure::MissingLoop(
+                self.support_loop,
+            ));
+        }
+        if !brep.faces.contains_key(self.outside_face) {
+            return Err(SideSupportRegionLivePreconditionFailure::MissingFace(
+                self.outside_face,
+            ));
+        }
+        if !brep.loops.contains_key(self.outside_loop) {
+            return Err(SideSupportRegionLivePreconditionFailure::MissingLoop(
+                self.outside_loop,
+            ));
+        }
+        if !brep.vertices.contains_key(self.start) {
+            return Err(SideSupportRegionLivePreconditionFailure::MissingVertex(
+                self.start,
+            ));
+        }
+        if !brep.vertices.contains_key(self.end) {
+            return Err(SideSupportRegionLivePreconditionFailure::MissingVertex(
+                self.end,
+            ));
+        }
+        Ok(())
     }
 }
 
