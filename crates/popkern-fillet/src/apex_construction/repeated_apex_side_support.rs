@@ -29,6 +29,7 @@ pub(super) enum SideSupportRegionPlanSelection {
 #[derive(Clone, Debug)]
 pub(super) struct SelectedSideSupportRegionPlan {
     operations: Vec<PlannedTopologyOperation>,
+    expected_delta: ExpectedTopologyDelta,
 }
 
 #[derive(Clone, Debug)]
@@ -140,13 +141,13 @@ impl SideSupportRegionPlanSelection {
             }
         }
         if !operations.is_empty() && !saw_unknown_endpoint && !selected_unexecutable_bridge {
-            return SideSupportRegionPlanSelection::Selected(SelectedSideSupportRegionPlan {
+            return SideSupportRegionPlanSelection::Selected(SelectedSideSupportRegionPlan::new(
                 operations,
-            });
+            ));
         }
         if !operations.is_empty() && !saw_unknown_endpoint && selected_unexecutable_bridge {
             return SideSupportRegionPlanSelection::Blocked(
-                SelectedSideSupportRegionPlan { operations },
+                SelectedSideSupportRegionPlan::new(operations),
                 SideSupportRegionRefusal {
                     stage: PlannerStage::SelectPlan,
                     reason: SideSupportRegionRefusalReason::MissingValidatedBridgeExecutor,
@@ -180,9 +181,22 @@ impl SideSupportRegionPlanSelection {
 }
 
 impl SelectedSideSupportRegionPlan {
+    fn new(operations: Vec<PlannedTopologyOperation>) -> Self {
+        let expected_delta = operations
+            .iter()
+            .fold(ExpectedTopologyDelta::zero(), |acc, operation| {
+                acc.plus(operation.expected_delta())
+            });
+        Self {
+            operations,
+            expected_delta,
+        }
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
-            "selected_plan operations=[{}]",
+            "selected_plan total_delta={} operations=[{}]",
+            self.expected_delta.diagnostic_label(),
             self.operations
                 .iter()
                 .map(PlannedTopologyOperation::diagnostic_label)
@@ -193,6 +207,18 @@ impl SelectedSideSupportRegionPlan {
 }
 
 impl PlannedTopologyOperation {
+    fn expected_delta(&self) -> ExpectedTopologyDelta {
+        match self {
+            PlannedTopologyOperation::SplitFaceWithEdge { .. } => ExpectedTopologyDelta {
+                vertices: 0,
+                edges: 1,
+                faces: 1,
+                loops: 1,
+            },
+            PlannedTopologyOperation::BridgeSupportRegion(plan) => plan.expected_delta,
+        }
+    }
+
     fn diagnostic_label(&self) -> String {
         match self {
             PlannedTopologyOperation::SplitFaceWithEdge { fillet_index } => {
@@ -241,6 +267,24 @@ impl BridgeSupportRegionPlan {
 }
 
 impl ExpectedTopologyDelta {
+    fn zero() -> Self {
+        Self {
+            vertices: 0,
+            edges: 0,
+            faces: 0,
+            loops: 0,
+        }
+    }
+
+    fn plus(self, other: Self) -> Self {
+        Self {
+            vertices: self.vertices + other.vertices,
+            edges: self.edges + other.edges,
+            faces: self.faces + other.faces,
+            loops: self.loops + other.loops,
+        }
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
             "dV={} dE={} dF={} dL={}",
@@ -308,6 +352,11 @@ mod tests {
             SideSupportRegionPlanSelection::Selected(_)
         ));
         assert!(snapshot.diagnostic_label().contains("selected_plan"));
+        assert!(
+            snapshot
+                .diagnostic_label()
+                .contains("total_delta=dV=0 dE=1 dF=1 dL=1")
+        );
     }
 
     #[test]
@@ -351,6 +400,7 @@ mod tests {
         let labels = snapshot.diagnostic_label();
         assert!(labels.contains("outside-support-family"));
         assert!(labels.contains("bridge-support-region"));
+        assert!(labels.contains("total_delta=dV=0 dE=1 dF=1 dL=1"));
         assert!(labels.contains("dV=0 dE=1 dF=1 dL=1"));
         assert!(labels.contains("one_endpoint_on_support_loop=true"));
         assert!(labels.contains("MissingValidatedBridgeExecutor"));
