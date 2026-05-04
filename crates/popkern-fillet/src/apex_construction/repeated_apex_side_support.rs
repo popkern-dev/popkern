@@ -1,9 +1,11 @@
 //! Read-only side-support region planner for repeated-apex trim rewrites.
 
 use popkern_core::topology::BRep;
+use popkern_core::topology::{FaceHandle, LoopHandle, VertexHandle};
 
 use super::repeated_apex_region_candidates::{
-    CandidateRejection, CandidateSetSnapshot, CandidateStatus, RegionOperationKind,
+    CandidateRejection, CandidateSetSnapshot, CandidateStatus, RegionOperationCandidate,
+    RegionOperationKind,
 };
 use super::repeated_apex_region_graph::RegionGraph;
 use super::repeated_apex_topology_knowledge::TopologyKnowledgeGraph;
@@ -20,6 +22,7 @@ pub(super) struct SideSupportRegionDiagnosticSnapshot {
 #[derive(Clone, Debug)]
 pub(super) enum SideSupportRegionPlanSelection {
     Selected(SelectedSideSupportRegionPlan),
+    Blocked(SelectedSideSupportRegionPlan, SideSupportRegionRefusal),
     Refused(SideSupportRegionRefusal),
 }
 
@@ -31,6 +34,33 @@ pub(super) struct SelectedSideSupportRegionPlan {
 #[derive(Clone, Debug)]
 pub(super) enum PlannedTopologyOperation {
     SplitFaceWithEdge { fillet_index: usize },
+    BridgeSupportRegion(BridgeSupportRegionPlan),
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct BridgeSupportRegionPlan {
+    fillet_index: usize,
+    support_face: FaceHandle,
+    support_loop: LoopHandle,
+    start: VertexHandle,
+    end: VertexHandle,
+    expected_delta: ExpectedTopologyDelta,
+    preconditions: BridgeSupportRegionPreconditions,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ExpectedTopologyDelta {
+    vertices: i64,
+    edges: i64,
+    faces: i64,
+    loops: i64,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct BridgeSupportRegionPreconditions {
+    exactly_one_endpoint_on_support_loop: bool,
+    other_endpoint_has_known_membership: bool,
+    support_owner_is_unique: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -47,7 +77,7 @@ pub(super) enum PlannerStage {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SideSupportRegionRefusalReason {
     UnknownEndpointMembership,
-    MissingValidatedTopologyPrimitive,
+    MissingValidatedBridgeExecutor,
     NoAcceptedOperationCandidate,
 }
 
@@ -84,7 +114,7 @@ impl SideSupportRegionPlanSelection {
     fn select(candidates: &CandidateSetSnapshot) -> Self {
         let mut operations = Vec::new();
         let mut saw_unknown_endpoint = false;
-        let mut saw_missing_primitive = false;
+        let mut selected_unexecutable_bridge = false;
         for candidate in &candidates.candidates {
             match (&candidate.kind, &candidate.status) {
                 (RegionOperationKind::SplitFaceWithEdge, CandidateStatus::Accepted) => {
@@ -92,30 +122,39 @@ impl SideSupportRegionPlanSelection {
                         fillet_index: candidate.fillet_index,
                     });
                 }
+                (RegionOperationKind::BridgeSupportRegion, CandidateStatus::Accepted) => {
+                    if let Some(plan) = BridgeSupportRegionPlan::from_candidate(candidate) {
+                        operations.push(PlannedTopologyOperation::BridgeSupportRegion(plan));
+                        selected_unexecutable_bridge = true;
+                    } else {
+                        saw_unknown_endpoint = true;
+                    }
+                }
                 (
                     _,
                     CandidateStatus::Rejected {
                         reason: CandidateRejection::EndpointMembershipUnknown,
                     },
                 ) => saw_unknown_endpoint = true,
-                (
-                    RegionOperationKind::RequiresSupportRegionBridge,
-                    CandidateStatus::Rejected {
-                        reason: CandidateRejection::MissingValidatedBridgePrimitive,
-                    },
-                ) => saw_missing_primitive = true,
                 _ => {}
             }
         }
-        if !operations.is_empty() && !saw_unknown_endpoint && !saw_missing_primitive {
+        if !operations.is_empty() && !saw_unknown_endpoint && !selected_unexecutable_bridge {
             return SideSupportRegionPlanSelection::Selected(SelectedSideSupportRegionPlan {
                 operations,
             });
         }
+        if !operations.is_empty() && !saw_unknown_endpoint && selected_unexecutable_bridge {
+            return SideSupportRegionPlanSelection::Blocked(
+                SelectedSideSupportRegionPlan { operations },
+                SideSupportRegionRefusal {
+                    stage: PlannerStage::SelectPlan,
+                    reason: SideSupportRegionRefusalReason::MissingValidatedBridgeExecutor,
+                },
+            );
+        }
         let reason = if saw_unknown_endpoint {
             SideSupportRegionRefusalReason::UnknownEndpointMembership
-        } else if saw_missing_primitive {
-            SideSupportRegionRefusalReason::MissingValidatedTopologyPrimitive
         } else {
             SideSupportRegionRefusalReason::NoAcceptedOperationCandidate
         };
@@ -128,6 +167,13 @@ impl SideSupportRegionPlanSelection {
     fn diagnostic_label(&self) -> String {
         match self {
             SideSupportRegionPlanSelection::Selected(plan) => plan.diagnostic_label(),
+            SideSupportRegionPlanSelection::Blocked(plan, refusal) => {
+                format!(
+                    "{}; {}",
+                    plan.diagnostic_label(),
+                    refusal.diagnostic_label()
+                )
+            }
             SideSupportRegionPlanSelection::Refused(refusal) => refusal.diagnostic_label(),
         }
     }
@@ -152,7 +198,65 @@ impl PlannedTopologyOperation {
             PlannedTopologyOperation::SplitFaceWithEdge { fillet_index } => {
                 format!("FilletEnd[{fillet_index}] split-face-with-edge")
             }
+            PlannedTopologyOperation::BridgeSupportRegion(plan) => plan.diagnostic_label(),
         }
+    }
+}
+
+impl BridgeSupportRegionPlan {
+    fn from_candidate(candidate: &RegionOperationCandidate) -> Option<Self> {
+        let (support_face, support_loop) = candidate.endpoints.support_loop_membership()?;
+        Some(Self {
+            fillet_index: candidate.fillet_index,
+            support_face,
+            support_loop,
+            start: candidate.endpoints.start,
+            end: candidate.endpoints.end,
+            expected_delta: ExpectedTopologyDelta {
+                vertices: 0,
+                edges: 1,
+                faces: 1,
+                loops: 1,
+            },
+            preconditions: BridgeSupportRegionPreconditions {
+                exactly_one_endpoint_on_support_loop: true,
+                other_endpoint_has_known_membership: true,
+                support_owner_is_unique: support_face == candidate.endpoints.support_face,
+            },
+        })
+    }
+
+    fn diagnostic_label(&self) -> String {
+        format!(
+            "FilletEnd[{}] bridge-support-region support={:?}/{:?} {:?}->{:?} delta={} preconditions={}",
+            self.fillet_index,
+            self.support_face,
+            self.support_loop,
+            self.start,
+            self.end,
+            self.expected_delta.diagnostic_label(),
+            self.preconditions.diagnostic_label()
+        )
+    }
+}
+
+impl ExpectedTopologyDelta {
+    fn diagnostic_label(&self) -> String {
+        format!(
+            "dV={} dE={} dF={} dL={}",
+            self.vertices, self.edges, self.faces, self.loops
+        )
+    }
+}
+
+impl BridgeSupportRegionPreconditions {
+    fn diagnostic_label(&self) -> String {
+        format!(
+            "one_endpoint_on_support_loop={} other_endpoint_known={} unique_support_owner={}",
+            self.exactly_one_endpoint_on_support_loop,
+            self.other_endpoint_has_known_membership,
+            self.support_owner_is_unique
+        )
     }
 }
 
@@ -167,9 +271,7 @@ mod tests {
     use popkern_core::tolerance::Tolerance;
     use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
-    use super::super::repeated_apex_region_candidates::{
-        CandidateRejection, CandidateStatus, RegionOperationKind,
-    };
+    use super::super::repeated_apex_region_candidates::{CandidateStatus, RegionOperationKind};
     use super::super::repeated_apex_trim_subcomplex::{
         TopologyCountDelta, TrimEdgeConstruction, TrimOwnerPair, TrimRewriteEdgePlan,
         TrimRewriteSubcomplexPlan, trim_rewrite_support_groups,
@@ -209,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn read_only_snapshot_rejects_generator_trim_that_leaves_support_family() {
+    fn read_only_snapshot_blocks_bridge_plan_that_leaves_support_family() {
         let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
         let faces = brep.faces.keys().collect::<Vec<_>>();
         let support_face = faces[0];
@@ -248,23 +350,24 @@ mod tests {
 
         let labels = snapshot.diagnostic_label();
         assert!(labels.contains("outside-support-family"));
-        assert!(labels.contains("missing-validated-bridge-primitive"));
+        assert!(labels.contains("bridge-support-region"));
+        assert!(labels.contains("dV=0 dE=1 dF=1 dL=1"));
+        assert!(labels.contains("one_endpoint_on_support_loop=true"));
+        assert!(labels.contains("MissingValidatedBridgeExecutor"));
         assert_eq!(snapshot.candidates.candidates.len(), 2);
         assert!(snapshot.candidates.candidates.iter().any(|candidate| {
-            candidate.kind == RegionOperationKind::RequiresSupportRegionBridge
-                && matches!(
-                    candidate.status,
-                    CandidateStatus::Rejected {
-                        reason: CandidateRejection::MissingValidatedBridgePrimitive
-                    }
-                )
+            candidate.kind == RegionOperationKind::BridgeSupportRegion
+                && matches!(candidate.status, CandidateStatus::Accepted)
         }));
         assert!(matches!(
             snapshot.selection,
-            SideSupportRegionPlanSelection::Refused(SideSupportRegionRefusal {
-                reason: SideSupportRegionRefusalReason::MissingValidatedTopologyPrimitive,
-                ..
-            })
+            SideSupportRegionPlanSelection::Blocked(
+                _,
+                SideSupportRegionRefusal {
+                    reason: SideSupportRegionRefusalReason::MissingValidatedBridgeExecutor,
+                    ..
+                }
+            )
         ));
     }
 
