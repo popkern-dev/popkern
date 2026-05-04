@@ -1,5 +1,7 @@
 //! First-class selected plans for repeated-apex side-support region rewrites.
 
+use std::collections::BTreeMap;
+
 use popkern_core::topology::{FaceHandle, LoopHandle, VertexHandle};
 
 use super::repeated_apex_region_candidates::{
@@ -28,13 +30,18 @@ pub(super) enum PlannedTopologyOperation {
 
 #[derive(Clone, Debug)]
 pub(super) struct BridgeSupportRegionPlan {
-    fillet_index: usize,
     support_face: FaceHandle,
+    trims: Vec<BridgeSupportTrimPlan>,
+    expected_delta: ExpectedTopologyDelta,
+    preconditions: BridgeSupportRegionPreconditions,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct BridgeSupportTrimPlan {
+    fillet_index: usize,
     support_loop: LoopHandle,
     start: VertexHandle,
     end: VertexHandle,
-    expected_delta: ExpectedTopologyDelta,
-    preconditions: BridgeSupportRegionPreconditions,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,6 +80,7 @@ pub(super) enum SideSupportRegionRefusalReason {
 impl SideSupportRegionPlanSelection {
     pub(super) fn select(candidates: &CandidateSetSnapshot) -> Self {
         let mut operations = Vec::new();
+        let mut bridge_candidates_by_support = BTreeMap::<FaceHandle, Vec<_>>::new();
         let mut saw_unknown_endpoint = false;
         let mut selected_unexecutable_bridge = false;
         for candidate in &candidates.candidates {
@@ -83,8 +91,11 @@ impl SideSupportRegionPlanSelection {
                     });
                 }
                 (RegionOperationKind::BridgeSupportRegion, CandidateStatus::Accepted) => {
-                    if let Some(plan) = BridgeSupportRegionPlan::from_candidate(candidate) {
-                        operations.push(PlannedTopologyOperation::BridgeSupportRegion(plan));
+                    if candidate.endpoints.support_loop_membership().is_some() {
+                        bridge_candidates_by_support
+                            .entry(candidate.endpoints.support_face)
+                            .or_default()
+                            .push(candidate);
                         selected_unexecutable_bridge = true;
                     } else {
                         saw_unknown_endpoint = true;
@@ -97,6 +108,15 @@ impl SideSupportRegionPlanSelection {
                     },
                 ) => saw_unknown_endpoint = true,
                 _ => {}
+            }
+        }
+        for (support_face, bridge_candidates) in bridge_candidates_by_support {
+            if let Some(plan) =
+                BridgeSupportRegionPlan::from_candidates(support_face, &bridge_candidates)
+            {
+                operations.push(PlannedTopologyOperation::BridgeSupportRegion(plan));
+            } else {
+                saw_unknown_endpoint = true;
             }
         }
         if !operations.is_empty() && !saw_unknown_endpoint && !selected_unexecutable_bridge {
@@ -213,38 +233,58 @@ impl PlannedTopologyOperation {
 }
 
 impl BridgeSupportRegionPlan {
-    fn from_candidate(candidate: &RegionOperationCandidate) -> Option<Self> {
-        let (support_face, support_loop) = candidate.endpoints.support_loop_membership()?;
+    fn from_candidates(
+        support_face: FaceHandle,
+        candidates: &[&RegionOperationCandidate],
+    ) -> Option<Self> {
+        let mut trims = Vec::new();
+        for candidate in candidates {
+            let (_, support_loop) = candidate.endpoints.support_loop_membership()?;
+            trims.push(BridgeSupportTrimPlan {
+                fillet_index: candidate.fillet_index,
+                support_loop,
+                start: candidate.endpoints.start,
+                end: candidate.endpoints.end,
+            });
+        }
+        let expected_delta = ExpectedTopologyDelta {
+            vertices: 0,
+            edges: trims.len() as i64,
+            faces: trims.len() as i64,
+            loops: trims.len() as i64,
+        };
         Some(Self {
-            fillet_index: candidate.fillet_index,
             support_face,
-            support_loop,
-            start: candidate.endpoints.start,
-            end: candidate.endpoints.end,
-            expected_delta: ExpectedTopologyDelta {
-                vertices: 0,
-                edges: 1,
-                faces: 1,
-                loops: 1,
-            },
+            trims,
+            expected_delta,
             preconditions: BridgeSupportRegionPreconditions {
                 exactly_one_endpoint_on_support_loop: true,
                 other_endpoint_has_known_membership: true,
-                support_owner_is_unique: support_face == candidate.endpoints.support_face,
+                support_owner_is_unique: true,
             },
         })
     }
 
     fn diagnostic_label(&self) -> String {
         format!(
-            "FilletEnd[{}] bridge-support-region support={:?}/{:?} {:?}->{:?} delta={} preconditions={}",
-            self.fillet_index,
+            "bridge-support-region support={:?} trims=[{}] delta={} preconditions={}",
             self.support_face,
-            self.support_loop,
-            self.start,
-            self.end,
+            self.trims
+                .iter()
+                .map(BridgeSupportTrimPlan::diagnostic_label)
+                .collect::<Vec<_>>()
+                .join("; "),
             self.expected_delta.diagnostic_label(),
             self.preconditions.diagnostic_label()
+        )
+    }
+}
+
+impl BridgeSupportTrimPlan {
+    fn diagnostic_label(&self) -> String {
+        format!(
+            "FilletEnd[{}] loop={:?} {:?}->{:?}",
+            self.fillet_index, self.support_loop, self.start, self.end
         )
     }
 }
