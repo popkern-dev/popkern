@@ -75,7 +75,7 @@ impl SideSupportRegionExecutionReport {
                                 "{}; {}",
                                 bridge_primitive.diagnostic_label(),
                                 bridge_primitive
-                                    .topology_operator_report()
+                                    .topology_operator_report(brep)
                                     .diagnostic_label()
                             ),
                         );

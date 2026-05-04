@@ -4,12 +4,14 @@
 
 mod kemr;
 mod kfmrh;
+mod loop_bridge;
 mod mef;
 mod mev;
 mod mvfs;
 mod sweep;
 pub use kemr::{KemrResult, MekrResult};
 pub use kfmrh::MfkrhResult;
+pub use loop_bridge::{TwoLoopBridgePlan, TwoLoopBridgeRequest};
 pub use mef::MefResult;
 pub use mev::MevResult;
 pub use mvfs::MvfsResult;

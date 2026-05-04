@@ -1,5 +1,6 @@
 //! Face-family bridge primitive operands for repeated-apex side-support plans.
 
+use popkern_core::euler::TwoLoopBridgeRequest;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
 
 use super::repeated_apex_side_support_plan::{
@@ -28,6 +29,7 @@ pub(super) struct FaceFamilyBridgeTopologyOperatorReport {
 #[derive(Clone, Debug)]
 enum FaceFamilyBridgeTopologyOperatorStatus {
     Refused(FaceFamilyBridgeTopologyOperatorGap),
+    RefusedWithDetail(FaceFamilyBridgeTopologyOperatorGap, String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,6 +37,7 @@ enum FaceFamilyBridgeTopologyOperatorGap {
     MissingPrimitivePlan,
     EmptyPrimitivePlan,
     MissingBoundaryCycle,
+    CorePreflightRejected,
     MissingCrossFaceBridgeEulerOperator,
 }
 
@@ -127,7 +130,10 @@ impl FaceFamilyBridgePrimitiveDerivation {
         )
     }
 
-    pub(super) fn topology_operator_report(&self) -> FaceFamilyBridgeTopologyOperatorReport {
+    pub(super) fn topology_operator_report(
+        &self,
+        brep: &BRep,
+    ) -> FaceFamilyBridgeTopologyOperatorReport {
         let Some(primitive) = &self.primitive else {
             return FaceFamilyBridgeTopologyOperatorReport::refused(
                 0,
@@ -138,7 +144,7 @@ impl FaceFamilyBridgePrimitiveDerivation {
                 FaceFamilyBridgeTopologyOperatorGap::MissingPrimitivePlan,
             );
         };
-        primitive.topology_operator_report()
+        primitive.topology_operator_report(brep)
     }
 
     fn from_selected_plan(plan: &SelectedSideSupportRegionPlan, brep: &BRep) -> Self {
@@ -199,7 +205,7 @@ impl FaceFamilyBridgePrimitivePlan {
         )
     }
 
-    fn topology_operator_report(&self) -> FaceFamilyBridgeTopologyOperatorReport {
+    fn topology_operator_report(&self, brep: &BRep) -> FaceFamilyBridgeTopologyOperatorReport {
         let regions = self.regions.len();
         let boundary_cycles = self
             .regions
@@ -246,6 +252,21 @@ impl FaceFamilyBridgePrimitivePlan {
                 FaceFamilyBridgeTopologyOperatorGap::MissingBoundaryCycle,
             );
         }
+        if let Some(core_preflight_failure) = self
+            .regions
+            .iter()
+            .find_map(|region| region.core_bridge_preflight_failure(brep))
+        {
+            return FaceFamilyBridgeTopologyOperatorReport::refused_with_detail(
+                regions,
+                boundary_cycles,
+                expected_edges,
+                expected_faces,
+                expected_loops,
+                FaceFamilyBridgeTopologyOperatorGap::CorePreflightRejected,
+                core_preflight_failure,
+            );
+        }
         FaceFamilyBridgeTopologyOperatorReport::refused(
             regions,
             boundary_cycles,
@@ -276,6 +297,25 @@ impl FaceFamilyBridgeTopologyOperatorReport {
         }
     }
 
+    fn refused_with_detail(
+        regions: usize,
+        boundary_cycles: usize,
+        expected_edges: usize,
+        expected_faces: usize,
+        expected_loops: usize,
+        reason: FaceFamilyBridgeTopologyOperatorGap,
+        detail: String,
+    ) -> Self {
+        Self {
+            regions,
+            boundary_cycles,
+            expected_edges,
+            expected_faces,
+            expected_loops,
+            status: FaceFamilyBridgeTopologyOperatorStatus::RefusedWithDetail(reason, detail),
+        }
+    }
+
     pub(super) fn diagnostic_label(&self) -> String {
         format!(
             "topology_operator_ready={} regions={} boundary_cycles={} expected_delta=dV=0 dE={} dF={} dL={} reason={}",
@@ -294,12 +334,18 @@ impl FaceFamilyBridgeTopologyOperatorStatus {
     fn is_ready(&self) -> bool {
         match self {
             FaceFamilyBridgeTopologyOperatorStatus::Refused(_) => false,
+            FaceFamilyBridgeTopologyOperatorStatus::RefusedWithDetail(_, _) => false,
         }
     }
 
-    fn diagnostic_label(&self) -> &'static str {
+    fn diagnostic_label(&self) -> String {
         match self {
-            FaceFamilyBridgeTopologyOperatorStatus::Refused(reason) => reason.diagnostic_label(),
+            FaceFamilyBridgeTopologyOperatorStatus::Refused(reason) => {
+                reason.diagnostic_label().to_string()
+            }
+            FaceFamilyBridgeTopologyOperatorStatus::RefusedWithDetail(reason, detail) => {
+                format!("{} detail={detail}", reason.diagnostic_label())
+            }
         }
     }
 }
@@ -310,10 +356,26 @@ impl FaceFamilyBridgeTopologyOperatorGap {
             FaceFamilyBridgeTopologyOperatorGap::MissingPrimitivePlan => "missing-primitive-plan",
             FaceFamilyBridgeTopologyOperatorGap::EmptyPrimitivePlan => "empty-primitive-plan",
             FaceFamilyBridgeTopologyOperatorGap::MissingBoundaryCycle => "missing-boundary-cycle",
+            FaceFamilyBridgeTopologyOperatorGap::CorePreflightRejected => "core-preflight-rejected",
             FaceFamilyBridgeTopologyOperatorGap::MissingCrossFaceBridgeEulerOperator => {
                 "missing-cross-face-bridge-euler-operator"
             }
         }
+    }
+}
+
+impl FaceFamilyBridgeRegionPrimitivePlan {
+    fn core_bridge_preflight_failure(&self, brep: &BRep) -> Option<String> {
+        brep.preflight_two_loop_bridge(TwoLoopBridgeRequest {
+            first_loop: self.support_loop,
+            first_start: self.trims[0].support_half_edge,
+            first_end: self.trims[1].support_half_edge,
+            second_loop: self.outside_loop,
+            second_start: self.trims[0].outside_half_edge,
+            second_end: self.trims[1].outside_half_edge,
+        })
+        .err()
+        .map(|err| format!("{err}"))
     }
 }
 
