@@ -61,6 +61,7 @@ pub(super) struct BridgeSupportRegionPreconditions {
     exactly_one_endpoint_on_support_loop: bool,
     other_endpoint_has_known_membership: bool,
     support_owner_is_unique: bool,
+    face_family_bridge_operands_known: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -79,7 +80,7 @@ pub(super) enum SideSupportRegionRefusalReason {
     UnknownEndpointMembership,
     AmbiguousEndpointMembership,
     UnsupportedBridgeTrimCount,
-    MissingValidatedBridgeExecutor,
+    MissingValidatedFaceFamilyBridgePrimitive,
     NoAcceptedOperationCandidate,
 }
 
@@ -161,7 +162,8 @@ impl SideSupportRegionPlanSelection {
                 SelectedSideSupportRegionPlan::new(operations),
                 SideSupportRegionRefusal {
                     stage: PlannerStage::SelectPlan,
-                    reason: SideSupportRegionRefusalReason::MissingValidatedBridgeExecutor,
+                    reason:
+                        SideSupportRegionRefusalReason::MissingValidatedFaceFamilyBridgePrimitive,
                 },
             );
         }
@@ -206,6 +208,16 @@ impl SideSupportRegionPlanSelection {
                     planner_reason: refusal.reason,
                 }
             }
+        }
+    }
+
+    pub(super) fn bridge_support_region_count(&self) -> usize {
+        match self {
+            SideSupportRegionPlanSelection::Selected(plan)
+            | SideSupportRegionPlanSelection::Blocked(plan, _) => {
+                plan.bridge_support_region_count()
+            }
+            SideSupportRegionPlanSelection::Refused(_) => 0,
         }
     }
 }
@@ -299,6 +311,15 @@ impl SelectedSideSupportRegionPlan {
                 .collect::<Vec<_>>()
                 .join("; ")
         )
+    }
+
+    fn bridge_support_region_count(&self) -> usize {
+        self.operations
+            .iter()
+            .filter(|operation| {
+                matches!(operation, PlannedTopologyOperation::BridgeSupportRegion(_))
+            })
+            .count()
     }
 }
 
@@ -401,6 +422,7 @@ impl BridgeSupportRegionPlan {
                 exactly_one_endpoint_on_support_loop: true,
                 other_endpoint_has_known_membership: true,
                 support_owner_is_unique: true,
+                face_family_bridge_operands_known: true,
             },
         })
     }
@@ -555,10 +577,11 @@ impl ExpectedTopologyDelta {
 impl BridgeSupportRegionPreconditions {
     fn diagnostic_label(&self) -> String {
         format!(
-            "one_endpoint_on_support_loop={} other_endpoint_known={} unique_support_owner={}",
+            "one_endpoint_on_support_loop={} other_endpoint_known={} unique_support_owner={} face_family_bridge_operands_known={}",
             self.exactly_one_endpoint_on_support_loop,
             self.other_endpoint_has_known_membership,
-            self.support_owner_is_unique
+            self.support_owner_is_unique,
+            self.face_family_bridge_operands_known
         )
     }
 }

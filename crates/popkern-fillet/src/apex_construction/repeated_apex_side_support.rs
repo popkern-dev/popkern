@@ -162,7 +162,7 @@ mod tests {
         assert!(labels.contains("total_delta=dV=0 dE=2 dF=2 dL=2"));
         assert!(labels.contains("dV=0 dE=2 dF=2 dL=2"));
         assert!(labels.contains("one_endpoint_on_support_loop=true"));
-        assert!(labels.contains("MissingValidatedBridgeExecutor"));
+        assert!(labels.contains("MissingValidatedFaceFamilyBridgePrimitive"));
         assert!(labels.contains("execution refused stage=Preflight"));
         assert_eq!(snapshot.candidates.candidates.len(), 4);
         assert!(snapshot.candidates.candidates.iter().any(|candidate| {
@@ -174,7 +174,8 @@ mod tests {
             SideSupportRegionPlanSelection::Blocked(
                 _,
                 SideSupportRegionRefusal {
-                    reason: SideSupportRegionRefusalReason::MissingValidatedBridgeExecutor,
+                    reason:
+                        SideSupportRegionRefusalReason::MissingValidatedFaceFamilyBridgePrimitive,
                     ..
                 }
             )
@@ -209,7 +210,7 @@ mod tests {
 
         let labels = snapshot.diagnostic_label();
         assert!(labels.contains("UnsupportedBridgeTrimCount"));
-        assert!(!labels.contains("MissingValidatedBridgeExecutor"));
+        assert!(!labels.contains("MissingValidatedFaceFamilyBridgePrimitive"));
         assert_eq!(snapshot.candidates.candidates.len(), 2);
         assert!(matches!(
             snapshot.selection,

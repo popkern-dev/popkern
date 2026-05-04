@@ -35,7 +35,7 @@ enum SideSupportRegionExecutionRefusalReason {
     StaleKnowledgeGraph,
     PlannerRefused,
     MissingLiveTopologyOperand,
-    MissingValidatedBridgeExecutor,
+    MissingValidatedFaceFamilyBridgePrimitive,
 }
 
 impl SideSupportRegionExecutionReport {
@@ -59,8 +59,14 @@ impl SideSupportRegionExecutionReport {
             },
             SideSupportRegionExecutionReadiness::Blocked { planner_reason, .. } => {
                 let reason = match planner_reason {
-                    SideSupportRegionRefusalReason::MissingValidatedBridgeExecutor => {
-                        SideSupportRegionExecutionRefusalReason::MissingValidatedBridgeExecutor
+                    SideSupportRegionRefusalReason::MissingValidatedFaceFamilyBridgePrimitive => {
+                        return Self::refused_with_detail(
+                            SideSupportRegionExecutionRefusalReason::MissingValidatedFaceFamilyBridgePrimitive,
+                            format!(
+                                "face-family-bridge-primitive pending bridge_regions={}",
+                                selection.bridge_support_region_count()
+                            ),
+                        );
                     }
                     SideSupportRegionRefusalReason::UnknownEndpointMembership
                     | SideSupportRegionRefusalReason::AmbiguousEndpointMembership
