@@ -61,19 +61,23 @@ impl BRep {
                     },
                 );
                 trace_trim_overlap_sample(
-                    face_a,
-                    surface_a,
-                    trim_a_contains,
-                    UvPoint {
-                        u: uv_a.x,
-                        v: uv_a.y,
+                    TrimOverlapTraceSample {
+                        face: face_a,
+                        surface: surface_a,
+                        trim_contains: trim_a_contains,
+                        uv: UvPoint {
+                            u: uv_a.x,
+                            v: uv_a.y,
+                        },
                     },
-                    face_b,
-                    surface_b,
-                    trim_b_contains,
-                    UvPoint {
-                        u: uv_b.x,
-                        v: uv_b.y,
+                    TrimOverlapTraceSample {
+                        face: face_b,
+                        surface: surface_b,
+                        trim_contains: trim_b_contains,
+                        uv: UvPoint {
+                            u: uv_b.x,
+                            v: uv_b.y,
+                        },
                     },
                 );
                 trim_classes_overlap(trim_a_contains, trim_b_contains)
@@ -313,10 +317,10 @@ enum TrimContainment {
 }
 
 fn trim_classes_overlap(a: Option<TrimContainment>, b: Option<TrimContainment>) -> bool {
-    match (a, b) {
-        (Some(TrimContainment::Outside), _) | (_, Some(TrimContainment::Outside)) => false,
-        _ => true,
-    }
+    !matches!(
+        (a, b),
+        (Some(TrimContainment::Outside), _) | (_, Some(TrimContainment::Outside))
+    )
 }
 
 fn intersection_sample_points(
@@ -371,28 +375,30 @@ fn surface_uses_iterative_projection(surface: &SurfaceGeometry) -> bool {
     )
 }
 
-fn trace_trim_overlap_sample(
-    face_a: FaceHandle,
-    surface_a: &SurfaceGeometry,
-    trim_a_contains: Option<TrimContainment>,
-    uv_a: UvPoint,
-    face_b: FaceHandle,
-    surface_b: &SurfaceGeometry,
-    trim_b_contains: Option<TrimContainment>,
-    uv_b: UvPoint,
-) {
+struct TrimOverlapTraceSample<'a> {
+    face: FaceHandle,
+    surface: &'a SurfaceGeometry,
+    trim_contains: Option<TrimContainment>,
+    uv: UvPoint,
+}
+
+fn trace_trim_overlap_sample(a: TrimOverlapTraceSample<'_>, b: TrimOverlapTraceSample<'_>) {
     if std::env::var_os("POPKERN_SELF_INTERSECTION_TRACE").is_none() {
         return;
     }
     eprintln!(
-        "[self-intersection trim] {face_a:?}/{} uv=({:.6},{:.6}) inside={trim_a_contains:?} \
-         {face_b:?}/{} uv=({:.6},{:.6}) inside={trim_b_contains:?}",
-        surface_kind(surface_a),
-        uv_a.u,
-        uv_a.v,
-        surface_kind(surface_b),
-        uv_b.u,
-        uv_b.v,
+        "[self-intersection trim] {:?}/{} uv=({:.6},{:.6}) inside={:?} \
+         {:?}/{} uv=({:.6},{:.6}) inside={:?}",
+        a.face,
+        surface_kind(a.surface),
+        a.uv.u,
+        a.uv.v,
+        a.trim_contains,
+        b.face,
+        surface_kind(b.surface),
+        b.uv.u,
+        b.uv.v,
+        b.trim_contains,
     );
 }
 

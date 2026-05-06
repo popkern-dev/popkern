@@ -1210,13 +1210,15 @@ fn apply_materialized_cylinder_loop_replacements(
                     std::collections::BTreeSet::from([planned_support_face]);
                 let support_face = support_face_for_generator_trim_side(
                     brep,
-                    rebuild_plan.cylinder_face,
-                    cap_face,
-                    segment.start,
-                    segment.end,
-                    segment.label,
-                    rebuild_plan.fillet_index,
-                    &allowed_planned_support,
+                    GeneratorTrimSupportOwnerQuery {
+                        cylinder_face: rebuild_plan.cylinder_face,
+                        cap_face,
+                        start: segment.start,
+                        end: segment.end,
+                        label: segment.label,
+                        fillet_index: rebuild_plan.fillet_index,
+                        allowed_support_faces: &allowed_planned_support,
+                    },
                 )?;
                 let (half_edge, actual_support_face, support_side_owned, support_source) =
                     materialized_generator_trim_side(
@@ -1700,11 +1702,11 @@ fn materialize_closed_support_trim_cycles_candidate(
             .or_default() += 1;
     }
     for face_edge in face_edges {
-        if let Some(half_edges) = by_support_face.get_mut(&face_edge.support_face) {
-            if !half_edge_is_degenerate(brep, face_edge.support_half_edge) {
-                half_edges.push(face_edge.support_half_edge);
-                support_faces_with_existing_boundary.insert(face_edge.support_face);
-            }
+        if let Some(half_edges) = by_support_face.get_mut(&face_edge.support_face)
+            && !half_edge_is_degenerate(brep, face_edge.support_half_edge)
+        {
+            half_edges.push(face_edge.support_half_edge);
+            support_faces_with_existing_boundary.insert(face_edge.support_face);
         }
     }
 
@@ -2267,16 +2269,29 @@ fn boundary_curve_end_vertex(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<V
         .map(|(vertex, _)| vertex)
 }
 
-fn support_face_for_generator_trim_side(
-    brep: &BRep,
+struct GeneratorTrimSupportOwnerQuery<'a> {
     cylinder_face: FaceHandle,
     cap_face: FaceHandle,
     start: VertexHandle,
     end: VertexHandle,
     label: &'static str,
     fillet_index: usize,
-    allowed_support_faces: &std::collections::BTreeSet<FaceHandle>,
+    allowed_support_faces: &'a std::collections::BTreeSet<FaceHandle>,
+}
+
+fn support_face_for_generator_trim_side(
+    brep: &BRep,
+    query: GeneratorTrimSupportOwnerQuery<'_>,
 ) -> Result<FaceHandle, ApexBuildError> {
+    let GeneratorTrimSupportOwnerQuery {
+        cylinder_face,
+        cap_face,
+        start,
+        end,
+        label,
+        fillet_index,
+        allowed_support_faces,
+    } = query;
     let start_point = brep.vertices[start].position;
     let end_point = brep.vertices[end].position;
     let tol = brep.tolerance.linear().max(1.0e-9);
@@ -3160,7 +3175,7 @@ fn materialized_far_side_trim_sides(
         }
     }
     candidates.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
-    for (start_support, end_support, joint_point, _) in candidates {
+    if let Some((start_support, end_support, joint_point, _)) = candidates.into_iter().next() {
         let joint = brep.vertices.insert(Vertex {
             position: joint_point,
             outgoing: HalfEdgeHandle::default(),
@@ -3961,13 +3976,15 @@ fn plan_trim_subcomplex_for_cylinder_rewrite(
             } else {
                 let support_face = support_face_for_generator_trim_side(
                     brep,
-                    rebuild_plan.cylinder_face,
-                    cap_face,
-                    segment.start,
-                    segment.end,
-                    segment.label,
-                    rebuild_plan.fillet_index,
-                    &allowed_support_faces,
+                    GeneratorTrimSupportOwnerQuery {
+                        cylinder_face: rebuild_plan.cylinder_face,
+                        cap_face,
+                        start: segment.start,
+                        end: segment.end,
+                        label: segment.label,
+                        fillet_index: rebuild_plan.fillet_index,
+                        allowed_support_faces: &allowed_support_faces,
+                    },
                 )?;
                 builder.push_new_generator_trim(
                     topology_plan.fillet_index,
@@ -4644,10 +4661,10 @@ impl SemanticCylinderTrimRebuildPlan {
                     cylinder_half_edge,
                     ..
                 } => {
-                    if !brep
+                    if brep
                         .edges
                         .get(*edge)
-                        .is_some_and(|edge_data| edge_data.curve.is_some())
+                        .is_none_or(|edge_data| edge_data.curve.is_none())
                     {
                         return Err(ApexBuildError::PlanMismatch {
                             reason: format!(

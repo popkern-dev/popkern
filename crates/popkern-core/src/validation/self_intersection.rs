@@ -180,13 +180,17 @@ impl BRep {
             pairs_checked += 1;
             trace_self_intersection_candidate(
                 self,
-                face_keys[i],
-                face_keys[j],
                 pairs_checked,
-                (u0i, u1i),
-                (v0i, v1i),
-                (u0j, u1j),
-                (v0j, v1j),
+                TraceSurfacePatch {
+                    face: face_keys[i],
+                    u_range: (u0i, u1i),
+                    v_range: (v0i, v1i),
+                },
+                TraceSurfacePatch {
+                    face: face_keys[j],
+                    u_range: (u0j, u1j),
+                    v_range: (v0j, v1j),
+                },
             );
             if let Some(overlaps) = self.bounded_cylinder_cylinder_trim_overlap(
                 face_keys[i],
@@ -441,9 +445,11 @@ fn cylinder_cylinder_near_samples(
         surface_a,
         u_range_a,
         v_range_a,
-        *origin_b,
-        *axis_b,
-        *radius_b,
+        CylinderDistanceTarget {
+            origin: *origin_b,
+            axis: *axis_b,
+            radius: *radius_b,
+        },
         threshold,
         &mut samples,
     );
@@ -451,9 +457,11 @@ fn cylinder_cylinder_near_samples(
         surface_b,
         u_range_b,
         v_range_b,
-        *origin_a,
-        *axis_a,
-        *radius_a,
+        CylinderDistanceTarget {
+            origin: *origin_a,
+            axis: *axis_a,
+            radius: *radius_a,
+        },
         threshold,
         &mut samples,
     );
@@ -477,13 +485,18 @@ fn cylinder_cylinder_near_samples(
     Some(samples)
 }
 
+#[derive(Clone, Copy)]
+struct CylinderDistanceTarget {
+    origin: Point3,
+    axis: crate::geometry::Vec3,
+    radius: f64,
+}
+
 fn sample_cylinder_against_cylinder(
     sampled_surface: &crate::geometry::surface::SurfaceGeometry,
     u_range: (f64, f64),
     v_range: (f64, f64),
-    other_origin: Point3,
-    other_axis: crate::geometry::Vec3,
-    other_radius: f64,
+    other: CylinderDistanceTarget,
     threshold: f64,
     samples: &mut Vec<Point3>,
 ) {
@@ -495,7 +508,7 @@ fn sample_cylinder_against_cylinder(
             let u = u_range.0 + (u_range.1 - u_range.0) * alpha;
             let v = v_range.0 + (v_range.1 - v_range.0) * beta;
             let p = sampled_surface.point_at(u, v);
-            let distance = distance_to_cylinder(p, other_origin, other_axis, other_radius);
+            let distance = distance_to_cylinder(p, other.origin, other.axis, other.radius);
             if distance <= threshold {
                 samples.push(p);
             }
@@ -535,38 +548,49 @@ fn trace_surface_kind(brep: &BRep, face: crate::topology::FaceHandle) -> &'stati
     }
 }
 
+#[derive(Clone, Copy)]
+struct TraceSurfacePatch {
+    face: crate::topology::FaceHandle,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+}
+
 fn trace_self_intersection_candidate(
     brep: &BRep,
-    face_a: crate::topology::FaceHandle,
-    face_b: crate::topology::FaceHandle,
     index: usize,
-    u_range_a: (f64, f64),
-    v_range_a: (f64, f64),
-    u_range_b: (f64, f64),
-    v_range_b: (f64, f64),
+    patch_a: TraceSurfacePatch,
+    patch_b: TraceSurfacePatch,
 ) {
     if std::env::var_os("POPKERN_SELF_INTERSECTION_TRACE").is_none() {
         return;
     }
+    let face_a = patch_a.face;
+    let face_b = patch_b.face;
     eprintln!(
         "[self-intersection candidate] #{index} {face_a:?}/{} u=({:.6},{:.6}) v=({:.6},{:.6}) \
          {face_b:?}/{} u=({:.6},{:.6}) v=({:.6},{:.6})",
-        trace_surface_kind(brep, face_a),
-        u_range_a.0,
-        u_range_a.1,
-        v_range_a.0,
-        v_range_a.1,
-        trace_surface_kind(brep, face_b),
-        u_range_b.0,
-        u_range_b.1,
-        v_range_b.0,
-        v_range_b.1,
+        trace_surface_kind(brep, patch_a.face),
+        patch_a.u_range.0,
+        patch_a.u_range.1,
+        patch_a.v_range.0,
+        patch_a.v_range.1,
+        trace_surface_kind(brep, patch_b.face),
+        patch_b.u_range.0,
+        patch_b.u_range.1,
+        patch_b.v_range.0,
+        patch_b.v_range.1,
     );
-    if let Some(detail) = trace_cylinder_detail(brep, face_a) {
-        eprintln!("[self-intersection candidate]   {face_a:?} {detail}");
+    if let Some(detail) = trace_cylinder_detail(brep, patch_a.face) {
+        eprintln!(
+            "[self-intersection candidate]   {:?} {detail}",
+            patch_a.face
+        );
     }
-    if let Some(detail) = trace_cylinder_detail(brep, face_b) {
-        eprintln!("[self-intersection candidate]   {face_b:?} {detail}");
+    if let Some(detail) = trace_cylinder_detail(brep, patch_b.face) {
+        eprintln!(
+            "[self-intersection candidate]   {:?} {detail}",
+            patch_b.face
+        );
     }
 }
 

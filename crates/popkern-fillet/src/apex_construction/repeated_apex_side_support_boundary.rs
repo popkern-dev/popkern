@@ -359,9 +359,7 @@ fn self_owned_protected_pairs(
     blocked
         .iter()
         .filter_map(|half_edge| {
-            let Some(data) = brep.half_edges.get(*half_edge) else {
-                return None;
-            };
+            let data = brep.half_edges.get(*half_edge)?;
             let twin = data.twin;
             if *half_edge > twin {
                 return None;

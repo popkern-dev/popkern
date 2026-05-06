@@ -8,7 +8,7 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 #[derive(Clone, Debug)]
 pub(super) enum SideGeneratorCurveAuthoring {
-    Ready(ExactSideGeneratorGeometry),
+    Ready(Box<ExactSideGeneratorGeometry>),
     Refused(String),
 }
 
@@ -81,7 +81,7 @@ impl SideGeneratorCurveAuthoring {
                     triple.t_end,
                     brep.tolerance.linear(),
                 );
-                Self::Ready(ExactSideGeneratorGeometry {
+                Self::Ready(Box::new(ExactSideGeneratorGeometry {
                     curve: CurveOnEdge {
                         geometry,
                         t_start: triple.t_start,
@@ -89,7 +89,7 @@ impl SideGeneratorCurveAuthoring {
                     },
                     cylinder_pcurve: triple.pcurve_a,
                     support_pcurve: triple.pcurve_b,
-                })
+                }))
             }
             Err(err) => Self::Refused(format!("edge-triple-refused={err}")),
         }
