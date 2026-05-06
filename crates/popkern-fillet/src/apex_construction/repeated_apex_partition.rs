@@ -54,7 +54,7 @@ use partition_cylinder_anchors::{
     support_topology_generator_anchor_pair, vertex_is_on_face_outer_loop,
 };
 use partition_cylinder_geometry::{
-    arc_half_edges_between, author_missing_on_cylinder_line_trim_for_endpoint,
+    CylinderTrimSurface, arc_half_edges_between, author_missing_on_cylinder_line_trim_for_endpoint,
     cylinder_radial_vector, half_edge_end_vertex, point_lies_on_cylinder_face,
     target_cylinder_face_for_fillet,
 };
@@ -5606,100 +5606,6 @@ impl CylinderLoopOrientationCandidate {
 impl OrientedCylinderTrimSegment {
     fn diagnostic_label(&self) -> String {
         format!("{} {:?}->{:?}", self.label, self.start, self.end)
-    }
-}
-
-struct CylinderTrimSurface {
-    origin: Point3,
-    axis: popkern_core::geometry::Vec3,
-}
-
-impl CylinderTrimSurface {
-    fn from_face(
-        brep: &BRep,
-        face: FaceHandle,
-        fillet_index: usize,
-    ) -> Result<Self, ApexBuildError> {
-        let Some(surface) = brep
-            .faces
-            .get(face)
-            .and_then(|face_data| face_data.surface.as_ref())
-        else {
-            return Err(ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "planned repeated-apex partition FilletEnd[{fillet_index}] target cylinder \
-                     face {face:?} has no surface"
-                ),
-            });
-        };
-        let SurfaceGeometry::Cylinder {
-            origin,
-            axis,
-            radius: _,
-        } = surface.geometry
-        else {
-            return Err(ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "planned repeated-apex partition FilletEnd[{fillet_index}] target face \
-                     {face:?} is not a cylinder"
-                ),
-            });
-        };
-        Ok(Self { origin, axis })
-    }
-
-    fn validate_generator_segment(
-        &self,
-        brep: &BRep,
-        fillet_index: usize,
-        start: VertexHandle,
-        end: VertexHandle,
-    ) -> Result<(), ApexBuildError> {
-        let start_point = brep.vertices[start].position;
-        let end_point = brep.vertices[end].position;
-        let start_radial =
-            cylinder_radial_vector(start_point, self.origin, self.axis).ok_or_else(|| {
-                ApexBuildError::PlanMismatch {
-                    reason: format!(
-                        "planned repeated-apex partition FilletEnd[{fillet_index}] cannot classify \
-                     generator trim {start:?}->{end:?}: degenerate cylinder axis"
-                    ),
-                }
-            })?;
-        let end_radial =
-            cylinder_radial_vector(end_point, self.origin, self.axis).ok_or_else(|| {
-                ApexBuildError::PlanMismatch {
-                    reason: format!(
-                        "planned repeated-apex partition FilletEnd[{fillet_index}] cannot classify \
-                     generator trim {start:?}->{end:?}: degenerate cylinder axis"
-                    ),
-                }
-            })?;
-        let Some(start_unit) = start_radial.normalized() else {
-            return Err(ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "planned repeated-apex partition FilletEnd[{fillet_index}] generator trim \
-                     {start:?}->{end:?} has degenerate start radial vector"
-                ),
-            });
-        };
-        let Some(end_unit) = end_radial.normalized() else {
-            return Err(ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "planned repeated-apex partition FilletEnd[{fillet_index}] generator trim \
-                     {start:?}->{end:?} has degenerate end radial vector"
-                ),
-            });
-        };
-        if start_unit.dot(&end_unit) < 1.0 - 1.0e-5 {
-            return Err(ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "planned repeated-apex partition FilletEnd[{fillet_index}] generator trim \
-                     {start:?}->{end:?} does not keep a constant cylinder radial direction"
-                ),
-            });
-        }
-        Ok(())
     }
 }
 

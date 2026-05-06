@@ -253,3 +253,96 @@ pub(super) fn arc_half_edges_between(
     }
     out
 }
+pub(super) struct CylinderTrimSurface {
+    origin: Point3,
+    axis: popkern_core::geometry::Vec3,
+}
+
+impl CylinderTrimSurface {
+    pub(super) fn from_face(
+        brep: &BRep,
+        face: FaceHandle,
+        fillet_index: usize,
+    ) -> Result<Self, ApexBuildError> {
+        let Some(surface) = brep
+            .faces
+            .get(face)
+            .and_then(|face_data| face_data.surface.as_ref())
+        else {
+            return Err(ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition FilletEnd[{fillet_index}] target cylinder \
+                     face {face:?} has no surface"
+                ),
+            });
+        };
+        let SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius: _,
+        } = surface.geometry
+        else {
+            return Err(ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition FilletEnd[{fillet_index}] target face \
+                     {face:?} is not a cylinder"
+                ),
+            });
+        };
+        Ok(Self { origin, axis })
+    }
+
+    pub(super) fn validate_generator_segment(
+        &self,
+        brep: &BRep,
+        fillet_index: usize,
+        start: VertexHandle,
+        end: VertexHandle,
+    ) -> Result<(), ApexBuildError> {
+        let start_point = brep.vertices[start].position;
+        let end_point = brep.vertices[end].position;
+        let start_radial =
+            cylinder_radial_vector(start_point, self.origin, self.axis).ok_or_else(|| {
+                ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "planned repeated-apex partition FilletEnd[{fillet_index}] cannot classify \
+                     generator trim {start:?}->{end:?}: degenerate cylinder axis"
+                    ),
+                }
+            })?;
+        let end_radial =
+            cylinder_radial_vector(end_point, self.origin, self.axis).ok_or_else(|| {
+                ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "planned repeated-apex partition FilletEnd[{fillet_index}] cannot classify \
+                     generator trim {start:?}->{end:?}: degenerate cylinder axis"
+                    ),
+                }
+            })?;
+        let Some(start_unit) = start_radial.normalized() else {
+            return Err(ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition FilletEnd[{fillet_index}] generator trim \
+                     {start:?}->{end:?} has degenerate start radial vector"
+                ),
+            });
+        };
+        let Some(end_unit) = end_radial.normalized() else {
+            return Err(ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition FilletEnd[{fillet_index}] generator trim \
+                     {start:?}->{end:?} has degenerate end radial vector"
+                ),
+            });
+        };
+        if start_unit.dot(&end_unit) < 1.0 - 1.0e-5 {
+            return Err(ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition FilletEnd[{fillet_index}] generator trim \
+                     {start:?}->{end:?} does not keep a constant cylinder radial direction"
+                ),
+            });
+        }
+        Ok(())
+    }
+}
