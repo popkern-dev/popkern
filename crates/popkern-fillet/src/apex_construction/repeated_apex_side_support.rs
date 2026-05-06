@@ -187,8 +187,8 @@ mod tests {
         assert!(snapshot.validate_fresh(&brep));
         assert_eq!(snapshot.candidates.len(), 1);
         let candidate = snapshot.candidates.iter().next().expect("candidate");
-        assert_eq!(candidate.kind, RegionOperationKind::SplitFaceWithEdge);
-        assert!(matches!(candidate.status, CandidateStatus::Accepted));
+        assert_eq!(candidate.kind(), RegionOperationKind::SplitFaceWithEdge);
+        assert!(matches!(candidate.status(), CandidateStatus::Accepted));
         assert!(matches!(
             snapshot.selection,
             SideSupportRegionPlanSelection::Selected(_)
@@ -257,12 +257,12 @@ mod tests {
         assert!(labels.contains("execution refused stage=Preflight"));
         assert_eq!(snapshot.candidates.len(), 6);
         assert!(snapshot.candidates.iter().any(|candidate| {
-            candidate.kind == RegionOperationKind::BridgeSupportRegion
-                && matches!(candidate.status, CandidateStatus::Accepted)
+            candidate.kind() == RegionOperationKind::BridgeSupportRegion
+                && matches!(candidate.status(), CandidateStatus::Accepted)
         }));
         assert!(snapshot.candidates.iter().any(|candidate| {
-            candidate.kind == RegionOperationKind::MergeAdjacentSupportRegion
-                && matches!(candidate.status, CandidateStatus::Accepted)
+            candidate.kind() == RegionOperationKind::MergeAdjacentSupportRegion
+                && matches!(candidate.status(), CandidateStatus::Accepted)
         }));
         match &snapshot.selection {
             SideSupportRegionPlanSelection::Blocked(_, refusal) => assert_eq!(

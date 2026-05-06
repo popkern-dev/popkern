@@ -7,10 +7,10 @@ use super::repeated_apex_side_support_facts::EndpointRegionMembership;
 
 #[derive(Clone, Debug)]
 pub(super) struct RegionOperationCandidate {
-    pub(super) fillet_index: usize,
-    pub(super) kind: RegionOperationKind,
-    pub(super) endpoints: RegionCandidateEndpoints,
-    pub(super) status: CandidateStatus,
+    fillet_index: usize,
+    kind: RegionOperationKind,
+    endpoints: RegionCandidateEndpoints,
+    status: CandidateStatus,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,12 +22,12 @@ pub(super) enum RegionOperationKind {
 
 #[derive(Clone, Debug)]
 pub(super) struct RegionCandidateEndpoints {
-    pub(super) cylinder_face: FaceHandle,
-    pub(super) support_face: FaceHandle,
-    pub(super) start: VertexHandle,
-    pub(super) end: VertexHandle,
-    pub(super) start_membership: EndpointRegionMembership,
-    pub(super) end_membership: EndpointRegionMembership,
+    cylinder_face: FaceHandle,
+    support_face: FaceHandle,
+    start: VertexHandle,
+    end: VertexHandle,
+    start_membership: EndpointRegionMembership,
+    end_membership: EndpointRegionMembership,
 }
 
 #[derive(Clone, Debug)]
@@ -147,6 +147,22 @@ impl CandidateSetSnapshot {
 }
 
 impl RegionOperationCandidate {
+    pub(super) fn fillet_index(&self) -> usize {
+        self.fillet_index
+    }
+
+    pub(super) fn kind(&self) -> RegionOperationKind {
+        self.kind
+    }
+
+    pub(super) fn endpoints(&self) -> &RegionCandidateEndpoints {
+        &self.endpoints
+    }
+
+    pub(super) fn status(&self) -> &CandidateStatus {
+        &self.status
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
             "FilletEnd[{}] {} {} {}",
@@ -254,6 +270,18 @@ impl RegionCandidateEndpoints {
             }),
             _ => None,
         }
+    }
+
+    pub(super) fn support_face(&self) -> FaceHandle {
+        self.support_face
+    }
+
+    pub(super) fn start(&self) -> VertexHandle {
+        self.start
+    }
+
+    pub(super) fn end(&self) -> VertexHandle {
+        self.end
     }
 
     pub(super) fn diagnostic_label(&self) -> String {

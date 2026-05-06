@@ -100,16 +100,16 @@ impl SideSupportRegionPlanSelection {
         let mut saw_unsupported_bridge_region = false;
         let mut selected_unexecutable_bridge = false;
         for candidate in candidates.iter() {
-            match (&candidate.kind, &candidate.status) {
+            match (candidate.kind(), candidate.status()) {
                 (RegionOperationKind::SplitFaceWithEdge, CandidateStatus::Accepted) => {
                     operations.push(PlannedTopologyOperation::SplitFaceWithEdge {
-                        fillet_index: candidate.fillet_index,
+                        fillet_index: candidate.fillet_index(),
                     });
                 }
                 (RegionOperationKind::BridgeSupportRegion, CandidateStatus::Accepted) => {
-                    if candidate.endpoints.bridge_loop_membership().is_some() {
+                    if candidate.endpoints().bridge_loop_membership().is_some() {
                         bridge_candidates_by_support
-                            .entry(candidate.endpoints.support_face)
+                            .entry(candidate.endpoints().support_face())
                             .or_default()
                             .push(candidate);
                         selected_unexecutable_bridge = true;
@@ -286,19 +286,19 @@ impl BridgeSupportRegionPlan {
         let mut trims = Vec::new();
         for candidate in candidates {
             let bridge_membership = candidate
-                .endpoints
+                .endpoints()
                 .bridge_loop_membership()
                 .ok_or(BridgeSupportRegionPlanRejection::EndpointMembershipUnknown)?;
             trims.push(BridgeSupportTrimPlan {
-                fillet_index: candidate.fillet_index,
+                fillet_index: candidate.fillet_index(),
                 cylinder_face: bridge_membership.cylinder_face,
                 support_loop: bridge_membership.support_loop,
                 support_half_edge: bridge_membership.support_half_edge,
                 outside_face: bridge_membership.outside_face,
                 outside_loop: bridge_membership.outside_loop,
                 outside_half_edge: bridge_membership.outside_half_edge,
-                start: candidate.endpoints.start,
-                end: candidate.endpoints.end,
+                start: candidate.endpoints().start(),
+                end: candidate.endpoints().end(),
             });
         }
         let expected_delta = ExpectedTopologyDelta {
