@@ -45,7 +45,7 @@ pub(super) enum CandidateRejection {
 
 #[derive(Clone, Debug)]
 pub(super) struct CandidateSetSnapshot {
-    pub(super) candidates: Vec<RegionOperationCandidate>,
+    candidates: Vec<RegionOperationCandidate>,
 }
 
 impl CandidateSetSnapshot {
@@ -123,6 +123,15 @@ impl CandidateSetSnapshot {
             )
         });
         Self { candidates }
+    }
+
+    #[cfg(test)]
+    pub(super) fn len(&self) -> usize {
+        self.candidates.len()
+    }
+
+    pub(super) fn iter(&self) -> impl Iterator<Item = &RegionOperationCandidate> {
+        self.candidates.iter()
     }
 
     pub(super) fn diagnostic_label(&self) -> String {

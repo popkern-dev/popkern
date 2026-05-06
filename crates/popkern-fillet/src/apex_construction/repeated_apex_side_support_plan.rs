@@ -99,7 +99,7 @@ impl SideSupportRegionPlanSelection {
         let mut saw_ambiguous_endpoint = false;
         let mut saw_unsupported_bridge_region = false;
         let mut selected_unexecutable_bridge = false;
-        for candidate in &candidates.candidates {
+        for candidate in candidates.iter() {
             match (&candidate.kind, &candidate.status) {
                 (RegionOperationKind::SplitFaceWithEdge, CandidateStatus::Accepted) => {
                     operations.push(PlannedTopologyOperation::SplitFaceWithEdge {

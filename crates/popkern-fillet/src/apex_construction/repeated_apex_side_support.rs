@@ -185,8 +185,8 @@ mod tests {
         let snapshot = SideSupportRegionDiagnosticSnapshot::build_read_only(&brep, &plan);
 
         assert!(snapshot.validate_fresh(&brep));
-        assert_eq!(snapshot.candidates.candidates.len(), 1);
-        let candidate = &snapshot.candidates.candidates[0];
+        assert_eq!(snapshot.candidates.len(), 1);
+        let candidate = snapshot.candidates.iter().next().expect("candidate");
         assert_eq!(candidate.kind, RegionOperationKind::SplitFaceWithEdge);
         assert!(matches!(candidate.status, CandidateStatus::Accepted));
         assert!(matches!(
@@ -255,12 +255,12 @@ mod tests {
         assert!(labels.contains("MissingValidatedSupportRegionMergePrimitive"));
         assert!(labels.contains("MissingValidatedFaceFamilyBridgePrimitive"));
         assert!(labels.contains("execution refused stage=Preflight"));
-        assert_eq!(snapshot.candidates.candidates.len(), 6);
-        assert!(snapshot.candidates.candidates.iter().any(|candidate| {
+        assert_eq!(snapshot.candidates.len(), 6);
+        assert!(snapshot.candidates.iter().any(|candidate| {
             candidate.kind == RegionOperationKind::BridgeSupportRegion
                 && matches!(candidate.status, CandidateStatus::Accepted)
         }));
-        assert!(snapshot.candidates.candidates.iter().any(|candidate| {
+        assert!(snapshot.candidates.iter().any(|candidate| {
             candidate.kind == RegionOperationKind::MergeAdjacentSupportRegion
                 && matches!(candidate.status, CandidateStatus::Accepted)
         }));
@@ -405,7 +405,7 @@ mod tests {
         let labels = snapshot.diagnostic_label();
         assert!(labels.contains("UnsupportedBridgeTrimCount"));
         assert!(!labels.contains("MissingValidatedFaceFamilyBridgePrimitive"));
-        assert_eq!(snapshot.candidates.candidates.len(), 3);
+        assert_eq!(snapshot.candidates.len(), 3);
         assert!(matches!(
             snapshot.selection,
             SideSupportRegionPlanSelection::Refused(SideSupportRegionRefusal {
