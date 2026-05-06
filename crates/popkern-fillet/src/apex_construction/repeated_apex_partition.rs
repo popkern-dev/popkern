@@ -61,6 +61,8 @@ mod partition_rebuild_diagnostics;
 mod partition_support_intersections;
 #[path = "repeated_apex_partition_support_owners.rs"]
 mod partition_support_owners;
+#[path = "repeated_apex_partition_support_trim_sides.rs"]
+mod partition_support_trim_sides;
 
 use partition_anchor_diagnostics::generator_anchor_blocker;
 use partition_boundary_outcome::PartitionBoundaryOutcome;
@@ -103,6 +105,10 @@ use partition_support_owners::{
     GeneratorTrimSupportOwnerQuery, support_face_for_generator_trim_side,
     target_cylinder_support_faces, target_cylinder_support_faces_with_semantic,
     unique_far_side_support_face_for_trim_side,
+};
+use partition_support_trim_sides::{
+    PreMaterializedTrimSide, SupportOwnedTrimSide, SupportOwnedTrimSource,
+    pre_materialize_far_side_trim_sides, pre_materialized_trim_sides,
 };
 
 pub(super) fn try_build_planned_repeated_apex_partition(
@@ -651,95 +657,6 @@ fn apply_materialized_cylinder_loop_replacements(
         )?;
     }
     Ok(())
-}
-
-#[derive(Clone)]
-struct SupportOwnedTrimSide {
-    cylinder_face: FaceHandle,
-    support_face: FaceHandle,
-    fillet_index: usize,
-    half_edge: HalfEdgeHandle,
-    support_side_owned: bool,
-    support_source: Option<SupportOwnedTrimSource>,
-    requires_support_ownership: bool,
-}
-
-#[derive(Clone, Copy)]
-struct SupportOwnedTrimSource {
-    loop_: LoopHandle,
-    prev: HalfEdgeHandle,
-    next: HalfEdgeHandle,
-}
-
-#[derive(Clone)]
-struct PreMaterializedTrimSide {
-    cylinder_face: FaceHandle,
-    fillet_index: usize,
-    start: VertexHandle,
-    end: VertexHandle,
-    trim_sides: Vec<SupportOwnedTrimSide>,
-}
-
-fn pre_materialized_trim_sides(
-    pre_materialized: &[PreMaterializedTrimSide],
-    cylinder_face: FaceHandle,
-    fillet_index: usize,
-    start: VertexHandle,
-    end: VertexHandle,
-) -> Option<Vec<SupportOwnedTrimSide>> {
-    pre_materialized
-        .iter()
-        .find(|entry| {
-            entry.cylinder_face == cylinder_face
-                && entry.fillet_index == fillet_index
-                && entry.start == start
-                && entry.end == end
-        })
-        .map(|entry| entry.trim_sides.clone())
-}
-
-fn pre_materialize_far_side_trim_sides(
-    brep: &mut BRep,
-    cap_face: FaceHandle,
-    face_edges: &[FaceEdgeOwnership],
-    rebuild_plans: &[SemanticCylinderTrimRebuildPlan],
-    topology_plans: &[CylinderTrimRewriteTopologyPlan],
-) -> Result<Vec<PreMaterializedTrimSide>, ApexBuildError> {
-    let mut materialized = Vec::new();
-    for (rebuild_plan, topology_plan) in rebuild_plans.iter().zip(topology_plans) {
-        let Some(fragment) =
-            rebuild_plan.fragment_for_strategy(topology_plan.loop_candidate.far_side_strategy)
-        else {
-            continue;
-        };
-        if !fragment.materialized_anchor_replacement {
-            continue;
-        }
-        let allowed_support_faces =
-            target_cylinder_support_faces(brep, rebuild_plan.cylinder_face, cap_face, face_edges);
-        for segment in &topology_plan.loop_candidate.segments {
-            if !segment.label.contains("far-side") {
-                continue;
-            }
-            let trim_sides = materialized_far_side_trim_sides(
-                brep,
-                rebuild_plan.cylinder_face,
-                segment.start,
-                segment.end,
-                segment.label,
-                rebuild_plan.fillet_index,
-                &allowed_support_faces,
-            )?;
-            materialized.push(PreMaterializedTrimSide {
-                cylinder_face: rebuild_plan.cylinder_face,
-                fillet_index: rebuild_plan.fillet_index,
-                start: segment.start,
-                end: segment.end,
-                trim_sides,
-            });
-        }
-    }
-    Ok(materialized)
 }
 
 fn materialize_closed_support_trim_cycles(
