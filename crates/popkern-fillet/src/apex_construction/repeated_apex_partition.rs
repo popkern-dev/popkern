@@ -51,6 +51,8 @@ mod partition_cylinder_anchors;
 mod partition_cylinder_geometry;
 #[path = "repeated_apex_partition_cylinder_loop_adoption.rs"]
 mod partition_cylinder_loop_adoption;
+#[path = "repeated_apex_partition_cylinder_trim_fragments.rs"]
+mod partition_cylinder_trim_fragments;
 #[path = "repeated_apex_partition_exact_trim_curves.rs"]
 mod partition_exact_trim_curves;
 #[path = "repeated_apex_partition_far_side_trim.rs"]
@@ -100,6 +102,10 @@ use partition_cylinder_geometry::{
     target_cylinder_face_for_fillet,
 };
 use partition_cylinder_loop_adoption::adopt_fillet_end_endpoints_into_target_cylinders;
+use partition_cylinder_trim_fragments::{
+    FragmentAuthoringStatus, ReplacementRunReownershipPlan, ReplacementRunSpanOwnership,
+    ReplacementRunSupportCandidate, RetiredCylinderTrimFragment, RetiredCylinderTrimRun,
+};
 use partition_exact_trim_curves::{
     exact_cylinder_arc_trim_curve_between, exact_cylinder_trim_curve_between,
     exact_support_cylinder_intersection_curve_between,
@@ -1024,46 +1030,6 @@ enum SemanticCylinderTrimSegment {
     },
 }
 
-#[derive(Clone)]
-struct RetiredCylinderTrimFragment {
-    path: Vec<HalfEdgeHandle>,
-    vertices: Vec<VertexHandle>,
-    adjacent_face_runs: Vec<RetiredCylinderTrimRun>,
-    adjacent_faces: Vec<FaceHandle>,
-    off_surface_vertices: Vec<VertexHandle>,
-    materialized_anchor_replacement: bool,
-}
-
-#[derive(Clone)]
-struct RetiredCylinderTrimRun {
-    adjacent_face: FaceHandle,
-    path: Vec<HalfEdgeHandle>,
-    start: VertexHandle,
-    end: VertexHandle,
-    vertices: Vec<VertexHandle>,
-    off_surface_vertices: Vec<VertexHandle>,
-}
-
-struct ReplacementRunReownershipPlan {
-    spans: Vec<ReplacementRunSpanOwnership>,
-}
-
-struct ReplacementRunSpanOwnership {
-    start: VertexHandle,
-    end: VertexHandle,
-    candidate_faces: Vec<ReplacementRunSupportCandidate>,
-}
-
-struct ReplacementRunSupportCandidate {
-    face: FaceHandle,
-    curve_kind: &'static str,
-}
-
-struct FragmentAuthoringStatus {
-    authorable: bool,
-    diagnostic: String,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FarSideTrimStrategy {
     Forward,
@@ -1941,118 +1907,6 @@ impl SemanticCylinderTrimSegment {
                 replacement_for.len()
             ),
         }
-    }
-}
-
-impl RetiredCylinderTrimFragment {
-    fn from_path(brep: &BRep, face: FaceHandle, path: Vec<HalfEdgeHandle>) -> Self {
-        let vertices = path
-            .iter()
-            .filter_map(|half_edge| brep.half_edges.get(*half_edge).map(|data| data.origin))
-            .collect();
-        let adjacent_face_runs = retired_trim_runs_by_adjacent_face(brep, face, &path);
-        let adjacent_faces = path
-            .iter()
-            .filter_map(|half_edge| {
-                let twin = brep.half_edges.get(*half_edge)?.twin;
-                let twin_loop = brep.half_edges.get(twin)?.loop_;
-                let twin_face = brep.loops.get(twin_loop)?.face;
-                (twin_face != face).then_some(twin_face)
-            })
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        let off_surface_vertices = path_off_cylinder_vertices(brep, face, &path);
-        Self {
-            path,
-            vertices,
-            adjacent_face_runs,
-            adjacent_faces,
-            off_surface_vertices,
-            materialized_anchor_replacement: false,
-        }
-    }
-
-    fn materialized_anchor_replacement(start: VertexHandle, end: VertexHandle) -> Self {
-        Self {
-            path: Vec::new(),
-            vertices: vec![start, end],
-            adjacent_face_runs: Vec::new(),
-            adjacent_faces: Vec::new(),
-            off_surface_vertices: Vec::new(),
-            materialized_anchor_replacement: true,
-        }
-    }
-
-    fn diagnostic_label(&self) -> String {
-        if self.materialized_anchor_replacement {
-            return format!(
-                "materialized-anchor replacement {:?}->{:?}",
-                self.vertices.first().copied().unwrap_or_default(),
-                self.vertices.get(1).copied().unwrap_or_default()
-            );
-        }
-        format!(
-            "{} half-edge(s), vertices {:?}, adjacent faces {:?}, runs [{}], \
-             off-cylinder vertices {:?}",
-            self.path.len(),
-            self.vertices,
-            self.adjacent_faces,
-            self.adjacent_face_runs
-                .iter()
-                .map(RetiredCylinderTrimRun::diagnostic_label)
-                .collect::<Vec<_>>()
-                .join("; "),
-            self.off_surface_vertices
-        )
-    }
-}
-
-impl RetiredCylinderTrimRun {
-    fn diagnostic_label(&self) -> String {
-        format!(
-            "{:?}: {} half-edge(s), {:?}->{:?}, vertices {:?}, off-cylinder {:?}, action {}",
-            self.adjacent_face,
-            self.path.len(),
-            self.start,
-            self.end,
-            self.vertices,
-            self.off_surface_vertices,
-            if self.requires_replacement() {
-                "replace"
-            } else {
-                "reuse"
-            }
-        )
-    }
-
-    fn requires_replacement(&self) -> bool {
-        !self.off_surface_vertices.is_empty()
-    }
-}
-
-impl ReplacementRunReownershipPlan {
-    fn diagnostic_label(&self) -> String {
-        self.spans
-            .iter()
-            .map(ReplacementRunSpanOwnership::diagnostic_label)
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-}
-
-impl ReplacementRunSpanOwnership {
-    fn diagnostic_label(&self) -> String {
-        let candidates = self
-            .candidate_faces
-            .iter()
-            .map(|candidate| format!("{:?}/{}", candidate.face, candidate.curve_kind))
-            .collect::<Vec<_>>()
-            .join("|");
-        format!(
-            "{:?}->{:?} candidates [{}]",
-            self.start, self.end, candidates
-        )
     }
 }
 
