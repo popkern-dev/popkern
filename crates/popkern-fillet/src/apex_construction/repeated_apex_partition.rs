@@ -37,6 +37,8 @@ use super::repeated_apex_trim_subcomplex::{
     TrimRewriteSubcomplexPlan, topology_count_summary,
 };
 
+#[path = "repeated_apex_partition_anchor_diagnostics.rs"]
+mod partition_anchor_diagnostics;
 #[path = "repeated_apex_partition_cylinder_anchors.rs"]
 mod partition_cylinder_anchors;
 #[path = "repeated_apex_partition_cylinder_geometry.rs"]
@@ -48,12 +50,12 @@ mod partition_rebuild_diagnostics;
 #[path = "repeated_apex_partition_support_intersections.rs"]
 mod partition_support_intersections;
 
+use partition_anchor_diagnostics::generator_anchor_blocker;
 use partition_cylinder_anchors::{
     coincident_vertex_on_face_outer_loop, containing_outer_loop_edge_by_curve,
-    generator_anchor_blocker, generator_anchor_on_cylinder_loop,
-    materialize_support_boundary_generator_anchor, outer_loop_path_between_vertices,
-    path_off_cylinder_vertices, support_topology_generator_anchor_pair,
-    vertex_is_on_face_outer_loop,
+    generator_anchor_on_cylinder_loop, materialize_support_boundary_generator_anchor,
+    outer_loop_path_between_vertices, path_off_cylinder_vertices,
+    support_topology_generator_anchor_pair, vertex_is_on_face_outer_loop,
 };
 use partition_cylinder_geometry::{
     CylinderTrimSurface, arc_half_edges_between, author_missing_on_cylinder_line_trim_for_endpoint,
