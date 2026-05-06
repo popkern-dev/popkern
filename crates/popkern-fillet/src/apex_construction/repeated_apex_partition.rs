@@ -50,9 +50,10 @@ mod partition_support_intersections;
 
 use partition_cylinder_anchors::{
     coincident_vertex_on_face_outer_loop, containing_outer_loop_edge_by_curve,
-    generator_anchor_blocker, materialize_support_boundary_generator_anchor,
-    outer_loop_path_between_vertices, path_off_cylinder_vertices,
-    support_topology_generator_anchor_pair, vertex_is_on_face_outer_loop,
+    generator_anchor_blocker, generator_anchor_on_cylinder_loop,
+    materialize_support_boundary_generator_anchor, outer_loop_path_between_vertices,
+    path_off_cylinder_vertices, support_topology_generator_anchor_pair,
+    vertex_is_on_face_outer_loop,
 };
 use partition_cylinder_geometry::{
     CylinderTrimSurface, arc_half_edges_between, author_missing_on_cylinder_line_trim_for_endpoint,
@@ -5397,58 +5398,4 @@ fn adopt_vertex_into_target_cylinder_loop(
             ),
         })?;
     Ok(())
-}
-
-fn generator_anchor_on_cylinder_loop(
-    brep: &BRep,
-    face: FaceHandle,
-    endpoint: Point3,
-) -> Option<VertexHandle> {
-    let surface = brep.faces.get(face)?.surface.as_ref()?;
-    let SurfaceGeometry::Cylinder {
-        origin,
-        axis,
-        radius,
-    } = surface.geometry
-    else {
-        return None;
-    };
-    let endpoint_radial = cylinder_radial_vector(endpoint, origin, axis)?;
-    if (endpoint_radial.length() - radius).abs()
-        > brep.tolerance.linear().max(radius.abs() * 1.0e-6)
-    {
-        return None;
-    }
-    let endpoint_unit = endpoint_radial.normalized()?;
-    let mut vertices = super::constructive_topology::collect_outer_loop_vertices(brep, face)?;
-    let extra_vertices = brep
-        .vertices
-        .iter()
-        .filter_map(|(vertex, data)| {
-            (!vertices.contains(&vertex)
-                && (data.outgoing == HalfEdgeHandle::default()
-                    || point_lies_on_cylinder_face(brep, face, data.position)))
-            .then_some(vertex)
-        })
-        .collect::<Vec<_>>();
-    vertices.extend(extra_vertices);
-    vertices
-        .into_iter()
-        .filter_map(|vertex| {
-            let point = brep.vertices.get(vertex)?.position;
-            if point.distance_to(&endpoint) <= brep.tolerance.linear() {
-                return None;
-            }
-            if !point_lies_on_cylinder_face(brep, face, point) {
-                return None;
-            }
-            let radial = cylinder_radial_vector(point, origin, axis)?;
-            let radial_unit = radial.normalized()?;
-            if radial_unit.dot(&endpoint_unit) < 1.0 - 1.0e-5 {
-                return None;
-            }
-            Some((vertex, point.distance_to(&endpoint)))
-        })
-        .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-        .map(|(vertex, _)| vertex)
 }
