@@ -34,8 +34,7 @@ pub(super) struct RegionTrimEndpointPair {
 impl RegionGraph {
     pub(super) fn build(facts: &SideSupportRegionFacts) -> Self {
         let nodes = facts
-            .support_families
-            .iter()
+            .support_families()
             .flat_map(|family| {
                 family.loops.iter().map(|loop_facts| RegionGraphNode {
                     face: loop_facts.face,
@@ -48,8 +47,7 @@ impl RegionGraph {
             .collect::<Vec<_>>();
 
         let trim_endpoint_pairs = facts
-            .trim_endpoint_pairs
-            .iter()
+            .trim_endpoint_pairs()
             .map(|trim| RegionTrimEndpointPair {
                 fillet_index: trim.fillet_index,
                 cylinder_face: trim.cylinder_face,

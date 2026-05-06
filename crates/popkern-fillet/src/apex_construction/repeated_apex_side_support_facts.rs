@@ -6,8 +6,8 @@ use super::repeated_apex_topology_knowledge::{LoopKind, TopologyKnowledgeGraph};
 
 #[derive(Clone, Debug)]
 pub(super) struct SideSupportRegionFacts {
-    pub(super) support_families: Vec<SideSupportFamilyFacts>,
-    pub(super) trim_endpoint_pairs: Vec<SideSupportTrimEndpointFacts>,
+    support_families: Vec<SideSupportFamilyFacts>,
+    trim_endpoint_pairs: Vec<SideSupportTrimEndpointFacts>,
 }
 
 #[derive(Clone, Debug)]
@@ -115,6 +115,16 @@ impl SideSupportRegionFacts {
                 .collect::<Vec<_>>()
                 .join("; ")
         )
+    }
+
+    pub(super) fn support_families(&self) -> impl Iterator<Item = &SideSupportFamilyFacts> {
+        self.support_families.iter()
+    }
+
+    pub(super) fn trim_endpoint_pairs(
+        &self,
+    ) -> impl Iterator<Item = &SideSupportTrimEndpointFacts> {
+        self.trim_endpoint_pairs.iter()
     }
 }
 
