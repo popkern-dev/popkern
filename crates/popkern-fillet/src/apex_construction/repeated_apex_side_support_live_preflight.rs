@@ -125,70 +125,70 @@ impl BridgeSupportTrimPlan {
         &self,
         brep: &BRep,
     ) -> Result<(), SideSupportRegionLivePreconditionFailure> {
-        if !brep.loops.contains_key(self.support_loop) {
+        if !brep.loops.contains_key(self.support_loop()) {
             return Err(SideSupportRegionLivePreconditionFailure::MissingLoop(
-                self.support_loop,
+                self.support_loop(),
             ));
         }
-        let Some(support_half_edge) = brep.half_edges.get(self.support_half_edge) else {
+        let Some(support_half_edge) = brep.half_edges.get(self.support_half_edge()) else {
             return Err(SideSupportRegionLivePreconditionFailure::MissingHalfEdge(
-                self.support_half_edge,
+                self.support_half_edge(),
             ));
         };
-        if support_half_edge.loop_ != self.support_loop {
+        if support_half_edge.loop_ != self.support_loop() {
             return Err(
                 SideSupportRegionLivePreconditionFailure::HalfEdgeLoopMismatch {
-                    half_edge: self.support_half_edge,
-                    expected_loop: self.support_loop,
+                    half_edge: self.support_half_edge(),
+                    expected_loop: self.support_loop(),
                     actual_loop: support_half_edge.loop_,
                 },
             );
         }
-        if !brep.faces.contains_key(self.outside_face) {
+        if !brep.faces.contains_key(self.outside_face()) {
             return Err(SideSupportRegionLivePreconditionFailure::MissingFace(
-                self.outside_face,
+                self.outside_face(),
             ));
         }
-        if !brep.loops.contains_key(self.outside_loop) {
+        if !brep.loops.contains_key(self.outside_loop()) {
             return Err(SideSupportRegionLivePreconditionFailure::MissingLoop(
-                self.outside_loop,
+                self.outside_loop(),
             ));
         }
-        let Some(outside_half_edge) = brep.half_edges.get(self.outside_half_edge) else {
+        let Some(outside_half_edge) = brep.half_edges.get(self.outside_half_edge()) else {
             return Err(SideSupportRegionLivePreconditionFailure::MissingHalfEdge(
-                self.outside_half_edge,
+                self.outside_half_edge(),
             ));
         };
-        if outside_half_edge.loop_ != self.outside_loop {
+        if outside_half_edge.loop_ != self.outside_loop() {
             return Err(
                 SideSupportRegionLivePreconditionFailure::HalfEdgeLoopMismatch {
-                    half_edge: self.outside_half_edge,
-                    expected_loop: self.outside_loop,
+                    half_edge: self.outside_half_edge(),
+                    expected_loop: self.outside_loop(),
                     actual_loop: outside_half_edge.loop_,
                 },
             );
         }
-        if !brep.vertices.contains_key(self.start) {
+        if !brep.vertices.contains_key(self.start()) {
             return Err(SideSupportRegionLivePreconditionFailure::MissingVertex(
-                self.start,
+                self.start(),
             ));
         }
-        if !brep.vertices.contains_key(self.end) {
+        if !brep.vertices.contains_key(self.end()) {
             return Err(SideSupportRegionLivePreconditionFailure::MissingVertex(
-                self.end,
+                self.end(),
             ));
         }
         let support_origin = support_half_edge.origin;
         let outside_origin = outside_half_edge.origin;
-        if !((support_origin == self.start && outside_origin == self.end)
-            || (support_origin == self.end && outside_origin == self.start))
+        if !((support_origin == self.start() && outside_origin == self.end())
+            || (support_origin == self.end() && outside_origin == self.start()))
         {
             return Err(
                 SideSupportRegionLivePreconditionFailure::EndpointHalfEdgeMismatch {
-                    support_half_edge: self.support_half_edge,
-                    outside_half_edge: self.outside_half_edge,
-                    start: self.start,
-                    end: self.end,
+                    support_half_edge: self.support_half_edge(),
+                    outside_half_edge: self.outside_half_edge(),
+                    start: self.start(),
+                    end: self.end(),
                 },
             );
         }

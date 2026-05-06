@@ -38,15 +38,15 @@ pub(super) struct BridgeSupportRegionPlan {
 
 #[derive(Clone, Debug)]
 pub(super) struct BridgeSupportTrimPlan {
-    pub(super) fillet_index: usize,
-    pub(super) cylinder_face: FaceHandle,
-    pub(super) support_loop: LoopHandle,
-    pub(super) support_half_edge: HalfEdgeHandle,
-    pub(super) outside_face: FaceHandle,
-    pub(super) outside_loop: LoopHandle,
-    pub(super) outside_half_edge: HalfEdgeHandle,
-    pub(super) start: VertexHandle,
-    pub(super) end: VertexHandle,
+    fillet_index: usize,
+    cylinder_face: FaceHandle,
+    support_loop: LoopHandle,
+    support_half_edge: HalfEdgeHandle,
+    outside_face: FaceHandle,
+    outside_loop: LoopHandle,
+    outside_half_edge: HalfEdgeHandle,
+    start: VertexHandle,
+    end: VertexHandle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -344,6 +344,42 @@ impl BridgeSupportRegionPlan {
 }
 
 impl BridgeSupportTrimPlan {
+    pub(super) fn fillet_index(&self) -> usize {
+        self.fillet_index
+    }
+
+    pub(super) fn cylinder_face(&self) -> FaceHandle {
+        self.cylinder_face
+    }
+
+    pub(super) fn support_loop(&self) -> LoopHandle {
+        self.support_loop
+    }
+
+    pub(super) fn support_half_edge(&self) -> HalfEdgeHandle {
+        self.support_half_edge
+    }
+
+    pub(super) fn outside_face(&self) -> FaceHandle {
+        self.outside_face
+    }
+
+    pub(super) fn outside_loop(&self) -> LoopHandle {
+        self.outside_loop
+    }
+
+    pub(super) fn outside_half_edge(&self) -> HalfEdgeHandle {
+        self.outside_half_edge
+    }
+
+    pub(super) fn start(&self) -> VertexHandle {
+        self.start
+    }
+
+    pub(super) fn end(&self) -> VertexHandle {
+        self.end
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
             "FilletEnd[{}] cylinder={:?} support_loop={:?}@{:?} outside={:?}/{:?}@{:?} {:?}->{:?}",

@@ -421,11 +421,11 @@ fn apply_region_bridge(
     let plan = candidate
         .preflight_two_loop_bridge(TwoLoopBridgeRequest {
             first_loop: region.support_loop,
-            first_start: region.trims[0].support_half_edge,
-            first_end: region.trims[1].support_half_edge,
+            first_start: region.trims[0].support_half_edge(),
+            first_end: region.trims[1].support_half_edge(),
             second_loop: region.outside_loop,
-            second_start: region.trims[0].outside_half_edge,
-            second_end: region.trims[1].outside_half_edge,
+            second_start: region.trims[0].outside_half_edge(),
+            second_end: region.trims[1].outside_half_edge(),
         })
         .map_err(|err| {
             (

@@ -180,8 +180,8 @@ impl SupportRegionMergeRegionDerivation {
             .trims()
             .iter()
             .map(|trim| FaceMergeSplitRequest {
-                start: trim.start,
-                end: trim.end,
+                start: trim.start(),
+                end: trim.end(),
             })
             .collect::<Vec<_>>();
         let mut candidate = brep.clone();
@@ -299,18 +299,18 @@ impl SupportRegionMergeContinuationPlan {
         let mut trims = Vec::new();
         for (trim, split) in region.trims().iter().zip(&topology_result.splits) {
             trims.push(PostMergeSideTrimPlan {
-                fillet_index: trim.fillet_index,
-                cylinder_face: trim.cylinder_face,
-                start: trim.start,
-                end: trim.end,
+                fillet_index: trim.fillet_index(),
+                cylinder_face: trim.cylinder_face(),
+                start: trim.start(),
+                end: trim.end(),
                 start_half_edge: split.half_edge,
                 end_half_edge: split.half_edge_twin,
                 curve_authoring: SideGeneratorCurveAuthoring::build(
                     applied,
-                    trim.cylinder_face,
+                    trim.cylinder_face(),
                     retained_face,
-                    trim.start,
-                    trim.end,
+                    trim.start(),
+                    trim.end(),
                 ),
             });
         }
@@ -419,10 +419,10 @@ impl SupportRegionMergeRefusal {
 }
 
 fn single_outside_face(trims: &[BridgeSupportTrimPlan]) -> Option<FaceHandle> {
-    let first = trims.first()?.outside_face;
+    let first = trims.first()?.outside_face();
     trims
         .iter()
-        .all(|trim| trim.outside_face == first)
+        .all(|trim| trim.outside_face() == first)
         .then_some(first)
 }
 
@@ -430,10 +430,10 @@ fn shared_support_half_edges(region: &BridgeSupportRegionPlan, brep: &BRep) -> V
     let Some(first_trim) = region.trims().first() else {
         return Vec::new();
     };
-    let support_edges = loop_edges(brep, first_trim.support_half_edge);
+    let support_edges = loop_edges(brep, first_trim.support_half_edge());
     let mut shared = Vec::new();
     for trim in region.trims() {
-        for (edge, _) in loop_edges(brep, trim.outside_half_edge) {
+        for (edge, _) in loop_edges(brep, trim.outside_half_edge()) {
             if let Some(support_half_edge) = support_edges.get(&edge) {
                 shared.push(*support_half_edge);
             }
