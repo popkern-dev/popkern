@@ -80,9 +80,9 @@ impl FaceFamilyBridgeBoundaryExposurePlan {
         let mut blockers = Vec::new();
         for cycle in cycles {
             for half_edge in cycle
-                .support_interval
+                .support_interval()
                 .iter()
-                .chain(cycle.outside_interval.iter())
+                .chain(cycle.outside_interval().iter())
             {
                 if bridge_interval_half_edge_is_boundary_ready(brep, *half_edge) {
                     continue;
@@ -323,9 +323,9 @@ fn bridge_cycle_half_edges(cycles: &[FaceFamilyBridgeBoundaryCycle]) -> BTreeSet
         .iter()
         .flat_map(|cycle| {
             cycle
-                .support_interval
+                .support_interval()
                 .iter()
-                .chain(cycle.outside_interval.iter())
+                .chain(cycle.outside_interval().iter())
         })
         .copied()
         .collect()

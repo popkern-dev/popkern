@@ -58,26 +58,26 @@ pub(super) fn topology_operator_report(
             FaceFamilyBridgeTopologyOperatorGap::MissingPrimitivePlan,
         );
     };
-    let regions = primitive.regions.len();
+    let regions = primitive.regions().len();
     let boundary_cycles = primitive
-        .regions
+        .regions()
         .iter()
-        .map(|region| region.boundary_cycles.len())
+        .map(|region| region.boundary_cycles().len())
         .sum::<usize>();
     let expected_edges = primitive
-        .regions
+        .regions()
         .iter()
-        .map(|region| region.expected_edges)
+        .map(|region| region.expected_edges())
         .sum::<usize>();
     let expected_faces = primitive
-        .regions
+        .regions()
         .iter()
-        .map(|region| region.expected_faces)
+        .map(|region| region.expected_faces())
         .sum::<usize>();
     let expected_loops = primitive
-        .regions
+        .regions()
         .iter()
-        .map(|region| region.expected_loops)
+        .map(|region| region.expected_loops())
         .sum::<usize>();
     if regions == 0 {
         return FaceFamilyBridgeTopologyOperatorReport::refused(
@@ -89,11 +89,11 @@ pub(super) fn topology_operator_report(
             FaceFamilyBridgeTopologyOperatorGap::EmptyPrimitivePlan,
         );
     }
-    if primitive.regions.iter().any(|region| {
+    if primitive.regions().iter().any(|region| {
         region
-            .boundary_cycles
+            .boundary_cycles()
             .iter()
-            .any(|cycle| cycle.support_interval.is_empty() || cycle.outside_interval.is_empty())
+            .any(|cycle| cycle.is_empty())
     }) {
         return FaceFamilyBridgeTopologyOperatorReport::refused(
             regions,
@@ -105,7 +105,7 @@ pub(super) fn topology_operator_report(
         );
     }
     if let Some(not_ready) = primitive
-        .regions
+        .regions()
         .iter()
         .find_map(bridge_boundary_readiness_failure)
     {
@@ -119,7 +119,7 @@ pub(super) fn topology_operator_report(
             not_ready.1,
         );
     }
-    if let [region] = primitive.regions.as_slice()
+    if let [region] = primitive.regions()
         && let Some(core_operator_failure) = core_bridge_operator_failure(region, brep)
     {
         return FaceFamilyBridgeTopologyOperatorReport::refused_with_detail(
@@ -158,7 +158,7 @@ pub(super) fn apply_topology_operator(
 ) -> Result<(), String> {
     let mut candidate = brep.clone();
     expose_aggregate_bridge_boundaries(primitive, &mut candidate)?;
-    if let [region] = primitive.regions.as_slice() {
+    if let [region] = primitive.regions() {
         apply_region_bridge(region, &mut candidate).map_err(|(_, detail)| detail)?;
         *brep = candidate;
         return Ok(());
@@ -304,17 +304,17 @@ fn aggregate_bridge_cycles(
     primitive: &FaceFamilyBridgePrimitivePlan,
 ) -> Vec<FaceFamilyBridgeCycleRequest> {
     primitive
-        .regions
+        .regions()
         .iter()
         .flat_map(|region| {
             region
-                .boundary_cycles
+                .boundary_cycles()
                 .iter()
                 .map(|cycle| FaceFamilyBridgeCycleRequest {
-                    first_loop: region.support_loop,
-                    first_interval: cycle.support_interval.clone(),
-                    second_loop: region.outside_loop,
-                    second_interval: cycle.outside_interval.clone(),
+                    first_loop: region.support_loop(),
+                    first_interval: cycle.support_interval().to_vec(),
+                    second_loop: region.outside_loop(),
+                    second_interval: cycle.outside_interval().to_vec(),
                 })
         })
         .collect()
@@ -367,21 +367,21 @@ fn assign_aggregate_bridge_support_surfaces(
 fn bridge_boundary_readiness_failure(
     region: &FaceFamilyBridgeRegionPrimitivePlan,
 ) -> Option<(FaceFamilyBridgeTopologyOperatorGap, String)> {
-    if region.boundary_readiness.is_boundary_ready() {
+    if region.boundary_readiness().is_boundary_ready() {
         return None;
     }
-    let gap = match region.boundary_exposure.status {
+    let gap = match region.boundary_exposure().status {
         BridgeBoundaryExposureStatus::AlreadyBoundaryReady
         | BridgeBoundaryExposureStatus::RetireWholeFaces => return None,
         BridgeBoundaryExposureStatus::PartialFaceOwnership => {
             if region
-                .boundary_exposure
+                .boundary_exposure()
                 .is_partial_exposure_operator_ready()
             {
                 return None;
             }
             if region
-                .boundary_exposure
+                .boundary_exposure()
                 .has_self_owned_protected_operand_pair()
             {
                 FaceFamilyBridgeTopologyOperatorGap::MissingSelfOwnedBridgeOperandExposureOperator
@@ -390,7 +390,7 @@ fn bridge_boundary_readiness_failure(
             }
         }
     };
-    Some((gap, region.boundary_exposure.diagnostic_label()))
+    Some((gap, region.boundary_exposure().diagnostic_label()))
 }
 
 fn core_bridge_operator_failure(
@@ -420,12 +420,12 @@ fn apply_region_bridge(
 ) -> Result<(), (FaceFamilyBridgeTopologyOperatorGap, String)> {
     let plan = candidate
         .preflight_two_loop_bridge(TwoLoopBridgeRequest {
-            first_loop: region.support_loop,
-            first_start: region.trims[0].support_half_edge(),
-            first_end: region.trims[1].support_half_edge(),
-            second_loop: region.outside_loop,
-            second_start: region.trims[0].outside_half_edge(),
-            second_end: region.trims[1].outside_half_edge(),
+            first_loop: region.support_loop(),
+            first_start: region.support_trims()[0].support_half_edge(),
+            first_end: region.support_trims()[1].support_half_edge(),
+            second_loop: region.outside_loop(),
+            second_start: region.support_trims()[0].outside_half_edge(),
+            second_end: region.support_trims()[1].outside_half_edge(),
         })
         .map_err(|err| {
             (

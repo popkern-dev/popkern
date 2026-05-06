@@ -29,7 +29,7 @@ fn regions_share_one_outside_loop(regions: &[FaceFamilyBridgeRegionPrimitivePlan
     };
     regions
         .iter()
-        .all(|region| region.outside_loop == first.outside_loop)
+        .all(|region| region.outside_loop() == first.outside_loop())
 }
 
 fn disjoint_aggregate_cycles(
@@ -53,19 +53,19 @@ fn aggregate_cycle_candidates(
     region: &FaceFamilyBridgeRegionPrimitivePlan,
 ) -> Option<Vec<(FaceFamilyBridgeBoundaryCycle, BTreeSet<EdgeHandle>)>> {
     let mut candidates = [
-        FaceFamilyBridgeBoundaryCycle {
-            support_interval: region.support_paths.second_to_first.clone(),
-            outside_interval: region.outside_paths.first_to_second.clone(),
-        },
-        FaceFamilyBridgeBoundaryCycle {
-            support_interval: region.support_paths.second_to_first.clone(),
-            outside_interval: region.outside_paths.second_to_first.clone(),
-        },
+        FaceFamilyBridgeBoundaryCycle::new(
+            region.support_paths().second_to_first().to_vec(),
+            region.outside_paths().first_to_second().to_vec(),
+        ),
+        FaceFamilyBridgeBoundaryCycle::new(
+            region.support_paths().second_to_first().to_vec(),
+            region.outside_paths().second_to_first().to_vec(),
+        ),
     ]
     .into_iter()
     .filter_map(|cycle| cycle_edge_set(brep, &cycle).map(|edges| (cycle, edges)))
     .collect::<Vec<_>>();
-    candidates.sort_by_key(|(cycle, edges)| (cycle.outside_interval.len(), edges.len()));
+    candidates.sort_by_key(|(cycle, edges)| (cycle.outside_interval().len(), edges.len()));
     Some(candidates)
 }
 
@@ -103,14 +103,14 @@ fn cycle_edge_set(
 ) -> Option<BTreeSet<EdgeHandle>> {
     let mut edges = BTreeSet::new();
     for half_edge in cycle
-        .support_interval
+        .support_interval()
         .iter()
-        .take(cycle.support_interval.len().checked_sub(1)?)
+        .take(cycle.support_interval().len().checked_sub(1)?)
         .chain(
             cycle
-                .outside_interval
+                .outside_interval()
                 .iter()
-                .take(cycle.outside_interval.len().checked_sub(1)?),
+                .take(cycle.outside_interval().len().checked_sub(1)?),
         )
     {
         edges.insert(brep.half_edges.get(*half_edge)?.edge);

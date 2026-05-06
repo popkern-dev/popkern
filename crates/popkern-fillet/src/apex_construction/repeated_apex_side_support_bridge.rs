@@ -27,34 +27,34 @@ pub(super) struct FaceFamilyBridgePrimitiveDerivation {
 
 #[derive(Clone, Debug)]
 pub(super) struct FaceFamilyBridgePrimitivePlan {
-    pub(super) regions: Vec<FaceFamilyBridgeRegionPrimitivePlan>,
+    regions: Vec<FaceFamilyBridgeRegionPrimitivePlan>,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct FaceFamilyBridgeRegionPrimitivePlan {
-    pub(super) support_face: FaceHandle,
-    pub(super) support_loop: LoopHandle,
-    pub(super) outside_face: FaceHandle,
-    pub(super) outside_loop: LoopHandle,
-    pub(super) trims: [BridgeSupportTrimPlan; 2],
+    support_face: FaceHandle,
+    support_loop: LoopHandle,
+    outside_face: FaceHandle,
+    outside_loop: LoopHandle,
+    trims: [BridgeSupportTrimPlan; 2],
     support_paths: FaceFamilyBridgeLoopIntervals,
     outside_paths: FaceFamilyBridgeLoopIntervals,
-    pub(super) boundary_cycles: Vec<FaceFamilyBridgeBoundaryCycle>,
-    pub(super) boundary_exposure: FaceFamilyBridgeBoundaryExposurePlan,
-    pub(super) boundary_readiness: FaceFamilyBridgeBoundaryReadiness,
-    pub(super) expected_edges: usize,
-    pub(super) expected_faces: usize,
-    pub(super) expected_loops: usize,
+    boundary_cycles: Vec<FaceFamilyBridgeBoundaryCycle>,
+    boundary_exposure: FaceFamilyBridgeBoundaryExposurePlan,
+    boundary_readiness: FaceFamilyBridgeBoundaryReadiness,
+    expected_edges: usize,
+    expected_faces: usize,
+    expected_loops: usize,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct FaceFamilyBridgeBoundaryCycle {
-    pub(super) support_interval: Vec<HalfEdgeHandle>,
-    pub(super) outside_interval: Vec<HalfEdgeHandle>,
+    support_interval: Vec<HalfEdgeHandle>,
+    outside_interval: Vec<HalfEdgeHandle>,
 }
 
 #[derive(Clone, Debug)]
-struct FaceFamilyBridgeLoopIntervals {
+pub(super) struct FaceFamilyBridgeLoopIntervals {
     first_to_second: Vec<HalfEdgeHandle>,
     second_to_first: Vec<HalfEdgeHandle>,
     loop_len: usize,
@@ -168,25 +168,29 @@ impl FaceFamilyBridgePrimitiveDerivation {
 }
 
 impl FaceFamilyBridgePrimitivePlan {
+    pub(super) fn regions(&self) -> &[FaceFamilyBridgeRegionPrimitivePlan] {
+        &self.regions
+    }
+
     fn diagnostic_label(&self) -> String {
         let edges = self
-            .regions
+            .regions()
             .iter()
             .map(|region| region.expected_edges)
             .sum::<usize>();
         let faces = self
-            .regions
+            .regions()
             .iter()
             .map(|region| region.expected_faces)
             .sum::<usize>();
         let loops = self
-            .regions
+            .regions()
             .iter()
             .map(|region| region.expected_loops)
             .sum::<usize>();
         format!(
             "regions={} expected_delta=dV=0 dE={edges} dF={faces} dL={loops}",
-            self.regions.len()
+            self.regions().len()
         )
     }
 }
@@ -316,6 +320,50 @@ impl FaceFamilyBridgeRegionDerivation {
 }
 
 impl FaceFamilyBridgeRegionPrimitivePlan {
+    pub(super) fn support_loop(&self) -> LoopHandle {
+        self.support_loop
+    }
+
+    pub(super) fn outside_loop(&self) -> LoopHandle {
+        self.outside_loop
+    }
+
+    pub(super) fn support_trims(&self) -> &[BridgeSupportTrimPlan; 2] {
+        &self.trims
+    }
+
+    pub(super) fn support_paths(&self) -> &FaceFamilyBridgeLoopIntervals {
+        &self.support_paths
+    }
+
+    pub(super) fn outside_paths(&self) -> &FaceFamilyBridgeLoopIntervals {
+        &self.outside_paths
+    }
+
+    pub(super) fn boundary_cycles(&self) -> &[FaceFamilyBridgeBoundaryCycle] {
+        &self.boundary_cycles
+    }
+
+    pub(super) fn boundary_exposure(&self) -> &FaceFamilyBridgeBoundaryExposurePlan {
+        &self.boundary_exposure
+    }
+
+    pub(super) fn boundary_readiness(&self) -> &FaceFamilyBridgeBoundaryReadiness {
+        &self.boundary_readiness
+    }
+
+    pub(super) fn expected_edges(&self) -> usize {
+        self.expected_edges
+    }
+
+    pub(super) fn expected_faces(&self) -> usize {
+        self.expected_faces
+    }
+
+    pub(super) fn expected_loops(&self) -> usize {
+        self.expected_loops
+    }
+
     fn with_boundary_cycles(
         mut self,
         brep: &BRep,
@@ -358,6 +406,28 @@ impl FaceFamilyBridgeRegionPrimitivePlan {
 }
 
 impl FaceFamilyBridgeBoundaryCycle {
+    pub(super) fn new(
+        support_interval: Vec<HalfEdgeHandle>,
+        outside_interval: Vec<HalfEdgeHandle>,
+    ) -> Self {
+        Self {
+            support_interval,
+            outside_interval,
+        }
+    }
+
+    pub(super) fn support_interval(&self) -> &[HalfEdgeHandle] {
+        &self.support_interval
+    }
+
+    pub(super) fn outside_interval(&self) -> &[HalfEdgeHandle] {
+        &self.outside_interval
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.support_interval.is_empty() || self.outside_interval.is_empty()
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
             "support_interval={} outside_interval={}",
@@ -368,6 +438,14 @@ impl FaceFamilyBridgeBoundaryCycle {
 }
 
 impl FaceFamilyBridgeLoopIntervals {
+    pub(super) fn first_to_second(&self) -> &[HalfEdgeHandle] {
+        &self.first_to_second
+    }
+
+    pub(super) fn second_to_first(&self) -> &[HalfEdgeHandle] {
+        &self.second_to_first
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
             "loop_len={} first_to_second={} second_to_first={}",
