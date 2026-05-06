@@ -291,12 +291,12 @@ impl BridgeSupportRegionPlan {
                 .ok_or(BridgeSupportRegionPlanRejection::EndpointMembershipUnknown)?;
             trims.push(BridgeSupportTrimPlan {
                 fillet_index: candidate.fillet_index(),
-                cylinder_face: bridge_membership.cylinder_face,
-                support_loop: bridge_membership.support_loop,
-                support_half_edge: bridge_membership.support_half_edge,
-                outside_face: bridge_membership.outside_face,
-                outside_loop: bridge_membership.outside_loop,
-                outside_half_edge: bridge_membership.outside_half_edge,
+                cylinder_face: bridge_membership.cylinder_face(),
+                support_loop: bridge_membership.support_loop(),
+                support_half_edge: bridge_membership.support_half_edge(),
+                outside_face: bridge_membership.outside_face(),
+                outside_loop: bridge_membership.outside_loop(),
+                outside_half_edge: bridge_membership.outside_half_edge(),
                 start: candidate.endpoints().start(),
                 end: candidate.endpoints().end(),
             });

@@ -208,12 +208,38 @@ impl CandidateRejection {
 }
 
 pub(super) struct BridgeLoopMembership {
-    pub(super) cylinder_face: FaceHandle,
-    pub(super) support_loop: LoopHandle,
-    pub(super) support_half_edge: HalfEdgeHandle,
-    pub(super) outside_face: FaceHandle,
-    pub(super) outside_loop: LoopHandle,
-    pub(super) outside_half_edge: HalfEdgeHandle,
+    cylinder_face: FaceHandle,
+    support_loop: LoopHandle,
+    support_half_edge: HalfEdgeHandle,
+    outside_face: FaceHandle,
+    outside_loop: LoopHandle,
+    outside_half_edge: HalfEdgeHandle,
+}
+
+impl BridgeLoopMembership {
+    pub(super) fn cylinder_face(&self) -> FaceHandle {
+        self.cylinder_face
+    }
+
+    pub(super) fn support_loop(&self) -> LoopHandle {
+        self.support_loop
+    }
+
+    pub(super) fn support_half_edge(&self) -> HalfEdgeHandle {
+        self.support_half_edge
+    }
+
+    pub(super) fn outside_face(&self) -> FaceHandle {
+        self.outside_face
+    }
+
+    pub(super) fn outside_loop(&self) -> LoopHandle {
+        self.outside_loop
+    }
+
+    pub(super) fn outside_half_edge(&self) -> HalfEdgeHandle {
+        self.outside_half_edge
+    }
 }
 
 impl RegionCandidateEndpoints {
