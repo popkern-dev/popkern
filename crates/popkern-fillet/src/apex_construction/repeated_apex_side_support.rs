@@ -24,6 +24,12 @@ pub(super) struct SideSupportRegionDiagnosticSnapshot {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum SideSupportRegionContinuationOutcome {
+    Applied,
+    NotReady,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum SideSupportRegionContinuationFailure {
     StaleKnowledgeGraph,
     BridgeTopologyOperator { reason: String },
@@ -55,7 +61,7 @@ impl SideSupportRegionDiagnosticSnapshot {
     fn apply_executable_continuation(
         &self,
         brep: &mut BRep,
-    ) -> Result<bool, SideSupportRegionContinuationFailure> {
+    ) -> Result<SideSupportRegionContinuationOutcome, SideSupportRegionContinuationFailure> {
         if !self.validate_fresh(brep) {
             return Err(SideSupportRegionContinuationFailure::StaleKnowledgeGraph);
         }
@@ -69,11 +75,11 @@ impl SideSupportRegionDiagnosticSnapshot {
                     SideSupportRegionContinuationFailure::BridgeTopologyOperator { reason: err },
                 );
             }
-            return Ok(true);
+            return Ok(SideSupportRegionContinuationOutcome::Applied);
         }
         let merge_primitive = SupportRegionMergePrimitiveDerivation::build(&self.selection, brep);
         if !merge_primitive.exact_geometry_ready() {
-            return Ok(false);
+            return Ok(SideSupportRegionContinuationOutcome::NotReady);
         }
         let rollback = brep.clone();
         if let Err(err) = merge_primitive.apply_topology_and_geometry(brep) {
@@ -82,7 +88,7 @@ impl SideSupportRegionDiagnosticSnapshot {
                 SideSupportRegionContinuationFailure::MergeTopologyAndGeometry { reason: err },
             );
         }
-        Ok(true)
+        Ok(SideSupportRegionContinuationOutcome::Applied)
     }
 
     pub(super) fn diagnostic_label(&self) -> String {
@@ -101,7 +107,7 @@ impl SideSupportRegionDiagnosticSnapshot {
 pub(super) fn apply_exact_authorable_side_support_continuation(
     brep: &mut BRep,
     subcomplex_plan: &TrimRewriteSubcomplexPlan,
-) -> Result<bool, ApexBuildError> {
+) -> Result<SideSupportRegionContinuationOutcome, ApexBuildError> {
     let diagnostics = SideSupportRegionDiagnosticSnapshot::build_read_only(brep, subcomplex_plan);
     diagnostics
         .apply_executable_continuation(brep)

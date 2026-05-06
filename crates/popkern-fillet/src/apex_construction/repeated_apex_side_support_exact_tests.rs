@@ -6,7 +6,8 @@ use popkern_core::topology::{
 };
 
 use super::repeated_apex_side_support::{
-    SideSupportRegionDiagnosticSnapshot, apply_exact_authorable_side_support_continuation,
+    SideSupportRegionContinuationOutcome, SideSupportRegionDiagnosticSnapshot,
+    apply_exact_authorable_side_support_continuation,
 };
 use super::repeated_apex_trim_subcomplex::{
     TrimRewriteSubcomplexBuilder, TrimRewriteSubcomplexPlan,
@@ -32,7 +33,7 @@ fn exact_authorable_merge_continuation_applies_curves_and_pcurves() {
     let applied = apply_exact_authorable_side_support_continuation(&mut brep, &plan)
         .expect("exact-authorable side-support merge applies");
 
-    assert!(applied);
+    assert_eq!(applied, SideSupportRegionContinuationOutcome::Applied);
     assert_eq!(brep.edges.len(), before_edges + 1);
     assert_eq!(brep.faces.len(), before_faces + 1);
     assert_eq!(brep.loops.len(), before_loops + 1);
