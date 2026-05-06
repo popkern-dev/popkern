@@ -416,3 +416,17 @@ pub(super) fn generator_anchor_on_cylinder_loop(
         .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .map(|(vertex, _)| vertex)
 }
+
+pub(super) fn vertices_are_materialized_generator_anchors(
+    brep: &BRep,
+    target_cylinder_face: FaceHandle,
+    start: VertexHandle,
+    end: VertexHandle,
+) -> bool {
+    [start, end].into_iter().all(|vertex| {
+        brep.vertices.get(vertex).is_some_and(|data| {
+            !vertex_is_on_face_outer_loop(brep, target_cylinder_face, vertex)
+                && point_lies_on_cylinder_face(brep, target_cylinder_face, data.position)
+        })
+    })
+}

@@ -62,6 +62,7 @@ use partition_cylinder_anchors::{
     generator_anchor_on_cylinder_loop, materialize_support_boundary_generator_anchor,
     outer_loop_path_between_vertices, path_off_cylinder_vertices,
     support_topology_generator_anchor_pair, vertex_is_on_face_outer_loop,
+    vertices_are_materialized_generator_anchors,
 };
 use partition_cylinder_geometry::{
     CylinderTrimSurface, arc_half_edges_between, author_missing_on_cylinder_line_trim_for_endpoint,
@@ -3279,20 +3280,6 @@ fn materialized_far_side_trim_sides(
              point from start supports {:?} to end supports {:?}",
             start_supports, end_supports
         ),
-    })
-}
-
-fn vertices_are_materialized_generator_anchors(
-    brep: &BRep,
-    target_cylinder_face: FaceHandle,
-    start: VertexHandle,
-    end: VertexHandle,
-) -> bool {
-    [start, end].into_iter().all(|vertex| {
-        brep.vertices.get(vertex).is_some_and(|data| {
-            !vertex_is_on_face_outer_loop(brep, target_cylinder_face, vertex)
-                && point_lies_on_cylinder_face(brep, target_cylinder_face, data.position)
-        })
     })
 }
 
