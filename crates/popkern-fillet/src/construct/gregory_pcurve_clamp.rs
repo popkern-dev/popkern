@@ -40,7 +40,10 @@ pub(crate) fn clamp_bounded_pcurves(brep: &mut BRep) -> usize {
             continue;
         };
         with_pcurve += 1;
-        let face = brep.loops[he_data.loop_].face;
+        let Some(loop_data) = brep.loops.get(he_data.loop_) else {
+            continue;
+        };
+        let face = loop_data.face;
         let Some(surf) = brep.faces.get(face).and_then(|f| f.surface.as_ref()) else {
             continue;
         };

@@ -56,7 +56,11 @@ pub(super) fn find_corner_fragment_target(
                 cursor = he.next;
                 continue;
             };
-            let twin_face = brep.loops[twin.loop_].face;
+            let Some(twin_loop) = brep.loops.get(twin.loop_) else {
+                cursor = he.next;
+                continue;
+            };
+            let twin_face = twin_loop.face;
             if twin_face != fh
                 && let Some(twin_sof) = brep.faces[twin_face].surface.as_ref()
                 && matches!(
@@ -116,7 +120,11 @@ pub(super) fn find_zero_area_target(
                 cursor = he.next;
                 continue;
             };
-            let twin_face = brep.loops[twin.loop_].face;
+            let Some(twin_loop) = brep.loops.get(twin.loop_) else {
+                cursor = he.next;
+                continue;
+            };
+            let twin_face = twin_loop.face;
             if twin_face != fh {
                 return Some((fh, twin_h, area));
             }
@@ -140,23 +148,39 @@ pub(super) fn find_redundant_edge_target(
 ) -> Option<(FaceHandle, HalfEdgeHandle)> {
     for eh in brep.edges.keys() {
         let he_h = brep.edges[eh].half_edge;
-        let he = &brep.half_edges[he_h];
+        let Some(he) = brep.half_edges.get(he_h) else {
+            continue;
+        };
         let twin_h = he.twin;
         let Some(twin) = brep.half_edges.get(twin_h) else {
             continue; // boundary edge
         };
-        let face_a = brep.loops[he.loop_].face;
-        let face_b = brep.loops[twin.loop_].face;
+        let Some(loop_a) = brep.loops.get(he.loop_) else {
+            continue;
+        };
+        let Some(loop_b) = brep.loops.get(twin.loop_) else {
+            continue;
+        };
+        let face_a = loop_a.face;
+        let face_b = loop_b.face;
         if face_a == face_b {
             continue; // seam edge
         }
         if retained.contains(&face_a) || retained.contains(&face_b) {
             continue;
         }
-        let Some(sa) = brep.faces[face_a].surface.as_ref() else {
+        let Some(sa) = brep
+            .faces
+            .get(face_a)
+            .and_then(|face| face.surface.as_ref())
+        else {
             continue;
         };
-        let Some(sb) = brep.faces[face_b].surface.as_ref() else {
+        let Some(sb) = brep
+            .faces
+            .get(face_b)
+            .and_then(|face| face.surface.as_ref())
+        else {
             continue;
         };
         if !surfaces_equal(&sa.geometry, &sb.geometry, tolerance) {

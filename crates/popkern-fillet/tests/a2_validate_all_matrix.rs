@@ -250,6 +250,33 @@ fn a2_native_pyramid4_mixed_partition_no_fallback() {
 }
 
 #[test]
+fn a2_native_pyramid4_uniform_no_fallback() {
+    let result = build_under_a2(true, &[0.05, 0.05, 0.05, 0.05]);
+    let reasons = a2_fallback_reasons(&result);
+    assert!(
+        reasons.is_empty(),
+        "pyramid4_uniform must complete through native A2; got {} fallback(s):\n{}",
+        reasons.len(),
+        reasons
+            .iter()
+            .map(|r| format!("  - {r}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+
+    let errors = result.brep.validate_all();
+    let m = breakdown(&errors);
+    assert_eq!(
+        m.structural, 0,
+        "native pyramid4_uniform structural errors: {errors:#?}"
+    );
+    assert_eq!(
+        m.path_a_relevant, 0,
+        "native pyramid4_uniform open-loop/shell-gap errors: {errors:#?}"
+    );
+}
+
+#[test]
 fn a2_native_pyramid3_uniform_anchor_incompatible_uses_gregory_no_fallback() {
     assert_native_gregory_case("pyramid3_uniform", true, &[0.10, 0.10, 0.10], 3);
 }
@@ -290,9 +317,21 @@ fn a2_does_not_store_semantic_lines_as_nurbs() {
                 continue;
             };
             let he = edge_data.half_edge;
-            let twin = result.brep.half_edges[he].twin;
-            let face_a = result.brep.loops[result.brep.half_edges[he].loop_].face;
-            let face_b = result.brep.loops[result.brep.half_edges[twin].loop_].face;
+            let Some(he_data) = result.brep.half_edges.get(he) else {
+                continue;
+            };
+            let twin = he_data.twin;
+            let Some(twin_data) = result.brep.half_edges.get(twin) else {
+                continue;
+            };
+            let Some(loop_a) = result.brep.loops.get(he_data.loop_) else {
+                continue;
+            };
+            let Some(loop_b) = result.brep.loops.get(twin_data.loop_) else {
+                continue;
+            };
+            let face_a = loop_a.face;
+            let face_b = loop_b.face;
             if let CurveGeometry::Nurbs(_) = &curve.geometry
                 && curve
                     .geometry
@@ -331,8 +370,8 @@ fn a2_does_not_store_semantic_lines_as_nurbs() {
                 };
                 semantic_line_nurbs.push(format!(
                     "{edge:?}({:?}->{:?}, {}<->{})",
-                    result.brep.half_edges[he].origin,
-                    result.brep.half_edges[twin].origin,
+                    he_data.origin,
+                    twin_data.origin,
                     kind(face_a),
                     kind(face_b)
                 ));
@@ -398,8 +437,14 @@ fn a2_native_cap_support_seam_ownership_inventory() {
             let Some(hb) = result.brep.half_edges.get(ha.twin) else {
                 continue;
             };
-            let face_a = result.brep.loops[ha.loop_].face;
-            let face_b = result.brep.loops[hb.loop_].face;
+            let Some(loop_a) = result.brep.loops.get(ha.loop_) else {
+                continue;
+            };
+            let Some(loop_b) = result.brep.loops.get(hb.loop_) else {
+                continue;
+            };
+            let face_a = loop_a.face;
+            let face_b = loop_b.face;
             if face_a == face_b {
                 continue;
             }

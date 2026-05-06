@@ -270,7 +270,18 @@ pub(super) fn assign_fillet_strip_surface(
         {
             let start = brep.vertices[brep.half_edges[cursor].origin].position;
             let twin = brep.half_edges[cursor].twin;
-            let end = brep.vertices[brep.half_edges[twin].origin].position;
+            let Some(end_vertex) = brep
+                .half_edges
+                .get(twin)
+                .map(|half_edge| half_edge.origin)
+                .or_else(|| {
+                    let next = brep.half_edges[cursor].next;
+                    brep.half_edges.get(next).map(|half_edge| half_edge.origin)
+                })
+            else {
+                break;
+            };
+            let end = brep.vertices[end_vertex].position;
             if let Some((geometry, t_start, t_end)) =
                 cylinder_arc_through_edge_endpoints(&surface, start, end)
             {

@@ -88,7 +88,7 @@ impl BRep {
         self.sampled_points_overlap_faces(face_a, surface_a, face_b, surface_b, &points, linear_tol)
     }
 
-    fn sampled_points_overlap_faces(
+    pub(super) fn sampled_points_overlap_faces(
         &self,
         face_a: FaceHandle,
         surface_a: &SurfaceGeometry,

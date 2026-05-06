@@ -17,10 +17,12 @@ pub(super) struct RegionOperationCandidate {
 pub(super) enum RegionOperationKind {
     SplitFaceWithEdge,
     BridgeSupportRegion,
+    MergeAdjacentSupportRegion,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct RegionCandidateEndpoints {
+    pub(super) cylinder_face: FaceHandle,
     pub(super) support_face: FaceHandle,
     pub(super) start: VertexHandle,
     pub(super) end: VertexHandle,
@@ -104,6 +106,12 @@ impl CandidateSetSnapshot {
                         endpoints: RegionCandidateEndpoints::from_pair(pair),
                         status: CandidateStatus::Accepted,
                     });
+                    candidates.push(RegionOperationCandidate {
+                        fillet_index: pair.fillet_index,
+                        kind: RegionOperationKind::MergeAdjacentSupportRegion,
+                        endpoints: RegionCandidateEndpoints::from_pair(pair),
+                        status: CandidateStatus::Accepted,
+                    });
                 }
             }
         }
@@ -146,6 +154,7 @@ impl RegionOperationKind {
         match self {
             RegionOperationKind::SplitFaceWithEdge => "split-face-with-edge",
             RegionOperationKind::BridgeSupportRegion => "bridge-support-region",
+            RegionOperationKind::MergeAdjacentSupportRegion => "merge-adjacent-support-region",
         }
     }
 }
@@ -174,6 +183,7 @@ impl CandidateRejection {
 }
 
 pub(super) struct BridgeLoopMembership {
+    pub(super) cylinder_face: FaceHandle,
     pub(super) support_loop: LoopHandle,
     pub(super) support_half_edge: HalfEdgeHandle,
     pub(super) outside_face: FaceHandle,
@@ -184,6 +194,7 @@ pub(super) struct BridgeLoopMembership {
 impl RegionCandidateEndpoints {
     fn from_pair(pair: &RegionTrimEndpointPair) -> Self {
         Self {
+            cylinder_face: pair.cylinder_face,
             support_face: pair.support_face,
             start: pair.start,
             end: pair.end,
@@ -206,6 +217,7 @@ impl RegionCandidateEndpoints {
                     half_edge: outside_half_edge,
                 },
             ) => Some(BridgeLoopMembership {
+                cylinder_face: self.cylinder_face,
                 support_loop: *loop_handle,
                 support_half_edge: *half_edge,
                 outside_face: *outside_face,
@@ -224,6 +236,7 @@ impl RegionCandidateEndpoints {
                     half_edge,
                 },
             ) => Some(BridgeLoopMembership {
+                cylinder_face: self.cylinder_face,
                 support_loop: *loop_handle,
                 support_half_edge: *half_edge,
                 outside_face: *outside_face,
@@ -236,7 +249,8 @@ impl RegionCandidateEndpoints {
 
     pub(super) fn diagnostic_label(&self) -> String {
         format!(
-            "support={:?} {:?}->{:?} start={} end={}",
+            "cylinder={:?} support={:?} {:?}->{:?} start={} end={}",
+            self.cylinder_face,
             self.support_face,
             self.start,
             self.end,

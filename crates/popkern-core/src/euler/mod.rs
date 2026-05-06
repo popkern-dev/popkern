@@ -2,18 +2,35 @@
 //!
 //! Each operator maintains the Euler-Poincaré invariant by construction.
 
+mod face_boundary_fragment;
+mod face_boundary_retire;
+mod face_family_bridge;
+mod face_merge;
+mod face_merge_split;
 mod kemr;
 mod kfmrh;
 mod loop_bridge;
+mod loop_bridge_apply;
 mod mef;
 mod mev;
 mod mvfs;
+mod same_loop_boundary_exposure;
 mod sweep;
+pub use face_boundary_fragment::BoundaryFragmentRetireResult;
+pub use face_boundary_retire::BoundaryFaceRetireResult;
+pub use face_family_bridge::{
+    FaceFamilyBridgeCycleRequest, FaceFamilyBridgeCycleResult, FaceFamilyBridgePlan,
+    FaceFamilyBridgeResult,
+};
+pub use face_merge::FaceMergeResult;
+pub use face_merge_split::{FaceMergeSplitRequest, FaceMergeSplitResult};
 pub use kemr::{KemrResult, MekrResult};
 pub use kfmrh::MfkrhResult;
 pub use loop_bridge::{TwoLoopBridgePlan, TwoLoopBridgeRequest};
+pub use loop_bridge_apply::TwoLoopBridgeResult;
 pub use mef::MefResult;
 pub use mev::MevResult;
 pub use mvfs::MvfsResult;
+pub use same_loop_boundary_exposure::SameLoopBoundaryExposureResult;
 pub use sweep::ExtrudeResult;
 pub use sweep::RevolveResult;

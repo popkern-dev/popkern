@@ -1,5 +1,7 @@
 //! Two-loop bridge preflight for cross-face topology operations.
 
+use std::collections::BTreeSet;
+
 use crate::error::CoreError;
 use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
 
@@ -100,6 +102,7 @@ impl BRep {
         let first_loop_len = self.loop_half_edge_count(request.first_loop, request.first_start)?;
         let second_loop_len =
             self.loop_half_edge_count(request.second_loop, request.second_start)?;
+        self.require_disjoint_bridge_loop_edges(request.first_loop, request.second_loop)?;
         let first_forward_interval = self.loop_interval_between_origins(
             request.first_loop,
             request.first_start,
@@ -228,6 +231,57 @@ impl BRep {
             "loop interval endpoints are not reachable in requested loop".into(),
         ))
     }
+
+    fn require_disjoint_bridge_loop_edges(
+        &self,
+        first_loop: LoopHandle,
+        second_loop: LoopHandle,
+    ) -> Result<(), CoreError> {
+        let first_edges = self.loop_edge_set(first_loop)?;
+        let second_edges = self.loop_edge_set(second_loop)?;
+        let shared = first_edges
+            .intersection(&second_edges)
+            .copied()
+            .collect::<Vec<_>>();
+        if shared.is_empty() {
+            return Ok(());
+        }
+        Err(CoreError::PreconditionFailed(format!(
+            "two-loop bridge operands must not share existing edges: shared_edges={shared:?}"
+        )))
+    }
+
+    fn loop_edge_set(
+        &self,
+        loop_handle: LoopHandle,
+    ) -> Result<BTreeSet<crate::topology::EdgeHandle>, CoreError> {
+        let start = self
+            .loops
+            .get(loop_handle)
+            .ok_or_else(|| CoreError::InvalidHandle("loop handle is invalid".into()))?
+            .half_edge;
+        let mut cursor = start;
+        let mut edges = BTreeSet::new();
+        for _ in 0..=self.half_edges.len() {
+            let half_edge = self
+                .half_edges
+                .get(cursor)
+                .ok_or_else(|| CoreError::InvalidHandle("half-edge handle is invalid".into()))?;
+            if half_edge.loop_ != loop_handle {
+                return Err(CoreError::PreconditionFailed(
+                    "loop edge-set walk left requested loop".into(),
+                ));
+            }
+            edges.insert(half_edge.edge);
+            cursor = half_edge.next;
+            if cursor == start {
+                return Ok(edges);
+            }
+        }
+        Err(CoreError::PreconditionFailed(
+            "loop edge-set walk did not close".into(),
+        ))
+    }
 }
 
 fn require_complementary_intervals(
@@ -254,9 +308,7 @@ mod tests {
     #[test]
     fn preflight_two_loop_bridge_accepts_distinct_cube_face_loops() {
         let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
-        let faces = brep.faces.keys().collect::<Vec<_>>();
-        let first_face = faces[0];
-        let second_face = faces[1];
+        let (first_face, second_face) = disjoint_cube_face_pair(&brep);
         let first_loop = brep.faces[first_face].outer_loop;
         let second_loop = brep.faces[second_face].outer_loop;
         let first_start = brep.loops[first_loop].half_edge;
@@ -290,6 +342,31 @@ mod tests {
         assert_eq!(plan.expected_delta.edges, 2);
         assert_eq!(plan.expected_delta.faces, 2);
         assert_eq!(plan.expected_delta.loops, 2);
+    }
+
+    #[test]
+    fn preflight_two_loop_bridge_refuses_adjacent_faces_with_shared_edge() {
+        let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
+        let (first_face, second_face) = adjacent_cube_face_pair(&brep);
+        let first_loop = brep.faces[first_face].outer_loop;
+        let second_loop = brep.faces[second_face].outer_loop;
+        let first_start = brep.loops[first_loop].half_edge;
+        let first_end = brep.half_edges[first_start].next;
+        let second_start = brep.loops[second_loop].half_edge;
+        let second_end = brep.half_edges[second_start].next;
+
+        let err = brep
+            .preflight_two_loop_bridge(TwoLoopBridgeRequest {
+                first_loop,
+                first_start,
+                first_end,
+                second_loop,
+                second_start,
+                second_end,
+            })
+            .expect_err("adjacent cube faces share an existing edge");
+
+        assert!(err.to_string().contains("must not share existing edges"));
     }
 
     #[test]
@@ -336,4 +413,52 @@ mod tests {
 
     #[allow(dead_code)]
     fn _assert_handles_are_public(_: FaceHandle, _: LoopHandle, _: HalfEdgeHandle) {}
+
+    fn disjoint_cube_face_pair(brep: &BRep) -> (FaceHandle, FaceHandle) {
+        cube_face_pair_by_edge_overlap(brep, false)
+    }
+
+    fn adjacent_cube_face_pair(brep: &BRep) -> (FaceHandle, FaceHandle) {
+        cube_face_pair_by_edge_overlap(brep, true)
+    }
+
+    fn cube_face_pair_by_edge_overlap(
+        brep: &BRep,
+        want_shared_edge: bool,
+    ) -> (FaceHandle, FaceHandle) {
+        let faces = brep.faces.keys().collect::<Vec<_>>();
+        for (i, first) in faces.iter().enumerate() {
+            for second in faces.iter().skip(i + 1) {
+                if loop_edges_share_any(brep, *first, *second) == want_shared_edge {
+                    return (*first, *second);
+                }
+            }
+        }
+        panic!("cube fixture does not contain requested face pair")
+    }
+
+    fn loop_edges_share_any(brep: &BRep, first: FaceHandle, second: FaceHandle) -> bool {
+        let first_loop = brep.faces[first].outer_loop;
+        let second_loop = brep.faces[second].outer_loop;
+        let mut first_edges = std::collections::BTreeSet::new();
+        let mut cursor = brep.loops[first_loop].half_edge;
+        loop {
+            first_edges.insert(brep.half_edges[cursor].edge);
+            cursor = brep.half_edges[cursor].next;
+            if cursor == brep.loops[first_loop].half_edge {
+                break;
+            }
+        }
+        let mut cursor = brep.loops[second_loop].half_edge;
+        loop {
+            if first_edges.contains(&brep.half_edges[cursor].edge) {
+                return true;
+            }
+            cursor = brep.half_edges[cursor].next;
+            if cursor == brep.loops[second_loop].half_edge {
+                break;
+            }
+        }
+        false
+    }
 }

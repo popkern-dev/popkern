@@ -39,6 +39,7 @@ pub(super) struct BridgeSupportRegionPlan {
 #[derive(Clone, Debug)]
 pub(super) struct BridgeSupportTrimPlan {
     pub(super) fillet_index: usize,
+    pub(super) cylinder_face: FaceHandle,
     pub(super) support_loop: LoopHandle,
     pub(super) support_half_edge: HalfEdgeHandle,
     pub(super) outside_face: FaceHandle,
@@ -286,6 +287,7 @@ impl BridgeSupportRegionPlan {
                 .ok_or(BridgeSupportRegionPlanRejection::EndpointMembershipUnknown)?;
             trims.push(BridgeSupportTrimPlan {
                 fillet_index: candidate.fillet_index,
+                cylinder_face: bridge_membership.cylinder_face,
                 support_loop: bridge_membership.support_loop,
                 support_half_edge: bridge_membership.support_half_edge,
                 outside_face: bridge_membership.outside_face,
@@ -332,8 +334,9 @@ impl BridgeSupportRegionPlan {
 impl BridgeSupportTrimPlan {
     fn diagnostic_label(&self) -> String {
         format!(
-            "FilletEnd[{}] support_loop={:?}@{:?} outside={:?}/{:?}@{:?} {:?}->{:?}",
+            "FilletEnd[{}] cylinder={:?} support_loop={:?}@{:?} outside={:?}/{:?}@{:?} {:?}->{:?}",
             self.fillet_index,
+            self.cylinder_face,
             self.support_loop,
             self.support_half_edge,
             self.outside_face,

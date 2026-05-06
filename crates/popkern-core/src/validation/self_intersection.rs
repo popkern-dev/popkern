@@ -3,6 +3,7 @@
 //! Detects when non-adjacent faces in a solid intersect each other.
 
 use crate::error::ValidationError;
+use crate::geometry::Point3;
 use crate::geometry::intersection::degeneracy::DefaultDegeneracyHandler;
 use crate::geometry::intersection::intersect_surfaces_with_handler;
 use crate::geometry::intersection::surface_subdivision::Aabb;
@@ -177,6 +178,35 @@ impl BRep {
             }
 
             pairs_checked += 1;
+            trace_self_intersection_candidate(
+                self,
+                face_keys[i],
+                face_keys[j],
+                pairs_checked,
+                (u0i, u1i),
+                (v0i, v1i),
+                (u0j, u1j),
+                (v0j, v1j),
+            );
+            if let Some(overlaps) = self.bounded_cylinder_cylinder_trim_overlap(
+                face_keys[i],
+                &surf_i.geometry,
+                (u0i, u1i),
+                (v0i, v1i),
+                face_keys[j],
+                &surf_j.geometry,
+                (u0j, u1j),
+                (v0j, v1j),
+                linear_tol,
+            ) {
+                if overlaps {
+                    return Err(ValidationError::SelfIntersection {
+                        face_a: face_keys[i],
+                        face_b: face_keys[j],
+                    });
+                }
+                continue;
+            }
             let result = intersect_surfaces_with_handler(
                 &surf_i.geometry,
                 (u0i, u1i),
@@ -214,6 +244,30 @@ impl BRep {
         }
 
         Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn bounded_cylinder_cylinder_trim_overlap(
+        &self,
+        face_a: crate::topology::FaceHandle,
+        surface_a: &crate::geometry::surface::SurfaceGeometry,
+        u_range_a: (f64, f64),
+        v_range_a: (f64, f64),
+        face_b: crate::topology::FaceHandle,
+        surface_b: &crate::geometry::surface::SurfaceGeometry,
+        u_range_b: (f64, f64),
+        v_range_b: (f64, f64),
+        linear_tol: f64,
+    ) -> Option<bool> {
+        let samples = cylinder_cylinder_near_samples(
+            surface_a, u_range_a, v_range_a, surface_b, u_range_b, v_range_b, linear_tol,
+        )?;
+        if samples.is_empty() {
+            return Some(false);
+        }
+        Some(self.sampled_points_overlap_faces(
+            face_a, surface_a, face_b, surface_b, &samples, linear_tol,
+        ))
     }
 
     fn trace_self_intersection_pair(
@@ -347,6 +401,120 @@ impl BRep {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn cylinder_cylinder_near_samples(
+    surface_a: &crate::geometry::surface::SurfaceGeometry,
+    u_range_a: (f64, f64),
+    v_range_a: (f64, f64),
+    surface_b: &crate::geometry::surface::SurfaceGeometry,
+    u_range_b: (f64, f64),
+    v_range_b: (f64, f64),
+    linear_tol: f64,
+) -> Option<Vec<Point3>> {
+    use crate::geometry::surface::SurfaceGeometry;
+
+    let SurfaceGeometry::Cylinder {
+        origin: origin_a,
+        axis: axis_a,
+        radius: radius_a,
+    } = surface_a
+    else {
+        return None;
+    };
+    let SurfaceGeometry::Cylinder {
+        origin: origin_b,
+        axis: axis_b,
+        radius: radius_b,
+    } = surface_b
+    else {
+        return None;
+    };
+
+    const GRID: usize = 17;
+    let threshold = (linear_tol * 10.0).max(1.0e-8);
+    let mut samples = Vec::new();
+    // Validation containment for unsupported skew cylinder-cylinder pairs:
+    // use bounded implicit-distance sampling plus trim classification instead
+    // of the generic marcher, whose 4-D subdivision can be disproportionate
+    // for small fillet cylinders that only meet at trimmed boundaries.
+    sample_cylinder_against_cylinder(
+        surface_a,
+        u_range_a,
+        v_range_a,
+        *origin_b,
+        *axis_b,
+        *radius_b,
+        threshold,
+        &mut samples,
+    );
+    sample_cylinder_against_cylinder(
+        surface_b,
+        u_range_b,
+        v_range_b,
+        *origin_a,
+        *axis_a,
+        *radius_a,
+        threshold,
+        &mut samples,
+    );
+
+    if samples.is_empty() {
+        for i in 0..GRID {
+            let alpha = i as f64 / (GRID - 1) as f64;
+            for j in 0..GRID {
+                let beta = j as f64 / (GRID - 1) as f64;
+                let u = u_range_a.0 + (u_range_a.1 - u_range_a.0) * alpha;
+                let v = v_range_a.0 + (v_range_a.1 - v_range_a.0) * beta;
+                let p = surface_a.point_at(u, v);
+                let distance = distance_to_cylinder(p, *origin_b, *axis_b, *radius_b);
+                if distance <= threshold {
+                    samples.push(p);
+                }
+            }
+        }
+    }
+
+    Some(samples)
+}
+
+fn sample_cylinder_against_cylinder(
+    sampled_surface: &crate::geometry::surface::SurfaceGeometry,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+    other_origin: Point3,
+    other_axis: crate::geometry::Vec3,
+    other_radius: f64,
+    threshold: f64,
+    samples: &mut Vec<Point3>,
+) {
+    const GRID: usize = 17;
+    for i in 0..GRID {
+        let alpha = i as f64 / (GRID - 1) as f64;
+        for j in 0..GRID {
+            let beta = j as f64 / (GRID - 1) as f64;
+            let u = u_range.0 + (u_range.1 - u_range.0) * alpha;
+            let v = v_range.0 + (v_range.1 - v_range.0) * beta;
+            let p = sampled_surface.point_at(u, v);
+            let distance = distance_to_cylinder(p, other_origin, other_axis, other_radius);
+            if distance <= threshold {
+                samples.push(p);
+            }
+        }
+    }
+}
+
+fn distance_to_cylinder(
+    point: Point3,
+    origin: Point3,
+    axis: crate::geometry::Vec3,
+    radius: f64,
+) -> f64 {
+    let offset = point - origin;
+    let axial = offset.dot(&axis);
+    let radial = offset - axis * axial;
+    (radial.length() - radius).abs()
+}
+
 fn trace_surface_kind(brep: &BRep, face: crate::topology::FaceHandle) -> &'static str {
     use crate::geometry::surface::SurfaceGeometry;
 
@@ -364,6 +532,57 @@ fn trace_surface_kind(brep: &BRep, face: crate::topology::FaceHandle) -> &'stati
         Some(SurfaceGeometry::Nurbs(_)) => "Nurbs",
         Some(SurfaceGeometry::Gregory(_)) => "Gregory",
         None => "None",
+    }
+}
+
+fn trace_self_intersection_candidate(
+    brep: &BRep,
+    face_a: crate::topology::FaceHandle,
+    face_b: crate::topology::FaceHandle,
+    index: usize,
+    u_range_a: (f64, f64),
+    v_range_a: (f64, f64),
+    u_range_b: (f64, f64),
+    v_range_b: (f64, f64),
+) {
+    if std::env::var_os("POPKERN_SELF_INTERSECTION_TRACE").is_none() {
+        return;
+    }
+    eprintln!(
+        "[self-intersection candidate] #{index} {face_a:?}/{} u=({:.6},{:.6}) v=({:.6},{:.6}) \
+         {face_b:?}/{} u=({:.6},{:.6}) v=({:.6},{:.6})",
+        trace_surface_kind(brep, face_a),
+        u_range_a.0,
+        u_range_a.1,
+        v_range_a.0,
+        v_range_a.1,
+        trace_surface_kind(brep, face_b),
+        u_range_b.0,
+        u_range_b.1,
+        v_range_b.0,
+        v_range_b.1,
+    );
+    if let Some(detail) = trace_cylinder_detail(brep, face_a) {
+        eprintln!("[self-intersection candidate]   {face_a:?} {detail}");
+    }
+    if let Some(detail) = trace_cylinder_detail(brep, face_b) {
+        eprintln!("[self-intersection candidate]   {face_b:?} {detail}");
+    }
+}
+
+fn trace_cylinder_detail(brep: &BRep, face: crate::topology::FaceHandle) -> Option<String> {
+    use crate::geometry::surface::SurfaceGeometry;
+
+    match &brep.faces.get(face)?.surface.as_ref()?.geometry {
+        SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius,
+        } => Some(format!(
+            "Cylinder origin=({:.6},{:.6},{:.6}) axis=({:.6},{:.6},{:.6}) r={:.6}",
+            origin.x, origin.y, origin.z, axis.x, axis.y, axis.z, radius
+        )),
+        _ => None,
     }
 }
 

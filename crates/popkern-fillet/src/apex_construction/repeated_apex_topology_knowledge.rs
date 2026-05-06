@@ -4,16 +4,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
-use super::repeated_apex_trim_subcomplex::{
-    TrimEdgeConstruction, TrimOwnerPair, TrimRewriteSubcomplexPlan,
-};
+use super::repeated_apex_trim_subcomplex::{TrimRewriteIntentFacts, TrimRewriteSubcomplexPlan};
 
 #[derive(Clone, Debug)]
 pub(super) struct TopologyKnowledgeGraph {
     pub(super) fingerprint: TopologyFingerprint,
     pub(super) support_families: Vec<SupportFamilyFacts>,
     pub(super) endpoint_memberships: Vec<EndpointMembershipFacts>,
-    pub(super) trim_intents: Vec<TrimIntentFacts>,
+    pub(super) trim_intents: Vec<TrimRewriteIntentFacts>,
     pub(super) counters: KnowledgeGraphCounters,
 }
 
@@ -96,40 +94,9 @@ pub(super) struct EndpointLoopMembership {
     pub(super) kind: LoopKind,
 }
 
-#[derive(Clone, Debug)]
-pub(super) struct TrimIntentFacts {
-    pub(super) fillet_index: usize,
-    pub(super) construction: TrimEdgeConstruction,
-    pub(super) owner_pair: TrimOwnerPair,
-    pub(super) start: VertexHandle,
-    pub(super) end: VertexHandle,
-}
-
 impl TopologyKnowledgeGraph {
     pub(super) fn build_local(brep: &BRep, plan: &TrimRewriteSubcomplexPlan) -> Self {
-        let mut seed_faces = BTreeSet::new();
-        for group in plan.support_groups() {
-            seed_faces.insert(group.support_face());
-            seed_faces.extend(group.cylinder_faces().iter().copied());
-        }
-        for edge_plan in plan.edge_plans() {
-            match edge_plan.owner_pair() {
-                TrimOwnerPair::CylinderCap {
-                    cylinder_face,
-                    cap_face,
-                } => {
-                    seed_faces.insert(cylinder_face);
-                    seed_faces.insert(cap_face);
-                }
-                TrimOwnerPair::CylinderSupport {
-                    cylinder_face,
-                    support_face,
-                } => {
-                    seed_faces.insert(cylinder_face);
-                    seed_faces.insert(support_face);
-                }
-            }
-        }
+        let seed_faces = plan.seed_faces();
 
         let mut loops_by_face = BTreeMap::new();
         let mut half_edges_visited = 0usize;
@@ -153,17 +120,8 @@ impl TopologyKnowledgeGraph {
             })
             .collect();
 
-        let trim_intents = plan
-            .edge_plans()
-            .iter()
-            .map(|edge_plan| TrimIntentFacts {
-                fillet_index: edge_plan.fillet_index(),
-                construction: edge_plan.construction(),
-                owner_pair: edge_plan.owner_pair(),
-                start: edge_plan.start(),
-                end: edge_plan.end(),
-            })
-            .collect::<Vec<_>>();
+        let trim_intents = plan.trim_intents();
+        let trim_records_read = trim_intents.len();
 
         let mut endpoint_vertices = BTreeSet::new();
         for trim in &trim_intents {
@@ -203,7 +161,7 @@ impl TopologyKnowledgeGraph {
                 loops_visited: loops_by_face.values().map(Vec::len).sum(),
                 half_edges_visited,
                 vertices_visited: vertices_seen.len(),
-                trim_records_read: plan.edge_plans().len(),
+                trim_records_read,
             },
         }
     }

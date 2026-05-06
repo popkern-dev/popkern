@@ -64,11 +64,14 @@ pub(crate) mod repeated_apex_region_candidates;
 pub(crate) mod repeated_apex_region_graph;
 pub(crate) mod repeated_apex_serial;
 pub(crate) mod repeated_apex_side_support;
+pub(crate) mod repeated_apex_side_support_boundary;
 pub(crate) mod repeated_apex_side_support_bridge;
 pub(crate) mod repeated_apex_side_support_bridge_operator;
 pub(crate) mod repeated_apex_side_support_execution;
 pub(crate) mod repeated_apex_side_support_facts;
 pub(crate) mod repeated_apex_side_support_live_preflight;
+pub(crate) mod repeated_apex_side_support_merge;
+pub(crate) mod repeated_apex_side_support_merge_geometry;
 pub(crate) mod repeated_apex_side_support_plan;
 pub(crate) mod repeated_apex_topology_knowledge;
 pub(crate) mod repeated_apex_trim_subcomplex;
@@ -102,6 +105,10 @@ mod construct_tests;
 #[cfg(test)]
 #[path = "construct_test_helpers.rs"]
 mod construct_test_helpers;
+
+#[cfg(test)]
+#[path = "repeated_apex_side_support_exact_tests.rs"]
+mod repeated_apex_side_support_exact_tests;
 
 pub use cap_kind::CapKind;
 pub use construct::{construct_apex, construct_apex_with_surfaces};

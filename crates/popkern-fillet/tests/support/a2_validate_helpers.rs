@@ -189,8 +189,14 @@ pub(crate) fn assert_native_cap_has_cylinder_seams(
         let Some(hb) = result.brep.half_edges.get(ha.twin) else {
             continue;
         };
-        let face_a = result.brep.loops[ha.loop_].face;
-        let face_b = result.brep.loops[hb.loop_].face;
+        let Some(loop_a) = result.brep.loops.get(ha.loop_) else {
+            continue;
+        };
+        let Some(loop_b) = result.brep.loops.get(hb.loop_) else {
+            continue;
+        };
+        let face_a = loop_a.face;
+        let face_b = loop_b.face;
         if face_a == face_b {
             continue;
         }

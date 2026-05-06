@@ -384,8 +384,14 @@ fn measure_cap_outer_boundary_inner(
         let Some(hb) = brep.half_edges.get(ha.twin) else {
             continue;
         };
-        let face_a = brep.loops[ha.loop_].face;
-        let face_b = brep.loops[hb.loop_].face;
+        let Some(loop_a) = brep.loops.get(ha.loop_) else {
+            continue;
+        };
+        let Some(loop_b) = brep.loops.get(hb.loop_) else {
+            continue;
+        };
+        let face_a = loop_a.face;
+        let face_b = loop_b.face;
         if face_a == face_b {
             continue;
         }

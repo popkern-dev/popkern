@@ -23,6 +23,7 @@ pub(super) struct RegionGraphNode {
 #[derive(Clone, Debug)]
 pub(super) struct RegionTrimEndpointPair {
     pub(super) fillet_index: usize,
+    pub(super) cylinder_face: FaceHandle,
     pub(super) support_face: FaceHandle,
     pub(super) start: VertexHandle,
     pub(super) end: VertexHandle,
@@ -51,6 +52,7 @@ impl RegionGraph {
             .iter()
             .map(|trim| RegionTrimEndpointPair {
                 fillet_index: trim.fillet_index,
+                cylinder_face: trim.cylinder_face,
                 support_face: trim.support_face,
                 start: trim.start,
                 end: trim.end,
@@ -98,8 +100,9 @@ impl RegionGraphNode {
 impl RegionTrimEndpointPair {
     fn diagnostic_label(&self) -> String {
         format!(
-            "FilletEnd[{}] support={:?} {:?}->{:?} start={} end={}",
+            "FilletEnd[{}] cylinder={:?} support={:?} {:?}->{:?} start={} end={}",
             self.fillet_index,
+            self.cylinder_face,
             self.support_face,
             self.start,
             self.end,

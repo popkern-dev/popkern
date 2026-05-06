@@ -2,13 +2,20 @@
 
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
 
+use super::repeated_apex_side_support_boundary::{
+    FaceFamilyBridgeBoundaryExposurePlan, FaceFamilyBridgeBoundaryReadiness,
+};
 use super::repeated_apex_side_support_bridge_operator::{
-    FaceFamilyBridgeTopologyOperatorReport, topology_operator_report,
+    FaceFamilyBridgeTopologyOperatorReport, apply_topology_operator, topology_operator_report,
 };
 use super::repeated_apex_side_support_plan::{
     BridgeSupportRegionPlan, BridgeSupportTrimPlan, PlannedTopologyOperation,
     SelectedSideSupportRegionPlan, SideSupportRegionPlanSelection,
 };
+#[path = "repeated_apex_side_support_bridge_aggregate.rs"]
+mod bridge_aggregate;
+
+use bridge_aggregate::select_aggregate_region_cycles;
 
 #[derive(Clone, Debug)]
 pub(super) struct FaceFamilyBridgePrimitiveDerivation {
@@ -32,7 +39,9 @@ pub(super) struct FaceFamilyBridgeRegionPrimitivePlan {
     pub(super) trims: [BridgeSupportTrimPlan; 2],
     support_paths: FaceFamilyBridgeLoopIntervals,
     outside_paths: FaceFamilyBridgeLoopIntervals,
-    pub(super) boundary_cycles: [FaceFamilyBridgeBoundaryCycle; 2],
+    pub(super) boundary_cycles: Vec<FaceFamilyBridgeBoundaryCycle>,
+    pub(super) boundary_exposure: FaceFamilyBridgeBoundaryExposurePlan,
+    pub(super) boundary_readiness: FaceFamilyBridgeBoundaryReadiness,
     pub(super) expected_edges: usize,
     pub(super) expected_faces: usize,
     pub(super) expected_loops: usize,
@@ -67,6 +76,7 @@ enum FaceFamilyBridgeOperandGap {
     MissingOutsidePath,
     NonComplementarySupportIntervals,
     NonComplementaryOutsideIntervals,
+    SharedBridgeOperandEdges,
 }
 
 impl FaceFamilyBridgePrimitiveDerivation {
@@ -114,6 +124,14 @@ impl FaceFamilyBridgePrimitiveDerivation {
         topology_operator_report(self.primitive.as_ref(), brep)
     }
 
+    pub(super) fn apply_topology_operator(&self, brep: &mut BRep) -> Result<(), String> {
+        let primitive = self
+            .primitive
+            .as_ref()
+            .ok_or_else(|| "face-family bridge primitive is incomplete".to_string())?;
+        apply_topology_operator(primitive, brep)
+    }
+
     fn from_selected_plan(plan: &SelectedSideSupportRegionPlan, brep: &BRep) -> Self {
         let details = plan
             .operations
@@ -131,11 +149,12 @@ impl FaceFamilyBridgePrimitiveDerivation {
             .filter(|detail| detail.reason.is_none())
             .count();
         let primitive = if bridge_regions > 0 && ready_regions == bridge_regions {
+            let regions = details
+                .iter()
+                .filter_map(|detail| detail.primitive.clone())
+                .collect::<Vec<_>>();
             Some(FaceFamilyBridgePrimitivePlan {
-                regions: details
-                    .iter()
-                    .filter_map(|detail| detail.primitive.clone())
-                    .collect(),
+                regions: select_aggregate_region_cycles(brep, regions),
             })
         } else {
             None
@@ -227,7 +246,13 @@ impl FaceFamilyBridgeRegionDerivation {
                 FaceFamilyBridgeOperandGap::NonComplementaryOutsideIntervals,
             );
         }
-        let boundary_cycles = [
+        if loops_share_edges(brep, first.support_loop, first.outside_loop) {
+            return Self::refused(
+                region.support_face,
+                FaceFamilyBridgeOperandGap::SharedBridgeOperandEdges,
+            );
+        }
+        let boundary_cycles = vec![
             FaceFamilyBridgeBoundaryCycle {
                 support_interval: support_paths.first_to_second.clone(),
                 outside_interval: outside_paths.second_to_first.clone(),
@@ -237,6 +262,12 @@ impl FaceFamilyBridgeRegionDerivation {
                 outside_interval: outside_paths.first_to_second.clone(),
             },
         ];
+        let boundary_exposure = FaceFamilyBridgeBoundaryExposurePlan::build(brep, &boundary_cycles);
+        let boundary_readiness = boundary_exposure.readiness.clone();
+        let expected_edges = boundary_cycles.len() * 2
+            + boundary_exposure.fragment_retire_count()
+            + boundary_exposure.self_owned_exposure_count();
+        let expected_faces = boundary_cycles.len();
         let primitive = FaceFamilyBridgeRegionPrimitivePlan {
             support_face: region.support_face,
             support_loop: first.support_loop,
@@ -246,9 +277,11 @@ impl FaceFamilyBridgeRegionDerivation {
             support_paths,
             outside_paths,
             boundary_cycles,
-            expected_edges: 2,
-            expected_faces: 2,
-            expected_loops: 2,
+            boundary_exposure,
+            boundary_readiness,
+            expected_edges,
+            expected_faces,
+            expected_loops: expected_faces,
         };
         Self {
             support_face: region.support_face,
@@ -282,9 +315,26 @@ impl FaceFamilyBridgeRegionDerivation {
 }
 
 impl FaceFamilyBridgeRegionPrimitivePlan {
+    fn with_boundary_cycles(
+        mut self,
+        brep: &BRep,
+        boundary_cycles: Vec<FaceFamilyBridgeBoundaryCycle>,
+    ) -> Self {
+        let boundary_exposure = FaceFamilyBridgeBoundaryExposurePlan::build(brep, &boundary_cycles);
+        self.boundary_readiness = boundary_exposure.readiness.clone();
+        self.expected_edges = boundary_cycles.len() * 2
+            + boundary_exposure.fragment_retire_count()
+            + boundary_exposure.self_owned_exposure_count();
+        self.expected_faces = boundary_cycles.len();
+        self.expected_loops = boundary_cycles.len();
+        self.boundary_cycles = boundary_cycles;
+        self.boundary_exposure = boundary_exposure;
+        self
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
-            "support={:?} support_loop={:?} outside={:?}/{:?} trims={} support_paths={} outside_paths={} cycles=[{}] delta=dV=0 dE={} dF={} dL={}",
+            "support={:?} support_loop={:?} outside={:?}/{:?} trims={} support_paths={} outside_paths={} boundary_readiness={} boundary_exposure={} cycles=[{}] delta=dV=0 dE={} dF={} dL={}",
             self.support_face,
             self.support_loop,
             self.outside_face,
@@ -292,6 +342,8 @@ impl FaceFamilyBridgeRegionPrimitivePlan {
             self.trims.len(),
             self.support_paths.diagnostic_label(),
             self.outside_paths.diagnostic_label(),
+            self.boundary_readiness.diagnostic_label(),
+            self.boundary_exposure.diagnostic_label(),
             self.boundary_cycles
                 .iter()
                 .map(FaceFamilyBridgeBoundaryCycle::diagnostic_label)
@@ -343,6 +395,7 @@ impl FaceFamilyBridgeOperandGap {
             FaceFamilyBridgeOperandGap::NonComplementaryOutsideIntervals => {
                 "non-complementary-outside-intervals"
             }
+            FaceFamilyBridgeOperandGap::SharedBridgeOperandEdges => "shared-bridge-operand-edges",
         }
     }
 }
@@ -412,4 +465,27 @@ fn loop_path_between_origins(
         }
     }
     None
+}
+
+fn loops_share_edges(brep: &BRep, first: LoopHandle, second: LoopHandle) -> bool {
+    let mut first_edges = std::collections::BTreeSet::new();
+    let mut cursor = brep.loops[first].half_edge;
+    loop {
+        first_edges.insert(brep.half_edges[cursor].edge);
+        cursor = brep.half_edges[cursor].next;
+        if cursor == brep.loops[first].half_edge {
+            break;
+        }
+    }
+    let mut cursor = brep.loops[second].half_edge;
+    loop {
+        if first_edges.contains(&brep.half_edges[cursor].edge) {
+            return true;
+        }
+        cursor = brep.half_edges[cursor].next;
+        if cursor == brep.loops[second].half_edge {
+            break;
+        }
+    }
+    false
 }

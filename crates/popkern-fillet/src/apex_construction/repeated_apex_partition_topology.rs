@@ -1,5 +1,6 @@
 //! Low-level topology helpers for planned repeated-apex partitioning.
 
+use popkern_core::geometry::CurveEval;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{
     BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, VertexHandle,
@@ -74,6 +75,71 @@ pub(super) fn insert_unwired_edge_pair(
     (edge, half_edge, twin)
 }
 
+pub(super) fn insert_boundary_half_edge(
+    brep: &mut BRep,
+    start: VertexHandle,
+) -> (EdgeHandle, HalfEdgeHandle) {
+    let edge = brep.edges.insert(Edge {
+        half_edge: HalfEdgeHandle::default(),
+        curve: None,
+        name: None,
+        tolerance: None,
+        canonical: Default::default(),
+    });
+    let half_edge = brep.half_edges.insert(HalfEdge {
+        origin: start,
+        twin: HalfEdgeHandle::default(),
+        next: HalfEdgeHandle::default(),
+        prev: HalfEdgeHandle::default(),
+        edge,
+        loop_: Default::default(),
+        pcurve: None,
+    });
+    brep.edges[edge].half_edge = half_edge;
+    brep.boundary_edges.insert(edge);
+    if brep.vertices[start].outgoing == HalfEdgeHandle::default() {
+        brep.vertices[start].outgoing = half_edge;
+    }
+    (edge, half_edge)
+}
+
+fn half_edge_destination_vertex(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<VertexHandle> {
+    let data = brep.half_edges.get(half_edge)?;
+    if let Some(twin) = brep.half_edges.get(data.twin) {
+        return Some(twin.origin);
+    }
+    if !brep.boundary_edges.contains(&data.edge) {
+        return brep
+            .half_edges
+            .get(data.next)
+            .map(|next_half_edge| next_half_edge.origin);
+    }
+    let edge = brep.edges.get(data.edge)?;
+    let Some(curve) = edge.curve.as_ref() else {
+        return brep
+            .half_edges
+            .get(data.next)
+            .map(|next_half_edge| next_half_edge.origin);
+    };
+    let start_position = brep.vertices.get(data.origin)?.position;
+    let p0 = curve.geometry.point_at(curve.t_start);
+    let p1 = curve.geometry.point_at(curve.t_end);
+    let destination = if start_position.distance_to(&p0) <= start_position.distance_to(&p1) {
+        p1
+    } else {
+        p0
+    };
+    let tolerance = brep.tolerance.linear().max(1.0e-9);
+    brep.vertices
+        .iter()
+        .filter_map(|(vertex, data)| {
+            let distance = data.position.distance_to(&destination);
+            (distance <= tolerance).then_some((vertex, distance))
+        })
+        .min_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(vertex, _)| vertex)
+}
+
 pub(super) fn insert_face_with_outer_loop(
     brep: &mut BRep,
     template_face: FaceHandle,
@@ -141,14 +207,22 @@ pub(super) fn wire_existing_loop(
         let current_end = brep
             .half_edges
             .get(current)
-            .and_then(|half_edge| brep.half_edges.get(half_edge.twin).map(|twin| twin.origin))
+            .and_then(|_| half_edge_destination_vertex(brep, current))
             .ok_or_else(|| ApexBuildError::PlanMismatch {
                 reason: format!(
                     "planned repeated-apex partition loop {loop_handle:?} references stale \
                      half-edge {current:?}"
                 ),
             })?;
-        if current_end != next_start {
+        let coincident_endpoint = brep
+            .vertices
+            .get(current_end)
+            .zip(brep.vertices.get(next_start))
+            .is_some_and(|(current_vertex, next_vertex)| {
+                current_vertex.position.distance_to(&next_vertex.position)
+                    <= brep.tolerance.linear().max(1.0e-9)
+            });
+        if current_end != next_start && !coincident_endpoint {
             return Err(ApexBuildError::PlanMismatch {
                 reason: format!(
                     "planned repeated-apex partition loop {loop_handle:?} is not contiguous at \

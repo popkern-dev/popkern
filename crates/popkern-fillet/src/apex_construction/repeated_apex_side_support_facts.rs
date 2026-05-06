@@ -3,7 +3,6 @@
 use popkern_core::topology::{FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
 use super::repeated_apex_topology_knowledge::{LoopKind, TopologyKnowledgeGraph};
-use super::repeated_apex_trim_subcomplex::TrimEdgeConstruction;
 
 #[derive(Clone, Debug)]
 pub(super) struct SideSupportRegionFacts {
@@ -29,6 +28,7 @@ pub(super) struct SideSupportLoopFacts {
 #[derive(Clone, Debug)]
 pub(super) struct SideSupportTrimEndpointFacts {
     pub(super) fillet_index: usize,
+    pub(super) cylinder_face: FaceHandle,
     pub(super) support_face: FaceHandle,
     pub(super) start: VertexHandle,
     pub(super) end: VertexHandle,
@@ -78,11 +78,12 @@ impl SideSupportRegionFacts {
         let trim_endpoint_pairs = knowledge
             .trim_intents
             .iter()
-            .filter(|trim| trim.construction == TrimEdgeConstruction::NewExactGeneratorTrim)
+            .filter(|trim| trim.is_new_generator_trim)
             .filter_map(|trim| {
-                let support_face = trim.owner_pair.support_face()?;
+                let support_face = trim.support_face?;
                 Some(SideSupportTrimEndpointFacts {
                     fillet_index: trim.fillet_index,
+                    cylinder_face: trim.cylinder_face,
                     support_face,
                     start: trim.start,
                     end: trim.end,
@@ -145,8 +146,9 @@ impl SideSupportLoopFacts {
 impl SideSupportTrimEndpointFacts {
     fn diagnostic_label(&self) -> String {
         format!(
-            "FilletEnd[{}] support={:?} {:?}->{:?} start={} end={}",
+            "FilletEnd[{}] cylinder={:?} support={:?} {:?}->{:?} start={} end={}",
             self.fillet_index,
+            self.cylinder_face,
             self.support_face,
             self.start,
             self.end,

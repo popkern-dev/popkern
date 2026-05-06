@@ -3,6 +3,7 @@
 use popkern_core::topology::BRep;
 
 use super::repeated_apex_side_support_bridge::FaceFamilyBridgePrimitiveDerivation;
+use super::repeated_apex_side_support_merge::SupportRegionMergePrimitiveDerivation;
 use super::repeated_apex_side_support_plan::{
     SideSupportRegionExecutionReadiness, SideSupportRegionPlanSelection,
     SideSupportRegionRefusalReason,
@@ -15,7 +16,7 @@ pub(super) struct SideSupportRegionExecutionReport {
 
 #[derive(Clone, Debug)]
 enum SideSupportRegionExecutionStatus {
-    ReadyForExecutor,
+    ReadyForExecutor { detail: Option<String> },
     Refused(SideSupportRegionExecutionRefusal),
 }
 
@@ -38,6 +39,8 @@ enum SideSupportRegionExecutionRefusalReason {
     MissingLiveTopologyOperand,
     MissingValidatedFaceFamilyBridgePrimitive,
     MissingFaceFamilyBridgeTopologyOperator,
+    MissingValidatedSupportRegionMergePrimitive,
+    MissingExactSideGeneratorCurveAuthoring,
 }
 
 impl SideSupportRegionExecutionReport {
@@ -57,26 +60,88 @@ impl SideSupportRegionExecutionReport {
         }
         match selection.execution_readiness() {
             SideSupportRegionExecutionReadiness::Ready => Self {
-                status: SideSupportRegionExecutionStatus::ReadyForExecutor,
+                status: SideSupportRegionExecutionStatus::ReadyForExecutor { detail: None },
             },
             SideSupportRegionExecutionReadiness::Blocked { planner_reason, .. } => {
                 let reason = match planner_reason {
                     SideSupportRegionRefusalReason::MissingValidatedFaceFamilyBridgePrimitive => {
                         let bridge_primitive =
                             FaceFamilyBridgePrimitiveDerivation::build(selection, brep);
+                        let topology_report = bridge_primitive.topology_operator_report(brep);
+                        if bridge_primitive.is_complete() && topology_report.is_ready() {
+                            let mut candidate = brep.clone();
+                            if let Err(err) =
+                                bridge_primitive.apply_topology_operator(&mut candidate)
+                            {
+                                return Self::refused_with_detail(
+                                    SideSupportRegionExecutionRefusalReason::MissingFaceFamilyBridgeTopologyOperator,
+                                    err,
+                                );
+                            }
+                            return Self {
+                                status: SideSupportRegionExecutionStatus::ReadyForExecutor {
+                                    detail: Some(format!(
+                                        "{}; {}",
+                                        bridge_primitive.diagnostic_label(),
+                                        topology_report.diagnostic_label()
+                                    )),
+                                },
+                            };
+                        }
+                        let merge_primitive =
+                            SupportRegionMergePrimitiveDerivation::build(selection, brep);
+                        if merge_primitive.exact_geometry_ready() {
+                            let mut candidate = brep.clone();
+                            if let Err(err) =
+                                merge_primitive.apply_topology_and_geometry(&mut candidate)
+                            {
+                                return Self::refused_with_detail(
+                                    SideSupportRegionExecutionRefusalReason::MissingExactSideGeneratorCurveAuthoring,
+                                    format!(
+                                        "{}; {}; {}; apply_refusal={}",
+                                        bridge_primitive.diagnostic_label(),
+                                        topology_report.diagnostic_label(),
+                                        merge_primitive.diagnostic_label(),
+                                        err
+                                    ),
+                                );
+                            }
+                            return Self {
+                                status: SideSupportRegionExecutionStatus::ReadyForExecutor {
+                                    detail: Some(format!(
+                                        "{}; {}; {}",
+                                        bridge_primitive.diagnostic_label(),
+                                        topology_report.diagnostic_label(),
+                                        merge_primitive.diagnostic_label()
+                                    )),
+                                },
+                            };
+                        }
+                        if merge_primitive.is_ready() {
+                            return Self::refused_with_detail(
+                                SideSupportRegionExecutionRefusalReason::MissingExactSideGeneratorCurveAuthoring,
+                                format!(
+                                    "{}; {}; {}",
+                                    bridge_primitive.diagnostic_label(),
+                                    topology_report.diagnostic_label(),
+                                    merge_primitive.diagnostic_label()
+                                ),
+                            );
+                        }
                         let reason = if bridge_primitive.is_complete() {
                             SideSupportRegionExecutionRefusalReason::MissingFaceFamilyBridgeTopologyOperator
-                        } else {
+                        } else if !merge_primitive.has_regions() {
                             SideSupportRegionExecutionRefusalReason::MissingValidatedFaceFamilyBridgePrimitive
+                        } else {
+                            SideSupportRegionExecutionRefusalReason::MissingValidatedSupportRegionMergePrimitive
                         };
                         return Self::refused_with_detail(
                             reason,
                             format!(
-                                "{}; {}",
+                                "{}; {}; {}",
                                 bridge_primitive.diagnostic_label(),
-                                bridge_primitive
-                                    .topology_operator_report(brep)
-                                    .diagnostic_label()
+                                topology_report.diagnostic_label(),
+                                merge_primitive.diagnostic_label()
                             ),
                         );
                     }
@@ -94,8 +159,12 @@ impl SideSupportRegionExecutionReport {
 
     pub(super) fn diagnostic_label(&self) -> String {
         match &self.status {
-            SideSupportRegionExecutionStatus::ReadyForExecutor => {
-                "execution ready_for_executor".to_string()
+            SideSupportRegionExecutionStatus::ReadyForExecutor { detail } => {
+                let mut label = "execution ready_for_executor".to_string();
+                if let Some(detail) = detail {
+                    label.push_str(&format!(" detail={detail}"));
+                }
+                label
             }
             SideSupportRegionExecutionStatus::Refused(refusal) => {
                 let mut label = format!(
