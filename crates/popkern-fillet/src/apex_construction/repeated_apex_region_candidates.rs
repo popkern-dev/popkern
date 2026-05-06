@@ -51,7 +51,7 @@ pub(super) struct CandidateSetSnapshot {
 impl CandidateSetSnapshot {
     pub(super) fn enumerate(region_graph: &RegionGraph) -> Self {
         let mut candidates = Vec::new();
-        for pair in &region_graph.trim_endpoint_pairs {
+        for pair in region_graph.trim_endpoint_pairs() {
             match (&pair.start_membership, &pair.end_membership) {
                 (
                     EndpointRegionMembership::SameSupportLoop {

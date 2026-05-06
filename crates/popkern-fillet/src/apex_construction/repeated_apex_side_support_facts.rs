@@ -57,8 +57,7 @@ pub(super) enum EndpointRegionMembership {
 impl SideSupportRegionFacts {
     pub(super) fn classify(knowledge: &TopologyKnowledgeGraph) -> Self {
         let support_families = knowledge
-            .support_families
-            .iter()
+            .support_families()
             .map(|family| SideSupportFamilyFacts {
                 support_face: family.support_face,
                 loops: family
@@ -76,8 +75,7 @@ impl SideSupportRegionFacts {
             .collect();
 
         let trim_endpoint_pairs = knowledge
-            .trim_intents
-            .iter()
+            .trim_intents()
             .filter(|trim| trim.is_new_generator_trim)
             .filter_map(|trim| {
                 let support_face = trim.support_face?;

@@ -7,8 +7,8 @@ use super::repeated_apex_topology_knowledge::LoopKind;
 
 #[derive(Clone, Debug)]
 pub(super) struct RegionGraph {
-    pub(super) nodes: Vec<RegionGraphNode>,
-    pub(super) trim_endpoint_pairs: Vec<RegionTrimEndpointPair>,
+    nodes: Vec<RegionGraphNode>,
+    trim_endpoint_pairs: Vec<RegionTrimEndpointPair>,
 }
 
 #[derive(Clone, Debug)]
@@ -65,6 +65,10 @@ impl RegionGraph {
             nodes,
             trim_endpoint_pairs,
         }
+    }
+
+    pub(super) fn trim_endpoint_pairs(&self) -> impl Iterator<Item = &RegionTrimEndpointPair> {
+        self.trim_endpoint_pairs.iter()
     }
 
     pub(super) fn diagnostic_label(&self) -> String {

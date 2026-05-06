@@ -8,11 +8,11 @@ use super::repeated_apex_trim_subcomplex::{TrimRewriteIntentFacts, TrimRewriteSu
 
 #[derive(Clone, Debug)]
 pub(super) struct TopologyKnowledgeGraph {
-    pub(super) fingerprint: TopologyFingerprint,
-    pub(super) support_families: Vec<SupportFamilyFacts>,
-    pub(super) endpoint_memberships: Vec<EndpointMembershipFacts>,
-    pub(super) trim_intents: Vec<TrimRewriteIntentFacts>,
-    pub(super) counters: KnowledgeGraphCounters,
+    fingerprint: TopologyFingerprint,
+    support_families: Vec<SupportFamilyFacts>,
+    endpoint_memberships: Vec<EndpointMembershipFacts>,
+    trim_intents: Vec<TrimRewriteIntentFacts>,
+    counters: KnowledgeGraphCounters,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -168,6 +168,14 @@ impl TopologyKnowledgeGraph {
 
     pub(super) fn validate_fresh(&self, brep: &BRep) -> bool {
         self.fingerprint == TopologyFingerprint::from_brep(brep)
+    }
+
+    pub(super) fn support_families(&self) -> impl Iterator<Item = &SupportFamilyFacts> {
+        self.support_families.iter()
+    }
+
+    pub(super) fn trim_intents(&self) -> impl Iterator<Item = &TrimRewriteIntentFacts> {
+        self.trim_intents.iter()
     }
 
     pub(super) fn endpoint_membership(
