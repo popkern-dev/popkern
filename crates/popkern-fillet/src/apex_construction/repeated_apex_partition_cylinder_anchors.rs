@@ -9,7 +9,7 @@ use super::partition_cylinder_geometry::{
     cylinder_radial_vector, half_edge_end_vertex, point_is_not_edge_endpoint,
     point_lies_on_cylinder_face,
 };
-use super::plane_plane_cylinder_joint_points;
+use super::partition_support_intersections::plane_plane_cylinder_joint_points;
 
 pub(super) fn materialize_support_boundary_generator_anchor(
     brep: &mut BRep,
