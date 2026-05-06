@@ -134,8 +134,7 @@ impl FaceFamilyBridgePrimitiveDerivation {
 
     fn from_selected_plan(plan: &SelectedSideSupportRegionPlan, brep: &BRep) -> Self {
         let details = plan
-            .operations
-            .iter()
+            .operations()
             .filter_map(|operation| match operation {
                 PlannedTopologyOperation::BridgeSupportRegion(region) => {
                     Some(FaceFamilyBridgeRegionDerivation::build(region, brep))

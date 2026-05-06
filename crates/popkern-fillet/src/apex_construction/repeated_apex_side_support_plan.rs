@@ -18,7 +18,7 @@ pub(super) enum SideSupportRegionPlanSelection {
 
 #[derive(Clone, Debug)]
 pub(super) struct SelectedSideSupportRegionPlan {
-    pub(super) operations: Vec<PlannedTopologyOperation>,
+    operations: Vec<PlannedTopologyOperation>,
     expected_delta: ExpectedTopologyDelta,
 }
 
@@ -245,6 +245,10 @@ impl SelectedSideSupportRegionPlan {
                 .collect::<Vec<_>>()
                 .join("; ")
         )
+    }
+
+    pub(super) fn operations(&self) -> impl Iterator<Item = &PlannedTopologyOperation> {
+        self.operations.iter()
     }
 }
 

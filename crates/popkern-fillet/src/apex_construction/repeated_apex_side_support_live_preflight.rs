@@ -82,7 +82,7 @@ impl SelectedSideSupportRegionPlan {
         &self,
         brep: &BRep,
     ) -> Result<(), SideSupportRegionLivePreconditionFailure> {
-        for operation in &self.operations {
+        for operation in self.operations() {
             operation.validate_live_operands(brep)?;
         }
         Ok(())
