@@ -57,6 +57,8 @@ mod partition_generator_anchors;
 mod partition_ownership;
 #[path = "repeated_apex_partition_rebuild_diagnostics.rs"]
 mod partition_rebuild_diagnostics;
+#[path = "repeated_apex_partition_support_cycle_primitives.rs"]
+mod partition_support_cycle_primitives;
 #[path = "repeated_apex_partition_support_intersections.rs"]
 mod partition_support_intersections;
 #[path = "repeated_apex_partition_support_owners.rs"]
@@ -99,6 +101,11 @@ use partition_rebuild_diagnostics::{
     replacement_run_curve_blocker, replacement_run_exact_curve_kind,
     replacement_run_reownership_blocker, replacement_run_reownership_plan,
     retired_trim_runs_by_adjacent_face,
+};
+use partition_support_cycle_primitives::{
+    closed_half_edge_cycles_from_unwired_set, half_edge_is_degenerate,
+    support_cycle_open_chain_diagnostic, support_split_half_edge_end_vertex,
+    vertices_are_coincident,
 };
 use partition_support_intersections::{
     plane_plane_cylinder_joint_points, support_plane_faces_containing_point,
@@ -989,160 +996,6 @@ fn trace_topology_counts(brep: &BRep, label: &'static str) {
         return;
     }
     eprintln!("{}", topology_count_summary(brep).trace_label(label));
-}
-
-fn half_edge_is_degenerate(brep: &BRep, half_edge: HalfEdgeHandle) -> bool {
-    let Some(start) = brep.half_edges.get(half_edge).map(|data| data.origin) else {
-        return true;
-    };
-    let Some(end) = half_edge_end_vertex(brep, half_edge) else {
-        return true;
-    };
-    let Some(start_point) = brep.vertices.get(start).map(|vertex| vertex.position) else {
-        return true;
-    };
-    let Some(end_point) = brep.vertices.get(end).map(|vertex| vertex.position) else {
-        return true;
-    };
-    start_point.distance_to(&end_point) <= brep.tolerance.linear().max(1.0e-9)
-}
-
-fn vertices_are_coincident(brep: &BRep, start: VertexHandle, end: VertexHandle) -> bool {
-    let Some(start_point) = brep.vertices.get(start).map(|vertex| vertex.position) else {
-        return false;
-    };
-    let Some(end_point) = brep.vertices.get(end).map(|vertex| vertex.position) else {
-        return false;
-    };
-    start_point.distance_to(&end_point) <= brep.tolerance.linear().max(1.0e-9)
-}
-
-fn support_cycle_open_chain_diagnostic(brep: &BRep, half_edges: &[HalfEdgeHandle]) -> String {
-    half_edges
-        .iter()
-        .map(|half_edge| {
-            let start = brep
-                .half_edges
-                .get(*half_edge)
-                .map(|data| data.origin)
-                .unwrap_or_default();
-            let end = support_split_half_edge_end_vertex(brep, *half_edge).unwrap_or_default();
-            format!("{half_edge:?}:{start:?}->{end:?}")
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-fn support_split_half_edge_end_vertex(
-    brep: &BRep,
-    half_edge: HalfEdgeHandle,
-) -> Option<VertexHandle> {
-    half_edge_end_vertex(brep, half_edge)
-        .or_else(|| boundary_curve_end_vertex(brep, half_edge))
-        .or_else(|| {
-            let next = brep.half_edges.get(half_edge)?.next;
-            brep.half_edges
-                .get(next)
-                .map(|next_half_edge| next_half_edge.origin)
-        })
-}
-
-fn boundary_curve_end_vertex(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<VertexHandle> {
-    let half_edge_data = brep.half_edges.get(half_edge)?;
-    if !brep.boundary_edges.contains(&half_edge_data.edge) {
-        return None;
-    }
-    let curve = brep.edges.get(half_edge_data.edge)?.curve.as_ref()?;
-    let start_point = brep.vertices.get(half_edge_data.origin)?.position;
-    let p0 = curve.geometry.point_at(curve.t_start);
-    let p1 = curve.geometry.point_at(curve.t_end);
-    let end_point = if start_point.distance_to(&p0) <= start_point.distance_to(&p1) {
-        p1
-    } else {
-        p0
-    };
-    let tol = brep.tolerance.linear().max(1.0e-9);
-    brep.vertices
-        .iter()
-        .filter_map(|(vertex, data)| {
-            let distance = data.position.distance_to(&end_point);
-            (distance <= tol).then_some((vertex, distance))
-        })
-        .min_by(|(_, a), (_, b)| a.total_cmp(b))
-        .map(|(vertex, _)| vertex)
-}
-
-fn closed_half_edge_cycles_from_unwired_set(
-    brep: &BRep,
-    half_edges: &[HalfEdgeHandle],
-) -> Vec<Vec<HalfEdgeHandle>> {
-    let mut by_start: std::collections::BTreeMap<VertexHandle, Vec<HalfEdgeHandle>> =
-        std::collections::BTreeMap::new();
-    for half_edge in half_edges {
-        if let Some(start) = brep.half_edges.get(*half_edge).map(|data| data.origin) {
-            by_start.entry(start).or_default().push(*half_edge);
-        }
-    }
-    if by_start.values().any(|edges| edges.len() != 1) {
-        return Vec::new();
-    }
-    let input = half_edges
-        .iter()
-        .copied()
-        .collect::<std::collections::BTreeSet<_>>();
-    let mut visited = std::collections::BTreeSet::new();
-    let mut cycles = Vec::new();
-    for start_half_edge in half_edges {
-        if visited.contains(start_half_edge) {
-            continue;
-        }
-        let mut cycle = Vec::new();
-        let mut cursor = *start_half_edge;
-        for _ in 0..=half_edges.len() {
-            if !input.contains(&cursor) || !visited.insert(cursor) {
-                return Vec::new();
-            }
-            cycle.push(cursor);
-            let Some(end) = support_split_half_edge_end_vertex(brep, cursor) else {
-                return Vec::new();
-            };
-            let Some(next) = support_split_next_half_edge_from_end(brep, &by_start, end) else {
-                return Vec::new();
-            };
-            if next == *start_half_edge {
-                cycles.push(cycle);
-                break;
-            }
-            cursor = next;
-        }
-    }
-    if visited.len() == half_edges.len() {
-        cycles
-    } else {
-        Vec::new()
-    }
-}
-
-fn support_split_next_half_edge_from_end(
-    brep: &BRep,
-    by_start: &std::collections::BTreeMap<VertexHandle, Vec<HalfEdgeHandle>>,
-    end: VertexHandle,
-) -> Option<HalfEdgeHandle> {
-    if let Some(next) = by_start.get(&end).and_then(|edges| edges.first()).copied() {
-        return Some(next);
-    }
-    let coincident = by_start
-        .iter()
-        .filter_map(|(start, edges)| {
-            vertices_are_coincident(brep, end, *start).then_some(edges.first().copied())
-        })
-        .flatten()
-        .collect::<Vec<_>>();
-    if coincident.len() == 1 {
-        Some(coincident[0])
-    } else {
-        None
-    }
 }
 
 fn validate_replacement_loop_support_side_ownership(
