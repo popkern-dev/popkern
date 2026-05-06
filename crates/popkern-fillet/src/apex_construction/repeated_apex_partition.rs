@@ -53,6 +53,8 @@ mod partition_cylinder_geometry;
 mod partition_cylinder_loop_adoption;
 #[path = "repeated_apex_partition_cylinder_trim_fragments.rs"]
 mod partition_cylinder_trim_fragments;
+#[path = "repeated_apex_partition_cylinder_trim_topology.rs"]
+mod partition_cylinder_trim_topology;
 #[path = "repeated_apex_partition_exact_trim_curves.rs"]
 mod partition_exact_trim_curves;
 #[path = "repeated_apex_partition_far_side_trim.rs"]
@@ -105,6 +107,11 @@ use partition_cylinder_loop_adoption::adopt_fillet_end_endpoints_into_target_cyl
 use partition_cylinder_trim_fragments::{
     FragmentAuthoringStatus, ReplacementRunReownershipPlan, ReplacementRunSpanOwnership,
     ReplacementRunSupportCandidate, RetiredCylinderTrimFragment, RetiredCylinderTrimRun,
+};
+use partition_cylinder_trim_topology::{
+    CylinderLoopOrientationCandidate, CylinderLoopOrientationKind, CylinderTrimRewriteTopologyPlan,
+    FarSideTrimStrategy, FilletEndSeamRewrite, OrientedCylinderTrimSegment,
+    PendingCylinderLoopReplacement,
 };
 use partition_exact_trim_curves::{
     exact_cylinder_arc_trim_curve_between, exact_cylinder_trim_curve_between,
@@ -1030,59 +1037,6 @@ enum SemanticCylinderTrimSegment {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum FarSideTrimStrategy {
-    Forward,
-    Reverse,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CylinderLoopOrientationKind {
-    CurrentSharedFilletEnd,
-    ReauthoredSharedFilletEnd,
-}
-
-#[derive(Clone)]
-struct CylinderLoopOrientationCandidate {
-    kind: CylinderLoopOrientationKind,
-    far_side_strategy: FarSideTrimStrategy,
-    segments: Vec<OrientedCylinderTrimSegment>,
-}
-
-struct CylinderTrimRewriteTopologyPlan {
-    fillet_index: usize,
-    cylinder_face: FaceHandle,
-    loop_candidate: CylinderLoopOrientationCandidate,
-    seam_rewrite: FilletEndSeamRewrite,
-}
-
-struct PendingCylinderLoopReplacement {
-    fillet_index: usize,
-    cylinder_face: FaceHandle,
-    kind: CylinderLoopOrientationKind,
-    cycle: Vec<HalfEdgeHandle>,
-}
-
-enum FilletEndSeamRewrite {
-    ReuseCurrentTwinPair {
-        edge: EdgeHandle,
-        cap_half_edge: HalfEdgeHandle,
-        current_cylinder_half_edge: HalfEdgeHandle,
-    },
-    ReauthorCapBoundaryAndCylinderSide {
-        edge: EdgeHandle,
-        cap_half_edge: HalfEdgeHandle,
-        current_cylinder_half_edge: HalfEdgeHandle,
-    },
-}
-
-#[derive(Clone)]
-struct OrientedCylinderTrimSegment {
-    label: &'static str,
-    start: VertexHandle,
-    end: VertexHandle,
-}
-
 impl SemanticCylinderTrimRebuildPlan {
     fn build(brep: &BRep, fillet_end: &FilletEndOwnership) -> Result<Self, ApexBuildError> {
         let cap_start = brep
@@ -1907,83 +1861,5 @@ impl SemanticCylinderTrimSegment {
                 replacement_for.len()
             ),
         }
-    }
-}
-
-impl CylinderTrimRewriteTopologyPlan {
-    fn diagnostic_label(&self) -> String {
-        format!(
-            "FilletEnd[{}] cylinder {:?}: {}, {}",
-            self.fillet_index,
-            self.cylinder_face,
-            self.loop_candidate.diagnostic_label(),
-            self.seam_rewrite.diagnostic_label()
-        )
-    }
-}
-
-impl FilletEndSeamRewrite {
-    fn diagnostic_label(&self) -> String {
-        match self {
-            FilletEndSeamRewrite::ReuseCurrentTwinPair {
-                edge,
-                cap_half_edge,
-                current_cylinder_half_edge,
-            } => format!(
-                "reuse current FilletEnd cap/cylinder twin pair edge={edge:?} \
-                 cap_he={cap_half_edge:?} current_cylinder_he={current_cylinder_half_edge:?}"
-            ),
-            FilletEndSeamRewrite::ReauthorCapBoundaryAndCylinderSide {
-                edge,
-                cap_half_edge,
-                current_cylinder_half_edge,
-            } => format!(
-                "reauthor cap boundary and cylinder side for FilletEnd seam edge={edge:?} \
-                 cap_he={cap_half_edge:?} current_cylinder_he={current_cylinder_half_edge:?}"
-            ),
-        }
-    }
-}
-
-impl CylinderLoopOrientationCandidate {
-    fn requires_fillet_end_reorientation(&self) -> bool {
-        self.kind == CylinderLoopOrientationKind::ReauthoredSharedFilletEnd
-    }
-
-    fn validate_contiguous(&self, fillet_index: usize) -> Result<(), String> {
-        for i in 0..self.segments.len() {
-            let current = &self.segments[i];
-            let next = &self.segments[(i + 1) % self.segments.len()];
-            if current.end != next.start {
-                return Err(format!(
-                    "FilletEnd[{fillet_index}] segment {} ends at {:?}, but segment {} starts \
-                     at {:?}",
-                    current.label, current.end, next.label, next.start
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn diagnostic_label(&self) -> String {
-        let segments = self
-            .segments
-            .iter()
-            .map(OrientedCylinderTrimSegment::diagnostic_label)
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!(
-            "{:?}/{:?} reorient_fillet_end={} segments=[{}]",
-            self.kind,
-            self.far_side_strategy,
-            self.requires_fillet_end_reorientation(),
-            segments
-        )
-    }
-}
-
-impl OrientedCylinderTrimSegment {
-    fn diagnostic_label(&self) -> String {
-        format!("{} {:?}->{:?}", self.label, self.start, self.end)
     }
 }
