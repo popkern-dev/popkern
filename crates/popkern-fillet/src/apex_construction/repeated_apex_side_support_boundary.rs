@@ -17,11 +17,11 @@ pub(super) enum FaceFamilyBridgeBoundaryReadiness {
 
 #[derive(Clone, Debug)]
 pub(super) struct FaceFamilyBridgeBoundaryExposurePlan {
-    pub(super) readiness: FaceFamilyBridgeBoundaryReadiness,
-    pub(super) blockers: Vec<BridgeBoundaryOwnershipBlocker>,
-    pub(super) retire_faces: Vec<BridgeBoundaryRetireFacePlan>,
-    pub(super) partial_faces: Vec<BridgeBoundaryPartialFacePlan>,
-    pub(super) status: BridgeBoundaryExposureStatus,
+    readiness: FaceFamilyBridgeBoundaryReadiness,
+    blockers: Vec<BridgeBoundaryOwnershipBlocker>,
+    retire_faces: Vec<BridgeBoundaryRetireFacePlan>,
+    partial_faces: Vec<BridgeBoundaryPartialFacePlan>,
+    status: BridgeBoundaryExposureStatus,
 }
 
 #[derive(Clone, Debug)]
@@ -153,6 +153,26 @@ impl FaceFamilyBridgeBoundaryExposurePlan {
             plan.fragment_retire_refusal
                 == Some(BridgeBoundaryFragmentRetireRefusal::SelfOwnedProtectedBridgeOperandPair)
         })
+    }
+
+    pub(super) fn readiness(&self) -> &FaceFamilyBridgeBoundaryReadiness {
+        &self.readiness
+    }
+
+    pub(super) fn status(&self) -> BridgeBoundaryExposureStatus {
+        self.status
+    }
+
+    pub(super) fn blockers(&self) -> &[BridgeBoundaryOwnershipBlocker] {
+        &self.blockers
+    }
+
+    pub(super) fn retire_faces(&self) -> &[BridgeBoundaryRetireFacePlan] {
+        &self.retire_faces
+    }
+
+    pub(super) fn partial_faces(&self) -> &[BridgeBoundaryPartialFacePlan] {
+        &self.partial_faces
     }
 
     fn partial(

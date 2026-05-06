@@ -268,7 +268,7 @@ impl FaceFamilyBridgeRegionDerivation {
             },
         ];
         let boundary_exposure = FaceFamilyBridgeBoundaryExposurePlan::build(brep, &boundary_cycles);
-        let boundary_readiness = boundary_exposure.readiness.clone();
+        let boundary_readiness = boundary_exposure.readiness().clone();
         let expected_edges = boundary_cycles.len() * 2
             + boundary_exposure.fragment_retire_count()
             + boundary_exposure.self_owned_exposure_count();
@@ -370,7 +370,7 @@ impl FaceFamilyBridgeRegionPrimitivePlan {
         boundary_cycles: Vec<FaceFamilyBridgeBoundaryCycle>,
     ) -> Self {
         let boundary_exposure = FaceFamilyBridgeBoundaryExposurePlan::build(brep, &boundary_cycles);
-        self.boundary_readiness = boundary_exposure.readiness.clone();
+        self.boundary_readiness = boundary_exposure.readiness().clone();
         self.expected_edges = boundary_cycles.len() * 2
             + boundary_exposure.fragment_retire_count()
             + boundary_exposure.self_owned_exposure_count();

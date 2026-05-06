@@ -370,7 +370,7 @@ fn bridge_boundary_readiness_failure(
     if region.boundary_readiness().is_boundary_ready() {
         return None;
     }
-    let gap = match region.boundary_exposure().status {
+    let gap = match region.boundary_exposure().status() {
         BridgeBoundaryExposureStatus::AlreadyBoundaryReady
         | BridgeBoundaryExposureStatus::RetireWholeFaces => return None,
         BridgeBoundaryExposureStatus::PartialFaceOwnership => {

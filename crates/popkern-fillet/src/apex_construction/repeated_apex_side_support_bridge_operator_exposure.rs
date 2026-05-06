@@ -11,7 +11,7 @@ pub(in crate::apex_construction) fn expose_aggregate_bridge_boundaries(
     let mut errors = Vec::new();
     let mut retired_faces = BTreeSet::<FaceHandle>::new();
     for region in primitive.regions() {
-        for plan in &region.boundary_exposure().retire_faces {
+        for plan in region.boundary_exposure().retire_faces() {
             retired_faces.insert(plan.face);
         }
     }
@@ -40,13 +40,13 @@ pub(in crate::apex_construction) fn expose_bridge_boundaries(
     region: &FaceFamilyBridgeRegionPrimitivePlan,
     candidate: &mut BRep,
 ) -> Option<String> {
-    match region.boundary_exposure().status {
+    match region.boundary_exposure().status() {
         BridgeBoundaryExposureStatus::AlreadyBoundaryReady => None,
         BridgeBoundaryExposureStatus::PartialFaceOwnership => {
             let mut errors = Vec::new();
             let retire_faces = region
                 .boundary_exposure()
-                .retire_faces
+                .retire_faces()
                 .iter()
                 .map(|plan| plan.face)
                 .collect::<Vec<_>>();
@@ -55,7 +55,7 @@ pub(in crate::apex_construction) fn expose_bridge_boundaries(
             {
                 errors.push(format!("whole face retire rejected: {err}"));
             }
-            for partial_face in &region.boundary_exposure().partial_faces {
+            for partial_face in region.boundary_exposure().partial_faces() {
                 for pair in &partial_face.self_owned_protected_pairs {
                     let edge = candidate.half_edges[pair.half_edge].edge;
                     if !candidate.boundary_edges.contains(&edge)
@@ -100,7 +100,7 @@ pub(in crate::apex_construction) fn expose_bridge_boundaries(
         BridgeBoundaryExposureStatus::RetireWholeFaces => {
             let retire_faces = region
                 .boundary_exposure()
-                .retire_faces
+                .retire_faces()
                 .iter()
                 .map(|plan| plan.face)
                 .collect::<Vec<_>>();
@@ -119,7 +119,7 @@ fn expose_self_owned_pairs_once(
 ) {
     let mut exposed_self_owned_edges = BTreeSet::<EdgeHandle>::new();
     for region in primitive.regions() {
-        for partial_face in &region.boundary_exposure().partial_faces {
+        for partial_face in region.boundary_exposure().partial_faces() {
             for pair in &partial_face.self_owned_protected_pairs {
                 let Some(data) = candidate.half_edges.get(pair.half_edge) else {
                     errors.push(format!(
@@ -151,7 +151,7 @@ fn expose_planned_partial_fragments(
     errors: &mut Vec<String>,
 ) {
     for region in primitive.regions() {
-        for partial_face in &region.boundary_exposure().partial_faces {
+        for partial_face in region.boundary_exposure().partial_faces() {
             if partial_face.is_fully_self_owned_pair_exposure() {
                 continue;
             }
@@ -194,7 +194,7 @@ fn complete_remaining_owned_bridge_sides(
     errors: &mut Vec<String>,
 ) {
     for region in primitive.regions() {
-        for blocker in &region.boundary_exposure().blockers {
+        for blocker in region.boundary_exposure().blockers() {
             let Some(source) = candidate.half_edges.get(blocker.source_half_edge) else {
                 continue;
             };
