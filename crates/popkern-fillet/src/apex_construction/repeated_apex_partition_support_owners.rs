@@ -1,5 +1,70 @@
 use super::*;
 
+pub(super) fn target_cylinder_support_faces(
+    brep: &BRep,
+    cylinder_face: FaceHandle,
+    cap_face: FaceHandle,
+    face_edges: &[FaceEdgeOwnership],
+) -> std::collections::BTreeSet<FaceHandle> {
+    let semantic_support_faces = face_edges
+        .iter()
+        .map(|face_edge| face_edge.support_face)
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut support_faces = std::collections::BTreeSet::new();
+    let Some(face_data) = brep.faces.get(cylinder_face) else {
+        return support_faces;
+    };
+    let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
+        return support_faces;
+    };
+    let start = loop_data.half_edge;
+    if !brep.half_edges.contains_key(start) {
+        return support_faces;
+    }
+    let mut cursor = start;
+    for _ in 0..=brep.half_edges.len() {
+        if let Some(adjacent_face) = adjacent_face_across_half_edge(brep, cylinder_face, cursor)
+            && adjacent_face != cap_face
+            && face_is_planar_support(brep, adjacent_face)
+        {
+            support_faces.insert(adjacent_face);
+        }
+        let Some(half_edge) = brep.half_edges.get(cursor) else {
+            break;
+        };
+        cursor = half_edge.next;
+        if cursor == start {
+            break;
+        }
+    }
+    if support_faces.is_empty() {
+        return semantic_support_faces;
+    }
+    support_faces
+}
+
+pub(super) fn target_cylinder_support_faces_with_semantic(
+    brep: &BRep,
+    cylinder_face: FaceHandle,
+    cap_face: FaceHandle,
+    face_edges: &[FaceEdgeOwnership],
+) -> std::collections::BTreeSet<FaceHandle> {
+    let mut support_faces =
+        target_cylinder_support_faces(brep, cylinder_face, cap_face, face_edges);
+    support_faces.extend(face_edges.iter().map(|face_edge| face_edge.support_face));
+    support_faces
+}
+
+fn face_is_planar_support(brep: &BRep, face: FaceHandle) -> bool {
+    matches!(
+        brep.faces
+            .get(face)
+            .and_then(|face_data| face_data.surface.as_ref())
+            .map(|surface| &surface.geometry),
+        Some(SurfaceGeometry::Plane { .. })
+    )
+}
+
 pub(super) struct GeneratorTrimSupportOwnerQuery<'a> {
     pub(super) cylinder_face: FaceHandle,
     pub(super) cap_face: FaceHandle,
