@@ -104,7 +104,7 @@ impl SideSupportRegionDiagnosticSnapshot {
     }
 }
 
-pub(super) fn apply_exact_authorable_side_support_continuation(
+pub(super) fn apply_selected_side_support_continuation(
     brep: &mut BRep,
     subcomplex_plan: &TrimRewriteSubcomplexPlan,
 ) -> Result<SideSupportRegionContinuationOutcome, ApexBuildError> {
@@ -119,6 +119,15 @@ pub(super) fn apply_exact_authorable_side_support_continuation(
                 diagnostics.diagnostic_label()
             ),
         })
+}
+
+impl SideSupportRegionContinuationOutcome {
+    pub(super) fn diagnostic_label(&self) -> &'static str {
+        match self {
+            SideSupportRegionContinuationOutcome::Applied => "applied",
+            SideSupportRegionContinuationOutcome::NotReady => "not-ready",
+        }
+    }
 }
 
 impl SideSupportRegionContinuationFailure {
@@ -270,7 +279,13 @@ mod tests {
 
     #[test]
     fn read_only_snapshot_selects_merge_when_shared_edge_is_mergeable() {
-        let (brep, plan) = shared_edge_bridge_fixture(true);
+        let (mut brep, plan) = shared_edge_bridge_fixture(true);
+        let before_counts = (
+            brep.vertices.len(),
+            brep.edges.len(),
+            brep.faces.len(),
+            brep.loops.len(),
+        );
 
         let snapshot = SideSupportRegionDiagnosticSnapshot::build_read_only(&brep, &plan);
 
@@ -293,6 +308,20 @@ mod tests {
         assert!(
             labels.contains("MissingExactSideGeneratorCurveAuthoring"),
             "{labels}"
+        );
+        assert_eq!(
+            apply_selected_side_support_continuation(&mut brep, &plan)
+                .expect("not-ready continuation is a valid non-mutating outcome"),
+            SideSupportRegionContinuationOutcome::NotReady
+        );
+        assert_eq!(
+            (
+                brep.vertices.len(),
+                brep.edges.len(),
+                brep.faces.len(),
+                brep.loops.len()
+            ),
+            before_counts
         );
     }
 

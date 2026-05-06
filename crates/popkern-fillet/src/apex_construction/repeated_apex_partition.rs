@@ -33,7 +33,7 @@ use super::repeated_apex_partition_topology::{
     oriented_edge_half_edges_on_face, validate_partition_cap_to_cylinder_seams, wire_existing_loop,
 };
 use super::repeated_apex_side_support::{
-    SideSupportRegionDiagnosticSnapshot, apply_exact_authorable_side_support_continuation,
+    SideSupportRegionDiagnosticSnapshot, apply_selected_side_support_continuation,
 };
 use super::repeated_apex_trim_subcomplex::{
     TopologyBalanceRequirement, TopologyCountDelta, TrimRewriteSubcomplexBuilder,
@@ -3768,7 +3768,8 @@ fn apply_cylinder_trim_rewrites_transactionally(
             &rebuild_plans,
             &topology_plans,
         )?;
-        apply_exact_authorable_side_support_continuation(brep, &subcomplex_plan)?;
+        let side_support_continuation =
+            apply_selected_side_support_continuation(brep, &subcomplex_plan)?;
         apply_materialized_cylinder_loop_replacements(
             brep,
             cap_face,
@@ -3792,12 +3793,13 @@ fn apply_cylinder_trim_rewrites_transactionally(
         boundary_outcome.plan_strip_loop_overrides(brep, fillet_ends)?;
         if std::env::var_os("POPKERN_A2_TRACE").is_some() {
             eprintln!(
-                "[a2-trace §14.9/cylinder-trim-rewrite] topology_plans=[{}]; {}; {}",
+                "[a2-trace §14.9/cylinder-trim-rewrite] topology_plans=[{}]; side_support_continuation={}; {}; {}",
                 topology_plans
                     .iter()
                     .map(CylinderTrimRewriteTopologyPlan::diagnostic_label)
                     .collect::<Vec<_>>()
                     .join("; "),
+                side_support_continuation.diagnostic_label(),
                 cap_boundary_plan.diagnostic_label(),
                 boundary_outcome.diagnostic_label()
             );
@@ -3831,7 +3833,8 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
         rebuild_plans,
         topology_plans,
     )?;
-    apply_exact_authorable_side_support_continuation(&mut candidate, subcomplex_plan)?;
+    let side_support_continuation =
+        apply_selected_side_support_continuation(&mut candidate, subcomplex_plan)?;
     match apply_materialized_cylinder_loop_replacements(
         &mut candidate,
         cap_face,
@@ -3845,10 +3848,11 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
             let after = topology_count_summary(&candidate);
             if std::env::var_os("POPKERN_A2_TRACE").is_some() {
                 eprintln!(
-                    "[a2-trace §14.9/topology-preflight] accepted before {}; after {}; delta {}; {}; {}",
+                    "[a2-trace §14.9/topology-preflight] accepted before {}; after {}; delta {}; side_support_continuation={}; {}; {}",
                     before.diagnostic_label(),
                     after.diagnostic_label(),
                     TopologyCountDelta::between(before, after).diagnostic_label(),
+                    side_support_continuation.diagnostic_label(),
                     subcomplex_plan.diagnostic_label(),
                     side_support_diagnostics.diagnostic_label()
                 );
