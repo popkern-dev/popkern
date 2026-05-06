@@ -47,30 +47,30 @@ impl TopologyFingerprint {
 
 #[derive(Clone, Debug)]
 pub(super) struct KnowledgeGraphCounters {
-    pub(super) seeded_faces: usize,
-    pub(super) loops_visited: usize,
-    pub(super) half_edges_visited: usize,
-    pub(super) vertices_visited: usize,
-    pub(super) trim_records_read: usize,
+    seeded_faces: usize,
+    loops_visited: usize,
+    half_edges_visited: usize,
+    vertices_visited: usize,
+    trim_records_read: usize,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct SupportFamilyFacts {
-    pub(super) support_face: FaceHandle,
-    pub(super) generated_trim_count: usize,
-    pub(super) cylinder_faces: Vec<FaceHandle>,
-    pub(super) loops: Vec<LoopFacts>,
+    support_face: FaceHandle,
+    generated_trim_count: usize,
+    cylinder_faces: Vec<FaceHandle>,
+    loops: Vec<LoopFacts>,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct LoopFacts {
-    pub(super) face: FaceHandle,
-    pub(super) loop_handle: LoopHandle,
-    pub(super) kind: LoopKind,
-    pub(super) boundary_half_edges: Vec<HalfEdgeHandle>,
-    pub(super) boundary_vertices: Vec<VertexHandle>,
-    pub(super) repeated_vertex: bool,
-    pub(super) repeated_half_edge: bool,
+    face: FaceHandle,
+    loop_handle: LoopHandle,
+    kind: LoopKind,
+    boundary_half_edges: Vec<HalfEdgeHandle>,
+    boundary_vertices: Vec<VertexHandle>,
+    repeated_vertex: bool,
+    repeated_half_edge: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,16 +82,16 @@ pub(super) enum LoopKind {
 
 #[derive(Clone, Debug)]
 pub(super) struct EndpointMembershipFacts {
-    pub(super) vertex: VertexHandle,
-    pub(super) containing_loops: Vec<EndpointLoopMembership>,
+    vertex: VertexHandle,
+    containing_loops: Vec<EndpointLoopMembership>,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct EndpointLoopMembership {
-    pub(super) face: FaceHandle,
-    pub(super) loop_handle: LoopHandle,
-    pub(super) half_edge: HalfEdgeHandle,
-    pub(super) kind: LoopKind,
+    face: FaceHandle,
+    loop_handle: LoopHandle,
+    half_edge: HalfEdgeHandle,
+    kind: LoopKind,
 }
 
 impl TopologyKnowledgeGraph {
@@ -211,6 +211,14 @@ impl TopologyKnowledgeGraph {
 }
 
 impl SupportFamilyFacts {
+    pub(super) fn support_face(&self) -> FaceHandle {
+        self.support_face
+    }
+
+    pub(super) fn loops(&self) -> &[LoopFacts] {
+        &self.loops
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
             "support={:?} generated_trims={} cylinders={:?} loops=[{}]",
@@ -227,6 +235,26 @@ impl SupportFamilyFacts {
 }
 
 impl LoopFacts {
+    pub(super) fn face(&self) -> FaceHandle {
+        self.face
+    }
+
+    pub(super) fn loop_handle(&self) -> LoopHandle {
+        self.loop_handle
+    }
+
+    pub(super) fn kind(&self) -> LoopKind {
+        self.kind
+    }
+
+    pub(super) fn boundary_half_edges(&self) -> &[HalfEdgeHandle] {
+        &self.boundary_half_edges
+    }
+
+    pub(super) fn boundary_vertices(&self) -> &[VertexHandle] {
+        &self.boundary_vertices
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
             "{:?}/{:?}/{:?} vertices={:?} repeated_vertex={} repeated_half_edge={}",
@@ -241,6 +269,10 @@ impl LoopFacts {
 }
 
 impl EndpointMembershipFacts {
+    pub(super) fn containing_loops(&self) -> &[EndpointLoopMembership] {
+        &self.containing_loops
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
             "{:?} in [{}]",
@@ -255,6 +287,18 @@ impl EndpointMembershipFacts {
 }
 
 impl EndpointLoopMembership {
+    pub(super) fn face(&self) -> FaceHandle {
+        self.face
+    }
+
+    pub(super) fn loop_handle(&self) -> LoopHandle {
+        self.loop_handle
+    }
+
+    pub(super) fn half_edge(&self) -> HalfEdgeHandle {
+        self.half_edge
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
             "{:?}/{:?}/{:?}@{:?}",

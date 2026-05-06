@@ -59,16 +59,16 @@ impl SideSupportRegionFacts {
         let support_families = knowledge
             .support_families()
             .map(|family| SideSupportFamilyFacts {
-                support_face: family.support_face,
+                support_face: family.support_face(),
                 loops: family
-                    .loops
+                    .loops()
                     .iter()
                     .map(|loop_facts| SideSupportLoopFacts {
-                        face: loop_facts.face,
-                        loop_handle: loop_facts.loop_handle,
-                        kind: loop_facts.kind,
-                        boundary_half_edges: loop_facts.boundary_half_edges.clone(),
-                        boundary_vertices: loop_facts.boundary_vertices.clone(),
+                        face: loop_facts.face(),
+                        loop_handle: loop_facts.loop_handle(),
+                        kind: loop_facts.kind(),
+                        boundary_half_edges: loop_facts.boundary_half_edges().to_vec(),
+                        boundary_vertices: loop_facts.boundary_vertices().to_vec(),
                     })
                     .collect(),
             })
@@ -254,28 +254,28 @@ fn endpoint_region_membership(
         return EndpointRegionMembership::Unknown;
     };
     if let Some(loop_membership) = membership
-        .containing_loops
+        .containing_loops()
         .iter()
-        .find(|loop_membership| loop_membership.face == support_face)
+        .find(|loop_membership| loop_membership.face() == support_face)
     {
         return EndpointRegionMembership::SameSupportLoop {
-            face: loop_membership.face,
-            loop_handle: loop_membership.loop_handle,
-            half_edge: loop_membership.half_edge,
+            face: loop_membership.face(),
+            loop_handle: loop_membership.loop_handle(),
+            half_edge: loop_membership.half_edge(),
         };
     }
-    if membership.containing_loops.is_empty() {
+    if membership.containing_loops().is_empty() {
         EndpointRegionMembership::Unknown
-    } else if membership.containing_loops.len() == 1 {
-        let loop_membership = &membership.containing_loops[0];
+    } else if membership.containing_loops().len() == 1 {
+        let loop_membership = &membership.containing_loops()[0];
         EndpointRegionMembership::OutsideSupportFamily {
-            face: loop_membership.face,
-            loop_handle: loop_membership.loop_handle,
-            half_edge: loop_membership.half_edge,
+            face: loop_membership.face(),
+            loop_handle: loop_membership.loop_handle(),
+            half_edge: loop_membership.half_edge(),
         }
     } else {
         EndpointRegionMembership::Ambiguous {
-            containing_loop_count: membership.containing_loops.len(),
+            containing_loop_count: membership.containing_loops().len(),
         }
     }
 }
