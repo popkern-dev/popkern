@@ -52,7 +52,7 @@ impl CandidateSetSnapshot {
     pub(super) fn enumerate(region_graph: &RegionGraph) -> Self {
         let mut candidates = Vec::new();
         for pair in region_graph.trim_endpoint_pairs() {
-            match (&pair.start_membership, &pair.end_membership) {
+            match (pair.start_membership(), pair.end_membership()) {
                 (
                     EndpointRegionMembership::SameSupportLoop {
                         loop_handle: start_loop,
@@ -64,7 +64,7 @@ impl CandidateSetSnapshot {
                     },
                 ) if start_loop == end_loop => {
                     candidates.push(RegionOperationCandidate {
-                        fillet_index: pair.fillet_index,
+                        fillet_index: pair.fillet_index(),
                         kind: RegionOperationKind::SplitFaceWithEdge,
                         endpoints: RegionCandidateEndpoints::from_pair(pair),
                         status: CandidateStatus::Accepted,
@@ -72,7 +72,7 @@ impl CandidateSetSnapshot {
                 }
                 (EndpointRegionMembership::Unknown, _) | (_, EndpointRegionMembership::Unknown) => {
                     candidates.push(RegionOperationCandidate {
-                        fillet_index: pair.fillet_index,
+                        fillet_index: pair.fillet_index(),
                         kind: RegionOperationKind::SplitFaceWithEdge,
                         endpoints: RegionCandidateEndpoints::from_pair(pair),
                         status: CandidateStatus::Rejected {
@@ -83,7 +83,7 @@ impl CandidateSetSnapshot {
                 (EndpointRegionMembership::Ambiguous { .. }, _)
                 | (_, EndpointRegionMembership::Ambiguous { .. }) => {
                     candidates.push(RegionOperationCandidate {
-                        fillet_index: pair.fillet_index,
+                        fillet_index: pair.fillet_index(),
                         kind: RegionOperationKind::SplitFaceWithEdge,
                         endpoints: RegionCandidateEndpoints::from_pair(pair),
                         status: CandidateStatus::Rejected {
@@ -93,7 +93,7 @@ impl CandidateSetSnapshot {
                 }
                 _ => {
                     candidates.push(RegionOperationCandidate {
-                        fillet_index: pair.fillet_index,
+                        fillet_index: pair.fillet_index(),
                         kind: RegionOperationKind::SplitFaceWithEdge,
                         endpoints: RegionCandidateEndpoints::from_pair(pair),
                         status: CandidateStatus::Rejected {
@@ -101,13 +101,13 @@ impl CandidateSetSnapshot {
                         },
                     });
                     candidates.push(RegionOperationCandidate {
-                        fillet_index: pair.fillet_index,
+                        fillet_index: pair.fillet_index(),
                         kind: RegionOperationKind::BridgeSupportRegion,
                         endpoints: RegionCandidateEndpoints::from_pair(pair),
                         status: CandidateStatus::Accepted,
                     });
                     candidates.push(RegionOperationCandidate {
-                        fillet_index: pair.fillet_index,
+                        fillet_index: pair.fillet_index(),
                         kind: RegionOperationKind::MergeAdjacentSupportRegion,
                         endpoints: RegionCandidateEndpoints::from_pair(pair),
                         status: CandidateStatus::Accepted,
@@ -245,12 +245,12 @@ impl BridgeLoopMembership {
 impl RegionCandidateEndpoints {
     fn from_pair(pair: &RegionTrimEndpointPair) -> Self {
         Self {
-            cylinder_face: pair.cylinder_face,
-            support_face: pair.support_face,
-            start: pair.start,
-            end: pair.end,
-            start_membership: pair.start_membership.clone(),
-            end_membership: pair.end_membership.clone(),
+            cylinder_face: pair.cylinder_face(),
+            support_face: pair.support_face(),
+            start: pair.start(),
+            end: pair.end(),
+            start_membership: pair.start_membership().clone(),
+            end_membership: pair.end_membership().clone(),
         }
     }
 

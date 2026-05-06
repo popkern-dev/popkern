@@ -12,28 +12,28 @@ pub(super) struct SideSupportRegionFacts {
 
 #[derive(Clone, Debug)]
 pub(super) struct SideSupportFamilyFacts {
-    pub(super) support_face: FaceHandle,
-    pub(super) loops: Vec<SideSupportLoopFacts>,
+    support_face: FaceHandle,
+    loops: Vec<SideSupportLoopFacts>,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct SideSupportLoopFacts {
-    pub(super) face: FaceHandle,
-    pub(super) loop_handle: LoopHandle,
-    pub(super) kind: LoopKind,
-    pub(super) boundary_half_edges: Vec<HalfEdgeHandle>,
-    pub(super) boundary_vertices: Vec<VertexHandle>,
+    face: FaceHandle,
+    loop_handle: LoopHandle,
+    kind: LoopKind,
+    boundary_half_edges: Vec<HalfEdgeHandle>,
+    boundary_vertices: Vec<VertexHandle>,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct SideSupportTrimEndpointFacts {
-    pub(super) fillet_index: usize,
-    pub(super) cylinder_face: FaceHandle,
-    pub(super) support_face: FaceHandle,
-    pub(super) start: VertexHandle,
-    pub(super) end: VertexHandle,
-    pub(super) start_membership: EndpointRegionMembership,
-    pub(super) end_membership: EndpointRegionMembership,
+    fillet_index: usize,
+    cylinder_face: FaceHandle,
+    support_face: FaceHandle,
+    start: VertexHandle,
+    end: VertexHandle,
+    start_membership: EndpointRegionMembership,
+    end_membership: EndpointRegionMembership,
 }
 
 #[derive(Clone, Debug)]
@@ -129,6 +129,10 @@ impl SideSupportRegionFacts {
 }
 
 impl SideSupportFamilyFacts {
+    pub(super) fn loops(&self) -> &[SideSupportLoopFacts] {
+        &self.loops
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
             "support={:?} loops=[{}]",
@@ -143,6 +147,26 @@ impl SideSupportFamilyFacts {
 }
 
 impl SideSupportLoopFacts {
+    pub(super) fn face(&self) -> FaceHandle {
+        self.face
+    }
+
+    pub(super) fn loop_handle(&self) -> LoopHandle {
+        self.loop_handle
+    }
+
+    pub(super) fn kind(&self) -> LoopKind {
+        self.kind
+    }
+
+    pub(super) fn boundary_half_edges(&self) -> &[HalfEdgeHandle] {
+        &self.boundary_half_edges
+    }
+
+    pub(super) fn boundary_vertices(&self) -> &[VertexHandle] {
+        &self.boundary_vertices
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
             "{:?}/{:?}/{:?} vertices={:?}",
@@ -152,6 +176,34 @@ impl SideSupportLoopFacts {
 }
 
 impl SideSupportTrimEndpointFacts {
+    pub(super) fn fillet_index(&self) -> usize {
+        self.fillet_index
+    }
+
+    pub(super) fn cylinder_face(&self) -> FaceHandle {
+        self.cylinder_face
+    }
+
+    pub(super) fn support_face(&self) -> FaceHandle {
+        self.support_face
+    }
+
+    pub(super) fn start(&self) -> VertexHandle {
+        self.start
+    }
+
+    pub(super) fn end(&self) -> VertexHandle {
+        self.end
+    }
+
+    pub(super) fn start_membership(&self) -> &EndpointRegionMembership {
+        &self.start_membership
+    }
+
+    pub(super) fn end_membership(&self) -> &EndpointRegionMembership {
+        &self.end_membership
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
             "FilletEnd[{}] cylinder={:?} support={:?} {:?}->{:?} start={} end={}",
