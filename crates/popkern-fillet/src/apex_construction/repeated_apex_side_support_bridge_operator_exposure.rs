@@ -12,7 +12,7 @@ pub(in crate::apex_construction) fn expose_aggregate_bridge_boundaries(
     let mut retired_faces = BTreeSet::<FaceHandle>::new();
     for region in primitive.regions() {
         for plan in region.boundary_exposure().retire_faces() {
-            retired_faces.insert(plan.face);
+            retired_faces.insert(plan.face());
         }
     }
     if !retired_faces.is_empty()
@@ -48,7 +48,7 @@ pub(in crate::apex_construction) fn expose_bridge_boundaries(
                 .boundary_exposure()
                 .retire_faces()
                 .iter()
-                .map(|plan| plan.face)
+                .map(|plan| plan.face())
                 .collect::<Vec<_>>();
             if !retire_faces.is_empty()
                 && let Err(err) = candidate.retire_faces_to_boundary(&retire_faces)
@@ -56,36 +56,36 @@ pub(in crate::apex_construction) fn expose_bridge_boundaries(
                 errors.push(format!("whole face retire rejected: {err}"));
             }
             for partial_face in region.boundary_exposure().partial_faces() {
-                for pair in &partial_face.self_owned_protected_pairs {
-                    let edge = candidate.half_edges[pair.half_edge].edge;
+                for pair in partial_face.self_owned_protected_pairs() {
+                    let edge = candidate.half_edges[pair.half_edge()].edge;
                     if !candidate.boundary_edges.contains(&edge)
                         && let Err(err) =
-                            candidate.expose_same_loop_edge_as_boundary(pair.half_edge)
+                            candidate.expose_same_loop_edge_as_boundary(pair.half_edge())
                     {
                         errors.push(format!(
                             "partial face {:?} self-owned pair exposure rejected: {err}",
-                            partial_face.face
+                            partial_face.face()
                         ));
                     }
                 }
                 if partial_face.is_fully_self_owned_pair_exposure() {
                     continue;
                 }
-                let Some(fragment) = &partial_face.fragment_retire else {
+                let Some(fragment) = partial_face.fragment_retire() else {
                     errors.push(format!(
                         "partial face {:?} has no contiguous fragment-retire interval",
-                        partial_face.face
+                        partial_face.face()
                     ));
                     continue;
                 };
                 if let Err(err) = candidate.retire_face_boundary_fragment(
-                    partial_face.face,
-                    fragment.first_half_edge,
-                    fragment.after_last_half_edge,
+                    partial_face.face(),
+                    fragment.first_half_edge(),
+                    fragment.after_last_half_edge(),
                 ) {
                     errors.push(format!(
                         "partial face {:?} fragment retire rejected: {err}",
-                        partial_face.face
+                        partial_face.face()
                     ));
                 }
             }
@@ -102,7 +102,7 @@ pub(in crate::apex_construction) fn expose_bridge_boundaries(
                 .boundary_exposure()
                 .retire_faces()
                 .iter()
-                .map(|plan| plan.face)
+                .map(|plan| plan.face())
                 .collect::<Vec<_>>();
             candidate
                 .retire_faces_to_boundary(&retire_faces)
@@ -120,11 +120,12 @@ fn expose_self_owned_pairs_once(
     let mut exposed_self_owned_edges = BTreeSet::<EdgeHandle>::new();
     for region in primitive.regions() {
         for partial_face in region.boundary_exposure().partial_faces() {
-            for pair in &partial_face.self_owned_protected_pairs {
-                let Some(data) = candidate.half_edges.get(pair.half_edge) else {
+            for pair in partial_face.self_owned_protected_pairs() {
+                let Some(data) = candidate.half_edges.get(pair.half_edge()) else {
                     errors.push(format!(
                         "partial face {:?} self-owned pair exposure has stale half-edge {:?}",
-                        partial_face.face, pair.half_edge
+                        partial_face.face(),
+                        pair.half_edge()
                     ));
                     continue;
                 };
@@ -134,10 +135,10 @@ fn expose_self_owned_pairs_once(
                 {
                     continue;
                 }
-                if let Err(err) = candidate.expose_same_loop_edge_as_boundary(pair.half_edge) {
+                if let Err(err) = candidate.expose_same_loop_edge_as_boundary(pair.half_edge()) {
                     errors.push(format!(
                         "partial face {:?} self-owned pair exposure rejected: {err}",
-                        partial_face.face
+                        partial_face.face()
                     ));
                 }
             }
@@ -155,23 +156,23 @@ fn expose_planned_partial_fragments(
             if partial_face.is_fully_self_owned_pair_exposure() {
                 continue;
             }
-            let Some(fragment) = &partial_face.fragment_retire else {
+            let Some(fragment) = partial_face.fragment_retire() else {
                 errors.push(format!(
                     "partial face {:?} has no contiguous fragment-retire interval",
-                    partial_face.face
+                    partial_face.face()
                 ));
                 continue;
             };
-            let Some(first) = candidate.half_edges.get(fragment.first_half_edge) else {
+            let Some(first) = candidate.half_edges.get(fragment.first_half_edge()) else {
                 continue;
             };
             if candidate.boundary_edges.contains(&first.edge) {
                 continue;
             }
             if let Err(err) = candidate.retire_face_boundary_fragment(
-                partial_face.face,
-                fragment.first_half_edge,
-                fragment.after_last_half_edge,
+                partial_face.face(),
+                fragment.first_half_edge(),
+                fragment.after_last_half_edge(),
             ) {
                 let message = err.to_string();
                 if message.contains("already contains a boundary edge")
@@ -181,7 +182,7 @@ fn expose_planned_partial_fragments(
                 }
                 errors.push(format!(
                     "partial face {:?} fragment retire rejected: {message}",
-                    partial_face.face
+                    partial_face.face()
                 ));
             }
         }
@@ -195,13 +196,13 @@ fn complete_remaining_owned_bridge_sides(
 ) {
     for region in primitive.regions() {
         for blocker in region.boundary_exposure().blockers() {
-            let Some(source) = candidate.half_edges.get(blocker.source_half_edge) else {
+            let Some(source) = candidate.half_edges.get(blocker.source_half_edge()) else {
                 continue;
             };
             if candidate.boundary_edges.contains(&source.edge) {
                 continue;
             }
-            let Some(blocking) = candidate.half_edges.get(blocker.blocking_half_edge) else {
+            let Some(blocking) = candidate.half_edges.get(blocker.blocking_half_edge()) else {
                 continue;
             };
             let blocking_face = candidate
@@ -214,7 +215,7 @@ fn complete_remaining_owned_bridge_sides(
             };
             if let Err(err) = candidate.retire_face_boundary_fragment(
                 blocking_face,
-                blocker.blocking_half_edge,
+                blocker.blocking_half_edge(),
                 after_last,
             ) {
                 let message = err.to_string();
@@ -226,7 +227,8 @@ fn complete_remaining_owned_bridge_sides(
                 }
                 errors.push(format!(
                     "remaining bridge side {:?} blocked by {:?} rejected: {message}",
-                    blocker.source_half_edge, blocker.blocking_half_edge
+                    blocker.source_half_edge(),
+                    blocker.blocking_half_edge()
                 ));
             }
         }

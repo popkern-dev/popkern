@@ -26,39 +26,39 @@ pub(super) struct FaceFamilyBridgeBoundaryExposurePlan {
 
 #[derive(Clone, Debug)]
 pub(super) struct BridgeBoundaryOwnershipBlocker {
-    pub(super) source_half_edge: HalfEdgeHandle,
-    pub(super) edge: EdgeHandle,
-    pub(super) source_face: FaceHandle,
-    pub(super) blocking_half_edge: HalfEdgeHandle,
-    pub(super) blocking_face: FaceHandle,
+    source_half_edge: HalfEdgeHandle,
+    edge: EdgeHandle,
+    source_face: FaceHandle,
+    blocking_half_edge: HalfEdgeHandle,
+    blocking_face: FaceHandle,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct BridgeBoundaryRetireFacePlan {
-    pub(super) face: FaceHandle,
-    pub(super) half_edges: Vec<HalfEdgeHandle>,
+    face: FaceHandle,
+    half_edges: Vec<HalfEdgeHandle>,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct BridgeBoundaryPartialFacePlan {
-    pub(super) face: FaceHandle,
+    face: FaceHandle,
     blocked_half_edges: Vec<HalfEdgeHandle>,
     face_half_edges: Vec<HalfEdgeHandle>,
-    pub(super) fragment_retire: Option<BridgeBoundaryFragmentRetirePlan>,
-    pub(super) self_owned_protected_pairs: Vec<BridgeBoundarySelfOwnedPairPlan>,
+    fragment_retire: Option<BridgeBoundaryFragmentRetirePlan>,
+    self_owned_protected_pairs: Vec<BridgeBoundarySelfOwnedPairPlan>,
     fragment_retire_refusal: Option<BridgeBoundaryFragmentRetireRefusal>,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct BridgeBoundaryFragmentRetirePlan {
-    pub(super) first_half_edge: HalfEdgeHandle,
-    pub(super) after_last_half_edge: HalfEdgeHandle,
+    first_half_edge: HalfEdgeHandle,
+    after_last_half_edge: HalfEdgeHandle,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct BridgeBoundarySelfOwnedPairPlan {
-    pub(super) half_edge: HalfEdgeHandle,
-    pub(super) twin: HalfEdgeHandle,
+    half_edge: HalfEdgeHandle,
+    twin: HalfEdgeHandle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -190,6 +190,14 @@ impl FaceFamilyBridgeBoundaryExposurePlan {
 }
 
 impl BridgeBoundaryOwnershipBlocker {
+    pub(super) fn source_half_edge(&self) -> HalfEdgeHandle {
+        self.source_half_edge
+    }
+
+    pub(super) fn blocking_half_edge(&self) -> HalfEdgeHandle {
+        self.blocking_half_edge
+    }
+
     fn build(brep: &BRep, source_half_edge: HalfEdgeHandle) -> Option<Self> {
         let source = brep.half_edges.get(source_half_edge)?;
         let blocking_half_edge = source.twin;
@@ -204,11 +212,45 @@ impl BridgeBoundaryOwnershipBlocker {
     }
 }
 
+impl BridgeBoundaryRetireFacePlan {
+    pub(super) fn face(&self) -> FaceHandle {
+        self.face
+    }
+}
+
 impl BridgeBoundaryPartialFacePlan {
+    pub(super) fn face(&self) -> FaceHandle {
+        self.face
+    }
+
+    pub(super) fn fragment_retire(&self) -> Option<&BridgeBoundaryFragmentRetirePlan> {
+        self.fragment_retire.as_ref()
+    }
+
+    pub(super) fn self_owned_protected_pairs(&self) -> &[BridgeBoundarySelfOwnedPairPlan] {
+        &self.self_owned_protected_pairs
+    }
+
     pub(super) fn is_fully_self_owned_pair_exposure(&self) -> bool {
         self.fragment_retire.is_none()
             && !self.self_owned_protected_pairs.is_empty()
             && self.blocked_half_edges.len() == self.self_owned_protected_pairs.len() * 2
+    }
+}
+
+impl BridgeBoundaryFragmentRetirePlan {
+    pub(super) fn first_half_edge(&self) -> HalfEdgeHandle {
+        self.first_half_edge
+    }
+
+    pub(super) fn after_last_half_edge(&self) -> HalfEdgeHandle {
+        self.after_last_half_edge
+    }
+}
+
+impl BridgeBoundarySelfOwnedPairPlan {
+    pub(super) fn half_edge(&self) -> HalfEdgeHandle {
+        self.half_edge
     }
 }
 
