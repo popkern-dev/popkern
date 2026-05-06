@@ -67,8 +67,8 @@ pub(super) struct BridgeSupportRegionPreconditions {
 
 #[derive(Clone, Debug)]
 pub(super) struct SideSupportRegionRefusal {
-    pub(super) stage: PlannerStage,
-    pub(super) reason: SideSupportRegionRefusalReason,
+    stage: PlannerStage,
+    reason: SideSupportRegionRefusalReason,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -205,8 +205,8 @@ impl SideSupportRegionPlanSelection {
             SideSupportRegionPlanSelection::Blocked(_, refusal)
             | SideSupportRegionPlanSelection::Refused(refusal) => {
                 SideSupportRegionExecutionReadiness::Blocked {
-                    planner_stage: refusal.stage,
-                    planner_reason: refusal.reason,
+                    planner_stage: refusal.stage(),
+                    planner_reason: refusal.reason(),
                 }
             }
         }
@@ -436,6 +436,14 @@ impl BridgeSupportRegionPreconditions {
 }
 
 impl SideSupportRegionRefusal {
+    pub(super) fn stage(&self) -> PlannerStage {
+        self.stage
+    }
+
+    pub(super) fn reason(&self) -> SideSupportRegionRefusalReason {
+        self.reason
+    }
+
     fn diagnostic_label(&self) -> String {
         format!("refusal stage={:?} reason={:?}", self.stage, self.reason)
     }

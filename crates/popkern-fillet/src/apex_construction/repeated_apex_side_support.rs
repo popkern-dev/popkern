@@ -158,7 +158,7 @@ mod tests {
     use super::super::repeated_apex_region_candidates::{CandidateStatus, RegionOperationKind};
     use super::super::repeated_apex_side_support_bridge::FaceFamilyBridgePrimitiveDerivation;
     use super::super::repeated_apex_side_support_plan::{
-        SideSupportRegionPlanSelection, SideSupportRegionRefusal, SideSupportRegionRefusalReason,
+        SideSupportRegionPlanSelection, SideSupportRegionRefusalReason,
     };
     use super::super::repeated_apex_trim_subcomplex::{
         TrimRewriteSubcomplexBuilder, TrimRewriteSubcomplexPlan,
@@ -264,17 +264,13 @@ mod tests {
             candidate.kind == RegionOperationKind::MergeAdjacentSupportRegion
                 && matches!(candidate.status, CandidateStatus::Accepted)
         }));
-        assert!(matches!(
-            snapshot.selection,
-            SideSupportRegionPlanSelection::Blocked(
-                _,
-                SideSupportRegionRefusal {
-                    reason:
-                        SideSupportRegionRefusalReason::MissingValidatedFaceFamilyBridgePrimitive,
-                    ..
-                }
-            )
-        ));
+        match &snapshot.selection {
+            SideSupportRegionPlanSelection::Blocked(_, refusal) => assert_eq!(
+                refusal.reason(),
+                SideSupportRegionRefusalReason::MissingValidatedFaceFamilyBridgePrimitive
+            ),
+            selection => panic!("expected blocked bridge selection, got {selection:?}"),
+        }
     }
 
     #[test]
@@ -406,13 +402,13 @@ mod tests {
         assert!(labels.contains("UnsupportedBridgeTrimCount"));
         assert!(!labels.contains("MissingValidatedFaceFamilyBridgePrimitive"));
         assert_eq!(snapshot.candidates.len(), 3);
-        assert!(matches!(
-            snapshot.selection,
-            SideSupportRegionPlanSelection::Refused(SideSupportRegionRefusal {
-                reason: SideSupportRegionRefusalReason::UnsupportedBridgeTrimCount,
-                ..
-            })
-        ));
+        match &snapshot.selection {
+            SideSupportRegionPlanSelection::Refused(refusal) => assert_eq!(
+                refusal.reason(),
+                SideSupportRegionRefusalReason::UnsupportedBridgeTrimCount
+            ),
+            selection => panic!("expected refused bridge selection, got {selection:?}"),
+        }
     }
 
     fn trim_plan(
