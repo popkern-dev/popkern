@@ -108,12 +108,12 @@ impl BridgeSupportRegionPlan {
         &self,
         brep: &BRep,
     ) -> Result<(), SideSupportRegionLivePreconditionFailure> {
-        if !brep.faces.contains_key(self.support_face) {
+        if !brep.faces.contains_key(self.support_face()) {
             return Err(SideSupportRegionLivePreconditionFailure::MissingFace(
-                self.support_face,
+                self.support_face(),
             ));
         }
-        for trim in &self.trims {
+        for trim in self.trims() {
             trim.validate_live_operands(brep)?;
         }
         Ok(())

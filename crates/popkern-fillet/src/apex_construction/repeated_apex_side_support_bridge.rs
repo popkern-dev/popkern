@@ -193,21 +193,21 @@ impl FaceFamilyBridgePrimitivePlan {
 
 impl FaceFamilyBridgeRegionDerivation {
     fn build(region: &BridgeSupportRegionPlan, brep: &BRep) -> Self {
-        let Some([first, second]) = two_bridge_trims(&region.trims) else {
+        let Some([first, second]) = two_bridge_trims(region.trims()) else {
             return Self::refused(
-                region.support_face,
+                region.support_face(),
                 FaceFamilyBridgeOperandGap::UnsupportedTrimCount,
             );
         };
         if first.support_loop != second.support_loop {
             return Self::refused(
-                region.support_face,
+                region.support_face(),
                 FaceFamilyBridgeOperandGap::MixedSupportLoops,
             );
         }
         if first.outside_face != second.outside_face || first.outside_loop != second.outside_loop {
             return Self::refused(
-                region.support_face,
+                region.support_face(),
                 FaceFamilyBridgeOperandGap::MixedOutsideLoops,
             );
         }
@@ -218,13 +218,13 @@ impl FaceFamilyBridgeRegionDerivation {
             second.support_half_edge,
         ) else {
             return Self::refused(
-                region.support_face,
+                region.support_face(),
                 FaceFamilyBridgeOperandGap::MissingSupportPath,
             );
         };
         if !support_paths.are_complementary() {
             return Self::refused(
-                region.support_face,
+                region.support_face(),
                 FaceFamilyBridgeOperandGap::NonComplementarySupportIntervals,
             );
         }
@@ -235,19 +235,19 @@ impl FaceFamilyBridgeRegionDerivation {
             second.outside_half_edge,
         ) else {
             return Self::refused(
-                region.support_face,
+                region.support_face(),
                 FaceFamilyBridgeOperandGap::MissingOutsidePath,
             );
         };
         if !outside_paths.are_complementary() {
             return Self::refused(
-                region.support_face,
+                region.support_face(),
                 FaceFamilyBridgeOperandGap::NonComplementaryOutsideIntervals,
             );
         }
         if loops_share_edges(brep, first.support_loop, first.outside_loop) {
             return Self::refused(
-                region.support_face,
+                region.support_face(),
                 FaceFamilyBridgeOperandGap::SharedBridgeOperandEdges,
             );
         }
@@ -268,7 +268,7 @@ impl FaceFamilyBridgeRegionDerivation {
             + boundary_exposure.self_owned_exposure_count();
         let expected_faces = boundary_cycles.len();
         let primitive = FaceFamilyBridgeRegionPrimitivePlan {
-            support_face: region.support_face,
+            support_face: region.support_face(),
             support_loop: first.support_loop,
             outside_face: first.outside_face,
             outside_loop: first.outside_loop,
@@ -283,7 +283,7 @@ impl FaceFamilyBridgeRegionDerivation {
             expected_loops: expected_faces,
         };
         Self {
-            support_face: region.support_face,
+            support_face: region.support_face(),
             primitive: Some(primitive),
             reason: None,
         }

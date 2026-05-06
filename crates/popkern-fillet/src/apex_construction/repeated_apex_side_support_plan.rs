@@ -30,8 +30,8 @@ pub(super) enum PlannedTopologyOperation {
 
 #[derive(Clone, Debug)]
 pub(super) struct BridgeSupportRegionPlan {
-    pub(super) support_face: FaceHandle,
-    pub(super) trims: Vec<BridgeSupportTrimPlan>,
+    support_face: FaceHandle,
+    trims: Vec<BridgeSupportTrimPlan>,
     expected_delta: ExpectedTopologyDelta,
     preconditions: BridgeSupportRegionPreconditions,
 }
@@ -332,6 +332,14 @@ impl BridgeSupportRegionPlan {
             self.expected_delta.diagnostic_label(),
             self.preconditions.diagnostic_label()
         )
+    }
+
+    pub(super) fn support_face(&self) -> FaceHandle {
+        self.support_face
+    }
+
+    pub(super) fn trims(&self) -> &[BridgeSupportTrimPlan] {
+        &self.trims
     }
 }
 

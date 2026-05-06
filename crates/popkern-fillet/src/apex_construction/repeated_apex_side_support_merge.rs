@@ -148,15 +148,15 @@ impl SupportRegionMergePrimitiveDerivation {
 
 impl SupportRegionMergeRegionDerivation {
     fn build(region: &BridgeSupportRegionPlan, brep: &BRep) -> Self {
-        if region.trims.len() != 2 {
+        if region.trims().len() != 2 {
             return Self::refused(
-                region.support_face,
+                region.support_face(),
                 SupportRegionMergeRefusal::UnsupportedTrimCount,
             );
         }
-        let Some(outside_face) = single_outside_face(&region.trims) else {
+        let Some(outside_face) = single_outside_face(region.trims()) else {
             return Self::refused(
-                region.support_face,
+                region.support_face(),
                 SupportRegionMergeRefusal::MixedOutsideFaces,
             );
         };
@@ -164,20 +164,20 @@ impl SupportRegionMergeRegionDerivation {
         let shared_half_edge = match shared_half_edges.as_slice() {
             [] => {
                 return Self::refused(
-                    region.support_face,
+                    region.support_face(),
                     SupportRegionMergeRefusal::NoSharedSupportOutsideEdge,
                 );
             }
             [shared] => *shared,
             _ => {
                 return Self::refused(
-                    region.support_face,
+                    region.support_face(),
                     SupportRegionMergeRefusal::MultipleSharedSupportOutsideEdges,
                 );
             }
         };
         let split_requests = region
-            .trims
+            .trims()
             .iter()
             .map(|trim| FaceMergeSplitRequest {
                 start: trim.start,
@@ -190,7 +190,7 @@ impl SupportRegionMergeRegionDerivation {
                 Ok(result) => result,
                 Err(err) => {
                     return Self::refused(
-                        region.support_face,
+                        region.support_face(),
                         SupportRegionMergeRefusal::CoreMergeRefused(err.to_string()),
                     );
                 }
@@ -198,9 +198,9 @@ impl SupportRegionMergeRegionDerivation {
         let continuation =
             SupportRegionMergeContinuationPlan::derive(&candidate, region, &topology_result);
         Self {
-            support_face: region.support_face,
+            support_face: region.support_face(),
             primitive: Some(SupportRegionMergePrimitivePlan {
-                support_face: region.support_face,
+                support_face: region.support_face(),
                 outside_face,
                 shared_half_edge,
                 continuation: Some(continuation),
@@ -297,7 +297,7 @@ impl SupportRegionMergeContinuationPlan {
         let retained_face = topology_result.merge.retained_face;
         let retained_loop = applied.faces[retained_face].outer_loop;
         let mut trims = Vec::new();
-        for (trim, split) in region.trims.iter().zip(&topology_result.splits) {
+        for (trim, split) in region.trims().iter().zip(&topology_result.splits) {
             trims.push(PostMergeSideTrimPlan {
                 fillet_index: trim.fillet_index,
                 cylinder_face: trim.cylinder_face,
@@ -427,12 +427,12 @@ fn single_outside_face(trims: &[BridgeSupportTrimPlan]) -> Option<FaceHandle> {
 }
 
 fn shared_support_half_edges(region: &BridgeSupportRegionPlan, brep: &BRep) -> Vec<HalfEdgeHandle> {
-    let Some(first_trim) = region.trims.first() else {
+    let Some(first_trim) = region.trims().first() else {
         return Vec::new();
     };
     let support_edges = loop_edges(brep, first_trim.support_half_edge);
     let mut shared = Vec::new();
-    for trim in &region.trims {
+    for trim in region.trims() {
         for (edge, _) in loop_edges(brep, trim.outside_half_edge) {
             if let Some(support_half_edge) = support_edges.get(&edge) {
                 shared.push(*support_half_edge);
