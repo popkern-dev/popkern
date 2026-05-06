@@ -3,7 +3,13 @@ use crate::geometry::curve::CurveEval;
 use crate::geometry::intersection::surface_surface::SurfaceSurfaceIntersection;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::topology::{BRep, FaceHandle, LoopHandle};
+use self_intersection_trim_trace::{
+    TrimOverlapTraceSample, trace_trim_overlap_point, trace_trim_overlap_sample,
+};
 use std::f64::consts::TAU;
+
+#[path = "self_intersection_trim_trace.rs"]
+mod self_intersection_trim_trace;
 
 impl BRep {
     pub(super) fn intersection_overlaps_face_trims(
@@ -373,68 +379,6 @@ fn surface_uses_iterative_projection(surface: &SurfaceGeometry) -> bool {
         surface,
         SurfaceGeometry::Nurbs(_) | SurfaceGeometry::Gregory(_)
     )
-}
-
-struct TrimOverlapTraceSample<'a> {
-    face: FaceHandle,
-    surface: &'a SurfaceGeometry,
-    trim_contains: Option<TrimContainment>,
-    uv: UvPoint,
-}
-
-fn trace_trim_overlap_sample(a: TrimOverlapTraceSample<'_>, b: TrimOverlapTraceSample<'_>) {
-    if std::env::var_os("POPKERN_SELF_INTERSECTION_TRACE").is_none() {
-        return;
-    }
-    eprintln!(
-        "[self-intersection trim] {:?}/{} uv=({:.6},{:.6}) inside={:?} \
-         {:?}/{} uv=({:.6},{:.6}) inside={:?}",
-        a.face,
-        surface_kind(a.surface),
-        a.uv.u,
-        a.uv.v,
-        a.trim_contains,
-        b.face,
-        surface_kind(b.surface),
-        b.uv.u,
-        b.uv.v,
-        b.trim_contains,
-    );
-}
-
-fn trace_trim_overlap_point(
-    face_a: FaceHandle,
-    surface_a: &SurfaceGeometry,
-    trim_a_contains: Option<TrimContainment>,
-    face_b: FaceHandle,
-    surface_b: &SurfaceGeometry,
-    trim_b_contains: Option<TrimContainment>,
-    point: &Point3,
-) {
-    if std::env::var_os("POPKERN_SELF_INTERSECTION_TRACE").is_none() {
-        return;
-    }
-    eprintln!(
-        "[self-intersection trim] {face_a:?}/{} inside={trim_a_contains:?} \
-         {face_b:?}/{} inside={trim_b_contains:?} point=({:.6},{:.6},{:.6})",
-        surface_kind(surface_a),
-        surface_kind(surface_b),
-        point.x,
-        point.y,
-        point.z,
-    );
-}
-
-fn surface_kind(surface: &SurfaceGeometry) -> &'static str {
-    match surface {
-        SurfaceGeometry::Plane { .. } => "Plane",
-        SurfaceGeometry::Cylinder { .. } => "Cylinder",
-        SurfaceGeometry::Cone { .. } => "Cone",
-        SurfaceGeometry::Sphere { .. } => "Sphere",
-        SurfaceGeometry::Torus { .. } => "Torus",
-        SurfaceGeometry::Nurbs(_) => "Nurbs",
-        SurfaceGeometry::Gregory(_) => "Gregory",
-    }
 }
 
 fn unwrap_uv_for_query(uv: UvPoint, query: UvPoint, periodic_u: bool) -> UvPoint {
