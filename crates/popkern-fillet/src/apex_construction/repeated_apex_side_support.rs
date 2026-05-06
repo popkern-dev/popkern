@@ -2,6 +2,7 @@
 
 use popkern_core::topology::BRep;
 
+use super::error::ApexBuildError;
 use super::repeated_apex_region_candidates::CandidateSetSnapshot;
 use super::repeated_apex_region_graph::RegionGraph;
 use super::repeated_apex_side_support_bridge::FaceFamilyBridgePrimitiveDerivation;
@@ -20,6 +21,13 @@ pub(super) struct SideSupportRegionDiagnosticSnapshot {
     candidates: CandidateSetSnapshot,
     selection: SideSupportRegionPlanSelection,
     execution: SideSupportRegionExecutionReport,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SideSupportRegionContinuationFailure {
+    StaleKnowledgeGraph,
+    BridgeTopologyOperator { reason: String },
+    MergeTopologyAndGeometry { reason: String },
 }
 
 impl SideSupportRegionDiagnosticSnapshot {
@@ -44,9 +52,12 @@ impl SideSupportRegionDiagnosticSnapshot {
         self.knowledge.validate_fresh(brep)
     }
 
-    pub(super) fn apply_executable_continuation(&self, brep: &mut BRep) -> Result<bool, String> {
+    fn apply_executable_continuation(
+        &self,
+        brep: &mut BRep,
+    ) -> Result<bool, SideSupportRegionContinuationFailure> {
         if !self.validate_fresh(brep) {
-            return Err("side-support knowledge graph is stale".to_string());
+            return Err(SideSupportRegionContinuationFailure::StaleKnowledgeGraph);
         }
         let bridge_primitive = FaceFamilyBridgePrimitiveDerivation::build(&self.selection, brep);
         let topology_report = bridge_primitive.topology_operator_report(brep);
@@ -54,7 +65,9 @@ impl SideSupportRegionDiagnosticSnapshot {
             let rollback = brep.clone();
             if let Err(err) = bridge_primitive.apply_topology_operator(brep) {
                 *brep = rollback;
-                return Err(err);
+                return Err(
+                    SideSupportRegionContinuationFailure::BridgeTopologyOperator { reason: err },
+                );
             }
             return Ok(true);
         }
@@ -65,7 +78,9 @@ impl SideSupportRegionDiagnosticSnapshot {
         let rollback = brep.clone();
         if let Err(err) = merge_primitive.apply_topology_and_geometry(brep) {
             *brep = rollback;
-            return Err(err);
+            return Err(
+                SideSupportRegionContinuationFailure::MergeTopologyAndGeometry { reason: err },
+            );
         }
         Ok(true)
     }
@@ -80,6 +95,39 @@ impl SideSupportRegionDiagnosticSnapshot {
             self.selection.diagnostic_label(),
             self.execution.diagnostic_label()
         )
+    }
+}
+
+pub(super) fn apply_exact_authorable_side_support_continuation(
+    brep: &mut BRep,
+    subcomplex_plan: &TrimRewriteSubcomplexPlan,
+) -> Result<bool, ApexBuildError> {
+    let diagnostics = SideSupportRegionDiagnosticSnapshot::build_read_only(brep, subcomplex_plan);
+    diagnostics
+        .apply_executable_continuation(brep)
+        .map_err(|failure| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition target-cylinder trim rewrite could not apply \
+                 executable side-support continuation: {}. Side-support diagnostics: {}",
+                failure.diagnostic_label(),
+                diagnostics.diagnostic_label()
+            ),
+        })
+}
+
+impl SideSupportRegionContinuationFailure {
+    pub(super) fn diagnostic_label(&self) -> String {
+        match self {
+            SideSupportRegionContinuationFailure::StaleKnowledgeGraph => {
+                "stale-knowledge-graph".to_string()
+            }
+            SideSupportRegionContinuationFailure::BridgeTopologyOperator { reason } => {
+                format!("bridge-topology-operator-failed reason={reason}")
+            }
+            SideSupportRegionContinuationFailure::MergeTopologyAndGeometry { reason } => {
+                format!("merge-topology-and-geometry-failed reason={reason}")
+            }
+        }
     }
 }
 
@@ -98,7 +146,7 @@ mod tests {
         SideSupportRegionPlanSelection, SideSupportRegionRefusal, SideSupportRegionRefusalReason,
     };
     use super::super::repeated_apex_trim_subcomplex::{
-        TopologyCountDelta, TrimRewriteEdgePlan, TrimRewriteSubcomplexPlan,
+        TrimRewriteSubcomplexBuilder, TrimRewriteSubcomplexPlan,
     };
     use super::*;
 
@@ -109,13 +157,15 @@ mod tests {
         let support_face = faces[0];
         let cylinder_face = faces[1];
         let support_vertices = outer_loop_vertices(&brep, support_face);
-        let plan = trim_plan(vec![TrimRewriteEdgePlan::new_generator_trim(
-            0,
-            cylinder_face,
-            support_face,
-            support_vertices[0],
-            support_vertices[1],
-        )]);
+        let plan = trim_plan(|plan| {
+            plan.push_new_generator_trim(
+                0,
+                cylinder_face,
+                support_face,
+                support_vertices[0],
+                support_vertices[1],
+            );
+        });
 
         let snapshot = SideSupportRegionDiagnosticSnapshot::build_read_only(&brep, &plan);
 
@@ -134,6 +184,38 @@ mod tests {
             snapshot
                 .diagnostic_label()
                 .contains("total_delta=dV=0 dE=1 dF=1 dL=1")
+        );
+    }
+
+    #[test]
+    fn executable_continuation_refuses_stale_knowledge_graph() {
+        let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
+        let faces = brep.faces.keys().collect::<Vec<_>>();
+        let support_face = faces[0];
+        let cylinder_face = faces[1];
+        let support_vertices = outer_loop_vertices(&brep, support_face);
+        let plan = trim_plan(|plan| {
+            plan.push_new_generator_trim(
+                0,
+                cylinder_face,
+                support_face,
+                support_vertices[0],
+                support_vertices[1],
+            );
+        });
+        let snapshot = SideSupportRegionDiagnosticSnapshot::build_read_only(&brep, &plan);
+
+        let mut stale_brep = brep.clone();
+        stale_brep.vertices.insert(Vertex {
+            position: Point3::new(10.0, 10.0, 10.0),
+            outgoing: Default::default(),
+            name: None,
+            tolerance: None,
+        });
+
+        assert_eq!(
+            snapshot.apply_executable_continuation(&mut stale_brep),
+            Err(SideSupportRegionContinuationFailure::StaleKnowledgeGraph)
         );
     }
 
@@ -216,22 +298,22 @@ mod tests {
         let outside_face = faces[1];
         let support_vertices = outer_loop_vertices(&brep, support_face);
         let outside_vertices = outer_loop_vertices(&brep, outside_face);
-        let plan = trim_plan(vec![
-            TrimRewriteEdgePlan::new_generator_trim(
+        let plan = trim_plan(|plan| {
+            plan.push_new_generator_trim(
                 0,
                 outside_face,
                 support_face,
                 support_vertices[0],
                 outside_vertices[0],
-            ),
-            TrimRewriteEdgePlan::new_generator_trim(
+            );
+            plan.push_new_generator_trim(
                 1,
                 outside_face,
                 support_face,
                 outside_vertices[2],
                 support_vertices[2],
-            ),
-        ]);
+            );
+        });
 
         let snapshot = SideSupportRegionDiagnosticSnapshot::build_read_only(&brep, &plan);
 
@@ -273,13 +355,15 @@ mod tests {
             .into_iter()
             .find(|vertex| !support_vertices.contains(vertex))
             .expect("fixture has a cap vertex outside support loop");
-        let plan = trim_plan(vec![TrimRewriteEdgePlan::new_generator_trim(
-            0,
-            cylinder_face,
-            support_face,
-            support_vertices[0],
-            outside_vertex,
-        )]);
+        let plan = trim_plan(|plan| {
+            plan.push_new_generator_trim(
+                0,
+                cylinder_face,
+                support_face,
+                support_vertices[0],
+                outside_vertex,
+            );
+        });
 
         let snapshot = SideSupportRegionDiagnosticSnapshot::build_read_only(&brep, &plan);
 
@@ -296,8 +380,12 @@ mod tests {
         ));
     }
 
-    fn trim_plan(edge_plans: Vec<TrimRewriteEdgePlan>) -> TrimRewriteSubcomplexPlan {
-        TrimRewriteSubcomplexPlan::from_edge_plans(edge_plans, TopologyCountDelta::zero())
+    fn trim_plan(
+        build: impl FnOnce(&mut TrimRewriteSubcomplexBuilder),
+    ) -> TrimRewriteSubcomplexPlan {
+        let mut builder = TrimRewriteSubcomplexBuilder::new();
+        build(&mut builder);
+        builder.finish()
     }
 
     fn shared_edge_bridge_fixture(clear_surfaces: bool) -> (BRep, TrimRewriteSubcomplexPlan) {
@@ -323,29 +411,23 @@ mod tests {
         );
         let outside_start = outside_vertices[0];
         let outside_end = outside_vertices[1];
-        let plan = trim_plan(vec![
-            TrimRewriteEdgePlan::existing_seam(
-                0,
-                cylinder_face,
-                cap_face,
-                outside_start,
-                outside_end,
-            ),
-            TrimRewriteEdgePlan::new_generator_trim(
+        let plan = trim_plan(|plan| {
+            plan.push_existing_seam(0, cylinder_face, cap_face, outside_start, outside_end);
+            plan.push_new_generator_trim(
                 0,
                 cylinder_face,
                 support_face,
                 support_vertices[0],
                 outside_start,
-            ),
-            TrimRewriteEdgePlan::new_generator_trim(
+            );
+            plan.push_new_generator_trim(
                 1,
                 cylinder_face,
                 support_face,
                 outside_end,
                 support_vertices[1],
-            ),
-        ]);
+            );
+        });
         (brep, plan)
     }
 

@@ -174,7 +174,7 @@ pub(super) struct TrimRewriteSubcomplexBuilder {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct TrimRewriteEdgePlan {
+struct TrimRewriteEdgePlan {
     fillet_index: usize,
     owner_pair: TrimOwnerPair,
     construction: TrimEdgeConstruction,
@@ -321,7 +321,7 @@ impl TrimRewriteSubcomplexBuilder {
 }
 
 impl TrimRewriteSubcomplexPlan {
-    pub(super) fn from_edge_plans(
+    fn from_edge_plans(
         edge_plans: Vec<TrimRewriteEdgePlan>,
         expected_edge_only_delta: TopologyCountDelta,
     ) -> Self {
@@ -332,7 +332,7 @@ impl TrimRewriteSubcomplexPlan {
         }
     }
 
-    pub(super) fn edge_plans(&self) -> &[TrimRewriteEdgePlan] {
+    fn edge_plans(&self) -> &[TrimRewriteEdgePlan] {
         &self.edge_plans
     }
 
@@ -448,7 +448,7 @@ impl TrimRewriteSupportGroup {
 }
 
 impl TrimRewriteEdgePlan {
-    pub(super) fn existing_seam(
+    fn existing_seam(
         fillet_index: usize,
         cylinder_face: FaceHandle,
         cap_face: FaceHandle,
@@ -467,7 +467,7 @@ impl TrimRewriteEdgePlan {
         }
     }
 
-    pub(super) fn new_generator_trim(
+    fn new_generator_trim(
         fillet_index: usize,
         cylinder_face: FaceHandle,
         support_face: FaceHandle,
@@ -486,7 +486,7 @@ impl TrimRewriteEdgePlan {
         }
     }
 
-    pub(super) fn new_support_cylinder_trim(
+    fn new_support_cylinder_trim(
         fillet_index: usize,
         cylinder_face: FaceHandle,
         support_face: FaceHandle,
@@ -505,31 +505,31 @@ impl TrimRewriteEdgePlan {
         }
     }
 
-    pub(super) fn fillet_index(&self) -> usize {
+    fn fillet_index(&self) -> usize {
         self.fillet_index
     }
 
-    pub(super) fn start(&self) -> VertexHandle {
+    fn start(&self) -> VertexHandle {
         self.start
     }
 
-    pub(super) fn end(&self) -> VertexHandle {
+    fn end(&self) -> VertexHandle {
         self.end
     }
 
-    pub(super) fn owner_faces(&self) -> [FaceHandle; 2] {
+    fn owner_faces(&self) -> [FaceHandle; 2] {
         self.owner_pair.owner_faces()
     }
 
-    pub(super) fn cylinder_face(&self) -> FaceHandle {
+    fn cylinder_face(&self) -> FaceHandle {
         self.owner_pair.cylinder_face()
     }
 
-    pub(super) fn support_face(&self) -> Option<FaceHandle> {
+    fn support_face(&self) -> Option<FaceHandle> {
         self.owner_pair.support_face()
     }
 
-    pub(super) fn is_new_generator_trim(&self) -> bool {
+    fn is_new_generator_trim(&self) -> bool {
         self.construction == TrimEdgeConstruction::NewExactGeneratorTrim
     }
 

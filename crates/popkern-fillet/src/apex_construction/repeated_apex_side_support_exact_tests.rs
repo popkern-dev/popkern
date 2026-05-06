@@ -5,9 +5,11 @@ use popkern_core::topology::{
     BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, Vertex, VertexHandle,
 };
 
-use super::repeated_apex_side_support::SideSupportRegionDiagnosticSnapshot;
+use super::repeated_apex_side_support::{
+    SideSupportRegionDiagnosticSnapshot, apply_exact_authorable_side_support_continuation,
+};
 use super::repeated_apex_trim_subcomplex::{
-    TopologyCountDelta, TrimRewriteEdgePlan, TrimRewriteSubcomplexPlan,
+    TrimRewriteSubcomplexBuilder, TrimRewriteSubcomplexPlan,
 };
 
 #[test]
@@ -27,8 +29,7 @@ fn exact_authorable_merge_continuation_applies_curves_and_pcurves() {
     assert!(labels.contains("exact_curve_authoring=ready"), "{labels}");
     assert!(labels.contains("execution ready_for_executor"), "{labels}");
 
-    let applied = snapshot
-        .apply_executable_continuation(&mut brep)
+    let applied = apply_exact_authorable_side_support_continuation(&mut brep, &plan)
         .expect("exact-authorable side-support merge applies");
 
     assert!(applied);
@@ -81,33 +82,29 @@ fn exact_authorable_shared_edge_merge_fixture() -> (BRep, TrimRewriteSubcomplexP
 
     assign_exact_merge_surfaces(&mut brep, support_face, outside_face, cylinder_face);
 
-    let edge_plans = vec![
-        TrimRewriteEdgePlan::existing_seam(
-            0,
-            cylinder_face,
-            outside_face,
-            outside_vertices[0],
-            outside_vertices[1],
-        ),
-        TrimRewriteEdgePlan::new_generator_trim(
-            0,
-            cylinder_face,
-            support_face,
-            support_start,
-            outside_vertices[0],
-        ),
-        TrimRewriteEdgePlan::new_generator_trim(
-            1,
-            cylinder_face,
-            support_face,
-            outside_vertices[1],
-            support_end,
-        ),
-    ];
-    (
-        brep,
-        TrimRewriteSubcomplexPlan::from_edge_plans(edge_plans, TopologyCountDelta::zero()),
-    )
+    let mut plan = TrimRewriteSubcomplexBuilder::new();
+    plan.push_existing_seam(
+        0,
+        cylinder_face,
+        outside_face,
+        outside_vertices[0],
+        outside_vertices[1],
+    );
+    plan.push_new_generator_trim(
+        0,
+        cylinder_face,
+        support_face,
+        support_start,
+        outside_vertices[0],
+    );
+    plan.push_new_generator_trim(
+        1,
+        cylinder_face,
+        support_face,
+        outside_vertices[1],
+        support_end,
+    );
+    (brep, plan.finish())
 }
 
 fn assign_exact_merge_surfaces(

@@ -32,7 +32,9 @@ use super::repeated_apex_partition_topology::{
     insert_boundary_half_edge, insert_face_with_outer_loop, insert_unwired_edge_pair,
     oriented_edge_half_edges_on_face, validate_partition_cap_to_cylinder_seams, wire_existing_loop,
 };
-use super::repeated_apex_side_support::SideSupportRegionDiagnosticSnapshot;
+use super::repeated_apex_side_support::{
+    SideSupportRegionDiagnosticSnapshot, apply_exact_authorable_side_support_continuation,
+};
 use super::repeated_apex_trim_subcomplex::{
     TopologyBalanceRequirement, TopologyCountDelta, TrimRewriteSubcomplexBuilder,
     TrimRewriteSubcomplexPlan, topology_count_summary,
@@ -3875,22 +3877,6 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
             })
         }
     }
-}
-
-fn apply_exact_authorable_side_support_continuation(
-    brep: &mut BRep,
-    subcomplex_plan: &TrimRewriteSubcomplexPlan,
-) -> Result<bool, ApexBuildError> {
-    let diagnostics = SideSupportRegionDiagnosticSnapshot::build_read_only(brep, subcomplex_plan);
-    diagnostics
-        .apply_executable_continuation(brep)
-        .map_err(|reason| ApexBuildError::PlanMismatch {
-            reason: format!(
-                "planned repeated-apex partition target-cylinder trim rewrite could not apply \
-                 executable side-support continuation: {reason}. Side-support diagnostics: {}",
-                diagnostics.diagnostic_label()
-            ),
-        })
 }
 
 fn plan_trim_subcomplex_for_cylinder_rewrite(
