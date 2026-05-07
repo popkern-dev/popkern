@@ -9,6 +9,40 @@ pub(super) struct RepeatedApexPartitionPlan {
     retired_spans: Vec<RetiredApexSpan>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct RepeatedApexPartitionExecutionOptions {
+    pub(super) apply_cylinder_trim_rewrite: bool,
+    pub(super) require_cylinder_trim_rewrite_ready: bool,
+    pub(super) require_cylinder_trim_rebuild_plan: bool,
+    pub(super) adopt_cylinder_fillet_end_endpoints: bool,
+    pub(super) require_shared_cylinder_fillet_end: bool,
+}
+
+impl RepeatedApexPartitionExecutionOptions {
+    pub(super) fn from_environment() -> Self {
+        Self {
+            apply_cylinder_trim_rewrite: std::env::var_os("POPKERN_A2_APPLY_CYLINDER_TRIM_REWRITE")
+                .is_some(),
+            require_cylinder_trim_rewrite_ready: std::env::var_os(
+                "POPKERN_A2_REQUIRE_CYLINDER_TRIM_REWRITE_READY",
+            )
+            .is_some(),
+            require_cylinder_trim_rebuild_plan: std::env::var_os(
+                "POPKERN_A2_REQUIRE_CYLINDER_TRIM_REBUILD_PLAN",
+            )
+            .is_some(),
+            adopt_cylinder_fillet_end_endpoints: std::env::var_os(
+                "POPKERN_A2_ADOPT_CYLINDER_FILLET_END_ENDPOINTS",
+            )
+            .is_some(),
+            require_shared_cylinder_fillet_end: std::env::var_os(
+                "POPKERN_A2_REQUIRE_SHARED_CYLINDER_FILLET_END",
+            )
+            .is_some(),
+        }
+    }
+}
+
 impl RepeatedApexPartitionPlan {
     pub(super) fn build(
         brep: &BRep,
@@ -166,6 +200,7 @@ impl RepeatedApexPartitionPlan {
         apex_vertex_handles: &[VertexHandle],
         fillet_surfaces: &[FilletSurfaceResult],
         n_fillets: usize,
+        execution_options: RepeatedApexPartitionExecutionOptions,
     ) -> Result<(FaceHandle, Vec<EdgeHandle>), ApexBuildError> {
         let mut face_edge_arcs: Vec<Option<FaceEdgeOwnership>> = vec![None; n_fillets];
         let mut base_span: Option<&RetiredApexSpan> = None;
@@ -244,7 +279,7 @@ impl RepeatedApexPartitionPlan {
         validate_partition_ownership_records(brep, &face_edge_arcs, &fillet_end_ownership)?;
         let mut boundary_outcome =
             PartitionBoundaryOutcome::from_current_cap_cycle(cap_cycle.clone());
-        if std::env::var_os("POPKERN_A2_APPLY_CYLINDER_TRIM_REWRITE").is_some() {
+        if execution_options.apply_cylinder_trim_rewrite {
             boundary_outcome = apply_cylinder_trim_rewrites_transactionally(
                 brep,
                 self.cap_face,
@@ -253,16 +288,16 @@ impl RepeatedApexPartitionPlan {
                 &fillet_end_ownership,
             )?;
         }
-        if std::env::var_os("POPKERN_A2_REQUIRE_CYLINDER_TRIM_REWRITE_READY").is_some() {
+        if execution_options.require_cylinder_trim_rewrite_ready {
             validate_cylinder_trim_rewrite_readiness(brep, &fillet_end_ownership)?;
         }
-        if std::env::var_os("POPKERN_A2_REQUIRE_CYLINDER_TRIM_REBUILD_PLAN").is_some() {
+        if execution_options.require_cylinder_trim_rebuild_plan {
             validate_cylinder_trim_rebuild_plans(brep, &fillet_end_ownership)?;
         }
-        if std::env::var_os("POPKERN_A2_ADOPT_CYLINDER_FILLET_END_ENDPOINTS").is_some() {
+        if execution_options.adopt_cylinder_fillet_end_endpoints {
             adopt_fillet_end_endpoints_into_target_cylinders(brep, &fillet_end_ownership)?;
         }
-        if std::env::var_os("POPKERN_A2_REQUIRE_SHARED_CYLINDER_FILLET_END").is_some() {
+        if execution_options.require_shared_cylinder_fillet_end {
             validate_target_cylinder_loop_ownership_ready(brep, &fillet_end_ownership)?;
         }
         wire_existing_loop(

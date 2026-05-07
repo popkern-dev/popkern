@@ -141,7 +141,9 @@ use partition_ownership::{
     FaceEdgeOwnership, FilletEndOwnership, RetiredApexCell, validate_partition_ownership_records,
     validate_target_cylinder_loop_ownership_ready,
 };
-use partition_plan::{RepeatedApexPartitionPlan, RetiredApexSpan};
+use partition_plan::{
+    RepeatedApexPartitionExecutionOptions, RepeatedApexPartitionPlan, RetiredApexSpan,
+};
 use partition_rebuild_diagnostics::{
     adjacent_face_across_half_edge, face_surface_kind, fragment_replacement_authoring_status,
     replacement_run_curve_blocker, replacement_run_exact_curve_kind,
@@ -209,6 +211,13 @@ pub(super) fn try_build_planned_repeated_apex_partition(
     }
 
     partition_plan
-        .apply(brep, plan, apex_vertex_handles, fillet_surfaces, n_fillets)
+        .apply(
+            brep,
+            plan,
+            apex_vertex_handles,
+            fillet_surfaces,
+            n_fillets,
+            RepeatedApexPartitionExecutionOptions::from_environment(),
+        )
         .map(Some)
 }
