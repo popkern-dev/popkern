@@ -577,7 +577,6 @@ fn a2_cube_mixed_cap_outer_per_edge_breakdown() {
     use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
     let _accept = EnvGuard::set("POPKERN_A2_ACCEPT_INCOMPLETE_NATIVE", "1");
-    let _allow_repeated_apex = EnvGuard::set("POPKERN_A2_ALLOW_REPEATED_APEX_LOOP", "1");
     let result = build_under_a2(false, &[0.08, 0.10, 0.12]);
     let cap_set = result
         .corner_patches

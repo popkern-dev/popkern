@@ -49,7 +49,6 @@ pub(super) fn construct_cap_loop_from_preexisting_cross_face_edges(
     preexisting_cross_face_edges: &[EdgeHandle],
     apex_vertex_handles: &[VertexHandle],
     fillet_surfaces: &[FilletSurfaceResult],
-    execution_options: CapLoopConstructionOptions,
 ) -> Result<(FaceHandle, Vec<Option<EdgeHandle>>), ApexBuildError> {
     let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
     let n = plan.cap_kind.n_fillets();
@@ -96,7 +95,6 @@ pub(super) fn construct_cap_loop_from_preexisting_cross_face_edges(
                 k,
                 apex_vertex_handles,
                 fillet_surfaces,
-                execution_options,
             )? {
                 if trace {
                     eprintln!(
@@ -226,7 +224,6 @@ pub(super) fn create_remaining_fillet_end_edges(
             k,
             apex_vertex_handles,
             fillet_surfaces,
-            execution_options,
         )?;
         *fillet_end = Some(created);
     }
@@ -240,7 +237,6 @@ fn try_create_single_fillet_end_edge(
     k: usize,
     apex_vertex_handles: &[VertexHandle],
     fillet_surfaces: &[FilletSurfaceResult],
-    execution_options: CapLoopConstructionOptions,
 ) -> Result<Option<EdgeHandle>, ApexBuildError> {
     let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
     let t_a_k = apex_vertex_handles[2 * k];
@@ -265,7 +261,6 @@ fn try_create_single_fillet_end_edge(
             k,
             apex_vertex_handles,
             fillet_surfaces,
-            execution_options,
         )
         .map(Some);
     }
@@ -279,7 +274,6 @@ fn create_fillet_end_edge_on_face(
     k: usize,
     apex_vertex_handles: &[VertexHandle],
     fillet_surfaces: &[FilletSurfaceResult],
-    execution_options: CapLoopConstructionOptions,
 ) -> Result<EdgeHandle, ApexBuildError> {
     let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
     let t_a_k = apex_vertex_handles[2 * k];
@@ -302,7 +296,6 @@ fn create_fillet_end_edge_on_face(
     let (strip_start, strip_end) = match (forward_contains_v, reverse_contains_v) {
         (true, false) => (he_dest, he_origin),
         (false, _) => (he_origin, he_dest),
-        (true, true) if execution_options.allow_repeated_apex_mef_fallback => (he_origin, he_dest),
         (true, true) => {
             let diagnosis = plan_repeated_apex_loop_normalization(
                 brep,

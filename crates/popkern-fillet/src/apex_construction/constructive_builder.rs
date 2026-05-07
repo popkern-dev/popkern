@@ -235,7 +235,6 @@ fn construct_apex_inner_constructive(
                     &preexisting_cross_face_edges,
                     &apex_vertex_handles,
                     fillet_surfaces,
-                    cap_loop_options,
                 )?;
             check_cancelled(cancel)?;
             let repeated_apex_normalized = create_remaining_fillet_end_edges(
