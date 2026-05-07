@@ -17,6 +17,30 @@ use super::repeated_apex_loop_plan::plan_repeated_apex_loop_normalization;
 use super::repeated_apex_partition::RepeatedApexPartitionExecutionOptions;
 use super::repeated_apex_serial::try_normalize_repeated_apex_loop;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct StageCExecutionOptions {
+    allow_repeated_apex_mef_fallback: bool,
+    repeated_apex_partition: RepeatedApexPartitionExecutionOptions,
+}
+
+impl StageCExecutionOptions {
+    fn from_environment() -> Self {
+        Self {
+            allow_repeated_apex_mef_fallback: std::env::var_os(
+                "POPKERN_A2_ALLOW_REPEATED_APEX_LOOP",
+            )
+            .is_some(),
+            repeated_apex_partition: RepeatedApexPartitionExecutionOptions::new(
+                std::env::var_os("POPKERN_A2_APPLY_CYLINDER_TRIM_REWRITE").is_some(),
+                std::env::var_os("POPKERN_A2_REQUIRE_CYLINDER_TRIM_REWRITE_READY").is_some(),
+                std::env::var_os("POPKERN_A2_REQUIRE_CYLINDER_TRIM_REBUILD_PLAN").is_some(),
+                std::env::var_os("POPKERN_A2_ADOPT_CYLINDER_FILLET_END_ENDPOINTS").is_some(),
+                std::env::var_os("POPKERN_A2_REQUIRE_SHARED_CYLINDER_FILLET_END").is_some(),
+            ),
+        }
+    }
+}
+
 pub(super) fn stage_c_kef_cube_edges_interleaved(
     brep: &mut BRep,
     plan: &ApexPlan,
@@ -25,6 +49,7 @@ pub(super) fn stage_c_kef_cube_edges_interleaved(
     fillet_surfaces: &[FilletSurfaceResult],
 ) -> Result<(FaceHandle, Vec<Option<EdgeHandle>>), ApexBuildError> {
     let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let execution_options = StageCExecutionOptions::from_environment();
     let n = plan.cap_kind.n_fillets();
     let mut fillet_ends = vec![None; n];
 
@@ -67,6 +92,7 @@ pub(super) fn stage_c_kef_cube_edges_interleaved(
                 k,
                 apex_vertex_handles,
                 fillet_surfaces,
+                execution_options,
             )? {
                 if trace {
                     eprintln!(
@@ -154,6 +180,7 @@ pub(super) fn stage_c5_mef_remaining_fillet_ends(
 ) -> Result<bool, ApexBuildError> {
     let n = plan.cap_kind.n_fillets();
     let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let execution_options = StageCExecutionOptions::from_environment();
 
     if trace {
         trace_cap_loop_apex_arcs(brep, *cap_face, plan.apex_vertex, apex_vertex_handles, n);
@@ -167,7 +194,7 @@ pub(super) fn stage_c5_mef_remaining_fillet_ends(
             apex_vertex_handles,
             face_edge_handles,
             fillet_surfaces,
-            repeated_apex_partition_execution_options_from_environment(),
+            execution_options.repeated_apex_partition,
         )?
     {
         *cap_face = normalized_cap_face;
@@ -188,22 +215,12 @@ pub(super) fn stage_c5_mef_remaining_fillet_ends(
             k,
             apex_vertex_handles,
             fillet_surfaces,
+            execution_options,
         )?;
         *fillet_end = Some(created);
     }
 
     Ok(false)
-}
-
-fn repeated_apex_partition_execution_options_from_environment()
--> RepeatedApexPartitionExecutionOptions {
-    RepeatedApexPartitionExecutionOptions::new(
-        std::env::var_os("POPKERN_A2_APPLY_CYLINDER_TRIM_REWRITE").is_some(),
-        std::env::var_os("POPKERN_A2_REQUIRE_CYLINDER_TRIM_REWRITE_READY").is_some(),
-        std::env::var_os("POPKERN_A2_REQUIRE_CYLINDER_TRIM_REBUILD_PLAN").is_some(),
-        std::env::var_os("POPKERN_A2_ADOPT_CYLINDER_FILLET_END_ENDPOINTS").is_some(),
-        std::env::var_os("POPKERN_A2_REQUIRE_SHARED_CYLINDER_FILLET_END").is_some(),
-    )
 }
 
 fn try_stage_c5_mef_single_fillet_end(
@@ -212,6 +229,7 @@ fn try_stage_c5_mef_single_fillet_end(
     k: usize,
     apex_vertex_handles: &[VertexHandle],
     fillet_surfaces: &[FilletSurfaceResult],
+    execution_options: StageCExecutionOptions,
 ) -> Result<Option<EdgeHandle>, ApexBuildError> {
     let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
     let t_a_k = apex_vertex_handles[2 * k];
@@ -229,8 +247,16 @@ fn try_stage_c5_mef_single_fillet_end(
         if forward_contains_v && reverse_contains_v {
             continue;
         }
-        return mef_fillet_end_on_face(brep, plan, face, k, apex_vertex_handles, fillet_surfaces)
-            .map(Some);
+        return mef_fillet_end_on_face(
+            brep,
+            plan,
+            face,
+            k,
+            apex_vertex_handles,
+            fillet_surfaces,
+            execution_options,
+        )
+        .map(Some);
     }
     Ok(None)
 }
@@ -242,6 +268,7 @@ fn mef_fillet_end_on_face(
     k: usize,
     apex_vertex_handles: &[VertexHandle],
     fillet_surfaces: &[FilletSurfaceResult],
+    execution_options: StageCExecutionOptions,
 ) -> Result<EdgeHandle, ApexBuildError> {
     let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
     let t_a_k = apex_vertex_handles[2 * k];
@@ -264,9 +291,7 @@ fn mef_fillet_end_on_face(
     let (strip_start, strip_end) = match (forward_contains_v, reverse_contains_v) {
         (true, false) => (he_dest, he_origin),
         (false, _) => (he_origin, he_dest),
-        (true, true) if std::env::var_os("POPKERN_A2_ALLOW_REPEATED_APEX_LOOP").is_some() => {
-            (he_origin, he_dest)
-        }
+        (true, true) if execution_options.allow_repeated_apex_mef_fallback => (he_origin, he_dest),
         (true, true) => {
             let diagnosis = plan_repeated_apex_loop_normalization(
                 brep,
