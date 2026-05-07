@@ -413,4 +413,30 @@ impl SemanticCylinderTrimSegment {
             | SemanticCylinderTrimSegment::FarSideCylinderTrim { start, end, .. } => (*start, *end),
         }
     }
+
+    pub(super) fn diagnostic_label(&self) -> String {
+        match self {
+            SemanticCylinderTrimSegment::Generator { start, end } => {
+                format!("generator {start:?}->{end:?}")
+            }
+            SemanticCylinderTrimSegment::SharedFilletEnd {
+                edge,
+                cap_half_edge: _,
+                cylinder_half_edge,
+                start,
+                end,
+            } => format!(
+                "shared FilletEnd edge={edge:?} cylinder_he={cylinder_half_edge:?} \
+                 {start:?}->{end:?}"
+            ),
+            SemanticCylinderTrimSegment::FarSideCylinderTrim {
+                start,
+                end,
+                replacement_for,
+            } => format!(
+                "far-side cylinder trim {start:?}->{end:?} replacing {} fragment(s)",
+                replacement_for.len()
+            ),
+        }
+    }
 }
