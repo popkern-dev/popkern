@@ -2,10 +2,21 @@
 
 use super::repeated_apex_partition::RepeatedApexPartitionExecutionOptions;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CapLoopConstructionOptions {
     pub(super) allow_repeated_apex_mef_fallback: bool,
     pub(super) repeated_apex_partition: RepeatedApexPartitionExecutionOptions,
+}
+
+impl Default for CapLoopConstructionOptions {
+    fn default() -> Self {
+        Self {
+            allow_repeated_apex_mef_fallback: false,
+            repeated_apex_partition: RepeatedApexPartitionExecutionOptions::new(
+                true, false, false, false, false,
+            ),
+        }
+    }
 }
 
 impl CapLoopConstructionOptions {
@@ -16,7 +27,7 @@ impl CapLoopConstructionOptions {
             )
             .is_some(),
             repeated_apex_partition: RepeatedApexPartitionExecutionOptions::new(
-                std::env::var_os("POPKERN_A2_APPLY_CYLINDER_TRIM_REWRITE").is_some(),
+                true,
                 std::env::var_os("POPKERN_A2_REQUIRE_CYLINDER_TRIM_REWRITE_READY").is_some(),
                 std::env::var_os("POPKERN_A2_REQUIRE_CYLINDER_TRIM_REBUILD_PLAN").is_some(),
                 std::env::var_os("POPKERN_A2_ADOPT_CYLINDER_FILLET_END_ENDPOINTS").is_some(),
