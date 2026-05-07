@@ -40,6 +40,7 @@ pub(crate) mod constructive_geometry;
 pub(crate) mod constructive_stage_a;
 pub(crate) mod constructive_stage_b;
 pub(crate) mod constructive_stage_c;
+pub(crate) mod constructive_stage_c_options;
 pub(crate) mod constructive_stage_d;
 pub(crate) mod constructive_stage_e;
 pub(crate) mod constructive_topology;

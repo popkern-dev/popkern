@@ -7,6 +7,7 @@ use crate::fillet_surface::FilletSurfaceResult;
 use super::constructive_geometry::{
     assign_fillet_strip_surface, attach_fillet_end_curve_to_edge, planned_fillet_index_for_sector,
 };
+use super::constructive_stage_c_options::StageCExecutionOptions;
 use super::constructive_topology::{
     find_outgoing_half_edge, find_two_origins_on_all_faces, find_two_origins_on_face,
     loop_segment_contains_origin,
@@ -14,32 +15,7 @@ use super::constructive_topology::{
 use super::error::ApexBuildError;
 use super::plan::ApexPlan;
 use super::repeated_apex_loop_plan::plan_repeated_apex_loop_normalization;
-use super::repeated_apex_partition::RepeatedApexPartitionExecutionOptions;
 use super::repeated_apex_serial::try_normalize_repeated_apex_loop;
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct StageCExecutionOptions {
-    allow_repeated_apex_mef_fallback: bool,
-    repeated_apex_partition: RepeatedApexPartitionExecutionOptions,
-}
-
-impl StageCExecutionOptions {
-    fn from_environment() -> Self {
-        Self {
-            allow_repeated_apex_mef_fallback: std::env::var_os(
-                "POPKERN_A2_ALLOW_REPEATED_APEX_LOOP",
-            )
-            .is_some(),
-            repeated_apex_partition: RepeatedApexPartitionExecutionOptions::new(
-                std::env::var_os("POPKERN_A2_APPLY_CYLINDER_TRIM_REWRITE").is_some(),
-                std::env::var_os("POPKERN_A2_REQUIRE_CYLINDER_TRIM_REWRITE_READY").is_some(),
-                std::env::var_os("POPKERN_A2_REQUIRE_CYLINDER_TRIM_REBUILD_PLAN").is_some(),
-                std::env::var_os("POPKERN_A2_ADOPT_CYLINDER_FILLET_END_ENDPOINTS").is_some(),
-                std::env::var_os("POPKERN_A2_REQUIRE_SHARED_CYLINDER_FILLET_END").is_some(),
-            ),
-        }
-    }
-}
 
 pub(super) fn stage_c_kef_cube_edges_interleaved(
     brep: &mut BRep,
