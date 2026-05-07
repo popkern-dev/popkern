@@ -19,7 +19,9 @@ use super::constructive_topology::{
 use super::error::ApexBuildError;
 use super::plan::ApexPlan;
 use super::repeated_apex_loop_plan::plan_repeated_apex_loop_normalization;
-use super::repeated_apex_partition::try_build_planned_repeated_apex_partition;
+use super::repeated_apex_partition::{
+    RepeatedApexPartitionExecutionOptions, try_build_planned_repeated_apex_partition,
+};
 
 pub(super) fn try_normalize_repeated_apex_loop(
     brep: &mut BRep,
@@ -28,6 +30,7 @@ pub(super) fn try_normalize_repeated_apex_loop(
     apex_vertex_handles: &[VertexHandle],
     face_edge_handles: &[EdgeHandle],
     fillet_surfaces: &[FilletSurfaceResult],
+    partition_execution_options: RepeatedApexPartitionExecutionOptions,
 ) -> Result<Option<(FaceHandle, Vec<EdgeHandle>)>, ApexBuildError> {
     let n = plan.cap_kind.n_fillets();
     let Some(normalization_plan) = plan_repeated_apex_loop_normalization(
@@ -52,7 +55,7 @@ pub(super) fn try_normalize_repeated_apex_loop(
         apex_vertex_handles,
         face_edge_handles,
         fillet_surfaces,
-        n,
+        partition_execution_options,
     ) {
         Ok(created) => Ok(Some(created)),
         Err(err) => {
@@ -69,8 +72,9 @@ fn normalize_repeated_apex_loop_in_place(
     apex_vertex_handles: &[VertexHandle],
     face_edge_handles: &[EdgeHandle],
     fillet_surfaces: &[FilletSurfaceResult],
-    n_fillets: usize,
+    partition_execution_options: RepeatedApexPartitionExecutionOptions,
 ) -> Result<(FaceHandle, Vec<EdgeHandle>), ApexBuildError> {
+    let n_fillets = plan.cap_kind.n_fillets();
     let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
     if trace {
         trace_repeated_apex_partition_inputs(
@@ -88,7 +92,7 @@ fn normalize_repeated_apex_loop_in_place(
         apex_vertex_handles,
         face_edge_handles,
         fillet_surfaces,
-        n_fillets,
+        partition_execution_options,
     )? {
         return Ok(partition);
     }

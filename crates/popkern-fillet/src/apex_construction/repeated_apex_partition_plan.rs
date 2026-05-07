@@ -10,7 +10,7 @@ pub(super) struct RepeatedApexPartitionPlan {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct RepeatedApexPartitionExecutionOptions {
+pub(crate) struct RepeatedApexPartitionExecutionOptions {
     pub(super) apply_cylinder_trim_rewrite: bool,
     pub(super) require_cylinder_trim_rewrite_ready: bool,
     pub(super) require_cylinder_trim_rebuild_plan: bool,
@@ -19,7 +19,7 @@ pub(super) struct RepeatedApexPartitionExecutionOptions {
 }
 
 impl RepeatedApexPartitionExecutionOptions {
-    pub(super) fn from_environment() -> Self {
+    pub(crate) fn from_environment() -> Self {
         Self {
             apply_cylinder_trim_rewrite: std::env::var_os("POPKERN_A2_APPLY_CYLINDER_TRIM_REWRITE")
                 .is_some(),

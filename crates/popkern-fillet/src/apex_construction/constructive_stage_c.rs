@@ -14,6 +14,7 @@ use super::constructive_topology::{
 use super::error::ApexBuildError;
 use super::plan::ApexPlan;
 use super::repeated_apex_loop_plan::plan_repeated_apex_loop_normalization;
+use super::repeated_apex_partition::RepeatedApexPartitionExecutionOptions;
 use super::repeated_apex_serial::try_normalize_repeated_apex_loop;
 
 pub(super) fn stage_c_kef_cube_edges_interleaved(
@@ -166,6 +167,7 @@ pub(super) fn stage_c5_mef_remaining_fillet_ends(
             apex_vertex_handles,
             face_edge_handles,
             fillet_surfaces,
+            RepeatedApexPartitionExecutionOptions::from_environment(),
         )?
     {
         *cap_face = normalized_cap_face;

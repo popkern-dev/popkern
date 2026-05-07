@@ -141,9 +141,8 @@ use partition_ownership::{
     FaceEdgeOwnership, FilletEndOwnership, RetiredApexCell, validate_partition_ownership_records,
     validate_target_cylinder_loop_ownership_ready,
 };
-use partition_plan::{
-    RepeatedApexPartitionExecutionOptions, RepeatedApexPartitionPlan, RetiredApexSpan,
-};
+pub(super) use partition_plan::RepeatedApexPartitionExecutionOptions;
+use partition_plan::{RepeatedApexPartitionPlan, RetiredApexSpan};
 use partition_rebuild_diagnostics::{
     adjacent_face_across_half_edge, face_surface_kind, fragment_replacement_authoring_status,
     replacement_run_curve_blocker, replacement_run_exact_curve_kind,
@@ -180,8 +179,9 @@ pub(super) fn try_build_planned_repeated_apex_partition(
     apex_vertex_handles: &[VertexHandle],
     face_edge_handles: &[EdgeHandle],
     fillet_surfaces: &[FilletSurfaceResult],
-    n_fillets: usize,
+    execution_options: RepeatedApexPartitionExecutionOptions,
 ) -> Result<Option<(FaceHandle, Vec<EdgeHandle>)>, ApexBuildError> {
+    let n_fillets = plan.cap_kind.n_fillets();
     let Some(loop_plan) = plan_repeated_apex_loop_normalization(
         brep,
         cap_face,
@@ -217,7 +217,7 @@ pub(super) fn try_build_planned_repeated_apex_partition(
             apex_vertex_handles,
             fillet_surfaces,
             n_fillets,
-            RepeatedApexPartitionExecutionOptions::from_environment(),
+            execution_options,
         )
         .map(Some)
 }
