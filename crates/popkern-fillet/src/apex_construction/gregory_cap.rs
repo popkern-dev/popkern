@@ -14,7 +14,7 @@
 //!    `apply_three_quad_decomposition_to_blend`.
 //!
 //! Plus topological helpers used by `construct_apex_inner` to
-//! identify the cap face after stage 3 and merge any unmerged
+//! identify the cap face after apex teardown and merge any unmerged
 //! corner sub-faces left by the V-spoke kef sequence on Gregory
 //! caps with mixed-host mef sites.
 //!

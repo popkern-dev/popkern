@@ -130,11 +130,11 @@ fn resolve_apex_vertices_finds_existing_within_tolerance() {
         ApexBuildError::PlanMismatch { reason } => reason,
         other => panic!("expected PlanMismatch, got {other:?}"),
     };
-    // Stage 3 (`kef_cross_face_v_edges`) can't merge anything on
+    // Apex teardown (`kef_cross_face_v_edges`) can't merge anything on
     // these synthetic fixtures, so it surfaces "no merge performed".
-    // That error is *evidence* stages 1 + 2 succeeded — the early
+    // That error is evidence apex vertex and edge resolution succeeded; the early
     // diagnostics ("no BRep vertex within", "no face has both")
-    // would fire before reaching stage 3.
+    // would fire before apex teardown.
     assert!(
         reason.contains("kef_cross_face_v_edges")
             || reason.contains("kev_v_bridge")
@@ -221,7 +221,7 @@ fn resolve_apex_edges_fails_when_no_shared_face_for_mef() {
 
     // §28.D update: Sphere's CapVsCyl apex_edges are now SKIPPED
     // (not mef'd), so the original "no shared face for mef"
-    // error path is unreachable for Sphere plans.  Stage 3
+    // error path is unreachable for Sphere plans. Apex teardown
     // (`kef_cross_face_v_edges`) hits the unconnected-orphan
     // condition and fails with a different diagnostic.
     let mut brep = BRep::new(test_tolerance());

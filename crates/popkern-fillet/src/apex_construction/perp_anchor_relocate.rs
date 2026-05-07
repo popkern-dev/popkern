@@ -8,12 +8,12 @@
 //! cap-tangent arc).  These two coordinate systems agree for uniform
 //! radii but diverge for variable radii.
 //!
-//! This pass runs before A2's stage 1 (`resolve_apex_vertices`).
+//! This pass runs before A2 apex vertex resolution (`resolve_apex_vertices`).
 //! For each plan apex_vertex point, it finds the nearest BRep
 //! perp-anchor in V's neighborhood and relocates it (vertex
 //! position + incident edge curve coherence sweep) to the plan
 //! target.  After the pass, A2's `resolve_apex_vertices` snap
-//! finds matching anchors at zero distance, and stage 2's Adopt
+//! finds matching anchors at zero distance, and apex edge resolution's Adopt
 //! path fires for CapVsCyl edges.
 //!
 //! See ADR `docs/decisions/2026-04-30-phase-6c-a2-direct-apex-

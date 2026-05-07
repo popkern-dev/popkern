@@ -34,7 +34,7 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
 ///
 /// `apex_v` is the apex vertex (cube/pyramid corner).  Must
 /// still be a valid BRep vertex at call time (Phase A doesn't
-/// remove V — that happens in stage 3).
+/// remove V; apex teardown owns that operation.
 ///
 /// `planner_targets` is the `apex_vertex` slice from the planner
 /// pre-pass (`plan_apex_targets_pre_phase_a` output).  Each

@@ -1,7 +1,6 @@
 use super::*;
 
-/// Skeleton smoke test: the Open rung must short-circuit cleanly without
-/// touching any unimplemented stage stub. Stages 2+ will add real tests.
+/// Smoke test: the Open rung must short-circuit cleanly without mutating topology.
 #[test]
 fn open_rung_is_a_clean_noop() {
     use crate::apex_construction::plan::plan_apex_resolution;

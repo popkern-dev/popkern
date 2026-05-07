@@ -122,7 +122,7 @@ fn construct_apex_inner(
             ),
         })?;
 
-    // Stage 0 (§28.C): relocate perp-anchors to plan targets before snap.
+    // Perp-anchor relocation (§28.C): move anchors to plan targets before snap.
     if !std::env::var("POPKERN_A2_RELOCATE_DISABLE").is_ok_and(|v| v == "1") {
         super::perp_anchor_relocate::relocate_perp_anchors_to_plan_targets(brep, plan, tolerance)
             .map_err(|reason| ApexBuildError::PlanMismatch {
@@ -131,7 +131,7 @@ fn construct_apex_inner(
     }
     check_cancelled(cancel)?;
 
-    // Stage 1 (A2.2.b) — apex vertex resolution.
+    // Apex vertex resolution (A2.2.b).
     //
     // For each plan apex vertex point, find or create a BRep
     // vertex at that position.  This slice implements the
@@ -144,7 +144,7 @@ fn construct_apex_inner(
 
     // §27 commercial-grade design (Adopt + Create): we no longer
     // run the stitch-and-weld surgery here — that was a symptomatic
-    // fix for the wrong-mef problem.  Stage 2 below now distinguishes
+    // fix for the wrong-mef problem.  Apex edge resolution below distinguishes
     // CapVsCyl (Adopt existing fillet-end arc) from CapVsPlane
     // (Create new chord via mef on V-incident face).  Re-enable the
     // stitch only as a last-resort fallback if both Adopt and
@@ -167,7 +167,7 @@ fn construct_apex_inner(
     }
     check_cancelled(cancel)?;
 
-    // Stage 2 (A2.2.c + A2.2.d) — apex edge resolution.
+    // Apex edge resolution (A2.2.c + A2.2.d).
     //
     // For each plan apex edge (origin_idx, dest_idx, curve, role),
     // find or create a BRep edge between the two resolved
@@ -181,9 +181,9 @@ fn construct_apex_inner(
     let apex_edge_handles = resolve_apex_edges(brep, plan, &apex_vertex_handles, fillet_surfaces)?;
     check_cancelled(cancel)?;
 
-    // §27 Adopt+Create: skip interior vertex capture; stage 3's
+    // §27 Adopt+Create: skip interior vertex capture; apex teardown's
     // V-spoke kef sequence produces a clean 2N-edge cap face when
-    // stage 2 used Adopt for CapVsCyl.  Diagnostic re-enable via
+    // edge resolution used Adopt for CapVsCyl. Diagnostic re-enable via
     // POPKERN_A2_INTERIOR_ELIMINATION=1.
     // Filter Some-edges for downstream consumers that index by edge,
     // not by plan-edge-idx.
@@ -199,7 +199,7 @@ fn construct_apex_inner(
             std::collections::HashSet::new()
         };
 
-    // Stage 3 (A2.2.e) — apex teardown.
+    // Apex teardown (A2.2.e).
     //
     // After A2.2.d's mef sequence each plane face is split into a
     // V-corner sub-face and a remainder.  V still has its
@@ -245,7 +245,7 @@ fn construct_apex_inner(
         }
         let v_pos = brep.vertices.get(v).map(|vv| vv.position);
         eprintln!(
-            "[a2-trace] pre-stage3 V={v:?}@{:?} has {} incident edge(s):",
+            "[a2-trace] pre-apex-teardown V={v:?}@{:?} has {} incident edge(s):",
             v_pos,
             incidences.len()
         );
@@ -283,7 +283,7 @@ fn construct_apex_inner(
     // Robust: find the face whose outer loop contains all 2N
     // apex_edge handles.  This is the actual cap face regardless
     // of which half-side the kef happened to keep.
-    // Stage 3.5 — apex-region interior elimination.  Two strategies:
+    // Apex-region interior elimination. Two strategies:
     // (a) `merge_cap_side_accumulators` (default) — targeted merge
     //     that only kefs edges where one face is a cap-side
     //     accumulator (≥2 apex_edges).  Avoids over-merging into
@@ -293,7 +293,7 @@ fn construct_apex_inner(
     //     re-enable via POPKERN_A2_INTERIOR_ELIMINATION=1.
     if std::env::var_os("POPKERN_A2_TRACE").is_some() {
         eprintln!(
-            "[a2-trace] post-stage3 (kef_cross/kev_v): kef_blend_face={kef_blend_face:?}; \
+            "[a2-trace] post-apex-teardown (kef_cross/kev_v): kef_blend_face={kef_blend_face:?}; \
              {} faces, {} edges",
             brep.faces.len(),
             brep.edges.len()
@@ -405,8 +405,8 @@ fn construct_apex_inner(
         .unwrap_or(kef_blend_face);
 
     // §28.H Session 3.8 — cap-face slit dissolve.  After Session 3+
-    // creates V-corner triangles and stage 3 + merge_cap_side_
-    // accumulators settle the topology, the cap face has many
+    // creates V-corner triangles and apex teardown plus cap-side
+    // accumulator merging settle the topology, the cap face has many
     // "slit" edges (twin half-edge on same loop) where the merge
     // pinched a sub-face into the cap.  Dissolve them to
     // consolidate toward the 2N=6 form K-P expects.
@@ -450,7 +450,7 @@ fn construct_apex_inner(
     }
     check_cancelled(cancel)?;
 
-    // Stage 4 (A2.2.f / A2.4) — cap face surface assignment.
+    // Cap face surface assignment (A2.2.f / A2.4).
     //
     // Sphere caps land natively (A2.2.f).  Gregory caps need 2N
     // sub-patch decomposition (A2.4): bridge into legacy
