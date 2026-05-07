@@ -252,7 +252,9 @@ fn try_constructive_with_legacy_fallthrough(
     tolerance: &Tolerance,
 ) -> Result<crate::apex_construction::construct::ApexBuildResult, String> {
     let snapshot = brep.clone();
-    match construct_apex_constructively(brep, plan, surfaces, tolerance, None) {
+    let execution_options =
+        crate::apex_construction::constructive_builder_options::ConstructiveApexExecutionOptions::from_environment_adapter();
+    match construct_apex_constructively(brep, plan, surfaces, tolerance, None, execution_options) {
         Ok(result) => {
             if matches!(plan.cap_kind, CapKind::Gregory { .. }) {
                 let accept_incomplete =

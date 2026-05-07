@@ -41,6 +41,7 @@ pub(crate) mod construct_result;
 pub(crate) mod construct_surface;
 pub(crate) mod construct_vertices;
 pub(crate) mod constructive_builder;
+pub(crate) mod constructive_builder_options;
 pub(crate) mod constructive_geometry;
 pub(crate) mod constructive_topology;
 pub(crate) mod cylinder_face_coherence;

@@ -30,8 +30,15 @@ fn open_rung_is_a_clean_noop() {
     let pre_e = brep.edges.len();
     let pre_f = brep.faces.len();
 
-    let result = construct_apex_constructively(&mut brep, &plan, &[], &test_tolerance(), None)
-        .expect("Open rung construct succeeds");
+    let result = construct_apex_constructively(
+        &mut brep,
+        &plan,
+        &[],
+        &test_tolerance(),
+        None,
+        Default::default(),
+    )
+    .expect("Open rung construct succeeds");
 
     assert!(result.created_faces.is_empty());
     assert!(result.apex_vertices.is_empty());

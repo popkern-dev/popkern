@@ -55,11 +55,11 @@ use super::cap_loop_construction::{
     RemainingFilletEndConstruction, collect_required_fillet_ends,
     construct_cap_loop_from_preexisting_cross_face_edges, create_remaining_fillet_end_edges,
 };
-use super::cap_loop_construction_options::CapLoopConstructionOptions;
 use super::cap_surface_assignment::{
     assign_gregory_cap_surface, assign_sphere_cap_surface, gregory_sectors_from_handles,
 };
 use super::construct::ApexBuildResult;
+use super::constructive_builder_options::ConstructiveApexExecutionOptions;
 use super::constructive_geometry::cylinder_arc_through_edge_endpoints;
 use super::error::ApexBuildError;
 use super::face_edge_construction::{
@@ -79,9 +79,17 @@ pub fn construct_apex_constructively(
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &Tolerance,
     cancel: Option<&CancellationToken>,
+    execution_options: ConstructiveApexExecutionOptions,
 ) -> Result<ApexBuildResult, ApexBuildError> {
     let snapshot = brep.clone();
-    match construct_apex_inner_constructive(brep, plan, fillet_surfaces, tolerance, cancel) {
+    match construct_apex_inner_constructive(
+        brep,
+        plan,
+        fillet_surfaces,
+        tolerance,
+        cancel,
+        execution_options,
+    ) {
         Ok(result) => {
             if let Err(reason) = validate_constructive_topology_postconditions(brep) {
                 *brep = snapshot;
@@ -117,6 +125,7 @@ fn construct_apex_inner_constructive(
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &Tolerance,
     cancel: Option<&CancellationToken>,
+    execution_options: ConstructiveApexExecutionOptions,
 ) -> Result<ApexBuildResult, ApexBuildError> {
     check_cancelled(cancel)?;
 
@@ -212,7 +221,7 @@ fn construct_apex_inner_constructive(
                 .filter(|(_, h)| h.origin == plan.apex_vertex)
                 .map(|(_, h)| h.edge)
                 .collect();
-            let cap_loop_options = CapLoopConstructionOptions::from_environment();
+            let cap_loop_options = execution_options.cap_loop();
 
             let apex_vertex_handles =
                 author_gregory_apex_vertices(brep, plan, fillet_surfaces, tolerance)?;

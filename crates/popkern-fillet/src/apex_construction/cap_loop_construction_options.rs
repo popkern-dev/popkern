@@ -3,13 +3,13 @@
 use super::repeated_apex_partition::RepeatedApexPartitionExecutionOptions;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct CapLoopConstructionOptions {
+pub(crate) struct CapLoopConstructionOptions {
     pub(super) allow_repeated_apex_mef_fallback: bool,
     pub(super) repeated_apex_partition: RepeatedApexPartitionExecutionOptions,
 }
 
 impl CapLoopConstructionOptions {
-    pub(super) fn from_environment() -> Self {
+    pub(crate) fn from_environment_adapter() -> Self {
         Self {
             allow_repeated_apex_mef_fallback: std::env::var_os(
                 "POPKERN_A2_ALLOW_REPEATED_APEX_LOOP",
