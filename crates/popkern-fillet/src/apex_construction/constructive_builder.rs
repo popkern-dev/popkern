@@ -52,9 +52,10 @@ use super::apex_vertex_authoring::{author_gregory_apex_vertices, author_sphere_a
 use super::apex_vertex_removal::remove_apex_vertex;
 use super::cap_kind::CapKind;
 use super::cap_loop_construction::{
-    collect_required_fillet_ends, construct_cap_loop_from_preexisting_cross_face_edges,
-    create_remaining_fillet_end_edges,
+    RemainingFilletEndConstruction, collect_required_fillet_ends,
+    construct_cap_loop_from_preexisting_cross_face_edges, create_remaining_fillet_end_edges,
 };
+use super::cap_loop_construction_options::CapLoopConstructionOptions;
 use super::cap_surface_assignment::{
     assign_gregory_cap_surface, assign_sphere_cap_surface, gregory_sectors_from_handles,
 };
@@ -211,6 +212,7 @@ fn construct_apex_inner_constructive(
                 .filter(|(_, h)| h.origin == plan.apex_vertex)
                 .map(|(_, h)| h.edge)
                 .collect();
+            let cap_loop_options = CapLoopConstructionOptions::from_environment();
 
             let apex_vertex_handles =
                 author_gregory_apex_vertices(brep, plan, fillet_surfaces, tolerance)?;
@@ -224,16 +226,20 @@ fn construct_apex_inner_constructive(
                     &preexisting_cross_face_edges,
                     &apex_vertex_handles,
                     fillet_surfaces,
+                    cap_loop_options,
                 )?;
             check_cancelled(cancel)?;
             let repeated_apex_normalized = create_remaining_fillet_end_edges(
                 brep,
                 plan,
                 &mut cap_face,
-                &apex_vertex_handles,
-                &face_edge_handles,
-                fillet_surfaces,
-                &mut fillet_end_handles,
+                RemainingFilletEndConstruction::new(
+                    &apex_vertex_handles,
+                    &face_edge_handles,
+                    fillet_surfaces,
+                    &mut fillet_end_handles,
+                    cap_loop_options,
+                ),
             )?;
             let fillet_end_handles = collect_required_fillet_ends(fillet_end_handles)?;
             check_cancelled(cancel)?;

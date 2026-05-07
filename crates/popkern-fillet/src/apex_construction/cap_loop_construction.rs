@@ -17,15 +17,41 @@ use super::plan::ApexPlan;
 use super::repeated_apex_loop_plan::plan_repeated_apex_loop_normalization;
 use super::repeated_apex_serial::try_normalize_repeated_apex_loop;
 
+pub(super) struct RemainingFilletEndConstruction<'a> {
+    apex_vertex_handles: &'a [VertexHandle],
+    face_edge_handles: &'a [EdgeHandle],
+    fillet_surfaces: &'a [FilletSurfaceResult],
+    fillet_ends: &'a mut [Option<EdgeHandle>],
+    execution_options: CapLoopConstructionOptions,
+}
+
+impl<'a> RemainingFilletEndConstruction<'a> {
+    pub(super) fn new(
+        apex_vertex_handles: &'a [VertexHandle],
+        face_edge_handles: &'a [EdgeHandle],
+        fillet_surfaces: &'a [FilletSurfaceResult],
+        fillet_ends: &'a mut [Option<EdgeHandle>],
+        execution_options: CapLoopConstructionOptions,
+    ) -> Self {
+        Self {
+            apex_vertex_handles,
+            face_edge_handles,
+            fillet_surfaces,
+            fillet_ends,
+            execution_options,
+        }
+    }
+}
+
 pub(super) fn construct_cap_loop_from_preexisting_cross_face_edges(
     brep: &mut BRep,
     plan: &ApexPlan,
     preexisting_cross_face_edges: &[EdgeHandle],
     apex_vertex_handles: &[VertexHandle],
     fillet_surfaces: &[FilletSurfaceResult],
+    execution_options: CapLoopConstructionOptions,
 ) -> Result<(FaceHandle, Vec<Option<EdgeHandle>>), ApexBuildError> {
     let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
-    let execution_options = CapLoopConstructionOptions::from_environment();
     let n = plan.cap_kind.n_fillets();
     let mut fillet_ends = vec![None; n];
 
@@ -155,14 +181,17 @@ pub(super) fn create_remaining_fillet_end_edges(
     brep: &mut BRep,
     plan: &ApexPlan,
     cap_face: &mut FaceHandle,
-    apex_vertex_handles: &[VertexHandle],
-    face_edge_handles: &[EdgeHandle],
-    fillet_surfaces: &[FilletSurfaceResult],
-    fillet_ends: &mut [Option<EdgeHandle>],
+    construction: RemainingFilletEndConstruction<'_>,
 ) -> Result<bool, ApexBuildError> {
+    let RemainingFilletEndConstruction {
+        apex_vertex_handles,
+        face_edge_handles,
+        fillet_surfaces,
+        fillet_ends,
+        execution_options,
+    } = construction;
     let n = plan.cap_kind.n_fillets();
     let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
-    let execution_options = CapLoopConstructionOptions::from_environment();
 
     if trace {
         trace_cap_loop_apex_arcs(brep, *cap_face, plan.apex_vertex, apex_vertex_handles, n);
