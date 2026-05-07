@@ -167,7 +167,7 @@ pub(super) fn stage_c5_mef_remaining_fillet_ends(
             apex_vertex_handles,
             face_edge_handles,
             fillet_surfaces,
-            RepeatedApexPartitionExecutionOptions::from_environment(),
+            repeated_apex_partition_execution_options_from_environment(),
         )?
     {
         *cap_face = normalized_cap_face;
@@ -193,6 +193,17 @@ pub(super) fn stage_c5_mef_remaining_fillet_ends(
     }
 
     Ok(false)
+}
+
+fn repeated_apex_partition_execution_options_from_environment()
+-> RepeatedApexPartitionExecutionOptions {
+    RepeatedApexPartitionExecutionOptions::new(
+        std::env::var_os("POPKERN_A2_APPLY_CYLINDER_TRIM_REWRITE").is_some(),
+        std::env::var_os("POPKERN_A2_REQUIRE_CYLINDER_TRIM_REWRITE_READY").is_some(),
+        std::env::var_os("POPKERN_A2_REQUIRE_CYLINDER_TRIM_REBUILD_PLAN").is_some(),
+        std::env::var_os("POPKERN_A2_ADOPT_CYLINDER_FILLET_END_ENDPOINTS").is_some(),
+        std::env::var_os("POPKERN_A2_REQUIRE_SHARED_CYLINDER_FILLET_END").is_some(),
+    )
 }
 
 fn try_stage_c5_mef_single_fillet_end(

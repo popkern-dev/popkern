@@ -19,26 +19,19 @@ pub(crate) struct RepeatedApexPartitionExecutionOptions {
 }
 
 impl RepeatedApexPartitionExecutionOptions {
-    pub(crate) fn from_environment() -> Self {
+    pub(crate) fn new(
+        apply_cylinder_trim_rewrite: bool,
+        require_cylinder_trim_rewrite_ready: bool,
+        require_cylinder_trim_rebuild_plan: bool,
+        adopt_cylinder_fillet_end_endpoints: bool,
+        require_shared_cylinder_fillet_end: bool,
+    ) -> Self {
         Self {
-            apply_cylinder_trim_rewrite: std::env::var_os("POPKERN_A2_APPLY_CYLINDER_TRIM_REWRITE")
-                .is_some(),
-            require_cylinder_trim_rewrite_ready: std::env::var_os(
-                "POPKERN_A2_REQUIRE_CYLINDER_TRIM_REWRITE_READY",
-            )
-            .is_some(),
-            require_cylinder_trim_rebuild_plan: std::env::var_os(
-                "POPKERN_A2_REQUIRE_CYLINDER_TRIM_REBUILD_PLAN",
-            )
-            .is_some(),
-            adopt_cylinder_fillet_end_endpoints: std::env::var_os(
-                "POPKERN_A2_ADOPT_CYLINDER_FILLET_END_ENDPOINTS",
-            )
-            .is_some(),
-            require_shared_cylinder_fillet_end: std::env::var_os(
-                "POPKERN_A2_REQUIRE_SHARED_CYLINDER_FILLET_END",
-            )
-            .is_some(),
+            apply_cylinder_trim_rewrite,
+            require_cylinder_trim_rewrite_ready,
+            require_cylinder_trim_rebuild_plan,
+            adopt_cylinder_fillet_end_endpoints,
+            require_shared_cylinder_fillet_end,
         }
     }
 }
