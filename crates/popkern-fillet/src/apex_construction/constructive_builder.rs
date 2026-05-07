@@ -9,10 +9,10 @@
 //!
 //! Per ADR §3 + §14.8:
 //!
-//! - **Stage A** — author T-vertices. Sphere uniform: tight-match existing
+//! - **Apex vertex authoring** — author T-vertices. Sphere uniform: tight-match existing
 //!   trim-trim corners. Gregory variable: `mev`-spurs from V into host plane
 //!   sub-face interiors at the planner-given T-positions (§14.8).
-//! - **Stage B** — `mef` FaceEdge bridges across V-incident host plane
+//! - **Face-edge construction** — `mef` FaceEdge bridges across V-incident host plane
 //!   sub-faces (Gregory only).
 //! - **Cap-loop construction** — `kef` V's preexisting cross-face edge
 //!   segments; merges V-corner fragments into one cap face. The last
@@ -22,7 +22,7 @@
 //! - **Apex removal** — `kev V` via the residual same-face bridge plus
 //!   `dissolve_same_loop_bridge` for any MEV spurs that became same-face
 //!   bridges after cap-loop construction.
-//! - **Stage E** — assign cap surface (Sphere directly; Gregory delegates
+//! - **Cap surface assignment** — assign cap surface (Sphere directly; Gregory delegates
 //!   to legacy `assemble_gregory_cap_surface`).
 //!
 //! # Atomicity
@@ -33,14 +33,9 @@
 //!
 //! # Status
 //!
-//! Stage 1 (this file) ships the skeleton only. Stages 2–6 fill in the
-//! per-stage logic. Until Stage 2 lands, all stage stubs return
-//! `unimplemented!()` and `try_a2_apex_construction` keeps routing to legacy
-//! `construct_apex`. Dispatch flips to `construct_apex_constructively` for
-//! Sphere in Stage 2 and Gregory in Stage 5.
-
-// Some stage stubs (Gregory) remain unimplemented through Stage 4; allow
-// dead_code on them. Stage 2 (this file) wires the Sphere call sites.
+//! The builder now routes supported cap plans through these semantic topology
+//! operations. Unsupported plans still decline through structured errors and
+//! snapshot rollback.
 #![allow(dead_code)]
 
 use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
@@ -53,26 +48,28 @@ use crate::cancellation::CancellationToken;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo};
 
+use super::apex_vertex_authoring::{author_gregory_apex_vertices, author_sphere_apex_vertices};
+use super::apex_vertex_removal::remove_apex_vertex;
 use super::cap_kind::CapKind;
 use super::cap_loop_construction::{
     collect_required_fillet_ends, construct_cap_loop_from_preexisting_cross_face_edges,
     create_remaining_fillet_end_edges,
 };
+use super::cap_surface_assignment::{
+    assign_gregory_cap_surface, assign_sphere_cap_surface, gregory_sectors_from_handles,
+};
 use super::construct::ApexBuildResult;
 use super::constructive_geometry::cylinder_arc_through_edge_endpoints;
-use super::constructive_stage_a::{stage_a_gregory, stage_a_sphere};
-use super::constructive_stage_b::{stage_b_kef_v_incident, stage_b_mef_face_edges};
-use super::constructive_stage_d::stage_d_remove_v;
-use super::constructive_stage_e::{
-    gregory_sectors_from_handles, stage_e_assign_gregory, stage_e_assign_sphere,
-};
 use super::error::ApexBuildError;
+use super::face_edge_construction::{
+    construct_sphere_cap_face_from_v_incident_edges, create_gregory_face_edges,
+};
 use super::plan::ApexPlan;
 use super::target_topology::TargetCapFace;
 
-/// Apply an [`ApexPlan`] to the BRep using the constructive Stage A → E
+/// Apply an [`ApexPlan`] to the BRep using the constructive topology
 /// algorithm. Drop-in replacement for [`super::construct::construct_apex_with_surfaces`]
-/// once Stages 2–6 are complete.
+/// for supported apex plans.
 ///
 /// Snapshot-rollback wrapper around [`construct_apex_inner_constructive`].
 pub fn construct_apex_constructively(
@@ -146,10 +143,6 @@ fn construct_apex_inner_constructive(
             ),
         })?;
 
-    // Per-stage dispatch. Each stage is a private fn that mutates `brep`
-    // and contributes to the running build state. Stages 2–6 fill these
-    // in; Stage 1 just lays out the call sequence.
-
     match &plan.cap_kind {
         CapKind::Sphere {
             center: cap_center,
@@ -164,15 +157,16 @@ fn construct_apex_inner_constructive(
                 brep, plan, tolerance,
             )
             .map_err(|reason| ApexBuildError::PlanMismatch {
-                reason: format!("sphere Stage A anchor adoption: {reason}"),
+                reason: format!("sphere apex anchor adoption: {reason}"),
             })?;
-            let apex_vertex_handles = stage_a_sphere(brep, plan, fillet_surfaces, tolerance)?;
+            let apex_vertex_handles =
+                author_sphere_apex_vertices(brep, plan, fillet_surfaces, tolerance)?;
             check_cancelled(cancel)?;
-            let cap_face = stage_b_kef_v_incident(brep, plan)?;
+            let cap_face = construct_sphere_cap_face_from_v_incident_edges(brep, plan)?;
             check_cancelled(cancel)?;
-            stage_d_remove_v(brep, plan, cap_face, false)?;
+            remove_apex_vertex(brep, plan, cap_face, false)?;
             check_cancelled(cancel)?;
-            stage_e_assign_sphere(brep, cap_face, *cap_center, *cap_radius)?;
+            assign_sphere_cap_surface(brep, cap_face, *cap_center, *cap_radius)?;
             let corner_patches = vec![CornerPatchInfo {
                 vertex: plan.apex_vertex,
                 n_sides: plan.cap_kind.n_fillets(),
@@ -204,9 +198,8 @@ fn construct_apex_inner_constructive(
             // cross-face edges -> MEF FilletEnds on the cap face -> remove V
             // -> delegate to the Gregory surface assembler.
             //
-            // Full constructive Gregory pipeline (Stages 3–5). On any
-            // stage error the snapshot wrapper rolls back and the caller
-            // falls through to legacy A2.
+            // On any construction error the snapshot wrapper rolls back and
+            // the caller falls through to legacy A2.
 
             // Capture V's original cross-face incidences before anchor MEVs.
             // Cap-loop construction removes only these edges; anchor spurs
@@ -219,9 +212,10 @@ fn construct_apex_inner_constructive(
                 .map(|(_, h)| h.edge)
                 .collect();
 
-            let apex_vertex_handles = stage_a_gregory(brep, plan, fillet_surfaces, tolerance)?;
+            let apex_vertex_handles =
+                author_gregory_apex_vertices(brep, plan, fillet_surfaces, tolerance)?;
             check_cancelled(cancel)?;
-            let face_edge_handles = stage_b_mef_face_edges(brep, plan, &apex_vertex_handles)?;
+            let face_edge_handles = create_gregory_face_edges(brep, plan, &apex_vertex_handles)?;
             check_cancelled(cancel)?;
             let (mut cap_face, mut fillet_end_handles) =
                 construct_cap_loop_from_preexisting_cross_face_edges(
@@ -243,9 +237,9 @@ fn construct_apex_inner_constructive(
             )?;
             let fillet_end_handles = collect_required_fillet_ends(fillet_end_handles)?;
             check_cancelled(cancel)?;
-            stage_d_remove_v(brep, plan, cap_face, repeated_apex_normalized)?;
+            remove_apex_vertex(brep, plan, cap_face, repeated_apex_normalized)?;
             check_cancelled(cancel)?;
-            let corner_patches = stage_e_assign_gregory(
+            let corner_patches = assign_gregory_cap_surface(
                 brep,
                 cap_face,
                 plan,

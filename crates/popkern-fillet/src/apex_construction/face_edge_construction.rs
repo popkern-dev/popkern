@@ -1,4 +1,4 @@
-//! Stage B face-edge construction for constructive apex building.
+//! Face-edge construction for constructive apex building.
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
@@ -8,18 +8,18 @@ use super::constructive_topology::find_outgoing_half_edge;
 use super::error::ApexBuildError;
 use super::plan::ApexPlan;
 
-pub(super) fn stage_b_kef_v_incident(
+pub(super) fn construct_sphere_cap_face_from_v_incident_edges(
     brep: &mut BRep,
     plan: &ApexPlan,
 ) -> Result<FaceHandle, ApexBuildError> {
     crate::construct::blend_insert::kef_cross_face_v_edges(brep, plan.apex_vertex).map_err(|e| {
         ApexBuildError::PlanMismatch {
-            reason: format!("stage_b_kef_v_incident: {e}"),
+            reason: format!("construct_sphere_cap_face_from_v_incident_edges: {e}"),
         }
     })
 }
 
-pub(super) fn stage_b_mef_face_edges(
+pub(super) fn create_gregory_face_edges(
     brep: &mut BRep,
     plan: &ApexPlan,
     apex_vertex_handles: &[VertexHandle],
@@ -28,7 +28,7 @@ pub(super) fn stage_b_mef_face_edges(
     if apex_vertex_handles.len() != 2 * n {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(
-                "stage_b_mef_face_edges: expected 2N={} apex_vertex_handles, got {}",
+                "create_gregory_face_edges: expected 2N={} apex_vertex_handles, got {}",
                 2 * n,
                 apex_vertex_handles.len()
             ),
@@ -46,13 +46,13 @@ pub(super) fn stage_b_mef_face_edges(
         let he_origin =
             find_outgoing_half_edge(brep, t_b_k).ok_or_else(|| ApexBuildError::PlanMismatch {
                 reason: format!(
-                    "stage_b_mef_face_edges: T_b[{k}]={t_b_k:?} has no outgoing half-edge"
+                    "create_gregory_face_edges: T_b[{k}]={t_b_k:?} has no outgoing half-edge"
                 ),
             })?;
         let he_dest = find_outgoing_half_edge(brep, t_a_next).ok_or_else(|| {
             ApexBuildError::PlanMismatch {
                 reason: format!(
-                    "stage_b_mef_face_edges: T_a[{next_k}]={t_a_next:?} has no outgoing half-edge"
+                    "create_gregory_face_edges: T_a[{next_k}]={t_a_next:?} has no outgoing half-edge"
                 ),
             }
         })?;
@@ -62,9 +62,9 @@ pub(super) fn stage_b_mef_face_edges(
         if loop_origin != loop_dest {
             return Err(ApexBuildError::PlanMismatch {
                 reason: format!(
-                    "stage_b_mef_face_edges: T_b[{k}] and T_a[{next_k}] are not co-located \
-                     (loops {loop_origin:?} vs {loop_dest:?}); Stage A's host plane dispatch \
-                     was wrong for this fillet pair"
+                    "create_gregory_face_edges: T_b[{k}] and T_a[{next_k}] are not co-located \
+                     (loops {loop_origin:?} vs {loop_dest:?}); apex vertex host-plane \
+                     dispatch was wrong for this fillet pair"
                 ),
             });
         }

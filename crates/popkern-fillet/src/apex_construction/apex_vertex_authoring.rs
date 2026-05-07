@@ -1,4 +1,4 @@
-//! Stage A vertex authoring for constructive apex building.
+//! Apex vertex authoring for constructive apex building.
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
@@ -12,7 +12,7 @@ use crate::fillet_surface::FilletSurfaceResult;
 use super::error::ApexBuildError;
 use super::plan::ApexPlan;
 
-pub(super) fn stage_a_sphere(
+pub(super) fn author_sphere_apex_vertices(
     brep: &mut BRep,
     plan: &ApexPlan,
     fillet_surfaces: &[FilletSurfaceResult],
@@ -34,22 +34,27 @@ pub(super) fn stage_a_sphere(
             Some(vh) => {
                 return Err(ApexBuildError::PlanMismatch {
                     reason: format!(
-                        "stage_a_sphere: apex_vertices[{i}] {target:?} tight-matched \
+                        "author_sphere_apex_vertices: apex_vertices[{i}] {target:?} tight-matched \
                          already-used vertex {vh:?}"
                     ),
                 });
             }
             None => {
                 let nearest = nearest_vertex_distance(brep, *target);
-                let split =
-                    split_sphere_target_vertex(brep, plan, fillet_surfaces, *target, tolerance)
-                        .map_err(|reason| ApexBuildError::PlanMismatch {
-                            reason: format!(
-                                "stage_a_sphere: apex_vertices[{i}] {target:?} not within \
+                let split = split_sphere_target_vertex(
+                    brep,
+                    plan,
+                    fillet_surfaces,
+                    *target,
+                    tolerance,
+                )
+                .map_err(|reason| ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "author_sphere_apex_vertices: apex_vertices[{i}] {target:?} not within \
                                  {tol:e} m of any existing vertex (nearest {nearest:.6e} m), \
                                  and curve-inversion split failed: {reason}"
-                            ),
-                        })?;
+                    ),
+                })?;
                 if trace {
                     eprintln!(
                         "[a2-trace §14.4/A] sphere apex_vertices[{i}] -> CREATED {:?} via \
@@ -248,7 +253,7 @@ fn find_vertex_within(brep: &BRep, point: Point3, tol: f64) -> Option<VertexHand
     best.map(|(vh, _)| vh)
 }
 
-pub(super) fn stage_a_gregory(
+pub(super) fn author_gregory_apex_vertices(
     brep: &mut BRep,
     plan: &ApexPlan,
     fillet_surfaces: &[FilletSurfaceResult],
@@ -262,7 +267,7 @@ pub(super) fn stage_a_gregory(
     if n_targets != 2 * n {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(
-                "stage_a_gregory: expected 2N={} apex_vertices for Gregory, got {n_targets}",
+                "author_gregory_apex_vertices: expected 2N={} apex_vertices for Gregory, got {n_targets}",
                 2 * n
             ),
         });
@@ -270,13 +275,13 @@ pub(super) fn stage_a_gregory(
 
     let boundary = compute_apex_boundary(brep, plan.apex_vertex, fillet_surfaces, tolerance)
         .map_err(|e| ApexBuildError::PlanMismatch {
-            reason: format!("stage_a_gregory: compute_apex_boundary: {e}"),
+            reason: format!("author_gregory_apex_vertices: compute_apex_boundary: {e}"),
         })?;
 
     if boundary.segments.len() != 2 * n {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(
-                "stage_a_gregory: expected {} boundary segments, got {}",
+                "author_gregory_apex_vertices: expected {} boundary segments, got {}",
                 2 * n,
                 boundary.segments.len()
             ),
@@ -291,7 +296,7 @@ pub(super) fn stage_a_gregory(
             BoundarySegment::FilletEnd { .. } => {
                 return Err(ApexBuildError::PlanMismatch {
                     reason: format!(
-                        "stage_a_gregory: boundary segment[{}] expected FaceEdge, got FilletEnd",
+                        "author_gregory_apex_vertices: boundary segment[{}] expected FaceEdge, got FilletEnd",
                         2 * k + 1
                     ),
                 });
@@ -318,7 +323,7 @@ pub(super) fn stage_a_gregory(
             find_v_cube_edge_half_edge_on_face(brep, plan.apex_vertex, host_face, &t_vertices)
                 .ok_or_else(|| ApexBuildError::PlanMismatch {
                     reason: format!(
-                        "stage_a_gregory: no V-incident cube-edge half-edge on host face {host_face:?} for apex_vertices[{i}] (sched_idx={sched_idx})"
+                        "author_gregory_apex_vertices: no V-incident cube-edge half-edge on host face {host_face:?} for apex_vertices[{i}] (sched_idx={sched_idx})"
                     ),
                 })?;
 
@@ -345,14 +350,14 @@ pub(super) fn stage_a_gregory(
         .enumerate()
         .map(|(i, v)| {
             v.ok_or_else(|| ApexBuildError::PlanMismatch {
-                reason: format!("stage_a_gregory: apex_vertices[{i}] not assigned"),
+                reason: format!("author_gregory_apex_vertices: apex_vertices[{i}] not assigned"),
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
 
     if trace {
         eprintln!(
-            "[a2-trace §14.8/A] stage_a_gregory complete: {} T-vertices authored",
+            "[a2-trace §14.8/A] author_gregory_apex_vertices complete: {} T-vertices authored",
             out.len()
         );
     }

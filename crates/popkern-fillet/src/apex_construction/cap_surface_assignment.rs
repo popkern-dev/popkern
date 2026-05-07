@@ -1,4 +1,4 @@
-//! Stage E surface assignment for constructive apex building.
+//! Cap surface assignment for constructive apex building.
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
@@ -13,8 +13,8 @@ use super::error::ApexBuildError;
 use super::gregory_cap::GregoryCapSector;
 use super::plan::ApexPlan;
 
-/// Stage E (Sphere): assign `SurfaceGeometry::Sphere` to the cap face.
-pub(super) fn stage_e_assign_sphere(
+/// Assign `SurfaceGeometry::Sphere` to the cap face.
+pub(super) fn assign_sphere_cap_surface(
     brep: &mut BRep,
     cap_face: FaceHandle,
     center: Point3,
@@ -24,7 +24,7 @@ pub(super) fn stage_e_assign_sphere(
         .faces
         .get_mut(cap_face)
         .ok_or_else(|| ApexBuildError::PlanMismatch {
-            reason: format!("stage_e_assign_sphere: cap_face {cap_face:?} no longer exists"),
+            reason: format!("assign_sphere_cap_surface: cap_face {cap_face:?} no longer exists"),
         })?;
     face.surface = Some(SurfaceOnFace {
         geometry: SurfaceGeometry::Sphere { center, radius },
@@ -33,9 +33,9 @@ pub(super) fn stage_e_assign_sphere(
     Ok(())
 }
 
-/// Stage E (Gregory): delegate to `assemble_gregory_cap_surface`.
+/// Delegate Gregory cap surface construction to `assemble_gregory_cap_surface`.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn stage_e_assign_gregory(
+pub(super) fn assign_gregory_cap_surface(
     brep: &mut BRep,
     cap_face: FaceHandle,
     plan: &ApexPlan,
@@ -51,7 +51,7 @@ pub(super) fn stage_e_assign_gregory(
     if face_edge_handles.len() != n || fillet_end_handles.len() != n {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(
-                "stage_e_assign_gregory: expected N={n} face edges + N fillet ends, \
+                "assign_gregory_cap_surface: expected N={n} face edges + N fillet ends, \
                  got {} face_edge_handles, {} fillet_end_handles",
                 face_edge_handles.len(),
                 fillet_end_handles.len()

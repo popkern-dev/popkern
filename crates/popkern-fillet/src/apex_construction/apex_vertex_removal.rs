@@ -1,4 +1,4 @@
-//! Stage D apex-vertex removal for constructive apex building.
+//! Apex-vertex removal for constructive apex building.
 
 use popkern_core::topology::{BRep, FaceHandle};
 
@@ -14,7 +14,7 @@ use super::plan::ApexPlan;
 /// T-vertex plus the residual preexisting cross-face edge bridge from cap-loop
 /// construction; we dissolve the spurs first, then `kev_v_bridge` consumes
 /// the last bridge.
-pub(super) fn stage_d_remove_v(
+pub(super) fn remove_apex_vertex(
     brep: &mut BRep,
     plan: &ApexPlan,
     cap_face: FaceHandle,
@@ -26,7 +26,7 @@ pub(super) fn stage_d_remove_v(
     }
 
     if repeated_apex_normalized {
-        return stage_d_remove_v_after_repeated_apex_normalization(brep, plan, cap_face);
+        return remove_apex_vertex_after_repeated_apex_normalization(brep, plan, cap_face);
     }
 
     let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
@@ -38,7 +38,7 @@ pub(super) fn stage_d_remove_v(
             .map(|(h, hd)| (h, hd.loop_, hd.twin))
             .collect();
         eprintln!(
-            "[a2-trace §14.8/D] enter stage_d_remove_v: V={v:?} has {} outgoings",
+            "[a2-trace §14.8/D] enter remove_apex_vertex: V={v:?} has {} outgoings",
             outgoings.len()
         );
         for (h, l, t) in &outgoings {
@@ -161,7 +161,7 @@ pub(super) fn stage_d_remove_v(
         } else {
             return Err(ApexBuildError::PlanMismatch {
                 reason: format!(
-                    "stage_d_remove_v: V has {} outgoings, no usable same-loop bridge \
+                    "remove_apex_vertex: V has {} outgoings, no usable same-loop bridge \
                      or cross-face incidence found - pipeline corruption",
                     outgoings.len()
                 ),
@@ -171,14 +171,14 @@ pub(super) fn stage_d_remove_v(
 
     crate::construct::blend_insert::kev_v_bridge(brep, v).map_err(|e| {
         ApexBuildError::PlanMismatch {
-            reason: format!("stage_d_remove_v: kev_v_bridge: {e}"),
+            reason: format!("remove_apex_vertex: kev_v_bridge: {e}"),
         }
     })?;
     crate::construct::blend_insert::remove_orphaned_vertex(brep, v);
     Ok(())
 }
 
-fn stage_d_remove_v_after_repeated_apex_normalization(
+fn remove_apex_vertex_after_repeated_apex_normalization(
     brep: &mut BRep,
     plan: &ApexPlan,
     cap_face: FaceHandle,
@@ -188,7 +188,8 @@ fn stage_d_remove_v_after_repeated_apex_normalization(
 
     if collect_outer_loop_vertices(brep, cap_face).is_some_and(|vertices| vertices.contains(&v)) {
         return Err(ApexBuildError::PlanMismatch {
-            reason: "repeated-apex normalization left V on the cap loop before Stage D".to_string(),
+            reason: "repeated-apex normalization left V on the cap loop before apex removal"
+                .to_string(),
         });
     }
 

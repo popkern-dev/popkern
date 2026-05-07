@@ -28,9 +28,12 @@
 //! implementation.  A2.2 (builder), A2.3 (pipeline integration),
 //! A2.4 (cap surface), A2.5 (validation), A2.6 (cleanup) follow.
 
+pub(crate) mod apex_vertex_authoring;
+pub(crate) mod apex_vertex_removal;
 pub(crate) mod cap_kind;
 pub(crate) mod cap_loop_construction;
 pub(crate) mod cap_loop_construction_options;
+pub(crate) mod cap_surface_assignment;
 pub(crate) mod construct;
 pub(crate) mod construct_cleanup;
 pub(crate) mod construct_edges;
@@ -39,13 +42,10 @@ pub(crate) mod construct_surface;
 pub(crate) mod construct_vertices;
 pub(crate) mod constructive_builder;
 pub(crate) mod constructive_geometry;
-pub(crate) mod constructive_stage_a;
-pub(crate) mod constructive_stage_b;
-pub(crate) mod constructive_stage_d;
-pub(crate) mod constructive_stage_e;
 pub(crate) mod constructive_topology;
 pub(crate) mod cylinder_face_coherence;
 pub(crate) mod error;
+pub(crate) mod face_edge_construction;
 pub(crate) mod gregory_cap;
 pub(crate) mod gregory_cap_boundary;
 pub(crate) mod gregory_cap_topology;
