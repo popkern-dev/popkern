@@ -27,9 +27,8 @@ mod a2_validate_helpers;
 mod helpers;
 
 use a2_validate_helpers::{
-    EnvGuard, a2_fallback_reasons, assert_native_cap_has_cylinder_seams,
-    assert_native_gregory_case, assert_native_gregory_cube_case, breakdown, build_under_a2,
-    count_a2_fallbacks,
+    a2_fallback_reasons, assert_native_cap_has_cylinder_seams, assert_native_gregory_case,
+    assert_native_gregory_cube_case, breakdown, build_under_a2, count_a2_fallbacks,
 };
 use helpers::measure_cap_outer_boundary;
 use popkern_core::geometry::CurveGeometry;
@@ -576,7 +575,6 @@ fn a2_cube_mixed_cap_outer_per_edge_breakdown() {
     use popkern_core::geometry::curve::CurveEval;
     use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
-    let _accept = EnvGuard::set("POPKERN_A2_ACCEPT_INCOMPLETE_NATIVE", "1");
     let result = build_under_a2(false, &[0.08, 0.10, 0.12]);
     let cap_set = result
         .corner_patches

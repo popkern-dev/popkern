@@ -257,11 +257,6 @@ fn try_constructive_with_legacy_fallthrough(
     match construct_apex_constructively(brep, plan, surfaces, tolerance, None, execution_options) {
         Ok(result) => {
             if matches!(plan.cap_kind, CapKind::Gregory { .. }) {
-                let accept_incomplete =
-                    std::env::var("POPKERN_A2_ACCEPT_INCOMPLETE_NATIVE").is_ok_and(|v| v == "1");
-                if accept_incomplete {
-                    return Ok(result);
-                }
                 let constructive_err =
                     if !native_gregory_has_expected_cylinder_seams(brep, &result, plan.n_fillets())
                     {
