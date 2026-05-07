@@ -38,11 +38,8 @@
 //! snapshot rollback.
 #![allow(dead_code)]
 
-use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
-use popkern_core::geometry::nurbs_curve::NurbsCurve;
-use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, EdgeHandle};
+use popkern_core::topology::BRep;
 
 use crate::cancellation::CancellationToken;
 use crate::fillet_surface::FilletSurfaceResult;
@@ -60,7 +57,6 @@ use super::cap_surface_assignment::{
 };
 use super::construct::ApexBuildResult;
 use super::constructive_builder_options::ConstructiveApexExecutionOptions;
-use super::constructive_geometry::cylinder_arc_through_edge_endpoints;
 use super::error::ApexBuildError;
 use super::face_edge_construction::{
     construct_sphere_cap_face_from_v_incident_edges, create_gregory_face_edges,
@@ -265,12 +261,6 @@ fn construct_apex_inner_constructive(
                 fillet_surfaces,
                 tolerance,
             )?;
-            if repeated_apex_normalized
-                && std::env::var_os("POPKERN_A2_ENABLE_TOPOLOGY_EDGE_CURVE_CONTAINMENT").is_some()
-            {
-                complete_cap_patch_edge_geometry_from_topology(brep, &corner_patches);
-            }
-
             let n = plan.cap_kind.n_fillets();
             // Build apex_edges return value: 2N entries, alternating
             // FilletEnd (even) / FaceEdge (odd), each Some(handle).
@@ -296,156 +286,6 @@ fn construct_apex_inner_constructive(
         }
         CapKind::Open { .. } => unreachable!("Open handled above"),
     }
-}
-
-// ---------------------------------------------------------------------------
-// Cap edge completion
-// ---------------------------------------------------------------------------
-
-/// Diagnostic containment for repeated-apex topology experiments.
-///
-/// This remains opt-in through
-/// `POPKERN_A2_ENABLE_TOPOLOGY_EDGE_CURVE_CONTAINMENT`: accepted native A2
-/// construction must author topology, 3D curves, pcurves, and Gregory boundary
-/// sectors from the same physical FilletEnd/FaceEdge ownership at construction
-/// time.
-pub(crate) fn complete_cap_patch_edge_geometry_from_topology(
-    brep: &mut BRep,
-    corner_patches: &[CornerPatchInfo],
-) {
-    let cap_faces = corner_patches
-        .iter()
-        .map(|patch| patch.face)
-        .collect::<std::collections::BTreeSet<_>>();
-    let edge_handles = brep
-        .half_edges
-        .iter()
-        .filter_map(|(_, he)| {
-            let face = brep.loops.get(he.loop_)?.face;
-            cap_faces.contains(&face).then_some(he.edge)
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-
-    for edge in edge_handles {
-        complete_edge_geometry_from_topological_endpoints(brep, edge);
-    }
-}
-
-fn complete_edge_geometry_from_topological_endpoints(brep: &mut BRep, edge: EdgeHandle) {
-    let Some(edge_data) = brep.edges.get(edge) else {
-        return;
-    };
-    let he = edge_data.half_edge;
-    let Some(he_data) = brep.half_edges.get(he) else {
-        return;
-    };
-    let twin = he_data.twin;
-    let (Some(a), Some(b)) = (
-        brep.vertices.get(he_data.origin),
-        brep.half_edges
-            .get(twin)
-            .and_then(|twin_data| brep.vertices.get(twin_data.origin)),
-    ) else {
-        return;
-    };
-    let needs_curve = match edge_data.curve.as_ref() {
-        Some(curve_on_edge) => {
-            let p_start = curve_on_edge.geometry.point_at(curve_on_edge.t_start);
-            let p_end = curve_on_edge.geometry.point_at(curve_on_edge.t_end);
-            let forward_cost = a.position.distance_to(&p_start) + b.position.distance_to(&p_end);
-            let reversed_cost = a.position.distance_to(&p_end) + b.position.distance_to(&p_start);
-            forward_cost.min(reversed_cost) > 1.0e-5
-        }
-        None => true,
-    };
-    if needs_curve {
-        if std::env::var_os("POPKERN_A2_TRACE").is_some() {
-            eprintln!(
-                "[a2-trace §14.9/edge-curve] completing cap edge geometry on {edge:?} from topology"
-            );
-        }
-        brep.edges[edge].curve = curve_on_support_or_line(brep, he, twin, a.position, b.position);
-    }
-    if let Some(curve) = brep.edges[edge].curve.clone() {
-        write_projected_pcurve_from_curve(brep, he, &curve);
-        write_projected_pcurve_from_curve(brep, twin, &curve);
-    }
-}
-
-fn curve_on_support_or_line(
-    brep: &BRep,
-    he: popkern_core::topology::HalfEdgeHandle,
-    twin: popkern_core::topology::HalfEdgeHandle,
-    start: popkern_core::geometry::Point3,
-    end: popkern_core::geometry::Point3,
-) -> Option<CurveOnEdge> {
-    for half_edge in [he, twin] {
-        let face = brep.loops[brep.half_edges[half_edge].loop_].face;
-        let Some(surface) = brep.faces.get(face).and_then(|f| f.surface.as_ref()) else {
-            continue;
-        };
-        if let Some((geometry, t_start, t_end)) =
-            cylinder_arc_through_edge_endpoints(&surface.geometry, start, end)
-        {
-            return Some(CurveOnEdge {
-                geometry,
-                t_start,
-                t_end,
-            });
-        }
-    }
-    CurveOnEdge::line_segment(start, end, 1.0e-9)
-}
-
-fn write_projected_pcurve_from_curve(
-    brep: &mut BRep,
-    he: popkern_core::topology::HalfEdgeHandle,
-    curve: &CurveOnEdge,
-) {
-    let Some(he_data) = brep.half_edges.get(he) else {
-        return;
-    };
-    let face = brep.loops[he_data.loop_].face;
-    let Some(surface) = brep
-        .faces
-        .get(face)
-        .and_then(|f| f.surface.as_ref())
-        .map(|s| s.geometry.clone())
-    else {
-        return;
-    };
-    let Some(origin) = brep.vertices.get(he_data.origin).map(|v| v.position) else {
-        return;
-    };
-    let p_start = curve.geometry.point_at(curve.t_start);
-    let p_end = curve.geometry.point_at(curve.t_end);
-    let forward = origin.distance_to(&p_start) <= origin.distance_to(&p_end);
-    let Some(pcurve) = fit_projected_pcurve(&surface, curve, forward) else {
-        return;
-    };
-    brep.half_edges[he].pcurve = Some(pcurve.into());
-}
-
-fn fit_projected_pcurve(
-    surface: &SurfaceGeometry,
-    curve: &CurveOnEdge,
-    forward: bool,
-) -> Option<NurbsCurve> {
-    let n_samples = 12usize;
-    let mut points = Vec::with_capacity(n_samples);
-    let mut params = Vec::with_capacity(n_samples);
-    for i in 0..n_samples {
-        let s = i as f64 / (n_samples - 1) as f64;
-        let oriented_s = if forward { s } else { 1.0 - s };
-        let t = curve.t_start + oriented_s * (curve.t_end - curve.t_start);
-        let point = curve.geometry.point_at(t);
-        let (u, v) = crate::construct::helpers::project_to_uv(surface, &point);
-        points.push(popkern_core::geometry::Point3::new(u, v, 0.0));
-        params.push(s);
-    }
-    let degree = 3usize;
-    let n_cps = (degree + 2).min(points.len());
-    popkern_core::geometry::fitting::fit_curve(&points, &params, degree, n_cps).ok()
 }
 
 // ---------------------------------------------------------------------------
