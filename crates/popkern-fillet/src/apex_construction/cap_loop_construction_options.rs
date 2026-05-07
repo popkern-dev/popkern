@@ -1,14 +1,14 @@
-//! Execution options for Stage C repeated-apex behavior.
+//! Execution options for cap-loop construction.
 
 use super::repeated_apex_partition::RepeatedApexPartitionExecutionOptions;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct StageCExecutionOptions {
+pub(super) struct CapLoopConstructionOptions {
     pub(super) allow_repeated_apex_mef_fallback: bool,
     pub(super) repeated_apex_partition: RepeatedApexPartitionExecutionOptions,
 }
 
-impl StageCExecutionOptions {
+impl CapLoopConstructionOptions {
     pub(super) fn from_environment() -> Self {
         Self {
             allow_repeated_apex_mef_fallback: std::env::var_os(

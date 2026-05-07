@@ -5,7 +5,7 @@
 //! Euler-op sequence that takes an [`ApexPlan`] and authors the cap
 //! topology directly: no carve, no merge accumulator, no dissolve cleanup.
 //!
-//! # Stages
+//! # Construction Sequence
 //!
 //! Per ADR §3 + §14.8:
 //!
@@ -14,14 +14,14 @@
 //!   sub-face interiors at the planner-given T-positions (§14.8).
 //! - **Stage B** — `mef` FaceEdge bridges across V-incident host plane
 //!   sub-faces (Gregory only).
-//! - **Stage C** — `kef` V's cube-edge segments (N-1 kefs); merges N
-//!   V-corner fragments into one cap face. Last residual edge becomes a
-//!   same-face bridge consumed by Stage D.
-//! - **Stage C.5** — `mef` FilletEnd arc edges on the cap face between
-//!   T_a[k] and T_b[k] (§14.8). Gregory only.
-//! - **Stage D** — `kev V` via the residual same-face bridge plus
-//!   `dissolve_same_loop_bridge` for any mev-spurs that became same-face
-//!   bridges after Stage C.
+//! - **Cap-loop construction** — `kef` V's preexisting cross-face edge
+//!   segments; merges V-corner fragments into one cap face. The last
+//!   residual edge becomes a same-face bridge consumed by apex removal.
+//! - **Fillet-end edge construction** — `mef` FilletEnd arc edges on the cap
+//!   face between T_a[k] and T_b[k] (§14.8). Gregory only.
+//! - **Apex removal** — `kev V` via the residual same-face bridge plus
+//!   `dissolve_same_loop_bridge` for any MEV spurs that became same-face
+//!   bridges after cap-loop construction.
 //! - **Stage E** — assign cap surface (Sphere directly; Gregory delegates
 //!   to legacy `assemble_gregory_cap_surface`).
 //!
@@ -54,14 +54,14 @@ use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo};
 
 use super::cap_kind::CapKind;
+use super::cap_loop_construction::{
+    collect_required_fillet_ends, construct_cap_loop_from_preexisting_cross_face_edges,
+    create_remaining_fillet_end_edges,
+};
 use super::construct::ApexBuildResult;
 use super::constructive_geometry::cylinder_arc_through_edge_endpoints;
 use super::constructive_stage_a::{stage_a_gregory, stage_a_sphere};
 use super::constructive_stage_b::{stage_b_kef_v_incident, stage_b_mef_face_edges};
-use super::constructive_stage_c::{
-    collect_required_fillet_ends, stage_c_kef_cube_edges_interleaved,
-    stage_c5_mef_remaining_fillet_ends,
-};
 use super::constructive_stage_d::stage_d_remove_v;
 use super::constructive_stage_e::{
     gregory_sectors_from_handles, stage_e_assign_gregory, stage_e_assign_sphere,
@@ -157,11 +157,9 @@ fn construct_apex_inner_constructive(
             ..
         } => {
             // Sphere path: adopt nearby apex-neighborhood anchors to the
-            // planned target positions, then tight-match T-vertices (Stage A)
-            // → kef V-incident edges (Stage B) → kev V (Stage D) → assign
-            // Sphere surface (Stage E).
-            // No FaceEdge mefs (Stage B Gregory-only) and no FilletEnd mefs
-            // (Stage C.5 Gregory-only).
+            // planned target positions, then tight-match T-vertices, remove
+            // V-incident edges, remove V, and assign the Sphere surface.
+            // No Gregory FaceEdge MEFs and no cap-loop FilletEnd MEFs.
             super::perp_anchor_relocate::relocate_perp_anchors_to_plan_targets(
                 brep, plan, tolerance,
             )
@@ -201,22 +199,20 @@ fn construct_apex_inner_constructive(
             })
         }
         CapKind::Gregory { .. } => {
-            // Gregory path: mev T-vertices into host plane sub-faces (Stage A,
-            // §14.8) → mef FaceEdges (Stage B) → kef cube-edges (Stage C) →
-            // mef FilletEnds on cap face (Stage C.5) → kev V (Stage D) →
-            // delegate to legacy assembler (Stage E).
+            // Gregory path: MEV T-vertices into host plane sub-faces (§14.8)
+            // -> MEF FaceEdges -> construct the cap loop from preexisting
+            // cross-face edges -> MEF FilletEnds on the cap face -> remove V
+            // -> delegate to the Gregory surface assembler.
             //
             // Full constructive Gregory pipeline (Stages 3–5). On any
             // stage error the snapshot wrapper rolls back and the caller
             // falls through to legacy A2.
 
-            // Stage 5b §14.8 fix: capture V's V-incident edges BEFORE
-            // Stage A's mevs.  These are the "cube edges" — V's pre-
-            // existing cross-face incidences (cube-edge stubs left
-            // by Phase C kefs).  Stage C must kef only these, NOT the
-            // Stage A spurs (which become cross-face after Stage B's
-            // mefs but must survive into Stage C.5 / D).
-            let cube_edges_pre_a: Vec<popkern_core::topology::EdgeHandle> = brep
+            // Capture V's original cross-face incidences before anchor MEVs.
+            // Cap-loop construction removes only these edges; anchor spurs
+            // become cross-face later and must survive into fillet-end
+            // construction and apex removal.
+            let preexisting_cross_face_edges: Vec<popkern_core::topology::EdgeHandle> = brep
                 .half_edges
                 .iter()
                 .filter(|(_, h)| h.origin == plan.apex_vertex)
@@ -227,15 +223,16 @@ fn construct_apex_inner_constructive(
             check_cancelled(cancel)?;
             let face_edge_handles = stage_b_mef_face_edges(brep, plan, &apex_vertex_handles)?;
             check_cancelled(cancel)?;
-            let (mut cap_face, mut fillet_end_handles) = stage_c_kef_cube_edges_interleaved(
-                brep,
-                plan,
-                &cube_edges_pre_a,
-                &apex_vertex_handles,
-                fillet_surfaces,
-            )?;
+            let (mut cap_face, mut fillet_end_handles) =
+                construct_cap_loop_from_preexisting_cross_face_edges(
+                    brep,
+                    plan,
+                    &preexisting_cross_face_edges,
+                    &apex_vertex_handles,
+                    fillet_surfaces,
+                )?;
             check_cancelled(cancel)?;
-            let repeated_apex_normalized = stage_c5_mef_remaining_fillet_ends(
+            let repeated_apex_normalized = create_remaining_fillet_end_edges(
                 brep,
                 plan,
                 &mut cap_face,

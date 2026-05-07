@@ -8,12 +8,12 @@ use super::constructive_topology::{
 use super::error::ApexBuildError;
 use super::plan::ApexPlan;
 
-/// Stage D: remove V via residual same-face bridges. For Sphere, V has a
-/// single same-face bridge after Stage B's kefs; `kev_v_bridge` removes it
-/// plus V in one op. For Gregory, V has multiple same-face mev-spurs (to
-/// each T-vertex from Stage A) plus the residual cube-edge bridge from
-/// Stage C; we dissolve the spurs first, then `kev_v_bridge` consumes the
-/// last bridge.
+/// Remove V via residual same-face bridges. For Sphere, V has a single
+/// same-face bridge after V-incident edge removal; `kev_v_bridge` removes it
+/// plus V in one op. For Gregory, V has multiple same-face MEV spurs to each
+/// T-vertex plus the residual preexisting cross-face edge bridge from cap-loop
+/// construction; we dissolve the spurs first, then `kev_v_bridge` consumes
+/// the last bridge.
 pub(super) fn stage_d_remove_v(
     brep: &mut BRep,
     plan: &ApexPlan,
