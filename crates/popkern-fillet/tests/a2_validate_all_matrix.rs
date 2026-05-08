@@ -33,9 +33,11 @@ mod helpers;
 
 use a2_validate_helpers::{
     a2_fallback_reasons, assert_native_cap_has_cylinder_seams, assert_native_gregory_case,
-    assert_native_gregory_cube_case, breakdown, build_under_a2, count_a2_fallbacks,
+    assert_native_gregory_cube_case, breakdown, build_under_a2, build_under_a2_with_pyramid_height,
+    count_a2_fallbacks,
 };
 use helpers::measure_cap_outer_boundary;
+use popkern_core::diagnostics::Diagnostics;
 use popkern_core::geometry::CurveGeometry;
 
 /// Whole-matrix gate: every fixture passes `validate_all` cleanly
@@ -308,6 +310,41 @@ fn a2_native_pyramid4_uniform_no_fallback() {
 #[test]
 fn a2_native_pyramid3_uniform_anchor_incompatible_uses_gregory_no_fallback() {
     assert_native_gregory_case("pyramid3_uniform", true, &[0.10, 0.10, 0.10], 3);
+}
+
+#[test]
+#[ignore = "diagnostic gate: exact fillet_zoo pyramid_n04 still leaves retired apex/support topology"]
+fn a2_diagnostic_pyramid4_zoo_mixed_export_defects() {
+    let result = build_under_a2_with_pyramid_height(true, &[0.07, 0.09, 0.11, 0.13], 1.2);
+    let reasons = a2_fallback_reasons(&result);
+    assert!(
+        reasons.is_empty(),
+        "diagnostic expects native A2 output before export-defect assertions; got:\n{}",
+        reasons.join("\n")
+    );
+
+    let diagnostics = Diagnostics::run(&result.brep);
+    eprintln!("{diagnostics}");
+    assert!(
+        diagnostics.defects.degenerate_edges.is_empty(),
+        "native pyramid4_zoo_mixed has degenerate edges: {:#?}",
+        diagnostics.defects.degenerate_edges
+    );
+    assert!(
+        diagnostics.defects.sliver_faces.is_empty(),
+        "native pyramid4_zoo_mixed has sliver faces: {:#?}",
+        diagnostics.defects.sliver_faces
+    );
+    assert!(
+        diagnostics.defects.face_overlaps.is_empty(),
+        "native pyramid4_zoo_mixed has face overlaps: {:#?}",
+        diagnostics.defects.face_overlaps
+    );
+    assert_eq!(
+        diagnostics.defects.tess_non_manifold_count, 0,
+        "native pyramid4_zoo_mixed has {} tessellation non-manifold seams, max {:.3e}",
+        diagnostics.defects.tess_non_manifold_count, diagnostics.defects.tess_non_manifold_max
+    );
 }
 
 /// A2 edge-curve semantic storage gate.  Straight 3D edge curves

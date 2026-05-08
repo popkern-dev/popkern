@@ -75,10 +75,18 @@ pub(crate) fn breakdown(errors: &[ValidationError]) -> MetricBreakdown {
 }
 
 pub(crate) fn build_under_a2(is_pyramid: bool, radii: &[f64]) -> BlendResult {
+    build_under_a2_with_pyramid_height(is_pyramid, radii, 0.8)
+}
+
+pub(crate) fn build_under_a2_with_pyramid_height(
+    is_pyramid: bool,
+    radii: &[f64],
+    pyramid_height: f64,
+) -> BlendResult {
     let _g = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
     let tol = Tolerance::default();
     let brep = if is_pyramid {
-        BRep::n_gonal_pyramid(radii.len(), 1.0, 0.8, tol).unwrap()
+        BRep::n_gonal_pyramid(radii.len(), 1.0, pyramid_height, tol).unwrap()
     } else {
         BRep::unit_cube(tol).unwrap()
     };
