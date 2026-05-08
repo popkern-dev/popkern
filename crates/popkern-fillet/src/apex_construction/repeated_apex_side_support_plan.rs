@@ -80,6 +80,7 @@ pub(super) enum PlannerStage {
 pub(super) enum SideSupportRegionRefusalReason {
     UnknownEndpointMembership,
     AmbiguousEndpointMembership,
+    UnsupportedOutsideOutsideSupportContinuation,
     UnsupportedBridgeTrimCount,
     MissingValidatedFaceFamilyBridgePrimitive,
     NoAcceptedOperationCandidate,
@@ -97,6 +98,7 @@ impl SideSupportRegionPlanSelection {
         let mut bridge_candidates_by_support = BTreeMap::<FaceHandle, Vec<_>>::new();
         let mut saw_unknown_endpoint = false;
         let mut saw_ambiguous_endpoint = false;
+        let mut saw_unsupported_outside_outside_continuation = false;
         let mut saw_unsupported_bridge_region = false;
         let mut selected_unexecutable_bridge = false;
         for candidate in candidates.iter() {
@@ -129,6 +131,12 @@ impl SideSupportRegionPlanSelection {
                         reason: CandidateRejection::EndpointMembershipAmbiguous,
                     },
                 ) => saw_ambiguous_endpoint = true,
+                (
+                    _,
+                    CandidateStatus::Rejected {
+                        reason: CandidateRejection::UnsupportedOutsideOutsideSupportContinuation,
+                    },
+                ) => saw_unsupported_outside_outside_continuation = true,
                 _ => {}
             }
         }
@@ -146,6 +154,7 @@ impl SideSupportRegionPlanSelection {
         if !operations.is_empty()
             && !saw_unknown_endpoint
             && !saw_ambiguous_endpoint
+            && !saw_unsupported_outside_outside_continuation
             && !saw_unsupported_bridge_region
             && !selected_unexecutable_bridge
         {
@@ -156,6 +165,7 @@ impl SideSupportRegionPlanSelection {
         if !operations.is_empty()
             && !saw_unknown_endpoint
             && !saw_ambiguous_endpoint
+            && !saw_unsupported_outside_outside_continuation
             && !saw_unsupported_bridge_region
             && selected_unexecutable_bridge
         {
@@ -172,6 +182,8 @@ impl SideSupportRegionPlanSelection {
             SideSupportRegionRefusalReason::UnknownEndpointMembership
         } else if saw_ambiguous_endpoint {
             SideSupportRegionRefusalReason::AmbiguousEndpointMembership
+        } else if saw_unsupported_outside_outside_continuation {
+            SideSupportRegionRefusalReason::UnsupportedOutsideOutsideSupportContinuation
         } else if saw_unsupported_bridge_region {
             SideSupportRegionRefusalReason::UnsupportedBridgeTrimCount
         } else {

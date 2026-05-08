@@ -41,6 +41,7 @@ pub(super) enum CandidateRejection {
     EndpointsNotInOneSupportLoop,
     EndpointMembershipUnknown,
     EndpointMembershipAmbiguous,
+    UnsupportedOutsideOutsideSupportContinuation,
 }
 
 #[derive(Clone, Debug)]
@@ -88,6 +89,37 @@ impl CandidateSetSnapshot {
                         endpoints: RegionCandidateEndpoints::from_pair(pair),
                         status: CandidateStatus::Rejected {
                             reason: CandidateRejection::EndpointMembershipAmbiguous,
+                        },
+                    });
+                }
+                (
+                    EndpointRegionMembership::OutsideSupportFamily { .. },
+                    EndpointRegionMembership::OutsideSupportFamily { .. },
+                ) => {
+                    candidates.push(RegionOperationCandidate {
+                        fillet_index: pair.fillet_index(),
+                        kind: RegionOperationKind::SplitFaceWithEdge,
+                        endpoints: RegionCandidateEndpoints::from_pair(pair),
+                        status: CandidateStatus::Rejected {
+                            reason: CandidateRejection::EndpointsNotInOneSupportLoop,
+                        },
+                    });
+                    candidates.push(RegionOperationCandidate {
+                        fillet_index: pair.fillet_index(),
+                        kind: RegionOperationKind::BridgeSupportRegion,
+                        endpoints: RegionCandidateEndpoints::from_pair(pair),
+                        status: CandidateStatus::Rejected {
+                            reason:
+                                CandidateRejection::UnsupportedOutsideOutsideSupportContinuation,
+                        },
+                    });
+                    candidates.push(RegionOperationCandidate {
+                        fillet_index: pair.fillet_index(),
+                        kind: RegionOperationKind::MergeAdjacentSupportRegion,
+                        endpoints: RegionCandidateEndpoints::from_pair(pair),
+                        status: CandidateStatus::Rejected {
+                            reason:
+                                CandidateRejection::UnsupportedOutsideOutsideSupportContinuation,
                         },
                     });
                 }
@@ -202,6 +234,9 @@ impl CandidateRejection {
             CandidateRejection::EndpointMembershipUnknown => "rejected:endpoint-membership-unknown",
             CandidateRejection::EndpointMembershipAmbiguous => {
                 "rejected:endpoint-membership-ambiguous"
+            }
+            CandidateRejection::UnsupportedOutsideOutsideSupportContinuation => {
+                "rejected:unsupported-outside-outside-support-continuation"
             }
         }
     }

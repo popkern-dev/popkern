@@ -147,6 +147,7 @@ impl SideSupportRegionExecutionReport {
                     }
                     SideSupportRegionRefusalReason::UnknownEndpointMembership
                     | SideSupportRegionRefusalReason::AmbiguousEndpointMembership
+                    | SideSupportRegionRefusalReason::UnsupportedOutsideOutsideSupportContinuation
                     | SideSupportRegionRefusalReason::UnsupportedBridgeTrimCount
                     | SideSupportRegionRefusalReason::NoAcceptedOperationCandidate => {
                         SideSupportRegionExecutionRefusalReason::PlannerRefused
