@@ -10,6 +10,9 @@
 //! cylinder×sphere, cylinder×cylinder (parallel/coplanar), and
 //! cylinder×cone (coplanar). Stages 4+ add torus and Gregory.
 
+#[path = "analytic_quality.rs"]
+mod analytic_quality;
+
 use crate::geometry::Point3;
 use crate::geometry::curve::CurveEval;
 use crate::geometry::curve_on_surface::CurveOnSurface;
@@ -28,6 +31,9 @@ use crate::geometry::intersection::surface_surface::{
 };
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
+
+use analytic_quality::finalize_quality;
+pub(super) use analytic_quality::finalize_quality_pub;
 
 /// Try to dispatch via the analytic whitelist.
 ///
@@ -404,17 +410,6 @@ fn closed_loop_triple(
     }
 }
 
-/// Crate-internal alias used by `analytic_trig.rs` so it can run
-/// the same finalize-and-verify pass without duplicating logic.
-pub(super) fn finalize_quality_pub(
-    triple: EdgeTriple,
-    surf_a: &SurfaceGeometry,
-    surf_b: &SurfaceGeometry,
-    tol: &Tolerance,
-) -> Result<EdgeTriple, EdgeTripleError> {
-    finalize_quality(triple, surf_a, surf_b, tol)
-}
-
 /// Stage 2b.58: convert a `CurveOnSurface` from `intersect_surfaces`
 /// directly into an `EdgeTriple` without anchor matching or trim.
 /// The full curve becomes the triple's `curve_3d`; topology is
@@ -462,44 +457,5 @@ pub(super) fn cos_to_triple_unanchored(
             converged: true,
         },
         quality: EdgeTripleQuality::default(),
-    }
-}
-
-fn finalize_quality(
-    mut triple: EdgeTriple,
-    surf_a: &SurfaceGeometry,
-    surf_b: &SurfaceGeometry,
-    tol: &Tolerance,
-) -> Result<EdgeTriple, EdgeTripleError> {
-    let q = triple.verify(surf_a, surf_b, tol, 32).map_err(|_| {
-        EdgeTripleError::DegenerateSurfacePair {
-            reason: "post-construction verify failed",
-        }
-    })?;
-    let endpoint_err = endpoint_err_3d(&triple);
-    triple.quality = EdgeTripleQuality {
-        max_endpoint_error: endpoint_err,
-        ..q
-    };
-    Ok(triple)
-}
-
-fn endpoint_err_3d(triple: &EdgeTriple) -> f64 {
-    use crate::geometry::curve::CurveGeometry;
-    let p_start = triple.curve_3d.point_at(triple.t_start);
-    let p_end = triple.curve_3d.point_at(triple.t_end);
-    // For analytic curve_3d (Line, Circle, Arc) the endpoint is
-    // exact-by-construction; for NURBS we check first/last CPs.
-    match &triple.curve_3d {
-        CurveGeometry::Nurbs(n) => {
-            if let (Some(first), Some(last)) = (n.control_points.first(), n.control_points.last()) {
-                let d_start = first.distance_to(&p_start);
-                let d_end = last.distance_to(&p_end);
-                d_start.max(d_end)
-            } else {
-                f64::INFINITY
-            }
-        }
-        _ => 0.0,
     }
 }
