@@ -98,10 +98,33 @@ fn subcomplex_plan_projects_seed_faces_and_trim_intents() {
     assert_eq!(trim_intents.len(), 2);
     let generator_intent = trim_intents
         .iter()
-        .find(|intent| intent.is_new_generator_trim)
+        .find(|intent| intent.requires_support_ownership)
         .expect("generator intent is projected");
     assert_eq!(generator_intent.cylinder_face, cylinder_face);
     assert_eq!(generator_intent.support_face, Some(support_face));
     assert_eq!(generator_intent.start, start);
     assert_eq!(generator_intent.end, end);
+}
+
+#[test]
+fn support_cylinder_trim_intents_require_support_ownership() {
+    let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
+    let faces = brep.faces.keys().collect::<Vec<_>>();
+    let vertices = brep.vertices.keys().collect::<Vec<_>>();
+    let cylinder_face = faces[0];
+    let support_face = faces[1];
+    let start = vertices[0];
+    let end = vertices[1];
+
+    let mut builder = TrimRewriteSubcomplexBuilder::new();
+    builder.push_new_support_cylinder_trim(0, cylinder_face, support_face, start, end);
+    let plan = builder.finish();
+
+    let trim_intents = plan.trim_intents();
+    assert_eq!(trim_intents.len(), 1);
+    assert!(trim_intents[0].requires_support_ownership);
+    assert_eq!(trim_intents[0].cylinder_face, cylinder_face);
+    assert_eq!(trim_intents[0].support_face, Some(support_face));
+    assert_eq!(trim_intents[0].start, start);
+    assert_eq!(trim_intents[0].end, end);
 }

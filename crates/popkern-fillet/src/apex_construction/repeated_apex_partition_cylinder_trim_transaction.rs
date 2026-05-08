@@ -134,9 +134,6 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
     topology_plans: &[CylinderTrimRewriteTopologyPlan],
     subcomplex_plan: &TrimRewriteSubcomplexPlan,
 ) -> Result<(), ApexBuildError> {
-    let side_support_diagnostics =
-        SideSupportRegionDiagnosticSnapshot::build_read_only(brep, subcomplex_plan);
-    debug_assert!(side_support_diagnostics.validate_fresh(brep));
     let before = topology_count_summary(brep);
     let mut candidate = brep.clone();
     let pre_materialized = pre_materialize_far_side_trim_sides(
@@ -146,6 +143,9 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
         rebuild_plans,
         topology_plans,
     )?;
+    let side_support_diagnostics =
+        SideSupportRegionDiagnosticSnapshot::build_read_only(&candidate, subcomplex_plan);
+    debug_assert!(side_support_diagnostics.validate_fresh(&candidate));
     let side_support_continuation =
         apply_selected_side_support_continuation(&mut candidate, subcomplex_plan)?;
     match apply_materialized_cylinder_loop_replacements(

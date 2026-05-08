@@ -76,7 +76,7 @@ impl SideSupportRegionFacts {
 
         let trim_endpoint_pairs = knowledge
             .trim_intents()
-            .filter(|trim| trim.is_new_generator_trim)
+            .filter(|trim| trim.requires_support_ownership)
             .filter_map(|trim| {
                 let support_face = trim.support_face?;
                 Some(SideSupportTrimEndpointFacts {

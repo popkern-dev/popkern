@@ -40,7 +40,7 @@ pub(super) struct TrimRewriteSupportGroup {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct TrimRewriteIntentFacts {
     pub(super) fillet_index: usize,
-    pub(super) is_new_generator_trim: bool,
+    pub(super) requires_support_ownership: bool,
     pub(super) cylinder_face: FaceHandle,
     pub(super) support_face: Option<FaceHandle>,
     pub(super) start: VertexHandle,
@@ -396,7 +396,7 @@ impl TrimRewriteEdgePlan {
     fn intent_facts(&self) -> TrimRewriteIntentFacts {
         TrimRewriteIntentFacts {
             fillet_index: self.fillet_index(),
-            is_new_generator_trim: self.is_new_generator_trim(),
+            requires_support_ownership: self.construction.requires_support_ownership(),
             cylinder_face: self.cylinder_face(),
             support_face: self.support_face(),
             start: self.start(),
@@ -450,6 +450,14 @@ impl TrimOwnerPair {
 impl TrimEdgeConstruction {
     fn is_generated(&self) -> bool {
         !matches!(self, TrimEdgeConstruction::ExistingSeam)
+    }
+
+    fn requires_support_ownership(&self) -> bool {
+        matches!(
+            self,
+            TrimEdgeConstruction::NewExactGeneratorTrim
+                | TrimEdgeConstruction::NewExactSupportCylinderTrim
+        )
     }
 
     fn diagnostic_label(&self) -> &'static str {
