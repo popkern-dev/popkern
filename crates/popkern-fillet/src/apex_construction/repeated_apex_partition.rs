@@ -73,6 +73,8 @@ mod partition_generator_anchors;
 mod partition_ownership;
 #[path = "repeated_apex_partition_plan.rs"]
 mod partition_plan;
+#[path = "repeated_apex_partition_planner.rs"]
+mod partition_planner;
 #[path = "repeated_apex_partition_rebuild_diagnostics.rs"]
 mod partition_rebuild_diagnostics;
 #[path = "repeated_apex_partition_shared_fillet_end_trim.rs"]
@@ -142,7 +144,8 @@ use partition_ownership::{
     validate_target_cylinder_loop_ownership_ready,
 };
 pub(super) use partition_plan::RepeatedApexPartitionExecutionOptions;
-use partition_plan::{RepeatedApexPartitionPlan, RetiredApexSpan};
+use partition_plan::RetiredApexSpan;
+use partition_planner::try_plan_repeated_apex_partition;
 use partition_rebuild_diagnostics::{
     adjacent_face_across_half_edge, face_surface_kind, fragment_replacement_authoring_status,
     replacement_run_curve_blocker, replacement_run_exact_curve_kind,
@@ -182,27 +185,17 @@ pub(super) fn try_build_planned_repeated_apex_partition(
     execution_options: RepeatedApexPartitionExecutionOptions,
 ) -> Result<Option<(FaceHandle, Vec<EdgeHandle>)>, ApexBuildError> {
     let n_fillets = plan.cap_kind.n_fillets();
-    let Some(loop_plan) = plan_repeated_apex_loop_normalization(
+    let Some(partition_plan) = try_plan_repeated_apex_partition(
         brep,
         cap_face,
         plan.apex_vertex,
         apex_vertex_handles,
-        n_fillets,
-    ) else {
-        return Ok(None);
-    };
-    if !loop_plan.is_commercial_grade_candidate(n_fillets) {
-        return Ok(None);
-    }
-
-    let partition_plan = RepeatedApexPartitionPlan::build(
-        brep,
-        cap_face,
-        &loop_plan,
-        apex_vertex_handles,
         face_edge_handles,
         n_fillets,
-    )?;
+    )?
+    else {
+        return Ok(None);
+    };
     if crate::a2_trace::enabled() {
         eprintln!(
             "[a2-trace §14.9/partition] planned graph partition: {}",
