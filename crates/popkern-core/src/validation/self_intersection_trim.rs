@@ -410,7 +410,10 @@ fn point_in_uv_loop(point: UvPoint, loop_polygon: &[UvPoint], tolerance: f64) ->
         return TrimContainment::Outside;
     }
 
-    let mut previous = *loop_polygon.last().expect("length checked above");
+    let Some(&last) = loop_polygon.last() else {
+        return TrimContainment::Outside;
+    };
+    let mut previous = last;
     for &current in loop_polygon {
         if distance_to_uv_segment(point, previous, current) <= tolerance {
             return TrimContainment::Boundary;
@@ -419,7 +422,7 @@ fn point_in_uv_loop(point: UvPoint, loop_polygon: &[UvPoint], tolerance: f64) ->
     }
 
     let mut inside = false;
-    previous = *loop_polygon.last().expect("length checked above");
+    previous = last;
     for &current in loop_polygon {
         let crosses_v = (current.v > point.v) != (previous.v > point.v);
         if crosses_v {

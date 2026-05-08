@@ -132,7 +132,11 @@ pub(crate) fn apply_vertex_snap_for_caps(
             let p_dest = v_dest.map(|v| brep.vertices[v].position);
             let endpoints: Vec<(VertexHandle, Point3)> = match v_dest {
                 Some(vd) if matches!(twin_surf, Some(SurfaceGeometry::Cylinder { .. })) => {
-                    vec![(v_origin, p_origin), (vd, p_dest.unwrap())]
+                    if let Some(p_dest) = p_dest {
+                        vec![(v_origin, p_origin), (vd, p_dest)]
+                    } else {
+                        vec![(v_origin, p_origin)]
+                    }
                 }
                 _ => vec![(v_origin, p_origin)],
             };

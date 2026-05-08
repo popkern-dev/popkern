@@ -48,6 +48,7 @@ fn no_unwrap_or_expect_in_library_code() {
         let file_name = file.file_name().and_then(|n| n.to_str()).unwrap_or("");
         let is_test_module = file_name == "tests.rs"
             || file_name.ends_with("_tests.rs")
+            || file_name.ends_with("_test_helpers.rs")
             || file_name.starts_with("test_")
             || file_name.starts_with("tests_")
             || file_name.starts_with("integration_tests_");
@@ -64,6 +65,9 @@ fn no_unwrap_or_expect_in_library_code() {
         }
 
         let content = popkern_lints::read_file(file);
+        if content.lines().any(|line| line.trim() == "#![cfg(test)]") {
+            continue;
+        }
         let mut in_test_module = false;
 
         for (line_num, line) in content.lines().enumerate() {

@@ -434,7 +434,10 @@ impl Pcurve {
             Err(_) => NurbsCurve {
                 degree: 1,
                 knots: vec![self.t_start, self.t_start, self.t_end, self.t_end],
-                control_points: vec![control_points[0], *control_points.last().unwrap()],
+                control_points: vec![
+                    control_points[0],
+                    control_points.last().copied().unwrap_or(control_points[0]),
+                ],
                 weights: vec![1.0, 1.0],
             },
         }

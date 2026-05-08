@@ -349,7 +349,12 @@ fn reverse_nurbs(curve: &NurbsCurve) -> NurbsCurve {
     cps.reverse();
     let mut weights = curve.weights.clone();
     weights.reverse();
-    let (k_lo, k_hi) = (curve.knots[0], *curve.knots.last().unwrap());
+    let Some(&k_lo) = curve.knots.first() else {
+        return curve.clone();
+    };
+    let Some(&k_hi) = curve.knots.last() else {
+        return curve.clone();
+    };
     let knots: Vec<f64> = curve
         .knots
         .iter()

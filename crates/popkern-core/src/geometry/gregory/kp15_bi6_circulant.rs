@@ -183,8 +183,8 @@ pub fn solve_bi6_circulant_s2_eq7(
                 + mu_ddot[6] * coord(s.p_50)
                 + mu_ddot[7] * coord(s.p_60);
         }
-        if needs_pin {
-            b[0] = coord(p0_21_pinned.unwrap());
+        if needs_pin && let Some(pinned) = p0_21_pinned {
+            b[0] = coord(pinned);
         }
         b
     };

@@ -150,8 +150,10 @@ pub fn build_f3_hessian() -> [[f64; SIGMA_FLAT_LEN]; SIGMA_FLAT_LEN] {
 ///
 /// which we solve via the existing `direct_linalg::solve_dense`.
 ///
-/// Panics if the reduced Hessian `H_ff` is singular (shouldn't happen
-/// for well-posed symmetric F_3).
+/// Falls back to the identity reparameterisation if the reduced
+/// Hessian `H_ff` is singular. That branch is not expected for the
+/// well-posed symmetric F_3 system, but identity preserves a valid
+/// sector map better than partially-populated coefficients.
 pub fn solve_sigma_f3_minimal() -> SigmaPatch {
     let h = build_f3_hessian();
 
@@ -180,7 +182,9 @@ pub fn solve_sigma_f3_minimal() -> SigmaPatch {
         rhs[r] = -s;
     }
 
-    let x_free = solve_dense(h_ff, rhs).expect("σ F_3 reduced Hessian singular — unexpected");
+    let Some(x_free) = solve_dense(h_ff, rhs) else {
+        return SigmaPatch::identity();
+    };
 
     // Reassemble full flat vector.
     let mut x_full = [0.0_f64; SIGMA_FLAT_LEN];

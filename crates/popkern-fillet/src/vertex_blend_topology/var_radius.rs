@@ -775,29 +775,23 @@ pub(crate) fn split_apex_footprint_vertex(
         .get(cube_face)
         .and_then(|f| f.surface.as_ref())
         .map(|s| s.geometry.clone());
-    if let Some(surf) = cap_surf {
-        let bc = brep.edges[bridge_edge].curve.as_ref().unwrap().clone();
-        let curve_3d = match &bc.geometry {
-            popkern_core::geometry::CurveGeometry::Nurbs(nc) => nc.clone(),
-            _ => unreachable!(),
-        };
-        if let Some(pc) = sample_pcurve_on_surface(&curve_3d, &surf) {
-            brep.half_edges[bridge_cap].pcurve = Some(pc.into());
-        }
+    if let Some(surf) = cap_surf
+        && let Some(bc) = brep.edges[bridge_edge].curve.as_ref()
+        && let popkern_core::geometry::CurveGeometry::Nurbs(curve_3d) = &bc.geometry
+        && let Some(pc) = sample_pcurve_on_surface(curve_3d, &surf)
+    {
+        brep.half_edges[bridge_cap].pcurve = Some(pc.into());
     }
-    if let Some(surf) = cube_surf {
-        let bc = brep.edges[bridge_edge].curve.as_ref().unwrap().clone();
-        let curve_3d = match &bc.geometry {
-            popkern_core::geometry::CurveGeometry::Nurbs(nc) => nc.clone(),
-            _ => unreachable!(),
-        };
-        if let Some(pc) = sample_pcurve_on_surface(&curve_3d, &surf) {
-            // Bridge_cube goes V_new → V — invert direction.
-            let mut inv = pc.clone();
-            inv.control_points.reverse();
-            inv.weights.reverse();
-            brep.half_edges[bridge_cube].pcurve = Some(inv.into());
-        }
+    if let Some(surf) = cube_surf
+        && let Some(bc) = brep.edges[bridge_edge].curve.as_ref()
+        && let popkern_core::geometry::CurveGeometry::Nurbs(curve_3d) = &bc.geometry
+        && let Some(pc) = sample_pcurve_on_surface(curve_3d, &surf)
+    {
+        // Bridge_cube goes V_new -> V, so invert direction.
+        let mut inv = pc.clone();
+        inv.control_points.reverse();
+        inv.weights.reverse();
+        brep.half_edges[bridge_cube].pcurve = Some(inv.into());
     }
 
     // 9. Validate.

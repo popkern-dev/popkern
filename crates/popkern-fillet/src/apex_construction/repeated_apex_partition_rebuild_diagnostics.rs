@@ -13,11 +13,14 @@ pub(super) fn retired_trim_runs_by_adjacent_face(
         else {
             continue;
         };
-        if current_face.is_some_and(|face| face != adjacent_face) && !current_path.is_empty() {
+        if current_face.is_some_and(|face| face != adjacent_face)
+            && !current_path.is_empty()
+            && let Some(face) = current_face
+        {
             runs.push(RetiredCylinderTrimRun::from_path(
                 brep,
                 cylinder_face,
-                current_face.expect("current face exists"),
+                face,
                 std::mem::take(&mut current_path),
             ));
         }

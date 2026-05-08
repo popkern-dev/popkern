@@ -461,9 +461,14 @@ fn native_gregory_cap_outer_g0_error(
         );
     }
     if worst_gap > max_gap {
+        let Some(worst_edge) = worst_edge else {
+            return Some(format!(
+                "cap_outer_g0 {worst_gap:.3e} exceeds {max_gap:.3e}, but no worst edge was recorded"
+            ));
+        };
         return Some(format!(
             "cap_outer_g0 {worst_gap:.3e} on {:?} exceeds {max_gap:.3e}",
-            worst_edge.expect("worst edge recorded when measured_edges > 0")
+            worst_edge
         ));
     }
     None

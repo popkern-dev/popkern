@@ -94,6 +94,8 @@ pub(crate) enum ExecuteError {
         v_a: VertexHandle,
         v_b: VertexHandle,
     },
+    /// Actionable plan was missing a field required by execution.
+    MissingPlanField(&'static str),
 }
 
 /// Run the executor.  See module docs for what's implemented.
@@ -105,8 +107,12 @@ pub(crate) fn execute_deletion_plan(
     if !plan.is_actionable() {
         return Err(ExecuteError::PlanNotActionable);
     }
-    let cap_face = plan.cap_face.unwrap();
-    let (cap_centre, cap_radius) = plan.cap_sphere.unwrap();
+    let cap_face = plan
+        .cap_face
+        .ok_or(ExecuteError::MissingPlanField("cap_face"))?;
+    let (cap_centre, cap_radius) = plan
+        .cap_sphere
+        .ok_or(ExecuteError::MissingPlanField("cap_sphere"))?;
 
     let mut inserted_arcs: Vec<EdgeHandle> = Vec::new();
     let mut lens_faces: Vec<FaceHandle> = Vec::new();
@@ -393,7 +399,9 @@ fn build_cap_tangent_half_circle(
         } => (*origin, *axis, *radius),
         _ => unreachable!("caller validates cylinder surface"),
     };
-    let cyl_axis_unit = cyl_axis.normalized().expect("cylinder axis non-zero");
+    let Some(cyl_axis_unit) = cyl_axis.normalized() else {
+        return line_curve_between(brep, v_a, v_b);
+    };
 
     // The cap-tangent circle is the per-fillet sphere ∩ cylinder
     // intersection — a circle in a plane perpendicular to
@@ -421,10 +429,9 @@ fn build_cap_tangent_half_circle(
     } else {
         Vec3::new(0.0, 1.0, 0.0)
     };
-    let u_axis = cyl_axis_unit
-        .cross(&helper)
-        .normalized()
-        .expect("non-parallel helper");
+    let Some(u_axis) = cyl_axis_unit.cross(&helper).normalized() else {
+        return line_curve_between(brep, v_a, v_b);
+    };
     let v_axis = cyl_axis_unit.cross(&u_axis);
 
     // Solve for the angles theta_a, theta_b at which the circle
@@ -458,6 +465,15 @@ fn build_cap_tangent_half_circle(
         theta_a,
         theta_a + delta,
     )
+}
+
+fn line_curve_between(brep: &BRep, v_a: VertexHandle, v_b: VertexHandle) -> NurbsCurve {
+    NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![brep.vertices[v_a].position, brep.vertices[v_b].position],
+        weights: vec![1.0, 1.0],
+    }
 }
 
 /// Single rational-quadratic arc spanning theta_a..theta_b

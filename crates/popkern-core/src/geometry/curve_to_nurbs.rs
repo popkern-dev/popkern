@@ -184,10 +184,20 @@ pub(super) fn hyperbola_to_nurbs(
         Ok(c) => c,
         Err(_) => {
             // Degenerate: fall back to a degree-1 spline through endpoints.
+            let Some(&first) = points.first() else {
+                let origin = Point3::new(0.0, 0.0, 0.0);
+                return NurbsCurve {
+                    degree: 1,
+                    knots: vec![t_start, t_start, t_end, t_end],
+                    control_points: vec![origin, origin],
+                    weights: vec![1.0, 1.0],
+                };
+            };
+            let last = points.last().copied().unwrap_or(first);
             return NurbsCurve {
                 degree: 1,
                 knots: vec![t_start, t_start, t_end, t_end],
-                control_points: vec![*points.first().unwrap(), *points.last().unwrap()],
+                control_points: vec![first, last],
                 weights: vec![1.0, 1.0],
             };
         }

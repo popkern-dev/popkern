@@ -325,7 +325,13 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
         return false;
     }
 
-    let cyl_sof = brep.faces[cyl_face].surface.as_ref().unwrap().clone();
+    let Some(cyl_sof) = brep.faces.get(cyl_face).and_then(|f| f.surface.as_ref()) else {
+        if trace {
+            eprintln!("[topo_repair]   reject: cylinder face has no surface");
+        }
+        return false;
+    };
+    let cyl_sof = cyl_sof.clone();
     let plane_sof_clone = plane_sof.clone();
     let p_anchor_in = brep.vertices[cand.anchor_in].position;
     let p_anchor_out = brep.vertices[cand.anchor_out].position;
@@ -565,12 +571,17 @@ fn try_repair_chord_pair_different_planes(
     plane_face_b: FaceHandle,
     trace: bool,
 ) -> bool {
-    let cyl_geom = brep.faces[cyl_face]
-        .surface
-        .as_ref()
-        .unwrap()
-        .geometry
-        .clone();
+    let Some(cyl_geom) = brep
+        .faces
+        .get(cyl_face)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| s.geometry.clone())
+    else {
+        if trace {
+            eprintln!("[topo_repair]   reject (diff): cylinder face has no surface");
+        }
+        return false;
+    };
     let plane_a_geom = match brep
         .faces
         .get(plane_face_a)

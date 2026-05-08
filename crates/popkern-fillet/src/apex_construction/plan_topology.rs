@@ -8,7 +8,7 @@
 //! terminations, build the declarative [`TargetTopology`] describing
 //! the desired final apex region.
 
-use popkern_core::geometry::Point3;
+use popkern_core::geometry::{NurbsCurve, Point3};
 
 use crate::center_curve::fit_nurbs_through_points;
 use crate::types::FilletSpec;
@@ -238,7 +238,12 @@ pub(crate) fn build_target_topology(
                 // path in fit_nurbs_through_points is unreachable.
                 let bridge =
                     fit_nurbs_through_points(&[term.endpoint_b, terminations[next_k].endpoint_a])
-                        .expect("Gregory bridges are non-degenerate by dispatch");
+                        .unwrap_or_else(|_| NurbsCurve {
+                            degree: 1,
+                            knots: vec![0.0, 0.0, 1.0, 1.0],
+                            control_points: vec![term.endpoint_b, terminations[next_k].endpoint_a],
+                            weights: vec![1.0, 1.0],
+                        });
                 apex_edges.push(TargetEdge {
                     origin_vertex_idx: v_tb_k,
                     dest_vertex_idx: v_ta_next,

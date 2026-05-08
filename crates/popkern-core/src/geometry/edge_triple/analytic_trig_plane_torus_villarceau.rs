@@ -291,11 +291,12 @@ fn reknot_to(
     t0: f64,
     t1: f64,
 ) -> crate::geometry::nurbs_curve::NurbsCurve {
-    if curve.knots.is_empty() {
+    let Some(&k_lo) = curve.knots.first() else {
         return curve;
-    }
-    let k_lo = *curve.knots.first().unwrap();
-    let k_hi = *curve.knots.last().unwrap();
+    };
+    let Some(&k_hi) = curve.knots.last() else {
+        return curve;
+    };
     let span_old = k_hi - k_lo;
     if span_old.abs() < 1.0e-30 {
         return curve;

@@ -48,11 +48,13 @@ pub(super) fn pick_branch(
                 .enumerate()
                 .map(|(i, c)| (i, curve_midpoint(&c.curve_3d).distance_to(&target)))
                 .collect();
-            let (i, best) = scored
+            let Some((i, best)) = scored
                 .iter()
                 .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
                 .copied()
-                .unwrap();
+            else {
+                return Err(EdgeTripleError::AmbiguousBranch { count: 0 });
+            };
             let _ = best;
             Ok(i)
         }
