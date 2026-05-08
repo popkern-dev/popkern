@@ -17,6 +17,22 @@ fn ent(id: EntityId, ty: &str, p: Vec<Parameter>) -> EntityInstance {
         complex_parts: vec![],
     }
 }
+fn ent_complex(
+    id: EntityId,
+    ty: &str,
+    p: Vec<Parameter>,
+    complex_parts: Vec<(&str, Vec<Parameter>)>,
+) -> EntityInstance {
+    EntityInstance {
+        id,
+        type_name: ty.into(),
+        params: p,
+        complex_parts: complex_parts
+            .into_iter()
+            .map(|(name, params)| (name.into(), params))
+            .collect(),
+    }
+}
 fn s(v: &str) -> Parameter {
     Parameter::String(v.into())
 }
@@ -252,6 +268,37 @@ fn resolve_bspline_surface() {
             assert_eq!(ns.control_points.len(), 4);
             // default weights all 1.0
             assert!(ns.weights.iter().all(|&w| (w - 1.0).abs() < 1e-10));
+        }
+        other => panic!("expected Nurbs surface, got {other:?}"),
+    }
+}
+
+#[test]
+fn resolve_rational_bspline_surface_weights_from_complex_part() {
+    let mut ents = placement_entities(0.0, 0.0, 0.0);
+    for id in 10u64..=13 {
+        ents.push(ent(
+            id,
+            "CARTESIAN_POINT",
+            vec![s(""), l(vec![r(id as f64), r(0.0), r(0.0)])],
+        ));
+    }
+    ents.push(ent_complex(
+        20,
+        "B_SPLINE_SURFACE_WITH_KNOTS",
+        bspline_surface_params(vec![vec![10, 11], vec![12, 13]]),
+        vec![(
+            "RATIONAL_B_SPLINE_SURFACE",
+            vec![l(vec![l(vec![r(1.0), r(0.5)]), l(vec![r(0.75), r(1.25)])])],
+        )],
+    ));
+    let g = graph(ents);
+    let mut c = GeometryCache::new(&g);
+    let mut log = DiagnosticLog::new();
+    let sof = c.resolve_surface(20, true, &mut log).unwrap();
+    match sof.geometry {
+        SurfaceGeometry::Nurbs(ns) => {
+            assert_eq!(ns.weights, vec![1.0, 0.5, 0.75, 1.25]);
         }
         other => panic!("expected Nurbs surface, got {other:?}"),
     }

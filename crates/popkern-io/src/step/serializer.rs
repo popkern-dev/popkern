@@ -76,7 +76,11 @@ fn write_entity(
 ) -> Result<(), IoError> {
     // Build the full entity text first, then wrap if needed.
     let mut buf = Vec::new();
-    write!(buf, "#{}={}(", entity.id, entity.type_name)?;
+    write!(buf, "#{}=", entity.id)?;
+    if !entity.complex_parts.is_empty() {
+        write!(buf, "(")?;
+    }
+    write!(buf, "{}(", entity.type_name)?;
     for (i, param) in entity.params.iter().enumerate() {
         if i > 0 {
             write!(buf, ",")?;
@@ -94,6 +98,9 @@ fn write_entity(
             }
             write_parameter(&mut buf, param)?;
         }
+        write!(buf, ")")?;
+    }
+    if !entity.complex_parts.is_empty() {
         write!(buf, ")")?;
     }
 
@@ -470,6 +477,6 @@ mod tests {
         let mut out = Vec::new();
         write_entity(&mut out, &entity, 200).unwrap();
         let text = String::from_utf8(out).unwrap();
-        assert!(text.contains("A(1) B(2);"));
+        assert!(text.contains("#5=(A(1) B(2));"));
     }
 }

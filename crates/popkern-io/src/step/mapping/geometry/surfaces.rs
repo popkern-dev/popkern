@@ -10,6 +10,7 @@ use crate::step::schema::geometry::{
     BSplineSurfaceWithKnots, ConicalSurface, CylindricalSurface, SphericalSurface, StepPlane,
     ToroidalSurface,
 };
+use crate::step::schema::{as_list, as_real_list};
 
 use super::{GeometryCache, expand_knots};
 
@@ -154,10 +155,21 @@ impl<'a> GeometryCache<'a> {
         let knots_u = expand_knots(&bs.u_knots, &bs.u_multiplicities);
         let knots_v = expand_knots(&bs.v_knots, &bs.v_multiplicities);
 
-        let weights = match &bs.weights {
-            Some(w) => w.iter().flatten().copied().collect(),
-            None => vec![1.0; control_points.len()],
-        };
+        let mut weights = resolve_rational_bspline_surface_weights(entity, log)
+            .or_else(|| bs.weights.map(|w| w.iter().flatten().copied().collect()))
+            .unwrap_or_else(|| vec![1.0; control_points.len()]);
+        if weights.len() != control_points.len() {
+            log.warn(
+                Phase::MapGeometry,
+                Some(id),
+                format!(
+                    "rational B-spline surface weight count {} does not match control point count {}; using unit weights",
+                    weights.len(),
+                    control_points.len()
+                ),
+            );
+            weights = vec![1.0; control_points.len()];
+        }
 
         Some(SurfaceGeometry::Nurbs(NurbsSurface {
             degree_u: bs.u_degree as usize,
@@ -170,4 +182,35 @@ impl<'a> GeometryCache<'a> {
             weights,
         }))
     }
+}
+
+fn resolve_rational_bspline_surface_weights(
+    entity: &crate::step::parser::types::EntityInstance,
+    log: &mut DiagnosticLog,
+) -> Option<Vec<f64>> {
+    entity
+        .complex_parts
+        .iter()
+        .find(|(name, _)| name == "RATIONAL_B_SPLINE_SURFACE")
+        .and_then(|(_, params)| params.first())
+        .and_then(|weight_grid| {
+            let rows = as_list(weight_grid, "RATIONAL_B_SPLINE_SURFACE")
+                .map_err(|e| {
+                    log.warn(Phase::MapGeometry, Some(entity.id), format!("{e}"));
+                    e
+                })
+                .ok()?;
+            let mut weights = Vec::new();
+            for row in rows {
+                weights.extend(
+                    as_real_list(row, "RATIONAL_B_SPLINE_SURFACE")
+                        .map_err(|e| {
+                            log.warn(Phase::MapGeometry, Some(entity.id), format!("{e}"));
+                            e
+                        })
+                        .ok()?,
+                );
+            }
+            Some(weights)
+        })
 }

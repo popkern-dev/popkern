@@ -12,6 +12,7 @@
 
 use std::sync::Arc;
 
+use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -48,8 +49,12 @@ fn mixed_radius_gregory_cube() -> BRep {
         .brep
 }
 
-fn sample_gregory_face_positions(brep: &BRep) -> Vec<(popkern_core::geometry::Point3, f64, f64)> {
-    let mut samples = Vec::new();
+struct GregoryFaceSamples {
+    samples: Vec<(Point3, f64, f64)>,
+}
+
+fn sample_gregory_faces(brep: &BRep) -> Vec<GregoryFaceSamples> {
+    let mut faces = Vec::new();
     for (_, face) in &brep.faces {
         let Some(sof) = face.surface.as_ref() else {
             continue;
@@ -57,6 +62,7 @@ fn sample_gregory_face_positions(brep: &BRep) -> Vec<(popkern_core::geometry::Po
         if !matches!(sof.geometry, SurfaceGeometry::Gregory(_)) {
             continue;
         }
+        let mut samples = Vec::new();
         // Sample on a 3×3 interior UV grid — avoid corners where
         // ε-regularization introduces ~1e-14 noise.
         for i in 1..=3 {
@@ -66,8 +72,9 @@ fn sample_gregory_face_positions(brep: &BRep) -> Vec<(popkern_core::geometry::Po
                 samples.push((sof.geometry.point_at(u, v), u, v));
             }
         }
+        faces.push(GregoryFaceSamples { samples });
     }
-    samples
+    faces
 }
 
 /// STEP round-trip on a mixed-radius Gregory fillet. Post-round-trip
@@ -154,9 +161,9 @@ fn gregory_fillet_step_roundtrip_preserves_topology() {
 #[test]
 fn gregory_face_geometry_survives_step_roundtrip() {
     let brep = mixed_radius_gregory_cube();
-    let orig_samples = sample_gregory_face_positions(&brep);
+    let orig_gregory_faces = sample_gregory_faces(&brep);
     assert!(
-        !orig_samples.is_empty(),
+        !orig_gregory_faces.is_empty(),
         "test precondition: original BRep must contain Gregory faces"
     );
 
@@ -187,28 +194,41 @@ fn gregory_face_geometry_survives_step_roundtrip() {
         ..Default::default()
     };
     let reimport = import_step(&bytes, &import_opts).unwrap();
+    assert!(
+        reimport.diagnostics.errors().next().is_none(),
+        "STEP reimport must not produce errors: {:?}",
+        reimport.diagnostics.entries()
+    );
     let reimport_brep = &reimport.document.products[0].shapes[0].solids[0];
+    let imported_nurbs: Vec<_> = reimport_brep
+        .faces
+        .values()
+        .filter_map(|face| face.surface.as_ref())
+        .filter(|sof| matches!(sof.geometry, SurfaceGeometry::Nurbs(_)))
+        .collect();
+    assert!(
+        imported_nurbs.len() >= orig_gregory_faces.len(),
+        "reimported BRep must contain at least {} NURBS faces converted from Gregory faces; got {}",
+        orig_gregory_faces.len(),
+        imported_nurbs.len()
+    );
 
-    // For each original Gregory-face sample, find the closest point
-    // across every face in the re-imported BRep. If the export path
-    // is exact (which it is for Gregory → to_nurbs_exact), the closest
-    // surface point must land within a tight bound.
+    // STEP has no Gregory surface entity, so each Gregory face is
+    // exported as a rational NURBS patch with the same full-range
+    // parameterisation. Match each original Gregory face to the
+    // imported NURBS face that minimises same-UV sample error.
     let mut max_err: f64 = 0.0;
-    for (orig_pt, _u, _v) in &orig_samples {
-        let mut best = f64::INFINITY;
-        for face in reimport_brep.faces.values() {
-            let Some(sof) = face.surface.as_ref() else {
-                continue;
-            };
-            if let Some((u, v)) = sof.geometry.closest_point(orig_pt) {
-                let p = sof.geometry.point_at(u, v);
-                let d = p.distance_to(orig_pt);
-                if d < best {
-                    best = d;
-                }
+    for original_face in &orig_gregory_faces {
+        let mut best_face_err = f64::INFINITY;
+        for imported in &imported_nurbs {
+            let mut face_err: f64 = 0.0;
+            for (orig_pt, u, v) in &original_face.samples {
+                let p = imported.geometry.point_at(*u, *v);
+                face_err = face_err.max(p.distance_to(orig_pt));
             }
+            best_face_err = best_face_err.min(face_err);
         }
-        max_err = max_err.max(best);
+        max_err = max_err.max(best_face_err);
     }
 
     // Precision floor breakdown (measured):
@@ -216,19 +236,12 @@ fn gregory_face_geometry_survives_step_roundtrip() {
     //   (see `to_nurbs_exact_twisted_matches_gregory_eval` in
     //   `rectangular_to_nurbs_tests.rs`).
     // * STEP serializer uses `{:.15E}` → full f64 precision per CP.
-    // * Residual deviation after round-trip is ~1e-2, dominated by
-    //   the generic `closest_point` Gauss-Newton convergence tolerance
-    //   on the re-imported rational NURBS (bidegree 7×7 with 13×13
-    //   CPs is a hard optimisation surface).
-    //
-    // 1e-2 (= 1% of a unit-cube edge) is tight enough to rule out the
-    // lossy `sample_to_nurbs` path — that would regress to ~5% — while
-    // accepting the current closest-point + STEP round-trip floor.
-    // Improving this further would require tightening the closest-
-    // point Newton tolerances or a Gregory-specific projection helper.
+    // * Import preserves the rational B-spline weights from the STEP
+    //   complex entity, so same-UV samples should remain near f64
+    //   serialization precision.
     assert!(
-        max_err < 1e-2,
-        "§5.3 item #2: Gregory STEP round-trip position deviation {max_err} exceeds 1e-2 tolerance (samples checked: {})",
-        orig_samples.len()
+        max_err < 1e-6,
+        "§5.3 item #2: Gregory STEP round-trip same-UV position deviation {max_err} exceeds 1e-6 tolerance (Gregory faces checked: {})",
+        orig_gregory_faces.len()
     );
 }
