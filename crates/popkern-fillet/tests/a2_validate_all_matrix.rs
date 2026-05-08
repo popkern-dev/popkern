@@ -21,9 +21,9 @@
 //! commercial-grade flip-gate's strictest form: under the new A2
 //! architecture, the existing matrix doesn't regress.
 
-#[path = "a2_validate_all_matrix_diagnostics.rs"]
+#[path = "support/a2_validate_all_matrix_diagnostics.rs"]
 mod a2_validate_all_matrix_diagnostics;
-#[path = "a2_validate_all_matrix_seams.rs"]
+#[path = "support/a2_validate_all_matrix_seams.rs"]
 mod a2_validate_all_matrix_seams;
 #[path = "support/a2_validate_helpers.rs"]
 mod a2_validate_helpers;

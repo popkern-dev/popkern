@@ -20,7 +20,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
-#[path = "kp_gate_cap_outer.rs"]
+#[path = "support/kp_gate_cap_outer.rs"]
 mod kp_gate_cap_outer;
 #[allow(unused_imports)]
 pub use kp_gate_cap_outer::{

@@ -39,7 +39,7 @@ use popkern_core::topology::BRep;
 
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
-#[path = "phase_6c_a6_validation_probes.rs"]
+#[path = "support/phase_6c_a6_validation_probes.rs"]
 mod phase_6c_a6_validation_probes;
 use helpers::{fillet_corner, incident_edges, pick_vertex_with_valence};
 

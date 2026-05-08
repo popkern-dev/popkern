@@ -49,7 +49,7 @@ use popkern_core::topology::BRep;
 
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
-#[path = "kp_binonic_boundary_injection_diagnostics.rs"]
+#[path = "support/kp_binonic_boundary_injection_diagnostics.rs"]
 mod kp_binonic_boundary_injection_diagnostics;
 use helpers::{
     N_SAMPLES, collect_patches, fillet_corner, incident_edges, measure_cap_outer_boundary,

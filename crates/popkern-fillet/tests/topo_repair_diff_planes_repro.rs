@@ -21,7 +21,7 @@ use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
-#[path = "topo_repair_diff_planes_diagnostics.rs"]
+#[path = "support/topo_repair_diff_planes_diagnostics.rs"]
 mod topo_repair_diff_planes_diagnostics;
 use helpers::{incident_edges, pick_vertex_with_valence};
 
