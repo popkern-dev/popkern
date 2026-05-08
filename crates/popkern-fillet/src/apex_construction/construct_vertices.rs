@@ -17,13 +17,8 @@ pub(super) fn resolve_apex_vertices(
 ) -> Result<Vec<VertexHandle>, ApexBuildError> {
     let tol = tolerance.linear();
     let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
-    let wide_snap_enabled = !std::env::var("POPKERN_A2_NO_SNAP").is_ok_and(|v| v == "1");
     let max_radius = max_fillet_radius(fillet_surfaces).unwrap_or(0.1);
-    let wide_tol = if wide_snap_enabled {
-        max_radius * 0.7
-    } else {
-        tol
-    };
+    let wide_tol = max_radius * 0.7;
     let n_targets = plan.target_topology.apex_vertices.len();
     let mut out: Vec<Option<VertexHandle>> = vec![None; n_targets];
     let mut used: std::collections::HashSet<VertexHandle> = std::collections::HashSet::new();
@@ -43,73 +38,71 @@ pub(super) fn resolve_apex_vertices(
         }
     }
 
-    if wide_snap_enabled {
-        let apex_vertex_fillets =
-            compute_apex_vertex_fillet_map(&plan.target_topology.apex_edges, n_targets);
-        let fillet_face_map = build_fillet_face_map(brep, fillet_surfaces);
-        type Triple = (usize, VertexHandle, f64);
-        let mut triples: Vec<Triple> = Vec::new();
-        let v_pos = brep
-            .vertices
-            .get(plan.apex_vertex)
-            .map(|v| v.position)
-            .unwrap_or(Point3::new(0.0, 0.0, 0.0));
-        let v_radius_sq = (max_radius * 1.5).powi(2);
-        let wide_tol_sq = wide_tol * wide_tol;
-        for (i, &target) in plan.target_topology.apex_vertices.iter().enumerate() {
-            if out[i].is_some() {
+    let apex_vertex_fillets =
+        compute_apex_vertex_fillet_map(&plan.target_topology.apex_edges, n_targets);
+    let fillet_face_map = build_fillet_face_map(brep, fillet_surfaces);
+    type Triple = (usize, VertexHandle, f64);
+    let mut triples: Vec<Triple> = Vec::new();
+    let v_pos = brep
+        .vertices
+        .get(plan.apex_vertex)
+        .map(|v| v.position)
+        .unwrap_or(Point3::new(0.0, 0.0, 0.0));
+    let v_radius_sq = (max_radius * 1.5).powi(2);
+    let wide_tol_sq = wide_tol * wide_tol;
+    for (i, &target) in plan.target_topology.apex_vertices.iter().enumerate() {
+        if out[i].is_some() {
+            continue;
+        }
+        let expected_fillet = apex_vertex_fillets[i];
+        let candidate_set: Box<dyn Iterator<Item = VertexHandle>> = match expected_fillet
+            .and_then(|fi| fillet_face_map.get(&fi).copied())
+            .and_then(|fh| collect_face_outer_loop_vertices(brep, fh))
+        {
+            Some(verts) => Box::new(verts.into_iter()),
+            None => Box::new(brep.vertices.keys()),
+        };
+        for vh in candidate_set {
+            let Some(vertex) = brep.vertices.get(vh) else {
                 continue;
-            }
-            let expected_fillet = apex_vertex_fillets[i];
-            let candidate_set: Box<dyn Iterator<Item = VertexHandle>> = match expected_fillet
-                .and_then(|fi| fillet_face_map.get(&fi).copied())
-                .and_then(|fh| collect_face_outer_loop_vertices(brep, fh))
-            {
-                Some(verts) => Box::new(verts.into_iter()),
-                None => Box::new(brep.vertices.keys()),
             };
-            for vh in candidate_set {
-                let Some(vertex) = brep.vertices.get(vh) else {
-                    continue;
-                };
-                let p = vertex.position;
-                let d_v_sq = {
-                    let dx = p.x - v_pos.x;
-                    let dy = p.y - v_pos.y;
-                    let dz = p.z - v_pos.z;
-                    dx * dx + dy * dy + dz * dz
-                };
-                if d_v_sq > v_radius_sq {
-                    continue;
-                }
-                let d_target_sq = {
-                    let dx = p.x - target.x;
-                    let dy = p.y - target.y;
-                    let dz = p.z - target.z;
-                    dx * dx + dy * dy + dz * dz
-                };
-                if d_target_sq > wide_tol_sq {
-                    continue;
-                }
-                triples.push((i, vh, d_target_sq));
-            }
-        }
-        triples.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
-        for (i, vh, dist_sq) in triples {
-            if out[i].is_some() || used.contains(&vh) {
+            let p = vertex.position;
+            let d_v_sq = {
+                let dx = p.x - v_pos.x;
+                let dy = p.y - v_pos.y;
+                let dz = p.z - v_pos.z;
+                dx * dx + dy * dy + dz * dz
+            };
+            if d_v_sq > v_radius_sq {
                 continue;
             }
-            let dist = dist_sq.sqrt();
-            if trace {
-                eprintln!(
-                    "[a2-trace] apex_vertex[{i}] at {:?} -> SNAPPED to existing {vh:?} at {:?} \
-                     (dist {dist:.4} m, wide_tol {wide_tol:.4})",
-                    plan.target_topology.apex_vertices[i], brep.vertices[vh].position
-                );
+            let d_target_sq = {
+                let dx = p.x - target.x;
+                let dy = p.y - target.y;
+                let dz = p.z - target.z;
+                dx * dx + dy * dy + dz * dz
+            };
+            if d_target_sq > wide_tol_sq {
+                continue;
             }
-            out[i] = Some(vh);
-            used.insert(vh);
+            triples.push((i, vh, d_target_sq));
         }
+    }
+    triples.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+    for (i, vh, dist_sq) in triples {
+        if out[i].is_some() || used.contains(&vh) {
+            continue;
+        }
+        let dist = dist_sq.sqrt();
+        if trace {
+            eprintln!(
+                "[a2-trace] apex_vertex[{i}] at {:?} -> SNAPPED to existing {vh:?} at {:?} \
+                 (dist {dist:.4} m, wide_tol {wide_tol:.4})",
+                plan.target_topology.apex_vertices[i], brep.vertices[vh].position
+            );
+        }
+        out[i] = Some(vh);
+        used.insert(vh);
     }
 
     for (i, &point) in plan.target_topology.apex_vertices.iter().enumerate() {
