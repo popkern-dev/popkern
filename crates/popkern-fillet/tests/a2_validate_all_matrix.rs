@@ -32,9 +32,9 @@ mod a2_validate_helpers;
 mod helpers;
 
 use a2_validate_helpers::{
-    a2_fallback_reasons, assert_native_cap_has_cylinder_seams, assert_native_gregory_case,
-    assert_native_gregory_cube_case, breakdown, build_under_a2, build_under_a2_with_pyramid_height,
-    count_a2_fallbacks,
+    EnvGuard, a2_fallback_reasons, assert_native_cap_has_cylinder_seams,
+    assert_native_gregory_case, assert_native_gregory_cube_case, breakdown, build_under_a2,
+    build_under_a2_with_pyramid_height, count_a2_fallbacks,
 };
 use helpers::measure_cap_outer_boundary;
 use popkern_core::diagnostics::Diagnostics;
@@ -344,6 +344,22 @@ fn a2_diagnostic_pyramid4_zoo_mixed_export_defects() {
         diagnostics.defects.tess_non_manifold_count, 0,
         "native pyramid4_zoo_mixed has {} tessellation non-manifold seams, max {:.3e}",
         diagnostics.defects.tess_non_manifold_count, diagnostics.defects.tess_non_manifold_max
+    );
+}
+
+#[test]
+#[ignore = "diagnostic gate: uses process-wide strict A2 env and must run in isolation"]
+fn a2_strict_v_free_repeated_apex_refuses_retained_apex_topology() {
+    let _guard = EnvGuard::set("POPKERN_A2_REQUIRE_V_FREE_REPEATED_APEX", "1");
+    let result = build_under_a2(true, &[0.04, 0.06, 0.05, 0.07]);
+    let reasons = a2_fallback_reasons(&result);
+    assert!(
+        reasons.iter().any(|reason| {
+            reason.contains("repeated-apex construction retained apex vertex")
+                && reason.contains("accepted construction must author")
+        }),
+        "strict V-free repeated-apex mode must refuse retained apex topology; got:\n{}",
+        reasons.join("\n"),
     );
 }
 
