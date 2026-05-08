@@ -24,6 +24,7 @@ pub(crate) mod rebuild;
 pub(crate) mod var_radius;
 pub(crate) mod var_radius_arc_rebuild;
 pub(crate) mod var_radius_snap;
+mod var_radius_snap_geometry;
 
 #[cfg(test)]
 #[path = "detect_tests.rs"]
