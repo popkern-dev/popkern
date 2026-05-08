@@ -1,3 +1,4 @@
+#![cfg(test)]
 use super::*;
 
 fn build_flat_hex() -> (BRep, FaceHandle, [Point3; 6]) {

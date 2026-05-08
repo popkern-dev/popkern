@@ -1,3 +1,4 @@
+#![cfg(test)]
 use super::tests_support::*;
 
 /// Pre-rebuild baseline diagnostic for pyramid_uniform.

@@ -1,3 +1,4 @@
+#![cfg(test)]
 use super::var_radius_tests_support::*;
 use super::*;
 

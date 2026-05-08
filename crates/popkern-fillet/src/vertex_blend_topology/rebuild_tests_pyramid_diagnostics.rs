@@ -1,3 +1,4 @@
+#![cfg(test)]
 use super::tests_support::*;
 
 /// Phase 6c-E pyramid baseline (default pipeline, no opt-in

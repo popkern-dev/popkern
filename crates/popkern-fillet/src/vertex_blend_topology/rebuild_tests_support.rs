@@ -1,3 +1,4 @@
+#![cfg(test)]
 pub(super) use crate::FilletOptions;
 pub(super) use crate::types::{FilletRadius, FilletSpec};
 pub(super) use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
