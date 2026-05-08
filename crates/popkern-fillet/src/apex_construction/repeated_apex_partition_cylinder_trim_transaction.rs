@@ -59,12 +59,20 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             .iter()
             .map(|plan| plan.plan_cylinder_trim_rewrite_topology(brep))
             .collect::<Result<Vec<_>, _>>()?;
+        let include_selected_nonmaterialized = selected_far_side_trim_materialization_preflight(
+            brep,
+            cap_face,
+            face_edges,
+            &rebuild_plans,
+            &topology_plans,
+        );
         let subcomplex_plan = plan_trim_subcomplex_for_cylinder_rewrite(
             brep,
             cap_face,
             face_edges,
             &rebuild_plans,
             &topology_plans,
+            include_selected_nonmaterialized,
         )?;
         validate_cylinder_trim_rewrite_topology_preflight(
             brep,
@@ -73,6 +81,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             &rebuild_plans,
             &topology_plans,
             &subcomplex_plan,
+            include_selected_nonmaterialized,
         )?;
         let pre_materialized = pre_materialize_far_side_trim_sides(
             brep,
@@ -80,6 +89,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             face_edges,
             &rebuild_plans,
             &topology_plans,
+            include_selected_nonmaterialized,
         )?;
         let side_support_continuation =
             apply_selected_side_support_continuation(brep, &subcomplex_plan)?;
@@ -91,6 +101,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             &topology_plans,
             &subcomplex_plan,
             &pre_materialized,
+            include_selected_nonmaterialized,
         )?;
         let cap_boundary_plan = plan_cap_boundary_rewrite_for_cylinder_trim(
             brep,
@@ -133,6 +144,7 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
     rebuild_plans: &[SemanticCylinderTrimRebuildPlan],
     topology_plans: &[CylinderTrimRewriteTopologyPlan],
     subcomplex_plan: &TrimRewriteSubcomplexPlan,
+    include_selected_nonmaterialized: bool,
 ) -> Result<(), ApexBuildError> {
     let before = topology_count_summary(brep);
     let mut candidate = brep.clone();
@@ -142,6 +154,7 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
         face_edges,
         rebuild_plans,
         topology_plans,
+        include_selected_nonmaterialized,
     )?;
     let side_support_diagnostics =
         SideSupportRegionDiagnosticSnapshot::build_read_only(&candidate, subcomplex_plan);
@@ -156,6 +169,7 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
         topology_plans,
         subcomplex_plan,
         &pre_materialized,
+        include_selected_nonmaterialized,
     ) {
         Ok(()) => {
             let after = topology_count_summary(&candidate);
@@ -202,6 +216,7 @@ fn plan_trim_subcomplex_for_cylinder_rewrite(
     face_edges: &[FaceEdgeOwnership],
     rebuild_plans: &[SemanticCylinderTrimRebuildPlan],
     topology_plans: &[CylinderTrimRewriteTopologyPlan],
+    include_selected_nonmaterialized: bool,
 ) -> Result<TrimRewriteSubcomplexPlan, ApexBuildError> {
     let mut scratch = brep.clone();
     let mut builder = TrimRewriteSubcomplexBuilder::new();
@@ -213,7 +228,7 @@ fn plan_trim_subcomplex_for_cylinder_rewrite(
         else {
             continue;
         };
-        if !fragment.materialized_anchor_replacement {
+        if !fragment.materialized_anchor_replacement && !include_selected_nonmaterialized {
             continue;
         }
         for segment in &topology_plan.loop_candidate.segments {
@@ -295,6 +310,25 @@ fn plan_trim_subcomplex_for_cylinder_rewrite(
         }
     }
     Ok(builder.finish())
+}
+
+fn selected_far_side_trim_materialization_preflight(
+    brep: &BRep,
+    cap_face: FaceHandle,
+    face_edges: &[FaceEdgeOwnership],
+    rebuild_plans: &[SemanticCylinderTrimRebuildPlan],
+    topology_plans: &[CylinderTrimRewriteTopologyPlan],
+) -> bool {
+    let mut candidate = brep.clone();
+    pre_materialize_far_side_trim_sides(
+        &mut candidate,
+        cap_face,
+        face_edges,
+        rebuild_plans,
+        topology_plans,
+        true,
+    )
+    .is_ok()
 }
 
 fn plan_semantic_cylinder_trim_rebuilds(

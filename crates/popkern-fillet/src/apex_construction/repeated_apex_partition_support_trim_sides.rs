@@ -51,6 +51,7 @@ pub(super) fn pre_materialize_far_side_trim_sides(
     face_edges: &[FaceEdgeOwnership],
     rebuild_plans: &[SemanticCylinderTrimRebuildPlan],
     topology_plans: &[CylinderTrimRewriteTopologyPlan],
+    include_selected_nonmaterialized: bool,
 ) -> Result<Vec<PreMaterializedTrimSide>, ApexBuildError> {
     let mut materialized = Vec::new();
     for (rebuild_plan, topology_plan) in rebuild_plans.iter().zip(topology_plans) {
@@ -59,7 +60,7 @@ pub(super) fn pre_materialize_far_side_trim_sides(
         else {
             continue;
         };
-        if !fragment.materialized_anchor_replacement {
+        if !fragment.materialized_anchor_replacement && !include_selected_nonmaterialized {
             continue;
         }
         let allowed_support_faces =

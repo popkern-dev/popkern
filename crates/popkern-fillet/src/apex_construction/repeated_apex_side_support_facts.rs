@@ -88,9 +88,15 @@ impl SideSupportRegionFacts {
                     start_membership: endpoint_region_membership(
                         knowledge,
                         support_face,
+                        trim.cylinder_face,
                         trim.start,
                     ),
-                    end_membership: endpoint_region_membership(knowledge, support_face, trim.end),
+                    end_membership: endpoint_region_membership(
+                        knowledge,
+                        support_face,
+                        trim.cylinder_face,
+                        trim.end,
+                    ),
                 })
             })
             .collect();
@@ -248,6 +254,7 @@ impl EndpointRegionMembership {
 fn endpoint_region_membership(
     knowledge: &TopologyKnowledgeGraph,
     support_face: FaceHandle,
+    cylinder_face: FaceHandle,
     vertex: VertexHandle,
 ) -> EndpointRegionMembership {
     let Some(membership) = knowledge.endpoint_membership(vertex) else {
@@ -259,6 +266,17 @@ fn endpoint_region_membership(
         .find(|loop_membership| loop_membership.face() == support_face)
     {
         return EndpointRegionMembership::SameSupportLoop {
+            face: loop_membership.face(),
+            loop_handle: loop_membership.loop_handle(),
+            half_edge: loop_membership.half_edge(),
+        };
+    }
+    if let Some(loop_membership) = membership
+        .containing_loops()
+        .iter()
+        .find(|loop_membership| loop_membership.face() == cylinder_face)
+    {
+        return EndpointRegionMembership::OutsideSupportFamily {
             face: loop_membership.face(),
             loop_handle: loop_membership.loop_handle(),
             half_edge: loop_membership.half_edge(),

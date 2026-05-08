@@ -10,6 +10,7 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
     topology_plans: &[CylinderTrimRewriteTopologyPlan],
     subcomplex_plan: &TrimRewriteSubcomplexPlan,
     pre_materialized: &[PreMaterializedTrimSide],
+    include_selected_nonmaterialized: bool,
 ) -> Result<(), ApexBuildError> {
     let mut all_support_owned_trim_sides = Vec::new();
     let mut pending_cylinder_loop_replacements = Vec::new();
@@ -25,7 +26,7 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
         else {
             continue;
         };
-        if !fragment.materialized_anchor_replacement {
+        if !fragment.materialized_anchor_replacement && !include_selected_nonmaterialized {
             continue;
         }
         let mut cycle = Vec::with_capacity(topology_plan.loop_candidate.segments.len());
