@@ -59,6 +59,7 @@ mod qsqrtd_decompose;
 mod qsqrtd_nested;
 mod quadric;
 mod rational;
+mod rational_quadric;
 mod tangent;
 
 pub(super) use cone_fiber::try_rank3_cone_fiber;
