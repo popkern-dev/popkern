@@ -4,31 +4,23 @@
 //! and OpenCASCADE practice for the canonical analytic-pair
 //! cases. See ADR §13.
 
-use crate::geometry::edge_triple::analytic_trig_cone::try_plane_cone_perpendicular;
 use crate::geometry::edge_triple::analytic_trig_cone_cone::try_cone_cone_coaxial;
-use crate::geometry::edge_triple::analytic_trig_cone_torus_axial::try_cone_torus_axial;
 use crate::geometry::edge_triple::analytic_trig_cyl_cone::try_cyl_cone_coaxial;
 use crate::geometry::edge_triple::analytic_trig_cyl_cone_general::try_cyl_cone_general;
 use crate::geometry::edge_triple::analytic_trig_cyl_cyl::try_cyl_cyl_parallel;
 use crate::geometry::edge_triple::analytic_trig_cyl_cyl_perp::try_cyl_cyl_perpendicular;
 use crate::geometry::edge_triple::analytic_trig_cyl_sphere::try_cyl_sphere_axial;
-use crate::geometry::edge_triple::analytic_trig_cyl_torus_axial::try_cyl_torus_axial;
-use crate::geometry::edge_triple::analytic_trig_plane_cone_hyperbola::try_plane_cone_oblique_hyperbola;
-use crate::geometry::edge_triple::analytic_trig_plane_cone_oblique::try_plane_cone_oblique_ellipse;
-use crate::geometry::edge_triple::analytic_trig_plane_cone_parabola::try_plane_cone_oblique_parabola;
-use crate::geometry::edge_triple::analytic_trig_plane_cyl::try_plane_cylinder_perpendicular;
-use crate::geometry::edge_triple::analytic_trig_plane_cyl_oblique::try_plane_cylinder_oblique;
-use crate::geometry::edge_triple::analytic_trig_plane_sphere::try_plane_sphere_polar;
-use crate::geometry::edge_triple::analytic_trig_plane_sphere_general::try_plane_sphere_general;
-use crate::geometry::edge_triple::analytic_trig_plane_torus::try_plane_torus_perpendicular;
-use crate::geometry::edge_triple::analytic_trig_plane_torus_oblique::try_plane_torus_oblique;
-use crate::geometry::edge_triple::analytic_trig_plane_torus_villarceau::try_plane_torus_villarceau;
+use crate::geometry::edge_triple::analytic_trig_plane_dispatch::{
+    try_plane_cone_pair, try_plane_cylinder_pair, try_plane_sphere_pair,
+};
 use crate::geometry::edge_triple::analytic_trig_sphere_cone::try_sphere_cone_axial;
 use crate::geometry::edge_triple::analytic_trig_sphere_cone_general::try_sphere_cone_general;
 use crate::geometry::edge_triple::analytic_trig_sphere_sphere::try_sphere_sphere_polar;
 use crate::geometry::edge_triple::analytic_trig_sphere_sphere_general::try_sphere_sphere_general;
-use crate::geometry::edge_triple::analytic_trig_sphere_torus_axial::try_sphere_torus_axial;
-use crate::geometry::edge_triple::analytic_trig_torus_torus_coaxial::try_torus_torus_coaxial;
+use crate::geometry::edge_triple::analytic_trig_torus_dispatch::{
+    try_cone_torus_pair, try_cyl_torus_pair, try_plane_torus_pair, try_sphere_torus_pair,
+    try_torus_torus_pair,
+};
 use crate::geometry::edge_triple::error::EdgeTripleError;
 use crate::geometry::edge_triple::inputs::{EdgeAnchors, EdgeHint};
 use crate::geometry::edge_triple::levin::{
@@ -65,14 +57,7 @@ pub(super) fn try_dispatch_trig(
                 axis: ca,
                 radius: cr,
             },
-        ) => {
-            try_plane_cylinder_perpendicular(*po, *pn, *pu, *pv, false, *co, *ca, *cr, anchors, tol)
-                .or_else(|| {
-                    try_plane_cylinder_oblique(
-                        *po, *pn, *pu, *pv, false, *co, *ca, *cr, anchors, tol,
-                    )
-                })
-        }
+        ) => try_plane_cylinder_pair(*po, *pn, *pu, *pv, false, *co, *ca, *cr, anchors, tol),
         (
             Cylinder {
                 origin: co,
@@ -85,14 +70,7 @@ pub(super) fn try_dispatch_trig(
                 u_axis: pu,
                 v_axis: pv,
             },
-        ) => {
-            try_plane_cylinder_perpendicular(*po, *pn, *pu, *pv, true, *co, *ca, *cr, anchors, tol)
-                .or_else(|| {
-                    try_plane_cylinder_oblique(
-                        *po, *pn, *pu, *pv, true, *co, *ca, *cr, anchors, tol,
-                    )
-                })
-        }
+        ) => try_plane_cylinder_pair(*po, *pn, *pu, *pv, true, *co, *ca, *cr, anchors, tol),
         (
             Plane {
                 origin: po,
@@ -101,10 +79,7 @@ pub(super) fn try_dispatch_trig(
                 v_axis: pv,
             },
             Sphere { center, radius },
-        ) => try_plane_sphere_polar(*po, *pn, *pu, *pv, false, *center, *radius, anchors, tol)
-            .or_else(|| {
-                try_plane_sphere_general(*po, *pn, *pu, *pv, false, *center, *radius, anchors, tol)
-            }),
+        ) => try_plane_sphere_pair(*po, *pn, *pu, *pv, false, *center, *radius, anchors, tol),
         (
             Sphere { center, radius },
             Plane {
@@ -113,10 +88,7 @@ pub(super) fn try_dispatch_trig(
                 u_axis: pu,
                 v_axis: pv,
             },
-        ) => try_plane_sphere_polar(*po, *pn, *pu, *pv, true, *center, *radius, anchors, tol)
-            .or_else(|| {
-                try_plane_sphere_general(*po, *pn, *pu, *pv, true, *center, *radius, anchors, tol)
-            }),
+        ) => try_plane_sphere_pair(*po, *pn, *pu, *pv, true, *center, *radius, anchors, tol),
         (
             Plane {
                 origin: po,
@@ -129,7 +101,7 @@ pub(super) fn try_dispatch_trig(
                 axis,
                 half_angle,
             },
-        ) => try_plane_cone_perpendicular(
+        ) => try_plane_cone_pair(
             *po,
             *pn,
             *pu,
@@ -140,49 +112,7 @@ pub(super) fn try_dispatch_trig(
             *half_angle,
             anchors,
             tol,
-        )
-        .or_else(|| {
-            try_plane_cone_oblique_ellipse(
-                *po,
-                *pn,
-                *pu,
-                *pv,
-                false,
-                *apex,
-                *axis,
-                *half_angle,
-                anchors,
-                tol,
-            )
-        })
-        .or_else(|| {
-            try_plane_cone_oblique_parabola(
-                *po,
-                *pn,
-                *pu,
-                *pv,
-                false,
-                *apex,
-                *axis,
-                *half_angle,
-                anchors,
-                tol,
-            )
-        })
-        .or_else(|| {
-            try_plane_cone_oblique_hyperbola(
-                *po,
-                *pn,
-                *pu,
-                *pv,
-                false,
-                *apex,
-                *axis,
-                *half_angle,
-                anchors,
-                tol,
-            )
-        }),
+        ),
         (
             Cone {
                 apex,
@@ -195,7 +125,7 @@ pub(super) fn try_dispatch_trig(
                 u_axis: pu,
                 v_axis: pv,
             },
-        ) => try_plane_cone_perpendicular(
+        ) => try_plane_cone_pair(
             *po,
             *pn,
             *pu,
@@ -206,49 +136,7 @@ pub(super) fn try_dispatch_trig(
             *half_angle,
             anchors,
             tol,
-        )
-        .or_else(|| {
-            try_plane_cone_oblique_ellipse(
-                *po,
-                *pn,
-                *pu,
-                *pv,
-                true,
-                *apex,
-                *axis,
-                *half_angle,
-                anchors,
-                tol,
-            )
-        })
-        .or_else(|| {
-            try_plane_cone_oblique_parabola(
-                *po,
-                *pn,
-                *pu,
-                *pv,
-                true,
-                *apex,
-                *axis,
-                *half_angle,
-                anchors,
-                tol,
-            )
-        })
-        .or_else(|| {
-            try_plane_cone_oblique_hyperbola(
-                *po,
-                *pn,
-                *pu,
-                *pv,
-                true,
-                *apex,
-                *axis,
-                *half_angle,
-                anchors,
-                tol,
-            )
-        }),
+        ),
         (
             Sphere {
                 center: ca,
@@ -308,19 +196,9 @@ pub(super) fn try_dispatch_trig(
                 major_radius: t_big,
                 minor_radius: t_small,
             },
-        ) => try_plane_torus_perpendicular(
+        ) => try_plane_torus_pair(
             *po, *pn, *pu, *pv, false, *tc, *ta, *t_big, *t_small, anchors, tol,
-        )
-        .or_else(|| {
-            try_plane_torus_villarceau(
-                *po, *pn, *pu, *pv, false, *tc, *ta, *t_big, *t_small, anchors, tol,
-            )
-        })
-        .or_else(|| {
-            try_plane_torus_oblique(
-                *po, *pn, *pu, *pv, false, *tc, *ta, *t_big, *t_small, anchors, tol,
-            )
-        }),
+        ),
         (
             Torus {
                 center: tc,
@@ -334,19 +212,9 @@ pub(super) fn try_dispatch_trig(
                 u_axis: pu,
                 v_axis: pv,
             },
-        ) => try_plane_torus_perpendicular(
+        ) => try_plane_torus_pair(
             *po, *pn, *pu, *pv, true, *tc, *ta, *t_big, *t_small, anchors, tol,
-        )
-        .or_else(|| {
-            try_plane_torus_villarceau(
-                *po, *pn, *pu, *pv, true, *tc, *ta, *t_big, *t_small, anchors, tol,
-            )
-        })
-        .or_else(|| {
-            try_plane_torus_oblique(
-                *po, *pn, *pu, *pv, true, *tc, *ta, *t_big, *t_small, anchors, tol,
-            )
-        }),
+        ),
         (
             Cylinder {
                 origin: co,
@@ -487,7 +355,7 @@ pub(super) fn try_dispatch_trig(
                 major_radius: tor_big,
                 minor_radius: tor_small,
             },
-        ) => try_sphere_torus_axial(
+        ) => try_sphere_torus_pair(
             *center, *radius, false, *tc, *ta, *tor_big, *tor_small, anchors, tol,
         ),
         (
@@ -498,7 +366,7 @@ pub(super) fn try_dispatch_trig(
                 minor_radius: tor_small,
             },
             Sphere { center, radius },
-        ) => try_sphere_torus_axial(
+        ) => try_sphere_torus_pair(
             *center, *radius, true, *tc, *ta, *tor_big, *tor_small, anchors, tol,
         ),
         (
@@ -513,7 +381,7 @@ pub(super) fn try_dispatch_trig(
                 major_radius: tor_big,
                 minor_radius: tor_small,
             },
-        ) => try_cone_torus_axial(
+        ) => try_cone_torus_pair(
             *apex,
             *axis,
             *half_angle,
@@ -537,7 +405,7 @@ pub(super) fn try_dispatch_trig(
                 axis,
                 half_angle,
             },
-        ) => try_cone_torus_axial(
+        ) => try_cone_torus_pair(
             *apex,
             *axis,
             *half_angle,
@@ -561,7 +429,7 @@ pub(super) fn try_dispatch_trig(
                 major_radius: tor_big,
                 minor_radius: tor_small,
             },
-        ) => try_cyl_torus_axial(
+        ) => try_cyl_torus_pair(
             *co, *ca, *cr, false, *tc, *ta, *tor_big, *tor_small, anchors, tol,
         ),
         (
@@ -576,7 +444,7 @@ pub(super) fn try_dispatch_trig(
                 axis: ca,
                 radius: cr,
             },
-        ) => try_cyl_torus_axial(
+        ) => try_cyl_torus_pair(
             *co, *ca, *cr, true, *tc, *ta, *tor_big, *tor_small, anchors, tol,
         ),
         (
@@ -592,7 +460,7 @@ pub(super) fn try_dispatch_trig(
                 major_radius: big_b,
                 minor_radius: small_b,
             },
-        ) => try_torus_torus_coaxial(
+        ) => try_torus_torus_pair(
             *ca_t, *aa_t, *big_a, *small_a, *cb_t, *ab_t, *big_b, *small_b, anchors, tol,
         ),
         _ => None,
