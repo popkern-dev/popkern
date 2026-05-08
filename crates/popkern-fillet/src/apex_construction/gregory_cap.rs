@@ -32,8 +32,7 @@ use super::gregory_cap_boundary::{
     validate_physical_sector_handles, validate_planned_gregory_loop_roles,
 };
 pub(super) use super::gregory_cap_topology::{
-    compute_interior_vertex_set, eliminate_interior_edges, find_face_bounded_by_all_apex_edges,
-    merge_cap_side_accumulators,
+    find_face_bounded_by_all_apex_edges, merge_cap_side_accumulators,
 };
 use super::plan::ApexPlan;
 use super::target_topology::TargetCapFace;

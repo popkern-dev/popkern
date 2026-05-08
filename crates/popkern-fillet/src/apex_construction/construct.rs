@@ -8,7 +8,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 use crate::cancellation::CancellationToken;
 
-use super::construct_cleanup::{dissolve_cap_face_slits, dissolve_v_bridges_until_valence_le_1};
+use super::construct_cleanup::dissolve_v_bridges_until_valence_le_1;
 use super::construct_edges::resolve_apex_edges;
 pub use super::construct_result::ApexBuildResult;
 use super::construct_surface::assign_cap_surface;
@@ -123,12 +123,10 @@ fn construct_apex_inner(
         })?;
 
     // Perp-anchor relocation (§28.C): move anchors to plan targets before snap.
-    if !std::env::var("POPKERN_A2_RELOCATE_DISABLE").is_ok_and(|v| v == "1") {
-        super::perp_anchor_relocate::relocate_perp_anchors_to_plan_targets(brep, plan, tolerance)
-            .map_err(|reason| ApexBuildError::PlanMismatch {
+    super::perp_anchor_relocate::relocate_perp_anchors_to_plan_targets(brep, plan, tolerance)
+        .map_err(|reason| ApexBuildError::PlanMismatch {
             reason: format!("§28.C relocate_perp_anchors_to_plan_targets: {reason}"),
         })?;
-    }
     check_cancelled(cancel)?;
 
     // Apex vertex resolution (A2.2.b).
@@ -142,29 +140,6 @@ fn construct_apex_inner(
     let apex_vertex_handles = resolve_apex_vertices(brep, plan, fillet_surfaces, tolerance)?;
     check_cancelled(cancel)?;
 
-    // §27 commercial-grade design (Adopt + Create): we no longer
-    // run the stitch-and-weld surgery here — that was a symptomatic
-    // fix for the wrong-mef problem.  Apex edge resolution below distinguishes
-    // CapVsCyl (Adopt existing fillet-end arc) from CapVsPlane
-    // (Create new chord via mef on V-incident face).  Re-enable the
-    // stitch only as a last-resort fallback if both Adopt and
-    // Create fail for cyl-side edges.
-    //
-    // §A2.4 option 2 surgery is now SKIPPED in the §27 Adopt path.
-    // Set `POPKERN_A2_LEGACY_STITCH=1` to re-enable for diagnostics.
-    if std::env::var("POPKERN_A2_LEGACY_STITCH").is_ok_and(|v| v == "1") {
-        let stitched = super::cylinder_face_coherence::stitch_apex_edges_into_cyl_loops(
-            brep,
-            plan,
-            &apex_vertex_handles,
-        )
-        .map_err(|reason| ApexBuildError::PlanMismatch {
-            reason: format!("A2.4 option 2 stitch surgery: {reason}"),
-        })?;
-        if std::env::var_os("POPKERN_A2_TRACE").is_some() {
-            eprintln!("[a2-trace] §A2.4 stitched {stitched} apex_edge(s) into cyl loops");
-        }
-    }
     check_cancelled(cancel)?;
 
     // Apex edge resolution (A2.2.c + A2.2.d).
@@ -181,23 +156,9 @@ fn construct_apex_inner(
     let apex_edge_handles = resolve_apex_edges(brep, plan, &apex_vertex_handles, fillet_surfaces)?;
     check_cancelled(cancel)?;
 
-    // §27 Adopt+Create: skip interior vertex capture; apex teardown's
-    // V-spoke kef sequence produces a clean 2N-edge cap face when
-    // edge resolution used Adopt for CapVsCyl. Diagnostic re-enable via
-    // POPKERN_A2_INTERIOR_ELIMINATION=1.
     // Filter Some-edges for downstream consumers that index by edge,
     // not by plan-edge-idx.
     let valid_apex_edges: Vec<EdgeHandle> = apex_edge_handles.iter().filter_map(|e| *e).collect();
-    let interior_vertex_set: std::collections::HashSet<VertexHandle> =
-        if std::env::var("POPKERN_A2_INTERIOR_ELIMINATION").is_ok_and(|v| v == "1") {
-            super::gregory_cap::compute_interior_vertex_set(
-                brep,
-                plan.apex_vertex,
-                &valid_apex_edges,
-            )
-        } else {
-            std::collections::HashSet::new()
-        };
 
     // Apex teardown (A2.2.e).
     //
@@ -283,14 +244,9 @@ fn construct_apex_inner(
     // Robust: find the face whose outer loop contains all 2N
     // apex_edge handles.  This is the actual cap face regardless
     // of which half-side the kef happened to keep.
-    // Apex-region interior elimination. Two strategies:
-    // (a) `merge_cap_side_accumulators` (default) — targeted merge
-    //     that only kefs edges where one face is a cap-side
-    //     accumulator (≥2 apex_edges).  Avoids over-merging into
-    //     host faces.
-    // (b) `eliminate_interior_edges` (env-gated) — flood-fill
-    //     elimination from V's interior vertex set.  Older variant,
-    //     re-enable via POPKERN_A2_INTERIOR_ELIMINATION=1.
+    // Apex-region interior merge: targeted consolidation that only
+    // kefs edges where one face is a cap-side accumulator (>=2
+    // apex_edges), avoiding over-merge into host faces.
     if std::env::var_os("POPKERN_A2_TRACE").is_some() {
         eprintln!(
             "[a2-trace] post-apex-teardown (kef_cross/kev_v): kef_blend_face={kef_blend_face:?}; \
@@ -354,18 +310,11 @@ fn construct_apex_inner(
             eprintln!("[a2-trace]   apex_edge[{i}]={eh:?} → faces={faces:?}");
         }
     }
-    if std::env::var("POPKERN_A2_INTERIOR_ELIMINATION").is_ok_and(|v| v == "1") {
-        super::gregory_cap::eliminate_interior_edges(brep, &interior_vertex_set, &valid_apex_edges)
-            .map_err(|e| ApexBuildError::PlanMismatch {
-                reason: format!("eliminate_interior_edges: {e}"),
-            })?;
-    } else {
-        super::gregory_cap::merge_cap_side_accumulators(brep, &valid_apex_edges).map_err(|e| {
-            ApexBuildError::PlanMismatch {
-                reason: format!("merge_cap_side_accumulators: {e}"),
-            }
-        })?;
-    }
+    super::gregory_cap::merge_cap_side_accumulators(brep, &valid_apex_edges).map_err(|e| {
+        ApexBuildError::PlanMismatch {
+            reason: format!("merge_cap_side_accumulators: {e}"),
+        }
+    })?;
     if std::env::var_os("POPKERN_A2_TRACE").is_some() {
         eprintln!(
             "[a2-trace] post-merge_cap_side_accumulators: {} faces, {} edges; apex_edge face memberships:",
@@ -404,15 +353,6 @@ fn construct_apex_inner(
     let cap_face = super::gregory_cap::find_face_bounded_by_all_apex_edges(brep, &valid_apex_edges)
         .unwrap_or(kef_blend_face);
 
-    // §28.H Session 3.8 — cap-face slit dissolve.  After Session 3+
-    // creates V-corner triangles and apex teardown plus cap-side
-    // accumulator merging settle the topology, the cap face has many
-    // "slit" edges (twin half-edge on same loop) where the merge
-    // pinched a sub-face into the cap.  Dissolve them to
-    // consolidate toward the 2N=6 form K-P expects.
-    if std::env::var("POPKERN_A2_NATIVE_CARVE").is_ok_and(|v| v == "1") {
-        dissolve_cap_face_slits(brep, cap_face, &valid_apex_edges);
-    }
     if std::env::var_os("POPKERN_A2_TRACE").is_some()
         && let Some(face) = brep.faces.get(cap_face)
         && let Some(loop_data) = brep.loops.get(face.outer_loop)
