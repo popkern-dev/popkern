@@ -1,0 +1,456 @@
+use super::tests_support::*;
+use crate::geometry::edge_triple::{
+    AnalyticPair, EdgeAnchors, EdgeTripleError, EdgeTripleOptions, EdgeTripleProvenance,
+    ParameterMap, compute_edge_geometry,
+};
+use crate::geometry::surface::SurfaceGeometry;
+use crate::geometry::{Point3, Vec3};
+use crate::tolerance::Tolerance;
+
+#[test]
+fn plane_plane_intersection_line() {
+    let a = xy_plane();
+    let b = xz_plane_at(0.0); // y = 0 plane through origin
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let start = Point3::new(-2.0, 0.0, 0.0);
+    let end = Point3::new(2.0, 0.0, 0.0);
+    let anchors = EdgeAnchors::Open { start, end };
+
+    let triple = compute_edge_geometry(&a, &b, anchors, None, &tol, &opts)
+        .expect("plane×plane analytic dispatch");
+
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlanePlane,
+            ..
+        }
+    ));
+    assert_guarantees(&triple, &a, &b, start, end, &tol);
+}
+
+#[test]
+fn plane_cylinder_perpendicular_analytic_circle() {
+    // Stage 2b.3: plane perpendicular to cyl axis returns an
+    // analytic Circle 3D + Linear cyl pcurve + Elliptical plane
+    // pcurve, with `ParameterMap::Identity`.
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.5),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let cyl = z_axis_cyl(1.0);
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let start = Point3::new(1.0, 0.0, 0.5);
+    let end = Point3::new(-1.0, 0.0, 0.5);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&plane, &cyl, anchors, None, &tol, &opts)
+        .expect("plane×cyl analytic dispatch");
+
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneCylinder,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Arc { .. }
+    ));
+    assert_guarantees(&triple, &plane, &cyl, start, end, &tol);
+}
+
+#[test]
+fn plane_cylinder_oblique_analytic_ellipse() {
+    // Stage 2b.11: tilt the cutting plane 30° off horizontal. The
+    // intersection is a 3-D ellipse; the dispatcher must return
+    // `CurveGeometry::Ellipse` with the cyl side as a Sinusoidal
+    // pcurve and the plane side as an Elliptical pcurve.
+    let cyl = z_axis_cyl(1.0);
+    // Plane normal tilted 30° from +Z toward +X: passes through the
+    // origin, normal = (sin 30°, 0, cos 30°) = (0.5, 0, √3/2).
+    let n = Vec3::new(0.5, 0.0, 3.0_f64.sqrt() / 2.0);
+    // Choose plane u in the cutting plane, perpendicular to the
+    // global Y axis projection. We pick u = (cos 30°, 0, -sin 30°)
+    // and v = (0, 1, 0). Both are perpendicular to n.
+    let pu = Vec3::new(3.0_f64.sqrt() / 2.0, 0.0, -0.5);
+    let pv = Vec3::new(0.0, 1.0, 0.0);
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: n,
+        u_axis: pu,
+        v_axis: pv,
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+
+    // Anchor at θ = 0 on the cylinder: x = 1, y = 0; the cutting
+    // plane through origin with normal n places z so that
+    // (x, y, z)·n = 0  ⇒  z = -x · (sin30°/cos30°) = -1/√3.
+    let z_for = |x: f64, y: f64| -(x * n.x + y * n.y) / n.z;
+    let start = Point3::new(1.0, 0.0, z_for(1.0, 0.0));
+    let end = Point3::new(-1.0, 0.0, z_for(-1.0, 0.0));
+    let anchors = EdgeAnchors::Open { start, end };
+
+    let triple = compute_edge_geometry(&plane, &cyl, anchors, None, &tol, &opts)
+        .expect("plane×cyl oblique analytic dispatch");
+
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneCylinder,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Ellipse { .. }
+    ));
+    // The cyl-side pcurve must be Sinusoidal (analytic, not NURBS).
+    assert!(
+        triple.pcurve_b.is_analytic(),
+        "cyl pcurve should be analytic"
+    );
+    assert!(matches!(
+        triple.pcurve_b.geometry,
+        crate::geometry::pcurve::PcurveGeometry::Sinusoidal { .. }
+    ));
+    assert_guarantees(&triple, &plane, &cyl, start, end, &tol);
+}
+
+#[test]
+fn plane_cone_oblique_analytic_ellipse() {
+    // Stage 2b.12: cone half-angle 30°, plane tilted 30° from
+    // perpendicular. With angle α = 30° from axis and cone θ = 30°,
+    // |cos α| = √3/2 > tan(30°)·sin(30°) = 1/(2√3) — ellipse case.
+    let cone = z_axis_cone(std::f64::consts::FRAC_PI_6); // 30°
+    // Plane passes through (0, 0, 1) with normal tilted 30° from
+    // +Z toward +X: (sin 30°, 0, cos 30°) = (0.5, 0, √3/2).
+    let n = Vec3::new(0.5, 0.0, 3.0_f64.sqrt() / 2.0);
+    let pu = Vec3::new(3.0_f64.sqrt() / 2.0, 0.0, -0.5);
+    let pv = Vec3::new(0.0, 1.0, 0.0);
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 1.0),
+        normal: n,
+        u_axis: pu,
+        v_axis: pv,
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+
+    // Anchors at cone u=0 and u=π. Solve cone v from plane equation:
+    //   point = (±v/√3, 0, v); plane: 0.5·x + √3/2·(z-1) = 0
+    //   ⇒ v(0)   = 3/4         (u=0):  (√3/4, 0, 3/4)
+    //   ⇒ v(π)   = 3/2         (u=π):  (−√3/2, 0, 3/2)
+    let start = Point3::new(3.0_f64.sqrt() / 4.0, 0.0, 0.75);
+    let end = Point3::new(-3.0_f64.sqrt() / 2.0, 0.0, 1.5);
+    let anchors = EdgeAnchors::Open { start, end };
+
+    let triple = compute_edge_geometry(&plane, &cone, anchors, None, &tol, &opts)
+        .expect("plane×cone oblique analytic dispatch");
+
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneCone,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Ellipse { .. }
+    ));
+    assert_guarantees(&triple, &plane, &cone, start, end, &tol);
+}
+
+#[test]
+fn plane_cone_oblique_analytic_parabola() {
+    // Stage 2b.13: cone half-angle 30°, plane normal at exactly
+    // 60° from the axis — the case-boundary between ellipse and
+    // hyperbola. Result: an analytic parabola.
+    let cone = z_axis_cone(std::f64::consts::FRAC_PI_6);
+    // n = (sin 60°, 0, cos 60°) = (√3/2, 0, 1/2). pu = (cos 60°, 0,
+    // -sin 60°) = (1/2, 0, -√3/2). pv = (0, 1, 0). Plane through
+    // (1, 0, 0): cuts the cone along a parabola whose vertex is at
+    // (1/2, 0, √3/2) — the cone point at u = 0.
+    let n = Vec3::new(3.0_f64.sqrt() / 2.0, 0.0, 0.5);
+    let pu = Vec3::new(0.5, 0.0, -3.0_f64.sqrt() / 2.0);
+    let pv = Vec3::new(0.0, 1.0, 0.0);
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(1.0, 0.0, 0.0),
+        normal: n,
+        u_axis: pu,
+        v_axis: pv,
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+
+    // Anchors at cone u = ±π/3, derived analytically from the plane
+    // equation v(u) = √3 / (1 + cos u). At u = π/3, v = 2√3/3, so
+    // the cone point is (1/3, √3/3, 2√3/3).
+    let v_at_third = 2.0 * 3.0_f64.sqrt() / 3.0;
+    let start = Point3::new(1.0 / 3.0, -3.0_f64.sqrt() / 3.0, v_at_third);
+    let end = Point3::new(1.0 / 3.0, 3.0_f64.sqrt() / 3.0, v_at_third);
+    let anchors = EdgeAnchors::Open { start, end };
+
+    let triple = compute_edge_geometry(&plane, &cone, anchors, None, &tol, &opts)
+        .expect("plane×cone parabola analytic dispatch");
+
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneCone,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Parabola { .. }
+    ));
+    assert_guarantees(&triple, &plane, &cone, start, end, &tol);
+}
+
+#[test]
+fn plane_cone_oblique_analytic_hyperbola() {
+    // Stage 2b.14: cone half-angle 30°, plane normal at 75° from
+    // axis (steeper than the case-boundary at 60°). Result:
+    // analytic hyperbola.
+    let cone = z_axis_cone(std::f64::consts::FRAC_PI_6);
+    let n_angle = 75.0_f64.to_radians();
+    let n = Vec3::new(n_angle.sin(), 0.0, n_angle.cos());
+    let pu = Vec3::new(n_angle.cos(), 0.0, -n_angle.sin());
+    let pv = Vec3::new(0.0, 1.0, 0.0);
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(1.0, 0.0, 0.0),
+        normal: n,
+        u_axis: pu,
+        v_axis: pv,
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+
+    // Anchors at cone u = ±π/3. Plane equation: 0.9659·x +
+    // 0.2588·z = 0.9659 ⇒ z = (0.9659 − 0.9659·x)/0.2588 (when
+    // y = 0). For points on cone (u, v): x = v·cos(u)/√3, y =
+    // v·sin(u)/√3, z = v. Combine to get v as a function of u.
+    let cn = n.dot(&Vec3::new(0.0, 0.0, 1.0));
+    let p1 = Vec3::new(1.0, 0.0, 0.0).dot(&n);
+    let p2 = Vec3::new(0.0, 1.0, 0.0).dot(&n);
+    let t = std::f64::consts::FRAC_PI_6.tan();
+    let d_signed = (Point3::new(1.0, 0.0, 0.0) - Point3::new(0.0, 0.0, 0.0)).dot(&n);
+
+    let cone_pt = |u: f64| -> Point3 {
+        let v = d_signed / (cn + t * (p1 * u.cos() + p2 * u.sin()));
+        Point3::new(
+            v * u.cos() / 3.0_f64.sqrt(),
+            v * u.sin() / 3.0_f64.sqrt(),
+            v,
+        )
+    };
+    let start = cone_pt(-std::f64::consts::FRAC_PI_3);
+    let end = cone_pt(std::f64::consts::FRAC_PI_3);
+    let anchors = EdgeAnchors::Open { start, end };
+
+    let triple = compute_edge_geometry(&plane, &cone, anchors, None, &tol, &opts)
+        .expect("plane×cone hyperbola analytic dispatch");
+
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneCone,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Hyperbola { .. }
+    ));
+    assert_guarantees(&triple, &plane, &cone, start, end, &tol);
+}
+
+#[test]
+fn plane_sphere_oblique_analytic_circle() {
+    // Stage 2b.15: plane normal NOT aligned with the sphere's polar
+    // axis. The polar dispatcher returns None and we fall through
+    // to the general dispatcher, which still produces an exact
+    // analytic Arc (every plane-sphere intersection is a circle).
+    let sphere = unit_sphere_at(Point3::new(0.0, 0.0, 0.0));
+    // Plane through origin with normal (1, 0, 1)/√2 — a non-axis-
+    // aligned great-circle slice that doesn't pass through either
+    // sphere pole, so the (longitude, colatitude) NURBS fit on the
+    // sphere stays well-conditioned.
+    let inv_root2 = 1.0 / 2.0_f64.sqrt();
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(inv_root2, 0.0, inv_root2),
+        u_axis: Vec3::new(0.0, 1.0, 0.0),
+        v_axis: Vec3::new(-inv_root2, 0.0, inv_root2),
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    // Two points on the great circle (orthogonal to plane normal,
+    // unit distance from sphere centre); both stay in the equatorial
+    // band on the sphere, away from poles.
+    let start = Point3::new(0.0, 1.0, 0.0);
+    let end = Point3::new(-inv_root2, 0.0, inv_root2);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&plane, &sphere, anchors, None, &tol, &opts)
+        .expect("plane×sphere general analytic dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneSphere,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Arc { .. }
+    ));
+    assert_guarantees(&triple, &plane, &sphere, start, end, &tol);
+}
+
+#[test]
+fn plane_sphere_polar_analytic_circle() {
+    // Stage 2b.4: equator slice of a unit sphere by the XY plane.
+    // Expected: analytic Arc 3D + Linear sphere pcurve at v=π/2 +
+    // Elliptical plane pcurve, ParameterMap::Identity.
+    let plane = xy_plane();
+    let sphere = unit_sphere_at(Point3::new(0.0, 0.0, 0.0));
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let start = Point3::new(1.0, 0.0, 0.0);
+    let end = Point3::new(-1.0, 0.0, 0.0);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&plane, &sphere, anchors, None, &tol, &opts)
+        .expect("plane×sphere analytic dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneSphere,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert_guarantees(&triple, &plane, &sphere, start, end, &tol);
+}
+
+#[test]
+fn plane_torus_perpendicular_analytic_circle() {
+    // Stage 2b.16: cutting plane perpendicular to the torus axis at
+    // height h = 0.5·minor_radius. Two intersection circles appear;
+    // the dispatcher selects whichever branch the anchors lie on.
+    let torus = nurbs_torus_dummy(); // R = 5, r = 1
+    // Plane at z = 0.5 (h = 0.5 · r), perpendicular to axis (0,0,1).
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.5),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    // sin v = 0.5 ⇒ v_outer = π/6 (cos v = √3/2). Outer circle radius
+    // = R + r·cos v = 5 + √3/2 ≈ 5.866.
+    let r_circ = 5.0 + 3.0_f64.sqrt() / 2.0;
+    // Anchors at u = 0 and u = π/2 on the outer circle.
+    let start = Point3::new(r_circ, 0.0, 0.5);
+    let end = Point3::new(0.0, r_circ, 0.5);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&plane, &torus, anchors, None, &tol, &opts)
+        .expect("plane×torus axis-perpendicular analytic dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneTorus,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert!(matches!(
+        triple.curve_3d,
+        crate::geometry::curve::CurveGeometry::Arc { .. }
+    ));
+    assert_guarantees(&triple, &plane, &torus, start, end, &tol);
+}
+
+#[test]
+fn plane_cone_perpendicular_analytic_circle() {
+    // Stage 2b.5: 45° cone, plane perpendicular to axis at z=1.
+    // Circle radius = h * tan(half_angle) = 1.0 * 1.0 = 1.0.
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 1.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let cone = z_axis_cone(std::f64::consts::FRAC_PI_4);
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let start = Point3::new(1.0, 0.0, 1.0);
+    let end = Point3::new(-1.0, 0.0, 1.0);
+    let anchors = EdgeAnchors::Open { start, end };
+    let triple = compute_edge_geometry(&plane, &cone, anchors, None, &tol, &opts)
+        .expect("plane×cone analytic dispatch");
+    assert!(matches!(
+        triple.provenance,
+        EdgeTripleProvenance::AnalyticIntersection {
+            kind: AnalyticPair::PlaneCone,
+            ..
+        }
+    ));
+    assert_eq!(triple.parameter_map, ParameterMap::Identity);
+    assert_guarantees(&triple, &plane, &cone, start, end, &tol);
+}
+
+#[test]
+fn analytic_dispatch_returns_no_intersection_for_parallel_planes() {
+    let a = xy_plane();
+    let b = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 1.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let anchors = EdgeAnchors::Open {
+        start: Point3::new(0.0, 0.0, 0.0),
+        end: Point3::new(1.0, 0.0, 0.0),
+    };
+    let result = compute_edge_geometry(&a, &b, anchors, None, &tol, &opts);
+    assert!(matches!(result, Err(EdgeTripleError::NoIntersection)));
+}
+
+#[test]
+fn determinism_identical_inputs_identical_output() {
+    // G6: same inputs -> bit-identical output.
+    let a = xy_plane();
+    let b = xz_plane_at(0.0);
+    let tol = Tolerance::default();
+    let opts = EdgeTripleOptions::default();
+    let anchors = EdgeAnchors::Open {
+        start: Point3::new(-2.0, 0.0, 0.0),
+        end: Point3::new(2.0, 0.0, 0.0),
+    };
+
+    let t1 = compute_edge_geometry(&a, &b, anchors.clone(), None, &tol, &opts).unwrap();
+    let t2 = compute_edge_geometry(&a, &b, anchors, None, &tol, &opts).unwrap();
+
+    let s1 = serde_json::to_string(&t1).unwrap();
+    let s2 = serde_json::to_string(&t2).unwrap();
+    assert_eq!(
+        s1, s2,
+        "G6 determinism: identical inputs -> identical output"
+    );
+}
