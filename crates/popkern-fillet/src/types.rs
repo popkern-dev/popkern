@@ -1,6 +1,14 @@
 //! API types for fillet and chamfer specifications.
 
-use popkern_core::topology::{EdgeHandle, FaceHandle, VertexHandle};
+#[path = "types_chamfer.rs"]
+mod types_chamfer;
+#[path = "types_corner.rs"]
+mod types_corner;
+
+pub use types_chamfer::{ChamferKind, ChamferOptions, ChamferSpec};
+pub use types_corner::{CornerMethod, CornerPatchInfo};
+
+use popkern_core::topology::EdgeHandle;
 
 use crate::error::BlendWarning;
 
@@ -16,106 +24,6 @@ pub struct BlendResult {
     /// inserted. Empty when the operation produced no vertex
     /// blends. See [`CornerPatchInfo`] for the schema.
     pub corner_patches: Vec<CornerPatchInfo>,
-}
-
-/// §5.3 corner-resolution method used to build a single vertex-
-/// blend patch. Reported on [`CornerPatchInfo::method`] so a UI
-/// can tell at a glance which algorithm fired and colour the
-/// corners accordingly.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CornerMethod {
-    /// Rolling-ball sphere — equal-radius cube-corner case. G1.
-    RollingBallSphere,
-    /// Polar NURBS surface fit through the boundary curves. G0.
-    PolarNurbs,
-    /// Flat (mitred) plane fit — legacy G0 fallback.
-    Mitred,
-    /// §5.3 Coons patch for N=4 corners. G1. [Pending — C3.]
-    Coons,
-    /// §5.3 Gregory rational patch for general N. G1; G2 for N=3, 4.
-    Gregory,
-    /// Polyhedral-Net Splines (KK-Peters 2015) bi-4 cap. G1 with
-    /// the supporting fillet/face surfaces at the boundary; valid
-    /// for N ∈ {3, 5, 6, 7, 8, 9, 10, 11, 12} (N=4 rejected — σ
-    /// singularity).
-    PolyhedralNetSpline,
-    /// §5.3 item #7 — planar cap at a tangent corner (dihedral ≈
-    /// π); plane normal = averaged fillet-surface normal at the
-    /// arcs. G1 with incident fillets (tangent-approximation).
-    TangentPlane,
-    /// §5.3 Plate-minimisation (thin-plate energy). [BEYOND.]
-    PlateMin,
-}
-
-impl CornerMethod {
-    /// Display string for diagnostics and UI.
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            CornerMethod::RollingBallSphere => "RollingBallSphere",
-            CornerMethod::PolarNurbs => "PolarNurbs",
-            CornerMethod::Mitred => "Mitred",
-            CornerMethod::Coons => "Coons",
-            CornerMethod::Gregory => "Gregory",
-            CornerMethod::PolyhedralNetSpline => "PolyhedralNetSpline",
-            CornerMethod::TangentPlane => "TangentPlane",
-            CornerMethod::PlateMin => "PlateMin",
-        }
-    }
-}
-
-impl std::fmt::Display for CornerMethod {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// §5.3 per-corner patch report emitted on
-/// [`BlendResult::corner_patches`]. One entry per vertex where a
-/// blend patch was inserted. A UI uses this to annotate each corner
-/// with its method, N, and achieved continuity.
-#[derive(Debug, Clone)]
-pub struct CornerPatchInfo {
-    /// The original BRep vertex the corner was resolved at.
-    pub vertex: VertexHandle,
-    /// Number of incoming blend boundaries (the N in "N-sided
-    /// patch"). 2 for a two-blend corner; 3 for a cube-style
-    /// trihedral vertex; 4+ for higher-valence junctions.
-    pub n_sides: usize,
-    /// Which construction method produced the patch — see
-    /// [`CornerMethod`]. A UI should display this alongside the
-    /// achieved continuity so callers can distinguish a G1
-    /// Rolling-Ball-Sphere (clean analytic output) from a G0
-    /// Mitred fallback (flat plane, Class-A failure).
-    pub method: CornerMethod,
-    /// The [`ContinuityLevel`] actually achieved at the corner-vs-
-    /// edge boundaries. Lower than the requested
-    /// [`FilletOptions::continuity`] when the method couldn't
-    /// deliver — see [`crate::error::BlendWarning::CornerContinuityDowngraded`].
-    pub achieved_continuity: ContinuityLevel,
-    /// §5.3 C6 — the vertex-blend classification that drove dispatch.
-    pub classification: crate::vertex_classifier::VertexBlendClassification,
-    /// The corner face handle in the output BRep.
-    pub face: FaceHandle,
-    /// §5.3 item #6 — surface-variant names (e.g. `"Cylinder"`)
-    /// for any curved face whose blend bridge fell back to a
-    /// straight-line Bezier. Empty in the all-planar case.
-    pub bridge_fallbacks: Vec<&'static str>,
-    /// §5.3 item #10 — `true` when the Gregory three-quad
-    /// output self-intersected and the corner was remediated by
-    /// falling back to a single polar-NURBS patch. Paired with
-    /// [`BlendWarning::CornerRemediationOverlap`](crate::error::BlendWarning::CornerRemediationOverlap).
-    pub overlap_remediated: bool,
-    /// Phase H.8 step-D — `Some(worst_coplanarity)` when the K-P binonic shipped above the 5e-2 commercial gate. Paired with [`CornerContinuityRelaxed`](crate::error::BlendWarning::CornerContinuityRelaxed).
-    pub relaxed_continuity_coplanarity: Option<f64>,
-    /// Phase 6c-A continuation §4.2 — per-fillet sphere fit `(centre, radius)`
-    /// for this sub-face, when sphere-fit substitution succeeded for the
-    /// containing blend boundary.  Populated from
-    /// [`BlendBoundary::per_fillet_caps`] regardless of whether the
-    /// sphere-cap rung was applied to the surface — so downstream
-    /// consumers (Phase 6c-A reroute, Phase 6c-D Gregory cap rung)
-    /// can identify cap faces and their nominal sphere parameters
-    /// even when the surface itself is a Gregory patch.
-    pub cap_sphere: Option<(popkern_core::geometry::Point3, f64)>,
 }
 
 /// Specification for a single fillet edge.
@@ -478,53 +386,4 @@ pub enum CapKind {
     /// requesting this kind currently falls back to [`Self::Open`]
     /// with a warning.
     UserDefined,
-}
-
-/// Specification for a single chamfer edge.
-#[derive(Debug, Clone)]
-pub struct ChamferSpec {
-    /// The edge to chamfer.
-    pub edge: EdgeHandle,
-    /// The chamfer geometry.
-    pub kind: ChamferKind,
-}
-
-/// Chamfer geometry definition.
-#[derive(Debug, Clone)]
-pub enum ChamferKind {
-    /// Equal-distance chamfer (45-degree bevel).
-    Equal(f64),
-    /// Two-distance chamfer with specified face orientation.
-    TwoDistance {
-        /// Reference face for the first distance.
-        face_1: FaceHandle,
-        /// Distance on the first face.
-        dist_1: f64,
-        /// Distance on the second (opposite) face.
-        dist_2: f64,
-    },
-    /// Distance-and-angle chamfer.
-    DistanceAngle {
-        /// Reference face for the distance measurement.
-        face: FaceHandle,
-        /// Distance from the edge on the reference face.
-        distance: f64,
-        /// Angle in radians from the reference face.
-        angle: f64,
-    },
-}
-
-/// Options controlling chamfer behaviour.
-#[derive(Debug, Clone)]
-pub struct ChamferOptions {
-    /// Whether to automatically propagate chamfers along tangent-continuous edge chains.
-    pub propagate_tangent: bool,
-}
-
-impl Default for ChamferOptions {
-    fn default() -> Self {
-        Self {
-            propagate_tangent: true,
-        }
-    }
 }
