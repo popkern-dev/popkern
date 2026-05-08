@@ -18,6 +18,7 @@
 pub(crate) mod collapse;
 pub(crate) mod detect;
 pub(crate) mod execute;
+mod execute_geometry;
 pub(crate) mod plan;
 pub(crate) mod rebuild;
 pub(crate) mod var_radius;
