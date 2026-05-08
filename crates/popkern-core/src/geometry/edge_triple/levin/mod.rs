@@ -57,6 +57,7 @@ mod polynomial;
 mod qsqrtd;
 mod qsqrtd_decompose;
 mod qsqrtd_nested;
+mod qsqrtd_nested_dispatch;
 mod quadric;
 mod rational;
 mod rational_quadric;
