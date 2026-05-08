@@ -19,6 +19,7 @@ pub(super) fn remove_apex_vertex(
     plan: &ApexPlan,
     cap_face: FaceHandle,
     repeated_apex_normalized: bool,
+    require_v_free_repeated_apex: bool,
 ) -> Result<(), ApexBuildError> {
     let v = plan.apex_vertex;
     if !brep.vertices.contains_key(v) {
@@ -26,7 +27,12 @@ pub(super) fn remove_apex_vertex(
     }
 
     if repeated_apex_normalized {
-        return remove_apex_vertex_after_repeated_apex_normalization(brep, plan, cap_face);
+        return remove_apex_vertex_after_repeated_apex_normalization(
+            brep,
+            plan,
+            cap_face,
+            require_v_free_repeated_apex,
+        );
     }
 
     let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
@@ -182,6 +188,7 @@ fn remove_apex_vertex_after_repeated_apex_normalization(
     brep: &mut BRep,
     plan: &ApexPlan,
     cap_face: FaceHandle,
+    require_v_free_repeated_apex: bool,
 ) -> Result<(), ApexBuildError> {
     let v = plan.apex_vertex;
     let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
@@ -204,7 +211,7 @@ fn remove_apex_vertex_after_repeated_apex_normalization(
         );
     }
 
-    if std::env::var_os("POPKERN_A2_REQUIRE_V_FREE_REPEATED_APEX").is_some() {
+    if require_v_free_repeated_apex {
         let production_faces = production_faces_containing_vertex(brep, v);
         if !production_faces.is_empty() {
             return Err(ApexBuildError::PlanMismatch {

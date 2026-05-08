@@ -170,7 +170,13 @@ fn construct_apex_inner_constructive(
             check_cancelled(cancel)?;
             let cap_face = construct_sphere_cap_face_from_v_incident_edges(brep, plan)?;
             check_cancelled(cancel)?;
-            remove_apex_vertex(brep, plan, cap_face, false)?;
+            remove_apex_vertex(
+                brep,
+                plan,
+                cap_face,
+                false,
+                execution_options.require_v_free_repeated_apex(),
+            )?;
             check_cancelled(cancel)?;
             assign_sphere_cap_surface(brep, cap_face, *cap_center, *cap_radius)?;
             let corner_patches = vec![CornerPatchInfo {
@@ -247,7 +253,13 @@ fn construct_apex_inner_constructive(
             )?;
             let fillet_end_handles = collect_required_fillet_ends(fillet_end_handles)?;
             check_cancelled(cancel)?;
-            remove_apex_vertex(brep, plan, cap_face, repeated_apex_normalized)?;
+            remove_apex_vertex(
+                brep,
+                plan,
+                cap_face,
+                repeated_apex_normalized,
+                execution_options.require_v_free_repeated_apex(),
+            )?;
             check_cancelled(cancel)?;
             let corner_patches = assign_gregory_cap_surface(
                 brep,
