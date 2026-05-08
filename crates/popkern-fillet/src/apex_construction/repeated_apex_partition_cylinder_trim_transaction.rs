@@ -104,7 +104,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
         cap_boundary_plan.validate_adjacent_loop_rewrite_readiness()?;
         let mut boundary_outcome = cap_boundary_plan.boundary_outcome(&topology_plans);
         boundary_outcome.plan_strip_loop_overrides(brep, fillet_ends)?;
-        if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        if crate::a2_trace::enabled() {
             eprintln!(
                 "[a2-trace §14.9/cylinder-trim-rewrite] topology_plans=[{}]; side_support_continuation={}; {}; {}",
                 topology_plans
@@ -159,7 +159,7 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
     ) {
         Ok(()) => {
             let after = topology_count_summary(&candidate);
-            if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+            if crate::a2_trace::enabled() {
                 eprintln!(
                     "[a2-trace §14.9/topology-preflight] accepted before {}; after {}; delta {}; side_support_continuation={}; {}; {}",
                     before.diagnostic_label(),

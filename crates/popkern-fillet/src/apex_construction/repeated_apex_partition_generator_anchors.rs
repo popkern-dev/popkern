@@ -95,7 +95,7 @@ pub(super) fn materialize_missing_generator_anchors(
                 &allowed_support_faces,
                 fillet_end.fillet_index,
             )?;
-            if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+            if crate::a2_trace::enabled() {
                 let support_boundary_hits = support_plane_faces_containing_point(
                     brep,
                     fillet_end.target_cylinder_face,

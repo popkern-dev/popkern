@@ -134,7 +134,7 @@ pub(super) fn materialized_far_side_trim_sides(
             (Ok(curve_a), Ok(curve_b)) => {
                 brep.edges[edge_a].curve = Some(curve_a);
                 brep.edges[edge_b].curve = Some(curve_b);
-                if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+                if crate::a2_trace::enabled() {
                     eprintln!(
                         "[a2-trace §14.9/cylinder-loop-replace] split far-side FilletEnd[{}] \
                          through joint {joint:?} using supports {:?}->{:?}",
@@ -188,7 +188,7 @@ pub(super) fn materialized_far_side_trim_sides(
     {
         let (edge, half_edge) = insert_boundary_half_edge(brep, start);
         brep.edges[edge].curve = Some(curve);
-        if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        if crate::a2_trace::enabled() {
             eprintln!(
                 "[a2-trace §14.9/cylinder-loop-replace] FilletEnd[{fillet_index}] authored \
                  cylinder-only far-side boundary arc {start:?}->{end:?}; support transition \

@@ -179,7 +179,7 @@ fn construct_apex_inner(
     // The legacy helpers (`pub(crate)` in
     // `crate::construct::blend_insert`) handle the iterative kef
     // / outgoing repair / safety cap that A2 needs verbatim.
-    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+    if crate::a2_trace::enabled() {
         let v = plan.apex_vertex;
         let mut incidences: Vec<(EdgeHandle, FaceHandle, FaceHandle, VertexHandle)> = Vec::new();
         for (eh, edge) in &brep.edges {
@@ -247,7 +247,7 @@ fn construct_apex_inner(
     // Apex-region interior merge: targeted consolidation that only
     // kefs edges where one face is a cap-side accumulator (>=2
     // apex_edges), avoiding over-merge into host faces.
-    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+    if crate::a2_trace::enabled() {
         eprintln!(
             "[a2-trace] post-apex-teardown (kef_cross/kev_v): kef_blend_face={kef_blend_face:?}; \
              {} faces, {} edges",
@@ -315,7 +315,7 @@ fn construct_apex_inner(
             reason: format!("merge_cap_side_accumulators: {e}"),
         }
     })?;
-    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+    if crate::a2_trace::enabled() {
         eprintln!(
             "[a2-trace] post-merge_cap_side_accumulators: {} faces, {} edges; apex_edge face memberships:",
             brep.faces.len(),
@@ -353,7 +353,7 @@ fn construct_apex_inner(
     let cap_face = super::gregory_cap::find_face_bounded_by_all_apex_edges(brep, &valid_apex_edges)
         .unwrap_or(kef_blend_face);
 
-    if std::env::var_os("POPKERN_A2_TRACE").is_some()
+    if crate::a2_trace::enabled()
         && let Some(face) = brep.faces.get(cap_face)
         && let Some(loop_data) = brep.loops.get(face.outer_loop)
     {

@@ -55,7 +55,7 @@ pub(super) fn relocate_perp_anchors_to_plan_targets(
     plan: &ApexPlan,
     tolerance: &Tolerance,
 ) -> Result<(usize, f64), String> {
-    let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let trace = crate::a2_trace::enabled();
     let targets: &[Point3] = &plan.target_topology.apex_vertices;
     if targets.is_empty() {
         return Ok((0, 0.0));

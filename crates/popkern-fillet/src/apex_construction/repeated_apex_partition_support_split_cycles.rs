@@ -182,7 +182,7 @@ fn trace_support_split_incomplete_cycles(
     supplemented: &[HalfEdgeHandle],
     cycles: &[Vec<HalfEdgeHandle>],
 ) {
-    if std::env::var_os("POPKERN_A2_TRACE").is_none() {
+    if !crate::a2_trace::enabled() {
         return;
     }
     let spans = missing_spans

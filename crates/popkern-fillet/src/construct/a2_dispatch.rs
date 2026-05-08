@@ -105,7 +105,7 @@ pub(super) fn try_a2_apex_construction(
         })
         .collect();
 
-    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+    if crate::a2_trace::enabled() {
         eprintln!(
             "[a2-trace] try_a2_apex_construction: vertex={vertex:?}; \
              pre-call BRep has {} faces, {} edges, {} vertices",
@@ -192,7 +192,7 @@ pub(super) fn try_a2_apex_construction(
     // (where A2 will fail downstream).  Future slices will use
     // this detection to drive the actual `kef`/`split_edge`
     // surgery that rebuilds coherent cylinder loops.
-    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+    if crate::a2_trace::enabled() {
         let incoherent =
             crate::apex_construction::cylinder_face_coherence::find_off_cyl_loop_vertices(brep);
         if !incoherent.is_empty() {
@@ -285,7 +285,7 @@ fn try_constructive_with_legacy_fallthrough(
                             })
                     };
                 if let Some(constructive_err) = constructive_err {
-                    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+                    if crate::a2_trace::enabled() {
                         eprintln!(
                             "[a2-trace] constructive fell through to legacy A2: {constructive_err}"
                         );
@@ -303,7 +303,7 @@ fn try_constructive_with_legacy_fallthrough(
             Ok(result)
         }
         Err(constructive_err) => {
-            if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+            if crate::a2_trace::enabled() {
                 eprintln!("[a2-trace] constructive fell through to legacy A2: {constructive_err}");
             }
             construct_apex_with_surfaces(brep, plan, surfaces, tolerance, None).map_err(
@@ -326,7 +326,7 @@ fn native_gregory_path_a_error(brep: &BRep) -> Option<String> {
             Some(format!("{err:?}"))
         }
         ValidationError::OpenLoop { loop_, .. } => {
-            if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+            if crate::a2_trace::enabled() {
                 trace_loop_for_acceptance_failure(brep, loop_);
             }
             Some(format!("{err:?}"))
@@ -426,7 +426,7 @@ fn native_gregory_cap_outer_g0_error(
         let p_b = sb.geometry.point_at(uv_b.x, uv_b.y);
         let gap = p_a.distance_to(&p_b);
         measured_edges += 1;
-        if std::env::var_os("POPKERN_A2_TRACE_CAP_G0").is_some() {
+        if crate::a2_trace::cap_g0_enabled() {
             trace_native_gregory_cap_seam_g0(
                 brep,
                 edge_handle,
@@ -443,7 +443,7 @@ fn native_gregory_cap_outer_g0_error(
             worst_edge = Some(edge_handle);
         }
         if gap > max_gap {
-            if std::env::var_os("POPKERN_A2_TRACE_CAP_G0").is_some() {
+            if crate::a2_trace::cap_g0_enabled() {
                 continue;
             }
             return Some(format!(
@@ -455,7 +455,7 @@ fn native_gregory_cap_outer_g0_error(
     if measured_edges == 0 {
         return Some("no cap-vs-noncap seams measured".to_string());
     }
-    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+    if crate::a2_trace::enabled() {
         eprintln!(
             "[a2-trace] native Gregory cap_outer_g0 postcondition: worst={worst_gap:.3e} over {measured_edges} edge(s)"
         );
@@ -614,7 +614,7 @@ fn native_gregory_has_expected_cylinder_seams(
         }
     }
 
-    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+    if crate::a2_trace::enabled() {
         eprintln!(
             "[a2-trace] native Gregory seam postcondition: {cylinder_seams} seams across {} distinct cylinder face(s), expected {n_fillets}",
             cylinder_faces.len()

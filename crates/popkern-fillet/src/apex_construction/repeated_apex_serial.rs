@@ -75,7 +75,7 @@ fn normalize_repeated_apex_loop_in_place(
     partition_execution_options: RepeatedApexPartitionExecutionOptions,
 ) -> Result<(FaceHandle, Vec<EdgeHandle>), ApexBuildError> {
     let n_fillets = plan.cap_kind.n_fillets();
-    let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let trace = crate::a2_trace::enabled();
     if trace {
         trace_repeated_apex_partition_inputs(
             brep,

@@ -70,7 +70,7 @@ pub(super) fn attach_fillet_end_curve_to_edge(
     if let Some((geometry, arc_start, arc_end)) =
         cylinder_arc_through_edge_endpoints(&surface, he_origin, twin_origin)
     {
-        if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        if crate::a2_trace::enabled() {
             eprintln!(
                 "[a2-trace §14.9/fillet-end-arc] constructing cylinder-owned FilletEnd[{fillet_index}] \
                  edge curve on {edge:?}"
@@ -177,7 +177,7 @@ pub(super) fn attach_curve_to_edge_aligned(
     let forward_cost = he_origin.distance_to(&p_start) + twin_origin.distance_to(&p_end);
     let reversed_cost = he_origin.distance_to(&p_end) + twin_origin.distance_to(&p_start);
     let edge_curve = if forward_cost.min(reversed_cost) > 1.0e-5 {
-        if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        if crate::a2_trace::enabled() {
             eprintln!(
                 "[a2-trace §14.9/edge-curve] replacing mismatched planned edge curve on {edge:?}: \
                  endpoint_cost={:.3e}, edge=({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}), \

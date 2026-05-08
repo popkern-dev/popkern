@@ -16,7 +16,7 @@ pub(super) fn resolve_apex_vertices(
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Result<Vec<VertexHandle>, ApexBuildError> {
     let tol = tolerance.linear();
-    let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let trace = crate::a2_trace::enabled();
     let max_radius = max_fillet_radius(fillet_surfaces).unwrap_or(0.1);
     let wide_tol = max_radius * 0.7;
     let n_targets = plan.target_topology.apex_vertices.len();

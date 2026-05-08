@@ -144,7 +144,7 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
             replacement.cylinder_face,
             &replacement.cycle,
         )?;
-        if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        if crate::a2_trace::enabled() {
             eprintln!(
                 "[a2-trace §14.9/cylinder-loop-replace] FilletEnd[{}] {:?}/{:?} -> {:?}",
                 replacement.fillet_index,

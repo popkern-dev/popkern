@@ -19,7 +19,7 @@ pub(super) fn author_sphere_apex_vertices(
     tolerance: &Tolerance,
 ) -> Result<Vec<VertexHandle>, ApexBuildError> {
     let tol = tolerance.linear();
-    let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let trace = crate::a2_trace::enabled();
     let mut out: Vec<VertexHandle> = Vec::with_capacity(plan.target_topology.apex_vertices.len());
     let mut used: std::collections::HashSet<VertexHandle> = std::collections::HashSet::new();
     for (i, target) in plan.target_topology.apex_vertices.iter().enumerate() {
@@ -306,7 +306,7 @@ pub(super) fn author_gregory_apex_vertices(
         face_a[(k + 1) % n] = face_b_k;
     }
 
-    let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let trace = crate::a2_trace::enabled();
     let mut out: Vec<Option<VertexHandle>> = vec![None; n_targets];
     let mut t_vertices: std::collections::HashSet<VertexHandle> = std::collections::HashSet::new();
     let mut schedule: Vec<(usize, FaceHandle)> = Vec::with_capacity(n_targets);

@@ -148,7 +148,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             decomp.sub_patches.len()
         )));
     }
-    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+    if crate::a2_trace::enabled() {
         trace_cap_subface_neighbors(brep, "raw", &sub_faces_raw);
     }
     // Phase 6c-D Stage 4.7e: re-order `sub_faces` so each
@@ -179,7 +179,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             .collect::<Vec<_>>(),
         None => sub_faces_raw,
     };
-    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+    if crate::a2_trace::enabled() {
         trace_cap_subface_neighbors(brep, "ordered", &sub_faces);
     }
     brep.normalize_edge_representatives();
@@ -324,7 +324,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
                 return Err(ThreeQuadFailure::Overlap);
             }
         }
-        if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        if crate::a2_trace::enabled() {
             trace_cap_subface_neighbors(brep, "post-assign", &[*sub_face]);
         }
         patches.push(CornerPatchInfo {
@@ -340,7 +340,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             cap_sphere: cap_sphere_per_subface[k],
         });
     }
-    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+    if crate::a2_trace::enabled() {
         trace_cap_subface_neighbors(brep, "final", &sub_faces);
     }
     Ok(patches)
@@ -420,7 +420,7 @@ fn author_boundary_owned_seam_pcurves(
         let Some(he) =
             find_subface_half_edge_for_boundary_segment(brep, sub_face, segment, fillet_surfaces)
         else {
-            if std::env::var_os("POPKERN_A2_TRACE_CAP_G0").is_some() {
+            if crate::a2_trace::cap_g0_enabled() {
                 eprintln!(
                     "[a2-trace cap-g0] boundary-owned pcurve: subface[{subface_index}] \
                      segment[{segment_index}] no matching half-edge"
@@ -451,7 +451,7 @@ fn author_boundary_owned_seam_pcurves(
         if let Some(pcurve) = other_pcurve {
             brep.half_edges[twin].pcurve = Some(pcurve);
         }
-        if std::env::var_os("POPKERN_A2_TRACE_CAP_G0").is_some() {
+        if crate::a2_trace::cap_g0_enabled() {
             eprintln!(
                 "[a2-trace cap-g0] boundary-owned pcurve: subface[{subface_index}] \
                  segment[{segment_index}] wrote he={he:?} twin={twin:?} edge={:?}",
@@ -641,7 +641,7 @@ fn best_gregory_boundary_pcurve_for_half_edge(
         }
     }
     let ((uv0, uv1), worst) = best?;
-    if std::env::var_os("POPKERN_A2_TRACE_CAP_G0").is_some() {
+    if crate::a2_trace::cap_g0_enabled() {
         eprintln!(
             "[a2-trace cap-g0] best Gregory side for he={he:?}: ({:.1},{:.1})->({:.1},{:.1}) worst={worst:.6e}",
             uv0.0, uv0.1, uv1.0, uv1.1

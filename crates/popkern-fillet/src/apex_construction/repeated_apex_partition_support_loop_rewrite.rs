@@ -117,7 +117,7 @@ fn repair_support_source_loops_after_cylinder_rewire(
         if brep.loops[source.loop_].half_edge == trim_side.half_edge {
             brep.loops[source.loop_].half_edge = replacement;
         }
-        if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        if crate::a2_trace::enabled() {
             eprintln!(
                 "[a2-trace §14.9/support-loop-repair] FilletEnd[{}] replaced stolen cylinder \
                  side {:?} in source support loop {:?} with boundary span {:?} between {:?}->{:?}",
@@ -311,7 +311,7 @@ fn materialize_closed_support_trim_cycles_candidate(
             })?;
         wire_existing_loop(brep, loop_handle, support_face, cycle)?;
         trace_topology_counts(brep, "support-face-after");
-        if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        if crate::a2_trace::enabled() {
             eprintln!(
                 "[a2-trace §14.9/support-loop-replace] support {support_face:?} -> \
                  rewired outer loop {:?} using {:?}",
@@ -323,7 +323,7 @@ fn materialize_closed_support_trim_cycles_candidate(
 }
 
 fn trace_topology_counts(brep: &BRep, label: &'static str) {
-    if std::env::var_os("POPKERN_A2_TRACE").is_none() {
+    if !crate::a2_trace::enabled() {
         return;
     }
     eprintln!("{}", topology_count_summary(brep).trace_label(label));

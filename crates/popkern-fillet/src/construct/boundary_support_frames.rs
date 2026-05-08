@@ -15,7 +15,7 @@ pub(super) fn apply_face_owned_support_frames(brep: &mut BRep, cap_face: FaceHan
     if support_sides.is_empty() {
         return;
     }
-    let trace = std::env::var_os("POPKERN_A2_TRACE_SUPPORT_FRAMES").is_some();
+    let trace = crate::a2_trace::support_frames_enabled();
     let Some(surface) = brep
         .faces
         .get_mut(cap_face)
@@ -363,7 +363,7 @@ fn selected_cross_tangent_cps<const N: usize>(
     let local = cp_local_cross_tangent_cps(boundary, support, twin_pcurve, side);
     let fitted_score = score_cross_tangent_cps(boundary, support, twin_pcurve, side, &fitted);
     let local_score = score_cross_tangent_cps(boundary, support, twin_pcurve, side, &local);
-    if std::env::var_os("POPKERN_A2_TRACE_SUPPORT_FRAMES").is_some() {
+    if crate::a2_trace::support_frames_enabled() {
         let trace_t = 0.65;
         let trace_point = bezier_point(boundary, trace_t);
         let trace_tangent = bezier_tangent(boundary, trace_t);

@@ -44,7 +44,7 @@ pub(super) fn resolve_apex_edges(
                 ),
             })?;
         if matches!(target_edge.role, TargetEdgeRole::CapVsCyl { .. }) {
-            if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+            if crate::a2_trace::enabled() {
                 eprintln!(
                     "[a2-trace] apex_edge[{i}] (vidx {} -> {}) -> SKIPPED (CapVsCyl, \
                      §28.D)",
@@ -55,7 +55,7 @@ pub(super) fn resolve_apex_edges(
             continue;
         }
         if let Some(eh) = find_edge_between(brep, v_origin, v_dest) {
-            if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+            if crate::a2_trace::enabled() {
                 eprintln!(
                     "[a2-trace] apex_edge[{i}] (vidx {} -> {}) -> FOUND existing edge \
                      {eh:?} between {v_origin:?} and {v_dest:?}",
@@ -65,7 +65,7 @@ pub(super) fn resolve_apex_edges(
             out.push(Some(eh));
             continue;
         }
-        if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        if crate::a2_trace::enabled() {
             let origin_faces = vertex_loop_face_handles(brep, v_origin);
             let dest_faces = vertex_loop_face_handles(brep, v_dest);
             let shared: Vec<_> = origin_faces

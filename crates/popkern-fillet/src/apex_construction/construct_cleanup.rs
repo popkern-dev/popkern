@@ -6,7 +6,7 @@ pub(super) fn dissolve_v_bridges_until_valence_le_1(brep: &mut BRep, vertex: Ver
     if !brep.vertices.contains_key(vertex) {
         return;
     }
-    let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let trace = crate::a2_trace::enabled();
     let max_iters = brep.half_edges.len() + 16;
     for _ in 0..max_iters {
         if !brep.vertices.contains_key(vertex) {

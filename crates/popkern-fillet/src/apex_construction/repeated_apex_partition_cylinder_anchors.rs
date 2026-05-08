@@ -77,7 +77,7 @@ pub(super) fn materialize_support_boundary_generator_anchor(
             ),
         });
     }
-    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+    if crate::a2_trace::enabled() {
         eprintln!(
             "[a2-trace §14.9/cylinder-anchor] support boundary promotion for endpoint \
              {endpoint:?} on {:?}: {:?}",

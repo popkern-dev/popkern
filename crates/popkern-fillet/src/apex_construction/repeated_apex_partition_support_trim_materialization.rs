@@ -32,7 +32,7 @@ pub(super) fn materialized_generator_trim_side(
             return Ok((half_edge, actual_support_face, true, Some(support_source)));
         }
         Err(err) => {
-            if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+            if crate::a2_trace::enabled() {
                 eprintln!(
                     "[a2-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] cannot author \
                      {label} {start:?}->{end:?} through support-face mef on {support_face:?}: \
@@ -83,7 +83,7 @@ fn materialize_support_face_mef_trim(
             prev: brep.half_edges[result.half_edge].prev,
             next: brep.half_edges[result.half_edge].next,
         };
-        if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        if crate::a2_trace::enabled() {
             eprintln!(
                 "[a2-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] authored {label} \
                  {start:?}->{end:?} by support-face mef on {actual_support_face:?}; cylinder \

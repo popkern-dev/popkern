@@ -326,7 +326,7 @@ impl RepeatedApexPartitionPlan {
             base_loop_half_edges.push(seam_b);
             let base_face =
                 insert_face_with_outer_loop(brep, self.cap_face, &base_loop_half_edges)?;
-            if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+            if crate::a2_trace::enabled() {
                 eprintln!(
                     "[a2-trace §14.9/partition] retired base apex span into face {base_face:?}"
                 );

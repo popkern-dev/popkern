@@ -35,7 +35,7 @@ pub(super) fn create_gregory_face_edges(
         });
     }
 
-    let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let trace = crate::a2_trace::enabled();
     let mut face_edges: Vec<EdgeHandle> = Vec::with_capacity(n);
 
     for k in 0..n {

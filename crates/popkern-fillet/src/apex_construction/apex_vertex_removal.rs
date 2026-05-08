@@ -35,7 +35,7 @@ pub(super) fn remove_apex_vertex(
         );
     }
 
-    let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let trace = crate::a2_trace::enabled();
     if trace {
         let outgoings: Vec<_> = brep
             .half_edges
@@ -191,7 +191,7 @@ fn remove_apex_vertex_after_repeated_apex_normalization(
     require_v_free_repeated_apex: bool,
 ) -> Result<(), ApexBuildError> {
     let v = plan.apex_vertex;
-    let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let trace = crate::a2_trace::enabled();
 
     if collect_outer_loop_vertices(brep, cap_face).is_some_and(|vertices| vertices.contains(&v)) {
         return Err(ApexBuildError::PlanMismatch {

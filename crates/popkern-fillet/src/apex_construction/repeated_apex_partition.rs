@@ -203,7 +203,7 @@ pub(super) fn try_build_planned_repeated_apex_partition(
         face_edge_handles,
         n_fillets,
     )?;
-    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+    if crate::a2_trace::enabled() {
         eprintln!(
             "[a2-trace §14.9/partition] planned graph partition: {}",
             partition_plan.diagnostic_summary()

@@ -48,7 +48,7 @@ pub(super) fn materialized_shared_fillet_end_cylinder_half_edge(
             ),
         });
     }
-    if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+    if crate::a2_trace::enabled() {
         eprintln!(
             "[a2-trace §14.9/cylinder-loop-replace] FilletEnd[{}] duplicated shared cylinder \
              seam {:?}->{:?}: original {:?}, cylinder boundary {:?}",

@@ -50,7 +50,7 @@ pub(super) fn construct_cap_loop_from_preexisting_cross_face_edges(
     apex_vertex_handles: &[VertexHandle],
     fillet_surfaces: &[FilletSurfaceResult],
 ) -> Result<(FaceHandle, Vec<Option<EdgeHandle>>), ApexBuildError> {
-    let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let trace = crate::a2_trace::enabled();
     let n = plan.cap_kind.n_fillets();
     let mut fillet_ends = vec![None; n];
 
@@ -136,7 +136,7 @@ fn find_cap_face_from_apex_outgoing(brep: &BRep, v: VertexHandle) -> Option<Face
 }
 
 fn trace_cap_loop_construction_result(brep: &BRep, cap_face: FaceHandle, v: VertexHandle) {
-    let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let trace = crate::a2_trace::enabled();
     if !trace {
         return;
     }
@@ -189,7 +189,7 @@ pub(super) fn create_remaining_fillet_end_edges(
         execution_options,
     } = construction;
     let n = plan.cap_kind.n_fillets();
-    let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let trace = crate::a2_trace::enabled();
 
     if trace {
         trace_cap_loop_apex_arcs(brep, *cap_face, plan.apex_vertex, apex_vertex_handles, n);
@@ -238,7 +238,7 @@ fn try_create_single_fillet_end_edge(
     apex_vertex_handles: &[VertexHandle],
     fillet_surfaces: &[FilletSurfaceResult],
 ) -> Result<Option<EdgeHandle>, ApexBuildError> {
-    let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let trace = crate::a2_trace::enabled();
     let t_a_k = apex_vertex_handles[2 * k];
     let t_b_k = apex_vertex_handles[2 * k + 1];
     for (face, he_origin, he_dest) in find_two_origins_on_all_faces(brep, t_a_k, t_b_k) {
@@ -275,7 +275,7 @@ fn create_fillet_end_edge_on_face(
     apex_vertex_handles: &[VertexHandle],
     fillet_surfaces: &[FilletSurfaceResult],
 ) -> Result<EdgeHandle, ApexBuildError> {
-    let trace = std::env::var_os("POPKERN_A2_TRACE").is_some();
+    let trace = crate::a2_trace::enabled();
     let t_a_k = apex_vertex_handles[2 * k];
     let t_b_k = apex_vertex_handles[2 * k + 1];
 

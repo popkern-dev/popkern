@@ -150,7 +150,7 @@ pub(super) fn assemble_gregory_cap_surface(
             boundary.sphere_fit_substituted = true;
         }
         Err(reason) => {
-            if std::env::var_os("POPKERN_A2_TRACE").is_some() {
+            if crate::a2_trace::enabled() {
                 eprintln!("[a2-trace] Gregory sphere-fit boundary substitution skipped: {reason}");
             }
         }

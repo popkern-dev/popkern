@@ -60,7 +60,7 @@ pub(crate) fn plan_apex_targets_pre_phase_a(
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
 ) -> HashMap<VertexHandle, Vec<Point3>> {
-    let trace = std::env::var_os("POPKERN_A2_PREPASS_TRACE").is_some();
+    let trace = crate::a2_trace::prepass_enabled();
     let mut out: HashMap<VertexHandle, Vec<Point3>> = HashMap::new();
 
     // Build per-vertex incidence: for each V, list the
