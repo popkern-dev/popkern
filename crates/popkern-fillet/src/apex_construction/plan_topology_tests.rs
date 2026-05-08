@@ -77,6 +77,41 @@ fn dispatches_sphere_for_uniform_radii_and_collapsed_bridges() {
 }
 
 #[test]
+fn dispatches_gregory_for_higher_valence_uniform_collapsed_bridges() {
+    // Four fillets at uniform radius with collapsed bridges still
+    // need Gregory. A single Sphere cap can close the topology but
+    // fails the cap-to-cylinder boundary geometry on pyramid-like
+    // N >= 4 apices.
+    let p0 = Point3::new(0.1, 0.0, 0.1);
+    let p1 = Point3::new(0.0, 0.1, 0.1);
+    let p2 = Point3::new(-0.1, 0.0, 0.1);
+    let p3 = Point3::new(0.0, -0.1, 0.1);
+    let centre = Point3::new(0.0, 0.0, 0.0);
+    let terms = vec![
+        term(0, p3, p0, centre, 0.1),
+        term(1, p0, p1, centre, 0.1),
+        term(2, p1, p2, centre, 0.1),
+        term(3, p2, p3, centre, 0.1),
+    ];
+    let specs = dummy_specs(4, 0.1);
+    let mut telemetry = PlanTelemetry::new();
+    let kind = decide_cap_kind(&terms, &specs, &Tolerance::default(), &mut telemetry)
+        .expect("decide_cap_kind should succeed");
+    assert!(
+        matches!(kind, CapKind::Gregory { .. }),
+        "expected Gregory for N=4 collapsed uniform apex, got {kind:?}"
+    );
+    assert!(telemetry.cap_kind_reason.contains("N=4"));
+    assert_eq!(
+        telemetry
+            .diagnostic_values
+            .get("single_sphere_topology_supported")
+            .copied(),
+        Some(0.0)
+    );
+}
+
+#[test]
 fn dispatches_gregory_for_variable_radii() {
     // Three fillets, radii 0.08 / 0.10 / 0.12 (not uniform).
     let p0 = Point3::new(0.1, 0.0, 0.1);
@@ -150,6 +185,11 @@ fn telemetry_records_diagnostic_values() {
         telemetry
             .diagnostic_values
             .contains_key("bridge_collapse_threshold")
+    );
+    assert!(
+        telemetry
+            .diagnostic_values
+            .contains_key("single_sphere_topology_supported")
     );
 }
 

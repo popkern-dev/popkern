@@ -1,6 +1,6 @@
 //! Phase 6c-A2.5 — `validate_all` matrix natively under A2.
 //!
-//! Locks in the commercial-grade Sphere-cap quality of A2 (per
+//! Locks in the commercial-grade apex-cap quality of A2 (per
 //! ADR §6c-A2 and §6c-X.A.6's metric breakdown).  Runs the same
 //! six-fixture matrix that `phase_6c_a6_validation` uses, but with
 //! `FilletOptions::use_a2_apex_construction = true`.  Two
@@ -9,8 +9,9 @@
 //! * **Uniform fixtures** (`cube_uniform`, `pyramid3_uniform`,
 //!   `pyramid4_uniform`) — A2 succeeds end-to-end, no
 //!   `BlendWarning::A2FellBackToLegacy`.  The planner keeps
-//!   Sphere only when collapsed Sphere targets are constructively
-//!   anchored; otherwise it emits Gregory to preserve topology.
+//!   Sphere only for trihedral collapsed targets whose cap boundary
+//!   is constructively valid; higher-valence uniform apices use
+//!   Gregory to preserve cap-to-cylinder geometry.
 //! * **Gregory-cap fixtures** (`cube_mixed`, `cube_extreme`,
 //!   `pyramid4_mixed`) — A2 should complete natively through the
 //!   constructive repeated-apex normalization path.  Legacy fallback
@@ -193,7 +194,7 @@ fn a2_5_cap_outer_g0_gregory_under_a2() {
     }
 }
 
-/// Collapsed Sphere fixtures that should remain native Sphere under A2
+/// Collapsed trihedral Sphere fixtures that should remain native Sphere under A2
 /// (no `A2FellBackToLegacy`).  Uniform pyramid cases are covered by
 /// separate native gates because the planner may choose Gregory when
 /// the collapsed Sphere target loop is not constructively anchored.
@@ -276,6 +277,31 @@ fn a2_native_pyramid4_uniform_no_fallback() {
     assert_eq!(
         m.path_a_relevant, 0,
         "native pyramid4_uniform open-loop/shell-gap errors: {errors:#?}"
+    );
+
+    let cap_faces = result
+        .corner_patches
+        .iter()
+        .map(|p| p.face)
+        .collect::<Vec<_>>();
+    let cap_outer = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
+    eprintln!(
+        "[A2.5 cap_outer] pyramid4_uniform: g0={:.3e} g1={:.3e} edges={}",
+        cap_outer.worst_g0_gap, cap_outer.worst_g1_coplanarity, cap_outer.edges_measured,
+    );
+    assert!(
+        cap_outer.edges_measured >= 1,
+        "native pyramid4_uniform exposes no measurable cap-to-neighbor seams",
+    );
+    assert!(
+        cap_outer.worst_g0_gap <= 5.0e-3,
+        "native pyramid4_uniform cap_outer_g0 {:.3e} exceeds 5.0e-3 commercial gate",
+        cap_outer.worst_g0_gap,
+    );
+    assert!(
+        cap_outer.worst_g1_coplanarity <= 5.0e-2,
+        "native pyramid4_uniform cap_outer_g1 {:.3e} exceeds 5.0e-2 commercial gate",
+        cap_outer.worst_g1_coplanarity,
     );
 }
 

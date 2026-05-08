@@ -75,8 +75,21 @@ pub(crate) fn decide_cap_kind(
     telemetry.set_value("max_bridge_collapse", max_bridge_gap);
     telemetry.set_value("bridge_collapse_threshold", bridge_tol);
 
-    // Sphere if BOTH criteria hold; else Gregory.
-    if radii_uniform && bridges_collapse {
+    let single_sphere_topology_supported = n_fil == 3;
+    telemetry.set_value(
+        "single_sphere_topology_supported",
+        if single_sphere_topology_supported {
+            1.0
+        } else {
+            0.0
+        },
+    );
+
+    // Sphere if all criteria hold; else Gregory. A collapsed bridge
+    // loop is not sufficient for N >= 4: a single sphere can be
+    // topologically closed while still failing the cap-to-cylinder
+    // boundary geometry on pyramid-like apices.
+    if radii_uniform && bridges_collapse && single_sphere_topology_supported {
         // Compute average cap centre (per-fillet centres should
         // coincide for the symmetric case).
         let mut centre_sum = Point3::new(0.0, 0.0, 0.0);
@@ -104,18 +117,25 @@ pub(crate) fn decide_cap_kind(
         })
     } else {
         // Diagnostic: which criterion failed?
-        let reason = match (radii_uniform, bridges_collapse) {
-            (false, false) => format!(
+        let reason = match (
+            radii_uniform,
+            bridges_collapse,
+            single_sphere_topology_supported,
+        ) {
+            (false, false, _) => format!(
                 "variable radii (spread {r_spread:.3e}) and non-collapsed bridges \
                  (max gap {max_bridge_gap:.3e}) — Gregory cap chosen"
             ),
-            (false, true) => {
+            (false, true, _) => {
                 format!("variable radii (spread {r_spread:.3e}) — Gregory cap chosen")
             }
-            (true, false) => format!(
+            (true, false, _) => format!(
                 "uniform radii but bridges don't collapse (max gap {max_bridge_gap:.3e}) — Gregory cap chosen"
             ),
-            (true, true) => unreachable!(),
+            (true, true, false) => format!(
+                "uniform radii and collapsed bridges, but single Sphere caps are accepted only for trihedral corners; N={n_fil} — Gregory cap chosen"
+            ),
+            (true, true, true) => unreachable!(),
         };
         telemetry.cap_kind_reason = reason;
         let _ = fillet_specs; // currently unused; reserved for variable-radius variants

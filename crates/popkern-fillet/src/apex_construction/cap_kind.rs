@@ -1,9 +1,9 @@
 //! Cap kind decision for Phase 6c-A2 apex construction.
 //!
 //! `CapKind` enumerates how the apex region's cap face is built.
-//! For symmetric corners (uniform radii, coincident T's), a single
-//! Sphere face suffices.  For variable-radius corners, an N-sided
-//! Gregory cap is constructed.
+//! For trihedral symmetric corners (uniform radii, coincident T's),
+//! a single Sphere face suffices.  For variable-radius corners and
+//! higher-valence apices, an N-sided Gregory cap is constructed.
 
 use popkern_core::geometry::Point3;
 use serde::{Deserialize, Serialize};
@@ -12,18 +12,19 @@ use serde::{Deserialize, Serialize};
 ///
 /// The choice between `Sphere` and `Gregory` is driven by whether
 /// adjacent FaceEdge bridges between fillet terminations collapse
-/// to (effectively) zero length — which indicates the corner is
-/// symmetric enough that a single tangent-circle Sphere covers all
-/// fillets.  Variable-radius corners need an N-sided Gregory cap
-/// with non-degenerate FaceEdge bridges.
+/// to (effectively) zero length and the apex is trihedral — which
+/// indicates the corner is symmetric enough that a single
+/// tangent-circle Sphere covers all fillets.  Variable-radius and
+/// higher-valence corners need an N-sided Gregory cap.
 ///
 /// See ADR §3.1 for full type design.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum CapKind {
     /// Single sphere cap, tangent to each fillet's cylinder along a
-    /// tangent circle.  Used when adjacent fillet terminations
-    /// collapse (uniform radii / symmetric corners).
+    /// tangent circle.  Used for trihedral corners when adjacent
+    /// fillet terminations collapse (uniform radii / symmetric
+    /// corners).
     ///
     /// All fillets terminate at points on this sphere, on a single
     /// shared tangent circle.  The cap face has N edges (one per
