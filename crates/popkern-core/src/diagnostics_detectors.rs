@@ -145,8 +145,14 @@ fn detect_naked_edges(brep: &BRep) -> Vec<NakedEdge> {
         let Some(twin) = brep.half_edges.get(he.twin) else {
             continue;
         };
-        let face_a = brep.loops[he.loop_].face;
-        let face_b = brep.loops[twin.loop_].face;
+        let Some(loop_a) = brep.loops.get(he.loop_) else {
+            continue;
+        };
+        let Some(loop_b) = brep.loops.get(twin.loop_) else {
+            continue;
+        };
+        let face_a = loop_a.face;
+        let face_b = loop_b.face;
         let face_a_has = brep.faces.get(face_a).is_some_and(|f| f.surface.is_some());
         let face_b_has = brep.faces.get(face_b).is_some_and(|f| f.surface.is_some());
         if face_a_has && face_b_has {
@@ -434,7 +440,10 @@ fn detect_pcurve_escapes(brep: &BRep) -> Vec<PcurveEscape> {
         let Some(pcurve) = he.pcurve.as_ref() else {
             continue;
         };
-        let face = brep.loops[he.loop_].face;
+        let Some(loop_) = brep.loops.get(he.loop_) else {
+            continue;
+        };
+        let face = loop_.face;
         let Some(surf) = brep.faces.get(face).and_then(|f| f.surface.as_ref()) else {
             continue;
         };

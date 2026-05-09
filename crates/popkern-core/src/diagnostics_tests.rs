@@ -33,6 +33,22 @@ fn surface_kinds_histogram_counts_planes() {
 }
 
 #[test]
+fn diagnostics_do_not_panic_on_stale_half_edge_loop_reference() {
+    let Ok(mut brep) = BRep::unit_cube(Tolerance::default()) else {
+        panic!("unit cube fixture should build");
+    };
+    let Some(edge) = brep.edges.keys().next() else {
+        panic!("unit cube fixture should contain edges");
+    };
+    let half_edge = brep.edges[edge].half_edge;
+    let stale_loop = brep.half_edges[half_edge].loop_;
+    brep.loops.remove(stale_loop);
+
+    let report = Diagnostics::run(&brep);
+    assert_eq!(report.topology.edges, 12);
+}
+
+#[test]
 fn coincident_vertices_detected() {
     let mut brep = BRep::new(Tolerance::default());
     let _v1 = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();

@@ -204,8 +204,14 @@ impl BRep {
             let Some(twin) = self.half_edges.get(he.twin) else {
                 continue;
             };
-            let face_a = self.loops[he.loop_].face;
-            let face_b = self.loops[twin.loop_].face;
+            let Some(loop_a) = self.loops.get(he.loop_) else {
+                continue;
+            };
+            let Some(loop_b) = self.loops.get(twin.loop_) else {
+                continue;
+            };
+            let face_a = loop_a.face;
+            let face_b = loop_b.face;
             if face_a == face_b {
                 continue; // self-loop / seam edge
             }
