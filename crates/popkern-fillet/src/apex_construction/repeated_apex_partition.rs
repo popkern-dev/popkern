@@ -77,6 +77,8 @@ mod partition_plan;
 mod partition_planner;
 #[path = "repeated_apex_partition_rebuild_diagnostics.rs"]
 mod partition_rebuild_diagnostics;
+#[path = "repeated_apex_partition_residuals.rs"]
+mod partition_residuals;
 #[path = "repeated_apex_partition_shared_fillet_end_trim.rs"]
 mod partition_shared_fillet_end_trim;
 #[path = "repeated_apex_partition_support_cycle_primitives.rs"]
@@ -151,6 +153,10 @@ use partition_rebuild_diagnostics::{
     replacement_run_curve_blocker, replacement_run_exact_curve_kind,
     replacement_run_reownership_blocker, replacement_run_reownership_plan,
     retired_trim_runs_by_adjacent_face,
+};
+use partition_residuals::{
+    demote_retired_apex_residual_faces, residual_strip_loop_with_duplicated_seam,
+    validate_existing_target_cylinder_strip,
 };
 use partition_shared_fillet_end_trim::materialized_shared_fillet_end_cylinder_half_edge;
 use partition_support_cycle_primitives::{

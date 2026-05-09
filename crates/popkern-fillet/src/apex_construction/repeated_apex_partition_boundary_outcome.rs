@@ -4,6 +4,7 @@ pub(super) struct PartitionBoundaryOutcome {
     pub(super) cap_cycle: Vec<HalfEdgeHandle>,
     strip_side_overrides: std::collections::BTreeMap<usize, HalfEdgeHandle>,
     strip_loop_overrides: std::collections::BTreeMap<usize, Vec<HalfEdgeHandle>>,
+    existing_target_cylinder_strips: std::collections::BTreeSet<usize>,
 }
 
 impl PartitionBoundaryOutcome {
@@ -12,6 +13,7 @@ impl PartitionBoundaryOutcome {
             cap_cycle,
             strip_side_overrides: std::collections::BTreeMap::new(),
             strip_loop_overrides: std::collections::BTreeMap::new(),
+            existing_target_cylinder_strips: std::collections::BTreeSet::new(),
         }
     }
 
@@ -23,7 +25,16 @@ impl PartitionBoundaryOutcome {
             cap_cycle,
             strip_side_overrides,
             strip_loop_overrides: std::collections::BTreeMap::new(),
+            existing_target_cylinder_strips: std::collections::BTreeSet::new(),
         }
+    }
+
+    pub(super) fn mark_existing_target_cylinder_strip(&mut self, fillet_index: usize) {
+        self.existing_target_cylinder_strips.insert(fillet_index);
+    }
+
+    pub(super) fn uses_existing_target_cylinder_strip(&self, fillet_index: usize) -> bool {
+        self.existing_target_cylinder_strips.contains(&fillet_index)
     }
 
     pub(super) fn strip_loop(
@@ -59,9 +70,16 @@ impl PartitionBoundaryOutcome {
             .map(|(fillet_index, half_edges)| format!("FilletEnd[{fillet_index}]={half_edges:?}"))
             .collect::<Vec<_>>()
             .join(", ");
+        let existing_strips = self
+            .existing_target_cylinder_strips
+            .iter()
+            .map(|fillet_index| format!("FilletEnd[{fillet_index}]"))
+            .collect::<Vec<_>>()
+            .join(", ");
         format!(
-            "selected cap_cycle={:?}; strip-side overrides=[{}]; strip-loop overrides=[{}]",
-            self.cap_cycle, overrides, strip_loops
+            "selected cap_cycle={:?}; strip-side overrides=[{}]; strip-loop overrides=[{}]; \
+             existing target-cylinder strips=[{}]",
+            self.cap_cycle, overrides, strip_loops, existing_strips
         )
     }
 
@@ -75,6 +93,9 @@ impl PartitionBoundaryOutcome {
         fillet_ends: &[FilletEndOwnership],
     ) -> Result<(), ApexBuildError> {
         for ownership in fillet_ends {
+            if self.uses_existing_target_cylinder_strip(ownership.fillet_index) {
+                continue;
+            }
             let candidates = self.strip_loop_candidates(brep, ownership)?;
             let mut rejected = Vec::new();
             let mut selected = None;

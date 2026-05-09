@@ -6,56 +6,70 @@ pub(super) fn materialized_shared_fillet_end_cylinder_half_edge(
     topology_plan: &CylinderTrimRewriteTopologyPlan,
     start: VertexHandle,
     end: VertexHandle,
+    reuse_shared_cap_cylinder_seam: bool,
 ) -> Result<HalfEdgeHandle, ApexBuildError> {
     let existing =
         existing_shared_fillet_end_half_edge_for_segment(brep, rebuild_plan, start, end)?;
-    if !matches!(
-        topology_plan.seam_rewrite,
-        FilletEndSeamRewrite::ReuseCurrentTwinPair { .. }
-    ) {
-        return Ok(existing);
-    }
-    let original_edge = brep
-        .half_edges
-        .get(existing)
-        .map(|half_edge| half_edge.edge)
-        .ok_or_else(|| ApexBuildError::PlanMismatch {
-            reason: format!(
-                "planned repeated-apex partition FilletEnd[{}] cannot duplicate stale shared \
-                 cylinder seam {existing:?}",
-                rebuild_plan.fillet_index
-            ),
-        })?;
-    let curve = brep
-        .edges
-        .get(original_edge)
-        .and_then(|edge| edge.curve.clone())
-        .ok_or_else(|| ApexBuildError::PlanMismatch {
-            reason: format!(
-                "planned repeated-apex partition FilletEnd[{}] cannot duplicate shared cylinder \
-                 seam {existing:?}: original edge {original_edge:?} has no curve",
-                rebuild_plan.fillet_index
-            ),
-        })?;
-    let (edge, half_edge) = insert_boundary_half_edge(brep, start);
-    brep.edges[edge].curve = Some(curve);
-    if support_split_half_edge_end_vertex(brep, half_edge) != Some(end) {
-        return Err(ApexBuildError::PlanMismatch {
-            reason: format!(
-                "planned repeated-apex partition FilletEnd[{}] duplicated shared cylinder seam \
-                 has wrong orientation: expected {start:?}->{end:?}, got {half_edge:?}",
-                rebuild_plan.fillet_index
-            ),
-        });
+    if !reuse_shared_cap_cylinder_seam
+        && matches!(
+            topology_plan.seam_rewrite,
+            FilletEndSeamRewrite::ReuseCurrentTwinPair { .. }
+        )
+    {
+        let original_edge = brep
+            .half_edges
+            .get(existing)
+            .map(|half_edge| half_edge.edge)
+            .ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition FilletEnd[{}] cannot duplicate stale \
+                         shared cylinder seam {existing:?}",
+                    rebuild_plan.fillet_index
+                ),
+            })?;
+        let curve = brep
+            .edges
+            .get(original_edge)
+            .and_then(|edge| edge.curve.clone())
+            .ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition FilletEnd[{}] cannot duplicate shared \
+                     cylinder seam {existing:?}: original edge {original_edge:?} has no curve",
+                    rebuild_plan.fillet_index
+                ),
+            })?;
+        let (edge, half_edge) = insert_boundary_half_edge(brep, start);
+        brep.edges[edge].curve = Some(curve);
+        if support_split_half_edge_end_vertex(brep, half_edge) != Some(end) {
+            return Err(ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition FilletEnd[{}] duplicated shared cylinder \
+                     seam has wrong orientation: expected {start:?}->{end:?}, got {half_edge:?}",
+                    rebuild_plan.fillet_index
+                ),
+            });
+        }
+        if crate::a2_trace::enabled() {
+            eprintln!(
+                "[a2-trace §14.9/cylinder-loop-replace] FilletEnd[{}] duplicated shared \
+                 cylinder seam {:?}->{:?}: original {:?}, cylinder boundary {:?}",
+                rebuild_plan.fillet_index, start, end, existing, half_edge
+            );
+        }
+        return Ok(half_edge);
     }
     if crate::a2_trace::enabled() {
         eprintln!(
-            "[a2-trace §14.9/cylinder-loop-replace] FilletEnd[{}] duplicated shared cylinder \
-             seam {:?}->{:?}: original {:?}, cylinder boundary {:?}",
-            rebuild_plan.fillet_index, start, end, existing, half_edge
+            "[a2-trace §14.9/cylinder-loop-replace] FilletEnd[{}] reuses shared \
+             cap/cylinder seam {:?}->{:?}: {:?} ({})",
+            rebuild_plan.fillet_index,
+            start,
+            end,
+            existing,
+            topology_plan.seam_rewrite.diagnostic_label()
         );
     }
-    Ok(half_edge)
+    Ok(existing)
 }
 
 fn existing_shared_fillet_end_half_edge_for_segment(

@@ -46,6 +46,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
     cap_loop: LoopHandle,
     face_edges: &[FaceEdgeOwnership],
     fillet_ends: &[FilletEndOwnership],
+    require_v_free_repeated_apex: bool,
 ) -> Result<PartitionBoundaryOutcome, ApexBuildError> {
     let rollback_snapshot = brep.clone();
     let result = (|| {
@@ -82,6 +83,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             &topology_plans,
             &subcomplex_plan,
             include_selected_nonmaterialized,
+            require_v_free_repeated_apex,
         )?;
         let pre_materialized = pre_materialize_far_side_trim_sides(
             brep,
@@ -93,7 +95,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
         )?;
         let side_support_continuation =
             apply_selected_side_support_continuation(brep, &subcomplex_plan)?;
-        apply_materialized_cylinder_loop_replacements(
+        let cylinder_loop_replacements = apply_materialized_cylinder_loop_replacements(
             brep,
             cap_face,
             face_edges,
@@ -102,6 +104,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             &subcomplex_plan,
             &pre_materialized,
             include_selected_nonmaterialized,
+            require_v_free_repeated_apex,
         )?;
         let cap_boundary_plan = plan_cap_boundary_rewrite_for_cylinder_trim(
             brep,
@@ -114,7 +117,14 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
         cap_boundary_plan.validate_rewrite_postconditions(brep, face_edges, &topology_plans)?;
         cap_boundary_plan.validate_adjacent_loop_rewrite_readiness()?;
         let mut boundary_outcome = cap_boundary_plan.boundary_outcome(&topology_plans);
-        boundary_outcome.plan_strip_loop_overrides(brep, fillet_ends)?;
+        if require_v_free_repeated_apex {
+            for replacement in &cylinder_loop_replacements {
+                boundary_outcome.mark_existing_target_cylinder_strip(replacement.fillet_index);
+            }
+        }
+        if !require_v_free_repeated_apex || cylinder_loop_replacements.len() != fillet_ends.len() {
+            boundary_outcome.plan_strip_loop_overrides(brep, fillet_ends)?;
+        }
         if crate::a2_trace::enabled() {
             eprintln!(
                 "[a2-trace §14.9/cylinder-trim-rewrite] topology_plans=[{}]; side_support_continuation={}; {}; {}",
@@ -145,6 +155,7 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
     topology_plans: &[CylinderTrimRewriteTopologyPlan],
     subcomplex_plan: &TrimRewriteSubcomplexPlan,
     include_selected_nonmaterialized: bool,
+    require_v_free_repeated_apex: bool,
 ) -> Result<(), ApexBuildError> {
     let before = topology_count_summary(brep);
     let mut candidate = brep.clone();
@@ -170,8 +181,9 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
         subcomplex_plan,
         &pre_materialized,
         include_selected_nonmaterialized,
+        require_v_free_repeated_apex,
     ) {
-        Ok(()) => {
+        Ok(_) => {
             let after = topology_count_summary(&candidate);
             if crate::a2_trace::enabled() {
                 eprintln!(

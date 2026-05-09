@@ -16,6 +16,7 @@ pub(crate) struct RepeatedApexPartitionExecutionOptions {
     pub(super) require_cylinder_trim_rebuild_plan: bool,
     pub(super) adopt_cylinder_fillet_end_endpoints: bool,
     pub(super) require_shared_cylinder_fillet_end: bool,
+    pub(super) require_v_free_repeated_apex: bool,
 }
 
 impl RepeatedApexPartitionExecutionOptions {
@@ -25,6 +26,7 @@ impl RepeatedApexPartitionExecutionOptions {
         require_cylinder_trim_rebuild_plan: bool,
         adopt_cylinder_fillet_end_endpoints: bool,
         require_shared_cylinder_fillet_end: bool,
+        require_v_free_repeated_apex: bool,
     ) -> Self {
         Self {
             apply_cylinder_trim_rewrite,
@@ -32,6 +34,7 @@ impl RepeatedApexPartitionExecutionOptions {
             require_cylinder_trim_rebuild_plan,
             adopt_cylinder_fillet_end_endpoints,
             require_shared_cylinder_fillet_end,
+            require_v_free_repeated_apex,
         }
     }
 }
@@ -279,6 +282,7 @@ impl RepeatedApexPartitionPlan {
                 self.cap_loop,
                 &face_edge_arcs,
                 &fillet_end_ownership,
+                execution_options.require_v_free_repeated_apex,
             )?;
         }
         if execution_options.require_cylinder_trim_rewrite_ready {
@@ -300,13 +304,49 @@ impl RepeatedApexPartitionPlan {
             &boundary_outcome.cap_cycle,
         )?;
 
+        let existing_target_cylinders_own_all_strips =
+            fillet_end_ownership.iter().all(|ownership| {
+                boundary_outcome.uses_existing_target_cylinder_strip(ownership.fillet_index)
+            });
         for ownership in &fillet_end_ownership {
-            let strip_face = insert_face_with_outer_loop(
-                brep,
-                self.cap_face,
-                &boundary_outcome.strip_loop(ownership.fillet_index, ownership),
-            )?;
-            assign_fillet_strip_surface(brep, strip_face, ownership.fillet_index, fillet_surfaces)?;
+            if boundary_outcome.uses_existing_target_cylinder_strip(ownership.fillet_index) {
+                validate_existing_target_cylinder_strip(
+                    brep,
+                    ownership,
+                    plan.apex_vertex,
+                    fillet_surfaces,
+                )?;
+                assign_fillet_strip_surface(
+                    brep,
+                    ownership.target_cylinder_face,
+                    ownership.fillet_index,
+                    fillet_surfaces,
+                )?;
+                let residual_loop = residual_strip_loop_with_duplicated_seam(brep, ownership)?;
+                let residual_face =
+                    insert_face_with_outer_loop(brep, self.cap_face, &residual_loop)?;
+                brep.faces[residual_face].surface = None;
+                if crate::a2_trace::enabled() {
+                    eprintln!(
+                        "[a2-trace §14.9/partition] retired FilletEnd[{}] apex cell into \
+                         unsurfaced residual face {residual_face:?}; production strip is target \
+                         cylinder {:?}",
+                        ownership.fillet_index, ownership.target_cylinder_face
+                    );
+                }
+            } else {
+                let strip_face = insert_face_with_outer_loop(
+                    brep,
+                    self.cap_face,
+                    &boundary_outcome.strip_loop(ownership.fillet_index, ownership),
+                )?;
+                assign_fillet_strip_surface(
+                    brep,
+                    strip_face,
+                    ownership.fillet_index,
+                    fillet_surfaces,
+                )?;
+            }
         }
 
         if let Some(base_span) = base_span {
@@ -326,11 +366,24 @@ impl RepeatedApexPartitionPlan {
             base_loop_half_edges.push(seam_b);
             let base_face =
                 insert_face_with_outer_loop(brep, self.cap_face, &base_loop_half_edges)?;
+            if existing_target_cylinders_own_all_strips {
+                brep.faces[base_face].surface = None;
+            }
             if crate::a2_trace::enabled() {
                 eprintln!(
                     "[a2-trace §14.9/partition] retired base apex span into face {base_face:?}"
                 );
             }
+        }
+
+        if existing_target_cylinders_own_all_strips {
+            demote_retired_apex_residual_faces(
+                brep,
+                self.cap_face,
+                plan.apex_vertex,
+                &self.retired_spans,
+                &fillet_end_ownership,
+            );
         }
 
         brep.normalize_edge_representatives();

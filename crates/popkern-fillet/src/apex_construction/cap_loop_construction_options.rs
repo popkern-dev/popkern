@@ -11,7 +11,7 @@ impl Default for CapLoopConstructionOptions {
     fn default() -> Self {
         Self {
             repeated_apex_partition: RepeatedApexPartitionExecutionOptions::new(
-                true, false, false, false, false,
+                true, false, false, false, false, false,
             ),
         }
     }
@@ -26,6 +26,7 @@ impl CapLoopConstructionOptions {
                 std::env::var_os("POPKERN_A2_REQUIRE_CYLINDER_TRIM_REBUILD_PLAN").is_some(),
                 std::env::var_os("POPKERN_A2_ADOPT_CYLINDER_FILLET_END_ENDPOINTS").is_some(),
                 std::env::var_os("POPKERN_A2_REQUIRE_SHARED_CYLINDER_FILLET_END").is_some(),
+                std::env::var_os("POPKERN_A2_REQUIRE_V_FREE_REPEATED_APEX").is_some(),
             ),
         }
     }

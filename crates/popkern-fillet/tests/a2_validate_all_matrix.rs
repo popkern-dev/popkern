@@ -349,16 +349,21 @@ fn a2_diagnostic_pyramid4_zoo_mixed_export_defects() {
 
 #[test]
 #[ignore = "diagnostic gate: uses process-wide strict A2 env and must run in isolation"]
-fn a2_strict_v_free_repeated_apex_refuses_retained_apex_topology() {
+fn a2_strict_v_free_repeated_apex_advances_to_gregory_boundary_blocker() {
     let _guard = EnvGuard::set("POPKERN_A2_REQUIRE_V_FREE_REPEATED_APEX", "1");
     let result = build_under_a2(true, &[0.04, 0.06, 0.05, 0.07]);
     let reasons = a2_fallback_reasons(&result);
     assert!(
-        reasons.iter().any(|reason| {
-            reason.contains("repeated-apex construction retained apex vertex")
-                && reason.contains("accepted construction must author")
-        }),
-        "strict V-free repeated-apex mode must refuse retained apex topology; got:\n{}",
+        !reasons
+            .iter()
+            .any(|reason| reason.contains("repeated-apex construction retained apex vertex")),
+        "strict V-free repeated-apex mode must not retain production apex topology; got:\n{}",
+        reasons.join("\n"),
+    );
+    assert!(
+        reasons.iter().any(|reason| reason
+            .contains("Gregory three-quad decomposition failed: boundary not decomposable")),
+        "strict V-free repeated-apex mode must now expose the Gregory boundary blocker; got:\n{}",
         reasons.join("\n"),
     );
 }

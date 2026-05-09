@@ -11,7 +11,8 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
     subcomplex_plan: &TrimRewriteSubcomplexPlan,
     pre_materialized: &[PreMaterializedTrimSide],
     include_selected_nonmaterialized: bool,
-) -> Result<(), ApexBuildError> {
+    reuse_shared_cap_cylinder_seam: bool,
+) -> Result<Vec<PendingCylinderLoopReplacement>, ApexBuildError> {
     let mut all_support_owned_trim_sides = Vec::new();
     let mut pending_cylinder_loop_replacements = Vec::new();
     for (rebuild_plan, topology_plan) in rebuild_plans.iter().zip(topology_plans) {
@@ -39,6 +40,7 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
                     topology_plan,
                     segment.start,
                     segment.end,
+                    reuse_shared_cap_cylinder_seam,
                 )?;
                 cycle.push(half_edge);
             } else if segment.label.contains("far-side") {
@@ -121,7 +123,7 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
             cycle,
         });
     }
-    for replacement in pending_cylinder_loop_replacements {
+    for replacement in &pending_cylinder_loop_replacements {
         let loop_handle = brep
             .faces
             .get(replacement.cylinder_face)
@@ -167,5 +169,5 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
             &[trim_side.half_edge],
         )?;
     }
-    Ok(())
+    Ok(pending_cylinder_loop_replacements)
 }

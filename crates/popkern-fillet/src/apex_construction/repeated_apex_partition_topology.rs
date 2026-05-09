@@ -256,24 +256,7 @@ pub(super) fn validate_partition_cap_to_cylinder_seams(
     let mut cylinder_faces = std::collections::BTreeSet::new();
     let mut cylinder_seams = 0usize;
     for (_, edge) in &brep.edges {
-        let Some(cap_candidate) = brep.half_edges.get(edge.half_edge) else {
-            continue;
-        };
-        let Some(neighbor_candidate) = brep.half_edges.get(cap_candidate.twin) else {
-            continue;
-        };
-        let Some(face_a) = brep
-            .loops
-            .get(cap_candidate.loop_)
-            .map(|loop_data| loop_data.face)
-        else {
-            continue;
-        };
-        let Some(face_b) = brep
-            .loops
-            .get(neighbor_candidate.loop_)
-            .map(|loop_data| loop_data.face)
-        else {
+        let Some((face_a, face_b)) = edge_incident_faces(brep, edge.half_edge) else {
             continue;
         };
         if face_a == face_b {
@@ -309,4 +292,18 @@ pub(super) fn validate_partition_cap_to_cylinder_seams(
         });
     }
     Ok(())
+}
+
+fn edge_incident_faces(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<(FaceHandle, FaceHandle)> {
+    let side_a = brep.half_edges.get(half_edge)?;
+    let side_b = brep.half_edges.get(side_a.twin)?;
+    let face_a = brep
+        .loops
+        .get(side_a.loop_)
+        .map(|loop_data| loop_data.face)?;
+    let face_b = brep
+        .loops
+        .get(side_b.loop_)
+        .map(|loop_data| loop_data.face)?;
+    Some((face_a, face_b))
 }
