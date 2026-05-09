@@ -15,7 +15,7 @@ pub(super) struct PerpendicularSplitState {
 
 pub(super) fn run_perpendicular_splits(
     brep: &BRep,
-    mut result: &mut BRep,
+    result: &mut BRep,
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
     use_a2_apex_construction: bool,
@@ -57,8 +57,8 @@ pub(super) fn run_perpendicular_splits(
         // have perpendicular boundary edges to split. Dispatch to
         // the closed-fillet surgery path and mark the edge as
         // already handled — skip Phase B/C for it.
-        if closed_fillet::is_closed_fillet_edge(&result, eg.analysis.edge) {
-            match closed_fillet::apply_closed_fillet(&mut result, eg) {
+        if closed_fillet::is_closed_fillet_edge(result, eg.analysis.edge) {
+            match closed_fillet::apply_closed_fillet(result, eg) {
                 Ok(()) => {
                     closed_handled.insert(idx);
                     perp_data.push(None);
@@ -102,7 +102,7 @@ pub(super) fn run_perpendicular_splits(
 
         match helpers::split_perpendicular_edges_by_radius_with_overrides(
             &phase_a_snapshot,
-            &mut result,
+            result,
             eg.analysis.face_1,
             eg.analysis.face_2,
             eg.analysis.edge,

@@ -2,22 +2,33 @@
 
 use super::*;
 
-pub(super) fn run_post_blend_pipeline(
-    brep: &BRep,
-    mut result: &mut BRep,
-    edge_geometries: &[EdgeGeometry],
-    tolerance: &Tolerance,
-    late_wire_jobs: &[(crate::blend::BlendBoundary, Vec<FaceHandle>)],
-    a2_built_faces: &[FaceHandle],
-    mut warnings: &mut Vec<(EdgeHandle, BlendWarning)>,
-    mut corner_patches: &mut Vec<crate::types::CornerPatchInfo>,
-) {
+pub(super) struct PostBlendPipelineInputs<'a> {
+    pub(super) source_brep: &'a BRep,
+    pub(super) result: &'a mut BRep,
+    pub(super) edge_geometries: &'a [EdgeGeometry],
+    pub(super) tolerance: &'a Tolerance,
+    pub(super) late_wire_jobs: &'a [(crate::blend::BlendBoundary, Vec<FaceHandle>)],
+    pub(super) a2_built_faces: &'a [FaceHandle],
+    pub(super) warnings: &'a mut Vec<(EdgeHandle, BlendWarning)>,
+    pub(super) corner_patches: &'a mut Vec<crate::types::CornerPatchInfo>,
+}
+
+pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
+    let brep = inputs.source_brep;
+    let result = inputs.result;
+    let edge_geometries = inputs.edge_geometries;
+    let tolerance = inputs.tolerance;
+    let late_wire_jobs = inputs.late_wire_jobs;
+    let a2_built_faces = inputs.a2_built_faces;
+    let warnings = inputs.warnings;
+    let corner_patches = inputs.corner_patches;
+
     // Correct surface assignments — safety net.
     let fillet_surfaces: Vec<_> = edge_geometries
         .iter()
         .map(|eg| eg.surface.clone())
         .collect();
-    surface_fix::correct_face_surfaces(&mut result, brep, &fillet_surfaces);
+    surface_fix::correct_face_surfaces(result, brep, &fillet_surfaces);
 
     // Reconcile edge curves with their adjacent face surfaces.
     // multi_chord and corner-blend mef calls write straight-line
@@ -29,7 +40,7 @@ pub(super) fn run_post_blend_pipeline(
     // positions to within `tolerance.linear()`. Off-cylinder
     // vertices (apex-only filleting case) keep their chord-line
     // edges; topology_repair handles those separately.
-    edge_reconcile::reconcile_edge_curves(&mut result);
+    edge_reconcile::reconcile_edge_curves(result);
 
     // Late-pipeline clamp: any half-edge pcurve on a bounded-UV
     // surface (Gregory/NURBS/sphere/torus) whose evaluation samples
@@ -46,7 +57,7 @@ pub(super) fn run_post_blend_pipeline(
     // on plane / cylinder pairs); keep the pass for investigation
     // and selective use, but don't run it by default.
     if std::env::var("POPKERN_PCURVE_REFIT").is_ok() {
-        pcurve_refit::refit_all_pcurves(&mut result);
+        pcurve_refit::refit_all_pcurves(result);
     }
 
     // Topology repair for off-cylinder vertices in cylinder face
@@ -63,7 +74,7 @@ pub(super) fn run_post_blend_pipeline(
     // `unfillet` path doesn't yet know how to recognise sliver
     // faces and would fail to round-trip.
     if std::env::var("POPKERN_TOPO_REPAIR").is_ok() {
-        let _ = topology_repair::repair_cylinder_face_off_surface_vertices(&mut result);
+        let _ = topology_repair::repair_cylinder_face_off_surface_vertices(result);
     }
 
     // §13.1(2) sliver absorption: Classes A/B/C/D. 12-edge cube test is Class D regression guard (26 faces preserved).
@@ -87,14 +98,14 @@ pub(super) fn run_post_blend_pipeline(
     // off this list is empty.
     protected_caps.extend(a2_built_faces.iter().copied());
     sliver_absorb::run_and_route_warnings_with_protected(
-        &mut result,
+        result,
         tolerance,
         edge_geometries,
         &protected_caps,
-        &mut warnings,
+        warnings,
     );
 
-    cap_insert::insert_caps(&mut result, brep, edge_geometries, &mut warnings); // §8.3 caps
+    cap_insert::insert_caps(result, brep, edge_geometries, warnings); // §8.3 caps
 
     // Phase 6c-D Stage 4.4: re-run the substituted-boundary wire
     // step now that sliver_absorb and cap_insert have settled the
@@ -115,11 +126,8 @@ pub(super) fn run_post_blend_pipeline(
     // cap edges get re-wired; previously-wired edges get their
     // analytic curves re-written (idempotent).
     for (boundary, sub_faces) in late_wire_jobs {
-        let wired = sphere_fit_edge_wire::wire_substituted_boundary_to_edges(
-            &mut result,
-            boundary,
-            sub_faces,
-        );
+        let wired =
+            sphere_fit_edge_wire::wire_substituted_boundary_to_edges(result, boundary, sub_faces);
         if std::env::var_os("POPKERN_KP_TRACE").is_some() {
             eprintln!(
                 "[late-wire] re-ran on {} sub_faces, wrote {wired} edges",
@@ -142,7 +150,7 @@ pub(super) fn run_post_blend_pipeline(
         .unwrap_or(true)
     {
         for (_boundary, sub_faces) in late_wire_jobs {
-            let lifted = apex_face_lift::lift_all_apex_plane_faces(&mut result, sub_faces);
+            let lifted = apex_face_lift::lift_all_apex_plane_faces(result, sub_faces);
             if std::env::var_os("POPKERN_KP_TRACE").is_some() {
                 eprintln!("[apex-face-lift] lifted {lifted} pyramid plane faces");
             }
@@ -162,12 +170,12 @@ pub(super) fn run_post_blend_pipeline(
     {
         for (boundary, sub_faces) in late_wire_jobs {
             let (n_moved, worst) =
-                apex_vertex_coherence::relocate_apex_vertices(&mut result, sub_faces, boundary);
+                apex_vertex_coherence::relocate_apex_vertices(result, sub_faces, boundary);
             // Phase 6c-X.A.5: rebuild BASE-EDGE curves (cyl-vs-Plane
             // apex generators going AWAY from the apex through V) as
             // straight lines from the new V→T position to v_other.
             // Restores vertex↔curve coherence on the BASE-EDGE side.
-            let n_repaired = apex_vertex_coherence::repair_base_edges(&mut result, sub_faces);
+            let n_repaired = apex_vertex_coherence::repair_base_edges(result, sub_faces);
             // Phase 6c-X.A.5b: realign cap-loop edges' curve direction
             // to match BRep convention (curve(t_start) =
             // primary_origin's vertex position).  Validate_watertight
@@ -175,7 +183,7 @@ pub(super) fn run_post_blend_pipeline(
             // direction was set by an old vertex-position heuristic
             // that no longer applies after A.4's relocations.
             let n_realigned =
-                apex_vertex_coherence::realign_cap_loop_curve_directions(&mut result, sub_faces);
+                apex_vertex_coherence::realign_cap_loop_curve_directions(result, sub_faces);
             if std::env::var_os("POPKERN_KP_TRACE").is_some() {
                 eprintln!(
                     "[apex-path-a] relocated {n_moved} vertices, worst V→T = {worst:.3e} m; \
@@ -198,8 +206,7 @@ pub(super) fn run_post_blend_pipeline(
     {
         let cap_faces: Vec<popkern_core::topology::FaceHandle> =
             corner_patches.iter().map(|p| p.face).collect();
-        let _n =
-            crate::vertex_blend_topology::rebuild::rebuild_all_apex_caps(&mut result, &cap_faces);
+        let _n = crate::vertex_blend_topology::rebuild::rebuild_all_apex_caps(result, &cap_faces);
     }
 
     // Phase 6c-A continuation §4.2 surgery — variable-radius cap-
@@ -224,7 +231,7 @@ pub(super) fn run_post_blend_pipeline(
         }
         if cap_faces.len() == per_fillet_caps.len() && !cap_faces.is_empty() {
             let r = crate::vertex_blend_topology::var_radius::reroute_neighbour_cylinder_edges(
-                &mut result,
+                result,
                 &cap_faces,
                 &per_fillet_caps,
             );
@@ -234,13 +241,13 @@ pub(super) fn run_post_blend_pipeline(
         }
     }
 
-    blend_insert::reclassify_corner_methods(&result, &mut corner_patches);
+    blend_insert::reclassify_corner_methods(result, corner_patches);
 
     // Final pass: clamp any out-of-range pcurve control points on
     // bounded-UV surfaces (Gregory / NURBS / sphere / torus). Runs
     // *last* so it catches pcurves attached by every prior pipeline
     // stage (attach_fillet_pcurves, sliver_absorb, cap_insert, …).
-    let n_clamped = gregory_pcurve_clamp::clamp_bounded_pcurves(&mut result);
+    let n_clamped = gregory_pcurve_clamp::clamp_bounded_pcurves(result);
     if std::env::var("POPKERN_CLAMP_TRACE").is_ok() {
         eprintln!("  [gregory_pcurve_clamp] clamped {n_clamped} pcurves");
     }

@@ -97,7 +97,7 @@ use std::collections::HashMap;
 
 pub(super) fn apply_face_trim_pipeline(
     brep: &BRep,
-    mut result: &mut BRep,
+    result: &mut BRep,
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
     perp_data: &[Option<super::perpendicular_splits::PerpSplitData>],
@@ -148,11 +148,11 @@ pub(super) fn apply_face_trim_pipeline(
             .map(|t| edge_geometries[t.edge_idx].analysis.edge)
             .collect();
         let outcome = multi_chord::apply_multi_chord_for_face(
-            &mut result,
+            result,
             *original_face,
             trims,
             &fillet_edges_by_trim,
-            &descendants,
+            descendants,
             tolerance,
         );
         // Fold multi-chord's sub-edge splits (from inserting
@@ -214,7 +214,7 @@ pub(super) fn apply_face_trim_pipeline(
         }
         if let Some((_, f_a, f_b)) = longest {
             // Prefer whichever of f_a, f_b descends from `desired_parent`.
-            let pick = multi_chord::choose_side_face(&result, brep, desired_parent, f_a, f_b);
+            let pick = multi_chord::choose_side_face(result, brep, desired_parent, f_a, f_b);
             tr.consumed = pick;
         }
     }
@@ -245,7 +245,7 @@ pub(super) fn apply_face_trim_pipeline(
             .map(|v| v.as_slice())
             .unwrap_or(std::slice::from_ref(&fillet_edge));
         match helpers::merge_consumed_faces_any(
-            &mut result,
+            result,
             s1.consumed,
             s2.consumed,
             fillet_descendants,
@@ -266,7 +266,7 @@ pub(super) fn apply_face_trim_pipeline(
                     trim_3d_1: &s1.trim_3d,
                     trim_3d_2: &s2.trim_3d,
                 };
-                pcurve_attach::attach_fillet_pcurves(&mut result, &params);
+                pcurve_attach::attach_fillet_pcurves(result, &params);
             }
             Err(e) => {
                 let loc = crate::geometry_compute::edge_midpoint_by_handle(brep, fillet_edge);

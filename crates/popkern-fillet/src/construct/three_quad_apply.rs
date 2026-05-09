@@ -99,6 +99,18 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         use_deg5,
         classification,
     )
+    .or_else(|| {
+        if !use_deg5 {
+            return None;
+        }
+        if crate::a2_trace::enabled() {
+            eprintln!(
+                "[a2-trace §A2.4/gregory-nquad] degree-5 decomposition rejected boundary; \
+                 retrying validated cubic decomposition"
+            );
+        }
+        build_n_quad_decomposition_with_options(boundary, fillet_surfaces, false, classification)
+    })
     .ok_or_else(|| ThreeQuadFailure::Other("boundary not decomposable into N quads".to_string()))?;
 
     // Phase H.8 step-D — relaxed-continuity carry-through. `Some(c)`

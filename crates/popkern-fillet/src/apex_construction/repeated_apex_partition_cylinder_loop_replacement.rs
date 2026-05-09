@@ -2,17 +2,30 @@
 
 use super::*;
 
+pub(super) struct MaterializedCylinderLoopReplacementRequest<'a> {
+    pub(super) cap_face: FaceHandle,
+    pub(super) face_edges: &'a [FaceEdgeOwnership],
+    pub(super) rebuild_plans: &'a [SemanticCylinderTrimRebuildPlan],
+    pub(super) topology_plans: &'a [CylinderTrimRewriteTopologyPlan],
+    pub(super) subcomplex_plan: &'a TrimRewriteSubcomplexPlan,
+    pub(super) pre_materialized: &'a [PreMaterializedTrimSide],
+    pub(super) include_selected_nonmaterialized: bool,
+    pub(super) reuse_shared_cap_cylinder_seam: bool,
+}
+
 pub(super) fn apply_materialized_cylinder_loop_replacements(
     brep: &mut BRep,
-    cap_face: FaceHandle,
-    face_edges: &[FaceEdgeOwnership],
-    rebuild_plans: &[SemanticCylinderTrimRebuildPlan],
-    topology_plans: &[CylinderTrimRewriteTopologyPlan],
-    subcomplex_plan: &TrimRewriteSubcomplexPlan,
-    pre_materialized: &[PreMaterializedTrimSide],
-    include_selected_nonmaterialized: bool,
-    reuse_shared_cap_cylinder_seam: bool,
+    request: MaterializedCylinderLoopReplacementRequest<'_>,
 ) -> Result<Vec<PendingCylinderLoopReplacement>, ApexBuildError> {
+    let cap_face = request.cap_face;
+    let face_edges = request.face_edges;
+    let rebuild_plans = request.rebuild_plans;
+    let topology_plans = request.topology_plans;
+    let subcomplex_plan = request.subcomplex_plan;
+    let pre_materialized = request.pre_materialized;
+    let include_selected_nonmaterialized = request.include_selected_nonmaterialized;
+    let reuse_shared_cap_cylinder_seam = request.reuse_shared_cap_cylinder_seam;
+
     let mut all_support_owned_trim_sides = Vec::new();
     let mut pending_cylinder_loop_replacements = Vec::new();
     for (rebuild_plan, topology_plan) in rebuild_plans.iter().zip(topology_plans) {

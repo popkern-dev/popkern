@@ -21,15 +21,16 @@
 //! See ADR `docs/decisions/2026-04-30-phase-6c-a2-direct-apex-construction.md`
 //! §A2.4.
 
-use popkern_core::geometry::Point3;
+use popkern_core::geometry::{CurveEval, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
+use super::constructive_geometry::cylinder_arc_through_edge_endpoints;
 use super::error::ApexBuildError;
 use super::gregory_cap_boundary::{
     author_support_compatible_face_edge_tangents, find_face_across_edge,
-    inject_physical_hex_boundary_cps, missing_adjacent_face_error, oriented_cap_edge_curve,
-    validate_physical_sector_handles, validate_planned_gregory_loop_roles,
+    half_edge_for_face_on_edge, inject_physical_hex_boundary_cps, missing_adjacent_face_error,
+    oriented_cap_edge_curve, validate_physical_sector_handles, validate_planned_gregory_loop_roles,
 };
 pub(super) use super::gregory_cap_topology::{
     find_face_bounded_by_all_apex_edges, merge_cap_side_accumulators,
@@ -117,9 +118,24 @@ pub(super) fn assemble_gregory_cap_surface(
             .ok_or_else(|| ApexBuildError::PlanMismatch {
                 reason: format!("Gregory sectors missing sector index {sector_index}"),
             })?;
+        let planned_fillet_curve = plan
+            .target_topology
+            .apex_edges
+            .get(2 * sector_index)
+            .map(|edge| &edge.curve)
+            .ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: format!("Gregory sector {sector_index} missing planned FilletEnd curve"),
+            })?;
         segments.push(BoundarySegment::FilletEnd {
             fillet_index: sector.fillet_index,
-            curve: oriented_cap_edge_curve(brep, cap_face, sector.fillet_end_edge, "FilletEnd")?,
+            curve: oriented_fillet_end_boundary_curve(
+                brep,
+                cap_face,
+                sector.fillet_end_edge,
+                sector.fillet_index,
+                planned_fillet_curve,
+                fillet_surfaces,
+            )?,
         });
         let face = find_face_across_edge(brep, sector.face_edge, cap_face).ok_or_else(|| {
             missing_adjacent_face_error(brep, cap_face, sector.face_edge, "FaceEdge", sector_index)
@@ -129,6 +145,7 @@ pub(super) fn assemble_gregory_cap_surface(
             curve: oriented_cap_edge_curve(brep, cap_face, sector.face_edge, "FaceEdge")?,
         });
     }
+    trace_gregory_boundary_segments(&segments);
 
     let mut boundary = BlendBoundary {
         vertex: plan.apex_vertex,
@@ -197,5 +214,150 @@ pub(super) fn assemble_gregory_cap_surface(
         Err(ThreeQuadFailure::Other(s)) => Err(ApexBuildError::PlanMismatch {
             reason: format!("Gregory three-quad decomposition failed: {s}"),
         }),
+    }
+}
+
+fn oriented_fillet_end_boundary_curve(
+    brep: &BRep,
+    cap_face: FaceHandle,
+    edge: EdgeHandle,
+    fillet_index: usize,
+    planned_curve: &popkern_core::geometry::NurbsCurve,
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+) -> Result<popkern_core::geometry::NurbsCurve, ApexBuildError> {
+    let cap_half_edge = half_edge_for_face_on_edge(brep, edge, cap_face).ok_or_else(|| {
+        ApexBuildError::PlanMismatch {
+            reason: format!(
+                "Gregory FilletEnd edge {edge:?} is not bounded by cap face {cap_face:?}"
+            ),
+        }
+    })?;
+    let start = brep
+        .half_edges
+        .get(cap_half_edge)
+        .and_then(|half_edge| brep.vertices.get(half_edge.origin))
+        .map(|vertex| vertex.position)
+        .ok_or_else(|| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "Gregory FilletEnd[{fillet_index}] edge {edge:?} has stale cap-side start"
+            ),
+        })?;
+    let end = brep
+        .half_edges
+        .get(cap_half_edge)
+        .and_then(|half_edge| brep.half_edges.get(half_edge.twin))
+        .and_then(|twin| brep.vertices.get(twin.origin))
+        .map(|vertex| vertex.position)
+        .ok_or_else(|| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "Gregory FilletEnd[{fillet_index}] edge {edge:?} has stale cap-side end"
+            ),
+        })?;
+    let surface = fillet_surfaces
+        .get(fillet_index)
+        .ok_or_else(|| ApexBuildError::PlanMismatch {
+            reason: format!("Gregory FilletEnd[{fillet_index}] has no fillet surface"),
+        })?
+        .surface
+        .clone();
+    if let Some((geometry, t_start, t_end)) =
+        cylinder_arc_through_edge_endpoints(&surface, start, end)
+    {
+        let curve = geometry.to_nurbs_in_range((t_start, t_end));
+        if curve_matches_endpoints(&curve, start, end, brep.tolerance.linear().max(1.0e-6)) {
+            return Ok(curve);
+        }
+        if crate::a2_trace::enabled() {
+            let (u0, u1) = curve.parameter_range();
+            let p0 = curve.point_at(u0);
+            let p1 = curve.point_at(u1);
+            eprintln!(
+                "[a2-trace §A2.4/gregory-boundary] FilletEnd[{fillet_index}] analytic cylinder \
+                 arc on {edge:?} does not match cap endpoints: curve distances {:.3e}/{:.3e}; \
+                 using planner curve aligned to cap half-edge",
+                p0.distance_to(&start),
+                p1.distance_to(&end)
+            );
+        }
+    }
+    if let Some(curve) = align_planned_curve_to_endpoints(
+        planned_curve,
+        start,
+        end,
+        brep.tolerance.linear().max(1.0e-6),
+    ) {
+        return Ok(curve);
+    }
+    oriented_cap_edge_curve(brep, cap_face, edge, "FilletEnd")
+}
+
+fn align_planned_curve_to_endpoints(
+    curve: &popkern_core::geometry::NurbsCurve,
+    start: Point3,
+    end: Point3,
+    tolerance: f64,
+) -> Option<popkern_core::geometry::NurbsCurve> {
+    if curve_matches_endpoints(curve, start, end, tolerance) {
+        return Some(curve.clone());
+    }
+    let reversed = reverse_nurbs_curve(curve);
+    curve_matches_endpoints(&reversed, start, end, tolerance).then_some(reversed)
+}
+
+fn curve_matches_endpoints(
+    curve: &popkern_core::geometry::NurbsCurve,
+    start: Point3,
+    end: Point3,
+    tolerance: f64,
+) -> bool {
+    let (t0, t1) = curve.parameter_range();
+    curve.point_at(t0).distance_to(&start) <= tolerance
+        && curve.point_at(t1).distance_to(&end) <= tolerance
+}
+
+fn reverse_nurbs_curve(
+    curve: &popkern_core::geometry::NurbsCurve,
+) -> popkern_core::geometry::NurbsCurve {
+    let first = *curve.knots.first().unwrap_or(&0.0);
+    let last = *curve.knots.last().unwrap_or(&1.0);
+    let mut knots: Vec<f64> = curve
+        .knots
+        .iter()
+        .rev()
+        .map(|k| first + last - *k)
+        .collect();
+    knots.sort_by(f64::total_cmp);
+    let mut control_points = curve.control_points.clone();
+    control_points.reverse();
+    let mut weights = curve.weights.clone();
+    weights.reverse();
+    popkern_core::geometry::NurbsCurve {
+        degree: curve.degree,
+        knots,
+        control_points,
+        weights,
+    }
+}
+
+fn trace_gregory_boundary_segments(segments: &[BoundarySegment]) {
+    if !crate::a2_trace::enabled() {
+        return;
+    }
+    for (index, segment) in segments.iter().enumerate() {
+        let (label, curve) = match segment {
+            BoundarySegment::FilletEnd {
+                fillet_index,
+                curve,
+            } => (format!("FilletEnd[{fillet_index}]"), curve),
+            BoundarySegment::FaceEdge { face, curve } => (format!("FaceEdge[{face:?}]"), curve),
+        };
+        let (t0, t1) = curve.parameter_range();
+        let start = curve.point_at(t0);
+        let end = curve.point_at(t1);
+        eprintln!(
+            "[a2-trace §A2.4/gregory-boundary] segment[{index}] {label}: \
+             ({:.6},{:.6},{:.6}) -> ({:.6},{:.6},{:.6})",
+            start.x, start.y, start.z, end.x, end.y, end.z
+        );
     }
 }

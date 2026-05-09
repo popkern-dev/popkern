@@ -129,7 +129,7 @@ pub(super) fn oriented_cap_edge_curve(
     }
 }
 
-fn half_edge_for_face_on_edge(
+pub(super) fn half_edge_for_face_on_edge(
     brep: &BRep,
     edge: EdgeHandle,
     face: FaceHandle,

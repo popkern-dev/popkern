@@ -342,16 +342,16 @@ pub fn apply_blend_geometry(
         }
     }
 
-    post_pipeline::run_post_blend_pipeline(
-        brep,
-        &mut result,
+    post_pipeline::run_post_blend_pipeline(post_pipeline::PostBlendPipelineInputs {
+        source_brep: brep,
+        result: &mut result,
         edge_geometries,
         tolerance,
-        &late_wire_jobs,
-        &a2_built_faces,
-        &mut warnings,
-        &mut corner_patches,
-    );
+        late_wire_jobs: &late_wire_jobs,
+        a2_built_faces: &a2_built_faces,
+        warnings: &mut warnings,
+        corner_patches: &mut corner_patches,
+    });
 
     Ok(ApplyBlendResult {
         brep: result,

@@ -130,6 +130,9 @@ pub(crate) fn build_n_quad_decomposition_with_options(
 ) -> Option<NQuadDecomposition> {
     let two_n = boundary.segments.len();
     if two_n < 6 || !two_n.is_multiple_of(2) {
+        trace_n_quad_rejection(format_args!(
+            "invalid segment count {two_n}; expected even count >= 6"
+        ));
         return None;
     }
     let n = two_n / 2;
@@ -137,7 +140,12 @@ pub(crate) fn build_n_quad_decomposition_with_options(
     for (i, seg) in boundary.segments.iter().enumerate() {
         match (i % 2, seg) {
             (0, BoundarySegment::FilletEnd { .. }) | (1, BoundarySegment::FaceEdge { .. }) => {}
-            _ => return None,
+            _ => {
+                trace_n_quad_rejection(format_args!(
+                    "segment {i} breaks FilletEnd/FaceEdge alternation"
+                ));
+                return None;
+            }
         }
     }
 
@@ -153,6 +161,10 @@ pub(crate) fn build_n_quad_decomposition_with_options(
         hex_vertices.push(curve.point_at(t0));
     }
     if hex_vertices.len() != two_n {
+        trace_n_quad_rejection(format_args!(
+            "sampled {} polygon vertices for {two_n} boundary segments",
+            hex_vertices.len()
+        ));
         return None;
     }
 
@@ -250,8 +262,18 @@ pub(crate) fn build_n_quad_decomposition_with_options(
         let v_start = hex_vertices[2 * k];
         let v_end = hex_vertices[(2 * k + 2) % two_n];
 
-        let spoke_v_end_to_c = build_spoke(v_end, c)?;
-        let spoke_c_to_v_start = build_spoke(c, v_start)?;
+        let Some(spoke_v_end_to_c) = build_spoke(v_end, c) else {
+            trace_n_quad_rejection(format_args!(
+                "sector {k} has degenerate spoke from end vertex to central point"
+            ));
+            return None;
+        };
+        let Some(spoke_c_to_v_start) = build_spoke(c, v_start) else {
+            trace_n_quad_rejection(format_args!(
+                "sector {k} has degenerate spoke from central point to start vertex"
+            ));
+            return None;
+        };
 
         // Sub-patch k's outer corners (0, 1, 2) sit on fillet strips:
         //   corner 0 = V_{2k}        on fillet[k-1 mod N] and fillet[k]
@@ -308,28 +330,51 @@ pub(crate) fn build_n_quad_decomposition_with_options(
             StagedBoundaries::Cubic([b0, b1, b2, b3]) => {
                 let corners = [b0[0], b0[3], b1[3], b2[3]];
                 let cps = shrink_inner_cps_if_folded_cubic(&[b0, b1, b2, b3], &corners, inner_cps);
-                let patch =
-                    RectangularGregory::from_boundary_beziers([b0, b1, b2, b3], cps, 1e-3).ok()?;
+                let patch_result =
+                    RectangularGregory::from_boundary_beziers([b0, b1, b2, b3], cps, 1e-3);
+                let Ok(patch) = patch_result else {
+                    trace_n_quad_rejection(format_args!(
+                        "sector {k} cubic Gregory patch rejected its boundary: {:?}",
+                        patch_result.err()
+                    ));
+                    return None;
+                };
                 sub_patches.push(GregoryPatch::Rectangular(Box::new(patch)));
             }
             StagedBoundaries::Deg5([b0, b1, b2, b3]) => {
                 let corners = [b0[0], b0[5], b1[5], b2[5]];
                 let cps = shrink_inner_cps_if_folded_deg5(&[b0, b1, b2, b3], &corners, inner_cps);
-                let patch =
-                    RectangularGregoryDeg5::from_boundary_beziers([b0, b1, b2, b3], cps, 1e-3)
-                        .ok()?;
+                let patch_result =
+                    RectangularGregoryDeg5::from_boundary_beziers([b0, b1, b2, b3], cps, 1e-3);
+                let Ok(patch) = patch_result else {
+                    trace_n_quad_rejection(format_args!(
+                        "sector {k} degree-5 Gregory patch rejected its boundary: {:?}",
+                        patch_result.err()
+                    ));
+                    return None;
+                };
                 sub_patches.push(GregoryPatch::RectangularDeg5(Box::new(patch)));
             }
         }
     }
 
     if sub_patches.len() != n {
+        trace_n_quad_rejection(format_args!(
+            "built {} sub-patches for {n} sectors",
+            sub_patches.len()
+        ));
         return None;
     }
     Some(NQuadDecomposition {
         central_point: c,
         sub_patches,
     })
+}
+
+fn trace_n_quad_rejection(args: std::fmt::Arguments<'_>) {
+    if crate::a2_trace::enabled() {
+        eprintln!("[a2-trace §A2.4/gregory-nquad] rejected: {args}");
+    }
 }
 
 /// Back-compat helper: `build_three_quad_decomposition` is just the

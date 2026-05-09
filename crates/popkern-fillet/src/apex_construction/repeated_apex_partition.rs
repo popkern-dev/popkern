@@ -118,7 +118,9 @@ use partition_cylinder_geometry::{
     target_cylinder_face_for_fillet,
 };
 use partition_cylinder_loop_adoption::adopt_fillet_end_endpoints_into_target_cylinders;
-use partition_cylinder_loop_replacement::apply_materialized_cylinder_loop_replacements;
+use partition_cylinder_loop_replacement::{
+    MaterializedCylinderLoopReplacementRequest, apply_materialized_cylinder_loop_replacements,
+};
 use partition_cylinder_trim_fragments::{
     FragmentAuthoringStatus, ReplacementRunReownershipPlan, ReplacementRunSpanOwnership,
     ReplacementRunSupportCandidate, RetiredCylinderTrimFragment, RetiredCylinderTrimRun,

@@ -75,16 +75,16 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             &topology_plans,
             include_selected_nonmaterialized,
         )?;
-        validate_cylinder_trim_rewrite_topology_preflight(
+        validate_cylinder_trim_rewrite_topology_preflight(CylinderTrimRewritePreflight {
             brep,
             cap_face,
             face_edges,
-            &rebuild_plans,
-            &topology_plans,
-            &subcomplex_plan,
+            rebuild_plans: &rebuild_plans,
+            topology_plans: &topology_plans,
+            subcomplex_plan: &subcomplex_plan,
             include_selected_nonmaterialized,
             require_v_free_repeated_apex,
-        )?;
+        })?;
         let pre_materialized = pre_materialize_far_side_trim_sides(
             brep,
             cap_face,
@@ -97,14 +97,16 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             apply_selected_side_support_continuation(brep, &subcomplex_plan)?;
         let cylinder_loop_replacements = apply_materialized_cylinder_loop_replacements(
             brep,
-            cap_face,
-            face_edges,
-            &rebuild_plans,
-            &topology_plans,
-            &subcomplex_plan,
-            &pre_materialized,
-            include_selected_nonmaterialized,
-            require_v_free_repeated_apex,
+            MaterializedCylinderLoopReplacementRequest {
+                cap_face,
+                face_edges,
+                rebuild_plans: &rebuild_plans,
+                topology_plans: &topology_plans,
+                subcomplex_plan: &subcomplex_plan,
+                pre_materialized: &pre_materialized,
+                include_selected_nonmaterialized,
+                reuse_shared_cap_cylinder_seam: require_v_free_repeated_apex,
+            },
         )?;
         let cap_boundary_plan = plan_cap_boundary_rewrite_for_cylinder_trim(
             brep,
@@ -147,16 +149,29 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
     result
 }
 
-fn validate_cylinder_trim_rewrite_topology_preflight(
-    brep: &BRep,
+struct CylinderTrimRewritePreflight<'a> {
+    brep: &'a BRep,
     cap_face: FaceHandle,
-    face_edges: &[FaceEdgeOwnership],
-    rebuild_plans: &[SemanticCylinderTrimRebuildPlan],
-    topology_plans: &[CylinderTrimRewriteTopologyPlan],
-    subcomplex_plan: &TrimRewriteSubcomplexPlan,
+    face_edges: &'a [FaceEdgeOwnership],
+    rebuild_plans: &'a [SemanticCylinderTrimRebuildPlan],
+    topology_plans: &'a [CylinderTrimRewriteTopologyPlan],
+    subcomplex_plan: &'a TrimRewriteSubcomplexPlan,
     include_selected_nonmaterialized: bool,
     require_v_free_repeated_apex: bool,
+}
+
+fn validate_cylinder_trim_rewrite_topology_preflight(
+    preflight: CylinderTrimRewritePreflight<'_>,
 ) -> Result<(), ApexBuildError> {
+    let brep = preflight.brep;
+    let cap_face = preflight.cap_face;
+    let face_edges = preflight.face_edges;
+    let rebuild_plans = preflight.rebuild_plans;
+    let topology_plans = preflight.topology_plans;
+    let subcomplex_plan = preflight.subcomplex_plan;
+    let include_selected_nonmaterialized = preflight.include_selected_nonmaterialized;
+    let require_v_free_repeated_apex = preflight.require_v_free_repeated_apex;
+
     let before = topology_count_summary(brep);
     let mut candidate = brep.clone();
     let pre_materialized = pre_materialize_far_side_trim_sides(
@@ -174,14 +189,16 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
         apply_selected_side_support_continuation(&mut candidate, subcomplex_plan)?;
     match apply_materialized_cylinder_loop_replacements(
         &mut candidate,
-        cap_face,
-        face_edges,
-        rebuild_plans,
-        topology_plans,
-        subcomplex_plan,
-        &pre_materialized,
-        include_selected_nonmaterialized,
-        require_v_free_repeated_apex,
+        MaterializedCylinderLoopReplacementRequest {
+            cap_face,
+            face_edges,
+            rebuild_plans,
+            topology_plans,
+            subcomplex_plan,
+            pre_materialized: &pre_materialized,
+            include_selected_nonmaterialized,
+            reuse_shared_cap_cylinder_seam: require_v_free_repeated_apex,
+        },
     ) {
         Ok(_) => {
             let after = topology_count_summary(&candidate);
