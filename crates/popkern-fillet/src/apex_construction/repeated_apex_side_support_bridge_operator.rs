@@ -11,6 +11,8 @@ use super::repeated_apex_side_support_bridge::{
 };
 #[path = "repeated_apex_side_support_bridge_operator_exposure.rs"]
 mod bridge_operator_exposure;
+#[path = "repeated_apex_side_support_bridge_operator_exposure_walk.rs"]
+mod bridge_operator_exposure_walk;
 
 use bridge_operator_exposure::{expose_aggregate_bridge_boundaries, expose_bridge_boundaries};
 

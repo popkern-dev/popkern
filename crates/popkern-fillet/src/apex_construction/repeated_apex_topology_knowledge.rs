@@ -4,11 +4,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
+use super::repeated_apex_topology_knowledge_collect::{
+    collect_adjacent_faces, collect_face_loops, collect_loop_adjacencies,
+};
 use super::repeated_apex_trim_subcomplex::{TrimRewriteIntentFacts, TrimRewriteSubcomplexPlan};
 
 #[derive(Clone, Debug)]
 pub(super) struct TopologyKnowledgeGraph {
     fingerprint: TopologyFingerprint,
+    context_faces: Vec<FaceHandle>,
     support_families: Vec<SupportFamilyFacts>,
     loop_adjacencies: Vec<LoopAdjacencyFacts>,
     endpoint_memberships: Vec<EndpointMembershipFacts>,
@@ -65,23 +69,23 @@ pub(super) struct SupportFamilyFacts {
 
 #[derive(Clone, Debug)]
 pub(super) struct LoopFacts {
-    face: FaceHandle,
-    loop_handle: LoopHandle,
-    kind: LoopKind,
-    boundary_half_edges: Vec<HalfEdgeHandle>,
-    boundary_vertices: Vec<VertexHandle>,
-    repeated_vertex: bool,
-    repeated_half_edge: bool,
+    pub(super) face: FaceHandle,
+    pub(super) loop_handle: LoopHandle,
+    pub(super) kind: LoopKind,
+    pub(super) boundary_half_edges: Vec<HalfEdgeHandle>,
+    pub(super) boundary_vertices: Vec<VertexHandle>,
+    pub(super) repeated_vertex: bool,
+    pub(super) repeated_half_edge: bool,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct LoopAdjacencyFacts {
-    face: FaceHandle,
-    loop_handle: LoopHandle,
-    half_edge: HalfEdgeHandle,
-    adjacent_face: FaceHandle,
-    adjacent_loop: LoopHandle,
-    adjacent_half_edge: HalfEdgeHandle,
+    pub(super) face: FaceHandle,
+    pub(super) loop_handle: LoopHandle,
+    pub(super) half_edge: HalfEdgeHandle,
+    pub(super) adjacent_face: FaceHandle,
+    pub(super) adjacent_loop: LoopHandle,
+    pub(super) adjacent_half_edge: HalfEdgeHandle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,6 +120,11 @@ impl TopologyKnowledgeGraph {
             let loops = collect_face_loops(brep, face, &mut half_edges_visited, &mut vertices_seen);
             loops_by_face.insert(face, loops);
         }
+        let mut context_faces = seed_faces.clone();
+        let adjacent_faces = collect_adjacent_faces(brep, &loops_by_face);
+        context_faces.extend(adjacent_faces);
+        context_faces.sort();
+        context_faces.dedup();
 
         let support_families = plan
             .support_groups()
@@ -165,6 +174,7 @@ impl TopologyKnowledgeGraph {
 
         Self {
             fingerprint: TopologyFingerprint::from_brep(brep),
+            context_faces,
             support_families,
             loop_adjacencies,
             endpoint_memberships,
@@ -185,6 +195,10 @@ impl TopologyKnowledgeGraph {
 
     pub(super) fn support_families(&self) -> impl Iterator<Item = &SupportFamilyFacts> {
         self.support_families.iter()
+    }
+
+    pub(super) fn context_faces(&self) -> &[FaceHandle] {
+        &self.context_faces
     }
 
     pub(super) fn trim_intents(&self) -> impl Iterator<Item = &TrimRewriteIntentFacts> {
@@ -367,85 +381,7 @@ impl EndpointLoopMembership {
     }
 }
 
-fn collect_face_loops(
-    brep: &BRep,
-    face_handle: FaceHandle,
-    half_edges_visited: &mut usize,
-    vertices_seen: &mut BTreeSet<VertexHandle>,
-) -> Vec<LoopFacts> {
-    let Some(face) = brep.faces.get(face_handle) else {
-        return Vec::new();
-    };
-    let mut loop_handles = Vec::with_capacity(1 + face.inner_loops.len());
-    loop_handles.push((face.outer_loop, LoopKind::Outer));
-    loop_handles.extend(
-        face.inner_loops
-            .iter()
-            .copied()
-            .map(|loop_handle| (loop_handle, LoopKind::Inner)),
-    );
-    loop_handles
-        .into_iter()
-        .map(|(loop_handle, kind)| {
-            collect_loop_facts(
-                brep,
-                face_handle,
-                loop_handle,
-                kind,
-                half_edges_visited,
-                vertices_seen,
-            )
-        })
-        .collect()
-}
-
-fn collect_loop_adjacencies(
-    brep: &BRep,
-    loops_by_face: &BTreeMap<FaceHandle, Vec<LoopFacts>>,
-) -> Vec<LoopAdjacencyFacts> {
-    let seeded_loops = loops_by_face
-        .values()
-        .flat_map(|loops| loops.iter())
-        .map(|loop_facts| (loop_facts.loop_handle, loop_facts.face))
-        .collect::<BTreeMap<_, _>>();
-    let mut adjacencies = Vec::new();
-    for loops in loops_by_face.values() {
-        for loop_facts in loops {
-            for &half_edge in loop_facts.boundary_half_edges() {
-                let Some(data) = brep.half_edges.get(half_edge) else {
-                    continue;
-                };
-                let Some(twin) = brep.half_edges.get(data.twin) else {
-                    continue;
-                };
-                let Some(adjacent_face) = seeded_loops.get(&twin.loop_).copied() else {
-                    continue;
-                };
-                adjacencies.push(LoopAdjacencyFacts {
-                    face: loop_facts.face,
-                    loop_handle: loop_facts.loop_handle,
-                    half_edge,
-                    adjacent_face,
-                    adjacent_loop: twin.loop_,
-                    adjacent_half_edge: data.twin,
-                });
-            }
-        }
-    }
-    adjacencies.sort_by_key(|adjacency| {
-        (
-            adjacency.face,
-            adjacency.loop_handle,
-            adjacency.half_edge,
-            adjacency.adjacent_face,
-            adjacency.adjacent_loop,
-            adjacency.adjacent_half_edge,
-        )
-    });
-    adjacencies
-}
-
-fn collect_loop_facts(
+pub(super) fn collect_loop_facts(
     brep: &BRep,
     face: FaceHandle,
     loop_handle: LoopHandle,

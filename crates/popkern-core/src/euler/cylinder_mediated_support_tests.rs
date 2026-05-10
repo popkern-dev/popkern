@@ -1,7 +1,7 @@
 use crate::constructors::builder::BRepBuilder;
 use crate::euler::{
-    CylinderMediatedOutsideIntervalInteraction, CylinderMediatedSupportContinuationDelta,
-    CylinderMediatedSupportContinuationRequest,
+    CylinderMediatedOutsideIntervalInteraction, CylinderMediatedSupportContinuationAggregateDelta,
+    CylinderMediatedSupportContinuationDelta, CylinderMediatedSupportContinuationRequest,
 };
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
@@ -114,12 +114,44 @@ fn batch_preflight_reports_overlapping_outside_intervals() {
         .expect("batch preflight validates independently valid requests");
 
     assert_eq!(batch.plans.len(), 2);
+    assert_eq!(
+        batch.expected_delta,
+        CylinderMediatedSupportContinuationAggregateDelta::Known {
+            vertices: 0,
+            edges: 6,
+            faces: 3,
+            loops: 3,
+        }
+    );
+    assert_eq!(
+        batch.expected_delta.diagnostic_label(),
+        "dV=0 dE=6 dF=3 dL=3"
+    );
     match batch.outside_interval_interaction {
         CylinderMediatedOutsideIntervalInteraction::Overlapping { shared_half_edges } => {
             assert_eq!(shared_half_edges.len(), 7);
         }
         interaction => panic!("expected overlapping outside intervals, got {interaction:?}"),
     }
+    assert_eq!(batch.outside_interval_partition.loops.len(), 1);
+    let loop_partition = &batch.outside_interval_partition.loops[0];
+    assert_eq!(loop_partition.outside_loop, fixture.outside_loop);
+    assert_eq!(loop_partition.segments.len(), 3);
+    assert_eq!(loop_partition.segments[0].half_edges.len(), 5);
+    assert_eq!(loop_partition.segments[0].request_indices, vec![0]);
+    assert_eq!(loop_partition.segments[1].half_edges.len(), 7);
+    assert_eq!(loop_partition.segments[1].request_indices, vec![0, 1]);
+    assert_eq!(loop_partition.segments[2].half_edges.len(), 3);
+    assert_eq!(loop_partition.segments[2].request_indices, vec![1]);
+    assert_eq!(
+        loop_partition
+            .segments
+            .iter()
+            .flat_map(|segment| segment.half_edges.iter())
+            .copied()
+            .collect::<Vec<_>>(),
+        fixture.outside_half_edges[0..15]
+    );
 }
 
 struct CylinderMediatedFixture {
@@ -179,6 +211,7 @@ impl LongIntervalCylinderMediatedFixture {
             support_cylinder_half_edge: self.support_cylinder_half_edges[support_index],
             outside_cylinder_half_edge: self.outside_cylinder_half_edges[support_index],
             cylinder_interval: self.cylinder_intervals[support_index].clone(),
+            context_owner_faces: Vec::new(),
         }
     }
 }
@@ -198,6 +231,7 @@ impl CylinderMediatedFixture {
             support_cylinder_half_edge: self.support_cylinder_half_edge,
             outside_cylinder_half_edge: self.outside_cylinder_half_edge,
             cylinder_interval: self.cylinder_interval.clone(),
+            context_owner_faces: Vec::new(),
         }
     }
 }

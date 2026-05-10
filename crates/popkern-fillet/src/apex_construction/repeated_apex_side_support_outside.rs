@@ -1,10 +1,12 @@
 //! Outside/outside support-continuation primitive derivation.
 
-use popkern_core::euler::{
-    CylinderMediatedSupportContinuationPlan, CylinderMediatedSupportContinuationRequest,
-};
+use popkern_core::euler::CylinderMediatedSupportContinuationRequest;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
 
+use super::repeated_apex_side_support_outside_core::{
+    cylinder_interval_candidates, outside_cylinder_adjacencies, support_cylinder_adjacencies,
+    validate_core_preflights,
+};
 use super::repeated_apex_side_support_outside_operator::{
     CylinderMediatedSupportContinuationTopologyOperatorReport, topology_operator_report,
 };
@@ -45,35 +47,35 @@ enum OutsideOutsideSupportRefusal {
 }
 
 #[derive(Clone, Debug)]
-struct CylinderMediatedOutsideOutsideClass {
-    cylinder_face: FaceHandle,
-    outside_adjacencies: Vec<LoopAdjacencyOperand>,
-    support_adjacencies: Vec<LoopAdjacencyOperand>,
-    cylinder_intervals: Vec<CylinderIntervalOperand>,
+pub(super) struct CylinderMediatedOutsideOutsideClass {
+    pub(super) cylinder_face: FaceHandle,
+    pub(super) outside_adjacencies: Vec<LoopAdjacencyOperand>,
+    pub(super) support_adjacencies: Vec<LoopAdjacencyOperand>,
+    pub(super) cylinder_intervals: Vec<CylinderIntervalOperand>,
 }
 
 #[derive(Clone, Debug)]
-struct LoopAdjacencyOperand {
-    source_loop: LoopHandle,
-    source_half_edge: HalfEdgeHandle,
-    cylinder_loop: LoopHandle,
-    cylinder_half_edge: HalfEdgeHandle,
+pub(super) struct LoopAdjacencyOperand {
+    pub(super) source_loop: LoopHandle,
+    pub(super) source_half_edge: HalfEdgeHandle,
+    pub(super) cylinder_loop: LoopHandle,
+    pub(super) cylinder_half_edge: HalfEdgeHandle,
 }
 
 #[derive(Clone, Debug)]
-struct CylinderIntervalOperand {
-    outside_loop: LoopHandle,
-    outside_cylinder_source_half_edge: HalfEdgeHandle,
-    outside_cylinder_half_edge: HalfEdgeHandle,
-    support_loop: LoopHandle,
-    support_cylinder_source_half_edge: HalfEdgeHandle,
-    support_cylinder_half_edge: HalfEdgeHandle,
-    cylinder_loop: LoopHandle,
-    interval: Vec<HalfEdgeHandle>,
+pub(super) struct CylinderIntervalOperand {
+    pub(super) outside_loop: LoopHandle,
+    pub(super) outside_cylinder_source_half_edge: HalfEdgeHandle,
+    pub(super) outside_cylinder_half_edge: HalfEdgeHandle,
+    pub(super) support_loop: LoopHandle,
+    pub(super) support_cylinder_source_half_edge: HalfEdgeHandle,
+    pub(super) support_cylinder_half_edge: HalfEdgeHandle,
+    pub(super) cylinder_loop: LoopHandle,
+    pub(super) interval: Vec<HalfEdgeHandle>,
 }
 
 #[derive(Clone, Debug)]
-enum CylinderMediatedCorePreflight {
+pub(super) enum CylinderMediatedCorePreflight {
     Accepted {
         fillet_index: usize,
         outside_loop: LoopHandle,
@@ -238,7 +240,7 @@ impl OutsideOutsideSupportRegionDerivation {
             });
         let core_preflights = topology_class
             .as_ref()
-            .map(|class| validate_core_preflights(region, class, brep))
+            .map(|class| validate_core_preflights(region, class, knowledge, brep))
             .unwrap_or_default();
         let all_core_preflights_accepted = !region.trims().is_empty()
             && core_preflights.len() == region.trims().len()
@@ -370,14 +372,6 @@ impl LoopAdjacencyOperand {
 }
 
 impl CylinderIntervalOperand {
-    fn sort_key(&self) -> (usize, HalfEdgeHandle, HalfEdgeHandle) {
-        (
-            self.interval.len(),
-            self.outside_cylinder_source_half_edge,
-            self.support_cylinder_source_half_edge,
-        )
-    }
-
     fn diagnostic_label(&self) -> String {
         format!(
             "{:?}->{:?} cylinder={:?}->{:?} loop={:?} len={} path={:?}",
@@ -419,209 +413,5 @@ impl CylinderMediatedCorePreflight {
                 format!("FilletEnd[{fillet_index}] rejected reason={reason}")
             }
         }
-    }
-}
-
-fn outside_cylinder_adjacencies(
-    knowledge: &TopologyKnowledgeGraph,
-    outside_face: FaceHandle,
-    outside_loop: LoopHandle,
-    cylinder_face: FaceHandle,
-) -> Vec<LoopAdjacencyOperand> {
-    knowledge
-        .loop_adjacencies()
-        .filter_map(|adjacency| {
-            if adjacency.face() == outside_face
-                && adjacency.loop_handle() == outside_loop
-                && adjacency.adjacent_face() == cylinder_face
-            {
-                return Some(LoopAdjacencyOperand {
-                    source_loop: adjacency.loop_handle(),
-                    source_half_edge: adjacency.half_edge(),
-                    cylinder_loop: adjacency.adjacent_loop(),
-                    cylinder_half_edge: adjacency.adjacent_half_edge(),
-                });
-            }
-            if adjacency.adjacent_face() == outside_face
-                && adjacency.adjacent_loop() == outside_loop
-                && adjacency.face() == cylinder_face
-            {
-                return Some(LoopAdjacencyOperand {
-                    source_loop: adjacency.adjacent_loop(),
-                    source_half_edge: adjacency.adjacent_half_edge(),
-                    cylinder_loop: adjacency.loop_handle(),
-                    cylinder_half_edge: adjacency.half_edge(),
-                });
-            }
-            None
-        })
-        .collect()
-}
-
-fn support_cylinder_adjacencies(
-    knowledge: &TopologyKnowledgeGraph,
-    support_face: FaceHandle,
-    cylinder_face: FaceHandle,
-) -> Vec<LoopAdjacencyOperand> {
-    knowledge
-        .loop_adjacencies()
-        .filter_map(|adjacency| {
-            if adjacency.face() == support_face && adjacency.adjacent_face() == cylinder_face {
-                return Some(LoopAdjacencyOperand {
-                    source_loop: adjacency.loop_handle(),
-                    source_half_edge: adjacency.half_edge(),
-                    cylinder_loop: adjacency.adjacent_loop(),
-                    cylinder_half_edge: adjacency.adjacent_half_edge(),
-                });
-            }
-            if adjacency.adjacent_face() == support_face && adjacency.face() == cylinder_face {
-                return Some(LoopAdjacencyOperand {
-                    source_loop: adjacency.adjacent_loop(),
-                    source_half_edge: adjacency.adjacent_half_edge(),
-                    cylinder_loop: adjacency.loop_handle(),
-                    cylinder_half_edge: adjacency.half_edge(),
-                });
-            }
-            None
-        })
-        .collect()
-}
-
-fn cylinder_interval_candidates(
-    brep: &BRep,
-    outside_adjacencies: &[LoopAdjacencyOperand],
-    support_adjacencies: &[LoopAdjacencyOperand],
-) -> Vec<CylinderIntervalOperand> {
-    let mut intervals = outside_adjacencies
-        .iter()
-        .flat_map(|outside| {
-            support_adjacencies
-                .iter()
-                .filter(move |support| outside.cylinder_loop == support.cylinder_loop)
-                .filter_map(move |support| {
-                    directed_loop_path(
-                        brep,
-                        outside.cylinder_loop,
-                        outside.cylinder_half_edge,
-                        support.cylinder_half_edge,
-                    )
-                    .map(|interval| CylinderIntervalOperand {
-                        outside_loop: outside.source_loop,
-                        outside_cylinder_source_half_edge: outside.source_half_edge,
-                        outside_cylinder_half_edge: outside.cylinder_half_edge,
-                        support_loop: support.source_loop,
-                        support_cylinder_source_half_edge: support.source_half_edge,
-                        support_cylinder_half_edge: support.cylinder_half_edge,
-                        cylinder_loop: outside.cylinder_loop,
-                        interval,
-                    })
-                })
-        })
-        .collect::<Vec<_>>();
-    intervals.sort_by_key(CylinderIntervalOperand::sort_key);
-    intervals
-}
-
-fn directed_loop_path(
-    brep: &BRep,
-    loop_handle: LoopHandle,
-    start: HalfEdgeHandle,
-    end: HalfEdgeHandle,
-) -> Option<Vec<HalfEdgeHandle>> {
-    let mut cursor = start;
-    let mut path = Vec::new();
-    for _ in 0..=brep.half_edges.len() {
-        let half_edge = brep.half_edges.get(cursor)?;
-        if half_edge.loop_ != loop_handle {
-            return None;
-        }
-        path.push(cursor);
-        if cursor == end {
-            return Some(path);
-        }
-        cursor = half_edge.next;
-        if cursor == start {
-            break;
-        }
-    }
-    None
-}
-
-fn validate_core_preflights(
-    region: &OutsideOutsideSupportContinuationPlan,
-    topology_class: &CylinderMediatedOutsideOutsideClass,
-    brep: &BRep,
-) -> Vec<CylinderMediatedCorePreflight> {
-    region
-        .trims()
-        .iter()
-        .map(|trim| validate_trim_core_preflight(trim, topology_class, brep))
-        .collect()
-}
-
-fn validate_trim_core_preflight(
-    trim: &super::repeated_apex_side_support_plan::OutsideOutsideSupportTrimPlan,
-    topology_class: &CylinderMediatedOutsideOutsideClass,
-    brep: &BRep,
-) -> CylinderMediatedCorePreflight {
-    if trim.start_face() != trim.end_face() || trim.start_loop() != trim.end_loop() {
-        return CylinderMediatedCorePreflight::Rejected {
-            fillet_index: trim.fillet_index(),
-            reason: format!(
-                "outside endpoints span multiple outside owners: start={:?}/{:?} end={:?}/{:?}",
-                trim.start_face(),
-                trim.start_loop(),
-                trim.end_face(),
-                trim.end_loop()
-            ),
-        };
-    }
-    let Some(interval) = topology_class
-        .cylinder_intervals
-        .iter()
-        .find(|interval| interval.outside_loop == trim.start_loop())
-    else {
-        return CylinderMediatedCorePreflight::Rejected {
-            fillet_index: trim.fillet_index(),
-            reason: format!(
-                "missing cylinder interval for outside loop {:?}",
-                trim.start_loop()
-            ),
-        };
-    };
-    let request = CylinderMediatedSupportContinuationRequest {
-        support_face: trim.support_face(),
-        outside_face: trim.start_face(),
-        cylinder_face: trim.cylinder_face(),
-        start: trim.start(),
-        end: trim.end(),
-        outside_loop: trim.start_loop(),
-        outside_start_half_edge: trim.start_half_edge(),
-        outside_end_half_edge: trim.end_half_edge(),
-        support_loop: interval.support_loop,
-        support_cylinder_half_edge: interval.support_cylinder_source_half_edge,
-        outside_cylinder_half_edge: interval.outside_cylinder_source_half_edge,
-        cylinder_interval: interval.interval.clone(),
-    };
-    match brep.preflight_cylinder_mediated_support_continuation(request) {
-        Ok(plan) => CylinderMediatedCorePreflight::Accepted {
-            fillet_index: trim.fillet_index(),
-            outside_loop: trim.start_loop(),
-            support_loop: interval.support_loop,
-            outside_interval_len: plan.outside_interval.len(),
-            outside_complement_interval_len: plan.outside_complement_interval.len(),
-            reason: preflight_delta_reason(&plan),
-            request: plan.request,
-        },
-        Err(err) => CylinderMediatedCorePreflight::Rejected {
-            fillet_index: trim.fillet_index(),
-            reason: err.to_string(),
-        },
-    }
-}
-
-fn preflight_delta_reason(plan: &CylinderMediatedSupportContinuationPlan) -> &'static str {
-    match plan.expected_delta {
-        popkern_core::euler::CylinderMediatedSupportContinuationDelta::Unknown { reason } => reason,
     }
 }

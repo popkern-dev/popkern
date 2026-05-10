@@ -1,9 +1,12 @@
 //! Preflight contract for cylinder-mediated support continuation.
 
-use std::collections::BTreeSet;
-
 use crate::error::CoreError;
 use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
+
+use super::cylinder_mediated_support_partition::{
+    CylinderMediatedOutsideIntervalPartition, aggregate_delta_from_partition,
+    outside_interval_interaction, partition_outside_intervals,
+};
 
 /// Request for a cylinder-mediated outside/outside support-continuation plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,6 +35,8 @@ pub struct CylinderMediatedSupportContinuationRequest {
     pub outside_cylinder_half_edge: HalfEdgeHandle,
     /// Directed cylinder interval from outside adjacency to support adjacency.
     pub cylinder_interval: Vec<HalfEdgeHandle>,
+    /// Additional local owner faces known to the caller.
+    pub context_owner_faces: Vec<FaceHandle>,
 }
 
 #[cfg(test)]
@@ -49,8 +54,7 @@ pub struct CylinderMediatedSupportContinuationPlan {
     /// Complementary directed outside/cap interval between the requested
     /// generator endpoints.
     pub outside_complement_interval: Vec<HalfEdgeHandle>,
-    /// Topology delta is intentionally unknown until the mutating operator is
-    /// implemented and proven.
+    /// Topology delta is unknown until the mutating operator is accepted.
     pub expected_delta: CylinderMediatedSupportContinuationDelta,
 }
 
@@ -59,6 +63,10 @@ pub struct CylinderMediatedSupportContinuationPlan {
 pub struct CylinderMediatedSupportContinuationBatchPlan {
     /// Validated per-continuation plans.
     pub plans: Vec<CylinderMediatedSupportContinuationPlan>,
+    /// Canonical disjoint outside/cap partition used by the aggregate operator.
+    pub outside_interval_partition: CylinderMediatedOutsideIntervalPartition,
+    /// Expected aggregate topology count delta.
+    pub expected_delta: CylinderMediatedSupportContinuationAggregateDelta,
     /// Interaction between selected outside/cap intervals.
     pub outside_interval_interaction: CylinderMediatedOutsideIntervalInteraction,
 }
@@ -83,6 +91,42 @@ pub enum CylinderMediatedSupportContinuationDelta {
         /// Stable diagnostic reason.
         reason: &'static str,
     },
+}
+
+/// Expected aggregate topology delta status for a continuation batch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CylinderMediatedSupportContinuationAggregateDelta {
+    /// Accepted aggregate topology count delta.
+    Known {
+        /// Vertex count delta.
+        vertices: i64,
+        /// Edge count delta.
+        edges: i64,
+        /// Face count delta.
+        faces: i64,
+        /// Loop count delta.
+        loops: i64,
+    },
+    /// The aggregate Euler sequence has not been accepted yet.
+    Unknown {
+        /// Stable diagnostic reason.
+        reason: &'static str,
+    },
+}
+
+impl CylinderMediatedSupportContinuationAggregateDelta {
+    /// Stable diagnostic label for operator reports and plan logs.
+    pub fn diagnostic_label(&self) -> String {
+        match self {
+            Self::Known {
+                vertices,
+                edges,
+                faces,
+                loops,
+            } => format!("dV={vertices} dE={edges} dF={faces} dL={loops}"),
+            Self::Unknown { reason } => format!("unknown reason={reason}"),
+        }
+    }
 }
 
 impl BRep {
@@ -143,6 +187,12 @@ impl BRep {
             request.outside_face,
             request.cylinder_face,
         )?;
+        self.require_context_owner_faces(
+            request.support_face,
+            request.outside_face,
+            request.cylinder_face,
+            &request.context_owner_faces,
+        )?;
         Ok(CylinderMediatedSupportContinuationPlan {
             request,
             outside_interval: outside_intervals.selected,
@@ -171,9 +221,12 @@ impl BRep {
         for request in requests {
             plans.push(self.preflight_cylinder_mediated_support_continuation(request)?);
         }
+        let outside_interval_partition = partition_outside_intervals(self, &plans)?;
         let outside_interval_interaction = outside_interval_interaction(&plans)?;
         Ok(CylinderMediatedSupportContinuationBatchPlan {
             plans,
+            expected_delta: aggregate_delta_from_partition(&outside_interval_partition),
+            outside_interval_partition,
             outside_interval_interaction,
         })
     }
@@ -404,6 +457,29 @@ impl BRep {
         }
         Ok(())
     }
+
+    fn require_context_owner_faces(
+        &self,
+        support_face: FaceHandle,
+        outside_face: FaceHandle,
+        cylinder_face: FaceHandle,
+        context_owner_faces: &[FaceHandle],
+    ) -> Result<(), CoreError> {
+        let shell = self.faces[support_face].shell;
+        for &face in context_owner_faces {
+            self.require_face(face, "context owner face")?;
+            if face == support_face || face == outside_face || face == cylinder_face {
+                continue;
+            }
+            if self.faces[face].shell != shell {
+                return Err(CoreError::PreconditionFailed(format!(
+                    "context owner face {face:?} belongs to shell {:?}, expected {shell:?}",
+                    self.faces[face].shell
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 struct OutsideEndpointIntervals {
@@ -421,34 +497,4 @@ fn half_open_contains(
         ));
     }
     Ok(interval[..interval.len() - 1].contains(&half_edge))
-}
-
-fn outside_interval_interaction(
-    plans: &[CylinderMediatedSupportContinuationPlan],
-) -> Result<CylinderMediatedOutsideIntervalInteraction, CoreError> {
-    let mut seen = BTreeSet::new();
-    let mut shared = BTreeSet::new();
-    for plan in plans {
-        for half_edge in half_open_interval(&plan.outside_interval)? {
-            if !seen.insert(*half_edge) {
-                shared.insert(*half_edge);
-            }
-        }
-    }
-    if shared.is_empty() {
-        Ok(CylinderMediatedOutsideIntervalInteraction::Disjoint)
-    } else {
-        Ok(CylinderMediatedOutsideIntervalInteraction::Overlapping {
-            shared_half_edges: shared.into_iter().collect(),
-        })
-    }
-}
-
-fn half_open_interval(interval: &[HalfEdgeHandle]) -> Result<&[HalfEdgeHandle], CoreError> {
-    if interval.is_empty() {
-        return Err(CoreError::PreconditionFailed(
-            "outside endpoint interval is empty".into(),
-        ));
-    }
-    Ok(&interval[..interval.len() - 1])
 }

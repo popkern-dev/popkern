@@ -5,6 +5,8 @@
 mod construction_residual_retire;
 mod contract;
 mod cylinder_mediated_support;
+mod cylinder_mediated_support_apply;
+mod cylinder_mediated_support_partition;
 mod face_boundary_fragment;
 mod face_boundary_retire;
 mod face_family_bridge;
@@ -22,9 +24,20 @@ mod same_loop_bridge_dissolve;
 mod sweep;
 pub use construction_residual_retire::ConstructionResidualRetireResult;
 pub use cylinder_mediated_support::{
-    CylinderMediatedOutsideIntervalInteraction, CylinderMediatedSupportContinuationBatchPlan,
-    CylinderMediatedSupportContinuationDelta, CylinderMediatedSupportContinuationPlan,
-    CylinderMediatedSupportContinuationRequest,
+    CylinderMediatedOutsideIntervalInteraction, CylinderMediatedSupportContinuationAggregateDelta,
+    CylinderMediatedSupportContinuationBatchPlan, CylinderMediatedSupportContinuationDelta,
+    CylinderMediatedSupportContinuationPlan, CylinderMediatedSupportContinuationRequest,
+};
+pub use cylinder_mediated_support_apply::{
+    CylinderMediatedContextOwnerFace, CylinderMediatedOwnerRepairSpan,
+    CylinderMediatedSupportContinuationBatchResult,
+    CylinderMediatedSupportContinuationPostconditions,
+    CylinderMediatedSupportContinuationSegmentAuthoringPlan,
+    CylinderMediatedSupportContinuationSegmentRequirement, CylinderMediatedUnsupportedOwnerFace,
+};
+pub use cylinder_mediated_support_partition::{
+    CylinderMediatedOutsideIntervalPartition, CylinderMediatedOutsideIntervalPartitionSegment,
+    CylinderMediatedOutsideLoopPartition,
 };
 pub use face_boundary_fragment::BoundaryFragmentRetireResult;
 pub use face_boundary_retire::BoundaryFaceRetireResult;

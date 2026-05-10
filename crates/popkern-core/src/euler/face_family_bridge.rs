@@ -1,5 +1,4 @@
 //! Aggregate bridge-face construction for disjoint boundary cycles.
-
 use std::collections::BTreeSet;
 
 use crate::error::CoreError;
