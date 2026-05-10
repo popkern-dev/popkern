@@ -11,11 +11,14 @@ use super::cylinder_mediated_support::{
 };
 use super::cylinder_mediated_support_partition::CylinderMediatedOutsideIntervalPartition;
 
+#[path = "cylinder_mediated_support_apply_bridge_cycles.rs"]
+mod apply_bridge_cycles;
 #[path = "cylinder_mediated_support_apply_diagnostics.rs"]
 mod apply_diagnostics;
 #[path = "cylinder_mediated_support_apply_owner_spans.rs"]
 mod apply_owner_spans;
 
+use apply_bridge_cycles::derive_segment_bridge_cycle_operands;
 use apply_diagnostics::segment_authoring_summary;
 use apply_owner_spans::{expose_owner_repair_spans, owner_repair_spans};
 
@@ -154,7 +157,10 @@ impl BRep {
         let segment_authoring = self.segment_authoring_plan(plan)?;
         let repair_result = {
             let mut candidate = self.clone();
-            expose_owner_repair_spans(&mut candidate, &segment_authoring)?
+            let repair_result = expose_owner_repair_spans(&mut candidate, &segment_authoring)?;
+            let bridge_cycles =
+                derive_segment_bridge_cycle_operands(&candidate, plan, &segment_authoring)?;
+            (repair_result, bridge_cycles)
         };
         let after = EulerTopologyCounts::from_brep(self);
         if before != after {
@@ -163,10 +169,11 @@ impl BRep {
             ));
         }
         Err(CoreError::PreconditionFailed(format!(
-            "cylinder-mediated support continuation segment bridge construction not implemented: expected_delta={} {} {}",
+            "cylinder-mediated support continuation segment bridge construction not implemented: expected_delta={} {} {} {}",
             plan.expected_delta.diagnostic_label(),
             segment_authoring_summary(&segment_authoring),
-            repair_result.diagnostic_label()
+            repair_result.0.diagnostic_label(),
+            repair_result.1.diagnostic_label()
         )))
     }
 

@@ -46,6 +46,14 @@ fn mutator_boundary_refuses_without_mutating_topology() {
         detail.contains("owner_repair_candidate=exposed_spans=2 exposed_half_edges=2"),
         "{err}"
     );
+    assert!(
+        detail.contains(
+            "segment_bridge_candidate=segments=3 boundary_half_edges=15 \
+             ambiguous_support_segments=1 max_support_faces=2 \
+             degenerate_endpoint_segments=0 max_cylinder_faces=1"
+        ),
+        "{err}"
+    );
     assert!(detail.contains("context_owner_faces=[]"), "{err}");
     assert!(detail.contains("unsupported_owner_faces=[]"), "{err}");
     assert_eq!(TopologySnapshot::capture(&brep), before);
