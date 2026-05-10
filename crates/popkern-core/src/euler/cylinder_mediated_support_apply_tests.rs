@@ -75,6 +75,7 @@ fn mutator_boundary_refuses_without_mutating_topology() {
              resource_status=shared-outside-transition-needs-resource \
              construction_actions=exact_pair:2 shared_outside:1 single_covered:0 \
              unsupported:0 \
+             action_sequence=[0:exact:0:0,1:shared-outside:-:0+1,2:exact:1:1] \
              outside_request_sets=[0,0+1,1] cylinder_request_sets=[0,1] \
              missing_request_sets=[0+1]"
         ),
