@@ -55,7 +55,9 @@ fn mutator_boundary_refuses_without_mutating_topology() {
             "segment_bridge_candidate=segments=3 boundary_half_edges=15 \
              ownership=shared-support-transition-ready \
              shared_support_segments=1 missing_support_segments=0 \
-             max_support_faces=2 degenerate_endpoint_segments=0 max_cylinder_faces=1"
+             max_support_faces=2 degenerate_endpoint_segments=0 max_cylinder_faces=1 \
+             opposite_cylinder_half_edges=7 duplicate_opposite_cylinder_half_edges=0 \
+             missing_opposite_path_segments=1"
         ),
         "{err}"
     );

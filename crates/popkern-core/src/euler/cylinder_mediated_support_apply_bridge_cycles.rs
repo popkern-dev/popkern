@@ -1,5 +1,7 @@
 //! Bridge-cycle operand derivation after owner-side exposure.
 
+use std::collections::BTreeSet;
+
 use crate::error::CoreError;
 use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
 
@@ -72,8 +74,23 @@ impl SegmentBridgeCycleOperandSet {
             .map(|operand| operand.cylinder_faces.len())
             .max()
             .unwrap_or_default();
+        let missing_opposite_path_segments = self
+            .operands
+            .iter()
+            .filter(|operand| operand.opposite_cylinder_half_edges.is_empty())
+            .count();
+        let opposite_cylinder_half_edges = self
+            .operands
+            .iter()
+            .map(|operand| operand.opposite_cylinder_half_edges.len())
+            .sum::<usize>();
+        let duplicate_opposite_cylinder_half_edges = duplicate_half_edge_count(
+            self.operands
+                .iter()
+                .flat_map(|operand| operand.opposite_cylinder_half_edges.iter().copied()),
+        );
         format!(
-            "segment_bridge_candidate=segments={} boundary_half_edges={} ownership={} shared_support_segments={} missing_support_segments={} max_support_faces={} degenerate_endpoint_segments={} max_cylinder_faces={}",
+            "segment_bridge_candidate=segments={} boundary_half_edges={} ownership={} shared_support_segments={} missing_support_segments={} max_support_faces={} degenerate_endpoint_segments={} max_cylinder_faces={} opposite_cylinder_half_edges={} duplicate_opposite_cylinder_half_edges={} missing_opposite_path_segments={}",
             self.operands.len(),
             total_half_edges,
             self.ownership_status().diagnostic_label(),
@@ -81,7 +98,10 @@ impl SegmentBridgeCycleOperandSet {
             missing_support_segments,
             max_support_faces,
             degenerate_endpoint_segments,
-            max_cylinder_faces
+            max_cylinder_faces,
+            opposite_cylinder_half_edges,
+            duplicate_opposite_cylinder_half_edges,
+            missing_opposite_path_segments
         )
     }
 }
@@ -110,6 +130,7 @@ struct SegmentBridgeCycleOperand {
     end: VertexHandle,
     support_faces: Vec<FaceHandle>,
     cylinder_faces: Vec<FaceHandle>,
+    opposite_cylinder_half_edges: Vec<HalfEdgeHandle>,
 }
 
 pub(super) fn derive_segment_bridge_cycle_operands(
@@ -161,6 +182,7 @@ fn segment_bridge_cycle_operand(
         end,
         support_faces: selected_support_faces(plan, segment)?,
         cylinder_faces: selected_cylinder_faces(plan, segment)?,
+        opposite_cylinder_half_edges: common_cylinder_path(plan, segment)?,
     })
 }
 
@@ -193,6 +215,45 @@ fn selected_cylinder_faces(
     selected_faces(plan, segment, |request| request.cylinder_face)
 }
 
+fn common_cylinder_path(
+    plan: &CylinderMediatedSupportContinuationBatchPlan,
+    segment: &CylinderMediatedSupportContinuationSegmentAuthoringPlan,
+) -> Result<Vec<HalfEdgeHandle>, CoreError> {
+    let first_request_index = *segment.request_indices.first().ok_or_else(|| {
+        CoreError::PreconditionFailed(format!(
+            "segment bridge {:?} has no request owner",
+            segment.segment_index
+        ))
+    })?;
+    let first = plan.plans.get(first_request_index).ok_or_else(|| {
+        CoreError::PreconditionFailed(format!(
+            "segment bridge references missing request index {first_request_index}"
+        ))
+    })?;
+    let other_sets = segment
+        .request_indices
+        .iter()
+        .skip(1)
+        .map(|&request_index| {
+            plan.plans
+                .get(request_index)
+                .map(|plan| plan.request.cylinder_interval.iter().copied().collect())
+                .ok_or_else(|| {
+                    CoreError::PreconditionFailed(format!(
+                        "segment bridge references missing request index {request_index}"
+                    ))
+                })
+        })
+        .collect::<Result<Vec<BTreeSet<_>>, _>>()?;
+    Ok(first
+        .request
+        .cylinder_interval
+        .iter()
+        .copied()
+        .filter(|half_edge| other_sets.iter().all(|set| set.contains(half_edge)))
+        .collect())
+}
+
 fn selected_faces(
     plan: &CylinderMediatedSupportContinuationBatchPlan,
     segment: &CylinderMediatedSupportContinuationSegmentAuthoringPlan,
@@ -211,4 +272,15 @@ fn selected_faces(
         }
     }
     Ok(faces)
+}
+
+fn duplicate_half_edge_count(half_edges: impl Iterator<Item = HalfEdgeHandle>) -> usize {
+    let mut seen = BTreeSet::new();
+    let mut duplicates = BTreeSet::new();
+    for half_edge in half_edges {
+        if !seen.insert(half_edge) {
+            duplicates.insert(half_edge);
+        }
+    }
+    duplicates.len()
 }
