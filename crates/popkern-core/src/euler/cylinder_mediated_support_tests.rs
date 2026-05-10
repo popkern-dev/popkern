@@ -1,6 +1,7 @@
 use crate::constructors::builder::BRepBuilder;
 use crate::euler::{
-    CylinderMediatedSupportContinuationDelta, CylinderMediatedSupportContinuationRequest,
+    CylinderMediatedOutsideIntervalInteraction, CylinderMediatedSupportContinuationDelta,
+    CylinderMediatedSupportContinuationRequest,
 };
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
@@ -98,6 +99,27 @@ fn preflight_accepts_cube_extreme_style_long_interval_requests() {
     assert_eq!(second.outside_interval.len(), 11);
     assert_eq!(second.outside_complement_interval.len(), 11);
     assert_eq!(second.request.cylinder_interval.len(), 2);
+}
+
+#[test]
+fn batch_preflight_reports_overlapping_outside_intervals() {
+    let fixture = long_interval_cylinder_mediated_fixture();
+
+    let batch = fixture
+        .brep
+        .preflight_cylinder_mediated_support_continuation_batch(vec![
+            fixture.first_request(),
+            fixture.second_request(),
+        ])
+        .expect("batch preflight validates independently valid requests");
+
+    assert_eq!(batch.plans.len(), 2);
+    match batch.outside_interval_interaction {
+        CylinderMediatedOutsideIntervalInteraction::Overlapping { shared_half_edges } => {
+            assert_eq!(shared_half_edges.len(), 7);
+        }
+        interaction => panic!("expected overlapping outside intervals, got {interaction:?}"),
+    }
 }
 
 struct CylinderMediatedFixture {

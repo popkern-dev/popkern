@@ -1,5 +1,7 @@
 //! Preflight contract for cylinder-mediated support continuation.
 
+use std::collections::BTreeSet;
+
 use crate::error::CoreError;
 use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
@@ -50,6 +52,27 @@ pub struct CylinderMediatedSupportContinuationPlan {
     /// Topology delta is intentionally unknown until the mutating operator is
     /// implemented and proven.
     pub expected_delta: CylinderMediatedSupportContinuationDelta,
+}
+
+/// Preflighted aggregate plan for cylinder-mediated support continuations.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CylinderMediatedSupportContinuationBatchPlan {
+    /// Validated per-continuation plans.
+    pub plans: Vec<CylinderMediatedSupportContinuationPlan>,
+    /// Interaction between selected outside/cap intervals.
+    pub outside_interval_interaction: CylinderMediatedOutsideIntervalInteraction,
+}
+
+/// Relationship between selected outside/cap intervals in an aggregate plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CylinderMediatedOutsideIntervalInteraction {
+    /// Each selected outside interval owns a disjoint half-open span.
+    Disjoint,
+    /// At least one outside/cap half-edge is selected by more than one request.
+    Overlapping {
+        /// Shared half-edges in deterministic handle order.
+        shared_half_edges: Vec<HalfEdgeHandle>,
+    },
 }
 
 /// Expected topology delta status for the continuation.
@@ -127,6 +150,31 @@ impl BRep {
             expected_delta: CylinderMediatedSupportContinuationDelta::Unknown {
                 reason: "cylinder-mediated-support-continuation-operator-required",
             },
+        })
+    }
+
+    /// Validate an aggregate set of cylinder-mediated support continuations.
+    ///
+    /// The batch preflight is still read-only. It exists because commercial
+    /// execution must reason about interval interactions before mutating:
+    /// independently valid requests can still overlap on the outside/cap loop.
+    pub fn preflight_cylinder_mediated_support_continuation_batch(
+        &self,
+        requests: Vec<CylinderMediatedSupportContinuationRequest>,
+    ) -> Result<CylinderMediatedSupportContinuationBatchPlan, CoreError> {
+        if requests.is_empty() {
+            return Err(CoreError::PreconditionFailed(
+                "cylinder-mediated support continuation batch requires at least one request".into(),
+            ));
+        }
+        let mut plans = Vec::with_capacity(requests.len());
+        for request in requests {
+            plans.push(self.preflight_cylinder_mediated_support_continuation(request)?);
+        }
+        let outside_interval_interaction = outside_interval_interaction(&plans)?;
+        Ok(CylinderMediatedSupportContinuationBatchPlan {
+            plans,
+            outside_interval_interaction,
         })
     }
 
@@ -373,4 +421,34 @@ fn half_open_contains(
         ));
     }
     Ok(interval[..interval.len() - 1].contains(&half_edge))
+}
+
+fn outside_interval_interaction(
+    plans: &[CylinderMediatedSupportContinuationPlan],
+) -> Result<CylinderMediatedOutsideIntervalInteraction, CoreError> {
+    let mut seen = BTreeSet::new();
+    let mut shared = BTreeSet::new();
+    for plan in plans {
+        for half_edge in half_open_interval(&plan.outside_interval)? {
+            if !seen.insert(*half_edge) {
+                shared.insert(*half_edge);
+            }
+        }
+    }
+    if shared.is_empty() {
+        Ok(CylinderMediatedOutsideIntervalInteraction::Disjoint)
+    } else {
+        Ok(CylinderMediatedOutsideIntervalInteraction::Overlapping {
+            shared_half_edges: shared.into_iter().collect(),
+        })
+    }
+}
+
+fn half_open_interval(interval: &[HalfEdgeHandle]) -> Result<&[HalfEdgeHandle], CoreError> {
+    if interval.is_empty() {
+        return Err(CoreError::PreconditionFailed(
+            "outside endpoint interval is empty".into(),
+        ));
+    }
+    Ok(&interval[..interval.len() - 1])
 }

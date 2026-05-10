@@ -22,6 +22,7 @@ mod same_loop_bridge_dissolve;
 mod sweep;
 pub use construction_residual_retire::ConstructionResidualRetireResult;
 pub use cylinder_mediated_support::{
+    CylinderMediatedOutsideIntervalInteraction, CylinderMediatedSupportContinuationBatchPlan,
     CylinderMediatedSupportContinuationDelta, CylinderMediatedSupportContinuationPlan,
     CylinderMediatedSupportContinuationRequest,
 };
