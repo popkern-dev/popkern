@@ -21,18 +21,70 @@ pub(super) struct BridgeResourceReconciliation {
 }
 
 impl BridgeResourceReconciliation {
+    pub(super) fn status(&self) -> BridgeResourceReconciliationStatus {
+        if self.missing_request_sets.is_empty() && self.extra_cylinder_resources == 0 {
+            return BridgeResourceReconciliationStatus::ExactResourcePairing;
+        }
+        if self.extra_cylinder_resources == 0
+            && self
+                .missing_request_sets
+                .iter()
+                .all(|request_set| request_set.len() > 1)
+        {
+            return BridgeResourceReconciliationStatus::SharedOutsideTransitionNeedsResource;
+        }
+        if self.extra_cylinder_resources == 0
+            && self.missing_request_sets.iter().all(|request_set| {
+                request_set.len() == 1
+                    && self.cylinder_request_sets.iter().any(|cylinder_set| {
+                        cylinder_set.len() > 1
+                            && request_set
+                                .iter()
+                                .all(|request_index| cylinder_set.contains(request_index))
+                    })
+            })
+        {
+            return BridgeResourceReconciliationStatus::SingleSupportCoveredBySharedCylinderResource;
+        }
+        BridgeResourceReconciliationStatus::IncompatibleResourceSets
+    }
+
     pub(super) fn diagnostic_label(&self) -> String {
         format!(
-            "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={} outside_request_sets=[{}] cylinder_request_sets=[{}] missing_request_sets=[{}]",
+            "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={} resource_status={} outside_request_sets=[{}] cylinder_request_sets=[{}] missing_request_sets=[{}]",
             self.outside_segments,
             self.cylinder_segments,
             self.exact_matches,
             self.missing_cylinder_matches,
             self.extra_cylinder_resources,
+            self.status().diagnostic_label(),
             request_set_summary(&self.outside_request_sets),
             request_set_summary(&self.cylinder_request_sets),
             request_set_summary(&self.missing_request_sets)
         )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum BridgeResourceReconciliationStatus {
+    ExactResourcePairing,
+    SharedOutsideTransitionNeedsResource,
+    SingleSupportCoveredBySharedCylinderResource,
+    IncompatibleResourceSets,
+}
+
+impl BridgeResourceReconciliationStatus {
+    fn diagnostic_label(self) -> &'static str {
+        match self {
+            Self::ExactResourcePairing => "exact-resource-pairing",
+            Self::SharedOutsideTransitionNeedsResource => {
+                "shared-outside-transition-needs-resource"
+            }
+            Self::SingleSupportCoveredBySharedCylinderResource => {
+                "single-support-covered-by-shared-cylinder-resource"
+            }
+            Self::IncompatibleResourceSets => "incompatible-resource-sets",
+        }
     }
 }
 
