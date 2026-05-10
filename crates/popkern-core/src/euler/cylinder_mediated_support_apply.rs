@@ -21,7 +21,9 @@ mod apply_diagnostics;
 mod apply_owner_spans;
 
 use apply_bridge_cycles::derive_segment_bridge_cycle_operands;
-use apply_cylinder_resources::derive_cylinder_bridge_resource_partition;
+use apply_cylinder_resources::{
+    BridgeResourceReconciliationStatus, derive_cylinder_bridge_resource_partition,
+};
 use apply_diagnostics::segment_authoring_summary;
 use apply_owner_spans::{expose_owner_repair_spans, owner_repair_spans};
 
@@ -173,17 +175,8 @@ impl BRep {
                 "cylinder-mediated support continuation refusal mutated topology".into(),
             ));
         }
-        let bridge_refusal = match repair_result.1.ownership_status() {
-            apply_bridge_cycles::SegmentBridgeCycleOwnershipStatus::SingleSupportReady => {
-                "cylinder-mediated support continuation segment bridge construction not implemented"
-            }
-            apply_bridge_cycles::SegmentBridgeCycleOwnershipStatus::SharedSupportTransitionReady => {
-                "cylinder-mediated support continuation segment bridge construction not implemented"
-            }
-            apply_bridge_cycles::SegmentBridgeCycleOwnershipStatus::MissingSupportOwner => {
-                "cylinder-mediated support continuation segment bridge has no support owner"
-            }
-        };
+        let bridge_refusal =
+            bridge_refusal_reason(repair_result.1.ownership_status(), repair_result.2.status());
         Err(CoreError::PreconditionFailed(format!(
             "{bridge_refusal}: expected_delta={} authored_delta={} {} {} {} {} {}",
             plan.expected_delta.diagnostic_label(),
@@ -400,6 +393,31 @@ fn segment_requirement(
         return CylinderMediatedSupportContinuationSegmentRequirement::OwnedEdgeReclassification;
     }
     CylinderMediatedSupportContinuationSegmentRequirement::BoundaryBridge
+}
+
+fn bridge_refusal_reason(
+    ownership_status: apply_bridge_cycles::SegmentBridgeCycleOwnershipStatus,
+    resource_status: BridgeResourceReconciliationStatus,
+) -> &'static str {
+    if ownership_status
+        == apply_bridge_cycles::SegmentBridgeCycleOwnershipStatus::MissingSupportOwner
+    {
+        return "cylinder-mediated support continuation segment bridge has no support owner";
+    }
+    match resource_status {
+        BridgeResourceReconciliationStatus::ExactResourcePairing => {
+            "cylinder-mediated support continuation exact resource bridge construction not implemented"
+        }
+        BridgeResourceReconciliationStatus::SharedOutsideTransitionNeedsResource => {
+            "cylinder-mediated support continuation shared outside transition bridge construction not implemented"
+        }
+        BridgeResourceReconciliationStatus::SingleSupportCoveredBySharedCylinderResource => {
+            "cylinder-mediated support continuation shared cylinder resource bridge construction not implemented"
+        }
+        BridgeResourceReconciliationStatus::IncompatibleResourceSets => {
+            "cylinder-mediated support continuation bridge resources are incompatible"
+        }
+    }
 }
 
 fn require_known_aggregate_delta(

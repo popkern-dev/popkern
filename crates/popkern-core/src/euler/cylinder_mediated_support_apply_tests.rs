@@ -23,7 +23,7 @@ fn mutator_boundary_refuses_without_mutating_topology() {
     let detail = err.to_string();
     assert!(
         detail.contains(
-            "cylinder-mediated support continuation segment bridge construction not implemented"
+            "cylinder-mediated support continuation shared outside transition bridge construction not implemented"
         ),
         "{err}"
     );

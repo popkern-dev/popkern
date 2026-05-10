@@ -90,7 +90,7 @@ pub(super) enum BridgeResourceReconciliationStatus {
 }
 
 impl BridgeResourceReconciliationStatus {
-    fn diagnostic_label(self) -> &'static str {
+    pub(super) fn diagnostic_label(self) -> &'static str {
         match self {
             Self::ExactResourcePairing => "exact-resource-pairing",
             Self::SharedOutsideTransitionNeedsResource => {
