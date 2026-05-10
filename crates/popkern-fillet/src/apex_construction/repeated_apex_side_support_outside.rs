@@ -5,6 +5,9 @@ use popkern_core::euler::{
 };
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
 
+use super::repeated_apex_side_support_outside_operator::{
+    CylinderMediatedSupportContinuationTopologyOperatorReport, topology_operator_report,
+};
 use super::repeated_apex_side_support_plan::{
     OutsideOutsideSupportContinuationPlan, PlannedTopologyOperation, SelectedSideSupportRegionPlan,
     SideSupportRegionPlanSelection,
@@ -130,6 +133,12 @@ impl OutsideOutsideSupportPrimitiveDerivation {
         self.is_ready() && self.primitive.is_some()
     }
 
+    pub(super) fn topology_operator_report(
+        &self,
+    ) -> CylinderMediatedSupportContinuationTopologyOperatorReport {
+        topology_operator_report(self.primitive.as_ref())
+    }
+
     fn from_selected_plan(
         plan: &SelectedSideSupportRegionPlan,
         knowledge: &TopologyKnowledgeGraph,
@@ -170,6 +179,10 @@ impl OutsideOutsideSupportPrimitiveDerivation {
 }
 
 impl OutsideOutsideSupportPrimitivePlan {
+    pub(super) fn requests(&self) -> &[CylinderMediatedSupportContinuationRequest] {
+        &self.requests
+    }
+
     fn diagnostic_label(&self) -> String {
         format!("requests={}", self.requests.len())
     }

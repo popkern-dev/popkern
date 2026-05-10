@@ -155,7 +155,10 @@ impl SideSupportRegionExecutionReport {
                             OutsideOutsideSupportPrimitiveDerivation::build(
                                 selection, knowledge, brep,
                             );
-                        let reason = if outside_primitive.is_complete() {
+                        let topology_report = outside_primitive.topology_operator_report();
+                        let reason = if outside_primitive.is_complete()
+                            && !topology_report.is_ready()
+                        {
                             SideSupportRegionExecutionRefusalReason::MissingCylinderMediatedSupportContinuationTopologyOperator
                         } else {
                             SideSupportRegionExecutionRefusalReason::MissingValidatedOutsideOutsideSupportContinuationPrimitive
@@ -163,9 +166,10 @@ impl SideSupportRegionExecutionReport {
                         return Self::refused_with_detail(
                             reason,
                             format!(
-                                "{}; {}",
+                                "{}; {}; {}",
                                 selection.diagnostic_label(),
-                                outside_primitive.diagnostic_label()
+                                outside_primitive.diagnostic_label(),
+                                topology_report.diagnostic_label()
                             ),
                         );
                     }
