@@ -172,8 +172,8 @@ impl BRep {
             apply_bridge_cycles::SegmentBridgeCycleOwnershipStatus::SingleSupportReady => {
                 "cylinder-mediated support continuation segment bridge construction not implemented"
             }
-            apply_bridge_cycles::SegmentBridgeCycleOwnershipStatus::SharedSupportResolutionRequired => {
-                "cylinder-mediated support continuation shared-support segment ownership not implemented"
+            apply_bridge_cycles::SegmentBridgeCycleOwnershipStatus::SharedSupportTransitionReady => {
+                "cylinder-mediated support continuation segment bridge construction not implemented"
             }
             apply_bridge_cycles::SegmentBridgeCycleOwnershipStatus::MissingSupportOwner => {
                 "cylinder-mediated support continuation segment bridge has no support owner"

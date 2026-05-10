@@ -1,7 +1,5 @@
 //! Bridge-cycle operand derivation after owner-side exposure.
 
-use std::collections::BTreeSet;
-
 use crate::error::CoreError;
 use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
 
@@ -26,7 +24,7 @@ impl SegmentBridgeCycleOperandSet {
             return SegmentBridgeCycleOwnershipStatus::MissingSupportOwner;
         }
         if self.has_shared_support_segments() {
-            return SegmentBridgeCycleOwnershipStatus::SharedSupportResolutionRequired;
+            return SegmentBridgeCycleOwnershipStatus::SharedSupportTransitionReady;
         }
         SegmentBridgeCycleOwnershipStatus::SingleSupportReady
     }
@@ -87,7 +85,7 @@ impl SegmentBridgeCycleOperandSet {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SegmentBridgeCycleOwnershipStatus {
     SingleSupportReady,
-    SharedSupportResolutionRequired,
+    SharedSupportTransitionReady,
     MissingSupportOwner,
 }
 
@@ -95,7 +93,7 @@ impl SegmentBridgeCycleOwnershipStatus {
     fn diagnostic_label(self) -> &'static str {
         match self {
             Self::SingleSupportReady => "single-support-ready",
-            Self::SharedSupportResolutionRequired => "shared-support-resolution-required",
+            Self::SharedSupportTransitionReady => "shared-support-transition-ready",
             Self::MissingSupportOwner => "missing-support-owner",
         }
     }
@@ -196,14 +194,17 @@ fn selected_faces(
     segment: &CylinderMediatedSupportContinuationSegmentAuthoringPlan,
     face: impl Fn(&CylinderMediatedSupportContinuationRequest) -> FaceHandle,
 ) -> Result<Vec<FaceHandle>, CoreError> {
-    let mut faces = BTreeSet::new();
+    let mut faces = Vec::new();
     for &request_index in &segment.request_indices {
         let request = plan.plans.get(request_index).ok_or_else(|| {
             CoreError::PreconditionFailed(format!(
                 "segment bridge references missing request index {request_index}"
             ))
         })?;
-        faces.insert(face(&request.request));
+        let selected = face(&request.request);
+        if !faces.contains(&selected) {
+            faces.push(selected);
+        }
     }
-    Ok(faces.into_iter().collect())
+    Ok(faces)
 }
