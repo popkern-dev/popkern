@@ -21,6 +21,14 @@ fn preflight_accepts_cylinder_mediated_operands() {
             reason: "cylinder-mediated-support-continuation-operator-required"
         }
     );
+    assert_eq!(
+        plan.outside_interval,
+        vec![
+            fixture.outside_cylinder_half_edge,
+            fixture.outside_end_half_edge
+        ]
+    );
+    assert_eq!(plan.outside_complement_interval.len(), 4);
 }
 
 #[test]
@@ -50,6 +58,23 @@ fn preflight_refuses_wrong_support_cylinder_adjacency() {
 
     assert!(
         err.to_string().contains("support/cylinder adjacency"),
+        "{err}"
+    );
+}
+
+#[test]
+fn preflight_refuses_outside_adjacency_off_endpoint_intervals() {
+    let fixture = cylinder_mediated_fixture();
+    let mut request = fixture.request();
+    request.outside_cylinder_half_edge = fixture.support_cylinder_half_edge;
+
+    let err = fixture
+        .brep
+        .preflight_cylinder_mediated_support_continuation(request)
+        .expect_err("outside adjacency must belong to outside endpoint interval");
+
+    assert!(
+        err.to_string().contains("outside/cylinder adjacency"),
         "{err}"
     );
 }

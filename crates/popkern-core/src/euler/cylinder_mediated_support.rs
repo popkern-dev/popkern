@@ -41,6 +41,12 @@ mod tests;
 pub struct CylinderMediatedSupportContinuationPlan {
     /// Validated request operands.
     pub request: CylinderMediatedSupportContinuationRequest,
+    /// Directed outside/cap interval between the requested generator endpoints
+    /// that contains the outside/cylinder adjacency operand.
+    pub outside_interval: Vec<HalfEdgeHandle>,
+    /// Complementary directed outside/cap interval between the requested
+    /// generator endpoints.
+    pub outside_complement_interval: Vec<HalfEdgeHandle>,
     /// Topology delta is intentionally unknown until the mutating operator is
     /// implemented and proven.
     pub expected_delta: CylinderMediatedSupportContinuationDelta,
@@ -103,6 +109,12 @@ impl BRep {
             request.support_cylinder_half_edge,
             &request.cylinder_interval,
         )?;
+        let outside_intervals = self.require_outside_endpoint_intervals(
+            request.outside_loop,
+            request.outside_start_half_edge,
+            request.outside_end_half_edge,
+            request.outside_cylinder_half_edge,
+        )?;
         self.require_same_shell(
             request.support_face,
             request.outside_face,
@@ -110,6 +122,8 @@ impl BRep {
         )?;
         Ok(CylinderMediatedSupportContinuationPlan {
             request,
+            outside_interval: outside_intervals.selected,
+            outside_complement_interval: outside_intervals.complement,
             expected_delta: CylinderMediatedSupportContinuationDelta::Unknown {
                 reason: "cylinder-mediated-support-continuation-operator-required",
             },
@@ -139,6 +153,76 @@ impl BRep {
             )));
         }
         Ok(())
+    }
+
+    fn require_outside_endpoint_intervals(
+        &self,
+        outside_loop: LoopHandle,
+        outside_start_half_edge: HalfEdgeHandle,
+        outside_end_half_edge: HalfEdgeHandle,
+        outside_cylinder_half_edge: HalfEdgeHandle,
+    ) -> Result<OutsideEndpointIntervals, CoreError> {
+        let start_to_end = self.directed_loop_interval(
+            outside_loop,
+            outside_start_half_edge,
+            outside_end_half_edge,
+        )?;
+        let end_to_start = self.directed_loop_interval(
+            outside_loop,
+            outside_end_half_edge,
+            outside_start_half_edge,
+        )?;
+        let start_to_end_contains = half_open_contains(&start_to_end, outside_cylinder_half_edge)?;
+        let end_to_start_contains = half_open_contains(&end_to_start, outside_cylinder_half_edge)?;
+        match (start_to_end_contains, end_to_start_contains) {
+            (true, false) => Ok(OutsideEndpointIntervals {
+                selected: start_to_end,
+                complement: end_to_start,
+            }),
+            (false, true) => Ok(OutsideEndpointIntervals {
+                selected: end_to_start,
+                complement: start_to_end,
+            }),
+            (false, false) => Err(CoreError::PreconditionFailed(format!(
+                "outside/cylinder adjacency {outside_cylinder_half_edge:?} is not on either directed outside endpoint interval"
+            ))),
+            (true, true) => Err(CoreError::PreconditionFailed(format!(
+                "outside/cylinder adjacency {outside_cylinder_half_edge:?} ambiguously lies on both outside endpoint intervals"
+            ))),
+        }
+    }
+
+    fn directed_loop_interval(
+        &self,
+        loop_handle: LoopHandle,
+        start: HalfEdgeHandle,
+        end: HalfEdgeHandle,
+    ) -> Result<Vec<HalfEdgeHandle>, CoreError> {
+        let mut interval = Vec::new();
+        let mut cursor = start;
+        for _ in 0..=self.half_edges.len() {
+            let data = self.half_edges.get(cursor).ok_or_else(|| {
+                CoreError::InvalidHandle(format!(
+                    "outside endpoint interval references stale half-edge {cursor:?}"
+                ))
+            })?;
+            if data.loop_ != loop_handle {
+                return Err(CoreError::PreconditionFailed(format!(
+                    "outside endpoint interval half-edge {cursor:?} leaves loop {loop_handle:?}"
+                )));
+            }
+            interval.push(cursor);
+            if cursor == end {
+                return Ok(interval);
+            }
+            cursor = data.next;
+            if cursor == start {
+                break;
+            }
+        }
+        Err(CoreError::PreconditionFailed(format!(
+            "outside endpoint interval cannot reach {end:?} from {start:?}"
+        )))
     }
 
     fn require_vertex(&self, vertex: VertexHandle, label: &str) -> Result<(), CoreError> {
@@ -272,4 +356,21 @@ impl BRep {
         }
         Ok(())
     }
+}
+
+struct OutsideEndpointIntervals {
+    selected: Vec<HalfEdgeHandle>,
+    complement: Vec<HalfEdgeHandle>,
+}
+
+fn half_open_contains(
+    interval: &[HalfEdgeHandle],
+    half_edge: HalfEdgeHandle,
+) -> Result<bool, CoreError> {
+    if interval.is_empty() {
+        return Err(CoreError::PreconditionFailed(
+            "outside endpoint interval is empty".into(),
+        ));
+    }
+    Ok(interval[..interval.len() - 1].contains(&half_edge))
 }
