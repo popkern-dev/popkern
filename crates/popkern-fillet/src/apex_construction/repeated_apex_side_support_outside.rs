@@ -1,6 +1,6 @@
 //! Outside/outside support-continuation primitive derivation.
 
-use popkern_core::topology::{FaceHandle, HalfEdgeHandle, LoopHandle};
+use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
 
 use super::repeated_apex_side_support_plan::{
     OutsideOutsideSupportContinuationPlan, PlannedTopologyOperation, SelectedSideSupportRegionPlan,
@@ -26,6 +26,7 @@ struct OutsideOutsideSupportRegionDerivation {
 enum OutsideOutsideSupportRefusal {
     NoOutsideCylinderAdjacency,
     NoSupportCylinderAdjacency,
+    NoDirectedCylinderInterval,
     TopologyOperatorNotImplemented,
 }
 
@@ -34,6 +35,7 @@ struct CylinderMediatedOutsideOutsideClass {
     cylinder_face: FaceHandle,
     outside_adjacencies: Vec<LoopAdjacencyOperand>,
     support_adjacencies: Vec<LoopAdjacencyOperand>,
+    cylinder_intervals: Vec<CylinderIntervalOperand>,
 }
 
 #[derive(Clone, Debug)]
@@ -44,15 +46,24 @@ struct LoopAdjacencyOperand {
     cylinder_half_edge: HalfEdgeHandle,
 }
 
+#[derive(Clone, Debug)]
+struct CylinderIntervalOperand {
+    outside_cylinder_half_edge: HalfEdgeHandle,
+    support_cylinder_half_edge: HalfEdgeHandle,
+    cylinder_loop: LoopHandle,
+    interval: Vec<HalfEdgeHandle>,
+}
+
 impl OutsideOutsideSupportPrimitiveDerivation {
     pub(super) fn build(
         selection: &SideSupportRegionPlanSelection,
         knowledge: &TopologyKnowledgeGraph,
+        brep: &BRep,
     ) -> Self {
         match selection {
             SideSupportRegionPlanSelection::Selected(plan)
             | SideSupportRegionPlanSelection::Blocked(plan, _) => {
-                Self::from_selected_plan(plan, knowledge)
+                Self::from_selected_plan(plan, knowledge, brep)
             }
             SideSupportRegionPlanSelection::Refused(_) => Self {
                 regions: 0,
@@ -83,12 +94,13 @@ impl OutsideOutsideSupportPrimitiveDerivation {
     fn from_selected_plan(
         plan: &SelectedSideSupportRegionPlan,
         knowledge: &TopologyKnowledgeGraph,
+        brep: &BRep,
     ) -> Self {
         let details = plan
             .operations()
             .filter_map(|operation| match operation {
                 PlannedTopologyOperation::OutsideOutsideSupportContinuation(region) => Some(
-                    OutsideOutsideSupportRegionDerivation::derive(region, knowledge),
+                    OutsideOutsideSupportRegionDerivation::derive(region, knowledge, brep),
                 ),
                 PlannedTopologyOperation::SplitFaceWithEdge { .. }
                 | PlannedTopologyOperation::BridgeSupportRegion(_) => None,
@@ -106,6 +118,7 @@ impl OutsideOutsideSupportRegionDerivation {
     fn derive(
         region: &OutsideOutsideSupportContinuationPlan,
         knowledge: &TopologyKnowledgeGraph,
+        brep: &BRep,
     ) -> Self {
         let mut outside_adjacencies = Vec::new();
         let mut support_adjacencies = Vec::new();
@@ -140,11 +153,21 @@ impl OutsideOutsideSupportRegionDerivation {
                 cylinder_face,
                 outside_adjacencies: outside_adjacencies.clone(),
                 support_adjacencies: support_adjacencies.clone(),
+                cylinder_intervals: cylinder_interval_candidates(
+                    brep,
+                    &outside_adjacencies,
+                    &support_adjacencies,
+                ),
             });
         let reason = if outside_adjacencies.is_empty() {
             OutsideOutsideSupportRefusal::NoOutsideCylinderAdjacency
         } else if support_adjacencies.is_empty() {
             OutsideOutsideSupportRefusal::NoSupportCylinderAdjacency
+        } else if topology_class
+            .as_ref()
+            .is_none_or(|class| class.cylinder_intervals.is_empty())
+        {
+            OutsideOutsideSupportRefusal::NoDirectedCylinderInterval
         } else {
             OutsideOutsideSupportRefusal::TopologyOperatorNotImplemented
         };
@@ -178,6 +201,9 @@ impl OutsideOutsideSupportRefusal {
             OutsideOutsideSupportRefusal::NoSupportCylinderAdjacency => {
                 "missing-support-cylinder-adjacency"
             }
+            OutsideOutsideSupportRefusal::NoDirectedCylinderInterval => {
+                "missing-directed-cylinder-interval"
+            }
             OutsideOutsideSupportRefusal::TopologyOperatorNotImplemented => {
                 "missing-topology-operator"
             }
@@ -188,7 +214,7 @@ impl OutsideOutsideSupportRefusal {
 impl CylinderMediatedOutsideOutsideClass {
     fn diagnostic_label(&self) -> String {
         format!(
-            "class=cylinder-mediated cylinder={:?} outside_adjacencies=[{}] support_adjacencies=[{}]",
+            "class=cylinder-mediated cylinder={:?} outside_adjacencies=[{}] support_adjacencies=[{}] cylinder_intervals=[{}]",
             self.cylinder_face,
             self.outside_adjacencies
                 .iter()
@@ -198,6 +224,11 @@ impl CylinderMediatedOutsideOutsideClass {
             self.support_adjacencies
                 .iter()
                 .map(LoopAdjacencyOperand::diagnostic_label)
+                .collect::<Vec<_>>()
+                .join(", "),
+            self.cylinder_intervals
+                .iter()
+                .map(CylinderIntervalOperand::diagnostic_label)
                 .collect::<Vec<_>>()
                 .join(", ")
         )
@@ -218,6 +249,27 @@ impl LoopAdjacencyOperand {
         format!(
             "{:?}@{:?}<->{:?}@{:?}",
             self.source_loop, self.source_half_edge, self.cylinder_loop, self.cylinder_half_edge
+        )
+    }
+}
+
+impl CylinderIntervalOperand {
+    fn sort_key(&self) -> (usize, HalfEdgeHandle, HalfEdgeHandle) {
+        (
+            self.interval.len(),
+            self.outside_cylinder_half_edge,
+            self.support_cylinder_half_edge,
+        )
+    }
+
+    fn diagnostic_label(&self) -> String {
+        format!(
+            "{:?}->{:?} loop={:?} len={} path={:?}",
+            self.outside_cylinder_half_edge,
+            self.support_cylinder_half_edge,
+            self.cylinder_loop,
+            self.interval.len(),
+            self.interval
         )
     }
 }
@@ -285,4 +337,60 @@ fn support_cylinder_adjacencies(
             None
         })
         .collect()
+}
+
+fn cylinder_interval_candidates(
+    brep: &BRep,
+    outside_adjacencies: &[LoopAdjacencyOperand],
+    support_adjacencies: &[LoopAdjacencyOperand],
+) -> Vec<CylinderIntervalOperand> {
+    let mut intervals = outside_adjacencies
+        .iter()
+        .flat_map(|outside| {
+            support_adjacencies
+                .iter()
+                .filter(move |support| outside.cylinder_loop == support.cylinder_loop)
+                .filter_map(move |support| {
+                    directed_loop_path(
+                        brep,
+                        outside.cylinder_loop,
+                        outside.cylinder_half_edge,
+                        support.cylinder_half_edge,
+                    )
+                    .map(|interval| CylinderIntervalOperand {
+                        outside_cylinder_half_edge: outside.cylinder_half_edge,
+                        support_cylinder_half_edge: support.cylinder_half_edge,
+                        cylinder_loop: outside.cylinder_loop,
+                        interval,
+                    })
+                })
+        })
+        .collect::<Vec<_>>();
+    intervals.sort_by_key(CylinderIntervalOperand::sort_key);
+    intervals
+}
+
+fn directed_loop_path(
+    brep: &BRep,
+    loop_handle: LoopHandle,
+    start: HalfEdgeHandle,
+    end: HalfEdgeHandle,
+) -> Option<Vec<HalfEdgeHandle>> {
+    let mut cursor = start;
+    let mut path = Vec::new();
+    for _ in 0..=brep.half_edges.len() {
+        let half_edge = brep.half_edges.get(cursor)?;
+        if half_edge.loop_ != loop_handle {
+            return None;
+        }
+        path.push(cursor);
+        if cursor == end {
+            return Some(path);
+        }
+        cursor = half_edge.next;
+        if cursor == start {
+            break;
+        }
+    }
+    None
 }

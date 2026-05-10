@@ -151,7 +151,9 @@ impl SideSupportRegionExecutionReport {
                     }
                     SideSupportRegionRefusalReason::MissingValidatedOutsideOutsideSupportContinuationPrimitive => {
                         let outside_primitive =
-                            OutsideOutsideSupportPrimitiveDerivation::build(selection, knowledge);
+                            OutsideOutsideSupportPrimitiveDerivation::build(
+                                selection, knowledge, brep,
+                            );
                         return Self::refused_with_detail(
                             SideSupportRegionExecutionRefusalReason::MissingValidatedOutsideOutsideSupportContinuationPrimitive,
                             format!(
