@@ -95,6 +95,8 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
         )?;
         let side_support_continuation =
             apply_selected_side_support_continuation(brep, &subcomplex_plan)?;
+        let support_ownership_already_materialized =
+            side_support_continuation == SideSupportRegionContinuationOutcome::Applied;
         let cylinder_loop_replacements = apply_materialized_cylinder_loop_replacements(
             brep,
             MaterializedCylinderLoopReplacementRequest {
@@ -106,6 +108,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
                 pre_materialized: &pre_materialized,
                 include_selected_nonmaterialized,
                 reuse_shared_cap_cylinder_seam: require_v_free_repeated_apex,
+                support_ownership_already_materialized,
             },
         )?;
         let cap_boundary_plan = plan_cap_boundary_rewrite_for_cylinder_trim(
@@ -187,6 +190,8 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
     debug_assert!(side_support_diagnostics.validate_fresh(&candidate));
     let side_support_continuation =
         apply_selected_side_support_continuation(&mut candidate, subcomplex_plan)?;
+    let support_ownership_already_materialized =
+        side_support_continuation == SideSupportRegionContinuationOutcome::Applied;
     match apply_materialized_cylinder_loop_replacements(
         &mut candidate,
         MaterializedCylinderLoopReplacementRequest {
@@ -198,6 +203,7 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
             pre_materialized: &pre_materialized,
             include_selected_nonmaterialized,
             reuse_shared_cap_cylinder_seam: require_v_free_repeated_apex,
+            support_ownership_already_materialized,
         },
     ) {
         Ok(_) => {

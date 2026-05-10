@@ -252,6 +252,7 @@ fn merge_rewires_half_edge_origins() {
         tolerance: None,
         name: None,
         canonical: Default::default(),
+        role: Default::default(),
     });
     // half-edge from v1 (will be remapped to v0)
     let he = brep.half_edges.insert(HalfEdge {

@@ -84,6 +84,7 @@ impl BRep {
             surface: None,
             name: None,
             tolerance: None,
+            role: Default::default(),
         });
 
         brep.loops[loop_face].face = f_sphere;
@@ -96,6 +97,7 @@ impl BRep {
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
 
         // -- Half-edges --

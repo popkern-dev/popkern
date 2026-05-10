@@ -26,6 +26,8 @@
 mod a2_validate_all_matrix_diagnostics;
 #[path = "support/a2_validate_all_matrix_seams.rs"]
 mod a2_validate_all_matrix_seams;
+#[path = "support/a2_validate_all_matrix_zoo.rs"]
+mod a2_validate_all_matrix_zoo;
 #[path = "support/a2_validate_helpers.rs"]
 mod a2_validate_helpers;
 #[path = "kp_gate_helpers.rs"]
@@ -34,10 +36,9 @@ mod helpers;
 use a2_validate_helpers::{
     EnvGuard, a2_fallback_reasons, assert_native_cap_has_cylinder_seams,
     assert_native_gregory_case, assert_native_gregory_cube_case, breakdown, build_under_a2,
-    build_under_a2_with_pyramid_height, count_a2_fallbacks,
+    count_a2_fallbacks,
 };
 use helpers::measure_cap_outer_boundary;
-use popkern_core::diagnostics::Diagnostics;
 use popkern_core::geometry::CurveGeometry;
 
 /// Whole-matrix gate: every fixture passes `validate_all` cleanly
@@ -310,115 +311,6 @@ fn a2_native_pyramid4_uniform_no_fallback() {
 #[test]
 fn a2_native_pyramid3_uniform_anchor_incompatible_uses_gregory_no_fallback() {
     assert_native_gregory_case("pyramid3_uniform", true, &[0.10, 0.10, 0.10], 3);
-}
-
-#[test]
-#[ignore = "diagnostic gate: exact fillet_zoo pyramid_n04 still leaves retired apex/support topology"]
-fn a2_diagnostic_pyramid4_zoo_mixed_export_defects() {
-    let result = build_under_a2_with_pyramid_height(true, &[0.07, 0.09, 0.11, 0.13], 1.2);
-    let reasons = a2_fallback_reasons(&result);
-    assert!(
-        reasons.is_empty(),
-        "diagnostic expects native A2 output before export-defect assertions; got:\n{}",
-        reasons.join("\n")
-    );
-
-    let diagnostics = Diagnostics::run(&result.brep);
-    eprintln!("{diagnostics}");
-    for degenerate in &diagnostics.defects.degenerate_edges {
-        let edge = degenerate.edge;
-        let Some(edge_data) = result.brep.edges.get(edge) else {
-            continue;
-        };
-        let Some(half_edge) = result.brep.half_edges.get(edge_data.half_edge) else {
-            continue;
-        };
-        let twin = result.brep.half_edges.get(half_edge.twin);
-        let half_edge_face = result
-            .brep
-            .loops
-            .get(half_edge.loop_)
-            .map(|loop_data| loop_data.face);
-        let twin_face = twin
-            .and_then(|twin| result.brep.loops.get(twin.loop_))
-            .map(|loop_data| loop_data.face);
-        eprintln!(
-            "[A2 diagnostic] degenerate {edge:?}: he={:?} origin={:?} loop={:?} face={:?}; \
-             twin={:?} origin={:?} loop={:?} face={:?}; boundary={}",
-            edge_data.half_edge,
-            half_edge.origin,
-            half_edge.loop_,
-            half_edge_face,
-            half_edge.twin,
-            twin.map(|twin| twin.origin),
-            twin.map(|twin| twin.loop_),
-            twin_face,
-            result.brep.boundary_edges.contains(&edge),
-        );
-    }
-    for sliver in &diagnostics.defects.sliver_faces {
-        let Some(face_data) = result.brep.faces.get(sliver.face) else {
-            continue;
-        };
-        let Some(loop_data) = result.brep.loops.get(face_data.outer_loop) else {
-            continue;
-        };
-        let mut cursor = loop_data.half_edge;
-        let mut entries = Vec::new();
-        for _ in 0..=result.brep.half_edges.len() {
-            let Some(half_edge) = result.brep.half_edges.get(cursor) else {
-                break;
-            };
-            let Some(vertex) = result.brep.vertices.get(half_edge.origin) else {
-                break;
-            };
-            let neighbor = result
-                .brep
-                .half_edges
-                .get(half_edge.twin)
-                .and_then(|twin| result.brep.loops.get(twin.loop_))
-                .map(|loop_data| loop_data.face);
-            entries.push(format!(
-                "{:?}@({:.6},{:.6},{:.6}) edge={:?} neighbor={:?}",
-                half_edge.origin,
-                vertex.position.x,
-                vertex.position.y,
-                vertex.position.z,
-                half_edge.edge,
-                neighbor
-            ));
-            cursor = half_edge.next;
-            if cursor == loop_data.half_edge {
-                break;
-            }
-        }
-        eprintln!(
-            "[A2 diagnostic] sliver {:?}: surface={:?}; loop={}",
-            sliver.face,
-            face_data.surface.as_ref().map(|surface| &surface.geometry),
-            entries.join(" -> ")
-        );
-    }
-    assert!(
-        diagnostics.defects.degenerate_edges.is_empty(),
-        "native pyramid4_zoo_mixed has degenerate edges: {:#?}",
-        diagnostics.defects.degenerate_edges
-    );
-    assert!(
-        diagnostics.defects.sliver_faces.is_empty(),
-        "native pyramid4_zoo_mixed has sliver faces: {:#?}",
-        diagnostics.defects.sliver_faces
-    );
-    assert!(
-        diagnostics.defects.face_overlaps.is_empty(),
-        "native pyramid4_zoo_mixed has face overlaps: {:#?}",
-        diagnostics.defects.face_overlaps
-    );
-    assert_eq!(
-        diagnostics.defects.tess_non_manifold_count, 0,
-        "native pyramid4_zoo_mixed has {} tessellation non-manifold seams, max {:.3e}",
-        diagnostics.defects.tess_non_manifold_count, diagnostics.defects.tess_non_manifold_max
-    );
 }
 
 #[test]

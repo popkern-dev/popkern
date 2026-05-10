@@ -9,7 +9,8 @@
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{CurveEval, CurveOnEdge, Point3};
 use popkern_core::topology::{
-    BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, Vertex, VertexHandle,
+    BRep, EdgeHandle, FaceHandle, HalfEdge, HalfEdgeHandle, LoopHandle, TopologyRole, Vertex,
+    VertexHandle,
 };
 
 use crate::fillet_surface::FilletSurfaceResult;
@@ -30,7 +31,8 @@ use super::repeated_apex_partition_topology::{
     oriented_edge_half_edges_on_face, validate_partition_cap_to_cylinder_seams, wire_existing_loop,
 };
 use super::repeated_apex_side_support::{
-    SideSupportRegionDiagnosticSnapshot, apply_selected_side_support_continuation,
+    SideSupportRegionContinuationOutcome, SideSupportRegionDiagnosticSnapshot,
+    apply_selected_side_support_continuation,
 };
 use super::repeated_apex_trim_subcomplex::{
     TopologyBalanceRequirement, TopologyCountDelta, TrimRewriteSubcomplexBuilder,
@@ -169,7 +171,9 @@ use partition_support_cycle_primitives::{
 use partition_support_intersections::{
     plane_plane_cylinder_joint_points, support_plane_faces_containing_point,
 };
-use partition_support_loop_rewrite::materialize_closed_support_trim_cycles;
+use partition_support_loop_rewrite::{
+    materialize_closed_support_trim_cycles, repair_support_source_loops_after_cylinder_rewire,
+};
 use partition_support_owners::{
     GeneratorTrimSupportOwnerQuery, support_face_for_generator_trim_side,
     target_cylinder_support_faces, target_cylinder_support_faces_with_semantic,

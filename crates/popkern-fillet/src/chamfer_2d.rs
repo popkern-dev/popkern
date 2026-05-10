@@ -269,6 +269,7 @@ pub(crate) fn apply_chamfer_plan(
         name: None,
         tolerance: None,
         canonical: Default::default(),
+        role: Default::default(),
     });
 
     // 4. Create the two new half-edges for the chamfer edge and

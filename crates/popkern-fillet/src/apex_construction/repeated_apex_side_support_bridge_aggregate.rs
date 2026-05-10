@@ -52,20 +52,34 @@ fn aggregate_cycle_candidates(
     brep: &BRep,
     region: &FaceFamilyBridgeRegionPrimitivePlan,
 ) -> Option<Vec<(FaceFamilyBridgeBoundaryCycle, BTreeSet<EdgeHandle>)>> {
-    let mut candidates = [
-        FaceFamilyBridgeBoundaryCycle::new(
-            region.support_paths().second_to_first().to_vec(),
-            region.outside_paths().first_to_second().to_vec(),
-        ),
-        FaceFamilyBridgeBoundaryCycle::new(
-            region.support_paths().second_to_first().to_vec(),
-            region.outside_paths().second_to_first().to_vec(),
-        ),
-    ]
-    .into_iter()
-    .filter_map(|cycle| cycle_edge_set(brep, &cycle).map(|edges| (cycle, edges)))
-    .collect::<Vec<_>>();
-    candidates.sort_by_key(|(cycle, edges)| (cycle.outside_interval().len(), edges.len()));
+    let support_intervals = [
+        region.support_paths().first_to_second().to_vec(),
+        region.support_paths().second_to_first().to_vec(),
+    ];
+    let outside_intervals = [
+        region.outside_paths().first_to_second().to_vec(),
+        region.outside_paths().second_to_first().to_vec(),
+    ];
+    let mut candidates = support_intervals
+        .into_iter()
+        .flat_map(|support_interval| {
+            outside_intervals
+                .iter()
+                .cloned()
+                .map(move |outside_interval| {
+                    FaceFamilyBridgeBoundaryCycle::new(support_interval.clone(), outside_interval)
+                })
+        })
+        .filter_map(|cycle| cycle_edge_set(brep, &cycle).map(|edges| (cycle, edges)))
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|(cycle, edges)| {
+        (
+            cycle.support_interval().len() + cycle.outside_interval().len(),
+            cycle.support_interval().len(),
+            cycle.outside_interval().len(),
+            edges.len(),
+        )
+    });
     Some(candidates)
 }
 

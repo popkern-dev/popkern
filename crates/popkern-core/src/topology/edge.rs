@@ -1,6 +1,6 @@
 use crate::geometry::CurveOnEdge;
 use crate::naming::NameId;
-use crate::topology::HalfEdgeHandle;
+use crate::topology::{HalfEdgeHandle, TopologyRole};
 use serde::{Deserialize, Serialize};
 
 /// Which representation is authoritative for edge geometry.
@@ -30,4 +30,7 @@ pub struct Edge {
     /// Which geometric representation is authoritative for this edge.
     #[serde(default)]
     pub canonical: CanonicalForm,
+    /// Whether this edge belongs to production topology or retained construction residue.
+    #[serde(default)]
+    pub role: TopologyRole,
 }

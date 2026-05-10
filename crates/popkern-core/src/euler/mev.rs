@@ -2,6 +2,7 @@
 //! kev — Kill Edge, Vertex
 
 use crate::error::CoreError;
+use crate::euler::contract::{EulerDelta, EulerTopologyCounts, verify_loop_contains_half_edges};
 use crate::geometry::Point3;
 use crate::topology::{
     BRep, Edge, EdgeHandle, HalfEdge, HalfEdgeHandle, LoopHandle, Vertex, VertexHandle,
@@ -20,6 +21,15 @@ pub struct MevResult {
     pub half_edge_twin: HalfEdgeHandle,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KevResult {
+    pub vertex: VertexHandle,
+    pub edge: EdgeHandle,
+    pub half_edge: HalfEdgeHandle,
+    pub half_edge_twin: HalfEdgeHandle,
+    pub loop_: LoopHandle,
+}
+
 impl BRep {
     /// Make Edge, Vertex at a bare vertex — creates the first edge in a degenerate loop.
     ///
@@ -35,7 +45,20 @@ impl BRep {
         loop_: LoopHandle,
         position: Point3,
     ) -> Result<MevResult, CoreError> {
-        // Validate handles.
+        let before = EulerTopologyCounts::from_brep(self);
+        let mut candidate = self.clone();
+        let result = candidate.apply_mev_at_vertex(vertex, loop_, position)?;
+        candidate.verify_mev_postconditions("mev_at_vertex", before, result, loop_)?;
+        *self = candidate;
+        Ok(result)
+    }
+
+    fn apply_mev_at_vertex(
+        &mut self,
+        vertex: VertexHandle,
+        loop_: LoopHandle,
+        position: Point3,
+    ) -> Result<MevResult, CoreError> {
         if !self.vertices.contains_key(vertex) {
             return Err(CoreError::InvalidHandle("vertex handle is invalid".into()));
         }
@@ -66,6 +89,7 @@ impl BRep {
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
 
         // Create half-edges with placeholder handles; we'll patch after insertion.
@@ -126,6 +150,24 @@ impl BRep {
         half_edge: HalfEdgeHandle,
         position: Point3,
     ) -> Result<MevResult, CoreError> {
+        let target_loop = self
+            .half_edges
+            .get(half_edge)
+            .ok_or_else(|| CoreError::InvalidHandle("half_edge handle is invalid".into()))?
+            .loop_;
+        let before = EulerTopologyCounts::from_brep(self);
+        let mut candidate = self.clone();
+        let result = candidate.apply_mev(half_edge, position)?;
+        candidate.verify_mev_postconditions("mev", before, result, target_loop)?;
+        *self = candidate;
+        Ok(result)
+    }
+
+    fn apply_mev(
+        &mut self,
+        half_edge: HalfEdgeHandle,
+        position: Point3,
+    ) -> Result<MevResult, CoreError> {
         let he_data = self
             .half_edges
             .get(half_edge)
@@ -150,6 +192,7 @@ impl BRep {
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
 
         // Create he_out: existing_vertex -> new_vertex
@@ -208,7 +251,16 @@ impl BRep {
     ///
     /// - [`CoreError::InvalidHandle`] if the half-edge handle is invalid.
     /// - [`CoreError::PreconditionFailed`] if the destination vertex has valence > 1.
-    pub fn kev(&mut self, half_edge: HalfEdgeHandle) -> Result<(), CoreError> {
+    pub fn kev(&mut self, half_edge: HalfEdgeHandle) -> Result<KevResult, CoreError> {
+        let before = EulerTopologyCounts::from_brep(self);
+        let mut candidate = self.clone();
+        let result = candidate.apply_kev(half_edge)?;
+        candidate.verify_kev_postconditions(before, result)?;
+        *self = candidate;
+        Ok(result)
+    }
+
+    fn apply_kev(&mut self, half_edge: HalfEdgeHandle) -> Result<KevResult, CoreError> {
         let he_data = self
             .half_edges
             .get(half_edge)
@@ -226,6 +278,18 @@ impl BRep {
 
         let dest_vertex = twin_data.origin;
         let twin_next = twin_data.next;
+        let is_last_edge = he_prev == he_twin_handle && twin_next == half_edge;
+        if !is_last_edge
+            && (he_data.next != he_twin_handle
+                || twin_data.prev != half_edge
+                || he_prev == he_twin_handle
+                || twin_next == half_edge)
+        {
+            return Err(CoreError::PreconditionFailed(
+                "kev requires an MEV spur: half_edge must be immediately followed by its twin"
+                    .into(),
+            ));
+        }
 
         // Validate that dest_vertex has valence 1: the only outgoing half-edge
         // from dest_vertex should be he_twin, and it should loop back (next == half_edge
@@ -242,9 +306,6 @@ impl BRep {
                 "destination vertex has valence {valence}, expected 1"
             )));
         }
-
-        // Check if we're removing the last two half-edges in the loop (back to degenerate).
-        let is_last_edge = he_prev == he_twin_handle && twin_next == half_edge;
 
         if is_last_edge {
             // The loop becomes empty again.
@@ -270,149 +331,143 @@ impl BRep {
         self.edges.remove(edge_handle);
         self.vertices.remove(dest_vertex);
 
-        Ok(())
+        Ok(KevResult {
+            vertex: dest_vertex,
+            edge: edge_handle,
+            half_edge,
+            half_edge_twin: he_twin_handle,
+            loop_: the_loop,
+        })
     }
 
-    /// Dissolve a same-loop bridge edge — removes an edge whose
-    /// two half-edges lie on the SAME loop, without merging faces
-    /// (kef requires cross-face) and without removing a vertex
-    /// (kev requires destination valence-1).
-    ///
-    /// Both endpoint vertices remain in the BRep with their valence
-    /// reduced by 1.  The face's loop traversal is patched to skip
-    /// the dissolved edge's two half-edges; the loop remains a
-    /// single closed cycle (one fewer pair of half-edges).
-    ///
-    /// Used by Phase 6c-A2 §28.H Session 3.5 to clean up V's
-    /// same-loop bridges that arise after `kef_cross_face_v_edges`
-    /// merges per-plane V-corner triangles into their parent V-side
-    /// sub-faces.  The first spur kef per plane creates a same-
-    /// loop bridge for the second spur; the cube-edge stub
-    /// becomes same-loop after the V-incident plane sub-faces
-    /// merge.
-    ///
-    /// # Errors
-    ///
-    /// - [`CoreError::InvalidHandle`] if `half_edge` is invalid.
-    /// - [`CoreError::PreconditionFailed`] if the edge's two
-    ///   half-edges are on DIFFERENT loops (use `kef` instead).
-    pub fn dissolve_same_loop_bridge(
-        &mut self,
-        half_edge: HalfEdgeHandle,
+    fn verify_mev_postconditions(
+        &self,
+        op: &'static str,
+        before: EulerTopologyCounts,
+        result: MevResult,
+        expected_loop: LoopHandle,
     ) -> Result<(), CoreError> {
-        let he_data = self
-            .half_edges
-            .get(half_edge)
-            .ok_or_else(|| CoreError::InvalidHandle("half_edge handle is invalid".into()))?;
-
-        let twin_handle = he_data.twin;
-        let edge_handle = he_data.edge;
-        let twin_data = self
-            .half_edges
-            .get(twin_handle)
-            .ok_or_else(|| CoreError::InvalidHandle("twin handle is invalid".into()))?;
-
-        // Precondition: same loop (otherwise this is a kef job).
-        if he_data.loop_ != twin_data.loop_ {
+        EulerDelta::verify(
+            op,
+            before,
+            EulerTopologyCounts::from_brep(self),
+            EulerDelta::mev(),
+        )?;
+        let edge = self
+            .edges
+            .get(result.edge)
+            .ok_or_else(|| CoreError::PreconditionFailed("mev edge is not live".into()))?;
+        if edge.half_edge != result.half_edge {
             return Err(CoreError::PreconditionFailed(
-                "edge's half-edges are on different loops; use kef instead".into(),
+                "mev edge does not reference the created half-edge".into(),
             ));
         }
-
-        // Precondition: bridge isn't the only edge in the loop —
-        // otherwise dissolving would leave an empty loop.  Detect:
-        // the bridge is degenerate when its half-edge's prev or
-        // next is the twin (and vice versa), i.e., the loop
-        // traversal goes he → twin → he with nothing between.
-        if he_data.next == twin_handle && twin_data.next == half_edge {
+        let half_edge = self
+            .half_edges
+            .get(result.half_edge)
+            .ok_or_else(|| CoreError::PreconditionFailed("mev half-edge is not live".into()))?;
+        let twin = self.half_edges.get(result.half_edge_twin).ok_or_else(|| {
+            CoreError::PreconditionFailed("mev twin half-edge is not live".into())
+        })?;
+        if half_edge.twin != result.half_edge_twin
+            || twin.twin != result.half_edge
+            || half_edge.edge != result.edge
+            || twin.edge != result.edge
+            || half_edge.loop_ != expected_loop
+            || twin.loop_ != expected_loop
+        {
             return Err(CoreError::PreconditionFailed(
-                "dissolve would leave empty loop (bridge is loop's only edge)".into(),
+                "mev created half-edge pair is not consistently wired".into(),
             ));
         }
-
-        let he_origin = he_data.origin;
-        let twin_origin = twin_data.origin;
-        let he_prev = he_data.prev;
-        let he_next = he_data.next;
-        let twin_prev = twin_data.prev;
-        let twin_next = twin_data.next;
-        let the_loop = he_data.loop_;
-
-        // Splice out both half-edges from the loop.  For
-        // ADJACENT slits (where he.next == twin or vice versa),
-        // the splice has to skip both at once — splicing them
-        // independently would leave one of the prev/next
-        // pointers referring to a half-edge that's about to be
-        // removed.  Handle the two adjacency cases explicitly.
-        if he_next == twin_handle {
-            // Loop: ... → he_prev → he → twin → twin_next → ...
-            // Skip both: he_prev → twin_next.
-            self.half_edges[he_prev].next = twin_next;
-            self.half_edges[twin_next].prev = he_prev;
-        } else if twin_next == half_edge {
-            // Loop: ... → twin_prev → twin → he → he_next → ...
-            self.half_edges[twin_prev].next = he_next;
-            self.half_edges[he_next].prev = twin_prev;
-        } else {
-            // Non-adjacent: splice independently.
-            self.half_edges[he_prev].next = he_next;
-            self.half_edges[he_next].prev = he_prev;
-            self.half_edges[twin_prev].next = twin_next;
-            self.half_edges[twin_next].prev = twin_prev;
+        let vertex = self.vertices.get(result.vertex).ok_or_else(|| {
+            CoreError::PreconditionFailed("mev created vertex is not live".into())
+        })?;
+        if vertex.outgoing != result.half_edge_twin || twin.origin != result.vertex {
+            return Err(CoreError::PreconditionFailed(
+                "mev created vertex does not own the created twin half-edge".into(),
+            ));
         }
+        verify_loop_contains_half_edges(
+            self,
+            expected_loop,
+            &[result.half_edge, result.half_edge_twin],
+        )?;
+        self.validate_half_edge_pairing().map_err(CoreError::from)?;
+        self.validate_half_edge_cycles().map_err(CoreError::from)?;
+        self.validate_vertex_consistency()
+            .map_err(CoreError::from)?;
+        self.validate_manifold_edges().map_err(CoreError::from)
+    }
 
-        // If the loop's anchor half-edge was one of the dissolved
-        // ones, retarget to a still-valid half-edge in the loop.
-        let loop_he = self.loops[the_loop].half_edge;
-        if loop_he == half_edge || loop_he == twin_handle {
-            self.loops[the_loop].half_edge = he_next;
+    fn verify_kev_postconditions(
+        &self,
+        before: EulerTopologyCounts,
+        result: KevResult,
+    ) -> Result<(), CoreError> {
+        EulerDelta::verify(
+            "kev",
+            before,
+            EulerTopologyCounts::from_brep(self),
+            EulerDelta::kev(),
+        )?;
+        if self.vertices.contains_key(result.vertex)
+            || self.edges.contains_key(result.edge)
+            || self.half_edges.contains_key(result.half_edge)
+            || self.half_edges.contains_key(result.half_edge_twin)
+        {
+            return Err(CoreError::PreconditionFailed(
+                "kev left removed topology live".into(),
+            ));
         }
-
-        // Repair endpoint vertices' outgoing pointers if they
-        // happened to reference the dissolved half-edges.
-        if self.vertices[he_origin].outgoing == half_edge {
-            // Find another outgoing half-edge for he_origin.
-            let mut new_outgoing: Option<HalfEdgeHandle> = None;
-            for (h, h_data) in self.half_edges.iter() {
-                if h == half_edge || h == twin_handle {
-                    continue;
-                }
-                if h_data.origin == he_origin {
-                    new_outgoing = Some(h);
-                    break;
-                }
+        if self.boundary_edges.contains(&result.edge) {
+            return Err(CoreError::PreconditionFailed(
+                "kev left removed edge in boundary set".into(),
+            ));
+        }
+        for edge in self.edges.values() {
+            if edge.half_edge == result.half_edge || edge.half_edge == result.half_edge_twin {
+                return Err(CoreError::PreconditionFailed(
+                    "kev left a live edge referencing removed half-edges".into(),
+                ));
             }
-            if let Some(new_out) = new_outgoing {
-                self.vertices[he_origin].outgoing = new_out;
+        }
+        for half_edge in self.half_edges.values() {
+            let stale_reference = if half_edge.edge == result.edge {
+                Some("edge")
+            } else if half_edge.twin == result.half_edge || half_edge.twin == result.half_edge_twin
+            {
+                Some("twin")
+            } else if half_edge.next == result.half_edge || half_edge.next == result.half_edge_twin
+            {
+                Some("next")
+            } else if half_edge.prev == result.half_edge || half_edge.prev == result.half_edge_twin
+            {
+                Some("prev")
+            } else if half_edge.origin == result.vertex {
+                Some("origin")
             } else {
-                self.vertices[he_origin].outgoing = Default::default();
+                None
+            };
+            if let Some(field) = stale_reference {
+                return Err(CoreError::PreconditionFailed(format!(
+                    "kev left live half-edge {field} reference to removed topology"
+                )));
             }
         }
-        if self.vertices[twin_origin].outgoing == twin_handle {
-            let mut new_outgoing: Option<HalfEdgeHandle> = None;
-            for (h, h_data) in self.half_edges.iter() {
-                if h == half_edge || h == twin_handle {
-                    continue;
-                }
-                if h_data.origin == twin_origin {
-                    new_outgoing = Some(h);
-                    break;
-                }
-            }
-            if let Some(new_out) = new_outgoing {
-                self.vertices[twin_origin].outgoing = new_out;
-            } else {
-                self.vertices[twin_origin].outgoing = Default::default();
-            }
+        let loop_anchor = self
+            .loops
+            .get(result.loop_)
+            .ok_or_else(|| CoreError::PreconditionFailed("kev loop is not live".into()))?
+            .half_edge;
+        if self.half_edges.contains_key(loop_anchor) {
+            verify_loop_contains_half_edges(self, result.loop_, &[loop_anchor])?;
         }
-
-        // Remove the dissolved entities.  Vertices stay (their
-        // valence is just reduced by 1).
-        self.half_edges.remove(half_edge);
-        self.half_edges.remove(twin_handle);
-        self.edges.remove(edge_handle);
-
-        Ok(())
+        self.validate_half_edge_pairing().map_err(CoreError::from)?;
+        self.validate_half_edge_cycles().map_err(CoreError::from)?;
+        self.validate_vertex_consistency()
+            .map_err(CoreError::from)?;
+        self.validate_manifold_edges().map_err(CoreError::from)
     }
 }
 

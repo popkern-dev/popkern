@@ -152,6 +152,7 @@ fn build_quad_face(
         }),
         name: None,
         tolerance: None,
+        role: Default::default(),
     });
     let loop_h = brep.loops.insert(Loop {
         half_edge: Default::default(),
@@ -213,6 +214,7 @@ fn build_quad_face(
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
         brep.half_edges[he].edge = edge;
         brep.half_edges[tw].edge = edge;

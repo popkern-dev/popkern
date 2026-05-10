@@ -181,6 +181,7 @@ fn add_boundary_quad(
         surface: None,
         name: None,
         tolerance: None,
+        role: Default::default(),
     });
     let loop_ = brep.loops.insert(Loop {
         half_edge: Default::default(),
@@ -203,6 +204,7 @@ fn add_boundary_quad(
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: vertex,

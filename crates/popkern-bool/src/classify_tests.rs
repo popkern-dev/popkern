@@ -233,6 +233,7 @@ fn face_parameter_range_face_with_no_surface_returns_default() {
         surface: None,
         name: None,
         tolerance: None,
+        role: Default::default(),
     });
     brep.loops[loop_h].face = face_h;
     let ((u_min, u_max), (v_min, v_max)) = face_parameter_range(&brep, face_h);

@@ -1,6 +1,7 @@
 //! Typed repeated-apex partition plan and application sequence.
 
 use super::*;
+use popkern_core::topology::TopologyRole;
 
 pub(super) struct RepeatedApexPartitionPlan {
     cap_face: FaceHandle,
@@ -325,6 +326,7 @@ impl RepeatedApexPartitionPlan {
                 let residual_loop = residual_strip_loop_with_duplicated_seam(brep, ownership)?;
                 let residual_face =
                     insert_face_with_outer_loop(brep, self.cap_face, &residual_loop)?;
+                brep.faces[residual_face].role = TopologyRole::ConstructionResidual;
                 brep.faces[residual_face].surface = None;
                 if crate::a2_trace::enabled() {
                     eprintln!(
@@ -360,12 +362,14 @@ impl RepeatedApexPartitionPlan {
                         base_span.arc_index
                     ),
                 })?;
-            let (_seam_edge, seam_a, seam_b) = insert_unwired_edge_pair(brep, apex, apex);
+            let (seam_edge, seam_a, seam_b) = insert_unwired_edge_pair(brep, apex, apex);
+            brep.edges[seam_edge].role = TopologyRole::ConstructionResidual;
             let mut base_loop_half_edges = base_span.half_edges.clone();
             base_loop_half_edges.push(seam_a);
             base_loop_half_edges.push(seam_b);
             let base_face =
                 insert_face_with_outer_loop(brep, self.cap_face, &base_loop_half_edges)?;
+            brep.faces[base_face].role = TopologyRole::ConstructionResidual;
             if existing_target_cylinders_own_all_strips {
                 brep.faces[base_face].surface = None;
             }

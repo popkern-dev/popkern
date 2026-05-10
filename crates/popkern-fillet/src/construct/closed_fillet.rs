@@ -239,6 +239,7 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
         name: None,
         tolerance: None,
         canonical: Default::default(),
+        role: Default::default(),
     });
     let edge_fresh_side = brep.edges.insert(Edge {
         half_edge: HalfEdgeHandle::default(),
@@ -254,6 +255,7 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
         name: None,
         tolerance: None,
         canonical: Default::default(),
+        role: Default::default(),
     });
 
     // 8. Create the fillet face shell — we need this BEFORE the
@@ -270,6 +272,7 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
         }),
         name: None,
         tolerance: None,
+        role: Default::default(),
     });
 
     let loop_fillet_outer = brep.loops.insert(Loop {

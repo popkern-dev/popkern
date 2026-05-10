@@ -2,6 +2,7 @@
 //! kvfs — Kill Vertex, Face, Shell
 
 use crate::error::CoreError;
+use crate::euler::contract::{EulerDelta, EulerTopologyCounts};
 use crate::geometry::Point3;
 use crate::topology::{
     BRep, Face, FaceHandle, Loop, LoopHandle, Shell, ShellHandle, Solid, SolidHandle, Vertex,
@@ -23,13 +24,63 @@ pub struct MvfsResult {
     pub solid: SolidHandle,
 }
 
+/// Explicit inverse request for a seed created by [`BRep::mvfs`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KvfsRequest {
+    /// Isolated vertex to remove.
+    pub vertex: VertexHandle,
+    /// Isolated face to remove.
+    pub face: FaceHandle,
+    /// Empty outer loop to remove.
+    pub loop_: LoopHandle,
+    /// Single-face shell to remove.
+    pub shell: ShellHandle,
+    /// Solid owned by the shell.
+    pub solid: SolidHandle,
+}
+
+/// Result of the kvfs (Kill Vertex, Face, Shell) operator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KvfsResult {
+    /// Removed vertex.
+    pub vertex: VertexHandle,
+    /// Removed face.
+    pub face: FaceHandle,
+    /// Removed loop.
+    pub loop_: LoopHandle,
+    /// Removed shell.
+    pub shell: ShellHandle,
+    /// Removed solid.
+    pub solid: SolidHandle,
+}
+
+impl From<MvfsResult> for KvfsRequest {
+    fn from(value: MvfsResult) -> Self {
+        Self {
+            vertex: value.vertex,
+            face: value.face,
+            loop_: value.loop_,
+            shell: value.shell,
+            solid: value.solid,
+        }
+    }
+}
+
 impl BRep {
     /// Make Vertex, Face, Shell — the seed operation for a new solid.
     ///
     /// Creates one vertex, face, loop, shell, and solid, all wired together.
     /// The loop and vertex have no half-edges yet.
     pub fn mvfs(&mut self, position: Point3) -> Result<MvfsResult, CoreError> {
-        // Insert with placeholder handles — we'll patch them up after insertion.
+        let before = EulerTopologyCounts::from_brep(self);
+        let mut candidate = self.clone();
+        let result = candidate.apply_mvfs(position);
+        candidate.verify_mvfs_postconditions(before, result)?;
+        *self = candidate;
+        Ok(result)
+    }
+
+    fn apply_mvfs(&mut self, position: Point3) -> MvfsResult {
         let vertex = self.vertices.insert(Vertex {
             position,
             outgoing: Default::default(),
@@ -46,6 +97,7 @@ impl BRep {
             surface: None,
             name: None,
             tolerance: None,
+            role: Default::default(),
         });
 
         let loop_ = self.loops.insert(Loop {
@@ -68,13 +120,13 @@ impl BRep {
         // Patch the shell with the real solid handle.
         self.shells[shell].solid = solid;
 
-        Ok(MvfsResult {
+        MvfsResult {
             vertex,
             face,
             loop_,
             shell,
             solid,
-        })
+        }
     }
 
     /// Kill Vertex, Face, Shell — inverse of mvfs.
@@ -88,282 +140,270 @@ impl BRep {
     /// - [`CoreError::PreconditionFailed`] if the vertex has outgoing edges,
     ///   the shell has more than one face, the face has inner loops, or edges
     ///   still exist in the model for this solid.
-    pub fn kvfs(&mut self, vertex: VertexHandle) -> Result<(), CoreError> {
-        // Validate vertex handle.
-        let vertex_data = self
-            .vertices
-            .get(vertex)
-            .ok_or_else(|| CoreError::InvalidHandle("vertex handle is invalid".into()))?;
+    pub fn kvfs(&mut self, vertex: VertexHandle) -> Result<KvfsResult, CoreError> {
+        if !self.vertices.contains_key(vertex) {
+            return Err(CoreError::InvalidHandle("vertex handle is invalid".into()));
+        }
+        let mut candidates = self.mvfs_seed_candidates();
+        if candidates.len() != 1 {
+            return Err(CoreError::PreconditionFailed(format!(
+                "kvfs(vertex) requires exactly one mvfs seed candidate, found {}; use kvfs_seed \
+                 with explicit face/loop/shell/solid handles",
+                candidates.len()
+            )));
+        }
+        let mut request = candidates.remove(0);
+        request.vertex = vertex;
+        self.kvfs_seed(request)
+    }
 
-        // Precondition: vertex has no outgoing edges.
-        let outgoing = vertex_data.outgoing;
-        if self.half_edges.contains_key(outgoing) {
+    /// Strict transactional inverse of [`BRep::mvfs`].
+    pub fn kvfs_seed(&mut self, request: KvfsRequest) -> Result<KvfsResult, CoreError> {
+        self.verify_kvfs_preconditions(request)?;
+        let before = EulerTopologyCounts::from_brep(self);
+        let mut candidate = self.clone();
+        let result = candidate.apply_kvfs_seed(request);
+        candidate.verify_kvfs_postconditions(before, result)?;
+        *self = candidate;
+        Ok(result)
+    }
+
+    fn apply_kvfs_seed(&mut self, request: KvfsRequest) -> KvfsResult {
+        self.solids.remove(request.solid);
+        self.shells.remove(request.shell);
+        self.faces.remove(request.face);
+        self.loops.remove(request.loop_);
+        self.vertices.remove(request.vertex);
+
+        KvfsResult {
+            vertex: request.vertex,
+            face: request.face,
+            loop_: request.loop_,
+            shell: request.shell,
+            solid: request.solid,
+        }
+    }
+
+    fn verify_mvfs_postconditions(
+        &self,
+        before: EulerTopologyCounts,
+        result: MvfsResult,
+    ) -> Result<(), CoreError> {
+        EulerDelta::verify(
+            "mvfs",
+            before,
+            EulerTopologyCounts::from_brep(self),
+            EulerDelta::mvfs(),
+        )?;
+        let vertex = self.vertices.get(result.vertex).ok_or_else(|| {
+            CoreError::PreconditionFailed("mvfs created vertex is not live".into())
+        })?;
+        if self.half_edges.contains_key(vertex.outgoing) {
             return Err(CoreError::PreconditionFailed(
-                "vertex still has outgoing half-edges".into(),
+                "mvfs created vertex has a live outgoing half-edge".into(),
             ));
         }
+        let face = self
+            .faces
+            .get(result.face)
+            .ok_or_else(|| CoreError::PreconditionFailed("mvfs created face is not live".into()))?;
+        if face.outer_loop != result.loop_ || face.shell != result.shell {
+            return Err(CoreError::PreconditionFailed(
+                "mvfs face does not own the created loop and shell".into(),
+            ));
+        }
+        if !face.inner_loops.is_empty() {
+            return Err(CoreError::PreconditionFailed(
+                "mvfs created face unexpectedly has inner loops".into(),
+            ));
+        }
+        let loop_data = self
+            .loops
+            .get(result.loop_)
+            .ok_or_else(|| CoreError::PreconditionFailed("mvfs created loop is not live".into()))?;
+        if loop_data.face != result.face || self.half_edges.contains_key(loop_data.half_edge) {
+            return Err(CoreError::PreconditionFailed(
+                "mvfs loop does not point to the created empty face".into(),
+            ));
+        }
+        if self
+            .shells
+            .get(result.shell)
+            .is_none_or(|shell| shell.face != result.face || shell.solid != result.solid)
+        {
+            return Err(CoreError::PreconditionFailed(
+                "mvfs shell does not point to the created face and solid".into(),
+            ));
+        }
+        if self
+            .solids
+            .get(result.solid)
+            .is_none_or(|solid| solid.shell != result.shell)
+        {
+            return Err(CoreError::PreconditionFailed(
+                "mvfs solid does not point to the created shell".into(),
+            ));
+        }
+        self.validate_euler_poincare().map_err(CoreError::from)?;
+        self.validate_vertex_consistency().map_err(CoreError::from)
+    }
 
-        // We need to find the face, loop, shell, solid via the vertex.
-        // Strategy: find the face whose outer_loop's face points back to it
-        // and whose shell's solid we can then remove.
-        //
-        // For mvfs-created topology the vertex isn't directly linked to the
-        // face, so we scan shells to find the one that contains exactly one
-        // face and that face's loop has no half-edges.
-        //
-        // A cleaner approach: scan all faces, find any face in a shell that
-        // has no half-edges and belongs to a solid with one shell and one face.
-        // Since kvfs is the strict inverse of mvfs, we find the shell/face/loop
-        // associated by checking all shells for the one-face constraint.
-        //
-        // For correctness we need to know which solid owns this vertex.  Because
-        // the vertex has no outgoing half-edges we cannot follow connectivity.
-        // We scan faces — in a well-formed mvfs state there is exactly one face
-        // per solid.  We locate the face whose shell's solid we will remove, by
-        // finding a (face, shell, solid) triple where:
-        //   - shell has no edges (half_edges.len() == 0 is too broad if there
-        //     are other solids)
-        //   - face has exactly one loop (outer_loop) and no inner loops
-        //   - the loop has no half-edge
-        //
-        // Since this is kvfs (inverse of mvfs) and later operators will add
-        // their own precondition checks, we simplify: find any shell whose face
-        // is a single-face, single-loop, empty shell, and whose solid is the
-        // one we can remove together with this vertex.
-        //
-        // The simplest correct implementation: iterate shells, for each shell
-        // check if its face's outer_loop has no half-edge and no inner loops,
-        // and the shell has exactly one face.  Count faces in the shell by
-        // scanning all faces that reference this shell.
+    fn verify_kvfs_preconditions(&self, request: KvfsRequest) -> Result<(), CoreError> {
+        let vertex = self
+            .vertices
+            .get(request.vertex)
+            .ok_or_else(|| CoreError::InvalidHandle("kvfs vertex handle is invalid".into()))?;
+        if self.half_edges.contains_key(vertex.outgoing) {
+            return Err(CoreError::PreconditionFailed(
+                "kvfs vertex still has outgoing half-edges".into(),
+            ));
+        }
+        let face = self
+            .faces
+            .get(request.face)
+            .ok_or_else(|| CoreError::InvalidHandle("kvfs face handle is invalid".into()))?;
+        if face.outer_loop != request.loop_
+            || face.shell != request.shell
+            || !face.inner_loops.is_empty()
+        {
+            return Err(CoreError::PreconditionFailed(
+                "kvfs face is not an isolated mvfs face".into(),
+            ));
+        }
+        let loop_data = self
+            .loops
+            .get(request.loop_)
+            .ok_or_else(|| CoreError::InvalidHandle("kvfs loop handle is invalid".into()))?;
+        if loop_data.face != request.face || self.half_edges.contains_key(loop_data.half_edge) {
+            return Err(CoreError::PreconditionFailed(
+                "kvfs loop is not the empty outer loop of the requested face".into(),
+            ));
+        }
+        let shell = self
+            .shells
+            .get(request.shell)
+            .ok_or_else(|| CoreError::InvalidHandle("kvfs shell handle is invalid".into()))?;
+        if shell.face != request.face || shell.solid != request.solid {
+            return Err(CoreError::PreconditionFailed(
+                "kvfs shell does not own the requested face and solid".into(),
+            ));
+        }
+        if self
+            .solids
+            .get(request.solid)
+            .is_none_or(|solid| solid.shell != request.shell)
+        {
+            return Err(CoreError::InvalidHandle(
+                "kvfs solid handle is invalid for the requested shell".into(),
+            ));
+        }
+        let shell_face_count = self
+            .faces
+            .values()
+            .filter(|candidate| candidate.shell == request.shell)
+            .count();
+        if shell_face_count != 1 {
+            return Err(CoreError::PreconditionFailed(
+                "kvfs shell must contain exactly one face".into(),
+            ));
+        }
+        Ok(())
+    }
 
-        // Collect faces per shell for quick lookup.
-        let face_handle = {
-            // Find the face in this BRep that has no inner loops, has an empty
-            // outer loop, belongs to a shell that belongs to a solid that has
-            // exactly one shell.  We assert that such a face corresponds to an
-            // mvfs-seeded solid.
-            //
-            // For the general case (post-Task-8) we iterate over all faces and
-            // find one that satisfies the mvfs invariant.  We also need to
-            // confirm it is "owned" by this vertex — but since there's no direct
-            // vertex→face link we accept the first matching face in a valid
-            // mvfs-shaped solid.
-            //
-            // IMPORTANT: if there are multiple mvfs-seeded solids the caller
-            // must have no edges so that we can identify which solid the vertex
-            // belongs to via the total counts.  We check that the total edge
-            // count for the candidate solid is zero.
+    fn verify_kvfs_postconditions(
+        &self,
+        before: EulerTopologyCounts,
+        result: KvfsResult,
+    ) -> Result<(), CoreError> {
+        EulerDelta::verify(
+            "kvfs",
+            before,
+            EulerTopologyCounts::from_brep(self),
+            EulerDelta::kvfs(),
+        )?;
+        if self.vertices.contains_key(result.vertex)
+            || self.faces.contains_key(result.face)
+            || self.loops.contains_key(result.loop_)
+            || self.shells.contains_key(result.shell)
+            || self.solids.contains_key(result.solid)
+        {
+            return Err(CoreError::PreconditionFailed(
+                "kvfs left removed seed topology live".into(),
+            ));
+        }
+        for face in self.faces.values() {
+            if face.outer_loop == result.loop_
+                || face.inner_loops.contains(&result.loop_)
+                || face.shell == result.shell
+            {
+                return Err(CoreError::PreconditionFailed(
+                    "kvfs left a live face referencing removed topology".into(),
+                ));
+            }
+        }
+        for loop_data in self.loops.values() {
+            if loop_data.face == result.face {
+                return Err(CoreError::PreconditionFailed(
+                    "kvfs left a live loop referencing the removed face".into(),
+                ));
+            }
+        }
+        for shell in self.shells.values() {
+            if shell.face == result.face || shell.solid == result.solid {
+                return Err(CoreError::PreconditionFailed(
+                    "kvfs left a live shell referencing removed topology".into(),
+                ));
+            }
+        }
+        for solid in self.solids.values() {
+            if solid.shell == result.shell {
+                return Err(CoreError::PreconditionFailed(
+                    "kvfs left a live solid referencing the removed shell".into(),
+                ));
+            }
+        }
+        self.validate_euler_poincare().map_err(CoreError::from)?;
+        self.validate_vertex_consistency().map_err(CoreError::from)
+    }
 
-            // Build a candidate: the shell whose face has one loop, no inner
-            // loops, no half-edge, and the solid associated with that shell has
-            // exactly one shell referenced by it.
-            let mut found: Option<(FaceHandle, LoopHandle, ShellHandle, SolidHandle)> = None;
-
-            'outer: for (shell_handle, shell_data) in &self.shells {
-                let face_h = shell_data.face;
-                let face_data = match self.faces.get(face_h) {
-                    Some(f) => f,
-                    None => continue,
-                };
-                // Face must have no inner loops.
-                if !face_data.inner_loops.is_empty() {
-                    continue;
+    fn mvfs_seed_candidates(&self) -> Vec<KvfsRequest> {
+        self.faces
+            .iter()
+            .filter_map(|(face_handle, face)| {
+                if !face.inner_loops.is_empty() {
+                    return None;
                 }
-                let loop_h = face_data.outer_loop;
-                let loop_data = match self.loops.get(loop_h) {
-                    Some(l) => l,
-                    None => continue,
-                };
-                // Loop must have no half-edge.
-                if self.half_edges.contains_key(loop_data.half_edge) {
-                    continue;
+                let loop_data = self.loops.get(face.outer_loop)?;
+                if loop_data.face != face_handle
+                    || self.half_edges.contains_key(loop_data.half_edge)
+                {
+                    return None;
                 }
-                // Shell must contain exactly one face (scan all faces for this shell).
-                let face_count = self
+                let shell = self.shells.get(face.shell)?;
+                if shell.face != face_handle {
+                    return None;
+                }
+                let solid = self.solids.get(shell.solid)?;
+                if solid.shell != face.shell {
+                    return None;
+                }
+                let shell_face_count = self
                     .faces
                     .values()
-                    .filter(|f| f.shell == shell_handle)
+                    .filter(|candidate| candidate.shell == face.shell)
                     .count();
-                if face_count != 1 {
-                    continue;
-                }
-                // Solid must reference this shell.
-                let solid_h = shell_data.solid;
-                let solid_data = match self.solids.get(solid_h) {
-                    Some(s) => s,
-                    None => continue,
-                };
-                if solid_data.shell != shell_handle {
-                    continue;
-                }
-                // No edges exist in the model (for any solid — kvfs can only
-                // be called when the target solid is completely edge-free, which
-                // for a fresh mvfs solid means edges == 0).
-                // We check that there are no half-edges in this shell's loops.
-                for (_, l) in &self.loops {
-                    if l.face == face_h && self.half_edges.contains_key(l.half_edge) {
-                        continue 'outer;
-                    }
-                }
-
-                found = Some((face_h, loop_h, shell_handle, solid_h));
-                break;
-            }
-
-            match found {
-                Some(f) => f,
-                None => {
-                    return Err(CoreError::PreconditionFailed(
-                        "no valid mvfs-seeded solid found for this vertex".into(),
-                    ));
-                }
-            }
-        };
-
-        let (face_h, loop_h, shell_h, solid_h) = face_handle;
-
-        // Remove all entities.
-        self.solids.remove(solid_h);
-        self.shells.remove(shell_h);
-        self.faces.remove(face_h);
-        self.loops.remove(loop_h);
-        self.vertices.remove(vertex);
-
-        Ok(())
+                (shell_face_count == 1).then_some(KvfsRequest {
+                    vertex: Default::default(),
+                    face: face_handle,
+                    loop_: face.outer_loop,
+                    shell: face.shell,
+                    solid: shell.solid,
+                })
+            })
+            .collect()
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::geometry::Point3;
-    use crate::tolerance::Tolerance;
-    use crate::topology::BRep;
-
-    #[test]
-    fn mvfs_creates_vertex_face_shell_solid() {
-        let mut brep = BRep::new(Tolerance::default());
-        let result = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-
-        assert_eq!(brep.vertices.len(), 1);
-        assert_eq!(brep.faces.len(), 1);
-        assert_eq!(brep.loops.len(), 1);
-        assert_eq!(brep.shells.len(), 1);
-        assert_eq!(brep.solids.len(), 1);
-        assert_eq!(brep.edges.len(), 0);
-        assert_eq!(brep.half_edges.len(), 0);
-
-        // Verify wiring
-        let face = &brep.faces[result.face];
-        assert_eq!(face.outer_loop, result.loop_);
-        assert!(face.inner_loops.is_empty());
-        let loop_ = &brep.loops[result.loop_];
-        assert_eq!(loop_.face, result.face);
-        let shell = &brep.shells[result.shell];
-        assert_eq!(shell.solid, result.solid);
-        let solid = &brep.solids[result.solid];
-        assert_eq!(solid.shell, result.shell);
-        let vertex = &brep.vertices[result.vertex];
-        assert_eq!(vertex.position.x, 0.0);
-    }
-
-    #[test]
-    fn kvfs_removes_everything() {
-        let mut brep = BRep::new(Tolerance::default());
-        let result = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        brep.kvfs(result.vertex).unwrap();
-
-        assert_eq!(brep.vertices.len(), 0);
-        assert_eq!(brep.faces.len(), 0);
-        assert_eq!(brep.loops.len(), 0);
-        assert_eq!(brep.shells.len(), 0);
-        assert_eq!(brep.solids.len(), 0);
-    }
-
-    #[test]
-    fn kvfs_invalid_handle_fails() {
-        let mut brep = BRep::new(Tolerance::default());
-        let result = brep.kvfs(Default::default());
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn two_mvfs_creates_two_solids() {
-        let mut brep = BRep::new(Tolerance::default());
-        let r1 = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let r2 = brep.mvfs(Point3::new(1.0, 0.0, 0.0)).unwrap();
-
-        assert_eq!(brep.vertices.len(), 2);
-        assert_eq!(brep.solids.len(), 2);
-        assert_ne!(r1.solid, r2.solid);
-    }
-
-    #[test]
-    fn kvfs_fails_with_outgoing_edges() {
-        let mut brep = BRep::new(Tolerance::default());
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let _mev = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        // vertex now has outgoing edges, kvfs should fail
-        let result = brep.kvfs(mvfs.vertex);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn kvfs_two_solids_removes_one() {
-        let mut brep = BRep::new(Tolerance::default());
-        let r1 = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let _r2 = brep.mvfs(Point3::new(1.0, 0.0, 0.0)).unwrap();
-        assert_eq!(brep.solids.len(), 2);
-
-        brep.kvfs(r1.vertex).unwrap();
-        assert_eq!(brep.solids.len(), 1);
-        assert_eq!(brep.vertices.len(), 1);
-    }
-
-    #[test]
-    fn kvfs_roundtrip() {
-        let mut brep = BRep::new(Tolerance::default());
-        let r = brep.mvfs(Point3::new(5.0, 5.0, 5.0)).unwrap();
-        assert_eq!(brep.vertices.len(), 1);
-        brep.kvfs(r.vertex).unwrap();
-        assert_eq!(brep.vertices.len(), 0);
-        assert_eq!(brep.faces.len(), 0);
-        assert_eq!(brep.loops.len(), 0);
-        assert_eq!(brep.shells.len(), 0);
-        assert_eq!(brep.solids.len(), 0);
-    }
-
-    #[test]
-    fn kvfs_no_valid_solid_found() {
-        // Create a BRep with edges (not a pure mvfs solid), then
-        // try kvfs on a vertex — should fail because no mvfs-seeded solid
-        let mut brep = BRep::new(Tolerance::default());
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        // kev to remove the edge, leaving mvfs.vertex with no edges
-        brep.kev(mev.half_edge).unwrap();
-        // Now mvfs.vertex has no edges, kvfs should succeed
-        brep.kvfs(mvfs.vertex).unwrap();
-        assert_eq!(brep.vertices.len(), 0);
-    }
-
-    #[test]
-    fn kvfs_with_face_with_inner_loops_skips() {
-        // Create two mvfs solids, corrupt one to have inner loops
-        // kvfs should skip that one and find the other
-        let mut brep = BRep::new(Tolerance::default());
-        let r1 = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let r2 = brep.mvfs(Point3::new(1.0, 0.0, 0.0)).unwrap();
-
-        // Add a fake inner loop handle to r1's face to trigger the
-        // `inner_loops.is_empty()` continue branch
-        brep.faces[r1.face].inner_loops.push(Default::default());
-
-        // kvfs on r2 should still work (skips r1 due to inner loops)
-        brep.kvfs(r2.vertex).unwrap();
-        assert_eq!(brep.solids.len(), 1);
-    }
-}
+#[path = "mvfs_tests.rs"]
+mod tests;

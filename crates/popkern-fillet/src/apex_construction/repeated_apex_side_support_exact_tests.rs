@@ -143,6 +143,7 @@ fn add_isolated_cylinder_carrier_face(brep: &mut BRep, support_face: FaceHandle)
         surface: None,
         name: None,
         tolerance: None,
+        role: Default::default(),
     });
     let loop_ = brep.loops.insert(Loop {
         half_edge: Default::default(),
@@ -170,6 +171,7 @@ fn add_isolated_cylinder_carrier_face(brep: &mut BRep, support_face: FaceHandle)
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: vertex,

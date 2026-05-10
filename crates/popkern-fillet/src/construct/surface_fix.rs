@@ -1,7 +1,7 @@
 //! Surface correction utilities for multi-edge fillets.
 
 use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::topology::{BRep, FaceHandle};
+use popkern_core::topology::{BRep, FaceHandle, TopologyRole};
 
 /// Compute the *max* distance from a list of boundary positions to
 /// a candidate surface. Used as the "is this surface acceptable at
@@ -46,6 +46,9 @@ pub(crate) fn correct_face_surfaces(
     let face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
 
     for fh in face_handles {
+        if brep.faces[fh].role == TopologyRole::ConstructionResidual {
+            continue;
+        }
         let positions = brep.face_outer_loop_positions(fh);
         if positions.is_empty() {
             continue;

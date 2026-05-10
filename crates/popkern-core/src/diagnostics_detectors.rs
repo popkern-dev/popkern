@@ -8,20 +8,23 @@ use std::collections::BTreeMap;
 
 use crate::geometry::Point3;
 use crate::geometry::curve::CurveEval;
-use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use crate::topology::{BRep, FaceHandle, VertexHandle};
+use crate::geometry::surface::SurfaceGeometry;
+use crate::topology::{BRep, FaceHandle, TopologyRole, VertexHandle};
 
 #[path = "diagnostics_helpers.rs"]
 mod helpers;
+#[path = "diagnostics_pcurve_escapes.rs"]
+mod pcurve_escapes;
 use helpers::{
     aabb_overlap, check_nurbs_curve, check_nurbs_surface, edge_length, edge_midpoint, face_area,
     face_bbox, face_centroid, face_edge_aspect_ratio, min_median_max, surface_kind_label,
     surfaces_match,
 };
+use pcurve_escapes::detect_pcurve_escapes;
 
 use super::{
     CoincidentPair, Defects, DegenerateEdge, FaceOverlap, GeometryStats, NakedEdge, NurbsDefect,
-    NurbsKind, NurbsScope, PcurveEscape, SliverFace, TJunction, TopologyStats,
+    NurbsKind, NurbsScope, SliverFace, TJunction, TopologyStats,
 };
 
 // ---------------------------------------------------------------------------
@@ -139,6 +142,9 @@ fn tess_non_manifold_summary(brep: &BRep) -> (usize, f64) {
 fn detect_naked_edges(brep: &BRep) -> Vec<NakedEdge> {
     let mut out = Vec::new();
     for (eh, edge) in &brep.edges {
+        if edge.role == TopologyRole::ConstructionResidual {
+            continue;
+        }
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
@@ -153,6 +159,11 @@ fn detect_naked_edges(brep: &BRep) -> Vec<NakedEdge> {
         };
         let face_a = loop_a.face;
         let face_b = loop_b.face;
+        if is_construction_residual_face(brep, face_a)
+            || is_construction_residual_face(brep, face_b)
+        {
+            continue;
+        }
         let face_a_has = brep.faces.get(face_a).is_some_and(|f| f.surface.is_some());
         let face_b_has = brep.faces.get(face_b).is_some_and(|f| f.surface.is_some());
         if face_a_has && face_b_has {
@@ -173,7 +184,10 @@ fn detect_naked_edges(brep: &BRep) -> Vec<NakedEdge> {
 fn detect_degenerate_edges(brep: &BRep) -> Vec<DegenerateEdge> {
     let tol = brep.tolerance.linear().max(1e-12);
     let mut out = Vec::new();
-    for (eh, _) in &brep.edges {
+    for (eh, edge) in &brep.edges {
+        if edge.role == TopologyRole::ConstructionResidual {
+            continue;
+        }
         let length = edge_length(brep, eh);
         if length < tol {
             out.push(DegenerateEdge {
@@ -191,7 +205,10 @@ fn detect_sliver_faces(brep: &BRep) -> Vec<SliverFace> {
     let area_floor = tol * tol * 100.0;
     let aspect_ceiling = 1000.0;
     let mut out = Vec::new();
-    for (fh, _) in &brep.faces {
+    for (fh, face) in &brep.faces {
+        if face.role == TopologyRole::ConstructionResidual {
+            continue;
+        }
         let area = face_area(brep, fh);
         let aspect = face_edge_aspect_ratio(brep, fh);
         if area < area_floor || aspect > aspect_ceiling {
@@ -246,6 +263,9 @@ fn detect_t_junctions(brep: &BRep) -> Vec<TJunction> {
     let on_edge_threshold = tol * 5.0;
     let mut out = Vec::new();
     for (eh, edge) in &brep.edges {
+        if edge.role == TopologyRole::ConstructionResidual {
+            continue;
+        }
         let Some(curve_on_edge) = edge.curve.as_ref() else {
             continue;
         };
@@ -299,6 +319,9 @@ fn detect_nurbs_defects(brep: &BRep) -> Vec<NurbsDefect> {
     let mut out = Vec::new();
     // Edge curves
     for (eh, edge) in &brep.edges {
+        if edge.role == TopologyRole::ConstructionResidual {
+            continue;
+        }
         let Some(curve) = edge.curve.as_ref() else {
             continue;
         };
@@ -328,6 +351,9 @@ fn detect_nurbs_defects(brep: &BRep) -> Vec<NurbsDefect> {
     }
     // Face surfaces — Round 3 extends NURBS validation to surfaces.
     for (fh, face) in &brep.faces {
+        if face.role == TopologyRole::ConstructionResidual {
+            continue;
+        }
         if let Some(sof) = face.surface.as_ref()
             && let SurfaceGeometry::Nurbs(n) = &sof.geometry
         {
@@ -353,7 +379,11 @@ fn detect_nurbs_defects(brep: &BRep) -> Vec<NurbsDefect> {
 /// without sharing edge topology.
 fn detect_face_overlaps(brep: &BRep) -> Vec<FaceOverlap> {
     let tol = brep.tolerance.linear().max(1e-12);
-    let handles: Vec<FaceHandle> = brep.faces.keys().collect();
+    let handles: Vec<FaceHandle> = brep
+        .faces
+        .iter()
+        .filter_map(|(fh, face)| (face.role != TopologyRole::ConstructionResidual).then_some(fh))
+        .collect();
     let mut bboxes: Vec<((Point3, Point3), Point3)> = Vec::with_capacity(handles.len());
     let mut face_edges: Vec<std::collections::BTreeSet<crate::topology::EdgeHandle>> =
         Vec::with_capacity(handles.len());
@@ -427,78 +457,8 @@ fn face_edge_set(
     out
 }
 
-/// Detect half-edge pcurves that, when sampled, produce (u, v) values
-/// outside the surface's valid parameter range. Slicers evaluating
-/// such pcurves get garbage from the surface and treat the face as
-/// non-manifold. Limited to surfaces with bounded UV (NURBS, sphere,
-/// torus); planes and cylinders have unbounded ranges where escape
-/// isn't well-defined.
-fn detect_pcurve_escapes(brep: &BRep) -> Vec<PcurveEscape> {
-    let mut out = Vec::new();
-    let n_samples = 11;
-    for (heh, he) in &brep.half_edges {
-        let Some(pcurve) = he.pcurve.as_ref() else {
-            continue;
-        };
-        let Some(loop_) = brep.loops.get(he.loop_) else {
-            continue;
-        };
-        let face = loop_.face;
-        let Some(surf) = brep.faces.get(face).and_then(|f| f.surface.as_ref()) else {
-            continue;
-        };
-        let bounded = matches!(
-            &surf.geometry,
-            SurfaceGeometry::Nurbs(_)
-                | SurfaceGeometry::Sphere { .. }
-                | SurfaceGeometry::Torus { .. }
-                | SurfaceGeometry::Gregory(_)
-        );
-        if !bounded {
-            continue;
-        }
-        let ((u_lo, u_hi), (v_lo, v_hi)) = surf.geometry.parameter_range();
-        if !u_lo.is_finite() || !u_hi.is_finite() || !v_lo.is_finite() || !v_hi.is_finite() {
-            continue;
-        }
-        let (t_min, t_max) = pcurve.parameter_range();
-        let mut max_overshoot = 0.0_f64;
-        let mut worst_uv = Point3::new(0.0, 0.0, 0.0);
-        let mut worst_t = t_min;
-        for i in 0..n_samples {
-            let s = i as f64 / (n_samples - 1) as f64;
-            let t = t_min + s * (t_max - t_min);
-            let uv = pcurve.point_at(t);
-            let mut over = 0.0_f64;
-            if uv.x < u_lo {
-                over = over.max(u_lo - uv.x);
-            }
-            if uv.x > u_hi {
-                over = over.max(uv.x - u_hi);
-            }
-            if uv.y < v_lo {
-                over = over.max(v_lo - uv.y);
-            }
-            if uv.y > v_hi {
-                over = over.max(uv.y - v_hi);
-            }
-            if over > max_overshoot {
-                max_overshoot = over;
-                worst_uv = uv;
-                worst_t = t;
-            }
-        }
-        if max_overshoot > 1e-9 {
-            out.push(PcurveEscape {
-                half_edge: heh,
-                edge: he.edge,
-                face,
-                parameter: worst_t,
-                uv: worst_uv,
-                uv_range: ((u_lo, u_hi), (v_lo, v_hi)),
-                max_overshoot,
-            });
-        }
-    }
-    out
+fn is_construction_residual_face(brep: &BRep, face: FaceHandle) -> bool {
+    brep.faces
+        .get(face)
+        .is_some_and(|face_data| face_data.role == TopologyRole::ConstructionResidual)
 }

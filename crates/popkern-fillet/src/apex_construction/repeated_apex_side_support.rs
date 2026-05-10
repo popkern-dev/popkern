@@ -32,6 +32,7 @@ pub(super) enum SideSupportRegionContinuationOutcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum SideSupportRegionContinuationFailure {
     StaleKnowledgeGraph,
+    PlannerRefused { reason: String },
     BridgeTopologyOperator { reason: String },
     MergeTopologyAndGeometry { reason: String },
 }
@@ -64,6 +65,13 @@ impl SideSupportRegionDiagnosticSnapshot {
     ) -> Result<SideSupportRegionContinuationOutcome, SideSupportRegionContinuationFailure> {
         if !self.validate_fresh(brep) {
             return Err(SideSupportRegionContinuationFailure::StaleKnowledgeGraph);
+        }
+        if let SideSupportRegionPlanSelection::Refused(refusal) = &self.selection
+            && self.facts.trim_endpoint_pairs().next().is_some()
+        {
+            return Err(SideSupportRegionContinuationFailure::PlannerRefused {
+                reason: format!("stage={:?} reason={:?}", refusal.stage(), refusal.reason()),
+            });
         }
         let bridge_primitive = FaceFamilyBridgePrimitiveDerivation::build(&self.selection, brep);
         let topology_report = bridge_primitive.topology_operator_report(brep);
@@ -135,6 +143,9 @@ impl SideSupportRegionContinuationFailure {
         match self {
             SideSupportRegionContinuationFailure::StaleKnowledgeGraph => {
                 "stale-knowledge-graph".to_string()
+            }
+            SideSupportRegionContinuationFailure::PlannerRefused { reason } => {
+                format!("planner-refused {reason}")
             }
             SideSupportRegionContinuationFailure::BridgeTopologyOperator { reason } => {
                 format!("bridge-topology-operator-failed reason={reason}")

@@ -1,7 +1,7 @@
 //! Half-edge structural checks: pairing, cycles, and vertex consistency.
 
 use crate::error::ValidationError;
-use crate::topology::BRep;
+use crate::topology::{BRep, TopologyRole};
 
 impl BRep {
     /// Check 2: Every half-edge's twin must exist and the twin's twin must point back.
@@ -33,6 +33,13 @@ impl BRep {
         let bound = self.half_edges.len();
 
         for (he_handle, he_data) in &self.half_edges {
+            if self
+                .edges
+                .get(he_data.edge)
+                .is_some_and(|edge| edge.role == TopologyRole::ConstructionResidual)
+            {
+                continue;
+            }
             let mut cursor = he_data.next;
             let mut steps = 0;
 
@@ -45,7 +52,19 @@ impl BRep {
                     });
                 }
                 match self.half_edges.get(cursor) {
-                    Some(next_he) => cursor = next_he.next,
+                    Some(next_he) => {
+                        if self
+                            .edges
+                            .get(next_he.edge)
+                            .is_some_and(|edge| edge.role == TopologyRole::ConstructionResidual)
+                        {
+                            return Err(ValidationError::BrokenCycle {
+                                half_edge: he_handle,
+                                loop_: he_data.loop_,
+                            });
+                        }
+                        cursor = next_he.next;
+                    }
                     None => {
                         return Err(ValidationError::BrokenCycle {
                             half_edge: he_handle,

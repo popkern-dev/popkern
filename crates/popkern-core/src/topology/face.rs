@@ -1,6 +1,6 @@
 use crate::geometry::SurfaceOnFace;
 use crate::naming::NameId;
-use crate::topology::{LoopHandle, ShellHandle};
+use crate::topology::{LoopHandle, ShellHandle, TopologyRole};
 use serde::{Deserialize, Serialize};
 
 /// A topological face — bounded by loops.
@@ -21,4 +21,7 @@ pub struct Face {
     /// `None` means use the BRep-level default tolerance.
     #[serde(default)]
     pub tolerance: Option<f64>,
+    /// Whether this face belongs to production topology or retained construction residue.
+    #[serde(default)]
+    pub role: TopologyRole,
 }

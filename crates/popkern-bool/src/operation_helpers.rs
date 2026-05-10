@@ -269,6 +269,7 @@ fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, Bo
             name: e.name,
             tolerance: None,
             canonical: e.canonical,
+            role: e.role,
         });
         e_map.insert(old_h, new_h);
     }
@@ -332,6 +333,7 @@ fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, Bo
             surface,
             name: f.name,
             tolerance: None,
+            role: Default::default(),
         });
         f_map.insert(old_h, new_h);
     }

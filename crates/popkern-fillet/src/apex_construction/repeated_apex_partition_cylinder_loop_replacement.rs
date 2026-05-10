@@ -11,6 +11,7 @@ pub(super) struct MaterializedCylinderLoopReplacementRequest<'a> {
     pub(super) pre_materialized: &'a [PreMaterializedTrimSide],
     pub(super) include_selected_nonmaterialized: bool,
     pub(super) reuse_shared_cap_cylinder_seam: bool,
+    pub(super) support_ownership_already_materialized: bool,
 }
 
 pub(super) fn apply_materialized_cylinder_loop_replacements(
@@ -25,6 +26,7 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
     let pre_materialized = request.pre_materialized;
     let include_selected_nonmaterialized = request.include_selected_nonmaterialized;
     let reuse_shared_cap_cylinder_seam = request.reuse_shared_cap_cylinder_seam;
+    let support_ownership_already_materialized = request.support_ownership_already_materialized;
 
     let mut all_support_owned_trim_sides = Vec::new();
     let mut pending_cylinder_loop_replacements = Vec::new();
@@ -136,6 +138,9 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
             cycle,
         });
     }
+    if support_ownership_already_materialized {
+        repair_support_source_loops_after_cylinder_rewire(brep, &all_support_owned_trim_sides)?;
+    }
     for replacement in &pending_cylinder_loop_replacements {
         let loop_handle = brep
             .faces
@@ -170,7 +175,9 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
             );
         }
     }
-    materialize_closed_support_trim_cycles(brep, face_edges, &all_support_owned_trim_sides)?;
+    if !support_ownership_already_materialized {
+        materialize_closed_support_trim_cycles(brep, face_edges, &all_support_owned_trim_sides)?;
+    }
     for trim_side in all_support_owned_trim_sides {
         if !trim_side.requires_support_ownership {
             continue;

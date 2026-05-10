@@ -194,18 +194,59 @@ pub(super) fn assert_normalized_cap_boundary(
 pub(super) fn validate_repeated_apex_normalization_structure(
     brep: &BRep,
 ) -> Result<(), ApexBuildError> {
-    brep.validate_euler_poincare()
+    let result = brep
+        .validate_euler_poincare()
         .and_then(|_| brep.validate_half_edge_pairing())
         .and_then(|_| brep.validate_half_edge_cycles())
         .and_then(|_| brep.validate_vertex_consistency())
         .and_then(|_| brep.validate_manifold_edges())
-        .and_then(|_| brep.validate_vertex_valence())
-        .map_err(|e| ApexBuildError::PlanMismatch {
-            reason: format!(
-                "repeated-apex normalization produced invalid topology: {e:?}; {}",
-                topology_count_diagnostic(brep)
-            ),
-        })
+        .and_then(|_| brep.validate_vertex_valence());
+    if let Err(error) = &result
+        && crate::a2_trace::enabled()
+    {
+        eprintln!(
+            "[a2-trace §14.9/normalization-validation] failure {error:?}; {}",
+            topology_count_diagnostic(brep)
+        );
+        trace_repeated_apex_loop_walks(brep);
+    }
+    result.map_err(|e| ApexBuildError::PlanMismatch {
+        reason: format!(
+            "repeated-apex normalization produced invalid topology: {e:?}; {}",
+            topology_count_diagnostic(brep)
+        ),
+    })
+}
+
+fn trace_repeated_apex_loop_walks(brep: &BRep) {
+    for (loop_handle, loop_data) in &brep.loops {
+        let mut cursor = loop_data.half_edge;
+        let mut entries = Vec::new();
+        for _ in 0..=brep.half_edges.len().min(40) {
+            let Some(half_edge) = brep.half_edges.get(cursor) else {
+                entries.push(format!("{cursor:?}:missing"));
+                break;
+            };
+            let role = brep
+                .edges
+                .get(half_edge.edge)
+                .map(|edge| format!("{:?}", edge.role))
+                .unwrap_or_else(|| "missing-edge".to_string());
+            entries.push(format!(
+                "{cursor:?}(loop={:?} edge={:?} role={} next={:?} prev={:?})",
+                half_edge.loop_, half_edge.edge, role, half_edge.next, half_edge.prev
+            ));
+            cursor = half_edge.next;
+            if cursor == loop_data.half_edge {
+                break;
+            }
+        }
+        eprintln!(
+            "[a2-trace §14.9/normalization-validation] loop {loop_handle:?} face={:?} walk=[{}]",
+            loop_data.face,
+            entries.join(" -> ")
+        );
+    }
 }
 
 fn topology_count_diagnostic(brep: &BRep) -> String {

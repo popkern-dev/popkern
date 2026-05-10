@@ -320,6 +320,7 @@ mod tests {
             surface: None,
             name: None,
             tolerance: None,
+            role: Default::default(),
         });
         brep.loops[new_loop].face = new_face;
         brep.half_edges[mev.half_edge_twin].loop_ = new_loop;

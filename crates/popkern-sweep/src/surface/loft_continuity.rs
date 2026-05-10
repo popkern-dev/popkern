@@ -328,6 +328,7 @@ mod tests {
             }),
             tolerance: None,
             name: None,
+            role: Default::default(),
         });
         brep.loops[loop_handle].face = face_handle;
         brep.shells[shell_handle].face = face_handle;

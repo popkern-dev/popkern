@@ -16,6 +16,9 @@ fn face_family_bridge_commits_disjoint_boundary_cycles_transactionally() {
     let outside_next = brep.half_edges[outside_start].next;
     let outside_second =
         brep.half_edges[brep.half_edges[brep.half_edges[outside_next].next].next].next;
+    let first_outside_interval = vec![outside_start, outside_next];
+    let second_outside_interval =
+        directed_interval(&brep, outside_second, brep.half_edges[outside_second].next);
     let before = topology_counts(&brep);
 
     let plan = brep
@@ -24,13 +27,13 @@ fn face_family_bridge_commits_disjoint_boundary_cycles_transactionally() {
                 first_loop,
                 first_interval: vec![first_start, brep.half_edges[first_start].next],
                 second_loop: outside_loop,
-                second_interval: vec![outside_next, outside_start],
+                second_interval: first_outside_interval,
             },
             FaceFamilyBridgeCycleRequest {
                 first_loop: second_loop,
                 first_interval: vec![second_start, brep.half_edges[second_start].next],
                 second_loop: outside_loop,
-                second_interval: vec![outside_second, brep.half_edges[outside_second].next],
+                second_interval: second_outside_interval,
             },
         ])
         .expect("disjoint aggregate cycles preflight");
@@ -49,6 +52,18 @@ fn face_family_bridge_commits_disjoint_boundary_cycles_transactionally() {
         ),
         (0, 4, 2, 2)
     );
+    assert_connector_span(
+        &brep,
+        result.cycles[0].first_connector_half_edge,
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(1.0, 0.0, 2.0),
+    );
+    assert_connector_span(
+        &brep,
+        result.cycles[0].second_connector_half_edge,
+        Point3::new(0.0, 0.0, 2.0),
+        Point3::new(1.0, 0.0, 0.0),
+    );
     brep.validate_half_edge_pairing().unwrap();
     brep.validate_half_edge_cycles().unwrap();
     brep.validate_manifold_edges().unwrap();
@@ -65,6 +80,7 @@ fn face_family_bridge_refuses_overlapping_boundary_consumption() {
     let second_start = brep.loops[second_loop].half_edge;
     let outside_start = brep.loops[outside_loop].half_edge;
     let outside_next = brep.half_edges[outside_start].next;
+    let outside_interval = vec![outside_start, outside_next];
 
     let err = brep
         .preflight_face_family_bridge(vec![
@@ -72,13 +88,13 @@ fn face_family_bridge_refuses_overlapping_boundary_consumption() {
                 first_loop,
                 first_interval: vec![first_start, brep.half_edges[first_start].next],
                 second_loop: outside_loop,
-                second_interval: vec![outside_next, outside_start],
+                second_interval: outside_interval.clone(),
             },
             FaceFamilyBridgeCycleRequest {
                 first_loop: second_loop,
                 first_interval: vec![second_start, brep.half_edges[second_start].next],
                 second_loop: outside_loop,
-                second_interval: vec![outside_next, outside_start],
+                second_interval: outside_interval,
             },
         ])
         .expect_err("overlapping outside boundary edge is non-manifold");
@@ -144,6 +160,7 @@ fn add_boundary_polygon(
         surface: None,
         name: None,
         tolerance: None,
+        role: Default::default(),
     });
     let loop_ = brep.loops.insert(Loop {
         half_edge: Default::default(),
@@ -164,6 +181,7 @@ fn add_boundary_polygon(
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: vertex,
@@ -195,4 +213,30 @@ fn topology_counts(brep: &BRep) -> (usize, usize, usize, usize) {
         brep.faces.len(),
         brep.loops.len(),
     )
+}
+
+fn directed_interval(
+    brep: &BRep,
+    start: HalfEdgeHandle,
+    end: HalfEdgeHandle,
+) -> Vec<HalfEdgeHandle> {
+    let mut interval = vec![start];
+    let mut cursor = start;
+    for _ in 0..brep.half_edges.len() {
+        if cursor == end {
+            return interval;
+        }
+        cursor = brep.half_edges[cursor].next;
+        interval.push(cursor);
+    }
+    panic!("test fixture interval did not reach endpoint");
+}
+
+fn assert_connector_span(brep: &BRep, half_edge: HalfEdgeHandle, start: Point3, end: Point3) {
+    let data = &brep.half_edges[half_edge];
+    assert_eq!(brep.vertices[data.origin].position, start);
+    assert_eq!(
+        brep.vertices[brep.half_edges[data.next].origin].position,
+        end
+    );
 }

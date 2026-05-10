@@ -164,6 +164,7 @@ impl BRep {
             surface: None,
             name: None,
             tolerance: None,
+            role: Default::default(),
         });
         let f_bot = brep.faces.insert(Face {
             outer_loop: loop_bot,
@@ -172,6 +173,7 @@ impl BRep {
             surface: None,
             name: None,
             tolerance: None,
+            role: Default::default(),
         });
         let f_top = brep.faces.insert(Face {
             outer_loop: loop_top,
@@ -180,6 +182,7 @@ impl BRep {
             surface: None,
             name: None,
             tolerance: None,
+            role: Default::default(),
         });
 
         brep.loops[loop_lateral].face = f_lateral;
@@ -194,6 +197,7 @@ impl BRep {
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
         let e_top_circle = brep.edges.insert(Edge {
             half_edge: Default::default(),
@@ -201,6 +205,7 @@ impl BRep {
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
         let e_seam = brep.edges.insert(Edge {
             half_edge: Default::default(),
@@ -208,6 +213,7 @@ impl BRep {
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
 
         // -- Half-edges --

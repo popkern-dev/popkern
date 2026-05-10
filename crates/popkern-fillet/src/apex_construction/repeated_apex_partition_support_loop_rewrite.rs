@@ -65,7 +65,7 @@ fn validate_live_half_edge_cycles_after_support_rewrite(brep: &BRep) -> Result<(
     Ok(())
 }
 
-fn repair_support_source_loops_after_cylinder_rewire(
+pub(super) fn repair_support_source_loops_after_cylinder_rewire(
     brep: &mut BRep,
     trim_sides: &[SupportOwnedTrimSide],
 ) -> Result<(), ApexBuildError> {
@@ -87,26 +87,32 @@ fn repair_support_source_loops_after_cylinder_rewire(
                 ),
             });
         }
+        let mut source = source;
         if !brep.half_edges.contains_key(source.prev)
             || !brep.half_edges.contains_key(source.next)
             || !brep.half_edges.contains_key(trim_side.half_edge)
         {
-            return Err(ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "planned repeated-apex partition FilletEnd[{fillet_index}] cannot repair \
-                     support loop after cylinder trim ownership transfer: stale source links \
-                     prev={prev:?} moved={moved:?} next={next:?}",
-                    fillet_index = trim_side.fillet_index,
-                    prev = source.prev,
-                    moved = trim_side.half_edge,
-                    next = source.next
-                ),
-            });
+            let Some(moved) = brep.half_edges.get(trim_side.half_edge) else {
+                continue;
+            };
+            if moved.loop_ != source.loop_ {
+                continue;
+            }
+            source.prev = moved.prev;
+            source.next = moved.next;
         }
         let prev_still_points_to_moved = brep.half_edges[source.prev].next == trim_side.half_edge;
         let next_still_points_to_moved = brep.half_edges[source.next].prev == trim_side.half_edge;
         if !prev_still_points_to_moved || !next_still_points_to_moved {
-            continue;
+            if !support_loop_contains_half_edge(brep, source.loop_, trim_side.half_edge) {
+                continue;
+            }
+            let moved = &brep.half_edges[trim_side.half_edge];
+            if moved.loop_ != source.loop_ {
+                continue;
+            }
+            source.prev = moved.prev;
+            source.next = moved.next;
         }
         let replacement = author_support_source_loop_replacement_span(brep, trim_side, source)?;
         brep.half_edges[source.prev].next = replacement;
@@ -131,6 +137,16 @@ fn repair_support_source_loops_after_cylinder_rewire(
         }
     }
     Ok(())
+}
+
+fn support_loop_contains_half_edge(
+    brep: &BRep,
+    loop_handle: LoopHandle,
+    half_edge: HalfEdgeHandle,
+) -> bool {
+    collect_loop_half_edges(brep, loop_handle)
+        .ok()
+        .is_some_and(|cycle| cycle.contains(&half_edge))
 }
 
 fn author_support_source_loop_replacement_span(
@@ -174,6 +190,7 @@ fn author_support_source_loop_replacement_span(
         })?;
     let (edge, replacement) = insert_boundary_half_edge(brep, start);
     brep.edges[edge].curve = Some(curve);
+    brep.edges[edge].role = TopologyRole::Production;
     if support_split_half_edge_end_vertex(brep, replacement) != Some(end) {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(

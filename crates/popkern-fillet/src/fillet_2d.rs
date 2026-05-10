@@ -196,6 +196,7 @@ fn apply_corner_plan(
         name: None,
         tolerance: None,
         canonical: Default::default(),
+        role: Default::default(),
     });
 
     // Gather the loop and predecessor data we need BEFORE inserting

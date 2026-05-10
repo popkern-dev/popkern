@@ -102,6 +102,7 @@ impl BRep {
                 surface: None,
                 name: None,
                 tolerance: None,
+                role: Default::default(),
             })
         });
         let loops: [LoopHandle; 5] = std::array::from_fn(|i| {
@@ -126,6 +127,7 @@ impl BRep {
                 name: None,
                 tolerance: None,
                 canonical: Default::default(),
+                role: Default::default(),
             })
         });
         let [e_01, e_12, e_23, e_30, e_0a, e_1a, e_2a, e_3a] = edges;

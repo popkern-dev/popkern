@@ -3,7 +3,7 @@
 use super::*;
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
-use crate::topology::BRep;
+use crate::topology::{BRep, TopologyRole};
 
 #[test]
 fn unit_cube_has_no_defects() {
@@ -46,6 +46,33 @@ fn diagnostics_do_not_panic_on_stale_half_edge_loop_reference() {
 
     let report = Diagnostics::run(&brep);
     assert_eq!(report.topology.edges, 12);
+}
+
+#[test]
+fn construction_residual_topology_is_ignored_by_production_defects() {
+    let mut brep = BRep::new(Tolerance::default());
+    let Ok(mvfs) = brep.mvfs(Point3::new(0.0, 0.0, 0.0)) else {
+        panic!("mvfs fixture should build");
+    };
+    let Ok(mev) = brep.mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(0.0, 0.0, 0.0)) else {
+        panic!("zero-length edge fixture should build");
+    };
+    let edge = brep.half_edges[mev.half_edge].edge;
+    let Some(face) = brep.faces.keys().next() else {
+        panic!("mvfs fixture should contain a face");
+    };
+    brep.edges[edge].role = TopologyRole::ConstructionResidual;
+    brep.faces[face].role = TopologyRole::ConstructionResidual;
+
+    let report = Diagnostics::run(&brep);
+    assert!(report.defects.degenerate_edges.is_empty());
+    assert!(
+        report
+            .defects
+            .sliver_faces
+            .iter()
+            .all(|defect| defect.face != face)
+    );
 }
 
 #[test]

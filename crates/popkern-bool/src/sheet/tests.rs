@@ -241,6 +241,7 @@ fn is_planar_sheet_accepts_multi_face_coplanar() {
         surface: Some(plane_a),
         name: None,
         tolerance: None,
+        role: Default::default(),
     });
     brep.faces.insert(Face {
         outer_loop: Default::default(),
@@ -249,6 +250,7 @@ fn is_planar_sheet_accepts_multi_face_coplanar() {
         surface: Some(plane_b),
         name: None,
         tolerance: None,
+        role: Default::default(),
     });
 
     let detected = is_planar_sheet(&brep);
@@ -356,6 +358,7 @@ fn is_planar_sheet_rejects_offset_coplanar_faces() {
             }),
             name: None,
             tolerance: None,
+            role: Default::default(),
         });
     }
     assert!(

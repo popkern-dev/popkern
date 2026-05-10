@@ -80,19 +80,17 @@ pub(crate) fn insert_vertex_blend(
     let local_indices_pre: Vec<usize> = (0..fillet_surfaces_pre.len()).collect();
     let n_sides = edge_indices.len();
 
-    // §6c-X.A.7 cap-kind dispatch: when Path A is enabled AND the
-    // apex's incident fillets all share a uniform radius (within
-    // tolerance), suppress sphere-fit substitution for this corner.
-    // The post-loop `POPKERN_APEX_TOPOLOGY_REBUILD` pass then
-    // collapses the rolling-ball 6-vertex cap loop to a 3-vertex
-    // cap-tangent-arc loop directly — the commercial-style topology.
-    // For non-uniform corners, substitution + Path A continue as
-    // today.
-    let path_a_active = std::env::var("POPKERN_APEX_PATH_A")
+    // Cap-kind dispatch: when apex topology rebuild is enabled and
+    // the apex's incident fillets all share a uniform radius within
+    // tolerance, suppress sphere-fit substitution for this corner.
+    // The post-loop rebuild pass then collapses the rolling-ball
+    // 6-vertex cap loop to a 3-vertex cap-tangent-arc loop directly.
+    // For non-uniform corners, substitution and rebuild stay active.
+    let apex_topology_rebuild_active = std::env::var("POPKERN_APEX_PATH_A")
         .map(|v| v != "0")
         .unwrap_or(true);
     let radii_uniform = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
-    let auto_disable_substitution = path_a_active && radii_uniform;
+    let auto_disable_substitution = apex_topology_rebuild_active && radii_uniform;
     let boundary_options = crate::blend::BlendBoundaryOptions {
         disable_sphere_fit_substitution: if auto_disable_substitution {
             Some(true)
@@ -444,9 +442,21 @@ pub(crate) fn kev_v_bridge(brep: &mut BRep, vertex: VertexHandle) -> Result<(), 
     // kev kills the destination vertex of its argument; we want to
     // kill V, so pass the half-edge whose destination is V.
     debug_assert_eq!(brep.half_edges[brep.half_edges[he_in].twin].origin, vertex);
-    brep.kev(he_in)
-        .map_err(|e| format!("kev failed on V-bridge: {e}"))?;
-    Ok(())
+    let same_loop = brep.half_edges[he_in].loop_ == brep.half_edges[he_out].loop_;
+    let is_only_edge = brep.half_edges[he_in].next == he_out
+        && brep.half_edges[he_out].next == he_in
+        && brep.half_edges[he_in].prev == he_out
+        && brep.half_edges[he_out].prev == he_in;
+    match brep.kev(he_in) {
+        Ok(_) => return Ok(()),
+        Err(_) if same_loop && !is_only_edge => {
+            brep.dissolve_same_loop_bridge(he_in)
+                .map_err(|e| format!("same-loop bridge dissolve failed on V-bridge: {e}"))?;
+            remove_orphaned_vertex(brep, vertex);
+            Ok(())
+        }
+        Err(kev_error) => Err(format!("kev failed on V-bridge: {kev_error}")),
+    }
 }
 
 /// Phase 3: Remove vertex V if it is no longer connected to any edges.

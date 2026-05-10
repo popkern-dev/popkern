@@ -6,7 +6,7 @@
 
 use crate::error::ValidationError;
 use crate::geometry::CurveEval;
-use crate::topology::BRep;
+use crate::topology::{BRep, TopologyRole};
 
 impl BRep {
     /// Check 8: Loop closure.
@@ -195,6 +195,9 @@ impl BRep {
         let n_samples = samples.max(2);
         let mut reports: Vec<NonManifoldEdgeReport> = Vec::new();
         for (edge_handle, edge_data) in &self.edges {
+            if edge_data.role == TopologyRole::ConstructionResidual {
+                continue;
+            }
             let Some(curve_on_edge) = edge_data.curve.as_ref() else {
                 continue;
             };
@@ -214,6 +217,17 @@ impl BRep {
             let face_b = loop_b.face;
             if face_a == face_b {
                 continue; // self-loop / seam edge
+            }
+            let face_a_is_residual = self
+                .faces
+                .get(face_a)
+                .is_some_and(|face| face.role == TopologyRole::ConstructionResidual);
+            let face_b_is_residual = self
+                .faces
+                .get(face_b)
+                .is_some_and(|face| face.role == TopologyRole::ConstructionResidual);
+            if face_a_is_residual || face_b_is_residual {
+                continue;
             }
             let Some(pcurve_a) = he.pcurve.as_ref() else {
                 continue;

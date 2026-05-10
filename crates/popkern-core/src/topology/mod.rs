@@ -9,6 +9,8 @@ pub mod half_edge;
 pub mod handles;
 /// Loop topology entity.
 pub mod loop_;
+/// Semantic ownership role for topology entities.
+pub mod role;
 /// Shell topology entity.
 pub mod shell;
 /// Solid topology entity.
@@ -21,6 +23,7 @@ pub use face::Face;
 pub use half_edge::HalfEdge;
 pub use handles::*;
 pub use loop_::Loop;
+pub use role::TopologyRole;
 pub use shell::Shell;
 pub use solid::Solid;
 pub use vertex::Vertex;

@@ -2,6 +2,7 @@
 //! kef — Kill Edge, Face
 
 use crate::error::CoreError;
+use crate::euler::contract::{EulerDelta, EulerTopologyCounts};
 use crate::topology::{
     BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
 };
@@ -19,6 +20,16 @@ pub struct MefResult {
     pub half_edge: HalfEdgeHandle,
     /// Half-edge from origin(he2) to origin(he1) (twin).
     pub half_edge_twin: HalfEdgeHandle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KefResult {
+    pub removed_edge: EdgeHandle,
+    pub removed_face: FaceHandle,
+    pub removed_loop: LoopHandle,
+    pub removed_half_edge: HalfEdgeHandle,
+    pub removed_half_edge_twin: HalfEdgeHandle,
+    pub surviving_loop: LoopHandle,
 }
 
 impl BRep {
@@ -40,7 +51,24 @@ impl BRep {
         he1: HalfEdgeHandle,
         he2: HalfEdgeHandle,
     ) -> Result<MefResult, CoreError> {
-        // Validate handles.
+        let before = EulerTopologyCounts::from_brep(self);
+        let old_loop = self
+            .half_edges
+            .get(he1)
+            .ok_or_else(|| CoreError::InvalidHandle("he1 handle is invalid".into()))?
+            .loop_;
+        let mut candidate = self.clone();
+        let result = candidate.apply_mef(he1, he2)?;
+        candidate.verify_mef_postconditions(before, result, old_loop)?;
+        *self = candidate;
+        Ok(result)
+    }
+
+    fn apply_mef(
+        &mut self,
+        he1: HalfEdgeHandle,
+        he2: HalfEdgeHandle,
+    ) -> Result<MefResult, CoreError> {
         let he1_data = self
             .half_edges
             .get(he1)
@@ -80,6 +108,7 @@ impl BRep {
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
 
         // Create new face (inherits parent surface).
@@ -90,6 +119,7 @@ impl BRep {
             surface: self.faces[old_face].surface.clone(),
             name: None,
             tolerance: None,
+            role: Default::default(),
         });
 
         // Create new loop for the new face.
@@ -170,7 +200,16 @@ impl BRep {
     /// - [`CoreError::InvalidHandle`] if the half-edge handle is invalid.
     /// - [`CoreError::PreconditionFailed`] if the half-edge and its twin are
     ///   in the same loop (not separating two faces).
-    pub fn kef(&mut self, half_edge: HalfEdgeHandle) -> Result<(), CoreError> {
+    pub fn kef(&mut self, half_edge: HalfEdgeHandle) -> Result<KefResult, CoreError> {
+        let before = EulerTopologyCounts::from_brep(self);
+        let mut candidate = self.clone();
+        let result = candidate.apply_kef(half_edge)?;
+        candidate.verify_kef_postconditions(before, result)?;
+        *self = candidate;
+        Ok(result)
+    }
+
+    fn apply_kef(&mut self, half_edge: HalfEdgeHandle) -> Result<KefResult, CoreError> {
         let he_data = self
             .half_edges
             .get(half_edge)
@@ -235,133 +274,180 @@ impl BRep {
         self.loops.remove(killed_loop);
         self.faces.remove(killed_face);
 
-        Ok(())
+        Ok(KefResult {
+            removed_edge: edge_handle,
+            removed_face: killed_face,
+            removed_loop: killed_loop,
+            removed_half_edge: half_edge,
+            removed_half_edge_twin: he_twin_handle,
+            surviving_loop,
+        })
+    }
+
+    fn verify_mef_postconditions(
+        &self,
+        before: EulerTopologyCounts,
+        result: MefResult,
+        old_loop: LoopHandle,
+    ) -> Result<(), CoreError> {
+        EulerDelta::verify(
+            "mef",
+            before,
+            EulerTopologyCounts::from_brep(self),
+            EulerDelta::mef(),
+        )?;
+        let edge = self
+            .edges
+            .get(result.edge)
+            .ok_or_else(|| CoreError::PreconditionFailed("mef edge is not live".into()))?;
+        if edge.half_edge != result.half_edge {
+            return Err(CoreError::PreconditionFailed(
+                "mef edge does not reference the created half-edge".into(),
+            ));
+        }
+        let half_edge = self
+            .half_edges
+            .get(result.half_edge)
+            .ok_or_else(|| CoreError::PreconditionFailed("mef half-edge is not live".into()))?;
+        let twin = self.half_edges.get(result.half_edge_twin).ok_or_else(|| {
+            CoreError::PreconditionFailed("mef twin half-edge is not live".into())
+        })?;
+        if half_edge.twin != result.half_edge_twin
+            || twin.twin != result.half_edge
+            || half_edge.edge != result.edge
+            || twin.edge != result.edge
+            || half_edge.loop_ != old_loop
+            || twin.loop_ != result.loop_
+        {
+            return Err(CoreError::PreconditionFailed(
+                "mef created half-edge pair is not consistently wired".into(),
+            ));
+        }
+        let new_face = self
+            .faces
+            .get(result.face)
+            .ok_or_else(|| CoreError::PreconditionFailed("mef face is not live".into()))?;
+        if new_face.outer_loop != result.loop_ {
+            return Err(CoreError::PreconditionFailed(
+                "mef face does not own the created loop".into(),
+            ));
+        }
+        if self
+            .loops
+            .get(result.loop_)
+            .is_none_or(|loop_data| loop_data.face != result.face)
+        {
+            return Err(CoreError::PreconditionFailed(
+                "mef loop does not point to the created face".into(),
+            ));
+        }
+        self.verify_mef_loop_contains(old_loop, &[result.half_edge])?;
+        self.verify_mef_loop_contains(result.loop_, &[result.half_edge_twin])?;
+        self.validate_half_edge_pairing().map_err(CoreError::from)?;
+        self.validate_half_edge_cycles().map_err(CoreError::from)?;
+        self.validate_vertex_consistency()
+            .map_err(CoreError::from)?;
+        self.validate_manifold_edges().map_err(CoreError::from)
+    }
+
+    fn verify_kef_postconditions(
+        &self,
+        before: EulerTopologyCounts,
+        result: KefResult,
+    ) -> Result<(), CoreError> {
+        EulerDelta::verify(
+            "kef",
+            before,
+            EulerTopologyCounts::from_brep(self),
+            EulerDelta::kef(),
+        )?;
+        if self.edges.contains_key(result.removed_edge)
+            || self.faces.contains_key(result.removed_face)
+            || self.loops.contains_key(result.removed_loop)
+            || self.half_edges.contains_key(result.removed_half_edge)
+            || self.half_edges.contains_key(result.removed_half_edge_twin)
+        {
+            return Err(CoreError::PreconditionFailed(
+                "kef left removed topology live".into(),
+            ));
+        }
+        for face in self.faces.values() {
+            if face.outer_loop == result.removed_loop
+                || face.inner_loops.contains(&result.removed_loop)
+            {
+                return Err(CoreError::PreconditionFailed(
+                    "kef left a live face referencing removed loop".into(),
+                ));
+            }
+        }
+        for half_edge in self.half_edges.values() {
+            if half_edge.edge == result.removed_edge
+                || half_edge.loop_ == result.removed_loop
+                || half_edge.next == result.removed_half_edge
+                || half_edge.next == result.removed_half_edge_twin
+                || half_edge.prev == result.removed_half_edge
+                || half_edge.prev == result.removed_half_edge_twin
+            {
+                return Err(CoreError::PreconditionFailed(
+                    "kef left live half-edge references to removed topology".into(),
+                ));
+            }
+        }
+        let loop_anchor = self
+            .loops
+            .get(result.surviving_loop)
+            .ok_or_else(|| CoreError::PreconditionFailed("kef surviving loop is not live".into()))?
+            .half_edge;
+        self.verify_mef_loop_contains(result.surviving_loop, &[loop_anchor])?;
+        self.validate_half_edge_pairing().map_err(CoreError::from)?;
+        self.validate_half_edge_cycles().map_err(CoreError::from)?;
+        self.validate_vertex_consistency()
+            .map_err(CoreError::from)?;
+        self.validate_manifold_edges().map_err(CoreError::from)
+    }
+
+    fn verify_mef_loop_contains(
+        &self,
+        loop_: LoopHandle,
+        required: &[HalfEdgeHandle],
+    ) -> Result<(), CoreError> {
+        let start = self
+            .loops
+            .get(loop_)
+            .ok_or_else(|| CoreError::PreconditionFailed("loop is not live".into()))?
+            .half_edge;
+        let mut cursor = start;
+        let mut visited = std::collections::BTreeSet::new();
+        for _ in 0..=self.half_edges.len() {
+            let half_edge = self.half_edges.get(cursor).ok_or_else(|| {
+                CoreError::PreconditionFailed("loop references a missing half-edge".into())
+            })?;
+            if half_edge.loop_ != loop_ {
+                return Err(CoreError::PreconditionFailed(
+                    "loop walk left the expected loop".into(),
+                ));
+            }
+            if !visited.insert(cursor) {
+                return Err(CoreError::PreconditionFailed(
+                    "loop repeats before closing".into(),
+                ));
+            }
+            cursor = half_edge.next;
+            if cursor == start {
+                if required.iter().all(|half_edge| visited.contains(half_edge)) {
+                    return Ok(());
+                }
+                return Err(CoreError::PreconditionFailed(
+                    "loop is missing required half-edge".into(),
+                ));
+            }
+        }
+        Err(CoreError::PreconditionFailed(
+            "loop did not close during verification".into(),
+        ))
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::geometry::Point3;
-    use crate::tolerance::Tolerance;
-    use crate::topology::BRep;
-
-    #[test]
-    fn mef_splits_face_into_two() {
-        let mut brep = BRep::new(Tolerance::default());
-        // Build 4 vertices: v0(0,0) -> v1(1,0) -> v2(1,1) -> v3(0,1)
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev1 = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        let mev2 = brep
-            .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
-            .unwrap();
-        let mev3 = brep
-            .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
-            .unwrap();
-
-        // Before mef: 1 face, 1 loop
-        assert_eq!(brep.faces.len(), 1);
-        assert_eq!(brep.loops.len(), 1);
-
-        // mef connects v3 to v0:
-        // mev3.half_edge_twin originates at v3
-        // mev1.half_edge originates at v0
-        let _mef_r = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
-
-        assert_eq!(brep.faces.len(), 2);
-        assert_eq!(brep.loops.len(), 2);
-        assert_eq!(brep.edges.len(), 4); // 3 from mev + 1 from mef
-        assert_eq!(brep.half_edges.len(), 8); // 6 from mev + 2 from mef
-    }
-
-    #[test]
-    fn kef_merges_two_faces() {
-        let mut brep = BRep::new(Tolerance::default());
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev1 = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        let mev2 = brep
-            .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
-            .unwrap();
-        let mev3 = brep
-            .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
-            .unwrap();
-        let mef_r = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
-
-        assert_eq!(brep.faces.len(), 2);
-
-        // kef on the mef edge merges back
-        brep.kef(mef_r.half_edge).unwrap();
-
-        assert_eq!(brep.faces.len(), 1);
-        assert_eq!(brep.loops.len(), 1);
-        assert_eq!(brep.edges.len(), 3);
-        assert_eq!(brep.half_edges.len(), 6);
-    }
-
-    #[test]
-    fn mef_precondition_same_loop() {
-        let mut brep = BRep::new(Tolerance::default());
-        let mvfs1 = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev1 = brep
-            .mev_at_vertex(mvfs1.vertex, mvfs1.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-
-        // Create a second, separate solid
-        let mvfs2 = brep.mvfs(Point3::new(5.0, 0.0, 0.0)).unwrap();
-        let mev2 = brep
-            .mev_at_vertex(mvfs2.vertex, mvfs2.loop_, Point3::new(6.0, 0.0, 0.0))
-            .unwrap();
-
-        // Try to mef between half-edges in different loops — should fail
-        let result = brep.mef(mev1.half_edge, mev2.half_edge);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn mef_same_half_edge_fails() {
-        let mut brep = BRep::new(Tolerance::default());
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        // he1 == he2 should fail
-        let result = brep.mef(mev.half_edge, mev.half_edge);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn mef_invalid_handle_fails() {
-        let mut brep = BRep::new(Tolerance::default());
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        let result = brep.mef(Default::default(), mev.half_edge);
-        assert!(result.is_err());
-        let result = brep.mef(mev.half_edge, Default::default());
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn kef_same_loop_fails() {
-        let mut brep = BRep::new(Tolerance::default());
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        // This edge has both half-edges in the same loop, so kef should fail
-        let result = brep.kef(mev.half_edge);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn kef_invalid_handle_fails() {
-        let mut brep = BRep::new(Tolerance::default());
-        let _mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let result = brep.kef(Default::default());
-        assert!(result.is_err());
-    }
-}
+#[path = "mef_tests.rs"]
+mod tests;

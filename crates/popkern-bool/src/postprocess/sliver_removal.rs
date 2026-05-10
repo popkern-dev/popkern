@@ -101,7 +101,7 @@ pub fn remove_slivers(brep: &mut BRep, tolerance: &Tolerance) -> SliverRemovalRe
         };
 
         match brep.kef(he) {
-            Ok(()) => {
+            Ok(_) => {
                 // Validate the topology after the removal. If the
                 // KEF corrupted the structure, stop the pass — better
                 // to leave slivers behind than to compound the damage.

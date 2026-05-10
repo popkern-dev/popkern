@@ -163,6 +163,13 @@ impl BRep {
                 )));
             }
         }
+        for pair in interval.windows(2) {
+            if self.half_edges[pair[0]].next != pair[1] {
+                return Err(CoreError::PreconditionFailed(format!(
+                    "face-family bridge cycle {index} interval is not directed through the requested loop"
+                )));
+            }
+        }
         for &half_edge in path {
             let data = &self.half_edges[half_edge];
             if !self.boundary_edges.contains(&data.edge) || self.half_edges.contains_key(data.twin)
@@ -235,6 +242,7 @@ impl BRep {
             surface: None,
             name: None,
             tolerance: source.tolerance,
+            role: Default::default(),
         });
         let bridge_loop = self.loops.insert(Loop {
             half_edge: Default::default(),
@@ -255,10 +263,10 @@ impl BRep {
         let second_start = required_path_handle(second_path.first(), "second", "start")?;
         let second_end = required_path_handle(second_path.last(), "second", "end")?;
 
-        let first_connector =
-            self.insert_boundary_connector(self.half_edges[first_end].origin, bridge_loop);
-        let second_connector =
-            self.insert_boundary_connector(self.half_edges[second_end].origin, bridge_loop);
+        let first_connector = self
+            .insert_boundary_connector(self.bridge_path_terminal_vertex(first_end)?, bridge_loop);
+        let second_connector = self
+            .insert_boundary_connector(self.bridge_path_terminal_vertex(second_end)?, bridge_loop);
         self.wire_aggregate_bridge_path(first_path);
         self.wire_aggregate_bridge_path(second_path);
         self.half_edges[first_end].next = first_connector.1;
@@ -300,6 +308,7 @@ impl BRep {
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
         let half_edge = self.half_edges.insert(HalfEdge {
             origin,
@@ -320,6 +329,25 @@ impl BRep {
             self.half_edges[pair[0]].next = pair[1];
             self.half_edges[pair[1]].prev = pair[0];
         }
+    }
+
+    fn bridge_path_terminal_vertex(
+        &self,
+        path_half_edge: HalfEdgeHandle,
+    ) -> Result<crate::topology::VertexHandle, CoreError> {
+        let twin = self
+            .half_edges
+            .get(path_half_edge)
+            .ok_or_else(|| CoreError::InvalidHandle("bridge path half-edge is invalid".into()))?
+            .twin;
+        self.half_edges
+            .get(twin)
+            .map(|half_edge| half_edge.origin)
+            .ok_or_else(|| {
+                CoreError::PreconditionFailed(
+                    "face-family bridge path half-edge has no source-side twin".into(),
+                )
+            })
     }
 
     fn verify_face_family_bridge_postconditions(
@@ -353,6 +381,7 @@ impl BRep {
         self.validate_manifold_edges().map_err(CoreError::from)?;
         for cycle in &result.cycles {
             self.verify_bridge_loop_cycle(cycle.bridge_loop)?;
+            self.verify_bridge_loop_vertex_continuity(cycle.bridge_loop)?;
             if !self.boundary_edges.contains(&cycle.first_connector_edge)
                 || !self.boundary_edges.contains(&cycle.second_connector_edge)
             {
@@ -387,6 +416,43 @@ impl BRep {
         }
         Err(CoreError::PreconditionFailed(
             "face-family bridge cycle did not close".into(),
+        ))
+    }
+
+    fn verify_bridge_loop_vertex_continuity(&self, loop_: LoopHandle) -> Result<(), CoreError> {
+        let start = self.loops[loop_].half_edge;
+        let mut cursor = start;
+        for _ in 0..=self.half_edges.len() {
+            let half_edge = &self.half_edges[cursor];
+            let next = self.half_edges.get(half_edge.next).ok_or_else(|| {
+                CoreError::PreconditionFailed(
+                    "face-family bridge cycle has stale next half-edge".into(),
+                )
+            })?;
+            let expected_next_origin = if self.boundary_edges.contains(&half_edge.edge) {
+                next.origin
+            } else {
+                self.half_edges
+                    .get(half_edge.twin)
+                    .map(|twin| twin.origin)
+                    .ok_or_else(|| {
+                        CoreError::PreconditionFailed(
+                            "face-family bridge non-boundary half-edge has stale twin".into(),
+                        )
+                    })?
+            };
+            if expected_next_origin != next.origin {
+                return Err(CoreError::PreconditionFailed(format!(
+                    "face-family bridge cycle has discontinuous vertex adjacency at {cursor:?}"
+                )));
+            }
+            cursor = half_edge.next;
+            if cursor == start {
+                return Ok(());
+            }
+        }
+        Err(CoreError::PreconditionFailed(
+            "face-family bridge cycle continuity check did not close".into(),
         ))
     }
 }

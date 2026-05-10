@@ -1,5 +1,3 @@
-//! Transactional two-loop bridge mutation.
-
 use std::collections::BTreeSet;
 
 use crate::error::CoreError;
@@ -11,13 +9,13 @@ use crate::topology::{
 /// Result of a committed two-loop bridge mutation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TwoLoopBridgeResult {
-    /// New edge connecting the first-loop start endpoint to the second-loop start endpoint.
+    /// Edge connecting the first-loop start endpoint to the second-loop start endpoint.
     pub start_bridge_edge: EdgeHandle,
-    /// New edge connecting the first-loop end endpoint to the second-loop end endpoint.
+    /// Edge connecting the first-loop end endpoint to the second-loop end endpoint.
     pub end_bridge_edge: EdgeHandle,
-    /// Half-edge from the first-loop start endpoint to the second-loop start endpoint.
+    /// Half-edge from first-loop start endpoint to second-loop start endpoint.
     pub start_bridge_half_edge: HalfEdgeHandle,
-    /// Twin half-edge from the second-loop start endpoint to the first-loop start endpoint.
+    /// Twin half-edge from second-loop start endpoint to first-loop start endpoint.
     pub start_bridge_half_edge_twin: HalfEdgeHandle,
     /// Half-edge from the first-loop end endpoint to the second-loop end endpoint.
     pub end_bridge_half_edge: HalfEdgeHandle,
@@ -200,6 +198,7 @@ impl BRep {
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         })
     }
 
@@ -220,6 +219,7 @@ impl BRep {
             surface: None,
             name: None,
             tolerance,
+            role: Default::default(),
         });
         let bridge_loop = self.loops.insert(Loop {
             half_edge: Default::default(),

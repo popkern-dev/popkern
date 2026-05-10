@@ -1,6 +1,6 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 use super::*;
 
@@ -25,6 +25,7 @@ pub(in crate::apex_construction) fn expose_aggregate_bridge_boundaries(
     expose_self_owned_pairs_once(primitive, candidate, &mut errors);
     expose_planned_partial_fragments(primitive, candidate, &mut errors);
     complete_remaining_owned_bridge_sides(primitive, candidate, &mut errors);
+    complete_live_owned_bridge_sides(primitive, candidate, &mut errors);
 
     if errors.is_empty() {
         Ok(())
@@ -175,9 +176,7 @@ fn expose_planned_partial_fragments(
                 fragment.after_last_half_edge(),
             ) {
                 let message = err.to_string();
-                if message.contains("already contains a boundary edge")
-                    || message.contains("after-last half-edge is invalid")
-                {
+                if is_non_blocking_exposure_error(&message) {
                     continue;
                 }
                 errors.push(format!(
@@ -219,9 +218,8 @@ fn complete_remaining_owned_bridge_sides(
                 after_last,
             ) {
                 let message = err.to_string();
-                if message.contains("already contains a boundary edge")
+                if is_non_blocking_exposure_error(&message)
                     || message.contains("interval must not cover the whole loop")
-                    || message.contains("after-last half-edge is invalid")
                 {
                     continue;
                 }
@@ -233,4 +231,288 @@ fn complete_remaining_owned_bridge_sides(
             }
         }
     }
+}
+
+fn complete_live_owned_bridge_sides(
+    primitive: &FaceFamilyBridgePrimitivePlan,
+    candidate: &mut BRep,
+    errors: &mut Vec<String>,
+) {
+    let protected_half_edges = aggregate_bridge_half_edges(primitive);
+    let max_passes = protected_half_edges.len().saturating_add(1);
+    for _ in 0..max_passes {
+        let blockers = live_bridge_blockers(primitive, candidate, errors);
+        if blockers.is_empty() {
+            return;
+        }
+        let mut made_progress = false;
+        for (face, blocked) in blockers {
+            match expose_live_blocker_interval(candidate, face, &blocked, &protected_half_edges) {
+                LiveExposureProgress::Changed => made_progress = true,
+                LiveExposureProgress::Unchanged => {}
+                LiveExposureProgress::Rejected(message) => errors.push(message),
+            }
+        }
+        if !made_progress {
+            break;
+        }
+    }
+
+    for half_edge in aggregate_bridge_half_edges(primitive) {
+        if !bridge_half_edge_is_boundary_ready(candidate, half_edge) {
+            errors.push(format!(
+                "aggregate bridge half-edge {:?} remains owned after live exposure completion",
+                half_edge
+            ));
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum LiveExposureProgress {
+    Changed,
+    Unchanged,
+    Rejected(String),
+}
+
+fn live_bridge_blockers(
+    primitive: &FaceFamilyBridgePrimitivePlan,
+    candidate: &BRep,
+    errors: &mut Vec<String>,
+) -> BTreeMap<FaceHandle, BTreeSet<HalfEdgeHandle>> {
+    let mut blockers_by_face = BTreeMap::<FaceHandle, BTreeSet<HalfEdgeHandle>>::new();
+    for half_edge in aggregate_bridge_half_edges(primitive) {
+        if bridge_half_edge_is_boundary_ready(candidate, half_edge) {
+            continue;
+        }
+        let Some(source) = candidate.half_edges.get(half_edge) else {
+            errors.push(format!(
+                "aggregate bridge half-edge {:?} is stale during boundary exposure",
+                half_edge
+            ));
+            continue;
+        };
+        let blocking_half_edge = source.twin;
+        let Some(blocking) = candidate.half_edges.get(blocking_half_edge) else {
+            errors.push(format!(
+                "aggregate bridge half-edge {:?} is not boundary but has no live blocking twin",
+                half_edge
+            ));
+            continue;
+        };
+        let Some(blocking_face) = candidate
+            .loops
+            .get(blocking.loop_)
+            .map(|loop_data| loop_data.face)
+        else {
+            errors.push(format!(
+                "aggregate bridge half-edge {:?} is blocked by stale-loop half-edge {:?}",
+                half_edge, blocking_half_edge
+            ));
+            continue;
+        };
+        blockers_by_face
+            .entry(blocking_face)
+            .or_default()
+            .insert(blocking_half_edge);
+    }
+    blockers_by_face
+}
+
+fn expose_live_blocker_interval(
+    candidate: &mut BRep,
+    face: FaceHandle,
+    blocked: &BTreeSet<HalfEdgeHandle>,
+    protected_half_edges: &BTreeSet<HalfEdgeHandle>,
+) -> LiveExposureProgress {
+    let mut blocked = blocked
+        .iter()
+        .filter(|half_edge| {
+            candidate
+                .half_edges
+                .get(**half_edge)
+                .is_some_and(|data| !candidate.boundary_edges.contains(&data.edge))
+        })
+        .copied()
+        .collect::<BTreeSet<_>>();
+    if blocked.is_empty() {
+        return LiveExposureProgress::Unchanged;
+    }
+
+    if crate::a2_trace::enabled() {
+        eprintln!(
+            "[a2-trace §14.9/bridge-exposure] live blockers on face {:?}: {:?}",
+            face, blocked
+        );
+    }
+
+    for half_edge in blocked.clone() {
+        if !protected_half_edges.contains(&half_edge) {
+            continue;
+        }
+        let Some(data) = candidate.half_edges.get(half_edge) else {
+            blocked.remove(&half_edge);
+            continue;
+        };
+        let twin = data.twin;
+        if !protected_half_edges.contains(&twin) || data.loop_ != candidate.half_edges[twin].loop_ {
+            return LiveExposureProgress::Rejected(format!(
+                "live bridge boundary exposure would retire protected half-edge {:?} on face {:?}",
+                half_edge, face
+            ));
+        }
+        if let Err(err) = candidate.expose_same_loop_edge_as_boundary(half_edge) {
+            return LiveExposureProgress::Rejected(format!(
+                "live bridge boundary self-owned exposure rejected for {:?}: {err}",
+                half_edge
+            ));
+        }
+        blocked.remove(&half_edge);
+        blocked.remove(&twin);
+    }
+    if blocked.is_empty() {
+        return LiveExposureProgress::Changed;
+    }
+
+    let Some(face_half_edges) = live_face_outer_half_edges(candidate, face) else {
+        return LiveExposureProgress::Rejected(format!(
+            "live bridge boundary exposure could not walk face {:?}",
+            face
+        ));
+    };
+    if blocked.len() == face_half_edges.len() {
+        return match candidate.retire_faces_to_boundary(&[face]) {
+            Ok(_) => LiveExposureProgress::Changed,
+            Err(err) => LiveExposureProgress::Rejected(format!(
+                "live bridge boundary whole-face retire rejected on face {:?}: {err}",
+                face
+            )),
+        };
+    }
+    let fragments = live_contiguous_fragments(&face_half_edges, &blocked);
+    if crate::a2_trace::enabled() {
+        eprintln!(
+            "[a2-trace §14.9/bridge-exposure] face {:?} live loop {:?} fragments {:?}",
+            face, face_half_edges, fragments
+        );
+    }
+    let Some((first, after_last)) = fragments.first().copied() else {
+        return LiveExposureProgress::Unchanged;
+    };
+    match candidate.retire_face_boundary_fragment(face, first, after_last) {
+        Ok(_) => {
+            if crate::a2_trace::enabled() {
+                eprintln!(
+                    "[a2-trace §14.9/bridge-exposure] retired live fragment {:?}->{:?} on face {:?}",
+                    first, after_last, face
+                );
+            }
+            LiveExposureProgress::Changed
+        }
+        Err(err) => {
+            let message = err.to_string();
+            if crate::a2_trace::enabled() {
+                eprintln!(
+                    "[a2-trace §14.9/bridge-exposure] live fragment {:?}->{:?} on face {:?} rejected: {message}",
+                    first, after_last, face
+                );
+            }
+            if is_non_blocking_exposure_error(&message)
+                || message.contains("interval must not cover the whole loop")
+            {
+                LiveExposureProgress::Unchanged
+            } else {
+                LiveExposureProgress::Rejected(format!(
+                    "live bridge boundary fragment retire rejected on face {:?}: {message}",
+                    face
+                ))
+            }
+        }
+    }
+}
+
+fn aggregate_bridge_half_edges(
+    primitive: &FaceFamilyBridgePrimitivePlan,
+) -> BTreeSet<HalfEdgeHandle> {
+    primitive
+        .regions()
+        .iter()
+        .flat_map(|region| {
+            region.boundary_cycles().iter().flat_map(|cycle| {
+                cycle
+                    .support_interval()
+                    .iter()
+                    .chain(cycle.outside_interval().iter())
+            })
+        })
+        .copied()
+        .collect()
+}
+
+fn bridge_half_edge_is_boundary_ready(candidate: &BRep, half_edge: HalfEdgeHandle) -> bool {
+    let Some(data) = candidate.half_edges.get(half_edge) else {
+        return false;
+    };
+    candidate.boundary_edges.contains(&data.edge) && !candidate.half_edges.contains_key(data.twin)
+}
+
+fn live_face_outer_half_edges(candidate: &BRep, face: FaceHandle) -> Option<Vec<HalfEdgeHandle>> {
+    let face_data = candidate.faces.get(face)?;
+    let loop_data = candidate.loops.get(face_data.outer_loop)?;
+    let start = loop_data.half_edge;
+    let mut cursor = start;
+    let mut half_edges = Vec::new();
+    for _ in 0..=candidate.half_edges.len() {
+        let half_edge = candidate.half_edges.get(cursor)?;
+        if half_edge.loop_ != face_data.outer_loop {
+            return None;
+        }
+        half_edges.push(cursor);
+        cursor = half_edge.next;
+        if cursor == start {
+            return Some(half_edges);
+        }
+    }
+    None
+}
+
+fn live_contiguous_fragments(
+    face_half_edges: &[HalfEdgeHandle],
+    blocked: &BTreeSet<HalfEdgeHandle>,
+) -> Vec<(HalfEdgeHandle, HalfEdgeHandle)> {
+    if blocked.is_empty() || blocked.len() == face_half_edges.len() {
+        return Vec::new();
+    }
+    let is_blocked = face_half_edges
+        .iter()
+        .map(|half_edge| blocked.contains(half_edge))
+        .collect::<Vec<_>>();
+    let mut starts = Vec::new();
+    for i in 0..is_blocked.len() {
+        let prev = if i == 0 { is_blocked.len() - 1 } else { i - 1 };
+        if is_blocked[i] && !is_blocked[prev] {
+            starts.push(i);
+        }
+    }
+    let mut fragments = Vec::new();
+    for first_index in starts {
+        let mut after_last_index = (first_index + 1) % is_blocked.len();
+        while is_blocked[after_last_index] {
+            after_last_index = (after_last_index + 1) % is_blocked.len();
+            if after_last_index == first_index {
+                return Vec::new();
+            }
+        }
+        fragments.push((
+            face_half_edges[first_index],
+            face_half_edges[after_last_index],
+        ));
+    }
+    fragments
+}
+
+fn is_non_blocking_exposure_error(message: &str) -> bool {
+    message.contains("already contains a boundary edge")
+        || message.contains("after-last half-edge is invalid")
+        || (message.contains("Half-edge cycle broken") && message.contains("LoopHandle(null)"))
 }

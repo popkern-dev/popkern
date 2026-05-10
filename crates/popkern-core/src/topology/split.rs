@@ -147,6 +147,7 @@ impl BRep {
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
 
         // Create new half-edges: he_vb (V->B) and he_bv (B->V).

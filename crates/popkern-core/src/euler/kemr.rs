@@ -2,6 +2,7 @@
 //! mekr — Make Edge, Kill Ring
 
 use crate::error::CoreError;
+use crate::euler::contract::{EulerDelta, EulerTopologyCounts};
 use crate::topology::{BRep, Edge, EdgeHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle};
 
 /// Result of the kemr (Kill Edge, Make Ring) operator.
@@ -22,6 +23,24 @@ pub struct MekrResult {
     pub half_edge_twin: HalfEdgeHandle,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct KemrApplied {
+    result: KemrResult,
+    removed_edge: EdgeHandle,
+    removed_half_edge: HalfEdgeHandle,
+    removed_half_edge_twin: HalfEdgeHandle,
+    outer_loop: LoopHandle,
+    face: crate::topology::FaceHandle,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MekrApplied {
+    result: MekrResult,
+    removed_inner_loop: LoopHandle,
+    merged_loop: LoopHandle,
+    face: crate::topology::FaceHandle,
+}
+
 impl BRep {
     /// Kill Edge, Make Ring — removes an edge and splits a loop into outer + inner loop.
     ///
@@ -35,6 +54,15 @@ impl BRep {
     /// - [`CoreError::PreconditionFailed`] if the half-edge and its twin are in
     ///   different loops (use kef instead).
     pub fn kemr(&mut self, half_edge: HalfEdgeHandle) -> Result<KemrResult, CoreError> {
+        let before = EulerTopologyCounts::from_brep(self);
+        let mut candidate = self.clone();
+        let applied = candidate.apply_kemr(half_edge)?;
+        candidate.verify_kemr_postconditions(before, applied)?;
+        *self = candidate;
+        Ok(applied.result)
+    }
+
+    fn apply_kemr(&mut self, half_edge: HalfEdgeHandle) -> Result<KemrApplied, CoreError> {
         let he_data = self
             .half_edges
             .get(half_edge)
@@ -109,7 +137,14 @@ impl BRep {
         self.half_edges.remove(he_twin);
         self.edges.remove(edge_handle);
 
-        Ok(KemrResult { inner_loop })
+        Ok(KemrApplied {
+            result: KemrResult { inner_loop },
+            removed_edge: edge_handle,
+            removed_half_edge: half_edge,
+            removed_half_edge_twin: he_twin,
+            outer_loop: old_loop,
+            face,
+        })
     }
 
     /// Make Edge, Kill Ring — connects a vertex in the outer loop to a vertex
@@ -128,6 +163,19 @@ impl BRep {
         he_outer: HalfEdgeHandle,
         he_inner: HalfEdgeHandle,
     ) -> Result<MekrResult, CoreError> {
+        let before = EulerTopologyCounts::from_brep(self);
+        let mut candidate = self.clone();
+        let applied = candidate.apply_mekr(he_outer, he_inner)?;
+        candidate.verify_mekr_postconditions(before, applied)?;
+        *self = candidate;
+        Ok(applied.result)
+    }
+
+    fn apply_mekr(
+        &mut self,
+        he_outer: HalfEdgeHandle,
+        he_inner: HalfEdgeHandle,
+    ) -> Result<MekrApplied, CoreError> {
         let outer_data = self
             .half_edges
             .get(he_outer)
@@ -155,6 +203,11 @@ impl BRep {
                 "he_outer and he_inner must be on the same face".into(),
             ));
         }
+        if !self.faces[outer_face].inner_loops.contains(&inner_loop) {
+            return Err(CoreError::PreconditionFailed(
+                "he_inner loop must be listed as an inner loop of the face".into(),
+            ));
+        }
 
         let v_outer = outer_data.origin;
         let v_inner = inner_data.origin;
@@ -168,6 +221,7 @@ impl BRep {
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
 
         // Create new_he: v_outer -> v_inner (spliced into the merged loop)
@@ -224,241 +278,172 @@ impl BRep {
         // Remove the inner loop entity.
         self.loops.remove(inner_loop);
 
-        Ok(MekrResult {
-            edge,
-            half_edge: new_he,
-            half_edge_twin: new_he_twin,
+        Ok(MekrApplied {
+            result: MekrResult {
+                edge,
+                half_edge: new_he,
+                half_edge_twin: new_he_twin,
+            },
+            removed_inner_loop: inner_loop,
+            merged_loop: outer_loop,
+            face: outer_face,
         })
+    }
+
+    fn verify_kemr_postconditions(
+        &self,
+        before: EulerTopologyCounts,
+        applied: KemrApplied,
+    ) -> Result<(), CoreError> {
+        EulerDelta::verify(
+            "kemr",
+            before,
+            EulerTopologyCounts::from_brep(self),
+            EulerDelta::kemr(),
+        )?;
+        if self.edges.contains_key(applied.removed_edge)
+            || self.half_edges.contains_key(applied.removed_half_edge)
+            || self.half_edges.contains_key(applied.removed_half_edge_twin)
+        {
+            return Err(CoreError::PreconditionFailed(
+                "kemr left removed topology live".into(),
+            ));
+        }
+        let face = self
+            .faces
+            .get(applied.face)
+            .ok_or_else(|| CoreError::PreconditionFailed("kemr face is not live".into()))?;
+        if !face.inner_loops.contains(&applied.result.inner_loop) {
+            return Err(CoreError::PreconditionFailed(
+                "kemr face does not own created inner loop".into(),
+            ));
+        }
+        if self
+            .loops
+            .get(applied.result.inner_loop)
+            .is_none_or(|loop_data| loop_data.face != applied.face)
+        {
+            return Err(CoreError::PreconditionFailed(
+                "kemr created inner loop does not point to owning face".into(),
+            ));
+        }
+        self.verify_kemr_loop(applied.outer_loop)?;
+        self.verify_kemr_loop(applied.result.inner_loop)?;
+        self.verify_no_removed_kemr_refs(applied)?;
+        self.validate_half_edge_pairing().map_err(CoreError::from)?;
+        self.validate_half_edge_cycles().map_err(CoreError::from)?;
+        self.validate_vertex_consistency()
+            .map_err(CoreError::from)?;
+        self.validate_manifold_edges().map_err(CoreError::from)
+    }
+
+    fn verify_mekr_postconditions(
+        &self,
+        before: EulerTopologyCounts,
+        applied: MekrApplied,
+    ) -> Result<(), CoreError> {
+        EulerDelta::verify(
+            "mekr",
+            before,
+            EulerTopologyCounts::from_brep(self),
+            EulerDelta::mekr(),
+        )?;
+        if self.loops.contains_key(applied.removed_inner_loop) {
+            return Err(CoreError::PreconditionFailed(
+                "mekr left removed inner loop live".into(),
+            ));
+        }
+        let edge = self
+            .edges
+            .get(applied.result.edge)
+            .ok_or_else(|| CoreError::PreconditionFailed("mekr edge is not live".into()))?;
+        if edge.half_edge != applied.result.half_edge {
+            return Err(CoreError::PreconditionFailed(
+                "mekr edge does not reference created half-edge".into(),
+            ));
+        }
+        let half_edge = self
+            .half_edges
+            .get(applied.result.half_edge)
+            .ok_or_else(|| CoreError::PreconditionFailed("mekr half-edge is not live".into()))?;
+        let twin = self
+            .half_edges
+            .get(applied.result.half_edge_twin)
+            .ok_or_else(|| CoreError::PreconditionFailed("mekr twin is not live".into()))?;
+        if half_edge.twin != applied.result.half_edge_twin
+            || twin.twin != applied.result.half_edge
+            || half_edge.loop_ != applied.merged_loop
+            || twin.loop_ != applied.merged_loop
+        {
+            return Err(CoreError::PreconditionFailed(
+                "mekr created half-edge pair is not consistently wired".into(),
+            ));
+        }
+        if self.faces[applied.face]
+            .inner_loops
+            .contains(&applied.removed_inner_loop)
+        {
+            return Err(CoreError::PreconditionFailed(
+                "mekr face still lists removed inner loop".into(),
+            ));
+        }
+        self.verify_kemr_loop(applied.merged_loop)?;
+        self.validate_half_edge_pairing().map_err(CoreError::from)?;
+        self.validate_half_edge_cycles().map_err(CoreError::from)?;
+        self.validate_vertex_consistency()
+            .map_err(CoreError::from)?;
+        self.validate_manifold_edges().map_err(CoreError::from)
+    }
+
+    fn verify_no_removed_kemr_refs(&self, applied: KemrApplied) -> Result<(), CoreError> {
+        for half_edge in self.half_edges.values() {
+            if half_edge.edge == applied.removed_edge
+                || half_edge.next == applied.removed_half_edge
+                || half_edge.next == applied.removed_half_edge_twin
+                || half_edge.prev == applied.removed_half_edge
+                || half_edge.prev == applied.removed_half_edge_twin
+            {
+                return Err(CoreError::PreconditionFailed(
+                    "kemr left live half-edge references to removed topology".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn verify_kemr_loop(&self, loop_: LoopHandle) -> Result<(), CoreError> {
+        let start = self
+            .loops
+            .get(loop_)
+            .ok_or_else(|| CoreError::PreconditionFailed("loop is not live".into()))?
+            .half_edge;
+        let mut cursor = start;
+        let mut visited = std::collections::BTreeSet::new();
+        for _ in 0..=self.half_edges.len() {
+            let half_edge = self.half_edges.get(cursor).ok_or_else(|| {
+                CoreError::PreconditionFailed("loop references a missing half-edge".into())
+            })?;
+            if half_edge.loop_ != loop_ {
+                return Err(CoreError::PreconditionFailed(
+                    "loop walk left the expected loop".into(),
+                ));
+            }
+            if !visited.insert(cursor) {
+                return Err(CoreError::PreconditionFailed(
+                    "loop repeats before closing".into(),
+                ));
+            }
+            cursor = half_edge.next;
+            if cursor == start {
+                return Ok(());
+            }
+        }
+        Err(CoreError::PreconditionFailed(
+            "loop did not close during verification".into(),
+        ))
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::geometry::Point3;
-    use crate::tolerance::Tolerance;
-    use crate::topology::BRep;
-
-    /// Build a topology with a bridge edge suitable for kemr:
-    ///
-    /// v3 -- v0 -- v1 -- v2
-    ///
-    /// Three spur edges from v0: v0-v1, v1-v2 (chain), and v0-v3.
-    /// The single loop traverses: v0->v1->v2->v1->v0->v3->v0
-    /// The edge v0-v1 is a bridge. kemr on it splits into:
-    ///   outer: v0->v3->v0
-    ///   inner: v1->v2->v1
-    #[test]
-    fn kemr_creates_inner_loop() {
-        let mut brep = BRep::new(Tolerance::default());
-
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        // v0->v1
-        let mev1 = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        // v1->v2 (spur from v1)
-        let _mev2 = brep
-            .mev(mev1.half_edge_twin, Point3::new(2.0, 0.0, 0.0))
-            .unwrap();
-        // v0->v3 (spur from v0, spliced before mev1.half_edge)
-        let _mev3 = brep
-            .mev(mev1.half_edge, Point3::new(0.0, 1.0, 0.0))
-            .unwrap();
-
-        assert_eq!(brep.edges.len(), 3);
-        assert_eq!(brep.half_edges.len(), 6);
-        assert_eq!(brep.loops.len(), 1);
-
-        // kemr on the bridge edge v0-v1
-        let _kemr_r = brep.kemr(mev1.half_edge).unwrap();
-
-        assert_eq!(brep.edges.len(), 2); // removed 1
-        assert_eq!(brep.half_edges.len(), 4); // removed 2
-        assert_eq!(brep.loops.len(), 2); // split into outer + inner
-
-        // The face should have an inner loop.
-        assert!(
-            brep.faces.values().any(|f| !f.inner_loops.is_empty()),
-            "Some face should have an inner loop"
-        );
-
-        // Verify both loops have valid half-edge cycles of length 2.
-        for (_, l) in &brep.loops {
-            let start = l.half_edge;
-            let mut cursor = start;
-            let mut count = 0;
-            loop {
-                count += 1;
-                cursor = brep.half_edges[cursor].next;
-                if cursor == start {
-                    break;
-                }
-                assert!(count < 100, "infinite loop detected");
-            }
-            assert_eq!(count, 2, "each loop should have 2 half-edges");
-        }
-    }
-
-    #[test]
-    fn mekr_closes_inner_loop() {
-        let mut brep = BRep::new(Tolerance::default());
-
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev1 = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        let _mev2 = brep
-            .mev(mev1.half_edge_twin, Point3::new(2.0, 0.0, 0.0))
-            .unwrap();
-        let _mev3 = brep
-            .mev(mev1.half_edge, Point3::new(0.0, 1.0, 0.0))
-            .unwrap();
-
-        // kemr splits the loop
-        let kemr_r = brep.kemr(mev1.half_edge).unwrap();
-
-        assert_eq!(brep.edges.len(), 2);
-        assert_eq!(brep.loops.len(), 2);
-
-        // Now mekr: connect outer to inner, merging loops
-        let inner_he = brep.loops[kemr_r.inner_loop].half_edge;
-        let face_with_hole = brep
-            .faces
-            .values()
-            .find(|f| !f.inner_loops.is_empty())
-            .unwrap();
-        let outer_he = brep.loops[face_with_hole.outer_loop].half_edge;
-
-        let _mekr_r = brep.mekr(outer_he, inner_he).unwrap();
-
-        assert_eq!(brep.edges.len(), 3); // restored
-        assert_eq!(brep.loops.len(), 1); // merged back
-        assert!(
-            brep.faces.values().all(|f| f.inner_loops.is_empty()),
-            "No face should have inner loops after mekr"
-        );
-
-        // Verify the single loop has 6 half-edges.
-        let the_loop = brep.loops.values().next().unwrap();
-        let start = the_loop.half_edge;
-        let mut cursor = start;
-        let mut count = 0;
-        loop {
-            count += 1;
-            cursor = brep.half_edges[cursor].next;
-            if cursor == start {
-                break;
-            }
-            assert!(count < 100, "infinite loop detected");
-        }
-        assert_eq!(count, 6, "merged loop should have 6 half-edges");
-    }
-
-    #[test]
-    fn kemr_precondition_different_loops() {
-        let mut brep = BRep::new(Tolerance::default());
-
-        // Build a square and close with mef — the mef edge has half-edges in different loops
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev1 = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        let mev2 = brep
-            .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
-            .unwrap();
-        let mev3 = brep
-            .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
-            .unwrap();
-        let mef1 = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
-
-        // kemr on the mef edge should fail (different loops)
-        let result = brep.kemr(mef1.half_edge);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn kemr_invalid_handle_fails() {
-        let mut brep = BRep::new(Tolerance::default());
-        let _mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let result = brep.kemr(Default::default());
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn mekr_invalid_handle_fails() {
-        let mut brep = BRep::new(Tolerance::default());
-        let _mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let result = brep.mekr(Default::default(), Default::default());
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn mekr_same_loop_fails() {
-        let mut brep = BRep::new(Tolerance::default());
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev1 = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        // Both half-edges are in the same loop
-        let result = brep.mekr(mev1.half_edge, mev1.half_edge_twin);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn mekr_different_face_fails() {
-        let mut brep = BRep::new(Tolerance::default());
-        // Build two separate solids — half-edges in loops on different faces
-        let mvfs1 = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev1 = brep
-            .mev_at_vertex(mvfs1.vertex, mvfs1.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        let mev2 = brep
-            .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
-            .unwrap();
-        let mev3 = brep
-            .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
-            .unwrap();
-        let mef = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
-        // mef created two loops on different faces
-        // mekr between these two loops should fail (different faces)
-        let he_new = mef.half_edge;
-        let he_twin = mef.half_edge_twin;
-        let result = brep.mekr(he_new, he_twin);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn kemr_mekr_roundtrip() {
-        let mut brep = BRep::new(Tolerance::default());
-
-        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-        let mev1 = brep
-            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        let _mev2 = brep
-            .mev(mev1.half_edge_twin, Point3::new(2.0, 0.0, 0.0))
-            .unwrap();
-        let _mev3 = brep
-            .mev(mev1.half_edge, Point3::new(0.0, 1.0, 0.0))
-            .unwrap();
-
-        let edges_before = brep.edges.len();
-        let loops_before = brep.loops.len();
-
-        // kemr then mekr should restore counts
-        let kemr_r = brep.kemr(mev1.half_edge).unwrap();
-
-        let inner_he = brep.loops[kemr_r.inner_loop].half_edge;
-        let face_with_hole = brep
-            .faces
-            .values()
-            .find(|f| !f.inner_loops.is_empty())
-            .unwrap();
-        let outer_he = brep.loops[face_with_hole.outer_loop].half_edge;
-
-        brep.mekr(outer_he, inner_he).unwrap();
-
-        assert_eq!(brep.edges.len(), edges_before);
-        assert_eq!(brep.loops.len(), loops_before);
-    }
-}
+#[path = "kemr_tests.rs"]
+mod tests;

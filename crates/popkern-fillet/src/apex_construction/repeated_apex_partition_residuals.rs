@@ -1,6 +1,7 @@
 //! Retired repeated-apex residual topology handling.
 
 use super::*;
+use popkern_core::topology::{Face, TopologyRole};
 
 pub(super) fn residual_strip_loop_with_duplicated_seam(
     brep: &mut BRep,
@@ -54,12 +55,25 @@ pub(super) fn demote_retired_apex_residual_faces(
         }
         face_contains_vertex(brep, face, apex_vertex).then_some(face)
     }));
-    for face in residual_faces {
+    residual_faces.extend(brep.faces.iter().filter_map(|(face, face_data)| {
+        if face == cap_face || target_cylinder_faces.contains(&face) {
+            return None;
+        }
+        face_has_construction_boundary_edge(brep, face_data).then_some(face)
+    }));
+    for &face in &residual_faces {
         if face == cap_face {
             continue;
         }
-        if face_contains_vertex(brep, face, apex_vertex) {
-            brep.faces[face].surface = None;
+        if (face_contains_vertex(brep, face, apex_vertex)
+            || brep
+                .faces
+                .get(face)
+                .is_some_and(|face_data| face_has_construction_boundary_edge(brep, face_data)))
+            && let Some(face_data) = brep.faces.get_mut(face)
+        {
+            face_data.role = TopologyRole::ConstructionResidual;
+            face_data.surface = None;
         }
     }
 }
@@ -157,6 +171,7 @@ fn duplicate_boundary_half_edge_for_residual_strip(
             ),
         })?;
     let (edge, half_edge) = insert_boundary_half_edge(brep, source_data.origin);
+    brep.edges[edge].role = TopologyRole::ConstructionResidual;
     brep.edges[edge].curve = Some(curve);
     Ok(half_edge)
 }
@@ -175,6 +190,23 @@ fn face_contains_vertex(brep: &BRep, face: FaceHandle, vertex: VertexHandle) -> 
                 brep.half_edges
                     .get(*half_edge)
                     .is_some_and(|data| data.origin == vertex)
+            })
+        })
+}
+
+fn face_has_construction_boundary_edge(brep: &BRep, face: &Face) -> bool {
+    collect_loop_half_edges(brep, face.outer_loop)
+        .ok()
+        .is_some_and(|cycle| {
+            cycle.iter().any(|half_edge| {
+                brep.half_edges.get(*half_edge).is_some_and(|data| {
+                    brep.boundary_edges.contains(&data.edge)
+                        || brep
+                            .half_edges
+                            .get(data.twin)
+                            .and_then(|twin| brep.loops.get(twin.loop_))
+                            .is_none()
+                })
             })
         })
 }

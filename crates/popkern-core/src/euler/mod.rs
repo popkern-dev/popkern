@@ -2,6 +2,8 @@
 //!
 //! Each operator maintains the Euler-Poincaré invariant by construction.
 
+mod construction_residual_retire;
+mod contract;
 mod face_boundary_fragment;
 mod face_boundary_retire;
 mod face_family_bridge;
@@ -15,7 +17,9 @@ mod mef;
 mod mev;
 mod mvfs;
 mod same_loop_boundary_exposure;
+mod same_loop_bridge_dissolve;
 mod sweep;
+pub use construction_residual_retire::ConstructionResidualRetireResult;
 pub use face_boundary_fragment::BoundaryFragmentRetireResult;
 pub use face_boundary_retire::BoundaryFaceRetireResult;
 pub use face_family_bridge::{

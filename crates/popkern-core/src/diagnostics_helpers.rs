@@ -6,7 +6,7 @@
 use crate::geometry::Point3;
 use crate::geometry::curve::CurveEval;
 use crate::geometry::nurbs_curve::NurbsCurve;
-use crate::geometry::surface::SurfaceGeometry;
+use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::topology::{BRep, EdgeHandle, FaceHandle};
 
 use super::NurbsKind;
@@ -188,9 +188,9 @@ pub(super) fn aabb_overlap(a: &(Point3, Point3), b: &(Point3, Point3), margin: f
 }
 
 /// True when two surface-geometries are the same surface within
-/// tolerance. Conservative: only `Plane` and `Cylinder` checked
-/// directly; other surface kinds compared by surface-kind discriminant
-/// only (so two NURBS faces always count as "potentially equal").
+/// tolerance. Analytic surfaces use parameter equality where available; bounded
+/// patch surfaces need sampled geometric coincidence so adjacent Gregory/NURBS
+/// sectors are not reported as duplicate faces merely because their AABBs touch.
 pub(super) fn surfaces_match(a: &SurfaceGeometry, b: &SurfaceGeometry, tol: f64) -> bool {
     use SurfaceGeometry::*;
     match (a, b) {
@@ -235,8 +235,34 @@ pub(super) fn surfaces_match(a: &SurfaceGeometry, b: &SurfaceGeometry, tol: f64)
                 && (a1.y - a2.y).abs() < tol
                 && (a1.z - a2.z).abs() < tol
         }
-        _ => std::mem::discriminant(a) == std::mem::discriminant(b),
+        _ if std::mem::discriminant(a) == std::mem::discriminant(b) => {
+            sampled_surfaces_coincident(a, b, tol)
+        }
+        _ => false,
     }
+}
+
+fn sampled_surfaces_coincident(a: &SurfaceGeometry, b: &SurfaceGeometry, tol: f64) -> bool {
+    let ((a_u0, a_u1), (a_v0, a_v1)) = a.parameter_range();
+    let ((b_u0, b_u1), (b_v0, b_v1)) = b.parameter_range();
+    if ![a_u0, a_u1, a_v0, a_v1, b_u0, b_u1, b_v0, b_v1]
+        .iter()
+        .all(|value| value.is_finite())
+    {
+        return false;
+    }
+    for u_step in [0.0, 0.5, 1.0] {
+        for v_step in [0.0, 0.5, 1.0] {
+            let a_u = a_u0 + u_step * (a_u1 - a_u0);
+            let a_v = a_v0 + v_step * (a_v1 - a_v0);
+            let b_u = b_u0 + u_step * (b_u1 - b_u0);
+            let b_v = b_v0 + v_step * (b_v1 - b_v0);
+            if a.point_at(a_u, a_v).distance_to(&b.point_at(b_u, b_v)) > tol {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// Validate a `NurbsCurve`'s knot/cp/weight invariants and finite-ness.

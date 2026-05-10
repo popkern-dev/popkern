@@ -94,6 +94,7 @@ impl BRep {
             name: original_edge.name,
             tolerance: original_edge.tolerance,
             canonical: original_edge.canonical,
+            role: original_edge.role,
         });
         self.edges[edge].half_edge = half_edge;
         self.half_edges[half_edge].twin = HalfEdgeHandle::default();

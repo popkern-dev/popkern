@@ -138,6 +138,7 @@ fn face_vertex_positions_missing_half_edge_returns_empty() {
         surface: None,
         name: None,
         tolerance: None,
+        role: Default::default(),
     });
     brep.loops[loop_h].face = face_h;
     // face_aabb should return None (no surface geometry).
@@ -174,6 +175,7 @@ fn face_aabb_sphere_surface_samples_grid() {
         }),
         name: None,
         tolerance: None,
+        role: Default::default(),
     });
     brep.loops[loop_h].face = face_h;
     // The sphere surface has a finite parameter range, so face_aabb should
@@ -261,6 +263,7 @@ fn face_aabb_torus_surface_samples_grid() {
         }),
         name: None,
         tolerance: None,
+        role: Default::default(),
     });
     brep.loops[loop_h].face = face_h;
     // The torus surface has a finite parameter range [0,TAU]×[0,TAU], so

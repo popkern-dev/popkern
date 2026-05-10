@@ -314,6 +314,7 @@ fn build_hole_loop(
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
 
         let he_fwd = brep.half_edges.insert(HalfEdge {

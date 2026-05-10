@@ -10,11 +10,7 @@ use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
 
-/// Build a NURBS full-circle in the XY plane at height `z`, centered at the
-/// origin, starting at `(radius, 0, z)`.
-///
-/// Degree 2, 9 control points (standard 4-arc representation).
-/// Knot domain: `[0, TAU]`.
+/// Build a degree-2 NURBS full-circle in the XY plane at height `z`.
 fn xy_circle_nurbs(radius: f64, z: f64) -> NurbsCurve {
     let r = radius;
     let w = FRAC_1_SQRT_2;
@@ -160,6 +156,7 @@ impl BRep {
             surface: None,
             name: None,
             tolerance: None,
+            role: Default::default(),
         });
         let f_cap = brep.faces.insert(Face {
             outer_loop: loop_cap,
@@ -168,6 +165,7 @@ impl BRep {
             surface: None,
             name: None,
             tolerance: None,
+            role: Default::default(),
         });
 
         brep.loops[loop_lateral].face = f_lateral;
@@ -181,6 +179,7 @@ impl BRep {
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
         let e_seam = brep.edges.insert(Edge {
             half_edge: Default::default(),
@@ -188,6 +187,7 @@ impl BRep {
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
 
         // -- Half-edges --

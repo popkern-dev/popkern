@@ -62,6 +62,7 @@ impl BRep {
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
 
         let he_vb = self.half_edges.insert(HalfEdge {

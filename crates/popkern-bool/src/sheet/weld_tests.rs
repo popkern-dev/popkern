@@ -144,6 +144,7 @@ fn build_duplicate_edges_fixture() -> (BRep, VertexHandle, VertexHandle, EdgeHan
         name: None,
         tolerance: None,
         canonical: Default::default(),
+        role: Default::default(),
     });
     let he_a1 = brep.half_edges.insert(HalfEdge {
         origin: v1,
@@ -172,6 +173,7 @@ fn build_duplicate_edges_fixture() -> (BRep, VertexHandle, VertexHandle, EdgeHan
         name: None,
         tolerance: None,
         canonical: Default::default(),
+        role: Default::default(),
     });
     let he_b1 = brep.half_edges.insert(HalfEdge {
         origin: v1,
@@ -270,6 +272,7 @@ fn weld_edges_leaves_distinct_endpoints_untouched() {
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
         let h1 = brep.half_edges.insert(HalfEdge {
             origin: a,

@@ -261,6 +261,59 @@ fn read_only_snapshot_refuses_bridge_region_with_one_trim() {
     }
 }
 
+#[test]
+fn executable_continuation_refuses_outside_outside_plan_before_mutation() {
+    let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
+    let faces = brep.faces.keys().collect::<Vec<_>>();
+    let support_face = faces[0];
+    let cylinder_face = faces[1];
+    let cap_face = face_with_vertex_outside_support_loop(&brep, support_face);
+    let support_vertices = outer_loop_vertices(&brep, support_face);
+    let outside_vertices = outer_loop_vertices(&brep, cap_face)
+        .into_iter()
+        .filter(|vertex| !support_vertices.contains(vertex))
+        .collect::<Vec<_>>();
+    assert!(
+        outside_vertices.len() >= 2,
+        "fixture has at least two vertices outside support loop"
+    );
+    let plan = trim_plan(|plan| {
+        plan.push_new_generator_trim(
+            0,
+            cylinder_face,
+            support_face,
+            outside_vertices[0],
+            outside_vertices[1],
+        );
+    });
+    let mut candidate = brep.clone();
+
+    let snapshot = SideSupportRegionDiagnosticSnapshot::build_read_only(&brep, &plan);
+    let labels = snapshot.diagnostic_label();
+
+    assert!(
+        labels.contains("UnsupportedOutsideOutsideSupportContinuation"),
+        "{labels}"
+    );
+    let refusal = apply_selected_side_support_continuation(&mut candidate, &plan)
+        .expect_err("outside/outside continuation must refuse before mutation");
+    let ApexBuildError::PlanMismatch { reason } = refusal else {
+        panic!("expected PlanMismatch refusal");
+    };
+    assert!(
+        reason.contains(
+            "planner-refused stage=SelectPlan \
+                 reason=UnsupportedOutsideOutsideSupportContinuation"
+        ),
+        "{reason}"
+    );
+    assert!(reason.contains(&labels), "{reason}");
+    assert_eq!(candidate.vertices.len(), brep.vertices.len());
+    assert_eq!(candidate.edges.len(), brep.edges.len());
+    assert_eq!(candidate.faces.len(), brep.faces.len());
+    assert_eq!(candidate.loops.len(), brep.loops.len());
+}
+
 fn trim_plan(build: impl FnOnce(&mut TrimRewriteSubcomplexBuilder)) -> TrimRewriteSubcomplexPlan {
     let mut builder = TrimRewriteSubcomplexBuilder::new();
     build(&mut builder);
@@ -382,6 +435,7 @@ fn add_boundary_quad(brep: &mut BRep, shell: ShellHandle, positions: [Point3; 4]
         surface: None,
         name: None,
         tolerance: None,
+        role: Default::default(),
     });
     let loop_ = brep.loops.insert(Loop {
         half_edge: Default::default(),
@@ -403,6 +457,7 @@ fn add_boundary_quad(brep: &mut BRep, shell: ShellHandle, positions: [Point3; 4]
             name: None,
             tolerance: None,
             canonical: Default::default(),
+            role: Default::default(),
         });
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: vertex,

@@ -145,6 +145,7 @@ pub(crate) fn split_apex_footprint_vertex(
         name: None,
         tolerance: None,
         canonical: Default::default(),
+        role: Default::default(),
     });
 
     let cap_loop = brep.half_edges[he_v_cap].loop_;

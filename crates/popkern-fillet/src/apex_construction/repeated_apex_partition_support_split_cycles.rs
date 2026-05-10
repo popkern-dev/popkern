@@ -277,6 +277,13 @@ fn support_outer_loop_paths_between_vertices(
     let Ok(loop_edges) = collect_loop_half_edges(brep, face.outer_loop) else {
         return Vec::new();
     };
+    if loop_edges.iter().any(|half_edge| {
+        brep.half_edges
+            .get(*half_edge)
+            .is_none_or(|half_edge_data| half_edge_data.loop_ != face.outer_loop)
+    }) {
+        return Vec::new();
+    }
     let n = loop_edges.len();
     if n == 0 {
         return Vec::new();

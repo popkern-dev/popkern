@@ -3,7 +3,8 @@
 use popkern_core::geometry::CurveEval;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{
-    BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, VertexHandle,
+    BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, TopologyRole,
+    VertexHandle,
 };
 
 use super::error::ApexBuildError;
@@ -45,6 +46,7 @@ pub(super) fn insert_unwired_edge_pair(
         name: None,
         tolerance: None,
         canonical: Default::default(),
+        role: TopologyRole::ConstructionResidual,
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: start,
@@ -85,6 +87,7 @@ pub(super) fn insert_boundary_half_edge(
         name: None,
         tolerance: None,
         canonical: Default::default(),
+        role: TopologyRole::ConstructionResidual,
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: start,
@@ -166,6 +169,7 @@ pub(super) fn insert_face_with_outer_loop(
         surface: template.surface,
         name: None,
         tolerance: template.tolerance,
+        role: Default::default(),
     });
     let loop_handle = brep.loops.insert(Loop {
         half_edge: half_edges[0],
@@ -242,6 +246,18 @@ pub(super) fn wire_existing_loop(
         half_edge.next = next;
         half_edge.prev = prev;
         half_edge.loop_ = loop_handle;
+        let edge = half_edge.edge;
+        if let Some(edge_data) = brep.edges.get_mut(edge) {
+            edge_data.role = if brep
+                .faces
+                .get(face)
+                .is_some_and(|face_data| face_data.role == TopologyRole::ConstructionResidual)
+            {
+                TopologyRole::ConstructionResidual
+            } else {
+                TopologyRole::Production
+            };
+        }
     }
     brep.loops[loop_handle].half_edge = half_edges[0];
     brep.loops[loop_handle].face = face;
