@@ -10,6 +10,7 @@ use super::repeated_apex_trim_subcomplex::{TrimRewriteIntentFacts, TrimRewriteSu
 pub(super) struct TopologyKnowledgeGraph {
     fingerprint: TopologyFingerprint,
     support_families: Vec<SupportFamilyFacts>,
+    loop_adjacencies: Vec<LoopAdjacencyFacts>,
     endpoint_memberships: Vec<EndpointMembershipFacts>,
     trim_intents: Vec<TrimRewriteIntentFacts>,
     counters: KnowledgeGraphCounters,
@@ -73,6 +74,16 @@ pub(super) struct LoopFacts {
     repeated_half_edge: bool,
 }
 
+#[derive(Clone, Debug)]
+pub(super) struct LoopAdjacencyFacts {
+    face: FaceHandle,
+    loop_handle: LoopHandle,
+    half_edge: HalfEdgeHandle,
+    adjacent_face: FaceHandle,
+    adjacent_loop: LoopHandle,
+    adjacent_half_edge: HalfEdgeHandle,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum LoopKind {
     Outer,
@@ -119,6 +130,7 @@ impl TopologyKnowledgeGraph {
                     .unwrap_or_default(),
             })
             .collect();
+        let loop_adjacencies = collect_loop_adjacencies(brep, &loops_by_face);
 
         let trim_intents = plan.trim_intents();
         let trim_records_read = trim_intents.len();
@@ -154,6 +166,7 @@ impl TopologyKnowledgeGraph {
         Self {
             fingerprint: TopologyFingerprint::from_brep(brep),
             support_families,
+            loop_adjacencies,
             endpoint_memberships,
             trim_intents,
             counters: KnowledgeGraphCounters {
@@ -189,7 +202,7 @@ impl TopologyKnowledgeGraph {
 
     pub(super) fn diagnostic_label(&self) -> String {
         format!(
-            "knowledge fingerprint {}; counters seeded_faces={} loops={} half_edges={} vertices={} trim_records={}; support_families={}; endpoints={}",
+            "knowledge fingerprint {}; counters seeded_faces={} loops={} half_edges={} vertices={} trim_records={}; support_families={}; loop_adjacencies={}; endpoints={}",
             self.fingerprint.diagnostic_label(),
             self.counters.seeded_faces,
             self.counters.loops_visited,
@@ -201,11 +214,30 @@ impl TopologyKnowledgeGraph {
                 .map(SupportFamilyFacts::diagnostic_label)
                 .collect::<Vec<_>>()
                 .join("; "),
+            self.loop_adjacencies
+                .iter()
+                .map(LoopAdjacencyFacts::diagnostic_label)
+                .collect::<Vec<_>>()
+                .join("; "),
             self.endpoint_memberships
                 .iter()
                 .map(EndpointMembershipFacts::diagnostic_label)
                 .collect::<Vec<_>>()
                 .join("; ")
+        )
+    }
+}
+
+impl LoopAdjacencyFacts {
+    fn diagnostic_label(&self) -> String {
+        format!(
+            "{:?}/{:?}@{:?}<->{:?}/{:?}@{:?}",
+            self.face,
+            self.loop_handle,
+            self.half_edge,
+            self.adjacent_face,
+            self.adjacent_loop,
+            self.adjacent_half_edge
         )
     }
 }
@@ -337,6 +369,52 @@ fn collect_face_loops(
             )
         })
         .collect()
+}
+
+fn collect_loop_adjacencies(
+    brep: &BRep,
+    loops_by_face: &BTreeMap<FaceHandle, Vec<LoopFacts>>,
+) -> Vec<LoopAdjacencyFacts> {
+    let seeded_loops = loops_by_face
+        .values()
+        .flat_map(|loops| loops.iter())
+        .map(|loop_facts| (loop_facts.loop_handle, loop_facts.face))
+        .collect::<BTreeMap<_, _>>();
+    let mut adjacencies = Vec::new();
+    for loops in loops_by_face.values() {
+        for loop_facts in loops {
+            for &half_edge in loop_facts.boundary_half_edges() {
+                let Some(data) = brep.half_edges.get(half_edge) else {
+                    continue;
+                };
+                let Some(twin) = brep.half_edges.get(data.twin) else {
+                    continue;
+                };
+                let Some(adjacent_face) = seeded_loops.get(&twin.loop_).copied() else {
+                    continue;
+                };
+                adjacencies.push(LoopAdjacencyFacts {
+                    face: loop_facts.face,
+                    loop_handle: loop_facts.loop_handle,
+                    half_edge,
+                    adjacent_face,
+                    adjacent_loop: twin.loop_,
+                    adjacent_half_edge: data.twin,
+                });
+            }
+        }
+    }
+    adjacencies.sort_by_key(|adjacency| {
+        (
+            adjacency.face,
+            adjacency.loop_handle,
+            adjacency.half_edge,
+            adjacency.adjacent_face,
+            adjacency.adjacent_loop,
+            adjacency.adjacent_half_edge,
+        )
+    });
+    adjacencies
 }
 
 fn collect_loop_facts(
