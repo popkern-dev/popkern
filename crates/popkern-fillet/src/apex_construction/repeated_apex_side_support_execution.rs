@@ -155,7 +155,7 @@ impl SideSupportRegionExecutionReport {
                             OutsideOutsideSupportPrimitiveDerivation::build(
                                 selection, knowledge, brep,
                             );
-                        let topology_report = outside_primitive.topology_operator_report();
+                        let topology_report = outside_primitive.topology_operator_report(brep);
                         let reason = if outside_primitive.is_complete()
                             && !topology_report.is_ready()
                         {

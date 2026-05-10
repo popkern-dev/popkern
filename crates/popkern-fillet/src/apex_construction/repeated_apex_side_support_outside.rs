@@ -137,8 +137,9 @@ impl OutsideOutsideSupportPrimitiveDerivation {
 
     pub(super) fn topology_operator_report(
         &self,
+        brep: &BRep,
     ) -> CylinderMediatedSupportContinuationTopologyOperatorReport {
-        topology_operator_report(self.primitive.as_ref())
+        topology_operator_report(self.primitive.as_ref(), brep)
     }
 
     fn from_selected_plan(
