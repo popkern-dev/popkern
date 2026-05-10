@@ -305,6 +305,7 @@ fn executable_continuation_refuses_outside_outside_plan_before_mutation() {
     );
     assert!(labels.contains("class=cylinder-mediated"), "{labels}");
     assert!(labels.contains("cylinder_intervals=["), "{labels}");
+    assert!(labels.contains("core_preflight=[FilletEnd[0]"), "{labels}");
     assert!(
         labels.contains(
             "delta=unknown reason=outside-outside-support-continuation-operator-required"

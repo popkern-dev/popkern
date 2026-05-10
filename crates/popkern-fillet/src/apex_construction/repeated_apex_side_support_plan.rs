@@ -487,6 +487,10 @@ impl OutsideOutsideSupportContinuationPlan {
 }
 
 impl OutsideOutsideSupportTrimPlan {
+    pub(super) fn fillet_index(&self) -> usize {
+        self.fillet_index
+    }
+
     pub(super) fn cylinder_face(&self) -> FaceHandle {
         self.cylinder_face
     }

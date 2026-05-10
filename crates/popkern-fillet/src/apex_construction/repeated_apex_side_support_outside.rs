@@ -1,5 +1,6 @@
 //! Outside/outside support-continuation primitive derivation.
 
+use popkern_core::euler::CylinderMediatedSupportContinuationRequest;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
 
 use super::repeated_apex_side_support_plan::{
@@ -19,6 +20,7 @@ pub(super) struct OutsideOutsideSupportPrimitiveDerivation {
 struct OutsideOutsideSupportRegionDerivation {
     region: OutsideOutsideSupportContinuationPlan,
     topology_class: Option<CylinderMediatedOutsideOutsideClass>,
+    core_preflights: Vec<CylinderMediatedCorePreflight>,
     reason: OutsideOutsideSupportRefusal,
 }
 
@@ -27,6 +29,7 @@ enum OutsideOutsideSupportRefusal {
     NoOutsideCylinderAdjacency,
     NoSupportCylinderAdjacency,
     NoDirectedCylinderInterval,
+    CorePreflightRejected,
     TopologyOperatorNotImplemented,
 }
 
@@ -48,10 +51,28 @@ struct LoopAdjacencyOperand {
 
 #[derive(Clone, Debug)]
 struct CylinderIntervalOperand {
+    outside_loop: LoopHandle,
+    outside_cylinder_source_half_edge: HalfEdgeHandle,
     outside_cylinder_half_edge: HalfEdgeHandle,
+    support_loop: LoopHandle,
+    support_cylinder_source_half_edge: HalfEdgeHandle,
     support_cylinder_half_edge: HalfEdgeHandle,
     cylinder_loop: LoopHandle,
     interval: Vec<HalfEdgeHandle>,
+}
+
+#[derive(Clone, Debug)]
+enum CylinderMediatedCorePreflight {
+    Accepted {
+        fillet_index: usize,
+        outside_loop: LoopHandle,
+        support_loop: LoopHandle,
+        reason: &'static str,
+    },
+    Rejected {
+        fillet_index: usize,
+        reason: String,
+    },
 }
 
 impl OutsideOutsideSupportPrimitiveDerivation {
@@ -159,6 +180,15 @@ impl OutsideOutsideSupportRegionDerivation {
                     &support_adjacencies,
                 ),
             });
+        let core_preflights = topology_class
+            .as_ref()
+            .map(|class| validate_core_preflights(region, class, brep))
+            .unwrap_or_default();
+        let all_core_preflights_accepted = !region.trims().is_empty()
+            && core_preflights.len() == region.trims().len()
+            && core_preflights
+                .iter()
+                .all(CylinderMediatedCorePreflight::is_accepted);
         let reason = if outside_adjacencies.is_empty() {
             OutsideOutsideSupportRefusal::NoOutsideCylinderAdjacency
         } else if support_adjacencies.is_empty() {
@@ -168,25 +198,33 @@ impl OutsideOutsideSupportRegionDerivation {
             .is_none_or(|class| class.cylinder_intervals.is_empty())
         {
             OutsideOutsideSupportRefusal::NoDirectedCylinderInterval
+        } else if !all_core_preflights_accepted {
+            OutsideOutsideSupportRefusal::CorePreflightRejected
         } else {
             OutsideOutsideSupportRefusal::TopologyOperatorNotImplemented
         };
         Self {
             region: region.clone(),
             topology_class,
+            core_preflights,
             reason,
         }
     }
 
     fn diagnostic_label(&self) -> String {
         format!(
-            "support={:?} trims={} {} {}",
+            "support={:?} trims={} {} core_preflight=[{}] {}",
             self.region.support_face(),
             self.region.trims().len(),
             self.topology_class
                 .as_ref()
                 .map(CylinderMediatedOutsideOutsideClass::diagnostic_label)
                 .unwrap_or_else(|| "class=unknown".to_string()),
+            self.core_preflights
+                .iter()
+                .map(CylinderMediatedCorePreflight::diagnostic_label)
+                .collect::<Vec<_>>()
+                .join(", "),
             self.reason.diagnostic_label()
         )
     }
@@ -204,6 +242,7 @@ impl OutsideOutsideSupportRefusal {
             OutsideOutsideSupportRefusal::NoDirectedCylinderInterval => {
                 "missing-directed-cylinder-interval"
             }
+            OutsideOutsideSupportRefusal::CorePreflightRejected => "core-preflight-rejected",
             OutsideOutsideSupportRefusal::TopologyOperatorNotImplemented => {
                 "missing-topology-operator"
             }
@@ -257,20 +296,49 @@ impl CylinderIntervalOperand {
     fn sort_key(&self) -> (usize, HalfEdgeHandle, HalfEdgeHandle) {
         (
             self.interval.len(),
-            self.outside_cylinder_half_edge,
-            self.support_cylinder_half_edge,
+            self.outside_cylinder_source_half_edge,
+            self.support_cylinder_source_half_edge,
         )
     }
 
     fn diagnostic_label(&self) -> String {
         format!(
-            "{:?}->{:?} loop={:?} len={} path={:?}",
+            "{:?}->{:?} cylinder={:?}->{:?} loop={:?} len={} path={:?}",
+            self.outside_cylinder_source_half_edge,
+            self.support_cylinder_source_half_edge,
             self.outside_cylinder_half_edge,
             self.support_cylinder_half_edge,
             self.cylinder_loop,
             self.interval.len(),
             self.interval
         )
+    }
+}
+
+impl CylinderMediatedCorePreflight {
+    fn is_accepted(&self) -> bool {
+        matches!(self, CylinderMediatedCorePreflight::Accepted { .. })
+    }
+
+    fn diagnostic_label(&self) -> String {
+        match self {
+            CylinderMediatedCorePreflight::Accepted {
+                fillet_index,
+                outside_loop,
+                support_loop,
+                reason,
+            } => {
+                format!(
+                    "FilletEnd[{fillet_index}] accepted outside_loop={outside_loop:?} support_loop={support_loop:?} delta=unknown reason={reason}"
+                )
+            }
+            CylinderMediatedCorePreflight::Rejected {
+                fillet_index,
+                reason,
+            } => {
+                format!("FilletEnd[{fillet_index}] rejected reason={reason}")
+            }
+        }
     }
 }
 
@@ -358,7 +426,11 @@ fn cylinder_interval_candidates(
                         support.cylinder_half_edge,
                     )
                     .map(|interval| CylinderIntervalOperand {
+                        outside_loop: outside.source_loop,
+                        outside_cylinder_source_half_edge: outside.source_half_edge,
                         outside_cylinder_half_edge: outside.cylinder_half_edge,
+                        support_loop: support.source_loop,
+                        support_cylinder_source_half_edge: support.source_half_edge,
                         support_cylinder_half_edge: support.cylinder_half_edge,
                         cylinder_loop: outside.cylinder_loop,
                         interval,
@@ -393,4 +465,78 @@ fn directed_loop_path(
         }
     }
     None
+}
+
+fn validate_core_preflights(
+    region: &OutsideOutsideSupportContinuationPlan,
+    topology_class: &CylinderMediatedOutsideOutsideClass,
+    brep: &BRep,
+) -> Vec<CylinderMediatedCorePreflight> {
+    region
+        .trims()
+        .iter()
+        .map(|trim| validate_trim_core_preflight(trim, topology_class, brep))
+        .collect()
+}
+
+fn validate_trim_core_preflight(
+    trim: &super::repeated_apex_side_support_plan::OutsideOutsideSupportTrimPlan,
+    topology_class: &CylinderMediatedOutsideOutsideClass,
+    brep: &BRep,
+) -> CylinderMediatedCorePreflight {
+    if trim.start_face() != trim.end_face() || trim.start_loop() != trim.end_loop() {
+        return CylinderMediatedCorePreflight::Rejected {
+            fillet_index: trim.fillet_index(),
+            reason: format!(
+                "outside endpoints span multiple outside owners: start={:?}/{:?} end={:?}/{:?}",
+                trim.start_face(),
+                trim.start_loop(),
+                trim.end_face(),
+                trim.end_loop()
+            ),
+        };
+    }
+    let Some(interval) = topology_class
+        .cylinder_intervals
+        .iter()
+        .find(|interval| interval.outside_loop == trim.start_loop())
+    else {
+        return CylinderMediatedCorePreflight::Rejected {
+            fillet_index: trim.fillet_index(),
+            reason: format!(
+                "missing cylinder interval for outside loop {:?}",
+                trim.start_loop()
+            ),
+        };
+    };
+    let request = CylinderMediatedSupportContinuationRequest {
+        support_face: trim.support_face(),
+        outside_face: trim.start_face(),
+        cylinder_face: trim.cylinder_face(),
+        start: trim.start(),
+        end: trim.end(),
+        outside_loop: trim.start_loop(),
+        outside_start_half_edge: trim.start_half_edge(),
+        outside_end_half_edge: trim.end_half_edge(),
+        support_loop: interval.support_loop,
+        support_cylinder_half_edge: interval.support_cylinder_source_half_edge,
+        outside_cylinder_half_edge: interval.outside_cylinder_source_half_edge,
+        cylinder_interval: interval.interval.clone(),
+    };
+    match brep.preflight_cylinder_mediated_support_continuation(request) {
+        Ok(plan) => CylinderMediatedCorePreflight::Accepted {
+            fillet_index: trim.fillet_index(),
+            outside_loop: trim.start_loop(),
+            support_loop: interval.support_loop,
+            reason: match plan.expected_delta {
+                popkern_core::euler::CylinderMediatedSupportContinuationDelta::Unknown {
+                    reason,
+                } => reason,
+            },
+        },
+        Err(err) => CylinderMediatedCorePreflight::Rejected {
+            fillet_index: trim.fillet_index(),
+            reason: err.to_string(),
+        },
+    }
 }
