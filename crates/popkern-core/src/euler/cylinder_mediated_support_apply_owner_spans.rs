@@ -7,6 +7,21 @@ use super::{
     CylinderMediatedOwnerRepairSpan, CylinderMediatedSupportContinuationSegmentAuthoringPlan,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct OwnerRepairExposureResult {
+    exposed_spans: usize,
+    exposed_half_edges: usize,
+}
+
+impl OwnerRepairExposureResult {
+    pub(super) fn diagnostic_label(self) -> String {
+        format!(
+            "owner_repair_candidate=exposed_spans={} exposed_half_edges={}",
+            self.exposed_spans, self.exposed_half_edges
+        )
+    }
+}
+
 pub(super) fn owner_repair_spans(
     brep: &BRep,
     segment: &CylinderMediatedSupportContinuationSegmentAuthoringPlan,
@@ -47,6 +62,57 @@ pub(super) fn owner_repair_spans(
     }
     push_owner_repair_span(brep, &mut spans, current)?;
     Ok(spans)
+}
+
+pub(super) fn expose_owner_repair_spans(
+    brep: &mut BRep,
+    authoring: &[CylinderMediatedSupportContinuationSegmentAuthoringPlan],
+) -> Result<OwnerRepairExposureResult, CoreError> {
+    let mut exposed_spans = 0usize;
+    let mut exposed_half_edges = 0usize;
+    for span in authoring
+        .iter()
+        .flat_map(|segment| segment.owner_repair_spans.iter())
+    {
+        if span.owner_half_edges.is_empty() {
+            continue;
+        }
+        let first = span.owner_half_edges[0];
+        let last = span.owner_half_edges[span.owner_half_edges.len() - 1];
+        let after_last = brep
+            .half_edges
+            .get(last)
+            .ok_or_else(|| {
+                CoreError::InvalidHandle(format!("owner repair span has stale half-edge {last:?}"))
+            })?
+            .next;
+        brep.retire_face_boundary_fragment(span.owner_face, first, after_last)
+            .map_err(|err| {
+                CoreError::PreconditionFailed(format!(
+                    "owner repair span exposure rejected for {:?}/{:?} {:?}->{:?}: {err}",
+                    span.owner_face, span.owner_loop, first, after_last
+                ))
+            })?;
+        for &outside_half_edge in &span.outside_half_edges {
+            let data = brep.half_edges.get(outside_half_edge).ok_or_else(|| {
+                CoreError::PreconditionFailed(format!(
+                    "owner repair exposure removed outside half-edge {outside_half_edge:?}"
+                ))
+            })?;
+            if !brep.boundary_edges.contains(&data.edge) || brep.half_edges.contains_key(data.twin)
+            {
+                return Err(CoreError::PreconditionFailed(format!(
+                    "owner repair exposure did not expose outside half-edge {outside_half_edge:?}"
+                )));
+            }
+        }
+        exposed_spans += 1;
+        exposed_half_edges += span.outside_half_edges.len();
+    }
+    Ok(OwnerRepairExposureResult {
+        exposed_spans,
+        exposed_half_edges,
+    })
 }
 
 fn segment_requires_owner_repair(

@@ -22,23 +22,30 @@ fn mutator_boundary_refuses_without_mutating_topology() {
 
     let detail = err.to_string();
     assert!(
-        detail.contains("cylinder-mediated support continuation mutator not implemented"),
+        detail.contains(
+            "cylinder-mediated support continuation segment bridge construction not implemented"
+        ),
         "{err}"
     );
     assert!(detail.contains("segment_authoring=segments=3"), "{err}");
+    assert!(detail.contains("boundary_compatible=1"), "{err}");
     assert!(
-        detail.contains("owned_reclassification_segments=0"),
+        detail.contains("owned_reclassification_segments=2"),
         "{err}"
     );
-    assert!(detail.contains("unassigned_repair_segments=3"), "{err}");
+    assert!(detail.contains("unassigned_repair_segments=0"), "{err}");
     assert!(detail.contains("cylinder_owned_half_edges=2"), "{err}");
     assert!(detail.contains("outside_owned_half_edges=0"), "{err}");
     assert!(detail.contains("support_owned_half_edges=0"), "{err}");
     assert!(detail.contains("context_owned_half_edges=0"), "{err}");
-    assert!(detail.contains("unassigned_twin_half_edges=13"), "{err}");
+    assert!(detail.contains("unassigned_twin_half_edges=0"), "{err}");
     assert!(detail.contains("unsupported_owned_half_edges=0"), "{err}");
     assert!(detail.contains("owner_repair_spans=2"), "{err}");
     assert!(detail.contains("owner_repair_half_edges=2"), "{err}");
+    assert!(
+        detail.contains("owner_repair_candidate=exposed_spans=2 exposed_half_edges=2"),
+        "{err}"
+    );
     assert!(detail.contains("context_owner_faces=[]"), "{err}");
     assert!(detail.contains("unsupported_owner_faces=[]"), "{err}");
     assert_eq!(TopologySnapshot::capture(&brep), before);
@@ -197,7 +204,7 @@ fn long_interval_cylinder_mediated_fixture() -> LongIntervalCylinderMediatedFixt
         .expect("cylinder loop wires");
 
     LongIntervalCylinderMediatedFixture {
-        brep: builder.build_unchecked(),
+        brep: boundary_normalized_test_brep(builder.build_unchecked()),
         outside_face,
         cylinder_face,
         outside_loop,
@@ -219,6 +226,55 @@ fn long_interval_cylinder_mediated_fixture() -> LongIntervalCylinderMediatedFixt
             ],
             vec![outside_twins[7], second_support_cylinder_twin],
         ],
+    }
+}
+
+fn boundary_normalized_test_brep(mut brep: BRep) -> BRep {
+    let edges = brep.edges.keys().collect::<Vec<_>>();
+    let mut removed_half_edges = Vec::new();
+    for edge in edges {
+        let incident_half_edges = brep
+            .half_edges
+            .iter()
+            .filter_map(|(half_edge, data)| (data.edge == edge).then_some(half_edge))
+            .collect::<Vec<_>>();
+        if incident_half_edges.len() != 2 {
+            continue;
+        }
+        let live_half_edges = incident_half_edges
+            .iter()
+            .copied()
+            .filter(|half_edge| brep.loops.contains_key(brep.half_edges[*half_edge].loop_))
+            .collect::<Vec<_>>();
+        if live_half_edges.len() != 1 {
+            continue;
+        }
+        let boundary_half_edge = live_half_edges[0];
+        let residual_half_edge = incident_half_edges
+            .into_iter()
+            .find(|half_edge| *half_edge != boundary_half_edge)
+            .expect("two incident half-edges include one residual");
+        brep.half_edges[boundary_half_edge].twin = HalfEdgeHandle::default();
+        brep.edges[edge].half_edge = boundary_half_edge;
+        brep.boundary_edges.insert(edge);
+        brep.half_edges.remove(residual_half_edge);
+        removed_half_edges.push(residual_half_edge);
+    }
+    repair_test_vertex_outgoing_handles(&mut brep, &removed_half_edges);
+    brep
+}
+
+fn repair_test_vertex_outgoing_handles(brep: &mut BRep, removed_half_edges: &[HalfEdgeHandle]) {
+    let vertices = brep.vertices.keys().collect::<Vec<_>>();
+    for vertex in vertices {
+        if !removed_half_edges.contains(&brep.vertices[vertex].outgoing) {
+            continue;
+        }
+        brep.vertices[vertex].outgoing = brep
+            .half_edges
+            .iter()
+            .find_map(|(half_edge, data)| (data.origin == vertex).then_some(half_edge))
+            .unwrap_or_default();
     }
 }
 
