@@ -45,7 +45,8 @@ impl SideSupportRegionDiagnosticSnapshot {
         let region_graph = RegionGraph::build(&facts);
         let candidates = CandidateSetSnapshot::enumerate(&region_graph);
         let selection = SideSupportRegionPlanSelection::select(&candidates);
-        let execution = SideSupportRegionExecutionReport::preflight(&selection, brep, true);
+        let execution =
+            SideSupportRegionExecutionReport::preflight(&selection, &knowledge, brep, true);
         Self {
             knowledge,
             facts,

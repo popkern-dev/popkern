@@ -303,6 +303,7 @@ fn executable_continuation_refuses_outside_outside_plan_before_mutation() {
         labels.contains("outside-outside-support primitive_ready=false"),
         "{labels}"
     );
+    assert!(labels.contains("class=cylinder-mediated"), "{labels}");
     assert!(
         labels.contains(
             "delta=unknown reason=outside-outside-support-continuation-operator-required"

@@ -487,6 +487,10 @@ impl OutsideOutsideSupportContinuationPlan {
 }
 
 impl OutsideOutsideSupportTrimPlan {
+    pub(super) fn cylinder_face(&self) -> FaceHandle {
+        self.cylinder_face
+    }
+
     pub(super) fn support_face(&self) -> FaceHandle {
         self.support_face
     }

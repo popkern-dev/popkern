@@ -9,6 +9,7 @@ use super::repeated_apex_side_support_plan::{
     SideSupportRegionExecutionReadiness, SideSupportRegionPlanSelection,
     SideSupportRegionRefusalReason,
 };
+use super::repeated_apex_topology_knowledge::TopologyKnowledgeGraph;
 
 #[derive(Clone, Debug)]
 pub(super) struct SideSupportRegionExecutionReport {
@@ -48,6 +49,7 @@ enum SideSupportRegionExecutionRefusalReason {
 impl SideSupportRegionExecutionReport {
     pub(super) fn preflight(
         selection: &SideSupportRegionPlanSelection,
+        knowledge: &TopologyKnowledgeGraph,
         brep: &BRep,
         knowledge_is_fresh: bool,
     ) -> Self {
@@ -149,7 +151,7 @@ impl SideSupportRegionExecutionReport {
                     }
                     SideSupportRegionRefusalReason::MissingValidatedOutsideOutsideSupportContinuationPrimitive => {
                         let outside_primitive =
-                            OutsideOutsideSupportPrimitiveDerivation::build(selection);
+                            OutsideOutsideSupportPrimitiveDerivation::build(selection, knowledge);
                         return Self::refused_with_detail(
                             SideSupportRegionExecutionRefusalReason::MissingValidatedOutsideOutsideSupportContinuationPrimitive,
                             format!(

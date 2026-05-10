@@ -191,6 +191,10 @@ impl TopologyKnowledgeGraph {
         self.trim_intents.iter()
     }
 
+    pub(super) fn loop_adjacencies(&self) -> impl Iterator<Item = &LoopAdjacencyFacts> {
+        self.loop_adjacencies.iter()
+    }
+
     pub(super) fn endpoint_membership(
         &self,
         vertex: VertexHandle,
@@ -229,6 +233,30 @@ impl TopologyKnowledgeGraph {
 }
 
 impl LoopAdjacencyFacts {
+    pub(super) fn face(&self) -> FaceHandle {
+        self.face
+    }
+
+    pub(super) fn loop_handle(&self) -> LoopHandle {
+        self.loop_handle
+    }
+
+    pub(super) fn half_edge(&self) -> HalfEdgeHandle {
+        self.half_edge
+    }
+
+    pub(super) fn adjacent_face(&self) -> FaceHandle {
+        self.adjacent_face
+    }
+
+    pub(super) fn adjacent_loop(&self) -> LoopHandle {
+        self.adjacent_loop
+    }
+
+    pub(super) fn adjacent_half_edge(&self) -> HalfEdgeHandle {
+        self.adjacent_half_edge
+    }
+
     fn diagnostic_label(&self) -> String {
         format!(
             "{:?}/{:?}@{:?}<->{:?}/{:?}@{:?}",
