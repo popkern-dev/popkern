@@ -78,6 +78,8 @@ enum CylinderMediatedCorePreflight {
         fillet_index: usize,
         outside_loop: LoopHandle,
         support_loop: LoopHandle,
+        outside_interval_len: usize,
+        outside_complement_interval_len: usize,
         request: CylinderMediatedSupportContinuationRequest,
         reason: &'static str,
     },
@@ -400,11 +402,13 @@ impl CylinderMediatedCorePreflight {
                 fillet_index,
                 outside_loop,
                 support_loop,
+                outside_interval_len,
+                outside_complement_interval_len,
                 request: _,
                 reason,
             } => {
                 format!(
-                    "FilletEnd[{fillet_index}] accepted outside_loop={outside_loop:?} support_loop={support_loop:?} delta=unknown reason={reason}"
+                    "FilletEnd[{fillet_index}] accepted outside_loop={outside_loop:?} support_loop={support_loop:?} outside_interval={outside_interval_len} outside_complement={outside_complement_interval_len} delta=unknown reason={reason}"
                 )
             }
             CylinderMediatedCorePreflight::Rejected {
@@ -603,6 +607,8 @@ fn validate_trim_core_preflight(
             fillet_index: trim.fillet_index(),
             outside_loop: trim.start_loop(),
             support_loop: interval.support_loop,
+            outside_interval_len: plan.outside_interval.len(),
+            outside_complement_interval_len: plan.outside_complement_interval.len(),
             reason: preflight_delta_reason(&plan),
             request: plan.request,
         },
