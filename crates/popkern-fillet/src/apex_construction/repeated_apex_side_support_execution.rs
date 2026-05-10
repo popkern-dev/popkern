@@ -42,6 +42,7 @@ enum SideSupportRegionExecutionRefusalReason {
     MissingValidatedFaceFamilyBridgePrimitive,
     MissingValidatedOutsideOutsideSupportContinuationPrimitive,
     MissingFaceFamilyBridgeTopologyOperator,
+    MissingCylinderMediatedSupportContinuationTopologyOperator,
     MissingValidatedSupportRegionMergePrimitive,
     MissingExactSideGeneratorCurveAuthoring,
 }
@@ -154,8 +155,13 @@ impl SideSupportRegionExecutionReport {
                             OutsideOutsideSupportPrimitiveDerivation::build(
                                 selection, knowledge, brep,
                             );
+                        let reason = if outside_primitive.is_complete() {
+                            SideSupportRegionExecutionRefusalReason::MissingCylinderMediatedSupportContinuationTopologyOperator
+                        } else {
+                            SideSupportRegionExecutionRefusalReason::MissingValidatedOutsideOutsideSupportContinuationPrimitive
+                        };
                         return Self::refused_with_detail(
-                            SideSupportRegionExecutionRefusalReason::MissingValidatedOutsideOutsideSupportContinuationPrimitive,
+                            reason,
                             format!(
                                 "{}; {}",
                                 selection.diagnostic_label(),

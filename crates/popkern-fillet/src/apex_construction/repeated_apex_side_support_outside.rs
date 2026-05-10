@@ -1,6 +1,8 @@
 //! Outside/outside support-continuation primitive derivation.
 
-use popkern_core::euler::CylinderMediatedSupportContinuationRequest;
+use popkern_core::euler::{
+    CylinderMediatedSupportContinuationPlan, CylinderMediatedSupportContinuationRequest,
+};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
 
 use super::repeated_apex_side_support_plan::{
@@ -13,7 +15,13 @@ use super::repeated_apex_topology_knowledge::TopologyKnowledgeGraph;
 pub(super) struct OutsideOutsideSupportPrimitiveDerivation {
     regions: usize,
     ready_regions: usize,
+    primitive: Option<OutsideOutsideSupportPrimitivePlan>,
     details: Vec<OutsideOutsideSupportRegionDerivation>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct OutsideOutsideSupportPrimitivePlan {
+    requests: Vec<CylinderMediatedSupportContinuationRequest>,
 }
 
 #[derive(Clone, Debug)]
@@ -67,6 +75,7 @@ enum CylinderMediatedCorePreflight {
         fillet_index: usize,
         outside_loop: LoopHandle,
         support_loop: LoopHandle,
+        request: CylinderMediatedSupportContinuationRequest,
         reason: &'static str,
     },
     Rejected {
@@ -89,6 +98,7 @@ impl OutsideOutsideSupportPrimitiveDerivation {
             SideSupportRegionPlanSelection::Refused(_) => Self {
                 regions: 0,
                 ready_regions: 0,
+                primitive: None,
                 details: Vec::new(),
             },
         }
@@ -96,10 +106,14 @@ impl OutsideOutsideSupportPrimitiveDerivation {
 
     pub(super) fn diagnostic_label(&self) -> String {
         format!(
-            "outside-outside-support primitive_ready={} regions={} ready_regions={} details=[{}]",
+            "outside-outside-support primitive_ready={} regions={} ready_regions={} totals={} details=[{}]",
             self.is_ready(),
             self.regions,
             self.ready_regions,
+            self.primitive
+                .as_ref()
+                .map(OutsideOutsideSupportPrimitivePlan::diagnostic_label)
+                .unwrap_or_else(|| "none".to_string()),
             self.details
                 .iter()
                 .map(OutsideOutsideSupportRegionDerivation::diagnostic_label)
@@ -110,6 +124,10 @@ impl OutsideOutsideSupportPrimitiveDerivation {
 
     fn is_ready(&self) -> bool {
         self.regions > 0 && self.ready_regions == self.regions
+    }
+
+    pub(super) fn is_complete(&self) -> bool {
+        self.is_ready() && self.primitive.is_some()
     }
 
     fn from_selected_plan(
@@ -127,11 +145,33 @@ impl OutsideOutsideSupportPrimitiveDerivation {
                 | PlannedTopologyOperation::BridgeSupportRegion(_) => None,
             })
             .collect::<Vec<_>>();
+        let regions = details.len();
+        let ready_regions = details
+            .iter()
+            .filter(|detail| detail.is_core_preflight_ready())
+            .count();
+        let primitive = if regions > 0 && ready_regions == regions {
+            let requests = details
+                .iter()
+                .flat_map(OutsideOutsideSupportRegionDerivation::accepted_core_requests)
+                .cloned()
+                .collect::<Vec<_>>();
+            Some(OutsideOutsideSupportPrimitivePlan { requests })
+        } else {
+            None
+        };
         Self {
-            regions: details.len(),
-            ready_regions: 0,
+            regions,
+            ready_regions,
+            primitive,
             details,
         }
+    }
+}
+
+impl OutsideOutsideSupportPrimitivePlan {
+    fn diagnostic_label(&self) -> String {
+        format!("requests={}", self.requests.len())
     }
 }
 
@@ -227,6 +267,27 @@ impl OutsideOutsideSupportRegionDerivation {
                 .join(", "),
             self.reason.diagnostic_label()
         )
+    }
+
+    fn is_core_preflight_ready(&self) -> bool {
+        !self.region.trims().is_empty()
+            && self.core_preflights.len() == self.region.trims().len()
+            && self
+                .core_preflights
+                .iter()
+                .all(CylinderMediatedCorePreflight::is_accepted)
+    }
+
+    fn accepted_core_requests(
+        &self,
+    ) -> impl Iterator<Item = &CylinderMediatedSupportContinuationRequest> {
+        self.core_preflights.iter().filter_map(|preflight| {
+            if let CylinderMediatedCorePreflight::Accepted { request, .. } = preflight {
+                Some(request)
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -326,6 +387,7 @@ impl CylinderMediatedCorePreflight {
                 fillet_index,
                 outside_loop,
                 support_loop,
+                request: _,
                 reason,
             } => {
                 format!(
@@ -528,15 +590,18 @@ fn validate_trim_core_preflight(
             fillet_index: trim.fillet_index(),
             outside_loop: trim.start_loop(),
             support_loop: interval.support_loop,
-            reason: match plan.expected_delta {
-                popkern_core::euler::CylinderMediatedSupportContinuationDelta::Unknown {
-                    reason,
-                } => reason,
-            },
+            reason: preflight_delta_reason(&plan),
+            request: plan.request,
         },
         Err(err) => CylinderMediatedCorePreflight::Rejected {
             fillet_index: trim.fillet_index(),
             reason: err.to_string(),
         },
+    }
+}
+
+fn preflight_delta_reason(plan: &CylinderMediatedSupportContinuationPlan) -> &'static str {
+    match plan.expected_delta {
+        popkern_core::euler::CylinderMediatedSupportContinuationDelta::Unknown { reason } => reason,
     }
 }
