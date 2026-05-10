@@ -17,11 +17,22 @@ pub(super) struct SegmentBridgeCycleOperandSet {
 }
 
 impl SegmentBridgeCycleOperandSet {
+    pub(super) fn has_shared_support_segments(&self) -> bool {
+        self.operands
+            .iter()
+            .any(|operand| operand.support_faces.len() > 1)
+    }
+
     pub(super) fn diagnostic_label(&self) -> String {
-        let ambiguous_support_segments = self
+        let shared_support_segments = self
             .operands
             .iter()
-            .filter(|operand| operand.support_faces.len() != 1)
+            .filter(|operand| operand.support_faces.len() > 1)
+            .count();
+        let missing_support_segments = self
+            .operands
+            .iter()
+            .filter(|operand| operand.support_faces.is_empty())
             .count();
         let max_support_faces = self
             .operands
@@ -46,10 +57,11 @@ impl SegmentBridgeCycleOperandSet {
             .max()
             .unwrap_or_default();
         format!(
-            "segment_bridge_candidate=segments={} boundary_half_edges={} ambiguous_support_segments={} max_support_faces={} degenerate_endpoint_segments={} max_cylinder_faces={}",
+            "segment_bridge_candidate=segments={} boundary_half_edges={} shared_support_segments={} missing_support_segments={} max_support_faces={} degenerate_endpoint_segments={} max_cylinder_faces={}",
             self.operands.len(),
             total_half_edges,
-            ambiguous_support_segments,
+            shared_support_segments,
+            missing_support_segments,
             max_support_faces,
             degenerate_endpoint_segments,
             max_cylinder_faces

@@ -23,7 +23,7 @@ fn mutator_boundary_refuses_without_mutating_topology() {
     let detail = err.to_string();
     assert!(
         detail.contains(
-            "cylinder-mediated support continuation segment bridge construction not implemented"
+            "cylinder-mediated support continuation shared-support segment ownership not implemented"
         ),
         "{err}"
     );
@@ -49,8 +49,8 @@ fn mutator_boundary_refuses_without_mutating_topology() {
     assert!(
         detail.contains(
             "segment_bridge_candidate=segments=3 boundary_half_edges=15 \
-             ambiguous_support_segments=1 max_support_faces=2 \
-             degenerate_endpoint_segments=0 max_cylinder_faces=1"
+             shared_support_segments=1 missing_support_segments=0 \
+             max_support_faces=2 degenerate_endpoint_segments=0 max_cylinder_faces=1"
         ),
         "{err}"
     );

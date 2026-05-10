@@ -168,8 +168,13 @@ impl BRep {
                 "cylinder-mediated support continuation refusal mutated topology".into(),
             ));
         }
+        let bridge_refusal = if repair_result.1.has_shared_support_segments() {
+            "cylinder-mediated support continuation shared-support segment ownership not implemented"
+        } else {
+            "cylinder-mediated support continuation segment bridge construction not implemented"
+        };
         Err(CoreError::PreconditionFailed(format!(
-            "cylinder-mediated support continuation segment bridge construction not implemented: expected_delta={} {} {} {}",
+            "{bridge_refusal}: expected_delta={} {} {} {}",
             plan.expected_delta.diagnostic_label(),
             segment_authoring_summary(&segment_authoring),
             repair_result.0.diagnostic_label(),
