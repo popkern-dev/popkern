@@ -4,6 +4,7 @@
 
 mod construction_residual_retire;
 mod contract;
+mod cylinder_mediated_support;
 mod face_boundary_fragment;
 mod face_boundary_retire;
 mod face_family_bridge;
@@ -20,6 +21,10 @@ mod same_loop_boundary_exposure;
 mod same_loop_bridge_dissolve;
 mod sweep;
 pub use construction_residual_retire::ConstructionResidualRetireResult;
+pub use cylinder_mediated_support::{
+    CylinderMediatedSupportContinuationDelta, CylinderMediatedSupportContinuationPlan,
+    CylinderMediatedSupportContinuationRequest,
+};
 pub use face_boundary_fragment::BoundaryFragmentRetireResult;
 pub use face_boundary_retire::BoundaryFaceRetireResult;
 pub use face_family_bridge::{
