@@ -18,7 +18,9 @@ mod apply_diagnostics;
 #[path = "cylinder_mediated_support_apply_owner_spans.rs"]
 mod apply_owner_spans;
 
-use apply_bridge_cycles::derive_segment_bridge_cycle_operands;
+use apply_bridge_cycles::{
+    derive_cylinder_bridge_resource_partition, derive_segment_bridge_cycle_operands,
+};
 use apply_diagnostics::segment_authoring_summary;
 use apply_owner_spans::{expose_owner_repair_spans, owner_repair_spans};
 
@@ -155,6 +157,7 @@ impl BRep {
         require_known_aggregate_delta(&plan.expected_delta)?;
         require_non_empty_partition(&plan.outside_interval_partition)?;
         let segment_authoring = self.segment_authoring_plan(plan)?;
+        let cylinder_resources = derive_cylinder_bridge_resource_partition(self, plan)?;
         let repair_result = {
             let mut candidate = self.clone();
             let repair_result = expose_owner_repair_spans(&mut candidate, &segment_authoring)?;
@@ -180,7 +183,7 @@ impl BRep {
             }
         };
         Err(CoreError::PreconditionFailed(format!(
-            "{bridge_refusal}: expected_delta={} authored_delta={} {} {} {}",
+            "{bridge_refusal}: expected_delta={} authored_delta={} {} {} {} {}",
             plan.expected_delta.diagnostic_label(),
             authored_delta_label(
                 repair_result.0.exposed_spans,
@@ -188,7 +191,8 @@ impl BRep {
             ),
             segment_authoring_summary(&segment_authoring),
             repair_result.0.diagnostic_label(),
-            repair_result.1.diagnostic_label()
+            repair_result.1.diagnostic_label(),
+            cylinder_resources.diagnostic_label()
         )))
     }
 

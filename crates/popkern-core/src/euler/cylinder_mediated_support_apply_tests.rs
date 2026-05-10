@@ -61,6 +61,13 @@ fn mutator_boundary_refuses_without_mutating_topology() {
         ),
         "{err}"
     );
+    assert!(
+        detail.contains(
+            "cylinder_resource_partition=segments=2 half_edges=7 \
+             shared_segments=0 max_request_owners=1"
+        ),
+        "{err}"
+    );
     assert!(detail.contains("context_owner_faces=[]"), "{err}");
     assert!(detail.contains("unsupported_owner_faces=[]"), "{err}");
     assert_eq!(TopologySnapshot::capture(&brep), before);
