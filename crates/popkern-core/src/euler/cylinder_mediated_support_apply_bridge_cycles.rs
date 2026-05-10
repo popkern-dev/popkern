@@ -1,6 +1,6 @@
 //! Bridge-cycle operand derivation after owner-side exposure.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use crate::error::CoreError;
 use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
@@ -19,6 +19,12 @@ pub(super) struct SegmentBridgeCycleOperandSet {
 impl SegmentBridgeCycleOperandSet {
     pub(super) fn segment_count(&self) -> usize {
         self.operands.len()
+    }
+
+    pub(super) fn request_index_sets(&self) -> impl Iterator<Item = &[usize]> {
+        self.operands
+            .iter()
+            .map(|operand| operand.request_indices.as_slice())
     }
 
     pub(super) fn ownership_status(&self) -> SegmentBridgeCycleOwnershipStatus {
@@ -106,94 +112,6 @@ impl SegmentBridgeCycleOperandSet {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct BridgeResourceReconciliation {
-    outside_segments: usize,
-    cylinder_segments: usize,
-    exact_matches: usize,
-    missing_cylinder_matches: usize,
-    extra_cylinder_resources: usize,
-}
-
-impl BridgeResourceReconciliation {
-    pub(super) fn diagnostic_label(&self) -> String {
-        format!(
-            "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={}",
-            self.outside_segments,
-            self.cylinder_segments,
-            self.exact_matches,
-            self.missing_cylinder_matches,
-            self.extra_cylinder_resources
-        )
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct CylinderBridgeResourcePartition {
-    segments: Vec<CylinderBridgeResourceSegment>,
-}
-
-impl CylinderBridgeResourcePartition {
-    pub(super) fn reconcile(
-        &self,
-        bridge_cycles: &SegmentBridgeCycleOperandSet,
-    ) -> BridgeResourceReconciliation {
-        let mut matched_cylinder_segments = BTreeSet::new();
-        let mut exact_matches = 0usize;
-        let mut missing_cylinder_matches = 0usize;
-        for outside in &bridge_cycles.operands {
-            let Some((index, _)) = self.segments.iter().enumerate().find(|(index, cylinder)| {
-                !matched_cylinder_segments.contains(index)
-                    && cylinder.request_indices == outside.request_indices
-            }) else {
-                missing_cylinder_matches += 1;
-                continue;
-            };
-            matched_cylinder_segments.insert(index);
-            exact_matches += 1;
-        }
-        BridgeResourceReconciliation {
-            outside_segments: bridge_cycles.operands.len(),
-            cylinder_segments: self.segments.len(),
-            exact_matches,
-            missing_cylinder_matches,
-            extra_cylinder_resources: self.segments.len() - matched_cylinder_segments.len(),
-        }
-    }
-
-    pub(super) fn diagnostic_label(&self) -> String {
-        let shared_segments = self
-            .segments
-            .iter()
-            .filter(|segment| segment.request_indices.len() > 1)
-            .count();
-        let max_request_owners = self
-            .segments
-            .iter()
-            .map(|segment| segment.request_indices.len())
-            .max()
-            .unwrap_or_default();
-        let half_edges = self
-            .segments
-            .iter()
-            .map(|segment| segment.half_edges.len())
-            .sum::<usize>();
-        format!(
-            "cylinder_resource_partition=segments={} half_edges={} shared_segments={} max_request_owners={}",
-            self.segments.len(),
-            half_edges,
-            shared_segments,
-            max_request_owners
-        )
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CylinderBridgeResourceSegment {
-    half_edges: Vec<HalfEdgeHandle>,
-    request_indices: Vec<usize>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SegmentBridgeCycleOwnershipStatus {
     SingleSupportReady,
@@ -232,118 +150,6 @@ pub(super) fn derive_segment_bridge_cycle_operands(
         .map(|segment| segment_bridge_cycle_operand(brep, plan, segment))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(SegmentBridgeCycleOperandSet { operands })
-}
-
-pub(super) fn derive_cylinder_bridge_resource_partition(
-    brep: &BRep,
-    plan: &CylinderMediatedSupportContinuationBatchPlan,
-) -> Result<CylinderBridgeResourcePartition, CoreError> {
-    let mut selected_by_loop = BTreeMap::<_, BTreeMap<_, BTreeSet<usize>>>::new();
-    for (request_index, request_plan) in plan.plans.iter().enumerate() {
-        for &half_edge in &request_plan.request.cylinder_interval {
-            let loop_ = brep
-                .half_edges
-                .get(half_edge)
-                .map(|data| data.loop_)
-                .ok_or_else(|| {
-                    CoreError::InvalidHandle(format!(
-                        "cylinder resource partition references stale half-edge {half_edge:?}"
-                    ))
-                })?;
-            selected_by_loop
-                .entry(loop_)
-                .or_default()
-                .entry(half_edge)
-                .or_default()
-                .insert(request_index);
-        }
-    }
-    let mut segments = Vec::new();
-    for (loop_, membership) in selected_by_loop {
-        segments.extend(partition_cylinder_loop(brep, loop_, &membership)?);
-    }
-    Ok(CylinderBridgeResourcePartition { segments })
-}
-
-fn partition_cylinder_loop(
-    brep: &BRep,
-    loop_: crate::topology::LoopHandle,
-    membership: &BTreeMap<HalfEdgeHandle, BTreeSet<usize>>,
-) -> Result<Vec<CylinderBridgeResourceSegment>, CoreError> {
-    let start = brep
-        .loops
-        .get(loop_)
-        .map(|loop_data| loop_data.half_edge)
-        .ok_or_else(|| {
-            CoreError::InvalidHandle(format!("cylinder resource loop {loop_:?} is stale"))
-        })?;
-    let mut segments = Vec::new();
-    let mut current_half_edges = Vec::new();
-    let mut current_request_indices = Vec::new();
-    let mut cursor = start;
-    for _ in 0..=brep.half_edges.len() {
-        let data = brep.half_edges.get(cursor).ok_or_else(|| {
-            CoreError::InvalidHandle(format!(
-                "cylinder resource partition references stale loop half-edge {cursor:?}"
-            ))
-        })?;
-        if data.loop_ != loop_ {
-            return Err(CoreError::PreconditionFailed(format!(
-                "cylinder resource partition traversal left loop {loop_:?} at {cursor:?}"
-            )));
-        }
-        match membership.get(&cursor) {
-            Some(request_indices) => {
-                let request_indices = request_indices.iter().copied().collect::<Vec<_>>();
-                if current_half_edges.is_empty() || current_request_indices == request_indices {
-                    current_half_edges.push(cursor);
-                    current_request_indices = request_indices;
-                } else {
-                    push_cylinder_resource_segment(
-                        &mut segments,
-                        &mut current_half_edges,
-                        &mut current_request_indices,
-                    );
-                    current_half_edges.push(cursor);
-                    current_request_indices = request_indices;
-                }
-            }
-            None => push_cylinder_resource_segment(
-                &mut segments,
-                &mut current_half_edges,
-                &mut current_request_indices,
-            ),
-        }
-        cursor = data.next;
-        if cursor == start {
-            break;
-        }
-    }
-    if cursor != start {
-        return Err(CoreError::PreconditionFailed(format!(
-            "cylinder resource partition could not close loop {loop_:?}"
-        )));
-    }
-    push_cylinder_resource_segment(
-        &mut segments,
-        &mut current_half_edges,
-        &mut current_request_indices,
-    );
-    Ok(segments)
-}
-
-fn push_cylinder_resource_segment(
-    segments: &mut Vec<CylinderBridgeResourceSegment>,
-    current_half_edges: &mut Vec<HalfEdgeHandle>,
-    current_request_indices: &mut Vec<usize>,
-) {
-    if current_half_edges.is_empty() {
-        return;
-    }
-    segments.push(CylinderBridgeResourceSegment {
-        half_edges: std::mem::take(current_half_edges),
-        request_indices: std::mem::take(current_request_indices),
-    });
 }
 
 fn segment_bridge_cycle_operand(

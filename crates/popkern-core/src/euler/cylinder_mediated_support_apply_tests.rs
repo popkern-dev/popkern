@@ -71,7 +71,9 @@ fn mutator_boundary_refuses_without_mutating_topology() {
     assert!(
         detail.contains(
             "bridge_resource_reconciliation=outside_segments=3 cylinder_segments=2 \
-             exact_matches=2 missing_cylinder_matches=1 extra_cylinder_resources=0"
+             exact_matches=2 missing_cylinder_matches=1 extra_cylinder_resources=0 \
+             outside_request_sets=[0,0+1,1] cylinder_request_sets=[0,1] \
+             missing_request_sets=[0+1]"
         ),
         "{err}"
     );

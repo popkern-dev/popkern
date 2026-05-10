@@ -13,14 +13,15 @@ use super::cylinder_mediated_support_partition::CylinderMediatedOutsideIntervalP
 
 #[path = "cylinder_mediated_support_apply_bridge_cycles.rs"]
 mod apply_bridge_cycles;
+#[path = "cylinder_mediated_support_apply_cylinder_resources.rs"]
+mod apply_cylinder_resources;
 #[path = "cylinder_mediated_support_apply_diagnostics.rs"]
 mod apply_diagnostics;
 #[path = "cylinder_mediated_support_apply_owner_spans.rs"]
 mod apply_owner_spans;
 
-use apply_bridge_cycles::{
-    derive_cylinder_bridge_resource_partition, derive_segment_bridge_cycle_operands,
-};
+use apply_bridge_cycles::derive_segment_bridge_cycle_operands;
+use apply_cylinder_resources::derive_cylinder_bridge_resource_partition;
 use apply_diagnostics::segment_authoring_summary;
 use apply_owner_spans::{expose_owner_repair_spans, owner_repair_spans};
 
