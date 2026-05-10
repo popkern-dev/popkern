@@ -17,6 +17,20 @@ pub(super) struct SegmentBridgeCycleOperandSet {
 }
 
 impl SegmentBridgeCycleOperandSet {
+    pub(super) fn ownership_status(&self) -> SegmentBridgeCycleOwnershipStatus {
+        if self
+            .operands
+            .iter()
+            .any(|operand| operand.support_faces.is_empty())
+        {
+            return SegmentBridgeCycleOwnershipStatus::MissingSupportOwner;
+        }
+        if self.has_shared_support_segments() {
+            return SegmentBridgeCycleOwnershipStatus::SharedSupportResolutionRequired;
+        }
+        SegmentBridgeCycleOwnershipStatus::SingleSupportReady
+    }
+
     pub(super) fn has_shared_support_segments(&self) -> bool {
         self.operands
             .iter()
@@ -57,15 +71,33 @@ impl SegmentBridgeCycleOperandSet {
             .max()
             .unwrap_or_default();
         format!(
-            "segment_bridge_candidate=segments={} boundary_half_edges={} shared_support_segments={} missing_support_segments={} max_support_faces={} degenerate_endpoint_segments={} max_cylinder_faces={}",
+            "segment_bridge_candidate=segments={} boundary_half_edges={} ownership={} shared_support_segments={} missing_support_segments={} max_support_faces={} degenerate_endpoint_segments={} max_cylinder_faces={}",
             self.operands.len(),
             total_half_edges,
+            self.ownership_status().diagnostic_label(),
             shared_support_segments,
             missing_support_segments,
             max_support_faces,
             degenerate_endpoint_segments,
             max_cylinder_faces
         )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SegmentBridgeCycleOwnershipStatus {
+    SingleSupportReady,
+    SharedSupportResolutionRequired,
+    MissingSupportOwner,
+}
+
+impl SegmentBridgeCycleOwnershipStatus {
+    fn diagnostic_label(self) -> &'static str {
+        match self {
+            Self::SingleSupportReady => "single-support-ready",
+            Self::SharedSupportResolutionRequired => "shared-support-resolution-required",
+            Self::MissingSupportOwner => "missing-support-owner",
+        }
     }
 }
 
