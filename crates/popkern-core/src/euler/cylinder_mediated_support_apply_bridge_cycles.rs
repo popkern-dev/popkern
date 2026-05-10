@@ -107,11 +107,60 @@ impl SegmentBridgeCycleOperandSet {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct BridgeResourceReconciliation {
+    outside_segments: usize,
+    cylinder_segments: usize,
+    exact_matches: usize,
+    missing_cylinder_matches: usize,
+    extra_cylinder_resources: usize,
+}
+
+impl BridgeResourceReconciliation {
+    pub(super) fn diagnostic_label(&self) -> String {
+        format!(
+            "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={}",
+            self.outside_segments,
+            self.cylinder_segments,
+            self.exact_matches,
+            self.missing_cylinder_matches,
+            self.extra_cylinder_resources
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct CylinderBridgeResourcePartition {
     segments: Vec<CylinderBridgeResourceSegment>,
 }
 
 impl CylinderBridgeResourcePartition {
+    pub(super) fn reconcile(
+        &self,
+        bridge_cycles: &SegmentBridgeCycleOperandSet,
+    ) -> BridgeResourceReconciliation {
+        let mut matched_cylinder_segments = BTreeSet::new();
+        let mut exact_matches = 0usize;
+        let mut missing_cylinder_matches = 0usize;
+        for outside in &bridge_cycles.operands {
+            let Some((index, _)) = self.segments.iter().enumerate().find(|(index, cylinder)| {
+                !matched_cylinder_segments.contains(index)
+                    && cylinder.request_indices == outside.request_indices
+            }) else {
+                missing_cylinder_matches += 1;
+                continue;
+            };
+            matched_cylinder_segments.insert(index);
+            exact_matches += 1;
+        }
+        BridgeResourceReconciliation {
+            outside_segments: bridge_cycles.operands.len(),
+            cylinder_segments: self.segments.len(),
+            exact_matches,
+            missing_cylinder_matches,
+            extra_cylinder_resources: self.segments.len() - matched_cylinder_segments.len(),
+        }
+    }
+
     pub(super) fn diagnostic_label(&self) -> String {
         let shared_segments = self
             .segments
@@ -164,6 +213,7 @@ impl SegmentBridgeCycleOwnershipStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SegmentBridgeCycleOperand {
+    request_indices: Vec<usize>,
     boundary_half_edges: Vec<HalfEdgeHandle>,
     start: VertexHandle,
     end: VertexHandle,
@@ -328,6 +378,7 @@ fn segment_bridge_cycle_operand(
             ))
         })?;
     Ok(SegmentBridgeCycleOperand {
+        request_indices: segment.request_indices.clone(),
         boundary_half_edges: segment.half_edges.clone(),
         start,
         end,

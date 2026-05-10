@@ -163,7 +163,8 @@ impl BRep {
             let repair_result = expose_owner_repair_spans(&mut candidate, &segment_authoring)?;
             let bridge_cycles =
                 derive_segment_bridge_cycle_operands(&candidate, plan, &segment_authoring)?;
-            (repair_result, bridge_cycles)
+            let reconciliation = cylinder_resources.reconcile(&bridge_cycles);
+            (repair_result, bridge_cycles, reconciliation)
         };
         let after = EulerTopologyCounts::from_brep(self);
         if before != after {
@@ -183,7 +184,7 @@ impl BRep {
             }
         };
         Err(CoreError::PreconditionFailed(format!(
-            "{bridge_refusal}: expected_delta={} authored_delta={} {} {} {} {}",
+            "{bridge_refusal}: expected_delta={} authored_delta={} {} {} {} {} {}",
             plan.expected_delta.diagnostic_label(),
             authored_delta_label(
                 repair_result.0.exposed_spans,
@@ -192,7 +193,8 @@ impl BRep {
             segment_authoring_summary(&segment_authoring),
             repair_result.0.diagnostic_label(),
             repair_result.1.diagnostic_label(),
-            cylinder_resources.diagnostic_label()
+            cylinder_resources.diagnostic_label(),
+            repair_result.2.diagnostic_label()
         )))
     }
 
