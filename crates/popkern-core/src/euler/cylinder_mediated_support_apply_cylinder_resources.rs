@@ -18,30 +18,44 @@ pub(super) struct BridgeResourceReconciliation {
     outside_request_sets: Vec<Vec<usize>>,
     cylinder_request_sets: Vec<Vec<usize>>,
     missing_request_sets: Vec<Vec<usize>>,
+    construction_actions: Vec<BridgeResourceConstructionAction>,
 }
 
 impl BridgeResourceReconciliation {
     pub(super) fn status(&self) -> BridgeResourceReconciliationStatus {
+        if self
+            .construction_actions
+            .iter()
+            .any(|action| action.kind == BridgeResourceConstructionActionKind::Unsupported)
+            || self.extra_cylinder_resources > 0
+        {
+            return BridgeResourceReconciliationStatus::IncompatibleResourceSets;
+        }
         if self.missing_request_sets.is_empty() && self.extra_cylinder_resources == 0 {
             return BridgeResourceReconciliationStatus::ExactResourcePairing;
         }
-        if self.extra_cylinder_resources == 0
-            && self
-                .missing_request_sets
-                .iter()
-                .all(|request_set| request_set.len() > 1)
+        if self.construction_actions.iter().any(|action| {
+            action.kind == BridgeResourceConstructionActionKind::SharedOutsideTransition
+        }) && self
+            .construction_actions
+            .iter()
+            .filter(|action| action.kind != BridgeResourceConstructionActionKind::ExactPair)
+            .all(|action| {
+                action.kind == BridgeResourceConstructionActionKind::SharedOutsideTransition
+            })
         {
             return BridgeResourceReconciliationStatus::SharedOutsideTransitionNeedsResource;
         }
-        if self.extra_cylinder_resources == 0
-            && self.missing_request_sets.iter().all(|request_set| {
-                request_set.len() == 1
-                    && self.cylinder_request_sets.iter().any(|cylinder_set| {
-                        cylinder_set.len() > 1
-                            && request_set
-                                .iter()
-                                .all(|request_index| cylinder_set.contains(request_index))
-                    })
+        if self.construction_actions.iter().any(|action| {
+            action.kind
+                == BridgeResourceConstructionActionKind::SingleSupportCoveredBySharedCylinder
+        }) && self
+            .construction_actions
+            .iter()
+            .filter(|action| action.kind != BridgeResourceConstructionActionKind::ExactPair)
+            .all(|action| {
+                action.kind
+                    == BridgeResourceConstructionActionKind::SingleSupportCoveredBySharedCylinder
             })
         {
             return BridgeResourceReconciliationStatus::SingleSupportCoveredBySharedCylinderResource;
@@ -51,13 +65,14 @@ impl BridgeResourceReconciliation {
 
     pub(super) fn diagnostic_label(&self) -> String {
         format!(
-            "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={} resource_status={} outside_request_sets=[{}] cylinder_request_sets=[{}] missing_request_sets=[{}]",
+            "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={} resource_status={} construction_actions={} outside_request_sets=[{}] cylinder_request_sets=[{}] missing_request_sets=[{}]",
             self.outside_segments,
             self.cylinder_segments,
             self.exact_matches,
             self.missing_cylinder_matches,
             self.extra_cylinder_resources,
             self.status().diagnostic_label(),
+            construction_action_summary(&self.construction_actions),
             request_set_summary(&self.outside_request_sets),
             request_set_summary(&self.cylinder_request_sets),
             request_set_summary(&self.missing_request_sets)
@@ -89,6 +104,19 @@ impl BridgeResourceReconciliationStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct BridgeResourceConstructionAction {
+    kind: BridgeResourceConstructionActionKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BridgeResourceConstructionActionKind {
+    ExactPair,
+    SharedOutsideTransition,
+    SingleSupportCoveredBySharedCylinder,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct CylinderBridgeResourcePartition {
     segments: Vec<CylinderBridgeResourceSegment>,
 }
@@ -105,16 +133,23 @@ impl CylinderBridgeResourcePartition {
         let mut matched_cylinder_segments = BTreeSet::new();
         let mut exact_matches = 0usize;
         let mut missing_request_sets = Vec::new();
+        let mut construction_actions = Vec::new();
         for outside_request_set in &outside_request_sets {
             let Some((index, _)) = self.segments.iter().enumerate().find(|(index, cylinder)| {
                 !matched_cylinder_segments.contains(index)
                     && &cylinder.request_indices == outside_request_set
             }) else {
                 missing_request_sets.push(outside_request_set.clone());
+                construction_actions.push(BridgeResourceConstructionAction {
+                    kind: unmatched_construction_action_kind(&self.segments, outside_request_set),
+                });
                 continue;
             };
             matched_cylinder_segments.insert(index);
             exact_matches += 1;
+            construction_actions.push(BridgeResourceConstructionAction {
+                kind: BridgeResourceConstructionActionKind::ExactPair,
+            });
         }
         BridgeResourceReconciliation {
             outside_segments: outside_request_sets.len(),
@@ -129,6 +164,7 @@ impl CylinderBridgeResourcePartition {
                 .map(|segment| segment.request_indices.clone())
                 .collect(),
             missing_request_sets,
+            construction_actions,
         }
     }
 
@@ -157,6 +193,52 @@ impl CylinderBridgeResourcePartition {
             max_request_owners
         )
     }
+}
+
+fn unmatched_construction_action_kind(
+    cylinder_segments: &[CylinderBridgeResourceSegment],
+    request_set: &[usize],
+) -> BridgeResourceConstructionActionKind {
+    if request_set.len() > 1 {
+        return BridgeResourceConstructionActionKind::SharedOutsideTransition;
+    }
+    if request_set.len() == 1
+        && cylinder_segments.iter().any(|cylinder_segment| {
+            cylinder_segment.request_indices.len() > 1
+                && request_set
+                    .iter()
+                    .all(|request_index| cylinder_segment.request_indices.contains(request_index))
+        })
+    {
+        return BridgeResourceConstructionActionKind::SingleSupportCoveredBySharedCylinder;
+    }
+    BridgeResourceConstructionActionKind::Unsupported
+}
+
+fn construction_action_summary(actions: &[BridgeResourceConstructionAction]) -> String {
+    let exact_pairs =
+        construction_action_count(actions, BridgeResourceConstructionActionKind::ExactPair);
+    let shared_outside = construction_action_count(
+        actions,
+        BridgeResourceConstructionActionKind::SharedOutsideTransition,
+    );
+    let single_covered = construction_action_count(
+        actions,
+        BridgeResourceConstructionActionKind::SingleSupportCoveredBySharedCylinder,
+    );
+    let unsupported =
+        construction_action_count(actions, BridgeResourceConstructionActionKind::Unsupported);
+    format!(
+        "exact_pair:{} shared_outside:{} single_covered:{} unsupported:{}",
+        exact_pairs, shared_outside, single_covered, unsupported
+    )
+}
+
+fn construction_action_count(
+    actions: &[BridgeResourceConstructionAction],
+    kind: BridgeResourceConstructionActionKind,
+) -> usize {
+    actions.iter().filter(|action| action.kind == kind).count()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
