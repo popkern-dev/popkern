@@ -130,7 +130,8 @@ impl SupportRegionMergePrimitiveDerivation {
                 PlannedTopologyOperation::BridgeSupportRegion(region) => {
                     Some(SupportRegionMergeRegionDerivation::build(region, brep))
                 }
-                PlannedTopologyOperation::SplitFaceWithEdge { .. } => None,
+                PlannedTopologyOperation::SplitFaceWithEdge { .. }
+                | PlannedTopologyOperation::OutsideOutsideSupportContinuation(_) => None,
             })
             .collect::<Vec<_>>();
         let merge_regions = details.len();

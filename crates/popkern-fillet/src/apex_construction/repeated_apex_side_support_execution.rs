@@ -4,6 +4,7 @@ use popkern_core::topology::BRep;
 
 use super::repeated_apex_side_support_bridge::FaceFamilyBridgePrimitiveDerivation;
 use super::repeated_apex_side_support_merge::SupportRegionMergePrimitiveDerivation;
+use super::repeated_apex_side_support_outside::OutsideOutsideSupportPrimitiveDerivation;
 use super::repeated_apex_side_support_plan::{
     SideSupportRegionExecutionReadiness, SideSupportRegionPlanSelection,
     SideSupportRegionRefusalReason,
@@ -38,6 +39,7 @@ enum SideSupportRegionExecutionRefusalReason {
     PlannerRefused,
     MissingLiveTopologyOperand,
     MissingValidatedFaceFamilyBridgePrimitive,
+    MissingValidatedOutsideOutsideSupportContinuationPrimitive,
     MissingFaceFamilyBridgeTopologyOperator,
     MissingValidatedSupportRegionMergePrimitive,
     MissingExactSideGeneratorCurveAuthoring,
@@ -145,9 +147,20 @@ impl SideSupportRegionExecutionReport {
                             ),
                         );
                     }
+                    SideSupportRegionRefusalReason::MissingValidatedOutsideOutsideSupportContinuationPrimitive => {
+                        let outside_primitive =
+                            OutsideOutsideSupportPrimitiveDerivation::build(selection);
+                        return Self::refused_with_detail(
+                            SideSupportRegionExecutionRefusalReason::MissingValidatedOutsideOutsideSupportContinuationPrimitive,
+                            format!(
+                                "{}; {}",
+                                selection.diagnostic_label(),
+                                outside_primitive.diagnostic_label()
+                            ),
+                        );
+                    }
                     SideSupportRegionRefusalReason::UnknownEndpointMembership
                     | SideSupportRegionRefusalReason::AmbiguousEndpointMembership
-                    | SideSupportRegionRefusalReason::UnsupportedOutsideOutsideSupportContinuation
                     | SideSupportRegionRefusalReason::UnsupportedBridgeTrimCount
                     | SideSupportRegionRefusalReason::NoAcceptedOperationCandidate => {
                         SideSupportRegionExecutionRefusalReason::PlannerRefused

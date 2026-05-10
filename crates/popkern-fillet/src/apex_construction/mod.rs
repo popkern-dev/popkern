@@ -73,6 +73,7 @@ pub(crate) mod repeated_apex_side_support_facts;
 pub(crate) mod repeated_apex_side_support_live_preflight;
 pub(crate) mod repeated_apex_side_support_merge;
 pub(crate) mod repeated_apex_side_support_merge_geometry;
+pub(crate) mod repeated_apex_side_support_outside;
 pub(crate) mod repeated_apex_side_support_plan;
 pub(crate) mod repeated_apex_topology_knowledge;
 pub(crate) mod repeated_apex_trim_subcomplex;

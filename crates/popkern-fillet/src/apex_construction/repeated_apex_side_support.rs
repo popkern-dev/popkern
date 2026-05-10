@@ -10,6 +10,7 @@ use super::repeated_apex_side_support_execution::SideSupportRegionExecutionRepor
 use super::repeated_apex_side_support_facts::SideSupportRegionFacts;
 use super::repeated_apex_side_support_merge::SupportRegionMergePrimitiveDerivation;
 use super::repeated_apex_side_support_plan::SideSupportRegionPlanSelection;
+use super::repeated_apex_side_support_plan::SideSupportRegionRefusalReason;
 use super::repeated_apex_topology_knowledge::TopologyKnowledgeGraph;
 use super::repeated_apex_trim_subcomplex::TrimRewriteSubcomplexPlan;
 
@@ -68,6 +69,14 @@ impl SideSupportRegionDiagnosticSnapshot {
         }
         if let SideSupportRegionPlanSelection::Refused(refusal) = &self.selection
             && self.facts.trim_endpoint_pairs().next().is_some()
+        {
+            return Err(SideSupportRegionContinuationFailure::PlannerRefused {
+                reason: format!("stage={:?} reason={:?}", refusal.stage(), refusal.reason()),
+            });
+        }
+        if let SideSupportRegionPlanSelection::Blocked(_, refusal) = &self.selection
+            && refusal.reason()
+                == SideSupportRegionRefusalReason::MissingValidatedOutsideOutsideSupportContinuationPrimitive
         {
             return Err(SideSupportRegionContinuationFailure::PlannerRefused {
                 reason: format!("stage={:?} reason={:?}", refusal.stage(), refusal.reason()),

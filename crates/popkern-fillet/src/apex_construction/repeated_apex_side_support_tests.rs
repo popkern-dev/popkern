@@ -292,7 +292,21 @@ fn executable_continuation_refuses_outside_outside_plan_before_mutation() {
     let labels = snapshot.diagnostic_label();
 
     assert!(
-        labels.contains("UnsupportedOutsideOutsideSupportContinuation"),
+        labels.contains("outside-outside-support-continuation"),
+        "{labels}"
+    );
+    assert!(
+        labels.contains("MissingValidatedOutsideOutsideSupportContinuationPrimitive"),
+        "{labels}"
+    );
+    assert!(
+        labels.contains("outside-outside-support primitive_ready=false"),
+        "{labels}"
+    );
+    assert!(
+        labels.contains(
+            "delta=unknown reason=outside-outside-support-continuation-operator-required"
+        ),
         "{labels}"
     );
     let refusal = apply_selected_side_support_continuation(&mut candidate, &plan)
@@ -303,7 +317,7 @@ fn executable_continuation_refuses_outside_outside_plan_before_mutation() {
     assert!(
         reason.contains(
             "planner-refused stage=SelectPlan \
-                 reason=UnsupportedOutsideOutsideSupportContinuation"
+                 reason=MissingValidatedOutsideOutsideSupportContinuationPrimitive"
         ),
         "{reason}"
     );

@@ -142,7 +142,8 @@ impl FaceFamilyBridgePrimitiveDerivation {
                 PlannedTopologyOperation::BridgeSupportRegion(region) => {
                     Some(FaceFamilyBridgeRegionDerivation::build(region, brep))
                 }
-                PlannedTopologyOperation::SplitFaceWithEdge { .. } => None,
+                PlannedTopologyOperation::SplitFaceWithEdge { .. }
+                | PlannedTopologyOperation::OutsideOutsideSupportContinuation(_) => None,
             })
             .collect::<Vec<_>>();
         let bridge_regions = details.len();

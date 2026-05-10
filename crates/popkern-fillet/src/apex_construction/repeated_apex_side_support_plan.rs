@@ -26,6 +26,7 @@ pub(super) struct SelectedSideSupportRegionPlan {
 pub(super) enum PlannedTopologyOperation {
     SplitFaceWithEdge { fillet_index: usize },
     BridgeSupportRegion(BridgeSupportRegionPlan),
+    OutsideOutsideSupportContinuation(OutsideOutsideSupportContinuationPlan),
 }
 
 #[derive(Clone, Debug)]
@@ -49,12 +50,40 @@ pub(super) struct BridgeSupportTrimPlan {
     end: VertexHandle,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct ExpectedTopologyDelta {
-    vertices: i64,
-    edges: i64,
-    faces: i64,
-    loops: i64,
+#[derive(Clone, Debug)]
+pub(super) struct OutsideOutsideSupportContinuationPlan {
+    support_face: FaceHandle,
+    trims: Vec<OutsideOutsideSupportTrimPlan>,
+    expected_delta: ExpectedTopologyDelta,
+    preconditions: OutsideOutsideSupportPreconditions,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct OutsideOutsideSupportTrimPlan {
+    fillet_index: usize,
+    cylinder_face: FaceHandle,
+    support_face: FaceHandle,
+    start_face: FaceHandle,
+    start_loop: LoopHandle,
+    start_half_edge: HalfEdgeHandle,
+    end_face: FaceHandle,
+    end_loop: LoopHandle,
+    end_half_edge: HalfEdgeHandle,
+    start: VertexHandle,
+    end: VertexHandle,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum ExpectedTopologyDelta {
+    Known {
+        vertices: i64,
+        edges: i64,
+        faces: i64,
+        loops: i64,
+    },
+    Unknown {
+        reason: &'static str,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -63,6 +92,14 @@ pub(super) struct BridgeSupportRegionPreconditions {
     other_endpoint_has_known_membership: bool,
     support_owner_is_unique: bool,
     face_family_bridge_operands_known: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct OutsideOutsideSupportPreconditions {
+    both_endpoints_outside_support_family: bool,
+    endpoint_membership_known: bool,
+    support_owner_is_unique: bool,
+    topology_operator_required: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -80,9 +117,9 @@ pub(super) enum PlannerStage {
 pub(super) enum SideSupportRegionRefusalReason {
     UnknownEndpointMembership,
     AmbiguousEndpointMembership,
-    UnsupportedOutsideOutsideSupportContinuation,
     UnsupportedBridgeTrimCount,
     MissingValidatedFaceFamilyBridgePrimitive,
+    MissingValidatedOutsideOutsideSupportContinuationPrimitive,
     NoAcceptedOperationCandidate,
 }
 
@@ -96,11 +133,12 @@ impl SideSupportRegionPlanSelection {
     pub(super) fn select(candidates: &CandidateSetSnapshot) -> Self {
         let mut operations = Vec::new();
         let mut bridge_candidates_by_support = BTreeMap::<FaceHandle, Vec<_>>::new();
+        let mut outside_outside_candidates_by_support = BTreeMap::<FaceHandle, Vec<_>>::new();
         let mut saw_unknown_endpoint = false;
         let mut saw_ambiguous_endpoint = false;
-        let mut saw_unsupported_outside_outside_continuation = false;
         let mut saw_unsupported_bridge_region = false;
         let mut selected_unexecutable_bridge = false;
+        let mut selected_unexecutable_outside_outside = false;
         for candidate in candidates.iter() {
             match (candidate.kind(), candidate.status()) {
                 (RegionOperationKind::SplitFaceWithEdge, CandidateStatus::Accepted) => {
@@ -120,6 +158,20 @@ impl SideSupportRegionPlanSelection {
                     }
                 }
                 (
+                    RegionOperationKind::OutsideOutsideSupportContinuation,
+                    CandidateStatus::Accepted,
+                ) => {
+                    if candidate.endpoints().outside_outside_membership().is_some() {
+                        outside_outside_candidates_by_support
+                            .entry(candidate.endpoints().support_face())
+                            .or_default()
+                            .push(candidate);
+                        selected_unexecutable_outside_outside = true;
+                    } else {
+                        saw_unknown_endpoint = true;
+                    }
+                }
+                (
                     _,
                     CandidateStatus::Rejected {
                         reason: CandidateRejection::EndpointMembershipUnknown,
@@ -131,12 +183,6 @@ impl SideSupportRegionPlanSelection {
                         reason: CandidateRejection::EndpointMembershipAmbiguous,
                     },
                 ) => saw_ambiguous_endpoint = true,
-                (
-                    _,
-                    CandidateStatus::Rejected {
-                        reason: CandidateRejection::UnsupportedOutsideOutsideSupportContinuation,
-                    },
-                ) => saw_unsupported_outside_outside_continuation = true,
                 _ => {}
             }
         }
@@ -151,12 +197,20 @@ impl SideSupportRegionPlanSelection {
                 }
             }
         }
+        for (support_face, outside_outside_candidates) in outside_outside_candidates_by_support {
+            operations.push(PlannedTopologyOperation::OutsideOutsideSupportContinuation(
+                OutsideOutsideSupportContinuationPlan::from_candidates(
+                    support_face,
+                    &outside_outside_candidates,
+                ),
+            ));
+        }
         if !operations.is_empty()
             && !saw_unknown_endpoint
             && !saw_ambiguous_endpoint
-            && !saw_unsupported_outside_outside_continuation
             && !saw_unsupported_bridge_region
             && !selected_unexecutable_bridge
+            && !selected_unexecutable_outside_outside
         {
             return SideSupportRegionPlanSelection::Selected(SelectedSideSupportRegionPlan::new(
                 operations,
@@ -165,7 +219,21 @@ impl SideSupportRegionPlanSelection {
         if !operations.is_empty()
             && !saw_unknown_endpoint
             && !saw_ambiguous_endpoint
-            && !saw_unsupported_outside_outside_continuation
+            && !saw_unsupported_bridge_region
+            && selected_unexecutable_outside_outside
+        {
+            return SideSupportRegionPlanSelection::Blocked(
+                SelectedSideSupportRegionPlan::new(operations),
+                SideSupportRegionRefusal {
+                    stage: PlannerStage::SelectPlan,
+                    reason:
+                        SideSupportRegionRefusalReason::MissingValidatedOutsideOutsideSupportContinuationPrimitive,
+                },
+            );
+        }
+        if !operations.is_empty()
+            && !saw_unknown_endpoint
+            && !saw_ambiguous_endpoint
             && !saw_unsupported_bridge_region
             && selected_unexecutable_bridge
         {
@@ -182,8 +250,6 @@ impl SideSupportRegionPlanSelection {
             SideSupportRegionRefusalReason::UnknownEndpointMembership
         } else if saw_ambiguous_endpoint {
             SideSupportRegionRefusalReason::AmbiguousEndpointMembership
-        } else if saw_unsupported_outside_outside_continuation {
-            SideSupportRegionRefusalReason::UnsupportedOutsideOutsideSupportContinuation
         } else if saw_unsupported_bridge_region {
             SideSupportRegionRefusalReason::UnsupportedBridgeTrimCount
         } else {
@@ -267,13 +333,16 @@ impl SelectedSideSupportRegionPlan {
 impl PlannedTopologyOperation {
     fn expected_delta(&self) -> ExpectedTopologyDelta {
         match self {
-            PlannedTopologyOperation::SplitFaceWithEdge { .. } => ExpectedTopologyDelta {
+            PlannedTopologyOperation::SplitFaceWithEdge { .. } => ExpectedTopologyDelta::Known {
                 vertices: 0,
                 edges: 1,
                 faces: 1,
                 loops: 1,
             },
-            PlannedTopologyOperation::BridgeSupportRegion(plan) => plan.expected_delta,
+            PlannedTopologyOperation::BridgeSupportRegion(plan) => plan.expected_delta.clone(),
+            PlannedTopologyOperation::OutsideOutsideSupportContinuation(plan) => {
+                plan.expected_delta.clone()
+            }
         }
     }
 
@@ -283,6 +352,9 @@ impl PlannedTopologyOperation {
                 format!("FilletEnd[{fillet_index}] split-face-with-edge")
             }
             PlannedTopologyOperation::BridgeSupportRegion(plan) => plan.diagnostic_label(),
+            PlannedTopologyOperation::OutsideOutsideSupportContinuation(plan) => {
+                plan.diagnostic_label()
+            }
         }
     }
 }
@@ -313,7 +385,7 @@ impl BridgeSupportRegionPlan {
                 end: candidate.endpoints().end(),
             });
         }
-        let expected_delta = ExpectedTopologyDelta {
+        let expected_delta = ExpectedTopologyDelta::Known {
             vertices: 0,
             edges: trims.len() as i64,
             faces: trims.len() as i64,
@@ -352,6 +424,120 @@ impl BridgeSupportRegionPlan {
 
     pub(super) fn trims(&self) -> &[BridgeSupportTrimPlan] {
         &self.trims
+    }
+}
+
+impl OutsideOutsideSupportContinuationPlan {
+    fn from_candidates(support_face: FaceHandle, candidates: &[&RegionOperationCandidate]) -> Self {
+        let trims = candidates
+            .iter()
+            .filter_map(|candidate| {
+                let membership = candidate.endpoints().outside_outside_membership()?;
+                Some(OutsideOutsideSupportTrimPlan {
+                    fillet_index: candidate.fillet_index(),
+                    cylinder_face: membership.cylinder_face(),
+                    support_face: membership.support_face(),
+                    start_face: membership.start_face(),
+                    start_loop: membership.start_loop(),
+                    start_half_edge: membership.start_half_edge(),
+                    end_face: membership.end_face(),
+                    end_loop: membership.end_loop(),
+                    end_half_edge: membership.end_half_edge(),
+                    start: candidate.endpoints().start(),
+                    end: candidate.endpoints().end(),
+                })
+            })
+            .collect::<Vec<_>>();
+        Self {
+            support_face,
+            trims,
+            expected_delta: ExpectedTopologyDelta::Unknown {
+                reason: "outside-outside-support-continuation-operator-required",
+            },
+            preconditions: OutsideOutsideSupportPreconditions {
+                both_endpoints_outside_support_family: true,
+                endpoint_membership_known: true,
+                support_owner_is_unique: true,
+                topology_operator_required: true,
+            },
+        }
+    }
+
+    fn diagnostic_label(&self) -> String {
+        format!(
+            "outside-outside-support-continuation support={:?} trims=[{}] delta={} preconditions={}",
+            self.support_face,
+            self.trims
+                .iter()
+                .map(OutsideOutsideSupportTrimPlan::diagnostic_label)
+                .collect::<Vec<_>>()
+                .join("; "),
+            self.expected_delta.diagnostic_label(),
+            self.preconditions.diagnostic_label()
+        )
+    }
+
+    pub(super) fn support_face(&self) -> FaceHandle {
+        self.support_face
+    }
+
+    pub(super) fn trims(&self) -> &[OutsideOutsideSupportTrimPlan] {
+        &self.trims
+    }
+}
+
+impl OutsideOutsideSupportTrimPlan {
+    pub(super) fn support_face(&self) -> FaceHandle {
+        self.support_face
+    }
+
+    pub(super) fn start_face(&self) -> FaceHandle {
+        self.start_face
+    }
+
+    pub(super) fn start_loop(&self) -> LoopHandle {
+        self.start_loop
+    }
+
+    pub(super) fn start_half_edge(&self) -> HalfEdgeHandle {
+        self.start_half_edge
+    }
+
+    pub(super) fn end_face(&self) -> FaceHandle {
+        self.end_face
+    }
+
+    pub(super) fn end_loop(&self) -> LoopHandle {
+        self.end_loop
+    }
+
+    pub(super) fn end_half_edge(&self) -> HalfEdgeHandle {
+        self.end_half_edge
+    }
+
+    pub(super) fn start(&self) -> VertexHandle {
+        self.start
+    }
+
+    pub(super) fn end(&self) -> VertexHandle {
+        self.end
+    }
+
+    fn diagnostic_label(&self) -> String {
+        format!(
+            "FilletEnd[{}] cylinder={:?} support={:?} start={:?}/{:?}@{:?} end={:?}/{:?}@{:?} {:?}->{:?}",
+            self.fillet_index,
+            self.cylinder_face,
+            self.support_face,
+            self.start_face,
+            self.start_loop,
+            self.start_half_edge,
+            self.end_face,
+            self.end_loop,
+            self.end_half_edge,
+            self.start,
+            self.end
+        )
     }
 }
 
@@ -410,7 +596,7 @@ impl BridgeSupportTrimPlan {
 
 impl ExpectedTopologyDelta {
     fn zero() -> Self {
-        Self {
+        Self::Known {
             vertices: 0,
             edges: 0,
             faces: 0,
@@ -419,19 +605,44 @@ impl ExpectedTopologyDelta {
     }
 
     fn plus(self, other: Self) -> Self {
-        Self {
-            vertices: self.vertices + other.vertices,
-            edges: self.edges + other.edges,
-            faces: self.faces + other.faces,
-            loops: self.loops + other.loops,
+        match (self, other) {
+            (
+                Self::Known {
+                    vertices,
+                    edges,
+                    faces,
+                    loops,
+                },
+                Self::Known {
+                    vertices: other_vertices,
+                    edges: other_edges,
+                    faces: other_faces,
+                    loops: other_loops,
+                },
+            ) => Self::Known {
+                vertices: vertices + other_vertices,
+                edges: edges + other_edges,
+                faces: faces + other_faces,
+                loops: loops + other_loops,
+            },
+            (Self::Unknown { reason }, _) | (_, Self::Unknown { reason }) => {
+                Self::Unknown { reason }
+            }
         }
     }
 
     fn diagnostic_label(&self) -> String {
-        format!(
-            "dV={} dE={} dF={} dL={}",
-            self.vertices, self.edges, self.faces, self.loops
-        )
+        match self {
+            Self::Known {
+                vertices,
+                edges,
+                faces,
+                loops,
+            } => {
+                format!("dV={vertices} dE={edges} dF={faces} dL={loops}")
+            }
+            Self::Unknown { reason } => format!("unknown reason={reason}"),
+        }
     }
 }
 
@@ -443,6 +654,18 @@ impl BridgeSupportRegionPreconditions {
             self.other_endpoint_has_known_membership,
             self.support_owner_is_unique,
             self.face_family_bridge_operands_known
+        )
+    }
+}
+
+impl OutsideOutsideSupportPreconditions {
+    fn diagnostic_label(&self) -> String {
+        format!(
+            "both_endpoints_outside_support_family={} endpoint_membership_known={} unique_support_owner={} topology_operator_required={}",
+            self.both_endpoints_outside_support_family,
+            self.endpoint_membership_known,
+            self.support_owner_is_unique,
+            self.topology_operator_required
         )
     }
 }

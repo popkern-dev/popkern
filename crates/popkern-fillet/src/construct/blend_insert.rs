@@ -448,7 +448,7 @@ pub(crate) fn kev_v_bridge(brep: &mut BRep, vertex: VertexHandle) -> Result<(), 
         && brep.half_edges[he_in].prev == he_out
         && brep.half_edges[he_out].prev == he_in;
     match brep.kev(he_in) {
-        Ok(_) => return Ok(()),
+        Ok(_) => Ok(()),
         Err(_) if same_loop && !is_only_edge => {
             brep.dissolve_same_loop_bridge(he_in)
                 .map_err(|e| format!("same-loop bridge dissolve failed on V-bridge: {e}"))?;

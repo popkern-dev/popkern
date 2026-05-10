@@ -18,6 +18,7 @@ pub(super) enum RegionOperationKind {
     SplitFaceWithEdge,
     BridgeSupportRegion,
     MergeAdjacentSupportRegion,
+    OutsideOutsideSupportContinuation,
 }
 
 #[derive(Clone, Debug)]
@@ -41,7 +42,6 @@ pub(super) enum CandidateRejection {
     EndpointsNotInOneSupportLoop,
     EndpointMembershipUnknown,
     EndpointMembershipAmbiguous,
-    UnsupportedOutsideOutsideSupportContinuation,
 }
 
 #[derive(Clone, Debug)]
@@ -106,21 +106,9 @@ impl CandidateSetSnapshot {
                     });
                     candidates.push(RegionOperationCandidate {
                         fillet_index: pair.fillet_index(),
-                        kind: RegionOperationKind::BridgeSupportRegion,
+                        kind: RegionOperationKind::OutsideOutsideSupportContinuation,
                         endpoints: RegionCandidateEndpoints::from_pair(pair),
-                        status: CandidateStatus::Rejected {
-                            reason:
-                                CandidateRejection::UnsupportedOutsideOutsideSupportContinuation,
-                        },
-                    });
-                    candidates.push(RegionOperationCandidate {
-                        fillet_index: pair.fillet_index(),
-                        kind: RegionOperationKind::MergeAdjacentSupportRegion,
-                        endpoints: RegionCandidateEndpoints::from_pair(pair),
-                        status: CandidateStatus::Rejected {
-                            reason:
-                                CandidateRejection::UnsupportedOutsideOutsideSupportContinuation,
-                        },
+                        status: CandidateStatus::Accepted,
                     });
                 }
                 _ => {
@@ -212,6 +200,9 @@ impl RegionOperationKind {
             RegionOperationKind::SplitFaceWithEdge => "split-face-with-edge",
             RegionOperationKind::BridgeSupportRegion => "bridge-support-region",
             RegionOperationKind::MergeAdjacentSupportRegion => "merge-adjacent-support-region",
+            RegionOperationKind::OutsideOutsideSupportContinuation => {
+                "outside-outside-support-continuation"
+            }
         }
     }
 }
@@ -235,9 +226,6 @@ impl CandidateRejection {
             CandidateRejection::EndpointMembershipAmbiguous => {
                 "rejected:endpoint-membership-ambiguous"
             }
-            CandidateRejection::UnsupportedOutsideOutsideSupportContinuation => {
-                "rejected:unsupported-outside-outside-support-continuation"
-            }
         }
     }
 }
@@ -249,6 +237,51 @@ pub(super) struct BridgeLoopMembership {
     outside_face: FaceHandle,
     outside_loop: LoopHandle,
     outside_half_edge: HalfEdgeHandle,
+}
+
+pub(super) struct OutsideOutsideMembership {
+    cylinder_face: FaceHandle,
+    support_face: FaceHandle,
+    start_face: FaceHandle,
+    start_loop: LoopHandle,
+    start_half_edge: HalfEdgeHandle,
+    end_face: FaceHandle,
+    end_loop: LoopHandle,
+    end_half_edge: HalfEdgeHandle,
+}
+
+impl OutsideOutsideMembership {
+    pub(super) fn cylinder_face(&self) -> FaceHandle {
+        self.cylinder_face
+    }
+
+    pub(super) fn support_face(&self) -> FaceHandle {
+        self.support_face
+    }
+
+    pub(super) fn start_face(&self) -> FaceHandle {
+        self.start_face
+    }
+
+    pub(super) fn start_loop(&self) -> LoopHandle {
+        self.start_loop
+    }
+
+    pub(super) fn start_half_edge(&self) -> HalfEdgeHandle {
+        self.start_half_edge
+    }
+
+    pub(super) fn end_face(&self) -> FaceHandle {
+        self.end_face
+    }
+
+    pub(super) fn end_loop(&self) -> LoopHandle {
+        self.end_loop
+    }
+
+    pub(super) fn end_half_edge(&self) -> HalfEdgeHandle {
+        self.end_half_edge
+    }
 }
 
 impl BridgeLoopMembership {
@@ -328,6 +361,33 @@ impl RegionCandidateEndpoints {
                 outside_face: *outside_face,
                 outside_loop: *outside_loop,
                 outside_half_edge: *outside_half_edge,
+            }),
+            _ => None,
+        }
+    }
+
+    pub(super) fn outside_outside_membership(&self) -> Option<OutsideOutsideMembership> {
+        match (&self.start_membership, &self.end_membership) {
+            (
+                EndpointRegionMembership::OutsideSupportFamily {
+                    face: start_face,
+                    loop_handle: start_loop,
+                    half_edge: start_half_edge,
+                },
+                EndpointRegionMembership::OutsideSupportFamily {
+                    face: end_face,
+                    loop_handle: end_loop,
+                    half_edge: end_half_edge,
+                },
+            ) => Some(OutsideOutsideMembership {
+                cylinder_face: self.cylinder_face,
+                support_face: self.support_face,
+                start_face: *start_face,
+                start_loop: *start_loop,
+                start_half_edge: *start_half_edge,
+                end_face: *end_face,
+                end_loop: *end_loop,
+                end_half_edge: *end_half_edge,
             }),
             _ => None,
         }

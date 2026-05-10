@@ -3,8 +3,9 @@
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
 use super::repeated_apex_side_support_plan::{
-    BridgeSupportRegionPlan, BridgeSupportTrimPlan, PlannedTopologyOperation,
-    SelectedSideSupportRegionPlan, SideSupportRegionPlanSelection,
+    BridgeSupportRegionPlan, BridgeSupportTrimPlan, OutsideOutsideSupportContinuationPlan,
+    OutsideOutsideSupportTrimPlan, PlannedTopologyOperation, SelectedSideSupportRegionPlan,
+    SideSupportRegionPlanSelection,
 };
 
 #[derive(Clone, Debug)]
@@ -99,6 +100,9 @@ impl PlannedTopologyOperation {
             PlannedTopologyOperation::BridgeSupportRegion(plan) => {
                 plan.validate_live_operands(brep)
             }
+            PlannedTopologyOperation::OutsideOutsideSupportContinuation(plan) => {
+                plan.validate_live_operands(brep)
+            }
         }
     }
 }
@@ -115,6 +119,105 @@ impl BridgeSupportRegionPlan {
         }
         for trim in self.trims() {
             trim.validate_live_operands(brep)?;
+        }
+        Ok(())
+    }
+}
+
+impl OutsideOutsideSupportContinuationPlan {
+    fn validate_live_operands(
+        &self,
+        brep: &BRep,
+    ) -> Result<(), SideSupportRegionLivePreconditionFailure> {
+        if !brep.faces.contains_key(self.support_face()) {
+            return Err(SideSupportRegionLivePreconditionFailure::MissingFace(
+                self.support_face(),
+            ));
+        }
+        for trim in self.trims() {
+            trim.validate_live_operands(brep)?;
+        }
+        Ok(())
+    }
+}
+
+impl OutsideOutsideSupportTrimPlan {
+    fn validate_live_operands(
+        &self,
+        brep: &BRep,
+    ) -> Result<(), SideSupportRegionLivePreconditionFailure> {
+        if !brep.faces.contains_key(self.support_face()) {
+            return Err(SideSupportRegionLivePreconditionFailure::MissingFace(
+                self.support_face(),
+            ));
+        }
+        if !brep.faces.contains_key(self.start_face()) {
+            return Err(SideSupportRegionLivePreconditionFailure::MissingFace(
+                self.start_face(),
+            ));
+        }
+        if !brep.loops.contains_key(self.start_loop()) {
+            return Err(SideSupportRegionLivePreconditionFailure::MissingLoop(
+                self.start_loop(),
+            ));
+        }
+        let Some(start_half_edge) = brep.half_edges.get(self.start_half_edge()) else {
+            return Err(SideSupportRegionLivePreconditionFailure::MissingHalfEdge(
+                self.start_half_edge(),
+            ));
+        };
+        if start_half_edge.loop_ != self.start_loop() {
+            return Err(
+                SideSupportRegionLivePreconditionFailure::HalfEdgeLoopMismatch {
+                    half_edge: self.start_half_edge(),
+                    expected_loop: self.start_loop(),
+                    actual_loop: start_half_edge.loop_,
+                },
+            );
+        }
+        if !brep.faces.contains_key(self.end_face()) {
+            return Err(SideSupportRegionLivePreconditionFailure::MissingFace(
+                self.end_face(),
+            ));
+        }
+        if !brep.loops.contains_key(self.end_loop()) {
+            return Err(SideSupportRegionLivePreconditionFailure::MissingLoop(
+                self.end_loop(),
+            ));
+        }
+        let Some(end_half_edge) = brep.half_edges.get(self.end_half_edge()) else {
+            return Err(SideSupportRegionLivePreconditionFailure::MissingHalfEdge(
+                self.end_half_edge(),
+            ));
+        };
+        if end_half_edge.loop_ != self.end_loop() {
+            return Err(
+                SideSupportRegionLivePreconditionFailure::HalfEdgeLoopMismatch {
+                    half_edge: self.end_half_edge(),
+                    expected_loop: self.end_loop(),
+                    actual_loop: end_half_edge.loop_,
+                },
+            );
+        }
+        if !brep.vertices.contains_key(self.start()) {
+            return Err(SideSupportRegionLivePreconditionFailure::MissingVertex(
+                self.start(),
+            ));
+        }
+        if !brep.vertices.contains_key(self.end()) {
+            return Err(SideSupportRegionLivePreconditionFailure::MissingVertex(
+                self.end(),
+            ));
+        }
+        if start_half_edge.origin != self.start() || end_half_edge.origin != self.end() {
+            return Err(
+                SideSupportRegionLivePreconditionFailure::EndpointHalfEdgeMismatch {
+                    support_half_edge: self.start_half_edge(),
+                    outside_half_edge: self.end_half_edge(),
+                    start: self.start(),
+                    end: self.end(),
+                },
+            );
         }
         Ok(())
     }
