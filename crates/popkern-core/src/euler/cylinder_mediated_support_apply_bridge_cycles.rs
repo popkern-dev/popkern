@@ -15,6 +15,10 @@ pub(super) struct SegmentBridgeCycleOperandSet {
 }
 
 impl SegmentBridgeCycleOperandSet {
+    pub(super) fn segment_count(&self) -> usize {
+        self.operands.len()
+    }
+
     pub(super) fn ownership_status(&self) -> SegmentBridgeCycleOwnershipStatus {
         if self
             .operands

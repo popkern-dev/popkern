@@ -180,8 +180,12 @@ impl BRep {
             }
         };
         Err(CoreError::PreconditionFailed(format!(
-            "{bridge_refusal}: expected_delta={} {} {} {}",
+            "{bridge_refusal}: expected_delta={} authored_delta={} {} {} {}",
             plan.expected_delta.diagnostic_label(),
+            authored_delta_label(
+                repair_result.0.exposed_spans,
+                repair_result.1.segment_count()
+            ),
             segment_authoring_summary(&segment_authoring),
             repair_result.0.diagnostic_label(),
             repair_result.1.diagnostic_label()
@@ -419,4 +423,13 @@ fn require_non_empty_partition(
         ));
     }
     Ok(())
+}
+
+fn authored_delta_label(owner_repair_spans: usize, bridge_segments: usize) -> String {
+    format!(
+        "dV=0 dE={} dF={} dL={}",
+        owner_repair_spans + bridge_segments * 2,
+        bridge_segments,
+        bridge_segments
+    )
 }

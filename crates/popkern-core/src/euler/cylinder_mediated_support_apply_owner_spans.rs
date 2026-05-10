@@ -9,7 +9,7 @@ use super::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct OwnerRepairExposureResult {
-    exposed_spans: usize,
+    pub(super) exposed_spans: usize,
     exposed_half_edges: usize,
 }
 
