@@ -6,8 +6,7 @@ use super::{
     ConstructionCandidateDraft, ConstructionFamily, ConstructionFeasibility,
     ConstructionRequirement, DiagnosticHandle, DiagnosticOperationId, DiagnosticOperatorFamily,
     DiagnosticResourceKind, DiagnosticTopologyDelta, OperatorReadinessStatus, ResourceConflictId,
-    ResourceConflictKind, TopologyDiagnosticGraph, ValidityRepairFact, ValidityRepairReadiness,
-    ValidityRepairStatus, geometry,
+    ResourceConflictKind, TopologyDiagnosticGraph, geometry, validity,
 };
 use crate::euler::BridgeDiagnosticRequest;
 use crate::topology::BRep;
@@ -45,50 +44,17 @@ pub(super) fn classify_construction_candidates(
                         geometry::geometry_facts_for_candidate(brep, operation, family)
                     })
                     .unwrap_or_default(),
-                validity_repair_facts: validity_repair_facts_for_candidate(feasibility),
+                validity_repair_facts: request
+                    .operations
+                    .get(readiness.operation.0)
+                    .map(|operation| {
+                        validity::validity_repair_facts_for_candidate(brep, operation, feasibility)
+                    })
+                    .unwrap_or_default(),
             });
         }
     }
     graph
-}
-
-fn validity_repair_facts_for_candidate(
-    feasibility: ConstructionFeasibility,
-) -> Vec<ValidityRepairFact> {
-    let (readiness, reason, status) = match feasibility {
-        ConstructionFeasibility::ExecutableByExistingOperator
-        | ConstructionFeasibility::ExecutableAfterKnownNormalization
-        | ConstructionFeasibility::RequiresSeparatorSubcomplex
-        | ConstructionFeasibility::RequiresCustomAggregateAuthoring
-        | ConstructionFeasibility::RequiresCycleRegrouping => (
-            ValidityRepairReadiness::ValidAsInput,
-            "bridge-candidate-validity-assumed-from-preflight",
-            ValidityRepairStatus::NoRepairRequired,
-        ),
-        ConstructionFeasibility::InvalidNonManifold => (
-            ValidityRepairReadiness::RequiresTopologyRepair,
-            "bridge-candidate-invalid-non-manifold-requires-topology-repair",
-            ValidityRepairStatus::RepairRequired,
-        ),
-        ConstructionFeasibility::UnsupportedUnknownFamily | ConstructionFeasibility::Unknown => (
-            ValidityRepairReadiness::Unknown,
-            "bridge-candidate-validity-repair-not-classified",
-            ValidityRepairStatus::Unknown,
-        ),
-    };
-    vec![ValidityRepairFact {
-        readiness,
-        reason,
-        status,
-        changes_semantic_ownership: matches!(
-            readiness,
-            ValidityRepairReadiness::RejectedDesignIntentChangingRepair
-        ),
-        changes_user_visible_intent: matches!(
-            readiness,
-            ValidityRepairReadiness::RejectedDesignIntentChangingRepair
-        ),
-    }]
 }
 
 fn candidate_for_readiness(
@@ -103,11 +69,25 @@ fn candidate_for_readiness(
             ConstructionFeasibility::ExecutableByExistingOperator,
             "face-family-bridge-existing-operator-ready",
         )),
+        (DiagnosticOperatorFamily::FaceFamilyBridge, OperatorReadinessStatus::InvalidInput) => {
+            Some((
+                ConstructionFamily::DisjointCrossLoopBridge,
+                ConstructionFeasibility::InvalidNonManifold,
+                "face-family-bridge-input-shape-invalid",
+            ))
+        }
         (DiagnosticOperatorFamily::SameLoopFaceBridge, OperatorReadinessStatus::Ready) => Some((
             ConstructionFamily::DisjointSameLoopBridge,
             ConstructionFeasibility::ExecutableByExistingOperator,
             "same-loop-face-bridge-existing-operator-ready",
         )),
+        (DiagnosticOperatorFamily::SameLoopFaceBridge, OperatorReadinessStatus::InvalidInput) => {
+            Some((
+                ConstructionFamily::DisjointSameLoopBridge,
+                ConstructionFeasibility::InvalidNonManifold,
+                "same-loop-face-bridge-input-shape-invalid",
+            ))
+        }
         (
             DiagnosticOperatorFamily::SameLoopBoundaryExposure,
             OperatorReadinessStatus::ReadyAfterNormalization,

@@ -1,9 +1,5 @@
 //! Read-only bridge resource diagnostics.
 //!
-//! This module starts as a narrow scaffold for bridge-cycle diagnostics. It
-//! intentionally does not walk intervals, classify conflicts, or authorize
-//! mutation yet.
-
 use crate::error::CoreError;
 use crate::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
@@ -25,6 +21,8 @@ mod postconditions;
 mod readiness;
 #[path = "bridge_diagnostics_summary.rs"]
 mod summary;
+#[path = "bridge_diagnostics_validity.rs"]
+mod validity;
 
 use candidate_types::ConstructionCandidateDraft;
 pub use candidate_types::{

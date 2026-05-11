@@ -83,6 +83,41 @@ fn candidates_report_short_bridge_span_as_geometry_repair_required() {
         })
     }));
     assert_eq!(report.summary.geometry_repair_required_facts, 1);
+    assert_eq!(report.summary.requires_geometry_repair_facts, 1);
+}
+
+#[test]
+fn candidates_report_invalid_interval_as_topology_repair_readiness() {
+    let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
+    let loop_ = brep.loops.keys().next().expect("cube has a loop");
+    let first = brep.loops[loop_].half_edge;
+    let stale = HalfEdgeHandle::default();
+
+    let report = brep
+        .bridge_diagnostic_report(BridgeDiagnosticRequest {
+            operations: vec![BridgeDiagnosticOperationRequest {
+                purpose: DiagnosticOperationPurpose::BridgeCycle,
+                first_loop: loop_,
+                first_interval: vec![first, stale],
+                second_loop: loop_,
+                second_interval: vec![first, stale],
+            }],
+        })
+        .expect("invalid shape still produces diagnostics");
+
+    assert!(report.graph.candidates.iter().any(|candidate| {
+        candidate.feasibility == ConstructionFeasibility::InvalidNonManifold
+            && candidate.validity_repair_facts.iter().any(|fact| {
+                fact.readiness == ValidityRepairReadiness::RequiresTopologyRepair
+                    && fact.status == ValidityRepairStatus::RepairRequired
+                    && fact.reason == "bridge-interval-wire-connectivity-invalid"
+                    && !fact.changes_semantic_ownership
+                    && !fact.changes_user_visible_intent
+            })
+    }));
+    assert_eq!(report.summary.invalid_non_manifold_candidates, 1);
+    assert_eq!(report.summary.requires_topology_repair_facts, 1);
+    assert_eq!(report.summary.repair_required_facts, 1);
 }
 
 #[test]
