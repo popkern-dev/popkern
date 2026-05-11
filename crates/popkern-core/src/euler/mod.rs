@@ -2,6 +2,7 @@
 //!
 //! Each operator maintains the Euler-Poincaré invariant by construction.
 
+mod bridge_diagnostics;
 mod construction_residual_retire;
 mod contract;
 mod cylinder_mediated_support;
@@ -23,6 +24,15 @@ mod same_loop_boundary_exposure;
 mod same_loop_bridge_dissolve;
 mod same_loop_face_bridge;
 mod sweep;
+pub use bridge_diagnostics::{
+    BridgeDiagnosticOperationRequest, BridgeDiagnosticReport, BridgeDiagnosticRequest,
+    BridgeDiagnosticSummary, DiagnosticHandle, DiagnosticOperation, DiagnosticOperationId,
+    DiagnosticOperationKind, DiagnosticOperationPurpose, DiagnosticOperatorFamily, DiagnosticOwner,
+    DiagnosticResource, DiagnosticResourceId, DiagnosticResourceKind, DiagnosticResourceStatus,
+    OperatorReadiness, OperatorReadinessStatus, PostconditionPrediction, ResourceConflict,
+    ResourceConflictId, ResourceConflictKind, ResourceConflictStatus, TopologyDiagnosticGraph,
+    TopologyGraphFingerprint,
+};
 pub use construction_residual_retire::ConstructionResidualRetireResult;
 pub use cylinder_mediated_support::{
     CylinderMediatedOutsideIntervalInteraction, CylinderMediatedSupportContinuationAggregateDelta,
