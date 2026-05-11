@@ -31,7 +31,9 @@ use apply_cylinder_resources::{
     BridgeResourceReconciliationStatus, CylinderBridgeResourcePartition,
     derive_cylinder_bridge_resource_partition,
 };
-use apply_diagnostics::segment_authoring_summary;
+use apply_diagnostics::{
+    authored_delta_label, segment_authoring_summary, topology_delta_gap_label,
+};
 use apply_owner_spans::{expose_owner_repair_spans, owner_repair_spans};
 
 #[cfg(test)]
@@ -202,9 +204,14 @@ impl BRep {
         let bridge_refusal =
             bridge_refusal_reason(repair_result.3.ownership_status(), repair_result.4.status());
         Err(CoreError::PreconditionFailed(format!(
-            "{bridge_refusal}: expected_delta={} authored_delta={} {} {} {} {} {} {} {}",
+            "{bridge_refusal}: expected_delta={} authored_delta={} {} {} {} {} {} {} {} {}",
             plan.expected_delta.diagnostic_label(),
             authored_delta_label(
+                repair_result.0.exposed_spans,
+                repair_result.3.segment_count()
+            ),
+            topology_delta_gap_label(
+                &plan.expected_delta,
                 repair_result.0.exposed_spans,
                 repair_result.3.segment_count()
             ),
@@ -477,13 +484,4 @@ fn require_non_empty_partition(
         ));
     }
     Ok(())
-}
-
-fn authored_delta_label(owner_repair_spans: usize, bridge_segments: usize) -> String {
-    format!(
-        "dV=0 dE={} dF={} dL={}",
-        owner_repair_spans + bridge_segments * 2,
-        bridge_segments,
-        bridge_segments
-    )
 }

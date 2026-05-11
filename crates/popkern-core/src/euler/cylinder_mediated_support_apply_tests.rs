@@ -32,6 +32,10 @@ fn mutator_boundary_refuses_without_mutating_topology() {
         detail.contains("authored_delta=dV=0 dE=8 dF=3 dL=3"),
         "{err}"
     );
+    assert!(
+        detail.contains("topology_delta_gap=dV=0 dE=2 dF=0 dL=0"),
+        "{err}"
+    );
     assert!(detail.contains("boundary_compatible=1"), "{err}");
     assert!(
         detail.contains("owned_reclassification_segments=2"),
