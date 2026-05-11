@@ -22,7 +22,9 @@ fn mutator_boundary_refuses_without_mutating_topology() {
 
     let detail = err.to_string();
     assert!(
-        detail.contains("cylinder-mediated support continuation bridge resources are incompatible"),
+        detail.contains(
+            "cylinder-mediated support continuation split cylinder resource merge construction not implemented"
+        ),
         "{err}"
     );
     assert!(detail.contains("segment_authoring=segments=3"), "{err}");
@@ -89,7 +91,7 @@ fn mutator_boundary_refuses_without_mutating_topology() {
         detail.contains(
             "bridge_resource_reconciliation=outside_segments=3 cylinder_segments=4 \
              exact_matches=2 missing_cylinder_matches=1 extra_cylinder_resources=2 \
-             duplicate_cylinder_request_sets=2 resource_status=incompatible-resource-sets \
+             duplicate_cylinder_request_sets=2 resource_status=split-cylinder-resources-need-merge \
              construction_actions=exact_pair:2 shared_outside:1 single_covered:0 \
              unsupported:0 \
              action_sequence=[0:exact:0:0,1:shared-outside:-:0+1,2:exact:1:1] \

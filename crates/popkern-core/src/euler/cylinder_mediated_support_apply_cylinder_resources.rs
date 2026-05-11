@@ -27,12 +27,17 @@ impl BridgeResourceReconciliation {
             .actions
             .iter()
             .any(|action| action.kind == BridgeResourceConstructionActionKind::Unsupported)
-            || self.extra_cylinder_resources > 0
         {
             return BridgeResourceReconciliationStatus::IncompatibleResourceSets;
         }
         if self.missing_request_sets.is_empty() && self.extra_cylinder_resources == 0 {
             return BridgeResourceReconciliationStatus::ExactResourcePairing;
+        }
+        if self.has_split_cylinder_resource_transition() {
+            return BridgeResourceReconciliationStatus::SplitCylinderResourcesNeedMerge;
+        }
+        if self.extra_cylinder_resources > 0 {
+            return BridgeResourceReconciliationStatus::IncompatibleResourceSets;
         }
         if self.actions.iter().any(|action| {
             action.kind == BridgeResourceConstructionActionKind::SharedOutsideTransition
@@ -63,6 +68,14 @@ impl BridgeResourceReconciliation {
         BridgeResourceReconciliationStatus::IncompatibleResourceSets
     }
 
+    fn has_split_cylinder_resource_transition(&self) -> bool {
+        duplicate_request_set_count(&self.cylinder_request_sets) > 0
+            && !self.missing_request_sets.is_empty()
+            && self.missing_request_sets.iter().all(|missing| {
+                cylinder_request_sets_cover_missing_set(missing, &self.cylinder_request_sets)
+            })
+    }
+
     pub(super) fn diagnostic_label(&self) -> String {
         format!(
             "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={} duplicate_cylinder_request_sets={} resource_status={} construction_actions={} action_sequence=[{}] outside_request_sets=[{}] cylinder_request_sets=[{}] missing_request_sets=[{}]",
@@ -87,6 +100,7 @@ pub(super) enum BridgeResourceReconciliationStatus {
     ExactResourcePairing,
     SharedOutsideTransitionNeedsResource,
     SingleSupportCoveredBySharedCylinderResource,
+    SplitCylinderResourcesNeedMerge,
     IncompatibleResourceSets,
 }
 
@@ -100,6 +114,7 @@ impl BridgeResourceReconciliationStatus {
             Self::SingleSupportCoveredBySharedCylinderResource => {
                 "single-support-covered-by-shared-cylinder-resource"
             }
+            Self::SplitCylinderResourcesNeedMerge => "split-cylinder-resources-need-merge",
             Self::IncompatibleResourceSets => "incompatible-resource-sets",
         }
     }
@@ -455,6 +470,21 @@ fn duplicate_request_set_count(request_sets: &[Vec<usize>]) -> usize {
         *counts.entry(request_set).or_default() += 1;
     }
     counts.values().filter(|&&count| count > 1).count()
+}
+
+fn cylinder_request_sets_cover_missing_set(
+    missing: &[usize],
+    cylinder_sets: &[Vec<usize>],
+) -> bool {
+    let covered = cylinder_sets
+        .iter()
+        .filter(|set| {
+            set.iter().all(|index| missing.contains(index))
+                || missing.iter().all(|index| set.contains(index))
+        })
+        .flat_map(|set| set.iter().copied())
+        .collect::<BTreeSet<_>>();
+    missing.iter().all(|index| covered.contains(index))
 }
 
 fn request_set_label(set: &[usize]) -> String {

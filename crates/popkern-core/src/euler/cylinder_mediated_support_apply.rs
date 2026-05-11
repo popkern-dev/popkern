@@ -440,6 +440,9 @@ fn bridge_refusal_reason(
         BridgeResourceReconciliationStatus::SingleSupportCoveredBySharedCylinderResource => {
             "cylinder-mediated support continuation shared cylinder resource bridge construction not implemented"
         }
+        BridgeResourceReconciliationStatus::SplitCylinderResourcesNeedMerge => {
+            "cylinder-mediated support continuation split cylinder resource merge construction not implemented"
+        }
         BridgeResourceReconciliationStatus::IncompatibleResourceSets => {
             "cylinder-mediated support continuation bridge resources are incompatible"
         }
