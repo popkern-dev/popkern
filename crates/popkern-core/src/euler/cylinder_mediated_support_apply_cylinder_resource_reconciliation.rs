@@ -77,7 +77,7 @@ impl BridgeResourceReconciliation {
 
     pub(in crate::euler::cylinder_mediated_support_apply) fn diagnostic_label(&self) -> String {
         format!(
-            "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={} duplicate_cylinder_request_sets={} resource_status={} construction_actions={} action_sequence=[{}] outside_request_sets=[{}] cylinder_request_sets=[{}] missing_request_sets=[{}]",
+            "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={} duplicate_cylinder_request_sets={} resource_status={} construction_actions={} action_sequence=[{}] outside_request_sets=[{}] cylinder_request_sets=[{}] missing_request_sets=[{}] {}",
             self.outside_segments,
             self.cylinder_segments,
             self.exact_matches,
@@ -89,7 +89,9 @@ impl BridgeResourceReconciliation {
             construction_action_sequence(&self.actions),
             request_set_summary(&self.outside_request_sets),
             request_set_summary(&self.cylinder_request_sets),
-            request_set_summary(&self.missing_request_sets)
+            request_set_summary(&self.missing_request_sets),
+            split_resource_merge_summary(&self.missing_request_sets, &self.cylinder_request_sets)
+                .diagnostic_label()
         )
     }
 }
@@ -309,13 +311,52 @@ fn cylinder_request_sets_cover_missing_set(
 ) -> bool {
     let covered = cylinder_sets
         .iter()
-        .filter(|set| {
-            set.iter().all(|index| missing.contains(index))
-                || missing.iter().all(|index| set.contains(index))
-        })
+        .filter(|set| cylinder_request_set_participates_in_missing_set(missing, set))
         .flat_map(|set| set.iter().copied())
         .collect::<BTreeSet<_>>();
     missing.iter().all(|index| covered.contains(index))
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct SplitResourceMergeSummary {
+    missing_sets: usize,
+    coverable_sets: usize,
+    candidate_cylinder_runs: usize,
+}
+
+impl SplitResourceMergeSummary {
+    fn diagnostic_label(self) -> String {
+        format!(
+            "split_resource_merge_candidates=missing_sets={} coverable_sets={} cylinder_runs={}",
+            self.missing_sets, self.coverable_sets, self.candidate_cylinder_runs
+        )
+    }
+}
+
+fn split_resource_merge_summary(
+    missing_sets: &[Vec<usize>],
+    cylinder_sets: &[Vec<usize>],
+) -> SplitResourceMergeSummary {
+    let mut summary = SplitResourceMergeSummary {
+        missing_sets: missing_sets.len(),
+        ..SplitResourceMergeSummary::default()
+    };
+    for missing in missing_sets {
+        let candidate_runs = cylinder_sets
+            .iter()
+            .filter(|set| cylinder_request_set_participates_in_missing_set(missing, set))
+            .count();
+        if candidate_runs > 0 && cylinder_request_sets_cover_missing_set(missing, cylinder_sets) {
+            summary.coverable_sets += 1;
+            summary.candidate_cylinder_runs += candidate_runs;
+        }
+    }
+    summary
+}
+
+fn cylinder_request_set_participates_in_missing_set(missing: &[usize], set: &[usize]) -> bool {
+    set.iter().all(|index| missing.contains(index))
+        || missing.iter().all(|index| set.contains(index))
 }
 
 fn request_set_label(set: &[usize]) -> String {

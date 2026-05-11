@@ -96,7 +96,8 @@ fn mutator_boundary_refuses_without_mutating_topology() {
              unsupported:0 \
              action_sequence=[0:exact:0:0,1:shared-outside:-:0+1,2:exact:1:1] \
              outside_request_sets=[0,0+1,1] cylinder_request_sets=[0,1,1,0] \
-             missing_request_sets=[0+1]"
+             missing_request_sets=[0+1] \
+             split_resource_merge_candidates=missing_sets=1 coverable_sets=1 cylinder_runs=4"
         ),
         "{err}"
     );
