@@ -14,7 +14,7 @@ pub(super) struct CylinderBridgeResourceRemap {
     unavailable_edges: Vec<CylinderBridgeUnavailableEdge>,
     owner_roles: CylinderBridgeUnavailableOwnerRoles,
     blocking_owner_roles: CylinderBridgeUnavailableOwnerRoles,
-    blocking_spans: CylinderBridgeBlockingSpanSummary,
+    blocking_spans: Vec<CylinderBridgeBlockingSpan>,
     non_contiguous_segments: usize,
 }
 
@@ -42,7 +42,7 @@ impl CylinderBridgeResourceRemap {
             self.unavailable_desired_retired_count(),
             self.owner_roles.diagnostic_label(),
             self.blocking_owner_roles.diagnostic_label(),
-            self.blocking_spans.diagnostic_label(),
+            blocking_span_summary(&self.blocking_spans).diagnostic_label(),
             unavailable_owner_face_summary(&self.unavailable_edges),
             self.non_contiguous_segments
         )
@@ -115,6 +115,14 @@ impl CylinderBridgeUnavailableOwnerRoles {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct CylinderBridgeBlockingSpan {
+    pub(super) owner_loop: LoopHandle,
+    pub(super) owner_face: FaceHandle,
+    pub(super) half_edges: Vec<HalfEdgeHandle>,
+    pub(super) contiguous: bool,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct CylinderBridgeBlockingSpanSummary {
     spans: usize,
@@ -156,7 +164,7 @@ pub(super) fn remap_cylinder_bridge_resources(
             }
         }
     }
-    let blocking_spans = summarize_blocking_spans(brep, &unavailable_edges)?;
+    let blocking_spans = blocking_spans(brep, &unavailable_edges)?;
     Ok(CylinderBridgeResourceRemap {
         segments,
         owner_roles: classify_unavailable_owner_roles(&unavailable_edges, plan),
@@ -241,11 +249,11 @@ fn desired_side_blocking_half_edges(
     }
 }
 
-fn summarize_blocking_spans(
+fn blocking_spans(
     brep: &BRep,
     unavailable_edges: &[CylinderBridgeUnavailableEdge],
-) -> Result<CylinderBridgeBlockingSpanSummary, CoreError> {
-    let mut spans = Vec::<Vec<HalfEdgeHandle>>::new();
+) -> Result<Vec<CylinderBridgeBlockingSpan>, CoreError> {
+    let mut spans = Vec::<CylinderBridgeBlockingSpan>::new();
     let mut current_loop: Option<LoopHandle> = None;
     let mut current_span = Vec::new();
     for blocking_half_edge in unavailable_edges
@@ -265,28 +273,50 @@ fn summarize_blocking_spans(
             current_span.push(blocking_half_edge);
             continue;
         }
-        if !current_span.is_empty() {
-            spans.push(std::mem::take(&mut current_span));
-        }
+        push_blocking_span(brep, &mut spans, current_loop, &mut current_span)?;
         current_loop = Some(loop_);
         current_span.push(blocking_half_edge);
     }
-    if !current_span.is_empty() {
-        spans.push(current_span);
+    push_blocking_span(brep, &mut spans, current_loop, &mut current_span)?;
+    Ok(spans)
+}
+
+fn push_blocking_span(
+    brep: &BRep,
+    spans: &mut Vec<CylinderBridgeBlockingSpan>,
+    loop_: Option<LoopHandle>,
+    half_edges: &mut Vec<HalfEdgeHandle>,
+) -> Result<(), CoreError> {
+    let Some(loop_) = loop_ else {
+        return Ok(());
+    };
+    if half_edges.is_empty() {
+        return Ok(());
     }
-    let half_edges = spans.iter().map(Vec::len).sum();
-    let mut non_contiguous_spans = 0usize;
-    for span in &mut spans {
-        span.reverse();
-        if !is_directed_path(brep, span)? {
-            non_contiguous_spans += 1;
-        }
-    }
-    Ok(CylinderBridgeBlockingSpanSummary {
+    half_edges.reverse();
+    let contiguous = is_directed_path(brep, half_edges)?;
+    let owner_face = brep
+        .loops
+        .get(loop_)
+        .map(|loop_data| loop_data.face)
+        .ok_or_else(|| CoreError::InvalidHandle("blocking span loop is stale".into()))?;
+    spans.push(CylinderBridgeBlockingSpan {
+        owner_loop: loop_,
+        owner_face,
+        half_edges: std::mem::take(half_edges),
+        contiguous,
+    });
+    Ok(())
+}
+
+fn blocking_span_summary(
+    spans: &[CylinderBridgeBlockingSpan],
+) -> CylinderBridgeBlockingSpanSummary {
+    CylinderBridgeBlockingSpanSummary {
         spans: spans.len(),
-        half_edges,
-        non_contiguous_spans,
-    })
+        half_edges: spans.iter().map(|span| span.half_edges.len()).sum(),
+        non_contiguous_spans: spans.iter().filter(|span| !span.contiguous).count(),
+    }
 }
 
 fn edge_owner_faces(brep: &BRep, half_edge: HalfEdgeHandle) -> Vec<FaceHandle> {
