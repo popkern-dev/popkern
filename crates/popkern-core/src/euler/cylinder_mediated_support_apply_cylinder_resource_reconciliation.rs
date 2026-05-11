@@ -13,7 +13,7 @@ mod split_merge;
 use split_merge::{
     SplitResourceMergeOperand, cylinder_request_sets_cover_missing_set,
     split_resource_merge_operand_summary, split_resource_merge_operands,
-    split_resource_merge_summary,
+    split_resource_merge_summary, split_resource_operands_are_shared_start,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +45,9 @@ impl BridgeResourceReconciliation {
             return BridgeResourceReconciliationStatus::ExactResourcePairing;
         }
         if self.has_split_cylinder_resource_transition() {
+            if split_resource_operands_are_shared_start(&self.split_resource_merge_operands) {
+                return BridgeResourceReconciliationStatus::SharedStartSplitCylinderResourcesReady;
+            }
             return BridgeResourceReconciliationStatus::SplitCylinderResourcesNeedMerge;
         }
         if self.extra_cylinder_resources > 0 {
@@ -113,6 +116,7 @@ pub(in crate::euler::cylinder_mediated_support_apply) enum BridgeResourceReconci
     ExactResourcePairing,
     SharedOutsideTransitionNeedsResource,
     SingleSupportCoveredBySharedCylinderResource,
+    SharedStartSplitCylinderResourcesReady,
     SplitCylinderResourcesNeedMerge,
     IncompatibleResourceSets,
 }
@@ -128,6 +132,9 @@ impl BridgeResourceReconciliationStatus {
             }
             Self::SingleSupportCoveredBySharedCylinderResource => {
                 "single-support-covered-by-shared-cylinder-resource"
+            }
+            Self::SharedStartSplitCylinderResourcesReady => {
+                "shared-start-split-cylinder-resources-ready"
             }
             Self::SplitCylinderResourcesNeedMerge => "split-cylinder-resources-need-merge",
             Self::IncompatibleResourceSets => "incompatible-resource-sets",

@@ -171,13 +171,23 @@ pub(super) fn split_resource_merge_operand_summary(
     operands: &[SplitResourceMergeOperand],
 ) -> String {
     format!(
-        "split_resource_merge_operands=[{}]",
+        "{} split_resource_merge_operands=[{}]",
+        split_resource_endpoint_shape_summary(operands).diagnostic_label(),
         operands
             .iter()
             .map(split_resource_merge_operand_label)
             .collect::<Vec<_>>()
             .join(";")
     )
+}
+
+pub(super) fn split_resource_operands_are_shared_start(
+    operands: &[SplitResourceMergeOperand],
+) -> bool {
+    !operands.is_empty()
+        && operands
+            .iter()
+            .all(|operand| split_resource_endpoint_shape(operand).is_shared_start())
 }
 
 fn split_resource_merge_operand_label(operand: &SplitResourceMergeOperand) -> String {
@@ -207,6 +217,10 @@ enum SplitResourceEndpointShape {
 }
 
 impl SplitResourceEndpointShape {
+    fn is_shared_start(self) -> bool {
+        self == Self::SharedStart
+    }
+
     fn diagnostic_label(self) -> &'static str {
         match self {
             Self::Aligned => "aligned",
@@ -215,6 +229,38 @@ impl SplitResourceEndpointShape {
             Self::Mixed => "mixed",
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct SplitResourceEndpointShapeSummary {
+    shared_start: usize,
+    shared_end: usize,
+    aligned: usize,
+    mixed: usize,
+}
+
+impl SplitResourceEndpointShapeSummary {
+    fn diagnostic_label(self) -> String {
+        format!(
+            "split_resource_endpoint_shapes=shared_start:{} shared_end:{} aligned:{} mixed:{}",
+            self.shared_start, self.shared_end, self.aligned, self.mixed
+        )
+    }
+}
+
+fn split_resource_endpoint_shape_summary(
+    operands: &[SplitResourceMergeOperand],
+) -> SplitResourceEndpointShapeSummary {
+    let mut summary = SplitResourceEndpointShapeSummary::default();
+    for operand in operands {
+        match split_resource_endpoint_shape(operand) {
+            SplitResourceEndpointShape::Aligned => summary.aligned += 1,
+            SplitResourceEndpointShape::SharedStart => summary.shared_start += 1,
+            SplitResourceEndpointShape::SharedEnd => summary.shared_end += 1,
+            SplitResourceEndpointShape::Mixed => summary.mixed += 1,
+        }
+    }
+    summary
 }
 
 fn split_resource_endpoint_shape(

@@ -116,6 +116,12 @@ fn mutator_boundary_refuses_without_mutating_topology() {
         ),
         "{err}"
     );
+    assert!(
+        detail.contains(
+            "split_resource_endpoint_shapes=shared_start:0 shared_end:0 aligned:0 mixed:1"
+        ),
+        "{err}"
+    );
     assert!(detail.contains("outside_endpoints="), "{err}");
     assert!(detail.contains("context_owner_faces=[]"), "{err}");
     assert!(detail.contains("unsupported_owner_faces=[]"), "{err}");
