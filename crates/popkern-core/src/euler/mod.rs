@@ -21,6 +21,7 @@ mod mev;
 mod mvfs;
 mod same_loop_boundary_exposure;
 mod same_loop_bridge_dissolve;
+mod same_loop_face_bridge;
 mod sweep;
 pub use construction_residual_retire::ConstructionResidualRetireResult;
 pub use cylinder_mediated_support::{
@@ -55,5 +56,8 @@ pub use mef::MefResult;
 pub use mev::MevResult;
 pub use mvfs::MvfsResult;
 pub use same_loop_boundary_exposure::SameLoopBoundaryExposureResult;
+pub use same_loop_face_bridge::{
+    SameLoopFaceBridgePlan, SameLoopFaceBridgeRequest, SameLoopFaceBridgeResult,
+};
 pub use sweep::ExtrudeResult;
 pub use sweep::RevolveResult;
