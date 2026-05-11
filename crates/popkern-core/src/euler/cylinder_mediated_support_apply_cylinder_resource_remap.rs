@@ -13,6 +13,7 @@ pub(super) struct CylinderBridgeResourceRemap {
     segments: Vec<CylinderBridgeResourceRemappedSegment>,
     unavailable_edges: Vec<CylinderBridgeUnavailableEdge>,
     owner_roles: CylinderBridgeUnavailableOwnerRoles,
+    blocking_owner_roles: CylinderBridgeUnavailableOwnerRoles,
     non_contiguous_segments: usize,
 }
 
@@ -29,14 +30,17 @@ impl CylinderBridgeResourceRemap {
             .filter(|segment| segment.orientation == CylinderBridgeResourceOrientation::Reversed)
             .count();
         format!(
-            "cylinder_resource_remap=segments={} half_edges={} reversed_segments={} unavailable_edges={} unavailable_not_boundary={} unavailable_live_twin={} unavailable_owner_roles={} unavailable_owner_faces=[{}] non_contiguous_segments={}",
+            "cylinder_resource_remap=segments={} half_edges={} reversed_segments={} unavailable_edges={} unavailable_not_boundary={} unavailable_live_twin={} unavailable_desired_live={} unavailable_desired_retired={} unavailable_owner_roles={} unavailable_blocking_roles={} unavailable_owner_faces=[{}] non_contiguous_segments={}",
             self.segments.len(),
             half_edges,
             reversed_segments,
             self.unavailable_edges.len(),
             self.unavailable_not_boundary_count(),
             self.unavailable_live_twin_count(),
+            self.unavailable_desired_live_count(),
+            self.unavailable_desired_retired_count(),
             self.owner_roles.diagnostic_label(),
+            self.blocking_owner_roles.diagnostic_label(),
             unavailable_owner_face_summary(&self.unavailable_edges),
             self.non_contiguous_segments
         )
@@ -53,6 +57,20 @@ impl CylinderBridgeResourceRemap {
         self.unavailable_edges
             .iter()
             .filter(|edge| edge.live_twin)
+            .count()
+    }
+
+    fn unavailable_desired_live_count(&self) -> usize {
+        self.unavailable_edges
+            .iter()
+            .filter(|edge| edge.desired_side_live)
+            .count()
+    }
+
+    fn unavailable_desired_retired_count(&self) -> usize {
+        self.unavailable_edges
+            .iter()
+            .filter(|edge| !edge.desired_side_live)
             .count()
     }
 }
@@ -73,7 +91,9 @@ enum CylinderBridgeResourceOrientation {
 struct CylinderBridgeUnavailableEdge {
     not_boundary: bool,
     live_twin: bool,
+    desired_side_live: bool,
     owner_faces: Vec<FaceHandle>,
+    blocking_faces: Vec<FaceHandle>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -102,8 +122,8 @@ pub(super) fn remap_cylinder_bridge_resources(
     let mut non_contiguous_segments = 0usize;
     for segment in partition.segments() {
         let mut half_edges = Vec::with_capacity(segment.edges.len());
-        for &edge in &segment.edges {
-            let remap = remapped_boundary_half_edge(brep, edge)?;
+        for (&edge, &desired_half_edge) in segment.edges.iter().zip(&segment.half_edges) {
+            let remap = remapped_boundary_half_edge(brep, edge, desired_half_edge)?;
             let Some(half_edge) = remap.half_edge else {
                 unavailable_edges.push(remap.unavailable);
                 continue;
@@ -120,6 +140,7 @@ pub(super) fn remap_cylinder_bridge_resources(
     Ok(CylinderBridgeResourceRemap {
         segments,
         owner_roles: classify_unavailable_owner_roles(&unavailable_edges, plan),
+        blocking_owner_roles: classify_unavailable_blocking_roles(&unavailable_edges, plan),
         unavailable_edges,
         non_contiguous_segments,
     })
@@ -133,6 +154,7 @@ struct BoundaryHalfEdgeRemap {
 fn remapped_boundary_half_edge(
     brep: &BRep,
     edge: EdgeHandle,
+    desired_half_edge: HalfEdgeHandle,
 ) -> Result<BoundaryHalfEdgeRemap, CoreError> {
     let half_edge = brep
         .edges
@@ -153,7 +175,9 @@ fn remapped_boundary_half_edge(
     let unavailable = CylinderBridgeUnavailableEdge {
         not_boundary,
         live_twin,
+        desired_side_live: brep.half_edges.contains_key(desired_half_edge),
         owner_faces: edge_owner_faces(brep, half_edge),
+        blocking_faces: desired_side_blocking_faces(brep, desired_half_edge),
     };
     if not_boundary || live_twin {
         return Ok(BoundaryHalfEdgeRemap {
@@ -165,6 +189,20 @@ fn remapped_boundary_half_edge(
         half_edge: Some(half_edge),
         unavailable,
     })
+}
+
+fn desired_side_blocking_faces(brep: &BRep, desired_half_edge: HalfEdgeHandle) -> Vec<FaceHandle> {
+    let Some(desired) = brep.half_edges.get(desired_half_edge) else {
+        return Vec::new();
+    };
+    let twin = desired.twin;
+    let Some(twin_data) = brep.half_edges.get(twin) else {
+        return Vec::new();
+    };
+    brep.loops
+        .get(twin_data.loop_)
+        .map(|loop_data| vec![loop_data.face])
+        .unwrap_or_default()
 }
 
 fn edge_owner_faces(brep: &BRep, half_edge: HalfEdgeHandle) -> Vec<FaceHandle> {
@@ -193,6 +231,33 @@ fn classify_unavailable_owner_roles(
     let mut roles = CylinderBridgeUnavailableOwnerRoles::default();
     for unavailable in unavailable_edges {
         for &face in &unavailable.owner_faces {
+            if plan
+                .plans
+                .iter()
+                .any(|request| request.request.cylinder_face == face)
+            {
+                roles.cylinder += 1;
+            } else if plan
+                .plans
+                .iter()
+                .any(|request| request.request.support_face == face)
+            {
+                roles.support += 1;
+            } else {
+                roles.context += 1;
+            }
+        }
+    }
+    roles
+}
+
+fn classify_unavailable_blocking_roles(
+    unavailable_edges: &[CylinderBridgeUnavailableEdge],
+    plan: &CylinderMediatedSupportContinuationBatchPlan,
+) -> CylinderBridgeUnavailableOwnerRoles {
+    let mut roles = CylinderBridgeUnavailableOwnerRoles::default();
+    for unavailable in unavailable_edges {
+        for &face in &unavailable.blocking_faces {
             if plan
                 .plans
                 .iter()
