@@ -20,7 +20,8 @@ pub(super) struct SharedStartBridgePreflight {
     same_loop_overlapping_edges: usize,
     same_loop_shared_start_overlaps: usize,
     same_loop_shared_end_overlaps: usize,
-    same_loop_mixed_overlaps: usize,
+    same_loop_crossed_endpoint_overlaps: usize,
+    same_loop_interior_overlaps: usize,
     expected_edges: i64,
     expected_faces: i64,
     expected_loops: i64,
@@ -46,7 +47,8 @@ impl SharedStartBridgePreflight {
             same_loop_overlapping_edges: 0,
             same_loop_shared_start_overlaps: 0,
             same_loop_shared_end_overlaps: 0,
-            same_loop_mixed_overlaps: 0,
+            same_loop_crossed_endpoint_overlaps: 0,
+            same_loop_interior_overlaps: 0,
             expected_edges: 0,
             expected_faces: 0,
             expected_loops: 0,
@@ -65,7 +67,8 @@ impl SharedStartBridgePreflight {
             same_loop_overlapping_edges: summary.same_loop_overlapping_edges,
             same_loop_shared_start_overlaps: summary.same_loop_shared_start_overlaps,
             same_loop_shared_end_overlaps: summary.same_loop_shared_end_overlaps,
-            same_loop_mixed_overlaps: summary.same_loop_mixed_overlaps,
+            same_loop_crossed_endpoint_overlaps: summary.same_loop_crossed_endpoint_overlaps,
+            same_loop_interior_overlaps: summary.same_loop_interior_overlaps,
             expected_edges: summary.expected_edges,
             expected_faces: summary.expected_faces,
             expected_loops: summary.expected_loops,
@@ -84,7 +87,8 @@ impl SharedStartBridgePreflight {
             same_loop_overlapping_edges: shape.same_loop_overlapping_edges,
             same_loop_shared_start_overlaps: shape.same_loop_shared_start_overlaps,
             same_loop_shared_end_overlaps: shape.same_loop_shared_end_overlaps,
-            same_loop_mixed_overlaps: shape.same_loop_mixed_overlaps,
+            same_loop_crossed_endpoint_overlaps: shape.same_loop_crossed_endpoint_overlaps,
+            same_loop_interior_overlaps: shape.same_loop_interior_overlaps,
             expected_edges: 0,
             expected_faces: 0,
             expected_loops: 0,
@@ -99,7 +103,7 @@ impl SharedStartBridgePreflight {
             SharedStartBridgePreflightStatus::Rejected => "rejected",
         };
         format!(
-            "shared_start_bridge_preflight=status={status} pairings={} cycles={} cross_loop_cycles={} same_loop_cycles={} same_loop_overlap_cycles={} same_loop_overlapping_edges={} same_loop_shared_start_overlaps={} same_loop_shared_end_overlaps={} same_loop_mixed_overlaps={} expected_delta=dV=0 dE={} dF={} dL={} reason={}",
+            "shared_start_bridge_preflight=status={status} pairings={} cycles={} cross_loop_cycles={} same_loop_cycles={} same_loop_overlap_cycles={} same_loop_overlapping_edges={} same_loop_shared_start_overlaps={} same_loop_shared_end_overlaps={} same_loop_crossed_endpoint_overlaps={} same_loop_interior_overlaps={} expected_delta=dV=0 dE={} dF={} dL={} reason={}",
             self.pairings,
             self.cycles,
             self.cross_loop_cycles,
@@ -108,7 +112,8 @@ impl SharedStartBridgePreflight {
             self.same_loop_overlapping_edges,
             self.same_loop_shared_start_overlaps,
             self.same_loop_shared_end_overlaps,
-            self.same_loop_mixed_overlaps,
+            self.same_loop_crossed_endpoint_overlaps,
+            self.same_loop_interior_overlaps,
             self.expected_edges,
             self.expected_faces,
             self.expected_loops,
@@ -156,7 +161,8 @@ struct SharedStartCycleShape {
     same_loop_overlapping_edges: usize,
     same_loop_shared_start_overlaps: usize,
     same_loop_shared_end_overlaps: usize,
-    same_loop_mixed_overlaps: usize,
+    same_loop_crossed_endpoint_overlaps: usize,
+    same_loop_interior_overlaps: usize,
 }
 
 impl SharedStartCycleShape {
@@ -169,7 +175,8 @@ impl SharedStartCycleShape {
             same_loop_overlapping_edges: 0,
             same_loop_shared_start_overlaps: 0,
             same_loop_shared_end_overlaps: 0,
-            same_loop_mixed_overlaps: 0,
+            same_loop_crossed_endpoint_overlaps: 0,
+            same_loop_interior_overlaps: 0,
         }
     }
 
@@ -179,7 +186,8 @@ impl SharedStartCycleShape {
         let mut same_loop_overlapping_edges = 0;
         let mut same_loop_shared_start_overlaps = 0;
         let mut same_loop_shared_end_overlaps = 0;
-        let mut same_loop_mixed_overlaps = 0;
+        let mut same_loop_crossed_endpoint_overlaps = 0;
+        let mut same_loop_interior_overlaps = 0;
         for cycle in cycles
             .iter()
             .filter(|cycle| cycle.first_loop == cycle.second_loop)
@@ -193,7 +201,10 @@ impl SharedStartCycleShape {
                 match overlap.position {
                     SameLoopOverlapPosition::SharedStart => same_loop_shared_start_overlaps += 1,
                     SameLoopOverlapPosition::SharedEnd => same_loop_shared_end_overlaps += 1,
-                    SameLoopOverlapPosition::Mixed => same_loop_mixed_overlaps += 1,
+                    SameLoopOverlapPosition::CrossedEndpoint => {
+                        same_loop_crossed_endpoint_overlaps += 1
+                    }
+                    SameLoopOverlapPosition::Interior => same_loop_interior_overlaps += 1,
                     SameLoopOverlapPosition::None => {}
                 }
             }
@@ -206,7 +217,8 @@ impl SharedStartCycleShape {
             same_loop_overlapping_edges,
             same_loop_shared_start_overlaps,
             same_loop_shared_end_overlaps,
-            same_loop_mixed_overlaps,
+            same_loop_crossed_endpoint_overlaps,
+            same_loop_interior_overlaps,
         }
     }
 }
@@ -220,7 +232,8 @@ struct SharedStartCycleMixSummary {
     same_loop_overlapping_edges: usize,
     same_loop_shared_start_overlaps: usize,
     same_loop_shared_end_overlaps: usize,
-    same_loop_mixed_overlaps: usize,
+    same_loop_crossed_endpoint_overlaps: usize,
+    same_loop_interior_overlaps: usize,
     expected_edges: i64,
     expected_faces: i64,
     expected_loops: i64,
@@ -269,7 +282,8 @@ fn preflight_shared_start_cycle_mix(
         same_loop_overlapping_edges: cycle_shape.same_loop_overlapping_edges,
         same_loop_shared_start_overlaps: cycle_shape.same_loop_shared_start_overlaps,
         same_loop_shared_end_overlaps: cycle_shape.same_loop_shared_end_overlaps,
-        same_loop_mixed_overlaps: cycle_shape.same_loop_mixed_overlaps,
+        same_loop_crossed_endpoint_overlaps: cycle_shape.same_loop_crossed_endpoint_overlaps,
+        same_loop_interior_overlaps: cycle_shape.same_loop_interior_overlaps,
         expected_edges,
         expected_faces,
         expected_loops,
@@ -287,7 +301,8 @@ enum SameLoopOverlapPosition {
     None,
     SharedStart,
     SharedEnd,
-    Mixed,
+    CrossedEndpoint,
+    Interior,
 }
 
 fn same_loop_overlap_summary(
@@ -319,8 +334,10 @@ fn same_loop_overlap_summary(
         SameLoopOverlapPosition::SharedStart
     } else if first_edges.last == second_edges.last {
         SameLoopOverlapPosition::SharedEnd
+    } else if first_edges.first == second_edges.last || first_edges.last == second_edges.first {
+        SameLoopOverlapPosition::CrossedEndpoint
     } else {
-        SameLoopOverlapPosition::Mixed
+        SameLoopOverlapPosition::Interior
     };
     SameLoopOverlapSummary { edges, position }
 }
