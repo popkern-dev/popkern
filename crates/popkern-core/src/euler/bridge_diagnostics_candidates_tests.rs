@@ -4,6 +4,7 @@ use crate::euler::{
     GeometryFeasibility, OperatorReadinessStatus, ValidityRepairReadiness, ValidityRepairStatus,
 };
 use crate::geometry::Point3;
+use crate::geometry::pcurve::Pcurve;
 use crate::tolerance::Tolerance;
 use crate::topology::{BRep, Edge, Face, HalfEdge, HalfEdgeHandle, Loop, Shell, Solid, Vertex};
 
@@ -117,6 +118,39 @@ fn candidates_report_invalid_interval_as_topology_repair_readiness() {
     }));
     assert_eq!(report.summary.invalid_non_manifold_candidates, 1);
     assert_eq!(report.summary.requires_topology_repair_facts, 1);
+    assert_eq!(report.summary.repair_required_facts, 1);
+}
+
+#[test]
+fn candidates_report_stale_pcurve_as_geometry_repair_readiness() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
+    let loop_ = brep.loops.keys().next().expect("cube has a loop");
+    let first = brep.loops[loop_].half_edge;
+    let second = brep.half_edges[first].next;
+    let third = brep.half_edges[second].next;
+    let fourth = brep.half_edges[third].next;
+    brep.half_edges[first].pcurve = Some(Pcurve::linear((100.0, 100.0), (101.0, 100.0), 0.0, 1.0));
+
+    let report = brep
+        .bridge_diagnostic_report(BridgeDiagnosticRequest {
+            operations: vec![BridgeDiagnosticOperationRequest {
+                purpose: DiagnosticOperationPurpose::BridgeCycle,
+                first_loop: loop_,
+                first_interval: vec![first, second],
+                second_loop: loop_,
+                second_interval: vec![third, fourth],
+            }],
+        })
+        .expect("stale pcurve still produces diagnostics");
+
+    assert!(report.graph.candidates.iter().any(|candidate| {
+        candidate.validity_repair_facts.iter().any(|fact| {
+            fact.readiness == ValidityRepairReadiness::RequiresGeometryRepair
+                && fact.status == ValidityRepairStatus::RepairRequired
+                && fact.reason == "bridge-pcurve-endpoint-same-parameter-deviation"
+        })
+    }));
+    assert_eq!(report.summary.requires_geometry_repair_facts, 1);
     assert_eq!(report.summary.repair_required_facts, 1);
 }
 

@@ -6,6 +6,7 @@ use crate::euler::{
     BridgeDiagnosticOperationRequest, ConstructionFeasibility, ValidityRepairFact,
     ValidityRepairReadiness, ValidityRepairStatus,
 };
+use crate::geometry::surface::SurfaceEval;
 use crate::topology::{BRep, HalfEdgeHandle, LoopHandle};
 
 pub(super) fn validity_repair_facts_for_candidate(
@@ -19,6 +20,9 @@ pub(super) fn validity_repair_facts_for_candidate(
     if let Some(fact) = small_feature_repair_fact(brep, operation) {
         return vec![fact];
     }
+    if let Some(fact) = trim_readiness_fact(brep, operation) {
+        return vec![fact];
+    }
     vec![fact(
         readiness_for_feasibility(feasibility),
         reason_for_feasibility(feasibility),
@@ -26,6 +30,61 @@ pub(super) fn validity_repair_facts_for_candidate(
         false,
         false,
     )]
+}
+
+fn trim_readiness_fact(
+    brep: &BRep,
+    operation: &BridgeDiagnosticOperationRequest,
+) -> Option<ValidityRepairFact> {
+    for half_edge in operation_half_edges(operation) {
+        let data = brep.half_edges.get(half_edge)?;
+        let loop_data = brep.loops.get(data.loop_)?;
+        let face = brep.faces.get(loop_data.face)?;
+        let Some(surface) = face.surface.as_ref() else {
+            continue;
+        };
+        let Some(pcurve) = data.pcurve.as_ref() else {
+            return Some(fact(
+                ValidityRepairReadiness::ValidAfterNonMutatingNormalization,
+                "bridge-half-edge-pcurve-missing-recomputable",
+                ValidityRepairStatus::NonMutatingNormalizationAvailable,
+                false,
+                false,
+            ));
+        };
+        let tolerance = brep
+            .face_tolerance(loop_data.face)
+            .max(brep.edge_tolerance(data.edge));
+        let (t0, t1) = pcurve.parameter_range();
+        let start_uv = pcurve.point_at(t0);
+        let end_uv = pcurve.point_at(t1);
+        let start_surface = surface.geometry.point_at(start_uv.x, start_uv.y);
+        let end_surface = surface.geometry.point_at(end_uv.x, end_uv.y);
+        let origin = brep.vertices.get(data.origin)?.position;
+        let next = brep.half_edges.get(data.next)?;
+        let destination = brep.vertices.get(next.origin)?.position;
+        if start_surface.distance_to(&origin) > tolerance
+            || end_surface.distance_to(&destination) > tolerance
+        {
+            return Some(fact(
+                ValidityRepairReadiness::RequiresGeometryRepair,
+                "bridge-pcurve-endpoint-same-parameter-deviation",
+                ValidityRepairStatus::RepairRequired,
+                false,
+                false,
+            ));
+        }
+        if brep.measure_edge_deviation(data.edge) > tolerance {
+            return Some(fact(
+                ValidityRepairReadiness::RequiresGeometryRepair,
+                "bridge-edge-pcurve-same-parameter-deviation",
+                ValidityRepairStatus::RepairRequired,
+                false,
+                false,
+            ));
+        }
+    }
+    None
 }
 
 fn structural_repair_fact(
@@ -193,6 +252,15 @@ fn directed_interval_invalid(brep: &BRep, interval: &[HalfEdgeHandle]) -> bool {
         };
         !brep.half_edges.contains_key(pair[1]) || first.next != pair[1]
     })
+}
+
+fn operation_half_edges(
+    operation: &BridgeDiagnosticOperationRequest,
+) -> impl Iterator<Item = HalfEdgeHandle> + '_ {
+    [&operation.first_interval, &operation.second_interval]
+        .into_iter()
+        .filter(|interval| interval.len() >= 2)
+        .flat_map(|interval| interval[..interval.len() - 1].iter().copied())
 }
 
 fn edge_length(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<f64> {
