@@ -7,6 +7,8 @@
 use crate::error::CoreError;
 use crate::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
+#[path = "bridge_diagnostics_conflicts.rs"]
+mod conflicts;
 #[path = "bridge_diagnostics_inventory.rs"]
 mod inventory;
 
@@ -327,6 +329,7 @@ impl BRep {
         let graph =
             TopologyDiagnosticGraph::empty(TopologyGraphFingerprint::capture(self, &request));
         let graph = inventory::populate_bridge_inventory(self, &request, graph);
+        let graph = conflicts::classify_duplicate_consumption(graph);
         Ok(BridgeDiagnosticReport {
             summary: BridgeDiagnosticSummary::from_graph(&graph),
             graph,
@@ -376,6 +379,24 @@ impl TopologyDiagnosticGraph {
             purpose,
             consumes,
             creates: Vec::new(),
+        });
+        id
+    }
+
+    pub(super) fn push_conflict(
+        &mut self,
+        kind: ResourceConflictKind,
+        resources: Vec<DiagnosticResourceId>,
+        operations: Vec<DiagnosticOperationId>,
+        status: ResourceConflictStatus,
+    ) -> ResourceConflictId {
+        let id = ResourceConflictId(self.conflicts.len());
+        self.conflicts.push(ResourceConflict {
+            id,
+            kind,
+            resources,
+            operations,
+            status,
         });
         id
     }
