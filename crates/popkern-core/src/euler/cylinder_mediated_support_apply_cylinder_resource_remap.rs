@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::error::CoreError;
-use crate::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
+use crate::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle};
 
 use super::CylinderMediatedSupportContinuationBatchPlan;
 use super::apply_cylinder_resources::CylinderBridgeResourcePartition;
@@ -14,6 +14,7 @@ pub(super) struct CylinderBridgeResourceRemap {
     unavailable_edges: Vec<CylinderBridgeUnavailableEdge>,
     owner_roles: CylinderBridgeUnavailableOwnerRoles,
     blocking_owner_roles: CylinderBridgeUnavailableOwnerRoles,
+    blocking_spans: CylinderBridgeBlockingSpanSummary,
     non_contiguous_segments: usize,
 }
 
@@ -30,7 +31,7 @@ impl CylinderBridgeResourceRemap {
             .filter(|segment| segment.orientation == CylinderBridgeResourceOrientation::Reversed)
             .count();
         format!(
-            "cylinder_resource_remap=segments={} half_edges={} reversed_segments={} unavailable_edges={} unavailable_not_boundary={} unavailable_live_twin={} unavailable_desired_live={} unavailable_desired_retired={} unavailable_owner_roles={} unavailable_blocking_roles={} unavailable_owner_faces=[{}] non_contiguous_segments={}",
+            "cylinder_resource_remap=segments={} half_edges={} reversed_segments={} unavailable_edges={} unavailable_not_boundary={} unavailable_live_twin={} unavailable_desired_live={} unavailable_desired_retired={} unavailable_owner_roles={} unavailable_blocking_roles={} {} unavailable_owner_faces=[{}] non_contiguous_segments={}",
             self.segments.len(),
             half_edges,
             reversed_segments,
@@ -41,6 +42,7 @@ impl CylinderBridgeResourceRemap {
             self.unavailable_desired_retired_count(),
             self.owner_roles.diagnostic_label(),
             self.blocking_owner_roles.diagnostic_label(),
+            self.blocking_spans.diagnostic_label(),
             unavailable_owner_face_summary(&self.unavailable_edges),
             self.non_contiguous_segments
         )
@@ -94,6 +96,7 @@ struct CylinderBridgeUnavailableEdge {
     desired_side_live: bool,
     owner_faces: Vec<FaceHandle>,
     blocking_faces: Vec<FaceHandle>,
+    blocking_half_edges: Vec<HalfEdgeHandle>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -108,6 +111,22 @@ impl CylinderBridgeUnavailableOwnerRoles {
         format!(
             "cylinder:{} support:{} context:{}",
             self.cylinder, self.support, self.context
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct CylinderBridgeBlockingSpanSummary {
+    spans: usize,
+    half_edges: usize,
+    non_contiguous_spans: usize,
+}
+
+impl CylinderBridgeBlockingSpanSummary {
+    fn diagnostic_label(self) -> String {
+        format!(
+            "blocking_spans={} blocking_half_edges={} non_contiguous_blocking_spans={}",
+            self.spans, self.half_edges, self.non_contiguous_spans
         )
     }
 }
@@ -137,10 +156,12 @@ pub(super) fn remap_cylinder_bridge_resources(
             }
         }
     }
+    let blocking_spans = summarize_blocking_spans(brep, &unavailable_edges)?;
     Ok(CylinderBridgeResourceRemap {
         segments,
         owner_roles: classify_unavailable_owner_roles(&unavailable_edges, plan),
         blocking_owner_roles: classify_unavailable_blocking_roles(&unavailable_edges, plan),
+        blocking_spans,
         unavailable_edges,
         non_contiguous_segments,
     })
@@ -178,6 +199,7 @@ fn remapped_boundary_half_edge(
         desired_side_live: brep.half_edges.contains_key(desired_half_edge),
         owner_faces: edge_owner_faces(brep, half_edge),
         blocking_faces: desired_side_blocking_faces(brep, desired_half_edge),
+        blocking_half_edges: desired_side_blocking_half_edges(brep, desired_half_edge),
     };
     if not_boundary || live_twin {
         return Ok(BoundaryHalfEdgeRemap {
@@ -203,6 +225,68 @@ fn desired_side_blocking_faces(brep: &BRep, desired_half_edge: HalfEdgeHandle) -
         .get(twin_data.loop_)
         .map(|loop_data| vec![loop_data.face])
         .unwrap_or_default()
+}
+
+fn desired_side_blocking_half_edges(
+    brep: &BRep,
+    desired_half_edge: HalfEdgeHandle,
+) -> Vec<HalfEdgeHandle> {
+    let Some(desired) = brep.half_edges.get(desired_half_edge) else {
+        return Vec::new();
+    };
+    if brep.half_edges.contains_key(desired.twin) {
+        vec![desired.twin]
+    } else {
+        Vec::new()
+    }
+}
+
+fn summarize_blocking_spans(
+    brep: &BRep,
+    unavailable_edges: &[CylinderBridgeUnavailableEdge],
+) -> Result<CylinderBridgeBlockingSpanSummary, CoreError> {
+    let mut spans = Vec::<Vec<HalfEdgeHandle>>::new();
+    let mut current_loop: Option<LoopHandle> = None;
+    let mut current_span = Vec::new();
+    for blocking_half_edge in unavailable_edges
+        .iter()
+        .flat_map(|edge| edge.blocking_half_edges.iter().copied())
+    {
+        let loop_ = brep
+            .half_edges
+            .get(blocking_half_edge)
+            .ok_or_else(|| {
+                CoreError::InvalidHandle(format!(
+                    "cylinder resource blocker {blocking_half_edge:?} is stale"
+                ))
+            })?
+            .loop_;
+        if current_loop == Some(loop_) {
+            current_span.push(blocking_half_edge);
+            continue;
+        }
+        if !current_span.is_empty() {
+            spans.push(std::mem::take(&mut current_span));
+        }
+        current_loop = Some(loop_);
+        current_span.push(blocking_half_edge);
+    }
+    if !current_span.is_empty() {
+        spans.push(current_span);
+    }
+    let half_edges = spans.iter().map(Vec::len).sum();
+    let mut non_contiguous_spans = 0usize;
+    for span in &mut spans {
+        span.reverse();
+        if !is_directed_path(brep, span)? {
+            non_contiguous_spans += 1;
+        }
+    }
+    Ok(CylinderBridgeBlockingSpanSummary {
+        spans: spans.len(),
+        half_edges,
+        non_contiguous_spans,
+    })
 }
 
 fn edge_owner_faces(brep: &BRep, half_edge: HalfEdgeHandle) -> Vec<FaceHandle> {
