@@ -2,8 +2,9 @@
 
 use crate::error::CoreError;
 use crate::euler::{
-    BoundarySideSeparatorBridgeRequest, BridgeDiagnosticOperationRequest, BridgeDiagnosticRequest,
-    BridgeDiagnosticSummary, DiagnosticOperationPurpose, FaceFamilyBridgeCycleRequest,
+    BoundarySideSeparatorBridgeRequest, BridgeDiagnosticOperationRequest, BridgeDiagnosticReport,
+    BridgeDiagnosticRequest, BridgeDiagnosticSummary, CandidateMissingFacet,
+    DiagnosticOperationPurpose, FaceFamilyBridgeCycleRequest,
 };
 use crate::topology::{BRep, HalfEdgeHandle};
 
@@ -188,7 +189,26 @@ pub(super) fn preflight_shared_start_bridge(
         }
     };
     let cycle_shape = SharedStartCycleShape::from_cycles(&cycles, brep);
-    let graph_summary = bridge_diagnostic_summary(brep, &cycles);
+    let report = match bridge_diagnostic_report(brep, &cycles) {
+        Ok(report) => report,
+        Err(err) => {
+            return SharedStartBridgePreflight::rejected(
+                pairings.len(),
+                cycle_shape,
+                empty_bridge_diagnostic_summary(),
+                bridge_error_label(&err),
+            );
+        }
+    };
+    let graph_summary = report.summary;
+    if let Err(reason) = validate_shared_start_candidate_gate(&report) {
+        return SharedStartBridgePreflight::rejected(
+            pairings.len(),
+            cycle_shape,
+            graph_summary,
+            reason,
+        );
+    }
     match preflight_shared_start_cycle_mix(brep, cycles.clone()) {
         Ok(summary) => SharedStartBridgePreflight::ready(pairings.len(), summary, graph_summary),
         Err(err) => match brep
@@ -213,10 +233,10 @@ pub(super) fn preflight_shared_start_bridge(
     }
 }
 
-fn bridge_diagnostic_summary(
+fn bridge_diagnostic_report(
     brep: &BRep,
     cycles: &[FaceFamilyBridgeCycleRequest],
-) -> BridgeDiagnosticSummary {
+) -> Result<BridgeDiagnosticReport, CoreError> {
     brep.bridge_diagnostic_report(BridgeDiagnosticRequest {
         operations: cycles
             .iter()
@@ -229,8 +249,66 @@ fn bridge_diagnostic_summary(
             })
             .collect(),
     })
-    .map(|report| report.summary)
-    .unwrap_or_else(|_| empty_bridge_diagnostic_summary())
+}
+
+fn validate_shared_start_candidate_gate(
+    report: &BridgeDiagnosticReport,
+) -> Result<(), &'static str> {
+    if report.graph.candidates.is_empty() {
+        return Err("shared-start-bridge-candidate-gate-missing-candidate");
+    }
+    for operation in &report.graph.operations {
+        if !report
+            .graph
+            .candidates
+            .iter()
+            .any(|candidate| candidate.operations.contains(&operation.id))
+        {
+            return Err("shared-start-bridge-candidate-gate-missing-operation-candidate");
+        }
+    }
+    for candidate in &report.graph.candidates {
+        if let Err(err) = candidate.validate_mutation_gate() {
+            return Err(candidate_gate_error_label(err.missing_facet));
+        }
+    }
+    Ok(())
+}
+
+fn candidate_gate_error_label(missing_facet: CandidateMissingFacet) -> &'static str {
+    match missing_facet {
+        CandidateMissingFacet::Family => "shared-start-bridge-candidate-gate-missing-family",
+        CandidateMissingFacet::Feasibility => {
+            "shared-start-bridge-candidate-gate-missing-feasibility"
+        }
+        CandidateMissingFacet::TopologyResource => {
+            "shared-start-bridge-candidate-gate-missing-topology-resource"
+        }
+        CandidateMissingFacet::PostconditionPreview => {
+            "shared-start-bridge-candidate-gate-missing-postcondition-preview"
+        }
+        CandidateMissingFacet::GeometryFeasibility => {
+            "shared-start-bridge-candidate-gate-missing-geometry-feasibility"
+        }
+        CandidateMissingFacet::ValidityRepair => {
+            "shared-start-bridge-candidate-gate-missing-validity-repair"
+        }
+        CandidateMissingFacet::OperationDependency => {
+            "shared-start-bridge-candidate-gate-missing-operation-dependency"
+        }
+        CandidateMissingFacet::SemanticHistoryDependency => {
+            "shared-start-bridge-candidate-gate-missing-semantic-history"
+        }
+        CandidateMissingFacet::DownstreamReadiness => {
+            "shared-start-bridge-candidate-gate-missing-downstream-readiness"
+        }
+        CandidateMissingFacet::LiveTopologyRevalidation => {
+            "shared-start-bridge-candidate-gate-missing-live-revalidation"
+        }
+        CandidateMissingFacet::PostconditionVerification => {
+            "shared-start-bridge-candidate-gate-missing-postcondition-verification"
+        }
+    }
 }
 
 fn empty_bridge_diagnostic_summary() -> BridgeDiagnosticSummary {
@@ -351,3 +429,7 @@ fn bridge_error_label(err: &CoreError) -> &'static str {
         "face-family-bridge-preflight-rejected"
     }
 }
+
+#[cfg(test)]
+#[path = "cylinder_mediated_support_apply_shared_start_bridge_tests.rs"]
+mod tests;
