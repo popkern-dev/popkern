@@ -86,6 +86,11 @@ pub(crate) enum DiagnosticAxis {
     SelectionIntent,
     BranchStop,
     VariableLaw,
+    OpenShellBoundary,
+    HoleAdjacentLoop,
+    BooleanSliver,
+    ThinWallOffset,
+    ExistingBlendAdjacency,
     ZooExport,
     ExtremeRadiusRatio,
 }
@@ -112,6 +117,11 @@ impl DiagnosticAxis {
             Self::SelectionIntent => "selection-intent",
             Self::BranchStop => "branch-stop",
             Self::VariableLaw => "variable-law",
+            Self::OpenShellBoundary => "open-shell-boundary",
+            Self::HoleAdjacentLoop => "hole-adjacent-loop",
+            Self::BooleanSliver => "boolean-sliver",
+            Self::ThinWallOffset => "thin-wall-offset",
+            Self::ExistingBlendAdjacency => "existing-blend-adjacency",
             Self::ZooExport => "zoo-export",
             Self::ExtremeRadiusRatio => "extreme-radius-ratio",
         }
