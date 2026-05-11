@@ -27,7 +27,8 @@ mod summary;
 use candidate_types::ConstructionCandidateDraft;
 pub use candidate_types::{
     ConstructionCandidate, ConstructionCandidateId, ConstructionFamily, ConstructionFeasibility,
-    ConstructionRequirement,
+    ConstructionRequirement, DiagnosticTolerance, DiagnosticToleranceSource, GeometryFeasibility,
+    GeometryFeasibilityFact,
 };
 pub use postconditions::{
     DiagnosticTopologyDelta, PostconditionPrediction, PostconditionPredictionId,
@@ -451,6 +452,7 @@ impl TopologyDiagnosticGraph {
             conflicts: draft.conflicts,
             requirements: draft.requirements,
             postcondition_preview: draft.postcondition_preview,
+            geometry_facts: draft.geometry_facts,
         });
         id
     }

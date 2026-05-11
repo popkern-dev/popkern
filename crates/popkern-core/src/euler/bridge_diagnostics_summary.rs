@@ -1,6 +1,6 @@
 use super::{
-    ConstructionFamily, ConstructionFeasibility, ConstructionRequirement, OperatorReadinessStatus,
-    ResourceConflictKind, TopologyDiagnosticGraph,
+    ConstructionFamily, ConstructionFeasibility, ConstructionRequirement, GeometryFeasibility,
+    OperatorReadinessStatus, ResourceConflictKind, TopologyDiagnosticGraph,
 };
 
 /// Compact bridge diagnostic summary.
@@ -52,6 +52,18 @@ pub struct BridgeDiagnosticSummary {
     pub postcondition_verification_requirements: usize,
     /// Candidates carrying a postcondition preview.
     pub candidates_with_postcondition_preview: usize,
+    /// Geometry feasibility facts attached to candidates.
+    pub geometry_feasibility_facts: usize,
+    /// Geometry-ready facts.
+    pub geometry_ready_facts: usize,
+    /// Unsupported geometry-family facts.
+    pub unsupported_geometry_family_facts: usize,
+    /// Repair-required geometry facts.
+    pub geometry_repair_required_facts: usize,
+    /// Not-applicable geometry facts.
+    pub geometry_not_applicable_facts: usize,
+    /// Unknown geometry facts.
+    pub unknown_geometry_feasibility_facts: usize,
     /// Sum of predicted vertex-count deltas.
     pub predicted_delta_vertices: i64,
     /// Sum of predicted edge-count deltas.
@@ -124,6 +136,10 @@ impl BridgeDiagnosticSummary {
             for requirement in &candidate.requirements {
                 summary.count_candidate_requirement(*requirement);
             }
+            for fact in &candidate.geometry_facts {
+                summary.geometry_feasibility_facts += 1;
+                summary.count_geometry_feasibility(fact.feasibility);
+            }
         }
         for postcondition in &graph.postconditions {
             summary.predicted_delta_vertices += postcondition.expected_delta.vertices;
@@ -160,6 +176,12 @@ impl BridgeDiagnosticSummary {
             live_topology_revalidation_requirements: 0,
             postcondition_verification_requirements: 0,
             candidates_with_postcondition_preview: 0,
+            geometry_feasibility_facts: 0,
+            geometry_ready_facts: 0,
+            unsupported_geometry_family_facts: 0,
+            geometry_repair_required_facts: 0,
+            geometry_not_applicable_facts: 0,
+            unknown_geometry_feasibility_facts: 0,
             predicted_delta_vertices: 0,
             predicted_delta_edges: 0,
             predicted_delta_faces: 0,
@@ -189,7 +211,7 @@ impl BridgeDiagnosticSummary {
     /// Stable compact diagnostic label.
     pub fn diagnostic_label(&self) -> String {
         format!(
-            "bridge_diagnostics=operations={} resources={} conflicts={} readiness={} construction_candidates={} postconditions={} conflicts_by_kind=duplicate_half_edge:{} duplicate_boundary_edge:{} shared_start:{} shared_end:{} crossed_endpoint:{} aligned:{} nested:{} interior:{} repeated_edge:{} already_boundary:{} paired_exposure:{} unsupported_owner:{} stale_handle:{} unknown:{} readiness_by_status=ready:{} ready_after_normalization:{} missing_operator:{} invalid_input:{} unknown:{} candidate_families=disjoint_cross_loop:{} disjoint_same_loop:{} paired_same_loop_twin_exposure:{} boundary_side_separator:{} unknown:{} candidate_feasibility=executable_existing:{} executable_after_normalization:{} requires_separator_subcomplex:{} requires_custom_aggregate_authoring:{} requires_cycle_regrouping:{} invalid_non_manifold:{} unsupported_unknown_family:{} unknown:{} candidate_requirements=live_revalidation:{} postcondition_verification:{} unknown:{} postcondition_preview_candidates={} predicted_delta=dV={} dE={} dF={} dL={}",
+            "bridge_diagnostics=operations={} resources={} conflicts={} readiness={} construction_candidates={} postconditions={} conflicts_by_kind=duplicate_half_edge:{} duplicate_boundary_edge:{} shared_start:{} shared_end:{} crossed_endpoint:{} aligned:{} nested:{} interior:{} repeated_edge:{} already_boundary:{} paired_exposure:{} unsupported_owner:{} stale_handle:{} unknown:{} readiness_by_status=ready:{} ready_after_normalization:{} missing_operator:{} invalid_input:{} unknown:{} candidate_families=disjoint_cross_loop:{} disjoint_same_loop:{} paired_same_loop_twin_exposure:{} boundary_side_separator:{} unknown:{} candidate_feasibility=executable_existing:{} executable_after_normalization:{} requires_separator_subcomplex:{} requires_custom_aggregate_authoring:{} requires_cycle_regrouping:{} invalid_non_manifold:{} unsupported_unknown_family:{} unknown:{} candidate_requirements=live_revalidation:{} postcondition_verification:{} unknown:{} postcondition_preview_candidates={} geometry_feasibility=facts:{} ready:{} unsupported_family:{} repair_required:{} not_applicable:{} unknown:{} predicted_delta=dV={} dE={} dF={} dL={}",
             self.operations,
             self.resources,
             self.conflicts,
@@ -232,6 +254,12 @@ impl BridgeDiagnosticSummary {
             self.postcondition_verification_requirements,
             self.unknown_candidate_requirements,
             self.candidates_with_postcondition_preview,
+            self.geometry_feasibility_facts,
+            self.geometry_ready_facts,
+            self.unsupported_geometry_family_facts,
+            self.geometry_repair_required_facts,
+            self.geometry_not_applicable_facts,
+            self.unknown_geometry_feasibility_facts,
             self.predicted_delta_vertices,
             self.predicted_delta_edges,
             self.predicted_delta_faces,
@@ -359,6 +387,20 @@ impl BridgeDiagnosticSummary {
             }
             ConstructionRequirement::PostconditionVerification => {
                 self.postcondition_verification_requirements += 1;
+            }
+        }
+    }
+
+    fn count_geometry_feasibility(&mut self, feasibility: GeometryFeasibility) {
+        match feasibility {
+            GeometryFeasibility::Unknown => self.unknown_geometry_feasibility_facts += 1,
+            GeometryFeasibility::NotApplicable => self.geometry_not_applicable_facts += 1,
+            GeometryFeasibility::GeometryReady => self.geometry_ready_facts += 1,
+            GeometryFeasibility::UnsupportedGeometryFamily => {
+                self.unsupported_geometry_family_facts += 1;
+            }
+            GeometryFeasibility::RepairRequiredBeforeConstruction => {
+                self.geometry_repair_required_facts += 1;
             }
         }
     }

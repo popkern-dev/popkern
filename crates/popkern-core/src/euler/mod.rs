@@ -35,10 +35,11 @@ pub use bridge_diagnostics::{
     ConstructionFeasibility, ConstructionRequirement, DiagnosticHandle, DiagnosticOperation,
     DiagnosticOperationId, DiagnosticOperationKind, DiagnosticOperationPurpose,
     DiagnosticOperatorFamily, DiagnosticOwner, DiagnosticResource, DiagnosticResourceId,
-    DiagnosticResourceKind, DiagnosticResourceStatus, DiagnosticTopologyDelta, OperatorReadiness,
-    OperatorReadinessStatus, PostconditionPrediction, PostconditionPredictionId, ResourceConflict,
-    ResourceConflictId, ResourceConflictKind, ResourceConflictStatus, TopologyDiagnosticGraph,
-    TopologyGraphFingerprint,
+    DiagnosticResourceKind, DiagnosticResourceStatus, DiagnosticTolerance,
+    DiagnosticToleranceSource, DiagnosticTopologyDelta, GeometryFeasibility,
+    GeometryFeasibilityFact, OperatorReadiness, OperatorReadinessStatus, PostconditionPrediction,
+    PostconditionPredictionId, ResourceConflict, ResourceConflictId, ResourceConflictKind,
+    ResourceConflictStatus, TopologyDiagnosticGraph, TopologyGraphFingerprint,
 };
 pub use construction_residual_retire::ConstructionResidualRetireResult;
 pub use cylinder_mediated_support::{

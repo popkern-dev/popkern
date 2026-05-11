@@ -31,7 +31,9 @@ fn empty_bridge_diagnostic_report_is_deterministic() {
          requires_separator_subcomplex:0 requires_custom_aggregate_authoring:0 \
          requires_cycle_regrouping:0 invalid_non_manifold:0 unsupported_unknown_family:0 unknown:0 \
          candidate_requirements=live_revalidation:0 postcondition_verification:0 unknown:0 \
-         postcondition_preview_candidates=0 predicted_delta=dV=0 dE=0 dF=0 dL=0"
+         postcondition_preview_candidates=0 \
+         geometry_feasibility=facts:0 ready:0 unsupported_family:0 repair_required:0 \
+         not_applicable:0 unknown:0 predicted_delta=dV=0 dE=0 dF=0 dL=0"
     );
     assert!(first.graph.candidates.is_empty());
 }

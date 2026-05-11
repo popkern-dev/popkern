@@ -41,6 +41,13 @@ fn seed_matrix_panic_output_names_family_and_feasibility() {
             "{} lacks feasibility: {label}",
             row.case_id
         );
+        if row.geometry_feasibility_required {
+            assert!(
+                row.geometry_feasibility.is_some(),
+                "{} requires geometry feasibility but has no geometry facet: {label}",
+                row.case_id
+            );
+        }
         assert!(
             label.contains("terminal="),
             "{} lacks terminal classification: {label}",

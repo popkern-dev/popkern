@@ -5,8 +5,9 @@ use std::collections::BTreeSet;
 use super::{
     ConstructionCandidateDraft, ConstructionFamily, ConstructionFeasibility,
     ConstructionRequirement, DiagnosticHandle, DiagnosticOperationId, DiagnosticOperatorFamily,
-    DiagnosticResourceKind, DiagnosticTopologyDelta, OperatorReadinessStatus, ResourceConflictId,
-    ResourceConflictKind, TopologyDiagnosticGraph,
+    DiagnosticResourceKind, DiagnosticTolerance, DiagnosticTopologyDelta, GeometryFeasibility,
+    GeometryFeasibilityFact, OperatorReadinessStatus, ResourceConflictId, ResourceConflictKind,
+    TopologyDiagnosticGraph,
 };
 
 pub(super) fn classify_construction_candidates(
@@ -33,6 +34,11 @@ pub(super) fn classify_construction_candidates(
                     ConstructionRequirement::PostconditionVerification,
                 ],
                 postcondition_preview,
+                geometry_facts: vec![GeometryFeasibilityFact {
+                    feasibility: GeometryFeasibility::NotApplicable,
+                    reason: "topology-only-candidate-no-geometry-fact-required",
+                    tolerance: DiagnosticTolerance::NOT_APPLICABLE,
+                }],
             });
         }
     }

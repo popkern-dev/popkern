@@ -1,7 +1,7 @@
 use crate::euler::{
     BridgeDiagnosticOperationRequest, BridgeDiagnosticRequest, ConstructionFamily,
     ConstructionFeasibility, ConstructionRequirement, DiagnosticOperationPurpose,
-    OperatorReadinessStatus,
+    GeometryFeasibility, OperatorReadinessStatus,
 };
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
@@ -35,6 +35,10 @@ fn candidates_report_disjoint_cross_loop_bridge() {
             && candidate.feasibility == ConstructionFeasibility::ExecutableByExistingOperator
             && candidate.feasibility_reason == "face-family-bridge-existing-operator-ready"
             && candidate.postcondition_preview.is_some()
+            && candidate
+                .geometry_facts
+                .iter()
+                .any(|fact| fact.feasibility == GeometryFeasibility::NotApplicable)
             && candidate
                 .requirements
                 .contains(&ConstructionRequirement::LiveTopologyRevalidation)

@@ -10,6 +10,7 @@ pub(in crate::euler) struct ConstructionCandidateDraft {
     pub(super) conflicts: Vec<ResourceConflictId>,
     pub(super) requirements: Vec<ConstructionRequirement>,
     pub(super) postcondition_preview: Option<PostconditionPredictionId>,
+    pub(super) geometry_facts: Vec<GeometryFeasibilityFact>,
 }
 
 /// Local graph id for a construction candidate.
@@ -35,6 +36,62 @@ pub struct ConstructionCandidate {
     pub requirements: Vec<ConstructionRequirement>,
     /// Optional postcondition preview for this candidate.
     pub postcondition_preview: Option<PostconditionPredictionId>,
+    /// Geometry feasibility facts for this candidate.
+    pub geometry_facts: Vec<GeometryFeasibilityFact>,
+}
+
+/// Geometry feasibility state for a construction candidate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum GeometryFeasibility {
+    /// Geometry state has not been classified yet.
+    Unknown,
+    /// No geometry facts are needed for this candidate.
+    NotApplicable,
+    /// Candidate geometry is ready for construction.
+    GeometryReady,
+    /// Candidate uses an unsupported geometry family.
+    UnsupportedGeometryFamily,
+    /// Geometry repair must run before construction.
+    RepairRequiredBeforeConstruction,
+}
+
+/// One geometry feasibility fact attached to a construction candidate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeometryFeasibilityFact {
+    /// Geometry feasibility state.
+    pub feasibility: GeometryFeasibility,
+    /// Stable reason label.
+    pub reason: &'static str,
+    /// Local explicit tolerance used by the fact.
+    pub tolerance: DiagnosticTolerance,
+}
+
+/// Explicit local tolerance recorded by a diagnostic fact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DiagnosticTolerance {
+    /// Source of the tolerance.
+    pub source: DiagnosticToleranceSource,
+    /// Magnitude in nanometers when the fact used a numeric tolerance.
+    pub nanometers: Option<i64>,
+}
+
+impl DiagnosticTolerance {
+    /// No numeric tolerance is relevant to this fact.
+    pub const NOT_APPLICABLE: Self = Self {
+        source: DiagnosticToleranceSource::NotApplicable,
+        nanometers: None,
+    };
+}
+
+/// Source of a diagnostic tolerance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DiagnosticToleranceSource {
+    /// No tolerance is relevant to this fact.
+    NotApplicable,
+    /// Tolerance came from a local BRep or entity tolerance.
+    LocalTopology,
+    /// Tolerance came from a local geometry predicate.
+    LocalGeometryPredicate,
 }
 
 /// Candidate construction family.
