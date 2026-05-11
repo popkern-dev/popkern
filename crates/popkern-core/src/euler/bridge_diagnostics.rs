@@ -17,6 +17,8 @@ mod conflicts;
 mod inventory;
 #[path = "bridge_diagnostics_overlap.rs"]
 mod overlap;
+#[path = "bridge_diagnostics_postconditions.rs"]
+mod postconditions;
 #[path = "bridge_diagnostics_readiness.rs"]
 mod readiness;
 #[path = "bridge_diagnostics_summary.rs"]
@@ -25,6 +27,9 @@ mod summary;
 pub use candidate_types::{
     ConstructionCandidate, ConstructionCandidateId, ConstructionFamily, ConstructionFeasibility,
     ConstructionRequirement,
+};
+pub use postconditions::{
+    DiagnosticTopologyDelta, PostconditionPrediction, PostconditionPredictionId,
 };
 pub use summary::BridgeDiagnosticSummary;
 
@@ -39,10 +44,6 @@ pub struct DiagnosticOperationId(pub usize);
 /// Local graph id for a diagnostic conflict component.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ResourceConflictId(pub usize);
-
-/// Local graph id for a postcondition preview.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PostconditionPredictionId(pub usize);
 
 /// Read-only bridge diagnostic request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,15 +168,6 @@ pub struct OperatorReadiness {
     pub status: OperatorReadinessStatus,
     /// Stable reason label.
     pub reason: &'static str,
-}
-
-/// Predicted postcondition placeholder.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PostconditionPrediction {
-    /// Operation being predicted.
-    pub operation: DiagnosticOperationId,
-    /// Stable prediction label.
-    pub label: &'static str,
 }
 
 /// Diagnostic resource kind.
@@ -427,6 +419,21 @@ impl TopologyDiagnosticGraph {
             status,
             reason,
         });
+    }
+
+    pub(super) fn push_postcondition(
+        &mut self,
+        operation: DiagnosticOperationId,
+        expected_delta: DiagnosticTopologyDelta,
+        label: &'static str,
+    ) -> PostconditionPredictionId {
+        let id = PostconditionPredictionId(self.postconditions.len());
+        self.postconditions.push(PostconditionPrediction {
+            operation,
+            expected_delta,
+            label,
+        });
+        id
     }
 
     pub(super) fn push_candidate(

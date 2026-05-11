@@ -2,7 +2,8 @@
 
 use super::{
     ConstructionFamily, ConstructionFeasibility, ConstructionRequirement, DiagnosticOperationId,
-    DiagnosticOperatorFamily, OperatorReadinessStatus, ResourceConflictId, TopologyDiagnosticGraph,
+    DiagnosticOperatorFamily, DiagnosticTopologyDelta, OperatorReadinessStatus, ResourceConflictId,
+    TopologyDiagnosticGraph,
 };
 
 pub(super) fn classify_construction_candidates(
@@ -13,6 +14,8 @@ pub(super) fn classify_construction_candidates(
         if let Some((family, feasibility)) =
             candidate_for_readiness(readiness.operator, readiness.status)
         {
+            let postcondition_preview =
+                postcondition_preview_for_candidate(&mut graph, readiness.operation, family);
             graph.push_candidate(
                 family,
                 feasibility,
@@ -22,7 +25,7 @@ pub(super) fn classify_construction_candidates(
                     ConstructionRequirement::LiveTopologyRevalidation,
                     ConstructionRequirement::PostconditionVerification,
                 ],
-                None,
+                postcondition_preview,
             );
         }
     }
@@ -60,6 +63,53 @@ fn candidate_for_readiness(
     }
 }
 
+fn postcondition_preview_for_candidate(
+    graph: &mut TopologyDiagnosticGraph,
+    operation: DiagnosticOperationId,
+    family: ConstructionFamily,
+) -> Option<super::PostconditionPredictionId> {
+    let (expected_delta, label) = match family {
+        ConstructionFamily::DisjointCrossLoopBridge => (
+            DiagnosticTopologyDelta {
+                vertices: 0,
+                edges: 2,
+                faces: 1,
+                loops: 1,
+            },
+            "face-family-bridge-postconditions",
+        ),
+        ConstructionFamily::DisjointSameLoopBridge => (
+            DiagnosticTopologyDelta {
+                vertices: 0,
+                edges: 2,
+                faces: 1,
+                loops: 1,
+            },
+            "same-loop-face-bridge-postconditions",
+        ),
+        ConstructionFamily::PairedSameLoopTwinExposure => (
+            DiagnosticTopologyDelta {
+                vertices: 0,
+                edges: 1,
+                faces: 0,
+                loops: 0,
+            },
+            "same-loop-boundary-exposure-postconditions",
+        ),
+        ConstructionFamily::BoundarySideSeparatorBridge => (
+            DiagnosticTopologyDelta {
+                vertices: 0,
+                edges: 3,
+                faces: 1,
+                loops: 1,
+            },
+            "boundary-side-separator-bridge-postconditions",
+        ),
+        ConstructionFamily::Unknown => return None,
+    };
+    Some(graph.push_postcondition(operation, expected_delta, label))
+}
+
 fn conflicts_for_operation(
     graph: &TopologyDiagnosticGraph,
     operation: DiagnosticOperationId,
@@ -77,6 +127,7 @@ mod tests {
     use crate::euler::{
         BridgeDiagnosticOperationRequest, BridgeDiagnosticRequest, ConstructionFamily,
         ConstructionFeasibility, ConstructionRequirement, DiagnosticOperationPurpose,
+        OperatorReadinessStatus,
     };
     use crate::geometry::Point3;
     use crate::tolerance::Tolerance;
@@ -108,6 +159,7 @@ mod tests {
         assert!(report.graph.candidates.iter().any(|candidate| {
             candidate.family == ConstructionFamily::DisjointCrossLoopBridge
                 && candidate.feasibility == ConstructionFeasibility::ExecutableByExistingOperator
+                && candidate.postcondition_preview.is_some()
                 && candidate
                     .requirements
                     .contains(&ConstructionRequirement::LiveTopologyRevalidation)
@@ -142,7 +194,14 @@ mod tests {
         assert!(report.graph.candidates.iter().any(|candidate| {
             candidate.family == ConstructionFamily::DisjointSameLoopBridge
                 && candidate.feasibility == ConstructionFeasibility::ExecutableByExistingOperator
+                && candidate.postcondition_preview.is_some()
         }));
+        assert_eq!(report.summary.disjoint_same_loop_bridge_candidates, 1);
+        assert_eq!(report.summary.executable_existing_operator_candidates, 1);
+        assert_eq!(report.summary.candidates_with_postcondition_preview, 1);
+        assert_eq!(report.summary.predicted_delta_edges, 2);
+        assert_eq!(report.summary.predicted_delta_faces, 1);
+        assert_eq!(report.summary.predicted_delta_loops, 1);
     }
 
     #[test]
@@ -170,8 +229,54 @@ mod tests {
         assert!(report.graph.candidates.iter().any(|candidate| {
             candidate.family == ConstructionFamily::BoundarySideSeparatorBridge
                 && candidate.feasibility == ConstructionFeasibility::UnsupportedUnknownFamily
+                && candidate.postcondition_preview.is_some()
                 && !candidate.conflicts.is_empty()
         }));
+        assert_eq!(report.summary.boundary_side_separator_bridge_candidates, 1);
+        assert_eq!(report.summary.unsupported_unknown_family_candidates, 1);
+        assert_eq!(report.summary.predicted_delta_edges, 3);
+        assert_eq!(report.summary.predicted_delta_faces, 1);
+        assert_eq!(report.summary.predicted_delta_loops, 1);
+    }
+
+    #[test]
+    fn matrix_rejects_supported_readiness_without_candidate() {
+        let brep = same_loop_boundary_fixture();
+        let face = brep.faces.keys().next().expect("fixture has a face");
+        let loop_ = brep.faces[face].outer_loop;
+        let first = brep.loops[loop_].half_edge;
+        let first_after = brep.half_edges[first].next;
+        let second = nth_half_edge(&brep, first, 3);
+        let second_after = brep.half_edges[second].next;
+
+        let report = brep
+            .bridge_diagnostic_report(BridgeDiagnosticRequest {
+                operations: vec![BridgeDiagnosticOperationRequest {
+                    purpose: DiagnosticOperationPurpose::BridgeCycle,
+                    first_loop: loop_,
+                    first_interval: vec![first, first_after],
+                    second_loop: loop_,
+                    second_interval: vec![second, second_after],
+                }],
+            })
+            .expect("report builds");
+
+        for readiness in &report.graph.readiness {
+            if matches!(
+                readiness.status,
+                OperatorReadinessStatus::Ready
+                    | OperatorReadinessStatus::ReadyAfterNormalization
+                    | OperatorReadinessStatus::MissingOperator
+            ) {
+                assert!(
+                    report.graph.candidates.iter().any(|candidate| {
+                        candidate.operations.contains(&readiness.operation)
+                            && candidate.postcondition_preview.is_some()
+                    }),
+                    "readiness entry {readiness:?} has no construction candidate"
+                );
+            }
+        }
     }
 
     fn two_boundary_loop_fixture() -> BRep {

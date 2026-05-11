@@ -135,6 +135,13 @@ fn mutator_boundary_refuses_without_mutating_topology() {
              already_boundary:0 paired_exposure:0 unsupported_owner:0 stale_handle:0 unknown:0 \
              readiness_by_status=ready:0 ready_after_normalization:0 missing_operator:0 \
              invalid_input:0 unknown:0 \
+             candidate_families=disjoint_cross_loop:0 disjoint_same_loop:0 \
+             paired_same_loop_twin_exposure:0 boundary_side_separator:0 unknown:0 \
+             candidate_feasibility=executable_existing:0 executable_after_normalization:0 \
+             requires_separator_subcomplex:0 requires_custom_aggregate_authoring:0 \
+             invalid_non_manifold:0 unsupported_unknown_family:0 unknown:0 \
+             candidate_requirements=live_revalidation:0 postcondition_verification:0 unknown:0 \
+             postcondition_preview_candidates=0 predicted_delta=dV=0 dE=0 dF=0 dL=0 \
              expected_delta=dV=0 dE=0 dF=0 dL=0 reason=none"
         ),
         "{err}"

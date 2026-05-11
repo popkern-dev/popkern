@@ -35,9 +35,9 @@ pub use bridge_diagnostics::{
     ConstructionFeasibility, ConstructionRequirement, DiagnosticHandle, DiagnosticOperation,
     DiagnosticOperationId, DiagnosticOperationKind, DiagnosticOperationPurpose,
     DiagnosticOperatorFamily, DiagnosticOwner, DiagnosticResource, DiagnosticResourceId,
-    DiagnosticResourceKind, DiagnosticResourceStatus, OperatorReadiness, OperatorReadinessStatus,
-    PostconditionPrediction, PostconditionPredictionId, ResourceConflict, ResourceConflictId,
-    ResourceConflictKind, ResourceConflictStatus, TopologyDiagnosticGraph,
+    DiagnosticResourceKind, DiagnosticResourceStatus, DiagnosticTopologyDelta, OperatorReadiness,
+    OperatorReadinessStatus, PostconditionPrediction, PostconditionPredictionId, ResourceConflict,
+    ResourceConflictId, ResourceConflictKind, ResourceConflictStatus, TopologyDiagnosticGraph,
     TopologyGraphFingerprint,
 };
 pub use construction_residual_retire::ConstructionResidualRetireResult;

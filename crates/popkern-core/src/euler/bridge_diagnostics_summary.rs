@@ -1,4 +1,7 @@
-use super::{OperatorReadinessStatus, ResourceConflictKind, TopologyDiagnosticGraph};
+use super::{
+    ConstructionFamily, ConstructionFeasibility, ConstructionRequirement, OperatorReadinessStatus,
+    ResourceConflictKind, TopologyDiagnosticGraph,
+};
 
 /// Compact bridge diagnostic summary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,6 +18,46 @@ pub struct BridgeDiagnosticSummary {
     pub construction_candidates: usize,
     /// Number of postcondition predictions in the graph.
     pub postconditions: usize,
+    /// Candidates with unknown family.
+    pub unknown_candidate_families: usize,
+    /// Disjoint cross-loop bridge candidates.
+    pub disjoint_cross_loop_bridge_candidates: usize,
+    /// Disjoint same-loop bridge candidates.
+    pub disjoint_same_loop_bridge_candidates: usize,
+    /// Paired same-loop twin exposure candidates.
+    pub paired_same_loop_twin_exposure_candidates: usize,
+    /// Boundary-side separator bridge candidates.
+    pub boundary_side_separator_bridge_candidates: usize,
+    /// Candidates with unknown feasibility.
+    pub unknown_candidate_feasibility: usize,
+    /// Candidates executable by existing operators.
+    pub executable_existing_operator_candidates: usize,
+    /// Candidates executable after known normalization.
+    pub executable_after_normalization_candidates: usize,
+    /// Candidates requiring separator subcomplex support.
+    pub requires_separator_subcomplex_candidates: usize,
+    /// Candidates requiring aggregate authoring support.
+    pub requires_custom_aggregate_authoring_candidates: usize,
+    /// Candidates rejected as non-manifold.
+    pub invalid_non_manifold_candidates: usize,
+    /// Unsupported candidate families.
+    pub unsupported_unknown_family_candidates: usize,
+    /// Unknown construction requirements.
+    pub unknown_candidate_requirements: usize,
+    /// Live-topology revalidation requirements.
+    pub live_topology_revalidation_requirements: usize,
+    /// Postcondition verification requirements.
+    pub postcondition_verification_requirements: usize,
+    /// Candidates carrying a postcondition preview.
+    pub candidates_with_postcondition_preview: usize,
+    /// Sum of predicted vertex-count deltas.
+    pub predicted_delta_vertices: i64,
+    /// Sum of predicted edge-count deltas.
+    pub predicted_delta_edges: i64,
+    /// Sum of predicted face-count deltas.
+    pub predicted_delta_faces: i64,
+    /// Sum of predicted loop-count deltas.
+    pub predicted_delta_loops: i64,
     /// Duplicate half-edge side consumption conflicts.
     pub duplicate_half_edge_consumptions: usize,
     /// Duplicate boundary-edge consumption conflicts.
@@ -70,6 +113,22 @@ impl BridgeDiagnosticSummary {
         for readiness in &graph.readiness {
             summary.count_readiness(readiness.status);
         }
+        for candidate in &graph.candidates {
+            summary.count_candidate_family(candidate.family);
+            summary.count_candidate_feasibility(candidate.feasibility);
+            if candidate.postcondition_preview.is_some() {
+                summary.candidates_with_postcondition_preview += 1;
+            }
+            for requirement in &candidate.requirements {
+                summary.count_candidate_requirement(*requirement);
+            }
+        }
+        for postcondition in &graph.postconditions {
+            summary.predicted_delta_vertices += postcondition.expected_delta.vertices;
+            summary.predicted_delta_edges += postcondition.expected_delta.edges;
+            summary.predicted_delta_faces += postcondition.expected_delta.faces;
+            summary.predicted_delta_loops += postcondition.expected_delta.loops;
+        }
         summary
     }
 
@@ -82,6 +141,26 @@ impl BridgeDiagnosticSummary {
             readiness: 0,
             construction_candidates: 0,
             postconditions: 0,
+            unknown_candidate_families: 0,
+            disjoint_cross_loop_bridge_candidates: 0,
+            disjoint_same_loop_bridge_candidates: 0,
+            paired_same_loop_twin_exposure_candidates: 0,
+            boundary_side_separator_bridge_candidates: 0,
+            unknown_candidate_feasibility: 0,
+            executable_existing_operator_candidates: 0,
+            executable_after_normalization_candidates: 0,
+            requires_separator_subcomplex_candidates: 0,
+            requires_custom_aggregate_authoring_candidates: 0,
+            invalid_non_manifold_candidates: 0,
+            unsupported_unknown_family_candidates: 0,
+            unknown_candidate_requirements: 0,
+            live_topology_revalidation_requirements: 0,
+            postcondition_verification_requirements: 0,
+            candidates_with_postcondition_preview: 0,
+            predicted_delta_vertices: 0,
+            predicted_delta_edges: 0,
+            predicted_delta_faces: 0,
+            predicted_delta_loops: 0,
             duplicate_half_edge_consumptions: 0,
             duplicate_boundary_edge_consumptions: 0,
             shared_start_overlaps: 0,
@@ -107,7 +186,7 @@ impl BridgeDiagnosticSummary {
     /// Stable compact diagnostic label.
     pub fn diagnostic_label(&self) -> String {
         format!(
-            "bridge_diagnostics=operations={} resources={} conflicts={} readiness={} construction_candidates={} postconditions={} conflicts_by_kind=duplicate_half_edge:{} duplicate_boundary_edge:{} shared_start:{} shared_end:{} crossed_endpoint:{} aligned:{} nested:{} interior:{} repeated_edge:{} already_boundary:{} paired_exposure:{} unsupported_owner:{} stale_handle:{} unknown:{} readiness_by_status=ready:{} ready_after_normalization:{} missing_operator:{} invalid_input:{} unknown:{}",
+            "bridge_diagnostics=operations={} resources={} conflicts={} readiness={} construction_candidates={} postconditions={} conflicts_by_kind=duplicate_half_edge:{} duplicate_boundary_edge:{} shared_start:{} shared_end:{} crossed_endpoint:{} aligned:{} nested:{} interior:{} repeated_edge:{} already_boundary:{} paired_exposure:{} unsupported_owner:{} stale_handle:{} unknown:{} readiness_by_status=ready:{} ready_after_normalization:{} missing_operator:{} invalid_input:{} unknown:{} candidate_families=disjoint_cross_loop:{} disjoint_same_loop:{} paired_same_loop_twin_exposure:{} boundary_side_separator:{} unknown:{} candidate_feasibility=executable_existing:{} executable_after_normalization:{} requires_separator_subcomplex:{} requires_custom_aggregate_authoring:{} invalid_non_manifold:{} unsupported_unknown_family:{} unknown:{} candidate_requirements=live_revalidation:{} postcondition_verification:{} unknown:{} postcondition_preview_candidates={} predicted_delta=dV={} dE={} dF={} dL={}",
             self.operations,
             self.resources,
             self.conflicts,
@@ -132,7 +211,27 @@ impl BridgeDiagnosticSummary {
             self.ready_after_normalization_operators,
             self.missing_operators,
             self.invalid_input_operators,
-            self.unknown_readiness
+            self.unknown_readiness,
+            self.disjoint_cross_loop_bridge_candidates,
+            self.disjoint_same_loop_bridge_candidates,
+            self.paired_same_loop_twin_exposure_candidates,
+            self.boundary_side_separator_bridge_candidates,
+            self.unknown_candidate_families,
+            self.executable_existing_operator_candidates,
+            self.executable_after_normalization_candidates,
+            self.requires_separator_subcomplex_candidates,
+            self.requires_custom_aggregate_authoring_candidates,
+            self.invalid_non_manifold_candidates,
+            self.unsupported_unknown_family_candidates,
+            self.unknown_candidate_feasibility,
+            self.live_topology_revalidation_requirements,
+            self.postcondition_verification_requirements,
+            self.unknown_candidate_requirements,
+            self.candidates_with_postcondition_preview,
+            self.predicted_delta_vertices,
+            self.predicted_delta_edges,
+            self.predicted_delta_faces,
+            self.predicted_delta_loops
         )
     }
 
@@ -199,6 +298,60 @@ impl BridgeDiagnosticSummary {
             }
             OperatorReadinessStatus::Unknown => {
                 self.unknown_readiness += 1;
+            }
+        }
+    }
+
+    fn count_candidate_family(&mut self, family: ConstructionFamily) {
+        match family {
+            ConstructionFamily::Unknown => self.unknown_candidate_families += 1,
+            ConstructionFamily::DisjointCrossLoopBridge => {
+                self.disjoint_cross_loop_bridge_candidates += 1;
+            }
+            ConstructionFamily::DisjointSameLoopBridge => {
+                self.disjoint_same_loop_bridge_candidates += 1;
+            }
+            ConstructionFamily::PairedSameLoopTwinExposure => {
+                self.paired_same_loop_twin_exposure_candidates += 1;
+            }
+            ConstructionFamily::BoundarySideSeparatorBridge => {
+                self.boundary_side_separator_bridge_candidates += 1;
+            }
+        }
+    }
+
+    fn count_candidate_feasibility(&mut self, feasibility: ConstructionFeasibility) {
+        match feasibility {
+            ConstructionFeasibility::Unknown => self.unknown_candidate_feasibility += 1,
+            ConstructionFeasibility::ExecutableByExistingOperator => {
+                self.executable_existing_operator_candidates += 1;
+            }
+            ConstructionFeasibility::ExecutableAfterKnownNormalization => {
+                self.executable_after_normalization_candidates += 1;
+            }
+            ConstructionFeasibility::RequiresSeparatorSubcomplex => {
+                self.requires_separator_subcomplex_candidates += 1;
+            }
+            ConstructionFeasibility::RequiresCustomAggregateAuthoring => {
+                self.requires_custom_aggregate_authoring_candidates += 1;
+            }
+            ConstructionFeasibility::InvalidNonManifold => {
+                self.invalid_non_manifold_candidates += 1;
+            }
+            ConstructionFeasibility::UnsupportedUnknownFamily => {
+                self.unsupported_unknown_family_candidates += 1;
+            }
+        }
+    }
+
+    fn count_candidate_requirement(&mut self, requirement: ConstructionRequirement) {
+        match requirement {
+            ConstructionRequirement::Unknown => self.unknown_candidate_requirements += 1,
+            ConstructionRequirement::LiveTopologyRevalidation => {
+                self.live_topology_revalidation_requirements += 1;
+            }
+            ConstructionRequirement::PostconditionVerification => {
+                self.postcondition_verification_requirements += 1;
             }
         }
     }
