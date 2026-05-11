@@ -13,6 +13,8 @@ mod conflicts;
 mod inventory;
 #[path = "bridge_diagnostics_overlap.rs"]
 mod overlap;
+#[path = "bridge_diagnostics_readiness.rs"]
+mod readiness;
 
 /// Local graph id for a diagnostic resource.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -335,6 +337,7 @@ impl BRep {
         let graph = inventory::populate_bridge_inventory(self, &request, graph);
         let graph = conflicts::classify_duplicate_consumption(graph);
         let graph = overlap::classify_overlap_shapes(self, &request, graph);
+        let graph = readiness::classify_operator_readiness(self, &request, graph);
         Ok(BridgeDiagnosticReport {
             summary: BridgeDiagnosticSummary::from_graph(&graph),
             graph,
@@ -404,6 +407,21 @@ impl TopologyDiagnosticGraph {
             status,
         });
         id
+    }
+
+    pub(super) fn push_readiness(
+        &mut self,
+        operation: DiagnosticOperationId,
+        operator: DiagnosticOperatorFamily,
+        status: OperatorReadinessStatus,
+        reason: &'static str,
+    ) {
+        self.readiness.push(OperatorReadiness {
+            operation,
+            operator,
+            status,
+            reason,
+        });
     }
 }
 
