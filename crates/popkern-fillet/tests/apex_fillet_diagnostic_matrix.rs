@@ -62,6 +62,13 @@ fn seed_matrix_panic_output_names_family_and_feasibility() {
                 row.case_id
             );
         }
+        if row.downstream_readiness_required {
+            assert!(
+                row.downstream_readiness.is_some(),
+                "{} requires downstream readiness but has no downstream facet: {label}",
+                row.case_id
+            );
+        }
         assert!(
             label.contains("terminal="),
             "{} lacks terminal classification: {label}",
@@ -86,6 +93,10 @@ struct MatrixSummary {
     executable: usize,
     named_missing_primitive: usize,
     invalid_topology: usize,
+    unsupported_primitive: usize,
+    repair_required: usize,
+    ambiguous_dependency: usize,
+    downstream_risk: usize,
     unknown_family_rows: usize,
     unknown_input_fact: usize,
     unknown_fixture_reduction: usize,
@@ -109,6 +120,33 @@ impl MatrixSummary {
                 DiagnosticMatrixTerminal::InvalidTopologyReason => summary.invalid_topology += 1,
                 DiagnosticMatrixTerminal::ExplicitUnknownFamily => summary.unknown_family_rows += 1,
             }
+            if row.feasibility.contains("requires-")
+                || row
+                    .operation_dependency
+                    .is_some_and(|dependency| dependency.contains("missing-"))
+            {
+                summary.unsupported_primitive += 1;
+            }
+            if row
+                .geometry_feasibility
+                .is_some_and(|readiness| readiness.contains("repair-required"))
+                || row
+                    .validity_repair
+                    .is_some_and(|readiness| readiness.contains("requires-"))
+            {
+                summary.repair_required += 1;
+            }
+            if row
+                .operation_dependency
+                .is_some_and(|dependency| dependency.contains("ambiguous"))
+            {
+                summary.ambiguous_dependency += 1;
+            }
+            if row.downstream_readiness.is_some_and(|readiness| {
+                readiness.contains("risk") || readiness.contains("blocked")
+            }) {
+                summary.downstream_risk += 1;
+            }
             match row.unknown_facet {
                 None => {}
                 Some(UnknownDiagnosticFacet::UnknownInputFact) => summary.unknown_input_fact += 1,
@@ -131,11 +169,15 @@ impl MatrixSummary {
 
     fn diagnostic_label(self) -> String {
         format!(
-            "apex_fillet_diagnostic_matrix=rows={} executable={} named_missing_primitive={} invalid_topology={} unknown_family={} unknowns=input_fact:{} fixture_reduction:{} primitive_family:{} tolerance_model:{} unpartitioned:{}",
+            "apex_fillet_diagnostic_matrix=rows={} executable={} named_missing_primitive={} invalid_topology={} unsupported_primitive={} repair_required={} ambiguous_dependency={} downstream_risk={} unknown_family={} unknowns=input_fact:{} fixture_reduction:{} primitive_family:{} tolerance_model:{} unpartitioned:{}",
             self.rows,
             self.executable,
             self.named_missing_primitive,
             self.invalid_topology,
+            self.unsupported_primitive,
+            self.repair_required,
+            self.ambiguous_dependency,
+            self.downstream_risk,
             self.unknown_family_rows,
             self.unknown_input_fact,
             self.unknown_fixture_reduction,
