@@ -1,6 +1,8 @@
 //! Bridge diagnostic construction-candidate data types.
 
-use super::{DiagnosticOperationId, PostconditionPredictionId, ResourceConflictId};
+use super::{
+    DiagnosticOperationId, DiagnosticTopologyDelta, PostconditionPredictionId, ResourceConflictId,
+};
 
 pub(in crate::euler) struct ConstructionCandidateDraft {
     pub(super) family: ConstructionFamily,
@@ -10,6 +12,7 @@ pub(in crate::euler) struct ConstructionCandidateDraft {
     pub(super) conflicts: Vec<ResourceConflictId>,
     pub(super) requirements: Vec<ConstructionRequirement>,
     pub(super) postcondition_preview: Option<PostconditionPredictionId>,
+    pub(super) expected_delta: Option<DiagnosticTopologyDelta>,
     pub(super) geometry_facts: Vec<GeometryFeasibilityFact>,
     pub(super) validity_repair_facts: Vec<ValidityRepairFact>,
     pub(super) operation_dependencies: Vec<OperationDependency>,
@@ -39,6 +42,8 @@ pub struct ConstructionCandidate {
     pub requirements: Vec<ConstructionRequirement>,
     /// Optional postcondition preview for this candidate.
     pub postcondition_preview: Option<PostconditionPredictionId>,
+    /// Expected topology delta for this candidate.
+    pub expected_delta: Option<DiagnosticTopologyDelta>,
     /// Geometry feasibility facts for this candidate.
     pub geometry_facts: Vec<GeometryFeasibilityFact>,
     /// Validity and repair readiness facts for this candidate.
@@ -65,6 +70,9 @@ impl ConstructionCandidate {
             return Err(
                 self.missing_mutation_gate_facet(CandidateMissingFacet::PostconditionPreview)
             );
+        }
+        if self.expected_delta.is_none() {
+            return Err(self.missing_mutation_gate_facet(CandidateMissingFacet::ExpectedDelta));
         }
         if self.geometry_facts.is_empty() {
             return Err(
@@ -156,6 +164,8 @@ pub enum CandidateMissingFacet {
     TopologyResource,
     /// Candidate lacks a postcondition preview.
     PostconditionPreview,
+    /// Candidate lacks an expected topology delta.
+    ExpectedDelta,
     /// Candidate lacks geometry feasibility facts.
     GeometryFeasibility,
     /// Candidate lacks validity/repair facts.
@@ -180,6 +190,7 @@ impl CandidateMissingFacet {
             Self::Feasibility => "candidate-feasibility",
             Self::TopologyResource => "topology-resource-facet",
             Self::PostconditionPreview => "postcondition-preview",
+            Self::ExpectedDelta => "expected-topology-delta",
             Self::GeometryFeasibility => "geometry-feasibility",
             Self::ValidityRepair => "validity-repair",
             Self::OperationDependency => "operation-dependency",

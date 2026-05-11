@@ -30,6 +30,7 @@ pub(super) struct SharedStartBridgePreflight {
     expected_edges: i64,
     expected_faces: i64,
     expected_loops: i64,
+    candidate_gate_complete: bool,
     reason: &'static str,
 }
 
@@ -57,6 +58,7 @@ impl SharedStartBridgePreflight {
             expected_edges: 0,
             expected_faces: 0,
             expected_loops: 0,
+            candidate_gate_complete: true,
             reason: "none",
         }
     }
@@ -83,6 +85,7 @@ impl SharedStartBridgePreflight {
             expected_edges: summary.expected_edges,
             expected_faces: summary.expected_faces,
             expected_loops: summary.expected_loops,
+            candidate_gate_complete: true,
             reason: "none",
         }
     }
@@ -91,6 +94,7 @@ impl SharedStartBridgePreflight {
         pairings: usize,
         shape: SharedStartCycleShape,
         graph_summary: BridgeDiagnosticSummary,
+        candidate_gate_complete: bool,
         reason: &'static str,
     ) -> Self {
         Self {
@@ -109,6 +113,7 @@ impl SharedStartBridgePreflight {
             expected_edges: 0,
             expected_faces: 0,
             expected_loops: 0,
+            candidate_gate_complete,
             reason,
         }
     }
@@ -117,16 +122,21 @@ impl SharedStartBridgePreflight {
         pairings: usize,
         shape: SharedStartCycleShape,
         graph_summary: BridgeDiagnosticSummary,
-        expected_edges: i64,
-        expected_faces: i64,
-        expected_loops: i64,
+        expected_delta: SharedStartExpectedDelta,
+        candidate_gate_complete: bool,
         reason: &'static str,
     ) -> Self {
         Self {
-            expected_edges,
-            expected_faces,
-            expected_loops,
-            ..Self::rejected(pairings, shape, graph_summary, reason)
+            expected_edges: expected_delta.edges,
+            expected_faces: expected_delta.faces,
+            expected_loops: expected_delta.loops,
+            ..Self::rejected(
+                pairings,
+                shape,
+                graph_summary,
+                candidate_gate_complete,
+                reason,
+            )
         }
     }
 
@@ -137,7 +147,7 @@ impl SharedStartBridgePreflight {
             SharedStartBridgePreflightStatus::Rejected => "rejected",
         };
         format!(
-            "shared_start_bridge_preflight=status={status} pairings={} cycles={} cross_loop_cycles={} same_loop_cycles={} one_edge_interior_overlap_candidates={} repeated_one_edge_overlap_occurrences={} one_edge_interior_overlap_plans={} one_edge_interior_overlap_boundary_edges={} one_edge_interior_overlap_normalizations={} {} expected_delta=dV=0 dE={} dF={} dL={} reason={}",
+            "shared_start_bridge_preflight=status={status} pairings={} cycles={} cross_loop_cycles={} same_loop_cycles={} one_edge_interior_overlap_candidates={} repeated_one_edge_overlap_occurrences={} one_edge_interior_overlap_plans={} one_edge_interior_overlap_boundary_edges={} one_edge_interior_overlap_normalizations={} {} expected_delta=dV=0 dE={} dF={} dL={} candidate_gate_complete={} reason={}",
             self.pairings,
             self.cycles,
             self.cross_loop_cycles,
@@ -151,6 +161,7 @@ impl SharedStartBridgePreflight {
             self.expected_edges,
             self.expected_faces,
             self.expected_loops,
+            self.candidate_gate_complete,
             self.reason
         )
     }
@@ -168,22 +179,15 @@ impl SharedStartBridgePreflight {
     }
 
     pub(super) fn candidate_gate_complete(&self) -> bool {
-        match self.status {
-            SharedStartBridgePreflightStatus::NotApplicable => true,
-            SharedStartBridgePreflightStatus::Ready => {
-                self.graph_summary.construction_candidates > 0
-            }
-            SharedStartBridgePreflightStatus::Rejected => {
-                self.graph_summary.construction_candidates > 0
-                    && self.reason != "shared-start-bridge-candidate-gate-missing-candidate"
-                    && self.reason
-                        != "shared-start-bridge-candidate-gate-missing-operation-candidate"
-                    && !self
-                        .reason
-                        .starts_with("shared-start-bridge-candidate-gate-missing-")
-            }
-        }
+        self.candidate_gate_complete
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SharedStartExpectedDelta {
+    edges: i64,
+    faces: i64,
+    loops: i64,
 }
 
 pub(super) fn preflight_shared_start_bridge(
@@ -202,6 +206,7 @@ pub(super) fn preflight_shared_start_bridge(
                 pairings.len(),
                 SharedStartCycleShape::empty(),
                 empty_bridge_diagnostic_summary(),
+                false,
                 bridge_error_label(&err),
             );
         }
@@ -214,6 +219,7 @@ pub(super) fn preflight_shared_start_bridge(
                 pairings.len(),
                 cycle_shape,
                 empty_bridge_diagnostic_summary(),
+                false,
                 bridge_error_label(&err),
             );
         }
@@ -224,6 +230,7 @@ pub(super) fn preflight_shared_start_bridge(
             pairings.len(),
             cycle_shape,
             graph_summary,
+            false,
             reason,
         );
     }
@@ -236,15 +243,19 @@ pub(super) fn preflight_shared_start_bridge(
                 pairings.len(),
                 cycle_shape,
                 graph_summary,
-                plan.expected_delta.edges,
-                plan.expected_delta.faces,
-                plan.expected_delta.loops,
+                SharedStartExpectedDelta {
+                    edges: plan.expected_delta.edges,
+                    faces: plan.expected_delta.faces,
+                    loops: plan.expected_delta.loops,
+                },
+                true,
                 "boundary-side-separator-bridge-mutation-required",
             ),
             Err(_) => SharedStartBridgePreflight::rejected(
                 pairings.len(),
                 cycle_shape,
                 graph_summary,
+                true,
                 bridge_error_label(&err),
             ),
         },
@@ -304,6 +315,9 @@ fn candidate_gate_error_label(missing_facet: CandidateMissingFacet) -> &'static 
         }
         CandidateMissingFacet::PostconditionPreview => {
             "shared-start-bridge-candidate-gate-missing-postcondition-preview"
+        }
+        CandidateMissingFacet::ExpectedDelta => {
+            "shared-start-bridge-candidate-gate-missing-expected-delta"
         }
         CandidateMissingFacet::GeometryFeasibility => {
             "shared-start-bridge-candidate-gate-missing-geometry-feasibility"

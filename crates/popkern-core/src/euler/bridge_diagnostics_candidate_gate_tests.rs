@@ -42,6 +42,22 @@ fn mutation_gate_reports_missing_geometry_facet() {
 }
 
 #[test]
+fn mutation_gate_reports_missing_expected_delta_facet() {
+    let mut candidate = cross_loop_candidate();
+    candidate.expected_delta = None;
+
+    let error = candidate
+        .validate_mutation_gate()
+        .expect_err("missing expected delta rejects mutation");
+
+    assert_eq!(error.missing_facet, CandidateMissingFacet::ExpectedDelta);
+    assert_eq!(
+        error.missing_facet.diagnostic_label(),
+        "expected-topology-delta"
+    );
+}
+
+#[test]
 fn mutation_gate_reports_missing_semantic_history_facet() {
     let mut candidate = cross_loop_candidate();
     candidate

@@ -36,6 +36,9 @@ fn candidates_report_disjoint_cross_loop_bridge() {
             && candidate.feasibility == ConstructionFeasibility::ExecutableByExistingOperator
             && candidate.feasibility_reason == "face-family-bridge-existing-operator-ready"
             && candidate.postcondition_preview.is_some()
+            && candidate.expected_delta.is_some_and(|delta| {
+                delta.vertices == 0 && delta.edges == 2 && delta.faces == 1 && delta.loops == 1
+            })
             && candidate
                 .geometry_facts
                 .iter()

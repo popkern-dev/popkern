@@ -197,7 +197,7 @@ fn mutator_boundary_refuses_without_mutating_topology() {
              blocked_repair_required:0 invalid_export_mesh:0 not_applicable:0 unknown:0 \
              status_ready:0 status_blocked:0 status_risk_managed:0 status_unknown:0 \
              predicted_delta=dV=0 dE=0 dF=0 dL=0 \
-             expected_delta=dV=0 dE=0 dF=0 dL=0 reason=none"
+             expected_delta=dV=0 dE=0 dF=0 dL=0 candidate_gate_complete=true reason=none"
         ),
         "{err}"
     );

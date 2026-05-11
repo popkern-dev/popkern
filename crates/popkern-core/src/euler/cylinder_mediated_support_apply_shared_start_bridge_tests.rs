@@ -22,6 +22,7 @@ fn shared_start_bridge_preflight_requires_complete_candidate_gate() {
 
     let label = preflight.diagnostic_label();
     assert!(label.contains("status=ready"), "{label}");
+    assert!(label.contains("candidate_gate_complete=true"), "{label}");
     assert!(label.contains("construction_candidates=1"), "{label}");
     assert!(
         label.contains("candidate_requirements=live_revalidation:1 postcondition_verification:1"),

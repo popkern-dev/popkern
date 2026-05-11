@@ -452,6 +452,7 @@ impl TopologyDiagnosticGraph {
             conflicts: draft.conflicts,
             requirements: draft.requirements,
             postcondition_preview: draft.postcondition_preview,
+            expected_delta: draft.expected_delta,
             geometry_facts: draft.geometry_facts,
             validity_repair_facts: draft.validity_repair_facts,
             operation_dependencies: draft.operation_dependencies,

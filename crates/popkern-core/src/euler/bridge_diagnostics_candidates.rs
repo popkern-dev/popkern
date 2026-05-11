@@ -25,7 +25,7 @@ pub(super) fn classify_construction_candidates(
             readiness.operator,
             readiness.status,
         ) {
-            let postcondition_preview =
+            let postcondition =
                 postcondition_preview_for_candidate(&mut graph, readiness.operation, family);
             graph.push_candidate(ConstructionCandidateDraft {
                 family,
@@ -37,7 +37,8 @@ pub(super) fn classify_construction_candidates(
                     ConstructionRequirement::LiveTopologyRevalidation,
                     ConstructionRequirement::PostconditionVerification,
                 ],
-                postcondition_preview,
+                postcondition_preview: postcondition.map(|postcondition| postcondition.id),
+                expected_delta: postcondition.map(|postcondition| postcondition.expected_delta),
                 geometry_facts: request
                     .operations
                     .get(readiness.operation.0)
@@ -199,7 +200,7 @@ fn postcondition_preview_for_candidate(
     graph: &mut TopologyDiagnosticGraph,
     operation: DiagnosticOperationId,
     family: ConstructionFamily,
-) -> Option<super::PostconditionPredictionId> {
+) -> Option<CandidatePostconditionPreview> {
     let (expected_delta, label) = match family {
         ConstructionFamily::DisjointCrossLoopBridge => (
             DiagnosticTopologyDelta {
@@ -239,7 +240,14 @@ fn postcondition_preview_for_candidate(
         ),
         ConstructionFamily::Unknown => return None,
     };
-    Some(graph.push_postcondition(operation, expected_delta, label))
+    let id = graph.push_postcondition(operation, expected_delta, label);
+    Some(CandidatePostconditionPreview { id, expected_delta })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CandidatePostconditionPreview {
+    id: super::PostconditionPredictionId,
+    expected_delta: DiagnosticTopologyDelta,
 }
 
 fn conflicts_for_operation(
