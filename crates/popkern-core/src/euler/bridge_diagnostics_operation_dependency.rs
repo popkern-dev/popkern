@@ -14,6 +14,14 @@ pub(super) fn dependencies_for_candidate(family: ConstructionFamily) -> Vec<Oper
             ),
             executable("bridge-section-trim-dependency-ready", "section-trim"),
             executable("bridge-filling-dependency-ready", "face-filling"),
+            executable(
+                "bridge-history-generated-entities-expected",
+                "generated-entity-history",
+            ),
+            executable(
+                "bridge-history-modified-supports-expected",
+                "modified-entity-history",
+            ),
         ],
         ConstructionFamily::DisjointSameLoopBridge => vec![
             executable(
@@ -24,11 +32,25 @@ pub(super) fn dependencies_for_candidate(family: ConstructionFamily) -> Vec<Oper
                 "same-loop-bridge-section-trim-dependency-ready",
                 "section-trim",
             ),
+            executable(
+                "same-loop-bridge-history-generated-entities-expected",
+                "generated-entity-history",
+            ),
+            executable(
+                "same-loop-bridge-history-modified-supports-expected",
+                "modified-entity-history",
+            ),
         ],
-        ConstructionFamily::PairedSameLoopTwinExposure => vec![executable(
-            "same-loop-boundary-exposure-dependency-satisfied",
-            "same-loop-boundary-exposure",
-        )],
+        ConstructionFamily::PairedSameLoopTwinExposure => vec![
+            executable(
+                "same-loop-boundary-exposure-dependency-satisfied",
+                "same-loop-boundary-exposure",
+            ),
+            executable(
+                "same-loop-boundary-exposure-history-reclassification-expected",
+                "reclassified-boundary-history",
+            ),
+        ],
         ConstructionFamily::BoundarySideSeparatorBridge => vec![
             missing(
                 "boundary-side-separator-subcomplex-primitive-missing",
@@ -37,6 +59,14 @@ pub(super) fn dependencies_for_candidate(family: ConstructionFamily) -> Vec<Oper
             executable(
                 "boundary-side-separator-projection-dependency-ready",
                 "surface-projection",
+            ),
+            executable(
+                "boundary-side-separator-history-reclassification-expected",
+                "reclassified-boundary-history",
+            ),
+            executable(
+                "boundary-side-separator-history-generated-entities-expected",
+                "generated-entity-history",
             ),
         ],
         ConstructionFamily::Unknown => vec![unknown()],

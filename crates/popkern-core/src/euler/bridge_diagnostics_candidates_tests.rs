@@ -191,8 +191,8 @@ fn candidates_report_disjoint_same_loop_bridge() {
     assert_eq!(report.summary.predicted_delta_loops, 1);
     assert_eq!(report.summary.valid_as_input_facts, 1);
     assert_eq!(report.summary.no_repair_required_facts, 1);
-    assert_eq!(report.summary.executable_operation_dependency_facts, 2);
-    assert_eq!(report.summary.operation_dependency_satisfied_facts, 2);
+    assert_eq!(report.summary.executable_operation_dependency_facts, 4);
+    assert_eq!(report.summary.operation_dependency_satisfied_facts, 4);
 }
 
 #[test]
@@ -230,7 +230,7 @@ fn candidates_report_boundary_side_separator_family() {
         report.summary.missing_primitive_operation_dependency_facts,
         1
     );
-    assert_eq!(report.summary.executable_operation_dependency_facts, 1);
+    assert_eq!(report.summary.executable_operation_dependency_facts, 3);
     assert_eq!(
         report
             .summary
