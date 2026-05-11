@@ -19,6 +19,10 @@ pub(super) struct CylinderBridgeResourceRemap {
 }
 
 impl CylinderBridgeResourceRemap {
+    pub(super) fn blocking_spans(&self) -> &[CylinderBridgeBlockingSpan] {
+        &self.blocking_spans
+    }
+
     pub(super) fn diagnostic_label(&self) -> String {
         let half_edges = self
             .segments

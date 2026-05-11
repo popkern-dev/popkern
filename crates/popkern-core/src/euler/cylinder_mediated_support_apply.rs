@@ -13,6 +13,8 @@ use super::cylinder_mediated_support_partition::CylinderMediatedOutsideIntervalP
 
 #[path = "cylinder_mediated_support_apply_bridge_cycles.rs"]
 mod apply_bridge_cycles;
+#[path = "cylinder_mediated_support_apply_cylinder_resource_blockers.rs"]
+mod apply_cylinder_resource_blockers;
 #[path = "cylinder_mediated_support_apply_cylinder_resource_remap.rs"]
 mod apply_cylinder_resource_remap;
 #[path = "cylinder_mediated_support_apply_cylinder_resources.rs"]
@@ -23,6 +25,7 @@ mod apply_diagnostics;
 mod apply_owner_spans;
 
 use apply_bridge_cycles::derive_segment_bridge_cycle_operands;
+use apply_cylinder_resource_blockers::expose_cylinder_resource_blockers;
 use apply_cylinder_resource_remap::remap_cylinder_bridge_resources;
 use apply_cylinder_resources::{
     BridgeResourceReconciliationStatus, derive_cylinder_bridge_resource_partition,
@@ -167,6 +170,12 @@ impl BRep {
         let repair_result = {
             let mut candidate = self.clone();
             let repair_result = expose_owner_repair_spans(&mut candidate, &segment_authoring)?;
+            let initial_cylinder_resource_remap =
+                remap_cylinder_bridge_resources(&candidate, &cylinder_resources, plan)?;
+            let blocker_exposure = expose_cylinder_resource_blockers(
+                &mut candidate,
+                &initial_cylinder_resource_remap,
+            )?;
             let cylinder_resource_remap =
                 remap_cylinder_bridge_resources(&candidate, &cylinder_resources, plan)?;
             let bridge_cycles =
@@ -174,6 +183,7 @@ impl BRep {
             let reconciliation = cylinder_resources.reconcile(&bridge_cycles);
             (
                 repair_result,
+                blocker_exposure,
                 cylinder_resource_remap,
                 bridge_cycles,
                 reconciliation,
@@ -186,20 +196,21 @@ impl BRep {
             ));
         }
         let bridge_refusal =
-            bridge_refusal_reason(repair_result.2.ownership_status(), repair_result.3.status());
+            bridge_refusal_reason(repair_result.3.ownership_status(), repair_result.4.status());
         Err(CoreError::PreconditionFailed(format!(
-            "{bridge_refusal}: expected_delta={} authored_delta={} {} {} {} {} {} {}",
+            "{bridge_refusal}: expected_delta={} authored_delta={} {} {} {} {} {} {} {}",
             plan.expected_delta.diagnostic_label(),
             authored_delta_label(
                 repair_result.0.exposed_spans,
-                repair_result.2.segment_count()
+                repair_result.3.segment_count()
             ),
             segment_authoring_summary(&segment_authoring),
             repair_result.0.diagnostic_label(),
-            repair_result.2.diagnostic_label(),
+            repair_result.3.diagnostic_label(),
             cylinder_resources.diagnostic_label(),
             repair_result.1.diagnostic_label(),
-            repair_result.3.diagnostic_label()
+            repair_result.2.diagnostic_label(),
+            repair_result.4.diagnostic_label()
         )))
     }
 

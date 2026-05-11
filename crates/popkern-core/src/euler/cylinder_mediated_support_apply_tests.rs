@@ -70,14 +70,20 @@ fn mutator_boundary_refuses_without_mutating_topology() {
     );
     assert!(
         detail.contains(
-            "cylinder_resource_remap=segments=1 half_edges=1 reversed_segments=0 \
-             unavailable_edges=2 unavailable_not_boundary=2 unavailable_live_twin=2 \
-             unavailable_desired_live=2 unavailable_desired_retired=0 \
-             unavailable_owner_roles=cylinder:2 support:2 context:0 \
-             unavailable_blocking_roles=cylinder:0 support:2 context:0 \
-             blocking_spans=2 blocking_half_edges=2 non_contiguous_blocking_spans=0 \
-             unavailable_owner_faces=[FaceHandle(2v1):2,FaceHandle(3v1):1,FaceHandle(4v1):1] \
-             non_contiguous_segments=1"
+            "cylinder_resource_blocker_exposure=spans=2 half_edges=2 \
+             exposed_spans=2 exposed_half_edges=2"
+        ),
+        "{err}"
+    );
+    assert!(
+        detail.contains(
+            "cylinder_resource_remap=segments=0 half_edges=0 reversed_segments=0 \
+             unavailable_edges=0 unavailable_not_boundary=0 unavailable_live_twin=0 \
+             unavailable_desired_live=0 unavailable_desired_retired=0 \
+             unavailable_owner_roles=cylinder:0 support:0 context:0 \
+             unavailable_blocking_roles=cylinder:0 support:0 context:0 \
+             blocking_spans=0 blocking_half_edges=0 non_contiguous_blocking_spans=0 \
+             unavailable_owner_faces=[] non_contiguous_segments=2"
         ),
         "{err}"
     );
