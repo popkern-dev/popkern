@@ -79,6 +79,13 @@ pub(crate) enum DiagnosticAxis {
     SupportOwnership,
     GeneratedBoundaryReplacement,
     TransitionContinuity,
+    UnitScalePlacement,
+    OrientationReversal,
+    SplineRepresentation,
+    OffsetSurfaceRepresentation,
+    SelectionIntent,
+    BranchStop,
+    VariableLaw,
     ZooExport,
     ExtremeRadiusRatio,
 }
@@ -98,6 +105,13 @@ impl DiagnosticAxis {
             Self::SupportOwnership => "support-ownership",
             Self::GeneratedBoundaryReplacement => "generated-boundary-replacement",
             Self::TransitionContinuity => "transition-continuity",
+            Self::UnitScalePlacement => "unit-scale-placement",
+            Self::OrientationReversal => "orientation-reversal",
+            Self::SplineRepresentation => "spline-representation",
+            Self::OffsetSurfaceRepresentation => "offset-surface-representation",
+            Self::SelectionIntent => "selection-intent",
+            Self::BranchStop => "branch-stop",
+            Self::VariableLaw => "variable-law",
             Self::ZooExport => "zoo-export",
             Self::ExtremeRadiusRatio => "extreme-radius-ratio",
         }
@@ -168,7 +182,7 @@ pub(crate) fn seed_matrix_rows() -> &'static [DiagnosticMatrixRow] {
 }
 
 pub(crate) fn general_kernel_rows() -> &'static [DiagnosticMatrixRow] {
-    &[]
+    &apex_fillet_diagnostic_matrix_general_rows::GENERAL_KERNEL_ROWS
 }
 
 fn axis_list(axes: &[DiagnosticAxis]) -> String {
@@ -177,5 +191,7 @@ fn axis_list(axes: &[DiagnosticAxis]) -> String {
         .collect::<Vec<_>>()
         .join("+")
 }
+#[path = "apex_fillet_diagnostic_matrix_general_rows.rs"]
+mod apex_fillet_diagnostic_matrix_general_rows;
 #[path = "apex_fillet_diagnostic_matrix_rows.rs"]
 mod apex_fillet_diagnostic_matrix_rows;
