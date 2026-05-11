@@ -91,6 +91,10 @@ pub(crate) enum DiagnosticAxis {
     BooleanSliver,
     ThinWallOffset,
     ExistingBlendAdjacency,
+    SeamSingularity,
+    SolverConditioning,
+    FreeformApproximation,
+    RepairPolicyBoundary,
     ZooExport,
     ExtremeRadiusRatio,
 }
@@ -122,6 +126,10 @@ impl DiagnosticAxis {
             Self::BooleanSliver => "boolean-sliver",
             Self::ThinWallOffset => "thin-wall-offset",
             Self::ExistingBlendAdjacency => "existing-blend-adjacency",
+            Self::SeamSingularity => "seam-singularity",
+            Self::SolverConditioning => "solver-conditioning",
+            Self::FreeformApproximation => "freeform-approximation",
+            Self::RepairPolicyBoundary => "repair-policy-boundary",
             Self::ZooExport => "zoo-export",
             Self::ExtremeRadiusRatio => "extreme-radius-ratio",
         }
