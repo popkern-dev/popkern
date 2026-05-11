@@ -154,6 +154,13 @@ fn mutator_boundary_refuses_without_mutating_topology() {
     );
     assert!(
         detail.contains(
+            "cylinder_mediated_candidate_coverage=owner_exposure:1 blocker_exposure:1 \
+             resource:1 shared_start_required:false shared_start_bridge:0 complete:true"
+        ),
+        "{err}"
+    );
+    assert!(
+        detail.contains(
             "shared_start_bridge_preflight=status=not-applicable pairings=0 cycles=0 \
              cross_loop_cycles=0 same_loop_cycles=0 one_edge_interior_overlap_candidates=0 \
              repeated_one_edge_overlap_occurrences=0 one_edge_interior_overlap_plans=0 \

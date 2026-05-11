@@ -153,6 +153,18 @@ impl SharedStartBridgePreflight {
             self.reason
         )
     }
+
+    pub(super) fn requires_candidate_coverage(&self) -> bool {
+        self.status != SharedStartBridgePreflightStatus::NotApplicable
+    }
+
+    pub(super) fn candidate_count(&self) -> usize {
+        if self.requires_candidate_coverage() {
+            self.graph_summary.construction_candidates
+        } else {
+            0
+        }
+    }
 }
 
 pub(super) fn preflight_shared_start_bridge(

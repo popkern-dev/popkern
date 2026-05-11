@@ -18,6 +18,10 @@ pub(super) struct CylinderResourceBlockerExposureResult {
 }
 
 impl CylinderResourceBlockerExposureResult {
+    pub(super) fn candidate_count(self) -> usize {
+        1
+    }
+
     pub(super) fn exposed_spans(self) -> usize {
         self.exposed_spans
     }

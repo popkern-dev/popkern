@@ -18,6 +18,10 @@ pub(super) struct OwnerRepairExposureResult {
 }
 
 impl OwnerRepairExposureResult {
+    pub(super) fn candidate_count(self) -> usize {
+        1
+    }
+
     pub(super) fn diagnostic_label(self) -> String {
         let candidate = ExposureConstructionCandidate {
             family: ExposureConstructionFamily::OwnerBoundaryFragmentRetire,

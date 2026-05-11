@@ -193,6 +193,10 @@ pub(in crate::euler::cylinder_mediated_support_apply) enum BridgeResourceReconci
 }
 
 impl BridgeResourceReconciliationStatus {
+    pub(in crate::euler::cylinder_mediated_support_apply) fn candidate_count(self) -> usize {
+        1
+    }
+
     pub(in crate::euler::cylinder_mediated_support_apply) fn diagnostic_label(
         self,
     ) -> &'static str {

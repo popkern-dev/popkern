@@ -12,6 +12,8 @@ use super::cylinder_mediated_support::{
 
 #[path = "cylinder_mediated_support_apply_bridge_cycles.rs"]
 mod apply_bridge_cycles;
+#[path = "cylinder_mediated_support_apply_candidate_coverage.rs"]
+mod apply_candidate_coverage;
 #[path = "cylinder_mediated_support_apply_cylinder_resource_blockers.rs"]
 mod apply_cylinder_resource_blockers;
 #[path = "cylinder_mediated_support_apply_cylinder_resource_remap.rs"]
@@ -34,6 +36,7 @@ mod apply_shared_start_bridge;
 mod apply_shared_start_cycle_mix;
 
 use apply_bridge_cycles::derive_segment_bridge_cycle_operands;
+use apply_candidate_coverage::CylinderMediatedCandidateCoverage;
 use apply_cylinder_resource_blockers::expose_cylinder_resource_blockers;
 use apply_cylinder_resource_remap::remap_cylinder_bridge_resources;
 use apply_cylinder_resources::{
@@ -224,10 +227,17 @@ impl BRep {
                 "cylinder-mediated support continuation refusal mutated topology".into(),
             ));
         }
+        let candidate_coverage = CylinderMediatedCandidateCoverage::from_pipeline(
+            repair_result.0,
+            repair_result.1,
+            repair_result.4.status(),
+            &repair_result.5,
+        )
+        .require_complete()?;
         let bridge_refusal =
             bridge_refusal_reason(repair_result.3.ownership_status(), repair_result.4.status());
         Err(CoreError::PreconditionFailed(format!(
-            "{bridge_refusal}: expected_delta={} authored_delta={} execution_delta={} {} {} {} {} {} {} {} {} {}",
+            "{bridge_refusal}: expected_delta={} authored_delta={} execution_delta={} {} {} {} {} {} {} {} {} {} {}",
             plan.expected_delta.diagnostic_label(),
             authored_delta_label(
                 repair_result.0.exposed_spans,
@@ -251,7 +261,8 @@ impl BRep {
             repair_result.1.diagnostic_label(),
             repair_result.2.diagnostic_label(),
             repair_result.4.diagnostic_label(),
-            repair_result.5.diagnostic_label()
+            repair_result.5.diagnostic_label(),
+            candidate_coverage.diagnostic_label()
         )))
     }
 
