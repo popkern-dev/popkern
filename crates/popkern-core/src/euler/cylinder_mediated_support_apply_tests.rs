@@ -125,10 +125,7 @@ fn mutator_boundary_refuses_without_mutating_topology() {
     assert!(
         detail.contains(
             "shared_start_bridge_preflight=status=not-applicable pairings=0 cycles=0 \
-             cross_loop_cycles=0 same_loop_cycles=0 same_loop_overlap_cycles=0 \
-             same_loop_overlapping_edges=0 same_loop_shared_start_overlaps=0 \
-             same_loop_shared_end_overlaps=0 same_loop_crossed_endpoint_overlaps=0 \
-             same_loop_interior_overlaps=0 one_edge_interior_overlap_candidates=0 \
+             cross_loop_cycles=0 same_loop_cycles=0 one_edge_interior_overlap_candidates=0 \
              repeated_one_edge_overlap_occurrences=0 one_edge_interior_overlap_plans=0 \
              one_edge_interior_overlap_boundary_edges=0 \
              one_edge_interior_overlap_normalizations=0 \

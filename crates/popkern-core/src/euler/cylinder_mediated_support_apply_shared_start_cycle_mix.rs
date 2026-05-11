@@ -11,12 +11,6 @@ pub(super) struct SharedStartCycleShape {
     pub(super) cycles: usize,
     pub(super) cross_loop_cycles: usize,
     pub(super) same_loop_cycles: usize,
-    pub(super) same_loop_overlap_cycles: usize,
-    pub(super) same_loop_overlapping_edges: usize,
-    pub(super) same_loop_shared_start_overlaps: usize,
-    pub(super) same_loop_shared_end_overlaps: usize,
-    pub(super) same_loop_crossed_endpoint_overlaps: usize,
-    pub(super) same_loop_interior_overlaps: usize,
     pub(super) one_edge_interior_overlap_candidates: usize,
     pub(super) repeated_one_edge_overlap_occurrences: usize,
     pub(super) one_edge_interior_overlap_plans: usize,
@@ -29,12 +23,6 @@ impl SharedStartCycleShape {
             cycles: 0,
             cross_loop_cycles: 0,
             same_loop_cycles: 0,
-            same_loop_overlap_cycles: 0,
-            same_loop_overlapping_edges: 0,
-            same_loop_shared_start_overlaps: 0,
-            same_loop_shared_end_overlaps: 0,
-            same_loop_crossed_endpoint_overlaps: 0,
-            same_loop_interior_overlaps: 0,
             one_edge_interior_overlap_candidates: 0,
             repeated_one_edge_overlap_occurrences: 0,
             one_edge_interior_overlap_plans: 0,
@@ -44,12 +32,6 @@ impl SharedStartCycleShape {
 
     pub(super) fn from_cycles(cycles: &[FaceFamilyBridgeCycleRequest], brep: &BRep) -> Self {
         let mut same_loop_cycles = 0;
-        let mut same_loop_overlap_cycles = 0;
-        let mut same_loop_overlapping_edges = 0;
-        let mut same_loop_shared_start_overlaps = 0;
-        let mut same_loop_shared_end_overlaps = 0;
-        let mut same_loop_crossed_endpoint_overlaps = 0;
-        let mut same_loop_interior_overlaps = 0;
         let mut one_edge_interior_overlap_candidates = 0;
         let mut repeated_one_edge_overlap_occurrences = 0;
         let mut one_edge_interior_overlap_plans = 0;
@@ -61,36 +43,21 @@ impl SharedStartCycleShape {
             same_loop_cycles += 1;
             let overlap = same_loop_overlap_summary(brep, cycle);
             let overlap_edges = overlap.edges;
-            if overlap_edges > 0 {
-                same_loop_overlap_cycles += 1;
-                same_loop_overlapping_edges += overlap_edges;
-                match overlap.position {
-                    SameLoopOverlapPosition::SharedStart => same_loop_shared_start_overlaps += 1,
-                    SameLoopOverlapPosition::SharedEnd => same_loop_shared_end_overlaps += 1,
-                    SameLoopOverlapPosition::CrossedEndpoint => {
-                        same_loop_crossed_endpoint_overlaps += 1
-                    }
-                    SameLoopOverlapPosition::Interior => {
-                        same_loop_interior_overlaps += 1;
-                        if overlap_edges == 1
-                            && let Ok(decomposition) =
-                                one_edge_interior_overlap_decomposition(brep, cycle)
-                        {
-                            if decomposition.unique_overlap_edge {
-                                one_edge_interior_overlap_candidates += 1;
-                            }
-                            if decomposition.repeated_overlap_occurrences {
-                                repeated_one_edge_overlap_occurrences += 1;
-                            }
-                            if decomposition.shared_edge_already_boundary {
-                                one_edge_interior_overlap_boundary_edges += 1;
-                            }
-                            if decomposition.plan.is_some() {
-                                one_edge_interior_overlap_plans += 1;
-                            }
-                        }
-                    }
-                    SameLoopOverlapPosition::None => {}
+            if overlap_edges == 1
+                && overlap.position == SameLoopOverlapPosition::Interior
+                && let Ok(decomposition) = one_edge_interior_overlap_decomposition(brep, cycle)
+            {
+                if decomposition.unique_overlap_edge {
+                    one_edge_interior_overlap_candidates += 1;
+                }
+                if decomposition.repeated_overlap_occurrences {
+                    repeated_one_edge_overlap_occurrences += 1;
+                }
+                if decomposition.shared_edge_already_boundary {
+                    one_edge_interior_overlap_boundary_edges += 1;
+                }
+                if decomposition.plan.is_some() {
+                    one_edge_interior_overlap_plans += 1;
                 }
             }
         }
@@ -98,12 +65,6 @@ impl SharedStartCycleShape {
             cycles: cycles.len(),
             cross_loop_cycles: cycles.len() - same_loop_cycles,
             same_loop_cycles,
-            same_loop_overlap_cycles,
-            same_loop_overlapping_edges,
-            same_loop_shared_start_overlaps,
-            same_loop_shared_end_overlaps,
-            same_loop_crossed_endpoint_overlaps,
-            same_loop_interior_overlaps,
             one_edge_interior_overlap_candidates,
             repeated_one_edge_overlap_occurrences,
             one_edge_interior_overlap_plans,
@@ -117,12 +78,6 @@ pub(super) struct SharedStartCycleMixSummary {
     pub(super) cycles: usize,
     pub(super) cross_loop_cycles: usize,
     pub(super) same_loop_cycles: usize,
-    pub(super) same_loop_overlap_cycles: usize,
-    pub(super) same_loop_overlapping_edges: usize,
-    pub(super) same_loop_shared_start_overlaps: usize,
-    pub(super) same_loop_shared_end_overlaps: usize,
-    pub(super) same_loop_crossed_endpoint_overlaps: usize,
-    pub(super) same_loop_interior_overlaps: usize,
     pub(super) one_edge_interior_overlap_candidates: usize,
     pub(super) repeated_one_edge_overlap_occurrences: usize,
     pub(super) one_edge_interior_overlap_plans: usize,
@@ -149,7 +104,6 @@ pub(super) fn preflight_shared_start_cycle_mix(
     brep: &BRep,
     cycles: Vec<FaceFamilyBridgeCycleRequest>,
 ) -> Result<SharedStartCycleMixSummary, CoreError> {
-    let cycle_shape = SharedStartCycleShape::from_cycles(&cycles, brep);
     let mut cross_loop_cycles = Vec::new();
     let mut same_loop_cycles = Vec::new();
     let mut interior_overlap_plans = Vec::new();
@@ -196,12 +150,6 @@ pub(super) fn preflight_shared_start_cycle_mix(
         cycles: cross_loop_count + same_loop_count,
         cross_loop_cycles: cross_loop_count,
         same_loop_cycles: same_loop_count,
-        same_loop_overlap_cycles: cycle_shape.same_loop_overlap_cycles,
-        same_loop_overlapping_edges: cycle_shape.same_loop_overlapping_edges,
-        same_loop_shared_start_overlaps: cycle_shape.same_loop_shared_start_overlaps,
-        same_loop_shared_end_overlaps: cycle_shape.same_loop_shared_end_overlaps,
-        same_loop_crossed_endpoint_overlaps: cycle_shape.same_loop_crossed_endpoint_overlaps,
-        same_loop_interior_overlaps: cycle_shape.same_loop_interior_overlaps,
         one_edge_interior_overlap_candidates,
         repeated_one_edge_overlap_occurrences,
         one_edge_interior_overlap_plans: interior_overlap_plans.len(),
