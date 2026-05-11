@@ -6,7 +6,7 @@ impl BridgeDiagnosticSummary {
     /// Stable compact diagnostic label.
     pub fn diagnostic_label(&self) -> String {
         format!(
-            "bridge_diagnostics=operations={} resources={} conflicts={} readiness={} construction_candidates={} postconditions={} conflicts_by_kind=duplicate_half_edge:{} duplicate_boundary_edge:{} shared_start:{} shared_end:{} crossed_endpoint:{} aligned:{} nested:{} interior:{} repeated_edge:{} already_boundary:{} paired_exposure:{} unsupported_owner:{} stale_handle:{} unknown:{} readiness_by_status=ready:{} ready_after_normalization:{} missing_operator:{} invalid_input:{} unknown:{} candidate_families=disjoint_cross_loop:{} disjoint_same_loop:{} paired_same_loop_twin_exposure:{} boundary_side_separator:{} unknown:{} candidate_feasibility=executable_existing:{} executable_after_normalization:{} requires_separator_subcomplex:{} requires_custom_aggregate_authoring:{} requires_cycle_regrouping:{} invalid_non_manifold:{} unsupported_unknown_family:{} unknown:{} candidate_requirements=live_revalidation:{} postcondition_verification:{} unknown:{} postcondition_preview_candidates={} geometry_feasibility=facts:{} ready:{} unsupported_family:{} repair_required:{} not_applicable:{} unknown:{} validity_repair=facts:{} valid_as_input:{} valid_after_non_mutating_normalization:{} requires_topology_repair:{} requires_geometry_repair:{} rejected_design_intent_changing:{} not_applicable:{} unknown:{} status_no_repair_required:{} status_non_mutating_normalization_available:{} status_repair_required:{} status_rejected:{} status_unknown:{} operation_dependencies=facts:{} executable:{} ambiguous:{} invalid:{} missing_primitive:{} not_applicable:{} unknown:{} status_satisfied:{} status_not_required:{} status_required_missing_primitive:{} status_blocked_invalid_input:{} status_ambiguous_needs_resolver:{} status_unknown:{} predicted_delta=dV={} dE={} dF={} dL={}",
+            "bridge_diagnostics=operations={} resources={} conflicts={} readiness={} construction_candidates={} postconditions={} conflicts_by_kind=duplicate_half_edge:{} duplicate_boundary_edge:{} shared_start:{} shared_end:{} crossed_endpoint:{} aligned:{} nested:{} interior:{} repeated_edge:{} already_boundary:{} paired_exposure:{} unsupported_owner:{} stale_handle:{} unknown:{} readiness_by_status=ready:{} ready_after_normalization:{} missing_operator:{} invalid_input:{} unknown:{} candidate_families=disjoint_cross_loop:{} disjoint_same_loop:{} paired_same_loop_twin_exposure:{} boundary_side_separator:{} unknown:{} candidate_feasibility=executable_existing:{} executable_after_normalization:{} requires_separator_subcomplex:{} requires_custom_aggregate_authoring:{} requires_cycle_regrouping:{} invalid_non_manifold:{} unsupported_unknown_family:{} unknown:{} candidate_requirements=live_revalidation:{} postcondition_verification:{} unknown:{} postcondition_preview_candidates={} geometry_feasibility=facts:{} ready:{} unsupported_family:{} repair_required:{} not_applicable:{} unknown:{} validity_repair=facts:{} valid_as_input:{} valid_after_non_mutating_normalization:{} requires_topology_repair:{} requires_geometry_repair:{} rejected_design_intent_changing:{} not_applicable:{} unknown:{} status_no_repair_required:{} status_non_mutating_normalization_available:{} status_repair_required:{} status_rejected:{} status_unknown:{} operation_dependencies=facts:{} executable:{} ambiguous:{} invalid:{} missing_primitive:{} not_applicable:{} unknown:{} status_satisfied:{} status_not_required:{} status_required_missing_primitive:{} status_blocked_invalid_input:{} status_ambiguous_needs_resolver:{} status_unknown:{} downstream_readiness=facts:{} ready:{} risk_managed:{} blocked_missing_primitive:{} blocked_repair_required:{} invalid_export_mesh:{} not_applicable:{} unknown:{} status_ready:{} status_blocked:{} status_risk_managed:{} status_unknown:{} predicted_delta=dV={} dE={} dF={} dL={}",
             self.operations,
             self.resources,
             self.conflicts,
@@ -81,6 +81,18 @@ impl BridgeDiagnosticSummary {
             self.operation_dependency_blocked_invalid_input_facts,
             self.operation_dependency_ambiguous_needs_resolver_facts,
             self.unknown_operation_dependency_status_facts,
+            self.downstream_readiness_facts,
+            self.downstream_ready_facts,
+            self.downstream_risk_managed_facts,
+            self.downstream_blocked_missing_primitive_facts,
+            self.downstream_blocked_repair_required_facts,
+            self.downstream_invalid_export_mesh_facts,
+            self.downstream_not_applicable_facts,
+            self.unknown_downstream_readiness_facts,
+            self.downstream_status_ready_facts,
+            self.downstream_status_blocked_facts,
+            self.downstream_status_risk_managed_facts,
+            self.downstream_status_unknown_facts,
             self.predicted_delta_vertices,
             self.predicted_delta_edges,
             self.predicted_delta_faces,

@@ -7,6 +7,8 @@ mod candidate_types;
 mod candidates;
 #[path = "bridge_diagnostics_conflicts.rs"]
 mod conflicts;
+#[path = "bridge_diagnostics_downstream.rs"]
+mod downstream;
 #[path = "bridge_diagnostics_geometry.rs"]
 mod geometry;
 #[path = "bridge_diagnostics_ids.rs"]
@@ -32,10 +34,12 @@ mod validity;
 
 use candidate_types::ConstructionCandidateDraft;
 pub use candidate_types::{
-    ConstructionCandidate, ConstructionCandidateId, ConstructionFamily, ConstructionFeasibility,
-    ConstructionRequirement, DiagnosticTolerance, DiagnosticToleranceSource, GeometryFeasibility,
-    GeometryFeasibilityFact, OperationDependency, OperationDependencyReadiness,
-    OperationDependencyStatus, ValidityRepairFact, ValidityRepairReadiness, ValidityRepairStatus,
+    CandidateCompletenessError, CandidateMissingFacet, ConstructionCandidate,
+    ConstructionCandidateId, ConstructionFamily, ConstructionFeasibility, ConstructionRequirement,
+    DiagnosticTolerance, DiagnosticToleranceSource, DownstreamReadiness, DownstreamReadinessFact,
+    DownstreamReadinessStatus, GeometryFeasibility, GeometryFeasibilityFact, OperationDependency,
+    OperationDependencyReadiness, OperationDependencyStatus, ValidityRepairFact,
+    ValidityRepairReadiness, ValidityRepairStatus,
 };
 pub use ids::{DiagnosticOperationId, DiagnosticResourceId, ResourceConflictId};
 pub use postconditions::{
@@ -451,6 +455,7 @@ impl TopologyDiagnosticGraph {
             geometry_facts: draft.geometry_facts,
             validity_repair_facts: draft.validity_repair_facts,
             operation_dependencies: draft.operation_dependencies,
+            downstream_facts: draft.downstream_facts,
         });
         id
     }

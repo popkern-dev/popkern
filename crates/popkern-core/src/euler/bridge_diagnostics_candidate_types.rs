@@ -13,6 +13,7 @@ pub(in crate::euler) struct ConstructionCandidateDraft {
     pub(super) geometry_facts: Vec<GeometryFeasibilityFact>,
     pub(super) validity_repair_facts: Vec<ValidityRepairFact>,
     pub(super) operation_dependencies: Vec<OperationDependency>,
+    pub(super) downstream_facts: Vec<DownstreamReadinessFact>,
 }
 
 /// Local graph id for a construction candidate.
@@ -44,6 +45,193 @@ pub struct ConstructionCandidate {
     pub validity_repair_facts: Vec<ValidityRepairFact>,
     /// Neighboring operation dependencies for this candidate.
     pub operation_dependencies: Vec<OperationDependency>,
+    /// Downstream readiness facts for export, meshing, naming, and feature history.
+    pub downstream_facts: Vec<DownstreamReadinessFact>,
+}
+
+impl ConstructionCandidate {
+    /// Validate the minimum facets required before planner-driven mutation.
+    pub fn validate_mutation_gate(&self) -> Result<(), CandidateCompletenessError> {
+        if self.family == ConstructionFamily::Unknown {
+            return Err(self.missing_mutation_gate_facet(CandidateMissingFacet::Family));
+        }
+        if self.feasibility == ConstructionFeasibility::Unknown {
+            return Err(self.missing_mutation_gate_facet(CandidateMissingFacet::Feasibility));
+        }
+        if self.operations.is_empty() {
+            return Err(self.missing_mutation_gate_facet(CandidateMissingFacet::TopologyResource));
+        }
+        if self.postcondition_preview.is_none() {
+            return Err(
+                self.missing_mutation_gate_facet(CandidateMissingFacet::PostconditionPreview)
+            );
+        }
+        if self.geometry_facts.is_empty() {
+            return Err(
+                self.missing_mutation_gate_facet(CandidateMissingFacet::GeometryFeasibility)
+            );
+        }
+        if self.validity_repair_facts.is_empty() {
+            return Err(self.missing_mutation_gate_facet(CandidateMissingFacet::ValidityRepair));
+        }
+        if self.operation_dependencies.is_empty() {
+            return Err(
+                self.missing_mutation_gate_facet(CandidateMissingFacet::OperationDependency)
+            );
+        }
+        if !self
+            .operation_dependencies
+            .iter()
+            .any(|dependency| dependency.primitive.contains("history"))
+        {
+            return Err(
+                self.missing_mutation_gate_facet(CandidateMissingFacet::SemanticHistoryDependency)
+            );
+        }
+        if self.downstream_facts.is_empty() {
+            return Err(
+                self.missing_mutation_gate_facet(CandidateMissingFacet::DownstreamReadiness)
+            );
+        }
+        if !self
+            .requirements
+            .contains(&ConstructionRequirement::LiveTopologyRevalidation)
+        {
+            return Err(
+                self.missing_mutation_gate_facet(CandidateMissingFacet::LiveTopologyRevalidation)
+            );
+        }
+        if !self
+            .requirements
+            .contains(&ConstructionRequirement::PostconditionVerification)
+        {
+            return Err(
+                self.missing_mutation_gate_facet(CandidateMissingFacet::PostconditionVerification)
+            );
+        }
+        Ok(())
+    }
+
+    fn missing_mutation_gate_facet(
+        &self,
+        missing_facet: CandidateMissingFacet,
+    ) -> CandidateCompletenessError {
+        CandidateCompletenessError {
+            candidate: self.id,
+            missing_facet,
+        }
+    }
+}
+
+/// Candidate completeness failure for planner-driven mutation gates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CandidateCompletenessError {
+    /// Candidate that failed the mutation gate.
+    pub candidate: ConstructionCandidateId,
+    /// Missing facet or field name.
+    pub missing_facet: CandidateMissingFacet,
+}
+
+impl std::fmt::Display for CandidateCompletenessError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "candidate {:?} is missing {}",
+            self.candidate,
+            self.missing_facet.diagnostic_label()
+        )
+    }
+}
+
+impl std::error::Error for CandidateCompletenessError {}
+
+/// Missing candidate facet required by the planner mutation gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CandidateMissingFacet {
+    /// Candidate family was not classified.
+    Family,
+    /// Candidate feasibility was not classified.
+    Feasibility,
+    /// Candidate has no topology/resource operation membership.
+    TopologyResource,
+    /// Candidate lacks a postcondition preview.
+    PostconditionPreview,
+    /// Candidate lacks geometry feasibility facts.
+    GeometryFeasibility,
+    /// Candidate lacks validity/repair facts.
+    ValidityRepair,
+    /// Candidate lacks neighboring operation dependencies.
+    OperationDependency,
+    /// Candidate lacks semantic history dependencies.
+    SemanticHistoryDependency,
+    /// Candidate lacks downstream readiness facts.
+    DownstreamReadiness,
+    /// Candidate lacks live topology revalidation.
+    LiveTopologyRevalidation,
+    /// Candidate lacks postcondition verification.
+    PostconditionVerification,
+}
+
+impl CandidateMissingFacet {
+    /// Stable diagnostic label for this missing facet.
+    pub fn diagnostic_label(self) -> &'static str {
+        match self {
+            Self::Family => "candidate-family",
+            Self::Feasibility => "candidate-feasibility",
+            Self::TopologyResource => "topology-resource-facet",
+            Self::PostconditionPreview => "postcondition-preview",
+            Self::GeometryFeasibility => "geometry-feasibility",
+            Self::ValidityRepair => "validity-repair",
+            Self::OperationDependency => "operation-dependency",
+            Self::SemanticHistoryDependency => "semantic-history-dependency",
+            Self::DownstreamReadiness => "downstream-readiness",
+            Self::LiveTopologyRevalidation => "live-topology-revalidation",
+            Self::PostconditionVerification => "postcondition-verification",
+        }
+    }
+}
+
+/// Downstream readiness fact for generated topology and geometry consumers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DownstreamReadinessFact {
+    /// Downstream readiness family.
+    pub readiness: DownstreamReadiness,
+    /// Downstream readiness status.
+    pub status: DownstreamReadinessStatus,
+    /// Stable reason label.
+    pub reason: &'static str,
+}
+
+/// Downstream readiness for export, meshing, naming, and feature history.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DownstreamReadiness {
+    /// Downstream readiness has not been classified.
+    Unknown,
+    /// Downstream readiness is not applicable.
+    NotApplicable,
+    /// Downstream consumers can use the candidate output as-is.
+    Ready,
+    /// Downstream risk is known and bounded by candidate requirements.
+    RiskManaged,
+    /// Candidate is blocked by a missing primitive.
+    BlockedByMissingPrimitive,
+    /// Candidate is blocked until repair is performed.
+    BlockedByRepairRequired,
+    /// Candidate output would be invalid for export or meshing.
+    InvalidForExportOrMesh,
+}
+
+/// Downstream readiness status for generated topology and geometry consumers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DownstreamReadinessStatus {
+    /// Downstream status has not been classified.
+    Unknown,
+    /// Downstream consumers are ready.
+    Ready,
+    /// Downstream consumers are blocked.
+    Blocked,
+    /// Downstream risk is known and bounded.
+    RiskManaged,
 }
 
 /// Dependency on a neighboring primitive or modeling operation.

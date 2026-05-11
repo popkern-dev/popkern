@@ -6,7 +6,8 @@ use super::{
     ConstructionCandidateDraft, ConstructionFamily, ConstructionFeasibility,
     ConstructionRequirement, DiagnosticHandle, DiagnosticOperationId, DiagnosticOperatorFamily,
     DiagnosticResourceKind, DiagnosticTopologyDelta, OperatorReadinessStatus, ResourceConflictId,
-    ResourceConflictKind, TopologyDiagnosticGraph, geometry, operation_dependency, validity,
+    ResourceConflictKind, TopologyDiagnosticGraph, downstream, geometry, operation_dependency,
+    validity,
 };
 use crate::euler::BridgeDiagnosticRequest;
 use crate::topology::BRep;
@@ -52,6 +53,7 @@ pub(super) fn classify_construction_candidates(
                     })
                     .unwrap_or_default(),
                 operation_dependencies: operation_dependency::dependencies_for_candidate(family),
+                downstream_facts: downstream::downstream_facts_for_candidate(family, feasibility),
             });
         }
     }
@@ -251,6 +253,9 @@ fn conflicts_for_operation(
         .map(|conflict| conflict.id)
         .collect()
 }
+#[cfg(test)]
+#[path = "bridge_diagnostics_candidate_gate_tests.rs"]
+mod candidate_gate_tests;
 #[cfg(test)]
 #[path = "bridge_diagnostics_candidates_tests.rs"]
 mod tests;

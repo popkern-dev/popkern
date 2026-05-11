@@ -113,6 +113,30 @@ pub struct BridgeDiagnosticSummary {
     pub operation_dependency_ambiguous_needs_resolver_facts: usize,
     /// Operation dependency facts with unknown status.
     pub unknown_operation_dependency_status_facts: usize,
+    /// Downstream readiness facts attached to candidates.
+    pub downstream_readiness_facts: usize,
+    /// Downstream facts ready for consumers.
+    pub downstream_ready_facts: usize,
+    /// Downstream facts with bounded risk.
+    pub downstream_risk_managed_facts: usize,
+    /// Downstream facts blocked by missing primitives.
+    pub downstream_blocked_missing_primitive_facts: usize,
+    /// Downstream facts blocked by repair requirements.
+    pub downstream_blocked_repair_required_facts: usize,
+    /// Downstream facts invalid for export or meshing.
+    pub downstream_invalid_export_mesh_facts: usize,
+    /// Downstream not-applicable facts.
+    pub downstream_not_applicable_facts: usize,
+    /// Unknown downstream readiness facts.
+    pub unknown_downstream_readiness_facts: usize,
+    /// Downstream facts whose status is ready.
+    pub downstream_status_ready_facts: usize,
+    /// Downstream facts whose status is blocked.
+    pub downstream_status_blocked_facts: usize,
+    /// Downstream facts whose status is risk managed.
+    pub downstream_status_risk_managed_facts: usize,
+    /// Downstream facts whose status is unknown.
+    pub downstream_status_unknown_facts: usize,
     /// Sum of predicted vertex-count deltas.
     pub predicted_delta_vertices: i64,
     /// Sum of predicted edge-count deltas.

@@ -190,6 +190,9 @@ fn mutator_boundary_refuses_without_mutating_topology() {
              not_applicable:0 unknown:0 status_satisfied:0 status_not_required:0 \
              status_required_missing_primitive:0 status_blocked_invalid_input:0 \
              status_ambiguous_needs_resolver:0 status_unknown:0 \
+             downstream_readiness=facts:0 ready:0 risk_managed:0 blocked_missing_primitive:0 \
+             blocked_repair_required:0 invalid_export_mesh:0 not_applicable:0 unknown:0 \
+             status_ready:0 status_blocked:0 status_risk_managed:0 status_unknown:0 \
              predicted_delta=dV=0 dE=0 dF=0 dL=0 \
              expected_delta=dV=0 dE=0 dF=0 dL=0 reason=none"
         ),

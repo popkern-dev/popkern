@@ -1,8 +1,8 @@
 use super::{
     BridgeDiagnosticSummary, ConstructionFamily, ConstructionFeasibility, ConstructionRequirement,
-    GeometryFeasibility, OperationDependencyReadiness, OperationDependencyStatus,
-    OperatorReadinessStatus, ResourceConflictKind, TopologyDiagnosticGraph,
-    ValidityRepairReadiness, ValidityRepairStatus,
+    DownstreamReadiness, DownstreamReadinessStatus, GeometryFeasibility,
+    OperationDependencyReadiness, OperationDependencyStatus, OperatorReadinessStatus,
+    ResourceConflictKind, TopologyDiagnosticGraph, ValidityRepairReadiness, ValidityRepairStatus,
 };
 
 impl BridgeDiagnosticSummary {
@@ -42,6 +42,11 @@ impl BridgeDiagnosticSummary {
                 summary.operation_dependency_facts += 1;
                 summary.count_operation_dependency_readiness(dependency.readiness);
                 summary.count_operation_dependency_status(dependency.status);
+            }
+            for fact in &candidate.downstream_facts {
+                summary.downstream_readiness_facts += 1;
+                summary.count_downstream_readiness(fact.readiness);
+                summary.count_downstream_status(fact.status);
             }
         }
         for postcondition in &graph.postconditions {
@@ -111,6 +116,18 @@ impl BridgeDiagnosticSummary {
             operation_dependency_blocked_invalid_input_facts: 0,
             operation_dependency_ambiguous_needs_resolver_facts: 0,
             unknown_operation_dependency_status_facts: 0,
+            downstream_readiness_facts: 0,
+            downstream_ready_facts: 0,
+            downstream_risk_managed_facts: 0,
+            downstream_blocked_missing_primitive_facts: 0,
+            downstream_blocked_repair_required_facts: 0,
+            downstream_invalid_export_mesh_facts: 0,
+            downstream_not_applicable_facts: 0,
+            unknown_downstream_readiness_facts: 0,
+            downstream_status_ready_facts: 0,
+            downstream_status_blocked_facts: 0,
+            downstream_status_risk_managed_facts: 0,
+            downstream_status_unknown_facts: 0,
             predicted_delta_vertices: 0,
             predicted_delta_edges: 0,
             predicted_delta_faces: 0,
@@ -349,6 +366,35 @@ impl BridgeDiagnosticSummary {
             }
             OperationDependencyStatus::AmbiguousNeedsResolver => {
                 self.operation_dependency_ambiguous_needs_resolver_facts += 1;
+            }
+        }
+    }
+
+    fn count_downstream_readiness(&mut self, readiness: DownstreamReadiness) {
+        match readiness {
+            DownstreamReadiness::Unknown => self.unknown_downstream_readiness_facts += 1,
+            DownstreamReadiness::NotApplicable => self.downstream_not_applicable_facts += 1,
+            DownstreamReadiness::Ready => self.downstream_ready_facts += 1,
+            DownstreamReadiness::RiskManaged => self.downstream_risk_managed_facts += 1,
+            DownstreamReadiness::BlockedByMissingPrimitive => {
+                self.downstream_blocked_missing_primitive_facts += 1;
+            }
+            DownstreamReadiness::BlockedByRepairRequired => {
+                self.downstream_blocked_repair_required_facts += 1;
+            }
+            DownstreamReadiness::InvalidForExportOrMesh => {
+                self.downstream_invalid_export_mesh_facts += 1;
+            }
+        }
+    }
+
+    fn count_downstream_status(&mut self, status: DownstreamReadinessStatus) {
+        match status {
+            DownstreamReadinessStatus::Unknown => self.downstream_status_unknown_facts += 1,
+            DownstreamReadinessStatus::Ready => self.downstream_status_ready_facts += 1,
+            DownstreamReadinessStatus::Blocked => self.downstream_status_blocked_facts += 1,
+            DownstreamReadinessStatus::RiskManaged => {
+                self.downstream_status_risk_managed_facts += 1;
             }
         }
     }
