@@ -5,6 +5,10 @@ use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
 
 use super::{
     CylinderMediatedOwnerRepairSpan, CylinderMediatedSupportContinuationSegmentAuthoringPlan,
+    apply_exposure_candidates::{
+        ExposureConstructionCandidate, ExposureConstructionFamily, ExposureConstructionFeasibility,
+        ExposureRollbackBoundary, ExposureSemanticOwnership,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,9 +19,39 @@ pub(super) struct OwnerRepairExposureResult {
 
 impl OwnerRepairExposureResult {
     pub(super) fn diagnostic_label(self) -> String {
+        let candidate = ExposureConstructionCandidate {
+            family: ExposureConstructionFamily::OwnerBoundaryFragmentRetire,
+            feasibility: if self.exposed_spans == 0 {
+                ExposureConstructionFeasibility::NotApplicable
+            } else {
+                ExposureConstructionFeasibility::ExecutableByExistingOperator
+            },
+            reason: if self.exposed_spans == 0 {
+                "owner-repair-exposure-not-required"
+            } else {
+                "owner-repair-boundary-fragment-retire-ready"
+            },
+            spans: self.exposed_spans,
+            half_edges: self.exposed_half_edges,
+            expected_edges: self.exposed_spans as i64,
+            expected_faces: 0,
+            expected_loops: 0,
+            semantic_ownership: if self.exposed_spans == 0 {
+                ExposureSemanticOwnership::None
+            } else {
+                ExposureSemanticOwnership::OutsideBoundarySideExposed
+            },
+            rollback_boundary: if self.exposed_spans == 0 {
+                ExposureRollbackBoundary::NoMutation
+            } else {
+                ExposureRollbackBoundary::CandidateBrepBeforeCommit
+            },
+        };
         format!(
-            "owner_repair_candidate=exposed_spans={} exposed_half_edges={}",
-            self.exposed_spans, self.exposed_half_edges
+            "owner_repair_candidate=exposed_spans={} exposed_half_edges={} {}",
+            self.exposed_spans,
+            self.exposed_half_edges,
+            candidate.diagnostic_label()
         )
     }
 }

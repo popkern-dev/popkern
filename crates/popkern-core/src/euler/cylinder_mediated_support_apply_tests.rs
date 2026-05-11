@@ -60,6 +60,17 @@ fn mutator_boundary_refuses_without_mutating_topology() {
     );
     assert!(
         detail.contains(
+            "exposure_construction_candidate=family=owner-boundary-fragment-retire \
+             feasibility=executable-by-existing-operator \
+             reason=owner-repair-boundary-fragment-retire-ready spans=2 half_edges=2 \
+             expected_delta=dV=0 dE=2 dF=0 dL=0 \
+             semantic_ownership=outside-boundary-side-exposed \
+             rollback_boundary=candidate-brep-before-commit"
+        ),
+        "{err}"
+    );
+    assert!(
+        detail.contains(
             "segment_bridge_candidate=segments=3 boundary_half_edges=15 \
              ownership=shared-support-transition-ready \
              shared_support_segments=1 missing_support_segments=0 \
@@ -80,6 +91,17 @@ fn mutator_boundary_refuses_without_mutating_topology() {
         detail.contains(
             "cylinder_resource_blocker_exposure=spans=2 half_edges=2 \
              exposed_spans=2 exposed_half_edges=2"
+        ),
+        "{err}"
+    );
+    assert!(
+        detail.contains(
+            "exposure_construction_candidate=family=cylinder-resource-blocker-retire \
+             feasibility=executable-by-existing-operator \
+             reason=cylinder-resource-blocker-boundary-fragment-retire-ready \
+             spans=2 half_edges=2 expected_delta=dV=0 dE=2 dF=0 dL=0 \
+             semantic_ownership=cylinder-resource-boundary-side-exposed \
+             rollback_boundary=candidate-brep-before-commit"
         ),
         "{err}"
     );

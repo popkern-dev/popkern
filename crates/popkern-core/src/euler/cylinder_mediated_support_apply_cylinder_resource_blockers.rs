@@ -4,6 +4,10 @@ use crate::error::CoreError;
 use crate::topology::BRep;
 
 use super::apply_cylinder_resource_remap::CylinderBridgeResourceRemap;
+use super::apply_exposure_candidates::{
+    ExposureConstructionCandidate, ExposureConstructionFamily, ExposureConstructionFeasibility,
+    ExposureRollbackBoundary, ExposureSemanticOwnership,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct CylinderResourceBlockerExposureResult {
@@ -19,9 +23,41 @@ impl CylinderResourceBlockerExposureResult {
     }
 
     pub(super) fn diagnostic_label(self) -> String {
+        let candidate = ExposureConstructionCandidate {
+            family: ExposureConstructionFamily::CylinderResourceBlockerRetire,
+            feasibility: if self.spans == 0 {
+                ExposureConstructionFeasibility::NotApplicable
+            } else {
+                ExposureConstructionFeasibility::ExecutableByExistingOperator
+            },
+            reason: if self.spans == 0 {
+                "cylinder-resource-blocker-exposure-not-required"
+            } else {
+                "cylinder-resource-blocker-boundary-fragment-retire-ready"
+            },
+            spans: self.spans,
+            half_edges: self.half_edges,
+            expected_edges: self.exposed_spans as i64,
+            expected_faces: 0,
+            expected_loops: 0,
+            semantic_ownership: if self.spans == 0 {
+                ExposureSemanticOwnership::None
+            } else {
+                ExposureSemanticOwnership::CylinderResourceBoundarySideExposed
+            },
+            rollback_boundary: if self.spans == 0 {
+                ExposureRollbackBoundary::NoMutation
+            } else {
+                ExposureRollbackBoundary::CandidateBrepBeforeCommit
+            },
+        };
         format!(
-            "cylinder_resource_blocker_exposure=spans={} half_edges={} exposed_spans={} exposed_half_edges={}",
-            self.spans, self.half_edges, self.exposed_spans, self.exposed_half_edges
+            "cylinder_resource_blocker_exposure=spans={} half_edges={} exposed_spans={} exposed_half_edges={} {}",
+            self.spans,
+            self.half_edges,
+            self.exposed_spans,
+            self.exposed_half_edges,
+            candidate.diagnostic_label()
         )
     }
 }

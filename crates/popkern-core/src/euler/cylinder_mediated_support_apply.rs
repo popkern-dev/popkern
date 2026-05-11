@@ -20,6 +20,8 @@ mod apply_cylinder_resource_remap;
 mod apply_cylinder_resources;
 #[path = "cylinder_mediated_support_apply_diagnostics.rs"]
 mod apply_diagnostics;
+#[path = "cylinder_mediated_support_apply_exposure_candidates.rs"]
+mod apply_exposure_candidates;
 #[path = "cylinder_mediated_support_apply_owner_spans.rs"]
 mod apply_owner_spans;
 #[path = "cylinder_mediated_support_apply_preconditions.rs"]
