@@ -182,9 +182,10 @@ pub(super) fn split_resource_merge_operand_summary(
 
 fn split_resource_merge_operand_label(operand: &SplitResourceMergeOperand) -> String {
     format!(
-        "outside={} requests={} outside_endpoints={:?}->{:?} outside_half_edges={} cylinder_runs=[{}]",
+        "outside={} requests={} endpoint_shape={} outside_endpoints={:?}->{:?} outside_half_edges={} cylinder_runs=[{}]",
         operand.outside_segment_index,
         request_set_label(&operand.request_indices),
+        split_resource_endpoint_shape(operand).diagnostic_label(),
         operand.outside_start,
         operand.outside_end,
         operand.outside_half_edges,
@@ -195,6 +196,48 @@ fn split_resource_merge_operand_label(operand: &SplitResourceMergeOperand) -> St
             .collect::<Vec<_>>()
             .join(",")
     )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SplitResourceEndpointShape {
+    Aligned,
+    SharedStart,
+    SharedEnd,
+    Mixed,
+}
+
+impl SplitResourceEndpointShape {
+    fn diagnostic_label(self) -> &'static str {
+        match self {
+            Self::Aligned => "aligned",
+            Self::SharedStart => "shared-start",
+            Self::SharedEnd => "shared-end",
+            Self::Mixed => "mixed",
+        }
+    }
+}
+
+fn split_resource_endpoint_shape(
+    operand: &SplitResourceMergeOperand,
+) -> SplitResourceEndpointShape {
+    let unique_starts = operand
+        .cylinder_runs
+        .iter()
+        .map(|run| run.start)
+        .collect::<BTreeSet<_>>()
+        .len();
+    let unique_ends = operand
+        .cylinder_runs
+        .iter()
+        .map(|run| run.end)
+        .collect::<BTreeSet<_>>()
+        .len();
+    match (unique_starts, unique_ends) {
+        (1, 1) => SplitResourceEndpointShape::Aligned,
+        (1, _) => SplitResourceEndpointShape::SharedStart,
+        (_, 1) => SplitResourceEndpointShape::SharedEnd,
+        _ => SplitResourceEndpointShape::Mixed,
+    }
 }
 
 fn split_resource_cylinder_run_label(run: &SplitResourceCylinderRun) -> String {
