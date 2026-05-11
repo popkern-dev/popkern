@@ -87,6 +87,30 @@ fn matrix_categories_have_stable_labels() {
     }
 }
 
+#[test]
+fn seed_matrix_names_current_regression_cases() {
+    let cases = seed_matrix_rows()
+        .iter()
+        .map(|row| row.case_id)
+        .collect::<std::collections::BTreeSet<_>>();
+    for expected in [
+        "cube_mixed_native_a2",
+        "cube_extreme_native_a2",
+        "pyramid3_uniform_native_a2",
+        "pyramid4_uniform_native_a2",
+        "pyramid4_mixed_native_a2",
+        "gregory_step_roundtrip_tolerance",
+        "cube_extreme_40_upstream_gap",
+        "cube_extreme_50_upstream_gap",
+        "cube_extreme_100_upstream_gap",
+    ] {
+        assert!(
+            cases.contains(expected),
+            "seed matrix is missing regression case {expected}"
+        );
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct MatrixSummary {
     rows: usize,
