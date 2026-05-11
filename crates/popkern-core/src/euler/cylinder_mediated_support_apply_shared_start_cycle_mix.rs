@@ -20,6 +20,7 @@ pub(super) struct SharedStartCycleShape {
     pub(super) one_edge_interior_overlap_candidates: usize,
     pub(super) repeated_one_edge_overlap_occurrences: usize,
     pub(super) one_edge_interior_overlap_plans: usize,
+    pub(super) one_edge_interior_overlap_boundary_edges: usize,
 }
 
 impl SharedStartCycleShape {
@@ -37,6 +38,7 @@ impl SharedStartCycleShape {
             one_edge_interior_overlap_candidates: 0,
             repeated_one_edge_overlap_occurrences: 0,
             one_edge_interior_overlap_plans: 0,
+            one_edge_interior_overlap_boundary_edges: 0,
         }
     }
 
@@ -51,6 +53,7 @@ impl SharedStartCycleShape {
         let mut one_edge_interior_overlap_candidates = 0;
         let mut repeated_one_edge_overlap_occurrences = 0;
         let mut one_edge_interior_overlap_plans = 0;
+        let mut one_edge_interior_overlap_boundary_edges = 0;
         for cycle in cycles
             .iter()
             .filter(|cycle| cycle.first_loop == cycle.second_loop)
@@ -79,6 +82,9 @@ impl SharedStartCycleShape {
                             if decomposition.repeated_overlap_occurrences {
                                 repeated_one_edge_overlap_occurrences += 1;
                             }
+                            if decomposition.shared_edge_already_boundary {
+                                one_edge_interior_overlap_boundary_edges += 1;
+                            }
                             if decomposition.plan.is_some() {
                                 one_edge_interior_overlap_plans += 1;
                             }
@@ -101,6 +107,7 @@ impl SharedStartCycleShape {
             one_edge_interior_overlap_candidates,
             repeated_one_edge_overlap_occurrences,
             one_edge_interior_overlap_plans,
+            one_edge_interior_overlap_boundary_edges,
         }
     }
 }
@@ -119,6 +126,8 @@ pub(super) struct SharedStartCycleMixSummary {
     pub(super) one_edge_interior_overlap_candidates: usize,
     pub(super) repeated_one_edge_overlap_occurrences: usize,
     pub(super) one_edge_interior_overlap_plans: usize,
+    pub(super) one_edge_interior_overlap_boundary_edges: usize,
+    pub(super) one_edge_interior_overlap_normalizations: usize,
     pub(super) expected_edges: i64,
     pub(super) expected_faces: i64,
     pub(super) expected_loops: i64,
@@ -128,6 +137,8 @@ pub(super) struct SharedStartCycleMixSummary {
 pub(super) struct SameLoopInteriorOverlapPlan {
     pub(super) loop_: LoopHandle,
     pub(super) shared_edge: EdgeHandle,
+    pub(super) first_shared_half_edge: HalfEdgeHandle,
+    pub(super) second_shared_half_edge: HalfEdgeHandle,
     pub(super) first_before_shared: Vec<HalfEdgeHandle>,
     pub(super) first_after_shared: Vec<HalfEdgeHandle>,
     pub(super) second_before_shared: Vec<HalfEdgeHandle>,
@@ -144,6 +155,7 @@ pub(super) fn preflight_shared_start_cycle_mix(
     let mut interior_overlap_plans = Vec::new();
     let mut one_edge_interior_overlap_candidates = 0;
     let mut repeated_one_edge_overlap_occurrences = 0;
+    let mut one_edge_interior_overlap_boundary_edges = 0;
     for cycle in cycles {
         if cycle.first_loop == cycle.second_loop {
             let decomposition = one_edge_interior_overlap_decomposition(brep, &cycle)?;
@@ -153,14 +165,19 @@ pub(super) fn preflight_shared_start_cycle_mix(
             if decomposition.repeated_overlap_occurrences {
                 repeated_one_edge_overlap_occurrences += 1;
             }
+            if decomposition.shared_edge_already_boundary {
+                one_edge_interior_overlap_boundary_edges += 1;
+            }
             if let Some(plan) = decomposition.plan {
                 interior_overlap_plans.push(plan);
             }
-            same_loop_cycles.push(cycle);
+            same_loop_cycles.push(cycle.clone());
         } else {
             cross_loop_cycles.push(cycle);
         }
     }
+    let normalized_same_loop =
+        preflight_normalized_same_loop_cycles(brep, &interior_overlap_plans, &same_loop_cycles)?;
     let mut expected_edges = 0;
     let mut expected_faces = 0;
     let mut expected_loops = 0;
@@ -172,16 +189,9 @@ pub(super) fn preflight_shared_start_cycle_mix(
         expected_faces += plan.expected_delta.faces;
         expected_loops += plan.expected_delta.loops;
     }
-    for cycle in &same_loop_cycles {
-        let plan = brep.preflight_same_loop_face_bridge(SameLoopFaceBridgeRequest {
-            loop_: cycle.first_loop,
-            first_interval: cycle.first_interval.clone(),
-            second_interval: cycle.second_interval.clone(),
-        })?;
-        expected_edges += plan.expected_delta.edges;
-        expected_faces += plan.expected_delta.faces;
-        expected_loops += plan.expected_delta.loops;
-    }
+    expected_edges += normalized_same_loop.expected_edges;
+    expected_faces += normalized_same_loop.expected_faces;
+    expected_loops += normalized_same_loop.expected_loops;
     Ok(SharedStartCycleMixSummary {
         cycles: cross_loop_count + same_loop_count,
         cross_loop_cycles: cross_loop_count,
@@ -195,6 +205,72 @@ pub(super) fn preflight_shared_start_cycle_mix(
         one_edge_interior_overlap_candidates,
         repeated_one_edge_overlap_occurrences,
         one_edge_interior_overlap_plans: interior_overlap_plans.len(),
+        one_edge_interior_overlap_boundary_edges,
+        one_edge_interior_overlap_normalizations: normalized_same_loop.normalizations,
+        expected_edges,
+        expected_faces,
+        expected_loops,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NormalizedSameLoopInteriorOverlaps {
+    normalizations: usize,
+    expected_edges: i64,
+    expected_faces: i64,
+    expected_loops: i64,
+}
+
+fn preflight_normalized_same_loop_cycles(
+    brep: &BRep,
+    plans: &[SameLoopInteriorOverlapPlan],
+    cycles: &[FaceFamilyBridgeCycleRequest],
+) -> Result<NormalizedSameLoopInteriorOverlaps, CoreError> {
+    let mut expected_edges = 0;
+    let mut expected_faces = 0;
+    let mut expected_loops = 0;
+    if plans.is_empty() {
+        for cycle in cycles {
+            let plan = brep.preflight_same_loop_face_bridge(SameLoopFaceBridgeRequest {
+                loop_: cycle.first_loop,
+                first_interval: cycle.first_interval.clone(),
+                second_interval: cycle.second_interval.clone(),
+            })?;
+            expected_edges += plan.expected_delta.edges;
+            expected_faces += plan.expected_delta.faces;
+            expected_loops += plan.expected_delta.loops;
+        }
+        return Ok(NormalizedSameLoopInteriorOverlaps {
+            normalizations: 0,
+            expected_edges,
+            expected_faces,
+            expected_loops,
+        });
+    }
+    let mut candidate = brep.clone();
+    for plan in plans {
+        if candidate.half_edges[plan.first_shared_half_edge].edge != plan.shared_edge
+            || candidate.half_edges[plan.second_shared_half_edge].edge != plan.shared_edge
+        {
+            return Err(CoreError::PreconditionFailed(
+                "same-loop overlap plan is stale".into(),
+            ));
+        }
+        candidate.expose_same_loop_edge_as_boundary(plan.first_shared_half_edge)?;
+        expected_edges += 1;
+    }
+    for cycle in cycles {
+        let plan = candidate.preflight_same_loop_face_bridge(SameLoopFaceBridgeRequest {
+            loop_: cycle.first_loop,
+            first_interval: cycle.first_interval.clone(),
+            second_interval: cycle.second_interval.clone(),
+        })?;
+        expected_edges += plan.expected_delta.edges;
+        expected_faces += plan.expected_delta.faces;
+        expected_loops += plan.expected_delta.loops;
+    }
+    Ok(NormalizedSameLoopInteriorOverlaps {
+        normalizations: plans.len(),
         expected_edges,
         expected_faces,
         expected_loops,
@@ -205,6 +281,7 @@ pub(super) fn preflight_shared_start_cycle_mix(
 struct OneEdgeInteriorOverlapDecomposition {
     unique_overlap_edge: bool,
     repeated_overlap_occurrences: bool,
+    shared_edge_already_boundary: bool,
     plan: Option<SameLoopInteriorOverlapPlan>,
 }
 
@@ -230,10 +307,12 @@ fn one_edge_interior_overlap_decomposition(
         return Ok(OneEdgeInteriorOverlapDecomposition {
             unique_overlap_edge: false,
             repeated_overlap_occurrences: false,
+            shared_edge_already_boundary: false,
             plan: None,
         });
     }
     let shared_edge = overlap_edges[0];
+    let shared_edge_already_boundary = brep.boundary_edges.contains(&shared_edge);
     let shared = first_path
         .iter()
         .flat_map(|first| {
@@ -247,6 +326,7 @@ fn one_edge_interior_overlap_decomposition(
         return Ok(OneEdgeInteriorOverlapDecomposition {
             unique_overlap_edge: true,
             repeated_overlap_occurrences: true,
+            shared_edge_already_boundary,
             plan: None,
         });
     }
@@ -254,9 +334,12 @@ fn one_edge_interior_overlap_decomposition(
     Ok(OneEdgeInteriorOverlapDecomposition {
         unique_overlap_edge: true,
         repeated_overlap_occurrences: false,
+        shared_edge_already_boundary,
         plan: Some(SameLoopInteriorOverlapPlan {
             loop_: cycle.first_loop,
             shared_edge: first_shared.edge,
+            first_shared_half_edge: first_shared.half_edge,
+            second_shared_half_edge: second_shared.half_edge,
             first_before_shared: first_path[..first_shared.index]
                 .iter()
                 .map(|entry| entry.half_edge)

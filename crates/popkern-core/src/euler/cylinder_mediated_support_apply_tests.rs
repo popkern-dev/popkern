@@ -130,6 +130,8 @@ fn mutator_boundary_refuses_without_mutating_topology() {
              same_loop_shared_end_overlaps=0 same_loop_crossed_endpoint_overlaps=0 \
              same_loop_interior_overlaps=0 one_edge_interior_overlap_candidates=0 \
              repeated_one_edge_overlap_occurrences=0 one_edge_interior_overlap_plans=0 \
+             one_edge_interior_overlap_boundary_edges=0 \
+             one_edge_interior_overlap_normalizations=0 \
              expected_delta=dV=0 dE=0 dF=0 dL=0 reason=none"
         ),
         "{err}"

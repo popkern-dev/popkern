@@ -26,6 +26,8 @@ pub(super) struct SharedStartBridgePreflight {
     one_edge_interior_overlap_candidates: usize,
     repeated_one_edge_overlap_occurrences: usize,
     one_edge_interior_overlap_plans: usize,
+    one_edge_interior_overlap_boundary_edges: usize,
+    one_edge_interior_overlap_normalizations: usize,
     expected_edges: i64,
     expected_faces: i64,
     expected_loops: i64,
@@ -56,6 +58,8 @@ impl SharedStartBridgePreflight {
             one_edge_interior_overlap_candidates: 0,
             repeated_one_edge_overlap_occurrences: 0,
             one_edge_interior_overlap_plans: 0,
+            one_edge_interior_overlap_boundary_edges: 0,
+            one_edge_interior_overlap_normalizations: 0,
             expected_edges: 0,
             expected_faces: 0,
             expected_loops: 0,
@@ -79,6 +83,10 @@ impl SharedStartBridgePreflight {
             one_edge_interior_overlap_candidates: summary.one_edge_interior_overlap_candidates,
             repeated_one_edge_overlap_occurrences: summary.repeated_one_edge_overlap_occurrences,
             one_edge_interior_overlap_plans: summary.one_edge_interior_overlap_plans,
+            one_edge_interior_overlap_boundary_edges: summary
+                .one_edge_interior_overlap_boundary_edges,
+            one_edge_interior_overlap_normalizations: summary
+                .one_edge_interior_overlap_normalizations,
             expected_edges: summary.expected_edges,
             expected_faces: summary.expected_faces,
             expected_loops: summary.expected_loops,
@@ -102,6 +110,9 @@ impl SharedStartBridgePreflight {
             one_edge_interior_overlap_candidates: shape.one_edge_interior_overlap_candidates,
             repeated_one_edge_overlap_occurrences: shape.repeated_one_edge_overlap_occurrences,
             one_edge_interior_overlap_plans: shape.one_edge_interior_overlap_plans,
+            one_edge_interior_overlap_boundary_edges: shape
+                .one_edge_interior_overlap_boundary_edges,
+            one_edge_interior_overlap_normalizations: 0,
             expected_edges: 0,
             expected_faces: 0,
             expected_loops: 0,
@@ -116,7 +127,7 @@ impl SharedStartBridgePreflight {
             SharedStartBridgePreflightStatus::Rejected => "rejected",
         };
         format!(
-            "shared_start_bridge_preflight=status={status} pairings={} cycles={} cross_loop_cycles={} same_loop_cycles={} same_loop_overlap_cycles={} same_loop_overlapping_edges={} same_loop_shared_start_overlaps={} same_loop_shared_end_overlaps={} same_loop_crossed_endpoint_overlaps={} same_loop_interior_overlaps={} one_edge_interior_overlap_candidates={} repeated_one_edge_overlap_occurrences={} one_edge_interior_overlap_plans={} expected_delta=dV=0 dE={} dF={} dL={} reason={}",
+            "shared_start_bridge_preflight=status={status} pairings={} cycles={} cross_loop_cycles={} same_loop_cycles={} same_loop_overlap_cycles={} same_loop_overlapping_edges={} same_loop_shared_start_overlaps={} same_loop_shared_end_overlaps={} same_loop_crossed_endpoint_overlaps={} same_loop_interior_overlaps={} one_edge_interior_overlap_candidates={} repeated_one_edge_overlap_occurrences={} one_edge_interior_overlap_plans={} one_edge_interior_overlap_boundary_edges={} one_edge_interior_overlap_normalizations={} expected_delta=dV=0 dE={} dF={} dL={} reason={}",
             self.pairings,
             self.cycles,
             self.cross_loop_cycles,
@@ -130,6 +141,8 @@ impl SharedStartBridgePreflight {
             self.one_edge_interior_overlap_candidates,
             self.repeated_one_edge_overlap_occurrences,
             self.one_edge_interior_overlap_plans,
+            self.one_edge_interior_overlap_boundary_edges,
+            self.one_edge_interior_overlap_normalizations,
             self.expected_edges,
             self.expected_faces,
             self.expected_loops,
@@ -270,6 +283,14 @@ fn bridge_error_label(err: &CoreError) -> &'static str {
         "same-loop-bridge-connector-would-be-degenerate"
     } else if detail.contains("same-loop bridge intervals overlap") {
         "same-loop-bridge-intervals-overlap"
+    } else if detail.contains("same-loop edge is already boundary") {
+        "same-loop-overlap-edge-already-boundary"
+    } else if detail.contains("face-family bridge cycles overlap") {
+        "face-family-bridge-cycles-overlap"
+    } else if detail.contains("is not an unowned boundary side") {
+        "bridge-cycle-side-not-unowned-boundary"
+    } else if detail.contains("source faces are in different shells") {
+        "face-family-bridge-source-faces-different-shells"
     } else {
         "face-family-bridge-preflight-rejected"
     }
