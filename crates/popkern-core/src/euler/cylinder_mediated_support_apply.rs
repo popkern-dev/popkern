@@ -168,7 +168,7 @@ impl BRep {
             let mut candidate = self.clone();
             let repair_result = expose_owner_repair_spans(&mut candidate, &segment_authoring)?;
             let cylinder_resource_remap =
-                remap_cylinder_bridge_resources(&candidate, &cylinder_resources)?;
+                remap_cylinder_bridge_resources(&candidate, &cylinder_resources, plan)?;
             let bridge_cycles =
                 derive_segment_bridge_cycle_operands(&candidate, plan, &segment_authoring)?;
             let reconciliation = cylinder_resources.reconcile(&bridge_cycles);

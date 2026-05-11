@@ -71,7 +71,10 @@ fn mutator_boundary_refuses_without_mutating_topology() {
     assert!(
         detail.contains(
             "cylinder_resource_remap=segments=1 half_edges=1 reversed_segments=0 \
-             unavailable_edges=2 non_contiguous_segments=1"
+             unavailable_edges=2 unavailable_not_boundary=2 unavailable_live_twin=2 \
+             unavailable_owner_roles=cylinder:2 support:2 context:0 \
+             unavailable_owner_faces=[FaceHandle(2v1):2,FaceHandle(3v1):1,FaceHandle(4v1):1] \
+             non_contiguous_segments=1"
         ),
         "{err}"
     );
