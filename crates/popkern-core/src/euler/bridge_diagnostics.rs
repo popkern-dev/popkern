@@ -21,6 +21,8 @@ mod postconditions;
 mod readiness;
 #[path = "bridge_diagnostics_summary.rs"]
 mod summary;
+#[path = "bridge_diagnostics_summary_label.rs"]
+mod summary_label;
 #[path = "bridge_diagnostics_validity.rs"]
 mod validity;
 
