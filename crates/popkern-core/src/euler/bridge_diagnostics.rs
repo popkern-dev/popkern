@@ -11,6 +11,8 @@ use crate::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, 
 mod conflicts;
 #[path = "bridge_diagnostics_inventory.rs"]
 mod inventory;
+#[path = "bridge_diagnostics_overlap.rs"]
+mod overlap;
 
 /// Local graph id for a diagnostic resource.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -262,6 +264,8 @@ pub enum ResourceConflictKind {
     NestedOverlap,
     /// Interior overlap.
     InteriorOverlap,
+    /// Repeated occurrence of the same edge.
+    RepeatedEdgeOccurrence,
     /// Already-boundary overlap.
     AlreadyBoundaryOverlap,
     /// Paired side needs exposure.
@@ -330,6 +334,7 @@ impl BRep {
             TopologyDiagnosticGraph::empty(TopologyGraphFingerprint::capture(self, &request));
         let graph = inventory::populate_bridge_inventory(self, &request, graph);
         let graph = conflicts::classify_duplicate_consumption(graph);
+        let graph = overlap::classify_overlap_shapes(self, &request, graph);
         Ok(BridgeDiagnosticReport {
             summary: BridgeDiagnosticSummary::from_graph(&graph),
             graph,
