@@ -111,6 +111,26 @@ fn seed_matrix_names_current_regression_cases() {
     }
 }
 
+#[test]
+fn seed_matrix_names_apex_semantic_invariants() {
+    let cases = seed_matrix_rows()
+        .iter()
+        .map(|row| row.case_id)
+        .collect::<std::collections::BTreeSet<_>>();
+    for expected in [
+        "apex_retired_vertex_absence",
+        "apex_cap_cylinder_seam_cardinality",
+        "apex_support_family_ownership",
+        "apex_generated_boundary_replacement",
+        "apex_cap_transition_continuity",
+    ] {
+        assert!(
+            cases.contains(expected),
+            "seed matrix is missing apex semantic invariant {expected}"
+        );
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct MatrixSummary {
     rows: usize,
