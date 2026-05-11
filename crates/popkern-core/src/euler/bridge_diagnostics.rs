@@ -24,6 +24,7 @@ mod readiness;
 #[path = "bridge_diagnostics_summary.rs"]
 mod summary;
 
+use candidate_types::ConstructionCandidateDraft;
 pub use candidate_types::{
     ConstructionCandidate, ConstructionCandidateId, ConstructionFamily, ConstructionFeasibility,
     ConstructionRequirement,
@@ -438,22 +439,18 @@ impl TopologyDiagnosticGraph {
 
     pub(super) fn push_candidate(
         &mut self,
-        family: ConstructionFamily,
-        feasibility: ConstructionFeasibility,
-        operations: Vec<DiagnosticOperationId>,
-        conflicts: Vec<ResourceConflictId>,
-        requirements: Vec<ConstructionRequirement>,
-        postcondition_preview: Option<PostconditionPredictionId>,
+        draft: ConstructionCandidateDraft,
     ) -> ConstructionCandidateId {
         let id = ConstructionCandidateId(self.candidates.len());
         self.candidates.push(ConstructionCandidate {
             id,
-            family,
-            feasibility,
-            operations,
-            conflicts,
-            requirements,
-            postcondition_preview,
+            family: draft.family,
+            feasibility: draft.feasibility,
+            feasibility_reason: draft.feasibility_reason,
+            operations: draft.operations,
+            conflicts: draft.conflicts,
+            requirements: draft.requirements,
+            postcondition_preview: draft.postcondition_preview,
         });
         id
     }

@@ -2,6 +2,16 @@
 
 use super::{DiagnosticOperationId, PostconditionPredictionId, ResourceConflictId};
 
+pub(in crate::euler) struct ConstructionCandidateDraft {
+    pub(super) family: ConstructionFamily,
+    pub(super) feasibility: ConstructionFeasibility,
+    pub(super) feasibility_reason: &'static str,
+    pub(super) operations: Vec<DiagnosticOperationId>,
+    pub(super) conflicts: Vec<ResourceConflictId>,
+    pub(super) requirements: Vec<ConstructionRequirement>,
+    pub(super) postcondition_preview: Option<PostconditionPredictionId>,
+}
+
 /// Local graph id for a construction candidate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ConstructionCandidateId(pub usize);
@@ -15,6 +25,8 @@ pub struct ConstructionCandidate {
     pub family: ConstructionFamily,
     /// Candidate feasibility.
     pub feasibility: ConstructionFeasibility,
+    /// Stable reason for the feasibility classification.
+    pub feasibility_reason: &'static str,
     /// Diagnostic operations participating in the candidate.
     pub operations: Vec<DiagnosticOperationId>,
     /// Resource conflicts participating in the candidate.
@@ -53,6 +65,8 @@ pub enum ConstructionFeasibility {
     RequiresSeparatorSubcomplex,
     /// Candidate requires custom aggregate authoring.
     RequiresCustomAggregateAuthoring,
+    /// Candidate requires regrouping bridge cycles before mutation.
+    RequiresCycleRegrouping,
     /// Candidate is invalid because it would create non-manifold topology.
     InvalidNonManifold,
     /// Candidate family is unsupported or not yet classified.

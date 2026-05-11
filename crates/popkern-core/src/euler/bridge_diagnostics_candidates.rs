@@ -1,9 +1,12 @@
 //! Bridge diagnostic construction-candidate classification.
 
+use std::collections::BTreeSet;
+
 use super::{
-    ConstructionFamily, ConstructionFeasibility, ConstructionRequirement, DiagnosticOperationId,
-    DiagnosticOperatorFamily, DiagnosticTopologyDelta, OperatorReadinessStatus, ResourceConflictId,
-    TopologyDiagnosticGraph,
+    ConstructionCandidateDraft, ConstructionFamily, ConstructionFeasibility,
+    ConstructionRequirement, DiagnosticHandle, DiagnosticOperationId, DiagnosticOperatorFamily,
+    DiagnosticResourceKind, DiagnosticTopologyDelta, OperatorReadinessStatus, ResourceConflictId,
+    ResourceConflictKind, TopologyDiagnosticGraph,
 };
 
 pub(super) fn classify_construction_candidates(
@@ -11,39 +14,47 @@ pub(super) fn classify_construction_candidates(
 ) -> TopologyDiagnosticGraph {
     let readiness_entries = graph.readiness.clone();
     for readiness in readiness_entries {
-        if let Some((family, feasibility)) =
-            candidate_for_readiness(readiness.operator, readiness.status)
-        {
+        if let Some((family, feasibility, reason)) = candidate_for_readiness(
+            &graph,
+            readiness.operation,
+            readiness.operator,
+            readiness.status,
+        ) {
             let postcondition_preview =
                 postcondition_preview_for_candidate(&mut graph, readiness.operation, family);
-            graph.push_candidate(
+            graph.push_candidate(ConstructionCandidateDraft {
                 family,
                 feasibility,
-                vec![readiness.operation],
-                conflicts_for_operation(&graph, readiness.operation),
-                vec![
+                feasibility_reason: reason,
+                operations: vec![readiness.operation],
+                conflicts: conflicts_for_operation(&graph, readiness.operation),
+                requirements: vec![
                     ConstructionRequirement::LiveTopologyRevalidation,
                     ConstructionRequirement::PostconditionVerification,
                 ],
                 postcondition_preview,
-            );
+            });
         }
     }
     graph
 }
 
 fn candidate_for_readiness(
+    graph: &TopologyDiagnosticGraph,
+    operation: DiagnosticOperationId,
     operator: DiagnosticOperatorFamily,
     status: OperatorReadinessStatus,
-) -> Option<(ConstructionFamily, ConstructionFeasibility)> {
+) -> Option<(ConstructionFamily, ConstructionFeasibility, &'static str)> {
     match (operator, status) {
         (DiagnosticOperatorFamily::FaceFamilyBridge, OperatorReadinessStatus::Ready) => Some((
             ConstructionFamily::DisjointCrossLoopBridge,
             ConstructionFeasibility::ExecutableByExistingOperator,
+            "face-family-bridge-existing-operator-ready",
         )),
         (DiagnosticOperatorFamily::SameLoopFaceBridge, OperatorReadinessStatus::Ready) => Some((
             ConstructionFamily::DisjointSameLoopBridge,
             ConstructionFeasibility::ExecutableByExistingOperator,
+            "same-loop-face-bridge-existing-operator-ready",
         )),
         (
             DiagnosticOperatorFamily::SameLoopBoundaryExposure,
@@ -51,16 +62,102 @@ fn candidate_for_readiness(
         ) => Some((
             ConstructionFamily::PairedSameLoopTwinExposure,
             ConstructionFeasibility::ExecutableAfterKnownNormalization,
+            "same-loop-boundary-exposure-normalization-ready",
         )),
         (
             DiagnosticOperatorFamily::BoundarySideAllocationOrSeparator,
             OperatorReadinessStatus::MissingOperator,
-        ) => Some((
-            ConstructionFamily::BoundarySideSeparatorBridge,
-            ConstructionFeasibility::UnsupportedUnknownFamily,
-        )),
+        ) => Some(boundary_side_separator_candidate(graph, operation)),
         _ => None,
     }
+}
+
+fn boundary_side_separator_candidate(
+    graph: &TopologyDiagnosticGraph,
+    operation: DiagnosticOperationId,
+) -> (ConstructionFamily, ConstructionFeasibility, &'static str) {
+    let already_boundary = conflict_count_for_operation(
+        graph,
+        operation,
+        ResourceConflictKind::AlreadyBoundaryOverlap,
+    );
+    let duplicate_boundary = conflict_count_for_operation(
+        graph,
+        operation,
+        ResourceConflictKind::DuplicateBoundaryEdgeConsumption,
+    );
+    let duplicate_half_edge = conflict_count_for_operation(
+        graph,
+        operation,
+        ResourceConflictKind::DuplicateHalfEdgeConsumption,
+    );
+    let already_boundary_edges = unique_conflict_edge_count_for_operation(
+        graph,
+        operation,
+        ResourceConflictKind::AlreadyBoundaryOverlap,
+    );
+    let (feasibility, reason) = if already_boundary == 1
+        && already_boundary_edges == 1
+        && duplicate_boundary == 1
+        && duplicate_half_edge == 1
+    {
+        (
+            ConstructionFeasibility::RequiresSeparatorSubcomplex,
+            "missing-boundary-side-separator-subcomplex",
+        )
+    } else if already_boundary > 1 || already_boundary_edges > 1 {
+        (
+            ConstructionFeasibility::RequiresCycleRegrouping,
+            "multiple-boundary-side-overlaps-require-cycle-regrouping",
+        )
+    } else if duplicate_half_edge > 1 || duplicate_boundary > 1 {
+        (
+            ConstructionFeasibility::RequiresCustomAggregateAuthoring,
+            "boundary-side-overlap-requires-aggregate-authoring",
+        )
+    } else {
+        (
+            ConstructionFeasibility::InvalidNonManifold,
+            "boundary-side-separator-missing-required-duplicate-boundary-side",
+        )
+    };
+    (
+        ConstructionFamily::BoundarySideSeparatorBridge,
+        feasibility,
+        reason,
+    )
+}
+
+fn unique_conflict_edge_count_for_operation(
+    graph: &TopologyDiagnosticGraph,
+    operation: DiagnosticOperationId,
+    kind: ResourceConflictKind,
+) -> usize {
+    graph
+        .conflicts
+        .iter()
+        .filter(|conflict| conflict.kind == kind && conflict.operations.contains(&operation))
+        .flat_map(|conflict| conflict.resources.iter())
+        .filter_map(|resource_id| graph.resources.get(resource_id.0))
+        .filter(|resource| resource.kind == DiagnosticResourceKind::EdgeIdentity)
+        .filter_map(|resource| match resource.handle {
+            DiagnosticHandle::Edge(edge) => Some(edge),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>()
+        .len()
+}
+
+fn conflict_count_for_operation(
+    graph: &TopologyDiagnosticGraph,
+    operation: DiagnosticOperationId,
+    kind: ResourceConflictKind,
+) -> usize {
+    graph
+        .conflicts
+        .iter()
+        .filter(|conflict| conflict.kind == kind && conflict.operations.contains(&operation))
+        .count()
 }
 
 fn postcondition_preview_for_candidate(
@@ -121,290 +218,6 @@ fn conflicts_for_operation(
         .map(|conflict| conflict.id)
         .collect()
 }
-
 #[cfg(test)]
-mod tests {
-    use crate::euler::{
-        BridgeDiagnosticOperationRequest, BridgeDiagnosticRequest, ConstructionFamily,
-        ConstructionFeasibility, ConstructionRequirement, DiagnosticOperationPurpose,
-        OperatorReadinessStatus,
-    };
-    use crate::geometry::Point3;
-    use crate::tolerance::Tolerance;
-    use crate::topology::{BRep, Edge, Face, HalfEdge, HalfEdgeHandle, Loop, Shell, Solid, Vertex};
-
-    #[test]
-    fn candidates_report_disjoint_cross_loop_bridge() {
-        let brep = two_boundary_loop_fixture();
-        let faces = brep.faces.keys().collect::<Vec<_>>();
-        let first_loop = brep.faces[faces[0]].outer_loop;
-        let second_loop = brep.faces[faces[1]].outer_loop;
-        let first = brep.loops[first_loop].half_edge;
-        let second = brep.loops[second_loop].half_edge;
-        let first_after = brep.half_edges[first].next;
-        let second_after = brep.half_edges[second].next;
-
-        let report = brep
-            .bridge_diagnostic_report(BridgeDiagnosticRequest {
-                operations: vec![BridgeDiagnosticOperationRequest {
-                    purpose: DiagnosticOperationPurpose::BridgeCycle,
-                    first_loop,
-                    first_interval: vec![first, first_after],
-                    second_loop,
-                    second_interval: vec![second, second_after],
-                }],
-            })
-            .expect("report builds");
-
-        assert!(report.graph.candidates.iter().any(|candidate| {
-            candidate.family == ConstructionFamily::DisjointCrossLoopBridge
-                && candidate.feasibility == ConstructionFeasibility::ExecutableByExistingOperator
-                && candidate.postcondition_preview.is_some()
-                && candidate
-                    .requirements
-                    .contains(&ConstructionRequirement::LiveTopologyRevalidation)
-                && candidate
-                    .requirements
-                    .contains(&ConstructionRequirement::PostconditionVerification)
-        }));
-    }
-
-    #[test]
-    fn candidates_report_disjoint_same_loop_bridge() {
-        let brep = same_loop_boundary_fixture();
-        let face = brep.faces.keys().next().expect("fixture has a face");
-        let loop_ = brep.faces[face].outer_loop;
-        let first = brep.loops[loop_].half_edge;
-        let first_after = brep.half_edges[first].next;
-        let second = nth_half_edge(&brep, first, 3);
-        let second_after = brep.half_edges[second].next;
-
-        let report = brep
-            .bridge_diagnostic_report(BridgeDiagnosticRequest {
-                operations: vec![BridgeDiagnosticOperationRequest {
-                    purpose: DiagnosticOperationPurpose::BridgeCycle,
-                    first_loop: loop_,
-                    first_interval: vec![first, first_after],
-                    second_loop: loop_,
-                    second_interval: vec![second, second_after],
-                }],
-            })
-            .expect("report builds");
-
-        assert!(report.graph.candidates.iter().any(|candidate| {
-            candidate.family == ConstructionFamily::DisjointSameLoopBridge
-                && candidate.feasibility == ConstructionFeasibility::ExecutableByExistingOperator
-                && candidate.postcondition_preview.is_some()
-        }));
-        assert_eq!(report.summary.disjoint_same_loop_bridge_candidates, 1);
-        assert_eq!(report.summary.executable_existing_operator_candidates, 1);
-        assert_eq!(report.summary.candidates_with_postcondition_preview, 1);
-        assert_eq!(report.summary.predicted_delta_edges, 2);
-        assert_eq!(report.summary.predicted_delta_faces, 1);
-        assert_eq!(report.summary.predicted_delta_loops, 1);
-    }
-
-    #[test]
-    fn candidates_report_boundary_side_separator_family() {
-        let mut brep = same_loop_boundary_fixture();
-        let face = brep.faces.keys().next().expect("fixture has a face");
-        let loop_ = brep.faces[face].outer_loop;
-        let first = brep.loops[loop_].half_edge;
-        let first_after = brep.half_edges[first].next;
-        let edge = brep.half_edges[first].edge;
-        brep.boundary_edges.insert(edge);
-
-        let report = brep
-            .bridge_diagnostic_report(BridgeDiagnosticRequest {
-                operations: vec![BridgeDiagnosticOperationRequest {
-                    purpose: DiagnosticOperationPurpose::BridgeCycle,
-                    first_loop: loop_,
-                    first_interval: vec![first, first_after],
-                    second_loop: loop_,
-                    second_interval: vec![first, first_after],
-                }],
-            })
-            .expect("report builds");
-
-        assert!(report.graph.candidates.iter().any(|candidate| {
-            candidate.family == ConstructionFamily::BoundarySideSeparatorBridge
-                && candidate.feasibility == ConstructionFeasibility::UnsupportedUnknownFamily
-                && candidate.postcondition_preview.is_some()
-                && !candidate.conflicts.is_empty()
-        }));
-        assert_eq!(report.summary.boundary_side_separator_bridge_candidates, 1);
-        assert_eq!(report.summary.unsupported_unknown_family_candidates, 1);
-        assert_eq!(report.summary.predicted_delta_edges, 3);
-        assert_eq!(report.summary.predicted_delta_faces, 1);
-        assert_eq!(report.summary.predicted_delta_loops, 1);
-    }
-
-    #[test]
-    fn matrix_rejects_supported_readiness_without_candidate() {
-        let brep = same_loop_boundary_fixture();
-        let face = brep.faces.keys().next().expect("fixture has a face");
-        let loop_ = brep.faces[face].outer_loop;
-        let first = brep.loops[loop_].half_edge;
-        let first_after = brep.half_edges[first].next;
-        let second = nth_half_edge(&brep, first, 3);
-        let second_after = brep.half_edges[second].next;
-
-        let report = brep
-            .bridge_diagnostic_report(BridgeDiagnosticRequest {
-                operations: vec![BridgeDiagnosticOperationRequest {
-                    purpose: DiagnosticOperationPurpose::BridgeCycle,
-                    first_loop: loop_,
-                    first_interval: vec![first, first_after],
-                    second_loop: loop_,
-                    second_interval: vec![second, second_after],
-                }],
-            })
-            .expect("report builds");
-
-        for readiness in &report.graph.readiness {
-            if matches!(
-                readiness.status,
-                OperatorReadinessStatus::Ready
-                    | OperatorReadinessStatus::ReadyAfterNormalization
-                    | OperatorReadinessStatus::MissingOperator
-            ) {
-                assert!(
-                    report.graph.candidates.iter().any(|candidate| {
-                        candidate.operations.contains(&readiness.operation)
-                            && candidate.postcondition_preview.is_some()
-                    }),
-                    "readiness entry {readiness:?} has no construction candidate"
-                );
-            }
-        }
-    }
-
-    fn two_boundary_loop_fixture() -> BRep {
-        let mut brep = BRep::new(Tolerance::default());
-        let solid = brep.solids.insert(Solid {
-            shell: Default::default(),
-        });
-        let shell = brep.shells.insert(Shell {
-            face: Default::default(),
-            solid,
-        });
-        brep.solids[solid].shell = shell;
-        let first = add_boundary_polygon(
-            &mut brep,
-            shell,
-            &[
-                Point3::new(0.0, 0.0, 0.0),
-                Point3::new(1.0, 0.0, 0.0),
-                Point3::new(1.0, 1.0, 0.0),
-                Point3::new(0.0, 1.0, 0.0),
-            ],
-        );
-        add_boundary_polygon(
-            &mut brep,
-            shell,
-            &[
-                Point3::new(2.0, 0.0, 0.0),
-                Point3::new(3.0, 0.0, 0.0),
-                Point3::new(3.0, 1.0, 0.0),
-                Point3::new(2.0, 1.0, 0.0),
-            ],
-        );
-        brep.shells[shell].face = first;
-        brep
-    }
-
-    fn same_loop_boundary_fixture() -> BRep {
-        let mut brep = BRep::new(Tolerance::default());
-        let solid = brep.solids.insert(Solid {
-            shell: Default::default(),
-        });
-        let shell = brep.shells.insert(Shell {
-            face: Default::default(),
-            solid,
-        });
-        brep.solids[solid].shell = shell;
-        let face = add_boundary_polygon(
-            &mut brep,
-            shell,
-            &[
-                Point3::new(0.0, 0.0, 0.0),
-                Point3::new(1.0, 0.0, 0.0),
-                Point3::new(2.0, 0.0, 0.0),
-                Point3::new(3.0, 0.0, 0.0),
-                Point3::new(4.0, 0.0, 0.0),
-                Point3::new(4.0, 1.0, 0.0),
-                Point3::new(0.0, 1.0, 0.0),
-            ],
-        );
-        brep.shells[shell].face = face;
-        brep
-    }
-
-    fn add_boundary_polygon(
-        brep: &mut BRep,
-        shell: crate::topology::ShellHandle,
-        points: &[Point3],
-    ) -> crate::topology::FaceHandle {
-        let face = brep.faces.insert(Face {
-            outer_loop: Default::default(),
-            inner_loops: vec![],
-            shell,
-            surface: None,
-            name: None,
-            tolerance: None,
-            role: Default::default(),
-        });
-        let loop_ = brep.loops.insert(Loop {
-            half_edge: Default::default(),
-            face,
-        });
-        brep.faces[face].outer_loop = loop_;
-        let mut half_edges = Vec::new();
-        for point in points {
-            let vertex = brep.vertices.insert(Vertex {
-                position: *point,
-                outgoing: Default::default(),
-                name: None,
-                tolerance: None,
-            });
-            let edge = brep.edges.insert(Edge {
-                half_edge: Default::default(),
-                curve: None,
-                name: None,
-                tolerance: None,
-                canonical: Default::default(),
-                role: Default::default(),
-            });
-            let half_edge = brep.half_edges.insert(HalfEdge {
-                origin: vertex,
-                twin: Default::default(),
-                next: Default::default(),
-                prev: Default::default(),
-                edge,
-                loop_,
-                pcurve: None,
-            });
-            brep.vertices[vertex].outgoing = half_edge;
-            brep.edges[edge].half_edge = half_edge;
-            brep.boundary_edges.insert(edge);
-            half_edges.push(half_edge);
-        }
-        for index in 0..half_edges.len() {
-            let current = half_edges[index];
-            let next = half_edges[(index + 1) % half_edges.len()];
-            let prev = half_edges[(index + half_edges.len() - 1) % half_edges.len()];
-            brep.half_edges[current].next = next;
-            brep.half_edges[current].prev = prev;
-        }
-        brep.loops[loop_].half_edge = half_edges[0];
-        face
-    }
-
-    fn nth_half_edge(brep: &BRep, start: HalfEdgeHandle, n: usize) -> HalfEdgeHandle {
-        let mut current = start;
-        for _ in 0..n {
-            current = brep.half_edges[current].next;
-        }
-        current
-    }
-}
+#[path = "bridge_diagnostics_candidates_tests.rs"]
+mod tests;

@@ -139,7 +139,7 @@ fn mutator_boundary_refuses_without_mutating_topology() {
              paired_same_loop_twin_exposure:0 boundary_side_separator:0 unknown:0 \
              candidate_feasibility=executable_existing:0 executable_after_normalization:0 \
              requires_separator_subcomplex:0 requires_custom_aggregate_authoring:0 \
-             invalid_non_manifold:0 unsupported_unknown_family:0 unknown:0 \
+             requires_cycle_regrouping:0 invalid_non_manifold:0 unsupported_unknown_family:0 unknown:0 \
              candidate_requirements=live_revalidation:0 postcondition_verification:0 unknown:0 \
              postcondition_preview_candidates=0 predicted_delta=dV=0 dE=0 dF=0 dL=0 \
              expected_delta=dV=0 dE=0 dF=0 dL=0 reason=none"

@@ -38,6 +38,8 @@ pub struct BridgeDiagnosticSummary {
     pub requires_separator_subcomplex_candidates: usize,
     /// Candidates requiring aggregate authoring support.
     pub requires_custom_aggregate_authoring_candidates: usize,
+    /// Candidates requiring cycle regrouping.
+    pub requires_cycle_regrouping_candidates: usize,
     /// Candidates rejected as non-manifold.
     pub invalid_non_manifold_candidates: usize,
     /// Unsupported candidate families.
@@ -151,6 +153,7 @@ impl BridgeDiagnosticSummary {
             executable_after_normalization_candidates: 0,
             requires_separator_subcomplex_candidates: 0,
             requires_custom_aggregate_authoring_candidates: 0,
+            requires_cycle_regrouping_candidates: 0,
             invalid_non_manifold_candidates: 0,
             unsupported_unknown_family_candidates: 0,
             unknown_candidate_requirements: 0,
@@ -186,7 +189,7 @@ impl BridgeDiagnosticSummary {
     /// Stable compact diagnostic label.
     pub fn diagnostic_label(&self) -> String {
         format!(
-            "bridge_diagnostics=operations={} resources={} conflicts={} readiness={} construction_candidates={} postconditions={} conflicts_by_kind=duplicate_half_edge:{} duplicate_boundary_edge:{} shared_start:{} shared_end:{} crossed_endpoint:{} aligned:{} nested:{} interior:{} repeated_edge:{} already_boundary:{} paired_exposure:{} unsupported_owner:{} stale_handle:{} unknown:{} readiness_by_status=ready:{} ready_after_normalization:{} missing_operator:{} invalid_input:{} unknown:{} candidate_families=disjoint_cross_loop:{} disjoint_same_loop:{} paired_same_loop_twin_exposure:{} boundary_side_separator:{} unknown:{} candidate_feasibility=executable_existing:{} executable_after_normalization:{} requires_separator_subcomplex:{} requires_custom_aggregate_authoring:{} invalid_non_manifold:{} unsupported_unknown_family:{} unknown:{} candidate_requirements=live_revalidation:{} postcondition_verification:{} unknown:{} postcondition_preview_candidates={} predicted_delta=dV={} dE={} dF={} dL={}",
+            "bridge_diagnostics=operations={} resources={} conflicts={} readiness={} construction_candidates={} postconditions={} conflicts_by_kind=duplicate_half_edge:{} duplicate_boundary_edge:{} shared_start:{} shared_end:{} crossed_endpoint:{} aligned:{} nested:{} interior:{} repeated_edge:{} already_boundary:{} paired_exposure:{} unsupported_owner:{} stale_handle:{} unknown:{} readiness_by_status=ready:{} ready_after_normalization:{} missing_operator:{} invalid_input:{} unknown:{} candidate_families=disjoint_cross_loop:{} disjoint_same_loop:{} paired_same_loop_twin_exposure:{} boundary_side_separator:{} unknown:{} candidate_feasibility=executable_existing:{} executable_after_normalization:{} requires_separator_subcomplex:{} requires_custom_aggregate_authoring:{} requires_cycle_regrouping:{} invalid_non_manifold:{} unsupported_unknown_family:{} unknown:{} candidate_requirements=live_revalidation:{} postcondition_verification:{} unknown:{} postcondition_preview_candidates={} predicted_delta=dV={} dE={} dF={} dL={}",
             self.operations,
             self.resources,
             self.conflicts,
@@ -221,6 +224,7 @@ impl BridgeDiagnosticSummary {
             self.executable_after_normalization_candidates,
             self.requires_separator_subcomplex_candidates,
             self.requires_custom_aggregate_authoring_candidates,
+            self.requires_cycle_regrouping_candidates,
             self.invalid_non_manifold_candidates,
             self.unsupported_unknown_family_candidates,
             self.unknown_candidate_feasibility,
@@ -334,6 +338,9 @@ impl BridgeDiagnosticSummary {
             }
             ConstructionFeasibility::RequiresCustomAggregateAuthoring => {
                 self.requires_custom_aggregate_authoring_candidates += 1;
+            }
+            ConstructionFeasibility::RequiresCycleRegrouping => {
+                self.requires_cycle_regrouping_candidates += 1;
             }
             ConstructionFeasibility::InvalidNonManifold => {
                 self.invalid_non_manifold_candidates += 1;
