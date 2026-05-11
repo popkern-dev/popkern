@@ -2,6 +2,7 @@
 //!
 //! Each operator maintains the Euler-Poincaré invariant by construction.
 
+mod boundary_side_separator_bridge;
 mod bridge_diagnostics;
 mod construction_residual_retire;
 mod contract;
@@ -24,6 +25,10 @@ mod same_loop_boundary_exposure;
 mod same_loop_bridge_dissolve;
 mod same_loop_face_bridge;
 mod sweep;
+pub use boundary_side_separator_bridge::{
+    BoundarySideSeparatorBridgePlan, BoundarySideSeparatorBridgeRequest,
+    BoundarySideSeparatorBridgeTopologyDelta,
+};
 pub use bridge_diagnostics::{
     BridgeDiagnosticOperationRequest, BridgeDiagnosticReport, BridgeDiagnosticRequest,
     BridgeDiagnosticSummary, DiagnosticHandle, DiagnosticOperation, DiagnosticOperationId,
