@@ -70,6 +70,13 @@ fn mutator_boundary_refuses_without_mutating_topology() {
     );
     assert!(
         detail.contains(
+            "cylinder_resource_remap=segments=1 half_edges=1 reversed_segments=0 \
+             unavailable_edges=2 non_contiguous_segments=1"
+        ),
+        "{err}"
+    );
+    assert!(
+        detail.contains(
             "bridge_resource_reconciliation=outside_segments=3 cylinder_segments=2 \
              exact_matches=2 missing_cylinder_matches=1 extra_cylinder_resources=0 \
              resource_status=shared-outside-transition-needs-resource \

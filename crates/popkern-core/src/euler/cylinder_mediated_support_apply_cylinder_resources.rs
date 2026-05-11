@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::error::CoreError;
-use crate::topology::{BRep, HalfEdgeHandle, LoopHandle};
+use crate::topology::{BRep, EdgeHandle, HalfEdgeHandle, LoopHandle};
 
 use super::CylinderMediatedSupportContinuationBatchPlan;
 use super::apply_bridge_cycles::SegmentBridgeCycleOperandSet;
@@ -126,6 +126,10 @@ pub(super) struct CylinderBridgeResourcePartition {
 }
 
 impl CylinderBridgeResourcePartition {
+    pub(super) fn segments(&self) -> impl Iterator<Item = &CylinderBridgeResourceSegment> {
+        self.segments.iter()
+    }
+
     pub(super) fn reconcile(
         &self,
         bridge_cycles: &SegmentBridgeCycleOperandSet,
@@ -302,9 +306,10 @@ fn optional_index_label(index: Option<usize>) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct CylinderBridgeResourceSegment {
-    half_edges: Vec<HalfEdgeHandle>,
-    request_indices: Vec<usize>,
+pub(super) struct CylinderBridgeResourceSegment {
+    pub(super) half_edges: Vec<HalfEdgeHandle>,
+    pub(super) edges: Vec<EdgeHandle>,
+    pub(super) request_indices: Vec<usize>,
 }
 
 pub(super) fn derive_cylinder_bridge_resource_partition(
@@ -352,6 +357,7 @@ fn partition_cylinder_loop(
         })?;
     let mut segments = Vec::new();
     let mut current_half_edges = Vec::new();
+    let mut current_edges = Vec::new();
     let mut current_request_indices = Vec::new();
     let mut cursor = start;
     for _ in 0..=brep.half_edges.len() {
@@ -370,20 +376,24 @@ fn partition_cylinder_loop(
                 let request_indices = request_indices.iter().copied().collect::<Vec<_>>();
                 if current_half_edges.is_empty() || current_request_indices == request_indices {
                     current_half_edges.push(cursor);
+                    current_edges.push(data.edge);
                     current_request_indices = request_indices;
                 } else {
                     push_cylinder_resource_segment(
                         &mut segments,
                         &mut current_half_edges,
+                        &mut current_edges,
                         &mut current_request_indices,
                     );
                     current_half_edges.push(cursor);
+                    current_edges.push(data.edge);
                     current_request_indices = request_indices;
                 }
             }
             None => push_cylinder_resource_segment(
                 &mut segments,
                 &mut current_half_edges,
+                &mut current_edges,
                 &mut current_request_indices,
             ),
         }
@@ -400,6 +410,7 @@ fn partition_cylinder_loop(
     push_cylinder_resource_segment(
         &mut segments,
         &mut current_half_edges,
+        &mut current_edges,
         &mut current_request_indices,
     );
     Ok(segments)
@@ -408,6 +419,7 @@ fn partition_cylinder_loop(
 fn push_cylinder_resource_segment(
     segments: &mut Vec<CylinderBridgeResourceSegment>,
     current_half_edges: &mut Vec<HalfEdgeHandle>,
+    current_edges: &mut Vec<EdgeHandle>,
     current_request_indices: &mut Vec<usize>,
 ) {
     if current_half_edges.is_empty() {
@@ -415,6 +427,7 @@ fn push_cylinder_resource_segment(
     }
     segments.push(CylinderBridgeResourceSegment {
         half_edges: std::mem::take(current_half_edges),
+        edges: std::mem::take(current_edges),
         request_indices: std::mem::take(current_request_indices),
     });
 }
