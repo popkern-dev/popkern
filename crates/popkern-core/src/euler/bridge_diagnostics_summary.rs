@@ -11,6 +11,8 @@ pub struct BridgeDiagnosticSummary {
     pub conflicts: usize,
     /// Number of readiness entries in the graph.
     pub readiness: usize,
+    /// Number of construction candidates in the graph.
+    pub construction_candidates: usize,
     /// Number of postcondition predictions in the graph.
     pub postconditions: usize,
     /// Duplicate half-edge side consumption conflicts.
@@ -60,6 +62,7 @@ impl BridgeDiagnosticSummary {
         summary.resources = graph.resources.len();
         summary.conflicts = graph.conflicts.len();
         summary.readiness = graph.readiness.len();
+        summary.construction_candidates = graph.candidates.len();
         summary.postconditions = graph.postconditions.len();
         for conflict in &graph.conflicts {
             summary.count_conflict(conflict.kind);
@@ -77,6 +80,7 @@ impl BridgeDiagnosticSummary {
             resources: 0,
             conflicts: 0,
             readiness: 0,
+            construction_candidates: 0,
             postconditions: 0,
             duplicate_half_edge_consumptions: 0,
             duplicate_boundary_edge_consumptions: 0,
@@ -103,11 +107,12 @@ impl BridgeDiagnosticSummary {
     /// Stable compact diagnostic label.
     pub fn diagnostic_label(&self) -> String {
         format!(
-            "bridge_diagnostics=operations={} resources={} conflicts={} readiness={} postconditions={} conflicts_by_kind=duplicate_half_edge:{} duplicate_boundary_edge:{} shared_start:{} shared_end:{} crossed_endpoint:{} aligned:{} nested:{} interior:{} repeated_edge:{} already_boundary:{} paired_exposure:{} unsupported_owner:{} stale_handle:{} unknown:{} readiness_by_status=ready:{} ready_after_normalization:{} missing_operator:{} invalid_input:{} unknown:{}",
+            "bridge_diagnostics=operations={} resources={} conflicts={} readiness={} construction_candidates={} postconditions={} conflicts_by_kind=duplicate_half_edge:{} duplicate_boundary_edge:{} shared_start:{} shared_end:{} crossed_endpoint:{} aligned:{} nested:{} interior:{} repeated_edge:{} already_boundary:{} paired_exposure:{} unsupported_owner:{} stale_handle:{} unknown:{} readiness_by_status=ready:{} ready_after_normalization:{} missing_operator:{} invalid_input:{} unknown:{}",
             self.operations,
             self.resources,
             self.conflicts,
             self.readiness,
+            self.construction_candidates,
             self.postconditions,
             self.duplicate_half_edge_consumptions,
             self.duplicate_boundary_edge_consumptions,

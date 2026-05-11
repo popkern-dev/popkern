@@ -31,11 +31,13 @@ pub use boundary_side_separator_bridge::{
 };
 pub use bridge_diagnostics::{
     BridgeDiagnosticOperationRequest, BridgeDiagnosticReport, BridgeDiagnosticRequest,
-    BridgeDiagnosticSummary, DiagnosticHandle, DiagnosticOperation, DiagnosticOperationId,
-    DiagnosticOperationKind, DiagnosticOperationPurpose, DiagnosticOperatorFamily, DiagnosticOwner,
-    DiagnosticResource, DiagnosticResourceId, DiagnosticResourceKind, DiagnosticResourceStatus,
-    OperatorReadiness, OperatorReadinessStatus, PostconditionPrediction, ResourceConflict,
-    ResourceConflictId, ResourceConflictKind, ResourceConflictStatus, TopologyDiagnosticGraph,
+    BridgeDiagnosticSummary, ConstructionCandidate, ConstructionCandidateId, ConstructionFamily,
+    ConstructionFeasibility, ConstructionRequirement, DiagnosticHandle, DiagnosticOperation,
+    DiagnosticOperationId, DiagnosticOperationKind, DiagnosticOperationPurpose,
+    DiagnosticOperatorFamily, DiagnosticOwner, DiagnosticResource, DiagnosticResourceId,
+    DiagnosticResourceKind, DiagnosticResourceStatus, OperatorReadiness, OperatorReadinessStatus,
+    PostconditionPrediction, PostconditionPredictionId, ResourceConflict, ResourceConflictId,
+    ResourceConflictKind, ResourceConflictStatus, TopologyDiagnosticGraph,
     TopologyGraphFingerprint,
 };
 pub use construction_residual_retire::ConstructionResidualRetireResult;

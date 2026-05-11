@@ -129,7 +129,7 @@ fn mutator_boundary_refuses_without_mutating_topology() {
              repeated_one_edge_overlap_occurrences=0 one_edge_interior_overlap_plans=0 \
              one_edge_interior_overlap_boundary_edges=0 \
              one_edge_interior_overlap_normalizations=0 \
-             bridge_diagnostics=operations=0 resources=0 conflicts=0 readiness=0 postconditions=0 \
+             bridge_diagnostics=operations=0 resources=0 conflicts=0 readiness=0 construction_candidates=0 postconditions=0 \
              conflicts_by_kind=duplicate_half_edge:0 duplicate_boundary_edge:0 shared_start:0 \
              shared_end:0 crossed_endpoint:0 aligned:0 nested:0 interior:0 repeated_edge:0 \
              already_boundary:0 paired_exposure:0 unsupported_owner:0 stale_handle:0 unknown:0 \
