@@ -4,6 +4,7 @@ use crate::euler::{
     BridgeDiagnosticOperationRequest, ConstructionFamily, DiagnosticTolerance,
     DiagnosticToleranceSource, GeometryFeasibility, GeometryFeasibilityFact,
 };
+use crate::geometry::SurfaceGeometry;
 use crate::topology::{BRep, HalfEdgeHandle};
 
 pub(super) fn geometry_facts_for_candidate(
@@ -18,26 +19,28 @@ pub(super) fn geometry_facts_for_candidate(
         source: DiagnosticToleranceSource::LocalTopology,
         nanometers: Some(nanometers(brep.tolerance.linear())),
     };
-    match shortest_interval_edge_length(
+    let mut facts = vec![match shortest_interval_edge_length(
         brep,
         [&operation.first_interval, &operation.second_interval],
     ) {
-        Some(length) if length <= brep.tolerance.linear() => vec![GeometryFeasibilityFact {
+        Some(length) if length <= brep.tolerance.linear() => GeometryFeasibilityFact {
             feasibility: GeometryFeasibility::RepairRequiredBeforeConstruction,
             reason: "bridge-interval-has-short-or-degenerate-edge",
             tolerance,
-        }],
-        Some(_) => vec![GeometryFeasibilityFact {
+        },
+        Some(_) => GeometryFeasibilityFact {
             feasibility: GeometryFeasibility::GeometryReady,
             reason: "bridge-interval-edge-lengths-clear-local-tolerance",
             tolerance,
-        }],
-        None => vec![GeometryFeasibilityFact {
+        },
+        None => GeometryFeasibilityFact {
             feasibility: GeometryFeasibility::Unknown,
             reason: "bridge-interval-geometry-could-not-be-measured",
             tolerance,
-        }],
-    }
+        },
+    }];
+    facts.push(representation_readiness_fact(brep, operation));
+    facts
 }
 
 fn candidate_needs_bridge_span_geometry(family: ConstructionFamily) -> bool {
@@ -75,6 +78,56 @@ fn edge_length(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<f64> {
     let next = brep.half_edges.get(data.next)?;
     let destination = brep.vertices.get(next.origin)?.position;
     Some(origin.distance_to(&destination))
+}
+
+fn representation_readiness_fact(
+    brep: &BRep,
+    operation: &BridgeDiagnosticOperationRequest,
+) -> GeometryFeasibilityFact {
+    let Some(first_surface) = loop_surface(brep, operation.first_loop) else {
+        return no_surface_fact();
+    };
+    let Some(second_surface) = loop_surface(brep, operation.second_loop) else {
+        return no_surface_fact();
+    };
+    if representation_supported(first_surface) && representation_supported(second_surface) {
+        return GeometryFeasibilityFact {
+            feasibility: GeometryFeasibility::GeometryReady,
+            reason: "bridge-source-surface-representation-supported",
+            tolerance: DiagnosticTolerance::NOT_APPLICABLE,
+        };
+    }
+    GeometryFeasibilityFact {
+        feasibility: GeometryFeasibility::UnsupportedGeometryFamily,
+        reason: "bridge-source-surface-representation-unsupported",
+        tolerance: DiagnosticTolerance::NOT_APPLICABLE,
+    }
+}
+
+fn loop_surface(brep: &BRep, loop_: crate::topology::LoopHandle) -> Option<&SurfaceGeometry> {
+    let face = brep.loops.get(loop_)?.face;
+    Some(&brep.faces.get(face)?.surface.as_ref()?.geometry)
+}
+
+fn representation_supported(surface: &SurfaceGeometry) -> bool {
+    matches!(
+        surface,
+        SurfaceGeometry::Plane { .. }
+            | SurfaceGeometry::Cylinder { .. }
+            | SurfaceGeometry::Cone { .. }
+            | SurfaceGeometry::Sphere { .. }
+            | SurfaceGeometry::Torus { .. }
+            | SurfaceGeometry::Nurbs(_)
+            | SurfaceGeometry::Gregory(_)
+    )
+}
+
+fn no_surface_fact() -> GeometryFeasibilityFact {
+    GeometryFeasibilityFact {
+        feasibility: GeometryFeasibility::NotApplicable,
+        reason: "bridge-source-face-has-no-surface-binding",
+        tolerance: DiagnosticTolerance::NOT_APPLICABLE,
+    }
 }
 
 fn nanometers(value: f64) -> i64 {
