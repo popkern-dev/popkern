@@ -46,6 +46,7 @@ fn candidates_report_disjoint_cross_loop_bridge() {
                     && !fact.changes_semantic_ownership
                     && !fact.changes_user_visible_intent
             })
+            && !candidate.operation_dependencies.is_empty()
             && candidate
                 .requirements
                 .contains(&ConstructionRequirement::LiveTopologyRevalidation)
@@ -190,6 +191,8 @@ fn candidates_report_disjoint_same_loop_bridge() {
     assert_eq!(report.summary.predicted_delta_loops, 1);
     assert_eq!(report.summary.valid_as_input_facts, 1);
     assert_eq!(report.summary.no_repair_required_facts, 1);
+    assert_eq!(report.summary.operation_dependency_not_applicable_facts, 1);
+    assert_eq!(report.summary.operation_dependency_not_required_facts, 1);
 }
 
 #[test]
@@ -223,6 +226,16 @@ fn candidates_report_boundary_side_separator_family() {
     }));
     assert_eq!(report.summary.boundary_side_separator_bridge_candidates, 1);
     assert_eq!(report.summary.requires_separator_subcomplex_candidates, 1);
+    assert_eq!(
+        report.summary.missing_primitive_operation_dependency_facts,
+        1
+    );
+    assert_eq!(
+        report
+            .summary
+            .operation_dependency_required_missing_primitive_facts,
+        1
+    );
     assert_eq!(report.summary.predicted_delta_edges, 3);
     assert_eq!(report.summary.predicted_delta_faces, 1);
     assert_eq!(report.summary.predicted_delta_loops, 1);

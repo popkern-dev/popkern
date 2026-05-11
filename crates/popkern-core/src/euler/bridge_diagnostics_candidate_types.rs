@@ -12,6 +12,7 @@ pub(in crate::euler) struct ConstructionCandidateDraft {
     pub(super) postcondition_preview: Option<PostconditionPredictionId>,
     pub(super) geometry_facts: Vec<GeometryFeasibilityFact>,
     pub(super) validity_repair_facts: Vec<ValidityRepairFact>,
+    pub(super) operation_dependencies: Vec<OperationDependency>,
 }
 
 /// Local graph id for a construction candidate.
@@ -41,6 +42,55 @@ pub struct ConstructionCandidate {
     pub geometry_facts: Vec<GeometryFeasibilityFact>,
     /// Validity and repair readiness facts for this candidate.
     pub validity_repair_facts: Vec<ValidityRepairFact>,
+    /// Neighboring operation dependencies for this candidate.
+    pub operation_dependencies: Vec<OperationDependency>,
+}
+
+/// Dependency on a neighboring primitive or modeling operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct OperationDependency {
+    /// Dependency family.
+    pub readiness: OperationDependencyReadiness,
+    /// Dependency status.
+    pub status: OperationDependencyStatus,
+    /// Stable reason label.
+    pub reason: &'static str,
+    /// Named primitive or operation needed by this dependency.
+    pub primitive: &'static str,
+}
+
+/// Operation dependency family for a construction candidate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum OperationDependencyReadiness {
+    /// Dependency has not been classified.
+    Unknown,
+    /// No neighboring operation dependency is relevant.
+    NotApplicable,
+    /// Dependency is already executable.
+    Executable,
+    /// Dependency is ambiguous under current facts.
+    Ambiguous,
+    /// Dependency is invalid for this candidate.
+    Invalid,
+    /// A named lower-level primitive is missing.
+    MissingPrimitive,
+}
+
+/// Execution status for an operation dependency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum OperationDependencyStatus {
+    /// Status has not been classified.
+    Unknown,
+    /// Dependency is satisfied by existing facts/operators.
+    Satisfied,
+    /// Dependency is not needed.
+    NotRequired,
+    /// Dependency needs a named primitive before construction.
+    RequiredMissingPrimitive,
+    /// Dependency is blocked by invalid input.
+    BlockedInvalidInput,
+    /// Dependency is ambiguous and needs a resolver.
+    AmbiguousNeedsResolver,
 }
 
 /// Validity and repair readiness for a construction candidate.

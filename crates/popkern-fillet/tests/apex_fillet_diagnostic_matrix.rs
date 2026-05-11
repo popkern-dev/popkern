@@ -55,6 +55,13 @@ fn seed_matrix_panic_output_names_family_and_feasibility() {
                 row.case_id
             );
         }
+        if row.operation_dependency_required {
+            assert!(
+                row.operation_dependency.is_some(),
+                "{} requires operation dependency readiness but has no dependency facet: {label}",
+                row.case_id
+            );
+        }
         assert!(
             label.contains("terminal="),
             "{} lacks terminal classification: {label}",

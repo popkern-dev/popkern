@@ -1,5 +1,3 @@
-//! Read-only bridge resource diagnostics.
-//!
 use crate::error::CoreError;
 use crate::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
@@ -11,8 +9,12 @@ mod candidates;
 mod conflicts;
 #[path = "bridge_diagnostics_geometry.rs"]
 mod geometry;
+#[path = "bridge_diagnostics_ids.rs"]
+mod ids;
 #[path = "bridge_diagnostics_inventory.rs"]
 mod inventory;
+#[path = "bridge_diagnostics_operation_dependency.rs"]
+mod operation_dependency;
 #[path = "bridge_diagnostics_overlap.rs"]
 mod overlap;
 #[path = "bridge_diagnostics_postconditions.rs"]
@@ -23,6 +25,8 @@ mod readiness;
 mod summary;
 #[path = "bridge_diagnostics_summary_label.rs"]
 mod summary_label;
+#[path = "bridge_diagnostics_summary_types.rs"]
+mod summary_types;
 #[path = "bridge_diagnostics_validity.rs"]
 mod validity;
 
@@ -30,24 +34,14 @@ use candidate_types::ConstructionCandidateDraft;
 pub use candidate_types::{
     ConstructionCandidate, ConstructionCandidateId, ConstructionFamily, ConstructionFeasibility,
     ConstructionRequirement, DiagnosticTolerance, DiagnosticToleranceSource, GeometryFeasibility,
-    GeometryFeasibilityFact, ValidityRepairFact, ValidityRepairReadiness, ValidityRepairStatus,
+    GeometryFeasibilityFact, OperationDependency, OperationDependencyReadiness,
+    OperationDependencyStatus, ValidityRepairFact, ValidityRepairReadiness, ValidityRepairStatus,
 };
+pub use ids::{DiagnosticOperationId, DiagnosticResourceId, ResourceConflictId};
 pub use postconditions::{
     DiagnosticTopologyDelta, PostconditionPrediction, PostconditionPredictionId,
 };
-pub use summary::BridgeDiagnosticSummary;
-
-/// Local graph id for a diagnostic resource.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DiagnosticResourceId(pub usize);
-
-/// Local graph id for a diagnostic operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DiagnosticOperationId(pub usize);
-
-/// Local graph id for a diagnostic conflict component.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ResourceConflictId(pub usize);
+pub use summary_types::BridgeDiagnosticSummary;
 
 /// Read-only bridge diagnostic request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -456,6 +450,7 @@ impl TopologyDiagnosticGraph {
             postcondition_preview: draft.postcondition_preview,
             geometry_facts: draft.geometry_facts,
             validity_repair_facts: draft.validity_repair_facts,
+            operation_dependencies: draft.operation_dependencies,
         });
         id
     }

@@ -6,7 +6,7 @@ use super::{
     ConstructionCandidateDraft, ConstructionFamily, ConstructionFeasibility,
     ConstructionRequirement, DiagnosticHandle, DiagnosticOperationId, DiagnosticOperatorFamily,
     DiagnosticResourceKind, DiagnosticTopologyDelta, OperatorReadinessStatus, ResourceConflictId,
-    ResourceConflictKind, TopologyDiagnosticGraph, geometry, validity,
+    ResourceConflictKind, TopologyDiagnosticGraph, geometry, operation_dependency, validity,
 };
 use crate::euler::BridgeDiagnosticRequest;
 use crate::topology::BRep;
@@ -51,6 +51,7 @@ pub(super) fn classify_construction_candidates(
                         validity::validity_repair_facts_for_candidate(brep, operation, feasibility)
                     })
                     .unwrap_or_default(),
+                operation_dependencies: operation_dependency::dependencies_for_candidate(family),
             });
         }
     }

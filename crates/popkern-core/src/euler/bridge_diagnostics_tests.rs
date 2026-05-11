@@ -39,6 +39,10 @@ fn empty_bridge_diagnostic_report_is_deterministic() {
          rejected_design_intent_changing:0 not_applicable:0 unknown:0 \
          status_no_repair_required:0 status_non_mutating_normalization_available:0 \
          status_repair_required:0 status_rejected:0 status_unknown:0 \
+         operation_dependencies=facts:0 executable:0 ambiguous:0 invalid:0 missing_primitive:0 \
+         not_applicable:0 unknown:0 status_satisfied:0 status_not_required:0 \
+         status_required_missing_primitive:0 status_blocked_invalid_input:0 \
+         status_ambiguous_needs_resolver:0 status_unknown:0 \
          predicted_delta=dV=0 dE=0 dF=0 dL=0"
     );
     assert!(first.graph.candidates.is_empty());
