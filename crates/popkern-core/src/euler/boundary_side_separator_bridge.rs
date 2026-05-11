@@ -151,7 +151,11 @@ fn unique_conflict_edge(
         })
         .collect::<BTreeSet<_>>();
     if edges.len() == 1 {
-        return Ok(*edges.iter().next().expect("one edge"));
+        return edges.iter().next().copied().ok_or_else(|| {
+            CoreError::PreconditionFailed(
+                "boundary-side separator expected one edge but none was retained".into(),
+            )
+        });
     }
     Err(CoreError::PreconditionFailed(format!(
         "boundary-side separator expected one {kind:?} edge, got {}",
@@ -176,7 +180,11 @@ fn unique_conflict_half_edge(
         })
         .collect::<BTreeSet<_>>();
     if half_edges.len() == 1 {
-        return Ok(*half_edges.iter().next().expect("one half-edge"));
+        return half_edges.iter().next().copied().ok_or_else(|| {
+            CoreError::PreconditionFailed(
+                "boundary-side separator expected one half-edge but none was retained".into(),
+            )
+        });
     }
     Err(CoreError::PreconditionFailed(format!(
         "boundary-side separator expected one {kind:?} half-edge, got {}",
