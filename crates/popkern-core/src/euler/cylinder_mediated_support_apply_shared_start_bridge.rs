@@ -2,8 +2,8 @@
 
 use crate::error::CoreError;
 use crate::euler::{
-    BridgeDiagnosticOperationRequest, BridgeDiagnosticRequest, BridgeDiagnosticSummary,
-    DiagnosticOperationPurpose, FaceFamilyBridgeCycleRequest,
+    BoundarySideSeparatorBridgeRequest, BridgeDiagnosticOperationRequest, BridgeDiagnosticRequest,
+    BridgeDiagnosticSummary, DiagnosticOperationPurpose, FaceFamilyBridgeCycleRequest,
 };
 use crate::topology::{BRep, HalfEdgeHandle};
 
@@ -112,6 +112,23 @@ impl SharedStartBridgePreflight {
         }
     }
 
+    fn rejected_with_delta(
+        pairings: usize,
+        shape: SharedStartCycleShape,
+        graph_summary: BridgeDiagnosticSummary,
+        expected_edges: i64,
+        expected_faces: i64,
+        expected_loops: i64,
+        reason: &'static str,
+    ) -> Self {
+        Self {
+            expected_edges,
+            expected_faces,
+            expected_loops,
+            ..Self::rejected(pairings, shape, graph_summary, reason)
+        }
+    }
+
     pub(super) fn diagnostic_label(&self) -> String {
         let status = match self.status {
             SharedStartBridgePreflightStatus::NotApplicable => "not-applicable",
@@ -160,14 +177,27 @@ pub(super) fn preflight_shared_start_bridge(
     };
     let cycle_shape = SharedStartCycleShape::from_cycles(&cycles, brep);
     let graph_summary = bridge_diagnostic_summary(brep, &cycles);
-    match preflight_shared_start_cycle_mix(brep, cycles) {
+    match preflight_shared_start_cycle_mix(brep, cycles.clone()) {
         Ok(summary) => SharedStartBridgePreflight::ready(pairings.len(), summary, graph_summary),
-        Err(err) => SharedStartBridgePreflight::rejected(
-            pairings.len(),
-            cycle_shape,
-            graph_summary,
-            bridge_error_label(&err),
-        ),
+        Err(err) => match brep
+            .preflight_boundary_side_separator_bridge(BoundarySideSeparatorBridgeRequest { cycles })
+        {
+            Ok(plan) => SharedStartBridgePreflight::rejected_with_delta(
+                pairings.len(),
+                cycle_shape,
+                graph_summary,
+                plan.expected_delta.edges,
+                plan.expected_delta.faces,
+                plan.expected_delta.loops,
+                "boundary-side-separator-bridge-mutation-required",
+            ),
+            Err(_) => SharedStartBridgePreflight::rejected(
+                pairings.len(),
+                cycle_shape,
+                graph_summary,
+                bridge_error_label(&err),
+            ),
+        },
     }
 }
 
