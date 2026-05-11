@@ -49,6 +49,7 @@ impl DiagnosticMatrixRow {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FixtureTier {
     SeedRegression,
+    SyntheticAxis,
     IgnoredZoo,
     CapturedCore,
 }
@@ -57,6 +58,7 @@ impl FixtureTier {
     fn diagnostic_label(self) -> &'static str {
         match self {
             Self::SeedRegression => "seed-regression",
+            Self::SyntheticAxis => "synthetic-axis",
             Self::IgnoredZoo => "ignored-zoo",
             Self::CapturedCore => "captured-core",
         }
@@ -163,6 +165,10 @@ impl UnknownDiagnosticFacet {
 
 pub(crate) fn seed_matrix_rows() -> &'static [DiagnosticMatrixRow] {
     &apex_fillet_diagnostic_matrix_rows::SEED_MATRIX_ROWS
+}
+
+pub(crate) fn general_kernel_rows() -> &'static [DiagnosticMatrixRow] {
+    &[]
 }
 
 fn axis_list(axes: &[DiagnosticAxis]) -> String {

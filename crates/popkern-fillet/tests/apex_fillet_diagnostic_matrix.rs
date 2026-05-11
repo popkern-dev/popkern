@@ -7,7 +7,8 @@
 mod apex_fillet_diagnostic_matrix_manifest;
 
 use apex_fillet_diagnostic_matrix_manifest::{
-    DiagnosticMatrixTerminal, UnknownDiagnosticFacet, seed_matrix_rows,
+    DiagnosticMatrixTerminal, FixtureTier, UnknownDiagnosticFacet, general_kernel_rows,
+    seed_matrix_rows,
 };
 
 #[test]
@@ -28,6 +29,20 @@ fn seed_matrix_has_no_unknown_candidate_families() {
 }
 
 #[test]
+fn general_kernel_rows_are_ready_for_broad_coverage() {
+    for row in general_kernel_rows() {
+        assert_eq!(
+            row.fixture_tier,
+            FixtureTier::SyntheticAxis,
+            "{} general-kernel row must be a synthetic axis fixture: {}",
+            row.case_id,
+            row.diagnostic_label()
+        );
+        assert_complete_six_facets(*row);
+    }
+}
+
+#[test]
 fn seed_matrix_panic_output_names_family_and_feasibility() {
     for row in seed_matrix_rows() {
         let label = row.diagnostic_label();
@@ -41,37 +56,42 @@ fn seed_matrix_panic_output_names_family_and_feasibility() {
             "{} lacks feasibility: {label}",
             row.case_id
         );
-        if row.geometry_feasibility_required {
-            assert!(
-                row.geometry_feasibility.is_some(),
-                "{} requires geometry feasibility but has no geometry facet: {label}",
-                row.case_id
-            );
-        }
-        if row.validity_repair_required {
-            assert!(
-                row.validity_repair.is_some(),
-                "{} requires validity/repair readiness but has no validity facet: {label}",
-                row.case_id
-            );
-        }
-        if row.operation_dependency_required {
-            assert!(
-                row.operation_dependency.is_some(),
-                "{} requires operation dependency readiness but has no dependency facet: {label}",
-                row.case_id
-            );
-        }
-        if row.downstream_readiness_required {
-            assert!(
-                row.downstream_readiness.is_some(),
-                "{} requires downstream readiness but has no downstream facet: {label}",
-                row.case_id
-            );
-        }
+        assert_complete_six_facets(*row);
         assert!(
             label.contains("terminal="),
             "{} lacks terminal classification: {label}",
+            row.case_id
+        );
+    }
+}
+
+fn assert_complete_six_facets(row: apex_fillet_diagnostic_matrix_manifest::DiagnosticMatrixRow) {
+    let label = row.diagnostic_label();
+    if row.geometry_feasibility_required {
+        assert!(
+            row.geometry_feasibility.is_some(),
+            "{} requires geometry feasibility but has no geometry facet: {label}",
+            row.case_id
+        );
+    }
+    if row.validity_repair_required {
+        assert!(
+            row.validity_repair.is_some(),
+            "{} requires validity/repair readiness but has no validity facet: {label}",
+            row.case_id
+        );
+    }
+    if row.operation_dependency_required {
+        assert!(
+            row.operation_dependency.is_some(),
+            "{} requires operation dependency readiness but has no dependency facet: {label}",
+            row.case_id
+        );
+    }
+    if row.downstream_readiness_required {
+        assert!(
+            row.downstream_readiness.is_some(),
+            "{} requires downstream readiness but has no downstream facet: {label}",
             row.case_id
         );
     }
@@ -134,6 +154,7 @@ fn seed_matrix_names_apex_semantic_invariants() {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct MatrixSummary {
     rows: usize,
+    synthetic_axis: usize,
     executable: usize,
     named_missing_primitive: usize,
     invalid_topology: usize,
@@ -163,6 +184,9 @@ impl MatrixSummary {
                 }
                 DiagnosticMatrixTerminal::InvalidTopologyReason => summary.invalid_topology += 1,
                 DiagnosticMatrixTerminal::ExplicitUnknownFamily => summary.unknown_family_rows += 1,
+            }
+            if row.fixture_tier == FixtureTier::SyntheticAxis {
+                summary.synthetic_axis += 1;
             }
             if row.feasibility.contains("requires-")
                 || row
@@ -213,8 +237,9 @@ impl MatrixSummary {
 
     fn diagnostic_label(self) -> String {
         format!(
-            "apex_fillet_diagnostic_matrix=rows={} executable={} named_missing_primitive={} invalid_topology={} unsupported_primitive={} repair_required={} ambiguous_dependency={} downstream_risk={} unknown_family={} unknowns=input_fact:{} fixture_reduction:{} primitive_family:{} tolerance_model:{} unpartitioned:{}",
+            "apex_fillet_diagnostic_matrix=rows={} synthetic_axis={} executable={} named_missing_primitive={} invalid_topology={} unsupported_primitive={} repair_required={} ambiguous_dependency={} downstream_risk={} unknown_family={} unknowns=input_fact:{} fixture_reduction:{} primitive_family:{} tolerance_model:{} unpartitioned:{}",
             self.rows,
+            self.synthetic_axis,
             self.executable,
             self.named_missing_primitive,
             self.invalid_topology,
