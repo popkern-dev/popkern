@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use crate::error::CoreError;
 use crate::euler::{FaceFamilyBridgeCycleRequest, SameLoopFaceBridgeRequest};
-use crate::topology::{BRep, EdgeHandle, HalfEdgeHandle};
+use crate::topology::{BRep, EdgeHandle, HalfEdgeHandle, LoopHandle};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct SharedStartCycleShape {
@@ -17,6 +17,9 @@ pub(super) struct SharedStartCycleShape {
     pub(super) same_loop_shared_end_overlaps: usize,
     pub(super) same_loop_crossed_endpoint_overlaps: usize,
     pub(super) same_loop_interior_overlaps: usize,
+    pub(super) one_edge_interior_overlap_candidates: usize,
+    pub(super) repeated_one_edge_overlap_occurrences: usize,
+    pub(super) one_edge_interior_overlap_plans: usize,
 }
 
 impl SharedStartCycleShape {
@@ -31,6 +34,9 @@ impl SharedStartCycleShape {
             same_loop_shared_end_overlaps: 0,
             same_loop_crossed_endpoint_overlaps: 0,
             same_loop_interior_overlaps: 0,
+            one_edge_interior_overlap_candidates: 0,
+            repeated_one_edge_overlap_occurrences: 0,
+            one_edge_interior_overlap_plans: 0,
         }
     }
 
@@ -42,6 +48,9 @@ impl SharedStartCycleShape {
         let mut same_loop_shared_end_overlaps = 0;
         let mut same_loop_crossed_endpoint_overlaps = 0;
         let mut same_loop_interior_overlaps = 0;
+        let mut one_edge_interior_overlap_candidates = 0;
+        let mut repeated_one_edge_overlap_occurrences = 0;
+        let mut one_edge_interior_overlap_plans = 0;
         for cycle in cycles
             .iter()
             .filter(|cycle| cycle.first_loop == cycle.second_loop)
@@ -58,7 +67,23 @@ impl SharedStartCycleShape {
                     SameLoopOverlapPosition::CrossedEndpoint => {
                         same_loop_crossed_endpoint_overlaps += 1
                     }
-                    SameLoopOverlapPosition::Interior => same_loop_interior_overlaps += 1,
+                    SameLoopOverlapPosition::Interior => {
+                        same_loop_interior_overlaps += 1;
+                        if overlap_edges == 1
+                            && let Ok(decomposition) =
+                                one_edge_interior_overlap_decomposition(brep, cycle)
+                        {
+                            if decomposition.unique_overlap_edge {
+                                one_edge_interior_overlap_candidates += 1;
+                            }
+                            if decomposition.repeated_overlap_occurrences {
+                                repeated_one_edge_overlap_occurrences += 1;
+                            }
+                            if decomposition.plan.is_some() {
+                                one_edge_interior_overlap_plans += 1;
+                            }
+                        }
+                    }
                     SameLoopOverlapPosition::None => {}
                 }
             }
@@ -73,6 +98,9 @@ impl SharedStartCycleShape {
             same_loop_shared_end_overlaps,
             same_loop_crossed_endpoint_overlaps,
             same_loop_interior_overlaps,
+            one_edge_interior_overlap_candidates,
+            repeated_one_edge_overlap_occurrences,
+            one_edge_interior_overlap_plans,
         }
     }
 }
@@ -88,9 +116,22 @@ pub(super) struct SharedStartCycleMixSummary {
     pub(super) same_loop_shared_end_overlaps: usize,
     pub(super) same_loop_crossed_endpoint_overlaps: usize,
     pub(super) same_loop_interior_overlaps: usize,
+    pub(super) one_edge_interior_overlap_candidates: usize,
+    pub(super) repeated_one_edge_overlap_occurrences: usize,
+    pub(super) one_edge_interior_overlap_plans: usize,
     pub(super) expected_edges: i64,
     pub(super) expected_faces: i64,
     pub(super) expected_loops: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct SameLoopInteriorOverlapPlan {
+    pub(super) loop_: LoopHandle,
+    pub(super) shared_edge: EdgeHandle,
+    pub(super) first_before_shared: Vec<HalfEdgeHandle>,
+    pub(super) first_after_shared: Vec<HalfEdgeHandle>,
+    pub(super) second_before_shared: Vec<HalfEdgeHandle>,
+    pub(super) second_after_shared: Vec<HalfEdgeHandle>,
 }
 
 pub(super) fn preflight_shared_start_cycle_mix(
@@ -100,8 +141,21 @@ pub(super) fn preflight_shared_start_cycle_mix(
     let cycle_shape = SharedStartCycleShape::from_cycles(&cycles, brep);
     let mut cross_loop_cycles = Vec::new();
     let mut same_loop_cycles = Vec::new();
+    let mut interior_overlap_plans = Vec::new();
+    let mut one_edge_interior_overlap_candidates = 0;
+    let mut repeated_one_edge_overlap_occurrences = 0;
     for cycle in cycles {
         if cycle.first_loop == cycle.second_loop {
+            let decomposition = one_edge_interior_overlap_decomposition(brep, &cycle)?;
+            if decomposition.unique_overlap_edge {
+                one_edge_interior_overlap_candidates += 1;
+            }
+            if decomposition.repeated_overlap_occurrences {
+                repeated_one_edge_overlap_occurrences += 1;
+            }
+            if let Some(plan) = decomposition.plan {
+                interior_overlap_plans.push(plan);
+            }
             same_loop_cycles.push(cycle);
         } else {
             cross_loop_cycles.push(cycle);
@@ -138,9 +192,88 @@ pub(super) fn preflight_shared_start_cycle_mix(
         same_loop_shared_end_overlaps: cycle_shape.same_loop_shared_end_overlaps,
         same_loop_crossed_endpoint_overlaps: cycle_shape.same_loop_crossed_endpoint_overlaps,
         same_loop_interior_overlaps: cycle_shape.same_loop_interior_overlaps,
+        one_edge_interior_overlap_candidates,
+        repeated_one_edge_overlap_occurrences,
+        one_edge_interior_overlap_plans: interior_overlap_plans.len(),
         expected_edges,
         expected_faces,
         expected_loops,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OneEdgeInteriorOverlapDecomposition {
+    unique_overlap_edge: bool,
+    repeated_overlap_occurrences: bool,
+    plan: Option<SameLoopInteriorOverlapPlan>,
+}
+
+fn one_edge_interior_overlap_decomposition(
+    brep: &BRep,
+    cycle: &FaceFamilyBridgeCycleRequest,
+) -> Result<OneEdgeInteriorOverlapDecomposition, CoreError> {
+    let first_path = indexed_bridge_path_edges(brep, &cycle.first_interval)?;
+    let second_path = indexed_bridge_path_edges(brep, &cycle.second_interval)?;
+    let first_edges = first_path
+        .iter()
+        .map(|entry| entry.edge)
+        .collect::<BTreeSet<_>>();
+    let second_edges = second_path
+        .iter()
+        .map(|entry| entry.edge)
+        .collect::<BTreeSet<_>>();
+    let overlap_edges = first_edges
+        .intersection(&second_edges)
+        .copied()
+        .collect::<Vec<_>>();
+    if overlap_edges.len() != 1 {
+        return Ok(OneEdgeInteriorOverlapDecomposition {
+            unique_overlap_edge: false,
+            repeated_overlap_occurrences: false,
+            plan: None,
+        });
+    }
+    let shared_edge = overlap_edges[0];
+    let shared = first_path
+        .iter()
+        .flat_map(|first| {
+            second_path
+                .iter()
+                .filter(move |second| first.edge == shared_edge && second.edge == shared_edge)
+                .map(move |second| (first, second))
+        })
+        .collect::<Vec<_>>();
+    if shared.len() != 1 {
+        return Ok(OneEdgeInteriorOverlapDecomposition {
+            unique_overlap_edge: true,
+            repeated_overlap_occurrences: true,
+            plan: None,
+        });
+    }
+    let (first_shared, second_shared) = shared[0];
+    Ok(OneEdgeInteriorOverlapDecomposition {
+        unique_overlap_edge: true,
+        repeated_overlap_occurrences: false,
+        plan: Some(SameLoopInteriorOverlapPlan {
+            loop_: cycle.first_loop,
+            shared_edge: first_shared.edge,
+            first_before_shared: first_path[..first_shared.index]
+                .iter()
+                .map(|entry| entry.half_edge)
+                .collect(),
+            first_after_shared: first_path[first_shared.index + 1..]
+                .iter()
+                .map(|entry| entry.half_edge)
+                .collect(),
+            second_before_shared: second_path[..second_shared.index]
+                .iter()
+                .map(|entry| entry.half_edge)
+                .collect(),
+            second_after_shared: second_path[second_shared.index + 1..]
+                .iter()
+                .map(|entry| entry.half_edge)
+                .collect(),
+        }),
     })
 }
 
@@ -203,6 +336,13 @@ struct BridgePathEdges {
     last: Option<EdgeHandle>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct IndexedBridgePathEdge {
+    index: usize,
+    half_edge: HalfEdgeHandle,
+    edge: EdgeHandle,
+}
+
 fn bridge_path_edges(
     brep: &BRep,
     interval: &[HalfEdgeHandle],
@@ -229,6 +369,33 @@ fn bridge_path_edges(
         first,
         last,
     })
+}
+
+fn indexed_bridge_path_edges(
+    brep: &BRep,
+    interval: &[HalfEdgeHandle],
+) -> Result<Vec<IndexedBridgePathEdge>, CoreError> {
+    half_open_bridge_path(interval)?
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, half_edge)| {
+            let edge = brep
+                .half_edges
+                .get(half_edge)
+                .map(|data| data.edge)
+                .ok_or_else(|| {
+                    CoreError::InvalidHandle(
+                        "shared-start bridge interval has stale half-edge".into(),
+                    )
+                })?;
+            Ok(IndexedBridgePathEdge {
+                index,
+                half_edge,
+                edge,
+            })
+        })
+        .collect()
 }
 
 fn half_open_bridge_path(interval: &[HalfEdgeHandle]) -> Result<&[HalfEdgeHandle], CoreError> {
