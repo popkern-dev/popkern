@@ -1,7 +1,7 @@
 //! Candidate bridge authoring for shared-start split cylinder resources.
 
 use crate::error::CoreError;
-use crate::euler::{FaceFamilyBridgeCycleRequest, FaceFamilyBridgePlan};
+use crate::euler::FaceFamilyBridgeCycleRequest;
 use crate::topology::{BRep, HalfEdgeHandle};
 
 use super::CylinderMediatedSupportContinuationSegmentAuthoringPlan;
@@ -12,6 +12,8 @@ pub(super) struct SharedStartBridgePreflight {
     status: SharedStartBridgePreflightStatus,
     pairings: usize,
     cycles: usize,
+    cross_loop_cycles: usize,
+    same_loop_cycles: usize,
     expected_edges: i64,
     expected_faces: i64,
     expected_loops: i64,
@@ -22,6 +24,7 @@ pub(super) struct SharedStartBridgePreflight {
 enum SharedStartBridgePreflightStatus {
     NotApplicable,
     Ready,
+    RequiresSameLoopConstruction,
     Rejected,
 }
 
@@ -31,6 +34,8 @@ impl SharedStartBridgePreflight {
             status: SharedStartBridgePreflightStatus::NotApplicable,
             pairings: 0,
             cycles: 0,
+            cross_loop_cycles: 0,
+            same_loop_cycles: 0,
             expected_edges: 0,
             expected_faces: 0,
             expected_loops: 0,
@@ -38,15 +43,45 @@ impl SharedStartBridgePreflight {
         }
     }
 
-    fn ready(pairings: usize, plan: &FaceFamilyBridgePlan) -> Self {
+    fn ready(
+        pairings: usize,
+        cycles: usize,
+        expected_edges: i64,
+        expected_faces: i64,
+        expected_loops: i64,
+    ) -> Self {
         Self {
             status: SharedStartBridgePreflightStatus::Ready,
             pairings,
-            cycles: plan.cycles.len(),
-            expected_edges: plan.expected_delta.edges,
-            expected_faces: plan.expected_delta.faces,
-            expected_loops: plan.expected_delta.loops,
+            cycles,
+            cross_loop_cycles: cycles,
+            same_loop_cycles: 0,
+            expected_edges,
+            expected_faces,
+            expected_loops,
             reason: "none",
+        }
+    }
+
+    fn requires_same_loop_construction(
+        pairings: usize,
+        cycles: &[FaceFamilyBridgeCycleRequest],
+    ) -> Self {
+        let same_loop_cycles = cycles
+            .iter()
+            .filter(|cycle| cycle.first_loop == cycle.second_loop)
+            .count();
+        let cross_loop_cycles = cycles.len() - same_loop_cycles;
+        Self {
+            status: SharedStartBridgePreflightStatus::RequiresSameLoopConstruction,
+            pairings,
+            cycles: cycles.len(),
+            cross_loop_cycles,
+            same_loop_cycles,
+            expected_edges: 0,
+            expected_faces: 0,
+            expected_loops: 0,
+            reason: "same-loop-bridge-construction-required",
         }
     }
 
@@ -55,6 +90,8 @@ impl SharedStartBridgePreflight {
             status: SharedStartBridgePreflightStatus::Rejected,
             pairings,
             cycles: 0,
+            cross_loop_cycles: 0,
+            same_loop_cycles: 0,
             expected_edges: 0,
             expected_faces: 0,
             expected_loops: 0,
@@ -66,12 +103,17 @@ impl SharedStartBridgePreflight {
         let status = match self.status {
             SharedStartBridgePreflightStatus::NotApplicable => "not-applicable",
             SharedStartBridgePreflightStatus::Ready => "ready",
+            SharedStartBridgePreflightStatus::RequiresSameLoopConstruction => {
+                "requires-same-loop-construction"
+            }
             SharedStartBridgePreflightStatus::Rejected => "rejected",
         };
         format!(
-            "shared_start_bridge_preflight=status={status} pairings={} cycles={} expected_delta=dV=0 dE={} dF={} dL={} reason={}",
+            "shared_start_bridge_preflight=status={status} pairings={} cycles={} cross_loop_cycles={} same_loop_cycles={} expected_delta=dV=0 dE={} dF={} dL={} reason={}",
             self.pairings,
             self.cycles,
+            self.cross_loop_cycles,
+            self.same_loop_cycles,
             self.expected_edges,
             self.expected_faces,
             self.expected_loops,
@@ -89,23 +131,44 @@ pub(super) fn preflight_shared_start_bridge(
     if pairings.is_empty() {
         return SharedStartBridgePreflight::not_applicable();
     }
-    match shared_start_face_family_bridge_plan(brep, pairings, authoring, cylinder_segments) {
-        Ok(plan) => SharedStartBridgePreflight::ready(pairings.len(), &plan),
+    let cycles = match shared_start_bridge_cycles(brep, pairings, authoring, cylinder_segments) {
+        Ok(cycles) => cycles,
+        Err(err) => {
+            return SharedStartBridgePreflight::rejected(pairings.len(), bridge_error_label(&err));
+        }
+    };
+    if cycles
+        .iter()
+        .any(|cycle| cycle.first_loop == cycle.second_loop)
+    {
+        return SharedStartBridgePreflight::requires_same_loop_construction(
+            pairings.len(),
+            &cycles,
+        );
+    }
+    match brep.preflight_face_family_bridge(cycles) {
+        Ok(plan) => SharedStartBridgePreflight::ready(
+            pairings.len(),
+            plan.cycles.len(),
+            plan.expected_delta.edges,
+            plan.expected_delta.faces,
+            plan.expected_delta.loops,
+        ),
         Err(err) => SharedStartBridgePreflight::rejected(pairings.len(), bridge_error_label(&err)),
     }
 }
 
-fn shared_start_face_family_bridge_plan(
+fn shared_start_bridge_cycles(
     brep: &BRep,
     pairings: &[BridgeResourcePairing],
     authoring: &[CylinderMediatedSupportContinuationSegmentAuthoringPlan],
     cylinder_segments: &[CylinderBridgeResourceSegment],
-) -> Result<FaceFamilyBridgePlan, CoreError> {
+) -> Result<Vec<FaceFamilyBridgeCycleRequest>, CoreError> {
     let cycles = pairings
         .iter()
         .map(|pairing| bridge_cycle_request(brep, *pairing, authoring, cylinder_segments))
         .collect::<Result<Vec<_>, _>>()?;
-    brep.preflight_face_family_bridge(cycles)
+    Ok(cycles)
 }
 
 fn bridge_cycle_request(
