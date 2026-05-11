@@ -55,7 +55,7 @@ pub(crate) enum FixtureTier {
 }
 
 impl FixtureTier {
-    fn diagnostic_label(self) -> &'static str {
+    pub(crate) fn diagnostic_label(self) -> &'static str {
         match self {
             Self::SeedRegression => "seed-regression",
             Self::SyntheticAxis => "synthetic-axis",
@@ -65,7 +65,7 @@ impl FixtureTier {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum DiagnosticAxis {
     CubeApex,
     PyramidApex,
@@ -100,7 +100,42 @@ pub(crate) enum DiagnosticAxis {
 }
 
 impl DiagnosticAxis {
-    fn diagnostic_label(self) -> &'static str {
+    pub(crate) fn all() -> &'static [Self] {
+        &[
+            Self::CubeApex,
+            Self::PyramidApex,
+            Self::GregoryCap,
+            Self::GregoryRoundtrip,
+            Self::RepeatedApex,
+            Self::CylinderMediatedResource,
+            Self::BoundarySideSeparator,
+            Self::RetiredApexVertex,
+            Self::SeamCardinality,
+            Self::SupportOwnership,
+            Self::GeneratedBoundaryReplacement,
+            Self::TransitionContinuity,
+            Self::UnitScalePlacement,
+            Self::OrientationReversal,
+            Self::SplineRepresentation,
+            Self::OffsetSurfaceRepresentation,
+            Self::SelectionIntent,
+            Self::BranchStop,
+            Self::VariableLaw,
+            Self::OpenShellBoundary,
+            Self::HoleAdjacentLoop,
+            Self::BooleanSliver,
+            Self::ThinWallOffset,
+            Self::ExistingBlendAdjacency,
+            Self::SeamSingularity,
+            Self::SolverConditioning,
+            Self::FreeformApproximation,
+            Self::RepairPolicyBoundary,
+            Self::ZooExport,
+            Self::ExtremeRadiusRatio,
+        ]
+    }
+
+    pub(crate) fn diagnostic_label(self) -> &'static str {
         match self {
             Self::CubeApex => "cube-apex",
             Self::PyramidApex => "pyramid-apex",
@@ -140,6 +175,7 @@ impl DiagnosticAxis {
 pub(crate) enum DiagnosticMatrixTerminal {
     ExecutableCandidate,
     NamedMissingPrimitive,
+    AmbiguousDependency,
     InvalidTopologyReason,
     ExplicitUnknownFamily,
 }
@@ -149,6 +185,7 @@ impl DiagnosticMatrixTerminal {
         &[
             Self::ExecutableCandidate,
             Self::NamedMissingPrimitive,
+            Self::AmbiguousDependency,
             Self::InvalidTopologyReason,
             Self::ExplicitUnknownFamily,
         ]
@@ -158,6 +195,7 @@ impl DiagnosticMatrixTerminal {
         match self {
             Self::ExecutableCandidate => "executable-candidate",
             Self::NamedMissingPrimitive => "named-missing-primitive",
+            Self::AmbiguousDependency => "ambiguous-dependency",
             Self::InvalidTopologyReason => "invalid-topology-reason",
             Self::ExplicitUnknownFamily => "explicit-unknown-family",
         }

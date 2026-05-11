@@ -331,7 +331,7 @@ pub(crate) const GENERAL_KERNEL_ROWS: [DiagnosticMatrixRow; 17] = [
         "synthetic_multiple_root_projection",
         FixtureTier::SyntheticAxis,
         [DiagnosticAxis::SolverConditioning],
-        DiagnosticMatrixTerminal::NamedMissingPrimitive,
+        DiagnosticMatrixTerminal::AmbiguousDependency,
         "multiple-root-projection-blend",
         "requires-projection-ambiguity-resolver",
         true,

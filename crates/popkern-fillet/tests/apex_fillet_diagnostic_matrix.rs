@@ -7,8 +7,8 @@
 mod apex_fillet_diagnostic_matrix_manifest;
 
 use apex_fillet_diagnostic_matrix_manifest::{
-    DiagnosticMatrixTerminal, FixtureTier, UnknownDiagnosticFacet, general_kernel_rows,
-    seed_matrix_rows,
+    DiagnosticAxis, DiagnosticMatrixTerminal, FixtureTier, UnknownDiagnosticFacet,
+    general_kernel_rows, seed_matrix_rows,
 };
 
 #[test]
@@ -43,6 +43,50 @@ fn general_kernel_rows_are_ready_for_broad_coverage() {
 }
 
 #[test]
+fn matrix_covers_every_declared_diagnostic_axis() {
+    let covered = seed_matrix_rows()
+        .iter()
+        .chain(general_kernel_rows().iter())
+        .flat_map(|row| row.covered_axes.iter().copied())
+        .collect::<std::collections::BTreeSet<_>>();
+    for axis in DiagnosticAxis::all() {
+        assert!(
+            covered.contains(axis),
+            "matrix is missing declared diagnostic axis {}",
+            axis.diagnostic_label()
+        );
+    }
+}
+
+#[test]
+fn matrix_rows_do_not_use_generic_blockers_as_terminal_reasons() {
+    for row in seed_matrix_rows()
+        .iter()
+        .chain(general_kernel_rows().iter())
+    {
+        assert_not_generic_blocker(row.expected_reason, row.case_id);
+        assert_not_generic_blocker(row.feasibility, row.case_id);
+        if row.terminal == DiagnosticMatrixTerminal::NamedMissingPrimitive {
+            assert!(
+                row.operation_dependency
+                    .is_some_and(|dependency| dependency.contains("missing-")),
+                "{} named missing primitive row lacks a named missing dependency: {}",
+                row.case_id,
+                row.diagnostic_label()
+            );
+        }
+        if row.unknown_facet.is_some() {
+            assert!(
+                row.closure_task.is_some(),
+                "{} unknown facet lacks a closure task: {}",
+                row.case_id,
+                row.diagnostic_label()
+            );
+        }
+    }
+}
+
+#[test]
 fn seed_matrix_panic_output_names_family_and_feasibility() {
     for row in seed_matrix_rows() {
         let label = row.diagnostic_label();
@@ -61,6 +105,20 @@ fn seed_matrix_panic_output_names_family_and_feasibility() {
             label.contains("terminal="),
             "{} lacks terminal classification: {label}",
             row.case_id
+        );
+    }
+}
+
+fn assert_not_generic_blocker(label: &str, case_id: &str) {
+    for generic in [
+        "missing_operator",
+        "geometry_failed",
+        "invalid_topology",
+        "unsupported_case",
+    ] {
+        assert_ne!(
+            label, generic,
+            "{case_id} uses generic blocker label {generic}"
         );
     }
 }
@@ -181,6 +239,9 @@ impl MatrixSummary {
                 DiagnosticMatrixTerminal::ExecutableCandidate => summary.executable += 1,
                 DiagnosticMatrixTerminal::NamedMissingPrimitive => {
                     summary.named_missing_primitive += 1;
+                }
+                DiagnosticMatrixTerminal::AmbiguousDependency => {
+                    summary.ambiguous_dependency += 1;
                 }
                 DiagnosticMatrixTerminal::InvalidTopologyReason => summary.invalid_topology += 1,
                 DiagnosticMatrixTerminal::ExplicitUnknownFamily => summary.unknown_family_rows += 1,
