@@ -1,5 +1,7 @@
 //! Candidate bridge authoring for shared-start split cylinder resources.
 
+use std::collections::BTreeSet;
+
 use crate::error::CoreError;
 use crate::euler::{FaceFamilyBridgeCycleRequest, SameLoopFaceBridgeRequest};
 use crate::topology::{BRep, HalfEdgeHandle};
@@ -14,6 +16,8 @@ pub(super) struct SharedStartBridgePreflight {
     cycles: usize,
     cross_loop_cycles: usize,
     same_loop_cycles: usize,
+    same_loop_overlap_cycles: usize,
+    same_loop_overlapping_edges: usize,
     expected_edges: i64,
     expected_faces: i64,
     expected_loops: i64,
@@ -35,6 +39,8 @@ impl SharedStartBridgePreflight {
             cycles: 0,
             cross_loop_cycles: 0,
             same_loop_cycles: 0,
+            same_loop_overlap_cycles: 0,
+            same_loop_overlapping_edges: 0,
             expected_edges: 0,
             expected_faces: 0,
             expected_loops: 0,
@@ -42,41 +48,31 @@ impl SharedStartBridgePreflight {
         }
     }
 
-    fn ready(
-        pairings: usize,
-        cycles: usize,
-        cross_loop_cycles: usize,
-        same_loop_cycles: usize,
-        expected_edges: i64,
-        expected_faces: i64,
-        expected_loops: i64,
-    ) -> Self {
+    fn ready(pairings: usize, summary: SharedStartCycleMixSummary) -> Self {
         Self {
             status: SharedStartBridgePreflightStatus::Ready,
             pairings,
-            cycles,
-            cross_loop_cycles,
-            same_loop_cycles,
-            expected_edges,
-            expected_faces,
-            expected_loops,
+            cycles: summary.cycles,
+            cross_loop_cycles: summary.cross_loop_cycles,
+            same_loop_cycles: summary.same_loop_cycles,
+            same_loop_overlap_cycles: summary.same_loop_overlap_cycles,
+            same_loop_overlapping_edges: summary.same_loop_overlapping_edges,
+            expected_edges: summary.expected_edges,
+            expected_faces: summary.expected_faces,
+            expected_loops: summary.expected_loops,
             reason: "none",
         }
     }
 
-    fn rejected(
-        pairings: usize,
-        cycles: usize,
-        cross_loop_cycles: usize,
-        same_loop_cycles: usize,
-        reason: &'static str,
-    ) -> Self {
+    fn rejected(pairings: usize, shape: SharedStartCycleShape, reason: &'static str) -> Self {
         Self {
             status: SharedStartBridgePreflightStatus::Rejected,
             pairings,
-            cycles,
-            cross_loop_cycles,
-            same_loop_cycles,
+            cycles: shape.cycles,
+            cross_loop_cycles: shape.cross_loop_cycles,
+            same_loop_cycles: shape.same_loop_cycles,
+            same_loop_overlap_cycles: shape.same_loop_overlap_cycles,
+            same_loop_overlapping_edges: shape.same_loop_overlapping_edges,
             expected_edges: 0,
             expected_faces: 0,
             expected_loops: 0,
@@ -91,11 +87,13 @@ impl SharedStartBridgePreflight {
             SharedStartBridgePreflightStatus::Rejected => "rejected",
         };
         format!(
-            "shared_start_bridge_preflight=status={status} pairings={} cycles={} cross_loop_cycles={} same_loop_cycles={} expected_delta=dV=0 dE={} dF={} dL={} reason={}",
+            "shared_start_bridge_preflight=status={status} pairings={} cycles={} cross_loop_cycles={} same_loop_cycles={} same_loop_overlap_cycles={} same_loop_overlapping_edges={} expected_delta=dV=0 dE={} dF={} dL={} reason={}",
             self.pairings,
             self.cycles,
             self.cross_loop_cycles,
             self.same_loop_cycles,
+            self.same_loop_overlap_cycles,
+            self.same_loop_overlapping_edges,
             self.expected_edges,
             self.expected_faces,
             self.expected_loops,
@@ -118,29 +116,17 @@ pub(super) fn preflight_shared_start_bridge(
         Err(err) => {
             return SharedStartBridgePreflight::rejected(
                 pairings.len(),
-                0,
-                0,
-                0,
+                SharedStartCycleShape::empty(),
                 bridge_error_label(&err),
             );
         }
     };
-    let cycle_shape = SharedStartCycleShape::from_cycles(&cycles);
+    let cycle_shape = SharedStartCycleShape::from_cycles(&cycles, brep);
     match preflight_shared_start_cycle_mix(brep, cycles) {
-        Ok(summary) => SharedStartBridgePreflight::ready(
-            pairings.len(),
-            summary.cycles,
-            summary.cross_loop_cycles,
-            summary.same_loop_cycles,
-            summary.expected_edges,
-            summary.expected_faces,
-            summary.expected_loops,
-        ),
+        Ok(summary) => SharedStartBridgePreflight::ready(pairings.len(), summary),
         Err(err) => SharedStartBridgePreflight::rejected(
             pairings.len(),
-            cycle_shape.cycles,
-            cycle_shape.cross_loop_cycles,
-            cycle_shape.same_loop_cycles,
+            cycle_shape,
             bridge_error_label(&err),
         ),
     }
@@ -151,18 +137,42 @@ struct SharedStartCycleShape {
     cycles: usize,
     cross_loop_cycles: usize,
     same_loop_cycles: usize,
+    same_loop_overlap_cycles: usize,
+    same_loop_overlapping_edges: usize,
 }
 
 impl SharedStartCycleShape {
-    fn from_cycles(cycles: &[FaceFamilyBridgeCycleRequest]) -> Self {
-        let same_loop_cycles = cycles
+    fn empty() -> Self {
+        Self {
+            cycles: 0,
+            cross_loop_cycles: 0,
+            same_loop_cycles: 0,
+            same_loop_overlap_cycles: 0,
+            same_loop_overlapping_edges: 0,
+        }
+    }
+
+    fn from_cycles(cycles: &[FaceFamilyBridgeCycleRequest], brep: &BRep) -> Self {
+        let mut same_loop_cycles = 0;
+        let mut same_loop_overlap_cycles = 0;
+        let mut same_loop_overlapping_edges = 0;
+        for cycle in cycles
             .iter()
             .filter(|cycle| cycle.first_loop == cycle.second_loop)
-            .count();
+        {
+            same_loop_cycles += 1;
+            let overlap_edges = same_loop_overlap_edge_count(brep, cycle);
+            if overlap_edges > 0 {
+                same_loop_overlap_cycles += 1;
+                same_loop_overlapping_edges += overlap_edges;
+            }
+        }
         Self {
             cycles: cycles.len(),
             cross_loop_cycles: cycles.len() - same_loop_cycles,
             same_loop_cycles,
+            same_loop_overlap_cycles,
+            same_loop_overlapping_edges,
         }
     }
 }
@@ -172,6 +182,8 @@ struct SharedStartCycleMixSummary {
     cycles: usize,
     cross_loop_cycles: usize,
     same_loop_cycles: usize,
+    same_loop_overlap_cycles: usize,
+    same_loop_overlapping_edges: usize,
     expected_edges: i64,
     expected_faces: i64,
     expected_loops: i64,
@@ -181,6 +193,7 @@ fn preflight_shared_start_cycle_mix(
     brep: &BRep,
     cycles: Vec<FaceFamilyBridgeCycleRequest>,
 ) -> Result<SharedStartCycleMixSummary, CoreError> {
+    let cycle_shape = SharedStartCycleShape::from_cycles(&cycles, brep);
     let mut cross_loop_cycles = Vec::new();
     let mut same_loop_cycles = Vec::new();
     for cycle in cycles {
@@ -215,10 +228,51 @@ fn preflight_shared_start_cycle_mix(
         cycles: cross_loop_count + same_loop_count,
         cross_loop_cycles: cross_loop_count,
         same_loop_cycles: same_loop_count,
+        same_loop_overlap_cycles: cycle_shape.same_loop_overlap_cycles,
+        same_loop_overlapping_edges: cycle_shape.same_loop_overlapping_edges,
         expected_edges,
         expected_faces,
         expected_loops,
     })
+}
+
+fn same_loop_overlap_edge_count(brep: &BRep, cycle: &FaceFamilyBridgeCycleRequest) -> usize {
+    let first_edges = match bridge_path_edges(brep, &cycle.first_interval) {
+        Ok(edges) => edges,
+        Err(_) => return 0,
+    };
+    let second_edges = match bridge_path_edges(brep, &cycle.second_interval) {
+        Ok(edges) => edges,
+        Err(_) => return 0,
+    };
+    first_edges.intersection(&second_edges).count()
+}
+
+fn bridge_path_edges(
+    brep: &BRep,
+    interval: &[HalfEdgeHandle],
+) -> Result<BTreeSet<crate::topology::EdgeHandle>, CoreError> {
+    let mut edges = BTreeSet::new();
+    for &half_edge in half_open_bridge_path(interval)? {
+        let edge = brep
+            .half_edges
+            .get(half_edge)
+            .map(|data| data.edge)
+            .ok_or_else(|| {
+                CoreError::InvalidHandle("shared-start bridge interval has stale half-edge".into())
+            })?;
+        edges.insert(edge);
+    }
+    Ok(edges)
+}
+
+fn half_open_bridge_path(interval: &[HalfEdgeHandle]) -> Result<&[HalfEdgeHandle], CoreError> {
+    if interval.len() < 2 {
+        return Err(CoreError::PreconditionFailed(
+            "shared-start bridge path needs distinct endpoint origins".into(),
+        ));
+    }
+    Ok(&interval[..interval.len() - 1])
 }
 
 fn shared_start_bridge_cycles(

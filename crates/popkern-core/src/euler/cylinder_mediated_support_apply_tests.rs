@@ -125,8 +125,8 @@ fn mutator_boundary_refuses_without_mutating_topology() {
     assert!(
         detail.contains(
             "shared_start_bridge_preflight=status=not-applicable pairings=0 cycles=0 \
-             cross_loop_cycles=0 same_loop_cycles=0 expected_delta=dV=0 dE=0 dF=0 dL=0 \
-             reason=none"
+             cross_loop_cycles=0 same_loop_cycles=0 same_loop_overlap_cycles=0 \
+             same_loop_overlapping_edges=0 expected_delta=dV=0 dE=0 dF=0 dL=0 reason=none"
         ),
         "{err}"
     );
