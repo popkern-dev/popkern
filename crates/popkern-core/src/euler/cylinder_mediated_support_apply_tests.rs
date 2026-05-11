@@ -148,6 +148,7 @@ fn mutator_boundary_refuses_without_mutating_topology() {
         detail.contains(
             "cylinder_resource_construction_candidate=family=split-cylinder-resource-merge \
              feasibility=requires-resource-merge reason=split-cylinder-resource-merge-required \
+             gate_complete:true missing_primitive:cylinder-resource-merge-primitive \
              action_candidates=exact_pair:2 shared_outside:1 single_covered:0 unsupported:0"
         ),
         "{err}"
@@ -155,7 +156,9 @@ fn mutator_boundary_refuses_without_mutating_topology() {
     assert!(
         detail.contains(
             "cylinder_mediated_candidate_coverage=owner_exposure:1 blocker_exposure:1 \
-             resource:1 shared_start_required:false shared_start_bridge:0 complete:true"
+             resource:1 shared_start_required:false shared_start_bridge:0 gate_complete=owner:true \
+             blocker:true resource:true shared_start:true \
+             resource_missing_primitive:cylinder-resource-merge-primitive complete:true"
         ),
         "{err}"
     );

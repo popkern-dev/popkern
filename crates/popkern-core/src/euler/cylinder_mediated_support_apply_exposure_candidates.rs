@@ -15,6 +15,12 @@ pub(super) struct ExposureConstructionCandidate {
 }
 
 impl ExposureConstructionCandidate {
+    pub(super) fn mutation_gate_complete(self) -> bool {
+        self.reason != "unknown"
+            && (self.feasibility == ExposureConstructionFeasibility::NotApplicable
+                || self.rollback_boundary == ExposureRollbackBoundary::CandidateBrepBeforeCommit)
+    }
+
     pub(super) fn diagnostic_label(self) -> String {
         format!(
             "exposure_construction_candidate=family={} feasibility={} reason={} spans={} half_edges={} expected_delta=dV=0 dE={} dF={} dL={} semantic_ownership={} rollback_boundary={}",

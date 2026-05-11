@@ -22,12 +22,29 @@ impl CylinderResourceBlockerExposureResult {
         1
     }
 
+    pub(super) fn candidate_gate_complete(self) -> bool {
+        self.candidate().mutation_gate_complete()
+    }
+
     pub(super) fn exposed_spans(self) -> usize {
         self.exposed_spans
     }
 
     pub(super) fn diagnostic_label(self) -> String {
-        let candidate = ExposureConstructionCandidate {
+        let candidate = self.candidate();
+        format!(
+            "cylinder_resource_blocker_exposure=spans={} half_edges={} exposed_spans={} exposed_half_edges={} gate_complete:{} {}",
+            self.spans,
+            self.half_edges,
+            self.exposed_spans,
+            self.exposed_half_edges,
+            self.candidate_gate_complete(),
+            candidate.diagnostic_label()
+        )
+    }
+
+    fn candidate(self) -> ExposureConstructionCandidate {
+        ExposureConstructionCandidate {
             family: ExposureConstructionFamily::CylinderResourceBlockerRetire,
             feasibility: if self.spans == 0 {
                 ExposureConstructionFeasibility::NotApplicable
@@ -54,15 +71,7 @@ impl CylinderResourceBlockerExposureResult {
             } else {
                 ExposureRollbackBoundary::CandidateBrepBeforeCommit
             },
-        };
-        format!(
-            "cylinder_resource_blocker_exposure=spans={} half_edges={} exposed_spans={} exposed_half_edges={} {}",
-            self.spans,
-            self.half_edges,
-            self.exposed_spans,
-            self.exposed_half_edges,
-            candidate.diagnostic_label()
-        )
+        }
     }
 }
 

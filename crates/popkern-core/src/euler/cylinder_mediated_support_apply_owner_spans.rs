@@ -22,8 +22,23 @@ impl OwnerRepairExposureResult {
         1
     }
 
+    pub(super) fn candidate_gate_complete(self) -> bool {
+        self.candidate().mutation_gate_complete()
+    }
+
     pub(super) fn diagnostic_label(self) -> String {
-        let candidate = ExposureConstructionCandidate {
+        let candidate = self.candidate();
+        format!(
+            "owner_repair_candidate=exposed_spans={} exposed_half_edges={} gate_complete:{} {}",
+            self.exposed_spans,
+            self.exposed_half_edges,
+            self.candidate_gate_complete(),
+            candidate.diagnostic_label()
+        )
+    }
+
+    fn candidate(self) -> ExposureConstructionCandidate {
+        ExposureConstructionCandidate {
             family: ExposureConstructionFamily::OwnerBoundaryFragmentRetire,
             feasibility: if self.exposed_spans == 0 {
                 ExposureConstructionFeasibility::NotApplicable
@@ -50,13 +65,7 @@ impl OwnerRepairExposureResult {
             } else {
                 ExposureRollbackBoundary::CandidateBrepBeforeCommit
             },
-        };
-        format!(
-            "owner_repair_candidate=exposed_spans={} exposed_half_edges={} {}",
-            self.exposed_spans,
-            self.exposed_half_edges,
-            candidate.diagnostic_label()
-        )
+        }
     }
 }
 

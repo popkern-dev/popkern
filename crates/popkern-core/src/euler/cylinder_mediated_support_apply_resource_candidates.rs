@@ -12,13 +12,33 @@ pub(super) struct CylinderResourceCandidateSummary {
 }
 
 impl CylinderResourceCandidateSummary {
+    pub(super) fn from_status(status: BridgeResourceReconciliationStatus) -> Self {
+        Self {
+            status,
+            exact_pair_actions: 0,
+            shared_outside_actions: 0,
+            single_covered_actions: 0,
+            unsupported_actions: 0,
+        }
+    }
+
+    pub(super) fn mutation_gate_complete(self) -> bool {
+        CylinderResourceConstructionCandidate::from_summary(self).mutation_gate_complete()
+    }
+
+    pub(super) fn missing_primitive(self) -> &'static str {
+        CylinderResourceConstructionCandidate::from_summary(self).missing_primitive()
+    }
+
     pub(super) fn diagnostic_label(self) -> String {
         let candidate = CylinderResourceConstructionCandidate::from_summary(self);
         format!(
-            "cylinder_resource_construction_candidate=family={} feasibility={} reason={} action_candidates=exact_pair:{} shared_outside:{} single_covered:{} unsupported:{}",
+            "cylinder_resource_construction_candidate=family={} feasibility={} reason={} gate_complete:{} missing_primitive:{} action_candidates=exact_pair:{} shared_outside:{} single_covered:{} unsupported:{}",
             candidate.family.diagnostic_label(),
             candidate.feasibility.diagnostic_label(),
             candidate.reason,
+            self.mutation_gate_complete(),
+            self.missing_primitive(),
             self.exact_pair_actions,
             self.shared_outside_actions,
             self.single_covered_actions,
@@ -70,6 +90,29 @@ impl CylinderResourceConstructionCandidate {
                 feasibility: CylinderResourceConstructionFeasibility::InvalidResourceSets,
                 reason: "incompatible-cylinder-resource-sets",
             },
+        }
+    }
+
+    fn mutation_gate_complete(self) -> bool {
+        self.reason != "unknown"
+    }
+
+    fn missing_primitive(self) -> &'static str {
+        match self.feasibility {
+            CylinderResourceConstructionFeasibility::RequiresResourceAuthoring => {
+                "cylinder-resource-authoring-primitive"
+            }
+            CylinderResourceConstructionFeasibility::RequiresResourceSplit => {
+                "cylinder-resource-split-primitive"
+            }
+            CylinderResourceConstructionFeasibility::RequiresResourceMerge => {
+                "cylinder-resource-merge-primitive"
+            }
+            CylinderResourceConstructionFeasibility::InvalidResourceSets => {
+                "valid-cylinder-resource-set"
+            }
+            CylinderResourceConstructionFeasibility::ExecutableByExistingResources
+            | CylinderResourceConstructionFeasibility::ExecutableAfterNormalization => "none",
         }
     }
 }

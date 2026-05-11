@@ -166,6 +166,24 @@ impl SharedStartBridgePreflight {
             0
         }
     }
+
+    pub(super) fn candidate_gate_complete(&self) -> bool {
+        match self.status {
+            SharedStartBridgePreflightStatus::NotApplicable => true,
+            SharedStartBridgePreflightStatus::Ready => {
+                self.graph_summary.construction_candidates > 0
+            }
+            SharedStartBridgePreflightStatus::Rejected => {
+                self.graph_summary.construction_candidates > 0
+                    && self.reason != "shared-start-bridge-candidate-gate-missing-candidate"
+                    && self.reason
+                        != "shared-start-bridge-candidate-gate-missing-operation-candidate"
+                    && !self
+                        .reason
+                        .starts_with("shared-start-bridge-candidate-gate-missing-")
+            }
+        }
+    }
 }
 
 pub(super) fn preflight_shared_start_bridge(

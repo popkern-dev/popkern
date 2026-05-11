@@ -5,6 +5,7 @@ use crate::error::CoreError;
 use super::apply_cylinder_resource_blockers::CylinderResourceBlockerExposureResult;
 use super::apply_cylinder_resources::BridgeResourceReconciliationStatus;
 use super::apply_owner_spans::OwnerRepairExposureResult;
+use super::apply_resource_candidates::CylinderResourceCandidateSummary;
 use super::apply_shared_start_bridge::SharedStartBridgePreflight;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,6 +15,11 @@ pub(super) struct CylinderMediatedCandidateCoverage {
     resource_candidates: usize,
     shared_start_bridge_required: bool,
     shared_start_bridge_candidates: usize,
+    owner_exposure_gate_complete: bool,
+    blocker_exposure_gate_complete: bool,
+    resource_gate_complete: bool,
+    shared_start_bridge_gate_complete: bool,
+    resource_missing_primitive: &'static str,
 }
 
 impl CylinderMediatedCandidateCoverage {
@@ -29,6 +35,15 @@ impl CylinderMediatedCandidateCoverage {
             resource_candidates: resource_status.candidate_count(),
             shared_start_bridge_required: shared_start_bridge.requires_candidate_coverage(),
             shared_start_bridge_candidates: shared_start_bridge.candidate_count(),
+            owner_exposure_gate_complete: owner_exposure.candidate_gate_complete(),
+            blocker_exposure_gate_complete: blocker_exposure.candidate_gate_complete(),
+            resource_gate_complete: CylinderResourceCandidateSummary::from_status(resource_status)
+                .mutation_gate_complete(),
+            shared_start_bridge_gate_complete: shared_start_bridge.candidate_gate_complete(),
+            resource_missing_primitive: CylinderResourceCandidateSummary::from_status(
+                resource_status,
+            )
+            .missing_primitive(),
         }
     }
 
@@ -56,17 +71,42 @@ impl CylinderMediatedCandidateCoverage {
                     .into(),
             ));
         }
+        if !self.owner_exposure_gate_complete {
+            return Err(CoreError::PreconditionFailed(
+                "cylinder-mediated owner exposure candidate failed mutation gate".into(),
+            ));
+        }
+        if !self.blocker_exposure_gate_complete {
+            return Err(CoreError::PreconditionFailed(
+                "cylinder-mediated blocker exposure candidate failed mutation gate".into(),
+            ));
+        }
+        if !self.resource_gate_complete {
+            return Err(CoreError::PreconditionFailed(
+                "cylinder-mediated resource candidate failed mutation gate".into(),
+            ));
+        }
+        if !self.shared_start_bridge_gate_complete {
+            return Err(CoreError::PreconditionFailed(
+                "cylinder-mediated shared-start bridge candidate failed mutation gate".into(),
+            ));
+        }
         Ok(self)
     }
 
     pub(super) fn diagnostic_label(self) -> String {
         format!(
-            "cylinder_mediated_candidate_coverage=owner_exposure:{} blocker_exposure:{} resource:{} shared_start_required:{} shared_start_bridge:{} complete:{}",
+            "cylinder_mediated_candidate_coverage=owner_exposure:{} blocker_exposure:{} resource:{} shared_start_required:{} shared_start_bridge:{} gate_complete=owner:{} blocker:{} resource:{} shared_start:{} resource_missing_primitive:{} complete:{}",
             self.owner_exposure_candidates,
             self.blocker_exposure_candidates,
             self.resource_candidates,
             self.shared_start_bridge_required,
             self.shared_start_bridge_candidates,
+            self.owner_exposure_gate_complete,
+            self.blocker_exposure_gate_complete,
+            self.resource_gate_complete,
+            self.shared_start_bridge_gate_complete,
+            self.resource_missing_primitive,
             self.is_complete()
         )
     }
@@ -76,5 +116,9 @@ impl CylinderMediatedCandidateCoverage {
             && self.blocker_exposure_candidates > 0
             && self.resource_candidates > 0
             && (!self.shared_start_bridge_required || self.shared_start_bridge_candidates > 0)
+            && self.owner_exposure_gate_complete
+            && self.blocker_exposure_gate_complete
+            && self.resource_gate_complete
+            && self.shared_start_bridge_gate_complete
     }
 }
