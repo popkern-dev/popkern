@@ -33,7 +33,13 @@ fn empty_bridge_diagnostic_report_is_deterministic() {
          candidate_requirements=live_revalidation:0 postcondition_verification:0 unknown:0 \
          postcondition_preview_candidates=0 \
          geometry_feasibility=facts:0 ready:0 unsupported_family:0 repair_required:0 \
-         not_applicable:0 unknown:0 predicted_delta=dV=0 dE=0 dF=0 dL=0"
+         not_applicable:0 unknown:0 \
+         validity_repair=facts:0 valid_as_input:0 valid_after_non_mutating_normalization:0 \
+         requires_topology_repair:0 requires_geometry_repair:0 \
+         rejected_design_intent_changing:0 not_applicable:0 unknown:0 \
+         status_no_repair_required:0 status_non_mutating_normalization_available:0 \
+         status_repair_required:0 status_rejected:0 status_unknown:0 \
+         predicted_delta=dV=0 dE=0 dF=0 dL=0"
     );
     assert!(first.graph.candidates.is_empty());
 }

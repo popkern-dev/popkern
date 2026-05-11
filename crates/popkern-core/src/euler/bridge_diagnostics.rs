@@ -30,7 +30,7 @@ use candidate_types::ConstructionCandidateDraft;
 pub use candidate_types::{
     ConstructionCandidate, ConstructionCandidateId, ConstructionFamily, ConstructionFeasibility,
     ConstructionRequirement, DiagnosticTolerance, DiagnosticToleranceSource, GeometryFeasibility,
-    GeometryFeasibilityFact,
+    GeometryFeasibilityFact, ValidityRepairFact, ValidityRepairReadiness, ValidityRepairStatus,
 };
 pub use postconditions::{
     DiagnosticTopologyDelta, PostconditionPrediction, PostconditionPredictionId,
@@ -455,6 +455,7 @@ impl TopologyDiagnosticGraph {
             requirements: draft.requirements,
             postcondition_preview: draft.postcondition_preview,
             geometry_facts: draft.geometry_facts,
+            validity_repair_facts: draft.validity_repair_facts,
         });
         id
     }

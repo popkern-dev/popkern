@@ -1,6 +1,7 @@
 use super::{
     ConstructionFamily, ConstructionFeasibility, ConstructionRequirement, GeometryFeasibility,
     OperatorReadinessStatus, ResourceConflictKind, TopologyDiagnosticGraph,
+    ValidityRepairReadiness, ValidityRepairStatus,
 };
 
 /// Compact bridge diagnostic summary.
@@ -64,6 +65,32 @@ pub struct BridgeDiagnosticSummary {
     pub geometry_not_applicable_facts: usize,
     /// Unknown geometry facts.
     pub unknown_geometry_feasibility_facts: usize,
+    /// Validity/repair facts attached to candidates.
+    pub validity_repair_facts: usize,
+    /// Candidate inputs valid as-is.
+    pub valid_as_input_facts: usize,
+    /// Candidate inputs valid after non-mutating normalization.
+    pub valid_after_non_mutating_normalization_facts: usize,
+    /// Candidate inputs requiring topology repair.
+    pub requires_topology_repair_facts: usize,
+    /// Candidate inputs requiring geometry repair.
+    pub requires_geometry_repair_facts: usize,
+    /// Candidate repairs rejected because they would change design intent.
+    pub rejected_design_intent_changing_repair_facts: usize,
+    /// Not-applicable validity/repair facts.
+    pub validity_repair_not_applicable_facts: usize,
+    /// Unknown validity/repair facts.
+    pub unknown_validity_repair_facts: usize,
+    /// Validity facts that need no repair.
+    pub no_repair_required_facts: usize,
+    /// Validity facts with non-mutating normalization available.
+    pub non_mutating_normalization_available_facts: usize,
+    /// Validity facts requiring repair.
+    pub repair_required_facts: usize,
+    /// Validity facts rejected by repair policy.
+    pub repair_rejected_facts: usize,
+    /// Validity facts with unknown repair status.
+    pub unknown_repair_status_facts: usize,
     /// Sum of predicted vertex-count deltas.
     pub predicted_delta_vertices: i64,
     /// Sum of predicted edge-count deltas.
@@ -140,6 +167,11 @@ impl BridgeDiagnosticSummary {
                 summary.geometry_feasibility_facts += 1;
                 summary.count_geometry_feasibility(fact.feasibility);
             }
+            for fact in &candidate.validity_repair_facts {
+                summary.validity_repair_facts += 1;
+                summary.count_validity_repair_readiness(fact.readiness);
+                summary.count_validity_repair_status(fact.status);
+            }
         }
         for postcondition in &graph.postconditions {
             summary.predicted_delta_vertices += postcondition.expected_delta.vertices;
@@ -182,6 +214,19 @@ impl BridgeDiagnosticSummary {
             geometry_repair_required_facts: 0,
             geometry_not_applicable_facts: 0,
             unknown_geometry_feasibility_facts: 0,
+            validity_repair_facts: 0,
+            valid_as_input_facts: 0,
+            valid_after_non_mutating_normalization_facts: 0,
+            requires_topology_repair_facts: 0,
+            requires_geometry_repair_facts: 0,
+            rejected_design_intent_changing_repair_facts: 0,
+            validity_repair_not_applicable_facts: 0,
+            unknown_validity_repair_facts: 0,
+            no_repair_required_facts: 0,
+            non_mutating_normalization_available_facts: 0,
+            repair_required_facts: 0,
+            repair_rejected_facts: 0,
+            unknown_repair_status_facts: 0,
             predicted_delta_vertices: 0,
             predicted_delta_edges: 0,
             predicted_delta_faces: 0,
@@ -211,7 +256,7 @@ impl BridgeDiagnosticSummary {
     /// Stable compact diagnostic label.
     pub fn diagnostic_label(&self) -> String {
         format!(
-            "bridge_diagnostics=operations={} resources={} conflicts={} readiness={} construction_candidates={} postconditions={} conflicts_by_kind=duplicate_half_edge:{} duplicate_boundary_edge:{} shared_start:{} shared_end:{} crossed_endpoint:{} aligned:{} nested:{} interior:{} repeated_edge:{} already_boundary:{} paired_exposure:{} unsupported_owner:{} stale_handle:{} unknown:{} readiness_by_status=ready:{} ready_after_normalization:{} missing_operator:{} invalid_input:{} unknown:{} candidate_families=disjoint_cross_loop:{} disjoint_same_loop:{} paired_same_loop_twin_exposure:{} boundary_side_separator:{} unknown:{} candidate_feasibility=executable_existing:{} executable_after_normalization:{} requires_separator_subcomplex:{} requires_custom_aggregate_authoring:{} requires_cycle_regrouping:{} invalid_non_manifold:{} unsupported_unknown_family:{} unknown:{} candidate_requirements=live_revalidation:{} postcondition_verification:{} unknown:{} postcondition_preview_candidates={} geometry_feasibility=facts:{} ready:{} unsupported_family:{} repair_required:{} not_applicable:{} unknown:{} predicted_delta=dV={} dE={} dF={} dL={}",
+            "bridge_diagnostics=operations={} resources={} conflicts={} readiness={} construction_candidates={} postconditions={} conflicts_by_kind=duplicate_half_edge:{} duplicate_boundary_edge:{} shared_start:{} shared_end:{} crossed_endpoint:{} aligned:{} nested:{} interior:{} repeated_edge:{} already_boundary:{} paired_exposure:{} unsupported_owner:{} stale_handle:{} unknown:{} readiness_by_status=ready:{} ready_after_normalization:{} missing_operator:{} invalid_input:{} unknown:{} candidate_families=disjoint_cross_loop:{} disjoint_same_loop:{} paired_same_loop_twin_exposure:{} boundary_side_separator:{} unknown:{} candidate_feasibility=executable_existing:{} executable_after_normalization:{} requires_separator_subcomplex:{} requires_custom_aggregate_authoring:{} requires_cycle_regrouping:{} invalid_non_manifold:{} unsupported_unknown_family:{} unknown:{} candidate_requirements=live_revalidation:{} postcondition_verification:{} unknown:{} postcondition_preview_candidates={} geometry_feasibility=facts:{} ready:{} unsupported_family:{} repair_required:{} not_applicable:{} unknown:{} validity_repair=facts:{} valid_as_input:{} valid_after_non_mutating_normalization:{} requires_topology_repair:{} requires_geometry_repair:{} rejected_design_intent_changing:{} not_applicable:{} unknown:{} status_no_repair_required:{} status_non_mutating_normalization_available:{} status_repair_required:{} status_rejected:{} status_unknown:{} predicted_delta=dV={} dE={} dF={} dL={}",
             self.operations,
             self.resources,
             self.conflicts,
@@ -260,6 +305,19 @@ impl BridgeDiagnosticSummary {
             self.geometry_repair_required_facts,
             self.geometry_not_applicable_facts,
             self.unknown_geometry_feasibility_facts,
+            self.validity_repair_facts,
+            self.valid_as_input_facts,
+            self.valid_after_non_mutating_normalization_facts,
+            self.requires_topology_repair_facts,
+            self.requires_geometry_repair_facts,
+            self.rejected_design_intent_changing_repair_facts,
+            self.validity_repair_not_applicable_facts,
+            self.unknown_validity_repair_facts,
+            self.no_repair_required_facts,
+            self.non_mutating_normalization_available_facts,
+            self.repair_required_facts,
+            self.repair_rejected_facts,
+            self.unknown_repair_status_facts,
             self.predicted_delta_vertices,
             self.predicted_delta_edges,
             self.predicted_delta_faces,
@@ -402,6 +460,40 @@ impl BridgeDiagnosticSummary {
             GeometryFeasibility::RepairRequiredBeforeConstruction => {
                 self.geometry_repair_required_facts += 1;
             }
+        }
+    }
+
+    fn count_validity_repair_readiness(&mut self, readiness: ValidityRepairReadiness) {
+        match readiness {
+            ValidityRepairReadiness::Unknown => self.unknown_validity_repair_facts += 1,
+            ValidityRepairReadiness::NotApplicable => {
+                self.validity_repair_not_applicable_facts += 1
+            }
+            ValidityRepairReadiness::ValidAsInput => self.valid_as_input_facts += 1,
+            ValidityRepairReadiness::ValidAfterNonMutatingNormalization => {
+                self.valid_after_non_mutating_normalization_facts += 1;
+            }
+            ValidityRepairReadiness::RequiresTopologyRepair => {
+                self.requires_topology_repair_facts += 1;
+            }
+            ValidityRepairReadiness::RequiresGeometryRepair => {
+                self.requires_geometry_repair_facts += 1;
+            }
+            ValidityRepairReadiness::RejectedDesignIntentChangingRepair => {
+                self.rejected_design_intent_changing_repair_facts += 1;
+            }
+        }
+    }
+
+    fn count_validity_repair_status(&mut self, status: ValidityRepairStatus) {
+        match status {
+            ValidityRepairStatus::Unknown => self.unknown_repair_status_facts += 1,
+            ValidityRepairStatus::NoRepairRequired => self.no_repair_required_facts += 1,
+            ValidityRepairStatus::NonMutatingNormalizationAvailable => {
+                self.non_mutating_normalization_available_facts += 1;
+            }
+            ValidityRepairStatus::RepairRequired => self.repair_required_facts += 1,
+            ValidityRepairStatus::Rejected => self.repair_rejected_facts += 1,
         }
     }
 }

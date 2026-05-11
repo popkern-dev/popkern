@@ -1,7 +1,7 @@
 use crate::euler::{
     BridgeDiagnosticOperationRequest, BridgeDiagnosticRequest, ConstructionFamily,
     ConstructionFeasibility, ConstructionRequirement, DiagnosticOperationPurpose,
-    GeometryFeasibility, OperatorReadinessStatus,
+    GeometryFeasibility, OperatorReadinessStatus, ValidityRepairReadiness, ValidityRepairStatus,
 };
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
@@ -39,6 +39,12 @@ fn candidates_report_disjoint_cross_loop_bridge() {
                 .geometry_facts
                 .iter()
                 .any(|fact| fact.feasibility == GeometryFeasibility::GeometryReady)
+            && candidate.validity_repair_facts.iter().any(|fact| {
+                fact.readiness == ValidityRepairReadiness::ValidAsInput
+                    && fact.status == ValidityRepairStatus::NoRepairRequired
+                    && !fact.changes_semantic_ownership
+                    && !fact.changes_user_visible_intent
+            })
             && candidate
                 .requirements
                 .contains(&ConstructionRequirement::LiveTopologyRevalidation)
@@ -113,6 +119,8 @@ fn candidates_report_disjoint_same_loop_bridge() {
     assert_eq!(report.summary.predicted_delta_edges, 2);
     assert_eq!(report.summary.predicted_delta_faces, 1);
     assert_eq!(report.summary.predicted_delta_loops, 1);
+    assert_eq!(report.summary.valid_as_input_facts, 1);
+    assert_eq!(report.summary.no_repair_required_facts, 1);
 }
 
 #[test]

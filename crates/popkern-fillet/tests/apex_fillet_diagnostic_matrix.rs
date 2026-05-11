@@ -48,6 +48,13 @@ fn seed_matrix_panic_output_names_family_and_feasibility() {
                 row.case_id
             );
         }
+        if row.validity_repair_required {
+            assert!(
+                row.validity_repair.is_some(),
+                "{} requires validity/repair readiness but has no validity facet: {label}",
+                row.case_id
+            );
+        }
         assert!(
             label.contains("terminal="),
             "{} lacks terminal classification: {label}",

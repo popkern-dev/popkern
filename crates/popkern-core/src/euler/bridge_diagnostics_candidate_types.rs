@@ -11,6 +11,7 @@ pub(in crate::euler) struct ConstructionCandidateDraft {
     pub(super) requirements: Vec<ConstructionRequirement>,
     pub(super) postcondition_preview: Option<PostconditionPredictionId>,
     pub(super) geometry_facts: Vec<GeometryFeasibilityFact>,
+    pub(super) validity_repair_facts: Vec<ValidityRepairFact>,
 }
 
 /// Local graph id for a construction candidate.
@@ -38,6 +39,57 @@ pub struct ConstructionCandidate {
     pub postcondition_preview: Option<PostconditionPredictionId>,
     /// Geometry feasibility facts for this candidate.
     pub geometry_facts: Vec<GeometryFeasibilityFact>,
+    /// Validity and repair readiness facts for this candidate.
+    pub validity_repair_facts: Vec<ValidityRepairFact>,
+}
+
+/// Validity and repair readiness for a construction candidate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ValidityRepairReadiness {
+    /// Validity/repair state has not been classified yet.
+    Unknown,
+    /// No validity/repair fact is relevant.
+    NotApplicable,
+    /// Candidate input is valid as-is.
+    ValidAsInput,
+    /// Candidate is valid after non-mutating normalization.
+    ValidAfterNonMutatingNormalization,
+    /// Candidate requires topology repair.
+    RequiresTopologyRepair,
+    /// Candidate requires geometry repair.
+    RequiresGeometryRepair,
+    /// Candidate repair is rejected because it would alter design intent.
+    RejectedDesignIntentChangingRepair,
+}
+
+/// One validity/repair fact attached to a construction candidate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ValidityRepairFact {
+    /// Readiness state.
+    pub readiness: ValidityRepairReadiness,
+    /// Stable reason label.
+    pub reason: &'static str,
+    /// Semantic effect of any required repair.
+    pub status: ValidityRepairStatus,
+    /// Whether required repair would change semantic ownership.
+    pub changes_semantic_ownership: bool,
+    /// Whether required repair would change user-visible design intent.
+    pub changes_user_visible_intent: bool,
+}
+
+/// Repair status for a validity/repair fact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ValidityRepairStatus {
+    /// Repair status has not been classified yet.
+    Unknown,
+    /// No repair is needed.
+    NoRepairRequired,
+    /// Non-mutating normalization can satisfy validity.
+    NonMutatingNormalizationAvailable,
+    /// Mutating repair is required before construction.
+    RepairRequired,
+    /// Repair is rejected for this candidate.
+    Rejected,
 }
 
 /// Geometry feasibility state for a construction candidate.

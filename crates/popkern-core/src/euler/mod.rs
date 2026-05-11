@@ -39,7 +39,8 @@ pub use bridge_diagnostics::{
     DiagnosticToleranceSource, DiagnosticTopologyDelta, GeometryFeasibility,
     GeometryFeasibilityFact, OperatorReadiness, OperatorReadinessStatus, PostconditionPrediction,
     PostconditionPredictionId, ResourceConflict, ResourceConflictId, ResourceConflictKind,
-    ResourceConflictStatus, TopologyDiagnosticGraph, TopologyGraphFingerprint,
+    ResourceConflictStatus, TopologyDiagnosticGraph, TopologyGraphFingerprint, ValidityRepairFact,
+    ValidityRepairReadiness, ValidityRepairStatus,
 };
 pub use construction_residual_retire::ConstructionResidualRetireResult;
 pub use cylinder_mediated_support::{
