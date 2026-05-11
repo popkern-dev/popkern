@@ -5,7 +5,10 @@
 //! mutation yet.
 
 use crate::error::CoreError;
-use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
+use crate::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
+
+#[path = "bridge_diagnostics_inventory.rs"]
+mod inventory;
 
 /// Local graph id for a diagnostic resource.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -192,6 +195,10 @@ pub enum DiagnosticHandle {
     None,
     /// Half-edge handle.
     HalfEdge(HalfEdgeHandle),
+    /// Edge handle.
+    Edge(EdgeHandle),
+    /// Vertex handle.
+    Vertex(VertexHandle),
     /// Loop handle.
     Loop(LoopHandle),
     /// Face handle.
@@ -319,6 +326,7 @@ impl BRep {
     ) -> Result<BridgeDiagnosticReport, CoreError> {
         let graph =
             TopologyDiagnosticGraph::empty(TopologyGraphFingerprint::capture(self, &request));
+        let graph = inventory::populate_bridge_inventory(self, &request, graph);
         Ok(BridgeDiagnosticReport {
             summary: BridgeDiagnosticSummary::from_graph(&graph),
             graph,
@@ -336,6 +344,40 @@ impl TopologyDiagnosticGraph {
             readiness: Vec::new(),
             postconditions: Vec::new(),
         }
+    }
+
+    pub(super) fn push_resource(
+        &mut self,
+        kind: DiagnosticResourceKind,
+        handle: DiagnosticHandle,
+        owner: DiagnosticOwner,
+        status: DiagnosticResourceStatus,
+    ) -> DiagnosticResourceId {
+        let id = DiagnosticResourceId(self.resources.len());
+        self.resources.push(DiagnosticResource {
+            id,
+            kind,
+            handle,
+            owner,
+            status,
+        });
+        id
+    }
+
+    pub(super) fn push_operation(
+        &mut self,
+        purpose: DiagnosticOperationPurpose,
+        consumes: Vec<DiagnosticResourceId>,
+    ) -> DiagnosticOperationId {
+        let id = DiagnosticOperationId(self.operations.len());
+        self.operations.push(DiagnosticOperation {
+            id,
+            kind: DiagnosticOperationKind::Bridge,
+            purpose,
+            consumes,
+            creates: Vec::new(),
+        });
+        id
     }
 }
 
