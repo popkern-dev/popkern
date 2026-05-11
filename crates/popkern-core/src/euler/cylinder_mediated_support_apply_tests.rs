@@ -101,6 +101,13 @@ fn mutator_boundary_refuses_without_mutating_topology() {
         ),
         "{err}"
     );
+    assert!(
+        detail.contains(
+            "split_resource_merge_operands=[outside=1 requests=0+1 \
+             outside_endpoints="
+        ),
+        "{err}"
+    );
     assert!(detail.contains("context_owner_faces=[]"), "{err}");
     assert!(detail.contains("unsupported_owner_faces=[]"), "{err}");
     assert_eq!(TopologySnapshot::capture(&brep), before);

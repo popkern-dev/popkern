@@ -184,7 +184,7 @@ impl BRep {
             let reconciliation = CylinderBridgeResourcePartition::from_remapped_segments(
                 cylinder_resource_remap.segments(),
             )
-            .reconcile(&bridge_cycles);
+            .reconcile(&candidate, &bridge_cycles)?;
             (
                 repair_result,
                 blocker_exposure,

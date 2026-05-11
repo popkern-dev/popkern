@@ -4,6 +4,17 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::apply_bridge_cycles::SegmentBridgeCycleOperandSet;
 use super::{CylinderBridgeResourcePartition, CylinderBridgeResourceSegment};
+use crate::error::CoreError;
+use crate::topology::BRep;
+
+#[path = "cylinder_mediated_support_apply_cylinder_resource_split_merge.rs"]
+mod split_merge;
+
+use split_merge::{
+    SplitResourceMergeOperand, cylinder_request_sets_cover_missing_set,
+    split_resource_merge_operand_summary, split_resource_merge_operands,
+    split_resource_merge_summary,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::euler::cylinder_mediated_support_apply) struct BridgeResourceReconciliation {
@@ -15,6 +26,7 @@ pub(in crate::euler::cylinder_mediated_support_apply) struct BridgeResourceRecon
     outside_request_sets: Vec<Vec<usize>>,
     cylinder_request_sets: Vec<Vec<usize>>,
     missing_request_sets: Vec<Vec<usize>>,
+    split_resource_merge_operands: Vec<SplitResourceMergeOperand>,
     actions: Vec<BridgeResourceConstructionAction>,
 }
 
@@ -77,7 +89,7 @@ impl BridgeResourceReconciliation {
 
     pub(in crate::euler::cylinder_mediated_support_apply) fn diagnostic_label(&self) -> String {
         format!(
-            "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={} duplicate_cylinder_request_sets={} resource_status={} construction_actions={} action_sequence=[{}] outside_request_sets=[{}] cylinder_request_sets=[{}] missing_request_sets=[{}] {}",
+            "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={} duplicate_cylinder_request_sets={} resource_status={} construction_actions={} action_sequence=[{}] outside_request_sets=[{}] cylinder_request_sets=[{}] missing_request_sets=[{}] {} {}",
             self.outside_segments,
             self.cylinder_segments,
             self.exact_matches,
@@ -90,8 +102,8 @@ impl BridgeResourceReconciliation {
             request_set_summary(&self.outside_request_sets),
             request_set_summary(&self.cylinder_request_sets),
             request_set_summary(&self.missing_request_sets),
-            split_resource_merge_summary(&self.missing_request_sets, &self.cylinder_request_sets)
-                .diagnostic_label()
+            split_resource_merge_summary(&self.split_resource_merge_operands).diagnostic_label(),
+            split_resource_merge_operand_summary(&self.split_resource_merge_operands)
         )
     }
 }
@@ -142,8 +154,9 @@ enum BridgeResourceConstructionActionKind {
 impl CylinderBridgeResourcePartition {
     pub(in crate::euler::cylinder_mediated_support_apply) fn reconcile(
         &self,
+        brep: &BRep,
         bridge_cycles: &SegmentBridgeCycleOperandSet,
-    ) -> BridgeResourceReconciliation {
+    ) -> Result<BridgeResourceReconciliation, CoreError> {
         let outside_request_sets = bridge_cycles
             .request_index_sets()
             .map(<[usize]>::to_vec)
@@ -151,6 +164,7 @@ impl CylinderBridgeResourcePartition {
         let mut matched_cylinder_segments = BTreeSet::new();
         let mut exact_matches = 0usize;
         let mut missing_request_sets = Vec::new();
+        let mut missing_outside_segments = Vec::new();
         let mut actions = Vec::new();
         for (outside_segment_index, outside_request_set) in outside_request_sets.iter().enumerate()
         {
@@ -159,6 +173,7 @@ impl CylinderBridgeResourcePartition {
                     && &cylinder.request_indices == outside_request_set
             }) else {
                 missing_request_sets.push(outside_request_set.clone());
+                missing_outside_segments.push((outside_segment_index, outside_request_set.clone()));
                 actions.push(unmatched_construction_action(
                     &self.segments,
                     outside_segment_index,
@@ -175,7 +190,13 @@ impl CylinderBridgeResourcePartition {
                 request_indices: outside_request_set.clone(),
             });
         }
-        BridgeResourceReconciliation {
+        let split_resource_merge_operands = split_resource_merge_operands(
+            brep,
+            bridge_cycles,
+            &missing_outside_segments,
+            &self.segments,
+        )?;
+        Ok(BridgeResourceReconciliation {
             outside_segments: outside_request_sets.len(),
             cylinder_segments: self.segments.len(),
             exact_matches,
@@ -188,8 +209,9 @@ impl CylinderBridgeResourcePartition {
                 .map(|segment| segment.request_indices.clone())
                 .collect(),
             missing_request_sets,
+            split_resource_merge_operands,
             actions,
-        }
+        })
     }
 }
 
@@ -303,60 +325,6 @@ fn duplicate_request_set_count(request_sets: &[Vec<usize>]) -> usize {
         *counts.entry(request_set).or_default() += 1;
     }
     counts.values().filter(|&&count| count > 1).count()
-}
-
-fn cylinder_request_sets_cover_missing_set(
-    missing: &[usize],
-    cylinder_sets: &[Vec<usize>],
-) -> bool {
-    let covered = cylinder_sets
-        .iter()
-        .filter(|set| cylinder_request_set_participates_in_missing_set(missing, set))
-        .flat_map(|set| set.iter().copied())
-        .collect::<BTreeSet<_>>();
-    missing.iter().all(|index| covered.contains(index))
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct SplitResourceMergeSummary {
-    missing_sets: usize,
-    coverable_sets: usize,
-    candidate_cylinder_runs: usize,
-}
-
-impl SplitResourceMergeSummary {
-    fn diagnostic_label(self) -> String {
-        format!(
-            "split_resource_merge_candidates=missing_sets={} coverable_sets={} cylinder_runs={}",
-            self.missing_sets, self.coverable_sets, self.candidate_cylinder_runs
-        )
-    }
-}
-
-fn split_resource_merge_summary(
-    missing_sets: &[Vec<usize>],
-    cylinder_sets: &[Vec<usize>],
-) -> SplitResourceMergeSummary {
-    let mut summary = SplitResourceMergeSummary {
-        missing_sets: missing_sets.len(),
-        ..SplitResourceMergeSummary::default()
-    };
-    for missing in missing_sets {
-        let candidate_runs = cylinder_sets
-            .iter()
-            .filter(|set| cylinder_request_set_participates_in_missing_set(missing, set))
-            .count();
-        if candidate_runs > 0 && cylinder_request_sets_cover_missing_set(missing, cylinder_sets) {
-            summary.coverable_sets += 1;
-            summary.candidate_cylinder_runs += candidate_runs;
-        }
-    }
-    summary
-}
-
-fn cylinder_request_set_participates_in_missing_set(missing: &[usize], set: &[usize]) -> bool {
-    set.iter().all(|index| missing.contains(index))
-        || missing.iter().all(|index| set.contains(index))
 }
 
 fn request_set_label(set: &[usize]) -> String {

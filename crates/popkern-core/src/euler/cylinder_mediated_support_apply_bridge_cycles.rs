@@ -27,6 +27,21 @@ impl SegmentBridgeCycleOperandSet {
             .map(|operand| operand.request_indices.as_slice())
     }
 
+    pub(super) fn boundary_endpoint_pair(
+        &self,
+        segment_index: usize,
+    ) -> Option<(VertexHandle, VertexHandle)> {
+        self.operands
+            .get(segment_index)
+            .map(|operand| (operand.start, operand.end))
+    }
+
+    pub(super) fn boundary_half_edge_count(&self, segment_index: usize) -> Option<usize> {
+        self.operands
+            .get(segment_index)
+            .map(|operand| operand.boundary_half_edges.len())
+    }
+
     pub(super) fn ownership_status(&self) -> SegmentBridgeCycleOwnershipStatus {
         if self
             .operands
