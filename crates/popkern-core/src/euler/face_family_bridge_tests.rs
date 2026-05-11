@@ -102,6 +102,30 @@ fn face_family_bridge_refuses_overlapping_boundary_consumption() {
     assert!(err.to_string().contains("cycles overlap on boundary edge"));
 }
 
+#[test]
+fn direct_face_family_bridge_api_remains_candidate_gate_independent() {
+    let mut brep = boundary_bridge_fixture();
+    let faces = brep.faces.keys().collect::<Vec<_>>();
+    let first_loop = brep.faces[faces[0]].outer_loop;
+    let outside_loop = brep.faces[faces[2]].outer_loop;
+    let first_start = brep.loops[first_loop].half_edge;
+    let outside_start = brep.loops[outside_loop].half_edge;
+    let plan = brep
+        .preflight_face_family_bridge(vec![FaceFamilyBridgeCycleRequest {
+            first_loop,
+            first_interval: vec![first_start, brep.half_edges[first_start].next],
+            second_loop: outside_loop,
+            second_interval: vec![outside_start, brep.half_edges[outside_start].next],
+        }])
+        .expect("direct operator preflight accepts validated cycle");
+
+    let result = brep
+        .face_family_bridge(&plan)
+        .expect("direct operator remains callable without planner gate");
+
+    assert_eq!(result.cycles.len(), 1);
+}
+
 fn boundary_bridge_fixture() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
     let solid = brep.solids.insert(Solid {

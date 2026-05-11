@@ -1,4 +1,7 @@
-use crate::euler::{BoundarySideSeparatorBridgeRequest, FaceFamilyBridgeCycleRequest};
+use crate::euler::{
+    BoundarySideSeparatorBridgeRequest, BridgeDiagnosticOperationRequest, BridgeDiagnosticRequest,
+    ConstructionFamily, FaceFamilyBridgeCycleRequest,
+};
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 use crate::topology::{BRep, Edge, Face, HalfEdge, HalfEdgeHandle, Loop, Shell, Solid, Vertex};
@@ -33,6 +36,43 @@ fn boundary_side_separator_preflight_accepts_one_already_boundary_overlap() {
         ),
         (0, 3, 1, 1)
     );
+}
+
+#[test]
+fn boundary_side_separator_diagnostic_candidate_is_gate_complete() {
+    let brep = same_loop_boundary_fixture();
+    let face = brep.faces.keys().next().expect("fixture has a face");
+    let loop_ = brep.faces[face].outer_loop;
+    let first = brep.loops[loop_].half_edge;
+    let after_first = brep.half_edges[first].next;
+
+    let report = brep
+        .bridge_diagnostic_report(BridgeDiagnosticRequest {
+            operations: vec![BridgeDiagnosticOperationRequest {
+                purpose: crate::euler::DiagnosticOperationPurpose::BridgeCycle,
+                first_loop: loop_,
+                first_interval: vec![first, after_first],
+                second_loop: loop_,
+                second_interval: vec![first, after_first],
+            }],
+        })
+        .expect("diagnostic report builds");
+    let candidate = report
+        .graph
+        .candidates
+        .iter()
+        .find(|candidate| candidate.family == ConstructionFamily::BoundarySideSeparatorBridge)
+        .expect("diagnostics include separator candidate");
+
+    candidate
+        .validate_mutation_gate()
+        .expect("separator candidate has complete gate facts");
+    assert_eq!(report.summary.missing_operators, 1);
+    assert_eq!(
+        report.summary.missing_primitive_operation_dependency_facts,
+        1
+    );
+    assert_eq!(report.summary.downstream_blocked_missing_primitive_facts, 1);
 }
 
 #[test]
@@ -146,7 +186,7 @@ fn boundary_side_separator_rejects_non_boundary_overlap() {
 
     assert!(
         err.to_string()
-            .contains("requires exactly one already-boundary duplicate side")
+            .contains("requires a typed construction candidate")
     );
 }
 

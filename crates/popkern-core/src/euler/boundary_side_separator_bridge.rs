@@ -4,9 +4,9 @@ use std::collections::BTreeSet;
 
 use crate::error::CoreError;
 use crate::euler::{
-    BridgeDiagnosticOperationRequest, BridgeDiagnosticRequest, DiagnosticHandle,
-    DiagnosticOperationPurpose, DiagnosticResourceKind, FaceFamilyBridgeCycleRequest,
-    ResourceConflictKind,
+    BridgeDiagnosticOperationRequest, BridgeDiagnosticReport, BridgeDiagnosticRequest,
+    DiagnosticHandle, DiagnosticOperationPurpose, DiagnosticResourceKind,
+    FaceFamilyBridgeCycleRequest, ResourceConflictKind,
 };
 use crate::topology::{BRep, EdgeHandle, HalfEdgeHandle};
 
@@ -67,6 +67,7 @@ impl BRep {
                 })
                 .collect(),
         })?;
+        require_boundary_side_separator_candidate_gate(&report)?;
         let summary = report.summary;
         if summary.already_boundary_overlaps != 1
             || summary.duplicate_boundary_edge_consumptions != 1
@@ -132,6 +133,27 @@ impl BRep {
             },
         })
     }
+}
+
+fn require_boundary_side_separator_candidate_gate(
+    report: &BridgeDiagnosticReport,
+) -> Result<(), CoreError> {
+    let Some(candidate) = report.graph.candidates.iter().find(|candidate| {
+        candidate
+            .feasibility_reason
+            .contains("boundary-side-separator")
+    }) else {
+        return Err(CoreError::PreconditionFailed(
+            "boundary-side separator bridge requires a typed construction candidate".into(),
+        ));
+    };
+    candidate.validate_mutation_gate().map_err(|err| {
+        CoreError::PreconditionFailed(format!(
+            "boundary-side separator bridge candidate gate rejected {}",
+            err.missing_facet.diagnostic_label()
+        ))
+    })?;
+    Ok(())
 }
 
 fn unique_conflict_edge(
