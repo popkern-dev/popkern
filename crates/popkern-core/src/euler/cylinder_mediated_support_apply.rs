@@ -28,7 +28,8 @@ use apply_bridge_cycles::derive_segment_bridge_cycle_operands;
 use apply_cylinder_resource_blockers::expose_cylinder_resource_blockers;
 use apply_cylinder_resource_remap::remap_cylinder_bridge_resources;
 use apply_cylinder_resources::{
-    BridgeResourceReconciliationStatus, derive_cylinder_bridge_resource_partition,
+    BridgeResourceReconciliationStatus, CylinderBridgeResourcePartition,
+    derive_cylinder_bridge_resource_partition,
 };
 use apply_diagnostics::segment_authoring_summary;
 use apply_owner_spans::{expose_owner_repair_spans, owner_repair_spans};
@@ -180,7 +181,10 @@ impl BRep {
                 remap_cylinder_bridge_resources(&candidate, &cylinder_resources, plan)?;
             let bridge_cycles =
                 derive_segment_bridge_cycle_operands(&candidate, plan, &segment_authoring)?;
-            let reconciliation = cylinder_resources.reconcile(&bridge_cycles);
+            let reconciliation = CylinderBridgeResourcePartition::from_remapped_segments(
+                cylinder_resource_remap.segments(),
+            )
+            .reconcile(&bridge_cycles);
             (
                 repair_result,
                 blocker_exposure,

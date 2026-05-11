@@ -22,9 +22,7 @@ fn mutator_boundary_refuses_without_mutating_topology() {
 
     let detail = err.to_string();
     assert!(
-        detail.contains(
-            "cylinder-mediated support continuation shared outside transition bridge construction not implemented"
-        ),
+        detail.contains("cylinder-mediated support continuation bridge resources are incompatible"),
         "{err}"
     );
     assert!(detail.contains("segment_authoring=segments=3"), "{err}");
@@ -77,25 +75,25 @@ fn mutator_boundary_refuses_without_mutating_topology() {
     );
     assert!(
         detail.contains(
-            "cylinder_resource_remap=segments=0 half_edges=0 reversed_segments=0 \
+            "cylinder_resource_remap=segments=4 half_edges=7 reversed_segments=0 \
              unavailable_edges=0 unavailable_not_boundary=0 unavailable_live_twin=0 \
              unavailable_desired_live=0 unavailable_desired_retired=0 \
              unavailable_owner_roles=cylinder:0 support:0 context:0 \
              unavailable_blocking_roles=cylinder:0 support:0 context:0 \
              blocking_spans=0 blocking_half_edges=0 non_contiguous_blocking_spans=0 \
-             unavailable_owner_faces=[] non_contiguous_segments=2"
+             unavailable_owner_faces=[] non_contiguous_segments=0"
         ),
         "{err}"
     );
     assert!(
         detail.contains(
-            "bridge_resource_reconciliation=outside_segments=3 cylinder_segments=2 \
-             exact_matches=2 missing_cylinder_matches=1 extra_cylinder_resources=0 \
-             resource_status=shared-outside-transition-needs-resource \
+            "bridge_resource_reconciliation=outside_segments=3 cylinder_segments=4 \
+             exact_matches=2 missing_cylinder_matches=1 extra_cylinder_resources=2 \
+             duplicate_cylinder_request_sets=2 resource_status=incompatible-resource-sets \
              construction_actions=exact_pair:2 shared_outside:1 single_covered:0 \
              unsupported:0 \
              action_sequence=[0:exact:0:0,1:shared-outside:-:0+1,2:exact:1:1] \
-             outside_request_sets=[0,0+1,1] cylinder_request_sets=[0,1] \
+             outside_request_sets=[0,0+1,1] cylinder_request_sets=[0,1,1,0] \
              missing_request_sets=[0+1]"
         ),
         "{err}"

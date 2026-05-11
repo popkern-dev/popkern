@@ -65,12 +65,13 @@ impl BridgeResourceReconciliation {
 
     pub(super) fn diagnostic_label(&self) -> String {
         format!(
-            "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={} resource_status={} construction_actions={} action_sequence=[{}] outside_request_sets=[{}] cylinder_request_sets=[{}] missing_request_sets=[{}]",
+            "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={} duplicate_cylinder_request_sets={} resource_status={} construction_actions={} action_sequence=[{}] outside_request_sets=[{}] cylinder_request_sets=[{}] missing_request_sets=[{}]",
             self.outside_segments,
             self.cylinder_segments,
             self.exact_matches,
             self.missing_cylinder_matches,
             self.extra_cylinder_resources,
+            duplicate_request_set_count(&self.cylinder_request_sets),
             self.status().diagnostic_label(),
             construction_action_summary(&self.actions),
             construction_action_sequence(&self.actions),
@@ -126,6 +127,14 @@ pub(super) struct CylinderBridgeResourcePartition {
 }
 
 impl CylinderBridgeResourcePartition {
+    pub(super) fn from_remapped_segments(
+        segments: &[CylinderBridgeResourceSegment],
+    ) -> CylinderBridgeResourcePartition {
+        CylinderBridgeResourcePartition {
+            segments: segments.to_vec(),
+        }
+    }
+
     pub(super) fn segments(&self) -> impl Iterator<Item = &CylinderBridgeResourceSegment> {
         self.segments.iter()
     }
@@ -438,6 +447,14 @@ fn request_set_summary(request_sets: &[Vec<usize>]) -> String {
         .map(|set| request_set_label(set))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+fn duplicate_request_set_count(request_sets: &[Vec<usize>]) -> usize {
+    let mut counts = BTreeMap::<&[usize], usize>::new();
+    for request_set in request_sets {
+        *counts.entry(request_set).or_default() += 1;
+    }
+    counts.values().filter(|&&count| count > 1).count()
 }
 
 fn request_set_label(set: &[usize]) -> String {

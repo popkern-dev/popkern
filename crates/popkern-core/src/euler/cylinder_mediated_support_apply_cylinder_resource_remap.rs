@@ -1,16 +1,23 @@
 //! Remap pre-exposure cylinder resources to post-exposure boundary sides.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::error::CoreError;
 use crate::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle};
 
 use super::CylinderMediatedSupportContinuationBatchPlan;
-use super::apply_cylinder_resources::CylinderBridgeResourcePartition;
+use super::apply_cylinder_resources::{
+    CylinderBridgeResourcePartition, CylinderBridgeResourceSegment,
+};
+
+#[path = "cylinder_mediated_support_apply_cylinder_resource_remap_partition.rs"]
+mod remap_partition;
+
+use remap_partition::partition_remapped_cylinder_loop;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct CylinderBridgeResourceRemap {
-    segments: Vec<CylinderBridgeResourceRemappedSegment>,
+    segments: Vec<CylinderBridgeResourceSegment>,
     unavailable_edges: Vec<CylinderBridgeUnavailableEdge>,
     owner_roles: CylinderBridgeUnavailableOwnerRoles,
     blocking_owner_roles: CylinderBridgeUnavailableOwnerRoles,
@@ -23,22 +30,21 @@ impl CylinderBridgeResourceRemap {
         &self.blocking_spans
     }
 
+    pub(super) fn segments(&self) -> &[CylinderBridgeResourceSegment] {
+        &self.segments
+    }
+
     pub(super) fn diagnostic_label(&self) -> String {
         let half_edges = self
             .segments
             .iter()
             .map(|segment| segment.half_edges.len())
             .sum::<usize>();
-        let reversed_segments = self
-            .segments
-            .iter()
-            .filter(|segment| segment.orientation == CylinderBridgeResourceOrientation::Reversed)
-            .count();
         format!(
             "cylinder_resource_remap=segments={} half_edges={} reversed_segments={} unavailable_edges={} unavailable_not_boundary={} unavailable_live_twin={} unavailable_desired_live={} unavailable_desired_retired={} unavailable_owner_roles={} unavailable_blocking_roles={} {} unavailable_owner_faces=[{}] non_contiguous_segments={}",
             self.segments.len(),
             half_edges,
-            reversed_segments,
+            0,
             self.unavailable_edges.len(),
             self.unavailable_not_boundary_count(),
             self.unavailable_live_twin_count(),
@@ -79,18 +85,6 @@ impl CylinderBridgeResourceRemap {
             .filter(|edge| !edge.desired_side_live)
             .count()
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CylinderBridgeResourceRemappedSegment {
-    half_edges: Vec<HalfEdgeHandle>,
-    orientation: CylinderBridgeResourceOrientation,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CylinderBridgeResourceOrientation {
-    Forward,
-    Reversed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,25 +142,36 @@ pub(super) fn remap_cylinder_bridge_resources(
     partition: &CylinderBridgeResourcePartition,
     plan: &CylinderMediatedSupportContinuationBatchPlan,
 ) -> Result<CylinderBridgeResourceRemap, CoreError> {
-    let mut segments = Vec::new();
+    let mut selected_by_loop =
+        BTreeMap::<LoopHandle, BTreeMap<HalfEdgeHandle, BTreeSet<usize>>>::new();
     let mut unavailable_edges = Vec::new();
-    let mut non_contiguous_segments = 0usize;
     for segment in partition.segments() {
-        let mut half_edges = Vec::with_capacity(segment.edges.len());
         for (&edge, &desired_half_edge) in segment.edges.iter().zip(&segment.half_edges) {
             let remap = remapped_boundary_half_edge(brep, edge, desired_half_edge)?;
             let Some(half_edge) = remap.half_edge else {
                 unavailable_edges.push(remap.unavailable);
                 continue;
             };
-            half_edges.push(half_edge);
+            let loop_ = brep
+                .half_edges
+                .get(half_edge)
+                .ok_or_else(|| {
+                    CoreError::InvalidHandle(format!(
+                        "cylinder resource remap produced stale half-edge {half_edge:?}"
+                    ))
+                })?
+                .loop_;
+            selected_by_loop
+                .entry(loop_)
+                .or_default()
+                .entry(half_edge)
+                .or_default()
+                .extend(segment.request_indices.iter().copied());
         }
-        if !half_edges.is_empty() {
-            match orient_remapped_segment(brep, half_edges)? {
-                Some(segment) => segments.push(segment),
-                None => non_contiguous_segments += 1,
-            }
-        }
+    }
+    let mut segments = Vec::new();
+    for (loop_, membership) in selected_by_loop {
+        segments.extend(partition_remapped_cylinder_loop(brep, loop_, &membership)?);
     }
     let blocking_spans = blocking_spans(brep, &unavailable_edges)?;
     Ok(CylinderBridgeResourceRemap {
@@ -175,7 +180,7 @@ pub(super) fn remap_cylinder_bridge_resources(
         blocking_owner_roles: classify_unavailable_blocking_roles(&unavailable_edges, plan),
         blocking_spans,
         unavailable_edges,
-        non_contiguous_segments,
+        non_contiguous_segments: 0,
     })
 }
 
@@ -394,26 +399,6 @@ fn classify_unavailable_blocking_roles(
         }
     }
     roles
-}
-
-fn orient_remapped_segment(
-    brep: &BRep,
-    mut half_edges: Vec<HalfEdgeHandle>,
-) -> Result<Option<CylinderBridgeResourceRemappedSegment>, CoreError> {
-    if is_directed_path(brep, &half_edges)? {
-        return Ok(Some(CylinderBridgeResourceRemappedSegment {
-            half_edges,
-            orientation: CylinderBridgeResourceOrientation::Forward,
-        }));
-    }
-    half_edges.reverse();
-    if is_directed_path(brep, &half_edges)? {
-        return Ok(Some(CylinderBridgeResourceRemappedSegment {
-            half_edges,
-            orientation: CylinderBridgeResourceOrientation::Reversed,
-        }));
-    }
-    Ok(None)
 }
 
 fn is_directed_path(brep: &BRep, half_edges: &[HalfEdgeHandle]) -> Result<bool, CoreError> {
