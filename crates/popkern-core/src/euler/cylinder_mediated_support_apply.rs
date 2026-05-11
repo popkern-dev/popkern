@@ -26,6 +26,8 @@ mod apply_owner_spans;
 mod apply_preconditions;
 #[path = "cylinder_mediated_support_apply_shared_start_bridge.rs"]
 mod apply_shared_start_bridge;
+#[path = "cylinder_mediated_support_apply_shared_start_cycle_mix.rs"]
+mod apply_shared_start_cycle_mix;
 
 use apply_bridge_cycles::derive_segment_bridge_cycle_operands;
 use apply_cylinder_resource_blockers::expose_cylinder_resource_blockers;
