@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::apply_bridge_cycles::SegmentBridgeCycleOperandSet;
+use super::super::apply_resource_candidates::CylinderResourceCandidateSummary;
 use super::{CylinderBridgeResourcePartition, CylinderBridgeResourceSegment};
 use crate::error::CoreError;
 use crate::topology::BRep;
@@ -97,8 +98,27 @@ impl BridgeResourceReconciliation {
     }
 
     pub(in crate::euler::cylinder_mediated_support_apply) fn diagnostic_label(&self) -> String {
+        let candidate_summary = CylinderResourceCandidateSummary {
+            status: self.status(),
+            exact_pair_actions: construction_action_count(
+                &self.actions,
+                BridgeResourceConstructionActionKind::ExactPair,
+            ),
+            shared_outside_actions: construction_action_count(
+                &self.actions,
+                BridgeResourceConstructionActionKind::SharedOutsideTransition,
+            ),
+            single_covered_actions: construction_action_count(
+                &self.actions,
+                BridgeResourceConstructionActionKind::SingleSupportCoveredBySharedCylinder,
+            ),
+            unsupported_actions: construction_action_count(
+                &self.actions,
+                BridgeResourceConstructionActionKind::Unsupported,
+            ),
+        };
         format!(
-            "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={} duplicate_cylinder_request_sets={} resource_status={} construction_actions={} action_sequence=[{}] outside_request_sets=[{}] cylinder_request_sets=[{}] missing_request_sets=[{}] {} {}",
+            "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={} duplicate_cylinder_request_sets={} resource_status={} construction_actions={} action_sequence=[{}] outside_request_sets=[{}] cylinder_request_sets=[{}] missing_request_sets=[{}] {} {} {}",
             self.outside_segments,
             self.cylinder_segments,
             self.exact_matches,
@@ -112,7 +132,8 @@ impl BridgeResourceReconciliation {
             request_set_summary(&self.cylinder_request_sets),
             request_set_summary(&self.missing_request_sets),
             split_resource_merge_summary(&self.split_resource_merge_operands).diagnostic_label(),
-            split_resource_merge_operand_summary(&self.split_resource_merge_operands)
+            split_resource_merge_operand_summary(&self.split_resource_merge_operands),
+            candidate_summary.diagnostic_label()
         )
     }
 

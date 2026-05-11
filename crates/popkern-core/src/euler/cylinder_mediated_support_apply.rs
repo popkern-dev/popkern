@@ -24,6 +24,8 @@ mod apply_diagnostics;
 mod apply_owner_spans;
 #[path = "cylinder_mediated_support_apply_preconditions.rs"]
 mod apply_preconditions;
+#[path = "cylinder_mediated_support_apply_resource_candidates.rs"]
+mod apply_resource_candidates;
 #[path = "cylinder_mediated_support_apply_shared_start_bridge.rs"]
 mod apply_shared_start_bridge;
 #[path = "cylinder_mediated_support_apply_shared_start_cycle_mix.rs"]

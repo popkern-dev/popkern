@@ -124,6 +124,14 @@ fn mutator_boundary_refuses_without_mutating_topology() {
     );
     assert!(
         detail.contains(
+            "cylinder_resource_construction_candidate=family=split-cylinder-resource-merge \
+             feasibility=requires-resource-merge reason=split-cylinder-resource-merge-required \
+             action_candidates=exact_pair:2 shared_outside:1 single_covered:0 unsupported:0"
+        ),
+        "{err}"
+    );
+    assert!(
+        detail.contains(
             "shared_start_bridge_preflight=status=not-applicable pairings=0 cycles=0 \
              cross_loop_cycles=0 same_loop_cycles=0 one_edge_interior_overlap_candidates=0 \
              repeated_one_edge_overlap_occurrences=0 one_edge_interior_overlap_plans=0 \
