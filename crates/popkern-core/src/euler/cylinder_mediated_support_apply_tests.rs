@@ -122,6 +122,13 @@ fn mutator_boundary_refuses_without_mutating_topology() {
         ),
         "{err}"
     );
+    assert!(
+        detail.contains(
+            "shared_start_bridge_preflight=status=not-applicable pairings=0 cycles=0 \
+             expected_delta=dV=0 dE=0 dF=0 dL=0 reason=none"
+        ),
+        "{err}"
+    );
     assert!(detail.contains("outside_endpoints="), "{err}");
     assert!(detail.contains("context_owner_faces=[]"), "{err}");
     assert!(detail.contains("unsupported_owner_faces=[]"), "{err}");

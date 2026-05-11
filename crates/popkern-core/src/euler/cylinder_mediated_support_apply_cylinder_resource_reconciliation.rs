@@ -30,6 +30,12 @@ pub(in crate::euler::cylinder_mediated_support_apply) struct BridgeResourceRecon
     actions: Vec<BridgeResourceConstructionAction>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::euler::cylinder_mediated_support_apply) struct BridgeResourcePairing {
+    pub(in crate::euler::cylinder_mediated_support_apply) outside_segment_index: usize,
+    pub(in crate::euler::cylinder_mediated_support_apply) cylinder_segment_index: usize,
+}
+
 impl BridgeResourceReconciliation {
     pub(in crate::euler::cylinder_mediated_support_apply) fn status(
         &self,
@@ -108,6 +114,50 @@ impl BridgeResourceReconciliation {
             split_resource_merge_summary(&self.split_resource_merge_operands).diagnostic_label(),
             split_resource_merge_operand_summary(&self.split_resource_merge_operands)
         )
+    }
+
+    pub(in crate::euler::cylinder_mediated_support_apply) fn shared_start_bridge_pairings(
+        &self,
+    ) -> Option<Vec<BridgeResourcePairing>> {
+        if self.status()
+            != BridgeResourceReconciliationStatus::SharedStartSplitCylinderResourcesReady
+        {
+            return None;
+        }
+        let mut pairings = Vec::new();
+        let mut used_cylinder_segments = BTreeSet::new();
+        for action in &self.actions {
+            if action.kind != BridgeResourceConstructionActionKind::ExactPair {
+                continue;
+            }
+            let cylinder_segment_index = action.cylinder_segment_index?;
+            used_cylinder_segments.insert(cylinder_segment_index);
+            pairings.push(BridgeResourcePairing {
+                outside_segment_index: action.outside_segment_index,
+                cylinder_segment_index,
+            });
+        }
+        for action in self
+            .actions
+            .iter()
+            .filter(|action| action.kind != BridgeResourceConstructionActionKind::ExactPair)
+        {
+            let (cylinder_segment_index, _) =
+                self.cylinder_request_sets
+                    .iter()
+                    .enumerate()
+                    .find(|(index, request_set)| {
+                        !used_cylinder_segments.contains(index)
+                            && request_set_participates(&action.request_indices, request_set)
+                    })?;
+            used_cylinder_segments.insert(cylinder_segment_index);
+            pairings.push(BridgeResourcePairing {
+                outside_segment_index: action.outside_segment_index,
+                cylinder_segment_index,
+            });
+        }
+        pairings.sort_by_key(|pairing| pairing.outside_segment_index);
+        Some(pairings)
     }
 }
 
@@ -324,6 +374,11 @@ fn request_set_summary(request_sets: &[Vec<usize>]) -> String {
         .map(|set| request_set_label(set))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+fn request_set_participates(missing: &[usize], candidate: &[usize]) -> bool {
+    candidate.iter().all(|index| missing.contains(index))
+        || missing.iter().all(|index| candidate.contains(index))
 }
 
 fn duplicate_request_set_count(request_sets: &[Vec<usize>]) -> usize {

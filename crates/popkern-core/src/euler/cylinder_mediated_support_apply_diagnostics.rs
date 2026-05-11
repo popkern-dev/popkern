@@ -5,10 +5,41 @@ use std::collections::BTreeMap;
 use crate::euler::CylinderMediatedSupportContinuationAggregateDelta;
 use crate::topology::FaceHandle;
 
+use super::apply_bridge_cycles::SegmentBridgeCycleOwnershipStatus;
+use super::apply_cylinder_resources::BridgeResourceReconciliationStatus;
 use super::{
     CylinderMediatedSupportContinuationSegmentAuthoringPlan,
     CylinderMediatedSupportContinuationSegmentRequirement,
 };
+
+pub(super) fn bridge_refusal_reason(
+    ownership_status: SegmentBridgeCycleOwnershipStatus,
+    resource_status: BridgeResourceReconciliationStatus,
+) -> &'static str {
+    if ownership_status == SegmentBridgeCycleOwnershipStatus::MissingSupportOwner {
+        return "cylinder-mediated support continuation segment bridge has no support owner";
+    }
+    match resource_status {
+        BridgeResourceReconciliationStatus::ExactResourcePairing => {
+            "cylinder-mediated support continuation exact resource bridge construction not implemented"
+        }
+        BridgeResourceReconciliationStatus::SharedOutsideTransitionNeedsResource => {
+            "cylinder-mediated support continuation shared outside transition bridge construction not implemented"
+        }
+        BridgeResourceReconciliationStatus::SingleSupportCoveredBySharedCylinderResource => {
+            "cylinder-mediated support continuation shared cylinder resource bridge construction not implemented"
+        }
+        BridgeResourceReconciliationStatus::SharedStartSplitCylinderResourcesReady => {
+            "cylinder-mediated support continuation shared-start split resource bridge construction not implemented"
+        }
+        BridgeResourceReconciliationStatus::SplitCylinderResourcesNeedMerge => {
+            "cylinder-mediated support continuation split cylinder resource merge construction not implemented"
+        }
+        BridgeResourceReconciliationStatus::IncompatibleResourceSets => {
+            "cylinder-mediated support continuation bridge resources are incompatible"
+        }
+    }
+}
 
 pub(super) fn segment_authoring_summary(
     authoring: &[CylinderMediatedSupportContinuationSegmentAuthoringPlan],

@@ -9,7 +9,6 @@ use super::contract::EulerTopologyCounts;
 use super::cylinder_mediated_support::{
     CylinderMediatedSupportContinuationAggregateDelta, CylinderMediatedSupportContinuationBatchPlan,
 };
-use super::cylinder_mediated_support_partition::CylinderMediatedOutsideIntervalPartition;
 
 #[path = "cylinder_mediated_support_apply_bridge_cycles.rs"]
 mod apply_bridge_cycles;
@@ -23,19 +22,24 @@ mod apply_cylinder_resources;
 mod apply_diagnostics;
 #[path = "cylinder_mediated_support_apply_owner_spans.rs"]
 mod apply_owner_spans;
+#[path = "cylinder_mediated_support_apply_preconditions.rs"]
+mod apply_preconditions;
+#[path = "cylinder_mediated_support_apply_shared_start_bridge.rs"]
+mod apply_shared_start_bridge;
 
 use apply_bridge_cycles::derive_segment_bridge_cycle_operands;
 use apply_cylinder_resource_blockers::expose_cylinder_resource_blockers;
 use apply_cylinder_resource_remap::remap_cylinder_bridge_resources;
 use apply_cylinder_resources::{
-    BridgeResourceReconciliationStatus, CylinderBridgeResourcePartition,
-    derive_cylinder_bridge_resource_partition,
+    CylinderBridgeResourcePartition, derive_cylinder_bridge_resource_partition,
 };
 use apply_diagnostics::{
-    authored_delta_label, execution_delta_label, segment_authoring_summary,
+    authored_delta_label, bridge_refusal_reason, execution_delta_label, segment_authoring_summary,
     topology_delta_gap_label,
 };
 use apply_owner_spans::{expose_owner_repair_spans, owner_repair_spans};
+use apply_preconditions::{require_known_aggregate_delta, require_non_empty_partition};
+use apply_shared_start_bridge::{SharedStartBridgePreflight, preflight_shared_start_bridge};
 
 #[cfg(test)]
 #[path = "cylinder_mediated_support_apply_tests.rs"]
@@ -188,12 +192,24 @@ impl BRep {
                 cylinder_resource_remap.segments(),
             )
             .reconcile(&candidate, &bridge_cycles)?;
+            let shared_start_bridge_preflight =
+                if let Some(pairings) = reconciliation.shared_start_bridge_pairings() {
+                    preflight_shared_start_bridge(
+                        &candidate,
+                        &pairings,
+                        &segment_authoring,
+                        cylinder_resource_remap.segments(),
+                    )
+                } else {
+                    SharedStartBridgePreflight::not_applicable()
+                };
             (
                 repair_result,
                 blocker_exposure,
                 cylinder_resource_remap,
                 bridge_cycles,
                 reconciliation,
+                shared_start_bridge_preflight,
             )
         };
         let after = EulerTopologyCounts::from_brep(self);
@@ -205,7 +221,7 @@ impl BRep {
         let bridge_refusal =
             bridge_refusal_reason(repair_result.3.ownership_status(), repair_result.4.status());
         Err(CoreError::PreconditionFailed(format!(
-            "{bridge_refusal}: expected_delta={} authored_delta={} execution_delta={} {} {} {} {} {} {} {} {}",
+            "{bridge_refusal}: expected_delta={} authored_delta={} execution_delta={} {} {} {} {} {} {} {} {} {}",
             plan.expected_delta.diagnostic_label(),
             authored_delta_label(
                 repair_result.0.exposed_spans,
@@ -228,7 +244,8 @@ impl BRep {
             cylinder_resources.diagnostic_label(),
             repair_result.1.diagnostic_label(),
             repair_result.2.diagnostic_label(),
-            repair_result.4.diagnostic_label()
+            repair_result.4.diagnostic_label(),
+            repair_result.5.diagnostic_label()
         )))
     }
 
@@ -433,65 +450,4 @@ fn segment_requirement(
         return CylinderMediatedSupportContinuationSegmentRequirement::OwnedEdgeReclassification;
     }
     CylinderMediatedSupportContinuationSegmentRequirement::BoundaryBridge
-}
-
-fn bridge_refusal_reason(
-    ownership_status: apply_bridge_cycles::SegmentBridgeCycleOwnershipStatus,
-    resource_status: BridgeResourceReconciliationStatus,
-) -> &'static str {
-    if ownership_status
-        == apply_bridge_cycles::SegmentBridgeCycleOwnershipStatus::MissingSupportOwner
-    {
-        return "cylinder-mediated support continuation segment bridge has no support owner";
-    }
-    match resource_status {
-        BridgeResourceReconciliationStatus::ExactResourcePairing => {
-            "cylinder-mediated support continuation exact resource bridge construction not implemented"
-        }
-        BridgeResourceReconciliationStatus::SharedOutsideTransitionNeedsResource => {
-            "cylinder-mediated support continuation shared outside transition bridge construction not implemented"
-        }
-        BridgeResourceReconciliationStatus::SingleSupportCoveredBySharedCylinderResource => {
-            "cylinder-mediated support continuation shared cylinder resource bridge construction not implemented"
-        }
-        BridgeResourceReconciliationStatus::SharedStartSplitCylinderResourcesReady => {
-            "cylinder-mediated support continuation shared-start split resource bridge construction not implemented"
-        }
-        BridgeResourceReconciliationStatus::SplitCylinderResourcesNeedMerge => {
-            "cylinder-mediated support continuation split cylinder resource merge construction not implemented"
-        }
-        BridgeResourceReconciliationStatus::IncompatibleResourceSets => {
-            "cylinder-mediated support continuation bridge resources are incompatible"
-        }
-    }
-}
-
-fn require_known_aggregate_delta(
-    delta: &CylinderMediatedSupportContinuationAggregateDelta,
-) -> Result<(), CoreError> {
-    match delta {
-        CylinderMediatedSupportContinuationAggregateDelta::Known { .. } => Ok(()),
-        CylinderMediatedSupportContinuationAggregateDelta::Unknown { reason } => {
-            Err(CoreError::PreconditionFailed(format!(
-                "cylinder-mediated support continuation aggregate delta is unknown: {reason}"
-            )))
-        }
-    }
-}
-
-fn require_non_empty_partition(
-    partition: &CylinderMediatedOutsideIntervalPartition,
-) -> Result<(), CoreError> {
-    if partition.loops.is_empty()
-        || partition
-            .loops
-            .iter()
-            .all(|loop_partition| loop_partition.segments.is_empty())
-    {
-        return Err(CoreError::PreconditionFailed(
-            "cylinder-mediated support continuation requires a non-empty outside interval partition"
-                .into(),
-        ));
-    }
-    Ok(())
 }

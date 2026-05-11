@@ -10,6 +10,7 @@ use super::CylinderMediatedSupportContinuationBatchPlan;
 #[path = "cylinder_mediated_support_apply_cylinder_resource_reconciliation.rs"]
 mod reconciliation;
 
+pub(in crate::euler::cylinder_mediated_support_apply) use reconciliation::BridgeResourcePairing;
 pub(super) use reconciliation::BridgeResourceReconciliationStatus;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
