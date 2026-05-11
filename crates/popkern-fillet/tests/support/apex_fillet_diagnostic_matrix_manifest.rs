@@ -19,6 +19,48 @@ pub(crate) struct DiagnosticMatrixRow {
     pub(crate) closure_task: Option<&'static str>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CornerApexMatrixRow {
+    pub(crate) condition_id: &'static str,
+    pub(crate) fixture_tier: FixtureTier,
+    pub(crate) covered_axes: &'static [DiagnosticAxis],
+    pub(crate) terminal: DiagnosticMatrixTerminal,
+    pub(crate) candidate_family: &'static str,
+    pub(crate) feasibility: &'static str,
+    pub(crate) topology_resource: &'static str,
+    pub(crate) geometry_feasibility: &'static str,
+    pub(crate) validity_repair: &'static str,
+    pub(crate) operation_dependency: &'static str,
+    pub(crate) semantic_history: &'static str,
+    pub(crate) downstream_readiness: &'static str,
+    pub(crate) tolerance_source: &'static str,
+    pub(crate) expected_reason: &'static str,
+    pub(crate) closure_task: Option<&'static str>,
+}
+
+impl CornerApexMatrixRow {
+    pub(crate) fn diagnostic_label(self) -> String {
+        format!(
+            "condition={} tier={} axes={} terminal={} candidate_family={} feasibility={} topology={} geometry={} validity={} dependency={} semantic_history={} downstream={} tolerance={} reason={} closure_task={}",
+            self.condition_id,
+            self.fixture_tier.diagnostic_label(),
+            axis_list(self.covered_axes),
+            self.terminal.diagnostic_label(),
+            self.candidate_family,
+            self.feasibility,
+            self.topology_resource,
+            self.geometry_feasibility,
+            self.validity_repair,
+            self.operation_dependency,
+            self.semantic_history,
+            self.downstream_readiness,
+            self.tolerance_source,
+            self.expected_reason,
+            self.closure_task.unwrap_or("none")
+        )
+    }
+}
+
 impl DiagnosticMatrixRow {
     pub(crate) fn diagnostic_label(self) -> String {
         format!(
@@ -95,6 +137,7 @@ pub(crate) enum DiagnosticAxis {
     SolverConditioning,
     FreeformApproximation,
     RepairPolicyBoundary,
+    FeatureReplayStability,
     ZooExport,
     ExtremeRadiusRatio,
 }
@@ -130,6 +173,7 @@ impl DiagnosticAxis {
             Self::SolverConditioning,
             Self::FreeformApproximation,
             Self::RepairPolicyBoundary,
+            Self::FeatureReplayStability,
             Self::ZooExport,
             Self::ExtremeRadiusRatio,
         ]
@@ -165,13 +209,14 @@ impl DiagnosticAxis {
             Self::SolverConditioning => "solver-conditioning",
             Self::FreeformApproximation => "freeform-approximation",
             Self::RepairPolicyBoundary => "repair-policy-boundary",
+            Self::FeatureReplayStability => "feature-replay-stability",
             Self::ZooExport => "zoo-export",
             Self::ExtremeRadiusRatio => "extreme-radius-ratio",
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum DiagnosticMatrixTerminal {
     ExecutableCandidate,
     NamedMissingPrimitive,
@@ -241,12 +286,18 @@ pub(crate) fn general_kernel_rows() -> &'static [DiagnosticMatrixRow] {
     &apex_fillet_diagnostic_matrix_general_rows::GENERAL_KERNEL_ROWS
 }
 
+pub(crate) fn corner_apex_rows() -> Vec<CornerApexMatrixRow> {
+    apex_fillet_diagnostic_matrix_corner_rows::corner_apex_rows()
+}
+
 fn axis_list(axes: &[DiagnosticAxis]) -> String {
     axes.iter()
         .map(|axis| axis.diagnostic_label())
         .collect::<Vec<_>>()
         .join("+")
 }
+#[path = "apex_fillet_diagnostic_matrix_corner_rows.rs"]
+mod apex_fillet_diagnostic_matrix_corner_rows;
 #[path = "apex_fillet_diagnostic_matrix_general_rows.rs"]
 mod apex_fillet_diagnostic_matrix_general_rows;
 #[path = "apex_fillet_diagnostic_matrix_rows.rs"]

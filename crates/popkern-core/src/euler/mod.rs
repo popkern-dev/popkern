@@ -6,6 +6,7 @@ mod boundary_side_separator_bridge;
 mod bridge_diagnostics;
 mod construction_residual_retire;
 mod contract;
+mod corner_apex_diagnostics;
 mod cylinder_mediated_support;
 mod cylinder_mediated_support_apply;
 mod cylinder_mediated_support_partition;
@@ -45,6 +46,25 @@ pub use bridge_diagnostics::{
     ValidityRepairReadiness, ValidityRepairStatus,
 };
 pub use construction_residual_retire::ConstructionResidualRetireResult;
+pub use corner_apex_diagnostics::{
+    ApexSizingFact, ApexSizingInput, ApexSizingMode, ApexSizingState, BlendKind,
+    BlendTypeCompatibility, BlendValence, ConstructionRiskFact, ConstructionRiskKind,
+    ConstructionRiskState, CornerApexConditionCategory, CornerApexConditionId,
+    CornerApexDiagnosticReport, CornerApexDiagnosticRequest, CornerApexFactContract,
+    CornerApexStrategyFamily, CornerApexStrategyReadiness, CornerGeometryAvailability,
+    CornerGeometryFact, CornerSupportAdequacyFact, CornerSupportAdequacyState,
+    CornerTopologyRecord, CornerTopologyState, DiagnosticArtifactKind, EdgeConvexity,
+    GeometryProbeDependency, IntegrationValidationFact, IntegrationValidationKind,
+    IntegrationValidationState, LifecycleFact, LifecycleState, LocalBlendEdgeSelection,
+    LocalCornerScope, StrategyReadinessFact, SurfaceCompatibility, SurfaceRepresentation,
+    TopologicalConfiguration, TrialInteractionFact, TrialInteractionState,
+    VertexClassificationFact, VertexConvexityClass, classify_apex_sizing,
+    classify_blend_type_compatibility, classify_blend_valence, classify_construction_risk,
+    classify_convexity, classify_integration_validation, classify_lifecycle,
+    classify_strategy_readiness, classify_support_adequacy, classify_topological_configuration,
+    classify_trial_interaction, classify_vertex_classification, corner_apex_condition_ids,
+    corner_apex_fact_contracts,
+};
 pub use cylinder_mediated_support::{
     CylinderMediatedOutsideIntervalInteraction, CylinderMediatedSupportContinuationAggregateDelta,
     CylinderMediatedSupportContinuationBatchPlan, CylinderMediatedSupportContinuationDelta,

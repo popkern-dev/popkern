@@ -8,8 +8,9 @@ mod apex_fillet_diagnostic_matrix_manifest;
 
 use apex_fillet_diagnostic_matrix_manifest::{
     DiagnosticAxis, DiagnosticMatrixTerminal, FixtureTier, UnknownDiagnosticFacet,
-    general_kernel_rows, seed_matrix_rows,
+    corner_apex_rows, general_kernel_rows, seed_matrix_rows,
 };
+use popkern_core::euler::corner_apex_condition_ids;
 
 #[test]
 fn seed_matrix_has_no_unknown_candidate_families() {
@@ -44,10 +45,16 @@ fn general_kernel_rows_are_ready_for_broad_coverage() {
 
 #[test]
 fn matrix_covers_every_declared_diagnostic_axis() {
+    let corner_rows = corner_apex_rows();
     let covered = seed_matrix_rows()
         .iter()
         .chain(general_kernel_rows().iter())
         .flat_map(|row| row.covered_axes.iter().copied())
+        .chain(
+            corner_rows
+                .iter()
+                .flat_map(|row| row.covered_axes.iter().copied()),
+        )
         .collect::<std::collections::BTreeSet<_>>();
     for axis in DiagnosticAxis::all() {
         assert!(
@@ -56,6 +63,132 @@ fn matrix_covers_every_declared_diagnostic_axis() {
             axis.diagnostic_label()
         );
     }
+}
+
+#[test]
+fn corner_apex_rows_cover_every_declared_condition() {
+    let rows = corner_apex_rows();
+    let covered = rows
+        .iter()
+        .map(|row| row.condition_id)
+        .collect::<std::collections::BTreeSet<_>>();
+    for condition in corner_apex_condition_ids() {
+        let label = condition.diagnostic_label();
+        assert!(
+            covered.contains(label.as_str()),
+            "corner/apex matrix is missing condition {label}"
+        );
+    }
+}
+
+#[test]
+fn corner_apex_rows_are_implementation_ready() {
+    for row in corner_apex_rows() {
+        let label = row.diagnostic_label();
+        assert_eq!(
+            row.fixture_tier,
+            FixtureTier::SyntheticAxis,
+            "{} corner/apex row must stay diagnostic-only synthetic coverage: {label}",
+            row.condition_id
+        );
+        assert!(
+            row.condition_id.starts_with("corner_"),
+            "{} condition id is not scoped: {label}",
+            row.condition_id
+        );
+        assert!(
+            !row.covered_axes.is_empty(),
+            "{} lacks axes: {label}",
+            row.condition_id
+        );
+        assert_not_generic_blocker(row.expected_reason, row.condition_id);
+        assert_not_generic_blocker(row.feasibility, row.condition_id);
+        assert_ne!(
+            row.topology_resource, "none",
+            "{} lacks topology facet: {label}",
+            row.condition_id
+        );
+        assert_ne!(
+            row.geometry_feasibility, "none",
+            "{} lacks geometry facet: {label}",
+            row.condition_id
+        );
+        assert_ne!(
+            row.validity_repair, "none",
+            "{} lacks validity facet: {label}",
+            row.condition_id
+        );
+        assert_ne!(
+            row.operation_dependency, "none",
+            "{} lacks dependency facet: {label}",
+            row.condition_id
+        );
+        assert_ne!(
+            row.semantic_history, "none",
+            "{} lacks semantic history: {label}",
+            row.condition_id
+        );
+        assert_ne!(
+            row.downstream_readiness, "none",
+            "{} lacks downstream facet: {label}",
+            row.condition_id
+        );
+        assert_ne!(
+            row.tolerance_source, "none",
+            "{} lacks tolerance source: {label}",
+            row.condition_id
+        );
+        if row.terminal == DiagnosticMatrixTerminal::NamedMissingPrimitive {
+            assert!(
+                row.operation_dependency.contains("missing-"),
+                "{} missing primitive row does not name a missing dependency: {label}",
+                row.condition_id
+            );
+        }
+        if row.terminal == DiagnosticMatrixTerminal::AmbiguousDependency {
+            assert!(
+                row.operation_dependency.contains("ambiguous"),
+                "{} ambiguous row does not name ambiguous dependency: {label}",
+                row.condition_id
+            );
+            assert!(
+                row.closure_task.is_some(),
+                "{} ambiguous row lacks closure task: {label}",
+                row.condition_id
+            );
+        }
+    }
+}
+
+#[test]
+fn corner_apex_rows_include_executable_invalid_missing_and_ambiguous_cases() {
+    let rows = corner_apex_rows();
+    let terminals = rows
+        .iter()
+        .map(|row| row.terminal)
+        .collect::<std::collections::BTreeSet<_>>();
+    for required in [
+        DiagnosticMatrixTerminal::ExecutableCandidate,
+        DiagnosticMatrixTerminal::NamedMissingPrimitive,
+        DiagnosticMatrixTerminal::AmbiguousDependency,
+        DiagnosticMatrixTerminal::InvalidTopologyReason,
+    ] {
+        assert!(
+            terminals.contains(&required),
+            "corner/apex rows do not cover terminal {}",
+            required.diagnostic_label()
+        );
+    }
+    assert!(
+        rows.iter()
+            .any(|row| row.downstream_readiness.contains("risk")),
+        "corner/apex rows need at least one downstream-risk case"
+    );
+    assert!(
+        rows.iter()
+            .any(|row| row.semantic_history.contains("generated")),
+        "corner/apex rows need generated semantic-history coverage"
+    );
 }
 
 #[test]
