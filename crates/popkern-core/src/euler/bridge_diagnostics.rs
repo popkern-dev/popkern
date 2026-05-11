@@ -15,6 +15,10 @@ mod inventory;
 mod overlap;
 #[path = "bridge_diagnostics_readiness.rs"]
 mod readiness;
+#[path = "bridge_diagnostics_summary.rs"]
+mod summary;
+
+pub use summary::BridgeDiagnosticSummary;
 
 /// Local graph id for a diagnostic resource.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -158,21 +162,6 @@ pub struct PostconditionPrediction {
     pub operation: DiagnosticOperationId,
     /// Stable prediction label.
     pub label: &'static str,
-}
-
-/// Compact bridge diagnostic summary.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BridgeDiagnosticSummary {
-    /// Number of operations in the graph.
-    pub operations: usize,
-    /// Number of resources in the graph.
-    pub resources: usize,
-    /// Number of conflict components in the graph.
-    pub conflicts: usize,
-    /// Number of readiness entries in the graph.
-    pub readiness: usize,
-    /// Number of postcondition predictions in the graph.
-    pub postconditions: usize,
 }
 
 /// Diagnostic resource kind.
@@ -435,26 +424,6 @@ impl TopologyGraphFingerprint {
             faces: brep.faces.len(),
             scoped_membership_checksum: scoped_membership_checksum(request),
         }
-    }
-}
-
-impl BridgeDiagnosticSummary {
-    fn from_graph(graph: &TopologyDiagnosticGraph) -> Self {
-        Self {
-            operations: graph.operations.len(),
-            resources: graph.resources.len(),
-            conflicts: graph.conflicts.len(),
-            readiness: graph.readiness.len(),
-            postconditions: graph.postconditions.len(),
-        }
-    }
-
-    /// Stable compact diagnostic label.
-    pub fn diagnostic_label(&self) -> String {
-        format!(
-            "bridge_diagnostics=operations={} resources={} conflicts={} readiness={} postconditions={}",
-            self.operations, self.resources, self.conflicts, self.readiness, self.postconditions
-        )
     }
 }
 

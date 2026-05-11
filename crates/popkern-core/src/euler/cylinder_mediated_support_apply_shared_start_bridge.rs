@@ -1,7 +1,10 @@
 //! Candidate bridge authoring for shared-start split cylinder resources.
 
 use crate::error::CoreError;
-use crate::euler::FaceFamilyBridgeCycleRequest;
+use crate::euler::{
+    BridgeDiagnosticOperationRequest, BridgeDiagnosticRequest, BridgeDiagnosticSummary,
+    DiagnosticOperationPurpose, FaceFamilyBridgeCycleRequest,
+};
 use crate::topology::{BRep, HalfEdgeHandle};
 
 use super::CylinderMediatedSupportContinuationSegmentAuthoringPlan;
@@ -28,6 +31,7 @@ pub(super) struct SharedStartBridgePreflight {
     one_edge_interior_overlap_plans: usize,
     one_edge_interior_overlap_boundary_edges: usize,
     one_edge_interior_overlap_normalizations: usize,
+    graph_summary: BridgeDiagnosticSummary,
     expected_edges: i64,
     expected_faces: i64,
     expected_loops: i64,
@@ -60,6 +64,7 @@ impl SharedStartBridgePreflight {
             one_edge_interior_overlap_plans: 0,
             one_edge_interior_overlap_boundary_edges: 0,
             one_edge_interior_overlap_normalizations: 0,
+            graph_summary: empty_bridge_diagnostic_summary(),
             expected_edges: 0,
             expected_faces: 0,
             expected_loops: 0,
@@ -67,7 +72,11 @@ impl SharedStartBridgePreflight {
         }
     }
 
-    fn ready(pairings: usize, summary: SharedStartCycleMixSummary) -> Self {
+    fn ready(
+        pairings: usize,
+        summary: SharedStartCycleMixSummary,
+        graph_summary: BridgeDiagnosticSummary,
+    ) -> Self {
         Self {
             status: SharedStartBridgePreflightStatus::Ready,
             pairings,
@@ -87,6 +96,7 @@ impl SharedStartBridgePreflight {
                 .one_edge_interior_overlap_boundary_edges,
             one_edge_interior_overlap_normalizations: summary
                 .one_edge_interior_overlap_normalizations,
+            graph_summary,
             expected_edges: summary.expected_edges,
             expected_faces: summary.expected_faces,
             expected_loops: summary.expected_loops,
@@ -94,7 +104,12 @@ impl SharedStartBridgePreflight {
         }
     }
 
-    fn rejected(pairings: usize, shape: SharedStartCycleShape, reason: &'static str) -> Self {
+    fn rejected(
+        pairings: usize,
+        shape: SharedStartCycleShape,
+        graph_summary: BridgeDiagnosticSummary,
+        reason: &'static str,
+    ) -> Self {
         Self {
             status: SharedStartBridgePreflightStatus::Rejected,
             pairings,
@@ -113,6 +128,7 @@ impl SharedStartBridgePreflight {
             one_edge_interior_overlap_boundary_edges: shape
                 .one_edge_interior_overlap_boundary_edges,
             one_edge_interior_overlap_normalizations: 0,
+            graph_summary,
             expected_edges: 0,
             expected_faces: 0,
             expected_loops: 0,
@@ -127,7 +143,7 @@ impl SharedStartBridgePreflight {
             SharedStartBridgePreflightStatus::Rejected => "rejected",
         };
         format!(
-            "shared_start_bridge_preflight=status={status} pairings={} cycles={} cross_loop_cycles={} same_loop_cycles={} same_loop_overlap_cycles={} same_loop_overlapping_edges={} same_loop_shared_start_overlaps={} same_loop_shared_end_overlaps={} same_loop_crossed_endpoint_overlaps={} same_loop_interior_overlaps={} one_edge_interior_overlap_candidates={} repeated_one_edge_overlap_occurrences={} one_edge_interior_overlap_plans={} one_edge_interior_overlap_boundary_edges={} one_edge_interior_overlap_normalizations={} expected_delta=dV=0 dE={} dF={} dL={} reason={}",
+            "shared_start_bridge_preflight=status={status} pairings={} cycles={} cross_loop_cycles={} same_loop_cycles={} same_loop_overlap_cycles={} same_loop_overlapping_edges={} same_loop_shared_start_overlaps={} same_loop_shared_end_overlaps={} same_loop_crossed_endpoint_overlaps={} same_loop_interior_overlaps={} one_edge_interior_overlap_candidates={} repeated_one_edge_overlap_occurrences={} one_edge_interior_overlap_plans={} one_edge_interior_overlap_boundary_edges={} one_edge_interior_overlap_normalizations={} {} expected_delta=dV=0 dE={} dF={} dL={} reason={}",
             self.pairings,
             self.cycles,
             self.cross_loop_cycles,
@@ -143,6 +159,7 @@ impl SharedStartBridgePreflight {
             self.one_edge_interior_overlap_plans,
             self.one_edge_interior_overlap_boundary_edges,
             self.one_edge_interior_overlap_normalizations,
+            self.graph_summary.diagnostic_label(),
             self.expected_edges,
             self.expected_faces,
             self.expected_loops,
@@ -166,19 +183,46 @@ pub(super) fn preflight_shared_start_bridge(
             return SharedStartBridgePreflight::rejected(
                 pairings.len(),
                 SharedStartCycleShape::empty(),
+                empty_bridge_diagnostic_summary(),
                 bridge_error_label(&err),
             );
         }
     };
     let cycle_shape = SharedStartCycleShape::from_cycles(&cycles, brep);
+    let graph_summary = bridge_diagnostic_summary(brep, &cycles);
     match preflight_shared_start_cycle_mix(brep, cycles) {
-        Ok(summary) => SharedStartBridgePreflight::ready(pairings.len(), summary),
+        Ok(summary) => SharedStartBridgePreflight::ready(pairings.len(), summary, graph_summary),
         Err(err) => SharedStartBridgePreflight::rejected(
             pairings.len(),
             cycle_shape,
+            graph_summary,
             bridge_error_label(&err),
         ),
     }
+}
+
+fn bridge_diagnostic_summary(
+    brep: &BRep,
+    cycles: &[FaceFamilyBridgeCycleRequest],
+) -> BridgeDiagnosticSummary {
+    brep.bridge_diagnostic_report(BridgeDiagnosticRequest {
+        operations: cycles
+            .iter()
+            .map(|cycle| BridgeDiagnosticOperationRequest {
+                purpose: DiagnosticOperationPurpose::BridgeCycle,
+                first_loop: cycle.first_loop,
+                first_interval: cycle.first_interval.clone(),
+                second_loop: cycle.second_loop,
+                second_interval: cycle.second_interval.clone(),
+            })
+            .collect(),
+    })
+    .map(|report| report.summary)
+    .unwrap_or_else(|_| empty_bridge_diagnostic_summary())
+}
+
+fn empty_bridge_diagnostic_summary() -> BridgeDiagnosticSummary {
+    BridgeDiagnosticSummary::empty()
 }
 
 fn shared_start_bridge_cycles(
