@@ -14,6 +14,10 @@ pub(super) struct CylinderResourceBlockerExposureResult {
 }
 
 impl CylinderResourceBlockerExposureResult {
+    pub(super) fn exposed_spans(self) -> usize {
+        self.exposed_spans
+    }
+
     pub(super) fn diagnostic_label(self) -> String {
         format!(
             "cylinder_resource_blocker_exposure=spans={} half_edges={} exposed_spans={} exposed_half_edges={}",

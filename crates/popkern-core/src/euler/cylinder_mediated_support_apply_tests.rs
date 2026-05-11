@@ -33,7 +33,11 @@ fn mutator_boundary_refuses_without_mutating_topology() {
         "{err}"
     );
     assert!(
-        detail.contains("topology_delta_gap=dV=0 dE=2 dF=0 dL=0"),
+        detail.contains("execution_delta=dV=0 dE=10 dF=3 dL=3"),
+        "{err}"
+    );
+    assert!(
+        detail.contains("topology_delta_gap=dV=0 dE=4 dF=0 dL=0"),
         "{err}"
     );
     assert!(detail.contains("boundary_compatible=1"), "{err}");

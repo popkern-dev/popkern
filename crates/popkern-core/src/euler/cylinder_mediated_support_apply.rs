@@ -32,7 +32,8 @@ use apply_cylinder_resources::{
     derive_cylinder_bridge_resource_partition,
 };
 use apply_diagnostics::{
-    authored_delta_label, segment_authoring_summary, topology_delta_gap_label,
+    authored_delta_label, execution_delta_label, segment_authoring_summary,
+    topology_delta_gap_label,
 };
 use apply_owner_spans::{expose_owner_repair_spans, owner_repair_spans};
 
@@ -204,15 +205,21 @@ impl BRep {
         let bridge_refusal =
             bridge_refusal_reason(repair_result.3.ownership_status(), repair_result.4.status());
         Err(CoreError::PreconditionFailed(format!(
-            "{bridge_refusal}: expected_delta={} authored_delta={} {} {} {} {} {} {} {} {}",
+            "{bridge_refusal}: expected_delta={} authored_delta={} execution_delta={} {} {} {} {} {} {} {} {}",
             plan.expected_delta.diagnostic_label(),
             authored_delta_label(
                 repair_result.0.exposed_spans,
                 repair_result.3.segment_count()
             ),
+            execution_delta_label(
+                repair_result.0.exposed_spans,
+                repair_result.1.exposed_spans(),
+                repair_result.3.segment_count()
+            ),
             topology_delta_gap_label(
                 &plan.expected_delta,
                 repair_result.0.exposed_spans,
+                repair_result.1.exposed_spans(),
                 repair_result.3.segment_count()
             ),
             segment_authoring_summary(&segment_authoring),

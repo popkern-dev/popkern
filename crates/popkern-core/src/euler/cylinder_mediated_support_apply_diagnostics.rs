@@ -109,12 +109,27 @@ pub(super) fn authored_delta_label(owner_repair_spans: usize, bridge_segments: u
     )
 }
 
+pub(super) fn execution_delta_label(
+    owner_repair_spans: usize,
+    blocker_exposure_spans: usize,
+    bridge_segments: usize,
+) -> String {
+    let delta =
+        execution_topology_delta(owner_repair_spans, blocker_exposure_spans, bridge_segments);
+    format!(
+        "dV={} dE={} dF={} dL={}",
+        delta.vertices, delta.edges, delta.faces, delta.loops
+    )
+}
+
 pub(super) fn topology_delta_gap_label(
     expected: &CylinderMediatedSupportContinuationAggregateDelta,
     owner_repair_spans: usize,
+    blocker_exposure_spans: usize,
     bridge_segments: usize,
 ) -> String {
-    let authored = authored_topology_delta(owner_repair_spans, bridge_segments);
+    let execution =
+        execution_topology_delta(owner_repair_spans, blocker_exposure_spans, bridge_segments);
     match expected {
         CylinderMediatedSupportContinuationAggregateDelta::Known {
             vertices,
@@ -123,14 +138,27 @@ pub(super) fn topology_delta_gap_label(
             loops,
         } => format!(
             "topology_delta_gap=dV={} dE={} dF={} dL={}",
-            authored.vertices - vertices,
-            authored.edges - edges,
-            authored.faces - faces,
-            authored.loops - loops
+            execution.vertices - vertices,
+            execution.edges - edges,
+            execution.faces - faces,
+            execution.loops - loops
         ),
         CylinderMediatedSupportContinuationAggregateDelta::Unknown { reason } => {
             format!("topology_delta_gap=unknown expected_reason={reason}")
         }
+    }
+}
+
+fn execution_topology_delta(
+    owner_repair_spans: usize,
+    blocker_exposure_spans: usize,
+    bridge_segments: usize,
+) -> AuthoredTopologyDelta {
+    AuthoredTopologyDelta {
+        vertices: 0,
+        edges: (owner_repair_spans + blocker_exposure_spans + bridge_segments * 2) as i64,
+        faces: bridge_segments as i64,
+        loops: bridge_segments as i64,
     }
 }
 
