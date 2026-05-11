@@ -7,6 +7,10 @@
 use crate::error::CoreError;
 use crate::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
+#[path = "bridge_diagnostics_candidate_types.rs"]
+mod candidate_types;
+#[path = "bridge_diagnostics_candidates.rs"]
+mod candidates;
 #[path = "bridge_diagnostics_conflicts.rs"]
 mod conflicts;
 #[path = "bridge_diagnostics_inventory.rs"]
@@ -18,6 +22,10 @@ mod readiness;
 #[path = "bridge_diagnostics_summary.rs"]
 mod summary;
 
+pub use candidate_types::{
+    ConstructionCandidate, ConstructionCandidateId, ConstructionFamily, ConstructionFeasibility,
+    ConstructionRequirement,
+};
 pub use summary::BridgeDiagnosticSummary;
 
 /// Local graph id for a diagnostic resource.
@@ -31,10 +39,6 @@ pub struct DiagnosticOperationId(pub usize);
 /// Local graph id for a diagnostic conflict component.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ResourceConflictId(pub usize);
-
-/// Local graph id for a construction candidate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ConstructionCandidateId(pub usize);
 
 /// Local graph id for a postcondition preview.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -163,25 +167,6 @@ pub struct OperatorReadiness {
     pub status: OperatorReadinessStatus,
     /// Stable reason label.
     pub reason: &'static str,
-}
-
-/// One construction candidate selected from graph facts.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConstructionCandidate {
-    /// Local construction candidate id.
-    pub id: ConstructionCandidateId,
-    /// Candidate construction family.
-    pub family: ConstructionFamily,
-    /// Candidate feasibility.
-    pub feasibility: ConstructionFeasibility,
-    /// Diagnostic operations participating in the candidate.
-    pub operations: Vec<DiagnosticOperationId>,
-    /// Resource conflicts participating in the candidate.
-    pub conflicts: Vec<ResourceConflictId>,
-    /// Requirements that must be satisfied before mutation.
-    pub requirements: Vec<ConstructionRequirement>,
-    /// Optional postcondition preview for this candidate.
-    pub postcondition_preview: Option<PostconditionPredictionId>,
 }
 
 /// Predicted postcondition placeholder.
@@ -326,51 +311,6 @@ pub enum DiagnosticOperatorFamily {
     BoundarySideAllocationOrSeparator,
 }
 
-/// Candidate construction family.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ConstructionFamily {
-    /// Construction family has not been classified yet.
-    Unknown,
-    /// Disjoint cross-loop bridge.
-    DisjointCrossLoopBridge,
-    /// Disjoint same-loop bridge.
-    DisjointSameLoopBridge,
-    /// Paired same-loop twin exposure.
-    PairedSameLoopTwinExposure,
-    /// Boundary-side separator bridge.
-    BoundarySideSeparatorBridge,
-}
-
-/// Candidate feasibility state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ConstructionFeasibility {
-    /// Feasibility has not been classified yet.
-    Unknown,
-    /// Existing operator can execute the candidate.
-    ExecutableByExistingOperator,
-    /// Existing operator can execute after known normalization.
-    ExecutableAfterKnownNormalization,
-    /// Candidate requires a separator subcomplex.
-    RequiresSeparatorSubcomplex,
-    /// Candidate requires custom aggregate authoring.
-    RequiresCustomAggregateAuthoring,
-    /// Candidate is invalid because it would create non-manifold topology.
-    InvalidNonManifold,
-    /// Candidate family is unsupported or not yet classified.
-    UnsupportedUnknownFamily,
-}
-
-/// Requirement that must be satisfied before candidate mutation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ConstructionRequirement {
-    /// No requirement has been classified yet.
-    Unknown,
-    /// Revalidate the candidate against the live topology.
-    LiveTopologyRevalidation,
-    /// Verify postconditions before commit.
-    PostconditionVerification,
-}
-
 /// Operator readiness status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum OperatorReadinessStatus {
@@ -401,6 +341,7 @@ impl BRep {
         let graph = conflicts::classify_duplicate_consumption(graph);
         let graph = overlap::classify_overlap_shapes(self, &request, graph);
         let graph = readiness::classify_operator_readiness(self, &request, graph);
+        let graph = candidates::classify_construction_candidates(graph);
         Ok(BridgeDiagnosticReport {
             summary: BridgeDiagnosticSummary::from_graph(&graph),
             graph,
@@ -486,6 +427,28 @@ impl TopologyDiagnosticGraph {
             status,
             reason,
         });
+    }
+
+    pub(super) fn push_candidate(
+        &mut self,
+        family: ConstructionFamily,
+        feasibility: ConstructionFeasibility,
+        operations: Vec<DiagnosticOperationId>,
+        conflicts: Vec<ResourceConflictId>,
+        requirements: Vec<ConstructionRequirement>,
+        postcondition_preview: Option<PostconditionPredictionId>,
+    ) -> ConstructionCandidateId {
+        let id = ConstructionCandidateId(self.candidates.len());
+        self.candidates.push(ConstructionCandidate {
+            id,
+            family,
+            feasibility,
+            operations,
+            conflicts,
+            requirements,
+            postcondition_preview,
+        });
+        id
     }
 }
 
