@@ -13,6 +13,8 @@ mod candidate_types;
 mod candidates;
 #[path = "bridge_diagnostics_conflicts.rs"]
 mod conflicts;
+#[path = "bridge_diagnostics_geometry.rs"]
+mod geometry;
 #[path = "bridge_diagnostics_inventory.rs"]
 mod inventory;
 #[path = "bridge_diagnostics_overlap.rs"]
@@ -335,7 +337,7 @@ impl BRep {
         let graph = conflicts::classify_duplicate_consumption(graph);
         let graph = overlap::classify_overlap_shapes(self, &request, graph);
         let graph = readiness::classify_operator_readiness(self, &request, graph);
-        let graph = candidates::classify_construction_candidates(graph);
+        let graph = candidates::classify_construction_candidates(self, &request, graph);
         Ok(BridgeDiagnosticReport {
             summary: BridgeDiagnosticSummary::from_graph(&graph),
             graph,

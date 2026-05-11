@@ -38,7 +38,7 @@ fn candidates_report_disjoint_cross_loop_bridge() {
             && candidate
                 .geometry_facts
                 .iter()
-                .any(|fact| fact.feasibility == GeometryFeasibility::NotApplicable)
+                .any(|fact| fact.feasibility == GeometryFeasibility::GeometryReady)
             && candidate
                 .requirements
                 .contains(&ConstructionRequirement::LiveTopologyRevalidation)
@@ -46,6 +46,37 @@ fn candidates_report_disjoint_cross_loop_bridge() {
                 .requirements
                 .contains(&ConstructionRequirement::PostconditionVerification)
     }));
+}
+
+#[test]
+fn candidates_report_short_bridge_span_as_geometry_repair_required() {
+    let brep = short_edge_same_loop_boundary_fixture();
+    let face = brep.faces.keys().next().expect("fixture has a face");
+    let loop_ = brep.faces[face].outer_loop;
+    let first = brep.loops[loop_].half_edge;
+    let first_after = brep.half_edges[first].next;
+    let second = nth_half_edge(&brep, first, 3);
+    let second_after = brep.half_edges[second].next;
+
+    let report = brep
+        .bridge_diagnostic_report(BridgeDiagnosticRequest {
+            operations: vec![BridgeDiagnosticOperationRequest {
+                purpose: DiagnosticOperationPurpose::BridgeCycle,
+                first_loop: loop_,
+                first_interval: vec![first, first_after],
+                second_loop: loop_,
+                second_interval: vec![second, second_after],
+            }],
+        })
+        .expect("report builds");
+
+    assert!(report.graph.candidates.iter().any(|candidate| {
+        candidate.geometry_facts.iter().any(|fact| {
+            fact.feasibility == GeometryFeasibility::RepairRequiredBeforeConstruction
+                && fact.reason == "bridge-interval-has-short-or-degenerate-edge"
+        })
+    }));
+    assert_eq!(report.summary.geometry_repair_required_facts, 1);
 }
 
 #[test]
@@ -240,6 +271,33 @@ fn same_loop_boundary_fixture() -> BRep {
         &[
             Point3::new(0.0, 0.0, 0.0),
             Point3::new(1.0, 0.0, 0.0),
+            Point3::new(2.0, 0.0, 0.0),
+            Point3::new(3.0, 0.0, 0.0),
+            Point3::new(4.0, 0.0, 0.0),
+            Point3::new(4.0, 1.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+        ],
+    );
+    brep.shells[shell].face = face;
+    brep
+}
+
+fn short_edge_same_loop_boundary_fixture() -> BRep {
+    let mut brep = BRep::new(Tolerance::default());
+    let solid = brep.solids.insert(Solid {
+        shell: Default::default(),
+    });
+    let shell = brep.shells.insert(Shell {
+        face: Default::default(),
+        solid,
+    });
+    brep.solids[solid].shell = shell;
+    let face = add_boundary_polygon(
+        &mut brep,
+        shell,
+        &[
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0e-9, 0.0, 0.0),
             Point3::new(2.0, 0.0, 0.0),
             Point3::new(3.0, 0.0, 0.0),
             Point3::new(4.0, 0.0, 0.0),

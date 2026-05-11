@@ -5,12 +5,15 @@ use std::collections::BTreeSet;
 use super::{
     ConstructionCandidateDraft, ConstructionFamily, ConstructionFeasibility,
     ConstructionRequirement, DiagnosticHandle, DiagnosticOperationId, DiagnosticOperatorFamily,
-    DiagnosticResourceKind, DiagnosticTolerance, DiagnosticTopologyDelta, GeometryFeasibility,
-    GeometryFeasibilityFact, OperatorReadinessStatus, ResourceConflictId, ResourceConflictKind,
-    TopologyDiagnosticGraph,
+    DiagnosticResourceKind, DiagnosticTopologyDelta, OperatorReadinessStatus, ResourceConflictId,
+    ResourceConflictKind, TopologyDiagnosticGraph, geometry,
 };
+use crate::euler::BridgeDiagnosticRequest;
+use crate::topology::BRep;
 
 pub(super) fn classify_construction_candidates(
+    brep: &BRep,
+    request: &BridgeDiagnosticRequest,
     mut graph: TopologyDiagnosticGraph,
 ) -> TopologyDiagnosticGraph {
     let readiness_entries = graph.readiness.clone();
@@ -34,11 +37,13 @@ pub(super) fn classify_construction_candidates(
                     ConstructionRequirement::PostconditionVerification,
                 ],
                 postcondition_preview,
-                geometry_facts: vec![GeometryFeasibilityFact {
-                    feasibility: GeometryFeasibility::NotApplicable,
-                    reason: "topology-only-candidate-no-geometry-fact-required",
-                    tolerance: DiagnosticTolerance::NOT_APPLICABLE,
-                }],
+                geometry_facts: request
+                    .operations
+                    .get(readiness.operation.0)
+                    .map(|operation| {
+                        geometry::geometry_facts_for_candidate(brep, operation, family)
+                    })
+                    .unwrap_or_default(),
             });
         }
     }
