@@ -347,7 +347,7 @@ fn empty_bridge_diagnostic_summary() -> BridgeDiagnosticSummary {
     BridgeDiagnosticSummary::empty()
 }
 
-fn shared_start_bridge_cycles(
+pub(super) fn shared_start_bridge_cycles(
     brep: &BRep,
     pairings: &[BridgeResourcePairing],
     authoring: &[CylinderMediatedSupportContinuationSegmentAuthoringPlan],

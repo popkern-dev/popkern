@@ -130,6 +130,65 @@ fn boundary_side_separator_preflight_accepts_live_shared_start_shape() {
 }
 
 #[test]
+fn boundary_side_separator_bridge_commits_live_shared_start_shape() {
+    let mut brep = separator_bridge_fixture();
+    let faces = brep.faces.keys().collect::<Vec<_>>();
+    let first_loop = brep.faces[faces[0]].outer_loop;
+    let second_loop = brep.faces[faces[1]].outer_loop;
+    let outside_loop = brep.faces[faces[2]].outer_loop;
+    let first_start = brep.loops[first_loop].half_edge;
+    let second_start = brep.loops[second_loop].half_edge;
+    let outside_start = brep.loops[outside_loop].half_edge;
+    let outside_second = brep.half_edges[outside_start].next;
+    let outside_third = brep.half_edges[outside_second].next;
+    let before = topology_counts(&brep);
+    let plan = brep
+        .preflight_boundary_side_separator_bridge(BoundarySideSeparatorBridgeRequest {
+            cycles: vec![
+                FaceFamilyBridgeCycleRequest {
+                    first_loop,
+                    first_interval: vec![first_start, brep.half_edges[first_start].next],
+                    second_loop: outside_loop,
+                    second_interval: vec![outside_start, outside_second],
+                },
+                FaceFamilyBridgeCycleRequest {
+                    first_loop: second_loop,
+                    first_interval: vec![second_start, brep.half_edges[second_start].next],
+                    second_loop: outside_loop,
+                    second_interval: vec![outside_second, outside_third],
+                },
+                FaceFamilyBridgeCycleRequest {
+                    first_loop: outside_loop,
+                    first_interval: vec![outside_start, outside_second],
+                    second_loop: outside_loop,
+                    second_interval: vec![outside_start, outside_second],
+                },
+            ],
+        })
+        .expect("live shared-start separator shape preflights");
+
+    let result = brep
+        .boundary_side_separator_bridge(&plan)
+        .expect("separator bridge commits transactionally");
+
+    assert_eq!(result.bridge_faces.len(), 3);
+    assert_eq!(result.bridge_loops.len(), 3);
+    assert!(!brep.boundary_edges.contains(&result.separator_edge));
+    assert_eq!(
+        topology_delta(&brep, before),
+        (
+            plan.expected_delta.vertices,
+            plan.expected_delta.edges,
+            plan.expected_delta.faces,
+            plan.expected_delta.loops,
+        )
+    );
+    brep.validate_half_edge_pairing().unwrap();
+    brep.validate_half_edge_cycles().unwrap();
+    brep.validate_manifold_edges().unwrap();
+}
+
+#[test]
 fn boundary_side_separator_rejects_multiple_already_boundary_overlaps() {
     let brep = same_loop_boundary_fixture();
     let face = brep.faces.keys().next().expect("fixture has a face");
@@ -316,4 +375,22 @@ fn add_boundary_polygon(
     }
     brep.loops[loop_].half_edge = half_edges[0];
     face
+}
+
+fn topology_counts(brep: &BRep) -> (usize, usize, usize, usize) {
+    (
+        brep.vertices.len(),
+        brep.edges.len(),
+        brep.faces.len(),
+        brep.loops.len(),
+    )
+}
+
+fn topology_delta(brep: &BRep, before: (usize, usize, usize, usize)) -> (i64, i64, i64, i64) {
+    (
+        brep.vertices.len() as i64 - before.0 as i64,
+        brep.edges.len() as i64 - before.1 as i64,
+        brep.faces.len() as i64 - before.2 as i64,
+        brep.loops.len() as i64 - before.3 as i64,
+    )
 }

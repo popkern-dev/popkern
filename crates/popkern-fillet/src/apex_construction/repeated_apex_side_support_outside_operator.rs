@@ -16,6 +16,7 @@ pub(super) struct CylinderMediatedSupportContinuationTopologyOperatorReport {
 
 #[derive(Clone, Debug)]
 enum CylinderMediatedSupportContinuationTopologyOperatorStatus {
+    Ready,
     Refused(CylinderMediatedSupportContinuationTopologyOperatorGap),
     RefusedWithDetail(
         CylinderMediatedSupportContinuationTopologyOperatorGap,
@@ -62,19 +63,15 @@ pub(super) fn topology_operator_report(
     };
     let expected_delta_label = batch.expected_delta.diagnostic_label();
     let mut candidate = brep.clone();
-    let Err(err) = candidate.cylinder_mediated_support_continuation_batch(&batch) else {
-        return CylinderMediatedSupportContinuationTopologyOperatorReport::refused_with_delta(
+    if let Err(err) = candidate.cylinder_mediated_support_continuation_batch(&batch) {
+        return CylinderMediatedSupportContinuationTopologyOperatorReport::refused_with_delta_detail(
             requests,
             expected_delta_label,
             CylinderMediatedSupportContinuationTopologyOperatorGap::MissingMutatingEulerOperator,
+            format!("{} core_refusal={err}", batch_interaction_detail(&batch)),
         );
     };
-    CylinderMediatedSupportContinuationTopologyOperatorReport::refused_with_delta_detail(
-        requests,
-        expected_delta_label,
-        CylinderMediatedSupportContinuationTopologyOperatorGap::MissingMutatingEulerOperator,
-        format!("{} core_refusal={err}", batch_interaction_detail(&batch)),
-    )
+    CylinderMediatedSupportContinuationTopologyOperatorReport::ready(requests, expected_delta_label)
 }
 
 fn batch_interaction_detail(batch: &CylinderMediatedSupportContinuationBatchPlan) -> String {
@@ -108,6 +105,14 @@ fn partition_overlap_detail(partition: &CylinderMediatedOutsideIntervalPartition
 }
 
 impl CylinderMediatedSupportContinuationTopologyOperatorReport {
+    fn ready(requests: usize, expected_delta_label: String) -> Self {
+        Self {
+            requests,
+            expected_delta_label,
+            status: CylinderMediatedSupportContinuationTopologyOperatorStatus::Ready,
+        }
+    }
+
     fn refused(
         requests: usize,
         reason: CylinderMediatedSupportContinuationTopologyOperatorGap,
@@ -151,12 +156,16 @@ impl CylinderMediatedSupportContinuationTopologyOperatorReport {
     }
 
     pub(super) fn is_ready(&self) -> bool {
-        false
+        matches!(
+            self.status,
+            CylinderMediatedSupportContinuationTopologyOperatorStatus::Ready
+        )
     }
 
     pub(super) fn diagnostic_label(&self) -> String {
         format!(
-            "topology_operator_ready=false requests={} expected_delta={} reason={}",
+            "topology_operator_ready={} requests={} expected_delta={} reason={}",
+            self.is_ready(),
             self.requests,
             self.expected_delta_label,
             self.status.diagnostic_label()
@@ -167,6 +176,7 @@ impl CylinderMediatedSupportContinuationTopologyOperatorReport {
 impl CylinderMediatedSupportContinuationTopologyOperatorStatus {
     fn diagnostic_label(&self) -> String {
         match self {
+            CylinderMediatedSupportContinuationTopologyOperatorStatus::Ready => "ready".to_string(),
             CylinderMediatedSupportContinuationTopologyOperatorStatus::Refused(reason) => {
                 reason.diagnostic_label().to_string()
             }

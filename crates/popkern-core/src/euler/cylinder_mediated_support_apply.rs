@@ -32,6 +32,8 @@ mod apply_preconditions;
 mod apply_resource_candidates;
 #[path = "cylinder_mediated_support_apply_shared_start_bridge.rs"]
 mod apply_shared_start_bridge;
+#[path = "cylinder_mediated_support_apply_shared_start_bridge_mutation.rs"]
+mod apply_shared_start_bridge_mutation;
 #[path = "cylinder_mediated_support_apply_shared_start_cycle_mix.rs"]
 mod apply_shared_start_cycle_mix;
 
@@ -49,6 +51,9 @@ use apply_diagnostics::{
 use apply_owner_spans::{expose_owner_repair_spans, owner_repair_spans};
 use apply_preconditions::{require_known_aggregate_delta, require_non_empty_partition};
 use apply_shared_start_bridge::{SharedStartBridgePreflight, preflight_shared_start_bridge};
+use apply_shared_start_bridge_mutation::{
+    SharedStartBridgeMutationStatus, apply_shared_start_bridge_mutation,
+};
 
 #[cfg(test)]
 #[path = "cylinder_mediated_support_apply_tests.rs"]
@@ -184,42 +189,30 @@ impl BRep {
         require_non_empty_partition(&plan.outside_interval_partition)?;
         let segment_authoring = self.segment_authoring_plan(plan)?;
         let cylinder_resources = derive_cylinder_bridge_resource_partition(self, plan)?;
-        let repair_result = {
-            let mut candidate = self.clone();
-            let repair_result = expose_owner_repair_spans(&mut candidate, &segment_authoring)?;
-            let initial_cylinder_resource_remap =
-                remap_cylinder_bridge_resources(&candidate, &cylinder_resources, plan)?;
-            let blocker_exposure = expose_cylinder_resource_blockers(
-                &mut candidate,
-                &initial_cylinder_resource_remap,
-            )?;
-            let cylinder_resource_remap =
-                remap_cylinder_bridge_resources(&candidate, &cylinder_resources, plan)?;
-            let bridge_cycles =
-                derive_segment_bridge_cycle_operands(&candidate, plan, &segment_authoring)?;
-            let reconciliation = CylinderBridgeResourcePartition::from_remapped_segments(
+        let mut candidate = self.clone();
+        let owner_exposure = expose_owner_repair_spans(&mut candidate, &segment_authoring)?;
+        let initial_cylinder_resource_remap =
+            remap_cylinder_bridge_resources(&candidate, &cylinder_resources, plan)?;
+        let blocker_exposure =
+            expose_cylinder_resource_blockers(&mut candidate, &initial_cylinder_resource_remap)?;
+        let cylinder_resource_remap =
+            remap_cylinder_bridge_resources(&candidate, &cylinder_resources, plan)?;
+        let bridge_cycles =
+            derive_segment_bridge_cycle_operands(&candidate, plan, &segment_authoring)?;
+        let reconciliation = CylinderBridgeResourcePartition::from_remapped_segments(
+            cylinder_resource_remap.segments(),
+        )
+        .reconcile(&candidate, &bridge_cycles)?;
+        let shared_start_pairings = reconciliation.shared_start_bridge_pairings();
+        let shared_start_bridge_preflight = if let Some(pairings) = shared_start_pairings.as_ref() {
+            preflight_shared_start_bridge(
+                &candidate,
+                pairings,
+                &segment_authoring,
                 cylinder_resource_remap.segments(),
             )
-            .reconcile(&candidate, &bridge_cycles)?;
-            let shared_start_bridge_preflight =
-                if let Some(pairings) = reconciliation.shared_start_bridge_pairings() {
-                    preflight_shared_start_bridge(
-                        &candidate,
-                        &pairings,
-                        &segment_authoring,
-                        cylinder_resource_remap.segments(),
-                    )
-                } else {
-                    SharedStartBridgePreflight::not_applicable()
-                };
-            (
-                repair_result,
-                blocker_exposure,
-                cylinder_resource_remap,
-                bridge_cycles,
-                reconciliation,
-                shared_start_bridge_preflight,
-            )
+        } else {
+            SharedStartBridgePreflight::not_applicable()
         };
         let after = EulerTopologyCounts::from_brep(self);
         if before != after {
@@ -228,40 +221,62 @@ impl BRep {
             ));
         }
         let candidate_coverage = CylinderMediatedCandidateCoverage::from_pipeline(
-            repair_result.0,
-            repair_result.1,
-            repair_result.4.status(),
-            &repair_result.5,
+            owner_exposure,
+            blocker_exposure,
+            reconciliation.status(),
+            &shared_start_bridge_preflight,
         )
         .require_complete()?;
+        match apply_shared_start_bridge_mutation(
+            &mut candidate,
+            shared_start_pairings.as_deref(),
+            &segment_authoring,
+            cylinder_resource_remap.segments(),
+        )? {
+            SharedStartBridgeMutationStatus::Committed => {
+                candidate
+                    .validate_half_edge_pairing()
+                    .map_err(CoreError::from)?;
+                candidate
+                    .validate_half_edge_cycles()
+                    .map_err(CoreError::from)?;
+                candidate
+                    .validate_manifold_edges()
+                    .map_err(CoreError::from)?;
+                *self = candidate;
+                return Ok(CylinderMediatedSupportContinuationBatchResult {
+                    expected_delta: plan.expected_delta.clone(),
+                    segment_authoring,
+                    postconditions: CylinderMediatedSupportContinuationPostconditions::Satisfied,
+                });
+            }
+            SharedStartBridgeMutationStatus::NotApplicable => {}
+        }
         let bridge_refusal =
-            bridge_refusal_reason(repair_result.3.ownership_status(), repair_result.4.status());
+            bridge_refusal_reason(bridge_cycles.ownership_status(), reconciliation.status());
         Err(CoreError::PreconditionFailed(format!(
             "{bridge_refusal}: expected_delta={} authored_delta={} execution_delta={} {} {} {} {} {} {} {} {} {} {}",
             plan.expected_delta.diagnostic_label(),
-            authored_delta_label(
-                repair_result.0.exposed_spans,
-                repair_result.3.segment_count()
-            ),
+            authored_delta_label(owner_exposure.exposed_spans, bridge_cycles.segment_count()),
             execution_delta_label(
-                repair_result.0.exposed_spans,
-                repair_result.1.exposed_spans(),
-                repair_result.3.segment_count()
+                owner_exposure.exposed_spans,
+                blocker_exposure.exposed_spans(),
+                bridge_cycles.segment_count()
             ),
             topology_delta_gap_label(
                 &plan.expected_delta,
-                repair_result.0.exposed_spans,
-                repair_result.1.exposed_spans(),
-                repair_result.3.segment_count()
+                owner_exposure.exposed_spans,
+                blocker_exposure.exposed_spans(),
+                bridge_cycles.segment_count()
             ),
             segment_authoring_summary(&segment_authoring),
-            repair_result.0.diagnostic_label(),
-            repair_result.3.diagnostic_label(),
+            owner_exposure.diagnostic_label(),
+            bridge_cycles.diagnostic_label(),
             cylinder_resources.diagnostic_label(),
-            repair_result.1.diagnostic_label(),
-            repair_result.2.diagnostic_label(),
-            repair_result.4.diagnostic_label(),
-            repair_result.5.diagnostic_label(),
+            blocker_exposure.diagnostic_label(),
+            cylinder_resource_remap.diagnostic_label(),
+            reconciliation.diagnostic_label(),
+            shared_start_bridge_preflight.diagnostic_label(),
             candidate_coverage.diagnostic_label()
         )))
     }

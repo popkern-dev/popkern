@@ -9,6 +9,7 @@ use super::repeated_apex_side_support_bridge::FaceFamilyBridgePrimitiveDerivatio
 use super::repeated_apex_side_support_execution::SideSupportRegionExecutionReport;
 use super::repeated_apex_side_support_facts::SideSupportRegionFacts;
 use super::repeated_apex_side_support_merge::SupportRegionMergePrimitiveDerivation;
+use super::repeated_apex_side_support_outside::OutsideOutsideSupportPrimitiveDerivation;
 use super::repeated_apex_side_support_plan::SideSupportRegionPlanSelection;
 use super::repeated_apex_side_support_plan::SideSupportRegionRefusalReason;
 use super::repeated_apex_topology_knowledge::TopologyKnowledgeGraph;
@@ -79,6 +80,21 @@ impl SideSupportRegionDiagnosticSnapshot {
             && refusal.reason()
                 == SideSupportRegionRefusalReason::MissingValidatedOutsideOutsideSupportContinuationPrimitive
         {
+            let outside_primitive =
+                OutsideOutsideSupportPrimitiveDerivation::build(&self.selection, &self.knowledge, brep);
+            let topology_report = outside_primitive.topology_operator_report(brep);
+            if outside_primitive.is_complete() && topology_report.is_ready() {
+                let rollback = brep.clone();
+                if let Err(err) = outside_primitive.apply_topology_operator(brep) {
+                    *brep = rollback;
+                    return Err(
+                        SideSupportRegionContinuationFailure::BridgeTopologyOperator {
+                            reason: err.to_string(),
+                        },
+                    );
+                }
+                return Ok(SideSupportRegionContinuationOutcome::Applied);
+            }
             return Err(SideSupportRegionContinuationFailure::PlannerRefused {
                 reason: format!("stage={:?} reason={:?}", refusal.stage(), refusal.reason()),
             });

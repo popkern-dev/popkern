@@ -3,6 +3,8 @@
 //! Each operator maintains the Euler-Poincaré invariant by construction.
 
 mod boundary_side_separator_bridge;
+mod boundary_side_separator_bridge_apply;
+mod boundary_side_separator_bridge_apply_types;
 mod bridge_diagnostics;
 mod construction_residual_retire;
 mod contract;
@@ -30,6 +32,7 @@ pub use boundary_side_separator_bridge::{
     BoundarySideSeparatorBridgePlan, BoundarySideSeparatorBridgeRequest,
     BoundarySideSeparatorBridgeTopologyDelta,
 };
+pub use boundary_side_separator_bridge_apply::BoundarySideSeparatorBridgeResult;
 pub use bridge_diagnostics::{
     BridgeDiagnosticOperationRequest, BridgeDiagnosticReport, BridgeDiagnosticRequest,
     BridgeDiagnosticSummary, CandidateCompletenessError, CandidateMissingFacet,

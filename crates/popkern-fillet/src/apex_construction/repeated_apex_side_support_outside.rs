@@ -1,5 +1,6 @@
 //! Outside/outside support-continuation primitive derivation.
 
+use popkern_core::error::CoreError;
 use popkern_core::euler::CylinderMediatedSupportContinuationRequest;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
 
@@ -142,6 +143,18 @@ impl OutsideOutsideSupportPrimitiveDerivation {
         brep: &BRep,
     ) -> CylinderMediatedSupportContinuationTopologyOperatorReport {
         topology_operator_report(self.primitive.as_ref(), brep)
+    }
+
+    pub(super) fn apply_topology_operator(&self, brep: &mut BRep) -> Result<(), CoreError> {
+        let primitive = self.primitive.as_ref().ok_or_else(|| {
+            CoreError::PreconditionFailed(
+                "outside/outside support continuation has no primitive plan".into(),
+            )
+        })?;
+        let batch = brep
+            .preflight_cylinder_mediated_support_continuation_batch(primitive.requests.clone())?;
+        brep.cylinder_mediated_support_continuation_batch(&batch)?;
+        Ok(())
     }
 
     fn from_selected_plan(
