@@ -45,6 +45,7 @@ pub struct CornerTopologyRecord {
     pub surrounding_faces: usize,
     pub face_adjacency_edges: usize,
     pub neighborhood: CornerTopologyNeighborhood,
+    pub validity: CornerTopologyValidityFact,
     pub state: CornerTopologyState,
     pub geometry: CornerGeometryFact,
     pub surface_representation: SurfaceRepresentation,
@@ -96,6 +97,57 @@ pub enum CornerTopologyFactSource {
     HalfEdge,
     Loop,
     Face,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CornerTopologyValidityFact {
+    pub body_shell: CornerBodyShellMembership,
+    pub boundary: CornerBoundaryMembership,
+    pub radial: CornerRadialTopology,
+    pub generated_context: CornerGeneratedTopologyContext,
+}
+
+impl Default for CornerTopologyValidityFact {
+    fn default() -> Self {
+        Self {
+            body_shell: CornerBodyShellMembership::UnknownInputFact,
+            boundary: CornerBoundaryMembership::UnknownInputFact,
+            radial: CornerRadialTopology::UnknownInputFact,
+            generated_context: CornerGeneratedTopologyContext::UnknownInputFact,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CornerBodyShellMembership {
+    SameBodyShell,
+    MultipleShells,
+    MissingShell,
+    MissingSolid,
+    UnknownInputFact,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CornerBoundaryMembership {
+    Interior,
+    Boundary,
+    WireOrSheet,
+    UnknownInputFact,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CornerRadialTopology {
+    Manifold,
+    NonManifoldRadial,
+    UnknownInputFact,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CornerGeneratedTopologyContext {
+    Production,
+    ConstructionResidual,
+    ExistingBlend,
+    UnknownInputFact,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

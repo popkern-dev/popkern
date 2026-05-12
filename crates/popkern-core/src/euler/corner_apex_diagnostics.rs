@@ -14,6 +14,8 @@ mod manifest;
 mod three_face_tangency;
 #[path = "corner_apex_diagnostics_topology_neighborhood.rs"]
 mod topology_neighborhood;
+#[path = "corner_apex_diagnostics_topology_validity.rs"]
+mod topology_validity;
 #[path = "corner_apex_diagnostics_types.rs"]
 mod types;
 
@@ -50,3 +52,6 @@ mod live_tests;
 #[cfg(test)]
 #[path = "corner_apex_diagnostics_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "corner_apex_diagnostics_topology_validity_tests.rs"]
+mod topology_validity_tests;

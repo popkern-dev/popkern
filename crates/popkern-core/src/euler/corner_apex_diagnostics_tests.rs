@@ -24,6 +24,7 @@ fn topology(incident_blend_edges: usize, state: CornerTopologyState) -> CornerTo
         surrounding_faces: 3,
         face_adjacency_edges: 3,
         neighborhood: Default::default(),
+        validity: Default::default(),
         state,
         geometry: CornerGeometryFact {
             tangent: CornerGeometryAvailability::Available,

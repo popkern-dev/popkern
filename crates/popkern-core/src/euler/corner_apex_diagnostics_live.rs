@@ -8,6 +8,7 @@ use super::classifiers::{
 use super::live_helpers::*;
 use super::live_primitives::assess_live_primitives;
 use super::topology_neighborhood::{extract_topology_neighborhood, stale_topology_neighborhood};
+use super::topology_validity::{extract_topology_validity, missing_topology_validity};
 use super::types::*;
 use crate::euler::{DiagnosticHandle, DiagnosticTolerance};
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -115,6 +116,7 @@ fn extract_topology(
             .stale_sources
             .push(CornerTopologyFactSource::SelectedEdge);
     }
+    let validity = extract_topology_validity(brep, &incident_edges, &incident_faces);
 
     CornerTopologyRecord {
         vertex: DiagnosticHandle::Vertex(vertex),
@@ -123,6 +125,7 @@ fn extract_topology(
         surrounding_faces: incident_faces.len(),
         face_adjacency_edges: face_adjacency_edges(brep, &incident_edges),
         neighborhood,
+        validity,
         state,
         geometry,
         surface_representation,
@@ -142,6 +145,7 @@ fn missing_topology(
         surrounding_faces: 0,
         face_adjacency_edges: 0,
         neighborhood: stale_topology_neighborhood(CornerTopologyFactSource::Vertex),
+        validity: missing_topology_validity(),
         state,
         geometry: CornerGeometryFact {
             tangent: CornerGeometryAvailability::MissingInputFact,
