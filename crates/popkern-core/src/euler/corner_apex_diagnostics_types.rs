@@ -263,6 +263,9 @@ pub enum BlendTypeCompatibility {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TopologicalConfiguration {
     SimpleCorner,
+    ThroughVertex,
+    FreeEnd,
+    HighValence,
     NonManifold,
     BlendOnBlend,
     NestedVertexBlend,

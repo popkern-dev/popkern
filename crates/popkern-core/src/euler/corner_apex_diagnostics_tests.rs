@@ -154,6 +154,22 @@ fn valence_topology_convexity_and_blend_type_classifiers_are_named() {
         classify_blend_type_compatibility(&incompatible, BlendValence::ThroughVertex),
         BlendTypeCompatibility::Incompatible("g2-chamfer-corner")
     );
+    assert_eq!(
+        classify_topological_configuration(&topology(1, CornerTopologyState::Ready)),
+        TopologicalConfiguration::FreeEnd
+    );
+    assert_eq!(
+        classify_topological_configuration(&topology(2, CornerTopologyState::Ready)),
+        TopologicalConfiguration::ThroughVertex
+    );
+    assert_eq!(
+        classify_topological_configuration(&topology(3, CornerTopologyState::Ready)),
+        TopologicalConfiguration::SimpleCorner
+    );
+    assert_eq!(
+        classify_topological_configuration(&topology(4, CornerTopologyState::Ready)),
+        TopologicalConfiguration::HighValence
+    );
 }
 
 #[test]

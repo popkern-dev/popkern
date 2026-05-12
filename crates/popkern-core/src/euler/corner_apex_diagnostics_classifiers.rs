@@ -86,6 +86,15 @@ pub fn classify_topological_configuration(
     record: &CornerTopologyRecord,
 ) -> TopologicalConfiguration {
     match record.state {
+        CornerTopologyState::Ready if record.incident_blend_edges == 1 => {
+            TopologicalConfiguration::FreeEnd
+        }
+        CornerTopologyState::Ready if record.incident_blend_edges == 2 => {
+            TopologicalConfiguration::ThroughVertex
+        }
+        CornerTopologyState::Ready if record.incident_blend_edges > 3 => {
+            TopologicalConfiguration::HighValence
+        }
         CornerTopologyState::Ready if record.face_adjacency_edges >= 2 => {
             TopologicalConfiguration::SimpleCorner
         }
