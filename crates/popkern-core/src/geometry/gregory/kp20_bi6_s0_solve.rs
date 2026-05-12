@@ -8,6 +8,8 @@
 //! optimal free `S0` points and reconstructed strip samples.
 
 use super::direct_linalg::solve_dense;
+use super::kp20_bi6_cap::{Kp20Bi6Patch, kp20_apply_g2_strip};
+use super::kp20_bi6_math::kp20_g2_strip_weights;
 use crate::geometry::Point3;
 
 /// One row of the linear strip map `S = M * S0 + s_const`.
@@ -137,6 +139,90 @@ pub fn solve_kp20_s0_projection(
     })
 }
 
+/// Project one KP20 sector-separating G2 strip pair onto equations
+/// (13), using the current patch values as guide-sampled targets.
+///
+/// Free `S0` layout:
+/// - 0: `p_42`
+/// - 1: `p_52`
+/// - 2: `p_62`
+/// - 3: paired `q_42`
+/// - 4: paired `q_52`
+/// - 5: paired `q_62`
+///
+/// The projection preserves the current guide-sampled row-2 values as
+/// targets while fitting the row-1 G2 strip constraints. On success it
+/// writes the optimal row-2 values and then reapplies KP20 equation
+/// (13) to derive row 1.
+pub fn project_kp20_g2_strip_pair(
+    p: &mut Kp20Bi6Patch,
+    q: &mut Kp20Bi6Patch,
+    b0: f64,
+) -> Result<Kp20S0Projection, Kp20S0SolveError> {
+    let samples = build_kp20_g2_strip_samples(p, q, b0);
+    let projection = solve_kp20_s0_projection(6, &samples)?;
+    p.cps[4][2] = projection.free_points[0];
+    p.cps[5][2] = projection.free_points[1];
+    p.cps[6][2] = projection.free_points[2];
+    q.cps[4][2] = projection.free_points[3];
+    q.cps[5][2] = projection.free_points[4];
+    q.cps[6][2] = projection.free_points[5];
+    kp20_apply_g2_strip(p, q, b0);
+    Ok(projection)
+}
+
+/// Build the linear samples for [`project_kp20_g2_strip_pair`].
+pub fn build_kp20_g2_strip_samples(
+    p: &Kp20Bi6Patch,
+    q: &Kp20Bi6Patch,
+    b0: f64,
+) -> Vec<Kp20S0Sample> {
+    let (w1, w2, w3) = kp20_g2_strip_weights(b0);
+    let mut samples = Vec::with_capacity(12);
+
+    for (free_idx, point) in [
+        (0, p.cps[4][2]),
+        (1, p.cps[5][2]),
+        (2, p.cps[6][2]),
+        (3, q.cps[4][2]),
+        (4, q.cps[5][2]),
+        (5, q.cps[6][2]),
+    ] {
+        samples.push(Kp20S0Sample::new(
+            vec![(free_idx, 1.0)],
+            Point3::new(0.0, 0.0, 0.0),
+            point,
+        ));
+    }
+
+    for (p_idx, q_idx, i) in [(1, 4, 5), (2, 5, 6)] {
+        samples.push(Kp20S0Sample::new(
+            vec![(p_idx, 0.25), (q_idx, -0.25)],
+            p.cps[i][0],
+            p.cps[i][1],
+        ));
+        samples.push(Kp20S0Sample::new(
+            vec![(p_idx, -0.25), (q_idx, 0.25)],
+            p.cps[i][0],
+            q.cps[i][1],
+        ));
+    }
+
+    let correction_const = point_sum(&[(-w3, p.cps[5][0]), (w3, p.cps[6][0])]);
+    let p41_const = point_sum(&[(1.0, p.cps[4][0]), (1.0, correction_const)]);
+    samples.push(Kp20S0Sample::new(
+        vec![(0, 0.25), (3, -0.25), (1, w2), (4, -w2), (2, w1), (5, -w1)],
+        p41_const,
+        p.cps[4][1],
+    ));
+    samples.push(Kp20S0Sample::new(
+        vec![(0, -0.25), (3, 0.25), (1, -w2), (4, w2), (2, -w1), (5, w1)],
+        p41_const,
+        q.cps[4][1],
+    ));
+    samples
+}
+
 fn validate_samples(num_free: usize, samples: &[Kp20S0Sample]) -> Result<(), Kp20S0SolveError> {
     for (sample_idx, sample) in samples.iter().enumerate() {
         for &(index, _) in &sample.coeffs {
@@ -191,6 +277,16 @@ fn coord(p: Point3, axis: usize) -> f64 {
         1 => p.y,
         _ => p.z,
     }
+}
+
+fn point_sum(terms: &[(f64, Point3)]) -> Point3 {
+    let mut out = Point3::new(0.0, 0.0, 0.0);
+    for &(w, p) in terms {
+        out.x += w * p.x;
+        out.y += w * p.y;
+        out.z += w * p.z;
+    }
+    out
 }
 
 #[cfg(test)]
