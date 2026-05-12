@@ -93,6 +93,9 @@ fn assess_three_face_tangency(
         None if solve_live_three_face_tangency(brep, request, tolerance).is_some() => {
             CornerApexStrategyReadiness::Ready
         }
+        None if tolerance.nanometers == Some(0) => {
+            CornerApexStrategyReadiness::Invalid("three-face-tangency-residual-limit-failure")
+        }
         None => {
             CornerApexStrategyReadiness::RequiresMissingPrimitive("three-face-tangency-no-solution")
         }
@@ -164,6 +167,9 @@ fn three_face_tangency_missing_reason(
     {
         return Some("three-face-tangency-singular-normal");
     }
+    if has_multiple_solution_ambiguity(brep, &faces) {
+        return Some("three-face-tangency-multiple-solution-ambiguity");
+    }
     if let Err(reason) = tangency_supports(brep, vertex) {
         return Some(reason);
     }
@@ -188,6 +194,15 @@ fn has_singular_tangency_normal(brep: &BRep, face: FaceHandle, vertex: Point3) -
         SurfaceGeometry::Plane { normal, .. } => normal.normalized().is_none(),
         _ => false,
     }
+}
+
+fn has_multiple_solution_ambiguity(brep: &BRep, faces: &[FaceHandle]) -> bool {
+    faces.iter().take(3).all(|face| {
+        brep.faces[*face]
+            .surface
+            .as_ref()
+            .is_some_and(|surface| matches!(surface.geometry, SurfaceGeometry::Sphere { .. }))
+    })
 }
 
 fn solve_live_three_face_tangency(

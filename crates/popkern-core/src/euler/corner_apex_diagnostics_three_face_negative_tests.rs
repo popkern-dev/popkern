@@ -73,6 +73,70 @@ fn live_three_face_tangency_rejects_impossible_offsets() {
     assert_not_ready(report.strategy.readiness, "three-face-tangency-no-solution");
 }
 
+#[test]
+fn live_three_face_tangency_rejects_multiple_solution_ambiguity() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let faces = incident_faces(&cube, vertex);
+    for (index, face) in faces.iter().take(3).enumerate() {
+        cube.faces[*face]
+            .surface
+            .as_mut()
+            .expect("surface")
+            .geometry = SurfaceGeometry::Sphere {
+            center: Point3::new((index + 1) as f64, 0.0, 0.0),
+            radius: 1.0,
+        };
+    }
+
+    let report = cube.diagnose_corner_apex(request(vertex, &incident_edges(&cube, vertex)));
+
+    assert_not_ready(
+        report.strategy.readiness,
+        "three-face-tangency-multiple-solution-ambiguity",
+    );
+}
+
+#[test]
+fn live_three_face_tangency_rejects_residual_limit_failure() {
+    let tolerance = Tolerance::default().with_linear(0.0);
+    let mut cube = BRep::unit_cube(tolerance).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let faces = incident_faces(&cube, vertex);
+    cube.faces[faces[0]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry = SurfaceGeometry::Sphere {
+        center: Point3::new(1.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    cube.faces[faces[1]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry = SurfaceGeometry::Sphere {
+        center: Point3::new(3.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    cube.faces[faces[2]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry = z_plane();
+
+    let report = cube.diagnose_corner_apex(request(vertex, &incident_edges(&cube, vertex)));
+
+    assert_eq!(
+        report.strategy.readiness,
+        CornerApexStrategyReadiness::Invalid("three-face-tangency-residual-limit-failure")
+    );
+    assert_ne!(
+        report.strategy.readiness,
+        CornerApexStrategyReadiness::Ready
+    );
+}
+
 fn assert_not_ready(readiness: CornerApexStrategyReadiness, expected_reason: &'static str) {
     assert_eq!(
         readiness,
