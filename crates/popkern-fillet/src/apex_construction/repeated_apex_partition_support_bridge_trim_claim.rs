@@ -113,10 +113,104 @@ fn trace_side_support_bridge_claim_miss(
         })
         .collect::<Vec<_>>()
         .join("; ");
+    let path_diagnostic = bridge_boundary_path_for_cylinder_side(brep, bridge_loops, start, end)
+        .map(|path| {
+            let spans = path
+                .iter()
+                .map(|step| {
+                    format!(
+                        "{:?}/{:?}:{:?}->{:?}",
+                        step.loop_, step.half_edge, step.start, step.end
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                " boundary_path_exists_but_requires_loop_regrouping=[{spans}]; this path cannot \
+                 be claimed as one trim twin because its half-edges already belong to bridge \
+                 loops"
+            )
+        })
+        .unwrap_or_default();
     eprintln!(
         "[a2-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] found no side-support bridge \
-         boundary side to claim for {label} {start:?}->{end:?}; bridge candidates {reports}"
+         boundary side to claim for {label} {start:?}->{end:?}; bridge candidates {reports}{path_diagnostic}"
     );
+}
+
+#[derive(Clone, Copy)]
+struct BridgeBoundaryPathStep {
+    loop_: LoopHandle,
+    half_edge: HalfEdgeHandle,
+    start: VertexHandle,
+    end: VertexHandle,
+}
+
+fn bridge_boundary_path_for_cylinder_side(
+    brep: &BRep,
+    bridge_loops: &[LoopHandle],
+    start: VertexHandle,
+    end: VertexHandle,
+) -> Option<Vec<BridgeBoundaryPathStep>> {
+    let steps = bridge_loops
+        .iter()
+        .flat_map(|loop_handle| {
+            collect_loop_half_edges(brep, *loop_handle)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|half_edge| {
+                    let data = brep.half_edges.get(half_edge)?;
+                    if !brep.boundary_edges.contains(&data.edge)
+                        || brep.half_edges.contains_key(data.twin)
+                    {
+                        return None;
+                    }
+                    let span_end = support_split_half_edge_end_vertex(brep, half_edge)?;
+                    Some(BridgeBoundaryPathStep {
+                        loop_: *loop_handle,
+                        half_edge,
+                        start: data.origin,
+                        end: span_end,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    shortest_bridge_boundary_path(start, end, &steps)
+}
+
+fn shortest_bridge_boundary_path(
+    start: VertexHandle,
+    end: VertexHandle,
+    steps: &[BridgeBoundaryPathStep],
+) -> Option<Vec<BridgeBoundaryPathStep>> {
+    let mut queue = std::collections::VecDeque::from([(start, Vec::new())]);
+    let mut best_depth_by_vertex = std::collections::BTreeMap::from([(start, 0usize)]);
+    while let Some((cursor, path)) = queue.pop_front() {
+        if cursor == end && !path.is_empty() {
+            return Some(path);
+        }
+        for step in steps.iter().filter(|step| step.start == cursor) {
+            if path
+                .iter()
+                .any(|visited: &BridgeBoundaryPathStep| visited.half_edge == step.half_edge)
+            {
+                continue;
+            }
+            let next_depth = path.len() + 1;
+            if best_depth_by_vertex
+                .get(&step.end)
+                .is_some_and(|best_depth| *best_depth <= next_depth)
+            {
+                continue;
+            }
+            best_depth_by_vertex.insert(step.end, next_depth);
+            let mut next_path = path.clone();
+            next_path.push(*step);
+            queue.push_back((step.end, next_path));
+        }
+    }
+    None
 }
 
 fn validate_side_support_bridge_claim(
@@ -161,4 +255,115 @@ fn validate_side_support_bridge_claim(
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use popkern_core::geometry::Point3;
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::{Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
+
+    use super::*;
+
+    #[test]
+    fn bridge_boundary_path_detects_multi_loop_regrouping_need() {
+        let mut brep = BRep::new(Tolerance::default());
+        let solid = brep.solids.insert(Solid {
+            shell: Default::default(),
+        });
+        let shell = brep.shells.insert(Shell {
+            face: Default::default(),
+            solid,
+        });
+        brep.solids[solid].shell = shell;
+        let vertices = [
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(2.0, 0.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+        ]
+        .map(|position| {
+            brep.vertices.insert(Vertex {
+                position,
+                outgoing: Default::default(),
+                name: None,
+                tolerance: None,
+            })
+        });
+        let first_loop =
+            add_boundary_loop(&mut brep, shell, &[vertices[0], vertices[1], vertices[3]]);
+        let second_loop =
+            add_boundary_loop(&mut brep, shell, &[vertices[1], vertices[2], vertices[3]]);
+
+        let path = bridge_boundary_path_for_cylinder_side(
+            &brep,
+            &[first_loop, second_loop],
+            vertices[0],
+            vertices[2],
+        )
+        .expect("multi-loop boundary path is detected");
+
+        assert_eq!(path.len(), 2);
+        assert_eq!(path[0].start, vertices[0]);
+        assert_eq!(path[0].end, vertices[1]);
+        assert_eq!(path[1].start, vertices[1]);
+        assert_eq!(path[1].end, vertices[2]);
+    }
+
+    fn add_boundary_loop(
+        brep: &mut BRep,
+        shell: popkern_core::topology::ShellHandle,
+        vertices: &[VertexHandle],
+    ) -> LoopHandle {
+        let face = brep.faces.insert(Face {
+            outer_loop: Default::default(),
+            inner_loops: vec![],
+            shell,
+            surface: None,
+            name: None,
+            tolerance: None,
+            role: Default::default(),
+        });
+        let loop_ = brep.loops.insert(Loop {
+            half_edge: Default::default(),
+            face,
+        });
+        brep.faces[face].outer_loop = loop_;
+        let half_edges = vertices
+            .iter()
+            .copied()
+            .map(|vertex| {
+                let edge = brep.edges.insert(Edge {
+                    half_edge: Default::default(),
+                    curve: None,
+                    name: None,
+                    tolerance: None,
+                    canonical: Default::default(),
+                    role: Default::default(),
+                });
+                let half_edge = brep.half_edges.insert(HalfEdge {
+                    origin: vertex,
+                    twin: Default::default(),
+                    next: Default::default(),
+                    prev: Default::default(),
+                    edge,
+                    loop_,
+                    pcurve: None,
+                });
+                brep.edges[edge].half_edge = half_edge;
+                brep.boundary_edges.insert(edge);
+                if brep.vertices[vertex].outgoing == HalfEdgeHandle::default() {
+                    brep.vertices[vertex].outgoing = half_edge;
+                }
+                half_edge
+            })
+            .collect::<Vec<_>>();
+        for (index, half_edge) in half_edges.iter().copied().enumerate() {
+            brep.half_edges[half_edge].next = half_edges[(index + 1) % half_edges.len()];
+            brep.half_edges[half_edge].prev =
+                half_edges[(index + half_edges.len() - 1) % half_edges.len()];
+        }
+        brep.loops[loop_].half_edge = half_edges[0];
+        loop_
+    }
 }
