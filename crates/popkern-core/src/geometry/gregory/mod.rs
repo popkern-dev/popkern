@@ -109,6 +109,7 @@ mod kp15_bi6_rules;
 mod kp15_bi6_tensor_border_extract;
 mod kp20_bi6_assemble;
 mod kp20_bi6_cap;
+mod kp20_bi6_guide_build;
 mod kp20_bi6_guide_sample;
 mod kp20_bi6_math;
 mod kp20_bi6_s0_solve;
@@ -297,6 +298,7 @@ pub use kp20_bi6_cap::{
     initialise_kp20_macro_patches_from_tensor_border, kp20_apply_g2_strip,
     kp20_propagate_c2_upper_from_lower, split_kp20_tensor_border,
 };
+pub use kp20_bi6_guide_build::{Kp20GuideBuildInput, Kp20GuideRing, build_kp20_guide_ring};
 pub use kp20_bi6_guide_sample::{
     Kp20AffineGuideMap, Kp20GuideJet3, Kp20PatchCorner, Kp20Tri6GuideSector,
     kp20_corner_block_from_jet, kp20_sample_corner_block, kp20_sample_macro_patch_from_guide,
