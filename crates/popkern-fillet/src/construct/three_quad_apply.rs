@@ -418,6 +418,12 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
                 )));
             }
         }
+        if let Err(err) = three_quad_reproject::verify_outer_loop_pcurves(brep, *sub_face) {
+            *brep = brep_before_surface_assignment.clone();
+            return Err(ThreeQuadFailure::Other(format!(
+                "cap surface assignment left invalid trim pcurves: {err}"
+            )));
+        }
         if crate::a2_trace::enabled() {
             trace_cap_subface_neighbors(brep, "post-assign", &[*sub_face]);
         }

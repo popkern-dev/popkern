@@ -216,3 +216,32 @@ pub(super) fn reproject_loop_pcurves_onto_gregory(
         brep.half_edges[he].pcurve = Some(fitted.into());
     }
 }
+
+/// Verify that every half-edge on a cap face's outer trim loop owns a
+/// pcurve after surface assignment and reprojection.
+pub(super) fn verify_outer_loop_pcurves(brep: &BRep, face: FaceHandle) -> Result<(), String> {
+    let face_data = brep
+        .faces
+        .get(face)
+        .ok_or_else(|| "face handle is invalid".to_string())?;
+    let loop_data = brep
+        .loops
+        .get(face_data.outer_loop)
+        .ok_or_else(|| "outer loop handle is invalid".to_string())?;
+    let start = loop_data.half_edge;
+    let mut cursor = start;
+    for _ in 0..brep.half_edges.len().max(1) {
+        let he = brep
+            .half_edges
+            .get(cursor)
+            .ok_or_else(|| "outer loop half-edge handle is invalid".to_string())?;
+        if he.pcurve.is_none() {
+            return Err(format!("half-edge {cursor:?} has no pcurve"));
+        }
+        cursor = he.next;
+        if cursor == start {
+            return Ok(());
+        }
+    }
+    Err("outer loop did not close while checking pcurves".to_string())
+}
