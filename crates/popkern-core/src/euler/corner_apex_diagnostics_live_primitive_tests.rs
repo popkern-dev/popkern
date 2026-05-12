@@ -34,6 +34,48 @@ fn live_mutual_trim_names_nonlinear_spine_gap() {
     );
 }
 
+#[test]
+fn live_mutual_trim_names_variable_radius_gap() {
+    let cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let edges = incident_edges(&cube, vertex);
+    let mut request = request(
+        vertex,
+        &edges[..2],
+        BlendKind::FilletConstantRadius,
+        10_000_000,
+    );
+    request.selected_edges[1].radius_nanometers = Some(20_000_000);
+
+    let report = cube.diagnose_corner_apex(request);
+
+    assert_eq!(report.strategy.family, CornerApexStrategyFamily::MutualTrim);
+    assert_eq!(
+        report.strategy.readiness,
+        CornerApexStrategyReadiness::RequiresMissingPrimitive("variable-radius-mutual-trim-probe")
+    );
+}
+
+#[test]
+fn live_mutual_trim_keeps_line_spine_planar_support_ready() {
+    let cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let edges = incident_edges(&cube, vertex);
+
+    let report = cube.diagnose_corner_apex(request(
+        vertex,
+        &edges[..2],
+        BlendKind::FilletConstantRadius,
+        10_000_000,
+    ));
+
+    assert_eq!(report.strategy.family, CornerApexStrategyFamily::MutualTrim);
+    assert_eq!(
+        report.strategy.readiness,
+        CornerApexStrategyReadiness::Ready
+    );
+}
+
 fn request(
     vertex: VertexHandle,
     edges: &[EdgeHandle],
