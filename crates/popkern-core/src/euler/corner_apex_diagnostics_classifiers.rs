@@ -1,6 +1,7 @@
 //! Pure classifiers for corner/apex diagnostic facts.
 #![allow(missing_docs)]
 
+use super::patch::patch_candidate_fact;
 use super::score_types::{ApexFeasibilityScoreFact, ApexFeasibilityScoreMissing};
 use super::support_types::{
     CenterLocusFeasibilityFact, SupportFootprintFeasibilityFact, SupportFootprintFeasibilityState,
@@ -392,6 +393,7 @@ pub fn classify_strategy_readiness(
     StrategyReadinessFact {
         family,
         readiness,
+        patch_candidate: patch_candidate_fact(family),
         continuity_target: "G1",
         deferred: family == CornerApexStrategyFamily::DeferredVertexPatch,
         fallback_eligible: matches!(

@@ -2,6 +2,7 @@
 #![allow(missing_docs)]
 
 use super::super::{DiagnosticHandle, DiagnosticTolerance};
+use super::patch_types::PatchCandidateFact;
 use super::score_types::ApexFeasibilityScoreFact;
 use super::selection_types::CornerSelectionIntentFact;
 use super::support_types::{CenterLocusFeasibilityFact, SupportFootprintFeasibilityFact};
@@ -397,6 +398,7 @@ pub enum CornerApexStrategyReadiness {
 pub struct StrategyReadinessFact {
     pub family: CornerApexStrategyFamily,
     pub readiness: CornerApexStrategyReadiness,
+    pub patch_candidate: PatchCandidateFact,
     pub continuity_target: &'static str,
     pub deferred: bool,
     pub fallback_eligible: bool,

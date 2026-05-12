@@ -10,6 +10,10 @@ mod live_helpers;
 mod live_primitives;
 #[path = "corner_apex_diagnostics_manifest.rs"]
 mod manifest;
+#[path = "corner_apex_diagnostics_patch.rs"]
+mod patch;
+#[path = "corner_apex_diagnostics_patch_types.rs"]
+mod patch_types;
 #[path = "corner_apex_diagnostics_score_types.rs"]
 mod score_types;
 #[path = "corner_apex_diagnostics_selection.rs"]
@@ -36,6 +40,11 @@ pub use classifiers::{
 pub use manifest::{
     CornerApexConditionCategory, CornerApexConditionId, CornerApexFactContract,
     corner_apex_condition_ids, corner_apex_fact_contracts,
+};
+#[allow(unused_imports)]
+pub use patch_types::{
+    PatchCandidateApplicability, PatchCandidateDowngradePolicy, PatchCandidateFact,
+    PatchCandidateFeasibility, PatchCandidateQuality,
 };
 #[allow(unused_imports)]
 pub use score_types::{
@@ -65,6 +74,9 @@ pub use types::{
     VertexClassificationFact, VertexConvexityClass,
 };
 
+#[cfg(test)]
+#[path = "corner_apex_diagnostics_high_valence_tests.rs"]
+mod high_valence_tests;
 #[cfg(test)]
 #[path = "corner_apex_diagnostics_live_primitive_tests.rs"]
 mod live_primitive_tests;

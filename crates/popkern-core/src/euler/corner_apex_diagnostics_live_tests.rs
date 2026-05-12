@@ -93,39 +93,6 @@ fn live_cube_through_vertex_reports_mutual_trim_trial_readiness() {
 }
 
 #[test]
-fn live_pyramid_apex_reports_high_valence_missing_patch_primitive() {
-    let pyramid = BRep::square_pyramid(2.0, 1.5, Tolerance::default()).expect("pyramid");
-    let apex = pyramid
-        .vertices
-        .iter()
-        .find(|(_, vertex)| vertex.position.z > 0.0)
-        .map(|(handle, _)| handle)
-        .expect("apex");
-    let edges = incident_edges(&pyramid, apex);
-    assert_eq!(edges.len(), 4);
-
-    let report = pyramid.diagnose_corner_apex(request(
-        apex,
-        &edges,
-        BlendKind::FilletConstantRadius,
-        10_000_000,
-    ));
-
-    assert_eq!(
-        report.classification.valence,
-        BlendValence::HighValenceCorner
-    );
-    assert_eq!(
-        report.strategy.family,
-        CornerApexStrategyFamily::HighValencePatch
-    );
-    assert_eq!(
-        report.strategy.readiness,
-        CornerApexStrategyReadiness::RequiresMissingPrimitive("n-sided-corner-patch")
-    );
-}
-
-#[test]
 fn live_stale_vertex_handle_is_reported_without_panicking() {
     let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
     let stale = vertex_at(&cube, 0.0, 0.0, 0.0);
