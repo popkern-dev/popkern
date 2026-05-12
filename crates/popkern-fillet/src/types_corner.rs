@@ -28,6 +28,55 @@ pub enum CornerMethod {
     PlateMin,
 }
 
+/// Semantic ownership for a sub-face that represents one piece of a
+/// larger multi-sided macro-cap construction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CornerSubPatchProvenance {
+    /// Original polar sector index before macro subdivision.
+    pub sector_index: usize,
+    /// Number of original polar sectors at the corner.
+    pub sector_count: usize,
+    /// Piece index within the sector-local macro layout.
+    pub piece_index: usize,
+    /// Number of pieces per sector.
+    pub piece_count: usize,
+    /// CAD-domain role of this piece in the macro layout.
+    pub role: CornerSubPatchRole,
+}
+
+/// CAD-domain role of one macro-cap sub-patch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CornerSubPatchRole {
+    /// KP20 piece closer to the extraordinary point, left of the sector median.
+    NearOriginLeft,
+    /// KP20 piece closer to the extraordinary point, right of the sector median.
+    NearOriginRight,
+    /// KP20 piece closer to the outer midpoint, right of the sector median.
+    NearMidpointRight,
+    /// KP20 piece closer to the outer midpoint, left of the sector median.
+    NearMidpointLeft,
+}
+
+impl CornerSubPatchProvenance {
+    /// Build provenance for KP20's 2×2 bi-6 macro-sector layout.
+    pub fn kp20(sector_index: usize, sector_count: usize, piece_index: usize) -> Self {
+        let role = match piece_index {
+            0 => CornerSubPatchRole::NearOriginLeft,
+            1 => CornerSubPatchRole::NearOriginRight,
+            2 => CornerSubPatchRole::NearMidpointRight,
+            3 => CornerSubPatchRole::NearMidpointLeft,
+            _ => panic!("KP20 macro piece index must be in 0..4, got {piece_index}"),
+        };
+        Self {
+            sector_index,
+            sector_count,
+            piece_index,
+            piece_count: 4,
+            role,
+        }
+    }
+}
+
 impl CornerMethod {
     /// Display string for diagnostics and UI.
     pub fn as_str(&self) -> &'static str {
@@ -74,4 +123,6 @@ pub struct CornerPatchInfo {
     pub relaxed_continuity_coplanarity: Option<f64>,
     /// Per-fillet sphere fit `(centre, radius)` for this sub-face.
     pub cap_sphere: Option<(popkern_core::geometry::Point3, f64)>,
+    /// Macro-cap ownership metadata for multi-piece sector constructions.
+    pub sub_patch_provenance: Option<CornerSubPatchProvenance>,
 }

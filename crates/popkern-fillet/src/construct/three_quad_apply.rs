@@ -46,7 +46,7 @@ use super::poke_hex::poke_n_gon_face_into_n_quads;
 use crate::blend::boundary::{BlendBoundary, BoundarySegment};
 use crate::blend::gregory_three_quad::build_n_quad_decomposition_with_options;
 use crate::fillet_surface::FilletSurfaceResult;
-use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo};
+use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo, CornerSubPatchProvenance};
 use crate::vertex_classifier::VertexBlendClassification;
 
 /// §5.3 item #10 — why the three-quad dispatch failed. Callers
@@ -432,12 +432,22 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             overlap_remediated: false,
             relaxed_continuity_coplanarity: relaxed_coplanarity,
             cap_sphere: cap_sphere_per_subface[k],
+            sub_patch_provenance: sub_patch_provenance(is_4n_path, n_sides, k),
         });
     }
     if crate::a2_trace::enabled() {
         trace_cap_subface_neighbors(brep, "final", &sub_faces);
     }
     Ok(patches)
+}
+
+fn sub_patch_provenance(
+    is_4n_path: bool,
+    n_sides: usize,
+    sub_patch_index: usize,
+) -> Option<CornerSubPatchProvenance> {
+    is_4n_path
+        .then(|| CornerSubPatchProvenance::kp20(sub_patch_index / 4, n_sides, sub_patch_index % 4))
 }
 
 fn severe_radius_spread(per_fillet_caps: &[(Point3, f64)]) -> bool {

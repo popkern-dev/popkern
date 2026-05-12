@@ -313,6 +313,7 @@ pub fn try_pns_dispatch(
             overlap_remediated: false,
             relaxed_continuity_coplanarity: None,
             cap_sphere: None,
+            sub_patch_provenance: None,
         })
         .collect();
     Some(patches)

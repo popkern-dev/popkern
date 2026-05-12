@@ -190,6 +190,7 @@ fn construct_apex_inner_constructive(
                 overlap_remediated: false,
                 relaxed_continuity_coplanarity: None,
                 cap_sphere: Some((*cap_center, *cap_radius)),
+                sub_patch_provenance: None,
             }];
 
             let n = plan.cap_kind.n_fillets();

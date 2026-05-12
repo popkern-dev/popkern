@@ -43,6 +43,7 @@ pub(super) fn assign_cap_surface(
                 overlap_remediated: false,
                 relaxed_continuity_coplanarity: None,
                 cap_sphere: Some((*center, *radius)),
+                sub_patch_provenance: None,
             }])
         }
         CapKind::Gregory { .. } => {

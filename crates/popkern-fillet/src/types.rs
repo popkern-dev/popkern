@@ -6,7 +6,9 @@ mod types_chamfer;
 mod types_corner;
 
 pub use types_chamfer::{ChamferKind, ChamferOptions, ChamferSpec};
-pub use types_corner::{CornerMethod, CornerPatchInfo};
+pub use types_corner::{
+    CornerMethod, CornerPatchInfo, CornerSubPatchProvenance, CornerSubPatchRole,
+};
 
 use popkern_core::topology::EdgeHandle;
 
