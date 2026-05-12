@@ -245,3 +245,29 @@ pub(super) fn verify_outer_loop_pcurves(brep: &BRep, face: FaceHandle) -> Result
     }
     Err("outer loop did not close while checking pcurves".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use popkern_core::tolerance::Tolerance;
+
+    #[test]
+    fn verify_outer_loop_pcurves_accepts_complete_face() {
+        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let face = brep.faces.keys().next().unwrap();
+
+        assert!(verify_outer_loop_pcurves(&brep, face).is_ok());
+    }
+
+    #[test]
+    fn verify_outer_loop_pcurves_rejects_missing_trim_pcurve() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let face = brep.faces.keys().next().unwrap();
+        let he = brep.loops[brep.faces[face].outer_loop].half_edge;
+        brep.half_edges[he].pcurve = None;
+
+        let err = verify_outer_loop_pcurves(&brep, face).unwrap_err();
+
+        assert!(err.contains("has no pcurve"), "{err}");
+    }
+}

@@ -26,6 +26,10 @@ mod three_quad_planned_seam_authoring;
 mod three_quad_reproject;
 #[path = "three_quad_seam_pcurves.rs"]
 mod three_quad_seam_pcurves;
+#[path = "three_quad_sphere_cap.rs"]
+mod three_quad_sphere_cap;
+#[path = "three_quad_trace.rs"]
+mod three_quad_trace;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
@@ -34,13 +38,16 @@ use popkern_core::geometry::gregory::{
 };
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
-use three_quad_face_matching::{
-    boundary_segment_to_sub_face_permutation, primary_cylinder_identity_of_face,
-};
+use three_quad_face_matching::boundary_segment_to_sub_face_permutation;
 use three_quad_kp_promote::promote_decomp_to_kp_binonic;
 pub(crate) use three_quad_kp_promote::{extract_direct_boundary_input, worst_ring_coplanarity};
 use three_quad_reproject::reproject_loop_pcurves_onto_gregory;
 use three_quad_seam_pcurves::author_boundary_owned_seam_pcurves;
+use three_quad_sphere_cap::{
+    cap_spheres_for_subfaces, severe_radius_spread,
+    sphere_cap_boundary_degeneracy_in_boundary_order, sphere_cap_boundary_seams_are_nondegenerate,
+};
+use three_quad_trace::trace_cap_subface_neighbors;
 
 use super::poke_hex::poke_n_gon_face_into_n_quads;
 use crate::blend::boundary::{BlendBoundary, BoundarySegment};
@@ -478,19 +485,6 @@ fn macro_family_from_promotion(
     }
 }
 
-fn severe_radius_spread(per_fillet_caps: &[(Point3, f64)]) -> bool {
-    let mut min_radius = f64::INFINITY;
-    let mut max_radius = 0.0_f64;
-    for &(_, radius) in per_fillet_caps {
-        if radius <= 0.0 {
-            return false;
-        }
-        min_radius = min_radius.min(radius);
-        max_radius = max_radius.max(radius);
-    }
-    min_radius.is_finite() && max_radius / min_radius >= 4.0
-}
-
 fn decomp_self_intersects(
     decomp: &crate::blend::gregory_three_quad::NQuadDecomposition,
     tolerance: f64,
@@ -499,241 +493,6 @@ fn decomp_self_intersects(
         .sub_patches
         .iter()
         .any(|patch| patch.self_intersects_with_tolerance(tolerance))
-}
-
-fn cap_spheres_for_subfaces(
-    brep: &BRep,
-    sub_faces: &[FaceHandle],
-    per_fillet_caps: &[(Point3, f64)],
-) -> Vec<Option<(Point3, f64)>> {
-    let mut used = vec![false; per_fillet_caps.len()];
-    let mut assigned = vec![None; sub_faces.len()];
-
-    for (face_index, &face) in sub_faces.iter().enumerate() {
-        let Some((cyl_origin, cyl_axis, cyl_radius)) =
-            primary_cylinder_identity_of_face(brep, face)
-        else {
-            continue;
-        };
-        let Some(axis_unit) = cyl_axis.normalized() else {
-            continue;
-        };
-        let mut best: Option<(usize, f64)> = None;
-        for (cap_index, &(centre, radius)) in per_fillet_caps.iter().enumerate() {
-            if used[cap_index] {
-                continue;
-            }
-            let radius_error = (radius - cyl_radius).abs();
-            if radius_error > cyl_radius.max(radius) * 0.05 + 1.0e-9 {
-                continue;
-            }
-            let v = centre - cyl_origin;
-            let along = v.dot(&axis_unit);
-            let projected = cyl_origin + axis_unit * along;
-            let axis_error = centre.distance_to(&projected);
-            let score = axis_error + radius_error;
-            if best
-                .map(|(_, best_score)| score < best_score)
-                .unwrap_or(true)
-            {
-                best = Some((cap_index, score));
-            }
-        }
-        if let Some((cap_index, _)) = best {
-            used[cap_index] = true;
-            assigned[face_index] = Some(per_fillet_caps[cap_index]);
-            if crate::a2_trace::enabled() {
-                eprintln!(
-                    "[a2-trace] sphere-cap assignment face={face:?} -> cap[{cap_index}] r={:.3}",
-                    per_fillet_caps[cap_index].1
-                );
-            }
-        } else if crate::a2_trace::enabled() {
-            eprintln!(
-                "[a2-trace] sphere-cap assignment face={face:?} unmatched cyl_radius={cyl_radius:.3}"
-            );
-        }
-    }
-
-    assigned
-}
-
-fn sphere_cap_boundary_degeneracy_in_boundary_order(
-    brep: &BRep,
-    boundary: &BlendBoundary,
-    fillet_surfaces: &[FilletSurfaceResult],
-) -> Option<String> {
-    if boundary.segments.len() != 2 * boundary.per_fillet_caps.len() {
-        return Some(format!(
-            "boundary segment count {} does not match per-fillet cap count {}",
-            boundary.segments.len(),
-            boundary.per_fillet_caps.len()
-        ));
-    }
-    for (k, &(center, radius)) in boundary.per_fillet_caps.iter().enumerate() {
-        for segment in [&boundary.segments[2 * k], &boundary.segments[2 * k + 1]] {
-            if let Some(reason) =
-                sphere_cap_segment_degeneracy(brep, fillet_surfaces, center, radius, segment)
-            {
-                if crate::a2_trace::enabled() {
-                    eprintln!(
-                        "[a2-trace] sphere-cap preflight declined boundary[{k}] segment={}: {reason}",
-                        boundary_segment_kind(segment)
-                    );
-                }
-                return Some(format!(
-                    "boundary[{k}] {}: {reason}",
-                    boundary_segment_kind(segment)
-                ));
-            }
-        }
-    }
-    None
-}
-
-fn sphere_cap_boundary_seams_are_nondegenerate(
-    brep: &BRep,
-    boundary: &BlendBoundary,
-    fillet_surfaces: &[FilletSurfaceResult],
-    cap_sphere_per_subface: &[Option<(Point3, f64)>],
-) -> bool {
-    if boundary.segments.len() != 2 * cap_sphere_per_subface.len() {
-        return false;
-    }
-    for (k, cap) in cap_sphere_per_subface.iter().enumerate() {
-        let Some((center, radius)) = cap else {
-            return false;
-        };
-        for segment in [&boundary.segments[2 * k], &boundary.segments[2 * k + 1]] {
-            if let Some(reason) =
-                sphere_cap_segment_degeneracy(brep, fillet_surfaces, *center, *radius, segment)
-            {
-                if crate::a2_trace::enabled() {
-                    eprintln!(
-                        "[a2-trace] sphere-cap rung declined subface[{k}] segment={}: {reason}",
-                        boundary_segment_kind(segment)
-                    );
-                }
-                return false;
-            }
-        }
-    }
-    true
-}
-
-fn sphere_cap_segment_degeneracy(
-    brep: &BRep,
-    fillet_surfaces: &[FilletSurfaceResult],
-    sphere_center: Point3,
-    sphere_radius: f64,
-    segment: &BoundarySegment,
-) -> Option<String> {
-    match segment {
-        BoundarySegment::FaceEdge { face, .. } => {
-            let surface = brep.faces.get(*face)?.surface.as_ref()?;
-            if let SurfaceGeometry::Plane { origin, normal, .. } = &surface.geometry {
-                let normal = normal.normalized()?;
-                let plane_offset = (sphere_center - *origin).dot(&normal).abs();
-                let circle_radius_sq = sphere_radius * sphere_radius - plane_offset * plane_offset;
-                let tol = sphere_radius.max(1.0) * 1.0e-8;
-                if circle_radius_sq <= tol * tol {
-                    return Some(format!(
-                        "sphere-plane boundary is tangent or empty \
-                         (sphere radius {sphere_radius:.6e}, plane offset {plane_offset:.6e})"
-                    ));
-                }
-            }
-        }
-        BoundarySegment::FilletEnd { fillet_index, .. } => {
-            let Some(fillet) = fillet_surfaces.get(*fillet_index) else {
-                return Some(format!("fillet index {fillet_index} missing"));
-            };
-            if let SurfaceGeometry::Cylinder {
-                origin,
-                axis,
-                radius,
-            } = &fillet.surface
-            {
-                let Some(axis_unit) = axis.normalized() else {
-                    return Some("fillet cylinder axis is degenerate".to_string());
-                };
-                let to_center = sphere_center - *origin;
-                let along = to_center.dot(&axis_unit);
-                let projected = *origin + axis_unit * along;
-                let axis_error = sphere_center.distance_to(&projected);
-                let radius_error = (sphere_radius - *radius).abs();
-                let tol = sphere_radius.max(*radius).max(1.0) * 1.0e-5;
-                if axis_error > tol || radius_error > tol {
-                    return Some(format!(
-                        "sphere-cylinder tangent circle is not well-defined \
-                         (axis error {axis_error:.3e}, radius error {radius_error:.3e})"
-                    ));
-                }
-            }
-        }
-    }
-    None
-}
-
-fn boundary_segment_kind(segment: &BoundarySegment) -> &'static str {
-    match segment {
-        BoundarySegment::FilletEnd { .. } => "FilletEnd",
-        BoundarySegment::FaceEdge { .. } => "FaceEdge",
-    }
-}
-
-fn trace_cap_subface_neighbors(brep: &BRep, label: &str, faces: &[FaceHandle]) {
-    let kind = |face: FaceHandle| -> &'static str {
-        use popkern_core::geometry::surface::SurfaceGeometry;
-        match brep
-            .faces
-            .get(face)
-            .and_then(|f| f.surface.as_ref())
-            .map(|s| &s.geometry)
-        {
-            Some(SurfaceGeometry::Plane { .. }) => "Plane",
-            Some(SurfaceGeometry::Cylinder { .. }) => "Cyl",
-            Some(SurfaceGeometry::Sphere { .. }) => "Sphere",
-            Some(SurfaceGeometry::Cone { .. }) => "Cone",
-            Some(SurfaceGeometry::Torus { .. }) => "Torus",
-            Some(SurfaceGeometry::Nurbs(_)) => "Nurbs",
-            Some(SurfaceGeometry::Gregory(_)) => "Gregory",
-            None => "None",
-        }
-    };
-    for (idx, &face) in faces.iter().enumerate() {
-        let Some(face_data) = brep.faces.get(face) else {
-            continue;
-        };
-        let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
-            continue;
-        };
-        let start = loop_data.half_edge;
-        let mut cursor = start;
-        let mut entries = Vec::new();
-        for _ in 0..(brep.half_edges.len() + 1) {
-            let Some(he) = brep.half_edges.get(cursor) else {
-                break;
-            };
-            let twin_face = brep
-                .half_edges
-                .get(he.twin)
-                .and_then(|t| brep.loops.get(t.loop_))
-                .map(|l| l.face);
-            let twin_desc = twin_face
-                .map(|f| format!("{f:?}:{}", kind(f)))
-                .unwrap_or_else(|| "None".to_string());
-            entries.push(format!("{:?}->{twin_desc}", he.edge));
-            cursor = he.next;
-            if cursor == start {
-                break;
-            }
-        }
-        eprintln!(
-            "[a2-trace] K-P poke {label} subface[{idx}] {face:?}: {}",
-            entries.join(", ")
-        );
-    }
 }
 
 #[cfg(test)]

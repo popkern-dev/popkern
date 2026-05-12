@@ -143,3 +143,30 @@ pub struct CornerPatchInfo {
     /// Macro-cap ownership metadata for multi-piece sector constructions.
     pub sub_patch_provenance: Option<CornerSubPatchProvenance>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kp20_provenance_records_sector_piece_and_role() {
+        let provenance =
+            CornerSubPatchProvenance::macro_cap(CornerSubPatchFamily::Kp20Bi6, 2, 7, 3);
+
+        assert_eq!(provenance.family, CornerSubPatchFamily::Kp20Bi6);
+        assert_eq!(provenance.sector_index, 2);
+        assert_eq!(provenance.sector_count, 7);
+        assert_eq!(provenance.piece_index, 3);
+        assert_eq!(provenance.piece_count, 4);
+        assert_eq!(provenance.role, CornerSubPatchRole::NearMidpointLeft);
+    }
+
+    #[test]
+    fn kp13_and_kp20_macro_families_are_distinct() {
+        let kp13 = CornerSubPatchProvenance::macro_cap(CornerSubPatchFamily::Kp13Bi5, 0, 5, 0);
+        let kp20 = CornerSubPatchProvenance::macro_cap(CornerSubPatchFamily::Kp20Bi6, 0, 5, 0);
+
+        assert_ne!(kp13.family, kp20.family);
+        assert_eq!(kp13.role, kp20.role);
+    }
+}
