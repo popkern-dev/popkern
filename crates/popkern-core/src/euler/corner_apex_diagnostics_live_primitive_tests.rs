@@ -61,7 +61,6 @@ fn live_three_face_tangency_accepts_analytic_sphere_support() {
         BlendKind::FilletConstantRadius,
         10_000_000,
     ));
-
     assert_eq!(
         report.strategy.family,
         CornerApexStrategyFamily::ThreeFaceBlend
@@ -99,6 +98,37 @@ fn live_three_face_tangency_accepts_analytic_cylinder_support() {
         &edges,
         BlendKind::FilletConstantRadius,
         10_000_000,
+    ));
+
+    assert_eq!(
+        report.strategy.family,
+        CornerApexStrategyFamily::ThreeFaceBlend
+    );
+    assert_eq!(
+        report.strategy.readiness,
+        CornerApexStrategyReadiness::Ready
+    );
+}
+
+#[test]
+fn live_three_face_tangency_accepts_analytic_cone_support() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let face = incident_face(&cube, vertex);
+    let normal = match &cube.faces[face].surface.as_ref().expect("surface").geometry {
+        SurfaceGeometry::Plane { normal, .. } => normal.normalized().expect("normal"),
+        _ => panic!("fixture face is planar"),
+    };
+    let position = cube.vertices[vertex].position;
+    cube.faces[face].surface.as_mut().expect("surface").geometry =
+        cone_through_vertex_with_normal(position, normal);
+    let edges = incident_edges(&cube, vertex);
+
+    let report = cube.diagnose_corner_apex(request(
+        vertex,
+        &edges,
+        BlendKind::FilletConstantRadius,
+        1_000_000,
     ));
 
     assert_eq!(
@@ -280,4 +310,21 @@ fn perpendicular(normal: Vec3) -> Vec3 {
         .cross(&reference)
         .normalized()
         .expect("perpendicular")
+}
+
+fn cone_through_vertex_with_normal(vertex: Point3, normal: Vec3) -> SurfaceGeometry {
+    let half_angle = std::f64::consts::FRAC_PI_4;
+    let tangent = perpendicular(normal);
+    let axis = (tangent * half_angle.cos() - normal * half_angle.sin())
+        .normalized()
+        .expect("cone axis");
+    let radial_direction = (normal + axis * half_angle.sin())
+        .normalized()
+        .expect("cone radial direction");
+    let apex = vertex - radial_direction * half_angle.tan() - axis;
+    SurfaceGeometry::Cone {
+        apex,
+        axis,
+        half_angle,
+    }
 }

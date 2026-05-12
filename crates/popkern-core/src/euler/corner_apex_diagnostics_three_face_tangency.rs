@@ -1,10 +1,17 @@
 //! Read-only analytic three-face tangency probe for corner diagnostics.
 
+#[path = "corner_apex_diagnostics_tangency_lines.rs"]
+mod tangency_lines;
+
 use super::live_helpers::*;
 use crate::euler::DiagnosticTolerance;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::topology::{BRep, FaceHandle, VertexHandle};
+use tangency_lines::{
+    ConeEquation, CylinderEquation, PlaneEquation, line_cone_intersections,
+    line_cylinder_intersections, line_sphere_intersections, plane_plane_offset_line,
+};
 
 #[derive(Clone)]
 pub(super) struct TangencySupport {
@@ -17,6 +24,7 @@ impl TangencySupport {
             surface,
             SurfaceGeometry::Plane { .. }
                 | SurfaceGeometry::Cylinder { .. }
+                | SurfaceGeometry::Cone { .. }
                 | SurfaceGeometry::Sphere { .. }
         )
         .then_some(Self { surface })
@@ -43,6 +51,22 @@ impl TangencySupport {
                 let radial = point - center;
                 let normal = radial.normalized()?;
                 Some((radial.length() - radius, normal))
+            }
+            SurfaceGeometry::Cone {
+                apex,
+                axis,
+                half_angle,
+            } => {
+                let axis = axis.normalized()?;
+                let from_apex = point - apex;
+                let axial_distance = from_apex.dot(&axis);
+                let radial = from_apex - axis * axial_distance;
+                let radial_direction = radial.normalized()?;
+                let normal = radial_direction * half_angle.cos() - axis * half_angle.sin();
+                Some((
+                    radial.length() * half_angle.cos() - axial_distance * half_angle.sin(),
+                    normal,
+                ))
             }
             _ => None,
         }
@@ -121,6 +145,7 @@ fn tangency_seeds(
     let mut seeds = Vec::new();
     seeds.extend(exact_sphere_two_plane_seeds(supports, radius, signs));
     seeds.extend(exact_cylinder_two_plane_seeds(supports, radius, signs));
+    seeds.extend(exact_cone_two_plane_seeds(supports, radius, signs));
     if let Some(seed) = linearized_tangent_seed(vertex, &normals, radius, signs) {
         seeds.push(seed);
     }
@@ -218,6 +243,43 @@ fn exact_sphere_two_plane_seeds(
     seeds
 }
 
+fn exact_cone_two_plane_seeds(
+    supports: &[TangencySupport],
+    radius: f64,
+    signs: [f64; 3],
+) -> Vec<Point3> {
+    let mut seeds = Vec::new();
+    for cone_index in 0..3 {
+        let Some(cone) = supports[cone_index].cone() else {
+            continue;
+        };
+        let planes = (0..3)
+            .filter(|index| *index != cone_index)
+            .collect::<Vec<_>>();
+        let Some(first_plane) = supports[planes[0]].plane() else {
+            continue;
+        };
+        let Some(second_plane) = supports[planes[1]].plane() else {
+            continue;
+        };
+        let Some(line) = plane_plane_offset_line(
+            first_plane,
+            signs[planes[0]] * radius,
+            second_plane,
+            signs[planes[1]] * radius,
+            cone.apex,
+        ) else {
+            continue;
+        };
+        seeds.extend(line_cone_intersections(
+            line,
+            cone,
+            signs[cone_index] * radius,
+        ));
+    }
+    seeds
+}
+
 fn linearized_tangent_seed(
     vertex: Point3,
     normals: &[Vec3],
@@ -232,25 +294,6 @@ fn linearized_tangent_seed(
     );
     solve_3x3([normals[0], normals[1], normals[2]], rhs)
         .map(|seed| Point3::new(seed.x, seed.y, seed.z))
-}
-
-#[derive(Clone, Copy)]
-struct PlaneEquation {
-    normal: Vec3,
-    offset: f64,
-}
-
-#[derive(Clone, Copy)]
-struct LineEquation {
-    point: Point3,
-    direction: Vec3,
-}
-
-#[derive(Clone, Copy)]
-struct CylinderEquation {
-    origin: Point3,
-    axis: Vec3,
-    radius: f64,
 }
 
 impl TangencySupport {
@@ -288,77 +331,22 @@ impl TangencySupport {
             radius,
         })
     }
-}
 
-fn plane_plane_offset_line(
-    first: PlaneEquation,
-    first_offset_delta: f64,
-    second: PlaneEquation,
-    second_offset_delta: f64,
-    near: Point3,
-) -> Option<LineEquation> {
-    let direction = first.normal.cross(&second.normal).normalized()?;
-    let near = Vec3::new(near.x, near.y, near.z);
-    let point = solve_3x3(
-        [first.normal, second.normal, direction],
-        Vec3::new(
-            first.offset + first_offset_delta,
-            second.offset + second_offset_delta,
-            direction.dot(&near),
-        ),
-    )?;
-    Some(LineEquation {
-        point: Point3::new(point.x, point.y, point.z),
-        direction,
-    })
-}
-
-fn line_sphere_intersections(line: LineEquation, center: Point3, radius: f64) -> Vec<Point3> {
-    let to_point = line.point - center;
-    let b = 2.0 * to_point.dot(&line.direction);
-    let c = to_point.dot(&to_point) - radius * radius;
-    let discriminant = b * b - 4.0 * c;
-    let roots = if discriminant < -1e-12 {
-        Vec::new()
-    } else if discriminant.abs() <= 1e-12 {
-        vec![-b * 0.5]
-    } else {
-        let root = discriminant.sqrt();
-        vec![(-b - root) * 0.5, (-b + root) * 0.5]
-    };
-    roots
-        .into_iter()
-        .map(move |t| line.point + line.direction * t)
-        .collect()
-}
-
-fn line_cylinder_intersections(
-    line: LineEquation,
-    cylinder: CylinderEquation,
-    radius: f64,
-) -> Vec<Point3> {
-    let from_axis = line.point - cylinder.origin;
-    let direction = line.direction - cylinder.axis * line.direction.dot(&cylinder.axis);
-    let offset = from_axis - cylinder.axis * from_axis.dot(&cylinder.axis);
-    let a = direction.dot(&direction);
-    if a <= 1e-24 {
-        return Vec::new();
+    fn cone(&self) -> Option<ConeEquation> {
+        let SurfaceGeometry::Cone {
+            apex,
+            axis,
+            half_angle,
+        } = self.surface
+        else {
+            return None;
+        };
+        Some(ConeEquation {
+            apex,
+            axis: axis.normalized()?,
+            half_angle,
+        })
     }
-    let b = 2.0 * offset.dot(&direction);
-    let c = offset.dot(&offset) - radius * radius;
-    let discriminant = b * b - 4.0 * a * c;
-    let roots = if discriminant < -1e-12 {
-        Vec::new()
-    } else if discriminant.abs() <= 1e-12 {
-        vec![-b / (2.0 * a)]
-    } else {
-        let root = discriminant.sqrt();
-        vec![(-b - root) / (2.0 * a), (-b + root) / (2.0 * a)]
-    };
-    roots
-        .into_iter()
-        .map(move |t| line.point + line.direction * t)
-        .collect()
 }
 
 fn newton_solve_tangency(
