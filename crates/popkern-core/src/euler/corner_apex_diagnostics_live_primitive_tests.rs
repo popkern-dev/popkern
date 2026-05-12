@@ -31,6 +31,10 @@ fn live_three_face_tangency_names_unsupported_support_gap() {
         CornerApexStrategyFamily::ThreeFaceBlend
     );
     assert_eq!(
+        report.topology.surface_compatibility,
+        SurfaceCompatibility::MissingPrimitive("three-face-tangency-torus-support")
+    );
+    assert_eq!(
         report.strategy.readiness,
         CornerApexStrategyReadiness::RequiresMissingPrimitive(
             "three-face-tangency-nonplanar-support"

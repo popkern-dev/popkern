@@ -266,6 +266,9 @@ fn surface_compatibility(brep: &BRep, faces: &[FaceHandle]) -> SurfaceCompatibil
         if brep.faces[*face].role == TopologyRole::ConstructionResidual {
             return SurfaceCompatibility::Incompatible("construction-residual-support");
         }
+        if matches!(surface.geometry, SurfaceGeometry::Torus { .. }) {
+            return SurfaceCompatibility::MissingPrimitive("three-face-tangency-torus-support");
+        }
         has_existing_blend |= matches!(surface.geometry, SurfaceGeometry::Gregory(_));
     }
     if has_existing_blend {

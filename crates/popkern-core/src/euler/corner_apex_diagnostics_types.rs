@@ -207,6 +207,7 @@ pub enum SurfaceCompatibility {
     Full,
     Conditional(&'static str),
     Incompatible(&'static str),
+    MissingPrimitive(&'static str),
     Unknown(&'static str),
 }
 
