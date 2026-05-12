@@ -236,7 +236,19 @@ pub fn classify_strategy_readiness(
     sizing: ApexSizingFact,
     support: CornerSupportAdequacyFact,
 ) -> StrategyReadinessFact {
-    let (family, readiness) = if classification.topology == TopologicalConfiguration::NonManifold {
+    let (family, readiness) = if let BlendTypeCompatibility::Incompatible(reason) =
+        classification.blend_types
+    {
+        (
+            CornerApexStrategyFamily::VertexPatch,
+            CornerApexStrategyReadiness::Invalid(reason),
+        )
+    } else if classification.blend_types == BlendTypeCompatibility::Heterogeneous {
+        (
+            CornerApexStrategyFamily::VertexPatch,
+            CornerApexStrategyReadiness::RequiresMissingPrimitive("mixed-blend-family-meshing"),
+        )
+    } else if classification.topology == TopologicalConfiguration::NonManifold {
         (
             CornerApexStrategyFamily::VertexPatch,
             CornerApexStrategyReadiness::Invalid("non-manifold-corner"),
@@ -314,6 +326,7 @@ pub fn classify_construction_risk(
             ConstructionRiskKind::ChamferRoundMeshing => "mixed-chamfer-round-meshing",
             ConstructionRiskKind::FacetedSmoothMismatch => "geometry-mode-conversion",
             ConstructionRiskKind::ApproximationResidual => "approximation-refinement",
+            ConstructionRiskKind::NumericalSolverFailure => "numerical-solver-failure",
         })
     };
     ConstructionRiskFact {

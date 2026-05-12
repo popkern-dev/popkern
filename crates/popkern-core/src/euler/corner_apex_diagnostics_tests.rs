@@ -183,6 +183,15 @@ fn construction_integration_and_lifecycle_classifiers_are_typed() {
         risk.state,
         ConstructionRiskState::RequiresMissingPrimitive("patch-boundary-repair")
     );
+    let numerical = classify_construction_risk(
+        ConstructionRiskKind::NumericalSolverFailure,
+        false,
+        tolerance(),
+    );
+    assert_eq!(
+        numerical.state,
+        ConstructionRiskState::RequiresMissingPrimitive("numerical-solver-failure")
+    );
 
     let integration = classify_integration_validation(
         IntegrationValidationKind::Continuity,

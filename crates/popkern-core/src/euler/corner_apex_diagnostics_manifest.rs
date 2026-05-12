@@ -84,7 +84,7 @@ macro_rules! condition {
     };
 }
 
-pub const CORNER_APEX_CONDITION_IDS: [CornerApexConditionId; 44] = [
+pub const CORNER_APEX_CONDITION_IDS: [CornerApexConditionId; 45] = [
     condition!(TopologyExtraction, "local-neighborhood"),
     condition!(TopologyExtraction, "stale-or-missing-handle"),
     condition!(SurfaceCompatibility, "analytic-support"),
@@ -121,6 +121,7 @@ pub const CORNER_APEX_CONDITION_IDS: [CornerApexConditionId; 44] = [
     condition!(ConstructionRisk, "intersection-tangency"),
     condition!(ConstructionRisk, "patch-boundary-continuity"),
     condition!(ConstructionRisk, "approximation-mode-retry"),
+    condition!(ConstructionRisk, "numerical-solver-failure"),
     condition!(IntegrationValidation, "watertightness-intersection"),
     condition!(IntegrationValidation, "tolerance-exceeded"),
     condition!(ContinuityVerification, "g0-g1-g2"),

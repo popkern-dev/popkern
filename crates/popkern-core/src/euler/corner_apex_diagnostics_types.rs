@@ -304,6 +304,7 @@ pub enum ConstructionRiskKind {
     ChamferRoundMeshing,
     FacetedSmoothMismatch,
     ApproximationResidual,
+    NumericalSolverFailure,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

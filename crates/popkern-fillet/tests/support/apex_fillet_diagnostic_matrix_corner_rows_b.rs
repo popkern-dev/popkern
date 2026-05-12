@@ -28,7 +28,7 @@ macro_rules! row {
     };
 }
 
-pub(crate) const CORNER_APEX_ROWS_B: [CornerApexMatrixRow; 22] = [
+pub(crate) const CORNER_APEX_ROWS_B: [CornerApexMatrixRow; 23] = [
     row!(
         "corner_sizing-range-clearance_range-too-large",
         [DiagnosticAxis::ExtremeRadiusRatio],
@@ -251,6 +251,22 @@ pub(crate) const CORNER_APEX_ROWS_B: [CornerApexMatrixRow; 22] = [
         "blocked-missing-primitive",
         "local-geometry-predicate",
         "approximation-mode-retry-policy-named",
+        Some("PK-005")
+    ),
+    row!(
+        "corner_construction-risk_numerical-solver-failure",
+        [DiagnosticAxis::SolverConditioning],
+        DiagnosticMatrixTerminal::NamedMissingPrimitive,
+        "numerical-solver-failure",
+        "requires-numerical-failure-handler",
+        "topology-ready",
+        "nan-or-divergence-detected",
+        "valid-as-input",
+        "missing-numerical-solver-failure-handler",
+        "history-preserved-by-refusal",
+        "blocked-missing-primitive",
+        "local-geometry-predicate",
+        "numerical-solver-failure-named",
         Some("PK-005")
     ),
     row!(
