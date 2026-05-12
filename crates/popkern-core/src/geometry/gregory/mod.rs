@@ -110,6 +110,7 @@ mod kp15_bi6_tensor_border_extract;
 mod kp20_bi6_cap;
 mod kp20_bi6_guide_sample;
 mod kp20_bi6_math;
+mod kp20_bi6_s0_solve;
 mod kp20_bi6_tau;
 mod kp_boundary_consistency;
 mod kp_degree_elevate;
@@ -300,6 +301,9 @@ pub use kp20_bi6_guide_sample::{
 pub use kp20_bi6_math::{
     HERMITE_TO_BI6_W, Kp20TauParams, hermite_to_bi6_corner_block, kappa_for_valence,
     kp20_b_coeffs_near_m, kp20_b_coeffs_near_o, kp20_g2_strip_weights, kp20_limit_weights,
+};
+pub use kp20_bi6_s0_solve::{
+    Kp20S0Projection, Kp20S0Sample, Kp20S0SolveError, solve_kp20_s0_projection,
 };
 pub use kp20_bi6_tau::{
     KP20_TAU_CP_COUNT, Kp20TauJet3, Kp20TauMap, kp20_compose_guide_tau_jet,
