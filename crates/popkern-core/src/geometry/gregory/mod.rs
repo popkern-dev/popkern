@@ -51,6 +51,7 @@ mod bernstein_bi5;
 mod bernstein_bi6;
 mod bernstein_binonic;
 mod bernstein_tri5;
+mod bernstein_tri6;
 mod build;
 mod build_biquintic_full;
 mod build_biseptic;
@@ -106,6 +107,10 @@ mod kp15_bi6_reparam;
 mod kp15_bi6_rule_s3;
 mod kp15_bi6_rules;
 mod kp15_bi6_tensor_border_extract;
+mod kp20_bi6_cap;
+mod kp20_bi6_guide_sample;
+mod kp20_bi6_math;
+mod kp20_bi6_tau;
 mod kp_boundary_consistency;
 mod kp_degree_elevate;
 mod kp_guide_build;
@@ -193,6 +198,13 @@ pub use bernstein_tri5::{
     bernstein_tri5_second_partial_uu, bernstein_tri5_second_partial_uv,
     bernstein_tri5_second_partial_vv, flat_index, tri_cp_count,
 };
+pub use bernstein_tri6::{
+    TRI6_CP_COUNT, bernstein_tri6_all, bernstein_tri6_all_extended, bernstein_tri6_partial_u,
+    bernstein_tri6_partial_v, bernstein_tri6_second_partial_uu, bernstein_tri6_second_partial_uv,
+    bernstein_tri6_second_partial_vv, bernstein_tri6_third_partial_uuu,
+    bernstein_tri6_third_partial_uuv, bernstein_tri6_third_partial_uvv,
+    bernstein_tri6_third_partial_vvv, flat_index as tri6_flat_index,
+};
 pub use direct_blend_coeffs::{SpokeBlendCoeffs, compute_ring_blend_coeffs};
 pub use direct_build::{build, can_build};
 pub use direct_corner_c::{
@@ -275,6 +287,24 @@ pub use kp15_bi6_rules::{
     rule_s2_p21, rule_s2_p22, rule_s4,
 };
 pub use kp15_bi6_tensor_border_extract::extract_bi3_tensor_border_from_polar_input;
+pub use kp20_bi6_cap::{
+    Kp20Bi6Patch, Kp20BoundaryHalf, Kp20MacroPatch, Kp20PieceId, Kp20SplitTensorBorder,
+    initialise_kp20_macro_patches_from_tensor_border, kp20_apply_g2_strip,
+    kp20_propagate_c2_upper_from_lower, split_kp20_tensor_border,
+};
+pub use kp20_bi6_guide_sample::{
+    Kp20AffineGuideMap, Kp20GuideJet3, Kp20PatchCorner, Kp20Tri6GuideSector,
+    kp20_corner_block_from_jet, kp20_sample_corner_block, kp20_sample_macro_patch_from_guide,
+    kp20_sample_patch_from_guide,
+};
+pub use kp20_bi6_math::{
+    HERMITE_TO_BI6_W, Kp20TauParams, hermite_to_bi6_corner_block, kappa_for_valence,
+    kp20_b_coeffs_near_m, kp20_b_coeffs_near_o, kp20_g2_strip_weights, kp20_limit_weights,
+};
+pub use kp20_bi6_tau::{
+    KP20_TAU_CP_COUNT, Kp20TauJet3, Kp20TauMap, kp20_compose_guide_tau_jet,
+    kp20_sample_corner_block_with_tau,
+};
 pub use pns_beta::BetaReparam;
 pub use pns_bi4_to_nurbs::pns_bi4_to_nurbs;
 pub use pns_boundary::{Bi2BorderStrip, Bi2TensorBorderRing};
