@@ -115,6 +115,7 @@ mod kp20_bi6_math;
 mod kp20_bi6_piece_maps;
 mod kp20_bi6_s0_solve;
 mod kp20_bi6_tau;
+mod kp20_bi6_validate;
 mod kp_boundary_consistency;
 mod kp_degree_elevate;
 mod kp_guide_build;
@@ -321,6 +322,9 @@ pub use kp20_bi6_s0_solve::{
 pub use kp20_bi6_tau::{
     KP20_TAU_CP_COUNT, Kp20TauJet3, Kp20TauMap, kp20_compose_guide_tau_jet,
     kp20_sample_corner_block_with_tau,
+};
+pub use kp20_bi6_validate::{
+    Kp20Bi6ValidationError, Kp20Bi6ValidationReport, measure_kp20_bi6_macro_cap,
 };
 pub use pns_beta::BetaReparam;
 pub use pns_bi4_to_nurbs::pns_bi4_to_nurbs;
