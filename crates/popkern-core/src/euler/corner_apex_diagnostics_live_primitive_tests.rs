@@ -73,6 +73,45 @@ fn live_three_face_tangency_accepts_analytic_sphere_support() {
 }
 
 #[test]
+fn live_three_face_tangency_accepts_analytic_cylinder_support() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let face = incident_face(&cube, vertex);
+    let (origin, axis) = match &cube.faces[face].surface.as_ref().expect("surface").geometry {
+        SurfaceGeometry::Plane { normal, .. } => {
+            let normal = normal.normalized().expect("normal");
+            (
+                cube.vertices[vertex].position + normal,
+                perpendicular(normal),
+            )
+        }
+        _ => panic!("fixture face is planar"),
+    };
+    cube.faces[face].surface.as_mut().expect("surface").geometry = SurfaceGeometry::Cylinder {
+        origin,
+        axis,
+        radius: 1.0,
+    };
+    let edges = incident_edges(&cube, vertex);
+
+    let report = cube.diagnose_corner_apex(request(
+        vertex,
+        &edges,
+        BlendKind::FilletConstantRadius,
+        10_000_000,
+    ));
+
+    assert_eq!(
+        report.strategy.family,
+        CornerApexStrategyFamily::ThreeFaceBlend
+    );
+    assert_eq!(
+        report.strategy.readiness,
+        CornerApexStrategyReadiness::Ready
+    );
+}
+
+#[test]
 fn live_mutual_trim_names_nonlinear_spine_gap() {
     let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
     let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
@@ -170,4 +209,16 @@ fn loop_vertices(brep: &BRep, loop_: crate::topology::LoopHandle) -> Vec<VertexH
         }
     }
     vertices
+}
+
+fn perpendicular(normal: Vec3) -> Vec3 {
+    let reference = if normal.x.abs() < 0.9 {
+        Vec3::new(1.0, 0.0, 0.0)
+    } else {
+        Vec3::new(0.0, 1.0, 0.0)
+    };
+    normal
+        .cross(&reference)
+        .normalized()
+        .expect("perpendicular")
 }

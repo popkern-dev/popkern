@@ -120,6 +120,7 @@ fn tangency_seeds(
     }
     let mut seeds = Vec::new();
     seeds.extend(exact_sphere_two_plane_seeds(supports, radius, signs));
+    seeds.extend(exact_cylinder_two_plane_seeds(supports, radius, signs));
     if let Some(seed) = linearized_tangent_seed(vertex, &normals, radius, signs) {
         seeds.push(seed);
     }
@@ -138,6 +139,42 @@ fn tangency_seeds(
             + normals[2] * (signs[2] * radius),
     );
     seeds.push(vertex);
+    seeds
+}
+
+fn exact_cylinder_two_plane_seeds(
+    supports: &[TangencySupport],
+    radius: f64,
+    signs: [f64; 3],
+) -> Vec<Point3> {
+    let mut seeds = Vec::new();
+    for cylinder_index in 0..3 {
+        let Some(cylinder) = supports[cylinder_index].cylinder() else {
+            continue;
+        };
+        let planes = (0..3)
+            .filter(|index| *index != cylinder_index)
+            .collect::<Vec<_>>();
+        let Some(first_plane) = supports[planes[0]].plane() else {
+            continue;
+        };
+        let Some(second_plane) = supports[planes[1]].plane() else {
+            continue;
+        };
+        let Some(line) = plane_plane_offset_line(
+            first_plane,
+            signs[planes[0]] * radius,
+            second_plane,
+            signs[planes[1]] * radius,
+            cylinder.origin,
+        ) else {
+            continue;
+        };
+        let target_radius = cylinder.radius + signs[cylinder_index] * radius;
+        if target_radius > 0.0 {
+            seeds.extend(line_cylinder_intersections(line, cylinder, target_radius));
+        }
+    }
     seeds
 }
 
@@ -209,6 +246,13 @@ struct LineEquation {
     direction: Vec3,
 }
 
+#[derive(Clone, Copy)]
+struct CylinderEquation {
+    origin: Point3,
+    axis: Vec3,
+    radius: f64,
+}
+
 impl TangencySupport {
     fn plane(&self) -> Option<PlaneEquation> {
         let SurfaceGeometry::Plane { origin, normal, .. } = self.surface else {
@@ -227,6 +271,22 @@ impl TangencySupport {
             return None;
         };
         Some((center, radius))
+    }
+
+    fn cylinder(&self) -> Option<CylinderEquation> {
+        let SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius,
+        } = self.surface
+        else {
+            return None;
+        };
+        Some(CylinderEquation {
+            origin,
+            axis: axis.normalized()?,
+            radius,
+        })
     }
 }
 
@@ -253,11 +313,7 @@ fn plane_plane_offset_line(
     })
 }
 
-fn line_sphere_intersections(
-    line: LineEquation,
-    center: Point3,
-    radius: f64,
-) -> impl Iterator<Item = Point3> {
+fn line_sphere_intersections(line: LineEquation, center: Point3, radius: f64) -> Vec<Point3> {
     let to_point = line.point - center;
     let b = 2.0 * to_point.dot(&line.direction);
     let c = to_point.dot(&to_point) - radius * radius;
@@ -273,6 +329,36 @@ fn line_sphere_intersections(
     roots
         .into_iter()
         .map(move |t| line.point + line.direction * t)
+        .collect()
+}
+
+fn line_cylinder_intersections(
+    line: LineEquation,
+    cylinder: CylinderEquation,
+    radius: f64,
+) -> Vec<Point3> {
+    let from_axis = line.point - cylinder.origin;
+    let direction = line.direction - cylinder.axis * line.direction.dot(&cylinder.axis);
+    let offset = from_axis - cylinder.axis * from_axis.dot(&cylinder.axis);
+    let a = direction.dot(&direction);
+    if a <= 1e-24 {
+        return Vec::new();
+    }
+    let b = 2.0 * offset.dot(&direction);
+    let c = offset.dot(&offset) - radius * radius;
+    let discriminant = b * b - 4.0 * a * c;
+    let roots = if discriminant < -1e-12 {
+        Vec::new()
+    } else if discriminant.abs() <= 1e-12 {
+        vec![-b / (2.0 * a)]
+    } else {
+        let root = discriminant.sqrt();
+        vec![(-b - root) / (2.0 * a), (-b + root) / (2.0 * a)]
+    };
+    roots
+        .into_iter()
+        .map(move |t| line.point + line.direction * t)
+        .collect()
 }
 
 fn newton_solve_tangency(
