@@ -156,6 +156,33 @@ impl SideSupportRegionExecutionReport {
                                 selection, knowledge, brep,
                             );
                         let topology_report = outside_primitive.topology_operator_report(brep);
+                        if outside_primitive.is_complete() && topology_report.is_ready() {
+                            let mut candidate = brep.clone();
+                            if let Err(err) =
+                                outside_primitive.apply_topology_operator(&mut candidate)
+                            {
+                                return Self::refused_with_detail(
+                                    SideSupportRegionExecutionRefusalReason::MissingCylinderMediatedSupportContinuationTopologyOperator,
+                                    format!(
+                                        "{}; {}; {}; apply_refusal={}",
+                                        selection.diagnostic_label(),
+                                        outside_primitive.diagnostic_label(),
+                                        topology_report.diagnostic_label(),
+                                        err
+                                    ),
+                                );
+                            }
+                            return Self {
+                                status: SideSupportRegionExecutionStatus::ReadyForExecutor {
+                                    detail: Some(format!(
+                                        "{}; {}; {}",
+                                        selection.diagnostic_label(),
+                                        outside_primitive.diagnostic_label(),
+                                        topology_report.diagnostic_label()
+                                    )),
+                                },
+                            };
+                        }
                         let reason = if outside_primitive.is_complete()
                             && !topology_report.is_ready()
                         {
