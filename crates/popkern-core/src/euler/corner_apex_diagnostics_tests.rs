@@ -351,6 +351,71 @@ fn support_adequacy_separates_inside_tight_from_missing_center_locus() {
 }
 
 #[test]
+fn support_footprint_facts_do_not_mask_each_other() {
+    let overflow =
+        classify_support_adequacy(CornerSupportAdequacyState::Overflow, None, tolerance());
+    assert_eq!(
+        overflow.footprint.overflow,
+        SupportFootprintFeasibilityState::Overflow
+    );
+    assert_eq!(
+        overflow.footprint.cliff,
+        SupportFootprintFeasibilityState::Clear
+    );
+
+    let cliff = classify_support_adequacy(CornerSupportAdequacyState::Cliff, None, tolerance());
+    assert_eq!(
+        cliff.footprint.cliff,
+        SupportFootprintFeasibilityState::Cliff
+    );
+    assert_eq!(
+        cliff.footprint.overflow,
+        SupportFootprintFeasibilityState::Clear
+    );
+    assert_eq!(
+        cliff.footprint.boundary_reachability,
+        SupportFootprintFeasibilityState::BoundaryUnreachable
+    );
+
+    let collision = classify_support_adequacy(
+        CornerSupportAdequacyState::AdjacentBlendCollision,
+        None,
+        tolerance(),
+    );
+    assert_eq!(
+        collision.footprint.blend_collision,
+        SupportFootprintFeasibilityState::BlendTerritoryCollision
+    );
+
+    let trim_exit = classify_support_adequacy(
+        CornerSupportAdequacyState::TrimDomainExit,
+        None,
+        tolerance(),
+    );
+    assert_eq!(
+        trim_exit.footprint.boundary_reachability,
+        SupportFootprintFeasibilityState::BoundaryUnreachable
+    );
+}
+
+#[test]
+fn support_footprint_reports_missing_projection_primitive() {
+    let support = classify_support_adequacy(
+        CornerSupportAdequacyState::UnknownInputFact,
+        Some(GeometryProbeDependency::Projection),
+        tolerance(),
+    );
+    assert_eq!(
+        support.footprint.overflow,
+        SupportFootprintFeasibilityState::MissingPrimitive("support-projection")
+    );
+    assert_eq!(
+        support.footprint.boundary_reachability,
+        SupportFootprintFeasibilityState::MissingPrimitive("support-projection")
+    );
+}
+
+#[test]
 fn construction_integration_and_lifecycle_classifiers_are_typed() {
     let risk = classify_construction_risk(
         ConstructionRiskKind::PatchBoundaryIncompatible,

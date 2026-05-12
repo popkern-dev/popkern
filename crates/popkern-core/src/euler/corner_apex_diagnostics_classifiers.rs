@@ -2,7 +2,9 @@
 #![allow(missing_docs)]
 
 use super::score_types::{ApexFeasibilityScoreFact, ApexFeasibilityScoreMissing};
-use super::support_types::CenterLocusFeasibilityFact;
+use super::support_types::{
+    CenterLocusFeasibilityFact, SupportFootprintFeasibilityFact, SupportFootprintFeasibilityState,
+};
 use super::types::*;
 use crate::euler::DiagnosticTolerance;
 
@@ -261,9 +263,11 @@ pub fn classify_support_adequacy(
     tolerance: DiagnosticTolerance,
 ) -> CornerSupportAdequacyFact {
     let center_locus = center_locus_feasibility(footprint, dependency);
+    let footprint_fact = support_footprint_feasibility(footprint, dependency);
     CornerSupportAdequacyFact {
         state: footprint,
         center_locus,
+        footprint: footprint_fact,
         dependency,
         tolerance,
     }
@@ -280,6 +284,48 @@ fn center_locus_feasibility(
     } else {
         CenterLocusFeasibilityFact::clear()
     }
+}
+
+fn support_footprint_feasibility(
+    footprint: CornerSupportAdequacyState,
+    dependency: Option<GeometryProbeDependency>,
+) -> SupportFootprintFeasibilityFact {
+    if dependency == Some(GeometryProbeDependency::Projection) {
+        return SupportFootprintFeasibilityFact {
+            overflow: SupportFootprintFeasibilityState::MissingPrimitive("support-projection"),
+            cliff: SupportFootprintFeasibilityState::MissingPrimitive("support-projection"),
+            blend_collision: SupportFootprintFeasibilityState::MissingPrimitive(
+                "support-projection",
+            ),
+            boundary_reachability: SupportFootprintFeasibilityState::MissingPrimitive(
+                "support-projection",
+            ),
+        };
+    }
+    let mut fact = SupportFootprintFeasibilityFact::clear();
+    match footprint {
+        CornerSupportAdequacyState::Overflow => {
+            fact.overflow = SupportFootprintFeasibilityState::Overflow;
+        }
+        CornerSupportAdequacyState::Cliff => {
+            fact.cliff = SupportFootprintFeasibilityState::Cliff;
+            fact.boundary_reachability = SupportFootprintFeasibilityState::BoundaryUnreachable;
+        }
+        CornerSupportAdequacyState::AdjacentBlendCollision => {
+            fact.blend_collision = SupportFootprintFeasibilityState::BlendTerritoryCollision;
+        }
+        CornerSupportAdequacyState::TrimDomainExit => {
+            fact.boundary_reachability = SupportFootprintFeasibilityState::BoundaryUnreachable;
+        }
+        CornerSupportAdequacyState::HoleOrInnerLoopCollision => {
+            fact.boundary_reachability = SupportFootprintFeasibilityState::BoundaryUnreachable;
+        }
+        CornerSupportAdequacyState::Fits
+        | CornerSupportAdequacyState::InsideTight
+        | CornerSupportAdequacyState::UnknownInputFact
+        | CornerSupportAdequacyState::NotApplicable => {}
+    }
+    fact
 }
 
 pub fn classify_strategy_readiness(

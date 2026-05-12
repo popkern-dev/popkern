@@ -47,7 +47,10 @@ pub use selection_types::{
     CornerSelectionSource,
 };
 #[allow(unused_imports)]
-pub use support_types::{CenterLocusFeasibilityFact, CenterLocusFeasibilityState};
+pub use support_types::{
+    CenterLocusFeasibilityFact, CenterLocusFeasibilityState, SupportFootprintFeasibilityFact,
+    SupportFootprintFeasibilityState,
+};
 pub use types::{
     ApexSizingFact, ApexSizingInput, ApexSizingMode, ApexSizingState, BlendKind,
     BlendTypeCompatibility, BlendValence, ConstructionRiskFact, ConstructionRiskKind,
