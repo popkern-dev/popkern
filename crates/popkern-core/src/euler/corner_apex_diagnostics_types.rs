@@ -2,6 +2,7 @@
 #![allow(missing_docs)]
 
 use super::super::{DiagnosticHandle, DiagnosticTolerance};
+use super::selection_types::CornerSelectionIntentFact;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CornerApexDiagnosticRequest {
@@ -26,6 +27,7 @@ pub struct LocalBlendEdgeSelection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CornerApexDiagnosticReport {
     pub request: CornerApexDiagnosticRequest,
+    pub selection: CornerSelectionIntentFact,
     pub topology: CornerTopologyRecord,
     pub classification: VertexClassificationFact,
     pub sizing: ApexSizingFact,

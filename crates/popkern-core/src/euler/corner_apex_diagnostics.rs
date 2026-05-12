@@ -10,6 +10,10 @@ mod live_helpers;
 mod live_primitives;
 #[path = "corner_apex_diagnostics_manifest.rs"]
 mod manifest;
+#[path = "corner_apex_diagnostics_selection.rs"]
+mod selection;
+#[path = "corner_apex_diagnostics_selection_types.rs"]
+mod selection_types;
 #[path = "corner_apex_diagnostics_three_face_tangency.rs"]
 mod three_face_tangency;
 #[path = "corner_apex_diagnostics_topology_neighborhood.rs"]
@@ -28,6 +32,11 @@ pub use classifiers::{
 pub use manifest::{
     CornerApexConditionCategory, CornerApexConditionId, CornerApexFactContract,
     corner_apex_condition_ids, corner_apex_fact_contracts,
+};
+#[allow(unused_imports)]
+pub use selection_types::{
+    CornerSelectionIntentFact, CornerSelectionOptionState, CornerSelectionPropagation,
+    CornerSelectionSource,
 };
 pub use types::{
     ApexSizingFact, ApexSizingInput, ApexSizingMode, ApexSizingState, BlendKind,
@@ -49,6 +58,9 @@ mod live_primitive_tests;
 #[cfg(test)]
 #[path = "corner_apex_diagnostics_live_tests.rs"]
 mod live_tests;
+#[cfg(test)]
+#[path = "corner_apex_diagnostics_selection_tests.rs"]
+mod selection_tests;
 #[cfg(test)]
 #[path = "corner_apex_diagnostics_tests.rs"]
 mod tests;

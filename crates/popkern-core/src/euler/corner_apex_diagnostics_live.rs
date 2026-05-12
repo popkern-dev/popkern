@@ -7,6 +7,7 @@ use super::classifiers::{
 };
 use super::live_helpers::*;
 use super::live_primitives::assess_live_primitives;
+use super::selection::selection_intent;
 use super::topology_neighborhood::{extract_topology_neighborhood, stale_topology_neighborhood};
 use super::topology_validity::{extract_topology_validity, missing_topology_validity};
 use super::types::*;
@@ -22,6 +23,7 @@ impl BRep {
         request: CornerApexDiagnosticRequest,
     ) -> CornerApexDiagnosticReport {
         let tolerance = local_tolerance(self, request.scope.vertex);
+        let selection = selection_intent(&request);
         let topology = extract_topology(self, &request, tolerance);
         let support = classify_support_adequacy(
             support_state(self, &topology),
@@ -55,6 +57,7 @@ impl BRep {
 
         CornerApexDiagnosticReport {
             request,
+            selection,
             topology,
             classification,
             sizing,
