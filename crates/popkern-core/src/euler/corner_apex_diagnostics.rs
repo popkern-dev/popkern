@@ -81,5 +81,8 @@ mod tests;
 #[path = "corner_apex_diagnostics_three_face_live_tests.rs"]
 mod three_face_live_tests;
 #[cfg(test)]
+#[path = "corner_apex_diagnostics_three_face_negative_tests.rs"]
+mod three_face_negative_tests;
+#[cfg(test)]
 #[path = "corner_apex_diagnostics_topology_validity_tests.rs"]
 mod topology_validity_tests;

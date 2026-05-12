@@ -157,10 +157,37 @@ fn three_face_tangency_missing_reason(
     {
         return Some(reason);
     }
+    let vertex_point = brep.vertices[vertex].position;
+    if faces
+        .iter()
+        .any(|face| has_singular_tangency_normal(brep, *face, vertex_point))
+    {
+        return Some("three-face-tangency-singular-normal");
+    }
     if let Err(reason) = tangency_supports(brep, vertex) {
         return Some(reason);
     }
     None
+}
+
+fn has_singular_tangency_normal(brep: &BRep, face: FaceHandle, vertex: Point3) -> bool {
+    let Some(surface) = brep.faces[face].surface.as_ref() else {
+        return false;
+    };
+    let near_zero = |vector: Vec3| vector.length() <= f64::EPSILON;
+    match surface.geometry {
+        SurfaceGeometry::Sphere { center, .. } => near_zero(vertex - center),
+        SurfaceGeometry::Cylinder { origin, axis, .. } => {
+            let Some(axis) = axis.normalized() else {
+                return true;
+            };
+            let from_origin = vertex - origin;
+            near_zero(from_origin - axis * from_origin.dot(&axis))
+        }
+        SurfaceGeometry::Cone { apex, .. } => near_zero(vertex - apex),
+        SurfaceGeometry::Plane { normal, .. } => normal.normalized().is_none(),
+        _ => false,
+    }
 }
 
 fn solve_live_three_face_tangency(
