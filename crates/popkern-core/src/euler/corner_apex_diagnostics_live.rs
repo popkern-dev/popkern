@@ -3,9 +3,10 @@
 use super::classifiers::{
     classify_apex_sizing, classify_construction_risk, classify_integration_validation,
     classify_lifecycle, classify_strategy_readiness, classify_support_adequacy,
-    classify_trial_interaction, classify_vertex_classification,
+    classify_vertex_classification,
 };
 use super::live_helpers::*;
+use super::live_primitives::assess_live_primitives;
 use super::types::*;
 use crate::euler::{DiagnosticHandle, DiagnosticTolerance};
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -33,10 +34,15 @@ impl BRep {
             support.state,
         );
         let sizing = classify_apex_sizing(sizing_input(self, &request, topology.vertex, tolerance));
-        let trial_interaction =
-            classify_trial_interaction(classification.valence, false, None, tolerance);
-        let strategy =
-            live_strategy_readiness(classify_strategy_readiness(classification, sizing, support));
+        let primitive_assessment = assess_live_primitives(
+            self,
+            &request,
+            classification,
+            classify_strategy_readiness(classification, sizing, support),
+            tolerance,
+        );
+        let trial_interaction = primitive_assessment.trial_interaction;
+        let strategy = primitive_assessment.strategy;
         let construction_risk = construction_risk(&classification, &strategy, tolerance);
         let integration_validation = integration_validation(&strategy, tolerance);
         let lifecycle = classify_lifecycle(
@@ -417,19 +423,6 @@ fn construction_risk(
         BlendTypeCompatibility::Heterogeneous | BlendTypeCompatibility::Incompatible(_)
     );
     classify_construction_risk(kind, primitive_available, tolerance)
-}
-
-fn live_strategy_readiness(mut strategy: StrategyReadinessFact) -> StrategyReadinessFact {
-    strategy.readiness = match strategy.family {
-        CornerApexStrategyFamily::MutualTrim => {
-            CornerApexStrategyReadiness::RequiresMissingPrimitive("blend-pipe-intersection-probe")
-        }
-        CornerApexStrategyFamily::ThreeFaceBlend => {
-            CornerApexStrategyReadiness::RequiresMissingPrimitive("three-face-tangency-solver")
-        }
-        _ => strategy.readiness,
-    };
-    strategy
 }
 
 fn integration_validation(

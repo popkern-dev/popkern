@@ -44,7 +44,7 @@ fn live_cube_corner_extracts_topology_geometry_sizing_and_strategy() {
     );
     assert_eq!(
         report.strategy.readiness,
-        CornerApexStrategyReadiness::RequiresMissingPrimitive("three-face-tangency-solver")
+        CornerApexStrategyReadiness::Ready
     );
 }
 
@@ -64,12 +64,12 @@ fn live_cube_through_vertex_reports_mutual_trim_trial_readiness() {
     assert_eq!(report.classification.valence, BlendValence::ThroughVertex);
     assert_eq!(
         report.trial_interaction.state,
-        TrialInteractionState::MissingIntersectionPrimitive
+        TrialInteractionState::WellConditioned
     );
     assert_eq!(report.strategy.family, CornerApexStrategyFamily::MutualTrim);
     assert_eq!(
         report.strategy.readiness,
-        CornerApexStrategyReadiness::RequiresMissingPrimitive("blend-pipe-intersection-probe")
+        CornerApexStrategyReadiness::Ready
     );
 }
 

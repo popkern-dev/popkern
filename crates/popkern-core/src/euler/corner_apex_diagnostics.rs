@@ -6,6 +6,8 @@ mod classifiers;
 mod live;
 #[path = "corner_apex_diagnostics_live_helpers.rs"]
 mod live_helpers;
+#[path = "corner_apex_diagnostics_live_primitives.rs"]
+mod live_primitives;
 #[path = "corner_apex_diagnostics_manifest.rs"]
 mod manifest;
 #[path = "corner_apex_diagnostics_types.rs"]
@@ -35,6 +37,9 @@ pub use types::{
     VertexClassificationFact, VertexConvexityClass,
 };
 
+#[cfg(test)]
+#[path = "corner_apex_diagnostics_live_primitive_tests.rs"]
+mod live_primitive_tests;
 #[cfg(test)]
 #[path = "corner_apex_diagnostics_live_tests.rs"]
 mod live_tests;
