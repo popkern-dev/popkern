@@ -9,6 +9,7 @@ pub(super) struct MaterializedCylinderLoopReplacementRequest<'a> {
     pub(super) topology_plans: &'a [CylinderTrimRewriteTopologyPlan],
     pub(super) subcomplex_plan: &'a TrimRewriteSubcomplexPlan,
     pub(super) pre_materialized: &'a [PreMaterializedTrimSide],
+    pub(super) side_support_bridge_loops: &'a [LoopHandle],
     pub(super) include_selected_nonmaterialized: bool,
     pub(super) reuse_shared_cap_cylinder_seam: bool,
     pub(super) support_ownership_already_materialized: bool,
@@ -24,12 +25,19 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
     let topology_plans = request.topology_plans;
     let subcomplex_plan = request.subcomplex_plan;
     let pre_materialized = request.pre_materialized;
+    let side_support_bridge_loops = request.side_support_bridge_loops;
     let include_selected_nonmaterialized = request.include_selected_nonmaterialized;
     let reuse_shared_cap_cylinder_seam = request.reuse_shared_cap_cylinder_seam;
     let support_ownership_already_materialized = request.support_ownership_already_materialized;
 
     let mut all_support_owned_trim_sides = Vec::new();
     let mut pending_cylinder_loop_replacements = Vec::new();
+    if crate::a2_trace::enabled() && !side_support_bridge_loops.is_empty() {
+        eprintln!(
+            "[a2-trace §14.9/cylinder-loop-replace] side-support continuation bridge loops {:?}",
+            side_support_bridge_loops
+        );
+    }
     for (rebuild_plan, topology_plan) in rebuild_plans.iter().zip(topology_plans) {
         let allowed_support_faces = target_cylinder_support_faces_with_semantic(
             brep,
@@ -105,12 +113,15 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
                 let (half_edge, actual_support_face, support_side_owned, support_source) =
                     materialized_generator_trim_side(
                         brep,
-                        rebuild_plan.cylinder_face,
-                        support_face,
-                        segment.start,
-                        segment.end,
-                        segment.label,
-                        rebuild_plan.fillet_index,
+                        GeneratorTrimMaterializationRequest {
+                            cylinder_face: rebuild_plan.cylinder_face,
+                            support_face,
+                            start: segment.start,
+                            end: segment.end,
+                            label: segment.label,
+                            fillet_index: rebuild_plan.fillet_index,
+                            side_support_bridge_loops,
+                        },
                     )?;
                 cycle.push(half_edge);
                 support_owned_trim_sides.push(SupportOwnedTrimSide {

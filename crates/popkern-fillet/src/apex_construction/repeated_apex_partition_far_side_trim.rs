@@ -21,12 +21,15 @@ pub(super) fn materialized_far_side_trim_sides(
         let (half_edge, actual_support_face, support_side_owned, support_source) =
             materialized_generator_trim_side(
                 brep,
-                cylinder_face,
-                support_face,
-                start,
-                end,
-                label,
-                fillet_index,
+                GeneratorTrimMaterializationRequest {
+                    cylinder_face,
+                    support_face,
+                    start,
+                    end,
+                    label,
+                    fillet_index,
+                    side_support_bridge_loops: &[],
+                },
             )?;
         return Ok(vec![SupportOwnedTrimSide {
             cylinder_face,

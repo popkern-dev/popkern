@@ -146,6 +146,10 @@ pub struct CylinderMediatedSupportContinuationBatchResult {
     pub expected_delta: CylinderMediatedSupportContinuationAggregateDelta,
     /// Segment authoring plan consumed by the transaction.
     pub segment_authoring: Vec<CylinderMediatedSupportContinuationSegmentAuthoringPlan>,
+    /// Bridge faces produced by a committed shared-start continuation.
+    pub bridge_faces: Vec<FaceHandle>,
+    /// Bridge loops produced by a committed shared-start continuation.
+    pub bridge_loops: Vec<LoopHandle>,
     /// Postcondition status for the attempted transaction.
     pub postconditions: CylinderMediatedSupportContinuationPostconditions,
 }
@@ -233,7 +237,7 @@ impl BRep {
             &segment_authoring,
             cylinder_resource_remap.segments(),
         )? {
-            SharedStartBridgeMutationStatus::Committed => {
+            SharedStartBridgeMutationStatus::Committed(result) => {
                 candidate
                     .validate_half_edge_pairing()
                     .map_err(CoreError::from)?;
@@ -247,6 +251,8 @@ impl BRep {
                 return Ok(CylinderMediatedSupportContinuationBatchResult {
                     expected_delta: plan.expected_delta.clone(),
                     segment_authoring,
+                    bridge_faces: result.bridge_faces.to_vec(),
+                    bridge_loops: result.bridge_loops.to_vec(),
                     postconditions: CylinderMediatedSupportContinuationPostconditions::Satisfied,
                 });
             }

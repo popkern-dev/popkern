@@ -12,6 +12,7 @@ use super::repeated_apex_side_support_merge::SupportRegionMergePrimitiveDerivati
 use super::repeated_apex_side_support_outside::OutsideOutsideSupportPrimitiveDerivation;
 use super::repeated_apex_side_support_plan::SideSupportRegionPlanSelection;
 use super::repeated_apex_side_support_plan::SideSupportRegionRefusalReason;
+use super::repeated_apex_side_support_result::SideSupportRegionContinuationResult;
 use super::repeated_apex_topology_knowledge::TopologyKnowledgeGraph;
 use super::repeated_apex_trim_subcomplex::TrimRewriteSubcomplexPlan;
 
@@ -27,7 +28,7 @@ pub(super) struct SideSupportRegionDiagnosticSnapshot {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum SideSupportRegionContinuationOutcome {
-    Applied,
+    Applied(SideSupportRegionContinuationResult),
     NotReady,
 }
 
@@ -85,15 +86,19 @@ impl SideSupportRegionDiagnosticSnapshot {
             let topology_report = outside_primitive.topology_operator_report(brep);
             if outside_primitive.is_complete() && topology_report.is_ready() {
                 let rollback = brep.clone();
-                if let Err(err) = outside_primitive.apply_topology_operator(brep) {
-                    *brep = rollback;
-                    return Err(
-                        SideSupportRegionContinuationFailure::BridgeTopologyOperator {
-                            reason: err.to_string(),
-                        },
-                    );
+                match outside_primitive.apply_topology_operator(brep) {
+                    Ok(result) => {
+                        return Ok(SideSupportRegionContinuationOutcome::Applied(result));
+                    }
+                    Err(err) => {
+                        *brep = rollback;
+                        return Err(
+                            SideSupportRegionContinuationFailure::BridgeTopologyOperator {
+                                reason: err.to_string(),
+                            },
+                        );
+                    }
                 }
-                return Ok(SideSupportRegionContinuationOutcome::Applied);
             }
             return Err(SideSupportRegionContinuationFailure::PlannerRefused {
                 reason: format!("stage={:?} reason={:?}", refusal.stage(), refusal.reason()),
@@ -109,7 +114,9 @@ impl SideSupportRegionDiagnosticSnapshot {
                     SideSupportRegionContinuationFailure::BridgeTopologyOperator { reason: err },
                 );
             }
-            return Ok(SideSupportRegionContinuationOutcome::Applied);
+            return Ok(SideSupportRegionContinuationOutcome::Applied(
+                SideSupportRegionContinuationResult::not_applied(),
+            ));
         }
         let merge_primitive = SupportRegionMergePrimitiveDerivation::build(&self.selection, brep);
         if !merge_primitive.exact_geometry_ready() {
@@ -122,7 +129,9 @@ impl SideSupportRegionDiagnosticSnapshot {
                 SideSupportRegionContinuationFailure::MergeTopologyAndGeometry { reason: err },
             );
         }
-        Ok(SideSupportRegionContinuationOutcome::Applied)
+        Ok(SideSupportRegionContinuationOutcome::Applied(
+            SideSupportRegionContinuationResult::not_applied(),
+        ))
     }
 
     pub(super) fn diagnostic_label(&self) -> String {
@@ -156,10 +165,23 @@ pub(super) fn apply_selected_side_support_continuation(
 }
 
 impl SideSupportRegionContinuationOutcome {
-    pub(super) fn diagnostic_label(&self) -> &'static str {
+    pub(super) fn diagnostic_label(&self) -> String {
         match self {
-            SideSupportRegionContinuationOutcome::Applied => "applied",
-            SideSupportRegionContinuationOutcome::NotReady => "not-ready",
+            SideSupportRegionContinuationOutcome::Applied(result) => {
+                if result.was_applied() {
+                    format!("applied-with-support-payload {}", result.diagnostic_label())
+                } else {
+                    "applied".to_string()
+                }
+            }
+            SideSupportRegionContinuationOutcome::NotReady => "not-ready".to_string(),
+        }
+    }
+
+    pub(super) fn bridge_loops(&self) -> &[popkern_core::topology::LoopHandle] {
+        match self {
+            SideSupportRegionContinuationOutcome::Applied(result) => result.bridge_loops(),
+            SideSupportRegionContinuationOutcome::NotReady => &[],
         }
     }
 }

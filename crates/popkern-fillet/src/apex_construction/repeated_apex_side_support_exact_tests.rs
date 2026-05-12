@@ -33,7 +33,10 @@ fn exact_authorable_merge_continuation_applies_curves_and_pcurves() {
     let applied = apply_selected_side_support_continuation(&mut brep, &plan)
         .expect("exact-authorable side-support merge applies");
 
-    assert_eq!(applied, SideSupportRegionContinuationOutcome::Applied);
+    assert!(matches!(
+        applied,
+        SideSupportRegionContinuationOutcome::Applied(_)
+    ));
     assert_eq!(brep.edges.len(), before_edges + 1);
     assert_eq!(brep.faces.len(), before_faces + 1);
     assert_eq!(brep.loops.len(), before_loops + 1);

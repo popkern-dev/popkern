@@ -83,8 +83,12 @@ mod partition_rebuild_diagnostics;
 mod partition_residuals;
 #[path = "repeated_apex_partition_shared_fillet_end_trim.rs"]
 mod partition_shared_fillet_end_trim;
+#[path = "repeated_apex_partition_support_bridge_trim_claim.rs"]
+mod partition_support_bridge_trim_claim;
 #[path = "repeated_apex_partition_support_cycle_primitives.rs"]
 mod partition_support_cycle_primitives;
+#[path = "repeated_apex_partition_support_family.rs"]
+mod partition_support_family;
 #[path = "repeated_apex_partition_support_intersections.rs"]
 mod partition_support_intersections;
 #[path = "repeated_apex_partition_support_loop_rewrite.rs"]
@@ -163,11 +167,13 @@ use partition_residuals::{
     validate_existing_target_cylinder_strip,
 };
 use partition_shared_fillet_end_trim::materialized_shared_fillet_end_cylinder_half_edge;
+use partition_support_bridge_trim_claim::claim_side_support_bridge_boundary_for_cylinder_trim;
 use partition_support_cycle_primitives::{
     closed_half_edge_cycles_from_unwired_set, half_edge_is_degenerate,
     support_cycle_open_chain_diagnostic, support_split_half_edge_end_vertex,
     vertices_are_coincident,
 };
+use partition_support_family::{coplanar_residual_support_faces, support_family_faces};
 use partition_support_intersections::{
     plane_plane_cylinder_joint_points, support_plane_faces_containing_point,
 };
@@ -180,7 +186,9 @@ use partition_support_owners::{
     unique_far_side_support_face_for_trim_side,
 };
 use partition_support_split_cycles::materialize_support_split_cycles;
-use partition_support_trim_materialization::materialized_generator_trim_side;
+use partition_support_trim_materialization::{
+    GeneratorTrimMaterializationRequest, materialized_generator_trim_side,
+};
 use partition_support_trim_sides::{
     PreMaterializedTrimSide, SupportOwnedTrimSide, SupportOwnedTrimSource,
     pre_materialize_far_side_trim_sides, pre_materialized_trim_sides,

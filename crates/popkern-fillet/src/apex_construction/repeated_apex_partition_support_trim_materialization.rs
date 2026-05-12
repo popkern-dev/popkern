@@ -1,13 +1,18 @@
 use super::*;
 
+pub(super) struct GeneratorTrimMaterializationRequest<'a> {
+    pub(super) cylinder_face: FaceHandle,
+    pub(super) support_face: FaceHandle,
+    pub(super) start: VertexHandle,
+    pub(super) end: VertexHandle,
+    pub(super) label: &'static str,
+    pub(super) fillet_index: usize,
+    pub(super) side_support_bridge_loops: &'a [LoopHandle],
+}
+
 pub(super) fn materialized_generator_trim_side(
     brep: &mut BRep,
-    cylinder_face: FaceHandle,
-    support_face: FaceHandle,
-    start: VertexHandle,
-    end: VertexHandle,
-    label: &'static str,
-    fillet_index: usize,
+    request: GeneratorTrimMaterializationRequest<'_>,
 ) -> Result<
     (
         HalfEdgeHandle,
@@ -17,12 +22,34 @@ pub(super) fn materialized_generator_trim_side(
     ),
     ApexBuildError,
 > {
+    let GeneratorTrimMaterializationRequest {
+        cylinder_face,
+        support_face,
+        start,
+        end,
+        label,
+        fillet_index,
+        side_support_bridge_loops,
+    } = request;
     let curve =
         exact_cylinder_trim_curve_between(brep, cylinder_face, start, end, label, fillet_index)?;
     if let Some((half_edge, actual_support_face)) =
         claim_existing_support_boundary_for_cylinder_trim(
             brep,
             support_face,
+            start,
+            end,
+            curve.clone(),
+            label,
+            fillet_index,
+        )?
+    {
+        return Ok((half_edge, actual_support_face, true, None));
+    }
+    if let Some((half_edge, actual_support_face)) =
+        claim_side_support_bridge_boundary_for_cylinder_trim(
+            brep,
+            side_support_bridge_loops,
             start,
             end,
             curve.clone(),
@@ -204,13 +231,6 @@ fn trace_support_boundary_claim_miss(
          side to claim for {label} {start:?}->{end:?} on support family {support_face:?}; \
          candidate spans {reports}"
     );
-}
-
-fn support_family_faces(brep: &BRep, support_face: FaceHandle) -> Vec<FaceHandle> {
-    let mut faces = Vec::new();
-    faces.push(support_face);
-    faces.extend(coplanar_residual_support_faces(brep, support_face));
-    faces
 }
 
 fn support_boundary_half_edge_for_cylinder_side(
@@ -419,21 +439,27 @@ fn support_face_split_half_edges(
             break;
         }
     }
-    start_edges
+    nearest_directed_loop_pair(brep, loop_handle, &start_edges, &end_edges)
+}
+
+fn nearest_directed_loop_pair(
+    brep: &BRep,
+    loop_handle: LoopHandle,
+    starts: &[HalfEdgeHandle],
+    ends: &[HalfEdgeHandle],
+) -> Option<(HalfEdgeHandle, HalfEdgeHandle)> {
+    starts
         .iter()
-        .flat_map(|support_start| {
-            end_edges
-                .iter()
-                .filter(move |support_end| *support_end != support_start)
-                .filter_map(move |support_end| {
-                    directed_loop_distance(brep, loop_handle, *support_start, *support_end)
-                        .map(|distance| (distance, *support_start, *support_end))
+        .flat_map(|start| {
+            ends.iter()
+                .filter(move |end| *end != start)
+                .filter_map(move |end| {
+                    directed_loop_distance(brep, loop_handle, *start, *end)
+                        .map(|distance| (distance, *start, *end))
                 })
         })
-        .min_by_key(|(distance, support_start, support_end)| {
-            (*distance, *support_start, *support_end)
-        })
-        .map(|(_, support_start, support_end)| (support_start, support_end))
+        .min_by_key(|(distance, start, end)| (*distance, *start, *end))
+        .map(|(_, start, end)| (start, end))
 }
 
 fn directed_loop_distance(
@@ -454,40 +480,4 @@ fn directed_loop_distance(
         cursor = half_edge.next;
     }
     None
-}
-
-fn coplanar_residual_support_faces(brep: &BRep, support_face: FaceHandle) -> Vec<FaceHandle> {
-    let Some(source_face) = brep.faces.get(support_face) else {
-        return Vec::new();
-    };
-    let Some(SurfaceGeometry::Plane {
-        origin: source_origin,
-        normal: source_normal,
-        ..
-    }) = source_face
-        .surface
-        .as_ref()
-        .map(|surface| &surface.geometry)
-    else {
-        return Vec::new();
-    };
-    let tol = brep.tolerance.linear().max(1.0e-9);
-    brep.faces
-        .iter()
-        .filter_map(|(face, face_data)| {
-            if face == support_face || face_data.shell != source_face.shell {
-                return None;
-            }
-            let SurfaceGeometry::Plane { origin, normal, .. } = face_data
-                .surface
-                .as_ref()
-                .map(|surface| &surface.geometry)?
-            else {
-                return None;
-            };
-            let normals_parallel = source_normal.cross(normal).length() <= tol;
-            let same_plane = (*origin - *source_origin).dot(source_normal).abs() <= tol;
-            (normals_parallel && same_plane).then_some(face)
-        })
-        .collect()
 }

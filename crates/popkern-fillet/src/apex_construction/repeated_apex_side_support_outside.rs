@@ -1,7 +1,9 @@
 //! Outside/outside support-continuation primitive derivation.
 
 use popkern_core::error::CoreError;
-use popkern_core::euler::CylinderMediatedSupportContinuationRequest;
+use popkern_core::euler::{
+    CylinderMediatedSupportContinuationPostconditions, CylinderMediatedSupportContinuationRequest,
+};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
 
 use super::repeated_apex_side_support_outside_core::{
@@ -15,6 +17,7 @@ use super::repeated_apex_side_support_plan::{
     OutsideOutsideSupportContinuationPlan, PlannedTopologyOperation, SelectedSideSupportRegionPlan,
     SideSupportRegionPlanSelection,
 };
+use super::repeated_apex_side_support_result::SideSupportRegionContinuationResult;
 use super::repeated_apex_topology_knowledge::TopologyKnowledgeGraph;
 
 #[derive(Clone, Debug)]
@@ -145,7 +148,10 @@ impl OutsideOutsideSupportPrimitiveDerivation {
         topology_operator_report(self.primitive.as_ref(), brep)
     }
 
-    pub(super) fn apply_topology_operator(&self, brep: &mut BRep) -> Result<(), CoreError> {
+    pub(super) fn apply_topology_operator(
+        &self,
+        brep: &mut BRep,
+    ) -> Result<SideSupportRegionContinuationResult, CoreError> {
         let primitive = self.primitive.as_ref().ok_or_else(|| {
             CoreError::PreconditionFailed(
                 "outside/outside support continuation has no primitive plan".into(),
@@ -153,8 +159,20 @@ impl OutsideOutsideSupportPrimitiveDerivation {
         })?;
         let batch = brep
             .preflight_cylinder_mediated_support_continuation_batch(primitive.requests.clone())?;
-        brep.cylinder_mediated_support_continuation_batch(&batch)?;
-        Ok(())
+        let result = brep.cylinder_mediated_support_continuation_batch(&batch)?;
+        match result.postconditions {
+            CylinderMediatedSupportContinuationPostconditions::Satisfied => {
+                Ok(SideSupportRegionContinuationResult::from_bridge_payload(
+                    result.bridge_faces,
+                    result.bridge_loops,
+                ))
+            }
+            CylinderMediatedSupportContinuationPostconditions::Refused { reason } => {
+                Err(CoreError::PreconditionFailed(format!(
+                    "outside/outside support continuation refused after mutation boundary: {reason}"
+                )))
+            }
+        }
     }
 
     fn from_selected_plan(

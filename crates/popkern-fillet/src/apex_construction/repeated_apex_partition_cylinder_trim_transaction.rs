@@ -93,10 +93,12 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             &topology_plans,
             include_selected_nonmaterialized,
         )?;
-        let side_support_continuation =
-            apply_selected_side_support_continuation(brep, &subcomplex_plan)?;
-        let support_ownership_already_materialized =
-            side_support_continuation == SideSupportRegionContinuationOutcome::Applied;
+        let side_support_result = apply_selected_side_support_continuation(brep, &subcomplex_plan)?;
+        let support_ownership_already_materialized = matches!(
+            side_support_result,
+            SideSupportRegionContinuationOutcome::Applied(_)
+        );
+        let side_support_bridge_loops = side_support_result.bridge_loops();
         let cylinder_loop_replacements = apply_materialized_cylinder_loop_replacements(
             brep,
             MaterializedCylinderLoopReplacementRequest {
@@ -106,6 +108,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
                 topology_plans: &topology_plans,
                 subcomplex_plan: &subcomplex_plan,
                 pre_materialized: &pre_materialized,
+                side_support_bridge_loops,
                 include_selected_nonmaterialized,
                 reuse_shared_cap_cylinder_seam: require_v_free_repeated_apex,
                 support_ownership_already_materialized,
@@ -138,7 +141,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
                     .map(CylinderTrimRewriteTopologyPlan::diagnostic_label)
                     .collect::<Vec<_>>()
                     .join("; "),
-                side_support_continuation.diagnostic_label(),
+                side_support_result.diagnostic_label(),
                 cap_boundary_plan.diagnostic_label(),
                 boundary_outcome.diagnostic_label()
             );
@@ -188,10 +191,13 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
     let side_support_diagnostics =
         SideSupportRegionDiagnosticSnapshot::build_read_only(&candidate, subcomplex_plan);
     debug_assert!(side_support_diagnostics.validate_fresh(&candidate));
-    let side_support_continuation =
+    let side_support_result =
         apply_selected_side_support_continuation(&mut candidate, subcomplex_plan)?;
-    let support_ownership_already_materialized =
-        side_support_continuation == SideSupportRegionContinuationOutcome::Applied;
+    let support_ownership_already_materialized = matches!(
+        side_support_result,
+        SideSupportRegionContinuationOutcome::Applied(_)
+    );
+    let side_support_bridge_loops = side_support_result.bridge_loops();
     match apply_materialized_cylinder_loop_replacements(
         &mut candidate,
         MaterializedCylinderLoopReplacementRequest {
@@ -201,6 +207,7 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
             topology_plans,
             subcomplex_plan,
             pre_materialized: &pre_materialized,
+            side_support_bridge_loops,
             include_selected_nonmaterialized,
             reuse_shared_cap_cylinder_seam: require_v_free_repeated_apex,
             support_ownership_already_materialized,
@@ -214,7 +221,7 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
                     before.diagnostic_label(),
                     after.diagnostic_label(),
                     TopologyCountDelta::between(before, after).diagnostic_label(),
-                    side_support_continuation.diagnostic_label(),
+                    side_support_result.diagnostic_label(),
                     subcomplex_plan.diagnostic_label(),
                     side_support_diagnostics.diagnostic_label()
                 );
