@@ -3,6 +3,7 @@
 
 use super::super::{DiagnosticHandle, DiagnosticTolerance};
 use super::patch_types::PatchCandidateFact;
+use super::risk_types::ConstructionRiskAction;
 use super::score_types::ApexFeasibilityScoreFact;
 use super::selection_types::CornerSelectionIntentFact;
 use super::strategy_types::StrategyMetadataFact;
@@ -437,6 +438,7 @@ pub enum ConstructionRiskState {
 pub struct ConstructionRiskFact {
     pub kind: ConstructionRiskKind,
     pub state: ConstructionRiskState,
+    pub action: ConstructionRiskAction,
     pub tolerance: DiagnosticTolerance,
 }
 

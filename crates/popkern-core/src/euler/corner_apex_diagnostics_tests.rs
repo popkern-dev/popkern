@@ -426,6 +426,35 @@ fn construction_integration_and_lifecycle_classifiers_are_typed() {
         risk.state,
         ConstructionRiskState::RequiresMissingPrimitive("patch-boundary-repair")
     );
+    assert_eq!(
+        risk.action,
+        ConstructionRiskAction::MissingPrimitive("patch-boundary-repair")
+    );
+    let degeneracy = classify_construction_risk(
+        ConstructionRiskKind::IntersectionDegenerate,
+        false,
+        tolerance(),
+    );
+    assert_eq!(
+        degeneracy.state,
+        ConstructionRiskState::ManagedRetry("intersection-refinement")
+    );
+    assert_eq!(
+        degeneracy.action,
+        ConstructionRiskAction::Retry("intersection-refinement")
+    );
+    let curvature =
+        classify_construction_risk(ConstructionRiskKind::CurvatureExplosion, false, tolerance());
+    assert_eq!(
+        curvature.action,
+        ConstructionRiskAction::Reclassify("continuity-relaxation")
+    );
+    let self_intersection =
+        classify_construction_risk(ConstructionRiskKind::SelfIntersection, false, tolerance());
+    assert_eq!(
+        self_intersection.action,
+        ConstructionRiskAction::Invalid("self-intersection")
+    );
     let numerical = classify_construction_risk(
         ConstructionRiskKind::NumericalSolverFailure,
         false,
@@ -434,6 +463,10 @@ fn construction_integration_and_lifecycle_classifiers_are_typed() {
     assert_eq!(
         numerical.state,
         ConstructionRiskState::RequiresMissingPrimitive("numerical-solver-failure")
+    );
+    assert_eq!(
+        numerical.action,
+        ConstructionRiskAction::RollbackRequired("transactional-construction-rollback")
     );
 
     let integration = classify_integration_validation(

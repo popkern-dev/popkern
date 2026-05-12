@@ -14,6 +14,10 @@ mod manifest;
 mod patch;
 #[path = "corner_apex_diagnostics_patch_types.rs"]
 mod patch_types;
+#[path = "corner_apex_diagnostics_risk.rs"]
+mod risk;
+#[path = "corner_apex_diagnostics_risk_types.rs"]
+mod risk_types;
 #[path = "corner_apex_diagnostics_score_types.rs"]
 mod score_types;
 #[path = "corner_apex_diagnostics_selection.rs"]
@@ -50,6 +54,8 @@ pub use patch_types::{
     PatchCandidateApplicability, PatchCandidateDowngradePolicy, PatchCandidateFact,
     PatchCandidateFeasibility, PatchCandidateQuality,
 };
+#[allow(unused_imports)]
+pub use risk_types::ConstructionRiskAction;
 #[allow(unused_imports)]
 pub use score_types::{
     ApexFeasibilityScoreFact, ApexFeasibilityScoreIngredient, ApexFeasibilityScoreMissing,

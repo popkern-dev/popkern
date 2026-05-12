@@ -2,6 +2,7 @@
 #![allow(missing_docs)]
 
 use super::patch::patch_candidate_fact;
+use super::risk::construction_risk_state_action;
 use super::score_types::{ApexFeasibilityScoreFact, ApexFeasibilityScoreMissing};
 use super::strategy::strategy_metadata_fact;
 use super::support_types::{
@@ -410,29 +411,11 @@ pub fn classify_construction_risk(
     primitive_available: bool,
     tolerance: DiagnosticTolerance,
 ) -> ConstructionRiskFact {
-    let state = if primitive_available {
-        ConstructionRiskState::NoRisk
-    } else {
-        ConstructionRiskState::RequiresMissingPrimitive(match kind {
-            ConstructionRiskKind::IntersectionDegenerate => "intersection-refinement",
-            ConstructionRiskKind::TangencyUnsolved => "three-face-tangency-solver",
-            ConstructionRiskKind::BoundaryCurveMissing => "boundary-curve-extraction",
-            ConstructionRiskKind::SetbackSplitInfeasible => "setback-split-construction",
-            ConstructionRiskKind::BoundaryConditionsIncomplete => "boundary-condition-assembly",
-            ConstructionRiskKind::TwistCompatibility => "twist-compatibility-solver",
-            ConstructionRiskKind::PatchBoundaryIncompatible => "patch-boundary-repair",
-            ConstructionRiskKind::CurvatureExplosion => "continuity-relaxation",
-            ConstructionRiskKind::SelfIntersection => "self-intersection-repair",
-            ConstructionRiskKind::VariableRadiusCollapse => "variable-radius-collapse-handler",
-            ConstructionRiskKind::ChamferRoundMeshing => "mixed-chamfer-round-meshing",
-            ConstructionRiskKind::FacetedSmoothMismatch => "geometry-mode-conversion",
-            ConstructionRiskKind::ApproximationResidual => "approximation-refinement",
-            ConstructionRiskKind::NumericalSolverFailure => "numerical-solver-failure",
-        })
-    };
+    let (state, action) = construction_risk_state_action(kind, primitive_available);
     ConstructionRiskFact {
         kind,
         state,
+        action,
         tolerance,
     }
 }
