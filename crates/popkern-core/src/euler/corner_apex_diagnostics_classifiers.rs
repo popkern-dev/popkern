@@ -2,6 +2,7 @@
 #![allow(missing_docs)]
 
 use super::score_types::{ApexFeasibilityScoreFact, ApexFeasibilityScoreMissing};
+use super::support_types::CenterLocusFeasibilityFact;
 use super::types::*;
 use crate::euler::DiagnosticTolerance;
 
@@ -259,10 +260,25 @@ pub fn classify_support_adequacy(
     dependency: Option<GeometryProbeDependency>,
     tolerance: DiagnosticTolerance,
 ) -> CornerSupportAdequacyFact {
+    let center_locus = center_locus_feasibility(footprint, dependency);
     CornerSupportAdequacyFact {
         state: footprint,
+        center_locus,
         dependency,
         tolerance,
+    }
+}
+
+fn center_locus_feasibility(
+    footprint: CornerSupportAdequacyState,
+    dependency: Option<GeometryProbeDependency>,
+) -> CenterLocusFeasibilityFact {
+    if dependency == Some(GeometryProbeDependency::CenterLocus) {
+        CenterLocusFeasibilityFact::missing_primitive("rolling-ball-center-locus")
+    } else if footprint == CornerSupportAdequacyState::InsideTight {
+        CenterLocusFeasibilityFact::penetrates()
+    } else {
+        CenterLocusFeasibilityFact::clear()
     }
 }
 

@@ -325,6 +325,32 @@ fn sizing_feasibility_score_reports_complete_and_missing_ingredients() {
 }
 
 #[test]
+fn support_adequacy_separates_inside_tight_from_missing_center_locus() {
+    let inside_tight =
+        classify_support_adequacy(CornerSupportAdequacyState::InsideTight, None, tolerance());
+    assert_eq!(inside_tight.state, CornerSupportAdequacyState::InsideTight);
+    assert_eq!(
+        inside_tight.center_locus.state,
+        CenterLocusFeasibilityState::Penetrates
+    );
+    assert_eq!(inside_tight.dependency, None);
+
+    let missing_locus = classify_support_adequacy(
+        CornerSupportAdequacyState::UnknownInputFact,
+        Some(GeometryProbeDependency::CenterLocus),
+        tolerance(),
+    );
+    assert_eq!(
+        missing_locus.center_locus.state,
+        CenterLocusFeasibilityState::MissingPrimitive("rolling-ball-center-locus")
+    );
+    assert_eq!(
+        missing_locus.dependency,
+        Some(GeometryProbeDependency::CenterLocus)
+    );
+}
+
+#[test]
 fn construction_integration_and_lifecycle_classifiers_are_typed() {
     let risk = classify_construction_risk(
         ConstructionRiskKind::PatchBoundaryIncompatible,

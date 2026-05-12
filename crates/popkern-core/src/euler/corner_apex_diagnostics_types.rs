@@ -4,6 +4,7 @@
 use super::super::{DiagnosticHandle, DiagnosticTolerance};
 use super::score_types::ApexFeasibilityScoreFact;
 use super::selection_types::CornerSelectionIntentFact;
+use super::support_types::CenterLocusFeasibilityFact;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CornerApexDiagnosticRequest {
@@ -364,6 +365,7 @@ pub enum CornerSupportAdequacyState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CornerSupportAdequacyFact {
     pub state: CornerSupportAdequacyState,
+    pub center_locus: CenterLocusFeasibilityFact,
     pub dependency: Option<GeometryProbeDependency>,
     pub tolerance: DiagnosticTolerance,
 }

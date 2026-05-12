@@ -16,6 +16,8 @@ mod score_types;
 mod selection;
 #[path = "corner_apex_diagnostics_selection_types.rs"]
 mod selection_types;
+#[path = "corner_apex_diagnostics_support_types.rs"]
+mod support_types;
 #[path = "corner_apex_diagnostics_three_face_tangency.rs"]
 mod three_face_tangency;
 #[path = "corner_apex_diagnostics_topology_neighborhood.rs"]
@@ -44,6 +46,8 @@ pub use selection_types::{
     CornerSelectionIntentFact, CornerSelectionOptionState, CornerSelectionPropagation,
     CornerSelectionSource,
 };
+#[allow(unused_imports)]
+pub use support_types::{CenterLocusFeasibilityFact, CenterLocusFeasibilityState};
 pub use types::{
     ApexSizingFact, ApexSizingInput, ApexSizingMode, ApexSizingState, BlendKind,
     BlendTypeCompatibility, BlendValence, ConstructionRiskFact, ConstructionRiskKind,
