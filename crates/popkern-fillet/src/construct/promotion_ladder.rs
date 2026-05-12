@@ -2,7 +2,8 @@
 //!
 //! Walks the rung hierarchy:
 //! deg5 → biquintic-full → biseptic → two-stripe → KP13 bi-5
-//! (env-gated) → bi-6 polar → KP binonic.
+//! (env-gated) → KP20 bi-6 macro (env-gated) → bi-6 polar →
+//! KP binonic.
 //!
 //! Extracted from `three_quad_apply.rs` to keep that file under
 //! the 500-line structural limit.
@@ -52,6 +53,16 @@ pub(super) fn run_promotion_ladder(
         && decomp.sub_patches.len() >= 3
         && let Some(patches_4n) =
             super::kp13_bi5_promote::try_kp13_bi5_dispatch(&decomp.sub_patches, fillet_surfaces)
+    {
+        decomp.sub_patches = patches_4n;
+        return true;
+    }
+    if use_kp_polar
+        && decomp.sub_patches.len() >= 5
+        && let Some(patches_4n) = super::kp20_polar_dispatch::try_kp20_polar_dispatch(
+            &decomp.sub_patches,
+            fillet_surfaces,
+        )
     {
         decomp.sub_patches = patches_4n;
         return true;
