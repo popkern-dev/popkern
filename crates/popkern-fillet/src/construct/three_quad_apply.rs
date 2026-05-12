@@ -46,7 +46,9 @@ use super::poke_hex::poke_n_gon_face_into_n_quads;
 use crate::blend::boundary::{BlendBoundary, BoundarySegment};
 use crate::blend::gregory_three_quad::build_n_quad_decomposition_with_options;
 use crate::fillet_surface::FilletSurfaceResult;
-use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo, CornerSubPatchProvenance};
+use crate::types::{
+    ContinuityLevel, CornerMethod, CornerPatchInfo, CornerSubPatchFamily, CornerSubPatchProvenance,
+};
 use crate::vertex_classifier::VertexBlendClassification;
 
 /// §5.3 item #10 — why the three-quad dispatch failed. Callers
@@ -140,7 +142,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     let unpromoted_sphere_cap_decomp =
         sphere_cap_available_before_promotion.then(|| decomp.clone());
 
-    let mut is_4n_path = super::promotion_ladder::run_promotion_ladder(
+    let mut promotion_result = super::promotion_ladder::run_promotion_ladder(
         &mut decomp,
         fillet_surfaces,
         &mut relaxed_coplanarity,
@@ -152,6 +154,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         use_kp_polar,
         |patches, fillets| promote_decomp_to_kp_binonic(patches, fillets, hex_boundary_data),
     );
+    let mut macro_family = macro_family_from_promotion(promotion_result);
 
     let sphere_cap_available = boundary.sphere_fit_substituted
         && !boundary.per_fillet_caps.is_empty()
@@ -181,7 +184,8 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
                 match unpromoted_sphere_cap_decomp.clone() {
                     Some(unpromoted) if !decomp_self_intersects(&unpromoted, SELF_INT_TOL) => {
                         decomp = unpromoted;
-                        is_4n_path = false;
+                        promotion_result = super::promotion_ladder::PromotionResult::Standard;
+                        macro_family = None;
                     }
                     Some(_) => {
                         return Err(ThreeQuadFailure::Other(format!(
@@ -210,7 +214,10 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         }
     }
 
-    let sub_faces_raw: Vec<FaceHandle> = if is_4n_path {
+    let sub_faces_raw: Vec<FaceHandle> = if matches!(
+        promotion_result,
+        super::promotion_ladder::PromotionResult::Macro4n(_)
+    ) {
         super::poke_4n::poke_n_gon_face_into_4n_quads(brep, blend_face, decomp.central_point)
             .map_err(|e| ThreeQuadFailure::Other(format!("4n poke failed: {e}")))?
             .sub_faces
@@ -438,7 +445,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             overlap_remediated: false,
             relaxed_continuity_coplanarity: relaxed_coplanarity,
             cap_sphere: cap_sphere_per_subface[k],
-            sub_patch_provenance: sub_patch_provenance(is_4n_path, n_sides, k),
+            sub_patch_provenance: sub_patch_provenance(macro_family, n_sides, k),
         });
     }
     if crate::a2_trace::enabled() {
@@ -448,12 +455,27 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
 }
 
 fn sub_patch_provenance(
-    is_4n_path: bool,
+    macro_family: Option<CornerSubPatchFamily>,
     n_sides: usize,
     sub_patch_index: usize,
 ) -> Option<CornerSubPatchProvenance> {
-    is_4n_path
-        .then(|| CornerSubPatchProvenance::kp20(sub_patch_index / 4, n_sides, sub_patch_index % 4))
+    macro_family.map(|family| {
+        CornerSubPatchProvenance::macro_cap(
+            family,
+            sub_patch_index / 4,
+            n_sides,
+            sub_patch_index % 4,
+        )
+    })
+}
+
+fn macro_family_from_promotion(
+    promotion_result: super::promotion_ladder::PromotionResult,
+) -> Option<CornerSubPatchFamily> {
+    match promotion_result {
+        super::promotion_ladder::PromotionResult::Standard => None,
+        super::promotion_ladder::PromotionResult::Macro4n(family) => Some(family),
+    }
 }
 
 fn severe_radius_spread(per_fillet_caps: &[(Point3, f64)]) -> bool {

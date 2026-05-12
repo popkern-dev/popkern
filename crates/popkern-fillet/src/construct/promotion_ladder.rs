@@ -16,6 +16,16 @@ use super::three_quad_promotions::{
 };
 use crate::blend::gregory_three_quad::NQuadDecomposition;
 use crate::fillet_surface::FilletSurfaceResult;
+use crate::types::CornerSubPatchFamily;
+
+/// Result of running the promotion ladder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PromotionResult {
+    /// Caller should use the ordinary N-way poke.
+    Standard,
+    /// Caller should use the 4N macro-cap poke with this construction family.
+    Macro4n(CornerSubPatchFamily),
+}
 
 /// Run the full promotion ladder. Returns `true` if the KP13
 /// bi-5 4N path committed (caller uses 4N poke downstream),
@@ -37,16 +47,16 @@ pub(super) fn run_promotion_ladder(
     use_kp_binonic: bool,
     use_kp_polar: bool,
     promote_binonic: impl FnOnce(&mut [GregoryPatch], &[FilletSurfaceResult]) -> Option<f64>,
-) -> bool {
+) -> PromotionResult {
     if !(use_biquintic_full && use_deg5) {
-        return false;
+        return PromotionResult::Standard;
     }
     promote_decomp_to_biquintic_full_with_spoke_g1(&mut decomp.sub_patches);
     if !(use_biseptic
         && promote_decomp_to_biseptic_with_spoke_g1(&mut decomp.sub_patches)
         && use_two_stripe)
     {
-        return false;
+        return PromotionResult::Standard;
     }
     promote_decomp_to_two_stripe_with_spoke_g1(&mut decomp.sub_patches);
     if use_kp_polar
@@ -55,7 +65,7 @@ pub(super) fn run_promotion_ladder(
             super::kp13_bi5_promote::try_kp13_bi5_dispatch(&decomp.sub_patches, fillet_surfaces)
     {
         decomp.sub_patches = patches_4n;
-        return true;
+        return PromotionResult::Macro4n(CornerSubPatchFamily::Kp13Bi5);
     }
     if use_kp_polar
         && decomp.sub_patches.len() >= 5
@@ -65,7 +75,7 @@ pub(super) fn run_promotion_ladder(
         )
     {
         decomp.sub_patches = patches_4n;
-        return true;
+        return PromotionResult::Macro4n(CornerSubPatchFamily::Kp20Bi6);
     }
     let polar_committed = use_kp_polar
         && decomp.sub_patches.len() >= 5
@@ -77,5 +87,5 @@ pub(super) fn run_promotion_ladder(
     if use_kp_binonic && !polar_committed {
         *relaxed_coplanarity = promote_binonic(&mut decomp.sub_patches, fillet_surfaces);
     }
-    false
+    PromotionResult::Standard
 }

@@ -32,6 +32,8 @@ pub enum CornerMethod {
 /// larger multi-sided macro-cap construction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CornerSubPatchProvenance {
+    /// Multi-sided macro-cap construction family that produced the sub-patch.
+    pub family: CornerSubPatchFamily,
     /// Original polar sector index before macro subdivision.
     pub sector_index: usize,
     /// Number of original polar sectors at the corner.
@@ -42,6 +44,15 @@ pub struct CornerSubPatchProvenance {
     pub piece_count: usize,
     /// CAD-domain role of this piece in the macro layout.
     pub role: CornerSubPatchRole,
+}
+
+/// Multi-sided macro-cap family that produced a sector sub-patch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CornerSubPatchFamily {
+    /// KP13 bi-5 macro cap.
+    Kp13Bi5,
+    /// KP20 bi-6 macro cap.
+    Kp20Bi6,
 }
 
 /// CAD-domain role of one macro-cap sub-patch.
@@ -59,7 +70,12 @@ pub enum CornerSubPatchRole {
 
 impl CornerSubPatchProvenance {
     /// Build provenance for KP20's 2×2 bi-6 macro-sector layout.
-    pub fn kp20(sector_index: usize, sector_count: usize, piece_index: usize) -> Self {
+    pub fn macro_cap(
+        family: CornerSubPatchFamily,
+        sector_index: usize,
+        sector_count: usize,
+        piece_index: usize,
+    ) -> Self {
         let role = match piece_index {
             0 => CornerSubPatchRole::NearOriginLeft,
             1 => CornerSubPatchRole::NearOriginRight,
@@ -68,6 +84,7 @@ impl CornerSubPatchProvenance {
             _ => panic!("KP20 macro piece index must be in 0..4, got {piece_index}"),
         };
         Self {
+            family,
             sector_index,
             sector_count,
             piece_index,
