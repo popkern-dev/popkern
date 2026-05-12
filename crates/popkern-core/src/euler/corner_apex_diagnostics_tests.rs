@@ -472,7 +472,22 @@ fn construction_integration_and_lifecycle_classifiers_are_typed() {
     let lifecycle = classify_lifecycle(false, false, DiagnosticArtifactKind::DiagnosticArtifact);
     assert_eq!(lifecycle.state, LifecycleState::TopologyFingerprintMismatch);
     assert_eq!(
+        lifecycle.action,
+        LifecycleAction::RebuildRequired("topology-fingerprint-mismatch")
+    );
+    assert_eq!(
         lifecycle.artifact,
         DiagnosticArtifactKind::DiagnosticArtifact
+    );
+
+    let stale_reuse = classify_lifecycle(true, true, DiagnosticArtifactKind::AcceptedGraphFact);
+    assert_eq!(
+        stale_reuse.action,
+        LifecycleAction::RefuseStalePlan("stale-plan-reuse")
+    );
+    let leaked = classify_lifecycle(true, false, DiagnosticArtifactKind::LeakedPlanAnnotation);
+    assert_eq!(
+        leaked.action,
+        LifecycleAction::CleanupRequired("leaked-plan-annotation")
     );
 }

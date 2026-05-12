@@ -2,6 +2,8 @@
 
 #[path = "corner_apex_diagnostics_classifiers.rs"]
 mod classifiers;
+#[path = "corner_apex_diagnostics_lifecycle_types.rs"]
+mod lifecycle_types;
 #[path = "corner_apex_diagnostics_live.rs"]
 mod live;
 #[path = "corner_apex_diagnostics_live_helpers.rs"]
@@ -49,6 +51,8 @@ pub use classifiers::{
     classify_lifecycle, classify_strategy_readiness, classify_support_adequacy,
     classify_topological_configuration, classify_trial_interaction, classify_vertex_classification,
 };
+#[allow(unused_imports)]
+pub use lifecycle_types::{DiagnosticArtifactKind, LifecycleAction, LifecycleFact, LifecycleState};
 pub use manifest::{
     CornerApexConditionCategory, CornerApexConditionId, CornerApexFactContract,
     corner_apex_condition_ids, corner_apex_fact_contracts,
@@ -85,11 +89,10 @@ pub use types::{
     ConstructionRiskState, CornerApexDiagnosticReport, CornerApexDiagnosticRequest,
     CornerApexStrategyFamily, CornerApexStrategyReadiness, CornerGeometryAvailability,
     CornerGeometryFact, CornerSupportAdequacyFact, CornerSupportAdequacyState,
-    CornerTopologyRecord, CornerTopologyState, DiagnosticArtifactKind, EdgeConvexity,
-    GeometryProbeDependency, IntegrationValidationFact, IntegrationValidationKind,
-    IntegrationValidationState, LifecycleFact, LifecycleState, LocalBlendEdgeSelection,
-    LocalCornerScope, StrategyReadinessFact, SurfaceCompatibility, SurfaceRepresentation,
-    TopologicalConfiguration, TrialInteractionFact, TrialInteractionState,
+    CornerTopologyRecord, CornerTopologyState, EdgeConvexity, GeometryProbeDependency,
+    IntegrationValidationFact, IntegrationValidationKind, IntegrationValidationState,
+    LocalBlendEdgeSelection, LocalCornerScope, StrategyReadinessFact, SurfaceCompatibility,
+    SurfaceRepresentation, TopologicalConfiguration, TrialInteractionFact, TrialInteractionState,
     VertexClassificationFact, VertexConvexityClass,
 };
 #[allow(unused_imports)]

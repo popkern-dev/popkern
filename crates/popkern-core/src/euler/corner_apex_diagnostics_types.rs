@@ -2,6 +2,7 @@
 #![allow(missing_docs)]
 
 use super::super::{DiagnosticHandle, DiagnosticTolerance};
+use super::lifecycle_types::LifecycleFact;
 use super::patch_types::PatchCandidateFact;
 use super::risk_types::ConstructionRiskAction;
 use super::score_types::ApexFeasibilityScoreFact;
@@ -473,26 +474,4 @@ pub struct IntegrationValidationFact {
     pub state: IntegrationValidationState,
     pub action: IntegrationValidationAction,
     pub tolerance: DiagnosticTolerance,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum LifecycleState {
-    ScopedDerivedDiscardable,
-    StaleGraph,
-    TopologyFingerprintMismatch,
-    ReusedAfterMutation,
-    ArtifactNeedsCleanup(&'static str),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum DiagnosticArtifactKind {
-    AcceptedGraphFact,
-    DiagnosticArtifact,
-    DeferredExploration,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LifecycleFact {
-    pub state: LifecycleState,
-    pub artifact: DiagnosticArtifactKind,
 }

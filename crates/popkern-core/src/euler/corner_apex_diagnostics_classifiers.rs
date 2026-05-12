@@ -1,6 +1,9 @@
 //! Pure classifiers for corner/apex diagnostic facts.
 #![allow(missing_docs)]
 
+use super::lifecycle_types::{
+    DiagnosticArtifactKind, LifecycleAction, LifecycleFact, LifecycleState,
+};
 use super::patch::patch_candidate_fact;
 use super::risk::construction_risk_state_action;
 use super::score_types::{ApexFeasibilityScoreFact, ApexFeasibilityScoreMissing};
@@ -447,5 +450,30 @@ pub fn classify_lifecycle(
     } else {
         LifecycleState::TopologyFingerprintMismatch
     };
-    LifecycleFact { state, artifact }
+    LifecycleFact {
+        state,
+        artifact,
+        action: lifecycle_action(state, artifact),
+    }
+}
+
+fn lifecycle_action(state: LifecycleState, artifact: DiagnosticArtifactKind) -> LifecycleAction {
+    match artifact {
+        DiagnosticArtifactKind::MissingArtifactRecord => {
+            LifecycleAction::CleanupRequired("missing-artifact-record")
+        }
+        DiagnosticArtifactKind::LeakedPlanAnnotation => {
+            LifecycleAction::CleanupRequired("leaked-plan-annotation")
+        }
+        DiagnosticArtifactKind::UnknownClosure => {
+            LifecycleAction::CleanupRequired("task-backed-unknown-closure")
+        }
+        _ if state == LifecycleState::ReusedAfterMutation => {
+            LifecycleAction::RefuseStalePlan("stale-plan-reuse")
+        }
+        _ if state == LifecycleState::TopologyFingerprintMismatch => {
+            LifecycleAction::RebuildRequired("topology-fingerprint-mismatch")
+        }
+        _ => LifecycleAction::Consumable,
+    }
 }

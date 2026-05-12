@@ -5,6 +5,7 @@ use super::classifiers::{
     classify_lifecycle, classify_strategy_readiness, classify_support_adequacy,
     classify_vertex_classification,
 };
+use super::lifecycle_types::DiagnosticArtifactKind;
 use super::live_helpers::*;
 use super::live_primitives::assess_live_primitives;
 use super::selection::selection_intent;
