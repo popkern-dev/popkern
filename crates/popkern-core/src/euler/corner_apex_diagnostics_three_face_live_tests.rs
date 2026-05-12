@@ -197,6 +197,122 @@ fn live_three_face_tangency_accepts_two_cylinder_one_plane_supports() {
     assert_three_face_ready(&cube, vertex, 10_000_000);
 }
 
+#[test]
+fn live_three_face_tangency_accepts_sphere_cylinder_plane_supports() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let faces = incident_faces(&cube, vertex);
+    cube.faces[faces[0]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry = SurfaceGeometry::Sphere {
+        center: Point3::new(1.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    cube.faces[faces[1]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 1.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    cube.faces[faces[2]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry = z_plane();
+    assert_three_face_ready(&cube, vertex, 10_000_000);
+}
+
+#[test]
+fn live_three_face_tangency_accepts_sphere_cone_plane_supports() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let faces = incident_faces(&cube, vertex);
+    cube.faces[faces[0]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry = SurfaceGeometry::Sphere {
+        center: Point3::new(1.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    cube.faces[faces[1]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry =
+        cone_through_vertex_with_normal(cube.vertices[vertex].position, Vec3::new(0.0, 1.0, 0.0));
+    cube.faces[faces[2]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry = z_plane();
+    assert_three_face_ready(&cube, vertex, 1_000_000);
+}
+
+#[test]
+fn live_three_face_tangency_accepts_cylinder_cone_plane_supports() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let faces = incident_faces(&cube, vertex);
+    cube.faces[faces[0]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry = SurfaceGeometry::Cylinder {
+        origin: Point3::new(1.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    cube.faces[faces[1]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry =
+        cone_through_vertex_with_normal(cube.vertices[vertex].position, Vec3::new(0.0, 1.0, 0.0));
+    cube.faces[faces[2]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry = z_plane();
+    assert_three_face_ready(&cube, vertex, 1_000_000);
+}
+
+#[test]
+fn live_three_face_tangency_accepts_sphere_cylinder_cone_supports() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let faces = incident_faces(&cube, vertex);
+    cube.faces[faces[0]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry = SurfaceGeometry::Sphere {
+        center: Point3::new(1.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    cube.faces[faces[1]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 1.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    cube.faces[faces[2]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry =
+        cone_through_vertex_with_normal(cube.vertices[vertex].position, Vec3::new(0.0, 0.0, 1.0));
+    assert_three_face_ready(&cube, vertex, 1_000_000);
+}
+
 fn assert_three_face_ready(cube: &BRep, vertex: VertexHandle, radius_nanometers: i64) {
     let edges = incident_edges(cube, vertex);
     let report = cube.diagnose_corner_apex(request(
@@ -213,6 +329,15 @@ fn assert_three_face_ready(cube: &BRep, vertex: VertexHandle, radius_nanometers:
         report.strategy.readiness,
         CornerApexStrategyReadiness::Ready
     );
+}
+
+fn z_plane() -> SurfaceGeometry {
+    SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    }
 }
 
 fn request(
