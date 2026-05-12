@@ -215,6 +215,65 @@ fn sizing_trial_support_and_strategy_classifiers_expose_missing_primitives() {
 }
 
 #[test]
+fn sizing_modes_remain_distinct_from_radius_scalar() {
+    for mode in [
+        ApexSizingMode::RangeRange,
+        ApexSizingMode::RangeAngle,
+        ApexSizingMode::AngleRange,
+        ApexSizingMode::VariableRadiusEndpoint,
+    ] {
+        let sizing = classify_apex_sizing(ApexSizingInput {
+            mode,
+            requested_extent_nm: Some(10),
+            available_extent_nm: Some(20),
+            adjacent_clearance_nm: Some(20),
+            curvature_radius_nm: None,
+            tolerance: tolerance(),
+        });
+        assert_eq!(sizing.mode, mode);
+        assert_eq!(sizing.state, ApexSizingState::Ready);
+    }
+
+    let missing = classify_apex_sizing(ApexSizingInput {
+        mode: ApexSizingMode::RangeAngle,
+        requested_extent_nm: None,
+        available_extent_nm: Some(20),
+        adjacent_clearance_nm: Some(20),
+        curvature_radius_nm: None,
+        tolerance: tolerance(),
+    });
+    assert_eq!(missing.mode, ApexSizingMode::RangeAngle);
+    assert_eq!(missing.state, ApexSizingState::MissingSolverFact);
+}
+
+#[test]
+fn sizing_clearance_reports_radius_suggestions_and_apex_collisions() {
+    let oversized = classify_apex_sizing(ApexSizingInput {
+        mode: ApexSizingMode::ConstantRadius,
+        requested_extent_nm: Some(30),
+        available_extent_nm: Some(20),
+        adjacent_clearance_nm: Some(100),
+        curvature_radius_nm: None,
+        tolerance: tolerance(),
+    });
+    assert_eq!(oversized.state, ApexSizingState::RadiusTooLarge);
+    assert_eq!(oversized.max_feasible_radius_nm, Some(20));
+    assert_eq!(oversized.margin_nm, Some(-10));
+
+    let close_apex = classify_apex_sizing(ApexSizingInput {
+        mode: ApexSizingMode::ConstantRadius,
+        requested_extent_nm: Some(30),
+        available_extent_nm: Some(100),
+        adjacent_clearance_nm: Some(20),
+        curvature_radius_nm: None,
+        tolerance: tolerance(),
+    });
+    assert_eq!(close_apex.state, ApexSizingState::AdjacentApexCollision);
+    assert_eq!(close_apex.max_feasible_radius_nm, Some(20));
+    assert_eq!(close_apex.margin_nm, Some(70));
+}
+
+#[test]
 fn construction_integration_and_lifecycle_classifiers_are_typed() {
     let risk = classify_construction_risk(
         ConstructionRiskKind::PatchBoundaryIncompatible,
