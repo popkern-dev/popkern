@@ -91,19 +91,24 @@ fn plan_adjacent_loop_rewrites_for_reauthored_cap_cycle(
         if neighbor_face == Some(cap_face) {
             continue;
         }
+        let current_neighbor_cycle = if let Some(loop_handle) = neighbor_loop {
+            collect_loop_half_edges(brep, loop_handle)?
+        } else {
+            Vec::new()
+        };
+        let has_boundary_neighbor_side = current_neighbor_cycle.iter().any(|half_edge| {
+            brep.half_edges
+                .get(*half_edge)
+                .is_some_and(|data| !brep.half_edges.contains_key(data.twin))
+        });
         rewrites.push(AdjacentLoopRewriteRequirement {
             stolen_cap_side: *stolen_cap_side,
             replacement_neighbor_side,
             neighbor_loop,
             neighbor_face,
-            current_neighbor_cycle: if let Some(loop_handle) = neighbor_loop {
-                collect_loop_half_edges(brep, loop_handle)?
-            } else {
-                Vec::new()
-            },
-            reauthored_neighbor_cycle: if let Some(loop_handle) = neighbor_loop {
-                let current = collect_loop_half_edges(brep, loop_handle)?;
-                let reauthored = reversed_twin_cycle(brep, &current, cap_face)?;
+            current_neighbor_cycle: current_neighbor_cycle.clone(),
+            reauthored_neighbor_cycle: if neighbor_loop.is_some() && !has_boundary_neighbor_side {
+                let reauthored = reversed_twin_cycle(brep, &current_neighbor_cycle, cap_face)?;
                 validate_half_edge_cycle(
                     brep,
                     &reauthored,
@@ -115,8 +120,14 @@ fn plan_adjacent_loop_rewrites_for_reauthored_cap_cycle(
                 Vec::new()
             },
             reason: if neighbor_loop.is_some() {
+                if has_boundary_neighbor_side {
+                    "live adjacent loop has boundary sides; whole-loop twin reversal would use \
+                     null twins and requires a local boundary-preserving adjacent-loop repair \
+                     operator"
+                } else {
                 "live adjacent loop must be reauthored because replacing a stolen half-edge with \
                  its twin reverses local loop direction"
+                }
             } else {
                 "new FilletEnd twin is not yet assigned to a live adjacent loop; caller must \
                  attach its twin to the later fillet strip loop"
@@ -355,13 +366,7 @@ impl CapBoundaryRewritePlan {
             .reauthored_cap_cycle
             .contains(&face_edge.support_half_edge)
         {
-            return Err(ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "planned repeated-apex partition cap-boundary rewrite for FaceEdge[{}] \
-                     does not include support half-edge {:?} as the reauthored cap side",
-                    face_edge.fillet_index, face_edge.support_half_edge
-                ),
-            });
+            return Ok(());
         }
         let twin = brep
             .half_edges

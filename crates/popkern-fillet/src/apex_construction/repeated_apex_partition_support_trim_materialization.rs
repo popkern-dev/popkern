@@ -49,12 +49,15 @@ pub(super) fn materialized_generator_trim_side(
     if let Some((half_edge, actual_support_face)) =
         claim_side_support_bridge_boundary_for_cylinder_trim(
             brep,
-            side_support_bridge_loops,
-            start,
-            end,
-            curve.clone(),
-            label,
-            fillet_index,
+            SideSupportBridgeTrimClaimRequest {
+                support_face,
+                bridge_loops: side_support_bridge_loops,
+                start,
+                end,
+                curve: curve.clone(),
+                label,
+                fillet_index,
+            },
         )?
     {
         return Ok((half_edge, actual_support_face, true, None));

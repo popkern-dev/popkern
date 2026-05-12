@@ -167,7 +167,9 @@ use partition_residuals::{
     validate_existing_target_cylinder_strip,
 };
 use partition_shared_fillet_end_trim::materialized_shared_fillet_end_cylinder_half_edge;
-use partition_support_bridge_trim_claim::claim_side_support_bridge_boundary_for_cylinder_trim;
+use partition_support_bridge_trim_claim::{
+    SideSupportBridgeTrimClaimRequest, claim_side_support_bridge_boundary_for_cylinder_trim,
+};
 use partition_support_cycle_primitives::{
     closed_half_edge_cycles_from_unwired_set, half_edge_is_degenerate,
     support_cycle_open_chain_diagnostic, support_split_half_edge_end_vertex,
