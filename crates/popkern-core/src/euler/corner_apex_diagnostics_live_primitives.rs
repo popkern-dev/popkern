@@ -2,7 +2,9 @@
 
 use super::classifiers::classify_trial_interaction;
 use super::live_helpers::*;
-use super::three_face_tangency::{solve_three_face_tangency, tangency_supports};
+use super::three_face_tangency::{
+    solve_three_face_tangency, tangency_supports, three_face_tangency_support_missing_primitive,
+};
 use super::types::*;
 use crate::euler::{DiagnosticHandle, DiagnosticTolerance};
 use crate::geometry::curve::{CurveEval, CurveGeometry};
@@ -146,6 +148,14 @@ fn three_face_tangency_missing_reason(
     let faces = incident_faces_at_vertex(brep, vertex);
     if faces.len() < 3 {
         return Some("three-face-tangency-support-count");
+    }
+    if let Some(reason) = faces
+        .iter()
+        .filter_map(|face| brep.faces[*face].surface.as_ref())
+        .map(three_face_tangency_support_missing_primitive)
+        .find(|reason| *reason != "three-face-tangency-analytic-support-ready")
+    {
+        return Some(reason);
     }
     if let Err(reason) = tangency_supports(brep, vertex) {
         return Some(reason);

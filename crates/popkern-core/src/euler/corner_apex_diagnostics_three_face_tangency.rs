@@ -5,7 +5,7 @@ mod tangency_lines;
 
 use super::live_helpers::*;
 use crate::euler::DiagnosticTolerance;
-use crate::geometry::surface::SurfaceGeometry;
+use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::geometry::{Point3, Vec3};
 use crate::topology::{BRep, FaceHandle, VertexHandle};
 use tangency_lines::{
@@ -95,9 +95,24 @@ pub(super) fn tangency_supports(
 
 fn tangency_support(brep: &BRep, face: FaceHandle) -> Result<TangencySupport, &'static str> {
     let Some(surface) = brep.faces.get(face).and_then(|face| face.surface.as_ref()) else {
-        return Err("three-face-tangency-nonplanar-support");
+        return Err("three-face-tangency-missing-support-surface");
     };
-    TangencySupport::new(surface.geometry.clone()).ok_or("three-face-tangency-nonplanar-support")
+    TangencySupport::new(surface.geometry.clone())
+        .ok_or_else(|| three_face_tangency_support_missing_primitive(surface))
+}
+
+pub(super) fn three_face_tangency_support_missing_primitive(
+    surface: &SurfaceOnFace,
+) -> &'static str {
+    match surface.geometry {
+        SurfaceGeometry::Plane { .. }
+        | SurfaceGeometry::Cylinder { .. }
+        | SurfaceGeometry::Cone { .. }
+        | SurfaceGeometry::Sphere { .. } => "three-face-tangency-analytic-support-ready",
+        SurfaceGeometry::Torus { .. } => "three-face-tangency-torus-support",
+        SurfaceGeometry::Nurbs(_) => "three-face-tangency-nurbs-support",
+        SurfaceGeometry::Gregory(_) => "three-face-tangency-gregory-support",
+    }
 }
 
 pub(super) fn solve_three_face_tangency(

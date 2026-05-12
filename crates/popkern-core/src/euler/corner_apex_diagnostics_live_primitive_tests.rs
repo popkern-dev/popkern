@@ -38,6 +38,10 @@ fn live_three_face_tangency_names_unsupported_support_gap() {
     );
     assert_eq!(
         report.strategy.readiness,
+        CornerApexStrategyReadiness::RequiresMissingPrimitive("three-face-tangency-torus-support")
+    );
+    assert_ne!(
+        report.strategy.readiness,
         CornerApexStrategyReadiness::RequiresMissingPrimitive(
             "three-face-tangency-nonplanar-support"
         )
@@ -68,6 +72,16 @@ fn live_three_face_tangency_names_nurbs_support_gap() {
         report.topology.surface_compatibility,
         SurfaceCompatibility::Full
     );
+    assert_eq!(
+        report.strategy.readiness,
+        CornerApexStrategyReadiness::RequiresMissingPrimitive("three-face-tangency-nurbs-support")
+    );
+    assert_ne!(
+        report.strategy.readiness,
+        CornerApexStrategyReadiness::RequiresMissingPrimitive(
+            "three-face-tangency-nonplanar-support"
+        )
+    );
 }
 
 #[test]
@@ -93,6 +107,18 @@ fn live_three_face_tangency_names_gregory_support_as_conditional() {
     assert_ne!(
         report.topology.surface_compatibility,
         SurfaceCompatibility::Full
+    );
+    assert_eq!(
+        report.strategy.readiness,
+        CornerApexStrategyReadiness::RequiresMissingPrimitive(
+            "three-face-tangency-gregory-support"
+        )
+    );
+    assert_ne!(
+        report.strategy.readiness,
+        CornerApexStrategyReadiness::RequiresMissingPrimitive(
+            "three-face-tangency-nonplanar-support"
+        )
     );
 }
 
