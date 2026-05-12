@@ -2,6 +2,7 @@
 
 use super::classifiers::classify_trial_interaction;
 use super::live_helpers::*;
+use super::three_face_tangency::{solve_three_face_tangency, tangency_supports};
 use super::types::*;
 use crate::euler::{DiagnosticHandle, DiagnosticTolerance};
 use crate::geometry::curve::{CurveEval, CurveGeometry};
@@ -87,7 +88,7 @@ fn assess_three_face_tangency(
     let selected = live_selected_edges(brep, request);
     strategy.readiness = match three_face_tangency_missing_reason(brep, request, &selected) {
         Some(reason) => CornerApexStrategyReadiness::RequiresMissingPrimitive(reason),
-        None if solve_planar_three_face_tangency(brep, request, tolerance).is_some() => {
+        None if solve_live_three_face_tangency(brep, request, tolerance).is_some() => {
             CornerApexStrategyReadiness::Ready
         }
         None => {
@@ -146,44 +147,21 @@ fn three_face_tangency_missing_reason(
     if faces.len() < 3 {
         return Some("three-face-tangency-support-count");
     }
-    if faces.iter().any(|face| plane_record(brep, *face).is_none()) {
-        return Some("three-face-tangency-nonplanar-support");
+    if let Err(reason) = tangency_supports(brep, vertex) {
+        return Some(reason);
     }
     None
 }
 
-fn solve_planar_three_face_tangency(
+fn solve_live_three_face_tangency(
     brep: &BRep,
     request: &CornerApexDiagnosticRequest,
     tolerance: DiagnosticTolerance,
 ) -> Option<Point3> {
     let vertex = live_vertex(request.scope.vertex, brep)?;
     let radius = selected_radius_meters(request)?;
-    let mut planes = incident_faces_at_vertex(brep, vertex)
-        .into_iter()
-        .filter_map(|face| plane_record(brep, face))
-        .take(3)
-        .collect::<Vec<_>>();
-    if planes.len() != 3 {
-        return None;
-    }
-    orient_planes_toward_vertex(&mut planes, brep.vertices[vertex].position);
-    let tolerance_m = tolerance_meters(tolerance);
-    for signs in sign_sets() {
-        let rhs = [
-            planes[0].normal.dot(&planes[0].point_as_vec()) + signs[0] * radius,
-            planes[1].normal.dot(&planes[1].point_as_vec()) + signs[1] * radius,
-            planes[2].normal.dot(&planes[2].point_as_vec()) + signs[2] * radius,
-        ];
-        let Some(center) = solve_3x3([planes[0].normal, planes[1].normal, planes[2].normal], rhs)
-        else {
-            continue;
-        };
-        if center_is_tangent(&planes, center, radius, tolerance_m) {
-            return Some(center);
-        }
-    }
-    None
+    let supports = tangency_supports(brep, vertex).ok()?;
+    solve_three_face_tangency(&supports, brep.vertices[vertex].position, radius, tolerance)
 }
 
 fn live_selected_edges(brep: &BRep, request: &CornerApexDiagnosticRequest) -> Vec<EdgeHandle> {
@@ -250,67 +228,14 @@ fn edge_tangent_at_vertex(brep: &BRep, edge: EdgeHandle, vertex: VertexHandle) -
 }
 
 #[derive(Clone, Copy)]
-struct PlaneRecord {
-    normal: Vec3,
-    point: Point3,
-}
-
-impl PlaneRecord {
-    fn point_as_vec(self) -> Vec3 {
-        Vec3::new(self.point.x, self.point.y, self.point.z)
-    }
-}
+struct PlaneRecord;
 
 fn plane_record(brep: &BRep, face: FaceHandle) -> Option<PlaneRecord> {
     let surface = &brep.faces.get(face)?.surface.as_ref()?.geometry;
     match surface {
-        SurfaceGeometry::Plane { origin, normal, .. } => Some(PlaneRecord {
-            normal: normal.normalized()?,
-            point: *origin,
-        }),
+        SurfaceGeometry::Plane { normal, .. } => normal.normalized().map(|_| PlaneRecord),
         _ => None,
     }
-}
-
-fn orient_planes_toward_vertex(planes: &mut [PlaneRecord], vertex: Point3) {
-    for plane in planes {
-        let to_vertex = vertex - plane.point;
-        if plane.normal.dot(&to_vertex) < 0.0 {
-            plane.normal = -plane.normal;
-        }
-    }
-}
-
-fn center_is_tangent(planes: &[PlaneRecord], center: Point3, radius: f64, tolerance: f64) -> bool {
-    planes.iter().all(|plane| {
-        let distance = plane.normal.dot(&(center - plane.point)).abs();
-        (distance - radius).abs() <= tolerance.max(radius * 1e-8)
-    })
-}
-
-fn solve_3x3(rows: [Vec3; 3], rhs: [f64; 3]) -> Option<Point3> {
-    let det = rows[0].dot(&rows[1].cross(&rows[2]));
-    if det.abs() <= 1e-12 {
-        return None;
-    }
-    let b = Vec3::new(rhs[0], rhs[1], rhs[2]);
-    let x = b.dot(&rows[1].cross(&rows[2])) / det;
-    let y = rows[0].dot(&b.cross(&rows[2])) / det;
-    let z = rows[0].dot(&rows[1].cross(&b)) / det;
-    (x.is_finite() && y.is_finite() && z.is_finite()).then_some(Point3::new(x, y, z))
-}
-
-fn sign_sets() -> [[f64; 3]; 8] {
-    [
-        [-1.0, -1.0, -1.0],
-        [-1.0, -1.0, 1.0],
-        [-1.0, 1.0, -1.0],
-        [-1.0, 1.0, 1.0],
-        [1.0, -1.0, -1.0],
-        [1.0, -1.0, 1.0],
-        [1.0, 1.0, -1.0],
-        [1.0, 1.0, 1.0],
-    ]
 }
 
 fn angle_tolerance(tolerance: DiagnosticTolerance) -> f64 {

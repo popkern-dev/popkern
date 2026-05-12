@@ -7,13 +7,15 @@ use crate::tolerance::Tolerance;
 use crate::topology::{BRep, EdgeHandle, VertexHandle};
 
 #[test]
-fn live_three_face_tangency_names_nonplanar_support_gap() {
+fn live_three_face_tangency_names_unsupported_support_gap() {
     let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
     let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
     let face = incident_face(&cube, vertex);
-    cube.faces[face].surface.as_mut().expect("surface").geometry = SurfaceGeometry::Sphere {
+    cube.faces[face].surface.as_mut().expect("surface").geometry = SurfaceGeometry::Torus {
         center: Point3::new(0.0, 0.0, 0.0),
-        radius: 1.0,
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        major_radius: 2.0,
+        minor_radius: 0.25,
     };
     let edges = incident_edges(&cube, vertex);
 
@@ -33,6 +35,40 @@ fn live_three_face_tangency_names_nonplanar_support_gap() {
         CornerApexStrategyReadiness::RequiresMissingPrimitive(
             "three-face-tangency-nonplanar-support"
         )
+    );
+}
+
+#[test]
+fn live_three_face_tangency_accepts_analytic_sphere_support() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let face = incident_face(&cube, vertex);
+    let center = match &cube.faces[face].surface.as_ref().expect("surface").geometry {
+        SurfaceGeometry::Plane { normal, .. } => {
+            cube.vertices[vertex].position + normal.normalized().expect("normal") * 1.0
+        }
+        _ => panic!("fixture face is planar"),
+    };
+    cube.faces[face].surface.as_mut().expect("surface").geometry = SurfaceGeometry::Sphere {
+        center,
+        radius: 1.0,
+    };
+    let edges = incident_edges(&cube, vertex);
+
+    let report = cube.diagnose_corner_apex(request(
+        vertex,
+        &edges,
+        BlendKind::FilletConstantRadius,
+        10_000_000,
+    ));
+
+    assert_eq!(
+        report.strategy.family,
+        CornerApexStrategyFamily::ThreeFaceBlend
+    );
+    assert_eq!(
+        report.strategy.readiness,
+        CornerApexStrategyReadiness::Ready
     );
 }
 

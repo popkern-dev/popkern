@@ -10,6 +10,8 @@ mod live_helpers;
 mod live_primitives;
 #[path = "corner_apex_diagnostics_manifest.rs"]
 mod manifest;
+#[path = "corner_apex_diagnostics_three_face_tangency.rs"]
+mod three_face_tangency;
 #[path = "corner_apex_diagnostics_types.rs"]
 mod types;
 
