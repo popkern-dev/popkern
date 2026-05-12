@@ -33,13 +33,10 @@ impl BRep {
             support.state,
         );
         let sizing = classify_apex_sizing(sizing_input(self, &request, topology.vertex, tolerance));
-        let trial_interaction = classify_trial_interaction(
-            classification.valence,
-            has_pairwise_surface_geometry(self, &request, topology.vertex),
-            trial_residual_nm(self, &request, topology.vertex),
-            tolerance,
-        );
-        let strategy = classify_strategy_readiness(classification, sizing, support);
+        let trial_interaction =
+            classify_trial_interaction(classification.valence, false, None, tolerance);
+        let strategy =
+            live_strategy_readiness(classify_strategy_readiness(classification, sizing, support));
         let construction_risk = construction_risk(&classification, &strategy, tolerance);
         let integration_validation = integration_validation(&strategy, tolerance);
         let lifecycle = classify_lifecycle(
@@ -392,37 +389,6 @@ fn face_normal_at_vertex(
     Some(surface.normal_at(u, v))
 }
 
-fn has_pairwise_surface_geometry(
-    brep: &BRep,
-    request: &CornerApexDiagnosticRequest,
-    vertex: DiagnosticHandle,
-) -> bool {
-    let Some(vertex) = live_vertex(vertex, brep) else {
-        return false;
-    };
-    request
-        .selected_edges
-        .iter()
-        .filter_map(|selection| live_edge(selection.edge, brep))
-        .filter(|edge| edge_contains_vertex(brep, *edge, vertex))
-        .all(|edge| edge_faces(brep, edge).len() >= 2)
-}
-
-fn trial_residual_nm(
-    brep: &BRep,
-    request: &CornerApexDiagnosticRequest,
-    vertex: DiagnosticHandle,
-) -> Option<i64> {
-    let vertex = live_vertex(vertex, brep)?;
-    let selected: Vec<_> = request
-        .selected_edges
-        .iter()
-        .filter_map(|selection| live_edge(selection.edge, brep))
-        .filter(|edge| edge_contains_vertex(brep, *edge, vertex))
-        .collect();
-    (selected.len() == 2).then_some(0)
-}
-
 fn construction_risk(
     classification: &VertexClassificationFact,
     strategy: &StrategyReadinessFact,
@@ -451,6 +417,19 @@ fn construction_risk(
         BlendTypeCompatibility::Heterogeneous | BlendTypeCompatibility::Incompatible(_)
     );
     classify_construction_risk(kind, primitive_available, tolerance)
+}
+
+fn live_strategy_readiness(mut strategy: StrategyReadinessFact) -> StrategyReadinessFact {
+    strategy.readiness = match strategy.family {
+        CornerApexStrategyFamily::MutualTrim => {
+            CornerApexStrategyReadiness::RequiresMissingPrimitive("blend-pipe-intersection-probe")
+        }
+        CornerApexStrategyFamily::ThreeFaceBlend => {
+            CornerApexStrategyReadiness::RequiresMissingPrimitive("three-face-tangency-solver")
+        }
+        _ => strategy.readiness,
+    };
+    strategy
 }
 
 fn integration_validation(
