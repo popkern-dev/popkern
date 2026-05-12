@@ -269,6 +269,9 @@ fn surface_compatibility(brep: &BRep, faces: &[FaceHandle]) -> SurfaceCompatibil
         if matches!(surface.geometry, SurfaceGeometry::Torus { .. }) {
             return SurfaceCompatibility::MissingPrimitive("three-face-tangency-torus-support");
         }
+        if matches!(surface.geometry, SurfaceGeometry::Nurbs(_)) {
+            return SurfaceCompatibility::MissingPrimitive("three-face-tangency-nurbs-support");
+        }
         has_existing_blend |= matches!(surface.geometry, SurfaceGeometry::Gregory(_));
     }
     if has_existing_blend {

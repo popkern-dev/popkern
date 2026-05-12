@@ -1,6 +1,8 @@
 use super::*;
 use crate::euler::DiagnosticHandle;
 use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
+use crate::geometry::gregory::{GregoryPatch, RectangularGregory};
+use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
@@ -39,6 +41,58 @@ fn live_three_face_tangency_names_unsupported_support_gap() {
         CornerApexStrategyReadiness::RequiresMissingPrimitive(
             "three-face-tangency-nonplanar-support"
         )
+    );
+}
+
+#[test]
+fn live_three_face_tangency_names_nurbs_support_gap() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let face = incident_face(&cube, vertex);
+    cube.faces[face].surface.as_mut().expect("surface").geometry =
+        SurfaceGeometry::Nurbs(planar_nurbs_support());
+    let edges = incident_edges(&cube, vertex);
+
+    let report = cube.diagnose_corner_apex(request(
+        vertex,
+        &edges,
+        BlendKind::FilletConstantRadius,
+        10_000_000,
+    ));
+
+    assert_eq!(
+        report.topology.surface_compatibility,
+        SurfaceCompatibility::MissingPrimitive("three-face-tangency-nurbs-support")
+    );
+    assert_ne!(
+        report.topology.surface_compatibility,
+        SurfaceCompatibility::Full
+    );
+}
+
+#[test]
+fn live_three_face_tangency_names_gregory_support_as_conditional() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let face = incident_face(&cube, vertex);
+    cube.faces[face].surface.as_mut().expect("surface").geometry =
+        SurfaceGeometry::Gregory(GregoryPatch::Rectangular(Box::new(flat_gregory_support())));
+    let edges = incident_edges(&cube, vertex);
+
+    let report = cube.diagnose_corner_apex(request(
+        vertex,
+        &edges,
+        BlendKind::FilletConstantRadius,
+        10_000_000,
+    ));
+
+    assert_eq!(
+        report.topology.surface_compatibility,
+        SurfaceCompatibility::Conditional("nested-blend-support")
+    );
+    assert_ne!(
+        report.topology.surface_compatibility,
+        SurfaceCompatibility::Full
     );
 }
 
@@ -330,5 +384,36 @@ fn cone_through_vertex_with_normal(vertex: Point3, normal: Vec3) -> SurfaceGeome
         apex,
         axis,
         half_angle,
+    }
+}
+
+fn planar_nurbs_support() -> NurbsSurface {
+    NurbsSurface {
+        degree_u: 1,
+        degree_v: 1,
+        knots_u: vec![0.0, 0.0, 1.0, 1.0],
+        knots_v: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+        ],
+        num_u: 2,
+        num_v: 2,
+        weights: vec![1.0, 1.0, 1.0, 1.0],
+    }
+}
+
+fn flat_gregory_support() -> RectangularGregory {
+    let mut boundary_cps = [[Point3::new(0.0, 0.0, 0.0); 4]; 4];
+    for (u_index, row) in boundary_cps.iter_mut().enumerate() {
+        for (v_index, point) in row.iter_mut().enumerate() {
+            *point = Point3::new(u_index as f64 / 3.0, v_index as f64 / 3.0, 0.0);
+        }
+    }
+    RectangularGregory {
+        boundary_cps,
+        inner_cps: [(Point3::new(0.5, 0.5, 0.0), Point3::new(0.5, 0.5, 0.0)); 4],
     }
 }
