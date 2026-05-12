@@ -1,4 +1,8 @@
+#[path = "repeated_apex_partition_cap_boundary_adjacent_loop_repair.rs"]
+mod adjacent_loop_repair;
+
 use super::*;
+use adjacent_loop_repair::author_boundary_preserving_adjacent_loop_repair;
 
 pub(super) fn plan_cap_boundary_rewrite_for_cylinder_trim(
     brep: &BRep,
@@ -101,37 +105,34 @@ fn plan_adjacent_loop_rewrites_for_reauthored_cap_cycle(
                 .get(*half_edge)
                 .is_some_and(|data| !brep.half_edges.contains_key(data.twin))
         });
+        let rewrite_kind = if neighbor_loop.is_none() {
+            AdjacentLoopRewriteKind::AttachTwinToLaterStripLoop
+        } else if has_boundary_neighbor_side {
+            AdjacentLoopRewriteKind::BoundaryPreservingAdjacentLoopRepairRequired
+        } else {
+            AdjacentLoopRewriteKind::ReverseAdjacentTwinCycle
+        };
         rewrites.push(AdjacentLoopRewriteRequirement {
             stolen_cap_side: *stolen_cap_side,
             replacement_neighbor_side,
             neighbor_loop,
             neighbor_face,
             current_neighbor_cycle: current_neighbor_cycle.clone(),
-            reauthored_neighbor_cycle: if neighbor_loop.is_some() && !has_boundary_neighbor_side {
+            reauthored_neighbor_cycle: if rewrite_kind
+                == AdjacentLoopRewriteKind::ReverseAdjacentTwinCycle
+            {
                 let reauthored = reversed_twin_cycle(brep, &current_neighbor_cycle, cap_face)?;
                 validate_half_edge_cycle(
                     brep,
                     &reauthored,
-                    "reauthored adjacent boundary",
+                    "reauthored adjacent twin boundary",
                     neighbor_face.unwrap_or(cap_face),
                 )?;
                 reauthored
             } else {
                 Vec::new()
             },
-            reason: if neighbor_loop.is_some() {
-                if has_boundary_neighbor_side {
-                    "live adjacent loop has boundary sides; whole-loop twin reversal would use \
-                     null twins and requires a local boundary-preserving adjacent-loop repair \
-                     operator"
-                } else {
-                "live adjacent loop must be reauthored because replacing a stolen half-edge with \
-                 its twin reverses local loop direction"
-                }
-            } else {
-                "new FilletEnd twin is not yet assigned to a live adjacent loop; caller must \
-                 attach its twin to the later fillet strip loop"
-            },
+            rewrite_kind,
         });
     }
     Ok(rewrites)
@@ -155,7 +156,14 @@ struct AdjacentLoopRewriteRequirement {
     neighbor_face: Option<FaceHandle>,
     current_neighbor_cycle: Vec<HalfEdgeHandle>,
     reauthored_neighbor_cycle: Vec<HalfEdgeHandle>,
-    reason: &'static str,
+    rewrite_kind: AdjacentLoopRewriteKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AdjacentLoopRewriteKind {
+    ReverseAdjacentTwinCycle,
+    BoundaryPreservingAdjacentLoopRepairRequired,
+    AttachTwinToLaterStripLoop,
 }
 
 impl CapBoundaryRewritePlan {
@@ -179,16 +187,34 @@ impl CapBoundaryRewritePlan {
                     ),
                 });
             };
-            if rewrite.reauthored_neighbor_cycle.is_empty() {
-                return Err(ApexBuildError::PlanMismatch {
-                    reason: format!(
-                        "planned repeated-apex partition adjacent loop rewrite has no \
-                         reauthored cycle: {}",
-                        rewrite.diagnostic_label()
-                    ),
-                });
+            match rewrite.rewrite_kind {
+                AdjacentLoopRewriteKind::ReverseAdjacentTwinCycle => {
+                    if rewrite.reauthored_neighbor_cycle.is_empty() {
+                        return Err(ApexBuildError::PlanMismatch {
+                            reason: format!(
+                                "planned repeated-apex partition adjacent loop rewrite has no \
+                                 reauthored cycle: {}",
+                                rewrite.diagnostic_label()
+                            ),
+                        });
+                    }
+                    wire_existing_loop(
+                        brep,
+                        loop_handle,
+                        face,
+                        &rewrite.reauthored_neighbor_cycle,
+                    )?;
+                }
+                AdjacentLoopRewriteKind::BoundaryPreservingAdjacentLoopRepairRequired => {
+                    author_boundary_preserving_adjacent_loop_repair(
+                        brep,
+                        rewrite,
+                        loop_handle,
+                        face,
+                    )?;
+                }
+                AdjacentLoopRewriteKind::AttachTwinToLaterStripLoop => {}
             }
-            wire_existing_loop(brep, loop_handle, face, &rewrite.reauthored_neighbor_cycle)?;
         }
         Ok(())
     }
@@ -226,7 +252,8 @@ impl CapBoundaryRewritePlan {
             .adjacent_loop_rewrites
             .iter()
             .filter(|rewrite| {
-                rewrite.neighbor_loop.is_some() && rewrite.reauthored_neighbor_cycle.is_empty()
+                rewrite.rewrite_kind == AdjacentLoopRewriteKind::ReverseAdjacentTwinCycle
+                    && rewrite.reauthored_neighbor_cycle.is_empty()
             })
             .map(AdjacentLoopRewriteRequirement::diagnostic_label)
             .collect::<Vec<_>>();
@@ -431,14 +458,16 @@ impl AdjacentLoopRewriteRequirement {
     fn diagnostic_label(&self) -> String {
         format!(
             "stolen_cap_side={:?}, replacement_neighbor_side={:?}, neighbor_loop={:?}, \
-             neighbor_face={:?}, current_neighbor_cycle={:?}, reauthored_neighbor_cycle={:?}: {}",
+             neighbor_face={:?}, rewrite_kind={}, current_neighbor_cycle={:?}, \
+             reauthored_neighbor_cycle={:?}: {}",
             self.stolen_cap_side,
             self.replacement_neighbor_side,
             self.neighbor_loop,
             self.neighbor_face,
+            self.rewrite_kind.diagnostic_label(),
             self.current_neighbor_cycle,
             self.reauthored_neighbor_cycle,
-            self.reason
+            self.rewrite_kind.reason()
         )
     }
 }
