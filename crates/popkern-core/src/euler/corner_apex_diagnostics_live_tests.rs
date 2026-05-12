@@ -1,3 +1,4 @@
+use super::types::{CornerTopologyFactSource, EdgeEndpointRole};
 use super::*;
 use crate::euler::DiagnosticHandle;
 use crate::geometry::surface::SurfaceGeometry;
@@ -20,6 +21,24 @@ fn live_cube_corner_extracts_topology_geometry_sizing_and_strategy() {
 
     assert_eq!(report.topology.state, CornerTopologyState::Ready);
     assert_eq!(report.topology.incident_blend_edges, 3);
+    assert_eq!(report.topology.neighborhood.incident_edges.len(), 3);
+    assert_eq!(report.topology.neighborhood.adjacent_face_pairs.len(), 3);
+    assert_eq!(
+        report
+            .topology
+            .neighborhood
+            .surrounding_face_adjacencies
+            .len(),
+        3
+    );
+    assert!(
+        report
+            .topology
+            .neighborhood
+            .incident_edges
+            .iter()
+            .all(|edge| edge.selected_for_blend && edge.endpoint_role != EdgeEndpointRole::Unknown)
+    );
     assert_eq!(
         report.topology.geometry.tangent,
         CornerGeometryAvailability::Available
@@ -291,6 +310,10 @@ fn live_stale_selected_edge_marks_topology_stale() {
 
     assert_eq!(report.topology.state, CornerTopologyState::StaleHandle);
     assert_eq!(report.topology.incident_blend_edges, 0);
+    assert_eq!(
+        report.topology.neighborhood.stale_sources,
+        vec![CornerTopologyFactSource::SelectedEdge]
+    );
 }
 
 #[test]

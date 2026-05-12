@@ -44,10 +44,58 @@ pub struct CornerTopologyRecord {
     pub incident_non_blend_edges: usize,
     pub surrounding_faces: usize,
     pub face_adjacency_edges: usize,
+    pub neighborhood: CornerTopologyNeighborhood,
     pub state: CornerTopologyState,
     pub geometry: CornerGeometryFact,
     pub surface_representation: SurfaceRepresentation,
     pub surface_compatibility: SurfaceCompatibility,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CornerTopologyNeighborhood {
+    pub incident_edges: Vec<CornerIncidentEdgeFact>,
+    pub adjacent_face_pairs: Vec<CornerAdjacentFacePair>,
+    pub surrounding_face_adjacencies: Vec<CornerFaceAdjacencyFact>,
+    pub stale_sources: Vec<CornerTopologyFactSource>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CornerIncidentEdgeFact {
+    pub edge: DiagnosticHandle,
+    pub endpoint_role: EdgeEndpointRole,
+    pub selected_for_blend: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum EdgeEndpointRole {
+    Start,
+    End,
+    Degenerate,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CornerAdjacentFacePair {
+    pub edge: DiagnosticHandle,
+    pub first_face: Option<DiagnosticHandle>,
+    pub second_face: Option<DiagnosticHandle>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CornerFaceAdjacencyFact {
+    pub first_face: DiagnosticHandle,
+    pub second_face: DiagnosticHandle,
+    pub shared_edge: DiagnosticHandle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CornerTopologyFactSource {
+    Vertex,
+    SelectedEdge,
+    IncidentEdge,
+    HalfEdge,
+    Loop,
+    Face,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

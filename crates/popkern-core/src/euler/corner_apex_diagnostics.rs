@@ -12,6 +12,8 @@ mod live_primitives;
 mod manifest;
 #[path = "corner_apex_diagnostics_three_face_tangency.rs"]
 mod three_face_tangency;
+#[path = "corner_apex_diagnostics_topology_neighborhood.rs"]
+mod topology_neighborhood;
 #[path = "corner_apex_diagnostics_types.rs"]
 mod types;
 
