@@ -2,6 +2,7 @@
 #![allow(missing_docs)]
 
 use super::super::{DiagnosticHandle, DiagnosticTolerance};
+use super::score_types::ApexFeasibilityScoreFact;
 use super::selection_types::CornerSelectionIntentFact;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -315,6 +316,8 @@ pub struct ApexSizingInput {
     pub available_extent_nm: Option<i64>,
     pub adjacent_clearance_nm: Option<i64>,
     pub curvature_radius_nm: Option<i64>,
+    pub dihedral_margin_nm: Option<i64>,
+    pub face_area_margin_nm: Option<i64>,
     pub tolerance: DiagnosticTolerance,
 }
 
@@ -324,6 +327,7 @@ pub struct ApexSizingFact {
     pub state: ApexSizingState,
     pub max_feasible_radius_nm: Option<i64>,
     pub margin_nm: Option<i64>,
+    pub score: ApexFeasibilityScoreFact,
     pub tolerance: DiagnosticTolerance,
 }
 

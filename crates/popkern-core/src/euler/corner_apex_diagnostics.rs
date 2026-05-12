@@ -10,6 +10,8 @@ mod live_helpers;
 mod live_primitives;
 #[path = "corner_apex_diagnostics_manifest.rs"]
 mod manifest;
+#[path = "corner_apex_diagnostics_score_types.rs"]
+mod score_types;
 #[path = "corner_apex_diagnostics_selection.rs"]
 mod selection;
 #[path = "corner_apex_diagnostics_selection_types.rs"]
@@ -32,6 +34,10 @@ pub use classifiers::{
 pub use manifest::{
     CornerApexConditionCategory, CornerApexConditionId, CornerApexFactContract,
     corner_apex_condition_ids, corner_apex_fact_contracts,
+};
+#[allow(unused_imports)]
+pub use score_types::{
+    ApexFeasibilityScoreFact, ApexFeasibilityScoreIngredient, ApexFeasibilityScoreMissing,
 };
 #[allow(unused_imports)]
 pub use selection_types::{

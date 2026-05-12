@@ -1,6 +1,7 @@
 //! Pure classifiers for corner/apex diagnostic facts.
 #![allow(missing_docs)]
 
+use super::score_types::{ApexFeasibilityScoreFact, ApexFeasibilityScoreMissing};
 use super::types::*;
 use crate::euler::DiagnosticTolerance;
 
@@ -178,12 +179,37 @@ fn sizing_fact(
     max_feasible_radius_nm: Option<i64>,
     margin_nm: Option<i64>,
 ) -> ApexSizingFact {
+    let score = apex_feasibility_score(&input);
     ApexSizingFact {
         mode: input.mode,
         state,
         max_feasible_radius_nm,
         margin_nm,
+        score,
         tolerance: input.tolerance,
+    }
+}
+
+fn apex_feasibility_score(input: &ApexSizingInput) -> ApexFeasibilityScoreFact {
+    let apex_range_margin_nm = input
+        .requested_extent_nm
+        .zip(input.available_extent_nm)
+        .map(|(requested, available)| available - requested);
+    let curvature_radius_margin_nm = input
+        .requested_extent_nm
+        .zip(input.curvature_radius_nm)
+        .map(|(requested, curvature_radius)| curvature_radius - requested.saturating_mul(2));
+    ApexFeasibilityScoreFact {
+        apex_range_margin_nm,
+        dihedral_margin_nm: input.dihedral_margin_nm,
+        curvature_radius_margin_nm,
+        face_area_margin_nm: input.face_area_margin_nm,
+        missing: ApexFeasibilityScoreMissing {
+            apex_range_margin: apex_range_margin_nm.is_none(),
+            dihedral_margin: input.dihedral_margin_nm.is_none(),
+            curvature_radius_margin: curvature_radius_margin_nm.is_none(),
+            face_area_margin: input.face_area_margin_nm.is_none(),
+        },
     }
 }
 

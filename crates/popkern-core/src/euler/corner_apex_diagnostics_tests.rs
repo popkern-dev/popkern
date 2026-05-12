@@ -180,6 +180,8 @@ fn sizing_trial_support_and_strategy_classifiers_expose_missing_primitives() {
         available_extent_nm: Some(10),
         adjacent_clearance_nm: Some(100),
         curvature_radius_nm: Some(100),
+        dihedral_margin_nm: None,
+        face_area_margin_nm: None,
         tolerance: tolerance(),
     });
     assert_eq!(sizing.state, ApexSizingState::RadiusTooLarge);
@@ -228,6 +230,8 @@ fn sizing_modes_remain_distinct_from_radius_scalar() {
             available_extent_nm: Some(20),
             adjacent_clearance_nm: Some(20),
             curvature_radius_nm: None,
+            dihedral_margin_nm: None,
+            face_area_margin_nm: None,
             tolerance: tolerance(),
         });
         assert_eq!(sizing.mode, mode);
@@ -240,6 +244,8 @@ fn sizing_modes_remain_distinct_from_radius_scalar() {
         available_extent_nm: Some(20),
         adjacent_clearance_nm: Some(20),
         curvature_radius_nm: None,
+        dihedral_margin_nm: None,
+        face_area_margin_nm: None,
         tolerance: tolerance(),
     });
     assert_eq!(missing.mode, ApexSizingMode::RangeAngle);
@@ -254,6 +260,8 @@ fn sizing_clearance_reports_radius_suggestions_and_apex_collisions() {
         available_extent_nm: Some(20),
         adjacent_clearance_nm: Some(100),
         curvature_radius_nm: None,
+        dihedral_margin_nm: None,
+        face_area_margin_nm: None,
         tolerance: tolerance(),
     });
     assert_eq!(oversized.state, ApexSizingState::RadiusTooLarge);
@@ -266,11 +274,54 @@ fn sizing_clearance_reports_radius_suggestions_and_apex_collisions() {
         available_extent_nm: Some(100),
         adjacent_clearance_nm: Some(20),
         curvature_radius_nm: None,
+        dihedral_margin_nm: None,
+        face_area_margin_nm: None,
         tolerance: tolerance(),
     });
     assert_eq!(close_apex.state, ApexSizingState::AdjacentApexCollision);
     assert_eq!(close_apex.max_feasible_radius_nm, Some(20));
     assert_eq!(close_apex.margin_nm, Some(70));
+}
+
+#[test]
+fn sizing_feasibility_score_reports_complete_and_missing_ingredients() {
+    let complete = classify_apex_sizing(ApexSizingInput {
+        mode: ApexSizingMode::ConstantRadius,
+        requested_extent_nm: Some(10),
+        available_extent_nm: Some(20),
+        adjacent_clearance_nm: Some(20),
+        curvature_radius_nm: Some(50),
+        dihedral_margin_nm: Some(5),
+        face_area_margin_nm: Some(7),
+        tolerance: tolerance(),
+    });
+    assert_eq!(complete.state, ApexSizingState::Ready);
+    assert_eq!(complete.score.apex_range_margin_nm, Some(10));
+    assert_eq!(complete.score.curvature_radius_margin_nm, Some(30));
+    assert_eq!(complete.score.dihedral_margin_nm, Some(5));
+    assert_eq!(complete.score.face_area_margin_nm, Some(7));
+    assert_eq!(complete.score.missing_ingredients(), Vec::new());
+
+    let missing = classify_apex_sizing(ApexSizingInput {
+        mode: ApexSizingMode::ConstantRadius,
+        requested_extent_nm: Some(10),
+        available_extent_nm: None,
+        adjacent_clearance_nm: None,
+        curvature_radius_nm: None,
+        dihedral_margin_nm: None,
+        face_area_margin_nm: None,
+        tolerance: tolerance(),
+    });
+    assert_eq!(missing.state, ApexSizingState::MissingSolverFact);
+    assert_eq!(
+        missing.score.missing_ingredients(),
+        vec![
+            ApexFeasibilityScoreIngredient::ApexRangeMargin,
+            ApexFeasibilityScoreIngredient::DihedralMargin,
+            ApexFeasibilityScoreIngredient::CurvatureRadiusMargin,
+            ApexFeasibilityScoreIngredient::FaceAreaMargin,
+        ]
+    );
 }
 
 #[test]

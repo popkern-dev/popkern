@@ -47,6 +47,7 @@ pub use bridge_diagnostics::{
 };
 pub use construction_residual_retire::ConstructionResidualRetireResult;
 pub use corner_apex_diagnostics::{
+    ApexFeasibilityScoreFact, ApexFeasibilityScoreIngredient, ApexFeasibilityScoreMissing,
     ApexSizingFact, ApexSizingInput, ApexSizingMode, ApexSizingState, BlendKind,
     BlendTypeCompatibility, BlendValence, ConstructionRiskFact, ConstructionRiskKind,
     ConstructionRiskState, CornerApexConditionCategory, CornerApexConditionId,

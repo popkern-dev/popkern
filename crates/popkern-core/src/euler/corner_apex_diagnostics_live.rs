@@ -311,6 +311,10 @@ fn sizing_input(
         available_extent_nm: available,
         adjacent_clearance_nm: available.map(|extent| extent / 2),
         curvature_radius_nm: None,
+        dihedral_margin_nm: None,
+        face_area_margin_nm: requested
+            .zip(available)
+            .map(|(requested_extent, available_extent)| available_extent - requested_extent),
         tolerance,
     }
 }
