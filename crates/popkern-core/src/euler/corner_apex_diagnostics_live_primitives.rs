@@ -71,9 +71,17 @@ fn assess_mutual_trim_probe(
         (Some(reason), _) => CornerApexStrategyReadiness::RequiresMissingPrimitive(reason),
         (_, TrialInteractionState::WellConditioned) => CornerApexStrategyReadiness::Ready,
         (_, TrialInteractionState::NearTangentUpgrade) => {
-            CornerApexStrategyReadiness::RequiresMissingPrimitive("vertex-patch-upgrade")
+            CornerApexStrategyReadiness::RequiresMissingPrimitive("near-tangent-mutual-trim")
         }
-        _ => CornerApexStrategyReadiness::RequiresMissingPrimitive("blend-pipe-intersection-probe"),
+        (_, TrialInteractionState::SelfIntersecting) => {
+            CornerApexStrategyReadiness::Invalid("coincident-mutual-trim-intersection")
+        }
+        (_, TrialInteractionState::Ambiguous) => {
+            CornerApexStrategyReadiness::RequiresMissingPrimitive("ambiguous-mutual-trim-branch")
+        }
+        _ => CornerApexStrategyReadiness::RequiresMissingPrimitive(
+            "missing-mutual-trim-intersection-refinement",
+        ),
     };
     LivePrimitiveAssessment {
         trial_interaction,
