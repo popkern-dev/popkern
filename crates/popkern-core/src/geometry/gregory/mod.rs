@@ -466,44 +466,34 @@ impl GregoryPatch {
     }
 }
 
-mod self_intersection;
-
-#[cfg(test)]
-#[path = "../gregory_tests.rs"]
-mod tests;
-
 #[cfg(test)]
 #[path = "build_tests.rs"]
 mod build_tests;
-
-#[cfg(test)]
-#[path = "rectangular_deg5_tests.rs"]
-mod rectangular_deg5_tests;
-
 #[cfg(test)]
 #[path = "rectangular_biquintic_full_tests.rs"]
 mod rectangular_biquintic_full_tests;
-
 #[cfg(test)]
 #[path = "rectangular_biseptic_tests.rs"]
 mod rectangular_biseptic_tests;
-
+#[cfg(test)]
+#[path = "rectangular_deg5_tests.rs"]
+mod rectangular_deg5_tests;
 #[cfg(test)]
 #[path = "rectangular_gregory_two_stripe_tests.rs"]
 mod rectangular_gregory_two_stripe_tests;
-
-#[cfg(test)]
-#[path = "spoke_g1_solver_tests.rs"]
-mod spoke_g1_solver_tests;
-
-#[cfg(test)]
-#[path = "spoke_g1_solver_higher_degree_tests.rs"]
-mod spoke_g1_solver_higher_degree_tests;
-
 #[cfg(test)]
 #[path = "rectangular_to_nurbs_tests.rs"]
 mod rectangular_to_nurbs_tests;
-
+mod self_intersection;
+#[cfg(test)]
+#[path = "spoke_g1_solver_higher_degree_tests.rs"]
+mod spoke_g1_solver_higher_degree_tests;
+#[cfg(test)]
+#[path = "spoke_g1_solver_tests.rs"]
+mod spoke_g1_solver_tests;
+#[cfg(test)]
+#[path = "../gregory_tests.rs"]
+mod tests;
 #[cfg(test)]
 #[path = "triangular_to_nurbs_tests.rs"]
 mod triangular_to_nurbs_tests;

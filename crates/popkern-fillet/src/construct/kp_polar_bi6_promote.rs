@@ -37,14 +37,15 @@
 
 use popkern_core::geometry::gregory::{
     Bi6CapInput, GregoryPatch, PolarBoundaryInput, RectangularGregoryBiNonic,
-    RectangularGregoryTwoStripe, Side, Spoke, SpokeEnd, convert_polar_to_bi6_cap_input,
-    extract_bi3_tensor_border_from_polar_input, f_kappa_solve_optimal_bi6_cap,
-    f_kappa_solve_with_weights_optimal_bi6_cap,
+    RectangularGregoryTwoStripe, Side, Spoke, SpokeEnd, TensorBorder,
+    convert_polar_to_bi6_cap_input, extract_bi3_tensor_border_from_polar_input,
+    f_kappa_solve_optimal_bi6_cap, f_kappa_solve_with_weights_optimal_bi6_cap,
 };
 use popkern_core::geometry::surface::SurfaceGeometry;
 
 use super::kp_polar_deep_trace::deep_trace_bi6_output;
 use super::kp_polar_lm_optimizer::try_polar_lm;
+use super::kp20_polar_dispatch::{first_self_intersecting_patch, try_kp20_polar_macro_candidate};
 use super::three_quad_apply::{extract_direct_boundary_input, worst_ring_coplanarity};
 use crate::fillet_surface::FilletSurfaceResult;
 
@@ -58,7 +59,7 @@ use crate::fillet_surface::FilletSurfaceResult;
 const COMMERCIAL_GATE: f64 = 5e-2;
 
 /// Self-intersection tolerance for the fold-revert gate.
-const SELF_INT_TOL: f64 = 1e-6;
+pub(super) const SELF_INT_TOL: f64 = 1e-6;
 
 /// Outcome of a polar bi-6 promotion attempt.
 pub(super) enum PolarPromoteOutcome {
@@ -201,6 +202,50 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
             return PolarPromoteOutcome::Rejected;
         }
     };
+    if kp20_polar_enabled() {
+        match &tensor_border {
+            TensorBorder::Bi3(tensor_border_bi3) => {
+                match try_kp20_polar_macro_candidate(polar.central_vertex, tensor_border_bi3) {
+                    Ok(candidate) if candidate.len() == n => {
+                        if let Some(idx) = first_self_intersecting_patch(&candidate) {
+                            trace_polar(
+                                "KP20 self-intersection",
+                                n,
+                                Some(format!("sub-patch {idx}")),
+                            );
+                        } else {
+                            let worst_coplanarity = worst_ring_coplanarity(&candidate);
+                            for (idx, gp) in candidate.into_iter().enumerate() {
+                                sub_patches[idx] = gp;
+                            }
+                            trace_polar(
+                                "KP20 accepted",
+                                n,
+                                Some("committed gated KP20 cap".into()),
+                            );
+                            return PolarPromoteOutcome::Committed { worst_coplanarity };
+                        }
+                    }
+                    Ok(candidate) => {
+                        trace_polar(
+                            "KP20 topology adapter",
+                            n,
+                            Some(format!(
+                                "validated macro cap has {} sub-patches; current fillet ring expects {n}",
+                                candidate.len()
+                            )),
+                        );
+                    }
+                    Err(e) => trace_polar("KP20 rejected", n, Some(e)),
+                }
+            }
+            TensorBorder::Bi5(_) => trace_polar(
+                "KP20 tensor-border",
+                n,
+                Some("expected bi-3 tensor-border".into()),
+            ),
+        }
+    }
     let cap_input = match convert_polar_to_bi6_cap_input(&polar, &tensor_border) {
         Ok(ci) => ci,
         Err(e) => {
@@ -325,6 +370,10 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
         sub_patches[idx] = gp;
     }
     PolarPromoteOutcome::Committed { worst_coplanarity }
+}
+
+fn kp20_polar_enabled() -> bool {
+    std::env::var_os("POPKERN_KP20_POLAR_BI6").is_some()
 }
 
 /// Dispatch wrapper used by `apply_three_quad_decomposition_to_blend`.

@@ -22,6 +22,7 @@ pub fn clamp_bounded_pcurves_post_phase5(brep: &mut popkern_core::topology::BRep
 mod apex_termination_spike;
 pub(crate) mod helpers;
 mod kp13_bi5_promote;
+mod kp20_polar_dispatch;
 mod kp_bi5_macro_apply;
 mod kp_binonic_optimizer;
 mod kp_biquintic_optimizer;
