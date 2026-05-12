@@ -110,10 +110,26 @@ fn valence_topology_convexity_and_blend_type_classifiers_are_named() {
         VertexConvexityClass::Mixed
     );
     assert_eq!(
+        classify_convexity(&[EdgeConvexity::Convex, EdgeConvexity::Convex]),
+        VertexConvexityClass::AllConvex
+    );
+    assert_eq!(
+        classify_convexity(&[EdgeConvexity::Concave, EdgeConvexity::Concave]),
+        VertexConvexityClass::AllConcave
+    );
+    assert_eq!(
         classify_convexity(&[EdgeConvexity::VariableNearVertex]),
         VertexConvexityClass::VariableConvexityStop
     );
 
+    let homogeneous = [
+        edge(BlendKind::FilletConstantRadius, Some(1)),
+        edge(BlendKind::FilletConstantRadius, Some(1)),
+    ];
+    assert_eq!(
+        classify_blend_type_compatibility(&homogeneous, BlendValence::ThroughVertex),
+        BlendTypeCompatibility::Homogeneous
+    );
     let selected = [
         edge(BlendKind::FilletConstantRadius, Some(1)),
         edge(BlendKind::FilletConstantRadius, Some(2)),
@@ -121,6 +137,14 @@ fn valence_topology_convexity_and_blend_type_classifiers_are_named() {
     assert_eq!(
         classify_blend_type_compatibility(&selected, BlendValence::ThroughVertex),
         BlendTypeCompatibility::ParameterVarying
+    );
+    let heterogeneous = [
+        edge(BlendKind::FilletConstantRadius, Some(1)),
+        edge(BlendKind::Chamfer, None),
+    ];
+    assert_eq!(
+        classify_blend_type_compatibility(&heterogeneous, BlendValence::ThroughVertex),
+        BlendTypeCompatibility::Heterogeneous
     );
     let incompatible = [
         edge(BlendKind::G2Blend, Some(1)),
