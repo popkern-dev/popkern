@@ -9,6 +9,7 @@ use super::support_types::{
     CenterLocusFeasibilityFact, SupportFootprintFeasibilityFact, SupportFootprintFeasibilityState,
 };
 use super::types::*;
+use super::validation::integration_validation_state_action;
 use crate::euler::DiagnosticTolerance;
 
 pub fn classify_blend_valence(incident_blend_edges: usize) -> BlendValence {
@@ -425,18 +426,11 @@ pub fn classify_integration_validation(
     passes: Option<bool>,
     tolerance: DiagnosticTolerance,
 ) -> IntegrationValidationFact {
-    let state = match passes {
-        Some(true) => IntegrationValidationState::Ready,
-        Some(false) => IntegrationValidationState::RepairRequired(match kind {
-            IntegrationValidationKind::Continuity => "continuity-repair-or-downgrade",
-            IntegrationValidationKind::MergeReadiness => "merge-refusal-preserves-history",
-            _ => "integration-repair-required",
-        }),
-        None => IntegrationValidationState::UnknownInputFact,
-    };
+    let (state, action) = integration_validation_state_action(kind, passes);
     IntegrationValidationFact {
         kind,
         state,
+        action,
         tolerance,
     }
 }

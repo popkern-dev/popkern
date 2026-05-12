@@ -469,16 +469,6 @@ fn construction_integration_and_lifecycle_classifiers_are_typed() {
         ConstructionRiskAction::RollbackRequired("transactional-construction-rollback")
     );
 
-    let integration = classify_integration_validation(
-        IntegrationValidationKind::Continuity,
-        Some(false),
-        tolerance(),
-    );
-    assert_eq!(
-        integration.state,
-        IntegrationValidationState::RepairRequired("continuity-repair-or-downgrade")
-    );
-
     let lifecycle = classify_lifecycle(false, false, DiagnosticArtifactKind::DiagnosticArtifact);
     assert_eq!(lifecycle.state, LifecycleState::TopologyFingerprintMismatch);
     assert_eq!(

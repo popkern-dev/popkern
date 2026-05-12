@@ -38,6 +38,10 @@ mod topology_neighborhood;
 mod topology_validity;
 #[path = "corner_apex_diagnostics_types.rs"]
 mod types;
+#[path = "corner_apex_diagnostics_validation.rs"]
+mod validation;
+#[path = "corner_apex_diagnostics_validation_types.rs"]
+mod validation_types;
 
 pub use classifiers::{
     classify_apex_sizing, classify_blend_type_compatibility, classify_blend_valence,
@@ -88,6 +92,8 @@ pub use types::{
     TopologicalConfiguration, TrialInteractionFact, TrialInteractionState,
     VertexClassificationFact, VertexConvexityClass,
 };
+#[allow(unused_imports)]
+pub use validation_types::IntegrationValidationAction;
 
 #[cfg(test)]
 #[path = "corner_apex_diagnostics_high_valence_tests.rs"]
@@ -113,3 +119,6 @@ mod three_face_negative_tests;
 #[cfg(test)]
 #[path = "corner_apex_diagnostics_topology_validity_tests.rs"]
 mod topology_validity_tests;
+#[cfg(test)]
+#[path = "corner_apex_diagnostics_validation_tests.rs"]
+mod validation_tests;

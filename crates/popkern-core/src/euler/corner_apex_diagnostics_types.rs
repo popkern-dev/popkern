@@ -8,6 +8,7 @@ use super::score_types::ApexFeasibilityScoreFact;
 use super::selection_types::CornerSelectionIntentFact;
 use super::strategy_types::StrategyMetadataFact;
 use super::support_types::{CenterLocusFeasibilityFact, SupportFootprintFeasibilityFact};
+use super::validation_types::IntegrationValidationAction;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CornerApexDiagnosticRequest {
@@ -470,6 +471,7 @@ pub enum IntegrationValidationState {
 pub struct IntegrationValidationFact {
     pub kind: IntegrationValidationKind,
     pub state: IntegrationValidationState,
+    pub action: IntegrationValidationAction,
     pub tolerance: DiagnosticTolerance,
 }
 
