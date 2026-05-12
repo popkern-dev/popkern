@@ -83,6 +83,10 @@ fn extract_topology(
         );
     }
 
+    let selected_edge_stale = request
+        .selected_edges
+        .iter()
+        .any(|selection| live_edge(selection.edge, brep).is_none());
     let incident_edges = incident_edges_at_vertex(brep, vertex);
     let incident_faces = incident_faces_at_vertex(brep, vertex);
     let incident_blend_edges = request
@@ -92,7 +96,11 @@ fn extract_topology(
         .filter(|edge| incident_edges.contains(edge))
         .count();
     let incident_non_blend_edges = incident_edges.len().saturating_sub(incident_blend_edges);
-    let state = topology_state(brep, vertex, &incident_edges);
+    let state = if selected_edge_stale {
+        CornerTopologyState::StaleHandle
+    } else {
+        topology_state(brep, vertex, &incident_edges)
+    };
     let geometry = geometry_fact(brep, &incident_edges, &incident_faces, tolerance);
     let surface_representation = surface_representation(brep, &incident_faces);
     let surface_compatibility = surface_compatibility(brep, &incident_faces);

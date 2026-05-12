@@ -1,7 +1,8 @@
 use super::*;
 use crate::euler::DiagnosticHandle;
+use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
-use crate::topology::{BRep, EdgeHandle, VertexHandle};
+use crate::topology::{BRep, EdgeHandle, TopologyRole, VertexHandle};
 
 #[test]
 fn live_cube_corner_extracts_topology_geometry_sizing_and_strategy() {
@@ -274,6 +275,123 @@ fn live_open_box_boundary_vertex_reports_cliff_termination() {
     );
 }
 
+#[test]
+fn live_stale_selected_edge_marks_topology_stale() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let stale_edge = incident_edges(&cube, vertex)[0];
+    cube.edges.remove(stale_edge);
+
+    let report = cube.diagnose_corner_apex(request(
+        vertex,
+        &[stale_edge],
+        BlendKind::FilletConstantRadius,
+        10_000_000,
+    ));
+
+    assert_eq!(report.topology.state, CornerTopologyState::StaleHandle);
+    assert_eq!(report.topology.incident_blend_edges, 0);
+}
+
+#[test]
+fn live_nonmanifold_radial_marker_blocks_strategy() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let edges = incident_edges(&cube, vertex);
+    let half_edge = cube.edges[edges[0]].half_edge;
+    cube.nonmanifold_radial.insert(half_edge, half_edge);
+
+    let report = cube.diagnose_corner_apex(request(
+        vertex,
+        &edges,
+        BlendKind::FilletConstantRadius,
+        10_000_000,
+    ));
+
+    assert_eq!(report.topology.state, CornerTopologyState::NonManifold);
+    assert_eq!(
+        report.strategy.readiness,
+        CornerApexStrategyReadiness::Invalid("non-manifold-corner")
+    );
+}
+
+#[test]
+fn live_inner_loop_support_collision_is_reported() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let face = incident_face(&cube, vertex);
+    let outer_loop = cube.faces[face].outer_loop;
+    cube.faces[face].inner_loops.push(outer_loop);
+    let edges = incident_edges(&cube, vertex);
+
+    let report = cube.diagnose_corner_apex(request(
+        vertex,
+        &edges,
+        BlendKind::FilletConstantRadius,
+        10_000_000,
+    ));
+
+    assert_eq!(
+        report.support_adequacy.state,
+        CornerSupportAdequacyState::HoleOrInnerLoopCollision
+    );
+}
+
+#[test]
+fn live_construction_residual_support_is_incompatible() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let face = incident_face(&cube, vertex);
+    cube.faces[face].role = TopologyRole::ConstructionResidual;
+    let edges = incident_edges(&cube, vertex);
+
+    let report = cube.diagnose_corner_apex(request(
+        vertex,
+        &edges,
+        BlendKind::FilletConstantRadius,
+        10_000_000,
+    ));
+
+    assert_eq!(
+        report.topology.surface_compatibility,
+        SurfaceCompatibility::Incompatible("construction-residual-support")
+    );
+}
+
+#[test]
+fn live_near_tangent_face_normals_are_classified() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let edge = incident_edges(&cube, vertex)[0];
+    let faces = edge_faces_for_test(&cube, edge);
+    let normal = match cube.faces[faces[0]]
+        .surface
+        .as_ref()
+        .expect("surface")
+        .geometry
+    {
+        SurfaceGeometry::Plane { normal, .. } => normal,
+        _ => panic!("expected plane"),
+    };
+    if let Some(surface) = &mut cube.faces[faces[1]].surface {
+        if let SurfaceGeometry::Plane { normal: n, .. } = &mut surface.geometry {
+            *n = normal;
+        }
+    }
+
+    let report = cube.diagnose_corner_apex(request(
+        vertex,
+        &[edge],
+        BlendKind::FilletConstantRadius,
+        10_000_000,
+    ));
+
+    assert_eq!(
+        report.classification.convexity,
+        VertexConvexityClass::NearTangent
+    );
+}
+
 fn request(
     vertex: VertexHandle,
     edges: &[EdgeHandle],
@@ -335,4 +453,23 @@ fn loop_vertices(brep: &BRep, loop_: crate::topology::LoopHandle) -> Vec<VertexH
         }
     }
     vertices
+}
+
+fn incident_face(brep: &BRep, vertex: VertexHandle) -> crate::topology::FaceHandle {
+    brep.faces
+        .iter()
+        .find(|(_, face)| loop_vertices(brep, face.outer_loop).contains(&vertex))
+        .map(|(handle, _)| handle)
+        .expect("incident face")
+}
+
+fn edge_faces_for_test(brep: &BRep, edge: EdgeHandle) -> Vec<crate::topology::FaceHandle> {
+    let mut faces = std::collections::BTreeSet::new();
+    let first = brep.edges[edge].half_edge;
+    for half_edge in [first, brep.half_edges[first].twin] {
+        if let Some(loop_) = brep.half_edges.get(half_edge).map(|he| he.loop_) {
+            faces.insert(brep.loops[loop_].face);
+        }
+    }
+    faces.into_iter().collect()
 }

@@ -7,12 +7,12 @@ use crate::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 pub(super) fn incident_edges_at_vertex(brep: &BRep, vertex: VertexHandle) -> Vec<EdgeHandle> {
     let mut edges = std::collections::BTreeSet::new();
     for (half_edge, he) in &brep.half_edges {
-        if he.origin == vertex
+        let touches_vertex = he.origin == vertex
             || brep
                 .half_edges
                 .get(he.twin)
-                .is_some_and(|twin| twin.origin == vertex)
-        {
+                .is_some_and(|twin| twin.origin == vertex);
+        if touches_vertex && brep.edges.contains_key(he.edge) {
             edges.insert(he.edge);
         }
         if brep
