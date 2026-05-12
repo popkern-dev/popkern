@@ -2,6 +2,8 @@
 
 #[path = "corner_apex_diagnostics_classifiers.rs"]
 mod classifiers;
+#[path = "corner_apex_diagnostics_coverage.rs"]
+mod coverage;
 #[path = "corner_apex_diagnostics_lifecycle_types.rs"]
 mod lifecycle_types;
 #[path = "corner_apex_diagnostics_live.rs"]
@@ -52,6 +54,11 @@ pub use classifiers::{
     classify_topological_configuration, classify_trial_interaction, classify_vertex_classification,
 };
 #[allow(unused_imports)]
+pub use coverage::{
+    CornerApexCoverageFacetPayload, CornerApexCoverageRow, CornerApexCoverageValidationError,
+    MutatorReadinessRow, validate_corner_apex_coverage_row, validate_mutator_readiness_row,
+};
+#[allow(unused_imports)]
 pub use lifecycle_types::{DiagnosticArtifactKind, LifecycleAction, LifecycleFact, LifecycleState};
 pub use manifest::{
     CornerApexConditionCategory, CornerApexConditionId, CornerApexFactContract,
@@ -98,6 +105,9 @@ pub use types::{
 #[allow(unused_imports)]
 pub use validation_types::IntegrationValidationAction;
 
+#[cfg(test)]
+#[path = "corner_apex_diagnostics_coverage_tests.rs"]
+mod coverage_tests;
 #[cfg(test)]
 #[path = "corner_apex_diagnostics_high_valence_tests.rs"]
 mod high_valence_tests;
