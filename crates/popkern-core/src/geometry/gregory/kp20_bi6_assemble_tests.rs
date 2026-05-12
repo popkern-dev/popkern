@@ -156,3 +156,25 @@ fn assembler_preserves_planarity_for_planar_inputs() {
         }
     }
 }
+
+#[test]
+fn cap_entry_point_builds_guides_and_assembles_macro_cap() {
+    let input = Kp20Bi6CapInput {
+        star_point: p(0.0, 0.0, 0.0),
+        tensor_border: tensor_border(),
+    };
+
+    let out = assemble_kp20_bi6_cap(&input).unwrap();
+
+    assert_eq!(out.n, 3);
+    assert_eq!(out.macro_patches.len(), 3);
+    assert_eq!(out.patches_bi6.len(), 12);
+    assert_eq!(out.strip_projections.len(), 3);
+    for patch in out.patches_bi6 {
+        for row in patch {
+            for cp in row {
+                assert!(cp.z.abs() < 1e-10);
+            }
+        }
+    }
+}

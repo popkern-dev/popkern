@@ -12,9 +12,20 @@ use super::kp20_bi6_cap::{
     Kp20Bi6Patch, Kp20MacroPatch, Kp20PieceId, initialise_kp20_macro_patches_from_tensor_border,
     kp20_propagate_c2_upper_from_lower,
 };
+use super::kp20_bi6_guide_build::{Kp20GuideBuildInput, build_kp20_guide_ring};
 use super::kp20_bi6_math::kp20_b_coeffs_near_o;
+use super::kp20_bi6_piece_maps::sample_kp20_macro_patch_from_default_maps;
 use super::kp20_bi6_s0_solve::{Kp20S0Projection, Kp20S0SolveError, project_kp20_g2_strip_pair};
 use crate::geometry::Point3;
+
+/// Input for end-to-end KP20 bi-6 cap assembly from tensor-border data.
+#[derive(Debug, Clone)]
+pub struct Kp20Bi6CapInput {
+    /// Extraordinary point used as the guide-ring apex sample.
+    pub star_point: Point3,
+    /// Bi-3 tensor-border around the hole.
+    pub tensor_border: TensorBorderBi3,
+}
 
 /// Input for KP20 macro-cap assembly from guide-sampled patches.
 #[derive(Debug, Clone)]
@@ -48,6 +59,8 @@ pub enum Kp20Bi6AssembleError {
         /// Number of guide-sampled macro-patches supplied.
         sampled_macro_patches: usize,
     },
+    /// Guide-ring construction failed.
+    Guide(String),
     /// Tensor-border split or validation failed.
     TensorBorder(String),
     /// One sector's S0 strip solve failed.
@@ -69,6 +82,7 @@ impl std::fmt::Display for Kp20Bi6AssembleError {
                 f,
                 "KP20 macro-cap valence mismatch: tensor-border has {tensor_border}, sampled patches have {sampled_macro_patches}"
             ),
+            Self::Guide(e) => write!(f, "KP20 guide-ring: {e}"),
             Self::TensorBorder(e) => write!(f, "KP20 tensor-border: {e}"),
             Self::S0 { sector, source } => write!(f, "KP20 sector {sector} S0 solve: {source}"),
         }
@@ -76,6 +90,26 @@ impl std::fmt::Display for Kp20Bi6AssembleError {
 }
 
 impl std::error::Error for Kp20Bi6AssembleError {}
+
+/// Assemble a KP20 2x2 bi-6 macro cap from tensor-border data.
+pub fn assemble_kp20_bi6_cap(
+    input: &Kp20Bi6CapInput,
+) -> Result<Kp20Bi6MacroCapOutput, Kp20Bi6AssembleError> {
+    let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
+        star_point: input.star_point,
+        tensor_border: input.tensor_border.clone(),
+    })
+    .map_err(Kp20Bi6AssembleError::Guide)?;
+    let sampled_macro_patches = guide
+        .sectors
+        .iter()
+        .map(sample_kp20_macro_patch_from_default_maps)
+        .collect();
+    assemble_kp20_bi6_macro_cap(&Kp20Bi6MacroCapInput {
+        tensor_border: input.tensor_border.clone(),
+        sampled_macro_patches,
+    })
+}
 
 /// Assemble a KP20 2x2 bi-6 macro cap from guide-sampled patches.
 pub fn assemble_kp20_bi6_macro_cap(

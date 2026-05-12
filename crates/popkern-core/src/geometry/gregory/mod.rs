@@ -292,7 +292,8 @@ pub use kp15_bi6_rules::{
 };
 pub use kp15_bi6_tensor_border_extract::extract_bi3_tensor_border_from_polar_input;
 pub use kp20_bi6_assemble::{
-    Kp20Bi6AssembleError, Kp20Bi6MacroCapInput, Kp20Bi6MacroCapOutput, assemble_kp20_bi6_macro_cap,
+    Kp20Bi6AssembleError, Kp20Bi6CapInput, Kp20Bi6MacroCapInput, Kp20Bi6MacroCapOutput,
+    assemble_kp20_bi6_cap, assemble_kp20_bi6_macro_cap,
 };
 pub use kp20_bi6_cap::{
     Kp20Bi6Patch, Kp20BoundaryHalf, Kp20MacroPatch, Kp20PieceId, Kp20SplitTensorBorder,
