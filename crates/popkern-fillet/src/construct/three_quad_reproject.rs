@@ -72,23 +72,6 @@ pub(super) fn reproject_loop_pcurves_onto_gregory(
         let he = *he;
         let edge = brep.half_edges[he].edge;
 
-        // Phase 6c-D Stage 4.6: preserve analytic pcurves (Linear /
-        // Elliptical / Sinusoidal) when the cap face was wired by
-        // `sphere_fit_edge_wire`.  Closest-point projection on the
-        // freshly-installed Gregory surface routinely lands FaceEdge
-        // bridge samples on row 0 (FilletEnd boundary) instead of
-        // col 9 — wrong cap-surface UV — and clobbering the wire's
-        // analytic Linear pcurve produces 3-5 cm `dev_cap` residual.
-        if preserve_analytic_pcurves
-            && let Some(existing) = brep.half_edges[he].pcurve.as_ref()
-            && !matches!(
-                existing.geometry,
-                popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(_)
-            )
-        {
-            continue;
-        }
-
         // Stage 6: EdgeTriple path (gated). For each outer-loop edge
         // whose other-side face has an analytic surface (Plane,
         // Cylinder, Sphere, Torus), construct curve_3d + both pcurves
@@ -116,6 +99,23 @@ pub(super) fn reproject_loop_pcurves_onto_gregory(
             brep.half_edges[he].pcurve = Some(cap_pc.into());
             let twin = brep.half_edges[he].twin;
             brep.half_edges[twin].pcurve = Some(other_pc.into());
+            continue;
+        }
+
+        // Phase 6c-D Stage 4.6: preserve analytic pcurves (Linear /
+        // Elliptical / Sinusoidal) when the cap face was wired by
+        // `sphere_fit_edge_wire`.  Closest-point projection on the
+        // freshly-installed Gregory surface routinely lands FaceEdge
+        // bridge samples on row 0 (FilletEnd boundary) instead of
+        // col 9 — wrong cap-surface UV — and clobbering the wire's
+        // analytic Linear pcurve produces 3-5 cm `dev_cap` residual.
+        if preserve_analytic_pcurves
+            && let Some(existing) = brep.half_edges[he].pcurve.as_ref()
+            && !matches!(
+                existing.geometry,
+                popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(_)
+            )
+        {
             continue;
         }
 

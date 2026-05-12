@@ -7,6 +7,9 @@ impl AdjacentLoopRewriteKind {
             AdjacentLoopRewriteKind::BoundaryPreservingAdjacentLoopRepairRequired => {
                 "BoundaryBearingAdjacentLoopRepairRequired"
             }
+            AdjacentLoopRewriteKind::ConstructionResidualAdjacentLoopRepairRequired => {
+                "ConstructionResidualAdjacentLoopRepairRequired"
+            }
             AdjacentLoopRewriteKind::AttachTwinToLaterStripLoop => "AttachTwinToLaterStripLoop",
         }
     }
@@ -21,6 +24,11 @@ impl AdjacentLoopRewriteKind {
                 "live adjacent loop has boundary sides; whole-loop twin reversal would use null \
                  twins, so the adjacent loop must receive a same-direction boundary replacement \
                  span before the cap steals the live half-edge"
+            }
+            AdjacentLoopRewriteKind::ConstructionResidualAdjacentLoopRepairRequired => {
+                "adjacent loop belongs to construction-residual retirement topology; it must \
+                 receive a same-direction boundary replacement span before the cap steals the \
+                 live half-edge"
             }
             AdjacentLoopRewriteKind::AttachTwinToLaterStripLoop => {
                 "new FilletEnd twin is not yet assigned to a live adjacent loop; caller must \
@@ -110,6 +118,161 @@ pub(super) fn author_boundary_preserving_adjacent_loop_repair(
         replacement,
         &repaired_cycle,
     )
+}
+
+pub(super) fn clone_residual_owned_sides_for_adjacent_rewrite(
+    brep: &mut BRep,
+    cap_loop: LoopHandle,
+    target_loop: LoopHandle,
+    reauthored_cycle: &[HalfEdgeHandle],
+) -> Result<Vec<HalfEdgeHandle>, ApexBuildError> {
+    let mut protected_cycle = Vec::with_capacity(reauthored_cycle.len());
+    for (side_index, source) in reauthored_cycle.iter().copied().enumerate() {
+        if !half_edge_belongs_to_third_live_loop(brep, source, cap_loop, target_loop) {
+            protected_cycle.push(source);
+            continue;
+        }
+        let next = reauthored_cycle[(side_index + 1) % reauthored_cycle.len()];
+        protected_cycle.push(clone_same_direction_boundary_side(
+            brep, source, next, side_index,
+        )?);
+    }
+    Ok(protected_cycle)
+}
+
+pub(super) fn protect_source_loops_before_new_loop_claim(
+    brep: &mut BRep,
+    claiming_cycle: &[HalfEdgeHandle],
+) -> Result<(), ApexBuildError> {
+    let mut claims_by_loop: std::collections::BTreeMap<LoopHandle, Vec<HalfEdgeHandle>> =
+        std::collections::BTreeMap::new();
+    for half_edge in claiming_cycle {
+        let Some(loop_handle) = brep.half_edges.get(*half_edge).map(|data| data.loop_) else {
+            continue;
+        };
+        if loop_handle != LoopHandle::default() && brep.loops.contains_key(loop_handle) {
+            claims_by_loop
+                .entry(loop_handle)
+                .or_default()
+                .push(*half_edge);
+        }
+    }
+    for (loop_handle, claimed_sides) in claims_by_loop {
+        let face = brep
+            .loops
+            .get(loop_handle)
+            .map(|loop_data| loop_data.face)
+            .ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition cannot protect source loop {loop_handle:?}: \
+                     loop disappeared before strip claim"
+                ),
+            })?;
+        let mut repaired_cycle = collect_loop_half_edges(brep, loop_handle)?;
+        for claimed_side in claimed_sides {
+            let Some(side_index) = repaired_cycle
+                .iter()
+                .position(|half_edge| *half_edge == claimed_side)
+            else {
+                continue;
+            };
+            let next = repaired_cycle[(side_index + 1) % repaired_cycle.len()];
+            repaired_cycle[side_index] =
+                clone_same_direction_boundary_side(brep, claimed_side, next, side_index)?;
+        }
+        validate_half_edge_cycle(
+            brep,
+            &repaired_cycle,
+            "support source-loop protection before strip claim",
+            face,
+        )?;
+        wire_existing_loop(brep, loop_handle, face, &repaired_cycle)?;
+        if brep
+            .faces
+            .get(face)
+            .is_some_and(|face_data| face_data.role == TopologyRole::ConstructionResidual)
+        {
+            for half_edge in &repaired_cycle {
+                if let Some(edge) = brep.half_edges.get(*half_edge).map(|data| data.edge)
+                    && let Some(edge_data) = brep.edges.get_mut(edge)
+                {
+                    edge_data.role = TopologyRole::ConstructionResidual;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn clone_same_direction_boundary_side(
+    brep: &mut BRep,
+    source: HalfEdgeHandle,
+    next: HalfEdgeHandle,
+    side_index: usize,
+) -> Result<HalfEdgeHandle, ApexBuildError> {
+    let source_data =
+        brep.half_edges
+            .get(source)
+            .cloned()
+            .ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition cannot clone residual-owned adjacent rewrite \
+                 side[{side_index}]: stale source {source:?}"
+                ),
+            })?;
+    let expected_end = brep
+        .half_edges
+        .get(next)
+        .map(|half_edge| half_edge.origin)
+        .ok_or_else(|| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition cannot clone residual-owned adjacent rewrite \
+                 side[{side_index}]: stale successor {next:?}"
+            ),
+        })?;
+    let curve = brep
+        .edges
+        .get(source_data.edge)
+        .and_then(|edge| edge.curve.clone())
+        .or_else(|| {
+            let start = brep.vertices.get(source_data.origin)?.position;
+            let end = brep.vertices.get(expected_end)?.position;
+            CurveOnEdge::line_segment(start, end, brep.tolerance.linear())
+        })
+        .ok_or_else(|| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition cannot clone residual-owned adjacent rewrite \
+                 side[{side_index}] {source:?}: source edge has no curve and endpoints cannot \
+                 author a bounded line"
+            ),
+        })?;
+    let (edge, replacement) = insert_boundary_half_edge(brep, source_data.origin);
+    brep.edges[edge].curve = Some(curve);
+    brep.edges[edge].role = TopologyRole::Production;
+    if support_split_half_edge_end_vertex(brep, replacement) != Some(expected_end) {
+        return Err(ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition cloned residual-owned adjacent rewrite \
+                 side[{side_index}] {replacement:?} does not end at {expected_end:?}"
+            ),
+        });
+    }
+    Ok(replacement)
+}
+
+fn half_edge_belongs_to_third_live_loop(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    cap_loop: LoopHandle,
+    target_loop: LoopHandle,
+) -> bool {
+    let Some(half_edge_data) = brep.half_edges.get(half_edge) else {
+        return false;
+    };
+    half_edge_data.loop_ != LoopHandle::default()
+        && half_edge_data.loop_ != cap_loop
+        && half_edge_data.loop_ != target_loop
+        && brep.loops.contains_key(half_edge_data.loop_)
 }
 
 fn validate_boundary_preserving_adjacent_loop_repair(

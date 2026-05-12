@@ -33,11 +33,7 @@ impl BRep {
         let bound = self.half_edges.len();
 
         for (he_handle, he_data) in &self.half_edges {
-            if self
-                .edges
-                .get(he_data.edge)
-                .is_some_and(|edge| edge.role == TopologyRole::ConstructionResidual)
-            {
+            if self.half_edge_is_construction_residual_for_cycle_validation(he_data) {
                 continue;
             }
             let mut cursor = he_data.next;
@@ -53,11 +49,7 @@ impl BRep {
                 }
                 match self.half_edges.get(cursor) {
                     Some(next_he) => {
-                        if self
-                            .edges
-                            .get(next_he.edge)
-                            .is_some_and(|edge| edge.role == TopologyRole::ConstructionResidual)
-                        {
+                        if self.half_edge_is_construction_residual_for_cycle_validation(next_he) {
                             return Err(ValidationError::BrokenCycle {
                                 half_edge: he_handle,
                                 loop_: he_data.loop_,
@@ -75,6 +67,20 @@ impl BRep {
             }
         }
         Ok(())
+    }
+
+    fn half_edge_is_construction_residual_for_cycle_validation(
+        &self,
+        half_edge: &crate::topology::HalfEdge,
+    ) -> bool {
+        self.edges
+            .get(half_edge.edge)
+            .is_some_and(|edge| edge.role == TopologyRole::ConstructionResidual)
+            || self
+                .loops
+                .get(half_edge.loop_)
+                .and_then(|loop_data| self.faces.get(loop_data.face))
+                .is_some_and(|face| face.role == TopologyRole::ConstructionResidual)
     }
 
     /// Check 4: For every vertex with a valid outgoing half-edge, that half-edge's

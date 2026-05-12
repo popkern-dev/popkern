@@ -25,6 +25,7 @@ use popkern_core::geometry::{CurveEval, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
+use super::cap_kind::CapKind;
 use super::constructive_geometry::cylinder_arc_through_edge_endpoints;
 use super::error::ApexBuildError;
 use super::gregory_cap_boundary::{
@@ -108,43 +109,19 @@ pub(super) fn assemble_gregory_cap_surface(
 
     validate_planned_gregory_loop_roles(plan, outer_indices, n)?;
 
-    // Build boundary segments from physical sector-owned BRep edges, not from
-    // planner curve copies. The cap half-edge determines orientation.
-    let mut segments: Vec<BoundarySegment> = Vec::with_capacity(2 * n);
-    for sector_index in 0..n {
-        let sector = sectors
-            .iter()
-            .find(|sector| sector.sector_index == sector_index)
-            .ok_or_else(|| ApexBuildError::PlanMismatch {
-                reason: format!("Gregory sectors missing sector index {sector_index}"),
-            })?;
-        let planned_fillet_curve = plan
-            .target_topology
-            .apex_edges
-            .get(2 * sector_index)
-            .map(|edge| &edge.curve)
-            .ok_or_else(|| ApexBuildError::PlanMismatch {
-                reason: format!("Gregory sector {sector_index} missing planned FilletEnd curve"),
-            })?;
-        segments.push(BoundarySegment::FilletEnd {
-            fillet_index: sector.fillet_index,
-            curve: oriented_fillet_end_boundary_curve(
-                brep,
-                cap_face,
-                sector.fillet_end_edge,
-                sector.fillet_index,
-                planned_fillet_curve,
-                fillet_surfaces,
-            )?,
-        });
-        let face = find_face_across_edge(brep, sector.face_edge, cap_face).ok_or_else(|| {
-            missing_adjacent_face_error(brep, cap_face, sector.face_edge, "FaceEdge", sector_index)
-        })?;
-        segments.push(BoundarySegment::FaceEdge {
-            face,
-            curve: oriented_cap_edge_curve(brep, cap_face, sector.face_edge, "FaceEdge")?,
-        });
-    }
+    // The K-P cap builder consumes sectors in planner order: FilletEnd[k]
+    // followed by the support FaceEdge[k]. Physical BRep loop traversal can
+    // rotate after repeated-apex topology normalization, so boundary assembly
+    // stays tied to the sector map and validates/repairs individual curve
+    // orientation instead of reordering sectors.
+    let segments = gregory_boundary_segments_from_sector_order(
+        brep,
+        cap_face,
+        plan,
+        sectors,
+        fillet_surfaces,
+        n,
+    )?;
     trace_gregory_boundary_segments(&segments);
 
     let mut boundary = BlendBoundary {
@@ -157,18 +134,22 @@ pub(super) fn assemble_gregory_cap_surface(
         hex_boundary_cps_deg9: Vec::new(),
         fillet_end_arcs: Vec::new(),
     };
-    match crate::blend::sphere_fit_boundary::apply_sphere_fit_substitution(
-        &mut boundary,
-        fillet_surfaces,
-        brep,
-        tolerance,
-    ) {
-        Ok(()) => {
-            boundary.sphere_fit_substituted = true;
-        }
-        Err(reason) => {
-            if crate::a2_trace::enabled() {
-                eprintln!("[a2-trace] Gregory sphere-fit boundary substitution skipped: {reason}");
+    if !apply_planned_gregory_boundary(&mut boundary, plan, n)? {
+        match crate::blend::sphere_fit_boundary::apply_sphere_fit_substitution(
+            &mut boundary,
+            fillet_surfaces,
+            brep,
+            tolerance,
+        ) {
+            Ok(()) => {
+                boundary.sphere_fit_substituted = true;
+            }
+            Err(reason) => {
+                if crate::a2_trace::enabled() {
+                    eprintln!(
+                        "[a2-trace] Gregory sphere-fit boundary substitution skipped: {reason}"
+                    );
+                }
             }
         }
     }
@@ -215,6 +196,154 @@ pub(super) fn assemble_gregory_cap_surface(
             reason: format!("Gregory three-quad decomposition failed: {s}"),
         }),
     }
+}
+
+fn apply_planned_gregory_boundary(
+    boundary: &mut BlendBoundary,
+    plan: &ApexPlan,
+    n: usize,
+) -> Result<bool, ApexBuildError> {
+    let CapKind::Gregory {
+        per_fillet_terminations,
+        per_fillet_caps,
+    } = &plan.cap_kind
+    else {
+        return Ok(false);
+    };
+    if per_fillet_terminations.len() != n || per_fillet_caps.len() != n {
+        return Err(ApexBuildError::PlanMismatch {
+            reason: format!(
+                "Gregory cap boundary plan expected {n} terminations and cap spheres, got {}/{}",
+                per_fillet_terminations.len(),
+                per_fillet_caps.len()
+            ),
+        });
+    }
+    if boundary.segments.len() != 2 * n {
+        return Err(ApexBuildError::PlanMismatch {
+            reason: format!(
+                "Gregory cap boundary has {} segments for {n} fillets",
+                boundary.segments.len()
+            ),
+        });
+    }
+
+    for k in 0..n {
+        let [start, end] = per_fillet_terminations[k];
+        let fillet_segment =
+            boundary
+                .segments
+                .get_mut(2 * k)
+                .ok_or_else(|| ApexBuildError::PlanMismatch {
+                    reason: format!("Gregory boundary missing FilletEnd segment {k}"),
+                })?;
+        let BoundarySegment::FilletEnd { curve, .. } = fillet_segment else {
+            return Err(ApexBuildError::PlanMismatch {
+                reason: format!("Gregory boundary segment {} is not a FilletEnd", 2 * k),
+            });
+        };
+        *curve = align_planned_curve_to_endpoints(curve, start, end, 1.0e-6)
+            .unwrap_or_else(|| line_curve(start, end));
+
+        let next = (k + 1) % n;
+        let bridge_start = end;
+        let bridge_end = per_fillet_terminations[next][0];
+        let face_segment =
+            boundary
+                .segments
+                .get_mut(2 * k + 1)
+                .ok_or_else(|| ApexBuildError::PlanMismatch {
+                    reason: format!("Gregory boundary missing FaceEdge segment {k}"),
+                })?;
+        let BoundarySegment::FaceEdge { curve, .. } = face_segment else {
+            return Err(ApexBuildError::PlanMismatch {
+                reason: format!("Gregory boundary segment {} is not a FaceEdge", 2 * k + 1),
+            });
+        };
+        *curve = line_curve(bridge_start, bridge_end);
+    }
+    boundary.per_fillet_caps = per_fillet_caps.clone();
+    boundary.sphere_fit_substituted = true;
+    Ok(true)
+}
+
+fn gregory_boundary_segments_from_sector_order(
+    brep: &BRep,
+    cap_face: FaceHandle,
+    plan: &ApexPlan,
+    sectors: &[GregoryCapSector],
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+    n: usize,
+) -> Result<Vec<BoundarySegment>, ApexBuildError> {
+    let mut segments = Vec::with_capacity(2 * n);
+    for sector_index in 0..n {
+        let sector = sectors
+            .iter()
+            .find(|sector| sector.sector_index == sector_index)
+            .ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: format!("Gregory sectors missing sector index {sector_index}"),
+            })?;
+        segments.push(gregory_fillet_segment(
+            brep,
+            cap_face,
+            plan,
+            sector,
+            fillet_surfaces,
+        )?);
+        segments.push(gregory_face_segment(brep, cap_face, sector)?);
+    }
+    Ok(segments)
+}
+
+fn gregory_fillet_segment(
+    brep: &BRep,
+    cap_face: FaceHandle,
+    plan: &ApexPlan,
+    sector: &GregoryCapSector,
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+) -> Result<BoundarySegment, ApexBuildError> {
+    let planned_fillet_curve = plan
+        .target_topology
+        .apex_edges
+        .get(2 * sector.sector_index)
+        .map(|edge| &edge.curve)
+        .ok_or_else(|| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "Gregory sector {} missing planned FilletEnd curve",
+                sector.sector_index
+            ),
+        })?;
+    Ok(BoundarySegment::FilletEnd {
+        fillet_index: sector.fillet_index,
+        curve: oriented_fillet_end_boundary_curve(
+            brep,
+            cap_face,
+            sector.fillet_end_edge,
+            sector.fillet_index,
+            planned_fillet_curve,
+            fillet_surfaces,
+        )?,
+    })
+}
+
+fn gregory_face_segment(
+    brep: &BRep,
+    cap_face: FaceHandle,
+    sector: &GregoryCapSector,
+) -> Result<BoundarySegment, ApexBuildError> {
+    let face = find_face_across_edge(brep, sector.face_edge, cap_face).ok_or_else(|| {
+        missing_adjacent_face_error(
+            brep,
+            cap_face,
+            sector.face_edge,
+            "FaceEdge",
+            sector.sector_index,
+        )
+    })?;
+    Ok(BoundarySegment::FaceEdge {
+        face,
+        curve: oriented_cap_edge_curve(brep, cap_face, sector.face_edge, "FaceEdge")?,
+    })
 }
 
 fn oriented_fillet_end_boundary_curve(
@@ -336,6 +465,15 @@ fn reverse_nurbs_curve(
         knots,
         control_points,
         weights,
+    }
+}
+
+fn line_curve(start: Point3, end: Point3) -> popkern_core::geometry::NurbsCurve {
+    popkern_core::geometry::NurbsCurve {
+        degree: 1,
+        control_points: vec![start, end],
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        weights: vec![1.0, 1.0],
     }
 }
 

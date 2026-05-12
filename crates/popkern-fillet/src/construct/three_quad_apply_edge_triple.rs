@@ -49,8 +49,11 @@ pub(super) fn try_build_edge_triple_for_seam(
 ) -> Option<(CurveGeometry, f64, f64, NurbsCurve, NurbsCurve)> {
     use popkern_core::geometry::curve::CurveEval;
 
-    // Cap surface must be a Gregory.
-    if !matches!(cap_surf, SurfaceGeometry::Gregory(_)) {
+    // Cap surface must be a Gregory boundary or an analytic sphere cap.
+    if !matches!(
+        cap_surf,
+        SurfaceGeometry::Gregory(_) | SurfaceGeometry::Sphere { .. }
+    ) {
         return None;
     }
 
@@ -79,13 +82,22 @@ pub(super) fn try_build_edge_triple_for_seam(
     }
 
     // Identify which Gregory UV-box boundary this edge sits on by
-    // projecting the edge's 3-D midpoint into Gregory UV.
+    // projecting the edge's 3-D midpoint into Gregory UV. Analytic
+    // sphere caps do not need a boundary hint; the analytic
+    // surface-pair dispatcher constructs the cap pcurve directly.
     let edge = brep.half_edges.get(he)?.edge;
     let coe = brep.edges.get(edge)?.curve.as_ref()?;
-    let mid_t = (coe.t_start + coe.t_end) * 0.5;
-    let p_mid = coe.geometry.point_at(mid_t);
-    let (u_mid, v_mid) = project_point_to_uv(cap_surf, &p_mid)?;
-    let boundary_side = identify_uv_boundary(u_mid, v_mid)?;
+    let hint = if matches!(cap_surf, SurfaceGeometry::Gregory(_)) {
+        let mid_t = (coe.t_start + coe.t_end) * 0.5;
+        let p_mid = coe.geometry.point_at(mid_t);
+        let (u_mid, v_mid) = project_point_to_uv(cap_surf, &p_mid)?;
+        Some(EdgeHint::SurfaceBoundary {
+            side: SurfaceSide::A,
+            boundary: identify_uv_boundary(u_mid, v_mid)?,
+        })
+    } else {
+        None
+    };
     let _ = he; // reserved for future tracing
 
     // Build anchors from the BRep vertices at the half-edge endpoints.
@@ -98,17 +110,12 @@ pub(super) fn try_build_edge_triple_for_seam(
         start: v_origin,
         end: v_dest,
     };
-    let hint = EdgeHint::SurfaceBoundary {
-        side: SurfaceSide::A, // cap is A
-        boundary: boundary_side,
-    };
-
     let opts = EdgeTripleOptions::default();
     let triple = compute_edge_geometry(
         cap_surf,
         &other_surf,
         anchors,
-        Some(hint),
+        hint,
         &Tolerance::default(),
         &opts,
     )
@@ -154,9 +161,5 @@ fn identify_uv_boundary(u: f64, v: f64) -> Option<BoundarySide> {
 
 /// Extract the underlying NurbsCurve from a `Pcurve` wrapper.
 fn pcurve_to_nurbs(pc: &popkern_core::geometry::pcurve::Pcurve) -> Option<NurbsCurve> {
-    use popkern_core::geometry::pcurve::PcurveGeometry;
-    match &pc.geometry {
-        PcurveGeometry::Nurbs(nc) => Some(nc.clone()),
-        _ => None,
-    }
+    Some(pc.to_nurbs())
 }

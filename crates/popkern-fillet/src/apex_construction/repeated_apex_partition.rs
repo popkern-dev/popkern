@@ -111,6 +111,7 @@ use partition_cap_boundary_cycles::{
     intended_cap_boundary_cycle, reversed_twin_cycle, validate_half_edge_cycle,
 };
 use partition_cap_boundary_rewrite::plan_cap_boundary_rewrite_for_cylinder_trim;
+use partition_cap_boundary_rewrite::protect_source_loops_before_partition_loop_claim;
 use partition_cylinder_anchors::{
     coincident_vertex_on_face_outer_loop, containing_outer_loop_edge_by_curve,
     generator_anchor_on_cylinder_loop, materialize_support_boundary_generator_anchor,
@@ -163,7 +164,8 @@ use partition_rebuild_diagnostics::{
     retired_trim_runs_by_adjacent_face,
 };
 use partition_residuals::{
-    demote_retired_apex_residual_faces, residual_strip_loop_with_duplicated_seam,
+    demote_retired_apex_residual_faces, mark_loop_edges_construction_residual,
+    plan_retired_base_residual_loop, residual_strip_loop_with_duplicated_seam,
     validate_existing_target_cylinder_strip,
 };
 use partition_shared_fillet_end_trim::materialized_shared_fillet_end_cylinder_half_edge;

@@ -20,6 +20,8 @@
 mod three_quad_face_matching;
 #[path = "three_quad_kp_promote.rs"]
 mod three_quad_kp_promote;
+#[path = "three_quad_planned_seam_authoring.rs"]
+mod three_quad_planned_seam_authoring;
 #[path = "three_quad_reproject.rs"]
 mod three_quad_reproject;
 #[path = "three_quad_seam_pcurves.rs"]
@@ -33,7 +35,7 @@ use popkern_core::geometry::gregory::{
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 use three_quad_face_matching::{
-    boundary_segment_to_sub_face_permutation, pick_per_fillet_cap_for_face,
+    boundary_segment_to_sub_face_permutation, primary_cylinder_identity_of_face,
 };
 use three_quad_kp_promote::promote_decomp_to_kp_binonic;
 pub(crate) use three_quad_kp_promote::{extract_direct_boundary_input, worst_ring_coplanarity};
@@ -55,6 +57,7 @@ use crate::vertex_classifier::VertexBlendClassification;
 #[derive(Debug)]
 pub(crate) enum ThreeQuadFailure {
     /// The Gregory sub-patches self-intersect; remediate to polar.
+    #[allow(dead_code)]
     Overlap,
     /// Anything else — boundary shape, decomposition rejection,
     /// poke topology failure. Error string included for logging.
@@ -131,7 +134,13 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         } else {
             Some(&boundary.hex_boundary_cps_deg9)
         };
-    let is_4n_path = super::promotion_ladder::run_promotion_ladder(
+    let sphere_cap_available_before_promotion = boundary.sphere_fit_substituted
+        && !boundary.per_fillet_caps.is_empty()
+        && boundary.per_fillet_caps.len() == decomp.sub_patches.len();
+    let unpromoted_sphere_cap_decomp =
+        sphere_cap_available_before_promotion.then(|| decomp.clone());
+
+    let mut is_4n_path = super::promotion_ladder::run_promotion_ladder(
         &mut decomp,
         fillet_surfaces,
         &mut relaxed_coplanarity,
@@ -144,15 +153,59 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         |patches, fillets| promote_decomp_to_kp_binonic(patches, fillets, hex_boundary_data),
     );
 
+    let sphere_cap_available = boundary.sphere_fit_substituted
+        && !boundary.per_fillet_caps.is_empty()
+        && boundary.per_fillet_caps.len() == decomp.sub_patches.len();
+    let sphere_cap_boundary_rejection = if sphere_cap_available {
+        sphere_cap_boundary_degeneracy_in_boundary_order(brep, boundary, fillet_surfaces)
+    } else {
+        Some("per-fillet sphere caps unavailable for this decomposition".to_string())
+    };
+    let sphere_cap_boundary_preflight = sphere_cap_boundary_rejection.is_none();
+
     // Self-intersection screen. N ≥ 5 bypass: bi-5 parallelogram
     // folds on narrow 72°/60° sectors by design (K-P 2015 motivates
     // the polar construction precisely for this regime); downstream
-    // polar / KP13 bi-5 paths use only shared-edge CPs.
+    // polar / KP13 bi-5 paths use only shared-edge CPs. The same
+    // containment applies when the planned sphere-fit boundary carries
+    // explicit per-fillet analytic sphere caps: the Gregory surface is
+    // only an intermediate used to drive the topological sub-face split
+    // and will not be committed.
     const SELF_INT_TOL: f64 = 1e-6;
+    let mut intermediate_self_intersects = false;
     if decomp.sub_patches.len() < 5 {
-        for patch in &decomp.sub_patches {
-            if patch.self_intersects_with_tolerance(SELF_INT_TOL) {
-                return Err(ThreeQuadFailure::Overlap);
+        let promoted_self_intersects = decomp_self_intersects(&decomp, SELF_INT_TOL);
+        if promoted_self_intersects {
+            intermediate_self_intersects = true;
+            if !sphere_cap_boundary_preflight {
+                match unpromoted_sphere_cap_decomp.clone() {
+                    Some(unpromoted) if !decomp_self_intersects(&unpromoted, SELF_INT_TOL) => {
+                        decomp = unpromoted;
+                        is_4n_path = false;
+                    }
+                    Some(_) => {
+                        return Err(ThreeQuadFailure::Other(format!(
+                            "cap surface candidate planner rejected all candidates: \
+                             sphere caps rejected ({sphere_reason}); promoted constrained patch \
+                             rejected (self-intersection); unpromoted constrained patch rejected \
+                             (self-intersection)",
+                            sphere_reason = sphere_cap_boundary_rejection
+                                .as_deref()
+                                .unwrap_or("available")
+                        )));
+                    }
+                    None => {
+                        return Err(ThreeQuadFailure::Other(format!(
+                            "cap surface candidate planner rejected all candidates: \
+                             sphere caps rejected ({sphere_reason}); promoted constrained patch \
+                             rejected (self-intersection); no unpromoted constrained candidate \
+                             was available",
+                            sphere_reason = sphere_cap_boundary_rejection
+                                .as_deref()
+                                .unwrap_or("available")
+                        )));
+                    }
+                }
             }
         }
     }
@@ -244,21 +297,6 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
 
     let support_frames_enabled = hex_boundary_data.is_some();
 
-    // Phase 6c-A continuation §4.2 option (c) — per-fillet
-    // sphere-cap rung. When the boundary was sphere-fit-substituted
-    // and the env var is set, *replace* each sub-face's Gregory
-    // surface with the per-fillet `Sphere(cap_centre_k, r_k)`.
-    // This is perfect cap-cylinder G1 by construction (each sphere
-    // is tangent to its own cylinder along the cap-tangent circle),
-    // sidestepping the L-M solver stall on variable-radius corners.
-    // Trade-off: caps meet adjacent caps at G0 only along the
-    // inner spokes — acceptable for variable-radius corners and
-    // matches commercial-style sub-cap dissection.
-    let sphere_cap_rung = boundary.sphere_fit_substituted
-        && !boundary.per_fillet_caps.is_empty()
-        && boundary.per_fillet_caps.len() == sub_faces.len()
-        && std::env::var("POPKERN_SPHERE_CAP_RUNG").is_ok_and(|v| v == "1");
-
     // Always compute the per-fillet sphere `(centre, radius)` for each
     // sub-face when sphere-fit substitution succeeded — independent of
     // whether the sphere-cap rung will be applied.  Stashed on
@@ -270,24 +308,42 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         && !boundary.per_fillet_caps.is_empty()
         && boundary.per_fillet_caps.len() == sub_faces.len()
     {
-        sub_faces
-            .iter()
-            .enumerate()
-            .map(|(k, &fh)| {
-                let chosen = pick_per_fillet_cap_for_face(
-                    brep,
-                    fh,
-                    &boundary.per_fillet_caps,
-                    boundary.per_fillet_caps[k],
-                );
-                Some(chosen)
-            })
-            .collect()
+        let mut matched = cap_spheres_for_subfaces(brep, &sub_faces, &boundary.per_fillet_caps);
+        for (k, entry) in matched.iter_mut().enumerate() {
+            if entry.is_none() {
+                *entry = Some(boundary.per_fillet_caps[k]);
+            }
+        }
+        matched
     } else {
         vec![None; sub_faces.len()]
     };
 
+    // Phase 6c-A continuation §4.2 option (c) — per-fillet
+    // sphere-cap rung. When the boundary was sphere-fit-substituted,
+    // *replace* each sub-face's Gregory surface with the per-fillet
+    // `Sphere(cap_centre_k, r_k)` only if every required planned seam
+    // can exist as a non-degenerate curve on that sphere and its
+    // neighbour surface. The validated seam authoring primitive below
+    // remains the commit gate; this preflight prevents a known invalid
+    // topology/surface pairing from reaching mutation at all.
+    let sphere_cap_requested = boundary.sphere_fit_substituted
+        && !boundary.per_fillet_caps.is_empty()
+        && boundary.per_fillet_caps.len() == sub_faces.len()
+        && (intermediate_self_intersects
+            || severe_radius_spread(&boundary.per_fillet_caps)
+            || std::env::var("POPKERN_SPHERE_CAP_RUNG").is_ok_and(|v| v == "1"));
+    let sphere_cap_rung = sphere_cap_requested
+        && sphere_cap_boundary_preflight
+        && sphere_cap_boundary_seams_are_nondegenerate(
+            brep,
+            boundary,
+            fillet_surfaces,
+            &cap_sphere_per_subface,
+        );
+
     let mut patches = Vec::with_capacity(decomp.sub_patches.len());
+    let brep_before_surface_assignment = brep.clone();
     for (k, (sub_face, sub_patch)) in sub_faces.iter().zip(decomp.sub_patches.iter()).enumerate() {
         // CAPTURE THE OLD SURFACE BEFORE REPLACING. Internal cap-to-
         // cap edges (created by `mev`/`mef` during the poke) have
@@ -301,16 +357,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             .and_then(|f| f.surface.as_ref())
             .map(|sof| sof.geometry.clone());
         let new_geometry = if sphere_cap_rung {
-            // Match by primary-cylinder axis identity (the per-fillet
-            // sphere whose centre lies on this sub-face's primary
-            // cylinder axis). Disambiguates uniform-radius corners
-            // where matching by radius alone is ambiguous.
-            let chosen = pick_per_fillet_cap_for_face(
-                brep,
-                *sub_face,
-                &boundary.per_fillet_caps,
-                boundary.per_fillet_caps[k],
-            );
+            let chosen = cap_sphere_per_subface[k].unwrap_or(boundary.per_fillet_caps[k]);
             SurfaceGeometry::Sphere {
                 center: chosen.0,
                 radius: chosen.1,
@@ -322,6 +369,19 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             geometry: new_geometry,
             orientation: true,
         });
+        if sphere_cap_rung
+            && let Err(err) =
+                three_quad_planned_seam_authoring::author_planned_sphere_cap_boundary_seams(
+                    brep,
+                    *sub_face,
+                    boundary,
+                    fillet_surfaces,
+                    k,
+                )
+        {
+            *brep = brep_before_surface_assignment.clone();
+            return Err(ThreeQuadFailure::Other(err));
+        }
         // Re-fit each boundary pcurve into the new surface's UV space.
         // Uses the edge's 3-D curve when present; falls back to
         // `old_surface(old_pcurve)` when not (internal cap-to-cap
@@ -332,22 +392,30 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             old_surface.as_ref(),
             boundary.sphere_fit_substituted,
         );
-        if support_frames_enabled {
+        if support_frames_enabled && !sphere_cap_rung {
             author_boundary_owned_seam_pcurves(brep, *sub_face, boundary, fillet_surfaces, k);
         }
-        if support_frames_enabled {
+        if support_frames_enabled && !sphere_cap_rung {
             super::boundary_support_frames::apply_face_owned_support_frames(brep, *sub_face);
             let Some(SurfaceOnFace {
                 geometry: SurfaceGeometry::Gregory(patch),
                 ..
             }) = brep.faces.get(*sub_face).and_then(|f| f.surface.as_ref())
             else {
+                *brep = brep_before_surface_assignment.clone();
                 return Err(ThreeQuadFailure::Other(
                     "support-frame rewrite lost Gregory cap surface".to_string(),
                 ));
             };
             if patch.self_intersects_with_tolerance(SELF_INT_TOL) {
-                return Err(ThreeQuadFailure::Overlap);
+                *brep = brep_before_surface_assignment.clone();
+                return Err(ThreeQuadFailure::Other(format!(
+                    "cap surface candidate planner rejected constrained patch after \
+                     support-frame rewrite (self-intersection); sphere caps rejected ({})",
+                    sphere_cap_boundary_rejection
+                        .as_deref()
+                        .unwrap_or("not selected for this candidate")
+                )));
             }
         }
         if crate::a2_trace::enabled() {
@@ -370,6 +438,210 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         trace_cap_subface_neighbors(brep, "final", &sub_faces);
     }
     Ok(patches)
+}
+
+fn severe_radius_spread(per_fillet_caps: &[(Point3, f64)]) -> bool {
+    let mut min_radius = f64::INFINITY;
+    let mut max_radius = 0.0_f64;
+    for &(_, radius) in per_fillet_caps {
+        if radius <= 0.0 {
+            return false;
+        }
+        min_radius = min_radius.min(radius);
+        max_radius = max_radius.max(radius);
+    }
+    min_radius.is_finite() && max_radius / min_radius >= 4.0
+}
+
+fn decomp_self_intersects(
+    decomp: &crate::blend::gregory_three_quad::NQuadDecomposition,
+    tolerance: f64,
+) -> bool {
+    decomp
+        .sub_patches
+        .iter()
+        .any(|patch| patch.self_intersects_with_tolerance(tolerance))
+}
+
+fn cap_spheres_for_subfaces(
+    brep: &BRep,
+    sub_faces: &[FaceHandle],
+    per_fillet_caps: &[(Point3, f64)],
+) -> Vec<Option<(Point3, f64)>> {
+    let mut used = vec![false; per_fillet_caps.len()];
+    let mut assigned = vec![None; sub_faces.len()];
+
+    for (face_index, &face) in sub_faces.iter().enumerate() {
+        let Some((cyl_origin, cyl_axis, cyl_radius)) =
+            primary_cylinder_identity_of_face(brep, face)
+        else {
+            continue;
+        };
+        let Some(axis_unit) = cyl_axis.normalized() else {
+            continue;
+        };
+        let mut best: Option<(usize, f64)> = None;
+        for (cap_index, &(centre, radius)) in per_fillet_caps.iter().enumerate() {
+            if used[cap_index] {
+                continue;
+            }
+            let radius_error = (radius - cyl_radius).abs();
+            if radius_error > cyl_radius.max(radius) * 0.05 + 1.0e-9 {
+                continue;
+            }
+            let v = centre - cyl_origin;
+            let along = v.dot(&axis_unit);
+            let projected = cyl_origin + axis_unit * along;
+            let axis_error = centre.distance_to(&projected);
+            let score = axis_error + radius_error;
+            if best
+                .map(|(_, best_score)| score < best_score)
+                .unwrap_or(true)
+            {
+                best = Some((cap_index, score));
+            }
+        }
+        if let Some((cap_index, _)) = best {
+            used[cap_index] = true;
+            assigned[face_index] = Some(per_fillet_caps[cap_index]);
+            if crate::a2_trace::enabled() {
+                eprintln!(
+                    "[a2-trace] sphere-cap assignment face={face:?} -> cap[{cap_index}] r={:.3}",
+                    per_fillet_caps[cap_index].1
+                );
+            }
+        } else if crate::a2_trace::enabled() {
+            eprintln!(
+                "[a2-trace] sphere-cap assignment face={face:?} unmatched cyl_radius={cyl_radius:.3}"
+            );
+        }
+    }
+
+    assigned
+}
+
+fn sphere_cap_boundary_degeneracy_in_boundary_order(
+    brep: &BRep,
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+) -> Option<String> {
+    if boundary.segments.len() != 2 * boundary.per_fillet_caps.len() {
+        return Some(format!(
+            "boundary segment count {} does not match per-fillet cap count {}",
+            boundary.segments.len(),
+            boundary.per_fillet_caps.len()
+        ));
+    }
+    for (k, &(center, radius)) in boundary.per_fillet_caps.iter().enumerate() {
+        for segment in [&boundary.segments[2 * k], &boundary.segments[2 * k + 1]] {
+            if let Some(reason) =
+                sphere_cap_segment_degeneracy(brep, fillet_surfaces, center, radius, segment)
+            {
+                if crate::a2_trace::enabled() {
+                    eprintln!(
+                        "[a2-trace] sphere-cap preflight declined boundary[{k}] segment={}: {reason}",
+                        boundary_segment_kind(segment)
+                    );
+                }
+                return Some(format!(
+                    "boundary[{k}] {}: {reason}",
+                    boundary_segment_kind(segment)
+                ));
+            }
+        }
+    }
+    None
+}
+
+fn sphere_cap_boundary_seams_are_nondegenerate(
+    brep: &BRep,
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+    cap_sphere_per_subface: &[Option<(Point3, f64)>],
+) -> bool {
+    if boundary.segments.len() != 2 * cap_sphere_per_subface.len() {
+        return false;
+    }
+    for (k, cap) in cap_sphere_per_subface.iter().enumerate() {
+        let Some((center, radius)) = cap else {
+            return false;
+        };
+        for segment in [&boundary.segments[2 * k], &boundary.segments[2 * k + 1]] {
+            if let Some(reason) =
+                sphere_cap_segment_degeneracy(brep, fillet_surfaces, *center, *radius, segment)
+            {
+                if crate::a2_trace::enabled() {
+                    eprintln!(
+                        "[a2-trace] sphere-cap rung declined subface[{k}] segment={}: {reason}",
+                        boundary_segment_kind(segment)
+                    );
+                }
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn sphere_cap_segment_degeneracy(
+    brep: &BRep,
+    fillet_surfaces: &[FilletSurfaceResult],
+    sphere_center: Point3,
+    sphere_radius: f64,
+    segment: &BoundarySegment,
+) -> Option<String> {
+    match segment {
+        BoundarySegment::FaceEdge { face, .. } => {
+            let surface = brep.faces.get(*face)?.surface.as_ref()?;
+            if let SurfaceGeometry::Plane { origin, normal, .. } = &surface.geometry {
+                let normal = normal.normalized()?;
+                let plane_offset = (sphere_center - *origin).dot(&normal).abs();
+                let circle_radius_sq = sphere_radius * sphere_radius - plane_offset * plane_offset;
+                let tol = sphere_radius.max(1.0) * 1.0e-8;
+                if circle_radius_sq <= tol * tol {
+                    return Some(format!(
+                        "sphere-plane boundary is tangent or empty \
+                         (sphere radius {sphere_radius:.6e}, plane offset {plane_offset:.6e})"
+                    ));
+                }
+            }
+        }
+        BoundarySegment::FilletEnd { fillet_index, .. } => {
+            let Some(fillet) = fillet_surfaces.get(*fillet_index) else {
+                return Some(format!("fillet index {fillet_index} missing"));
+            };
+            if let SurfaceGeometry::Cylinder {
+                origin,
+                axis,
+                radius,
+            } = &fillet.surface
+            {
+                let Some(axis_unit) = axis.normalized() else {
+                    return Some("fillet cylinder axis is degenerate".to_string());
+                };
+                let to_center = sphere_center - *origin;
+                let along = to_center.dot(&axis_unit);
+                let projected = *origin + axis_unit * along;
+                let axis_error = sphere_center.distance_to(&projected);
+                let radius_error = (sphere_radius - *radius).abs();
+                let tol = sphere_radius.max(*radius).max(1.0) * 1.0e-5;
+                if axis_error > tol || radius_error > tol {
+                    return Some(format!(
+                        "sphere-cylinder tangent circle is not well-defined \
+                         (axis error {axis_error:.3e}, radius error {radius_error:.3e})"
+                    ));
+                }
+            }
+        }
+    }
+    None
+}
+
+fn boundary_segment_kind(segment: &BoundarySegment) -> &'static str {
+    match segment {
+        BoundarySegment::FilletEnd { .. } => "FilletEnd",
+        BoundarySegment::FaceEdge { .. } => "FaceEdge",
+    }
 }
 
 fn trace_cap_subface_neighbors(brep: &BRep, label: &str, faces: &[FaceHandle]) {

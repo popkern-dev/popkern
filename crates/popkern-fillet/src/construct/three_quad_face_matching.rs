@@ -84,7 +84,7 @@ pub(super) fn face_surface_matches(
 /// to assign to each sub-face when all per-fillet radii are equal —
 /// matching by axis identity (sphere centre projects onto axis) rather
 /// than by radius.
-fn primary_cylinder_identity_of_face(
+pub(super) fn primary_cylinder_identity_of_face(
     brep: &BRep,
     face: FaceHandle,
 ) -> Option<(Point3, popkern_core::geometry::Vec3, f64)> {
@@ -318,49 +318,4 @@ fn subface_has_boundary_segment(brep: &BRep, face: FaceHandle, segment: &Boundar
         }
     }
     false
-}
-
-/// For a sub-face, find the per-fillet sphere whose centre lies on
-/// the sub-face's primary cylinder axis (within `r * 0.05` tolerance).
-/// This is the geometric tangency check — the right sphere for this
-/// sub-face is the one tangent to its primary cylinder along the
-/// cap-tangent circle. Falls back to the supplied `default` when
-/// no per-fillet entry projects onto the axis (e.g., when the
-/// inscribed-sphere path was taken instead of per-fillet rolling-ball).
-pub(super) fn pick_per_fillet_cap_for_face(
-    brep: &BRep,
-    face: FaceHandle,
-    per_fillet_caps: &[(Point3, f64)],
-    default: (Point3, f64),
-) -> (Point3, f64) {
-    let Some((cyl_origin, cyl_axis, cyl_radius)) = primary_cylinder_identity_of_face(brep, face)
-    else {
-        return default;
-    };
-    let axis_unit = cyl_axis
-        .normalized()
-        .unwrap_or(popkern_core::geometry::Vec3::new(1.0, 0.0, 0.0));
-    let tol = (cyl_radius * 0.05).max(1e-9);
-    let mut found: Option<(Point3, f64)> = None;
-    for &(centre, radius) in per_fillet_caps {
-        if (radius - cyl_radius).abs() > cyl_radius * 0.05 {
-            continue;
-        }
-        let v = popkern_core::geometry::Vec3::new(
-            centre.x - cyl_origin.x,
-            centre.y - cyl_origin.y,
-            centre.z - cyl_origin.z,
-        );
-        let along = v.dot(&axis_unit);
-        let proj = Point3::new(
-            cyl_origin.x + axis_unit.x * along,
-            cyl_origin.y + axis_unit.y * along,
-            cyl_origin.z + axis_unit.z * along,
-        );
-        if centre.distance_to(&proj) < tol {
-            found = Some((centre, radius));
-            break;
-        }
-    }
-    found.unwrap_or(default)
 }

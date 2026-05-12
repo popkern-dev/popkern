@@ -62,7 +62,7 @@ use crate::vertex_classifier::VertexBlendClassification;
 /// (bidegree 3) and quintic (bidegree 5) sub-patches can flow
 /// through the same dispatch pipeline.
 #[allow(dead_code)] // diagnostic / follow-up
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct NQuadDecomposition {
     /// The central point shared by all `N` sub-patches.
     pub central_point: Point3,

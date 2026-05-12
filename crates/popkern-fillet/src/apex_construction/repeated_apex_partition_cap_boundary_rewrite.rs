@@ -2,7 +2,17 @@
 mod adjacent_loop_repair;
 
 use super::*;
-use adjacent_loop_repair::author_boundary_preserving_adjacent_loop_repair;
+use adjacent_loop_repair::{
+    author_boundary_preserving_adjacent_loop_repair,
+    clone_residual_owned_sides_for_adjacent_rewrite,
+};
+
+pub(super) fn protect_source_loops_before_partition_loop_claim(
+    brep: &mut BRep,
+    claiming_cycle: &[HalfEdgeHandle],
+) -> Result<(), ApexBuildError> {
+    adjacent_loop_repair::protect_source_loops_before_new_loop_claim(brep, claiming_cycle)
+}
 
 pub(super) fn plan_cap_boundary_rewrite_for_cylinder_trim(
     brep: &BRep,
@@ -105,8 +115,13 @@ fn plan_adjacent_loop_rewrites_for_reauthored_cap_cycle(
                 .get(*half_edge)
                 .is_some_and(|data| !brep.half_edges.contains_key(data.twin))
         });
+        let neighbor_is_construction_residual = neighbor_face
+            .and_then(|face| brep.faces.get(face))
+            .is_some_and(|face_data| face_data.role == TopologyRole::ConstructionResidual);
         let rewrite_kind = if neighbor_loop.is_none() {
             AdjacentLoopRewriteKind::AttachTwinToLaterStripLoop
+        } else if neighbor_is_construction_residual {
+            AdjacentLoopRewriteKind::ConstructionResidualAdjacentLoopRepairRequired
         } else if has_boundary_neighbor_side {
             AdjacentLoopRewriteKind::BoundaryPreservingAdjacentLoopRepairRequired
         } else {
@@ -163,6 +178,7 @@ struct AdjacentLoopRewriteRequirement {
 enum AdjacentLoopRewriteKind {
     ReverseAdjacentTwinCycle,
     BoundaryPreservingAdjacentLoopRepairRequired,
+    ConstructionResidualAdjacentLoopRepairRequired,
     AttachTwinToLaterStripLoop,
 }
 
@@ -198,14 +214,29 @@ impl CapBoundaryRewritePlan {
                             ),
                         });
                     }
-                    wire_existing_loop(
+                    let protected_cycle = clone_residual_owned_sides_for_adjacent_rewrite(
                         brep,
+                        self.cap_loop,
                         loop_handle,
-                        face,
                         &rewrite.reauthored_neighbor_cycle,
                     )?;
+                    validate_half_edge_cycle(
+                        brep,
+                        &protected_cycle,
+                        "support residual-safe reauthored adjacent twin boundary",
+                        face,
+                    )?;
+                    wire_existing_loop(brep, loop_handle, face, &protected_cycle)?;
                 }
                 AdjacentLoopRewriteKind::BoundaryPreservingAdjacentLoopRepairRequired => {
+                    author_boundary_preserving_adjacent_loop_repair(
+                        brep,
+                        rewrite,
+                        loop_handle,
+                        face,
+                    )?;
+                }
+                AdjacentLoopRewriteKind::ConstructionResidualAdjacentLoopRepairRequired => {
                     author_boundary_preserving_adjacent_loop_repair(
                         brep,
                         rewrite,

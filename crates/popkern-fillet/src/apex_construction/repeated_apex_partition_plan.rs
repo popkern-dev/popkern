@@ -239,6 +239,10 @@ impl RepeatedApexPartitionPlan {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        let base_residual_plan = base_span
+            .map(|span| plan_retired_base_residual_loop(brep, span))
+            .transpose()?;
+
         let mut fillet_end_edges = Vec::with_capacity(n_fillets);
         let mut cap_cycle = Vec::with_capacity(2 * n_fillets);
         let mut fillet_end_ownership = Vec::with_capacity(n_fillets);
@@ -337,11 +341,9 @@ impl RepeatedApexPartitionPlan {
                     );
                 }
             } else {
-                let strip_face = insert_face_with_outer_loop(
-                    brep,
-                    self.cap_face,
-                    &boundary_outcome.strip_loop(ownership.fillet_index, ownership),
-                )?;
+                let strip_loop = boundary_outcome.strip_loop(ownership.fillet_index, ownership);
+                protect_source_loops_before_partition_loop_claim(brep, &strip_loop)?;
+                let strip_face = insert_face_with_outer_loop(brep, self.cap_face, &strip_loop)?;
                 assign_fillet_strip_surface(
                     brep,
                     strip_face,
@@ -352,24 +354,50 @@ impl RepeatedApexPartitionPlan {
         }
 
         if let Some(base_span) = base_span {
-            let apex = base_span
+            let base_loop_half_edges = if base_span
                 .half_edges
-                .first()
-                .and_then(|half_edge| brep.half_edges.get(*half_edge).map(|data| data.origin))
-                .ok_or_else(|| ApexBuildError::PlanMismatch {
-                    reason: format!(
-                        "planned repeated-apex partition base span arc[{}] has no live start",
-                        base_span.arc_index
-                    ),
-                })?;
-            let (seam_edge, seam_a, seam_b) = insert_unwired_edge_pair(brep, apex, apex);
-            brep.edges[seam_edge].role = TopologyRole::ConstructionResidual;
-            let mut base_loop_half_edges = base_span.half_edges.clone();
-            base_loop_half_edges.push(seam_a);
-            base_loop_half_edges.push(seam_b);
+                .iter()
+                .all(|half_edge| brep.half_edges.contains_key(*half_edge))
+            {
+                let apex = base_span
+                    .half_edges
+                    .first()
+                    .and_then(|half_edge| brep.half_edges.get(*half_edge).map(|data| data.origin))
+                    .ok_or_else(|| ApexBuildError::PlanMismatch {
+                        reason: format!(
+                            "planned repeated-apex partition base span arc[{}] has no live \
+                             start",
+                            base_span.arc_index
+                        ),
+                    })?;
+                let (seam_edge, seam_a, seam_b) = insert_unwired_edge_pair(brep, apex, apex);
+                brep.edges[seam_edge].role = TopologyRole::ConstructionResidual;
+                let mut live_loop_half_edges = base_span.half_edges.clone();
+                live_loop_half_edges.push(seam_a);
+                live_loop_half_edges.push(seam_b);
+                live_loop_half_edges
+            } else {
+                base_residual_plan
+                    .as_ref()
+                    .ok_or_else(|| ApexBuildError::PlanMismatch {
+                        reason: format!(
+                            "planned repeated-apex partition base span arc[{}] was consumed \
+                                 before durable residual authoring data was captured",
+                            base_span.arc_index
+                        ),
+                    })?
+                    .author_loop(brep)?
+            };
             let base_face =
                 insert_face_with_outer_loop(brep, self.cap_face, &base_loop_half_edges)?;
             brep.faces[base_face].role = TopologyRole::ConstructionResidual;
+            if base_span
+                .half_edges
+                .iter()
+                .any(|half_edge| !brep.half_edges.contains_key(*half_edge))
+            {
+                mark_loop_edges_construction_residual(brep, &base_loop_half_edges);
+            }
             if existing_target_cylinders_own_all_strips {
                 brep.faces[base_face].surface = None;
             }

@@ -3,6 +3,124 @@
 use super::*;
 use popkern_core::topology::{Face, TopologyRole};
 
+pub(super) struct RetiredBaseResidualLoopPlan {
+    arc_index: usize,
+    apex: VertexHandle,
+    sides: Vec<RetiredBaseResidualSide>,
+}
+
+struct RetiredBaseResidualSide {
+    start: VertexHandle,
+    end: VertexHandle,
+    curve: CurveOnEdge,
+}
+
+impl RetiredBaseResidualLoopPlan {
+    pub(super) fn author_loop(
+        &self,
+        brep: &mut BRep,
+    ) -> Result<Vec<HalfEdgeHandle>, ApexBuildError> {
+        let mut loop_half_edges = Vec::with_capacity(self.sides.len() + 2);
+        for (side_index, side) in self.sides.iter().enumerate() {
+            let (edge, half_edge) = insert_boundary_half_edge(brep, side.start);
+            brep.edges[edge].role = TopologyRole::ConstructionResidual;
+            brep.edges[edge].curve = Some(side.curve.clone());
+            if support_split_half_edge_end_vertex(brep, half_edge) != Some(side.end) {
+                return Err(ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "planned repeated-apex partition durable base residual arc[{}] side[{}] \
+                         authored {:?}->{:?} but did not resolve that endpoint",
+                        self.arc_index, side_index, side.start, side.end
+                    ),
+                });
+            }
+            loop_half_edges.push(half_edge);
+        }
+
+        let (seam_edge, seam_a, seam_b) = insert_unwired_edge_pair(brep, self.apex, self.apex);
+        brep.edges[seam_edge].role = TopologyRole::ConstructionResidual;
+        loop_half_edges.push(seam_a);
+        loop_half_edges.push(seam_b);
+        validate_half_edge_cycle(
+            brep,
+            &loop_half_edges,
+            "durable support repeated-apex base residual loop",
+            FaceHandle::default(),
+        )?;
+        Ok(loop_half_edges)
+    }
+}
+
+pub(super) fn plan_retired_base_residual_loop(
+    brep: &BRep,
+    span: &RetiredApexSpan,
+) -> Result<RetiredBaseResidualLoopPlan, ApexBuildError> {
+    let first = span
+        .half_edges
+        .first()
+        .copied()
+        .ok_or_else(|| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition base span arc[{}] has no residual sides",
+                span.arc_index
+            ),
+        })?;
+    let apex = brep
+        .half_edges
+        .get(first)
+        .map(|data| data.origin)
+        .ok_or_else(|| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition base span arc[{}] starts with stale side {first:?}",
+                span.arc_index
+            ),
+        })?;
+    let mut sides = Vec::with_capacity(span.half_edges.len());
+    for (side_index, half_edge) in span.half_edges.iter().copied().enumerate() {
+        let half_edge_data =
+            brep.half_edges
+                .get(half_edge)
+                .ok_or_else(|| ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "planned repeated-apex partition base span arc[{}] side[{side_index}] \
+                         references stale half-edge {half_edge:?}",
+                        span.arc_index
+                    ),
+                })?;
+        let end = support_split_half_edge_end_vertex(brep, half_edge).ok_or_else(|| {
+            ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition base span arc[{}] side[{side_index}] \
+                     cannot resolve an endpoint for {half_edge:?}",
+                    span.arc_index
+                ),
+            }
+        })?;
+        let curve = brep
+            .edges
+            .get(half_edge_data.edge)
+            .and_then(|edge| edge.curve.clone())
+            .ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition base span arc[{}] side[{side_index}] \
+                     cannot preserve residual authoring data for {half_edge:?}: source edge has \
+                     no curve",
+                    span.arc_index
+                ),
+            })?;
+        sides.push(RetiredBaseResidualSide {
+            start: half_edge_data.origin,
+            end,
+            curve,
+        });
+    }
+    Ok(RetiredBaseResidualLoopPlan {
+        arc_index: span.arc_index,
+        apex,
+        sides,
+    })
+}
+
 pub(super) fn residual_strip_loop_with_duplicated_seam(
     brep: &mut BRep,
     ownership: &FilletEndOwnership,
@@ -17,6 +135,19 @@ pub(super) fn residual_strip_loop_with_duplicated_seam(
         ownership.retired_apex_cell.t_a_to_apex,
         ownership.retired_apex_cell.apex_to_t_b,
     ])
+}
+
+pub(super) fn mark_loop_edges_construction_residual(
+    brep: &mut BRep,
+    half_edges: &[HalfEdgeHandle],
+) {
+    for half_edge in half_edges {
+        if let Some(edge) = brep.half_edges.get(*half_edge).map(|data| data.edge)
+            && let Some(edge_data) = brep.edges.get_mut(edge)
+        {
+            edge_data.role = TopologyRole::ConstructionResidual;
+        }
+    }
 }
 
 pub(super) fn demote_retired_apex_residual_faces(
