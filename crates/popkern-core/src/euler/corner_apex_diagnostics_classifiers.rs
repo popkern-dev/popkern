@@ -3,6 +3,7 @@
 
 use super::patch::patch_candidate_fact;
 use super::score_types::{ApexFeasibilityScoreFact, ApexFeasibilityScoreMissing};
+use super::strategy::strategy_metadata_fact;
 use super::support_types::{
     CenterLocusFeasibilityFact, SupportFootprintFeasibilityFact, SupportFootprintFeasibilityState,
 };
@@ -394,6 +395,7 @@ pub fn classify_strategy_readiness(
         family,
         readiness,
         patch_candidate: patch_candidate_fact(family),
+        metadata: strategy_metadata_fact(family, classification),
         continuity_target: "G1",
         deferred: family == CornerApexStrategyFamily::DeferredVertexPatch,
         fallback_eligible: matches!(

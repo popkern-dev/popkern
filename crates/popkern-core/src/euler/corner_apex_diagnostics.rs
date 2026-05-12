@@ -20,6 +20,10 @@ mod score_types;
 mod selection;
 #[path = "corner_apex_diagnostics_selection_types.rs"]
 mod selection_types;
+#[path = "corner_apex_diagnostics_strategy.rs"]
+mod strategy;
+#[path = "corner_apex_diagnostics_strategy_types.rs"]
+mod strategy_types;
 #[path = "corner_apex_diagnostics_support_types.rs"]
 mod support_types;
 #[path = "corner_apex_diagnostics_three_face_tangency.rs"]
@@ -54,6 +58,11 @@ pub use score_types::{
 pub use selection_types::{
     CornerSelectionIntentFact, CornerSelectionOptionState, CornerSelectionPropagation,
     CornerSelectionSource,
+};
+#[allow(unused_imports)]
+pub use strategy_types::{
+    AdvancedStrategyMode, CapRunoutMode, CliffTerminationMode, OverflowHandlingMode,
+    StrategyMetadataFact, StrategyOptionReadiness,
 };
 #[allow(unused_imports)]
 pub use support_types::{

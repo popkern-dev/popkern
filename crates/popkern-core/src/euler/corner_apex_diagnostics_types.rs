@@ -5,6 +5,7 @@ use super::super::{DiagnosticHandle, DiagnosticTolerance};
 use super::patch_types::PatchCandidateFact;
 use super::score_types::ApexFeasibilityScoreFact;
 use super::selection_types::CornerSelectionIntentFact;
+use super::strategy_types::StrategyMetadataFact;
 use super::support_types::{CenterLocusFeasibilityFact, SupportFootprintFeasibilityFact};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -399,6 +400,7 @@ pub struct StrategyReadinessFact {
     pub family: CornerApexStrategyFamily,
     pub readiness: CornerApexStrategyReadiness,
     pub patch_candidate: PatchCandidateFact,
+    pub metadata: StrategyMetadataFact,
     pub continuity_target: &'static str,
     pub deferred: bool,
     pub fallback_eligible: bool,

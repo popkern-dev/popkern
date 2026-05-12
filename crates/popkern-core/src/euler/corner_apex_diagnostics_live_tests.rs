@@ -135,6 +135,18 @@ fn live_free_end_selects_cap_runout() {
         report.strategy.readiness,
         CornerApexStrategyReadiness::Ready
     );
+    assert_eq!(
+        report.strategy.metadata.cap_runout,
+        StrategyOptionReadiness::Selected
+    );
+    assert_eq!(
+        report.strategy.metadata.cap_runout_mode,
+        CapRunoutMode::EndCap
+    );
+    assert_eq!(
+        report.strategy.metadata.mutual_trim,
+        StrategyOptionReadiness::Rejected("not-through-vertex")
+    );
 }
 
 #[test]
@@ -155,6 +167,14 @@ fn live_oversized_radius_reports_setback_adjustment_dependency() {
     assert_eq!(
         report.strategy.readiness,
         CornerApexStrategyReadiness::RequiresMissingPrimitive("radius-or-setback-adjustment")
+    );
+    assert_eq!(
+        report.strategy.metadata.advanced_mode,
+        AdvancedStrategyMode::Setback
+    );
+    assert_eq!(
+        report.strategy.metadata.setback,
+        StrategyOptionReadiness::Selected
     );
 }
 
@@ -259,6 +279,15 @@ fn live_open_box_boundary_vertex_reports_cliff_termination() {
         report.strategy.readiness,
         CornerApexStrategyReadiness::ReadyWithManagedRisk
     );
+    assert_eq!(
+        report.strategy.metadata.cliff_termination,
+        StrategyOptionReadiness::Selected
+    );
+    assert_eq!(
+        report.strategy.metadata.cliff_termination_mode,
+        CliffTerminationMode::ManagedCliff
+    );
+    assert!(report.strategy.metadata.suboptimal_but_valid);
 }
 
 #[test]
