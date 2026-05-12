@@ -368,8 +368,8 @@ fn newton_solve_tangency(
     signs: [f64; 3],
     tolerance: f64,
 ) -> Option<Point3> {
-    let step_limit = (radius * 8.0).max(tolerance * 16.0).max(1e-6);
-    for _ in 0..32 {
+    let step_limit = (radius * 32.0).max(1.0).max(tolerance * 16.0);
+    for _ in 0..64 {
         let residual = tangency_residual(supports, center, radius, signs)?;
         if max_abs(residual) <= tolerance.max(radius * 1e-8) {
             return Some(center);

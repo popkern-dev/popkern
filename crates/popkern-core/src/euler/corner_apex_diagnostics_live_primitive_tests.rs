@@ -112,6 +112,58 @@ fn live_three_face_tangency_accepts_analytic_cylinder_support() {
 }
 
 #[test]
+fn live_three_face_tangency_accepts_two_cylinder_one_plane_supports() {
+    let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
+    let faces = incident_faces(&cube, vertex);
+    cube.faces[faces[0]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry = SurfaceGeometry::Cylinder {
+        origin: Point3::new(1.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    cube.faces[faces[1]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 1.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    cube.faces[faces[2]]
+        .surface
+        .as_mut()
+        .expect("surface")
+        .geometry = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let edges = incident_edges(&cube, vertex);
+
+    let report = cube.diagnose_corner_apex(request(
+        vertex,
+        &edges,
+        BlendKind::FilletConstantRadius,
+        10_000_000,
+    ));
+
+    assert_eq!(
+        report.strategy.family,
+        CornerApexStrategyFamily::ThreeFaceBlend
+    );
+    assert_eq!(
+        report.strategy.readiness,
+        CornerApexStrategyReadiness::Ready
+    );
+}
+
+#[test]
 fn live_mutual_trim_names_nonlinear_spine_gap() {
     let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
     let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
@@ -189,11 +241,18 @@ fn incident_edges(brep: &BRep, vertex: VertexHandle) -> Vec<EdgeHandle> {
 }
 
 fn incident_face(brep: &BRep, vertex: VertexHandle) -> crate::topology::FaceHandle {
+    incident_faces(brep, vertex)
+        .into_iter()
+        .next()
+        .expect("incident face")
+}
+
+fn incident_faces(brep: &BRep, vertex: VertexHandle) -> Vec<crate::topology::FaceHandle> {
     brep.faces
         .iter()
-        .find(|(_, face)| loop_vertices(brep, face.outer_loop).contains(&vertex))
+        .filter(|(_, face)| loop_vertices(brep, face.outer_loop).contains(&vertex))
         .map(|(handle, _)| handle)
-        .expect("incident face")
+        .collect()
 }
 
 fn loop_vertices(brep: &BRep, loop_: crate::topology::LoopHandle) -> Vec<VertexHandle> {
