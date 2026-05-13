@@ -11,6 +11,7 @@
 use super::bernstein_tri6::{TRI6_CP_COUNT, flat_index};
 use super::kp_polar_boundary_input::TensorBorderBi3;
 use super::kp_polar_shared::weighted_sum;
+use super::kp20_bi6_guide_lsq::solve_kp20_guide_lsq;
 use super::kp20_bi6_guide_sample::Kp20Tri6GuideSector;
 use crate::geometry::Point3;
 
@@ -44,6 +45,9 @@ pub fn build_kp20_guide_ring(input: &Kp20GuideBuildInput) -> Result<Kp20GuideRin
     let n = input.tensor_border.sectors.len();
     if n < 3 {
         return Err(format!("KP20 guide needs at least 3 sectors, got {n}"));
+    }
+    if let Ok(sectors) = solve_kp20_guide_lsq(&input.tensor_border, input.star_point) {
+        return Ok(Kp20GuideRing { n, sectors });
     }
     let mut sectors = Vec::with_capacity(n);
     for (sector_index, sector) in input.tensor_border.sectors.iter().enumerate() {

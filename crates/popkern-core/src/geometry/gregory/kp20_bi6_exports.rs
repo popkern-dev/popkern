@@ -19,6 +19,7 @@ pub use super::kp20_bi6_guide_continuity::{
     kp18_apply_c0_join_degree6, kp18_apply_c1_join_degree6, kp18_apply_c2_join_degree6,
     kp18_apply_c3_join_degree6, kp18_apply_cubic_join_degree6, kp18_guide_join_weights,
 };
+pub use super::kp20_bi6_guide_lsq::{Kp20GuideLsqError, solve_kp20_guide_lsq};
 pub use super::kp20_bi6_guide_sample::{
     Kp20AffineGuideMap, Kp20GuideJet3, Kp20PatchCorner, Kp20Tri6GuideSector,
     kp20_corner_block_from_jet, kp20_sample_corner_block, kp20_sample_macro_patch_from_guide,

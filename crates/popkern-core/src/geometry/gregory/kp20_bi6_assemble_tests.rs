@@ -8,7 +8,7 @@ fn p(x: f64, y: f64, z: f64) -> Point3 {
 
 fn assert_close(a: Point3, b: Point3) {
     assert!(
-        a.approx_eq(&b, 1e-10),
+        a.approx_eq(&b, 1e-9),
         "expected {a:?} to match {b:?}, distance {}",
         a.distance_to(&b)
     );

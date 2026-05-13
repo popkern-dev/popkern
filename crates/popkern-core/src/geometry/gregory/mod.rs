@@ -113,6 +113,7 @@ mod kp20_bi6_cnet;
 mod kp20_bi6_exports;
 mod kp20_bi6_guide_build;
 mod kp20_bi6_guide_continuity;
+mod kp20_bi6_guide_lsq;
 mod kp20_bi6_guide_sample;
 mod kp20_bi6_math;
 mod kp20_bi6_piece_maps;
