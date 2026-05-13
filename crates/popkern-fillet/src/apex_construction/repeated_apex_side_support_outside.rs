@@ -46,6 +46,7 @@ enum OutsideOutsideSupportRefusal {
     NoOutsideCylinderAdjacency,
     NoSupportCylinderAdjacency,
     NoDirectedCylinderInterval,
+    CrossOutsideOwnersRequirePrimitive,
     CorePreflightRejected,
     TopologyOperatorNotImplemented,
 }
@@ -92,6 +93,15 @@ pub(super) enum CylinderMediatedCorePreflight {
     Rejected {
         fillet_index: usize,
         reason: String,
+    },
+    CrossOutsideOwners {
+        fillet_index: usize,
+        start_face: FaceHandle,
+        start_loop: LoopHandle,
+        end_face: FaceHandle,
+        end_loop: LoopHandle,
+        start_half_edge: HalfEdgeHandle,
+        end_half_edge: HalfEdgeHandle,
     },
 }
 
@@ -287,6 +297,11 @@ impl OutsideOutsideSupportRegionDerivation {
             .is_none_or(|class| class.cylinder_intervals.is_empty())
         {
             OutsideOutsideSupportRefusal::NoDirectedCylinderInterval
+        } else if core_preflights
+            .iter()
+            .any(CylinderMediatedCorePreflight::is_cross_outside_owner)
+        {
+            OutsideOutsideSupportRefusal::CrossOutsideOwnersRequirePrimitive
         } else if !all_core_preflights_accepted {
             OutsideOutsideSupportRefusal::CorePreflightRejected
         } else {
@@ -351,6 +366,9 @@ impl OutsideOutsideSupportRefusal {
             }
             OutsideOutsideSupportRefusal::NoDirectedCylinderInterval => {
                 "missing-directed-cylinder-interval"
+            }
+            OutsideOutsideSupportRefusal::CrossOutsideOwnersRequirePrimitive => {
+                "cross-outside-owner-primitive-required"
             }
             OutsideOutsideSupportRefusal::CorePreflightRejected => "core-preflight-rejected",
             OutsideOutsideSupportRefusal::TopologyOperatorNotImplemented => {
@@ -422,6 +440,13 @@ impl CylinderMediatedCorePreflight {
         matches!(self, CylinderMediatedCorePreflight::Accepted { .. })
     }
 
+    fn is_cross_outside_owner(&self) -> bool {
+        matches!(
+            self,
+            CylinderMediatedCorePreflight::CrossOutsideOwners { .. }
+        )
+    }
+
     fn diagnostic_label(&self) -> String {
         match self {
             CylinderMediatedCorePreflight::Accepted {
@@ -442,6 +467,19 @@ impl CylinderMediatedCorePreflight {
                 reason,
             } => {
                 format!("FilletEnd[{fillet_index}] rejected reason={reason}")
+            }
+            CylinderMediatedCorePreflight::CrossOutsideOwners {
+                fillet_index,
+                start_face,
+                start_loop,
+                end_face,
+                end_loop,
+                start_half_edge,
+                end_half_edge,
+            } => {
+                format!(
+                    "FilletEnd[{fillet_index}] cross-outside-owner start={start_face:?}/{start_loop:?}@{start_half_edge:?} end={end_face:?}/{end_loop:?}@{end_half_edge:?} primitive=multi-outside-owner-support-continuation-required"
+                )
             }
         }
     }

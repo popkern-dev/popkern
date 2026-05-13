@@ -141,15 +141,14 @@ fn validate_trim_core_preflight(
     brep: &BRep,
 ) -> CylinderMediatedCorePreflight {
     if trim.start_face() != trim.end_face() || trim.start_loop() != trim.end_loop() {
-        return CylinderMediatedCorePreflight::Rejected {
+        return CylinderMediatedCorePreflight::CrossOutsideOwners {
             fillet_index: trim.fillet_index(),
-            reason: format!(
-                "outside endpoints span multiple outside owners: start={:?}/{:?} end={:?}/{:?}",
-                trim.start_face(),
-                trim.start_loop(),
-                trim.end_face(),
-                trim.end_loop()
-            ),
+            start_face: trim.start_face(),
+            start_loop: trim.start_loop(),
+            end_face: trim.end_face(),
+            end_loop: trim.end_loop(),
+            start_half_edge: trim.start_half_edge(),
+            end_half_edge: trim.end_half_edge(),
         };
     }
     let Some(interval) = topology_class
