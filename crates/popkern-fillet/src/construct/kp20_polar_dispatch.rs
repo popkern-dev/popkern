@@ -16,7 +16,6 @@ pub(super) fn try_kp20_polar_dispatch(
     sub_patches: &[GregoryPatch],
     fillet_surfaces: &[FilletSurfaceResult],
 ) -> Option<Vec<GregoryPatch>> {
-    std::env::var_os("POPKERN_KP20_POLAR_BI6")?;
     let n = sub_patches.len();
     let mut two_stripe = Vec::with_capacity(n);
     for (idx, patch) in sub_patches.iter().enumerate() {

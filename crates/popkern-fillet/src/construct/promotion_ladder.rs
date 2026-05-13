@@ -68,7 +68,7 @@ pub(super) fn run_promotion_ladder(
         return PromotionResult::Macro4n(CornerSubPatchFamily::Kp13Bi5);
     }
     if use_kp_polar
-        && decomp.sub_patches.len() >= 5
+        && decomp.sub_patches.len() >= 3
         && let Some(patches_4n) = super::kp20_polar_dispatch::try_kp20_polar_dispatch(
             &decomp.sub_patches,
             fillet_surfaces,
