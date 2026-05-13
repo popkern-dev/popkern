@@ -8,7 +8,7 @@
 #![allow(clippy::needless_range_loop)]
 
 use super::kp20_bi6_guide_sample::{
-    Kp20GuideJet3, Kp20Tri6GuideSector, kp20_corner_block_from_jet,
+    Kp20AffineGuideMap, Kp20GuideJet3, Kp20Tri6GuideSector, kp20_corner_block_from_jet,
 };
 use super::kp20_bi6_math::Kp20TauParams;
 use crate::geometry::Point3;
@@ -113,6 +113,42 @@ pub fn kp20_sample_corner_block_with_tau(
     v: f64,
 ) -> [[Point3; 4]; 4] {
     kp20_corner_block_from_jet(kp20_compose_guide_tau_jet(guide, tau, u, v))
+}
+
+/// Sample one bi-6 corner block from `guide ∘ tau ∘ affine_map`.
+pub fn kp20_sample_corner_block_with_tau_affine(
+    guide: &Kp20Tri6GuideSector,
+    tau: &Kp20TauMap,
+    map: Kp20AffineGuideMap,
+) -> [[Point3; 4]; 4] {
+    let tau_jet = tau.jet3(map.origin[0], map.origin[1]);
+    let local_tau_jet = precompose_tau_jet_with_affine(tau_jet, map);
+    let guide_xy = local_tau_jet.d[0][0];
+    let guide_jet = guide.jet3(guide_xy[0], guide_xy[1]);
+    kp20_corner_block_from_jet(compose_guide_with_tau_jets(guide_jet, local_tau_jet))
+}
+
+fn precompose_tau_jet_with_affine(tau: Kp20TauJet3, map: Kp20AffineGuideMap) -> Kp20TauJet3 {
+    let mut out = [[[0.0_f64; 2]; 4]; 4];
+    for a in 0..4 {
+        for b in 0..(4 - a) {
+            for r in 0..=a {
+                for s in 0..=b {
+                    let tau_u_order = r + s;
+                    let tau_v_order = (a - r) + (b - s);
+                    let coeff = binom(a, r)
+                        * binom(b, s)
+                        * map.du[0].powi(r as i32)
+                        * map.du[1].powi((a - r) as i32)
+                        * map.dv[0].powi(s as i32)
+                        * map.dv[1].powi((b - s) as i32);
+                    out[a][b][0] += coeff * tau.d[tau_u_order][tau_v_order][0];
+                    out[a][b][1] += coeff * tau.d[tau_u_order][tau_v_order][1];
+                }
+            }
+        }
+    }
+    Kp20TauJet3 { d: out }
 }
 
 fn compose_guide_with_tau_jets(g: Kp20GuideJet3, tau: Kp20TauJet3) -> Kp20GuideJet3 {
@@ -333,6 +369,11 @@ fn multinomial(n: usize, i: usize, j: usize, k: usize) -> f64 {
 #[inline]
 fn factorial(n: usize) -> f64 {
     (1..=n).fold(1.0, |acc, v| acc * v as f64)
+}
+
+#[inline]
+fn binom(n: usize, k: usize) -> f64 {
+    factorial(n) / (factorial(k) * factorial(n - k))
 }
 
 #[inline]

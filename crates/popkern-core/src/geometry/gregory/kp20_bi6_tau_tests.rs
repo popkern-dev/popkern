@@ -82,6 +82,40 @@ fn cubic_tau_composition_reduces_to_affine_sampler_for_affine_tau() {
 }
 
 #[test]
+fn tau_affine_corner_sampling_precomposes_piece_map() {
+    let guide = affine_guide();
+    let tau_origin = [0.1, -0.2];
+    let tau_du = [0.5, 0.125];
+    let tau_dv = [-0.25, 0.75];
+    let tau = Kp20TauMap::affine(tau_origin, tau_du, tau_dv);
+    let map = Kp20AffineGuideMap::new([0.2, 0.4], [0.5, -0.25], [0.125, 0.25]);
+
+    let composed = Kp20AffineGuideMap::new(
+        [
+            tau_origin[0] + tau_du[0] * map.origin[0] + tau_dv[0] * map.origin[1],
+            tau_origin[1] + tau_du[1] * map.origin[0] + tau_dv[1] * map.origin[1],
+        ],
+        [
+            tau_du[0] * map.du[0] + tau_dv[0] * map.du[1],
+            tau_du[1] * map.du[0] + tau_dv[1] * map.du[1],
+        ],
+        [
+            tau_du[0] * map.dv[0] + tau_dv[0] * map.dv[1],
+            tau_du[1] * map.dv[0] + tau_dv[1] * map.dv[1],
+        ],
+    );
+
+    let via_tau = kp20_sample_corner_block_with_tau_affine(&guide, &tau, map);
+    let via_affine = kp20_sample_corner_block(&guide, composed);
+
+    for i in 0..4 {
+        for j in 0..4 {
+            assert_close(via_tau[i][j], via_affine[i][j]);
+        }
+    }
+}
+
+#[test]
 fn affine_guide_composed_with_paper_tau_uses_tau_derivatives() {
     let guide = affine_guide();
     let tau = Kp20TauMap::for_sector(5, 1).unwrap();

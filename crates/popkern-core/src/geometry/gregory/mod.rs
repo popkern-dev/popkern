@@ -335,7 +335,7 @@ pub use kp20_bi6_s0_solve::{
 };
 pub use kp20_bi6_tau::{
     KP20_TAU_CP_COUNT, Kp20TauJet3, Kp20TauMap, kp20_compose_guide_tau_jet,
-    kp20_sample_corner_block_with_tau,
+    kp20_sample_corner_block_with_tau, kp20_sample_corner_block_with_tau_affine,
 };
 pub use kp20_bi6_validate::{
     Kp20Bi6ValidationError, Kp20Bi6ValidationReport, measure_kp20_bi6_macro_cap,
