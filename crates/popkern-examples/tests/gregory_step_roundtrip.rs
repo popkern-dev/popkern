@@ -16,13 +16,16 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+use popkern_fillet::{
+    BlendResult, CornerMethod, CornerPatchInfo, FilletOptions, FilletRadius, FilletSpec,
+    fillet_edges,
+};
 use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
     StepExportOptions, StepImportOptions, StepProductNode, UnitContext, export_step, import_step,
 };
 
-fn mixed_radius_gregory_cube() -> BRep {
+fn mixed_radius_gregory_cube_result() -> BlendResult {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let incident_edges: Vec<_> = cube
@@ -46,22 +49,35 @@ fn mixed_radius_gregory_cube() -> BRep {
     };
     fillet_edges(&cube, &specs, &opts, Tolerance::default(), None)
         .expect("mixed-radius Gregory cube must build")
-        .brep
 }
 
-struct GregoryFaceSamples {
+fn mixed_radius_gregory_cube() -> BRep {
+    mixed_radius_gregory_cube_result().brep
+}
+
+struct CornerPatchFaceSamples {
     samples: Vec<(Point3, f64, f64)>,
 }
 
-fn sample_gregory_faces(brep: &BRep) -> Vec<GregoryFaceSamples> {
+fn sample_gregory_method_corner_patch_faces(
+    brep: &BRep,
+    corner_patches: &[CornerPatchInfo],
+) -> Vec<CornerPatchFaceSamples> {
     let mut faces = Vec::new();
-    for (_, face) in &brep.faces {
-        let Some(sof) = face.surface.as_ref() else {
-            continue;
-        };
-        if !matches!(sof.geometry, SurfaceGeometry::Gregory(_)) {
+    for info in corner_patches {
+        if info.method != CornerMethod::Gregory {
             continue;
         }
+        let Some(sof) = brep
+            .faces
+            .get(info.face)
+            .and_then(|face| face.surface.as_ref())
+        else {
+            continue;
+        };
+        let (SurfaceGeometry::Gregory(_) | SurfaceGeometry::Nurbs(_)) = &sof.geometry else {
+            continue;
+        };
         let mut samples = Vec::new();
         // Sample on a 3×3 interior UV grid — avoid corners where
         // ε-regularization introduces ~1e-14 noise.
@@ -72,7 +88,7 @@ fn sample_gregory_faces(brep: &BRep) -> Vec<GregoryFaceSamples> {
                 samples.push((sof.geometry.point_at(u, v), u, v));
             }
         }
-        faces.push(GregoryFaceSamples { samples });
+        faces.push(CornerPatchFaceSamples { samples });
     }
     faces
 }
@@ -148,23 +164,24 @@ fn gregory_fillet_step_roundtrip_preserves_topology() {
     );
 }
 
-/// The Gregory faces in the original BRep are converted to NURBS on
-/// STEP export (STEP has no Gregory entity). Geometric fidelity must
-/// be preserved: sample the original Gregory faces at interior UV
-/// points, locate the corresponding face in the re-imported BRep,
-/// and assert the position deviation is within tolerance.
+/// The Gregory-method cap faces in the original BRep are converted to
+/// STEP NURBS geometry on export. Geometric fidelity must be preserved:
+/// sample the original cap faces at interior UV points, locate the
+/// corresponding face in the re-imported BRep, and assert the position
+/// deviation is within tolerance.
 ///
-/// The export path calls `to_nurbs_exact` (rational bidegree-(7,7)
-/// NURBS), so on lossless round-trip the sampled positions should
-/// agree to near f64 precision — in practice < 1e-6 after parser
-/// re-encoding of floats.
+/// Older Gregory wrappers use `to_nurbs_exact`; newer macro-cap rungs
+/// may already be NURBS before export. In both cases STEP should carry
+/// the same-UV surface samples to < 1e-6 after parser re-encoding.
 #[test]
 fn gregory_face_geometry_survives_step_roundtrip() {
-    let brep = mixed_radius_gregory_cube();
-    let orig_gregory_faces = sample_gregory_faces(&brep);
+    let result = mixed_radius_gregory_cube_result();
+    let brep = result.brep;
+    let orig_gregory_faces =
+        sample_gregory_method_corner_patch_faces(&brep, &result.corner_patches);
     assert!(
         !orig_gregory_faces.is_empty(),
-        "test precondition: original BRep must contain Gregory faces"
+        "test precondition: original BRep must contain Gregory-method corner patch faces"
     );
 
     let doc = StepDocument {
@@ -213,9 +230,8 @@ fn gregory_face_geometry_survives_step_roundtrip() {
         imported_nurbs.len()
     );
 
-    // STEP has no Gregory surface entity, so each Gregory face is
-    // exported as a rational NURBS patch with the same full-range
-    // parameterisation. Match each original Gregory face to the
+    // STEP exports Gregory-method cap faces as NURBS with the same
+    // full-range parameterisation. Match each original cap face to the
     // imported NURBS face that minimises same-UV sample error.
     let mut max_err: f64 = 0.0;
     for original_face in &orig_gregory_faces {
@@ -231,17 +247,12 @@ fn gregory_face_geometry_survives_step_roundtrip() {
         max_err = max_err.max(best_face_err);
     }
 
-    // Precision floor breakdown (measured):
-    // * `to_nurbs_exact` at full range agrees with Gregory to ~1e-10
-    //   (see `to_nurbs_exact_twisted_matches_gregory_eval` in
-    //   `rectangular_to_nurbs_tests.rs`).
-    // * STEP serializer uses `{:.15E}` → full f64 precision per CP.
-    // * Import preserves the rational B-spline weights from the STEP
-    //   complex entity, so same-UV samples should remain near f64
-    //   serialization precision.
+    // Precision floor breakdown (measured): `to_nurbs_exact` at full
+    // range agrees with Gregory to ~1e-10, the STEP serializer uses
+    // full f64 precision per CP, and import preserves rational weights.
     assert!(
         max_err < 1e-6,
-        "§5.3 item #2: Gregory STEP round-trip same-UV position deviation {max_err} exceeds 1e-6 tolerance (Gregory faces checked: {})",
+        "§5.3 item #2: Gregory-method STEP round-trip same-UV position deviation {max_err} exceeds 1e-6 tolerance (corner patch faces checked: {})",
         orig_gregory_faces.len()
     );
 }
