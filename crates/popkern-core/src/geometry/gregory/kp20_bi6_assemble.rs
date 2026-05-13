@@ -12,6 +12,7 @@ use super::kp20_bi6_cap::{
     Kp20Bi6Patch, Kp20MacroPatch, Kp20PieceId, initialise_kp20_macro_patches_from_tensor_border,
     kp20_propagate_c2_upper_from_lower,
 };
+use super::kp20_bi6_cnet::{Kp20RegularCNet, kp20_tensor_border_from_regular_cnet};
 use super::kp20_bi6_guide_build::{Kp20GuideBuildInput, build_kp20_guide_ring};
 use super::kp20_bi6_math::kp20_b_coeffs_near_o;
 use super::kp20_bi6_piece_maps::sample_kp20_macro_patch_from_default_maps;
@@ -25,6 +26,15 @@ pub struct Kp20Bi6CapInput {
     pub star_point: Point3,
     /// Bi-3 tensor-border around the hole.
     pub tensor_border: TensorBorderBi3,
+}
+
+/// Input for KP20 bi-6 cap assembly from a regular cubic c-net ring.
+#[derive(Debug, Clone)]
+pub struct Kp20Bi6CNetCapInput {
+    /// Extraordinary point used as the guide-ring apex sample.
+    pub star_point: Point3,
+    /// Regular cubic c-net stencils around the cap.
+    pub cnet: Kp20RegularCNet,
 }
 
 /// Input for KP20 macro-cap assembly from guide-sampled patches.
@@ -63,6 +73,8 @@ pub enum Kp20Bi6AssembleError {
     Guide(String),
     /// Tensor-border split or validation failed.
     TensorBorder(String),
+    /// Regular c-net conversion failed.
+    CNet(String),
     /// One sector's S0 strip solve failed.
     S0 {
         /// Sector whose strip projection failed.
@@ -84,6 +96,7 @@ impl std::fmt::Display for Kp20Bi6AssembleError {
             ),
             Self::Guide(e) => write!(f, "KP20 guide-ring: {e}"),
             Self::TensorBorder(e) => write!(f, "KP20 tensor-border: {e}"),
+            Self::CNet(e) => write!(f, "KP20 c-net: {e}"),
             Self::S0 { sector, source } => write!(f, "KP20 sector {sector} S0 solve: {source}"),
         }
     }
@@ -108,6 +121,18 @@ pub fn assemble_kp20_bi6_cap(
     assemble_kp20_bi6_macro_cap(&Kp20Bi6MacroCapInput {
         tensor_border: input.tensor_border.clone(),
         sampled_macro_patches,
+    })
+}
+
+/// Assemble a KP20 2x2 bi-6 macro cap from regular cubic c-net data.
+pub fn assemble_kp20_bi6_cap_from_cnet(
+    input: &Kp20Bi6CNetCapInput,
+) -> Result<Kp20Bi6MacroCapOutput, Kp20Bi6AssembleError> {
+    let tensor_border =
+        kp20_tensor_border_from_regular_cnet(&input.cnet).map_err(Kp20Bi6AssembleError::CNet)?;
+    assemble_kp20_bi6_cap(&Kp20Bi6CapInput {
+        star_point: input.star_point,
+        tensor_border,
     })
 }
 

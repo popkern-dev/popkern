@@ -25,6 +25,25 @@ pub struct Kp20TauParams {
     pub mu3: f64,
 }
 
+/// KP18/KP20 Catmull-Clark characteristic-ring scalars.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Kp20CharacteristicScalars {
+    /// Valence.
+    pub n: usize,
+    /// `c = cos(2π/n)`.
+    pub c: f64,
+    /// Catmull-Clark subdominant eigenvalue
+    /// `(c + 5 + sqrt((c + 1)(c + 9))) / 16`.
+    pub lambda: f64,
+    /// `a_n = (1 + c) / 4`.
+    pub a: f64,
+    /// `b_n = (1 + c) / 8`.
+    pub b: f64,
+    /// One KP18/Stam normalisation of the six-entry characteristic
+    /// eigenvector at Fourier frequency one.
+    pub eigenvector: [f64; 6],
+}
+
 impl Kp20TauParams {
     /// Build KP20 equation (23) parameters for the paper-tabulated
     /// valences `n ∈ {3, 5, 6, 7, 8, 9, 10}`.
@@ -46,6 +65,43 @@ impl Kp20TauParams {
             mu3,
         })
     }
+}
+
+impl Kp20CharacteristicScalars {
+    /// Build KP18/KP20 characteristic-ring scalars for `n >= 3`.
+    pub fn for_valence(n: usize) -> Result<Self, String> {
+        if n < 3 {
+            return Err(format!(
+                "KP20 characteristic-ring scalars require n >= 3; got {n}"
+            ));
+        }
+        let c = (core::f64::consts::TAU / n as f64).cos();
+        let lambda = (c + 5.0 + ((c + 1.0) * (c + 9.0)).sqrt()) / 16.0;
+        let a = (1.0 + c) / 4.0;
+        let b = (1.0 + c) / 8.0;
+        let eigenvector = kp20_stam_characteristic_eigenvector(lambda, a, b);
+        Ok(Self {
+            n,
+            c,
+            lambda,
+            a,
+            b,
+            eigenvector,
+        })
+    }
+}
+
+/// KP18/PR08 Catmull-Clark subdominant eigenvalue `λ_n`.
+pub fn kp20_cc_subdominant_eigenvalue(n: usize) -> Result<f64, String> {
+    Ok(Kp20CharacteristicScalars::for_valence(n)?.lambda)
+}
+
+/// KP18/Stam six-entry characteristic eigenvector normalisation.
+pub fn kp20_stam_characteristic_eigenvector(lambda: f64, a: f64, b: f64) -> [f64; 6] {
+    let edge = (a - lambda) * (12.0 * lambda * lambda - 8.0 * lambda + 1.0);
+    let spoke = 4.0 * lambda * (3.0 * lambda - 1.0);
+    let face = 16.0 * lambda * lambda * b;
+    [edge, spoke, face, spoke, edge, face]
 }
 
 /// KP20 equation (23) table.
@@ -76,6 +132,38 @@ pub fn kp20_limit_weights(n: usize) -> Result<(f64, f64), String> {
     }
 }
 
+/// KP20 free scalar count before splitting each sector into a 2x2
+/// macro patch.
+///
+/// The count is `7n + 10`: seven scalar degrees of freedom per
+/// sector plus the central ten-dimensional cap block. KP20 keeps this
+/// count as the baseline cap space before the midpoint refinement adds
+/// interior freedom.
+pub fn kp20_s0_free_count(n: usize) -> Result<usize, String> {
+    if n < 3 {
+        return Err(format!("KP20 free-count formulas require n >= 3; got {n}"));
+    }
+    Ok(7 * n + 10)
+}
+
+/// KP20 free scalar count after the 2x2 macro-patch refinement.
+///
+/// The refined count is `16n + 10`, so the refinement contributes
+/// nine additional scalar degrees of freedom per sector while
+/// preserving the same central ten-dimensional block.
+pub fn kp20_refined_s0_free_count(n: usize) -> Result<usize, String> {
+    if n < 3 {
+        return Err(format!("KP20 free-count formulas require n >= 3; got {n}"));
+    }
+    Ok(16 * n + 10)
+}
+
+/// Additional scalar freedom introduced by KP20's midpoint
+/// refinement, equal to `(16n + 10) - (7n + 10) = 9n`.
+pub fn kp20_refinement_added_free_count(n: usize) -> Result<usize, String> {
+    Ok(kp20_refined_s0_free_count(n)? - kp20_s0_free_count(n)?)
+}
+
 /// KP20 equation (10) `b(u)` BB coefficients for the
 /// sector-separating reparameterisation.
 pub fn kp20_b_coeffs_near_o(c: f64) -> [f64; 3] {
@@ -94,6 +182,44 @@ pub fn kp20_g2_strip_weights(b0: f64) -> (f64, f64, f64) {
     let w2 = -w1;
     let w3 = b0 / 30.0;
     (w1, w2, w3)
+}
+
+/// KP18 Fig. 5 scalar C² join rule for the coefficient immediately
+/// left of a Bezier-curve join.
+pub fn kp18_c2_join_left(a_d_minus_2: f64, a_d: f64, b_2: f64) -> f64 {
+    0.25 * a_d_minus_2 + a_d - 0.25 * b_2
+}
+
+/// KP18 Fig. 5 mirrored scalar C² join rule for the coefficient
+/// immediately right of a Bezier-curve join.
+pub fn kp18_c2_join_right(a_d_minus_2: f64, b_0: f64, b_2: f64) -> f64 {
+    0.25 * b_2 + b_0 - 0.25 * a_d_minus_2
+}
+
+/// One-dimensional Hermite-to-degree-5 BB weights for orders 0..2
+/// at the lower endpoint.
+pub const HERMITE_TO_BI5_W: [[f64; 3]; 3] = [
+    [1.0, 0.0, 0.0],
+    [1.0, 1.0 / 5.0, 0.0],
+    [1.0, 2.0 / 5.0, 1.0 / 20.0],
+];
+
+/// Convert a 3x3 scalar Hermite jet `H[p][q] = ∂^p_u ∂^q_v f(0,0)`
+/// to the corresponding 3x3 corner block of a bi-5 BB grid.
+pub fn hermite_to_bi5_corner_block(h: [[f64; 3]; 3]) -> [[f64; 3]; 3] {
+    let mut out = [[0.0_f64; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            let mut value = 0.0;
+            for (p, row) in h.iter().enumerate().take(i + 1) {
+                for (q, &hpq) in row.iter().enumerate().take(j + 1) {
+                    value += HERMITE_TO_BI5_W[i][p] * HERMITE_TO_BI5_W[j][q] * hpq;
+                }
+            }
+            out[i][j] = value;
+        }
+    }
+    out
 }
 
 /// One-dimensional Hermite-to-degree-6 BB weights for orders 0..3

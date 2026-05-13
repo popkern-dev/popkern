@@ -109,6 +109,7 @@ mod kp15_bi6_rules;
 mod kp15_bi6_tensor_border_extract;
 mod kp20_bi6_assemble;
 mod kp20_bi6_cap;
+mod kp20_bi6_cnet;
 mod kp20_bi6_guide_build;
 mod kp20_bi6_guide_sample;
 mod kp20_bi6_math;
@@ -293,13 +294,18 @@ pub use kp15_bi6_rules::{
 };
 pub use kp15_bi6_tensor_border_extract::extract_bi3_tensor_border_from_polar_input;
 pub use kp20_bi6_assemble::{
-    Kp20Bi6AssembleError, Kp20Bi6CapInput, Kp20Bi6MacroCapInput, Kp20Bi6MacroCapOutput,
-    assemble_kp20_bi6_cap, assemble_kp20_bi6_macro_cap,
+    Kp20Bi6AssembleError, Kp20Bi6CNetCapInput, Kp20Bi6CapInput, Kp20Bi6MacroCapInput,
+    Kp20Bi6MacroCapOutput, assemble_kp20_bi6_cap, assemble_kp20_bi6_cap_from_cnet,
+    assemble_kp20_bi6_macro_cap,
 };
 pub use kp20_bi6_cap::{
     Kp20Bi6Patch, Kp20BoundaryHalf, Kp20MacroPatch, Kp20PieceId, Kp20SplitTensorBorder,
     initialise_kp20_macro_patches_from_tensor_border, kp20_apply_g2_strip,
     kp20_propagate_c2_upper_from_lower, split_kp20_tensor_border,
+};
+pub use kp20_bi6_cnet::{
+    CUBIC_BSPLINE_TO_BEZIER, Kp20RegularCNet, cubic_bspline_grid_to_bezier,
+    kp20_tensor_border_from_regular_cnet,
 };
 pub use kp20_bi6_guide_build::{Kp20GuideBuildInput, Kp20GuideRing, build_kp20_guide_ring};
 pub use kp20_bi6_guide_sample::{
@@ -308,8 +314,11 @@ pub use kp20_bi6_guide_sample::{
     kp20_sample_patch_from_guide,
 };
 pub use kp20_bi6_math::{
-    HERMITE_TO_BI6_W, Kp20TauParams, hermite_to_bi6_corner_block, kappa_for_valence,
-    kp20_b_coeffs_near_m, kp20_b_coeffs_near_o, kp20_g2_strip_weights, kp20_limit_weights,
+    HERMITE_TO_BI5_W, HERMITE_TO_BI6_W, Kp20CharacteristicScalars, Kp20TauParams,
+    hermite_to_bi5_corner_block, hermite_to_bi6_corner_block, kappa_for_valence, kp18_c2_join_left,
+    kp18_c2_join_right, kp20_b_coeffs_near_m, kp20_b_coeffs_near_o, kp20_cc_subdominant_eigenvalue,
+    kp20_g2_strip_weights, kp20_limit_weights, kp20_refined_s0_free_count,
+    kp20_refinement_added_free_count, kp20_s0_free_count, kp20_stam_characteristic_eigenvector,
 };
 pub use kp20_bi6_piece_maps::{
     Kp20PieceCornerMaps, Kp20SectorPieceMaps, kp20_default_sector_piece_maps,
