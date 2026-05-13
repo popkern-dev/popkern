@@ -11,7 +11,7 @@
 //! degree-raised from bi-3 to bi-5.
 
 use super::bernstein_tri6::{TRI6_CP_COUNT, flat_index};
-use super::direct_linalg::solve_dense;
+use super::direct_linalg::{condition_number_dense, solve_dense};
 use super::kp_polar_boundary_input::TensorBorderBi3;
 use super::kp13_bi5_bi3_bi5_ops::degree_raise_1d_3_to_5;
 use super::kp20_bi6_guide_continuity::kp18_guide_join_weights;
@@ -59,6 +59,8 @@ pub struct Kp20GuideLsqReport {
     pub rms_fit_residual: f64,
     /// Maximum absolute residual of the enforced equality constraints.
     pub max_constraint_residual: f64,
+    /// Condition number of the KKT matrix used for the constrained solve.
+    pub kkt_condition_number: f64,
 }
 
 /// Build a KP18/KP20 total-degree-6 guide by direct constrained LSQ.
@@ -75,7 +77,7 @@ pub fn solve_kp20_guide_lsq_with_report(
     star_point: Point3,
 ) -> Result<Kp20GuideLsqOutput, Kp20GuideLsqError> {
     let n = tensor_border.sectors.len();
-    if n < 3 || n == 4 {
+    if n < 3 || n == 4 || n > 10 {
         return Err(Kp20GuideLsqError::UnsupportedValence(n));
     }
     if !star_point.x.is_finite() || !star_point.y.is_finite() || !star_point.z.is_finite() {
@@ -95,11 +97,14 @@ pub fn solve_kp20_guide_lsq_with_report(
         vec![0.0_f64; vars],
     ];
 
+    let mut kkt_condition_number: f64 = 0.0;
     for (axis, solved_axis) in solved.iter_mut().enumerate() {
         let rhs = residual_rhs(&rows, axis);
         let fixed = axis_value(star_point, axis);
-        *solved_axis = solve_axis(vars, &rows, &rhs, &constraints, fixed)
+        let axis_solution = solve_axis(vars, &rows, &rhs, &constraints, fixed)
             .ok_or(Kp20GuideLsqError::SingularSystem(axis))?;
+        kkt_condition_number = kkt_condition_number.max(axis_solution.kkt_condition_number);
+        *solved_axis = axis_solution.values;
     }
 
     let mut sectors = vec![Kp20Tri6GuideSector::zero(); n];
@@ -115,7 +120,14 @@ pub fn solve_kp20_guide_lsq_with_report(
         sectors[s].cps[flat_index(DEGREE, DEGREE, 0)] = tensor_border.sectors[s][0][0];
         sectors[s].cps[flat_index(DEGREE, 0, DEGREE)] = tensor_border.sectors[s][0][3];
     }
-    let report = report(n, vars, &rows, &all_constraints, &solved);
+    let report = report(
+        n,
+        vars,
+        &rows,
+        &all_constraints,
+        &solved,
+        kkt_condition_number,
+    );
     Ok(Kp20GuideLsqOutput { sectors, report })
 }
 
@@ -267,13 +279,18 @@ fn eq(terms: &[(usize, usize, usize, usize, f64)]) -> LinearRow {
     }
 }
 
+struct AxisSolution {
+    values: Vec<f64>,
+    kkt_condition_number: f64,
+}
+
 fn solve_axis(
     vars: usize,
     residuals: &ResidualRows,
     rhs: &[f64],
     constraints: &[LinearRow],
     center: f64,
-) -> Option<Vec<f64>> {
+) -> Option<AxisSolution> {
     let size = vars + constraints.len() + 1;
     let mut a = vec![vec![0.0_f64; size]; size];
     let mut b = vec![0.0_f64; size];
@@ -293,7 +310,11 @@ fn solve_axis(
     for (cidx, row) in constraints.iter().enumerate() {
         add_lagrange_row(vars + 1 + cidx, &mut a, &mut b, &row.terms, 0.0);
     }
-    solve_dense(a, b).map(|x| x[..vars].to_vec())
+    let kkt_condition_number = condition_number_dense(&a)?.condition_number;
+    solve_dense(a, b).map(|x| AxisSolution {
+        values: x[..vars].to_vec(),
+        kkt_condition_number,
+    })
 }
 
 fn accumulate_normal_row(
@@ -361,6 +382,7 @@ fn report(
     rows: &ResidualRows,
     constraints: &[LinearRow],
     solved: &[Vec<f64>; 3],
+    kkt_condition_number: f64,
 ) -> Kp20GuideLsqReport {
     let mut max_fit: f64 = 0.0;
     let mut sum_fit_sq = 0.0;
@@ -387,6 +409,7 @@ fn report(
         max_fit_residual: max_fit,
         rms_fit_residual: (sum_fit_sq / count as f64).sqrt(),
         max_constraint_residual: max_constraint,
+        kkt_condition_number,
     }
 }
 

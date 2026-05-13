@@ -2,16 +2,15 @@
 //!
 //! The full KP18 paper path starts from a complete cap-net. In the
 //! current popkern polar pipeline the durable input available at this
-//! layer is the bi-3 tensor-border plus a star point. This module
-//! builds a total-degree-6 triangular guide sector per tensor-border
-//! sector by degree-raising the outer bi-3 boundary and radially
-//! blending it to the star point in triangular BB form. The builder is
-//! deterministic, affine invariant, and side-by-side with KP15.
+//! layer is the bi-3 tensor-border plus a star point. This module uses
+//! the direct KP18 constrained LSQ path for the published extraordinary
+//! valences and keeps the older radial bridge only as the explicit
+//! regular-valence `n = 4` fallback boundary.
 
 use super::bernstein_tri6::{TRI6_CP_COUNT, flat_index};
 use super::kp_polar_boundary_input::TensorBorderBi3;
 use super::kp_polar_shared::weighted_sum;
-use super::kp20_bi6_guide_lsq::solve_kp20_guide_lsq;
+use super::kp20_bi6_guide_lsq::{Kp20GuideLsqError, solve_kp20_guide_lsq};
 use super::kp20_bi6_guide_sample::Kp20Tri6GuideSector;
 use crate::geometry::Point3;
 
@@ -46,8 +45,10 @@ pub fn build_kp20_guide_ring(input: &Kp20GuideBuildInput) -> Result<Kp20GuideRin
     if n < 3 {
         return Err(format!("KP20 guide needs at least 3 sectors, got {n}"));
     }
-    if let Ok(sectors) = solve_kp20_guide_lsq(&input.tensor_border, input.star_point) {
-        return Ok(Kp20GuideRing { n, sectors });
+    match solve_kp20_guide_lsq(&input.tensor_border, input.star_point) {
+        Ok(sectors) => return Ok(Kp20GuideRing { n, sectors }),
+        Err(Kp20GuideLsqError::UnsupportedValence(4)) => {}
+        Err(err) => return Err(err.to_string()),
     }
     let mut sectors = Vec::with_capacity(n);
     for (sector_index, sector) in input.tensor_border.sectors.iter().enumerate() {

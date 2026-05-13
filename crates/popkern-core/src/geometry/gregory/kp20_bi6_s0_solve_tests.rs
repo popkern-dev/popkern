@@ -25,6 +25,8 @@ fn exact_square_system_recovers_free_points() {
     assert_close(out.free_points[0], p(1.0, 2.0, 3.0));
     assert_close(out.free_points[1], p(4.0, 5.0, 6.0));
     assert!(out.residual_squared < 1e-24);
+    assert!(out.normal_condition_number.is_finite());
+    assert!(out.normal_condition_number >= 1.0);
 }
 
 #[test]

@@ -97,3 +97,17 @@ fn guide_builder_falls_back_for_regular_valence_four() {
         p(1.0, 2.0, 3.0)
     );
 }
+
+#[test]
+fn guide_builder_does_not_radial_fallback_for_unpublished_valence() {
+    let input = Kp20GuideBuildInput {
+        star_point: p(1.0, 2.0, 3.0),
+        tensor_border: TensorBorderBi3 {
+            sectors: (0..11).map(|i| sector(i as f64 * 10.0)).collect(),
+        },
+    };
+
+    let err = build_kp20_guide_ring(&input).unwrap_err();
+
+    assert!(err.contains("unsupported valence 11"));
+}

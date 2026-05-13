@@ -15,6 +15,41 @@
 //! where per-spoke constraint systems are at most 27×36.
 
 use crate::geometry::Vec3;
+use faer::Mat;
+
+/// Singular-value condition report for a dense matrix.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct DenseConditionReport {
+    /// Largest singular value.
+    pub sigma_max: f64,
+    /// Smallest singular value.
+    pub sigma_min: f64,
+    /// `sigma_max / sigma_min`, or infinity when the matrix is singular.
+    pub condition_number: f64,
+}
+
+/// Measure a dense matrix condition number via SVD.
+pub(crate) fn condition_number_dense(m: &[Vec<f64>]) -> Option<DenseConditionReport> {
+    let rows = m.len();
+    let cols = m.first().map_or(0, Vec::len);
+    if rows == 0 || cols == 0 || m.iter().any(|row| row.len() != cols) {
+        return None;
+    }
+    let mat = Mat::from_fn(rows, cols, |r, c| m[r][c]);
+    let singular_values = mat.singular_values();
+    let sigma_max = singular_values.first().copied().unwrap_or(0.0);
+    let sigma_min = singular_values.last().copied().unwrap_or(0.0);
+    let condition_number = if sigma_min > 0.0 {
+        sigma_max / sigma_min
+    } else {
+        f64::INFINITY
+    };
+    Some(DenseConditionReport {
+        sigma_max,
+        sigma_min,
+        condition_number,
+    })
+}
 
 /// In-place Gaussian elimination with partial pivoting. Solves
 /// `M · x = b` for a dense square system. Returns `None` if the

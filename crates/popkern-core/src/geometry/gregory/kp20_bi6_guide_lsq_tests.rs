@@ -22,6 +22,13 @@ fn rejects_kp18_excluded_regular_valence_four() {
 }
 
 #[test]
+fn rejects_valence_outside_published_kp20_range() {
+    let tensor = planar_tensor_border(11);
+    let err = solve_kp20_guide_lsq(&tensor, Point3::new(0.0, 0.0, 0.0)).unwrap_err();
+    assert_eq!(err, Kp20GuideLsqError::UnsupportedValence(11));
+}
+
+#[test]
 fn reduced_constraints_leave_kp18_lsq_free_count() {
     for n in [3, 5, 6, 7, 8, 9, 10] {
         let vars = n * TRI6_CP_COUNT;
@@ -42,6 +49,8 @@ fn report_records_measured_postconditions() {
     assert!(output.report.max_constraint_residual < 1e-8);
     assert!(output.report.max_fit_residual.is_finite());
     assert!(output.report.rms_fit_residual.is_finite());
+    assert!(output.report.kkt_condition_number.is_finite());
+    assert!(output.report.kkt_condition_number > 1.0);
 }
 
 #[test]

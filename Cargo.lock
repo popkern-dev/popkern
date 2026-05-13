@@ -3242,6 +3242,7 @@ dependencies = [
 name = "popkern-core"
 version = "0.1.0"
 dependencies = [
+ "faer",
  "num-bigint",
  "num-integer",
  "num-rational",
