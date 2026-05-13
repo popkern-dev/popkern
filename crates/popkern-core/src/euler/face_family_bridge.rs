@@ -5,7 +5,6 @@ use crate::error::CoreError;
 use crate::topology::{
     BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
 };
-
 /// One bridge face cycle in an aggregate face-family bridge.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FaceFamilyBridgeCycleRequest {

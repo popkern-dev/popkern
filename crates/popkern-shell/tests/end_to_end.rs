@@ -1,5 +1,4 @@
 //! End-to-end integration tests for popkern-shell.
-
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_shell::*;

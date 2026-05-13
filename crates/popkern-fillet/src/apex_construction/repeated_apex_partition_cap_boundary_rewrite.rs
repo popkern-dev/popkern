@@ -228,15 +228,8 @@ impl CapBoundaryRewritePlan {
                     )?;
                     wire_existing_loop(brep, loop_handle, face, &protected_cycle)?;
                 }
-                AdjacentLoopRewriteKind::BoundaryPreservingAdjacentLoopRepairRequired => {
-                    author_boundary_preserving_adjacent_loop_repair(
-                        brep,
-                        rewrite,
-                        loop_handle,
-                        face,
-                    )?;
-                }
-                AdjacentLoopRewriteKind::ConstructionResidualAdjacentLoopRepairRequired => {
+                AdjacentLoopRewriteKind::BoundaryPreservingAdjacentLoopRepairRequired
+                | AdjacentLoopRewriteKind::ConstructionResidualAdjacentLoopRepairRequired => {
                     author_boundary_preserving_adjacent_loop_repair(
                         brep,
                         rewrite,

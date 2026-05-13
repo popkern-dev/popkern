@@ -1,5 +1,4 @@
 //! Boundary-side separator bridge mutation.
-
 use std::collections::BTreeSet;
 
 use crate::error::CoreError;

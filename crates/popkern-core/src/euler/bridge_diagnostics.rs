@@ -496,5 +496,4 @@ fn checksum_debug<T: core::fmt::Debug>(mut checksum: u64, value: T) -> u64 {
 }
 
 #[cfg(test)]
-#[path = "bridge_diagnostics_tests.rs"]
 mod tests;

@@ -1,6 +1,5 @@
 //! §5.3 Phase-10 polynomial-identity G1 solver for a **single**
 //! shared spoke between two bidegree-7 two-stripe Gregory patches.
-//!
 //! # The identity (Karciauskas-Peters form)
 //!
 //! For patches `A`, `B` sharing a boundary spoke `C(t)`:

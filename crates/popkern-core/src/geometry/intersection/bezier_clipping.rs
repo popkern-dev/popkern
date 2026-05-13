@@ -1,5 +1,4 @@
 //! Bezier clipping algorithm for curve intersection.
-
 #![allow(dead_code)]
 
 use crate::geometry::Point3;

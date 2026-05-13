@@ -1,5 +1,4 @@
 //! Adjacent face handling after draft surface replacement.
-//!
 //! When a face is drafted, edges shared with undrafted faces may move.
 //! This module handles extending/trimming adjacent faces to maintain
 //! valid topology, or inserting transition faces when needed.

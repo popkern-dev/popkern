@@ -1,5 +1,4 @@
 //! Cone constructor — proper 2-face BRep.
-
 use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI, TAU};
 
 use crate::error::CoreError;

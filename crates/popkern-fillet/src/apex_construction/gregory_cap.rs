@@ -17,7 +17,6 @@
 //! identify the cap face after apex teardown and merge any unmerged
 //! corner sub-faces left by the V-spoke kef sequence on Gregory
 //! caps with mixed-host mef sites.
-//!
 //! See ADR `docs/decisions/2026-04-30-phase-6c-a2-direct-apex-construction.md`
 //! §A2.4.
 
@@ -106,7 +105,6 @@ pub(super) fn assemble_gregory_cap_surface(
     }
     let n = outer_indices.len() / 2;
     validate_physical_sector_handles(sectors, n, apex_edge_handles)?;
-
     validate_planned_gregory_loop_roles(plan, outer_indices, n)?;
 
     // The K-P cap builder consumes sectors in planner order: FilletEnd[k]

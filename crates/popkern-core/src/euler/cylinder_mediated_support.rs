@@ -1,5 +1,4 @@
 //! Preflight contract for cylinder-mediated support continuation.
-
 use crate::error::CoreError;
 use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 

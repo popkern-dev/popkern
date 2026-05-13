@@ -8,9 +8,7 @@
 //!      via [`poke_hex_face_into_three_quads`].
 //!   3. Assign each sub-patch's `RectangularGregory` surface to
 //!      the corresponding sub-face.
-//!   4. Return three [`CornerPatchInfo`] entries — one per
-//!      sub-face — replacing the single entry the caller would
-//!      otherwise have emitted.
+//!   4. Return three [`CornerPatchInfo`] entries, replacing the single entry the caller would otherwise have emitted.
 //!
 //! The helper is a **pure function on the BRep + boundary**; it
 //! doesn't know about `FilletOptions` flags or dispatch — the
