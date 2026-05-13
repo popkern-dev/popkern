@@ -85,8 +85,12 @@ pub(super) fn try_kp20_polar_dispatch(
         );
         return None;
     }
-    if let Some(idx) = first_self_intersecting_patch(&candidate) {
-        trace("self-intersection", n, Some(format!("patch index {idx}")));
+    if let Some((idx, detail)) = first_self_intersecting_patch(&candidate) {
+        trace(
+            "self-intersection",
+            n,
+            Some(format!("patch index {idx}; {}", detail.diagnostic_label())),
+        );
         return None;
     }
     trace("accepted", n, Some(format!("4N={} bi-9 patches", 4 * n)));
@@ -115,10 +119,16 @@ pub(super) fn try_kp20_polar_macro_candidate(
         .collect())
 }
 
-pub(super) fn first_self_intersecting_patch(candidate: &[GregoryPatch]) -> Option<usize> {
-    candidate
-        .iter()
-        .position(|gp| gp.self_intersects_with_tolerance(SELF_INT_TOL))
+pub(super) fn first_self_intersecting_patch(
+    candidate: &[GregoryPatch],
+) -> Option<(
+    usize,
+    popkern_core::geometry::gregory::GregorySelfIntersectionReport,
+)> {
+    candidate.iter().enumerate().find_map(|(idx, gp)| {
+        let report = gp.self_intersection_report(SELF_INT_TOL);
+        report.intersects().then_some((idx, report))
+    })
 }
 
 fn trace(stage: &str, n: usize, detail: Option<String>) {

@@ -305,6 +305,7 @@ pub use pns_cap_assemble::{
 };
 pub use pns_central_quad::QuadMapJet;
 pub use pns_sigma::{SigmaCenterJet, sigma_center_jet, sigma_center_jet_default};
+pub use self_intersection::GregorySelfIntersectionReport;
 pub use triangular::TriangularGregory;
 
 /// A Gregory patch of either rectangular (N=4) or triangular
@@ -434,6 +435,12 @@ impl GregoryPatch {
     /// Returns `true` when a self-intersection is detected.
     pub fn self_intersects_with_tolerance(&self, tolerance: f64) -> bool {
         self_intersection::gregory_self_intersects(self, tolerance)
+    }
+
+    /// Return the measured terms behind
+    /// [`self_intersects_with_tolerance`](Self::self_intersects_with_tolerance).
+    pub fn self_intersection_report(&self, tolerance: f64) -> GregorySelfIntersectionReport {
+        self_intersection::gregory_self_intersection_report(self, tolerance)
     }
 }
 

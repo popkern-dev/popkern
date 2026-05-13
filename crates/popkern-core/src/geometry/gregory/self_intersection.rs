@@ -29,8 +29,60 @@ use super::GregoryPatch;
 #[cfg(test)]
 use crate::geometry::Point3;
 
+/// Measured decision terms for Gregory self-intersection validation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GregorySelfIntersectionReport {
+    /// Minimum sampled `|du x dv|` divided by the maximum sampled value.
+    pub min_jacobian_ratio: f64,
+    /// Minimum sampled unit-normal dot against the strongest Jacobian sample.
+    pub min_jacobian_normal_cos: f64,
+    /// Whether the sampled Jacobian magnitude collapsed below the fold band.
+    pub jacobian_collapse: bool,
+    /// Whether sampled Jacobian normals reversed strongly enough to imply a curl.
+    pub jacobian_reversal: bool,
+    /// Whether the subdivision surface/surface check found an interior overlap.
+    pub subdivision_intersection: bool,
+}
+
+impl GregorySelfIntersectionReport {
+    /// Return true when any accepted self-intersection signal fired.
+    pub fn intersects(&self) -> bool {
+        self.jacobian_fold() || self.jacobian_reversal || self.subdivision_intersection
+    }
+
+    /// Return true when Jacobian collapse coincides with a normal-side change.
+    pub fn jacobian_fold(&self) -> bool {
+        self.jacobian_collapse && self.min_jacobian_normal_cos < 0.0
+    }
+
+    /// Stable diagnostic string for rejection traces and validation logs.
+    pub fn diagnostic_label(&self) -> String {
+        format!(
+            "intersects={} jacobian_fold={} jacobian_collapse={} jacobian_reversal={} subdivision_intersection={} min_jacobian_ratio={:.3e} min_jacobian_normal_cos={:.3e}",
+            self.intersects(),
+            self.jacobian_fold(),
+            self.jacobian_collapse,
+            self.jacobian_reversal,
+            self.subdivision_intersection,
+            self.min_jacobian_ratio,
+            self.min_jacobian_normal_cos
+        )
+    }
+}
+
 pub(super) fn gregory_self_intersects(patch: &GregoryPatch, tolerance: f64) -> bool {
-    jacobian_sign_flips(patch) || subdivision_surface_intersection(patch, tolerance)
+    gregory_self_intersection_report(patch, tolerance).intersects()
+}
+
+pub(super) fn gregory_self_intersection_report(
+    patch: &GregoryPatch,
+    tolerance: f64,
+) -> GregorySelfIntersectionReport {
+    let mut report = jacobian_report(patch);
+    if !report.intersects() {
+        report.subdivision_intersection = subdivision_surface_intersection(patch, tolerance);
+    }
+    report
 }
 
 /// Plan-mandated subdivision-based check: convert the Gregory
@@ -151,7 +203,7 @@ fn nurbs_uv_range(
 /// Jacobians at corners where the ε-regularized denominator
 /// drops to machine epsilon, and the resulting direction is
 /// numerical noise rather than a real surface feature.
-fn jacobian_sign_flips(patch: &GregoryPatch) -> bool {
+fn jacobian_report(patch: &GregoryPatch) -> GregorySelfIntersectionReport {
     // Combined check:
     //
     // 1. **Magnitude collapse**: a fold-over collapses the
@@ -188,13 +240,20 @@ fn jacobian_sign_flips(patch: &GregoryPatch) -> bool {
         .iter()
         .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
     else {
-        return false;
+        return GregorySelfIntersectionReport {
+            min_jacobian_ratio: 0.0,
+            min_jacobian_normal_cos: 1.0,
+            jacobian_collapse: true,
+            jacobian_reversal: false,
+            subdivision_intersection: false,
+        };
     };
     let min_mag = samples
         .iter()
         .map(|(_, m)| *m)
         .fold(f64::INFINITY, f64::min);
-    let collapse = min_mag / max_mag < 1e-3;
+    let min_jacobian_ratio = min_mag / max_mag;
+    let collapse = min_jacobian_ratio < 1e-3;
 
     let [rx, ry, rz] = ref_dir;
     let mag_threshold = 0.01 * max_mag;
@@ -236,8 +295,13 @@ fn jacobian_sign_flips(patch: &GregoryPatch) -> bool {
     // | Pyramid sub-patch (sharp curve)    | 0.04-0.07 | -0.79.. | pass    |
     // | N=4 K-P bidegree-9 sub-patch       | 4.3e-4    |  1.00   | **pass**|
     // | Corner-swap fold                   | 0.0016    | -1.00   | flag    |
-    let fold = collapse && min_cos < 0.0;
-    fold || reversed
+    GregorySelfIntersectionReport {
+        min_jacobian_ratio,
+        min_jacobian_normal_cos: min_cos,
+        jacobian_collapse: collapse,
+        jacobian_reversal: reversed,
+        subdivision_intersection: false,
+    }
 }
 
 #[cfg(test)]
