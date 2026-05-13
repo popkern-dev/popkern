@@ -23,12 +23,63 @@ fn rejects_kp18_excluded_regular_valence_four() {
 
 #[test]
 fn reduced_constraints_leave_kp18_lsq_free_count() {
-    for n in [5, 6, 7, 8, 9, 10] {
+    for n in [3, 5, 6, 7, 8, 9, 10] {
         let vars = n * TRI6_CP_COUNT;
         let rows = constraint_rows(n).unwrap();
         let independent = independent_rows(vars, &rows);
         assert_eq!(vars - independent.len() - 1, 12 * n + 9);
     }
+}
+
+#[test]
+fn report_records_measured_postconditions() {
+    let output =
+        solve_kp20_guide_lsq_with_report(&planar_tensor_border(5), Point3::new(0.0, 0.0, 0.0))
+            .unwrap();
+
+    assert_eq!(output.report.n, 5);
+    assert_eq!(output.report.free_parameters_after_center_pin, 12 * 5 + 9);
+    assert!(output.report.max_constraint_residual < 1e-8);
+    assert!(output.report.max_fit_residual.is_finite());
+    assert!(output.report.rms_fit_residual.is_finite());
+}
+
+#[test]
+fn rejects_non_finite_star_or_tensor_border() {
+    let tensor = planar_tensor_border(5);
+    assert!(matches!(
+        solve_kp20_guide_lsq(&tensor, Point3::new(f64::NAN, 0.0, 0.0)),
+        Err(Kp20GuideLsqError::InvalidTensorBorder(_))
+    ));
+
+    let mut bad = planar_tensor_border(5);
+    bad.sectors[2][1][3].z = f64::INFINITY;
+    assert!(matches!(
+        solve_kp20_guide_lsq(&bad, Point3::new(0.0, 0.0, 0.0)),
+        Err(Kp20GuideLsqError::InvalidTensorBorder(_))
+    ));
+}
+
+#[test]
+fn solve_is_deterministic_and_affine_covariant() {
+    let tensor = planar_tensor_border(5);
+    let star = Point3::new(0.1, -0.2, 0.3);
+    let a = solve_kp20_guide_lsq(&tensor, star).unwrap();
+    let b = solve_kp20_guide_lsq(&tensor, star).unwrap();
+    assert_sectors_close(&a, &b, 1e-15);
+
+    let shifted = map_tensor(&tensor, |p| affine(p, 2.5, Point3::new(3.0, -4.0, 1.0)));
+    let shifted_star = affine(star, 2.5, Point3::new(3.0, -4.0, 1.0));
+    let shifted_solution = solve_kp20_guide_lsq(&shifted, shifted_star).unwrap();
+    let expected: Vec<Kp20Tri6GuideSector> = a
+        .iter()
+        .map(|sector| Kp20Tri6GuideSector {
+            cps: sector
+                .cps
+                .map(|p| affine(p, 2.5, Point3::new(3.0, -4.0, 1.0))),
+        })
+        .collect();
+    assert_sectors_close(&shifted_solution, &expected, 1e-7);
 }
 
 fn planar_tensor_border(n: usize) -> TensorBorderBi3 {
@@ -50,4 +101,37 @@ fn planar_tensor_border(n: usize) -> TensorBorderBi3 {
         sectors.push(rows);
     }
     TensorBorderBi3 { sectors }
+}
+
+fn map_tensor(t: &TensorBorderBi3, f: impl Fn(Point3) -> Point3) -> TensorBorderBi3 {
+    let mut out = t.clone();
+    for sector in &mut out.sectors {
+        for row in sector {
+            for p in row {
+                *p = f(*p);
+            }
+        }
+    }
+    out
+}
+
+fn affine(p: Point3, scale: f64, offset: Point3) -> Point3 {
+    Point3::new(
+        scale * p.x + offset.x,
+        scale * p.y + offset.y,
+        scale * p.z + offset.z,
+    )
+}
+
+fn assert_sectors_close(a: &[Kp20Tri6GuideSector], b: &[Kp20Tri6GuideSector], eps: f64) {
+    assert_eq!(a.len(), b.len());
+    for (sa, sb) in a.iter().zip(b) {
+        for (pa, pb) in sa.cps.iter().zip(sb.cps) {
+            assert!(
+                pa.approx_eq(&pb, eps),
+                "expected {pa:?} to match {pb:?}, distance {}",
+                pa.distance_to(&pb)
+            );
+        }
+    }
 }

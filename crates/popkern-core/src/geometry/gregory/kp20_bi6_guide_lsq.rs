@@ -44,21 +44,51 @@ impl std::fmt::Display for Kp20GuideLsqError {
 
 impl std::error::Error for Kp20GuideLsqError {}
 
+/// Measured postconditions from a successful KP18 guide solve.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Kp20GuideLsqReport {
+    /// Valence of the guide ring.
+    pub n: usize,
+    /// Number of independent equality rows after rank filtering.
+    pub independent_constraints: usize,
+    /// Remaining scalar guide degrees of freedom after pinning the center.
+    pub free_parameters_after_center_pin: usize,
+    /// Maximum absolute residual of the fitted bi-5 tensor-border rows.
+    pub max_fit_residual: f64,
+    /// Root-mean-square residual of the fitted bi-5 tensor-border rows.
+    pub rms_fit_residual: f64,
+    /// Maximum absolute residual of the enforced equality constraints.
+    pub max_constraint_residual: f64,
+}
+
 /// Build a KP18/KP20 total-degree-6 guide by direct constrained LSQ.
 pub fn solve_kp20_guide_lsq(
     tensor_border: &TensorBorderBi3,
     star_point: Point3,
 ) -> Result<Vec<Kp20Tri6GuideSector>, Kp20GuideLsqError> {
+    solve_kp20_guide_lsq_with_report(tensor_border, star_point).map(|solved| solved.sectors)
+}
+
+/// Build a KP18/KP20 guide and return measured postconditions.
+pub fn solve_kp20_guide_lsq_with_report(
+    tensor_border: &TensorBorderBi3,
+    star_point: Point3,
+) -> Result<Kp20GuideLsqOutput, Kp20GuideLsqError> {
     let n = tensor_border.sectors.len();
     if n < 3 || n == 4 {
         return Err(Kp20GuideLsqError::UnsupportedValence(n));
     }
+    if !star_point.x.is_finite() || !star_point.y.is_finite() || !star_point.z.is_finite() {
+        return Err(Kp20GuideLsqError::InvalidTensorBorder(
+            "star point is non-finite".to_string(),
+        ));
+    }
     validate_tensor_border(tensor_border)?;
 
     let rows = residual_rows(tensor_border);
-    let constraints = constraint_rows(n)?;
-    let constraints = independent_rows(n * TRI6_CP_COUNT, &constraints);
+    let all_constraints = constraint_rows(n)?;
     let vars = n * TRI6_CP_COUNT;
+    let constraints = independent_rows(vars, &all_constraints);
     let mut solved = [
         vec![0.0_f64; vars],
         vec![0.0_f64; vars],
@@ -85,7 +115,17 @@ pub fn solve_kp20_guide_lsq(
         sectors[s].cps[flat_index(DEGREE, DEGREE, 0)] = tensor_border.sectors[s][0][0];
         sectors[s].cps[flat_index(DEGREE, 0, DEGREE)] = tensor_border.sectors[s][0][3];
     }
-    Ok(sectors)
+    let report = report(n, vars, &rows, &all_constraints, &solved);
+    Ok(Kp20GuideLsqOutput { sectors, report })
+}
+
+/// Guide sectors plus measured solve report.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Kp20GuideLsqOutput {
+    /// One total-degree-6 guide sector per valence sector.
+    pub sectors: Vec<Kp20Tri6GuideSector>,
+    /// Measured postconditions from the direct solve.
+    pub report: Kp20GuideLsqReport,
 }
 
 #[derive(Clone)]
@@ -313,6 +353,45 @@ fn independent_rows(vars: usize, rows: &[LinearRow]) -> Vec<LinearRow> {
 
 fn residual_rhs(rows: &ResidualRows, axis: usize) -> Vec<f64> {
     rows.targets[axis].clone()
+}
+
+fn report(
+    n: usize,
+    vars: usize,
+    rows: &ResidualRows,
+    constraints: &[LinearRow],
+    solved: &[Vec<f64>; 3],
+) -> Kp20GuideLsqReport {
+    let mut max_fit: f64 = 0.0;
+    let mut sum_fit_sq = 0.0;
+    let mut count = 0_usize;
+    for (row_idx, row) in rows.rows.iter().enumerate() {
+        for (axis, solved_axis) in solved.iter().enumerate() {
+            let residual = row_value(row, solved_axis) - rows.targets[axis][row_idx];
+            max_fit = max_fit.max(residual.abs());
+            sum_fit_sq += residual * residual;
+            count += 1;
+        }
+    }
+    let mut max_constraint: f64 = 0.0;
+    for row in constraints {
+        for solved_axis in solved {
+            max_constraint = max_constraint.max(row_value(row, solved_axis).abs());
+        }
+    }
+    let independent = independent_rows(vars, constraints).len();
+    Kp20GuideLsqReport {
+        n,
+        independent_constraints: independent,
+        free_parameters_after_center_pin: vars - independent - 1,
+        max_fit_residual: max_fit,
+        rms_fit_residual: (sum_fit_sq / count as f64).sqrt(),
+        max_constraint_residual: max_constraint,
+    }
+}
+
+fn row_value(row: &LinearRow, values: &[f64]) -> f64 {
+    row.terms.iter().map(|&(i, w)| w * values[i]).sum()
 }
 
 fn var_index(sector: usize, cp: usize) -> usize {

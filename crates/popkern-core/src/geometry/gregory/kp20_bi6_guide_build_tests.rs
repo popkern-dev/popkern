@@ -79,3 +79,21 @@ fn guide_builder_rejects_invalid_valence() {
 
     assert!(build_kp20_guide_ring(&input).is_err());
 }
+
+#[test]
+fn guide_builder_falls_back_for_regular_valence_four() {
+    let input = Kp20GuideBuildInput {
+        star_point: p(1.0, 2.0, 3.0),
+        tensor_border: TensorBorderBi3 {
+            sectors: vec![sector(0.0), sector(10.0), sector(20.0), sector(30.0)],
+        },
+    };
+
+    let guide = build_kp20_guide_ring(&input).unwrap();
+
+    assert_eq!(guide.n, 4);
+    assert_eq!(
+        guide.sector(0).cps[tri6_flat_index(6, 0, 0)],
+        p(1.0, 2.0, 3.0)
+    );
+}
