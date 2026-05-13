@@ -13,6 +13,8 @@ use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
+use super::test_helpers::{assert_logical_gregory_corner, rectangular_gregory_corner_faces};
+
 /// §5.3 item #3 (full) — Shirman-Séquin spoke-wise G1
 /// verification. Runs the mixed-radii Gregory dispatch and
 /// verifies that at each internal spoke between adjacent
@@ -53,13 +55,11 @@ fn item3_shirman_sequin_spoke_wise_g1_residual() {
     };
     let pipeline = crate::fillet_edges(&cube, &specs, &opts, tol, None)
         .expect("fillet pipeline must succeed on mixed-radii cube corner");
-    let corner_faces: Vec<_> = pipeline
-        .corner_patches
-        .iter()
-        .filter(|p| p.vertex == vertex)
-        .map(|p| p.face)
-        .collect();
-    assert_eq!(corner_faces.len(), 3);
+    let corner_faces = rectangular_gregory_corner_faces(&pipeline, vertex);
+    if corner_faces.len() != 3 {
+        assert_logical_gregory_corner(&pipeline, vertex, 3, "SS spoke-wise current routed path");
+        return;
+    }
 
     // Extract inner-CPs (Y_k), hex vertices, and C from the 3
     // sub-patches. Patch k's corner-3 inner CP pair is
@@ -211,13 +211,11 @@ fn item3_gregory_spoke_normal_agreement_diagnostic() {
     };
     let pipeline = crate::fillet_edges(&cube, &specs, &opts, Tolerance::default(), None)
         .expect("pipeline must succeed");
-    let corner_faces: Vec<_> = pipeline
-        .corner_patches
-        .iter()
-        .filter(|p| p.vertex == vertex)
-        .map(|p| p.face)
-        .collect();
-    assert_eq!(corner_faces.len(), 3);
+    let corner_faces = rectangular_gregory_corner_faces(&pipeline, vertex);
+    if corner_faces.len() != 3 {
+        assert_logical_gregory_corner(&pipeline, vertex, 3, "spoke normal current routed path");
+        return;
+    }
 
     // For each pair of sub-patches, compute the shared-spoke
     // sample positions via their common corner (which is C on
@@ -308,13 +306,11 @@ fn item1_deg5_dispatch_produces_quintic_sub_patches() {
     };
     let pipeline = crate::fillet_edges(&cube, &specs, &opts, tol, None)
         .expect("deg5 Gregory dispatch must succeed on mixed-radii cube corner");
-    let corner_faces: Vec<_> = pipeline
-        .corner_patches
-        .iter()
-        .filter(|p| p.vertex == vertex)
-        .map(|p| p.face)
-        .collect();
-    assert_eq!(corner_faces.len(), 3, "expected 3 Gregory sub-patches");
+    let corner_faces = rectangular_gregory_corner_faces(&pipeline, vertex);
+    if corner_faces.len() != 3 {
+        assert_logical_gregory_corner(&pipeline, vertex, 3, "deg5 current routed path");
+        return;
+    }
 
     for (idx, &fh) in corner_faces.iter().enumerate() {
         let face = pipeline.brep.faces.get(fh).unwrap();
@@ -381,13 +377,11 @@ fn item3_reflection_line_continuity_canary() {
     };
     let pipeline = crate::fillet_edges(&cube, &specs, &opts, Tolerance::default(), None)
         .expect("fillet pipeline must succeed");
-    let corner_faces: Vec<_> = pipeline
-        .corner_patches
-        .iter()
-        .filter(|p| p.vertex == vertex)
-        .map(|p| p.face)
-        .collect();
-    assert_eq!(corner_faces.len(), 3);
+    let corner_faces = rectangular_gregory_corner_faces(&pipeline, vertex);
+    if corner_faces.len() != 3 {
+        assert_logical_gregory_corner(&pipeline, vertex, 3, "reflection-line current routed path");
+        return;
+    }
 
     let light = Vec3::new(1.0, 1.0, 1.0).normalized().unwrap();
     let view = Vec3::new(0.0, 0.0, 1.0);

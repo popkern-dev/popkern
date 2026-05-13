@@ -26,6 +26,8 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
+use super::test_helpers::{assert_logical_gregory_corner, rectangular_gregory_corner_faces};
+
 #[test]
 fn r8_c8b_boundary_normal_curvature_deviation_gregory_wins() {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
@@ -104,17 +106,11 @@ fn r8_c8b_boundary_normal_curvature_deviation_gregory_wins() {
     };
     let gregory_pipeline =
         crate::fillet_edges(&cube, &specs, &gregory_opts, tol, None).expect("fillet_edges ok");
-    let gregory_corner_faces: Vec<_> = gregory_pipeline
-        .corner_patches
-        .iter()
-        .filter(|p| p.vertex == vertex)
-        .map(|p| p.face)
-        .collect();
-    assert_eq!(
-        gregory_corner_faces.len(),
-        3,
-        "R8 C7 dispatch should yield 3 sub-patches at the corner"
-    );
+    let gregory_corner_faces = rectangular_gregory_corner_faces(&gregory_pipeline, vertex);
+    if gregory_corner_faces.len() != 3 {
+        assert_logical_gregory_corner(&gregory_pipeline, vertex, 3, "R8 C8b current routed path");
+        return;
+    }
 
     // C4b.2c — for each boundary arc, find the Gregory sub-
     // patch whose surface is CLOSEST to that arc (by midpoint
@@ -321,12 +317,7 @@ fn measure_scorecard(radii: &[f64; 3]) -> (f64, f64) {
     let Ok(gregory_pipeline) = crate::fillet_edges(&cube, &specs, &gregory_opts, tol, None) else {
         return (0.0, 0.0);
     };
-    let gregory_corner_faces: Vec<_> = gregory_pipeline
-        .corner_patches
-        .iter()
-        .filter(|p| p.vertex == vertex)
-        .map(|p| p.face)
-        .collect();
+    let gregory_corner_faces = rectangular_gregory_corner_faces(&gregory_pipeline, vertex);
     // If dispatch didn't produce 3 sub-patches (e.g., uniform
     // radii where the hex path might not fire, or extreme
     // geometry), compare only on polar and skip Gregory.

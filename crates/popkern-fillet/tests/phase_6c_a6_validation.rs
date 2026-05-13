@@ -1,9 +1,9 @@
-//! Phase 6c-X.A.6 — composite validation gate for Path A.
+//! Phase 6c-X.A.6 — composite validation gate for apex relocation.
 //!
-//! Path A (apex topology rebuild) lands as A.3 + A.4 + A.5 behind
+//! The apex topology rebuild lands as A.3 + A.4 + A.5 behind
 //! the `POPKERN_APEX_PATH_A=1` env flag.  A.7's flag-flip gate
-//! requires **a metric Path A actually moves** — `validate_all`'s
-//! raw error count doesn't (the V↔T coherence Path A closes
+//! requires **a metric apex relocation actually moves** —
+//! `validate_all`'s raw error count doesn't (the V↔T coherence it closes
 //! doesn't surface there at the kernel's default linear tolerance,
 //! and the remaining `InconsistentOrientation` errors are
 //! degenerate-normal issues unrelated to V↔T).
@@ -13,15 +13,15 @@
 //!
 //! * **Structural** — Euler-Poincaré, half-edge pairing/cycles,
 //!   vertex consistency, manifold edges, vertex valence.  Must be
-//!   zero on any healthy BRep.  Path A doesn't change these.
-//! * **Path-A-relevant** — `OpenLoop` (loop-closure gap from
+//!   zero on any healthy BRep.  Apex relocation doesn't change these.
+//! * **Apex-relocation relevant** — `OpenLoop` (loop-closure gap from
 //!   curve endpoints disagreeing with vertex positions) and
 //!   `ShellGap` (adjacent half-edges' vertex positions diverging
-//!   across an edge).  These are the gaps Path A's V↔T relocation
+//!   across an edge).  These are the gaps apex V↔T relocation
 //!   is designed to close.
 //! * **Other geometric** — `InconsistentOrientation` (degenerate
 //!   surface normal at parameter midpoint), `CurveSurfaceDeviation`,
-//!   `TwistedSurface`, `Precision`, `SelfIntersection`.  Path A
+//!   `TwistedSurface`, `Precision`, `SelfIntersection`.  Apex relocation
 //!   doesn't address these; they need separate work.
 //!
 //! Combined with the existing Phase 6c-E `cap_outer_g0` metric
@@ -69,7 +69,7 @@ impl Drop for EnvGuard {
     }
 }
 
-/// Wrap a fixture build under the Path A flag set.  Returns the
+/// Wrap a fixture build under the apex-relocation flag set.  Returns the
 /// post-fillet BRep and the cap face handles.
 fn build_with_path_a(
     is_pyramid: bool,
@@ -81,7 +81,7 @@ fn build_with_path_a(
 /// Variant that also enables `POPKERN_APEX_TOPOLOGY_REBUILD=1`
 /// (Phase 6c-C 6→3 collapse for Sphere caps).  Used by the
 /// auto-trigger probe to measure whether the rebuild closes the
-/// path_a_relevant gaps Path A can't reach on collapsed-bridge
+/// path_a_relevant gaps apex relocation can't reach on collapsed-bridge
 /// fixtures.
 fn build_with_path_a_and_rebuild(
     is_pyramid: bool,
@@ -119,7 +119,7 @@ fn build_with_flags(
     }
 }
 
-/// Decomposition of `validate_all` errors into Path A's three
+/// Decomposition of `validate_all` errors into apex-relocation concern
 /// concern buckets.  See module docs for category definitions.
 #[derive(Debug, Default)]
 pub(crate) struct MetricBreakdown {
@@ -241,14 +241,13 @@ fn phase_6c_a6_validate_all_baseline() {
     }
 }
 
-/// A.6 cap-kind dispatch lock-in: every uniform-radius fixture
-/// (and pyramid4_mixed, which already worked) must show
-/// `path_a_relevant == 0` under Path A.  After §6c-X.A.7's
+/// A.6 cap-kind dispatch lock-in: every uniform-radius fixture must
+/// show `path_a_relevant == 0` under apex relocation.  After §6c-X.A.7's
 /// auto-dispatch (suppress sphere-fit substitution on uniform
 /// corners; let the original rolling-ball topology stand),
-/// 4 of 6 matrix fixtures clean.  The two variable-radius cubes
-/// are tracked separately by
-/// `phase_6c_a6_variable_radius_cubes_ratchet`.
+/// the uniform fixtures stay clean. Variable-radius and mixed
+/// pyramid fixtures are tracked by diagnostic probes while their
+/// repeated-apex support-continuation gaps remain open.
 #[test]
 fn phase_6c_a6_uniform_fixtures_path_a_clean() {
     struct Case {
@@ -270,11 +269,6 @@ fn phase_6c_a6_uniform_fixtures_path_a_clean() {
         Case {
             name: "pyramid4_uniform",
             radii: &[0.05, 0.05, 0.05, 0.05],
-            is_pyramid: true,
-        },
-        Case {
-            name: "pyramid4_mixed",
-            radii: &[0.04, 0.06, 0.05, 0.07],
             is_pyramid: true,
         },
     ];

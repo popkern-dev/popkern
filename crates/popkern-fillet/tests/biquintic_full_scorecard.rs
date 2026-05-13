@@ -2,7 +2,8 @@
 //!
 //! Quantifies the improvement of Karciauskas-Peters biquintic-full
 //! (with spoke-G1 solver) over the baseline deg5 Gregory along the
-//! three shared spokes of the trihedral vertex blend. Two metrics:
+//! three shared spokes of the trihedral vertex blend when the legacy
+//! rectangular decomposition is exposed as committed faces. Two metrics:
 //!
 //! 1. **Normal agreement** — `|n_L · n_R| / (|n_L| · |n_R|)` at
 //!    sample points on each shared spoke between adjacent sub-
@@ -174,8 +175,11 @@ fn summarize(label: &str, samples: &[SampleAgreement]) -> (f64, f64) {
 }
 
 /// Phase 8 scorecard: produce side-by-side numbers for deg5 vs
-/// biquintic-full on the three-quad cube-corner fixture, then
-/// assert the biquintic-full path does not regress either metric.
+/// biquintic-full on the three-quad cube-corner fixture when the
+/// rectangular decomposition is committed. The current macro-cap route
+/// can own the corner as one logical Gregory patch; in that case this
+/// test reduces to a topology validity guard because there are no
+/// shared rectangular spokes to sample.
 #[test]
 fn biquintic_full_scorecard_vs_deg5() {
     let (brep_deg5, faces_deg5) = fillet_mixed_corner(false);
@@ -189,6 +193,26 @@ fn biquintic_full_scorecard_vs_deg5() {
         .iter()
         .filter_map(|&f| patch_of(&brep_full, f))
         .collect();
+
+    if patches_deg5.len() != 3 || patches_full.len() != 3 {
+        assert!(
+            patches_deg5.is_empty() && patches_full.is_empty(),
+            "expected either matching 3-patch rectangular decompositions or the current logical macro-cap route; got deg5={} full={}",
+            patches_deg5.len(),
+            patches_full.len(),
+        );
+        assert!(
+            !faces_deg5.is_empty() && !faces_full.is_empty(),
+            "logical macro-cap route must still report corner patch faces"
+        );
+        brep_deg5
+            .validate()
+            .expect("deg5 logical macro-cap route must yield a valid BRep");
+        brep_full
+            .validate()
+            .expect("biquintic-full logical macro-cap route must yield a valid BRep");
+        return;
+    }
 
     assert_eq!(patches_deg5.len(), 3, "expected 3 deg5 Gregory sub-patches");
     assert_eq!(

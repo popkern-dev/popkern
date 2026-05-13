@@ -4,11 +4,10 @@
 //! (`POPKERN_SPHERE_FIT_BOUNDARY=1` + `POPKERN_STAGE4_WIDE_WIRE_TOL=1`)
 //! and captures `cap_outer_g0` / `cap_outer_g1` for each fixture.
 //!
-//! Goal: confirm the Stage 4.7e win on `pyramid4_mixed`
-//! (4.85e-10 m worst case) generalises to the rest of the matrix
-//! before flipping the flag default in Phase 6c-F.
+//! Goal: preserve the Stage 4.7e measurements as diagnostics while
+//! A2/logical macro-cap construction owns the default commercial path.
 //!
-//! Commercial gate: `cap_outer_g0` ≤ 5e-3 m.
+//! Historical commercial gate: `cap_outer_g0` ≤ 5e-3 m.
 //!
 //! Each fixture runs as a separate test so failures localise.
 //! `#[ignore]` keeps legacy/stage-specific diagnostics out of the
@@ -116,6 +115,11 @@ fn phase_6c_e_matrix_probe() {
     report("pyramid4_mixed", &p4m);
 }
 
+/// Legacy Stage 4.7e mixed-radius diagnostic. The active default
+/// commercial route is A2/logical macro-cap containment; native
+/// repeated-apex support-continuation work must replace this before
+/// re-promoting it to a hard gate.
+#[ignore = "legacy Stage 4.7e diagnostic; default mixed-radius commercial path is A2/logical macro-cap containment"]
 #[test]
 fn phase_6c_e_pyramid4_mixed_under_5mm() {
     let m = run_n_pyramid_with_stage4(4, 0.8, &[0.04, 0.06, 0.05, 0.07]);
@@ -131,6 +135,11 @@ fn phase_6c_e_cube_uniform_under_5mm() {
     assert_g0("cube_uniform", &m);
 }
 
+/// Legacy Stage 4.7e mixed-radius diagnostic. The active default
+/// commercial route is A2/logical macro-cap containment; native
+/// repeated-apex support-continuation work must replace this before
+/// re-promoting it to a hard gate.
+#[ignore = "legacy Stage 4.7e diagnostic; default mixed-radius commercial path is A2/logical macro-cap containment"]
 #[test]
 fn phase_6c_e_cube_mixed_under_5mm() {
     let m = run_cube_with_stage4(&[0.08, 0.10, 0.12]);

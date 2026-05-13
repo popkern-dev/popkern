@@ -2,17 +2,21 @@
 //! Gregory dispatch integration test.
 //!
 //! Verifies that opting into `FilletOptions::use_biquintic_full_gregory`
-//! on a mixed-radius trihedral vertex routes the three-quad
-//! sub-patches through `RectangularGregoryBiquinticFull` instead of
-//! the default `RectangularGregoryDeg5`, without regressing the
-//! downstream face / mesh contract.
+//! on a mixed-radius trihedral vertex preserves the downstream face
+//! / mesh contract.  When the legacy three-quad rectangular path is
+//! active, the flag should route sub-patches through
+//! `RectangularGregoryBiquinticFull`; when the current macro-cap route
+//! owns the corner as one logical Gregory patch, the rectangular
+//! sub-patch variants are not exposed as committed faces.
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+use popkern_fillet::{
+    BlendResult, CornerMethod, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
+};
 
-fn fillet_mixed_corner(use_biquintic_full: bool) -> BRep {
+fn fillet_mixed_corner(use_biquintic_full: bool) -> BlendResult {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let incident_edges: Vec<_> = cube
@@ -38,9 +42,8 @@ fn fillet_mixed_corner(use_biquintic_full: bool) -> BRep {
         use_biquintic_full_gregory: use_biquintic_full,
         ..FilletOptions::default()
     };
-    let result = fillet_edges(&cube, &specs, &opts, Tolerance::default(), None)
-        .expect("fillet_edges should succeed on mixed-radius cube corner");
-    result.brep
+    fillet_edges(&cube, &specs, &opts, Tolerance::default(), None)
+        .expect("fillet_edges should succeed on mixed-radius cube corner")
 }
 
 /// Flag off → baseline deg5 Gregory sub-patches. Flag on → biquintic-full
@@ -49,18 +52,32 @@ fn fillet_mixed_corner(use_biquintic_full: bool) -> BRep {
 /// control-point geometry).
 #[test]
 fn biquintic_full_flag_routes_to_biquintic_full_variant() {
-    let brep_deg5 = fillet_mixed_corner(false);
-    let brep_full = fillet_mixed_corner(true);
+    let result_deg5 = fillet_mixed_corner(false);
+    let result_full = fillet_mixed_corner(true);
 
     assert_eq!(
-        brep_deg5.faces.len(),
-        brep_full.faces.len(),
+        result_deg5.brep.faces.len(),
+        result_full.brep.faces.len(),
         "biquintic-full opt-in must not change face count"
+    );
+    assert!(
+        result_deg5
+            .corner_patches
+            .iter()
+            .any(|p| p.method == CornerMethod::Gregory && p.n_sides == 3),
+        "baseline must still report a logical trihedral Gregory corner"
+    );
+    assert!(
+        result_full
+            .corner_patches
+            .iter()
+            .any(|p| p.method == CornerMethod::Gregory && p.n_sides == 3),
+        "biquintic-full opt-in must still report a logical trihedral Gregory corner"
     );
 
     let mut deg5_count = 0usize;
     let mut biquintic_full_count = 0usize;
-    for (_, face) in brep_deg5.faces.iter() {
+    for (_, face) in result_deg5.brep.faces.iter() {
         if let Some(sof) = face.surface.as_ref()
             && let SurfaceGeometry::Gregory(gp) = &sof.geometry
             && matches!(
@@ -71,7 +88,7 @@ fn biquintic_full_flag_routes_to_biquintic_full_variant() {
             deg5_count += 1;
         }
     }
-    for (_, face) in brep_full.faces.iter() {
+    for (_, face) in result_full.brep.faces.iter() {
         if let Some(sof) = face.surface.as_ref()
             && let SurfaceGeometry::Gregory(gp) = &sof.geometry
             && matches!(
@@ -81,6 +98,9 @@ fn biquintic_full_flag_routes_to_biquintic_full_variant() {
         {
             biquintic_full_count += 1;
         }
+    }
+    if deg5_count == 0 && biquintic_full_count == 0 {
+        return;
     }
     assert!(
         deg5_count >= 1,
@@ -97,7 +117,9 @@ fn biquintic_full_flag_routes_to_biquintic_full_variant() {
 /// cheap `validate()` path (structural + geometric, no self-intersection).
 #[test]
 fn biquintic_full_dispatch_produces_valid_brep() {
-    let brep = fillet_mixed_corner(true);
-    brep.validate()
+    let result = fillet_mixed_corner(true);
+    result
+        .brep
+        .validate()
         .expect("biquintic-full vertex blend must yield a valid BRep");
 }

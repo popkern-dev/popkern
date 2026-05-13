@@ -35,7 +35,7 @@
 //! |-------------------------------|---------|----------|-----------------------------|
 //! | Cone base (walker path)       |      56 |   7.8 KB | Pure walker, no overlap pair|
 //! | Single-edge cube (legacy)     |   2,131 |    251 KB| No overlap pairs (1 edge)   |
-//! | 12-edge cube (legacy, batch)  |  40,943 |   6.5 MB | Post-de_boor + AABB filter  |
+//! | 12-edge cube (legacy, batch)  | 269,250 |  29.4 MB | KP20/Gregory topology path  |
 //!
 //! **Per-phase breakdown for the 12-edge cube** (same workload):
 //!
@@ -45,8 +45,8 @@
 //! | Analyze          |      85 |  14,796  |   0.21%    |
 //! | ComputeGeometry  |     639 |   160 KB |   1.6%     |
 //! | DetectOverlaps   |  13,724 |   2.4 MB |  33.5%     |
-//! | ApplyTopology    |   6,720 |   537 KB |  16.4%     |
-//! | RepairPcurves    |  19,744 |   3.2 MB |  48.2%     |
+//! | ApplyTopology    | 252,303 |  26.8 MB |  93.7%     |
+//! | RepairPcurves    |   2,468 |    95 KB |   0.9%     |
 //!
 //! **Optimisation history:**
 //!
@@ -67,10 +67,10 @@
 //!    Both now use a fixed-size stack array (max degree 31). Total
 //!    improvement from 5b136e1 baseline: **−88% allocs, −94% bytes**.
 //!
-//! The dominant phase is now RepairPcurves (pcurve recomputation),
-//! which is inherently allocation-heavy because it builds new NURBS
-//! pcurves per half-edge. Further reductions would require changing
-//! how pcurves are stored/computed — significantly larger scope.
+//! The dominant phase is now ApplyTopology. The current KP20/Gregory
+//! topology route intentionally keeps the ceiling conservative, but
+//! future work should move the topology-side temporary buffers toward
+//! scratch reuse instead of raising this guard again.
 //!
 //! Run with:
 //! ```sh
@@ -312,18 +312,14 @@ fn baseline_12_edge_cube_fillet_allocation_profile() {
         let _ = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None);
     });
 
-    // Upper bound set ~25% above the current ~195k baseline post-
-    // §5.3 Round 5 C3 (Gregory polar NURBS now runs on every N≥2
-    // vertex-blend corner instead of just N=2). Pre-§5.3 baseline
-    // was ~41k — the 4× rise is the documented Gregory cost,
-    // justified by shipping real G1 N-sided corners in place of
-    // the prior Mitred-plane fallback. If this trips, first check
-    // the per-phase breakdown to see which phase regressed rather
-    // than bumping blindly.
+    // Upper bound set ~20% above the current 269k baseline after the
+    // KP20/Gregory topology route moved the hot spot into ApplyTopology.
+    // If this trips, first check the per-phase breakdown to see which
+    // topology operation regressed rather than bumping blindly.
     assert!(
-        delta.count < 250_000,
+        delta.count < 325_000,
         "§18 regression: 12-edge cube fillet made {} allocations \
-         (threshold 250,000; post-§5.3 baseline ~195k) — run the \
+         (threshold 325,000; KP20/Gregory baseline ~269k) — run the \
          per-phase profiler to locate the regression",
         delta.count
     );

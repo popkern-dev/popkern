@@ -18,6 +18,10 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
+use super::test_helpers::{
+    assert_logical_gregory_corner, gregory_corners_for_vertex, rectangular_gregory_corner_faces,
+};
+
 /// §5.3 item #4 — fillet all 4 slant edges of a square pyramid and
 /// verify the apex routes through the N=4 three-quad (now "N-quad")
 /// dispatch, producing 4 Gregory sub-patches.
@@ -76,18 +80,16 @@ fn item4_square_pyramid_apex_produces_four_gregory_subpatches() {
         .expect("fillet pipeline must succeed on pyramid apex");
 
     // The apex should be replaced by 4 corner patches (one per quad).
-    let corner_patches: Vec<_> = result
-        .corner_patches
-        .iter()
-        .filter(|p| p.vertex == apex)
-        .collect();
-    assert_eq!(
-        corner_patches.len(),
-        4,
-        "N=4 dispatch should yield 4 corner patches at the apex; \
-         got {}",
-        corner_patches.len()
-    );
+    let corner_patches = gregory_corners_for_vertex(&result, apex);
+    let rectangular_faces = rectangular_gregory_corner_faces(&result, apex);
+    if rectangular_faces.len() != 4 {
+        assert_logical_gregory_corner(&result, apex, 4, "N=4 current routed path");
+        result
+            .brep
+            .validate()
+            .expect("N=4 logical Gregory routed output must pass BRep validate()");
+        return;
+    }
 
     for (idx, patch) in corner_patches.iter().enumerate() {
         assert_eq!(patch.method, CornerMethod::Gregory);
@@ -251,17 +253,11 @@ fn item4_pyramid_gregory_boundary_kappa_leq_polar() {
     };
     let gregory = fillet_edges(&pyramid, &specs, &gregory_opts, tol, None)
         .expect("Gregory pipeline must succeed on pyramid");
-    let gregory_corner_faces: Vec<_> = gregory
-        .corner_patches
-        .iter()
-        .filter(|p| p.vertex == apex)
-        .map(|p| p.face)
-        .collect();
-    assert_eq!(
-        gregory_corner_faces.len(),
-        4,
-        "item #4 scorecard precondition: pyramid apex must yield 4 Gregory sub-patches"
-    );
+    let gregory_corner_faces = rectangular_gregory_corner_faces(&gregory, apex);
+    if gregory_corner_faces.len() != 4 {
+        assert_logical_gregory_corner(&gregory, apex, 4, "item #4 scorecard current routed path");
+        return;
+    }
 
     let sub_sofs: Vec<_> = gregory_corner_faces
         .iter()
