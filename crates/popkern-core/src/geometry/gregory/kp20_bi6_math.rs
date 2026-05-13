@@ -164,6 +164,48 @@ pub fn kp20_refinement_added_free_count(n: usize) -> Result<usize, String> {
     Ok(kp20_refined_s0_free_count(n)? - kp20_s0_free_count(n)?)
 }
 
+/// KP18 total guide scalar freedom, including the ten cubic-expansion
+/// coefficients.
+pub fn kp18_guide_total_free_count(n: usize) -> Result<usize, String> {
+    if n < 3 {
+        return Err(format!(
+            "KP18 guide free-count formulas require n >= 3; got {n}"
+        ));
+    }
+    Ok(12 * n + 10)
+}
+
+/// KP18 guide scalar freedom solved by the outer-coefficient LSQ after
+/// the cubic expansion is fixed.
+pub fn kp18_guide_lsq_free_count(n: usize) -> Result<usize, String> {
+    if n < 3 {
+        return Err(format!(
+            "KP18 guide free-count formulas require n >= 3; got {n}"
+        ));
+    }
+    Ok(12 * n + 9)
+}
+
+/// KP18 guide boundary-coupling free scalar count.
+pub fn kp18_guide_boundary_free_count(n: usize) -> Result<usize, String> {
+    if n < 3 {
+        return Err(format!(
+            "KP18 guide free-count formulas require n >= 3; got {n}"
+        ));
+    }
+    Ok(6 * n)
+}
+
+/// KP18 guide interior-only free scalar count.
+pub fn kp18_guide_interior_free_count(n: usize) -> Result<usize, String> {
+    if n < 3 {
+        return Err(format!(
+            "KP18 guide free-count formulas require n >= 3; got {n}"
+        ));
+    }
+    Ok(6 * n)
+}
+
 /// KP20 equation (10) `b(u)` BB coefficients for the
 /// sector-separating reparameterisation.
 pub fn kp20_b_coeffs_near_o(c: f64) -> [f64; 3] {

@@ -321,9 +321,11 @@ pub use kp20_bi6_guide_sample::{
 pub use kp20_bi6_math::{
     HERMITE_TO_BI5_W, HERMITE_TO_BI6_W, Kp20CharacteristicScalars, Kp20TauParams,
     hermite_to_bi5_corner_block, hermite_to_bi6_corner_block, kappa_for_valence, kp18_c2_join_left,
-    kp18_c2_join_right, kp20_b_coeffs_near_m, kp20_b_coeffs_near_o, kp20_cc_subdominant_eigenvalue,
-    kp20_g2_strip_weights, kp20_limit_weights, kp20_refined_s0_free_count,
-    kp20_refinement_added_free_count, kp20_s0_free_count, kp20_stam_characteristic_eigenvector,
+    kp18_c2_join_right, kp18_guide_boundary_free_count, kp18_guide_interior_free_count,
+    kp18_guide_lsq_free_count, kp18_guide_total_free_count, kp20_b_coeffs_near_m,
+    kp20_b_coeffs_near_o, kp20_cc_subdominant_eigenvalue, kp20_g2_strip_weights,
+    kp20_limit_weights, kp20_refined_s0_free_count, kp20_refinement_added_free_count,
+    kp20_s0_free_count, kp20_stam_characteristic_eigenvector,
 };
 pub use kp20_bi6_piece_maps::{
     Kp20PieceCornerMaps, Kp20SectorPieceMaps, kp20_default_sector_piece_maps,

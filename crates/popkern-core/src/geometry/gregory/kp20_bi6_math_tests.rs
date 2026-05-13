@@ -91,6 +91,30 @@ fn refined_s0_free_counts_reject_invalid_valence() {
 }
 
 #[test]
+fn guide_free_counts_match_kp18_dimension_claim() {
+    for n in [3, 5, 6, 7, 8, 9, 10, 12] {
+        assert_eq!(kp18_guide_total_free_count(n).unwrap(), 12 * n + 10);
+        assert_eq!(kp18_guide_lsq_free_count(n).unwrap(), 12 * n + 9);
+        assert_eq!(kp18_guide_boundary_free_count(n).unwrap(), 6 * n);
+        assert_eq!(kp18_guide_interior_free_count(n).unwrap(), 6 * n);
+        assert_eq!(
+            kp18_guide_lsq_free_count(n).unwrap(),
+            kp18_guide_boundary_free_count(n).unwrap()
+                + kp18_guide_interior_free_count(n).unwrap()
+                + 9
+        );
+    }
+}
+
+#[test]
+fn guide_free_counts_reject_invalid_valence() {
+    assert!(kp18_guide_total_free_count(2).is_err());
+    assert!(kp18_guide_lsq_free_count(2).is_err());
+    assert!(kp18_guide_boundary_free_count(2).is_err());
+    assert!(kp18_guide_interior_free_count(2).is_err());
+}
+
+#[test]
 fn b_coefficients_encode_n3_special_pinning() {
     let c = (core::f64::consts::TAU / 3.0).cos();
     let b = kp20_b_coeffs_near_o(c);
