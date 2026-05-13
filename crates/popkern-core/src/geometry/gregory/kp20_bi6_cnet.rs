@@ -7,6 +7,8 @@
 //! existing KP15 bridge.
 
 use super::kp_polar_boundary_input::TensorBorderBi3;
+use super::kp_polar_shared::weighted_sum;
+use super::kp20_bi6_math::kp20_limit_weights;
 use crate::geometry::Point3;
 
 /// Uniform cubic B-spline to Bezier conversion matrix for one knot span.
@@ -22,6 +24,35 @@ pub const CUBIC_BSPLINE_TO_BEZIER: [[f64; 4]; 4] = [
 pub struct Kp20RegularCNet {
     /// One regular 4x4 cubic B-spline stencil per sector.
     pub sectors: Vec<[[Point3; 4]; 4]>,
+}
+
+/// KP18/KP20 extraordinary cap-net with `6n + 1` unique points.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Kp20CapNet {
+    /// Extraordinary input node `c_7`.
+    pub center: Point3,
+    /// Per-sector nodes `c^k_1..c^k_6`.
+    pub sectors: Vec<[Point3; 6]>,
+}
+
+/// Compute KP18/KP20's Catmull-Clark limit point from the `6n + 1`
+/// cap-net.
+pub fn kp20_star_point_from_cap_net(cap_net: &Kp20CapNet) -> Result<Point3, String> {
+    let n = cap_net.sectors.len();
+    if n < 3 {
+        return Err(format!(
+            "KP20 cap-net star point needs at least 3 sectors, got {n}"
+        ));
+    }
+    let (gamma5, gamma6) = kp20_limit_weights(n)?;
+    let center_weight = 1.0 - n as f64 * gamma5 - n as f64 * gamma6;
+    let mut pairs = Vec::with_capacity(1 + 2 * n);
+    pairs.push((center_weight, cap_net.center));
+    for sector in &cap_net.sectors {
+        pairs.push((gamma5, sector[4]));
+        pairs.push((gamma6, sector[5]));
+    }
+    Ok(weighted_sum(&pairs))
 }
 
 /// Convert a regular cubic c-net ring into KP20's depth-2 bi-3

@@ -304,8 +304,8 @@ pub use kp20_bi6_cap::{
     kp20_propagate_c2_upper_from_lower, split_kp20_tensor_border,
 };
 pub use kp20_bi6_cnet::{
-    CUBIC_BSPLINE_TO_BEZIER, Kp20RegularCNet, cubic_bspline_grid_to_bezier,
-    kp20_tensor_border_from_regular_cnet,
+    CUBIC_BSPLINE_TO_BEZIER, Kp20CapNet, Kp20RegularCNet, cubic_bspline_grid_to_bezier,
+    kp20_star_point_from_cap_net, kp20_tensor_border_from_regular_cnet,
 };
 pub use kp20_bi6_guide_build::{Kp20GuideBuildInput, Kp20GuideRing, build_kp20_guide_ring};
 pub use kp20_bi6_guide_sample::{
