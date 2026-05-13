@@ -39,7 +39,7 @@
 //! this explicitly in their names (`_blunt` = expected sphere-fit;
 //! `_sharp` or unqualified = polar-engaged).
 //!
-//! All fixtures are `#[ignore]` at commit time for **two separate
+//! All polar fixtures are `#[ignore]` at commit time for **two separate
 //! reasons**:
 //!
 //! 1. **Upstream N ≥ 5 gap (blocking).** The fillet pipeline's
@@ -48,11 +48,11 @@
 //!    boundary` / kef / three-quad dispatch bails out before
 //!    `apply_three_quad_decomposition_to_blend` is invoked.
 //!    Confirmed empirically in `kp_polar_pipeline_probe.rs` — on
-//!    every tested pyramid geometry the pipeline returns a single
-//!    polar-NURBS corner patch, not an N-sector Gregory ring.
+//!    current tested pyramid geometry still returns no measurable
+//!    N-sector Gregory ring for these fixtures.
 //!    Fixing this is Phase II scope.
 //! 2. **Bi-6 output stabilisation (gate threshold).** Even once
-//!    the upstream gap closes, the bi-6 output may need tuning
+//!    the upstream gap closes, the bi-6/KP20 output may need tuning
 //!    to land under the 5e-2 commercial gates on adversarial
 //!    fixtures. That's the normal progression we expect to track
 //!    by flipping `#[ignore]` off per fixture as it passes.
@@ -64,8 +64,8 @@
 //! The uniform-radii fixtures are deliberately included to catch
 //! regressions where a sphere-fit shortcut or upstream dispatch
 //! diverts the ring away from the polar rung; `assert_all_binonic`
-//! will fail loudly if a fixture stops producing `RectangularBiNonic`
-//! patches.
+//! fails loudly if a fixture stops producing measurable
+//! `RectangularBiNonic` patches.
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;

@@ -255,7 +255,7 @@ pub fn collect_patches(brep: &BRep, faces: &[FaceHandle]) -> Vec<GregoryPatch> {
 pub fn assert_all_binonic(patches: &[GregoryPatch], fixture: &str) {
     assert!(
         !patches.is_empty(),
-        "[{fixture}] expected at least one Gregory corner patch, got none (dispatch likely bailed out of the binonic rung)"
+        "[{fixture}] expected at least one Gregory corner patch, got none (dispatch likely bailed out before a measurable K-P ring)"
     );
     for (i, p) in patches.iter().enumerate() {
         assert!(
