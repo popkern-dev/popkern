@@ -111,6 +111,7 @@ mod kp20_bi6_assemble;
 mod kp20_bi6_cap;
 mod kp20_bi6_cnet;
 mod kp20_bi6_guide_build;
+mod kp20_bi6_guide_continuity;
 mod kp20_bi6_guide_sample;
 mod kp20_bi6_math;
 mod kp20_bi6_piece_maps;
@@ -308,6 +309,10 @@ pub use kp20_bi6_cnet::{
     kp20_star_point_from_cap_net, kp20_tensor_border_from_regular_cnet,
 };
 pub use kp20_bi6_guide_build::{Kp20GuideBuildInput, Kp20GuideRing, build_kp20_guide_ring};
+pub use kp20_bi6_guide_continuity::{
+    kp18_apply_c0_join_degree6, kp18_apply_c1_join_degree6, kp18_apply_c2_join_degree6,
+    kp18_apply_c3_join_degree6, kp18_apply_cubic_join_degree6, kp18_guide_join_weights,
+};
 pub use kp20_bi6_guide_sample::{
     Kp20AffineGuideMap, Kp20GuideJet3, Kp20PatchCorner, Kp20Tri6GuideSector,
     kp20_corner_block_from_jet, kp20_sample_corner_block, kp20_sample_macro_patch_from_guide,
