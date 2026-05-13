@@ -12,11 +12,14 @@
 //!   Sphere only for trihedral collapsed targets whose cap boundary
 //!   is constructively valid; higher-valence uniform apices use
 //!   Gregory to preserve cap-to-cylinder geometry.
-//! * **Gregory-cap fixtures** (`cube_mixed`, `cube_extreme`,
-//!   `pyramid3_uniform`, `pyramid4_uniform`, `pyramid4_mixed`) —
+//! * **Native Gregory fixtures** (`cube_mixed`, `pyramid3_uniform`)
+//!   — A2 must complete with no fallback and expose measurable
+//!   cap-to-cylinder seams.
+//! * **Remaining Gregory-cap fixtures** (`cube_extreme`,
+//!   `pyramid4_uniform`, `pyramid4_mixed`) —
 //!   until the validated outside/outside support-continuation
-//!   primitive and remaining trim-pcurve repairs are implemented,
-//!   A2 may decline through one recorded fallback.  These are
+//!   primitive and remaining surface-quality repairs are implemented,
+//!   A2 may decline through one recorded fallback. These are
 //!   containment checks, not native-quality acceptance.
 //!
 //! Either way: every fixture must pass the A.6 metric gate
@@ -26,6 +29,8 @@
 
 #[path = "support/a2_validate_all_matrix_diagnostics.rs"]
 mod a2_validate_all_matrix_diagnostics;
+#[path = "support/a2_validate_all_matrix_native.rs"]
+mod a2_validate_all_matrix_native;
 #[path = "support/a2_validate_all_matrix_seams.rs"]
 mod a2_validate_all_matrix_seams;
 #[path = "support/a2_validate_all_matrix_zoo.rs"]
@@ -66,7 +71,7 @@ fn a2_5_matrix_preserves_structural_validity_under_a2() {
             name: "cube_mixed",
             radii: &[0.08, 0.10, 0.12],
             is_pyramid: false,
-            expected_fallbacks: 1,
+            expected_fallbacks: 0,
         },
         Case {
             name: "cube_extreme",
@@ -78,7 +83,7 @@ fn a2_5_matrix_preserves_structural_validity_under_a2() {
             name: "pyramid3_uniform",
             radii: &[0.10, 0.10, 0.10],
             is_pyramid: true,
-            expected_fallbacks: 1,
+            expected_fallbacks: 0,
         },
         Case {
             name: "pyramid4_uniform",
@@ -161,7 +166,7 @@ fn a2_5_matrix_preserves_structural_validity_under_a2() {
 /// faces. Their separate quality gates belong with Sphere-cap
 /// boundary metrics.
 #[test]
-#[ignore = "native Gregory cap-outer gate; current repeated-apex A2 path is under containment fallback"]
+#[ignore = "native Gregory cap-outer matrix; cube_mixed has a hard gate, remaining repeated-apex fixtures are still under containment fallback"]
 fn a2_5_cap_outer_g0_gregory_under_a2() {
     struct Case {
         name: &'static str,
@@ -252,7 +257,6 @@ fn a2_5_native_sphere_cap_set() {
 
 /// Native Gregory A2 recovery gate for the baseline mixed cube.
 #[test]
-#[ignore = "native Gregory A2 gate; current mixed cube declines through containment fallback"]
 fn a2_native_cube_mixed_no_fallback() {
     assert_native_gregory_cube_case("cube_mixed", &[0.08, 0.10, 0.12]);
 }
@@ -338,7 +342,6 @@ fn a2_native_pyramid4_uniform_no_fallback() {
 }
 
 #[test]
-#[ignore = "native pyramid3 Gregory gate; current path declines through trim-pcurve containment fallback"]
 fn a2_native_pyramid3_uniform_anchor_incompatible_uses_gregory_no_fallback() {
     assert_native_gregory_case("pyramid3_uniform", true, &[0.10, 0.10, 0.10], 3);
 }

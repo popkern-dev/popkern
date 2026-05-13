@@ -246,6 +246,49 @@ pub(super) fn verify_outer_loop_pcurves(brep: &BRep, face: FaceHandle) -> Result
     Err("outer loop did not close while checking pcurves".to_string())
 }
 
+/// Fill missing outer-loop pcurves from the live half-edge endpoint
+/// vertices after a cap face has received its final surface.
+///
+/// This is intentionally narrow: it only authors pcurves that are
+/// absent, uses the face's current surface, and leaves existing
+/// analytic or fitted pcurves untouched. The caller still runs
+/// `verify_outer_loop_pcurves` and the surrounding transaction rolls
+/// back if the face remains invalid.
+pub(super) fn author_missing_outer_loop_pcurves_from_vertices(brep: &mut BRep, face: FaceHandle) {
+    let Some(face_data) = brep.faces.get(face) else {
+        return;
+    };
+    let outer_loop = face_data.outer_loop;
+    let Some(surface) = face_data.surface.as_ref().map(|sof| sof.geometry.clone()) else {
+        return;
+    };
+    let Some(loop_data) = brep.loops.get(outer_loop) else {
+        return;
+    };
+    let start = loop_data.half_edge;
+    let mut cursor = start;
+    for _ in 0..brep.half_edges.len().max(1) {
+        let Some(he) = brep.half_edges.get(cursor).cloned() else {
+            return;
+        };
+        if he.pcurve.is_none()
+            && let Some(next) = brep.half_edges.get(he.next)
+            && let (Some(origin), Some(end)) =
+                (brep.vertices.get(he.origin), brep.vertices.get(next.origin))
+        {
+            let start_uv = helpers::project_to_uv(&surface, &origin.position);
+            let end_uv = helpers::project_to_uv(&surface, &end.position);
+            brep.half_edges[cursor].pcurve = Some(popkern_core::geometry::pcurve::Pcurve::linear(
+                start_uv, end_uv, 0.0, 1.0,
+            ));
+        }
+        cursor = he.next;
+        if cursor == start {
+            return;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,5 +312,24 @@ mod tests {
         let err = verify_outer_loop_pcurves(&brep, face).unwrap_err();
 
         assert!(err.contains("has no pcurve"), "{err}");
+    }
+
+    #[test]
+    fn author_missing_outer_loop_pcurves_fills_only_missing_trims() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let face = brep.faces.keys().next().unwrap();
+        let he = brep.loops[brep.faces[face].outer_loop].half_edge;
+        let next = brep.half_edges[he].next;
+        let existing_next_was_some = brep.half_edges[next].pcurve.is_some();
+        brep.half_edges[he].pcurve = None;
+
+        author_missing_outer_loop_pcurves_from_vertices(&mut brep, face);
+
+        assert!(brep.half_edges[he].pcurve.is_some());
+        assert_eq!(
+            brep.half_edges[next].pcurve.is_some(),
+            existing_next_was_some
+        );
+        assert!(verify_outer_loop_pcurves(&brep, face).is_ok());
     }
 }

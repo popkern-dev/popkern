@@ -430,6 +430,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
                 )));
             }
         }
+        three_quad_reproject::author_missing_outer_loop_pcurves_from_vertices(brep, *sub_face);
         if let Err(err) = three_quad_reproject::verify_outer_loop_pcurves(brep, *sub_face) {
             *brep = brep_before_surface_assignment.clone();
             return Err(ThreeQuadFailure::Other(format!(

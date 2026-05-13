@@ -12,12 +12,9 @@
 //!   * **Sphere caps (uniform-radius cube apex)** — A2 succeeds
 //!     end-to-end, no fallback fires.  Geometry matches legacy
 //!     (face / vertex / edge counts).
-//!   * **Gregory caps (variable-radius cube apex)** — current A2
-//!     construction may decline with a structured
-//!     `A2FellBackToLegacy` diagnostic while unsupported
-//!     repeated-apex trim topology is still behind the fallback
-//!     boundary.  The containment gate requires the fallback to be
-//!     explicit and the resulting BRep to remain structurally valid.
+//!   * **Gregory caps (mixed-radius cube apex)** — A2 now completes
+//!     natively for the baseline mixed cube. Broader variable-radius
+//!     fixtures still have containment coverage in the A2 matrix.
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle};
@@ -103,7 +100,7 @@ fn a2_dispatch_succeeds_on_uniform_cube_without_fallback() {
 }
 
 #[test]
-fn a2_dispatch_variable_radius_records_containment_fallback() {
+fn a2_dispatch_mixed_radius_cube_completes_without_fallback() {
     let result_a2 = cube_with_variable_corner_fillets(true);
 
     let fallback_warnings: Vec<_> = result_a2
@@ -111,17 +108,9 @@ fn a2_dispatch_variable_radius_records_containment_fallback() {
         .iter()
         .filter(|(_, w)| matches!(w, BlendWarning::A2FellBackToLegacy { .. }))
         .collect();
-    assert_eq!(
-        fallback_warnings.len(),
-        1,
-        "variable-radius cube should decline exactly once through the recorded A2 containment boundary; got {fallback_warnings:#?}",
-    );
-    let (_, BlendWarning::A2FellBackToLegacy { reason, .. }) = fallback_warnings[0] else {
-        unreachable!("filtered to A2FellBackToLegacy above");
-    };
     assert!(
-        !reason.trim().is_empty() && reason.contains("construct_apex"),
-        "A2 containment fallback must carry a useful constructive-failure reason; got {reason:?}",
+        fallback_warnings.is_empty(),
+        "mixed-radius cube should complete through native A2; got {fallback_warnings:#?}",
     );
 }
 
@@ -156,7 +145,7 @@ fn a2_dispatch_uniform_geometry_matches_legacy() {
 }
 
 #[test]
-fn a2_dispatch_variable_geometry_is_structurally_valid_after_containment() {
+fn a2_dispatch_mixed_radius_geometry_is_structurally_valid() {
     let result_a2 = cube_with_variable_corner_fillets(true);
     let errors = result_a2.brep.validate_all();
     let structural_errors = errors
@@ -178,7 +167,7 @@ fn a2_dispatch_variable_geometry_is_structurally_valid_after_containment() {
 
     assert!(
         structural_errors.is_empty(),
-        "variable-radius A2 containment result must have no structural/open-loop/shell-gap errors; got {structural_errors:#?}",
+        "mixed-radius native A2 result must have no structural/open-loop/shell-gap errors; got {structural_errors:#?}",
     );
 }
 

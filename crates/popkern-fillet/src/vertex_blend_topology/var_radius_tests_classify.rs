@@ -3,6 +3,7 @@ use super::var_radius_tests_support::*;
 use super::*;
 
 #[test]
+#[ignore = "diagnostic uses process-wide sphere-fit env; keep out of parallel lib test gate"]
 fn classify_cube_mixed() {
     use popkern_core::geometry::surface::SurfaceGeometry;
 
