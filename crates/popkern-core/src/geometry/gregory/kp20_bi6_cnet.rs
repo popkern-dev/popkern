@@ -78,9 +78,9 @@ pub fn kp20_tensor_border_from_regular_cnet(
 /// Apply the cubic B-spline to Bezier matrix in both tensor directions.
 pub fn cubic_bspline_grid_to_bezier(grid: &[[Point3; 4]; 4]) -> [[Point3; 4]; 4] {
     let mut out = [[Point3::new(0.0, 0.0, 0.0); 4]; 4];
-    for i in 0..4 {
-        for j in 0..4 {
-            out[i][j] = tensor_weighted_point(i, j, grid);
+    for (i, row) in out.iter_mut().enumerate() {
+        for (j, cp) in row.iter_mut().enumerate() {
+            *cp = tensor_weighted_point(i, j, grid);
         }
     }
     out
