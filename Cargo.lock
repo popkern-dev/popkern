@@ -3274,6 +3274,7 @@ dependencies = [
  "popkern-shell",
  "popkern-sweep",
  "popkern-viz",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,21 +1,15 @@
-//! §5.3 item #2 — STEP round-trip regression on a Gregory-carrying BRep.
-//!
-//! Closes the remaining deliverable on item #2: "STEP export regression:
-//! filleted mixed-radius cube → write_step → read_step → validate
-//! invariants preserved." STEP AP203/242 has no Gregory entity, so
-//! export goes through `SurfaceGeometry::to_nurbs()` (which for a
-//! Gregory `[0,1]²` range calls `to_nurbs_exact` — the exact rational
-//! rectangular-Bezier form at bidegree (7,7) for cubic or (9,9) for
-//! quintic). After round-trip, Gregory faces return as NURBS faces;
-//! this test verifies solid/face counts and sampled geometric
-//! fidelity are preserved.
-
-use std::sync::Arc;
-
-use popkern_core::geometry::Point3;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::{
+    Point3,
+    surface::{SurfaceEval, SurfaceGeometry},
+};
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::BRep;
+use popkern_core::topology::{
+    BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeOptions,
+    BrepEdgeCurveCompletionOptions, BrepEdgeSurfaceCompatibilityOptions, BrepRepairPipelineOptions,
+    BrepSewingClassificationOptions, BrepSewingOptions, BrepSnapSewingOptions,
+    BrepTopologyOutputPolicy, BrepTrimRepairOptions, analyze_brep_edge_surface_compatibility,
+    repair_brep_boundary_edges_transactionally,
+};
 use popkern_fillet::{
     BlendResult, CornerMethod, CornerPatchInfo, FilletOptions, FilletRadius, FilletSpec,
     fillet_edges,
@@ -24,6 +18,7 @@ use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
     StepExportOptions, StepImportOptions, StepProductNode, UnitContext, export_step, import_step,
 };
+use std::sync::Arc;
 
 fn mixed_radius_gregory_cube_result() -> BlendResult {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
@@ -131,6 +126,9 @@ fn gregory_fillet_step_roundtrip_preserves_topology() {
     let import_result =
         import_step(&bytes, &StepImportOptions::default()).expect("import_step must succeed");
     let reimported = &import_result.document.products[0].shapes[0].solids[0];
+    reimported
+        .validate_loop_closure()
+        .expect("re-imported Gregory BRep loops must close");
 
     assert!(
         reimported.faces.len() >= orig_face_count,
@@ -217,6 +215,9 @@ fn gregory_face_geometry_survives_step_roundtrip() {
         reimport.diagnostics.entries()
     );
     let reimport_brep = &reimport.document.products[0].shapes[0].solids[0];
+    reimport_brep
+        .validate_loop_closure()
+        .expect("re-imported Gregory BRep loops must close");
     let imported_nurbs: Vec<_> = reimport_brep
         .faces
         .values()
@@ -255,4 +256,243 @@ fn gregory_face_geometry_survives_step_roundtrip() {
         "§5.3 item #2: Gregory-method STEP round-trip same-UV position deviation {max_err} exceeds 1e-6 tolerance (corner patch faces checked: {})",
         orig_gregory_faces.len()
     );
+}
+
+#[test]
+fn gregory_mixed_radius_edge_surface_pipeline_diagnostics_are_structured() {
+    let blend = mixed_radius_gregory_cube_result();
+    let brep = &blend.brep;
+    let support_report = &blend.repair_report.support_seam_relocation;
+    assert!(
+        support_report.candidates > 0,
+        "public BlendResult repair report must expose support seam relocation candidates"
+    );
+    assert_eq!(
+        support_report.candidates,
+        support_report.authored + support_report.declined
+    );
+    assert_eq!(support_report.decisions.len(), support_report.candidates);
+    let artifact = popkern_fillet::build_blend_repair_action_artifact(&blend.repair_report);
+    assert_eq!(
+        artifact.summary.attempted_actions,
+        support_report.candidates
+    );
+    assert!(
+        !brep.surface_boundary_hints.is_empty() || !brep.surface_boundary_declines.is_empty(),
+        "Gregory construction must author boundary evidence or structured boundary declines"
+    );
+    assert_gregory_cap_cylinder_seams_have_boundary_evidence_or_decline(&brep);
+    let before = analyze_brep_edge_surface_compatibility(
+        brep,
+        BrepEdgeSurfaceCompatibilityOptions {
+            tolerance: 1e-6,
+            max_anchor_motion: 0.0,
+            samples: 9,
+            require_all_compatible: false,
+            validate_output: false,
+        },
+    );
+
+    let result = repair_brep_boundary_edges_transactionally(
+        brep,
+        &[],
+        gregory_edge_surface_pipeline_options(false),
+    )
+    .expect("diagnostic repair pipeline should commit partial edge/surface repair");
+
+    let report = result
+        .report
+        .edge_surface_compatibility
+        .as_ref()
+        .expect("edge/surface compatibility stage must run");
+    assert_eq!(
+        report.before.incompatible_half_edges,
+        before.incompatible_half_edges
+    );
+    assert!(
+        report.before.incompatible_half_edges > 0,
+        "real mixed-radius Gregory fixture must exercise edge/surface diagnostics"
+    );
+    assert_eq!(
+        report.attempted_edges,
+        report.repaired_edges + report.declined_edges
+    );
+    assert!(
+        report.after.incompatible_half_edges <= report.before.incompatible_half_edges,
+        "pipeline repair must not increase edge/surface incompatibility"
+    );
+    assert!(
+        report.repaired_edges > 0 || report.declined_edges > 0,
+        "pipeline must produce per-edge repair or decline decisions"
+    );
+    assert!(
+        report.declined_edges > 0,
+        "real mixed-radius Gregory fixture must preserve unresolved edge/surface declines"
+    );
+    assert!(
+        brep.faces.len() == result.brep.faces.len(),
+        "edge/surface repair must preserve face ownership"
+    );
+}
+
+fn assert_gregory_cap_cylinder_seams_have_boundary_evidence_or_decline(brep: &BRep) {
+    let mut inspected = 0usize;
+    let mut hinted = 0usize;
+    let mut declined = 0usize;
+    for (_, face) in &brep.faces {
+        let Some(sof) = face.surface.as_ref() else {
+            continue;
+        };
+        if !matches!(sof.geometry, SurfaceGeometry::Gregory(_)) {
+            continue;
+        }
+        let start = brep.loops[face.outer_loop].half_edge;
+        let mut cursor = start;
+        for _ in 0..=brep.half_edges.len() {
+            let half_edge = &brep.half_edges[cursor];
+            let twin = half_edge.twin;
+            let twin_face = brep.loops[brep.half_edges[twin].loop_].face;
+            let has_cylinder_neighbor =
+                brep.faces[twin_face]
+                    .surface
+                    .as_ref()
+                    .is_some_and(|surface| {
+                        matches!(surface.geometry, SurfaceGeometry::Cylinder { .. })
+                    });
+            if has_cylinder_neighbor {
+                inspected += 1;
+                if brep.surface_boundary_hint(cursor).is_some() {
+                    hinted += 1;
+                }
+                if brep.surface_boundary_decline(cursor).is_some() {
+                    declined += 1;
+                }
+                assert!(
+                    brep.surface_boundary_hint(cursor).is_some()
+                        || brep.surface_boundary_decline(cursor).is_some(),
+                    "Gregory cap-to-cylinder seam {cursor:?} must carry boundary evidence or a structured decline"
+                );
+            }
+            cursor = half_edge.next;
+            if cursor == start {
+                break;
+            }
+        }
+    }
+    assert!(inspected > 0, "fixture must contain cap-cylinder seams");
+    assert!(
+        hinted + declined == inspected,
+        "all Gregory cap-to-cylinder seams must carry accepted hints or structured declines; got hinted={hinted} declined={declined} inspected={inspected}"
+    );
+    assert!(
+        declined > 0,
+        "real mixed-radius fixture must expose invalid cap-cylinder boundary ownership as structured declines"
+    );
+}
+
+#[test]
+fn gregory_mixed_radius_strict_edge_surface_pipeline_declines_unresolved_edges() {
+    let brep = mixed_radius_gregory_cube();
+    let failure = repair_brep_boundary_edges_transactionally(
+        &brep,
+        &[],
+        gregory_edge_surface_pipeline_options(true),
+    )
+    .expect_err("strict edge/surface compatibility should still decline this real fixture");
+
+    assert_eq!(
+        failure.stage,
+        popkern_core::topology::BrepRepairPipelineStage::EdgeSurfaceCompatibility
+    );
+    let report = failure
+        .report
+        .edge_surface_compatibility
+        .as_ref()
+        .expect("failure must include edge/surface report");
+    assert!(report.before.incompatible_half_edges > 0);
+    assert!(report.declined_edges > 0);
+    assert!(report.after.incompatible_half_edges > 0);
+    assert!(
+        report.decisions.iter().any(|decision| matches!(
+            decision.outcome,
+            popkern_core::topology::BrepEdgeSurfaceCompatibilityRepairOutcome::Declined(
+                popkern_core::topology::BrepEdgeSurfaceCompatibilityDeclineReason::UnsupportedSurfacePair
+            )
+        )),
+        "strict real fixture diagnostics must expose unsupported bounded-surface pairs"
+    );
+    assert!(
+        report.decisions.iter().any(|decision| matches!(
+            decision.outcome,
+            popkern_core::topology::BrepEdgeSurfaceCompatibilityRepairOutcome::Declined(
+                popkern_core::topology::BrepEdgeSurfaceCompatibilityDeclineReason::IncidentEndpointConflict
+            )
+        )),
+        "strict real fixture diagnostics must expose unsafe incident endpoint conflicts"
+    );
+}
+
+fn gregory_edge_surface_pipeline_options(
+    require_all_compatible: bool,
+) -> BrepRepairPipelineOptions {
+    let clean_sewing = BrepSewingOptions {
+        tolerance: 1e-6,
+        samples: 5,
+        require_surface_agreement: false,
+        validate_output: false,
+        allow_nonmanifold_edges: false,
+    };
+    BrepRepairPipelineOptions {
+        classification: BrepSewingClassificationOptions {
+            exact_tolerance: 1e-9,
+            snap_tolerance: 1e-6,
+            samples: 5,
+            require_surface_agreement: false,
+            allow_nonmanifold_edges: false,
+        },
+        snap_sewing: BrepSnapSewingOptions {
+            max_vertex_motion: 1e-6,
+            clean_sewing,
+        },
+        trim_repair: BrepTrimRepairOptions {
+            endpoint_tolerance: 1e-6,
+            sampled_tolerance: 1e-6,
+            samples: 9,
+            validate_output: false,
+        },
+        edge_curve_completion: BrepEdgeCurveCompletionOptions {
+            tolerance: 1e-6,
+            samples: 9,
+            allow_vertex_segments_without_surface: true,
+            require_all_completed: false,
+            validate_output: false,
+        },
+        curve_trim_reconstruction: BrepCurveTrimReconstructionOptions {
+            tolerance: 1e-6,
+            samples: 9,
+            replace_existing: false,
+            replace_stale_existing: true,
+            expand_bounded_surface_domains: true,
+            require_all_reconstructed: false,
+            validate_output: false,
+        },
+        edge_surface_compatibility: BrepEdgeSurfaceCompatibilityOptions {
+            tolerance: 1e-6,
+            max_anchor_motion: 0.06,
+            samples: 9,
+            require_all_compatible,
+            validate_output: false,
+        },
+        degenerate_edges: BrepDegenerateEdgeOptions {
+            tolerance: 1e-6,
+            samples: 9,
+        },
+        require_all_pairs_repaired: true,
+        complete_edge_curves: false,
+        reconstruct_curve_trims: true,
+        repair_edge_surfaces: true,
+        repair_trims: false,
+        diagnose_loop_shell: false,
+        topology_output: BrepTopologyOutputPolicy::OpenSheet,
+    }
 }

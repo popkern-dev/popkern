@@ -46,9 +46,13 @@ use crate::geometry::gregory::GregoryPatch;
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
-use crate::geometry::uv_projection::project_point_to_uv;
+use crate::geometry::uv_projection::{project_point_to_uv, project_point_to_uv_near};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+
+#[path = "gregory_boundary_trim.rs"]
+mod gregory_boundary_trim;
+use gregory_boundary_trim::orient_boundary_to_anchors;
 
 /// Sampling density for projecting `curve_3d` onto the non-Gregory
 /// surface's UV. Higher than the legacy `reproject_loop_pcurves`
@@ -104,39 +108,17 @@ pub(super) fn try_dispatch_gregory_boundary(
         }
     };
 
-    let (t_start, t_end) = boundary_curve.parameter_range();
-
-    // Anchor verification + orientation. For Open anchors, check
-    // start/end positions match curve(t_start)/curve(t_end) within
-    // tolerance. If reversed (anchor.start matches curve.t_end and
-    // vice-versa), reverse curve + pcurves.
     let (curve_3d_oriented, cap_pcurve_oriented, other_pcurve_oriented, max_endpoint_err) =
-        match anchors {
-            EdgeAnchors::Open { start, end } => {
-                let p_lo = boundary_curve.point_at(t_start);
-                let p_hi = boundary_curve.point_at(t_end);
-                let fwd_err = start.distance_to(&p_lo).max(end.distance_to(&p_hi));
-                let rev_err = start.distance_to(&p_hi).max(end.distance_to(&p_lo));
-                let tol_lin = tol.linear().max(1e-9);
-                if fwd_err <= tol_lin && fwd_err <= rev_err {
-                    (boundary_curve, cap_pcurve_uv, other_pcurve, fwd_err)
-                } else if rev_err <= tol_lin {
-                    (
-                        reverse_nurbs(&boundary_curve),
-                        reverse_nurbs(&cap_pcurve_uv),
-                        reverse_nurbs(&other_pcurve),
-                        rev_err,
-                    )
-                } else {
-                    return Some(Err(EdgeTripleError::AnchorOffSurface {
-                        which: cap_side,
-                        distance: fwd_err.min(rev_err),
-                    }));
-                }
-            }
-            // Closed/Seam: not a typical Gregory cap-boundary case;
-            // fall through to the next dispatcher.
-            _ => return None,
+        match orient_boundary_to_anchors(
+            boundary_curve,
+            cap_pcurve_uv,
+            other_pcurve,
+            anchors,
+            cap_side,
+            tol,
+        )? {
+            Ok(oriented) => oriented,
+            Err(err) => return Some(Err(err)),
         };
 
     let (curve_t_start, curve_t_end) = curve_3d_oriented.parameter_range();
@@ -175,7 +157,7 @@ pub(super) fn try_dispatch_gregory_boundary(
 /// (Rectangular = cubic, Deg5 = quintic, BiquinticFull = quintic
 /// grid, Biseptic = septic, TwoStripe = bi-9 with two-stripe layout,
 /// BiNonic = bi-9). Triangular variants return `None`.
-pub(super) fn extract_gregory_boundary_curve(
+pub(crate) fn extract_gregory_boundary_curve(
     patch: &GregoryPatch,
     boundary: BoundarySide,
 ) -> Option<NurbsCurve> {
@@ -293,41 +275,52 @@ fn canonical_uv_line(boundary: BoundarySide) -> NurbsCurve {
     }
 }
 
-/// Project a 3-D NurbsCurve onto an analytic surface's UV space by
+/// Project a 3-D NurbsCurve onto another surface's UV space by
 /// sampling, projecting each sample, and fitting a NurbsCurve through
-/// the (u, v, 0) samples. Returns `None` for non-analytic surfaces
-/// (caller falls through to a later dispatcher).
-fn build_other_pcurve(curve_3d: &NurbsCurve, other: &SurfaceGeometry) -> Option<NurbsCurve> {
-    use SurfaceGeometry::*;
-    if !matches!(
-        other,
-        Plane { .. } | Cylinder { .. } | Sphere { .. } | Torus { .. }
-    ) {
-        return None;
-    }
+/// the (u, v, 0) samples.
+///
+/// Analytic surfaces use their closed-form inverse. NURBS surfaces use
+/// continuation from the previous UV sample, which avoids branch jumping
+/// along a boundary curve. Gregory projection currently uses the generic
+/// closest-point inverse per sample; the caller still validates the final
+/// 3D curve against both surfaces before committing topology repair.
+pub(super) fn build_other_pcurve(
+    curve_3d: &NurbsCurve,
+    other: &SurfaceGeometry,
+) -> Option<NurbsCurve> {
     let (t_lo, t_hi) = curve_3d.parameter_range();
     let mut params = Vec::with_capacity(PROJECTION_SAMPLES);
     let mut uv_samples = Vec::with_capacity(PROJECTION_SAMPLES);
-    let mut prev_u: Option<f64> = None;
+    let mut prev_uv: Option<(f64, f64)> = None;
     for i in 0..PROJECTION_SAMPLES {
         let s = (i as f64) / ((PROJECTION_SAMPLES - 1) as f64);
         let t = t_lo + s * (t_hi - t_lo);
         let p = curve_3d.point_at(t);
-        let (mut u, v) = project_point_to_uv(other, &p)?;
+        let (mut u, mut v) = if let Some((pu, pv)) = prev_uv {
+            project_point_to_uv_near(other, &p, pu, pv)?
+        } else {
+            project_point_to_uv(other, &p)?
+        };
         // Periodic-axis unwrapping for cyl/cone/torus u-axis.
-        if let Some(pu) = prev_u {
-            let twopi = std::f64::consts::TAU;
-            let needs_unwrap = matches!(other, Cylinder { .. } | Cone { .. } | Torus { .. });
-            if needs_unwrap {
-                while u - pu > std::f64::consts::PI {
-                    u -= twopi;
+        if let Some((pu, pv)) = prev_uv {
+            if let (Some(period_u), _) = other.periodicity() {
+                while u - pu > period_u * 0.5 {
+                    u -= period_u;
                 }
-                while pu - u > std::f64::consts::PI {
-                    u += twopi;
+                while pu - u > period_u * 0.5 {
+                    u += period_u;
+                }
+            }
+            if let (_, Some(period_v)) = other.periodicity() {
+                while v - pv > period_v * 0.5 {
+                    v -= period_v;
+                }
+                while pv - v > period_v * 0.5 {
+                    v += period_v;
                 }
             }
         }
-        prev_u = Some(u);
+        prev_uv = Some((u, v));
         params.push(s);
         uv_samples.push(Point3::new(u, v, 0.0));
     }
@@ -343,7 +336,7 @@ fn build_other_pcurve(curve_3d: &NurbsCurve, other: &SurfaceGeometry) -> Option<
 /// Reverse a NurbsCurve so `forward(t)` becomes `reverse(1 - t')`.
 /// Used when the caller's anchors are in the opposite direction
 /// from the boundary's natural parameter.
-fn reverse_nurbs(curve: &NurbsCurve) -> NurbsCurve {
+pub(super) fn reverse_nurbs(curve: &NurbsCurve) -> NurbsCurve {
     let n = curve.control_points.len();
     let mut cps = curve.control_points.clone();
     cps.reverse();
@@ -370,7 +363,7 @@ fn reverse_nurbs(curve: &NurbsCurve) -> NurbsCurve {
     }
 }
 
-fn boundary_side_to_index(boundary: BoundarySide) -> u8 {
+pub(super) fn boundary_side_to_index(boundary: BoundarySide) -> u8 {
     match boundary {
         BoundarySide::VMin => 0,
         BoundarySide::UMax => 1,

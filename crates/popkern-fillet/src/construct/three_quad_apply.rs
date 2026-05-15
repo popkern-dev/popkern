@@ -309,13 +309,8 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
 
     let support_frames_enabled = hex_boundary_data.is_some();
 
-    // Always compute the per-fillet sphere `(centre, radius)` for each
-    // sub-face when sphere-fit substitution succeeded — independent of
-    // whether the sphere-cap rung will be applied.  Stashed on
-    // `CornerPatchInfo.cap_sphere` so downstream Phase 6c-A reroute
-    // and Phase 6c-D Gregory cap rung can identify cap faces and
-    // their nominal sphere parameters even when the surface is a
-    // Gregory patch.
+    // Always compute per-fillet sphere data when sphere-fit substitution
+    // succeeded, even if the sphere-cap rung is not selected.
     let cap_sphere_per_subface: Vec<Option<(Point3, f64)>> = if boundary.sphere_fit_substituted
         && !boundary.per_fillet_caps.is_empty()
         && boundary.per_fillet_caps.len() == sub_faces.len()
@@ -331,14 +326,8 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         vec![None; sub_faces.len()]
     };
 
-    // Phase 6c-A continuation §4.2 option (c) — per-fillet
-    // sphere-cap rung. When the boundary was sphere-fit-substituted,
-    // *replace* each sub-face's Gregory surface with the per-fillet
-    // `Sphere(cap_centre_k, r_k)` only if every required planned seam
-    // can exist as a non-degenerate curve on that sphere and its
-    // neighbour surface. The validated seam authoring primitive below
-    // remains the commit gate; this preflight prevents a known invalid
-    // topology/surface pairing from reaching mutation at all.
+    // Per-fillet sphere-cap rung: only replace Gregory sub-faces when
+    // every planned seam is non-degenerate on the sphere and neighbor.
     let sphere_cap_requested = boundary.sphere_fit_substituted
         && !boundary.per_fillet_caps.is_empty()
         && boundary.per_fillet_caps.len() == sub_faces.len()
@@ -357,12 +346,8 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     let mut patches = Vec::with_capacity(decomp.sub_patches.len());
     let brep_before_surface_assignment = brep.clone();
     for (k, (sub_face, sub_patch)) in sub_faces.iter().zip(decomp.sub_patches.iter()).enumerate() {
-        // CAPTURE THE OLD SURFACE BEFORE REPLACING. Internal cap-to-
-        // cap edges (created by `mev`/`mef` during the poke) have
-        // `edge.curve = None`; we can't re-project from a 3-D curve
-        // that doesn't exist. Instead, we sample
-        // `old_surface(old_pcurve(t))` to reconstruct the 3-D path
-        // of the edge, then project those points onto the new Gregory.
+        // Internal cap-to-cap edges may lack a 3-D curve, so keep the old
+        // surface as the reprojection fallback before replacing it.
         let old_surface = brep
             .faces
             .get(*sub_face)
@@ -395,16 +380,13 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             return Err(ThreeQuadFailure::Other(err));
         }
         // Re-fit each boundary pcurve into the new surface's UV space.
-        // Uses the edge's 3-D curve when present; falls back to
-        // `old_surface(old_pcurve)` when not (internal cap-to-cap
-        // edges created by `mev`/`mef`).
         reproject_loop_pcurves_onto_gregory(
             brep,
             *sub_face,
             old_surface.as_ref(),
             boundary.sphere_fit_substituted,
         );
-        if support_frames_enabled && !sphere_cap_rung {
+        if !sphere_cap_rung {
             author_boundary_owned_seam_pcurves(brep, *sub_face, boundary, fillet_surfaces, k);
         }
         if support_frames_enabled && !sphere_cap_rung {
@@ -458,6 +440,20 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         trace_cap_subface_neighbors(brep, "final", &sub_faces);
     }
     Ok(patches)
+}
+
+pub(crate) fn author_model_level_support_face_boundary_seams(
+    brep: &mut BRep,
+    sub_faces: &[FaceHandle],
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+) -> three_quad_seam_pcurves::SupportSeamRelocationReport {
+    three_quad_seam_pcurves::author_post_assignment_support_face_boundary_seams(
+        brep,
+        sub_faces,
+        boundary,
+        fillet_surfaces,
+    )
 }
 
 fn sub_patch_provenance(

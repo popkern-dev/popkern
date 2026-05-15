@@ -219,6 +219,27 @@ impl OpenShell {
     }
 }
 
+/// SHELL_BASED_SURFACE_MODEL — one or more shells representing a sheet body.
+#[derive(Debug, Clone)]
+pub struct ShellBasedSurfaceModel {
+    /// Label name.
+    pub name: String,
+    /// References to `OPEN_SHELL` / `CLOSED_SHELL` entities.
+    pub shells: Vec<EntityId>,
+}
+
+impl ShellBasedSurfaceModel {
+    const TYPE: &str = "SHELL_BASED_SURFACE_MODEL";
+
+    /// Parse from raw STEP parameters.
+    pub fn from_params(params: &[Parameter]) -> Result<Self, MappingError> {
+        Ok(Self {
+            name: as_string(param_at(params, 0, Self::TYPE)?, Self::TYPE)?,
+            shells: as_ref_list(param_at(params, 1, Self::TYPE)?, Self::TYPE)?,
+        })
+    }
+}
+
 /// MANIFOLD_SOLID_BREP — a solid body defined by a single closed shell.
 #[derive(Debug, Clone)]
 pub struct ManifoldSolidBrep {

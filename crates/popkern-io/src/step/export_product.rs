@@ -16,13 +16,12 @@ use crate::step::parser::types::EntityId;
 impl ExportContext {
     /// Export the full product structure from a [`StepDocument`].
     ///
-    /// `solid_ids` is parallel to `doc.products` — each entry lists the
-    /// entity IDs of the MANIFOLD_SOLID_BREP entities for that product's
-    /// shapes.
+    /// `shape_item_ids` is parallel to `doc.products` and lists each exported
+    /// top-level STEP shape item for that product.
     pub(crate) fn export_product_structure(
         &mut self,
         doc: &StepDocument,
-        solid_ids: &[Vec<EntityId>],
+        shape_item_ids: &[Vec<EntityId>],
     ) -> Result<(), IoError> {
         // Emit shared context entities
         let ctx_id = self.export_representation_context(&doc.units.context);
@@ -42,7 +41,7 @@ impl ExportContext {
         // Emit each product
         let mut product_def_ids: Vec<EntityId> = Vec::new();
         for (i, product) in doc.products.iter().enumerate() {
-            let solids = solid_ids.get(i).map(|v| v.as_slice()).unwrap_or(&[]);
+            let shape_items = shape_item_ids.get(i).map(|v| v.as_slice()).unwrap_or(&[]);
 
             // PRODUCT
             let prod_id = self.emit(
@@ -75,14 +74,15 @@ impl ExportContext {
             );
 
             // Build SHAPE_REPRESENTATION containing the solid items
-            if !solids.is_empty() {
-                let items: Vec<_> = solids.iter().map(|&id| ref_(id)).collect();
+            if !shape_items.is_empty() {
+                let items: Vec<_> = shape_items.iter().map(|&id| ref_(id)).collect();
 
                 // Determine the representation type name
                 let rep_type = if product
                     .shapes
                     .iter()
                     .any(|s| s.kind == ShapeRepKind::AdvancedBrep)
+                    && !items_include_surface_model(self, shape_items)
                 {
                     "ADVANCED_BREP_SHAPE_REPRESENTATION"
                 } else {
@@ -227,6 +227,14 @@ impl ExportContext {
 
         self.export_placement(&origin, &z, &x);
     }
+}
+
+fn items_include_surface_model(ctx: &ExportContext, item_ids: &[EntityId]) -> bool {
+    item_ids.iter().any(|item_id| {
+        ctx.entities
+            .iter()
+            .any(|entity| entity.id == *item_id && entity.type_name == "SHELL_BASED_SURFACE_MODEL")
+    })
 }
 
 /// Check if a transform is the identity (no rotation, no translation).

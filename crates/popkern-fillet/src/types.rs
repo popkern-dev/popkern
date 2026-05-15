@@ -4,11 +4,18 @@
 mod types_chamfer;
 #[path = "types_corner.rs"]
 mod types_corner;
+#[path = "types_repair.rs"]
+mod types_repair;
 
 pub use types_chamfer::{ChamferKind, ChamferOptions, ChamferSpec};
 pub use types_corner::{
     CornerMethod, CornerPatchInfo, CornerSubPatchFamily, CornerSubPatchProvenance,
     CornerSubPatchRole,
+};
+pub use types_repair::{
+    BlendRepairReport, SupportSeamDecision, SupportSeamDeclineReason, SupportSeamRelocationReport,
+    SupportSeamRollbackReason, build_blend_repair_action_artifact,
+    support_seam_decline_reason_label, support_seam_rollback_reason_label,
 };
 
 use popkern_core::topology::EdgeHandle;
@@ -27,6 +34,9 @@ pub struct BlendResult {
     /// inserted. Empty when the operation produced no vertex
     /// blends. See [`CornerPatchInfo`] for the schema.
     pub corner_patches: Vec<CornerPatchInfo>,
+    /// Structured diagnostics for repair and hardening actions performed
+    /// during blend construction.
+    pub repair_report: BlendRepairReport,
 }
 
 /// Specification for a single fillet edge.

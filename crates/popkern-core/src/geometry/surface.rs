@@ -259,6 +259,20 @@ impl SurfaceGeometry {
         let ((u0, u1), (v0, v1)) = self.parameter_range();
         self.to_nurbs_in_range((u0, u1), (v0, v1))
     }
+
+    /// Approximate this surface as a NURBS over the caller's numeric UV range.
+    ///
+    /// Unlike [`Self::to_nurbs_in_range`], this preserves the requested
+    /// numeric parameter coordinates by sampling `self.point_at(u, v)` over
+    /// that range. Repair code uses this only behind validation gates when a
+    /// face's trims already depend on a wider bounded parameter domain.
+    pub fn approximate_to_nurbs_in_range(
+        &self,
+        u_range: (f64, f64),
+        v_range: (f64, f64),
+    ) -> NurbsSurface {
+        sample_to_nurbs(self, u_range, v_range)
+    }
 }
 
 #[cfg(test)]

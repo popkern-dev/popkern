@@ -54,6 +54,15 @@ pub fn compute_edge_geometry(
     ) {
         return result;
     }
+    if let Some(result) = super::bounded_boundary::try_dispatch_bounded_surface_boundary(
+        surf_a,
+        surf_b,
+        &anchors,
+        hint.as_ref(),
+        tol,
+    ) {
+        return result;
+    }
     // Try the analytic-trig dispatch first (commercial-style:
     // analytic Circle 3D + Linear cyl pcurve + Elliptical plane
     // pcurve, parameter map = Identity).

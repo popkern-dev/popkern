@@ -180,13 +180,17 @@ All paper-derived implementations in this codebase are **clean-room from papers 
 - Dispatch wiring.
 - σ's full BB-net beyond order-≤2 jet (only needed if F_κ optimisation over σ's free params is added later).
 
-### TOMS algorithm paper — Pointer to the three primary PnS papers
+### ACM TOMS Algorithm 1032 — Polyhedral splines
 
-**Citation:** Peters, J., Lo, K. S.-H., & Karčiauskas, K. (202x). "Algorithm ★: Bi-cubic splines for polyhedral control nets." *ACM TOMS*.
+**Citation:** Peters, J., Lo, K. S.-H., & Karčiauskas, K. (2023). "Algorithm 1032: Bi-cubic Splines for Polyhedral Control Nets." *ACM Transactions on Mathematical Software* 49(1), Article 7.
 
-**Local file:** `docs/papers/23PolySpl_TOMS.pdf`, `docs/papers/23PolySpl_TOMS_Doc.pdf`
+**Local file:** `docs/papers/3570158.pdf`
 
-**What's implemented:** Read for algorithmic overview; pointers to `14bi234.pdf` (n-gon), `20polar.pdf` (polar), `20quaT.pdf` (T-junctions). The TOMS paper itself has no standalone math — it's a router.
+**Reference package:** `docs/code/ACM-ToMS-PnS-1032`
+
+**Permission/provenance note:** The checked-in reference package remains documentation and validation material. The popkern implementation is a Rust-native architecture under `crates/popkern-core/src/geometry/polyhedral_spline`, using the paper's published polyhedral spline families and the ACM 1032 mask tables with explicit permission from the author to reimplement the code/tables. Do not copy the C++ architecture into production code; keep topology, diagnostics, and validation popkern-native.
+
+**What's implemented:** Standalone Bernstein-Bezier mask backend for regular quads, extraordinary stars, n-gons, polar fans, T0, T1, T2, and two-triangle/two-quad layouts; degree elevation to bicubic; Bezier-NURBS conversion; finite-control validation; patch-atlas construction; sampled C0/tangent-plane seam validation including collapsed polar singular seams; interior Jacobian regularity gates; BRep-readiness metadata for patch domains, ordinary seams, boundary edges, and collapsed singular edge roles; open-shell BRep export with exact NURBS patch faces, shared seam topology, boundary-edge marking, linear pcurves on patch loops, face provenance, transactional no-mutation failure behavior, work estimates, and OBJ/debug summaries. `ControlNet` adapts the same local layout families. The commercial validation matrix covers the reference polar/eop/n-gon valence fixtures, T0/T1/T2 fixtures, scaled adversarial fixtures, BRep export, and debug artifact gates.
 
 ---
 

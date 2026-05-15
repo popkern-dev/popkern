@@ -327,3 +327,42 @@ fn gregory_x_plane_umin_constructs_triple() {
         let _: &Pcurve = &triple.pcurve_b;
     }
 }
+
+#[test]
+fn gregory_boundary_dispatch_trims_to_anchor_subspan() {
+    let chord_a = Point3::new(0.0, 0.0, 0.0);
+    let chord_b = Point3::new(1.0, 0.0, 0.0);
+    let surf_a = SurfaceGeometry::Gregory(flat_gregory_with_u0_chord(chord_a, chord_b));
+    let surf_b = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let start = surf_a.point_at(0.0, 0.25);
+    let end = surf_a.point_at(0.0, 0.75);
+    let triple = compute_edge_geometry(
+        &surf_a,
+        &surf_b,
+        EdgeAnchors::Open { start, end },
+        Some(EdgeHint::SurfaceBoundary {
+            side: SurfaceSide::A,
+            boundary: BoundarySide::UMin,
+        }),
+        &Tolerance::default(),
+        &crate::geometry::edge_triple::EdgeTripleOptions::default(),
+    )
+    .expect("boundary-owned construction should trim to the anchor subspan");
+
+    use crate::geometry::curve::CurveEval;
+    let repaired_start = triple.curve_3d.point_at(triple.t_start);
+    let repaired_end = triple.curve_3d.point_at(triple.t_end);
+    assert!(repaired_start.distance_to(&start) < 1.0e-7);
+    assert!(repaired_end.distance_to(&end) < 1.0e-7);
+    let uv_start = triple.pcurve_a.point_at(triple.t_start);
+    let uv_end = triple.pcurve_a.point_at(triple.t_end);
+    assert!(uv_start.x.abs() < 1.0e-9);
+    assert!(uv_end.x.abs() < 1.0e-9);
+    assert!((uv_start.y - 0.25).abs() < 1.0e-7);
+    assert!((uv_end.y - 0.75).abs() < 1.0e-7);
+}

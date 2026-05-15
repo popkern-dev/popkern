@@ -4,90 +4,137 @@
 //! a BRep's topological entities and their underlying geometry.
 
 use super::brep::BRep;
-use crate::geometry::curve::CurveEval;
-use crate::geometry::surface::SurfaceEval;
-use crate::topology::{EdgeHandle, VertexHandle};
+use crate::geometry::Point3;
+use crate::geometry::curve::{CurveEval, CurveOnEdge};
+use crate::geometry::pcurve::Pcurve;
+use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use crate::topology::{EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 /// Number of sample points along an edge curve for deviation measurement.
 const DEFAULT_EDGE_SAMPLES: usize = 20;
 
+/// Per-edge report describing how well adjacent pcurves reproduce a 3D edge.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EdgePcurveDeviationReport {
+    /// Edge whose 3D curve was sampled.
+    pub edge: EdgeHandle,
+    /// Maximum accepted geometric disagreement over all adjacent half-edges.
+    pub max_deviation: f64,
+    /// Half-edge pcurve measurements contributing to this report.
+    pub half_edges: Vec<HalfEdgePcurveDeviation>,
+}
+
+/// Per-half-edge pcurve agreement against the owning edge curve and face surface.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HalfEdgePcurveDeviation {
+    /// Half-edge whose pcurve was measured.
+    pub half_edge: HalfEdgeHandle,
+    /// Adjacent face that owns the half-edge pcurve.
+    pub face: FaceHandle,
+    /// Maximum accepted disagreement. This is the minimum of same-fraction
+    /// and trace-distance disagreement at each sample, then maxed over samples.
+    pub max_deviation: f64,
+    /// Maximum disagreement when edge and pcurve are evaluated at the same fraction.
+    pub max_same_fraction_deviation: f64,
+    /// Maximum closest sampled distance from edge point to the pcurve trace.
+    pub max_trace_deviation: f64,
+    /// Fraction along the oriented half-edge at which `max_deviation` occurred.
+    pub worst_fraction: f64,
+    /// Oriented 3D edge parameter range used for this half-edge.
+    pub edge_parameter_range: (f64, f64),
+    /// Pcurve parameter range used for this half-edge.
+    pub pcurve_parameter_range: (f64, f64),
+}
+
 impl BRep {
-    /// Maximum deviation between an edge's 3D curve and the surface
-    /// evaluations via pcurves on adjacent faces.
+    /// Maximum deviation between an edge's 3D curve and adjacent pcurve traces.
     ///
-    /// For each adjacent half-edge that has both a pcurve and a face
-    /// surface, samples the edge curve at `N` parameter values, evaluates
-    /// the pcurve at each to obtain `(u, v)`, then evaluates the surface
-    /// at `(u, v)` and compares with the 3D curve point.
+    /// STEP and other exchange formats may carry pcurves whose parameterization
+    /// differs from the 3D edge curve. This measurement accepts either
+    /// same-fraction agreement or geometric trace agreement at each edge sample.
     ///
     /// Returns `0.0` if the edge has no curve or no adjacent pcurves.
     pub fn measure_edge_deviation(&self, eh: EdgeHandle) -> f64 {
-        let Some(edge) = self.edges.get(eh) else {
-            return 0.0;
+        self.measure_edge_pcurve_deviation(eh)
+            .map(|report| report.max_deviation)
+            .unwrap_or(0.0)
+    }
+
+    /// Detailed pcurve-to-edge deviation report for a single edge.
+    ///
+    /// Returns `None` only when the edge handle is invalid or the edge has no
+    /// 3D curve. A valid edge with no measurable adjacent pcurves returns an
+    /// empty report with `max_deviation == 0.0`.
+    pub fn measure_edge_pcurve_deviation(
+        &self,
+        eh: EdgeHandle,
+    ) -> Option<EdgePcurveDeviationReport> {
+        let edge = self.edges.get(eh)?;
+        let curve_on_edge = edge.curve.as_ref()?;
+        let Some(first_half_edge) = self.half_edges.get(edge.half_edge) else {
+            return Some(EdgePcurveDeviationReport {
+                edge: eh,
+                max_deviation: 0.0,
+                half_edges: Vec::new(),
+            });
         };
-        let Some(ref curve_on_edge) = edge.curve else {
-            return 0.0;
-        };
 
-        let n = DEFAULT_EDGE_SAMPLES;
-        let mut max_dev = 0.0_f64;
-
-        // Examine both half-edges of this edge.
-        let he_handle = edge.half_edge;
-        let he_handles = if let Some(he) = self.half_edges.get(he_handle) {
-            vec![he_handle, he.twin]
-        } else {
-            return 0.0;
-        };
-
-        for heh in he_handles {
-            let Some(he) = self.half_edges.get(heh) else {
+        let mut max_deviation = 0.0_f64;
+        let mut half_edges = Vec::new();
+        for heh in [edge.half_edge, first_half_edge.twin] {
+            let Some(report) = self.measure_half_edge_pcurve_deviation_with_curve(
+                heh,
+                curve_on_edge,
+                edge.half_edge,
+            ) else {
                 continue;
             };
-            let Some(ref pcurve) = he.pcurve else {
-                continue;
-            };
-
-            // Get the face's surface via loop -> face.
-            let Some(loop_) = self.loops.get(he.loop_) else {
-                continue;
-            };
-            let Some(face) = self.faces.get(loop_.face) else {
-                continue;
-            };
-            let Some(ref surface_on_face) = face.surface else {
-                continue;
-            };
-
-            // Determine half-edge direction relative to edge curve.
-            // The canonical half-edge (edge.half_edge) runs t_start -> t_end.
-            // The twin runs t_end -> t_start.
-            let forward = heh == he_handle;
-            let (t_lo, t_hi) = if forward {
-                (curve_on_edge.t_start, curve_on_edge.t_end)
-            } else {
-                (curve_on_edge.t_end, curve_on_edge.t_start)
-            };
-
-            // Sample along the edge curve, mapping pcurve fraction
-            // to the correct edge curve direction.
-            let pc_range = pcurve.parameter_range();
-            for i in 0..=n {
-                let frac = i as f64 / n as f64;
-                let t = t_lo + (t_hi - t_lo) * frac;
-                let p3d = curve_on_edge.geometry.point_at(t);
-
-                // Evaluate pcurve at corresponding parameter.
-                let pc_t = pc_range.0 + (pc_range.1 - pc_range.0) * frac;
-                let uv = pcurve.point_at(pc_t);
-                let p_surface = surface_on_face.geometry.point_at(uv.x, uv.y);
-
-                let dev = p3d.distance_to(&p_surface);
-                max_dev = max_dev.max(dev);
-            }
+            max_deviation = max_deviation.max(report.max_deviation);
+            half_edges.push(report);
         }
 
-        max_dev
+        Some(EdgePcurveDeviationReport {
+            edge: eh,
+            max_deviation,
+            half_edges,
+        })
+    }
+
+    /// Detailed pcurve-to-edge deviation for one half-edge.
+    ///
+    /// This is useful for diagnostics and export/import repair decisions that
+    /// need face ownership and half-edge orientation instead of only the edge
+    /// maximum.
+    pub fn measure_half_edge_pcurve_deviation(
+        &self,
+        heh: HalfEdgeHandle,
+    ) -> Option<HalfEdgePcurveDeviation> {
+        let he = self.half_edges.get(heh)?;
+        let edge = self.edges.get(he.edge)?;
+        let curve_on_edge = edge.curve.as_ref()?;
+        self.measure_half_edge_pcurve_deviation_with_curve(heh, curve_on_edge, edge.half_edge)
+    }
+
+    fn measure_half_edge_pcurve_deviation_with_curve(
+        &self,
+        heh: HalfEdgeHandle,
+        curve_on_edge: &CurveOnEdge,
+        canonical_half_edge: HalfEdgeHandle,
+    ) -> Option<HalfEdgePcurveDeviation> {
+        let he = self.half_edges.get(heh)?;
+        let pcurve = he.pcurve.as_ref()?;
+        let loop_ = self.loops.get(he.loop_)?;
+        let face = self.faces.get(loop_.face)?;
+        let surface = &face.surface.as_ref()?.geometry;
+        measure_pcurve_deviation(
+            heh,
+            loop_.face,
+            pcurve,
+            surface,
+            curve_on_edge,
+            canonical_half_edge == heh,
+            DEFAULT_EDGE_SAMPLES,
+        )
     }
 
     /// Maximum distance from a vertex position to incident edge curves
@@ -139,7 +186,6 @@ impl BRep {
                         curve_on_edge.t_end
                     }
                 } else {
-                    // Fallback: can't determine parameter, skip.
                     cursor = self.advance_vertex_fan(cursor, start);
                     if cursor == start {
                         break;
@@ -178,6 +224,93 @@ impl BRep {
         };
         twin_data.next
     }
+}
+
+fn measure_pcurve_deviation(
+    half_edge: HalfEdgeHandle,
+    face: FaceHandle,
+    pcurve: &Pcurve,
+    surface: &SurfaceGeometry,
+    curve_on_edge: &CurveOnEdge,
+    forward: bool,
+    samples: usize,
+) -> Option<HalfEdgePcurveDeviation> {
+    let samples = samples.max(1);
+    let (t_lo, t_hi) = oriented_edge_parameter_range(curve_on_edge, forward);
+    let pc_range = pcurve.parameter_range();
+    if !t_lo.is_finite() || !t_hi.is_finite() || !pc_range.0.is_finite() || !pc_range.1.is_finite()
+    {
+        return None;
+    }
+
+    let mut max_deviation = 0.0_f64;
+    let mut max_same_fraction_deviation = 0.0_f64;
+    let mut max_trace_deviation = 0.0_f64;
+    let mut worst_fraction = 0.0_f64;
+
+    for (frac, p3d) in edge_points_for_half_edge(curve_on_edge, forward, samples) {
+        let pc_t = pc_range.0 + (pc_range.1 - pc_range.0) * frac;
+        let uv = pcurve.point_at(pc_t);
+        let same_fraction_point = surface.point_at(uv.x, uv.y);
+        let same_fraction_dev = p3d.distance_to(&same_fraction_point);
+        let trace_dev = pcurve_trace_distance(pcurve, surface, &p3d);
+        let accepted_dev = same_fraction_dev.min(trace_dev);
+
+        max_same_fraction_deviation = max_same_fraction_deviation.max(same_fraction_dev);
+        max_trace_deviation = max_trace_deviation.max(trace_dev);
+        if accepted_dev > max_deviation {
+            max_deviation = accepted_dev;
+            worst_fraction = frac;
+        }
+    }
+
+    Some(HalfEdgePcurveDeviation {
+        half_edge,
+        face,
+        max_deviation,
+        max_same_fraction_deviation,
+        max_trace_deviation,
+        worst_fraction,
+        edge_parameter_range: (t_lo, t_hi),
+        pcurve_parameter_range: pc_range,
+    })
+}
+
+fn oriented_edge_parameter_range(curve_on_edge: &CurveOnEdge, forward: bool) -> (f64, f64) {
+    if forward {
+        (curve_on_edge.t_start, curve_on_edge.t_end)
+    } else {
+        (curve_on_edge.t_end, curve_on_edge.t_start)
+    }
+}
+
+fn edge_points_for_half_edge(
+    curve_on_edge: &CurveOnEdge,
+    forward: bool,
+    samples: usize,
+) -> Vec<(f64, Point3)> {
+    let samples = samples.max(1);
+    let (t_lo, t_hi) = oriented_edge_parameter_range(curve_on_edge, forward);
+    (0..=samples)
+        .map(|i| {
+            let frac = i as f64 / samples as f64;
+            let t = t_lo + (t_hi - t_lo) * frac;
+            (frac, curve_on_edge.geometry.point_at(t))
+        })
+        .collect()
+}
+
+fn pcurve_trace_distance(pcurve: &Pcurve, surface: &impl SurfaceEval, point: &Point3) -> f64 {
+    let (t0, t1) = pcurve.parameter_range();
+    let samples = 128usize;
+    let mut best = f64::INFINITY;
+    for i in 0..=samples {
+        let t = t0 + (t1 - t0) * (i as f64 / samples as f64);
+        let uv = pcurve.point_at(t);
+        let p_surface = surface.point_at(uv.x, uv.y);
+        best = best.min(point.distance_to(&p_surface));
+    }
+    best
 }
 
 #[cfg(test)]

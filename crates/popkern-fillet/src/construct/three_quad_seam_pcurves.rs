@@ -1,10 +1,20 @@
 //! Boundary-owned seam pcurve authoring for three-quad cap faces.
 
+#[path = "three_quad_seam_pcurve_candidate.rs"]
+mod three_quad_seam_pcurve_candidate;
+#[path = "three_quad_support_seams.rs"]
+mod three_quad_support_seams;
+pub(crate) use crate::types::SupportSeamRelocationReport;
+
 use super::three_quad_face_matching::{
     face_has_cylinder_surface, face_surface_matches, half_edge_endpoints_match_curve,
 };
 use super::*;
-use crate::construct::helpers;
+use popkern_core::topology::FaceHandle;
+use popkern_core::topology::{SurfaceBoundaryHintDecline, SurfaceBoundaryHintDeclineReason};
+use three_quad_seam_pcurve_candidate::{
+    BoundaryOwnedCandidate, boundary_owned_candidate, tolerance_for_boundary_authoring,
+};
 
 pub(super) fn author_boundary_owned_seam_pcurves(
     brep: &mut BRep,
@@ -23,40 +33,87 @@ pub(super) fn author_boundary_owned_seam_pcurves(
         let Some(segment) = boundary.segments.get(segment_index) else {
             continue;
         };
-        let Some(he) =
-            find_subface_half_edge_for_boundary_segment(brep, sub_face, segment, fillet_surfaces)
+        let candidates = subface_half_edge_candidates_for_boundary_segment(
+            brep,
+            sub_face,
+            segment,
+            fillet_surfaces,
+        );
+        let Some(cap_surface) = brep.faces.get(sub_face).and_then(|f| f.surface.as_ref()) else {
+            continue;
+        };
+        let mut best_decline = None;
+        let Some((he, boundary_side, cap_pcurve, other_pcurve)) =
+            candidates.into_iter().find_map(|he| {
+                match boundary_owned_candidate(brep, he, cap_surface, segment, segment_offset) {
+                    BoundaryOwnedCandidate::AcceptedBoundary {
+                        half_edge,
+                        boundary_side,
+                        cap_pcurve,
+                        other_pcurve,
+                    } => Some((half_edge, Some(boundary_side), cap_pcurve, other_pcurve)),
+                    BoundaryOwnedCandidate::AcceptedInterior {
+                        half_edge,
+                        cap_pcurve,
+                        other_pcurve,
+                    } => Some((half_edge, None, cap_pcurve, other_pcurve)),
+                    BoundaryOwnedCandidate::Declined {
+                        half_edge,
+                        max_disagreement,
+                        boundary_side,
+                        endpoint_gap,
+                    } => {
+                        if brep.surface_boundary_hint(half_edge).is_none() {
+                            match best_decline {
+                                Some((_, best_disagreement, _, _))
+                                    if max_disagreement >= best_disagreement => {}
+                                _ => {
+                                    best_decline = Some((
+                                        half_edge,
+                                        max_disagreement,
+                                        boundary_side,
+                                        endpoint_gap,
+                                    ))
+                                }
+                            }
+                        }
+                        None
+                    }
+                    BoundaryOwnedCandidate::Unavailable => None,
+                }
+            })
         else {
+            if let Some((half_edge, max_disagreement, boundary_side, endpoint_gap)) = best_decline
+                && brep.surface_boundary_hint(half_edge).is_none()
+            {
+                brep.set_surface_boundary_decline(
+                    half_edge,
+                    SurfaceBoundaryHintDecline {
+                        reason: if endpoint_gap > tolerance_for_boundary_authoring(brep) {
+                            SurfaceBoundaryHintDeclineReason::AuthoredHintEndpointMismatch
+                        } else {
+                            SurfaceBoundaryHintDeclineReason::NotOnCanonicalBoundary
+                        },
+                        best_boundary_deviation: max_disagreement,
+                        best_boundary: Some(boundary_side),
+                        endpoint_gap,
+                    },
+                );
+            }
             if crate::a2_trace::cap_g0_enabled() {
                 eprintln!(
                     "[a2-trace cap-g0] boundary-owned pcurve: subface[{subface_index}] \
-                     segment[{segment_index}] no matching half-edge"
+                     segment[{segment_index}] no validated half-edge"
                 );
             }
             continue;
         };
         let twin = brep.half_edges[he].twin;
-        let Some(cap_surface) = brep.faces.get(sub_face).and_then(|f| f.surface.as_ref()) else {
-            continue;
-        };
-        let twin_face = brep.loops[brep.half_edges[twin].loop_].face;
-        let Some(twin_surface) = brep.faces.get(twin_face).and_then(|f| f.surface.as_ref()) else {
-            continue;
-        };
-        let cap_pcurve = best_gregory_boundary_pcurve_for_half_edge(brep, he, cap_surface)
-            .unwrap_or_else(|| {
-                canonical_gregory_boundary_pcurve_for_half_edge(
-                    brep,
-                    he,
-                    cap_surface,
-                    segment_offset,
-                )
-            });
-        let other_pcurve =
-            project_boundary_segment_to_half_edge_pcurve(brep, twin, twin_surface, segment);
-        brep.half_edges[he].pcurve = Some(cap_pcurve);
-        if let Some(pcurve) = other_pcurve {
-            brep.half_edges[twin].pcurve = Some(pcurve);
+        if let Some(boundary_side) = boundary_side {
+            brep.set_surface_boundary_hint(he, boundary_side);
         }
+        brep.half_edges[he].pcurve = Some(cap_pcurve);
+        brep.half_edges[twin].pcurve = Some(other_pcurve);
         if crate::a2_trace::cap_g0_enabled() {
             eprintln!(
                 "[a2-trace cap-g0] boundary-owned pcurve: subface[{subface_index}] \
@@ -67,19 +124,120 @@ pub(super) fn author_boundary_owned_seam_pcurves(
     }
 }
 
-fn find_subface_half_edge_for_boundary_segment(
+pub(super) fn author_post_assignment_support_face_boundary_seams(
+    brep: &mut BRep,
+    sub_faces: &[FaceHandle],
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+) -> SupportSeamRelocationReport {
+    let before = brep.clone();
+    let mut report = SupportSeamRelocationReport::default();
+    let required_hints = gregory_cap_cylinder_boundary_hint_count(brep);
+    let required_neighbors = three_quad_support_seams::gregory_cap_cylinder_neighbor_count(brep);
+    for (subface_index, sub_face) in sub_faces.iter().enumerate() {
+        for (segment_offset, segment_index) in [2 * subface_index, 2 * subface_index + 1]
+            .into_iter()
+            .enumerate()
+        {
+            let Some(segment @ BoundarySegment::FaceEdge { .. }) =
+                boundary.segments.get(segment_index)
+            else {
+                continue;
+            };
+            let candidates = subface_half_edge_candidates_for_boundary_segment(
+                brep,
+                *sub_face,
+                segment,
+                fillet_surfaces,
+            );
+            let result = three_quad_support_seams::try_author_support_face_boundary_seam(
+                brep,
+                *sub_face,
+                segment_offset,
+                &candidates,
+            );
+            if let Some(authored_seam) = result.authored {
+                brep.set_surface_boundary_hint(
+                    authored_seam.half_edge,
+                    authored_seam.boundary_side,
+                );
+            }
+            report.merge(result.report);
+        }
+    }
+    let hints_preserved = gregory_cap_cylinder_boundary_hint_count(brep) >= required_hints;
+    let neighbors_preserved =
+        three_quad_support_seams::gregory_cap_cylinder_neighbor_count(brep) >= required_neighbors;
+    let loops_closed = brep.validate_loop_closure().is_ok();
+    if !hints_preserved || !neighbors_preserved || !loops_closed {
+        *brep = before;
+        report.rollback_reason = Some(if !loops_closed {
+            crate::types::SupportSeamRollbackReason::LoopClosureFailed
+        } else if !hints_preserved {
+            crate::types::SupportSeamRollbackReason::CapCylinderHintsLost
+        } else {
+            crate::types::SupportSeamRollbackReason::CapCylinderNeighborsLost
+        });
+        report.authored = 0;
+    }
+    report
+}
+
+fn gregory_cap_cylinder_boundary_hint_count(brep: &BRep) -> usize {
+    let mut hinted = 0usize;
+    for (_, face) in &brep.faces {
+        let Some(surface) = face.surface.as_ref() else {
+            continue;
+        };
+        if !matches!(surface.geometry, SurfaceGeometry::Gregory(_)) {
+            continue;
+        }
+        let start = brep.loops[face.outer_loop].half_edge;
+        let mut cursor = start;
+        for _ in 0..=brep.half_edges.len() {
+            let half_edge = &brep.half_edges[cursor];
+            let twin_face = brep.loops[brep.half_edges[half_edge.twin].loop_].face;
+            if face_has_cylinder_surface(brep, twin_face)
+                && brep.surface_boundary_hint(cursor).is_some()
+            {
+                hinted += 1;
+            }
+            cursor = half_edge.next;
+            if cursor == start {
+                break;
+            }
+        }
+    }
+    hinted
+}
+
+fn subface_half_edge_candidates_for_boundary_segment(
     brep: &BRep,
     sub_face: FaceHandle,
     segment: &BoundarySegment,
     fillet_surfaces: &[FilletSurfaceResult],
-) -> Option<popkern_core::topology::HalfEdgeHandle> {
-    let face_data = brep.faces.get(sub_face)?;
-    let loop_data = brep.loops.get(face_data.outer_loop)?;
+) -> Vec<popkern_core::topology::HalfEdgeHandle> {
+    let mut primary = Vec::new();
+    let mut fallback = Vec::new();
+    let Some(face_data) = brep.faces.get(sub_face) else {
+        return Vec::new();
+    };
+    let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
+        return Vec::new();
+    };
     let start = loop_data.half_edge;
     let mut cursor = start;
     for _ in 0..(brep.half_edges.len() + 1) {
-        let he = brep.half_edges.get(cursor)?;
-        let twin_face = brep.loops.get(brep.half_edges.get(he.twin)?.loop_)?.face;
+        let Some(he) = brep.half_edges.get(cursor) else {
+            break;
+        };
+        let Some(twin_half_edge) = brep.half_edges.get(he.twin) else {
+            break;
+        };
+        let Some(twin_loop) = brep.loops.get(twin_half_edge.loop_) else {
+            break;
+        };
+        let twin_face = twin_loop.face;
         let matches = match segment {
             BoundarySegment::FaceEdge { face, curve } => {
                 twin_face == *face || half_edge_endpoints_match_curve(brep, cursor, curve, 1.0e-5)
@@ -96,125 +254,15 @@ fn find_subface_half_edge_for_boundary_segment(
             }
         };
         if matches {
-            return Some(cursor);
+            primary.push(cursor);
+        } else if matches!(segment, BoundarySegment::FaceEdge { .. }) {
+            fallback.push(cursor);
         }
         cursor = he.next;
         if cursor == start {
             break;
         }
     }
-    None
-}
-
-fn canonical_gregory_boundary_pcurve_for_half_edge(
-    brep: &BRep,
-    he: popkern_core::topology::HalfEdgeHandle,
-    cap_surface: &SurfaceOnFace,
-    segment_offset: usize,
-) -> popkern_core::geometry::pcurve::Pcurve {
-    use popkern_core::geometry::surface::SurfaceEval;
-
-    let (start_uv, end_uv) = match segment_offset {
-        // Boundary 0: FilletEnd[k], u = 0, v = 0 -> 1.
-        0 => (Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 1.0, 0.0)),
-        // Boundary 1: FaceEdge[k], v = 1, u = 0 -> 1.
-        _ => (Point3::new(0.0, 1.0, 0.0), Point3::new(1.0, 1.0, 0.0)),
-    };
-    let he_origin = brep.vertices[brep.half_edges[he].origin].position;
-    let p_start = cap_surface.geometry.point_at(start_uv.x, start_uv.y);
-    let p_end = cap_surface.geometry.point_at(end_uv.x, end_uv.y);
-    let (start, end) = if he_origin.distance_to(&p_start) <= he_origin.distance_to(&p_end) {
-        (start_uv, end_uv)
-    } else {
-        (end_uv, start_uv)
-    };
-    popkern_core::geometry::pcurve::Pcurve::linear((start.x, start.y), (end.x, end.y), 0.0, 1.0)
-}
-
-fn best_gregory_boundary_pcurve_for_half_edge(
-    brep: &BRep,
-    he: popkern_core::topology::HalfEdgeHandle,
-    cap_surface: &SurfaceOnFace,
-) -> Option<popkern_core::geometry::pcurve::Pcurve> {
-    use popkern_core::geometry::curve::CurveEval;
-    use popkern_core::geometry::surface::SurfaceEval;
-
-    let edge = brep.half_edges.get(he)?.edge;
-    let coe = brep.edges.get(edge)?.curve.as_ref()?;
-    let he_origin = brep.vertices.get(brep.half_edges.get(he)?.origin)?.position;
-    let p_t_start = coe.geometry.point_at(coe.t_start);
-    let p_t_end = coe.geometry.point_at(coe.t_end);
-    let edge_forward = he_origin.distance_to(&p_t_start) <= he_origin.distance_to(&p_t_end);
-
-    type BoundaryUv = ((f64, f64), (f64, f64));
-    let candidates = [
-        ((0.0, 0.0), (0.0, 1.0)),
-        ((1.0, 0.0), (1.0, 1.0)),
-        ((0.0, 0.0), (1.0, 0.0)),
-        ((0.0, 1.0), (1.0, 1.0)),
-    ];
-    let mut best: Option<(BoundaryUv, f64)> = None;
-    for (start, end) in candidates {
-        for reverse in [false, true] {
-            let (uv0, uv1) = if reverse { (end, start) } else { (start, end) };
-            let mut worst = 0.0_f64;
-            for i in 0..16 {
-                let s = i as f64 / 15.0;
-                let edge_s = if edge_forward { s } else { 1.0 - s };
-                let edge_t = coe.t_start + edge_s * (coe.t_end - coe.t_start);
-                let p_edge = coe.geometry.point_at(edge_t);
-                let u = uv0.0 + s * (uv1.0 - uv0.0);
-                let v = uv0.1 + s * (uv1.1 - uv0.1);
-                let p_cap = cap_surface.geometry.point_at(u, v);
-                worst = worst.max(p_edge.distance_to(&p_cap));
-            }
-            match best {
-                Some((_, best_worst)) if worst >= best_worst => {}
-                _ => best = Some(((uv0, uv1), worst)),
-            }
-        }
-    }
-    let ((uv0, uv1), worst) = best?;
-    if crate::a2_trace::cap_g0_enabled() {
-        eprintln!(
-            "[a2-trace cap-g0] best Gregory side for he={he:?}: ({:.1},{:.1})->({:.1},{:.1}) worst={worst:.6e}",
-            uv0.0, uv0.1, uv1.0, uv1.1
-        );
-    }
-    Some(popkern_core::geometry::pcurve::Pcurve::linear(
-        uv0, uv1, 0.0, 1.0,
-    ))
-}
-
-fn project_boundary_segment_to_half_edge_pcurve(
-    brep: &BRep,
-    he: popkern_core::topology::HalfEdgeHandle,
-    surface: &SurfaceOnFace,
-    segment: &BoundarySegment,
-) -> Option<popkern_core::geometry::pcurve::Pcurve> {
-    use popkern_core::geometry::curve::CurveEval;
-
-    let curve = match segment {
-        BoundarySegment::FilletEnd { curve, .. } | BoundarySegment::FaceEdge { curve, .. } => curve,
-    };
-    let (t0, t1) = curve.parameter_range();
-    let p0 = curve.point_at(t0);
-    let p1 = curve.point_at(t1);
-    let he_origin = brep.vertices[brep.half_edges[he].origin].position;
-    let forward = he_origin.distance_to(&p0) <= he_origin.distance_to(&p1);
-
-    let n_samples = 12usize;
-    let mut uv_points = Vec::with_capacity(n_samples);
-    let mut params = Vec::with_capacity(n_samples);
-    for i in 0..n_samples {
-        let s = i as f64 / (n_samples - 1) as f64;
-        let curve_s = if forward { s } else { 1.0 - s };
-        let p = curve.point_at(t0 + curve_s * (t1 - t0));
-        let (u, v) = helpers::project_to_uv(&surface.geometry, &p);
-        uv_points.push(Point3::new(u, v, 0.0));
-        params.push(s);
-    }
-    popkern_core::geometry::fitting::interpolate_curve(&uv_points, &params, 5)
-        .ok()
-        .map(Into::into)
+    primary.extend(fallback);
+    primary
 }

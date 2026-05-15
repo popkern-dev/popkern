@@ -1,15 +1,19 @@
 //! Topology mapping: STEP topology entities to popkern-core [`BRep`] via [`BRepBuilder`].
 //!
-//! Walks `MANIFOLD_SOLID_BREP` → `CLOSED_SHELL` → `ADVANCED_FACE` → edge loops
-//! and constructs a fully-wired BRep for each solid.
+//! Walks `MANIFOLD_SOLID_BREP` / `SHELL_BASED_SURFACE_MODEL` → shell →
+//! `ADVANCED_FACE` → edge loops and constructs a fully-wired BRep for each body.
 //!
 //! Face data collection is in the [`face_collector`] submodule.
 
 mod face_collector;
+mod open_shell;
+mod pcurve_orientation;
 
 use std::collections::HashMap;
 
 use popkern_core::constructors::BRepBuilder;
+use popkern_core::geometry::Point3;
+use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::brep::BRep;
 use popkern_core::topology::{EdgeHandle, HalfEdgeHandle, VertexHandle};
@@ -18,11 +22,15 @@ use crate::step::diagnostics::{DiagnosticLog, Phase};
 use crate::step::mapping::geometry::GeometryCache;
 use crate::step::parser::graph::EntityGraph;
 use crate::step::parser::types::EntityId;
-use crate::step::schema::topology::{ClosedShell, EdgeCurve, ManifoldSolidBrep, VertexPoint};
+use crate::step::schema::topology::{
+    ClosedShell, EdgeCurve, ManifoldSolidBrep, OpenShell, ShellBasedSurfaceModel, VertexPoint,
+};
 
 use face_collector::collect_face_data;
+use open_shell::normalize_open_shell_boundaries;
+use pcurve_orientation::select_orient_pcurve_to_half_edge;
 
-/// Find all `MANIFOLD_SOLID_BREP` entities and build a [`BRep`] for each.
+/// Find BRep body representation items and build a [`BRep`] for each.
 ///
 /// Returns a list of `(entity_id, BRep)` pairs.
 pub fn map_brep_solids(
@@ -50,6 +58,36 @@ pub fn map_brep_solids(
             }
         }
     }
+
+    let surface_model_ids: Vec<EntityId> = graph
+        .iter()
+        .filter(|(_, e)| e.type_name == "SHELL_BASED_SURFACE_MODEL")
+        .map(|(&id, _)| id)
+        .collect();
+
+    for item_id in surface_model_ids {
+        let Some(entity) = graph.get(item_id) else {
+            continue;
+        };
+        let model = match ShellBasedSurfaceModel::from_params(&entity.params) {
+            Ok(m) => m,
+            Err(e) => {
+                log.error(Phase::MapTopology, Some(item_id), format!("{e}"));
+                continue;
+            }
+        };
+
+        for shell_id in model.shells {
+            match build_shell_body(graph, geo, shell_id, true, log, tolerance) {
+                Some(brep) => results.push((item_id, brep)),
+                None => log.error(
+                    Phase::MapTopology,
+                    Some(shell_id),
+                    "failed to build sheet body from SHELL_BASED_SURFACE_MODEL",
+                ),
+            }
+        }
+    }
     results
 }
 
@@ -71,22 +109,59 @@ fn build_solid(
         }
     };
 
-    // 2. Resolve the ClosedShell
-    let shell_entity = graph.get(msb.outer)?;
-    let shell = match ClosedShell::from_params(&shell_entity.params) {
-        Ok(s) => s,
-        Err(e) => {
-            log.error(Phase::MapTopology, Some(msb.outer), format!("{e}"));
+    build_shell_body(graph, geo, msb.outer, false, log, tolerance)
+}
+
+fn build_shell_body(
+    graph: &EntityGraph,
+    geo: &mut GeometryCache<'_>,
+    shell_id: EntityId,
+    is_open_shell: bool,
+    log: &mut DiagnosticLog,
+    tolerance: Tolerance,
+) -> Option<BRep> {
+    let shell_entity = graph.get(shell_id)?;
+    let faces = match shell_entity.type_name.as_str() {
+        "CLOSED_SHELL" => match ClosedShell::from_params(&shell_entity.params) {
+            Ok(shell) => shell.faces,
+            Err(e) => {
+                log.error(Phase::MapTopology, Some(shell_id), format!("{e}"));
+                return None;
+            }
+        },
+        "OPEN_SHELL" => match OpenShell::from_params(&shell_entity.params) {
+            Ok(shell) => shell.faces,
+            Err(e) => {
+                log.error(Phase::MapTopology, Some(shell_id), format!("{e}"));
+                return None;
+            }
+        },
+        other => {
+            log.error(
+                Phase::MapTopology,
+                Some(shell_id),
+                format!("expected shell entity, got {other}"),
+            );
             return None;
         }
     };
 
-    // 3. Gather all unique vertex and edge entities across all faces
+    build_brep_from_faces(graph, geo, &faces, is_open_shell, log, tolerance)
+}
+
+fn build_brep_from_faces(
+    graph: &EntityGraph,
+    geo: &mut GeometryCache<'_>,
+    faces: &[EntityId],
+    is_open_shell: bool,
+    log: &mut DiagnosticLog,
+    tolerance: Tolerance,
+) -> Option<BRep> {
     let mut vertex_map: HashMap<EntityId, VertexHandle> = HashMap::new();
     let mut edge_map: HashMap<EntityId, (EdgeHandle, HalfEdgeHandle, HalfEdgeHandle)> =
         HashMap::new();
 
-    let face_data = collect_face_data(graph, &shell.faces, log)?;
+    let face_data = collect_face_data(graph, faces, log)?;
 
     let mut builder = BRepBuilder::new(tolerance);
 
@@ -126,8 +201,15 @@ fn build_solid(
         let (eh, he1, he2) = builder.add_edge(v1, v2);
         edge_map.insert(ec_id, (eh, he1, he2));
 
-        // Attach edge curve geometry
+        // STEP EDGE_CURVE geometry is bounded by the topological start/end
+        // vertices. Resolve the native curve, then recover the edge parameter
+        // range from those vertices so arcs and NURBS trims do not import as
+        // their full underlying curve domains.
         if let Some(curve) = geo.resolve_curve(ec.edge_geometry, log) {
+            let start = builder.brep().vertices[v1].position;
+            let end = builder.brep().vertices[v2].position;
+            let curve =
+                recover_edge_curve_trim(ec_id, curve, start, end, ec.same_sense, tolerance, log);
             builder.set_edge_curve(eh, curve);
         }
     }
@@ -155,6 +237,33 @@ fn build_solid(
                 } else {
                     *he_rev
                 };
+                if builder.brep().half_edges[he].pcurve.is_none()
+                    && let Some((edge_handle, _he_fwd, _he_rev)) =
+                        edge_map.get(&oe_info.edge_curve_id)
+                    && let Some(edge) = builder.brep().edges.get(*edge_handle)
+                    && let Some(curve) = edge.curve.as_ref()
+                    && let Some(surface) = builder.brep().faces[face_h].surface.as_ref()
+                    && let Some(edge_curve) = graph
+                        .get(oe_info.edge_curve_id)
+                        .and_then(|entity| EdgeCurve::from_params(&entity.params).ok())
+                {
+                    let pcurves = geo.resolve_surface_curve_pcurves(
+                        edge_curve.edge_geometry,
+                        face_info.surface_id,
+                        log,
+                    );
+                    if let Some(oriented) = select_orient_pcurve_to_half_edge(
+                        pcurves,
+                        curve,
+                        surface,
+                        oe_info.orientation,
+                        face_info.face_id,
+                        tolerance,
+                        log,
+                    ) {
+                        builder.brep_mut().half_edges[he].pcurve = Some(oriented);
+                    }
+                }
                 half_edges.push(he);
             }
 
@@ -184,205 +293,87 @@ fn build_solid(
         }
     }
 
+    if is_open_shell {
+        normalize_open_shell_boundaries(&mut builder);
+    }
+
     Some(builder.build_unchecked())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::step::parser::types::{EntityInstance, Parameter};
+fn recover_edge_curve_trim(
+    edge_curve_id: EntityId,
+    mut curve: CurveOnEdge,
+    start: Point3,
+    end: Point3,
+    same_sense: bool,
+    tolerance: Tolerance,
+    log: &mut DiagnosticLog,
+) -> CurveOnEdge {
+    let Some(mut start_t) = curve.geometry.closest_point(&start) else {
+        log.warn(
+            Phase::MapTopology,
+            Some(edge_curve_id),
+            "could not recover EDGE_CURVE start parameter from topological vertex",
+        );
+        return curve;
+    };
+    let Some(mut end_t) = curve.geometry.closest_point(&end) else {
+        log.warn(
+            Phase::MapTopology,
+            Some(edge_curve_id),
+            "could not recover EDGE_CURVE end parameter from topological vertex",
+        );
+        return curve;
+    };
 
-    fn make_entity(id: EntityId, type_name: &str, params: Vec<Parameter>) -> EntityInstance {
-        EntityInstance {
-            id,
-            type_name: type_name.into(),
-            params,
-            complex_parts: vec![],
+    let start_gap = curve.geometry.point_at(start_t).distance_to(&start);
+    let end_gap = curve.geometry.point_at(end_t).distance_to(&end);
+    let limit = tolerance.linear().max(1e-9);
+    if start_gap > limit || end_gap > limit {
+        log.warn(
+            Phase::MapTopology,
+            Some(edge_curve_id),
+            format!(
+                "declined EDGE_CURVE trim recovery: endpoint gaps {:.3e}, {:.3e} exceed {:.3e}",
+                start_gap, end_gap, limit
+            ),
+        );
+        return curve;
+    }
+
+    normalize_periodic_parameter_order(&curve.geometry, same_sense, &mut start_t, &mut end_t);
+
+    curve.t_start = start_t;
+    curve.t_end = end_t;
+
+    curve
+}
+
+fn normalize_periodic_parameter_order(
+    geometry: &CurveGeometry,
+    same_sense: bool,
+    start_t: &mut f64,
+    end_t: &mut f64,
+) {
+    let is_periodic = matches!(
+        geometry,
+        CurveGeometry::Circle { .. } | CurveGeometry::Arc { .. } | CurveGeometry::Ellipse { .. }
+    );
+    if !is_periodic {
+        return;
+    }
+
+    if same_sense {
+        while *end_t < *start_t {
+            *end_t += std::f64::consts::TAU;
+        }
+    } else {
+        while *start_t < *end_t {
+            *start_t += std::f64::consts::TAU;
         }
     }
-
-    fn p_str(s: &str) -> Parameter {
-        Parameter::String(s.into())
-    }
-    fn p_ref(id: u64) -> Parameter {
-        Parameter::EntityRef(id)
-    }
-    fn p_enum(s: &str) -> Parameter {
-        Parameter::Enum(s.into())
-    }
-    fn p_real(v: f64) -> Parameter {
-        Parameter::Real(v)
-    }
-    fn p_list(items: Vec<Parameter>) -> Parameter {
-        Parameter::List(items)
-    }
-
-    /// Build a minimal triangle solid from STEP entities and verify topology.
-    #[test]
-    fn build_triangle_solid() {
-        let entities = vec![
-            make_entity(
-                1,
-                "CARTESIAN_POINT",
-                vec![
-                    p_str(""),
-                    p_list(vec![p_real(0.0), p_real(0.0), p_real(0.0)]),
-                ],
-            ),
-            make_entity(
-                2,
-                "CARTESIAN_POINT",
-                vec![
-                    p_str(""),
-                    p_list(vec![p_real(1.0), p_real(0.0), p_real(0.0)]),
-                ],
-            ),
-            make_entity(
-                3,
-                "CARTESIAN_POINT",
-                vec![
-                    p_str(""),
-                    p_list(vec![p_real(0.0), p_real(1.0), p_real(0.0)]),
-                ],
-            ),
-            make_entity(
-                4,
-                "DIRECTION",
-                vec![
-                    p_str(""),
-                    p_list(vec![p_real(0.0), p_real(0.0), p_real(1.0)]),
-                ],
-            ),
-            make_entity(
-                5,
-                "DIRECTION",
-                vec![
-                    p_str(""),
-                    p_list(vec![p_real(1.0), p_real(0.0), p_real(0.0)]),
-                ],
-            ),
-            make_entity(
-                6,
-                "AXIS2_PLACEMENT_3D",
-                vec![p_str(""), p_ref(1), p_ref(4), p_ref(5)],
-            ),
-            make_entity(7, "PLANE", vec![p_str(""), p_ref(6)]),
-            make_entity(
-                8,
-                "DIRECTION",
-                vec![
-                    p_str(""),
-                    p_list(vec![p_real(1.0), p_real(0.0), p_real(0.0)]),
-                ],
-            ),
-            make_entity(9, "VECTOR", vec![p_str(""), p_ref(8), p_real(1.0)]),
-            make_entity(
-                10,
-                "DIRECTION",
-                vec![
-                    p_str(""),
-                    p_list(vec![p_real(-1.0), p_real(1.0), p_real(0.0)]),
-                ],
-            ),
-            make_entity(11, "VECTOR", vec![p_str(""), p_ref(10), p_real(1.0)]),
-            make_entity(
-                12,
-                "DIRECTION",
-                vec![
-                    p_str(""),
-                    p_list(vec![p_real(0.0), p_real(-1.0), p_real(0.0)]),
-                ],
-            ),
-            make_entity(13, "VECTOR", vec![p_str(""), p_ref(12), p_real(1.0)]),
-            make_entity(14, "LINE", vec![p_str(""), p_ref(1), p_ref(9)]),
-            make_entity(15, "LINE", vec![p_str(""), p_ref(2), p_ref(11)]),
-            make_entity(16, "LINE", vec![p_str(""), p_ref(3), p_ref(13)]),
-            make_entity(20, "VERTEX_POINT", vec![p_str(""), p_ref(1)]),
-            make_entity(21, "VERTEX_POINT", vec![p_str(""), p_ref(2)]),
-            make_entity(22, "VERTEX_POINT", vec![p_str(""), p_ref(3)]),
-            make_entity(
-                30,
-                "EDGE_CURVE",
-                vec![p_str(""), p_ref(20), p_ref(21), p_ref(14), p_enum("T")],
-            ),
-            make_entity(
-                31,
-                "EDGE_CURVE",
-                vec![p_str(""), p_ref(21), p_ref(22), p_ref(15), p_enum("T")],
-            ),
-            make_entity(
-                32,
-                "EDGE_CURVE",
-                vec![p_str(""), p_ref(22), p_ref(20), p_ref(16), p_enum("T")],
-            ),
-            make_entity(
-                40,
-                "ORIENTED_EDGE",
-                vec![
-                    p_str(""),
-                    Parameter::Derived,
-                    Parameter::Derived,
-                    p_ref(30),
-                    p_enum("T"),
-                ],
-            ),
-            make_entity(
-                41,
-                "ORIENTED_EDGE",
-                vec![
-                    p_str(""),
-                    Parameter::Derived,
-                    Parameter::Derived,
-                    p_ref(31),
-                    p_enum("T"),
-                ],
-            ),
-            make_entity(
-                42,
-                "ORIENTED_EDGE",
-                vec![
-                    p_str(""),
-                    Parameter::Derived,
-                    Parameter::Derived,
-                    p_ref(32),
-                    p_enum("T"),
-                ],
-            ),
-            make_entity(
-                50,
-                "EDGE_LOOP",
-                vec![p_str(""), p_list(vec![p_ref(40), p_ref(41), p_ref(42)])],
-            ),
-            make_entity(
-                60,
-                "FACE_OUTER_BOUND",
-                vec![p_str(""), p_ref(50), p_enum("T")],
-            ),
-            make_entity(
-                70,
-                "ADVANCED_FACE",
-                vec![p_str(""), p_list(vec![p_ref(60)]), p_ref(7), p_enum("T")],
-            ),
-            make_entity(80, "CLOSED_SHELL", vec![p_str(""), p_list(vec![p_ref(70)])]),
-            make_entity(90, "MANIFOLD_SOLID_BREP", vec![p_str("body"), p_ref(80)]),
-        ];
-
-        let mut log = DiagnosticLog::new();
-        let graph = EntityGraph::build(entities, &mut log);
-        assert!(!log.has_errors(), "graph build errors: {:?}", log.entries());
-
-        let mut geo_cache = GeometryCache::new(&graph);
-        let tolerance = Tolerance::default();
-
-        let solids = map_brep_solids(&graph, &mut geo_cache, &mut log, tolerance);
-        assert_eq!(solids.len(), 1, "expected 1 solid, got {}", solids.len());
-
-        let (entity_id, brep) = &solids[0];
-        assert_eq!(*entity_id, 90);
-        assert_eq!(brep.vertices.len(), 3);
-        assert_eq!(brep.edges.len(), 3);
-        assert_eq!(brep.faces.len(), 1);
-        assert_eq!(brep.solids.len(), 1);
-        assert_eq!(brep.shells.len(), 1);
-    }
 }
+
+#[cfg(test)]
+#[path = "tests.rs"]
+mod tests;

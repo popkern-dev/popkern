@@ -101,6 +101,8 @@ pub struct ApplyBlendResult {
     pub warnings: Vec<(EdgeHandle, BlendWarning)>,
     /// §5.3 per-corner patch reports — one entry per vertex where a blend patch was inserted.
     pub corner_patches: Vec<crate::types::CornerPatchInfo>,
+    /// Structured diagnostics for repair and hardening actions.
+    pub repair_report: crate::types::BlendRepairReport,
 }
 
 /// Apply computed fillet/chamfer geometry to a BRep. 3-phase: A perp splits, B multi-chord face splits, C kef merge + surface assign.
@@ -123,10 +125,15 @@ pub fn apply_blend_geometry(
     let mut failures: Vec<(EdgeHandle, BlendFailure)> = Vec::new();
     let mut warnings: Vec<(EdgeHandle, BlendWarning)> = Vec::new();
     let mut corner_patches: Vec<crate::types::CornerPatchInfo> = Vec::new();
+    let mut repair_report = crate::types::BlendRepairReport::default();
     // Phase 6c-D Stage 4.4: per-vertex (boundary, sub_faces) for
     // a post-`sliver_absorb` wire pass. Populated by
     // `insert_vertex_blend` when sphere-fit substitution fired.
     let mut late_wire_jobs: Vec<(
+        crate::blend::BlendBoundary,
+        Vec<popkern_core::topology::FaceHandle>,
+    )> = Vec::new();
+    let mut support_seam_jobs: Vec<(
         crate::blend::BlendBoundary,
         Vec<popkern_core::topology::FaceHandle>,
     )> = Vec::new();
@@ -313,8 +320,11 @@ pub fn apply_blend_geometry(
                                     },
                                 );
                             }
+                            let face_handles: Vec<_> = infos.iter().map(|cp| cp.face).collect();
+                            if !face_handles.is_empty() {
+                                support_seam_jobs.push((b.clone(), face_handles.clone()));
+                            }
                             if b.sphere_fit_substituted {
-                                let face_handles: Vec<_> = infos.iter().map(|cp| cp.face).collect();
                                 late_wire_jobs.push((b, face_handles));
                             }
                         } else if std::env::var_os("POPKERN_APEX_PATH_A_TRACE").is_some() {
@@ -349,14 +359,17 @@ pub fn apply_blend_geometry(
         edge_geometries,
         tolerance,
         late_wire_jobs: &late_wire_jobs,
+        support_seam_jobs: &support_seam_jobs,
         a2_built_faces: &a2_built_faces,
         warnings: &mut warnings,
         corner_patches: &mut corner_patches,
+        repair_report: &mut repair_report,
     });
 
     Ok(ApplyBlendResult {
         brep: result,
         warnings,
         corner_patches,
+        repair_report,
     })
 }

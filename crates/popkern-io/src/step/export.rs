@@ -57,20 +57,20 @@ pub fn export_step(doc: &StepDocument, options: &StepExportOptions) -> Result<Ve
     let mut ctx = ExportContext::new();
 
     // Stage 1–2: Export geometry and topology from each BRep solid
-    let mut solid_ids: Vec<Vec<EntityId>> = Vec::new();
+    let mut shape_item_ids: Vec<Vec<EntityId>> = Vec::new();
     for product in &doc.products {
-        let mut product_solid_ids = Vec::new();
+        let mut product_shape_item_ids = Vec::new();
         for shape in &product.shapes {
             for brep in &shape.solids {
-                let solid_id = ctx.export_brep(brep)?;
-                product_solid_ids.push(solid_id);
+                let item_id = ctx.export_brep(brep)?;
+                product_shape_item_ids.push(item_id);
             }
         }
-        solid_ids.push(product_solid_ids);
+        shape_item_ids.push(product_shape_item_ids);
     }
 
     // Stage 3: Export product structure
-    ctx.export_product_structure(doc, &solid_ids)?;
+    ctx.export_product_structure(doc, &shape_item_ids)?;
 
     // Stage 4: Merge opaque bag entities
     for entity in &doc.opaque_bag.entities {

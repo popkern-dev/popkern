@@ -74,6 +74,10 @@ fn assert_step_roundtrip(brep: &BRep, name: &str) {
         !result.document.products.is_empty(),
         "reimport has no products"
     );
+    let reimported = &result.document.products[0].shapes[0].solids[0];
+    reimported
+        .validate_loop_closure()
+        .expect("reimported fillet loops must close");
 }
 
 // ── Tests ─────────────────────────────────────────────────────────

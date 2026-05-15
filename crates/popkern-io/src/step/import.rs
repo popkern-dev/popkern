@@ -217,27 +217,81 @@ fn measure_import_deviations(brep: &mut popkern_core::topology::BRep, log: &mut 
     let edge_handles: Vec<_> = brep.edges.keys().collect();
     let linear_tol = brep.tolerance.linear();
     let mut edge_count = 0u32;
+    let mut max_tracked_deviation = 0.0_f64;
 
     for eh in edge_handles {
         let dev = brep.measure_edge_deviation(eh);
-        if dev > linear_tol * 0.1 {
+        if dev > linear_tol {
             brep.set_entity_tolerance(popkern_core::precision::EntityHandle::Edge(eh), dev);
+            max_tracked_deviation = max_tracked_deviation.max(dev);
             edge_count += 1;
         }
     }
+
+    widen_import_precision_envelope(brep, max_tracked_deviation);
 
     if edge_count > 0 {
         log.warn(
             Phase::Validate,
             None,
-            format!("{edge_count} edge(s) with measurable deviation tracked"),
+            format!(
+                "{edge_count} edge(s) with measurable deviation tracked; import precision envelope {:.2e}",
+                brep.max_imprecision
+            ),
         );
     }
+}
+
+fn widen_import_precision_envelope(
+    brep: &mut popkern_core::topology::BRep,
+    max_tracked_deviation: f64,
+) {
+    if max_tracked_deviation <= brep.max_imprecision {
+        return;
+    }
+    brep.max_imprecision = (max_tracked_deviation * 1.01)
+        .max(max_tracked_deviation + brep.tolerance.numerical_floor());
 }
 
 #[cfg(test)]
 #[path = "import_malformed_tests.rs"]
 mod malformed_tests;
+
+#[cfg(test)]
+mod import_precision_tests {
+    use super::*;
+    use popkern_core::geometry::pcurve::Pcurve;
+    use popkern_core::precision::EntityHandle;
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::BRep;
+
+    #[test]
+    fn import_deviation_tracking_expands_precision_envelope() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+        let edge = brep.edges.keys().next().unwrap();
+        let half_edge = brep.edges[edge].half_edge;
+        brep.half_edges[half_edge].pcurve =
+            Some(Pcurve::linear((0.25, 0.25), (1.25, 0.25), 0.0, 1.0));
+        let dev = brep.measure_edge_deviation(edge);
+        assert!(dev > brep.max_imprecision);
+        let mut log = DiagnosticLog::new();
+
+        measure_import_deviations(&mut brep, &mut log);
+
+        let tracked = brep.edge_tolerance(edge);
+        assert!(tracked >= dev);
+        assert!(brep.max_imprecision > tracked);
+        assert!(brep.validate_precision_fast().is_ok());
+        assert!(
+            log.warnings()
+                .any(|entry| { entry.message.contains("import precision envelope") })
+        );
+        assert!(matches!(
+            brep.precision_summary().worst_entity,
+            Some((EntityHandle::Edge(e), _)) if e == edge
+        ));
+    }
+}
 
 #[cfg(test)]
 mod tests {

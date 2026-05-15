@@ -39,8 +39,12 @@ pub fn map_products(
     let mut pd_to_index: HashMap<EntityId, usize> = HashMap::new();
     let mut products: Vec<StepProductNode> = Vec::new();
 
-    // Build a map: shape_rep_entity_id → list of BRep solids referencing items in that rep
-    let brep_by_id: HashMap<EntityId, &BRep> = brep_solids.iter().map(|(id, b)| (*id, b)).collect();
+    // Build a map: representation item entity_id → BRep bodies. A single
+    // SHELL_BASED_SURFACE_MODEL item may contain multiple shell bodies.
+    let mut brep_by_id: HashMap<EntityId, Vec<&BRep>> = HashMap::new();
+    for (id, brep) in brep_solids {
+        brep_by_id.entry(*id).or_default().push(brep);
+    }
 
     // 1. Find all PRODUCT_DEFINITION entities and trace to PRODUCT
     let pd_ids: Vec<(EntityId, ProductDefinition)> = graph
@@ -130,7 +134,12 @@ pub fn map_products(
             Ok(sr) => sr
                 .items
                 .iter()
-                .filter_map(|item_id| brep_by_id.get(item_id).map(|b| (*b).clone()))
+                .flat_map(|item_id| {
+                    brep_by_id
+                        .get(item_id)
+                        .into_iter()
+                        .flat_map(|bodies| bodies.iter().map(|body| (*body).clone()))
+                })
                 .collect(),
             Err(_) => Vec::new(),
         };

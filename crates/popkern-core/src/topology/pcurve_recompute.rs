@@ -317,14 +317,15 @@ impl BRep {
         Ok(())
     }
 
-    /// Like [`fix_stale_pcurves`] but only processes half-edges on
     /// Detect and replace stale pcurves whose endpoints no longer match
-    /// the actual edge curve positions.
+    /// the actual edge curve positions or whose sampled trace no longer
+    /// matches the authoritative 3D edge curve.
     ///
-    /// A pcurve is stale when the 3D position at pcurve(t=0) projected
-    /// to the face surface doesn't match the half-edge origin vertex
-    /// position within tolerance.  This happens when the fillet or other
-    /// operations move edge positions without updating existing pcurves.
+    /// A pcurve is stale when either endpoint fails to evaluate to the
+    /// half-edge's vertices, or when the full measured edge/pcurve deviation
+    /// exceeds the BRep imprecision budget. This happens when fillets or other
+    /// operations move edge positions or reassign face surfaces without
+    /// updating inherited pcurves.
     pub fn fix_stale_pcurves(&mut self) {
         use crate::geometry::pcurve::PcurveGeometry;
         use crate::geometry::surface::SurfaceEval;
@@ -352,13 +353,23 @@ impl BRep {
                 None => continue,
             };
 
-            let (t0, _t1) = pcurve.parameter_range();
+            let (t0, t1) = pcurve.parameter_range();
             let uv_start = pcurve.point_at(t0);
-            let pos_from_pcurve = surface.point_at(uv_start.x, uv_start.y);
-            let actual_pos = self.vertices[self.half_edges[heh].origin].position;
+            let uv_end = pcurve.point_at(t1);
+            let start_from_pcurve = surface.point_at(uv_start.x, uv_start.y);
+            let end_from_pcurve = surface.point_at(uv_end.x, uv_end.y);
+            let actual_start = self.vertices[self.half_edges[heh].origin].position;
+            let next_heh = self.half_edges[heh].next;
+            let actual_end = self.vertices[self.half_edges[next_heh].origin].position;
 
-            let error = pos_from_pcurve.distance_to(&actual_pos);
-            if error > 0.05 {
+            let endpoint_error = start_from_pcurve
+                .distance_to(&actual_start)
+                .max(end_from_pcurve.distance_to(&actual_end));
+            let trace_error = self
+                .measure_half_edge_pcurve_deviation(heh)
+                .map_or(0.0, |report| report.max_deviation);
+            let stale_tolerance = self.max_imprecision.max(self.tolerance.linear());
+            if endpoint_error > stale_tolerance || trace_error > stale_tolerance {
                 self.half_edges[heh].pcurve = None;
             }
         }

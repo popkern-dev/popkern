@@ -114,6 +114,10 @@ pub(crate) fn clamp_bounded_pcurves(brep: &mut BRep) -> usize {
         if !cps_outside {
             continue;
         }
+        let before_deviation = brep
+            .measure_half_edge_pcurve_deviation(heh)
+            .map(|report| report.max_deviation);
+        let original_pcurve = pcurve.clone();
         let _ = n_samples;
         // Clamp every CP into the box. `Some(...)`-mut access via
         // brep.half_edges to update.
@@ -130,6 +134,12 @@ pub(crate) fn clamp_bounded_pcurves(brep: &mut BRep) -> usize {
                 cp.y = cp.y.clamp(v_lo, v_hi);
             }
         }
+        if clamp_worsened_edge_agreement(brep, heh, before_deviation) {
+            if let Some(he_mut) = brep.half_edges.get_mut(heh) {
+                he_mut.pcurve = Some(original_pcurve);
+            }
+            continue;
+        }
         clamped += 1;
     }
     if std::env::var("POPKERN_CLAMP_TRACE").is_ok() {
@@ -138,4 +148,24 @@ pub(crate) fn clamp_bounded_pcurves(brep: &mut BRep) -> usize {
         );
     }
     clamped
+}
+
+fn clamp_worsened_edge_agreement(
+    brep: &BRep,
+    heh: popkern_core::topology::HalfEdgeHandle,
+    before_deviation: Option<f64>,
+) -> bool {
+    let Some(before) = before_deviation else {
+        return false;
+    };
+    let Some(after) = brep
+        .measure_half_edge_pcurve_deviation(heh)
+        .map(|report| report.max_deviation)
+    else {
+        return true;
+    };
+    if !after.is_finite() {
+        return true;
+    }
+    after > before + brep.tolerance.linear().max(1.0e-9)
 }

@@ -30,9 +30,18 @@ pub use vertex::Vertex;
 
 pub mod brep;
 pub use brep::BRep;
+pub use brep::{SurfaceBoundaryHintDecline, SurfaceBoundaryHintDeclineReason};
 
 /// Non-manifold radial-cycle helpers for [`BRep`].
 mod brep_radial;
+
+/// Non-manifold repair policy and user-facing explanations.
+pub mod brep_nonmanifold_policy;
+pub use brep_nonmanifold_policy::{
+    BrepEdgePairPolicyContext, BrepEdgePairPolicyDecision, BrepEdgePairPolicyDeclineReason,
+    BrepEdgePairPolicyOutcome, BrepEdgePolicyState, BrepTopologyRepairPolicy,
+    assess_edge_pair_topology_policy,
+};
 
 /// Pcurve recomputation for BRep faces.
 mod pcurve_recompute;
@@ -44,6 +53,7 @@ mod brep_precision_queries;
 mod brep_edge_representatives;
 /// Geometric deviation measurement for edges and vertices.
 mod brep_measurement;
+pub use brep_measurement::{EdgePcurveDeviationReport, HalfEdgePcurveDeviation};
 
 /// Edge and face splitting operations.
 pub mod split;
@@ -57,3 +67,126 @@ pub use trim::AddInnerLoopResult;
 
 /// Vertex-welding primitives for [`BRep`].
 mod brep_weld;
+
+/// Transactional BRep sewing for caller-supplied clean edge pairs.
+pub mod brep_sewing;
+pub use brep_sewing::{
+    BrepSewingDecline, BrepSewingDeclineReason, BrepSewingEdgePair, BrepSewingFailure,
+    BrepSewingFailureReason, BrepSewingOptions, BrepSewingProvenance, BrepSewingReport,
+    BrepSewingResult, edge_segment, sew_clean_boundary_edge_pairs,
+};
+
+/// Read-only near-edge classification for BRep sewing.
+pub mod brep_sewing_classification;
+pub use brep_sewing_classification::{
+    BrepClassifiedEdgePair, BrepEdgePairClassification, BrepEdgePairMeasurement,
+    BrepSewingClassificationOptions, BrepSewingClassificationReport, classify_boundary_edge_pairs,
+};
+
+/// Transactional tolerant snap-and-sew for classified BRep edge pairs.
+pub mod brep_sewing_snap;
+pub use brep_sewing_snap::{
+    BrepSnapSewingDecline, BrepSnapSewingDeclineReason, BrepSnapSewingFailure,
+    BrepSnapSewingFailureReason, BrepSnapSewingOptions, BrepSnapSewingReport, BrepSnapSewingResult,
+    snap_and_sew_classified_edge_pairs,
+};
+
+mod brep_repair_actions;
+/// Generic BRep boundary repair pipeline coordinator.
+pub mod brep_repair_pipeline;
+pub use brep_repair_actions::{
+    BrepRepairActionArtifact, BrepRepairActionDecision, BrepRepairActionOutcome,
+    BrepRepairActionRecord, BrepRepairActionReport, BrepRepairActionSummary,
+    brep_repair_action_outcome_label, brep_repair_action_stage_label,
+    build_brep_repair_action_artifact,
+};
+pub use brep_repair_pipeline::{
+    BrepRepairPipelineFailure, BrepRepairPipelineFailureReason, BrepRepairPipelineOptions,
+    BrepRepairPipelineReport, BrepRepairPipelineResult, BrepRepairPipelineStage,
+    BrepTopologyOutputPolicy, repair_brep_boundary_edges_transactionally,
+};
+
+/// Transactional completion of missing BRep edge curves.
+pub mod brep_edge_curve_completion;
+mod brep_edge_curve_completion_helpers;
+pub use brep_edge_curve_completion::{
+    BrepEdgeCurveCompletionDecision, BrepEdgeCurveCompletionDeclineReason,
+    BrepEdgeCurveCompletionFailure, BrepEdgeCurveCompletionFailureReason,
+    BrepEdgeCurveCompletionOptions, BrepEdgeCurveCompletionOutcome, BrepEdgeCurveCompletionReport,
+    BrepEdgeCurveCompletionResult, complete_missing_edge_curves_transactionally,
+};
+
+/// Transactional pcurve reconstruction from authoritative 3D edge curves.
+pub mod brep_curve_trim_reconstruction;
+mod brep_curve_trim_reconstruction_domain;
+mod brep_curve_trim_reconstruction_helpers;
+pub use brep_curve_trim_reconstruction::{
+    BrepCurveTrimReconstructionDecision, BrepCurveTrimReconstructionDeclineReason,
+    BrepCurveTrimReconstructionFailure, BrepCurveTrimReconstructionFailureReason,
+    BrepCurveTrimReconstructionOptions, BrepCurveTrimReconstructionOutcome,
+    BrepCurveTrimReconstructionReport, BrepCurveTrimReconstructionResult,
+    reconstruct_curve_backed_trims_transactionally,
+};
+
+/// Direct edge-curve to adjacent face-surface diagnostics and repair.
+pub mod brep_edge_surface_compatibility;
+mod brep_edge_surface_compatibility_boundary;
+mod brep_edge_surface_compatibility_commit;
+mod brep_edge_surface_compatibility_diagnostics;
+mod brep_edge_surface_compatibility_helpers;
+mod brep_edge_surface_compatibility_trim_candidate;
+mod brep_edge_surface_compatibility_vertex_candidate;
+mod brep_edge_surface_compatibility_vertex_star;
+mod brep_edge_surface_compatibility_vertex_star_repair;
+pub use brep_edge_surface_compatibility::{
+    BrepEdgeSurfaceCompatibilityDeclineReason, BrepEdgeSurfaceCompatibilityFinding,
+    BrepEdgeSurfaceCompatibilityOptions, BrepEdgeSurfaceCompatibilityRepairDecision,
+    BrepEdgeSurfaceCompatibilityRepairFailure, BrepEdgeSurfaceCompatibilityRepairFailureReason,
+    BrepEdgeSurfaceCompatibilityRepairOutcome, BrepEdgeSurfaceCompatibilityRepairReport,
+    BrepEdgeSurfaceCompatibilityRepairResult, BrepEdgeSurfaceCompatibilityReport,
+    analyze_brep_edge_surface_compatibility,
+    repair_brep_edge_surface_compatibility_transactionally,
+};
+pub use brep_edge_surface_compatibility_diagnostics::{
+    BrepEdgeSurfaceBoundaryDeclineEvidence, BrepEdgeSurfaceBoundaryHintEvidence,
+    BrepEdgeSurfaceKind, BrepEdgeSurfaceRepairEvidence,
+};
+pub use brep_edge_surface_compatibility_vertex_candidate::{
+    BrepEdgeSurfaceVertexCandidateDiagnostic, BrepEdgeSurfaceVertexCandidateOutcome,
+    BrepEdgeSurfaceVertexCandidateSource,
+};
+pub use brep_edge_surface_compatibility_vertex_star::{
+    BrepEdgeSurfaceVertexStarDecision, BrepEdgeSurfaceVertexStarDeclineReason,
+    BrepEdgeSurfaceVertexStarOutcome, BrepEdgeSurfaceVertexStarReport,
+};
+
+/// Read-only degenerate edge diagnostics.
+pub mod brep_degenerate_edges;
+pub use brep_degenerate_edges::{
+    BrepDegenerateEdgeFinding, BrepDegenerateEdgeKind, BrepDegenerateEdgeOptions,
+    BrepDegenerateEdgeReport, analyze_brep_degenerate_edges,
+};
+
+/// Read-only BRep export-quality diagnostics.
+pub mod brep_export_quality;
+pub use brep_export_quality::{
+    BrepBoundaryEdgeArtifact, BrepExportBlockerSummary, BrepExportQualityArtifact,
+    BrepExportQualityOptions, BrepExportQualityReport, BrepExportQualitySummary,
+    BrepExportReadiness, analyze_brep_export_quality, build_brep_export_quality_artifact,
+};
+
+/// Read-only loop and shell diagnostics for repair decisions.
+pub mod brep_shell_diagnostics;
+mod brep_shell_diagnostics_helpers;
+pub use brep_shell_diagnostics::{
+    BrepLoopShellDiagnosticReport, BrepTopologyDiagnosticFinding, BrepTopologyDiagnosticKind,
+    BrepTopologyDiagnosticSeverity, analyze_brep_loop_shell_validity,
+};
+
+/// Trim and pcurve diagnostics plus transactional repair.
+pub mod brep_trim_repair;
+pub use brep_trim_repair::{
+    BrepTrimDiagnosticReport, BrepTrimFinding, BrepTrimFindingKind, BrepTrimRepairFailure,
+    BrepTrimRepairFailureReason, BrepTrimRepairOptions, BrepTrimRepairReport, BrepTrimRepairResult,
+    analyze_brep_trims, repair_brep_trims_transactionally,
+};

@@ -319,6 +319,41 @@ fn fix_stale_pcurves_after_corrupted_uv() {
     }
 }
 
+#[test]
+fn fix_stale_pcurves_detects_end_only_corruption() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let half_edge = brep.half_edges.keys().next().unwrap();
+    let original = brep.half_edges[half_edge]
+        .pcurve
+        .as_ref()
+        .expect("cube half-edge has pcurve")
+        .to_nurbs();
+    let mut corrupted = original.clone();
+    let last = corrupted.control_points.len() - 1;
+    corrupted.control_points[last].x += 10.0;
+    corrupted.control_points[last].y += 10.0;
+    brep.half_edges[half_edge].pcurve = Some(corrupted.into());
+
+    let before = brep
+        .measure_half_edge_pcurve_deviation(half_edge)
+        .expect("corrupted half-edge remains measurable");
+    assert!(
+        before.max_deviation > brep.max_imprecision,
+        "test precondition: end-only corruption must exceed precision budget"
+    );
+
+    brep.fix_stale_pcurves();
+
+    let after = brep
+        .measure_half_edge_pcurve_deviation(half_edge)
+        .expect("repaired half-edge remains measurable");
+    assert!(
+        after.max_deviation < 1e-6,
+        "end-only stale pcurve should be recomputed, got {}",
+        after.max_deviation
+    );
+}
+
 /// Recompute on a face whose outer loop exists but has no surface should
 /// be a no-op (return Ok).
 #[test]

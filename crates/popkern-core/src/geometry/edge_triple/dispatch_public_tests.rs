@@ -1,5 +1,7 @@
 use super::*;
 use crate::geometry::curve::CurveEval;
+use crate::geometry::edge_triple::{BoundarySide, SurfaceSide};
+use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::{Point3, Vec3};
 
 fn z_axis_cyl(radius: f64) -> SurfaceGeometry {
@@ -26,6 +28,114 @@ fn identical_cylinders_short_circuit_to_coincident() {
         }
         other => panic!("expected CoincidentSurfaces, got {other:?}"),
     }
+}
+
+#[test]
+fn nurbs_surface_boundary_hint_constructs_owned_boundary_edge() {
+    let patch = SurfaceGeometry::Nurbs(NurbsSurface {
+        degree_u: 1,
+        degree_v: 1,
+        knots_u: vec![0.0, 0.0, 1.0, 1.0],
+        knots_v: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+        ],
+        num_u: 2,
+        num_v: 2,
+        weights: vec![1.0; 4],
+    });
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let triple = compute_edge_geometry(
+        &patch,
+        &plane,
+        EdgeAnchors::Open {
+            start: Point3::new(0.0, 0.0, 0.0),
+            end: Point3::new(0.0, 1.0, 0.0),
+        },
+        Some(EdgeHint::SurfaceBoundary {
+            side: SurfaceSide::A,
+            boundary: BoundarySide::UMin,
+        }),
+        &Tolerance::default(),
+        &EdgeTripleOptions::default(),
+    )
+    .expect("NURBS boundary hint constructs edge triple");
+
+    assert!(matches!(
+        triple.provenance,
+        crate::geometry::edge_triple::types::EdgeTripleProvenance::SurfaceBoundary { .. }
+    ));
+    let quality = triple
+        .verify(&patch, &plane, &Tolerance::default(), 8)
+        .expect("NURBS boundary triple verifies");
+    assert!(quality.max_positional_residual <= 1e-6);
+}
+
+#[test]
+fn nurbs_boundary_hint_projects_onto_nurbs_target_surface() {
+    let patch = SurfaceGeometry::Nurbs(NurbsSurface {
+        degree_u: 1,
+        degree_v: 1,
+        knots_u: vec![0.0, 0.0, 1.0, 1.0],
+        knots_v: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+        ],
+        num_u: 2,
+        num_v: 2,
+        weights: vec![1.0; 4],
+    });
+    let target = SurfaceGeometry::Nurbs(NurbsSurface {
+        degree_u: 1,
+        degree_v: 1,
+        knots_u: vec![0.0, 0.0, 1.0, 1.0],
+        knots_v: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+            Point3::new(-1.0, 0.0, 0.0),
+            Point3::new(-1.0, 1.0, 0.0),
+        ],
+        num_u: 2,
+        num_v: 2,
+        weights: vec![1.0; 4],
+    });
+
+    let triple = compute_edge_geometry(
+        &patch,
+        &target,
+        EdgeAnchors::Open {
+            start: Point3::new(0.0, 0.0, 0.0),
+            end: Point3::new(0.0, 1.0, 0.0),
+        },
+        Some(EdgeHint::SurfaceBoundary {
+            side: SurfaceSide::A,
+            boundary: BoundarySide::UMin,
+        }),
+        &Tolerance::default(),
+        &EdgeTripleOptions::default(),
+    )
+    .expect("NURBS boundary should project onto NURBS target");
+
+    assert!(matches!(
+        triple.provenance,
+        crate::geometry::edge_triple::types::EdgeTripleProvenance::SurfaceBoundary { .. }
+    ));
+    let quality = triple
+        .verify(&patch, &target, &Tolerance::default(), 8)
+        .expect("NURBS-to-NURBS boundary triple verifies");
+    assert!(quality.max_positional_residual <= 1e-6);
 }
 
 #[test]

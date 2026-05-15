@@ -6,6 +6,7 @@
 //!
 //! Surface resolution is in the [`surfaces`] submodule.
 
+mod pcurves;
 mod surfaces;
 #[cfg(test)]
 mod tests_resolve;
@@ -297,7 +298,9 @@ impl<'a> GeometryCache<'a> {
     fn resolve_vector_direction(&mut self, id: EntityId, log: &mut DiagnosticLog) -> Option<Vec3> {
         let entity = self.graph.get(id)?;
         match StepVector::from_params(&entity.params) {
-            Ok(v) => self.resolve_direction(v.orientation, log),
+            Ok(v) => self
+                .resolve_direction(v.orientation, log)
+                .map(|direction| direction * v.magnitude),
             Err(e) => {
                 log.error(Phase::MapGeometry, Some(id), format!("{e}"));
                 None

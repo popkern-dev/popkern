@@ -20,9 +20,11 @@ pub mod nurbs_ops;
 pub mod nurbs_surface;
 pub mod pcurve;
 pub mod point;
+pub mod polyhedral_spline;
 pub mod revolution;
 pub mod surface;
 pub mod surface_helpers;
+pub mod trim_domain;
 pub mod uv_projection;
 pub mod vector;
 

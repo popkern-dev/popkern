@@ -5,11 +5,9 @@ use popkern_core::error::ValidationError;
 use popkern_core::geometry::Transform3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_io::{
-    OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
-    StepExportOptions, StepImportOptions, StepProductNode, UnitContext, export_step, import_step,
+use popkern_examples::step_validation::{
+    StepRoundTripValidationOptions, export_and_validate_breps,
 };
-use std::sync::Arc;
 
 fn tol() -> Tolerance {
     Tolerance::default().with_linear(1e-4)
@@ -53,35 +51,14 @@ fn assert_all_faces_have_surfaces(brep: &BRep) {
     }
 }
 
-fn make_step_doc(brep: &BRep, name: &str) -> StepDocument {
-    StepDocument {
-        products: vec![StepProductNode {
-            name: name.into(),
-            id: "test".into(),
-            children: vec![],
-            shapes: vec![Arc::new(ShapeRep {
-                kind: ShapeRepKind::AdvancedBrep,
-                solids: vec![brep.clone()],
-                context: RepresentationContext::default(),
-                non_brep_items: vec![],
-            })],
-            metadata: ProductMetadata::default(),
-        }],
-        roots: vec![0],
-        units: UnitContext::default(),
-        opaque_bag: OpaqueBag::default(),
-    }
-}
-
 fn assert_step_roundtrip(brep: &BRep, name: &str) {
-    let doc = make_step_doc(brep, name);
-    let bytes = export_step(&doc, &StepExportOptions::default()).unwrap();
+    let (bytes, _) = export_and_validate_breps(
+        name,
+        &[brep.clone()],
+        &StepRoundTripValidationOptions::default(),
+    )
+    .unwrap();
     assert!(bytes.len() > 100, "STEP export too small");
-    let result = import_step(&bytes, &StepImportOptions::default()).unwrap();
-    assert!(
-        !result.document.products.is_empty(),
-        "reimport has no products"
-    );
 }
 
 // ── Tests ─────────────────────────────────────────────────────────

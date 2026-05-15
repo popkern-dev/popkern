@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::geometry::curve::CurveGeometry;
+use crate::geometry::edge_triple::inputs::SurfaceSide;
 use crate::geometry::{Point3, Vec3};
 
 /// Whether the edge is open (start ≠ end) or closed (loop).
@@ -46,6 +47,13 @@ pub enum EdgeTripleProvenance {
         /// Which surface(s) the Gregory boundary is anchored to.
         side: GregorySide,
         /// Which of the N boundaries: 0..N for an N-sided patch.
+        boundary_index: u8,
+    },
+    /// Built from a known canonical bounded-surface boundary.
+    SurfaceBoundary {
+        /// Which surface owns the canonical boundary curve.
+        side: SurfaceSide,
+        /// Which boundary was used, encoded with the same order as [`BoundarySide`].
         boundary_index: u8,
     },
     /// Solved by the marching solver.

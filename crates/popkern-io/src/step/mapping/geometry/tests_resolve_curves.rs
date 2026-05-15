@@ -71,6 +71,30 @@ fn resolve_bspline_curve_bad_params_returns_none() {
 }
 
 #[test]
+fn resolve_line_preserves_step_vector_magnitude() {
+    let ents = vec![
+        ent(
+            1,
+            "CARTESIAN_POINT",
+            vec![s(""), l(vec![r(0.0), r(0.0), r(0.0)])],
+        ),
+        ent(2, "DIRECTION", vec![s(""), l(vec![r(1.0), r(0.0), r(0.0)])]),
+        ent(3, "VECTOR", vec![s(""), er(2), r(2.5)]),
+        ent(4, "LINE", vec![s(""), er(1), er(3)]),
+    ];
+    let g = graph(ents);
+    let mut c = GeometryCache::new(&g);
+    let mut log = DiagnosticLog::new();
+    let coe = c.resolve_curve(4, &mut log).unwrap();
+    match coe.geometry {
+        CurveGeometry::Line { direction, .. } => {
+            assert!((direction.length() - 2.5).abs() < 1e-12);
+        }
+        other => panic!("expected line curve, got {other:?}"),
+    }
+}
+
+#[test]
 fn resolve_surface_curve_delegates_to_3d_curve() {
     let ents = vec![
         ent(

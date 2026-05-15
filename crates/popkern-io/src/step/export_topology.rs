@@ -4,21 +4,25 @@
 //! EDGE_LOOP, FACE_BOUND, ADVANCED_FACE, CLOSED_SHELL, and
 //! MANIFOLD_SOLID_BREP entities.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use popkern_core::geometry::Vec3;
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, LoopHandle, VertexHandle};
+use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
+use popkern_core::topology::{
+    BRep, BrepDegenerateEdgeKind, BrepDegenerateEdgeOptions, EdgeHandle, FaceHandle, LoopHandle,
+    VertexHandle, analyze_brep_degenerate_edges,
+};
 
 use crate::error::IoError;
 use crate::step::export::{ExportContext, bool_, list, ref_, str_param};
 use crate::step::parser::types::EntityId;
 
 impl ExportContext {
-    /// Export a complete [`BRep`] solid to STEP entities.
+    /// Export a complete [`BRep`] to STEP entities.
     ///
-    /// Returns the entity ID of the MANIFOLD_SOLID_BREP.
+    /// Closed BReps become `MANIFOLD_SOLID_BREP`; BReps with explicit boundary
+    /// edges become `SHELL_BASED_SURFACE_MODEL`.
     pub(crate) fn export_brep(&mut self, brep: &BRep) -> Result<EntityId, IoError> {
         // Maps from popkern handles to STEP entity IDs
         let mut vertex_map: HashMap<VertexHandle, EntityId> = HashMap::new();
@@ -33,6 +37,7 @@ impl ExportContext {
 
         // 1b. Pre-export face surfaces so we have surface IDs for pcurves
         let surface_map = self.pre_export_surfaces(brep)?;
+        let collapsed_trim_edges = collapsed_trim_missing_curve_edges(brep);
 
         // 2. Export all edges → EDGE_CURVE (with SURFACE_CURVE wrappers)
         for (eh, edge) in &brep.edges {
@@ -40,21 +45,25 @@ impl ExportContext {
                 .half_edges
                 .get(edge.half_edge)
                 .ok_or_else(|| IoError::Export("Edge references missing half-edge".into()))?;
-            let twin = brep
-                .half_edges
-                .get(he.twin)
-                .ok_or_else(|| IoError::Export("Half-edge references missing twin".into()))?;
-
             let start_vp = vertex_map
                 .get(&he.origin)
                 .ok_or_else(|| IoError::Export("Half-edge references unmapped vertex".into()))?;
-            let end_vp = vertex_map.get(&twin.origin).ok_or_else(|| {
-                IoError::Export("Twin half-edge references unmapped vertex".into())
-            })?;
+            let end_vertex = edge_end_vertex(brep, eh, he)?;
+            let end_vp = vertex_map
+                .get(&end_vertex)
+                .ok_or_else(|| IoError::Export("Edge references unmapped end vertex".into()))?;
 
-            // Export the 3-D curve geometry, or synthesize a line if absent
+            // Export the 3-D curve geometry. Valid collapsed surface trims get a
+            // degenerate B-spline curve; other missing curves retain the legacy
+            // line fallback for non-degenerate vertex-bounded edges.
             let curve_3d_id = if let Some(curve) = &edge.curve {
                 self.export_curve(curve)
+            } else if collapsed_trim_edges.contains(&eh) {
+                let start_v = brep
+                    .vertices
+                    .get(he.origin)
+                    .ok_or_else(|| IoError::Export("Vertex not found".into()))?;
+                self.export_degenerate_curve_at(start_v.position)
             } else {
                 let start_v = brep
                     .vertices
@@ -62,7 +71,7 @@ impl ExportContext {
                     .ok_or_else(|| IoError::Export("Vertex not found".into()))?;
                 let end_v = brep
                     .vertices
-                    .get(twin.origin)
+                    .get(end_vertex)
                     .ok_or_else(|| IoError::Export("Vertex not found".into()))?;
                 let dir = end_v.position - start_v.position;
                 let fallback = CurveOnEdge {
@@ -81,7 +90,7 @@ impl ExportContext {
                 brep,
                 curve_3d_id,
                 edge.half_edge,
-                he.twin,
+                brep.half_edges.get(he.twin).map(|_| he.twin),
                 &surface_map,
             );
 
@@ -106,14 +115,26 @@ impl ExportContext {
             face_ids.push(face_id);
         }
 
-        // 4. Emit CLOSED_SHELL
+        // 4. Emit shell item
         let face_refs: Vec<_> = face_ids.iter().map(|&id| ref_(id)).collect();
-        let shell_id = self.emit("CLOSED_SHELL", vec![str_param(""), list(face_refs)]);
+        let shell_type = if brep.has_boundary_edges() {
+            "OPEN_SHELL"
+        } else {
+            "CLOSED_SHELL"
+        };
+        let shell_id = self.emit(shell_type, vec![str_param(""), list(face_refs)]);
 
-        // 5. Emit MANIFOLD_SOLID_BREP
-        let solid_id = self.emit("MANIFOLD_SOLID_BREP", vec![str_param(""), ref_(shell_id)]);
+        // 5. Emit the top-level representation item.
+        let item_id = if brep.has_boundary_edges() {
+            self.emit(
+                "SHELL_BASED_SURFACE_MODEL",
+                vec![str_param(""), list(vec![ref_(shell_id)])],
+            )
+        } else {
+            self.emit("MANIFOLD_SOLID_BREP", vec![str_param(""), ref_(shell_id)])
+        };
 
-        Ok(solid_id)
+        Ok(item_id)
     }
 
     /// Export a single face with its loops.
@@ -267,7 +288,7 @@ impl ExportContext {
         brep: &BRep,
         curve_3d_id: EntityId,
         he_handle: popkern_core::topology::HalfEdgeHandle,
-        twin_handle: popkern_core::topology::HalfEdgeHandle,
+        twin_handle: Option<popkern_core::topology::HalfEdgeHandle>,
         surface_map: &HashMap<FaceHandle, EntityId>,
     ) -> EntityId {
         let mut pcurve_ids: Vec<EntityId> = Vec::new();
@@ -278,7 +299,9 @@ impl ExportContext {
         }
 
         // Try to export pcurve for the twin half-edge
-        if let Some(pcurve_id) = self.try_export_he_pcurve(brep, twin_handle, surface_map) {
+        if let Some(twin_handle) = twin_handle
+            && let Some(pcurve_id) = self.try_export_he_pcurve(brep, twin_handle, surface_map)
+        {
             pcurve_ids.push(pcurve_id);
         }
 
@@ -291,9 +314,8 @@ impl ExportContext {
                 .get(he_handle)
                 .and_then(|he| brep.loops.get(he.loop_))
                 .map(|l| l.face);
-            let twin_face = brep
-                .half_edges
-                .get(twin_handle)
+            let twin_face = twin_handle
+                .and_then(|twin| brep.half_edges.get(twin))
                 .and_then(|he| brep.loops.get(he.loop_))
                 .map(|l| l.face);
             let is_seam = he_face == twin_face && he_face.is_some();
@@ -327,9 +349,59 @@ impl ExportContext {
         let nurbs = pcurve.to_nurbs();
         Some(self.export_pcurve(&nurbs, *surface_id))
     }
+
+    fn export_degenerate_curve_at(&mut self, point: Point3) -> EntityId {
+        self.export_nurbs_curve(&NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![point, point],
+            weights: vec![1.0, 1.0],
+        })
+    }
 }
 
 use crate::step::parser::types::Parameter;
+
+fn collapsed_trim_missing_curve_edges(brep: &BRep) -> HashSet<EdgeHandle> {
+    analyze_brep_degenerate_edges(
+        brep,
+        BrepDegenerateEdgeOptions {
+            tolerance: brep.tolerance.linear(),
+            samples: 5,
+        },
+    )
+    .findings
+    .into_iter()
+    .filter_map(|finding| {
+        let missing_curve = brep
+            .edges
+            .get(finding.edge)
+            .is_some_and(|edge| edge.curve.is_none());
+        (finding.kind == BrepDegenerateEdgeKind::CollapsedSurfaceTrim && missing_curve)
+            .then_some(finding.edge)
+    })
+    .collect()
+}
+
+fn edge_end_vertex(
+    brep: &BRep,
+    edge: EdgeHandle,
+    he: &popkern_core::topology::HalfEdge,
+) -> Result<VertexHandle, IoError> {
+    if brep.boundary_edges.contains(&edge) {
+        return brep
+            .half_edges
+            .get(he.next)
+            .map(|next| next.origin)
+            .ok_or_else(|| {
+                IoError::Export("Boundary edge references missing next half-edge".into())
+            });
+    }
+    brep.half_edges
+        .get(he.twin)
+        .map(|twin| twin.origin)
+        .ok_or_else(|| IoError::Export("Half-edge references missing twin".into()))
+}
 
 /// Synthesize a plane surface from the first three vertices of a loop.
 fn synthesize_plane(brep: &BRep, lh: LoopHandle) -> Result<SurfaceOnFace, IoError> {

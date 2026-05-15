@@ -27,7 +27,7 @@ use super::{
     },
     topology::{
         AdvancedFace, BrepWithVoids, ClosedShell, EdgeCurve, EdgeLoop, FaceBound, FaceOuterBound,
-        ManifoldSolidBrep, OpenShell, OrientedEdge, VertexPoint,
+        ManifoldSolidBrep, OpenShell, OrientedEdge, ShellBasedSurfaceModel, VertexPoint,
     },
 };
 use crate::step::parser::types::EntityInstance;
@@ -97,6 +97,8 @@ pub enum ResolvedEntity {
     ClosedShell(ClosedShell),
     /// OPEN_SHELL
     OpenShell(OpenShell),
+    /// SHELL_BASED_SURFACE_MODEL
+    ShellBasedSurfaceModel(ShellBasedSurfaceModel),
     /// MANIFOLD_SOLID_BREP
     ManifoldSolidBrep(ManifoldSolidBrep),
     /// BREP_WITH_VOIDS
@@ -261,6 +263,9 @@ pub fn resolve_entity(entity: &EntityInstance) -> Result<ResolvedEntity, Mapping
         "OPEN_SHELL" => Ok(ResolvedEntity::OpenShell(OpenShell::from_params(
             &entity.params,
         )?)),
+        "SHELL_BASED_SURFACE_MODEL" => Ok(ResolvedEntity::ShellBasedSurfaceModel(
+            ShellBasedSurfaceModel::from_params(&entity.params)?,
+        )),
         "MANIFOLD_SOLID_BREP" => Ok(ResolvedEntity::ManifoldSolidBrep(
             ManifoldSolidBrep::from_params(&entity.params)?,
         )),

@@ -1,5 +1,6 @@
 //! BRep — the top-level boundary representation container.
 
+use crate::geometry::edge_triple::BoundarySide;
 use crate::naming::{NamePool, OperationLabels};
 use crate::precision::{
     DegradationTracker, EntityHandle, OperationPrecisionReport, PrecisionHealth, PrecisionSummary,
@@ -48,6 +49,17 @@ pub struct BRep {
     /// BReps; [`BRep::radial_next`] falls back to `he.twin`.
     #[serde(default)]
     pub nonmanifold_radial: std::collections::HashMap<HalfEdgeHandle, HalfEdgeHandle>,
+    /// Caller-authored evidence that a half-edge is a canonical boundary of
+    /// its owning face surface. This is semantic construction data, not an
+    /// inferred repair result: downstream repair/export stages can consume it
+    /// before falling back to lossy pcurve or endpoint inference.
+    #[serde(default)]
+    pub surface_boundary_hints: std::collections::HashMap<HalfEdgeHandle, BoundarySide>,
+    /// Construction-time reasons a live half-edge was inspected for canonical
+    /// boundary ownership but could not be accepted as one.
+    #[serde(default)]
+    pub surface_boundary_declines:
+        std::collections::HashMap<HalfEdgeHandle, SurfaceBoundaryHintDecline>,
     /// Tracks precision degradation across operations.
     #[serde(skip)]
     degradation_tracker: Option<DegradationTracker>,
@@ -75,6 +87,8 @@ impl BRep {
             max_imprecision,
             boundary_edges: std::collections::HashSet::new(),
             nonmanifold_radial: std::collections::HashMap::new(),
+            surface_boundary_hints: std::collections::HashMap::new(),
+            surface_boundary_declines: std::collections::HashMap::new(),
             degradation_tracker: None,
         }
     }
@@ -82,7 +96,90 @@ impl BRep {
 
 use crate::geometry::transform::Transform3;
 
+/// Machine-readable reason a construction stage declined to record canonical
+/// surface-boundary ownership for a half-edge.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum SurfaceBoundaryHintDeclineReason {
+    /// The half-edge had no pcurve to classify on its owning surface.
+    MissingPcurve,
+    /// The committed pcurve does not lie on a rectangular canonical boundary.
+    NotOnCanonicalBoundary,
+    /// Authored boundary evidence disagrees with the half-edge pcurve.
+    AuthoredHintBoundaryMismatch,
+    /// Authored boundary evidence disagrees with the topological endpoints.
+    AuthoredHintEndpointMismatch,
+}
+
+/// Structured decline emitted when construction inspected a half-edge for
+/// canonical surface-boundary ownership and declined it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SurfaceBoundaryHintDecline {
+    /// Machine-readable reason.
+    pub reason: SurfaceBoundaryHintDeclineReason,
+    /// Best sampled deviation from any canonical boundary in owning UV space.
+    pub best_boundary_deviation: f64,
+    /// Best sampled canonical boundary, when one was measurable.
+    pub best_boundary: Option<BoundarySide>,
+    /// Maximum gap between topology endpoints and the authored boundary trace.
+    pub endpoint_gap: f64,
+}
+
 impl BRep {
+    /// Record that `half_edge` follows a canonical boundary of its owning face
+    /// surface. The hint is accepted only for live half-edges so stale handles
+    /// cannot be introduced by construction code.
+    pub fn set_surface_boundary_hint(
+        &mut self,
+        half_edge: HalfEdgeHandle,
+        boundary: BoundarySide,
+    ) -> bool {
+        if !self.half_edges.contains_key(half_edge) {
+            return false;
+        }
+        self.surface_boundary_declines.remove(&half_edge);
+        self.surface_boundary_hints.insert(half_edge, boundary);
+        true
+    }
+
+    /// Remove authored surface-boundary evidence for a half-edge.
+    pub fn clear_surface_boundary_hint(&mut self, half_edge: HalfEdgeHandle) {
+        self.surface_boundary_hints.remove(&half_edge);
+    }
+
+    /// Record why canonical boundary ownership was not accepted for a live
+    /// half-edge inspected by construction or repair.
+    pub fn set_surface_boundary_decline(
+        &mut self,
+        half_edge: HalfEdgeHandle,
+        decline: SurfaceBoundaryHintDecline,
+    ) -> bool {
+        if !self.half_edges.contains_key(half_edge) {
+            return false;
+        }
+        self.surface_boundary_hints.remove(&half_edge);
+        self.surface_boundary_declines.insert(half_edge, decline);
+        true
+    }
+
+    /// Return caller-authored canonical boundary evidence for a live half-edge.
+    pub fn surface_boundary_hint(&self, half_edge: HalfEdgeHandle) -> Option<BoundarySide> {
+        self.half_edges
+            .contains_key(half_edge)
+            .then(|| self.surface_boundary_hints.get(&half_edge).copied())
+            .flatten()
+    }
+
+    /// Return the structured construction-time decline for a live half-edge.
+    pub fn surface_boundary_decline(
+        &self,
+        half_edge: HalfEdgeHandle,
+    ) -> Option<&SurfaceBoundaryHintDecline> {
+        self.half_edges
+            .contains_key(half_edge)
+            .then(|| self.surface_boundary_declines.get(&half_edge))
+            .flatten()
+    }
+
     /// True when boundary edges exist (open shell / partial solid).
     pub fn has_boundary_edges(&self) -> bool {
         !self.boundary_edges.is_empty()

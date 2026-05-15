@@ -59,6 +59,7 @@ pub mod quality;
 pub mod reflection_line;
 pub mod remediation;
 pub mod sensitivity;
+mod surface_boundary_evidence;
 pub mod surface_validate;
 pub mod trim;
 pub mod types;
@@ -339,6 +340,7 @@ fn fillet_edges_internal(
     // as garbage extrapolation. Clamping CPs guarantees evaluations
     // stay inside the valid domain.
     let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
+    surface_boundary_evidence::audit_gregory_analytic_boundary_evidence(&mut apply_result.brep);
     emit!(
         progress::FilletPhase::RepairPcurves,
         t5,
@@ -380,6 +382,7 @@ fn fillet_edges_internal(
         brep: apply_result.brep,
         edge_warnings: all_warnings,
         corner_patches: apply_result.corner_patches,
+        repair_report: apply_result.repair_report,
     })
 }
 
@@ -456,6 +459,7 @@ pub fn chamfer_edges(
         brep: apply_result.brep,
         edge_warnings: apply_result.warnings,
         corner_patches: apply_result.corner_patches,
+        repair_report: apply_result.repair_report,
     })
 }
 

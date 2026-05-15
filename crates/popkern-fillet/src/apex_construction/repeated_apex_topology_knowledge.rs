@@ -7,6 +7,9 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle, Verte
 use super::repeated_apex_topology_knowledge_collect::{
     collect_adjacent_faces, collect_face_loops, collect_loop_adjacencies,
 };
+use super::repeated_apex_topology_knowledge_trim::{
+    TrimEndpointAgreementFacts, collect_trim_endpoint_agreements,
+};
 use super::repeated_apex_trim_subcomplex::{TrimRewriteIntentFacts, TrimRewriteSubcomplexPlan};
 
 #[derive(Clone, Debug)]
@@ -15,6 +18,7 @@ pub(super) struct TopologyKnowledgeGraph {
     context_faces: Vec<FaceHandle>,
     support_families: Vec<SupportFamilyFacts>,
     loop_adjacencies: Vec<LoopAdjacencyFacts>,
+    trim_endpoint_agreements: Vec<TrimEndpointAgreementFacts>,
     endpoint_memberships: Vec<EndpointMembershipFacts>,
     trim_intents: Vec<TrimRewriteIntentFacts>,
     counters: KnowledgeGraphCounters,
@@ -140,6 +144,7 @@ impl TopologyKnowledgeGraph {
             })
             .collect();
         let loop_adjacencies = collect_loop_adjacencies(brep, &loops_by_face);
+        let trim_endpoint_agreements = collect_trim_endpoint_agreements(brep, &loop_adjacencies);
 
         let trim_intents = plan.trim_intents();
         let trim_records_read = trim_intents.len();
@@ -177,6 +182,7 @@ impl TopologyKnowledgeGraph {
             context_faces,
             support_families,
             loop_adjacencies,
+            trim_endpoint_agreements,
             endpoint_memberships,
             trim_intents,
             counters: KnowledgeGraphCounters {
@@ -220,7 +226,7 @@ impl TopologyKnowledgeGraph {
 
     pub(super) fn diagnostic_label(&self) -> String {
         format!(
-            "knowledge fingerprint {}; counters seeded_faces={} loops={} half_edges={} vertices={} trim_records={}; support_families={}; loop_adjacencies={}; endpoints={}",
+            "knowledge fingerprint {}; counters seeded_faces={} loops={} half_edges={} vertices={} trim_records={}; support_families={}; loop_adjacencies={}; trim_endpoint_agreements={}; endpoints={}",
             self.fingerprint.diagnostic_label(),
             self.counters.seeded_faces,
             self.counters.loops_visited,
@@ -235,6 +241,11 @@ impl TopologyKnowledgeGraph {
             self.loop_adjacencies
                 .iter()
                 .map(LoopAdjacencyFacts::diagnostic_label)
+                .collect::<Vec<_>>()
+                .join("; "),
+            self.trim_endpoint_agreements
+                .iter()
+                .map(TrimEndpointAgreementFacts::diagnostic_label)
                 .collect::<Vec<_>>()
                 .join("; "),
             self.endpoint_memberships

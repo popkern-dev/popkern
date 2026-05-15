@@ -3,7 +3,8 @@ use popkern_core::tolerance::Tolerance;
 use std::sync::Arc;
 
 use crate::step::document::{
-    OpaqueBag, RepresentationContext, ShapeRep, ShapeRepKind, StepProductNode, UnitContext,
+    OpaqueBag, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument, StepProductNode,
+    UnitContext,
 };
 use crate::step::export::{StepExportOptions, export_step};
 
@@ -272,4 +273,136 @@ fn cube_has_no_seam_curves() {
         seam_count, 0,
         "Cube should have 0 SEAM_CURVEs, got {seam_count}"
     );
+}
+
+#[test]
+fn open_boundary_brep_exports_as_surface_model() {
+    use popkern_core::geometry::polyhedral_spline::{
+        ControlNet, PolyhedralBrepExportOptions, build_polyhedral_spline_brep,
+        construct_from_control_net,
+    };
+
+    let net = ControlNet::from_obj_str(include_str!(
+        "../../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/T0.obj"
+    ))
+    .unwrap();
+    let spline = construct_from_control_net(&net).unwrap().remove(0);
+    let export = build_polyhedral_spline_brep(&spline, PolyhedralBrepExportOptions::default())
+        .expect("PnS T0 BRep");
+    assert!(export.brep.has_boundary_edges());
+
+    let doc = StepDocument {
+        products: vec![StepProductNode {
+            name: "PnS T0".into(),
+            id: "PNS-T0".into(),
+            children: vec![],
+            shapes: vec![Arc::new(ShapeRep {
+                kind: ShapeRepKind::Other("SHAPE_REPRESENTATION".into()),
+                solids: vec![export.brep],
+                context: RepresentationContext::default(),
+                non_brep_items: vec![],
+            })],
+            metadata: Default::default(),
+        }],
+        roots: vec![0],
+        units: UnitContext::default(),
+        opaque_bag: OpaqueBag::default(),
+    };
+
+    let text =
+        String::from_utf8(export_step(&doc, &StepExportOptions::default()).unwrap()).unwrap();
+    assert!(text.contains("OPEN_SHELL"));
+    assert!(text.contains("SHELL_BASED_SURFACE_MODEL"));
+    assert!(!text.contains("MANIFOLD_SOLID_BREP"));
+}
+
+#[test]
+fn collapsed_surface_trim_missing_curve_exports_degenerate_bspline() {
+    let brep = collapsed_trim_sheet();
+    let mut ctx = ExportContext::new();
+    ctx.export_brep(&brep).unwrap();
+
+    let count =
+        |name: &str| -> usize { ctx.entities.iter().filter(|e| e.type_name == name).count() };
+
+    assert_eq!(count("EDGE_CURVE"), 1);
+    assert_eq!(count("B_SPLINE_CURVE_WITH_KNOTS"), 2);
+    assert_eq!(
+        count("LINE"),
+        0,
+        "collapsed trim must not export a zero-direction LINE"
+    );
+    assert_eq!(count("PCURVE"), 1);
+}
+
+fn collapsed_trim_sheet() -> BRep {
+    use popkern_core::geometry::pcurve::Pcurve;
+    use popkern_core::geometry::{Point3, SurfaceGeometry, SurfaceOnFace, Vec3};
+    use popkern_core::topology::{
+        Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell,
+        ShellHandle, Solid, Vertex,
+    };
+
+    let mut brep = BRep::new(Tolerance::default());
+    let solid = brep.solids.insert(Solid {
+        shell: ShellHandle::default(),
+    });
+    let shell = brep.shells.insert(Shell {
+        face: FaceHandle::default(),
+        solid,
+    });
+    brep.solids[solid].shell = shell;
+    let vertex = brep.vertices.insert(Vertex {
+        position: Point3::new(0.0, 0.0, 0.0),
+        outgoing: HalfEdgeHandle::default(),
+        name: None,
+        tolerance: None,
+    });
+    let face = brep.faces.insert(Face {
+        outer_loop: LoopHandle::default(),
+        inner_loops: Vec::new(),
+        shell,
+        surface: Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Plane {
+                origin: Point3::new(0.0, 0.0, 0.0),
+                normal: Vec3::new(0.0, 0.0, 1.0),
+                u_axis: Vec3::zero(),
+                v_axis: Vec3::new(0.0, 1.0, 0.0),
+            },
+            orientation: true,
+        }),
+        name: None,
+        tolerance: None,
+        role: Default::default(),
+    });
+    let loop_ = brep.loops.insert(Loop {
+        half_edge: HalfEdgeHandle::default(),
+        face,
+    });
+    let half_edge = brep.half_edges.insert(HalfEdge {
+        origin: vertex,
+        twin: HalfEdgeHandle::default(),
+        next: HalfEdgeHandle::default(),
+        prev: HalfEdgeHandle::default(),
+        edge: EdgeHandle::default(),
+        loop_,
+        pcurve: Some(Pcurve::linear((0.0, 0.0), (1.0, 0.0), 0.0, 1.0)),
+    });
+    let edge = brep.edges.insert(Edge {
+        half_edge,
+        curve: None,
+        name: None,
+        tolerance: None,
+        canonical: Default::default(),
+        role: Default::default(),
+    });
+    brep.half_edges[half_edge].edge = edge;
+    brep.half_edges[half_edge].next = half_edge;
+    brep.half_edges[half_edge].prev = half_edge;
+    brep.vertices[vertex].outgoing = half_edge;
+    brep.loops[loop_].half_edge = half_edge;
+    brep.faces[face].outer_loop = loop_;
+    brep.shells[shell].face = face;
+    brep.boundary_edges.insert(edge);
+    brep
 }

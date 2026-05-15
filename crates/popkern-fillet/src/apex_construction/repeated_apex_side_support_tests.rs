@@ -43,13 +43,11 @@ fn read_only_snapshot_accepts_existing_support_loop_split_candidate() {
         snapshot.selection,
         SideSupportRegionPlanSelection::Selected(_)
     ));
-    assert!(snapshot.diagnostic_label().contains("selected_plan"));
-    assert!(snapshot.diagnostic_label().contains("ready_for_executor"));
-    assert!(
-        snapshot
-            .diagnostic_label()
-            .contains("total_delta=dV=0 dE=1 dF=1 dL=1")
-    );
+    let labels = snapshot.diagnostic_label();
+    assert!(labels.contains("selected_plan"));
+    assert!(labels.contains("ready_for_executor"));
+    assert!(labels.contains("trim_endpoint_agreements="));
+    assert!(labels.contains("total_delta=dV=0 dE=1 dF=1 dL=1"));
 }
 
 #[test]

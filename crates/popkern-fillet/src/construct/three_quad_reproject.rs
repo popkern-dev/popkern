@@ -2,6 +2,8 @@
 
 use super::*;
 use crate::construct::{helpers, three_quad_apply_edge_triple};
+use popkern_core::geometry::edge_triple::BoundarySide;
+use popkern_core::topology::{SurfaceBoundaryHintDecline, SurfaceBoundaryHintDeclineReason};
 
 /// Re-fit each half-edge pcurve on `face`'s outer loop into the
 /// face's surface UV space by closest-point projection. Used after
@@ -96,7 +98,9 @@ pub(super) fn reproject_loop_pcurves_onto_gregory(
             // other side (twin) gets pcurve_b. Both are parameterized
             // in curve_3d's natural direction; consumers handle
             // direction via twin's traversal logic.
-            brep.half_edges[he].pcurve = Some(cap_pc.into());
+            let cap_pcurve = cap_pc.into();
+            record_boundary_evidence_from_pcurve(brep, he, &cap_pcurve);
+            brep.half_edges[he].pcurve = Some(cap_pcurve);
             let twin = brep.half_edges[he].twin;
             brep.half_edges[twin].pcurve = Some(other_pc.into());
             continue;
@@ -110,12 +114,15 @@ pub(super) fn reproject_loop_pcurves_onto_gregory(
         // col 9 — wrong cap-surface UV — and clobbering the wire's
         // analytic Linear pcurve produces 3-5 cm `dev_cap` residual.
         if preserve_analytic_pcurves
-            && let Some(existing) = brep.half_edges[he].pcurve.as_ref()
+            && let Some(existing) = brep.half_edges[he].pcurve.clone()
             && !matches!(
                 existing.geometry,
                 popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(_)
             )
         {
+            if matches!(surface, SurfaceGeometry::Gregory(_)) {
+                record_boundary_evidence_from_pcurve(brep, he, &existing);
+            }
             continue;
         }
 
@@ -213,7 +220,149 @@ pub(super) fn reproject_loop_pcurves_onto_gregory(
             }
         }
         let _: &NurbsCurve = &fitted;
-        brep.half_edges[he].pcurve = Some(fitted.into());
+        let fitted_pcurve = popkern_core::geometry::pcurve::Pcurve::from(fitted);
+        if matches!(surface, SurfaceGeometry::Gregory(_)) {
+            record_boundary_evidence_from_pcurve(brep, he, &fitted_pcurve);
+        }
+        brep.half_edges[he].pcurve = Some(fitted_pcurve);
+    }
+    if matches!(surface, SurfaceGeometry::Gregory(_)) {
+        record_unclassified_gregory_outer_loop_boundaries(brep, &hes);
+    }
+}
+
+fn record_boundary_evidence_from_pcurve(
+    brep: &mut BRep,
+    half_edge: popkern_core::topology::HalfEdgeHandle,
+    pcurve: &popkern_core::geometry::pcurve::Pcurve,
+) {
+    let classification = classify_rectangular_boundary_pcurve(pcurve);
+    if let Some(boundary) = classification.boundary {
+        brep.set_surface_boundary_hint(half_edge, boundary);
+    } else {
+        brep.set_surface_boundary_decline(
+            half_edge,
+            SurfaceBoundaryHintDecline {
+                reason: SurfaceBoundaryHintDeclineReason::NotOnCanonicalBoundary,
+                best_boundary_deviation: classification.best_deviation,
+                best_boundary: classification.boundary,
+                endpoint_gap: 0.0,
+            },
+        );
+    }
+}
+
+struct BoundaryPcurveClassification {
+    boundary: Option<BoundarySide>,
+    best_deviation: f64,
+}
+
+fn classify_rectangular_boundary_pcurve(
+    pcurve: &popkern_core::geometry::pcurve::Pcurve,
+) -> BoundaryPcurveClassification {
+    let (t0, t1) = pcurve.parameter_range();
+    let mut samples = Vec::with_capacity(9);
+    for i in 0..9 {
+        let s = i as f64 / 8.0;
+        samples.push(pcurve.point_at(t0 + s * (t1 - t0)));
+    }
+    classify_rectangular_boundary_samples(&samples)
+}
+
+fn classify_rectangular_boundary_samples(
+    samples: &[popkern_core::geometry::Point3],
+) -> BoundaryPcurveClassification {
+    let threshold = 1.0e-6;
+    let candidates = [
+        (
+            BoundarySide::UMin,
+            samples
+                .iter()
+                .map(|point| point.x.abs())
+                .fold(0.0, f64::max),
+        ),
+        (
+            BoundarySide::UMax,
+            samples
+                .iter()
+                .map(|point| (1.0 - point.x).abs())
+                .fold(0.0, f64::max),
+        ),
+        (
+            BoundarySide::VMin,
+            samples
+                .iter()
+                .map(|point| point.y.abs())
+                .fold(0.0, f64::max),
+        ),
+        (
+            BoundarySide::VMax,
+            samples
+                .iter()
+                .map(|point| (1.0 - point.y).abs())
+                .fold(0.0, f64::max),
+        ),
+    ];
+    let Some(best) = candidates.into_iter().min_by(|a, b| a.1.total_cmp(&b.1)) else {
+        return BoundaryPcurveClassification {
+            boundary: None,
+            best_deviation: f64::INFINITY,
+        };
+    };
+    BoundaryPcurveClassification {
+        boundary: (best.1 <= threshold).then_some(best.0),
+        best_deviation: best.1,
+    }
+}
+
+fn record_unclassified_gregory_outer_loop_boundaries(
+    brep: &mut BRep,
+    half_edges: &[popkern_core::topology::HalfEdgeHandle],
+) {
+    for &half_edge in half_edges {
+        if brep.surface_boundary_hint(half_edge).is_some()
+            || brep.surface_boundary_decline(half_edge).is_some()
+        {
+            continue;
+        }
+        let Some(half_edge_data) = brep.half_edges.get(half_edge) else {
+            continue;
+        };
+        let Some(twin) = brep.half_edges.get(half_edge_data.twin) else {
+            continue;
+        };
+        let Some(twin_face) = brep.loops.get(twin.loop_).map(|loop_data| loop_data.face) else {
+            continue;
+        };
+        let analytic_neighbor = brep
+            .faces
+            .get(twin_face)
+            .and_then(|face| face.surface.as_ref())
+            .is_some_and(|surface| {
+                matches!(
+                    surface.geometry,
+                    SurfaceGeometry::Plane { .. }
+                        | SurfaceGeometry::Cylinder { .. }
+                        | SurfaceGeometry::Sphere { .. }
+                        | SurfaceGeometry::Torus { .. }
+                )
+            });
+        if !analytic_neighbor {
+            continue;
+        }
+        let Some(pcurve) = brep.half_edges[half_edge].pcurve.clone() else {
+            brep.set_surface_boundary_decline(
+                half_edge,
+                SurfaceBoundaryHintDecline {
+                    reason: SurfaceBoundaryHintDeclineReason::MissingPcurve,
+                    best_boundary_deviation: f64::INFINITY,
+                    best_boundary: None,
+                    endpoint_gap: 0.0,
+                },
+            );
+            continue;
+        };
+        record_boundary_evidence_from_pcurve(brep, half_edge, &pcurve);
     }
 }
 

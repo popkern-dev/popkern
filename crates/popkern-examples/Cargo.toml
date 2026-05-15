@@ -15,6 +15,7 @@ popkern-draft = { path = "../popkern-draft" }
 popkern-io = { path = "../popkern-io" }
 popkern-viz = { path = "../popkern-viz" }
 glam = "0.29"
+serde_json = "1"
 
 [[bin]]
 name = "boolean_showcase"
@@ -43,6 +44,14 @@ path = "src/boolean_stress.rs"
 [[bin]]
 name = "pns_pentagon_apex"
 path = "src/pns_pentagon_apex.rs"
+
+[[bin]]
+name = "pns_toms_step_examples"
+path = "src/pns_toms_step_examples.rs"
+
+[[bin]]
+name = "gregory_step_examples"
+path = "src/gregory_step_examples.rs"
 
 [[bin]]
 name = "fillet_zoo"

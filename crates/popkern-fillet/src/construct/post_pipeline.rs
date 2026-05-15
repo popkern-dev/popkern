@@ -8,9 +8,11 @@ pub(super) struct PostBlendPipelineInputs<'a> {
     pub(super) edge_geometries: &'a [EdgeGeometry],
     pub(super) tolerance: &'a Tolerance,
     pub(super) late_wire_jobs: &'a [(crate::blend::BlendBoundary, Vec<FaceHandle>)],
+    pub(super) support_seam_jobs: &'a [(crate::blend::BlendBoundary, Vec<FaceHandle>)],
     pub(super) a2_built_faces: &'a [FaceHandle],
     pub(super) warnings: &'a mut Vec<(EdgeHandle, BlendWarning)>,
     pub(super) corner_patches: &'a mut Vec<crate::types::CornerPatchInfo>,
+    pub(super) repair_report: &'a mut crate::types::BlendRepairReport,
 }
 
 pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
@@ -19,9 +21,11 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     let edge_geometries = inputs.edge_geometries;
     let tolerance = inputs.tolerance;
     let late_wire_jobs = inputs.late_wire_jobs;
+    let support_seam_jobs = inputs.support_seam_jobs;
     let a2_built_faces = inputs.a2_built_faces;
     let warnings = inputs.warnings;
     let corner_patches = inputs.corner_patches;
+    let repair_report = inputs.repair_report;
 
     // Correct surface assignments — safety net.
     let fillet_surfaces: Vec<_> = edge_geometries
@@ -241,6 +245,43 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         }
     }
 
+    if support_seam_relocation_enabled() {
+        for (boundary, sub_faces) in support_seam_jobs {
+            let report = three_quad_apply::author_model_level_support_face_boundary_seams(
+                result,
+                sub_faces,
+                boundary,
+                &[],
+            );
+            if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+                eprintln!(
+                    "[support-seam-relocation] sub_faces={} authored={} declined={} \
+                     candidates={} max_move={:.6e} max_disagreement={:.6e} rollback={:?}",
+                    sub_faces.len(),
+                    report.authored,
+                    report.declined,
+                    report.candidates,
+                    report.max_endpoint_motion,
+                    report.max_sampled_disagreement,
+                    report.rollback_reason
+                );
+                for decision in report.decisions.iter().take(3) {
+                    eprintln!(
+                        "[support-seam-relocation] decision he={:?} cap={:?} support={:?} \
+                         side={:?} accepted={} reason={:?}",
+                        decision.half_edge,
+                        decision.cap_face,
+                        decision.support_face,
+                        decision.boundary_side,
+                        decision.accepted,
+                        decision.reason
+                    );
+                }
+            }
+            repair_report.support_seam_relocation.merge(report);
+        }
+    }
+
     blend_insert::reclassify_corner_methods(result, corner_patches);
 
     // Final pass: clamp any out-of-range pcurve control points on
@@ -251,4 +292,10 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     if std::env::var("POPKERN_CLAMP_TRACE").is_ok() {
         eprintln!("  [gregory_pcurve_clamp] clamped {n_clamped} pcurves");
     }
+}
+
+fn support_seam_relocation_enabled() -> bool {
+    std::env::var("POPKERN_SUPPORT_SEAM_RELOCATION")
+        .map(|value| value != "0")
+        .unwrap_or(true)
 }

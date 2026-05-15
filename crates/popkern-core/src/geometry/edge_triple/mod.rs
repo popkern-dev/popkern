@@ -49,6 +49,7 @@ mod analytic_trig_sphere_sphere_general;
 mod analytic_trig_sphere_torus_axial;
 mod analytic_trig_torus_dispatch;
 mod analytic_trig_torus_torus_coaxial;
+mod bounded_boundary;
 mod dispatch;
 mod error;
 mod gregory_boundary;
@@ -65,6 +66,7 @@ pub use dispatch::{
     revalidate_edge_triple,
 };
 pub use error::{EdgeTripleError, EdgeTripleVerifyError};
+pub(crate) use gregory_boundary::extract_gregory_boundary_curve;
 pub use inputs::{BoundarySide, EdgeAnchors, EdgeHint, SeamAxis, SurfaceSide};
 pub use options::{BranchPolicy, CancellationToken, EdgeTripleOptions};
 pub use types::{
