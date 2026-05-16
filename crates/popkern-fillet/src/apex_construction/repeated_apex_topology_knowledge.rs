@@ -5,6 +5,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use popkern_core::topology::{
     BRep, BrepKnowledgeFingerprint, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle,
 };
+pub(super) use popkern_core::topology::{
+    BrepLoopAdjacencyFacts as LoopAdjacencyFacts, BrepLoopFacts as LoopFacts,
+    BrepLoopKind as LoopKind,
+};
 
 use super::repeated_apex_topology_knowledge_collect::{
     collect_adjacent_faces, collect_face_loops, collect_loop_adjacencies,
@@ -41,34 +45,6 @@ pub(super) struct SupportFamilyFacts {
     generated_trim_count: usize,
     cylinder_faces: Vec<FaceHandle>,
     loops: Vec<LoopFacts>,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct LoopFacts {
-    pub(super) face: FaceHandle,
-    pub(super) loop_handle: LoopHandle,
-    pub(super) kind: LoopKind,
-    pub(super) boundary_half_edges: Vec<HalfEdgeHandle>,
-    pub(super) boundary_vertices: Vec<VertexHandle>,
-    pub(super) repeated_vertex: bool,
-    pub(super) repeated_half_edge: bool,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct LoopAdjacencyFacts {
-    pub(super) face: FaceHandle,
-    pub(super) loop_handle: LoopHandle,
-    pub(super) half_edge: HalfEdgeHandle,
-    pub(super) adjacent_face: FaceHandle,
-    pub(super) adjacent_loop: LoopHandle,
-    pub(super) adjacent_half_edge: HalfEdgeHandle,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum LoopKind {
-    Outer,
-    Inner,
-    Unknown,
 }
 
 #[derive(Clone, Debug)]
@@ -229,44 +205,6 @@ impl TopologyKnowledgeGraph {
     }
 }
 
-impl LoopAdjacencyFacts {
-    pub(super) fn face(&self) -> FaceHandle {
-        self.face
-    }
-
-    pub(super) fn loop_handle(&self) -> LoopHandle {
-        self.loop_handle
-    }
-
-    pub(super) fn half_edge(&self) -> HalfEdgeHandle {
-        self.half_edge
-    }
-
-    pub(super) fn adjacent_face(&self) -> FaceHandle {
-        self.adjacent_face
-    }
-
-    pub(super) fn adjacent_loop(&self) -> LoopHandle {
-        self.adjacent_loop
-    }
-
-    pub(super) fn adjacent_half_edge(&self) -> HalfEdgeHandle {
-        self.adjacent_half_edge
-    }
-
-    fn diagnostic_label(&self) -> String {
-        format!(
-            "{:?}/{:?}@{:?}<->{:?}/{:?}@{:?}",
-            self.face,
-            self.loop_handle,
-            self.half_edge,
-            self.adjacent_face,
-            self.adjacent_loop,
-            self.adjacent_half_edge
-        )
-    }
-}
-
 impl SupportFamilyFacts {
     pub(super) fn support_face(&self) -> FaceHandle {
         self.support_face
@@ -287,40 +225,6 @@ impl SupportFamilyFacts {
                 .map(LoopFacts::diagnostic_label)
                 .collect::<Vec<_>>()
                 .join(", ")
-        )
-    }
-}
-
-impl LoopFacts {
-    pub(super) fn face(&self) -> FaceHandle {
-        self.face
-    }
-
-    pub(super) fn loop_handle(&self) -> LoopHandle {
-        self.loop_handle
-    }
-
-    pub(super) fn kind(&self) -> LoopKind {
-        self.kind
-    }
-
-    pub(super) fn boundary_half_edges(&self) -> &[HalfEdgeHandle] {
-        &self.boundary_half_edges
-    }
-
-    pub(super) fn boundary_vertices(&self) -> &[VertexHandle] {
-        &self.boundary_vertices
-    }
-
-    fn diagnostic_label(&self) -> String {
-        format!(
-            "{:?}/{:?}/{:?} vertices={:?} repeated_vertex={} repeated_half_edge={}",
-            self.face,
-            self.loop_handle,
-            self.kind,
-            self.boundary_vertices,
-            self.repeated_vertex,
-            self.repeated_half_edge
         )
     }
 }
