@@ -110,6 +110,7 @@ pub use brep_repair_pipeline::{
 pub mod brep_repair_knowledge;
 mod brep_repair_knowledge_endpoint;
 mod brep_repair_knowledge_loop;
+mod brep_repair_knowledge_trim;
 pub use brep_repair_knowledge::{
     BREP_REPAIR_KNOWLEDGE_SCHEMA_VERSION, BrepKnowledgeFingerprint, BrepRepairDiagnostic,
     BrepRepairDiagnosticCode, BrepRepairDiagnosticExport, BrepRepairDiagnosticId,
@@ -123,6 +124,10 @@ pub use brep_repair_knowledge::{
 };
 pub use brep_repair_knowledge_endpoint::{BrepEndpointLoopMembership, BrepEndpointMembershipFacts};
 pub use brep_repair_knowledge_loop::{BrepLoopAdjacencyFacts, BrepLoopFacts, BrepLoopKind};
+pub use brep_repair_knowledge_trim::{
+    BrepTrimEndpointAgreementFacts, BrepTrimEndpointAgreementStatus,
+    collect_brep_trim_endpoint_agreements,
+};
 
 /// Transactional completion of missing BRep edge curves.
 pub mod brep_edge_curve_completion;
