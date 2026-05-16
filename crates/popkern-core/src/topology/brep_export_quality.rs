@@ -190,15 +190,24 @@ pub fn analyze_brep_export_quality_with_pcurve_fidelity(
     pcurve_fidelity: (usize, f64),
 ) -> BrepExportQualityReport {
     let trims = analyze_brep_trims(brep, options.trim);
-    analyze_brep_export_quality_with_local_diagnostics(brep, options, trims, pcurve_fidelity)
+    let edge_surface_fidelity =
+        edge_surface_fidelity_blockers(brep, options.max_edge_surface_deviation, options.trim);
+    analyze_brep_export_quality_with_local_diagnostics(
+        brep,
+        options,
+        trims,
+        pcurve_fidelity,
+        edge_surface_fidelity,
+    )
 }
 
-/// Analyze export quality using caller-supplied local trim and pcurve diagnostics.
+/// Analyze export quality using caller-supplied local geometry diagnostics.
 pub fn analyze_brep_export_quality_with_local_diagnostics(
     brep: &BRep,
     options: BrepExportQualityOptions,
     trims: BrepTrimDiagnosticReport,
     pcurve_fidelity: (usize, f64),
+    edge_surface_fidelity: (usize, f64),
 ) -> BrepExportQualityReport {
     let loop_shell = analyze_brep_loop_shell_validity(brep);
     let missing_edge_curves = brep
@@ -224,8 +233,7 @@ pub fn analyze_brep_export_quality_with_local_diagnostics(
         0
     };
     let (pcurve_blockers, max_pcurve_deviation) = pcurve_fidelity;
-    let (edge_surface_blockers, max_edge_surface_deviation) =
-        edge_surface_fidelity_blockers(brep, options.max_edge_surface_deviation, options.trim);
+    let (edge_surface_blockers, max_edge_surface_deviation) = edge_surface_fidelity;
     let authority = export_authority_summary(brep, options.trim);
     let validation_passed = validation_error.is_none();
     let blocked = topology_blockers > 0

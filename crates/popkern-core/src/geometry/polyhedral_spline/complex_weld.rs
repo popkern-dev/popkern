@@ -16,8 +16,9 @@ use crate::topology::{
     BrepSewingEdgePair, BrepSewingOptions, BrepSewingProvenance, BrepSnapSewingOptions,
     BrepTopologyOutputPolicy, BrepTrimRepairOptions, EdgeHandle, FaceHandle, HalfEdgeHandle, Shell,
     ShellHandle, Solid, analyze_brep_export_quality_with_local_diagnostics,
-    analyze_scoped_brep_export_quality, analyze_scoped_brep_trims,
-    build_brep_repair_action_artifact, edge_segment, repair_brep_boundary_edges_transactionally,
+    analyze_scoped_brep_edge_surface_compatibility, analyze_scoped_brep_export_quality,
+    analyze_scoped_brep_trims, build_brep_repair_action_artifact, edge_segment,
+    repair_brep_boundary_edges_transactionally,
 };
 
 #[derive(Debug, Clone)]
@@ -49,16 +50,11 @@ pub struct PolyhedralBoundaryWeldReport {
     pub export_blockers: usize,
     pub missing_edge_curves: usize,
     pub trim_blockers: usize,
-    /// Pre-repair topology scope touched by accepted weld candidates.
     pub scope: PolyhedralBoundaryWeldScope,
-    /// Edge-local export-quality diagnostics over the pre-repair weld scope.
     pub pre_repair_scoped_quality: BrepScopedExportQualityReport,
-    /// Edge-local export-quality diagnostics over repaired topology touched by repair stages.
     pub post_repair_scoped_quality: BrepScopedExportQualityReport,
     pub timing: PolyhedralBoundaryWeldTiming,
 }
-
-/// Per-stage wall-clock timing for PnS boundary welding.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PolyhedralBoundaryWeldTiming {
     pub assemble_ms: u128,
@@ -207,6 +203,11 @@ pub fn weld_clean_surface_complex_boundaries(
         &post_repair_scope.half_edges,
         trim_options(options),
     );
+    let scoped_edge_surfaces = analyze_scoped_brep_edge_surface_compatibility(
+        &result.brep,
+        &post_repair_scope.half_edges,
+        pipeline_options(options).edge_surface_compatibility,
+    );
     let export_quality = analyze_brep_export_quality_with_local_diagnostics(
         &result.brep,
         export_quality_options(options),
@@ -214,6 +215,10 @@ pub fn weld_clean_surface_complex_boundaries(
         (
             post_repair_scoped_quality.pcurve_blockers,
             post_repair_scoped_quality.max_pcurve_deviation,
+        ),
+        (
+            scoped_edge_surfaces.incompatible_half_edges,
+            scoped_edge_surfaces.max_deviation,
         ),
     );
     let quality_at = Instant::now();

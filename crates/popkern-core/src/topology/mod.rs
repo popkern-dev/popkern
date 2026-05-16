@@ -184,6 +184,7 @@ mod brep_edge_surface_compatibility_commit;
 mod brep_edge_surface_compatibility_decline;
 mod brep_edge_surface_compatibility_diagnostics;
 mod brep_edge_surface_compatibility_helpers;
+mod brep_edge_surface_compatibility_scope;
 mod brep_edge_surface_compatibility_shared_facts;
 mod brep_edge_surface_compatibility_trim_candidate;
 mod brep_edge_surface_compatibility_vertex_candidate;
@@ -202,6 +203,7 @@ pub use brep_edge_surface_compatibility_diagnostics::{
     BrepEdgeSurfaceBoundaryDeclineEvidence, BrepEdgeSurfaceBoundaryHintEvidence,
     BrepEdgeSurfaceKind, BrepEdgeSurfaceRepairEvidence,
 };
+pub use brep_edge_surface_compatibility_scope::analyze_scoped_brep_edge_surface_compatibility;
 pub use brep_edge_surface_compatibility_vertex_candidate::{
     BrepEdgeSurfaceVertexCandidateDiagnostic, BrepEdgeSurfaceVertexCandidateOutcome,
     BrepEdgeSurfaceVertexCandidateSource,
