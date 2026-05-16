@@ -2,23 +2,20 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use popkern_core::topology::{
-    BRep, BrepKnowledgeFingerprint, FaceHandle, LoopHandle, VertexHandle,
-};
-pub(super) use popkern_core::topology::{
-    BrepEndpointLoopMembership as EndpointLoopMembership,
-    BrepEndpointMembershipFacts as EndpointMembershipFacts,
-    BrepLoopAdjacencyFacts as LoopAdjacencyFacts, BrepLoopFacts as LoopFacts,
-    BrepLoopKind as LoopKind,
-};
-
-use super::repeated_apex_topology_knowledge_collect::{
-    collect_adjacent_faces, collect_face_loops, collect_loop_adjacencies,
-};
 use super::repeated_apex_topology_knowledge_trim::{
     TrimEndpointAgreementFacts, collect_trim_endpoint_agreements,
 };
 use super::repeated_apex_trim_subcomplex::{TrimRewriteIntentFacts, TrimRewriteSubcomplexPlan};
+use popkern_core::topology::{BRep, BrepKnowledgeFingerprint, FaceHandle, VertexHandle};
+pub(super) use popkern_core::topology::{
+    BrepEndpointMembershipFacts as EndpointMembershipFacts,
+    BrepLoopAdjacencyFacts as LoopAdjacencyFacts, BrepLoopFacts as LoopFacts,
+    BrepLoopKind as LoopKind,
+};
+use popkern_core::topology::{
+    collect_brep_adjacent_faces, collect_brep_endpoint_memberships, collect_brep_face_loops,
+    collect_brep_loop_adjacencies,
+};
 
 #[derive(Clone, Debug)]
 pub(super) struct TopologyKnowledgeGraph {
@@ -54,14 +51,22 @@ impl TopologyKnowledgeGraph {
         let seed_faces = plan.seed_faces();
 
         let mut loops_by_face = BTreeMap::new();
-        let mut half_edges_visited = 0usize;
-        let mut vertices_seen = BTreeSet::new();
         for face in seed_faces.iter().copied() {
-            let loops = collect_face_loops(brep, face, &mut half_edges_visited, &mut vertices_seen);
+            let loops = collect_brep_face_loops(brep, face);
             loops_by_face.insert(face, loops);
         }
+        let half_edges_visited = loops_by_face
+            .values()
+            .flat_map(|loops| loops.iter())
+            .map(|loop_facts| loop_facts.boundary_half_edges().len())
+            .sum();
+        let vertices_seen = loops_by_face
+            .values()
+            .flat_map(|loops| loops.iter())
+            .flat_map(|loop_facts| loop_facts.boundary_vertices().iter().copied())
+            .collect::<BTreeSet<_>>();
         let mut context_faces = seed_faces.clone();
-        let adjacent_faces = collect_adjacent_faces(brep, &loops_by_face);
+        let adjacent_faces = collect_brep_adjacent_faces(brep, &loops_by_face);
         context_faces.extend(adjacent_faces);
         context_faces.sort();
         context_faces.dedup();
@@ -79,7 +84,7 @@ impl TopologyKnowledgeGraph {
                     .unwrap_or_default(),
             })
             .collect();
-        let loop_adjacencies = collect_loop_adjacencies(brep, &loops_by_face);
+        let loop_adjacencies = collect_brep_loop_adjacencies(brep, &loops_by_face);
         let trim_endpoint_agreements = collect_trim_endpoint_agreements(brep, &loop_adjacencies);
 
         let trim_intents = plan.trim_intents();
@@ -90,28 +95,8 @@ impl TopologyKnowledgeGraph {
             endpoint_vertices.insert(trim.start);
             endpoint_vertices.insert(trim.end);
         }
-        let endpoint_memberships = endpoint_vertices
-            .into_iter()
-            .map(|vertex| EndpointMembershipFacts {
-                vertex,
-                containing_loops: loops_by_face
-                    .values()
-                    .flat_map(|loops| loops.iter())
-                    .filter_map(|loop_facts| {
-                        let position = loop_facts
-                            .boundary_vertices
-                            .iter()
-                            .position(|loop_vertex| *loop_vertex == vertex)?;
-                        Some(EndpointLoopMembership {
-                            face: loop_facts.face,
-                            loop_handle: loop_facts.loop_handle,
-                            half_edge: loop_facts.boundary_half_edges[position],
-                            kind: loop_facts.kind,
-                        })
-                    })
-                    .collect(),
-            })
-            .collect();
+        let endpoint_memberships =
+            collect_brep_endpoint_memberships(&loops_by_face, endpoint_vertices);
 
         Self {
             fingerprint: BrepKnowledgeFingerprint::from_brep(brep),
@@ -214,62 +199,5 @@ impl SupportFamilyFacts {
                 .collect::<Vec<_>>()
                 .join(", ")
         )
-    }
-}
-
-pub(super) fn collect_loop_facts(
-    brep: &BRep,
-    face: FaceHandle,
-    loop_handle: LoopHandle,
-    kind: LoopKind,
-    half_edges_visited: &mut usize,
-    vertices_seen: &mut BTreeSet<VertexHandle>,
-) -> LoopFacts {
-    let mut boundary_vertices = Vec::new();
-    let mut boundary_half_edges = Vec::new();
-    let mut seen_half_edges = BTreeSet::new();
-    let mut repeated_half_edge = false;
-    let mut repeated_vertex = false;
-    let Some(loop_data) = brep.loops.get(loop_handle) else {
-        return LoopFacts {
-            face,
-            loop_handle,
-            kind: LoopKind::Unknown,
-            boundary_half_edges,
-            boundary_vertices,
-            repeated_vertex,
-            repeated_half_edge,
-        };
-    };
-    let start = loop_data.half_edge;
-    let mut cursor = start;
-    loop {
-        if !seen_half_edges.insert(cursor) {
-            repeated_half_edge = true;
-            break;
-        }
-        let Some(half_edge) = brep.half_edges.get(cursor) else {
-            break;
-        };
-        *half_edges_visited += 1;
-        if boundary_vertices.contains(&half_edge.origin) {
-            repeated_vertex = true;
-        }
-        boundary_half_edges.push(cursor);
-        boundary_vertices.push(half_edge.origin);
-        vertices_seen.insert(half_edge.origin);
-        cursor = half_edge.next;
-        if cursor == start {
-            break;
-        }
-    }
-    LoopFacts {
-        face,
-        loop_handle,
-        kind,
-        boundary_half_edges,
-        boundary_vertices,
-        repeated_vertex,
-        repeated_half_edge,
     }
 }

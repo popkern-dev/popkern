@@ -80,7 +80,6 @@ pub(crate) mod repeated_apex_side_support_plan;
 pub(crate) mod repeated_apex_side_support_plan_access;
 pub(crate) mod repeated_apex_side_support_result;
 pub(crate) mod repeated_apex_topology_knowledge;
-pub(crate) mod repeated_apex_topology_knowledge_collect;
 pub(crate) mod repeated_apex_topology_knowledge_trim;
 pub(crate) mod repeated_apex_trim_subcomplex;
 pub(crate) mod target_topology;
