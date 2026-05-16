@@ -224,7 +224,8 @@ mod brep_export_quality_scope;
 pub use brep_export_quality::{
     BrepBoundaryEdgeArtifact, BrepExportBlockerSummary, BrepExportQualityArtifact,
     BrepExportQualityOptions, BrepExportQualityReport, BrepExportQualitySummary,
-    BrepExportReadiness, analyze_brep_export_quality, build_brep_export_quality_artifact,
+    BrepExportReadiness, analyze_brep_export_quality,
+    analyze_brep_export_quality_with_pcurve_fidelity, build_brep_export_quality_artifact,
 };
 pub use brep_export_quality_scope::{
     BrepExportQualityScope, BrepScopedExportQualityReport, analyze_scoped_brep_export_quality,

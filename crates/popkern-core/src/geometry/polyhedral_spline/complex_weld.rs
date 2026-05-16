@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use super::complex::PolyhedralSplineSurfaceComplex;
-use super::complex_weld_scope::{PolyhedralBoundaryWeldScope, build_boundary_weld_scope};
+use super::complex_weld_scope::{
+    PolyhedralBoundaryWeldScope, build_boundary_weld_scope, build_post_repair_weld_quality_scope,
+};
 use super::coverage::PolyhedralCoverageOptions;
 use crate::geometry::Point3;
 use crate::topology::{
@@ -13,8 +15,9 @@ use crate::topology::{
     BrepRepairPipelineOptions, BrepScopedExportQualityReport, BrepSewingClassificationOptions,
     BrepSewingEdgePair, BrepSewingOptions, BrepSewingProvenance, BrepSnapSewingOptions,
     BrepTopologyOutputPolicy, BrepTrimRepairOptions, EdgeHandle, FaceHandle, HalfEdgeHandle, Shell,
-    ShellHandle, Solid, analyze_brep_export_quality, analyze_scoped_brep_export_quality,
-    build_brep_repair_action_artifact, edge_segment, repair_brep_boundary_edges_transactionally,
+    ShellHandle, Solid, analyze_brep_export_quality_with_pcurve_fidelity,
+    analyze_scoped_brep_export_quality, build_brep_repair_action_artifact, edge_segment,
+    repair_brep_boundary_edges_transactionally,
 };
 
 #[derive(Debug, Clone)]
@@ -50,6 +53,8 @@ pub struct PolyhedralBoundaryWeldReport {
     pub scope: PolyhedralBoundaryWeldScope,
     /// Edge-local export-quality diagnostics over the pre-repair weld scope.
     pub pre_repair_scoped_quality: BrepScopedExportQualityReport,
+    /// Edge-local export-quality diagnostics over repaired topology touched by repair stages.
+    pub post_repair_scoped_quality: BrepScopedExportQualityReport,
     pub timing: PolyhedralBoundaryWeldTiming,
 }
 
@@ -190,7 +195,21 @@ pub fn weld_clean_surface_complex_boundaries(
             })
             .count()
     });
-    let export_quality = analyze_brep_export_quality(&result.brep, export_quality_options(options));
+    let post_repair_scope =
+        build_post_repair_weld_quality_scope(&result.brep, &candidates, &result.report);
+    let post_repair_scoped_quality = analyze_scoped_brep_export_quality(
+        &result.brep,
+        &post_repair_scope,
+        export_quality_options(options),
+    );
+    let export_quality = analyze_brep_export_quality_with_pcurve_fidelity(
+        &result.brep,
+        export_quality_options(options),
+        (
+            post_repair_scoped_quality.pcurve_blockers,
+            post_repair_scoped_quality.max_pcurve_deviation,
+        ),
+    );
     let quality_at = Instant::now();
     let export_blockers = export_quality.topology_blockers
         + export_quality.trim_blockers
@@ -231,6 +250,7 @@ pub fn weld_clean_surface_complex_boundaries(
         trim_blockers: export_quality.trim_blockers,
         scope,
         pre_repair_scoped_quality,
+        post_repair_scoped_quality,
         timing: PolyhedralBoundaryWeldTiming {
             assemble_ms: elapsed_ms(assembled_at.duration_since(started_at)),
             candidate_match_ms: elapsed_ms(candidates_at.duration_since(assembled_at)),

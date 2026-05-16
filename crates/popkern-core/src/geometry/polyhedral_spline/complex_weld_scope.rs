@@ -1,8 +1,9 @@
 use std::collections::{BTreeSet, HashMap};
 
 use crate::topology::{
-    BRep, BrepExportQualityScope, BrepSewingEdgePair, EdgeHandle, FaceHandle, HalfEdgeHandle,
-    LoopHandle, VertexHandle,
+    BRep, BrepCurveTrimReconstructionOutcome, BrepEdgeCurveCompletionOutcome,
+    BrepExportQualityScope, BrepRepairPipelineReport, BrepSewingEdgePair, EdgeHandle, FaceHandle,
+    HalfEdgeHandle, LoopHandle, VertexHandle,
 };
 
 /// Pre-repair topology scope affected by PnS boundary welding candidates.
@@ -52,6 +53,46 @@ pub(super) fn build_boundary_weld_scope(
     scope
 }
 
+pub(super) fn build_post_repair_weld_quality_scope(
+    brep: &BRep,
+    candidates: &[BrepSewingEdgePair],
+    report: &BrepRepairPipelineReport,
+) -> BrepExportQualityScope {
+    let mut scope = PolyhedralBoundaryWeldScope::default();
+    for candidate in candidates {
+        push_edge_scope_if_present(brep, candidate.first, &mut scope);
+        push_edge_scope_if_present(brep, candidate.second, &mut scope);
+    }
+    if let Some(completion) = &report.edge_curve_completion {
+        for decision in &completion.decisions {
+            if matches!(
+                decision.outcome,
+                BrepEdgeCurveCompletionOutcome::CompletedFromSurfaceTrims
+                    | BrepEdgeCurveCompletionOutcome::CompletedFromVertices
+            ) {
+                push_edge_scope_if_present(brep, decision.edge, &mut scope);
+            }
+        }
+    }
+    if let Some(reconstruction) = &report.curve_trim_reconstruction {
+        for decision in &reconstruction.decisions {
+            if matches!(
+                decision.outcome,
+                BrepCurveTrimReconstructionOutcome::Reconstructed { .. }
+            ) {
+                push_half_edge_scope(brep, decision.half_edge, &mut scope);
+            }
+        }
+    }
+    if let Some(trim_repair) = &report.trim_repair {
+        for finding in &trim_repair.before.findings {
+            push_half_edge_scope(brep, finding.half_edge, &mut scope);
+        }
+    }
+    sort_scope_handles(&mut scope);
+    scope.export_quality_scope()
+}
+
 fn push_edge_scope(brep: &BRep, edge: EdgeHandle, scope: &mut PolyhedralBoundaryWeldScope) {
     push_unique(&mut scope.edges, edge);
     let Some(edge_data) = brep.edges.get(edge) else {
@@ -60,6 +101,16 @@ fn push_edge_scope(brep: &BRep, edge: EdgeHandle, scope: &mut PolyhedralBoundary
     push_half_edge_scope(brep, edge_data.half_edge, scope);
     if let Some(half_edge) = brep.half_edges.get(edge_data.half_edge) {
         push_half_edge_scope(brep, half_edge.twin, scope);
+    }
+}
+
+fn push_edge_scope_if_present(
+    brep: &BRep,
+    edge: EdgeHandle,
+    scope: &mut PolyhedralBoundaryWeldScope,
+) {
+    if brep.edges.contains_key(edge) {
+        push_edge_scope(brep, edge, scope);
     }
 }
 

@@ -179,6 +179,16 @@ pub fn analyze_brep_export_quality(
     brep: &BRep,
     options: BrepExportQualityOptions,
 ) -> BrepExportQualityReport {
+    let pcurve_fidelity = pcurve_fidelity_blockers(brep, options.max_pcurve_deviation);
+    analyze_brep_export_quality_with_pcurve_fidelity(brep, options, pcurve_fidelity)
+}
+
+/// Analyze export quality using a caller-supplied pcurve-fidelity summary.
+pub fn analyze_brep_export_quality_with_pcurve_fidelity(
+    brep: &BRep,
+    options: BrepExportQualityOptions,
+    pcurve_fidelity: (usize, f64),
+) -> BrepExportQualityReport {
     let loop_shell = analyze_brep_loop_shell_validity(brep);
     let trims = analyze_brep_trims(brep, options.trim);
     let missing_edge_curves = brep
@@ -203,8 +213,7 @@ pub fn analyze_brep_export_quality(
     } else {
         0
     };
-    let (pcurve_blockers, max_pcurve_deviation) =
-        pcurve_fidelity_blockers(brep, options.max_pcurve_deviation);
+    let (pcurve_blockers, max_pcurve_deviation) = pcurve_fidelity;
     let (edge_surface_blockers, max_edge_surface_deviation) =
         edge_surface_fidelity_blockers(brep, options.max_edge_surface_deviation, options.trim);
     let authority = export_authority_summary(brep, options.trim);

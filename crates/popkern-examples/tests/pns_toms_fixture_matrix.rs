@@ -240,6 +240,18 @@ fn assert_weld_scope_covers_candidates(
         report.pre_repair_scoped_quality.pcurve_blockers <= report.pre_repair_scoped_quality.edges,
         "{label} scoped pcurve blockers cannot exceed scoped edges"
     );
+    assert!(
+        report.post_repair_scoped_quality.edges > 0,
+        "{label} post-repair scoped quality should retain touched repaired edges"
+    );
+    assert_eq!(
+        report.post_repair_scoped_quality.unavailable_edges, 0,
+        "{label} post-repair scoped quality should not include deleted sewn edges"
+    );
+    assert_eq!(
+        report.post_repair_scoped_quality.pcurve_blockers, 0,
+        "{label} post-repair scoped pcurve blockers"
+    );
 }
 
 fn assert_weld_timing_is_recorded(
