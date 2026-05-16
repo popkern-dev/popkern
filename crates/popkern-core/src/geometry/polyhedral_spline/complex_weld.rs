@@ -321,7 +321,7 @@ fn pipeline_options(options: PolyhedralCoverageOptions) -> BrepRepairPipelineOpt
         },
         require_all_pairs_repaired: true,
         complete_edge_curves: true,
-        reconstruct_curve_trims: true,
+        reconstruct_curve_trims: false,
         repair_edge_surfaces: false,
         repair_trims: true,
         diagnose_loop_shell: true,
