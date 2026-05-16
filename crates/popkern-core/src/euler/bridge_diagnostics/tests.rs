@@ -52,6 +52,29 @@ fn empty_bridge_diagnostic_report_is_deterministic() {
 }
 
 #[test]
+fn migration_matrix_bridge_diagnostic_contract() {
+    let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
+    let report = brep
+        .bridge_diagnostic_report(BridgeDiagnosticRequest { operations: vec![] })
+        .expect("empty report builds");
+
+    assert_eq!(report.graph.resources.len(), 0);
+    assert_eq!(report.graph.operations.len(), 0);
+    assert_eq!(report.graph.conflicts.len(), 0);
+    assert_eq!(report.graph.readiness.len(), 0);
+    assert_eq!(report.graph.candidates.len(), 0);
+    assert_eq!(report.graph.postconditions.len(), 0);
+    assert_eq!(report.summary.operations, 0);
+    assert_eq!(report.summary.resources, 0);
+    assert!(
+        report
+            .summary
+            .diagnostic_label()
+            .starts_with("bridge_diagnostics=operations=0 resources=0 conflicts=0 readiness=0")
+    );
+}
+
+#[test]
 fn bridge_diagnostic_fingerprint_tracks_scoped_request_membership() {
     let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
     let loop_ = brep.loops.keys().next().expect("cube has a loop");

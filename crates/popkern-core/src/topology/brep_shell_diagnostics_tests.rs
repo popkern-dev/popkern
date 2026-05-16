@@ -32,6 +32,25 @@ fn diagnostics_reports_open_box_boundary_cycle() {
 }
 
 #[test]
+fn migration_matrix_loop_shell_report_contract() {
+    let brep = BRep::open_box(Tolerance::default()).unwrap();
+    let report = analyze_brep_loop_shell_validity(&brep);
+
+    assert!(report.has_no_errors());
+    assert_eq!(report.shells, 1);
+    assert_eq!(report.face_components, 1);
+    assert_eq!(report.boundary_edges, 4);
+    assert_eq!(report.boundary_cycles, 1);
+    assert_eq!(report.boundary_chains, 0);
+    assert!(
+        report
+            .findings
+            .iter()
+            .all(|finding| { finding.severity != BrepTopologyDiagnosticSeverity::Error })
+    );
+}
+
+#[test]
 fn diagnostics_reports_fragmented_shell_components() {
     let brep = two_square_fragmented_shell();
     let report = analyze_brep_loop_shell_validity(&brep);

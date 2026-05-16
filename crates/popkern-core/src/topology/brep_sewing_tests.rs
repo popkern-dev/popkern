@@ -162,6 +162,29 @@ fn sewing_clean_non_pns_boundary_pair_is_transactional() {
 }
 
 #[test]
+fn migration_matrix_sewing_report_contract() {
+    let (brep, left_edge, right_edge) = two_square_sheet();
+    let result = sew_clean_boundary_edge_pairs(
+        &brep,
+        &[BrepSewingEdgePair {
+            first: left_edge,
+            second: right_edge,
+            provenance: provenance(),
+        }],
+        options(),
+    )
+    .unwrap();
+
+    assert_eq!(brep.boundary_edges.len(), 8, "input BRep is untouched");
+    assert_eq!(result.report.candidate_pairs, 1);
+    assert_eq!(result.report.accepted_pairs, 1);
+    assert_eq!(result.report.declined_pairs.len(), 0);
+    assert_eq!(result.report.remaining_boundary_edges, 6);
+    assert_eq!(result.report.max_endpoint_gap, 0.0);
+    assert_eq!(result.report.max_surface_gap, 0.0);
+}
+
+#[test]
 fn policy_accepts_clean_boundary_pair_before_geometry_checks() {
     let (brep, left_edge, right_edge) = two_square_sheet();
     let used_edges = HashSet::new();

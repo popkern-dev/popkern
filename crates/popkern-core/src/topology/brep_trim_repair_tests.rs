@@ -25,6 +25,27 @@ fn trim_diagnostics_accept_clean_cube() {
 }
 
 #[test]
+fn migration_matrix_trim_report_contract() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let face = brep.faces.keys().next().unwrap();
+    let half_edges = face_half_edges_for_test(&brep, face);
+
+    let clean = analyze_brep_trims(&brep, options());
+    assert_eq!(clean.missing_pcurves, 0);
+    assert_eq!(clean.stale_endpoint_pcurves, 0);
+    assert_eq!(clean.sampled_mismatches, 0);
+
+    brep.half_edges[half_edges[0]].pcurve = None;
+    let missing = analyze_brep_trims(&brep, options());
+    assert_eq!(missing.missing_pcurves, 1);
+
+    corrupt_pcurve(&mut brep, half_edges[1]);
+    let stale = analyze_brep_trims(&brep, options());
+    assert!(stale.stale_endpoint_pcurves > 0);
+    assert!(stale.max_endpoint_deviation > 1.0);
+}
+
+#[test]
 fn trim_repair_fills_missing_pcurves_transactionally() {
     let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let face = brep.faces.keys().next().unwrap();

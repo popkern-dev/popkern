@@ -118,6 +118,10 @@ mod construct_test_helpers;
 #[path = "repeated_apex_side_support_exact_tests.rs"]
 mod repeated_apex_side_support_exact_tests;
 
+#[cfg(test)]
+#[path = "repeated_apex_migration_parity_tests.rs"]
+mod repeated_apex_migration_parity_tests;
+
 pub use cap_kind::CapKind;
 pub use construct::{construct_apex, construct_apex_with_surfaces};
 pub use construct_result::ApexBuildResult;
