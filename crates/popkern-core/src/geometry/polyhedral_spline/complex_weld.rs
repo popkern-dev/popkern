@@ -15,9 +15,9 @@ use crate::topology::{
     BrepRepairPipelineOptions, BrepScopedExportQualityReport, BrepSewingClassificationOptions,
     BrepSewingEdgePair, BrepSewingOptions, BrepSewingProvenance, BrepSnapSewingOptions,
     BrepTopologyOutputPolicy, BrepTrimRepairOptions, EdgeHandle, FaceHandle, HalfEdgeHandle, Shell,
-    ShellHandle, Solid, analyze_brep_export_quality_with_pcurve_fidelity,
-    analyze_scoped_brep_export_quality, build_brep_repair_action_artifact, edge_segment,
-    repair_brep_boundary_edges_transactionally,
+    ShellHandle, Solid, analyze_brep_export_quality_with_local_diagnostics,
+    analyze_scoped_brep_export_quality, analyze_scoped_brep_trims,
+    build_brep_repair_action_artifact, edge_segment, repair_brep_boundary_edges_transactionally,
 };
 
 #[derive(Debug, Clone)]
@@ -202,9 +202,15 @@ pub fn weld_clean_surface_complex_boundaries(
         &post_repair_scope,
         export_quality_options(options),
     );
-    let export_quality = analyze_brep_export_quality_with_pcurve_fidelity(
+    let scoped_trims = analyze_scoped_brep_trims(
+        &result.brep,
+        &post_repair_scope.half_edges,
+        trim_options(options),
+    );
+    let export_quality = analyze_brep_export_quality_with_local_diagnostics(
         &result.brep,
         export_quality_options(options),
+        scoped_trims,
         (
             post_repair_scoped_quality.pcurve_blockers,
             post_repair_scoped_quality.max_pcurve_deviation,

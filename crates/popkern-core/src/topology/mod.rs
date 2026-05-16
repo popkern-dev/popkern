@@ -225,6 +225,7 @@ pub use brep_export_quality::{
     BrepBoundaryEdgeArtifact, BrepExportBlockerSummary, BrepExportQualityArtifact,
     BrepExportQualityOptions, BrepExportQualityReport, BrepExportQualitySummary,
     BrepExportReadiness, analyze_brep_export_quality,
+    analyze_brep_export_quality_with_local_diagnostics,
     analyze_brep_export_quality_with_pcurve_fidelity, build_brep_export_quality_artifact,
 };
 pub use brep_export_quality_scope::{
@@ -245,5 +246,5 @@ pub mod brep_trim_repair;
 pub use brep_trim_repair::{
     BrepTrimDiagnosticReport, BrepTrimFinding, BrepTrimFindingKind, BrepTrimRepairFailure,
     BrepTrimRepairFailureReason, BrepTrimRepairOptions, BrepTrimRepairReport, BrepTrimRepairResult,
-    analyze_brep_trims, repair_brep_trims_transactionally,
+    analyze_brep_trims, analyze_scoped_brep_trims, repair_brep_trims_transactionally,
 };

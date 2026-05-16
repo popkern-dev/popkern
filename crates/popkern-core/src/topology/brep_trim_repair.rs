@@ -124,21 +124,43 @@ pub fn analyze_brep_trims(brep: &BRep, options: BrepTrimRepairOptions) -> BrepTr
     analyze_brep_trims_with_knowledge(brep, options, &knowledge)
 }
 
+/// Analyze pcurves only on caller-supplied half-edges.
+pub fn analyze_scoped_brep_trims(
+    brep: &BRep,
+    half_edges: &[HalfEdgeHandle],
+    options: BrepTrimRepairOptions,
+) -> BrepTrimDiagnosticReport {
+    let knowledge = scoped_trim_repair_knowledge(brep, half_edges, options);
+    let mut report = empty_trim_diagnostic_report();
+    let mut inspected = Vec::new();
+    for &half_edge in half_edges {
+        if inspected.contains(&half_edge) {
+            continue;
+        }
+        inspected.push(half_edge);
+        let Some(face) = face_for_half_edge(brep, half_edge) else {
+            continue;
+        };
+        if brep
+            .faces
+            .get(face)
+            .is_none_or(|face_data| face_data.surface.is_none())
+        {
+            continue;
+        }
+        report.inspected_half_edges += 1;
+        inspect_half_edge_trim(brep, face, half_edge, options, &knowledge, &mut report);
+    }
+    report.shared_fact_ids = shared_fact_ids_from_findings(&report.findings);
+    report
+}
+
 fn analyze_brep_trims_with_knowledge(
     brep: &BRep,
     options: BrepTrimRepairOptions,
     knowledge: &BrepRepairKnowledgeGraph,
 ) -> BrepTrimDiagnosticReport {
-    let mut report = BrepTrimDiagnosticReport {
-        inspected_half_edges: 0,
-        missing_pcurves: 0,
-        stale_endpoint_pcurves: 0,
-        sampled_mismatches: 0,
-        max_endpoint_deviation: 0.0,
-        max_sampled_deviation: 0.0,
-        findings: Vec::new(),
-        shared_fact_ids: Vec::new(),
-    };
+    let mut report = empty_trim_diagnostic_report();
 
     for (face_handle, face) in &brep.faces {
         if face.surface.is_none() {
@@ -158,6 +180,19 @@ fn analyze_brep_trims_with_knowledge(
     }
     report.shared_fact_ids = shared_fact_ids_from_findings(&report.findings);
     report
+}
+
+fn empty_trim_diagnostic_report() -> BrepTrimDiagnosticReport {
+    BrepTrimDiagnosticReport {
+        inspected_half_edges: 0,
+        missing_pcurves: 0,
+        stale_endpoint_pcurves: 0,
+        sampled_mismatches: 0,
+        max_endpoint_deviation: 0.0,
+        max_sampled_deviation: 0.0,
+        findings: Vec::new(),
+        shared_fact_ids: Vec::new(),
+    }
 }
 
 /// Repair missing or stale pcurves on a cloned BRep.
@@ -313,6 +348,12 @@ fn face_half_edges(brep: &BRep, face: FaceHandle) -> Vec<HalfEdgeHandle> {
     out
 }
 
+fn face_for_half_edge(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<FaceHandle> {
+    let half_edge_data = brep.half_edges.get(half_edge)?;
+    let loop_data = brep.loops.get(half_edge_data.loop_)?;
+    Some(loop_data.face)
+}
+
 fn trim_endpoint_deviation(
     brep: &BRep,
     face: FaceHandle,
@@ -367,6 +408,30 @@ fn trim_repair_knowledge(brep: &BRep, options: BrepTrimRepairOptions) -> BrepRep
             .map(BrepRepairScopeSeed::Face)
             .collect::<Vec<_>>(),
     );
+    scope.expansion = BrepRepairScopeExpansion::AdjacentFaces;
+    BrepRepairKnowledgeGraph::build_with_local_tolerance(
+        brep,
+        scope,
+        options.endpoint_tolerance,
+        LocalToleranceSource::RepairPolicy,
+        options.samples,
+    )
+}
+
+fn scoped_trim_repair_knowledge(
+    brep: &BRep,
+    half_edges: &[HalfEdgeHandle],
+    options: BrepTrimRepairOptions,
+) -> BrepRepairKnowledgeGraph {
+    let mut seeds = Vec::new();
+    for &half_edge in half_edges {
+        if let Some(face) = face_for_half_edge(brep, half_edge)
+            && !seeds.contains(&BrepRepairScopeSeed::Face(face))
+        {
+            seeds.push(BrepRepairScopeSeed::Face(face));
+        }
+    }
+    let mut scope = BrepRepairKnowledgeScope::seeds_only(seeds);
     scope.expansion = BrepRepairScopeExpansion::AdjacentFaces;
     BrepRepairKnowledgeGraph::build_with_local_tolerance(
         brep,

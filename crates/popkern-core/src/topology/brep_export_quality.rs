@@ -189,8 +189,18 @@ pub fn analyze_brep_export_quality_with_pcurve_fidelity(
     options: BrepExportQualityOptions,
     pcurve_fidelity: (usize, f64),
 ) -> BrepExportQualityReport {
-    let loop_shell = analyze_brep_loop_shell_validity(brep);
     let trims = analyze_brep_trims(brep, options.trim);
+    analyze_brep_export_quality_with_local_diagnostics(brep, options, trims, pcurve_fidelity)
+}
+
+/// Analyze export quality using caller-supplied local trim and pcurve diagnostics.
+pub fn analyze_brep_export_quality_with_local_diagnostics(
+    brep: &BRep,
+    options: BrepExportQualityOptions,
+    trims: BrepTrimDiagnosticReport,
+    pcurve_fidelity: (usize, f64),
+) -> BrepExportQualityReport {
+    let loop_shell = analyze_brep_loop_shell_validity(brep);
     let missing_edge_curves = brep
         .edges
         .iter()
