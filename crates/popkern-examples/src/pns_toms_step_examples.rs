@@ -6,8 +6,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use popkern_core::geometry::polyhedral_spline::{
-    ControlNet, PolyhedralCoverageOptions, analyze_surface_complex_sewing,
-    build_control_net_surface_complex, weld_clean_surface_complex_boundaries,
+    ControlNet, PolyhedralBoundaryWeldTiming, PolyhedralCoverageOptions,
+    analyze_surface_complex_sewing, build_control_net_surface_complex,
+    weld_clean_surface_complex_boundaries,
 };
 use popkern_core::topology::{
     BRep, BrepExportQualityOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
@@ -72,6 +73,7 @@ struct FixtureReport {
     welded_topology_errors: usize,
     welded_missing_edge_curves: usize,
     welded_trim_blockers: usize,
+    welded_timing: PolyhedralBoundaryWeldTiming,
     welded_bytes: Option<u64>,
     welded_path: Option<PathBuf>,
     welded_quality_path: Option<PathBuf>,
@@ -367,6 +369,7 @@ fn export_fixture(fixture: &Fixture, output_dir: &Path) -> Result<FixtureReport,
         welded_topology_errors: welded.report.topology_errors,
         welded_missing_edge_curves: welded.report.missing_edge_curves,
         welded_trim_blockers: welded.report.trim_blockers,
+        welded_timing: welded.report.timing,
         welded_bytes,
         welded_path,
         welded_quality_path,

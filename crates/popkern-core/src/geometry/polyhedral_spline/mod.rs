@@ -75,7 +75,7 @@ pub use complex::{
     build_control_net_surface_complex,
 };
 pub use complex_weld::{
-    PolyhedralBoundaryWeldReport, PolyhedralWeldedSurfaceComplex,
+    PolyhedralBoundaryWeldReport, PolyhedralBoundaryWeldTiming, PolyhedralWeldedSurfaceComplex,
     weld_clean_surface_complex_boundaries,
 };
 pub use coverage::{

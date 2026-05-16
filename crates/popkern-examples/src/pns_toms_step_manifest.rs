@@ -86,6 +86,14 @@ fn success_payload(success: &FixtureSuccess<'_>) -> serde_json::Value {
             "topology_errors": report.welded_topology_errors,
             "missing_edge_curves": report.welded_missing_edge_curves,
             "trim_blockers": report.welded_trim_blockers,
+            "timing_ms": {
+                "assemble": report.welded_timing.assemble_ms,
+                "candidate_match": report.welded_timing.candidate_match_ms,
+                "repair_pipeline": report.welded_timing.repair_pipeline_ms,
+                "export_quality": report.welded_timing.export_quality_ms,
+                "repair_artifact": report.welded_timing.repair_artifact_ms,
+                "total": report.welded_timing.total_ms,
+            },
         },
     })
 }

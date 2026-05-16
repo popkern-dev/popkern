@@ -1,6 +1,6 @@
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
-use popkern_core::geometry::pcurve::Pcurve;
+use popkern_core::geometry::pcurve::{Pcurve, PcurveGeometry};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceOnFace};
 use popkern_core::tolerance::Tolerance;
 
@@ -49,8 +49,7 @@ fn align_pcurve_candidate(
 ) -> (Pcurve, f64) {
     let (curve_start, curve_end) = curve_endpoints_for_half_edge(curve, edge_forward);
     let direct = pcurve.clone();
-    let mut reversed = pcurve;
-    std::mem::swap(&mut reversed.t_start, &mut reversed.t_end);
+    let reversed = reverse_pcurve_candidate(pcurve);
     let _ = tolerance;
 
     let (_, direct_gap) = pcurve_endpoint_gap(&direct, surface, curve_start, curve_end);
@@ -61,6 +60,27 @@ fn align_pcurve_candidate(
     } else {
         (direct, direct_gap)
     }
+}
+
+fn reverse_pcurve_candidate(mut pcurve: Pcurve) -> Pcurve {
+    match &mut pcurve.geometry {
+        PcurveGeometry::Linear { start, end } => {
+            std::mem::swap(start, end);
+        }
+        PcurveGeometry::Elliptical {
+            start_angle,
+            end_angle,
+            ..
+        } => {
+            std::mem::swap(start_angle, end_angle);
+        }
+        PcurveGeometry::Sinusoidal { .. }
+        | PcurveGeometry::Nurbs(_)
+        | PcurveGeometry::CylinderArcViaRationalQuad { .. } => {
+            std::mem::swap(&mut pcurve.t_start, &mut pcurve.t_end);
+        }
+    }
+    pcurve
 }
 
 fn curve_endpoints_for_half_edge(

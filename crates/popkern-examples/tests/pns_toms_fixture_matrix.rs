@@ -12,7 +12,7 @@ struct FixtureExpectation {
     patches: usize,
 }
 
-const FIXTURES: &[FixtureExpectation] = &[
+const SMOKE_FIXTURES: &[FixtureExpectation] = &[
     FixtureExpectation {
         name: "t0",
         obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/T0.obj"),
@@ -46,6 +46,17 @@ const FIXTURES: &[FixtureExpectation] = &[
         patches: 64,
     },
     FixtureExpectation {
+        name: "cylinder_partial",
+        obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/cylinder.obj"),
+        candidates: 20,
+        accepted: 19,
+        rejected: 1,
+        patches: 24,
+    },
+];
+
+const HEAVY_FIXTURES: &[FixtureExpectation] = &[
+    FixtureExpectation {
         name: "suzanne",
         obj: include_str!(
             "../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/suzanne_all_configurations.obj"
@@ -54,14 +65,6 @@ const FIXTURES: &[FixtureExpectation] = &[
         accepted: 471,
         rejected: 0,
         patches: 844,
-    },
-    FixtureExpectation {
-        name: "cylinder_partial",
-        obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/cylinder.obj"),
-        candidates: 20,
-        accepted: 19,
-        rejected: 1,
-        patches: 24,
     },
     FixtureExpectation {
         name: "hand_partial",
@@ -83,8 +86,18 @@ const FIXTURES: &[FixtureExpectation] = &[
 
 #[test]
 fn pns_toms_fixture_matrix_matches_expected_coverage() {
+    assert_fixture_matrix(SMOKE_FIXTURES);
+}
+
+#[test]
+#[ignore = "heavy PnS full-fixture matrix; run explicitly for nightly/performance validation"]
+fn pns_toms_heavy_fixture_matrix_matches_expected_coverage() {
+    assert_fixture_matrix(HEAVY_FIXTURES);
+}
+
+fn assert_fixture_matrix(fixtures: &[FixtureExpectation]) {
     let options = PolyhedralCoverageOptions::default();
-    for fixture in FIXTURES {
+    for fixture in fixtures {
         let net = ControlNet::from_obj_str(fixture.obj).unwrap();
         let complex = build_control_net_surface_complex(&net, options).unwrap();
         assert_eq!(
@@ -128,6 +141,7 @@ fn pns_toms_fixture_matrix_matches_expected_coverage() {
                 welded.repair_actions.summary.attempted_actions,
                 "tee repair artifact action count"
             );
+            assert_weld_timing_is_recorded("tee", &welded.report);
             assert_repair_artifact_writes_json("tee_welded", &welded.repair_actions);
             assert!(
                 welded.report.expected_open_sheet_boundaries,
@@ -150,6 +164,7 @@ fn pns_toms_fixture_matrix_matches_expected_coverage() {
                 welded.report.edge_curve_repairs, 16,
                 "suzanne completed missing edge curves"
             );
+            assert_weld_timing_is_recorded("suzanne", &welded.report);
             assert_eq!(
                 welded.report.missing_edge_curves, 0,
                 "suzanne missing edge curves"
@@ -163,6 +178,7 @@ fn pns_toms_fixture_matrix_matches_expected_coverage() {
                 "cylinder collapsed-trim export readiness"
             );
             assert_eq!(welded.report.export_blockers, 0, "cylinder blockers");
+            assert_weld_timing_is_recorded("cylinder", &welded.report);
             assert_eq!(
                 welded.report.missing_edge_curves, 4,
                 "cylinder remaining missing edge curves"
@@ -181,6 +197,21 @@ fn pns_toms_fixture_matrix_matches_expected_coverage() {
             );
         }
     }
+}
+
+fn assert_weld_timing_is_recorded(
+    label: &str,
+    report: &popkern_core::geometry::polyhedral_spline::PolyhedralBoundaryWeldReport,
+) {
+    assert!(
+        report.timing.total_ms
+            >= report.timing.repair_pipeline_ms + report.timing.export_quality_ms,
+        "{label} weld timing must include repair and export-quality stages"
+    );
+    assert!(
+        report.timing.repair_pipeline_ms > 0 || report.timing.export_quality_ms > 0,
+        "{label} weld timing should expose nonzero expensive stages"
+    );
 }
 
 fn assert_repair_artifact_writes_json(

@@ -11,11 +11,22 @@ struct Fixture {
     obj: &'static str,
 }
 
-const FIXTURES: &[Fixture] = &[
+const SMOKE_FIXTURES: &[Fixture] = &[
     Fixture {
         stem: "t0",
         obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/T0.obj"),
     },
+    Fixture {
+        stem: "tee",
+        obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/tee.obj"),
+    },
+    Fixture {
+        stem: "cube",
+        obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/cube.obj"),
+    },
+];
+
+const HEAVY_FIXTURES: &[Fixture] = &[
     Fixture {
         stem: "t1",
         obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/T1.obj"),
@@ -37,16 +48,8 @@ const FIXTURES: &[Fixture] = &[
         obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/ngon5.obj"),
     },
     Fixture {
-        stem: "tee",
-        obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/tee.obj"),
-    },
-    Fixture {
         stem: "t012",
         obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/T012.obj"),
-    },
-    Fixture {
-        stem: "cube",
-        obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/cube.obj"),
     },
     Fixture {
         stem: "suzanne_all_configurations",
@@ -70,9 +73,19 @@ const FIXTURES: &[Fixture] = &[
 
 #[test]
 fn pns_toms_step_outputs_round_trip_through_generic_import() {
+    run_roundtrip_fixtures(SMOKE_FIXTURES);
+}
+
+#[test]
+#[ignore = "heavy PnS full-fixture STEP roundtrip; run explicitly for nightly/performance validation"]
+fn pns_toms_heavy_step_outputs_round_trip_through_generic_import() {
+    run_roundtrip_fixtures(HEAVY_FIXTURES);
+}
+
+fn run_roundtrip_fixtures(fixtures: &[Fixture]) {
     let options = PolyhedralCoverageOptions::default();
     let validation = StepRoundTripValidationOptions::default();
-    for fixture in FIXTURES {
+    for fixture in fixtures {
         let net = ControlNet::from_obj_str(fixture.obj).unwrap();
         let complex = build_control_net_surface_complex(&net, options).unwrap();
         let breps: Vec<_> = complex
