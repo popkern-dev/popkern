@@ -89,12 +89,14 @@ impl TrimEndpointCandidate {
         candidate_diagnostic(
             edge,
             Some(half_edge),
-            BrepEdgeSurfaceVertexCandidateSource::TrimEndpoint,
-            self.outcome,
-            self.point,
-            self.anchor_motion,
-            0.0,
-            shared_fact_ids,
+            CandidateDiagnosticInput {
+                source: BrepEdgeSurfaceVertexCandidateSource::TrimEndpoint,
+                outcome: self.outcome,
+                point: self.point,
+                anchor_motion: self.anchor_motion,
+                side_disagreement: 0.0,
+                shared_fact_ids,
+            },
         )
     }
 }
@@ -151,12 +153,14 @@ pub(super) fn proposed_vertex_position_for_edge(
     diagnostics.push(candidate_diagnostic(
         edge,
         None,
-        BrepEdgeSurfaceVertexCandidateSource::SurfaceIntersection,
-        BrepEdgeSurfaceVertexCandidateOutcome::SourceUnavailable,
-        None,
-        0.0,
-        0.0,
-        Vec::new(),
+        CandidateDiagnosticInput {
+            source: BrepEdgeSurfaceVertexCandidateSource::SurfaceIntersection,
+            outcome: BrepEdgeSurfaceVertexCandidateOutcome::SourceUnavailable,
+            point: None,
+            anchor_motion: 0.0,
+            side_disagreement: 0.0,
+            shared_fact_ids: Vec::new(),
+        },
     ));
     let boundary = boundary_vertex_position_for_edge(
         brep,
@@ -196,12 +200,14 @@ fn boundary_vertex_position_for_edge(
             diagnostics.push(candidate_diagnostic(
                 edge,
                 Some(half_edge),
-                BrepEdgeSurfaceVertexCandidateSource::SurfaceBoundary,
-                BrepEdgeSurfaceVertexCandidateOutcome::Accepted,
-                Some(point),
-                point.distance_to(&current),
-                0.0,
-                surface_boundary_fact_ids,
+                CandidateDiagnosticInput {
+                    source: BrepEdgeSurfaceVertexCandidateSource::SurfaceBoundary,
+                    outcome: BrepEdgeSurfaceVertexCandidateOutcome::Accepted,
+                    point: Some(point),
+                    anchor_motion: point.distance_to(&current),
+                    side_disagreement: 0.0,
+                    shared_fact_ids: surface_boundary_fact_ids,
+                },
             ));
             side_candidates.push(vec![TrimEndpointCandidate {
                 point: Some(point),
@@ -213,12 +219,14 @@ fn boundary_vertex_position_for_edge(
         diagnostics.push(candidate_diagnostic(
             edge,
             Some(half_edge),
-            BrepEdgeSurfaceVertexCandidateSource::SurfaceBoundary,
-            BrepEdgeSurfaceVertexCandidateOutcome::SourceUnavailable,
-            None,
-            0.0,
-            0.0,
-            surface_boundary_fact_ids,
+            CandidateDiagnosticInput {
+                source: BrepEdgeSurfaceVertexCandidateSource::SurfaceBoundary,
+                outcome: BrepEdgeSurfaceVertexCandidateOutcome::SourceUnavailable,
+                point: None,
+                anchor_motion: 0.0,
+                side_disagreement: 0.0,
+                shared_fact_ids: surface_boundary_fact_ids,
+            },
         ));
         let trim_candidates =
             trim_endpoint_candidates_for_side(brep, half_edge, surface, current, options);
@@ -254,16 +262,18 @@ fn boundary_vertex_position_for_edge(
     diagnostics.push(candidate_diagnostic(
         edge,
         None,
-        BrepEdgeSurfaceVertexCandidateSource::SideAgreement,
-        if accepted {
-            BrepEdgeSurfaceVertexCandidateOutcome::Accepted
-        } else {
-            BrepEdgeSurfaceVertexCandidateOutcome::SideDisagreement
+        CandidateDiagnosticInput {
+            source: BrepEdgeSurfaceVertexCandidateSource::SideAgreement,
+            outcome: if accepted {
+                BrepEdgeSurfaceVertexCandidateOutcome::Accepted
+            } else {
+                BrepEdgeSurfaceVertexCandidateOutcome::SideDisagreement
+            },
+            point: accepted.then_some(centroid),
+            anchor_motion: centroid.distance_to(&current),
+            side_disagreement: max_spread,
+            shared_fact_ids: edge_surface_candidate_fact_ids(knowledge, &side_half_edges),
         },
-        accepted.then_some(centroid),
-        centroid.distance_to(&current),
-        max_spread,
-        edge_surface_candidate_fact_ids(knowledge, &side_half_edges),
     ));
     EdgeVertexCandidate {
         point: accepted.then_some(centroid),
@@ -418,12 +428,14 @@ fn accepted_candidate_diagnostic(
     candidate_diagnostic(
         edge,
         half_edge,
-        source,
-        BrepEdgeSurfaceVertexCandidateOutcome::Accepted,
-        Some(point),
-        motion,
-        0.0,
-        Vec::new(),
+        CandidateDiagnosticInput {
+            source,
+            outcome: BrepEdgeSurfaceVertexCandidateOutcome::Accepted,
+            point: Some(point),
+            anchor_motion: motion,
+            side_disagreement: 0.0,
+            shared_fact_ids: Vec::new(),
+        },
     )
 }
 
@@ -431,33 +443,39 @@ fn missing_topology_diagnostic(edge: EdgeHandle) -> BrepEdgeSurfaceVertexCandida
     candidate_diagnostic(
         edge,
         None,
-        BrepEdgeSurfaceVertexCandidateSource::SurfaceIntersection,
-        BrepEdgeSurfaceVertexCandidateOutcome::MissingTopology,
-        None,
-        0.0,
-        0.0,
-        Vec::new(),
+        CandidateDiagnosticInput {
+            source: BrepEdgeSurfaceVertexCandidateSource::SurfaceIntersection,
+            outcome: BrepEdgeSurfaceVertexCandidateOutcome::MissingTopology,
+            point: None,
+            anchor_motion: 0.0,
+            side_disagreement: 0.0,
+            shared_fact_ids: Vec::new(),
+        },
     )
 }
 
-fn candidate_diagnostic(
-    edge: EdgeHandle,
-    half_edge: Option<HalfEdgeHandle>,
+struct CandidateDiagnosticInput {
     source: BrepEdgeSurfaceVertexCandidateSource,
     outcome: BrepEdgeSurfaceVertexCandidateOutcome,
     point: Option<Point3>,
     anchor_motion: f64,
     side_disagreement: f64,
     shared_fact_ids: Vec<BrepRepairFactId>,
+}
+
+fn candidate_diagnostic(
+    edge: EdgeHandle,
+    half_edge: Option<HalfEdgeHandle>,
+    input: CandidateDiagnosticInput,
 ) -> BrepEdgeSurfaceVertexCandidateDiagnostic {
     BrepEdgeSurfaceVertexCandidateDiagnostic {
         edge,
         half_edge,
-        source,
-        outcome,
-        point,
-        anchor_motion,
-        side_disagreement,
-        shared_fact_ids,
+        source: input.source,
+        outcome: input.outcome,
+        point: input.point,
+        anchor_motion: input.anchor_motion,
+        side_disagreement: input.side_disagreement,
+        shared_fact_ids: input.shared_fact_ids,
     }
 }

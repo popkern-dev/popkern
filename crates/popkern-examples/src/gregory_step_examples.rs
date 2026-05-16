@@ -7,13 +7,15 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeOptions,
     BrepEdgeCurveCompletionOptions, BrepEdgeSurfaceCompatibilityOptions, BrepExportQualityOptions,
-    BrepRepairPipelineOptions, BrepRepairPipelineReport, BrepSewingClassificationOptions,
-    BrepSewingOptions, BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
-    analyze_brep_export_quality, build_brep_export_quality_artifact,
-    repair_brep_boundary_edges_transactionally,
+    BrepRepairDiagnosticExport, BrepRepairPipelineOptions, BrepRepairPipelineReport,
+    BrepSewingClassificationOptions, BrepSewingOptions, BrepSnapSewingOptions,
+    BrepTopologyOutputPolicy, BrepTrimRepairOptions, analyze_brep_export_quality,
+    build_brep_export_quality_artifact, repair_brep_boundary_edges_transactionally,
 };
 use popkern_examples::example_manifests::{ExampleRunManifestInput, write_example_run_manifest};
-use popkern_examples::repair_artifacts::write_repair_action_artifact;
+use popkern_examples::repair_artifacts::{
+    write_repair_action_artifact, write_whole_brep_repair_knowledge_artifact,
+};
 use popkern_fillet::{
     FilletOptions, FilletRadius, FilletSpec, build_blend_repair_action_artifact, fillet_edges,
 };
@@ -27,6 +29,7 @@ struct GregoryExampleReport {
     quality_path: PathBuf,
     repair_path: PathBuf,
     generic_repair_path: PathBuf,
+    generic_repair_knowledge_path: PathBuf,
     step_bytes: usize,
     validated_bodies: usize,
     faces: usize,
@@ -49,6 +52,10 @@ fn main() {
     println!("  quality {}", report.quality_path.display());
     println!("  repair {}", report.repair_path.display());
     println!("  generic repair {}", report.generic_repair_path.display());
+    println!(
+        "  repair knowledge {}",
+        report.generic_repair_knowledge_path.display()
+    );
     let manifest = write_manifest(&output_dir, &report).expect("write Gregory manifest");
     println!("manifest {}", manifest.display());
 }
@@ -74,12 +81,22 @@ fn export_mixed_radius_gregory_cube(output_dir: &Path) -> Result<GregoryExampleR
     write_repair_action_artifact(&repair_path, "mixed_radius_gregory_cube", &repair_artifact)?;
     let generic_repair_path = output_dir.join("mixed_radius_gregory_cube_generic_repair.json");
     write_generic_repair_artifact(&generic_repair_path, &generic_repair)?;
+    let generic_repair_knowledge_path =
+        output_dir.join("mixed_radius_gregory_cube_repair_knowledge.json");
+    write_whole_brep_repair_knowledge_artifact(
+        &generic_repair_knowledge_path,
+        "mixed_radius_gregory_cube",
+        &brep,
+        9,
+        BrepRepairDiagnosticExport::FullJson,
+    )?;
 
     Ok(GregoryExampleReport {
         step_path,
         quality_path,
         repair_path,
         generic_repair_path,
+        generic_repair_knowledge_path,
         step_bytes: bytes.len(),
         validated_bodies,
         faces: brep.faces.len(),
@@ -376,6 +393,7 @@ fn write_manifest(output_dir: &Path, report: &GregoryExampleReport) -> Result<Pa
                 "quality_artifact": report.quality_path.display().to_string(),
                 "repair_artifact": report.repair_path.display().to_string(),
                 "generic_repair_artifact": report.generic_repair_path.display().to_string(),
+                "generic_repair_knowledge_artifact": report.generic_repair_knowledge_path.display().to_string(),
                 "topology": {
                     "faces": report.faces,
                     "edges": report.edges,

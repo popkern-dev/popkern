@@ -13,16 +13,29 @@ use crate::topology::{
 };
 use std::collections::BTreeSet;
 
+pub(super) struct BrepRepairFactBuildInputs<'a> {
+    pub loops: &'a [crate::topology::BrepLoopFacts],
+    pub adjacencies: &'a [crate::topology::BrepLoopAdjacencyFacts],
+    pub endpoints: &'a [crate::topology::BrepEndpointMembershipFacts],
+    pub trim_agreements: &'a [crate::topology::BrepTrimEndpointAgreementFacts],
+    pub tolerance: f64,
+    pub tolerance_source: LocalToleranceSource,
+    pub samples: usize,
+}
+
 pub(super) fn build_fact_records(
     brep: &BRep,
-    loops: &[crate::topology::BrepLoopFacts],
-    adjacencies: &[crate::topology::BrepLoopAdjacencyFacts],
-    endpoints: &[crate::topology::BrepEndpointMembershipFacts],
-    trim_agreements: &[crate::topology::BrepTrimEndpointAgreementFacts],
-    tolerance: f64,
-    tolerance_source: LocalToleranceSource,
-    samples: usize,
+    inputs: BrepRepairFactBuildInputs<'_>,
 ) -> Vec<BrepRepairFact> {
+    let BrepRepairFactBuildInputs {
+        loops,
+        adjacencies,
+        endpoints,
+        trim_agreements,
+        tolerance,
+        tolerance_source,
+        samples,
+    } = inputs;
     let mut facts = Vec::new();
     push_loop_facts(&mut facts, loops);
     push_adjacency_facts(&mut facts, brep, adjacencies);
@@ -152,7 +165,7 @@ fn push_trim_facts(
                 BrepRepairTopologyHandle::HalfEdge(agreement.adjacent_half_edge),
             ],
             Some(agreement.diagnostic_label()),
-            evidence.clone(),
+            evidence,
         ));
         facts.extend(trim_authority_facts(
             facts.len(),

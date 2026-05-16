@@ -54,5 +54,9 @@ name = "gregory_step_examples"
 path = "src/gregory_step_examples.rs"
 
 [[bin]]
+name = "brep_repair_knowledge_artifact"
+path = "src/brep_repair_knowledge_artifact.rs"
+
+[[bin]]
 name = "fillet_zoo"
 path = "src/fillet_zoo.rs"

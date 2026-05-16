@@ -6,8 +6,11 @@
 
 mod helpers;
 
+use std::path::{Path, PathBuf};
+
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::BRep;
+use popkern_core::topology::{BRep, BrepRepairDiagnosticExport};
+use popkern_examples::repair_artifacts::write_whole_brep_repair_knowledge_artifact;
 use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 fn main() {
@@ -72,16 +75,40 @@ fn main() {
                 }
             }
             helpers::export(brep, "PnS Pentagon Apex", "pns_pentagon_apex.step");
+            write_apex_repair_knowledge(brep).expect("write apex repair knowledge artifact");
             helpers::try_render(brep, "pns_pentagon_apex.png");
             helpers::render_multi_angle(brep, "pns_pentagon_apex");
         }
         Err(e) => {
             eprintln!("  Fillet failed: {e}");
             helpers::export(&pyramid, "PnS Pentagon Apex", "pns_pentagon_apex.step");
+            write_apex_repair_knowledge(&pyramid).expect("write apex repair knowledge artifact");
             helpers::try_render(&pyramid, "pns_pentagon_apex.png");
             helpers::render_multi_angle(&pyramid, "pns_pentagon_apex");
         }
     }
 
     println!("=== Done ===");
+}
+
+fn write_apex_repair_knowledge(brep: &BRep) -> Result<(), String> {
+    let path = output_path("pns_pentagon_apex_repair_knowledge.json");
+    write_whole_brep_repair_knowledge_artifact(
+        &path,
+        "pns_pentagon_apex",
+        brep,
+        9,
+        BrepRepairDiagnosticExport::FullJson,
+    )
+}
+
+fn output_path(filename: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("examples")
+        .join("output")
+        .join(filename)
 }

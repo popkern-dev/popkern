@@ -184,22 +184,26 @@ pub(super) fn trim_authority_facts(
             &mut facts,
             start_id,
             brep,
-            half_edge,
-            state,
-            tolerance.clone(),
-            agreement.status,
-            trim_authority.clone(),
+            AuthorityFactInput {
+                half_edge,
+                state,
+                tolerance,
+                trim_status: agreement.status,
+                authority: trim_authority.clone(),
+            },
         );
         if let Some(source_authority) = trim_source_authority(brep, half_edge) {
             push_authority_fact(
                 &mut facts,
                 start_id,
                 brep,
-                half_edge,
-                BrepRepairFactState::Observed,
-                tolerance.clone(),
-                agreement.status,
-                source_authority,
+                AuthorityFactInput {
+                    half_edge,
+                    state: BrepRepairFactState::Observed,
+                    tolerance,
+                    trim_status: agreement.status,
+                    authority: source_authority,
+                },
             );
         }
         if let Some(stale_authority) = stale_pcurve_authority(brep, half_edge, tolerance, samples) {
@@ -207,11 +211,13 @@ pub(super) fn trim_authority_facts(
                 &mut facts,
                 start_id,
                 brep,
-                half_edge,
-                BrepRepairFactState::Stale,
-                tolerance.clone(),
-                agreement.status,
-                stale_authority,
+                AuthorityFactInput {
+                    half_edge,
+                    state: BrepRepairFactState::Stale,
+                    tolerance,
+                    trim_status: agreement.status,
+                    authority: stale_authority,
+                },
             );
         }
         if let Some(edge_authority) = edge_curve_authority(brep, half_edge) {
@@ -219,11 +225,13 @@ pub(super) fn trim_authority_facts(
                 &mut facts,
                 start_id,
                 brep,
-                half_edge,
-                BrepRepairFactState::Derived,
-                tolerance.clone(),
-                agreement.status,
-                edge_authority,
+                AuthorityFactInput {
+                    half_edge,
+                    state: BrepRepairFactState::Derived,
+                    tolerance,
+                    trim_status: agreement.status,
+                    authority: edge_authority,
+                },
             );
         }
     }
@@ -308,16 +316,21 @@ fn degenerate_edge_authority(
     }
 }
 
-fn push_authority_fact(
-    facts: &mut Vec<BrepRepairFact>,
-    start_id: usize,
-    brep: &BRep,
+struct AuthorityFactInput {
     half_edge: HalfEdgeHandle,
     state: BrepRepairFactState,
     tolerance: Option<LocalToleranceEvidence>,
     trim_status: BrepTrimEndpointAgreementStatus,
     authority: BrepRepairAuthorityFact,
+}
+
+fn push_authority_fact(
+    facts: &mut Vec<BrepRepairFact>,
+    start_id: usize,
+    brep: &BRep,
+    input: AuthorityFactInput,
 ) {
+    let half_edge = input.half_edge;
     let mut handles = vec![BrepRepairTopologyHandle::HalfEdge(half_edge)];
     if let Some(edge) = brep.half_edges.get(half_edge).map(|data| data.edge) {
         handles.push(BrepRepairTopologyHandle::Edge(edge));
@@ -325,14 +338,14 @@ fn push_authority_fact(
     facts.push(authority_fact(
         start_id + facts.len(),
         BrepRepairFactKind::Authority,
-        state,
+        input.state,
         handles,
         Some(format!(
             "authority {:?} kind={:?} reason={:?} trim_status={:?}",
-            half_edge, authority.kind, authority.reason, trim_status
+            half_edge, input.authority.kind, input.authority.reason, input.trim_status
         )),
-        tolerance,
-        Some(authority),
+        input.tolerance,
+        Some(input.authority),
     ));
 }
 

@@ -3,7 +3,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::topology::brep_repair_knowledge_diagnostics::build_diagnostic_records;
-use crate::topology::brep_repair_knowledge_fact_build::build_fact_records;
+use crate::topology::brep_repair_knowledge_fact_build::{
+    BrepRepairFactBuildInputs, build_fact_records,
+};
 use crate::topology::{
     BREP_REPAIR_KNOWLEDGE_SCHEMA_VERSION, BRep, BrepKnowledgeFingerprint, BrepRepairDiagnostic,
     BrepRepairFact, BrepRepairFactId, BrepRepairFactKind, BrepRepairKnowledgeGraph,
@@ -62,13 +64,15 @@ impl BrepRepairKnowledgeGraph {
 
         let facts = build_fact_records(
             brep,
-            &loops,
-            &loop_adjacencies,
-            &endpoint_memberships,
-            &trim_endpoint_agreements,
-            tolerance,
-            tolerance_source,
-            samples,
+            BrepRepairFactBuildInputs {
+                loops: &loops,
+                adjacencies: &loop_adjacencies,
+                endpoints: &endpoint_memberships,
+                trim_agreements: &trim_endpoint_agreements,
+                tolerance,
+                tolerance_source,
+                samples,
+            },
         );
         let diagnostics = build_diagnostic_records(&facts);
 

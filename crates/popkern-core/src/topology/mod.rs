@@ -109,10 +109,12 @@ pub use brep_repair_pipeline::{
 
 /// Shared read-only BRep repair knowledge vocabulary.
 pub mod brep_repair_knowledge;
+mod brep_repair_knowledge_api;
 mod brep_repair_knowledge_authority;
 mod brep_repair_knowledge_collect;
 mod brep_repair_knowledge_diagnostics;
 mod brep_repair_knowledge_endpoint;
+mod brep_repair_knowledge_export;
 mod brep_repair_knowledge_fact_build;
 mod brep_repair_knowledge_fact_record;
 mod brep_repair_knowledge_graph;
@@ -129,6 +131,7 @@ pub use brep_repair_knowledge::{
     BrepRepairSuggestedRepair, BrepRepairTopologyHandle, LocalToleranceEvidence,
     LocalToleranceSource, SemanticFeatureId,
 };
+pub use brep_repair_knowledge_api::analyze_brep_repair_knowledge;
 pub use brep_repair_knowledge_authority::{
     BrepRepairAuthorityFact, BrepRepairAuthorityKind, BrepRepairAuthorityReason,
 };
@@ -137,6 +140,12 @@ pub use brep_repair_knowledge_collect::{
     collect_brep_loop_adjacencies, collect_brep_loop_facts,
 };
 pub use brep_repair_knowledge_endpoint::{BrepEndpointLoopMembership, BrepEndpointMembershipFacts};
+pub use brep_repair_knowledge_export::{
+    BrepRepairDiagnosticRecord, BrepRepairFactRecord, BrepRepairKnowledgeArtifact,
+    BrepRepairKnowledgeSchemaRecord, BrepRepairKnowledgeScopeRecord, BrepRepairLegacyLabelRecord,
+    BrepRepairMeasurementRecord, BrepRepairToleranceRecord, build_brep_repair_knowledge_artifact,
+    build_brep_repair_knowledge_artifact_with_samples, render_brep_repair_diagnostic,
+};
 pub use brep_repair_knowledge_loop::{BrepLoopAdjacencyFacts, BrepLoopFacts, BrepLoopKind};
 pub use brep_repair_knowledge_trim::{
     BrepTrimEndpointAgreementFacts, BrepTrimEndpointAgreementStatus,

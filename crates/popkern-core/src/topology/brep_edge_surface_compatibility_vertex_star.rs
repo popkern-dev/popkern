@@ -98,7 +98,7 @@ pub(super) fn classify_edge_surface_vertex_stars(
     let mut coherent_vertices = 0;
     let mut declined_vertices = 0;
     for vertex in vertices {
-        let decision = classify_vertex_star(brep, &knowledge, vertex, &incompatible_edges, options);
+        let decision = classify_vertex_star(brep, knowledge, vertex, &incompatible_edges, options);
         match decision.outcome {
             BrepEdgeSurfaceVertexStarOutcome::CoherentCandidate => coherent_vertices += 1,
             BrepEdgeSurfaceVertexStarOutcome::Declined(_) => declined_vertices += 1,
