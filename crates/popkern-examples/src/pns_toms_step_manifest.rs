@@ -86,6 +86,12 @@ fn success_payload(success: &FixtureSuccess<'_>) -> serde_json::Value {
             "topology_errors": report.welded_topology_errors,
             "missing_edge_curves": report.welded_missing_edge_curves,
             "trim_blockers": report.welded_trim_blockers,
+            "scope": {
+                "components": report.welded_scope_components,
+                "edges": report.welded_scope_edges,
+                "vertices": report.welded_scope_vertices,
+                "faces": report.welded_scope_faces,
+            },
             "timing_ms": {
                 "assemble": report.welded_timing.assemble_ms,
                 "candidate_match": report.welded_timing.candidate_match_ms,

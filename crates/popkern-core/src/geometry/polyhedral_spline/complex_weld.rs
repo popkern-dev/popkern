@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use super::complex::PolyhedralSplineSurfaceComplex;
+use super::complex_weld_scope::{PolyhedralBoundaryWeldScope, build_boundary_weld_scope};
 use super::coverage::PolyhedralCoverageOptions;
 use crate::geometry::Point3;
 use crate::topology::{
@@ -45,6 +46,8 @@ pub struct PolyhedralBoundaryWeldReport {
     pub export_blockers: usize,
     pub missing_edge_curves: usize,
     pub trim_blockers: usize,
+    /// Pre-repair topology scope touched by accepted weld candidates.
+    pub scope: PolyhedralBoundaryWeldScope,
     pub timing: PolyhedralBoundaryWeldTiming,
 }
 
@@ -115,6 +118,7 @@ pub fn weld_clean_surface_complex_boundaries(
             });
         }
     }
+    let scope = build_boundary_weld_scope(&brep, &candidates, &assembled.edge_component);
     let candidates_at = Instant::now();
 
     let result =
@@ -229,6 +233,7 @@ pub fn weld_clean_surface_complex_boundaries(
         export_blockers,
         missing_edge_curves: export_quality.missing_edge_curves,
         trim_blockers: export_quality.trim_blockers,
+        scope,
         timing: PolyhedralBoundaryWeldTiming {
             assemble_ms: elapsed_ms(assembled_at.duration_since(started_at)),
             candidate_match_ms: elapsed_ms(candidates_at.duration_since(assembled_at)),

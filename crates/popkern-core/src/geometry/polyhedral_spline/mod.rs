@@ -11,6 +11,7 @@ mod atlas;
 mod brep_export;
 mod complex;
 mod complex_weld;
+mod complex_weld_scope;
 mod construct;
 mod coverage;
 mod diagnostics;
@@ -78,6 +79,7 @@ pub use complex_weld::{
     PolyhedralBoundaryWeldReport, PolyhedralBoundaryWeldTiming, PolyhedralWeldedSurfaceComplex,
     weld_clean_surface_complex_boundaries,
 };
+pub use complex_weld_scope::PolyhedralBoundaryWeldScope;
 pub use coverage::{
     PolyhedralCandidateCoverage, PolyhedralControlNetCoverageReport, PolyhedralCoverageOptions,
     PolyhedralCoverageStatus, analyze_control_net_coverage,

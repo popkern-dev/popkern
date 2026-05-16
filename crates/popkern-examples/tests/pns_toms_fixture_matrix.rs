@@ -142,6 +142,7 @@ fn assert_fixture_matrix(fixtures: &[FixtureExpectation]) {
                 "tee repair artifact action count"
             );
             assert_weld_timing_is_recorded("tee", &welded.report);
+            assert_weld_scope_covers_candidates("tee", &welded.report);
             assert_repair_artifact_writes_json("tee_welded", &welded.repair_actions);
             assert!(
                 welded.report.expected_open_sheet_boundaries,
@@ -165,6 +166,7 @@ fn assert_fixture_matrix(fixtures: &[FixtureExpectation]) {
                 "suzanne completed missing edge curves"
             );
             assert_weld_timing_is_recorded("suzanne", &welded.report);
+            assert_weld_scope_covers_candidates("suzanne", &welded.report);
             assert_eq!(
                 welded.report.missing_edge_curves, 0,
                 "suzanne missing edge curves"
@@ -179,6 +181,11 @@ fn assert_fixture_matrix(fixtures: &[FixtureExpectation]) {
             );
             assert_eq!(welded.report.export_blockers, 0, "cylinder blockers");
             assert_weld_timing_is_recorded("cylinder", &welded.report);
+            assert_weld_scope_covers_candidates("cylinder", &welded.report);
+            assert!(
+                welded.report.scope.components.len() < complex.components.len(),
+                "cylinder weld scope should exclude unrelated components"
+            );
             assert_eq!(
                 welded.report.missing_edge_curves, 4,
                 "cylinder remaining missing edge curves"
@@ -197,6 +204,29 @@ fn assert_fixture_matrix(fixtures: &[FixtureExpectation]) {
             );
         }
     }
+}
+
+fn assert_weld_scope_covers_candidates(
+    label: &str,
+    report: &popkern_core::geometry::polyhedral_spline::PolyhedralBoundaryWeldReport,
+) {
+    assert_eq!(
+        report.scope.candidate_pairs, report.candidate_pairs,
+        "{label} weld scope candidate count must match report"
+    );
+    assert_eq!(
+        report.scope.edges.len(),
+        report.candidate_pairs * 2,
+        "{label} weld scope should include both edges of every candidate pair"
+    );
+    assert!(
+        !report.scope.components.is_empty(),
+        "{label} weld scope should name touched source components"
+    );
+    assert!(
+        !report.scope.faces.is_empty() && !report.scope.loops.is_empty(),
+        "{label} weld scope should include adjacent loops and faces"
+    );
 }
 
 fn assert_weld_timing_is_recorded(
