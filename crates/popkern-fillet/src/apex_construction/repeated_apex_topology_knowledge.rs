@@ -3,9 +3,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use popkern_core::topology::{
-    BRep, BrepKnowledgeFingerprint, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle,
+    BRep, BrepKnowledgeFingerprint, FaceHandle, LoopHandle, VertexHandle,
 };
 pub(super) use popkern_core::topology::{
+    BrepEndpointLoopMembership as EndpointLoopMembership,
+    BrepEndpointMembershipFacts as EndpointMembershipFacts,
     BrepLoopAdjacencyFacts as LoopAdjacencyFacts, BrepLoopFacts as LoopFacts,
     BrepLoopKind as LoopKind,
 };
@@ -45,20 +47,6 @@ pub(super) struct SupportFamilyFacts {
     generated_trim_count: usize,
     cylinder_faces: Vec<FaceHandle>,
     loops: Vec<LoopFacts>,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct EndpointMembershipFacts {
-    vertex: VertexHandle,
-    containing_loops: Vec<EndpointLoopMembership>,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct EndpointLoopMembership {
-    face: FaceHandle,
-    loop_handle: LoopHandle,
-    half_edge: HalfEdgeHandle,
-    kind: LoopKind,
 }
 
 impl TopologyKnowledgeGraph {
@@ -225,45 +213,6 @@ impl SupportFamilyFacts {
                 .map(LoopFacts::diagnostic_label)
                 .collect::<Vec<_>>()
                 .join(", ")
-        )
-    }
-}
-
-impl EndpointMembershipFacts {
-    pub(super) fn containing_loops(&self) -> &[EndpointLoopMembership] {
-        &self.containing_loops
-    }
-
-    fn diagnostic_label(&self) -> String {
-        format!(
-            "{:?} in [{}]",
-            self.vertex,
-            self.containing_loops
-                .iter()
-                .map(EndpointLoopMembership::diagnostic_label)
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
-    }
-}
-
-impl EndpointLoopMembership {
-    pub(super) fn face(&self) -> FaceHandle {
-        self.face
-    }
-
-    pub(super) fn loop_handle(&self) -> LoopHandle {
-        self.loop_handle
-    }
-
-    pub(super) fn half_edge(&self) -> HalfEdgeHandle {
-        self.half_edge
-    }
-
-    fn diagnostic_label(&self) -> String {
-        format!(
-            "{:?}/{:?}/{:?}@{:?}",
-            self.face, self.loop_handle, self.kind, self.half_edge
         )
     }
 }
