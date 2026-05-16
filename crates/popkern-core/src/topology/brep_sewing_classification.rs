@@ -1,9 +1,12 @@
 //! Read-only near-edge classification for future BRep sewing repair.
 
 use crate::geometry::{Point3, SurfaceEval};
+use crate::topology::brep_sewing_facts::{
+    sewing_pair_fact_ids, sewing_pair_knowledge, shared_fact_ids_from_pairs,
+};
 use crate::topology::{
     BRep, BrepEdgePairPolicyContext, BrepEdgePairPolicyDecision, BrepEdgePairPolicyDeclineReason,
-    BrepEdgePairPolicyOutcome, BrepSewingDeclineReason, BrepSewingEdgePair,
+    BrepEdgePairPolicyOutcome, BrepRepairFactId, BrepSewingDeclineReason, BrepSewingEdgePair,
     BrepTopologyRepairPolicy, EdgeHandle, assess_edge_pair_topology_policy, edge_segment,
 };
 
@@ -41,6 +44,8 @@ pub struct BrepSewingClassificationReport {
     pub max_endpoint_gap: f64,
     /// Maximum sampled surface gap observed.
     pub max_surface_gap: f64,
+    /// Shared repair knowledge facts referenced by this classification report.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Classification for one candidate edge pair.
@@ -54,6 +59,8 @@ pub struct BrepClassifiedEdgePair {
     pub measurement: BrepEdgePairMeasurement,
     /// Detailed topology policy decision when topology policy declined the pair.
     pub policy: Option<BrepEdgePairPolicyDecision>,
+    /// Shared repair knowledge facts used to classify or reject the pair.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Read-only sewing classification outcome.
@@ -84,6 +91,7 @@ pub fn classify_boundary_edge_pairs(
     pairs: &[BrepSewingEdgePair],
     options: BrepSewingClassificationOptions,
 ) -> BrepSewingClassificationReport {
+    let knowledge = sewing_pair_knowledge(brep, pairs, options.snap_tolerance, options.samples);
     let mut report = BrepSewingClassificationReport {
         candidate_pairs: pairs.len(),
         pairs: Vec::with_capacity(pairs.len()),
@@ -92,13 +100,17 @@ pub fn classify_boundary_edge_pairs(
         rejected_pairs: 0,
         max_endpoint_gap: 0.0,
         max_surface_gap: 0.0,
+        shared_fact_ids: Vec::new(),
     };
 
     for pair in pairs {
-        let classified = classify_pair(brep, pair, options);
+        let mut classified = classify_pair(brep, pair, options);
+        classified.shared_fact_ids = sewing_pair_fact_ids(&knowledge, brep, pair);
         update_report_counts(&mut report, &classified);
         report.pairs.push(classified);
     }
+    report.shared_fact_ids =
+        shared_fact_ids_from_pairs(report.pairs.iter().map(|pair| pair.shared_fact_ids.clone()));
     report
 }
 
@@ -127,6 +139,7 @@ fn classify_pair(
         classification,
         measurement,
         policy,
+        shared_fact_ids: Vec::new(),
     }
 }
 

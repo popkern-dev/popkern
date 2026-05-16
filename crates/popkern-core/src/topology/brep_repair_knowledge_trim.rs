@@ -60,17 +60,27 @@ pub fn collect_brep_trim_endpoint_agreements(
     brep: &BRep,
     adjacencies: &[BrepLoopAdjacencyFacts],
 ) -> Vec<BrepTrimEndpointAgreementFacts> {
+    collect_brep_trim_endpoint_agreements_with_tolerance(brep, adjacencies, brep.tolerance.linear())
+}
+
+/// Collect trim endpoint agreement facts using an explicit local tolerance.
+pub fn collect_brep_trim_endpoint_agreements_with_tolerance(
+    brep: &BRep,
+    adjacencies: &[BrepLoopAdjacencyFacts],
+    tolerance: f64,
+) -> Vec<BrepTrimEndpointAgreementFacts> {
     adjacencies
         .iter()
-        .map(|adjacency| trim_endpoint_agreement(brep, adjacency))
+        .map(|adjacency| trim_endpoint_agreement(brep, adjacency, tolerance))
         .collect()
 }
 
 fn trim_endpoint_agreement(
     brep: &BRep,
     adjacency: &BrepLoopAdjacencyFacts,
+    tolerance: f64,
 ) -> BrepTrimEndpointAgreementFacts {
-    let result = measure_trim_endpoint_agreement(brep, adjacency);
+    let result = measure_trim_endpoint_agreement(brep, adjacency, tolerance);
     BrepTrimEndpointAgreementFacts {
         half_edge: adjacency.half_edge(),
         adjacent_half_edge: adjacency.adjacent_half_edge(),
@@ -92,6 +102,7 @@ struct TrimEndpointAgreementMeasurement {
 fn measure_trim_endpoint_agreement(
     brep: &BRep,
     adjacency: &BrepLoopAdjacencyFacts,
+    tolerance: f64,
 ) -> TrimEndpointAgreementMeasurement {
     let points_a = match trim_endpoint_points(brep, adjacency.half_edge()) {
         Ok(points) => points,
@@ -103,7 +114,6 @@ fn measure_trim_endpoint_agreement(
     };
     let direct = max_pair_gap(points_a, points_b);
     let reconciled = max_pair_gap(points_a, [points_b[1], points_b[0]]);
-    let tolerance = brep.tolerance.linear();
     let status = if !direct.is_finite() || !reconciled.is_finite() {
         BrepTrimEndpointAgreementStatus::EvaluationFailed
     } else if direct <= tolerance {

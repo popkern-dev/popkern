@@ -1,13 +1,17 @@
 //! Read-only BRep export-quality diagnostics.
 
 use crate::topology::{
-    BRep, BrepDegenerateEdgeKind, BrepDegenerateEdgeOptions, BrepEdgeSurfaceCompatibilityOptions,
-    BrepLoopShellDiagnosticReport, BrepTopologyDiagnosticKind, BrepTopologyDiagnosticSeverity,
-    BrepTopologyOutputPolicy, BrepTrimDiagnosticReport, BrepTrimRepairOptions,
-    analyze_brep_degenerate_edges, analyze_brep_edge_surface_compatibility,
-    analyze_brep_loop_shell_validity, analyze_brep_trims, edge_segment,
+    BRep, BrepEdgeSurfaceCompatibilityOptions, BrepLoopShellDiagnosticReport,
+    BrepRepairAuthorityKind, BrepRepairAuthorityReason, BrepRepairFactKind,
+    BrepRepairKnowledgeGraph, BrepRepairKnowledgeScope, BrepRepairScopeExpansion,
+    BrepRepairScopeSeed, BrepRepairTopologyHandle, BrepTopologyDiagnosticKind,
+    BrepTopologyDiagnosticSeverity, BrepTopologyOutputPolicy, BrepTrimDiagnosticReport,
+    BrepTrimRepairOptions, EdgeHandle, LocalToleranceSource,
+    analyze_brep_edge_surface_compatibility, analyze_brep_loop_shell_validity, analyze_brep_trims,
+    edge_segment,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 /// Options for export-quality diagnostics.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -76,6 +80,8 @@ pub struct BrepExportQualityReport {
     pub edge_surface_blockers: usize,
     /// Maximum measured direct edge-curve to adjacent-surface deviation.
     pub max_edge_surface_deviation: f64,
+    /// Authority-fact summary used by export-readiness decisions.
+    pub authority: BrepExportAuthoritySummary,
 }
 
 /// Serializable debug artifact for export-quality inspection.
@@ -87,6 +93,23 @@ pub struct BrepExportQualityArtifact {
     pub boundary_edges: Vec<BrepBoundaryEdgeArtifact>,
     /// Machine-readable blocker summary.
     pub blockers: BrepExportBlockerSummary,
+    /// Authority-fact summary used by export-readiness decisions.
+    pub authority: BrepExportAuthoritySummary,
+}
+
+/// Serializable authority summary for export-quality inspection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrepExportAuthoritySummary {
+    /// Total authority facts in the all-edge export scope.
+    pub facts: usize,
+    /// Existing pcurves that are stale against their edge/surface dependencies.
+    pub stale_pcurves: usize,
+    /// Contradictory authority facts.
+    pub conflicting_sources: usize,
+    /// Missing non-boundary authority sources.
+    pub missing_sources: usize,
+    /// Explicit degenerate-topology authority facts.
+    pub degenerate_topology: usize,
 }
 
 /// Serializable export-quality summary.
@@ -184,6 +207,7 @@ pub fn analyze_brep_export_quality(
         pcurve_fidelity_blockers(brep, options.max_pcurve_deviation);
     let (edge_surface_blockers, max_edge_surface_deviation) =
         edge_surface_fidelity_blockers(brep, options.max_edge_surface_deviation, options.trim);
+    let authority = export_authority_summary(brep, options.trim);
     let validation_passed = validation_error.is_none();
     let blocked = topology_blockers > 0
         || trim_blockers > 0
@@ -218,6 +242,7 @@ pub fn analyze_brep_export_quality(
         max_pcurve_deviation,
         edge_surface_blockers,
         max_edge_surface_deviation,
+        authority,
     }
 }
 
@@ -265,7 +290,64 @@ pub fn build_brep_export_quality_artifact(
             edge_surfaces: report.edge_surface_blockers,
             validation: usize::from(!report.validation_passed),
         },
+        authority: report.authority.clone(),
     }
+}
+
+fn export_authority_summary(
+    brep: &BRep,
+    trim: BrepTrimRepairOptions,
+) -> BrepExportAuthoritySummary {
+    let graph = export_authority_graph(brep, trim);
+    let mut summary = BrepExportAuthoritySummary {
+        facts: 0,
+        stale_pcurves: 0,
+        conflicting_sources: 0,
+        missing_sources: 0,
+        degenerate_topology: 0,
+    };
+    for fact in graph
+        .facts
+        .iter()
+        .filter(|fact| fact.header.kind == BrepRepairFactKind::Authority)
+    {
+        let Some(authority) = fact.authority.as_ref() else {
+            continue;
+        };
+        summary.facts += 1;
+        if authority.kind == BrepRepairAuthorityKind::StalePcurve {
+            summary.stale_pcurves += 1;
+        }
+        if authority.kind == BrepRepairAuthorityKind::SideLocalSurfaceMismatch {
+            summary.conflicting_sources += 1;
+        }
+        if authority.kind == BrepRepairAuthorityKind::NoAuthoritativeSource
+            && authority.reason != BrepRepairAuthorityReason::MissingSurfaceBoundaryEvidence
+        {
+            summary.missing_sources += 1;
+        }
+        if authority.kind == BrepRepairAuthorityKind::AuthoritativeDegenerateTopology {
+            summary.degenerate_topology += 1;
+        }
+    }
+    summary
+}
+
+fn export_authority_graph(brep: &BRep, trim: BrepTrimRepairOptions) -> BrepRepairKnowledgeGraph {
+    let mut scope = BrepRepairKnowledgeScope::seeds_only(
+        brep.edges
+            .keys()
+            .map(BrepRepairScopeSeed::Edge)
+            .collect::<Vec<_>>(),
+    );
+    scope.expansion = BrepRepairScopeExpansion::AdjacentFaces;
+    BrepRepairKnowledgeGraph::build_with_local_tolerance(
+        brep,
+        scope,
+        trim.endpoint_tolerance,
+        LocalToleranceSource::RepairPolicy,
+        trim.samples,
+    )
 }
 
 fn edge_surface_fidelity_blockers(
@@ -356,24 +438,32 @@ fn topology_output_label(policy: BrepTopologyOutputPolicy) -> &'static str {
 }
 
 fn collapsed_trim_missing_edge_curve_count(brep: &BRep, trim: BrepTrimRepairOptions) -> usize {
-    let report = analyze_brep_degenerate_edges(
-        brep,
-        BrepDegenerateEdgeOptions {
-            tolerance: trim.endpoint_tolerance,
-            samples: trim.samples,
-        },
-    );
-    report
-        .findings
+    let authoritative_edges = authoritative_degenerate_edges(brep, trim);
+    brep.edges
         .iter()
-        .filter(|finding| {
-            finding.kind == BrepDegenerateEdgeKind::CollapsedSurfaceTrim
-                && brep
-                    .edges
-                    .get(finding.edge)
-                    .is_some_and(|edge| edge.curve.is_none())
-        })
+        .filter(|(edge, data)| data.curve.is_none() && authoritative_edges.contains(edge))
         .count()
+}
+
+fn authoritative_degenerate_edges(
+    brep: &BRep,
+    trim: BrepTrimRepairOptions,
+) -> BTreeSet<EdgeHandle> {
+    export_authority_graph(brep, trim)
+        .facts
+        .iter()
+        .filter(|fact| {
+            fact.header.kind == BrepRepairFactKind::Authority
+                && fact.authority.as_ref().is_some_and(|authority| {
+                    authority.kind == BrepRepairAuthorityKind::AuthoritativeDegenerateTopology
+                })
+        })
+        .flat_map(|fact| fact.handles.iter())
+        .filter_map(|handle| match *handle {
+            BrepRepairTopologyHandle::Edge(edge) => Some(edge),
+            _ => None,
+        })
+        .collect()
 }
 
 #[cfg(test)]

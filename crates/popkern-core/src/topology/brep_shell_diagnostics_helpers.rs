@@ -22,6 +22,7 @@ pub(super) fn push_finding(
             edge: None,
             half_edge: None,
             message,
+            shared_fact_ids: Vec::new(),
         },
     }
 }

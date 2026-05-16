@@ -7,13 +7,19 @@ use crate::topology::brep_edge_surface_compatibility::BrepEdgeSurfaceCompatibili
 use crate::topology::brep_edge_surface_compatibility_boundary::{
     infer_surface_boundary_side_read_only, surface_boundary_curve,
 };
+use crate::topology::brep_edge_surface_compatibility_candidate_facts::{
+    edge_surface_candidate_fact_ids, surface_boundary_fact_ids, trim_endpoint_fact_ids,
+};
 use crate::topology::brep_edge_surface_compatibility_helpers::{
     adjacent_surfaced_pair, build_reanchored_intersection_triple, edge_vertices,
 };
 use crate::topology::brep_edge_surface_compatibility_trim_candidate::{
     TrimEndpointCandidate, trim_decline, trim_endpoint_candidates_for_side,
 };
-use crate::topology::{BRep, EdgeHandle, HalfEdgeHandle, VertexHandle};
+use crate::topology::{
+    BRep, BrepRepairFactId, BrepRepairFactKind, BrepRepairKnowledgeGraph, EdgeHandle,
+    HalfEdgeHandle, VertexHandle,
+};
 
 /// Read-only candidate-source diagnostic for one edge incident to a vertex.
 #[derive(Debug, Clone, PartialEq)]
@@ -32,6 +38,8 @@ pub struct BrepEdgeSurfaceVertexCandidateDiagnostic {
     pub anchor_motion: f64,
     /// Side-to-side disagreement for aggregate bounded-surface candidates.
     pub side_disagreement: f64,
+    /// Shared repair-knowledge facts consumed by this diagnostic.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Source of vertex candidate evidence.
@@ -76,6 +84,7 @@ impl TrimEndpointCandidate {
         &self,
         edge: EdgeHandle,
         half_edge: HalfEdgeHandle,
+        shared_fact_ids: Vec<BrepRepairFactId>,
     ) -> BrepEdgeSurfaceVertexCandidateDiagnostic {
         candidate_diagnostic(
             edge,
@@ -85,12 +94,14 @@ impl TrimEndpointCandidate {
             self.point,
             self.anchor_motion,
             0.0,
+            shared_fact_ids,
         )
     }
 }
 
 pub(super) fn proposed_vertex_position_for_edge(
     brep: &BRep,
+    knowledge: &BrepRepairKnowledgeGraph,
     edge: EdgeHandle,
     vertex: VertexHandle,
     options: BrepEdgeSurfaceCompatibilityOptions,
@@ -145,9 +156,11 @@ pub(super) fn proposed_vertex_position_for_edge(
         None,
         0.0,
         0.0,
+        Vec::new(),
     ));
     let boundary = boundary_vertex_position_for_edge(
         brep,
+        knowledge,
         edge,
         [(he_a, surf_a), (he_b, surf_b)],
         vertex,
@@ -162,6 +175,7 @@ pub(super) fn proposed_vertex_position_for_edge(
 
 fn boundary_vertex_position_for_edge(
     brep: &BRep,
+    knowledge: &BrepRepairKnowledgeGraph,
     edge: EdgeHandle,
     half_edges: [(HalfEdgeHandle, &SurfaceGeometry); 2],
     vertex: VertexHandle,
@@ -172,7 +186,10 @@ fn boundary_vertex_position_for_edge(
     };
     let mut side_candidates = Vec::new();
     let mut diagnostics = Vec::new();
+    let side_half_edges = [half_edges[0].0, half_edges[1].0];
     for (half_edge, surface) in half_edges {
+        let surface_boundary_fact_ids =
+            surface_boundary_fact_ids(knowledge, half_edge, BrepRepairFactKind::SurfaceBoundary);
         if let Some(point) =
             surface_boundary_endpoint_candidate(brep, half_edge, surface, current, options)
         {
@@ -184,6 +201,7 @@ fn boundary_vertex_position_for_edge(
                 Some(point),
                 point.distance_to(&current),
                 0.0,
+                surface_boundary_fact_ids,
             ));
             side_candidates.push(vec![TrimEndpointCandidate {
                 point: Some(point),
@@ -200,19 +218,28 @@ fn boundary_vertex_position_for_edge(
             None,
             0.0,
             0.0,
+            surface_boundary_fact_ids,
         ));
         let trim_candidates =
             trim_endpoint_candidates_for_side(brep, half_edge, surface, current, options);
+        let shared_fact_ids = trim_endpoint_fact_ids(
+            knowledge,
+            half_edge,
+            BrepRepairFactKind::TrimEndpointAgreement,
+        );
         if trim_candidates.is_empty() {
             diagnostics.push(
-                trim_decline(BrepEdgeSurfaceVertexCandidateOutcome::SourceUnavailable)
-                    .diagnostic(edge, half_edge),
+                trim_decline(BrepEdgeSurfaceVertexCandidateOutcome::SourceUnavailable).diagnostic(
+                    edge,
+                    half_edge,
+                    shared_fact_ids,
+                ),
             );
         } else {
             diagnostics.extend(
-                trim_candidates
-                    .iter()
-                    .map(|candidate| candidate.diagnostic(edge, half_edge)),
+                trim_candidates.iter().map(|candidate| {
+                    candidate.diagnostic(edge, half_edge, shared_fact_ids.clone())
+                }),
             );
             side_candidates.push(trim_candidates);
         }
@@ -236,6 +263,7 @@ fn boundary_vertex_position_for_edge(
         accepted.then_some(centroid),
         centroid.distance_to(&current),
         max_spread,
+        edge_surface_candidate_fact_ids(knowledge, &side_half_edges),
     ));
     EdgeVertexCandidate {
         point: accepted.then_some(centroid),
@@ -395,6 +423,7 @@ fn accepted_candidate_diagnostic(
         Some(point),
         motion,
         0.0,
+        Vec::new(),
     )
 }
 
@@ -407,6 +436,7 @@ fn missing_topology_diagnostic(edge: EdgeHandle) -> BrepEdgeSurfaceVertexCandida
         None,
         0.0,
         0.0,
+        Vec::new(),
     )
 }
 
@@ -418,6 +448,7 @@ fn candidate_diagnostic(
     point: Option<Point3>,
     anchor_motion: f64,
     side_disagreement: f64,
+    shared_fact_ids: Vec<BrepRepairFactId>,
 ) -> BrepEdgeSurfaceVertexCandidateDiagnostic {
     BrepEdgeSurfaceVertexCandidateDiagnostic {
         edge,
@@ -427,5 +458,6 @@ fn candidate_diagnostic(
         point,
         anchor_motion,
         side_disagreement,
+        shared_fact_ids,
     }
 }

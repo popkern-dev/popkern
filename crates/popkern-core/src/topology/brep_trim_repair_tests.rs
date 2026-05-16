@@ -38,6 +38,14 @@ fn migration_matrix_trim_report_contract() {
     brep.half_edges[half_edges[0]].pcurve = None;
     let missing = analyze_brep_trims(&brep, options());
     assert_eq!(missing.missing_pcurves, 1);
+    assert!(
+        !missing.findings[0].shared_fact_ids.is_empty(),
+        "missing pcurve finding must reference shared repair facts"
+    );
+    assert!(
+        !missing.shared_fact_ids.is_empty(),
+        "trim diagnostic report must aggregate shared repair fact ids"
+    );
 
     corrupt_pcurve(&mut brep, half_edges[1]);
     let stale = analyze_brep_trims(&brep, options());
@@ -61,6 +69,18 @@ fn trim_repair_fills_missing_pcurves_transactionally() {
 
     assert!(brep.half_edges[half_edges[0]].pcurve.is_none());
     assert!(repaired.report.after.is_clean());
+    assert!(
+        !repaired.report.shared_fact_ids.is_empty(),
+        "trim repair report must expose source shared repair fact ids"
+    );
+    assert!(
+        repaired
+            .report
+            .before
+            .findings
+            .iter()
+            .all(|finding| !finding.shared_fact_ids.is_empty())
+    );
     assert_eq!(repaired.report.repaired_faces, 1);
     assert_eq!(repaired.report.repaired_half_edges, half_edges.len());
     for half_edge in half_edges {

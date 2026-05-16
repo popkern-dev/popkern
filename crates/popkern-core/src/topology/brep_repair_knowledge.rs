@@ -6,6 +6,7 @@
 //! behavior.
 
 use crate::naming::NameId;
+use crate::topology::brep_repair_knowledge_authority::BrepRepairAuthorityFact;
 use crate::topology::{
     BRep, BrepEndpointMembershipFacts, BrepLoopAdjacencyFacts, BrepLoopFacts,
     BrepTrimEndpointAgreementFacts, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle,
@@ -269,6 +270,8 @@ pub struct BrepRepairFact {
     pub handles: Vec<BrepRepairTopologyHandle>,
     /// Human-readable migration label retained for compatibility.
     pub legacy_label: Option<String>,
+    /// Authority-specific payload when this fact classifies trusted evidence.
+    pub authority: Option<BrepRepairAuthorityFact>,
 }
 
 /// Stable metadata required on every shared repair fact.

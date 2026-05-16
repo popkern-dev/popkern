@@ -1,7 +1,11 @@
 //! Read-only degenerate edge diagnostics for BReps.
 
 use crate::geometry::{Point3, SurfaceEval};
-use crate::topology::{BRep, EdgeHandle, HalfEdgeHandle, edge_segment};
+use crate::topology::{
+    BRep, BrepRepairFactId, BrepRepairFactKind, BrepRepairKnowledgeGraph, BrepRepairKnowledgeScope,
+    BrepRepairScopeSeed, BrepRepairTopologyHandle, EdgeHandle, HalfEdgeHandle,
+    LocalToleranceSource, edge_segment,
+};
 
 /// Options controlling degenerate edge diagnostics.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -31,6 +35,8 @@ pub struct BrepDegenerateEdgeReport {
     pub max_surface_span: f64,
     /// Per-edge findings.
     pub findings: Vec<BrepDegenerateEdgeFinding>,
+    /// Shared repair knowledge facts referenced by this report.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Per-edge degenerate diagnostic finding.
@@ -48,6 +54,8 @@ pub struct BrepDegenerateEdgeFinding {
     pub pcurve_span: f64,
     /// Number of pcurve/surface sources used.
     pub source_trims: usize,
+    /// Shared repair knowledge facts that explain this finding.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Machine-readable degenerate edge classification.
@@ -72,6 +80,19 @@ pub fn analyze_brep_degenerate_edges(
     brep: &BRep,
     options: BrepDegenerateEdgeOptions,
 ) -> BrepDegenerateEdgeReport {
+    let mut report = analyze_brep_degenerate_edges_raw(brep, options);
+    let knowledge = degenerate_edge_knowledge(brep, options);
+    for finding in &mut report.findings {
+        finding.shared_fact_ids = degenerate_finding_fact_ids(&knowledge, brep, finding.edge);
+    }
+    report.shared_fact_ids = shared_fact_ids_from_degenerate_findings(&report.findings);
+    report
+}
+
+pub(super) fn analyze_brep_degenerate_edges_raw(
+    brep: &BRep,
+    options: BrepDegenerateEdgeOptions,
+) -> BrepDegenerateEdgeReport {
     let mut report = BrepDegenerateEdgeReport {
         inspected_edges: brep.edges.len(),
         degenerate_edges: 0,
@@ -81,6 +102,7 @@ pub fn analyze_brep_degenerate_edges(
         max_endpoint_gap: 0.0,
         max_surface_span: 0.0,
         findings: Vec::new(),
+        shared_fact_ids: Vec::new(),
     };
 
     for edge in brep.edges.keys() {
@@ -122,6 +144,7 @@ fn classify_edge(
                 surface_span: f64::INFINITY,
                 pcurve_span: f64::INFINITY,
                 source_trims: 0,
+                shared_fact_ids: Vec::new(),
             });
         }
     };
@@ -155,6 +178,7 @@ fn classify_edge(
         surface_span: max_surface_span,
         pcurve_span: max_pcurve_span,
         source_trims: sources.len(),
+        shared_fact_ids: Vec::new(),
     })
 }
 
@@ -208,6 +232,63 @@ fn pcurve_endpoint_span(brep: &BRep, source: &SurfaceTrimSource) -> Option<f64> 
     let start = pcurve.point_at(pcurve.t_start);
     let end = pcurve.point_at(pcurve.t_end);
     Some(start.distance_to(&end))
+}
+
+fn degenerate_edge_knowledge(
+    brep: &BRep,
+    options: BrepDegenerateEdgeOptions,
+) -> BrepRepairKnowledgeGraph {
+    BrepRepairKnowledgeGraph::build_with_local_tolerance(
+        brep,
+        BrepRepairKnowledgeScope::seeds_only(
+            brep.edges
+                .keys()
+                .map(BrepRepairScopeSeed::Edge)
+                .collect::<Vec<_>>(),
+        ),
+        options.tolerance,
+        LocalToleranceSource::RepairPolicy,
+        options.samples,
+    )
+}
+
+fn degenerate_finding_fact_ids(
+    graph: &BrepRepairKnowledgeGraph,
+    brep: &BRep,
+    edge: EdgeHandle,
+) -> Vec<BrepRepairFactId> {
+    let mut ids = graph.fact_ids_for_handle(
+        BrepRepairTopologyHandle::Edge(edge),
+        BrepRepairFactKind::Authority,
+    );
+    for (half_edge, data) in &brep.half_edges {
+        if data.edge != edge {
+            continue;
+        }
+        ids.extend(graph.fact_ids_for_handle(
+            BrepRepairTopologyHandle::HalfEdge(half_edge),
+            BrepRepairFactKind::TrimEndpointAgreement,
+        ));
+        ids.extend(graph.fact_ids_for_handle(
+            BrepRepairTopologyHandle::Loop(data.loop_),
+            BrepRepairFactKind::Loop,
+        ));
+    }
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+fn shared_fact_ids_from_degenerate_findings(
+    findings: &[BrepDegenerateEdgeFinding],
+) -> Vec<BrepRepairFactId> {
+    let mut ids = findings
+        .iter()
+        .flat_map(|finding| finding.shared_fact_ids.iter().copied())
+        .collect::<Vec<_>>();
+    ids.sort();
+    ids.dedup();
+    ids
 }
 
 #[cfg(test)]

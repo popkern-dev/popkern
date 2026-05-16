@@ -3,10 +3,11 @@
 use std::collections::HashSet;
 
 use crate::geometry::{Point3, SurfaceEval};
+use crate::topology::brep_sewing_facts::{sewing_pair_fact_ids, sewing_pair_knowledge};
 use crate::topology::{
     BRep, BrepEdgePairPolicyContext, BrepEdgePairPolicyDecision, BrepEdgePairPolicyDeclineReason,
-    BrepEdgePairPolicyOutcome, BrepTopologyRepairPolicy, EdgeHandle, HalfEdgeHandle, VertexHandle,
-    assess_edge_pair_topology_policy,
+    BrepEdgePairPolicyOutcome, BrepRepairFactId, BrepTopologyRepairPolicy, EdgeHandle,
+    HalfEdgeHandle, VertexHandle, assess_edge_pair_topology_policy,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +69,8 @@ pub struct BrepSewingReport {
     pub max_endpoint_gap: f64,
     /// Maximum sampled pcurve/surface disagreement observed.
     pub max_surface_gap: f64,
+    /// Shared repair knowledge facts referenced by this sewing attempt.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -79,6 +82,8 @@ pub struct BrepSewingDecline {
     pub reason: BrepSewingDeclineReason,
     /// Detailed topology policy explanation when the decline came from policy.
     pub policy: Option<BrepEdgePairPolicyDecision>,
+    /// Shared repair knowledge facts used to decline this pair.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -138,6 +143,15 @@ pub fn sew_clean_boundary_edge_pairs(
     pairs: &[BrepSewingEdgePair],
     options: BrepSewingOptions,
 ) -> Result<BrepSewingResult, BrepSewingFailure> {
+    let knowledge = sewing_pair_knowledge(brep, pairs, options.tolerance, options.samples);
+    if !knowledge.validate_fresh(brep) {
+        return Err(BrepSewingFailure {
+            reason: BrepSewingFailureReason::ValidationFailed(
+                "stale sewing repair knowledge graph".to_string(),
+            ),
+            report: empty_report(brep, pairs),
+        });
+    }
     let mut candidate = brep.clone();
     let mut used = HashSet::new();
     let mut report = BrepSewingReport {
@@ -147,13 +161,16 @@ pub fn sew_clean_boundary_edge_pairs(
         remaining_boundary_edges: candidate.boundary_edges.len(),
         max_endpoint_gap: 0.0,
         max_surface_gap: 0.0,
+        shared_fact_ids: Vec::new(),
     };
 
     for pair in pairs {
+        let shared_fact_ids = sewing_pair_fact_ids(&knowledge, brep, pair);
         match assess_pair(&candidate, pair, options, &used) {
             Ok(assessment) => {
                 report.max_endpoint_gap = report.max_endpoint_gap.max(assessment.endpoint_gap);
                 report.max_surface_gap = report.max_surface_gap.max(assessment.surface_gap);
+                report.shared_fact_ids.extend(shared_fact_ids);
                 weld_boundary_pair(&mut candidate, pair.first, pair.second);
                 used.insert(pair.first);
                 used.insert(pair.second);
@@ -171,13 +188,17 @@ pub fn sew_clean_boundary_edge_pairs(
                     pair: pair.clone(),
                     reason,
                     policy: assessment.policy,
+                    shared_fact_ids: shared_fact_ids.clone(),
                 });
+                report.shared_fact_ids.extend(shared_fact_ids);
             }
         }
     }
 
     repair_vertex_outgoing(&mut candidate);
     report.remaining_boundary_edges = candidate.boundary_edges.len();
+    report.shared_fact_ids.sort();
+    report.shared_fact_ids.dedup();
     if options.validate_output
         && let Err(err) = candidate.validate()
     {
@@ -190,6 +211,18 @@ pub fn sew_clean_boundary_edge_pairs(
         brep: candidate,
         report,
     })
+}
+
+fn empty_report(brep: &BRep, pairs: &[BrepSewingEdgePair]) -> BrepSewingReport {
+    BrepSewingReport {
+        candidate_pairs: pairs.len(),
+        accepted_pairs: 0,
+        declined_pairs: Vec::new(),
+        remaining_boundary_edges: brep.boundary_edges.len(),
+        max_endpoint_gap: 0.0,
+        max_surface_gap: 0.0,
+        shared_fact_ids: Vec::new(),
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

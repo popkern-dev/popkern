@@ -24,6 +24,14 @@ fn classifies_collapsed_surface_trim_without_mutation() {
     assert_eq!(report.zero_length_vertex_edges, 0);
     assert_eq!(report.ambiguous_edges, 0);
     let finding = &report.findings[0];
+    assert!(
+        !report.shared_fact_ids.is_empty(),
+        "degenerate edge report must expose shared repair fact ids"
+    );
+    assert!(
+        !finding.shared_fact_ids.is_empty(),
+        "degenerate edge finding must reference shared repair facts"
+    );
     assert_eq!(finding.kind, BrepDegenerateEdgeKind::CollapsedSurfaceTrim);
     assert_eq!(finding.source_trims, 1);
     assert!(finding.surface_span <= 1e-6);

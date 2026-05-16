@@ -163,6 +163,14 @@ fn repairs_gregory_boundary_edge_from_surface_boundary_hint() {
         result.report.decisions[0].outcome,
         BrepEdgeSurfaceCompatibilityRepairOutcome::RepairedFromSurfaceBoundary
     ));
+    assert!(
+        !result.report.shared_fact_ids.is_empty(),
+        "repair report must aggregate shared fact ids"
+    );
+    assert!(
+        !result.report.decisions[0].shared_fact_ids.is_empty(),
+        "edge repair decision must expose shared fact ids"
+    );
     assert_eq!(result.report.vertex_stars.inspected_vertices, 2);
     assert_eq!(result.report.vertex_stars.coherent_vertices, 2);
     assert_eq!(result.report.after.incompatible_half_edges, 0);

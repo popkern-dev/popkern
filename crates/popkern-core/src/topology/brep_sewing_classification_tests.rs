@@ -162,6 +162,14 @@ fn classification_identifies_exact_clean_pair_without_mutation() {
         report.pairs[0].classification,
         BrepEdgePairClassification::ExactClean
     ));
+    assert!(
+        !report.shared_fact_ids.is_empty(),
+        "classification report should cite shared pair facts"
+    );
+    assert!(
+        !report.pairs[0].shared_fact_ids.is_empty(),
+        "classified pair should cite shared pair facts"
+    );
 }
 
 #[test]
@@ -200,6 +208,10 @@ fn classification_rejects_pair_beyond_snap_tolerance() {
         report.pairs[0].classification,
         BrepEdgePairClassification::Rejected(BrepSewingDeclineReason::EndpointGapExceeded { .. })
     ));
+    assert!(
+        !report.pairs[0].shared_fact_ids.is_empty(),
+        "rejected pair should retain shared evidence"
+    );
 }
 
 #[test]

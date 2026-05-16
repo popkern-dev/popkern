@@ -38,6 +38,7 @@ pub(super) fn run_snap_sewing(
                     .as_ref()
                     .map(|clean| clean.max_surface_gap.max(clean.max_endpoint_gap))
                     .unwrap_or(0.0),
+                shared_fact_ids: err.report.shared_fact_ids.clone(),
             });
             failure_report.snap_sewing = Some(err.report);
             failure(BrepRepairPipelineStage::SnapSewing, reason, failure_report)
@@ -79,6 +80,7 @@ pub(super) fn run_edge_curve_completion(
             ),
             max_motion: 0.0,
             max_deviation: 0.0,
+            shared_fact_ids: err.report.shared_fact_ids.clone(),
         });
         failure_report.edge_curve_completion = Some(err.report);
         failure(
@@ -93,6 +95,7 @@ pub(super) fn run_edge_curve_completion(
         repaired.report.completed_edges,
         repaired.report.declined_edges,
         "edge_curve_completion",
+        &repaired.report.shared_fact_ids,
     );
     report.edge_curve_completion = Some(repaired.report);
     Ok(repaired.brep)
@@ -117,6 +120,7 @@ pub(super) fn run_trim_repair(
             ),
             max_motion: 0.0,
             max_deviation: 0.0,
+            shared_fact_ids: err.report.shared_fact_ids.clone(),
         });
         failure_report.trim_repair = Some(err.report);
         failure(BrepRepairPipelineStage::TrimRepair, reason, failure_report)
@@ -127,6 +131,7 @@ pub(super) fn run_trim_repair(
         repaired.report.repaired_half_edges,
         0,
         "trim_repair",
+        &repaired.report.shared_fact_ids,
     );
     report.trim_repair = Some(repaired.report);
     Ok(repaired.brep)
@@ -157,6 +162,7 @@ pub(super) fn run_curve_trim_reconstruction(
                     ),
                     max_motion: 0.0,
                     max_deviation: err.report.max_sampled_disagreement,
+                    shared_fact_ids: err.report.shared_fact_ids.clone(),
                 });
                 failure_report.curve_trim_reconstruction = Some(err.report);
                 failure(
@@ -171,6 +177,7 @@ pub(super) fn run_curve_trim_reconstruction(
         repaired.report.reconstructed_half_edges,
         repaired.report.declined_half_edges,
         "curve_trim_reconstruction",
+        &repaired.report.shared_fact_ids,
     );
     report.curve_trim_reconstruction = Some(repaired.report);
     Ok(repaired.brep)
@@ -202,6 +209,7 @@ pub(super) fn run_edge_surface_compatibility(
             ),
             max_motion: err.report.max_endpoint_gap,
             max_deviation: err.report.after.max_deviation,
+            shared_fact_ids: err.report.shared_fact_ids.clone(),
         });
         failure_report.edge_surface_compatibility = Some(err.report);
         failure(

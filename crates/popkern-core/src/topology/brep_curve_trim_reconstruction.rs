@@ -6,10 +6,14 @@ use crate::geometry::trim_domain::{
 use crate::topology::brep_curve_trim_reconstruction_domain::{
     DomainExpansionCommit, expand_repaired_face_domain,
 };
+use crate::topology::brep_curve_trim_reconstruction_facts::{
+    curve_trim_reconstruction_knowledge, half_edge_reconstruction_fact_ids,
+    shared_fact_ids_from_reconstruction_decisions,
+};
 use crate::topology::brep_curve_trim_reconstruction_helpers::{
     half_edge_endpoints, project_edge_curve_to_surface_pcurve, sampled_edge_surface_disagreement,
 };
-use crate::topology::{BRep, HalfEdgeHandle};
+use crate::topology::{BRep, BrepRepairFactId, HalfEdgeHandle};
 
 /// Options for curve-backed trim reconstruction.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -55,6 +59,8 @@ pub struct BrepCurveTrimReconstructionReport {
     pub max_sampled_disagreement: f64,
     /// Per-half-edge decisions.
     pub decisions: Vec<BrepCurveTrimReconstructionDecision>,
+    /// Shared repair knowledge facts referenced by this report.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Per-half-edge reconstruction decision.
@@ -66,6 +72,8 @@ pub struct BrepCurveTrimReconstructionDecision {
     pub outcome: BrepCurveTrimReconstructionOutcome,
     /// Maximum sampled edge-curve/surface disagreement.
     pub sampled_disagreement: f64,
+    /// Shared repair knowledge facts used by this decision.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Reconstruction decision outcome.
@@ -124,18 +132,21 @@ pub fn reconstruct_curve_backed_trims_transactionally(
     brep: &BRep,
     options: BrepCurveTrimReconstructionOptions,
 ) -> Result<BrepCurveTrimReconstructionResult, Box<BrepCurveTrimReconstructionFailure>> {
+    let knowledge = curve_trim_reconstruction_knowledge(brep, options);
+    if !knowledge.validate_fresh(brep) {
+        return Err(Box::new(BrepCurveTrimReconstructionFailure {
+            reason: BrepCurveTrimReconstructionFailureReason::ValidationFailed(
+                "curve trim reconstruction knowledge graph is stale before transaction".to_string(),
+            ),
+            report: empty_report(),
+        }));
+    }
     let mut repaired = brep.clone();
-    let mut report = BrepCurveTrimReconstructionReport {
-        inspected_half_edges: 0,
-        targeted_half_edges: 0,
-        reconstructed_half_edges: 0,
-        declined_half_edges: 0,
-        max_sampled_disagreement: 0.0,
-        decisions: Vec::new(),
-    };
+    let mut report = empty_report();
     let targets: Vec<_> = brep.half_edges.keys().collect();
     for half_edge in targets {
-        let decision = reconstruct_half_edge_trim(brep, &mut repaired, half_edge, options);
+        let mut decision = reconstruct_half_edge_trim(brep, &mut repaired, half_edge, options);
+        decision.shared_fact_ids = half_edge_reconstruction_fact_ids(&knowledge, brep, half_edge);
         if !matches!(
             decision.outcome,
             BrepCurveTrimReconstructionOutcome::RetainedExisting
@@ -155,6 +166,7 @@ pub fn reconstruct_curve_backed_trims_transactionally(
         }
         report.decisions.push(decision);
     }
+    report.shared_fact_ids = shared_fact_ids_from_reconstruction_decisions(&report.decisions);
     if options.require_all_reconstructed && report.declined_half_edges > 0 {
         return Err(Box::new(BrepCurveTrimReconstructionFailure {
             reason: BrepCurveTrimReconstructionFailureReason::UnresolvedTrimReconstruction,
@@ -404,6 +416,19 @@ fn decision(
         half_edge,
         outcome,
         sampled_disagreement,
+        shared_fact_ids: Vec::new(),
+    }
+}
+
+fn empty_report() -> BrepCurveTrimReconstructionReport {
+    BrepCurveTrimReconstructionReport {
+        inspected_half_edges: 0,
+        targeted_half_edges: 0,
+        reconstructed_half_edges: 0,
+        declined_half_edges: 0,
+        max_sampled_disagreement: 0.0,
+        decisions: Vec::new(),
+        shared_fact_ids: Vec::new(),
     }
 }
 

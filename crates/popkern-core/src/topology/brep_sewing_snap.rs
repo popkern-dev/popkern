@@ -1,10 +1,11 @@
 //! Transactional tolerant snap-and-sew for classified BRep edge pairs.
 
 use crate::geometry::Point3;
+use crate::topology::brep_sewing_facts::{sewing_pair_fact_ids, sewing_pair_knowledge};
 use crate::topology::{
-    BRep, BrepClassifiedEdgePair, BrepEdgePairClassification, BrepSewingDeclineReason,
-    BrepSewingEdgePair, BrepSewingOptions, BrepSewingReport, EdgeHandle, VertexHandle,
-    sew_clean_boundary_edge_pairs,
+    BRep, BrepClassifiedEdgePair, BrepEdgePairClassification, BrepRepairFactId,
+    BrepSewingDeclineReason, BrepSewingEdgePair, BrepSewingOptions, BrepSewingReport, EdgeHandle,
+    VertexHandle, sew_clean_boundary_edge_pairs,
 };
 
 /// Policy for transactional tolerant snap sewing.
@@ -40,6 +41,8 @@ pub struct BrepSnapSewingReport {
     pub max_vertex_motion: f64,
     /// Final clean sewing report when that stage completes.
     pub clean_report: Option<BrepSewingReport>,
+    /// Shared repair knowledge facts referenced by this snap-sewing attempt.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Pair-level snap-sewing decline.
@@ -49,6 +52,8 @@ pub struct BrepSnapSewingDecline {
     pub pair: BrepSewingEdgePair,
     /// Reason the pair was not snapped or forwarded.
     pub reason: BrepSnapSewingDeclineReason,
+    /// Shared repair knowledge facts used to decline this pair.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Reason a classified pair was not accepted for snap sewing.
@@ -89,6 +94,27 @@ pub fn snap_and_sew_classified_edge_pairs(
     classified_pairs: &[BrepClassifiedEdgePair],
     options: BrepSnapSewingOptions,
 ) -> Result<BrepSnapSewingResult, Box<BrepSnapSewingFailure>> {
+    let pairs = classified_pairs
+        .iter()
+        .map(|classified| classified.pair.clone())
+        .collect::<Vec<_>>();
+    let knowledge = sewing_pair_knowledge(
+        brep,
+        &pairs,
+        options
+            .clean_sewing
+            .tolerance
+            .max(options.max_vertex_motion),
+        options.clean_sewing.samples,
+    );
+    if !knowledge.validate_fresh(brep) {
+        return Err(Box::new(BrepSnapSewingFailure {
+            reason: BrepSnapSewingFailureReason::CleanSewingFailed(
+                "stale snap-sewing repair knowledge graph".to_string(),
+            ),
+            report: empty_report(classified_pairs),
+        }));
+    }
     let mut candidate = brep.clone();
     let mut clean_pairs = Vec::new();
     let mut report = BrepSnapSewingReport {
@@ -98,9 +124,11 @@ pub fn snap_and_sew_classified_edge_pairs(
         declined_pairs: Vec::new(),
         max_vertex_motion: 0.0,
         clean_report: None,
+        shared_fact_ids: Vec::new(),
     };
 
     for classified in classified_pairs {
+        let shared_fact_ids = sewing_pair_fact_ids(&knowledge, brep, &classified.pair);
         match &classified.classification {
             BrepEdgePairClassification::ExactClean => {
                 clean_pairs.push(classified.pair.clone());
@@ -116,6 +144,7 @@ pub fn snap_and_sew_classified_edge_pairs(
                     Err(reason) => report.declined_pairs.push(BrepSnapSewingDecline {
                         pair: classified.pair.clone(),
                         reason,
+                        shared_fact_ids: shared_fact_ids.clone(),
                     }),
                 }
             }
@@ -123,9 +152,11 @@ pub fn snap_and_sew_classified_edge_pairs(
                 report.declined_pairs.push(BrepSnapSewingDecline {
                     pair: classified.pair.clone(),
                     reason: BrepSnapSewingDeclineReason::RejectedClassification(reason.clone()),
+                    shared_fact_ids: shared_fact_ids.clone(),
                 });
             }
         }
+        report.shared_fact_ids.extend(shared_fact_ids);
     }
 
     let sewn = sew_clean_boundary_edge_pairs(&candidate, &clean_pairs, options.clean_sewing)
@@ -141,11 +172,28 @@ pub fn snap_and_sew_classified_edge_pairs(
                 },
             })
         })?;
+    report
+        .shared_fact_ids
+        .extend(sewn.report.shared_fact_ids.iter().copied());
+    report.shared_fact_ids.sort();
+    report.shared_fact_ids.dedup();
     report.clean_report = Some(sewn.report);
     Ok(BrepSnapSewingResult {
         brep: sewn.brep,
         report,
     })
+}
+
+fn empty_report(classified_pairs: &[BrepClassifiedEdgePair]) -> BrepSnapSewingReport {
+    BrepSnapSewingReport {
+        classified_pairs: classified_pairs.len(),
+        exact_pairs: 0,
+        snapped_pairs: 0,
+        declined_pairs: Vec::new(),
+        max_vertex_motion: 0.0,
+        clean_report: None,
+        shared_fact_ids: Vec::new(),
+    }
 }
 
 fn snap_pair_vertices(

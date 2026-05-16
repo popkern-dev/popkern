@@ -68,11 +68,41 @@ fn export_quality_allows_collapsed_trim_missing_curve_when_enabled() {
     opts.validate_brep = false;
 
     let report = analyze_brep_export_quality(&brep, opts);
+    let artifact = build_brep_export_quality_artifact(&brep, &report);
 
     assert_eq!(report.missing_edge_curves, 1);
     assert_eq!(report.collapsed_trim_missing_edge_curves, 1);
     assert_eq!(report.edge_curve_blockers, 0);
+    assert_eq!(report.authority.degenerate_topology, 1);
+    assert_eq!(artifact.authority.degenerate_topology, 1);
     assert_eq!(report.readiness, BrepExportReadiness::ReadyOpenSheet);
+}
+
+#[test]
+fn export_quality_collapsed_trim_authority_respects_policy_tolerance() {
+    let mut brep = collapsed_trim_sheet();
+    let face = brep.faces.keys().next().expect("fixture has one face");
+    brep.faces[face].surface = Some(SurfaceOnFace {
+        geometry: SurfaceGeometry::Plane {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            u_axis: Vec3::new(1e-4, 0.0, 0.0),
+            v_axis: Vec3::new(0.0, 1.0, 0.0),
+        },
+        orientation: true,
+    });
+    let mut opts = options(BrepTopologyOutputPolicy::OpenSheet);
+    opts.require_edge_curves = true;
+    opts.allow_collapsed_trim_edge_curves = true;
+    opts.validate_brep = false;
+    opts.trim.endpoint_tolerance = 1e-6;
+
+    let report = analyze_brep_export_quality(&brep, opts);
+
+    assert_eq!(report.collapsed_trim_missing_edge_curves, 0);
+    assert_eq!(report.edge_curve_blockers, 1);
+    assert_eq!(report.authority.degenerate_topology, 0);
+    assert_eq!(report.readiness, BrepExportReadiness::Blocked);
 }
 
 #[test]
@@ -123,8 +153,10 @@ fn export_quality_blocks_stale_pcurves_when_tolerance_is_required() {
 
     assert_eq!(report.readiness, BrepExportReadiness::Blocked);
     assert_eq!(report.pcurve_blockers, 1);
+    assert!(report.authority.stale_pcurves >= 1);
     assert!(report.max_pcurve_deviation > 1.0);
     assert_eq!(artifact.blockers.pcurves, 1);
+    assert!(artifact.authority.stale_pcurves >= 1);
     assert!(artifact.summary.max_pcurve_deviation > 1.0);
 }
 

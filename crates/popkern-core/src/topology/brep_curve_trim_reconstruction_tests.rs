@@ -37,6 +37,10 @@ fn reconstructs_missing_trim_from_existing_edge_curve_transactionally() {
     assert_eq!(result.report.targeted_half_edges, 1);
     assert_eq!(result.report.reconstructed_half_edges, 1);
     assert_eq!(result.report.declined_half_edges, 0);
+    assert!(
+        !result.report.shared_fact_ids.is_empty(),
+        "curve-trim reconstruction report must expose source shared fact ids"
+    );
     assert!(matches!(
         result
             .report
@@ -50,6 +54,16 @@ fn reconstructs_missing_trim_from_existing_edge_curve_transactionally() {
             ..
         })
     ));
+    let decision = result
+        .report
+        .decisions
+        .iter()
+        .find(|d| d.half_edge == half_edge)
+        .expect("target decision exists");
+    assert!(
+        !decision.shared_fact_ids.is_empty(),
+        "reconstructed trim decision must reference shared facts"
+    );
 }
 
 #[test]
@@ -135,6 +149,10 @@ fn declines_missing_edge_curve_without_mutating_existing_clone() {
         .unwrap();
 
     assert!(result.brep.half_edges[half_edge].pcurve.is_none());
+    assert!(
+        !decision.shared_fact_ids.is_empty(),
+        "declined reconstruction decision must reference shared facts"
+    );
     assert_eq!(
         decision.outcome,
         BrepCurveTrimReconstructionOutcome::Declined(

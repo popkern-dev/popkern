@@ -30,6 +30,17 @@ fn completes_non_pns_open_sheet_edges_from_surface_trims() {
     assert_eq!(result.report.completed_edges, 4);
     assert_eq!(result.report.declined_edges, 0);
     assert!(
+        !result.report.shared_fact_ids.is_empty(),
+        "edge curve completion report must expose source shared fact ids"
+    );
+    assert!(
+        result
+            .report
+            .decisions
+            .iter()
+            .all(|decision| !decision.shared_fact_ids.is_empty())
+    );
+    assert!(
         result
             .brep
             .edges
@@ -64,6 +75,10 @@ fn declines_surfaced_edges_without_trim_sources() {
     assert_eq!(failure.report.inspected_missing_edges, 4);
     assert_eq!(failure.report.completed_edges, 0);
     assert_eq!(failure.report.declined_edges, 4);
+    assert!(
+        !failure.report.shared_fact_ids.is_empty(),
+        "declined completion report must expose source shared fact ids"
+    );
     assert!(failure.report.decisions.iter().all(|decision| matches!(
         decision.outcome,
         BrepEdgeCurveCompletionOutcome::Declined(

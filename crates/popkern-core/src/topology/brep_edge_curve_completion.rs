@@ -1,6 +1,10 @@
 //! Transactional completion of missing BRep edge curves.
 
-use crate::topology::{BRep, EdgeHandle};
+use crate::topology::brep_edge_curve_completion_facts::{
+    edge_completion_fact_ids, edge_curve_completion_knowledge,
+    shared_fact_ids_from_edge_completion_decisions,
+};
+use crate::topology::{BRep, BrepRepairFactId, EdgeHandle};
 
 use super::brep_edge_curve_completion_helpers::{
     curve_from_surface_trim, curve_from_vertices, surface_trim_sources, validate_candidate,
@@ -46,6 +50,8 @@ pub struct BrepEdgeCurveCompletionReport {
     pub max_sampled_disagreement: f64,
     /// Per-edge completion decisions.
     pub decisions: Vec<BrepEdgeCurveCompletionDecision>,
+    /// Shared repair knowledge facts referenced by this report.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 impl BrepEdgeCurveCompletionReport {
@@ -68,6 +74,8 @@ pub struct BrepEdgeCurveCompletionDecision {
     pub endpoint_gap: f64,
     /// Maximum sampled trim/surface disagreement for this edge.
     pub sampled_disagreement: f64,
+    /// Shared repair knowledge facts used by this decision.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Completion decision outcome.
@@ -123,15 +131,17 @@ pub fn complete_missing_edge_curves_transactionally(
     brep: &BRep,
     options: BrepEdgeCurveCompletionOptions,
 ) -> Result<BrepEdgeCurveCompletionResult, Box<BrepEdgeCurveCompletionFailure>> {
+    let knowledge = edge_curve_completion_knowledge(brep, options);
+    if !knowledge.validate_fresh(brep) {
+        return Err(Box::new(BrepEdgeCurveCompletionFailure {
+            reason: BrepEdgeCurveCompletionFailureReason::ValidationFailed(
+                "edge curve completion knowledge graph is stale before transaction".to_string(),
+            ),
+            report: empty_report(),
+        }));
+    }
     let mut repaired = brep.clone();
-    let mut report = BrepEdgeCurveCompletionReport {
-        inspected_missing_edges: 0,
-        completed_edges: 0,
-        declined_edges: 0,
-        max_endpoint_gap: 0.0,
-        max_sampled_disagreement: 0.0,
-        decisions: Vec::new(),
-    };
+    let mut report = empty_report();
 
     let missing: Vec<_> = brep
         .edges
@@ -141,7 +151,8 @@ pub fn complete_missing_edge_curves_transactionally(
 
     for edge in missing {
         report.inspected_missing_edges += 1;
-        let decision = complete_edge_curve(brep, &mut repaired, edge, options);
+        let mut decision = complete_edge_curve(brep, &mut repaired, edge, options);
+        decision.shared_fact_ids = edge_completion_fact_ids(&knowledge, brep, edge);
         if matches!(
             decision.outcome,
             BrepEdgeCurveCompletionOutcome::CompletedFromSurfaceTrims
@@ -157,6 +168,7 @@ pub fn complete_missing_edge_curves_transactionally(
         }
         report.decisions.push(decision);
     }
+    report.shared_fact_ids = shared_fact_ids_from_edge_completion_decisions(&report.decisions);
 
     if options.require_all_completed && !report.is_complete() {
         return Err(Box::new(BrepEdgeCurveCompletionFailure {
@@ -217,6 +229,7 @@ fn complete_edge_curve(
                 source_trims,
                 endpoint_gap: 0.0,
                 sampled_disagreement: anchored_deviation,
+                shared_fact_ids: Vec::new(),
             };
         }
         if let Some(vertex_candidate) =
@@ -229,6 +242,7 @@ fn complete_edge_curve(
                 source_trims,
                 endpoint_gap: 0.0,
                 sampled_disagreement: 0.0,
+                shared_fact_ids: Vec::new(),
             };
         }
         return decision(
@@ -250,6 +264,7 @@ fn complete_edge_curve(
                 source_trims,
                 endpoint_gap: 0.0,
                 sampled_disagreement: anchored_deviation,
+                shared_fact_ids: Vec::new(),
             };
         }
         if let Some(vertex_candidate) =
@@ -262,6 +277,7 @@ fn complete_edge_curve(
                 source_trims,
                 endpoint_gap: 0.0,
                 sampled_disagreement: 0.0,
+                shared_fact_ids: Vec::new(),
             };
         }
         return decision(
@@ -283,6 +299,7 @@ fn complete_edge_curve(
         source_trims,
         endpoint_gap,
         sampled_disagreement,
+        shared_fact_ids: Vec::new(),
     }
 }
 
@@ -299,6 +316,19 @@ fn decision(
         source_trims,
         endpoint_gap,
         sampled_disagreement,
+        shared_fact_ids: Vec::new(),
+    }
+}
+
+fn empty_report() -> BrepEdgeCurveCompletionReport {
+    BrepEdgeCurveCompletionReport {
+        inspected_missing_edges: 0,
+        completed_edges: 0,
+        declined_edges: 0,
+        max_endpoint_gap: 0.0,
+        max_sampled_disagreement: 0.0,
+        decisions: Vec::new(),
+        shared_fact_ids: Vec::new(),
     }
 }
 

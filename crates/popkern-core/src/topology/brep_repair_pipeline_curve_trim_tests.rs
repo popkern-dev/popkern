@@ -81,7 +81,9 @@ fn pipeline_runs_curve_backed_trim_reconstruction_before_edge_surface_repair() {
     assert!(brep.half_edges[half_edge].pcurve.is_none());
     let artifact = build_brep_repair_action_artifact(&result.report.actions);
     assert!(artifact.actions.iter().any(|action| {
-        action.stage == "curve_trim_reconstruction" && action.outcome == "authored"
+        action.stage == "curve_trim_reconstruction"
+            && action.outcome == "authored"
+            && !action.shared_fact_ids.is_empty()
     }));
 }
 

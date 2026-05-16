@@ -1,6 +1,6 @@
 //! Generic repair-action diagnostics shared by BRep repair pipelines.
 
-use crate::topology::BrepRepairPipelineStage;
+use crate::topology::{BrepRepairFactId, BrepRepairPipelineStage};
 use serde::{Deserialize, Serialize};
 
 /// Aggregate repair-action diagnostics for API and GUI callers.
@@ -92,6 +92,8 @@ pub struct BrepRepairActionRecord {
     pub max_motion: f64,
     /// Sampled geometric deviation associated with this action.
     pub max_deviation: f64,
+    /// Shared repair knowledge facts referenced by this action.
+    pub shared_fact_ids: Vec<usize>,
 }
 
 /// Build a serialization-ready action artifact from a generic report.
@@ -117,6 +119,11 @@ pub fn build_brep_repair_action_artifact(
                 reason: decision.reason.clone(),
                 max_motion: decision.max_motion,
                 max_deviation: decision.max_deviation,
+                shared_fact_ids: decision
+                    .shared_fact_ids
+                    .iter()
+                    .map(|id| id.0)
+                    .collect::<Vec<_>>(),
             })
             .collect(),
     }
@@ -160,6 +167,8 @@ pub struct BrepRepairActionDecision {
     pub max_motion: f64,
     /// Sampled geometric deviation associated with this action.
     pub max_deviation: f64,
+    /// Shared repair knowledge facts referenced by this action.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Generic action outcome class.

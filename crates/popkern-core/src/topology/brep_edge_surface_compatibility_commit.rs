@@ -87,6 +87,7 @@ pub(super) fn commit_edge_triple(
             endpoint_gap,
             residual_deviation,
             evidence,
+            shared_fact_ids: Vec::new(),
         };
     }
     let Some((start_vertex, end_vertex)) = edge_vertices(brep, edge) else {
@@ -124,6 +125,7 @@ pub(super) fn commit_edge_triple(
                 endpoint_gap,
                 residual_deviation,
                 evidence,
+                shared_fact_ids: Vec::new(),
             };
         }
         move_vertex_with_tolerance(brep, start_vertex, repaired_start, endpoint_gap);
@@ -153,6 +155,7 @@ pub(super) fn commit_edge_triple(
         endpoint_gap,
         residual_deviation,
         evidence,
+        shared_fact_ids: Vec::new(),
     }
 }
 
@@ -174,5 +177,6 @@ fn declined(
         endpoint_gap: 0.0,
         residual_deviation: 0.0,
         evidence,
+        shared_fact_ids: Vec::new(),
     }
 }

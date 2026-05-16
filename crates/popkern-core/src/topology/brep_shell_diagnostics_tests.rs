@@ -17,6 +17,10 @@ fn diagnostics_accept_closed_cube() {
     assert_eq!(report.boundary_edges, 0);
     assert_eq!(report.boundary_cycles, 0);
     assert_eq!(report.boundary_chains, 0);
+    assert!(
+        !report.shared_fact_ids.is_empty(),
+        "loop/shell report should expose shared topology fact ids"
+    );
 }
 
 #[test]
@@ -29,6 +33,10 @@ fn diagnostics_reports_open_box_boundary_cycle() {
     assert_eq!(report.boundary_cycles, 1);
     assert_eq!(report.boundary_chains, 0);
     assert_eq!(report.face_components, 1);
+    assert!(
+        !report.shared_fact_ids.is_empty(),
+        "open boundary diagnostics should retain shared topology evidence"
+    );
 }
 
 #[test]
@@ -61,6 +69,7 @@ fn diagnostics_reports_fragmented_shell_components() {
     assert!(report.findings.iter().any(|finding| {
         finding.kind == BrepTopologyDiagnosticKind::FragmentedShell
             && finding.severity == BrepTopologyDiagnosticSeverity::Warning
+            && !finding.shared_fact_ids.is_empty()
     }));
 }
 

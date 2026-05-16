@@ -103,6 +103,7 @@ fn write_generic_repair_artifact(
                 "repaired_edges": stage.repaired_edges,
                 "declined_edges": stage.declined_edges,
                 "max_endpoint_gap": stage.max_endpoint_gap,
+                "shared_fact_ids": stage.shared_fact_ids.iter().map(|id| id.0).collect::<Vec<_>>(),
                 "before": {
                     "incompatible_half_edges": stage.before.incompatible_half_edges,
                     "max_deviation": stage.before.max_deviation,
@@ -115,6 +116,7 @@ fn write_generic_repair_artifact(
                     "inspected_vertices": stage.vertex_stars.inspected_vertices,
                     "coherent_vertices": stage.vertex_stars.coherent_vertices,
                     "declined_vertices": stage.vertex_stars.declined_vertices,
+                    "shared_fact_ids": stage.shared_fact_ids.iter().map(|id| id.0).collect::<Vec<_>>(),
                     "decisions": stage.vertex_stars.decisions.iter().map(|decision| {
                         serde_json::json!({
                             "vertex": format!("{:?}", decision.vertex),
@@ -125,6 +127,7 @@ fn write_generic_repair_artifact(
                             "max_candidate_spread": decision.max_candidate_spread,
                             "max_preserved_incident_gap": decision.max_preserved_incident_gap,
                             "proposed_position": decision.proposed_position.map(|point| serde_json::json!([point.x, point.y, point.z])),
+                            "shared_fact_ids": decision.shared_fact_ids.iter().map(|id| id.0).collect::<Vec<_>>(),
                             "candidate_diagnostics": decision.candidate_diagnostics.iter().map(|diagnostic| serde_json::json!({
                                 "edge": format!("{:?}", diagnostic.edge),
                                 "half_edge": diagnostic.half_edge.map(|half_edge| format!("{half_edge:?}")),
@@ -133,6 +136,7 @@ fn write_generic_repair_artifact(
                                 "point": diagnostic.point.map(|point| serde_json::json!([point.x, point.y, point.z])),
                                 "anchor_motion": diagnostic.anchor_motion,
                                 "side_disagreement": diagnostic.side_disagreement,
+                                "shared_fact_ids": diagnostic.shared_fact_ids.iter().map(|id| id.0).collect::<Vec<_>>(),
                             })).collect::<Vec<_>>(),
                         })
                     }).collect::<Vec<_>>(),
@@ -143,6 +147,7 @@ fn write_generic_repair_artifact(
                         "outcome": format!("{:?}", decision.outcome),
                         "endpoint_gap": decision.endpoint_gap,
                         "residual_deviation": decision.residual_deviation,
+                        "shared_fact_ids": decision.shared_fact_ids.iter().map(|id| id.0).collect::<Vec<_>>(),
                         "evidence": {
                             "surface_a": decision.evidence.surface_a.map(|kind| format!("{kind:?}")),
                             "surface_b": decision.evidence.surface_b.map(|kind| format!("{kind:?}")),
@@ -177,10 +182,12 @@ fn write_generic_repair_artifact(
             "reconstructed_half_edges": stage.reconstructed_half_edges,
             "declined_half_edges": stage.declined_half_edges,
             "max_sampled_disagreement": stage.max_sampled_disagreement,
+            "shared_fact_ids": stage.shared_fact_ids.iter().map(|id| id.0).collect::<Vec<_>>(),
             "decisions": stage.decisions.iter().map(|decision| serde_json::json!({
                 "half_edge": format!("{:?}", decision.half_edge),
                 "outcome": format!("{:?}", decision.outcome),
                 "sampled_disagreement": decision.sampled_disagreement,
+                "shared_fact_ids": decision.shared_fact_ids.iter().map(|id| id.0).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
         })
     });

@@ -68,8 +68,9 @@ pub use trim::AddInnerLoopResult;
 /// Vertex-welding primitives for [`BRep`].
 mod brep_weld;
 
-/// Transactional BRep sewing for caller-supplied clean edge pairs.
 pub mod brep_sewing;
+/// Transactional BRep sewing for caller-supplied clean edge pairs.
+mod brep_sewing_facts;
 pub use brep_sewing::{
     BrepSewingDecline, BrepSewingDeclineReason, BrepSewingEdgePair, BrepSewingFailure,
     BrepSewingFailureReason, BrepSewingOptions, BrepSewingProvenance, BrepSewingReport,
@@ -108,8 +109,12 @@ pub use brep_repair_pipeline::{
 
 /// Shared read-only BRep repair knowledge vocabulary.
 pub mod brep_repair_knowledge;
+mod brep_repair_knowledge_authority;
 mod brep_repair_knowledge_collect;
+mod brep_repair_knowledge_diagnostics;
 mod brep_repair_knowledge_endpoint;
+mod brep_repair_knowledge_fact_build;
+mod brep_repair_knowledge_fact_record;
 mod brep_repair_knowledge_graph;
 mod brep_repair_knowledge_loop;
 mod brep_repair_knowledge_trim;
@@ -124,6 +129,9 @@ pub use brep_repair_knowledge::{
     BrepRepairSuggestedRepair, BrepRepairTopologyHandle, LocalToleranceEvidence,
     LocalToleranceSource, SemanticFeatureId,
 };
+pub use brep_repair_knowledge_authority::{
+    BrepRepairAuthorityFact, BrepRepairAuthorityKind, BrepRepairAuthorityReason,
+};
 pub use brep_repair_knowledge_collect::{
     collect_brep_adjacent_faces, collect_brep_endpoint_memberships, collect_brep_face_loops,
     collect_brep_loop_adjacencies, collect_brep_loop_facts,
@@ -132,11 +140,12 @@ pub use brep_repair_knowledge_endpoint::{BrepEndpointLoopMembership, BrepEndpoin
 pub use brep_repair_knowledge_loop::{BrepLoopAdjacencyFacts, BrepLoopFacts, BrepLoopKind};
 pub use brep_repair_knowledge_trim::{
     BrepTrimEndpointAgreementFacts, BrepTrimEndpointAgreementStatus,
-    collect_brep_trim_endpoint_agreements,
+    collect_brep_trim_endpoint_agreements, collect_brep_trim_endpoint_agreements_with_tolerance,
 };
 
 /// Transactional completion of missing BRep edge curves.
 pub mod brep_edge_curve_completion;
+mod brep_edge_curve_completion_facts;
 mod brep_edge_curve_completion_helpers;
 pub use brep_edge_curve_completion::{
     BrepEdgeCurveCompletionDecision, BrepEdgeCurveCompletionDeclineReason,
@@ -148,6 +157,7 @@ pub use brep_edge_curve_completion::{
 /// Transactional pcurve reconstruction from authoritative 3D edge curves.
 pub mod brep_curve_trim_reconstruction;
 mod brep_curve_trim_reconstruction_domain;
+mod brep_curve_trim_reconstruction_facts;
 mod brep_curve_trim_reconstruction_helpers;
 pub use brep_curve_trim_reconstruction::{
     BrepCurveTrimReconstructionDecision, BrepCurveTrimReconstructionDeclineReason,
@@ -160,9 +170,12 @@ pub use brep_curve_trim_reconstruction::{
 /// Direct edge-curve to adjacent face-surface diagnostics and repair.
 pub mod brep_edge_surface_compatibility;
 mod brep_edge_surface_compatibility_boundary;
+mod brep_edge_surface_compatibility_candidate_facts;
 mod brep_edge_surface_compatibility_commit;
+mod brep_edge_surface_compatibility_decline;
 mod brep_edge_surface_compatibility_diagnostics;
 mod brep_edge_surface_compatibility_helpers;
+mod brep_edge_surface_compatibility_shared_facts;
 mod brep_edge_surface_compatibility_trim_candidate;
 mod brep_edge_surface_compatibility_vertex_candidate;
 mod brep_edge_surface_compatibility_vertex_star;
@@ -206,6 +219,7 @@ pub use brep_export_quality::{
 
 /// Read-only loop and shell diagnostics for repair decisions.
 pub mod brep_shell_diagnostics;
+mod brep_shell_diagnostics_facts;
 mod brep_shell_diagnostics_helpers;
 pub use brep_shell_diagnostics::{
     BrepLoopShellDiagnosticReport, BrepTopologyDiagnosticFinding, BrepTopologyDiagnosticKind,

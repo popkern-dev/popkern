@@ -1,6 +1,6 @@
 //! Read-only vertex-star classification for coordinated edge/surface repair.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use crate::geometry::Point3;
 use crate::topology::brep_edge_surface_compatibility::{
@@ -12,7 +12,7 @@ use crate::topology::brep_edge_surface_compatibility_helpers::{
 use crate::topology::brep_edge_surface_compatibility_vertex_candidate::{
     BrepEdgeSurfaceVertexCandidateDiagnostic, proposed_vertex_position_for_edge,
 };
-use crate::topology::{BRep, EdgeHandle, VertexHandle};
+use crate::topology::{BRep, BrepRepairFactId, BrepRepairKnowledgeGraph, EdgeHandle, VertexHandle};
 
 /// Read-only classification of coordinated vertex-star repair opportunities.
 #[derive(Debug, Clone, PartialEq)]
@@ -46,6 +46,8 @@ pub struct BrepEdgeSurfaceVertexStarDecision {
     pub max_preserved_incident_gap: f64,
     /// Candidate vertex position when the star has a coherent proposal.
     pub proposed_position: Option<Point3>,
+    /// Shared repair-knowledge facts consumed while classifying this vertex star.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
     /// Per-edge, per-source candidate evidence collected without mutation.
     pub candidate_diagnostics: Vec<BrepEdgeSurfaceVertexCandidateDiagnostic>,
 }
@@ -76,6 +78,7 @@ pub enum BrepEdgeSurfaceVertexStarDeclineReason {
 
 pub(super) fn classify_edge_surface_vertex_stars(
     brep: &BRep,
+    knowledge: &BrepRepairKnowledgeGraph,
     report: &BrepEdgeSurfaceCompatibilityReport,
     options: BrepEdgeSurfaceCompatibilityOptions,
 ) -> BrepEdgeSurfaceVertexStarReport {
@@ -95,7 +98,7 @@ pub(super) fn classify_edge_surface_vertex_stars(
     let mut coherent_vertices = 0;
     let mut declined_vertices = 0;
     for vertex in vertices {
-        let decision = classify_vertex_star(brep, vertex, &incompatible_edges, options);
+        let decision = classify_vertex_star(brep, &knowledge, vertex, &incompatible_edges, options);
         match decision.outcome {
             BrepEdgeSurfaceVertexStarOutcome::CoherentCandidate => coherent_vertices += 1,
             BrepEdgeSurfaceVertexStarOutcome::Declined(_) => declined_vertices += 1,
@@ -112,6 +115,7 @@ pub(super) fn classify_edge_surface_vertex_stars(
 
 fn classify_vertex_star(
     brep: &BRep,
+    knowledge: &BrepRepairKnowledgeGraph,
     vertex: VertexHandle,
     incompatible_edges: &HashSet<EdgeHandle>,
     options: BrepEdgeSurfaceCompatibilityOptions,
@@ -135,12 +139,13 @@ fn classify_vertex_star(
             0.0,
             None,
             Vec::new(),
+            Vec::new(),
         );
     };
     let mut candidates = Vec::new();
     let mut candidate_diagnostics = Vec::new();
     for edge in &incompatible_incident_edges {
-        let candidate = proposed_vertex_position_for_edge(brep, *edge, vertex, options);
+        let candidate = proposed_vertex_position_for_edge(brep, knowledge, *edge, vertex, options);
         candidate_diagnostics.extend(candidate.diagnostics);
         if let Some(point) = candidate.point {
             candidates.push((*edge, point));
@@ -158,6 +163,7 @@ fn classify_vertex_star(
             0.0,
             0.0,
             None,
+            shared_fact_ids(&candidate_diagnostics),
             candidate_diagnostics,
         );
     }
@@ -201,6 +207,7 @@ fn classify_vertex_star(
         max_spread,
         max_preserved_gap,
         matches!(outcome, BrepEdgeSurfaceVertexStarOutcome::CoherentCandidate).then_some(centroid),
+        shared_fact_ids(&candidate_diagnostics),
         candidate_diagnostics,
     )
 }
@@ -228,6 +235,7 @@ fn vertex_decision(
     max_candidate_spread: f64,
     max_preserved_incident_gap: f64,
     proposed_position: Option<Point3>,
+    shared_fact_ids: Vec<BrepRepairFactId>,
     candidate_diagnostics: Vec<BrepEdgeSurfaceVertexCandidateDiagnostic>,
 ) -> BrepEdgeSurfaceVertexStarDecision {
     BrepEdgeSurfaceVertexStarDecision {
@@ -239,6 +247,17 @@ fn vertex_decision(
         max_candidate_spread,
         max_preserved_incident_gap,
         proposed_position,
+        shared_fact_ids,
         candidate_diagnostics,
     }
+}
+
+fn shared_fact_ids(
+    diagnostics: &[BrepEdgeSurfaceVertexCandidateDiagnostic],
+) -> Vec<BrepRepairFactId> {
+    let fact_ids = diagnostics
+        .iter()
+        .flat_map(|diagnostic| diagnostic.shared_fact_ids.iter().copied())
+        .collect::<BTreeSet<_>>();
+    fact_ids.into_iter().collect()
 }

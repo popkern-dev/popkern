@@ -182,6 +182,10 @@ fn migration_matrix_sewing_report_contract() {
     assert_eq!(result.report.remaining_boundary_edges, 6);
     assert_eq!(result.report.max_endpoint_gap, 0.0);
     assert_eq!(result.report.max_surface_gap, 0.0);
+    assert!(
+        !result.report.shared_fact_ids.is_empty(),
+        "sewing report should cite shared pair facts"
+    );
 }
 
 #[test]
@@ -337,6 +341,10 @@ fn sewing_declines_endpoint_gap_without_mutating_input() {
     assert_eq!(brep.boundary_edges.len(), 8);
     assert_eq!(result.report.accepted_pairs, 0);
     assert_eq!(result.report.declined_pairs.len(), 1);
+    assert!(
+        !result.report.declined_pairs[0].shared_fact_ids.is_empty(),
+        "declined sewing pair should cite shared pair facts"
+    );
     assert!(matches!(
         result.report.declined_pairs[0].reason,
         BrepSewingDeclineReason::EndpointGapExceeded { .. }

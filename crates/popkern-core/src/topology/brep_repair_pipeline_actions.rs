@@ -4,7 +4,7 @@ use crate::topology::{
     BrepCurveTrimReconstructionFailureReason, BrepEdgeCurveCompletionFailureReason,
     BrepEdgeSurfaceCompatibilityDeclineReason, BrepEdgeSurfaceCompatibilityRepairFailureReason,
     BrepEdgeSurfaceCompatibilityRepairOutcome, BrepEdgeSurfaceCompatibilityRepairReport,
-    BrepRepairActionDecision, BrepRepairActionOutcome, BrepRepairActionReport,
+    BrepRepairActionDecision, BrepRepairActionOutcome, BrepRepairActionReport, BrepRepairFactId,
     BrepRepairPipelineStage, BrepSewingDeclineReason, BrepSnapSewingDeclineReason,
     BrepSnapSewingFailureReason, BrepSnapSewingReport, BrepTrimRepairFailureReason,
 };
@@ -22,6 +22,7 @@ pub(super) fn append_snap_sewing_actions(
                 reason: None,
                 max_motion: report.max_vertex_motion,
                 max_deviation: clean.max_surface_gap.max(clean.max_endpoint_gap),
+                shared_fact_ids: clean.shared_fact_ids.clone(),
             });
         }
         for decline in &clean.declined_pairs {
@@ -35,6 +36,7 @@ pub(super) fn append_snap_sewing_actions(
                 reason: Some(sewing_decline_reason_label(&decline.reason).to_string()),
                 max_motion: report.max_vertex_motion,
                 max_deviation: clean.max_surface_gap.max(clean.max_endpoint_gap),
+                shared_fact_ids: decline.shared_fact_ids.clone(),
             });
         }
     }
@@ -49,6 +51,7 @@ pub(super) fn append_snap_sewing_actions(
             reason: Some(snap_decline_reason_label(&decline.reason)),
             max_motion: report.max_vertex_motion,
             max_deviation: 0.0,
+            shared_fact_ids: decline.shared_fact_ids.clone(),
         });
     }
 }
@@ -72,6 +75,7 @@ pub(super) fn append_edge_surface_actions(
             reason,
             max_motion: decision.endpoint_gap,
             max_deviation: decision.residual_deviation,
+            shared_fact_ids: decision.shared_fact_ids.clone(),
         });
     }
 }
@@ -187,6 +191,7 @@ pub(super) fn append_counted_stage_action(
     authored: usize,
     declined: usize,
     subject: &str,
+    shared_fact_ids: &[BrepRepairFactId],
 ) {
     for _ in 0..authored {
         actions.push(BrepRepairActionDecision {
@@ -196,6 +201,7 @@ pub(super) fn append_counted_stage_action(
             reason: None,
             max_motion: 0.0,
             max_deviation: 0.0,
+            shared_fact_ids: shared_fact_ids.to_vec(),
         });
     }
     for _ in 0..declined {
@@ -206,6 +212,7 @@ pub(super) fn append_counted_stage_action(
             reason: Some("declined".to_string()),
             max_motion: 0.0,
             max_deviation: 0.0,
+            shared_fact_ids: shared_fact_ids.to_vec(),
         });
     }
 }

@@ -182,6 +182,10 @@ fn snap_sewing_near_pair_moves_clone_then_welds() {
     assert_eq!(result.report.snapped_pairs, 1);
     assert_eq!(result.report.exact_pairs, 0);
     assert_eq!(result.report.declined_pairs.len(), 0);
+    assert!(
+        !result.report.shared_fact_ids.is_empty(),
+        "snap-sewing report should cite shared pair facts"
+    );
     assert!(result.report.max_vertex_motion > 0.0);
     assert!(result.report.max_vertex_motion <= 2.5e-5 + 1e-12);
     assert_eq!(result.brep.vertices.len(), 6);
@@ -209,6 +213,10 @@ fn snap_sewing_declines_rejected_classification() {
 
     assert_eq!(result.report.snapped_pairs, 0);
     assert_eq!(result.report.declined_pairs.len(), 1);
+    assert!(
+        !result.report.declined_pairs[0].shared_fact_ids.is_empty(),
+        "snap-sewing decline should cite shared pair facts"
+    );
     assert!(matches!(
         result.report.declined_pairs[0].reason,
         BrepSnapSewingDeclineReason::RejectedClassification(_)

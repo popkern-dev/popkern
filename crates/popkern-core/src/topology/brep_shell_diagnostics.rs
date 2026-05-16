@@ -2,9 +2,13 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::topology::brep_shell_diagnostics_facts::{
+    attach_loop_shell_fact_ids, loop_shell_knowledge,
+};
 use crate::topology::brep_shell_diagnostics_helpers::push_finding;
 use crate::topology::{
-    BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, ShellHandle, VertexHandle,
+    BRep, BrepRepairFactId, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, ShellHandle,
+    VertexHandle,
 };
 
 /// Severity of a loop/shell diagnostic finding.
@@ -62,6 +66,8 @@ pub struct BrepTopologyDiagnosticFinding {
     pub half_edge: Option<HalfEdgeHandle>,
     /// Human-readable repair/debug message.
     pub message: String,
+    /// Shared repair knowledge facts that explain this finding.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Aggregate loop/shell diagnostic report.
@@ -85,6 +91,8 @@ pub struct BrepLoopShellDiagnosticReport {
     pub radial_entries: usize,
     /// Structured findings.
     pub findings: Vec<BrepTopologyDiagnosticFinding>,
+    /// Shared repair knowledge facts referenced by this report.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 impl BrepLoopShellDiagnosticReport {
@@ -98,6 +106,7 @@ impl BrepLoopShellDiagnosticReport {
 
 /// Analyze loop and shell topology without mutating the BRep.
 pub fn analyze_brep_loop_shell_validity(brep: &BRep) -> BrepLoopShellDiagnosticReport {
+    let knowledge = loop_shell_knowledge(brep);
     let mut findings = Vec::new();
     let loop_walks = analyze_loops(brep, &mut findings);
     analyze_face_loop_ownership(brep, &mut findings);
@@ -106,7 +115,7 @@ pub fn analyze_brep_loop_shell_validity(brep: &BRep) -> BrepLoopShellDiagnosticR
     let boundary = analyze_boundary_graph(brep, &mut findings);
     analyze_radial_conflicts(brep, &mut findings);
 
-    BrepLoopShellDiagnosticReport {
+    let report = BrepLoopShellDiagnosticReport {
         loops: brep.loops.len(),
         shells: brep.shells.len(),
         faces: brep.faces.len(),
@@ -116,8 +125,10 @@ pub fn analyze_brep_loop_shell_validity(brep: &BRep) -> BrepLoopShellDiagnosticR
         face_components,
         radial_entries: brep.nonmanifold_radial.len(),
         findings,
+        shared_fact_ids: Vec::new(),
     }
-    .with_duplicate_half_edge_findings(loop_walks)
+    .with_duplicate_half_edge_findings(loop_walks);
+    attach_loop_shell_fact_ids(report, brep, &knowledge)
 }
 
 #[derive(Debug, Default)]
@@ -415,6 +426,7 @@ impl BrepLoopShellDiagnosticReport {
                         "half-edge {half_edge:?} appears in {} loop walks",
                         loops.len()
                     ),
+                    shared_fact_ids: Vec::new(),
                 });
             }
         }

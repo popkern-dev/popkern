@@ -111,6 +111,12 @@ fn pipeline_repairs_clean_non_pns_pair_transactionally() {
         result.report.actions.decisions[0].stage,
         BrepRepairPipelineStage::SnapSewing
     );
+    assert!(
+        !result.report.actions.decisions[0]
+            .shared_fact_ids
+            .is_empty(),
+        "pipeline action should preserve snap/sewing shared facts"
+    );
     assert_eq!(result.report.final_boundary_edges, Some(6));
     assert_eq!(result.brep.boundary_edges.len(), 6);
 }
@@ -161,6 +167,18 @@ fn pipeline_repairs_missing_trims_after_sewing_stage() {
     assert_eq!(result.report.snap_sewing.unwrap().classified_pairs, 0);
     let trim_report = result.report.trim_repair.unwrap();
     assert_eq!(trim_report.before.missing_pcurves, half_edges.len());
+    assert!(
+        result
+            .report
+            .actions
+            .decisions
+            .iter()
+            .any(
+                |decision| decision.stage == BrepRepairPipelineStage::TrimRepair
+                    && !decision.shared_fact_ids.is_empty()
+            ),
+        "trim repair actions should preserve shared facts"
+    );
     assert!(trim_report.after.is_clean());
     assert!(result.report.loop_shell.unwrap().has_no_errors());
     assert!(

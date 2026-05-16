@@ -3,7 +3,11 @@
 use std::collections::HashSet;
 
 use crate::geometry::SurfaceEval;
-use crate::topology::{BRep, FaceHandle, HalfEdgeHandle};
+use crate::topology::{
+    BRep, BrepRepairFactId, BrepRepairFactKind, BrepRepairKnowledgeGraph, BrepRepairKnowledgeScope,
+    BrepRepairScopeExpansion, BrepRepairScopeSeed, BrepRepairTopologyHandle, FaceHandle,
+    HalfEdgeHandle, LocalToleranceSource,
+};
 
 /// Options controlling trim diagnostics and repair.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -35,6 +39,8 @@ pub struct BrepTrimDiagnosticReport {
     pub max_sampled_deviation: f64,
     /// Per-half-edge findings.
     pub findings: Vec<BrepTrimFinding>,
+    /// Shared repair knowledge facts referenced by this report.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 impl BrepTrimDiagnosticReport {
@@ -55,6 +61,8 @@ pub struct BrepTrimFinding {
     pub kind: BrepTrimFindingKind,
     /// Maximum deviation attached to this finding.
     pub deviation: f64,
+    /// Shared repair knowledge facts that explain this finding.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Machine-readable trim finding kind.
@@ -88,6 +96,8 @@ pub struct BrepTrimRepairReport {
     pub repaired_faces: usize,
     /// Number of half-edges cleared and recomputed.
     pub repaired_half_edges: usize,
+    /// Shared repair knowledge facts referenced by this repair report.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Transactional trim repair failure.
@@ -110,6 +120,15 @@ pub enum BrepTrimRepairFailureReason {
 
 /// Analyze pcurves on surfaced faces without mutating the BRep.
 pub fn analyze_brep_trims(brep: &BRep, options: BrepTrimRepairOptions) -> BrepTrimDiagnosticReport {
+    let knowledge = trim_repair_knowledge(brep, options);
+    analyze_brep_trims_with_knowledge(brep, options, &knowledge)
+}
+
+fn analyze_brep_trims_with_knowledge(
+    brep: &BRep,
+    options: BrepTrimRepairOptions,
+    knowledge: &BrepRepairKnowledgeGraph,
+) -> BrepTrimDiagnosticReport {
     let mut report = BrepTrimDiagnosticReport {
         inspected_half_edges: 0,
         missing_pcurves: 0,
@@ -118,6 +137,7 @@ pub fn analyze_brep_trims(brep: &BRep, options: BrepTrimRepairOptions) -> BrepTr
         max_endpoint_deviation: 0.0,
         max_sampled_deviation: 0.0,
         findings: Vec::new(),
+        shared_fact_ids: Vec::new(),
     };
 
     for (face_handle, face) in &brep.faces {
@@ -126,9 +146,17 @@ pub fn analyze_brep_trims(brep: &BRep, options: BrepTrimRepairOptions) -> BrepTr
         }
         for half_edge in face_half_edges(brep, face_handle) {
             report.inspected_half_edges += 1;
-            inspect_half_edge_trim(brep, face_handle, half_edge, options, &mut report);
+            inspect_half_edge_trim(
+                brep,
+                face_handle,
+                half_edge,
+                options,
+                knowledge,
+                &mut report,
+            );
         }
     }
+    report.shared_fact_ids = shared_fact_ids_from_findings(&report.findings);
     report
 }
 
@@ -137,7 +165,21 @@ pub fn repair_brep_trims_transactionally(
     brep: &BRep,
     options: BrepTrimRepairOptions,
 ) -> Result<BrepTrimRepairResult, Box<BrepTrimRepairFailure>> {
-    let before = analyze_brep_trims(brep, options);
+    let knowledge = trim_repair_knowledge(brep, options);
+    let before = analyze_brep_trims_with_knowledge(brep, options, &knowledge);
+    if !knowledge.validate_fresh(brep) {
+        return Err(trim_failure(
+            BrepTrimRepairFailureReason::ValidationFailed(
+                "trim repair knowledge graph is stale before transaction".to_string(),
+            ),
+            before,
+            brep,
+            options,
+            0,
+            0,
+            Vec::new(),
+        ));
+    }
     let mut repaired = brep.clone();
     let mut affected_faces = HashSet::new();
     let mut affected_half_edges = HashSet::new();
@@ -159,17 +201,20 @@ pub fn repair_brep_trims_transactionally(
                 options,
                 affected_faces.len(),
                 affected_half_edges.len(),
+                before.shared_fact_ids.clone(),
             )
         })?;
     }
     repaired.fix_stale_pcurves();
 
     let after = analyze_brep_trims(&repaired, options);
+    let shared_fact_ids = before.shared_fact_ids.clone();
     let report = BrepTrimRepairReport {
         before,
         after,
         repaired_faces: affected_faces.len(),
         repaired_half_edges: affected_half_edges.len(),
+        shared_fact_ids,
     };
     if !report.after.is_clean() {
         return Err(Box::new(BrepTrimRepairFailure {
@@ -196,6 +241,7 @@ fn inspect_half_edge_trim(
     face: FaceHandle,
     half_edge: HalfEdgeHandle,
     options: BrepTrimRepairOptions,
+    knowledge: &BrepRepairKnowledgeGraph,
     report: &mut BrepTrimDiagnosticReport,
 ) {
     let Some(he) = brep.half_edges.get(half_edge) else {
@@ -208,6 +254,7 @@ fn inspect_half_edge_trim(
             half_edge,
             kind: BrepTrimFindingKind::MissingPcurve,
             deviation: f64::INFINITY,
+            shared_fact_ids: trim_finding_fact_ids(knowledge, face, half_edge),
         });
         return;
     }
@@ -221,6 +268,7 @@ fn inspect_half_edge_trim(
             half_edge,
             kind: BrepTrimFindingKind::StaleEndpoint,
             deviation: endpoint_deviation,
+            shared_fact_ids: trim_finding_fact_ids(knowledge, face, half_edge),
         });
     }
     let sampled_deviation = trim_sampled_deviation(brep, half_edge, options.samples).unwrap_or(0.0);
@@ -232,6 +280,7 @@ fn inspect_half_edge_trim(
             half_edge,
             kind: BrepTrimFindingKind::SampledMismatch,
             deviation: sampled_deviation,
+            shared_fact_ids: trim_finding_fact_ids(knowledge, face, half_edge),
         });
     }
 }
@@ -297,6 +346,7 @@ fn trim_failure(
     options: BrepTrimRepairOptions,
     repaired_faces: usize,
     repaired_half_edges: usize,
+    shared_fact_ids: Vec<BrepRepairFactId>,
 ) -> Box<BrepTrimRepairFailure> {
     Box::new(BrepTrimRepairFailure {
         reason,
@@ -305,8 +355,58 @@ fn trim_failure(
             after: analyze_brep_trims(brep, options),
             repaired_faces,
             repaired_half_edges,
+            shared_fact_ids,
         },
     })
+}
+
+fn trim_repair_knowledge(brep: &BRep, options: BrepTrimRepairOptions) -> BrepRepairKnowledgeGraph {
+    let mut scope = BrepRepairKnowledgeScope::seeds_only(
+        brep.faces
+            .keys()
+            .map(BrepRepairScopeSeed::Face)
+            .collect::<Vec<_>>(),
+    );
+    scope.expansion = BrepRepairScopeExpansion::AdjacentFaces;
+    BrepRepairKnowledgeGraph::build_with_local_tolerance(
+        brep,
+        scope,
+        options.endpoint_tolerance,
+        LocalToleranceSource::RepairPolicy,
+        options.samples,
+    )
+}
+
+fn trim_finding_fact_ids(
+    knowledge: &BrepRepairKnowledgeGraph,
+    face: FaceHandle,
+    half_edge: HalfEdgeHandle,
+) -> Vec<BrepRepairFactId> {
+    let mut ids = Vec::new();
+    ids.extend(knowledge.fact_ids_for_handle(
+        BrepRepairTopologyHandle::HalfEdge(half_edge),
+        BrepRepairFactKind::TrimEndpointAgreement,
+    ));
+    ids.extend(knowledge.fact_ids_for_handle(
+        BrepRepairTopologyHandle::HalfEdge(half_edge),
+        BrepRepairFactKind::Authority,
+    ));
+    if let Some(surface_boundary) = knowledge.surface_boundary_fact(face, half_edge) {
+        ids.push(surface_boundary.header.id);
+    }
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+fn shared_fact_ids_from_findings(findings: &[BrepTrimFinding]) -> Vec<BrepRepairFactId> {
+    let mut ids = findings
+        .iter()
+        .flat_map(|finding| finding.shared_fact_ids.iter().copied())
+        .collect::<Vec<_>>();
+    ids.sort();
+    ids.dedup();
+    ids
 }
 
 #[cfg(test)]

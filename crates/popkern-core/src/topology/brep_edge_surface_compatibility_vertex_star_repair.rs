@@ -11,10 +11,11 @@ use crate::topology::brep_edge_surface_compatibility_helpers::{
     edge_vertices, move_vertex_with_tolerance,
 };
 use crate::topology::brep_edge_surface_compatibility_vertex_star::BrepEdgeSurfaceVertexStarOutcome;
-use crate::topology::{BRep, EdgeHandle};
+use crate::topology::{BRep, BrepRepairKnowledgeGraph, EdgeHandle};
 
 pub(super) fn repair_coherent_vertex_stars(
     brep: &mut BRep,
+    knowledge: &BrepRepairKnowledgeGraph,
     report: &mut BrepEdgeSurfaceCompatibilityRepairReport,
     options: BrepEdgeSurfaceCompatibilityOptions,
 ) {
@@ -64,7 +65,7 @@ pub(super) fn repair_coherent_vertex_stars(
     let mut local_decisions = Vec::new();
     for edge in &affected_edges {
         if edge_is_currently_incompatible(brep, *edge, options) {
-            local_decisions.push(repair_edge(brep, *edge, options));
+            local_decisions.push(repair_edge(brep, knowledge, *edge, options));
         }
     }
     let local_report = analyze_brep_edge_surface_compatibility(brep, options);
