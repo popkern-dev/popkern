@@ -227,6 +227,19 @@ fn assert_weld_scope_covers_candidates(
         !report.scope.faces.is_empty() && !report.scope.loops.is_empty(),
         "{label} weld scope should include adjacent loops and faces"
     );
+    assert_eq!(
+        report.pre_repair_scoped_quality.edges,
+        report.scope.edges.len(),
+        "{label} scoped quality should measure every scoped edge"
+    );
+    assert_eq!(
+        report.pre_repair_scoped_quality.unavailable_edges, 0,
+        "{label} scoped quality should not reference stale pre-repair edges"
+    );
+    assert!(
+        report.pre_repair_scoped_quality.pcurve_blockers <= report.pre_repair_scoped_quality.edges,
+        "{label} scoped pcurve blockers cannot exceed scoped edges"
+    );
 }
 
 fn assert_weld_timing_is_recorded(

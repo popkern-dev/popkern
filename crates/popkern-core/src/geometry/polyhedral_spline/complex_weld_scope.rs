@@ -1,7 +1,8 @@
 use std::collections::{BTreeSet, HashMap};
 
 use crate::topology::{
-    BRep, BrepSewingEdgePair, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle,
+    BRep, BrepExportQualityScope, BrepSewingEdgePair, EdgeHandle, FaceHandle, HalfEdgeHandle,
+    LoopHandle, VertexHandle,
 };
 
 /// Pre-repair topology scope affected by PnS boundary welding candidates.
@@ -14,6 +15,18 @@ pub struct PolyhedralBoundaryWeldScope {
     pub half_edges: Vec<HalfEdgeHandle>,
     pub loops: Vec<LoopHandle>,
     pub faces: Vec<FaceHandle>,
+}
+
+impl PolyhedralBoundaryWeldScope {
+    pub fn export_quality_scope(&self) -> BrepExportQualityScope {
+        BrepExportQualityScope {
+            edges: self.edges.clone(),
+            vertices: self.vertices.clone(),
+            half_edges: self.half_edges.clone(),
+            loops: self.loops.clone(),
+            faces: self.faces.clone(),
+        }
+    }
 }
 
 pub(super) fn build_boundary_weld_scope(

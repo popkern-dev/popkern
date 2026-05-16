@@ -10,11 +10,11 @@ use crate::topology::{
     BrepEdgeCurveCompletionDeclineReason, BrepEdgeCurveCompletionOptions,
     BrepEdgeCurveCompletionOutcome, BrepEdgeCurveCompletionReport,
     BrepEdgeSurfaceCompatibilityOptions, BrepExportQualityOptions, BrepRepairActionArtifact,
-    BrepRepairPipelineOptions, BrepSewingClassificationOptions, BrepSewingEdgePair,
-    BrepSewingOptions, BrepSewingProvenance, BrepSnapSewingOptions, BrepTopologyOutputPolicy,
-    BrepTrimRepairOptions, EdgeHandle, FaceHandle, HalfEdgeHandle, Shell, ShellHandle, Solid,
-    analyze_brep_export_quality, build_brep_repair_action_artifact, edge_segment,
-    repair_brep_boundary_edges_transactionally,
+    BrepRepairPipelineOptions, BrepScopedExportQualityReport, BrepSewingClassificationOptions,
+    BrepSewingEdgePair, BrepSewingOptions, BrepSewingProvenance, BrepSnapSewingOptions,
+    BrepTopologyOutputPolicy, BrepTrimRepairOptions, EdgeHandle, FaceHandle, HalfEdgeHandle, Shell,
+    ShellHandle, Solid, analyze_brep_export_quality, analyze_scoped_brep_export_quality,
+    build_brep_repair_action_artifact, edge_segment, repair_brep_boundary_edges_transactionally,
 };
 
 #[derive(Debug, Clone)]
@@ -48,6 +48,8 @@ pub struct PolyhedralBoundaryWeldReport {
     pub trim_blockers: usize,
     /// Pre-repair topology scope touched by accepted weld candidates.
     pub scope: PolyhedralBoundaryWeldScope,
+    /// Edge-local export-quality diagnostics over the pre-repair weld scope.
+    pub pre_repair_scoped_quality: BrepScopedExportQualityReport,
     pub timing: PolyhedralBoundaryWeldTiming,
 }
 
@@ -119,6 +121,11 @@ pub fn weld_clean_surface_complex_boundaries(
         }
     }
     let scope = build_boundary_weld_scope(&brep, &candidates, &assembled.edge_component);
+    let pre_repair_scoped_quality = analyze_scoped_brep_export_quality(
+        &brep,
+        &scope.export_quality_scope(),
+        export_quality_options(options),
+    );
     let candidates_at = Instant::now();
 
     let result =
@@ -183,18 +190,7 @@ pub fn weld_clean_surface_complex_boundaries(
             })
             .count()
     });
-    let export_quality = analyze_brep_export_quality(
-        &result.brep,
-        BrepExportQualityOptions {
-            topology_output: BrepTopologyOutputPolicy::OpenSheet,
-            trim: trim_options(options),
-            require_edge_curves: true,
-            allow_collapsed_trim_edge_curves: true,
-            max_pcurve_deviation: Some(options.c0_tolerance),
-            max_edge_surface_deviation: Some(options.c0_tolerance),
-            validate_brep: true,
-        },
-    );
+    let export_quality = analyze_brep_export_quality(&result.brep, export_quality_options(options));
     let quality_at = Instant::now();
     let export_blockers = export_quality.topology_blockers
         + export_quality.trim_blockers
@@ -234,6 +230,7 @@ pub fn weld_clean_surface_complex_boundaries(
         missing_edge_curves: export_quality.missing_edge_curves,
         trim_blockers: export_quality.trim_blockers,
         scope,
+        pre_repair_scoped_quality,
         timing: PolyhedralBoundaryWeldTiming {
             assemble_ms: elapsed_ms(assembled_at.duration_since(started_at)),
             candidate_match_ms: elapsed_ms(candidates_at.duration_since(assembled_at)),
@@ -318,6 +315,18 @@ fn trim_options(options: PolyhedralCoverageOptions) -> BrepTrimRepairOptions {
         sampled_tolerance: options.c0_tolerance,
         samples: options.samples,
         validate_output: true,
+    }
+}
+
+fn export_quality_options(options: PolyhedralCoverageOptions) -> BrepExportQualityOptions {
+    BrepExportQualityOptions {
+        topology_output: BrepTopologyOutputPolicy::OpenSheet,
+        trim: trim_options(options),
+        require_edge_curves: true,
+        allow_collapsed_trim_edge_curves: true,
+        max_pcurve_deviation: Some(options.c0_tolerance),
+        max_edge_surface_deviation: Some(options.c0_tolerance),
+        validate_brep: true,
     }
 }
 

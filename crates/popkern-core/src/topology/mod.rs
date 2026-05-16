@@ -220,10 +220,14 @@ pub use brep_degenerate_edges::{
 
 /// Read-only BRep export-quality diagnostics.
 pub mod brep_export_quality;
+mod brep_export_quality_scope;
 pub use brep_export_quality::{
     BrepBoundaryEdgeArtifact, BrepExportBlockerSummary, BrepExportQualityArtifact,
     BrepExportQualityOptions, BrepExportQualityReport, BrepExportQualitySummary,
     BrepExportReadiness, analyze_brep_export_quality, build_brep_export_quality_artifact,
+};
+pub use brep_export_quality_scope::{
+    BrepExportQualityScope, BrepScopedExportQualityReport, analyze_scoped_brep_export_quality,
 };
 
 /// Read-only loop and shell diagnostics for repair decisions.
