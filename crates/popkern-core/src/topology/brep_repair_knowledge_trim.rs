@@ -200,4 +200,37 @@ mod tests {
         assert!(label.contains("direct=0.000e0"), "{label}");
         assert!(label.contains("selected=0.000e0"), "{label}");
     }
+
+    #[test]
+    fn migration_matrix_non_apex_trim_endpoint_fixture_reads_shared_fact() {
+        let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
+        let half_edge = brep.half_edges.keys().next().expect("cube has half-edge");
+        let half_edge_data = &brep.half_edges[half_edge];
+        let adjacent_half_edge = half_edge_data.twin;
+        let adjacent_data = &brep.half_edges[adjacent_half_edge];
+        let adjacency = BrepLoopAdjacencyFacts {
+            face: brep.loops[half_edge_data.loop_].face,
+            loop_handle: half_edge_data.loop_,
+            half_edge,
+            adjacent_face: brep.loops[adjacent_data.loop_].face,
+            adjacent_loop: adjacent_data.loop_,
+            adjacent_half_edge,
+        };
+
+        let facts = collect_brep_trim_endpoint_agreements(&brep, &[adjacency]);
+
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0].half_edge, half_edge);
+        assert_eq!(facts[0].adjacent_half_edge, adjacent_half_edge);
+        assert!(
+            facts[0].selected_disagreement.is_finite()
+                || matches!(
+                    facts[0].status,
+                    BrepTrimEndpointAgreementStatus::MissingSurface
+                        | BrepTrimEndpointAgreementStatus::MissingPcurve
+                        | BrepTrimEndpointAgreementStatus::MissingTopology
+                        | BrepTrimEndpointAgreementStatus::EvaluationFailed
+                )
+        );
+    }
 }
