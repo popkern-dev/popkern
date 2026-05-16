@@ -11,6 +11,8 @@ mod contract;
 mod corner_apex_diagnostics;
 mod cylinder_mediated_support;
 mod cylinder_mediated_support_apply;
+mod cylinder_mediated_support_facts;
+mod cylinder_mediated_support_labels;
 mod cylinder_mediated_support_partition;
 mod face_boundary_fragment;
 mod face_boundary_retire;

@@ -114,6 +114,7 @@ fn authoring_segment(
         context_owner_faces: vec![],
         owner_repair_spans: vec![],
         requirement: CylinderMediatedSupportContinuationSegmentRequirement::BoundaryBridge,
+        source_fact_ids: Vec::new(),
     }
 }
 

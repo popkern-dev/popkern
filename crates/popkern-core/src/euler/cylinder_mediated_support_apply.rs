@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::error::CoreError;
-use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
+use crate::topology::{BRep, BrepRepairFactId, FaceHandle, HalfEdgeHandle, LoopHandle};
 
 use super::contract::EulerTopologyCounts;
 use super::cylinder_mediated_support::{
@@ -37,6 +37,7 @@ mod apply_shared_start_bridge_mutation;
 #[path = "cylinder_mediated_support_apply_shared_start_cycle_mix.rs"]
 mod apply_shared_start_cycle_mix;
 
+use super::cylinder_mediated_support_facts::segment_source_fact_ids;
 use apply_bridge_cycles::derive_segment_bridge_cycle_operands;
 use apply_candidate_coverage::CylinderMediatedCandidateCoverage;
 use apply_cylinder_resource_blockers::expose_cylinder_resource_blockers;
@@ -93,6 +94,8 @@ pub struct CylinderMediatedSupportContinuationSegmentAuthoringPlan {
     pub owner_repair_spans: Vec<CylinderMediatedOwnerRepairSpan>,
     /// Required topology authoring strategy for this segment.
     pub requirement: CylinderMediatedSupportContinuationSegmentRequirement,
+    /// Shared repair knowledge facts used to classify this segment.
+    pub source_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Unsupported owner face observed on a partition segment.
@@ -311,6 +314,7 @@ impl BRep {
                     owner_repair_spans: Vec::new(),
                     requirement:
                         CylinderMediatedSupportContinuationSegmentRequirement::BoundaryBridge,
+                    source_fact_ids: segment_source_fact_ids(self, &segment.half_edges),
                 };
                 for &half_edge in &segment.half_edges {
                     self.classify_segment_half_edge(plan, &mut segment_plan, half_edge)?;

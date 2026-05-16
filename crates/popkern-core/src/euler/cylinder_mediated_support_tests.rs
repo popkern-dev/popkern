@@ -22,6 +22,10 @@ fn preflight_accepts_cylinder_mediated_operands() {
             reason: "cylinder-mediated-support-continuation-operator-required"
         }
     );
+    assert!(
+        !plan.source_fact_ids.is_empty(),
+        "side-support preflight should cite shared BRep repair facts"
+    );
     assert_eq!(
         plan.outside_interval,
         vec![
@@ -114,6 +118,17 @@ fn batch_preflight_reports_overlapping_outside_intervals() {
         .expect("batch preflight validates independently valid requests");
 
     assert_eq!(batch.plans.len(), 2);
+    assert!(
+        !batch.source_fact_ids.is_empty(),
+        "side-support batch plan should aggregate shared BRep repair facts"
+    );
+    assert!(
+        batch
+            .plans
+            .iter()
+            .all(|plan| !plan.source_fact_ids.is_empty()),
+        "each side-support plan should preserve request source facts"
+    );
     assert_eq!(
         batch.expected_delta,
         CylinderMediatedSupportContinuationAggregateDelta::Known {

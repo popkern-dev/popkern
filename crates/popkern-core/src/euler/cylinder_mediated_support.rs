@@ -1,7 +1,10 @@
 //! Preflight contract for cylinder-mediated support continuation.
 use crate::error::CoreError;
-use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
+use crate::topology::{
+    BRep, BrepRepairFactId, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle,
+};
 
+use super::cylinder_mediated_support_facts::{batch_source_fact_ids, request_source_fact_ids};
 use super::cylinder_mediated_support_partition::{
     CylinderMediatedOutsideIntervalPartition, aggregate_delta_from_partition,
     outside_interval_interaction, partition_outside_intervals,
@@ -55,6 +58,8 @@ pub struct CylinderMediatedSupportContinuationPlan {
     pub outside_complement_interval: Vec<HalfEdgeHandle>,
     /// Topology delta is unknown until the mutating operator is accepted.
     pub expected_delta: CylinderMediatedSupportContinuationDelta,
+    /// Shared repair knowledge facts used to validate this planning candidate.
+    pub source_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Preflighted aggregate plan for cylinder-mediated support continuations.
@@ -68,6 +73,8 @@ pub struct CylinderMediatedSupportContinuationBatchPlan {
     pub expected_delta: CylinderMediatedSupportContinuationAggregateDelta,
     /// Interaction between selected outside/cap intervals.
     pub outside_interval_interaction: CylinderMediatedOutsideIntervalInteraction,
+    /// Shared repair knowledge facts used to validate the aggregate plan.
+    pub source_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Relationship between selected outside/cap intervals in an aggregate plan.
@@ -111,21 +118,6 @@ pub enum CylinderMediatedSupportContinuationAggregateDelta {
         /// Stable diagnostic reason.
         reason: &'static str,
     },
-}
-
-impl CylinderMediatedSupportContinuationAggregateDelta {
-    /// Stable diagnostic label for operator reports and plan logs.
-    pub fn diagnostic_label(&self) -> String {
-        match self {
-            Self::Known {
-                vertices,
-                edges,
-                faces,
-                loops,
-            } => format!("dV={vertices} dE={edges} dF={faces} dL={loops}"),
-            Self::Unknown { reason } => format!("unknown reason={reason}"),
-        }
-    }
 }
 
 impl BRep {
@@ -192,6 +184,7 @@ impl BRep {
             request.cylinder_face,
             &request.context_owner_faces,
         )?;
+        let source_fact_ids = request_source_fact_ids(self, &request);
         Ok(CylinderMediatedSupportContinuationPlan {
             request,
             outside_interval: outside_intervals.selected,
@@ -199,6 +192,7 @@ impl BRep {
             expected_delta: CylinderMediatedSupportContinuationDelta::Unknown {
                 reason: "cylinder-mediated-support-continuation-operator-required",
             },
+            source_fact_ids,
         })
     }
 
@@ -223,6 +217,12 @@ impl BRep {
         let outside_interval_partition = partition_outside_intervals(self, &plans)?;
         let outside_interval_interaction = outside_interval_interaction(&plans)?;
         Ok(CylinderMediatedSupportContinuationBatchPlan {
+            source_fact_ids: batch_source_fact_ids(
+                &plans
+                    .iter()
+                    .map(|plan| plan.source_fact_ids.clone())
+                    .collect::<Vec<_>>(),
+            ),
             plans,
             expected_delta: aggregate_delta_from_partition(&outside_interval_partition),
             outside_interval_partition,

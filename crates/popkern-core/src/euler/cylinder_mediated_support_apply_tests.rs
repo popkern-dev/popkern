@@ -28,6 +28,13 @@ fn mutator_boundary_refuses_without_mutating_topology() {
         "{err}"
     );
     assert!(detail.contains("segment_authoring=segments=3"), "{err}");
+    let segment_authoring = brep.segment_authoring_plan(&batch).unwrap();
+    assert!(
+        segment_authoring
+            .iter()
+            .all(|segment| !segment.source_fact_ids.is_empty()),
+        "side-support segment authoring should cite shared BRep repair facts"
+    );
     assert!(
         detail.contains("authored_delta=dV=0 dE=8 dF=3 dL=3"),
         "{err}"
