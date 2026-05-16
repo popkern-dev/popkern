@@ -106,6 +106,19 @@ pub use brep_repair_pipeline::{
     BrepTopologyOutputPolicy, repair_brep_boundary_edges_transactionally,
 };
 
+/// Shared read-only BRep repair knowledge vocabulary.
+pub mod brep_repair_knowledge;
+pub use brep_repair_knowledge::{
+    BREP_REPAIR_KNOWLEDGE_SCHEMA_VERSION, BrepRepairDiagnostic, BrepRepairDiagnosticCode,
+    BrepRepairDiagnosticExport, BrepRepairDiagnosticId, BrepRepairDiagnosticSeverity,
+    BrepRepairEvaluationLevel, BrepRepairFact, BrepRepairFactDependencies, BrepRepairFactHeader,
+    BrepRepairFactId, BrepRepairFactKind, BrepRepairFactState, BrepRepairKnowledgeGraph,
+    BrepRepairKnowledgeOptions, BrepRepairKnowledgeSchema, BrepRepairKnowledgeScope,
+    BrepRepairProvenanceLabel, BrepRepairScopeExpansion, BrepRepairScopeHandles,
+    BrepRepairScopeSeed, BrepRepairSuggestedRepair, BrepRepairTopologyHandle,
+    LocalToleranceEvidence, LocalToleranceSource, SemanticFeatureId,
+};
+
 /// Transactional completion of missing BRep edge curves.
 pub mod brep_edge_curve_completion;
 mod brep_edge_curve_completion_helpers;
