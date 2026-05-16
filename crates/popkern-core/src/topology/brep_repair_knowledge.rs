@@ -7,8 +7,9 @@
 
 use crate::naming::NameId;
 use crate::topology::{
-    BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, ShellHandle, SolidHandle,
-    VertexHandle,
+    BRep, BrepEndpointMembershipFacts, BrepLoopAdjacencyFacts, BrepLoopFacts,
+    BrepTrimEndpointAgreementFacts, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle,
+    ShellHandle, SolidHandle, VertexHandle,
 };
 
 /// Current schema version for exported BRep repair knowledge artifacts.
@@ -29,8 +30,18 @@ pub struct BrepRepairKnowledgeSchema {
 pub struct BrepRepairKnowledgeGraph {
     /// Schema version used by this graph.
     pub schema: BrepRepairKnowledgeSchema,
+    /// Coarse BRep freshness fingerprint.
+    pub fingerprint: BrepKnowledgeFingerprint,
     /// Scope requested by the caller.
     pub scope: BrepRepairKnowledgeScope,
+    /// Loop topology facts collected in the scope.
+    pub loops: Vec<BrepLoopFacts>,
+    /// Loop adjacency facts collected in the scope.
+    pub loop_adjacencies: Vec<BrepLoopAdjacencyFacts>,
+    /// Endpoint membership facts collected in the scope.
+    pub endpoint_memberships: Vec<BrepEndpointMembershipFacts>,
+    /// Trim endpoint agreement facts collected in the scope.
+    pub trim_endpoint_agreements: Vec<BrepTrimEndpointAgreementFacts>,
     /// Facts collected or derived inside the scope.
     pub facts: Vec<BrepRepairFact>,
     /// Diagnostics rendered from facts or scope failures.
@@ -81,7 +92,19 @@ impl BrepRepairKnowledgeGraph {
     pub fn empty(scope: BrepRepairKnowledgeScope) -> Self {
         Self {
             schema: BREP_REPAIR_KNOWLEDGE_SCHEMA_VERSION,
+            fingerprint: BrepKnowledgeFingerprint {
+                vertices: 0,
+                edges: 0,
+                half_edges: 0,
+                loops: 0,
+                faces: 0,
+                shells: 0,
+            },
             scope,
+            loops: Vec::new(),
+            loop_adjacencies: Vec::new(),
+            endpoint_memberships: Vec::new(),
+            trim_endpoint_agreements: Vec::new(),
             facts: Vec::new(),
             diagnostics: Vec::new(),
         }

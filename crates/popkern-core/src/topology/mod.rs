@@ -110,6 +110,7 @@ pub use brep_repair_pipeline::{
 pub mod brep_repair_knowledge;
 mod brep_repair_knowledge_collect;
 mod brep_repair_knowledge_endpoint;
+mod brep_repair_knowledge_graph;
 mod brep_repair_knowledge_loop;
 mod brep_repair_knowledge_trim;
 pub use brep_repair_knowledge::{
