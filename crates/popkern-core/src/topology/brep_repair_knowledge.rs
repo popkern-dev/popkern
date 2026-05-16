@@ -7,7 +7,8 @@
 
 use crate::naming::NameId;
 use crate::topology::{
-    EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, ShellHandle, SolidHandle, VertexHandle,
+    BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, ShellHandle, SolidHandle,
+    VertexHandle,
 };
 
 /// Current schema version for exported BRep repair knowledge artifacts.
@@ -34,6 +35,45 @@ pub struct BrepRepairKnowledgeGraph {
     pub facts: Vec<BrepRepairFact>,
     /// Diagnostics rendered from facts or scope failures.
     pub diagnostics: Vec<BrepRepairDiagnostic>,
+}
+
+/// Coarse BRep freshness fingerprint used to reject stale knowledge snapshots.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BrepKnowledgeFingerprint {
+    /// Vertex count at capture.
+    pub vertices: usize,
+    /// Edge count at capture.
+    pub edges: usize,
+    /// Half-edge count at capture.
+    pub half_edges: usize,
+    /// Loop count at capture.
+    pub loops: usize,
+    /// Face count at capture.
+    pub faces: usize,
+    /// Shell count at capture.
+    pub shells: usize,
+}
+
+impl BrepKnowledgeFingerprint {
+    /// Capture a coarse freshness fingerprint from a BRep.
+    pub fn from_brep(brep: &BRep) -> Self {
+        Self {
+            vertices: brep.vertices.len(),
+            edges: brep.edges.len(),
+            half_edges: brep.half_edges.len(),
+            loops: brep.loops.len(),
+            faces: brep.faces.len(),
+            shells: brep.shells.len(),
+        }
+    }
+
+    /// Compact legacy-compatible diagnostic label.
+    pub fn diagnostic_label(self) -> String {
+        format!(
+            "V={} E={} HE={} L={} F={} S={}",
+            self.vertices, self.edges, self.half_edges, self.loops, self.faces, self.shells
+        )
+    }
 }
 
 impl BrepRepairKnowledgeGraph {
@@ -395,6 +435,14 @@ mod tests {
         assert_eq!(graph.scope, scope);
         assert!(graph.facts.is_empty());
         assert!(graph.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn fingerprint_label_matches_legacy_apex_format() {
+        let brep = BRep::new(crate::tolerance::Tolerance::default());
+        let fingerprint = BrepKnowledgeFingerprint::from_brep(&brep);
+
+        assert_eq!(fingerprint.diagnostic_label(), "V=0 E=0 HE=0 L=0 F=0 S=0");
     }
 
     #[test]

@@ -2,7 +2,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
+use popkern_core::topology::{
+    BRep, BrepKnowledgeFingerprint, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle,
+};
 
 use super::repeated_apex_topology_knowledge_collect::{
     collect_adjacent_faces, collect_face_loops, collect_loop_adjacencies,
@@ -14,7 +16,7 @@ use super::repeated_apex_trim_subcomplex::{TrimRewriteIntentFacts, TrimRewriteSu
 
 #[derive(Clone, Debug)]
 pub(super) struct TopologyKnowledgeGraph {
-    fingerprint: TopologyFingerprint,
+    fingerprint: BrepKnowledgeFingerprint,
     context_faces: Vec<FaceHandle>,
     support_families: Vec<SupportFamilyFacts>,
     loop_adjacencies: Vec<LoopAdjacencyFacts>,
@@ -22,36 +24,6 @@ pub(super) struct TopologyKnowledgeGraph {
     endpoint_memberships: Vec<EndpointMembershipFacts>,
     trim_intents: Vec<TrimRewriteIntentFacts>,
     counters: KnowledgeGraphCounters,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct TopologyFingerprint {
-    vertices: usize,
-    edges: usize,
-    half_edges: usize,
-    loops: usize,
-    faces: usize,
-    shells: usize,
-}
-
-impl TopologyFingerprint {
-    pub(super) fn from_brep(brep: &BRep) -> Self {
-        Self {
-            vertices: brep.vertices.len(),
-            edges: brep.edges.len(),
-            half_edges: brep.half_edges.len(),
-            loops: brep.loops.len(),
-            faces: brep.faces.len(),
-            shells: brep.shells.len(),
-        }
-    }
-
-    pub(super) fn diagnostic_label(self) -> String {
-        format!(
-            "V={} E={} HE={} L={} F={} S={}",
-            self.vertices, self.edges, self.half_edges, self.loops, self.faces, self.shells
-        )
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -178,7 +150,7 @@ impl TopologyKnowledgeGraph {
             .collect();
 
         Self {
-            fingerprint: TopologyFingerprint::from_brep(brep),
+            fingerprint: BrepKnowledgeFingerprint::from_brep(brep),
             context_faces,
             support_families,
             loop_adjacencies,
@@ -196,7 +168,7 @@ impl TopologyKnowledgeGraph {
     }
 
     pub(super) fn validate_fresh(&self, brep: &BRep) -> bool {
-        self.fingerprint == TopologyFingerprint::from_brep(brep)
+        self.fingerprint == BrepKnowledgeFingerprint::from_brep(brep)
     }
 
     pub(super) fn support_families(&self) -> impl Iterator<Item = &SupportFamilyFacts> {
