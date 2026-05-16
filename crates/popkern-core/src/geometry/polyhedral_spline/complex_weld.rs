@@ -323,7 +323,7 @@ fn pipeline_options(options: PolyhedralCoverageOptions) -> BrepRepairPipelineOpt
         complete_edge_curves: true,
         reconstruct_curve_trims: false,
         repair_edge_surfaces: false,
-        repair_trims: true,
+        repair_trims: false,
         diagnose_loop_shell: true,
         topology_output: BrepTopologyOutputPolicy::OpenSheet,
     }
