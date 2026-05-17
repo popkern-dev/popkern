@@ -1,10 +1,12 @@
 use popkern_core::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeOptions,
     BrepEdgeCurveCompletionOptions, BrepEdgeSurfaceCompatibilityOptions,
-    BrepEdgeSurfaceCompatibilityRepairReport, BrepEdgeSurfaceKind, BrepRepairPipelineOptions,
-    BrepSewingClassificationOptions, BrepSewingOptions, BrepSnapSewingOptions,
-    BrepTopologyOutputPolicy, BrepTrimRepairOptions, analyze_brep_edge_surface_compatibility,
-    analyze_brep_export_quality, repair_brep_boundary_edges_transactionally,
+    BrepEdgeSurfaceCompatibilityRepairReport, BrepEdgeSurfaceKind,
+    BrepEdgeSurfaceVertexCandidateOutcome, BrepEdgeSurfaceVertexCandidateSource,
+    BrepRepairPipelineOptions, BrepSewingClassificationOptions, BrepSewingOptions,
+    BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
+    analyze_brep_edge_surface_compatibility, analyze_brep_export_quality,
+    repair_brep_boundary_edges_transactionally,
 };
 use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_io::{
@@ -67,6 +69,10 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
             "{:#?}",
             edge_surface_repair_summary(&repaired.report.edge_surface_compatibility)
         );
+        eprintln!(
+            "{:#?}",
+            vertex_star_repair_summary(&repaired.report.edge_surface_compatibility)
+        );
     }
     let export_input = repaired.brep;
     let bytes = export_step(&step_document(&export_input), &StepExportOptions::default())
@@ -119,6 +125,70 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         classification, "construction_geometry_issue",
         "unexpected Gregory STEP fidelity blocker classification; states: {states:#?}"
     );
+}
+
+fn vertex_star_repair_summary(
+    report: &Option<BrepEdgeSurfaceCompatibilityRepairReport>,
+) -> Vec<String> {
+    let Some(report) = report else {
+        return vec!["vertex_star_repair: not_run".to_string()];
+    };
+    report
+        .vertex_stars
+        .decisions
+        .iter()
+        .filter(|star| {
+            star.candidate_diagnostics.iter().any(|diagnostic| {
+                matches!(
+                    diagnostic.source,
+                    BrepEdgeSurfaceVertexCandidateSource::SurfaceIntersection
+                        | BrepEdgeSurfaceVertexCandidateSource::SideAgreement
+                )
+            })
+        })
+        .map(|star| {
+            let accepted = star
+                .candidate_diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.point.is_some())
+                .count();
+            let failures = star
+                .candidate_diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    !matches!(
+                        diagnostic.outcome,
+                        BrepEdgeSurfaceVertexCandidateOutcome::Accepted
+                            | BrepEdgeSurfaceVertexCandidateOutcome::ReconciledEndpoint
+                    )
+                })
+                .map(|diagnostic| {
+                    format!(
+                        "{:?}:{:?}:{:?}/motion={:.6}/spread={:.6}/point={:?}",
+                        diagnostic.edge,
+                        diagnostic.source,
+                        diagnostic.outcome,
+                        diagnostic.anchor_motion,
+                        diagnostic.side_disagreement,
+                        diagnostic.point
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            format!(
+                "{:?} {:?} incompatible={:?} incident={:?} accepted_candidates={} motion={:.6} spread={:.6} preserved_gap={:.6} failures=[{}]",
+                star.vertex,
+                star.outcome,
+                star.incompatible_edges,
+                star.incident_edges,
+                accepted,
+                star.max_anchor_motion,
+                star.max_candidate_spread,
+                star.max_preserved_incident_gap,
+                failures
+            )
+        })
+        .collect()
 }
 
 fn edge_surface_repair_summary(
