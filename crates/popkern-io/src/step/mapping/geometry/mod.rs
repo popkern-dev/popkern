@@ -21,6 +21,7 @@ use popkern_core::geometry::{Point3, Vec3};
 use crate::step::diagnostics::{DiagnosticLog, Phase};
 use crate::step::parser::graph::EntityGraph;
 use crate::step::parser::types::EntityId;
+use crate::step::schema::as_real_list;
 use crate::step::schema::geometry::{
     Axis2Placement3d, BSplineCurveWithKnots, CartesianPoint, Direction, StepCircle, StepLine,
     StepVector, SurfaceCurve,
@@ -257,10 +258,21 @@ impl<'a> GeometryCache<'a> {
         // Expand knots from (value, multiplicity) pairs
         let knots = expand_knots(&bs.knots, &bs.knot_multiplicities);
 
-        let weights = match &bs.weights {
-            Some(w) => w.clone(),
-            None => vec![1.0; control_points.len()],
-        };
+        let mut weights = resolve_rational_bspline_curve_weights(entity, log)
+            .or_else(|| bs.weights.clone())
+            .unwrap_or_else(|| vec![1.0; control_points.len()]);
+        if weights.len() != control_points.len() {
+            log.warn(
+                Phase::MapGeometry,
+                Some(id),
+                format!(
+                    "rational B-spline curve weight count {} does not match control point count {}; using unit weights",
+                    weights.len(),
+                    control_points.len()
+                ),
+            );
+            weights = vec![1.0; control_points.len()];
+        }
 
         let t_start = knots.first().copied().unwrap_or(0.0);
         let t_end = knots.last().copied().unwrap_or(1.0);
@@ -307,6 +319,25 @@ impl<'a> GeometryCache<'a> {
             }
         }
     }
+}
+
+fn resolve_rational_bspline_curve_weights(
+    entity: &crate::step::parser::types::EntityInstance,
+    log: &mut DiagnosticLog,
+) -> Option<Vec<f64>> {
+    entity
+        .complex_parts
+        .iter()
+        .find(|(name, _)| name == "RATIONAL_B_SPLINE_CURVE")
+        .and_then(|(_, params)| params.first())
+        .and_then(|weights| {
+            as_real_list(weights, "RATIONAL_B_SPLINE_CURVE")
+                .map_err(|e| {
+                    log.warn(Phase::MapGeometry, Some(entity.id), format!("{e}"));
+                    e
+                })
+                .ok()
+        })
 }
 
 /// Expand (knot_values, multiplicities) into a flat knot vector.

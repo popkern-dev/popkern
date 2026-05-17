@@ -59,6 +59,37 @@ fn resolve_bspline_curve_nurbs() {
 }
 
 #[test]
+fn resolve_rational_bspline_curve_weights_from_complex_part() {
+    let mut ents: Vec<EntityInstance> = Vec::new();
+    for id in 1u64..=4 {
+        ents.push(ent(
+            id,
+            "CARTESIAN_POINT",
+            vec![s(""), l(vec![r(id as f64), r(0.0), r(0.0)])],
+        ));
+    }
+    ents.push(ent_complex(
+        10,
+        "B_SPLINE_CURVE_WITH_KNOTS",
+        bspline_curve_params(vec![1, 2, 3, 4]),
+        vec![(
+            "RATIONAL_B_SPLINE_CURVE",
+            vec![l(vec![r(1.0), r(0.5), r(0.75), r(1.25)])],
+        )],
+    ));
+    let g = graph(ents);
+    let mut c = GeometryCache::new(&g);
+    let mut log = DiagnosticLog::new();
+    let coe = c.resolve_curve(10, &mut log).unwrap();
+    match coe.geometry {
+        CurveGeometry::Nurbs(nc) => {
+            assert_eq!(nc.weights, vec![1.0, 0.5, 0.75, 1.25]);
+        }
+        other => panic!("expected Nurbs curve, got {other:?}"),
+    }
+}
+
+#[test]
 fn resolve_bspline_curve_bad_params_returns_none() {
     let g = graph(vec![ent(
         1,
