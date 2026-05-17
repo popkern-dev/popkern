@@ -256,12 +256,13 @@ impl Pcurve {
                 theta_b,
                 v_const,
             } => {
+                let s = self.normalised_t(t);
                 let alpha = 0.5 * (theta_b - theta_a);
                 let theta_m = 0.5 * (theta_a + theta_b);
                 let s_alpha = alpha.sin();
                 let c_alpha = alpha.cos();
-                let denom_factor = 2.0 * t * (1.0 - t);
-                let sin_off = s_alpha * (2.0 * t - 1.0);
+                let denom_factor = 2.0 * s * (1.0 - s);
+                let sin_off = s_alpha * (2.0 * s - 1.0);
                 let cos_off = c_alpha * (1.0 - denom_factor) + denom_factor;
                 let u = theta_m + sin_off.atan2(cos_off);
                 Point3::new(u, *v_const, 0.0)
@@ -321,23 +322,26 @@ impl Pcurve {
                 // closed-form, derived from the atan2 expression
                 // and `arctan` derivative chain rule.
                 //
-                //   N(t) = sin α · (2t − 1)
-                //   D(t) = cos α · (1 − 2t(1−t)) + 2t(1−t)
-                //   θ(t) = θ_m + atan2(N, D)
+                //   N(s) = sin α · (2s − 1)
+                //   D(s) = cos α · (1 − 2s(1−s)) + 2s(1−s)
+                //   θ(s) = θ_m + atan2(N, D)
                 //   dθ/dt = (D·dN/dt − N·dD/dt) / (N² + D²)
+                let span = self.t_end - self.t_start;
+                let ds_dt = if span.abs() > 0.0 { 1.0 / span } else { 0.0 };
+                let s = self.normalised_t(t);
                 let alpha = 0.5 * (theta_b - theta_a);
                 let s_alpha = alpha.sin();
                 let c_alpha = alpha.cos();
-                let n_t = s_alpha * (2.0 * t - 1.0);
-                let denom_factor = 2.0 * t * (1.0 - t);
+                let n_t = s_alpha * (2.0 * s - 1.0);
+                let denom_factor = 2.0 * s * (1.0 - s);
                 let d_t = c_alpha * (1.0 - denom_factor) + denom_factor;
                 let dn_dt = 2.0 * s_alpha;
-                // d/dt[2t(1−t)] = 2(1−2t)
-                let d_denom_factor_dt = 2.0 * (1.0 - 2.0 * t);
+                // d/ds[2s(1−s)] = 2(1−2s)
+                let d_denom_factor_dt = 2.0 * (1.0 - 2.0 * s);
                 let dd_dt = -c_alpha * d_denom_factor_dt + d_denom_factor_dt;
                 let mag_sq = n_t * n_t + d_t * d_t;
                 let dtheta_dt = if mag_sq > 0.0 {
-                    (d_t * dn_dt - n_t * dd_dt) / mag_sq
+                    ((d_t * dn_dt - n_t * dd_dt) / mag_sq) * ds_dt
                 } else {
                     0.0
                 };
@@ -422,14 +426,13 @@ impl Pcurve {
             let s = i as f64 / (n_samples as f64 - 1.0);
             let t = self.t_start + s * (self.t_end - self.t_start);
             control_points.push(self.point_at(t));
-            params.push(s);
+            params.push(t);
         }
-        // Fall back to a degree-3 fit. `fit_curve` returns a
-        // CoreError on shape problems; this path only runs from
-        // STEP export so propagating panic-on-broken-geometry is
-        // acceptable. Use unwrap_or_else with a synthetic line so
-        // the caller still gets a NURBS even on degenerate input.
-        match crate::geometry::fitting::fit_curve(&control_points, &params, 3, 6) {
+        // STEP pcurves are imported by matching pcurve endpoint
+        // images to oriented edge endpoints. Use interpolation
+        // instead of a least-squares fit so analytic pcurve
+        // conversions preserve those endpoints exactly.
+        match crate::geometry::fitting::interpolate_curve(&control_points, &params, 3) {
             Ok(c) => c,
             Err(_) => NurbsCurve {
                 degree: 1,

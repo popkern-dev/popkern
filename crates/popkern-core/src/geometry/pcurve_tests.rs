@@ -58,6 +58,45 @@ fn linear_to_nurbs_preserves_endpoints() {
 }
 
 #[test]
+fn cylinder_arc_quad_honors_pcurve_parameter_range() {
+    let p = Pcurve {
+        geometry: PcurveGeometry::CylinderArcViaRationalQuad {
+            theta_a: 0.25,
+            theta_b: 1.25,
+            v_const: 0.4,
+        },
+        t_start: 7.0,
+        t_end: 9.0,
+    };
+
+    let start = p.point_at(7.0);
+    let end = p.point_at(9.0);
+    let tangent = p.tangent_at(8.0);
+
+    assert!((start.x - 0.25).abs() < 1e-12);
+    assert!((start.y - 0.4).abs() < 1e-12);
+    assert!((end.x - 1.25).abs() < 1e-12);
+    assert!((end.y - 0.4).abs() < 1e-12);
+    assert!(tangent.x.is_finite());
+    assert!(tangent.x > 0.0);
+}
+
+#[test]
+fn analytic_to_nurbs_preserves_nonunit_parameter_endpoints() {
+    let p = Pcurve::elliptical((2.0, 3.0), 0.5, 0.25, 0.0, 0.0, 1.0, 4.0, 6.0);
+    let n = p.to_nurbs();
+    use crate::geometry::curve::CurveEval;
+
+    let start = n.point_at(4.0);
+    let end = n.point_at(6.0);
+    let expected_start = p.point_at(4.0);
+    let expected_end = p.point_at(6.0);
+
+    assert!(start.distance_to(&expected_start) < 1e-10);
+    assert!(end.distance_to(&expected_end) < 1e-10);
+}
+
+#[test]
 fn is_analytic_distinguishes_variants() {
     let lin = Pcurve::linear((0.0, 0.0), (1.0, 1.0), 0.0, 1.0);
     assert!(lin.is_analytic());
