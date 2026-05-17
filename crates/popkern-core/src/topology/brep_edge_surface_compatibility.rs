@@ -13,8 +13,9 @@ use crate::topology::brep_edge_surface_compatibility_diagnostics::{
     BrepEdgeSurfaceBoundaryDeclineEvidence, BrepEdgeSurfaceRepairEvidence,
 };
 use crate::topology::brep_edge_surface_compatibility_helpers::{
-    adjacent_surfaced_pair, build_edge_triple, build_reanchored_intersection_triple, endpoint_gap,
-    face_surface_for_half_edge, infer_boundary_hint, unique_edge_half_edges,
+    adjacent_surfaced_pair, build_edge_triple, build_pcurve_scoped_reanchored_intersection_triple,
+    build_reanchored_intersection_triple, endpoint_gap, face_surface_for_half_edge,
+    infer_boundary_hint, unique_edge_half_edges,
 };
 use crate::topology::brep_edge_surface_compatibility_shared_facts::{
     edge_repair_fact_ids, edge_surface_repair_knowledge, shared_fact_ids_from_report,
@@ -359,14 +360,26 @@ pub(super) fn repair_edge(
             Err(label) => {
                 evidence.intersection_failure = Some(label);
                 evidence.attempted_anchor_repair = true;
-                match build_reanchored_intersection_triple(
+                match build_pcurve_scoped_reanchored_intersection_triple(
                     &surf_a,
                     &surf_b,
                     start,
                     end,
                     brep,
+                    he_a,
+                    he_b,
                     options.samples,
-                ) {
+                )
+                .or_else(|_| {
+                    build_reanchored_intersection_triple(
+                        &surf_a,
+                        &surf_b,
+                        start,
+                        end,
+                        brep,
+                        options.samples,
+                    )
+                }) {
                     Ok((triple, motion)) if anchor_motion_allowed(motion, options) => {
                         evidence.anchor_motion = motion;
                         (triple, false)

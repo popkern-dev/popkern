@@ -11,7 +11,8 @@ use crate::topology::brep_edge_surface_compatibility_candidate_facts::{
     edge_surface_candidate_fact_ids, surface_boundary_fact_ids, trim_endpoint_fact_ids,
 };
 use crate::topology::brep_edge_surface_compatibility_helpers::{
-    adjacent_surfaced_pair, build_reanchored_intersection_triple, edge_vertices,
+    adjacent_surfaced_pair, build_pcurve_scoped_reanchored_intersection_triple,
+    build_reanchored_intersection_triple, edge_vertices,
 };
 use crate::topology::brep_edge_surface_compatibility_trim_candidate::{
     TrimEndpointCandidate, trim_decline, trim_endpoint_candidates_for_side,
@@ -125,9 +126,19 @@ pub(super) fn proposed_vertex_position_for_edge(
     let Some((start_vertex, end_vertex)) = edge_vertices(brep, edge) else {
         return missing_surface_candidate(edge, diagnostics);
     };
-    if let Ok((triple, _)) =
+    if let Ok((triple, _)) = build_pcurve_scoped_reanchored_intersection_triple(
+        surf_a,
+        surf_b,
+        start,
+        end,
+        brep,
+        he_a,
+        he_b,
+        options.samples,
+    )
+    .or_else(|_| {
         build_reanchored_intersection_triple(surf_a, surf_b, start, end, brep, options.samples)
-    {
+    }) {
         let point = if vertex == start_vertex {
             Some(triple.curve_3d.point_at(triple.t_start))
         } else if vertex == end_vertex {

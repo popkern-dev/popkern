@@ -5,7 +5,7 @@ use crate::geometry::edge_triple::{
     EdgeAnchors, EdgeHint, EdgeTriple, EdgeTripleOptions, SurfaceSide, compute_edge_geometry,
     compute_edge_geometry_unanchored,
 };
-use crate::geometry::surface::SurfaceGeometry;
+use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::uv_projection::bounded_parameter_range;
 use crate::healing::deviation::edge_surface_deviation;
 use crate::topology::brep_edge_surface_compatibility_boundary::infer_surface_boundary_hint;
@@ -67,6 +67,93 @@ pub(super) fn build_reanchored_intersection_triple(
         .filter_map(|triple| reanchor_candidate(triple, start, end, samples))
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .ok_or_else(|| "no_unanchored_branch_near_edge_anchors".to_string())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn build_pcurve_scoped_reanchored_intersection_triple(
+    surf_a: &SurfaceGeometry,
+    surf_b: &SurfaceGeometry,
+    start: crate::geometry::Point3,
+    end: crate::geometry::Point3,
+    brep: &BRep,
+    he_a: HalfEdgeHandle,
+    he_b: HalfEdgeHandle,
+    samples: usize,
+) -> Result<(EdgeTriple, f64), String> {
+    let mut edge_options = EdgeTripleOptions {
+        marching_timeout_ms: Some(100),
+        ..Default::default()
+    };
+    edge_options.verify_in_release = true;
+    let vertices = [start, end];
+    let (u1_range, v1_range) = pcurve_scoped_parameter_range(brep, he_a, surf_a, samples)
+        .unwrap_or_else(|| bounded_parameter_range(&vertices, surf_a));
+    let (u2_range, v2_range) = pcurve_scoped_parameter_range(brep, he_b, surf_b, samples)
+        .unwrap_or_else(|| bounded_parameter_range(&vertices, surf_b));
+    let candidates = compute_edge_geometry_unanchored(
+        surf_a,
+        u1_range,
+        v1_range,
+        surf_b,
+        u2_range,
+        v2_range,
+        &brep.tolerance,
+        &edge_options,
+    )
+    .map_err(|err| format!("{err:?}"))?;
+    candidates
+        .into_iter()
+        .filter_map(|triple| reanchor_candidate(triple, start, end, samples))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .ok_or_else(|| "no_pcurve_scoped_branch_near_edge_anchors".to_string())
+}
+
+fn pcurve_scoped_parameter_range(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    surface: &SurfaceGeometry,
+    samples: usize,
+) -> Option<((f64, f64), (f64, f64))> {
+    let pcurve = brep.half_edges.get(half_edge)?.pcurve.as_ref()?;
+    let (t0, t1) = pcurve.parameter_range();
+    let samples = samples.max(9);
+    let mut u_min = f64::INFINITY;
+    let mut u_max = f64::NEG_INFINITY;
+    let mut v_min = f64::INFINITY;
+    let mut v_max = f64::NEG_INFINITY;
+    for index in 0..samples {
+        let f = index as f64 / (samples - 1) as f64;
+        let uv = pcurve.point_at(t0 + (t1 - t0) * f);
+        u_min = u_min.min(uv.x);
+        u_max = u_max.max(uv.x);
+        v_min = v_min.min(uv.y);
+        v_max = v_max.max(uv.y);
+    }
+    if !u_min.is_finite() || !u_max.is_finite() || !v_min.is_finite() || !v_max.is_finite() {
+        return None;
+    }
+    let ((native_u_min, native_u_max), (native_v_min, native_v_max)) = surface.parameter_range();
+    let u_span = (u_max - u_min).abs();
+    let v_span = (v_max - v_min).abs();
+    let u_pad = (u_span * 0.5).max(0.02);
+    let v_pad = (v_span * 0.5).max(0.02);
+    let clamp_finite = |value: f64, lo: f64, hi: f64| {
+        if lo.is_finite() && hi.is_finite() {
+            value.clamp(lo, hi)
+        } else {
+            value
+        }
+    };
+    Some((
+        (
+            clamp_finite(u_min - u_pad, native_u_min, native_u_max),
+            clamp_finite(u_max + u_pad, native_u_min, native_u_max),
+        ),
+        (
+            clamp_finite(v_min - v_pad, native_v_min, native_v_max),
+            clamp_finite(v_max + v_pad, native_v_min, native_v_max),
+        ),
+    ))
 }
 
 fn reanchor_candidate(

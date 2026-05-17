@@ -1,6 +1,7 @@
 use popkern_core::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeOptions,
-    BrepEdgeCurveCompletionOptions, BrepEdgeSurfaceCompatibilityOptions, BrepRepairPipelineOptions,
+    BrepEdgeCurveCompletionOptions, BrepEdgeSurfaceCompatibilityOptions,
+    BrepEdgeSurfaceCompatibilityRepairReport, BrepEdgeSurfaceKind, BrepRepairPipelineOptions,
     BrepSewingClassificationOptions, BrepSewingOptions, BrepSnapSewingOptions,
     BrepTopologyOutputPolicy, BrepTrimRepairOptions, analyze_brep_edge_surface_compatibility,
     analyze_brep_export_quality, repair_brep_boundary_edges_transactionally,
@@ -62,7 +63,10 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
     )
     .expect("diagnostic repair pipeline should commit export candidate");
     if std::env::var_os("POPKERN_GREGORY_FIDELITY_TRACE").is_some() {
-        eprintln!("{:#?}", repaired.report.edge_surface_compatibility);
+        eprintln!(
+            "{:#?}",
+            edge_surface_repair_summary(&repaired.report.edge_surface_compatibility)
+        );
     }
     let export_input = repaired.brep;
     let bytes = export_step(&step_document(&export_input), &StepExportOptions::default())
@@ -115,6 +119,55 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         classification, "construction_geometry_issue",
         "unexpected Gregory STEP fidelity blocker classification; states: {states:#?}"
     );
+}
+
+fn edge_surface_repair_summary(
+    report: &Option<BrepEdgeSurfaceCompatibilityRepairReport>,
+) -> Vec<String> {
+    let Some(report) = report else {
+        return vec!["edge_surface_repair: not_run".to_string()];
+    };
+    report
+        .decisions
+        .iter()
+        .filter(|decision| {
+            matches!(
+                (decision.evidence.surface_a, decision.evidence.surface_b),
+                (Some(BrepEdgeSurfaceKind::Gregory), Some(BrepEdgeSurfaceKind::Cylinder))
+                    | (Some(BrepEdgeSurfaceKind::Cylinder), Some(BrepEdgeSurfaceKind::Gregory))
+            )
+        })
+        .map(|decision| {
+            let declines = decision
+                .evidence
+                .boundary_declines
+                .iter()
+                .map(|decline| {
+                    format!(
+                        "{:?}:{:?}/best={:?}/dev={:.6}",
+                        decline.side,
+                        decline.reason,
+                        decline.best_boundary,
+                        decline.best_boundary_deviation
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            format!(
+                "{:?} {:?} endpoint_gap={:.6} residual={:.6} boundary={} intersection={} anchor={} boundary_failure={:?} intersection_failure={:?} declines=[{}]",
+                decision.edge,
+                decision.outcome,
+                decision.endpoint_gap,
+                decision.residual_deviation,
+                decision.evidence.attempted_boundary_reconstruction,
+                decision.evidence.attempted_surface_intersection,
+                decision.evidence.attempted_anchor_repair,
+                decision.evidence.boundary_failure,
+                decision.evidence.intersection_failure,
+                declines
+            )
+        })
+        .collect()
 }
 
 fn classify_fidelity_blocker(

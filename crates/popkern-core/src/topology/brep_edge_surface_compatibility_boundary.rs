@@ -363,7 +363,7 @@ fn closest_curve_parameter(
 
 /// True when the generic analytic intersection factory has bounded repair coverage.
 pub(super) fn is_repairable_surface_pair(a: &SurfaceGeometry, b: &SurfaceGeometry) -> bool {
-    use SurfaceGeometry::{Cone, Cylinder, Plane, Sphere, Torus};
+    use SurfaceGeometry::{Cone, Cylinder, Gregory, Plane, Sphere, Torus};
     matches!(
         (a, b),
         (Plane { .. }, Plane { .. })
@@ -391,5 +391,13 @@ pub(super) fn is_repairable_surface_pair(a: &SurfaceGeometry, b: &SurfaceGeometr
             | (Sphere { .. }, Torus { .. })
             | (Torus { .. }, Sphere { .. })
             | (Torus { .. }, Torus { .. })
+            | (Gregory(_), Cylinder { .. })
+            | (Cylinder { .. }, Gregory(_))
+            | (Gregory(_), Plane { .. })
+            | (Plane { .. }, Gregory(_))
+            | (Gregory(_), Sphere { .. })
+            | (Sphere { .. }, Gregory(_))
+            | (Gregory(_), Torus { .. })
+            | (Torus { .. }, Gregory(_))
     )
 }
