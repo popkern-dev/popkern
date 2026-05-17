@@ -82,6 +82,11 @@ fn success_payload(success: &FixtureSuccess<'_>) -> serde_json::Value {
             "edge_curve_repairs": report.welded_edge_curve_repairs,
             "edge_curve_declines": report.welded_edge_curve_declines,
             "edge_curve_decline_reasons": report.welded_edge_curve_decline_reasons,
+            "classification_buckets": report
+                .welded_classification_buckets
+                .iter()
+                .map(classification_bucket_payload)
+                .collect::<Vec<_>>(),
             "topology_warnings": report.welded_topology_warnings,
             "topology_errors": report.welded_topology_errors,
             "missing_edge_curves": report.welded_missing_edge_curves,
@@ -101,6 +106,13 @@ fn success_payload(success: &FixtureSuccess<'_>) -> serde_json::Value {
                 "total": report.welded_timing.total_ms,
             },
         },
+    })
+}
+
+fn classification_bucket_payload(bucket: &(String, usize)) -> serde_json::Value {
+    serde_json::json!({
+        "bucket": bucket.0,
+        "count": bucket.1,
     })
 }
 

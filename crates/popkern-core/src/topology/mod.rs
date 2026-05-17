@@ -82,7 +82,8 @@ pub mod brep_sewing_classification;
 pub use brep_sewing_classification::{
     BrepClassifiedEdgePair, BrepEdgePairClassification, BrepEdgePairMeasurement,
     BrepSewingClassificationBucket, BrepSewingClassificationBucketCount,
-    BrepSewingClassificationOptions, BrepSewingClassificationReport, classify_boundary_edge_pairs,
+    BrepSewingClassificationOptions, BrepSewingClassificationReport,
+    brep_sewing_classification_bucket_label, classify_boundary_edge_pairs,
 };
 
 /// Transactional tolerant snap-and-sew for classified BRep edge pairs.

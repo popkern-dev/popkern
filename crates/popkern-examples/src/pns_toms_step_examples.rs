@@ -6,13 +6,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use popkern_core::geometry::polyhedral_spline::{
-    ControlNet, PolyhedralBoundaryWeldTiming, PolyhedralCoverageOptions,
-    analyze_surface_complex_sewing, build_control_net_surface_complex,
-    weld_clean_surface_complex_boundaries,
+    ControlNet, PolyhedralCoverageOptions, analyze_surface_complex_sewing,
+    build_control_net_surface_complex, weld_clean_surface_complex_boundaries,
 };
 use popkern_core::topology::{
-    BRep, BrepExportQualityOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
-    analyze_brep_export_quality, build_brep_export_quality_artifact,
+    BRep, BrepExportQualityOptions, BrepSewingClassificationBucket, BrepTopologyOutputPolicy,
+    BrepTrimRepairOptions, analyze_brep_export_quality, brep_sewing_classification_bucket_label,
+    build_brep_export_quality_artifact,
 };
 use popkern_examples::repair_artifacts::write_repair_action_artifact;
 use popkern_io::{
@@ -26,6 +26,8 @@ mod pns_toms_step_manifest;
 mod pns_toms_step_report;
 #[path = "pns_toms_step_runner.rs"]
 mod pns_toms_step_runner;
+#[path = "pns_toms_step_types.rs"]
+mod pns_toms_step_types;
 #[path = "pns_toms_step_validation.rs"]
 mod pns_toms_step_validation;
 use pns_toms_step_manifest::{FixtureFailure, FixtureSuccess, write_run_manifest};
@@ -33,6 +35,7 @@ use pns_toms_step_report::write_sidecar_report;
 use pns_toms_step_runner::{
     RunnerCommand, fixture_list, parse_runner_command, selected_fixture_stems,
 };
+use pns_toms_step_types::FixtureReport;
 use pns_toms_step_validation::validate_step_file;
 
 struct Fixture {
@@ -46,46 +49,6 @@ struct Fixture {
 enum FixtureMode {
     Strict,
     Partial,
-}
-
-struct FixtureReport {
-    source_vertices: usize,
-    source_faces: usize,
-    total_splines: usize,
-    exported_splines: usize,
-    rejected_splines: usize,
-    patches: usize,
-    faces: usize,
-    edges: usize,
-    boundary_edges: usize,
-    matched_boundary_pairs: usize,
-    unmatched_boundary_edges: usize,
-    max_matched_endpoint_gap: f64,
-    welded_pairs: usize,
-    welded_remaining_boundary_edges: usize,
-    welded_export_ready: bool,
-    welded_expected_open_sheet_boundaries: bool,
-    welded_export_blockers: usize,
-    welded_edge_curve_repairs: usize,
-    welded_edge_curve_declines: usize,
-    welded_edge_curve_decline_reasons: String,
-    welded_topology_warnings: usize,
-    welded_topology_errors: usize,
-    welded_missing_edge_curves: usize,
-    welded_trim_blockers: usize,
-    welded_scope_components: usize,
-    welded_scope_edges: usize,
-    welded_scope_vertices: usize,
-    welded_scope_faces: usize,
-    welded_timing: PolyhedralBoundaryWeldTiming,
-    welded_bytes: Option<u64>,
-    welded_path: Option<PathBuf>,
-    welded_quality_path: Option<PathBuf>,
-    welded_repair_path: Option<PathBuf>,
-    welded_validated_bodies: Option<usize>,
-    bytes: u64,
-    path: PathBuf,
-    validated_bodies: usize,
 }
 
 const FIXTURES: &[Fixture] = &[
@@ -369,6 +332,9 @@ fn export_fixture(fixture: &Fixture, output_dir: &Path) -> Result<FixtureReport,
             .map(|(reason, count)| format!("{reason:?}:{count}"))
             .collect::<Vec<_>>()
             .join(","),
+        welded_classification_buckets: classification_bucket_labels(
+            &welded.report.classification_buckets,
+        ),
         welded_topology_warnings: welded.report.topology_warnings,
         welded_topology_errors: welded.report.topology_errors,
         welded_missing_edge_curves: welded.report.missing_edge_curves,
@@ -390,6 +356,20 @@ fn export_fixture(fixture: &Fixture, output_dir: &Path) -> Result<FixtureReport,
     write_sidecar_report(fixture, &report, &rejections)?;
 
     Ok(report)
+}
+
+fn classification_bucket_labels(
+    buckets: &[(BrepSewingClassificationBucket, usize)],
+) -> Vec<(String, usize)> {
+    buckets
+        .iter()
+        .map(|(bucket, count)| {
+            (
+                brep_sewing_classification_bucket_label(*bucket).to_string(),
+                *count,
+            )
+        })
+        .collect()
 }
 
 fn step_document(fixture: &Fixture, breps: Vec<BRep>) -> StepDocument {

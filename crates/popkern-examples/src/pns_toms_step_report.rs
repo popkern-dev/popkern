@@ -60,6 +60,10 @@ pub(super) fn write_sidecar_report(
         report.welded_edge_curve_decline_reasons
     ));
     out.push_str(&format!(
+        "welded_classification_buckets: {}\n",
+        classification_bucket_summary(&report.welded_classification_buckets)
+    ));
+    out.push_str(&format!(
         "welded_topology_warnings: {}\n",
         report.welded_topology_warnings
     ));
@@ -114,6 +118,14 @@ pub(super) fn write_sidecar_report(
         }
     }
     std::fs::write(report.path.with_extension("report.txt"), out).map_err(|err| err.to_string())
+}
+
+fn classification_bucket_summary(buckets: &[(String, usize)]) -> String {
+    buckets
+        .iter()
+        .map(|(bucket, count)| format!("{bucket}:{count}"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn fixture_mode_label(mode: FixtureMode) -> &'static str {

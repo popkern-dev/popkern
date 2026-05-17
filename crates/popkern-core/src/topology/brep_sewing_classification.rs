@@ -90,6 +90,27 @@ pub enum BrepSewingClassificationBucket {
     SurfaceGapExceeded,
 }
 
+/// Stable serialized label for a sewing-classification bucket.
+pub fn brep_sewing_classification_bucket_label(
+    bucket: BrepSewingClassificationBucket,
+) -> &'static str {
+    match bucket {
+        BrepSewingClassificationBucket::ExactClean => "exact_clean",
+        BrepSewingClassificationBucket::NearClean => "near_clean",
+        BrepSewingClassificationBucket::SameEdge => "same_edge",
+        BrepSewingClassificationBucket::MissingEdge => "missing_edge",
+        BrepSewingClassificationBucket::EdgeAlreadyUsed => "edge_already_used",
+        BrepSewingClassificationBucket::NotBoundaryEdge => "not_boundary_edge",
+        BrepSewingClassificationBucket::NonManifoldConflict => "nonmanifold_conflict",
+        BrepSewingClassificationBucket::AlreadyJoined => "already_joined",
+        BrepSewingClassificationBucket::AmbiguousTopology => "ambiguous_topology",
+        BrepSewingClassificationBucket::ForwardOrientation => "forward_orientation",
+        BrepSewingClassificationBucket::EndpointGapExceeded => "endpoint_gap_exceeded",
+        BrepSewingClassificationBucket::MissingSurfaceSampleData => "missing_surface_sample_data",
+        BrepSewingClassificationBucket::SurfaceGapExceeded => "surface_gap_exceeded",
+    }
+}
+
 /// Classification for one candidate edge pair.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BrepClassifiedEdgePair {
