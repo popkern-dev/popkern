@@ -61,6 +61,9 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         gregory_step_repair_options(false),
     )
     .expect("diagnostic repair pipeline should commit export candidate");
+    if std::env::var_os("POPKERN_GREGORY_FIDELITY_TRACE").is_some() {
+        eprintln!("{:#?}", repaired.report.edge_surface_compatibility);
+    }
     let export_input = repaired.brep;
     let bytes = export_step(&step_document(&export_input), &StepExportOptions::default())
         .expect("Gregory export candidate should serialize");
@@ -84,6 +87,11 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         fidelity_state("export_input", &export_input),
         fidelity_state("imported", imported_brep),
     ];
+    if std::env::var_os("POPKERN_GREGORY_FIDELITY_TRACE").is_some() {
+        for state in &states {
+            eprintln!("{state:#?}");
+        }
+    }
 
     let construction_state = &states[0];
     let export_state = &states[1];
