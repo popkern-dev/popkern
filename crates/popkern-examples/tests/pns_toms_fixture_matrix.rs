@@ -311,4 +311,21 @@ fn assert_repair_artifact_writes_json(
         payload["artifact"]["summary"]["attempted_actions"],
         artifact.summary.attempted_actions
     );
+    assert!(
+        payload["artifact"]["actions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|action| action["affected_handles"]
+                .as_array()
+                .is_some_and(|handles| {
+                    handles
+                        .iter()
+                        .filter_map(|handle| handle.as_str())
+                        .filter(|handle| handle.starts_with("edge:"))
+                        .count()
+                        >= 2
+                })),
+        "repair artifact should expose affected edge handles"
+    );
 }

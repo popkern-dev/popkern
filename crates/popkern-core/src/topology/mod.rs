@@ -101,7 +101,7 @@ pub use brep_repair_actions::{
     BrepRepairActionArtifact, BrepRepairActionDecision, BrepRepairActionOutcome,
     BrepRepairActionRecord, BrepRepairActionReport, BrepRepairActionSummary,
     brep_repair_action_outcome_label, brep_repair_action_stage_label,
-    build_brep_repair_action_artifact,
+    build_brep_repair_action_artifact, repair_action_handle_label,
 };
 pub use brep_repair_pipeline::{
     BrepRepairPipelineFailure, BrepRepairPipelineFailureReason, BrepRepairPipelineOptions,

@@ -63,6 +63,8 @@ pub struct BrepSewingReport {
     pub accepted_pairs: usize,
     /// Pair-level declines with explicit reasons.
     pub declined_pairs: Vec<BrepSewingDecline>,
+    /// Accepted edge pairs that were sewn.
+    pub accepted_pair_edges: Vec<(EdgeHandle, EdgeHandle)>,
     /// Boundary edge count after accepted pairs are sewn.
     pub remaining_boundary_edges: usize,
     /// Maximum reversed endpoint gap observed while assessing pairs.
@@ -158,6 +160,7 @@ pub fn sew_clean_boundary_edge_pairs(
         candidate_pairs: pairs.len(),
         accepted_pairs: 0,
         declined_pairs: Vec::new(),
+        accepted_pair_edges: Vec::new(),
         remaining_boundary_edges: candidate.boundary_edges.len(),
         max_endpoint_gap: 0.0,
         max_surface_gap: 0.0,
@@ -175,6 +178,7 @@ pub fn sew_clean_boundary_edge_pairs(
                 used.insert(pair.first);
                 used.insert(pair.second);
                 report.accepted_pairs += 1;
+                report.accepted_pair_edges.push((pair.first, pair.second));
             }
             Err(assessment) => {
                 let reason = assessment.reason;
@@ -218,6 +222,7 @@ fn empty_report(brep: &BRep, pairs: &[BrepSewingEdgePair]) -> BrepSewingReport {
         candidate_pairs: pairs.len(),
         accepted_pairs: 0,
         declined_pairs: Vec::new(),
+        accepted_pair_edges: Vec::new(),
         remaining_boundary_edges: brep.boundary_edges.len(),
         max_endpoint_gap: 0.0,
         max_surface_gap: 0.0,

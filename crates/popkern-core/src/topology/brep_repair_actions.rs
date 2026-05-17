@@ -1,6 +1,6 @@
 //! Generic repair-action diagnostics shared by BRep repair pipelines.
 
-use crate::topology::{BrepRepairFactId, BrepRepairPipelineStage};
+use crate::topology::{BrepRepairFactId, BrepRepairPipelineStage, BrepRepairTopologyHandle};
 use serde::{Deserialize, Serialize};
 
 /// Aggregate repair-action diagnostics for API and GUI callers.
@@ -92,6 +92,8 @@ pub struct BrepRepairActionRecord {
     pub max_motion: f64,
     /// Sampled geometric deviation associated with this action.
     pub max_deviation: f64,
+    /// Topology handles directly affected or considered by this action.
+    pub affected_handles: Vec<String>,
     /// Shared repair knowledge facts referenced by this action.
     pub shared_fact_ids: Vec<usize>,
 }
@@ -119,6 +121,11 @@ pub fn build_brep_repair_action_artifact(
                 reason: decision.reason.clone(),
                 max_motion: decision.max_motion,
                 max_deviation: decision.max_deviation,
+                affected_handles: decision
+                    .affected_handles
+                    .iter()
+                    .map(|handle| repair_action_handle_label(*handle))
+                    .collect(),
                 shared_fact_ids: decision
                     .shared_fact_ids
                     .iter()
@@ -152,6 +159,19 @@ pub fn brep_repair_action_outcome_label(outcome: BrepRepairActionOutcome) -> &'s
     }
 }
 
+/// Stable serialized label for a repair-action topology handle.
+pub fn repair_action_handle_label(handle: BrepRepairTopologyHandle) -> String {
+    match handle {
+        BrepRepairTopologyHandle::Vertex(handle) => format!("vertex:{handle:?}"),
+        BrepRepairTopologyHandle::HalfEdge(handle) => format!("half_edge:{handle:?}"),
+        BrepRepairTopologyHandle::Edge(handle) => format!("edge:{handle:?}"),
+        BrepRepairTopologyHandle::Loop(handle) => format!("loop:{handle:?}"),
+        BrepRepairTopologyHandle::Face(handle) => format!("face:{handle:?}"),
+        BrepRepairTopologyHandle::Shell(handle) => format!("shell:{handle:?}"),
+        BrepRepairTopologyHandle::Solid(handle) => format!("solid:{handle:?}"),
+    }
+}
+
 /// One generic repair-action decision.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BrepRepairActionDecision {
@@ -167,6 +187,8 @@ pub struct BrepRepairActionDecision {
     pub max_motion: f64,
     /// Sampled geometric deviation associated with this action.
     pub max_deviation: f64,
+    /// Topology handles directly affected or considered by this action.
+    pub affected_handles: Vec<BrepRepairTopologyHandle>,
     /// Shared repair knowledge facts referenced by this action.
     pub shared_fact_ids: Vec<BrepRepairFactId>,
 }

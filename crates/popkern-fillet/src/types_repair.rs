@@ -36,6 +36,7 @@ pub fn build_blend_repair_action_artifact(report: &BlendRepairReport) -> BrepRep
                 .map(str::to_string),
             max_motion: decision.max_endpoint_motion,
             max_deviation: decision.max_sampled_disagreement,
+            affected_handles: Vec::new(),
             shared_fact_ids: Vec::new(),
         })
         .collect();
@@ -47,6 +48,7 @@ pub fn build_blend_repair_action_artifact(report: &BlendRepairReport) -> BrepRep
             reason: Some(support_seam_rollback_reason_label(reason).to_string()),
             max_motion: seam.max_endpoint_motion,
             max_deviation: seam.max_sampled_disagreement,
+            affected_handles: Vec::new(),
             shared_fact_ids: Vec::new(),
         });
     }
