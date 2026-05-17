@@ -3,9 +3,9 @@ use crate::geometry::curve::{CurveEval, CurveOnEdge};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 use crate::topology::{
-    BRep, BrepRepairActionOutcome, BrepSewingOptions, BrepSewingProvenance, Edge, EdgeHandle, Face,
-    FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle, Solid, Vertex,
-    build_brep_repair_action_artifact,
+    BRep, BrepRepairActionOutcome, BrepRepairTopologyHandle, BrepSewingOptions,
+    BrepSewingProvenance, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop,
+    LoopHandle, Shell, ShellHandle, Solid, Vertex, build_brep_repair_action_artifact,
 };
 
 fn pipeline_options(diagnose_loop_shell: bool) -> BrepRepairPipelineOptions {
@@ -178,6 +178,20 @@ fn pipeline_repairs_missing_trims_after_sewing_stage() {
                     && !decision.shared_fact_ids.is_empty()
             ),
         "trim repair actions should preserve shared facts"
+    );
+    assert!(
+        result.report.actions.decisions.iter().any(|decision| {
+            decision.stage == BrepRepairPipelineStage::TrimRepair
+                && decision.affected_handles.iter().any(|handle| matches!(
+                    handle,
+                    BrepRepairTopologyHandle::HalfEdge(affected) if half_edges.contains(affected)
+                ))
+                && decision
+                    .affected_handles
+                    .iter()
+                    .any(|handle| matches!(handle, BrepRepairTopologyHandle::Face(_)))
+        }),
+        "trim repair actions should identify affected face and half-edge handles"
     );
     assert!(trim_report.after.is_clean());
     assert!(result.report.loop_shell.unwrap().has_no_errors());

@@ -91,14 +91,7 @@ pub(super) fn run_edge_curve_completion(
             failure_report,
         )
     })?;
-    pipeline_actions::append_counted_stage_action(
-        &mut report.actions,
-        BrepRepairPipelineStage::EdgeCurveCompletion,
-        repaired.report.completed_edges,
-        repaired.report.declined_edges,
-        "edge_curve_completion",
-        &repaired.report.shared_fact_ids,
-    );
+    pipeline_actions::append_edge_curve_completion_actions(&mut report.actions, &repaired.report);
     report.edge_curve_completion = Some(repaired.report);
     Ok(repaired.brep)
 }
@@ -128,14 +121,7 @@ pub(super) fn run_trim_repair(
         failure_report.trim_repair = Some(err.report);
         failure(BrepRepairPipelineStage::TrimRepair, reason, failure_report)
     })?;
-    pipeline_actions::append_counted_stage_action(
-        &mut report.actions,
-        BrepRepairPipelineStage::TrimRepair,
-        repaired.report.repaired_half_edges,
-        0,
-        "trim_repair",
-        &repaired.report.shared_fact_ids,
-    );
+    pipeline_actions::append_trim_repair_actions(&mut report.actions, &repaired.report);
     report.trim_repair = Some(repaired.report);
     Ok(repaired.brep)
 }
@@ -175,13 +161,9 @@ pub(super) fn run_curve_trim_reconstruction(
                     failure_report,
                 )
             })?;
-    pipeline_actions::append_counted_stage_action(
+    pipeline_actions::append_curve_trim_reconstruction_actions(
         &mut report.actions,
-        BrepRepairPipelineStage::CurveTrimReconstruction,
-        repaired.report.reconstructed_half_edges,
-        repaired.report.declined_half_edges,
-        "curve_trim_reconstruction",
-        &repaired.report.shared_fact_ids,
+        &repaired.report,
     );
     report.curve_trim_reconstruction = Some(repaired.report);
     Ok(repaired.brep)

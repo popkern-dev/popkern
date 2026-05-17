@@ -144,15 +144,15 @@ pub fn sew_clean_boundary_edge_pairs(
     brep: &BRep,
     pairs: &[BrepSewingEdgePair],
     options: BrepSewingOptions,
-) -> Result<BrepSewingResult, BrepSewingFailure> {
+) -> Result<BrepSewingResult, Box<BrepSewingFailure>> {
     let knowledge = sewing_pair_knowledge(brep, pairs, options.tolerance, options.samples);
     if !knowledge.validate_fresh(brep) {
-        return Err(BrepSewingFailure {
+        return Err(Box::new(BrepSewingFailure {
             reason: BrepSewingFailureReason::ValidationFailed(
                 "stale sewing repair knowledge graph".to_string(),
             ),
             report: empty_report(brep, pairs),
-        });
+        }));
     }
     let mut candidate = brep.clone();
     let mut used = HashSet::new();
@@ -206,10 +206,10 @@ pub fn sew_clean_boundary_edge_pairs(
     if options.validate_output
         && let Err(err) = candidate.validate()
     {
-        return Err(BrepSewingFailure {
+        return Err(Box::new(BrepSewingFailure {
             reason: BrepSewingFailureReason::ValidationFailed(err.to_string()),
             report,
-        });
+        }));
     }
     Ok(BrepSewingResult {
         brep: candidate,

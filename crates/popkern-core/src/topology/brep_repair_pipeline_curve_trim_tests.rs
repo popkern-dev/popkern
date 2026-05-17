@@ -84,6 +84,9 @@ fn pipeline_runs_curve_backed_trim_reconstruction_before_edge_surface_repair() {
         action.stage == "curve_trim_reconstruction"
             && action.outcome == "authored"
             && !action.shared_fact_ids.is_empty()
+            && action
+                .affected_handles
+                .contains(&format!("half_edge:{half_edge:?}"))
     }));
 }
 

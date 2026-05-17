@@ -338,3 +338,7 @@ mod tests;
 #[cfg(test)]
 #[path = "brep_repair_pipeline_curve_trim_tests.rs"]
 mod curve_trim_tests;
+
+#[cfg(test)]
+#[path = "brep_repair_pipeline_edge_curve_tests.rs"]
+mod edge_curve_tests;
