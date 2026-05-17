@@ -2,68 +2,24 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use super::complex::PolyhedralSplineSurfaceComplex;
-use super::complex_weld_scope::{
-    PolyhedralBoundaryWeldScope, build_boundary_weld_scope, build_post_repair_weld_quality_scope,
+use super::complex_weld_report::{
+    PolyhedralBoundaryWeldReport, PolyhedralBoundaryWeldTiming, PolyhedralWeldedSurfaceComplex,
 };
+use super::complex_weld_scope::{build_boundary_weld_scope, build_post_repair_weld_quality_scope};
 use super::coverage::PolyhedralCoverageOptions;
 use crate::geometry::Point3;
 use crate::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeKind, BrepDegenerateEdgeOptions,
     BrepEdgeCurveCompletionDeclineReason, BrepEdgeCurveCompletionOptions,
     BrepEdgeCurveCompletionOutcome, BrepEdgeCurveCompletionReport,
-    BrepEdgeSurfaceCompatibilityOptions, BrepExportQualityOptions, BrepRepairActionArtifact,
-    BrepRepairPipelineOptions, BrepScopedExportQualityReport, BrepSewingClassificationOptions,
-    BrepSewingEdgePair, BrepSewingOptions, BrepSewingProvenance, BrepSnapSewingOptions,
-    BrepTopologyOutputPolicy, BrepTrimRepairOptions, EdgeHandle, FaceHandle, HalfEdgeHandle, Shell,
-    ShellHandle, Solid, analyze_brep_export_quality_with_local_diagnostics,
+    BrepEdgeSurfaceCompatibilityOptions, BrepExportQualityOptions, BrepRepairPipelineOptions,
+    BrepSewingClassificationOptions, BrepSewingEdgePair, BrepSewingOptions, BrepSewingProvenance,
+    BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions, EdgeHandle, FaceHandle,
+    HalfEdgeHandle, Shell, ShellHandle, Solid, analyze_brep_export_quality_with_local_diagnostics,
     analyze_scoped_brep_edge_surface_compatibility, analyze_scoped_brep_export_quality,
     analyze_scoped_brep_trims, build_brep_repair_action_artifact, edge_segment,
     repair_brep_boundary_edges_transactionally,
 };
-
-#[derive(Debug, Clone)]
-pub struct PolyhedralWeldedSurfaceComplex {
-    pub brep: BRep,
-    pub report: PolyhedralBoundaryWeldReport,
-    pub repair_actions: BrepRepairActionArtifact,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct PolyhedralBoundaryWeldReport {
-    pub candidate_pairs: usize,
-    pub welded_pairs: usize,
-    pub declined_pairs: usize,
-    pub remaining_boundary_edges: usize,
-    pub max_weld_gap: f64,
-    pub trim_repairs: usize,
-    pub edge_curve_repairs: usize,
-    pub edge_curve_declines: usize,
-    pub edge_curve_decline_reasons: Vec<(BrepEdgeCurveCompletionDeclineReason, usize)>,
-    pub degenerate_edges: usize,
-    pub collapsed_surface_trims: usize,
-    pub zero_length_vertex_edges: usize,
-    pub ambiguous_degenerate_edges: usize,
-    pub topology_errors: usize,
-    pub topology_warnings: usize,
-    pub export_ready: bool,
-    pub expected_open_sheet_boundaries: bool,
-    pub export_blockers: usize,
-    pub missing_edge_curves: usize,
-    pub trim_blockers: usize,
-    pub scope: PolyhedralBoundaryWeldScope,
-    pub pre_repair_scoped_quality: BrepScopedExportQualityReport,
-    pub post_repair_scoped_quality: BrepScopedExportQualityReport,
-    pub timing: PolyhedralBoundaryWeldTiming,
-}
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct PolyhedralBoundaryWeldTiming {
-    pub assemble_ms: u128,
-    pub candidate_match_ms: u128,
-    pub repair_pipeline_ms: u128,
-    pub export_quality_ms: u128,
-    pub repair_artifact_ms: u128,
-    pub total_ms: u128,
-}
 
 #[derive(Debug, Clone, Copy)]
 struct BoundarySegment {
@@ -247,6 +203,16 @@ pub fn weld_clean_surface_complex_boundaries(
         edge_curve_repairs,
         edge_curve_declines,
         edge_curve_decline_reasons,
+        classification_buckets: result.report.classification.as_ref().map_or_else(
+            Vec::new,
+            |report| {
+                report
+                    .buckets
+                    .iter()
+                    .map(|bucket| (bucket.bucket, bucket.count))
+                    .collect()
+            },
+        ),
         degenerate_edges,
         collapsed_surface_trims,
         zero_length_vertex_edges,

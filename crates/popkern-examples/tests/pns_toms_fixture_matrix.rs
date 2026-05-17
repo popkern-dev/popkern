@@ -2,6 +2,7 @@ use popkern_core::geometry::polyhedral_spline::{
     ControlNet, PolyhedralCoverageOptions, analyze_surface_complex_sewing,
     build_control_net_surface_complex, weld_clean_surface_complex_boundaries,
 };
+use popkern_core::topology::BrepSewingClassificationBucket;
 
 struct FixtureExpectation {
     name: &'static str,
@@ -244,6 +245,11 @@ fn assert_weld_scope_covers_candidates(
         report.post_repair_scoped_quality.edges > 0,
         "{label} post-repair scoped quality should retain touched repaired edges"
     );
+    assert_classification_bucket(
+        report,
+        BrepSewingClassificationBucket::ExactClean,
+        report.candidate_pairs,
+    );
     assert_eq!(
         report.post_repair_scoped_quality.unavailable_edges, 0,
         "{label} post-repair scoped quality should not include deleted sewn edges"
@@ -251,6 +257,22 @@ fn assert_weld_scope_covers_candidates(
     assert_eq!(
         report.post_repair_scoped_quality.pcurve_blockers, 0,
         "{label} post-repair scoped pcurve blockers"
+    );
+}
+
+fn assert_classification_bucket(
+    report: &popkern_core::geometry::polyhedral_spline::PolyhedralBoundaryWeldReport,
+    bucket: BrepSewingClassificationBucket,
+    count: usize,
+) {
+    assert_eq!(
+        report
+            .classification_buckets
+            .iter()
+            .find(|(candidate_bucket, _)| *candidate_bucket == bucket)
+            .map(|(_, bucket_count)| *bucket_count),
+        Some(count),
+        "weld classification bucket count"
     );
 }
 

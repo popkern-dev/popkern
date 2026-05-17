@@ -11,6 +11,7 @@ mod atlas;
 mod brep_export;
 mod complex;
 mod complex_weld;
+mod complex_weld_report;
 mod complex_weld_scope;
 mod construct;
 mod coverage;
@@ -75,9 +76,9 @@ pub use complex::{
     PolyhedralSplineSurfaceComponent, analyze_surface_complex_sewing,
     build_control_net_surface_complex,
 };
-pub use complex_weld::{
+pub use complex_weld::weld_clean_surface_complex_boundaries;
+pub use complex_weld_report::{
     PolyhedralBoundaryWeldReport, PolyhedralBoundaryWeldTiming, PolyhedralWeldedSurfaceComplex,
-    weld_clean_surface_complex_boundaries,
 };
 pub use complex_weld_scope::PolyhedralBoundaryWeldScope;
 pub use coverage::{
