@@ -158,6 +158,7 @@ fn classification_identifies_exact_clean_pair_without_mutation() {
     assert_eq!(report.exact_clean_pairs, 1);
     assert_eq!(report.near_clean_pairs, 0);
     assert_eq!(report.rejected_pairs, 0);
+    assert_bucket(&report, BrepSewingClassificationBucket::ExactClean, 1);
     assert!(matches!(
         report.pairs[0].classification,
         BrepEdgePairClassification::ExactClean
@@ -185,6 +186,7 @@ fn classification_identifies_near_pair_inside_snap_tolerance() {
     assert_eq!(report.exact_clean_pairs, 0);
     assert_eq!(report.near_clean_pairs, 1);
     assert_eq!(report.rejected_pairs, 0);
+    assert_bucket(&report, BrepSewingClassificationBucket::NearClean, 1);
     assert!(matches!(
         report.pairs[0].classification,
         BrepEdgePairClassification::NearClean
@@ -204,6 +206,11 @@ fn classification_rejects_pair_beyond_snap_tolerance() {
     assert_eq!(report.exact_clean_pairs, 0);
     assert_eq!(report.near_clean_pairs, 0);
     assert_eq!(report.rejected_pairs, 1);
+    assert_bucket(
+        &report,
+        BrepSewingClassificationBucket::EndpointGapExceeded,
+        1,
+    );
     assert!(matches!(
         report.pairs[0].classification,
         BrepEdgePairClassification::Rejected(BrepSewingDeclineReason::EndpointGapExceeded { .. })
@@ -226,8 +233,28 @@ fn classification_rejects_same_direction_candidate() {
     assert_eq!(report.exact_clean_pairs, 0);
     assert_eq!(report.near_clean_pairs, 0);
     assert_eq!(report.rejected_pairs, 1);
+    assert_bucket(
+        &report,
+        BrepSewingClassificationBucket::ForwardOrientation,
+        1,
+    );
     assert!(matches!(
         report.pairs[0].classification,
         BrepEdgePairClassification::Rejected(BrepSewingDeclineReason::EndpointGapExceeded { .. })
     ));
+}
+
+fn assert_bucket(
+    report: &BrepSewingClassificationReport,
+    bucket: BrepSewingClassificationBucket,
+    count: usize,
+) {
+    assert_eq!(
+        report
+            .buckets
+            .iter()
+            .find(|item| item.bucket == bucket)
+            .map(|item| item.count),
+        Some(count)
+    );
 }

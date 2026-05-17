@@ -44,8 +44,50 @@ pub struct BrepSewingClassificationReport {
     pub max_endpoint_gap: f64,
     /// Maximum sampled surface gap observed.
     pub max_surface_gap: f64,
+    /// Stable bucket counts for GUI/API diagnostics and performance triage.
+    pub buckets: Vec<BrepSewingClassificationBucketCount>,
     /// Shared repair knowledge facts referenced by this classification report.
     pub shared_fact_ids: Vec<BrepRepairFactId>,
+}
+
+/// Count for one stable sewing-classification bucket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BrepSewingClassificationBucketCount {
+    /// Stable bucket name.
+    pub bucket: BrepSewingClassificationBucket,
+    /// Number of candidate pairs in this bucket.
+    pub count: usize,
+}
+
+/// Stable high-level classification buckets for candidate sewing pairs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrepSewingClassificationBucket {
+    /// Pair can be welded without vertex motion.
+    ExactClean,
+    /// Pair is eligible for snap review.
+    NearClean,
+    /// Candidate referenced the same edge twice.
+    SameEdge,
+    /// Required edge topology or geometry was missing.
+    MissingEdge,
+    /// Candidate edge had already been consumed.
+    EdgeAlreadyUsed,
+    /// Candidate edge was not a boundary edge.
+    NotBoundaryEdge,
+    /// Candidate would create unsupported non-manifold topology.
+    NonManifoldConflict,
+    /// Candidate touched an already joined edge.
+    AlreadyJoined,
+    /// Candidate topology could not be classified unambiguously.
+    AmbiguousTopology,
+    /// Candidate edges appear to have the same orientation.
+    ForwardOrientation,
+    /// Candidate endpoint gap exceeded snap tolerance.
+    EndpointGapExceeded,
+    /// Surface sample data needed for classification was missing.
+    MissingSurfaceSampleData,
+    /// Surface sample gap exceeded snap tolerance.
+    SurfaceGapExceeded,
 }
 
 /// Classification for one candidate edge pair.
@@ -100,6 +142,7 @@ pub fn classify_boundary_edge_pairs(
         rejected_pairs: 0,
         max_endpoint_gap: 0.0,
         max_surface_gap: 0.0,
+        buckets: Vec::new(),
         shared_fact_ids: Vec::new(),
     };
 
@@ -270,6 +313,62 @@ fn update_report_counts(
         BrepEdgePairClassification::ExactClean => report.exact_clean_pairs += 1,
         BrepEdgePairClassification::NearClean => report.near_clean_pairs += 1,
         BrepEdgePairClassification::Rejected(_) => report.rejected_pairs += 1,
+    }
+    increment_bucket(report, classification_bucket(classified));
+}
+
+fn increment_bucket(
+    report: &mut BrepSewingClassificationReport,
+    bucket: BrepSewingClassificationBucket,
+) {
+    if let Some(existing) = report.buckets.iter_mut().find(|item| item.bucket == bucket) {
+        existing.count += 1;
+    } else {
+        report
+            .buckets
+            .push(BrepSewingClassificationBucketCount { bucket, count: 1 });
+    }
+}
+
+fn classification_bucket(classified: &BrepClassifiedEdgePair) -> BrepSewingClassificationBucket {
+    match &classified.classification {
+        BrepEdgePairClassification::ExactClean => BrepSewingClassificationBucket::ExactClean,
+        BrepEdgePairClassification::NearClean => BrepSewingClassificationBucket::NearClean,
+        BrepEdgePairClassification::Rejected(reason) => rejection_bucket(reason, classified),
+    }
+}
+
+fn rejection_bucket(
+    reason: &BrepSewingDeclineReason,
+    classified: &BrepClassifiedEdgePair,
+) -> BrepSewingClassificationBucket {
+    match reason {
+        BrepSewingDeclineReason::SameEdge => BrepSewingClassificationBucket::SameEdge,
+        BrepSewingDeclineReason::MissingEdge => BrepSewingClassificationBucket::MissingEdge,
+        BrepSewingDeclineReason::EdgeAlreadyUsed => BrepSewingClassificationBucket::EdgeAlreadyUsed,
+        BrepSewingDeclineReason::NotBoundaryEdge => BrepSewingClassificationBucket::NotBoundaryEdge,
+        BrepSewingDeclineReason::NonManifoldConflict => {
+            BrepSewingClassificationBucket::NonManifoldConflict
+        }
+        BrepSewingDeclineReason::AlreadyJoined => BrepSewingClassificationBucket::AlreadyJoined,
+        BrepSewingDeclineReason::AmbiguousTopology => {
+            BrepSewingClassificationBucket::AmbiguousTopology
+        }
+        BrepSewingDeclineReason::EndpointGapExceeded { .. } => {
+            if classified.measurement.forward_endpoint_gap
+                < classified.measurement.reversed_endpoint_gap
+            {
+                BrepSewingClassificationBucket::ForwardOrientation
+            } else {
+                BrepSewingClassificationBucket::EndpointGapExceeded
+            }
+        }
+        BrepSewingDeclineReason::MissingSurfaceSampleData => {
+            BrepSewingClassificationBucket::MissingSurfaceSampleData
+        }
+        BrepSewingDeclineReason::SurfaceGapExceeded { .. } => {
+            BrepSewingClassificationBucket::SurfaceGapExceeded
+        }
     }
 }
 

@@ -81,6 +81,7 @@ pub use brep_sewing::{
 pub mod brep_sewing_classification;
 pub use brep_sewing_classification::{
     BrepClassifiedEdgePair, BrepEdgePairClassification, BrepEdgePairMeasurement,
+    BrepSewingClassificationBucket, BrepSewingClassificationBucketCount,
     BrepSewingClassificationOptions, BrepSewingClassificationReport, classify_boundary_edge_pairs,
 };
 
