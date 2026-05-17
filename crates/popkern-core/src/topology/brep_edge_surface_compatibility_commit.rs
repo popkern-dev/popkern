@@ -114,7 +114,7 @@ pub(super) fn commit_edge_triple(
             repaired_end,
             options.tolerance,
         ));
-        if incident_gap > options.tolerance {
+        if incident_gap > options.max_anchor_motion {
             let mut evidence = evidence;
             evidence.max_incident_endpoint_gap = incident_gap;
             return BrepEdgeSurfaceCompatibilityRepairDecision {

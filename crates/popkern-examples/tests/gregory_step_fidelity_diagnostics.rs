@@ -101,6 +101,10 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         "repair should not increase construction pcurve blockers: {states:#?}"
     );
     assert!(
+        export_state.edge_surface_blockers < construction_state.edge_surface_blockers,
+        "repair should reduce construction edge/surface blockers: {states:#?}"
+    );
+    assert!(
         imported_state.pcurve_blockers > 0 || imported_state.edge_surface_blockers > 0,
         "probe should keep the remaining STEP fidelity blocker observable: {states:#?}"
     );
