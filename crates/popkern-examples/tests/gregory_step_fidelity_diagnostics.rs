@@ -15,6 +15,9 @@ use popkern_io::{
 };
 use std::sync::Arc;
 
+mod gregory_step_fidelity_side_agreement;
+use gregory_step_fidelity_side_agreement::pcurve_side_agreement_summary;
+
 #[derive(Debug, Clone, PartialEq)]
 struct FidelityState {
     label: &'static str,
@@ -97,15 +100,19 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         fidelity_state("export_input", &export_input),
         fidelity_state("imported", imported_brep),
     ];
+    let construction_state = &states[0];
+    let export_state = &states[1];
+    let imported_state = &states[2];
     if std::env::var_os("POPKERN_GREGORY_FIDELITY_TRACE").is_some() {
         for state in &states {
             eprintln!("{state:#?}");
         }
+        eprintln!(
+            "construction pcurve-side agreement: {:#?}",
+            pcurve_side_agreement_summary(&construction, 8)
+        );
     }
 
-    let construction_state = &states[0];
-    let export_state = &states[1];
-    let imported_state = &states[2];
     assert!(
         export_state.pcurve_blockers <= construction_state.pcurve_blockers,
         "repair should not increase construction pcurve blockers: {states:#?}"
