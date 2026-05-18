@@ -413,22 +413,18 @@ fn gregory_mixed_radius_strict_edge_surface_pipeline_declines_unresolved_edges()
     assert!(report.declined_edges > 0);
     assert!(report.after.incompatible_half_edges > 0);
     assert!(
-        report.decisions.iter().any(|decision| matches!(
-            decision.outcome,
-            popkern_core::topology::BrepEdgeSurfaceCompatibilityRepairOutcome::Declined(
-                popkern_core::topology::BrepEdgeSurfaceCompatibilityDeclineReason::UnsupportedSurfacePair
-            )
-        )),
-        "strict real fixture diagnostics must expose unsupported bounded-surface pairs"
-    );
-    assert!(
-        report.decisions.iter().any(|decision| matches!(
-            decision.outcome,
-            popkern_core::topology::BrepEdgeSurfaceCompatibilityRepairOutcome::Declined(
-                popkern_core::topology::BrepEdgeSurfaceCompatibilityDeclineReason::IncidentEndpointConflict
-            )
-        )),
-        "strict real fixture diagnostics must expose unsafe incident endpoint conflicts"
+        report.decisions.iter().any(|decision| {
+            matches!(
+                decision.outcome,
+                popkern_core::topology::BrepEdgeSurfaceCompatibilityRepairOutcome::Declined(
+                    popkern_core::topology::BrepEdgeSurfaceCompatibilityDeclineReason::IntersectionFailed
+                        | popkern_core::topology::BrepEdgeSurfaceCompatibilityDeclineReason::AnchorMotionExceeded
+                )
+            ) && decision.evidence.attempted_surface_intersection
+                && decision.evidence.attempted_anchor_repair
+                && !decision.evidence.boundary_declines.is_empty()
+        }),
+        "strict real fixture diagnostics must expose attempted Gregory/cylinder repair with measured boundary declines"
     );
 }
 

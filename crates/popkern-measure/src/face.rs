@@ -156,16 +156,24 @@ pub fn face_area(
         // 8×8 Gauss-Legendre on the pcurve UV rectangle integrates
         // `|∂u × ∂v|` to ~1e-6 relative on smooth Gregory patches —
         // orders of magnitude tighter than tessellation. Falls back
-        // to tessellation when the face has inner loops (trim-aware
-        // integration is a separate rabbit hole) or the pcurve UV
-        // range can't be determined.
+        // to tessellation when trims do not bound the full rectangle;
+        // integrating a UV bounding box would over-count triangular or
+        // curved Gregory subdomains.
         SurfaceGeometry::Gregory(_) if face_data.inner_loops.is_empty() => {
             if let Some(((u0, u1), (v0, v1))) = pcurve_uv_range(brep, face) {
-                Ok(gauss_legendre_surface_area(
-                    &surface_on_face.geometry,
-                    (u0, u1),
-                    (v0, v1),
-                ))
+                if crate::face_helpers::outer_loop_matches_uv_rectangle(
+                    brep,
+                    face,
+                    ((u0, u1), (v0, v1)),
+                ) {
+                    Ok(gauss_legendre_surface_area(
+                        &surface_on_face.geometry,
+                        (u0, u1),
+                        (v0, v1),
+                    ))
+                } else {
+                    tessellate_area(brep, face, tolerance)
+                }
             } else {
                 tessellate_area(brep, face, tolerance)
             }

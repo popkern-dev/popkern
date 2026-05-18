@@ -151,10 +151,16 @@ fn native_divergence_volume(brep: &BRep) -> Result<f64, MeasureError> {
             SurfaceGeometry::Plane { .. } => planar_face_divergence_contribution(brep, face_h),
             SurfaceGeometry::Gregory(_) if face.inner_loops.is_empty() => {
                 match crate::face_helpers::pcurve_uv_range(brep, face_h) {
-                    Some(((u0, u1), (v0, v1))) => {
+                    Some(((u0, u1), (v0, v1)))
+                        if crate::face_helpers::outer_loop_matches_uv_rectangle(
+                            brep,
+                            face_h,
+                            ((u0, u1), (v0, v1)),
+                        ) =>
+                    {
                         gauss_legendre_face_volume(&sof.geometry, (u0, u1), (v0, v1))
                     }
-                    None => tessellated_face_divergence_contribution(brep, face_h)?,
+                    _ => tessellated_face_divergence_contribution(brep, face_h)?,
                 }
             }
             _ => tessellated_face_divergence_contribution(brep, face_h)?,

@@ -73,6 +73,60 @@ pub(crate) fn pcurve_uv_range(brep: &BRep, face: FaceHandle) -> Option<((f64, f6
     Some((u_range, v_range))
 }
 
+/// Returns true when the outer trim loop is the boundary of the supplied UV
+/// rectangle, so rectangular native surface integration is trim-equivalent.
+pub(crate) fn outer_loop_matches_uv_rectangle(
+    brep: &BRep,
+    face: FaceHandle,
+    ((u0, u1), (v0, v1)): ((f64, f64), (f64, f64)),
+) -> bool {
+    let Some(face_data) = brep.faces.get(face) else {
+        return false;
+    };
+    let Some(loop_) = brep.loops.get(face_data.outer_loop) else {
+        return false;
+    };
+    let start_he = loop_.half_edge;
+    if !brep.half_edges.contains_key(start_he) {
+        return false;
+    }
+
+    let tol = 1e-8_f64.max((u1 - u0).abs().max((v1 - v0).abs()) * 1e-8);
+    let mut on_u_min = false;
+    let mut on_u_max = false;
+    let mut on_v_min = false;
+    let mut on_v_max = false;
+    let mut current = start_he;
+    loop {
+        let he = &brep.half_edges[current];
+        let Some(pcurve) = he.pcurve.as_ref() else {
+            return false;
+        };
+        let (t0, t1) = pcurve.parameter_range();
+        for i in 0..=8 {
+            let t = t0 + (t1 - t0) * (i as f64 / 8.0);
+            let uv = pcurve.point_at(t);
+            let near_u_min = (uv.x - u0).abs() <= tol;
+            let near_u_max = (uv.x - u1).abs() <= tol;
+            let near_v_min = (uv.y - v0).abs() <= tol;
+            let near_v_max = (uv.y - v1).abs() <= tol;
+            if !(near_u_min || near_u_max || near_v_min || near_v_max) {
+                return false;
+            }
+            on_u_min |= near_u_min;
+            on_u_max |= near_u_max;
+            on_v_min |= near_v_min;
+            on_v_max |= near_v_max;
+        }
+        current = he.next;
+        if current == start_he {
+            break;
+        }
+    }
+
+    on_u_min && on_u_max && on_v_min && on_v_max
+}
+
 /// Unwrap periodic values in-place so consecutive entries never jump by more
 /// than half the period across the seam.
 pub(crate) fn unwrap_periodic(values: &mut [f64], period: Option<f64>) {

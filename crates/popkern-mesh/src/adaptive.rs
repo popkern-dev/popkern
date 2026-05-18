@@ -26,15 +26,34 @@ pub(crate) fn chord_height(surface: &SurfaceGeometry, cell: &UvCell) -> f64 {
     let p10 = surface.point_at(cell.u_max, cell.v_min);
     let p01 = surface.point_at(cell.u_min, cell.v_max);
     let p11 = surface.point_at(cell.u_max, cell.v_max);
-    let mid_interp = Point3::new(
-        (p00.x + p10.x + p01.x + p11.x) * 0.25,
-        (p00.y + p10.y + p01.y + p11.y) * 0.25,
-        (p00.z + p10.z + p01.z + p11.z) * 0.25,
-    );
-    let u_mid = (cell.u_min + cell.u_max) * 0.5;
-    let v_mid = (cell.v_min + cell.v_max) * 0.5;
-    let mid_actual = surface.point_at(u_mid, v_mid);
-    mid_interp.distance_to(&mid_actual)
+    let samples = [
+        (0.5, 0.5),
+        (0.25, 0.25),
+        (0.75, 0.25),
+        (0.25, 0.75),
+        (0.75, 0.75),
+    ];
+    samples
+        .iter()
+        .map(|&(su, sv)| {
+            let u = cell.u_min + su * (cell.u_max - cell.u_min);
+            let v = cell.v_min + sv * (cell.v_max - cell.v_min);
+            let interp = bilinear_point(p00, p10, p01, p11, su, sv);
+            interp.distance_to(&surface.point_at(u, v))
+        })
+        .fold(0.0, f64::max)
+}
+
+fn bilinear_point(p00: Point3, p10: Point3, p01: Point3, p11: Point3, u: f64, v: f64) -> Point3 {
+    let w00 = (1.0 - u) * (1.0 - v);
+    let w10 = u * (1.0 - v);
+    let w01 = (1.0 - u) * v;
+    let w11 = u * v;
+    Point3::new(
+        p00.x * w00 + p10.x * w10 + p01.x * w01 + p11.x * w11,
+        p00.y * w00 + p10.y * w10 + p01.y * w01 + p11.y * w11,
+        p00.z * w00 + p10.z * w10 + p01.z * w01 + p11.z * w11,
+    )
 }
 
 /// Adaptively subdivide a surface's UV parameter space into a grid of cells.

@@ -55,6 +55,13 @@ mod brep_edge_representatives;
 mod brep_measurement;
 pub use brep_measurement::{EdgePcurveDeviationReport, HalfEdgePcurveDeviation};
 
+/// Transactional construction primitive for shared trim-edge geometry.
+mod shared_trim_edge;
+pub use shared_trim_edge::{
+    SharedTrimEdgeCommit, SharedTrimEdgeFailure, SharedTrimEdgeFailureReason, SharedTrimEdgeInput,
+    SharedTrimEdgeValidation, commit_shared_trim_edge_transactionally, validate_shared_trim_edge,
+};
+
 /// Edge and face splitting operations.
 pub mod split;
 mod split_boundary;
