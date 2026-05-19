@@ -158,6 +158,8 @@ pub enum BrepEdgeSurfaceCompatibilityDeclineReason {
     IncidentEndpointConflict,
     /// Candidate still deviated from an adjacent surface beyond tolerance.
     ResidualDeviation,
+    /// Candidate failed the atomic shared trim-edge validation gate.
+    SharedTrimValidationFailed,
 }
 
 /// Transactional repair failure.

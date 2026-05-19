@@ -28,6 +28,8 @@ pub struct SharedTrimEdgeInput {
     pub pcurve_b: Pcurve,
     /// Local construction tolerance for endpoint and surface agreement.
     pub tolerance: f64,
+    /// Whether the whole BRep must pass validation after the local commit.
+    pub validate_brep: bool,
     /// Human-readable provenance label included in diagnostics.
     pub provenance: &'static str,
 }
@@ -109,7 +111,9 @@ pub fn commit_shared_trim_edge_transactionally(
             brep.edges[input.edge].curve = Some(input.curve.clone());
             brep.half_edges[input.half_edge_a].pcurve = Some(input.pcurve_a.clone());
             brep.half_edges[input.half_edge_b].pcurve = Some(input.pcurve_b.clone());
-            if let Err(_err) = brep.validate() {
+            if input.validate_brep
+                && let Err(_err) = brep.validate()
+            {
                 *brep = snapshot;
                 return Err(failure(
                     SharedTrimEdgeFailureReason::ValidationFailed,

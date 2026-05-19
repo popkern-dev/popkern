@@ -42,6 +42,7 @@ fn shared_trim_edge_commits_valid_cube_edge_atomically() {
             pcurve_a,
             pcurve_b,
             tolerance: Tolerance::default().linear(),
+            validate_brep: true,
             provenance: "shared_trim_edge_test",
         },
     )
@@ -85,6 +86,7 @@ fn shared_trim_edge_rolls_back_invalid_side_pcurve() {
             pcurve_a,
             pcurve_b: bad_pcurve_b,
             tolerance: Tolerance::default().linear(),
+            validate_brep: true,
             provenance: "shared_trim_edge_test",
         },
     )
@@ -136,6 +138,7 @@ fn shared_trim_edge_rejects_non_twin_half_edges() {
             pcurve_a,
             pcurve_b,
             tolerance: Tolerance::default().linear(),
+            validate_brep: true,
             provenance: "shared_trim_edge_test",
         },
     )

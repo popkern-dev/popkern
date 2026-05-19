@@ -17,6 +17,9 @@ use serde::{Deserialize, Serialize};
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::{Point3, Vec3};
 
+#[path = "pcurve_span.rs"]
+mod pcurve_span;
+
 /// A parametric curve binding to one side of an edge.
 ///
 /// Holds the geometric form plus the parameter range

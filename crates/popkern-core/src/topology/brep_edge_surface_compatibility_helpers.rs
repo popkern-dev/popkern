@@ -171,6 +171,10 @@ fn reanchor_candidate(
     }
     let start_motion = triple.curve_3d.point_at(start_param).distance_to(&start);
     let end_motion = triple.curve_3d.point_at(end_param).distance_to(&end);
+    let (pc_a_start, pc_b_start) = triple.parameter_map.apply(start_param);
+    let (pc_a_end, pc_b_end) = triple.parameter_map.apply(end_param);
+    triple.pcurve_a = triple.pcurve_a.slice_between(pc_a_start, pc_a_end)?;
+    triple.pcurve_b = triple.pcurve_b.slice_between(pc_b_start, pc_b_end)?;
     triple.t_start = start_param;
     triple.t_end = end_param;
     Some((triple, start_motion.max(end_motion)))

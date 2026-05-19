@@ -222,6 +222,9 @@ pub(super) fn edge_surface_decline_reason_label(
             "incident_endpoint_conflict"
         }
         BrepEdgeSurfaceCompatibilityDeclineReason::ResidualDeviation => "residual_deviation",
+        BrepEdgeSurfaceCompatibilityDeclineReason::SharedTrimValidationFailed => {
+            "shared_trim_validation_failed"
+        }
     }
 }
 

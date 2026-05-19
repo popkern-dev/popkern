@@ -2,7 +2,7 @@
 
 use crate::geometry::edge_triple::{BoundarySide, EdgeHint, SurfaceSide};
 use crate::geometry::surface::SurfaceGeometry;
-use crate::topology::SurfaceBoundaryHintDeclineReason;
+use crate::topology::{SharedTrimEdgeFailureReason, SurfaceBoundaryHintDeclineReason};
 
 /// Surface class observed by edge/surface compatibility repair.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +74,14 @@ pub struct BrepEdgeSurfaceRepairEvidence {
     pub boundary_failure: Option<String>,
     /// Diagnostic label for the intersection attempt failure, if any.
     pub intersection_failure: Option<String>,
+    /// Shared trim-edge validation failure from the atomic commit primitive, if any.
+    pub shared_trim_failure: Option<SharedTrimEdgeFailureReason>,
+    /// Shared trim-edge candidate curve/surface deviation at commit validation.
+    pub shared_trim_curve_surface_deviation: f64,
+    /// Shared trim-edge candidate side-to-side deviation at commit validation.
+    pub shared_trim_side_agreement_deviation: f64,
+    /// Shared trim-edge candidate endpoint gap at commit validation.
+    pub shared_trim_endpoint_gap: f64,
 }
 
 impl BrepEdgeSurfaceRepairEvidence {
@@ -92,6 +100,10 @@ impl BrepEdgeSurfaceRepairEvidence {
             max_incident_endpoint_gap: 0.0,
             boundary_failure: None,
             intersection_failure: None,
+            shared_trim_failure: None,
+            shared_trim_curve_surface_deviation: 0.0,
+            shared_trim_side_agreement_deviation: 0.0,
+            shared_trim_endpoint_gap: 0.0,
         }
     }
 
@@ -114,6 +126,10 @@ impl BrepEdgeSurfaceRepairEvidence {
             max_incident_endpoint_gap: 0.0,
             boundary_failure: None,
             intersection_failure: None,
+            shared_trim_failure: None,
+            shared_trim_curve_surface_deviation: 0.0,
+            shared_trim_side_agreement_deviation: 0.0,
+            shared_trim_endpoint_gap: 0.0,
         }
     }
 }

@@ -2,6 +2,8 @@
 
 use crate::geometry::curve::{CurveEval, CurveOnEdge};
 use crate::geometry::edge_triple::EdgeTriple;
+use crate::geometry::pcurve::Pcurve;
+use crate::geometry::surface::SurfaceEval;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::topology::brep_edge_surface_compatibility::{
     BrepEdgeSurfaceCompatibilityDeclineReason, BrepEdgeSurfaceCompatibilityOptions,
@@ -12,7 +14,10 @@ use crate::topology::brep_edge_surface_compatibility_helpers::{
     build_reanchored_intersection_triple, edge_vertices, endpoint_gap, move_vertex_with_tolerance,
     proposed_vertex_incident_endpoint_gap, residual_for_candidate,
 };
-use crate::topology::{BRep, EdgeHandle, HalfEdgeHandle, edge_segment};
+use crate::topology::{
+    BRep, EdgeHandle, HalfEdgeHandle, SharedTrimEdgeInput, commit_shared_trim_edge_transactionally,
+    edge_segment,
+};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_endpoint_reanchored_repair(
@@ -60,7 +65,7 @@ pub(super) fn commit_edge_triple(
     surf_a: &SurfaceGeometry,
     surf_b: &SurfaceGeometry,
     options: BrepEdgeSurfaceCompatibilityOptions,
-    evidence: BrepEdgeSurfaceRepairEvidence,
+    mut evidence: BrepEdgeSurfaceRepairEvidence,
     repaired_from_boundary: bool,
 ) -> BrepEdgeSurfaceCompatibilityRepairDecision {
     let Some((start, end)) = edge_segment(brep, edge) else {
@@ -97,6 +102,7 @@ pub(super) fn commit_edge_triple(
             evidence,
         );
     };
+    let rollback_snapshot = brep.clone();
     let repaired_start = triple.curve_3d.point_at(triple.t_start);
     let repaired_end = triple.curve_3d.point_at(triple.t_end);
     if endpoint_gap > 0.0 {
@@ -138,13 +144,45 @@ pub(super) fn commit_edge_triple(
             options.tolerance.max(1.0e-8),
         )
         .unwrap_or_else(|| triple.curve_3d.clone());
-    brep.edges[edge].curve = Some(CurveOnEdge {
+    let curve = CurveOnEdge {
         geometry,
         t_start: triple.t_start,
         t_end: triple.t_end,
-    });
-    brep.half_edges[he_a].pcurve = Some(triple.pcurve_a);
-    brep.half_edges[he_b].pcurve = Some(triple.pcurve_b);
+    };
+    let pcurve_a = orient_pcurve_to_half_edge(brep, he_a, surf_a, triple.pcurve_a);
+    let pcurve_b = orient_pcurve_to_half_edge(brep, he_b, surf_b, triple.pcurve_b);
+    if let Err(failure) = commit_shared_trim_edge_transactionally(
+        brep,
+        SharedTrimEdgeInput {
+            edge,
+            half_edge_a: he_a,
+            half_edge_b: he_b,
+            curve,
+            pcurve_a,
+            pcurve_b,
+            tolerance: options.tolerance,
+            validate_brep: options.validate_output,
+            provenance: "edge_surface_compatibility_repair",
+        },
+    ) {
+        *brep = rollback_snapshot;
+        evidence.shared_trim_failure = Some(failure.reason);
+        evidence.shared_trim_curve_surface_deviation =
+            failure.validation.max_curve_surface_deviation;
+        evidence.shared_trim_side_agreement_deviation =
+            failure.validation.max_side_agreement_deviation;
+        evidence.shared_trim_endpoint_gap = failure.validation.max_endpoint_gap;
+        return BrepEdgeSurfaceCompatibilityRepairDecision {
+            edge,
+            outcome: BrepEdgeSurfaceCompatibilityRepairOutcome::Declined(
+                BrepEdgeSurfaceCompatibilityDeclineReason::SharedTrimValidationFailed,
+            ),
+            endpoint_gap,
+            residual_deviation,
+            evidence,
+            shared_fact_ids: Vec::new(),
+        };
+    }
     BrepEdgeSurfaceCompatibilityRepairDecision {
         edge,
         outcome: if repaired_from_boundary {
@@ -157,6 +195,48 @@ pub(super) fn commit_edge_triple(
         evidence,
         shared_fact_ids: Vec::new(),
     }
+}
+
+fn orient_pcurve_to_half_edge(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    surface: &SurfaceGeometry,
+    pcurve: Pcurve,
+) -> Pcurve {
+    let Some(half_edge_data) = brep.half_edges.get(half_edge) else {
+        return pcurve;
+    };
+    let Some(next) = brep.half_edges.get(half_edge_data.next) else {
+        return pcurve;
+    };
+    let Some(start) = brep
+        .vertices
+        .get(half_edge_data.origin)
+        .map(|vertex| vertex.position)
+    else {
+        return pcurve;
+    };
+    let Some(end) = brep.vertices.get(next.origin).map(|vertex| vertex.position) else {
+        return pcurve;
+    };
+    let p_start = surface_point_at_pcurve_endpoint(surface, &pcurve, pcurve.t_start);
+    let p_end = surface_point_at_pcurve_endpoint(surface, &pcurve, pcurve.t_end);
+    let forward_gap = p_start.distance_to(&start).max(p_end.distance_to(&end));
+    let reversed_gap = p_start.distance_to(&end).max(p_end.distance_to(&start));
+    if reversed_gap < forward_gap {
+        pcurve.reversed()
+    } else {
+        pcurve
+    }
+}
+
+fn surface_point_at_pcurve_endpoint(
+    surface: &SurfaceGeometry,
+    pcurve: &Pcurve,
+    parameter: f64,
+) -> crate::geometry::Point3 {
+    let uv = pcurve.point_at(parameter);
+    surface.point_at(uv.x, uv.y)
 }
 
 pub(super) fn anchor_motion_allowed(

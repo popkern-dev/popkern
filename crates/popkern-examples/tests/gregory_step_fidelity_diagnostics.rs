@@ -118,8 +118,16 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         "repair should not increase construction pcurve blockers: {states:#?}"
     );
     assert!(
-        export_state.edge_surface_blockers < construction_state.edge_surface_blockers,
-        "repair should reduce construction edge/surface blockers: {states:#?}"
+        export_state.edge_surface_blockers <= construction_state.edge_surface_blockers,
+        "repair should not increase construction edge/surface blockers: {states:#?}"
+    );
+    assert!(
+        repaired
+            .report
+            .edge_surface_compatibility
+            .as_ref()
+            .is_some_and(|report| report.declined_edges > 0),
+        "strict shared-trim repair should keep unresolved construction blockers observable"
     );
     assert!(
         imported_state.pcurve_blockers > 0 || imported_state.edge_surface_blockers > 0,
