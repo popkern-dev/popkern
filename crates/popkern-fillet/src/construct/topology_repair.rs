@@ -175,10 +175,46 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
     // the same-plane case can land safely while we work the diff
     // case separately. The same-plane case is what fixed the base-
     // corner chord pairs on N=3..7 in the first place.
-    let twin_in = brep.half_edges[cand.he_in].twin;
-    let twin_out = brep.half_edges[cand.he_out].twin;
-    let plane_face_in = brep.loops[brep.half_edges[twin_in].loop_].face;
-    let plane_face_out = brep.loops[brep.half_edges[twin_out].loop_].face;
+    let Some(he_in) = brep.half_edges.get(cand.he_in) else {
+        if trace {
+            eprintln!("[topo_repair]   reject: incoming chord half-edge is no longer live");
+        }
+        return false;
+    };
+    let Some(he_out) = brep.half_edges.get(cand.he_out) else {
+        if trace {
+            eprintln!("[topo_repair]   reject: outgoing chord half-edge is no longer live");
+        }
+        return false;
+    };
+    let twin_in = he_in.twin;
+    let twin_out = he_out.twin;
+    let Some(twin_in_data) = brep.half_edges.get(twin_in) else {
+        if trace {
+            eprintln!("[topo_repair]   reject: incoming chord twin is no longer live");
+        }
+        return false;
+    };
+    let Some(twin_out_data) = brep.half_edges.get(twin_out) else {
+        if trace {
+            eprintln!("[topo_repair]   reject: outgoing chord twin is no longer live");
+        }
+        return false;
+    };
+    let Some(loop_in) = brep.loops.get(twin_in_data.loop_) else {
+        if trace {
+            eprintln!("[topo_repair]   reject: incoming chord twin loop is no longer live");
+        }
+        return false;
+    };
+    let Some(loop_out) = brep.loops.get(twin_out_data.loop_) else {
+        if trace {
+            eprintln!("[topo_repair]   reject: outgoing chord twin loop is no longer live");
+        }
+        return false;
+    };
+    let plane_face_in = loop_in.face;
+    let plane_face_out = loop_out.face;
     if plane_face_in != plane_face_out {
         if std::env::var("POPKERN_TOPO_REPAIR_DIFF").is_err() {
             if trace {

@@ -67,18 +67,32 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // Topology repair for off-cylinder vertices in cylinder face
     // outer loops (apex-only filleting case where the cylinder
     // ribbon's base-side ends at an unfilleted original vertex via
-    // a chord pair). Each repair attempt runs in a snapshot —
-    // failed attempts roll back without affecting downstream
-    // operations.
+    // a chord pair). Each repair attempt runs in a snapshot and
+    // must pass `BRep::validate`; failed attempts roll back without
+    // affecting downstream operations.
     //
-    // Currently OPT-IN via `POPKERN_TOPO_REPAIR=1` because the
-    // surgery splits the cylinder face into a (cylinder, sliver)
-    // pair and the sliver face co-resides with the adjacent base
-    // plane — valid topology for OCCT-strict slicers, but the
-    // `unfillet` path doesn't yet know how to recognise sliver
-    // faces and would fail to round-trip.
-    if std::env::var("POPKERN_TOPO_REPAIR").is_ok() {
-        let _ = topology_repair::repair_cylinder_face_off_surface_vertices(result);
+    // Default-on only for apex boundary contexts, where leaving
+    // off-cylinder vertices in analytic cylinder loops poisons
+    // Gregory boundary evidence and STEP pcurve fidelity. Simple
+    // single-edge fillets keep their historical topology so the
+    // current algorithmic unfillet path does not need to understand
+    // repair sliver faces. `POPKERN_TOPO_REPAIR=1` remains the
+    // broad diagnostic mode; `POPKERN_TOPO_REPAIR=0` disables even
+    // the apex-context default. Different-adjacent-plane chord
+    // chains remain separately gated inside `topology_repair`
+    // because they require stronger multi-face ownership repair
+    // before they can be commercial grade.
+    let apex_boundary_context = !support_seam_jobs.is_empty()
+        || !late_wire_jobs.is_empty()
+        || !a2_built_faces.is_empty()
+        || corner_patches
+            .iter()
+            .any(|patch| matches!(patch.method, crate::types::CornerMethod::Gregory));
+    if topology_repair_enabled(apex_boundary_context) {
+        let repaired = topology_repair::repair_cylinder_face_off_surface_vertices(result);
+        if std::env::var_os("POPKERN_TOPO_REPAIR_TRACE").is_some() {
+            eprintln!("[topo_repair] default post-blend repaired {repaired} chord pair(s)");
+        }
     }
 
     // §13.1(2) sliver absorption: Classes A/B/C/D. 12-edge cube test is Class D regression guard (26 faces preserved).
@@ -298,4 +312,11 @@ fn support_seam_relocation_enabled() -> bool {
     std::env::var("POPKERN_SUPPORT_SEAM_RELOCATION")
         .map(|value| value != "0")
         .unwrap_or(true)
+}
+
+fn topology_repair_enabled(apex_boundary_context: bool) -> bool {
+    match std::env::var("POPKERN_TOPO_REPAIR") {
+        Ok(value) => value != "0",
+        Err(_) => apex_boundary_context,
+    }
 }

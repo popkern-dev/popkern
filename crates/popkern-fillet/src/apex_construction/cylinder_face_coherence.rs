@@ -20,10 +20,13 @@
 //!   A2's dispatch can produce a precise failure-cause message
 //!   rather than the generic "no shared face for mef" downstream.
 //!
-//! Repair (the actual `kef` + `split_edge` surgery) is a follow-up
-//! slice — for now this module is detection + diagnostic only.
-//! Wired into `a2_dispatch::try_a2_apex_construction` to surface
-//! the precise root cause before the planner runs.
+//! Repair for the validated same-plane chord-pair class lives in
+//! `construct::topology_repair` and runs in the post-blend pipeline
+//! with snapshot rollback and `BRep::validate` postconditions. This
+//! diagnostic remains wired into `a2_dispatch::try_a2_apex_construction`
+//! because incoherence that survives that repair is a distinct
+//! construction blocker, usually a multi-face ownership case rather
+//! than a simple base-plane chord pair.
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
