@@ -362,15 +362,25 @@ fn selected_far_side_trim_materialization_preflight(
     topology_plans: &[CylinderTrimRewriteTopologyPlan],
 ) -> bool {
     let mut candidate = brep.clone();
-    pre_materialize_far_side_trim_sides(
+    match pre_materialize_far_side_trim_sides(
         &mut candidate,
         cap_face,
         face_edges,
         rebuild_plans,
         topology_plans,
         true,
-    )
-    .is_ok()
+    ) {
+        Ok(_) => true,
+        Err(error) => {
+            if crate::a2_trace::enabled() {
+                eprintln!(
+                    "[a2-trace §14.9/cylinder-trim-rewrite] selected far-side \
+                     materialization preflight refused: {error}"
+                );
+            }
+            false
+        }
+    }
 }
 
 fn plan_semantic_cylinder_trim_rebuilds(

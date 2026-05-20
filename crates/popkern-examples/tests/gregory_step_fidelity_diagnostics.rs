@@ -14,9 +14,11 @@ use popkern_io::{
     StepExportOptions, StepImportOptions, StepProductNode, UnitContext, export_step, import_step,
 };
 use std::sync::Arc;
+mod gregory_step_fidelity_blocker_ownership;
 #[path = "gregory_step_fidelity/boundary_knowledge.rs"]
 mod gregory_step_fidelity_boundary_knowledge;
 mod gregory_step_fidelity_side_agreement;
+use gregory_step_fidelity_blocker_ownership::blocker_ownership_summary;
 use gregory_step_fidelity_side_agreement::pcurve_side_agreement_summary;
 #[derive(Debug, Clone, PartialEq)]
 struct FidelityState {
@@ -105,10 +107,10 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         for state in &states {
             eprintln!("{state:#?}");
         }
-        eprintln!(
-            "construction pcurve-side agreement: {:#?}",
-            pcurve_side_agreement_summary(&construction, 8)
-        );
+        let side_agreement = pcurve_side_agreement_summary(&construction, 8);
+        let blocker_ownership = blocker_ownership_summary(&construction, 12);
+        eprintln!("construction pcurve-side agreement: {side_agreement:#?}");
+        eprintln!("construction blocker ownership: {blocker_ownership:#?}");
     }
 
     assert!(
