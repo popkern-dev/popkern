@@ -1,12 +1,17 @@
 //! Exact-boundary apex cap primitives.
 
 pub(crate) mod boundary;
+pub(crate) mod corner;
 pub(crate) mod ribbon;
 pub(crate) mod sector;
 
 #[cfg(test)]
 #[path = "boundary_tests.rs"]
 mod boundary_tests;
+
+#[cfg(test)]
+#[path = "corner_tests.rs"]
+mod corner_tests;
 
 #[cfg(test)]
 #[path = "ribbon_tests.rs"]

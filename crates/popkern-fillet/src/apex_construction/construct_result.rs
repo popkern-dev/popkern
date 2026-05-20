@@ -20,6 +20,8 @@ pub struct ApexBuildResult {
     pub(crate) exact_boundary_sectors: Vec<ExactBoundaryCapSectorInput>,
     /// Number of exact-boundary curves prepared without approximation.
     pub(crate) exact_boundary_prepared_curve_count: usize,
+    /// Number of generated inner spokes prepared without topology mutation.
+    pub(crate) exact_boundary_inner_spoke_count: usize,
     /// Number of support derivative ribbons prepared from support pcurve evidence.
     pub(crate) exact_boundary_ribbon_count: usize,
     /// Structured diagnostics emitted while planning or declining apex repairs.

@@ -16,6 +16,9 @@ use super::error::ApexBuildError;
 use super::exact_boundary_cap::boundary::{
     ExactBoundaryCurveBudget, prepare_exact_boundary_curves,
 };
+use super::exact_boundary_cap::corner::{
+    ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes,
+};
 use super::exact_boundary_cap::ribbon::{
     ExactBoundaryRibbonBudget, prepare_exact_boundary_ribbons,
 };
@@ -64,6 +67,7 @@ pub(super) fn assign_gregory_cap_surface(
         Vec<ExactBoundaryCapSectorInput>,
         usize,
         usize,
+        usize,
         Vec<crate::types::ApexConstructionDiagnostic>,
     ),
     ApexBuildError,
@@ -97,6 +101,17 @@ pub(super) fn assign_gregory_cap_surface(
     .map_err(|diagnostic| diagnostic.into_build_error())?;
     let exact_boundary_prepared_curve_count = prepared_boundary_curves.curves.len();
     let mut exact_boundary_diagnostics = Vec::new();
+    let exact_boundary_inner_spoke_count = match prepare_exact_boundary_inner_spokes(
+        &exact_boundary_sectors,
+        &prepared_boundary_curves,
+        ExactBoundaryInnerSpokeBudget::default(),
+    ) {
+        Ok(prepared_spokes) => prepared_spokes.sectors.len() * 2,
+        Err(diagnostic) => {
+            exact_boundary_diagnostics.push(diagnostic.into_apex_diagnostic());
+            0
+        }
+    };
     let exact_boundary_ribbon_count = match prepare_exact_boundary_ribbons(
         brep,
         &exact_boundary_sectors,
@@ -125,6 +140,7 @@ pub(super) fn assign_gregory_cap_surface(
         corner_patches,
         exact_boundary_sectors,
         exact_boundary_prepared_curve_count,
+        exact_boundary_inner_spoke_count,
         exact_boundary_ribbon_count,
         exact_boundary_diagnostics,
     ))

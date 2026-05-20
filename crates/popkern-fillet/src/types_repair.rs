@@ -44,6 +44,8 @@ pub struct ApexConstructionRouteDecision {
     pub exact_boundary_sector_count: usize,
     /// Number of exact-boundary curves prepared without approximation.
     pub exact_boundary_prepared_curve_count: usize,
+    /// Number of generated inner spokes prepared without topology mutation.
+    pub exact_boundary_inner_spoke_count: usize,
     /// Number of support derivative ribbons prepared from support pcurve evidence.
     pub exact_boundary_ribbon_count: usize,
     /// direct-apex decline reason when [`ApexConstructionRoute::DirectApexFallbackToLegacy`] applies.
@@ -75,7 +77,7 @@ pub struct ExactBoundaryCapDiagnostic {
     /// Stable sector name where available.
     pub sector_name: String,
     /// Source edge being prepared.
-    pub edge: EdgeHandle,
+    pub edge: Option<EdgeHandle>,
     /// Support half-edge being sampled, when applicable.
     pub support_half_edge: Option<HalfEdgeHandle>,
     /// Support face being sampled, when applicable.
