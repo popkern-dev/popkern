@@ -51,6 +51,26 @@ pub enum ApexConstructionDiagnostic {
     /// Target-cylinder trim replacement could not materialize an exact,
     /// ownership-balanced far-side trim.
     CylinderTrimMaterialization(CylinderTrimMaterializationDiagnostic),
+    /// Native Gregory cap/support seam continuity did not meet the commercial
+    /// G1 gate after construction.
+    CapSupportContinuity(CapSupportContinuityDiagnostic),
+}
+
+/// Native cap/support continuity diagnostic for a constructed apex cap.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CapSupportContinuityDiagnostic {
+    /// Cap face whose support seam was measured.
+    pub cap_face: FaceHandle,
+    /// Adjacent support or fillet face across the worst seam.
+    pub support_face: FaceHandle,
+    /// Topological edge shared by the cap and support face.
+    pub edge: EdgeHandle,
+    /// Worst sampled unit-normal parallelism deficit.
+    pub worst_g1_coplanarity: f64,
+    /// Commercial gate used for the measurement.
+    pub gate: f64,
+    /// Number of cap/support edges measured for the apex.
+    pub edges_measured: usize,
 }
 
 /// Materialized target-cylinder trim replacement diagnostic.
@@ -135,14 +155,42 @@ pub fn build_blend_repair_action_artifact(report: &BlendRepairReport) -> BrepRep
             shared_fact_ids: Vec::new(),
         });
     }
+    let mut apex_declined = 0usize;
+    let mut apex_max_deviation = 0.0f64;
+    for diagnostic in &report.apex_diagnostics {
+        match diagnostic {
+            ApexConstructionDiagnostic::CylinderTrimMaterialization(_) => {}
+            ApexConstructionDiagnostic::CapSupportContinuity(diagnostic) => {
+                apex_declined += 1;
+                apex_max_deviation = apex_max_deviation.max(diagnostic.worst_g1_coplanarity);
+                actions.push(BrepRepairActionRecord {
+                    stage: "apex_cap_support_continuity".to_string(),
+                    outcome: "declined".to_string(),
+                    subject: format!(
+                        "cap={:?};support={:?};edge={:?}",
+                        diagnostic.cap_face, diagnostic.support_face, diagnostic.edge
+                    ),
+                    reason: Some("cap_outer_g1_exceeds_gate".to_string()),
+                    max_motion: 0.0,
+                    max_deviation: diagnostic.worst_g1_coplanarity,
+                    affected_handles: vec![
+                        format!("face:{:?}", diagnostic.cap_face),
+                        format!("face:{:?}", diagnostic.support_face),
+                        format!("edge:{:?}", diagnostic.edge),
+                    ],
+                    shared_fact_ids: Vec::new(),
+                });
+            }
+        }
+    }
     BrepRepairActionArtifact {
         summary: BrepRepairActionSummary {
-            attempted_actions: seam.candidates + rolled_back,
+            attempted_actions: seam.candidates + rolled_back + apex_declined,
             authored_actions: seam.authored,
-            declined_actions: seam.declined,
+            declined_actions: seam.declined + apex_declined,
             rolled_back_actions: rolled_back,
             max_motion: seam.max_endpoint_motion,
-            max_deviation: seam.max_sampled_disagreement,
+            max_deviation: seam.max_sampled_disagreement.max(apex_max_deviation),
         },
         actions,
     }

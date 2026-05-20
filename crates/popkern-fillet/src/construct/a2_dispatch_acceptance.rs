@@ -158,6 +158,129 @@ pub(super) fn native_gregory_cap_outer_g0_error(
     None
 }
 
+pub(super) fn native_gregory_cap_outer_g1_diagnostic(
+    brep: &BRep,
+    result: &crate::apex_construction::construct::ApexBuildResult,
+    gate: f64,
+) -> Option<crate::types::ApexConstructionDiagnostic> {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::SurfaceEval;
+
+    let cap_faces = result
+        .corner_patches
+        .iter()
+        .map(|p| p.face)
+        .collect::<std::collections::BTreeSet<_>>();
+    if cap_faces.is_empty() {
+        return None;
+    }
+
+    let mut worst = 0.0f64;
+    let mut worst_edge = None;
+    let mut worst_faces = None;
+    let mut measured_edges = 0usize;
+    for (edge_handle, edge) in brep.edges.iter() {
+        let he_a = edge.half_edge;
+        let Some(ha) = brep.half_edges.get(he_a) else {
+            continue;
+        };
+        let Some(hb) = brep.half_edges.get(ha.twin) else {
+            continue;
+        };
+        let face_a = brep.loops[ha.loop_].face;
+        let face_b = brep.loops[hb.loop_].face;
+        if face_a == face_b {
+            continue;
+        }
+        let a_is_cap = cap_faces.contains(&face_a);
+        let b_is_cap = cap_faces.contains(&face_b);
+        if a_is_cap == b_is_cap {
+            continue;
+        }
+        let (Some(pa), Some(pb)) = (ha.pcurve.as_ref(), hb.pcurve.as_ref()) else {
+            continue;
+        };
+        let Some(sa) = brep.faces.get(face_a).and_then(|f| f.surface.as_ref()) else {
+            continue;
+        };
+        let Some(sb) = brep.faces.get(face_b).and_then(|f| f.surface.as_ref()) else {
+            continue;
+        };
+
+        let (pa_lo, pa_hi) = pa.parameter_range();
+        let (pb_lo, pb_hi) = pb.parameter_range();
+        let pa_at = |t: f64| {
+            let uv = pa.point_at(t);
+            sa.geometry.point_at(uv.x, uv.y)
+        };
+        let pb_at = |t: f64| {
+            let uv = pb.point_at(t);
+            sb.geometry.point_at(uv.x, uv.y)
+        };
+        let Some(coe) = edge.curve.as_ref() else {
+            continue;
+        };
+        let (t_lo, t_hi) = (coe.t_start, coe.t_end);
+        let p3_lo = coe.geometry.point_at(t_lo);
+        let p3_hi = coe.geometry.point_at(t_hi);
+        let pa_forward = p3_lo.distance_to(&pa_at(pa_lo)) + p3_hi.distance_to(&pa_at(pa_hi))
+            <= p3_lo.distance_to(&pa_at(pa_hi)) + p3_hi.distance_to(&pa_at(pa_lo));
+        let pb_forward = p3_lo.distance_to(&pb_at(pb_lo)) + p3_hi.distance_to(&pb_at(pb_hi))
+            <= p3_lo.distance_to(&pb_at(pb_hi)) + p3_hi.distance_to(&pb_at(pb_lo));
+
+        measured_edges += 1;
+        for i in 0..100 {
+            let s = 0.05 + 0.90 * (i as f64) / 99.0;
+            let s_a = if pa_forward { s } else { 1.0 - s };
+            let s_b = if pb_forward { s } else { 1.0 - s };
+            let uv_a = pa.point_at(pa_lo + s_a * (pa_hi - pa_lo));
+            let uv_b = pb.point_at(pb_lo + s_b * (pb_hi - pb_lo));
+            let n_a = sa
+                .geometry
+                .partial_u(uv_a.x, uv_a.y)
+                .cross(&sa.geometry.partial_v(uv_a.x, uv_a.y));
+            let n_b = sb
+                .geometry
+                .partial_u(uv_b.x, uv_b.y)
+                .cross(&sb.geometry.partial_v(uv_b.x, uv_b.y));
+            let nn_a = (n_a.x * n_a.x + n_a.y * n_a.y + n_a.z * n_a.z).sqrt();
+            let nn_b = (n_b.x * n_b.x + n_b.y * n_b.y + n_b.z * n_b.z).sqrt();
+            if nn_a <= 1e-300 || nn_b <= 1e-300 {
+                continue;
+            }
+            let deficit =
+                1.0 - ((n_a.x * n_b.x + n_a.y * n_b.y + n_a.z * n_b.z) / (nn_a * nn_b)).abs();
+            if deficit > worst {
+                worst = deficit;
+                worst_edge = Some(edge_handle);
+                let (cap_face, support_face) = if a_is_cap {
+                    (face_a, face_b)
+                } else {
+                    (face_b, face_a)
+                };
+                worst_faces = Some((cap_face, support_face));
+            }
+        }
+    }
+
+    if worst <= gate {
+        return None;
+    }
+    let (cap_face, support_face) = worst_faces?;
+    Some(
+        crate::types::ApexConstructionDiagnostic::CapSupportContinuity(
+            crate::types::CapSupportContinuityDiagnostic {
+                cap_face,
+                support_face,
+                edge: worst_edge?,
+                worst_g1_coplanarity: worst,
+                gate,
+                edges_measured: measured_edges,
+            },
+        ),
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn trace_native_gregory_cap_seam_g0(
     brep: &BRep,

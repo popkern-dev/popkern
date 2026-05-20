@@ -260,7 +260,7 @@ fn try_constructive_with_legacy_fallthrough(
     let execution_options =
         crate::apex_construction::constructive_builder_options::ConstructiveApexExecutionOptions::from_environment_adapter();
     match construct_apex_constructively(brep, plan, surfaces, tolerance, None, execution_options) {
-        Ok(result) => {
+        Ok(mut result) => {
             if matches!(plan.cap_kind, CapKind::Gregory { .. }) {
                 let constructive_err =
                     if !a2_dispatch_acceptance::native_gregory_has_expected_cylinder_seams(
@@ -307,6 +307,13 @@ fn try_constructive_with_legacy_fallthrough(
                                  {build_err}"
                             )
                         });
+                }
+                if let Some(diagnostic) =
+                    a2_dispatch_acceptance::native_gregory_cap_outer_g1_diagnostic(
+                        brep, &result, 5.0e-2,
+                    )
+                {
+                    result.diagnostics.push(diagnostic);
                 }
             }
             Ok(result)
