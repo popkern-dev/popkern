@@ -46,6 +46,7 @@ pub(crate) mod constructive_geometry;
 pub(crate) mod constructive_topology;
 pub(crate) mod cylinder_face_coherence;
 pub(crate) mod error;
+pub(crate) mod exact_boundary_cap;
 pub(crate) mod face_edge_construction;
 pub(crate) mod gregory_cap;
 pub(crate) mod gregory_cap_boundary;

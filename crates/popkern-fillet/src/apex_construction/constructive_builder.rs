@@ -135,6 +135,7 @@ fn construct_apex_inner_constructive(
             apex_vertices: Vec::new(),
             apex_edges: Vec::new(),
             corner_patches: Vec::new(),
+            exact_boundary_sectors: Vec::new(),
             diagnostics: Vec::new(),
             telemetry: plan.telemetry.clone(),
         });
@@ -203,6 +204,7 @@ fn construct_apex_inner_constructive(
                 // existing trim-trim segments on the cap face's outer loop.
                 apex_edges: vec![None; n],
                 corner_patches,
+                exact_boundary_sectors: Vec::new(),
                 diagnostics: Vec::new(),
                 telemetry: plan.telemetry.clone(),
             })
@@ -264,7 +266,9 @@ fn construct_apex_inner_constructive(
                 execution_options.require_v_free_repeated_apex(),
             )?;
             check_cancelled(cancel)?;
-            let corner_patches = assign_gregory_cap_surface(
+            let sectors =
+                gregory_sectors_from_handles(plan, &fillet_end_handles, &face_edge_handles)?;
+            let (corner_patches, exact_boundary_sectors) = assign_gregory_cap_surface(
                 brep,
                 cap_face,
                 plan,
@@ -272,7 +276,7 @@ fn construct_apex_inner_constructive(
                 &apex_vertex_handles,
                 &face_edge_handles,
                 &fillet_end_handles,
-                &gregory_sectors_from_handles(plan, &fillet_end_handles, &face_edge_handles)?,
+                &sectors,
                 fillet_surfaces,
                 tolerance,
             )?;
@@ -296,6 +300,7 @@ fn construct_apex_inner_constructive(
                 apex_vertices: apex_vertex_handles,
                 apex_edges,
                 corner_patches,
+                exact_boundary_sectors,
                 diagnostics,
                 telemetry: plan.telemetry.clone(),
             })

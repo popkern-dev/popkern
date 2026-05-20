@@ -47,6 +47,7 @@ use crate::types::{CornerPatchInfo, FilletRadius, FilletSpec};
 pub(crate) struct DirectApexDispatchOutcome {
     pub built_faces: Vec<FaceHandle>,
     pub corner_patches: Vec<CornerPatchInfo>,
+    pub exact_boundary_sector_count: usize,
     pub diagnostics: Vec<crate::types::ApexConstructionDiagnostic>,
 }
 
@@ -237,6 +238,7 @@ pub(super) fn try_direct_apex_construction(
     Ok(DirectApexDispatchOutcome {
         built_faces: build_result.created_faces,
         corner_patches: build_result.corner_patches,
+        exact_boundary_sector_count: build_result.exact_boundary_sectors.len(),
         diagnostics: build_result.diagnostics,
     })
 }

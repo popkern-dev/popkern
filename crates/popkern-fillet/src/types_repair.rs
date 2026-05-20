@@ -40,6 +40,8 @@ pub struct ApexConstructionRouteDecision {
     pub built_faces: Vec<FaceHandle>,
     /// Number of corner patch reports produced by this route.
     pub corner_patch_count: usize,
+    /// Number of exact-boundary sector ownership records extracted for this route.
+    pub exact_boundary_sector_count: usize,
     /// direct-apex decline reason when [`ApexConstructionRoute::DirectApexFallbackToLegacy`] applies.
     pub fallback_reason: Option<String>,
 }

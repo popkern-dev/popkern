@@ -16,6 +16,7 @@ fn mixed_radius_gregory_records_default_direct_apex_route() {
     assert_eq!(routes[0].route, ApexConstructionRoute::DirectApex);
     assert_eq!(routes[0].incident_edges.len(), 3);
     assert_eq!(routes[0].built_faces.len(), 3);
+    assert_eq!(routes[0].exact_boundary_sector_count, 3);
     assert!(routes[0].fallback_reason.is_none());
 }
 
@@ -31,6 +32,7 @@ fn mixed_radius_gregory_records_direct_apex_requested_route() {
     assert_eq!(routes[0].route, ApexConstructionRoute::DirectApex);
     assert_eq!(routes[0].incident_edges.len(), 3);
     assert_eq!(routes[0].built_faces.len(), 3);
+    assert_eq!(routes[0].exact_boundary_sector_count, 3);
     assert!(routes[0].fallback_reason.is_none());
 }
 

@@ -44,7 +44,7 @@ use crate::construct::three_quad_apply::{
 use crate::types::CornerPatchInfo;
 use crate::vertex_classifier::VertexBlendClassification;
 #[derive(Debug, Clone, Copy)]
-pub(super) struct GregoryCapSector {
+pub(crate) struct GregoryCapSector {
     pub sector_index: usize,
     pub fillet_index: usize,
     pub fillet_end_edge: EdgeHandle,

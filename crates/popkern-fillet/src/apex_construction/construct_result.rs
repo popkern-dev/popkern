@@ -2,6 +2,7 @@
 
 use popkern_core::topology::{EdgeHandle, FaceHandle, VertexHandle};
 
+use super::exact_boundary_cap::sector::ExactBoundaryCapSectorInput;
 use super::telemetry::PlanTelemetry;
 
 #[derive(Debug, Clone)]
@@ -15,6 +16,8 @@ pub struct ApexBuildResult {
     pub apex_edges: Vec<Option<EdgeHandle>>,
     /// Corner-patch reports created by cap surface assignment.
     pub corner_patches: Vec<crate::types::CornerPatchInfo>,
+    /// Exact-boundary sector ownership facts extracted from live cap topology.
+    pub(crate) exact_boundary_sectors: Vec<ExactBoundaryCapSectorInput>,
     /// Structured diagnostics emitted while planning or declining apex repairs.
     pub diagnostics: Vec<crate::types::ApexConstructionDiagnostic>,
     /// Planner telemetry carried through to the build result.
