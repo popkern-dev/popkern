@@ -1,5 +1,5 @@
 //! End-to-end planner tests for the affordances added in the
-//! A2.1 review (Issues 5, 6, 8) plus variable-radius coverage.
+//! DirectApex.1 review (Issues 5, 6, 8) plus variable-radius coverage.
 //!
 //! Split out of [`super::plan_e2e_tests`] so each test file stays
 //! under the 500-line structural cap.  Helpers live in

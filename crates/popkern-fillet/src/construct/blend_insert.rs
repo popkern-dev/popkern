@@ -214,7 +214,7 @@ pub(crate) fn insert_vertex_blend(
     // PnS rung (env-gated). Keep default production dispatch at
     // N >= 5: trihedral PnS currently reduces curved boundaries to
     // bi-2 strips and fails the cap/support G0 gate on mixed-radius
-    // A2 fixtures.
+    // DirectApex fixtures.
     if crate::blend::pns_promote::pns_env_enabled()
         && n_sides >= 5
         && let Some(boundary) = n_gon_boundary.as_ref()
@@ -335,7 +335,7 @@ fn split_corner_triangles(
 ///
 /// Returns the surviving merged-face handle.
 ///
-/// `pub(crate)` because the §6c-A2.2.e apex builder
+/// `pub(crate)` because the §6c-DirectApex.2.e apex builder
 /// (`crate::apex_construction::construct`) calls this after its
 /// own mef sequence to merge the corner sub-faces.
 pub(crate) fn kef_cross_face_v_edges(
@@ -413,7 +413,7 @@ pub(crate) fn kef_cross_face_v_edges(
 /// vertex to be valence-1, so we pick the half-edge that ends at
 /// V and call `kev(that)` to kill V plus the bridge together.
 ///
-/// `pub(crate)` for §6c-A2.2.e — same rationale as
+/// `pub(crate)` for §6c-DirectApex.2.e — same rationale as
 /// [`kef_cross_face_v_edges`].
 pub(crate) fn kev_v_bridge(brep: &mut BRep, vertex: VertexHandle) -> Result<(), String> {
     if !brep.vertices.contains_key(vertex) {
@@ -461,7 +461,7 @@ pub(crate) fn kev_v_bridge(brep: &mut BRep, vertex: VertexHandle) -> Result<(), 
 
 /// Phase 3: Remove vertex V if it is no longer connected to any edges.
 ///
-/// `pub(crate)` for §6c-A2.2.e — same rationale as
+/// `pub(crate)` for §6c-DirectApex.2.e — same rationale as
 /// [`kef_cross_face_v_edges`].
 pub(crate) fn remove_orphaned_vertex(brep: &mut BRep, vertex: VertexHandle) {
     let v_has_edges = brep.half_edges.values().any(|he| he.origin == vertex);

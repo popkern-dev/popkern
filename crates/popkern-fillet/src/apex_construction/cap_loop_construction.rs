@@ -50,7 +50,7 @@ pub(super) fn construct_cap_loop_from_preexisting_cross_face_edges(
     apex_vertex_handles: &[VertexHandle],
     fillet_surfaces: &[FilletSurfaceResult],
 ) -> Result<(FaceHandle, Vec<Option<EdgeHandle>>), ApexBuildError> {
-    let trace = crate::a2_trace::enabled();
+    let trace = crate::direct_apex_trace::enabled();
     let n = plan.cap_kind.n_fillets();
     let mut fillet_ends = vec![None; n];
 
@@ -65,7 +65,7 @@ pub(super) fn construct_cap_loop_from_preexisting_cross_face_edges(
         if he_loop == twin_loop {
             if trace {
                 eprintln!(
-                    "[a2-trace §14.8/cap-loop] preexisting cross-face edge {edge:?} is same-face bridge, deferring to apex removal"
+                    "[direct-apex-trace §14.8/cap-loop] preexisting cross-face edge {edge:?} is same-face bridge, deferring to apex removal"
                 );
             }
             continue;
@@ -74,7 +74,7 @@ pub(super) fn construct_cap_loop_from_preexisting_cross_face_edges(
             let he_face = brep.loops[he_loop].face;
             let twin_face = brep.loops[twin_loop].face;
             eprintln!(
-                "[a2-trace §14.8/cap-loop] kef preexisting cross-face edge {edge:?} (he in {he_face:?}, twin in {twin_face:?})"
+                "[direct-apex-trace §14.8/cap-loop] kef preexisting cross-face edge {edge:?} (he in {he_face:?}, twin in {twin_face:?})"
             );
         }
         brep.kef(he).map_err(|e| ApexBuildError::EulerOpFailed {
@@ -98,7 +98,7 @@ pub(super) fn construct_cap_loop_from_preexisting_cross_face_edges(
             )? {
                 if trace {
                     eprintln!(
-                        "[a2-trace §14.8/cap-loop] interleaved FilletEnd[{k}] after cross-face edge {edge:?}: {:?}",
+                        "[direct-apex-trace §14.8/cap-loop] interleaved FilletEnd[{k}] after cross-face edge {edge:?}: {:?}",
                         created
                     );
                 }
@@ -136,7 +136,7 @@ fn find_cap_face_from_apex_outgoing(brep: &BRep, v: VertexHandle) -> Option<Face
 }
 
 fn trace_cap_loop_construction_result(brep: &BRep, cap_face: FaceHandle, v: VertexHandle) {
-    let trace = crate::a2_trace::enabled();
+    let trace = crate::direct_apex_trace::enabled();
     if !trace {
         return;
     }
@@ -147,14 +147,14 @@ fn trace_cap_loop_construction_result(brep: &BRep, cap_face: FaceHandle, v: Vert
         .map(|(h, _)| h)
         .collect();
     eprintln!(
-        "[a2-trace §14.8/cap-loop] cap-loop construction complete: cap_face={cap_face:?}, V has {} outgoings",
+        "[direct-apex-trace §14.8/cap-loop] cap-loop construction complete: cap_face={cap_face:?}, V has {} outgoings",
         outgoings.len()
     );
     for he in &outgoings {
         let l = brep.half_edges[*he].loop_;
         let f = brep.loops[l].face;
         let dest = brep.half_edges[brep.half_edges[*he].twin].origin;
-        eprintln!("[a2-trace §14.8/cap-loop]   he={he:?} -> {dest:?} face={f:?}");
+        eprintln!("[direct-apex-trace §14.8/cap-loop]   he={he:?} -> {dest:?} face={f:?}");
     }
     let cap_loop_handle = brep.faces[cap_face].outer_loop;
     let start = brep.loops[cap_loop_handle].half_edge;
@@ -169,7 +169,7 @@ fn trace_cap_loop_construction_result(brep: &BRep, cap_face: FaceHandle, v: Vert
         }
     }
     eprintln!(
-        "[a2-trace §14.8/cap-loop]   cap_face={cap_face:?} loop ({} half-edges): {}",
+        "[direct-apex-trace §14.8/cap-loop]   cap_face={cap_face:?} loop ({} half-edges): {}",
         chain.len(),
         chain.join(" -> ")
     );
@@ -189,7 +189,7 @@ pub(super) fn create_remaining_fillet_end_edges(
         execution_options,
     } = construction;
     let n = plan.cap_kind.n_fillets();
-    let trace = crate::a2_trace::enabled();
+    let trace = crate::direct_apex_trace::enabled();
 
     if trace {
         trace_cap_loop_apex_arcs(brep, *cap_face, plan.apex_vertex, apex_vertex_handles, n);
@@ -238,7 +238,7 @@ fn try_create_single_fillet_end_edge(
     apex_vertex_handles: &[VertexHandle],
     fillet_surfaces: &[FilletSurfaceResult],
 ) -> Result<Option<EdgeHandle>, ApexBuildError> {
-    let trace = crate::a2_trace::enabled();
+    let trace = crate::direct_apex_trace::enabled();
     let t_a_k = apex_vertex_handles[2 * k];
     let t_b_k = apex_vertex_handles[2 * k + 1];
     for (face, he_origin, he_dest) in find_two_origins_on_all_faces(brep, t_a_k, t_b_k) {
@@ -248,7 +248,7 @@ fn try_create_single_fillet_end_edge(
             loop_segment_contains_origin(brep, he_dest, he_origin, plan.apex_vertex);
         if trace {
             eprintln!(
-                "[a2-trace §14.8/cap-loop] interleaved FilletEnd[{k}] candidate on {face:?}: forward_contains_v={forward_contains_v}, reverse_contains_v={reverse_contains_v}"
+                "[direct-apex-trace §14.8/cap-loop] interleaved FilletEnd[{k}] candidate on {face:?}: forward_contains_v={forward_contains_v}, reverse_contains_v={reverse_contains_v}"
             );
         }
         if forward_contains_v && reverse_contains_v {
@@ -275,7 +275,7 @@ fn create_fillet_end_edge_on_face(
     apex_vertex_handles: &[VertexHandle],
     fillet_surfaces: &[FilletSurfaceResult],
 ) -> Result<EdgeHandle, ApexBuildError> {
-    let trace = crate::a2_trace::enabled();
+    let trace = crate::direct_apex_trace::enabled();
     let t_a_k = apex_vertex_handles[2 * k];
     let t_b_k = apex_vertex_handles[2 * k + 1];
 
@@ -334,7 +334,7 @@ fn create_fillet_end_edge_on_face(
 
     if trace {
         eprintln!(
-            "[a2-trace §14.8/cap-loop] mef FilletEnd[{k}] T_a[{k}]={t_a_k:?} -> T_b[{k}]={t_b_k:?} \
+            "[direct-apex-trace §14.8/cap-loop] mef FilletEnd[{k}] T_a[{k}]={t_a_k:?} -> T_b[{k}]={t_b_k:?} \
              on face={face:?} -> edge={:?}, cyl-strip={:?}, forward_contains_v={}, reverse_contains_v={}",
             mef_result.edge, mef_result.face, forward_contains_v, reverse_contains_v
         );
@@ -396,7 +396,7 @@ fn trace_cap_loop_apex_arcs(
             .filter_map(|(index, vertex)| (*vertex == apex_vertex).then_some(index))
             .collect();
         eprintln!(
-            "[a2-trace §14.8/cap-loop] cap loop {loop_label}={loop_handle:?}: {} vertices, {} apex occurrences",
+            "[direct-apex-trace §14.8/cap-loop] cap loop {loop_label}={loop_handle:?}: {} vertices, {} apex occurrences",
             vertices.len(),
             apex_positions.len()
         );
@@ -407,7 +407,7 @@ fn trace_cap_loop_apex_arcs(
             let t_a_positions = vertex_positions(&vertices, t_a);
             let t_b_positions = vertex_positions(&vertices, t_b);
             eprintln!(
-                "[a2-trace §14.8/cap-loop]   T_a[{k}]={t_a:?}@{:?}, T_b[{k}]={t_b:?}@{:?}",
+                "[direct-apex-trace §14.8/cap-loop]   T_a[{k}]={t_a:?}@{:?}, T_b[{k}]={t_b:?}@{:?}",
                 t_a_positions, t_b_positions
             );
         }
@@ -435,7 +435,7 @@ fn trace_cap_loop_apex_arcs(
                 labels.join(" -> ")
             };
             eprintln!(
-                "[a2-trace §14.8/cap-loop]   apex-arc[{arc_index}] V@{start_pos} -> V@{end_pos}: {contents}"
+                "[direct-apex-trace §14.8/cap-loop]   apex-arc[{arc_index}] V@{start_pos} -> V@{end_pos}: {contents}"
             );
         }
     }

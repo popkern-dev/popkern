@@ -1,4 +1,4 @@
-//! Apex edge resolution for the legacy A2 mutating builder.
+//! Apex edge resolution for the legacy DirectApex mutating builder.
 
 use popkern_core::geometry::{CurveGeometry, CurveOnEdge, NurbsCurve};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
@@ -44,9 +44,9 @@ pub(super) fn resolve_apex_edges(
                 ),
             })?;
         if matches!(target_edge.role, TargetEdgeRole::CapVsCyl { .. }) {
-            if crate::a2_trace::enabled() {
+            if crate::direct_apex_trace::enabled() {
                 eprintln!(
-                    "[a2-trace] apex_edge[{i}] (vidx {} -> {}) -> SKIPPED (CapVsCyl, \
+                    "[direct-apex-trace] apex_edge[{i}] (vidx {} -> {}) -> SKIPPED (CapVsCyl, \
                      §28.D)",
                     target_edge.origin_vertex_idx, target_edge.dest_vertex_idx,
                 );
@@ -55,9 +55,9 @@ pub(super) fn resolve_apex_edges(
             continue;
         }
         if let Some(eh) = find_edge_between(brep, v_origin, v_dest) {
-            if crate::a2_trace::enabled() {
+            if crate::direct_apex_trace::enabled() {
                 eprintln!(
-                    "[a2-trace] apex_edge[{i}] (vidx {} -> {}) -> FOUND existing edge \
+                    "[direct-apex-trace] apex_edge[{i}] (vidx {} -> {}) -> FOUND existing edge \
                      {eh:?} between {v_origin:?} and {v_dest:?}",
                     target_edge.origin_vertex_idx, target_edge.dest_vertex_idx,
                 );
@@ -65,7 +65,7 @@ pub(super) fn resolve_apex_edges(
             out.push(Some(eh));
             continue;
         }
-        if crate::a2_trace::enabled() {
+        if crate::direct_apex_trace::enabled() {
             let origin_faces = vertex_loop_face_handles(brep, v_origin);
             let dest_faces = vertex_loop_face_handles(brep, v_dest);
             let shared: Vec<_> = origin_faces
@@ -74,7 +74,7 @@ pub(super) fn resolve_apex_edges(
                 .copied()
                 .collect();
             eprintln!(
-                "[a2-trace] apex_edge[{i}] (vidx {} -> {}) NEED to create; \
+                "[direct-apex-trace] apex_edge[{i}] (vidx {} -> {}) NEED to create; \
                  v_origin={v_origin:?} on faces {origin_faces:?}; \
                  v_dest={v_dest:?} on faces {dest_faces:?}; \
                  SHARED faces = {shared:?}",

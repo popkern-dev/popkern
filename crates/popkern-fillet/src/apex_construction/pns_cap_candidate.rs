@@ -1,4 +1,4 @@
-//! Disabled-by-default PnS cap candidate for constructive A2 Gregory caps.
+//! Disabled-by-default PnS cap candidate for constructive DirectApex Gregory caps.
 
 use popkern_core::error::ValidationError;
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
@@ -20,7 +20,7 @@ pub(super) fn try_boundary_preserving_pns_cap(
     classification: VertexBlendClassification,
     sectors: &[GregoryCapSector],
 ) -> Option<Vec<CornerPatchInfo>> {
-    let enabled = std::env::var("POPKERN_A2_PNS_CANDIDATE")
+    let enabled = std::env::var("POPKERN_DIRECT_APEX_PNS_CANDIDATE")
         .map(|value| value == "1")
         .unwrap_or(false);
     if !enabled {

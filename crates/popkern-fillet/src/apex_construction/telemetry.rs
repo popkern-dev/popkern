@@ -1,4 +1,4 @@
-//! Plan telemetry for Phase 6c-A2 apex construction.
+//! Plan telemetry for Phase 6c-DirectApex apex construction.
 //!
 //! Captures the planner's reasoning and numeric inputs so the
 //! caller (especially UIs) can:
@@ -25,7 +25,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ConstructionRung {
-    /// Direct sphere-fit apex construction — the A2 default.
+    /// Direct sphere-fit apex construction — the DirectApex default.
     /// All fillets meet at sphere-fit terminations; no compromise.
     Direct,
 

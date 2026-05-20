@@ -1,4 +1,4 @@
-//! Cap-surface assignment for the legacy A2 mutating builder.
+//! Cap-surface assignment for the legacy DirectApex mutating builder.
 
 use popkern_core::geometry::Point3;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};

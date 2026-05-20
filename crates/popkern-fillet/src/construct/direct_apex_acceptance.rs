@@ -1,4 +1,4 @@
-//! Native Gregory acceptance checks for A2 dispatch.
+//! Native Gregory acceptance checks for DirectApex dispatch.
 
 use super::*;
 
@@ -10,7 +10,7 @@ pub(super) fn native_gregory_path_a_error(brep: &BRep) -> Option<String> {
             Some(format!("{err:?}"))
         }
         ValidationError::OpenLoop { loop_, .. } => {
-            if crate::a2_trace::enabled() {
+            if crate::direct_apex_trace::enabled() {
                 trace_loop_for_acceptance_failure(brep, loop_);
             }
             Some(format!("{err:?}"))
@@ -26,7 +26,7 @@ fn trace_loop_for_acceptance_failure(brep: &BRep, loop_: popkern_core::topology:
     let face = loop_data.face;
     let start = loop_data.half_edge;
     let mut cursor = start;
-    eprintln!("[a2-trace] acceptance failure loop {loop_:?} face={face:?}");
+    eprintln!("[direct-apex-trace] acceptance failure loop {loop_:?} face={face:?}");
     for index in 0..=brep.half_edges.len() {
         let Some(he) = brep.half_edges.get(cursor) else {
             break;
@@ -45,7 +45,7 @@ fn trace_loop_for_acceptance_failure(brep: &BRep, loop_: popkern_core::topology:
             })
             .unwrap_or_else(|| "curve=<none>".to_string());
         eprintln!(
-            "[a2-trace]   [{index}] he={cursor:?} edge={:?} origin={:?}@({:.3},{:.3},{:.3}) next={:?} {curve_summary}",
+            "[direct-apex-trace]   [{index}] he={cursor:?} edge={:?} origin={:?}@({:.3},{:.3},{:.3}) next={:?} {curve_summary}",
             he.edge, he.origin, origin.x, origin.y, origin.z, he.next
         );
         cursor = he.next;
@@ -110,7 +110,7 @@ pub(super) fn native_gregory_cap_outer_g0_error(
         let p_b = sb.geometry.point_at(uv_b.x, uv_b.y);
         let gap = p_a.distance_to(&p_b);
         measured_edges += 1;
-        if crate::a2_trace::cap_g0_enabled() {
+        if crate::direct_apex_trace::cap_g0_enabled() {
             trace_native_gregory_cap_seam_g0(
                 brep,
                 edge_handle,
@@ -127,7 +127,7 @@ pub(super) fn native_gregory_cap_outer_g0_error(
             worst_edge = Some(edge_handle);
         }
         if gap > max_gap {
-            if crate::a2_trace::cap_g0_enabled() {
+            if crate::direct_apex_trace::cap_g0_enabled() {
                 continue;
             }
             return Some(format!(
@@ -139,9 +139,9 @@ pub(super) fn native_gregory_cap_outer_g0_error(
     if measured_edges == 0 {
         return Some("no cap-vs-noncap seams measured".to_string());
     }
-    if crate::a2_trace::enabled() {
+    if crate::direct_apex_trace::enabled() {
         eprintln!(
-            "[a2-trace] native Gregory cap_outer_g0 postcondition: worst={worst_gap:.3e} over {measured_edges} edge(s)"
+            "[direct-apex-trace] native Gregory cap_outer_g0 postcondition: worst={worst_gap:.3e} over {measured_edges} edge(s)"
         );
     }
     if worst_gap > max_gap {
@@ -313,7 +313,7 @@ fn trace_native_gregory_cap_seam_g0(
     let he_a_data = &brep.half_edges[he_a];
     let he_b_data = &brep.half_edges[he_b];
     eprintln!(
-        "[a2-trace cap-g0] seam edge={edge_handle:?} he=({he_a:?},{he_b:?}) \
+        "[direct-apex-trace cap-g0] seam edge={edge_handle:?} he=({he_a:?},{he_b:?}) \
          faces=({face_a:?}:{}, {face_b:?}:{}) cap_side={} midpoint_gap={midpoint_gap:.6e}",
         surface_kind(face_a),
         surface_kind(face_b),
@@ -325,7 +325,7 @@ fn trace_native_gregory_cap_seam_g0(
         .get(edge_handle)
         .and_then(|edge| edge.curve.as_ref())
     else {
-        eprintln!("[a2-trace cap-g0]   edge has no 3D curve");
+        eprintln!("[direct-apex-trace cap-g0]   edge has no 3D curve");
         return;
     };
     let Some(surface_a) = brep.faces.get(face_a).and_then(|f| f.surface.as_ref()) else {
@@ -336,7 +336,7 @@ fn trace_native_gregory_cap_seam_g0(
     };
     let (Some(pcurve_a), Some(pcurve_b)) = (he_a_data.pcurve.as_ref(), he_b_data.pcurve.as_ref())
     else {
-        eprintln!("[a2-trace cap-g0]   missing pcurve on one side");
+        eprintln!("[direct-apex-trace cap-g0]   missing pcurve on one side");
         return;
     };
 
@@ -368,7 +368,7 @@ fn trace_native_gregory_cap_seam_g0(
         let p_a = side_point(pcurve_a, surface_a, s_a);
         let p_b = side_point(pcurve_b, surface_b, s_b);
         eprintln!(
-            "[a2-trace cap-g0]   s={sample:.1} cap_noncap={:.6e} \
+            "[direct-apex-trace cap-g0]   s={sample:.1} cap_noncap={:.6e} \
              sideA_edge={:.6e} sideB_edge={:.6e}",
             p_a.distance_to(&p_b),
             p_a.distance_to(&p_edge),
@@ -426,9 +426,9 @@ pub(super) fn native_gregory_has_expected_cylinder_seams(
         }
     }
 
-    if crate::a2_trace::enabled() {
+    if crate::direct_apex_trace::enabled() {
         eprintln!(
-            "[a2-trace] native Gregory seam postcondition: {cylinder_seams} seams across {} distinct cylinder face(s), expected {n_fillets}",
+            "[direct-apex-trace] native Gregory seam postcondition: {cylinder_seams} seams across {} distinct cylinder face(s), expected {n_fillets}",
             cylinder_faces.len()
         );
     }

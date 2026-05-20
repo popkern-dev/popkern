@@ -1,4 +1,4 @@
-//! Phase 6c-A2 §28.C — pre-A2 perp-anchor relocation to plan targets.
+//! Phase 6c-DirectApex §28.C — pre-DirectApex perp-anchor relocation to plan targets.
 //!
 //! Phase A perp-walks place anchors at perp-walk-math positions
 //! (where the fillet's transverse boundary intersects the host plane,
@@ -8,11 +8,11 @@
 //! cap-tangent arc).  These two coordinate systems agree for uniform
 //! radii but diverge for variable radii.
 //!
-//! This pass runs before A2 apex vertex resolution (`resolve_apex_vertices`).
+//! This pass runs before DirectApex apex vertex resolution (`resolve_apex_vertices`).
 //! For each plan apex_vertex point, it finds the nearest BRep
 //! perp-anchor in V's neighborhood and relocates it (vertex
 //! position + incident edge curve coherence sweep) to the plan
-//! target.  After the pass, A2's `resolve_apex_vertices` snap
+//! target.  After the pass, DirectApex's `resolve_apex_vertices` snap
 //! finds matching anchors at zero distance, and apex edge resolution's Adopt
 //! path fires for CapVsCyl edges.
 //!
@@ -55,7 +55,7 @@ pub(super) fn relocate_perp_anchors_to_plan_targets(
     plan: &ApexPlan,
     tolerance: &Tolerance,
 ) -> Result<(usize, f64), String> {
-    let trace = crate::a2_trace::enabled();
+    let trace = crate::direct_apex_trace::enabled();
     let targets: &[Point3] = &plan.target_topology.apex_vertices;
     if targets.is_empty() {
         return Ok((0, 0.0));
@@ -63,7 +63,7 @@ pub(super) fn relocate_perp_anchors_to_plan_targets(
 
     // Synthetic test plans may pass `VertexHandle::null`; treat as
     // "no relocation needed" so unit tests for downstream stages
-    // (resolve_apex_vertices, resolve_apex_edges) can drive A2
+    // (resolve_apex_vertices, resolve_apex_edges) can drive DirectApex
     // with handcrafted plans that don't have a real apex vertex
     // in the BRep.
     let Some(v_data) = brep.vertices.get(plan.apex_vertex) else {
@@ -107,7 +107,7 @@ pub(super) fn relocate_perp_anchors_to_plan_targets(
 
     if trace {
         eprintln!(
-            "[a2-trace §28.C] relocate: V={:?}@{v_pos:?}, search_radius={search_radius:.4}, \
+            "[direct-apex-trace §28.C] relocate: V={:?}@{v_pos:?}, search_radius={search_radius:.4}, \
              {} plan targets, {} candidate perp-anchors",
             plan.apex_vertex,
             targets.len(),
@@ -155,7 +155,7 @@ pub(super) fn relocate_perp_anchors_to_plan_targets(
         let Some(anchor) = anchor_opt else {
             if trace {
                 eprintln!(
-                    "[a2-trace §28.C]   target[{ti}]@{:?} → no anchor (will fall through to \
+                    "[direct-apex-trace §28.C]   target[{ti}]@{:?} → no anchor (will fall through to \
                      resolve_apex_vertices)",
                     targets[ti]
                 );
@@ -168,7 +168,7 @@ pub(super) fn relocate_perp_anchors_to_plan_targets(
         if d < lin_tol {
             if trace {
                 eprintln!(
-                    "[a2-trace §28.C]   target[{ti}]@{target:?} ↔ {anchor:?}@{cp:?}: \
+                    "[direct-apex-trace §28.C]   target[{ti}]@{target:?} ↔ {anchor:?}@{cp:?}: \
                      dist {d:.3e} < lin_tol {lin_tol:.3e}, skip"
                 );
             }
@@ -176,7 +176,7 @@ pub(super) fn relocate_perp_anchors_to_plan_targets(
         }
         if trace {
             eprintln!(
-                "[a2-trace §28.C]   target[{ti}]@{target:?} ↔ {anchor:?}@{cp:?}: dist {d:.4e}, \
+                "[direct-apex-trace §28.C]   target[{ti}]@{target:?} ↔ {anchor:?}@{cp:?}: dist {d:.4e}, \
                  relocating"
             );
         }
@@ -188,7 +188,9 @@ pub(super) fn relocate_perp_anchors_to_plan_targets(
     }
 
     if trace {
-        eprintln!("[a2-trace §28.C] relocate done: {n_moved} vertices moved, worst {worst:.4e} m");
+        eprintln!(
+            "[direct-apex-trace §28.C] relocate done: {n_moved} vertices moved, worst {worst:.4e} m"
+        );
     }
     Ok((n_moved, worst))
 }

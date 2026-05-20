@@ -258,9 +258,9 @@ fn best_lifted_support_u_boundary(surface: &SurfaceGeometry, curve: &CurveOnEdge
             best = (u, worst);
         }
     }
-    if crate::a2_trace::cap_g0_enabled() {
+    if crate::direct_apex_trace::cap_g0_enabled() {
         eprintln!(
-            "[a2-trace cap-g0] lifted support best boundary u={:.1} worst={:.6e}",
+            "[direct-apex-trace cap-g0] lifted support best boundary u={:.1} worst={:.6e}",
             best.0, best.1
         );
     }

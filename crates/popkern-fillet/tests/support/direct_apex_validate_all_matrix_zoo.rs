@@ -1,14 +1,16 @@
-use crate::a2_validate_helpers::{a2_fallback_reasons, build_under_a2_with_pyramid_height};
+use crate::direct_apex_validate_helpers::{
+    build_under_direct_apex_with_pyramid_height, direct_apex_fallback_reasons,
+};
 use popkern_core::diagnostics::Diagnostics;
 
 #[test]
 #[ignore = "diagnostic gate: exact fillet_zoo pyramid_n04 still leaves retired apex/support topology"]
-fn a2_diagnostic_pyramid4_zoo_mixed_export_defects() {
-    let result = build_under_a2_with_pyramid_height(true, &[0.07, 0.09, 0.11, 0.13], 1.2);
-    let reasons = a2_fallback_reasons(&result);
+fn direct_apex_diagnostic_pyramid4_zoo_mixed_export_defects() {
+    let result = build_under_direct_apex_with_pyramid_height(true, &[0.07, 0.09, 0.11, 0.13], 1.2);
+    let reasons = direct_apex_fallback_reasons(&result);
     assert!(
         reasons.is_empty(),
-        "diagnostic expects native A2 output before export-defect assertions; got:\n{}",
+        "diagnostic expects native direct-apex output before export-defect assertions; got:\n{}",
         reasons.join("\n")
     );
 

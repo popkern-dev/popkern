@@ -32,9 +32,9 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
 
     let mut all_support_owned_trim_sides = Vec::new();
     let mut pending_cylinder_loop_replacements = Vec::new();
-    if crate::a2_trace::enabled() && !side_support_bridge_loops.is_empty() {
+    if crate::direct_apex_trace::enabled() && !side_support_bridge_loops.is_empty() {
         eprintln!(
-            "[a2-trace §14.9/cylinder-loop-replace] side-support continuation bridge loops {:?}",
+            "[direct-apex-trace §14.9/cylinder-loop-replace] side-support continuation bridge loops {:?}",
             side_support_bridge_loops
         );
     }
@@ -176,9 +176,9 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
             replacement.cylinder_face,
             &replacement.cycle,
         )?;
-        if crate::a2_trace::enabled() {
+        if crate::direct_apex_trace::enabled() {
             eprintln!(
-                "[a2-trace §14.9/cylinder-loop-replace] FilletEnd[{}] {:?}/{:?} -> {:?}",
+                "[direct-apex-trace §14.9/cylinder-loop-replace] FilletEnd[{}] {:?}/{:?} -> {:?}",
                 replacement.fillet_index,
                 replacement.cylinder_face,
                 replacement.kind,

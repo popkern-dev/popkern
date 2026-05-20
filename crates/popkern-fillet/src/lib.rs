@@ -1,7 +1,6 @@
 #![warn(missing_docs)]
 //! popkern-fillet: Fillets and chamfers for the popkern BRep kernel.
 //! Public entry points: [`fillet_edges`], [`chamfer_edges`], [`vertex_blend_3d`].
-pub(crate) mod a2_trace;
 pub mod analysis;
 pub mod apex_construction;
 pub mod blend;
@@ -25,6 +24,7 @@ pub mod curvature_comb;
 pub(crate) mod cusp_subdivide;
 pub(crate) mod degeneracy;
 pub(crate) mod degeneracy_surface;
+pub(crate) mod direct_apex_trace;
 pub mod edges_2d;
 pub mod error;
 pub mod fillet_2d;
@@ -312,7 +312,7 @@ fn fillet_edges_internal(
         options.use_two_stripe_gregory,
         options.use_kp_binonic_gregory,
         options.use_kp_polar_gregory,
-        options.use_a2_apex_construction,
+        options.use_direct_apex_construction,
     )
     .map_err(|edge_failures| BlendError::PartialFailure {
         failed: edge_failures.len(),
@@ -441,7 +441,7 @@ pub fn chamfer_edges(
         false,
         false,
         false,
-        false, // chamfers don't go through the A2 apex builder
+        false, // chamfers don't go through the DirectApex apex builder
     )
     .map_err(|edge_failures| BlendError::PartialFailure {
         failed: edge_failures.len(),

@@ -1,4 +1,4 @@
-//! Cleanup helpers for the legacy A2 mutating builder.
+//! Cleanup helpers for the legacy DirectApex mutating builder.
 
 use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
 
@@ -6,7 +6,7 @@ pub(super) fn dissolve_v_bridges_until_valence_le_1(brep: &mut BRep, vertex: Ver
     if !brep.vertices.contains_key(vertex) {
         return;
     }
-    let trace = crate::a2_trace::enabled();
+    let trace = crate::direct_apex_trace::enabled();
     let max_iters = brep.half_edges.len() + 16;
     for _ in 0..max_iters {
         if !brep.vertices.contains_key(vertex) {
@@ -40,7 +40,7 @@ pub(super) fn dissolve_v_bridges_until_valence_le_1(brep: &mut BRep, vertex: Ver
         };
         if trace {
             eprintln!(
-                "[a2-trace §28.H/3.5] dissolving same-loop bridge {he:?} at V={vertex:?} (valence={})",
+                "[direct-apex-trace §28.H/3.5] dissolving same-loop bridge {he:?} at V={vertex:?} (valence={})",
                 outgoings.len()
             );
         }

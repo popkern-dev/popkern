@@ -35,7 +35,7 @@ pub(super) fn remove_apex_vertex(
         );
     }
 
-    let trace = crate::a2_trace::enabled();
+    let trace = crate::direct_apex_trace::enabled();
     if trace {
         let outgoings: Vec<_> = brep
             .half_edges
@@ -44,7 +44,7 @@ pub(super) fn remove_apex_vertex(
             .map(|(h, hd)| (h, hd.loop_, hd.twin))
             .collect();
         eprintln!(
-            "[a2-trace §14.8/D] enter remove_apex_vertex: V={v:?} has {} outgoings",
+            "[direct-apex-trace §14.8/D] enter remove_apex_vertex: V={v:?} has {} outgoings",
             outgoings.len()
         );
         for (h, l, t) in &outgoings {
@@ -53,7 +53,7 @@ pub(super) fn remove_apex_vertex(
             let twin_face = brep.loops[twin_loop].face;
             let dest = brep.half_edges[*t].origin;
             eprintln!(
-                "[a2-trace §14.8/D]   he={h:?} -> {dest:?} loop={l:?} (face={face:?}) twin_loop={twin_loop:?} (face={twin_face:?}) {}",
+                "[direct-apex-trace §14.8/D]   he={h:?} -> {dest:?} loop={l:?} (face={face:?}) twin_loop={twin_loop:?} (face={twin_face:?}) {}",
                 if l == &twin_loop {
                     "SAME-LOOP"
                 } else {
@@ -112,7 +112,7 @@ pub(super) fn remove_apex_vertex(
                 let twin = brep.half_edges[he].twin;
                 let twin_face = brep.loops[brep.half_edges[twin].loop_].face;
                 eprintln!(
-                    "[a2-trace §14.8/D] kef cross-face he={he:?} (in cap_face={cap_face:?}, killing {twin_face:?}; V outgoings={})",
+                    "[direct-apex-trace §14.8/D] kef cross-face he={he:?} (in cap_face={cap_face:?}, killing {twin_face:?}; V outgoings={})",
                     outgoings.len()
                 );
             }
@@ -126,7 +126,7 @@ pub(super) fn remove_apex_vertex(
             if trace {
                 let twin_face = brep.loops[brep.half_edges[twin].loop_].face;
                 eprintln!(
-                    "[a2-trace §14.8/D] kef cross-face TWIN he={twin:?} (in cap_face={twin_face:?}; V outgoings={})",
+                    "[direct-apex-trace §14.8/D] kef cross-face TWIN he={twin:?} (in cap_face={twin_face:?}; V outgoings={})",
                     outgoings.len()
                 );
             }
@@ -138,7 +138,7 @@ pub(super) fn remove_apex_vertex(
         } else if let Some(bridge) = adjacent_same_loop {
             if trace {
                 eprintln!(
-                    "[a2-trace §14.8/D] dissolve_same_loop_bridge (adjacent) he={bridge:?} (V outgoings={})",
+                    "[direct-apex-trace §14.8/D] dissolve_same_loop_bridge (adjacent) he={bridge:?} (V outgoings={})",
                     outgoings.len()
                 );
             }
@@ -152,7 +152,7 @@ pub(super) fn remove_apex_vertex(
             if outgoings.len() > 1 {
                 if trace {
                     eprintln!(
-                        "[a2-trace §14.8/D] kemr slit he={slit:?} (V outgoings={})",
+                        "[direct-apex-trace §14.8/D] kemr slit he={slit:?} (V outgoings={})",
                         outgoings.len()
                     );
                 }
@@ -191,7 +191,7 @@ fn remove_apex_vertex_after_repeated_apex_normalization(
     require_v_free_repeated_apex: bool,
 ) -> Result<(), ApexBuildError> {
     let v = plan.apex_vertex;
-    let trace = crate::a2_trace::enabled();
+    let trace = crate::direct_apex_trace::enabled();
 
     if collect_outer_loop_vertices(brep, cap_face).is_some_and(|vertices| vertices.contains(&v)) {
         return Err(ApexBuildError::PlanMismatch {
@@ -207,7 +207,7 @@ fn remove_apex_vertex_after_repeated_apex_normalization(
             .filter(|(_, h)| h.origin == v)
             .count();
         eprintln!(
-            "[a2-trace §14.9/D] repeated-apex normalized cap excludes V; preserving strip ownership with V still present in non-cap topology ({outgoings} outgoing half-edge(s))"
+            "[direct-apex-trace §14.9/D] repeated-apex normalized cap excludes V; preserving strip ownership with V still present in non-cap topology ({outgoings} outgoing half-edge(s))"
         );
     }
 

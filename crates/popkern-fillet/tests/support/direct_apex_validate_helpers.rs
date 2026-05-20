@@ -74,11 +74,11 @@ pub(crate) fn breakdown(errors: &[ValidationError]) -> MetricBreakdown {
     out
 }
 
-pub(crate) fn build_under_a2(is_pyramid: bool, radii: &[f64]) -> BlendResult {
-    build_under_a2_with_pyramid_height(is_pyramid, radii, 0.8)
+pub(crate) fn build_under_direct_apex(is_pyramid: bool, radii: &[f64]) -> BlendResult {
+    build_under_direct_apex_with_pyramid_height(is_pyramid, radii, 0.8)
 }
 
-pub(crate) fn build_under_a2_with_pyramid_height(
+pub(crate) fn build_under_direct_apex_with_pyramid_height(
     is_pyramid: bool,
     radii: &[f64],
     pyramid_height: f64,
@@ -106,7 +106,7 @@ pub(crate) fn build_under_a2_with_pyramid_height(
         })
         .collect();
     let options = FilletOptions {
-        use_a2_apex_construction: true,
+        use_direct_apex_construction: true,
         use_rational_gregory: true,
         use_deg5_gregory: true,
         use_biquintic_full_gregory: true,
@@ -115,23 +115,24 @@ pub(crate) fn build_under_a2_with_pyramid_height(
         use_kp_binonic_gregory: true,
         ..FilletOptions::default()
     };
-    fillet_edges(&brep, &specs, &options, tol, None).expect("fillet_edges succeeds under A2")
+    fillet_edges(&brep, &specs, &options, tol, None)
+        .expect("fillet_edges succeeds under DirectApex")
 }
 
-pub(crate) fn count_a2_fallbacks(result: &BlendResult) -> usize {
+pub(crate) fn count_direct_apex_fallbacks(result: &BlendResult) -> usize {
     result
         .edge_warnings
         .iter()
-        .filter(|(_, w)| matches!(w, BlendWarning::A2FellBackToLegacy { .. }))
+        .filter(|(_, w)| matches!(w, BlendWarning::DirectApexFellBackToLegacy { .. }))
         .count()
 }
 
-pub(crate) fn a2_fallback_reasons(result: &BlendResult) -> Vec<String> {
+pub(crate) fn direct_apex_fallback_reasons(result: &BlendResult) -> Vec<String> {
     result
         .edge_warnings
         .iter()
         .filter_map(|(_, w)| match w {
-            BlendWarning::A2FellBackToLegacy { reason, .. } => Some(reason.clone()),
+            BlendWarning::DirectApexFellBackToLegacy { reason, .. } => Some(reason.clone()),
             _ => None,
         })
         .collect()
@@ -147,11 +148,11 @@ pub(crate) fn assert_native_gregory_case(
     radii: &[f64],
     expected_distinct_cylinders: usize,
 ) {
-    let result = build_under_a2(is_pyramid, radii);
-    let reasons = a2_fallback_reasons(&result);
+    let result = build_under_direct_apex(is_pyramid, radii);
+    let reasons = direct_apex_fallback_reasons(&result);
     assert!(
         reasons.is_empty(),
-        "{name} must complete through native A2; got {} fallback(s):\n{}",
+        "{name} must complete through native direct-apex; got {} fallback(s):\n{}",
         reasons.len(),
         reasons
             .iter()

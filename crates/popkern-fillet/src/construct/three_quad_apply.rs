@@ -117,9 +117,9 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         if !use_deg5 {
             return None;
         }
-        if crate::a2_trace::enabled() {
+        if crate::direct_apex_trace::enabled() {
             eprintln!(
-                "[a2-trace §A2.4/gregory-nquad] degree-5 decomposition rejected boundary; \
+                "[direct-apex-trace §DirectApex.4/gregory-nquad] degree-5 decomposition rejected boundary; \
                  retrying validated cubic decomposition"
             );
         }
@@ -243,7 +243,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             decomp.sub_patches.len()
         )));
     }
-    if crate::a2_trace::enabled() {
+    if crate::direct_apex_trace::enabled() {
         trace_cap_subface_neighbors(brep, "raw", &sub_faces_raw);
     }
     // Phase 6c-D Stage 4.7e: re-order `sub_faces` so each
@@ -274,7 +274,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             .collect::<Vec<_>>(),
         None => sub_faces_raw,
     };
-    if crate::a2_trace::enabled() {
+    if crate::direct_apex_trace::enabled() {
         trace_cap_subface_neighbors(brep, "ordered", &sub_faces);
     }
     brep.normalize_edge_representatives();
@@ -313,7 +313,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
 
     // Support-frame rewriting is diagnostic enrichment, not accepted
     // construction: on cube_mixed it can satisfy a local cap/support
-    // metric while breaking ring G0 or forcing A2 fallback. Keep it out
+    // metric while breaking ring G0 or forcing DirectApex fallback. Keep it out
     // of the construction path until support continuation is rebuilt as
     // a postcondition-gated surface primitive.
     let support_frames_enabled = false;
@@ -419,7 +419,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
                 "cap surface assignment left invalid trim pcurves: {err}"
             )));
         }
-        if crate::a2_trace::enabled() {
+        if crate::direct_apex_trace::enabled() {
             trace_cap_subface_neighbors(brep, "post-assign", &[*sub_face]);
         }
         patches.push(CornerPatchInfo {
@@ -436,7 +436,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             sub_patch_provenance: sub_patch_provenance(macro_family, n_sides, k),
         });
     }
-    if crate::a2_trace::enabled() {
+    if crate::direct_apex_trace::enabled() {
         trace_cap_subface_neighbors(brep, "final", &sub_faces);
     }
     Ok(patches)

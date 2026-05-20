@@ -137,9 +137,9 @@ pub(super) fn materialized_far_side_trim_sides(
             (Ok(curve_a), Ok(curve_b)) => {
                 brep.edges[edge_a].curve = Some(curve_a);
                 brep.edges[edge_b].curve = Some(curve_b);
-                if crate::a2_trace::enabled() {
+                if crate::direct_apex_trace::enabled() {
                     eprintln!(
-                        "[a2-trace §14.9/cylinder-loop-replace] split far-side FilletEnd[{}] \
+                        "[direct-apex-trace §14.9/cylinder-loop-replace] split far-side FilletEnd[{}] \
                          through joint {joint:?} using supports {:?}->{:?}",
                         fillet_index, start_support, end_support
                     );
@@ -191,9 +191,9 @@ pub(super) fn materialized_far_side_trim_sides(
     {
         let (edge, half_edge) = insert_boundary_half_edge(brep, start);
         brep.edges[edge].curve = Some(curve);
-        if crate::a2_trace::enabled() {
+        if crate::direct_apex_trace::enabled() {
             eprintln!(
-                "[a2-trace §14.9/cylinder-loop-replace] FilletEnd[{fillet_index}] authored \
+                "[direct-apex-trace §14.9/cylinder-loop-replace] FilletEnd[{fillet_index}] authored \
                  cylinder-only far-side boundary arc {start:?}->{end:?}; support transition \
                  has no plane-plane-cylinder joint"
             );

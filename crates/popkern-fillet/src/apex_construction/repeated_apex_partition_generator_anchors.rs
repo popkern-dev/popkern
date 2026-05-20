@@ -95,7 +95,7 @@ pub(super) fn materialize_missing_generator_anchors(
                 &allowed_support_faces,
                 fillet_end.fillet_index,
             )?;
-            if crate::a2_trace::enabled() {
+            if crate::direct_apex_trace::enabled() {
                 let support_boundary_hits = support_plane_faces_containing_point(
                     brep,
                     fillet_end.target_cylinder_face,
@@ -110,7 +110,7 @@ pub(super) fn materialize_missing_generator_anchors(
                 .collect::<Vec<_>>()
                 .join(", ");
                 eprintln!(
-                    "[a2-trace §14.9/cylinder-anchor] materialized support-aware FilletEnd[{}] \
+                    "[direct-apex-trace §14.9/cylinder-anchor] materialized support-aware FilletEnd[{}] \
                      anchor {anchor:?} at ({:.6},{:.6},{:.6}) for endpoint {endpoint:?} on {:?}; \
                      support hits [{}]",
                     fillet_end.fillet_index,

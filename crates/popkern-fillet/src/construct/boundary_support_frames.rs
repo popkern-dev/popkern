@@ -19,7 +19,7 @@ pub(super) fn apply_face_owned_support_frames(brep: &mut BRep, cap_face: FaceHan
     if support_sides.is_empty() {
         return;
     }
-    let trace = crate::a2_trace::support_frames_enabled();
+    let trace = crate::direct_apex_trace::support_frames_enabled();
     let Some(surface) = brep
         .faces
         .get_mut(cap_face)
@@ -34,7 +34,7 @@ pub(super) fn apply_face_owned_support_frames(brep: &mut BRep, cap_face: FaceHan
     for support_side in support_sides {
         if trace {
             eprintln!(
-                "[a2 support-frame] face={cap_face:?} variant={} side={}",
+                "[direct-apex support-frame] face={cap_face:?} variant={} side={}",
                 patch_variant_name(patch),
                 support_side.side.name()
             );

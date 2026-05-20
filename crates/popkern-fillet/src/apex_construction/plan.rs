@@ -1,4 +1,4 @@
-//! Phase 6c-A2 apex planner — orchestration.
+//! Phase 6c-DirectApex apex planner — orchestration.
 //!
 //! `plan_apex_resolution` is the **pure** entry point that produces
 //! an [`ApexPlan`] from a BRep + apex vertex + fillet specs.
@@ -40,7 +40,7 @@ use super::telemetry::{ConstructionRung, PlanTelemetry};
 /// A plan for resolving an apex vertex's fillet topology.
 ///
 /// Produced by [`plan_apex_resolution`]; consumed by
-/// `construct_apex_topology` (when A2.2 lands).  Introspectable for
+/// `construct_apex_topology` (when DirectApex.2 lands).  Introspectable for
 /// UI preview.
 ///
 /// See ADR `docs/decisions/2026-04-30-phase-6c-a2-direct-apex-construction.md` §3.1.
@@ -206,12 +206,12 @@ pub fn plan_apex_resolution(
     tolerance: &popkern_core::tolerance::Tolerance,
     cancel: Option<&CancellationToken>,
 ) -> Result<ApexPlan, ApexPlanError> {
-    // Step 1: validate inputs (A2.1.b).  Validation errors don't
+    // Step 1: validate inputs (DirectApex.1.b).  Validation errors don't
     // benefit from rung fallback — invalid inputs are user errors.
     validate_inputs(brep, apex, fillet_specs)?;
     check_cancelled(cancel)?;
 
-    // Step 2: compute boundary segments (A2.1.c).  Same — boundary
+    // Step 2: compute boundary segments (DirectApex.1.c).  Same — boundary
     // failure is structural, not a sphere-fit failure.
     let boundary = compute_apex_boundary(brep, apex, fillet_surfaces, tolerance)?;
     check_cancelled(cancel)?;
@@ -238,8 +238,8 @@ pub fn plan_apex_resolution(
 /// `brep.edges`).  Radius / apex-vertex / fillet-count checks
 /// still apply.
 ///
-/// `pub(crate)` — only the legacy pipeline's A2 dispatch
-/// (`crate::construct::a2_dispatch`) calls this.  External
+/// `pub(crate)` — only the legacy pipeline's DirectApex dispatch
+/// (`crate::construct::direct_apex_dispatch`) calls this.  External
 /// callers should use [`plan_apex_resolution`] which validates
 /// the spec strictly.
 pub(crate) fn plan_apex_resolution_lenient(

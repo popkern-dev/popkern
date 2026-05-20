@@ -8,58 +8,61 @@ use popkern_fillet::{
 };
 
 #[test]
-fn mixed_radius_gregory_records_default_a2_route() {
+fn mixed_radius_gregory_records_default_direct_apex_route() {
     let result = mixed_radius_gregory_cube(FilletOptions::default());
     let routes = &result.repair_report.apex_routes;
 
     assert_eq!(routes.len(), 1, "fixture should have one smooth apex route");
-    assert_eq!(routes[0].route, ApexConstructionRoute::A2);
+    assert_eq!(routes[0].route, ApexConstructionRoute::DirectApex);
     assert_eq!(routes[0].incident_edges.len(), 3);
     assert_eq!(routes[0].built_faces.len(), 3);
     assert!(routes[0].fallback_reason.is_none());
 }
 
 #[test]
-fn mixed_radius_gregory_records_a2_requested_route() {
+fn mixed_radius_gregory_records_direct_apex_requested_route() {
     let result = mixed_radius_gregory_cube(FilletOptions {
-        use_a2_apex_construction: true,
+        use_direct_apex_construction: true,
         ..FilletOptions::default()
     });
     let routes = &result.repair_report.apex_routes;
 
     assert_eq!(routes.len(), 1, "fixture should have one smooth apex route");
-    assert_eq!(routes[0].route, ApexConstructionRoute::A2);
+    assert_eq!(routes[0].route, ApexConstructionRoute::DirectApex);
     assert_eq!(routes[0].incident_edges.len(), 3);
     assert_eq!(routes[0].built_faces.len(), 3);
     assert!(routes[0].fallback_reason.is_none());
 }
 
 #[test]
-fn mixed_radius_gregory_default_matches_requested_a2_quality() {
+fn mixed_radius_gregory_default_matches_requested_direct_apex_quality() {
     let default = mixed_radius_gregory_cube(FilletOptions::default());
-    let requested_a2 = mixed_radius_gregory_cube(FilletOptions {
-        use_a2_apex_construction: true,
+    let requested_direct_apex = mixed_radius_gregory_cube(FilletOptions {
+        use_direct_apex_construction: true,
         ..FilletOptions::default()
     });
     let default_quality = quality(&default.brep);
-    let requested_a2_quality = quality(&requested_a2.brep);
-    let _evidence_rows = default_quality.evidence_rows() + requested_a2_quality.evidence_rows();
+    let requested_direct_apex_quality = quality(&requested_direct_apex.brep);
+    let _evidence_rows =
+        default_quality.evidence_rows() + requested_direct_apex_quality.evidence_rows();
 
     assert_eq!(
         default.repair_report.apex_routes[0].route,
-        ApexConstructionRoute::A2
+        ApexConstructionRoute::DirectApex
     );
     assert_eq!(
-        requested_a2.repair_report.apex_routes[0].route,
-        ApexConstructionRoute::A2
+        requested_direct_apex.repair_report.apex_routes[0].route,
+        ApexConstructionRoute::DirectApex
     );
     assert!(
-        default_quality.pcurve_blockers == requested_a2_quality.pcurve_blockers
-            && default_quality.edge_surface_blockers == requested_a2_quality.edge_surface_blockers
-            && default_quality.max_pcurve_deviation == requested_a2_quality.max_pcurve_deviation
+        default_quality.pcurve_blockers == requested_direct_apex_quality.pcurve_blockers
+            && default_quality.edge_surface_blockers
+                == requested_direct_apex_quality.edge_surface_blockers
+            && default_quality.max_pcurve_deviation
+                == requested_direct_apex_quality.max_pcurve_deviation
             && default_quality.max_edge_surface_deviation
-                == requested_a2_quality.max_edge_surface_deviation,
-        "default mixed-radius Gregory should use the same STEP-fidelity path as requested A2: default={default_quality:?}, requested_a2={requested_a2_quality:?}"
+                == requested_direct_apex_quality.max_edge_surface_deviation,
+        "default mixed-radius Gregory should use the same STEP-fidelity path as requested DirectApex: default={default_quality:?}, requested_direct_apex={requested_direct_apex_quality:?}"
     );
 }
 

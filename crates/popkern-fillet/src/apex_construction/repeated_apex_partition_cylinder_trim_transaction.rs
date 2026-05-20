@@ -134,9 +134,9 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
         if !require_v_free_repeated_apex || cylinder_loop_replacements.len() != fillet_ends.len() {
             boundary_outcome.plan_strip_loop_overrides(brep, fillet_ends)?;
         }
-        if crate::a2_trace::enabled() {
+        if crate::direct_apex_trace::enabled() {
             eprintln!(
-                "[a2-trace §14.9/cylinder-trim-rewrite] topology_plans=[{}]; side_support_continuation={}; {}; {}",
+                "[direct-apex-trace §14.9/cylinder-trim-rewrite] topology_plans=[{}]; side_support_continuation={}; {}; {}",
                 topology_plans
                     .iter()
                     .map(CylinderTrimRewriteTopologyPlan::diagnostic_label)
@@ -224,9 +224,9 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
     ) {
         Ok(_) => {
             let after = topology_count_summary(&candidate);
-            if crate::a2_trace::enabled() {
+            if crate::direct_apex_trace::enabled() {
                 eprintln!(
-                    "[a2-trace §14.9/topology-preflight] accepted before {}; after {}; delta {}; side_support_continuation={}; {}; {}",
+                    "[direct-apex-trace §14.9/topology-preflight] accepted before {}; after {}; delta {}; side_support_continuation={}; {}; {}",
                     before.diagnostic_label(),
                     after.diagnostic_label(),
                     TopologyCountDelta::between(before, after).diagnostic_label(),

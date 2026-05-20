@@ -1,4 +1,4 @@
-//! Phase 6c-A2 — Direct sphere-fit apex construction.
+//! Phase 6c-DirectApex — Direct sphere-fit apex construction.
 //!
 //! The fillet pipeline's apex resolution path: plan apex topology
 //! (with sphere-fit terminations) first, then build the BRep apex
@@ -24,9 +24,9 @@
 //!
 //! # Status
 //!
-//! A2.1 in progress: type API committed; planner under
-//! implementation.  A2.2 (builder), A2.3 (pipeline integration),
-//! A2.4 (cap surface), A2.5 (validation), A2.6 (cleanup) follow.
+//! DirectApex.1 in progress: type API committed; planner under
+//! implementation.  DirectApex.2 (builder), DirectApex.3 (pipeline integration),
+//! DirectApex.4 (cap surface), DirectApex.5 (validation), DirectApex.6 (cleanup) follow.
 
 pub(crate) mod apex_vertex_authoring;
 pub(crate) mod apex_vertex_removal;

@@ -230,8 +230,8 @@ fn cap_face_preserves_cylinder_neighbor(brep: &BRep, cap_face: FaceHandle) -> bo
 }
 
 fn trace_decline(half_edge: HalfEdgeHandle, reason: &str) {
-    if crate::a2_trace::cap_g0_enabled() {
-        eprintln!("[a2-trace cap-g0] support seam declined he={half_edge:?}: {reason}");
+    if crate::direct_apex_trace::cap_g0_enabled() {
+        eprintln!("[direct-apex-trace cap-g0] support seam declined he={half_edge:?}: {reason}");
     }
 }
 

@@ -89,9 +89,9 @@ pub(super) fn claim_side_support_bridge_boundary_for_cylinder_trim(
             label,
             fillet_index,
         )?;
-        if crate::a2_trace::enabled() {
+        if crate::direct_apex_trace::enabled() {
             eprintln!(
-                "[a2-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] claimed {label} \
+                "[direct-apex-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] claimed {label} \
                  {start:?}->{end:?} from side-support bridge loop on {bridge_face:?}; cylinder \
                  side {half_edge:?}, support side {support_half_edge:?}"
             );

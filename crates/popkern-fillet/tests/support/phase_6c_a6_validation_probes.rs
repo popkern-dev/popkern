@@ -1,7 +1,7 @@
 use super::*;
 
 /// A.6 probe: measure each fixture under **rebuild only** —
-/// no `POPKERN_SPHERE_FIT_BOUNDARY`, no Path A.  Confirms that
+/// no `POPKERN_SPHERE_FIT_BOUNDARY`, no sphere-fit substitution.  Confirms that
 /// the existing topology rebuild (Phase 6c-C) closes
 /// path_a_relevant gaps when run on the original 6-vertex
 /// rolling-ball topology, not the post-substitution state.
@@ -55,7 +55,9 @@ fn phase_6c_a6_rebuild_only_probe() {
         },
     ];
 
-    eprintln!("\n=== A.6 rebuild-only probe (no SPHERE_FIT_BOUNDARY, no Path A) ===");
+    eprintln!(
+        "\n=== A.6 rebuild-only probe (no SPHERE_FIT_BOUNDARY, no sphere-fit substitution) ==="
+    );
     eprintln!(
         "{:<18}  {:>5}  {:>5}  {:>5}  {:>10}",
         "fixture", "struct", "pathA", "other", "worst gap"
@@ -81,7 +83,7 @@ fn phase_6c_a6_rebuild_only_probe() {
 }
 
 /// A.6 probe: measure each fixture's per-bucket counts under
-/// both Path A and the Phase 6c-C apex topology rebuild.
+/// both sphere-fit substitution and the Phase 6c-C apex topology rebuild.
 #[ignore]
 #[test]
 fn phase_6c_a6_path_a_plus_rebuild_probe() {
@@ -124,7 +126,7 @@ fn phase_6c_a6_path_a_plus_rebuild_probe() {
     ];
 
     eprintln!(
-        "\n=== A.6 Path-A + apex-topology-rebuild probe ===\n\
+        "\n=== A.6 sphere-fit-substitution + apex-topology-rebuild probe ===\n\
          (POPKERN_APEX_PATH_A=1, POPKERN_APEX_TOPOLOGY_REBUILD=1)"
     );
     eprintln!(
@@ -152,7 +154,7 @@ fn phase_6c_a6_path_a_plus_rebuild_probe() {
 }
 
 /// Historical A.6 lock-in for variable-radius cube fixtures under the
-/// pre-A2 sphere-fit substitution pipeline.
+/// pre-DirectApex sphere-fit substitution pipeline.
 #[ignore]
 #[test]
 fn phase_6c_a6_variable_radius_cubes_path_a_clean() {
@@ -181,7 +183,7 @@ fn phase_6c_a6_variable_radius_cubes_path_a_clean() {
         assert_eq!(
             m.path_a_relevant,
             0,
-            "{}: path_a_relevant must be 0 under Path A's full pipeline; errors:\n{}",
+            "{}: path_a_relevant must be 0 under sphere-fit substitution; errors:\n{}",
             name,
             errors
                 .iter()

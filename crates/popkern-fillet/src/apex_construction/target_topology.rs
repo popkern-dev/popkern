@@ -1,4 +1,4 @@
-//! Target topology spec for Phase 6c-A2 apex construction.
+//! Target topology spec for Phase 6c-DirectApex apex construction.
 //!
 //! `TargetTopology` is a **declarative** description of the desired
 //! final apex region: vertices to ensure exist, edges with their

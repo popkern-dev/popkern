@@ -372,8 +372,8 @@ pub(crate) fn build_n_quad_decomposition_with_options(
 }
 
 fn trace_n_quad_rejection(args: std::fmt::Arguments<'_>) {
-    if crate::a2_trace::enabled() {
-        eprintln!("[a2-trace §A2.4/gregory-nquad] rejected: {args}");
+    if crate::direct_apex_trace::enabled() {
+        eprintln!("[direct-apex-trace §DirectApex.4/gregory-nquad] rejected: {args}");
     }
 }
 

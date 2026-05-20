@@ -76,7 +76,7 @@ fn normalize_repeated_apex_loop_in_place(
     partition_execution_options: RepeatedApexPartitionExecutionOptions,
 ) -> Result<RepeatedApexNormalization, ApexBuildError> {
     let n_fillets = plan.cap_kind.n_fillets();
-    let trace = crate::a2_trace::enabled();
+    let trace = crate::direct_apex_trace::enabled();
     if trace {
         trace_repeated_apex_partition_inputs(
             brep,
@@ -158,7 +158,7 @@ fn normalize_repeated_apex_loop_in_place(
 
         if trace {
             eprintln!(
-                "[a2-trace §14.9/normalize] step[{step}] mef FilletEnd[{k}] on \
+                "[direct-apex-trace §14.9/normalize] step[{step}] mef FilletEnd[{k}] on \
                  repeated-apex loop: face={construction_face:?}, edge={:?}, strip_face={:?}, \
                  residual_cap_face={:?}",
                 mef_result.edge, mef_result.face, current_cap_face
@@ -338,15 +338,15 @@ fn trace_repeated_apex_partition_inputs(
     face_edge_handles: &[EdgeHandle],
     n_fillets: usize,
 ) {
-    eprintln!("[a2-trace §14.9/partition] cap_face={cap_face:?}");
+    eprintln!("[direct-apex-trace §14.9/partition] cap_face={cap_face:?}");
     for k in 0..n_fillets {
         let edge = face_edge_handles.get(k).copied();
         let Some(edge) = edge else {
-            eprintln!("[a2-trace §14.9/partition]   FaceEdge[{k}] missing");
+            eprintln!("[direct-apex-trace §14.9/partition]   FaceEdge[{k}] missing");
             continue;
         };
         let Some(edge_data) = brep.edges.get(edge) else {
-            eprintln!("[a2-trace §14.9/partition]   FaceEdge[{k}] {edge:?} dead");
+            eprintln!("[direct-apex-trace §14.9/partition]   FaceEdge[{k}] {edge:?} dead");
             continue;
         };
         let he = edge_data.half_edge;
@@ -366,7 +366,7 @@ fn trace_repeated_apex_partition_inputs(
         let he_origin = he_data.origin;
         let twin_origin = brep.half_edges.get(twin).map(|twin_data| twin_data.origin);
         eprintln!(
-            "[a2-trace §14.9/partition]   FaceEdge[{k}] edge={edge:?} he={he:?} \
+            "[direct-apex-trace §14.9/partition]   FaceEdge[{k}] edge={edge:?} he={he:?} \
              {he_origin:?}->{twin_origin:?} face={he_face:?}; twin={twin:?} face={twin_face:?}; \
              expected {:?}->{:?}",
             apex_vertex_handles[2 * k + 1],

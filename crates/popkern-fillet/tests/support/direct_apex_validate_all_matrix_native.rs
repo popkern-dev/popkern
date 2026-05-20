@@ -1,19 +1,19 @@
-use crate::a2_validate_helpers::{a2_fallback_reasons, build_under_a2};
+use crate::direct_apex_validate_helpers::{build_under_direct_apex, direct_apex_fallback_reasons};
 use crate::helpers::measure_cap_outer_boundary;
 use popkern_fillet::{ApexConstructionDiagnostic, build_blend_repair_action_artifact};
 
-/// Native cube-mixed A2 Gregory cap-outer status. This fixture must
+/// Native cube-mixed direct-apex Gregory cap-outer status. This fixture must
 /// complete natively and preserve cap/support G0 without relying on
 /// the legacy fallback route. Cap/support G1 remains a recorded
 /// construction-quality blocker; do not hide it with local support-frame
 /// rewrites that break ring continuity or route ownership.
 #[test]
-fn a2_5_cap_outer_cube_mixed_records_remaining_g1_blocker() {
-    let result = build_under_a2(false, &[0.08, 0.10, 0.12]);
-    let reasons = a2_fallback_reasons(&result);
+fn direct_apex_5_cap_outer_cube_mixed_records_remaining_g1_blocker() {
+    let result = build_under_direct_apex(false, &[0.08, 0.10, 0.12]);
+    let reasons = direct_apex_fallback_reasons(&result);
     assert!(
         reasons.is_empty(),
-        "cube_mixed cap-outer gate must complete through native A2; got:\n{}",
+        "cube_mixed cap-outer gate must complete through native direct-apex; got:\n{}",
         reasons.join("\n"),
     );
     let cap_faces = result

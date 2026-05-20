@@ -77,9 +77,9 @@ pub(super) fn materialize_support_boundary_generator_anchor(
             ),
         });
     }
-    if crate::a2_trace::enabled() {
+    if crate::direct_apex_trace::enabled() {
         eprintln!(
-            "[a2-trace §14.9/cylinder-anchor] support boundary promotion for endpoint \
+            "[direct-apex-trace §14.9/cylinder-anchor] support boundary promotion for endpoint \
              {endpoint:?} on {:?}: {:?}",
             target_cylinder_face, support_edges
         );

@@ -15,7 +15,7 @@ pub(super) fn selected_cross_tangent_cps<const N: usize>(
     let local = cp_local_cross_tangent_cps(boundary, support, twin_pcurve, side);
     let fitted_score = score_cross_tangent_cps(boundary, support, twin_pcurve, side, &fitted);
     let local_score = score_cross_tangent_cps(boundary, support, twin_pcurve, side, &local);
-    if crate::a2_trace::support_frames_enabled() {
+    if crate::direct_apex_trace::support_frames_enabled() {
         let trace_t = 0.65;
         let trace_point = bezier_point(boundary, trace_t);
         let trace_tangent = bezier_tangent(boundary, trace_t);
@@ -23,7 +23,7 @@ pub(super) fn selected_cross_tangent_cps<const N: usize>(
             support_normal_at_boundary_t(support, twin_pcurve, &trace_point, trace_t);
         let trace_cross = bezier_vec(&fitted, trace_t);
         eprintln!(
-            "[a2 support-frame] side={} fitted_score={fitted_score:.6e} local_score={local_score:.6e} t=.65 tangent=({:.3},{:.3},{:.3}) normal={} fitted_cross=({:.3},{:.3},{:.3})",
+            "[direct-apex support-frame] side={} fitted_score={fitted_score:.6e} local_score={local_score:.6e} t=.65 tangent=({:.3},{:.3},{:.3}) normal={} fitted_cross=({:.3},{:.3},{:.3})",
             side.name(),
             trace_tangent.x,
             trace_tangent.y,

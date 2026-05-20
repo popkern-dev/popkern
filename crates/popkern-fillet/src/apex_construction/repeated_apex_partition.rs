@@ -227,9 +227,9 @@ pub(super) fn try_build_planned_repeated_apex_partition(
     else {
         return Ok(None);
     };
-    if crate::a2_trace::enabled() {
+    if crate::direct_apex_trace::enabled() {
         eprintln!(
-            "[a2-trace §14.9/partition] planned graph partition: {}",
+            "[direct-apex-trace §14.9/partition] planned graph partition: {}",
             partition_plan.diagnostic_summary()
         );
     }

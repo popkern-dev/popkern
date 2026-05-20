@@ -1,4 +1,4 @@
-//! Legacy A2 mutating apex construction via Euler ops.
+//! Legacy DirectApex mutating apex construction via Euler ops.
 //!
 //! The entrypoints here wrap the build in a whole-plan snapshot: on any
 //! construction failure, the input BRep is restored before the typed error is
@@ -64,7 +64,7 @@ pub fn construct_apex(
 }
 
 /// Variant of [`construct_apex`] that accepts the per-fillet
-/// surface results.  These are required for A2.4 Gregory cap
+/// surface results.  These are required for DirectApex.4 Gregory cap
 /// surface assembly (the bridge to legacy `three_quad_apply`
 /// which needs `FilletSurfaceResult` to drive the K-P promotion
 /// ladder).  Sphere caps don't need them and can call
@@ -130,12 +130,12 @@ fn construct_apex_inner(
         })?;
     check_cancelled(cancel)?;
 
-    // Apex vertex resolution (A2.2.b).
+    // Apex vertex resolution (DirectApex.2.b).
     //
     // For each plan apex vertex point, find or create a BRep
     // vertex at that position.  This slice implements the
     // "find" branch only: when no nearby BRep vertex exists,
-    // the build returns a typed PlanMismatch.  A2.2.b+ extends
+    // the build returns a typed PlanMismatch.  DirectApex.2.b+ extends
     // with edge-subdivision-based "create" once the wiring
     // context is available.
     let apex_vertex_handles = resolve_apex_vertices(brep, plan, fillet_surfaces, tolerance)?;
@@ -143,7 +143,7 @@ fn construct_apex_inner(
 
     check_cancelled(cancel)?;
 
-    // Apex edge resolution (A2.2.c + A2.2.d).
+    // Apex edge resolution (DirectApex.2.c + DirectApex.2.d).
     //
     // For each plan apex edge (origin_idx, dest_idx, curve, role),
     // find or create a BRep edge between the two resolved
@@ -161,9 +161,9 @@ fn construct_apex_inner(
     // not by plan-edge-idx.
     let valid_apex_edges: Vec<EdgeHandle> = apex_edge_handles.iter().filter_map(|e| *e).collect();
 
-    // Apex teardown (A2.2.e).
+    // Apex teardown (DirectApex.2.e).
     //
-    // After A2.2.d's mef sequence each plane face is split into a
+    // After DirectApex.2.d's mef sequence each plane face is split into a
     // V-corner sub-face and a remainder.  V still has its
     // pre-mef stub edges (perp-edge splits from Phase A) which now
     // separate adjacent corner sub-faces.  Mirror legacy Phase
@@ -179,8 +179,8 @@ fn construct_apex_inner(
     //
     // The legacy helpers (`pub(crate)` in
     // `crate::construct::blend_insert`) handle the iterative kef
-    // / outgoing repair / safety cap that A2 needs verbatim.
-    if crate::a2_trace::enabled() {
+    // / outgoing repair / safety cap that DirectApex needs verbatim.
+    if crate::direct_apex_trace::enabled() {
         let v = plan.apex_vertex;
         let mut incidences: Vec<(EdgeHandle, FaceHandle, FaceHandle, VertexHandle)> = Vec::new();
         for (eh, edge) in &brep.edges {
@@ -207,14 +207,14 @@ fn construct_apex_inner(
         }
         let v_pos = brep.vertices.get(v).map(|vv| vv.position);
         eprintln!(
-            "[a2-trace] pre-apex-teardown V={v:?}@{:?} has {} incident edge(s):",
+            "[direct-apex-trace] pre-apex-teardown V={v:?}@{:?} has {} incident edge(s):",
             v_pos,
             incidences.len()
         );
         for (eh, fa, fb, other) in &incidences {
             let other_pos = brep.vertices.get(*other).map(|vv| vv.position);
             eprintln!(
-                "[a2-trace]   edge={eh:?} -> {other:?}@{:?} faces=({fa:?}, {fb:?})",
+                "[direct-apex-trace]   edge={eh:?} -> {other:?}@{:?} faces=({fa:?}, {fb:?})",
                 other_pos
             );
         }
@@ -248,9 +248,9 @@ fn construct_apex_inner(
     // Apex-region interior merge: targeted consolidation that only
     // kefs edges where one face is a cap-side accumulator (>=2
     // apex_edges), avoiding over-merge into host faces.
-    if crate::a2_trace::enabled() {
+    if crate::direct_apex_trace::enabled() {
         eprintln!(
-            "[a2-trace] post-apex-teardown (kef_cross/kev_v): kef_blend_face={kef_blend_face:?}; \
+            "[direct-apex-trace] post-apex-teardown (kef_cross/kev_v): kef_blend_face={kef_blend_face:?}; \
              {} faces, {} edges",
             brep.faces.len(),
             brep.edges.len()
@@ -262,7 +262,7 @@ fn construct_apex_inner(
             let mut cursor = start;
             let mut iters = 0;
             let max_iters = brep.half_edges.len() + 1;
-            eprintln!("[a2-trace] kef_blend_face={kef_blend_face:?} outer_loop:");
+            eprintln!("[direct-apex-trace] kef_blend_face={kef_blend_face:?} outer_loop:");
             while let Some(he) = brep.half_edges.get(cursor) {
                 let twin_face = brep
                     .half_edges
@@ -271,7 +271,7 @@ fn construct_apex_inner(
                     .map(|l| l.face);
                 let p = brep.vertices.get(he.origin).map(|v| v.position);
                 eprintln!(
-                    "[a2-trace]   [{iters}] edge={:?} v={:?}@{:?} twin_face={twin_face:?}",
+                    "[direct-apex-trace]   [{iters}] edge={:?} v={:?}@{:?} twin_face={twin_face:?}",
                     he.edge, he.origin, p
                 );
                 cursor = he.next;
@@ -281,7 +281,7 @@ fn construct_apex_inner(
                 }
             }
         }
-        eprintln!("[a2-trace] apex_edge face memberships:");
+        eprintln!("[direct-apex-trace] apex_edge face memberships:");
         for (i, &eh) in valid_apex_edges.iter().enumerate() {
             let mut faces: Vec<FaceHandle> = Vec::new();
             for (fh, face) in &brep.faces {
@@ -308,7 +308,7 @@ fn construct_apex_inner(
                     faces.push(fh);
                 }
             }
-            eprintln!("[a2-trace]   apex_edge[{i}]={eh:?} → faces={faces:?}");
+            eprintln!("[direct-apex-trace]   apex_edge[{i}]={eh:?} → faces={faces:?}");
         }
     }
     super::gregory_cap::merge_cap_side_accumulators(brep, &valid_apex_edges).map_err(|e| {
@@ -316,9 +316,9 @@ fn construct_apex_inner(
             reason: format!("merge_cap_side_accumulators: {e}"),
         }
     })?;
-    if crate::a2_trace::enabled() {
+    if crate::direct_apex_trace::enabled() {
         eprintln!(
-            "[a2-trace] post-merge_cap_side_accumulators: {} faces, {} edges; apex_edge face memberships:",
+            "[direct-apex-trace] post-merge_cap_side_accumulators: {} faces, {} edges; apex_edge face memberships:",
             brep.faces.len(),
             brep.edges.len()
         );
@@ -348,13 +348,13 @@ fn construct_apex_inner(
                     faces.push(fh);
                 }
             }
-            eprintln!("[a2-trace]   apex_edge[{i}]={eh:?} → faces={faces:?}");
+            eprintln!("[direct-apex-trace]   apex_edge[{i}]={eh:?} → faces={faces:?}");
         }
     }
     let cap_face = super::gregory_cap::find_face_bounded_by_all_apex_edges(brep, &valid_apex_edges)
         .unwrap_or(kef_blend_face);
 
-    if crate::a2_trace::enabled()
+    if crate::direct_apex_trace::enabled()
         && let Some(face) = brep.faces.get(cap_face)
         && let Some(loop_data) = brep.loops.get(face.outer_loop)
     {
@@ -378,23 +378,23 @@ fn construct_apex_inner(
             }
         }
         eprintln!(
-            "[a2-trace] cap_face={cap_face:?} outer_loop has {} edges:",
+            "[direct-apex-trace] cap_face={cap_face:?} outer_loop has {} edges:",
             edges.len()
         );
         for (i, (eh, vh, tf)) in edges.iter().enumerate() {
             let p = brep.vertices[*vh].position;
             eprintln!(
-                "[a2-trace]   [{i}] edge={eh:?} v={vh:?}@({:.3},{:.3},{:.3}) twin_face={tf:?}",
+                "[direct-apex-trace]   [{i}] edge={eh:?} v={vh:?}@({:.3},{:.3},{:.3}) twin_face={tf:?}",
                 p.x, p.y, p.z
             );
         }
     }
     check_cancelled(cancel)?;
 
-    // Cap face surface assignment (A2.2.f / A2.4).
+    // Cap face surface assignment (DirectApex.2.f / DirectApex.4).
     //
-    // Sphere caps land natively (A2.2.f).  Gregory caps need 2N
-    // sub-patch decomposition (A2.4): bridge into legacy
+    // Sphere caps land natively (DirectApex.2.f).  Gregory caps need 2N
+    // sub-patch decomposition (DirectApex.4): bridge into legacy
     // `three_quad_apply::apply_three_quad_decomposition_to_blend`
     // by constructing a `BlendBoundary` from the post-stitch
     // BRep state + plan data + fillet_surfaces, then call the

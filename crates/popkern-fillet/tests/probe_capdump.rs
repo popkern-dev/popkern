@@ -23,7 +23,7 @@ fn dump() {
         std::env::set_var("POPKERN_SPHERE_FIT_BOUNDARY", "1");
     }
     unsafe {
-        std::env::set_var("POPKERN_A2_TRACE", "1");
+        std::env::set_var("POPKERN_DIRECT_APEX_TRACE", "1");
     }
     let tol = Tolerance::default();
     let brep = BRep::unit_cube(tol).unwrap();
@@ -39,7 +39,7 @@ fn dump() {
         })
         .collect();
     let options = FilletOptions {
-        use_a2_apex_construction: true,
+        use_direct_apex_construction: true,
         use_rational_gregory: true,
         use_deg5_gregory: true,
         use_biquintic_full_gregory: true,
@@ -50,8 +50,8 @@ fn dump() {
     };
     let result = fillet_edges(&brep, &specs, &options, tol, None).expect("fillet_edges ok");
     for (_, w) in &result.edge_warnings {
-        if let popkern_fillet::error::BlendWarning::A2FellBackToLegacy { reason, .. } = w {
-            eprintln!("[probe] A2 fallback reason: {reason}");
+        if let popkern_fillet::error::BlendWarning::DirectApexFellBackToLegacy { reason, .. } = w {
+            eprintln!("[probe] DirectApex fallback reason: {reason}");
         }
     }
     eprintln!(
@@ -68,7 +68,7 @@ fn dump_pyramid3_uniform() {
         std::env::set_var("POPKERN_SPHERE_FIT_BOUNDARY", "1");
     }
     unsafe {
-        std::env::set_var("POPKERN_A2_TRACE", "1");
+        std::env::set_var("POPKERN_DIRECT_APEX_TRACE", "1");
     }
     let tol = Tolerance::default();
     let brep = BRep::n_gonal_pyramid(3, 1.0, 0.8, tol).unwrap();
@@ -101,7 +101,7 @@ fn dump_pyramid3_uniform() {
         })
         .collect();
     let options = FilletOptions {
-        use_a2_apex_construction: true,
+        use_direct_apex_construction: true,
         use_rational_gregory: true,
         use_deg5_gregory: true,
         use_biquintic_full_gregory: true,
@@ -112,8 +112,8 @@ fn dump_pyramid3_uniform() {
     };
     let result = fillet_edges(&brep, &specs, &options, tol, None).expect("fillet_edges ok");
     for (_, w) in &result.edge_warnings {
-        if let popkern_fillet::error::BlendWarning::A2FellBackToLegacy { reason, .. } = w {
-            eprintln!("[probe-pyr3] A2 fallback reason: {reason}");
+        if let popkern_fillet::error::BlendWarning::DirectApexFellBackToLegacy { reason, .. } = w {
+            eprintln!("[probe-pyr3] DirectApex fallback reason: {reason}");
         }
     }
 }
@@ -137,7 +137,7 @@ fn dump_legacy() {
         })
         .collect();
     let options = FilletOptions {
-        use_a2_apex_construction: false,
+        use_direct_apex_construction: false,
         use_rational_gregory: true,
         use_deg5_gregory: true,
         use_biquintic_full_gregory: true,

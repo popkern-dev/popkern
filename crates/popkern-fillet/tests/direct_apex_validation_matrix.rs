@@ -1,19 +1,19 @@
-//! Phase 6c-A2.5 — `validate_all` matrix under A2 dispatch.
+//! Phase 6c-direct-apex validation — `validate_all` matrix under direct-apex dispatch.
 //!
-//! Locks in the commercial-grade apex-cap quality of A2 (per
-//! ADR §6c-A2 and §6c-X.A.6's metric breakdown).  Runs the same
+//! Locks in the commercial-grade apex-cap quality of direct-apex (per
+//! ADR §6c-direct-apex and §6c-X.A.6's metric breakdown).  Runs the same
 //! six-fixture matrix that `phase_6c_a6_validation` uses, but with
-//! `FilletOptions::use_a2_apex_construction = true`.  Two
+//! `FilletOptions::use_direct_apex_construction = true`.  Two
 //! dispatch outcomes coexist in one matrix:
 //!
 //! * **Uniform fixtures** (`cube_uniform`, `pyramid3_uniform`,
-//!   `pyramid4_uniform`) — A2 succeeds end-to-end, no
-//!   `BlendWarning::A2FellBackToLegacy`.  The planner keeps
+//!   `pyramid4_uniform`) — direct-apex succeeds end-to-end, no
+//!   `BlendWarning::DirectApexFellBackToLegacy`.  The planner keeps
 //!   Sphere only for trihedral collapsed targets whose cap boundary
 //!   is constructively valid; higher-valence uniform apices use
 //!   Gregory to preserve cap-to-cylinder geometry.
 //! * **Native Gregory fixtures** (`cube_mixed`, `pyramid3_uniform`)
-//!   — A2 must complete with no fallback and expose measurable
+//!   — direct-apex must complete with no fallback and expose measurable
 //!   cap-to-cylinder seams. `cube_mixed` is native with G0-preserving
 //!   cap/support seams, but still records the remaining cap_outer_g1
 //!   construction-quality blocker.
@@ -21,41 +21,41 @@
 //!   `pyramid4_uniform`, `pyramid4_mixed`) —
 //!   until the validated outside/outside support-continuation
 //!   primitive and remaining surface-quality repairs are implemented,
-//!   A2 may decline through one recorded fallback. These are
+//!   direct-apex may decline through one recorded fallback. These are
 //!   containment checks, not native-quality acceptance.
 //!
 //! Either way: every fixture must pass the A.6 metric gate
 //! (`structural == 0`, `path_a_relevant == 0`).  This is the
-//! commercial-grade flip-gate's strictest form: under the new A2
+//! commercial-grade flip-gate's strictest form: under the new DirectApex
 //! architecture, the existing matrix doesn't regress.
 
-#[path = "support/a2_validate_all_matrix_diagnostics.rs"]
-mod a2_validate_all_matrix_diagnostics;
-#[path = "support/a2_validate_all_matrix_native.rs"]
-mod a2_validate_all_matrix_native;
-#[path = "support/a2_validate_all_matrix_seams.rs"]
-mod a2_validate_all_matrix_seams;
-#[path = "support/a2_validate_all_matrix_zoo.rs"]
-mod a2_validate_all_matrix_zoo;
-#[path = "support/a2_validate_helpers.rs"]
-mod a2_validate_helpers;
+#[path = "support/direct_apex_validate_all_matrix_diagnostics.rs"]
+mod direct_apex_validate_all_matrix_diagnostics;
+#[path = "support/direct_apex_validate_all_matrix_native.rs"]
+mod direct_apex_validate_all_matrix_native;
+#[path = "support/direct_apex_validate_all_matrix_seams.rs"]
+mod direct_apex_validate_all_matrix_seams;
+#[path = "support/direct_apex_validate_all_matrix_zoo.rs"]
+mod direct_apex_validate_all_matrix_zoo;
+#[path = "support/direct_apex_validate_helpers.rs"]
+mod direct_apex_validate_helpers;
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
 
-use a2_validate_helpers::{
-    EnvGuard, a2_fallback_reasons, assert_native_cap_has_cylinder_seams,
-    assert_native_gregory_case, assert_native_gregory_cube_case, breakdown, build_under_a2,
-    count_a2_fallbacks,
+use direct_apex_validate_helpers::{
+    EnvGuard, assert_native_cap_has_cylinder_seams, assert_native_gregory_case,
+    assert_native_gregory_cube_case, breakdown, build_under_direct_apex,
+    count_direct_apex_fallbacks, direct_apex_fallback_reasons,
 };
 use helpers::measure_cap_outer_boundary;
 use popkern_core::geometry::CurveGeometry;
 
 /// Whole-matrix containment gate: every fixture keeps structural
-/// validity under A2 dispatch.  Uniform Sphere remains a hard native
+/// validity under direct-apex dispatch.  Uniform Sphere remains a hard native
 /// gate; Gregory/repeated-apex fixtures must either become native
 /// later or decline once with an actionable fallback diagnostic.
 #[test]
-fn a2_5_matrix_preserves_structural_validity_under_a2() {
+fn direct_apex_5_matrix_preserves_structural_validity_under_direct_apex() {
     struct Case {
         name: &'static str,
         radii: &'static [f64],
@@ -101,13 +101,13 @@ fn a2_5_matrix_preserves_structural_validity_under_a2() {
         },
     ];
     for case in cases {
-        let result = build_under_a2(case.is_pyramid, case.radii);
-        let fallbacks = count_a2_fallbacks(&result);
-        let fallback_reasons = a2_fallback_reasons(&result);
+        let result = build_under_direct_apex(case.is_pyramid, case.radii);
+        let fallbacks = count_direct_apex_fallbacks(&result);
+        let fallback_reasons = direct_apex_fallback_reasons(&result);
         let errors = result.brep.validate_all();
         let m = breakdown(&errors);
         eprintln!(
-            "[A2.5] {}: fallbacks={} structural={} pathA={} other={} worst_gap={:.3e}",
+            "[direct-apex validation] {}: fallbacks={} structural={} pathA={} other={} worst_gap={:.3e}",
             case.name,
             fallbacks,
             m.structural,
@@ -118,7 +118,7 @@ fn a2_5_matrix_preserves_structural_validity_under_a2() {
         assert_eq!(
             fallbacks,
             case.expected_fallbacks,
-            "[{}] unexpected A2 containment count; reasons:\n{}",
+            "[{}] unexpected direct-apex containment count; reasons:\n{}",
             case.name,
             fallback_reasons.join("\n"),
         );
@@ -127,14 +127,14 @@ fn a2_5_matrix_preserves_structural_validity_under_a2() {
                 fallback_reasons
                     .iter()
                     .all(|reason| reason.contains("construct_apex")),
-                "[{}] fallback diagnostics must identify the constructive A2 boundary; got {fallback_reasons:#?}",
+                "[{}] fallback diagnostics must identify the constructive direct-apex boundary; got {fallback_reasons:#?}",
                 case.name,
             );
         }
         assert_eq!(
             m.structural,
             0,
-            "[{}] structural must be 0 under A2; errors:\n{}",
+            "[{}] structural must be 0 under DirectApex; errors:\n{}",
             case.name,
             errors
                 .iter()
@@ -146,7 +146,7 @@ fn a2_5_matrix_preserves_structural_validity_under_a2() {
             assert_eq!(
                 m.path_a_relevant,
                 0,
-                "[{}] native A2 path_a_relevant must be 0; errors:\n{}",
+                "[{}] native direct-apex path_a_relevant must be 0; errors:\n{}",
                 case.name,
                 errors
                     .iter()
@@ -158,8 +158,8 @@ fn a2_5_matrix_preserves_structural_validity_under_a2() {
     }
 }
 
-/// Phase 6c-E commercial `cap_outer_g0 <= 5e-3 m` gate under A2
-/// dispatch. Gregory fixtures may complete through native A2 only
+/// Phase 6c-E commercial `cap_outer_g0 <= 5e-3 m` gate under DirectApex
+/// dispatch. Gregory fixtures may complete through native direct-apex only
 /// when their cap topology exposes measurable cap-to-cylinder seams
 /// within the accepted positional boundary tolerance.
 ///
@@ -169,7 +169,7 @@ fn a2_5_matrix_preserves_structural_validity_under_a2() {
 /// boundary metrics.
 #[test]
 #[ignore = "native Gregory cap-outer matrix; cube_mixed has a hard gate, remaining repeated-apex fixtures are still under containment fallback"]
-fn a2_5_cap_outer_g0_gregory_under_a2() {
+fn direct_apex_5_cap_outer_g0_gregory_under_direct_apex() {
     struct Case {
         name: &'static str,
         radii: &'static [f64],
@@ -198,7 +198,7 @@ fn a2_5_cap_outer_g0_gregory_under_a2() {
         },
     ];
     for case in cases {
-        let result = build_under_a2(case.is_pyramid, case.radii);
+        let result = build_under_direct_apex(case.is_pyramid, case.radii);
         let cap_faces = result
             .corner_patches
             .iter()
@@ -206,35 +206,35 @@ fn a2_5_cap_outer_g0_gregory_under_a2() {
             .collect::<Vec<_>>();
         let m = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
         eprintln!(
-            "[A2.5 cap_outer] {}: g0={:.3e} g1={:.3e} edges={}",
+            "[direct-apex validation cap_outer] {}: g0={:.3e} g1={:.3e} edges={}",
             case.name, m.worst_g0_gap, m.worst_g1_coplanarity, m.edges_measured,
         );
         assert!(
             m.edges_measured >= 1,
-            "[{}] no cap-vs-non-cap edges measured under A2",
+            "[{}] no cap-vs-non-cap edges measured under DirectApex",
             case.name,
         );
         assert!(
             m.worst_g0_gap <= 5.0e-3,
-            "[{}] cap_outer_g0 {:.3e} exceeds 5.0e-3 commercial gate under A2",
+            "[{}] cap_outer_g0 {:.3e} exceeds 5.0e-3 commercial gate under DirectApex",
             case.name,
             m.worst_g0_gap,
         );
         assert!(
             m.worst_g1_coplanarity <= 5.0e-2,
-            "[{}] cap_outer_g1 {:.3e} exceeds 5.0e-2 commercial gate under A2",
+            "[{}] cap_outer_g1 {:.3e} exceeds 5.0e-2 commercial gate under DirectApex",
             case.name,
             m.worst_g1_coplanarity,
         );
     }
 }
 
-/// Collapsed trihedral Sphere fixtures that should remain native Sphere under A2
-/// (no `A2FellBackToLegacy`).  Uniform pyramid cases are covered by
+/// Collapsed trihedral Sphere fixtures that should remain native Sphere under DirectApex
+/// (no `DirectApexFellBackToLegacy`).  Uniform pyramid cases are covered by
 /// separate native gates because the planner may choose Gregory when
 /// the collapsed Sphere target loop is not constructively anchored.
 #[test]
-fn a2_5_native_sphere_cap_set() {
+fn direct_apex_5_native_sphere_cap_set() {
     struct Case {
         name: &'static str,
         radii: &'static [f64],
@@ -246,32 +246,32 @@ fn a2_5_native_sphere_cap_set() {
         is_pyramid: false,
     }];
     for case in cases {
-        let result = build_under_a2(case.is_pyramid, case.radii);
-        let fallbacks = count_a2_fallbacks(&result);
+        let result = build_under_direct_apex(case.is_pyramid, case.radii);
+        let fallbacks = count_direct_apex_fallbacks(&result);
         assert_eq!(
             fallbacks, 0,
-            "[{}] expected native A2 dispatch (Sphere cap); got {} A2FellBackToLegacy warning(s) — \
-             A2.2.f Sphere-cap regression?",
+            "[{}] expected native direct-apex dispatch (Sphere cap); got {} DirectApexFellBackToLegacy warning(s) — \
+             direct-apex build.f Sphere-cap regression?",
             case.name, fallbacks,
         );
     }
 }
 
-/// Native Gregory A2 recovery gate for the baseline mixed cube.
+/// Native Gregory direct-apex recovery gate for the baseline mixed cube.
 #[test]
-fn a2_native_cube_mixed_no_fallback() {
+fn direct_apex_native_cube_mixed_no_fallback() {
     assert_native_gregory_cube_case("cube_mixed", &[0.08, 0.10, 0.12]);
 }
 
-/// Native Gregory A2 semantic-sector ownership gate.  Locks the
+/// Native Gregory direct-apex semantic-sector ownership gate.  Locks the
 /// construction invariant that physical cap-loop order
 /// (`sector_index`) and semantic fillet ownership (`fillet_index`)
 /// are separate.  Both mixed cube fixtures reorder those concepts
 /// during repeated-apex normalization; each must finish natively
 /// with cylinder-owned FilletEnd seams.
 #[test]
-#[ignore = "native Gregory A2 gate; current variable cubes decline through containment fallback"]
-fn a2_native_variable_cube_gregory_set_no_fallback() {
+#[ignore = "native Gregory direct-apex gate; current variable cubes decline through containment fallback"]
+fn direct_apex_native_variable_cube_gregory_set_no_fallback() {
     for (name, radii) in [
         ("cube_mixed", &[0.08, 0.10, 0.12][..]),
         ("cube_extreme", &[0.02, 0.10, 0.20][..]),
@@ -280,24 +280,24 @@ fn a2_native_variable_cube_gregory_set_no_fallback() {
     }
 }
 
-/// Native Gregory A2 repeated-apex partition gate.  Locks the
+/// Native Gregory direct-apex repeated-apex partition gate.  Locks the
 /// N=4 mixed pyramid topology class where no serial FilletEnd mef
 /// order is constructible; the planned partition operator must
 /// complete natively and expose all four cylinder seams.
 #[test]
 #[ignore = "native N=4 Gregory partition gate; missing outside/outside support-continuation primitive"]
-fn a2_native_pyramid4_mixed_partition_no_fallback() {
+fn direct_apex_native_pyramid4_mixed_partition_no_fallback() {
     assert_native_gregory_case("pyramid4_mixed", true, &[0.04, 0.06, 0.05, 0.07], 4);
 }
 
 #[test]
 #[ignore = "native N=4 uniform Gregory gate; missing outside/outside support-continuation primitive"]
-fn a2_native_pyramid4_uniform_no_fallback() {
-    let result = build_under_a2(true, &[0.05, 0.05, 0.05, 0.05]);
-    let reasons = a2_fallback_reasons(&result);
+fn direct_apex_native_pyramid4_uniform_no_fallback() {
+    let result = build_under_direct_apex(true, &[0.05, 0.05, 0.05, 0.05]);
+    let reasons = direct_apex_fallback_reasons(&result);
     assert!(
         reasons.is_empty(),
-        "pyramid4_uniform must complete through native A2; got {} fallback(s):\n{}",
+        "pyramid4_uniform must complete through native direct-apex; got {} fallback(s):\n{}",
         reasons.len(),
         reasons
             .iter()
@@ -324,7 +324,7 @@ fn a2_native_pyramid4_uniform_no_fallback() {
         .collect::<Vec<_>>();
     let cap_outer = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
     eprintln!(
-        "[A2.5 cap_outer] pyramid4_uniform: g0={:.3e} g1={:.3e} edges={}",
+        "[direct-apex validation cap_outer] pyramid4_uniform: g0={:.3e} g1={:.3e} edges={}",
         cap_outer.worst_g0_gap, cap_outer.worst_g1_coplanarity, cap_outer.edges_measured,
     );
     assert!(
@@ -344,16 +344,16 @@ fn a2_native_pyramid4_uniform_no_fallback() {
 }
 
 #[test]
-fn a2_native_pyramid3_uniform_anchor_incompatible_uses_gregory_no_fallback() {
+fn direct_apex_native_pyramid3_uniform_anchor_incompatible_uses_gregory_no_fallback() {
     assert_native_gregory_case("pyramid3_uniform", true, &[0.10, 0.10, 0.10], 3);
 }
 
 #[test]
-#[ignore = "diagnostic gate: uses process-wide strict A2 env and must run in isolation"]
-fn a2_strict_v_free_repeated_apex_succeeds_without_fallback() {
-    let _guard = EnvGuard::set("POPKERN_A2_REQUIRE_V_FREE_REPEATED_APEX", "1");
-    let result = build_under_a2(true, &[0.04, 0.06, 0.05, 0.07]);
-    let reasons = a2_fallback_reasons(&result);
+#[ignore = "diagnostic gate: uses process-wide strict direct-apex env and must run in isolation"]
+fn direct_apex_strict_v_free_repeated_apex_succeeds_without_fallback() {
+    let _guard = EnvGuard::set("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX", "1");
+    let result = build_under_direct_apex(true, &[0.04, 0.06, 0.05, 0.07]);
+    let reasons = direct_apex_fallback_reasons(&result);
     assert!(
         reasons.is_empty(),
         "strict V-free repeated-apex mode must complete without fallback; got:\n{}",
@@ -368,12 +368,12 @@ fn a2_strict_v_free_repeated_apex_succeeds_without_fallback() {
     );
 }
 
-/// A2 edge-curve semantic storage gate.  Straight 3D edge curves
+/// direct-apex edge-curve semantic storage gate.  Straight 3D edge curves
 /// must be authored as analytic lines at construction time, including
 /// support edges introduced by face/edge splits, so downstream topology
 /// and GUI feature logic do not need to rediscover obvious curve intent.
 #[test]
-fn a2_does_not_store_semantic_lines_as_nurbs() {
+fn direct_apex_does_not_store_semantic_lines_as_nurbs() {
     struct Case {
         name: &'static str,
         radii: &'static [f64],
@@ -397,7 +397,7 @@ fn a2_does_not_store_semantic_lines_as_nurbs() {
         },
     ];
     for case in cases {
-        let result = build_under_a2(case.is_pyramid, case.radii);
+        let result = build_under_direct_apex(case.is_pyramid, case.radii);
         let mut semantic_line_nurbs = Vec::new();
         for (edge, edge_data) in result.brep.edges.iter() {
             let Some(curve) = edge_data.curve.as_ref() else {
@@ -466,7 +466,7 @@ fn a2_does_not_store_semantic_lines_as_nurbs() {
         }
         assert!(
             semantic_line_nurbs.is_empty(),
-            "[{}] semantically straight A2 edge curves must be stored as CurveGeometry::Line, \
+            "[{}] semantically straight direct-apex edge curves must be stored as CurveGeometry::Line, \
              not NURBS: {}",
             case.name,
             semantic_line_nurbs.join(", ")

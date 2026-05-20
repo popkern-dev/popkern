@@ -49,18 +49,18 @@ pub(super) fn materialized_shared_fillet_end_cylinder_half_edge(
                 ),
             });
         }
-        if crate::a2_trace::enabled() {
+        if crate::direct_apex_trace::enabled() {
             eprintln!(
-                "[a2-trace §14.9/cylinder-loop-replace] FilletEnd[{}] duplicated shared \
+                "[direct-apex-trace §14.9/cylinder-loop-replace] FilletEnd[{}] duplicated shared \
                  cylinder seam {:?}->{:?}: original {:?}, cylinder boundary {:?}",
                 rebuild_plan.fillet_index, start, end, existing, half_edge
             );
         }
         return Ok(half_edge);
     }
-    if crate::a2_trace::enabled() {
+    if crate::direct_apex_trace::enabled() {
         eprintln!(
-            "[a2-trace §14.9/cylinder-loop-replace] FilletEnd[{}] reuses shared \
+            "[direct-apex-trace §14.9/cylinder-loop-replace] FilletEnd[{}] reuses shared \
              cap/cylinder seam {:?}->{:?}: {:?} ({})",
             rebuild_plan.fillet_index,
             start,

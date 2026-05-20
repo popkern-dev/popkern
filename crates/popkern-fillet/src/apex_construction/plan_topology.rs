@@ -1,10 +1,10 @@
-//! Phase 6c-A2.1.d/e — cap kind decision and target topology assembly.
+//! Phase 6c-DirectApex.1.d/e — cap kind decision and target topology assembly.
 //!
-//! `decide_cap_kind` (A2.1.d): given the per-fillet terminations,
+//! `decide_cap_kind` (DirectApex.1.d): given the per-fillet terminations,
 //! decide whether the apex needs a Sphere or Gregory cap, recording
 //! reasoning in [`PlanTelemetry`].
 //!
-//! `build_target_topology` (A2.1.e): from the chosen [`CapKind`] +
+//! `build_target_topology` (DirectApex.1.e): from the chosen [`CapKind`] +
 //! terminations, build the declarative [`TargetTopology`] describing
 //! the desired final apex region.
 
@@ -175,7 +175,7 @@ pub(crate) fn gregory_cap_kind(terminations: &[PerFilletTermination]) -> CapKind
 /// * `cap_face`: `Gregory` with 2N outer-loop edge indices.
 ///
 /// `face_boundary_updates` is left empty here — the builder
-/// (A2.2) computes face splicing from the apex topology +
+/// (DirectApex.2) computes face splicing from the apex topology +
 /// existing BRep state.  See ADR §3.3.
 pub(crate) fn build_target_topology(
     cap_kind: &CapKind,

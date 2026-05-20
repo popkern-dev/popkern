@@ -69,14 +69,14 @@ pub(super) fn author_side_support_bridge_path_patch_for_cylinder_trim(
                 fillet_index,
             },
         )?;
-        if crate::a2_trace::enabled() {
+        if crate::direct_apex_trace::enabled() {
             let path_label = path
                 .iter()
                 .map(|step| format!("{:?}->{:?}", step.start, step.end))
                 .collect::<Vec<_>>()
                 .join(", ");
             eprintln!(
-                "[a2-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] authored {label} \
+                "[direct-apex-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] authored {label} \
                  {start:?}->{end:?} as side-support bridge path patch {support_patch_face:?}; \
                  cylinder side {cylinder_half_edge:?}, support side {support_half_edge:?}, \
                  path [{path_label}]"
@@ -297,7 +297,7 @@ pub(super) fn trace_side_support_bridge_claim_miss(
     label: &'static str,
     fillet_index: usize,
 ) {
-    if !crate::a2_trace::enabled() {
+    if !crate::direct_apex_trace::enabled() {
         return;
     }
     let reports = bridge_loops
@@ -344,7 +344,7 @@ pub(super) fn trace_side_support_bridge_claim_miss(
         })
         .unwrap_or_default();
     eprintln!(
-        "[a2-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] found no side-support bridge \
+        "[direct-apex-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] found no side-support bridge \
          boundary side to claim for {label} {start:?}->{end:?}; bridge candidates \
          {reports}{path_diagnostic}"
     );

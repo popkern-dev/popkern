@@ -1,4 +1,4 @@
-//! Phase 6c-A2 §28.H Session 4 — constructive apex builder.
+//! Phase 6c-DirectApex §28.H Session 4 — constructive apex builder.
 //!
 //! Per ADR `2026-05-02-phase-6c-a2-constructive-apex-builder.md`. Replaces
 //! the legacy carve-and-cleanup `construct_apex` with a deterministic
@@ -214,7 +214,7 @@ fn construct_apex_inner_constructive(
             // -> delegate to the Gregory surface assembler.
             //
             // On any construction error the snapshot wrapper rolls back and
-            // the caller falls through to legacy A2.
+            // the caller falls through to legacy DirectApex.
 
             // Capture V's original cross-face incidences before anchor MEVs.
             // Cap-loop construction removes only these edges; anchor spurs

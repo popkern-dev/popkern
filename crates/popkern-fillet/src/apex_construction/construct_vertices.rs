@@ -1,4 +1,4 @@
-//! Apex vertex resolution for the legacy A2 mutating builder.
+//! Apex vertex resolution for the legacy DirectApex mutating builder.
 
 use popkern_core::geometry::Point3;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
@@ -16,7 +16,7 @@ pub(super) fn resolve_apex_vertices(
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Result<Vec<VertexHandle>, ApexBuildError> {
     let tol = tolerance.linear();
-    let trace = crate::a2_trace::enabled();
+    let trace = crate::direct_apex_trace::enabled();
     let max_radius = max_fillet_radius(fillet_surfaces).unwrap_or(0.1);
     let wide_tol = max_radius * 0.7;
     let n_targets = plan.target_topology.apex_vertices.len();
@@ -29,7 +29,7 @@ pub(super) fn resolve_apex_vertices(
         {
             if trace {
                 eprintln!(
-                    "[a2-trace] apex_vertex[{i}] at {point:?} -> FOUND existing {vh:?} \
+                    "[direct-apex-trace] apex_vertex[{i}] at {point:?} -> FOUND existing {vh:?} \
                      (within {tol:.3e})"
                 );
             }
@@ -96,7 +96,7 @@ pub(super) fn resolve_apex_vertices(
         let dist = dist_sq.sqrt();
         if trace {
             eprintln!(
-                "[a2-trace] apex_vertex[{i}] at {:?} -> SNAPPED to existing {vh:?} at {:?} \
+                "[direct-apex-trace] apex_vertex[{i}] at {:?} -> SNAPPED to existing {vh:?} at {:?} \
                  (dist {dist:.4} m, wide_tol {wide_tol:.4})",
                 plan.target_topology.apex_vertices[i], brep.vertices[vh].position
             );
@@ -114,7 +114,7 @@ pub(super) fn resolve_apex_vertices(
                 reason: format!(
                     "apex_vertex[{i}] at {point:?}: no existing BRep vertex within \
                      {tol:.3e} m AND no edge whose chord passes through {point:?} \
-                     (A2.2.b's create branch needs an edge to subdivide)"
+                     (DirectApex.2.b's create branch needs an edge to subdivide)"
                 ),
             });
         };
@@ -134,7 +134,7 @@ pub(super) fn resolve_apex_vertices(
         if trace {
             let loops = vertex_loop_face_handles(brep, split.vertex);
             eprintln!(
-                "[a2-trace] apex_vertex[{i}] at {point:?} -> CREATED {:?} via \
+                "[direct-apex-trace] apex_vertex[{i}] at {point:?} -> CREATED {:?} via \
                  split_edge(edge={edge:?}, t={t:.6e}); pre-split faces=({:?}, {:?}); \
                  post-split outer-loop face memberships={loops:?}",
                 split.vertex, pre_faces.0, pre_faces.1

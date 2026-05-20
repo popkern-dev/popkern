@@ -123,9 +123,9 @@ pub(super) fn repair_support_source_loops_after_cylinder_rewire(
         if brep.loops[source.loop_].half_edge == trim_side.half_edge {
             brep.loops[source.loop_].half_edge = replacement;
         }
-        if crate::a2_trace::enabled() {
+        if crate::direct_apex_trace::enabled() {
             eprintln!(
-                "[a2-trace §14.9/support-loop-repair] FilletEnd[{}] replaced stolen cylinder \
+                "[direct-apex-trace §14.9/support-loop-repair] FilletEnd[{}] replaced stolen cylinder \
                  side {:?} in source support loop {:?} with boundary span {:?} between {:?}->{:?}",
                 trim_side.fillet_index,
                 trim_side.half_edge,
@@ -328,9 +328,9 @@ fn materialize_closed_support_trim_cycles_candidate(
             })?;
         wire_existing_loop(brep, loop_handle, support_face, cycle)?;
         trace_topology_counts(brep, "support-face-after");
-        if crate::a2_trace::enabled() {
+        if crate::direct_apex_trace::enabled() {
             eprintln!(
-                "[a2-trace §14.9/support-loop-replace] support {support_face:?} -> \
+                "[direct-apex-trace §14.9/support-loop-replace] support {support_face:?} -> \
                  rewired outer loop {:?} using {:?}",
                 loop_handle, cycle
             );
@@ -340,7 +340,7 @@ fn materialize_closed_support_trim_cycles_candidate(
 }
 
 fn trace_topology_counts(brep: &BRep, label: &'static str) {
-    if !crate::a2_trace::enabled() {
+    if !crate::direct_apex_trace::enabled() {
         return;
     }
     eprintln!("{}", topology_count_summary(brep).trace_label(label));

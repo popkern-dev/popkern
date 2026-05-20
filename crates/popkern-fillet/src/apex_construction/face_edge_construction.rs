@@ -35,7 +35,7 @@ pub(super) fn create_gregory_face_edges(
         });
     }
 
-    let trace = crate::a2_trace::enabled();
+    let trace = crate::direct_apex_trace::enabled();
     let mut face_edges: Vec<EdgeHandle> = Vec::with_capacity(n);
 
     for k in 0..n {
@@ -86,7 +86,7 @@ pub(super) fn create_gregory_face_edges(
             let c0 = curve.point_at(curve.knots[p]);
             let c1 = curve.point_at(curve.knots[n_cp + 1]);
             eprintln!(
-                "[a2-trace §14.7/B] mef FaceEdge[{k}] T_b[{k}]={t_b_k:?} -> T_a[{next_k}]={t_a_next:?} \
+                "[direct-apex-trace §14.7/B] mef FaceEdge[{k}] T_b[{k}]={t_b_k:?} -> T_a[{next_k}]={t_a_next:?} \
                  -> edge={:?}, new face={:?}, curve endpoints=({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
                 mef_result.edge, mef_result.face, c0.x, c0.y, c0.z, c1.x, c1.y, c1.z
             );

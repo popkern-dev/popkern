@@ -2,18 +2,18 @@ use super::*;
 
 #[ignore]
 #[test]
-fn a2_cube_mixed_cap_outer_per_edge_breakdown() {
+fn direct_apex_cube_mixed_cap_outer_per_edge_breakdown() {
     use popkern_core::geometry::curve::CurveEval;
     use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
-    let result = build_under_a2(false, &[0.08, 0.10, 0.12]);
+    let result = build_under_direct_apex(false, &[0.08, 0.10, 0.12]);
     let cap_set = result
         .corner_patches
         .iter()
         .map(|p| p.face)
         .collect::<std::collections::BTreeSet<_>>();
     eprintln!(
-        "\n=== A2 cube_mixed cap-outer per-edge breakdown: {} cap faces ===",
+        "\n=== direct-apex cube_mixed cap-outer per-edge breakdown: {} cap faces ===",
         cap_set.len()
     );
     let kind = |g: &SurfaceGeometry| -> &'static str {
@@ -97,12 +97,12 @@ fn a2_cube_mixed_cap_outer_per_edge_breakdown() {
 
 #[ignore]
 #[test]
-fn a2_native_cube_mixed_has_cap_to_cylinder_seams() {
-    let result = build_under_a2(false, &[0.08, 0.10, 0.12]);
-    let reasons = a2_fallback_reasons(&result);
+fn direct_apex_native_cube_mixed_has_cap_to_cylinder_seams() {
+    let result = build_under_direct_apex(false, &[0.08, 0.10, 0.12]);
+    let reasons = direct_apex_fallback_reasons(&result);
     assert!(
         reasons.is_empty(),
-        "diagnostic expects native A2 to be accepted; got fallback(s): {reasons:#?}"
+        "diagnostic expects native direct-apex to be accepted; got fallback(s): {reasons:#?}"
     );
 
     assert_native_cap_has_cylinder_seams("cube_mixed", &result, 3);
@@ -110,7 +110,7 @@ fn a2_native_cube_mixed_has_cap_to_cylinder_seams() {
 
 #[ignore]
 #[test]
-fn a2_5_matrix_dump() {
+fn direct_apex_5_matrix_dump() {
     struct Case {
         name: &'static str,
         radii: &'static [f64],
@@ -148,15 +148,15 @@ fn a2_5_matrix_dump() {
             is_pyramid: true,
         },
     ];
-    eprintln!("\n=== A2.5 validate_all matrix natively under A2 ===");
+    eprintln!("\n=== direct-apex validation validate_all matrix natively under direct-apex ===");
     eprintln!(
         "{:<18}  {:>8}  {:>5}  {:>5}  {:>5}  {:>10}",
         "fixture", "fallback", "struct", "pathA", "other", "worst gap"
     );
     eprintln!("{:-<60}", "");
     for case in cases {
-        let result = build_under_a2(case.is_pyramid, case.radii);
-        let fallbacks = count_a2_fallbacks(&result);
+        let result = build_under_direct_apex(case.is_pyramid, case.radii);
+        let fallbacks = count_direct_apex_fallbacks(&result);
         let errors = result.brep.validate_all();
         let m = breakdown(&errors);
         eprintln!(

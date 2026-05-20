@@ -343,9 +343,9 @@ fn expose_live_blocker_interval(
         return LiveExposureProgress::Unchanged;
     }
 
-    if crate::a2_trace::enabled() {
+    if crate::direct_apex_trace::enabled() {
         eprintln!(
-            "[a2-trace §14.9/bridge-exposure] live blockers on face {:?}: {:?}",
+            "[direct-apex-trace §14.9/bridge-exposure] live blockers on face {:?}: {:?}",
             face, blocked
         );
     }
@@ -394,9 +394,9 @@ fn expose_live_blocker_interval(
         };
     }
     let fragments = live_contiguous_fragments(&face_half_edges, &blocked);
-    if crate::a2_trace::enabled() {
+    if crate::direct_apex_trace::enabled() {
         eprintln!(
-            "[a2-trace §14.9/bridge-exposure] face {:?} live loop {:?} fragments {:?}",
+            "[direct-apex-trace §14.9/bridge-exposure] face {:?} live loop {:?} fragments {:?}",
             face, face_half_edges, fragments
         );
     }
@@ -405,9 +405,9 @@ fn expose_live_blocker_interval(
     };
     match candidate.retire_face_boundary_fragment(face, first, after_last) {
         Ok(_) => {
-            if crate::a2_trace::enabled() {
+            if crate::direct_apex_trace::enabled() {
                 eprintln!(
-                    "[a2-trace §14.9/bridge-exposure] retired live fragment {:?}->{:?} on face {:?}",
+                    "[direct-apex-trace §14.9/bridge-exposure] retired live fragment {:?}->{:?} on face {:?}",
                     first, after_last, face
                 );
             }
@@ -415,9 +415,9 @@ fn expose_live_blocker_interval(
         }
         Err(err) => {
             let message = err.to_string();
-            if crate::a2_trace::enabled() {
+            if crate::direct_apex_trace::enabled() {
                 eprintln!(
-                    "[a2-trace §14.9/bridge-exposure] live fragment {:?}->{:?} on face {:?} rejected: {message}",
+                    "[direct-apex-trace §14.9/bridge-exposure] live fragment {:?}->{:?} on face {:?} rejected: {message}",
                     first, after_last, face
                 );
             }

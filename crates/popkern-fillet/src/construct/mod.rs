@@ -1,6 +1,5 @@
 //! Topology construction — apply fillet/chamfer geometry to the BRep. 3-phase single-pass (A: perp splits, B: multi-chord face splits, C: kef merge + surface assign) then surface-fix, sliver-absorb (§13.1(2)), and §8.3 cap insertion post-passes.
 
-mod a2_dispatch;
 mod apex_face_lift;
 mod apex_vertex_coherence;
 pub(crate) mod blend_insert;
@@ -11,6 +10,7 @@ pub(crate) mod cap_insert;
 pub(crate) mod cap_outer_acceptance;
 pub(crate) mod closed_fillet;
 pub(crate) mod cyl_plane_intersect;
+mod direct_apex_dispatch;
 pub(crate) mod edge_reconcile;
 mod gregory_pcurve_clamp;
 
@@ -120,7 +120,7 @@ pub fn apply_blend_geometry(
     use_two_stripe_gregory: bool,
     use_kp_binonic_gregory: bool,
     use_kp_polar_gregory: bool,
-    use_a2_apex_construction: bool,
+    use_direct_apex_construction: bool,
 ) -> Result<ApplyBlendResult, Vec<(EdgeHandle, BlendFailure)>> {
     let mut result = brep.clone();
     let mut failures: Vec<(EdgeHandle, BlendFailure)> = Vec::new();
@@ -138,18 +138,18 @@ pub fn apply_blend_geometry(
         crate::blend::BlendBoundary,
         Vec<popkern_core::topology::FaceHandle>,
     )> = Vec::new();
-    // §6c-A2.3.d — face handles authored by `try_a2_apex_construction`.
+    // §6c-direct-apex dispatch.d — face handles authored by `try_direct_apex_construction`.
     // These faces are protected from `sliver_absorb` /
     // `cap_insert` / late re-wiring so the post-loop stages
-    // don't re-author or absorb the A2-built cap.
-    let mut a2_built_faces: Vec<popkern_core::topology::FaceHandle> = Vec::new();
+    // don't re-author or absorb the direct-apex-built cap.
+    let mut direct_apex_built_faces: Vec<popkern_core::topology::FaceHandle> = Vec::new();
 
     let mut split_state = perpendicular_splits::run_perpendicular_splits(
         brep,
         &mut result,
         edge_geometries,
         tolerance,
-        use_a2_apex_construction,
+        use_direct_apex_construction,
         &mut failures,
     );
     phase_split::apply_face_trim_pipeline(
@@ -206,37 +206,37 @@ pub fn apply_blend_geometry(
                     .copied()
                     .unwrap_or(crate::vertex_classifier::VertexBlendClassification::SameSideConvex);
 
-                // §6c-A2.3.b/d — when use_a2_apex_construction is set,
-                // try the A2 planner + builder for this apex.
-                //   * On success, the BRep already has the A2-built
+                // §6c-direct-apex dispatch.b/d — when use_direct_apex_construction is set,
+                // try the direct-apex planner + builder for this apex.
+                //   * On success, the BRep already has the direct-apex-built
                 //     cap.  We collect the cap face handles into
-                //     `a2_built_faces` so the post-loop protected
+                //     `direct_apex_built_faces` so the post-loop protected
                 //     set (sliver_absorb / cap_insert /
                 //     late_wire_jobs) leaves them alone, then skip
                 //     the legacy insert_vertex_blend call entirely.
-                //   * On A2 error (plan or build), fall back to
+                //   * On direct-apex error (plan or build), fall back to
                 //     legacy with a typed
-                //     BlendWarning::A2FellBackToLegacy recording the
+                //     BlendWarning::DirectApexFellBackToLegacy recording the
                 //     reason.  `construct_apex`'s snapshot has
                 //     already rolled the BRep back to its pre-call
                 //     state, so legacy can run cleanly.
                 //
-                // A2's failure modes:
+                // DirectApex's failure modes:
                 //   * plan_apex_resolution returns ApexPlanError
                 //     (e.g. SphereCylinderNoIntersection on extreme
                 //     radii, SingularCapCentre on nearly-coplanar
                 //     faces).
                 //   * construct_apex returns ApexBuildError —
                 //     today most commonly Gregory cap surface
-                //     assignment (deferred to A2.4).
-                let use_a2_for_this_apex = use_a2_apex_construction
+                //     assignment (deferred to direct-apex cap-surface).
+                let use_direct_apex_for_this_apex = use_direct_apex_construction
                     || should_promote_mixed_radius_gregory_apex(
                         edge_indices,
                         edge_geometries,
                         use_rational_gregory,
                     );
-                let a2_outcome = if use_a2_for_this_apex {
-                    Some(a2_dispatch::try_a2_apex_construction(
+                let direct_apex_outcome = if use_direct_apex_for_this_apex {
+                    Some(direct_apex_dispatch::try_direct_apex_construction(
                         &mut result,
                         *vertex,
                         edge_indices,
@@ -247,23 +247,23 @@ pub fn apply_blend_geometry(
                 } else {
                     None // flag not set — legacy path runs unchanged
                 };
-                let mut a2_succeeded = false;
-                if let Some(outcome) = a2_outcome {
+                let mut direct_apex_succeeded = false;
+                if let Some(outcome) = direct_apex_outcome {
                     match outcome {
                         Ok(success) => {
                             repair_report.apex_routes.push(apex_route_decision(
                                 *vertex,
                                 edge_indices,
                                 edge_geometries,
-                                crate::types::ApexConstructionRoute::A2,
+                                crate::types::ApexConstructionRoute::DirectApex,
                                 success.built_faces.clone(),
                                 success.corner_patches.len(),
                                 None,
                             ));
                             repair_report.apex_diagnostics.extend(success.diagnostics);
-                            a2_built_faces.extend(success.built_faces);
+                            direct_apex_built_faces.extend(success.built_faces);
                             corner_patches.extend(success.corner_patches);
-                            a2_succeeded = true;
+                            direct_apex_succeeded = true;
                         }
                         Err(reason) => {
                             let warn_edge = edge_geometries[edge_indices[0]].analysis.edge;
@@ -271,14 +271,14 @@ pub fn apply_blend_geometry(
                                 *vertex,
                                 edge_indices,
                                 edge_geometries,
-                                crate::types::ApexConstructionRoute::A2FallbackToLegacy,
+                                crate::types::ApexConstructionRoute::DirectApexFallbackToLegacy,
                                 Vec::new(),
                                 0,
                                 Some(reason.clone()),
                             ));
                             warnings.push((
                                 warn_edge,
-                                BlendWarning::A2FellBackToLegacy {
+                                BlendWarning::DirectApexFellBackToLegacy {
                                     vertex: *vertex,
                                     reason,
                                 },
@@ -287,10 +287,10 @@ pub fn apply_blend_geometry(
                         }
                     }
                 }
-                if a2_succeeded {
+                if direct_apex_succeeded {
                     continue;
                 }
-                if !use_a2_for_this_apex {
+                if !use_direct_apex_for_this_apex {
                     repair_report.apex_routes.push(apex_route_decision(
                         *vertex,
                         edge_indices,
@@ -397,7 +397,7 @@ pub fn apply_blend_geometry(
         tolerance,
         late_wire_jobs: &late_wire_jobs,
         support_seam_jobs: &support_seam_jobs,
-        a2_built_faces: &a2_built_faces,
+        direct_apex_built_faces: &direct_apex_built_faces,
         warnings: &mut warnings,
         corner_patches: &mut corner_patches,
         repair_report: &mut repair_report,

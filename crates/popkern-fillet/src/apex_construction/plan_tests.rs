@@ -1,7 +1,7 @@
 //! Unit tests for [`plan_apex_resolution`].
 //!
 //! Per ADR §11 acceptance criterion #10, every degenerate case in
-//! ADR §4.4 has a corresponding test here.  A2.1.b through A2.1.f
+//! ADR §4.4 has a corresponding test here.  DirectApex.1.b through DirectApex.1.f
 //! flesh out the test bodies as the planner gains capability.
 
 use popkern_core::tolerance::Tolerance;
@@ -449,7 +449,7 @@ fn passes_validation_for_valid_three_edge_apex() {
     // No fillet_surfaces provided ⇒ compute_blend_boundary errors,
     // surfacing as InvalidInput("boundary").  Validation has passed
     // by this point, so the failure mode confirms we got past
-    // input validation and entered the sphere-fit math (A2.1.c).
+    // input validation and entered the sphere-fit math (DirectApex.1.c).
     let err =
         plan_apex_resolution(&brep, apex, &specs, &[], &Tolerance::default(), None).unwrap_err();
     assert!(

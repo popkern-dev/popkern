@@ -24,7 +24,7 @@ impl TopologyCountSummary {
 
     pub(in crate::apex_construction) fn trace_label(self, label: &'static str) -> String {
         format!(
-            "[a2-trace §14.9/topology-counts/{label}] V={} E={} F={} L={} S={} lhs={}",
+            "[direct-apex-trace §14.9/topology-counts/{label}] V={} E={} F={} L={} S={} lhs={}",
             self.vertices,
             self.edges,
             self.faces,

@@ -3,7 +3,7 @@
 //! fillet surfaces produced by the actual
 //! [`compute_fillet_geometry`] pipeline.
 //!
-//! Issues 2 + 3 from the A2.1 review:
+//! Issues 2 + 3 from the DirectApex.1 review:
 //! * Issue 2 — Direct rung against a real fixture, end-to-end.
 //! * Issue 3 — Setback / Open rung exercised by injecting
 //!   unsupported fillets that the lenient pass skips.

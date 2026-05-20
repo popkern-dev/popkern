@@ -182,7 +182,7 @@ fn trace_support_split_incomplete_cycles(
     supplemented: &[HalfEdgeHandle],
     cycles: &[Vec<HalfEdgeHandle>],
 ) {
-    if !crate::a2_trace::enabled() {
+    if !crate::direct_apex_trace::enabled() {
         return;
     }
     let spans = missing_spans
@@ -193,7 +193,7 @@ fn trace_support_split_incomplete_cycles(
     let supplemented_edges = support_cycle_open_chain_diagnostic(brep, supplemented);
     let cycle_sizes = cycles.iter().map(Vec::len).collect::<Vec<_>>();
     eprintln!(
-        "[a2-trace §14.9/support-split] support {support_face:?} supplemented spans [{spans}] \
+        "[direct-apex-trace §14.9/support-split] support {support_face:?} supplemented spans [{spans}] \
          did not close all half-edges; supplemented=[{supplemented_edges}] cycle_sizes={cycle_sizes:?}"
     );
 }

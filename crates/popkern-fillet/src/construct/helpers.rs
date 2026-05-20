@@ -44,7 +44,7 @@ pub use super::merge::{identify_consumed_face_any, merge_consumed_faces_any};
 /// `None` overrides.  Retained as a public no-override entry
 /// point for tests; the production caller in `apply_blend_geometry`
 /// uses the `_with_overrides` variant directly so it can pass
-/// planner-derived overrides when `use_a2_apex_construction` is
+/// planner-derived overrides when `use_direct_apex_construction` is
 /// set.
 #[allow(clippy::too_many_arguments)]
 #[allow(dead_code)]
@@ -75,7 +75,7 @@ pub fn split_perpendicular_edges_by_radius(
     )
 }
 
-/// §28.H Session 2 — per-anchor-position override.  When the A2
+/// §28.H Session 2 — per-anchor-position override.  When the DirectApex
 /// planner pre-pass has emitted `apex_vertex` targets for a fillet
 /// edge's V-end and W-end, the override map carries those targets
 /// down to Phase A's anchor placement.
@@ -222,7 +222,7 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
 /// contains `point` within a small tolerance, returning the edge
 /// handle and parameter along the edge in `(0.001, 0.999)`.
 ///
-/// `pub(crate)` for §6c-A2.2.b — the apex builder calls this from
+/// `pub(crate)` for §6c-DirectApex.2.b — the apex builder calls this from
 /// `resolve_apex_vertices`'s create branch when no existing BRep
 /// vertex matches the planner's target position; the edge passing
 /// through the target is then split via [`BRep::split_edge`] to

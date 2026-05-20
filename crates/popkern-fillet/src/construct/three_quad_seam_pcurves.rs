@@ -114,9 +114,9 @@ pub(super) fn author_boundary_owned_seam_pcurves(
                     },
                 );
             }
-            if crate::a2_trace::cap_g0_enabled() {
+            if crate::direct_apex_trace::cap_g0_enabled() {
                 eprintln!(
-                    "[a2-trace cap-g0] boundary-owned pcurve: subface[{subface_index}] \
+                    "[direct-apex-trace cap-g0] boundary-owned pcurve: subface[{subface_index}] \
                      segment[{segment_index}] no validated half-edge"
                 );
             }
@@ -175,9 +175,9 @@ pub(super) fn author_boundary_owned_seam_pcurves(
         if let Some(boundary_side) = boundary_side {
             brep.set_surface_boundary_hint(he, boundary_side);
         }
-        if crate::a2_trace::cap_g0_enabled() {
+        if crate::direct_apex_trace::cap_g0_enabled() {
             eprintln!(
-                "[a2-trace cap-g0] boundary-owned pcurve: subface[{subface_index}] \
+                "[direct-apex-trace cap-g0] boundary-owned pcurve: subface[{subface_index}] \
                  segment[{segment_index}] wrote he={he:?} twin={twin:?} edge={:?}",
                 brep.half_edges[he].edge
             );

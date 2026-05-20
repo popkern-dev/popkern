@@ -62,15 +62,15 @@ pub(super) fn cap_spheres_for_subfaces(
         if let Some((cap_index, _)) = best {
             used[cap_index] = true;
             assigned[face_index] = Some(per_fillet_caps[cap_index]);
-            if crate::a2_trace::enabled() {
+            if crate::direct_apex_trace::enabled() {
                 eprintln!(
-                    "[a2-trace] sphere-cap assignment face={face:?} -> cap[{cap_index}] r={:.3}",
+                    "[direct-apex-trace] sphere-cap assignment face={face:?} -> cap[{cap_index}] r={:.3}",
                     per_fillet_caps[cap_index].1
                 );
             }
-        } else if crate::a2_trace::enabled() {
+        } else if crate::direct_apex_trace::enabled() {
             eprintln!(
-                "[a2-trace] sphere-cap assignment face={face:?} unmatched cyl_radius={cyl_radius:.3}"
+                "[direct-apex-trace] sphere-cap assignment face={face:?} unmatched cyl_radius={cyl_radius:.3}"
             );
         }
     }
@@ -95,9 +95,9 @@ pub(super) fn sphere_cap_boundary_degeneracy_in_boundary_order(
             if let Some(reason) =
                 sphere_cap_segment_degeneracy(brep, fillet_surfaces, center, radius, segment)
             {
-                if crate::a2_trace::enabled() {
+                if crate::direct_apex_trace::enabled() {
                     eprintln!(
-                        "[a2-trace] sphere-cap preflight declined boundary[{k}] segment={}: {reason}",
+                        "[direct-apex-trace] sphere-cap preflight declined boundary[{k}] segment={}: {reason}",
                         boundary_segment_kind(segment)
                     );
                 }
@@ -128,9 +128,9 @@ pub(super) fn sphere_cap_boundary_seams_are_nondegenerate(
             if let Some(reason) =
                 sphere_cap_segment_degeneracy(brep, fillet_surfaces, *center, *radius, segment)
             {
-                if crate::a2_trace::enabled() {
+                if crate::direct_apex_trace::enabled() {
                     eprintln!(
-                        "[a2-trace] sphere-cap rung declined subface[{k}] segment={}: {reason}",
+                        "[direct-apex-trace] sphere-cap rung declined subface[{k}] segment={}: {reason}",
                         boundary_segment_kind(segment)
                     );
                 }

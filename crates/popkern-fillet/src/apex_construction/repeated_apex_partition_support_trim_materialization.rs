@@ -75,9 +75,9 @@ pub(super) fn materialized_generator_trim_side(
             return Ok((half_edge, actual_support_face, true, Some(support_source)));
         }
         Err(err) => {
-            if crate::a2_trace::enabled() {
+            if crate::direct_apex_trace::enabled() {
                 eprintln!(
-                    "[a2-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] cannot author \
+                    "[direct-apex-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] cannot author \
                      {label} {start:?}->{end:?} through support-face mef on {support_face:?}: \
                      {err}"
                 );
@@ -171,9 +171,9 @@ fn claim_existing_support_boundary_for_cylinder_trim(
             label,
             fillet_index,
         )?;
-        if crate::a2_trace::enabled() {
+        if crate::direct_apex_trace::enabled() {
             eprintln!(
-                "[a2-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] claimed {label} \
+                "[direct-apex-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] claimed {label} \
                  {start:?}->{end:?} from support boundary on {actual_support_face:?}; cylinder \
                  side {half_edge:?}, support side {support_half_edge:?}"
             );
@@ -194,7 +194,7 @@ fn trace_support_boundary_claim_miss(
     label: &'static str,
     fillet_index: usize,
 ) {
-    if !crate::a2_trace::enabled() {
+    if !crate::direct_apex_trace::enabled() {
         return;
     }
     let reports = support_family_faces(brep, support_face)
@@ -230,7 +230,7 @@ fn trace_support_boundary_claim_miss(
         .collect::<Vec<_>>()
         .join("; ");
     eprintln!(
-        "[a2-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] found no support boundary \
+        "[direct-apex-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] found no support boundary \
          side to claim for {label} {start:?}->{end:?} on support family {support_face:?}; \
          candidate spans {reports}"
     );
@@ -353,9 +353,9 @@ fn materialize_support_face_mef_trim(
             prev: brep.half_edges[result.half_edge].prev,
             next: brep.half_edges[result.half_edge].next,
         };
-        if crate::a2_trace::enabled() {
+        if crate::direct_apex_trace::enabled() {
             eprintln!(
-                "[a2-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] authored {label} \
+                "[direct-apex-trace §14.9/trim-subcomplex] FilletEnd[{fillet_index}] authored {label} \
                  {start:?}->{end:?} by support-face mef on {actual_support_face:?}; cylinder \
                  side {:?}, support side {:?}",
                 result.half_edge, result.half_edge_twin

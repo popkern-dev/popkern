@@ -1,4 +1,4 @@
-//! Error types for Phase 6c-A2 apex construction.
+//! Error types for Phase 6c-DirectApex apex construction.
 //!
 //! Per ADR §4.2 and §5.4: every variant carries enough context to
 //! be **user-actionable** when surfaced through a CAD UI.  Display
@@ -87,12 +87,12 @@ pub enum ApexPlanError {
         value: String,
     },
 
-    /// The fillet uses a surface kind A2 v1 doesn't support
+    /// The fillet uses a surface kind DirectApex v1 doesn't support
     /// (currently: only Cylinder fillets are supported).
     /// User-actionable: "Use a cylinder fillet, or wait for the
-    /// corresponding A2 extension."
+    /// corresponding DirectApex extension."
     #[error(
-        "fillet {fillet_idx} uses surface kind {kind} which A2 v1 does not yet support; \
+        "fillet {fillet_idx} uses surface kind {kind} which DirectApex v1 does not yet support; \
          use a cylinder fillet"
     )]
     UnsupportedFilletKind {

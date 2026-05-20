@@ -19,14 +19,16 @@ pub(super) fn author_sphere_apex_vertices(
     tolerance: &Tolerance,
 ) -> Result<Vec<VertexHandle>, ApexBuildError> {
     let tol = tolerance.linear();
-    let trace = crate::a2_trace::enabled();
+    let trace = crate::direct_apex_trace::enabled();
     let mut out: Vec<VertexHandle> = Vec::with_capacity(plan.target_topology.apex_vertices.len());
     let mut used: std::collections::HashSet<VertexHandle> = std::collections::HashSet::new();
     for (i, target) in plan.target_topology.apex_vertices.iter().enumerate() {
         match find_vertex_within(brep, *target, tol) {
             Some(vh) if !used.contains(&vh) => {
                 if trace {
-                    eprintln!("[a2-trace §14.4/A] sphere apex_vertices[{i}] tight-match {vh:?}");
+                    eprintln!(
+                        "[direct-apex-trace §14.4/A] sphere apex_vertices[{i}] tight-match {vh:?}"
+                    );
                 }
                 used.insert(vh);
                 out.push(vh);
@@ -57,7 +59,7 @@ pub(super) fn author_sphere_apex_vertices(
                 })?;
                 if trace {
                     eprintln!(
-                        "[a2-trace §14.4/A] sphere apex_vertices[{i}] -> CREATED {:?} via \
+                        "[direct-apex-trace §14.4/A] sphere apex_vertices[{i}] -> CREATED {:?} via \
                          split_edge_at_point(edge={:?})",
                         split.vertex, split.edge_a
                     );
@@ -306,7 +308,7 @@ pub(super) fn author_gregory_apex_vertices(
         face_a[(k + 1) % n] = face_b_k;
     }
 
-    let trace = crate::a2_trace::enabled();
+    let trace = crate::direct_apex_trace::enabled();
     let mut out: Vec<Option<VertexHandle>> = vec![None; n_targets];
     let mut t_vertices: std::collections::HashSet<VertexHandle> = std::collections::HashSet::new();
     let mut schedule: Vec<(usize, FaceHandle)> = Vec::with_capacity(n_targets);
@@ -336,7 +338,7 @@ pub(super) fn author_gregory_apex_vertices(
             })?;
         if trace {
             eprintln!(
-                "[a2-trace §14.8/A] sched[{sched_idx}] mev V->{:?} at {target:?} on {host_face:?} (i={i}, k={}, side={})",
+                "[direct-apex-trace §14.8/A] sched[{sched_idx}] mev V->{:?} at {target:?} on {host_face:?} (i={i}, k={}, side={})",
                 mev.vertex,
                 i / 2,
                 if i % 2 == 0 { "face_A" } else { "face_B" }
@@ -357,7 +359,7 @@ pub(super) fn author_gregory_apex_vertices(
 
     if trace {
         eprintln!(
-            "[a2-trace §14.8/A] author_gregory_apex_vertices complete: {} T-vertices authored",
+            "[direct-apex-trace §14.8/A] author_gregory_apex_vertices complete: {} T-vertices authored",
             out.len()
         );
     }

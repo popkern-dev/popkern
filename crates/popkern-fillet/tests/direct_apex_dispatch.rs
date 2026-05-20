@@ -1,20 +1,20 @@
-//! Integration test for the §6c-A2.3 apex-construction dispatch
-//! flag (`FilletOptions::use_a2_apex_construction`).
+//! Integration test for the §6c-direct-apex dispatch apex-construction dispatch
+//! flag (`FilletOptions::use_direct_apex_construction`).
 //!
 //! When the flag is `true`, the legacy
 //! `apply_blend_geometry`'s apex-vertex-blend loop attempts the
-//! A2 planner + builder before falling back to the legacy
+//! direct-apex planner + builder before falling back to the legacy
 //! `insert_vertex_blend` path.  Failure surfaces as
-//! `BlendWarning::A2FellBackToLegacy`.
+//! `BlendWarning::DirectApexFellBackToLegacy`.
 //!
-//! After §6c-A2.2.e/f and the constructive Gregory repeated-apex
+//! After §6c-direct-apex build.e/f and the constructive Gregory repeated-apex
 //! normalization path:
-//!   * **Sphere caps (uniform-radius cube apex)** — A2 succeeds
+//!   * **Sphere caps (uniform-radius cube apex)** — direct-apex succeeds
 //!     end-to-end, no fallback fires.  Geometry matches legacy
 //!     (face / vertex / edge counts).
-//!   * **Gregory caps (mixed-radius cube apex)** — A2 now completes
+//!   * **Gregory caps (mixed-radius cube apex)** — direct-apex now completes
 //!     natively for the baseline mixed cube. Broader variable-radius
-//!     fixtures still have containment coverage in the A2 matrix.
+//!     fixtures still have containment coverage in the direct-apex matrix.
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle};
@@ -23,7 +23,7 @@ use popkern_fillet::error::BlendWarning;
 use popkern_fillet::types::{FilletOptions, FilletRadius, FilletSpec};
 use popkern_fillet::{BlendResult, fillet_edges};
 
-fn cube_with_corner_fillets(use_a2: bool, radii: [f64; 3]) -> BlendResult {
+fn cube_with_corner_fillets(use_direct_apex: bool, radii: [f64; 3]) -> BlendResult {
     let tol = Tolerance::default();
     let cube = BRep::unit_cube(tol).unwrap();
     let apex = cube.vertices.keys().next().unwrap();
@@ -47,107 +47,107 @@ fn cube_with_corner_fillets(use_a2: bool, radii: [f64; 3]) -> BlendResult {
         })
         .collect();
     let options = FilletOptions {
-        use_a2_apex_construction: use_a2,
+        use_direct_apex_construction: use_direct_apex,
         ..FilletOptions::default()
     };
     fillet_edges(&cube, &specs, &options, tol, None).expect("fillet_edges succeeds")
 }
 
-fn cube_with_three_corner_fillets(use_a2: bool) -> BlendResult {
-    cube_with_corner_fillets(use_a2, [0.10, 0.10, 0.10])
+fn cube_with_three_corner_fillets(use_direct_apex: bool) -> BlendResult {
+    cube_with_corner_fillets(use_direct_apex, [0.10, 0.10, 0.10])
 }
 
-fn cube_with_variable_corner_fillets(use_a2: bool) -> BlendResult {
-    cube_with_corner_fillets(use_a2, [0.08, 0.10, 0.12])
+fn cube_with_variable_corner_fillets(use_direct_apex: bool) -> BlendResult {
+    cube_with_corner_fillets(use_direct_apex, [0.08, 0.10, 0.12])
 }
 
 #[test]
-fn a2_dispatch_succeeds_on_uniform_cube_without_fallback() {
-    // After A2.2.e/f, Sphere caps build natively under A2.  The
-    // uniform-radius cube apex dispatches to Sphere — A2 must
-    // complete without firing `A2FellBackToLegacy` AND legacy
-    // `insert_vertex_blend` must NOT run after A2 (else it would
+fn direct_apex_dispatch_succeeds_on_uniform_cube_without_fallback() {
+    // After direct-apex build.e/f, Sphere caps build natively under direct-apex.  The
+    // uniform-radius cube apex dispatches to Sphere — direct-apex must
+    // complete without firing `DirectApexFellBackToLegacy` AND legacy
+    // `insert_vertex_blend` must NOT run after direct-apex (else it would
     // emit `VertexModeFallback` because V is already gone).
-    let result_a2 = cube_with_three_corner_fillets(true);
+    let result_direct_apex = cube_with_three_corner_fillets(true);
 
-    let fallback_warnings: Vec<_> = result_a2
+    let fallback_warnings: Vec<_> = result_direct_apex
         .edge_warnings
         .iter()
-        .filter(|(_, w)| matches!(w, BlendWarning::A2FellBackToLegacy { .. }))
+        .filter(|(_, w)| matches!(w, BlendWarning::DirectApexFellBackToLegacy { .. }))
         .collect();
     assert!(
         fallback_warnings.is_empty(),
-        "A2 should succeed end-to-end on uniform-radius cube (Sphere cap); \
-         got {} A2FellBackToLegacy warning(s)",
+        "direct-apex should succeed end-to-end on uniform-radius cube (Sphere cap); \
+         got {} DirectApexFellBackToLegacy warning(s)",
         fallback_warnings.len(),
     );
-    // §6c-A2.3.d skip-legacy regression guard: if A2 success
+    // §6c-direct-apex dispatch.d skip-legacy regression guard: if direct-apex success
     // didn't actually skip the legacy `insert_vertex_blend` call,
     // legacy would re-enter for the now-removed apex vertex,
     // fail at `repair_vertex_outgoing`, and emit a
     // `VertexModeFallback` warning.
-    let vertex_mode_fallbacks: Vec<_> = result_a2
+    let vertex_mode_fallbacks: Vec<_> = result_direct_apex
         .edge_warnings
         .iter()
         .filter(|(_, w)| matches!(w, BlendWarning::VertexModeFallback { .. }))
         .collect();
     assert!(
         vertex_mode_fallbacks.is_empty(),
-        "A2 success path must skip legacy; got {} VertexModeFallback warning(s) — \
-         indicates legacy `insert_vertex_blend` ran after A2 already removed V",
+        "direct-apex success path must skip legacy; got {} VertexModeFallback warning(s) — \
+         indicates legacy `insert_vertex_blend` ran after direct-apex already removed V",
         vertex_mode_fallbacks.len(),
     );
 }
 
 #[test]
-fn a2_dispatch_mixed_radius_cube_completes_without_fallback() {
-    let result_a2 = cube_with_variable_corner_fillets(true);
+fn direct_apex_dispatch_mixed_radius_cube_completes_without_fallback() {
+    let result_direct_apex = cube_with_variable_corner_fillets(true);
 
-    let fallback_warnings: Vec<_> = result_a2
+    let fallback_warnings: Vec<_> = result_direct_apex
         .edge_warnings
         .iter()
-        .filter(|(_, w)| matches!(w, BlendWarning::A2FellBackToLegacy { .. }))
+        .filter(|(_, w)| matches!(w, BlendWarning::DirectApexFellBackToLegacy { .. }))
         .collect();
     assert!(
         fallback_warnings.is_empty(),
-        "mixed-radius cube should complete through native A2; got {fallback_warnings:#?}",
+        "mixed-radius cube should complete through native direct-apex; got {fallback_warnings:#?}",
     );
 }
 
 #[test]
-fn a2_dispatch_uniform_geometry_matches_legacy() {
-    // A2 Sphere build on uniform cube must produce the same
+fn direct_apex_dispatch_uniform_geometry_matches_legacy() {
+    // direct-apex Sphere build on uniform cube must produce the same
     // topology as the pure-legacy run — vertex/edge/face/half-edge
     // counts identical.
     let result_legacy = cube_with_three_corner_fillets(false);
-    let result_a2 = cube_with_three_corner_fillets(true);
+    let result_direct_apex = cube_with_three_corner_fillets(true);
 
     assert_eq!(
         result_legacy.brep.vertices.len(),
-        result_a2.brep.vertices.len(),
-        "vertex counts must match between legacy and A2 Sphere runs",
+        result_direct_apex.brep.vertices.len(),
+        "vertex counts must match between legacy and direct-apex Sphere runs",
     );
     assert_eq!(
         result_legacy.brep.edges.len(),
-        result_a2.brep.edges.len(),
-        "edge counts must match between legacy and A2 Sphere runs",
+        result_direct_apex.brep.edges.len(),
+        "edge counts must match between legacy and direct-apex Sphere runs",
     );
     assert_eq!(
         result_legacy.brep.faces.len(),
-        result_a2.brep.faces.len(),
-        "face counts must match between legacy and A2 Sphere runs",
+        result_direct_apex.brep.faces.len(),
+        "face counts must match between legacy and direct-apex Sphere runs",
     );
     assert_eq!(
         result_legacy.brep.half_edges.len(),
-        result_a2.brep.half_edges.len(),
-        "half-edge counts must match between legacy and A2 Sphere runs",
+        result_direct_apex.brep.half_edges.len(),
+        "half-edge counts must match between legacy and direct-apex Sphere runs",
     );
 }
 
 #[test]
-fn a2_dispatch_mixed_radius_geometry_is_structurally_valid() {
-    let result_a2 = cube_with_variable_corner_fillets(true);
-    let errors = result_a2.brep.validate_all();
+fn direct_apex_dispatch_mixed_radius_geometry_is_structurally_valid() {
+    let result_direct_apex = cube_with_variable_corner_fillets(true);
+    let errors = result_direct_apex.brep.validate_all();
     let structural_errors = errors
         .iter()
         .filter(|err| {
@@ -167,20 +167,20 @@ fn a2_dispatch_mixed_radius_geometry_is_structurally_valid() {
 
     assert!(
         structural_errors.is_empty(),
-        "mixed-radius native A2 result must have no structural/open-loop/shell-gap errors; got {structural_errors:#?}",
+        "mixed-radius native direct-apex result must have no structural/open-loop/shell-gap errors; got {structural_errors:#?}",
     );
 }
 
 #[test]
-fn a2_dispatch_disabled_emits_no_a2_warning() {
+fn direct_apex_dispatch_disabled_emits_no_direct_apex_warning() {
     // Sanity: when the flag is off, the dispatch is dormant.
     let result = cube_with_three_corner_fillets(false);
-    let any_a2 = result
+    let any_direct_apex = result
         .edge_warnings
         .iter()
-        .any(|(_, w)| matches!(w, BlendWarning::A2FellBackToLegacy { .. }));
+        .any(|(_, w)| matches!(w, BlendWarning::DirectApexFellBackToLegacy { .. }));
     assert!(
-        !any_a2,
-        "with use_a2_apex_construction=false, A2FellBackToLegacy must not fire",
+        !any_direct_apex,
+        "with use_direct_apex_construction=false, DirectApexFellBackToLegacy must not fire",
     );
 }

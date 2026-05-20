@@ -10,7 +10,7 @@ use popkern_core::topology::{
 pub struct BlendRepairReport {
     /// Whole-blend support-face seam relocation diagnostics.
     pub support_seam_relocation: SupportSeamRelocationReport,
-    /// Per-apex construction route decisions for legacy/A2 migration tracking.
+    /// Per-apex construction route decisions for legacy/direct-apex migration tracking.
     pub apex_routes: Vec<ApexConstructionRouteDecision>,
     /// Structured apex construction diagnostics and declined repair candidates.
     pub apex_diagnostics: Vec<ApexConstructionDiagnostic>,
@@ -19,15 +19,15 @@ pub struct BlendRepairReport {
 /// Construction route used for one smooth multi-fillet apex.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApexConstructionRoute {
-    /// A2 was not requested; legacy `insert_vertex_blend` handled the apex.
+    /// direct-apex was not requested; legacy `insert_vertex_blend` handled the apex.
     Legacy,
-    /// A2 planner and builder completed and legacy was skipped.
-    A2,
-    /// A2 was requested but declined; legacy handled the apex.
-    A2FallbackToLegacy,
+    /// direct-apex planner and builder completed and legacy was skipped.
+    DirectApex,
+    /// direct-apex was requested but declined; legacy handled the apex.
+    DirectApexFallbackToLegacy,
 }
 
-/// Per-apex legacy/A2 migration diagnostic.
+/// Per-apex legacy/direct-apex migration diagnostic.
 #[derive(Debug, Clone)]
 pub struct ApexConstructionRouteDecision {
     /// Original apex vertex being resolved.
@@ -36,11 +36,11 @@ pub struct ApexConstructionRouteDecision {
     pub incident_edges: Vec<EdgeHandle>,
     /// Route that produced the final topology for this apex.
     pub route: ApexConstructionRoute,
-    /// Faces authored by A2, empty for legacy and fallback routes.
+    /// Faces authored by direct-apex, empty for legacy and fallback routes.
     pub built_faces: Vec<FaceHandle>,
     /// Number of corner patch reports produced by this route.
     pub corner_patch_count: usize,
-    /// A2 decline reason when [`ApexConstructionRoute::A2FallbackToLegacy`] applies.
+    /// direct-apex decline reason when [`ApexConstructionRoute::DirectApexFallbackToLegacy`] applies.
     pub fallback_reason: Option<String>,
 }
 

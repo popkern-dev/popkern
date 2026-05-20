@@ -5,13 +5,13 @@
 //! and captures `cap_outer_g0` / `cap_outer_g1` for each fixture.
 //!
 //! Goal: preserve the Stage 4.7e measurements as diagnostics while
-//! A2/logical macro-cap construction owns the default commercial path.
+//! DirectApex/logical macro-cap construction owns the default commercial path.
 //!
 //! Historical commercial gate: `cap_outer_g0` ≤ 5e-3 m.
 //!
 //! Each fixture runs as a separate test so failures localise.
 //! `#[ignore]` keeps legacy/stage-specific diagnostics out of the
-//! default gate when they are superseded by native A2 acceptance or
+//! default gate when they are superseded by native DirectApex acceptance or
 //! still need construction work.
 
 use popkern_core::tolerance::Tolerance;
@@ -116,10 +116,10 @@ fn phase_6c_e_matrix_probe() {
 }
 
 /// Legacy Stage 4.7e mixed-radius diagnostic. The active default
-/// commercial route is A2/logical macro-cap containment; native
+/// commercial route is DirectApex/logical macro-cap containment; native
 /// repeated-apex support-continuation work must replace this before
 /// re-promoting it to a hard gate.
-#[ignore = "legacy Stage 4.7e diagnostic; default mixed-radius commercial path is A2/logical macro-cap containment"]
+#[ignore = "legacy Stage 4.7e diagnostic; default mixed-radius commercial path is DirectApex/logical macro-cap containment"]
 #[test]
 fn phase_6c_e_pyramid4_mixed_under_5mm() {
     let m = run_n_pyramid_with_stage4(4, 0.8, &[0.04, 0.06, 0.05, 0.07]);
@@ -136,10 +136,10 @@ fn phase_6c_e_cube_uniform_under_5mm() {
 }
 
 /// Legacy Stage 4.7e mixed-radius diagnostic. The active default
-/// commercial route is A2/logical macro-cap containment; native
+/// commercial route is DirectApex/logical macro-cap containment; native
 /// repeated-apex support-continuation work must replace this before
 /// re-promoting it to a hard gate.
-#[ignore = "legacy Stage 4.7e diagnostic; default mixed-radius commercial path is A2/logical macro-cap containment"]
+#[ignore = "legacy Stage 4.7e diagnostic; default mixed-radius commercial path is DirectApex/logical macro-cap containment"]
 #[test]
 fn phase_6c_e_cube_mixed_under_5mm() {
     let m = run_cube_with_stage4(&[0.08, 0.10, 0.12]);
@@ -150,8 +150,8 @@ fn phase_6c_e_cube_mixed_under_5mm() {
 /// Legacy Stage 4 diagnostic. The metric now measures pcurve-only
 /// cap/support boundaries instead of silently skipping them; this
 /// fixture exposes a real legacy cap_outer gap (~1.8e-1 m). The
-/// commercial default gate for this fixture is native A2 in
-/// `a2_5_cap_outer_g0_gregory_under_a2`.
+/// commercial default gate for this fixture is native DirectApex in
+/// `direct_apex_5_cap_outer_g0_gregory_under_direct_apex`.
 #[ignore]
 #[test]
 fn phase_6c_e_cube_extreme_under_5mm() {

@@ -1,4 +1,4 @@
-//! Boundary and sector helpers for A2 Gregory cap assembly.
+//! Boundary and sector helpers for DirectApex Gregory cap assembly.
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::uv_projection::project_point_to_uv;

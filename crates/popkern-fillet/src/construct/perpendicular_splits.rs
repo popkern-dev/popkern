@@ -18,7 +18,7 @@ pub(super) fn run_perpendicular_splits(
     result: &mut BRep,
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
-    use_a2_apex_construction: bool,
+    use_direct_apex_construction: bool,
     failures: &mut Vec<(EdgeHandle, BlendFailure)>,
 ) -> PerpendicularSplitState {
     // ── Phase A: ALL perpendicular edge splits ─ only modifies edges (inserts vertices), not faces.
@@ -27,17 +27,17 @@ pub(super) fn run_perpendicular_splits(
     // Round 5r+: snapshot before Phase A mutates result; anchor positions come from here.
     let phase_a_snapshot = result.clone();
 
-    // §28.H Session 1 — planner pre-pass.  Run the A2 planner on
+    // §28.H Session 1 — planner pre-pass.  Run the DirectApex planner on
     // the pre-Phase-A BRep state to compute apex_vertex targets per
     // V.  Subsequent §28.H sessions (2-3) will thread these targets
     // into Phase A's anchor placement.  Currently the result is
     // computed and discarded — proves the pre-pass runs without
-    // regression on every fixture.  Gated by `use_a2_apex_
+    // regression on every fixture.  Gated by `use_direct_apex_
     // construction` so legacy is unaffected.
     let _planner_targets_per_apex: std::collections::HashMap<
         VertexHandle,
         Vec<popkern_core::geometry::Point3>,
-    > = if use_a2_apex_construction {
+    > = if use_direct_apex_construction {
         crate::apex_construction::planner_prepass::plan_apex_targets_pre_phase_a(
             &phase_a_snapshot,
             edge_geometries,
@@ -86,7 +86,7 @@ pub(super) fn run_perpendicular_splits(
         // match is far (variable-radius, planner emits sphere-fit
         // positions interior to faces), the override falls back to
         // perp-walk-math at insertion time.
-        let override_ = if use_a2_apex_construction && !_planner_targets_per_apex.is_empty() {
+        let override_ = if use_direct_apex_construction && !_planner_targets_per_apex.is_empty() {
             Some(build_perp_anchor_override(
                 &phase_a_snapshot,
                 eg.analysis.edge,

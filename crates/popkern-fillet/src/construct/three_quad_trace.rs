@@ -50,7 +50,7 @@ pub(super) fn trace_cap_subface_neighbors(brep: &BRep, label: &str, faces: &[Fac
             }
         }
         eprintln!(
-            "[a2-trace] K-P poke {label} subface[{idx}] {face:?}: {}",
+            "[direct-apex-trace] K-P poke {label} subface[{idx}] {face:?}: {}",
             entries.join(", ")
         );
     }

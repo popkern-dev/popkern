@@ -1,6 +1,6 @@
-//! Phase 6c-A2 §28.H Session 1 — planner pre-pass.
+//! Phase 6c-DirectApex §28.H Session 1 — planner pre-pass.
 //!
-//! Runs the A2 planner BEFORE Phase A's perp-walk anchor placement,
+//! Runs the DirectApex planner BEFORE Phase A's perp-walk anchor placement,
 //! using only edge geometries (radii, axes, host face normals from
 //! `EdgeAnalysis` + sphere-fit termination math).  The planner
 //! itself reads from BRep state and `FilletSurfaceResult`, both of
@@ -36,7 +36,7 @@ use crate::construct::EdgeGeometry;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{FilletRadius, FilletSpec};
 
-/// Run the A2 planner against the pre-Phase-A BRep state.
+/// Run the DirectApex planner against the pre-Phase-A BRep state.
 ///
 /// For each vertex `V` with ≥3 incident filleted edges, build the
 /// per-apex `(FilletSpec[], FilletSurfaceResult[])` lists from
@@ -60,7 +60,7 @@ pub(crate) fn plan_apex_targets_pre_phase_a(
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
 ) -> HashMap<VertexHandle, Vec<Point3>> {
-    let trace = crate::a2_trace::prepass_enabled();
+    let trace = crate::direct_apex_trace::prepass_enabled();
     let mut out: HashMap<VertexHandle, Vec<Point3>> = HashMap::new();
 
     // Build per-vertex incidence: for each V, list the
@@ -104,19 +104,21 @@ pub(crate) fn plan_apex_targets_pre_phase_a(
             Ok(plan) => {
                 if plan.cap_kind.is_open() {
                     if trace {
-                        eprintln!("[a2-prepass] V={vh:?}: planner returned Open rung; skipping");
+                        eprintln!(
+                            "[direct-apex-prepass] V={vh:?}: planner returned Open rung; skipping"
+                        );
                     }
                     continue;
                 }
                 let targets = plan.target_topology.apex_vertices;
                 if trace {
                     eprintln!(
-                        "[a2-prepass] V={vh:?}@{:?}: {} planner targets",
+                        "[direct-apex-prepass] V={vh:?}@{:?}: {} planner targets",
                         brep.vertices.get(*vh).map(|v| v.position),
                         targets.len()
                     );
                     for (k, t) in targets.iter().enumerate() {
-                        eprintln!("[a2-prepass]   target[{k}]={t:?}");
+                        eprintln!("[direct-apex-prepass]   target[{k}]={t:?}");
                     }
                 }
                 out.insert(*vh, targets);
@@ -124,7 +126,7 @@ pub(crate) fn plan_apex_targets_pre_phase_a(
             Err(e) => {
                 if trace {
                     eprintln!(
-                        "[a2-prepass] V={vh:?}: planner failed ({e:?}); falling back to \
+                        "[direct-apex-prepass] V={vh:?}: planner failed ({e:?}); falling back to \
                          perp-walk-math at this vertex"
                     );
                 }
@@ -135,8 +137,8 @@ pub(crate) fn plan_apex_targets_pre_phase_a(
 }
 
 /// Construct a [`FilletSpec`] from one [`EdgeGeometry`].  Mirrors
-/// the spec construction in `crate::construct::a2_dispatch::
-/// try_a2_apex_construction` so the planner sees the same data
+/// the spec construction in `crate::construct::direct_apex_dispatch::
+/// try_direct_apex_construction` so the planner sees the same data
 /// pre- and post-Phase-A.
 fn build_fillet_spec(eg: &EdgeGeometry) -> FilletSpec {
     let radius = if (eg.radius_at_start - eg.radius_at_end).abs() < 1e-12 {
@@ -154,8 +156,8 @@ fn build_fillet_spec(eg: &EdgeGeometry) -> FilletSpec {
 }
 
 /// Construct a [`FilletSurfaceResult`] from one [`EdgeGeometry`].
-/// Mirrors the surface construction in `crate::construct::a2_
-/// dispatch::try_a2_apex_construction`.
+/// Mirrors the surface construction in `crate::construct::direct_apex_
+/// dispatch::try_direct_apex_construction`.
 fn build_fillet_surface(eg: &EdgeGeometry) -> FilletSurfaceResult {
     let downgrade_reason = eg.continuity_downgrade.as_ref().map(|(_, s)| s.clone());
     FilletSurfaceResult {

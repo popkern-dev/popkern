@@ -1,4 +1,4 @@
-//! Phase 6c-A2.1.f — Setback and Open rung fallback.
+//! Phase 6c-DirectApex.1.f — Setback and Open rung fallback.
 //!
 //! When the Direct rung fails (sphere-fit error on one or more
 //! fillets), the planner attempts the Setback rung: lenient

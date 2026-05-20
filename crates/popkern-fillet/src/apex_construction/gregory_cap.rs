@@ -1,6 +1,6 @@
-//! Phase 6c-A2.4 Gregory cap surface assembly.
+//! Phase 6c-DirectApex.4 Gregory cap surface assembly.
 //!
-//! Bridges from A2's [`ApexPlan`] + post-stitch BRep state to the
+//! Bridges from DirectApex's [`ApexPlan`] + post-stitch BRep state to the
 //! legacy [`apply_three_quad_decomposition_to_blend`] entry point
 //! (the K-P promotion ladder).  The bridge:
 //!
@@ -18,7 +18,7 @@
 //! corner sub-faces left by the V-spoke kef sequence on Gregory
 //! caps with mixed-host mef sites.
 //! See ADR `docs/decisions/2026-04-30-phase-6c-a2-direct-apex-construction.md`
-//! §A2.4.
+//! §DirectApex.4.
 
 use popkern_core::geometry::{CurveEval, Point3};
 use popkern_core::tolerance::Tolerance;
@@ -51,7 +51,7 @@ pub(super) struct GregoryCapSector {
     pub face_edge: EdgeHandle,
 }
 
-/// **A2.4 Gregory cap surface assembly** — bridge from A2's plan +
+/// **DirectApex.4 Gregory cap surface assembly** — bridge from DirectApex's plan +
 /// post-stitch BRep state to legacy `three_quad_apply::
 /// apply_three_quad_decomposition_to_blend`.
 ///
@@ -142,9 +142,9 @@ pub(super) fn assemble_gregory_cap_surface(
                 boundary.sphere_fit_substituted = true;
             }
             Err(reason) => {
-                if crate::a2_trace::enabled() {
+                if crate::direct_apex_trace::enabled() {
                     eprintln!(
-                        "[a2-trace] Gregory sphere-fit boundary substitution skipped: {reason}"
+                        "[direct-apex-trace] Gregory sphere-fit boundary substitution skipped: {reason}"
                     );
                 }
             }
@@ -395,12 +395,12 @@ fn oriented_fillet_end_boundary_curve(
         if curve_matches_endpoints(&curve, start, end, brep.tolerance.linear().max(1.0e-6)) {
             return Ok(curve);
         }
-        if crate::a2_trace::enabled() {
+        if crate::direct_apex_trace::enabled() {
             let (u0, u1) = curve.parameter_range();
             let p0 = curve.point_at(u0);
             let p1 = curve.point_at(u1);
             eprintln!(
-                "[a2-trace §A2.4/gregory-boundary] FilletEnd[{fillet_index}] analytic cylinder \
+                "[direct-apex-trace §DirectApex.4/gregory-boundary] FilletEnd[{fillet_index}] analytic cylinder \
                  arc on {edge:?} does not match cap endpoints: curve distances {:.3e}/{:.3e}; \
                  using planner curve aligned to cap half-edge",
                 p0.distance_to(&start),
@@ -477,7 +477,7 @@ fn line_curve(start: Point3, end: Point3) -> popkern_core::geometry::NurbsCurve 
 }
 
 fn trace_gregory_boundary_segments(segments: &[BoundarySegment]) {
-    if !crate::a2_trace::enabled() {
+    if !crate::direct_apex_trace::enabled() {
         return;
     }
     for (index, segment) in segments.iter().enumerate() {
@@ -492,7 +492,7 @@ fn trace_gregory_boundary_segments(segments: &[BoundarySegment]) {
         let start = curve.point_at(t0);
         let end = curve.point_at(t1);
         eprintln!(
-            "[a2-trace §A2.4/gregory-boundary] segment[{index}] {label}: \
+            "[direct-apex-trace §DirectApex.4/gregory-boundary] segment[{index}] {label}: \
              ({:.6},{:.6},{:.6}) -> ({:.6},{:.6},{:.6})",
             start.x, start.y, start.z, end.x, end.y, end.z
         );

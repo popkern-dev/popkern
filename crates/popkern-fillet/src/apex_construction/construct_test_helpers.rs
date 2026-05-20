@@ -7,7 +7,7 @@ use super::target_topology::{TargetCapFace, TargetEdge, TargetEdgeRole, TargetTo
 use super::telemetry::{ConstructionRung, PlanTelemetry};
 
 /// Build a synthetic ApexPlan whose target_topology has the supplied apex
-/// vertex positions and a Sphere cap kind. Used by the A2.2.b find-only tests
+/// vertex positions and a Sphere cap kind. Used by the DirectApex.2.b find-only tests
 /// where the real sphere-fit pipeline is not relevant to the assertion.
 pub(super) fn synthetic_sphere_plan(
     apex_vertex: VertexHandle,
@@ -41,7 +41,7 @@ pub(super) fn synthetic_sphere_plan(
 }
 
 /// Build a synthetic ApexPlan with explicit apex_edges connecting supplied
-/// apex_vertices via degree-1 NURBS curves. Used by A2.2.c find/create tests.
+/// apex_vertices via degree-1 NURBS curves. Used by DirectApex.2.c find/create tests.
 pub(super) fn synthetic_sphere_plan_with_edges(
     apex_vertex: VertexHandle,
     apex_vertices: Vec<Point3>,

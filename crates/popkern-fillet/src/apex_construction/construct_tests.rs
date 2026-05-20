@@ -1,8 +1,8 @@
 //! Unit tests for [`super::construct::construct_apex`].
 //!
-//! A2.2.a covers the Open rung (transactional no-op) and the
+//! DirectApex.2.a covers the Open rung (transactional no-op) and the
 //! typed "not yet implemented" error for Sphere / Gregory.
-//! A2.2.b through A2.2.f extend this with end-to-end tests that
+//! DirectApex.2.b through DirectApex.2.f extend this with end-to-end tests that
 //! actually mutate the BRep.
 
 use popkern_core::topology::BRep;
@@ -92,7 +92,7 @@ fn sphere_or_gregory_construct_returns_typed_unimplemented() {
     let pre_h = brep.half_edges.len();
 
     let err = construct_apex(&mut brep, &plan, &test_tolerance(), None)
-        .expect_err("Sphere/Gregory paths not yet implemented in A2.2.a");
+        .expect_err("Sphere/Gregory paths not yet implemented in DirectApex.2.a");
     assert!(
         matches!(err, ApexBuildError::PlanMismatch { .. }),
         "expected PlanMismatch, got {err:?}",
@@ -105,7 +105,7 @@ fn sphere_or_gregory_construct_returns_typed_unimplemented() {
 }
 
 // ---------------------------------------------------------------
-// A2.2.b — apex-vertex resolution
+// DirectApex.2.b — apex-vertex resolution
 // ---------------------------------------------------------------
 
 #[test]
@@ -121,7 +121,7 @@ fn resolve_apex_vertices_finds_existing_within_tolerance() {
     let plan = synthetic_sphere_plan(mvfs.vertex, vec![Point3::new(0.1, 0.1, 0.0)]);
 
     // Driving construct_apex against this plan resolves vertex 0
-    // (the find succeeds), then errors out at A2.2.c+ with a
+    // (the find succeeds), then errors out at DirectApex.2.c+ with a
     // typed PlanMismatch — but the message tells us we got past
     // resolve_apex_vertices.
     let err = construct_apex(&mut brep, &plan, &test_tolerance(), None)
@@ -164,7 +164,7 @@ fn resolve_apex_vertices_fails_when_no_match_exists() {
         ApexBuildError::PlanMismatch { reason } => reason,
         other => panic!("expected PlanMismatch, got {other:?}"),
     };
-    // After A2.2.b's create branch, the resolve fails with a
+    // After DirectApex.2.b's create branch, the resolve fails with a
     // two-part diagnostic: no existing BRep vertex AND no edge
     // chord passes through the target.
     assert!(
@@ -176,7 +176,7 @@ fn resolve_apex_vertices_fails_when_no_match_exists() {
 }
 
 // ---------------------------------------------------------------
-// A2.2.c — apex-edge resolution
+// DirectApex.2.c — apex-edge resolution
 // ---------------------------------------------------------------
 
 #[test]
@@ -298,7 +298,7 @@ fn resolve_apex_vertices_creates_missing_via_edge_split() {
 }
 
 // ---------------------------------------------------------------
-// A2.2.d — apex-edge create via mef
+// DirectApex.2.d — apex-edge create via mef
 // ---------------------------------------------------------------
 
 #[test]
@@ -310,7 +310,7 @@ fn resolve_apex_edges_creates_missing_edge_via_mef() {
     // produces 1 face with 1 (degenerate) outer loop that walks
     // all 8 half-edges; v0 and v2 (the non-adjacent pair) both
     // sit on that loop.  Find for an edge between them fails
-    // (none exists), so the A2.2.d create branch must fire,
+    // (none exists), so the DirectApex.2.d create branch must fire,
     // call mef, attach the plan's curve, and split the face.
     let mut brep = BRep::new(test_tolerance());
     let mvfs = brep

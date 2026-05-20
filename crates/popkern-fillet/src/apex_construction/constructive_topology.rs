@@ -202,10 +202,10 @@ pub(super) fn validate_repeated_apex_normalization_structure(
         .and_then(|_| brep.validate_manifold_edges())
         .and_then(|_| brep.validate_vertex_valence());
     if let Err(error) = &result
-        && crate::a2_trace::enabled()
+        && crate::direct_apex_trace::enabled()
     {
         eprintln!(
-            "[a2-trace §14.9/normalization-validation] failure {error:?}; {}",
+            "[direct-apex-trace §14.9/normalization-validation] failure {error:?}; {}",
             topology_count_diagnostic(brep)
         );
         trace_repeated_apex_loop_walks(brep);
@@ -242,7 +242,7 @@ fn trace_repeated_apex_loop_walks(brep: &BRep) {
             }
         }
         eprintln!(
-            "[a2-trace §14.9/normalization-validation] loop {loop_handle:?} face={:?} walk=[{}]",
+            "[direct-apex-trace §14.9/normalization-validation] loop {loop_handle:?} face={:?} walk=[{}]",
             loop_data.face,
             entries.join(" -> ")
         );

@@ -1,4 +1,4 @@
-//! Phase 6c-A2.4 option 2 — cylinder face outer-loop coherence
+//! Phase 6c-DirectApex.4 option 2 — cylinder face outer-loop coherence
 //! detector and (eventually) repairer.
 //!
 //! Per ADR §25 the post-Phase-C BRep on variable-radius cube
@@ -17,13 +17,13 @@
 //!   same threshold `topology_repair` uses).  Pure, BRep-immutable.
 //! * **Reporting** — `IncoherentCylinderFace` carries the face
 //!   handle, fillet radius, and the off-cyl vertex positions, so
-//!   A2's dispatch can produce a precise failure-cause message
+//!   DirectApex's dispatch can produce a precise failure-cause message
 //!   rather than the generic "no shared face for mef" downstream.
 //!
 //! Repair for the validated same-plane chord-pair class lives in
 //! `construct::topology_repair` and runs in the post-blend pipeline
 //! with snapshot rollback and `BRep::validate` postconditions. This
-//! diagnostic remains wired into `a2_dispatch::try_a2_apex_construction`
+//! diagnostic remains wired into `direct_apex_dispatch::try_direct_apex_construction`
 //! because incoherence that survives that repair is a distinct
 //! construction blocker, usually a multi-face ownership case rather
 //! than a simple base-plane chord pair.
@@ -129,7 +129,7 @@ fn radial_distance_to_axis(p: &Point3, origin: Point3, axis: Vec3) -> f64 {
 }
 
 /// Format a list of incoherent cylinder faces into a single error
-/// message suitable for `BlendWarning::A2FellBackToLegacy`'s
+/// message suitable for `BlendWarning::DirectApexFellBackToLegacy`'s
 /// reason field.  Mentions the worst offender (largest radial
 /// mismatch) and the total count.
 pub(crate) fn describe_incoherence(report: &[IncoherentCylinderFace]) -> String {
@@ -154,7 +154,7 @@ pub(crate) fn describe_incoherence(report: &[IncoherentCylinderFace]) -> String 
     format!(
         "{} cylinder face(s) have {} off-cyl outer-loop vertex(ices); worst offender {:?} \
          (r={:.4}) has a vertex {:.4} m off-surface — Phase C `merge_consumed_faces_any` \
-         heuristic produced an incoherent loop; A2.4 option 2 (rebuild cyl-face loops) \
+         heuristic produced an incoherent loop; DirectApex.4 option 2 (rebuild cyl-face loops) \
          needed to proceed",
         report.len(),
         total_off_cyl,

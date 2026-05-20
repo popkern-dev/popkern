@@ -1,4 +1,4 @@
-//! Topology helpers for A2 Gregory cap assembly.
+//! Topology helpers for DirectApex Gregory cap assembly.
 
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 

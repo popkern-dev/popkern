@@ -47,9 +47,9 @@ fn incident_curves_touch_vertex(brep: &BRep, vertex: VertexHandle, tolerance: f6
         let gap = vertex_position
             .distance_to(&p0)
             .min(vertex_position.distance_to(&p1));
-        if gap > tolerance && crate::a2_trace::cap_g0_enabled() {
+        if gap > tolerance && crate::direct_apex_trace::cap_g0_enabled() {
             eprintln!(
-                "[a2-trace cap-g0] moved vertex coherence failed vertex={vertex:?} edge={:?} gap={gap:.6e}",
+                "[direct-apex-trace cap-g0] moved vertex coherence failed vertex={vertex:?} edge={:?} gap={gap:.6e}",
                 edge.half_edge
             );
         }
@@ -96,9 +96,9 @@ pub(super) fn validate_support_seam(
     let worst = worst_curve_cap
         .max(worst_curve_support)
         .max(worst_cap_support);
-    if worst > tolerance && crate::a2_trace::cap_g0_enabled() {
+    if worst > tolerance && crate::direct_apex_trace::cap_g0_enabled() {
         eprintln!(
-            "[a2-trace cap-g0] support seam validation he={half_edge:?}: \
+            "[direct-apex-trace cap-g0] support seam validation he={half_edge:?}: \
              curve-cap={worst_curve_cap:.6e} curve-support={worst_curve_support:.6e} \
              cap-support={worst_cap_support:.6e}"
         );

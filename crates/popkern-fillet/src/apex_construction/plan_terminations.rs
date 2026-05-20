@@ -1,4 +1,4 @@
-//! Phase 6c-A2.1.c — per-fillet sphere-fit termination computation.
+//! Phase 6c-DirectApex.1.c — per-fillet sphere-fit termination computation.
 //!
 //! Produces a `Vec<PerFilletTermination>` from the BlendBoundary
 //! and fillet surfaces, by walking each fillet's boundary segment
@@ -25,13 +25,13 @@ use super::error::ApexPlanError;
 
 /// One fillet's sphere-fit termination data.  Internal to the
 /// planner; aggregated into the [`ApexPlan`](super::plan::ApexPlan)
-/// in A2.1.d/e.
+/// in DirectApex.1.d/e.
 ///
 /// Per ADR §3.1: each fillet has its own pair of termination
 /// points (T_a on face_A side, T_b on face_B side) plus the
 /// FilletEnd 3-D arc connecting them.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // fields consumed by A2.1.d/e (cap kind decision + topology assembly)
+#[allow(dead_code)] // fields consumed by DirectApex.1.d/e (cap kind decision + topology assembly)
 pub(crate) struct PerFilletTermination {
     /// Index into `fillet_surfaces` (this fillet's surface).
     pub fillet_idx: usize,

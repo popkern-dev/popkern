@@ -110,9 +110,9 @@ pub(super) fn boundary_owned_candidate(
     }) {
         return accepted;
     }
-    if crate::a2_trace::cap_g0_enabled() {
+    if crate::direct_apex_trace::cap_g0_enabled() {
         eprintln!(
-            "[a2-trace cap-g0] boundary-owned pcurve: declined he={he:?} \
+            "[direct-apex-trace cap-g0] boundary-owned pcurve: declined he={he:?} \
              disagreement={max_disagreement:.6e} endpoint_gap={endpoint_gap:.6e}"
         );
     }

@@ -1,4 +1,4 @@
-//! Cap kind decision for Phase 6c-A2 apex construction.
+//! Cap kind decision for Phase 6c-DirectApex apex construction.
 //!
 //! `CapKind` enumerates how the apex region's cap face is built.
 //! For trihedral symmetric corners (uniform radii, coincident T's),
@@ -60,7 +60,7 @@ pub enum CapKind {
     /// rung](super::telemetry::ConstructionRung::Open) when both
     /// Direct and Setback failed.  Fillets terminate at their
     /// legacy rolling-ball footprints; the apex region is left as
-    /// the pre-A2 substitute-then-patch overlay would have
+    /// the pre-DirectApex substitute-then-patch overlay would have
     /// produced (or unfilleted, depending on caller).
     ///
     /// Carries the count of fillets that *would* have been at the

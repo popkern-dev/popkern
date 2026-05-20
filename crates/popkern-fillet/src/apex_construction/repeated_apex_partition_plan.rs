@@ -342,9 +342,9 @@ impl RepeatedApexPartitionPlan {
                     insert_face_with_outer_loop(brep, self.cap_face, &residual_loop)?;
                 brep.faces[residual_face].role = TopologyRole::ConstructionResidual;
                 brep.faces[residual_face].surface = None;
-                if crate::a2_trace::enabled() {
+                if crate::direct_apex_trace::enabled() {
                     eprintln!(
-                        "[a2-trace §14.9/partition] retired FilletEnd[{}] apex cell into \
+                        "[direct-apex-trace §14.9/partition] retired FilletEnd[{}] apex cell into \
                          unsurfaced residual face {residual_face:?}; production strip is target \
                          cylinder {:?}",
                         ownership.fillet_index, ownership.target_cylinder_face
@@ -409,9 +409,9 @@ impl RepeatedApexPartitionPlan {
             {
                 mark_loop_edges_construction_residual(brep, &base_loop_half_edges);
             }
-            if crate::a2_trace::enabled() {
+            if crate::direct_apex_trace::enabled() {
                 eprintln!(
-                    "[a2-trace §14.9/partition] retired base apex span into face {base_face:?}"
+                    "[direct-apex-trace §14.9/partition] retired base apex span into face {base_face:?}"
                 );
             }
         }

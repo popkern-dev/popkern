@@ -9,7 +9,7 @@ pub(super) struct PostBlendPipelineInputs<'a> {
     pub(super) tolerance: &'a Tolerance,
     pub(super) late_wire_jobs: &'a [(crate::blend::BlendBoundary, Vec<FaceHandle>)],
     pub(super) support_seam_jobs: &'a [(crate::blend::BlendBoundary, Vec<FaceHandle>)],
-    pub(super) a2_built_faces: &'a [FaceHandle],
+    pub(super) direct_apex_built_faces: &'a [FaceHandle],
     pub(super) warnings: &'a mut Vec<(EdgeHandle, BlendWarning)>,
     pub(super) corner_patches: &'a mut Vec<crate::types::CornerPatchInfo>,
     pub(super) repair_report: &'a mut crate::types::BlendRepairReport,
@@ -22,7 +22,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     let tolerance = inputs.tolerance;
     let late_wire_jobs = inputs.late_wire_jobs;
     let support_seam_jobs = inputs.support_seam_jobs;
-    let a2_built_faces = inputs.a2_built_faces;
+    let direct_apex_built_faces = inputs.direct_apex_built_faces;
     let warnings = inputs.warnings;
     let corner_patches = inputs.corner_patches;
     let repair_report = inputs.repair_report;
@@ -84,7 +84,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // before they can be commercial grade.
     let apex_boundary_context = !support_seam_jobs.is_empty()
         || !late_wire_jobs.is_empty()
-        || !a2_built_faces.is_empty()
+        || !direct_apex_built_faces.is_empty()
         || corner_patches
             .iter()
             .any(|patch| matches!(patch.method, crate::types::CornerMethod::Gregory));
@@ -110,11 +110,11 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         .iter()
         .flat_map(|(_, faces)| faces.iter().copied())
         .collect();
-    // §6c-A2.3.d — merge A2-built cap faces into the protected
+    // §6c-direct-apex dispatch.d — merge direct-apex-built cap faces into the protected
     // set so `sliver_absorb` / `cap_insert` / `late_wire_jobs`
-    // don't re-author them.  When `use_a2_apex_construction` is
+    // don't re-author them.  When `use_direct_apex_construction` is
     // off this list is empty.
-    protected_caps.extend(a2_built_faces.iter().copied());
+    protected_caps.extend(direct_apex_built_faces.iter().copied());
     sliver_absorb::run_and_route_warnings_with_protected(
         result,
         tolerance,

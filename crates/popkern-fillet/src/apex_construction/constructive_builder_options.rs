@@ -13,7 +13,7 @@ impl ConstructiveApexExecutionOptions {
         Self {
             cap_loop: CapLoopConstructionOptions::from_environment_adapter(),
             require_v_free_repeated_apex: std::env::var_os(
-                "POPKERN_A2_REQUIRE_V_FREE_REPEATED_APEX",
+                "POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX",
             )
             .is_some(),
         }

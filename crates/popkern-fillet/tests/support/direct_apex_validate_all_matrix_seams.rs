@@ -1,8 +1,8 @@
 use super::*;
 
 #[test]
-#[ignore = "native Gregory seam-ownership gate; current repeated-apex A2 path is under containment fallback"]
-fn a2_native_cap_support_seam_ownership_inventory() {
+#[ignore = "native Gregory seam-ownership gate; current repeated-apex direct-apex path is under containment fallback"]
+fn direct_apex_native_cap_support_seam_ownership_inventory() {
     struct Case {
         name: &'static str,
         radii: &'static [f64],
@@ -31,7 +31,7 @@ fn a2_native_cap_support_seam_ownership_inventory() {
         },
     ];
     for case in cases {
-        let result = build_under_a2(case.is_pyramid, case.radii);
+        let result = build_under_direct_apex(case.is_pyramid, case.radii);
         let cap_faces = result
             .corner_patches
             .iter()
@@ -139,7 +139,7 @@ fn a2_native_cap_support_seam_ownership_inventory() {
             }
         }
         eprintln!(
-            "[A2 seam ownership] {}: {} finding(s){}",
+            "[direct-apex seam ownership] {}: {} finding(s){}",
             case.name,
             findings.len(),
             if findings.is_empty() {
@@ -148,12 +148,12 @@ fn a2_native_cap_support_seam_ownership_inventory() {
                 format!(": {}", findings.join(", "))
             }
         );
-        if !findings.is_empty() && std::env::var_os("POPKERN_A2_TRACE").is_some() {
+        if !findings.is_empty() && std::env::var_os("POPKERN_DIRECT_APEX_TRACE").is_some() {
             dump_cap_loops(case.name, &result, &cap_faces);
         }
         assert!(
             findings.is_empty(),
-            "[{}] A2 cap/support seam ownership findings: {}",
+            "[{}] direct-apex cap/support seam ownership findings: {}",
             case.name,
             findings.join(", ")
         );
@@ -185,7 +185,7 @@ fn dump_cap_loops(
             }
         }
         eprintln!(
-            "[A2 seam ownership loop] {} {cap_face:?}: {}",
+            "[direct-apex seam ownership loop] {} {cap_face:?}: {}",
             case_name,
             entries.join(" -> ")
         );

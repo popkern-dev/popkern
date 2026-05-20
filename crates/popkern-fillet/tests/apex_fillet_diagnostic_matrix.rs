@@ -305,11 +305,11 @@ fn seed_matrix_names_current_regression_cases() {
         .map(|row| row.case_id)
         .collect::<std::collections::BTreeSet<_>>();
     for expected in [
-        "cube_mixed_native_a2",
-        "cube_extreme_native_a2",
-        "pyramid3_uniform_native_a2",
-        "pyramid4_uniform_native_a2",
-        "pyramid4_mixed_native_a2",
+        "cube_mixed_native_direct_apex",
+        "cube_extreme_native_direct_apex",
+        "pyramid3_uniform_native_direct_apex",
+        "pyramid4_uniform_native_direct_apex",
+        "pyramid4_mixed_native_direct_apex",
         "gregory_step_roundtrip_tolerance",
         "cube_extreme_40_upstream_gap",
         "cube_extreme_50_upstream_gap",

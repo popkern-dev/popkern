@@ -1,4 +1,4 @@
-//! Phase 6c-A2.1.b — input validation for the apex planner.
+//! Phase 6c-DirectApex.1.b — input validation for the apex planner.
 //!
 //! Checks the planner's inputs are well-formed before any sphere-fit
 //! math runs.  Each variant of [`ApexPlanError`] surfaced here is

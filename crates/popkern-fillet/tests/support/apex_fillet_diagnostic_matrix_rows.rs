@@ -37,7 +37,7 @@ macro_rules! matrix_row {
 
 pub(crate) const SEED_MATRIX_ROWS: [DiagnosticMatrixRow; 18] = [
     matrix_row!(
-        "cube_mixed_native_a2",
+        "cube_mixed_native_direct_apex",
         FixtureTier::SeedRegression,
         [
             DiagnosticAxis::CubeApex,
@@ -45,7 +45,7 @@ pub(crate) const SEED_MATRIX_ROWS: [DiagnosticMatrixRow; 18] = [
             DiagnosticAxis::RepeatedApex
         ],
         DiagnosticMatrixTerminal::ExecutableCandidate,
-        "native-a2-gregory-repeated-apex",
+        "native-direct-apex-gregory-repeated-apex",
         "executable",
         true,
         Some("geometry-ready"),
@@ -55,12 +55,12 @@ pub(crate) const SEED_MATRIX_ROWS: [DiagnosticMatrixRow; 18] = [
         Some("not-applicable"),
         true,
         Some("export-mesh-ready"),
-        "native-a2-completes-without-fallback",
+        "native-direct-apex-completes-without-fallback",
         None,
         None
     ),
     matrix_row!(
-        "cube_extreme_native_a2",
+        "cube_extreme_native_direct_apex",
         FixtureTier::SeedRegression,
         [
             DiagnosticAxis::CubeApex,
@@ -69,7 +69,7 @@ pub(crate) const SEED_MATRIX_ROWS: [DiagnosticMatrixRow; 18] = [
             DiagnosticAxis::ExtremeRadiusRatio
         ],
         DiagnosticMatrixTerminal::ExecutableCandidate,
-        "native-a2-gregory-repeated-apex",
+        "native-direct-apex-gregory-repeated-apex",
         "executable",
         true,
         Some("geometry-ready"),
@@ -79,16 +79,16 @@ pub(crate) const SEED_MATRIX_ROWS: [DiagnosticMatrixRow; 18] = [
         Some("not-applicable"),
         true,
         Some("export-mesh-ready"),
-        "native-a2-completes-without-fallback",
+        "native-direct-apex-completes-without-fallback",
         None,
         None
     ),
     matrix_row!(
-        "pyramid3_uniform_native_a2",
+        "pyramid3_uniform_native_direct_apex",
         FixtureTier::SeedRegression,
         [DiagnosticAxis::PyramidApex, DiagnosticAxis::GregoryCap],
         DiagnosticMatrixTerminal::ExecutableCandidate,
-        "native-a2-gregory-anchor-incompatible-pyramid",
+        "native-direct-apex-gregory-anchor-incompatible-pyramid",
         "executable",
         true,
         Some("geometry-ready"),
@@ -103,7 +103,7 @@ pub(crate) const SEED_MATRIX_ROWS: [DiagnosticMatrixRow; 18] = [
         None
     ),
     matrix_row!(
-        "pyramid4_mixed_native_a2",
+        "pyramid4_mixed_native_direct_apex",
         FixtureTier::SeedRegression,
         [
             DiagnosticAxis::PyramidApex,
@@ -111,7 +111,7 @@ pub(crate) const SEED_MATRIX_ROWS: [DiagnosticMatrixRow; 18] = [
             DiagnosticAxis::RepeatedApex
         ],
         DiagnosticMatrixTerminal::ExecutableCandidate,
-        "native-a2-partitioned-repeated-apex",
+        "native-direct-apex-partitioned-repeated-apex",
         "executable",
         true,
         Some("geometry-ready"),
@@ -121,16 +121,16 @@ pub(crate) const SEED_MATRIX_ROWS: [DiagnosticMatrixRow; 18] = [
         Some("patch-filling-executable"),
         true,
         Some("continuity-risk-managed"),
-        "native-a2-completes-without-fallback",
+        "native-direct-apex-completes-without-fallback",
         None,
         None
     ),
     matrix_row!(
-        "pyramid4_uniform_native_a2",
+        "pyramid4_uniform_native_direct_apex",
         FixtureTier::SeedRegression,
         [DiagnosticAxis::PyramidApex, DiagnosticAxis::GregoryCap],
         DiagnosticMatrixTerminal::ExecutableCandidate,
-        "native-a2-partitioned-repeated-apex",
+        "native-direct-apex-partitioned-repeated-apex",
         "executable",
         true,
         Some("geometry-ready"),
@@ -140,7 +140,7 @@ pub(crate) const SEED_MATRIX_ROWS: [DiagnosticMatrixRow; 18] = [
         Some("patch-filling-executable"),
         true,
         Some("continuity-risk-managed"),
-        "native-a2-completes-without-fallback",
+        "native-direct-apex-completes-without-fallback",
         None,
         None
     ),
@@ -212,7 +212,7 @@ pub(crate) const SEED_MATRIX_ROWS: [DiagnosticMatrixRow; 18] = [
         FixtureTier::IgnoredZoo,
         [DiagnosticAxis::PyramidApex, DiagnosticAxis::ZooExport],
         DiagnosticMatrixTerminal::InvalidTopologyReason,
-        "native-a2-zoo-export-validation",
+        "native-direct-apex-zoo-export-validation",
         "invalid-topology",
         true,
         Some("repair-required-before-construction"),
@@ -310,7 +310,7 @@ pub(crate) const SEED_MATRIX_ROWS: [DiagnosticMatrixRow; 18] = [
             DiagnosticAxis::RetiredApexVertex
         ],
         DiagnosticMatrixTerminal::ExecutableCandidate,
-        "native-a2-apex-retirement",
+        "native-direct-apex-apex-retirement",
         "executable",
         true,
         Some("not-applicable"),
@@ -329,7 +329,7 @@ pub(crate) const SEED_MATRIX_ROWS: [DiagnosticMatrixRow; 18] = [
         FixtureTier::CapturedCore,
         [DiagnosticAxis::PyramidApex, DiagnosticAxis::SeamCardinality],
         DiagnosticMatrixTerminal::ExecutableCandidate,
-        "native-a2-cap-cylinder-seam",
+        "native-direct-apex-cap-cylinder-seam",
         "executable",
         true,
         Some("geometry-ready"),
@@ -351,7 +351,7 @@ pub(crate) const SEED_MATRIX_ROWS: [DiagnosticMatrixRow; 18] = [
             DiagnosticAxis::SupportOwnership
         ],
         DiagnosticMatrixTerminal::ExecutableCandidate,
-        "native-a2-support-family-ownership",
+        "native-direct-apex-support-family-ownership",
         "executable",
         true,
         Some("not-applicable"),
@@ -373,7 +373,7 @@ pub(crate) const SEED_MATRIX_ROWS: [DiagnosticMatrixRow; 18] = [
             DiagnosticAxis::GeneratedBoundaryReplacement
         ],
         DiagnosticMatrixTerminal::NamedMissingPrimitive,
-        "native-a2-generated-boundary-replacement",
+        "native-direct-apex-generated-boundary-replacement",
         "requires-boundary-replacement-primitive",
         true,
         Some("not-applicable"),
@@ -396,7 +396,7 @@ pub(crate) const SEED_MATRIX_ROWS: [DiagnosticMatrixRow; 18] = [
             DiagnosticAxis::TransitionContinuity
         ],
         DiagnosticMatrixTerminal::ExecutableCandidate,
-        "native-a2-gregory-transition-continuity",
+        "native-direct-apex-gregory-transition-continuity",
         "executable",
         true,
         Some("geometry-ready"),

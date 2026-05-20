@@ -22,11 +22,15 @@ impl CapLoopConstructionOptions {
         Self {
             repeated_apex_partition: RepeatedApexPartitionExecutionOptions::new(
                 true,
-                std::env::var_os("POPKERN_A2_REQUIRE_CYLINDER_TRIM_REWRITE_READY").is_some(),
-                std::env::var_os("POPKERN_A2_REQUIRE_CYLINDER_TRIM_REBUILD_PLAN").is_some(),
-                std::env::var_os("POPKERN_A2_ADOPT_CYLINDER_FILLET_END_ENDPOINTS").is_some(),
-                std::env::var_os("POPKERN_A2_REQUIRE_SHARED_CYLINDER_FILLET_END").is_some(),
-                std::env::var_os("POPKERN_A2_REQUIRE_V_FREE_REPEATED_APEX").is_some(),
+                std::env::var_os("POPKERN_DIRECT_APEX_REQUIRE_CYLINDER_TRIM_REWRITE_READY")
+                    .is_some(),
+                std::env::var_os("POPKERN_DIRECT_APEX_REQUIRE_CYLINDER_TRIM_REBUILD_PLAN")
+                    .is_some(),
+                std::env::var_os("POPKERN_DIRECT_APEX_ADOPT_CYLINDER_FILLET_END_ENDPOINTS")
+                    .is_some(),
+                std::env::var_os("POPKERN_DIRECT_APEX_REQUIRE_SHARED_CYLINDER_FILLET_END")
+                    .is_some(),
+                std::env::var_os("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX").is_some(),
             ),
         }
     }
