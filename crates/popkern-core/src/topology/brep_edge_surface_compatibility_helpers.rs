@@ -246,16 +246,16 @@ pub(super) fn endpoint_gap(
         .max(curve.point_at(t_end).distance_to(&end))
 }
 
-pub(super) fn residual_for_candidate(
+pub(super) fn residuals_for_candidate(
     curve: &dyn CurveEval,
     t_range: (f64, f64),
     surf_a: &SurfaceGeometry,
     surf_b: &SurfaceGeometry,
     samples: usize,
-) -> f64 {
+) -> (f64, f64) {
     let a = edge_surface_deviation(curve, t_range, surf_a, samples).max_deviation;
     let b = edge_surface_deviation(curve, t_range, surf_b, samples).max_deviation;
-    a.max(b)
+    (a, b)
 }
 
 pub(super) fn edge_vertices(brep: &BRep, edge: EdgeHandle) -> Option<(VertexHandle, VertexHandle)> {

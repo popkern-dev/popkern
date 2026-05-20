@@ -14,7 +14,6 @@ use popkern_io::{
     StepExportOptions, StepImportOptions, StepProductNode, UnitContext, export_step, import_step,
 };
 use std::sync::Arc;
-
 #[path = "gregory_step_fidelity/boundary_knowledge.rs"]
 mod gregory_step_fidelity_boundary_knowledge;
 mod gregory_step_fidelity_side_agreement;
@@ -32,14 +31,12 @@ struct FidelityState {
     worst_pcurve_edges: Vec<EdgePcurveEvidence>,
     worst_edge_surface_edges: Vec<EdgeSurfaceEvidence>,
 }
-
 #[derive(Debug, Clone, PartialEq)]
 struct EdgePcurveEvidence {
     edge: String,
     max_deviation: f64,
     half_edges: Vec<HalfEdgePcurveEvidence>,
 }
-
 #[derive(Debug, Clone, PartialEq)]
 struct HalfEdgePcurveEvidence {
     half_edge: String,
@@ -264,14 +261,14 @@ fn edge_surface_repair_summary(
                 .collect::<Vec<_>>()
                 .join(",");
             format!(
-                "{:?} {:?} endpoint_gap={:.6} residual={:.6} boundary={} intersection={} anchor={} boundary_failure={:?} intersection_failure={:?} knowledge={:?} declines=[{}]",
+                "{:?} {:?} endpoint_gap={:.6} residual={:.6} residual_a={:.6} residual_b={:.6} boundary={} intersection={} anchor={} boundary_failure={:?} intersection_failure={:?} knowledge={:?} declines=[{}]",
                 decision.edge,
                 decision.outcome,
                 decision.endpoint_gap,
                 decision.residual_deviation,
+                decision.evidence.residual_deviation_a, decision.evidence.residual_deviation_b,
                 decision.evidence.attempted_boundary_reconstruction,
-                decision.evidence.attempted_surface_intersection,
-                decision.evidence.attempted_anchor_repair,
+                decision.evidence.attempted_surface_intersection, decision.evidence.attempted_anchor_repair,
                 decision.evidence.boundary_failure,
                 decision.evidence.intersection_failure,
                 decision.evidence.repair_knowledge_diagnostics,

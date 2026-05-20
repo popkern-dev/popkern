@@ -12,7 +12,7 @@ use crate::topology::brep_edge_surface_compatibility::{
 use crate::topology::brep_edge_surface_compatibility_diagnostics::BrepEdgeSurfaceRepairEvidence;
 use crate::topology::brep_edge_surface_compatibility_helpers::{
     build_reanchored_intersection_triple, edge_vertices, endpoint_gap, move_vertex_with_tolerance,
-    proposed_vertex_incident_endpoint_gap, residual_for_candidate,
+    proposed_vertex_incident_endpoint_gap, residuals_for_candidate,
 };
 use crate::topology::{
     BRep, EdgeHandle, HalfEdgeHandle, SharedTrimEdgeInput, commit_shared_trim_edge_transactionally,
@@ -76,13 +76,16 @@ pub(super) fn commit_edge_triple(
         );
     };
     let endpoint_gap = endpoint_gap(&triple.curve_3d, triple.t_start, triple.t_end, start, end);
-    let residual_deviation = residual_for_candidate(
+    let (residual_deviation_a, residual_deviation_b) = residuals_for_candidate(
         &triple.curve_3d,
         (triple.t_start, triple.t_end),
         surf_a,
         surf_b,
         options.samples,
     );
+    evidence.residual_deviation_a = residual_deviation_a;
+    evidence.residual_deviation_b = residual_deviation_b;
+    let residual_deviation = residual_deviation_a.max(residual_deviation_b);
     if residual_deviation > options.tolerance {
         return BrepEdgeSurfaceCompatibilityRepairDecision {
             edge,

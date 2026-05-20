@@ -63,6 +63,8 @@ fn repair_is_transactional_and_rederives_plane_plane_edge() {
 
     assert_eq!(result.report.repaired_edges, 1);
     assert_eq!(result.report.declined_edges, 0);
+    assert!(result.report.decisions[0].evidence.residual_deviation_a <= 1e-6);
+    assert!(result.report.decisions[0].evidence.residual_deviation_b <= 1e-6);
     assert_eq!(repaired_report.incompatible_half_edges, 0);
     assert!(result.report.max_endpoint_gap <= 1e-6);
     assert!(

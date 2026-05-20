@@ -82,6 +82,10 @@ pub struct BrepEdgeSurfaceRepairEvidence {
     pub shared_trim_side_agreement_deviation: f64,
     /// Shared trim-edge candidate endpoint gap at commit validation.
     pub shared_trim_endpoint_gap: f64,
+    /// Candidate curve residual against adjacent side A.
+    pub residual_deviation_a: f64,
+    /// Candidate curve residual against adjacent side B.
+    pub residual_deviation_b: f64,
     /// Stable diagnostic codes from the scoped repair knowledge graph.
     pub repair_knowledge_diagnostics: Vec<String>,
 }
@@ -106,6 +110,8 @@ impl BrepEdgeSurfaceRepairEvidence {
             shared_trim_curve_surface_deviation: 0.0,
             shared_trim_side_agreement_deviation: 0.0,
             shared_trim_endpoint_gap: 0.0,
+            residual_deviation_a: 0.0,
+            residual_deviation_b: 0.0,
             repair_knowledge_diagnostics: Vec::new(),
         }
     }
@@ -133,6 +139,8 @@ impl BrepEdgeSurfaceRepairEvidence {
             shared_trim_curve_surface_deviation: 0.0,
             shared_trim_side_agreement_deviation: 0.0,
             shared_trim_endpoint_gap: 0.0,
+            residual_deviation_a: 0.0,
+            residual_deviation_b: 0.0,
             repair_knowledge_diagnostics: Vec::new(),
         }
     }
