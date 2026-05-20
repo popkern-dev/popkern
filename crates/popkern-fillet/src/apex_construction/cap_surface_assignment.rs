@@ -25,8 +25,20 @@ use super::exact_boundary_cap::ribbon::{
 use super::exact_boundary_cap::sector::{
     ExactBoundaryCapSectorInput, extract_exact_boundary_cap_sectors,
 };
+use super::exact_boundary_cap::solve::{ExactBoundarySolveBudget, solve_exact_boundary_surfaces};
 use super::gregory_cap::GregoryCapSector;
 use super::plan::ApexPlan;
+
+/// Gregory cap assignment output, including exact-boundary preflight metrics.
+pub(super) struct GregoryCapAssignment {
+    pub corner_patches: Vec<CornerPatchInfo>,
+    pub exact_boundary_sectors: Vec<ExactBoundaryCapSectorInput>,
+    pub exact_boundary_prepared_curve_count: usize,
+    pub exact_boundary_inner_spoke_count: usize,
+    pub exact_boundary_ribbon_count: usize,
+    pub exact_boundary_solved_surface_count: usize,
+    pub exact_boundary_diagnostics: Vec<crate::types::ApexConstructionDiagnostic>,
+}
 
 /// Assign `SurfaceGeometry::Sphere` to the cap face.
 pub(super) fn assign_sphere_cap_surface(
@@ -61,17 +73,7 @@ pub(super) fn assign_gregory_cap_surface(
     sectors: &[GregoryCapSector],
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &Tolerance,
-) -> Result<
-    (
-        Vec<CornerPatchInfo>,
-        Vec<ExactBoundaryCapSectorInput>,
-        usize,
-        usize,
-        usize,
-        Vec<crate::types::ApexConstructionDiagnostic>,
-    ),
-    ApexBuildError,
-> {
+) -> Result<GregoryCapAssignment, ApexBuildError> {
     let n = plan.cap_kind.n_fillets();
     if face_edge_handles.len() != n || fillet_end_handles.len() != n {
         return Err(ApexBuildError::PlanMismatch {
@@ -101,29 +103,54 @@ pub(super) fn assign_gregory_cap_surface(
     .map_err(|diagnostic| diagnostic.into_build_error())?;
     let exact_boundary_prepared_curve_count = prepared_boundary_curves.curves.len();
     let mut exact_boundary_diagnostics = Vec::new();
-    let exact_boundary_inner_spoke_count = match prepare_exact_boundary_inner_spokes(
+    let prepared_inner_spokes = match prepare_exact_boundary_inner_spokes(
         &exact_boundary_sectors,
         &prepared_boundary_curves,
         ExactBoundaryInnerSpokeBudget::default(),
     ) {
-        Ok(prepared_spokes) => prepared_spokes.sectors.len() * 2,
+        Ok(prepared_spokes) => Some(prepared_spokes),
         Err(diagnostic) => {
             exact_boundary_diagnostics.push(diagnostic.into_apex_diagnostic());
-            0
+            None
         }
     };
-    let exact_boundary_ribbon_count = match prepare_exact_boundary_ribbons(
+    let exact_boundary_inner_spoke_count = prepared_inner_spokes
+        .as_ref()
+        .map(|prepared_spokes| prepared_spokes.sectors.len() * 2)
+        .unwrap_or(0);
+    let prepared_ribbons = match prepare_exact_boundary_ribbons(
         brep,
         &exact_boundary_sectors,
         &prepared_boundary_curves,
         ExactBoundaryRibbonBudget::default(),
     ) {
-        Ok(prepared_ribbons) => prepared_ribbons.ribbons.len(),
+        Ok(prepared_ribbons) => Some(prepared_ribbons),
         Err(diagnostic) => {
             exact_boundary_diagnostics.push(diagnostic.into_apex_diagnostic());
-            0
+            None
         }
     };
+    let exact_boundary_ribbon_count = prepared_ribbons
+        .as_ref()
+        .map(|prepared_ribbons| prepared_ribbons.ribbons.len())
+        .unwrap_or(0);
+    let exact_boundary_solved_surface_count =
+        match (prepared_inner_spokes.as_ref(), prepared_ribbons.as_ref()) {
+            (Some(prepared_inner_spokes), Some(prepared_ribbons)) => {
+                match solve_exact_boundary_surfaces(
+                    prepared_inner_spokes,
+                    prepared_ribbons,
+                    ExactBoundarySolveBudget::default(),
+                ) {
+                    Ok(solved) => solved.validated_surface_count(),
+                    Err(diagnostic) => {
+                        exact_boundary_diagnostics.push(diagnostic.into_apex_diagnostic());
+                        0
+                    }
+                }
+            }
+            _ => 0,
+        };
     let corner_patches = crate::apex_construction::gregory_cap::assemble_gregory_cap_surface(
         brep,
         cap_face,
@@ -136,14 +163,15 @@ pub(super) fn assign_gregory_cap_surface(
         tolerance,
     )?;
     author_plane_side_face_edge_pcurves(brep, face_edge_handles);
-    Ok((
+    Ok(GregoryCapAssignment {
         corner_patches,
         exact_boundary_sectors,
         exact_boundary_prepared_curve_count,
         exact_boundary_inner_spoke_count,
         exact_boundary_ribbon_count,
+        exact_boundary_solved_surface_count,
         exact_boundary_diagnostics,
-    ))
+    })
 }
 
 pub(super) fn author_plane_side_face_edge_pcurves(

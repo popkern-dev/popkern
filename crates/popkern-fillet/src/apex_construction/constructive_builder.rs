@@ -139,6 +139,7 @@ fn construct_apex_inner_constructive(
             exact_boundary_prepared_curve_count: 0,
             exact_boundary_inner_spoke_count: 0,
             exact_boundary_ribbon_count: 0,
+            exact_boundary_solved_surface_count: 0,
             diagnostics: Vec::new(),
             telemetry: plan.telemetry.clone(),
         });
@@ -211,6 +212,7 @@ fn construct_apex_inner_constructive(
                 exact_boundary_prepared_curve_count: 0,
                 exact_boundary_inner_spoke_count: 0,
                 exact_boundary_ribbon_count: 0,
+                exact_boundary_solved_surface_count: 0,
                 diagnostics: Vec::new(),
                 telemetry: plan.telemetry.clone(),
             })
@@ -274,14 +276,7 @@ fn construct_apex_inner_constructive(
             check_cancelled(cancel)?;
             let sectors =
                 gregory_sectors_from_handles(plan, &fillet_end_handles, &face_edge_handles)?;
-            let (
-                corner_patches,
-                exact_boundary_sectors,
-                exact_boundary_prepared_curve_count,
-                exact_boundary_inner_spoke_count,
-                exact_boundary_ribbon_count,
-                exact_boundary_diagnostics,
-            ) = assign_gregory_cap_surface(
+            let assignment = assign_gregory_cap_surface(
                 brep,
                 cap_face,
                 plan,
@@ -294,7 +289,7 @@ fn construct_apex_inner_constructive(
                 tolerance,
             )?;
             let mut diagnostics = diagnostics;
-            diagnostics.extend(exact_boundary_diagnostics);
+            diagnostics.extend(assignment.exact_boundary_diagnostics);
             let n = plan.cap_kind.n_fillets();
             // Build apex_edges return value: 2N entries, alternating
             // FilletEnd (even) / FaceEdge (odd), each Some(handle).
@@ -305,7 +300,7 @@ fn construct_apex_inner_constructive(
                 apex_edges.push(Some(face_edge_handles[k]));
             }
             let mut created_faces = vec![cap_face];
-            for patch in &corner_patches {
+            for patch in &assignment.corner_patches {
                 if !created_faces.contains(&patch.face) {
                     created_faces.push(patch.face);
                 }
@@ -314,11 +309,12 @@ fn construct_apex_inner_constructive(
                 created_faces,
                 apex_vertices: apex_vertex_handles,
                 apex_edges,
-                corner_patches,
-                exact_boundary_sectors,
-                exact_boundary_prepared_curve_count,
-                exact_boundary_inner_spoke_count,
-                exact_boundary_ribbon_count,
+                corner_patches: assignment.corner_patches,
+                exact_boundary_sectors: assignment.exact_boundary_sectors,
+                exact_boundary_prepared_curve_count: assignment.exact_boundary_prepared_curve_count,
+                exact_boundary_inner_spoke_count: assignment.exact_boundary_inner_spoke_count,
+                exact_boundary_ribbon_count: assignment.exact_boundary_ribbon_count,
+                exact_boundary_solved_surface_count: assignment.exact_boundary_solved_surface_count,
                 diagnostics,
                 telemetry: plan.telemetry.clone(),
             })

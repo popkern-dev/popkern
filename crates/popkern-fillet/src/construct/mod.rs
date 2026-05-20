@@ -252,17 +252,25 @@ pub fn apply_blend_geometry(
                     match outcome {
                         Ok(success) => {
                             repair_report.apex_routes.push(apex_route_decision(
-                                *vertex,
-                                edge_indices,
-                                edge_geometries,
-                                crate::types::ApexConstructionRoute::DirectApex,
-                                success.built_faces.clone(),
-                                success.corner_patches.len(),
-                                success.exact_boundary_sector_count,
-                                success.exact_boundary_prepared_curve_count,
-                                success.exact_boundary_inner_spoke_count,
-                                success.exact_boundary_ribbon_count,
-                                None,
+                                ApexRouteDecisionInput {
+                                    vertex: *vertex,
+                                    edge_indices,
+                                    edge_geometries,
+                                    route: crate::types::ApexConstructionRoute::DirectApex,
+                                    built_faces: success.built_faces.clone(),
+                                    corner_patch_count: success.corner_patches.len(),
+                                    exact_boundary_sector_count: success
+                                        .exact_boundary_sector_count,
+                                    exact_boundary_prepared_curve_count: success
+                                        .exact_boundary_prepared_curve_count,
+                                    exact_boundary_inner_spoke_count: success
+                                        .exact_boundary_inner_spoke_count,
+                                    exact_boundary_ribbon_count: success
+                                        .exact_boundary_ribbon_count,
+                                    exact_boundary_solved_surface_count: success
+                                        .exact_boundary_solved_surface_count,
+                                    fallback_reason: None,
+                                },
                             ));
                             repair_report.apex_diagnostics.extend(success.diagnostics);
                             direct_apex_built_faces.extend(success.built_faces);
@@ -271,19 +279,23 @@ pub fn apply_blend_geometry(
                         }
                         Err(reason) => {
                             let warn_edge = edge_geometries[edge_indices[0]].analysis.edge;
-                            repair_report.apex_routes.push(apex_route_decision(
-                                *vertex,
+                            repair_report
+                                .apex_routes
+                                .push(apex_route_decision(ApexRouteDecisionInput {
+                                vertex: *vertex,
                                 edge_indices,
                                 edge_geometries,
-                                crate::types::ApexConstructionRoute::DirectApexFallbackToLegacy,
-                                Vec::new(),
-                                0,
-                                0,
-                                0,
-                                0,
-                                0,
-                                Some(reason.clone()),
-                            ));
+                                route:
+                                    crate::types::ApexConstructionRoute::DirectApexFallbackToLegacy,
+                                built_faces: Vec::new(),
+                                corner_patch_count: 0,
+                                exact_boundary_sector_count: 0,
+                                exact_boundary_prepared_curve_count: 0,
+                                exact_boundary_inner_spoke_count: 0,
+                                exact_boundary_ribbon_count: 0,
+                                exact_boundary_solved_surface_count: 0,
+                                fallback_reason: Some(reason.clone()),
+                            }));
                             warnings.push((
                                 warn_edge,
                                 BlendWarning::DirectApexFellBackToLegacy {
@@ -299,19 +311,22 @@ pub fn apply_blend_geometry(
                     continue;
                 }
                 if !use_direct_apex_for_this_apex {
-                    repair_report.apex_routes.push(apex_route_decision(
-                        *vertex,
-                        edge_indices,
-                        edge_geometries,
-                        crate::types::ApexConstructionRoute::Legacy,
-                        Vec::new(),
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        None,
-                    ));
+                    repair_report
+                        .apex_routes
+                        .push(apex_route_decision(ApexRouteDecisionInput {
+                            vertex: *vertex,
+                            edge_indices,
+                            edge_geometries,
+                            route: crate::types::ApexConstructionRoute::Legacy,
+                            built_faces: Vec::new(),
+                            corner_patch_count: 0,
+                            exact_boundary_sector_count: 0,
+                            exact_boundary_prepared_curve_count: 0,
+                            exact_boundary_inner_spoke_count: 0,
+                            exact_boundary_ribbon_count: 0,
+                            exact_boundary_solved_surface_count: 0,
+                            fallback_reason: None,
+                        }));
                 }
 
                 match blend_insert::insert_vertex_blend(
@@ -442,10 +457,10 @@ fn should_promote_mixed_radius_gregory_apex(
     radii.any(|radius| (radius - first).abs() > 1.0e-9)
 }
 
-fn apex_route_decision(
+struct ApexRouteDecisionInput<'a> {
     vertex: VertexHandle,
-    edge_indices: &[usize],
-    edge_geometries: &[EdgeGeometry],
+    edge_indices: &'a [usize],
+    edge_geometries: &'a [EdgeGeometry],
     route: crate::types::ApexConstructionRoute,
     built_faces: Vec<FaceHandle>,
     corner_patch_count: usize,
@@ -453,25 +468,33 @@ fn apex_route_decision(
     exact_boundary_prepared_curve_count: usize,
     exact_boundary_inner_spoke_count: usize,
     exact_boundary_ribbon_count: usize,
+    exact_boundary_solved_surface_count: usize,
     fallback_reason: Option<String>,
+}
+
+fn apex_route_decision(
+    input: ApexRouteDecisionInput<'_>,
 ) -> crate::types::ApexConstructionRouteDecision {
     crate::types::ApexConstructionRouteDecision {
-        vertex,
-        incident_edges: edge_indices
+        vertex: input.vertex,
+        incident_edges: input
+            .edge_indices
             .iter()
             .filter_map(|&index| {
-                edge_geometries
+                input
+                    .edge_geometries
                     .get(index)
                     .map(|geometry| geometry.analysis.edge)
             })
             .collect(),
-        route,
-        built_faces,
-        corner_patch_count,
-        exact_boundary_sector_count,
-        exact_boundary_prepared_curve_count,
-        exact_boundary_inner_spoke_count,
-        exact_boundary_ribbon_count,
-        fallback_reason,
+        route: input.route,
+        built_faces: input.built_faces,
+        corner_patch_count: input.corner_patch_count,
+        exact_boundary_sector_count: input.exact_boundary_sector_count,
+        exact_boundary_prepared_curve_count: input.exact_boundary_prepared_curve_count,
+        exact_boundary_inner_spoke_count: input.exact_boundary_inner_spoke_count,
+        exact_boundary_ribbon_count: input.exact_boundary_ribbon_count,
+        exact_boundary_solved_surface_count: input.exact_boundary_solved_surface_count,
+        fallback_reason: input.fallback_reason,
     }
 }

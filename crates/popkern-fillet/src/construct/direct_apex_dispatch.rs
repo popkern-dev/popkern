@@ -51,6 +51,7 @@ pub(crate) struct DirectApexDispatchOutcome {
     pub exact_boundary_prepared_curve_count: usize,
     pub exact_boundary_inner_spoke_count: usize,
     pub exact_boundary_ribbon_count: usize,
+    pub exact_boundary_solved_surface_count: usize,
     pub diagnostics: Vec<crate::types::ApexConstructionDiagnostic>,
 }
 
@@ -245,6 +246,7 @@ pub(super) fn try_direct_apex_construction(
         exact_boundary_prepared_curve_count: build_result.exact_boundary_prepared_curve_count,
         exact_boundary_inner_spoke_count: build_result.exact_boundary_inner_spoke_count,
         exact_boundary_ribbon_count: build_result.exact_boundary_ribbon_count,
+        exact_boundary_solved_surface_count: build_result.exact_boundary_solved_surface_count,
         diagnostics: build_result.diagnostics,
     })
 }

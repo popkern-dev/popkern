@@ -1,7 +1,7 @@
 use super::boundary::{ExactBoundaryCurveBudget, PreparedExactBoundaryCurve};
 use super::ribbon::{
-    ExactBoundaryRibbonBudget, ExactBoundaryRibbonDeclineReason, compute_support_ribbon_sample,
-    prepare_exact_boundary_ribbons,
+    ExactBoundaryRibbonBudget, ExactBoundaryRibbonDeclineReason, SupportRibbonSampleRequest,
+    compute_support_ribbon_sample, prepare_exact_boundary_ribbons,
 };
 use super::sector::{ExactBoundaryOuterSide, extract_exact_boundary_cap_sectors};
 use crate::apex_construction::cap_kind::CapKind;
@@ -102,16 +102,16 @@ fn cylinder_ribbon_sample_lies_in_support_tangent_plane() {
     let other_boundary = offset_boundary(&boundary, Vec3::new(0.0, 0.0, 0.2));
     let pcurve = Pcurve::linear((theta, 0.2), (theta, 0.8), 0.0, 1.0);
 
-    let sample = compute_support_ribbon_sample(
-        &boundary,
-        &other_boundary,
-        &cylinder,
-        &pcurve,
-        0.5,
-        false,
-        0.2,
-        ExactBoundaryRibbonBudget::default(),
-    )
+    let sample = compute_support_ribbon_sample(SupportRibbonSampleRequest {
+        boundary: &boundary,
+        other_boundary: &other_boundary,
+        surface: &cylinder,
+        pcurve: &pcurve,
+        parameter: 0.5,
+        pcurve_reversed: false,
+        derivative_scale: 0.2,
+        budget: ExactBoundaryRibbonBudget::default(),
+    })
     .unwrap();
 
     assert!(sample.boundary_point.distance_to(&sample.support_point) <= 1.0e-6);

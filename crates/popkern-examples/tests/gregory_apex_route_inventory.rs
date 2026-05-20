@@ -22,6 +22,7 @@ fn mixed_radius_gregory_records_default_direct_apex_route() {
     assert_eq!(routes[0].exact_boundary_inner_spoke_count, 0);
     assert_exact_boundary_inner_spoke_decline(&result);
     assert_eq!(routes[0].exact_boundary_ribbon_count, 0);
+    assert_eq!(routes[0].exact_boundary_solved_surface_count, 0);
     assert_exact_boundary_ribbon_decline(&result);
     assert!(routes[0].fallback_reason.is_none());
 }
@@ -43,6 +44,7 @@ fn mixed_radius_gregory_records_direct_apex_requested_route() {
     assert_eq!(routes[0].exact_boundary_inner_spoke_count, 0);
     assert_exact_boundary_inner_spoke_decline(&result);
     assert_eq!(routes[0].exact_boundary_ribbon_count, 0);
+    assert_eq!(routes[0].exact_boundary_solved_surface_count, 0);
     assert_exact_boundary_ribbon_decline(&result);
     assert!(routes[0].fallback_reason.is_none());
 }

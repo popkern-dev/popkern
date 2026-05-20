@@ -10,16 +10,30 @@ use crate::vertex_classifier::VertexBlendClassification;
 
 use super::gregory_cap::GregoryCapSector;
 
+pub(super) struct BoundaryPreservingPnsCapInput<'a> {
+    pub brep: &'a mut BRep,
+    pub cap_face: FaceHandle,
+    pub boundary: &'a BlendBoundary,
+    pub fillet_surfaces: &'a [FilletSurfaceResult],
+    pub vertex: VertexHandle,
+    pub n_sides: usize,
+    pub classification: VertexBlendClassification,
+    pub sectors: &'a [GregoryCapSector],
+}
+
 pub(super) fn try_boundary_preserving_pns_cap(
-    brep: &mut BRep,
-    cap_face: FaceHandle,
-    boundary: &BlendBoundary,
-    fillet_surfaces: &[FilletSurfaceResult],
-    vertex: VertexHandle,
-    n_sides: usize,
-    classification: VertexBlendClassification,
-    sectors: &[GregoryCapSector],
+    input: BoundaryPreservingPnsCapInput<'_>,
 ) -> Option<Vec<CornerPatchInfo>> {
+    let BoundaryPreservingPnsCapInput {
+        brep,
+        cap_face,
+        boundary,
+        fillet_surfaces,
+        vertex,
+        n_sides,
+        classification,
+        sectors,
+    } = input;
     let enabled = std::env::var("POPKERN_DIRECT_APEX_PNS_CANDIDATE")
         .map(|value| value == "1")
         .unwrap_or(false);

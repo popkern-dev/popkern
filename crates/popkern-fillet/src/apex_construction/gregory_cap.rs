@@ -36,6 +36,7 @@ pub(super) use super::gregory_cap_topology::{
     find_face_bounded_by_all_apex_edges, merge_cap_side_accumulators,
 };
 use super::plan::ApexPlan;
+use super::pns_cap_candidate::{BoundaryPreservingPnsCapInput, try_boundary_preserving_pns_cap};
 use super::target_topology::TargetCapFace;
 use crate::blend::boundary::{BlendBoundary, BoundarySegment};
 use crate::construct::three_quad_apply::{
@@ -156,17 +157,16 @@ pub(super) fn assemble_gregory_cap_surface(
     }
 
     let classification = VertexBlendClassification::SameSideConvex;
-
-    if let Some(patches) = super::pns_cap_candidate::try_boundary_preserving_pns_cap(
+    if let Some(patches) = try_boundary_preserving_pns_cap(BoundaryPreservingPnsCapInput {
         brep,
         cap_face,
-        &boundary,
+        boundary: &boundary,
         fillet_surfaces,
-        plan.apex_vertex,
-        n,
+        vertex: plan.apex_vertex,
+        n_sides: n,
         classification,
         sectors,
-    ) {
+    }) {
         return Ok(patches);
     }
 

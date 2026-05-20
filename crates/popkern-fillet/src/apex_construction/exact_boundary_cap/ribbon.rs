@@ -149,6 +149,18 @@ pub(crate) struct ExactBoundaryRibbonDiagnostic {
     pub residual: Option<f64>,
 }
 
+/// Input for one support-ribbon sample.
+pub(super) struct SupportRibbonSampleRequest<'a> {
+    pub boundary: &'a PreparedExactBoundaryCurve,
+    pub other_boundary: &'a PreparedExactBoundaryCurve,
+    pub surface: &'a SurfaceGeometry,
+    pub pcurve: &'a Pcurve,
+    pub parameter: f64,
+    pub pcurve_reversed: bool,
+    pub derivative_scale: f64,
+    pub budget: ExactBoundaryRibbonBudget,
+}
+
 impl ExactBoundaryRibbonDiagnostic {
     fn new(
         reason: ExactBoundaryRibbonDeclineReason,
@@ -277,16 +289,16 @@ fn prepare_ribbon_for_seam(
     let mut samples = Vec::with_capacity(sample_count(budget));
     for parameter in sample_parameters(budget) {
         samples.push(
-            compute_support_ribbon_sample(
+            compute_support_ribbon_sample(SupportRibbonSampleRequest {
                 boundary,
                 other_boundary,
                 surface,
                 pcurve,
                 parameter,
-                orientation.reversed,
-                scale,
+                pcurve_reversed: orientation.reversed,
+                derivative_scale: scale,
                 budget,
-            )
+            })
             .map_err(|reason| ExactBoundaryRibbonDiagnostic::new(reason, context, None))?,
         );
     }
@@ -348,15 +360,18 @@ fn max_support_residual(
 }
 
 pub(super) fn compute_support_ribbon_sample(
-    boundary: &PreparedExactBoundaryCurve,
-    other_boundary: &PreparedExactBoundaryCurve,
-    surface: &SurfaceGeometry,
-    pcurve: &Pcurve,
-    parameter: f64,
-    pcurve_reversed: bool,
-    derivative_scale: f64,
-    budget: ExactBoundaryRibbonBudget,
+    request: SupportRibbonSampleRequest<'_>,
 ) -> Result<ExactBoundaryRibbonSample, ExactBoundaryRibbonDeclineReason> {
+    let SupportRibbonSampleRequest {
+        boundary,
+        other_boundary,
+        surface,
+        pcurve,
+        parameter,
+        pcurve_reversed,
+        derivative_scale,
+        budget,
+    } = request;
     let pcurve_parameter = support_pcurve_parameter(pcurve, parameter, pcurve_reversed);
     let uv = pcurve.point_at(pcurve_parameter);
     let support_point = surface.point_at(uv.x, uv.y);
@@ -452,7 +467,7 @@ fn sample_count(budget: ExactBoundaryRibbonBudget) -> usize {
 
 fn sample_parameters(
     budget: ExactBoundaryRibbonBudget,
-) -> impl Iterator<Item = f64> + Clone + ExactSizeIterator {
+) -> impl Clone + ExactSizeIterator<Item = f64> {
     let count = sample_count(budget);
     (0..count).map(move |index| index as f64 / (count - 1) as f64)
 }

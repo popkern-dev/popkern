@@ -4,6 +4,7 @@ pub(crate) mod boundary;
 pub(crate) mod corner;
 pub(crate) mod ribbon;
 pub(crate) mod sector;
+pub(crate) mod solve;
 
 #[cfg(test)]
 #[path = "boundary_tests.rs"]
@@ -20,3 +21,7 @@ mod ribbon_tests;
 #[cfg(test)]
 #[path = "sector_tests.rs"]
 mod sector_tests;
+
+#[cfg(test)]
+#[path = "solve_tests.rs"]
+mod solve_tests;
