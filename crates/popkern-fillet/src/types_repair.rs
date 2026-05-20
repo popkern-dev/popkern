@@ -50,6 +50,8 @@ pub struct ApexConstructionRouteDecision {
     pub exact_boundary_ribbon_count: usize,
     /// Number of in-memory sector surfaces solved before BRep commit integration.
     pub exact_boundary_solved_surface_count: usize,
+    /// Number of cap/support pcurve pairs prepared before BRep commit integration.
+    pub exact_boundary_pcurve_pair_count: usize,
     /// direct-apex decline reason when [`ApexConstructionRoute::DirectApexFallbackToLegacy`] applies.
     pub fallback_reason: Option<String>,
 }

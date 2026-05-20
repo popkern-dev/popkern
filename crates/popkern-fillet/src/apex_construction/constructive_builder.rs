@@ -140,6 +140,7 @@ fn construct_apex_inner_constructive(
             exact_boundary_inner_spoke_count: 0,
             exact_boundary_ribbon_count: 0,
             exact_boundary_solved_surface_count: 0,
+            exact_boundary_pcurve_pair_count: 0,
             diagnostics: Vec::new(),
             telemetry: plan.telemetry.clone(),
         });
@@ -213,6 +214,7 @@ fn construct_apex_inner_constructive(
                 exact_boundary_inner_spoke_count: 0,
                 exact_boundary_ribbon_count: 0,
                 exact_boundary_solved_surface_count: 0,
+                exact_boundary_pcurve_pair_count: 0,
                 diagnostics: Vec::new(),
                 telemetry: plan.telemetry.clone(),
             })
@@ -315,6 +317,7 @@ fn construct_apex_inner_constructive(
                 exact_boundary_inner_spoke_count: assignment.exact_boundary_inner_spoke_count,
                 exact_boundary_ribbon_count: assignment.exact_boundary_ribbon_count,
                 exact_boundary_solved_surface_count: assignment.exact_boundary_solved_surface_count,
+                exact_boundary_pcurve_pair_count: assignment.exact_boundary_pcurve_pair_count,
                 diagnostics,
                 telemetry: plan.telemetry.clone(),
             })

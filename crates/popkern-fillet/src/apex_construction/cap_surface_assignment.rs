@@ -40,6 +40,7 @@ pub(super) struct GregoryCapAssignment {
     pub exact_boundary_inner_spoke_count: usize,
     pub exact_boundary_ribbon_count: usize,
     pub exact_boundary_solved_surface_count: usize,
+    pub exact_boundary_pcurve_pair_count: usize,
     pub exact_boundary_diagnostics: Vec<crate::types::ApexConstructionDiagnostic>,
 }
 
@@ -202,6 +203,7 @@ pub(super) fn assign_gregory_cap_surface(
         exact_boundary_inner_spoke_count,
         exact_boundary_ribbon_count,
         exact_boundary_solved_surface_count,
+        exact_boundary_pcurve_pair_count,
         exact_boundary_diagnostics,
     })
 }

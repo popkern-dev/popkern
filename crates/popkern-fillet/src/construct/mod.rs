@@ -269,6 +269,8 @@ pub fn apply_blend_geometry(
                                         .exact_boundary_ribbon_count,
                                     exact_boundary_solved_surface_count: success
                                         .exact_boundary_solved_surface_count,
+                                    exact_boundary_pcurve_pair_count: success
+                                        .exact_boundary_pcurve_pair_count,
                                     fallback_reason: None,
                                 },
                             ));
@@ -294,6 +296,7 @@ pub fn apply_blend_geometry(
                                 exact_boundary_inner_spoke_count: 0,
                                 exact_boundary_ribbon_count: 0,
                                 exact_boundary_solved_surface_count: 0,
+                                exact_boundary_pcurve_pair_count: 0,
                                 fallback_reason: Some(reason.clone()),
                             }));
                             warnings.push((
@@ -325,6 +328,7 @@ pub fn apply_blend_geometry(
                             exact_boundary_inner_spoke_count: 0,
                             exact_boundary_ribbon_count: 0,
                             exact_boundary_solved_surface_count: 0,
+                            exact_boundary_pcurve_pair_count: 0,
                             fallback_reason: None,
                         }));
                 }
@@ -359,18 +363,6 @@ pub fn apply_blend_geometry(
                                 &mut warnings,
                             );
                         }
-                        // Phase 6c-D Stage 4.4: capture the blend
-                        // boundary + per-vertex sub-face handles so a
-                        // post-`sliver_absorb` wire pass can
-                        // re-write substituted boundary curves to
-                        // any cap-loop edges that were *added* by
-                        // the absorb step. The wire originally runs
-                        // mid-pipeline (inside three_quad_apply)
-                        // when the cap face's outer loop is the
-                        // raw poke output; sliver_absorb expands
-                        // that loop with absorbed Plane fragments,
-                        // leaving 8/12 cap-vs-cylinder edges on
-                        // pyramid4_mixed unwired.
                         if let Some(b) = boundary_opt {
                             if std::env::var_os("POPKERN_APEX_PATH_A_TRACE").is_some() {
                                 eprintln!(
@@ -469,6 +461,7 @@ struct ApexRouteDecisionInput<'a> {
     exact_boundary_inner_spoke_count: usize,
     exact_boundary_ribbon_count: usize,
     exact_boundary_solved_surface_count: usize,
+    exact_boundary_pcurve_pair_count: usize,
     fallback_reason: Option<String>,
 }
 
@@ -495,6 +488,7 @@ fn apex_route_decision(
         exact_boundary_inner_spoke_count: input.exact_boundary_inner_spoke_count,
         exact_boundary_ribbon_count: input.exact_boundary_ribbon_count,
         exact_boundary_solved_surface_count: input.exact_boundary_solved_surface_count,
+        exact_boundary_pcurve_pair_count: input.exact_boundary_pcurve_pair_count,
         fallback_reason: input.fallback_reason,
     }
 }

@@ -113,6 +113,7 @@ fn construct_apex_inner(
             exact_boundary_inner_spoke_count: 0,
             exact_boundary_ribbon_count: 0,
             exact_boundary_solved_surface_count: 0,
+            exact_boundary_pcurve_pair_count: 0,
             diagnostics: Vec::new(),
             telemetry: plan.telemetry.clone(),
         });
@@ -426,6 +427,7 @@ fn construct_apex_inner(
         exact_boundary_inner_spoke_count: 0,
         exact_boundary_ribbon_count: 0,
         exact_boundary_solved_surface_count: 0,
+        exact_boundary_pcurve_pair_count: 0,
         diagnostics: Vec::new(),
         telemetry: plan.telemetry.clone(),
     })

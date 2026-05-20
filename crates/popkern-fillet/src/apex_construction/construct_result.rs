@@ -26,6 +26,8 @@ pub struct ApexBuildResult {
     pub(crate) exact_boundary_ribbon_count: usize,
     /// Number of in-memory sector surfaces solved before BRep commit integration.
     pub(crate) exact_boundary_solved_surface_count: usize,
+    /// Number of cap/support pcurve pairs prepared before BRep commit integration.
+    pub(crate) exact_boundary_pcurve_pair_count: usize,
     /// Structured diagnostics emitted while planning or declining apex repairs.
     pub diagnostics: Vec<crate::types::ApexConstructionDiagnostic>,
     /// Planner telemetry carried through to the build result.
