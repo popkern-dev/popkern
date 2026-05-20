@@ -136,6 +136,7 @@ fn construct_apex_inner_constructive(
             apex_edges: Vec::new(),
             corner_patches: Vec::new(),
             exact_boundary_sectors: Vec::new(),
+            exact_boundary_prepared_curve_count: 0,
             diagnostics: Vec::new(),
             telemetry: plan.telemetry.clone(),
         });
@@ -205,6 +206,7 @@ fn construct_apex_inner_constructive(
                 apex_edges: vec![None; n],
                 corner_patches,
                 exact_boundary_sectors: Vec::new(),
+                exact_boundary_prepared_curve_count: 0,
                 diagnostics: Vec::new(),
                 telemetry: plan.telemetry.clone(),
             })
@@ -268,18 +270,19 @@ fn construct_apex_inner_constructive(
             check_cancelled(cancel)?;
             let sectors =
                 gregory_sectors_from_handles(plan, &fillet_end_handles, &face_edge_handles)?;
-            let (corner_patches, exact_boundary_sectors) = assign_gregory_cap_surface(
-                brep,
-                cap_face,
-                plan,
-                apex_position,
-                &apex_vertex_handles,
-                &face_edge_handles,
-                &fillet_end_handles,
-                &sectors,
-                fillet_surfaces,
-                tolerance,
-            )?;
+            let (corner_patches, exact_boundary_sectors, exact_boundary_prepared_curve_count) =
+                assign_gregory_cap_surface(
+                    brep,
+                    cap_face,
+                    plan,
+                    apex_position,
+                    &apex_vertex_handles,
+                    &face_edge_handles,
+                    &fillet_end_handles,
+                    &sectors,
+                    fillet_surfaces,
+                    tolerance,
+                )?;
             let n = plan.cap_kind.n_fillets();
             // Build apex_edges return value: 2N entries, alternating
             // FilletEnd (even) / FaceEdge (odd), each Some(handle).
@@ -301,6 +304,7 @@ fn construct_apex_inner_constructive(
                 apex_edges,
                 corner_patches,
                 exact_boundary_sectors,
+                exact_boundary_prepared_curve_count,
                 diagnostics,
                 telemetry: plan.telemetry.clone(),
             })

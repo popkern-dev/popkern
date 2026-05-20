@@ -42,6 +42,8 @@ pub struct ApexConstructionRouteDecision {
     pub corner_patch_count: usize,
     /// Number of exact-boundary sector ownership records extracted for this route.
     pub exact_boundary_sector_count: usize,
+    /// Number of exact-boundary curves prepared without approximation.
+    pub exact_boundary_prepared_curve_count: usize,
     /// direct-apex decline reason when [`ApexConstructionRoute::DirectApexFallbackToLegacy`] applies.
     pub fallback_reason: Option<String>,
 }

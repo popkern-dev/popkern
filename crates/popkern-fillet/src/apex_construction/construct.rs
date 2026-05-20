@@ -109,6 +109,7 @@ fn construct_apex_inner(
             apex_edges: Vec::new(),
             corner_patches: Vec::new(),
             exact_boundary_sectors: Vec::new(),
+            exact_boundary_prepared_curve_count: 0,
             diagnostics: Vec::new(),
             telemetry: plan.telemetry.clone(),
         });
@@ -418,6 +419,7 @@ fn construct_apex_inner(
         apex_edges: apex_edge_handles,
         corner_patches,
         exact_boundary_sectors: Vec::new(),
+        exact_boundary_prepared_curve_count: 0,
         diagnostics: Vec::new(),
         telemetry: plan.telemetry.clone(),
     })

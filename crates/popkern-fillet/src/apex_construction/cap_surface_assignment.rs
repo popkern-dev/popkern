@@ -13,6 +13,9 @@ use crate::types::CornerPatchInfo;
 
 use super::constructive_geometry::planned_fillet_index_for_sector;
 use super::error::ApexBuildError;
+use super::exact_boundary_cap::boundary::{
+    ExactBoundaryCurveBudget, prepare_exact_boundary_curves,
+};
 use super::exact_boundary_cap::sector::{
     ExactBoundaryCapSectorInput, extract_exact_boundary_cap_sectors,
 };
@@ -52,7 +55,14 @@ pub(super) fn assign_gregory_cap_surface(
     sectors: &[GregoryCapSector],
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &Tolerance,
-) -> Result<(Vec<CornerPatchInfo>, Vec<ExactBoundaryCapSectorInput>), ApexBuildError> {
+) -> Result<
+    (
+        Vec<CornerPatchInfo>,
+        Vec<ExactBoundaryCapSectorInput>,
+        usize,
+    ),
+    ApexBuildError,
+> {
     let n = plan.cap_kind.n_fillets();
     if face_edge_handles.len() != n || fillet_end_handles.len() != n {
         return Err(ApexBuildError::PlanMismatch {
@@ -74,6 +84,13 @@ pub(super) fn assign_gregory_cap_surface(
 
     let exact_boundary_sectors = extract_exact_boundary_cap_sectors(brep, cap_face, plan, sectors)
         .map_err(|diagnostic| diagnostic.into_build_error())?;
+    let prepared_boundary_curves = prepare_exact_boundary_curves(
+        brep,
+        &exact_boundary_sectors,
+        ExactBoundaryCurveBudget::default(),
+    )
+    .map_err(|diagnostic| diagnostic.into_build_error())?;
+    let exact_boundary_prepared_curve_count = prepared_boundary_curves.curves.len();
     let corner_patches = crate::apex_construction::gregory_cap::assemble_gregory_cap_surface(
         brep,
         cap_face,
@@ -86,7 +103,11 @@ pub(super) fn assign_gregory_cap_surface(
         tolerance,
     )?;
     author_plane_side_face_edge_pcurves(brep, face_edge_handles);
-    Ok((corner_patches, exact_boundary_sectors))
+    Ok((
+        corner_patches,
+        exact_boundary_sectors,
+        exact_boundary_prepared_curve_count,
+    ))
 }
 
 pub(super) fn author_plane_side_face_edge_pcurves(

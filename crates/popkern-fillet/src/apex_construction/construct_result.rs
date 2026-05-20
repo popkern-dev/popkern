@@ -18,6 +18,8 @@ pub struct ApexBuildResult {
     pub corner_patches: Vec<crate::types::CornerPatchInfo>,
     /// Exact-boundary sector ownership facts extracted from live cap topology.
     pub(crate) exact_boundary_sectors: Vec<ExactBoundaryCapSectorInput>,
+    /// Number of exact-boundary curves prepared without approximation.
+    pub(crate) exact_boundary_prepared_curve_count: usize,
     /// Structured diagnostics emitted while planning or declining apex repairs.
     pub diagnostics: Vec<crate::types::ApexConstructionDiagnostic>,
     /// Planner telemetry carried through to the build result.

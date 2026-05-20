@@ -259,6 +259,7 @@ pub fn apply_blend_geometry(
                                 success.built_faces.clone(),
                                 success.corner_patches.len(),
                                 success.exact_boundary_sector_count,
+                                success.exact_boundary_prepared_curve_count,
                                 None,
                             ));
                             repair_report.apex_diagnostics.extend(success.diagnostics);
@@ -274,6 +275,7 @@ pub fn apply_blend_geometry(
                                 edge_geometries,
                                 crate::types::ApexConstructionRoute::DirectApexFallbackToLegacy,
                                 Vec::new(),
+                                0,
                                 0,
                                 0,
                                 Some(reason.clone()),
@@ -299,6 +301,7 @@ pub fn apply_blend_geometry(
                         edge_geometries,
                         crate::types::ApexConstructionRoute::Legacy,
                         Vec::new(),
+                        0,
                         0,
                         0,
                         None,
@@ -441,6 +444,7 @@ fn apex_route_decision(
     built_faces: Vec<FaceHandle>,
     corner_patch_count: usize,
     exact_boundary_sector_count: usize,
+    exact_boundary_prepared_curve_count: usize,
     fallback_reason: Option<String>,
 ) -> crate::types::ApexConstructionRouteDecision {
     crate::types::ApexConstructionRouteDecision {
@@ -457,6 +461,7 @@ fn apex_route_decision(
         built_faces,
         corner_patch_count,
         exact_boundary_sector_count,
+        exact_boundary_prepared_curve_count,
         fallback_reason,
     }
 }
