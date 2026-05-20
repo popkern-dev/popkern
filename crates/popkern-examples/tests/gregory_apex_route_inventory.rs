@@ -35,7 +35,6 @@ fn mixed_radius_gregory_records_a2_requested_route() {
 }
 
 #[test]
-#[ignore = "A2 migration promotion gate: native route is topologically complete but not STEP-fidelity equivalent yet"]
 fn mixed_radius_gregory_a2_quality_gap_is_explicit() {
     let legacy = mixed_radius_gregory_cube(FilletOptions::default());
     let a2 = mixed_radius_gregory_cube(FilletOptions {
@@ -44,6 +43,7 @@ fn mixed_radius_gregory_a2_quality_gap_is_explicit() {
     });
     let legacy_quality = quality(&legacy.brep);
     let a2_quality = quality(&a2.brep);
+    let _evidence_rows = legacy_quality.evidence_rows() + a2_quality.evidence_rows();
 
     assert_eq!(
         a2.repair_report.apex_routes[0].route,
@@ -56,6 +56,39 @@ fn mixed_radius_gregory_a2_quality_gap_is_explicit() {
             && a2_quality.max_edge_surface_deviation <= legacy_quality.max_edge_surface_deviation,
         "native A2 is not STEP-fidelity promotable yet: legacy={legacy_quality:?}, a2={a2_quality:?}"
     );
+}
+
+impl RouteQuality {
+    fn evidence_rows(&self) -> usize {
+        let pcurve_rows = self
+            .worst_pcurve_edges
+            .iter()
+            .map(|edge| {
+                edge.edge.len()
+                    + (edge.max_deviation > 0.0) as usize
+                    + edge
+                        .half_edges
+                        .iter()
+                        .map(|half_edge| {
+                            half_edge.half_edge.len()
+                                + half_edge.face.len()
+                                + (half_edge.max_deviation > 0.0) as usize
+                        })
+                        .sum::<usize>()
+            })
+            .sum::<usize>();
+        let edge_surface_rows = self
+            .worst_edge_surface_edges
+            .iter()
+            .map(|edge| {
+                edge.edge.len()
+                    + edge.half_edge.len()
+                    + edge.face.len()
+                    + (edge.max_deviation > 0.0) as usize
+            })
+            .sum::<usize>();
+        pcurve_rows + edge_surface_rows
+    }
 }
 
 fn mixed_radius_gregory_cube(options: FilletOptions) -> popkern_fillet::BlendResult {
@@ -86,6 +119,30 @@ struct RouteQuality {
     max_pcurve_deviation: f64,
     edge_surface_blockers: usize,
     max_edge_surface_deviation: f64,
+    worst_pcurve_edges: Vec<EdgePcurveEvidence>,
+    worst_edge_surface_edges: Vec<EdgeSurfaceEvidence>,
+}
+
+#[derive(Debug)]
+struct EdgePcurveEvidence {
+    edge: String,
+    max_deviation: f64,
+    half_edges: Vec<HalfEdgePcurveEvidence>,
+}
+
+#[derive(Debug)]
+struct HalfEdgePcurveEvidence {
+    half_edge: String,
+    face: String,
+    max_deviation: f64,
+}
+
+#[derive(Debug)]
+struct EdgeSurfaceEvidence {
+    edge: String,
+    half_edge: String,
+    face: String,
+    max_deviation: f64,
 }
 
 fn quality(brep: &BRep) -> RouteQuality {
@@ -121,5 +178,44 @@ fn quality(brep: &BRep) -> RouteQuality {
         max_pcurve_deviation: export.max_pcurve_deviation,
         edge_surface_blockers: edge_surface.incompatible_half_edges,
         max_edge_surface_deviation: edge_surface.max_deviation,
+        worst_pcurve_edges: worst_pcurve_edges(brep, 30),
+        worst_edge_surface_edges: edge_surface
+            .findings
+            .iter()
+            .take(30)
+            .map(|finding| EdgeSurfaceEvidence {
+                edge: format!("{:?}", finding.edge),
+                half_edge: format!("{:?}", finding.half_edge),
+                face: format!("{:?}", finding.face),
+                max_deviation: finding.max_deviation,
+            })
+            .collect(),
     }
+}
+
+fn worst_pcurve_edges(brep: &BRep, limit: usize) -> Vec<EdgePcurveEvidence> {
+    let mut reports = brep
+        .edges
+        .keys()
+        .filter_map(|edge| brep.measure_edge_pcurve_deviation(edge))
+        .filter(|report| report.max_deviation > 1e-12)
+        .collect::<Vec<_>>();
+    reports.sort_by(|a, b| b.max_deviation.total_cmp(&a.max_deviation));
+    reports
+        .into_iter()
+        .take(limit)
+        .map(|report| EdgePcurveEvidence {
+            edge: format!("{:?}", report.edge),
+            max_deviation: report.max_deviation,
+            half_edges: report
+                .half_edges
+                .iter()
+                .map(|half_edge| HalfEdgePcurveEvidence {
+                    half_edge: format!("{:?}", half_edge.half_edge),
+                    face: format!("{:?}", half_edge.face),
+                    max_deviation: half_edge.max_deviation,
+                })
+                .collect(),
+        })
+        .collect()
 }

@@ -1,7 +1,10 @@
 //! Cap surface assignment for constructive apex building.
 
 use popkern_core::geometry::Point3;
+use popkern_core::geometry::curve::CurveEval;
+use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
@@ -66,7 +69,7 @@ pub(super) fn assign_gregory_cap_surface(
         apex_edge_handles.push(Some(face_edge_handles[k]));
     }
 
-    crate::apex_construction::gregory_cap::assemble_gregory_cap_surface(
+    let corner_patches = crate::apex_construction::gregory_cap::assemble_gregory_cap_surface(
         brep,
         cap_face,
         plan,
@@ -76,7 +79,70 @@ pub(super) fn assign_gregory_cap_surface(
         sectors,
         fillet_surfaces,
         tolerance,
-    )
+    )?;
+    author_plane_side_face_edge_pcurves(brep, face_edge_handles);
+    Ok(corner_patches)
+}
+
+fn author_plane_side_face_edge_pcurves(brep: &mut BRep, face_edge_handles: &[EdgeHandle]) {
+    for &edge in face_edge_handles {
+        let Some(edge_data) = brep.edges.get(edge).cloned() else {
+            continue;
+        };
+        let Some(curve) = edge_data.curve.as_ref() else {
+            continue;
+        };
+        let Some(primary) = brep.half_edges.get(edge_data.half_edge).cloned() else {
+            continue;
+        };
+        for (half_edge, forward) in [(edge_data.half_edge, true), (primary.twin, false)] {
+            let Some(face) = brep
+                .half_edges
+                .get(half_edge)
+                .and_then(|half_edge_data| brep.loops.get(half_edge_data.loop_))
+                .map(|loop_data| loop_data.face)
+            else {
+                continue;
+            };
+            let Some(surface) = brep
+                .faces
+                .get(face)
+                .and_then(|face_data| face_data.surface.as_ref())
+            else {
+                continue;
+            };
+            if !matches!(surface.geometry, SurfaceGeometry::Plane { .. }) {
+                continue;
+            }
+            let Some(pcurve) = projected_curve_pcurve(&curve.geometry, &surface.geometry, forward)
+            else {
+                continue;
+            };
+            brep.half_edges[half_edge].pcurve = Some(pcurve);
+        }
+    }
+}
+
+fn projected_curve_pcurve(
+    curve: &impl CurveEval,
+    surface: &SurfaceGeometry,
+    forward: bool,
+) -> Option<Pcurve> {
+    let (t_start, t_end) = curve.parameter_range();
+    let samples = 33usize;
+    let mut uv_points = Vec::with_capacity(samples);
+    let mut params = Vec::with_capacity(samples);
+    for i in 0..samples {
+        let s = i as f64 / (samples - 1) as f64;
+        let curve_s = if forward { s } else { 1.0 - s };
+        let point = curve.point_at(t_start + curve_s * (t_end - t_start));
+        let (u, v) = project_point_to_uv(surface, &point)?;
+        uv_points.push(Point3::new(u, v, 0.0));
+        params.push(s);
+    }
+    popkern_core::geometry::fitting::interpolate_curve(&uv_points, &params, 5)
+        .ok()
+        .map(Into::into)
 }
 
 pub(super) fn gregory_sectors_from_handles(

@@ -391,15 +391,13 @@ impl RepeatedApexPartitionPlan {
             let base_face =
                 insert_face_with_outer_loop(brep, self.cap_face, &base_loop_half_edges)?;
             brep.faces[base_face].role = TopologyRole::ConstructionResidual;
+            brep.faces[base_face].surface = None;
             if base_span
                 .half_edges
                 .iter()
                 .any(|half_edge| !brep.half_edges.contains_key(*half_edge))
             {
                 mark_loop_edges_construction_residual(brep, &base_loop_half_edges);
-            }
-            if existing_target_cylinders_own_all_strips {
-                brep.faces[base_face].surface = None;
             }
             if crate::a2_trace::enabled() {
                 eprintln!(
