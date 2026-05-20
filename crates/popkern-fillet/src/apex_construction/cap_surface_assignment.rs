@@ -96,6 +96,7 @@ pub(super) fn assign_gregory_cap_surface(
         apex_edge_handles.push(Some(face_edge_handles[k]));
     }
 
+    let exact_boundary_transaction_snapshot = brep.clone();
     let exact_boundary_sectors = extract_exact_boundary_cap_sectors(brep, cap_face, plan, sectors)
         .map_err(|diagnostic| diagnostic.into_build_error())?;
     let prepared_boundary_curves = prepare_exact_boundary_curves(
@@ -158,7 +159,7 @@ pub(super) fn assign_gregory_cap_surface(
         .as_ref()
         .map(|solved| solved.validated_surface_count())
         .unwrap_or(0);
-    let _exact_boundary_pcurve_pair_count = match (
+    let exact_boundary_pcurve_pair_count = match (
         prepared_inner_spokes.as_ref(),
         prepared_ribbons.as_ref(),
         prepared_solved_surfaces.as_ref(),
@@ -179,6 +180,9 @@ pub(super) fn assign_gregory_cap_surface(
         }
         _ => 0,
     };
+    if !exact_boundary_diagnostics.is_empty() || exact_boundary_pcurve_pair_count == 0 {
+        *brep = exact_boundary_transaction_snapshot;
+    }
     let corner_patches = crate::apex_construction::gregory_cap::assemble_gregory_cap_surface(
         brep,
         cap_face,
