@@ -43,7 +43,6 @@ use crate::construct::three_quad_apply::{
 };
 use crate::types::CornerPatchInfo;
 use crate::vertex_classifier::VertexBlendClassification;
-
 #[derive(Debug, Clone, Copy)]
 pub(super) struct GregoryCapSector {
     pub sector_index: usize,
@@ -156,19 +155,21 @@ pub(super) fn assemble_gregory_cap_surface(
         author_support_compatible_face_edge_tangents(&mut boundary, fillet_surfaces, brep);
     }
 
-    // Classification — A2 fires only at SameSideConvex apices today
-    // (cube/pyramid mixed-radius corners).  A2.5 will lift this to
-    // honor the planner's own classification once OppositeSide /
-    // saddle handling lands.
     let classification = VertexBlendClassification::SameSideConvex;
 
-    // Drive the legacy K-P promotion ladder with all rungs enabled.
-    // The ladder picks the highest-quality rung that converges; for
-    // cube_mixed N=3 the typical landing is biquintic-full or two-
-    // stripe with K-P binonic promotion above.  These flags mirror
-    // the legacy default-on dispatch when the ladder is fully
-    // exercised; subsequent passes can plumb FilletOptions through
-    // for user-driven knobs.
+    if let Some(patches) = super::pns_cap_candidate::try_boundary_preserving_pns_cap(
+        brep,
+        cap_face,
+        &boundary,
+        fillet_surfaces,
+        plan.apex_vertex,
+        n,
+        classification,
+        sectors,
+    ) {
+        return Ok(patches);
+    }
+
     let result = apply_three_quad_decomposition_to_blend(
         brep,
         cap_face,

@@ -58,6 +58,7 @@ pub(crate) mod plan_terminations;
 pub(crate) mod plan_topology;
 pub(crate) mod plan_validate;
 pub(crate) mod planner_prepass;
+pub(crate) mod pns_cap_candidate;
 pub(crate) mod repeated_apex_loop_plan;
 pub(crate) mod repeated_apex_partition;
 pub(crate) mod repeated_apex_partition_topology;

@@ -84,7 +84,10 @@ pub(super) fn assign_gregory_cap_surface(
     Ok(corner_patches)
 }
 
-fn author_plane_side_face_edge_pcurves(brep: &mut BRep, face_edge_handles: &[EdgeHandle]) {
+pub(super) fn author_plane_side_face_edge_pcurves(
+    brep: &mut BRep,
+    face_edge_handles: &[EdgeHandle],
+) {
     for &edge in face_edge_handles {
         let Some(edge_data) = brep.edges.get(edge).cloned() else {
             continue;

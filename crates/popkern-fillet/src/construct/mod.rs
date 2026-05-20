@@ -8,6 +8,7 @@ pub(crate) mod blend_topo;
 mod boundary_support_frames;
 mod bridge_warnings;
 pub(crate) mod cap_insert;
+pub(crate) mod cap_outer_acceptance;
 pub(crate) mod closed_fillet;
 pub(crate) mod cyl_plane_intersect;
 pub(crate) mod edge_reconcile;

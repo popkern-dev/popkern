@@ -1,18 +1,8 @@
 //! §5.3 Round 8 C5 — apply a three-quad decomposition to a BRep.
 //!
-//! Given a BRep with a hexagonal blend face (from the existing
-//! `insert_vertex_blend` pipeline), apply the commercial-style
-//! three-quad decomposition:
-//!   1. Build the [`ThreeQuadDecomposition`] from the hex boundary.
-//!   2. Poke the hex face into three quadrilateral sub-faces
-//!      via [`poke_hex_face_into_three_quads`].
-//!   3. Assign each sub-patch's `RectangularGregory` surface to
-//!      the corresponding sub-face.
-//!   4. Return three [`CornerPatchInfo`] entries, replacing the single entry the caller would otherwise have emitted.
-//!
-//! The helper is a **pure function on the BRep + boundary**; it
-//! doesn't know about `FilletOptions` flags or dispatch — the
-//! caller decides when to invoke it. R8 C6 wires the dispatch.
+//! Applies an N-sector Gregory decomposition to an existing blend
+//! face: build patches, poke topology, assign surfaces, and return
+//! one [`CornerPatchInfo`] per sub-face.
 
 #[path = "three_quad_face_matching.rs"]
 mod three_quad_face_matching;
@@ -75,6 +65,20 @@ impl From<String> for ThreeQuadFailure {
     fn from(s: String) -> Self {
         ThreeQuadFailure::Other(s)
     }
+}
+
+pub(crate) fn author_cap_face_boundary_pcurves(
+    brep: &mut BRep,
+    sub_face: FaceHandle,
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+    subface_index: usize,
+    old_surface: Option<&SurfaceGeometry>,
+) -> Result<(), String> {
+    reproject_loop_pcurves_onto_gregory(brep, sub_face, old_surface, false);
+    author_boundary_owned_seam_pcurves(brep, sub_face, boundary, fillet_surfaces, subface_index);
+    three_quad_reproject::author_missing_outer_loop_pcurves_from_vertices(brep, sub_face);
+    three_quad_reproject::verify_outer_loop_pcurves(brep, sub_face)
 }
 
 /// Apply a three-quad decomposition to an existing hexagonal blend

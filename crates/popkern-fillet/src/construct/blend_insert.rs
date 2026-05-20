@@ -211,11 +211,10 @@ pub(crate) fn insert_vertex_blend(
         sub_patch_provenance: None,
     };
 
-    // PnS rung (env-gated). At N=3 the rational-Gregory ladder
-    // delivers 40–85% lower boundary-κ deviation than PnS bi-4 on
-    // asymmetric-radius fixtures (R8 C8b cross-fixture sweep), so
-    // PnS only fires for N ≥ 5 where the Gregory ladder isn't
-    // competitive. N=4 is rejected internally (σ singularity).
+    // PnS rung (env-gated). Keep default production dispatch at
+    // N >= 5: trihedral PnS currently reduces curved boundaries to
+    // bi-2 strips and fails the cap/support G0 gate on mixed-radius
+    // A2 fixtures.
     if crate::blend::pns_promote::pns_env_enabled()
         && n_sides >= 5
         && let Some(boundary) = n_gon_boundary.as_ref()
