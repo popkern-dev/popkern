@@ -15,9 +15,10 @@ use popkern_io::{
 };
 use std::sync::Arc;
 
+#[path = "gregory_step_fidelity/boundary_knowledge.rs"]
+mod gregory_step_fidelity_boundary_knowledge;
 mod gregory_step_fidelity_side_agreement;
 use gregory_step_fidelity_side_agreement::pcurve_side_agreement_summary;
-
 #[derive(Debug, Clone, PartialEq)]
 struct FidelityState {
     label: &'static str,
@@ -129,6 +130,30 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
             .is_some_and(|report| report.declined_edges > 0),
         "strict shared-trim repair should keep unresolved construction blockers observable"
     );
+    let edge_surface_report = repaired
+        .report
+        .edge_surface_compatibility
+        .as_ref()
+        .expect("edge/surface repair report should be present");
+    assert!(
+        edge_surface_report.decisions.iter().any(|decision| {
+            matches!(
+                (decision.evidence.surface_a, decision.evidence.surface_b),
+                (
+                    Some(BrepEdgeSurfaceKind::Gregory),
+                    Some(BrepEdgeSurfaceKind::Cylinder)
+                ) | (
+                    Some(BrepEdgeSurfaceKind::Cylinder),
+                    Some(BrepEdgeSurfaceKind::Gregory)
+                )
+            ) && decision
+                .evidence
+                .repair_knowledge_diagnostics
+                .iter()
+                .any(|code| code.starts_with("brep.surface.boundary"))
+        }),
+        "Gregory/cylinder blocker decisions should expose promoted surface-boundary knowledge diagnostics"
+    );
     assert!(
         imported_state.pcurve_blockers > 0 || imported_state.edge_surface_blockers > 0,
         "probe should keep the remaining STEP fidelity blocker observable: {states:#?}"
@@ -239,7 +264,7 @@ fn edge_surface_repair_summary(
                 .collect::<Vec<_>>()
                 .join(",");
             format!(
-                "{:?} {:?} endpoint_gap={:.6} residual={:.6} boundary={} intersection={} anchor={} boundary_failure={:?} intersection_failure={:?} declines=[{}]",
+                "{:?} {:?} endpoint_gap={:.6} residual={:.6} boundary={} intersection={} anchor={} boundary_failure={:?} intersection_failure={:?} knowledge={:?} declines=[{}]",
                 decision.edge,
                 decision.outcome,
                 decision.endpoint_gap,
@@ -249,6 +274,7 @@ fn edge_surface_repair_summary(
                 decision.evidence.attempted_anchor_repair,
                 decision.evidence.boundary_failure,
                 decision.evidence.intersection_failure,
+                decision.evidence.repair_knowledge_diagnostics,
                 declines
             )
         })
@@ -343,7 +369,7 @@ fn worst_pcurve_edges(brep: &BRep, limit: usize) -> Vec<EdgePcurveEvidence> {
         .collect()
 }
 
-fn mixed_radius_gregory_cube() -> BRep {
+pub(crate) fn mixed_radius_gregory_cube() -> BRep {
     let cube = BRep::unit_cube(popkern_core::tolerance::Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let incident_edges: Vec<_> = cube

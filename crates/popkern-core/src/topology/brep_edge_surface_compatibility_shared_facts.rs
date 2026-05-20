@@ -69,6 +69,20 @@ pub(super) fn edge_repair_fact_ids(
     fact_ids
 }
 
+pub(super) fn edge_repair_diagnostic_codes(
+    graph: &BrepRepairKnowledgeGraph,
+    edge: EdgeHandle,
+) -> Vec<String> {
+    let mut codes = graph
+        .diagnostics_for_handle(BrepRepairTopologyHandle::Edge(edge))
+        .into_iter()
+        .map(|diagnostic| diagnostic.code.0.clone())
+        .collect::<Vec<_>>();
+    codes.sort();
+    codes.dedup();
+    codes
+}
+
 pub(super) fn shared_fact_ids_from_report(
     report: &BrepEdgeSurfaceCompatibilityRepairReport,
 ) -> Vec<BrepRepairFactId> {

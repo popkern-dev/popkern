@@ -18,8 +18,8 @@ use crate::topology::brep_edge_surface_compatibility_helpers::{
     infer_boundary_hint, unique_edge_half_edges,
 };
 use crate::topology::brep_edge_surface_compatibility_shared_facts::{
-    edge_repair_fact_ids, edge_surface_repair_knowledge, shared_fact_ids_from_report,
-    with_shared_fact_ids,
+    edge_repair_diagnostic_codes, edge_repair_fact_ids, edge_surface_repair_knowledge,
+    shared_fact_ids_from_report, with_shared_fact_ids,
 };
 use crate::topology::brep_edge_surface_compatibility_vertex_star::{
     BrepEdgeSurfaceVertexStarReport, classify_edge_surface_vertex_stars,
@@ -338,6 +338,7 @@ pub(super) fn repair_edge(
     let boundary_hint = infer_boundary_hint(brep, he_a, he_b, &surf_a, &surf_b, options.tolerance);
     let mut evidence =
         BrepEdgeSurfaceRepairEvidence::from_surfaces(&surf_a, &surf_b, boundary_hint.as_ref());
+    evidence.repair_knowledge_diagnostics = edge_repair_diagnostic_codes(knowledge, edge);
     evidence.max_allowed_anchor_motion = options.max_anchor_motion;
     add_boundary_decline_evidence(brep, he_a, SurfaceSide::A, &mut evidence);
     add_boundary_decline_evidence(brep, he_b, SurfaceSide::B, &mut evidence);
