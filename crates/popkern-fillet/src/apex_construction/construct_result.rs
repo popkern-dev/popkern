@@ -15,6 +15,8 @@ pub struct ApexBuildResult {
     pub apex_edges: Vec<Option<EdgeHandle>>,
     /// Corner-patch reports created by cap surface assignment.
     pub corner_patches: Vec<crate::types::CornerPatchInfo>,
+    /// Structured diagnostics emitted while planning or declining apex repairs.
+    pub diagnostics: Vec<crate::types::ApexConstructionDiagnostic>,
     /// Planner telemetry carried through to the build result.
     pub telemetry: PlanTelemetry,
 }

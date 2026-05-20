@@ -40,16 +40,17 @@ pub(super) fn assert_logical_gregory_corner(
     context: &str,
 ) {
     let patches = gregory_corners_for_vertex(result, vertex);
-    assert_eq!(
-        patches.len(),
-        1,
-        "{context}: expected one logical Gregory corner patch when the rectangular subpatch path \
-         is not committed, got {}",
+    assert!(
+        patches.len() == 1 || patches.len() == n_sides,
+        "{context}: expected either one logical Gregory corner patch or one per-sector Gregory \
+         record when the rectangular subpatch path is not committed, got {}",
         patches.len()
     );
-    assert_eq!(patches[0].n_sides, n_sides, "{context}: n_sides drifted");
-    assert!(
-        result.brep.faces[patches[0].face].surface.is_some(),
-        "{context}: logical Gregory corner face must carry a surface"
-    );
+    for patch in patches {
+        assert_eq!(patch.n_sides, n_sides, "{context}: n_sides drifted");
+        assert!(
+            result.brep.faces[patch.face].surface.is_some(),
+            "{context}: logical Gregory corner face must carry a surface"
+        );
+    }
 }

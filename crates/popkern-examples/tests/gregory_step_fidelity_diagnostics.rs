@@ -1,12 +1,10 @@
 use popkern_core::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeOptions,
-    BrepEdgeCurveCompletionOptions, BrepEdgeSurfaceCompatibilityOptions,
-    BrepEdgeSurfaceCompatibilityRepairReport, BrepEdgeSurfaceKind,
-    BrepEdgeSurfaceVertexCandidateOutcome, BrepEdgeSurfaceVertexCandidateSource,
+    BrepEdgeCurveCompletionOptions, BrepEdgeSurfaceCompatibilityOptions, BrepEdgeSurfaceKind,
     BrepRepairPipelineOptions, BrepSewingClassificationOptions, BrepSewingOptions,
-    BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
+    BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions, TopologyRole,
     analyze_brep_edge_surface_compatibility, analyze_brep_export_quality,
-    repair_brep_boundary_edges_transactionally,
+    classify_brep_fidelity_blocker_ownership, repair_brep_boundary_edges_transactionally,
 };
 use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_io::{
@@ -14,12 +12,10 @@ use popkern_io::{
     StepExportOptions, StepImportOptions, StepProductNode, UnitContext, export_step, import_step,
 };
 use std::sync::Arc;
-mod gregory_step_fidelity_blocker_ownership;
+mod gregory_step_fidelity_apex_diagnostics;
 #[path = "gregory_step_fidelity/boundary_knowledge.rs"]
 mod gregory_step_fidelity_boundary_knowledge;
-mod gregory_step_fidelity_side_agreement;
-use gregory_step_fidelity_blocker_ownership::blocker_ownership_summary;
-use gregory_step_fidelity_side_agreement::pcurve_side_agreement_summary;
+use gregory_step_fidelity_apex_diagnostics::assert_materialized_cylinder_trim_decline;
 #[derive(Debug, Clone, PartialEq)]
 struct FidelityState {
     label: &'static str,
@@ -60,23 +56,15 @@ struct EdgeSurfaceEvidence {
 
 #[test]
 fn gregory_step_fidelity_probe_classifies_blocker_source() {
-    let construction = mixed_radius_gregory_cube();
+    let blend = mixed_radius_gregory_cube_result();
+    assert_materialized_cylinder_trim_decline(&blend.repair_report);
+    let construction = blend.brep;
     let repaired = repair_brep_boundary_edges_transactionally(
         &construction,
         &[],
         gregory_step_repair_options(false),
     )
     .expect("diagnostic repair pipeline should commit export candidate");
-    if std::env::var_os("POPKERN_GREGORY_FIDELITY_TRACE").is_some() {
-        eprintln!(
-            "{:#?}",
-            edge_surface_repair_summary(&repaired.report.edge_surface_compatibility)
-        );
-        eprintln!(
-            "{:#?}",
-            vertex_star_repair_summary(&repaired.report.edge_surface_compatibility)
-        );
-    }
     let export_input = repaired.brep;
     let bytes = export_step(&step_document(&export_input), &StepExportOptions::default())
         .expect("Gregory export candidate should serialize");
@@ -103,15 +91,21 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
     let construction_state = &states[0];
     let export_state = &states[1];
     let imported_state = &states[2];
-    if std::env::var_os("POPKERN_GREGORY_FIDELITY_TRACE").is_some() {
-        for state in &states {
-            eprintln!("{state:#?}");
-        }
-        let side_agreement = pcurve_side_agreement_summary(&construction, 8);
-        let blocker_ownership = blocker_ownership_summary(&construction, 12);
-        eprintln!("construction pcurve-side agreement: {side_agreement:#?}");
-        eprintln!("construction blocker ownership: {blocker_ownership:#?}");
-    }
+    let ownership = classify_brep_fidelity_blocker_ownership(&construction, 1e-6);
+    assert!(
+        ownership.production_owned >= 9,
+        "remaining large blockers should be production-owned cylinder-loop geometry, not only residual leakage: {ownership:#?}"
+    );
+    assert!(
+        ownership.edges.iter().take(9).all(|edge| {
+            edge.edge_role == TopologyRole::Production
+                && edge
+                    .half_edges
+                    .iter()
+                    .any(|side| side.face_role == TopologyRole::Production)
+        }),
+        "top pcurve blockers should expose production edge/face ownership: {ownership:#?}"
+    );
 
     assert!(
         export_state.pcurve_blockers <= construction_state.pcurve_blockers,
@@ -164,120 +158,6 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         classification, "construction_geometry_issue",
         "unexpected Gregory STEP fidelity blocker classification; states: {states:#?}"
     );
-}
-
-fn vertex_star_repair_summary(
-    report: &Option<BrepEdgeSurfaceCompatibilityRepairReport>,
-) -> Vec<String> {
-    let Some(report) = report else {
-        return vec!["vertex_star_repair: not_run".to_string()];
-    };
-    report
-        .vertex_stars
-        .decisions
-        .iter()
-        .filter(|star| {
-            star.candidate_diagnostics.iter().any(|diagnostic| {
-                matches!(
-                    diagnostic.source,
-                    BrepEdgeSurfaceVertexCandidateSource::SurfaceIntersection
-                        | BrepEdgeSurfaceVertexCandidateSource::SideAgreement
-                )
-            })
-        })
-        .map(|star| {
-            let accepted = star
-                .candidate_diagnostics
-                .iter()
-                .filter(|diagnostic| diagnostic.point.is_some())
-                .count();
-            let failures = star
-                .candidate_diagnostics
-                .iter()
-                .filter(|diagnostic| {
-                    !matches!(
-                        diagnostic.outcome,
-                        BrepEdgeSurfaceVertexCandidateOutcome::Accepted
-                            | BrepEdgeSurfaceVertexCandidateOutcome::ReconciledEndpoint
-                    )
-                })
-                .map(|diagnostic| {
-                    format!(
-                        "{:?}:{:?}:{:?}/motion={:.6}/spread={:.6}/point={:?}",
-                        diagnostic.edge,
-                        diagnostic.source,
-                        diagnostic.outcome,
-                        diagnostic.anchor_motion,
-                        diagnostic.side_disagreement,
-                        diagnostic.point
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(",");
-            format!(
-                "{:?} {:?} incompatible={:?} incident={:?} accepted_candidates={} motion={:.6} spread={:.6} preserved_gap={:.6} failures=[{}]",
-                star.vertex,
-                star.outcome,
-                star.incompatible_edges,
-                star.incident_edges,
-                accepted,
-                star.max_anchor_motion,
-                star.max_candidate_spread,
-                star.max_preserved_incident_gap,
-                failures
-            )
-        })
-        .collect()
-}
-
-fn edge_surface_repair_summary(
-    report: &Option<BrepEdgeSurfaceCompatibilityRepairReport>,
-) -> Vec<String> {
-    let Some(report) = report else {
-        return vec!["edge_surface_repair: not_run".to_string()];
-    };
-    report
-        .decisions
-        .iter()
-        .filter(|decision| {
-            matches!(
-                (decision.evidence.surface_a, decision.evidence.surface_b),
-                (Some(BrepEdgeSurfaceKind::Gregory), Some(BrepEdgeSurfaceKind::Cylinder))
-                    | (Some(BrepEdgeSurfaceKind::Cylinder), Some(BrepEdgeSurfaceKind::Gregory))
-            )
-        })
-        .map(|decision| {
-            let declines = decision
-                .evidence
-                .boundary_declines
-                .iter()
-                .map(|decline| {
-                    format!(
-                        "{:?}:{:?}/best={:?}/dev={:.6}",
-                        decline.side,
-                        decline.reason,
-                        decline.best_boundary,
-                        decline.best_boundary_deviation
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(",");
-            format!(
-                "{:?} {:?} endpoint_gap={:.6} residual={:.6} residual_a={:.6} residual_b={:.6} boundary={} intersection={} anchor={} boundary_failure={:?} intersection_failure={:?} knowledge={:?} declines=[{}]",
-                decision.edge,
-                decision.outcome,
-                decision.endpoint_gap,
-                decision.residual_deviation,
-                decision.evidence.residual_deviation_a, decision.evidence.residual_deviation_b,
-                decision.evidence.attempted_boundary_reconstruction,
-                decision.evidence.attempted_surface_intersection, decision.evidence.attempted_anchor_repair,
-                decision.evidence.boundary_failure,
-                decision.evidence.intersection_failure,
-                decision.evidence.repair_knowledge_diagnostics,
-                declines
-            )
-        })
-        .collect()
 }
 
 fn classify_fidelity_blocker(
@@ -369,6 +249,10 @@ fn worst_pcurve_edges(brep: &BRep, limit: usize) -> Vec<EdgePcurveEvidence> {
 }
 
 pub(crate) fn mixed_radius_gregory_cube() -> BRep {
+    mixed_radius_gregory_cube_result().brep
+}
+
+fn mixed_radius_gregory_cube_result() -> popkern_fillet::BlendResult {
     let cube = BRep::unit_cube(popkern_core::tolerance::Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let incident_edges: Vec<_> = cube
@@ -397,7 +281,6 @@ pub(crate) fn mixed_radius_gregory_cube() -> BRep {
         None,
     )
     .expect("mixed-radius Gregory cube must build")
-    .brep
 }
 
 fn quality_options() -> popkern_core::topology::BrepExportQualityOptions {

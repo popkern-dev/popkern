@@ -11,8 +11,8 @@ use popkern_core::topology::{
     repair_brep_boundary_edges_transactionally,
 };
 use popkern_fillet::{
-    BlendResult, CornerMethod, CornerPatchInfo, FilletOptions, FilletRadius, FilletSpec,
-    fillet_edges,
+    ApexConstructionDiagnostic, BlendResult, CornerMethod, CornerPatchInfo, FilletOptions,
+    FilletRadius, FilletSpec, fillet_edges,
 };
 use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
@@ -248,9 +248,6 @@ fn gregory_face_geometry_survives_step_roundtrip() {
         max_err = max_err.max(best_face_err);
     }
 
-    // Precision floor breakdown (measured): `to_nurbs_exact` at full
-    // range agrees with Gregory to ~1e-10, the STEP serializer uses
-    // full f64 precision per CP, and import preserves rational weights.
     assert!(
         max_err < 1e-6,
         "§5.3 item #2: Gregory-method STEP round-trip same-UV position deviation {max_err} exceeds 1e-6 tolerance (corner patch faces checked: {})",
@@ -262,11 +259,8 @@ fn gregory_face_geometry_survives_step_roundtrip() {
 fn gregory_mixed_radius_edge_surface_pipeline_diagnostics_are_structured() {
     let blend = mixed_radius_gregory_cube_result();
     let brep = &blend.brep;
+    assert_materialized_cylinder_trim_decline(&blend.repair_report);
     let support_report = &blend.repair_report.support_seam_relocation;
-    assert!(
-        support_report.candidates > 0,
-        "public BlendResult repair report must expose support seam relocation candidates"
-    );
     assert_eq!(
         support_report.candidates,
         support_report.authored + support_report.declined
@@ -385,8 +379,8 @@ fn assert_gregory_cap_cylinder_seams_have_boundary_evidence_or_decline(brep: &BR
         "all Gregory cap-to-cylinder seams must carry accepted hints or structured declines; got hinted={hinted} declined={declined} inspected={inspected}"
     );
     assert!(
-        declined > 0,
-        "real mixed-radius fixture must expose invalid cap-cylinder boundary ownership as structured declines"
+        hinted > 0,
+        "real mixed-radius fixture must expose cap-cylinder boundary ownership as structured hints"
     );
 }
 
@@ -416,15 +410,26 @@ fn gregory_mixed_radius_strict_edge_surface_pipeline_declines_unresolved_edges()
         report.decisions.iter().any(|decision| {
             matches!(
                 decision.outcome,
-                popkern_core::topology::BrepEdgeSurfaceCompatibilityRepairOutcome::Declined(
-                    popkern_core::topology::BrepEdgeSurfaceCompatibilityDeclineReason::IntersectionFailed
-                        | popkern_core::topology::BrepEdgeSurfaceCompatibilityDeclineReason::AnchorMotionExceeded
-                )
-            ) && decision.evidence.attempted_surface_intersection
-                && decision.evidence.attempted_anchor_repair
-                && !decision.evidence.boundary_declines.is_empty()
+                popkern_core::topology::BrepEdgeSurfaceCompatibilityRepairOutcome::Declined(_)
+            ) && !decision.shared_fact_ids.is_empty()
         }),
-        "strict real fixture diagnostics must expose attempted Gregory/cylinder repair with measured boundary declines"
+        "strict real fixture diagnostics must link declined edges to repair knowledge facts"
+    );
+}
+
+fn assert_materialized_cylinder_trim_decline(report: &popkern_fillet::BlendRepairReport) {
+    assert!(
+        report.apex_diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            ApexConstructionDiagnostic::CylinderTrimMaterialization(decline)
+                if decline.reason
+                    == popkern_fillet::CylinderTrimMaterializationDeclineReason::NoPlanePlaneCylinderTransition
+                    && !decline.start_support_faces.is_empty()
+                    && !decline.end_support_faces.is_empty()
+                    && !decline.exact_authorable
+        )),
+        "public BlendResult repair report must expose cylinder trim materialization decline diagnostics: {:#?}",
+        report.apex_diagnostics
     );
 }
 

@@ -199,6 +199,13 @@ use partition_support_trim_sides::{
 };
 use partition_support_trim_validation::validate_replacement_loop_support_side_ownership;
 
+pub(super) type RepeatedApexNormalization = (
+    FaceHandle,
+    Vec<EdgeHandle>,
+    Vec<crate::types::ApexConstructionDiagnostic>,
+);
+pub(super) type OptionalRepeatedApexNormalization = Option<RepeatedApexNormalization>;
+
 pub(super) fn try_build_planned_repeated_apex_partition(
     brep: &mut BRep,
     plan: &ApexPlan,
@@ -207,7 +214,7 @@ pub(super) fn try_build_planned_repeated_apex_partition(
     face_edge_handles: &[EdgeHandle],
     fillet_surfaces: &[FilletSurfaceResult],
     execution_options: RepeatedApexPartitionExecutionOptions,
-) -> Result<Option<(FaceHandle, Vec<EdgeHandle>)>, ApexBuildError> {
+) -> Result<OptionalRepeatedApexNormalization, ApexBuildError> {
     let n_fillets = plan.cap_kind.n_fillets();
     let Some(partition_plan) = try_plan_repeated_apex_partition(
         brep,

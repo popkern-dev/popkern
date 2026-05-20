@@ -198,7 +198,15 @@ impl RepeatedApexPartitionPlan {
         fillet_surfaces: &[FilletSurfaceResult],
         n_fillets: usize,
         execution_options: RepeatedApexPartitionExecutionOptions,
-    ) -> Result<(FaceHandle, Vec<EdgeHandle>), ApexBuildError> {
+    ) -> Result<
+        (
+            FaceHandle,
+            Vec<EdgeHandle>,
+            Vec<crate::types::ApexConstructionDiagnostic>,
+        ),
+        ApexBuildError,
+    > {
+        let mut diagnostics = Vec::new();
         let mut face_edge_arcs: Vec<Option<FaceEdgeOwnership>> = vec![None; n_fillets];
         let mut base_span: Option<&RetiredApexSpan> = None;
         for span in &self.retired_spans {
@@ -281,7 +289,7 @@ impl RepeatedApexPartitionPlan {
         let mut boundary_outcome =
             PartitionBoundaryOutcome::from_current_cap_cycle(cap_cycle.clone());
         if execution_options.apply_cylinder_trim_rewrite {
-            boundary_outcome = apply_cylinder_trim_rewrites_transactionally(
+            let rewrite_result = apply_cylinder_trim_rewrites_transactionally(
                 brep,
                 self.cap_face,
                 self.cap_loop,
@@ -289,6 +297,8 @@ impl RepeatedApexPartitionPlan {
                 &fillet_end_ownership,
                 execution_options.require_v_free_repeated_apex,
             )?;
+            boundary_outcome = rewrite_result.boundary_outcome;
+            diagnostics.extend(rewrite_result.diagnostics);
         }
         if execution_options.require_cylinder_trim_rewrite_ready {
             validate_cylinder_trim_rewrite_readiness(brep, &fillet_end_ownership)?;
@@ -428,7 +438,7 @@ impl RepeatedApexPartitionPlan {
         }
         validate_repeated_apex_normalization_structure(brep)?;
         validate_partition_cap_to_cylinder_seams(brep, self.cap_face, n_fillets)?;
-        Ok((self.cap_face, fillet_end_edges))
+        Ok((self.cap_face, fillet_end_edges, diagnostics))
     }
 }
 

@@ -180,7 +180,7 @@ pub(super) fn create_remaining_fillet_end_edges(
     plan: &ApexPlan,
     cap_face: &mut FaceHandle,
     construction: RemainingFilletEndConstruction<'_>,
-) -> Result<bool, ApexBuildError> {
+) -> Result<(bool, Vec<crate::types::ApexConstructionDiagnostic>), ApexBuildError> {
     let RemainingFilletEndConstruction {
         apex_vertex_handles,
         face_edge_handles,
@@ -196,7 +196,7 @@ pub(super) fn create_remaining_fillet_end_edges(
     }
 
     if fillet_ends.iter().all(Option::is_none)
-        && let Some((normalized_cap_face, created)) = try_normalize_repeated_apex_loop(
+        && let Some((normalized_cap_face, created, diagnostics)) = try_normalize_repeated_apex_loop(
             brep,
             plan,
             *cap_face,
@@ -210,7 +210,7 @@ pub(super) fn create_remaining_fillet_end_edges(
         for (slot, edge) in fillet_ends.iter_mut().zip(created) {
             *slot = Some(edge);
         }
-        return Ok(true);
+        return Ok((true, diagnostics));
     }
 
     for (k, fillet_end) in fillet_ends.iter_mut().enumerate().take(n) {
@@ -228,7 +228,7 @@ pub(super) fn create_remaining_fillet_end_edges(
         *fillet_end = Some(created);
     }
 
-    Ok(false)
+    Ok((false, Vec::new()))
 }
 
 fn try_create_single_fillet_end_edge(

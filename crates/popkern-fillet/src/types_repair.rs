@@ -12,6 +12,8 @@ pub struct BlendRepairReport {
     pub support_seam_relocation: SupportSeamRelocationReport,
     /// Per-apex construction route decisions for legacy/A2 migration tracking.
     pub apex_routes: Vec<ApexConstructionRouteDecision>,
+    /// Structured apex construction diagnostics and declined repair candidates.
+    pub apex_diagnostics: Vec<ApexConstructionDiagnostic>,
 }
 
 /// Construction route used for one smooth multi-fillet apex.
@@ -40,6 +42,57 @@ pub struct ApexConstructionRouteDecision {
     pub corner_patch_count: usize,
     /// A2 decline reason when [`ApexConstructionRoute::A2FallbackToLegacy`] applies.
     pub fallback_reason: Option<String>,
+}
+
+/// Structured apex-construction diagnostic emitted by construction planning and
+/// repair preflights.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ApexConstructionDiagnostic {
+    /// Target-cylinder trim replacement could not materialize an exact,
+    /// ownership-balanced far-side trim.
+    CylinderTrimMaterialization(CylinderTrimMaterializationDiagnostic),
+}
+
+/// Materialized target-cylinder trim replacement diagnostic.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CylinderTrimMaterializationDiagnostic {
+    /// Fillet index whose target cylinder trim was inspected.
+    pub fillet_index: usize,
+    /// Target cylinder face being rewritten.
+    pub cylinder_face: FaceHandle,
+    /// Start vertex of the declined far-side trim.
+    pub start: VertexHandle,
+    /// End vertex of the declined far-side trim.
+    pub end: VertexHandle,
+    /// Selected far-side trim strategy.
+    pub strategy: CylinderTrimFarSideStrategy,
+    /// Support-plane candidates containing the start endpoint.
+    pub start_support_faces: Vec<FaceHandle>,
+    /// Support-plane candidates containing the end endpoint.
+    pub end_support_faces: Vec<FaceHandle>,
+    /// Stable decline reason.
+    pub reason: CylinderTrimMaterializationDeclineReason,
+    /// Whether exact curve authoring was available for the selected span.
+    pub exact_authorable: bool,
+}
+
+/// Far-side trim direction selected for target-cylinder loop replacement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CylinderTrimFarSideStrategy {
+    /// Forward loop path between target-cylinder anchors.
+    Forward,
+    /// Reverse loop path between target-cylinder anchors.
+    Reverse,
+}
+
+/// Stable reason a materialized cylinder trim replacement declined.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CylinderTrimMaterializationDeclineReason {
+    /// Endpoints belong to different support planes and no
+    /// plane-plane-cylinder transition point exists.
+    NoPlanePlaneCylinderTransition,
+    /// The preflight declined for a different currently unclassified reason.
+    Other,
 }
 
 /// Build a serialization-ready repair-action artifact from blend repair diagnostics.

@@ -47,6 +47,7 @@ use crate::types::{CornerPatchInfo, FilletRadius, FilletSpec};
 pub(crate) struct A2DispatchOutcome {
     pub built_faces: Vec<FaceHandle>,
     pub corner_patches: Vec<CornerPatchInfo>,
+    pub diagnostics: Vec<crate::types::ApexConstructionDiagnostic>,
 }
 
 /// Try the A2 apex-construction path for one vertex.
@@ -236,6 +237,7 @@ pub(super) fn try_a2_apex_construction(
     Ok(A2DispatchOutcome {
         built_faces: build_result.created_faces,
         corner_patches: build_result.corner_patches,
+        diagnostics: build_result.diagnostics,
     })
 }
 

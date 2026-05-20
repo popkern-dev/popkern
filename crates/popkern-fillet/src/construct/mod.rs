@@ -259,6 +259,7 @@ pub fn apply_blend_geometry(
                                 success.corner_patches.len(),
                                 None,
                             ));
+                            repair_report.apex_diagnostics.extend(success.diagnostics);
                             a2_built_faces.extend(success.built_faces);
                             corner_patches.extend(success.corner_patches);
                             a2_succeeded = true;

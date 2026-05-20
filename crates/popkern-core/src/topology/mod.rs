@@ -237,6 +237,7 @@ pub use brep_degenerate_edges::{
 /// Read-only BRep export-quality diagnostics.
 pub mod brep_export_quality;
 mod brep_export_quality_scope;
+mod brep_fidelity_blocker_ownership;
 pub use brep_export_quality::{
     BrepBoundaryEdgeArtifact, BrepExportBlockerSummary, BrepExportQualityArtifact,
     BrepExportQualityOptions, BrepExportQualityReport, BrepExportQualitySummary,
@@ -246,6 +247,10 @@ pub use brep_export_quality::{
 };
 pub use brep_export_quality_scope::{
     BrepExportQualityScope, BrepScopedExportQualityReport, analyze_scoped_brep_export_quality,
+};
+pub use brep_fidelity_blocker_ownership::{
+    BrepFidelityBlockerOwnership, BrepFidelityBlockerOwnershipReport,
+    BrepFidelityBlockerSideOwnership, classify_brep_fidelity_blocker_ownership,
 };
 
 /// Read-only loop and shell diagnostics for repair decisions.

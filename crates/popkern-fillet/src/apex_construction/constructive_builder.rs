@@ -135,6 +135,7 @@ fn construct_apex_inner_constructive(
             apex_vertices: Vec::new(),
             apex_edges: Vec::new(),
             corner_patches: Vec::new(),
+            diagnostics: Vec::new(),
             telemetry: plan.telemetry.clone(),
         });
     }
@@ -202,6 +203,7 @@ fn construct_apex_inner_constructive(
                 // existing trim-trim segments on the cap face's outer loop.
                 apex_edges: vec![None; n],
                 corner_patches,
+                diagnostics: Vec::new(),
                 telemetry: plan.telemetry.clone(),
             })
         }
@@ -240,7 +242,7 @@ fn construct_apex_inner_constructive(
                     fillet_surfaces,
                 )?;
             check_cancelled(cancel)?;
-            let repeated_apex_normalized = create_remaining_fillet_end_edges(
+            let (repeated_apex_normalized, diagnostics) = create_remaining_fillet_end_edges(
                 brep,
                 plan,
                 &mut cap_face,
@@ -294,6 +296,7 @@ fn construct_apex_inner_constructive(
                 apex_vertices: apex_vertex_handles,
                 apex_edges,
                 corner_patches,
+                diagnostics,
                 telemetry: plan.telemetry.clone(),
             })
         }

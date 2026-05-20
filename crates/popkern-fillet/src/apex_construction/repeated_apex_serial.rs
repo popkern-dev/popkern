@@ -20,6 +20,7 @@ use super::error::ApexBuildError;
 use super::plan::ApexPlan;
 use super::repeated_apex_loop_plan::plan_repeated_apex_loop_normalization;
 use super::repeated_apex_partition::{
+    OptionalRepeatedApexNormalization, RepeatedApexNormalization,
     RepeatedApexPartitionExecutionOptions, try_build_planned_repeated_apex_partition,
 };
 
@@ -31,7 +32,7 @@ pub(super) fn try_normalize_repeated_apex_loop(
     face_edge_handles: &[EdgeHandle],
     fillet_surfaces: &[FilletSurfaceResult],
     partition_execution_options: RepeatedApexPartitionExecutionOptions,
-) -> Result<Option<(FaceHandle, Vec<EdgeHandle>)>, ApexBuildError> {
+) -> Result<OptionalRepeatedApexNormalization, ApexBuildError> {
     let n = plan.cap_kind.n_fillets();
     let Some(normalization_plan) = plan_repeated_apex_loop_normalization(
         brep,
@@ -73,7 +74,7 @@ fn normalize_repeated_apex_loop_in_place(
     face_edge_handles: &[EdgeHandle],
     fillet_surfaces: &[FilletSurfaceResult],
     partition_execution_options: RepeatedApexPartitionExecutionOptions,
-) -> Result<(FaceHandle, Vec<EdgeHandle>), ApexBuildError> {
+) -> Result<RepeatedApexNormalization, ApexBuildError> {
     let n_fillets = plan.cap_kind.n_fillets();
     let trace = crate::a2_trace::enabled();
     if trace {
@@ -182,7 +183,7 @@ fn normalize_repeated_apex_loop_in_place(
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    Ok((current_cap_face, created))
+    Ok((current_cap_face, created, Vec::new()))
 }
 
 fn plan_next_repeated_apex_sector(
