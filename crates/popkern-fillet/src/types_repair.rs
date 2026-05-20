@@ -44,6 +44,8 @@ pub struct ApexConstructionRouteDecision {
     pub exact_boundary_sector_count: usize,
     /// Number of exact-boundary curves prepared without approximation.
     pub exact_boundary_prepared_curve_count: usize,
+    /// Number of support derivative ribbons prepared from support pcurve evidence.
+    pub exact_boundary_ribbon_count: usize,
     /// direct-apex decline reason when [`ApexConstructionRoute::DirectApexFallbackToLegacy`] applies.
     pub fallback_reason: Option<String>,
 }
@@ -52,12 +54,34 @@ pub struct ApexConstructionRouteDecision {
 /// repair preflights.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ApexConstructionDiagnostic {
+    /// Exact-boundary cap candidate preparation declined before it could be
+    /// committed as the active cap primitive.
+    ExactBoundaryCap(ExactBoundaryCapDiagnostic),
     /// Target-cylinder trim replacement could not materialize an exact,
     /// ownership-balanced far-side trim.
     CylinderTrimMaterialization(CylinderTrimMaterializationDiagnostic),
     /// Native Gregory cap/support seam continuity did not meet the commercial
     /// G1 gate after construction.
     CapSupportContinuity(CapSupportContinuityDiagnostic),
+}
+
+/// Exact-boundary cap preparation diagnostic for candidate construction.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExactBoundaryCapDiagnostic {
+    /// Candidate stage that emitted the diagnostic.
+    pub stage: String,
+    /// Stable diagnostic code.
+    pub code: String,
+    /// Stable sector name where available.
+    pub sector_name: String,
+    /// Source edge being prepared.
+    pub edge: EdgeHandle,
+    /// Support half-edge being sampled, when applicable.
+    pub support_half_edge: Option<HalfEdgeHandle>,
+    /// Support face being sampled, when applicable.
+    pub support_face: Option<FaceHandle>,
+    /// Measured residual, when available.
+    pub residual: Option<f64>,
 }
 
 /// Native cap/support continuity diagnostic for a constructed apex cap.
@@ -163,6 +187,28 @@ pub fn build_blend_repair_action_artifact(report: &BlendRepairReport) -> BrepRep
     let mut apex_max_deviation = 0.0f64;
     for diagnostic in &report.apex_diagnostics {
         match diagnostic {
+            ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic) => {
+                apex_declined += 1;
+                let deviation = diagnostic.residual.unwrap_or(0.0);
+                apex_max_deviation = apex_max_deviation.max(deviation);
+                actions.push(BrepRepairActionRecord {
+                    stage: diagnostic.stage.clone(),
+                    outcome: "declined".to_string(),
+                    subject: format!(
+                        "sector={};edge={:?};support_half_edge={:?}",
+                        diagnostic.sector_name, diagnostic.edge, diagnostic.support_half_edge
+                    ),
+                    reason: Some(diagnostic.code.clone()),
+                    max_motion: 0.0,
+                    max_deviation: deviation,
+                    affected_handles: vec![
+                        format!("edge:{:?}", diagnostic.edge),
+                        format!("support_half_edge:{:?}", diagnostic.support_half_edge),
+                        format!("support_face:{:?}", diagnostic.support_face),
+                    ],
+                    shared_fact_ids: Vec::new(),
+                });
+            }
             ApexConstructionDiagnostic::CylinderTrimMaterialization(_) => {}
             ApexConstructionDiagnostic::CapSupportContinuity(diagnostic) => {
                 apex_declined += 1;

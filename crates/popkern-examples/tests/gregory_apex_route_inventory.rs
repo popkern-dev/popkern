@@ -4,7 +4,8 @@ use popkern_core::topology::{
     analyze_brep_edge_surface_compatibility, analyze_brep_export_quality,
 };
 use popkern_fillet::{
-    ApexConstructionRoute, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
+    ApexConstructionDiagnostic, ApexConstructionRoute, FilletOptions, FilletRadius, FilletSpec,
+    fillet_edges,
 };
 
 #[test]
@@ -18,6 +19,8 @@ fn mixed_radius_gregory_records_default_direct_apex_route() {
     assert_eq!(routes[0].built_faces.len(), 3);
     assert_eq!(routes[0].exact_boundary_sector_count, 3);
     assert_eq!(routes[0].exact_boundary_prepared_curve_count, 6);
+    assert_eq!(routes[0].exact_boundary_ribbon_count, 0);
+    assert_exact_boundary_ribbon_decline(&result);
     assert!(routes[0].fallback_reason.is_none());
 }
 
@@ -35,7 +38,25 @@ fn mixed_radius_gregory_records_direct_apex_requested_route() {
     assert_eq!(routes[0].built_faces.len(), 3);
     assert_eq!(routes[0].exact_boundary_sector_count, 3);
     assert_eq!(routes[0].exact_boundary_prepared_curve_count, 6);
+    assert_eq!(routes[0].exact_boundary_ribbon_count, 0);
+    assert_exact_boundary_ribbon_decline(&result);
     assert!(routes[0].fallback_reason.is_none());
+}
+
+fn assert_exact_boundary_ribbon_decline(result: &popkern_fillet::BlendResult) {
+    assert!(
+        result
+            .repair_report
+            .apex_diagnostics
+            .iter()
+            .any(|diagnostic| matches!(
+                diagnostic,
+                ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic)
+                    if diagnostic.stage == "exact_boundary_cap.support_ribbon"
+                        && diagnostic.code == "exact_boundary_cap.ribbon.support_pcurve_stale"
+            )),
+        "mixed-radius Gregory should promote exact-boundary support-ribbon pcurve readiness declines into apex diagnostics"
+    );
 }
 
 #[test]
