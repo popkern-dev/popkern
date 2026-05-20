@@ -11,8 +11,8 @@ use popkern_core::topology::{
     repair_brep_boundary_edges_transactionally,
 };
 use popkern_fillet::{
-    BlendResult, CornerMethod, CornerPatchInfo, FilletOptions, FilletRadius, FilletSpec,
-    fillet_edges,
+    ApexConstructionDiagnostic, BlendResult, CornerMethod, CornerPatchInfo, FilletOptions,
+    FilletRadius, FilletSpec, fillet_edges,
 };
 use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
@@ -266,9 +266,21 @@ fn gregory_mixed_radius_edge_surface_pipeline_diagnostics_are_structured() {
     );
     assert_eq!(support_report.decisions.len(), support_report.candidates);
     let artifact = popkern_fillet::build_blend_repair_action_artifact(&blend.repair_report);
+    let apex_diagnostic_actions = blend
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            matches!(
+                diagnostic,
+                ApexConstructionDiagnostic::ExactBoundaryCap(_)
+                    | ApexConstructionDiagnostic::CapSupportContinuity(_)
+            )
+        })
+        .count();
     assert_eq!(
         artifact.summary.attempted_actions,
-        support_report.candidates
+        support_report.candidates + apex_diagnostic_actions
     );
     assert!(
         !brep.surface_boundary_hints.is_empty() || !brep.surface_boundary_declines.is_empty(),

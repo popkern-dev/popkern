@@ -2,6 +2,7 @@
 
 pub(crate) mod boundary;
 pub(crate) mod corner;
+pub(crate) mod pcurves;
 pub(crate) mod ribbon;
 pub(crate) mod sector;
 pub(crate) mod solve;
@@ -17,6 +18,10 @@ mod corner_tests;
 #[cfg(test)]
 #[path = "ribbon_tests.rs"]
 mod ribbon_tests;
+
+#[cfg(test)]
+#[path = "pcurves_tests.rs"]
+mod pcurves_tests;
 
 #[cfg(test)]
 #[path = "sector_tests.rs"]
