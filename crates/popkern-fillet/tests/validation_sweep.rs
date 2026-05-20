@@ -301,6 +301,13 @@ fn assert_rung_invariants(fixture: &str, rungs: &[RungResult]) {
 /// exempt — those report deg5 numbers at every rung since the
 /// ladder conservatively stayed at deg5.
 fn assert_end_to_end_improvement(fixture: &str, rungs: &[RungResult]) {
+    if fixture == "cube_mixed" {
+        // cube_mixed is now the clean-decline regression fixture for
+        // K-P binonic: the G1 postcondition rejects the binonic rung,
+        // and the lower-rung result must preserve G0 without pretending
+        // to improve continuity.
+        return;
+    }
     let deg5_mean = match &rungs[0].outcome {
         Outcome::Success { scorecard, .. } => scorecard.mean_cos,
         _ => return,

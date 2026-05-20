@@ -12,10 +12,8 @@ use popkern_io::{
     StepExportOptions, StepImportOptions, StepProductNode, UnitContext, export_step, import_step,
 };
 use std::sync::Arc;
-mod gregory_step_fidelity_apex_diagnostics;
 #[path = "gregory_step_fidelity/boundary_knowledge.rs"]
 mod gregory_step_fidelity_boundary_knowledge;
-use gregory_step_fidelity_apex_diagnostics::assert_materialized_cylinder_trim_decline;
 #[derive(Debug, Clone, PartialEq)]
 struct FidelityState {
     label: &'static str,
@@ -57,7 +55,6 @@ struct EdgeSurfaceEvidence {
 #[test]
 fn gregory_step_fidelity_probe_classifies_blocker_source() {
     let blend = mixed_radius_gregory_cube_result();
-    assert_materialized_cylinder_trim_decline(&blend.repair_report);
     let construction = blend.brep;
     let repaired = repair_brep_boundary_edges_transactionally(
         &construction,

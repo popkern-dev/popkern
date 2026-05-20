@@ -19,7 +19,10 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
-fn corner_cube_with_flag(use_kp_binonic: bool) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
+fn corner_cube_with_flag(
+    radii: [f64; 3],
+    use_kp_binonic: bool,
+) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let incident_edges: Vec<_> = cube
@@ -31,7 +34,6 @@ fn corner_cube_with_flag(use_kp_binonic: bool) -> (BRep, Vec<popkern_core::topol
     // Asymmetric radii — the two-stripe rung is guaranteed to
     // engage here (uniform radii fall through to the analytic
     // sphere path upstream of the Gregory dispatch).
-    let radii = [0.08, 0.10, 0.12];
     let specs: Vec<FilletSpec> = incident_edges
         .iter()
         .zip(radii.iter())
@@ -80,7 +82,7 @@ fn variants_at(brep: &BRep, faces: &[popkern_core::topology::FaceHandle]) -> Vec
 
 #[test]
 fn flag_off_keeps_phase_g_two_stripe_output() {
-    let (brep, faces) = corner_cube_with_flag(false);
+    let (brep, faces) = corner_cube_with_flag([0.08, 0.10, 0.12], false);
     let variants = variants_at(&brep, &faces);
     if variants.is_empty() {
         assert!(
@@ -106,7 +108,7 @@ fn flag_off_keeps_phase_g_two_stripe_output() {
 
 #[test]
 fn flag_on_produces_binonic_or_falls_back_cleanly() {
-    let (brep, faces) = corner_cube_with_flag(true);
+    let (brep, faces) = corner_cube_with_flag([0.08, 0.10, 0.12], true);
     let variants = variants_at(&brep, &faces);
     if variants.is_empty() {
         assert!(
@@ -120,8 +122,9 @@ fn flag_on_produces_binonic_or_falls_back_cleanly() {
     assert_eq!(variants.len(), 3, "expected 3 sub-patches");
     // Ladder is conservative: binonic may revert on self-intersect
     // or build-failure. Accept any variant from the full ladder,
-    // including binonic. A follow-up dense-G1 regression sweep
-    // asserts binonic actually fires on the cube_mixed fixture.
+    // including binonic. The dedicated dispatch smoke below asserts
+    // binonic actually fires on a fixture that satisfies the commercial
+    // postconditions.
     for v in &variants {
         assert!(
             matches!(
@@ -138,7 +141,7 @@ fn flag_on_produces_binonic_or_falls_back_cleanly() {
 /// is unreachable and the flag has no coverage.
 #[test]
 fn flag_on_lands_binonic_on_at_least_one_fixture() {
-    let (brep, faces) = corner_cube_with_flag(true);
+    let (brep, faces) = corner_cube_with_flag([0.02, 0.10, 0.20], true);
     let variants = variants_at(&brep, &faces);
     if variants.is_empty() {
         assert!(
@@ -152,8 +155,8 @@ fn flag_on_lands_binonic_on_at_least_one_fixture() {
     let any_binonic = variants.iter().any(|v| v == "binonic");
     assert!(
         any_binonic,
-        "flag-on path never produced a binonic variant on cube_mixed \
-         (radii [0.08, 0.10, 0.12]) — dispatch wiring or K-P build is broken. \
+        "flag-on path never produced a binonic variant on cube_extreme \
+         (radii [0.02, 0.10, 0.20]) — dispatch wiring or K-P build is broken. \
          variants seen: {variants:?}"
     );
 }

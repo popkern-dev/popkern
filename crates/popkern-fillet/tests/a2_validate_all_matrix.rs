@@ -14,7 +14,9 @@
 //!   Gregory to preserve cap-to-cylinder geometry.
 //! * **Native Gregory fixtures** (`cube_mixed`, `pyramid3_uniform`)
 //!   — A2 must complete with no fallback and expose measurable
-//!   cap-to-cylinder seams.
+//!   cap-to-cylinder seams. `cube_mixed` is native with G0-preserving
+//!   cap/support seams, but still records the remaining cap_outer_g1
+//!   construction-quality blocker.
 //! * **Remaining Gregory-cap fixtures** (`cube_extreme`,
 //!   `pyramid4_uniform`, `pyramid4_mixed`) —
 //!   until the validated outside/outside support-continuation

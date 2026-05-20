@@ -265,6 +265,13 @@ pub fn assert_all_binonic(patches: &[GregoryPatch], fixture: &str) {
     }
 }
 
+pub fn all_binonic(patches: &[GregoryPatch]) -> bool {
+    !patches.is_empty()
+        && patches
+            .iter()
+            .all(|patch| matches!(patch, GregoryPatch::RectangularBiNonic(_)))
+}
+
 /// Assert all three commercial gates (G0, G1, G2) pass on the
 /// given metrics. Prints the metrics for logs.
 pub fn assert_commercial_gates(fixture: &str, m: &RingMetrics) {

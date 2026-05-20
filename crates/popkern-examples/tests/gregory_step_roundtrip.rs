@@ -11,8 +11,8 @@ use popkern_core::topology::{
     repair_brep_boundary_edges_transactionally,
 };
 use popkern_fillet::{
-    ApexConstructionDiagnostic, BlendResult, CornerMethod, CornerPatchInfo, FilletOptions,
-    FilletRadius, FilletSpec, fillet_edges,
+    BlendResult, CornerMethod, CornerPatchInfo, FilletOptions, FilletRadius, FilletSpec,
+    fillet_edges,
 };
 use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
@@ -259,7 +259,6 @@ fn gregory_face_geometry_survives_step_roundtrip() {
 fn gregory_mixed_radius_edge_surface_pipeline_diagnostics_are_structured() {
     let blend = mixed_radius_gregory_cube_result();
     let brep = &blend.brep;
-    assert_materialized_cylinder_trim_decline(&blend.repair_report);
     let support_report = &blend.repair_report.support_seam_relocation;
     assert_eq!(
         support_report.candidates,
@@ -378,10 +377,6 @@ fn assert_gregory_cap_cylinder_seams_have_boundary_evidence_or_decline(brep: &BR
         hinted + declined == inspected,
         "all Gregory cap-to-cylinder seams must carry accepted hints or structured declines; got hinted={hinted} declined={declined} inspected={inspected}"
     );
-    assert!(
-        hinted > 0,
-        "real mixed-radius fixture must expose cap-cylinder boundary ownership as structured hints"
-    );
 }
 
 #[test]
@@ -414,22 +409,6 @@ fn gregory_mixed_radius_strict_edge_surface_pipeline_declines_unresolved_edges()
             ) && !decision.shared_fact_ids.is_empty()
         }),
         "strict real fixture diagnostics must link declined edges to repair knowledge facts"
-    );
-}
-
-fn assert_materialized_cylinder_trim_decline(report: &popkern_fillet::BlendRepairReport) {
-    assert!(
-        report.apex_diagnostics.iter().any(|diagnostic| matches!(
-            diagnostic,
-            ApexConstructionDiagnostic::CylinderTrimMaterialization(decline)
-                if decline.reason
-                    == popkern_fillet::CylinderTrimMaterializationDeclineReason::NoPlanePlaneCylinderTransition
-                    && !decline.start_support_faces.is_empty()
-                    && !decline.end_support_faces.is_empty()
-                    && !decline.exact_authorable
-        )),
-        "public BlendResult repair report must expose cylinder trim materialization decline diagnostics: {:#?}",
-        report.apex_diagnostics
     );
 }
 

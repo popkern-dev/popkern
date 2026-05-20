@@ -307,7 +307,12 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         }
     }
 
-    let support_frames_enabled = hex_boundary_data.is_some();
+    // Support-frame rewriting is diagnostic enrichment, not accepted
+    // construction: on cube_mixed it can satisfy a local cap/support
+    // metric while breaking ring G0 or forcing A2 fallback. Keep it out
+    // of the construction path until support continuation is rebuilt as
+    // a postcondition-gated surface primitive.
+    let support_frames_enabled = false;
 
     // Always compute per-fillet sphere data when sphere-fit substitution
     // succeeded, even if the sphere-cap rung is not selected.
@@ -390,26 +395,17 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             author_boundary_owned_seam_pcurves(brep, *sub_face, boundary, fillet_surfaces, k);
         }
         if support_frames_enabled && !sphere_cap_rung {
+            let surface_before_support_frame = brep.faces[*sub_face].surface.clone();
             super::boundary_support_frames::apply_face_owned_support_frames(brep, *sub_face);
-            let Some(SurfaceOnFace {
-                geometry: SurfaceGeometry::Gregory(patch),
-                ..
-            }) = brep.faces.get(*sub_face).and_then(|f| f.surface.as_ref())
-            else {
-                *brep = brep_before_surface_assignment.clone();
-                return Err(ThreeQuadFailure::Other(
-                    "support-frame rewrite lost Gregory cap surface".to_string(),
-                ));
-            };
-            if patch.self_intersects_with_tolerance(SELF_INT_TOL) {
-                *brep = brep_before_surface_assignment.clone();
-                return Err(ThreeQuadFailure::Other(format!(
-                    "cap surface candidate planner rejected constrained patch after \
-                     support-frame rewrite (self-intersection); sphere caps rejected ({})",
-                    sphere_cap_boundary_rejection
-                        .as_deref()
-                        .unwrap_or("not selected for this candidate")
-                )));
+            let support_frame_rewrite_survived = matches!(
+                brep.faces.get(*sub_face).and_then(|f| f.surface.as_ref()),
+                Some(SurfaceOnFace {
+                    geometry: SurfaceGeometry::Gregory(patch),
+                    ..
+                }) if !patch.self_intersects_with_tolerance(SELF_INT_TOL)
+            );
+            if !support_frame_rewrite_survived {
+                brep.faces[*sub_face].surface = surface_before_support_frame;
             }
         }
         three_quad_reproject::author_missing_outer_loop_pcurves_from_vertices(brep, *sub_face);

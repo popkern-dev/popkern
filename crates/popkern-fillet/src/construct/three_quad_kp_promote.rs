@@ -125,6 +125,18 @@ pub(super) fn promote_decomp_to_kp_binonic(
             return None;
         }
     }
+    const COMMERCIAL_G0_GATE: f64 = 1e-10;
+    let post_g0 = worst_ring_g0_gap(&binonic_gp);
+    if post_g0 > COMMERCIAL_G0_GATE {
+        trace_kp(
+            "g0 postcondition",
+            n,
+            Some(format!(
+                "worst_g0={post_g0:.3e} gate={COMMERCIAL_G0_GATE:.1e}"
+            )),
+        );
+        return None;
+    }
 
     // Quality guard — revert to two-stripe when binonic is
     // catastrophically worse than the predecessor rung. Threshold
@@ -139,9 +151,9 @@ pub(super) fn promote_decomp_to_kp_binonic(
     // (input) row9/col0 geometry — the L-M can't refine it. The
     // 1.2× regression guard was tuned for the guide-driven path
     // and rejects legitimate-but-different geometry under
-    // injection. Skip the guard when injection is active; the
-    // self-intersection gate (already checked above) is the
-    // remaining quality floor under injection.
+    // injection. Skip residual gates that use this pre-assignment
+    // ring metric when injection is active; the self-intersection and
+    // G0 gates above remain the local quality floor.
     let injection_active = hex_boundaries.is_some();
     if !injection_active && pre_worst > 1e-12 && post_worst > 1.2 * pre_worst {
         trace_kp(
@@ -152,17 +164,22 @@ pub(super) fn promote_decomp_to_kp_binonic(
         return None;
     }
 
+    const COMMERCIAL_GATE: f64 = 5e-2;
+    if post_worst > COMMERCIAL_GATE {
+        trace_kp(
+            "g1 postcondition",
+            n,
+            Some(format!(
+                "worst_coplanarity={post_worst:.3e} gate={COMMERCIAL_GATE:.1e}"
+            )),
+        );
+        return None;
+    }
+
     for (idx, patch) in binonic.into_iter().enumerate() {
         sub_patches[idx] = GregoryPatch::RectangularBiNonic(Box::new(patch));
     }
-
-    // Phase H.8 step-D — `Some(worst)` signals relaxed continuity.
-    const COMMERCIAL_GATE: f64 = 5e-2;
-    if post_worst > COMMERCIAL_GATE {
-        Some(post_worst)
-    } else {
-        None
-    }
+    None
 }
 
 /// Worst-case G1 coplanarity across the full ring's shared spokes,
@@ -195,6 +212,26 @@ pub(crate) fn worst_ring_coplanarity(patches: &[GregoryPatch]) -> f64 {
                 if coplan > worst {
                     worst = coplan;
                 }
+            }
+        }
+    }
+    worst
+}
+
+pub(crate) fn worst_ring_g0_gap(patches: &[GregoryPatch]) -> f64 {
+    let n = patches.len();
+    let mut worst = 0.0_f64;
+    for k in 0..n {
+        let a = &patches[k];
+        let b = &patches[(k + 1) % n];
+        for sample in 0..50 {
+            let t = 0.05 + 0.90 * (sample as f64) / 49.0;
+            let t_b = 1.0 - t;
+            let pa = a.point_at(1.0, t);
+            let pb = b.point_at(t_b, 0.0);
+            let gap = pa.distance_to(&pb);
+            if gap > worst {
+                worst = gap;
             }
         }
     }
