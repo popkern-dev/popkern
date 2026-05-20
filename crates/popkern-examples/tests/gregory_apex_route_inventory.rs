@@ -8,14 +8,14 @@ use popkern_fillet::{
 };
 
 #[test]
-fn mixed_radius_gregory_records_default_legacy_route() {
+fn mixed_radius_gregory_records_default_a2_route() {
     let result = mixed_radius_gregory_cube(FilletOptions::default());
     let routes = &result.repair_report.apex_routes;
 
     assert_eq!(routes.len(), 1, "fixture should have one smooth apex route");
-    assert_eq!(routes[0].route, ApexConstructionRoute::Legacy);
+    assert_eq!(routes[0].route, ApexConstructionRoute::A2);
     assert_eq!(routes[0].incident_edges.len(), 3);
-    assert!(routes[0].built_faces.is_empty());
+    assert_eq!(routes[0].built_faces.len(), 3);
     assert!(routes[0].fallback_reason.is_none());
 }
 
@@ -35,26 +35,31 @@ fn mixed_radius_gregory_records_a2_requested_route() {
 }
 
 #[test]
-fn mixed_radius_gregory_a2_quality_gap_is_explicit() {
-    let legacy = mixed_radius_gregory_cube(FilletOptions::default());
-    let a2 = mixed_radius_gregory_cube(FilletOptions {
+fn mixed_radius_gregory_default_matches_requested_a2_quality() {
+    let default = mixed_radius_gregory_cube(FilletOptions::default());
+    let requested_a2 = mixed_radius_gregory_cube(FilletOptions {
         use_a2_apex_construction: true,
         ..FilletOptions::default()
     });
-    let legacy_quality = quality(&legacy.brep);
-    let a2_quality = quality(&a2.brep);
-    let _evidence_rows = legacy_quality.evidence_rows() + a2_quality.evidence_rows();
+    let default_quality = quality(&default.brep);
+    let requested_a2_quality = quality(&requested_a2.brep);
+    let _evidence_rows = default_quality.evidence_rows() + requested_a2_quality.evidence_rows();
 
     assert_eq!(
-        a2.repair_report.apex_routes[0].route,
+        default.repair_report.apex_routes[0].route,
+        ApexConstructionRoute::A2
+    );
+    assert_eq!(
+        requested_a2.repair_report.apex_routes[0].route,
         ApexConstructionRoute::A2
     );
     assert!(
-        a2_quality.pcurve_blockers <= legacy_quality.pcurve_blockers
-            && a2_quality.edge_surface_blockers <= legacy_quality.edge_surface_blockers
-            && a2_quality.max_pcurve_deviation <= legacy_quality.max_pcurve_deviation
-            && a2_quality.max_edge_surface_deviation <= legacy_quality.max_edge_surface_deviation,
-        "native A2 is not STEP-fidelity promotable yet: legacy={legacy_quality:?}, a2={a2_quality:?}"
+        default_quality.pcurve_blockers == requested_a2_quality.pcurve_blockers
+            && default_quality.edge_surface_blockers == requested_a2_quality.edge_surface_blockers
+            && default_quality.max_pcurve_deviation == requested_a2_quality.max_pcurve_deviation
+            && default_quality.max_edge_surface_deviation
+                == requested_a2_quality.max_edge_surface_deviation,
+        "default mixed-radius Gregory should use the same STEP-fidelity path as requested A2: default={default_quality:?}, requested_a2={requested_a2_quality:?}"
     );
 }
 

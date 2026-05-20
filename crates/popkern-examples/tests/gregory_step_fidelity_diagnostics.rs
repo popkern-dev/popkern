@@ -133,8 +133,8 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         .as_ref()
         .expect("edge/surface repair report should be present");
     assert!(
-        edge_surface_report.decisions.iter().any(|decision| {
-            matches!(
+        edge_surface_report.decisions.iter().all(|decision| {
+            !matches!(
                 (decision.evidence.surface_a, decision.evidence.surface_b),
                 (
                     Some(BrepEdgeSurfaceKind::Gregory),
@@ -143,13 +143,13 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
                     Some(BrepEdgeSurfaceKind::Cylinder),
                     Some(BrepEdgeSurfaceKind::Gregory)
                 )
-            ) && decision
+            ) || decision
                 .evidence
                 .repair_knowledge_diagnostics
                 .iter()
                 .any(|code| code.starts_with("brep.surface.boundary"))
         }),
-        "Gregory/cylinder blocker decisions should expose promoted surface-boundary knowledge diagnostics"
+        "remaining Gregory/cylinder blocker decisions must expose promoted surface-boundary knowledge diagnostics"
     );
     assert!(
         imported_state.pcurve_blockers > 0 || imported_state.edge_surface_blockers > 0,

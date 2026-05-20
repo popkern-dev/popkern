@@ -228,7 +228,13 @@ pub fn apply_blend_geometry(
                 //   * construct_apex returns ApexBuildError —
                 //     today most commonly Gregory cap surface
                 //     assignment (deferred to A2.4).
-                let a2_outcome = if use_a2_apex_construction {
+                let use_a2_for_this_apex = use_a2_apex_construction
+                    || should_promote_mixed_radius_gregory_apex(
+                        edge_indices,
+                        edge_geometries,
+                        use_rational_gregory,
+                    );
+                let a2_outcome = if use_a2_for_this_apex {
                     Some(a2_dispatch::try_a2_apex_construction(
                         &mut result,
                         *vertex,
@@ -282,7 +288,7 @@ pub fn apply_blend_geometry(
                 if a2_succeeded {
                     continue;
                 }
-                if !use_a2_apex_construction {
+                if !use_a2_for_this_apex {
                     repair_report.apex_routes.push(apex_route_decision(
                         *vertex,
                         edge_indices,
@@ -401,6 +407,25 @@ pub fn apply_blend_geometry(
         corner_patches,
         repair_report,
     })
+}
+
+fn should_promote_mixed_radius_gregory_apex(
+    edge_indices: &[usize],
+    edge_geometries: &[EdgeGeometry],
+    use_rational_gregory: bool,
+) -> bool {
+    if !use_rational_gregory || edge_indices.len() != 3 {
+        return false;
+    }
+    let mut radii = edge_indices.iter().filter_map(|&index| {
+        edge_geometries
+            .get(index)
+            .map(|geometry| geometry.effective_radius)
+    });
+    let Some(first) = radii.next() else {
+        return false;
+    };
+    radii.any(|radius| (radius - first).abs() > 1.0e-9)
 }
 
 fn apex_route_decision(
