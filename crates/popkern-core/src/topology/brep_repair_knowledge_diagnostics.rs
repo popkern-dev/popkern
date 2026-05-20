@@ -51,6 +51,33 @@ fn authority_code(reason: BrepRepairAuthorityReason) -> &'static str {
         BrepRepairAuthorityReason::MissingSurfaceBoundaryEvidence => {
             "brep.surface.boundary_hint_stale"
         }
+        BrepRepairAuthorityReason::SurfaceBoundaryStaleHintCleared => {
+            "brep.surface.boundary_hint_stale"
+        }
+        BrepRepairAuthorityReason::SurfaceBoundarySharedTrimAccepted
+        | BrepRepairAuthorityReason::SurfaceBoundaryClassifiedHint => {
+            "brep.surface.boundary_accepted"
+        }
+        BrepRepairAuthorityReason::SurfaceBoundaryClassifiedDecline => {
+            "brep.surface.boundary_declined"
+        }
+        BrepRepairAuthorityReason::SurfaceBoundarySharedTrimMissingTopology
+        | BrepRepairAuthorityReason::SurfaceBoundarySharedTrimHalfEdgeMismatch
+        | BrepRepairAuthorityReason::SurfaceBoundarySharedTrimNotTwins => {
+            "brep.surface.boundary_shared_trim_topology"
+        }
+        BrepRepairAuthorityReason::SurfaceBoundarySharedTrimEndpointMismatch => {
+            "brep.surface.boundary_shared_trim_endpoint"
+        }
+        BrepRepairAuthorityReason::SurfaceBoundarySharedTrimCurveSurfaceMismatch => {
+            "brep.surface.boundary_shared_trim_curve_surface"
+        }
+        BrepRepairAuthorityReason::SurfaceBoundarySharedTrimSideAgreementMismatch => {
+            "brep.surface.boundary_shared_trim_side_agreement"
+        }
+        BrepRepairAuthorityReason::SurfaceBoundarySharedTrimValidationFailed => {
+            "brep.surface.boundary_shared_trim_validation"
+        }
         BrepRepairAuthorityReason::MissingTopology => "brep.scope.seed_stale",
         BrepRepairAuthorityReason::DegenerateZeroLengthVertexEdge
         | BrepRepairAuthorityReason::DegenerateAmbiguousCollapsedTrim

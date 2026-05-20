@@ -31,6 +31,11 @@ pub use vertex::Vertex;
 pub mod brep;
 pub use brep::BRep;
 pub use brep::{SurfaceBoundaryHintDecline, SurfaceBoundaryHintDeclineReason};
+mod surface_boundary_audit;
+pub use surface_boundary_audit::{
+    SurfaceBoundaryAuditEvent, SurfaceBoundaryAuditOutcome, SurfaceBoundarySharedTrimFailureReason,
+    SurfaceBoundarySharedTrimValidation,
+};
 
 /// Non-manifold radial-cycle helpers for [`BRep`].
 mod brep_radial;

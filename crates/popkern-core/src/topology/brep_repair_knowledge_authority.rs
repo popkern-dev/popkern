@@ -60,6 +60,28 @@ pub enum BrepRepairAuthorityReason {
     TrimEndpointAcceptedReconciled,
     /// Canonical surface-boundary evidence exists for this side.
     SurfaceBoundaryAvailable,
+    /// A stale surface-boundary hint was cleared by audit.
+    SurfaceBoundaryStaleHintCleared,
+    /// Exact shared trim validation accepted boundary evidence.
+    SurfaceBoundarySharedTrimAccepted,
+    /// Exact shared trim validation declined because topology was missing.
+    SurfaceBoundarySharedTrimMissingTopology,
+    /// Exact shared trim validation declined because half-edge ownership did not match.
+    SurfaceBoundarySharedTrimHalfEdgeMismatch,
+    /// Exact shared trim validation declined because half-edges were not twins.
+    SurfaceBoundarySharedTrimNotTwins,
+    /// Exact shared trim validation declined because curve endpoints missed topology.
+    SurfaceBoundarySharedTrimEndpointMismatch,
+    /// Exact shared trim validation declined because curve and surface images disagreed.
+    SurfaceBoundarySharedTrimCurveSurfaceMismatch,
+    /// Exact shared trim validation declined because adjacent side images disagreed.
+    SurfaceBoundarySharedTrimSideAgreementMismatch,
+    /// Exact shared trim validation declined because post-commit validation failed.
+    SurfaceBoundarySharedTrimValidationFailed,
+    /// Pcurve classification accepted canonical surface-boundary evidence.
+    SurfaceBoundaryClassifiedHint,
+    /// Pcurve classification declined canonical surface-boundary evidence.
+    SurfaceBoundaryClassifiedDecline,
     /// No canonical surface-boundary evidence exists for this side.
     MissingSurfaceBoundaryEvidence,
     /// Authored surface-boundary evidence disagrees with committed trim evidence.

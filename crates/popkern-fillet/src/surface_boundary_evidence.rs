@@ -1,13 +1,22 @@
 //! Final construction audit for bounded-surface boundary evidence.
 
-use popkern_core::geometry::curve::CurveOnEdge;
+#[path = "surface_boundary_audit_events.rs"]
+mod surface_boundary_audit_events;
+
+use self::surface_boundary_audit_events::{
+    BoundaryAuditRecordInput, record_boundary_audit, surface_boundary_shared_trim_failure_reason,
+    surface_boundary_shared_trim_validation,
+};
+use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
 use popkern_core::geometry::edge_triple::{
     BoundarySide, EdgeAnchors, EdgeHint, EdgeTripleOptions, SurfaceSide, compute_edge_geometry,
 };
 use popkern_core::geometry::pcurve::Pcurve;
-use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{
-    BRep, FaceHandle, HalfEdgeHandle, SurfaceBoundaryHintDecline, SurfaceBoundaryHintDeclineReason,
+    BRep, FaceHandle, HalfEdgeHandle, SharedTrimEdgeInput, SurfaceBoundaryAuditOutcome,
+    SurfaceBoundaryHintDecline, SurfaceBoundaryHintDeclineReason,
+    commit_shared_trim_edge_transactionally,
 };
 
 pub(crate) fn audit_gregory_analytic_boundary_evidence(brep: &mut BRep) {
@@ -35,10 +44,39 @@ pub(crate) fn audit_gregory_analytic_boundary_evidence(brep: &mut BRep) {
 }
 
 fn audit_half_edge(brep: &mut BRep, half_edge: HalfEdgeHandle) {
-    if brep.surface_boundary_hint(half_edge).is_some()
-        || brep.surface_boundary_decline(half_edge).is_some()
-    {
-        return;
+    if let Some(boundary) = brep.surface_boundary_hint(half_edge) {
+        if authored_boundary_hint_is_fresh(brep, half_edge, boundary) {
+            record_boundary_audit(
+                brep,
+                BoundaryAuditRecordInput {
+                    half_edge,
+                    outcome: SurfaceBoundaryAuditOutcome::FreshHint,
+                    boundary: Some(boundary),
+                    ..BoundaryAuditRecordInput::default()
+                },
+            );
+            return;
+        }
+        record_boundary_audit(
+            brep,
+            BoundaryAuditRecordInput {
+                half_edge,
+                outcome: SurfaceBoundaryAuditOutcome::StaleHintCleared,
+                boundary: Some(boundary),
+                ..BoundaryAuditRecordInput::default()
+            },
+        );
+        brep.clear_surface_boundary_hint(half_edge);
+    }
+    if brep.surface_boundary_decline(half_edge).is_some() {
+        record_boundary_audit(
+            brep,
+            BoundaryAuditRecordInput {
+                half_edge,
+                outcome: SurfaceBoundaryAuditOutcome::ReauditDecline,
+                ..BoundaryAuditRecordInput::default()
+            },
+        );
     }
     if !has_analytic_neighbor(brep, half_edge) {
         return;
@@ -61,6 +99,16 @@ fn audit_half_edge(brep: &mut BRep, half_edge: HalfEdgeHandle) {
     let classification = classify_rectangular_boundary_pcurve(&pcurve);
     if let Some(boundary) = classification.boundary {
         brep.set_surface_boundary_hint(half_edge, boundary);
+        record_boundary_audit(
+            brep,
+            BoundaryAuditRecordInput {
+                half_edge,
+                outcome: SurfaceBoundaryAuditOutcome::ClassifiedHint,
+                boundary: Some(boundary),
+                tolerance: Some(brep.tolerance.linear().max(1.0e-7)),
+                ..BoundaryAuditRecordInput::default()
+            },
+        );
     } else {
         brep.set_surface_boundary_decline(
             half_edge,
@@ -71,7 +119,55 @@ fn audit_half_edge(brep: &mut BRep, half_edge: HalfEdgeHandle) {
                 endpoint_gap: 0.0,
             },
         );
+        record_boundary_audit(
+            brep,
+            BoundaryAuditRecordInput {
+                half_edge,
+                outcome: SurfaceBoundaryAuditOutcome::ClassifiedDecline,
+                boundary: classification.boundary,
+                decline_reason: Some(SurfaceBoundaryHintDeclineReason::NotOnCanonicalBoundary),
+                tolerance: Some(brep.tolerance.linear().max(1.0e-7)),
+                ..BoundaryAuditRecordInput::default()
+            },
+        );
     }
+}
+
+fn authored_boundary_hint_is_fresh(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    boundary: BoundarySide,
+) -> bool {
+    let Some((cap_face, _, _)) = adjacent_faces(brep, half_edge) else {
+        return false;
+    };
+    let Some(surface) = brep
+        .faces
+        .get(cap_face)
+        .and_then(|face| face.surface.as_ref())
+        .map(|surface| &surface.geometry)
+    else {
+        return false;
+    };
+    let Some(pcurve) = brep
+        .half_edges
+        .get(half_edge)
+        .and_then(|half_edge| half_edge.pcurve.as_ref())
+    else {
+        return false;
+    };
+    let classification = classify_rectangular_boundary_pcurve(pcurve);
+    let Some(best_boundary) = classification.boundary else {
+        return false;
+    };
+    if best_boundary != boundary {
+        return false;
+    }
+    if classification.best_deviation > brep.tolerance.linear().max(1.0e-7) {
+        return false;
+    }
+    boundary_pcurve_endpoint_gap(brep, half_edge, surface, pcurve)
+        <= brep.tolerance.linear().max(1.0e-7)
 }
 
 fn try_author_exact_boundary_owned_triple(brep: &mut BRep, half_edge: HalfEdgeHandle) -> bool {
@@ -138,16 +234,164 @@ fn try_author_exact_boundary_owned_triple(brep: &mut BRep, half_edge: HalfEdgeHa
         let Some(edge) = brep.half_edges.get(half_edge).map(|data| data.edge) else {
             return false;
         };
-        brep.edges[edge].curve = Some(CurveOnEdge {
+        let curve = CurveOnEdge {
             geometry: triple.curve_3d,
             t_start: triple.t_start,
             t_end: triple.t_end,
-        });
-        brep.half_edges[half_edge].pcurve = Some(triple.pcurve_a);
-        brep.half_edges[twin].pcurve = Some(triple.pcurve_b);
-        return brep.set_surface_boundary_hint(half_edge, boundary);
+        };
+        let curve = orient_curve_to_canonical_edge(brep, edge, curve);
+        let pcurve_a = orient_pcurve_to_half_edge(brep, half_edge, &cap_surface, triple.pcurve_a);
+        let pcurve_b = orient_pcurve_to_half_edge(brep, twin, &other_surface, triple.pcurve_b);
+        let shared_trim_result = commit_shared_trim_edge_transactionally(
+            brep,
+            SharedTrimEdgeInput {
+                edge,
+                half_edge_a: half_edge,
+                half_edge_b: twin,
+                curve,
+                pcurve_a,
+                pcurve_b,
+                tolerance: brep.tolerance.linear().max(1.0e-7),
+                validate_brep: false,
+                provenance: "gregory_analytic_boundary_audit",
+            },
+        );
+        if shared_trim_result.is_ok() {
+            record_boundary_audit(
+                brep,
+                BoundaryAuditRecordInput {
+                    half_edge,
+                    outcome: SurfaceBoundaryAuditOutcome::SharedTrimAccepted,
+                    boundary: Some(boundary),
+                    tolerance: Some(brep.tolerance.linear().max(1.0e-7)),
+                    ..BoundaryAuditRecordInput::default()
+                },
+            );
+            return brep.set_surface_boundary_hint(half_edge, boundary);
+        }
+        if let Err(failure) = shared_trim_result {
+            record_boundary_audit(
+                brep,
+                BoundaryAuditRecordInput {
+                    half_edge,
+                    outcome: SurfaceBoundaryAuditOutcome::SharedTrimDeclined,
+                    boundary: Some(boundary),
+                    shared_trim_failure: Some(surface_boundary_shared_trim_failure_reason(
+                        failure.reason,
+                    )),
+                    shared_trim_validation: Some(surface_boundary_shared_trim_validation(
+                        failure.validation,
+                    )),
+                    tolerance: Some(brep.tolerance.linear().max(1.0e-7)),
+                    ..BoundaryAuditRecordInput::default()
+                },
+            );
+        }
     }
     false
+}
+
+fn orient_pcurve_to_half_edge(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    surface: &SurfaceGeometry,
+    pcurve: Pcurve,
+) -> Pcurve {
+    let Some(half_edge_data) = brep.half_edges.get(half_edge) else {
+        return pcurve;
+    };
+    let Some(next) = brep.half_edges.get(half_edge_data.next) else {
+        return pcurve;
+    };
+    let Some(start) = brep
+        .vertices
+        .get(half_edge_data.origin)
+        .map(|vertex| vertex.position)
+    else {
+        return pcurve;
+    };
+    let Some(end) = brep.vertices.get(next.origin).map(|vertex| vertex.position) else {
+        return pcurve;
+    };
+    let p_start = surface_point_at_pcurve_endpoint(surface, &pcurve, pcurve.t_start);
+    let p_end = surface_point_at_pcurve_endpoint(surface, &pcurve, pcurve.t_end);
+    let forward_gap = p_start.distance_to(&start).max(p_end.distance_to(&end));
+    let reversed_gap = p_start.distance_to(&end).max(p_end.distance_to(&start));
+    if reversed_gap < forward_gap {
+        pcurve.reversed()
+    } else {
+        pcurve
+    }
+}
+
+fn orient_curve_to_canonical_edge(
+    brep: &BRep,
+    edge: popkern_core::topology::EdgeHandle,
+    mut curve: CurveOnEdge,
+) -> CurveOnEdge {
+    let Some(edge_data) = brep.edges.get(edge) else {
+        return curve;
+    };
+    let Some(half_edge_data) = brep.half_edges.get(edge_data.half_edge) else {
+        return curve;
+    };
+    let Some(next) = brep.half_edges.get(half_edge_data.next) else {
+        return curve;
+    };
+    let Some(start) = brep
+        .vertices
+        .get(half_edge_data.origin)
+        .map(|vertex| vertex.position)
+    else {
+        return curve;
+    };
+    let Some(end) = brep.vertices.get(next.origin).map(|vertex| vertex.position) else {
+        return curve;
+    };
+    let p_start = curve.geometry.point_at(curve.t_start);
+    let p_end = curve.geometry.point_at(curve.t_end);
+    let forward_gap = p_start.distance_to(&start).max(p_end.distance_to(&end));
+    let reversed_gap = p_start.distance_to(&end).max(p_end.distance_to(&start));
+    if reversed_gap < forward_gap {
+        std::mem::swap(&mut curve.t_start, &mut curve.t_end);
+    }
+    curve
+}
+
+fn surface_point_at_pcurve_endpoint(
+    surface: &SurfaceGeometry,
+    pcurve: &Pcurve,
+    parameter: f64,
+) -> popkern_core::geometry::Point3 {
+    let uv = pcurve.point_at(parameter);
+    surface.point_at(uv.x, uv.y)
+}
+
+fn boundary_pcurve_endpoint_gap(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    surface: &SurfaceGeometry,
+    pcurve: &Pcurve,
+) -> f64 {
+    let Some(half_edge_data) = brep.half_edges.get(half_edge) else {
+        return f64::INFINITY;
+    };
+    let Some(twin) = brep.half_edges.get(half_edge_data.twin) else {
+        return f64::INFINITY;
+    };
+    let Some(start) = brep
+        .vertices
+        .get(half_edge_data.origin)
+        .map(|vertex| vertex.position)
+    else {
+        return f64::INFINITY;
+    };
+    let Some(end) = brep.vertices.get(twin.origin).map(|vertex| vertex.position) else {
+        return f64::INFINITY;
+    };
+    let p_start = surface_point_at_pcurve_endpoint(surface, pcurve, pcurve.t_start);
+    let p_end = surface_point_at_pcurve_endpoint(surface, pcurve, pcurve.t_end);
+    start.distance_to(&p_start).max(end.distance_to(&p_end))
 }
 
 fn adjacent_faces(
@@ -225,158 +469,5 @@ fn classify_rectangular_boundary_pcurve(pcurve: &Pcurve) -> BoundaryPcurveClassi
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use popkern_core::geometry::curve::CurveOnEdge;
-    use popkern_core::geometry::gregory::{GregoryPatch, RectangularGregory};
-    use popkern_core::geometry::{Point3, SurfaceOnFace, Vec3};
-    use popkern_core::tolerance::Tolerance;
-    use popkern_core::topology::{
-        Edge, Face, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle, Solid, Vertex,
-    };
-
-    #[test]
-    fn audit_authors_exact_triple_for_canonical_gregory_boundary() {
-        let mut brep = gregory_plane_boundary_fixture();
-        let edge = brep.edges.keys().next().unwrap();
-        let half_edge = brep.edges[edge].half_edge;
-        brep.half_edges[half_edge].pcurve =
-            Some(Pcurve::linear((0.25, 0.0), (0.25, 1.0), 0.0, 1.0));
-
-        audit_gregory_analytic_boundary_evidence(&mut brep);
-
-        assert_eq!(
-            brep.surface_boundary_hint(half_edge),
-            Some(BoundarySide::UMin)
-        );
-        assert!(brep.surface_boundary_decline(half_edge).is_none());
-        let pcurve = brep.half_edges[half_edge].pcurve.as_ref().unwrap();
-        let (t0, t1) = pcurve.parameter_range();
-        assert_eq!(pcurve.point_at(t0).x, 0.0);
-        assert_eq!(pcurve.point_at(t1).x, 0.0);
-    }
-
-    fn gregory_plane_boundary_fixture() -> BRep {
-        let mut brep = BRep::new(Tolerance::default());
-        let solid = brep.solids.insert(Solid {
-            shell: ShellHandle::default(),
-        });
-        let shell = brep.shells.insert(Shell {
-            face: Default::default(),
-            solid,
-        });
-        brep.solids[solid].shell = shell;
-        let start = Point3::new(0.0, 0.0, 0.0);
-        let end = Point3::new(0.0, 1.0, 0.0);
-        let va = brep.vertices.insert(vertex(start));
-        let vb = brep.vertices.insert(vertex(end));
-        let face_a = brep.faces.insert(face(shell, gregory_surface(start, end)));
-        let face_b = brep.faces.insert(face(shell, plane_surface()));
-        let loop_a = brep.loops.insert(Loop {
-            half_edge: HalfEdgeHandle::default(),
-            face: face_a,
-        });
-        let loop_b = brep.loops.insert(Loop {
-            half_edge: HalfEdgeHandle::default(),
-            face: face_b,
-        });
-        let he_a = brep.half_edges.insert(half_edge(va, loop_a));
-        let he_b = brep.half_edges.insert(half_edge(vb, loop_b));
-        let edge = brep.edges.insert(Edge {
-            half_edge: he_a,
-            curve: CurveOnEdge::line_segment(
-                start + Vec3::new(0.0, 0.0, 0.1),
-                end + Vec3::new(0.0, 0.0, 0.1),
-                1e-12,
-            ),
-            name: None,
-            tolerance: None,
-            canonical: Default::default(),
-            role: Default::default(),
-        });
-        brep.half_edges[he_a].edge = edge;
-        brep.half_edges[he_b].edge = edge;
-        brep.half_edges[he_a].twin = he_b;
-        brep.half_edges[he_b].twin = he_a;
-        brep.half_edges[he_a].next = he_a;
-        brep.half_edges[he_a].prev = he_a;
-        brep.half_edges[he_b].next = he_b;
-        brep.half_edges[he_b].prev = he_b;
-        brep.loops[loop_a].half_edge = he_a;
-        brep.loops[loop_b].half_edge = he_b;
-        brep.faces[face_a].outer_loop = loop_a;
-        brep.faces[face_b].outer_loop = loop_b;
-        brep.vertices[va].outgoing = he_a;
-        brep.vertices[vb].outgoing = he_b;
-        brep.shells[shell].face = face_a;
-        brep
-    }
-
-    fn vertex(position: Point3) -> Vertex {
-        Vertex {
-            position,
-            outgoing: HalfEdgeHandle::default(),
-            name: None,
-            tolerance: None,
-        }
-    }
-
-    fn half_edge(origin: popkern_core::topology::VertexHandle, loop_: LoopHandle) -> HalfEdge {
-        HalfEdge {
-            origin,
-            twin: HalfEdgeHandle::default(),
-            next: HalfEdgeHandle::default(),
-            prev: HalfEdgeHandle::default(),
-            edge: Default::default(),
-            loop_,
-            pcurve: None,
-        }
-    }
-
-    fn face(shell: ShellHandle, surface: SurfaceOnFace) -> Face {
-        Face {
-            outer_loop: LoopHandle::default(),
-            inner_loops: Vec::new(),
-            shell,
-            surface: Some(surface),
-            name: None,
-            tolerance: None,
-            role: Default::default(),
-        }
-    }
-
-    fn gregory_surface(start: Point3, end: Point3) -> SurfaceOnFace {
-        let lerp = |s: f64| start + (end - start) * s;
-        let offset = Vec3::new(1.0, 0.0, 0.0);
-        let u0 = [lerp(0.0), lerp(1.0 / 3.0), lerp(2.0 / 3.0), lerp(1.0)];
-        let row = |scale: f64| {
-            [
-                u0[0] + offset * scale,
-                u0[1] + offset * scale,
-                u0[2] + offset * scale,
-                u0[3] + offset * scale,
-            ]
-        };
-        SurfaceOnFace {
-            geometry: SurfaceGeometry::Gregory(GregoryPatch::Rectangular(Box::new(
-                RectangularGregory {
-                    boundary_cps: [u0, row(1.0 / 3.0), row(2.0 / 3.0), row(1.0)],
-                    inner_cps: [(row(1.0 / 3.0)[1], row(1.0 / 3.0)[1]); 4],
-                },
-            ))),
-            orientation: true,
-        }
-    }
-
-    fn plane_surface() -> SurfaceOnFace {
-        SurfaceOnFace {
-            geometry: SurfaceGeometry::Plane {
-                origin: Point3::new(0.0, 0.0, 0.0),
-                normal: Vec3::new(0.0, 0.0, 1.0),
-                u_axis: Vec3::new(1.0, 0.0, 0.0),
-                v_axis: Vec3::new(0.0, 1.0, 0.0),
-            },
-            orientation: true,
-        }
-    }
-}
+#[path = "surface_boundary_evidence_tests.rs"]
+mod tests;

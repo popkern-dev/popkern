@@ -2,14 +2,16 @@
 
 use crate::topology::brep_degenerate_edges::analyze_brep_degenerate_edges_raw;
 use crate::topology::brep_repair_knowledge_authority::{
+    BrepRepairAuthorityFact, BrepRepairAuthorityKind, BrepRepairAuthorityReason,
     degenerate_edge_authority_fact, surface_boundary_authority_fact, trim_authority_facts,
 };
 use crate::topology::brep_repair_knowledge_fact_record::{
-    fact, surface_boundary_label, trim_fact_state,
+    authority_fact, fact, surface_boundary_label, trim_fact_state,
 };
 use crate::topology::{
     BRep, BrepDegenerateEdgeOptions, BrepRepairFact, BrepRepairFactKind, BrepRepairFactState,
     BrepRepairTopologyHandle, EdgeHandle, LocalToleranceEvidence, LocalToleranceSource,
+    SurfaceBoundaryAuditEvent, SurfaceBoundaryAuditOutcome, SurfaceBoundarySharedTrimFailureReason,
 };
 use std::collections::BTreeSet;
 
@@ -126,6 +128,7 @@ fn push_surface_boundary_side(
         face,
         half_edge,
     ));
+    push_surface_boundary_audit_facts(facts, brep, face, half_edge);
 }
 
 fn push_endpoint_facts(
@@ -203,6 +206,188 @@ fn tolerance_evidence(
         residual,
         source,
     })
+}
+
+fn push_surface_boundary_audit_facts(
+    facts: &mut Vec<BrepRepairFact>,
+    brep: &BRep,
+    face: crate::topology::FaceHandle,
+    half_edge: crate::topology::HalfEdgeHandle,
+) {
+    for event in brep
+        .surface_boundary_audit_events
+        .iter()
+        .filter(|event| event.half_edge == half_edge && event.face == Some(face))
+    {
+        facts.push(surface_boundary_audit_fact(facts.len(), event));
+    }
+}
+
+fn surface_boundary_audit_fact(id: usize, event: &SurfaceBoundaryAuditEvent) -> BrepRepairFact {
+    let state = surface_boundary_audit_fact_state(event);
+    let residual = surface_boundary_audit_residual(event);
+    let tolerance =
+        event
+            .tolerance
+            .zip(residual)
+            .map(|(tolerance, residual)| LocalToleranceEvidence {
+                tolerance,
+                residual,
+                source: LocalToleranceSource::RepairPolicy,
+            });
+    authority_fact(
+        id,
+        BrepRepairFactKind::SurfaceBoundary,
+        state,
+        surface_boundary_audit_handles(event),
+        Some(surface_boundary_audit_label(event)),
+        tolerance,
+        Some(surface_boundary_audit_authority(event)),
+    )
+}
+
+fn surface_boundary_audit_handles(
+    event: &SurfaceBoundaryAuditEvent,
+) -> Vec<BrepRepairTopologyHandle> {
+    let mut handles = Vec::new();
+    if let Some(face) = event.face {
+        handles.push(BrepRepairTopologyHandle::Face(face));
+    }
+    handles.push(BrepRepairTopologyHandle::HalfEdge(event.half_edge));
+    if let Some(edge) = event.edge {
+        handles.push(BrepRepairTopologyHandle::Edge(edge));
+    }
+    if let Some(twin_face) = event.twin_face {
+        handles.push(BrepRepairTopologyHandle::Face(twin_face));
+    }
+    handles
+}
+
+fn surface_boundary_audit_label(event: &SurfaceBoundaryAuditEvent) -> String {
+    let validation = event.shared_trim_validation.map_or_else(
+        || "validation=none".to_string(),
+        |validation| {
+            format!(
+                "curve_surface={:.6e} side={:.6e} endpoint={:.6e}",
+                validation.max_curve_surface_deviation,
+                validation.max_side_agreement_deviation,
+                validation.max_endpoint_gap
+            )
+        },
+    );
+    format!(
+        "surface_boundary_audit he={:?} edge={:?} face={:?} twin_face={:?} outcome={:?} boundary={:?} decline={:?} shared_trim={:?} {validation} provenance={}",
+        event.half_edge,
+        event.edge,
+        event.face,
+        event.twin_face,
+        event.outcome,
+        event.boundary,
+        event.decline_reason,
+        event.shared_trim_failure,
+        event.provenance
+    )
+}
+
+fn surface_boundary_audit_fact_state(event: &SurfaceBoundaryAuditEvent) -> BrepRepairFactState {
+    match event.outcome {
+        SurfaceBoundaryAuditOutcome::FreshHint
+        | SurfaceBoundaryAuditOutcome::SharedTrimAccepted
+        | SurfaceBoundaryAuditOutcome::ClassifiedHint => BrepRepairFactState::Derived,
+        SurfaceBoundaryAuditOutcome::StaleHintCleared => BrepRepairFactState::Stale,
+        SurfaceBoundaryAuditOutcome::ReauditDecline => BrepRepairFactState::Decision,
+        SurfaceBoundaryAuditOutcome::SharedTrimDeclined => match event.shared_trim_failure {
+            Some(SurfaceBoundarySharedTrimFailureReason::MissingTopology)
+            | Some(SurfaceBoundarySharedTrimFailureReason::HalfEdgeEdgeMismatch)
+            | Some(SurfaceBoundarySharedTrimFailureReason::HalfEdgesNotTwins) => {
+                BrepRepairFactState::Unavailable
+            }
+            Some(_) => BrepRepairFactState::Contradictory,
+            None => BrepRepairFactState::Unavailable,
+        },
+        SurfaceBoundaryAuditOutcome::ClassifiedDecline => BrepRepairFactState::Unavailable,
+    }
+}
+
+fn surface_boundary_audit_authority(event: &SurfaceBoundaryAuditEvent) -> BrepRepairAuthorityFact {
+    let reason = match event.outcome {
+        SurfaceBoundaryAuditOutcome::FreshHint => {
+            BrepRepairAuthorityReason::SurfaceBoundaryAvailable
+        }
+        SurfaceBoundaryAuditOutcome::StaleHintCleared => {
+            BrepRepairAuthorityReason::SurfaceBoundaryStaleHintCleared
+        }
+        SurfaceBoundaryAuditOutcome::ReauditDecline => {
+            BrepRepairAuthorityReason::MissingSurfaceBoundaryEvidence
+        }
+        SurfaceBoundaryAuditOutcome::SharedTrimAccepted => {
+            BrepRepairAuthorityReason::SurfaceBoundarySharedTrimAccepted
+        }
+        SurfaceBoundaryAuditOutcome::SharedTrimDeclined => {
+            shared_trim_authority_reason(event.shared_trim_failure)
+        }
+        SurfaceBoundaryAuditOutcome::ClassifiedHint => {
+            BrepRepairAuthorityReason::SurfaceBoundaryClassifiedHint
+        }
+        SurfaceBoundaryAuditOutcome::ClassifiedDecline => {
+            BrepRepairAuthorityReason::SurfaceBoundaryClassifiedDecline
+        }
+    };
+    let kind = match event.outcome {
+        SurfaceBoundaryAuditOutcome::FreshHint
+        | SurfaceBoundaryAuditOutcome::SharedTrimAccepted
+        | SurfaceBoundaryAuditOutcome::ClassifiedHint => {
+            BrepRepairAuthorityKind::AuthoritativeSurfaceBoundary
+        }
+        SurfaceBoundaryAuditOutcome::StaleHintCleared
+        | SurfaceBoundaryAuditOutcome::SharedTrimDeclined => {
+            BrepRepairAuthorityKind::SideLocalSurfaceMismatch
+        }
+        SurfaceBoundaryAuditOutcome::ReauditDecline
+        | SurfaceBoundaryAuditOutcome::ClassifiedDecline => {
+            BrepRepairAuthorityKind::NoAuthoritativeSource
+        }
+    };
+    BrepRepairAuthorityFact { kind, reason }
+}
+
+fn shared_trim_authority_reason(
+    reason: Option<SurfaceBoundarySharedTrimFailureReason>,
+) -> BrepRepairAuthorityReason {
+    match reason {
+        Some(SurfaceBoundarySharedTrimFailureReason::MissingTopology) => {
+            BrepRepairAuthorityReason::SurfaceBoundarySharedTrimMissingTopology
+        }
+        Some(SurfaceBoundarySharedTrimFailureReason::HalfEdgeEdgeMismatch) => {
+            BrepRepairAuthorityReason::SurfaceBoundarySharedTrimHalfEdgeMismatch
+        }
+        Some(SurfaceBoundarySharedTrimFailureReason::HalfEdgesNotTwins) => {
+            BrepRepairAuthorityReason::SurfaceBoundarySharedTrimNotTwins
+        }
+        Some(SurfaceBoundarySharedTrimFailureReason::EndpointMismatch) => {
+            BrepRepairAuthorityReason::SurfaceBoundarySharedTrimEndpointMismatch
+        }
+        Some(SurfaceBoundarySharedTrimFailureReason::CurveSurfaceMismatch) => {
+            BrepRepairAuthorityReason::SurfaceBoundarySharedTrimCurveSurfaceMismatch
+        }
+        Some(SurfaceBoundarySharedTrimFailureReason::SideAgreementMismatch) => {
+            BrepRepairAuthorityReason::SurfaceBoundarySharedTrimSideAgreementMismatch
+        }
+        Some(SurfaceBoundarySharedTrimFailureReason::ValidationFailed) => {
+            BrepRepairAuthorityReason::SurfaceBoundarySharedTrimValidationFailed
+        }
+        None => BrepRepairAuthorityReason::EvaluationFailed,
+    }
+}
+
+fn surface_boundary_audit_residual(event: &SurfaceBoundaryAuditEvent) -> Option<f64> {
+    let validation = event.shared_trim_validation?;
+    Some(
+        validation
+            .max_curve_surface_deviation
+            .max(validation.max_side_agreement_deviation)
+            .max(validation.max_endpoint_gap),
+    )
 }
 
 fn push_degenerate_edge_authority_facts(

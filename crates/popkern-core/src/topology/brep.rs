@@ -60,6 +60,12 @@ pub struct BRep {
     #[serde(default)]
     pub surface_boundary_declines:
         std::collections::HashMap<HalfEdgeHandle, SurfaceBoundaryHintDecline>,
+    /// Durable audit trail for surface-boundary classification and shared
+    /// trim-edge validation decisions. Repair knowledge collectors promote
+    /// these records into structured facts so construction diagnostics are not
+    /// hidden behind local trace output.
+    #[serde(default)]
+    pub surface_boundary_audit_events: Vec<SurfaceBoundaryAuditEvent>,
     /// Tracks precision degradation across operations.
     #[serde(skip)]
     degradation_tracker: Option<DegradationTracker>,
@@ -89,6 +95,7 @@ impl BRep {
             nonmanifold_radial: std::collections::HashMap::new(),
             surface_boundary_hints: std::collections::HashMap::new(),
             surface_boundary_declines: std::collections::HashMap::new(),
+            surface_boundary_audit_events: Vec::new(),
             degradation_tracker: None,
         }
     }
@@ -178,6 +185,19 @@ impl BRep {
             .contains_key(half_edge)
             .then(|| self.surface_boundary_declines.get(&half_edge))
             .flatten()
+    }
+
+    /// Record a durable surface-boundary audit event for repair knowledge and
+    /// diagnostic consumers. Stale half-edge handles are rejected.
+    pub fn record_surface_boundary_audit_event(
+        &mut self,
+        event: SurfaceBoundaryAuditEvent,
+    ) -> bool {
+        if !self.half_edges.contains_key(event.half_edge) {
+            return false;
+        }
+        self.surface_boundary_audit_events.push(event);
+        true
     }
 
     /// True when boundary edges exist (open shell / partial solid).

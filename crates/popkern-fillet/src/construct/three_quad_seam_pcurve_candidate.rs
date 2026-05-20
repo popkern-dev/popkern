@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::construct::helpers;
+use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::edge_triple::BoundarySide;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::trim_domain::{
@@ -14,11 +15,13 @@ pub(super) enum BoundaryOwnedCandidate {
     AcceptedBoundary {
         half_edge: popkern_core::topology::HalfEdgeHandle,
         boundary_side: BoundarySide,
+        curve: CurveOnEdge,
         cap_pcurve: Pcurve,
         other_pcurve: Pcurve,
     },
     AcceptedInterior {
         half_edge: popkern_core::topology::HalfEdgeHandle,
+        curve: CurveOnEdge,
         cap_pcurve: Pcurve,
         other_pcurve: Pcurve,
     },
@@ -90,6 +93,7 @@ pub(super) fn boundary_owned_candidate(
         return BoundaryOwnedCandidate::AcceptedBoundary {
             half_edge: he,
             boundary_side,
+            curve: reference_curve.curve_on_edge(),
             cap_pcurve,
             other_pcurve,
         };
@@ -173,12 +177,14 @@ fn projected_trim_domain_candidate(
             Some(BoundaryOwnedCandidate::AcceptedBoundary {
                 half_edge: he,
                 boundary_side: side,
+                curve: reference_curve.curve_on_edge(),
                 cap_pcurve,
                 other_pcurve: other_pcurve.clone(),
             })
         }
         TrimDomainCandidateKind::Interior => Some(BoundaryOwnedCandidate::AcceptedInterior {
             half_edge: he,
+            curve: reference_curve.curve_on_edge(),
             cap_pcurve,
             other_pcurve: other_pcurve.clone(),
         }),
@@ -209,8 +215,19 @@ struct BoundarySeamEvidence<'a> {
 
 struct BoundaryReferenceCurve<'a> {
     curve: &'a dyn popkern_core::geometry::curve::CurveEval,
+    geometry: CurveGeometry,
     t_start: f64,
     t_end: f64,
+}
+
+impl BoundaryReferenceCurve<'_> {
+    fn curve_on_edge(&self) -> CurveOnEdge {
+        CurveOnEdge {
+            geometry: self.geometry.clone(),
+            t_start: self.t_start,
+            t_end: self.t_end,
+        }
+    }
 }
 
 fn boundary_reference_curve_for_candidate<'a>(
@@ -229,6 +246,7 @@ fn boundary_reference_curve_for_candidate<'a>(
     {
         return Some(BoundaryReferenceCurve {
             curve: &curve_on_edge.geometry,
+            geometry: curve_on_edge.geometry.clone(),
             t_start: curve_on_edge.t_start,
             t_end: curve_on_edge.t_end,
         });
@@ -240,6 +258,7 @@ fn boundary_reference_curve_for_candidate<'a>(
     let (t_start, t_end) = curve.parameter_range();
     Some(BoundaryReferenceCurve {
         curve,
+        geometry: CurveGeometry::Nurbs(curve.clone()),
         t_start,
         t_end,
     })
