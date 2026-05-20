@@ -1,7 +1,7 @@
 use popkern_core::geometry::edge_triple::BoundarySide;
 use popkern_core::topology::{
-    BrepRepairActionArtifact, BrepRepairActionRecord, BrepRepairActionSummary, FaceHandle,
-    HalfEdgeHandle,
+    BrepRepairActionArtifact, BrepRepairActionRecord, BrepRepairActionSummary, EdgeHandle,
+    FaceHandle, HalfEdgeHandle, VertexHandle,
 };
 
 /// Structured diagnostics for repair and hardening actions performed during a
@@ -10,6 +10,36 @@ use popkern_core::topology::{
 pub struct BlendRepairReport {
     /// Whole-blend support-face seam relocation diagnostics.
     pub support_seam_relocation: SupportSeamRelocationReport,
+    /// Per-apex construction route decisions for legacy/A2 migration tracking.
+    pub apex_routes: Vec<ApexConstructionRouteDecision>,
+}
+
+/// Construction route used for one smooth multi-fillet apex.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApexConstructionRoute {
+    /// A2 was not requested; legacy `insert_vertex_blend` handled the apex.
+    Legacy,
+    /// A2 planner and builder completed and legacy was skipped.
+    A2,
+    /// A2 was requested but declined; legacy handled the apex.
+    A2FallbackToLegacy,
+}
+
+/// Per-apex legacy/A2 migration diagnostic.
+#[derive(Debug, Clone)]
+pub struct ApexConstructionRouteDecision {
+    /// Original apex vertex being resolved.
+    pub vertex: VertexHandle,
+    /// Original fillet edges incident to this apex.
+    pub incident_edges: Vec<EdgeHandle>,
+    /// Route that produced the final topology for this apex.
+    pub route: ApexConstructionRoute,
+    /// Faces authored by A2, empty for legacy and fallback routes.
+    pub built_faces: Vec<FaceHandle>,
+    /// Number of corner patch reports produced by this route.
+    pub corner_patch_count: usize,
+    /// A2 decline reason when [`ApexConstructionRoute::A2FallbackToLegacy`] applies.
+    pub fallback_reason: Option<String>,
 }
 
 /// Build a serialization-ready repair-action artifact from blend repair diagnostics.

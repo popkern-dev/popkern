@@ -244,12 +244,30 @@ pub fn apply_blend_geometry(
                 if let Some(outcome) = a2_outcome {
                     match outcome {
                         Ok(success) => {
+                            repair_report.apex_routes.push(apex_route_decision(
+                                *vertex,
+                                edge_indices,
+                                edge_geometries,
+                                crate::types::ApexConstructionRoute::A2,
+                                success.built_faces.clone(),
+                                success.corner_patches.len(),
+                                None,
+                            ));
                             a2_built_faces.extend(success.built_faces);
                             corner_patches.extend(success.corner_patches);
                             a2_succeeded = true;
                         }
                         Err(reason) => {
                             let warn_edge = edge_geometries[edge_indices[0]].analysis.edge;
+                            repair_report.apex_routes.push(apex_route_decision(
+                                *vertex,
+                                edge_indices,
+                                edge_geometries,
+                                crate::types::ApexConstructionRoute::A2FallbackToLegacy,
+                                Vec::new(),
+                                0,
+                                Some(reason.clone()),
+                            ));
                             warnings.push((
                                 warn_edge,
                                 BlendWarning::A2FellBackToLegacy {
@@ -263,6 +281,17 @@ pub fn apply_blend_geometry(
                 }
                 if a2_succeeded {
                     continue;
+                }
+                if !use_a2_apex_construction {
+                    repair_report.apex_routes.push(apex_route_decision(
+                        *vertex,
+                        edge_indices,
+                        edge_geometries,
+                        crate::types::ApexConstructionRoute::Legacy,
+                        Vec::new(),
+                        0,
+                        None,
+                    ));
                 }
 
                 match blend_insert::insert_vertex_blend(
@@ -372,4 +401,30 @@ pub fn apply_blend_geometry(
         corner_patches,
         repair_report,
     })
+}
+
+fn apex_route_decision(
+    vertex: VertexHandle,
+    edge_indices: &[usize],
+    edge_geometries: &[EdgeGeometry],
+    route: crate::types::ApexConstructionRoute,
+    built_faces: Vec<FaceHandle>,
+    corner_patch_count: usize,
+    fallback_reason: Option<String>,
+) -> crate::types::ApexConstructionRouteDecision {
+    crate::types::ApexConstructionRouteDecision {
+        vertex,
+        incident_edges: edge_indices
+            .iter()
+            .filter_map(|&index| {
+                edge_geometries
+                    .get(index)
+                    .map(|geometry| geometry.analysis.edge)
+            })
+            .collect(),
+        route,
+        built_faces,
+        corner_patch_count,
+        fallback_reason,
+    }
 }

@@ -13,9 +13,10 @@ pub use types_corner::{
     CornerSubPatchRole,
 };
 pub use types_repair::{
-    BlendRepairReport, SupportSeamDecision, SupportSeamDeclineReason, SupportSeamRelocationReport,
-    SupportSeamRollbackReason, build_blend_repair_action_artifact,
-    support_seam_decline_reason_label, support_seam_rollback_reason_label,
+    ApexConstructionRoute, ApexConstructionRouteDecision, BlendRepairReport, SupportSeamDecision,
+    SupportSeamDeclineReason, SupportSeamRelocationReport, SupportSeamRollbackReason,
+    build_blend_repair_action_artifact, support_seam_decline_reason_label,
+    support_seam_rollback_reason_label,
 };
 
 use popkern_core::topology::EdgeHandle;
