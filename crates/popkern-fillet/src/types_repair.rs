@@ -76,6 +76,16 @@ pub struct ExactBoundaryCandidatePerformanceReport {
     pub pcurve_pair_count: usize,
     /// Number of support-ribbon samples consumed by candidate preparation.
     pub support_sample_count: usize,
+    /// Number of plane support ribbons evaluated.
+    pub plane_support_ribbon_count: usize,
+    /// Number of cylindrical support ribbons evaluated.
+    pub cylinder_support_ribbon_count: usize,
+    /// Number of conical support ribbons evaluated.
+    pub cone_support_ribbon_count: usize,
+    /// Number of spherical support ribbons evaluated.
+    pub sphere_support_ribbon_count: usize,
+    /// Number of trusted NURBS support ribbons evaluated.
+    pub nurbs_support_ribbon_count: usize,
     /// Total NURBS control points allocated for solved exact-boundary sector surfaces.
     pub surface_control_point_count: usize,
     /// Number of materialized sector faces accepted by validation.

@@ -7,6 +7,7 @@ use crate::types::{ApexConstructionDiagnostic, ExactBoundaryCandidatePerformance
 use super::pcurves::PreparedExactBoundaryPcurves;
 use super::ribbon::PreparedExactBoundaryRibbons;
 use super::solve::ExactBoundarySolvedSurfaces;
+use super::support::ExactBoundarySupportSurfaceFamily;
 use super::validation::ExactBoundaryValidationReport;
 
 /// Count support samples consumed by prepared ribbons.
@@ -16,6 +17,38 @@ pub(crate) fn support_sample_count(ribbons: &PreparedExactBoundaryRibbons) -> us
         .iter()
         .map(|ribbon| ribbon.samples.len())
         .sum()
+}
+
+/// Copy support-family evidence into the durable performance report.
+pub(crate) fn record_support_family_counts(
+    performance: &mut ExactBoundaryCandidatePerformanceReport,
+    ribbons: &PreparedExactBoundaryRibbons,
+) {
+    performance.plane_support_ribbon_count = 0;
+    performance.cylinder_support_ribbon_count = 0;
+    performance.cone_support_ribbon_count = 0;
+    performance.sphere_support_ribbon_count = 0;
+    performance.nurbs_support_ribbon_count = 0;
+    for ribbon in &ribbons.ribbons {
+        match ribbon.support_family {
+            ExactBoundarySupportSurfaceFamily::Plane => {
+                performance.plane_support_ribbon_count += 1;
+            }
+            ExactBoundarySupportSurfaceFamily::Cylinder => {
+                performance.cylinder_support_ribbon_count += 1;
+            }
+            ExactBoundarySupportSurfaceFamily::Cone => {
+                performance.cone_support_ribbon_count += 1;
+            }
+            ExactBoundarySupportSurfaceFamily::Sphere => {
+                performance.sphere_support_ribbon_count += 1;
+            }
+            ExactBoundarySupportSurfaceFamily::Nurbs => {
+                performance.nurbs_support_ribbon_count += 1;
+            }
+            ExactBoundarySupportSurfaceFamily::Unsupported => {}
+        }
+    }
 }
 
 /// Count solved surface control points allocated for the candidate.

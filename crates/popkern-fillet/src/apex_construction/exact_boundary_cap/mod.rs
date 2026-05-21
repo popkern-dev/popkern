@@ -47,6 +47,10 @@ mod sector_tests;
 mod solve_tests;
 
 #[cfg(test)]
+#[path = "support_candidate_tests.rs"]
+mod support_candidate_tests;
+
+#[cfg(test)]
 #[path = "topology_tests.rs"]
 mod topology_tests;
 

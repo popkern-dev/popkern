@@ -15,8 +15,8 @@ use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_
 use super::facts::attach_shared_repair_fact_ids;
 use super::pcurves::{ExactBoundaryPcurveBudget, prepare_exact_boundary_pcurves};
 use super::performance::{
-    finalize_performance_report, record_pcurve_report, record_validation_report,
-    support_sample_count, surface_control_point_count,
+    finalize_performance_report, record_pcurve_report, record_support_family_counts,
+    record_validation_report, support_sample_count, surface_control_point_count,
 };
 use super::ribbon::{ExactBoundaryRibbonBudget, prepare_exact_boundary_ribbons};
 use super::sector::{ExactBoundaryCapSectorInput, extract_exact_boundary_cap_sectors};
@@ -136,6 +136,9 @@ pub(crate) fn run_exact_boundary_cap_candidate(
         .map(|prepared| prepared.ribbons.len())
         .unwrap_or(0);
     performance.support_sample_count = ribbons.as_ref().map(support_sample_count).unwrap_or(0);
+    if let Some(ribbons) = ribbons.as_ref() {
+        record_support_family_counts(&mut performance, ribbons);
+    }
 
     let solved_surfaces = match (inner_spokes.as_ref(), ribbons.as_ref()) {
         (Some(inner_spokes), Some(ribbons)) => {
