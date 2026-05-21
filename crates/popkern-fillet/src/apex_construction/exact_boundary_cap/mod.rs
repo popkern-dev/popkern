@@ -13,6 +13,10 @@ pub(crate) mod topology;
 pub(crate) mod validation;
 
 #[cfg(test)]
+#[path = "adversarial_tests.rs"]
+mod adversarial_tests;
+
+#[cfg(test)]
 #[path = "boundary_tests.rs"]
 mod boundary_tests;
 
