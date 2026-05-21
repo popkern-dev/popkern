@@ -22,6 +22,7 @@ use super::exact_boundary_cap::commit::commit_exact_boundary_sector_surfaces;
 use super::exact_boundary_cap::corner::{
     ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes,
 };
+use super::exact_boundary_cap::facts::attach_shared_repair_fact_ids;
 use super::exact_boundary_cap::pcurves::{
     ExactBoundaryPcurveBudget, prepare_exact_boundary_pcurves,
 };
@@ -274,6 +275,7 @@ pub(super) fn assign_gregory_cap_surface(
         exact_boundary_committed = false;
         exact_boundary_committed_faces.clear();
     }
+    attach_shared_repair_fact_ids(brep, &mut exact_boundary_diagnostics);
     finalize_performance_report(
         &mut exact_boundary_performance,
         exact_boundary_started,

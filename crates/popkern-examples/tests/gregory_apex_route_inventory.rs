@@ -5,7 +5,7 @@ use popkern_core::topology::{
 };
 use popkern_fillet::{
     ApexConstructionDiagnostic, ApexConstructionRoute, FilletOptions, FilletRadius, FilletSpec,
-    fillet_edges,
+    build_blend_repair_action_artifact, fillet_edges,
 };
 
 #[test]
@@ -26,6 +26,7 @@ fn mixed_radius_gregory_records_default_direct_apex_route() {
     assert_eq!(routes[0].exact_boundary_pcurve_pair_count, 0);
     assert_exact_boundary_performance_report(&routes[0]);
     assert_exact_boundary_ribbon_decline(&result);
+    assert_exact_boundary_artifact_links_repair_facts(&result);
     assert!(routes[0].fallback_reason.is_none());
 }
 
@@ -50,6 +51,7 @@ fn mixed_radius_gregory_records_direct_apex_requested_route() {
     assert_eq!(routes[0].exact_boundary_pcurve_pair_count, 0);
     assert_exact_boundary_performance_report(&routes[0]);
     assert_exact_boundary_ribbon_decline(&result);
+    assert_exact_boundary_artifact_links_repair_facts(&result);
     assert!(routes[0].fallback_reason.is_none());
 }
 
@@ -99,6 +101,18 @@ fn assert_exact_boundary_ribbon_decline(result: &popkern_fillet::BlendResult) {
                         && diagnostic.code == "exact_boundary_cap.ribbon.support_pcurve_stale"
             )),
         "mixed-radius Gregory should promote exact-boundary support-ribbon pcurve readiness declines into apex diagnostics"
+    );
+}
+
+fn assert_exact_boundary_artifact_links_repair_facts(result: &popkern_fillet::BlendResult) {
+    let artifact = build_blend_repair_action_artifact(&result.repair_report);
+    assert!(
+        artifact.actions.iter().any(|action| {
+            action.stage.starts_with("exact_boundary_cap.")
+                && action.outcome == "declined"
+                && !action.shared_fact_ids.is_empty()
+        }),
+        "exact-boundary declined repair actions should link to shared BRep repair fact ids"
     );
 }
 

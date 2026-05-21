@@ -172,6 +172,7 @@ impl ExactBoundaryPcurveDiagnostic {
                 support_half_edge: self.support_half_edge,
                 support_face: self.support_face,
                 residual: self.residual,
+                shared_fact_ids: Vec::new(),
             },
         )
     }

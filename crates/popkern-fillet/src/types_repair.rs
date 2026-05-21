@@ -1,7 +1,7 @@
 use popkern_core::geometry::edge_triple::BoundarySide;
 use popkern_core::topology::{
-    BrepRepairActionArtifact, BrepRepairActionRecord, BrepRepairActionSummary, EdgeHandle,
-    FaceHandle, HalfEdgeHandle, VertexHandle,
+    BrepRepairActionArtifact, BrepRepairActionRecord, BrepRepairActionSummary, BrepRepairFactId,
+    EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle,
 };
 
 /// Structured diagnostics for repair and hardening actions performed during a
@@ -122,6 +122,8 @@ pub struct ExactBoundaryCapDiagnostic {
     pub support_face: Option<FaceHandle>,
     /// Measured residual, when available.
     pub residual: Option<f64>,
+    /// Shared BRep repair knowledge facts that explain the source evidence.
+    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Native cap/support continuity diagnostic for a constructed apex cap.
@@ -246,7 +248,7 @@ pub fn build_blend_repair_action_artifact(report: &BlendRepairReport) -> BrepRep
                         format!("support_half_edge:{:?}", diagnostic.support_half_edge),
                         format!("support_face:{:?}", diagnostic.support_face),
                     ],
-                    shared_fact_ids: Vec::new(),
+                    shared_fact_ids: diagnostic.shared_fact_ids.iter().map(|id| id.0).collect(),
                 });
             }
             ApexConstructionDiagnostic::CylinderTrimMaterialization(_) => {}
