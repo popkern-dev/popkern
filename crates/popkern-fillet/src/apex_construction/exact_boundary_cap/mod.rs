@@ -47,6 +47,10 @@ mod ribbon_tests;
 mod n_sector_tests;
 
 #[cfg(test)]
+#[path = "performance_determinism_tests.rs"]
+mod performance_determinism_tests;
+
+#[cfg(test)]
 #[path = "pcurves_tests.rs"]
 mod pcurves_tests;
 
