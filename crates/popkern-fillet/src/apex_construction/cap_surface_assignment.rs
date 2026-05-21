@@ -16,6 +16,7 @@ use super::error::ApexBuildError;
 use super::exact_boundary_cap::boundary::{
     ExactBoundaryCurveBudget, prepare_exact_boundary_curves,
 };
+use super::exact_boundary_cap::commit::commit_exact_boundary_sector_surfaces;
 use super::exact_boundary_cap::corner::{
     ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes,
 };
@@ -29,6 +30,7 @@ use super::exact_boundary_cap::sector::{
     ExactBoundaryCapSectorInput, extract_exact_boundary_cap_sectors,
 };
 use super::exact_boundary_cap::solve::{ExactBoundarySolveBudget, solve_exact_boundary_surfaces};
+use super::exact_boundary_cap::topology::materialize_exact_boundary_sector_topology;
 use super::gregory_cap::GregoryCapSector;
 use super::plan::ApexPlan;
 
@@ -36,6 +38,7 @@ use super::plan::ApexPlan;
 pub(super) struct GregoryCapAssignment {
     pub corner_patches: Vec<CornerPatchInfo>,
     pub exact_boundary_sectors: Vec<ExactBoundaryCapSectorInput>,
+    pub exact_boundary_committed_faces: Vec<FaceHandle>,
     pub exact_boundary_prepared_curve_count: usize,
     pub exact_boundary_inner_spoke_count: usize,
     pub exact_boundary_ribbon_count: usize,
@@ -98,8 +101,9 @@ pub(super) fn assign_gregory_cap_surface(
     }
 
     let exact_boundary_transaction_snapshot = brep.clone();
-    let exact_boundary_sectors = extract_exact_boundary_cap_sectors(brep, cap_face, plan, sectors)
-        .map_err(|diagnostic| diagnostic.into_build_error())?;
+    let mut exact_boundary_sectors =
+        extract_exact_boundary_cap_sectors(brep, cap_face, plan, sectors)
+            .map_err(|diagnostic| diagnostic.into_build_error())?;
     let prepared_boundary_curves = prepare_exact_boundary_curves(
         brep,
         &exact_boundary_sectors,
@@ -160,6 +164,8 @@ pub(super) fn assign_gregory_cap_surface(
         .as_ref()
         .map(|solved| solved.validated_surface_count())
         .unwrap_or(0);
+    let mut exact_boundary_committed = false;
+    let mut exact_boundary_committed_faces = Vec::new();
     let exact_boundary_pcurve_pair_count = match (
         prepared_inner_spokes.as_ref(),
         prepared_ribbons.as_ref(),
@@ -172,7 +178,40 @@ pub(super) fn assign_gregory_cap_surface(
                 prepared_solved_surfaces,
                 ExactBoundaryPcurveBudget::default(),
             ) {
-                Ok(prepared_pcurves) => prepared_pcurves.validated_pair_count(),
+                Ok(prepared_pcurves) => {
+                    let pair_count = prepared_pcurves.validated_pair_count();
+                    match materialize_exact_boundary_sector_topology(
+                        brep,
+                        cap_face,
+                        &exact_boundary_sectors,
+                        prepared_inner_spokes,
+                    ) {
+                        Ok(topology) => {
+                            let _topology_evidence =
+                                (topology.pole_vertex, topology.spoke_edges.len());
+                            exact_boundary_sectors = topology.sectors;
+                            exact_boundary_committed_faces = exact_boundary_sectors
+                                .iter()
+                                .map(|sector| sector.cap_face)
+                                .collect();
+                            if let Err(diagnostic) = commit_exact_boundary_sector_surfaces(
+                                brep,
+                                cap_face,
+                                &exact_boundary_sectors,
+                                prepared_solved_surfaces,
+                                &prepared_pcurves,
+                            ) {
+                                exact_boundary_diagnostics.push(diagnostic.into_apex_diagnostic());
+                            } else {
+                                exact_boundary_committed = true;
+                            }
+                        }
+                        Err(diagnostic) => {
+                            exact_boundary_diagnostics.push(diagnostic.into_apex_diagnostic());
+                        }
+                    }
+                    pair_count
+                }
                 Err(diagnostic) => {
                     exact_boundary_diagnostics.push(diagnostic.into_apex_diagnostic());
                     0
@@ -183,6 +222,21 @@ pub(super) fn assign_gregory_cap_surface(
     };
     if !exact_boundary_diagnostics.is_empty() || exact_boundary_pcurve_pair_count == 0 {
         *brep = exact_boundary_transaction_snapshot;
+        exact_boundary_committed = false;
+        exact_boundary_committed_faces.clear();
+    }
+    if exact_boundary_committed {
+        return Ok(GregoryCapAssignment {
+            corner_patches: Vec::new(),
+            exact_boundary_sectors,
+            exact_boundary_committed_faces,
+            exact_boundary_prepared_curve_count,
+            exact_boundary_inner_spoke_count,
+            exact_boundary_ribbon_count,
+            exact_boundary_solved_surface_count,
+            exact_boundary_pcurve_pair_count,
+            exact_boundary_diagnostics,
+        });
     }
     let corner_patches = crate::apex_construction::gregory_cap::assemble_gregory_cap_surface(
         brep,
@@ -199,6 +253,7 @@ pub(super) fn assign_gregory_cap_surface(
     Ok(GregoryCapAssignment {
         corner_patches,
         exact_boundary_sectors,
+        exact_boundary_committed_faces,
         exact_boundary_prepared_curve_count,
         exact_boundary_inner_spoke_count,
         exact_boundary_ribbon_count,

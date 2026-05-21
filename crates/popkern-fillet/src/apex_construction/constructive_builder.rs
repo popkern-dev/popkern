@@ -302,6 +302,11 @@ fn construct_apex_inner_constructive(
                 apex_edges.push(Some(face_edge_handles[k]));
             }
             let mut created_faces = vec![cap_face];
+            for face in &assignment.exact_boundary_committed_faces {
+                if !created_faces.contains(face) {
+                    created_faces.push(*face);
+                }
+            }
             for patch in &assignment.corner_patches {
                 if !created_faces.contains(&patch.face) {
                     created_faces.push(patch.face);
