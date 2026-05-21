@@ -8,6 +8,7 @@ pub(crate) mod ribbon;
 pub(crate) mod sector;
 pub(crate) mod solve;
 pub(crate) mod topology;
+pub(crate) mod validation;
 
 #[cfg(test)]
 #[path = "boundary_tests.rs"]
@@ -40,3 +41,7 @@ mod solve_tests;
 #[cfg(test)]
 #[path = "topology_tests.rs"]
 mod topology_tests;
+
+#[cfg(test)]
+#[path = "validation_tests.rs"]
+mod validation_tests;

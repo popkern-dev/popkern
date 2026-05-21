@@ -31,6 +31,9 @@ use super::exact_boundary_cap::sector::{
 };
 use super::exact_boundary_cap::solve::{ExactBoundarySolveBudget, solve_exact_boundary_surfaces};
 use super::exact_boundary_cap::topology::materialize_exact_boundary_sector_topology;
+use super::exact_boundary_cap::validation::{
+    ExactBoundaryValidationBudget, validate_exact_boundary_candidate,
+};
 use super::gregory_cap::GregoryCapSector;
 use super::plan::ApexPlan;
 
@@ -189,21 +192,34 @@ pub(super) fn assign_gregory_cap_surface(
                         Ok(topology) => {
                             let _topology_evidence =
                                 (topology.pole_vertex, topology.spoke_edges.len());
-                            exact_boundary_sectors = topology.sectors;
-                            exact_boundary_committed_faces = exact_boundary_sectors
-                                .iter()
-                                .map(|sector| sector.cap_face)
-                                .collect();
-                            if let Err(diagnostic) = commit_exact_boundary_sector_surfaces(
+                            if let Err(diagnostic) = validate_exact_boundary_candidate(
                                 brep,
-                                cap_face,
-                                &exact_boundary_sectors,
+                                &topology,
+                                &topology.sectors,
+                                prepared_inner_spokes,
                                 prepared_solved_surfaces,
                                 &prepared_pcurves,
+                                ExactBoundaryValidationBudget::default(),
                             ) {
                                 exact_boundary_diagnostics.push(diagnostic.into_apex_diagnostic());
                             } else {
-                                exact_boundary_committed = true;
+                                exact_boundary_sectors = topology.sectors;
+                                exact_boundary_committed_faces = exact_boundary_sectors
+                                    .iter()
+                                    .map(|sector| sector.cap_face)
+                                    .collect();
+                                if let Err(diagnostic) = commit_exact_boundary_sector_surfaces(
+                                    brep,
+                                    cap_face,
+                                    &exact_boundary_sectors,
+                                    prepared_solved_surfaces,
+                                    &prepared_pcurves,
+                                ) {
+                                    exact_boundary_diagnostics
+                                        .push(diagnostic.into_apex_diagnostic());
+                                } else {
+                                    exact_boundary_committed = true;
+                                }
                             }
                         }
                         Err(diagnostic) => {
