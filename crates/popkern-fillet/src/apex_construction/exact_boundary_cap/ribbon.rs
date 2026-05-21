@@ -8,6 +8,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 use super::boundary::{PreparedExactBoundaryCurve, PreparedExactBoundaryCurves};
 use super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSide};
+use super::support::{ExactBoundarySupportSurfaceFamily, support_surface_family};
 
 const DEFAULT_SAMPLE_COUNT: usize = 5;
 
@@ -63,6 +64,8 @@ pub(crate) struct PreparedExactBoundaryRibbon {
     pub support_half_edge: HalfEdgeHandle,
     /// Support face sampled by the pcurve.
     pub support_face: FaceHandle,
+    /// Support-surface family used for support-ribbon evaluation.
+    pub support_family: ExactBoundarySupportSurfaceFamily,
     /// True when support pcurve orientation is opposite the prepared cap curve.
     pub support_parameter_reversed: bool,
     /// Worst sampled 3-D residual between exact edge curve and pcurve image.
@@ -107,6 +110,8 @@ pub(crate) enum ExactBoundaryRibbonDeclineReason {
     TangentAmbiguity,
     /// Cross-boundary derivative direction collapsed.
     CrossDerivativeDegenerate,
+    /// Support surface family is not accepted for exact-boundary ribbons yet.
+    UnsupportedSupportSurface,
 }
 
 impl ExactBoundaryRibbonDeclineReason {
@@ -121,6 +126,9 @@ impl ExactBoundaryRibbonDeclineReason {
             Self::TangentAmbiguity => "exact_boundary_cap.ribbon.tangent_ambiguity",
             Self::CrossDerivativeDegenerate => {
                 "exact_boundary_cap.ribbon.cross_derivative_degenerate"
+            }
+            Self::UnsupportedSupportSurface => {
+                "exact_boundary_cap.ribbon.unsupported_support_surface"
             }
         }
     }
@@ -277,6 +285,17 @@ fn prepare_ribbon_for_seam(
     pcurve: &Pcurve,
     budget: ExactBoundaryRibbonBudget,
 ) -> Result<PreparedExactBoundaryRibbon, ExactBoundaryRibbonDiagnostic> {
+    let support_family = support_surface_family(surface);
+    if matches!(
+        support_family,
+        ExactBoundarySupportSurfaceFamily::Unsupported
+    ) {
+        return Err(ExactBoundaryRibbonDiagnostic::new(
+            ExactBoundaryRibbonDeclineReason::UnsupportedSupportSurface,
+            context,
+            None,
+        ));
+    }
     let orientation = choose_support_pcurve_orientation(boundary, surface, pcurve, budget);
     if orientation.max_residual > budget.max_support_residual {
         return Err(ExactBoundaryRibbonDiagnostic::new(
@@ -311,6 +330,7 @@ fn prepare_ribbon_for_seam(
         edge: context.edge,
         support_half_edge: context.support_half_edge,
         support_face: context.support_face,
+        support_family,
         support_parameter_reversed: orientation.reversed,
         max_support_residual: orientation.max_residual,
         samples,

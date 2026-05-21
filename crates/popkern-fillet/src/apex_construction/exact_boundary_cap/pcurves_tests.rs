@@ -10,6 +10,7 @@ use super::ribbon::{
 };
 use super::sector::ExactBoundaryOuterSide;
 use super::solve::{ExactBoundarySolveBudget, solve_exact_boundary_surfaces};
+use super::support::ExactBoundarySupportSurfaceFamily;
 use popkern_core::geometry::pcurve::PcurveGeometry;
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
@@ -167,6 +168,7 @@ fn ribbon(
         edge,
         support_half_edge,
         support_face,
+        support_family: ExactBoundarySupportSurfaceFamily::Plane,
         support_parameter_reversed: false,
         max_support_residual: if stale_support { 0.25 } else { 0.0 },
         samples: (0..4)

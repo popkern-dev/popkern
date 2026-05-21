@@ -10,6 +10,7 @@ pub(crate) mod performance;
 pub(crate) mod ribbon;
 pub(crate) mod sector;
 pub(crate) mod solve;
+pub(crate) mod support;
 pub(crate) mod topology;
 pub(crate) mod validation;
 
