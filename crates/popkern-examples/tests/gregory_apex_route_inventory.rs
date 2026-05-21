@@ -5,7 +5,8 @@ use popkern_core::topology::{
 };
 use popkern_fillet::{
     ApexConstructionDiagnostic, ApexConstructionRoute, ExactBoundaryCandidateOutcome,
-    FilletOptions, FilletRadius, FilletSpec, build_blend_repair_action_artifact, fillet_edges,
+    ExactBoundaryReportTransactionStatus, FilletOptions, FilletRadius, FilletSpec,
+    build_blend_repair_action_artifact, fillet_edges,
 };
 
 #[test]
@@ -98,6 +99,11 @@ fn assert_exact_boundary_ux_report(route: &popkern_fillet::ApexConstructionRoute
         report.candidate_status,
         ExactBoundaryCandidateOutcome::Declined
     );
+    assert_eq!(
+        report.provenance.transaction_status,
+        ExactBoundaryReportTransactionStatus::RolledBack
+    );
+    assert!(report.provenance.topology_rollback_performed);
     assert_eq!(report.sectors.len(), route.exact_boundary_sector_count);
     assert_eq!(report.performance, route.exact_boundary_performance);
     assert!(report.preview_available);
@@ -107,6 +113,12 @@ fn assert_exact_boundary_ux_report(route: &popkern_fillet::ApexConstructionRoute
     );
     assert!(report.tolerance_evidence.model_linear_tolerance.is_some());
     assert!(!report.diagnostics.is_empty());
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.schema_version == 1)
+    );
     assert!(!report.source_fact_ids.is_empty());
     assert_eq!(report.sectors[0].sector_name, "direct_apex.cap_sector.0");
     assert_eq!(report.sectors[0].cap_half_edges.len(), 2);
@@ -114,6 +126,7 @@ fn assert_exact_boundary_ux_report(route: &popkern_fillet::ApexConstructionRoute
     let json = serde_json::to_string(report).expect("exact-boundary report serializes to JSON");
     assert!(json.contains("\"schema_version\":1"));
     assert!(json.contains("\"candidate_status\":\"Declined\""));
+    assert!(json.contains("\"transaction_status\":\"RolledBack\""));
     assert!(json.contains("\"source_fact_ids\""));
 }
 

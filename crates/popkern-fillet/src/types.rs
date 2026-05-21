@@ -18,7 +18,8 @@ pub use types_corner::{
 };
 pub use types_exact_boundary::{
     CapContinuityReport, CapContinuityTarget, ExactBoundaryCandidateOutcome,
-    ExactBoundaryCapReport, ExactBoundaryReportDiagnostic, ExactBoundaryReportSector,
+    ExactBoundaryCapReport, ExactBoundaryReportDiagnostic, ExactBoundaryReportProvenance,
+    ExactBoundaryReportSector, ExactBoundaryReportTransactionStatus,
     ExactBoundaryToleranceEvidence,
 };
 pub use types_repair::{

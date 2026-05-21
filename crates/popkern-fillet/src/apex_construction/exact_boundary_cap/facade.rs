@@ -10,7 +10,8 @@ use crate::apex_construction::plan::ApexPlan;
 use crate::types::{
     ApexConstructionDiagnostic, ExactBoundaryCandidateOutcome,
     ExactBoundaryCandidatePerformanceReport, ExactBoundaryCapDiagnostic, ExactBoundaryCapReport,
-    ExactBoundaryReportDiagnostic, ExactBoundaryReportSector, ExactBoundaryToleranceEvidence,
+    ExactBoundaryReportDiagnostic, ExactBoundaryReportProvenance, ExactBoundaryReportSector,
+    ExactBoundaryToleranceEvidence,
 };
 
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
@@ -276,13 +277,15 @@ pub(super) fn build_exact_boundary_report(
         .filter_map(exact_boundary_report_diagnostic)
         .collect();
     let source_fact_ids = unique_source_fact_ids(&report_diagnostics);
+    let candidate_status = match status {
+        ExactBoundaryCapCandidateStatus::Accepted => ExactBoundaryCandidateOutcome::Accepted,
+        ExactBoundaryCapCandidateStatus::Declined => ExactBoundaryCandidateOutcome::Declined,
+    };
     ExactBoundaryCapReport {
         schema_version: 1,
         route_label: "direct_apex".to_string(),
-        candidate_status: match status {
-            ExactBoundaryCapCandidateStatus::Accepted => ExactBoundaryCandidateOutcome::Accepted,
-            ExactBoundaryCapCandidateStatus::Declined => ExactBoundaryCandidateOutcome::Declined,
-        },
+        candidate_status,
+        provenance: ExactBoundaryReportProvenance::for_status(candidate_status),
         sectors: sectors
             .iter()
             .map(|sector| exact_boundary_report_sector(brep, sector))
@@ -350,6 +353,7 @@ fn report_diagnostic_from_exact_boundary(
     diagnostic: &ExactBoundaryCapDiagnostic,
 ) -> ExactBoundaryReportDiagnostic {
     ExactBoundaryReportDiagnostic {
+        schema_version: 1,
         stage: diagnostic.stage.clone(),
         code: diagnostic.code.clone(),
         sector_name: diagnostic.sector_name.clone(),

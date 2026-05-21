@@ -114,6 +114,8 @@ pub struct ExactBoundaryCapReport {
     pub route_label: String,
     /// Candidate outcome in user-facing terms.
     pub candidate_status: ExactBoundaryCandidateOutcome,
+    /// Report producer, transaction status, and compatibility metadata.
+    pub provenance: ExactBoundaryReportProvenance,
     /// Sector ownership records extracted from live topology.
     pub sectors: Vec<ExactBoundaryReportSector>,
     /// Sector faces committed by an accepted candidate.
@@ -139,6 +141,7 @@ impl ExactBoundaryCapReport {
             schema_version: 1,
             route_label: route_label.to_string(),
             candidate_status: ExactBoundaryCandidateOutcome::NotApplicable,
+            provenance: ExactBoundaryReportProvenance::not_started(),
             sectors: Vec::new(),
             committed_faces: Vec::new(),
             preview_available: false,
@@ -155,6 +158,59 @@ impl ExactBoundaryCapReport {
         self.route_label = route_label.to_string();
         self
     }
+}
+
+/// Versioned producer and transaction metadata for exact-boundary reports.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExactBoundaryReportProvenance {
+    /// Stable report family name for compatibility checks.
+    pub schema_name: String,
+    /// Stable producer stage that authored this report.
+    pub producer: String,
+    /// Transaction outcome for the exact-boundary candidate.
+    pub transaction_status: ExactBoundaryReportTransactionStatus,
+    /// Whether candidate topology mutation was contained by snapshot rollback.
+    pub topology_rollback_performed: bool,
+}
+
+impl ExactBoundaryReportProvenance {
+    /// Metadata for routes where no exact-boundary transaction was started.
+    pub fn not_started() -> Self {
+        Self::for_status(ExactBoundaryCandidateOutcome::NotApplicable)
+    }
+
+    /// Metadata for a completed exact-boundary candidate outcome.
+    pub fn for_status(status: ExactBoundaryCandidateOutcome) -> Self {
+        let transaction_status = match status {
+            ExactBoundaryCandidateOutcome::NotApplicable => {
+                ExactBoundaryReportTransactionStatus::NotStarted
+            }
+            ExactBoundaryCandidateOutcome::Accepted => {
+                ExactBoundaryReportTransactionStatus::Committed
+            }
+            ExactBoundaryCandidateOutcome::Declined => {
+                ExactBoundaryReportTransactionStatus::RolledBack
+            }
+        };
+        Self {
+            schema_name: "exact_boundary_cap_report".to_string(),
+            producer: "exact_boundary_cap_candidate".to_string(),
+            transaction_status,
+            topology_rollback_performed: transaction_status
+                == ExactBoundaryReportTransactionStatus::RolledBack,
+        }
+    }
+}
+
+/// Transaction outcome for exact-boundary cap construction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExactBoundaryReportTransactionStatus {
+    /// The route did not start an exact-boundary candidate transaction.
+    NotStarted,
+    /// Candidate postconditions passed and topology was committed.
+    Committed,
+    /// Candidate declined and restored the input topology snapshot.
+    RolledBack,
 }
 
 impl Default for ExactBoundaryCapReport {
@@ -233,6 +289,8 @@ impl Default for ExactBoundaryToleranceEvidence {
 /// JSON-ready diagnostic row for exact-boundary reports.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExactBoundaryReportDiagnostic {
+    /// Diagnostic row schema version for downstream compatibility.
+    pub schema_version: u32,
     /// Candidate stage that emitted the diagnostic.
     pub stage: String,
     /// Stable diagnostic code.
@@ -271,11 +329,17 @@ mod tests {
         );
         assert!(!report.preview_available);
         assert!(report.sectors.is_empty());
+        assert_eq!(
+            report.provenance.transaction_status,
+            super::ExactBoundaryReportTransactionStatus::NotStarted
+        );
+        assert!(!report.provenance.topology_rollback_performed);
         assert_eq!(report.continuity.target.requested, ContinuityLevel::G1);
         assert_eq!(report.continuity.achieved, None);
 
         let json = serde_json::to_string(&report).unwrap();
         assert!(json.contains("\"candidate_status\":\"NotApplicable\""));
+        assert!(json.contains("\"schema_name\":\"exact_boundary_cap_report\""));
         assert!(json.contains("\"requested\":\"G1\""));
     }
 

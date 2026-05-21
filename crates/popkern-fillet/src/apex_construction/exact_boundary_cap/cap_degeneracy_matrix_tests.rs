@@ -7,7 +7,9 @@ use crate::apex_construction::target_topology::{
     TargetCapFace, TargetEdge, TargetEdgeRole, TargetTopology,
 };
 use crate::apex_construction::telemetry::PlanTelemetry;
-use crate::types::{ContinuityLevel, ExactBoundaryCandidateOutcome};
+use crate::types::{
+    ContinuityLevel, ExactBoundaryCandidateOutcome, ExactBoundaryReportTransactionStatus,
+};
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::tolerance::Tolerance;
@@ -94,6 +96,11 @@ fn candidate_decline_matrix_restores_topology_and_reports_blockers() {
 
         assert_eq!(result.status, ExactBoundaryCapCandidateStatus::Declined);
         assert_eq!(topology_counts(&brep), before_counts);
+        assert_eq!(
+            result.report.provenance.transaction_status,
+            ExactBoundaryReportTransactionStatus::RolledBack
+        );
+        assert!(result.report.provenance.topology_rollback_performed);
         assert!(result.committed_faces.is_empty());
         assert_eq!(result.report.committed_faces.len(), 0);
         assert_eq!(
@@ -109,6 +116,13 @@ fn candidate_decline_matrix_restores_topology_and_reports_blockers() {
                 .iter()
                 .any(|diagnostic| diagnostic.code.contains("support_pcurve")),
             "{adversary:?} should preserve the structured pcurve blocker"
+        );
+        assert!(
+            result
+                .report
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.schema_version == 1)
         );
     }
 }

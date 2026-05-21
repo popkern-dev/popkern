@@ -7,7 +7,11 @@ use crate::apex_construction::target_topology::{
     TargetCapFace, TargetEdge, TargetEdgeRole, TargetTopology,
 };
 use crate::apex_construction::telemetry::PlanTelemetry;
-use crate::types::{ExactBoundaryCandidateOutcome, ExactBoundaryCandidatePerformanceReport};
+use crate::types::{
+    ApexConstructionDiagnostic, ExactBoundaryCandidateOutcome,
+    ExactBoundaryCandidatePerformanceReport, ExactBoundaryCapDiagnostic,
+    ExactBoundaryReportTransactionStatus,
+};
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::tolerance::Tolerance;
@@ -52,6 +56,11 @@ fn report_sector_pcurve_flags_are_read_from_live_topology() {
         report.candidate_status,
         ExactBoundaryCandidateOutcome::Accepted
     );
+    assert_eq!(
+        report.provenance.transaction_status,
+        ExactBoundaryReportTransactionStatus::Committed
+    );
+    assert!(!report.provenance.topology_rollback_performed);
     assert_eq!(report.sectors.len(), 3);
     for sector in report.sectors {
         assert!(
@@ -67,6 +76,51 @@ fn report_sector_pcurve_flags_are_read_from_live_topology() {
                 .all(|present| present)
         );
     }
+}
+
+#[test]
+fn declined_report_records_rollback_and_versioned_diagnostics() {
+    let (brep, cap_face, edges) = hex_cap_fixture();
+    let plan = trihedral_plan(&brep, &edges);
+    let sectors = trihedral_sectors(&edges);
+    let exact_sectors =
+        extract_exact_boundary_cap_sectors(&brep, cap_face, &plan, &sectors).unwrap();
+    let diagnostic = ApexConstructionDiagnostic::ExactBoundaryCap(ExactBoundaryCapDiagnostic {
+        stage: "exact_boundary_cap.ribbon".to_string(),
+        code: "exact_boundary_cap.ribbon.support_pcurve_stale".to_string(),
+        sector_name: "direct_apex.cap_sector.0".to_string(),
+        edge: Some(edges[0]),
+        support_half_edge: Some(exact_sectors[0].support_half_edges[0]),
+        support_face: Some(exact_sectors[0].fillet_support_face),
+        residual: Some(1.0),
+        shared_fact_ids: Vec::new(),
+    });
+
+    let report = build_exact_boundary_report(
+        &brep,
+        ExactBoundaryCapCandidateStatus::Declined,
+        &exact_sectors,
+        &[],
+        &ExactBoundaryCandidatePerformanceReport {
+            sector_count: exact_sectors.len(),
+            deterministic_skip_code: Some(
+                "exact_boundary_cap.ribbon.support_pcurve_stale".to_string(),
+            ),
+            ..Default::default()
+        },
+        &[diagnostic],
+    );
+
+    assert_eq!(
+        report.provenance.transaction_status,
+        ExactBoundaryReportTransactionStatus::RolledBack
+    );
+    assert!(report.provenance.topology_rollback_performed);
+    assert_eq!(report.diagnostics[0].schema_version, 1);
+    assert_eq!(
+        report.tolerance_evidence.deterministic_skip_code.as_deref(),
+        Some("exact_boundary_cap.ribbon.support_pcurve_stale")
+    );
 }
 
 fn hex_cap_fixture() -> (BRep, FaceHandle, Vec<EdgeHandle>) {
