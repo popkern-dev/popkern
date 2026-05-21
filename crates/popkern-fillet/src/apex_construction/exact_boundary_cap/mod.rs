@@ -23,6 +23,10 @@ mod adversarial_tests;
 mod boundary_tests;
 
 #[cfg(test)]
+#[path = "cap_degeneracy_matrix_tests.rs"]
+mod cap_degeneracy_matrix_tests;
+
+#[cfg(test)]
 #[path = "corner_tests.rs"]
 mod corner_tests;
 
