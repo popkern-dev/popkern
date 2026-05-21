@@ -298,6 +298,7 @@ pub(super) fn build_exact_boundary_report(
             deterministic_skip_code: performance.deterministic_skip_code.clone(),
             ..ExactBoundaryToleranceEvidence::default()
         },
+        continuity: Default::default(),
         performance: performance.clone(),
         diagnostics: report_diagnostics,
         source_fact_ids,

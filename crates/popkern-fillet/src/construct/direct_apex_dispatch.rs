@@ -329,7 +329,7 @@ fn try_constructive_with_legacy_fallthrough(
                 }
                 if let Some(diagnostic) =
                     direct_apex_acceptance::native_gregory_cap_outer_g1_diagnostic(
-                        brep, &result, 5.0e-2,
+                        brep, &result, 5.0e-3, 5.0e-2,
                     )
                 {
                     result.diagnostics.push(diagnostic);

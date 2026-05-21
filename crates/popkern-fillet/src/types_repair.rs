@@ -5,7 +5,7 @@ use popkern_core::topology::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::types_exact_boundary::ExactBoundaryCapReport;
+use super::types_exact_boundary::{CapContinuityReport, ExactBoundaryCapReport};
 
 /// Structured diagnostics for repair and hardening actions performed during a
 /// blend operation.
@@ -144,6 +144,8 @@ pub struct ExactBoundaryCapDiagnostic {
 /// Native cap/support continuity diagnostic for a constructed apex cap.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CapSupportContinuityDiagnostic {
+    /// Semantic target, measured result, and decline code for this continuity gate.
+    pub continuity: CapContinuityReport,
     /// Cap face whose support seam was measured.
     pub cap_face: FaceHandle,
     /// Adjacent support or fillet face across the worst seam.
@@ -277,7 +279,11 @@ pub fn build_blend_repair_action_artifact(report: &BlendRepairReport) -> BrepRep
                         "cap={:?};support={:?};edge={:?}",
                         diagnostic.cap_face, diagnostic.support_face, diagnostic.edge
                     ),
-                    reason: Some("cap_outer_g1_exceeds_gate".to_string()),
+                    reason: diagnostic
+                        .continuity
+                        .decline_code
+                        .clone()
+                        .or_else(|| Some("cap_outer_g1_exceeds_gate".to_string())),
                     max_motion: 0.0,
                     max_deviation: diagnostic.worst_g1_coplanarity,
                     affected_handles: vec![

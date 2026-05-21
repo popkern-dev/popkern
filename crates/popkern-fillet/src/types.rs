@@ -1,5 +1,7 @@
 //! API types for fillet and chamfer specifications.
 
+use serde::{Deserialize, Serialize};
+
 #[path = "types_chamfer.rs"]
 mod types_chamfer;
 #[path = "types_corner.rs"]
@@ -15,8 +17,9 @@ pub use types_corner::{
     CornerSubPatchRole,
 };
 pub use types_exact_boundary::{
-    ExactBoundaryCandidateOutcome, ExactBoundaryCapReport, ExactBoundaryReportDiagnostic,
-    ExactBoundaryReportSector, ExactBoundaryToleranceEvidence,
+    CapContinuityReport, CapContinuityTarget, ExactBoundaryCandidateOutcome,
+    ExactBoundaryCapReport, ExactBoundaryReportDiagnostic, ExactBoundaryReportSector,
+    ExactBoundaryToleranceEvidence,
 };
 pub use types_repair::{
     ApexConstructionDiagnostic, ApexConstructionRoute, ApexConstructionRouteDecision,
@@ -303,7 +306,7 @@ impl Default for FilletOptions {
 ///
 /// `G3` (curvature-derivative continuity) is reserved as [BEYOND]
 /// and not currently representable here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ContinuityLevel {
     /// Positional continuity only. Debug / special cases.
     G0,

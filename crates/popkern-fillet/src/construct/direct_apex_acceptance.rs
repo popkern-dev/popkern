@@ -161,6 +161,7 @@ pub(super) fn native_gregory_cap_outer_g0_error(
 pub(super) fn native_gregory_cap_outer_g1_diagnostic(
     brep: &BRep,
     result: &crate::apex_construction::construct::ApexBuildResult,
+    max_g0_gap: f64,
     gate: f64,
 ) -> Option<crate::types::ApexConstructionDiagnostic> {
     use popkern_core::geometry::curve::CurveEval;
@@ -176,6 +177,7 @@ pub(super) fn native_gregory_cap_outer_g1_diagnostic(
     }
 
     let mut worst = 0.0f64;
+    let mut worst_g0_gap = 0.0f64;
     let mut worst_edge = None;
     let mut worst_faces = None;
     let mut measured_edges = 0usize;
@@ -235,6 +237,9 @@ pub(super) fn native_gregory_cap_outer_g1_diagnostic(
             let s_b = if pb_forward { s } else { 1.0 - s };
             let uv_a = pa.point_at(pa_lo + s_a * (pa_hi - pa_lo));
             let uv_b = pb.point_at(pb_lo + s_b * (pb_hi - pb_lo));
+            let p_a = sa.geometry.point_at(uv_a.x, uv_a.y);
+            let p_b = sb.geometry.point_at(uv_b.x, uv_b.y);
+            worst_g0_gap = worst_g0_gap.max(p_a.distance_to(&p_b));
             let n_a = sa
                 .geometry
                 .partial_u(uv_a.x, uv_a.y)
@@ -267,9 +272,16 @@ pub(super) fn native_gregory_cap_outer_g1_diagnostic(
         return None;
     }
     let (cap_face, support_face) = worst_faces?;
+    let target = crate::types::CapContinuityTarget::native_cap_g1(max_g0_gap, gate);
     Some(
         crate::types::ApexConstructionDiagnostic::CapSupportContinuity(
             crate::types::CapSupportContinuityDiagnostic {
+                continuity: crate::types::CapContinuityReport::declined_g1(
+                    target,
+                    measured_edges,
+                    worst_g0_gap,
+                    worst,
+                ),
                 cap_face,
                 support_face,
                 edge: worst_edge?,

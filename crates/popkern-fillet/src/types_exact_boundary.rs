@@ -1,7 +1,109 @@
 use popkern_core::topology::{EdgeHandle, FaceHandle, HalfEdgeHandle};
 use serde::{Deserialize, Serialize};
 
+use super::ContinuityLevel;
 use super::types_repair::ExactBoundaryCandidatePerformanceReport;
+
+const CAP_FAMILY_DEFAULT_G0_TOLERANCE: f64 = 5.0e-3;
+const CAP_FAMILY_DEFAULT_G1_NORMAL_DEFICIT_TOLERANCE: f64 = 5.0e-2;
+const CAP_FAMILY_DEFAULT_G2_RELATIVE_CURVATURE_TOLERANCE: f64 = 1.0e-2;
+
+/// Semantic cap/support continuity target used by cap-family diagnostics.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CapContinuityTarget {
+    /// Continuity requested by the construction route.
+    pub requested: ContinuityLevel,
+    /// Lowest continuity level that may be accepted without downgrade.
+    pub accepted_floor: ContinuityLevel,
+    /// Local positional seam gate.
+    pub g0_position_tolerance: f64,
+    /// Local tangent-normal parallelism deficit gate.
+    pub g1_normal_deficit_tolerance: f64,
+    /// Local relative curvature gate for G2 requests.
+    pub g2_relative_curvature_tolerance: Option<f64>,
+}
+
+impl CapContinuityTarget {
+    /// Native cap-family default: require G1 after the cap/support G0 gate.
+    pub fn native_cap_g1(g0_position_tolerance: f64, g1_normal_deficit_tolerance: f64) -> Self {
+        Self {
+            requested: ContinuityLevel::G1,
+            accepted_floor: ContinuityLevel::G1,
+            g0_position_tolerance,
+            g1_normal_deficit_tolerance,
+            g2_relative_curvature_tolerance: Some(
+                CAP_FAMILY_DEFAULT_G2_RELATIVE_CURVATURE_TOLERANCE,
+            ),
+        }
+    }
+}
+
+impl Default for CapContinuityTarget {
+    fn default() -> Self {
+        Self::native_cap_g1(
+            CAP_FAMILY_DEFAULT_G0_TOLERANCE,
+            CAP_FAMILY_DEFAULT_G1_NORMAL_DEFICIT_TOLERANCE,
+        )
+    }
+}
+
+/// Measured or pending cap/support continuity evidence for reports.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CapContinuityReport {
+    /// Target and local gates used by the route.
+    pub target: CapContinuityTarget,
+    /// Best continuity level proven by measurement, when measured.
+    pub achieved: Option<ContinuityLevel>,
+    /// Number of cap/support seams measured.
+    pub measured_edges: usize,
+    /// Worst sampled positional seam gap.
+    pub worst_g0_gap: Option<f64>,
+    /// Worst sampled tangent-normal parallelism deficit.
+    pub worst_g1_normal_deficit: Option<f64>,
+    /// Worst sampled relative curvature mismatch for G2 requests.
+    pub worst_g2_relative_curvature_error: Option<f64>,
+    /// Stable decline code when the target was not achieved.
+    pub decline_code: Option<String>,
+}
+
+impl CapContinuityReport {
+    /// Report a target that is part of the route contract but has not yet been measured.
+    pub fn not_measured(target: CapContinuityTarget) -> Self {
+        Self {
+            target,
+            achieved: None,
+            measured_edges: 0,
+            worst_g0_gap: None,
+            worst_g1_normal_deficit: None,
+            worst_g2_relative_curvature_error: None,
+            decline_code: None,
+        }
+    }
+
+    /// Report a native cap/support G1 decline after G0 has been measured.
+    pub fn declined_g1(
+        target: CapContinuityTarget,
+        measured_edges: usize,
+        worst_g0_gap: f64,
+        worst_g1_normal_deficit: f64,
+    ) -> Self {
+        Self {
+            target,
+            achieved: Some(ContinuityLevel::G0),
+            measured_edges,
+            worst_g0_gap: Some(worst_g0_gap),
+            worst_g1_normal_deficit: Some(worst_g1_normal_deficit),
+            worst_g2_relative_curvature_error: None,
+            decline_code: Some("cap_outer_g1_exceeds_gate".to_string()),
+        }
+    }
+}
+
+impl Default for CapContinuityReport {
+    fn default() -> Self {
+        Self::not_measured(CapContinuityTarget::default())
+    }
+}
 
 /// Versioned programmatic and GUI report for an exact-boundary cap candidate.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -20,6 +122,8 @@ pub struct ExactBoundaryCapReport {
     pub preview_available: bool,
     /// Tolerances and residuals used to explain accept/decline decisions.
     pub tolerance_evidence: ExactBoundaryToleranceEvidence,
+    /// Cap/support continuity target and measured status for this route.
+    pub continuity: CapContinuityReport,
     /// Candidate-only performance counters and deterministic skip evidence.
     pub performance: ExactBoundaryCandidatePerformanceReport,
     /// Structured diagnostics promoted from candidate stages.
@@ -39,6 +143,7 @@ impl ExactBoundaryCapReport {
             committed_faces: Vec::new(),
             preview_available: false,
             tolerance_evidence: ExactBoundaryToleranceEvidence::default(),
+            continuity: CapContinuityReport::default(),
             performance: ExactBoundaryCandidatePerformanceReport::default(),
             diagnostics: Vec::new(),
             source_fact_ids: Vec::new(),
@@ -148,7 +253,11 @@ pub struct ExactBoundaryReportDiagnostic {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExactBoundaryCandidateOutcome, ExactBoundaryCapReport};
+    use super::{
+        CapContinuityReport, CapContinuityTarget, ExactBoundaryCandidateOutcome,
+        ExactBoundaryCapReport,
+    };
+    use crate::types::ContinuityLevel;
 
     #[test]
     fn not_applicable_report_is_versioned_and_json_ready() {
@@ -162,8 +271,28 @@ mod tests {
         );
         assert!(!report.preview_available);
         assert!(report.sectors.is_empty());
+        assert_eq!(report.continuity.target.requested, ContinuityLevel::G1);
+        assert_eq!(report.continuity.achieved, None);
 
         let json = serde_json::to_string(&report).unwrap();
         assert!(json.contains("\"candidate_status\":\"NotApplicable\""));
+        assert!(json.contains("\"requested\":\"G1\""));
+    }
+
+    #[test]
+    fn cap_continuity_decline_report_records_target_and_residuals() {
+        let target = CapContinuityTarget::native_cap_g1(5.0e-3, 5.0e-2);
+        let report = CapContinuityReport::declined_g1(target, 3, 1.0e-4, 6.0e-2);
+
+        assert_eq!(report.target.requested, ContinuityLevel::G1);
+        assert_eq!(report.target.accepted_floor, ContinuityLevel::G1);
+        assert_eq!(report.achieved, Some(ContinuityLevel::G0));
+        assert_eq!(report.measured_edges, 3);
+        assert_eq!(report.worst_g0_gap, Some(1.0e-4));
+        assert_eq!(report.worst_g1_normal_deficit, Some(6.0e-2));
+        assert_eq!(
+            report.decline_code.as_deref(),
+            Some("cap_outer_g1_exceeds_gate")
+        );
     }
 }
