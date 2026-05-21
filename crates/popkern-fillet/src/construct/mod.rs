@@ -42,6 +42,7 @@ pub(crate) mod poke_4n;
 pub(crate) mod poke_hex;
 mod post_pipeline;
 mod promotion_ladder;
+mod route_decision;
 mod sliver_absorb;
 mod sliver_absorb_classifiers;
 mod sphere_fit_edge_wire;
@@ -58,6 +59,7 @@ use popkern_core::geometry::NurbsCurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
+use route_decision::{ApexRouteDecisionInput, apex_route_decision};
 
 /// Geometry computed for one fillet/chamfer edge.
 #[derive(Debug)]
@@ -273,6 +275,10 @@ pub fn apply_blend_geometry(
                                     exact_boundary_performance: success
                                         .exact_boundary_performance
                                         .clone(),
+                                    exact_boundary_report: success
+                                        .exact_boundary_report
+                                        .clone()
+                                        .with_route_label("direct_apex"),
                                     fallback_reason: None,
                                 },
                             ));
@@ -300,6 +306,10 @@ pub fn apply_blend_geometry(
                                 exact_boundary_solved_surface_count: 0,
                                 exact_boundary_pcurve_pair_count: 0,
                                 exact_boundary_performance: Default::default(),
+                                exact_boundary_report:
+                                    crate::types::ExactBoundaryCapReport::not_applicable(
+                                        "direct_apex_fallback_to_legacy",
+                                    ),
                                 fallback_reason: Some(reason.clone()),
                             }));
                             warnings.push((
@@ -333,6 +343,8 @@ pub fn apply_blend_geometry(
                             exact_boundary_solved_surface_count: 0,
                             exact_boundary_pcurve_pair_count: 0,
                             exact_boundary_performance: Default::default(),
+                            exact_boundary_report:
+                                crate::types::ExactBoundaryCapReport::not_applicable("legacy"),
                             fallback_reason: None,
                         }));
                 }
@@ -451,50 +463,4 @@ fn should_promote_mixed_radius_gregory_apex(
         return false;
     };
     radii.any(|radius| (radius - first).abs() > 1.0e-9)
-}
-
-struct ApexRouteDecisionInput<'a> {
-    vertex: VertexHandle,
-    edge_indices: &'a [usize],
-    edge_geometries: &'a [EdgeGeometry],
-    route: crate::types::ApexConstructionRoute,
-    built_faces: Vec<FaceHandle>,
-    corner_patch_count: usize,
-    exact_boundary_sector_count: usize,
-    exact_boundary_prepared_curve_count: usize,
-    exact_boundary_inner_spoke_count: usize,
-    exact_boundary_ribbon_count: usize,
-    exact_boundary_solved_surface_count: usize,
-    exact_boundary_pcurve_pair_count: usize,
-    exact_boundary_performance: crate::types::ExactBoundaryCandidatePerformanceReport,
-    fallback_reason: Option<String>,
-}
-
-fn apex_route_decision(
-    input: ApexRouteDecisionInput<'_>,
-) -> crate::types::ApexConstructionRouteDecision {
-    crate::types::ApexConstructionRouteDecision {
-        vertex: input.vertex,
-        incident_edges: input
-            .edge_indices
-            .iter()
-            .filter_map(|&index| {
-                input
-                    .edge_geometries
-                    .get(index)
-                    .map(|geometry| geometry.analysis.edge)
-            })
-            .collect(),
-        route: input.route,
-        built_faces: input.built_faces,
-        corner_patch_count: input.corner_patch_count,
-        exact_boundary_sector_count: input.exact_boundary_sector_count,
-        exact_boundary_prepared_curve_count: input.exact_boundary_prepared_curve_count,
-        exact_boundary_inner_spoke_count: input.exact_boundary_inner_spoke_count,
-        exact_boundary_ribbon_count: input.exact_boundary_ribbon_count,
-        exact_boundary_solved_surface_count: input.exact_boundary_solved_surface_count,
-        exact_boundary_pcurve_pair_count: input.exact_boundary_pcurve_pair_count,
-        exact_boundary_performance: input.exact_boundary_performance,
-        fallback_reason: input.fallback_reason,
-    }
 }

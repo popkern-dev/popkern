@@ -4,8 +4,8 @@ use popkern_core::topology::{
     analyze_brep_edge_surface_compatibility, analyze_brep_export_quality,
 };
 use popkern_fillet::{
-    ApexConstructionDiagnostic, ApexConstructionRoute, FilletOptions, FilletRadius, FilletSpec,
-    build_blend_repair_action_artifact, fillet_edges,
+    ApexConstructionDiagnostic, ApexConstructionRoute, ExactBoundaryCandidateOutcome,
+    FilletOptions, FilletRadius, FilletSpec, build_blend_repair_action_artifact, fillet_edges,
 };
 
 #[test]
@@ -25,6 +25,7 @@ fn mixed_radius_gregory_records_default_direct_apex_route() {
     assert_eq!(routes[0].exact_boundary_solved_surface_count, 0);
     assert_eq!(routes[0].exact_boundary_pcurve_pair_count, 0);
     assert_exact_boundary_performance_report(&routes[0]);
+    assert_exact_boundary_ux_report(&routes[0]);
     assert_exact_boundary_ribbon_decline(&result);
     assert_exact_boundary_artifact_links_repair_facts(&result);
     assert!(routes[0].fallback_reason.is_none());
@@ -50,6 +51,7 @@ fn mixed_radius_gregory_records_direct_apex_requested_route() {
     assert_eq!(routes[0].exact_boundary_solved_surface_count, 0);
     assert_eq!(routes[0].exact_boundary_pcurve_pair_count, 0);
     assert_exact_boundary_performance_report(&routes[0]);
+    assert_exact_boundary_ux_report(&routes[0]);
     assert_exact_boundary_ribbon_decline(&result);
     assert_exact_boundary_artifact_links_repair_facts(&result);
     assert!(routes[0].fallback_reason.is_none());
@@ -86,6 +88,33 @@ fn assert_exact_boundary_performance_report(route: &popkern_fillet::ApexConstruc
         performance.deterministic_skip_code.is_some(),
         "declined exact-boundary candidates should record a future skip-policy key"
     );
+}
+
+fn assert_exact_boundary_ux_report(route: &popkern_fillet::ApexConstructionRouteDecision) {
+    let report = &route.exact_boundary_report;
+    assert_eq!(report.schema_version, 1);
+    assert_eq!(report.route_label, "direct_apex");
+    assert_eq!(
+        report.candidate_status,
+        ExactBoundaryCandidateOutcome::Declined
+    );
+    assert_eq!(report.sectors.len(), route.exact_boundary_sector_count);
+    assert_eq!(report.performance, route.exact_boundary_performance);
+    assert!(report.preview_available);
+    assert_eq!(
+        report.tolerance_evidence.deterministic_skip_code,
+        route.exact_boundary_performance.deterministic_skip_code
+    );
+    assert!(report.tolerance_evidence.model_linear_tolerance.is_some());
+    assert!(!report.diagnostics.is_empty());
+    assert!(!report.source_fact_ids.is_empty());
+    assert_eq!(report.sectors[0].sector_name, "direct_apex.cap_sector.0");
+    assert_eq!(report.sectors[0].cap_half_edges.len(), 2);
+
+    let json = serde_json::to_string(report).expect("exact-boundary report serializes to JSON");
+    assert!(json.contains("\"schema_version\":1"));
+    assert!(json.contains("\"candidate_status\":\"Declined\""));
+    assert!(json.contains("\"source_fact_ids\""));
 }
 
 fn assert_exact_boundary_ribbon_decline(result: &popkern_fillet::BlendResult) {

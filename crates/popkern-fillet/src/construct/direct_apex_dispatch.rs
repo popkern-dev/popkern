@@ -31,7 +31,8 @@ use crate::apex_construction::constructive_builder::construct_apex_constructivel
 use crate::apex_construction::plan::plan_apex_resolution_lenient;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{
-    CornerPatchInfo, ExactBoundaryCandidatePerformanceReport, FilletRadius, FilletSpec,
+    CornerPatchInfo, ExactBoundaryCandidatePerformanceReport, ExactBoundaryCapReport, FilletRadius,
+    FilletSpec,
 };
 
 /// What `try_direct_apex_construction` produced on success.
@@ -56,6 +57,7 @@ pub(crate) struct DirectApexDispatchOutcome {
     pub exact_boundary_solved_surface_count: usize,
     pub exact_boundary_pcurve_pair_count: usize,
     pub exact_boundary_performance: ExactBoundaryCandidatePerformanceReport,
+    pub exact_boundary_report: ExactBoundaryCapReport,
     pub diagnostics: Vec<crate::types::ApexConstructionDiagnostic>,
 }
 
@@ -253,6 +255,7 @@ pub(super) fn try_direct_apex_construction(
         exact_boundary_solved_surface_count: build_result.exact_boundary_solved_surface_count,
         exact_boundary_pcurve_pair_count: build_result.exact_boundary_pcurve_pair_count,
         exact_boundary_performance: build_result.exact_boundary_performance,
+        exact_boundary_report: build_result.exact_boundary_report,
         diagnostics: build_result.diagnostics,
     })
 }

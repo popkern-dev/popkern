@@ -142,6 +142,9 @@ fn construct_apex_inner_constructive(
             exact_boundary_solved_surface_count: 0,
             exact_boundary_pcurve_pair_count: 0,
             exact_boundary_performance: Default::default(),
+            exact_boundary_report: crate::types::ExactBoundaryCapReport::not_applicable(
+                "direct_apex",
+            ),
             diagnostics: Vec::new(),
             telemetry: plan.telemetry.clone(),
         });
@@ -217,6 +220,9 @@ fn construct_apex_inner_constructive(
                 exact_boundary_solved_surface_count: 0,
                 exact_boundary_pcurve_pair_count: 0,
                 exact_boundary_performance: Default::default(),
+                exact_boundary_report: crate::types::ExactBoundaryCapReport::not_applicable(
+                    "direct_apex",
+                ),
                 diagnostics: Vec::new(),
                 telemetry: plan.telemetry.clone(),
             })
@@ -326,6 +332,7 @@ fn construct_apex_inner_constructive(
                 exact_boundary_solved_surface_count: assignment.exact_boundary_solved_surface_count,
                 exact_boundary_pcurve_pair_count: assignment.exact_boundary_pcurve_pair_count,
                 exact_boundary_performance: assignment.exact_boundary_performance,
+                exact_boundary_report: assignment.exact_boundary_report,
                 diagnostics,
                 telemetry: plan.telemetry.clone(),
             })

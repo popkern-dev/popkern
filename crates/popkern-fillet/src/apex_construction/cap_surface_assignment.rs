@@ -9,7 +9,9 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 use crate::fillet_surface::FilletSurfaceResult;
-use crate::types::{CornerPatchInfo, ExactBoundaryCandidatePerformanceReport};
+use crate::types::{
+    CornerPatchInfo, ExactBoundaryCandidatePerformanceReport, ExactBoundaryCapReport,
+};
 
 use super::constructive_geometry::planned_fillet_index_for_sector;
 use super::error::ApexBuildError;
@@ -31,6 +33,7 @@ pub(super) struct GregoryCapAssignment {
     pub exact_boundary_solved_surface_count: usize,
     pub exact_boundary_pcurve_pair_count: usize,
     pub exact_boundary_performance: ExactBoundaryCandidatePerformanceReport,
+    pub exact_boundary_report: ExactBoundaryCapReport,
     pub exact_boundary_diagnostics: Vec<crate::types::ApexConstructionDiagnostic>,
 }
 
@@ -99,6 +102,7 @@ pub(super) fn assign_gregory_cap_surface(
             exact_boundary_sectors: exact_boundary_candidate.sectors,
             exact_boundary_committed_faces: exact_boundary_candidate.committed_faces,
             exact_boundary_performance: exact_boundary_candidate.performance,
+            exact_boundary_report: exact_boundary_candidate.report,
             exact_boundary_diagnostics: exact_boundary_candidate.diagnostics,
         });
     }
@@ -124,6 +128,7 @@ pub(super) fn assign_gregory_cap_surface(
         exact_boundary_sectors: exact_boundary_candidate.sectors,
         exact_boundary_committed_faces: exact_boundary_candidate.committed_faces,
         exact_boundary_performance: exact_boundary_candidate.performance,
+        exact_boundary_report: exact_boundary_candidate.report,
         exact_boundary_diagnostics: exact_boundary_candidate.diagnostics,
     })
 }

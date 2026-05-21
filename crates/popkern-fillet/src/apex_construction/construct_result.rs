@@ -4,7 +4,7 @@ use popkern_core::topology::{EdgeHandle, FaceHandle, VertexHandle};
 
 use super::exact_boundary_cap::sector::ExactBoundaryCapSectorInput;
 use super::telemetry::PlanTelemetry;
-use crate::types::ExactBoundaryCandidatePerformanceReport;
+use crate::types::{ExactBoundaryCandidatePerformanceReport, ExactBoundaryCapReport};
 
 #[derive(Debug, Clone)]
 /// Topology and telemetry produced by an apex construction attempt.
@@ -31,6 +31,8 @@ pub struct ApexBuildResult {
     pub(crate) exact_boundary_pcurve_pair_count: usize,
     /// Candidate-only performance counters and budget evidence for exact-boundary caps.
     pub(crate) exact_boundary_performance: ExactBoundaryCandidatePerformanceReport,
+    /// Versioned exact-boundary report for GUI and programmatic consumers.
+    pub(crate) exact_boundary_report: ExactBoundaryCapReport,
     /// Structured diagnostics emitted while planning or declining apex repairs.
     pub diagnostics: Vec<crate::types::ApexConstructionDiagnostic>,
     /// Planner telemetry carried through to the build result.

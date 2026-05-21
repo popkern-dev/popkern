@@ -12,6 +12,7 @@ use crate::apex_construction::target_topology::{
     TargetCapFace, TargetEdge, TargetEdgeRole, TargetTopology,
 };
 use crate::apex_construction::telemetry::PlanTelemetry;
+use crate::types::ExactBoundaryCandidateOutcome;
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
@@ -126,15 +127,36 @@ fn four_sector_candidate_reports_linear_counts_and_structured_status() {
     assert!(result.performance.elapsed_micros > 0);
     match result.status {
         ExactBoundaryCapCandidateStatus::Accepted => {
+            assert_eq!(
+                result.report.candidate_status,
+                ExactBoundaryCandidateOutcome::Accepted
+            );
             assert_eq!(result.committed_faces.len(), 4);
+            assert_eq!(result.report.committed_faces.len(), 4);
             assert_eq!(result.performance.validation_sector_count, 4);
         }
         ExactBoundaryCapCandidateStatus::Declined => {
+            assert_eq!(
+                result.report.candidate_status,
+                ExactBoundaryCandidateOutcome::Declined
+            );
             assert!(!result.diagnostics.is_empty());
+            assert!(!result.report.diagnostics.is_empty());
             assert!(result.performance.deterministic_skip_code.is_some());
             assert!(result.committed_faces.is_empty());
         }
     }
+    assert_eq!(result.report.schema_version, 1);
+    assert_eq!(result.report.sectors.len(), 4);
+    assert_eq!(result.report.performance, result.performance);
+    assert!(result.report.preview_available);
+    assert!(
+        result
+            .report
+            .tolerance_evidence
+            .model_linear_tolerance
+            .is_some()
+    );
 }
 
 #[test]

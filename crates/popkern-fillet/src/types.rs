@@ -4,6 +4,8 @@
 mod types_chamfer;
 #[path = "types_corner.rs"]
 mod types_corner;
+#[path = "types_exact_boundary.rs"]
+mod types_exact_boundary;
 #[path = "types_repair.rs"]
 mod types_repair;
 
@@ -11,6 +13,10 @@ pub use types_chamfer::{ChamferKind, ChamferOptions, ChamferSpec};
 pub use types_corner::{
     CornerMethod, CornerPatchInfo, CornerSubPatchFamily, CornerSubPatchProvenance,
     CornerSubPatchRole,
+};
+pub use types_exact_boundary::{
+    ExactBoundaryCandidateOutcome, ExactBoundaryCapReport, ExactBoundaryReportDiagnostic,
+    ExactBoundaryReportSector, ExactBoundaryToleranceEvidence,
 };
 pub use types_repair::{
     ApexConstructionDiagnostic, ApexConstructionRoute, ApexConstructionRouteDecision,

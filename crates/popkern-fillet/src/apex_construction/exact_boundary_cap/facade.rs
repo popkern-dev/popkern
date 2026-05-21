@@ -7,7 +7,11 @@ use popkern_core::topology::{BRep, FaceHandle};
 use crate::apex_construction::error::ApexBuildError;
 use crate::apex_construction::gregory_cap::GregoryCapSector;
 use crate::apex_construction::plan::ApexPlan;
-use crate::types::{ApexConstructionDiagnostic, ExactBoundaryCandidatePerformanceReport};
+use crate::types::{
+    ApexConstructionDiagnostic, ExactBoundaryCandidateOutcome,
+    ExactBoundaryCandidatePerformanceReport, ExactBoundaryCapDiagnostic, ExactBoundaryCapReport,
+    ExactBoundaryReportDiagnostic, ExactBoundaryReportSector, ExactBoundaryToleranceEvidence,
+};
 
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
 use super::commit::commit_exact_boundary_sector_surfaces;
@@ -44,6 +48,8 @@ pub(crate) struct ExactBoundaryCapCandidateResult {
     pub committed_faces: Vec<FaceHandle>,
     /// Candidate-only performance counters and budget evidence.
     pub performance: ExactBoundaryCandidatePerformanceReport,
+    /// Versioned report for UI and programmatic consumers.
+    pub report: ExactBoundaryCapReport,
     /// Structured diagnostics emitted during decline.
     pub diagnostics: Vec<ApexConstructionDiagnostic>,
 }
@@ -233,16 +239,124 @@ pub(crate) fn run_exact_boundary_cap_candidate(
     }
     attach_shared_repair_fact_ids(brep, &mut diagnostics);
     finalize_performance_report(&mut performance, started, &diagnostics);
+    let status = if accepted {
+        ExactBoundaryCapCandidateStatus::Accepted
+    } else {
+        ExactBoundaryCapCandidateStatus::Declined
+    };
+    let report = build_exact_boundary_report(
+        brep,
+        status,
+        &candidate_sectors,
+        &committed_faces,
+        &performance,
+        &diagnostics,
+    );
 
     Ok(ExactBoundaryCapCandidateResult {
-        status: if accepted {
-            ExactBoundaryCapCandidateStatus::Accepted
-        } else {
-            ExactBoundaryCapCandidateStatus::Declined
-        },
+        status,
         sectors: candidate_sectors,
         committed_faces,
         performance,
+        report,
         diagnostics,
     })
+}
+
+fn build_exact_boundary_report(
+    brep: &BRep,
+    status: ExactBoundaryCapCandidateStatus,
+    sectors: &[ExactBoundaryCapSectorInput],
+    committed_faces: &[FaceHandle],
+    performance: &ExactBoundaryCandidatePerformanceReport,
+    diagnostics: &[ApexConstructionDiagnostic],
+) -> ExactBoundaryCapReport {
+    let report_diagnostics: Vec<_> = diagnostics
+        .iter()
+        .filter_map(exact_boundary_report_diagnostic)
+        .collect();
+    let source_fact_ids = unique_source_fact_ids(&report_diagnostics);
+    ExactBoundaryCapReport {
+        schema_version: 1,
+        route_label: "direct_apex".to_string(),
+        candidate_status: match status {
+            ExactBoundaryCapCandidateStatus::Accepted => ExactBoundaryCandidateOutcome::Accepted,
+            ExactBoundaryCapCandidateStatus::Declined => ExactBoundaryCandidateOutcome::Declined,
+        },
+        sectors: sectors.iter().map(exact_boundary_report_sector).collect(),
+        committed_faces: committed_faces.to_vec(),
+        preview_available: !sectors.is_empty(),
+        tolerance_evidence: ExactBoundaryToleranceEvidence {
+            model_linear_tolerance: Some(brep.tolerance.linear()),
+            max_reported_residual: report_diagnostics
+                .iter()
+                .filter_map(|diagnostic| diagnostic.residual)
+                .reduce(f64::max),
+            deterministic_skip_code: performance.deterministic_skip_code.clone(),
+            ..ExactBoundaryToleranceEvidence::default()
+        },
+        performance: performance.clone(),
+        diagnostics: report_diagnostics,
+        source_fact_ids,
+    }
+}
+
+fn exact_boundary_report_sector(sector: &ExactBoundaryCapSectorInput) -> ExactBoundaryReportSector {
+    ExactBoundaryReportSector {
+        sector_index: sector.sector_index,
+        sector_name: sector.sector_name.clone(),
+        fillet_index: sector.fillet_index,
+        cap_face: sector.cap_face,
+        fillet_end_edge: sector.fillet_end_edge,
+        face_edge: sector.face_edge,
+        fillet_support_face: sector.fillet_support_face,
+        bridge_support_face: sector.bridge_support_face,
+        cap_half_edges: sector.cap_half_edges,
+        support_half_edges: sector.support_half_edges,
+        cap_pcurves_present: [
+            sector.outer_seams[0].cap_pcurve_present,
+            sector.outer_seams[1].cap_pcurve_present,
+        ],
+        support_pcurves_present: [
+            sector.outer_seams[0].support_pcurve_present,
+            sector.outer_seams[1].support_pcurve_present,
+        ],
+    }
+}
+
+fn exact_boundary_report_diagnostic(
+    diagnostic: &ApexConstructionDiagnostic,
+) -> Option<ExactBoundaryReportDiagnostic> {
+    let ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic) = diagnostic else {
+        return None;
+    };
+    Some(report_diagnostic_from_exact_boundary(diagnostic))
+}
+
+fn report_diagnostic_from_exact_boundary(
+    diagnostic: &ExactBoundaryCapDiagnostic,
+) -> ExactBoundaryReportDiagnostic {
+    ExactBoundaryReportDiagnostic {
+        stage: diagnostic.stage.clone(),
+        code: diagnostic.code.clone(),
+        sector_name: diagnostic.sector_name.clone(),
+        edge: diagnostic.edge,
+        support_half_edge: diagnostic.support_half_edge,
+        support_face: diagnostic.support_face,
+        residual: diagnostic.residual,
+        shared_fact_ids: diagnostic.shared_fact_ids.iter().map(|id| id.0).collect(),
+    }
+}
+
+fn unique_source_fact_ids(diagnostics: &[ExactBoundaryReportDiagnostic]) -> Vec<usize> {
+    let mut fact_ids = Vec::new();
+    for fact_id in diagnostics
+        .iter()
+        .flat_map(|diagnostic| diagnostic.shared_fact_ids.iter().copied())
+    {
+        if !fact_ids.contains(&fact_id) {
+            fact_ids.push(fact_id);
+        }
+    }
+    fact_ids
 }

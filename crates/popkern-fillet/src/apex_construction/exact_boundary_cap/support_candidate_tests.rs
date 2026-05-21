@@ -9,7 +9,7 @@ use crate::apex_construction::target_topology::{
 use crate::apex_construction::telemetry::PlanTelemetry;
 use crate::types::ApexConstructionDiagnostic;
 use popkern_core::geometry::analytic_surfaces::orthonormal_basis;
-use popkern_core::geometry::curve::{CurveEval, CurveGeometry};
+use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, SurfaceEval, Vec3};

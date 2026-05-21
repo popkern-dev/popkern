@@ -3,7 +3,7 @@ use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_
 use super::ribbon::{
     ExactBoundaryRibbonBudget, ExactBoundaryRibbonDeclineReason, prepare_exact_boundary_ribbons,
 };
-use super::sector::{ExactBoundaryOuterSide, extract_exact_boundary_cap_sectors};
+use super::sector::extract_exact_boundary_cap_sectors;
 use crate::apex_construction::cap_kind::CapKind;
 use crate::apex_construction::gregory_cap::GregoryCapSector;
 use crate::apex_construction::plan::ApexPlan;

@@ -3,6 +3,9 @@ use popkern_core::topology::{
     BrepRepairActionArtifact, BrepRepairActionRecord, BrepRepairActionSummary, BrepRepairFactId,
     EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle,
 };
+use serde::{Deserialize, Serialize};
+
+use super::types_exact_boundary::ExactBoundaryCapReport;
 
 /// Structured diagnostics for repair and hardening actions performed during a
 /// blend operation.
@@ -54,13 +57,15 @@ pub struct ApexConstructionRouteDecision {
     pub exact_boundary_pcurve_pair_count: usize,
     /// Candidate-only performance counters and budget evidence for exact-boundary caps.
     pub exact_boundary_performance: ExactBoundaryCandidatePerformanceReport,
+    /// Versioned exact-boundary report for GUI and programmatic consumers.
+    pub exact_boundary_report: ExactBoundaryCapReport,
     /// direct-apex decline reason when [`ApexConstructionRoute::DirectApexFallbackToLegacy`] applies.
     pub fallback_reason: Option<String>,
 }
 
 /// Durable exact-boundary candidate counters for route reports, diagnostics,
 /// future runtime gating, and UI/API explanations.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExactBoundaryCandidatePerformanceReport {
     /// Number of extracted sector ownership records.
     pub sector_count: usize,
