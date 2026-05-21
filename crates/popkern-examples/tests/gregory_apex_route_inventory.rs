@@ -24,6 +24,7 @@ fn mixed_radius_gregory_records_default_direct_apex_route() {
     assert_eq!(routes[0].exact_boundary_ribbon_count, 0);
     assert_eq!(routes[0].exact_boundary_solved_surface_count, 0);
     assert_eq!(routes[0].exact_boundary_pcurve_pair_count, 0);
+    assert_exact_boundary_performance_report(&routes[0]);
     assert_exact_boundary_ribbon_decline(&result);
     assert!(routes[0].fallback_reason.is_none());
 }
@@ -47,8 +48,42 @@ fn mixed_radius_gregory_records_direct_apex_requested_route() {
     assert_eq!(routes[0].exact_boundary_ribbon_count, 0);
     assert_eq!(routes[0].exact_boundary_solved_surface_count, 0);
     assert_eq!(routes[0].exact_boundary_pcurve_pair_count, 0);
+    assert_exact_boundary_performance_report(&routes[0]);
     assert_exact_boundary_ribbon_decline(&result);
     assert!(routes[0].fallback_reason.is_none());
+}
+
+fn assert_exact_boundary_performance_report(route: &popkern_fillet::ApexConstructionRouteDecision) {
+    let performance = &route.exact_boundary_performance;
+    assert_eq!(performance.sector_count, route.exact_boundary_sector_count);
+    assert_eq!(
+        performance.prepared_curve_count,
+        route.exact_boundary_prepared_curve_count
+    );
+    assert_eq!(
+        performance.inner_spoke_count,
+        route.exact_boundary_inner_spoke_count
+    );
+    assert_eq!(
+        performance.support_ribbon_count,
+        route.exact_boundary_ribbon_count
+    );
+    assert_eq!(
+        performance.solved_surface_count,
+        route.exact_boundary_solved_surface_count
+    );
+    assert_eq!(
+        performance.pcurve_pair_count,
+        route.exact_boundary_pcurve_pair_count
+    );
+    assert!(
+        performance.elapsed_micros > 0,
+        "exact-boundary performance report should carry elapsed budget evidence"
+    );
+    assert!(
+        performance.deterministic_skip_code.is_some(),
+        "declined exact-boundary candidates should record a future skip-policy key"
+    );
 }
 
 fn assert_exact_boundary_ribbon_decline(result: &popkern_fillet::BlendResult) {

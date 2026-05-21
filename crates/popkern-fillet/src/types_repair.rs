@@ -52,8 +52,42 @@ pub struct ApexConstructionRouteDecision {
     pub exact_boundary_solved_surface_count: usize,
     /// Number of cap/support pcurve pairs prepared before BRep commit integration.
     pub exact_boundary_pcurve_pair_count: usize,
+    /// Candidate-only performance counters and budget evidence for exact-boundary caps.
+    pub exact_boundary_performance: ExactBoundaryCandidatePerformanceReport,
     /// direct-apex decline reason when [`ApexConstructionRoute::DirectApexFallbackToLegacy`] applies.
     pub fallback_reason: Option<String>,
+}
+
+/// Durable exact-boundary candidate counters for route reports, diagnostics,
+/// future runtime gating, and UI/API explanations.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExactBoundaryCandidatePerformanceReport {
+    /// Number of extracted sector ownership records.
+    pub sector_count: usize,
+    /// Number of exact curves prepared without approximation.
+    pub prepared_curve_count: usize,
+    /// Number of generated inner spokes prepared without topology mutation.
+    pub inner_spoke_count: usize,
+    /// Number of support derivative ribbons prepared from support pcurve evidence.
+    pub support_ribbon_count: usize,
+    /// Number of in-memory sector surfaces solved before BRep commit integration.
+    pub solved_surface_count: usize,
+    /// Number of cap/support pcurve pairs prepared before BRep commit integration.
+    pub pcurve_pair_count: usize,
+    /// Number of support-ribbon samples consumed by candidate preparation.
+    pub support_sample_count: usize,
+    /// Total NURBS control points allocated for solved exact-boundary sector surfaces.
+    pub surface_control_point_count: usize,
+    /// Number of materialized sector faces accepted by validation.
+    pub validation_sector_count: usize,
+    /// Number of pcurve pairs accepted by validation.
+    pub validation_pcurve_pair_count: usize,
+    /// Number of generated spoke edges accepted by validation.
+    pub validation_spoke_edge_count: usize,
+    /// Elapsed candidate-preparation and validation time in microseconds.
+    pub elapsed_micros: u128,
+    /// First deterministic decline code suitable for a future runtime skip policy.
+    pub deterministic_skip_code: Option<String>,
 }
 
 /// Structured apex-construction diagnostic emitted by construction planning and

@@ -13,7 +13,6 @@ pub(crate) mod cyl_plane_intersect;
 mod direct_apex_dispatch;
 pub(crate) mod edge_reconcile;
 mod gregory_pcurve_clamp;
-
 /// Re-export of the late-pipeline clamp pass for use by `fillet_edges`
 /// after `fix_stale_pcurves` has run.
 pub fn clamp_bounded_pcurves_post_phase5(brep: &mut popkern_core::topology::BRep) -> usize {
@@ -245,7 +244,7 @@ pub fn apply_blend_geometry(
                         tolerance,
                     ))
                 } else {
-                    None // flag not set — legacy path runs unchanged
+                    None
                 };
                 let mut direct_apex_succeeded = false;
                 if let Some(outcome) = direct_apex_outcome {
@@ -271,6 +270,9 @@ pub fn apply_blend_geometry(
                                         .exact_boundary_solved_surface_count,
                                     exact_boundary_pcurve_pair_count: success
                                         .exact_boundary_pcurve_pair_count,
+                                    exact_boundary_performance: success
+                                        .exact_boundary_performance
+                                        .clone(),
                                     fallback_reason: None,
                                 },
                             ));
@@ -297,6 +299,7 @@ pub fn apply_blend_geometry(
                                 exact_boundary_ribbon_count: 0,
                                 exact_boundary_solved_surface_count: 0,
                                 exact_boundary_pcurve_pair_count: 0,
+                                exact_boundary_performance: Default::default(),
                                 fallback_reason: Some(reason.clone()),
                             }));
                             warnings.push((
@@ -329,6 +332,7 @@ pub fn apply_blend_geometry(
                             exact_boundary_ribbon_count: 0,
                             exact_boundary_solved_surface_count: 0,
                             exact_boundary_pcurve_pair_count: 0,
+                            exact_boundary_performance: Default::default(),
                             fallback_reason: None,
                         }));
                 }
@@ -462,6 +466,7 @@ struct ApexRouteDecisionInput<'a> {
     exact_boundary_ribbon_count: usize,
     exact_boundary_solved_surface_count: usize,
     exact_boundary_pcurve_pair_count: usize,
+    exact_boundary_performance: crate::types::ExactBoundaryCandidatePerformanceReport,
     fallback_reason: Option<String>,
 }
 
@@ -489,6 +494,7 @@ fn apex_route_decision(
         exact_boundary_ribbon_count: input.exact_boundary_ribbon_count,
         exact_boundary_solved_surface_count: input.exact_boundary_solved_surface_count,
         exact_boundary_pcurve_pair_count: input.exact_boundary_pcurve_pair_count,
+        exact_boundary_performance: input.exact_boundary_performance,
         fallback_reason: input.fallback_reason,
     }
 }

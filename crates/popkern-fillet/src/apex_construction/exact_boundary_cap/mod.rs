@@ -4,6 +4,7 @@ pub(crate) mod boundary;
 pub(crate) mod commit;
 pub(crate) mod corner;
 pub(crate) mod pcurves;
+pub(crate) mod performance;
 pub(crate) mod ribbon;
 pub(crate) mod sector;
 pub(crate) mod solve;
