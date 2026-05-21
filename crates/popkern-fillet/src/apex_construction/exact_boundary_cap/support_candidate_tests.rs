@@ -32,6 +32,9 @@ fn nurbs_supports_reach_full_candidate_with_family_performance() {
     assert_eq!(result.performance.support_ribbon_count, 6);
     assert!(result.performance.support_sample_count >= 30);
     assert!(result.performance.elapsed_micros > 0);
+    if result.status == ExactBoundaryCapCandidateStatus::Accepted {
+        assert_committed_exact_boundary_report_preserves_trims(&brep, &result);
+    }
     assert!(
         !has_exact_boundary_code(
             &result.diagnostics,
@@ -93,6 +96,9 @@ fn periodic_cylinder_supports_reach_full_candidate_with_family_performance() {
     assert_eq!(result.performance.cylinder_support_ribbon_count, 6);
     assert_eq!(result.performance.support_ribbon_count, 6);
     assert!(result.performance.elapsed_micros > 0);
+    if result.status == ExactBoundaryCapCandidateStatus::Accepted {
+        assert_committed_exact_boundary_report_preserves_trims(&brep, &result);
+    }
     assert!(
         !has_exact_boundary_code(
             &result.diagnostics,
@@ -213,6 +219,53 @@ fn has_exact_boundary_code(diagnostics: &[ApexConstructionDiagnostic], code: &st
             ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic) if diagnostic.code == code
         )
     })
+}
+
+fn assert_committed_exact_boundary_report_preserves_trims(
+    brep: &BRep,
+    result: &super::facade::ExactBoundaryCapCandidateResult,
+) {
+    assert_eq!(result.report.sectors.len(), result.sectors.len());
+    assert_eq!(result.report.committed_faces.len(), result.sectors.len());
+    assert_eq!(
+        result.report.performance.pcurve_pair_count,
+        result.sectors.len() * 2
+    );
+    for sector in &result.report.sectors {
+        assert!(
+            sector
+                .cap_pcurves_present
+                .into_iter()
+                .all(|present| present),
+            "accepted exact-boundary sector must report committed cap pcurves: {sector:#?}"
+        );
+        assert!(
+            sector
+                .support_pcurves_present
+                .into_iter()
+                .all(|present| present),
+            "accepted exact-boundary sector must report committed support pcurves: {sector:#?}"
+        );
+        for half_edge in sector
+            .cap_half_edges
+            .into_iter()
+            .chain(sector.support_half_edges)
+        {
+            assert!(
+                brep.half_edges[half_edge].pcurve.is_some(),
+                "reported exact-boundary half-edge should carry a live pcurve"
+            );
+        }
+        for edge in [sector.fillet_end_edge, sector.face_edge] {
+            let deviation = brep
+                .measure_edge_pcurve_deviation(edge)
+                .expect("accepted exact-boundary seam should have a 3D edge curve");
+            assert!(
+                deviation.max_deviation <= 1.0e-6,
+                "accepted exact-boundary seam pcurves should stay on the edge: {deviation:#?}"
+            );
+        }
+    }
 }
 
 fn hex_cap_fixture() -> (BRep, FaceHandle, Vec<EdgeHandle>) {

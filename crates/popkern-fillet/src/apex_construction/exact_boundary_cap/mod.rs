@@ -27,6 +27,10 @@ mod boundary_tests;
 mod corner_tests;
 
 #[cfg(test)]
+#[path = "facade_tests.rs"]
+mod facade_tests;
+
+#[cfg(test)]
 #[path = "commit_tests.rs"]
 mod commit_tests;
 

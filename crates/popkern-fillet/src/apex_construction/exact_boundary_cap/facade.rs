@@ -263,7 +263,7 @@ pub(crate) fn run_exact_boundary_cap_candidate(
     })
 }
 
-fn build_exact_boundary_report(
+pub(super) fn build_exact_boundary_report(
     brep: &BRep,
     status: ExactBoundaryCapCandidateStatus,
     sectors: &[ExactBoundaryCapSectorInput],
@@ -283,7 +283,10 @@ fn build_exact_boundary_report(
             ExactBoundaryCapCandidateStatus::Accepted => ExactBoundaryCandidateOutcome::Accepted,
             ExactBoundaryCapCandidateStatus::Declined => ExactBoundaryCandidateOutcome::Declined,
         },
-        sectors: sectors.iter().map(exact_boundary_report_sector).collect(),
+        sectors: sectors
+            .iter()
+            .map(|sector| exact_boundary_report_sector(brep, sector))
+            .collect(),
         committed_faces: committed_faces.to_vec(),
         preview_available: !sectors.is_empty(),
         tolerance_evidence: ExactBoundaryToleranceEvidence {
@@ -301,7 +304,10 @@ fn build_exact_boundary_report(
     }
 }
 
-fn exact_boundary_report_sector(sector: &ExactBoundaryCapSectorInput) -> ExactBoundaryReportSector {
+fn exact_boundary_report_sector(
+    brep: &BRep,
+    sector: &ExactBoundaryCapSectorInput,
+) -> ExactBoundaryReportSector {
     ExactBoundaryReportSector {
         sector_index: sector.sector_index,
         sector_name: sector.sector_name.clone(),
@@ -314,14 +320,20 @@ fn exact_boundary_report_sector(sector: &ExactBoundaryCapSectorInput) -> ExactBo
         cap_half_edges: sector.cap_half_edges,
         support_half_edges: sector.support_half_edges,
         cap_pcurves_present: [
-            sector.outer_seams[0].cap_pcurve_present,
-            sector.outer_seams[1].cap_pcurve_present,
+            half_edge_has_pcurve(brep, sector.cap_half_edges[0]),
+            half_edge_has_pcurve(brep, sector.cap_half_edges[1]),
         ],
         support_pcurves_present: [
-            sector.outer_seams[0].support_pcurve_present,
-            sector.outer_seams[1].support_pcurve_present,
+            half_edge_has_pcurve(brep, sector.support_half_edges[0]),
+            half_edge_has_pcurve(brep, sector.support_half_edges[1]),
         ],
     }
+}
+
+fn half_edge_has_pcurve(brep: &BRep, half_edge: popkern_core::topology::HalfEdgeHandle) -> bool {
+    brep.half_edges
+        .get(half_edge)
+        .is_some_and(|half_edge| half_edge.pcurve.is_some())
 }
 
 fn exact_boundary_report_diagnostic(
