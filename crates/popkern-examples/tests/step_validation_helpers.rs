@@ -1,7 +1,7 @@
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_examples::step_validation::{
-    StepRoundTripValidationOptions, export_and_validate_breps,
+    StepRoundTripValidationOptions, export_and_validate_breps, inspect_brep_for_step,
 };
 
 #[test]
@@ -18,5 +18,15 @@ fn shared_step_validation_accepts_non_pns_cube_body() {
     assert_eq!(report.body_reports[0].faces, 6);
     assert_eq!(report.body_reports[0].edge_curve_blockers, 0);
     assert_eq!(report.body_reports[0].pcurve_blockers, 0);
+    assert!(report.body_reports[0].pcurve_evidence.is_empty());
+    assert!(report.body_reports[0].edge_surface_evidence.is_empty());
     assert!(report.body_reports[0].max_pcurve_deviation < 1e-6);
+
+    let preflight = inspect_brep_for_step(
+        0,
+        &BRep::unit_cube(Tolerance::default()).unwrap(),
+        &StepRoundTripValidationOptions::default(),
+    );
+    assert_eq!(preflight.pcurve_blockers, 0);
+    assert!(preflight.pcurve_evidence.is_empty());
 }
