@@ -35,6 +35,10 @@ mod commit_tests;
 mod ribbon_tests;
 
 #[cfg(test)]
+#[path = "n_sector_tests.rs"]
+mod n_sector_tests;
+
+#[cfg(test)]
 #[path = "pcurves_tests.rs"]
 mod pcurves_tests;
 
